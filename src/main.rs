@@ -4,7 +4,7 @@ mod ops;
 mod rng;
 mod tensor;
 
-use ops::conv2d_direct;
+use ops::{conv2d_direct, sigmoid};
 use rng::XorShiftRNG;
 use tensor::random_tensor;
 
@@ -20,6 +20,8 @@ fn main() {
     let output = conv2d_direct(&input, &kernel, (1, 1));
     let output = conv2d_direct(&input, &point_kernel, (0, 0));
     let end = SystemTime::now();
+
+    let result = sigmoid(&output);
 
     println!("Output shape {:?}", &output.shape);
     println!("Output val {}", output[[500, 500, 0]]);

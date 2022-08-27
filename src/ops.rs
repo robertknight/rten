@@ -50,3 +50,11 @@ pub fn conv2d_direct(input: &Tensor, kernel: &Tensor, padding: (usize, usize)) -
     }
     output
 }
+
+pub fn relu(x: &Tensor) -> Tensor {
+    x.map(|e| e.max(0f32))
+}
+
+pub fn sigmoid(x: &Tensor) -> Tensor {
+    x.map(|e| 1. / (1. + (-e).exp()))
+}

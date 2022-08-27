@@ -2,12 +2,28 @@ use std::ops::{Index, IndexMut};
 
 use crate::rng::XorShiftRNG;
 
+/// n-dimensional array
 pub struct Tensor {
+    /// The underlying buffer of elements
     pub data: Vec<f32>,
+
+    /// The size of each dimension of the array
     pub shape: Vec<usize>,
 }
 
 impl Tensor {
+    /// Return a copy of this tensor with each element replaced by `f(element)`
+    pub fn map<F>(&self, f: F) -> Tensor
+    where
+        F: FnMut(&f32) -> f32,
+    {
+        let data = self.data.iter().map(f).collect();
+        Tensor {
+            data,
+            shape: self.shape.clone(),
+        }
+    }
+
     fn offset3(&self, index: [usize; 3]) -> usize {
         let shape = &self.shape;
         let stride_1 = shape[2];
