@@ -17,8 +17,8 @@ fn main() {
     let point_kernel = random_tensor(vec![1, 1, 8, 1], &mut rng);
 
     let start = SystemTime::now();
-    let output = conv2d_direct(&input, &kernel);
-    let output = conv2d_direct(&input, &point_kernel);
+    let output = conv2d_direct(&input, &kernel, (1, 1));
+    let output = conv2d_direct(&input, &point_kernel, (0, 0));
     let end = SystemTime::now();
 
     println!("Output shape {:?}", &output.shape);
