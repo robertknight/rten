@@ -24,6 +24,18 @@ impl Tensor {
         }
     }
 
+    pub fn clone(&self) -> Tensor {
+        let data = self.data.clone();
+        let shape = self.shape.clone();
+        Tensor { data, shape }
+    }
+
+    /// Return the number of elements between successive entries in the `dim`
+    /// dimension.
+    pub fn stride(&self, dim: usize) -> usize {
+        self.shape[dim..].iter().fold(1, |stride, n| stride * n)
+    }
+
     fn offset3(&self, index: [usize; 3]) -> usize {
         let shape = &self.shape;
         let stride_1 = shape[2];

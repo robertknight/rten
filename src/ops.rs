@@ -81,3 +81,53 @@ pub fn relu(x: &Tensor) -> Tensor {
 pub fn sigmoid(x: &Tensor) -> Tensor {
     x.map(|e| 1. / (1. + (-e).exp()))
 }
+
+pub fn concat(a: &Tensor, b: &Tensor, dim: usize) -> Tensor {
+    let a_shape = &a.shape;
+    let b_shape = &b.shape;
+
+    if a_shape.len() != b_shape.len() {
+        panic!("Tensors must have the same number of dimensions");
+    }
+    if dim >= a_shape.len() {
+        panic!("Dimension {} is outside of range 0..{}", dim, a_shape.len());
+    }
+    for d in 0..a_shape.len() {
+        if d != dim && a_shape[d] != b_shape[d] {
+            panic!("Dimensions must be the same except for concat dim");
+        }
+    }
+
+    if a_shape[dim] == 0 {
+        return b.clone();
+    } else if b_shape[dim] == 0 {
+        return a.clone();
+    }
+
+    let mut out_shape = a_shape.clone();
+    out_shape[dim] += b_shape[dim];
+
+    let mut output = zero_tensor(out_shape);
+
+    let a_stride = a.stride(dim);
+    let b_stride = b.stride(dim);
+
+    let mut a_pos = 0;
+    let mut b_pos = 0;
+    let mut out_pos = 0;
+
+    while a_pos < a.data.len() && b_pos < b.data.len() {
+        for i in 0..a_stride {
+            output.data[out_pos] = a.data[a_pos];
+            out_pos += 1;
+            a_pos += 1;
+        }
+        for i in 0..b_stride {
+            output.data[out_pos] = b.data[b_pos];
+            out_pos += 1;
+            b_pos += 1;
+        }
+    }
+
+    output
+}
