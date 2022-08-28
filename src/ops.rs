@@ -131,3 +131,29 @@ pub fn concat(a: &Tensor, b: &Tensor, dim: usize) -> Tensor {
 
     output
 }
+
+/// Pad an HWC tensor in the height and width dimensions.
+///
+/// `padding` specifies the amount of left, top, right and bottom padding to add.
+pub fn pad_2d(input: &Tensor, padding: [usize; 4]) -> Tensor {
+    let (in_h, in_w, in_c) = dims3(input);
+
+    let pad_left = padding[0];
+    let pad_top = padding[1];
+    let pad_right = padding[2];
+    let pad_bottom = padding[3];
+
+    let out_h = in_h + pad_top + pad_bottom;
+    let out_w = in_w + pad_left + pad_right;
+    let mut output = zero_tensor(vec![out_h, out_w, in_c]);
+
+    for y in pad_top..(out_h - pad_bottom) {
+        for x in pad_left..(out_w - pad_right) {
+            for c in 0..in_c {
+                output[[y, x, c]] = input[[y - pad_top, x - pad_left, c]];
+            }
+        }
+    }
+
+    output
+}
