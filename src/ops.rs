@@ -51,6 +51,29 @@ pub fn conv2d_direct(input: &Tensor, kernel: &Tensor, padding: (usize, usize)) -
     output
 }
 
+pub fn max_pool_2d(input: &Tensor, kernel_size: usize) -> Tensor {
+    let (in_h, in_w, in_c) = dims3(input);
+    let out_h = in_h / kernel_size;
+    let out_w = in_w / kernel_size;
+    let mut output = zero_tensor(vec![out_h, out_w, in_c]);
+    for out_y in 0..out_h {
+        for out_x in 0..out_w {
+            for chan in 0..in_c {
+                let mut max_val = input[[out_y, out_x, chan]];
+                for k_y in 0..kernel_size {
+                    for k_x in 0..kernel_size {
+                        let val =
+                            input[[out_y * kernel_size + k_y, out_x * kernel_size + k_x, chan]];
+                        max_val = max_val.max(val);
+                    }
+                }
+                output[[out_y, out_x, chan]] = max_val;
+            }
+        }
+    }
+    output
+}
+
 pub fn relu(x: &Tensor) -> Tensor {
     x.map(|e| e.max(0f32))
 }
