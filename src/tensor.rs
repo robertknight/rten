@@ -112,11 +112,17 @@ pub fn random_tensor(shape: Vec<usize>, rng: &mut XorShiftRNG) -> Tensor {
 /// Return dimensions of a 3D tensor as a tuple
 pub fn dims3(x: &Tensor) -> (usize, usize, usize) {
     let shape = &x.shape;
+    if shape.len() != 3 {
+        panic!("Expected tensor to have 3 dimensions");
+    }
     (shape[0], shape[1], shape[2])
 }
 
 /// Return dimensions of a 4D tensor as a tuple
 pub fn dims4(x: &Tensor) -> (usize, usize, usize, usize) {
     let shape = &x.shape;
+    if shape.len() != 4 {
+        panic!("Expected tensor to have 4 dimensions");
+    }
     (shape[0], shape[1], shape[2], shape[3])
 }
