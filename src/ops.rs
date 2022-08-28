@@ -7,7 +7,7 @@ use crate::tensor::{dims3, dims4, zero_tensor, Tensor};
 ///
 /// This is a reference implementation which uses a naive direct convolution
 /// algorithm.
-pub fn conv2d_direct(input: &Tensor, kernel: &Tensor, padding: (usize, usize)) -> Tensor {
+pub fn conv_2d(input: &Tensor, kernel: &Tensor, padding: (usize, usize)) -> Tensor {
     let (in_h, in_w, in_c) = dims3(input);
     let (k_h, k_w, out_c, k_in_c) = dims4(kernel);
 
