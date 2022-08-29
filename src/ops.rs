@@ -50,6 +50,47 @@ pub fn conv_2d(input: &Tensor, kernel: &Tensor, padding: (usize, usize)) -> Tens
     output
 }
 
+/// Perform a transposed 2D convolution of a tensor by a kernel.
+///
+/// `input` has dimensions HWC and kernel has dimensions HWOC where `O` is
+/// the number of output channels.
+pub fn conv_transpose_2d(input: &Tensor, kernel: &Tensor, stride: usize) -> Tensor {
+    let (in_h, in_w, in_c) = dims3(input);
+    let (k_h, k_w, out_c, k_in_c) = dims4(kernel);
+
+    if in_c != k_in_c {
+        panic!(
+            "Input channels {} does not match kernel input channels {}",
+            in_c, k_in_c
+        )
+    }
+
+    let out_h = (in_h - 1) * stride + k_h;
+    let out_w = (in_w - 1) * stride + k_w;
+
+    let mut output = zero_tensor(vec![out_h, out_w, out_c]);
+
+    for in_y in 0..in_h {
+        for in_x in 0..in_w {
+            for in_chan in 0..in_c {
+                for k_y in 0..k_h {
+                    for k_x in 0..k_w {
+                        let out_y = in_y * stride + k_y;
+                        let out_x = in_x * stride + k_x;
+
+                        for out_chan in 0..out_c {
+                            output[[out_y, out_x, out_chan]] += input[[in_y, in_x, in_chan]]
+                                * kernel[[k_y, k_x, out_chan, in_chan]];
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    output
+}
+
 pub fn max_pool_2d(input: &Tensor, kernel_size: usize) -> Tensor {
     let (in_h, in_w, in_c) = dims3(input);
     let out_h = in_h / kernel_size;
