@@ -28,16 +28,15 @@ pub fn conv_2d(input: &Tensor, kernel: &Tensor, padding: (usize, usize)) -> Tens
             for out_chan in 0..out_c {
                 for k_y in 0..k_h {
                     for k_x in 0..k_w {
-                        let in_y = out_y + k_y;
-                        let in_x = out_x + k_x;
-                        if in_y <= pad_h || in_y > in_h - pad_h {
+                        let in_y = out_y + k_y - pad_h;
+                        let in_x = out_x + k_x - pad_w;
+
+                        if in_y < 0 || in_y >= in_h {
                             continue;
                         }
-                        if in_x <= pad_w || in_x > in_w - pad_w {
+                        if in_x < 0 || in_x >= in_w {
                             continue;
                         }
-                        let in_y = in_y - pad_h;
-                        let in_x = in_x - pad_w;
 
                         for in_chan in 0..in_c {
                             output[[out_y, out_x, out_chan]] += input[[in_y, in_x, in_chan]]
