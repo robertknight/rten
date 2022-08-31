@@ -109,6 +109,11 @@ pub fn random_tensor(shape: Vec<usize>, rng: &mut XorShiftRNG) -> Tensor {
     t
 }
 
+/// Create a new tensor with a given shape and values
+pub fn from_data(shape: Vec<usize>, data: Vec<f32>) -> Tensor {
+    Tensor { data, shape }
+}
+
 /// Return dimensions of a 3D tensor as a tuple
 pub fn dims3(x: &Tensor) -> (usize, usize, usize) {
     let shape = &x.shape;

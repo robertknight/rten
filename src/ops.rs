@@ -201,3 +201,61 @@ pub fn pad_2d(input: &Tensor, padding: [usize; 4]) -> Tensor {
 
     output
 }
+
+#[cfg(test)]
+mod tests {
+    use crate::tensor::{Tensor, from_data};
+    use crate::ops::{conv_2d};
+
+    /// Check that the shapes of two tensors are equal and that their contents
+    /// are approximately equal.
+    fn expect_equal(x: &Tensor, y:& Tensor) -> Result<(), String> {
+        if x.shape != y.shape {
+            return Err(format!("Tensors have different shapes. {:?} vs. {:?}", &x.shape, &y.shape));
+        }
+
+        let eps = 0.001;
+        for i in 0..x.data.len() {
+            let xi = x.data[i];
+            let yi = y.data[i];
+
+            if (xi - yi).abs() > eps {
+                return Err(format!("Tensor values differ at index {}: {} vs {}", i, xi, yi));
+            }
+        }
+
+        return Ok(());
+    }
+
+    #[test]
+    fn test_conv_2d() -> Result<(), String> {
+        let kernel = from_data(
+            vec![3, 3, 1, 1],
+            vec![
+                0.3230, 0.7632, 0.4616, 0.8837, 0.5898, 0.3424, 0.2101, 0.7821, 0.6861,
+            ],
+        );
+
+        let input = from_data(
+            vec![3, 3, 1],
+            vec![
+                0.5946, 0.8249, 0.0448, 0.9552, 0.2041, 0.2501, 0.2693, 0.1007, 0.8862,
+            ],
+        );
+
+        let expected_with_same_padding = from_data(
+            vec![3, 3, 1],
+            vec![
+                1.5202, 1.5592, 0.9939, 1.7475, 2.6358, 1.3428, 1.0165, 1.1806, 0.8685,
+            ],
+        );
+
+        let result = conv_2d(&input, &kernel, (1, 1));
+        expect_equal(&result, &expected_with_same_padding)?;
+
+        let expected_with_no_padding = from_data(vec![1, 1, 1], vec![2.6358]);
+
+        let result = conv_2d(&input, &kernel, (0, 0));
+        expect_equal(&result, &expected_with_no_padding)
+    }
+}
