@@ -204,14 +204,17 @@ pub fn pad_2d(input: &Tensor, padding: [usize; 4]) -> Tensor {
 
 #[cfg(test)]
 mod tests {
-    use crate::tensor::{Tensor, from_data};
-    use crate::ops::{conv_2d};
+    use crate::ops::{concat, conv_2d, conv_transpose_2d, max_pool_2d, pad_2d, relu, sigmoid};
+    use crate::tensor::{from_data, Tensor};
 
     /// Check that the shapes of two tensors are equal and that their contents
     /// are approximately equal.
-    fn expect_equal(x: &Tensor, y:& Tensor) -> Result<(), String> {
+    fn expect_equal(x: &Tensor, y: &Tensor) -> Result<(), String> {
         if x.shape != y.shape {
-            return Err(format!("Tensors have different shapes. {:?} vs. {:?}", &x.shape, &y.shape));
+            return Err(format!(
+                "Tensors have different shapes. {:?} vs. {:?}",
+                &x.shape, &y.shape
+            ));
         }
 
         let eps = 0.001;
@@ -220,7 +223,10 @@ mod tests {
             let yi = y.data[i];
 
             if (xi - yi).abs() > eps {
-                return Err(format!("Tensor values differ at index {}: {} vs {}", i, xi, yi));
+                return Err(format!(
+                    "Tensor values differ at index {}: {} vs {}",
+                    i, xi, yi
+                ));
             }
         }
 
@@ -257,5 +263,83 @@ mod tests {
 
         let result = conv_2d(&input, &kernel, (0, 0));
         expect_equal(&result, &expected_with_no_padding)
+    }
+
+    #[test]
+    fn test_conv_transpose_2d() -> Result<(), String> {
+        let input = from_data(vec![2, 2, 1], vec![1.0, 2.0, 3.0, 4.0]);
+        let kernel = from_data(vec![2, 2, 1, 1], vec![0.1, 0.2, 0.3, 0.4]);
+        let expected = from_data(
+            vec![4, 4, 1],
+            vec![
+                0.1000, 0.2000, 0.2000, 0.4000, 0.3000, 0.4000, 0.6000, 0.8000, 0.3000, 0.6000,
+                0.4000, 0.8000, 0.9000, 1.2000, 1.2000, 1.6000,
+            ],
+        );
+
+        let result = conv_transpose_2d(&input, &kernel, 2);
+
+        expect_equal(&result, &expected)
+    }
+
+    #[test]
+    fn test_max_pool_2d() -> Result<(), String> {
+        let input = from_data(vec![2, 2, 1], vec![1.0, 2.0, 3.0, 4.0]);
+        let expected = from_data(vec![1, 1, 1], vec![4.0]);
+        let result = max_pool_2d(&input, 2);
+        expect_equal(&result, &expected)
+    }
+
+    #[test]
+    fn test_relu() -> Result<(), String> {
+        let input = from_data(vec![2, 2, 1], vec![-0.5, 0.5, 3.0, -5.5]);
+        let expected = from_data(vec![2, 2, 1], vec![0.0, 0.5, 3.0, 0.0]);
+        let result = relu(&input);
+        expect_equal(&result, &expected)
+    }
+
+    #[test]
+    fn test_sigmoid() -> Result<(), String> {
+        let input = from_data(
+            vec![9],
+            vec![-500.0, -3.0, -1.0, -0.5, 0.0, 0.5, 1.0, 3.0, 500.0],
+        );
+        let expected = from_data(
+            vec![9],
+            vec![
+                0.0000, 0.0474, 0.2689, 0.3775, 0.5000, 0.6225, 0.7311, 0.9526, 1.0000,
+            ],
+        );
+        let result = sigmoid(&input);
+        expect_equal(&result, &expected)
+    }
+
+    #[test]
+    fn test_concat() -> Result<(), String> {
+        let a = from_data(vec![2, 2, 1], vec![0.1, 0.2, 0.3, 0.4]);
+        let b = from_data(vec![2, 2, 1], vec![1.0, 2.0, 3.0, 4.0]);
+        let expected = from_data(vec![2, 2, 2], vec![0.1, 1.0, 0.2, 2.0, 0.3, 3.0, 0.4, 4.0]);
+        let result = concat(&a, &b, 2);
+        expect_equal(&result, &expected)?;
+
+        let expected = from_data(vec![4, 2, 1], vec![0.1, 0.2, 0.3, 0.4, 1.0, 2.0, 3.0, 4.0]);
+        let result = concat(&a, &b, 0);
+        expect_equal(&result, &expected)
+    }
+
+    #[test]
+    fn test_pad_2d() -> Result<(), String> {
+        let input = from_data(vec![2, 2, 1], vec![1.0, 2.0, 3.0, 4.0]);
+        let expected = from_data(
+            vec![4, 4, 1],
+            vec![
+                0.0, 0.0, 0.0, 0.0, 0.0, 1.0, 2.0, 0.0, 0.0, 3.0, 4.0, 0.0, 0.0, 0.0, 0.0, 0.0,
+            ],
+        );
+        let result = pad_2d(&input, [1, 1, 1, 1]);
+        expect_equal(&result, &expected)?;
+
+        let result = pad_2d(&input, [0, 0, 0, 0]);
+        expect_equal(&result, &input)
     }
 }
