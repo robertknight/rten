@@ -2,20 +2,39 @@ use crate::tensor::{dims3, dims4, zero_tensor, Tensor};
 
 /// Perform a 2D convolution of `input` with `kernel`.
 ///
-/// `input` has dimensions HWC and kernel has dimensions HWOC where `O` is
-/// the number of output channels.
+/// `input` has dimensions `height * width * in_channels` while `kernel` has
+/// dimensions `height * width * out_channels * in_channel_group` where
+/// `in_channel_group` is `in_channels / groups`.
 ///
-/// This is a reference implementation which uses a naive direct convolution
-/// algorithm.
-pub fn conv_2d(input: &Tensor, kernel: &Tensor, padding: (usize, usize)) -> Tensor {
+/// - `padding` specifies the amount of horizontal and vertical padding respectively
+///   that is added to each side.
+/// - `groups` controls which input and output channels are convolved. It must
+///   be a positive integer that divides the input and output channel count.
+///   A value of 1 convolves every input channel with every output channel.
+///   A value of 2 convolves each half of the input channels with the corresponding
+///   half of the output channels.
+///   A value equal to the input channel count convolves each input channel
+///   separately with `output_channels / groups` outputs. This is known as
+///   depthwise convolution.
+pub fn conv_2d(input: &Tensor, kernel: &Tensor, padding: (usize, usize), groups: usize) -> Tensor {
     let (in_h, in_w, in_c) = dims3(input);
     let (k_h, k_w, out_c, k_in_c) = dims4(kernel);
 
-    if in_c != k_in_c {
+    let out_channels_per_group = out_c / groups;
+    let in_channels_per_group = in_c / groups;
+
+    if in_channels_per_group != k_in_c {
         panic!(
-            "Input channels {} does not match kernel input channels {}",
-            in_c, k_in_c
-        )
+            "Input channels (per group) {} does not match kernel input channels {}",
+            in_channels_per_group, k_in_c
+        );
+    }
+
+    if groups == 0 || in_c % groups != 0 || out_c % groups != 0 {
+        panic!(
+            "Input channels {} and output channels {} must be divisible by group count {}",
+            in_c, out_c, groups
+        );
     }
 
     let (pad_h, pad_w) = padding;
@@ -25,26 +44,33 @@ pub fn conv_2d(input: &Tensor, kernel: &Tensor, padding: (usize, usize)) -> Tens
     let mut output = zero_tensor(vec![out_h, out_w, out_c]);
     for out_y in 0..out_h {
         for out_x in 0..out_w {
-            for out_chan in 0..out_c {
-                for k_y in 0..k_h {
-                    for k_x in 0..k_w {
-                        let in_y = out_y + k_y;
-                        let in_x = out_x + k_x;
+            for group in 0..groups {
+                let in_chan_start = group * in_channels_per_group;
+                let in_chan_end = in_chan_start + in_channels_per_group;
+                let out_chan_start = group * out_channels_per_group;
+                let out_chan_end = out_chan_start + out_channels_per_group;
 
-                        if in_y < pad_h || in_x < pad_w {
-                            continue;
-                        }
+                for out_chan in out_chan_start..out_chan_end {
+                    for k_y in 0..k_h {
+                        for k_x in 0..k_w {
+                            let in_y = out_y + k_y;
+                            let in_x = out_x + k_x;
 
-                        let in_y = in_y - pad_h;
-                        let in_x = in_x - pad_w;
+                            if in_y < pad_h || in_x < pad_w {
+                                continue;
+                            }
 
-                        if in_y >= in_h || in_x >= in_w {
-                            continue;
-                        }
+                            let in_y = in_y - pad_h;
+                            let in_x = in_x - pad_w;
 
-                        for in_chan in 0..in_c {
-                            output[[out_y, out_x, out_chan]] += input[[in_y, in_x, in_chan]]
-                                * kernel[[k_y, k_x, out_chan, in_chan]];
+                            if in_y >= in_h || in_x >= in_w {
+                                continue;
+                            }
+
+                            for in_chan in in_chan_start..in_chan_end {
+                                output[[out_y, out_x, out_chan]] += input[[in_y, in_x, in_chan]]
+                                    * kernel[[k_y, k_x, out_chan, in_chan - in_chan_start]];
+                            }
                         }
                     }
                 }
@@ -202,6 +228,9 @@ pub fn pad_2d(input: &Tensor, padding: [usize; 4]) -> Tensor {
     output
 }
 
+// Expectated values of operations in tests should be computed from the
+// corresponding operations in PyTorch, since that is the framework being used
+// to train the models that will initially be executed with this library.
 #[cfg(test)]
 mod tests {
     use crate::ops::{concat, conv_2d, conv_transpose_2d, max_pool_2d, pad_2d, relu, sigmoid};
@@ -256,13 +285,36 @@ mod tests {
             ],
         );
 
-        let result = conv_2d(&input, &kernel, (1, 1));
+        let result = conv_2d(&input, &kernel, (1, 1), 1 /* groups */);
         expect_equal(&result, &expected_with_same_padding)?;
 
         let expected_with_no_padding = from_data(vec![1, 1, 1], vec![2.6358]);
 
-        let result = conv_2d(&input, &kernel, (0, 0));
+        let result = conv_2d(&input, &kernel, (0, 0), 1 /* groups */);
         expect_equal(&result, &expected_with_no_padding)
+    }
+
+    #[test]
+    fn test_conv_2d_depthwise() -> Result<(), String> {
+        let input = from_data(
+            vec![2, 2, 3],
+            vec![
+                0.5946, 0.8249, 0.0448, 0.9552, 0.2041, 0.2501, 0.2693, 0.1007, 1.5202, 1.5592,
+                0.9939, 1.7475,
+            ],
+        );
+        let kernel = from_data(
+            vec![2, 2, 3, 1],
+            vec![
+                -0.0862, -0.4111, 0.0813, 0.4993, -0.4641, 0.1715, -0.0532, -0.2429, -0.4325,
+                0.4273, 0.4180, 0.4338,
+            ],
+        );
+        let expected = from_data(vec![1, 1, 3], vec![1.0776, -0.0428, 0.1471]);
+
+        let result = conv_2d(&input, &kernel, (0, 0), 3 /* groups */);
+
+        expect_equal(&result, &expected)
     }
 
     #[test]
