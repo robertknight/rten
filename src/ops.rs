@@ -1,5 +1,11 @@
 use crate::tensor::{dims3, dims4, zero_tensor, Tensor};
 
+/// An Operator is a computation step in a graph.
+pub trait Operator {
+    /// Execute the operator with the inputs.
+    fn run(&self, input: &[&Tensor]) -> Tensor;
+}
+
 /// Perform a 2D convolution of `input` with `kernel`.
 ///
 /// `input` has dimensions `height * width * in_channels` while `kernel` has
@@ -80,6 +86,20 @@ pub fn conv_2d(input: &Tensor, kernel: &Tensor, padding: (usize, usize), groups:
     output
 }
 
+pub struct Conv2d {
+    pub padding: (usize, usize),
+    pub groups: usize
+}
+
+impl Operator for Conv2d {
+    /// Run `conv_2d` operator with `[input, weight]` inputs.
+    fn run(&self, inputs: &[&Tensor]) -> Tensor {
+        let input = &inputs[0];
+        let weight = &inputs[1];
+        conv_2d(input, weight, self.padding, self.groups)
+    }
+}
+
 /// Perform a transposed 2D convolution of a tensor by a kernel.
 ///
 /// `input` has dimensions HWC and kernel has dimensions HWOC where `O` is
@@ -121,6 +141,19 @@ pub fn conv_transpose_2d(input: &Tensor, kernel: &Tensor, stride: usize) -> Tens
     output
 }
 
+pub struct ConvTranspose2d {
+    pub stride: usize
+}
+
+impl Operator for ConvTranspose2d {
+    /// Run `conv_2d` operator with `[input, weight]` inputs.
+    fn run(&self, inputs: &[&Tensor]) -> Tensor {
+        let input = &inputs[0];
+        let weight = &inputs[1];
+        conv_transpose_2d(input, weight, self.stride)
+    }
+}
+
 pub fn max_pool_2d(input: &Tensor, kernel_size: usize) -> Tensor {
     let (in_h, in_w, in_c) = dims3(input);
     let out_h = in_h / kernel_size;
@@ -144,12 +177,42 @@ pub fn max_pool_2d(input: &Tensor, kernel_size: usize) -> Tensor {
     output
 }
 
+pub struct MaxPool2d {
+    pub kernel_size: usize
+}
+
+impl Operator for MaxPool2d {
+    /// Run `sigmoid` operator with `[input]` inputs.
+    fn run(&self, inputs: &[&Tensor]) -> Tensor {
+        let input = &inputs[0];
+        max_pool_2d(input, self.kernel_size)
+    }
+}
+
 pub fn relu(x: &Tensor) -> Tensor {
     x.map(|e| e.max(0f32))
 }
 
+pub struct ReLU {}
+impl Operator for ReLU {
+    /// Run `relu` operator with `[input]` inputs.
+    fn run(&self, inputs: &[&Tensor]) -> Tensor {
+        let input = &inputs[0];
+        relu(input)
+    }
+}
+
 pub fn sigmoid(x: &Tensor) -> Tensor {
     x.map(|e| 1. / (1. + (-e).exp()))
+}
+
+pub struct Sigmoid {}
+impl Operator for Sigmoid {
+    /// Run `sigmoid` operator with `[input]` inputs.
+    fn run(&self, inputs: &[&Tensor]) -> Tensor {
+        let input = &inputs[0];
+        sigmoid(input)
+    }
 }
 
 pub fn concat(a: &Tensor, b: &Tensor, dim: usize) -> Tensor {
@@ -202,6 +265,19 @@ pub fn concat(a: &Tensor, b: &Tensor, dim: usize) -> Tensor {
     output
 }
 
+pub struct Concat {
+    pub dim: usize
+}
+
+impl Operator for Concat {
+    /// Run `concat` operator with `[a, b]` inputs.
+    fn run(&self, inputs: &[&Tensor]) -> Tensor {
+        let a = &inputs[0];
+        let b = &inputs[1];
+        concat(a, b, self.dim)
+    }
+}
+
 /// Pad an HWC tensor in the height and width dimensions.
 ///
 /// `padding` specifies the amount of left, top, right and bottom padding to add.
@@ -226,6 +302,18 @@ pub fn pad_2d(input: &Tensor, padding: [usize; 4]) -> Tensor {
     }
 
     output
+}
+
+pub struct Pad2d {
+    pub padding: [usize; 4]
+}
+
+impl Operator for Pad2d {
+    /// Run `pad` operator with `[input]` inputs.
+    fn run(&self, inputs: &[&Tensor]) -> Tensor {
+        let input = &inputs[0];
+        pad_2d(input, self.padding)
+    }
 }
 
 // Expectated values of operations in tests should be computed from the
