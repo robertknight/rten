@@ -6,6 +6,18 @@ pub trait Operator {
     fn run(&self, input: &[&Tensor]) -> Tensor;
 }
 
+/// Enum of all the built-in operators
+pub enum OpType {
+    Concat(Concat),
+    Conv2d(Conv2d),
+    ConvTranspose2d(ConvTranspose2d),
+    MaxPool2d(MaxPool2d),
+    Pad2d(Pad2d),
+    ReLU,
+    Sigmoid,
+    Slice(Slice),
+}
+
 /// Perform a 2D convolution of `input` with `kernel`.
 ///
 /// `input` has dimensions `height * width * in_channels` while `kernel` has
