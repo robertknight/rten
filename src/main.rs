@@ -16,8 +16,8 @@ fn main() {
     let point_kernel = random_tensor(vec![1, 1, 8, 1], &mut rng);
 
     let start = SystemTime::now();
-    let output = conv_2d(&input, &kernel, (1, 1));
-    let output = conv_2d(&input, &point_kernel, (0, 0));
+    let output = conv_2d(&input, &kernel, (1, 1), 1);
+    let output = conv_2d(&input, &point_kernel, (0, 0), 1);
     let end = SystemTime::now();
 
     let pooled = max_pool_2d(&output, 2);
