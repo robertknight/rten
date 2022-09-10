@@ -1,0 +1,107 @@
+// Flatbuffers schema for serialized models.
+//
+// See https://google.github.io/flatbuffers/flatbuffers_guide_writing_schema.html.
+
+file_identifier "MODL";
+file_extension "model";
+
+// Type for an operator node
+enum OperatorType: byte {
+  Concat,
+  Conv2d,
+  ConvTranspose2d,
+  MaxPool2d,
+  Pad2d,
+  ReLU,
+  Sigmoid,
+  Slice
+}
+
+// Operator-specific configuration
+union OperatorAttrs {
+  ConcatAttrs,
+  Conv2dAttrs,
+  ConvTranspose2dAttrs,
+  MaxPool2dAttrs,
+  Pad2dAttrs,
+  SliceAttrs
+}
+
+table ConcatAttrs {
+  dim:uint;
+}
+
+table Conv2dAttrs {
+  pad_horizontal:uint;
+  pad_vertical:uint;
+  groups:uint;
+}
+
+table ConvTranspose2dAttrs {
+  stride:uint;
+}
+
+table MaxPool2dAttrs {
+  kernel_size:uint;
+}
+
+table Pad2dAttrs {
+  pad_left:uint;
+  pad_right:uint;
+  pad_top:uint;
+  pad_bottom:uint;
+}
+
+table SliceAttrs {
+  dim:uint;
+  start:uint;
+  end:uint;
+}
+
+// Node in the dataflow graph
+union NodeKind {
+  OperatorNode,
+  ConstantNode,
+  ValueNode
+}
+
+// Graph node that computes an output tensor given one or more inputs and
+// operator configuration.
+table OperatorNode {
+  type:OperatorType;
+  attrs:OperatorAttrs;
+
+  // Indexes of input nodes
+  inputs:[uint];
+}
+
+// Graph node for a constant tensor value, whose data is part of the model.
+table ConstantNode {
+  shape:[uint] (required);
+  data:[float32] (required);
+}
+
+// Graph node for a dynamic tensor value, such as a model input or operator
+// output.
+table ValueNode {}
+
+table Node {
+  // Identifier for external referencing and debugging
+  id:string;
+  data:NodeKind;
+}
+
+// Dataflow graph for the model
+table Graph {
+  // Nodes are sorted in topological order. This means that if a node references
+  // other nodes (eg. an operator node referencing inputs), the referents must
+  // come earlier in the list.
+  nodes:[Node];
+}
+
+table Model {
+  schema_version:int;
+  graph:Graph (required);
+}
+
+root_type Model;
