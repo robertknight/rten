@@ -87,7 +87,8 @@ impl Graph {
                 } else if let Some(value) = temp_values.get(&node_id) {
                     op_inputs.push(value);
                 } else {
-                    panic!("Unable to find operator input {}", node_id);
+                    // If this is reached, there was a bug in plan creation.
+                    panic!("Invalid plan did not produce value for node {}", node_id);
                 }
             }
             let output = op_node.operator.run(&op_inputs[..]);
@@ -266,5 +267,51 @@ mod tests {
 
         let expected = from_data(vec![5], vec![101., 102., 103., 104., 105.]);
         expect_equal(&results[0], &expected)
+    }
+
+    #[test]
+    fn test_noop_graph() -> Result<(), String> {
+        let mut g = Graph::new();
+
+        let input = from_data(vec![5], vec![1., 2., 3., 4., 5.]);
+        let input_id = g.add_value();
+
+        let results = g.run(&[(input_id, &input)], &[input_id]);
+
+        expect_equal(&results[0], &input)
+    }
+
+    #[test]
+    fn test_constant_graph() -> Result<(), String> {
+        let mut g = Graph::new();
+
+        let value = from_data(vec![5], vec![1., 2., 3., 4., 5.]);
+        let const_id = g.add_constant(value.clone());
+
+        let results = g.run(&[], &[const_id]);
+
+        expect_equal(&results[0], &value)
+    }
+
+    #[test]
+    fn test_no_outputs() {
+        let mut g = Graph::new();
+        let results = g.run(&[], &[]);
+        assert_eq!(results.len(), 0);
+    }
+
+    #[test]
+    #[should_panic(expected = "Unable to generate execution plan. Missing value 123")]
+    fn test_panic_if_invalid_output() {
+        let g = Graph::new();
+        g.run(&[], &[123]);
+    }
+
+    #[test]
+    #[should_panic(expected = "Unable to generate execution plan. Missing value 42")]
+    fn test_panic_if_missing_operator_input() {
+        let mut g = Graph::new();
+        let output = g.add_op(Box::new(ReLU {}), &[42]);
+        g.run(&[], &[output]);
     }
 }
