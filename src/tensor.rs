@@ -64,6 +64,19 @@ impl Tensor {
     }
 }
 
+impl Index<[usize; 1]> for Tensor {
+    type Output = f32;
+    fn index(&self, index: [usize; 1]) -> &Self::Output {
+        &self.data[index[0]]
+    }
+}
+
+impl IndexMut<[usize; 1]> for Tensor {
+    fn index_mut(&mut self, index: [usize; 1]) -> &mut Self::Output {
+        &mut self.data[index[0]]
+    }
+}
+
 impl Index<[usize; 3]> for Tensor {
     type Output = f32;
 
