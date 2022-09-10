@@ -64,65 +64,20 @@ impl Graph {
         self.nodes.len() - 1
     }
 
-    /// Execute the graph.
-    ///
-    /// This computes the values of the nodes specified by `outputs`, by
-    /// executing operators in the graph starting with input values from
-    /// `inputs`, plus any constant values (weights, biases etc.).
+    /// Compute a set of output values given a set of inputs, using the
+    /// processing steps and constant values defined by the graph.
     pub fn run(&self, inputs: &[(NodeId, &Tensor)], outputs: &[NodeId]) -> Vec<Tensor> {
-        // Create a map of the values that are available throughout the
-        // execution.
-        let mut values = HashMap::new();
-        for (input_id, tensor) in inputs {
-            values.insert(*input_id, *tensor);
-        }
+        let plan = self.create_plan(inputs, outputs);
+
+        // Collect operator inputs
+        let mut values: HashMap<NodeId, &Tensor> = inputs.iter().map(|x| *x).collect();
         for (node_id, node) in self.nodes.iter().enumerate() {
             if let Node::Constant(tensor) = node {
                 values.insert(node_id, tensor);
             }
         }
 
-        // Compute reverse mapping from operator outputs to operator nodes.
-        let mut dep_graph = HashMap::new();
-        for node in self.nodes.iter() {
-            if let Node::Operator(op_node) = node {
-                dep_graph.insert(op_node.output, op_node);
-            }
-        }
-
-        // Sequence of operators to execute in order to produce the requested outputs.
-        let mut plan: Vec<&OperatorNode> = Vec::new();
-
-        // Set of all values that are already available (inputs, constants) or
-        // will be produced by `plan`.
-        let mut resolved_values: HashSet<NodeId> = values.keys().map(|x| *x).collect();
-
-        // Needed values that are not yet in `resolved_values`.
-        let mut missing_values = Vec::new();
-
-        for output_id in outputs {
-            if !resolved_values.contains(output_id) {
-                missing_values.push(*output_id);
-            }
-        }
-        while let Some(missing_value) = missing_values.pop() {
-            if let Some(op_node) = dep_graph.get(&missing_value) {
-                resolved_values.insert(missing_value);
-                plan.insert(0, &op_node);
-                for input in op_node.inputs.iter() {
-                    if !resolved_values.contains(&input) {
-                        missing_values.push(*input);
-                    }
-                }
-            } else {
-                panic!(
-                    "Unable to generate execution plan. Missing value {}",
-                    missing_value
-                );
-            }
-        }
-
-        // Execute the plan.
+        // Execute the plan
         let mut temp_values: HashMap<NodeId, Tensor> = HashMap::new();
         for op_node in plan.iter() {
             let mut op_inputs = Vec::new();
@@ -137,20 +92,74 @@ impl Graph {
             }
             let output = op_node.operator.run(&op_inputs[..]);
             temp_values.insert(op_node.output, output);
-
             // TODO - Remove temporary inputs that are no longer needed
         }
 
-        // Extract the requested outputs.
-        let mut results = Vec::new();
-        for output_id in outputs {
-            if let Some(value) = values.remove(output_id) {
-                results.push(value.clone());
-            } else if let Some(value) = temp_values.remove(output_id) {
-                results.push(value);
+        // Return the requested outputs
+        outputs
+            .iter()
+            .map(|output_id| {
+                if let Some(&value) = values.get(output_id) {
+                    value.clone()
+                } else if let Some(value) = temp_values.remove(output_id) {
+                    value
+                } else {
+                    unreachable!()
+                }
+            })
+            .collect()
+    }
+
+    /// Create an execution plan for a sequence of computation steps that begin
+    /// with `inputs` and eventually produces `outputs`.
+    fn create_plan(&self, inputs: &[(NodeId, &Tensor)], outputs: &[NodeId]) -> Vec<&OperatorNode> {
+        // Map of output node to source operator
+        let operator_nodes: HashMap<NodeId, &OperatorNode> = self
+            .nodes
+            .iter()
+            .filter_map(|node| match node {
+                Node::Operator(op_node) => Some((op_node.output, op_node)),
+                _ => None,
+            })
+            .collect();
+
+        // Set of values that are available after executing the plan
+        let mut resolved_values: HashSet<NodeId> =
+            inputs.iter().map(|(node_id, _)| *node_id).collect();
+        for (node_id, node) in self.nodes.iter().enumerate() {
+            if let Node::Constant(tensor) = node {
+                resolved_values.insert(node_id);
             }
         }
-        results
+
+        // Needed values that are not yet produced by the plan
+        let mut missing_values: Vec<NodeId> = outputs
+            .iter()
+            .filter(|it| !resolved_values.contains(it))
+            .map(|x| *x)
+            .collect();
+
+        // Build execution plan in reverse order
+        let mut plan: Vec<&OperatorNode> = Vec::new();
+        while let Some(missing_value) = missing_values.pop() {
+            if let Some(op_node) = operator_nodes.get(&missing_value) {
+                resolved_values.insert(missing_value);
+                plan.push(&op_node);
+                for input in op_node.inputs.iter() {
+                    if !resolved_values.contains(&input) {
+                        missing_values.push(*input);
+                    }
+                }
+            } else {
+                panic!(
+                    "Unable to generate execution plan. Missing value {}",
+                    missing_value
+                );
+            }
+        }
+        plan.reverse();
+
+        plan
     }
 }
 
