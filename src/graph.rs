@@ -166,7 +166,7 @@ impl Graph {
 #[cfg(test)]
 mod tests {
     use crate::graph::Graph;
-    use crate::ops::{Conv2d, ReLU};
+    use crate::ops::{Conv2d, Operator, ReLU};
     use crate::tensor::{from_data, Tensor};
 
     /// Check that the shapes of two tensors are equal and that their contents
@@ -235,6 +235,36 @@ mod tests {
             ],
         );
         assert_eq!(results.len(), 1);
+        expect_equal(&results[0], &expected)
+    }
+
+    struct AddOne {}
+    impl Operator for AddOne {
+        fn run(&self, inputs: &[&Tensor]) -> Tensor {
+            let input = inputs[0];
+            let output_data = input.data.iter().map(|x| x + 1.0).collect();
+            Tensor {
+                shape: input.shape.clone(),
+                data: output_data,
+            }
+        }
+    }
+
+    #[test]
+    fn test_graph_many_steps() -> Result<(), String> {
+        let mut g = Graph::new();
+
+        let input = from_data(vec![5], vec![1., 2., 3., 4., 5.]);
+        let input_id = g.add_value();
+
+        let mut prev_output = input_id;
+        for i in 0..100 {
+            prev_output = g.add_op(Box::new(AddOne {}), &[prev_output]);
+        }
+
+        let results = g.run(&[(input_id, &input)], &[prev_output]);
+
+        let expected = from_data(vec![5], vec![101., 102., 103., 104., 105.]);
         expect_equal(&results[0], &expected)
     }
 }
