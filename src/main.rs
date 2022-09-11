@@ -1,5 +1,6 @@
 use std::time::SystemTime;
 
+mod graph;
 mod ops;
 mod rng;
 mod tensor;
