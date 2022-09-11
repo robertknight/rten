@@ -88,7 +88,7 @@ pub fn conv_2d(input: &Tensor, kernel: &Tensor, padding: (usize, usize), groups:
 
 pub struct Conv2d {
     pub padding: (usize, usize),
-    pub groups: usize
+    pub groups: usize,
 }
 
 impl Operator for Conv2d {
@@ -142,7 +142,7 @@ pub fn conv_transpose_2d(input: &Tensor, kernel: &Tensor, stride: usize) -> Tens
 }
 
 pub struct ConvTranspose2d {
-    pub stride: usize
+    pub stride: usize,
 }
 
 impl Operator for ConvTranspose2d {
@@ -178,7 +178,7 @@ pub fn max_pool_2d(input: &Tensor, kernel_size: usize) -> Tensor {
 }
 
 pub struct MaxPool2d {
-    pub kernel_size: usize
+    pub kernel_size: usize,
 }
 
 impl Operator for MaxPool2d {
@@ -274,7 +274,7 @@ pub fn concat(a: &Tensor, b: &Tensor, dim: usize) -> Tensor {
 }
 
 pub struct Concat {
-    pub dim: usize
+    pub dim: usize,
 }
 
 impl Operator for Concat {
@@ -313,7 +313,7 @@ pub fn pad_2d(input: &Tensor, padding: [usize; 4]) -> Tensor {
 }
 
 pub struct Pad2d {
-    pub padding: [usize; 4]
+    pub padding: [usize; 4],
 }
 
 impl Operator for Pad2d {
