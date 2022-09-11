@@ -357,9 +357,9 @@ pub fn slice(input: &Tensor, dim: usize, start: usize, end: usize) -> Tensor {
 }
 
 pub struct Slice {
-    dim: usize,
-    start: usize,
-    end: usize,
+    pub dim: usize,
+    pub start: usize,
+    pub end: usize,
 }
 
 impl Operator for Slice {
