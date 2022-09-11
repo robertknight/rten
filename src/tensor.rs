@@ -33,7 +33,7 @@ impl Tensor {
     /// Return the number of elements between successive entries in the `dim`
     /// dimension.
     pub fn stride(&self, dim: usize) -> usize {
-        self.shape[dim..].iter().fold(1, |stride, n| stride * n)
+        self.shape[dim + 1..].iter().fold(1, |stride, n| stride * n)
     }
 
     fn offset3(&self, index: [usize; 3]) -> usize {
@@ -143,4 +143,18 @@ pub fn dims4(x: &Tensor) -> (usize, usize, usize, usize) {
         panic!("Expected tensor to have 4 dimensions");
     }
     (shape[0], shape[1], shape[2], shape[3])
+}
+
+#[cfg(test)]
+mod tests {
+    use crate::tensor::{zero_tensor, Tensor};
+
+    #[test]
+    fn test_stride() {
+        let x = zero_tensor(vec![2, 5, 7, 3]);
+        assert_eq!(x.stride(3), 1);
+        assert_eq!(x.stride(2), 3);
+        assert_eq!(x.stride(1), 7 * 3);
+        assert_eq!(x.stride(0), 5 * 7 * 3);
+    }
 }

@@ -242,8 +242,16 @@ pub fn concat(a: &Tensor, b: &Tensor, dim: usize) -> Tensor {
 
     let mut output = zero_tensor(out_shape);
 
-    let a_stride = a.stride(dim);
-    let b_stride = b.stride(dim);
+    let a_stride = if dim == 0 {
+        a.data.len()
+    } else {
+        a.stride(dim - 1)
+    };
+    let b_stride = if dim == 0 {
+        b.data.len()
+    } else {
+        b.stride(dim - 1)
+    };
 
     let mut a_pos = 0;
     let mut b_pos = 0;
@@ -316,13 +324,62 @@ impl Operator for Pad2d {
     }
 }
 
+/// Return a copy of a tensor which only retains a subset of a given dimension.
+pub fn slice(input: &Tensor, dim: usize, start: usize, end: usize) -> Tensor {
+    let mut out_shape = input.shape.clone();
+    out_shape[dim] = end - start;
+
+    let out_len = out_shape.iter().fold(0, |sum, x| sum + x);
+    let mut out_data = Vec::with_capacity(out_len);
+
+    let dim_stride = input.stride(dim);
+    let steps = if dim == 0 {
+        1
+    } else {
+        input.shape[0..dim].iter().fold(1, |steps, x| steps * x)
+    };
+    let parent_dim_stride = if dim == 0 {
+        input.data.len()
+    } else {
+        input.stride(dim - 1)
+    };
+
+    for i in 0..steps {
+        let offset = i * parent_dim_stride + start * dim_stride;
+        let len = (end - start) * dim_stride;
+        out_data.extend_from_slice(&input.data[offset..offset + len]);
+    }
+
+    Tensor {
+        shape: out_shape,
+        data: out_data,
+    }
+}
+
+pub struct Slice {
+    dim: usize,
+    start: usize,
+    end: usize,
+}
+
+impl Operator for Slice {
+    /// Run `slice` operator with `[input]` inputs.
+    fn run(&self, inputs: &[&Tensor]) -> Tensor {
+        let input = &inputs[0];
+        slice(input, self.dim, self.start, self.end)
+    }
+}
+
 // Expectated values of operations in tests should be computed from the
 // corresponding operations in PyTorch, since that is the framework being used
 // to train the models that will initially be executed with this library.
 #[cfg(test)]
 mod tests {
-    use crate::ops::{concat, conv_2d, conv_transpose_2d, max_pool_2d, pad_2d, relu, sigmoid};
-    use crate::tensor::{from_data, Tensor};
+    use crate::ops::{
+        concat, conv_2d, conv_transpose_2d, max_pool_2d, pad_2d, relu, sigmoid, slice,
+    };
+    use crate::rng::XorShiftRNG;
+    use crate::tensor::{from_data, random_tensor, Tensor};
 
     /// Check that the shapes of two tensors are equal and that their contents
     /// are approximately equal.
@@ -458,12 +515,15 @@ mod tests {
     fn test_concat() -> Result<(), String> {
         let a = from_data(vec![2, 2, 1], vec![0.1, 0.2, 0.3, 0.4]);
         let b = from_data(vec![2, 2, 1], vec![1.0, 2.0, 3.0, 4.0]);
-        let expected = from_data(vec![2, 2, 2], vec![0.1, 1.0, 0.2, 2.0, 0.3, 3.0, 0.4, 4.0]);
-        let result = concat(&a, &b, 2);
-        expect_equal(&result, &expected)?;
 
+        // Test concatenation along the first dimension
         let expected = from_data(vec![4, 2, 1], vec![0.1, 0.2, 0.3, 0.4, 1.0, 2.0, 3.0, 4.0]);
         let result = concat(&a, &b, 0);
+        expect_equal(&result, &expected)?;
+
+        // Test concatenation along a non-first dimension
+        let expected = from_data(vec![2, 2, 2], vec![0.1, 1.0, 0.2, 2.0, 0.3, 3.0, 0.4, 4.0]);
+        let result = concat(&a, &b, 2);
         expect_equal(&result, &expected)
     }
 
@@ -481,5 +541,73 @@ mod tests {
 
         let result = pad_2d(&input, [0, 0, 0, 0]);
         expect_equal(&result, &input)
+    }
+
+    #[test]
+    fn test_slice_not_first_dim() {
+        let mut rng = XorShiftRNG::new(5678);
+        let input = random_tensor(vec![2, 2, 5, 3], &mut rng);
+
+        let dim = 2;
+        let start = 2;
+        let end = 4;
+
+        let sliced = slice(&input, dim, start, end);
+
+        assert_eq!(sliced.shape, vec![2, 2, end - start, 3]);
+        assert_eq!(
+            sliced.data.len(),
+            sliced.shape.iter().fold(1, |len, x| len * x)
+        );
+
+        for w in 0..sliced.shape[0] {
+            for x in 0..sliced.shape[1] {
+                for y in 0..sliced.shape[2] {
+                    for z in 0..sliced.shape[3] {
+                        assert_eq!(sliced[[w, x, y, z]], input[[w, x, y + start, z]]);
+                    }
+                }
+            }
+        }
+    }
+
+    #[test]
+    fn test_slice_first_dim() {
+        let mut rng = XorShiftRNG::new(5678);
+        let input = random_tensor(vec![5, 2, 5, 3], &mut rng);
+
+        let dim = 0;
+        let start = 2;
+        let end = 4;
+
+        let sliced = slice(&input, dim, start, end);
+
+        assert_eq!(sliced.shape, vec![end - start, 2, 5, 3]);
+        assert_eq!(
+            sliced.data.len(),
+            sliced.shape.iter().fold(1, |len, x| len * x)
+        );
+
+        for w in 0..sliced.shape[0] {
+            for x in 0..sliced.shape[1] {
+                for y in 0..sliced.shape[2] {
+                    for z in 0..sliced.shape[3] {
+                        assert_eq!(sliced[[w, x, y, z]], input[[w + start, x, y, z]]);
+                    }
+                }
+            }
+        }
+    }
+
+    #[test]
+    fn test_slice_noop() {
+        let mut rng = XorShiftRNG::new(5678);
+        let input = random_tensor(vec![5, 2, 5, 3], &mut rng);
+
+        for dim in 0..input.shape.len() {
+            let sliced = slice(&input, dim, 0, input.shape[dim]);
+            assert_eq!(sliced.shape, input.shape);
+            assert_eq!(sliced.data, input.data);
+        }
     }
 }
