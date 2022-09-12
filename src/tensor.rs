@@ -61,6 +61,20 @@ impl<T: Copy> Tensor<T> {
         }
         offset
     }
+
+    /// Return the shape of this tensor as a fixed-sized array.
+    ///
+    /// The tensor's dimension count must match `N`.
+    pub fn dims<const N: usize>(&self) -> [usize; N] {
+        if self.shape.len() != N {
+            panic!(
+                "Cannot extract {} dim tensor as {} dim array",
+                self.shape.len(),
+                N
+            );
+        }
+        self.shape[..].try_into().unwrap()
+    }
 }
 
 impl<const N: usize, T: Copy> Index<[usize; N]> for Tensor<T> {
@@ -95,24 +109,6 @@ pub fn random_tensor(shape: Vec<usize>, rng: &mut XorShiftRNG) -> Tensor {
 /// Create a new tensor with a given shape and values
 pub fn from_data<T: Copy>(shape: Vec<usize>, data: Vec<T>) -> Tensor<T> {
     Tensor { data, shape }
-}
-
-/// Return dimensions of a 3D tensor as a tuple
-pub fn dims3<T: Copy>(x: &Tensor<T>) -> (usize, usize, usize) {
-    let shape = &x.shape;
-    if shape.len() != 3 {
-        panic!("Expected tensor to have 3 dimensions");
-    }
-    (shape[0], shape[1], shape[2])
-}
-
-/// Return dimensions of a 4D tensor as a tuple
-pub fn dims4<T: Copy>(x: &Tensor<T>) -> (usize, usize, usize, usize) {
-    let shape = &x.shape;
-    if shape.len() != 4 {
-        panic!("Expected tensor to have 4 dimensions");
-    }
-    (shape[0], shape[1], shape[2], shape[3])
 }
 
 #[cfg(test)]
@@ -170,5 +166,23 @@ mod tests {
     fn test_index_panics_if_wrong_dim_count() {
         let mut x = zero_tensor::<f32>(vec![2, 2]);
         x[[0, 0, 0]];
+    }
+
+    #[test]
+    fn test_dims() {
+        let x = zero_tensor::<f32>(vec![10, 5, 3, 7]);
+        let [i, j, k, l] = x.dims();
+
+        assert_eq!(i, 10);
+        assert_eq!(j, 5);
+        assert_eq!(k, 3);
+        assert_eq!(l, 7);
+    }
+
+    #[test]
+    #[should_panic]
+    fn test_dims_panics_if_wrong_array_length() {
+        let x = zero_tensor::<f32>(vec![10, 5, 3, 7]);
+        let [i, j, k] = x.dims();
     }
 }

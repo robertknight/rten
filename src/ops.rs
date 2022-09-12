@@ -1,4 +1,4 @@
-use crate::tensor::{dims3, dims4, zero_tensor, Tensor};
+use crate::tensor::{zero_tensor, Tensor};
 
 /// An Operator is a computation step in a graph.
 pub trait Operator {
@@ -23,8 +23,8 @@ pub trait Operator {
 ///   separately with `output_channels / groups` outputs. This is known as
 ///   depthwise convolution.
 pub fn conv_2d(input: &Tensor, kernel: &Tensor, padding: (usize, usize), groups: usize) -> Tensor {
-    let (in_h, in_w, in_c) = dims3(input);
-    let (k_h, k_w, out_c, k_in_c) = dims4(kernel);
+    let [in_h, in_w, in_c] = input.dims();
+    let [k_h, k_w, out_c, k_in_c] = kernel.dims();
 
     let out_channels_per_group = out_c / groups;
     let in_channels_per_group = in_c / groups;
@@ -105,8 +105,8 @@ impl Operator for Conv2d {
 /// `input` has dimensions HWC and kernel has dimensions HWOC where `O` is
 /// the number of output channels.
 pub fn conv_transpose_2d(input: &Tensor, kernel: &Tensor, stride: usize) -> Tensor {
-    let (in_h, in_w, in_c) = dims3(input);
-    let (k_h, k_w, out_c, k_in_c) = dims4(kernel);
+    let [in_h, in_w, in_c] = input.dims();
+    let [k_h, k_w, out_c, k_in_c] = kernel.dims();
 
     if in_c != k_in_c {
         panic!(
@@ -155,7 +155,7 @@ impl Operator for ConvTranspose2d {
 }
 
 pub fn max_pool_2d(input: &Tensor, kernel_size: usize) -> Tensor {
-    let (in_h, in_w, in_c) = dims3(input);
+    let [in_h, in_w, in_c] = input.dims();
     let out_h = in_h / kernel_size;
     let out_w = in_w / kernel_size;
     let mut output = zero_tensor::<f32>(vec![out_h, out_w, in_c]);
@@ -290,7 +290,7 @@ impl Operator for Concat {
 ///
 /// `padding` specifies the amount of left, top, right and bottom padding to add.
 pub fn pad_2d(input: &Tensor, padding: [usize; 4]) -> Tensor {
-    let (in_h, in_w, in_c) = dims3(input);
+    let [in_h, in_w, in_c] = input.dims();
 
     let pad_left = padding[0];
     let pad_top = padding[1];
