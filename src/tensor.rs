@@ -3,19 +3,19 @@ use std::ops::{Index, IndexMut};
 use crate::rng::XorShiftRNG;
 
 /// n-dimensional array
-pub struct Tensor {
+pub struct Tensor<T: Copy = f32> {
     /// The underlying buffer of elements
-    pub data: Vec<f32>,
+    pub data: Vec<T>,
 
     /// The size of each dimension of the array
     pub shape: Vec<usize>,
 }
 
-impl Tensor {
+impl<T: Copy> Tensor<T> {
     /// Return a copy of this tensor with each element replaced by `f(element)`
-    pub fn map<F>(&self, f: F) -> Tensor
+    pub fn map<F>(&self, f: F) -> Tensor<T>
     where
-        F: FnMut(&f32) -> f32,
+        F: FnMut(&T) -> T,
     {
         let data = self.data.iter().map(f).collect();
         Tensor {
@@ -24,7 +24,7 @@ impl Tensor {
         }
     }
 
-    pub fn clone(&self) -> Tensor {
+    pub fn clone(&self) -> Tensor<T> {
         let data = self.data.clone();
         let shape = self.shape.clone();
         Tensor { data, shape }
@@ -63,14 +63,14 @@ impl Tensor {
     }
 }
 
-impl<const N: usize> Index<[usize; N]> for Tensor {
-    type Output = f32;
+impl<const N: usize, T: Copy> Index<[usize; N]> for Tensor<T> {
+    type Output = T;
     fn index(&self, index: [usize; N]) -> &Self::Output {
         &self.data[self.offset(index)]
     }
 }
 
-impl<const N: usize> IndexMut<[usize; N]> for Tensor {
+impl<const N: usize, T: Copy> IndexMut<[usize; N]> for Tensor<T> {
     fn index_mut(&mut self, index: [usize; N]) -> &mut Self::Output {
         let offset = self.offset(index);
         &mut self.data[offset]
@@ -78,10 +78,10 @@ impl<const N: usize> IndexMut<[usize; N]> for Tensor {
 }
 
 /// Create a new tensor with all values set to 0.
-pub fn zero_tensor(shape: Vec<usize>) -> Tensor {
+pub fn zero_tensor<T: Copy + Default>(shape: Vec<usize>) -> Tensor<T> {
     let mut data = Vec::new();
     let n_elts = shape.iter().fold(1, |elts, dim| elts * dim);
-    data.resize(n_elts, 0.0f32);
+    data.resize(n_elts, T::default());
     Tensor { data, shape }
 }
 
@@ -93,12 +93,12 @@ pub fn random_tensor(shape: Vec<usize>, rng: &mut XorShiftRNG) -> Tensor {
 }
 
 /// Create a new tensor with a given shape and values
-pub fn from_data(shape: Vec<usize>, data: Vec<f32>) -> Tensor {
+pub fn from_data<T: Copy>(shape: Vec<usize>, data: Vec<T>) -> Tensor<T> {
     Tensor { data, shape }
 }
 
 /// Return dimensions of a 3D tensor as a tuple
-pub fn dims3(x: &Tensor) -> (usize, usize, usize) {
+pub fn dims3<T: Copy>(x: &Tensor<T>) -> (usize, usize, usize) {
     let shape = &x.shape;
     if shape.len() != 3 {
         panic!("Expected tensor to have 3 dimensions");
@@ -107,7 +107,7 @@ pub fn dims3(x: &Tensor) -> (usize, usize, usize) {
 }
 
 /// Return dimensions of a 4D tensor as a tuple
-pub fn dims4(x: &Tensor) -> (usize, usize, usize, usize) {
+pub fn dims4<T: Copy>(x: &Tensor<T>) -> (usize, usize, usize, usize) {
     let shape = &x.shape;
     if shape.len() != 4 {
         panic!("Expected tensor to have 4 dimensions");
@@ -121,7 +121,7 @@ mod tests {
 
     #[test]
     fn test_stride() {
-        let x = zero_tensor(vec![2, 5, 7, 3]);
+        let x = zero_tensor::<f32>(vec![2, 5, 7, 3]);
         assert_eq!(x.stride(3), 1);
         assert_eq!(x.stride(2), 3);
         assert_eq!(x.stride(1), 7 * 3);
@@ -130,7 +130,7 @@ mod tests {
 
     #[test]
     fn test_index() {
-        let mut x = zero_tensor(vec![2, 2]);
+        let mut x = zero_tensor::<f32>(vec![2, 2]);
 
         x.data[0] = 1.0;
         x.data[1] = 2.0;
@@ -145,7 +145,7 @@ mod tests {
 
     #[test]
     fn test_index_mut() {
-        let mut x = zero_tensor(vec![2, 2]);
+        let mut x = zero_tensor::<f32>(vec![2, 2]);
 
         x[[0, 0]] = 1.0;
         x[[0, 1]] = 2.0;
@@ -161,14 +161,14 @@ mod tests {
     #[test]
     #[should_panic]
     fn test_index_panics_if_invalid() {
-        let mut x = zero_tensor(vec![2, 2]);
+        let mut x = zero_tensor::<f32>(vec![2, 2]);
         x[[2, 0]];
     }
 
     #[test]
     #[should_panic]
     fn test_index_panics_if_wrong_dim_count() {
-        let mut x = zero_tensor(vec![2, 2]);
+        let mut x = zero_tensor::<f32>(vec![2, 2]);
         x[[0, 0, 0]];
     }
 }

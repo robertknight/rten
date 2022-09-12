@@ -47,7 +47,7 @@ pub fn conv_2d(input: &Tensor, kernel: &Tensor, padding: (usize, usize), groups:
     let out_h = in_h - k_h + 1 + 2 * pad_h;
     let out_w = in_w - k_w + 1 + 2 * pad_w;
 
-    let mut output = zero_tensor(vec![out_h, out_w, out_c]);
+    let mut output = zero_tensor::<f32>(vec![out_h, out_w, out_c]);
     for out_y in 0..out_h {
         for out_x in 0..out_w {
             for group in 0..groups {
@@ -118,7 +118,7 @@ pub fn conv_transpose_2d(input: &Tensor, kernel: &Tensor, stride: usize) -> Tens
     let out_h = (in_h - 1) * stride + k_h;
     let out_w = (in_w - 1) * stride + k_w;
 
-    let mut output = zero_tensor(vec![out_h, out_w, out_c]);
+    let mut output = zero_tensor::<f32>(vec![out_h, out_w, out_c]);
 
     for in_y in 0..in_h {
         for in_x in 0..in_w {
@@ -158,7 +158,7 @@ pub fn max_pool_2d(input: &Tensor, kernel_size: usize) -> Tensor {
     let (in_h, in_w, in_c) = dims3(input);
     let out_h = in_h / kernel_size;
     let out_w = in_w / kernel_size;
-    let mut output = zero_tensor(vec![out_h, out_w, in_c]);
+    let mut output = zero_tensor::<f32>(vec![out_h, out_w, in_c]);
     for out_y in 0..out_h {
         for out_x in 0..out_w {
             for chan in 0..in_c {
@@ -240,7 +240,7 @@ pub fn concat(a: &Tensor, b: &Tensor, dim: usize) -> Tensor {
     let mut out_shape = a_shape.clone();
     out_shape[dim] += b_shape[dim];
 
-    let mut output = zero_tensor(out_shape);
+    let mut output = zero_tensor::<f32>(out_shape);
 
     let a_stride = if dim == 0 {
         a.data.len()
@@ -299,7 +299,7 @@ pub fn pad_2d(input: &Tensor, padding: [usize; 4]) -> Tensor {
 
     let out_h = in_h + pad_top + pad_bottom;
     let out_w = in_w + pad_left + pad_right;
-    let mut output = zero_tensor(vec![out_h, out_w, in_c]);
+    let mut output = zero_tensor::<f32>(vec![out_h, out_w, in_c]);
 
     for y in pad_top..(out_h - pad_bottom) {
         for x in pad_left..(out_w - pad_right) {
