@@ -33,76 +33,46 @@ impl Tensor {
     /// Return the number of elements between successive entries in the `dim`
     /// dimension.
     pub fn stride(&self, dim: usize) -> usize {
-        self.shape[dim + 1..].iter().fold(1, |stride, n| stride * n)
+        if dim == self.shape.len() - 1 {
+            1
+        } else {
+            self.shape[dim + 1..].iter().fold(1, |stride, n| stride * n)
+        }
     }
 
-    fn offset3(&self, index: [usize; 3]) -> usize {
+    /// Return the offset of an element that corresponds to a given index.
+    ///
+    /// The length of `index` must match the tensor's dimension count.
+    pub fn offset<const N: usize>(&self, index: [usize; N]) -> usize {
         let shape = &self.shape;
-        let stride_1 = shape[2];
-        let stride_0 = shape[1] * stride_1;
-        let offset = index[0] * stride_0 + index[1] * stride_1 + index[2];
-
-        if offset > self.data.len() {
-            panic!("Computed offset for 3-index {:?} is invalid", index);
+        if shape.len() != N {
+            panic!(
+                "Cannot access {} dim tensor with {} dim index",
+                shape.len(),
+                N
+            );
         }
-
+        let mut offset = 0;
+        for i in 0..N {
+            if index[i] > self.shape[i] {
+                panic!("Invalid index {} for dim {}", index[i], i);
+            }
+            offset += index[i] * self.stride(i)
+        }
         offset
     }
-
-    fn offset4(&self, index: [usize; 4]) -> usize {
-        let shape = &self.shape;
-        let stride_2 = shape[3];
-        let stride_1 = shape[2] * stride_2;
-        let stride_0 = shape[1] * stride_1;
-        let offset = index[0] * stride_0 + index[1] * stride_1 + index[2] * stride_2 + index[3];
-
-        if offset > self.data.len() {
-            panic!("Computed offset for 4-index {:?} is invalid", index);
-        }
-
-        offset
-    }
 }
 
-impl Index<[usize; 1]> for Tensor {
+impl<const N: usize> Index<[usize; N]> for Tensor {
     type Output = f32;
-    fn index(&self, index: [usize; 1]) -> &Self::Output {
-        &self.data[index[0]]
+    fn index(&self, index: [usize; N]) -> &Self::Output {
+        &self.data[self.offset(index)]
     }
 }
 
-impl IndexMut<[usize; 1]> for Tensor {
-    fn index_mut(&mut self, index: [usize; 1]) -> &mut Self::Output {
-        &mut self.data[index[0]]
-    }
-}
-
-impl Index<[usize; 3]> for Tensor {
-    type Output = f32;
-
-    fn index(&self, index: [usize; 3]) -> &Self::Output {
-        &self.data[self.offset3(index)]
-    }
-}
-
-impl IndexMut<[usize; 3]> for Tensor {
-    fn index_mut(&mut self, index: [usize; 3]) -> &mut Self::Output {
-        let offset = self.offset3(index);
-        &mut self.data[offset]
-    }
-}
-
-impl Index<[usize; 4]> for Tensor {
-    type Output = f32;
-
-    fn index(&self, index: [usize; 4]) -> &Self::Output {
-        &self.data[self.offset4(index)]
-    }
-}
-
-impl IndexMut<[usize; 4]> for Tensor {
-    fn index_mut(&mut self, index: [usize; 4]) -> &mut Self::Output {
-        let offset = self.offset4(index);
+impl<const N: usize> IndexMut<[usize; N]> for Tensor {
+    fn index_mut(&mut self, index: [usize; N]) -> &mut Self::Output {
+        let offset = self.offset(index);
         &mut self.data[offset]
     }
 }
@@ -156,5 +126,49 @@ mod tests {
         assert_eq!(x.stride(2), 3);
         assert_eq!(x.stride(1), 7 * 3);
         assert_eq!(x.stride(0), 5 * 7 * 3);
+    }
+
+    #[test]
+    fn test_index() {
+        let mut x = zero_tensor(vec![2, 2]);
+
+        x.data[0] = 1.0;
+        x.data[1] = 2.0;
+        x.data[2] = 3.0;
+        x.data[3] = 4.0;
+
+        assert_eq!(x[[0, 0]], 1.0);
+        assert_eq!(x[[0, 1]], 2.0);
+        assert_eq!(x[[1, 0]], 3.0);
+        assert_eq!(x[[1, 1]], 4.0);
+    }
+
+    #[test]
+    fn test_index_mut() {
+        let mut x = zero_tensor(vec![2, 2]);
+
+        x[[0, 0]] = 1.0;
+        x[[0, 1]] = 2.0;
+        x[[1, 0]] = 3.0;
+        x[[1, 1]] = 4.0;
+
+        assert_eq!(x.data[0], 1.0);
+        assert_eq!(x.data[1], 2.0);
+        assert_eq!(x.data[2], 3.0);
+        assert_eq!(x.data[3], 4.0);
+    }
+
+    #[test]
+    #[should_panic]
+    fn test_index_panics_if_invalid() {
+        let mut x = zero_tensor(vec![2, 2]);
+        x[[2, 0]];
+    }
+
+    #[test]
+    #[should_panic]
+    fn test_index_panics_if_wrong_dim_count() {
+        let mut x = zero_tensor(vec![2, 2]);
+        x[[0, 0, 0]];
     }
 }
