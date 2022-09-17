@@ -128,7 +128,7 @@ impl Graph {
         let mut resolved_values: HashSet<NodeId> =
             inputs.iter().map(|(node_id, _)| *node_id).collect();
         for (node_id, node) in self.nodes.iter().enumerate() {
-            if let Node::Constant(tensor) = node {
+            if let Node::Constant(_) = node {
                 resolved_values.insert(node_id);
             }
         }
@@ -259,7 +259,7 @@ mod tests {
         let input_id = g.add_value();
 
         let mut prev_output = input_id;
-        for i in 0..100 {
+        for _ in 0..100 {
             prev_output = g.add_op(Box::new(AddOne {}), &[prev_output]);
         }
 
@@ -295,7 +295,7 @@ mod tests {
 
     #[test]
     fn test_no_outputs() {
-        let mut g = Graph::new();
+        let g = Graph::new();
         let results = g.run(&[], &[]);
         assert_eq!(results.len(), 0);
     }
