@@ -258,12 +258,12 @@ pub fn concat(a: &Tensor, b: &Tensor, dim: usize) -> Tensor {
     let mut out_pos = 0;
 
     while a_pos < a.data.len() && b_pos < b.data.len() {
-        for i in 0..a_stride {
+        for _ in 0..a_stride {
             output.data[out_pos] = a.data[a_pos];
             out_pos += 1;
             a_pos += 1;
         }
-        for i in 0..b_stride {
+        for _ in 0..b_stride {
             output.data[out_pos] = b.data[b_pos];
             out_pos += 1;
             b_pos += 1;
