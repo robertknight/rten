@@ -113,7 +113,7 @@ pub fn from_data<T: Copy>(shape: Vec<usize>, data: Vec<T>) -> Tensor<T> {
 
 #[cfg(test)]
 mod tests {
-    use crate::tensor::{zero_tensor, Tensor};
+    use crate::tensor::zero_tensor;
 
     #[test]
     fn test_stride() {
@@ -157,14 +157,14 @@ mod tests {
     #[test]
     #[should_panic]
     fn test_index_panics_if_invalid() {
-        let mut x = zero_tensor::<f32>(vec![2, 2]);
+        let x = zero_tensor::<f32>(vec![2, 2]);
         x[[2, 0]];
     }
 
     #[test]
     #[should_panic]
     fn test_index_panics_if_wrong_dim_count() {
-        let mut x = zero_tensor::<f32>(vec![2, 2]);
+        let x = zero_tensor::<f32>(vec![2, 2]);
         x[[0, 0, 0]];
     }
 
@@ -183,6 +183,6 @@ mod tests {
     #[should_panic]
     fn test_dims_panics_if_wrong_array_length() {
         let x = zero_tensor::<f32>(vec![10, 5, 3, 7]);
-        let [i, j, k] = x.dims();
+        let [_i, _j, _k] = x.dims();
     }
 }
