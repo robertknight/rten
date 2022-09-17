@@ -29,4 +29,3 @@ impl XorShiftRNG {
         (val as f32) * scale
     }
 }
-
