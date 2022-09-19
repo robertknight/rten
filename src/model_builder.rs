@@ -49,9 +49,9 @@ impl<'a> ModelBuilder<'a> {
 
     /// Add a constant node (eg. weights, biases) to the model
     pub fn add_constant(&mut self, input: &Tensor) -> u32 {
-        let shape: Vec<u32> = input.shape.iter().map(|&x| x as u32).collect();
+        let shape: Vec<u32> = input.shape().iter().map(|&x| x as u32).collect();
         let shape_vec = self.builder.create_vector(&shape[..]);
-        let data_vec = self.builder.create_vector(&input.data[..]);
+        let data_vec = self.builder.create_vector(input.data());
 
         let const_node = sg::ConstantNode::create(
             &mut self.builder,

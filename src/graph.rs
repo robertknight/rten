@@ -200,17 +200,18 @@ mod tests {
     /// Check that the shapes of two tensors are equal and that their contents
     /// are approximately equal.
     fn expect_equal(x: &Tensor, y: &Tensor) -> Result<(), String> {
-        if x.shape != y.shape {
+        if x.shape() != y.shape() {
             return Err(format!(
                 "Tensors have different shapes. {:?} vs. {:?}",
-                &x.shape, &y.shape
+                x.shape(),
+                y.shape()
             ));
         }
 
         let eps = 0.001;
-        for i in 0..x.data.len() {
-            let xi = x.data[i];
-            let yi = y.data[i];
+        for i in 0..x.len() {
+            let xi = x.data()[i];
+            let yi = y.data()[i];
 
             if (xi - yi).abs() > eps {
                 return Err(format!(
@@ -270,11 +271,8 @@ mod tests {
     impl Operator for AddOne {
         fn run(&self, inputs: &[&Tensor]) -> Tensor {
             let input = inputs[0];
-            let output_data = input.data.iter().map(|x| x + 1.0).collect();
-            Tensor {
-                shape: input.shape.clone(),
-                data: output_data,
-            }
+            let output_data = input.data().iter().map(|x| x + 1.0).collect();
+            from_data(input.shape().into(), output_data)
         }
     }
 

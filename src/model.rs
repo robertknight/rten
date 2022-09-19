@@ -230,8 +230,8 @@ mod tests {
         let result = model.run(&[(input_id, &input)], &[output_id]);
 
         assert_eq!(result.len(), 1);
-        assert_eq!(result[0].shape, vec![2, 2, 2]);
-        assert_eq!(result[0].data, vec![0.5, 0., 0.1, 0., 1., 2., 0., 0.]);
+        assert_eq!(result[0].shape(), vec![2, 2, 2]);
+        assert_eq!(result[0].data(), vec![0.5, 0., 0.1, 0., 1., 2., 0., 0.]);
     }
 
     #[test]

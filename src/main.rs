@@ -22,8 +22,8 @@ use tensor::{zero_tensor, Tensor};
 /// the range [-0.5, 0.5].
 fn tensor_from_image(width: usize, height: usize, data: &[u8]) -> Tensor {
     let mut img_tensor = zero_tensor(vec![1, 1, height, width]);
-    for y in 0..img_tensor.shape[2] {
-        for x in 0..img_tensor.shape[3] {
+    for y in 0..img_tensor.shape()[2] {
+        for x in 0..img_tensor.shape()[3] {
             let b = y * width + x;
             img_tensor[[0, 0, y, x]] = (data[b] as f32 / 255.0) - 0.5;
         }
@@ -35,8 +35,8 @@ fn tensor_from_image(width: usize, height: usize, data: &[u8]) -> Tensor {
 /// 8-bit grayscale image.
 fn image_from_tensor(tensor: &Tensor) -> Vec<u8> {
     let mut buf = Vec::new();
-    for y in 0..tensor.shape[2] {
-        for x in 0..tensor.shape[3] {
+    for y in 0..tensor.shape()[2] {
+        for x in 0..tensor.shape()[3] {
             let byte = ((tensor[[0, 0, y, x]] + 0.5) * 255.0) as u8;
             buf.push(byte);
         }
@@ -48,8 +48,8 @@ fn image_from_tensor(tensor: &Tensor) -> Vec<u8> {
 /// 8-bit grayscale image.
 fn image_from_prob_tensor(tensor: &Tensor) -> Vec<u8> {
     let mut buf = Vec::new();
-    for y in 0..tensor.shape[2] {
-        for x in 0..tensor.shape[3] {
+    for y in 0..tensor.shape()[2] {
+        for x in 0..tensor.shape()[3] {
             let byte = (tensor[[0, 0, y, x]] * 255.0) as u8;
             buf.push(byte);
         }

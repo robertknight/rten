@@ -1,4 +1,4 @@
-use crate::tensor::{zero_tensor, Tensor};
+use crate::tensor::{from_data, zero_tensor, Tensor};
 
 /// An Operator is a computation step in a graph.
 pub trait Operator {
@@ -277,8 +277,8 @@ impl Operator for Sigmoid {
 }
 
 pub fn concat(a: &Tensor, b: &Tensor, dim: usize) -> Tensor {
-    let a_shape = &a.shape;
-    let b_shape = &b.shape;
+    let a_shape = a.shape();
+    let b_shape = b.shape();
 
     if a_shape.len() != b_shape.len() {
         panic!("Tensors must have the same number of dimensions");
@@ -298,34 +298,29 @@ pub fn concat(a: &Tensor, b: &Tensor, dim: usize) -> Tensor {
         return a.clone();
     }
 
-    let mut out_shape = a_shape.clone();
+    let mut out_shape: Vec<_> = a_shape.into();
     out_shape[dim] += b_shape[dim];
 
     let mut output = zero_tensor::<f32>(out_shape);
 
-    let a_stride = if dim == 0 {
-        a.data.len()
-    } else {
-        a.stride(dim - 1)
-    };
-    let b_stride = if dim == 0 {
-        b.data.len()
-    } else {
-        b.stride(dim - 1)
-    };
+    let a_stride = if dim == 0 { a.len() } else { a.stride(dim - 1) };
+    let b_stride = if dim == 0 { b.len() } else { b.stride(dim - 1) };
 
     let mut a_pos = 0;
     let mut b_pos = 0;
     let mut out_pos = 0;
 
-    while a_pos < a.data.len() && b_pos < b.data.len() {
+    let a_data = a.data();
+    let b_data = b.data();
+
+    while a_pos < a_data.len() && b_pos < b_data.len() {
         for _ in 0..a_stride {
-            output.data[out_pos] = a.data[a_pos];
+            output.data_mut()[out_pos] = a_data[a_pos];
             out_pos += 1;
             a_pos += 1;
         }
         for _ in 0..b_stride {
-            output.data[out_pos] = b.data[b_pos];
+            output.data_mut()[out_pos] = b_data[b_pos];
             out_pos += 1;
             b_pos += 1;
         }
@@ -389,7 +384,7 @@ impl Operator for Pad2d {
 
 /// Return a copy of a tensor which only retains a subset of a given dimension.
 pub fn slice(input: &Tensor, dim: usize, start: usize, end: usize) -> Tensor {
-    let mut out_shape = input.shape.clone();
+    let mut out_shape: Vec<_> = input.shape().into();
     out_shape[dim] = end - start;
 
     let out_len = out_shape.iter().fold(0, |sum, x| sum + x);
@@ -399,10 +394,10 @@ pub fn slice(input: &Tensor, dim: usize, start: usize, end: usize) -> Tensor {
     let steps = if dim == 0 {
         1
     } else {
-        input.shape[0..dim].iter().fold(1, |steps, x| steps * x)
+        input.shape()[0..dim].iter().fold(1, |steps, x| steps * x)
     };
     let parent_dim_stride = if dim == 0 {
-        input.data.len()
+        input.len()
     } else {
         input.stride(dim - 1)
     };
@@ -410,13 +405,10 @@ pub fn slice(input: &Tensor, dim: usize, start: usize, end: usize) -> Tensor {
     for i in 0..steps {
         let offset = i * parent_dim_stride + start * dim_stride;
         let len = (end - start) * dim_stride;
-        out_data.extend_from_slice(&input.data[offset..offset + len]);
+        out_data.extend_from_slice(&input.data()[offset..offset + len]);
     }
 
-    Tensor {
-        shape: out_shape,
-        data: out_data,
-    }
+    from_data(out_shape, out_data)
 }
 
 pub struct Slice {
@@ -447,17 +439,18 @@ mod tests {
     /// Check that the shapes of two tensors are equal and that their contents
     /// are approximately equal.
     fn expect_equal(x: &Tensor, y: &Tensor) -> Result<(), String> {
-        if x.shape != y.shape {
+        if x.shape() != y.shape() {
             return Err(format!(
                 "Tensors have different shapes. {:?} vs. {:?}",
-                &x.shape, &y.shape
+                x.shape(),
+                y.shape()
             ));
         }
 
         let eps = 0.001;
-        for i in 0..x.data.len() {
-            let xi = x.data[i];
-            let yi = y.data[i];
+        for i in 0..x.len() {
+            let xi = x.data()[i];
+            let yi = y.data()[i];
 
             if (xi - yi).abs() > eps {
                 return Err(format!(
@@ -545,9 +538,9 @@ mod tests {
         let result = conv_transpose_2d(&input, &kernel, None, 2);
         expect_equal(&result, &expected)?;
 
-        let mut expected_with_bias = from_data(expected.shape.clone(), expected.data.clone());
-        for i in 0..expected_with_bias.data.len() {
-            expected_with_bias.data[i] += 1.234;
+        let mut expected_with_bias = from_data(expected.shape().into(), expected.data().into());
+        for i in 0..expected_with_bias.len() {
+            expected_with_bias.data_mut()[i] += 1.234;
         }
         let bias = from_data(vec![1], vec![1.234]);
         let result = conv_transpose_2d(&input, &kernel, Some(&bias), 2);
@@ -644,17 +637,15 @@ mod tests {
         let end = 4;
 
         let sliced = slice(&input, dim, start, end);
+        let shape = sliced.shape();
 
-        assert_eq!(sliced.shape, vec![2, 2, end - start, 3]);
-        assert_eq!(
-            sliced.data.len(),
-            sliced.shape.iter().fold(1, |len, x| len * x)
-        );
+        assert_eq!(sliced.shape(), vec![2, 2, end - start, 3]);
+        assert_eq!(sliced.len(), shape.iter().fold(1, |len, x| len * x));
 
-        for w in 0..sliced.shape[0] {
-            for x in 0..sliced.shape[1] {
-                for y in 0..sliced.shape[2] {
-                    for z in 0..sliced.shape[3] {
+        for w in 0..shape[0] {
+            for x in 0..shape[1] {
+                for y in 0..shape[2] {
+                    for z in 0..shape[3] {
                         assert_eq!(sliced[[w, x, y, z]], input[[w, x, y + start, z]]);
                     }
                 }
@@ -672,17 +663,15 @@ mod tests {
         let end = 4;
 
         let sliced = slice(&input, dim, start, end);
+        let shape = sliced.shape();
 
-        assert_eq!(sliced.shape, vec![end - start, 2, 5, 3]);
-        assert_eq!(
-            sliced.data.len(),
-            sliced.shape.iter().fold(1, |len, x| len * x)
-        );
+        assert_eq!(shape, vec![end - start, 2, 5, 3]);
+        assert_eq!(sliced.len(), shape.iter().fold(1, |len, x| len * x));
 
-        for w in 0..sliced.shape[0] {
-            for x in 0..sliced.shape[1] {
-                for y in 0..sliced.shape[2] {
-                    for z in 0..sliced.shape[3] {
+        for w in 0..shape[0] {
+            for x in 0..shape[1] {
+                for y in 0..shape[2] {
+                    for z in 0..shape[3] {
                         assert_eq!(sliced[[w, x, y, z]], input[[w + start, x, y, z]]);
                     }
                 }
@@ -695,10 +684,10 @@ mod tests {
         let mut rng = XorShiftRNG::new(5678);
         let input = random_tensor(vec![5, 2, 5, 3], &mut rng);
 
-        for dim in 0..input.shape.len() {
-            let sliced = slice(&input, dim, 0, input.shape[dim]);
-            assert_eq!(sliced.shape, input.shape);
-            assert_eq!(sliced.data, input.data);
+        for dim in 0..input.shape().len() {
+            let sliced = slice(&input, dim, 0, input.shape()[dim]);
+            assert_eq!(sliced.shape(), input.shape());
+            assert_eq!(sliced.data(), input.data());
         }
     }
 }

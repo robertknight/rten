@@ -5,10 +5,10 @@ use crate::rng::XorShiftRNG;
 /// n-dimensional array
 pub struct Tensor<T: Copy = f32> {
     /// The underlying buffer of elements
-    pub data: Vec<T>,
+    data: Vec<T>,
 
     /// The size of each dimension of the array
-    pub shape: Vec<usize>,
+    shape: Vec<usize>,
 }
 
 impl<T: Copy> Tensor<T> {
@@ -28,6 +28,22 @@ impl<T: Copy> Tensor<T> {
         let data = self.data.clone();
         let shape = self.shape.clone();
         Tensor { data, shape }
+    }
+
+    pub fn len(&self) -> usize {
+        self.data.len()
+    }
+
+    pub fn data(&self) -> &[T] {
+        &self.data
+    }
+
+    pub fn data_mut(&mut self) -> &mut [T] {
+        &mut self.data
+    }
+
+    pub fn shape(&self) -> &[usize] {
+        &self.shape
     }
 
     /// Return the number of elements between successive entries in the `dim`
