@@ -79,7 +79,7 @@ impl Graph {
 
         // Execute the plan
         let mut temp_values: HashMap<NodeId, Tensor> = HashMap::new();
-        for op_node in plan.iter() {
+        for (op_node_id, op_node) in plan.iter() {
             let mut op_inputs = Vec::new();
             for node_id in op_node.inputs.iter() {
                 if let Some(value) = values.get(&node_id) {
@@ -88,7 +88,10 @@ impl Graph {
                     op_inputs.push(value);
                 } else {
                     // If this is reached, there was a bug in plan creation.
-                    panic!("Invalid plan did not produce value for node {}", node_id);
+                    panic!(
+                        "Invalid plan did not produce input value {} for operator {}",
+                        node_id, op_node_id
+                    );
                 }
             }
             let output = op_node.operator.run(&op_inputs[..]);
@@ -113,7 +116,14 @@ impl Graph {
 
     /// Create an execution plan for a sequence of computation steps that begin
     /// with `inputs` and eventually produces `outputs`.
-    fn create_plan(&self, inputs: &[(NodeId, &Tensor)], outputs: &[NodeId]) -> Vec<&OperatorNode> {
+    ///
+    /// Any node IDs in `outputs` which reference constant or input values are
+    /// omitted from the plan.
+    fn create_plan(
+        &self,
+        inputs: &[(NodeId, &Tensor)],
+        outputs: &[NodeId],
+    ) -> Vec<(NodeId, &OperatorNode)> {
         // Map of output node to source operator
         let operator_nodes: HashMap<NodeId, &OperatorNode> = self
             .nodes
@@ -133,41 +143,58 @@ impl Graph {
             }
         }
 
-        // Needed values that are not yet produced by the plan
-        let mut missing_values: Vec<NodeId> = outputs
-            .iter()
-            .filter(|it| !resolved_values.contains(it))
-            .map(|x| *x)
-            .collect();
-
-        // Build execution plan in reverse order
-        let mut plan: Vec<&OperatorNode> = Vec::new();
-        while let Some(missing_value) = missing_values.pop() {
-            if let Some(op_node) = operator_nodes.get(&missing_value) {
-                resolved_values.insert(missing_value);
-                plan.push(&op_node);
+        // Build an execution plan via a depth first traversal of the graph
+        // starting at the output nodes. A helper struct is used as recursive
+        // closures are not supported in Rust.
+        struct PlanBuilder<'a> {
+            resolved_values: HashSet<NodeId>,
+            plan: Vec<(NodeId, &'a OperatorNode)>,
+            operator_nodes: HashMap<NodeId, &'a OperatorNode>,
+        }
+        impl<'a> PlanBuilder<'a> {
+            fn visit(&mut self, node_id: NodeId, op_node: &'a OperatorNode) {
                 for input in op_node.inputs.iter() {
-                    if !resolved_values.contains(&input) {
-                        missing_values.push(*input);
+                    if self.resolved_values.contains(input) {
+                        continue;
+                    }
+                    if let Some(input_op_node) = self.operator_nodes.get(&input) {
+                        self.visit(*input, input_op_node);
+                    } else {
+                        panic!("Unable to generate execution plan. Missing value {}", input)
                     }
                 }
-            } else {
-                panic!(
-                    "Unable to generate execution plan. Missing value {}",
-                    missing_value
-                );
+                self.resolved_values.insert(node_id);
+                self.plan.push((node_id, &op_node));
+            }
+
+            fn plan(mut self, outputs: &[NodeId]) -> Vec<(NodeId, &'a OperatorNode)> {
+                for output_id in outputs.iter() {
+                    if let Some(op_node) = self.operator_nodes.get(&output_id) {
+                        self.visit(*output_id, op_node);
+                    } else if !self.resolved_values.contains(output_id) {
+                        panic!(
+                            "Unable to generate execution plan. Missing value {}",
+                            output_id
+                        )
+                    }
+                }
+                self.plan
             }
         }
-        plan.reverse();
 
-        plan
+        let builder = PlanBuilder {
+            resolved_values,
+            plan: Vec::new(),
+            operator_nodes,
+        };
+        builder.plan(outputs)
     }
 }
 
 #[cfg(test)]
 mod tests {
     use crate::graph::Graph;
-    use crate::ops::{Conv2d, Operator, ReLU};
+    use crate::ops::{Concat, Conv2d, Operator, ReLU};
     use crate::tensor::{from_data, Tensor};
 
     /// Check that the shapes of two tensors are equal and that their contents
@@ -249,6 +276,33 @@ mod tests {
                 data: output_data,
             }
         }
+    }
+
+    #[test]
+    fn test_graph_planning_order() -> Result<(), String> {
+        let mut g = Graph::new();
+
+        let input_id = g.add_value();
+
+        let op_a = g.add_op(Box::new(AddOne {}), &[input_id]);
+        let op_b = g.add_op(Box::new(AddOne {}), &[op_a]);
+
+        // op_c has both op_a and op_b as inputs. Since op_b depends on op_a,
+        // execution must run op_a, then op_b, then op_c.
+        let op_c = g.add_op(Box::new(Concat { dim: 0 }), &[op_a, op_b]);
+
+        // op_d is the same as op_c, but input order is reversed
+        let op_d = g.add_op(Box::new(Concat { dim: 0 }), &[op_b, op_a]);
+
+        let input = from_data(vec![1], vec![1.]);
+
+        let results = g.run(&[(input_id, &input)], &[op_c]);
+        let expected = from_data(vec![2], vec![2., 3.]);
+        expect_equal(&results[0], &expected)?;
+
+        let results = g.run(&[(input_id, &input)], &[op_d]);
+        let expected = from_data(vec![2], vec![3., 2.]);
+        expect_equal(&results[0], &expected)
     }
 
     #[test]
