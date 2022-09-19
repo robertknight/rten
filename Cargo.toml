@@ -10,3 +10,4 @@ lto = true
 
 [dependencies]
 flatbuffers = "2.1.2"
+png = "0.17.6"
