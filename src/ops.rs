@@ -32,7 +32,13 @@ pub enum OpType {
 ///   A value equal to the input channel count convolves each input channel
 ///   separately with `output_channels / groups` outputs. This is known as
 ///   depthwise convolution.
-pub fn conv_2d(input: &Tensor, kernel: &Tensor, padding: (usize, usize), groups: usize) -> Tensor {
+pub fn conv_2d(
+    input: &Tensor,
+    kernel: &Tensor,
+    bias: Option<&Tensor>,
+    padding: (usize, usize),
+    groups: usize,
+) -> Tensor {
     let [batch, in_c, in_h, in_w] = input.dims();
     let [out_c, k_in_c, k_h, k_w] = kernel.dims();
 
@@ -93,6 +99,12 @@ pub fn conv_2d(input: &Tensor, kernel: &Tensor, padding: (usize, usize), groups:
                         }
                     }
                 }
+
+                if let Some(bias) = bias {
+                    for c in 0..out_c {
+                        output[[n, c, out_y, out_x]] += bias[[c]]
+                    }
+                }
             }
         }
     }
@@ -105,11 +117,16 @@ pub struct Conv2d {
 }
 
 impl Operator for Conv2d {
-    /// Run `conv_2d` operator with `[input, weight]` inputs.
+    /// Run `conv_2d` operator with `[input, weight, bias?]` inputs.
     fn run(&self, inputs: &[&Tensor]) -> Tensor {
-        let input = &inputs[0];
-        let weight = &inputs[1];
-        conv_2d(input, weight, self.padding, self.groups)
+        let input = inputs[0];
+        let weight = inputs[1];
+        let bias = if inputs.len() > 2 {
+            Some(inputs[2])
+        } else {
+            None
+        };
+        conv_2d(input, weight, bias, self.padding, self.groups)
     }
 }
 
@@ -117,7 +134,12 @@ impl Operator for Conv2d {
 ///
 /// `input` has dimensions NCHW and kernel has dimensions COHW where `O` is
 /// the number of output channels.
-pub fn conv_transpose_2d(input: &Tensor, kernel: &Tensor, stride: usize) -> Tensor {
+pub fn conv_transpose_2d(
+    input: &Tensor,
+    kernel: &Tensor,
+    bias: Option<&Tensor>,
+    stride: usize,
+) -> Tensor {
     let [batch, in_c, in_h, in_w] = input.dims();
     let [k_in_c, out_c, k_h, k_w] = kernel.dims();
 
@@ -152,6 +174,16 @@ pub fn conv_transpose_2d(input: &Tensor, kernel: &Tensor, stride: usize) -> Tens
                 }
             }
         }
+
+        if let Some(bias) = bias {
+            for c in 0..out_c {
+                for h in 0..out_h {
+                    for w in 0..out_w {
+                        output[[n, c, h, w]] += bias[[c]];
+                    }
+                }
+            }
+        }
     }
 
     output
@@ -166,7 +198,12 @@ impl Operator for ConvTranspose2d {
     fn run(&self, inputs: &[&Tensor]) -> Tensor {
         let input = &inputs[0];
         let weight = &inputs[1];
-        conv_transpose_2d(input, weight, self.stride)
+        let bias = if inputs.len() > 2 {
+            Some(inputs[2])
+        } else {
+            None
+        };
+        conv_transpose_2d(input, weight, bias, self.stride)
     }
 }
 
@@ -456,13 +493,18 @@ mod tests {
             ],
         );
 
-        let result = conv_2d(&input, &kernel, (1, 1), 1 /* groups */);
+        let result = conv_2d(&input, &kernel, None, (1, 1), 1 /* groups */);
         expect_equal(&result, &expected_with_same_padding)?;
 
         let expected_with_no_padding = from_data(vec![1, 1, 1, 1], vec![2.6358]);
 
-        let result = conv_2d(&input, &kernel, (0, 0), 1 /* groups */);
-        expect_equal(&result, &expected_with_no_padding)
+        let result = conv_2d(&input, &kernel, None, (0, 0), 1 /* groups */);
+        expect_equal(&result, &expected_with_no_padding)?;
+
+        let expected_with_bias = from_data(vec![1, 1, 1, 1], vec![3.6358]);
+        let bias = from_data(vec![1], vec![1.0]);
+        let result = conv_2d(&input, &kernel, Some(&bias), (0, 0), 1 /* groups */);
+        expect_equal(&result, &expected_with_bias)
     }
 
     #[test]
@@ -483,7 +525,7 @@ mod tests {
         );
         let expected = from_data(vec![1, 3, 1, 1], vec![0.09020272, -0.09061745, 1.1822754]);
 
-        let result = conv_2d(&input, &kernel, (0, 0), 3 /* groups */);
+        let result = conv_2d(&input, &kernel, None, (0, 0), 3 /* groups */);
 
         expect_equal(&result, &expected)
     }
@@ -501,8 +543,15 @@ mod tests {
         );
 
         let result = conv_transpose_2d(&input, &kernel, None, 2);
+        expect_equal(&result, &expected)?;
 
-        expect_equal(&result, &expected)
+        let mut expected_with_bias = from_data(expected.shape.clone(), expected.data.clone());
+        for i in 0..expected_with_bias.data.len() {
+            expected_with_bias.data[i] += 1.234;
+        }
+        let bias = from_data(vec![1], vec![1.234]);
+        let result = conv_transpose_2d(&input, &kernel, Some(&bias), 2);
+        expect_equal(&result, &expected_with_bias)
     }
 
     #[test]
