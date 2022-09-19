@@ -124,7 +124,7 @@ fn read_operator(node: &OperatorNode) -> Result<Box<dyn Operator>, String> {
 
 /// Load a serialized model.
 pub fn load_model(data: &[u8]) -> Result<Model, String> {
-    let model = root_as_model(data).map_err(|_| format!("Error parsing flatbuffer"))?;
+    let model = root_as_model(data).map_err(|e| format!("Error parsing flatbuffer {:?}", e))?;
 
     if model.schema_version() != 1 {
         return Err(format!("Unsupported schema version"));
