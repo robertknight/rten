@@ -20,9 +20,7 @@ pub enum OpType {
 
 /// Perform a 2D convolution of `input` with `kernel`.
 ///
-/// `input` has dimensions `height * width * in_channels` while `kernel` has
-/// dimensions `height * width * out_channels * in_channel_group` where
-/// `in_channel_group` is `in_channels / groups`.
+/// `input` has dimensions NCHW while `kernel` has OGHW where `G` is `C / groups`.
 ///
 /// - `padding` specifies the amount of horizontal and vertical padding respectively
 ///   that is added to each side.
@@ -35,8 +33,8 @@ pub enum OpType {
 ///   separately with `output_channels / groups` outputs. This is known as
 ///   depthwise convolution.
 pub fn conv_2d(input: &Tensor, kernel: &Tensor, padding: (usize, usize), groups: usize) -> Tensor {
-    let [in_h, in_w, in_c] = input.dims();
-    let [k_h, k_w, out_c, k_in_c] = kernel.dims();
+    let [batch, in_c, in_h, in_w] = input.dims();
+    let [out_c, k_in_c, k_h, k_w] = kernel.dims();
 
     let out_channels_per_group = out_c / groups;
     let in_channels_per_group = in_c / groups;
@@ -59,35 +57,38 @@ pub fn conv_2d(input: &Tensor, kernel: &Tensor, padding: (usize, usize), groups:
     let out_h = in_h - k_h + 1 + 2 * pad_h;
     let out_w = in_w - k_w + 1 + 2 * pad_w;
 
-    let mut output = zero_tensor::<f32>(vec![out_h, out_w, out_c]);
-    for out_y in 0..out_h {
-        for out_x in 0..out_w {
-            for group in 0..groups {
-                let in_chan_start = group * in_channels_per_group;
-                let in_chan_end = in_chan_start + in_channels_per_group;
-                let out_chan_start = group * out_channels_per_group;
-                let out_chan_end = out_chan_start + out_channels_per_group;
+    let mut output = zero_tensor::<f32>(vec![batch, out_c, out_h, out_w]);
+    for n in 0..batch {
+        for out_y in 0..out_h {
+            for out_x in 0..out_w {
+                for group in 0..groups {
+                    let in_chan_start = group * in_channels_per_group;
+                    let in_chan_end = in_chan_start + in_channels_per_group;
+                    let out_chan_start = group * out_channels_per_group;
+                    let out_chan_end = out_chan_start + out_channels_per_group;
 
-                for out_chan in out_chan_start..out_chan_end {
-                    for k_y in 0..k_h {
-                        for k_x in 0..k_w {
-                            let in_y = out_y + k_y;
-                            let in_x = out_x + k_x;
+                    for out_chan in out_chan_start..out_chan_end {
+                        for k_y in 0..k_h {
+                            for k_x in 0..k_w {
+                                let in_y = out_y + k_y;
+                                let in_x = out_x + k_x;
 
-                            if in_y < pad_h || in_x < pad_w {
-                                continue;
-                            }
+                                if in_y < pad_h || in_x < pad_w {
+                                    continue;
+                                }
 
-                            let in_y = in_y - pad_h;
-                            let in_x = in_x - pad_w;
+                                let in_y = in_y - pad_h;
+                                let in_x = in_x - pad_w;
 
-                            if in_y >= in_h || in_x >= in_w {
-                                continue;
-                            }
+                                if in_y >= in_h || in_x >= in_w {
+                                    continue;
+                                }
 
-                            for in_chan in in_chan_start..in_chan_end {
-                                output[[out_y, out_x, out_chan]] += input[[in_y, in_x, in_chan]]
-                                    * kernel[[k_y, k_x, out_chan, in_chan - in_chan_start]];
+                                for in_chan in in_chan_start..in_chan_end {
+                                    output[[n, out_chan, out_y, out_x]] += input
+                                        [[n, in_chan, in_y, in_x]]
+                                        * kernel[[out_chan, in_chan - in_chan_start, k_y, k_x]];
+                                }
                             }
                         }
                     }
@@ -114,11 +115,11 @@ impl Operator for Conv2d {
 
 /// Perform a transposed 2D convolution of a tensor by a kernel.
 ///
-/// `input` has dimensions HWC and kernel has dimensions HWOC where `O` is
+/// `input` has dimensions NCHW and kernel has dimensions COHW where `O` is
 /// the number of output channels.
 pub fn conv_transpose_2d(input: &Tensor, kernel: &Tensor, stride: usize) -> Tensor {
-    let [in_h, in_w, in_c] = input.dims();
-    let [k_h, k_w, out_c, k_in_c] = kernel.dims();
+    let [batch, in_c, in_h, in_w] = input.dims();
+    let [k_in_c, out_c, k_h, k_w] = kernel.dims();
 
     if in_c != k_in_c {
         panic!(
@@ -130,19 +131,22 @@ pub fn conv_transpose_2d(input: &Tensor, kernel: &Tensor, stride: usize) -> Tens
     let out_h = (in_h - 1) * stride + k_h;
     let out_w = (in_w - 1) * stride + k_w;
 
-    let mut output = zero_tensor::<f32>(vec![out_h, out_w, out_c]);
+    let mut output = zero_tensor::<f32>(vec![batch, out_c, out_h, out_w]);
 
-    for in_y in 0..in_h {
-        for in_x in 0..in_w {
-            for in_chan in 0..in_c {
-                for k_y in 0..k_h {
-                    for k_x in 0..k_w {
-                        let out_y = in_y * stride + k_y;
-                        let out_x = in_x * stride + k_x;
+    for n in 0..batch {
+        for in_y in 0..in_h {
+            for in_x in 0..in_w {
+                for in_chan in 0..in_c {
+                    for k_y in 0..k_h {
+                        for k_x in 0..k_w {
+                            let out_y = in_y * stride + k_y;
+                            let out_x = in_x * stride + k_x;
 
-                        for out_chan in 0..out_c {
-                            output[[out_y, out_x, out_chan]] += input[[in_y, in_x, in_chan]]
-                                * kernel[[k_y, k_x, out_chan, in_chan]];
+                            for out_chan in 0..out_c {
+                                output[[n, out_chan, out_y, out_x]] += input
+                                    [[n, in_chan, in_y, in_x]]
+                                    * kernel[[in_chan, out_chan, k_y, k_x]];
+                            }
                         }
                     }
                 }
@@ -167,25 +171,33 @@ impl Operator for ConvTranspose2d {
 }
 
 pub fn max_pool_2d(input: &Tensor, kernel_size: usize) -> Tensor {
-    let [in_h, in_w, in_c] = input.dims();
+    let [batch, in_c, in_h, in_w] = input.dims();
     let out_h = in_h / kernel_size;
     let out_w = in_w / kernel_size;
-    let mut output = zero_tensor::<f32>(vec![out_h, out_w, in_c]);
-    for out_y in 0..out_h {
-        for out_x in 0..out_w {
-            for chan in 0..in_c {
-                let mut max_val = input[[out_y, out_x, chan]];
-                for k_y in 0..kernel_size {
-                    for k_x in 0..kernel_size {
-                        let val =
-                            input[[out_y * kernel_size + k_y, out_x * kernel_size + k_x, chan]];
-                        max_val = max_val.max(val);
+    let mut output = zero_tensor::<f32>(vec![batch, in_c, out_h, out_w]);
+
+    for n in 0..batch {
+        for out_y in 0..out_h {
+            for out_x in 0..out_w {
+                for chan in 0..in_c {
+                    let mut max_val = input[[n, chan, out_y, out_x]];
+                    for k_y in 0..kernel_size {
+                        for k_x in 0..kernel_size {
+                            let val = input[[
+                                n,
+                                chan,
+                                out_y * kernel_size + k_y,
+                                out_x * kernel_size + k_x,
+                            ]];
+                            max_val = max_val.max(val);
+                        }
                     }
+                    output[[n, chan, out_y, out_x]] = max_val;
                 }
-                output[[out_y, out_x, chan]] = max_val;
             }
         }
     }
+
     output
 }
 
@@ -298,11 +310,11 @@ impl Operator for Concat {
     }
 }
 
-/// Pad an HWC tensor in the height and width dimensions.
+/// Pad an NCHW tensor in the height and width dimensions.
 ///
 /// `padding` specifies the amount of left, top, right and bottom padding to add.
 pub fn pad_2d(input: &Tensor, padding: [usize; 4]) -> Tensor {
-    let [in_h, in_w, in_c] = input.dims();
+    let [batch, in_c, in_h, in_w] = input.dims();
 
     let pad_left = padding[0];
     let pad_top = padding[1];
@@ -311,12 +323,14 @@ pub fn pad_2d(input: &Tensor, padding: [usize; 4]) -> Tensor {
 
     let out_h = in_h + pad_top + pad_bottom;
     let out_w = in_w + pad_left + pad_right;
-    let mut output = zero_tensor::<f32>(vec![out_h, out_w, in_c]);
+    let mut output = zero_tensor::<f32>(vec![batch, in_c, out_h, out_w]);
 
-    for y in pad_top..(out_h - pad_bottom) {
-        for x in pad_left..(out_w - pad_right) {
-            for c in 0..in_c {
-                output[[y, x, c]] = input[[y - pad_top, x - pad_left, c]];
+    for n in 0..batch {
+        for y in pad_top..(out_h - pad_bottom) {
+            for x in pad_left..(out_w - pad_right) {
+                for c in 0..in_c {
+                    output[[n, c, y, x]] = input[[n, c, y - pad_top, x - pad_left]];
+                }
             }
         }
     }
@@ -422,21 +436,21 @@ mod tests {
     #[test]
     fn test_conv_2d() -> Result<(), String> {
         let kernel = from_data(
-            vec![3, 3, 1, 1],
+            vec![1, 1, 3, 3],
             vec![
                 0.3230, 0.7632, 0.4616, 0.8837, 0.5898, 0.3424, 0.2101, 0.7821, 0.6861,
             ],
         );
 
         let input = from_data(
-            vec![3, 3, 1],
+            vec![1, 1, 3, 3],
             vec![
                 0.5946, 0.8249, 0.0448, 0.9552, 0.2041, 0.2501, 0.2693, 0.1007, 0.8862,
             ],
         );
 
         let expected_with_same_padding = from_data(
-            vec![3, 3, 1],
+            vec![1, 1, 3, 3],
             vec![
                 1.5202, 1.5592, 0.9939, 1.7475, 2.6358, 1.3428, 1.0165, 1.1806, 0.8685,
             ],
@@ -445,7 +459,7 @@ mod tests {
         let result = conv_2d(&input, &kernel, (1, 1), 1 /* groups */);
         expect_equal(&result, &expected_with_same_padding)?;
 
-        let expected_with_no_padding = from_data(vec![1, 1, 1], vec![2.6358]);
+        let expected_with_no_padding = from_data(vec![1, 1, 1, 1], vec![2.6358]);
 
         let result = conv_2d(&input, &kernel, (0, 0), 1 /* groups */);
         expect_equal(&result, &expected_with_no_padding)
@@ -454,20 +468,20 @@ mod tests {
     #[test]
     fn test_conv_2d_depthwise() -> Result<(), String> {
         let input = from_data(
-            vec![2, 2, 3],
+            vec![1, 3, 2, 2],
             vec![
                 0.5946, 0.8249, 0.0448, 0.9552, 0.2041, 0.2501, 0.2693, 0.1007, 1.5202, 1.5592,
                 0.9939, 1.7475,
             ],
         );
         let kernel = from_data(
-            vec![2, 2, 3, 1],
+            vec![3, 1, 2, 2],
             vec![
                 -0.0862, -0.4111, 0.0813, 0.4993, -0.4641, 0.1715, -0.0532, -0.2429, -0.4325,
                 0.4273, 0.4180, 0.4338,
             ],
         );
-        let expected = from_data(vec![1, 1, 3], vec![1.0776, -0.0428, 0.1471]);
+        let expected = from_data(vec![1, 3, 1, 1], vec![0.09020272, -0.09061745, 1.1822754]);
 
         let result = conv_2d(&input, &kernel, (0, 0), 3 /* groups */);
 
@@ -476,10 +490,10 @@ mod tests {
 
     #[test]
     fn test_conv_transpose_2d() -> Result<(), String> {
-        let input = from_data(vec![2, 2, 1], vec![1.0, 2.0, 3.0, 4.0]);
-        let kernel = from_data(vec![2, 2, 1, 1], vec![0.1, 0.2, 0.3, 0.4]);
+        let input = from_data(vec![1, 1, 2, 2], vec![1.0, 2.0, 3.0, 4.0]);
+        let kernel = from_data(vec![1, 1, 2, 2], vec![0.1, 0.2, 0.3, 0.4]);
         let expected = from_data(
-            vec![4, 4, 1],
+            vec![1, 1, 4, 4],
             vec![
                 0.1000, 0.2000, 0.2000, 0.4000, 0.3000, 0.4000, 0.6000, 0.8000, 0.3000, 0.6000,
                 0.4000, 0.8000, 0.9000, 1.2000, 1.2000, 1.6000,
@@ -493,8 +507,8 @@ mod tests {
 
     #[test]
     fn test_max_pool_2d() -> Result<(), String> {
-        let input = from_data(vec![2, 2, 1], vec![1.0, 2.0, 3.0, 4.0]);
-        let expected = from_data(vec![1, 1, 1], vec![4.0]);
+        let input = from_data(vec![1, 1, 2, 2], vec![1.0, 2.0, 3.0, 4.0]);
+        let expected = from_data(vec![1, 1, 1, 1], vec![4.0]);
         let result = max_pool_2d(&input, 2);
         expect_equal(&result, &expected)
     }
@@ -541,9 +555,9 @@ mod tests {
 
     #[test]
     fn test_pad_2d() -> Result<(), String> {
-        let input = from_data(vec![2, 2, 1], vec![1.0, 2.0, 3.0, 4.0]);
+        let input = from_data(vec![1, 1, 2, 2], vec![1.0, 2.0, 3.0, 4.0]);
         let expected = from_data(
-            vec![4, 4, 1],
+            vec![1, 1, 4, 4],
             vec![
                 0.0, 0.0, 0.0, 0.0, 0.0, 1.0, 2.0, 0.0, 0.0, 3.0, 4.0, 0.0, 0.0, 0.0, 0.0, 0.0,
             ],

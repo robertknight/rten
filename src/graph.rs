@@ -230,7 +230,7 @@ mod tests {
         let mut g = Graph::new();
 
         let weights = from_data(
-            vec![3, 3, 1, 1],
+            vec![1, 1, 3, 3],
             vec![
                 0.3230, 0.7632, 0.4616, 0.8837, 0.5898, 0.3424, 0.2101, 0.7821, 0.6861,
             ],
@@ -248,7 +248,7 @@ mod tests {
         let relu_out = g.add_op(Box::new(ReLU {}), &[conv_out]);
 
         let input = from_data(
-            vec![3, 3, 1],
+            vec![1, 1, 3, 3],
             vec![
                 0.5946, 0.8249, 0.0448, 0.9552, 0.2041, 0.2501, 0.2693, 0.1007, 0.8862,
             ],
@@ -257,7 +257,7 @@ mod tests {
         let results = g.run(&[(input_id, &input)], &[relu_out]);
 
         let expected = from_data(
-            vec![3, 3, 1],
+            vec![1, 1, 3, 3],
             vec![
                 1.5202, 1.5592, 0.9939, 1.7475, 2.6358, 1.3428, 1.0165, 1.1806, 0.8685,
             ],

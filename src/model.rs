@@ -298,7 +298,7 @@ mod tests {
             "sigmoid",
             "slice",
         ];
-        let input = from_data(vec![3, 3, 1], vec![1., 2., 3., 4., 5., 6., 7., 8., 9.]);
+        let input = from_data(vec![1, 1, 3, 3], vec![1., 2., 3., 4., 5., 6., 7., 8., 9.]);
 
         for output in outputs {
             let output_id = model.find_node(output).unwrap();
