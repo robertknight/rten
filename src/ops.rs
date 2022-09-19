@@ -180,7 +180,7 @@ pub fn max_pool_2d(input: &Tensor, kernel_size: usize) -> Tensor {
         for out_y in 0..out_h {
             for out_x in 0..out_w {
                 for chan in 0..in_c {
-                    let mut max_val = input[[n, chan, out_y, out_x]];
+                    let mut max_val = input[[n, chan, out_y * kernel_size, out_x * kernel_size]];
                     for k_y in 0..kernel_size {
                         for k_x in 0..kernel_size {
                             let val = input[[
@@ -405,7 +405,7 @@ mod tests {
         concat, conv_2d, conv_transpose_2d, max_pool_2d, pad_2d, relu, sigmoid, slice,
     };
     use crate::rng::XorShiftRNG;
-    use crate::tensor::{from_data, random_tensor, Tensor};
+    use crate::tensor::{from_data, random_tensor, zero_tensor, Tensor};
 
     /// Check that the shapes of two tensors are equal and that their contents
     /// are approximately equal.
@@ -500,15 +500,31 @@ mod tests {
             ],
         );
 
-        let result = conv_transpose_2d(&input, &kernel, 2);
+        let result = conv_transpose_2d(&input, &kernel, None, 2);
 
         expect_equal(&result, &expected)
     }
 
     #[test]
     fn test_max_pool_2d() -> Result<(), String> {
-        let input = from_data(vec![1, 1, 2, 2], vec![1.0, 2.0, 3.0, 4.0]);
-        let expected = from_data(vec![1, 1, 1, 1], vec![4.0]);
+        let height = 4;
+        let width = 8;
+        let mut input = zero_tensor(vec![1, 1, height, width]);
+
+        input[[0, 0, 0, 0]] = 1.0;
+        input[[0, 0, 0, 1]] = 2.0;
+        input[[0, 0, 1, 0]] = 3.0;
+        input[[0, 0, 1, 1]] = 4.0;
+
+        input[[0, 0, 0, 2]] = 0.1;
+        input[[0, 0, 0, 3]] = 0.2;
+        input[[0, 0, 1, 2]] = 0.3;
+        input[[0, 0, 1, 3]] = 0.4;
+
+        let expected = from_data(
+            vec![1, 1, 2, 4],
+            vec![4.0, 0.4, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0],
+        );
         let result = max_pool_2d(&input, 2);
         expect_equal(&result, &expected)
     }
