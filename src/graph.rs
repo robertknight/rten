@@ -86,6 +86,11 @@ impl Graph {
     ) -> Vec<Tensor> {
         let plan = self.create_plan(inputs, outputs);
         let opts = opts.unwrap_or_default();
+        let run_start = if opts.timing {
+            Some(Instant::now())
+        } else {
+            None
+        };
 
         // Collect operator inputs
         let mut values: HashMap<NodeId, &Tensor> = inputs.iter().map(|x| *x).collect();
@@ -125,13 +130,18 @@ impl Graph {
                 let input_shapes: Vec<_> = op_inputs.iter().map(|x| x.shape()).collect();
                 let op_elapsed = start.elapsed().as_millis();
                 println!(
-                    "#{} {:?} with {:?} / {}ms",
+                    "#{} {:?} with {:?} in {}ms",
                     op_node_id, op_node.operator, input_shapes, op_elapsed
                 );
             }
 
             temp_values.insert(op_node.output, output);
             // TODO - Remove temporary inputs that are no longer needed
+        }
+
+        if let Some(start) = run_start {
+            let run_elapsed = start.elapsed().as_millis();
+            println!("Graph run with {} ops in {}ms", plan.len(), run_elapsed);
         }
 
         // Return the requested outputs
