@@ -5,6 +5,11 @@ all: src/schema_generated.rs tools/schema_generated.py
 clean:
 	rm src/*_generated.rs tools/*_generated.py
 
+.PHONY: check
+check:
+	cargo fmt --check
+	cargo test
+
 src/schema_generated.rs: src/schema.fbs
 	flatc -o src/ --rust src/schema.fbs
 	cargo fmt
