@@ -1,7 +1,9 @@
+use std::fmt::Debug;
+
 use crate::tensor::{from_data, zero_tensor, Tensor};
 
 /// An Operator is a computation step in a graph.
-pub trait Operator {
+pub trait Operator: Debug {
     /// Execute the operator with the inputs.
     fn run(&self, input: &[&Tensor]) -> Tensor;
 }
@@ -111,6 +113,7 @@ pub fn conv_2d(
     output
 }
 
+#[derive(Debug)]
 pub struct Conv2d {
     pub padding: (usize, usize),
     pub groups: usize,
@@ -189,6 +192,7 @@ pub fn conv_transpose_2d(
     output
 }
 
+#[derive(Debug)]
 pub struct ConvTranspose2d {
     pub stride: usize,
 }
@@ -238,6 +242,7 @@ pub fn max_pool_2d(input: &Tensor, kernel_size: usize) -> Tensor {
     output
 }
 
+#[derive(Debug)]
 pub struct MaxPool2d {
     pub kernel_size: usize,
 }
@@ -254,6 +259,7 @@ pub fn relu(x: &Tensor) -> Tensor {
     x.map(|e| e.max(0f32))
 }
 
+#[derive(Debug)]
 pub struct ReLU {}
 impl Operator for ReLU {
     /// Run `relu` operator with `[input]` inputs.
@@ -267,6 +273,7 @@ pub fn sigmoid(x: &Tensor) -> Tensor {
     x.map(|e| 1. / (1. + (-e).exp()))
 }
 
+#[derive(Debug)]
 pub struct Sigmoid {}
 impl Operator for Sigmoid {
     /// Run `sigmoid` operator with `[input]` inputs.
@@ -329,6 +336,7 @@ pub fn concat(a: &Tensor, b: &Tensor, dim: usize) -> Tensor {
     output
 }
 
+#[derive(Debug)]
 pub struct Concat {
     pub dim: usize,
 }
@@ -370,6 +378,7 @@ pub fn pad_2d(input: &Tensor, padding: [usize; 4]) -> Tensor {
     output
 }
 
+#[derive(Debug)]
 pub struct Pad2d {
     pub padding: [usize; 4],
 }
@@ -411,6 +420,7 @@ pub fn slice(input: &Tensor, dim: usize, start: usize, end: usize) -> Tensor {
     from_data(out_shape, out_data)
 }
 
+#[derive(Debug)]
 pub struct Slice {
     pub dim: usize,
     pub start: usize,

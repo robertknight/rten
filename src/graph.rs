@@ -267,6 +267,7 @@ mod tests {
         expect_equal(&results[0], &expected)
     }
 
+    #[derive(Debug)]
     struct AddOne {}
     impl Operator for AddOne {
         fn run(&self, inputs: &[&Tensor]) -> Tensor {
