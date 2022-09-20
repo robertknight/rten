@@ -100,6 +100,18 @@ impl Graph {
             }
         }
 
+        // Count how often each temporary input is used, so we can free them
+        // when no longer needed.
+        let mut usage_counts: HashMap<NodeId, usize> = HashMap::new();
+        for (_, op_node) in plan.iter() {
+            for node_id in op_node.inputs.iter() {
+                usage_counts
+                    .entry(*node_id)
+                    .and_modify(|count| *count += 1)
+                    .or_insert(1);
+            }
+        }
+
         // Execute the plan
         let mut temp_values: HashMap<NodeId, Tensor> = HashMap::new();
         for (op_node_id, op_node) in plan.iter() {
@@ -136,7 +148,16 @@ impl Graph {
             }
 
             temp_values.insert(op_node.output, output);
-            // TODO - Remove temporary inputs that are no longer needed
+
+            // Remove temporary values that are no longer needed
+            for node_id in op_node.inputs.iter() {
+                let usage = *usage_counts.get(node_id).unwrap();
+                if usage == 1 {
+                    temp_values.remove(node_id);
+                } else {
+                    usage_counts.insert(*node_id, usage - 1);
+                }
+            }
         }
 
         if let Some(start) = run_start {
