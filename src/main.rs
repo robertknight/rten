@@ -15,6 +15,7 @@ mod schema_generated;
 #[cfg(test)]
 mod model_builder;
 
+use graph::RunOptions;
 use model::load_model;
 use tensor::{zero_tensor, Tensor};
 
@@ -60,6 +61,7 @@ fn image_from_prob_tensor(tensor: &Tensor) -> Vec<u8> {
 fn main() {
     let model_bytes = fs::read("output.model").unwrap();
     let model = load_model(&model_bytes).unwrap();
+
     let input_id = model.find_node("input.1").unwrap();
     let output_id = model.find_node("380").unwrap();
 
@@ -72,14 +74,18 @@ fn main() {
     let img_data = &buf[..frame_info.buffer_size()];
     let img_tensor = tensor_from_image(600, 800, img_data);
 
-    let outputs = model.run(&[(input_id, &img_tensor)], &[output_id]);
+    let outputs = model.run(
+        &[(input_id, &img_tensor)],
+        &[output_id],
+        Some(RunOptions { timing: true }),
+    );
     let text_mask = &outputs[0];
     let text_img = image_from_prob_tensor(&text_mask);
 
     let file = fs::File::create("output.png").unwrap();
-    let mut writer = BufWriter::new(file);
+    let writer = BufWriter::new(file);
 
-    let mut encoder = png::Encoder::new(writer, 600, 800);
+    let encoder = png::Encoder::new(writer, 600, 800);
     let mut writer = encoder.write_header().unwrap();
     writer.write_image_data(&text_img).unwrap();
 }
