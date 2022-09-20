@@ -2,7 +2,7 @@ extern crate flatbuffers;
 
 use std::collections::HashMap;
 
-use crate::graph::{Graph, NodeId};
+use crate::graph::{Graph, NodeId, RunOptions};
 use crate::ops;
 use crate::ops::Operator;
 use crate::schema_generated::{root_as_model, OperatorNode, OperatorType};
@@ -22,8 +22,13 @@ impl Model {
     /// Execute the model.
     ///
     /// The input and output nodes are specified via IDs looked up via `find_node`.
-    pub fn run(&self, inputs: &[(NodeId, &Tensor)], outputs: &[NodeId]) -> Vec<Tensor> {
-        self.graph.run(inputs, outputs)
+    pub fn run(
+        &self,
+        inputs: &[(NodeId, &Tensor)],
+        outputs: &[NodeId],
+        opts: Option<RunOptions>,
+    ) -> Vec<Tensor> {
+        self.graph.run(inputs, outputs, opts)
     }
 }
 
@@ -227,7 +232,7 @@ mod tests {
         let output_id = model.find_node("output").unwrap();
 
         let input = from_data(vec![1, 2, 2], vec![1., 2., -1., -2.]);
-        let result = model.run(&[(input_id, &input)], &[output_id]);
+        let result = model.run(&[(input_id, &input)], &[output_id], None);
 
         assert_eq!(result.len(), 1);
         assert_eq!(result[0].shape(), vec![2, 2, 2]);
@@ -302,7 +307,7 @@ mod tests {
 
         for output in outputs {
             let output_id = model.find_node(output).unwrap();
-            let result = model.run(&[(input_node as usize, &input)], &[output_id]);
+            let result = model.run(&[(input_node as usize, &input)], &[output_id], None);
             assert_eq!(result.len(), 1);
         }
     }

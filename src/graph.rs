@@ -1,4 +1,5 @@
 use std::collections::{HashMap, HashSet};
+use std::time::Instant;
 
 use crate::ops::Operator;
 use crate::tensor::Tensor;
@@ -19,6 +20,17 @@ pub type NodeId = usize;
 
 pub struct Graph {
     nodes: Vec<Node>,
+}
+
+pub struct RunOptions {
+    /// Whether to log operator timing as the graph executes
+    pub timing: bool,
+}
+
+impl Default for RunOptions {
+    fn default() -> Self {
+        RunOptions { timing: false }
+    }
 }
 
 impl Graph {
@@ -66,8 +78,14 @@ impl Graph {
 
     /// Compute a set of output values given a set of inputs, using the
     /// processing steps and constant values defined by the graph.
-    pub fn run(&self, inputs: &[(NodeId, &Tensor)], outputs: &[NodeId]) -> Vec<Tensor> {
+    pub fn run(
+        &self,
+        inputs: &[(NodeId, &Tensor)],
+        outputs: &[NodeId],
+        opts: Option<RunOptions>,
+    ) -> Vec<Tensor> {
         let plan = self.create_plan(inputs, outputs);
+        let opts = opts.unwrap_or_default();
 
         // Collect operator inputs
         let mut values: HashMap<NodeId, &Tensor> = inputs.iter().map(|x| *x).collect();
@@ -94,7 +112,24 @@ impl Graph {
                     );
                 }
             }
+
+            let op_start = if opts.timing {
+                Some(Instant::now())
+            } else {
+                None
+            };
+
             let output = op_node.operator.run(&op_inputs[..]);
+
+            if let Some(start) = op_start {
+                let input_shapes: Vec<_> = op_inputs.iter().map(|x| x.shape()).collect();
+                let op_elapsed = start.elapsed().as_millis();
+                println!(
+                    "#{} {:?} with {:?} / {}ms",
+                    op_node_id, op_node.operator, input_shapes, op_elapsed
+                );
+            }
+
             temp_values.insert(op_node.output, output);
             // TODO - Remove temporary inputs that are no longer needed
         }
@@ -255,7 +290,7 @@ mod tests {
             ],
         );
 
-        let results = g.run(&[(input_id, &input)], &[relu_out]);
+        let results = g.run(&[(input_id, &input)], &[relu_out], None);
 
         let expected = from_data(
             vec![1, 1, 3, 3],
@@ -295,11 +330,11 @@ mod tests {
 
         let input = from_data(vec![1], vec![1.]);
 
-        let results = g.run(&[(input_id, &input)], &[op_c]);
+        let results = g.run(&[(input_id, &input)], &[op_c], None);
         let expected = from_data(vec![2], vec![2., 3.]);
         expect_equal(&results[0], &expected)?;
 
-        let results = g.run(&[(input_id, &input)], &[op_d]);
+        let results = g.run(&[(input_id, &input)], &[op_d], None);
         let expected = from_data(vec![2], vec![3., 2.]);
         expect_equal(&results[0], &expected)
     }
@@ -316,7 +351,7 @@ mod tests {
             prev_output = g.add_op(Box::new(AddOne {}), &[prev_output]);
         }
 
-        let results = g.run(&[(input_id, &input)], &[prev_output]);
+        let results = g.run(&[(input_id, &input)], &[prev_output], None);
 
         let expected = from_data(vec![5], vec![101., 102., 103., 104., 105.]);
         expect_equal(&results[0], &expected)
@@ -329,7 +364,7 @@ mod tests {
         let input = from_data(vec![5], vec![1., 2., 3., 4., 5.]);
         let input_id = g.add_value();
 
-        let results = g.run(&[(input_id, &input)], &[input_id]);
+        let results = g.run(&[(input_id, &input)], &[input_id], None);
 
         expect_equal(&results[0], &input)
     }
@@ -341,7 +376,7 @@ mod tests {
         let value = from_data(vec![5], vec![1., 2., 3., 4., 5.]);
         let const_id = g.add_constant(value.clone());
 
-        let results = g.run(&[], &[const_id]);
+        let results = g.run(&[], &[const_id], None);
 
         expect_equal(&results[0], &value)
     }
@@ -349,7 +384,7 @@ mod tests {
     #[test]
     fn test_no_outputs() {
         let g = Graph::new();
-        let results = g.run(&[], &[]);
+        let results = g.run(&[], &[], None);
         assert_eq!(results.len(), 0);
     }
 
@@ -357,7 +392,7 @@ mod tests {
     #[should_panic(expected = "Unable to generate execution plan. Missing value 123")]
     fn test_panic_if_invalid_output() {
         let g = Graph::new();
-        g.run(&[], &[123]);
+        g.run(&[], &[123], None);
     }
 
     #[test]
@@ -365,6 +400,6 @@ mod tests {
     fn test_panic_if_missing_operator_input() {
         let mut g = Graph::new();
         let output = g.add_op(Box::new(ReLU {}), &[42]);
-        g.run(&[], &[output]);
+        g.run(&[], &[output], None);
     }
 }
