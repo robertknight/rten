@@ -20,6 +20,130 @@ pub enum OpType {
     Slice(Slice),
 }
 
+/// Unroll patches from an image into a matrix.
+///
+/// The input has shape NCHW. The result has shape (GHW)xP where G is the subset
+/// of image channels from `start_chan` to `end_chan` and P is the number of
+/// patches that the padded input divides into.
+fn im2col(
+    output: &mut Tensor,
+    input: &Tensor,
+    image_index: usize,
+    patch_h: usize,
+    patch_w: usize,
+    start_chan: usize,
+    end_chan: usize,
+    pad_h: usize,
+    pad_w: usize,
+) {
+    let [_, _, in_h, in_w] = input.dims();
+    let y_patches = (in_h + pad_h * 2) - (patch_h - 1);
+    let x_patches = (in_w + pad_w * 2) - (patch_w - 1);
+    let n_chans = end_chan - start_chan;
+
+    // Use direct buffer access to output to avoid checked-indexing overhead.
+    let [_, out_cols] = output.dims();
+    let out_data = output.data_mut();
+
+    for c in 0..n_chans {
+        let in_view = input.unchecked_view([image_index, start_chan + c, 0, 0]);
+
+        for py in 0..y_patches {
+            for px in 0..x_patches {
+                let out_col = py * x_patches + px;
+                for k_y in 0..patch_h {
+                    for k_x in 0..patch_w {
+                        let out_row = c * patch_h * patch_w + k_y * patch_w + k_x;
+                        let img_y = py + k_y;
+                        let img_x = px + k_x;
+
+                        out_data[out_row * out_cols + out_col] = if img_x >= pad_w
+                            && img_x < in_w + pad_w
+                            && img_y >= pad_h
+                            && img_y < in_h + pad_h
+                        {
+                            in_view[[img_y - pad_h, img_x - pad_w]]
+                        } else {
+                            0.0
+                        };
+                    }
+                }
+            }
+        }
+    }
+}
+
+/// Perform a matrix multiplication of `a` by `b` and add the results to
+/// `output`.
+fn gemm(output: &mut Tensor, a: &Tensor, b: &Tensor) {
+    let [a_rows, a_cols] = a.dims();
+    let [b_rows, b_cols] = b.dims();
+
+    if a_cols != b_rows {
+        panic!(
+            "Columns of first input {} must match rows {} of second input",
+            a_cols, b_rows
+        );
+    }
+
+    // Use direct buffer access to avoid indexing overhead
+    let out_data = output.data_mut();
+    let a_data = a.data();
+    let b_data = b.data();
+
+    for r in 0..a_rows {
+        for c in 0..b_cols {
+            let mut product = 0.;
+            for k in 0..a_cols {
+                product += a_data[r * a_cols + k] * b_data[k * b_cols + c];
+            }
+            out_data[r * b_cols + c] += product;
+        }
+    }
+}
+
+/// Unroll a subset of channels from a convolution kernel into a matrix of shape
+/// O x (CHW) where O is the number of output channels and C is the number of
+/// input channels.
+fn unroll_kernel(output: &mut Tensor, kernel: &Tensor, out_chan_start: usize, out_chan_end: usize) {
+    let [_, k_in_c, k_h, k_w] = kernel.dims();
+    for out_c in out_chan_start..out_chan_end {
+        for in_c in 0..k_in_c {
+            for y in 0..k_h {
+                for x in 0..k_w {
+                    let out_row = out_c - out_chan_start;
+                    let out_col = in_c * (k_h * k_w) + y * k_w + x;
+                    output[[out_row, out_col]] = kernel[[out_c, in_c, y, x]];
+                }
+            }
+        }
+    }
+}
+
+/// Convert a matrix of image patches back into an image.
+///
+/// The output tensor has shape NCHW. The input image has shape GP where G is a
+/// subset of channels C given by `start_chan..start_chan+G` and P is the number
+/// of patches.
+fn col2im(
+    output: &mut Tensor,
+    input: &Tensor,
+    image_index: usize,
+    start_chan: usize,
+    y_patches: usize,
+    x_patches: usize,
+) {
+    let [group_chans, n_patches] = input.dims();
+    for c in 0..group_chans {
+        for y in 0..y_patches {
+            for x in 0..x_patches {
+                let patch = y * x_patches + x;
+                output[[image_index, start_chan + c, y, x]] = input[[c, patch]];
+            }
+        }
+    }
+}
+
 /// Perform a 2D convolution of `input` with `kernel`.
 ///
 /// `input` has dimensions NCHW while `kernel` has OGHW where `G` is `C / groups`.
@@ -65,51 +189,66 @@ pub fn conv_2d(
     let out_h = in_h - k_h + 1 + 2 * pad_h;
     let out_w = in_w - k_w + 1 + 2 * pad_w;
 
-    let mut output = zero_tensor::<f32>(vec![batch, out_c, out_h, out_w]);
+    let y_patches = (in_h + pad_h * 2) - (k_h - 1);
+    let x_patches = (in_w + pad_w * 2) - (k_w - 1);
+
+    let n_patches = y_patches * x_patches;
+    let mut im2col_mat = zero_tensor(vec![in_channels_per_group * k_h * k_w, n_patches]);
+    let mut output = zero_tensor(vec![batch, out_c, out_h, out_w]);
+
+    let mut kernel_mat = zero_tensor(vec![
+        out_channels_per_group,
+        in_channels_per_group * k_h * k_w,
+    ]);
+
     for n in 0..batch {
-        for out_y in 0..out_h {
-            for out_x in 0..out_w {
-                for group in 0..groups {
-                    let in_chan_start = group * in_channels_per_group;
-                    let in_chan_end = in_chan_start + in_channels_per_group;
-                    let out_chan_start = group * out_channels_per_group;
-                    let out_chan_end = out_chan_start + out_channels_per_group;
+        for group in 0..groups {
+            let in_chan_start = group * in_channels_per_group;
+            let in_chan_end = in_chan_start + in_channels_per_group;
+            let out_chan_start = group * out_channels_per_group;
+            let out_chan_end = out_chan_start + out_channels_per_group;
 
-                    for out_chan in out_chan_start..out_chan_end {
-                        for k_y in 0..k_h {
-                            for k_x in 0..k_w {
-                                let in_y = out_y + k_y;
-                                let in_x = out_x + k_x;
+            let mut output_mat = zero_tensor(vec![out_channels_per_group, n_patches]);
 
-                                if in_y < pad_h || in_x < pad_w {
-                                    continue;
-                                }
+            // Perform convolution for group. This uses an indirect method,
+            // where image patches and the kernel are first packed into
+            // matrices. The matrices are multiplied, and the results unpacked
+            // into the output tensor.
+            im2col(
+                &mut im2col_mat,
+                input,
+                n,
+                k_h,
+                k_w,
+                in_chan_start,
+                in_chan_end,
+                pad_h,
+                pad_w,
+            );
+            unroll_kernel(&mut kernel_mat, &kernel, out_chan_start, out_chan_end);
+            gemm(&mut output_mat, &kernel_mat, &im2col_mat);
+            col2im(
+                &mut output,
+                &output_mat,
+                n,
+                out_chan_start,
+                y_patches,
+                x_patches,
+            );
 
-                                let in_y = in_y - pad_h;
-                                let in_x = in_x - pad_w;
-
-                                if in_y >= in_h || in_x >= in_w {
-                                    continue;
-                                }
-
-                                for in_chan in in_chan_start..in_chan_end {
-                                    output[[n, out_chan, out_y, out_x]] += input
-                                        [[n, in_chan, in_y, in_x]]
-                                        * kernel[[out_chan, in_chan - in_chan_start, k_y, k_x]];
-                                }
-                            }
+            // Add bias
+            if let Some(bias) = bias {
+                for c in out_chan_start..out_chan_end {
+                    for y in 0..out_h {
+                        for x in 0..out_w {
+                            output[[n, c, y, x]] += bias[[c]]
                         }
-                    }
-                }
-
-                if let Some(bias) = bias {
-                    for c in 0..out_c {
-                        output[[n, c, out_y, out_x]] += bias[[c]]
                     }
                 }
             }
         }
     }
+
     output
 }
 
@@ -529,7 +668,6 @@ mod tests {
         let expected = from_data(vec![1, 3, 1, 1], vec![0.09020272, -0.09061745, 1.1822754]);
 
         let result = conv_2d(&input, &kernel, None, (0, 0), 3 /* groups */);
-
         expect_equal(&result, &expected)
     }
 
