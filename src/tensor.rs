@@ -70,7 +70,7 @@ impl<T: Copy> Tensor<T> {
         }
         let mut offset = 0;
         for i in 0..N {
-            if index[i] > self.shape[i] {
+            if index[i] >= self.shape[i] {
                 panic!("Invalid index {} for dim {}", index[i], i);
             }
             offset += index[i] * self.stride(i)
