@@ -362,22 +362,23 @@ pub fn max_pool_2d(input: &Tensor, kernel_size: usize) -> Tensor {
     let mut output = zero_tensor::<f32>(vec![batch, in_c, out_h, out_w]);
 
     for n in 0..batch {
-        for out_y in 0..out_h {
-            for out_x in 0..out_w {
-                for chan in 0..in_c {
-                    let mut max_val = input[[n, chan, out_y * kernel_size, out_x * kernel_size]];
+        for chan in 0..in_c {
+            // Use direct buffer access to avoid indexing overhead
+            let out_offset = output.offset([n, chan, 0, 0]);
+            let out_data = output.data_mut();
+
+            let in_view = input.unchecked_view([n, chan, 0, 0]);
+            for out_y in 0..out_h {
+                for out_x in 0..out_w {
+                    let mut max_val = in_view[[out_y * kernel_size, out_x * kernel_size]];
                     for k_y in 0..kernel_size {
                         for k_x in 0..kernel_size {
-                            let val = input[[
-                                n,
-                                chan,
-                                out_y * kernel_size + k_y,
-                                out_x * kernel_size + k_x,
-                            ]];
+                            let val =
+                                in_view[[out_y * kernel_size + k_y, out_x * kernel_size + k_x]];
                             max_val = max_val.max(val);
                         }
                     }
-                    output[[n, chan, out_y, out_x]] = max_val;
+                    out_data[out_offset + out_y * out_w + out_x] = max_val;
                 }
             }
         }
