@@ -134,11 +134,17 @@ fn col2im(
     x_patches: usize,
 ) {
     let [group_chans, n_patches] = input.dims();
+    let [_, _, _, out_w] = output.dims();
+
     for c in 0..group_chans {
+        let out_offset = output.offset([image_index, start_chan + c, 0, 0]);
+        let mut out_data = output.data_mut();
+        let in_view = input.unchecked_view([c, 0]);
+
         for y in 0..y_patches {
             for x in 0..x_patches {
                 let patch = y * x_patches + x;
-                output[[image_index, start_chan + c, y, x]] = input[[c, patch]];
+                out_data[out_offset + y * out_w + x] = in_view[[patch]];
             }
         }
     }
@@ -239,9 +245,13 @@ pub fn conv_2d(
             // Add bias
             if let Some(bias) = bias {
                 for c in out_chan_start..out_chan_end {
+                    let out_offset = output.offset([n, c, 0, 0]);
+                    let out_data = output.data_mut();
+                    let chan_bias = bias[[c]];
+
                     for y in 0..out_h {
                         for x in 0..out_w {
-                            output[[n, c, y, x]] += bias[[c]]
+                            out_data[out_offset + y * out_w + x] += chan_bias;
                         }
                     }
                 }
@@ -324,9 +334,13 @@ pub fn conv_transpose_2d(
 
         if let Some(bias) = bias {
             for c in 0..out_c {
-                for h in 0..out_h {
-                    for w in 0..out_w {
-                        output[[n, c, h, w]] += bias[[c]];
+                let out_offset = output.offset([n, c, 0, 0]);
+                let out_data = output.data_mut();
+                let chan_bias = bias[[c]];
+
+                for y in 0..out_h {
+                    for x in 0..out_w {
+                        out_data[out_offset + y * out_w + x] += chan_bias;
                     }
                 }
             }
