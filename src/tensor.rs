@@ -91,6 +91,36 @@ impl<T: Copy> Tensor<T> {
         }
         self.shape[..].try_into().unwrap()
     }
+
+    /// Return a view of a subset of the data in this tensor.
+    ///
+    /// This provides faster indexing, at the cost of not bounds-checking
+    /// individual dimensions, although generated offsets into the data buffer
+    /// are still checked.
+    ///
+    /// N specifies the number of dimensions used for indexing into the view
+    /// and `base` specifies a fixed index to add to all indexes. `base` must
+    /// have the same number of dimensions as this tensor. N can be the same
+    /// or less. If less, it refers to the last N dimensions.
+    pub fn unchecked_view<const B: usize, const N: usize>(
+        &self,
+        base: [usize; B],
+    ) -> UncheckedView<T, N> {
+        let offset = self.offset(base);
+        let mut strides = [0; N];
+        for i in 0..N {
+            strides[i] = self.stride(self.shape.len() - N + i);
+        }
+        let mut shape = [0; N];
+        for i in 0..N {
+            shape[i] = self.shape[self.shape.len() - N + i];
+        }
+        UncheckedView {
+            tensor: self,
+            offset,
+            strides,
+        }
+    }
 }
 
 impl<const N: usize, T: Copy> Index<[usize; N]> for Tensor<T> {
@@ -104,6 +134,23 @@ impl<const N: usize, T: Copy> IndexMut<[usize; N]> for Tensor<T> {
     fn index_mut(&mut self, index: [usize; N]) -> &mut Self::Output {
         let offset = self.offset(index);
         &mut self.data[offset]
+    }
+}
+
+pub struct UncheckedView<'a, T: Copy, const N: usize> {
+    tensor: &'a Tensor<T>,
+    offset: usize,
+    strides: [usize; N],
+}
+
+impl<'a, const N: usize, T: Copy> Index<[usize; N]> for UncheckedView<'a, T, N> {
+    type Output = T;
+    fn index(&self, index: [usize; N]) -> &Self::Output {
+        let mut offset = self.offset;
+        for i in 0..N {
+            offset += index[i] * self.strides[i];
+        }
+        &self.tensor.data[offset]
     }
 }
 
