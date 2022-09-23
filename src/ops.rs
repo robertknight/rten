@@ -41,9 +41,7 @@ fn im2col(
     let x_patches = (in_w + pad_w * 2) - (patch_w - 1);
     let n_chans = end_chan - start_chan;
 
-    // Use direct buffer access to output to avoid checked-indexing overhead.
-    let [_, out_cols] = output.dims();
-    let out_data = output.data_mut();
+    let mut out_view = output.unchecked_view_mut([0, 0]);
 
     for c in 0..n_chans {
         let in_view = input.unchecked_view([image_index, start_chan + c, 0, 0]);
@@ -57,7 +55,7 @@ fn im2col(
                         let img_y = py + k_y;
                         let img_x = px + k_x;
 
-                        out_data[out_row * out_cols + out_col] = if img_x >= pad_w
+                        out_view[[out_row, out_col]] = if img_x >= pad_w
                             && img_x < in_w + pad_w
                             && img_y >= pad_h
                             && img_y < in_h + pad_h
@@ -134,17 +132,15 @@ fn col2im(
     x_patches: usize,
 ) {
     let [group_chans, n_patches] = input.dims();
-    let [_, _, _, out_w] = output.dims();
 
     for c in 0..group_chans {
-        let out_offset = output.offset([image_index, start_chan + c, 0, 0]);
-        let mut out_data = output.data_mut();
+        let mut out_view = output.unchecked_view_mut([image_index, start_chan + c, 0, 0]);
         let in_view = input.unchecked_view([c, 0]);
 
         for y in 0..y_patches {
             for x in 0..x_patches {
                 let patch = y * x_patches + x;
-                out_data[out_offset + y * out_w + x] = in_view[[patch]];
+                out_view[[y, x]] = in_view[[patch]];
             }
         }
     }
@@ -245,13 +241,12 @@ pub fn conv_2d(
             // Add bias
             if let Some(bias) = bias {
                 for c in out_chan_start..out_chan_end {
-                    let out_offset = output.offset([n, c, 0, 0]);
-                    let out_data = output.data_mut();
+                    let mut out_view = output.unchecked_view_mut([n, c, 0, 0]);
                     let chan_bias = bias[[c]];
 
                     for y in 0..out_h {
                         for x in 0..out_w {
-                            out_data[out_offset + y * out_w + x] += chan_bias;
+                            out_view[[y, x]] += chan_bias;
                         }
                     }
                 }
@@ -309,9 +304,7 @@ pub fn conv_transpose_2d(
 
     for n in 0..batch {
         for out_chan in 0..out_c {
-            // Use direct buffer access to avoid indexing overhead
-            let out_offset = output.offset([n, out_chan, 0, 0]);
-            let out_data = output.data_mut();
+            let mut out_view = output.unchecked_view_mut([n, out_chan, 0, 0]);
 
             for in_chan in 0..in_c {
                 let in_view = input.unchecked_view([n, in_chan, 0, 0]);
@@ -323,7 +316,7 @@ pub fn conv_transpose_2d(
                             for k_x in 0..k_w {
                                 let out_y = in_y * stride + k_y;
                                 let out_x = in_x * stride + k_x;
-                                out_data[out_offset + out_y * out_w + out_x] +=
+                                out_view[[out_y, out_x]] +=
                                     in_view[[in_y, in_x]] * kernel_view[[k_y, k_x]];
                             }
                         }
@@ -334,13 +327,12 @@ pub fn conv_transpose_2d(
 
         if let Some(bias) = bias {
             for c in 0..out_c {
-                let out_offset = output.offset([n, c, 0, 0]);
-                let out_data = output.data_mut();
+                let mut out_view = output.unchecked_view_mut([n, c, 0, 0]);
                 let chan_bias = bias[[c]];
 
                 for y in 0..out_h {
                     for x in 0..out_w {
-                        out_data[out_offset + y * out_w + x] += chan_bias;
+                        out_view[[y, x]] += chan_bias;
                     }
                 }
             }
@@ -377,9 +369,7 @@ pub fn max_pool_2d(input: &Tensor, kernel_size: usize) -> Tensor {
 
     for n in 0..batch {
         for chan in 0..in_c {
-            // Use direct buffer access to avoid indexing overhead
-            let out_offset = output.offset([n, chan, 0, 0]);
-            let out_data = output.data_mut();
+            let mut out_view = output.unchecked_view_mut([n, chan, 0, 0]);
 
             let in_view = input.unchecked_view([n, chan, 0, 0]);
             for out_y in 0..out_h {
@@ -392,7 +382,7 @@ pub fn max_pool_2d(input: &Tensor, kernel_size: usize) -> Tensor {
                             max_val = max_val.max(val);
                         }
                     }
-                    out_data[out_offset + out_y * out_w + out_x] = max_val;
+                    out_view[[out_y, out_x]] = max_val;
                 }
             }
         }
