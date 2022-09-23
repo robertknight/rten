@@ -298,18 +298,23 @@ pub fn conv_transpose_2d(
     let mut output = zero_tensor::<f32>(vec![batch, out_c, out_h, out_w]);
 
     for n in 0..batch {
-        for in_y in 0..in_h {
-            for in_x in 0..in_w {
-                for in_chan in 0..in_c {
-                    for k_y in 0..k_h {
-                        for k_x in 0..k_w {
-                            let out_y = in_y * stride + k_y;
-                            let out_x = in_x * stride + k_x;
+        for out_chan in 0..out_c {
+            // Use direct buffer access to avoid indexing overhead
+            let out_offset = output.offset([n, out_chan, 0, 0]);
+            let out_data = output.data_mut();
 
-                            for out_chan in 0..out_c {
-                                output[[n, out_chan, out_y, out_x]] += input
-                                    [[n, in_chan, in_y, in_x]]
-                                    * kernel[[in_chan, out_chan, k_y, k_x]];
+            for in_chan in 0..in_c {
+                let in_view = input.unchecked_view([n, in_chan, 0, 0]);
+                let kernel_view = kernel.unchecked_view([in_chan, out_chan, 0, 0]);
+
+                for in_y in 0..in_h {
+                    for in_x in 0..in_w {
+                        for k_y in 0..k_h {
+                            for k_x in 0..k_w {
+                                let out_y = in_y * stride + k_y;
+                                let out_x = in_x * stride + k_x;
+                                out_data[out_offset + out_y * out_w + out_x] +=
+                                    in_view[[in_y, in_x]] * kernel_view[[k_y, k_x]];
                             }
                         }
                     }
