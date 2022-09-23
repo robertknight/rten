@@ -84,18 +84,17 @@ fn gemm(output: &mut Tensor, a: &Tensor, b: &Tensor) {
         );
     }
 
-    // Use direct buffer access to avoid indexing overhead
-    let out_data = output.data_mut();
-    let a_data = a.data();
-    let b_data = b.data();
+    let mut out_view = output.unchecked_view_mut([0, 0]);
+    let a_view = a.unchecked_view([0, 0]);
+    let b_view = b.unchecked_view([0, 0]);
 
     for r in 0..a_rows {
         for c in 0..b_cols {
             let mut product = 0.;
             for k in 0..a_cols {
-                product += a_data[r * a_cols + k] * b_data[k * b_cols + c];
+                product += a_view[[r, k]] * b_view[[k, c]];
             }
-            out_data[r * b_cols + c] += product;
+            out_view[[r, c]] += product;
         }
     }
 }
