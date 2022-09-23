@@ -71,7 +71,7 @@ fn im2col(
     }
 }
 
-/// Perform a matrix multiplication of `a` by `b` and add the results to
+/// Perform a matrix multiplication of `a` by `b` and store the results in
 /// `output`.
 fn gemm(output: &mut Tensor, a: &Tensor, b: &Tensor) {
     let [a_rows, a_cols] = a.dims();
@@ -85,16 +85,19 @@ fn gemm(output: &mut Tensor, a: &Tensor, b: &Tensor) {
     }
 
     let mut out_view = output.unchecked_view_mut([0, 0]);
-    let a_view = a.unchecked_view([0, 0]);
-    let b_view = b.unchecked_view([0, 0]);
+    let a_data = a.data();
+    let b_data = b.data();
 
     for r in 0..a_rows {
         for c in 0..b_cols {
             let mut product = 0.;
             for k in 0..a_cols {
-                product += a_view[[r, k]] * b_view[[k, c]];
+                unsafe {
+                    product +=
+                        a_data.get_unchecked(r * a_cols + k) * b_data.get_unchecked(k * b_cols + c);
+                }
             }
-            out_view[[r, c]] += product;
+            out_view[[r, c]] = product;
         }
     }
 }
@@ -196,11 +199,11 @@ pub fn conv_2d(
     let n_patches = y_patches * x_patches;
     let mut im2col_mat = zero_tensor(vec![in_channels_per_group * k_h * k_w, n_patches]);
     let mut output = zero_tensor(vec![batch, out_c, out_h, out_w]);
-
     let mut kernel_mat = zero_tensor(vec![
         out_channels_per_group,
         in_channels_per_group * k_h * k_w,
     ]);
+    let mut output_mat = zero_tensor(vec![out_channels_per_group, n_patches]);
 
     for n in 0..batch {
         for group in 0..groups {
@@ -208,8 +211,6 @@ pub fn conv_2d(
             let in_chan_end = in_chan_start + in_channels_per_group;
             let out_chan_start = group * out_channels_per_group;
             let out_chan_end = out_chan_start + out_channels_per_group;
-
-            let mut output_mat = zero_tensor(vec![out_channels_per_group, n_patches]);
 
             // Perform convolution for group. This uses an indirect method,
             // where image patches and the kernel are first packed into
