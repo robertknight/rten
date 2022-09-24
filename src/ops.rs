@@ -148,6 +148,33 @@ fn col2im(
     }
 }
 
+/// Specialization of conv_2d for pointwise convolutions over one image. This
+/// can be reduced to tensor reshaping and matrix multiplication.
+fn conv_2d_pointwise(input: &Tensor, kernel: &Tensor, bias: Option<&Tensor>) -> Tensor {
+    let [_, in_c, in_h, in_w] = input.dims();
+    let [out_c, in_c, _, _] = kernel.dims();
+
+    let input_mat = input.clone_with_shape(&[in_c, in_h * in_w]);
+    let kernel_mat = kernel.clone_with_shape(&[out_c, in_c]);
+
+    let mut output = zero_tensor(vec![out_c, in_h * in_w]);
+    gemm(&mut output, &kernel_mat, &input_mat);
+
+    if let Some(bias) = bias {
+        for c in 0..out_c {
+            let mut out_view = output.unchecked_view_mut([c, 0]);
+            let chan_bias = bias[[c]];
+
+            for col in 0..(in_h * in_w) {
+                out_view[[col]] += chan_bias;
+            }
+        }
+    }
+
+    output.reshape(&[1, out_c, in_h, in_w]);
+    output
+}
+
 /// Perform a 2D convolution of `input` with `kernel`.
 ///
 /// `input` has dimensions NCHW while `kernel` has OGHW where `G` is `C / groups`.
@@ -171,6 +198,11 @@ pub fn conv_2d(
 ) -> Tensor {
     let [batch, in_c, in_h, in_w] = input.dims();
     let [out_c, k_in_c, k_h, k_w] = kernel.dims();
+    let (pad_h, pad_w) = padding;
+
+    if batch == 1 && k_h == 1 && k_w == 1 && pad_h == 0 && pad_w == 0 && groups == 1 {
+        return conv_2d_pointwise(input, kernel, bias);
+    }
 
     let out_channels_per_group = out_c / groups;
     let in_channels_per_group = in_c / groups;
@@ -189,7 +221,6 @@ pub fn conv_2d(
         );
     }
 
-    let (pad_h, pad_w) = padding;
     let out_h = in_h - k_h + 1 + 2 * pad_h;
     let out_w = in_w - k_w + 1 + 2 * pad_w;
 
@@ -657,6 +688,18 @@ mod tests {
         let bias = from_data(vec![1], vec![1.0]);
         let result = conv_2d(&input, &kernel, Some(&bias), (0, 0), 1 /* groups */);
         expect_equal(&result, &expected_with_bias)
+    }
+
+    #[test]
+    fn test_conv_2d_pointwise() {
+        let mut rng = XorShiftRNG::new(1234);
+        let kernel = random_tensor(vec![10, 5, 1, 1], &mut rng);
+        let input = random_tensor(vec![1, 5, 20, 20], &mut rng);
+
+        let result = conv_2d(&input, &kernel, None, (0, 0), 1 /* groups */);
+
+        // TODO - Check a subset of the data as well as the shape.
+        assert_eq!(result.shape(), [1, 10, 20, 20]);
     }
 
     #[test]
