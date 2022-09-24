@@ -349,10 +349,10 @@ pub fn conv_transpose_2d(
                 let kernel_view = kernel.unchecked_view([in_chan, out_chan, 0, 0]);
 
                 for in_y in 0..in_h {
-                    for in_x in 0..in_w {
-                        for k_y in 0..k_h {
+                    for k_y in 0..k_h {
+                        let out_y = in_y * stride + k_y;
+                        for in_x in 0..in_w {
                             for k_x in 0..k_w {
-                                let out_y = in_y * stride + k_y;
                                 let out_x = in_x * stride + k_x;
                                 out_view[[out_y, out_x]] +=
                                     in_view[[in_y, in_x]] * kernel_view[[k_y, k_x]];
