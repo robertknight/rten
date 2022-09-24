@@ -46,24 +46,31 @@ fn im2col(
     for c in 0..n_chans {
         let in_view = input.unchecked_view([image_index, start_chan + c, 0, 0]);
 
+        // The loop ordering here is chosen to maximize the number of
+        // consecutive steps that we read/write the same rows of the inputs and
+        // outputs. This is more efficient assuming the tensors are stored in
+        // row-major order.
         for py in 0..y_patches {
-            for px in 0..x_patches {
-                let out_col = py * x_patches + px;
-                for k_y in 0..patch_h {
-                    for k_x in 0..patch_w {
-                        let out_row = c * patch_h * patch_w + k_y * patch_w + k_x;
-                        let img_y = py + k_y;
+            let out_col_left = py * x_patches;
+
+            for k_y in 0..patch_h {
+                let img_y = py + k_y;
+                let in_image = img_y >= pad_h && img_y < in_h + pad_h;
+                let out_row_top = c * patch_h * patch_w + k_y * patch_w;
+
+                for k_x in 0..patch_w {
+                    let out_row = out_row_top + k_x;
+
+                    for px in 0..x_patches {
+                        let out_col = out_col_left + px;
                         let img_x = px + k_x;
 
-                        out_view[[out_row, out_col]] = if img_x >= pad_w
-                            && img_x < in_w + pad_w
-                            && img_y >= pad_h
-                            && img_y < in_h + pad_h
-                        {
-                            in_view[[img_y - pad_h, img_x - pad_w]]
-                        } else {
-                            0.0
-                        };
+                        out_view[[out_row, out_col]] =
+                            if in_image && img_x >= pad_w && img_x < in_w + pad_w {
+                                in_view[[img_y - pad_h, img_x - pad_w]]
+                            } else {
+                                0.0
+                            };
                     }
                 }
             }
