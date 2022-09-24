@@ -30,6 +30,14 @@ impl<T: Copy> Tensor<T> {
         Tensor { data, shape }
     }
 
+    /// Clone this tensor with a new shape. The new shape must have the same
+    /// total number of elements as the existing shape. See `reshape`.
+    pub fn clone_with_shape(&self, shape: &[usize]) -> Tensor<T> {
+        let mut clone = self.clone();
+        clone.reshape(shape);
+        clone
+    }
+
     pub fn len(&self) -> usize {
         self.data.len()
     }
@@ -44,6 +52,21 @@ impl<T: Copy> Tensor<T> {
 
     pub fn shape(&self) -> &[usize] {
         &self.shape
+    }
+
+    /// Update the shape of the tensor without altering the data layout.
+    ///
+    /// The total number of elements for the new shape must be the same as the
+    /// existing shape.
+    pub fn reshape(&mut self, shape: &[usize]) {
+        let len = shape.iter().fold(1, |product, dim| product * dim);
+        let current_len = self.len();
+
+        if len != current_len {
+            panic!("New shape must have same total elements as current shape");
+        }
+
+        self.shape = shape.into();
     }
 
     /// Return the number of elements between successive entries in the `dim`
@@ -122,6 +145,10 @@ impl<T: Copy> Tensor<T> {
         }
     }
 
+    /// Return a mutable view of a subset of the data in this tensor.
+    ///
+    /// This is the same as `unchecked_view` except that the returned view can
+    /// be used to modify elements.
     pub fn unchecked_view_mut<const B: usize, const N: usize>(
         &mut self,
         base: [usize; B],
@@ -223,7 +250,8 @@ pub fn from_data<T: Copy>(shape: Vec<usize>, data: Vec<T>) -> Tensor<T> {
 
 #[cfg(test)]
 mod tests {
-    use crate::tensor::zero_tensor;
+    use crate::rng::XorShiftRNG;
+    use crate::tensor::{random_tensor, zero_tensor};
 
     #[test]
     fn test_stride() {
@@ -294,5 +322,71 @@ mod tests {
     fn test_dims_panics_if_wrong_array_length() {
         let x = zero_tensor::<f32>(vec![10, 5, 3, 7]);
         let [_i, _j, _k] = x.dims();
+    }
+
+    #[test]
+    fn test_reshape() {
+        let mut rng = XorShiftRNG::new(1234);
+        let mut x = random_tensor(vec![10, 5, 3, 7], &mut rng);
+        let x_data: Vec<f32> = x.data().into();
+
+        assert_eq!(x.shape(), &[10, 5, 3, 7]);
+
+        x.reshape(&[10, 5, 3 * 7]);
+
+        assert_eq!(x.shape(), &[10, 5, 3 * 7]);
+        assert_eq!(x.data(), x_data);
+    }
+
+    #[test]
+    #[should_panic(expected = "New shape must have same total elements as current shape")]
+    fn test_reshape_with_wrong_size() {
+        let mut rng = XorShiftRNG::new(1234);
+        let mut x = random_tensor(vec![10, 5, 3, 7], &mut rng);
+        x.reshape(&[10, 5]);
+    }
+
+    #[test]
+    fn test_clone_with_shape() {
+        let mut rng = XorShiftRNG::new(1234);
+        let x = random_tensor(vec![10, 5, 3, 7], &mut rng);
+        let y = x.clone_with_shape(&[10, 5, 3 * 7]);
+
+        assert_eq!(y.shape(), &[10, 5, 3 * 7]);
+        assert_eq!(y.data(), x.data());
+    }
+
+    #[test]
+    fn test_unchecked_view() {
+        let mut rng = XorShiftRNG::new(1234);
+        let x = random_tensor(vec![10, 5, 3, 7], &mut rng);
+        let x_view = x.unchecked_view([5, 3, 0, 0]);
+
+        for a in 0..x.shape()[2] {
+            for b in 0..x.shape()[3] {
+                assert_eq!(x[[5, 3, a, b]], x_view[[a, b]]);
+            }
+        }
+    }
+
+    #[test]
+    fn test_unchecked_view_mut() {
+        let mut rng = XorShiftRNG::new(1234);
+        let mut x = random_tensor(vec![10, 5, 3, 7], &mut rng);
+
+        let [_, _, a_size, b_size] = x.dims();
+        let mut x_view = x.unchecked_view_mut([5, 3, 0, 0]);
+
+        for a in 0..a_size {
+            for b in 0..b_size {
+                x_view[[a, b]] = (a + b) as f32;
+            }
+        }
+
+        for a in 0..x.shape()[2] {
+            for b in 0..x.shape()[3] {
+                assert_eq!(x[[5, 3, a, b]], (a + b) as f32);
+            }
+        }
     }
 }
