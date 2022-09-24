@@ -38,6 +38,7 @@ impl<T: Copy> Tensor<T> {
         clone
     }
 
+    /// Return the total number of elements in this tensor.
     pub fn len(&self) -> usize {
         self.data.len()
     }
