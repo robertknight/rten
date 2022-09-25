@@ -8,6 +8,7 @@ mod model;
 mod ops;
 mod rng;
 mod tensor;
+mod timer;
 
 #[allow(dead_code, unused_imports)]
 mod schema_generated;

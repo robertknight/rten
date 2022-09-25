@@ -4,6 +4,9 @@ use crate::tensor::{from_data, zero_tensor, Tensor};
 
 /// An Operator is a computation step in a graph.
 pub trait Operator: Debug {
+    /// Return a display name for the operator.
+    fn name(&self) -> &str;
+
     /// Execute the operator with the inputs.
     fn run(&self, input: &[&Tensor]) -> Tensor;
 }
@@ -302,6 +305,10 @@ pub struct Conv2d {
 }
 
 impl Operator for Conv2d {
+    fn name(&self) -> &str {
+        "Conv2d"
+    }
+
     /// Run `conv_2d` operator with `[input, weight, bias?]` inputs.
     fn run(&self, inputs: &[&Tensor]) -> Tensor {
         let input = inputs[0];
@@ -386,6 +393,10 @@ pub struct ConvTranspose2d {
 }
 
 impl Operator for ConvTranspose2d {
+    fn name(&self) -> &str {
+        "ConvTranspose2d"
+    }
+
     /// Run `conv_2d` operator with `[input, weight]` inputs.
     fn run(&self, inputs: &[&Tensor]) -> Tensor {
         let input = &inputs[0];
@@ -435,6 +446,10 @@ pub struct MaxPool2d {
 }
 
 impl Operator for MaxPool2d {
+    fn name(&self) -> &str {
+        "MaxPool2d"
+    }
+
     /// Run `sigmoid` operator with `[input]` inputs.
     fn run(&self, inputs: &[&Tensor]) -> Tensor {
         let input = &inputs[0];
@@ -449,6 +464,10 @@ pub fn relu(x: &Tensor) -> Tensor {
 #[derive(Debug)]
 pub struct ReLU {}
 impl Operator for ReLU {
+    fn name(&self) -> &str {
+        "ReLU"
+    }
+
     /// Run `relu` operator with `[input]` inputs.
     fn run(&self, inputs: &[&Tensor]) -> Tensor {
         let input = &inputs[0];
@@ -463,7 +482,10 @@ pub fn sigmoid(x: &Tensor) -> Tensor {
 #[derive(Debug)]
 pub struct Sigmoid {}
 impl Operator for Sigmoid {
-    /// Run `sigmoid` operator with `[input]` inputs.
+    fn name(&self) -> &str {
+        "Sigmoid"
+    }
+
     fn run(&self, inputs: &[&Tensor]) -> Tensor {
         let input = &inputs[0];
         sigmoid(input)
@@ -529,6 +551,10 @@ pub struct Concat {
 }
 
 impl Operator for Concat {
+    fn name(&self) -> &str {
+        "Concat"
+    }
+
     /// Run `concat` operator with `[a, b]` inputs.
     fn run(&self, inputs: &[&Tensor]) -> Tensor {
         let a = &inputs[0];
@@ -571,6 +597,10 @@ pub struct Pad2d {
 }
 
 impl Operator for Pad2d {
+    fn name(&self) -> &str {
+        "Pad2d"
+    }
+
     /// Run `pad` operator with `[input]` inputs.
     fn run(&self, inputs: &[&Tensor]) -> Tensor {
         let input = &inputs[0];
@@ -615,6 +645,10 @@ pub struct Slice {
 }
 
 impl Operator for Slice {
+    fn name(&self) -> &str {
+        "Slice"
+    }
+
     /// Run `slice` operator with `[input]` inputs.
     fn run(&self, inputs: &[&Tensor]) -> Tensor {
         let input = &inputs[0];

@@ -1,8 +1,8 @@
 use std::collections::{HashMap, HashSet};
-use std::time::Instant;
 
 use crate::ops::Operator;
 use crate::tensor::Tensor;
+use crate::timer::Timer;
 
 struct OperatorNode {
     inputs: Vec<NodeId>,
@@ -86,11 +86,11 @@ impl Graph {
     ) -> Vec<Tensor> {
         let plan = self.create_plan(inputs, outputs);
         let opts = opts.unwrap_or_default();
-        let run_start = if opts.timing {
-            Some(Instant::now())
-        } else {
-            None
-        };
+
+        let mut run_timer = Timer::new();
+        if opts.timing {
+            run_timer.start();
+        }
 
         // Collect operator inputs
         let mut values: HashMap<NodeId, &Tensor> = inputs.iter().map(|x| *x).collect();
@@ -114,6 +114,8 @@ impl Graph {
 
         // Execute the plan
         let mut temp_values: HashMap<NodeId, Tensor> = HashMap::new();
+        let mut op_elapsed: HashMap<&str, f32> = HashMap::new();
+
         for (op_node_id, op_node) in plan.iter() {
             let mut op_inputs = Vec::new();
             for node_id in op_node.inputs.iter() {
@@ -130,20 +132,29 @@ impl Graph {
                 }
             }
 
-            let op_start = if opts.timing {
-                Some(Instant::now())
-            } else {
-                None
-            };
+            let mut op_timer = Timer::new();
+            if opts.timing {
+                op_timer.start();
+            }
 
             let output = op_node.operator.run(&op_inputs[..]);
 
-            if let Some(start) = op_start {
+            if opts.timing {
+                op_timer.end();
                 let input_shapes: Vec<_> = op_inputs.iter().map(|x| x.shape()).collect();
-                let op_elapsed = start.elapsed().as_millis();
+
+                if let Some(elapsed) = op_elapsed.get_mut(op_node.operator.name()) {
+                    *elapsed += op_timer.elapsed();
+                } else {
+                    op_elapsed.insert(op_node.operator.name(), op_timer.elapsed());
+                }
+
                 println!(
                     "#{} {:?} with {:?} in {}ms",
-                    op_node_id, op_node.operator, input_shapes, op_elapsed
+                    op_node_id,
+                    op_node.operator,
+                    input_shapes,
+                    op_timer.elapsed()
                 );
             }
 
@@ -160,9 +171,20 @@ impl Graph {
             }
         }
 
-        if let Some(start) = run_start {
-            let run_elapsed = start.elapsed().as_millis();
-            println!("Graph run with {} ops in {}ms", plan.len(), run_elapsed);
+        if opts.timing {
+            run_timer.end();
+            println!(
+                "Graph run of {} ops finished in {}ms",
+                plan.len(),
+                run_timer.elapsed()
+            );
+
+            // Display cumulative times for each op type, sorted by op name
+            let mut op_timings: Vec<_> = op_elapsed.iter().collect();
+            op_timings.sort_by(|a, b| a.0.cmp(b.0));
+            for (op_name, total_time) in op_timings.iter() {
+                println!("  {} {}ms", op_name, total_time);
+            }
         }
 
         // Return the requested outputs
@@ -336,6 +358,10 @@ mod tests {
     #[derive(Debug)]
     struct AddOne {}
     impl Operator for AddOne {
+        fn name(&self) -> &str {
+            "AddOne"
+        }
+
         fn run(&self, inputs: &[&Tensor]) -> Tensor {
             let input = inputs[0];
             let output_data = input.data().iter().map(|x| x + 1.0).collect();
