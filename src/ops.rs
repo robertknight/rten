@@ -360,10 +360,11 @@ pub fn conv_transpose_2d(
                     for k_y in 0..k_h {
                         let out_y = in_y * stride + k_y;
                         for k_x in 0..k_w {
+                            let kernel_val = kernel_view[[k_y, k_x]];
+
                             for in_x in 0..in_w {
                                 let out_x = in_x * stride + k_x;
-                                out_view[[out_y, out_x]] +=
-                                    in_view[[in_y, in_x]] * kernel_view[[k_y, k_x]];
+                                out_view[[out_y, out_x]] += in_view[[in_y, in_x]] * kernel_val;
                             }
                         }
                     }
