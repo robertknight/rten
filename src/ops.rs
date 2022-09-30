@@ -158,6 +158,24 @@ fn col2im(
     }
 }
 
+/// Add per-channel biases to an NCHW tensor. Bias is a C-length vector.
+fn add_channel_bias(output: &mut Tensor, bias: &Tensor) {
+    let [batch, chans, height, width] = output.dims();
+
+    for n in 0..batch {
+        for c in 0..chans {
+            let mut out_view = output.unchecked_view_mut([n, c, 0, 0]);
+            let chan_bias = bias[[c]];
+
+            for y in 0..height {
+                for x in 0..width {
+                    out_view[[y, x]] += chan_bias;
+                }
+            }
+        }
+    }
+}
+
 /// Specialization of conv_2d for pointwise convolutions over one image. This
 /// can be reduced to tensor reshaping and matrix multiplication.
 fn conv_2d_pointwise(input: &Tensor, kernel: &Tensor, bias: Option<&Tensor>) -> Tensor {
@@ -169,19 +187,12 @@ fn conv_2d_pointwise(input: &Tensor, kernel: &Tensor, bias: Option<&Tensor>) -> 
 
     let mut output = zero_tensor(vec![out_c, in_h * in_w]);
     gemm(&mut output, &kernel_mat, &input_mat);
+    output.reshape(&[1, out_c, in_h, in_w]);
 
     if let Some(bias) = bias {
-        for c in 0..out_c {
-            let mut out_view = output.unchecked_view_mut([c, 0]);
-            let chan_bias = bias[[c]];
-
-            for col in 0..(in_h * in_w) {
-                out_view[[col]] += chan_bias;
-            }
-        }
+        add_channel_bias(&mut output, bias);
     }
 
-    output.reshape(&[1, out_c, in_h, in_w]);
     output
 }
 
@@ -278,21 +289,11 @@ pub fn conv_2d(
                 y_patches,
                 x_patches,
             );
-
-            // Add bias
-            if let Some(bias) = bias {
-                for c in out_chan_start..out_chan_end {
-                    let mut out_view = output.unchecked_view_mut([n, c, 0, 0]);
-                    let chan_bias = bias[[c]];
-
-                    for y in 0..out_h {
-                        for x in 0..out_w {
-                            out_view[[y, x]] += chan_bias;
-                        }
-                    }
-                }
-            }
         }
+    }
+
+    if let Some(bias) = bias {
+        add_channel_bias(&mut output, bias);
     }
 
     output
@@ -369,19 +370,10 @@ pub fn conv_transpose_2d(
                 }
             }
         }
+    }
 
-        if let Some(bias) = bias {
-            for c in 0..out_c {
-                let mut out_view = output.unchecked_view_mut([n, c, 0, 0]);
-                let chan_bias = bias[[c]];
-
-                for y in 0..out_h {
-                    for x in 0..out_w {
-                        out_view[[y, x]] += chan_bias;
-                    }
-                }
-            }
-        }
+    if let Some(bias) = bias {
+        add_channel_bias(&mut output, bias);
     }
 
     output
