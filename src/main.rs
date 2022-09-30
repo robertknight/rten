@@ -3,6 +3,7 @@ extern crate png;
 use std::fs;
 use std::io::BufWriter;
 
+mod gemm;
 mod graph;
 mod model;
 mod ops;

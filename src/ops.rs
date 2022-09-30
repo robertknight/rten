@@ -1,5 +1,6 @@
 use std::fmt::Debug;
 
+use crate::gemm::gemm;
 use crate::tensor::{from_data, zero_tensor, Tensor};
 
 /// An Operator is a computation step in a graph.
@@ -77,37 +78,6 @@ fn im2col(
                     }
                 }
             }
-        }
-    }
-}
-
-/// Perform a matrix multiplication of `a` by `b` and store the results in
-/// `output`.
-fn gemm(output: &mut Tensor, a: &Tensor, b: &Tensor) {
-    let [a_rows, a_cols] = a.dims();
-    let [b_rows, b_cols] = b.dims();
-
-    if a_cols != b_rows {
-        panic!(
-            "Columns of first input {} must match rows {} of second input",
-            a_cols, b_rows
-        );
-    }
-
-    let mut out_view = output.unchecked_view_mut([0, 0]);
-    let a_data = a.data();
-    let b_data = b.data();
-
-    for r in 0..a_rows {
-        for c in 0..b_cols {
-            let mut product = 0.;
-            for k in 0..a_cols {
-                unsafe {
-                    product +=
-                        a_data.get_unchecked(r * a_cols + k) * b_data.get_unchecked(k * b_cols + c);
-                }
-            }
-            out_view[[r, c]] = product;
         }
     }
 }
