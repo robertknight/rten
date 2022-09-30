@@ -359,8 +359,8 @@ pub fn conv_transpose_2d(
                 for in_y in 0..in_h {
                     for k_y in 0..k_h {
                         let out_y = in_y * stride + k_y;
-                        for in_x in 0..in_w {
-                            for k_x in 0..k_w {
+                        for k_x in 0..k_w {
+                            for in_x in 0..in_w {
                                 let out_x = in_x * stride + k_x;
                                 out_view[[out_y, out_x]] +=
                                     in_view[[in_y, in_x]] * kernel_view[[k_y, k_x]];
