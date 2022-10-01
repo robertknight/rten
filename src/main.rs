@@ -17,6 +17,9 @@ mod schema_generated;
 #[cfg(test)]
 mod model_builder;
 
+#[cfg(test)]
+mod test_util;
+
 use graph::RunOptions;
 use model::load_model;
 use tensor::{zero_tensor, Tensor};
