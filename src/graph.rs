@@ -117,31 +117,47 @@ impl Graph {
         let mut op_elapsed: HashMap<&str, f32> = HashMap::new();
 
         for (op_node_id, op_node) in plan.iter() {
-            let mut op_inputs = Vec::new();
-            for node_id in op_node.inputs.iter() {
-                if let Some(value) = values.get(&node_id) {
-                    op_inputs.push(*value);
-                } else if let Some(value) = temp_values.get(&node_id) {
-                    op_inputs.push(value);
-                } else {
-                    // If this is reached, there was a bug in plan creation.
-                    panic!(
-                        "Invalid plan did not produce input value {} for operator {}",
-                        node_id, op_node_id
-                    );
-                }
-            }
-
             let mut op_timer = Timer::new();
             if opts.timing {
                 op_timer.start();
             }
 
-            let output = op_node.operator.run(&op_inputs[..]);
+            let mut input_shapes = Vec::new();
+
+            // Test if the operator can be run in-place to save allocations.
+            // This requires that the inputs are temporary values produced by
+            // earlier ops, and that they are not going to be needed by other
+            // ops in future.
+            let can_run_in_place = op_node.inputs.len() == 1
+                && op_node.operator.can_run_in_place()
+                && temp_values.contains_key(&op_node.inputs[0])
+                && usage_counts.get(&op_node.inputs[0]) == Some(&1);
+
+            let output = if can_run_in_place {
+                let mut input = temp_values.remove(&op_node.inputs[0]).unwrap();
+                op_node.operator.run_in_place(&mut input);
+                input
+            } else {
+                let mut op_inputs = Vec::new();
+                for node_id in op_node.inputs.iter() {
+                    if let Some(value) = values.get(&node_id) {
+                        op_inputs.push(*value);
+                    } else if let Some(value) = temp_values.get(&node_id) {
+                        op_inputs.push(value);
+                    } else {
+                        // If this is reached, there was a bug in plan creation.
+                        panic!(
+                            "Invalid plan did not produce input value {} for operator {}",
+                            node_id, op_node_id
+                        );
+                    }
+                }
+                input_shapes = op_inputs.iter().map(|x| x.shape()).collect();
+                op_node.operator.run(&op_inputs[..])
+            };
 
             if opts.timing {
                 op_timer.end();
-                let input_shapes: Vec<_> = op_inputs.iter().map(|x| x.shape()).collect();
 
                 if let Some(elapsed) = op_elapsed.get_mut(op_node.operator.name()) {
                     *elapsed += op_timer.elapsed();
@@ -283,7 +299,7 @@ impl Graph {
 mod tests {
     use crate::graph::Graph;
     use crate::ops::{Concat, Conv2d, Operator, ReLU};
-    use crate::tensor::{from_data, Tensor};
+    use crate::tensor::{from_data, zero_tensor, Tensor};
     use crate::test_util::expect_equal;
 
     // Test of a very simple graph with a typical structure (one input, one
@@ -432,5 +448,59 @@ mod tests {
         let mut g = Graph::new();
         let output = g.add_op(Box::new(ReLU {}), &[42]);
         g.run(&[], &[output], None);
+    }
+
+    #[derive(Debug)]
+    struct AddOneInPlace {}
+    impl Operator for AddOneInPlace {
+        fn name(&self) -> &str {
+            "AddOneInPlace"
+        }
+
+        fn can_run_in_place(&self) -> bool {
+            true
+        }
+
+        fn run(&self, inputs: &[&Tensor]) -> Tensor {
+            // An operator should normally have the same behavior in `run`
+            // and `run_in_place`. Here we use different behavior to make it
+            // possible to distinguish which path was used.
+            inputs[0].clone()
+        }
+
+        fn run_in_place(&self, input: &mut Tensor) {
+            for x in input.data_mut().iter_mut() {
+                *x = *x + 1.0;
+            }
+        }
+    }
+
+    #[test]
+    fn test_runs_op_in_place() {
+        let mut g = Graph::new();
+        let input_id = g.add_value();
+
+        let op1_id = g.add_op(Box::new(AddOneInPlace {}), &[input_id]);
+        let op2_id = g.add_op(Box::new(AddOneInPlace {}), &[op1_id]);
+        let op3_id = g.add_op(Box::new(AddOneInPlace {}), &[op2_id]);
+        let op4_id = g.add_op(Box::new(AddOneInPlace {}), &[op2_id]);
+        let input = zero_tensor(vec![1, 1]);
+
+        // First operator should not be run in-place, since it has an
+        // immutable input. The result should be the same as the input.
+        let results = g.run(&[(input_id, &input)], &[op1_id], None);
+        assert_eq!(results[0][[0, 0]], 0.0);
+
+        // Second operator should be run in-place, as it meets all the
+        // requirements for this optimization.
+        let results = g.run(&[(input_id, &input)], &[op2_id], None);
+        assert_eq!(results[0][[0, 0]], 1.0);
+
+        // Third op should not be run in place, because its input is re-used
+        // for fourth op. Fourth op can run in place as by then, it is the
+        // only consumer of its input.
+        let results = g.run(&[(input_id, &input)], &[op3_id, op4_id], None);
+        assert_eq!(results[0][[0, 0]], 1.0);
+        assert_eq!(results[1][[0, 0]], 2.0);
     }
 }

@@ -10,6 +10,19 @@ pub trait Operator: Debug {
 
     /// Execute the operator with the inputs.
     fn run(&self, input: &[&Tensor]) -> Tensor;
+
+    /// Return true if this operator supports in-place execution via
+    /// `run_in_place`.
+    ///
+    /// In-place execution writes outputs to an existing tensor rather than
+    /// allocating a new tensor. This can speed up execution by reducing the
+    /// number of allocations during execution of a computation graph.
+    fn can_run_in_place(&self) -> bool {
+        false
+    }
+
+    /// Execute this operator in-place on an existing tensor.
+    fn run_in_place(&self, input: &mut Tensor) {}
 }
 
 /// Enum of all the built-in operators
@@ -482,6 +495,12 @@ impl Operator for MaxPool2d {
     }
 }
 
+pub fn relu_in_place(x: &mut Tensor) {
+    for val in x.data_mut().iter_mut() {
+        *val = val.max(0f32);
+    }
+}
+
 pub fn relu(x: &Tensor) -> Tensor {
     x.map(|e| e.max(0f32))
 }
@@ -498,10 +517,24 @@ impl Operator for ReLU {
         let input = &inputs[0];
         relu(input)
     }
+
+    fn can_run_in_place(&self) -> bool {
+        true
+    }
+
+    fn run_in_place(&self, input: &mut Tensor) {
+        relu_in_place(input);
+    }
 }
 
 pub fn sigmoid(x: &Tensor) -> Tensor {
     x.map(|e| 1. / (1. + (-e).exp()))
+}
+
+pub fn sigmoid_in_place(x: &mut Tensor) {
+    for val in x.data_mut().iter_mut() {
+        *val = 1. / (1. + (-*val).exp());
+    }
 }
 
 #[derive(Debug)]
@@ -514,6 +547,14 @@ impl Operator for Sigmoid {
     fn run(&self, inputs: &[&Tensor]) -> Tensor {
         let input = &inputs[0];
         sigmoid(input)
+    }
+
+    fn can_run_in_place(&self) -> bool {
+        true
+    }
+
+    fn run_in_place(&self, input: &mut Tensor) {
+        sigmoid_in_place(input);
     }
 }
 
@@ -680,7 +721,8 @@ impl Operator for Slice {
 #[cfg(test)]
 mod tests {
     use crate::ops::{
-        concat, conv_2d, conv_transpose_2d, max_pool_2d, pad_2d, relu, sigmoid, slice,
+        concat, conv_2d, conv_transpose_2d, max_pool_2d, pad_2d, relu, relu_in_place, sigmoid,
+        sigmoid_in_place, slice,
     };
     use crate::rng::XorShiftRNG;
     use crate::tensor::{from_data, random_tensor, zero_tensor, Tensor};
@@ -904,7 +946,12 @@ mod tests {
     fn test_relu() -> Result<(), String> {
         let input = from_data(vec![2, 2, 1], vec![-0.5, 0.5, 3.0, -5.5]);
         let expected = from_data(vec![2, 2, 1], vec![0.0, 0.5, 3.0, 0.0]);
+
         let result = relu(&input);
+        expect_equal(&result, &expected)?;
+
+        let mut result = input.clone();
+        relu_in_place(&mut result);
         expect_equal(&result, &expected)
     }
 
@@ -920,7 +967,12 @@ mod tests {
                 0.0000, 0.0474, 0.2689, 0.3775, 0.5000, 0.6225, 0.7311, 0.9526, 1.0000,
             ],
         );
+
         let result = sigmoid(&input);
+        expect_equal(&result, &expected)?;
+
+        let mut result = input.clone();
+        sigmoid_in_place(&mut result);
         expect_equal(&result, &expected)
     }
 
