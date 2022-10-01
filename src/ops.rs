@@ -166,6 +166,67 @@ fn conv_2d_pointwise(input: &Tensor, kernel: &Tensor, bias: Option<&Tensor>) -> 
     output
 }
 
+/// Specialization of conv_2d for depthwise convolutions.
+///
+/// Depthwise convolutions operate over a single input/output channel at
+/// a time and hence the transformation of convolution to matrix multiplication
+/// doesn't pay off. An optimized direct method works better.
+fn conv_2d_depthwise(
+    input: &Tensor,
+    kernel: &Tensor,
+    bias: Option<&Tensor>,
+    padding: (usize, usize),
+) -> Tensor {
+    let [batch, in_c, in_h, in_w] = input.dims();
+    let [out_c, _, k_h, k_w] = kernel.dims();
+    let (pad_h, pad_w) = padding;
+
+    let out_h = in_h - k_h + 1 + 2 * pad_h;
+    let out_w = in_w - k_w + 1 + 2 * pad_w;
+
+    let mut output = zero_tensor(vec![batch, out_c, out_h, out_w]);
+
+    for n in 0..batch {
+        for c in 0..in_c {
+            let kernel_view = kernel.unchecked_view([c, 0, 0, 0]);
+
+            // The loops here are ordered so that the inner-most loop is as
+            // efficient as possible and runs for as long as possible over a
+            // contiguous slice of memory.
+            for out_y in 0..out_h {
+                let mut out_view = output.unchecked_view_mut([n, c, out_y, 0]);
+
+                for k_y in 0..k_h {
+                    let in_y = out_y + k_y;
+                    if in_y < pad_h || in_y >= in_h + pad_h {
+                        continue;
+                    }
+                    let in_view = input.unchecked_view([n, c, in_y - pad_h, 0]);
+
+                    for k_x in 0..k_w {
+                        let kernel_val = kernel_view[[k_y, k_x]];
+
+                        // Calculate range of out X coords that are in 0..out_w
+                        // and map to valid input X coords.
+                        let min_out_x = pad_w.saturating_sub(k_x);
+                        let max_out_x = (in_w + pad_w).saturating_sub(k_x).min(out_w);
+
+                        for out_x in min_out_x..max_out_x {
+                            out_view[[out_x]] += in_view[[out_x + k_x - pad_w]] * kernel_val
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    if let Some(bias) = bias {
+        add_channel_bias(&mut output, bias);
+    }
+
+    output
+}
+
 /// Perform a 2D convolution of `input` with `kernel`.
 ///
 /// `input` has dimensions NCHW while `kernel` has OGHW where `G` is `C / groups`.
@@ -210,6 +271,10 @@ pub fn conv_2d(
             "Input channels {} and output channels {} must be divisible by group count {}",
             in_c, out_c, groups
         );
+    }
+
+    if in_c == out_c && groups == in_c {
+        return conv_2d_depthwise(input, kernel, bias, padding);
     }
 
     let out_h = in_h - k_h + 1 + 2 * pad_h;
