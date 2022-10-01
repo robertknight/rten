@@ -1,5 +1,41 @@
 use crate::tensor::Tensor;
 
+/// Compute dot product of `depth` elements of `a` and `b`, stepping through
+/// each array by `a_stride` and `b_stride` respectively. `N` specifies a
+/// loop unrolling factor.
+fn dot<const N: usize>(
+    a: &[f32],
+    b: &[f32],
+    a_stride: usize,
+    b_stride: usize,
+    depth: usize,
+) -> f32 {
+    let n_blocks = depth / N;
+
+    let mut result = 0.0;
+    let mut accum = [0.0; N];
+
+    for block in 0..n_blocks {
+        let start_i = block * N;
+
+        for i in 0..N {
+            let k = start_i + i;
+            unsafe {
+                accum[i] = a.get_unchecked(a_stride * k) * b.get_unchecked(b_stride * k);
+            }
+        }
+        result += accum.iter().fold(0.0, |sum, x| sum + x);
+    }
+
+    for k in (n_blocks * N)..depth {
+        unsafe {
+            result += a.get_unchecked(a_stride * k) * b.get_unchecked(b_stride * k);
+        }
+    }
+
+    result
+}
+
 /// Perform a general matrix multiplication ("GEMM") of `a` and `b` and store
 /// the result in `output`.
 pub fn gemm(output: &mut Tensor, a: &Tensor, b: &Tensor) {
@@ -18,15 +54,10 @@ pub fn gemm(output: &mut Tensor, a: &Tensor, b: &Tensor) {
     let b_data = b.data();
 
     for r in 0..a_rows {
+        let a_row = &a_data[r * a_cols..];
         for c in 0..b_cols {
-            let mut product = 0.;
-            for k in 0..a_cols {
-                unsafe {
-                    product +=
-                        a_data.get_unchecked(r * a_cols + k) * b_data.get_unchecked(k * b_cols + c);
-                }
-            }
-            out_view[[r, c]] = product;
+            let b_col = &b_data[c..];
+            out_view[[r, c]] = dot::<4>(a_row, b_col, 1 /* a_stride */, b_cols, a_cols);
         }
     }
 }
@@ -52,8 +83,35 @@ mod tests {
         output
     }
 
+    /// Check that the shapes of two tensors are equal and that their contents
+    /// are approximately equal.
+    fn expect_equal(x: &Tensor, y: &Tensor) -> Result<(), String> {
+        if x.shape() != y.shape() {
+            return Err(format!(
+                "Tensors have different shapes. {:?} vs. {:?}",
+                x.shape(),
+                y.shape()
+            ));
+        }
+
+        let eps = 0.001;
+        for i in 0..x.len() {
+            let xi = x.data()[i];
+            let yi = y.data()[i];
+
+            if (xi - yi).abs() > eps {
+                return Err(format!(
+                    "Tensor values differ at index {}: {} vs {}",
+                    i, xi, yi
+                ));
+            }
+        }
+
+        return Ok(());
+    }
+
     #[test]
-    fn test_gemm() {
+    fn test_gemm() -> Result<(), String> {
         let mut rng = XorShiftRNG::new(1234);
 
         let a = random_tensor(vec![30, 20], &mut rng);
@@ -63,6 +121,7 @@ mod tests {
 
         gemm(&mut result, &a, &b);
 
-        assert_eq!(result.data(), reference_gemm(&a, &b).data());
+        let expected = reference_gemm(&a, &b);
+        expect_equal(&result, &expected)
     }
 }
