@@ -349,11 +349,7 @@ impl Operator for Conv2d {
     fn run(&self, inputs: &[&Tensor]) -> Tensor {
         let input = inputs[0];
         let weight = inputs[1];
-        let bias = if inputs.len() > 2 {
-            Some(inputs[2])
-        } else {
-            None
-        };
+        let bias = inputs.get(2).map(|x| *x);
         conv_2d(input, weight, bias, self.padding, self.groups)
     }
 }
@@ -428,11 +424,7 @@ impl Operator for ConvTranspose2d {
     fn run(&self, inputs: &[&Tensor]) -> Tensor {
         let input = &inputs[0];
         let weight = &inputs[1];
-        let bias = if inputs.len() > 2 {
-            Some(inputs[2])
-        } else {
-            None
-        };
+        let bias = inputs.get(2).map(|x| *x);
         conv_transpose_2d(input, weight, bias, self.stride)
     }
 }
