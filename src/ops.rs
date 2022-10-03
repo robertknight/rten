@@ -547,18 +547,18 @@ pub fn concat(a: &Tensor, b: &Tensor, dim: usize) -> Tensor {
 
     let a_data = a.data();
     let b_data = b.data();
+    let out_data = output.data_mut();
 
     while a_pos < a_data.len() && b_pos < b_data.len() {
-        for _ in 0..a_stride {
-            output.data_mut()[out_pos] = a_data[a_pos];
-            out_pos += 1;
-            a_pos += 1;
-        }
-        for _ in 0..b_stride {
-            output.data_mut()[out_pos] = b_data[b_pos];
-            out_pos += 1;
-            b_pos += 1;
-        }
+        let out_chunk = &mut out_data[out_pos..out_pos + a_stride];
+        out_chunk.copy_from_slice(&a_data[a_pos..a_pos + a_stride]);
+        out_pos += a_stride;
+        a_pos += a_stride;
+
+        let out_chunk = &mut out_data[out_pos..out_pos + b_stride];
+        out_chunk.copy_from_slice(&b_data[b_pos..b_pos + b_stride]);
+        out_pos += b_stride;
+        b_pos += b_stride;
     }
 
     output
