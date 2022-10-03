@@ -385,21 +385,20 @@ pub fn conv_transpose_2d(
 
     for n in 0..batch {
         for out_chan in 0..out_c {
-            let mut out_view = output.unchecked_view_mut([n, out_chan, 0, 0]);
-
             for in_chan in 0..in_c {
-                let in_view = input.unchecked_view([n, in_chan, 0, 0]);
                 let kernel_view = kernel.unchecked_view([in_chan, out_chan, 0, 0]);
 
                 for in_y in 0..in_h {
+                    let in_view = input.unchecked_view([n, in_chan, in_y, 0]);
                     for k_y in 0..k_h {
                         let out_y = in_y * stride + k_y;
+                        let mut out_view = output.unchecked_view_mut([n, out_chan, out_y, 0]);
                         for k_x in 0..k_w {
                             let kernel_val = kernel_view[[k_y, k_x]];
 
                             for in_x in 0..in_w {
                                 let out_x = in_x * stride + k_x;
-                                out_view[[out_y, out_x]] += in_view[[in_y, in_x]] * kernel_val;
+                                out_view[[out_x]] += in_view[[in_x]] * kernel_val;
                             }
                         }
                     }
