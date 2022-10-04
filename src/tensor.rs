@@ -43,6 +43,26 @@ impl<T: Copy> Tensor<T> {
         self.data.len()
     }
 
+    /// Return a contiguous slice of `len` elements starting at `index`.
+    /// `len` must be less than or equal to the size of the last dimension.
+    ///
+    /// Using a slice can allow for very efficient access to a range of elements
+    /// in a single row or column (or whatever the last dimension represents).
+    pub fn last_dim_slice<const N: usize>(&self, index: [usize; N], len: usize) -> &[T] {
+        let offset = self.offset(index);
+        &self.data[offset..offset + len]
+    }
+
+    /// Similar to `last_dim_slice`, but returns a mutable slice.
+    pub fn last_dim_slice_mut<const N: usize>(
+        &mut self,
+        index: [usize; N],
+        len: usize,
+    ) -> &mut [T] {
+        let offset = self.offset(index);
+        &mut self.data[offset..offset + len]
+    }
+
     pub fn data(&self) -> &[T] {
         &self.data
     }
