@@ -194,16 +194,14 @@ fn conv_2d_depthwise(
             // efficient as possible and runs for as long as possible over a
             // contiguous slice of memory.
             for out_y in 0..out_h {
-                let out_row_off = output.offset([n, c, out_y, 0]);
-                let out_row = &mut output.data_mut()[out_row_off..out_row_off + out_w];
+                let out_row = output.last_dim_slice_mut([n, c, out_y, 0], out_w);
 
                 for k_y in 0..k_h {
                     let in_y = out_y + k_y;
                     if in_y < pad_h || in_y >= in_h + pad_h {
                         continue;
                     }
-                    let in_row_off = input.offset([n, c, in_y - pad_h, 0]);
-                    let in_row = &input.data()[in_row_off..in_row_off + in_w];
+                    let in_row = input.last_dim_slice([n, c, in_y - pad_h, 0], in_w);
 
                     for k_x in 0..k_w {
                         let kernel_val = kernel_view[[k_y, k_x]];
@@ -387,14 +385,11 @@ pub fn conv_transpose_2d(
                 let kernel_view = kernel.unchecked_view([in_chan, out_chan, 0, 0]);
 
                 for in_y in 0..in_h {
-                    let in_row_off = input.offset([n, in_chan, in_y, 0]);
-                    let in_row = &input.data()[in_row_off..in_row_off + in_w];
+                    let in_row = input.last_dim_slice([n, in_chan, in_y, 0], in_w);
 
                     for k_y in 0..k_h {
                         let out_y = in_y * stride + k_y;
-
-                        let out_row_off = output.offset([n, out_chan, out_y, 0]);
-                        let out_row = &mut output.data_mut()[out_row_off..out_row_off + out_w];
+                        let out_row = output.last_dim_slice_mut([n, out_chan, out_y, 0], out_w);
 
                         for k_x in 0..k_w {
                             let kernel_val = kernel_view[[k_y, k_x]];
