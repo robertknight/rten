@@ -184,7 +184,7 @@ fn conv_2d_depthwise(
     let out_h = in_h - k_h + 1 + 2 * pad_h;
     let out_w = in_w - k_w + 1 + 2 * pad_w;
 
-    let mut output = zero_tensor(vec![batch, out_c, out_h, out_w]);
+    let mut output = zero_tensor::<f32>(vec![batch, out_c, out_h, out_w]);
 
     for n in 0..batch {
         for c in 0..in_c {
@@ -194,14 +194,16 @@ fn conv_2d_depthwise(
             // efficient as possible and runs for as long as possible over a
             // contiguous slice of memory.
             for out_y in 0..out_h {
-                let mut out_view = output.unchecked_view_mut([n, c, out_y, 0]);
+                let out_row_off = output.offset([n, c, out_y, 0]);
+                let out_row = &mut output.data_mut()[out_row_off..out_row_off + out_w];
 
                 for k_y in 0..k_h {
                     let in_y = out_y + k_y;
                     if in_y < pad_h || in_y >= in_h + pad_h {
                         continue;
                     }
-                    let in_view = input.unchecked_view([n, c, in_y - pad_h, 0]);
+                    let in_row_off = input.offset([n, c, in_y - pad_h, 0]);
+                    let in_row = &input.data()[in_row_off..in_row_off + in_w];
 
                     for k_x in 0..k_w {
                         let kernel_val = kernel_view[[k_y, k_x]];
@@ -212,7 +214,7 @@ fn conv_2d_depthwise(
                         let max_out_x = (in_w + pad_w).saturating_sub(k_x).min(out_w);
 
                         for out_x in min_out_x..max_out_x {
-                            out_view[[out_x]] += in_view[[out_x + k_x - pad_w]] * kernel_val
+                            out_row[out_x] += in_row[out_x + k_x - pad_w] * kernel_val
                         }
                     }
                 }
@@ -385,16 +387,21 @@ pub fn conv_transpose_2d(
                 let kernel_view = kernel.unchecked_view([in_chan, out_chan, 0, 0]);
 
                 for in_y in 0..in_h {
-                    let in_view = input.unchecked_view([n, in_chan, in_y, 0]);
+                    let in_row_off = input.offset([n, in_chan, in_y, 0]);
+                    let in_row = &input.data()[in_row_off..in_row_off + in_w];
+
                     for k_y in 0..k_h {
                         let out_y = in_y * stride + k_y;
-                        let mut out_view = output.unchecked_view_mut([n, out_chan, out_y, 0]);
+
+                        let out_row_off = output.offset([n, out_chan, out_y, 0]);
+                        let out_row = &mut output.data_mut()[out_row_off..out_row_off + out_w];
+
                         for k_x in 0..k_w {
                             let kernel_val = kernel_view[[k_y, k_x]];
 
                             for in_x in 0..in_w {
                                 let out_x = in_x * stride + k_x;
-                                out_view[[out_x]] += in_view[[in_x]] * kernel_val;
+                                out_row[out_x] += in_row[in_x] * kernel_val;
                             }
                         }
                     }
