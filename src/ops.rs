@@ -211,8 +211,12 @@ fn conv_2d_depthwise(
                         let min_out_x = pad_w.saturating_sub(k_x);
                         let max_out_x = (in_w + pad_w).saturating_sub(k_x).min(out_w);
 
-                        for out_x in min_out_x..max_out_x {
-                            out_row[out_x] += in_row[out_x + k_x - pad_w] * kernel_val
+                        let out_row_slice = &mut out_row[min_out_x..max_out_x];
+                        let in_row_slice =
+                            &in_row[min_out_x + k_x - pad_w..max_out_x + k_x - pad_w];
+
+                        for i in 0..out_row_slice.len() {
+                            out_row_slice[i] += in_row_slice[i] * kernel_val;
                         }
                     }
                 }
