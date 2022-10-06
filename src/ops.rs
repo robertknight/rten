@@ -539,35 +539,28 @@ pub fn concat(a: &Tensor, b: &Tensor, dim: usize) -> Tensor {
         return a.clone();
     }
 
-    let mut out_shape: Vec<_> = a_shape.into();
-    out_shape[dim] += b_shape[dim];
-
-    let mut output = zero_tensor::<f32>(out_shape);
-
     let a_stride = if dim == 0 { a.len() } else { a.stride(dim - 1) };
     let b_stride = if dim == 0 { b.len() } else { b.stride(dim - 1) };
 
     let mut a_pos = 0;
     let mut b_pos = 0;
-    let mut out_pos = 0;
 
     let a_data = a.data();
     let b_data = b.data();
-    let out_data = output.data_mut();
+    let mut out_data = Vec::with_capacity(a.data().len() + b.data().len());
 
     while a_pos < a_data.len() && b_pos < b_data.len() {
-        let out_chunk = &mut out_data[out_pos..out_pos + a_stride];
-        out_chunk.copy_from_slice(&a_data[a_pos..a_pos + a_stride]);
-        out_pos += a_stride;
+        out_data.extend_from_slice(&a_data[a_pos..a_pos + a_stride]);
         a_pos += a_stride;
 
-        let out_chunk = &mut out_data[out_pos..out_pos + b_stride];
-        out_chunk.copy_from_slice(&b_data[b_pos..b_pos + b_stride]);
-        out_pos += b_stride;
+        out_data.extend_from_slice(&b_data[b_pos..b_pos + b_stride]);
         b_pos += b_stride;
     }
 
-    output
+    let mut out_shape: Vec<_> = a_shape.into();
+    out_shape[dim] += b_shape[dim];
+
+    from_data(out_shape, out_data)
 }
 
 #[derive(Debug)]
