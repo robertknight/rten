@@ -444,11 +444,11 @@ pub fn max_pool_2d(input: &Tensor, kernel_size: usize) -> Tensor {
     for n in 0..batch {
         for chan in 0..in_c {
             let mut out_view = output.unchecked_view_mut([n, chan, 0, 0]);
-
             let in_view = input.unchecked_view([n, chan, 0, 0]);
+
             for out_y in 0..out_h {
                 for out_x in 0..out_w {
-                    let mut max_val = in_view[[out_y * kernel_size, out_x * kernel_size]];
+                    let mut max_val = f32::NEG_INFINITY;
                     for k_y in 0..kernel_size {
                         for k_x in 0..kernel_size {
                             let val =
