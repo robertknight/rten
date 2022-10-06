@@ -410,4 +410,30 @@ mod tests {
             }
         }
     }
+
+    #[test]
+    fn test_last_dim_slice() {
+        let mut rng = XorShiftRNG::new(1234);
+        let x = random_tensor(vec![10, 5, 3, 7], &mut rng);
+        let x_slice = x.last_dim_slice([5, 3, 2, 0], x.shape()[3]);
+
+        for i in 0..x.shape()[3] {
+            assert_eq!(x[[5, 3, 2, i]], x_slice[i]);
+        }
+    }
+
+    #[test]
+    fn test_last_dim_slice_mut() {
+        let mut rng = XorShiftRNG::new(1234);
+        let mut x = random_tensor(vec![10, 5, 3, 7], &mut rng);
+        let x_slice = x.last_dim_slice_mut([5, 3, 2, 0], x.shape()[3]);
+
+        for val in x_slice.iter_mut() {
+            *val = 1.0;
+        }
+
+        for i in 0..x.shape()[3] {
+            assert_eq!(x[[5, 3, 2, i]], 1.0);
+        }
+    }
 }
