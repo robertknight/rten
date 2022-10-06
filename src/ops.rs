@@ -631,6 +631,73 @@ mod tests {
     use crate::tensor::{from_data, random_tensor, zero_tensor, Tensor};
     use crate::test_util::expect_equal;
 
+    /// Un-optimized reference implementation of convolution.
+    fn reference_conv(
+        input: &Tensor,
+        kernel: &Tensor,
+        bias: Option<&Tensor>,
+        padding: (usize, usize),
+        groups: usize,
+    ) -> Tensor {
+        let [batch, in_chans, in_h, in_w] = input.dims();
+        let [out_chans, k_in_chans, k_h, k_w] = kernel.dims();
+        let (pad_h, pad_w) = padding;
+
+        let in_channels_per_group = in_chans / groups;
+        let out_channels_per_group = out_chans / groups;
+
+        let out_h = in_h - k_h + 1 + 2 * pad_h;
+        let out_w = in_w - k_w + 1 + 2 * pad_w;
+
+        let mut output = zero_tensor(vec![batch, out_chans, out_h, out_w]);
+
+        for n in 0..batch {
+            for group in 0..groups {
+                let in_chan_start = group * in_channels_per_group;
+                let in_chan_end = in_chan_start + in_channels_per_group;
+                let out_chan_start = group * out_channels_per_group;
+                let out_chan_end = out_chan_start + out_channels_per_group;
+
+                for out_chan in out_chan_start..out_chan_end {
+                    let chan_bias = if let Some(bias) = bias {
+                        bias[[out_chan]]
+                    } else {
+                        0.0
+                    };
+                    for out_y in 0..out_h {
+                        for out_x in 0..out_w {
+                            let mut accum = 0.0;
+                            for in_chan in in_chan_start..in_chan_end {
+                                for k_y in 0..k_h {
+                                    for k_x in 0..k_w {
+                                        let in_y = out_y + k_y;
+                                        let in_x = out_x + k_x;
+
+                                        if in_y >= pad_h
+                                            && in_y < in_h + pad_h
+                                            && in_x >= pad_w
+                                            && in_x < in_w + pad_w
+                                        {
+                                            accum += input
+                                                [[n, in_chan, in_y - pad_h, in_x - pad_w]]
+                                                * kernel
+                                                    [[out_chan, in_chan - in_chan_start, k_y, k_x]];
+                                        }
+                                    }
+                                }
+                            }
+                            output[[n, out_chan, out_y, out_x]] = accum + chan_bias;
+                        }
+                    }
+                }
+            }
+        }
+
+        output
+    }
+
+    /// Basic tests for conv_2d. These compare the results against values
+    /// computed from PyTorch as well as the reference implementation.
     #[test]
     fn test_conv_2d() -> Result<(), String> {
         let kernel = from_data(
@@ -655,31 +722,42 @@ mod tests {
         );
 
         let result = conv_2d(&input, &kernel, None, (1, 1), 1 /* groups */);
+        let reference_result = reference_conv(&input, &kernel, None, (1, 1), 1 /* groups */);
         expect_equal(&result, &expected_with_same_padding)?;
+        expect_equal(&result, &reference_result)?;
 
         let expected_with_no_padding = from_data(vec![1, 1, 1, 1], vec![2.6358]);
 
         let result = conv_2d(&input, &kernel, None, (0, 0), 1 /* groups */);
+        let reference_result = reference_conv(&input, &kernel, None, (0, 0), 1 /* groups */);
         expect_equal(&result, &expected_with_no_padding)?;
+        expect_equal(&result, &reference_result)?;
 
         let expected_with_bias = from_data(vec![1, 1, 1, 1], vec![3.6358]);
         let bias = from_data(vec![1], vec![1.0]);
         let result = conv_2d(&input, &kernel, Some(&bias), (0, 0), 1 /* groups */);
-        expect_equal(&result, &expected_with_bias)
+        let reference_result =
+            reference_conv(&input, &kernel, Some(&bias), (0, 0), 1 /* groups */);
+        expect_equal(&result, &expected_with_bias)?;
+        expect_equal(&result, &reference_result)
     }
 
+    // Specific tests for convolutions with a 1x1 kernel.
     #[test]
-    fn test_conv_2d_pointwise() {
+    fn test_conv_2d_pointwise() -> Result<(), String> {
         let mut rng = XorShiftRNG::new(1234);
         let kernel = random_tensor(vec![10, 5, 1, 1], &mut rng);
         let input = random_tensor(vec![1, 5, 20, 20], &mut rng);
 
         let result = conv_2d(&input, &kernel, None, (0, 0), 1 /* groups */);
+        let reference_result = reference_conv(&input, &kernel, None, (0, 0), 1 /* groups */);
 
-        // TODO - Check a subset of the data as well as the shape.
         assert_eq!(result.shape(), [1, 10, 20, 20]);
+        expect_equal(&result, &reference_result)
     }
 
+    // Specific tests for convolutions that operate over one output channel and
+    // one input channel at a time.
     #[test]
     fn test_conv_2d_depthwise() -> Result<(), String> {
         let input = from_data(
@@ -697,9 +775,26 @@ mod tests {
             ],
         );
         let expected = from_data(vec![1, 3, 1, 1], vec![0.09020272, -0.09061745, 1.1822754]);
+        let reference_result = reference_conv(&input, &kernel, None, (0, 0), 3 /* groups */);
 
         let result = conv_2d(&input, &kernel, None, (0, 0), 3 /* groups */);
-        expect_equal(&result, &expected)
+
+        expect_equal(&result, &expected)?;
+        expect_equal(&result, &reference_result)
+    }
+
+    // Tests for convolutions that are neither pointwise nor depthwise. In
+    // other words, the kernel has a spatial size > 1x1 and a channel depth > 1.
+    #[test]
+    fn test_conv_2d_not_depthwise_or_pointwise() -> Result<(), String> {
+        let mut rng = XorShiftRNG::new(1234);
+        let kernel = random_tensor(vec![4, 3, 3, 3], &mut rng);
+        let input = random_tensor(vec![2, 3, 20, 20], &mut rng);
+
+        let result = conv_2d(&input, &kernel, None, (1, 1), 1 /* groups */);
+        let reference_result = reference_conv(&input, &kernel, None, (1, 1), 1 /* groups */);
+
+        expect_equal(&result, &reference_result)
     }
 
     #[test]
