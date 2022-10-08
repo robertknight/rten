@@ -172,7 +172,7 @@ fn conv_2d_pointwise(input: &Tensor, kernel: &Tensor, bias: Option<&Tensor>) -> 
     let input_mat = input.clone_with_shape(&[in_c, in_h * in_w]);
     let kernel_mat = kernel.clone_with_shape(&[out_c, in_c]);
 
-    let mut output = zero_tensor(vec![out_c, in_h * in_w]);
+    let mut output = zero_tensor(&[out_c, in_h * in_w]);
     gemm(&mut output, &kernel_mat, &input_mat);
     output.reshape(&[1, out_c, in_h, in_w]);
 
@@ -201,7 +201,7 @@ fn conv_2d_depthwise(
     let out_h = in_h - k_h + 1 + 2 * pad_h;
     let out_w = in_w - k_w + 1 + 2 * pad_w;
 
-    let mut output = zero_tensor::<f32>(vec![batch, out_c, out_h, out_w]);
+    let mut output = zero_tensor::<f32>(&[batch, out_c, out_h, out_w]);
 
     for n in 0..batch {
         for c in 0..in_c {
@@ -305,13 +305,10 @@ pub fn conv_2d(
     let x_patches = (in_w + pad_w * 2) - (k_w - 1);
 
     let n_patches = y_patches * x_patches;
-    let mut im2col_mat = zero_tensor(vec![in_channels_per_group * k_h * k_w, n_patches]);
-    let mut output = zero_tensor(vec![batch, out_c, out_h, out_w]);
-    let mut kernel_mat = zero_tensor(vec![
-        out_channels_per_group,
-        in_channels_per_group * k_h * k_w,
-    ]);
-    let mut output_mat = zero_tensor(vec![out_channels_per_group, n_patches]);
+    let mut im2col_mat = zero_tensor(&[in_channels_per_group * k_h * k_w, n_patches]);
+    let mut output = zero_tensor(&[batch, out_c, out_h, out_w]);
+    let mut kernel_mat = zero_tensor(&[out_channels_per_group, in_channels_per_group * k_h * k_w]);
+    let mut output_mat = zero_tensor(&[out_channels_per_group, n_patches]);
 
     for n in 0..batch {
         for group in 0..groups {
@@ -398,7 +395,7 @@ pub fn conv_transpose_2d(
     let out_h = (in_h - 1) * stride + k_h;
     let out_w = (in_w - 1) * stride + k_w;
 
-    let mut output = zero_tensor::<f32>(vec![batch, out_c, out_h, out_w]);
+    let mut output = zero_tensor::<f32>(&[batch, out_c, out_h, out_w]);
 
     for n in 0..batch {
         for out_chan in 0..out_c {
@@ -456,7 +453,7 @@ pub fn max_pool_2d(input: &Tensor, kernel_size: usize) -> Tensor {
     let [batch, in_c, in_h, in_w] = input.dims();
     let out_h = in_h / kernel_size;
     let out_w = in_w / kernel_size;
-    let mut output = zero_tensor::<f32>(vec![batch, in_c, out_h, out_w]);
+    let mut output = zero_tensor::<f32>(&[batch, in_c, out_h, out_w]);
 
     for n in 0..batch {
         for chan in 0..in_c {
@@ -639,7 +636,7 @@ pub fn pad_2d(input: &Tensor, padding: [usize; 4]) -> Tensor {
 
     let out_h = in_h + pad_top + pad_bottom;
     let out_w = in_w + pad_left + pad_right;
-    let mut output = zero_tensor::<f32>(vec![batch, in_c, out_h, out_w]);
+    let mut output = zero_tensor::<f32>(&[batch, in_c, out_h, out_w]);
 
     for n in 0..batch {
         for y in pad_top..(out_h - pad_bottom) {
@@ -750,7 +747,7 @@ mod tests {
         let out_h = in_h - k_h + 1 + 2 * pad_h;
         let out_w = in_w - k_w + 1 + 2 * pad_w;
 
-        let mut output = zero_tensor(vec![batch, out_chans, out_h, out_w]);
+        let mut output = zero_tensor(&[batch, out_chans, out_h, out_w]);
 
         for n in 0..batch {
             for group in 0..groups {
@@ -847,8 +844,8 @@ mod tests {
     #[test]
     fn test_conv_2d_pointwise() -> Result<(), String> {
         let mut rng = XorShiftRNG::new(1234);
-        let kernel = random_tensor(vec![10, 5, 1, 1], &mut rng);
-        let input = random_tensor(vec![1, 5, 20, 20], &mut rng);
+        let kernel = random_tensor(&[10, 5, 1, 1], &mut rng);
+        let input = random_tensor(&[1, 5, 20, 20], &mut rng);
 
         let result = conv_2d(&input, &kernel, None, (0, 0), 1 /* groups */);
         let reference_result = reference_conv(&input, &kernel, None, (0, 0), 1 /* groups */);
@@ -889,8 +886,8 @@ mod tests {
     #[test]
     fn test_conv_2d_not_depthwise_or_pointwise() -> Result<(), String> {
         let mut rng = XorShiftRNG::new(1234);
-        let kernel = random_tensor(vec![4, 3, 3, 3], &mut rng);
-        let input = random_tensor(vec![2, 3, 20, 20], &mut rng);
+        let kernel = random_tensor(&[4, 3, 3, 3], &mut rng);
+        let input = random_tensor(&[2, 3, 20, 20], &mut rng);
 
         let result = conv_2d(&input, &kernel, None, (1, 1), 1 /* groups */);
         let reference_result = reference_conv(&input, &kernel, None, (1, 1), 1 /* groups */);
@@ -926,7 +923,7 @@ mod tests {
     fn test_max_pool_2d() -> Result<(), String> {
         let height = 4;
         let width = 8;
-        let mut input = zero_tensor(vec![1, 1, height, width]);
+        let mut input = zero_tensor(&[1, 1, height, width]);
 
         input[[0, 0, 0, 0]] = 1.0;
         input[[0, 0, 0, 1]] = 2.0;
@@ -1015,7 +1012,7 @@ mod tests {
     #[test]
     fn test_slice_not_first_dim() {
         let mut rng = XorShiftRNG::new(5678);
-        let input = random_tensor(vec![2, 2, 5, 3], &mut rng);
+        let input = random_tensor(&[2, 2, 5, 3], &mut rng);
 
         let dim = 2;
         let start = 2;
@@ -1041,7 +1038,7 @@ mod tests {
     #[test]
     fn test_slice_first_dim() {
         let mut rng = XorShiftRNG::new(5678);
-        let input = random_tensor(vec![5, 2, 5, 3], &mut rng);
+        let input = random_tensor(&[5, 2, 5, 3], &mut rng);
 
         let dim = 0;
         let start = 2;
@@ -1067,7 +1064,7 @@ mod tests {
     #[test]
     fn test_slice_noop() {
         let mut rng = XorShiftRNG::new(5678);
-        let input = random_tensor(vec![5, 2, 5, 3], &mut rng);
+        let input = random_tensor(&[5, 2, 5, 3], &mut rng);
 
         for dim in 0..input.shape().len() {
             let sliced = slice(&input, dim, 0, input.shape()[dim]);

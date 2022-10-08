@@ -484,7 +484,7 @@ mod tests {
         let op2_id = g.add_op(Box::new(AddOneInPlace {}), &[op1_id]);
         let op3_id = g.add_op(Box::new(AddOneInPlace {}), &[op2_id]);
         let op4_id = g.add_op(Box::new(AddOneInPlace {}), &[op2_id]);
-        let input = zero_tensor(vec![1, 1]);
+        let input = zero_tensor(&[1, 1]);
 
         // First operator should not be run in-place, since it has an
         // immutable input. The result should be the same as the input.

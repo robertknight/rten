@@ -139,7 +139,7 @@ mod tests {
     fn reference_gemm(a: &Tensor, b: &Tensor) -> Tensor {
         let [a_rows, a_cols] = a.dims();
         let [b_rows, b_cols] = b.dims();
-        let mut output = zero_tensor(vec![a_rows, b_cols]);
+        let mut output = zero_tensor(&[a_rows, b_cols]);
 
         for r in 0..a_rows {
             for c in 0..b_cols {
@@ -156,10 +156,10 @@ mod tests {
     fn test_gemm() -> Result<(), String> {
         let mut rng = XorShiftRNG::new(1234);
 
-        let a = random_tensor(vec![30, 20], &mut rng);
-        let b = random_tensor(vec![20, 10], &mut rng);
+        let a = random_tensor(&[30, 20], &mut rng);
+        let b = random_tensor(&[20, 10], &mut rng);
 
-        let mut result = zero_tensor::<f32>(vec![30, 10]);
+        let mut result = zero_tensor::<f32>(&[30, 10]);
 
         gemm(&mut result, &a, &b);
 

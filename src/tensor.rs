@@ -250,14 +250,17 @@ impl<'a, const N: usize, T: Copy> IndexMut<[usize; N]> for UncheckedViewMut<'a, 
 }
 
 /// Create a new tensor with all values set to 0.
-pub fn zero_tensor<T: Copy + Default>(shape: Vec<usize>) -> Tensor<T> {
+pub fn zero_tensor<T: Copy + Default>(shape: &[usize]) -> Tensor<T> {
     let n_elts = shape.iter().fold(1, |elts, dim| elts * dim);
     let data = vec![T::default(); n_elts];
-    Tensor { data, shape }
+    Tensor {
+        data,
+        shape: shape.into(),
+    }
 }
 
 /// Create a new tensor filled with random values supplied by `rng`.
-pub fn random_tensor(shape: Vec<usize>, rng: &mut XorShiftRNG) -> Tensor {
+pub fn random_tensor(shape: &[usize], rng: &mut XorShiftRNG) -> Tensor {
     let mut t = zero_tensor(shape);
     t.data.fill_with(|| rng.next_f32());
     t
@@ -275,7 +278,7 @@ mod tests {
 
     #[test]
     fn test_stride() {
-        let x = zero_tensor::<f32>(vec![2, 5, 7, 3]);
+        let x = zero_tensor::<f32>(&[2, 5, 7, 3]);
         assert_eq!(x.stride(3), 1);
         assert_eq!(x.stride(2), 3);
         assert_eq!(x.stride(1), 7 * 3);
@@ -284,7 +287,7 @@ mod tests {
 
     #[test]
     fn test_index() {
-        let mut x = zero_tensor::<f32>(vec![2, 2]);
+        let mut x = zero_tensor::<f32>(&[2, 2]);
 
         x.data[0] = 1.0;
         x.data[1] = 2.0;
@@ -299,7 +302,7 @@ mod tests {
 
     #[test]
     fn test_index_mut() {
-        let mut x = zero_tensor::<f32>(vec![2, 2]);
+        let mut x = zero_tensor::<f32>(&[2, 2]);
 
         x[[0, 0]] = 1.0;
         x[[0, 1]] = 2.0;
@@ -315,20 +318,20 @@ mod tests {
     #[test]
     #[should_panic]
     fn test_index_panics_if_invalid() {
-        let x = zero_tensor::<f32>(vec![2, 2]);
+        let x = zero_tensor::<f32>(&[2, 2]);
         x[[2, 0]];
     }
 
     #[test]
     #[should_panic]
     fn test_index_panics_if_wrong_dim_count() {
-        let x = zero_tensor::<f32>(vec![2, 2]);
+        let x = zero_tensor::<f32>(&[2, 2]);
         x[[0, 0, 0]];
     }
 
     #[test]
     fn test_dims() {
-        let x = zero_tensor::<f32>(vec![10, 5, 3, 7]);
+        let x = zero_tensor::<f32>(&[10, 5, 3, 7]);
         let [i, j, k, l] = x.dims();
 
         assert_eq!(i, 10);
@@ -340,14 +343,14 @@ mod tests {
     #[test]
     #[should_panic]
     fn test_dims_panics_if_wrong_array_length() {
-        let x = zero_tensor::<f32>(vec![10, 5, 3, 7]);
+        let x = zero_tensor::<f32>(&[10, 5, 3, 7]);
         let [_i, _j, _k] = x.dims();
     }
 
     #[test]
     fn test_reshape() {
         let mut rng = XorShiftRNG::new(1234);
-        let mut x = random_tensor(vec![10, 5, 3, 7], &mut rng);
+        let mut x = random_tensor(&[10, 5, 3, 7], &mut rng);
         let x_data: Vec<f32> = x.data().into();
 
         assert_eq!(x.shape(), &[10, 5, 3, 7]);
@@ -362,14 +365,14 @@ mod tests {
     #[should_panic(expected = "New shape must have same total elements as current shape")]
     fn test_reshape_with_wrong_size() {
         let mut rng = XorShiftRNG::new(1234);
-        let mut x = random_tensor(vec![10, 5, 3, 7], &mut rng);
+        let mut x = random_tensor(&[10, 5, 3, 7], &mut rng);
         x.reshape(&[10, 5]);
     }
 
     #[test]
     fn test_clone_with_shape() {
         let mut rng = XorShiftRNG::new(1234);
-        let x = random_tensor(vec![10, 5, 3, 7], &mut rng);
+        let x = random_tensor(&[10, 5, 3, 7], &mut rng);
         let y = x.clone_with_shape(&[10, 5, 3 * 7]);
 
         assert_eq!(y.shape(), &[10, 5, 3 * 7]);
@@ -379,7 +382,7 @@ mod tests {
     #[test]
     fn test_unchecked_view() {
         let mut rng = XorShiftRNG::new(1234);
-        let x = random_tensor(vec![10, 5, 3, 7], &mut rng);
+        let x = random_tensor(&[10, 5, 3, 7], &mut rng);
         let x_view = x.unchecked_view([5, 3, 0, 0]);
 
         for a in 0..x.shape()[2] {
@@ -392,7 +395,7 @@ mod tests {
     #[test]
     fn test_unchecked_view_mut() {
         let mut rng = XorShiftRNG::new(1234);
-        let mut x = random_tensor(vec![10, 5, 3, 7], &mut rng);
+        let mut x = random_tensor(&[10, 5, 3, 7], &mut rng);
 
         let [_, _, a_size, b_size] = x.dims();
         let mut x_view = x.unchecked_view_mut([5, 3, 0, 0]);
@@ -413,7 +416,7 @@ mod tests {
     #[test]
     fn test_last_dim_slice() {
         let mut rng = XorShiftRNG::new(1234);
-        let x = random_tensor(vec![10, 5, 3, 7], &mut rng);
+        let x = random_tensor(&[10, 5, 3, 7], &mut rng);
         let x_slice = x.last_dim_slice([5, 3, 2, 0], x.shape()[3]);
 
         for i in 0..x.shape()[3] {
@@ -424,7 +427,7 @@ mod tests {
     #[test]
     fn test_last_dim_slice_mut() {
         let mut rng = XorShiftRNG::new(1234);
-        let mut x = random_tensor(vec![10, 5, 3, 7], &mut rng);
+        let mut x = random_tensor(&[10, 5, 3, 7], &mut rng);
         let x_slice = x.last_dim_slice_mut([5, 3, 2, 0], x.shape()[3]);
 
         for val in x_slice.iter_mut() {
