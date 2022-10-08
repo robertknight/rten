@@ -53,16 +53,13 @@ fn im2col(
     pad_h: usize,
     pad_w: usize,
 ) {
+    let [_, out_w] = output.dims();
     let [_, _, in_h, in_w] = input.dims();
     let y_patches = (in_h + pad_h * 2) - (patch_h - 1);
     let x_patches = (in_w + pad_w * 2) - (patch_w - 1);
     let n_chans = end_chan - start_chan;
 
-    let mut out_view = output.unchecked_view_mut([0, 0]);
-
     for c in 0..n_chans {
-        let in_view = input.unchecked_view([image_index, start_chan + c, 0, 0]);
-
         // The loop ordering here is chosen to maximize the number of
         // consecutive steps that we read/write the same rows of the inputs and
         // outputs. This is more efficient assuming the tensors are stored in
@@ -70,24 +67,31 @@ fn im2col(
         for py in 0..y_patches {
             let out_col_left = py * x_patches;
 
-            for k_y in 0..patch_h {
+            // Calculate range of kernel rows that will lead to valid input
+            // row coordinates. For other rows zero padding is used, meaning
+            // the output will be zero.
+            let min_ky = pad_h.saturating_sub(py);
+            let max_ky = (in_h + pad_h).saturating_sub(py).min(patch_h);
+
+            for k_y in min_ky..max_ky {
                 let img_y = py + k_y;
-                let in_image = img_y >= pad_h && img_y < in_h + pad_h;
                 let out_row_top = c * patch_h * patch_w + k_y * patch_w;
+                let in_row =
+                    input.last_dim_slice([image_index, start_chan + c, img_y - pad_h, 0], in_w);
 
                 for k_x in 0..patch_w {
                     let out_row = out_row_top + k_x;
 
-                    for px in 0..x_patches {
-                        let out_col = out_col_left + px;
-                        let img_x = px + k_x;
+                    // Calculate range of patches that will lead to valid input
+                    // column coordinates. For other patches zero padding is used,
+                    // meaning the output will be zero.
+                    let min_px = pad_w.saturating_sub(k_x);
+                    let max_px = (in_w + pad_w).saturating_sub(k_x).min(x_patches);
+                    let out_row_data =
+                        &mut output.last_dim_slice_mut([out_row, 0], out_w)[out_col_left..];
 
-                        out_view[[out_row, out_col]] =
-                            if in_image && img_x >= pad_w && img_x < in_w + pad_w {
-                                in_view[[img_y - pad_h, img_x - pad_w]]
-                            } else {
-                                0.0
-                            };
+                    for px in min_px..max_px {
+                        out_row_data[px] = in_row[px + k_x - pad_w]
                     }
                 }
             }
@@ -130,12 +134,12 @@ fn col2im(
 
     for c in 0..group_chans {
         let mut out_view = output.unchecked_view_mut([image_index, start_chan + c, 0, 0]);
-        let in_view = input.unchecked_view([c, 0]);
+        let in_row = input.last_dim_slice([c, 0], n_patches);
 
         for y in 0..y_patches {
             for x in 0..x_patches {
                 let patch = y * x_patches + x;
-                out_view[[y, x]] = in_view[[patch]];
+                out_view[[y, x]] = in_row[patch];
             }
         }
     }
