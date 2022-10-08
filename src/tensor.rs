@@ -7,27 +7,41 @@ pub struct Tensor<T: Copy = f32> {
     /// The underlying buffer of elements
     data: Vec<T>,
 
+    /// The offset in the buffer of the first element
+    base: usize,
+
     /// The size of each dimension of the array
     shape: Vec<usize>,
+
+    /// The stride of each dimension of the array
+    strides: Vec<usize>,
 }
 
 impl<T: Copy> Tensor<T> {
     /// Return a copy of this tensor with each element replaced by `f(element)`
     pub fn map<F>(&self, f: F) -> Tensor<T>
     where
-        F: FnMut(&T) -> T,
+        F: FnMut(T) -> T,
     {
-        let data = self.data.iter().map(f).collect();
+        let data = self.elements().map(f).collect();
         Tensor {
             data,
+            base: 0,
             shape: self.shape.clone(),
+            strides: self.strides.clone(),
         }
     }
 
     pub fn clone(&self) -> Tensor<T> {
         let data = self.data.clone();
         let shape = self.shape.clone();
-        Tensor { data, shape }
+        let strides = self.strides.clone();
+        Tensor {
+            data,
+            base: self.base,
+            shape,
+            strides,
+        }
     }
 
     /// Clone this tensor with a new shape. The new shape must have the same
@@ -40,7 +54,19 @@ impl<T: Copy> Tensor<T> {
 
     /// Return the total number of elements in this tensor.
     pub fn len(&self) -> usize {
-        self.data.len()
+        self.shape.iter().product()
+    }
+
+    /// Clip the size of a dimension to `new_size`. The new size must be <=
+    /// the previous size.
+    ///
+    /// This is a fast operation since it just alters the size of the dimension,
+    /// but retains the existing strides.
+    pub fn resize_dim(&mut self, dim: usize, new_size: usize) {
+        if new_size > self.shape[dim] {
+            panic!("New size must be <= old size");
+        }
+        self.shape[dim] = new_size;
     }
 
     /// Return a contiguous slice of `len` elements starting at `index`.
@@ -63,16 +89,46 @@ impl<T: Copy> Tensor<T> {
         &mut self.data[offset..offset + len]
     }
 
+    /// Return the underlying element buffer for this tensor.
+    ///
+    /// If the tensor is contiguous, the buffer will contain the same elements
+    /// in the same order as yielded by `elements`.
     pub fn data(&self) -> &[T] {
-        &self.data
+        &self.data[self.base..]
     }
 
+    /// Return the underlying element buffer for this tensor.
+    ///
+    /// See notes for `data` about the ordering and validity of elements.
     pub fn data_mut(&mut self) -> &mut [T] {
-        &mut self.data
+        &mut self.data[self.base..]
     }
 
+    /// Return the a slice of the sizes of each dimension.
     pub fn shape(&self) -> &[usize] {
         &self.shape
+    }
+
+    /// Return true if the logical order of elements in this tensor matches the
+    /// order in which they are stored in the underlying buffer, and there are
+    /// no gaps.
+    pub fn is_contiguous(&self) -> bool {
+        if self.strides[self.shape.len() - 1] != 1 {
+            return false;
+        }
+
+        for dim in (0..self.shape.len() - 2).rev() {
+            if self.strides[dim] != self.shape[dim + 1] * self.strides[dim + 1] {
+                return false;
+            }
+        }
+
+        true
+    }
+
+    /// Return an iterator over elements of this tensor, in their logical order.
+    pub fn elements(&self) -> Elements<T> {
+        Elements::new(self)
     }
 
     /// Update the shape of the tensor without altering the data layout.
@@ -88,16 +144,15 @@ impl<T: Copy> Tensor<T> {
         }
 
         self.shape = shape.into();
+
+        // TODO - Handle non-default strides
+        self.strides = strides_for_shape(&shape);
     }
 
     /// Return the number of elements between successive entries in the `dim`
     /// dimension.
     pub fn stride(&self, dim: usize) -> usize {
-        if dim == self.shape.len() - 1 {
-            1
-        } else {
-            self.shape[dim + 1..].iter().product()
-        }
+        self.strides[dim]
     }
 
     /// Return the offset of an element that corresponds to a given index.
@@ -112,7 +167,7 @@ impl<T: Copy> Tensor<T> {
                 N
             );
         }
-        let mut offset = 0;
+        let mut offset = self.base;
         for i in 0..N {
             if index[i] >= self.shape[i] {
                 panic!("Invalid index {} for dim {}", index[i], i);
@@ -151,18 +206,10 @@ impl<T: Copy> Tensor<T> {
         base: [usize; B],
     ) -> UncheckedView<T, N> {
         let offset = self.offset(base);
-        let mut strides = [0; N];
-        for i in 0..N {
-            strides[i] = self.stride(self.shape.len() - N + i);
-        }
-        let mut shape = [0; N];
-        for i in 0..N {
-            shape[i] = self.shape[self.shape.len() - N + i];
-        }
         UncheckedView {
             tensor: self,
             offset,
-            strides,
+            strides: self.strides[self.shape.len() - N..].try_into().unwrap(),
         }
     }
 
@@ -175,14 +222,7 @@ impl<T: Copy> Tensor<T> {
         base: [usize; B],
     ) -> UncheckedViewMut<T, N> {
         let offset = self.offset(base);
-        let mut strides = [0; N];
-        for i in 0..N {
-            strides[i] = self.stride(self.shape.len() - N + i);
-        }
-        let mut shape = [0; N];
-        for i in 0..N {
-            shape[i] = self.shape[self.shape.len() - N + i];
-        }
+        let strides = self.strides[self.shape.len() - N..].try_into().unwrap();
         UncheckedViewMut {
             tensor: self,
             offset,
@@ -249,13 +289,91 @@ impl<'a, const N: usize, T: Copy> IndexMut<[usize; N]> for UncheckedViewMut<'a, 
     }
 }
 
+/// Iterator over elements of a tensor
+pub struct Elements<'a, T: Copy> {
+    tensor: &'a Tensor<T>,
+    len: usize,
+    index: Vec<usize>,
+}
+
+impl<'a, T: Copy> Elements<'a, T> {
+    fn new(tensor: &'a Tensor<T>) -> Elements<'a, T> {
+        Elements {
+            tensor,
+            len: tensor.len(),
+            index: vec![0; tensor.shape.len()],
+        }
+    }
+
+    fn current_element(&self) -> T {
+        let mut offset = self.tensor.base;
+        for (dim, index) in self.index.iter().enumerate() {
+            offset += index * self.tensor.strides[dim]
+        }
+        self.tensor.data[offset]
+    }
+
+    fn incr_index(&mut self) {
+        self.len -= 1;
+
+        let last_dim = self.index.len() - 1;
+
+        // Find dimension where the last element has not been reached.
+        let mut dim = last_dim;
+        while dim > 0 && self.index[dim] >= self.tensor.shape[dim] - 1 {
+            dim -= 1;
+        }
+
+        self.index[dim] += 1;
+
+        // Reset index in all dimensions after the one we incremented.
+        while dim < last_dim {
+            dim += 1;
+            self.index[dim] = 0;
+        }
+    }
+}
+
+impl<'a, T: Copy> Iterator for Elements<'a, T> {
+    type Item = T;
+
+    fn next(&mut self) -> Option<T> {
+        if self.len == 0 {
+            return None;
+        }
+        let element = self.current_element();
+        self.incr_index();
+        Some(element)
+    }
+
+    fn size_hint(&self) -> (usize, Option<usize>) {
+        (self.len, Some(self.len))
+    }
+}
+
+/// Return the default strides for a given tensor shape.
+///
+/// The returned strides are for a tightly packed tensor (ie. no unused
+/// elements) where all elements are stored in the default order.
+fn strides_for_shape(shape: &[usize]) -> Vec<usize> {
+    let mut strides = Vec::with_capacity(shape.len());
+    for i in 0..shape.len() {
+        let stride = shape[i + 1..].iter().product();
+        strides.push(stride);
+    }
+    strides
+}
+
 /// Create a new tensor with all values set to 0.
 pub fn zero_tensor<T: Copy + Default>(shape: &[usize]) -> Tensor<T> {
     let n_elts = shape.iter().product();
     let data = vec![T::default(); n_elts];
+    let strides = strides_for_shape(&shape);
     Tensor {
         data,
+        base: 0,
         shape: shape.into(),
+        strides,
     }
 }
 
@@ -268,7 +386,13 @@ pub fn random_tensor(shape: &[usize], rng: &mut XorShiftRNG) -> Tensor {
 
 /// Create a new tensor with a given shape and values
 pub fn from_data<T: Copy>(shape: Vec<usize>, data: Vec<T>) -> Tensor<T> {
-    Tensor { data, shape }
+    let strides = strides_for_shape(&shape);
+    Tensor {
+        data,
+        base: 0,
+        shape,
+        strides,
+    }
 }
 
 #[cfg(test)]
@@ -437,5 +561,61 @@ mod tests {
         for i in 0..x.shape()[3] {
             assert_eq!(x[[5, 3, 2, i]], 1.0);
         }
+    }
+
+    #[test]
+    fn test_elements_for_contiguous_array() {
+        for dims in 1..7 {
+            let mut shape = Vec::new();
+            for d in 0..dims {
+                shape.push(d + 1);
+            }
+            let mut rng = XorShiftRNG::new(1234);
+            let x = random_tensor(&shape, &mut rng);
+
+            let elts: Vec<f32> = x.elements().collect();
+
+            assert_eq!(x.data(), elts);
+        }
+    }
+
+    #[test]
+    fn test_elements_for_empty_array() {
+        let empty = zero_tensor::<f32>(&[3, 0, 5]);
+        assert!(empty.elements().next().is_none());
+    }
+
+    #[test]
+    fn test_elements_for_non_contiguous_array() {
+        let mut x = zero_tensor(&[3, 3]);
+        for (index, elt) in x.data_mut().iter_mut().enumerate() {
+            *elt = index + 1;
+        }
+
+        // Initially tensor is contiguous, so data buffer and element sequence
+        // match.
+        assert_eq!(x.data(), x.elements().collect::<Vec<_>>());
+
+        // Slice the tensor. Afterwards the data buffer will be the same but
+        // `elements` will only iterate over the new shape.
+        x.resize_dim(0, 2);
+        assert_eq!(x.data(), &[1, 2, 3, 4, 5, 6, 7, 8, 9]);
+        assert_eq!(x.elements().collect::<Vec<_>>(), &[1, 2, 3, 4, 5, 6]);
+
+        x.resize_dim(1, 2);
+        assert_eq!(x.data(), &[1, 2, 3, 4, 5, 6, 7, 8, 9]);
+        assert_eq!(x.elements().collect::<Vec<_>>(), &[1, 2, 4, 5]);
+    }
+
+    #[test]
+    fn test_is_contiguous() {
+        let mut x = zero_tensor(&[3, 3]);
+        for (index, elt) in x.data_mut().iter_mut().enumerate() {
+            *elt = index + 1;
+        }
+
+        assert!(x.is_contiguous());
+        x.resize_dim(0, 2);
+        assert!(x.is_contiguous());
     }
 }
