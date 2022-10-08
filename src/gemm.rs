@@ -3,13 +3,7 @@ use crate::tensor::Tensor;
 /// Compute dot product of `depth` elements of `a` and `b`, stepping through
 /// each array by `a_stride` and `b_stride` respectively. `N` specifies a
 /// loop unrolling factor.
-fn dot<const N: usize>(
-    a: &[f32],
-    b: &[f32],
-    a_stride: usize,
-    b_stride: usize,
-    depth: usize,
-) -> f32 {
+fn dot<const N: usize>(a: &[f32], b: &[f32], depth: usize) -> f32 {
     let n_blocks = depth / N;
 
     let mut result = 0.0;
@@ -21,7 +15,7 @@ fn dot<const N: usize>(
         for i in 0..N {
             let k = start_i + i;
             unsafe {
-                accum[i] = a.get_unchecked(a_stride * k) * b.get_unchecked(b_stride * k);
+                accum[i] = a.get_unchecked(k) * b.get_unchecked(k);
             }
         }
         result += accum.iter().fold(0.0, |sum, x| sum + x);
@@ -29,11 +23,32 @@ fn dot<const N: usize>(
 
     for k in (n_blocks * N)..depth {
         unsafe {
-            result += a.get_unchecked(a_stride * k) * b.get_unchecked(b_stride * k);
+            result += a.get_unchecked(k) * b.get_unchecked(k);
         }
     }
 
     result
+}
+
+/// Pack a block of a row-major matrix into a smaller buffer in column-major order.
+fn pack(
+    dest: &mut [f32],
+    dest_col_stride: usize,
+    src: &[f32],
+    src_row_stride: usize,
+    start_col: usize,
+    end_col: usize,
+    start_row: usize,
+    end_row: usize,
+) {
+    for c in start_col..end_col {
+        let dest_col_offset = dest_col_stride * (c - start_col);
+        let dest_col = &mut dest[dest_col_offset..dest_col_offset + end_row - start_row];
+
+        for r in 0..dest_col.len() {
+            dest_col[r] = src[(src_row_stride * (r + start_row)) + c];
+        }
+    }
 }
 
 /// Perform a general matrix multiplication ("GEMM") of `a` and `b` and store
@@ -49,15 +64,44 @@ pub fn gemm(output: &mut Tensor, a: &Tensor, b: &Tensor) {
         );
     }
 
-    let mut out_view = output.unchecked_view_mut([0, 0]);
+    let out_data = output.data_mut();
     let a_data = a.data();
     let b_data = b.data();
 
-    for r in 0..a_rows {
-        let a_row = &a_data[r * a_cols..];
-        for c in 0..b_cols {
-            let b_col = &b_data[c..];
-            out_view[[r, c]] = dot::<4>(a_row, b_col, 1 /* a_stride */, b_cols, a_cols);
+    let row_block_size = 16;
+    let col_block_size = 64;
+    let row_blocks = (a_rows / row_block_size) + if a_rows % row_block_size == 0 { 0 } else { 1 };
+    let col_blocks = (b_cols / col_block_size) + if b_cols % col_block_size == 0 { 0 } else { 1 };
+
+    let mut packed_b = Vec::with_capacity(col_block_size * b_rows);
+    packed_b.resize(col_block_size * b_rows, 0.0);
+
+    for cb in 0..col_blocks {
+        let col_start = cb * col_block_size;
+        let col_end = ((cb + 1) * col_block_size).min(b_cols);
+
+        pack(
+            &mut packed_b,
+            b_rows, /* dest col stride */
+            &b_data,
+            b_cols, /* src row stride */
+            col_start,
+            col_end,
+            0,      /* start row */
+            b_rows, /* end row */
+        );
+
+        for rb in 0..row_blocks {
+            for r in (rb * row_block_size)..((rb + 1) * row_block_size).min(a_rows) {
+                let a_row = &a_data[r * a_cols..];
+                let out_row_offset = r * b_cols;
+                let out_row = &mut out_data[out_row_offset + col_start..out_row_offset + col_end];
+
+                for c in 0..out_row.len() {
+                    let b_col = &packed_b[c * b_rows..];
+                    out_row[c] = dot::<4>(a_row, b_col, a_cols);
+                }
+            }
         }
     }
 }
