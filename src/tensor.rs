@@ -251,9 +251,8 @@ impl<'a, const N: usize, T: Copy> IndexMut<[usize; N]> for UncheckedViewMut<'a, 
 
 /// Create a new tensor with all values set to 0.
 pub fn zero_tensor<T: Copy + Default>(shape: Vec<usize>) -> Tensor<T> {
-    let mut data = Vec::new();
     let n_elts = shape.iter().fold(1, |elts, dim| elts * dim);
-    data.resize(n_elts, T::default());
+    let data = vec![T::default(); n_elts];
     Tensor { data, shape }
 }
 
