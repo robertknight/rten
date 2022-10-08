@@ -379,7 +379,26 @@ fn add_scaled_vector_strided(dest: &mut [f32], src: &[f32], dest_stride: usize, 
     if (src.len() - 1) * dest_stride >= dest.len() {
         panic!("Dest vector is too small");
     }
-    for i in 0..src.len() {
+
+    const N: usize = 4;
+    let n_blocks = src.len() / N;
+    let mut val = [0.0; N];
+
+    for b in 0..n_blocks {
+        for i in 0..N {
+            unsafe {
+                val[i] = src.get_unchecked(b * N + i) * scale;
+            }
+        }
+
+        for i in 0..N {
+            unsafe {
+                *dest.get_unchecked_mut((b * N + i) * dest_stride) += val[i];
+            }
+        }
+    }
+
+    for i in n_blocks * N..src.len() {
         unsafe {
             *dest.get_unchecked_mut(i * dest_stride) += src[i] * scale;
         }
