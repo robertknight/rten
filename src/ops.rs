@@ -749,8 +749,16 @@ impl Operator for Slice {
 
     /// Run `slice` operator with `[input]` inputs.
     fn run(&self, inputs: &[&Tensor]) -> Tensor {
-        let input = &inputs[0];
+        let input = inputs[0];
         slice(input, self.dim, self.start, self.end)
+    }
+
+    fn can_run_in_place(&self) -> bool {
+        self.start == 0
+    }
+
+    fn run_in_place(&self, input: &mut Tensor) {
+        input.resize_dim(self.dim, self.end);
     }
 }
 
