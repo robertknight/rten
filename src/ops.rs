@@ -372,6 +372,20 @@ impl Operator for Conv2d {
     }
 }
 
+// Compute `dest += src * scale`, where `dest_stride` is the distance between
+// elements of `dest` to update.
+fn add_scaled_vector_strided(dest: &mut [f32], src: &[f32], dest_stride: usize, scale: f32) {
+    // Check size once to skip bounds check on each loop iteration below.
+    if (src.len() - 1) * dest_stride >= dest.len() {
+        panic!("Dest vector is too small");
+    }
+    for i in 0..src.len() {
+        unsafe {
+            *dest.get_unchecked_mut(i * dest_stride) += src[i] * scale;
+        }
+    }
+}
+
 /// Perform a transposed 2D convolution of a tensor by a kernel.
 ///
 /// `input` has dimensions NCHW and kernel has dimensions COHW where `O` is
@@ -410,12 +424,12 @@ pub fn conv_transpose_2d(
                         let out_row = output.last_dim_slice_mut([n, out_chan, out_y, 0], out_w);
 
                         for k_x in 0..k_w {
-                            let kernel_val = kernel_view[[k_y, k_x]];
-
-                            for in_x in 0..in_row.len() {
-                                let out_x = in_x * stride + k_x;
-                                out_row[out_x] += in_row[in_x] * kernel_val;
-                            }
+                            add_scaled_vector_strided(
+                                &mut out_row[k_x..],
+                                in_row,
+                                stride,
+                                kernel_view[[k_y, k_x]],
+                            );
                         }
                     }
                 }
