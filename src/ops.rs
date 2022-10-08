@@ -411,7 +411,7 @@ pub fn conv_transpose_2d(
                         for k_x in 0..k_w {
                             let kernel_val = kernel_view[[k_y, k_x]];
 
-                            for in_x in 0..in_w {
+                            for in_x in 0..in_row.len() {
                                 let out_x = in_x * stride + k_x;
                                 out_row[out_x] += in_row[in_x] * kernel_val;
                             }
