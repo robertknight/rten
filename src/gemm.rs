@@ -1,5 +1,33 @@
 use crate::tensor::Tensor;
 
+struct BlockIter {
+    start: usize,
+    end: usize,
+    step: usize,
+}
+
+impl Iterator for BlockIter {
+    type Item = (usize, usize);
+
+    fn next(&mut self) -> Option<(usize, usize)> {
+        if self.start < self.end {
+            let start = self.start;
+            let end = (start + self.step).min(self.end);
+            self.start += self.step;
+            Some((start, end))
+        } else {
+            None
+        }
+    }
+}
+
+/// Return an iterator over (block_start, block_end) tuples of `step`-sized
+/// blocks between `start` and `end`. If `end - start` is not a multiple of
+/// `step` then the final block will be smaller.
+fn blocks(start: usize, end: usize, step: usize) -> BlockIter {
+    BlockIter { start, end, step }
+}
+
 /// Compute dot product of `depth` elements of `a` and `b`, stepping through
 /// each array by `a_stride` and `b_stride` respectively. `N` specifies a
 /// loop unrolling factor.
@@ -70,16 +98,11 @@ pub fn gemm(output: &mut Tensor, a: &Tensor, b: &Tensor) {
 
     let row_block_size = 16;
     let col_block_size = 64;
-    let row_blocks = (a_rows / row_block_size) + if a_rows % row_block_size == 0 { 0 } else { 1 };
-    let col_blocks = (b_cols / col_block_size) + if b_cols % col_block_size == 0 { 0 } else { 1 };
 
     let mut packed_b = Vec::with_capacity(col_block_size * b_rows);
     packed_b.resize(col_block_size * b_rows, 0.0);
 
-    for cb in 0..col_blocks {
-        let col_start = cb * col_block_size;
-        let col_end = ((cb + 1) * col_block_size).min(b_cols);
-
+    for (col_start, col_end) in blocks(0, b_cols, col_block_size) {
         pack(
             &mut packed_b,
             b_rows, /* dest col stride */
@@ -91,8 +114,8 @@ pub fn gemm(output: &mut Tensor, a: &Tensor, b: &Tensor) {
             b_rows, /* end row */
         );
 
-        for rb in 0..row_blocks {
-            for r in (rb * row_block_size)..((rb + 1) * row_block_size).min(a_rows) {
+        for (row_start, row_end) in blocks(0, a_rows, row_block_size) {
+            for r in row_start..row_end {
                 let a_row = &a_data[r * a_cols..];
                 let out_row_offset = r * b_cols;
                 let out_row = &mut out_data[out_row_offset + col_start..out_row_offset + col_end];
