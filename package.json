@@ -1,0 +1,28 @@
+{
+  "name": "wasnn",
+  "version": "1.0.0",
+  "type": "module",
+  "description": "",
+  "main": "index.js",
+  "scripts": {
+    "test": "echo \"Error: no test specified\" && exit 1"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/robertknight/wasnn.git"
+  },
+  "keywords": [],
+  "author": "Robert Knight <robertknight@gmail.com>",
+  "license": "BSD-2-Clause",
+  "bugs": {
+    "url": "https://github.com/robertknight/wasnn/issues"
+  },
+  "homepage": "https://github.com/robertknight/wasnn#readme",
+  "devDependencies": {
+    "sharp": "^0.31.1"
+  },
+  "files": [
+    "dist/*",
+    "index.js"
+  ]
+}

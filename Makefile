@@ -14,6 +14,16 @@ check:
 lint:
 	cargo clippy -- -Aclippy::needless_range_loop -Aclippy::too_many_arguments -Aclippy::derivable_impls -Aclippy::manual_memcpy
 
+.PHONY: wasm
+wasm:
+	RUSTFLAGS="-C target-feature=+simd128" cargo build --release --target wasm32-unknown-unknown
+	wasm-bindgen target/wasm32-unknown-unknown/release/wasnn.wasm --out-dir dist/ --target web --weak-refs
+
+.PHONY: wasm-nosimd
+wasm-nosimd:
+	cargo build --release --target wasm32-unknown-unknown
+	wasm-bindgen target/wasm32-unknown-unknown/release/wasnn.wasm --out-dir dist/ --target web --weak-refs
+
 src/schema_generated.rs: src/schema.fbs
 	flatc -o src/ --rust src/schema.fbs
 	cargo fmt

@@ -1,2 +1,7 @@
 __pycache__
+/dist
+/node_modules
 /target
+
+# Optimized neural network models
+*.model

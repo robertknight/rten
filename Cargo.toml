@@ -1,5 +1,5 @@
 [package]
-name = "nn-ops"
+name = "wasnn"
 version = "0.1.0"
 edition = "2021"
 
@@ -11,3 +11,7 @@ lto = true
 [dependencies]
 flatbuffers = "2.1.2"
 png = "0.17.6"
+wasm-bindgen = "0.2.83"
+
+[lib]
+crate-type = ["cdylib"]
