@@ -93,7 +93,7 @@ impl Graph {
         }
 
         // Collect operator inputs
-        let mut values: HashMap<NodeId, &Tensor> = inputs.iter().map(|x| *x).collect();
+        let mut values: HashMap<NodeId, &Tensor> = inputs.iter().copied().collect();
         for (node_id, node) in self.nodes.iter().enumerate() {
             if let Node::Constant(tensor) = node {
                 values.insert(node_id, tensor);
@@ -140,9 +140,9 @@ impl Graph {
             } else {
                 let mut op_inputs = Vec::new();
                 for node_id in op_node.inputs.iter() {
-                    if let Some(value) = values.get(&node_id) {
+                    if let Some(value) = values.get(node_id) {
                         op_inputs.push(*value);
-                    } else if let Some(value) = temp_values.get(&node_id) {
+                    } else if let Some(value) = temp_values.get(node_id) {
                         op_inputs.push(value);
                     } else {
                         // If this is reached, there was a bug in plan creation.
@@ -261,19 +261,19 @@ impl Graph {
                     if self.resolved_values.contains(input) {
                         continue;
                     }
-                    if let Some(input_op_node) = self.operator_nodes.get(&input) {
+                    if let Some(input_op_node) = self.operator_nodes.get(input) {
                         self.visit(*input, input_op_node);
                     } else {
                         panic!("Unable to generate execution plan. Missing value {}", input)
                     }
                 }
                 self.resolved_values.insert(node_id);
-                self.plan.push((node_id, &op_node));
+                self.plan.push((node_id, op_node));
             }
 
             fn plan(mut self, outputs: &[NodeId]) -> Vec<(NodeId, &'a OperatorNode)> {
                 for output_id in outputs.iter() {
-                    if let Some(op_node) = self.operator_nodes.get(&output_id) {
+                    if let Some(op_node) = self.operator_nodes.get(output_id) {
                         self.visit(*output_id, op_node);
                     } else if !self.resolved_values.contains(output_id) {
                         panic!(

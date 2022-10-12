@@ -80,7 +80,7 @@ impl<T: Copy> Tensor<T> {
     /// The total number of elements for the new shape must be the same as the
     /// existing shape.
     pub fn reshape(&mut self, shape: &[usize]) {
-        let len = shape.iter().fold(1, |product, dim| product * dim);
+        let len: usize = shape.iter().product();
         let current_len = self.len();
 
         if len != current_len {
@@ -96,7 +96,7 @@ impl<T: Copy> Tensor<T> {
         if dim == self.shape.len() - 1 {
             1
         } else {
-            self.shape[dim + 1..].iter().fold(1, |stride, n| stride * n)
+            self.shape[dim + 1..].iter().product()
         }
     }
 
@@ -251,7 +251,7 @@ impl<'a, const N: usize, T: Copy> IndexMut<[usize; N]> for UncheckedViewMut<'a, 
 
 /// Create a new tensor with all values set to 0.
 pub fn zero_tensor<T: Copy + Default>(shape: &[usize]) -> Tensor<T> {
-    let n_elts = shape.iter().fold(1, |elts, dim| elts * dim);
+    let n_elts = shape.iter().product();
     let data = vec![T::default(); n_elts];
     Tensor {
         data,

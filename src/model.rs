@@ -16,7 +16,7 @@ pub struct Model {
 impl Model {
     /// Find a node in the model's graph given its string ID.
     pub fn find_node(&self, id: &str) -> Option<NodeId> {
-        self.node_ids.get(id).map(|x| *x)
+        self.node_ids.get(id).copied()
     }
 
     /// Execute the model.
@@ -114,15 +114,15 @@ fn read_slice_op(node: &OperatorNode) -> Box<dyn Operator> {
 
 fn read_operator(node: &OperatorNode) -> Result<Box<dyn Operator>, String> {
     let op: Box<dyn Operator> = match node.type_() {
-        OperatorType::Concat => read_concat_op(&node),
-        OperatorType::Conv2d => read_conv_2d_op(&node),
-        OperatorType::ConvTranspose2d => read_conv_transpose_2d_op(&node),
-        OperatorType::MaxPool2d => read_max_pool_2d_op(&node),
-        OperatorType::Pad2d => read_pad_2d_op(&node),
-        OperatorType::ReLU => read_relu_op(&node),
-        OperatorType::Sigmoid => read_sigmoid_op(&node),
-        OperatorType::Slice => read_slice_op(&node),
-        _ => return Err(format!("Unknown operator type")),
+        OperatorType::Concat => read_concat_op(node),
+        OperatorType::Conv2d => read_conv_2d_op(node),
+        OperatorType::ConvTranspose2d => read_conv_transpose_2d_op(node),
+        OperatorType::MaxPool2d => read_max_pool_2d_op(node),
+        OperatorType::Pad2d => read_pad_2d_op(node),
+        OperatorType::ReLU => read_relu_op(node),
+        OperatorType::Sigmoid => read_sigmoid_op(node),
+        OperatorType::Slice => read_slice_op(node),
+        _ => return Err("Unknown operator type".to_string()),
     };
     Ok(op)
 }
@@ -132,7 +132,7 @@ pub fn load_model(data: &[u8]) -> Result<Model, String> {
     let model = root_as_model(data).map_err(|e| format!("Error parsing flatbuffer {:?}", e))?;
 
     if model.schema_version() != 1 {
-        return Err(format!("Unsupported schema version"));
+        return Err("Unsupported schema version".to_string());
     }
 
     let mut graph = Graph::new();
@@ -161,7 +161,7 @@ pub fn load_model(data: &[u8]) -> Result<Model, String> {
                         if let Some(node_id) = node_id_from_index.get(&index_usize) {
                             inputs.push(*node_id)
                         } else {
-                            return Err(format!("Operator input is invalid"));
+                            return Err("Operator input is invalid".to_string());
                         }
                     }
                 }
@@ -170,7 +170,7 @@ pub fn load_model(data: &[u8]) -> Result<Model, String> {
 
                 add_node_id(node.id(), graph_node);
                 node_id_from_index.insert(node_index, graph_node);
-            } else if let Some(_) = node.data_as_value_node() {
+            } else if node.data_as_value_node().is_some() {
                 let graph_node = graph.add_value();
 
                 add_node_id(node.id(), graph_node);
@@ -184,7 +184,7 @@ pub fn load_model(data: &[u8]) -> Result<Model, String> {
                 add_node_id(node.id(), graph_node);
                 node_id_from_index.insert(node_index, graph_node);
             } else {
-                return Err(format!("Unknown node type"));
+                return Err("Unknown node type".to_string());
             }
         }
     }

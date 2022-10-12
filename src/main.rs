@@ -85,7 +85,7 @@ fn main() {
         Some(RunOptions { timing: true }),
     );
     let text_mask = &outputs[0];
-    let text_img = image_from_prob_tensor(&text_mask);
+    let text_img = image_from_prob_tensor(text_mask);
 
     let file = fs::File::create("output.png").unwrap();
     let writer = BufWriter::new(file);

@@ -106,7 +106,7 @@ pub fn gemm(output: &mut Tensor, a: &Tensor, b: &Tensor) {
         pack(
             &mut packed_b,
             b_rows, /* dest col stride */
-            &b_data,
+            b_data,
             b_cols, /* src row stride */
             col_start,
             col_end,
@@ -138,7 +138,7 @@ mod tests {
 
     fn reference_gemm(a: &Tensor, b: &Tensor) -> Tensor {
         let [a_rows, a_cols] = a.dims();
-        let [b_rows, b_cols] = b.dims();
+        let [_b_rows, b_cols] = b.dims();
         let mut output = zero_tensor(&[a_rows, b_cols]);
 
         for r in 0..a_rows {

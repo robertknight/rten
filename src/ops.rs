@@ -22,7 +22,7 @@ pub trait Operator: Debug {
     }
 
     /// Execute this operator in-place on an existing tensor.
-    fn run_in_place(&self, input: &mut Tensor) {}
+    fn run_in_place(&self, _input: &mut Tensor) {}
 }
 
 /// Enum of all the built-in operators
@@ -166,7 +166,7 @@ fn add_channel_bias(output: &mut Tensor, bias: &Tensor) {
 /// Specialization of conv_2d for pointwise convolutions over one image. This
 /// can be reduced to tensor reshaping and matrix multiplication.
 fn conv_2d_pointwise(input: &Tensor, kernel: &Tensor, bias: Option<&Tensor>) -> Tensor {
-    let [_, in_c, in_h, in_w] = input.dims();
+    let [_, _, in_h, in_w] = input.dims();
     let [out_c, in_c, _, _] = kernel.dims();
 
     let input_mat = input.clone_with_shape(&[in_c, in_h * in_w]);
@@ -332,7 +332,7 @@ pub fn conv_2d(
                 pad_h,
                 pad_w,
             );
-            unroll_kernel(&mut kernel_mat, &kernel, out_chan_start, out_chan_end);
+            unroll_kernel(&mut kernel_mat, kernel, out_chan_start, out_chan_end);
             gemm(&mut output_mat, &kernel_mat, &im2col_mat);
             col2im(
                 &mut output,
@@ -367,7 +367,7 @@ impl Operator for Conv2d {
     fn run(&self, inputs: &[&Tensor]) -> Tensor {
         let input = inputs[0];
         let weight = inputs[1];
-        let bias = inputs.get(2).map(|x| *x);
+        let bias = inputs.get(2).copied();
         conv_2d(input, weight, bias, self.padding, self.groups)
     }
 }
@@ -477,7 +477,7 @@ impl Operator for ConvTranspose2d {
     fn run(&self, inputs: &[&Tensor]) -> Tensor {
         let input = &inputs[0];
         let weight = &inputs[1];
-        let bias = inputs.get(2).map(|x| *x);
+        let bias = inputs.get(2).copied();
         conv_transpose_2d(input, weight, bias, self.stride)
     }
 }
@@ -706,14 +706,14 @@ pub fn slice(input: &Tensor, dim: usize, start: usize, end: usize) -> Tensor {
     let mut out_shape: Vec<_> = input.shape().into();
     out_shape[dim] = end - start;
 
-    let out_len = out_shape.iter().fold(0, |sum, x| sum + x);
+    let out_len = out_shape.iter().sum();
     let mut out_data = Vec::with_capacity(out_len);
 
     let dim_stride = input.stride(dim);
     let steps = if dim == 0 {
         1
     } else {
-        input.shape()[0..dim].iter().fold(1, |steps, x| steps * x)
+        input.shape()[0..dim].iter().product()
     };
     let parent_dim_stride = if dim == 0 {
         input.len()
