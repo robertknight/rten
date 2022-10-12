@@ -10,6 +10,10 @@ check:
 	cargo fmt --check
 	cargo test
 
+.PHONY: lint
+lint:
+	cargo clippy -- -Aclippy::needless_range_loop -Aclippy::too_many_arguments -Aclippy::derivable_impls
+
 src/schema_generated.rs: src/schema.fbs
 	flatc -o src/ --rust src/schema.fbs
 	cargo fmt
