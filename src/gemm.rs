@@ -28,101 +28,214 @@ fn blocks(start: usize, end: usize, step: usize) -> BlockIter {
     BlockIter { start, end, step }
 }
 
-/// Compute dot product of `depth` elements of `a` and `b`, stepping through
-/// each array by `a_stride` and `b_stride` respectively. `N` specifies a
-/// loop unrolling factor.
-fn dot<const N: usize>(a: &[f32], b: &[f32], depth: usize) -> f32 {
-    let n_blocks = depth / N;
+/// Kernel that computes a small tile of the output matrix of size HxW.
+///
+/// This corresponds to Loop 6 of the algorithm in Page 4 of
+/// https://dl.acm.org/doi/pdf/10.1145/2925987.
+fn kernel<const H: usize, const W: usize>(
+    out: &mut [f32],
+    out_row_stride: usize,
+    used_rows: usize,
+    used_cols: usize,
+    a: &[f32],
+    b: &[f32],
+    depth: usize,
+) {
+    let mut tmp = [[0.0; W]; H];
+    for k in 0..depth {
+        let a_off = k * H;
+        let b_off = k * W;
 
-    let mut result = 0.0;
-    let mut accum = [0.0; N];
-
-    for block in 0..n_blocks {
-        let start_i = block * N;
-
-        for i in 0..N {
-            let k = start_i + i;
-            unsafe {
-                accum[i] = a.get_unchecked(k) * b.get_unchecked(k);
+        for i in 0..H {
+            for j in 0..W {
+                tmp[i][j] += a[a_off + i] * b[b_off + j];
             }
         }
-        result += accum.iter().fold(0.0, |sum, x| sum + x);
     }
-
-    for k in (n_blocks * N)..depth {
-        unsafe {
-            result += a.get_unchecked(k) * b.get_unchecked(k);
+    for i in 0..H.min(used_rows) {
+        for j in 0..W.min(used_cols) {
+            out[out_row_stride * i + j] += tmp[i][j];
         }
     }
-
-    result
 }
 
-/// Pack a block of a row-major matrix into a smaller buffer in column-major order.
-fn pack(
-    dest: &mut [f32],
-    dest_col_stride: usize,
-    src: &[f32],
-    src_row_stride: usize,
-    start_col: usize,
-    end_col: usize,
-    start_row: usize,
-    end_row: usize,
+/// Pack a block of the "A" matrix.
+///
+/// The packed buffer is laid out as a sequence of row panels. Each row panel
+/// has size `PANEL_HEIGHT * panel_width` and uses column-major order.
+///
+/// `panel_rows` is currently required to be a multiple of `PANEL_HEIGHT`.
+fn pack_a_block<const PANEL_HEIGHT: usize>(
+    out: &mut [f32],
+    a: &[f32],
+    a_row_stride: usize,
+    a_cols: usize,
+    a_rows: usize,
+    panel_rows: usize,
+    panel_width: usize,
 ) {
-    for c in start_col..end_col {
-        let dest_col_offset = dest_col_stride * (c - start_col);
-        let dest_col = &mut dest[dest_col_offset..dest_col_offset + end_row - start_row];
+    let n_panels = panel_rows / PANEL_HEIGHT;
+    let panel_elements = panel_width * PANEL_HEIGHT;
+    for panel in 0..n_panels {
+        let panel_offset = panel * panel_elements;
+        for col in 0..panel_width {
+            let out_col_offset = panel_offset + col * PANEL_HEIGHT;
+            for panel_row in 0..PANEL_HEIGHT {
+                let row = (panel * PANEL_HEIGHT) + panel_row;
+                let a_offset = row * a_row_stride + col;
 
-        for r in 0..dest_col.len() {
-            dest_col[r] = src[(src_row_stride * (r + start_row)) + c];
+                out[out_col_offset + panel_row] = if col < a_cols && row < a_rows {
+                    a[a_offset]
+                } else {
+                    0.0
+                };
+            }
         }
     }
 }
 
-/// Perform a general matrix multiplication ("GEMM") of `a` and `b` and store
-/// the result in `output`.
+/// Pack block of the "B" matrix.
+///
+/// The packed buffer is laid out as a sequence of column panels. Each column
+/// panel as size `panel_height * PANEL_WIDTH` and uses row-major order.
+///
+/// `cols` is currently required to be a multiple of `PANEL_WIDTH`.
+fn pack_b_block<const PANEL_WIDTH: usize>(
+    out: &mut [f32],
+    b: &[f32],
+    b_row_stride: usize,
+    b_cols: usize,
+    b_rows: usize,
+    cols: usize,
+    panel_height: usize,
+) {
+    let n_panels = cols / PANEL_WIDTH;
+    let panel_elements = panel_height * PANEL_WIDTH;
+    for panel in 0..n_panels {
+        let panel_offset = panel * panel_elements;
+        let panel_start_col = panel * PANEL_WIDTH;
+
+        for row in 0..panel_height {
+            let out_row_offset = panel_offset + row * PANEL_WIDTH;
+            let b_row_offset = row * b_row_stride;
+
+            for col in 0..PANEL_WIDTH {
+                let out_col = panel_start_col + col;
+                let b_offset = b_row_offset + panel_start_col + col;
+
+                out[out_row_offset + col] = if out_col < b_cols && row < b_rows {
+                    b[b_offset]
+                } else {
+                    0.0
+                };
+            }
+        }
+    }
+}
+
+/// Multiply two matrices and add the results to `output`.
+///
+/// The implementation uses the general approach of BLIS
+/// (https://github.com/flame/blis), and was informed by the matrixmultiply
+/// crate (https://github.com/bluss/matrixmultiply). See Pages 3-5 of
+/// https://dl.acm.org/doi/pdf/10.1145/2925987 for an outline of the algorithm.
+///
 pub fn gemm(output: &mut Tensor, a: &Tensor, b: &Tensor) {
     let [a_rows, a_cols] = a.dims();
     let [b_rows, b_cols] = b.dims();
 
     if a_cols != b_rows {
-        panic!(
-            "Columns of first input {} must match rows {} of second input",
-            a_cols, b_rows
-        );
+        panic!("Columns of matrix `a` must match rows of matrix `b`");
     }
 
+    // The constant values below were taken from the matrixmultiply crate. The
+    // microblock sizes correspond to its fallback kernel (ie. not using SSE,
+    // AVX or other intrinsics). See https://dl.acm.org/doi/pdf/10.1145/2925987
+    // for an explanation of how suitable values are determined. Since we don't
+    // know exactly which CPU this code will be run on, we have to pick
+    // something that will work on most systems.
+
+    // Sizes of blocks that the width (nc), depth (kc) and height (mc)
+    // dimensions are partitioned into in the outer loops. These are chosen
+    // so that blocks can fit in specific cache levels.
+
+    // nb. There is currently an implicit assumption that NC and MC are
+    // multiples of the NR and MR values.
+    const NC: usize = 1024;
+    const MC: usize = 64;
+
+    // When the depth dimension of the input is small, we can reduce wasted
+    // work on the zero-padded areas of the packed blocks by reducing their
+    // width/height.
+    let kc = 256.min(a_cols);
+
+    // Size of output tiles in rows (MR) and columns (NR) computed by innermost
+    // loops. These are chosen so that an MRxNR tile can fit in registers.
+    const MR: usize = 8;
+    const NR: usize = 4;
+
     let out_data = output.data_mut();
+    let out_row_stride = b_cols;
+
+    // Buffers for packed blocks the matrix. These currently have no alignment
+    // specified. The paper mentioned above suggests that aligning to cache-line
+    // (ie. 64-byte) boundaries may help performance.
+    let mut packed_b = vec![0.0; kc * NC];
+    let mut packed_a = vec![0.0; MC * kc];
+
     let a_data = a.data();
     let b_data = b.data();
+    let b_row_stride = b_cols;
+    let a_row_stride = a_cols;
 
-    let row_block_size = 16;
-    let col_block_size = 64;
+    for (col_start, col_end) in blocks(0, b_cols, NC) {
+        for (depth_start, depth_end) in blocks(0, a_cols, kc) {
+            pack_b_block::<NR>(
+                &mut packed_b,
+                &b_data[depth_start * b_row_stride + col_start..depth_end * b_row_stride],
+                b_row_stride,
+                col_end - col_start,
+                depth_end - depth_start,
+                NC,
+                kc,
+            );
+            for (row_start, row_end) in blocks(0, a_rows, MC) {
+                pack_a_block::<MR>(
+                    &mut packed_a,
+                    &a_data[row_start * a_row_stride + depth_start..row_end * a_row_stride],
+                    a_row_stride,
+                    depth_end - depth_start,
+                    row_end - row_start,
+                    MC,
+                    kc,
+                );
 
-    let mut packed_b = Vec::with_capacity(col_block_size * b_rows);
-    packed_b.resize(col_block_size * b_rows, 0.0);
+                for (ub_col_start, ub_col_end) in blocks(col_start, col_end, NR) {
+                    for (ub_row_start, ub_row_end) in blocks(row_start, row_end, MR) {
+                        let out_offset = ub_row_start * out_row_stride + ub_col_start;
+                        let out_tile = &mut out_data[out_offset..];
 
-    for (col_start, col_end) in blocks(0, b_cols, col_block_size) {
-        pack(
-            &mut packed_b,
-            b_rows, /* dest col stride */
-            b_data,
-            b_cols, /* src row stride */
-            col_start,
-            col_end,
-            0,      /* start row */
-            b_rows, /* end row */
-        );
+                        let a_panel = (ub_row_start - row_start) / MR;
+                        let a_panel_size = MR * kc;
+                        let a_panel_offset = a_panel * a_panel_size;
 
-        for (row_start, row_end) in blocks(0, a_rows, row_block_size) {
-            for r in row_start..row_end {
-                let a_row = &a_data[r * a_cols..];
-                let out_row_offset = r * b_cols;
-                let out_row = &mut out_data[out_row_offset + col_start..out_row_offset + col_end];
+                        let b_panel = (ub_col_start - col_start) / NR;
+                        let b_panel_size = kc * NR;
+                        let b_panel_offset = b_panel * b_panel_size;
 
-                for c in 0..out_row.len() {
-                    let b_col = &packed_b[c * b_rows..];
-                    out_row[c] = dot::<4>(a_row, b_col, a_cols);
+                        let a_block = &packed_a[a_panel_offset..a_panel_offset + a_panel_size];
+                        let b_block = &packed_b[b_panel_offset..b_panel_offset + b_panel_size];
+
+                        kernel::<MR, NR>(
+                            out_tile,
+                            out_row_stride,
+                            ub_row_end - ub_row_start,
+                            ub_col_end - ub_col_start,
+                            a_block,
+                            b_block,
+                            kc,
+                        );
+                    }
                 }
             }
         }
@@ -154,16 +267,52 @@ mod tests {
 
     #[test]
     fn test_gemm() -> Result<(), String> {
-        let mut rng = XorShiftRNG::new(1234);
+        // "Interesting" sizes for the row, column and depth dimensions of the
+        // computation. These are chosen to cover cases that are less than,
+        // equal to and above the tile/block sizes which the algorithm divides
+        // the problem into along each dimension.
+        let row_steps = [0, 2, 8, 10, 16, 64, 80];
+        let col_steps = [0, 2, 4, 5, 8, 1024, 1025];
+        let depth_steps = [0, 2, 20, 256, 300];
 
-        let a = random_tensor(&[30, 20], &mut rng);
-        let b = random_tensor(&[20, 10], &mut rng);
+        let mut cases = Vec::new();
 
-        let mut result = zero_tensor::<f32>(&[30, 10]);
+        // Simple cases where one dimension of the problem is varied to
+        // different interesting values and other dimensions are kept small.
+        for rs in row_steps {
+            cases.push(([rs, 2], [2, 2]));
+        }
+        for cs in col_steps {
+            cases.push(([2, 2], [2, cs]));
+        }
+        for ds in depth_steps {
+            cases.push(([2, ds], [ds, 2]));
+        }
 
-        gemm(&mut result, &a, &b);
+        // Some simple square matrix tests of different sizes.
+        for n in [1, 2, 4, 5, 8, 30, 64, 65] {
+            cases.push(([n, n], [n, n]));
+        }
 
-        let expected = reference_gemm(&a, &b);
-        expect_equal(&result, &expected)
+        for (lhs_size, rhs_size) in cases {
+            let mut rng = XorShiftRNG::new(1234);
+            let a = random_tensor(&lhs_size, &mut rng);
+            let b = random_tensor(&rhs_size, &mut rng);
+            let mut result = zero_tensor::<f32>(&[lhs_size[0], rhs_size[1]]);
+
+            gemm(&mut result, &a, &b);
+
+            let expected = reference_gemm(&a, &b);
+
+            if let Err(err) = expect_equal(&result, &expected) {
+                println!(
+                    "GEMM output for {}x{}x{} did not match reference",
+                    lhs_size[0], rhs_size[1], lhs_size[1]
+                );
+                return Err(err);
+            }
+        }
+
+        Ok(())
     }
 }
