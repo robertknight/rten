@@ -342,6 +342,10 @@ pub fn conv_2d(
                 y_patches,
                 x_patches,
             );
+
+            // `gemm` currently accumulates into the output buffer, so we need
+            // to clear it between iterations.
+            output_mat.data_mut().fill(0.0);
         }
     }
 
