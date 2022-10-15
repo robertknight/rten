@@ -299,8 +299,13 @@ mod tests {
             cases.push(([rs, 2], [2, 2]));
         }
 
-        // Some simple square matrix tests of different sizes.
-        for n in [1, 2, 4, 5, 8, 30, 64, 65] {
+        // Some simple square matrix tests of different sizes. This covers all
+        // cases below a threshold, and then select sizes after that. This is
+        // because larger sizes are slow in debug builds.
+        for n in 1..20 {
+            cases.push(([n, n], [n, n]));
+        }
+        for n in [30, 64, 65] {
             cases.push(([n, n], [n, n]));
         }
 
