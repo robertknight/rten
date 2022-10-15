@@ -55,6 +55,9 @@ fn kernel<const H: usize, const W: usize>(
         }
     }
 
+    // The `min` operations here are strictly redundant as `used_rows` <= H and
+    // `used_cols` <= W. Curiously the kernel ran faster under WASM when they
+    // are left in.
     for i in 0..H.min(used_rows) {
         for j in 0..W.min(used_cols) {
             out[out_row_stride * i + j] += tmp[i][j];
