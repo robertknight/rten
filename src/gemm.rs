@@ -109,15 +109,31 @@ fn pack_b_block<const PANEL_WIDTH: usize>(
         let panel_offset = panel * panel_elements;
         let panel_start_col = panel * PANEL_WIDTH;
 
-        for row in 0..b_rows {
-            let out_row_offset = panel_offset + row * PANEL_WIDTH;
-            let b_row_offset = row * b_row_stride;
+        if b_cols - panel_start_col >= PANEL_WIDTH {
+            // Optimized loop for panels that don't need any padding
+            for row in 0..b_rows {
+                let out_row_offset = panel_offset + row * PANEL_WIDTH;
+                let b_row_offset = row * b_row_stride + panel_start_col;
 
-            for col in 0..PANEL_WIDTH {
-                let out_col = panel_start_col + col;
-                let b_offset = b_row_offset + panel_start_col + col;
+                let out_row = &mut out[out_row_offset..out_row_offset + PANEL_WIDTH];
+                let b_row = &b[b_row_offset..b_row_offset + PANEL_WIDTH];
 
-                out[out_row_offset + col] = if out_col < b_cols { b[b_offset] } else { 0.0 };
+                for col in 0..PANEL_WIDTH {
+                    out_row[col] = b_row[col];
+                }
+            }
+        } else {
+            // Fallback for final panel if padding is required
+            for row in 0..b_rows {
+                let out_row_offset = panel_offset + row * PANEL_WIDTH;
+                let b_row_offset = row * b_row_stride;
+
+                for col in 0..PANEL_WIDTH {
+                    let out_col = panel_start_col + col;
+                    let b_offset = b_row_offset + panel_start_col + col;
+
+                    out[out_row_offset + col] = if out_col < b_cols { b[b_offset] } else { 0.0 };
+                }
             }
         }
     }
