@@ -12,7 +12,7 @@ check:
 
 .PHONY: lint
 lint:
-	cargo clippy -- -Aclippy::needless_range_loop -Aclippy::too_many_arguments -Aclippy::derivable_impls
+	cargo clippy -- -Aclippy::needless_range_loop -Aclippy::too_many_arguments -Aclippy::derivable_impls -Aclippy::manual_memcpy
 
 src/schema_generated.rs: src/schema.fbs
 	flatc -o src/ --rust src/schema.fbs
