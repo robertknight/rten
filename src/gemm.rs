@@ -72,23 +72,18 @@ fn pack_a_block<const PANEL_HEIGHT: usize>(
     a_cols: usize,
     a_rows: usize,
     panel_rows: usize,
-    panel_width: usize,
 ) {
     let n_panels = panel_rows / PANEL_HEIGHT;
-    let panel_elements = panel_width * PANEL_HEIGHT;
+    let panel_elements = a_cols * PANEL_HEIGHT;
     for panel in 0..n_panels {
         let panel_offset = panel * panel_elements;
-        for col in 0..panel_width {
+        for col in 0..a_cols {
             let out_col_offset = panel_offset + col * PANEL_HEIGHT;
             for panel_row in 0..PANEL_HEIGHT {
                 let row = (panel * PANEL_HEIGHT) + panel_row;
                 let a_offset = row * a_row_stride + col;
 
-                out[out_col_offset + panel_row] = if col < a_cols && row < a_rows {
-                    a[a_offset]
-                } else {
-                    0.0
-                };
+                out[out_col_offset + panel_row] = if row < a_rows { a[a_offset] } else { 0.0 };
             }
         }
     }
@@ -107,15 +102,14 @@ fn pack_b_block<const PANEL_WIDTH: usize>(
     b_cols: usize,
     b_rows: usize,
     cols: usize,
-    panel_height: usize,
 ) {
     let n_panels = cols / PANEL_WIDTH;
-    let panel_elements = panel_height * PANEL_WIDTH;
+    let panel_elements = b_rows * PANEL_WIDTH;
     for panel in 0..n_panels {
         let panel_offset = panel * panel_elements;
         let panel_start_col = panel * PANEL_WIDTH;
 
-        for row in 0..panel_height {
+        for row in 0..b_rows {
             let out_row_offset = panel_offset + row * PANEL_WIDTH;
             let b_row_offset = row * b_row_stride;
 
@@ -123,11 +117,7 @@ fn pack_b_block<const PANEL_WIDTH: usize>(
                 let out_col = panel_start_col + col;
                 let b_offset = b_row_offset + panel_start_col + col;
 
-                out[out_row_offset + col] = if out_col < b_cols && row < b_rows {
-                    b[b_offset]
-                } else {
-                    0.0
-                };
+                out[out_row_offset + col] = if out_col < b_cols { b[b_offset] } else { 0.0 };
             }
         }
     }
@@ -204,8 +194,8 @@ pub fn gemm(output: &mut Tensor, a: &Tensor, b: &Tensor) {
                 block_width,
                 block_depth,
                 round_up(block_width, NR),
-                block_depth,
             );
+
             for (row_start, row_end) in blocks(0, a_rows, mc) {
                 let block_height = row_end - row_start;
 
@@ -216,7 +206,6 @@ pub fn gemm(output: &mut Tensor, a: &Tensor, b: &Tensor) {
                     block_depth,
                     block_height,
                     round_up(block_height, MR),
-                    block_depth,
                 );
 
                 for (ub_col_start, ub_col_end) in blocks(col_start, col_end, NR) {
