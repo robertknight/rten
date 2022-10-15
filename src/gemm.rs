@@ -41,6 +41,8 @@ fn kernel<const H: usize, const W: usize>(
     b: &[f32],
     depth: usize,
 ) {
+    // Accumulate into a fixed-sized array to allow the compiler to generate
+    // more efficient code for the loop over `depth`.
     let mut tmp = [[0.0; W]; H];
     for k in 0..depth {
         let a_off = k * H;
@@ -52,6 +54,7 @@ fn kernel<const H: usize, const W: usize>(
             }
         }
     }
+
     for i in 0..H.min(used_rows) {
         for j in 0..W.min(used_cols) {
             out[out_row_stride * i + j] += tmp[i][j];
