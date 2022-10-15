@@ -227,6 +227,11 @@ pub fn gemm(output: &mut Tensor, a: &Tensor, b: &Tensor) {
                 );
 
                 for (tile_col_start, tile_col_end) in blocks(col_start, col_end, NR) {
+                    let b_panel = (tile_col_start - col_start) / NR;
+                    let b_panel_size = block_depth * NR;
+                    let b_panel_offset = b_panel * b_panel_size;
+                    let b_block = &packed_b[b_panel_offset..b_panel_offset + b_panel_size];
+
                     for (tile_row_start, tile_row_end) in blocks(row_start, row_end, MR) {
                         let out_offset = tile_row_start * out_row_stride + tile_col_start;
                         let out_tile = &mut out_data[out_offset..];
@@ -234,13 +239,7 @@ pub fn gemm(output: &mut Tensor, a: &Tensor, b: &Tensor) {
                         let a_panel = (tile_row_start - row_start) / MR;
                         let a_panel_size = MR * block_depth;
                         let a_panel_offset = a_panel * a_panel_size;
-
-                        let b_panel = (tile_col_start - col_start) / NR;
-                        let b_panel_size = block_depth * NR;
-                        let b_panel_offset = b_panel * b_panel_size;
-
                         let a_block = &packed_a[a_panel_offset..a_panel_offset + a_panel_size];
-                        let b_block = &packed_b[b_panel_offset..b_panel_offset + b_panel_size];
 
                         kernel::<MR, NR>(
                             out_tile,
