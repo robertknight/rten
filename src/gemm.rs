@@ -68,6 +68,9 @@ fn kernel<const H: usize, const W: usize>(
 /// row panels. Each row panel has size `PANEL_HEIGHT * panel_width` and uses
 /// column-major order. If `a_rows` is not a multiple of `PANEL_HEIGHT`, the
 /// final panel is zero-padded.
+///
+/// The `a` slice is assumed to start at the first element to be packed and
+/// extend to include at least the last element to be packed.
 fn pack_a_block<const PANEL_HEIGHT: usize>(
     out: &mut [f32],
     a: &[f32],
@@ -100,6 +103,9 @@ fn pack_a_block<const PANEL_HEIGHT: usize>(
 /// column panels. Each column panel has size `b_rows * PANEL_WIDTH` and
 /// uses row-major order. If `b_cols` is not a multiple of `PANEL_WIDTH`, the
 /// final panel is zero-padded.
+///
+/// The `b` slice is assumed to start at the first element to be packed and
+/// extend to include at least the last element to be packed.
 fn pack_b_block<const PANEL_WIDTH: usize>(
     out: &mut [f32],
     b: &[f32],
