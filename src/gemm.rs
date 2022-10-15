@@ -76,16 +76,19 @@ fn pack_a_block<const PANEL_HEIGHT: usize>(
     a_rows: usize,
 ) {
     let n_panels = round_up(a_rows, PANEL_HEIGHT) / PANEL_HEIGHT;
-    let panel_elements = a_cols * PANEL_HEIGHT;
     for panel in 0..n_panels {
-        let panel_offset = panel * panel_elements;
+        let panel_offset = panel * a_cols * PANEL_HEIGHT;
+        let panel_start_row = panel * PANEL_HEIGHT;
+
         for col in 0..a_cols {
             let out_col_offset = panel_offset + col * PANEL_HEIGHT;
-            for panel_row in 0..PANEL_HEIGHT {
-                let row = (panel * PANEL_HEIGHT) + panel_row;
-                let a_offset = row * a_row_stride + col;
-
-                out[out_col_offset + panel_row] = if row < a_rows { a[a_offset] } else { 0.0 };
+            for row in 0..PANEL_HEIGHT {
+                let a_row = panel_start_row + row;
+                out[out_col_offset + row] = if a_row < a_rows {
+                    a[a_row * a_row_stride + col]
+                } else {
+                    0.0
+                };
             }
         }
     }
@@ -94,7 +97,7 @@ fn pack_a_block<const PANEL_HEIGHT: usize>(
 /// Pack block of the "B" matrix.
 ///
 /// The packed buffer is laid out as a sequence of `ceil(b_cols / PANEL_WIDTH)`
-/// column panels. Each column panel has size `panel_height * PANEL_WIDTH` and
+/// column panels. Each column panel has size `b_rows * PANEL_WIDTH` and
 /// uses row-major order. If `b_cols` is not a multiple of `PANEL_WIDTH`, the
 /// final panel is zero-padded.
 fn pack_b_block<const PANEL_WIDTH: usize>(
@@ -105,9 +108,8 @@ fn pack_b_block<const PANEL_WIDTH: usize>(
     b_rows: usize,
 ) {
     let n_panels = round_up(b_cols, PANEL_WIDTH) / PANEL_WIDTH;
-    let panel_elements = b_rows * PANEL_WIDTH;
     for panel in 0..n_panels {
-        let panel_offset = panel * panel_elements;
+        let panel_offset = panel * b_rows * PANEL_WIDTH;
         let panel_start_col = panel * PANEL_WIDTH;
 
         if b_cols - panel_start_col >= PANEL_WIDTH {
@@ -156,7 +158,6 @@ fn round_up(val: usize, factor: usize) -> usize {
 /// (https://github.com/flame/blis), and was informed by the matrixmultiply
 /// crate (https://github.com/bluss/matrixmultiply). See Pages 3-5 of
 /// https://dl.acm.org/doi/pdf/10.1145/2925987 for an outline of the algorithm.
-///
 pub fn gemm(output: &mut Tensor, a: &Tensor, b: &Tensor) {
     let [a_rows, a_cols] = a.dims();
     let [b_rows, b_cols] = b.dims();
@@ -166,16 +167,15 @@ pub fn gemm(output: &mut Tensor, a: &Tensor, b: &Tensor) {
     }
 
     // The constant values below were taken from the matrixmultiply crate. The
-    // microblock sizes correspond to its fallback kernel (ie. not using SSE,
+    // MR and NR sizes correspond to its fallback kernel (ie. not using SSE,
     // AVX or other intrinsics). See https://dl.acm.org/doi/pdf/10.1145/2925987
     // for an explanation of how suitable values are determined. Since we don't
-    // know exactly which CPU this code will be run on, we have to pick
-    // something that will work on most systems.
+    // know exactly which CPU this code will be run on, we try to pick
+    // something that will work well on most systems.
 
     // Sizes of blocks that the width (nc), depth (kc) and height (mc)
     // dimensions are partitioned into in the outer loops. These are chosen
     // so that blocks can fit in specific cache levels.
-
     let nc = round_up(1024.min(b_cols), NR);
     let mc = round_up(64.min(a_rows), MR);
     let kc = 256.min(a_cols);
@@ -188,9 +188,9 @@ pub fn gemm(output: &mut Tensor, a: &Tensor, b: &Tensor) {
     let out_data = output.data_mut();
     let out_row_stride = b_cols;
 
-    // Buffers for packed blocks the matrix. These currently have no alignment
-    // specified. The paper mentioned above suggests that aligning to cache-line
-    // (ie. 64-byte) boundaries may help performance.
+    // Buffers for packed blocks of the matrix. These currently have no
+    // alignment specified. The paper mentioned above suggests that aligning to
+    // cache-line (ie. 64-byte) boundaries may help performance.
     let mut packed_b = vec![0.0; kc * nc];
     let mut packed_a = vec![0.0; mc * kc];
 
@@ -201,39 +201,36 @@ pub fn gemm(output: &mut Tensor, a: &Tensor, b: &Tensor) {
 
     for (col_start, col_end) in blocks(0, b_cols, nc) {
         for (depth_start, depth_end) in blocks(0, a_cols, kc) {
-            let block_width = col_end - col_start;
             let block_depth = depth_end - depth_start;
 
             pack_b_block::<NR>(
                 &mut packed_b,
                 &b_data[depth_start * b_row_stride + col_start..depth_end * b_row_stride],
                 b_row_stride,
-                block_width,
+                col_end - col_start,
                 block_depth,
             );
 
             for (row_start, row_end) in blocks(0, a_rows, mc) {
-                let block_height = row_end - row_start;
-
                 pack_a_block::<MR>(
                     &mut packed_a,
                     &a_data[row_start * a_row_stride + depth_start..row_end * a_row_stride],
                     a_row_stride,
                     block_depth,
-                    block_height,
+                    row_end - row_start,
                 );
 
-                for (ub_col_start, ub_col_end) in blocks(col_start, col_end, NR) {
-                    for (ub_row_start, ub_row_end) in blocks(row_start, row_end, MR) {
-                        let out_offset = ub_row_start * out_row_stride + ub_col_start;
+                for (tile_col_start, tile_col_end) in blocks(col_start, col_end, NR) {
+                    for (tile_row_start, tile_row_end) in blocks(row_start, row_end, MR) {
+                        let out_offset = tile_row_start * out_row_stride + tile_col_start;
                         let out_tile = &mut out_data[out_offset..];
 
-                        let a_panel = (ub_row_start - row_start) / MR;
-                        let a_panel_size = MR * kc;
+                        let a_panel = (tile_row_start - row_start) / MR;
+                        let a_panel_size = MR * block_depth;
                         let a_panel_offset = a_panel * a_panel_size;
 
-                        let b_panel = (ub_col_start - col_start) / NR;
-                        let b_panel_size = kc * NR;
+                        let b_panel = (tile_col_start - col_start) / NR;
+                        let b_panel_size = block_depth * NR;
                         let b_panel_offset = b_panel * b_panel_size;
 
                         let a_block = &packed_a[a_panel_offset..a_panel_offset + a_panel_size];
@@ -242,8 +239,8 @@ pub fn gemm(output: &mut Tensor, a: &Tensor, b: &Tensor) {
                         kernel::<MR, NR>(
                             out_tile,
                             out_row_stride,
-                            ub_row_end - ub_row_start,
-                            ub_col_end - ub_col_start,
+                            tile_row_end - tile_row_start,
+                            tile_col_end - tile_col_start,
                             a_block,
                             b_block,
                             block_depth,
@@ -284,22 +281,22 @@ mod tests {
         // computation. These are chosen to cover cases that are less than,
         // equal to and above the tile/block sizes which the algorithm divides
         // the problem into along each dimension.
-        let row_steps = [0, 2, 8, 10, 16, 64, 80];
         let col_steps = [0, 2, 4, 5, 8, 1024, 1025];
         let depth_steps = [0, 2, 20, 256, 300];
+        let row_steps = [0, 2, 8, 10, 16, 64, 80];
 
         let mut cases = Vec::new();
 
         // Simple cases where one dimension of the problem is varied to
         // different interesting values and other dimensions are kept small.
-        for rs in row_steps {
-            cases.push(([rs, 2], [2, 2]));
-        }
         for cs in col_steps {
             cases.push(([2, 2], [2, cs]));
         }
         for ds in depth_steps {
             cases.push(([2, ds], [ds, 2]));
+        }
+        for rs in row_steps {
+            cases.push(([rs, 2], [2, 2]));
         }
 
         // Some simple square matrix tests of different sizes.
