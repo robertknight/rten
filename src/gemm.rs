@@ -61,19 +61,18 @@ fn kernel<const H: usize, const W: usize>(
 
 /// Pack a block of the "A" matrix.
 ///
-/// The packed buffer is laid out as a sequence of row panels. Each row panel
-/// has size `PANEL_HEIGHT * panel_width` and uses column-major order.
-///
-/// `panel_rows` is currently required to be a multiple of `PANEL_HEIGHT`.
+/// The packed buffer is laid out as a sequence of `ceil(a_rows / PANEL_HEIGHT)`
+/// row panels. Each row panel has size `PANEL_HEIGHT * panel_width` and uses
+/// column-major order. If `a_rows` is not a multiple of `PANEL_HEIGHT`, the
+/// final panel is zero-padded.
 fn pack_a_block<const PANEL_HEIGHT: usize>(
     out: &mut [f32],
     a: &[f32],
     a_row_stride: usize,
     a_cols: usize,
     a_rows: usize,
-    panel_rows: usize,
 ) {
-    let n_panels = panel_rows / PANEL_HEIGHT;
+    let n_panels = round_up(a_rows, PANEL_HEIGHT) / PANEL_HEIGHT;
     let panel_elements = a_cols * PANEL_HEIGHT;
     for panel in 0..n_panels {
         let panel_offset = panel * panel_elements;
@@ -91,19 +90,18 @@ fn pack_a_block<const PANEL_HEIGHT: usize>(
 
 /// Pack block of the "B" matrix.
 ///
-/// The packed buffer is laid out as a sequence of column panels. Each column
-/// panel as size `panel_height * PANEL_WIDTH` and uses row-major order.
-///
-/// `cols` is currently required to be a multiple of `PANEL_WIDTH`.
+/// The packed buffer is laid out as a sequence of `ceil(b_cols / PANEL_WIDTH)`
+/// column panels. Each column panel has size `panel_height * PANEL_WIDTH` and
+/// uses row-major order. If `b_cols` is not a multiple of `PANEL_WIDTH`, the
+/// final panel is zero-padded.
 fn pack_b_block<const PANEL_WIDTH: usize>(
     out: &mut [f32],
     b: &[f32],
     b_row_stride: usize,
     b_cols: usize,
     b_rows: usize,
-    cols: usize,
 ) {
-    let n_panels = cols / PANEL_WIDTH;
+    let n_panels = round_up(b_cols, PANEL_WIDTH) / PANEL_WIDTH;
     let panel_elements = b_rows * PANEL_WIDTH;
     for panel in 0..n_panels {
         let panel_offset = panel * panel_elements;
@@ -209,7 +207,6 @@ pub fn gemm(output: &mut Tensor, a: &Tensor, b: &Tensor) {
                 b_row_stride,
                 block_width,
                 block_depth,
-                round_up(block_width, NR),
             );
 
             for (row_start, row_end) in blocks(0, a_rows, mc) {
@@ -221,7 +218,6 @@ pub fn gemm(output: &mut Tensor, a: &Tensor, b: &Tensor) {
                     a_row_stride,
                     block_depth,
                     block_height,
-                    round_up(block_height, MR),
                 );
 
                 for (ub_col_start, ub_col_end) in blocks(col_start, col_end, NR) {
