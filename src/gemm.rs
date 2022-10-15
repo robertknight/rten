@@ -133,6 +133,16 @@ fn pack_b_block<const PANEL_WIDTH: usize>(
     }
 }
 
+/// Return the smallest multiple of `factor` that is >= `val`.
+fn round_up(val: usize, factor: usize) -> usize {
+    let rem = val % factor;
+    if rem == 0 {
+        val
+    } else {
+        (val + factor) - rem
+    }
+}
+
 /// Multiply two matrices and add the results to `output`.
 ///
 /// The implementation uses the general approach of BLIS
@@ -159,14 +169,8 @@ pub fn gemm(output: &mut Tensor, a: &Tensor, b: &Tensor) {
     // dimensions are partitioned into in the outer loops. These are chosen
     // so that blocks can fit in specific cache levels.
 
-    // nb. There is currently an implicit assumption that NC and MC are
-    // multiples of the NR and MR values.
-    const NC: usize = 1024;
-    const MC: usize = 64;
-
-    // When the depth dimension of the input is small, we can reduce wasted
-    // work on the zero-padded areas of the packed blocks by reducing their
-    // width/height.
+    let nc = round_up(1024.min(b_cols), NR);
+    let mc = round_up(64.min(a_rows), MR);
     let kc = 256.min(a_cols);
 
     // Size of output tiles in rows (MR) and columns (NR) computed by innermost
@@ -180,34 +184,39 @@ pub fn gemm(output: &mut Tensor, a: &Tensor, b: &Tensor) {
     // Buffers for packed blocks the matrix. These currently have no alignment
     // specified. The paper mentioned above suggests that aligning to cache-line
     // (ie. 64-byte) boundaries may help performance.
-    let mut packed_b = vec![0.0; kc * NC];
-    let mut packed_a = vec![0.0; MC * kc];
+    let mut packed_b = vec![0.0; kc * nc];
+    let mut packed_a = vec![0.0; mc * kc];
 
     let a_data = a.data();
     let b_data = b.data();
     let b_row_stride = b_cols;
     let a_row_stride = a_cols;
 
-    for (col_start, col_end) in blocks(0, b_cols, NC) {
+    for (col_start, col_end) in blocks(0, b_cols, nc) {
         for (depth_start, depth_end) in blocks(0, a_cols, kc) {
+            let block_width = col_end - col_start;
+            let block_depth = depth_end - depth_start;
+
             pack_b_block::<NR>(
                 &mut packed_b,
                 &b_data[depth_start * b_row_stride + col_start..depth_end * b_row_stride],
                 b_row_stride,
-                col_end - col_start,
-                depth_end - depth_start,
-                NC,
-                kc,
+                block_width,
+                block_depth,
+                round_up(block_width, NR),
+                block_depth,
             );
-            for (row_start, row_end) in blocks(0, a_rows, MC) {
+            for (row_start, row_end) in blocks(0, a_rows, mc) {
+                let block_height = row_end - row_start;
+
                 pack_a_block::<MR>(
                     &mut packed_a,
                     &a_data[row_start * a_row_stride + depth_start..row_end * a_row_stride],
                     a_row_stride,
-                    depth_end - depth_start,
-                    row_end - row_start,
-                    MC,
-                    kc,
+                    block_depth,
+                    block_height,
+                    round_up(block_height, MR),
+                    block_depth,
                 );
 
                 for (ub_col_start, ub_col_end) in blocks(col_start, col_end, NR) {
@@ -233,7 +242,7 @@ pub fn gemm(output: &mut Tensor, a: &Tensor, b: &Tensor) {
                             ub_col_end - ub_col_start,
                             a_block,
                             b_block,
-                            kc,
+                            block_depth,
                         );
                     }
                 }
