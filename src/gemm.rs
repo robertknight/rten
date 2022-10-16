@@ -210,14 +210,14 @@ pub fn gemm(output: &mut Tensor, a: &Tensor, b: &Tensor) {
 
     for (col_start, col_end) in blocks(0, b_cols, nc) {
         for (depth_start, depth_end) in blocks(0, a_cols, kc) {
-            let block_depth = depth_end - depth_start;
+            let panel_length = depth_end - depth_start;
 
             pack_b_block::<NR>(
                 &mut packed_b,
                 &b_data[depth_start * b_row_stride + col_start..depth_end * b_row_stride],
                 b_row_stride,
                 col_end - col_start,
-                block_depth,
+                panel_length,
             );
 
             for (row_start, row_end) in blocks(0, a_rows, mc) {
@@ -225,33 +225,34 @@ pub fn gemm(output: &mut Tensor, a: &Tensor, b: &Tensor) {
                     &mut packed_a,
                     &a_data[row_start * a_row_stride + depth_start..row_end * a_row_stride],
                     a_row_stride,
-                    block_depth,
+                    panel_length,
                     row_end - row_start,
                 );
 
+                let b_panel_size = panel_length * NR;
+                let a_panel_size = MR * panel_length;
+
                 for (tile_col_start, tile_col_end) in blocks(col_start, col_end, NR) {
-                    let b_panel = (tile_col_start - col_start) / NR;
-                    let b_panel_size = block_depth * NR;
-                    let b_panel_offset = b_panel * b_panel_size;
-                    let b_block = &packed_b[b_panel_offset..b_panel_offset + b_panel_size];
+                    let b_panel_idx = (tile_col_start - col_start) / NR;
+                    let b_panel_offset = b_panel_idx * b_panel_size;
+                    let b_panel = &packed_b[b_panel_offset..b_panel_offset + b_panel_size];
 
                     for (tile_row_start, tile_row_end) in blocks(row_start, row_end, MR) {
+                        let a_panel_idx = (tile_row_start - row_start) / MR;
+                        let a_panel_offset = a_panel_idx * a_panel_size;
+                        let a_panel = &packed_a[a_panel_offset..a_panel_offset + a_panel_size];
+
                         let out_offset = tile_row_start * out_row_stride + tile_col_start;
                         let out_tile = &mut out_data[out_offset..];
-
-                        let a_panel = (tile_row_start - row_start) / MR;
-                        let a_panel_size = MR * block_depth;
-                        let a_panel_offset = a_panel * a_panel_size;
-                        let a_block = &packed_a[a_panel_offset..a_panel_offset + a_panel_size];
 
                         kernel::<MR, NR>(
                             out_tile,
                             out_row_stride,
                             tile_row_end - tile_row_start,
                             tile_col_end - tile_col_start,
-                            a_block,
-                            b_block,
-                            block_depth,
+                            a_panel,
+                            b_panel,
+                            panel_length,
                         );
                     }
                 }
