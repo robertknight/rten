@@ -104,7 +104,7 @@ impl<T: Copy> Tensor<T> {
         &mut self.data[self.base..]
     }
 
-    /// Return the a slice of the sizes of each dimension.
+    /// Return a slice of the sizes of each dimension.
     pub fn shape(&self) -> &[usize] {
         &self.shape
     }
@@ -289,47 +289,54 @@ impl<'a, const N: usize, T: Copy> IndexMut<[usize; N]> for UncheckedViewMut<'a, 
     }
 }
 
+struct ElementsDim {
+    /// Current index for this dimension
+    index: usize,
+
+    /// Maximum index value for this dimension
+    max_index: usize,
+
+    /// Amount to increase offset by every time index is incremented in this
+    /// dimension
+    stride: usize,
+}
+
 /// Iterator over elements of a tensor
 pub struct Elements<'a, T: Copy> {
-    tensor: &'a Tensor<T>,
+    /// Remaining elements to visit
     len: usize,
-    index: Vec<usize>,
+
+    /// Index of next element within each dimension. The stride and max value
+    /// of each dimension are also copied into this struct for faster access
+    /// during iteration.
+    dims: Vec<ElementsDim>,
+
+    /// Offset of next element to return in `data`
+    offset: usize,
+
+    /// Data buffer of the tensor
+    data: &'a [T],
 }
 
 impl<'a, T: Copy> Elements<'a, T> {
     fn new(tensor: &'a Tensor<T>) -> Elements<'a, T> {
+        let dims = tensor
+            .shape
+            .iter()
+            .enumerate()
+            .map(|(dim, &len)| ElementsDim {
+                index: 0,
+                max_index: if len > 0 { len - 1 } else { 0 },
+                stride: tensor.strides[dim],
+            })
+            .collect();
+
         Elements {
-            tensor,
+            data: &tensor.data,
+
             len: tensor.len(),
-            index: vec![0; tensor.shape.len()],
-        }
-    }
-
-    fn current_element(&self) -> T {
-        let mut offset = self.tensor.base;
-        for (dim, index) in self.index.iter().enumerate() {
-            offset += index * self.tensor.strides[dim]
-        }
-        self.tensor.data[offset]
-    }
-
-    fn incr_index(&mut self) {
-        self.len -= 1;
-
-        let last_dim = self.index.len() - 1;
-
-        // Find dimension where the last element has not been reached.
-        let mut dim = last_dim;
-        while dim > 0 && self.index[dim] >= self.tensor.shape[dim] - 1 {
-            dim -= 1;
-        }
-
-        self.index[dim] += 1;
-
-        // Reset index in all dimensions after the one we incremented.
-        while dim < last_dim {
-            dim += 1;
-            self.index[dim] = 0;
+            offset: tensor.base,
+            dims,
         }
     }
 }
@@ -341,8 +348,22 @@ impl<'a, T: Copy> Iterator for Elements<'a, T> {
         if self.len == 0 {
             return None;
         }
-        let element = self.current_element();
-        self.incr_index();
+        let element = self.data[self.offset];
+
+        self.len -= 1;
+
+        // Find dimension where the last element has not been reached.
+        let mut dim = self.dims.len() - 1;
+        while dim > 0 && self.dims[dim].index >= self.dims[dim].max_index {
+            // Reset offset back to the start of this dimension.
+            self.offset -= self.dims[dim].index * self.dims[dim].stride;
+            self.dims[dim].index = 0;
+            dim -= 1;
+        }
+
+        self.dims[dim].index += 1;
+        self.offset += self.dims[dim].stride;
+
         Some(element)
     }
 
@@ -350,6 +371,8 @@ impl<'a, T: Copy> Iterator for Elements<'a, T> {
         (self.len, Some(self.len))
     }
 }
+
+impl<'a, T: Copy> ExactSizeIterator for Elements<'a, T> {}
 
 /// Return the default strides for a given tensor shape.
 ///
