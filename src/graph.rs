@@ -354,7 +354,7 @@ mod tests {
 
         fn run(&self, inputs: &[&Tensor]) -> Tensor {
             let input = inputs[0];
-            let output_data = input.data().iter().map(|x| x + 1.0).collect();
+            let output_data = input.elements().map(|x| x + 1.0).collect();
             from_data(input.shape().into(), output_data)
         }
     }
