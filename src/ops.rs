@@ -618,22 +618,23 @@ pub fn concat(a: &Tensor, b: &Tensor, dim: usize) -> Tensor {
         return a.clone();
     }
 
-    let a_stride = if dim == 0 { a.len() } else { a.stride(dim - 1) };
-    let b_stride = if dim == 0 { b.len() } else { b.stride(dim - 1) };
+    let mut out_data = Vec::with_capacity(a.len() + b.len());
+
+    let a_step_size = a_shape[dim..].iter().product();
+    let b_step_size = b_shape[dim..].iter().product();
 
     let mut a_pos = 0;
     let mut b_pos = 0;
 
-    let a_data = a.data();
-    let b_data = b.data();
-    let mut out_data = Vec::with_capacity(a.data().len() + b.data().len());
+    let mut a_elts = a.elements();
+    let mut b_elts = b.elements();
 
-    while a_pos < a_data.len() && b_pos < b_data.len() {
-        out_data.extend_from_slice(&a_data[a_pos..a_pos + a_stride]);
-        a_pos += a_stride;
+    while a_pos < a.len() && b_pos < b.len() {
+        out_data.extend(a_elts.by_ref().take(a_step_size));
+        a_pos += a_step_size;
 
-        out_data.extend_from_slice(&b_data[b_pos..b_pos + b_stride]);
-        b_pos += b_stride;
+        out_data.extend(b_elts.by_ref().take(b_step_size));
+        b_pos += b_step_size;
     }
 
     let mut out_shape: Vec<_> = a_shape.into();
