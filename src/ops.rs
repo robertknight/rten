@@ -726,10 +726,11 @@ pub fn slice(input: &Tensor, dim: usize, start: usize, end: usize) -> Tensor {
         input.stride(dim - 1)
     };
 
+    let elts: Vec<f32> = input.elements().collect();
     for i in 0..steps {
         let offset = i * parent_dim_stride + start * dim_stride;
         let len = (end - start) * dim_stride;
-        out_data.extend_from_slice(&input.data()[offset..offset + len]);
+        out_data.extend_from_slice(&elts[offset..offset + len]);
     }
 
     from_data(out_shape, out_data)

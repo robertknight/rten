@@ -174,6 +174,9 @@ pub fn gemm(output: &mut Tensor, a: &Tensor, b: &Tensor) {
     if a_cols != b_rows {
         panic!("Columns of matrix `a` must match rows of matrix `b`");
     }
+    if !a.is_contiguous() || !b.is_contiguous() {
+        panic!("Input matrices must be contiguous");
+    }
 
     // The constant values below were taken from the matrixmultiply crate. The
     // MR and NR sizes correspond to its fallback kernel (ie. not using SSE,
