@@ -303,37 +303,49 @@ pub struct Elements<'a, T: Copy> {
     /// Remaining elements to visit
     len: usize,
 
-    /// Index of next element within each dimension. The stride and max value
-    /// of each dimension are also copied into this struct for faster access
-    /// during iteration.
-    dims: Vec<ElementsDim>,
-
     /// Offset of next element to return in `data`
     offset: usize,
 
+    /// True if the tensor data is contiguous in memory
+    contiguous: bool,
+
     /// Data buffer of the tensor
     data: &'a [T],
+
+    /// Index of next element within each dimension. The stride and max value
+    /// of each dimension are also copied into this struct for faster access
+    /// during iteration.
+    ///
+    /// This is not used if the tensor is contiguous.
+    dims: Vec<ElementsDim>,
+}
+
+fn make_dims<T: Copy>(tensor: &Tensor<T>) -> Vec<ElementsDim> {
+    tensor
+        .shape
+        .iter()
+        .enumerate()
+        .map(|(dim, &len)| ElementsDim {
+            index: 0,
+            max_index: if len > 0 { len - 1 } else { 0 },
+            stride: tensor.strides[dim],
+        })
+        .collect()
 }
 
 impl<'a, T: Copy> Elements<'a, T> {
     fn new(tensor: &'a Tensor<T>) -> Elements<'a, T> {
-        let dims = tensor
-            .shape
-            .iter()
-            .enumerate()
-            .map(|(dim, &len)| ElementsDim {
-                index: 0,
-                max_index: if len > 0 { len - 1 } else { 0 },
-                stride: tensor.strides[dim],
-            })
-            .collect();
-
+        let contiguous = tensor.is_contiguous();
         Elements {
             data: &tensor.data,
-
             len: tensor.len(),
             offset: tensor.base,
-            dims,
+            dims: if !contiguous {
+                make_dims(tensor)
+            } else {
+                Vec::new()
+            },
+            contiguous,
         }
     }
 }
@@ -345,9 +357,15 @@ impl<'a, T: Copy> Iterator for Elements<'a, T> {
         if self.len == 0 {
             return None;
         }
-        let element = self.data[self.offset];
 
+        let element = self.data[self.offset];
         self.len -= 1;
+
+        // Fast path for contiguous tensors
+        if self.contiguous {
+            self.offset += 1;
+            return Some(element);
+        }
 
         // Find dimension where the last element has not been reached.
         let mut dim = self.dims.len() - 1;
