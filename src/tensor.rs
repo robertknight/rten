@@ -113,16 +113,13 @@ impl<T: Copy> Tensor<T> {
     /// order in which they are stored in the underlying buffer, and there are
     /// no gaps.
     pub fn is_contiguous(&self) -> bool {
-        if self.strides[self.shape.len() - 1] != 1 {
-            return false;
-        }
-
-        for dim in (0..self.shape.len() - 2).rev() {
-            if self.strides[dim] != self.shape[dim + 1] * self.strides[dim + 1] {
+        let mut product = 1;
+        for (dim, len) in self.shape.iter().enumerate().rev() {
+            if self.strides[dim] != product {
                 return false;
             }
+            product *= len;
         }
-
         true
     }
 
@@ -639,6 +636,20 @@ mod tests {
 
         assert!(x.is_contiguous());
         x.resize_dim(0, 2);
+        assert!(x.is_contiguous());
+        x.resize_dim(1, 2);
+        assert!(!x.is_contiguous());
+    }
+
+    #[test]
+    fn test_is_contiguous_1d() {
+        let mut x = zero_tensor(&[10]);
+        for (index, elt) in x.data_mut().iter_mut().enumerate() {
+            *elt = index + 1;
+        }
+
+        assert!(x.is_contiguous());
+        x.resize_dim(0, 5);
         assert!(x.is_contiguous());
     }
 }
