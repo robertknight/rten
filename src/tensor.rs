@@ -298,8 +298,9 @@ struct ElementsDim {
     stride: usize,
 }
 
-/// Iterator over elements of a tensor
-pub struct Elements<'a, T: Copy> {
+/// Struct with shared functionality for iterating over elements, indexes and
+/// offsets of a tensor.
+struct ElementsBase {
     /// Remaining elements to visit
     len: usize,
 
@@ -309,9 +310,6 @@ pub struct Elements<'a, T: Copy> {
     /// True if the tensor data is contiguous in memory
     contiguous: bool,
 
-    /// Data buffer of the tensor
-    data: &'a [T],
-
     /// Index of next element within each dimension. The stride and max value
     /// of each dimension are also copied into this struct for faster access
     /// during iteration.
@@ -320,51 +318,39 @@ pub struct Elements<'a, T: Copy> {
     dims: Vec<ElementsDim>,
 }
 
-fn make_dims<T: Copy>(tensor: &Tensor<T>) -> Vec<ElementsDim> {
-    tensor
-        .shape
-        .iter()
-        .enumerate()
-        .map(|(dim, &len)| ElementsDim {
-            index: 0,
-            max_index: if len > 0 { len - 1 } else { 0 },
-            stride: tensor.strides[dim],
-        })
-        .collect()
-}
-
-impl<'a, T: Copy> Elements<'a, T> {
-    fn new(tensor: &'a Tensor<T>) -> Elements<'a, T> {
+impl ElementsBase {
+    fn new<T: Copy>(tensor: &Tensor<T>) -> ElementsBase {
         let contiguous = tensor.is_contiguous();
-        Elements {
-            data: &tensor.data,
+        let dims = if contiguous {
+            Vec::new()
+        } else {
+            tensor
+                .shape
+                .iter()
+                .enumerate()
+                .map(|(dim, &len)| ElementsDim {
+                    index: 0,
+                    max_index: if len > 0 { len - 1 } else { 0 },
+                    stride: tensor.strides[dim],
+                })
+                .collect()
+        };
+
+        ElementsBase {
             len: tensor.len(),
             offset: tensor.base,
-            dims: if !contiguous {
-                make_dims(tensor)
-            } else {
-                Vec::new()
-            },
+            dims,
             contiguous,
         }
     }
-}
 
-impl<'a, T: Copy> Iterator for Elements<'a, T> {
-    type Item = T;
-
-    fn next(&mut self) -> Option<T> {
-        if self.len == 0 {
-            return None;
-        }
-
-        let element = self.data[self.offset];
+    fn step(&mut self) {
         self.len -= 1;
 
         // Fast path for contiguous tensors
         if self.contiguous {
             self.offset += 1;
-            return Some(element);
+            return;
         }
 
         // Find dimension where the last element has not been reached.
@@ -378,12 +364,40 @@ impl<'a, T: Copy> Iterator for Elements<'a, T> {
 
         self.dims[dim].index += 1;
         self.offset += self.dims[dim].stride;
+    }
+}
 
+/// Iterator over elements of a tensor
+pub struct Elements<'a, T: Copy> {
+    base: ElementsBase,
+
+    /// Data buffer of the tensor
+    data: &'a [T],
+}
+
+impl<'a, T: Copy> Elements<'a, T> {
+    fn new(tensor: &'a Tensor<T>) -> Elements<'a, T> {
+        Elements {
+            base: ElementsBase::new(tensor),
+            data: &tensor.data,
+        }
+    }
+}
+
+impl<'a, T: Copy> Iterator for Elements<'a, T> {
+    type Item = T;
+
+    fn next(&mut self) -> Option<T> {
+        if self.base.len == 0 {
+            return None;
+        }
+        let element = self.data[self.base.offset];
+        self.base.step();
         Some(element)
     }
 
     fn size_hint(&self) -> (usize, Option<usize>) {
-        (self.len, Some(self.len))
+        (self.base.len, Some(self.base.len))
     }
 }
 
