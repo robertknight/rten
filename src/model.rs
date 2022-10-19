@@ -32,6 +32,10 @@ impl Model {
     }
 }
 
+fn read_add_op(node: &OperatorNode) -> Box<dyn Operator> {
+    Box::new(ops::Add {})
+}
+
 fn read_concat_op(node: &OperatorNode) -> Box<dyn Operator> {
     let dim = match node.attrs_as_concat_attrs() {
         Some(concat_attrs) => concat_attrs.dim() as usize,
@@ -72,6 +76,10 @@ fn read_max_pool_2d_op(node: &OperatorNode) -> Box<dyn Operator> {
         None => 2,
     };
     Box::new(ops::MaxPool2d { kernel_size })
+}
+
+fn read_matmul_op(node: &OperatorNode) -> Box<dyn Operator> {
+    Box::new(ops::MatMul {})
 }
 
 fn read_pad_2d_op(node: &OperatorNode) -> Box<dyn Operator> {
@@ -118,9 +126,11 @@ fn read_slice_op(node: &OperatorNode) -> Box<dyn Operator> {
 
 fn read_operator(node: &OperatorNode) -> Result<Box<dyn Operator>, String> {
     let op: Box<dyn Operator> = match node.type_() {
+        OperatorType::Add => read_add_op(node),
         OperatorType::Concat => read_concat_op(node),
         OperatorType::Conv2d => read_conv_2d_op(node),
         OperatorType::ConvTranspose2d => read_conv_transpose_2d_op(node),
+        OperatorType::MatMul => read_matmul_op(node),
         OperatorType::MaxPool2d => read_max_pool_2d_op(node),
         OperatorType::Pad2d => read_pad_2d_op(node),
         OperatorType::ReLU => read_relu_op(node),
@@ -257,10 +267,12 @@ mod tests {
         let mut builder = ModelBuilder::new();
 
         let input_node = builder.add_value("input");
+        let input_2d = builder.add_value("input.2d");
 
         let kernel_val = from_data(vec![1, 1, 1, 1], vec![0.5]);
         let kernel = builder.add_float_constant(&kernel_val);
 
+        builder.add_operator("add", OpType::Add, &[input_node, input_node]);
         builder.add_operator(
             "concat",
             OpType::Concat(ops::Concat { dim: 0 }),
@@ -279,6 +291,7 @@ mod tests {
             OpType::ConvTranspose2d(ops::ConvTranspose2d { stride: 2 }),
             &[input_node, kernel],
         );
+        builder.add_operator("matmul", OpType::MatMul, &[input_2d, input_2d]);
         builder.add_operator(
             "max_pool_2d",
             OpType::MaxPool2d(ops::MaxPool2d { kernel_size: 2 }),
@@ -311,7 +324,9 @@ mod tests {
 
         let model = load_model(&buffer).unwrap();
 
+        // Test cases that accept a 4D input (eg. NCHW).
         let outputs = vec![
+            "add",
             "concat",
             "conv_2d",
             "conv_transpose_2d",
@@ -327,6 +342,16 @@ mod tests {
         for output in outputs {
             let output_id = model.find_node(output).unwrap();
             let result = model.run(&[(input_node as usize, &input)], &[output_id], None);
+            assert_eq!(result.len(), 1);
+        }
+
+        // Test cases that accept a 2D input.
+        let outputs = vec!["matmul"];
+        let input = from_data(vec![3, 3], vec![1., 2., 3., 4., 5., 6., 7., 8., 9.]);
+
+        for output in outputs {
+            let output_id = model.find_node(output).unwrap();
+            let result = model.run(&[(input_2d as usize, &input)], &[output_id], None);
             assert_eq!(result.len(), 1);
         }
     }

@@ -120,6 +120,7 @@ impl<'a> ModelBuilder<'a> {
         // Translate internal operator info to the types in the schema.
         // There is unfortunately a lot of boilerplate here.
         let (op_type, attrs_type, attrs) = match op_info {
+            OpType::Add => (OT::Add, no_attrs, None),
             OpType::Concat(args) => (
                 OT::Concat,
                 OA::ConcatAttrs,
@@ -161,6 +162,7 @@ impl<'a> ModelBuilder<'a> {
                     .as_union_value(),
                 ),
             ),
+            OpType::MatMul => (OT::MatMul, no_attrs, None),
             OpType::MaxPool2d(args) => (
                 OT::MaxPool2d,
                 OA::MaxPool2dAttrs,

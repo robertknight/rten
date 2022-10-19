@@ -145,7 +145,10 @@ def op_node_from_onnx_operator(
 
     attrs: dict[str, int] = {}
 
-    if onnx_op.op_type == "Concat":
+    if onnx_op.op_type == "Add":
+        op_type = "Add"
+
+    elif onnx_op.op_type == "Concat":
         op_type = "Concat"
 
         attrs["dim"] = require_attr(onnx_op.attribute, "axis", "int")
@@ -182,6 +185,9 @@ def op_node_from_onnx_operator(
         check_unsupported_attr(onnx_op.attribute, "output_padding", "ints", [0, 0, 0, 0])
         check_unsupported_attr(onnx_op.attribute, "pads", "ints", [0, 0, 0, 0])
 
+    elif onnx_op.op_type == "MatMul":
+        op_type = "MatMul"
+
     elif onnx_op.op_type == "MaxPool":
         op_type = "MaxPool2d"
 
@@ -201,6 +207,8 @@ def op_node_from_onnx_operator(
 
     elif onnx_op.op_type == "Reshape":
         op_type = "Reshape"
+
+        check_unsupported_attr(onnx_op.attribute, "allowzero", "int", 0)
 
     elif onnx_op.op_type == "Slice":
         op_type = "Slice"
@@ -318,6 +326,8 @@ def build_operator_node(builder: flatbuffers.Builder, operator: OperatorNode):
     attrs = None
 
     match operator.op_type:
+        case "Add":
+            op_type_code = sg.OperatorType.Add
         case "Concat":
             op_type_code = sg.OperatorType.Concat
             attrs_type = sg.OperatorAttrs.ConcatAttrs
@@ -338,6 +348,8 @@ def build_operator_node(builder: flatbuffers.Builder, operator: OperatorNode):
             sg.ConvTranspose2dAttrsStart(builder)
             sg.ConvTranspose2dAttrsAddStride(builder, operator.attrs["stride"])
             attrs = sg.ConvTranspose2dAttrsEnd(builder)
+        case "MatMul":
+            op_type_code = sg.OperatorType.MatMul
         case "MaxPool2d":
             op_type_code = sg.OperatorType.MaxPool2d
             attrs_type = sg.OperatorAttrs.MaxPool2dAttrs

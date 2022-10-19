@@ -1,4 +1,5 @@
 use std::fmt::Debug;
+use std::iter::zip;
 
 use crate::gemm::{gemm, gemm_slice};
 use crate::tensor::{from_data, zero_tensor, Tensor};
@@ -71,15 +72,51 @@ pub trait Operator: Debug {
 
 /// Enum of all the built-in operators
 pub enum OpType {
+    Add,
     Concat(Concat),
     Conv2d(Conv2d),
     ConvTranspose2d(ConvTranspose2d),
+    MatMul,
     MaxPool2d(MaxPool2d),
     Pad2d(Pad2d),
     ReLU,
     Reshape,
     Sigmoid,
     Slice(Slice),
+}
+
+/// Compute the result of applying the binary operation `op` to corresponding
+/// elements of `a` and `b`. The shapes of `a` and `b` are broadcast to a
+/// matching shape if necessary.
+fn binary_op<T: Copy, F: Fn(T, T) -> T>(a: &Tensor<T>, b: &Tensor<T>, op: F) -> Tensor<T> {
+    let out_shape = if a.shape() < b.shape() {
+        b.shape()
+    } else {
+        a.shape()
+    };
+    let a_elts = a.broadcast_elements(out_shape);
+    let b_elts = b.broadcast_elements(out_shape);
+    let out_data = zip(a_elts, b_elts).map(|(a, b)| op(a, b)).collect();
+    from_data(out_shape.into(), out_data)
+}
+
+pub fn add(a: &Tensor, b: &Tensor) -> Tensor {
+    binary_op(a, b, |x, y| x + y)
+}
+
+#[derive(Debug)]
+pub struct Add {}
+
+impl Operator for Add {
+    fn name(&self) -> &str {
+        "Add"
+    }
+
+    fn run(&self, inputs: &[Input]) -> Tensor {
+        let a = inputs[0].as_float().unwrap();
+        let b = inputs[1].as_float().unwrap();
+        add(a, b)
+    }
 }
 
 /// Unroll patches from an image into a matrix.
@@ -577,6 +614,35 @@ pub fn max_pool_2d(input: &Tensor, kernel_size: usize) -> Tensor {
     output
 }
 
+pub fn matmul(a: &Tensor, b: &Tensor) -> Tensor {
+    let [a_rows, a_cols] = a.dims();
+    let [b_rows, b_cols] = b.dims();
+
+    if a_cols != b_rows {
+        panic!("Columns of first matrix does not match rows of second matrix")
+    }
+
+    let mut output = zero_tensor(&[a_rows, b_cols]);
+    gemm(&mut output, a, b);
+
+    output
+}
+
+#[derive(Debug)]
+pub struct MatMul {}
+
+impl Operator for MatMul {
+    fn name(&self) -> &str {
+        "MatMul"
+    }
+
+    fn run(&self, inputs: &[Input]) -> Tensor {
+        let a = inputs[0].as_float().unwrap();
+        let b = inputs[1].as_float().unwrap();
+        matmul(a, b)
+    }
+}
+
 #[derive(Debug)]
 pub struct MaxPool2d {
     pub kernel_size: usize,
@@ -851,9 +917,10 @@ impl Operator for Slice {
 // to train the models that will initially be executed with this library.
 #[cfg(test)]
 mod tests {
+    use crate::gemm::gemm;
     use crate::ops::{
-        concat, conv_2d, conv_transpose_2d, max_pool_2d, pad_2d, relu, relu_in_place, sigmoid,
-        sigmoid_in_place, slice, Operator, Reshape,
+        add, concat, conv_2d, conv_transpose_2d, matmul, max_pool_2d, pad_2d, relu, relu_in_place,
+        sigmoid, sigmoid_in_place, slice, Operator, Reshape,
     };
     use crate::rng::XorShiftRNG;
     use crate::tensor::{from_data, random_tensor, zero_tensor, Tensor};
@@ -922,6 +989,27 @@ mod tests {
         }
 
         output
+    }
+
+    #[test]
+    fn test_add() -> Result<(), String> {
+        let a = from_data(vec![2, 2], vec![1., 2., 3., 4.]);
+        let b = from_data(vec![2, 2], vec![10., 20., 30., 40.]);
+        let expected = from_data(vec![2, 2], vec![11., 22., 33., 44.]);
+        let result = add(&a, &b);
+        expect_equal(&result, &expected)
+    }
+
+    #[test]
+    fn test_add_broadcasted() -> Result<(), String> {
+        let a = from_data(vec![2, 2], vec![1., 2., 3., 4.]);
+        let b = from_data(vec![1], vec![10.]);
+        let expected = from_data(vec![2, 2], vec![11., 12., 13., 14.]);
+        let result = add(&a, &b);
+        expect_equal(&result, &expected)?;
+
+        let result = add(&b, &a);
+        expect_equal(&result, &expected)
     }
 
     /// Basic tests for conv_2d. These compare the results against values
@@ -1047,6 +1135,19 @@ mod tests {
         let bias = from_data(vec![1], vec![1.234]);
         let result = conv_transpose_2d(&input, &kernel, Some(&bias), 2);
         expect_equal(&result, &expected_with_bias)
+    }
+
+    #[test]
+    fn test_matmul() -> Result<(), String> {
+        let mut rng = XorShiftRNG::new(1234);
+        let a = random_tensor(&[3, 10], &mut rng);
+        let b = random_tensor(&[10, 8], &mut rng);
+
+        let mut expected = zero_tensor(&[3, 8]);
+        gemm(&mut expected, &a, &b);
+
+        let result = matmul(&a, &b);
+        expect_equal(&result, &expected)
     }
 
     #[test]

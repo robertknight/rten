@@ -7,9 +7,11 @@ file_extension "model";
 
 // Type for an operator node
 enum OperatorType: byte {
+  Add,
   Concat,
   Conv2d,
   ConvTranspose2d,
+  MatMul,
   MaxPool2d,
   Pad2d,
   ReLU,

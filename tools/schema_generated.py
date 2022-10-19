@@ -7,15 +7,17 @@ from flatbuffers.compat import import_numpy
 np = import_numpy()
 
 class OperatorType(object):
-    Concat = 0
-    Conv2d = 1
-    ConvTranspose2d = 2
-    MaxPool2d = 3
-    Pad2d = 4
-    ReLU = 5
-    Reshape = 6
-    Sigmoid = 7
-    Slice = 8
+    Add = 0
+    Concat = 1
+    Conv2d = 2
+    ConvTranspose2d = 3
+    MatMul = 4
+    MaxPool2d = 5
+    Pad2d = 6
+    ReLU = 7
+    Reshape = 8
+    Sigmoid = 9
+    Slice = 10
 
 
 class OperatorAttrs(object):

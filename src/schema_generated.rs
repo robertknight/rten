@@ -18,16 +18,18 @@ pub const ENUM_MIN_OPERATOR_TYPE: i8 = 0;
     since = "2.0.0",
     note = "Use associated constants instead. This will no longer be generated in 2021."
 )]
-pub const ENUM_MAX_OPERATOR_TYPE: i8 = 8;
+pub const ENUM_MAX_OPERATOR_TYPE: i8 = 10;
 #[deprecated(
     since = "2.0.0",
     note = "Use associated constants instead. This will no longer be generated in 2021."
 )]
 #[allow(non_camel_case_types)]
-pub const ENUM_VALUES_OPERATOR_TYPE: [OperatorType; 9] = [
+pub const ENUM_VALUES_OPERATOR_TYPE: [OperatorType; 11] = [
+    OperatorType::Add,
     OperatorType::Concat,
     OperatorType::Conv2d,
     OperatorType::ConvTranspose2d,
+    OperatorType::MatMul,
     OperatorType::MaxPool2d,
     OperatorType::Pad2d,
     OperatorType::ReLU,
@@ -41,22 +43,26 @@ pub const ENUM_VALUES_OPERATOR_TYPE: [OperatorType; 9] = [
 pub struct OperatorType(pub i8);
 #[allow(non_upper_case_globals)]
 impl OperatorType {
-    pub const Concat: Self = Self(0);
-    pub const Conv2d: Self = Self(1);
-    pub const ConvTranspose2d: Self = Self(2);
-    pub const MaxPool2d: Self = Self(3);
-    pub const Pad2d: Self = Self(4);
-    pub const ReLU: Self = Self(5);
-    pub const Reshape: Self = Self(6);
-    pub const Sigmoid: Self = Self(7);
-    pub const Slice: Self = Self(8);
+    pub const Add: Self = Self(0);
+    pub const Concat: Self = Self(1);
+    pub const Conv2d: Self = Self(2);
+    pub const ConvTranspose2d: Self = Self(3);
+    pub const MatMul: Self = Self(4);
+    pub const MaxPool2d: Self = Self(5);
+    pub const Pad2d: Self = Self(6);
+    pub const ReLU: Self = Self(7);
+    pub const Reshape: Self = Self(8);
+    pub const Sigmoid: Self = Self(9);
+    pub const Slice: Self = Self(10);
 
     pub const ENUM_MIN: i8 = 0;
-    pub const ENUM_MAX: i8 = 8;
+    pub const ENUM_MAX: i8 = 10;
     pub const ENUM_VALUES: &'static [Self] = &[
+        Self::Add,
         Self::Concat,
         Self::Conv2d,
         Self::ConvTranspose2d,
+        Self::MatMul,
         Self::MaxPool2d,
         Self::Pad2d,
         Self::ReLU,
@@ -67,9 +73,11 @@ impl OperatorType {
     /// Returns the variant's name or "" if unknown.
     pub fn variant_name(self) -> Option<&'static str> {
         match self {
+            Self::Add => Some("Add"),
             Self::Concat => Some("Concat"),
             Self::Conv2d => Some("Conv2d"),
             Self::ConvTranspose2d => Some("ConvTranspose2d"),
+            Self::MatMul => Some("MatMul"),
             Self::MaxPool2d => Some("MaxPool2d"),
             Self::Pad2d => Some("Pad2d"),
             Self::ReLU => Some("ReLU"),
@@ -1203,7 +1211,7 @@ impl<'a> OperatorNode<'a> {
     #[inline]
     pub fn type_(&self) -> OperatorType {
         self._tab
-            .get::<OperatorType>(OperatorNode::VT_TYPE_, Some(OperatorType::Concat))
+            .get::<OperatorType>(OperatorNode::VT_TYPE_, Some(OperatorType::Add))
             .unwrap()
     }
     #[inline]
@@ -1357,7 +1365,7 @@ impl<'a> Default for OperatorNodeArgs<'a> {
     #[inline]
     fn default() -> Self {
         OperatorNodeArgs {
-            type_: OperatorType::Concat,
+            type_: OperatorType::Add,
             attrs_type: OperatorAttrs::NONE,
             attrs: None,
             inputs: None,
@@ -1373,7 +1381,7 @@ impl<'a: 'b, 'b> OperatorNodeBuilder<'a, 'b> {
     #[inline]
     pub fn add_type_(&mut self, type_: OperatorType) {
         self.fbb_
-            .push_slot::<OperatorType>(OperatorNode::VT_TYPE_, type_, OperatorType::Concat);
+            .push_slot::<OperatorType>(OperatorNode::VT_TYPE_, type_, OperatorType::Add);
     }
     #[inline]
     pub fn add_attrs_type(&mut self, attrs_type: OperatorAttrs) {
