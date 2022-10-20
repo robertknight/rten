@@ -92,7 +92,8 @@ impl<T: Copy> Tensor<T> {
     /// Return the underlying element buffer for this tensor.
     ///
     /// If the tensor is contiguous, the buffer will contain the same elements
-    /// in the same order as yielded by `elements`.
+    /// in the same order as yielded by `elements`. In other cases the buffer
+    /// may have unused indexes or a different ordering.
     pub fn data(&self) -> &[T] {
         &self.data[self.base..]
     }
