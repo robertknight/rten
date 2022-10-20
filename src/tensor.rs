@@ -1,3 +1,4 @@
+use std::iter::zip;
 use std::ops::{Index, IndexMut};
 
 use crate::rng::XorShiftRNG;
@@ -127,6 +128,46 @@ impl<T: Copy> Tensor<T> {
     /// Return an iterator over elements of this tensor, in their logical order.
     pub fn elements(&self) -> Elements<T> {
         Elements::new(self)
+    }
+
+    /// Return an iterator over elements of this tensor, broadcasted to `shape`.
+    ///
+    /// A broadcasted iterator behaves as if the tensor had the broadcasted
+    /// shape, repeating elements as necessary to fill the given dimensions.
+    /// Broadcasting is only possible if the actual and broadcast shapes are
+    /// compatible according to ONNX's rules. See
+    /// https://github.com/onnx/onnx/blob/main/docs/Operators.md.
+    pub fn broadcast_elements(&self, shape: &[usize]) -> Elements<T> {
+        if !self.can_broadcast(shape) {
+            panic!("Broadcast shape is not compatible with actual shape");
+        }
+        if self.shape == shape {
+            Elements::new(self)
+        } else {
+            Elements::broadcast(self, shape)
+        }
+    }
+
+    /// Return true if the element's shape can be broadcast to `shape` using
+    /// `broadcast_elements`.
+    ///
+    /// See https://github.com/onnx/onnx/blob/main/docs/Broadcasting.md for
+    /// conditions in which broadcasting is allowed.
+    pub fn can_broadcast(&self, shape: &[usize]) -> bool {
+        if self.shape == shape {
+            return true;
+        }
+
+        // For two shapes to be compatible for broadcasting, each dimension must
+        // either be the same or be 1.
+        //
+        // If one tensor has fewer dimensions, pretend that it was prefixed with
+        // 1-length dimensions to make the dimension counts equal.
+        let min_len = self.shape.len().min(shape.len());
+        let self_dims = self.shape[self.shape.len() - min_len..].iter().copied();
+        let target_dims = shape[shape.len() - min_len..].iter().copied();
+
+        zip(self_dims, target_dims).all(|(a, b)| a == b || a == 1 || b == 1)
     }
 
     /// Update the shape of the tensor.
@@ -353,6 +394,36 @@ impl ElementsBase {
         }
     }
 
+    fn broadcast<T: Copy>(tensor: &Tensor<T>, shape: &[usize]) -> ElementsBase {
+        let dims = zip(tensor.shape().iter(), shape.iter())
+            .enumerate()
+            .map(|(dim, (&actual_len, &broadcast_len))| ElementsDim {
+                index: 0,
+                max_index: if broadcast_len > 0 {
+                    broadcast_len - 1
+                } else {
+                    0
+                },
+
+                // If the dimension is being broadcast, set its stride to 0 so
+                // that when we increment in this dimension, we just repeat
+                // elements. Otherwise, use the real stride.
+                stride: if actual_len == broadcast_len {
+                    tensor.strides[dim]
+                } else {
+                    0
+                },
+            })
+            .collect();
+
+        ElementsBase {
+            len: shape.iter().product(),
+            offset: tensor.base,
+            dims,
+            contiguous: false,
+        }
+    }
+
     fn step(&mut self) {
         self.len -= 1;
 
@@ -388,6 +459,13 @@ impl<'a, T: Copy> Elements<'a, T> {
     fn new(tensor: &'a Tensor<T>) -> Elements<'a, T> {
         Elements {
             base: ElementsBase::new(tensor),
+            data: &tensor.data,
+        }
+    }
+
+    fn broadcast(tensor: &'a Tensor<T>, shape: &[usize]) -> Elements<'a, T> {
+        Elements {
+            base: ElementsBase::broadcast(tensor, shape),
             data: &tensor.data,
         }
     }
@@ -459,7 +537,7 @@ pub fn from_data<T: Copy>(shape: Vec<usize>, data: Vec<T>) -> Tensor<T> {
 #[cfg(test)]
 mod tests {
     use crate::rng::XorShiftRNG;
-    use crate::tensor::{random_tensor, zero_tensor};
+    use crate::tensor::{random_tensor, zero_tensor, Tensor};
 
     #[test]
     fn test_stride() {
@@ -712,5 +790,34 @@ mod tests {
         assert!(x.is_contiguous());
         x.resize_dim(0, 5);
         assert!(x.is_contiguous());
+    }
+
+    /// Create a tensor where the value of each element is its logical index
+    /// plus one.
+    fn steps(shape: &[usize]) -> Tensor<i32> {
+        let mut x = zero_tensor(shape);
+        for (index, elt) in x.data_mut().iter_mut().enumerate() {
+            *elt = (index + 1) as i32;
+        }
+        x
+    }
+
+    #[test]
+    fn test_broadcast_elements() {
+        let x = steps(&[1, 2, 1, 2]);
+        assert_eq!(x.elements().collect::<Vec<i32>>(), &[1, 2, 3, 4]);
+
+        let bx = x.broadcast_elements(&[2, 2, 1, 2]);
+        assert_eq!(bx.collect::<Vec<i32>>(), &[1, 2, 3, 4, 1, 2, 3, 4]);
+
+        let bx = x.broadcast_elements(&[1, 2, 2, 2]);
+        assert_eq!(bx.collect::<Vec<i32>>(), &[1, 2, 1, 2, 3, 4, 3, 4]);
+    }
+
+    #[test]
+    #[should_panic(expected = "Broadcast shape is not compatible with actual shape")]
+    fn test_broadcast_elements_with_invalid_shape() {
+        let x = steps(&[2, 2]);
+        x.broadcast_elements(&[3, 2]);
     }
 }
