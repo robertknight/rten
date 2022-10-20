@@ -197,8 +197,8 @@ pub fn gemm(output: &mut Tensor, a: &Tensor, b: &Tensor) {
     const MR: usize = 8;
     const NR: usize = 4;
 
+    let out_row_stride = output.stride(0);
     let out_data = output.data_mut();
-    let out_row_stride = b_cols;
 
     // Buffers for packed blocks of the matrix. These currently have no
     // alignment specified. The paper mentioned above suggests that aligning to
@@ -208,8 +208,8 @@ pub fn gemm(output: &mut Tensor, a: &Tensor, b: &Tensor) {
 
     let a_data = a.data();
     let b_data = b.data();
-    let b_row_stride = b_cols;
-    let a_row_stride = a_cols;
+    let b_row_stride = b.stride(0);
+    let a_row_stride = a.stride(0);
 
     for (col_start, col_end) in blocks(0, b_cols, nc) {
         for (depth_start, depth_end) in blocks(0, a_cols, kc) {
