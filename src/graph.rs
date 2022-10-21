@@ -1,6 +1,6 @@
 use std::collections::{HashMap, HashSet};
 
-use crate::ops::Operator;
+use crate::ops::{Input, Operator};
 use crate::tensor::Tensor;
 use crate::timer::Timer;
 
@@ -138,12 +138,12 @@ impl Graph {
                 op_node.operator.run_in_place(&mut input);
                 input
             } else {
-                let mut op_inputs = Vec::new();
+                let mut op_inputs: Vec<Input> = Vec::new();
                 for node_id in op_node.inputs.iter() {
-                    if let Some(value) = values.get(node_id) {
-                        op_inputs.push(*value);
+                    if let Some(&value) = values.get(node_id) {
+                        op_inputs.push(value.into());
                     } else if let Some(value) = temp_values.get(node_id) {
-                        op_inputs.push(value);
+                        op_inputs.push(value.into());
                     } else {
                         // If this is reached, there was a bug in plan creation.
                         panic!(
@@ -298,7 +298,7 @@ impl Graph {
 #[cfg(test)]
 mod tests {
     use crate::graph::Graph;
-    use crate::ops::{Concat, Conv2d, Operator, ReLU};
+    use crate::ops::{Concat, Conv2d, Input, Operator, ReLU};
     use crate::tensor::{from_data, zero_tensor, Tensor};
     use crate::test_util::expect_equal;
 
@@ -352,8 +352,8 @@ mod tests {
             "AddOne"
         }
 
-        fn run(&self, inputs: &[&Tensor]) -> Tensor {
-            let input = inputs[0];
+        fn run(&self, inputs: &[Input]) -> Tensor {
+            let input = inputs[0].as_float().unwrap();
             let output_data = input.elements().map(|x| x + 1.0).collect();
             from_data(input.shape().into(), output_data)
         }
@@ -461,11 +461,11 @@ mod tests {
             true
         }
 
-        fn run(&self, inputs: &[&Tensor]) -> Tensor {
+        fn run(&self, inputs: &[Input]) -> Tensor {
             // An operator should normally have the same behavior in `run`
             // and `run_in_place`. Here we use different behavior to make it
             // possible to distinguish which path was used.
-            inputs[0].clone()
+            inputs[0].as_float().unwrap().clone()
         }
 
         fn run_in_place(&self, input: &mut Tensor) {

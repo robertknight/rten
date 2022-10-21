@@ -3,13 +3,57 @@ use std::fmt::Debug;
 use crate::gemm::{gemm, gemm_slice};
 use crate::tensor::{from_data, zero_tensor, Tensor};
 
+/// Enum of the different types of input tensor that an operator can accept.
+#[derive(Clone, Copy)]
+pub enum Input<'a> {
+    FloatTensor(&'a Tensor<f32>),
+    IntTensor(&'a Tensor<i32>),
+}
+
+impl<'a> Input<'a> {
+    pub fn shape(&self) -> &'a [usize] {
+        match self {
+            Input::FloatTensor(t) => t.shape(),
+            Input::IntTensor(t) => t.shape(),
+        }
+    }
+
+    pub fn as_float(&self) -> Option<&'a Tensor<f32>> {
+        if let Input::FloatTensor(t) = self {
+            Some(t)
+        } else {
+            None
+        }
+    }
+
+    pub fn as_int(&self) -> Option<&'a Tensor<i32>> {
+        if let Input::IntTensor(t) = self {
+            Some(t)
+        } else {
+            None
+        }
+    }
+}
+
+impl<'a> From<&'a Tensor<f32>> for Input<'a> {
+    fn from(t: &'a Tensor<f32>) -> Input {
+        Input::FloatTensor(t)
+    }
+}
+
+impl<'a> From<&'a Tensor<i32>> for Input<'a> {
+    fn from(t: &'a Tensor<i32>) -> Input {
+        Input::IntTensor(t)
+    }
+}
+
 /// An Operator is a computation step in a graph.
 pub trait Operator: Debug {
     /// Return a display name for the operator.
     fn name(&self) -> &str;
 
     /// Execute the operator with the inputs.
-    fn run(&self, input: &[&Tensor]) -> Tensor;
+    fn run(&self, input: &[Input]) -> Tensor;
 
     /// Return true if this operator supports in-place execution via
     /// `run_in_place`.
@@ -384,10 +428,10 @@ impl Operator for Conv2d {
     }
 
     /// Run `conv_2d` operator with `[input, weight, bias?]` inputs.
-    fn run(&self, inputs: &[&Tensor]) -> Tensor {
-        let input = inputs[0];
-        let weight = inputs[1];
-        let bias = inputs.get(2).copied();
+    fn run(&self, inputs: &[Input]) -> Tensor {
+        let input = inputs[0].as_float().unwrap();
+        let weight = inputs[1].as_float().unwrap();
+        let bias = inputs.get(2).map(|t| t.as_float().unwrap());
         conv_2d(input, weight, bias, self.padding, self.groups)
     }
 }
@@ -494,10 +538,10 @@ impl Operator for ConvTranspose2d {
     }
 
     /// Run `conv_2d` operator with `[input, weight]` inputs.
-    fn run(&self, inputs: &[&Tensor]) -> Tensor {
-        let input = &inputs[0];
-        let weight = &inputs[1];
-        let bias = inputs.get(2).copied();
+    fn run(&self, inputs: &[Input]) -> Tensor {
+        let input = inputs[0].as_float().unwrap();
+        let weight = inputs[1].as_float().unwrap();
+        let bias = inputs.get(2).map(|t| t.as_float().unwrap());
         conv_transpose_2d(input, weight, bias, self.stride)
     }
 }
@@ -543,8 +587,8 @@ impl Operator for MaxPool2d {
     }
 
     /// Run `sigmoid` operator with `[input]` inputs.
-    fn run(&self, inputs: &[&Tensor]) -> Tensor {
-        let input = &inputs[0];
+    fn run(&self, inputs: &[Input]) -> Tensor {
+        let input = inputs[0].as_float().unwrap();
         max_pool_2d(input, self.kernel_size)
     }
 }
@@ -567,8 +611,8 @@ impl Operator for ReLU {
     }
 
     /// Run `relu` operator with `[input]` inputs.
-    fn run(&self, inputs: &[&Tensor]) -> Tensor {
-        let input = &inputs[0];
+    fn run(&self, inputs: &[Input]) -> Tensor {
+        let input = inputs[0].as_float().unwrap();
         relu(input)
     }
 
@@ -598,8 +642,8 @@ impl Operator for Sigmoid {
         "Sigmoid"
     }
 
-    fn run(&self, inputs: &[&Tensor]) -> Tensor {
-        let input = &inputs[0];
+    fn run(&self, inputs: &[Input]) -> Tensor {
+        let input = inputs[0].as_float().unwrap();
         sigmoid(input)
     }
 
@@ -670,9 +714,9 @@ impl Operator for Concat {
     }
 
     /// Run `concat` operator with `[a, b]` inputs.
-    fn run(&self, inputs: &[&Tensor]) -> Tensor {
-        let a = &inputs[0];
-        let b = &inputs[1];
+    fn run(&self, inputs: &[Input]) -> Tensor {
+        let a = inputs[0].as_float().unwrap();
+        let b = inputs[1].as_float().unwrap();
         concat(a, b, self.dim)
     }
 }
@@ -716,8 +760,8 @@ impl Operator for Pad2d {
     }
 
     /// Run `pad` operator with `[input]` inputs.
-    fn run(&self, inputs: &[&Tensor]) -> Tensor {
-        let input = &inputs[0];
+    fn run(&self, inputs: &[Input]) -> Tensor {
+        let input = inputs[0].as_float().unwrap();
         pad_2d(input, self.padding)
     }
 }
@@ -765,8 +809,8 @@ impl Operator for Slice {
     }
 
     /// Run `slice` operator with `[input]` inputs.
-    fn run(&self, inputs: &[&Tensor]) -> Tensor {
-        let input = inputs[0];
+    fn run(&self, inputs: &[Input]) -> Tensor {
+        let input = inputs[0].as_float().unwrap();
         slice(input, self.dim, self.start, self.end)
     }
 
