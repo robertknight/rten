@@ -75,10 +75,23 @@ table OperatorNode {
   inputs:[uint];
 }
 
+union ConstantData {
+  FloatData,
+  IntData,
+}
+
+table FloatData {
+  data: [float32] (required);
+}
+
+table IntData {
+  data: [int32] (required);
+}
+
 // Graph node for a constant tensor value, whose data is part of the model.
 table ConstantNode {
   shape:[uint] (required);
-  data:[float32] (required);
+  data:ConstantData (required);
 }
 
 // Graph node for a dynamic tensor value, such as a model input or operator

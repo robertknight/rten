@@ -34,6 +34,12 @@ class NodeKind(object):
     ValueNode = 3
 
 
+class ConstantData(object):
+    NONE = 0
+    FloatData = 1
+    IntData = 2
+
+
 class ConcatAttrs(object):
     __slots__ = ['_tab']
 
@@ -376,6 +382,116 @@ def OperatorNodeStartInputsVector(builder, numElems): return builder.StartVector
 def OperatorNodeEnd(builder): return builder.EndObject()
 
 
+class FloatData(object):
+    __slots__ = ['_tab']
+
+    @classmethod
+    def GetRootAs(cls, buf, offset=0):
+        n = flatbuffers.encode.Get(flatbuffers.packer.uoffset, buf, offset)
+        x = FloatData()
+        x.Init(buf, n + offset)
+        return x
+
+    @classmethod
+    def GetRootAsFloatData(cls, buf, offset=0):
+        """This method is deprecated. Please switch to GetRootAs."""
+        return cls.GetRootAs(buf, offset)
+    @classmethod
+    def FloatDataBufferHasIdentifier(cls, buf, offset, size_prefixed=False):
+        return flatbuffers.util.BufferHasIdentifier(buf, offset, b"\x4D\x4F\x44\x4C", size_prefixed=size_prefixed)
+
+    # FloatData
+    def Init(self, buf, pos):
+        self._tab = flatbuffers.table.Table(buf, pos)
+
+    # FloatData
+    def Data(self, j):
+        o = flatbuffers.number_types.UOffsetTFlags.py_type(self._tab.Offset(4))
+        if o != 0:
+            a = self._tab.Vector(o)
+            return self._tab.Get(flatbuffers.number_types.Float32Flags, a + flatbuffers.number_types.UOffsetTFlags.py_type(j * 4))
+        return 0
+
+    # FloatData
+    def DataAsNumpy(self):
+        o = flatbuffers.number_types.UOffsetTFlags.py_type(self._tab.Offset(4))
+        if o != 0:
+            return self._tab.GetVectorAsNumpy(flatbuffers.number_types.Float32Flags, o)
+        return 0
+
+    # FloatData
+    def DataLength(self):
+        o = flatbuffers.number_types.UOffsetTFlags.py_type(self._tab.Offset(4))
+        if o != 0:
+            return self._tab.VectorLen(o)
+        return 0
+
+    # FloatData
+    def DataIsNone(self):
+        o = flatbuffers.number_types.UOffsetTFlags.py_type(self._tab.Offset(4))
+        return o == 0
+
+def FloatDataStart(builder): builder.StartObject(1)
+def FloatDataAddData(builder, data): builder.PrependUOffsetTRelativeSlot(0, flatbuffers.number_types.UOffsetTFlags.py_type(data), 0)
+def FloatDataStartDataVector(builder, numElems): return builder.StartVector(4, numElems, 4)
+def FloatDataEnd(builder): return builder.EndObject()
+
+
+class IntData(object):
+    __slots__ = ['_tab']
+
+    @classmethod
+    def GetRootAs(cls, buf, offset=0):
+        n = flatbuffers.encode.Get(flatbuffers.packer.uoffset, buf, offset)
+        x = IntData()
+        x.Init(buf, n + offset)
+        return x
+
+    @classmethod
+    def GetRootAsIntData(cls, buf, offset=0):
+        """This method is deprecated. Please switch to GetRootAs."""
+        return cls.GetRootAs(buf, offset)
+    @classmethod
+    def IntDataBufferHasIdentifier(cls, buf, offset, size_prefixed=False):
+        return flatbuffers.util.BufferHasIdentifier(buf, offset, b"\x4D\x4F\x44\x4C", size_prefixed=size_prefixed)
+
+    # IntData
+    def Init(self, buf, pos):
+        self._tab = flatbuffers.table.Table(buf, pos)
+
+    # IntData
+    def Data(self, j):
+        o = flatbuffers.number_types.UOffsetTFlags.py_type(self._tab.Offset(4))
+        if o != 0:
+            a = self._tab.Vector(o)
+            return self._tab.Get(flatbuffers.number_types.Int32Flags, a + flatbuffers.number_types.UOffsetTFlags.py_type(j * 4))
+        return 0
+
+    # IntData
+    def DataAsNumpy(self):
+        o = flatbuffers.number_types.UOffsetTFlags.py_type(self._tab.Offset(4))
+        if o != 0:
+            return self._tab.GetVectorAsNumpy(flatbuffers.number_types.Int32Flags, o)
+        return 0
+
+    # IntData
+    def DataLength(self):
+        o = flatbuffers.number_types.UOffsetTFlags.py_type(self._tab.Offset(4))
+        if o != 0:
+            return self._tab.VectorLen(o)
+        return 0
+
+    # IntData
+    def DataIsNone(self):
+        o = flatbuffers.number_types.UOffsetTFlags.py_type(self._tab.Offset(4))
+        return o == 0
+
+def IntDataStart(builder): builder.StartObject(1)
+def IntDataAddData(builder, data): builder.PrependUOffsetTRelativeSlot(0, flatbuffers.number_types.UOffsetTFlags.py_type(data), 0)
+def IntDataStartDataVector(builder, numElems): return builder.StartVector(4, numElems, 4)
+def IntDataEnd(builder): return builder.EndObject()
+
+
 class ConstantNode(object):
     __slots__ = ['_tab']
 
@@ -426,37 +542,27 @@ class ConstantNode(object):
         return o == 0
 
     # ConstantNode
-    def Data(self, j):
+    def DataType(self):
         o = flatbuffers.number_types.UOffsetTFlags.py_type(self._tab.Offset(6))
         if o != 0:
-            a = self._tab.Vector(o)
-            return self._tab.Get(flatbuffers.number_types.Float32Flags, a + flatbuffers.number_types.UOffsetTFlags.py_type(j * 4))
+            return self._tab.Get(flatbuffers.number_types.Uint8Flags, o + self._tab.Pos)
         return 0
 
     # ConstantNode
-    def DataAsNumpy(self):
-        o = flatbuffers.number_types.UOffsetTFlags.py_type(self._tab.Offset(6))
+    def Data(self):
+        o = flatbuffers.number_types.UOffsetTFlags.py_type(self._tab.Offset(8))
         if o != 0:
-            return self._tab.GetVectorAsNumpy(flatbuffers.number_types.Float32Flags, o)
-        return 0
+            from flatbuffers.table import Table
+            obj = Table(bytearray(), 0)
+            self._tab.Union(obj, o)
+            return obj
+        return None
 
-    # ConstantNode
-    def DataLength(self):
-        o = flatbuffers.number_types.UOffsetTFlags.py_type(self._tab.Offset(6))
-        if o != 0:
-            return self._tab.VectorLen(o)
-        return 0
-
-    # ConstantNode
-    def DataIsNone(self):
-        o = flatbuffers.number_types.UOffsetTFlags.py_type(self._tab.Offset(6))
-        return o == 0
-
-def ConstantNodeStart(builder): builder.StartObject(2)
+def ConstantNodeStart(builder): builder.StartObject(3)
 def ConstantNodeAddShape(builder, shape): builder.PrependUOffsetTRelativeSlot(0, flatbuffers.number_types.UOffsetTFlags.py_type(shape), 0)
 def ConstantNodeStartShapeVector(builder, numElems): return builder.StartVector(4, numElems, 4)
-def ConstantNodeAddData(builder, data): builder.PrependUOffsetTRelativeSlot(1, flatbuffers.number_types.UOffsetTFlags.py_type(data), 0)
-def ConstantNodeStartDataVector(builder, numElems): return builder.StartVector(4, numElems, 4)
+def ConstantNodeAddDataType(builder, dataType): builder.PrependUint8Slot(1, dataType, 0)
+def ConstantNodeAddData(builder, data): builder.PrependUOffsetTRelativeSlot(2, flatbuffers.number_types.UOffsetTFlags.py_type(data), 0)
 def ConstantNodeEnd(builder): return builder.EndObject()
 
 

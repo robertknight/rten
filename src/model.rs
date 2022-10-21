@@ -5,7 +5,7 @@ use std::collections::HashMap;
 use crate::graph::{Graph, NodeId, RunOptions};
 use crate::ops;
 use crate::ops::Operator;
-use crate::schema_generated::{root_as_model, OperatorNode, OperatorType};
+use crate::schema_generated::{root_as_model, ConstantData, OperatorNode, OperatorType};
 use crate::tensor::{from_data, Tensor};
 
 pub struct Model {
@@ -177,9 +177,17 @@ pub fn load_model(data: &[u8]) -> Result<Model, String> {
                 node_id_from_index.insert(node_index, graph_node);
             } else if let Some(constant) = node.data_as_constant_node() {
                 let shape: Vec<usize> = constant.shape().iter().map(|x| x as usize).collect();
-                let data: Vec<f32> = constant.data().iter().collect();
-                let tensor = from_data(shape, data);
-                let graph_node = graph.add_constant(tensor);
+                let graph_node = if let Some(float_data) = constant.data_as_float_data() {
+                    let data: Vec<f32> = float_data.data().iter().collect();
+                    let tensor = from_data(shape, data);
+                    graph.add_constant(tensor)
+                } else if let Some(int_data) = constant.data_as_int_data() {
+                    let data: Vec<i32> = int_data.data().iter().collect();
+                    let tensor = from_data(shape, data);
+                    graph.add_constant(tensor)
+                } else {
+                    panic!("Unsupported constant data type");
+                };
 
                 add_node_id(node.id(), graph_node);
                 node_id_from_index.insert(node_index, graph_node);

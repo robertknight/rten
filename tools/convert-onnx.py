@@ -88,10 +88,33 @@ def check_ints_length_and_value(name: str, ints: list[int], allowed_length: int)
             raise Exception(f"All values of attribute \"{name}\" must be the same")
 
 
+def convert_array(src_type: str, data: bytes, dest_type: str):
+    converted = [x for x in array.array(src_type, data)]
+    return array.array(dest_type, converted)
 
 def constant_node_from_onnx_initializer(tensor):
     dims = list(tensor.dims)
-    data = array.array("f", tensor.raw_data)
+
+    # Convert the tensor data to a format supported by this library. For int64
+    # tensors, we convert them to int32 and just ignore any issues with
+    # overflows.
+    if tensor.data_type == onnx.TensorProto.FLOAT:
+        data = array.array("f", tensor.raw_data)
+    elif tensor.data_type == onnx.TensorProto.UINT8:
+        data = convert_array("B", tensor.raw_data, "i")
+    elif tensor.data_type == onnx.TensorProto.INT8:
+        data = convert_array("b", tensor.raw_data, "i")
+    elif tensor.data_type == onnx.TensorProto.UNT16:
+        data = convert_array("H", tensor.raw_data, "i")
+    elif tensor.data_type == onnx.TensorProto.INT16:
+        data = convert_array("h", tensor.raw_data, "i")
+    elif tensor.data_type == onnx.TensorProto.INT32:
+        data = array.array("i", tensor.raw_data)
+    elif tensor.data_type == onnx.TensorProto.INT64:
+        data = convert_array("q", tensor.raw_data, "i")
+    else:
+        raise ValueError(f"Unsupported tensor data type {tensor.data_type}")
+
     return ConstantNode(name=tensor.name, shape=dims, data=data)
 
 
@@ -256,14 +279,33 @@ def build_constant_node(builder: flatbuffers.Builder, constant: ConstantNode):
         builder.PrependUint32(item)
     shape_vec = builder.EndVector()
 
-    sg.ConstantNodeStartDataVector(builder, len(constant.data))
-    for item in reversed(constant.data):
-        builder.PrependFloat32(item)
-    data_vec = builder.EndVector()
+    if constant.data.typecode == "f":
+        sg.FloatDataStartDataVector(builder, len(constant.data))
+        for item in reversed(constant.data):
+            builder.PrependFloat32(item)
+        data_vec = builder.EndVector()
+
+        sg.FloatDataStart(builder)
+        sg.FloatDataAddData(builder, data_vec)
+        const_data = sg.FloatDataEnd(builder)
+        const_data_type = sg.ConstantData.FloatData
+    elif constant.data.typecode == "i":
+        sg.IntDataStartDataVector(builder, len(constant.data))
+        for item in reversed(constant.data):
+            builder.PrependInt32(item)
+        data_vec = builder.EndVector()
+
+        sg.IntDataStart(builder)
+        sg.IntDataAddData(builder, data_vec)
+        const_data = sg.IntDataEnd(builder)
+        const_data_type = sg.ConstantData.IntData
+    else:
+        raise ValueError(f"Unsupported data array type {constant.data.type_code}")
 
     sg.ConstantNodeStart(builder)
     sg.ConstantNodeAddShape(builder, shape_vec)
-    sg.ConstantNodeAddData(builder, data_vec)
+    sg.ConstantNodeAddDataType(builder, const_data_type)
+    sg.ConstantNodeAddData(builder, const_data)
     return sg.ConstantNodeEnd(builder)
 
 
