@@ -129,10 +129,13 @@ impl<T: Copy> Tensor<T> {
         Elements::new(self)
     }
 
-    /// Update the shape of the tensor without altering the data layout.
+    /// Update the shape of the tensor.
     ///
     /// The total number of elements for the new shape must be the same as the
     /// existing shape.
+    ///
+    /// This is a cheap operation if the tensor is contiguous, but requires
+    /// copying data if the tensor has a non-contiguous layout.
     pub fn reshape(&mut self, shape: &[usize]) {
         let len: usize = shape.iter().product();
         let current_len = self.len();
@@ -141,9 +144,14 @@ impl<T: Copy> Tensor<T> {
             panic!("New shape must have same total elements as current shape");
         }
 
-        self.shape = shape.into();
+        // We currently always copy data whenever the input is non-contiguous.
+        // However there are cases of custom strides where copies could be
+        // avoided. See https://pytorch.org/docs/stable/generated/torch.Tensor.view.html.
+        if !self.is_contiguous() {
+            self.data = self.elements().collect();
+        }
 
-        // TODO - Handle non-default strides
+        self.shape = shape.into();
         self.strides = strides_for_shape(&shape);
     }
 
@@ -536,6 +544,26 @@ mod tests {
 
         assert_eq!(x.shape(), &[10, 5, 3 * 7]);
         assert_eq!(x.data(), x_data);
+    }
+
+    #[test]
+    fn test_reshape_copies_with_custom_strides() {
+        let mut rng = XorShiftRNG::new(1234);
+        let mut x = random_tensor(&[10, 10], &mut rng);
+        let x_data: Vec<f32> = x.data().into();
+
+        // Give the tensor a non-default stride
+        x.resize_dim(1, 8);
+        assert!(!x.is_contiguous());
+        let x_elements: Vec<f32> = x.elements().collect();
+
+        x.reshape(&[80]);
+
+        // Since the tensor had a non-default stride, `reshape` will have copied
+        // data.
+        assert_eq!(x.shape(), &[80]);
+        assert!(x.is_contiguous());
+        assert_eq!(x.data(), x_elements);
     }
 
     #[test]
