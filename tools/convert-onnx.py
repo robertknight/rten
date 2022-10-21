@@ -198,6 +198,10 @@ def op_node_from_onnx_operator(
 
     elif onnx_op.op_type == "Relu":
         op_type = "ReLU"
+
+    elif onnx_op.op_type == "Reshape":
+        op_type = "Reshape"
+
     elif onnx_op.op_type == "Slice":
         op_type = "Slice"
 
@@ -342,6 +346,8 @@ def build_operator_node(builder: flatbuffers.Builder, operator: OperatorNode):
             attrs = sg.MaxPool2dAttrsEnd(builder)
         case "ReLU":
             op_type_code = sg.OperatorType.ReLU
+        case "Reshape":
+            op_type_code = sg.OperatorType.Reshape
         case "Pad2d":
             op_type_code = sg.OperatorType.Pad2d
             attrs_type = sg.OperatorAttrs.Pad2dAttrs

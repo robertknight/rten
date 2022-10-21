@@ -5,7 +5,7 @@ use std::collections::HashMap;
 use crate::graph::{Graph, NodeId, RunOptions};
 use crate::ops;
 use crate::ops::Operator;
-use crate::schema_generated::{root_as_model, ConstantData, OperatorNode, OperatorType};
+use crate::schema_generated::{root_as_model, OperatorNode, OperatorType};
 use crate::tensor::{from_data, Tensor};
 
 pub struct Model {
@@ -91,6 +91,10 @@ fn read_relu_op(_: &OperatorNode) -> Box<dyn Operator> {
     Box::new(ops::ReLU {})
 }
 
+fn read_reshape_op(_: &OperatorNode) -> Box<dyn Operator> {
+    Box::new(ops::Reshape {})
+}
+
 fn read_sigmoid_op(_: &OperatorNode) -> Box<dyn Operator> {
     Box::new(ops::Sigmoid {})
 }
@@ -120,6 +124,7 @@ fn read_operator(node: &OperatorNode) -> Result<Box<dyn Operator>, String> {
         OperatorType::MaxPool2d => read_max_pool_2d_op(node),
         OperatorType::Pad2d => read_pad_2d_op(node),
         OperatorType::ReLU => read_relu_op(node),
+        OperatorType::Reshape => read_reshape_op(node),
         OperatorType::Sigmoid => read_sigmoid_op(node),
         OperatorType::Slice => read_slice_op(node),
         _ => return Err("Unknown operator type".to_string()),
@@ -218,7 +223,7 @@ mod tests {
         let mut builder = ModelBuilder::new();
 
         let const_val = from_data(vec![1, 2, 2], vec![0.5, -0.5, 0.1, -0.1]);
-        let const_node = builder.add_constant(&const_val);
+        let const_node = builder.add_float_constant(&const_val);
         let input_node = builder.add_value("input");
 
         let concat_node = builder.add_operator(
@@ -252,8 +257,9 @@ mod tests {
         let mut builder = ModelBuilder::new();
 
         let input_node = builder.add_value("input");
+
         let kernel_val = from_data(vec![1, 1, 1, 1], vec![0.5]);
-        let kernel = builder.add_constant(&kernel_val);
+        let kernel = builder.add_float_constant(&kernel_val);
 
         builder.add_operator(
             "concat",
@@ -286,6 +292,10 @@ mod tests {
             &[input_node],
         );
         builder.add_operator("relu", OpType::ReLU, &[input_node]);
+
+        let new_shape = builder.add_int_constant(&from_data(vec![1], vec![9]));
+        builder.add_operator("reshape", OpType::Reshape, &[input_node, new_shape]);
+
         builder.add_operator("sigmoid", OpType::Sigmoid, &[input_node]);
         builder.add_operator(
             "slice",
@@ -308,6 +318,7 @@ mod tests {
             "max_pool_2d",
             "pad_2d",
             "relu",
+            "reshape",
             "sigmoid",
             "slice",
         ];

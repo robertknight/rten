@@ -77,6 +77,7 @@ pub enum OpType {
     MaxPool2d(MaxPool2d),
     Pad2d(Pad2d),
     ReLU,
+    Reshape,
     Sigmoid,
     Slice(Slice),
 }
@@ -625,6 +626,28 @@ impl Operator for ReLU {
     }
 }
 
+#[derive(Debug)]
+pub struct Reshape {}
+impl Operator for Reshape {
+    fn name(&self) -> &str {
+        "Reshape"
+    }
+
+    fn run(&self, inputs: &[Input]) -> Tensor {
+        let input = inputs[0].as_float().unwrap();
+        let shape = inputs[1].as_int().unwrap();
+        let shape_values: Vec<_> = shape.elements().map(|e| e as usize).collect();
+        input.clone_with_shape(&shape_values)
+    }
+
+    fn can_run_in_place(&self) -> bool {
+        // The ability to reshape in place depends on input and target types.
+        // If the planned inputs were passed to this method, we could do an
+        // in-place reshape if the inputs/targets were compatible.
+        false
+    }
+}
+
 pub fn sigmoid(x: &Tensor) -> Tensor {
     x.map(|e| 1. / (1. + (-e).exp()))
 }
@@ -830,7 +853,7 @@ impl Operator for Slice {
 mod tests {
     use crate::ops::{
         concat, conv_2d, conv_transpose_2d, max_pool_2d, pad_2d, relu, relu_in_place, sigmoid,
-        sigmoid_in_place, slice,
+        sigmoid_in_place, slice, Operator, Reshape,
     };
     use crate::rng::XorShiftRNG;
     use crate::tensor::{from_data, random_tensor, zero_tensor, Tensor};
@@ -1060,6 +1083,18 @@ mod tests {
 
         let mut result = input.clone();
         relu_in_place(&mut result);
+        expect_equal(&result, &expected)
+    }
+
+    #[test]
+    fn test_reshape() -> Result<(), String> {
+        let input = from_data(vec![2, 2], vec![-0.5, 0.5, 3.0, -5.5]);
+        let shape = from_data(vec![1], vec![4]);
+        let expected = input.clone_with_shape(&[4]);
+
+        let op = Reshape {};
+        let result = op.run(&[(&input).into(), (&shape).into()]);
+
         expect_equal(&result, &expected)
     }
 

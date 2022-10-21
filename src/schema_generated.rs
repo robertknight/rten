@@ -18,19 +18,20 @@ pub const ENUM_MIN_OPERATOR_TYPE: i8 = 0;
     since = "2.0.0",
     note = "Use associated constants instead. This will no longer be generated in 2021."
 )]
-pub const ENUM_MAX_OPERATOR_TYPE: i8 = 7;
+pub const ENUM_MAX_OPERATOR_TYPE: i8 = 8;
 #[deprecated(
     since = "2.0.0",
     note = "Use associated constants instead. This will no longer be generated in 2021."
 )]
 #[allow(non_camel_case_types)]
-pub const ENUM_VALUES_OPERATOR_TYPE: [OperatorType; 8] = [
+pub const ENUM_VALUES_OPERATOR_TYPE: [OperatorType; 9] = [
     OperatorType::Concat,
     OperatorType::Conv2d,
     OperatorType::ConvTranspose2d,
     OperatorType::MaxPool2d,
     OperatorType::Pad2d,
     OperatorType::ReLU,
+    OperatorType::Reshape,
     OperatorType::Sigmoid,
     OperatorType::Slice,
 ];
@@ -46,11 +47,12 @@ impl OperatorType {
     pub const MaxPool2d: Self = Self(3);
     pub const Pad2d: Self = Self(4);
     pub const ReLU: Self = Self(5);
-    pub const Sigmoid: Self = Self(6);
-    pub const Slice: Self = Self(7);
+    pub const Reshape: Self = Self(6);
+    pub const Sigmoid: Self = Self(7);
+    pub const Slice: Self = Self(8);
 
     pub const ENUM_MIN: i8 = 0;
-    pub const ENUM_MAX: i8 = 7;
+    pub const ENUM_MAX: i8 = 8;
     pub const ENUM_VALUES: &'static [Self] = &[
         Self::Concat,
         Self::Conv2d,
@@ -58,6 +60,7 @@ impl OperatorType {
         Self::MaxPool2d,
         Self::Pad2d,
         Self::ReLU,
+        Self::Reshape,
         Self::Sigmoid,
         Self::Slice,
     ];
@@ -70,6 +73,7 @@ impl OperatorType {
             Self::MaxPool2d => Some("MaxPool2d"),
             Self::Pad2d => Some("Pad2d"),
             Self::ReLU => Some("ReLU"),
+            Self::Reshape => Some("Reshape"),
             Self::Sigmoid => Some("Sigmoid"),
             Self::Slice => Some("Slice"),
             _ => None,

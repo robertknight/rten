@@ -1,6 +1,6 @@
 extern crate flatbuffers;
 
-use flatbuffers::{FlatBufferBuilder, WIPOffset};
+use flatbuffers::{FlatBufferBuilder, UnionWIPOffset, WIPOffset};
 
 use crate::ops::OpType;
 use crate::schema_generated as sg;
@@ -48,17 +48,58 @@ impl<'a> ModelBuilder<'a> {
     }
 
     /// Add a constant node (eg. weights, biases) to the model
-    pub fn add_constant(&mut self, input: &Tensor) -> u32 {
-        let shape: Vec<u32> = input.shape().iter().map(|&x| x as u32).collect();
-        let shape_vec = self.builder.create_vector(&shape[..]);
+    pub fn add_float_constant(&mut self, input: &Tensor) -> u32 {
         let elts: Vec<f32> = input.elements().collect();
         let data_vec = self.builder.create_vector(&elts);
+
+        let float_data = sg::FloatData::create(
+            &mut self.builder,
+            &sg::FloatDataArgs {
+                data: Some(data_vec),
+            },
+        );
+
+        self.add_constant_node(
+            input.shape(),
+            sg::ConstantData::FloatData,
+            float_data.as_union_value(),
+        )
+    }
+
+    /// Add a constant node (eg. weights, biases) to the model
+    pub fn add_int_constant(&mut self, input: &Tensor<i32>) -> u32 {
+        let elts: Vec<i32> = input.elements().collect();
+        let data_vec = self.builder.create_vector(&elts);
+
+        let int_data = sg::IntData::create(
+            &mut self.builder,
+            &sg::IntDataArgs {
+                data: Some(data_vec),
+            },
+        );
+
+        self.add_constant_node(
+            input.shape(),
+            sg::ConstantData::IntData,
+            int_data.as_union_value(),
+        )
+    }
+
+    fn add_constant_node(
+        &mut self,
+        shape: &[usize],
+        data_type: sg::ConstantData,
+        data: WIPOffset<UnionWIPOffset>,
+    ) -> u32 {
+        let shape: Vec<u32> = shape.iter().map(|&x| x as u32).collect();
+        let shape_vec = self.builder.create_vector(&shape[..]);
 
         let const_node = sg::ConstantNode::create(
             &mut self.builder,
             &sg::ConstantNodeArgs {
                 shape: Some(shape_vec),
-                data: Some(data_vec),
+                data_type,
+                data: Some(data),
             },
         );
         self.add_node(None, NodeData::Constant(const_node))
@@ -150,6 +191,7 @@ impl<'a> ModelBuilder<'a> {
                 ),
             ),
             OpType::ReLU => (OT::ReLU, no_attrs, None),
+            OpType::Reshape => (OT::Reshape, no_attrs, None),
             OpType::Sigmoid => (OT::Sigmoid, no_attrs, None),
             OpType::Slice(args) => (
                 OT::Slice,

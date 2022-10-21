@@ -13,8 +13,9 @@ class OperatorType(object):
     MaxPool2d = 3
     Pad2d = 4
     ReLU = 5
-    Sigmoid = 6
-    Slice = 7
+    Reshape = 6
+    Sigmoid = 7
+    Slice = 8
 
 
 class OperatorAttrs(object):
