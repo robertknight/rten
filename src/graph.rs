@@ -10,9 +10,26 @@ struct OperatorNode {
     operator: Box<dyn Operator>,
 }
 
+enum Constant {
+    Float(Tensor<f32>),
+    Int(Tensor<i32>),
+}
+
+impl From<Tensor<f32>> for Constant {
+    fn from(t: Tensor<f32>) -> Constant {
+        Constant::Float(t)
+    }
+}
+
+impl From<Tensor<i32>> for Constant {
+    fn from(t: Tensor<i32>) -> Constant {
+        Constant::Int(t)
+    }
+}
+
 enum Node {
     Operator(OperatorNode),
-    Constant(Tensor),
+    Constant(Constant),
     Value,
 }
 
@@ -60,8 +77,9 @@ impl Graph {
     /// Add a constant node to the graph.
     ///
     /// Returns the ID of the added node.
-    pub fn add_constant(&mut self, value: Tensor) -> NodeId {
-        self.nodes.push(Node::Constant(value));
+    pub fn add_constant<T: Into<Constant>>(&mut self, value: T) -> NodeId {
+        let constant: Constant = value.into();
+        self.nodes.push(Node::Constant(constant));
         self.nodes.len() - 1
     }
 
@@ -93,10 +111,18 @@ impl Graph {
         }
 
         // Collect operator inputs
-        let mut values: HashMap<NodeId, &Tensor> = inputs.iter().copied().collect();
+        let mut values: HashMap<NodeId, Input> = inputs
+            .iter()
+            .copied()
+            .map(|(id, t)| (id, t.into()))
+            .collect();
         for (node_id, node) in self.nodes.iter().enumerate() {
-            if let Node::Constant(tensor) = node {
-                values.insert(node_id, tensor);
+            if let Node::Constant(constant) = node {
+                let input = match constant {
+                    Constant::Float(t) => t.into(),
+                    Constant::Int(t) => t.into(),
+                };
+                values.insert(node_id, input);
             }
         }
 
@@ -141,7 +167,7 @@ impl Graph {
                 let mut op_inputs: Vec<Input> = Vec::new();
                 for node_id in op_node.inputs.iter() {
                     if let Some(&value) = values.get(node_id) {
-                        op_inputs.push(value.into());
+                        op_inputs.push(value);
                     } else if let Some(value) = temp_values.get(node_id) {
                         op_inputs.push(value.into());
                     } else {
@@ -208,7 +234,7 @@ impl Graph {
             .iter()
             .map(|output_id| {
                 if let Some(&value) = values.get(output_id) {
-                    value.clone()
+                    value.as_float().unwrap().clone()
                 } else if let Some(value) = temp_values.remove(output_id) {
                     value
                 } else {
