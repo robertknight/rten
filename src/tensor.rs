@@ -213,7 +213,7 @@ impl<T: Copy> Tensor<T> {
     ) -> UncheckedView<T, N> {
         let offset = self.offset(base);
         UncheckedView {
-            tensor: self,
+            data: &self.data,
             offset,
             strides: self.strides[self.shape.len() - N..].try_into().unwrap(),
         }
@@ -230,7 +230,7 @@ impl<T: Copy> Tensor<T> {
         let offset = self.offset(base);
         let strides = self.strides[self.shape.len() - N..].try_into().unwrap();
         UncheckedViewMut {
-            tensor: self,
+            data: &mut self.data,
             offset,
             strides,
         }
@@ -252,7 +252,7 @@ impl<const N: usize, T: Copy> IndexMut<[usize; N]> for Tensor<T> {
 }
 
 pub struct UncheckedView<'a, T: Copy, const N: usize> {
-    tensor: &'a Tensor<T>,
+    data: &'a [T],
     offset: usize,
     strides: [usize; N],
 }
@@ -264,12 +264,12 @@ impl<'a, const N: usize, T: Copy> Index<[usize; N]> for UncheckedView<'a, T, N> 
         for i in 0..N {
             offset += index[i] * self.strides[i];
         }
-        &self.tensor.data[offset]
+        &self.data[offset]
     }
 }
 
 pub struct UncheckedViewMut<'a, T: Copy, const N: usize> {
-    tensor: &'a mut Tensor<T>,
+    data: &'a mut [T],
     offset: usize,
     strides: [usize; N],
 }
@@ -281,7 +281,7 @@ impl<'a, const N: usize, T: Copy> Index<[usize; N]> for UncheckedViewMut<'a, T, 
         for i in 0..N {
             offset += index[i] * self.strides[i];
         }
-        &self.tensor.data[offset]
+        &self.data[offset]
     }
 }
 
@@ -291,7 +291,7 @@ impl<'a, const N: usize, T: Copy> IndexMut<[usize; N]> for UncheckedViewMut<'a, 
         for i in 0..N {
             offset += index[i] * self.strides[i];
         }
-        &mut self.tensor.data[offset]
+        &mut self.data[offset]
     }
 }
 
