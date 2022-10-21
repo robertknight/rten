@@ -1,6 +1,6 @@
 use std::fmt::Debug;
 
-use crate::gemm::gemm;
+use crate::gemm::{gemm, gemm_slice};
 use crate::tensor::{from_data, zero_tensor, Tensor};
 
 /// An Operator is a computation step in a graph.
@@ -169,11 +169,27 @@ fn conv_2d_pointwise(input: &Tensor, kernel: &Tensor, bias: Option<&Tensor>) -> 
     let [_, _, in_h, in_w] = input.dims();
     let [out_c, in_c, _, _] = kernel.dims();
 
-    let input_mat = input.clone_with_shape(&[in_c, in_h * in_w]);
-    let kernel_mat = kernel.clone_with_shape(&[out_c, in_c]);
-
     let mut output = zero_tensor(&[out_c, in_h * in_w]);
-    gemm(&mut output, &kernel_mat, &input_mat);
+    let out_row_stride = output.stride(0);
+
+    // Use the low-level gemm_slice API to simplicitly reshape the input and
+    // kernel to `in_c x in_h*in_w` and `out_c x in_c` matrices respectively.
+    //
+    // If this package supported creating reshaped views of existing tensors,
+    // we could use that instead.
+    gemm_slice(
+        output.data_mut(),
+        out_row_stride,
+        kernel.data(),
+        out_c, /* a rows */
+        in_c,  /* a columns */
+        in_c,  /* a row stride */
+        input.data(),
+        in_c,        /* b rows */
+        in_h * in_w, /* b columns */
+        in_h * in_w, /* b row stride */
+    );
+
     output.reshape(&[1, out_c, in_h, in_w]);
 
     if let Some(bias) = bias {
