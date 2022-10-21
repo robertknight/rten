@@ -163,19 +163,49 @@ fn round_up(val: usize, factor: usize) -> usize {
 
 /// Multiply two matrices and add the results to `output`.
 ///
+/// This is a high-level API that operates on tensors.
+pub fn gemm(output: &mut Tensor, a: &Tensor, b: &Tensor) {
+    let [a_rows, a_cols] = a.dims();
+    let [b_rows, b_cols] = b.dims();
+    let out_row_stride = output.stride(0);
+
+    gemm_slice(
+        output.data_mut(),
+        out_row_stride,
+        a.data(),
+        a_rows,
+        a_cols,
+        a.stride(0),
+        b.data(),
+        b_rows,
+        b_cols,
+        b.stride(0),
+    );
+}
+
+/// Multiply two matrices and add the results to `out_data`.
+///
+/// This is a low-level API that operates directly on slices. Use `gemm` for
+/// a more convenient way to multiply two 2D tensors.
+///
 /// The implementation uses the general approach of BLIS
 /// (https://github.com/flame/blis), and was informed by the matrixmultiply
 /// crate (https://github.com/bluss/matrixmultiply). See Pages 3-5 of
 /// https://dl.acm.org/doi/pdf/10.1145/2925987 for an outline of the algorithm.
-pub fn gemm(output: &mut Tensor, a: &Tensor, b: &Tensor) {
-    let [a_rows, a_cols] = a.dims();
-    let [b_rows, b_cols] = b.dims();
-
+pub fn gemm_slice(
+    out_data: &mut [f32],
+    out_row_stride: usize,
+    a_data: &[f32],
+    a_rows: usize,
+    a_cols: usize,
+    a_row_stride: usize,
+    b_data: &[f32],
+    b_rows: usize,
+    b_cols: usize,
+    b_row_stride: usize,
+) {
     if a_cols != b_rows {
         panic!("Columns of matrix `a` must match rows of matrix `b`");
-    }
-    if !a.is_contiguous() || !b.is_contiguous() {
-        panic!("Input matrices must be contiguous");
     }
 
     // The constant values below were taken from the matrixmultiply crate. The
@@ -197,19 +227,11 @@ pub fn gemm(output: &mut Tensor, a: &Tensor, b: &Tensor) {
     const MR: usize = 8;
     const NR: usize = 4;
 
-    let out_row_stride = output.stride(0);
-    let out_data = output.data_mut();
-
     // Buffers for packed blocks of the matrix. These currently have no
     // alignment specified. The paper mentioned above suggests that aligning to
     // cache-line (ie. 64-byte) boundaries may help performance.
     let mut packed_b = vec![0.0; kc * nc];
     let mut packed_a = vec![0.0; mc * kc];
-
-    let a_data = a.data();
-    let b_data = b.data();
-    let b_row_stride = b.stride(0);
-    let a_row_stride = a.stride(0);
 
     for (col_start, col_end) in blocks(0, b_cols, nc) {
         for (depth_start, depth_end) in blocks(0, a_cols, kc) {
