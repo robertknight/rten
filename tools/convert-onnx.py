@@ -265,7 +265,10 @@ def extract_constant(constant_op: onnx.OperatorProto) -> int:
     return values[0]
 
 
-def graph_from_onnx_graph(onnx_graph: onnx.GraphProto):
+def graph_from_onnx_graph(onnx_graph: onnx.GraphProto) -> list[Node]:
+    """
+    Parse an ONNX model into a graph representation compatible with this library.
+    """
     nodes: list[Node] = []
 
     # Map from tensor ID to node index
@@ -425,6 +428,13 @@ def build_value_node(builder: flatbuffers.Builder, value: ValueNode):
 
 
 def write_graph(graph: list[Node], out_path: str):
+    """
+    Serialize a model graph into a flatbuffers model.
+
+    This serializes the parsed graph representation into the flatbuffers-based
+    model format that this library uses.
+    """
+
     builder = flatbuffers.Builder(initialSize=1024)
 
     node_offsets = []
