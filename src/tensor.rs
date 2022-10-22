@@ -1,4 +1,4 @@
-use std::iter::zip;
+use std::iter::{repeat, zip};
 use std::ops::{Index, IndexMut};
 
 use crate::rng::XorShiftRNG;
@@ -137,6 +137,9 @@ impl<T: Copy> Tensor<T> {
     /// Broadcasting is only possible if the actual and broadcast shapes are
     /// compatible according to ONNX's rules. See
     /// https://github.com/onnx/onnx/blob/main/docs/Operators.md.
+    ///
+    /// See also https://numpy.org/doc/stable/user/basics.broadcasting.html#general-broadcasting-rules
+    /// for worked examples of how broadcasting works.
     pub fn broadcast_elements(&self, shape: &[usize]) -> Elements<T> {
         if !self.can_broadcast(shape) {
             panic!("Broadcast shape is not compatible with actual shape");
@@ -156,16 +159,17 @@ impl<T: Copy> Tensor<T> {
     pub fn can_broadcast(&self, shape: &[usize]) -> bool {
         if self.shape == shape {
             return true;
+        } else if self.shape.len() > shape.len() {
+            return false;
         }
 
         // For two shapes to be compatible for broadcasting, each dimension must
         // either be the same or be 1.
         //
-        // If one tensor has fewer dimensions, pretend that it was prefixed with
+        // If the tensor has fewer dimensions, pretend that it was prefixed with
         // 1-length dimensions to make the dimension counts equal.
-        let min_len = self.shape.len().min(shape.len());
-        let self_dims = self.shape[self.shape.len() - min_len..].iter().copied();
-        let target_dims = shape[shape.len() - min_len..].iter().copied();
+        let self_dims = self.shape.iter().copied();
+        let target_dims = shape[shape.len() - self.shape.len()..].iter().copied();
 
         zip(self_dims, target_dims).all(|(a, b)| a == b || a == 1 || b == 1)
     }
@@ -395,7 +399,11 @@ impl ElementsBase {
     }
 
     fn broadcast<T: Copy>(tensor: &Tensor<T>, shape: &[usize]) -> ElementsBase {
-        let dims = zip(tensor.shape().iter(), shape.iter())
+        // nb. We require that the broadcast shape has a length >= the actual
+        // shape.
+        let added_dims = shape.len() - tensor.shape().len();
+        let padded_tensor_shape = repeat(&0).take(added_dims).chain(tensor.shape().iter());
+        let dims = zip(padded_tensor_shape, shape.iter())
             .enumerate()
             .map(|(dim, (&actual_len, &broadcast_len))| ElementsDim {
                 index: 0,
@@ -409,7 +417,7 @@ impl ElementsBase {
                 // that when we increment in this dimension, we just repeat
                 // elements. Otherwise, use the real stride.
                 stride: if actual_len == broadcast_len {
-                    tensor.strides[dim]
+                    tensor.strides[dim - added_dims]
                 } else {
                     0
                 },
@@ -812,6 +820,10 @@ mod tests {
 
         let bx = x.broadcast_elements(&[1, 2, 2, 2]);
         assert_eq!(bx.collect::<Vec<i32>>(), &[1, 2, 1, 2, 3, 4, 3, 4]);
+
+        let x = steps(&[5]);
+        let bx = x.broadcast_elements(&[1, 5]);
+        assert_eq!(bx.collect::<Vec<i32>>(), &[1, 2, 3, 4, 5]);
     }
 
     #[test]
@@ -819,5 +831,12 @@ mod tests {
     fn test_broadcast_elements_with_invalid_shape() {
         let x = steps(&[2, 2]);
         x.broadcast_elements(&[3, 2]);
+    }
+
+    #[test]
+    #[should_panic(expected = "Broadcast shape is not compatible with actual shape")]
+    fn test_broadcast_elements_with_shorter_shape() {
+        let x = steps(&[2, 2]);
+        x.broadcast_elements(&[4]);
     }
 }

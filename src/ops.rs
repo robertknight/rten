@@ -85,15 +85,28 @@ pub enum OpType {
     Slice(Slice),
 }
 
+/// Given the shapes of two inputs to a binary operation, choose the one that
+/// will be used as the output shape. The other tensor will be broadcasted
+/// to match.
+fn choose_broadcast_shape<'a>(a: &'a [usize], b: &'a [usize]) -> &'a [usize] {
+    if a.len() != b.len() {
+        if a.len() < b.len() {
+            b
+        } else {
+            a
+        }
+    } else if a < b {
+        b
+    } else {
+        a
+    }
+}
+
 /// Compute the result of applying the binary operation `op` to corresponding
 /// elements of `a` and `b`. The shapes of `a` and `b` are broadcast to a
 /// matching shape if necessary.
-fn binary_op<T: Copy, F: Fn(T, T) -> T>(a: &Tensor<T>, b: &Tensor<T>, op: F) -> Tensor<T> {
-    let out_shape = if a.shape() < b.shape() {
-        b.shape()
-    } else {
-        a.shape()
-    };
+fn binary_op<T: Copy + Debug, F: Fn(T, T) -> T>(a: &Tensor<T>, b: &Tensor<T>, op: F) -> Tensor<T> {
+    let out_shape = choose_broadcast_shape(a.shape(), b.shape());
     let a_elts = a.broadcast_elements(out_shape);
     let b_elts = b.broadcast_elements(out_shape);
     let out_data = zip(a_elts, b_elts).map(|(a, b)| op(a, b)).collect();
@@ -1002,13 +1015,25 @@ mod tests {
 
     #[test]
     fn test_add_broadcasted() -> Result<(), String> {
+        // Simple case where comparing ordering of tensor shapes tells us
+        // target shape.
         let a = from_data(vec![2, 2], vec![1., 2., 3., 4.]);
         let b = from_data(vec![1], vec![10.]);
         let expected = from_data(vec![2, 2], vec![11., 12., 13., 14.]);
         let result = add(&a, &b);
         expect_equal(&result, &expected)?;
 
+        // Try alternative ordering for inputs.
         let result = add(&b, &a);
+        expect_equal(&result, &expected)?;
+
+        // Case where the length of tensor shapes needs to be compared before
+        // the ordering, since ([5] > [1,5]).
+        let a = from_data(vec![5], vec![1., 2., 3., 4., 5.]);
+        let b = from_data(vec![1, 5], vec![1., 2., 3., 4., 5.]);
+        let expected = from_data(vec![1, 5], vec![2., 4., 6., 8., 10.]);
+
+        let result = add(&a, &b);
         expect_equal(&result, &expected)
     }
 
