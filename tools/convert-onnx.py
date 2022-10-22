@@ -157,7 +157,7 @@ def op_node_from_onnx_operator(
         op_type = "Conv2d"
 
         attrs["groups"] = get_attr(onnx_op.attribute, "group", "int", 1)
-        padding = get_attr(onnx_op.attribute, "pads", "ints", 0)
+        padding = get_attr(onnx_op.attribute, "pads", "ints", [0, 0, 0, 0])
         if len(padding) != 4:
             raise Exception("\"padding\" attribute must have 4 values")
         pad_left, pad_right, pad_top, pad_bottom = iter(padding)
