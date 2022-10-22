@@ -104,7 +104,7 @@ def constant_node_from_onnx_initializer(tensor):
         data = convert_array("B", tensor.raw_data, "i")
     elif tensor.data_type == onnx.TensorProto.INT8:
         data = convert_array("b", tensor.raw_data, "i")
-    elif tensor.data_type == onnx.TensorProto.UNT16:
+    elif tensor.data_type == onnx.TensorProto.UINT16:
         data = convert_array("H", tensor.raw_data, "i")
     elif tensor.data_type == onnx.TensorProto.INT16:
         data = convert_array("h", tensor.raw_data, "i")
