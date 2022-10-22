@@ -102,23 +102,27 @@ def convert_array(src_type: str, data: bytes, dest_type: str):
 def constant_node_from_onnx_initializer(tensor):
     dims = list(tensor.dims)
 
+    # Tensors can either store data in a type-appropriate field, or the `raw_data`
+    # field. Only one of these should be set.
+    tensor_data = tensor.float_data or tensor.int64_data or tensor.int32_data or tensor.raw_data
+
     # Convert the tensor data to a format supported by this library. For int64
     # tensors, we convert them to int32 and just ignore any issues with
     # overflows.
     if tensor.data_type == onnx.TensorProto.FLOAT:
-        data = array.array("f", tensor.raw_data)
+        data = array.array("f", tensor_data)
     elif tensor.data_type == onnx.TensorProto.UINT8:
-        data = convert_array("B", tensor.raw_data, "i")
+        data = convert_array("B", tensor_data, "i")
     elif tensor.data_type == onnx.TensorProto.INT8:
-        data = convert_array("b", tensor.raw_data, "i")
+        data = convert_array("b", tensor_data, "i")
     elif tensor.data_type == onnx.TensorProto.UINT16:
-        data = convert_array("H", tensor.raw_data, "i")
+        data = convert_array("H", tensor_data, "i")
     elif tensor.data_type == onnx.TensorProto.INT16:
-        data = convert_array("h", tensor.raw_data, "i")
+        data = convert_array("h", tensor_data, "i")
     elif tensor.data_type == onnx.TensorProto.INT32:
-        data = array.array("i", tensor.raw_data)
+        data = array.array("i", tensor_data)
     elif tensor.data_type == onnx.TensorProto.INT64:
-        data = convert_array("q", tensor.raw_data, "i")
+        data = convert_array("q", tensor_data, "i")
     else:
         raise ValueError(f"Unsupported tensor data type {tensor.data_type}")
 
