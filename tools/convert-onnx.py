@@ -449,14 +449,15 @@ def write_graph(graph: list[Node], out_path: str):
 
 def main():
     parser = ArgumentParser()
-    parser.add_argument("model")
+    parser.add_argument("model", help="Input ONNX model")
+    parser.add_argument("out_name", help="Output model file")
     args = parser.parse_args()
 
     model_path = args.model
 
     model = onnx.load(model_path)
     graph = graph_from_onnx_graph(model.graph)
-    write_graph(graph, "output.model")
+    write_graph(graph, args.out_name)
 
 
 if __name__ == "__main__":
