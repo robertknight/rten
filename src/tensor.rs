@@ -533,6 +533,13 @@ pub fn random_tensor(shape: &[usize], rng: &mut XorShiftRNG) -> Tensor {
 
 /// Create a new tensor with a given shape and values
 pub fn from_data<T: Copy>(shape: Vec<usize>, data: Vec<T>) -> Tensor<T> {
+    if shape[..].iter().product::<usize>() != data.len() {
+        panic!(
+            "Number of elements given by shape {:?} does not match data length {}",
+            &shape[..],
+            data.len()
+        );
+    }
     let strides = strides_for_shape(&shape);
     Tensor {
         data,
