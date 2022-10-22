@@ -2,7 +2,7 @@ extern crate flatbuffers;
 
 use flatbuffers::{FlatBufferBuilder, UnionWIPOffset, WIPOffset};
 
-use crate::ops::OpType;
+use crate::ops::{OpType, Padding};
 use crate::schema_generated as sg;
 use crate::tensor::Tensor;
 
@@ -142,8 +142,20 @@ impl<'a> ModelBuilder<'a> {
                         &mut self.builder,
                         &sg::Conv2dAttrsArgs {
                             groups: args.groups as u32,
-                            pad_horizontal: args.padding.0 as u32,
-                            pad_vertical: args.padding.1 as u32,
+                            pad_mode: match args.padding {
+                                Padding::Same => sg::PadMode::Same,
+                                Padding::Fixed(_) => sg::PadMode::Fixed,
+                            },
+                            pad_vertical: if let Padding::Fixed(pads) = args.padding {
+                                pads.0 as u32
+                            } else {
+                                0
+                            },
+                            pad_horizontal: if let Padding::Fixed(pads) = args.padding {
+                                pads.1 as u32
+                            } else {
+                                0
+                            },
                         },
                     )
                     .as_union_value(),

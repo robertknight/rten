@@ -20,6 +20,11 @@ enum OperatorType: byte {
   Slice
 }
 
+enum PadMode: byte {
+  Same,
+  Fixed
+}
+
 // Operator-specific configuration
 union OperatorAttrs {
   ConcatAttrs,
@@ -35,6 +40,7 @@ table ConcatAttrs {
 }
 
 table Conv2dAttrs {
+  pad_mode:PadMode;
   pad_horizontal:uint;
   pad_vertical:uint;
   groups:uint;

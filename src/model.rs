@@ -4,8 +4,8 @@ use std::collections::HashMap;
 
 use crate::graph::{Graph, NodeId, RunOptions};
 use crate::ops;
-use crate::ops::Operator;
-use crate::schema_generated::{root_as_model, OperatorNode, OperatorType};
+use crate::ops::{Operator, Padding};
+use crate::schema_generated::{root_as_model, OperatorNode, OperatorType, PadMode};
 use crate::tensor::{from_data, Tensor};
 
 pub struct Model {
@@ -50,13 +50,17 @@ fn read_conv_2d_op(node: &OperatorNode) -> Box<dyn Operator> {
 
     if let Some(attrs) = node.attrs_as_conv_2d_attrs() {
         groups = attrs.groups() as usize;
-        padding = (
-            attrs.pad_horizontal() as usize,
-            attrs.pad_vertical() as usize,
-        );
+        padding = match attrs.pad_mode() {
+            PadMode::Same => Padding::Same,
+            PadMode::Fixed => Padding::Fixed((
+                attrs.pad_vertical() as usize,
+                attrs.pad_horizontal() as usize,
+            )),
+            _ => Padding::Fixed((0, 0)),
+        }
     } else {
         groups = 1;
-        padding = (0, 0);
+        padding = Padding::Fixed((0, 0));
     }
 
     Box::new(ops::Conv2d { groups, padding })
@@ -226,7 +230,7 @@ mod tests {
     use crate::model::load_model;
     use crate::model_builder::ModelBuilder;
     use crate::ops;
-    use crate::ops::OpType;
+    use crate::ops::{OpType, Padding};
     use crate::tensor::from_data;
 
     fn generate_model_buffer() -> Vec<u8> {
@@ -281,7 +285,7 @@ mod tests {
         builder.add_operator(
             "conv_2d",
             OpType::Conv2d(ops::Conv2d {
-                padding: (1, 1),
+                padding: Padding::Fixed((1, 1)),
                 groups: 1,
             }),
             &[input_node, kernel],

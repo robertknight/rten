@@ -467,9 +467,45 @@ pub fn conv_2d(
     output
 }
 
+#[derive(Copy, Clone, Debug)]
+pub enum Padding {
+    /// Apply enough padding such that the output and input have the same size.
+    Same,
+
+    /// Apply an even amount of padding to the start and end of the height and
+    /// width dimensions respectively.
+    Fixed((usize, usize)),
+}
+
+/// Calculate the specific amount of padding required for an operation that
+/// will receive an NCHW input tensor and apply a kernel of a given size.
+///
+/// The kernel size must be >= the input size.
+fn calc_fixed_padding(
+    pad: Padding,
+    input_shape: &[usize],
+    kernel_size: (usize, usize),
+) -> (usize, usize) {
+    match pad {
+        Padding::Fixed(pads) => pads,
+        Padding::Same => {
+            let [_, _, in_h, in_w]: [usize; 4] = input_shape.try_into().unwrap();
+            let (k_h, k_w) = kernel_size;
+
+            let unpadded_h = (in_h - k_h) + 1;
+            let unpadded_w = (in_w - k_w) + 1;
+
+            let pad_h = (in_h - unpadded_h) / 2;
+            let pad_w = (in_w - unpadded_w) / 2;
+
+            (pad_h, pad_w)
+        }
+    }
+}
+
 #[derive(Debug)]
 pub struct Conv2d {
-    pub padding: (usize, usize),
+    pub padding: Padding,
     pub groups: usize,
 }
 
@@ -483,7 +519,16 @@ impl Operator for Conv2d {
         let input = inputs[0].as_float().unwrap();
         let weight = inputs[1].as_float().unwrap();
         let bias = inputs.get(2).map(|t| t.as_float().unwrap());
-        conv_2d(input, weight, bias, self.padding, self.groups)
+
+        let [_, _, k_h, k_w] = weight.dims();
+
+        conv_2d(
+            input,
+            weight,
+            bias,
+            calc_fixed_padding(self.padding, input.shape(), (k_h, k_w)),
+            self.groups,
+        )
     }
 }
 
@@ -933,7 +978,7 @@ mod tests {
     use crate::gemm::gemm;
     use crate::ops::{
         add, concat, conv_2d, conv_transpose_2d, matmul, max_pool_2d, pad_2d, relu, relu_in_place,
-        sigmoid, sigmoid_in_place, slice, Operator, Reshape,
+        sigmoid, sigmoid_in_place, slice, Conv2d, Operator, Padding, Reshape,
     };
     use crate::rng::XorShiftRNG;
     use crate::tensor::{from_data, random_tensor, zero_tensor, Tensor};
@@ -1080,6 +1125,32 @@ mod tests {
         let reference_result =
             reference_conv(&input, &kernel, Some(&bias), (0, 0), 1 /* groups */);
         expect_equal(&result, &expected_with_bias)?;
+        expect_equal(&result, &reference_result)
+    }
+
+    #[test]
+    fn test_conv_2d_same_padding() -> Result<(), String> {
+        let kernel = &from_data(
+            vec![1, 1, 3, 3],
+            vec![
+                0.3230, 0.7632, 0.4616, 0.8837, 0.5898, 0.3424, 0.2101, 0.7821, 0.6861,
+            ],
+        );
+
+        let input = &from_data(
+            vec![1, 1, 3, 3],
+            vec![
+                0.5946, 0.8249, 0.0448, 0.9552, 0.2041, 0.2501, 0.2693, 0.1007, 0.8862,
+            ],
+        );
+
+        let op = Conv2d {
+            padding: Padding::Same,
+            groups: 1,
+        };
+        let result = op.run(&[input.into(), kernel.into()]);
+        let reference_result = reference_conv(input, kernel, None, (1, 1), 1 /* groups */);
+
         expect_equal(&result, &reference_result)
     }
 

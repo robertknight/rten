@@ -23,7 +23,7 @@ class ConstantNode(Node):
 
 class OperatorNode(Node):
     def __init__(
-        self, name: str, op_type: str, attrs: dict[str, int], inputs: list[int]
+        self, name: str, op_type: str, attrs: dict[str, int|str], inputs: list[int]
     ):
         super().__init__(name)
         self.op_type = op_type
@@ -54,7 +54,14 @@ def get_attr(attr_list: list[onnx.AttributeProto], name: str, type_: str, defaul
         if attr.name == name:
             if attr.type != type_code:
                raise Exception(f"Attribute {name} type does not match {type_}")
-            return getattr(attr, value_fields[type_code])
+            val = getattr(attr, value_fields[type_code])
+
+            # String attribute values are stored as bytes, so we have to decode
+            # them.
+            if type_ == "string":
+                val = val.decode()
+
+            return val
     return default
 
 
@@ -70,7 +77,7 @@ def check_unsupported_attr(attr_list: list[onnx.AttributeProto], name: str, type
     """Check if an operator has an unsupported non-default value for an attribute."""
     val = get_attr(attr_list, name, type_, default)
     if val != default:
-        raise Exception(f"Unsupported value {val} for attribute {name}")
+        raise Exception(f"Unsupported value {val} for attribute {name}. Default is {default}")
 
 
 def check_ints_length_and_value(name: str, ints: list[int], allowed_length: int):
@@ -143,7 +150,7 @@ def op_node_from_onnx_operator(
             )
         input_indexes.append(index)
 
-    attrs: dict[str, int] = {}
+    attrs: dict[str, int|str] = {}
 
     if onnx_op.op_type == "Add":
         op_type = "Add"
@@ -157,18 +164,27 @@ def op_node_from_onnx_operator(
         op_type = "Conv2d"
 
         attrs["groups"] = get_attr(onnx_op.attribute, "group", "int", 1)
-        padding = get_attr(onnx_op.attribute, "pads", "ints", [0, 0, 0, 0])
-        if len(padding) != 4:
-            raise Exception("\"padding\" attribute must have 4 values")
-        pad_left, pad_right, pad_top, pad_bottom = iter(padding)
-        if pad_left != pad_right:
-            raise Exception("Left and right padding must be the same")
-        if pad_top != pad_bottom:
-            raise Exception("Top and bottom padding must be the same")
-        attrs["pad_horizontal"] = pad_left
-        attrs["pad_vertical"] = pad_top
 
-        check_unsupported_attr(onnx_op.attribute, "auto_pad", "string", "NOTSET")
+        auto_pad = get_attr(onnx_op.attribute, "auto_pad", "string", "NOTSET")
+
+        if auto_pad == "SAME_UPPER" or auto_pad == "SAME_LOWER":
+            attrs["pad_mode"] = "same"
+            attrs["pad_horizontal"] = 0
+            attrs["pad_vertical"] = 0
+        elif auto_pad == "NOTSET":
+            padding = get_attr(onnx_op.attribute, "pads", "ints", [0, 0, 0, 0])
+            if len(padding) != 4:
+                raise Exception("\"padding\" attribute must have 4 values")
+            pad_left, pad_right, pad_top, pad_bottom = iter(padding)
+            if pad_left != pad_right:
+                raise Exception("Left and right padding must be the same")
+            if pad_top != pad_bottom:
+                raise Exception("Top and bottom padding must be the same")
+
+            attrs["pad_mode"] = "fixed"
+            attrs["pad_horizontal"] = pad_left
+            attrs["pad_vertical"] = pad_top
+
         check_unsupported_attr(onnx_op.attribute, "dilations", "ints", [1, 1])
         check_unsupported_attr(onnx_op.attribute, "strides", "ints", [1, 1])
 
@@ -337,8 +353,15 @@ def build_operator_node(builder: flatbuffers.Builder, operator: OperatorNode):
         case "Conv2d":
             op_type_code = sg.OperatorType.Conv2d
             attrs_type = sg.OperatorAttrs.Conv2dAttrs
+
+            if operator.attrs["pad_mode"] == "same":
+                pad_mode = sg.PadMode.Same
+            else:
+                pad_mode = sg.PadMode.Fixed
+
             sg.Conv2dAttrsStart(builder)
             sg.Conv2dAttrsAddGroups(builder, operator.attrs["groups"])
+            sg.Conv2dAttrsAddPadMode(builder, pad_mode)
             sg.Conv2dAttrsAddPadHorizontal(builder, operator.attrs["pad_horizontal"])
             sg.Conv2dAttrsAddPadVertical(builder, operator.attrs["pad_vertical"])
             attrs = sg.Conv2dAttrsEnd(builder)

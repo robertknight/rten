@@ -146,6 +146,97 @@ impl flatbuffers::SimpleToVerifyInSlice for OperatorType {}
     since = "2.0.0",
     note = "Use associated constants instead. This will no longer be generated in 2021."
 )]
+pub const ENUM_MIN_PAD_MODE: i8 = 0;
+#[deprecated(
+    since = "2.0.0",
+    note = "Use associated constants instead. This will no longer be generated in 2021."
+)]
+pub const ENUM_MAX_PAD_MODE: i8 = 1;
+#[deprecated(
+    since = "2.0.0",
+    note = "Use associated constants instead. This will no longer be generated in 2021."
+)]
+#[allow(non_camel_case_types)]
+pub const ENUM_VALUES_PAD_MODE: [PadMode; 2] = [PadMode::Same, PadMode::Fixed];
+
+#[derive(Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash, Default)]
+#[repr(transparent)]
+pub struct PadMode(pub i8);
+#[allow(non_upper_case_globals)]
+impl PadMode {
+    pub const Same: Self = Self(0);
+    pub const Fixed: Self = Self(1);
+
+    pub const ENUM_MIN: i8 = 0;
+    pub const ENUM_MAX: i8 = 1;
+    pub const ENUM_VALUES: &'static [Self] = &[Self::Same, Self::Fixed];
+    /// Returns the variant's name or "" if unknown.
+    pub fn variant_name(self) -> Option<&'static str> {
+        match self {
+            Self::Same => Some("Same"),
+            Self::Fixed => Some("Fixed"),
+            _ => None,
+        }
+    }
+}
+impl core::fmt::Debug for PadMode {
+    fn fmt(&self, f: &mut core::fmt::Formatter) -> core::fmt::Result {
+        if let Some(name) = self.variant_name() {
+            f.write_str(name)
+        } else {
+            f.write_fmt(format_args!("<UNKNOWN {:?}>", self.0))
+        }
+    }
+}
+impl<'a> flatbuffers::Follow<'a> for PadMode {
+    type Inner = Self;
+    #[inline]
+    fn follow(buf: &'a [u8], loc: usize) -> Self::Inner {
+        let b = unsafe { flatbuffers::read_scalar_at::<i8>(buf, loc) };
+        Self(b)
+    }
+}
+
+impl flatbuffers::Push for PadMode {
+    type Output = PadMode;
+    #[inline]
+    fn push(&self, dst: &mut [u8], _rest: &[u8]) {
+        unsafe {
+            flatbuffers::emplace_scalar::<i8>(dst, self.0);
+        }
+    }
+}
+
+impl flatbuffers::EndianScalar for PadMode {
+    #[inline]
+    fn to_little_endian(self) -> Self {
+        let b = i8::to_le(self.0);
+        Self(b)
+    }
+    #[inline]
+    #[allow(clippy::wrong_self_convention)]
+    fn from_little_endian(self) -> Self {
+        let b = i8::from_le(self.0);
+        Self(b)
+    }
+}
+
+impl<'a> flatbuffers::Verifiable for PadMode {
+    #[inline]
+    fn run_verifier(
+        v: &mut flatbuffers::Verifier,
+        pos: usize,
+    ) -> Result<(), flatbuffers::InvalidFlatbuffer> {
+        use self::flatbuffers::Verifiable;
+        i8::run_verifier(v, pos)
+    }
+}
+
+impl flatbuffers::SimpleToVerifyInSlice for PadMode {}
+#[deprecated(
+    since = "2.0.0",
+    note = "Use associated constants instead. This will no longer be generated in 2021."
+)]
 pub const ENUM_MIN_OPERATOR_ATTRS: u8 = 0;
 #[deprecated(
     since = "2.0.0",
@@ -579,9 +670,10 @@ impl<'a> flatbuffers::Follow<'a> for Conv2dAttrs<'a> {
 }
 
 impl<'a> Conv2dAttrs<'a> {
-    pub const VT_PAD_HORIZONTAL: flatbuffers::VOffsetT = 4;
-    pub const VT_PAD_VERTICAL: flatbuffers::VOffsetT = 6;
-    pub const VT_GROUPS: flatbuffers::VOffsetT = 8;
+    pub const VT_PAD_MODE: flatbuffers::VOffsetT = 4;
+    pub const VT_PAD_HORIZONTAL: flatbuffers::VOffsetT = 6;
+    pub const VT_PAD_VERTICAL: flatbuffers::VOffsetT = 8;
+    pub const VT_GROUPS: flatbuffers::VOffsetT = 10;
 
     #[inline]
     pub fn init_from_table(table: flatbuffers::Table<'a>) -> Self {
@@ -596,9 +688,16 @@ impl<'a> Conv2dAttrs<'a> {
         builder.add_groups(args.groups);
         builder.add_pad_vertical(args.pad_vertical);
         builder.add_pad_horizontal(args.pad_horizontal);
+        builder.add_pad_mode(args.pad_mode);
         builder.finish()
     }
 
+    #[inline]
+    pub fn pad_mode(&self) -> PadMode {
+        self._tab
+            .get::<PadMode>(Conv2dAttrs::VT_PAD_MODE, Some(PadMode::Same))
+            .unwrap()
+    }
     #[inline]
     pub fn pad_horizontal(&self) -> u32 {
         self._tab
@@ -627,6 +726,7 @@ impl flatbuffers::Verifiable for Conv2dAttrs<'_> {
     ) -> Result<(), flatbuffers::InvalidFlatbuffer> {
         use self::flatbuffers::Verifiable;
         v.visit_table(pos)?
+            .visit_field::<PadMode>("pad_mode", Self::VT_PAD_MODE, false)?
             .visit_field::<u32>("pad_horizontal", Self::VT_PAD_HORIZONTAL, false)?
             .visit_field::<u32>("pad_vertical", Self::VT_PAD_VERTICAL, false)?
             .visit_field::<u32>("groups", Self::VT_GROUPS, false)?
@@ -635,6 +735,7 @@ impl flatbuffers::Verifiable for Conv2dAttrs<'_> {
     }
 }
 pub struct Conv2dAttrsArgs {
+    pub pad_mode: PadMode,
     pub pad_horizontal: u32,
     pub pad_vertical: u32,
     pub groups: u32,
@@ -643,6 +744,7 @@ impl<'a> Default for Conv2dAttrsArgs {
     #[inline]
     fn default() -> Self {
         Conv2dAttrsArgs {
+            pad_mode: PadMode::Same,
             pad_horizontal: 0,
             pad_vertical: 0,
             groups: 0,
@@ -655,6 +757,11 @@ pub struct Conv2dAttrsBuilder<'a: 'b, 'b> {
     start_: flatbuffers::WIPOffset<flatbuffers::TableUnfinishedWIPOffset>,
 }
 impl<'a: 'b, 'b> Conv2dAttrsBuilder<'a, 'b> {
+    #[inline]
+    pub fn add_pad_mode(&mut self, pad_mode: PadMode) {
+        self.fbb_
+            .push_slot::<PadMode>(Conv2dAttrs::VT_PAD_MODE, pad_mode, PadMode::Same);
+    }
     #[inline]
     pub fn add_pad_horizontal(&mut self, pad_horizontal: u32) {
         self.fbb_
@@ -688,6 +795,7 @@ impl<'a: 'b, 'b> Conv2dAttrsBuilder<'a, 'b> {
 impl core::fmt::Debug for Conv2dAttrs<'_> {
     fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
         let mut ds = f.debug_struct("Conv2dAttrs");
+        ds.field("pad_mode", &self.pad_mode());
         ds.field("pad_horizontal", &self.pad_horizontal());
         ds.field("pad_vertical", &self.pad_vertical());
         ds.field("groups", &self.groups());

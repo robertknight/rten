@@ -20,6 +20,11 @@ class OperatorType(object):
     Slice = 10
 
 
+class PadMode(object):
+    Same = 0
+    Fixed = 1
+
+
 class OperatorAttrs(object):
     NONE = 0
     ConcatAttrs = 1
@@ -100,30 +105,38 @@ class Conv2dAttrs(object):
         self._tab = flatbuffers.table.Table(buf, pos)
 
     # Conv2dAttrs
-    def PadHorizontal(self):
+    def PadMode(self):
         o = flatbuffers.number_types.UOffsetTFlags.py_type(self._tab.Offset(4))
         if o != 0:
-            return self._tab.Get(flatbuffers.number_types.Uint32Flags, o + self._tab.Pos)
+            return self._tab.Get(flatbuffers.number_types.Int8Flags, o + self._tab.Pos)
         return 0
 
     # Conv2dAttrs
-    def PadVertical(self):
+    def PadHorizontal(self):
         o = flatbuffers.number_types.UOffsetTFlags.py_type(self._tab.Offset(6))
         if o != 0:
             return self._tab.Get(flatbuffers.number_types.Uint32Flags, o + self._tab.Pos)
         return 0
 
     # Conv2dAttrs
-    def Groups(self):
+    def PadVertical(self):
         o = flatbuffers.number_types.UOffsetTFlags.py_type(self._tab.Offset(8))
         if o != 0:
             return self._tab.Get(flatbuffers.number_types.Uint32Flags, o + self._tab.Pos)
         return 0
 
-def Conv2dAttrsStart(builder): builder.StartObject(3)
-def Conv2dAttrsAddPadHorizontal(builder, padHorizontal): builder.PrependUint32Slot(0, padHorizontal, 0)
-def Conv2dAttrsAddPadVertical(builder, padVertical): builder.PrependUint32Slot(1, padVertical, 0)
-def Conv2dAttrsAddGroups(builder, groups): builder.PrependUint32Slot(2, groups, 0)
+    # Conv2dAttrs
+    def Groups(self):
+        o = flatbuffers.number_types.UOffsetTFlags.py_type(self._tab.Offset(10))
+        if o != 0:
+            return self._tab.Get(flatbuffers.number_types.Uint32Flags, o + self._tab.Pos)
+        return 0
+
+def Conv2dAttrsStart(builder): builder.StartObject(4)
+def Conv2dAttrsAddPadMode(builder, padMode): builder.PrependInt8Slot(0, padMode, 0)
+def Conv2dAttrsAddPadHorizontal(builder, padHorizontal): builder.PrependUint32Slot(1, padHorizontal, 0)
+def Conv2dAttrsAddPadVertical(builder, padVertical): builder.PrependUint32Slot(2, padVertical, 0)
+def Conv2dAttrsAddGroups(builder, groups): builder.PrependUint32Slot(3, groups, 0)
 def Conv2dAttrsEnd(builder): return builder.EndObject()
 
 

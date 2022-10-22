@@ -324,7 +324,7 @@ impl Graph {
 #[cfg(test)]
 mod tests {
     use crate::graph::Graph;
-    use crate::ops::{Concat, Conv2d, Input, Operator, ReLU};
+    use crate::ops::{Concat, Conv2d, Input, Operator, Padding, ReLU};
     use crate::tensor::{from_data, zero_tensor, Tensor};
     use crate::test_util::expect_equal;
 
@@ -345,7 +345,7 @@ mod tests {
 
         let conv_out = g.add_op(
             Box::new(Conv2d {
-                padding: (1, 1),
+                padding: Padding::Fixed((1, 1)),
                 groups: 1,
             }),
             &[input_id, weights_id],
