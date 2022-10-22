@@ -328,7 +328,7 @@ def build_constant_node(builder: flatbuffers.Builder, constant: ConstantNode):
         const_data = sg.IntDataEnd(builder)
         const_data_type = sg.ConstantData.IntData
     else:
-        raise ValueError(f"Unsupported data array type {constant.data.type_code}")
+        raise ValueError(f"Unsupported data array type {constant.data.typecode}")
 
     sg.ConstantNodeStart(builder)
     sg.ConstantNodeAddShape(builder, shape_vec)
