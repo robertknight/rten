@@ -7,9 +7,11 @@ mod gemm;
 mod graph;
 mod model;
 mod ops;
-mod rng;
 mod tensor;
 mod timer;
+
+#[cfg(test)]
+mod rng;
 
 #[allow(dead_code, unused_imports)]
 mod schema_generated;

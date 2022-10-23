@@ -1,6 +1,7 @@
 use std::iter::{repeat, zip};
 use std::ops::{Index, IndexMut};
 
+#[cfg(test)]
 use crate::rng::XorShiftRNG;
 
 /// n-dimensional array
@@ -525,6 +526,7 @@ pub fn zero_tensor<T: Copy + Default>(shape: &[usize]) -> Tensor<T> {
 }
 
 /// Create a new tensor filled with random values supplied by `rng`.
+#[cfg(test)]
 pub fn random_tensor(shape: &[usize], rng: &mut XorShiftRNG) -> Tensor {
     let mut t = zero_tensor(shape);
     t.data.fill_with(|| rng.next_f32());
