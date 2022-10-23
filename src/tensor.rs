@@ -643,7 +643,6 @@ mod tests {
     fn test_reshape_copies_with_custom_strides() {
         let mut rng = XorShiftRNG::new(1234);
         let mut x = random_tensor(&[10, 10], &mut rng);
-        let x_data: Vec<f32> = x.data().into();
 
         // Give the tensor a non-default stride
         x.resize_dim(1, 8);

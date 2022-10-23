@@ -32,7 +32,7 @@ impl Model {
     }
 }
 
-fn read_add_op(node: &OperatorNode) -> Box<dyn Operator> {
+fn read_add_op(_: &OperatorNode) -> Box<dyn Operator> {
     Box::new(ops::Add {})
 }
 
@@ -82,7 +82,7 @@ fn read_max_pool_2d_op(node: &OperatorNode) -> Box<dyn Operator> {
     Box::new(ops::MaxPool2d { kernel_size })
 }
 
-fn read_matmul_op(node: &OperatorNode) -> Box<dyn Operator> {
+fn read_matmul_op(_: &OperatorNode) -> Box<dyn Operator> {
     Box::new(ops::MatMul {})
 }
 

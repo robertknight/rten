@@ -10,7 +10,7 @@ struct OperatorNode {
     operator: Box<dyn Operator>,
 }
 
-enum Constant {
+pub enum Constant {
     Float(Tensor<f32>),
     Int(Tensor<i32>),
 }

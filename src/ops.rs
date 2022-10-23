@@ -998,6 +998,7 @@ mod tests {
 
         let in_channels_per_group = in_chans / groups;
         let out_channels_per_group = out_chans / groups;
+        assert_eq!(in_channels_per_group, k_in_chans);
 
         let out_h = in_h - k_h + 1 + 2 * pad_h;
         let out_w = in_w - k_w + 1 + 2 * pad_w;
