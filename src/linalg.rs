@@ -1,4 +1,71 @@
+///! Optimized linear algebra functions.
+///!
+///! This module provides a subset of BLAS-like functions that are used by
+///! neural network operators. This includes general matrix multiplication ("gemm"),
+///! and vector-scalar products.
 use crate::tensor::Tensor;
+
+fn div_ceil(a: usize, b: usize) -> usize {
+    let rounding = if a % b == 0 { 0 } else { 1 };
+    a / b + rounding
+}
+
+/// Compute `dest += src * scale`, also known as a vector-scalar product or
+/// "axpy" operation.
+///
+/// `dest_stride` and `src_stride` specifies the strides to use when iterating
+/// over `dest` and `src` respectively. The lengths of `dest` and `src` must
+/// match after accounting for their respective strides.
+pub fn add_scaled_vector(
+    dest: &mut [f32],
+    src: &[f32],
+    dest_stride: usize,
+    src_stride: usize,
+    scale: f32,
+) {
+    // Fast path for non-strided case. We write a trivial loop and leave the
+    // compiler to optimize it.
+    if src_stride == 1 && dest_stride == 1 {
+        if src.len() != dest.len() {
+            panic!("src and dest vector sizes do not match");
+        }
+        for i in 0..dest.len() {
+            dest[i] += src[i] * scale;
+        }
+        return;
+    }
+
+    let src_els = div_ceil(src.len(), src_stride);
+    let dest_els = div_ceil(dest.len(), dest_stride);
+
+    if src_els != dest_els {
+        panic!("src and dest vector sizes do not match");
+    }
+
+    const N: usize = 4;
+    let n_blocks = src_els / N;
+    let mut val = [0.0; N];
+
+    for b in 0..n_blocks {
+        for i in 0..N {
+            unsafe {
+                val[i] = src.get_unchecked((b * N + i) * src_stride) * scale;
+            }
+        }
+
+        for i in 0..N {
+            unsafe {
+                *dest.get_unchecked_mut((b * N + i) * dest_stride) += val[i];
+            }
+        }
+    }
+
+    for i in n_blocks * N..src_els {
+        unsafe {
+            *dest.get_unchecked_mut(i * dest_stride) += src.get_unchecked(i * src_stride) * scale;
+        }
+    }
+}
 
 struct BlockIter {
     start: usize,
@@ -288,7 +355,7 @@ pub fn gemm_slice(
 
 #[cfg(test)]
 mod tests {
-    use crate::gemm::gemm;
+    use crate::linalg::{add_scaled_vector, gemm};
     use crate::rng::XorShiftRNG;
     use crate::tensor::{random_tensor, zero_tensor, Tensor};
     use crate::test_util::expect_equal;
@@ -307,6 +374,52 @@ mod tests {
         }
 
         output
+    }
+
+    #[test]
+    fn test_add_scaled_vector() {
+        let mut dest = vec![1.0, 2.0, 3.0, 4.0];
+        let src = vec![10.0, 20.0, 30.0, 40.0];
+
+        add_scaled_vector(&mut dest, &src, 1, 1, 2.0);
+
+        assert_eq!(&dest, &[21.0, 42.0, 63.0, 84.0]);
+    }
+
+    #[test]
+    fn test_add_scaled_vector_src_stride() {
+        let mut dest = vec![1.0, 2.0];
+        let src = vec![10.0, 20.0, 30.0];
+
+        add_scaled_vector(&mut dest, &src, 1, 2, 1.0);
+
+        assert_eq!(&dest, &[11.0, 32.0]);
+    }
+
+    #[test]
+    fn test_add_scaled_vector_dest_stride() {
+        let mut dest = vec![1.0, 2.0, 3.0];
+        let src = vec![10.0, 20.0];
+
+        add_scaled_vector(&mut dest, &src, 2, 1, 1.0);
+
+        assert_eq!(&dest, &[11.0, 2.0, 23.0]);
+    }
+
+    #[test]
+    #[should_panic(expected = "src and dest vector sizes do not match")]
+    fn test_add_scaled_vector_size_mismatch() {
+        let mut dest = vec![1.0, 2.0, 3.0];
+        let src = vec![10.0, 20.0];
+        add_scaled_vector(&mut dest, &src, 1, 1, 1.0);
+    }
+
+    #[test]
+    #[should_panic(expected = "src and dest vector sizes do not match")]
+    fn test_add_scaled_vector_strided_size_mismatch() {
+        let mut dest = vec![1.0, 2.0];
+        let src = vec![10.0, 20.0];
+        add_scaled_vector(&mut dest, &src, 2, 1, 1.0);
     }
 
     #[test]

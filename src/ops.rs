@@ -1,7 +1,7 @@
 use std::fmt::Debug;
 use std::iter::zip;
 
-use crate::gemm::{gemm, gemm_slice};
+use crate::linalg::{add_scaled_vector, gemm, gemm_slice};
 use crate::tensor::{from_data, zero_tensor, Tensor};
 
 /// Enum of the different types of input tensor that an operator can accept.
@@ -532,39 +532,6 @@ impl Operator for Conv2d {
     }
 }
 
-// Compute `dest += src * scale`, where `dest_stride` is the distance between
-// elements of `dest` to update.
-fn add_scaled_vector_strided(dest: &mut [f32], src: &[f32], dest_stride: usize, scale: f32) {
-    // Check size once to skip bounds check on each loop iteration below.
-    if (src.len() - 1) * dest_stride >= dest.len() {
-        panic!("Dest vector is too small");
-    }
-
-    const N: usize = 4;
-    let n_blocks = src.len() / N;
-    let mut val = [0.0; N];
-
-    for b in 0..n_blocks {
-        for i in 0..N {
-            unsafe {
-                val[i] = src.get_unchecked(b * N + i) * scale;
-            }
-        }
-
-        for i in 0..N {
-            unsafe {
-                *dest.get_unchecked_mut((b * N + i) * dest_stride) += val[i];
-            }
-        }
-    }
-
-    for i in n_blocks * N..src.len() {
-        unsafe {
-            *dest.get_unchecked_mut(i * dest_stride) += src[i] * scale;
-        }
-    }
-}
-
 /// Perform a transposed 2D convolution of a tensor by a kernel.
 ///
 /// `input` has dimensions NCHW and kernel has dimensions COHW where `O` is
@@ -603,10 +570,11 @@ pub fn conv_transpose_2d(
                         let out_row = output.last_dim_slice_mut([n, out_chan, out_y, 0], out_w);
 
                         for k_x in 0..k_w {
-                            add_scaled_vector_strided(
-                                &mut out_row[k_x..],
+                            add_scaled_vector(
+                                &mut out_row[k_x..out_w - k_w + k_x + 1],
                                 in_row,
                                 stride,
+                                1, // src_stride
                                 kernel_view[[k_y, k_x]],
                             );
                         }
@@ -975,7 +943,7 @@ impl Operator for Slice {
 // to train the models that will initially be executed with this library.
 #[cfg(test)]
 mod tests {
-    use crate::gemm::gemm;
+    use crate::linalg::gemm;
     use crate::ops::{
         add, concat, conv_2d, conv_transpose_2d, matmul, max_pool_2d, pad_2d, relu, relu_in_place,
         sigmoid, sigmoid_in_place, slice, Conv2d, Operator, Padding, Reshape,
