@@ -6,6 +6,10 @@
 use crate::tensor::Tensor;
 
 pub fn div_ceil(a: usize, b: usize) -> usize {
+    if b == 1 {
+        // Fast path
+        return a;
+    }
     let rounding = if a % b == 0 { 0 } else { 1 };
     a / b + rounding
 }
