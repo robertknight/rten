@@ -121,6 +121,20 @@ impl<'a> ModelBuilder<'a> {
         // There is unfortunately a lot of boilerplate here.
         let (op_type, attrs_type, attrs) = match op_info {
             OpType::Add => (OT::Add, no_attrs, None),
+            OpType::Clip(args) => (
+                OT::Clip,
+                OA::ClipAttrs,
+                Some(
+                    sg::ClipAttrs::create(
+                        &mut self.builder,
+                        &sg::ClipAttrsArgs {
+                            min: args.min,
+                            max: args.max,
+                        },
+                    )
+                    .as_union_value(),
+                ),
+            ),
             OpType::Concat(args) => (
                 OT::Concat,
                 OA::ConcatAttrs,

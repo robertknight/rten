@@ -78,6 +78,7 @@ pub trait Operator: Debug {
 /// Enum of all the built-in operators
 pub enum OpType {
     Add,
+    Clip(Clip),
     Concat(Concat),
     Conv2d(Conv2d),
     ConvTranspose2d(ConvTranspose2d),
@@ -134,6 +135,27 @@ impl Operator for Add {
         let a = inputs[0].as_float().unwrap();
         let b = inputs[1].as_float().unwrap();
         add(a, b)
+    }
+}
+
+pub fn clip(input: &Tensor, min: f32, max: f32) -> Tensor {
+    input.map(|x| x.max(min).min(max))
+}
+
+#[derive(Debug)]
+pub struct Clip {
+    pub min: f32,
+    pub max: f32,
+}
+
+impl Operator for Clip {
+    fn name(&self) -> &str {
+        "Clip"
+    }
+
+    fn run(&self, inputs: &[Input]) -> Tensor {
+        let input = inputs[0].as_float().unwrap();
+        clip(input, self.min, self.max)
     }
 }
 
@@ -472,8 +494,8 @@ impl Operator for Slice {
 mod tests {
     use crate::linalg::gemm;
     use crate::ops::{
-        add, concat, matmul, max_pool_2d, pad_2d, relu, relu_in_place, sigmoid, sigmoid_in_place,
-        slice, Operator, Reshape,
+        add, clip, concat, matmul, max_pool_2d, pad_2d, relu, relu_in_place, sigmoid,
+        sigmoid_in_place, slice, Operator, Reshape,
     };
     use crate::rng::XorShiftRNG;
     use crate::tensor::{from_data, random_tensor, zero_tensor};
@@ -509,6 +531,14 @@ mod tests {
         let expected = from_data(vec![1, 5], vec![2., 4., 6., 8., 10.]);
 
         let result = add(&a, &b);
+        expect_equal(&result, &expected)
+    }
+
+    #[test]
+    fn test_clip() -> Result<(), String> {
+        let input = from_data(vec![2, 2], vec![-5., -2., 3., 20.]);
+        let expected = from_data(vec![2, 2], vec![1., 1., 3., 5.]);
+        let result = clip(&input, 1.0, 5.0);
         expect_equal(&result, &expected)
     }
 

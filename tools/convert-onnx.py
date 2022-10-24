@@ -40,6 +40,7 @@ class ValueNode(Node):
 # contains the value. Note that if you try to access the wrong field on an
 # AttributeProto, you get a default value instead of an exception.
 value_fields = {
+    onnx.AttributeProto.FLOAT: 'f',
     onnx.AttributeProto.INT: 'i',
     onnx.AttributeProto.INTS: 'ints',
     onnx.AttributeProto.STRING: 's',
@@ -158,6 +159,12 @@ def op_node_from_onnx_operator(
 
     if onnx_op.op_type == "Add":
         op_type = "Add"
+
+    elif onnx_op.op_type == "Clip":
+        op_type = "Clip"
+
+        attrs["min"] = require_attr(onnx_op.attribute, "min", "float")
+        attrs["max"] = require_attr(onnx_op.attribute, "max", "float")
 
     elif onnx_op.op_type == "Concat":
         op_type = "Concat"
@@ -358,6 +365,13 @@ def build_operator_node(builder: flatbuffers.Builder, operator: OperatorNode):
     match operator.op_type:
         case "Add":
             op_type_code = sg.OperatorType.Add
+        case "Clip":
+            op_type_code = sg.OperatorType.Clip
+            attrs_type = sg.OperatorAttrs.ClipAttrs
+            sg.ClipAttrsStart(builder)
+            sg.ClipAttrsAddMin(builder, operator.attrs["min"])
+            sg.ClipAttrsAddMax(builder, operator.attrs["max"])
+            attrs = sg.ClipAttrsEnd(builder)
         case "Concat":
             op_type_code = sg.OperatorType.Concat
             attrs_type = sg.OperatorAttrs.ConcatAttrs

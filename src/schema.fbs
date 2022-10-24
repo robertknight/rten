@@ -8,6 +8,7 @@ file_extension "model";
 // Type for an operator node
 enum OperatorType: byte {
   Add,
+  Clip,
   Concat,
   Conv2d,
   ConvTranspose2d,
@@ -27,12 +28,18 @@ enum PadMode: byte {
 
 // Operator-specific configuration
 union OperatorAttrs {
+  ClipAttrs,
   ConcatAttrs,
   Conv2dAttrs,
   ConvTranspose2dAttrs,
   MaxPool2dAttrs,
   Pad2dAttrs,
   SliceAttrs
+}
+
+table ClipAttrs {
+  min:float;
+  max:float;
 }
 
 table ConcatAttrs {

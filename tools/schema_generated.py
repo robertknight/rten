@@ -8,16 +8,17 @@ np = import_numpy()
 
 class OperatorType(object):
     Add = 0
-    Concat = 1
-    Conv2d = 2
-    ConvTranspose2d = 3
-    MatMul = 4
-    MaxPool2d = 5
-    Pad2d = 6
-    ReLU = 7
-    Reshape = 8
-    Sigmoid = 9
-    Slice = 10
+    Clip = 1
+    Concat = 2
+    Conv2d = 3
+    ConvTranspose2d = 4
+    MatMul = 5
+    MaxPool2d = 6
+    Pad2d = 7
+    ReLU = 8
+    Reshape = 9
+    Sigmoid = 10
+    Slice = 11
 
 
 class PadMode(object):
@@ -27,12 +28,13 @@ class PadMode(object):
 
 class OperatorAttrs(object):
     NONE = 0
-    ConcatAttrs = 1
-    Conv2dAttrs = 2
-    ConvTranspose2dAttrs = 3
-    MaxPool2dAttrs = 4
-    Pad2dAttrs = 5
-    SliceAttrs = 6
+    ClipAttrs = 1
+    ConcatAttrs = 2
+    Conv2dAttrs = 3
+    ConvTranspose2dAttrs = 4
+    MaxPool2dAttrs = 5
+    Pad2dAttrs = 6
+    SliceAttrs = 7
 
 
 class NodeKind(object):
@@ -46,6 +48,48 @@ class ConstantData(object):
     NONE = 0
     FloatData = 1
     IntData = 2
+
+
+class ClipAttrs(object):
+    __slots__ = ['_tab']
+
+    @classmethod
+    def GetRootAs(cls, buf, offset=0):
+        n = flatbuffers.encode.Get(flatbuffers.packer.uoffset, buf, offset)
+        x = ClipAttrs()
+        x.Init(buf, n + offset)
+        return x
+
+    @classmethod
+    def GetRootAsClipAttrs(cls, buf, offset=0):
+        """This method is deprecated. Please switch to GetRootAs."""
+        return cls.GetRootAs(buf, offset)
+    @classmethod
+    def ClipAttrsBufferHasIdentifier(cls, buf, offset, size_prefixed=False):
+        return flatbuffers.util.BufferHasIdentifier(buf, offset, b"\x4D\x4F\x44\x4C", size_prefixed=size_prefixed)
+
+    # ClipAttrs
+    def Init(self, buf, pos):
+        self._tab = flatbuffers.table.Table(buf, pos)
+
+    # ClipAttrs
+    def Min(self):
+        o = flatbuffers.number_types.UOffsetTFlags.py_type(self._tab.Offset(4))
+        if o != 0:
+            return self._tab.Get(flatbuffers.number_types.Float32Flags, o + self._tab.Pos)
+        return 0.0
+
+    # ClipAttrs
+    def Max(self):
+        o = flatbuffers.number_types.UOffsetTFlags.py_type(self._tab.Offset(6))
+        if o != 0:
+            return self._tab.Get(flatbuffers.number_types.Float32Flags, o + self._tab.Pos)
+        return 0.0
+
+def ClipAttrsStart(builder): builder.StartObject(2)
+def ClipAttrsAddMin(builder, min): builder.PrependFloat32Slot(0, min, 0.0)
+def ClipAttrsAddMax(builder, max): builder.PrependFloat32Slot(1, max, 0.0)
+def ClipAttrsEnd(builder): return builder.EndObject()
 
 
 class ConcatAttrs(object):

@@ -36,6 +36,21 @@ fn read_add_op(_: &OperatorNode) -> Box<dyn Operator> {
     Box::new(ops::Add {})
 }
 
+fn read_clip_op(node: &OperatorNode) -> Box<dyn Operator> {
+    let min;
+    let max;
+
+    if let Some(attrs) = node.attrs_as_clip_attrs() {
+        min = attrs.min();
+        max = attrs.max();
+    } else {
+        min = f32::NEG_INFINITY;
+        max = f32::INFINITY;
+    }
+
+    Box::new(ops::Clip { min, max })
+}
+
 fn read_concat_op(node: &OperatorNode) -> Box<dyn Operator> {
     let dim = match node.attrs_as_concat_attrs() {
         Some(concat_attrs) => concat_attrs.dim() as usize,
@@ -138,6 +153,7 @@ fn read_slice_op(node: &OperatorNode) -> Box<dyn Operator> {
 fn read_operator(node: &OperatorNode) -> Result<Box<dyn Operator>, String> {
     let op: Box<dyn Operator> = match node.type_() {
         OperatorType::Add => read_add_op(node),
+        OperatorType::Clip => read_clip_op(node),
         OperatorType::Concat => read_concat_op(node),
         OperatorType::Conv2d => read_conv_2d_op(node),
         OperatorType::ConvTranspose2d => read_conv_transpose_2d_op(node),
@@ -285,6 +301,11 @@ mod tests {
 
         builder.add_operator("add", OpType::Add, &[input_node, input_node]);
         builder.add_operator(
+            "clip",
+            OpType::Clip(ops::Clip { min: 1.0, max: 5.0 }),
+            &[input_node],
+        );
+        builder.add_operator(
             "concat",
             OpType::Concat(ops::Concat { dim: 0 }),
             &[input_node, input_node],
@@ -339,6 +360,7 @@ mod tests {
         // Test cases that accept a 4D input (eg. NCHW).
         let outputs = vec![
             "add",
+            "clip",
             "concat",
             "conv_2d",
             "conv_transpose_2d",
