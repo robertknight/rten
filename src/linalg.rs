@@ -5,7 +5,7 @@
 ///! and vector-scalar products.
 use crate::tensor::Tensor;
 
-fn div_ceil(a: usize, b: usize) -> usize {
+pub fn div_ceil(a: usize, b: usize) -> usize {
     let rounding = if a % b == 0 { 0 } else { 1 };
     a / b + rounding
 }

@@ -1,4 +1,4 @@
-use crate::linalg::{add_scaled_vector, gemm, gemm_slice};
+use crate::linalg::{add_scaled_vector, div_ceil, gemm, gemm_slice};
 use crate::ops::{Input, Operator};
 use crate::tensor::{zero_tensor, Tensor};
 
@@ -9,15 +9,39 @@ pub fn conv_output_size(
     in_size: (usize, usize),
     kernel_size: (usize, usize),
     padding: (usize, usize),
+    stride: usize,
 ) -> (usize, usize) {
     let (in_h, in_w) = in_size;
     let (k_h, k_w) = kernel_size;
     let (pad_h, pad_w) = padding;
 
-    let out_h = (in_h + pad_h * 2) - (k_h - 1);
-    let out_w = (in_w + pad_w * 2) - (k_w - 1);
+    let out_h = div_ceil(in_h + pad_h * 2 - k_h + 1, stride);
+    let out_w = div_ceil(in_w + pad_w * 2 - k_w + 1, stride);
 
     (out_h, out_w)
+}
+
+// Calculate the min and max output X coordinates that are valid when updating
+// a row of convolution output using a loop:
+//
+// ```
+// for out_x in min_out_x..max_out_x {
+//   out_row[out_x] += in_row[out_x * stride + k_x - pad_w] * kernel_element
+// }
+// ```
+//
+// Where `k_x` is the X coordinate of `kernel_element` and `in_row` is the
+// un-padded input row.
+fn min_max_out_x_coords(
+    k_x: usize,
+    in_w: usize,
+    pad_w: usize,
+    stride: usize,
+    out_w: usize,
+) -> (usize, usize) {
+    let min_out_x = pad_w.saturating_sub(k_x);
+    let max_out_x = div_ceil((in_w + pad_w).saturating_sub(k_x), stride).min(out_w);
+    (min_out_x, max_out_x)
 }
 
 /// Unroll patches from an image into a matrix.
@@ -35,11 +59,13 @@ fn im2col(
     end_chan: usize,
     pad_h: usize,
     pad_w: usize,
+    stride: usize,
 ) {
     let [_, out_w] = output.dims();
     let [_, _, in_h, in_w] = input.dims();
 
-    let (y_patches, x_patches) = conv_output_size((in_h, in_w), (patch_h, patch_w), (pad_h, pad_w));
+    let (y_patches, x_patches) =
+        conv_output_size((in_h, in_w), (patch_h, patch_w), (pad_h, pad_w), stride);
     let n_chans = end_chan - start_chan;
 
     for c in 0..n_chans {
@@ -53,28 +79,24 @@ fn im2col(
             // Calculate range of kernel rows that will lead to valid input
             // row coordinates. For other rows zero padding is used, meaning
             // the output will be zero.
-            let min_ky = pad_h.saturating_sub(py);
-            let max_ky = (in_h + pad_h).saturating_sub(py).min(patch_h);
+            let min_ky = pad_h.saturating_sub(py * stride);
+            let max_ky = (in_h + pad_h).saturating_sub(py * stride).min(patch_h);
 
             for k_y in min_ky..max_ky {
-                let img_y = py + k_y;
+                let img_y = py * stride + k_y;
                 let out_row_top = c * patch_h * patch_w + k_y * patch_w;
                 let in_row =
                     input.last_dim_slice([image_index, start_chan + c, img_y - pad_h, 0], in_w);
 
                 for k_x in 0..patch_w {
                     let out_row = out_row_top + k_x;
-
-                    // Calculate range of patches that will lead to valid input
-                    // column coordinates. For other patches zero padding is used,
-                    // meaning the output will be zero.
-                    let min_px = pad_w.saturating_sub(k_x);
-                    let max_px = (in_w + pad_w).saturating_sub(k_x).min(x_patches);
+                    let (min_px, max_px) =
+                        min_max_out_x_coords(k_x, in_w, pad_w, stride, x_patches);
                     let out_row_data =
                         &mut output.last_dim_slice_mut([out_row, 0], out_w)[out_col_left..];
 
                     for px in min_px..max_px {
-                        out_row_data[px] = in_row[px + k_x - pad_w]
+                        out_row_data[px] = in_row[px * stride + k_x - pad_w]
                     }
                 }
             }
@@ -192,11 +214,12 @@ fn conv_2d_depthwise(
     kernel: &Tensor,
     bias: Option<&Tensor>,
     padding: (usize, usize),
+    stride: usize,
 ) -> Tensor {
     let [batch, in_c, in_h, in_w] = input.dims();
     let [out_c, _, k_h, k_w] = kernel.dims();
     let (pad_h, pad_w) = padding;
-    let (out_h, out_w) = conv_output_size((in_h, in_w), (k_h, k_w), (pad_h, pad_w));
+    let (out_h, out_w) = conv_output_size((in_h, in_w), (k_h, k_w), (pad_h, pad_w), stride);
 
     let mut output = zero_tensor::<f32>(&[batch, out_c, out_h, out_w]);
 
@@ -211,7 +234,7 @@ fn conv_2d_depthwise(
                 let out_row = output.last_dim_slice_mut([n, c, out_y, 0], out_w);
 
                 for k_y in 0..k_h {
-                    let in_y = out_y + k_y;
+                    let in_y = out_y * stride + k_y;
                     if in_y < pad_h || in_y >= in_h + pad_h {
                         continue;
                     }
@@ -219,21 +242,22 @@ fn conv_2d_depthwise(
 
                     for k_x in 0..k_w {
                         let kernel_val = kernel_view[[k_y, k_x]];
+                        let (min_out_x, max_out_x) =
+                            min_max_out_x_coords(k_x, in_w, pad_w, stride, out_w);
 
-                        // Calculate range of out X coords that are in 0..out_w
-                        // and map to valid input X coords.
-                        let min_out_x = pad_w.saturating_sub(k_x);
-                        let max_out_x = (in_w + pad_w).saturating_sub(k_x).min(out_w);
+                        if min_out_x == max_out_x {
+                            continue;
+                        }
 
                         let out_row_slice = &mut out_row[min_out_x..max_out_x];
-                        let in_row_slice =
-                            &in_row[min_out_x + k_x - pad_w..max_out_x + k_x - pad_w];
+                        let in_row_slice = &in_row[min_out_x * stride + k_x - pad_w
+                            ..(max_out_x - 1) * stride + k_x - pad_w + 1];
 
                         add_scaled_vector(
                             out_row_slice,
                             in_row_slice,
-                            1, /* dest_stride */
-                            1, /* src_stride */
+                            1,      /* dest_stride */
+                            stride, /* src_stride */
                             kernel_val,
                         );
                     }
@@ -269,6 +293,7 @@ pub fn conv_2d(
     bias: Option<&Tensor>,
     padding: (usize, usize),
     groups: usize,
+    stride: usize,
 ) -> Tensor {
     let [batch, in_c, in_h, in_w] = input.dims();
     let [out_c, k_in_c, k_h, k_w] = kernel.dims();
@@ -296,10 +321,10 @@ pub fn conv_2d(
     }
 
     if in_c == out_c && groups == in_c {
-        return conv_2d_depthwise(input, kernel, bias, padding);
+        return conv_2d_depthwise(input, kernel, bias, padding, stride);
     }
 
-    let (out_h, out_w) = conv_output_size((in_h, in_w), (k_h, k_w), (pad_h, pad_w));
+    let (out_h, out_w) = conv_output_size((in_h, in_w), (k_h, k_w), (pad_h, pad_w), stride);
 
     let n_patches = out_h * out_w;
     let mut im2col_mat = zero_tensor(&[in_channels_per_group * k_h * k_w, n_patches]);
@@ -328,6 +353,7 @@ pub fn conv_2d(
                 in_chan_end,
                 pad_h,
                 pad_w,
+                stride,
             );
             unroll_kernel(&mut kernel_mat, kernel, out_chan_start, out_chan_end);
             gemm(&mut output_mat, &kernel_mat, &im2col_mat);
@@ -386,6 +412,7 @@ fn calc_fixed_padding(
 pub struct Conv2d {
     pub padding: Padding,
     pub groups: usize,
+    pub stride: usize,
 }
 
 impl Operator for Conv2d {
@@ -407,6 +434,7 @@ impl Operator for Conv2d {
             bias,
             calc_fixed_padding(self.padding, input.shape(), (k_h, k_w)),
             self.groups,
+            self.stride,
         )
     }
 }
@@ -504,6 +532,7 @@ mod tests {
         bias: Option<&Tensor>,
         padding: (usize, usize),
         groups: usize,
+        stride: usize,
     ) -> Tensor {
         let [batch, in_chans, in_h, in_w] = input.dims();
         let [out_chans, k_in_chans, k_h, k_w] = kernel.dims();
@@ -513,7 +542,7 @@ mod tests {
         let out_channels_per_group = out_chans / groups;
         assert_eq!(in_channels_per_group, k_in_chans);
 
-        let (out_h, out_w) = conv_output_size((in_h, in_w), (k_h, k_w), (pad_h, pad_w));
+        let (out_h, out_w) = conv_output_size((in_h, in_w), (k_h, k_w), (pad_h, pad_w), stride);
         let mut output = zero_tensor(&[batch, out_chans, out_h, out_w]);
 
         for n in 0..batch {
@@ -535,8 +564,8 @@ mod tests {
                             for in_chan in in_chan_start..in_chan_end {
                                 for k_y in 0..k_h {
                                     for k_x in 0..k_w {
-                                        let in_y = out_y + k_y;
-                                        let in_x = out_x + k_x;
+                                        let in_y = out_y * stride + k_y;
+                                        let in_x = out_x * stride + k_x;
 
                                         if in_y >= pad_h
                                             && in_y < in_h + pad_h
@@ -586,23 +615,64 @@ mod tests {
             ],
         );
 
-        let result = conv_2d(&input, &kernel, None, (1, 1), 1 /* groups */);
-        let reference_result = reference_conv(&input, &kernel, None, (1, 1), 1 /* groups */);
+        let result = conv_2d(
+            &input,
+            &kernel,
+            None,
+            (1, 1),
+            1, /* groups */
+            1, /* stride */
+        );
+        let reference_result = reference_conv(
+            &input,
+            &kernel,
+            None,
+            (1, 1),
+            1, /* groups */
+            1, /* stride */
+        );
         expect_equal(&result, &expected_with_same_padding)?;
         expect_equal(&result, &reference_result)?;
 
         let expected_with_no_padding = from_data(vec![1, 1, 1, 1], vec![2.6358]);
 
-        let result = conv_2d(&input, &kernel, None, (0, 0), 1 /* groups */);
-        let reference_result = reference_conv(&input, &kernel, None, (0, 0), 1 /* groups */);
+        let result = conv_2d(
+            &input,
+            &kernel,
+            None,
+            (0, 0),
+            1, /* groups */
+            1, /* stride */
+        );
+        let reference_result = reference_conv(
+            &input,
+            &kernel,
+            None,
+            (0, 0),
+            1, /* groups */
+            1, /* stride */
+        );
         expect_equal(&result, &expected_with_no_padding)?;
         expect_equal(&result, &reference_result)?;
 
         let expected_with_bias = from_data(vec![1, 1, 1, 1], vec![3.6358]);
         let bias = from_data(vec![1], vec![1.0]);
-        let result = conv_2d(&input, &kernel, Some(&bias), (0, 0), 1 /* groups */);
-        let reference_result =
-            reference_conv(&input, &kernel, Some(&bias), (0, 0), 1 /* groups */);
+        let result = conv_2d(
+            &input,
+            &kernel,
+            Some(&bias),
+            (0, 0),
+            1, /* groups */
+            1, /* stride */
+        );
+        let reference_result = reference_conv(
+            &input,
+            &kernel,
+            Some(&bias),
+            (0, 0),
+            1, /* groups */
+            1, /* stride */
+        );
         expect_equal(&result, &expected_with_bias)?;
         expect_equal(&result, &reference_result)
     }
@@ -626,9 +696,17 @@ mod tests {
         let op = Conv2d {
             padding: Padding::Same,
             groups: 1,
+            stride: 1,
         };
         let result = op.run(&[input.into(), kernel.into()]);
-        let reference_result = reference_conv(input, kernel, None, (1, 1), 1 /* groups */);
+        let reference_result = reference_conv(
+            input,
+            kernel,
+            None,
+            (1, 1),
+            1, /* groups */
+            1, /* stride */
+        );
 
         expect_equal(&result, &reference_result)
     }
@@ -640,8 +718,22 @@ mod tests {
         let kernel = random_tensor(&[10, 5, 1, 1], &mut rng);
         let input = random_tensor(&[1, 5, 20, 20], &mut rng);
 
-        let result = conv_2d(&input, &kernel, None, (0, 0), 1 /* groups */);
-        let reference_result = reference_conv(&input, &kernel, None, (0, 0), 1 /* groups */);
+        let result = conv_2d(
+            &input,
+            &kernel,
+            None,
+            (0, 0),
+            1, /* groups */
+            1, /* stride */
+        );
+        let reference_result = reference_conv(
+            &input,
+            &kernel,
+            None,
+            (0, 0),
+            1, /* groups */
+            1, /* stride */
+        );
 
         assert_eq!(result.shape(), [1, 10, 20, 20]);
         expect_equal(&result, &reference_result)
@@ -666,9 +758,23 @@ mod tests {
             ],
         );
         let expected = from_data(vec![1, 3, 1, 1], vec![0.09020272, -0.09061745, 1.1822754]);
-        let reference_result = reference_conv(&input, &kernel, None, (0, 0), 3 /* groups */);
+        let reference_result = reference_conv(
+            &input,
+            &kernel,
+            None,
+            (0, 0),
+            3, /* groups */
+            1, /* stride */
+        );
 
-        let result = conv_2d(&input, &kernel, None, (0, 0), 3 /* groups */);
+        let result = conv_2d(
+            &input,
+            &kernel,
+            None,
+            (0, 0),
+            3, /* groups */
+            1, /* stride */
+        );
 
         expect_equal(&result, &expected)?;
         expect_equal(&result, &reference_result)
@@ -682,10 +788,90 @@ mod tests {
         let kernel = random_tensor(&[4, 3, 3, 3], &mut rng);
         let input = random_tensor(&[2, 3, 20, 20], &mut rng);
 
-        let result = conv_2d(&input, &kernel, None, (1, 1), 1 /* groups */);
-        let reference_result = reference_conv(&input, &kernel, None, (1, 1), 1 /* groups */);
+        let result = conv_2d(
+            &input,
+            &kernel,
+            None,
+            (1, 1),
+            1, /* groups */
+            1, /* stride */
+        );
+        let reference_result = reference_conv(
+            &input,
+            &kernel,
+            None,
+            (1, 1),
+            1, /* groups */
+            1, /* stride */
+        );
 
         expect_equal(&result, &reference_result)
+    }
+
+    #[test]
+    fn test_conv_2d_strided() -> Result<(), String> {
+        let mut rng = XorShiftRNG::new(1234);
+        let kernel = random_tensor(&[4, 3, 3, 3], &mut rng);
+
+        for stride in [2, 3] {
+            for pad in [0, 1] {
+                for input_size in [3, 4, 5, 10, 20] {
+                    let input = random_tensor(&[2, 3, input_size, input_size], &mut rng);
+                    let result = conv_2d(
+                        &input,
+                        &kernel,
+                        None,
+                        (pad, pad),
+                        1,      /* groups */
+                        stride, /* stride */
+                    );
+                    let reference_result = reference_conv(
+                        &input,
+                        &kernel,
+                        None,
+                        (pad, pad),
+                        1,      /* groups */
+                        stride, /* stride */
+                    );
+                    expect_equal(&result, &reference_result)?;
+                }
+            }
+        }
+
+        Ok(())
+    }
+
+    #[test]
+    fn test_conv_2d_strided_depthwise() -> Result<(), String> {
+        let mut rng = XorShiftRNG::new(1234);
+        let kernel = random_tensor(&[3, 1, 3, 3], &mut rng);
+
+        for stride in [2, 3] {
+            for pad in [0, 1] {
+                for input_size in [3, 4, 5, 10, 20] {
+                    let input = random_tensor(&[1, 3, input_size, input_size], &mut rng);
+                    let result = conv_2d(
+                        &input,
+                        &kernel,
+                        None,
+                        (pad, pad),
+                        3,      /* groups */
+                        stride, /* stride */
+                    );
+                    let reference_result = reference_conv(
+                        &input,
+                        &kernel,
+                        None,
+                        (pad, pad),
+                        3,      /* groups */
+                        stride, /* stride */
+                    );
+                    expect_equal(&result, &reference_result)?;
+                }
+            }
+        }
+
+        Ok(())
     }
 
     #[test]

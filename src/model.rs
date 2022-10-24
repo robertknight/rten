@@ -63,7 +63,11 @@ fn read_conv_2d_op(node: &OperatorNode) -> Box<dyn Operator> {
         padding = Padding::Fixed((0, 0));
     }
 
-    Box::new(ops::Conv2d { groups, padding })
+    Box::new(ops::Conv2d {
+        groups,
+        padding,
+        stride: 1,
+    })
 }
 
 fn read_conv_transpose_2d_op(node: &OperatorNode) -> Box<dyn Operator> {
@@ -287,6 +291,7 @@ mod tests {
             OpType::Conv2d(ops::Conv2d {
                 padding: Padding::Fixed((1, 1)),
                 groups: 1,
+                stride: 1,
             }),
             &[input_node, kernel],
         );
