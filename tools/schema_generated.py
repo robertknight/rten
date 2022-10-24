@@ -12,13 +12,14 @@ class OperatorType(object):
     Concat = 2
     Conv2d = 3
     ConvTranspose2d = 4
-    MatMul = 5
-    MaxPool2d = 6
-    Pad2d = 7
-    ReLU = 8
-    Reshape = 9
-    Sigmoid = 10
-    Slice = 11
+    GlobalAveragePool = 5
+    MatMul = 6
+    MaxPool2d = 7
+    Pad2d = 8
+    ReLU = 9
+    Reshape = 10
+    Sigmoid = 11
+    Slice = 12
 
 
 class PadMode(object):

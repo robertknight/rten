@@ -96,6 +96,10 @@ fn read_conv_transpose_2d_op(node: &OperatorNode) -> Box<dyn Operator> {
     Box::new(ops::ConvTranspose2d { stride })
 }
 
+fn read_global_average_pool_op(_: &OperatorNode) -> Box<dyn Operator> {
+    Box::new(ops::GlobalAveragePool {})
+}
+
 fn read_max_pool_2d_op(node: &OperatorNode) -> Box<dyn Operator> {
     let kernel_size = match node.attrs_as_max_pool_2d_attrs() {
         Some(attrs) => attrs.kernel_size() as usize,
@@ -157,6 +161,7 @@ fn read_operator(node: &OperatorNode) -> Result<Box<dyn Operator>, String> {
         OperatorType::Concat => read_concat_op(node),
         OperatorType::Conv2d => read_conv_2d_op(node),
         OperatorType::ConvTranspose2d => read_conv_transpose_2d_op(node),
+        OperatorType::GlobalAveragePool => read_global_average_pool_op(node),
         OperatorType::MatMul => read_matmul_op(node),
         OperatorType::MaxPool2d => read_max_pool_2d_op(node),
         OperatorType::Pad2d => read_pad_2d_op(node),
@@ -324,6 +329,11 @@ mod tests {
             OpType::ConvTranspose2d(ops::ConvTranspose2d { stride: 2 }),
             &[input_node, kernel],
         );
+        builder.add_operator(
+            "global_average_pool",
+            OpType::GlobalAveragePool,
+            &[input_node],
+        );
         builder.add_operator("matmul", OpType::MatMul, &[input_2d, input_2d]);
         builder.add_operator(
             "max_pool_2d",
@@ -364,6 +374,7 @@ mod tests {
             "concat",
             "conv_2d",
             "conv_transpose_2d",
+            "global_average_pool",
             "max_pool_2d",
             "pad_2d",
             "relu",

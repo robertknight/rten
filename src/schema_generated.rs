@@ -18,18 +18,19 @@ pub const ENUM_MIN_OPERATOR_TYPE: i8 = 0;
     since = "2.0.0",
     note = "Use associated constants instead. This will no longer be generated in 2021."
 )]
-pub const ENUM_MAX_OPERATOR_TYPE: i8 = 11;
+pub const ENUM_MAX_OPERATOR_TYPE: i8 = 12;
 #[deprecated(
     since = "2.0.0",
     note = "Use associated constants instead. This will no longer be generated in 2021."
 )]
 #[allow(non_camel_case_types)]
-pub const ENUM_VALUES_OPERATOR_TYPE: [OperatorType; 12] = [
+pub const ENUM_VALUES_OPERATOR_TYPE: [OperatorType; 13] = [
     OperatorType::Add,
     OperatorType::Clip,
     OperatorType::Concat,
     OperatorType::Conv2d,
     OperatorType::ConvTranspose2d,
+    OperatorType::GlobalAveragePool,
     OperatorType::MatMul,
     OperatorType::MaxPool2d,
     OperatorType::Pad2d,
@@ -49,22 +50,24 @@ impl OperatorType {
     pub const Concat: Self = Self(2);
     pub const Conv2d: Self = Self(3);
     pub const ConvTranspose2d: Self = Self(4);
-    pub const MatMul: Self = Self(5);
-    pub const MaxPool2d: Self = Self(6);
-    pub const Pad2d: Self = Self(7);
-    pub const ReLU: Self = Self(8);
-    pub const Reshape: Self = Self(9);
-    pub const Sigmoid: Self = Self(10);
-    pub const Slice: Self = Self(11);
+    pub const GlobalAveragePool: Self = Self(5);
+    pub const MatMul: Self = Self(6);
+    pub const MaxPool2d: Self = Self(7);
+    pub const Pad2d: Self = Self(8);
+    pub const ReLU: Self = Self(9);
+    pub const Reshape: Self = Self(10);
+    pub const Sigmoid: Self = Self(11);
+    pub const Slice: Self = Self(12);
 
     pub const ENUM_MIN: i8 = 0;
-    pub const ENUM_MAX: i8 = 11;
+    pub const ENUM_MAX: i8 = 12;
     pub const ENUM_VALUES: &'static [Self] = &[
         Self::Add,
         Self::Clip,
         Self::Concat,
         Self::Conv2d,
         Self::ConvTranspose2d,
+        Self::GlobalAveragePool,
         Self::MatMul,
         Self::MaxPool2d,
         Self::Pad2d,
@@ -81,6 +84,7 @@ impl OperatorType {
             Self::Concat => Some("Concat"),
             Self::Conv2d => Some("Conv2d"),
             Self::ConvTranspose2d => Some("ConvTranspose2d"),
+            Self::GlobalAveragePool => Some("GlobalAveragePool"),
             Self::MatMul => Some("MatMul"),
             Self::MaxPool2d => Some("MaxPool2d"),
             Self::Pad2d => Some("Pad2d"),

@@ -82,6 +82,7 @@ pub enum OpType {
     Concat(Concat),
     Conv2d(Conv2d),
     ConvTranspose2d(ConvTranspose2d),
+    GlobalAveragePool,
     MatMul,
     MaxPool2d(MaxPool2d),
     Pad2d(Pad2d),
@@ -156,6 +157,41 @@ impl Operator for Clip {
     fn run(&self, inputs: &[Input]) -> Tensor {
         let input = inputs[0].as_float().unwrap();
         clip(input, self.min, self.max)
+    }
+}
+
+pub fn global_average_pool(input: &Tensor) -> Tensor {
+    let [batch, chans, in_h, in_w] = input.dims();
+    let mut output = zero_tensor(&[batch, chans, 1, 1]);
+
+    let hw_float = (in_h * in_w) as f32;
+
+    for n in 0..batch {
+        for c in 0..chans {
+            let mut sum = 0.0;
+            for y in 0..in_h {
+                for x in 0..in_w {
+                    sum += input[[n, c, y, x]];
+                }
+            }
+            output[[n, c, 0, 0]] = sum / hw_float;
+        }
+    }
+
+    output
+}
+
+#[derive(Debug)]
+pub struct GlobalAveragePool {}
+
+impl Operator for GlobalAveragePool {
+    fn name(&self) -> &str {
+        "GlobalAveragePool"
+    }
+
+    fn run(&self, inputs: &[Input]) -> Tensor {
+        let input = inputs[0].as_float().unwrap();
+        global_average_pool(input)
     }
 }
 
@@ -494,8 +530,8 @@ impl Operator for Slice {
 mod tests {
     use crate::linalg::gemm;
     use crate::ops::{
-        add, clip, concat, matmul, max_pool_2d, pad_2d, relu, relu_in_place, sigmoid,
-        sigmoid_in_place, slice, Operator, Reshape,
+        add, clip, concat, global_average_pool, matmul, max_pool_2d, pad_2d, relu, relu_in_place,
+        sigmoid, sigmoid_in_place, slice, Operator, Reshape,
     };
     use crate::rng::XorShiftRNG;
     use crate::tensor::{from_data, random_tensor, zero_tensor};
@@ -539,6 +575,14 @@ mod tests {
         let input = from_data(vec![2, 2], vec![-5., -2., 3., 20.]);
         let expected = from_data(vec![2, 2], vec![1., 1., 3., 5.]);
         let result = clip(&input, 1.0, 5.0);
+        expect_equal(&result, &expected)
+    }
+
+    #[test]
+    fn test_global_average_pool() -> Result<(), String> {
+        let input = from_data(vec![1, 2, 2, 2], vec![1., 2., 3., 4., 10., 20., 30., 40.]);
+        let expected = from_data(vec![1, 2, 1, 1], vec![2.5, 25.]);
+        let result = global_average_pool(&input);
         expect_equal(&result, &expected)
     }
 

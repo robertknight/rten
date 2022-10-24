@@ -219,6 +219,9 @@ def op_node_from_onnx_operator(
         check_unsupported_attr(onnx_op.attribute, "output_padding", "ints", [0, 0, 0, 0])
         check_unsupported_attr(onnx_op.attribute, "pads", "ints", [0, 0, 0, 0])
 
+    elif onnx_op.op_type == "GlobalAveragePool":
+        op_type = "GlobalAveragePool"
+
     elif onnx_op.op_type == "MatMul":
         op_type = "MatMul"
 
@@ -400,6 +403,8 @@ def build_operator_node(builder: flatbuffers.Builder, operator: OperatorNode):
             sg.ConvTranspose2dAttrsStart(builder)
             sg.ConvTranspose2dAttrsAddStride(builder, operator.attrs["stride"])
             attrs = sg.ConvTranspose2dAttrsEnd(builder)
+        case "GlobalAveragePool":
+            op_type_code = sg.OperatorType.GlobalAveragePool
         case "MatMul":
             op_type_code = sg.OperatorType.MatMul
         case "MaxPool2d":

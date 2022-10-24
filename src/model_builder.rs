@@ -189,6 +189,7 @@ impl<'a> ModelBuilder<'a> {
                     .as_union_value(),
                 ),
             ),
+            OpType::GlobalAveragePool => (OT::GlobalAveragePool, no_attrs, None),
             OpType::MatMul => (OT::MatMul, no_attrs, None),
             OpType::MaxPool2d(args) => (
                 OT::MaxPool2d,

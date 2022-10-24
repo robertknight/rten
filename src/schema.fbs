@@ -12,6 +12,7 @@ enum OperatorType: byte {
   Concat,
   Conv2d,
   ConvTranspose2d,
+  GlobalAveragePool,
   MatMul,
   MaxPool2d,
   Pad2d,
