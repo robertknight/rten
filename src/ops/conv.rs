@@ -229,9 +229,13 @@ fn conv_2d_depthwise(
                         let in_row_slice =
                             &in_row[min_out_x + k_x - pad_w..max_out_x + k_x - pad_w];
 
-                        for i in 0..out_row_slice.len() {
-                            out_row_slice[i] += in_row_slice[i] * kernel_val;
-                        }
+                        add_scaled_vector(
+                            out_row_slice,
+                            in_row_slice,
+                            1, /* dest_stride */
+                            1, /* src_stride */
+                            kernel_val,
+                        );
                     }
                 }
             }
