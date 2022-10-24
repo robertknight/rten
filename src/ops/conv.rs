@@ -2,6 +2,24 @@ use crate::linalg::{add_scaled_vector, gemm, gemm_slice};
 use crate::ops::{Input, Operator};
 use crate::tensor::{zero_tensor, Tensor};
 
+/// Calculate the spatial size of a convolution output given the spatial
+/// dimensions of the input, kernel and padding. All size tuples are (height,
+/// width).
+pub fn conv_output_size(
+    in_size: (usize, usize),
+    kernel_size: (usize, usize),
+    padding: (usize, usize),
+) -> (usize, usize) {
+    let (in_h, in_w) = in_size;
+    let (k_h, k_w) = kernel_size;
+    let (pad_h, pad_w) = padding;
+
+    let out_h = (in_h + pad_h * 2) - (k_h - 1);
+    let out_w = (in_w + pad_w * 2) - (k_w - 1);
+
+    (out_h, out_w)
+}
+
 /// Unroll patches from an image into a matrix.
 ///
 /// The input has shape NCHW. The result has shape (GHW)xP where G is the subset
@@ -20,8 +38,8 @@ fn im2col(
 ) {
     let [_, out_w] = output.dims();
     let [_, _, in_h, in_w] = input.dims();
-    let y_patches = (in_h + pad_h * 2) - (patch_h - 1);
-    let x_patches = (in_w + pad_w * 2) - (patch_w - 1);
+
+    let (y_patches, x_patches) = conv_output_size((in_h, in_w), (patch_h, patch_w), (pad_h, pad_w));
     let n_chans = end_chan - start_chan;
 
     for c in 0..n_chans {
@@ -178,9 +196,7 @@ fn conv_2d_depthwise(
     let [batch, in_c, in_h, in_w] = input.dims();
     let [out_c, _, k_h, k_w] = kernel.dims();
     let (pad_h, pad_w) = padding;
-
-    let out_h = in_h - k_h + 1 + 2 * pad_h;
-    let out_w = in_w - k_w + 1 + 2 * pad_w;
+    let (out_h, out_w) = conv_output_size((in_h, in_w), (k_h, k_w), (pad_h, pad_w));
 
     let mut output = zero_tensor::<f32>(&[batch, out_c, out_h, out_w]);
 
@@ -279,13 +295,9 @@ pub fn conv_2d(
         return conv_2d_depthwise(input, kernel, bias, padding);
     }
 
-    let out_h = in_h - k_h + 1 + 2 * pad_h;
-    let out_w = in_w - k_w + 1 + 2 * pad_w;
+    let (out_h, out_w) = conv_output_size((in_h, in_w), (k_h, k_w), (pad_h, pad_w));
 
-    let y_patches = (in_h + pad_h * 2) - (k_h - 1);
-    let x_patches = (in_w + pad_w * 2) - (k_w - 1);
-
-    let n_patches = y_patches * x_patches;
+    let n_patches = out_h * out_w;
     let mut im2col_mat = zero_tensor(&[in_channels_per_group * k_h * k_w, n_patches]);
     let mut output = zero_tensor(&[batch, out_c, out_h, out_w]);
     let mut kernel_mat = zero_tensor(&[out_channels_per_group, in_channels_per_group * k_h * k_w]);
@@ -315,14 +327,7 @@ pub fn conv_2d(
             );
             unroll_kernel(&mut kernel_mat, kernel, out_chan_start, out_chan_end);
             gemm(&mut output_mat, &kernel_mat, &im2col_mat);
-            col2im(
-                &mut output,
-                &output_mat,
-                n,
-                out_chan_start,
-                y_patches,
-                x_patches,
-            );
+            col2im(&mut output, &output_mat, n, out_chan_start, out_h, out_w);
 
             // `gemm` currently accumulates into the output buffer, so we need
             // to clear it between iterations.
@@ -482,6 +487,7 @@ impl Operator for ConvTranspose2d {
 
 #[cfg(test)]
 mod tests {
+    use super::conv_output_size;
     use crate::ops::{conv_2d, conv_transpose_2d, Conv2d, Operator, Padding};
     use crate::rng::XorShiftRNG;
     use crate::tensor::{from_data, random_tensor, zero_tensor, Tensor};
@@ -503,9 +509,7 @@ mod tests {
         let out_channels_per_group = out_chans / groups;
         assert_eq!(in_channels_per_group, k_in_chans);
 
-        let out_h = in_h - k_h + 1 + 2 * pad_h;
-        let out_w = in_w - k_w + 1 + 2 * pad_w;
-
+        let (out_h, out_w) = conv_output_size((in_h, in_w), (k_h, k_w), (pad_h, pad_w));
         let mut output = zero_tensor(&[batch, out_chans, out_h, out_w]);
 
         for n in 0..batch {
