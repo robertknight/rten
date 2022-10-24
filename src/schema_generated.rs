@@ -674,6 +674,7 @@ impl<'a> Conv2dAttrs<'a> {
     pub const VT_PAD_HORIZONTAL: flatbuffers::VOffsetT = 6;
     pub const VT_PAD_VERTICAL: flatbuffers::VOffsetT = 8;
     pub const VT_GROUPS: flatbuffers::VOffsetT = 10;
+    pub const VT_STRIDE: flatbuffers::VOffsetT = 12;
 
     #[inline]
     pub fn init_from_table(table: flatbuffers::Table<'a>) -> Self {
@@ -685,6 +686,7 @@ impl<'a> Conv2dAttrs<'a> {
         args: &'args Conv2dAttrsArgs,
     ) -> flatbuffers::WIPOffset<Conv2dAttrs<'bldr>> {
         let mut builder = Conv2dAttrsBuilder::new(_fbb);
+        builder.add_stride(args.stride);
         builder.add_groups(args.groups);
         builder.add_pad_vertical(args.pad_vertical);
         builder.add_pad_horizontal(args.pad_horizontal);
@@ -716,6 +718,12 @@ impl<'a> Conv2dAttrs<'a> {
             .get::<u32>(Conv2dAttrs::VT_GROUPS, Some(0))
             .unwrap()
     }
+    #[inline]
+    pub fn stride(&self) -> u32 {
+        self._tab
+            .get::<u32>(Conv2dAttrs::VT_STRIDE, Some(0))
+            .unwrap()
+    }
 }
 
 impl flatbuffers::Verifiable for Conv2dAttrs<'_> {
@@ -730,6 +738,7 @@ impl flatbuffers::Verifiable for Conv2dAttrs<'_> {
             .visit_field::<u32>("pad_horizontal", Self::VT_PAD_HORIZONTAL, false)?
             .visit_field::<u32>("pad_vertical", Self::VT_PAD_VERTICAL, false)?
             .visit_field::<u32>("groups", Self::VT_GROUPS, false)?
+            .visit_field::<u32>("stride", Self::VT_STRIDE, false)?
             .finish();
         Ok(())
     }
@@ -739,6 +748,7 @@ pub struct Conv2dAttrsArgs {
     pub pad_horizontal: u32,
     pub pad_vertical: u32,
     pub groups: u32,
+    pub stride: u32,
 }
 impl<'a> Default for Conv2dAttrsArgs {
     #[inline]
@@ -748,6 +758,7 @@ impl<'a> Default for Conv2dAttrsArgs {
             pad_horizontal: 0,
             pad_vertical: 0,
             groups: 0,
+            stride: 0,
         }
     }
 }
@@ -778,6 +789,11 @@ impl<'a: 'b, 'b> Conv2dAttrsBuilder<'a, 'b> {
             .push_slot::<u32>(Conv2dAttrs::VT_GROUPS, groups, 0);
     }
     #[inline]
+    pub fn add_stride(&mut self, stride: u32) {
+        self.fbb_
+            .push_slot::<u32>(Conv2dAttrs::VT_STRIDE, stride, 0);
+    }
+    #[inline]
     pub fn new(_fbb: &'b mut flatbuffers::FlatBufferBuilder<'a>) -> Conv2dAttrsBuilder<'a, 'b> {
         let start = _fbb.start_table();
         Conv2dAttrsBuilder {
@@ -799,6 +815,7 @@ impl core::fmt::Debug for Conv2dAttrs<'_> {
         ds.field("pad_horizontal", &self.pad_horizontal());
         ds.field("pad_vertical", &self.pad_vertical());
         ds.field("groups", &self.groups());
+        ds.field("stride", &self.stride());
         ds.finish()
     }
 }

@@ -189,8 +189,15 @@ def op_node_from_onnx_operator(
             attrs["pad_horizontal"] = pad_left
             attrs["pad_vertical"] = pad_top
 
+        strides = get_attr(onnx_op.attribute, "strides", "ints", [1, 1])
+        if len(strides) != 2:
+            raise Exception("\"strides\" attribute must have 2 values")
+        stride_width, stride_height = iter(strides)
+        if stride_width != stride_height:
+            raise Exception("Strides must be the same in all dimensions")
+        attrs["stride"] = stride_width
+
         check_unsupported_attr(onnx_op.attribute, "dilations", "ints", [1, 1])
-        check_unsupported_attr(onnx_op.attribute, "strides", "ints", [1, 1])
 
     elif onnx_op.op_type == "ConvTranspose":
         op_type = "ConvTranspose2d"
@@ -260,7 +267,7 @@ def op_node_from_onnx_operator(
 
 def extract_constant(constant_op: onnx.OperatorProto) -> int:
     value_attr = require_attr(constant_op.attribute, "value", "tensor")
-    if value_attr.dims != [1]:
+    if value_attr.dims != [] and value_attr.dims != [1]:
         raise Exception(f"Unsupported constant dimensions {value_attr.dims}")
     if value_attr.data_type != 7:
         raise Exception(f"Unsupported constant data type {value_attr.data_type}")
@@ -371,6 +378,7 @@ def build_operator_node(builder: flatbuffers.Builder, operator: OperatorNode):
             sg.Conv2dAttrsAddPadMode(builder, pad_mode)
             sg.Conv2dAttrsAddPadHorizontal(builder, operator.attrs["pad_horizontal"])
             sg.Conv2dAttrsAddPadVertical(builder, operator.attrs["pad_vertical"])
+            sg.Conv2dAttrsAddStride(builder, operator.attrs["stride"])
             attrs = sg.Conv2dAttrsEnd(builder)
         case "ConvTranspose2d":
             op_type_code = sg.OperatorType.ConvTranspose2d

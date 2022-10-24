@@ -47,6 +47,7 @@ fn read_concat_op(node: &OperatorNode) -> Box<dyn Operator> {
 fn read_conv_2d_op(node: &OperatorNode) -> Box<dyn Operator> {
     let groups;
     let padding;
+    let stride;
 
     if let Some(attrs) = node.attrs_as_conv_2d_attrs() {
         groups = attrs.groups() as usize;
@@ -57,16 +58,18 @@ fn read_conv_2d_op(node: &OperatorNode) -> Box<dyn Operator> {
                 attrs.pad_horizontal() as usize,
             )),
             _ => Padding::Fixed((0, 0)),
-        }
+        };
+        stride = attrs.stride() as usize;
     } else {
         groups = 1;
         padding = Padding::Fixed((0, 0));
+        stride = 1;
     }
 
     Box::new(ops::Conv2d {
         groups,
         padding,
-        stride: 1,
+        stride,
     })
 }
 

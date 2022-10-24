@@ -132,11 +132,19 @@ class Conv2dAttrs(object):
             return self._tab.Get(flatbuffers.number_types.Uint32Flags, o + self._tab.Pos)
         return 0
 
-def Conv2dAttrsStart(builder): builder.StartObject(4)
+    # Conv2dAttrs
+    def Stride(self):
+        o = flatbuffers.number_types.UOffsetTFlags.py_type(self._tab.Offset(12))
+        if o != 0:
+            return self._tab.Get(flatbuffers.number_types.Uint32Flags, o + self._tab.Pos)
+        return 0
+
+def Conv2dAttrsStart(builder): builder.StartObject(5)
 def Conv2dAttrsAddPadMode(builder, padMode): builder.PrependInt8Slot(0, padMode, 0)
 def Conv2dAttrsAddPadHorizontal(builder, padHorizontal): builder.PrependUint32Slot(1, padHorizontal, 0)
 def Conv2dAttrsAddPadVertical(builder, padVertical): builder.PrependUint32Slot(2, padVertical, 0)
 def Conv2dAttrsAddGroups(builder, groups): builder.PrependUint32Slot(3, groups, 0)
+def Conv2dAttrsAddStride(builder, stride): builder.PrependUint32Slot(4, stride, 0)
 def Conv2dAttrsEnd(builder): return builder.EndObject()
 
 

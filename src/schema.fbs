@@ -44,6 +44,7 @@ table Conv2dAttrs {
   pad_horizontal:uint;
   pad_vertical:uint;
   groups:uint;
+  stride:uint;
 }
 
 table ConvTranspose2dAttrs {

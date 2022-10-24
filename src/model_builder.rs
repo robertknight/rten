@@ -156,6 +156,7 @@ impl<'a> ModelBuilder<'a> {
                             } else {
                                 0
                             },
+                            stride: args.stride as u32,
                         },
                     )
                     .as_union_value(),
