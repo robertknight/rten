@@ -189,6 +189,19 @@ impl<'a> ModelBuilder<'a> {
                     .as_union_value(),
                 ),
             ),
+            OpType::Gather(args) => (
+                OT::Gather,
+                OA::GatherAttrs,
+                Some(
+                    sg::GatherAttrs::create(
+                        &mut self.builder,
+                        &sg::GatherAttrsArgs {
+                            axis: args.axis as u32,
+                        },
+                    )
+                    .as_union_value(),
+                ),
+            ),
             OpType::GlobalAveragePool => (OT::GlobalAveragePool, no_attrs, None),
             OpType::MatMul => (OT::MatMul, no_attrs, None),
             OpType::MaxPool2d(args) => (

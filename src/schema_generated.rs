@@ -18,18 +18,19 @@ pub const ENUM_MIN_OPERATOR_TYPE: i8 = 0;
     since = "2.0.0",
     note = "Use associated constants instead. This will no longer be generated in 2021."
 )]
-pub const ENUM_MAX_OPERATOR_TYPE: i8 = 14;
+pub const ENUM_MAX_OPERATOR_TYPE: i8 = 15;
 #[deprecated(
     since = "2.0.0",
     note = "Use associated constants instead. This will no longer be generated in 2021."
 )]
 #[allow(non_camel_case_types)]
-pub const ENUM_VALUES_OPERATOR_TYPE: [OperatorType; 15] = [
+pub const ENUM_VALUES_OPERATOR_TYPE: [OperatorType; 16] = [
     OperatorType::Add,
     OperatorType::Clip,
     OperatorType::Concat,
     OperatorType::Conv2d,
     OperatorType::ConvTranspose2d,
+    OperatorType::Gather,
     OperatorType::GlobalAveragePool,
     OperatorType::MatMul,
     OperatorType::MaxPool2d,
@@ -52,25 +53,27 @@ impl OperatorType {
     pub const Concat: Self = Self(2);
     pub const Conv2d: Self = Self(3);
     pub const ConvTranspose2d: Self = Self(4);
-    pub const GlobalAveragePool: Self = Self(5);
-    pub const MatMul: Self = Self(6);
-    pub const MaxPool2d: Self = Self(7);
-    pub const Pad2d: Self = Self(8);
-    pub const ReLU: Self = Self(9);
-    pub const Reshape: Self = Self(10);
-    pub const Shape: Self = Self(11);
-    pub const Sigmoid: Self = Self(12);
-    pub const Slice: Self = Self(13);
-    pub const Unsqueeze: Self = Self(14);
+    pub const Gather: Self = Self(5);
+    pub const GlobalAveragePool: Self = Self(6);
+    pub const MatMul: Self = Self(7);
+    pub const MaxPool2d: Self = Self(8);
+    pub const Pad2d: Self = Self(9);
+    pub const ReLU: Self = Self(10);
+    pub const Reshape: Self = Self(11);
+    pub const Shape: Self = Self(12);
+    pub const Sigmoid: Self = Self(13);
+    pub const Slice: Self = Self(14);
+    pub const Unsqueeze: Self = Self(15);
 
     pub const ENUM_MIN: i8 = 0;
-    pub const ENUM_MAX: i8 = 14;
+    pub const ENUM_MAX: i8 = 15;
     pub const ENUM_VALUES: &'static [Self] = &[
         Self::Add,
         Self::Clip,
         Self::Concat,
         Self::Conv2d,
         Self::ConvTranspose2d,
+        Self::Gather,
         Self::GlobalAveragePool,
         Self::MatMul,
         Self::MaxPool2d,
@@ -90,6 +93,7 @@ impl OperatorType {
             Self::Concat => Some("Concat"),
             Self::Conv2d => Some("Conv2d"),
             Self::ConvTranspose2d => Some("ConvTranspose2d"),
+            Self::Gather => Some("Gather"),
             Self::GlobalAveragePool => Some("GlobalAveragePool"),
             Self::MatMul => Some("MatMul"),
             Self::MaxPool2d => Some("MaxPool2d"),
@@ -258,18 +262,19 @@ pub const ENUM_MIN_OPERATOR_ATTRS: u8 = 0;
     since = "2.0.0",
     note = "Use associated constants instead. This will no longer be generated in 2021."
 )]
-pub const ENUM_MAX_OPERATOR_ATTRS: u8 = 8;
+pub const ENUM_MAX_OPERATOR_ATTRS: u8 = 9;
 #[deprecated(
     since = "2.0.0",
     note = "Use associated constants instead. This will no longer be generated in 2021."
 )]
 #[allow(non_camel_case_types)]
-pub const ENUM_VALUES_OPERATOR_ATTRS: [OperatorAttrs; 9] = [
+pub const ENUM_VALUES_OPERATOR_ATTRS: [OperatorAttrs; 10] = [
     OperatorAttrs::NONE,
     OperatorAttrs::ClipAttrs,
     OperatorAttrs::ConcatAttrs,
     OperatorAttrs::Conv2dAttrs,
     OperatorAttrs::ConvTranspose2dAttrs,
+    OperatorAttrs::GatherAttrs,
     OperatorAttrs::MaxPool2dAttrs,
     OperatorAttrs::Pad2dAttrs,
     OperatorAttrs::SliceAttrs,
@@ -286,19 +291,21 @@ impl OperatorAttrs {
     pub const ConcatAttrs: Self = Self(2);
     pub const Conv2dAttrs: Self = Self(3);
     pub const ConvTranspose2dAttrs: Self = Self(4);
-    pub const MaxPool2dAttrs: Self = Self(5);
-    pub const Pad2dAttrs: Self = Self(6);
-    pub const SliceAttrs: Self = Self(7);
-    pub const UnsqueezeAttrs: Self = Self(8);
+    pub const GatherAttrs: Self = Self(5);
+    pub const MaxPool2dAttrs: Self = Self(6);
+    pub const Pad2dAttrs: Self = Self(7);
+    pub const SliceAttrs: Self = Self(8);
+    pub const UnsqueezeAttrs: Self = Self(9);
 
     pub const ENUM_MIN: u8 = 0;
-    pub const ENUM_MAX: u8 = 8;
+    pub const ENUM_MAX: u8 = 9;
     pub const ENUM_VALUES: &'static [Self] = &[
         Self::NONE,
         Self::ClipAttrs,
         Self::ConcatAttrs,
         Self::Conv2dAttrs,
         Self::ConvTranspose2dAttrs,
+        Self::GatherAttrs,
         Self::MaxPool2dAttrs,
         Self::Pad2dAttrs,
         Self::SliceAttrs,
@@ -312,6 +319,7 @@ impl OperatorAttrs {
             Self::ConcatAttrs => Some("ConcatAttrs"),
             Self::Conv2dAttrs => Some("Conv2dAttrs"),
             Self::ConvTranspose2dAttrs => Some("ConvTranspose2dAttrs"),
+            Self::GatherAttrs => Some("GatherAttrs"),
             Self::MaxPool2dAttrs => Some("MaxPool2dAttrs"),
             Self::Pad2dAttrs => Some("Pad2dAttrs"),
             Self::SliceAttrs => Some("SliceAttrs"),
@@ -1049,6 +1057,100 @@ impl core::fmt::Debug for ConvTranspose2dAttrs<'_> {
         ds.finish()
     }
 }
+pub enum GatherAttrsOffset {}
+#[derive(Copy, Clone, PartialEq)]
+
+pub struct GatherAttrs<'a> {
+    pub _tab: flatbuffers::Table<'a>,
+}
+
+impl<'a> flatbuffers::Follow<'a> for GatherAttrs<'a> {
+    type Inner = GatherAttrs<'a>;
+    #[inline]
+    fn follow(buf: &'a [u8], loc: usize) -> Self::Inner {
+        Self {
+            _tab: flatbuffers::Table { buf, loc },
+        }
+    }
+}
+
+impl<'a> GatherAttrs<'a> {
+    pub const VT_AXIS: flatbuffers::VOffsetT = 4;
+
+    #[inline]
+    pub fn init_from_table(table: flatbuffers::Table<'a>) -> Self {
+        GatherAttrs { _tab: table }
+    }
+    #[allow(unused_mut)]
+    pub fn create<'bldr: 'args, 'args: 'mut_bldr, 'mut_bldr>(
+        _fbb: &'mut_bldr mut flatbuffers::FlatBufferBuilder<'bldr>,
+        args: &'args GatherAttrsArgs,
+    ) -> flatbuffers::WIPOffset<GatherAttrs<'bldr>> {
+        let mut builder = GatherAttrsBuilder::new(_fbb);
+        builder.add_axis(args.axis);
+        builder.finish()
+    }
+
+    #[inline]
+    pub fn axis(&self) -> u32 {
+        self._tab.get::<u32>(GatherAttrs::VT_AXIS, Some(0)).unwrap()
+    }
+}
+
+impl flatbuffers::Verifiable for GatherAttrs<'_> {
+    #[inline]
+    fn run_verifier(
+        v: &mut flatbuffers::Verifier,
+        pos: usize,
+    ) -> Result<(), flatbuffers::InvalidFlatbuffer> {
+        use self::flatbuffers::Verifiable;
+        v.visit_table(pos)?
+            .visit_field::<u32>("axis", Self::VT_AXIS, false)?
+            .finish();
+        Ok(())
+    }
+}
+pub struct GatherAttrsArgs {
+    pub axis: u32,
+}
+impl<'a> Default for GatherAttrsArgs {
+    #[inline]
+    fn default() -> Self {
+        GatherAttrsArgs { axis: 0 }
+    }
+}
+
+pub struct GatherAttrsBuilder<'a: 'b, 'b> {
+    fbb_: &'b mut flatbuffers::FlatBufferBuilder<'a>,
+    start_: flatbuffers::WIPOffset<flatbuffers::TableUnfinishedWIPOffset>,
+}
+impl<'a: 'b, 'b> GatherAttrsBuilder<'a, 'b> {
+    #[inline]
+    pub fn add_axis(&mut self, axis: u32) {
+        self.fbb_.push_slot::<u32>(GatherAttrs::VT_AXIS, axis, 0);
+    }
+    #[inline]
+    pub fn new(_fbb: &'b mut flatbuffers::FlatBufferBuilder<'a>) -> GatherAttrsBuilder<'a, 'b> {
+        let start = _fbb.start_table();
+        GatherAttrsBuilder {
+            fbb_: _fbb,
+            start_: start,
+        }
+    }
+    #[inline]
+    pub fn finish(self) -> flatbuffers::WIPOffset<GatherAttrs<'a>> {
+        let o = self.fbb_.end_table(self.start_);
+        flatbuffers::WIPOffset::new(o.value())
+    }
+}
+
+impl core::fmt::Debug for GatherAttrs<'_> {
+    fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
+        let mut ds = f.debug_struct("GatherAttrs");
+        ds.field("axis", &self.axis());
+        ds.finish()
+    }
+}
 pub enum MaxPool2dAttrsOffset {}
 #[derive(Copy, Clone, PartialEq)]
 
@@ -1643,6 +1745,16 @@ impl<'a> OperatorNode<'a> {
 
     #[inline]
     #[allow(non_snake_case)]
+    pub fn attrs_as_gather_attrs(&self) -> Option<GatherAttrs<'a>> {
+        if self.attrs_type() == OperatorAttrs::GatherAttrs {
+            self.attrs().map(GatherAttrs::init_from_table)
+        } else {
+            None
+        }
+    }
+
+    #[inline]
+    #[allow(non_snake_case)]
     pub fn attrs_as_max_pool_2d_attrs(&self) -> Option<MaxPool2dAttrs<'a>> {
         if self.attrs_type() == OperatorAttrs::MaxPool2dAttrs {
             self.attrs().map(MaxPool2dAttrs::init_from_table)
@@ -1716,6 +1828,11 @@ impl flatbuffers::Verifiable for OperatorNode<'_> {
                     OperatorAttrs::ConvTranspose2dAttrs => v
                         .verify_union_variant::<flatbuffers::ForwardsUOffset<ConvTranspose2dAttrs>>(
                             "OperatorAttrs::ConvTranspose2dAttrs",
+                            pos,
+                        ),
+                    OperatorAttrs::GatherAttrs => v
+                        .verify_union_variant::<flatbuffers::ForwardsUOffset<GatherAttrs>>(
+                            "OperatorAttrs::GatherAttrs",
                             pos,
                         ),
                     OperatorAttrs::MaxPool2dAttrs => v
@@ -1849,6 +1966,16 @@ impl core::fmt::Debug for OperatorNode<'_> {
             }
             OperatorAttrs::ConvTranspose2dAttrs => {
                 if let Some(x) = self.attrs_as_conv_transpose_2d_attrs() {
+                    ds.field("attrs", &x)
+                } else {
+                    ds.field(
+                        "attrs",
+                        &"InvalidFlatbuffer: Union discriminant does not match value.",
+                    )
+                }
+            }
+            OperatorAttrs::GatherAttrs => {
+                if let Some(x) = self.attrs_as_gather_attrs() {
                     ds.field("attrs", &x)
                 } else {
                     ds.field(

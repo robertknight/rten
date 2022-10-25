@@ -12,16 +12,17 @@ class OperatorType(object):
     Concat = 2
     Conv2d = 3
     ConvTranspose2d = 4
-    GlobalAveragePool = 5
-    MatMul = 6
-    MaxPool2d = 7
-    Pad2d = 8
-    ReLU = 9
-    Reshape = 10
-    Shape = 11
-    Sigmoid = 12
-    Slice = 13
-    Unsqueeze = 14
+    Gather = 5
+    GlobalAveragePool = 6
+    MatMul = 7
+    MaxPool2d = 8
+    Pad2d = 9
+    ReLU = 10
+    Reshape = 11
+    Shape = 12
+    Sigmoid = 13
+    Slice = 14
+    Unsqueeze = 15
 
 
 class PadMode(object):
@@ -35,10 +36,11 @@ class OperatorAttrs(object):
     ConcatAttrs = 2
     Conv2dAttrs = 3
     ConvTranspose2dAttrs = 4
-    MaxPool2dAttrs = 5
-    Pad2dAttrs = 6
-    SliceAttrs = 7
-    UnsqueezeAttrs = 8
+    GatherAttrs = 5
+    MaxPool2dAttrs = 6
+    Pad2dAttrs = 7
+    SliceAttrs = 8
+    UnsqueezeAttrs = 9
 
 
 class NodeKind(object):
@@ -228,6 +230,40 @@ class ConvTranspose2dAttrs(object):
 def ConvTranspose2dAttrsStart(builder): builder.StartObject(1)
 def ConvTranspose2dAttrsAddStride(builder, stride): builder.PrependUint32Slot(0, stride, 0)
 def ConvTranspose2dAttrsEnd(builder): return builder.EndObject()
+
+
+class GatherAttrs(object):
+    __slots__ = ['_tab']
+
+    @classmethod
+    def GetRootAs(cls, buf, offset=0):
+        n = flatbuffers.encode.Get(flatbuffers.packer.uoffset, buf, offset)
+        x = GatherAttrs()
+        x.Init(buf, n + offset)
+        return x
+
+    @classmethod
+    def GetRootAsGatherAttrs(cls, buf, offset=0):
+        """This method is deprecated. Please switch to GetRootAs."""
+        return cls.GetRootAs(buf, offset)
+    @classmethod
+    def GatherAttrsBufferHasIdentifier(cls, buf, offset, size_prefixed=False):
+        return flatbuffers.util.BufferHasIdentifier(buf, offset, b"\x4D\x4F\x44\x4C", size_prefixed=size_prefixed)
+
+    # GatherAttrs
+    def Init(self, buf, pos):
+        self._tab = flatbuffers.table.Table(buf, pos)
+
+    # GatherAttrs
+    def Axis(self):
+        o = flatbuffers.number_types.UOffsetTFlags.py_type(self._tab.Offset(4))
+        if o != 0:
+            return self._tab.Get(flatbuffers.number_types.Uint32Flags, o + self._tab.Pos)
+        return 0
+
+def GatherAttrsStart(builder): builder.StartObject(1)
+def GatherAttrsAddAxis(builder, axis): builder.PrependUint32Slot(0, axis, 0)
+def GatherAttrsEnd(builder): return builder.EndObject()
 
 
 class MaxPool2dAttrs(object):

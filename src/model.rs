@@ -96,6 +96,14 @@ fn read_conv_transpose_2d_op(node: &OperatorNode) -> Box<dyn Operator> {
     Box::new(ops::ConvTranspose2d { stride })
 }
 
+fn read_gather_op(node: &OperatorNode) -> Box<dyn Operator> {
+    let axis = match node.attrs_as_gather_attrs() {
+        Some(attrs) => attrs.axis() as usize,
+        None => 0,
+    };
+    Box::new(ops::Gather { axis })
+}
+
 fn read_global_average_pool_op(_: &OperatorNode) -> Box<dyn Operator> {
     Box::new(ops::GlobalAveragePool {})
 }
@@ -163,6 +171,7 @@ fn read_operator(node: &OperatorNode) -> Result<Box<dyn Operator>, String> {
         OperatorType::Concat => read_concat_op(node),
         OperatorType::Conv2d => read_conv_2d_op(node),
         OperatorType::ConvTranspose2d => read_conv_transpose_2d_op(node),
+        OperatorType::Gather => read_gather_op(node),
         OperatorType::GlobalAveragePool => read_global_average_pool_op(node),
         OperatorType::MatMul => read_matmul_op(node),
         OperatorType::MaxPool2d => read_max_pool_2d_op(node),
@@ -311,6 +320,9 @@ mod tests {
         let kernel_val = from_data(vec![1, 1, 1, 1], vec![0.5]);
         let kernel = builder.add_float_constant(&kernel_val);
 
+        let indices_val = from_data(vec![1], vec![1]);
+        let indices = builder.add_int_constant(&indices_val);
+
         builder.add_operator("add", OpType::Add, &[input_node, input_node]);
         builder.add_operator(
             "clip",
@@ -335,6 +347,11 @@ mod tests {
             "conv_transpose_2d",
             OpType::ConvTranspose2d(ops::ConvTranspose2d { stride: 2 }),
             &[input_node, kernel],
+        );
+        builder.add_operator(
+            "gather",
+            OpType::Gather(ops::Gather { axis: 0 }),
+            &[input_node, indices],
         );
         builder.add_operator(
             "global_average_pool",

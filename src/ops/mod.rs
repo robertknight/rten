@@ -2,7 +2,7 @@ use std::fmt::Debug;
 use std::iter::zip;
 
 use crate::linalg::gemm;
-use crate::tensor::{from_data, zero_tensor, Tensor};
+use crate::tensor::{from_data, from_scalar, zero_tensor, Tensor};
 
 mod conv;
 
@@ -137,6 +137,7 @@ pub enum OpType {
     Concat(Concat),
     Conv2d(Conv2d),
     ConvTranspose2d(ConvTranspose2d),
+    Gather(Gather),
     GlobalAveragePool,
     MatMul,
     MaxPool2d(MaxPool2d),
@@ -214,6 +215,40 @@ impl Operator for Clip {
     fn run(&self, inputs: &[Input]) -> Output {
         let input = inputs[0].as_float().unwrap();
         clip(input, self.min, self.max).into()
+    }
+}
+
+/// Gather elements from `input` specified by `indices`.
+///
+/// This currently only supports one common use case for Gather operators,
+/// which is to index into a vector with a scalar.
+pub fn gather<T: Copy + Default>(
+    input: &Tensor<T>,
+    axis: usize,
+    indices: &Tensor<i32>,
+) -> Tensor<T> {
+    match (input.shape().len(), axis, indices.item()) {
+        (1, 0, Some(index)) => from_scalar(input[[index as usize]]),
+        _ => panic!("Gather operator only supports indexing into a 1D tensor with a scalar"),
+    }
+}
+
+#[derive(Debug)]
+pub struct Gather {
+    pub axis: usize,
+}
+
+impl Operator for Gather {
+    fn name(&self) -> &str {
+        "Gather"
+    }
+
+    fn run(&self, inputs: &[Input]) -> Output {
+        let indices = inputs[1].as_int().unwrap();
+        match inputs[0] {
+            Input::IntTensor(input) => gather(input, self.axis, &indices).into(),
+            Input::FloatTensor(input) => gather(input, self.axis, &indices).into(),
+        }
     }
 }
 
@@ -697,9 +732,9 @@ impl Operator for Unsqueeze {
 mod tests {
     use crate::linalg::gemm;
     use crate::ops::{
-        add, clip, concat, global_average_pool, matmul, max_pool_2d, pad_2d, relu, relu_in_place,
-        reshape, sigmoid, sigmoid_in_place, slice, slice_in_place, unsqueeze, Operator, Reshape,
-        Shape,
+        add, clip, concat, gather, global_average_pool, matmul, max_pool_2d, pad_2d, relu,
+        relu_in_place, reshape, sigmoid, sigmoid_in_place, slice, slice_in_place, unsqueeze,
+        Operator, Reshape, Shape,
     };
     use crate::rng::XorShiftRNG;
     use crate::tensor::{from_data, from_scalar, from_vec, random_tensor, zero_tensor, Tensor};
@@ -751,6 +786,17 @@ mod tests {
         let expected = from_data(vec![2, 2], vec![1., 1., 3., 5.]);
         let result = clip(&input, 1.0, 5.0);
         expect_equal(&result, &expected)
+    }
+
+    #[test]
+    fn test_gather() {
+        // We currently support only one common use of Gather, which is to
+        // index into a vector with a scalar, eg. to extract one dimension from
+        // a tensor shape.
+        let input = from_vec(vec![1, 20, 30]);
+        let indices = from_scalar(1);
+        let result = gather(&input, 0, &indices);
+        assert_eq!(result.item(), Some(20))
     }
 
     #[test]
