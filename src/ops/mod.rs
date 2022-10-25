@@ -53,13 +53,65 @@ impl<'a> From<&'a Tensor<i32>> for Input<'a> {
     }
 }
 
+/// Enum of the different types of output tensor that an operator can produce.
+pub enum Output {
+    FloatTensor(Tensor<f32>),
+    IntTensor(Tensor<i32>),
+}
+
+impl Output {
+    pub fn as_int(self) -> Option<Tensor<i32>> {
+        if let Output::IntTensor(t) = self {
+            Some(t)
+        } else {
+            None
+        }
+    }
+
+    pub fn as_int_ref(&self) -> Option<&Tensor<i32>> {
+        if let Output::IntTensor(t) = self {
+            Some(&t)
+        } else {
+            None
+        }
+    }
+
+    pub fn as_float(self) -> Option<Tensor<f32>> {
+        if let Output::FloatTensor(t) = self {
+            Some(t)
+        } else {
+            None
+        }
+    }
+
+    pub fn as_float_ref(&self) -> Option<&Tensor<f32>> {
+        if let Output::FloatTensor(t) = self {
+            Some(&t)
+        } else {
+            None
+        }
+    }
+}
+
+impl<'a> From<Tensor<f32>> for Output {
+    fn from(t: Tensor<f32>) -> Output {
+        Output::FloatTensor(t)
+    }
+}
+
+impl<'a> From<Tensor<i32>> for Output {
+    fn from(t: Tensor<i32>) -> Output {
+        Output::IntTensor(t)
+    }
+}
+
 /// An Operator is a computation step in a graph.
 pub trait Operator: Debug {
     /// Return a display name for the operator.
     fn name(&self) -> &str;
 
     /// Execute the operator with the inputs.
-    fn run(&self, input: &[Input]) -> Tensor;
+    fn run(&self, input: &[Input]) -> Output;
 
     /// Return true if this operator supports in-place execution via
     /// `run_in_place`.
@@ -132,10 +184,10 @@ impl Operator for Add {
         "Add"
     }
 
-    fn run(&self, inputs: &[Input]) -> Tensor {
+    fn run(&self, inputs: &[Input]) -> Output {
         let a = inputs[0].as_float().unwrap();
         let b = inputs[1].as_float().unwrap();
-        add(a, b)
+        add(a, b).into()
     }
 }
 
@@ -154,9 +206,9 @@ impl Operator for Clip {
         "Clip"
     }
 
-    fn run(&self, inputs: &[Input]) -> Tensor {
+    fn run(&self, inputs: &[Input]) -> Output {
         let input = inputs[0].as_float().unwrap();
-        clip(input, self.min, self.max)
+        clip(input, self.min, self.max).into()
     }
 }
 
@@ -189,9 +241,9 @@ impl Operator for GlobalAveragePool {
         "GlobalAveragePool"
     }
 
-    fn run(&self, inputs: &[Input]) -> Tensor {
+    fn run(&self, inputs: &[Input]) -> Output {
         let input = inputs[0].as_float().unwrap();
-        global_average_pool(input)
+        global_average_pool(input).into()
     }
 }
 
@@ -247,10 +299,10 @@ impl Operator for MatMul {
         "MatMul"
     }
 
-    fn run(&self, inputs: &[Input]) -> Tensor {
+    fn run(&self, inputs: &[Input]) -> Output {
         let a = inputs[0].as_float().unwrap();
         let b = inputs[1].as_float().unwrap();
-        matmul(a, b)
+        matmul(a, b).into()
     }
 }
 
@@ -265,9 +317,9 @@ impl Operator for MaxPool2d {
     }
 
     /// Run `sigmoid` operator with `[input]` inputs.
-    fn run(&self, inputs: &[Input]) -> Tensor {
+    fn run(&self, inputs: &[Input]) -> Output {
         let input = inputs[0].as_float().unwrap();
-        max_pool_2d(input, self.kernel_size)
+        max_pool_2d(input, self.kernel_size).into()
     }
 }
 
@@ -289,9 +341,9 @@ impl Operator for ReLU {
     }
 
     /// Run `relu` operator with `[input]` inputs.
-    fn run(&self, inputs: &[Input]) -> Tensor {
+    fn run(&self, inputs: &[Input]) -> Output {
         let input = inputs[0].as_float().unwrap();
-        relu(input)
+        relu(input).into()
     }
 
     fn can_run_in_place(&self) -> bool {
@@ -310,11 +362,11 @@ impl Operator for Reshape {
         "Reshape"
     }
 
-    fn run(&self, inputs: &[Input]) -> Tensor {
+    fn run(&self, inputs: &[Input]) -> Output {
         let input = inputs[0].as_float().unwrap();
         let shape = inputs[1].as_int().unwrap();
         let shape_values: Vec<_> = shape.elements().map(|e| e as usize).collect();
-        input.clone_with_shape(&shape_values)
+        input.clone_with_shape(&shape_values).into()
     }
 
     fn can_run_in_place(&self) -> bool {
@@ -342,9 +394,9 @@ impl Operator for Sigmoid {
         "Sigmoid"
     }
 
-    fn run(&self, inputs: &[Input]) -> Tensor {
+    fn run(&self, inputs: &[Input]) -> Output {
         let input = inputs[0].as_float().unwrap();
-        sigmoid(input)
+        sigmoid(input).into()
     }
 
     fn can_run_in_place(&self) -> bool {
@@ -414,10 +466,10 @@ impl Operator for Concat {
     }
 
     /// Run `concat` operator with `[a, b]` inputs.
-    fn run(&self, inputs: &[Input]) -> Tensor {
+    fn run(&self, inputs: &[Input]) -> Output {
         let a = inputs[0].as_float().unwrap();
         let b = inputs[1].as_float().unwrap();
-        concat(a, b, self.dim)
+        concat(a, b, self.dim).into()
     }
 }
 
@@ -460,9 +512,9 @@ impl Operator for Pad2d {
     }
 
     /// Run `pad` operator with `[input]` inputs.
-    fn run(&self, inputs: &[Input]) -> Tensor {
+    fn run(&self, inputs: &[Input]) -> Output {
         let input = inputs[0].as_float().unwrap();
-        pad_2d(input, self.padding)
+        pad_2d(input, self.padding).into()
     }
 }
 
@@ -509,9 +561,9 @@ impl Operator for Slice {
     }
 
     /// Run `slice` operator with `[input]` inputs.
-    fn run(&self, inputs: &[Input]) -> Tensor {
+    fn run(&self, inputs: &[Input]) -> Output {
         let input = inputs[0].as_float().unwrap();
-        slice(input, self.dim, self.start, self.end)
+        slice(input, self.dim, self.start, self.end).into()
     }
 
     fn can_run_in_place(&self) -> bool {
@@ -531,7 +583,7 @@ mod tests {
     use crate::linalg::gemm;
     use crate::ops::{
         add, clip, concat, global_average_pool, matmul, max_pool_2d, pad_2d, relu, relu_in_place,
-        sigmoid, sigmoid_in_place, slice, Operator, Reshape,
+        sigmoid, sigmoid_in_place, slice, Operator, Reshape, Tensor,
     };
     use crate::rng::XorShiftRNG;
     use crate::tensor::{from_data, random_tensor, zero_tensor};
@@ -643,7 +695,10 @@ mod tests {
         let expected = input.clone_with_shape(&[4]);
 
         let op = Reshape {};
-        let result = op.run(&[(&input).into(), (&shape).into()]);
+        let result = op
+            .run(&[(&input).into(), (&shape).into()])
+            .as_float()
+            .unwrap();
 
         expect_equal(&result, &expected)
     }

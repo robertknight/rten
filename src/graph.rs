@@ -1,6 +1,6 @@
 use std::collections::{HashMap, HashSet};
 
-use crate::ops::{Input, Operator};
+use crate::ops::{Input, Operator, Output};
 use crate::tensor::Tensor;
 use crate::timer::Timer;
 
@@ -101,7 +101,7 @@ impl Graph {
         inputs: &[(NodeId, &Tensor)],
         outputs: &[NodeId],
         opts: Option<RunOptions>,
-    ) -> Vec<Tensor> {
+    ) -> Vec<Output> {
         let plan = self.create_plan(inputs, outputs);
         let opts = opts.unwrap_or_default();
 
@@ -139,7 +139,7 @@ impl Graph {
         }
 
         // Execute the plan
-        let mut temp_values: HashMap<NodeId, Tensor> = HashMap::new();
+        let mut temp_values: HashMap<NodeId, Output> = HashMap::new();
         let mut op_elapsed: HashMap<&str, f32> = HashMap::new();
 
         for (op_node_id, op_node) in plan.iter() {
@@ -160,16 +160,24 @@ impl Graph {
                 && usage_counts.get(&op_node.inputs[0]) == Some(&1);
 
             let output = if can_run_in_place {
-                let mut input = temp_values.remove(&op_node.inputs[0]).unwrap();
+                let mut input = temp_values
+                    .remove(&op_node.inputs[0])
+                    .unwrap()
+                    .as_float()
+                    .unwrap();
                 op_node.operator.run_in_place(&mut input);
-                input
+                Output::FloatTensor(input)
             } else {
                 let mut op_inputs: Vec<Input> = Vec::new();
                 for node_id in op_node.inputs.iter() {
                     if let Some(&value) = values.get(node_id) {
                         op_inputs.push(value);
                     } else if let Some(value) = temp_values.get(node_id) {
-                        op_inputs.push(value.into());
+                        let input = match value {
+                            Output::IntTensor(t) => Input::IntTensor(&t),
+                            Output::FloatTensor(t) => Input::FloatTensor(&t),
+                        };
+                        op_inputs.push(input);
                     } else {
                         // If this is reached, there was a bug in plan creation.
                         panic!(
@@ -234,7 +242,10 @@ impl Graph {
             .iter()
             .map(|output_id| {
                 if let Some(&value) = values.get(output_id) {
-                    value.as_float().unwrap().clone()
+                    match value {
+                        Input::IntTensor(t) => Output::IntTensor(t.clone()),
+                        Input::FloatTensor(t) => Output::FloatTensor(t.clone()),
+                    }
                 } else if let Some(value) = temp_values.remove(output_id) {
                     value
                 } else {
@@ -324,7 +335,7 @@ impl Graph {
 #[cfg(test)]
 mod tests {
     use crate::graph::Graph;
-    use crate::ops::{Concat, Conv2d, Input, Operator, Padding, ReLU};
+    use crate::ops::{Concat, Conv2d, Input, Operator, Output, Padding, ReLU};
     use crate::tensor::{from_data, zero_tensor, Tensor};
     use crate::test_util::expect_equal;
 
@@ -369,7 +380,7 @@ mod tests {
             ],
         );
         assert_eq!(results.len(), 1);
-        expect_equal(&results[0], &expected)
+        expect_equal(&results[0].as_float_ref().unwrap(), &expected)
     }
 
     #[derive(Debug)]
@@ -379,10 +390,10 @@ mod tests {
             "AddOne"
         }
 
-        fn run(&self, inputs: &[Input]) -> Tensor {
+        fn run(&self, inputs: &[Input]) -> Output {
             let input = inputs[0].as_float().unwrap();
             let output_data = input.elements().map(|x| x + 1.0).collect();
-            from_data(input.shape().into(), output_data)
+            from_data(input.shape().into(), output_data).into()
         }
     }
 
@@ -406,11 +417,11 @@ mod tests {
 
         let results = g.run(&[(input_id, &input)], &[op_c], None);
         let expected = from_data(vec![2], vec![2., 3.]);
-        expect_equal(&results[0], &expected)?;
+        expect_equal(&results[0].as_float_ref().unwrap(), &expected)?;
 
         let results = g.run(&[(input_id, &input)], &[op_d], None);
         let expected = from_data(vec![2], vec![3., 2.]);
-        expect_equal(&results[0], &expected)
+        expect_equal(&results[0].as_float_ref().unwrap(), &expected)
     }
 
     #[test]
@@ -428,7 +439,7 @@ mod tests {
         let results = g.run(&[(input_id, &input)], &[prev_output], None);
 
         let expected = from_data(vec![5], vec![101., 102., 103., 104., 105.]);
-        expect_equal(&results[0], &expected)
+        expect_equal(&results[0].as_float_ref().unwrap(), &expected)
     }
 
     #[test]
@@ -440,7 +451,7 @@ mod tests {
 
         let results = g.run(&[(input_id, &input)], &[input_id], None);
 
-        expect_equal(&results[0], &input)
+        expect_equal(&results[0].as_float_ref().unwrap(), &input)
     }
 
     #[test]
@@ -452,7 +463,7 @@ mod tests {
 
         let results = g.run(&[], &[const_id], None);
 
-        expect_equal(&results[0], &value)
+        expect_equal(&results[0].as_float_ref().unwrap(), &value)
     }
 
     #[test]
@@ -488,11 +499,11 @@ mod tests {
             true
         }
 
-        fn run(&self, inputs: &[Input]) -> Tensor {
+        fn run(&self, inputs: &[Input]) -> Output {
             // An operator should normally have the same behavior in `run`
             // and `run_in_place`. Here we use different behavior to make it
             // possible to distinguish which path was used.
-            inputs[0].as_float().unwrap().clone()
+            inputs[0].as_float().unwrap().clone().into()
         }
 
         fn run_in_place(&self, input: &mut Tensor) {
@@ -516,18 +527,18 @@ mod tests {
         // First operator should not be run in-place, since it has an
         // immutable input. The result should be the same as the input.
         let results = g.run(&[(input_id, &input)], &[op1_id], None);
-        assert_eq!(results[0][[0, 0]], 0.0);
+        assert_eq!(results[0].as_float_ref().unwrap()[[0, 0]], 0.0);
 
         // Second operator should be run in-place, as it meets all the
         // requirements for this optimization.
         let results = g.run(&[(input_id, &input)], &[op2_id], None);
-        assert_eq!(results[0][[0, 0]], 1.0);
+        assert_eq!(results[0].as_float_ref().unwrap()[[0, 0]], 1.0);
 
         // Third op should not be run in place, because its input is re-used
         // for fourth op. Fourth op can run in place as by then, it is the
         // only consumer of its input.
         let results = g.run(&[(input_id, &input)], &[op3_id, op4_id], None);
-        assert_eq!(results[0][[0, 0]], 1.0);
-        assert_eq!(results[1][[0, 0]], 2.0);
+        assert_eq!(results[0].as_float_ref().unwrap()[[0, 0]], 1.0);
+        assert_eq!(results[1].as_float_ref().unwrap()[[0, 0]], 2.0);
     }
 }

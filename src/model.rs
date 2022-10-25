@@ -4,7 +4,7 @@ use std::collections::HashMap;
 
 use crate::graph::{Graph, NodeId, RunOptions};
 use crate::ops;
-use crate::ops::{Operator, Padding};
+use crate::ops::{Operator, Output, Padding};
 use crate::schema_generated::{root_as_model, OperatorNode, OperatorType, PadMode};
 use crate::tensor::{from_data, Tensor};
 
@@ -27,7 +27,7 @@ impl Model {
         inputs: &[(NodeId, &Tensor)],
         outputs: &[NodeId],
         opts: Option<RunOptions>,
-    ) -> Vec<Tensor> {
+    ) -> Vec<Output> {
         self.graph.run(inputs, outputs, opts)
     }
 }
@@ -290,8 +290,11 @@ mod tests {
         let result = model.run(&[(input_id, &input)], &[output_id], None);
 
         assert_eq!(result.len(), 1);
-        assert_eq!(result[0].shape(), vec![2, 2, 2]);
-        assert_eq!(result[0].data(), vec![0.5, 0., 0.1, 0., 1., 2., 0., 0.]);
+
+        let result_tensor = result[0].as_float_ref().unwrap();
+
+        assert_eq!(result_tensor.shape(), vec![2, 2, 2]);
+        assert_eq!(result_tensor.data(), vec![0.5, 0., 0.1, 0., 1., 2., 0., 0.]);
     }
 
     #[test]

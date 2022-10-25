@@ -1,5 +1,5 @@
 use crate::linalg::{add_scaled_vector, div_ceil, gemm, gemm_slice};
-use crate::ops::{Input, Operator};
+use crate::ops::{Input, Operator, Output};
 use crate::tensor::{zero_tensor, Tensor};
 
 /// Calculate the spatial size of a convolution output given the spatial
@@ -421,7 +421,7 @@ impl Operator for Conv2d {
     }
 
     /// Run `conv_2d` operator with `[input, weight, bias?]` inputs.
-    fn run(&self, inputs: &[Input]) -> Tensor {
+    fn run(&self, inputs: &[Input]) -> Output {
         let input = inputs[0].as_float().unwrap();
         let weight = inputs[1].as_float().unwrap();
         let bias = inputs.get(2).map(|t| t.as_float().unwrap());
@@ -436,6 +436,7 @@ impl Operator for Conv2d {
             self.groups,
             self.stride,
         )
+        .into()
     }
 }
 
@@ -509,11 +510,11 @@ impl Operator for ConvTranspose2d {
     }
 
     /// Run `conv_2d` operator with `[input, weight]` inputs.
-    fn run(&self, inputs: &[Input]) -> Tensor {
+    fn run(&self, inputs: &[Input]) -> Output {
         let input = inputs[0].as_float().unwrap();
         let weight = inputs[1].as_float().unwrap();
         let bias = inputs.get(2).map(|t| t.as_float().unwrap());
-        conv_transpose_2d(input, weight, bias, self.stride)
+        conv_transpose_2d(input, weight, bias, self.stride).into()
     }
 }
 
@@ -698,7 +699,7 @@ mod tests {
             groups: 1,
             stride: 1,
         };
-        let result = op.run(&[input.into(), kernel.into()]);
+        let result = op.run(&[input.into(), kernel.into()]).as_float().unwrap();
         let reference_result = reference_conv(
             input,
             kernel,
