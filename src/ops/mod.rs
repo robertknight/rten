@@ -430,7 +430,7 @@ impl Operator for Sigmoid {
     }
 }
 
-pub fn concat(a: &Tensor, b: &Tensor, dim: usize) -> Tensor {
+pub fn concat<T: Copy>(a: &Tensor<T>, b: &Tensor<T>, dim: usize) -> Tensor<T> {
     let a_shape = a.shape();
     let b_shape = b.shape();
 
@@ -489,9 +489,14 @@ impl Operator for Concat {
 
     /// Run `concat` operator with `[a, b]` inputs.
     fn run(&self, inputs: &[Input]) -> Output {
-        let a = inputs[0].as_float().unwrap();
-        let b = inputs[1].as_float().unwrap();
-        concat(a, b, self.dim).into()
+        let a = inputs[0];
+        let b = inputs[1];
+
+        match (a, b) {
+            (Input::FloatTensor(a), Input::FloatTensor(b)) => concat(a, b, self.dim).into(),
+            (Input::IntTensor(a), Input::IntTensor(b)) => concat(a, b, self.dim).into(),
+            _ => panic!("Incompatible input tensor types for Concat"),
+        }
     }
 }
 
