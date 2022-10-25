@@ -20,7 +20,8 @@ enum OperatorType: byte {
   Reshape,
   Shape,
   Sigmoid,
-  Slice
+  Slice,
+  Unsqueeze
 }
 
 enum PadMode: byte {
@@ -35,7 +36,8 @@ union OperatorAttrs {
   Conv2dAttrs,
   ConvTranspose2dAttrs,
   MaxPool2dAttrs,
-  Pad2dAttrs
+  Pad2dAttrs,
+  UnsqueezeAttrs
 }
 
 table ClipAttrs {
@@ -68,6 +70,10 @@ table Pad2dAttrs {
   pad_right:uint;
   pad_top:uint;
   pad_bottom:uint;
+}
+
+table UnsqueezeAttrs {
+  axes:[uint] (required);
 }
 
 // Node in the dataflow graph

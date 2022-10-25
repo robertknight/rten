@@ -225,6 +225,21 @@ impl<'a> ModelBuilder<'a> {
             OpType::Shape => (OT::Shape, no_attrs, None),
             OpType::Sigmoid => (OT::Sigmoid, no_attrs, None),
             OpType::Slice => (OT::Slice, no_attrs, None),
+            OpType::Unsqueeze(args) => {
+                let axes_u32: Vec<u32> = args.axes.iter().map(|&axis| axis as u32).collect();
+                let axes = self.builder.create_vector(&axes_u32);
+                (
+                    OT::Unsqueeze,
+                    OA::UnsqueezeAttrs,
+                    Some(
+                        sg::UnsqueezeAttrs::create(
+                            &mut self.builder,
+                            &sg::UnsqueezeAttrsArgs { axes: Some(axes) },
+                        )
+                        .as_union_value(),
+                    ),
+                )
+            }
         };
 
         let input_vec = self.builder.create_vector(inputs);

@@ -18,13 +18,13 @@ pub const ENUM_MIN_OPERATOR_TYPE: i8 = 0;
     since = "2.0.0",
     note = "Use associated constants instead. This will no longer be generated in 2021."
 )]
-pub const ENUM_MAX_OPERATOR_TYPE: i8 = 13;
+pub const ENUM_MAX_OPERATOR_TYPE: i8 = 14;
 #[deprecated(
     since = "2.0.0",
     note = "Use associated constants instead. This will no longer be generated in 2021."
 )]
 #[allow(non_camel_case_types)]
-pub const ENUM_VALUES_OPERATOR_TYPE: [OperatorType; 14] = [
+pub const ENUM_VALUES_OPERATOR_TYPE: [OperatorType; 15] = [
     OperatorType::Add,
     OperatorType::Clip,
     OperatorType::Concat,
@@ -39,6 +39,7 @@ pub const ENUM_VALUES_OPERATOR_TYPE: [OperatorType; 14] = [
     OperatorType::Shape,
     OperatorType::Sigmoid,
     OperatorType::Slice,
+    OperatorType::Unsqueeze,
 ];
 
 #[derive(Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash, Default)]
@@ -60,9 +61,10 @@ impl OperatorType {
     pub const Shape: Self = Self(11);
     pub const Sigmoid: Self = Self(12);
     pub const Slice: Self = Self(13);
+    pub const Unsqueeze: Self = Self(14);
 
     pub const ENUM_MIN: i8 = 0;
-    pub const ENUM_MAX: i8 = 13;
+    pub const ENUM_MAX: i8 = 14;
     pub const ENUM_VALUES: &'static [Self] = &[
         Self::Add,
         Self::Clip,
@@ -78,6 +80,7 @@ impl OperatorType {
         Self::Shape,
         Self::Sigmoid,
         Self::Slice,
+        Self::Unsqueeze,
     ];
     /// Returns the variant's name or "" if unknown.
     pub fn variant_name(self) -> Option<&'static str> {
@@ -96,6 +99,7 @@ impl OperatorType {
             Self::Shape => Some("Shape"),
             Self::Sigmoid => Some("Sigmoid"),
             Self::Slice => Some("Slice"),
+            Self::Unsqueeze => Some("Unsqueeze"),
             _ => None,
         }
     }
@@ -254,13 +258,13 @@ pub const ENUM_MIN_OPERATOR_ATTRS: u8 = 0;
     since = "2.0.0",
     note = "Use associated constants instead. This will no longer be generated in 2021."
 )]
-pub const ENUM_MAX_OPERATOR_ATTRS: u8 = 7;
+pub const ENUM_MAX_OPERATOR_ATTRS: u8 = 8;
 #[deprecated(
     since = "2.0.0",
     note = "Use associated constants instead. This will no longer be generated in 2021."
 )]
 #[allow(non_camel_case_types)]
-pub const ENUM_VALUES_OPERATOR_ATTRS: [OperatorAttrs; 8] = [
+pub const ENUM_VALUES_OPERATOR_ATTRS: [OperatorAttrs; 9] = [
     OperatorAttrs::NONE,
     OperatorAttrs::ClipAttrs,
     OperatorAttrs::ConcatAttrs,
@@ -269,6 +273,7 @@ pub const ENUM_VALUES_OPERATOR_ATTRS: [OperatorAttrs; 8] = [
     OperatorAttrs::MaxPool2dAttrs,
     OperatorAttrs::Pad2dAttrs,
     OperatorAttrs::SliceAttrs,
+    OperatorAttrs::UnsqueezeAttrs,
 ];
 
 #[derive(Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash, Default)]
@@ -284,9 +289,10 @@ impl OperatorAttrs {
     pub const MaxPool2dAttrs: Self = Self(5);
     pub const Pad2dAttrs: Self = Self(6);
     pub const SliceAttrs: Self = Self(7);
+    pub const UnsqueezeAttrs: Self = Self(8);
 
     pub const ENUM_MIN: u8 = 0;
-    pub const ENUM_MAX: u8 = 7;
+    pub const ENUM_MAX: u8 = 8;
     pub const ENUM_VALUES: &'static [Self] = &[
         Self::NONE,
         Self::ClipAttrs,
@@ -296,6 +302,7 @@ impl OperatorAttrs {
         Self::MaxPool2dAttrs,
         Self::Pad2dAttrs,
         Self::SliceAttrs,
+        Self::UnsqueezeAttrs,
     ];
     /// Returns the variant's name or "" if unknown.
     pub fn variant_name(self) -> Option<&'static str> {
@@ -308,6 +315,7 @@ impl OperatorAttrs {
             Self::MaxPool2dAttrs => Some("MaxPool2dAttrs"),
             Self::Pad2dAttrs => Some("Pad2dAttrs"),
             Self::SliceAttrs => Some("SliceAttrs"),
+            Self::UnsqueezeAttrs => Some("UnsqueezeAttrs"),
             _ => None,
         }
     }
@@ -1412,6 +1420,115 @@ impl core::fmt::Debug for SliceAttrs<'_> {
         ds.finish()
     }
 }
+pub enum UnsqueezeAttrsOffset {}
+#[derive(Copy, Clone, PartialEq)]
+
+pub struct UnsqueezeAttrs<'a> {
+    pub _tab: flatbuffers::Table<'a>,
+}
+
+impl<'a> flatbuffers::Follow<'a> for UnsqueezeAttrs<'a> {
+    type Inner = UnsqueezeAttrs<'a>;
+    #[inline]
+    fn follow(buf: &'a [u8], loc: usize) -> Self::Inner {
+        Self {
+            _tab: flatbuffers::Table { buf, loc },
+        }
+    }
+}
+
+impl<'a> UnsqueezeAttrs<'a> {
+    pub const VT_AXES: flatbuffers::VOffsetT = 4;
+
+    #[inline]
+    pub fn init_from_table(table: flatbuffers::Table<'a>) -> Self {
+        UnsqueezeAttrs { _tab: table }
+    }
+    #[allow(unused_mut)]
+    pub fn create<'bldr: 'args, 'args: 'mut_bldr, 'mut_bldr>(
+        _fbb: &'mut_bldr mut flatbuffers::FlatBufferBuilder<'bldr>,
+        args: &'args UnsqueezeAttrsArgs<'args>,
+    ) -> flatbuffers::WIPOffset<UnsqueezeAttrs<'bldr>> {
+        let mut builder = UnsqueezeAttrsBuilder::new(_fbb);
+        if let Some(x) = args.axes {
+            builder.add_axes(x);
+        }
+        builder.finish()
+    }
+
+    #[inline]
+    pub fn axes(&self) -> flatbuffers::Vector<'a, u32> {
+        self._tab
+            .get::<flatbuffers::ForwardsUOffset<flatbuffers::Vector<'a, u32>>>(
+                UnsqueezeAttrs::VT_AXES,
+                None,
+            )
+            .unwrap()
+    }
+}
+
+impl flatbuffers::Verifiable for UnsqueezeAttrs<'_> {
+    #[inline]
+    fn run_verifier(
+        v: &mut flatbuffers::Verifier,
+        pos: usize,
+    ) -> Result<(), flatbuffers::InvalidFlatbuffer> {
+        use self::flatbuffers::Verifiable;
+        v.visit_table(pos)?
+            .visit_field::<flatbuffers::ForwardsUOffset<flatbuffers::Vector<'_, u32>>>(
+                "axes",
+                Self::VT_AXES,
+                true,
+            )?
+            .finish();
+        Ok(())
+    }
+}
+pub struct UnsqueezeAttrsArgs<'a> {
+    pub axes: Option<flatbuffers::WIPOffset<flatbuffers::Vector<'a, u32>>>,
+}
+impl<'a> Default for UnsqueezeAttrsArgs<'a> {
+    #[inline]
+    fn default() -> Self {
+        UnsqueezeAttrsArgs {
+            axes: None, // required field
+        }
+    }
+}
+
+pub struct UnsqueezeAttrsBuilder<'a: 'b, 'b> {
+    fbb_: &'b mut flatbuffers::FlatBufferBuilder<'a>,
+    start_: flatbuffers::WIPOffset<flatbuffers::TableUnfinishedWIPOffset>,
+}
+impl<'a: 'b, 'b> UnsqueezeAttrsBuilder<'a, 'b> {
+    #[inline]
+    pub fn add_axes(&mut self, axes: flatbuffers::WIPOffset<flatbuffers::Vector<'b, u32>>) {
+        self.fbb_
+            .push_slot_always::<flatbuffers::WIPOffset<_>>(UnsqueezeAttrs::VT_AXES, axes);
+    }
+    #[inline]
+    pub fn new(_fbb: &'b mut flatbuffers::FlatBufferBuilder<'a>) -> UnsqueezeAttrsBuilder<'a, 'b> {
+        let start = _fbb.start_table();
+        UnsqueezeAttrsBuilder {
+            fbb_: _fbb,
+            start_: start,
+        }
+    }
+    #[inline]
+    pub fn finish(self) -> flatbuffers::WIPOffset<UnsqueezeAttrs<'a>> {
+        let o = self.fbb_.end_table(self.start_);
+        self.fbb_.required(o, UnsqueezeAttrs::VT_AXES, "axes");
+        flatbuffers::WIPOffset::new(o.value())
+    }
+}
+
+impl core::fmt::Debug for UnsqueezeAttrs<'_> {
+    fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
+        let mut ds = f.debug_struct("UnsqueezeAttrs");
+        ds.field("axes", &self.axes());
+        ds.finish()
+    }
+}
 pub enum OperatorNodeOffset {}
 #[derive(Copy, Clone, PartialEq)]
 
@@ -1553,6 +1670,16 @@ impl<'a> OperatorNode<'a> {
             None
         }
     }
+
+    #[inline]
+    #[allow(non_snake_case)]
+    pub fn attrs_as_unsqueeze_attrs(&self) -> Option<UnsqueezeAttrs<'a>> {
+        if self.attrs_type() == OperatorAttrs::UnsqueezeAttrs {
+            self.attrs().map(UnsqueezeAttrs::init_from_table)
+        } else {
+            None
+        }
+    }
 }
 
 impl flatbuffers::Verifiable for OperatorNode<'_> {
@@ -1604,6 +1731,11 @@ impl flatbuffers::Verifiable for OperatorNode<'_> {
                     OperatorAttrs::SliceAttrs => v
                         .verify_union_variant::<flatbuffers::ForwardsUOffset<SliceAttrs>>(
                             "OperatorAttrs::SliceAttrs",
+                            pos,
+                        ),
+                    OperatorAttrs::UnsqueezeAttrs => v
+                        .verify_union_variant::<flatbuffers::ForwardsUOffset<UnsqueezeAttrs>>(
+                            "OperatorAttrs::UnsqueezeAttrs",
                             pos,
                         ),
                     _ => Ok(()),
@@ -1747,6 +1879,16 @@ impl core::fmt::Debug for OperatorNode<'_> {
             }
             OperatorAttrs::SliceAttrs => {
                 if let Some(x) = self.attrs_as_slice_attrs() {
+                    ds.field("attrs", &x)
+                } else {
+                    ds.field(
+                        "attrs",
+                        &"InvalidFlatbuffer: Union discriminant does not match value.",
+                    )
+                }
+            }
+            OperatorAttrs::UnsqueezeAttrs => {
+                if let Some(x) = self.attrs_as_unsqueeze_attrs() {
                     ds.field("attrs", &x)
                 } else {
                     ds.field(

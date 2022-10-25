@@ -145,6 +145,17 @@ fn read_slice_op(node: &OperatorNode) -> Box<dyn Operator> {
     Box::new(ops::Slice {})
 }
 
+fn read_unsqueeze_op(node: &OperatorNode) -> Box<dyn Operator> {
+    let mut axes: Vec<usize>;
+    if let Some(attrs) = node.attrs_as_unsqueeze_attrs() {
+        axes = attrs.axes().iter().map(|axis| axis as usize).collect();
+        axes.sort();
+    } else {
+        axes = Vec::new();
+    }
+    Box::new(ops::Unsqueeze { axes })
+}
+
 fn read_operator(node: &OperatorNode) -> Result<Box<dyn Operator>, String> {
     let op: Box<dyn Operator> = match node.type_() {
         OperatorType::Add => read_add_op(node),
@@ -161,6 +172,7 @@ fn read_operator(node: &OperatorNode) -> Result<Box<dyn Operator>, String> {
         OperatorType::Shape => read_shape_op(node),
         OperatorType::Sigmoid => read_sigmoid_op(node),
         OperatorType::Slice => read_slice_op(node),
+        OperatorType::Unsqueeze => read_unsqueeze_op(node),
         _ => return Err("Unknown operator type".to_string()),
     };
     Ok(op)
@@ -356,6 +368,11 @@ mod tests {
             OpType::Slice,
             &[input_node, const_0, const_1, const_0],
         );
+        builder.add_operator(
+            "unsqueeze",
+            OpType::Unsqueeze(ops::Unsqueeze { axes: vec![0, 4] }),
+            &[input_node],
+        );
 
         let buffer = builder.finish();
 
@@ -376,6 +393,7 @@ mod tests {
             "shape",
             "sigmoid",
             "slice",
+            "unsqueeze",
         ];
         let input = from_data(vec![1, 1, 3, 3], vec![1., 2., 3., 4., 5., 6., 7., 8., 9.]);
 

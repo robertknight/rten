@@ -268,6 +268,13 @@ def op_node_from_onnx_operator(
 
     elif onnx_op.op_type == "Sigmoid":
         op_type = "Sigmoid"
+
+    elif onnx_op.op_type == "Unsqueeze":
+        op_type = "Unsqueeze"
+
+        axes = get_attr(onnx_op.attribute, "axes", "ints", [])
+        attrs["axes"] = axes
+
     else:
         raise Exception(f"Unsupported operation {onnx_op.op_type}")
 
@@ -418,6 +425,20 @@ def build_operator_node(builder: flatbuffers.Builder, operator: OperatorNode):
             op_type_code = sg.OperatorType.Sigmoid
         case "Slice":
             op_type_code = sg.OperatorType.Slice
+        case "Unsqueeze":
+            op_type_code = sg.OperatorType.Unsqueeze
+            attrs_type = sg.OperatorAttrs.UnsqueezeAttrs
+
+            axes = operator.attrs["axes"]
+            sg.UnsqueezeAttrsStartAxesVector(builder, len(axes))
+            for item in axes:
+                builder.PrependUint32(item)
+            axes_vec = builder.EndVector()
+
+            sg.UnsqueezeAttrsStart(builder)
+            sg.UnsqueezeAttrsAddAxes(builder, axes_vec)
+            attrs = sg.UnsqueezeAttrsEnd(builder)
+
         case _:
             raise Exception(f"Unsupported operator type {operator.op_type}")
 

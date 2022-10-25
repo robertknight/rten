@@ -146,6 +146,7 @@ pub enum OpType {
     Shape,
     Sigmoid,
     Slice,
+    Unsqueeze(Unsqueeze),
 }
 
 /// Given the shapes of two inputs to a binary operation, choose the one that
@@ -624,6 +625,34 @@ impl Operator for Slice {
     }
 }
 
+pub fn unsqueeze<T: Copy>(input: &Tensor<T>, axes: &[usize]) -> Tensor<T> {
+    let mut new_shape: Vec<_> = input.shape().iter().copied().collect();
+    let mut sorted_axes: Vec<_> = axes.iter().collect();
+    sorted_axes.sort();
+    for &axis in sorted_axes {
+        new_shape.insert(axis, 1);
+    }
+    input.clone_with_shape(&new_shape)
+}
+
+#[derive(Debug)]
+pub struct Unsqueeze {
+    pub axes: Vec<usize>,
+}
+
+impl Operator for Unsqueeze {
+    fn name(&self) -> &str {
+        "Unsqueeze"
+    }
+
+    fn run(&self, inputs: &[Input]) -> Output {
+        match inputs[0] {
+            Input::FloatTensor(input) => unsqueeze(&input, &self.axes).into(),
+            Input::IntTensor(input) => unsqueeze(&input, &self.axes).into(),
+        }
+    }
+}
+
 // Expectated values of operations in tests should be computed from the
 // corresponding operations in PyTorch, since that is the framework being used
 // to train the models that will initially be executed with this library.
@@ -632,7 +661,7 @@ mod tests {
     use crate::linalg::gemm;
     use crate::ops::{
         add, clip, concat, global_average_pool, matmul, max_pool_2d, pad_2d, relu, relu_in_place,
-        sigmoid, sigmoid_in_place, slice, slice_in_place, Operator, Reshape, Shape,
+        sigmoid, sigmoid_in_place, slice, slice_in_place, unsqueeze, Operator, Reshape, Shape,
     };
     use crate::rng::XorShiftRNG;
     use crate::tensor::{from_data, random_tensor, zero_tensor, Tensor};
@@ -917,5 +946,19 @@ mod tests {
             assert_eq!(sliced.shape(), input.shape());
             assert_eq!(sliced.data(), input.data());
         }
+    }
+
+    #[test]
+    fn test_unsqueeze() {
+        let mut rng = XorShiftRNG::new(5678);
+        let input = random_tensor(&[3, 4, 5], &mut rng);
+
+        // Unsqueeze with axes in increasing order
+        let output = unsqueeze(&input, &[0, 4]);
+        assert_eq!(output.shape(), &[1, 3, 4, 5, 1]);
+
+        // Unsqueeze with axes in decreasing order
+        let output = unsqueeze(&input, &[4, 0]);
+        assert_eq!(output.shape(), &[1, 3, 4, 5, 1]);
     }
 }

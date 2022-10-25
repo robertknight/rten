@@ -21,6 +21,7 @@ class OperatorType(object):
     Shape = 11
     Sigmoid = 12
     Slice = 13
+    Unsqueeze = 14
 
 
 class PadMode(object):
@@ -37,6 +38,7 @@ class OperatorAttrs(object):
     MaxPool2dAttrs = 5
     Pad2dAttrs = 6
     SliceAttrs = 7
+    UnsqueezeAttrs = 8
 
 
 class NodeKind(object):
@@ -368,6 +370,61 @@ def SliceAttrsAddDim(builder, dim): builder.PrependUint32Slot(0, dim, 0)
 def SliceAttrsAddStart(builder, start): builder.PrependUint32Slot(1, start, 0)
 def SliceAttrsAddEnd(builder, end): builder.PrependUint32Slot(2, end, 0)
 def SliceAttrsEnd(builder): return builder.EndObject()
+
+
+class UnsqueezeAttrs(object):
+    __slots__ = ['_tab']
+
+    @classmethod
+    def GetRootAs(cls, buf, offset=0):
+        n = flatbuffers.encode.Get(flatbuffers.packer.uoffset, buf, offset)
+        x = UnsqueezeAttrs()
+        x.Init(buf, n + offset)
+        return x
+
+    @classmethod
+    def GetRootAsUnsqueezeAttrs(cls, buf, offset=0):
+        """This method is deprecated. Please switch to GetRootAs."""
+        return cls.GetRootAs(buf, offset)
+    @classmethod
+    def UnsqueezeAttrsBufferHasIdentifier(cls, buf, offset, size_prefixed=False):
+        return flatbuffers.util.BufferHasIdentifier(buf, offset, b"\x4D\x4F\x44\x4C", size_prefixed=size_prefixed)
+
+    # UnsqueezeAttrs
+    def Init(self, buf, pos):
+        self._tab = flatbuffers.table.Table(buf, pos)
+
+    # UnsqueezeAttrs
+    def Axes(self, j):
+        o = flatbuffers.number_types.UOffsetTFlags.py_type(self._tab.Offset(4))
+        if o != 0:
+            a = self._tab.Vector(o)
+            return self._tab.Get(flatbuffers.number_types.Uint32Flags, a + flatbuffers.number_types.UOffsetTFlags.py_type(j * 4))
+        return 0
+
+    # UnsqueezeAttrs
+    def AxesAsNumpy(self):
+        o = flatbuffers.number_types.UOffsetTFlags.py_type(self._tab.Offset(4))
+        if o != 0:
+            return self._tab.GetVectorAsNumpy(flatbuffers.number_types.Uint32Flags, o)
+        return 0
+
+    # UnsqueezeAttrs
+    def AxesLength(self):
+        o = flatbuffers.number_types.UOffsetTFlags.py_type(self._tab.Offset(4))
+        if o != 0:
+            return self._tab.VectorLen(o)
+        return 0
+
+    # UnsqueezeAttrs
+    def AxesIsNone(self):
+        o = flatbuffers.number_types.UOffsetTFlags.py_type(self._tab.Offset(4))
+        return o == 0
+
+def UnsqueezeAttrsStart(builder): builder.StartObject(1)
+def UnsqueezeAttrsAddAxes(builder, axes): builder.PrependUOffsetTRelativeSlot(0, flatbuffers.number_types.UOffsetTFlags.py_type(axes), 0)
+def UnsqueezeAttrsStartAxesVector(builder, numElems): return builder.StartVector(4, numElems, 4)
+def UnsqueezeAttrsEnd(builder): return builder.EndObject()
 
 
 class OperatorNode(object):
