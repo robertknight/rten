@@ -18,6 +18,7 @@ enum OperatorType: byte {
   Pad2d,
   ReLU,
   Reshape,
+  Shape,
   Sigmoid,
   Slice
 }

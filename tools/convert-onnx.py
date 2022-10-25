@@ -247,6 +247,12 @@ def op_node_from_onnx_operator(
 
         check_unsupported_attr(onnx_op.attribute, "allowzero", "int", 0)
 
+    elif onnx_op.op_type == "Shape":
+        op_type = "Shape"
+
+        check_unsupported_attr(onnx_op.attribute, "end", "int", 0)
+        check_unsupported_attr(onnx_op.attribute, "start", "int", 0)
+
     elif onnx_op.op_type == "Slice":
         op_type = "Slice"
 
@@ -426,6 +432,8 @@ def build_operator_node(builder: flatbuffers.Builder, operator: OperatorNode):
             sg.Pad2dAttrsAddPadTop(builder, operator.attrs["pad_top"])
             sg.Pad2dAttrsAddPadBottom(builder, operator.attrs["pad_bottom"])
             attrs = sg.Pad2dAttrsEnd(builder)
+        case "Shape":
+            op_type_code = sg.OperatorType.Shape
         case "Sigmoid":
             op_type_code = sg.OperatorType.Sigmoid
         case "Slice":

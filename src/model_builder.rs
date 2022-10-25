@@ -222,6 +222,7 @@ impl<'a> ModelBuilder<'a> {
             ),
             OpType::ReLU => (OT::ReLU, no_attrs, None),
             OpType::Reshape => (OT::Reshape, no_attrs, None),
+            OpType::Shape => (OT::Shape, no_attrs, None),
             OpType::Sigmoid => (OT::Sigmoid, no_attrs, None),
             OpType::Slice(args) => (
                 OT::Slice,

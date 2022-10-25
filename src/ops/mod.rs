@@ -140,6 +140,7 @@ pub enum OpType {
     Pad2d(Pad2d),
     ReLU,
     Reshape,
+    Shape,
     Sigmoid,
     Slice(Slice),
 }
@@ -377,6 +378,24 @@ impl Operator for Reshape {
     }
 }
 
+#[derive(Debug)]
+pub struct Shape {}
+
+impl Operator for Shape {
+    fn name(&self) -> &str {
+        "Shape"
+    }
+
+    fn run(&self, inputs: &[Input]) -> Output {
+        let input = inputs[0].as_float().unwrap();
+        let shape = from_data(
+            vec![input.shape().len()],
+            input.shape().iter().map(|&el| el as i32).collect(),
+        );
+        shape.into()
+    }
+}
+
 pub fn sigmoid(x: &Tensor) -> Tensor {
     x.map(|e| 1. / (1. + (-e).exp()))
 }
@@ -583,7 +602,7 @@ mod tests {
     use crate::linalg::gemm;
     use crate::ops::{
         add, clip, concat, global_average_pool, matmul, max_pool_2d, pad_2d, relu, relu_in_place,
-        sigmoid, sigmoid_in_place, slice, Operator, Reshape, Tensor,
+        sigmoid, sigmoid_in_place, slice, Operator, Reshape, Shape,
     };
     use crate::rng::XorShiftRNG;
     use crate::tensor::{from_data, random_tensor, zero_tensor};
@@ -754,6 +773,17 @@ mod tests {
 
         let result = pad_2d(&input, [0, 0, 0, 0]);
         expect_equal(&result, &input)
+    }
+
+    #[test]
+    fn test_shape() {
+        let input = from_data(vec![1, 1, 2, 2], vec![1.0, 2.0, 3.0, 4.0]);
+
+        let op = Shape {};
+        let result = op.run(&[(&input).into()]).as_int().unwrap();
+
+        assert_eq!(result.shape(), &[4]);
+        assert_eq!(result.data(), &[1, 1, 2, 2]);
     }
 
     #[test]

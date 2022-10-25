@@ -18,8 +18,9 @@ class OperatorType(object):
     Pad2d = 8
     ReLU = 9
     Reshape = 10
-    Sigmoid = 11
-    Slice = 12
+    Shape = 11
+    Sigmoid = 12
+    Slice = 13
 
 
 class PadMode(object):

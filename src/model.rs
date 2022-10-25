@@ -133,6 +133,10 @@ fn read_reshape_op(_: &OperatorNode) -> Box<dyn Operator> {
     Box::new(ops::Reshape {})
 }
 
+fn read_shape_op(_: &OperatorNode) -> Box<dyn Operator> {
+    Box::new(ops::Shape {})
+}
+
 fn read_sigmoid_op(_: &OperatorNode) -> Box<dyn Operator> {
     Box::new(ops::Sigmoid {})
 }
@@ -167,6 +171,7 @@ fn read_operator(node: &OperatorNode) -> Result<Box<dyn Operator>, String> {
         OperatorType::Pad2d => read_pad_2d_op(node),
         OperatorType::ReLU => read_relu_op(node),
         OperatorType::Reshape => read_reshape_op(node),
+        OperatorType::Shape => read_shape_op(node),
         OperatorType::Sigmoid => read_sigmoid_op(node),
         OperatorType::Slice => read_slice_op(node),
         _ => return Err("Unknown operator type".to_string()),
@@ -354,7 +359,7 @@ mod tests {
 
         let new_shape = builder.add_int_constant(&from_data(vec![1], vec![9]));
         builder.add_operator("reshape", OpType::Reshape, &[input_node, new_shape]);
-
+        builder.add_operator("shape", OpType::Shape, &[input_node]);
         builder.add_operator("sigmoid", OpType::Sigmoid, &[input_node]);
         builder.add_operator(
             "slice",
@@ -382,6 +387,7 @@ mod tests {
             "pad_2d",
             "relu",
             "reshape",
+            "shape",
             "sigmoid",
             "slice",
         ];
