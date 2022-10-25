@@ -104,6 +104,32 @@ fn read_gather_op(node: &OperatorNode) -> Box<dyn Operator> {
     Box::new(ops::Gather { axis })
 }
 
+fn read_gemm_op(node: &OperatorNode) -> Box<dyn Operator> {
+    let alpha;
+    let beta;
+    let transpose_a;
+    let transpose_b;
+
+    if let Some(attrs) = node.attrs_as_gemm_attrs() {
+        alpha = attrs.alpha();
+        beta = attrs.beta();
+        transpose_a = attrs.transpose_a();
+        transpose_b = attrs.transpose_b();
+    } else {
+        alpha = 1.0;
+        beta = 1.0;
+        transpose_a = false;
+        transpose_b = false;
+    }
+
+    Box::new(ops::Gemm {
+        alpha,
+        beta,
+        transpose_a,
+        transpose_b,
+    })
+}
+
 fn read_global_average_pool_op(_: &OperatorNode) -> Box<dyn Operator> {
     Box::new(ops::GlobalAveragePool {})
 }
@@ -172,6 +198,7 @@ fn read_operator(node: &OperatorNode) -> Result<Box<dyn Operator>, String> {
         OperatorType::Conv2d => read_conv_2d_op(node),
         OperatorType::ConvTranspose2d => read_conv_transpose_2d_op(node),
         OperatorType::Gather => read_gather_op(node),
+        OperatorType::Gemm => read_gemm_op(node),
         OperatorType::GlobalAveragePool => read_global_average_pool_op(node),
         OperatorType::MatMul => read_matmul_op(node),
         OperatorType::MaxPool2d => read_max_pool_2d_op(node),
@@ -352,6 +379,16 @@ mod tests {
             "gather",
             OpType::Gather(ops::Gather { axis: 0 }),
             &[input_node, indices],
+        );
+        builder.add_operator(
+            "gemm",
+            OpType::Gemm(ops::Gemm {
+                alpha: 1.0,
+                beta: 1.0,
+                transpose_a: false,
+                transpose_b: false,
+            }),
+            &[input_2d, input_2d],
         );
         builder.add_operator(
             "global_average_pool",

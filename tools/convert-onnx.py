@@ -234,6 +234,14 @@ def op_node_from_onnx_operator(
 
         attrs["axis"] = get_attr(onnx_op.attribute, "axis", "int", 0)
 
+    elif onnx_op.op_type == "Gemm":
+        op_type = "Gemm"
+
+        attrs["alpha"] = get_attr(onnx_op.attribute, "alpha", "float", 1.0)
+        attrs["beta"] = get_attr(onnx_op.attribute, "beta", "float", 1.0)
+        attrs["transpose_a"] = bool(get_attr(onnx_op.attribute, "transA", "int", 0))
+        attrs["transpose_b"] = bool(get_attr(onnx_op.attribute, "transB", "int", 0))
+
     elif onnx_op.op_type == "GlobalAveragePool":
         op_type = "GlobalAveragePool"
 
@@ -407,6 +415,15 @@ def build_operator_node(builder: flatbuffers.Builder, operator: OperatorNode):
             sg.GatherAttrsStart(builder)
             sg.GatherAttrsAddAxis(builder, operator.attrs["axis"])
             attrs = sg.GatherAttrsEnd(builder)
+        case "Gemm":
+            op_type_code = sg.OperatorType.Gemm
+            attrs_type = sg.OperatorAttrs.GemmAttrs
+            sg.GemmAttrsStart(builder)
+            sg.GemmAttrsAddAlpha(builder, operator.attrs["alpha"])
+            sg.GemmAttrsAddBeta(builder, operator.attrs["beta"])
+            sg.GemmAttrsAddTransposeA(builder, operator.attrs["transpose_a"])
+            sg.GemmAttrsAddTransposeB(builder, operator.attrs["transpose_b"])
+            attrs = sg.GemmAttrsEnd(builder)
         case "GlobalAveragePool":
             op_type_code = sg.OperatorType.GlobalAveragePool
         case "MatMul":

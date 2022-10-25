@@ -13,16 +13,17 @@ class OperatorType(object):
     Conv2d = 3
     ConvTranspose2d = 4
     Gather = 5
-    GlobalAveragePool = 6
-    MatMul = 7
-    MaxPool2d = 8
-    Pad2d = 9
-    ReLU = 10
-    Reshape = 11
-    Shape = 12
-    Sigmoid = 13
-    Slice = 14
-    Unsqueeze = 15
+    Gemm = 6
+    GlobalAveragePool = 7
+    MatMul = 8
+    MaxPool2d = 9
+    Pad2d = 10
+    ReLU = 11
+    Reshape = 12
+    Shape = 13
+    Sigmoid = 14
+    Slice = 15
+    Unsqueeze = 16
 
 
 class PadMode(object):
@@ -37,10 +38,11 @@ class OperatorAttrs(object):
     Conv2dAttrs = 3
     ConvTranspose2dAttrs = 4
     GatherAttrs = 5
-    MaxPool2dAttrs = 6
-    Pad2dAttrs = 7
-    SliceAttrs = 8
-    UnsqueezeAttrs = 9
+    GemmAttrs = 6
+    MaxPool2dAttrs = 7
+    Pad2dAttrs = 8
+    SliceAttrs = 9
+    UnsqueezeAttrs = 10
 
 
 class NodeKind(object):
@@ -264,6 +266,64 @@ class GatherAttrs(object):
 def GatherAttrsStart(builder): builder.StartObject(1)
 def GatherAttrsAddAxis(builder, axis): builder.PrependUint32Slot(0, axis, 0)
 def GatherAttrsEnd(builder): return builder.EndObject()
+
+
+class GemmAttrs(object):
+    __slots__ = ['_tab']
+
+    @classmethod
+    def GetRootAs(cls, buf, offset=0):
+        n = flatbuffers.encode.Get(flatbuffers.packer.uoffset, buf, offset)
+        x = GemmAttrs()
+        x.Init(buf, n + offset)
+        return x
+
+    @classmethod
+    def GetRootAsGemmAttrs(cls, buf, offset=0):
+        """This method is deprecated. Please switch to GetRootAs."""
+        return cls.GetRootAs(buf, offset)
+    @classmethod
+    def GemmAttrsBufferHasIdentifier(cls, buf, offset, size_prefixed=False):
+        return flatbuffers.util.BufferHasIdentifier(buf, offset, b"\x4D\x4F\x44\x4C", size_prefixed=size_prefixed)
+
+    # GemmAttrs
+    def Init(self, buf, pos):
+        self._tab = flatbuffers.table.Table(buf, pos)
+
+    # GemmAttrs
+    def Alpha(self):
+        o = flatbuffers.number_types.UOffsetTFlags.py_type(self._tab.Offset(4))
+        if o != 0:
+            return self._tab.Get(flatbuffers.number_types.Float32Flags, o + self._tab.Pos)
+        return 0.0
+
+    # GemmAttrs
+    def Beta(self):
+        o = flatbuffers.number_types.UOffsetTFlags.py_type(self._tab.Offset(6))
+        if o != 0:
+            return self._tab.Get(flatbuffers.number_types.Float32Flags, o + self._tab.Pos)
+        return 0.0
+
+    # GemmAttrs
+    def TransposeA(self):
+        o = flatbuffers.number_types.UOffsetTFlags.py_type(self._tab.Offset(8))
+        if o != 0:
+            return bool(self._tab.Get(flatbuffers.number_types.BoolFlags, o + self._tab.Pos))
+        return False
+
+    # GemmAttrs
+    def TransposeB(self):
+        o = flatbuffers.number_types.UOffsetTFlags.py_type(self._tab.Offset(10))
+        if o != 0:
+            return bool(self._tab.Get(flatbuffers.number_types.BoolFlags, o + self._tab.Pos))
+        return False
+
+def GemmAttrsStart(builder): builder.StartObject(4)
+def GemmAttrsAddAlpha(builder, alpha): builder.PrependFloat32Slot(0, alpha, 0.0)
+def GemmAttrsAddBeta(builder, beta): builder.PrependFloat32Slot(1, beta, 0.0)
+def GemmAttrsAddTransposeA(builder, transposeA): builder.PrependBoolSlot(2, transposeA, 0)
+def GemmAttrsAddTransposeB(builder, transposeB): builder.PrependBoolSlot(3, transposeB, 0)
+def GemmAttrsEnd(builder): return builder.EndObject()
 
 
 class MaxPool2dAttrs(object):

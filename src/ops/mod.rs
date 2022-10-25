@@ -138,6 +138,7 @@ pub enum OpType {
     Conv2d(Conv2d),
     ConvTranspose2d(ConvTranspose2d),
     Gather(Gather),
+    Gemm(Gemm),
     GlobalAveragePool,
     MatMul,
     MaxPool2d(MaxPool2d),
@@ -263,6 +264,92 @@ impl Operator for Gather {
             Input::IntTensor(input) => gather(input, self.axis, &indices).into(),
             Input::FloatTensor(input) => gather(input, self.axis, &indices).into(),
         }
+    }
+}
+
+#[derive(Debug)]
+pub struct Gemm {
+    pub alpha: f32,
+    pub beta: f32,
+    pub transpose_a: bool,
+    pub transpose_b: bool,
+}
+
+fn transposed(input: &Tensor) -> Tensor {
+    let mut out = input.clone();
+    out.permute(&[1, 0]);
+    out
+}
+
+/// Compute the General Matrix Multiplication (GEMM) `c = alpha * (ab) + beta * c`.
+///
+/// If `transpose_a` or `transpose_b` are set, the `a` and `b` inputs
+/// respectively are transposed before multiplying them.
+///
+/// nb. This is named `gemm_op` to avoid confusion with `linalg::gemm`.
+pub fn gemm_op(
+    a: &Tensor,
+    b: &Tensor,
+    c: Option<&Tensor>,
+    alpha: f32,
+    beta: f32,
+    transpose_a: bool,
+    transpose_b: bool,
+) -> Tensor {
+    if alpha != 1.0 {
+        panic!("Gemm only supports `alpha` value of 1.0");
+    }
+    if beta != 0.0 && beta != 1.0 {
+        panic!("Gemm only supports `beta` values of 0.0 and 1.0");
+    }
+
+    let a_transposed = if transpose_a {
+        Some(transposed(a))
+    } else {
+        None
+    };
+    let b_transposed = if transpose_b {
+        Some(transposed(b))
+    } else {
+        None
+    };
+
+    let a = a_transposed.as_ref().unwrap_or(a);
+    let b = b_transposed.as_ref().unwrap_or(b);
+
+    let [a_rows, _] = a.dims();
+    let [_, b_cols] = b.dims();
+
+    let mut output = if c.is_some() && beta == 1.0 {
+        let out_data = c.unwrap().broadcast_elements(&[a_rows, b_cols]).collect();
+        from_data(vec![a_rows, b_cols], out_data)
+    } else {
+        zero_tensor(&[a_rows, b_cols])
+    };
+
+    gemm(&mut output, &a, &b);
+    output
+}
+
+impl Operator for Gemm {
+    fn name(&self) -> &str {
+        "Gemm"
+    }
+
+    fn run(&self, inputs: &[Input]) -> Output {
+        let a = inputs[0].as_float().unwrap();
+        let b = inputs[1].as_float().unwrap();
+        let c = inputs.get(2).map(|c| c.as_float().unwrap());
+        gemm_op(
+            &a,
+            &b,
+            c,
+            self.alpha,
+            self.beta,
+            self.transpose_a,
+            self.transpose_b,
+        )
+        .into()
     }
 }
 
@@ -743,9 +830,9 @@ impl Operator for Unsqueeze {
 mod tests {
     use crate::linalg::gemm;
     use crate::ops::{
-        add, clip, clip_in_place, concat, gather, global_average_pool, matmul, max_pool_2d, pad_2d,
-        relu, relu_in_place, reshape, sigmoid, sigmoid_in_place, slice, slice_in_place, unsqueeze,
-        Operator, Reshape, Shape,
+        add, clip, clip_in_place, concat, gather, gemm_op, global_average_pool, matmul,
+        max_pool_2d, pad_2d, relu, relu_in_place, reshape, sigmoid, sigmoid_in_place, slice,
+        slice_in_place, unsqueeze, Operator, Reshape, Shape,
     };
     use crate::rng::XorShiftRNG;
     use crate::tensor::{from_data, from_scalar, from_vec, random_tensor, zero_tensor, Tensor};
@@ -816,6 +903,53 @@ mod tests {
         let indices = from_scalar(1);
         let result = gather(&input, 0, &indices);
         assert_eq!(result.item(), Some(20))
+    }
+
+    #[test]
+    fn test_gemm_op() -> Result<(), String> {
+        let mut rng = XorShiftRNG::new(1234);
+        let a = random_tensor(&[3, 10], &mut rng);
+        let b = random_tensor(&[10, 8], &mut rng);
+
+        let mut expected = zero_tensor(&[3, 8]);
+        gemm(&mut expected, &a, &b);
+
+        let result = gemm_op(&a, &b, None, 1.0, 1.0, false, false);
+
+        expect_equal(&result, &expected)
+    }
+
+    #[test]
+    fn test_gemm_op_transposed() -> Result<(), String> {
+        let mut rng = XorShiftRNG::new(1234);
+        let a = random_tensor(&[10, 3], &mut rng);
+        let b = random_tensor(&[8, 10], &mut rng);
+
+        let mut a_transposed = a.clone();
+        a_transposed.permute(&[1, 0]);
+        let mut b_transposed = b.clone();
+        b_transposed.permute(&[1, 0]);
+        let mut expected = zero_tensor(&[3, 8]);
+        gemm(&mut expected, &a_transposed, &b_transposed);
+
+        let result = gemm_op(&a, &b, None, 1.0, 1.0, true, true);
+
+        expect_equal(&result, &expected)
+    }
+
+    #[test]
+    fn test_gemm_op_adds_c() -> Result<(), String> {
+        let mut rng = XorShiftRNG::new(1234);
+        let a = random_tensor(&[3, 10], &mut rng);
+        let b = random_tensor(&[10, 8], &mut rng);
+        let c = random_tensor(&[3, 8], &mut rng);
+
+        let mut expected = c.clone();
+        gemm(&mut expected, &a, &b);
+
+        let result = gemm_op(&a, &b, Some(&c), 1.0, 1.0, false, false);
+
+        expect_equal(&result, &expected)
     }
 
     #[test]

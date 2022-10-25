@@ -202,6 +202,22 @@ impl<'a> ModelBuilder<'a> {
                     .as_union_value(),
                 ),
             ),
+            OpType::Gemm(args) => (
+                OT::Gemm,
+                OA::GemmAttrs,
+                Some(
+                    sg::GemmAttrs::create(
+                        &mut self.builder,
+                        &sg::GemmAttrsArgs {
+                            alpha: args.alpha,
+                            beta: args.beta,
+                            transpose_a: args.transpose_a,
+                            transpose_b: args.transpose_b,
+                        },
+                    )
+                    .as_union_value(),
+                ),
+            ),
             OpType::GlobalAveragePool => (OT::GlobalAveragePool, no_attrs, None),
             OpType::MatMul => (OT::MatMul, no_attrs, None),
             OpType::MaxPool2d(args) => (

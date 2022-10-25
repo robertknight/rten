@@ -13,6 +13,7 @@ enum OperatorType: byte {
   Conv2d,
   ConvTranspose2d,
   Gather,
+  Gemm,
   GlobalAveragePool,
   MatMul,
   MaxPool2d,
@@ -37,6 +38,7 @@ union OperatorAttrs {
   Conv2dAttrs,
   ConvTranspose2dAttrs,
   GatherAttrs,
+  GemmAttrs,
   MaxPool2dAttrs,
   Pad2dAttrs,
   UnsqueezeAttrs
@@ -65,6 +67,13 @@ table ConvTranspose2dAttrs {
 
 table GatherAttrs {
   axis:uint;
+}
+
+table GemmAttrs {
+  alpha:float;
+  beta:float;
+  transpose_a:bool;
+  transpose_b:bool;
 }
 
 table MaxPool2dAttrs {

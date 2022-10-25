@@ -18,19 +18,20 @@ pub const ENUM_MIN_OPERATOR_TYPE: i8 = 0;
     since = "2.0.0",
     note = "Use associated constants instead. This will no longer be generated in 2021."
 )]
-pub const ENUM_MAX_OPERATOR_TYPE: i8 = 15;
+pub const ENUM_MAX_OPERATOR_TYPE: i8 = 16;
 #[deprecated(
     since = "2.0.0",
     note = "Use associated constants instead. This will no longer be generated in 2021."
 )]
 #[allow(non_camel_case_types)]
-pub const ENUM_VALUES_OPERATOR_TYPE: [OperatorType; 16] = [
+pub const ENUM_VALUES_OPERATOR_TYPE: [OperatorType; 17] = [
     OperatorType::Add,
     OperatorType::Clip,
     OperatorType::Concat,
     OperatorType::Conv2d,
     OperatorType::ConvTranspose2d,
     OperatorType::Gather,
+    OperatorType::Gemm,
     OperatorType::GlobalAveragePool,
     OperatorType::MatMul,
     OperatorType::MaxPool2d,
@@ -54,19 +55,20 @@ impl OperatorType {
     pub const Conv2d: Self = Self(3);
     pub const ConvTranspose2d: Self = Self(4);
     pub const Gather: Self = Self(5);
-    pub const GlobalAveragePool: Self = Self(6);
-    pub const MatMul: Self = Self(7);
-    pub const MaxPool2d: Self = Self(8);
-    pub const Pad2d: Self = Self(9);
-    pub const ReLU: Self = Self(10);
-    pub const Reshape: Self = Self(11);
-    pub const Shape: Self = Self(12);
-    pub const Sigmoid: Self = Self(13);
-    pub const Slice: Self = Self(14);
-    pub const Unsqueeze: Self = Self(15);
+    pub const Gemm: Self = Self(6);
+    pub const GlobalAveragePool: Self = Self(7);
+    pub const MatMul: Self = Self(8);
+    pub const MaxPool2d: Self = Self(9);
+    pub const Pad2d: Self = Self(10);
+    pub const ReLU: Self = Self(11);
+    pub const Reshape: Self = Self(12);
+    pub const Shape: Self = Self(13);
+    pub const Sigmoid: Self = Self(14);
+    pub const Slice: Self = Self(15);
+    pub const Unsqueeze: Self = Self(16);
 
     pub const ENUM_MIN: i8 = 0;
-    pub const ENUM_MAX: i8 = 15;
+    pub const ENUM_MAX: i8 = 16;
     pub const ENUM_VALUES: &'static [Self] = &[
         Self::Add,
         Self::Clip,
@@ -74,6 +76,7 @@ impl OperatorType {
         Self::Conv2d,
         Self::ConvTranspose2d,
         Self::Gather,
+        Self::Gemm,
         Self::GlobalAveragePool,
         Self::MatMul,
         Self::MaxPool2d,
@@ -94,6 +97,7 @@ impl OperatorType {
             Self::Conv2d => Some("Conv2d"),
             Self::ConvTranspose2d => Some("ConvTranspose2d"),
             Self::Gather => Some("Gather"),
+            Self::Gemm => Some("Gemm"),
             Self::GlobalAveragePool => Some("GlobalAveragePool"),
             Self::MatMul => Some("MatMul"),
             Self::MaxPool2d => Some("MaxPool2d"),
@@ -262,19 +266,20 @@ pub const ENUM_MIN_OPERATOR_ATTRS: u8 = 0;
     since = "2.0.0",
     note = "Use associated constants instead. This will no longer be generated in 2021."
 )]
-pub const ENUM_MAX_OPERATOR_ATTRS: u8 = 9;
+pub const ENUM_MAX_OPERATOR_ATTRS: u8 = 10;
 #[deprecated(
     since = "2.0.0",
     note = "Use associated constants instead. This will no longer be generated in 2021."
 )]
 #[allow(non_camel_case_types)]
-pub const ENUM_VALUES_OPERATOR_ATTRS: [OperatorAttrs; 10] = [
+pub const ENUM_VALUES_OPERATOR_ATTRS: [OperatorAttrs; 11] = [
     OperatorAttrs::NONE,
     OperatorAttrs::ClipAttrs,
     OperatorAttrs::ConcatAttrs,
     OperatorAttrs::Conv2dAttrs,
     OperatorAttrs::ConvTranspose2dAttrs,
     OperatorAttrs::GatherAttrs,
+    OperatorAttrs::GemmAttrs,
     OperatorAttrs::MaxPool2dAttrs,
     OperatorAttrs::Pad2dAttrs,
     OperatorAttrs::SliceAttrs,
@@ -292,13 +297,14 @@ impl OperatorAttrs {
     pub const Conv2dAttrs: Self = Self(3);
     pub const ConvTranspose2dAttrs: Self = Self(4);
     pub const GatherAttrs: Self = Self(5);
-    pub const MaxPool2dAttrs: Self = Self(6);
-    pub const Pad2dAttrs: Self = Self(7);
-    pub const SliceAttrs: Self = Self(8);
-    pub const UnsqueezeAttrs: Self = Self(9);
+    pub const GemmAttrs: Self = Self(6);
+    pub const MaxPool2dAttrs: Self = Self(7);
+    pub const Pad2dAttrs: Self = Self(8);
+    pub const SliceAttrs: Self = Self(9);
+    pub const UnsqueezeAttrs: Self = Self(10);
 
     pub const ENUM_MIN: u8 = 0;
-    pub const ENUM_MAX: u8 = 9;
+    pub const ENUM_MAX: u8 = 10;
     pub const ENUM_VALUES: &'static [Self] = &[
         Self::NONE,
         Self::ClipAttrs,
@@ -306,6 +312,7 @@ impl OperatorAttrs {
         Self::Conv2dAttrs,
         Self::ConvTranspose2dAttrs,
         Self::GatherAttrs,
+        Self::GemmAttrs,
         Self::MaxPool2dAttrs,
         Self::Pad2dAttrs,
         Self::SliceAttrs,
@@ -320,6 +327,7 @@ impl OperatorAttrs {
             Self::Conv2dAttrs => Some("Conv2dAttrs"),
             Self::ConvTranspose2dAttrs => Some("ConvTranspose2dAttrs"),
             Self::GatherAttrs => Some("GatherAttrs"),
+            Self::GemmAttrs => Some("GemmAttrs"),
             Self::MaxPool2dAttrs => Some("MaxPool2dAttrs"),
             Self::Pad2dAttrs => Some("Pad2dAttrs"),
             Self::SliceAttrs => Some("SliceAttrs"),
@@ -1151,6 +1159,152 @@ impl core::fmt::Debug for GatherAttrs<'_> {
         ds.finish()
     }
 }
+pub enum GemmAttrsOffset {}
+#[derive(Copy, Clone, PartialEq)]
+
+pub struct GemmAttrs<'a> {
+    pub _tab: flatbuffers::Table<'a>,
+}
+
+impl<'a> flatbuffers::Follow<'a> for GemmAttrs<'a> {
+    type Inner = GemmAttrs<'a>;
+    #[inline]
+    fn follow(buf: &'a [u8], loc: usize) -> Self::Inner {
+        Self {
+            _tab: flatbuffers::Table { buf, loc },
+        }
+    }
+}
+
+impl<'a> GemmAttrs<'a> {
+    pub const VT_ALPHA: flatbuffers::VOffsetT = 4;
+    pub const VT_BETA: flatbuffers::VOffsetT = 6;
+    pub const VT_TRANSPOSE_A: flatbuffers::VOffsetT = 8;
+    pub const VT_TRANSPOSE_B: flatbuffers::VOffsetT = 10;
+
+    #[inline]
+    pub fn init_from_table(table: flatbuffers::Table<'a>) -> Self {
+        GemmAttrs { _tab: table }
+    }
+    #[allow(unused_mut)]
+    pub fn create<'bldr: 'args, 'args: 'mut_bldr, 'mut_bldr>(
+        _fbb: &'mut_bldr mut flatbuffers::FlatBufferBuilder<'bldr>,
+        args: &'args GemmAttrsArgs,
+    ) -> flatbuffers::WIPOffset<GemmAttrs<'bldr>> {
+        let mut builder = GemmAttrsBuilder::new(_fbb);
+        builder.add_beta(args.beta);
+        builder.add_alpha(args.alpha);
+        builder.add_transpose_b(args.transpose_b);
+        builder.add_transpose_a(args.transpose_a);
+        builder.finish()
+    }
+
+    #[inline]
+    pub fn alpha(&self) -> f32 {
+        self._tab
+            .get::<f32>(GemmAttrs::VT_ALPHA, Some(0.0))
+            .unwrap()
+    }
+    #[inline]
+    pub fn beta(&self) -> f32 {
+        self._tab.get::<f32>(GemmAttrs::VT_BETA, Some(0.0)).unwrap()
+    }
+    #[inline]
+    pub fn transpose_a(&self) -> bool {
+        self._tab
+            .get::<bool>(GemmAttrs::VT_TRANSPOSE_A, Some(false))
+            .unwrap()
+    }
+    #[inline]
+    pub fn transpose_b(&self) -> bool {
+        self._tab
+            .get::<bool>(GemmAttrs::VT_TRANSPOSE_B, Some(false))
+            .unwrap()
+    }
+}
+
+impl flatbuffers::Verifiable for GemmAttrs<'_> {
+    #[inline]
+    fn run_verifier(
+        v: &mut flatbuffers::Verifier,
+        pos: usize,
+    ) -> Result<(), flatbuffers::InvalidFlatbuffer> {
+        use self::flatbuffers::Verifiable;
+        v.visit_table(pos)?
+            .visit_field::<f32>("alpha", Self::VT_ALPHA, false)?
+            .visit_field::<f32>("beta", Self::VT_BETA, false)?
+            .visit_field::<bool>("transpose_a", Self::VT_TRANSPOSE_A, false)?
+            .visit_field::<bool>("transpose_b", Self::VT_TRANSPOSE_B, false)?
+            .finish();
+        Ok(())
+    }
+}
+pub struct GemmAttrsArgs {
+    pub alpha: f32,
+    pub beta: f32,
+    pub transpose_a: bool,
+    pub transpose_b: bool,
+}
+impl<'a> Default for GemmAttrsArgs {
+    #[inline]
+    fn default() -> Self {
+        GemmAttrsArgs {
+            alpha: 0.0,
+            beta: 0.0,
+            transpose_a: false,
+            transpose_b: false,
+        }
+    }
+}
+
+pub struct GemmAttrsBuilder<'a: 'b, 'b> {
+    fbb_: &'b mut flatbuffers::FlatBufferBuilder<'a>,
+    start_: flatbuffers::WIPOffset<flatbuffers::TableUnfinishedWIPOffset>,
+}
+impl<'a: 'b, 'b> GemmAttrsBuilder<'a, 'b> {
+    #[inline]
+    pub fn add_alpha(&mut self, alpha: f32) {
+        self.fbb_.push_slot::<f32>(GemmAttrs::VT_ALPHA, alpha, 0.0);
+    }
+    #[inline]
+    pub fn add_beta(&mut self, beta: f32) {
+        self.fbb_.push_slot::<f32>(GemmAttrs::VT_BETA, beta, 0.0);
+    }
+    #[inline]
+    pub fn add_transpose_a(&mut self, transpose_a: bool) {
+        self.fbb_
+            .push_slot::<bool>(GemmAttrs::VT_TRANSPOSE_A, transpose_a, false);
+    }
+    #[inline]
+    pub fn add_transpose_b(&mut self, transpose_b: bool) {
+        self.fbb_
+            .push_slot::<bool>(GemmAttrs::VT_TRANSPOSE_B, transpose_b, false);
+    }
+    #[inline]
+    pub fn new(_fbb: &'b mut flatbuffers::FlatBufferBuilder<'a>) -> GemmAttrsBuilder<'a, 'b> {
+        let start = _fbb.start_table();
+        GemmAttrsBuilder {
+            fbb_: _fbb,
+            start_: start,
+        }
+    }
+    #[inline]
+    pub fn finish(self) -> flatbuffers::WIPOffset<GemmAttrs<'a>> {
+        let o = self.fbb_.end_table(self.start_);
+        flatbuffers::WIPOffset::new(o.value())
+    }
+}
+
+impl core::fmt::Debug for GemmAttrs<'_> {
+    fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
+        let mut ds = f.debug_struct("GemmAttrs");
+        ds.field("alpha", &self.alpha());
+        ds.field("beta", &self.beta());
+        ds.field("transpose_a", &self.transpose_a());
+        ds.field("transpose_b", &self.transpose_b());
+        ds.finish()
+    }
+}
 pub enum MaxPool2dAttrsOffset {}
 #[derive(Copy, Clone, PartialEq)]
 
@@ -1755,6 +1909,16 @@ impl<'a> OperatorNode<'a> {
 
     #[inline]
     #[allow(non_snake_case)]
+    pub fn attrs_as_gemm_attrs(&self) -> Option<GemmAttrs<'a>> {
+        if self.attrs_type() == OperatorAttrs::GemmAttrs {
+            self.attrs().map(GemmAttrs::init_from_table)
+        } else {
+            None
+        }
+    }
+
+    #[inline]
+    #[allow(non_snake_case)]
     pub fn attrs_as_max_pool_2d_attrs(&self) -> Option<MaxPool2dAttrs<'a>> {
         if self.attrs_type() == OperatorAttrs::MaxPool2dAttrs {
             self.attrs().map(MaxPool2dAttrs::init_from_table)
@@ -1833,6 +1997,11 @@ impl flatbuffers::Verifiable for OperatorNode<'_> {
                     OperatorAttrs::GatherAttrs => v
                         .verify_union_variant::<flatbuffers::ForwardsUOffset<GatherAttrs>>(
                             "OperatorAttrs::GatherAttrs",
+                            pos,
+                        ),
+                    OperatorAttrs::GemmAttrs => v
+                        .verify_union_variant::<flatbuffers::ForwardsUOffset<GemmAttrs>>(
+                            "OperatorAttrs::GemmAttrs",
                             pos,
                         ),
                     OperatorAttrs::MaxPool2dAttrs => v
@@ -1976,6 +2145,16 @@ impl core::fmt::Debug for OperatorNode<'_> {
             }
             OperatorAttrs::GatherAttrs => {
                 if let Some(x) = self.attrs_as_gather_attrs() {
+                    ds.field("attrs", &x)
+                } else {
+                    ds.field(
+                        "attrs",
+                        &"InvalidFlatbuffer: Union discriminant does not match value.",
+                    )
+                }
+            }
+            OperatorAttrs::GemmAttrs => {
+                if let Some(x) = self.attrs_as_gemm_attrs() {
                     ds.field("attrs", &x)
                 } else {
                     ds.field(
