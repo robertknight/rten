@@ -35,8 +35,7 @@ union OperatorAttrs {
   Conv2dAttrs,
   ConvTranspose2dAttrs,
   MaxPool2dAttrs,
-  Pad2dAttrs,
-  SliceAttrs
+  Pad2dAttrs
 }
 
 table ClipAttrs {
@@ -69,12 +68,6 @@ table Pad2dAttrs {
   pad_right:uint;
   pad_top:uint;
   pad_bottom:uint;
-}
-
-table SliceAttrs {
-  dim:uint;
-  start:uint;
-  end:uint;
 }
 
 // Node in the dataflow graph

@@ -100,7 +100,7 @@ def convert_array(src_type: str, data: bytes, dest_type: str):
     converted = [x for x in array.array(src_type, data)]
     return array.array(dest_type, converted)
 
-def constant_node_from_onnx_initializer(tensor):
+def constant_node_from_onnx_initializer(tensor) -> ConstantNode:
     dims = list(tensor.dims)
 
     # Tensors can either store data in a type-appropriate field, or the `raw_data`
@@ -130,12 +130,25 @@ def constant_node_from_onnx_initializer(tensor):
     return ConstantNode(name=tensor.name, shape=dims, data=data)
 
 
+def onnx_op_output_name(onnx_op: onnx.OperatorProto) -> str:
+    if not len(onnx_op.output):
+        raise Exception(f'Operator "{onnx_op.name}" has no outputs')
+    output_name = onnx_op.output[0]
+    return output_name
+
+
+def constant_node_from_onnx_constant_op(onnx_op: onnx.OperatorProto) -> ConstantNode:
+    tensor = require_attr(onnx_op.attribute, "value", "tensor")
+    const_node = constant_node_from_onnx_initializer(tensor)
+    const_node.name = onnx_op_output_name(onnx_op)
+    return const_node
+
 def value_node_from_onnx_value(value: onnx.ValueInfoProto) -> ValueNode:
     return ValueNode(name=value.name)
 
 
 def op_node_from_onnx_operator(
-    onnx_op: onnx.OperatorProto, node_index_from_name: dict[str, int], const_map: dict[str, int]
+    onnx_op: onnx.OperatorProto, node_index_from_name: dict[str, int]
 ) -> OperatorNode:
     """
     Map an ONNX operator to the equivalent operator in this library.
@@ -145,9 +158,6 @@ def op_node_from_onnx_operator(
     """
     input_indexes = []
     for input_name in onnx_op.input:
-        if input_name in const_map:
-            # This "input" is a constant value
-            continue
         index = node_index_from_name.get(input_name)
         if index is None:
             raise Exception(
@@ -256,40 +266,14 @@ def op_node_from_onnx_operator(
     elif onnx_op.op_type == "Slice":
         op_type = "Slice"
 
-        # ONNX uses input tensors for start/end/axis/step values. We only support
-        # cases where the input is a Constant operator yielding a single int
-        # value.
-        start, end, axis, step = iter([const_map[name] for name in onnx_op.input[1:]])
-        attrs["start"] = start
-        attrs["end"] = end
-        attrs["dim"] = axis
-
-        if step != 1:
-            raise Exception(f"Unsupported step value {step} for Slice operator")
-
     elif onnx_op.op_type == "Sigmoid":
         op_type = "Sigmoid"
     else:
         raise Exception(f"Unsupported operation {onnx_op.op_type}")
 
-    if not len(onnx_op.output):
-        raise Exception(f'Operator "{onnx_op.name}" has no outputs')
-    output_name = onnx_op.output[0]
-
     return OperatorNode(
-        name=output_name, op_type=op_type, attrs=attrs, inputs=input_indexes
+        name=onnx_op_output_name(onnx_op), op_type=op_type, attrs=attrs, inputs=input_indexes
     )
-
-
-def extract_constant(constant_op: onnx.OperatorProto) -> int:
-    value_attr = require_attr(constant_op.attribute, "value", "tensor")
-    if value_attr.dims != [] and value_attr.dims != [1]:
-        raise Exception(f"Unsupported constant dimensions {value_attr.dims}")
-    if value_attr.data_type != 7:
-        raise Exception(f"Unsupported constant data type {value_attr.data_type}")
-
-    values = array.array("q", value_attr.raw_data)
-    return values[0]
 
 
 def graph_from_onnx_graph(onnx_graph: onnx.GraphProto) -> list[Node]:
@@ -301,9 +285,6 @@ def graph_from_onnx_graph(onnx_graph: onnx.GraphProto) -> list[Node]:
     # Map from tensor ID to node index
     tensor_map: dict[str, int] = {}
 
-    # Map from Constant operator name to value
-    const_map: dict[str, int] = {}
-
     def add_node(node: Node):
         nodes.append(node)
         tensor_map[node.name] = len(nodes) - 1
@@ -314,9 +295,8 @@ def graph_from_onnx_graph(onnx_graph: onnx.GraphProto) -> list[Node]:
     for operator in onnx_graph.node:
         if operator.op_type != "Constant":
             continue
-        const_val = extract_constant(operator)
-        const_name = operator.output[0]
-        const_map[const_name] = const_val
+        node = constant_node_from_onnx_constant_op(operator)
+        add_node(node)
 
     for value in onnx_graph.input:
         node = value_node_from_onnx_value(value)
@@ -325,7 +305,7 @@ def graph_from_onnx_graph(onnx_graph: onnx.GraphProto) -> list[Node]:
     for operator in onnx_graph.node:
         if operator.op_type == "Constant":
             continue
-        node = op_node_from_onnx_operator(operator, tensor_map, const_map)
+        node = op_node_from_onnx_operator(operator, tensor_map)
         add_node(node)
 
     return nodes
@@ -438,12 +418,6 @@ def build_operator_node(builder: flatbuffers.Builder, operator: OperatorNode):
             op_type_code = sg.OperatorType.Sigmoid
         case "Slice":
             op_type_code = sg.OperatorType.Slice
-            attrs_type = sg.OperatorAttrs.SliceAttrs
-            sg.SliceAttrsStart(builder)
-            sg.SliceAttrsAddDim(builder, operator.attrs["dim"])
-            sg.SliceAttrsAddStart(builder, operator.attrs["start"])
-            sg.SliceAttrsAddEnd(builder, operator.attrs["end"])
-            attrs = sg.SliceAttrsEnd(builder)
         case _:
             raise Exception(f"Unsupported operator type {operator.op_type}")
 

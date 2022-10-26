@@ -224,21 +224,7 @@ impl<'a> ModelBuilder<'a> {
             OpType::Reshape => (OT::Reshape, no_attrs, None),
             OpType::Shape => (OT::Shape, no_attrs, None),
             OpType::Sigmoid => (OT::Sigmoid, no_attrs, None),
-            OpType::Slice(args) => (
-                OT::Slice,
-                OA::SliceAttrs,
-                Some(
-                    sg::SliceAttrs::create(
-                        &mut self.builder,
-                        &sg::SliceAttrsArgs {
-                            dim: args.dim as u32,
-                            start: args.start as u32,
-                            end: args.end as u32,
-                        },
-                    )
-                    .as_union_value(),
-                ),
-            ),
+            OpType::Slice => (OT::Slice, no_attrs, None),
         };
 
         let input_vec = self.builder.create_vector(inputs);

@@ -142,20 +142,7 @@ fn read_sigmoid_op(_: &OperatorNode) -> Box<dyn Operator> {
 }
 
 fn read_slice_op(node: &OperatorNode) -> Box<dyn Operator> {
-    let dim;
-    let start;
-    let end;
-
-    if let Some(attrs) = node.attrs_as_slice_attrs() {
-        dim = attrs.dim() as usize;
-        start = attrs.start() as usize;
-        end = attrs.end() as usize;
-    } else {
-        dim = 0;
-        start = 0;
-        end = 0;
-    }
-    Box::new(ops::Slice { dim, start, end })
+    Box::new(ops::Slice {})
 }
 
 fn read_operator(node: &OperatorNode) -> Result<Box<dyn Operator>, String> {
@@ -361,14 +348,13 @@ mod tests {
         builder.add_operator("reshape", OpType::Reshape, &[input_node, new_shape]);
         builder.add_operator("shape", OpType::Shape, &[input_node]);
         builder.add_operator("sigmoid", OpType::Sigmoid, &[input_node]);
+
+        let const_0 = builder.add_int_constant(&from_data(vec![1], vec![0]));
+        let const_1 = builder.add_int_constant(&from_data(vec![1], vec![1]));
         builder.add_operator(
             "slice",
-            OpType::Slice(ops::Slice {
-                dim: 0,
-                start: 0,
-                end: 1,
-            }),
-            &[input_node],
+            OpType::Slice,
+            &[input_node, const_0, const_1, const_0],
         );
 
         let buffer = builder.finish();

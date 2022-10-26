@@ -142,7 +142,7 @@ pub enum OpType {
     Reshape,
     Shape,
     Sigmoid,
-    Slice(Slice),
+    Slice,
 }
 
 /// Given the shapes of two inputs to a binary operation, choose the one that
@@ -538,59 +538,56 @@ impl Operator for Pad2d {
 }
 
 /// Return a copy of a tensor which only retains a subset of a given dimension.
-pub fn slice(input: &Tensor, dim: usize, start: usize, end: usize) -> Tensor {
-    let mut out_shape: Vec<_> = input.shape().into();
-    out_shape[dim] = end - start;
-
-    let out_len = out_shape.iter().sum();
-    let mut out_data = Vec::with_capacity(out_len);
-
-    let dim_stride = input.stride(dim);
-    let steps = if dim == 0 {
-        1
-    } else {
-        input.shape()[0..dim].iter().product()
-    };
-    let parent_dim_stride = if dim == 0 {
-        input.len()
-    } else {
-        input.stride(dim - 1)
-    };
-
-    let elts: Vec<f32> = input.elements().collect();
-    for i in 0..steps {
-        let offset = i * parent_dim_stride + start * dim_stride;
-        let len = (end - start) * dim_stride;
-        out_data.extend_from_slice(&elts[offset..offset + len]);
+pub fn slice<T: Copy>(
+    input: &Tensor<T>,
+    starts: &Tensor<i32>,
+    ends: &Tensor<i32>,
+    axes: Option<&Tensor<i32>>,
+) -> Tensor<T> {
+    let mut ranges: Vec<(usize, usize)> = input
+        .shape()
+        .iter()
+        .map(|dim_size| (0, *dim_size))
+        .collect();
+    for (i, (start, end)) in zip(starts.elements(), ends.elements()).enumerate() {
+        let axis = if let Some(axes) = axes {
+            axes[[i]] as usize
+        } else {
+            i
+        };
+        ranges[axis] = (start as usize, end as usize);
     }
 
-    from_data(out_shape, out_data)
+    let sliced_data = input.slice_elements(&ranges).collect();
+    let sliced_shape = ranges.iter().map(|(start, end)| end - start).collect();
+    from_data(sliced_shape, sliced_data).into()
 }
 
 #[derive(Debug)]
-pub struct Slice {
-    pub dim: usize,
-    pub start: usize,
-    pub end: usize,
-}
+pub struct Slice {}
 
 impl Operator for Slice {
     fn name(&self) -> &str {
         "Slice"
     }
 
-    /// Run `slice` operator with `[input]` inputs.
+    /// Run `slice` operator with `[input, starts, ends, axes]` inputs.
     fn run(&self, inputs: &[Input]) -> Output {
-        let input = inputs[0].as_float().unwrap();
-        slice(input, self.dim, self.start, self.end).into()
+        let input = inputs[0];
+        let starts = inputs[1].as_int().unwrap();
+        let ends = inputs[2].as_int().unwrap();
+        let axes = inputs.get(3).map(|t| t.as_int().unwrap());
+        match input {
+            Input::FloatTensor(input) => slice(input, starts, ends, axes).into(),
+            Input::IntTensor(input) => slice(input, starts, ends, axes).into(),
+        }
     }
 
     fn can_run_in_place(&self) -> bool {
-        self.start == 0
-    }
-
-    fn run_in_place(&self, input: &mut Tensor) {
-        input.resize_dim(self.dim, self.end);
+        // In-place slicing is disabled until `run_in_place` can accept all
+        // of the operator's inputs, not just the first one. Inputs other than
+        // the first one can be passed immutably.
+        false
     }
 }
 
@@ -605,7 +602,7 @@ mod tests {
         sigmoid, sigmoid_in_place, slice, Operator, Reshape, Shape,
     };
     use crate::rng::XorShiftRNG;
-    use crate::tensor::{from_data, random_tensor, zero_tensor};
+    use crate::tensor::{from_data, random_tensor, zero_tensor, Tensor};
     use crate::test_util::expect_equal;
 
     #[test]
@@ -786,26 +783,36 @@ mod tests {
         assert_eq!(result.data(), &[1, 1, 2, 2]);
     }
 
+    fn from_slice<T: Copy>(data: &[T]) -> Tensor<T> {
+        from_data(vec![data.len()], data.into())
+    }
+
     #[test]
     fn test_slice_not_first_dim() {
         let mut rng = XorShiftRNG::new(5678);
         let input = random_tensor(&[2, 2, 5, 3], &mut rng);
 
-        let dim = 2;
-        let start = 2;
-        let end = 4;
+        let starts = from_slice(&[2]);
+        let ends = from_slice(&[4]);
+        let axes = from_slice(&[2]);
 
-        let sliced = slice(&input, dim, start, end);
+        let sliced = slice(&input, &starts, &ends, Some(&axes));
         let shape = sliced.shape();
 
-        assert_eq!(sliced.shape(), vec![2, 2, end - start, 3]);
+        assert_eq!(
+            sliced.shape(),
+            vec![2, 2, ends[[0]] as usize - starts[[0]] as usize, 3]
+        );
         assert_eq!(sliced.len(), shape.iter().fold(1, |len, x| len * x));
 
         for w in 0..shape[0] {
             for x in 0..shape[1] {
                 for y in 0..shape[2] {
                     for z in 0..shape[3] {
-                        assert_eq!(sliced[[w, x, y, z]], input[[w, x, y + start, z]]);
+                        assert_eq!(
+                            sliced[[w, x, y, z]],
+                            input[[w, x, y + starts[[0]] as usize, z]]
+                        );
                     }
                 }
             }
@@ -817,21 +824,27 @@ mod tests {
         let mut rng = XorShiftRNG::new(5678);
         let input = random_tensor(&[5, 2, 5, 3], &mut rng);
 
-        let dim = 0;
-        let start = 2;
-        let end = 4;
+        let starts = from_slice(&[2]);
+        let ends = from_slice(&[4]);
+        let axes = from_slice(&[0]);
 
-        let sliced = slice(&input, dim, start, end);
+        let sliced = slice(&input, &starts, &ends, Some(&axes));
         let shape = sliced.shape();
 
-        assert_eq!(shape, vec![end - start, 2, 5, 3]);
+        assert_eq!(
+            shape,
+            vec![ends[[0]] as usize - starts[[0]] as usize, 2, 5, 3]
+        );
         assert_eq!(sliced.len(), shape.iter().fold(1, |len, x| len * x));
 
         for w in 0..shape[0] {
             for x in 0..shape[1] {
                 for y in 0..shape[2] {
                     for z in 0..shape[3] {
-                        assert_eq!(sliced[[w, x, y, z]], input[[w + start, x, y, z]]);
+                        assert_eq!(
+                            sliced[[w, x, y, z]],
+                            input[[w + starts[[0]] as usize, x, y, z]]
+                        );
                     }
                 }
             }
@@ -844,7 +857,13 @@ mod tests {
         let input = random_tensor(&[5, 2, 5, 3], &mut rng);
 
         for dim in 0..input.shape().len() {
-            let sliced = slice(&input, dim, 0, input.shape()[dim]);
+            let dim_size = input.shape()[dim] as i32;
+
+            let starts = from_slice(&[0]);
+            let ends = from_slice(&[dim_size]);
+            let axes = from_slice(&[dim as i32]);
+
+            let sliced = slice(&input, &starts, &ends, Some(&axes));
             assert_eq!(sliced.shape(), input.shape());
             assert_eq!(sliced.data(), input.data());
         }

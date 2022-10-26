@@ -175,6 +175,13 @@ impl<T: Copy> Tensor<T> {
         zip(self_dims, target_dims).all(|(a, b)| a == b || a == 1 || b == 1)
     }
 
+    /// Return an iterator over a subset of elements in this tensor.
+    ///
+    /// `indices` is a slice of `(start, end)` tuples for each dimension.
+    pub fn slice_elements(&self, indices: &[(usize, usize)]) -> Elements<T> {
+        Elements::slice(self, indices)
+    }
+
     /// Update the shape of the tensor.
     ///
     /// The total number of elements for the new shape must be the same as the
@@ -341,6 +348,7 @@ impl<'a, const N: usize, T: Copy> IndexMut<[usize; N]> for UncheckedViewMut<'a, 
     }
 }
 
+#[derive(Debug)]
 struct ElementsDim {
     /// Current index for this dimension
     index: usize,
@@ -433,6 +441,46 @@ impl ElementsBase {
         }
     }
 
+    fn slice<T: Copy>(tensor: &Tensor<T>, ranges: &[(usize, usize)]) -> ElementsBase {
+        if ranges.len() != tensor.shape.len() {
+            panic!(
+                "slice dimensions {} do not match tensor dimensions {}",
+                ranges.len(),
+                tensor.shape.len()
+            );
+        }
+        let mut offset = tensor.base;
+        let mut dims = Vec::with_capacity(ranges.len());
+
+        for (dim, (start, end)) in ranges.iter().copied().enumerate() {
+            let slice_dim_size = end.saturating_sub(start);
+            let dim_size = tensor.shape[dim];
+
+            if slice_dim_size > tensor.shape[dim] {
+                panic!(
+                    "slice range {}..{} for dimension {} exceeds dimension size {}",
+                    start, end, dim, dim_size
+                );
+            }
+
+            let stride = tensor.strides[dim];
+            offset += stride * start;
+
+            dims.push(ElementsDim {
+                index: 0,
+                max_index: slice_dim_size - 1,
+                stride,
+            });
+        }
+
+        ElementsBase {
+            len: ranges.iter().map(|(start, end)| end - start).product(),
+            offset,
+            dims,
+            contiguous: false,
+        }
+    }
+
     fn step(&mut self) {
         self.len -= 1;
 
@@ -475,6 +523,13 @@ impl<'a, T: Copy> Elements<'a, T> {
     fn broadcast(tensor: &'a Tensor<T>, shape: &[usize]) -> Elements<'a, T> {
         Elements {
             base: ElementsBase::broadcast(tensor, shape),
+            data: &tensor.data,
+        }
+    }
+
+    fn slice(tensor: &'a Tensor<T>, ranges: &[(usize, usize)]) -> Elements<'a, T> {
+        Elements {
+            base: ElementsBase::slice(tensor, ranges),
             data: &tensor.data,
         }
     }
@@ -846,5 +901,26 @@ mod tests {
     fn test_broadcast_elements_with_shorter_shape() {
         let x = steps(&[2, 2]);
         x.broadcast_elements(&[4]);
+    }
+
+    #[test]
+    fn test_slice_elements() {
+        let x = steps(&[3, 3]);
+
+        // Slice that removes start of each dimension
+        let slice: Vec<_> = x.slice_elements(&[(1, 3), (1, 3)]).collect();
+        assert_eq!(slice, &[5, 6, 8, 9]);
+
+        // Slice that removes end of each dimension
+        let slice: Vec<_> = x.slice_elements(&[(0, 2), (0, 2)]).collect();
+        assert_eq!(slice, &[1, 2, 4, 5]);
+
+        // Slice that removes start and end of first dimension
+        let slice: Vec<_> = x.slice_elements(&[(1, 2), (0, 3)]).collect();
+        assert_eq!(slice, &[4, 5, 6]);
+
+        // Slice that removes start and end of second dimension
+        let slice: Vec<_> = x.slice_elements(&[(0, 3), (1, 2)]).collect();
+        assert_eq!(slice, &[2, 5, 8]);
     }
 }
