@@ -3,6 +3,8 @@
 ///! This module provides a subset of BLAS-like functions that are used by
 ///! neural network operators. This includes general matrix multiplication ("gemm"),
 ///! and vector-scalar products.
+use std::ops::Range;
+
 use crate::tensor::Tensor;
 
 pub fn div_ceil(a: usize, b: usize) -> usize {
@@ -138,20 +140,19 @@ fn kernel<const H: usize, const W: usize>(
 
 /// Pack a block of the "A" matrix.
 ///
-/// The packed buffer is laid out as a sequence of `ceil(a_rows / PANEL_HEIGHT)`
+/// The packed buffer is laid out as a sequence of `ceil(rows.len() / PANEL_HEIGHT)`
 /// row panels. Each row panel has size `PANEL_HEIGHT * panel_width` and uses
-/// column-major order. If `a_rows` is not a multiple of `PANEL_HEIGHT`, the
+/// column-major order. If `rows.len()` is not a multiple of `PANEL_HEIGHT`, the
 /// final panel is zero-padded.
-///
-/// The `a` slice is assumed to start at the first element to be packed and
-/// extend to include at least the last element to be packed.
 fn pack_a_block<const PANEL_HEIGHT: usize>(
     out: &mut [f32],
-    a: &[f32],
-    a_row_stride: usize,
-    a_cols: usize,
-    a_rows: usize,
+    a: Matrix,
+    rows: Range<usize>,
+    cols: Range<usize>,
 ) {
+    let a_rows = rows.len();
+    let a_cols = cols.len();
+
     let n_panels = round_up(a_rows, PANEL_HEIGHT) / PANEL_HEIGHT;
     for panel in 0..n_panels {
         let panel_offset = panel * a_cols * PANEL_HEIGHT;
@@ -160,9 +161,9 @@ fn pack_a_block<const PANEL_HEIGHT: usize>(
         for col in 0..a_cols {
             let out_col_offset = panel_offset + col * PANEL_HEIGHT;
             for row in 0..PANEL_HEIGHT {
-                let a_row = panel_start_row + row;
-                out[out_col_offset + row] = if a_row < a_rows {
-                    a[a_row * a_row_stride + col]
+                let a_row = rows.start + panel_start_row + row;
+                out[out_col_offset + row] = if a_row < rows.end {
+                    a.data[a_row * a.row_stride + (cols.start + col) * a.col_stride]
                 } else {
                     0.0
                 };
@@ -173,20 +174,19 @@ fn pack_a_block<const PANEL_HEIGHT: usize>(
 
 /// Pack block of the "B" matrix.
 ///
-/// The packed buffer is laid out as a sequence of `ceil(b_cols / PANEL_WIDTH)`
-/// column panels. Each column panel has size `b_rows * PANEL_WIDTH` and
-/// uses row-major order. If `b_cols` is not a multiple of `PANEL_WIDTH`, the
-/// final panel is zero-padded.
-///
-/// The `b` slice is assumed to start at the first element to be packed and
-/// extend to include at least the last element to be packed.
+/// The packed buffer is laid out as a sequence of `ceil(cols.len() /
+/// PANEL_WIDTH)` column panels. Each column panel has size `rows.len() *
+/// PANEL_WIDTH` and uses row-major order. If `cols.len()` is not a multiple of
+/// `PANEL_WIDTH`, the final panel is zero-padded.
 fn pack_b_block<const PANEL_WIDTH: usize>(
     out: &mut [f32],
-    b: &[f32],
-    b_row_stride: usize,
-    b_cols: usize,
-    b_rows: usize,
+    b: Matrix,
+    rows: Range<usize>,
+    cols: Range<usize>,
 ) {
+    let b_cols = cols.len();
+    let b_rows = rows.len();
+
     let n_panels = round_up(b_cols, PANEL_WIDTH) / PANEL_WIDTH;
     for panel in 0..n_panels {
         let panel_offset = panel * b_rows * PANEL_WIDTH;
@@ -196,26 +196,30 @@ fn pack_b_block<const PANEL_WIDTH: usize>(
             // Optimized loop for panels that don't need any padding
             for row in 0..b_rows {
                 let out_row_offset = panel_offset + row * PANEL_WIDTH;
-                let b_row_offset = row * b_row_stride + panel_start_col;
-
                 let out_row = &mut out[out_row_offset..out_row_offset + PANEL_WIDTH];
-                let b_row = &b[b_row_offset..b_row_offset + PANEL_WIDTH];
+                let b_offset = (rows.start + row) * b.row_stride
+                    + (cols.start + panel_start_col) * b.col_stride;
 
                 for col in 0..PANEL_WIDTH {
-                    out_row[col] = b_row[col];
+                    out_row[col] = b.data[b_offset + col * b.col_stride];
                 }
             }
         } else {
             // Fallback for final panel if padding is required
             for row in 0..b_rows {
                 let out_row_offset = panel_offset + row * PANEL_WIDTH;
-                let b_row_offset = row * b_row_stride;
+                let b_row_offset = (rows.start + row) * b.row_stride;
 
                 for col in 0..PANEL_WIDTH {
                     let out_col = panel_start_col + col;
-                    let b_offset = b_row_offset + panel_start_col + col;
+                    let b_offset =
+                        b_row_offset + (cols.start + panel_start_col + col) * b.col_stride;
 
-                    out[out_row_offset + col] = if out_col < b_cols { b[b_offset] } else { 0.0 };
+                    out[out_row_offset + col] = if out_col < b_cols {
+                        b.data[b_offset]
+                    } else {
+                        0.0
+                    };
                 }
             }
         }
@@ -243,15 +247,33 @@ pub fn gemm(output: &mut Tensor, a: &Tensor, b: &Tensor) {
     gemm_slice(
         output.data_mut(),
         out_row_stride,
-        a.data(),
-        a_rows,
-        a_cols,
-        a.stride(0),
-        b.data(),
-        b_rows,
-        b_cols,
-        b.stride(0),
+        Matrix {
+            data: a.data(),
+            rows: a_rows,
+            cols: a_cols,
+            row_stride: a.stride(0),
+            col_stride: a.stride(1),
+        },
+        Matrix {
+            data: b.data(),
+            rows: b_rows,
+            cols: b_cols,
+            row_stride: b.stride(0),
+            col_stride: b.stride(1),
+        },
     );
+}
+
+/// Struct specifying details of an input matrix for use in GEMM operation.
+///
+/// Unlike a `Tensor`, this doesn't own the data.
+#[derive(Copy, Clone)]
+pub struct Matrix<'a> {
+    pub data: &'a [f32],
+    pub rows: usize,
+    pub cols: usize,
+    pub row_stride: usize,
+    pub col_stride: usize,
 }
 
 /// Multiply two matrices and add the results to `out_data`.
@@ -263,19 +285,8 @@ pub fn gemm(output: &mut Tensor, a: &Tensor, b: &Tensor) {
 /// (https://github.com/flame/blis), and was informed by the matrixmultiply
 /// crate (https://github.com/bluss/matrixmultiply). See Pages 3-5 of
 /// https://dl.acm.org/doi/pdf/10.1145/2925987 for an outline of the algorithm.
-pub fn gemm_slice(
-    out_data: &mut [f32],
-    out_row_stride: usize,
-    a_data: &[f32],
-    a_rows: usize,
-    a_cols: usize,
-    a_row_stride: usize,
-    b_data: &[f32],
-    b_rows: usize,
-    b_cols: usize,
-    b_row_stride: usize,
-) {
-    if a_cols != b_rows {
+pub fn gemm_slice(out_data: &mut [f32], out_row_stride: usize, a: Matrix, b: Matrix) {
+    if a.cols != b.rows {
         panic!("Columns of matrix `a` must match rows of matrix `b`");
     }
 
@@ -289,9 +300,9 @@ pub fn gemm_slice(
     // Sizes of blocks that the width (nc), depth (kc) and height (mc)
     // dimensions are partitioned into in the outer loops. These are chosen
     // so that blocks can fit in specific cache levels.
-    let nc = round_up(1024.min(b_cols), NR);
-    let mc = round_up(64.min(a_rows), MR);
-    let kc = 256.min(a_cols);
+    let nc = round_up(1024.min(b.cols), NR);
+    let mc = round_up(64.min(a.rows), MR);
+    let kc = 256.min(a.cols);
 
     // Size of output tiles in rows (MR) and columns (NR) computed by innermost
     // loops. These are chosen so that an MRxNR tile can fit in registers.
@@ -304,26 +315,13 @@ pub fn gemm_slice(
     let mut packed_b = vec![0.0; kc * nc];
     let mut packed_a = vec![0.0; mc * kc];
 
-    for (col_start, col_end) in blocks(0, b_cols, nc) {
-        for (depth_start, depth_end) in blocks(0, a_cols, kc) {
+    for (col_start, col_end) in blocks(0, b.cols, nc) {
+        for (depth_start, depth_end) in blocks(0, a.cols, kc) {
             let panel_length = depth_end - depth_start;
+            pack_b_block::<NR>(&mut packed_b, b, depth_start..depth_end, col_start..col_end);
 
-            pack_b_block::<NR>(
-                &mut packed_b,
-                &b_data[depth_start * b_row_stride + col_start..depth_end * b_row_stride],
-                b_row_stride,
-                col_end - col_start,
-                panel_length,
-            );
-
-            for (row_start, row_end) in blocks(0, a_rows, mc) {
-                pack_a_block::<MR>(
-                    &mut packed_a,
-                    &a_data[row_start * a_row_stride + depth_start..row_end * a_row_stride],
-                    a_row_stride,
-                    panel_length,
-                    row_end - row_start,
-                );
+            for (row_start, row_end) in blocks(0, a.rows, mc) {
+                pack_a_block::<MR>(&mut packed_a, a, row_start..row_end, depth_start..depth_end);
 
                 let b_panel_size = panel_length * NR;
                 let a_panel_size = MR * panel_length;
@@ -480,5 +478,26 @@ mod tests {
         }
 
         Ok(())
+    }
+
+    #[test]
+    fn test_gemm_transposed() -> Result<(), String> {
+        let mut rng = XorShiftRNG::new(1234);
+        let mut a = random_tensor(&[20, 30], &mut rng);
+        let mut b = random_tensor(&[10, 20], &mut rng);
+
+        // Transpose the input matrices. This will alter their row and column
+        // strides and shapes, but not re-order the data.
+        a.permute(&[1, 0]);
+        b.permute(&[1, 0]);
+
+        let [a_rows, _] = a.dims();
+        let [_, b_cols] = b.dims();
+
+        let mut result = zero_tensor(&[a_rows, b_cols]);
+        gemm(&mut result, &a, &b);
+
+        let expected = reference_gemm(&a, &b);
+        expect_equal(&result, &expected)
     }
 }

@@ -1,4 +1,4 @@
-use crate::linalg::{add_scaled_vector, div_ceil, gemm, gemm_slice};
+use crate::linalg::{add_scaled_vector, div_ceil, gemm, gemm_slice, Matrix};
 use crate::ops::{Input, Operator, Output};
 use crate::tensor::{zero_tensor, Tensor};
 
@@ -185,14 +185,20 @@ fn conv_2d_pointwise(input: &Tensor, kernel: &Tensor, bias: Option<&Tensor>) -> 
     gemm_slice(
         output.data_mut(),
         out_row_stride,
-        kernel.data(),
-        out_c, /* a rows */
-        in_c,  /* a columns */
-        in_c,  /* a row stride */
-        input.data(),
-        in_c,        /* b rows */
-        in_h * in_w, /* b columns */
-        in_h * in_w, /* b row stride */
+        Matrix {
+            data: kernel.data(),
+            rows: out_c,
+            cols: in_c,
+            row_stride: in_c,
+            col_stride: 1,
+        },
+        Matrix {
+            data: input.data(),
+            rows: in_c,
+            cols: in_h * in_w,
+            row_stride: in_h * in_w,
+            col_stride: 1,
+        },
     );
 
     output.reshape(&[1, out_c, in_h, in_w]);
