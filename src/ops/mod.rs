@@ -360,6 +360,44 @@ impl Operator for ReLU {
     }
 }
 
+pub fn reshape<T: Copy>(input: &Tensor<T>, shape: &Tensor<i32>) -> Tensor<T> {
+    // If exactly one of the new shape's dimensions is -1, infer the size
+    // from the input length and the sizes of the other dimensions.
+    let mut unspecified_dim = None;
+    let mut specified_dims_size = 1;
+    for (dim, size) in shape.elements().enumerate() {
+        if size < -1 {
+            panic!("Invalid dimension size {} in shape", size);
+        } else if size != -1 {
+            specified_dims_size *= size as usize;
+        } else if unspecified_dim.is_some() {
+            panic!("Multiple dimensions in new shape set to -1");
+        } else {
+            unspecified_dim = Some(dim);
+        }
+    }
+    let (unspecified_dim_size, remainder) = match input.len() {
+        0 => (0, 0),
+        _ => (
+            input.len() / specified_dims_size,
+            input.len() % specified_dims_size,
+        ),
+    };
+    if remainder != 0 {
+        panic!("Input length must be a multiple of specified dimensions");
+    }
+
+    let complete_shape: Vec<_> = shape
+        .elements()
+        .map(|size| match size {
+            -1 => unspecified_dim_size,
+            valid => valid as usize,
+        })
+        .collect();
+
+    input.clone_with_shape(&complete_shape)
+}
+
 #[derive(Debug)]
 pub struct Reshape {}
 impl Operator for Reshape {
@@ -370,8 +408,7 @@ impl Operator for Reshape {
     fn run(&self, inputs: &[Input]) -> Output {
         let input = inputs[0].as_float().unwrap();
         let shape = inputs[1].as_int().unwrap();
-        let shape_values: Vec<_> = shape.elements().map(|e| e as usize).collect();
-        input.clone_with_shape(&shape_values).into()
+        reshape(&input, &shape).into()
     }
 
     fn can_run_in_place(&self) -> bool {
@@ -661,10 +698,11 @@ mod tests {
     use crate::linalg::gemm;
     use crate::ops::{
         add, clip, concat, global_average_pool, matmul, max_pool_2d, pad_2d, relu, relu_in_place,
-        sigmoid, sigmoid_in_place, slice, slice_in_place, unsqueeze, Operator, Reshape, Shape,
+        reshape, sigmoid, sigmoid_in_place, slice, slice_in_place, unsqueeze, Operator, Reshape,
+        Shape,
     };
     use crate::rng::XorShiftRNG;
-    use crate::tensor::{from_data, from_scalar, random_tensor, zero_tensor, Tensor};
+    use crate::tensor::{from_data, from_scalar, from_vec, random_tensor, zero_tensor, Tensor};
     use crate::test_util::expect_equal;
 
     #[test]
@@ -774,7 +812,40 @@ mod tests {
     }
 
     #[test]
-    fn test_reshape() -> Result<(), String> {
+    fn test_reshape_with_unspecified_dim() -> Result<(), String> {
+        // Reshape with an unspecified (-1) dim and nonzero-length input
+        let input = from_data(vec![2, 2], vec![-0.5, 0.5, 3.0, -5.5]);
+        let shape = from_vec(vec![1, -1, 2]);
+        let expected = input.clone_with_shape(&[1, 2, 2]);
+        let result = reshape(&input, &shape);
+        expect_equal(&result, &expected)?;
+
+        // Reshape with an unspecified (-1) dim and zero-length input
+        let zero_sized_input = from_data(vec![4, 0, 1], vec![]);
+        let shape = from_vec(vec![100, -1]);
+        let result = reshape(&zero_sized_input, &shape);
+        let expected = zero_sized_input.clone_with_shape(&[100, 0]);
+        expect_equal(&result, &expected)
+    }
+
+    #[test]
+    #[should_panic(expected = "Multiple dimensions in new shape set to -1")]
+    fn test_reshape_with_multiple_unspecified_dims() {
+        let input = from_data(vec![2, 2], vec![-0.5, 0.5, 3.0, -5.5]);
+        let shape = from_vec(vec![1, -1, -1]);
+        reshape(&input, &shape);
+    }
+
+    #[test]
+    #[should_panic(expected = "Input length must be a multiple of specified dimensions")]
+    fn test_reshape_with_unsolvable_unspecified_dim() {
+        let input = from_data(vec![2, 2], vec![-0.5, 0.5, 3.0, -5.5]);
+        let shape = from_vec(vec![5, -1]);
+        reshape(&input, &shape);
+    }
+
+    #[test]
+    fn test_reshape_op() -> Result<(), String> {
         let input = from_data(vec![2, 2], vec![-0.5, 0.5, 3.0, -5.5]);
         let shape = from_data(vec![1], vec![4]);
         let expected = input.clone_with_shape(&[4]);
