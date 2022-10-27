@@ -906,6 +906,44 @@ mod tests {
         assert_eq!(x.elements().collect::<Vec<_>>(), &[1, 2, 4, 5]);
     }
 
+    // PyTorch and numpy do not allow iteration over a scalar, but it seems
+    // consistent for `Tensor::elements` to always yield `Tensor::len` elements,
+    // and `len` returns 1 for a scalar.
+    #[test]
+    fn test_elements_for_scalar() {
+        let x = from_scalar(5.0);
+        let elements = x.elements().collect::<Vec<_>>();
+        assert_eq!(&elements, &[5.0]);
+    }
+
+    #[test]
+    fn test_from_data() {
+        let scalar = from_data(vec![], vec![1.0]);
+        assert_eq!(scalar.len(), 1);
+
+        let matrix = from_data(vec![2, 2], vec![1, 2, 3, 4]);
+        assert_eq!(matrix.shape(), &[2, 2]);
+        assert_eq!(matrix.data(), &[1, 2, 3, 4]);
+    }
+
+    #[test]
+    #[should_panic]
+    fn test_from_data_panics_with_wrong_len() {
+        from_data(vec![1], vec![1, 2, 3]);
+    }
+
+    #[test]
+    #[should_panic]
+    fn test_from_data_panics_if_scalar_data_empty() {
+        from_data::<i32>(vec![], vec![]);
+    }
+
+    #[test]
+    #[should_panic]
+    fn test_from_data_panics_if_scalar_data_has_many_elements() {
+        from_data(vec![], vec![1, 2, 3]);
+    }
+
     #[test]
     fn test_is_contiguous() {
         let mut x = zero_tensor(&[3, 3]);
