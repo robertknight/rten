@@ -1084,5 +1084,11 @@ mod tests {
         // Unsqueeze with axes in decreasing order
         let output = unsqueeze(&input, &[4, 0]);
         assert_eq!(output.shape(), &[1, 3, 4, 5, 1]);
+
+        // Unsqueeze a scalar into a 1-item vec
+        let scalar = from_scalar(2.0);
+        let output = unsqueeze(&scalar, &[0]);
+        assert_eq!(output.shape(), &[1]);
+        assert_eq!(output.data(), &[2.0]);
     }
 }
