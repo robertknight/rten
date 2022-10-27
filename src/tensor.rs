@@ -59,16 +59,17 @@ impl<T: Copy> Tensor<T> {
         self.shape.iter().product()
     }
 
-    /// Clip the size of a dimension to `new_size`. The new size must be <=
-    /// the previous size.
+    /// Clip dimension `dim` to `[start, end)`. The new size for the dimension
+    /// must be <= the old size.
     ///
-    /// This is a fast operation since it just alters the size of the dimension,
-    /// but retains the existing strides.
-    pub fn resize_dim(&mut self, dim: usize, new_size: usize) {
-        if new_size > self.shape[dim] {
-            panic!("New size must be <= old size");
+    /// This is a fast operation since it just alters the start offset within
+    /// the tensor's element buffer and length of the specified dimension.
+    pub fn clip_dim(&mut self, dim: usize, start: usize, end: usize) {
+        if end > self.shape[dim] {
+            panic!("New end must be <= old end");
         }
-        self.shape[dim] = new_size;
+        self.base += self.strides[dim] * start;
+        self.shape[dim] = end - start;
     }
 
     /// Return a contiguous slice of `len` elements starting at `index`.
@@ -611,6 +612,24 @@ mod tests {
     use crate::rng::XorShiftRNG;
     use crate::tensor::{random_tensor, zero_tensor, Tensor};
 
+    /// Create a tensor where the value of each element is its logical index
+    /// plus one.
+    fn steps(shape: &[usize]) -> Tensor<i32> {
+        let mut x = zero_tensor(shape);
+        for (index, elt) in x.data_mut().iter_mut().enumerate() {
+            *elt = (index + 1) as i32;
+        }
+        x
+    }
+
+    #[test]
+    fn test_clip_dim() {
+        let mut x = steps(&[3, 3]);
+        x.clip_dim(0, 1, 2);
+        x.clip_dim(1, 1, 2);
+        assert_eq!(x.elements().collect::<Vec<i32>>(), vec![5]);
+    }
+
     #[test]
     fn test_stride() {
         let x = zero_tensor::<f32>(&[2, 5, 7, 3]);
@@ -702,7 +721,7 @@ mod tests {
         let mut x = random_tensor(&[10, 10], &mut rng);
 
         // Give the tensor a non-default stride
-        x.resize_dim(1, 8);
+        x.clip_dim(1, 0, 8);
         assert!(!x.is_contiguous());
         let x_elements: Vec<f32> = x.elements().collect();
 
@@ -828,11 +847,11 @@ mod tests {
 
         // Slice the tensor. Afterwards the data buffer will be the same but
         // `elements` will only iterate over the new shape.
-        x.resize_dim(0, 2);
+        x.clip_dim(0, 0, 2);
         assert_eq!(x.data(), &[1, 2, 3, 4, 5, 6, 7, 8, 9]);
         assert_eq!(x.elements().collect::<Vec<_>>(), &[1, 2, 3, 4, 5, 6]);
 
-        x.resize_dim(1, 2);
+        x.clip_dim(1, 0, 2);
         assert_eq!(x.data(), &[1, 2, 3, 4, 5, 6, 7, 8, 9]);
         assert_eq!(x.elements().collect::<Vec<_>>(), &[1, 2, 4, 5]);
     }
@@ -845,9 +864,9 @@ mod tests {
         }
 
         assert!(x.is_contiguous());
-        x.resize_dim(0, 2);
+        x.clip_dim(0, 0, 2);
         assert!(x.is_contiguous());
-        x.resize_dim(1, 2);
+        x.clip_dim(1, 0, 2);
         assert!(!x.is_contiguous());
     }
 
@@ -859,18 +878,8 @@ mod tests {
         }
 
         assert!(x.is_contiguous());
-        x.resize_dim(0, 5);
+        x.clip_dim(0, 0, 5);
         assert!(x.is_contiguous());
-    }
-
-    /// Create a tensor where the value of each element is its logical index
-    /// plus one.
-    fn steps(shape: &[usize]) -> Tensor<i32> {
-        let mut x = zero_tensor(shape);
-        for (index, elt) in x.data_mut().iter_mut().enumerate() {
-            *elt = (index + 1) as i32;
-        }
-        x
     }
 
     #[test]
