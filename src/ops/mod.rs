@@ -664,7 +664,7 @@ mod tests {
         sigmoid, sigmoid_in_place, slice, slice_in_place, unsqueeze, Operator, Reshape, Shape,
     };
     use crate::rng::XorShiftRNG;
-    use crate::tensor::{from_data, random_tensor, zero_tensor, Tensor};
+    use crate::tensor::{from_data, from_scalar, random_tensor, zero_tensor, Tensor};
     use crate::test_util::expect_equal;
 
     #[test]
@@ -697,6 +697,13 @@ mod tests {
         let expected = from_data(vec![1, 5], vec![2., 4., 6., 8., 10.]);
 
         let result = add(&a, &b);
+        expect_equal(&result, &expected);
+
+        // Case where one of the inputs is a scalar.
+        let a = from_scalar(3.0);
+        let b = from_data(vec![2, 2], vec![1.0, 2.0, 3.0, 4.0]);
+        let result = add(&a, &b);
+        let expected = from_data(vec![2, 2], vec![4.0, 5.0, 6.0, 7.0]);
         expect_equal(&result, &expected)
     }
 

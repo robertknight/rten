@@ -56,7 +56,11 @@ impl<T: Copy> Tensor<T> {
 
     /// Return the total number of elements in this tensor.
     pub fn len(&self) -> usize {
-        self.shape.iter().product()
+        if self.shape.len() > 0 {
+            self.shape.iter().product()
+        } else {
+            1
+        }
     }
 
     /// Clip dimension `dim` to `[start, end)`. The new size for the dimension
@@ -130,6 +134,16 @@ impl<T: Copy> Tensor<T> {
     /// Return an iterator over elements of this tensor, in their logical order.
     pub fn elements(&self) -> Elements<T> {
         Elements::new(self)
+    }
+
+    /// Returns the single item if this tensor is a 0-dimensional tensor
+    /// (ie. a scalar)
+    pub fn item(&self) -> Option<T> {
+        match self.shape.len() {
+            0 => Some(self.data[self.base]),
+            _ if self.len() == 1 => self.elements().next(),
+            _ => None,
+        }
     }
 
     /// Return an iterator over elements of this tensor, broadcasted to `shape`.
@@ -607,10 +621,20 @@ pub fn from_data<T: Copy>(shape: Vec<usize>, data: Vec<T>) -> Tensor<T> {
     }
 }
 
+/// Create a new 0-dimensional (scalar) tensor from a single value.
+pub fn from_scalar<T: Copy>(value: T) -> Tensor<T> {
+    from_data(vec![], vec![value])
+}
+
+/// Create a new 1-dimensional tensor from a vector
+pub fn from_vec<T: Copy>(data: Vec<T>) -> Tensor<T> {
+    from_data(vec![data.len()], data)
+}
+
 #[cfg(test)]
 mod tests {
     use crate::rng::XorShiftRNG;
-    use crate::tensor::{random_tensor, zero_tensor, Tensor};
+    use crate::tensor::{from_data, from_scalar, from_vec, random_tensor, zero_tensor, Tensor};
 
     /// Create a tensor where the value of each element is its logical index
     /// plus one.
@@ -684,6 +708,21 @@ mod tests {
     }
 
     #[test]
+    fn test_item() {
+        let scalar = from_scalar(5.0);
+        assert_eq!(scalar.item(), Some(5.0));
+
+        let vec_one_item = from_vec(vec![5.0]);
+        assert_eq!(vec_one_item.item(), Some(5.0));
+
+        let vec_many_items = from_vec(vec![1.0, 2.0]);
+        assert_eq!(vec_many_items.item(), None);
+
+        let matrix_one_item = from_data(vec![1, 1], vec![5.0]);
+        assert_eq!(matrix_one_item.item(), Some(5.0));
+    }
+
+    #[test]
     fn test_dims() {
         let x = zero_tensor::<f32>(&[10, 5, 3, 7]);
         let [i, j, k, l] = x.dims();
@@ -699,6 +738,17 @@ mod tests {
     fn test_dims_panics_if_wrong_array_length() {
         let x = zero_tensor::<f32>(&[10, 5, 3, 7]);
         let [_i, _j, _k] = x.dims();
+    }
+
+    #[test]
+    fn test_len() {
+        let scalar = from_scalar(5);
+        let vec = from_vec(vec![1, 2, 3]);
+        let matrix = from_data(vec![2, 2], vec![1, 2, 3, 4]);
+
+        assert_eq!(scalar.len(), 1);
+        assert_eq!(vec.len(), 3);
+        assert_eq!(matrix.len(), 4);
     }
 
     #[test]
@@ -887,15 +937,25 @@ mod tests {
         let x = steps(&[1, 2, 1, 2]);
         assert_eq!(x.elements().collect::<Vec<i32>>(), &[1, 2, 3, 4]);
 
+        // Broadcast a 1-size dimension to size 2
         let bx = x.broadcast_elements(&[2, 2, 1, 2]);
         assert_eq!(bx.collect::<Vec<i32>>(), &[1, 2, 3, 4, 1, 2, 3, 4]);
 
+        // Broadcast a different 1-size dimension to size 2
         let bx = x.broadcast_elements(&[1, 2, 2, 2]);
         assert_eq!(bx.collect::<Vec<i32>>(), &[1, 2, 1, 2, 3, 4, 3, 4]);
 
+        // Broadcast to a larger number of dimensions
         let x = steps(&[5]);
         let bx = x.broadcast_elements(&[1, 5]);
         assert_eq!(bx.collect::<Vec<i32>>(), &[1, 2, 3, 4, 5]);
+    }
+
+    #[test]
+    fn test_broadcast_elements_with_scalar() {
+        let scalar = from_scalar(7);
+        let bx = scalar.broadcast_elements(&[3, 3]);
+        assert_eq!(bx.collect::<Vec<i32>>(), &[7, 7, 7, 7, 7, 7, 7, 7, 7]);
     }
 
     #[test]
