@@ -151,41 +151,55 @@ impl Graph {
             let mut input_shapes = Vec::new();
 
             // Test if the operator can be run in-place to save allocations.
-            // This requires that the inputs are temporary values produced by
+            // This requires that the first input is a temporary value produced by
             // earlier ops, and that they are not going to be needed by other
             // ops in future.
-            let can_run_in_place = op_node.inputs.len() == 1
-                && op_node.operator.can_run_in_place()
+            let can_run_in_place = op_node.operator.can_run_in_place()
                 && temp_values.contains_key(&op_node.inputs[0])
                 && usage_counts.get(&op_node.inputs[0]) == Some(&1);
 
-            let output = if can_run_in_place {
-                let mut input = temp_values
-                    .remove(&op_node.inputs[0])
-                    .unwrap()
-                    .as_float()
-                    .unwrap();
-                op_node.operator.run_in_place(&mut input);
+            // Get the input that is going to also be the output if running in-place
+            let mut in_place_input = if can_run_in_place {
+                Some(
+                    temp_values
+                        .remove(&op_node.inputs[0])
+                        .unwrap()
+                        .as_float()
+                        .unwrap(),
+                )
+            } else {
+                None
+            };
+
+            // Collect all or remaining inputs for the operator
+            let mut op_inputs: Vec<Input> = Vec::new();
+            let immutable_inputs = if can_run_in_place {
+                &op_node.inputs[1..]
+            } else {
+                &op_node.inputs[..]
+            };
+            for node_id in immutable_inputs.iter() {
+                if let Some(&value) = values.get(node_id) {
+                    op_inputs.push(value);
+                } else if let Some(value) = temp_values.get(node_id) {
+                    let input = match value {
+                        Output::IntTensor(t) => Input::IntTensor(&t),
+                        Output::FloatTensor(t) => Input::FloatTensor(&t),
+                    };
+                    op_inputs.push(input);
+                } else {
+                    // If this is reached, there was a bug in plan creation.
+                    panic!(
+                        "Invalid plan did not produce input value {} for operator {}",
+                        node_id, op_node_id
+                    );
+                }
+            }
+
+            let output = if let Some(mut input) = in_place_input {
+                op_node.operator.run_in_place(&mut input, &op_inputs);
                 Output::FloatTensor(input)
             } else {
-                let mut op_inputs: Vec<Input> = Vec::new();
-                for node_id in op_node.inputs.iter() {
-                    if let Some(&value) = values.get(node_id) {
-                        op_inputs.push(value);
-                    } else if let Some(value) = temp_values.get(node_id) {
-                        let input = match value {
-                            Output::IntTensor(t) => Input::IntTensor(&t),
-                            Output::FloatTensor(t) => Input::FloatTensor(&t),
-                        };
-                        op_inputs.push(input);
-                    } else {
-                        // If this is reached, there was a bug in plan creation.
-                        panic!(
-                            "Invalid plan did not produce input value {} for operator {}",
-                            node_id, op_node_id
-                        );
-                    }
-                }
                 input_shapes = op_inputs.iter().map(|x| x.shape()).collect();
                 op_node.operator.run(&op_inputs[..])
             };
@@ -506,7 +520,7 @@ mod tests {
             inputs[0].as_float().unwrap().clone().into()
         }
 
-        fn run_in_place(&self, input: &mut Tensor) {
+        fn run_in_place(&self, input: &mut Tensor, _other: &[Input]) {
             for x in input.data_mut().iter_mut() {
                 *x = *x + 1.0;
             }

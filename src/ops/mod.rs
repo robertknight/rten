@@ -124,7 +124,10 @@ pub trait Operator: Debug {
     }
 
     /// Execute this operator in-place on an existing tensor.
-    fn run_in_place(&self, _input: &mut Tensor) {}
+    ///
+    /// `input` is the first input, and also the output. `other` are the
+    /// remaining inputs.
+    fn run_in_place(&self, _input: &mut Tensor, _other: &[Input]) {}
 }
 
 /// Enum of all the built-in operators
@@ -351,7 +354,7 @@ impl Operator for ReLU {
         true
     }
 
-    fn run_in_place(&self, input: &mut Tensor) {
+    fn run_in_place(&self, input: &mut Tensor, _other: &[Input]) {
         relu_in_place(input);
     }
 }
@@ -422,7 +425,7 @@ impl Operator for Sigmoid {
         true
     }
 
-    fn run_in_place(&self, input: &mut Tensor) {
+    fn run_in_place(&self, input: &mut Tensor, _other: &[Input]) {
         sigmoid_in_place(input);
     }
 }
@@ -537,18 +540,14 @@ impl Operator for Pad2d {
     }
 }
 
-/// Return a copy of a tensor which only retains a subset of a given dimension.
-pub fn slice<T: Copy>(
-    input: &Tensor<T>,
+fn slice_ranges(
+    input_shape: &[usize],
     starts: &Tensor<i32>,
     ends: &Tensor<i32>,
     axes: Option<&Tensor<i32>>,
-) -> Tensor<T> {
-    let mut ranges: Vec<(usize, usize)> = input
-        .shape()
-        .iter()
-        .map(|dim_size| (0, *dim_size))
-        .collect();
+) -> Vec<(usize, usize)> {
+    let mut ranges: Vec<(usize, usize)> =
+        input_shape.iter().map(|dim_size| (0, *dim_size)).collect();
     for (i, (start, end)) in zip(starts.elements(), ends.elements()).enumerate() {
         let axis = if let Some(axes) = axes {
             axes[[i]] as usize
@@ -557,10 +556,35 @@ pub fn slice<T: Copy>(
         };
         ranges[axis] = (start as usize, end as usize);
     }
+    ranges
+}
 
+/// Return a copy of a tensor which only retains a subset of a given dimension.
+pub fn slice<T: Copy>(
+    input: &Tensor<T>,
+    starts: &Tensor<i32>,
+    ends: &Tensor<i32>,
+    axes: Option<&Tensor<i32>>,
+) -> Tensor<T> {
+    let ranges = slice_ranges(input.shape(), starts, ends, axes);
     let sliced_data = input.slice_elements(&ranges).collect();
     let sliced_shape = ranges.iter().map(|(start, end)| end - start).collect();
     from_data(sliced_shape, sliced_data).into()
+}
+
+/// Clip the dimensions of the input tensor specified by `axes` to the ranges
+/// given by `starts` and `ends`. If `axes` is
+/// not set, dimensions
+pub fn slice_in_place<T: Copy>(
+    input: &mut Tensor<T>,
+    starts: &Tensor<i32>,
+    ends: &Tensor<i32>,
+    axes: Option<&Tensor<i32>>,
+) {
+    let ranges = slice_ranges(input.shape(), starts, ends, axes);
+    for (dim, (start, end)) in ranges.iter().copied().enumerate() {
+        input.clip_dim(dim, start, end);
+    }
 }
 
 #[derive(Debug)]
@@ -584,10 +608,14 @@ impl Operator for Slice {
     }
 
     fn can_run_in_place(&self) -> bool {
-        // In-place slicing is disabled until `run_in_place` can accept all
-        // of the operator's inputs, not just the first one. Inputs other than
-        // the first one can be passed immutably.
-        false
+        true
+    }
+
+    fn run_in_place(&self, input: &mut Tensor, other: &[Input]) {
+        let starts = other[0].as_int().unwrap();
+        let ends = other[1].as_int().unwrap();
+        let axes = other.get(2).map(|t| t.as_int().unwrap());
+        slice_in_place(input, starts, ends, axes);
     }
 }
 
@@ -599,7 +627,7 @@ mod tests {
     use crate::linalg::gemm;
     use crate::ops::{
         add, clip, concat, global_average_pool, matmul, max_pool_2d, pad_2d, relu, relu_in_place,
-        sigmoid, sigmoid_in_place, slice, Operator, Reshape, Shape,
+        sigmoid, sigmoid_in_place, slice, slice_in_place, Operator, Reshape, Shape,
     };
     use crate::rng::XorShiftRNG;
     use crate::tensor::{from_data, random_tensor, zero_tensor, Tensor};
@@ -785,6 +813,23 @@ mod tests {
 
     fn from_slice<T: Copy>(data: &[T]) -> Tensor<T> {
         from_data(vec![data.len()], data.into())
+    }
+
+    #[test]
+    fn test_slice_in_place() {
+        let mut rng = XorShiftRNG::new(5678);
+        let mut input = random_tensor(&[2, 2, 5, 3], &mut rng);
+
+        let starts = from_slice(&[2]);
+        let ends = from_slice(&[4]);
+        let axes = from_slice(&[2]);
+
+        slice_in_place(&mut input, &starts, &ends, Some(&axes));
+
+        assert_eq!(
+            input.shape(),
+            vec![2, 2, ends[[0]] as usize - starts[[0]] as usize, 3]
+        );
     }
 
     #[test]
