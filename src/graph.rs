@@ -159,7 +159,7 @@ impl Graph {
                 && usage_counts.get(&op_node.inputs[0]) == Some(&1);
 
             // Get the input that is going to also be the output if running in-place
-            let mut in_place_input = if can_run_in_place {
+            let in_place_input = if can_run_in_place {
                 Some(
                     temp_values
                         .remove(&op_node.inputs[0])

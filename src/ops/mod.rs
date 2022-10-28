@@ -735,7 +735,7 @@ mod tests {
         let expected = from_data(vec![1, 5], vec![2., 4., 6., 8., 10.]);
 
         let result = add(&a, &b);
-        expect_equal(&result, &expected);
+        expect_equal(&result, &expected)?;
 
         // Case where one of the inputs is a scalar.
         let a = from_scalar(3.0);

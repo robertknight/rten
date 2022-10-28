@@ -141,7 +141,7 @@ fn read_sigmoid_op(_: &OperatorNode) -> Box<dyn Operator> {
     Box::new(ops::Sigmoid {})
 }
 
-fn read_slice_op(node: &OperatorNode) -> Box<dyn Operator> {
+fn read_slice_op(_: &OperatorNode) -> Box<dyn Operator> {
     Box::new(ops::Slice {})
 }
 
