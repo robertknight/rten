@@ -223,6 +223,18 @@ impl<T: Copy> Tensor<T> {
         self.strides = strides_for_shape(&shape);
     }
 
+    /// Re-order the dimensions according to `dims`.
+    ///
+    /// This does not modify the order of elements in the data buffer, it merely
+    /// updates the strides used by indexing.
+    pub fn permute(&mut self, dims: &[usize]) {
+        if dims.len() != self.shape.len() {
+            panic!("Permute dims length does not match dimension count");
+        }
+        self.strides = dims.iter().map(|&dim| self.strides[dim]).collect();
+        self.shape = dims.iter().map(|&dim| self.shape[dim]).collect();
+    }
+
     /// Return the number of elements between successive entries in the `dim`
     /// dimension.
     pub fn stride(&self, dim: usize) -> usize {
@@ -790,6 +802,41 @@ mod tests {
         let mut rng = XorShiftRNG::new(1234);
         let mut x = random_tensor(&[10, 5, 3, 7], &mut rng);
         x.reshape(&[10, 5]);
+    }
+
+    #[test]
+    fn test_permute() {
+        // Test with a vector (this is a no-op)
+        let mut input = steps(&[5]);
+        assert!(input.elements().eq([1, 2, 3, 4, 5].iter().copied()));
+        input.permute(&[0]);
+        assert!(input.elements().eq([1, 2, 3, 4, 5].iter().copied()));
+
+        // Test with a matrix (ie. transpose the matrix)
+        let mut input = steps(&[2, 3]);
+        assert!(input.elements().eq([1, 2, 3, 4, 5, 6].iter().copied()));
+        input.permute(&[1, 0]);
+        assert_eq!(input.shape(), &[3, 2]);
+        assert!(input.elements().eq([1, 4, 2, 5, 3, 6].iter().copied()));
+
+        // Test with a higher-rank tensor. For this test we don't list out the
+        // full permuted element sequence, but just check the shape and strides
+        // were updated.
+        let mut input = steps(&[3, 4, 5]);
+        let (stride_0, stride_1, stride_2) = (input.stride(0), input.stride(1), input.stride(2));
+        input.permute(&[2, 0, 1]);
+        assert_eq!(input.shape(), &[5, 3, 4]);
+        assert_eq!(
+            (input.stride(0), input.stride(1), input.stride(2)),
+            (stride_2, stride_0, stride_1)
+        );
+    }
+
+    #[test]
+    #[should_panic(expected = "Permute dims length does not match dimension count")]
+    fn test_permute_wrong_dim_count() {
+        let mut input = steps(&[2, 3]);
+        input.permute(&[1, 2, 3]);
     }
 
     #[test]
