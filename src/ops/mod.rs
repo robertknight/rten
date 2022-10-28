@@ -201,6 +201,12 @@ pub fn clip(input: &Tensor, min: f32, max: f32) -> Tensor {
     input.map(|x| x.max(min).min(max))
 }
 
+pub fn clip_in_place(input: &mut Tensor, min: f32, max: f32) {
+    for val in input.data_mut().iter_mut() {
+        *val = val.max(min).min(max)
+    }
+}
+
 #[derive(Debug)]
 pub struct Clip {
     pub min: f32,
@@ -215,6 +221,14 @@ impl Operator for Clip {
     fn run(&self, inputs: &[Input]) -> Output {
         let input = inputs[0].as_float().unwrap();
         clip(input, self.min, self.max).into()
+    }
+
+    fn can_run_in_place(&self) -> bool {
+        true
+    }
+
+    fn run_in_place(&self, input: &mut Tensor, _: &[Input]) {
+        clip_in_place(input, self.min, self.max)
     }
 }
 
@@ -732,8 +746,8 @@ impl Operator for Unsqueeze {
 mod tests {
     use crate::linalg::gemm;
     use crate::ops::{
-        add, clip, concat, gather, global_average_pool, matmul, max_pool_2d, pad_2d, relu,
-        relu_in_place, reshape, sigmoid, sigmoid_in_place, slice, slice_in_place, unsqueeze,
+        add, clip, clip_in_place, concat, gather, global_average_pool, matmul, max_pool_2d, pad_2d,
+        relu, relu_in_place, reshape, sigmoid, sigmoid_in_place, slice, slice_in_place, unsqueeze,
         Operator, Reshape, Shape,
     };
     use crate::rng::XorShiftRNG;
@@ -786,6 +800,14 @@ mod tests {
         let expected = from_data(vec![2, 2], vec![1., 1., 3., 5.]);
         let result = clip(&input, 1.0, 5.0);
         expect_equal(&result, &expected)
+    }
+
+    #[test]
+    fn test_clip_in_place() -> Result<(), String> {
+        let mut input = from_data(vec![2, 2], vec![-5., -2., 3., 20.]);
+        let expected = from_data(vec![2, 2], vec![1., 1., 3., 5.]);
+        clip_in_place(&mut input, 1.0, 5.0);
+        expect_equal(&input, &expected)
     }
 
     #[test]
