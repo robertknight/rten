@@ -739,9 +739,6 @@ impl Operator for Unsqueeze {
     }
 }
 
-// Expectated values of operations in tests should be computed from the
-// corresponding operations in PyTorch, since that is the framework being used
-// to train the models that will initially be executed with this library.
 #[cfg(test)]
 mod tests {
     use crate::linalg::gemm;
