@@ -1,6 +1,6 @@
 use crate::linalg::{add_scaled_vector, div_ceil, gemm, gemm_slice, Matrix};
 use crate::ops::{Input, Operator, Output};
-use crate::tensor::{zero_tensor, Tensor};
+use crate::tensor::{from_data, zero_tensor, Tensor};
 
 /// Calculate the spatial size of a convolution output given the spatial
 /// dimensions of the input, kernel and padding. All size tuples are (height,
@@ -134,6 +134,7 @@ fn col2im(
     start_chan: usize,
     y_patches: usize,
     x_patches: usize,
+    bias: Option<&Tensor>,
 ) {
     let [group_chans, n_patches] = input.dims();
 
@@ -141,28 +142,16 @@ fn col2im(
         let mut out_view = output.unchecked_view_mut([image_index, start_chan + c, 0, 0]);
         let in_row = input.last_dim_slice([c, 0], n_patches);
 
+        let bias = if let Some(bias) = bias {
+            bias[[start_chan + c]]
+        } else {
+            0.0
+        };
+
         for y in 0..y_patches {
             for x in 0..x_patches {
                 let patch = y * x_patches + x;
-                out_view[[y, x]] = in_row[patch];
-            }
-        }
-    }
-}
-
-/// Add per-channel biases to an NCHW tensor. Bias is a C-length vector.
-fn add_channel_bias(output: &mut Tensor, bias: &Tensor) {
-    let [batch, chans, height, width] = output.dims();
-
-    for n in 0..batch {
-        for c in 0..chans {
-            let mut out_view = output.unchecked_view_mut([n, c, 0, 0]);
-            let chan_bias = bias[[c]];
-
-            for y in 0..height {
-                for x in 0..width {
-                    out_view[[y, x]] += chan_bias;
-                }
+                out_view[[y, x]] = in_row[patch] + bias;
             }
         }
     }
@@ -174,7 +163,16 @@ fn conv_2d_pointwise(input: &Tensor, kernel: &Tensor, bias: Option<&Tensor>) -> 
     let [_, _, in_h, in_w] = input.dims();
     let [out_c, in_c, _, _] = kernel.dims();
 
-    let mut output = zero_tensor(&[out_c, in_h * in_w]);
+    let mut output = if let Some(bias) = bias {
+        let mut out_data = Vec::with_capacity(out_c * in_h * in_w);
+        for c in 0..out_c {
+            out_data.resize((c + 1) * in_h * in_w, bias[[c]]);
+        }
+        from_data(vec![out_c, in_h * in_w], out_data)
+    } else {
+        zero_tensor(&[out_c, in_h * in_w])
+    };
+
     let out_row_stride = output.stride(0);
 
     // Use the low-level gemm_slice API to simplicitly reshape the input and
@@ -202,10 +200,6 @@ fn conv_2d_pointwise(input: &Tensor, kernel: &Tensor, bias: Option<&Tensor>) -> 
     );
 
     output.reshape(&[1, out_c, in_h, in_w]);
-
-    if let Some(bias) = bias {
-        add_channel_bias(&mut output, bias);
-    }
 
     output
 }
@@ -239,6 +233,13 @@ fn conv_2d_depthwise(
             for out_y in 0..out_h {
                 let out_row = output.last_dim_slice_mut([n, c, out_y, 0], out_w);
 
+                if let Some(bias) = bias {
+                    let chan_bias = bias[[c]];
+                    for el in out_row.iter_mut() {
+                        *el += chan_bias;
+                    }
+                }
+
                 for k_y in 0..k_h {
                     let in_y = out_y * stride + k_y;
                     if in_y < pad_h || in_y >= in_h + pad_h {
@@ -270,10 +271,6 @@ fn conv_2d_depthwise(
                 }
             }
         }
-    }
-
-    if let Some(bias) = bias {
-        add_channel_bias(&mut output, bias);
     }
 
     output
@@ -363,16 +360,20 @@ pub fn conv_2d(
             );
             unroll_kernel(&mut kernel_mat, kernel, out_chan_start, out_chan_end);
             gemm(&mut output_mat, &kernel_mat, &im2col_mat);
-            col2im(&mut output, &output_mat, n, out_chan_start, out_h, out_w);
+            col2im(
+                &mut output,
+                &output_mat,
+                n,
+                out_chan_start,
+                out_h,
+                out_w,
+                bias,
+            );
 
             // `gemm` currently accumulates into the output buffer, so we need
             // to clear it between iterations.
             output_mat.data_mut().fill(0.0);
         }
-    }
-
-    if let Some(bias) = bias {
-        add_channel_bias(&mut output, bias);
     }
 
     output
@@ -473,6 +474,16 @@ pub fn conv_transpose_2d(
 
     for n in 0..batch {
         for out_chan in 0..out_c {
+            if let Some(bias) = bias {
+                let chan_bias = bias[[out_chan]];
+                for out_y in 0..out_h {
+                    let out_row = output.last_dim_slice_mut([n, out_chan, out_y, 0], out_w);
+                    for el in out_row.iter_mut() {
+                        *el = chan_bias;
+                    }
+                }
+            }
+
             for in_chan in 0..in_c {
                 let kernel_view = kernel.unchecked_view([in_chan, out_chan, 0, 0]);
 
@@ -496,10 +507,6 @@ pub fn conv_transpose_2d(
                 }
             }
         }
-    }
-
-    if let Some(bias) = bias {
-        add_channel_bias(&mut output, bias);
     }
 
     output
