@@ -141,7 +141,7 @@ fn kernel<const H: usize, const W: usize>(
 /// Pack a block of the "A" matrix.
 ///
 /// The packed buffer is laid out as a sequence of `ceil(rows.len() / PANEL_HEIGHT)`
-/// row panels. Each row panel has size `PANEL_HEIGHT * panel_width` and uses
+/// row panels. Each row panel has size `PANEL_HEIGHT * cols.len()` and uses
 /// column-major order. If `rows.len()` is not a multiple of `PANEL_HEIGHT`, the
 /// final panel is zero-padded.
 fn pack_a_block<const PANEL_HEIGHT: usize>(
@@ -172,7 +172,7 @@ fn pack_a_block<const PANEL_HEIGHT: usize>(
     }
 }
 
-/// Pack block of the "B" matrix.
+/// Pack a block of the "B" matrix.
 ///
 /// The packed buffer is laid out as a sequence of `ceil(cols.len() /
 /// PANEL_WIDTH)` column panels. Each column panel has size `rows.len() *
