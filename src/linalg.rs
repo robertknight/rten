@@ -349,19 +349,36 @@ pub fn gemm_slice(out_data: &mut [f32], out_row_stride: usize, a: Matrix, b: Mat
     const MR: usize = 8;
     const NR: usize = 4;
 
-    // Buffers for packed blocks of the matrix. These currently have no
-    // alignment specified. The paper mentioned above suggests that aligning to
-    // cache-line (ie. 64-byte) boundaries may help performance.
-    let mut packed_b = vec![0.0; kc * nc];
-    let mut packed_a = vec![0.0; mc * kc];
+    // Buffer for packed blocks of the matrix. Conceptually there are two
+    // buffers, but we coalesce them into one allocation.
+    //
+    // These currently have no alignment specified. The paper mentioned above
+    // suggests that aligning to cache-line (ie. 64-byte) boundaries may help
+    // performance.
+    let packed_b_size = kc * nc;
+    let packed_a_size = mc * kc;
+    let mut packed = vec![0.0; packed_b_size + packed_a_size];
 
     for (col_start, col_end) in blocks(0, b.cols, nc) {
         for (depth_start, depth_end) in blocks(0, a.cols, kc) {
             let panel_length = depth_end - depth_start;
-            pack_b_block::<NR>(&mut packed_b, b, depth_start..depth_end, col_start..col_end);
+            pack_b_block::<NR>(
+                &mut packed[..packed_b_size],
+                b,
+                depth_start..depth_end,
+                col_start..col_end,
+            );
 
             for (row_start, row_end) in blocks(0, a.rows, mc) {
-                pack_a_block::<MR>(&mut packed_a, a, row_start..row_end, depth_start..depth_end);
+                pack_a_block::<MR>(
+                    &mut packed[packed_b_size..],
+                    a,
+                    row_start..row_end,
+                    depth_start..depth_end,
+                );
+
+                let packed_b = &packed[..packed_b_size];
+                let packed_a = &packed[packed_b_size..];
 
                 let b_panel_size = panel_length * NR;
                 let a_panel_size = MR * panel_length;
