@@ -194,14 +194,24 @@ fn pack_b_block<const PANEL_WIDTH: usize>(
 
         if b_cols - panel_start_col >= PANEL_WIDTH {
             // Optimized loop for panels that don't need any padding
-            for row in 0..b_rows {
-                let out_row_offset = panel_offset + row * PANEL_WIDTH;
-                let out_row = &mut out[out_row_offset..out_row_offset + PANEL_WIDTH];
-                let b_offset = (rows.start + row) * b.row_stride
-                    + (cols.start + panel_start_col) * b.col_stride;
+            let out_offset = panel_offset;
+            let b_offset =
+                rows.start * b.row_stride + (cols.start + panel_start_col) * b.col_stride;
 
+            assert!(out.len() >= out_offset + (b_rows - 1) * PANEL_WIDTH + PANEL_WIDTH);
+            assert!(
+                b.data.len()
+                    > b_offset + (b_rows - 1) * b.row_stride + (PANEL_WIDTH - 1) * b.col_stride
+            );
+
+            for row in 0..b_rows {
                 for col in 0..PANEL_WIDTH {
-                    out_row[col] = b.data[b_offset + col * b.col_stride];
+                    // Safety: Indexes are less than lengths asserted above.
+                    unsafe {
+                        *out.get_unchecked_mut(out_offset + row * PANEL_WIDTH + col) = *b
+                            .data
+                            .get_unchecked(b_offset + row * b.row_stride + col * b.col_stride);
+                    }
                 }
             }
         } else {
