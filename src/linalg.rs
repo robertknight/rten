@@ -114,6 +114,10 @@ fn kernel<const H: usize, const W: usize>(
     b: &[f32],
     depth: usize,
 ) {
+    assert!(a.len() >= depth * H);
+    assert!(b.len() >= depth * W);
+    assert!(out.len() >= (used_rows - 1) * out_row_stride + used_cols);
+
     // Accumulate into a fixed-sized array to allow the compiler to generate
     // more efficient code for the loop over `depth`.
     let mut tmp = [[0.0; W]; H];
@@ -123,7 +127,10 @@ fn kernel<const H: usize, const W: usize>(
 
         for i in 0..H {
             for j in 0..W {
-                tmp[i][j] += a[a_off + i] * b[b_off + j];
+                // Safety: Indexes are less than lengths asserted above.
+                unsafe {
+                    tmp[i][j] += a.get_unchecked(a_off + i) * b.get_unchecked(b_off + j);
+                }
             }
         }
     }
@@ -131,9 +138,12 @@ fn kernel<const H: usize, const W: usize>(
     // The `min` operations here are strictly redundant as `used_rows` <= H and
     // `used_cols` <= W. Curiously the kernel ran faster under WASM when they
     // are left in.
-    for i in 0..H.min(used_rows) {
-        for j in 0..W.min(used_cols) {
-            out[out_row_stride * i + j] += tmp[i][j];
+    for i in 0..used_rows {
+        for j in 0..used_cols {
+            // Safety: Index is less than length asserted above.
+            unsafe {
+                *out.get_unchecked_mut(out_row_stride * i + j) += tmp[i][j];
+            }
         }
     }
 }
@@ -147,6 +157,10 @@ fn kernel_full<const H: usize, const W: usize>(
     b: &[f32],
     depth: usize,
 ) {
+    assert!(a.len() >= depth * H);
+    assert!(b.len() >= depth * W);
+    assert!(out.len() >= (H - 1) * out_row_stride + W);
+
     // Accumulate into a fixed-sized array to allow the compiler to generate
     // more efficient code for the loop over `depth`.
     let mut tmp = [[0.0; W]; H];
@@ -156,14 +170,20 @@ fn kernel_full<const H: usize, const W: usize>(
 
         for i in 0..H {
             for j in 0..W {
-                tmp[i][j] += a[a_off + i] * b[b_off + j];
+                // Safety: Indexes are less than lengths asserted above.
+                unsafe {
+                    tmp[i][j] += a.get_unchecked(a_off + i) * b.get_unchecked(b_off + j);
+                }
             }
         }
     }
 
     for i in 0..H {
         for j in 0..W {
-            out[out_row_stride * i + j] += tmp[i][j];
+            // Safety: Index is less than length asserted above.
+            unsafe {
+                *out.get_unchecked_mut(out_row_stride * i + j) += tmp[i][j];
+            }
         }
     }
 }
