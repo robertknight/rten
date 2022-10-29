@@ -138,6 +138,36 @@ fn kernel<const H: usize, const W: usize>(
     }
 }
 
+/// This is the same as `kernel`, but optimized for a "full" tile where all rows
+/// and columns are used.
+fn kernel_full<const H: usize, const W: usize>(
+    out: &mut [f32],
+    out_row_stride: usize,
+    a: &[f32],
+    b: &[f32],
+    depth: usize,
+) {
+    // Accumulate into a fixed-sized array to allow the compiler to generate
+    // more efficient code for the loop over `depth`.
+    let mut tmp = [[0.0; W]; H];
+    for k in 0..depth {
+        let a_off = k * H;
+        let b_off = k * W;
+
+        for i in 0..H {
+            for j in 0..W {
+                tmp[i][j] += a[a_off + i] * b[b_off + j];
+            }
+        }
+    }
+
+    for i in 0..H {
+        for j in 0..W {
+            out[out_row_stride * i + j] += tmp[i][j];
+        }
+    }
+}
+
 /// Pack a block of the "A" matrix.
 ///
 /// The packed buffer is laid out as a sequence of `ceil(rows.len() / PANEL_HEIGHT)`
@@ -349,15 +379,28 @@ pub fn gemm_slice(out_data: &mut [f32], out_row_stride: usize, a: Matrix, b: Mat
                         let out_offset = tile_row_start * out_row_stride + tile_col_start;
                         let out_tile = &mut out_data[out_offset..];
 
-                        kernel::<MR, NR>(
-                            out_tile,
-                            out_row_stride,
-                            tile_row_end - tile_row_start,
-                            tile_col_end - tile_col_start,
-                            a_panel,
-                            b_panel,
-                            panel_length,
-                        );
+                        let used_rows = tile_row_end - tile_row_start;
+                        let used_cols = tile_col_end - tile_col_start;
+
+                        if used_rows == MR && used_cols == NR {
+                            kernel_full::<MR, NR>(
+                                out_tile,
+                                out_row_stride,
+                                a_panel,
+                                b_panel,
+                                panel_length,
+                            );
+                        } else {
+                            kernel::<MR, NR>(
+                                out_tile,
+                                out_row_stride,
+                                tile_row_end - tile_row_start,
+                                tile_col_end - tile_col_start,
+                                a_panel,
+                                b_panel,
+                                panel_length,
+                            );
+                        }
                     }
                 }
             }
