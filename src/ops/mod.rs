@@ -370,10 +370,11 @@ pub fn global_average_pool(input: &Tensor) -> Tensor {
 
     for n in 0..batch {
         for c in 0..chans {
+            let in_view = input.unchecked_view([n, c, 0, 0]);
             let mut sum = 0.0;
             for y in 0..in_h {
                 for x in 0..in_w {
-                    sum += input[[n, c, y, x]];
+                    sum += in_view[[y, x]];
                 }
             }
             output[[n, c, 0, 0]] = sum / hw_float;
