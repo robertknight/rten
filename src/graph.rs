@@ -160,13 +160,7 @@ impl Graph {
 
             // Get the input that is going to also be the output if running in-place
             let in_place_input = if can_run_in_place {
-                Some(
-                    temp_values
-                        .remove(&op_node.inputs[0])
-                        .unwrap()
-                        .as_float()
-                        .unwrap(),
-                )
+                Some(temp_values.remove(&op_node.inputs[0]).unwrap())
             } else {
                 None
             };
@@ -196,9 +190,8 @@ impl Graph {
                 }
             }
 
-            let output = if let Some(mut input) = in_place_input {
-                op_node.operator.run_in_place(&mut input, &op_inputs);
-                Output::FloatTensor(input)
+            let output = if let Some(input) = in_place_input {
+                op_node.operator.run_in_place(input, &op_inputs)
             } else {
                 input_shapes = op_inputs.iter().map(|x| x.shape()).collect();
                 op_node.operator.run(&op_inputs[..])
@@ -350,7 +343,7 @@ impl Graph {
 mod tests {
     use crate::graph::Graph;
     use crate::ops::{Concat, Conv2d, Input, Operator, Output, Padding, ReLU};
-    use crate::tensor::{from_data, zero_tensor, Tensor};
+    use crate::tensor::{from_data, zero_tensor};
     use crate::test_util::expect_equal;
 
     // Test of a very simple graph with a typical structure (one input, one
@@ -520,10 +513,12 @@ mod tests {
             inputs[0].as_float().unwrap().clone().into()
         }
 
-        fn run_in_place(&self, input: &mut Tensor, _other: &[Input]) {
-            for x in input.data_mut().iter_mut() {
+        fn run_in_place(&self, input: Output, _other: &[Input]) -> Output {
+            let mut output = input.as_float().unwrap();
+            for x in output.data_mut().iter_mut() {
                 *x = *x + 1.0;
             }
+            output.into()
         }
     }
 

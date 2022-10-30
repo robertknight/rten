@@ -125,9 +125,13 @@ pub trait Operator: Debug {
 
     /// Execute this operator in-place on an existing tensor.
     ///
-    /// `input` is the first input, and also the output. `other` are the
-    /// remaining inputs.
-    fn run_in_place(&self, _input: &mut Tensor, _other: &[Input]) {}
+    /// `input` is the first input, which the implementation may modify and
+    /// return as the output. `other` are the remaining inputs.
+    ///
+    /// The default implementation just returns the input without modifying it.
+    fn run_in_place(&self, input: Output, _other: &[Input]) -> Output {
+        input
+    }
 }
 
 /// Enum of all the built-in operators
@@ -228,8 +232,10 @@ impl Operator for Clip {
         true
     }
 
-    fn run_in_place(&self, input: &mut Tensor, _: &[Input]) {
-        clip_in_place(input, self.min, self.max)
+    fn run_in_place(&self, input: Output, _: &[Input]) -> Output {
+        let mut output = input.as_float().unwrap();
+        clip_in_place(&mut output, self.min, self.max);
+        output.into()
     }
 }
 
@@ -501,8 +507,10 @@ impl Operator for ReLU {
         true
     }
 
-    fn run_in_place(&self, input: &mut Tensor, _other: &[Input]) {
-        relu_in_place(input);
+    fn run_in_place(&self, input: Output, _other: &[Input]) -> Output {
+        let mut output = input.as_float().unwrap();
+        relu_in_place(&mut output);
+        output.into()
     }
 }
 
@@ -609,8 +617,10 @@ impl Operator for Sigmoid {
         true
     }
 
-    fn run_in_place(&self, input: &mut Tensor, _other: &[Input]) {
-        sigmoid_in_place(input);
+    fn run_in_place(&self, input: Output, _other: &[Input]) -> Output {
+        let mut output = input.as_float().unwrap();
+        sigmoid_in_place(&mut output);
+        output.into()
     }
 }
 
@@ -800,11 +810,13 @@ impl Operator for Slice {
         true
     }
 
-    fn run_in_place(&self, input: &mut Tensor, other: &[Input]) {
+    fn run_in_place(&self, input: Output, other: &[Input]) -> Output {
+        let mut output = input.as_float().unwrap();
         let starts = other[0].as_int().unwrap();
         let ends = other[1].as_int().unwrap();
         let axes = other.get(2).map(|t| t.as_int().unwrap());
-        slice_in_place(input, starts, ends, axes);
+        slice_in_place(&mut output, starts, ends, axes);
+        output.into()
     }
 }
 
