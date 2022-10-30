@@ -173,12 +173,12 @@ fn conv_2d_pointwise(input: &Tensor, kernel: &Tensor, bias: Option<&Tensor>) -> 
         zero_tensor(&[out_c, in_h * in_w])
     };
 
-    // The implicit reshaping of the input below assumes default row and
-    // column strides for an NCHW matrix. This constraint could be lifted by
-    // using reshaping where possible or copying the input otherwise.
+    // The implicit reshaping of the inputs below assumes they have a contiguous
+    // layout. This constraint could be lifted by using reshaping where possible
+    // or copying the input otherwise.
     assert!(
-        input.is_contiguous(),
-        "conv_2d_pointwise currently requires contiguous input"
+        input.is_contiguous() && kernel.is_contiguous(),
+        "conv_2d_pointwise currently requires contiguous inputs"
     );
 
     let out_row_stride = output.stride(0);
