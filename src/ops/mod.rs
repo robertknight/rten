@@ -1,7 +1,7 @@
 use std::fmt::Debug;
 use std::iter::zip;
 
-use crate::linalg::gemm;
+use crate::linalg::{gemm, gemm_slice, Matrix};
 use crate::tensor::{from_data, from_scalar, zero_tensor, Tensor};
 
 mod conv;
@@ -275,12 +275,6 @@ pub struct Gemm {
     pub transpose_b: bool,
 }
 
-fn transposed(input: &Tensor) -> Tensor {
-    let mut out = input.clone();
-    out.permute(&[1, 0]);
-    out
-}
-
 /// Compute the General Matrix Multiplication (GEMM) `c = alpha * (ab) + beta * c`.
 ///
 /// If `transpose_a` or `transpose_b` are set, the `a` and `b` inputs
@@ -303,31 +297,46 @@ pub fn gemm_op(
         panic!("Gemm only supports `beta` values of 0.0 and 1.0");
     }
 
-    let a_transposed = if transpose_a {
-        Some(transposed(a))
+    let (a_rows, a_cols, a_row_stride, a_col_stride) = if transpose_a {
+        (a.shape()[1], a.shape()[0], a.stride(1), a.stride(0))
     } else {
-        None
+        (a.shape()[0], a.shape()[1], a.stride(0), a.stride(1))
     };
-    let b_transposed = if transpose_b {
-        Some(transposed(b))
+    let (b_rows, b_cols, b_row_stride, b_col_stride) = if transpose_b {
+        (b.shape()[1], b.shape()[0], b.stride(1), b.stride(0))
     } else {
-        None
+        (b.shape()[0], b.shape()[1], b.stride(0), b.stride(1))
     };
 
-    let a = a_transposed.as_ref().unwrap_or(a);
-    let b = b_transposed.as_ref().unwrap_or(b);
-
-    let [a_rows, _] = a.dims();
-    let [_, b_cols] = b.dims();
-
+    let out_shape = &[a_rows, b_cols][..];
     let mut output = if c.is_some() && beta == 1.0 {
-        let out_data = c.unwrap().broadcast_elements(&[a_rows, b_cols]).collect();
-        from_data(vec![a_rows, b_cols], out_data)
+        let out_data = c.unwrap().broadcast_elements(out_shape).collect();
+        from_data(out_shape.into(), out_data)
     } else {
-        zero_tensor(&[a_rows, b_cols])
+        zero_tensor(out_shape)
     };
 
-    gemm(&mut output, &a, &b);
+    let out_row_stride = output.stride(0);
+
+    gemm_slice(
+        output.data_mut(),
+        out_row_stride,
+        Matrix {
+            data: a.data(),
+            rows: a_rows,
+            cols: a_cols,
+            row_stride: a_row_stride,
+            col_stride: a_col_stride,
+        },
+        Matrix {
+            data: b.data(),
+            rows: b_rows,
+            cols: b_cols,
+            row_stride: b_row_stride,
+            col_stride: b_col_stride,
+        },
+    );
+
     output
 }
 
