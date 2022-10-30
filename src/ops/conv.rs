@@ -183,7 +183,7 @@ fn conv_2d_pointwise(input: &Tensor, kernel: &Tensor, bias: Option<&Tensor>) -> 
 
     let out_row_stride = output.stride(0);
 
-    // Use the low-level gemm_slice API to simplicitly reshape the input and
+    // Use the low-level gemm_slice API to implicitly reshape the input and
     // kernel to `in_c x in_h*in_w` and `out_c x in_c` matrices respectively.
     //
     // If this package supported creating reshaped views of existing tensors,
