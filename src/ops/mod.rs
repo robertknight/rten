@@ -183,8 +183,24 @@ fn binary_op<T: Copy + Debug, F: Fn(T, T) -> T>(a: &Tensor<T>, b: &Tensor<T>, op
     from_data(out_shape.into(), out_data)
 }
 
+/// Perform binary addition of two tensors.
 pub fn add(a: &Tensor, b: &Tensor) -> Tensor {
     binary_op(a, b, |x, y| x + y)
+}
+
+/// Perform in-place binary addition of two tensors.
+///
+/// This currently only supports the case where both inputs have exactly the
+/// same shape, so no broadcasting is required, and the inputs are contigious.
+pub fn add_in_place(a: &mut Tensor, b: &Tensor) {
+    // The requirement for contiguous inputs is because `Tensor` lacks a way to
+    // get a mutable iterator over elements in sequence. Once that functionality
+    // is added, this constraint can be relaxed.
+    assert!(a.is_contiguous());
+    assert!(b.is_contiguous());
+    for (a_elt, b_elt) in zip(a.data_mut().iter_mut(), b.data().iter()) {
+        *a_elt += b_elt;
+    }
 }
 
 #[derive(Debug)]
@@ -199,6 +215,22 @@ impl Operator for Add {
         let a = inputs[0].as_float().unwrap();
         let b = inputs[1].as_float().unwrap();
         add(a, b).into()
+    }
+
+    fn can_run_in_place(&self) -> bool {
+        true
+    }
+
+    fn run_in_place(&self, input: Output, other: &[Input]) -> Output {
+        let mut a = input.as_float().unwrap();
+        let b = other[0].as_float().unwrap();
+
+        if a.shape() == b.shape() && a.is_contiguous() && b.is_contiguous() {
+            add_in_place(&mut a, &b);
+            a.into()
+        } else {
+            self.run(&[(&a).into(), b.into()])
+        }
     }
 }
 
@@ -852,9 +884,9 @@ impl Operator for Unsqueeze {
 mod tests {
     use crate::linalg::gemm;
     use crate::ops::{
-        add, clip, clip_in_place, concat, gather, gemm_op, global_average_pool, matmul,
-        max_pool_2d, pad_2d, relu, relu_in_place, reshape, sigmoid, sigmoid_in_place, slice,
-        slice_in_place, unsqueeze, Operator, Reshape, Shape,
+        add, add_in_place, clip, clip_in_place, concat, gather, gemm_op, global_average_pool,
+        matmul, max_pool_2d, pad_2d, relu, relu_in_place, reshape, sigmoid, sigmoid_in_place,
+        slice, slice_in_place, unsqueeze, Add, Operator, Output, Reshape, Shape,
     };
     use crate::rng::XorShiftRNG;
     use crate::tensor::{from_data, from_scalar, from_vec, random_tensor, zero_tensor, Tensor};
@@ -898,6 +930,29 @@ mod tests {
         let result = add(&a, &b);
         let expected = from_data(vec![2, 2], vec![4.0, 5.0, 6.0, 7.0]);
         expect_equal(&result, &expected)
+    }
+
+    #[test]
+    fn test_add_in_place() -> Result<(), String> {
+        // Invoke `add_in_place` directly.
+        let mut a = from_data(vec![2, 2], vec![1., 2., 3., 4.]);
+        let a_copy = a.clone();
+        let b = from_data(vec![2, 2], vec![10., 20., 30., 40.]);
+        let expected = from_data(vec![2, 2], vec![11., 22., 33., 44.]);
+        add_in_place(&mut a, &b);
+        expect_equal(&a, &expected)?;
+
+        // Run `Add` operator in place with inputs that support in-place addition.
+        let op = Add {};
+        let result = op.run_in_place(Output::FloatTensor(a_copy), &[(&b).into()]);
+        expect_equal(result.as_float_ref().unwrap(), &expected)?;
+
+        // Run `Add` operator in-place with inputs that don't support in-place
+        // addition. The operator should fall back to creating a new output tensor.
+        let scalar = from_scalar(1.0);
+        let expected = from_data(vec![2, 2], vec![11., 21., 31., 41.]);
+        let result = op.run_in_place(Output::FloatTensor(scalar), &[(&b).into()]);
+        expect_equal(result.as_float_ref().unwrap(), &expected)
     }
 
     #[test]
