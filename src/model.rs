@@ -142,6 +142,14 @@ fn read_global_average_pool_op(_: &OperatorNode) -> Box<dyn Operator> {
     Box::new(ops::GlobalAveragePool {})
 }
 
+fn read_leaky_relu_op(node: &OperatorNode) -> Box<dyn Operator> {
+    let alpha = match node.attrs_as_leaky_relu_attrs() {
+        Some(attrs) => attrs.alpha(),
+        None => 0.0,
+    };
+    Box::new(ops::LeakyRelu { alpha })
+}
+
 fn read_max_pool_2d_op(node: &OperatorNode) -> Box<dyn Operator> {
     let kernel_size = match node.attrs_as_max_pool_2d_attrs() {
         Some(attrs) => attrs.kernel_size() as usize,
@@ -213,6 +221,7 @@ fn read_operator(node: &OperatorNode) -> Result<Box<dyn Operator>, String> {
         OperatorType::Gather => read_gather_op(node),
         OperatorType::Gemm => read_gemm_op(node),
         OperatorType::GlobalAveragePool => read_global_average_pool_op(node),
+        OperatorType::LeakyRelu => read_leaky_relu_op(node),
         OperatorType::MatMul => read_matmul_op(node),
         OperatorType::MaxPool2d => read_max_pool_2d_op(node),
         OperatorType::Mul => read_mul_op(node),
@@ -430,6 +439,11 @@ mod tests {
             OpType::GlobalAveragePool,
             &[input_node],
         );
+        builder.add_operator(
+            "leaky_relu",
+            OpType::LeakyRelu(ops::LeakyRelu { alpha: 0.01 }),
+            &[input_node],
+        );
         builder.add_operator("matmul", OpType::MatMul, &[input_2d, input_2d]);
         builder.add_operator(
             "max_pool_2d",
@@ -477,6 +491,7 @@ mod tests {
             "conv_2d",
             "conv_transpose_2d",
             "global_average_pool",
+            "leaky_relu",
             "max_pool_2d",
             "mul",
             "pad_2d",

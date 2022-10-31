@@ -16,16 +16,17 @@ class OperatorType(object):
     Gather = 6
     Gemm = 7
     GlobalAveragePool = 8
-    MatMul = 9
-    MaxPool2d = 10
-    Mul = 11
-    Pad2d = 12
-    ReLU = 13
-    Reshape = 14
-    Shape = 15
-    Sigmoid = 16
-    Slice = 17
-    Unsqueeze = 18
+    LeakyRelu = 9
+    MatMul = 10
+    MaxPool2d = 11
+    Mul = 12
+    Pad2d = 13
+    ReLU = 14
+    Reshape = 15
+    Shape = 16
+    Sigmoid = 17
+    Slice = 18
+    Unsqueeze = 19
 
 
 class PadMode(object):
@@ -42,9 +43,10 @@ class OperatorAttrs(object):
     ConvTranspose2dAttrs = 5
     GatherAttrs = 6
     GemmAttrs = 7
-    MaxPool2dAttrs = 8
-    Pad2dAttrs = 9
-    UnsqueezeAttrs = 10
+    LeakyReluAttrs = 8
+    MaxPool2dAttrs = 9
+    Pad2dAttrs = 10
+    UnsqueezeAttrs = 11
 
 
 class NodeKind(object):
@@ -360,6 +362,40 @@ def GemmAttrsAddBeta(builder, beta): builder.PrependFloat32Slot(1, beta, 0.0)
 def GemmAttrsAddTransposeA(builder, transposeA): builder.PrependBoolSlot(2, transposeA, 0)
 def GemmAttrsAddTransposeB(builder, transposeB): builder.PrependBoolSlot(3, transposeB, 0)
 def GemmAttrsEnd(builder): return builder.EndObject()
+
+
+class LeakyReluAttrs(object):
+    __slots__ = ['_tab']
+
+    @classmethod
+    def GetRootAs(cls, buf, offset=0):
+        n = flatbuffers.encode.Get(flatbuffers.packer.uoffset, buf, offset)
+        x = LeakyReluAttrs()
+        x.Init(buf, n + offset)
+        return x
+
+    @classmethod
+    def GetRootAsLeakyReluAttrs(cls, buf, offset=0):
+        """This method is deprecated. Please switch to GetRootAs."""
+        return cls.GetRootAs(buf, offset)
+    @classmethod
+    def LeakyReluAttrsBufferHasIdentifier(cls, buf, offset, size_prefixed=False):
+        return flatbuffers.util.BufferHasIdentifier(buf, offset, b"\x4D\x4F\x44\x4C", size_prefixed=size_prefixed)
+
+    # LeakyReluAttrs
+    def Init(self, buf, pos):
+        self._tab = flatbuffers.table.Table(buf, pos)
+
+    # LeakyReluAttrs
+    def Alpha(self):
+        o = flatbuffers.number_types.UOffsetTFlags.py_type(self._tab.Offset(4))
+        if o != 0:
+            return self._tab.Get(flatbuffers.number_types.Float32Flags, o + self._tab.Pos)
+        return 0.0
+
+def LeakyReluAttrsStart(builder): builder.StartObject(1)
+def LeakyReluAttrsAddAlpha(builder, alpha): builder.PrependFloat32Slot(0, alpha, 0.0)
+def LeakyReluAttrsEnd(builder): return builder.EndObject()
 
 
 class MaxPool2dAttrs(object):

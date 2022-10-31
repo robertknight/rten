@@ -250,6 +250,11 @@ def op_node_from_onnx_operator(
     elif onnx_op.op_type == "GlobalAveragePool":
         op_type = "GlobalAveragePool"
 
+    elif onnx_op.op_type == "LeakyRelu":
+        op_type = "LeakyRelu"
+
+        attrs["alpha"] = get_attr(onnx_op.attribute, "alpha", "float", 0.01)
+
     elif onnx_op.op_type == "MatMul":
         op_type = "MatMul"
 
@@ -440,6 +445,12 @@ def build_operator_node(builder: flatbuffers.Builder, operator: OperatorNode):
             attrs = sg.GemmAttrsEnd(builder)
         case "GlobalAveragePool":
             op_type_code = sg.OperatorType.GlobalAveragePool
+        case "LeakyRelu":
+            op_type_code = sg.OperatorType.LeakyRelu
+            attrs_type = sg.OperatorAttrs.LeakyReluAttrs
+            sg.LeakyReluAttrsStart(builder)
+            sg.LeakyReluAttrsAddAlpha(builder, operator.attrs["alpha"])
+            attrs = sg.LeakyReluAttrsEnd(builder)
         case "MatMul":
             op_type_code = sg.OperatorType.MatMul
         case "MaxPool2d":

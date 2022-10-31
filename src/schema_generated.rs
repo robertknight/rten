@@ -18,13 +18,13 @@ pub const ENUM_MIN_OPERATOR_TYPE: i8 = 0;
     since = "2.0.0",
     note = "Use associated constants instead. This will no longer be generated in 2021."
 )]
-pub const ENUM_MAX_OPERATOR_TYPE: i8 = 18;
+pub const ENUM_MAX_OPERATOR_TYPE: i8 = 19;
 #[deprecated(
     since = "2.0.0",
     note = "Use associated constants instead. This will no longer be generated in 2021."
 )]
 #[allow(non_camel_case_types)]
-pub const ENUM_VALUES_OPERATOR_TYPE: [OperatorType; 19] = [
+pub const ENUM_VALUES_OPERATOR_TYPE: [OperatorType; 20] = [
     OperatorType::Add,
     OperatorType::BatchNormalization,
     OperatorType::Clip,
@@ -34,6 +34,7 @@ pub const ENUM_VALUES_OPERATOR_TYPE: [OperatorType; 19] = [
     OperatorType::Gather,
     OperatorType::Gemm,
     OperatorType::GlobalAveragePool,
+    OperatorType::LeakyRelu,
     OperatorType::MatMul,
     OperatorType::MaxPool2d,
     OperatorType::Mul,
@@ -60,19 +61,20 @@ impl OperatorType {
     pub const Gather: Self = Self(6);
     pub const Gemm: Self = Self(7);
     pub const GlobalAveragePool: Self = Self(8);
-    pub const MatMul: Self = Self(9);
-    pub const MaxPool2d: Self = Self(10);
-    pub const Mul: Self = Self(11);
-    pub const Pad2d: Self = Self(12);
-    pub const ReLU: Self = Self(13);
-    pub const Reshape: Self = Self(14);
-    pub const Shape: Self = Self(15);
-    pub const Sigmoid: Self = Self(16);
-    pub const Slice: Self = Self(17);
-    pub const Unsqueeze: Self = Self(18);
+    pub const LeakyRelu: Self = Self(9);
+    pub const MatMul: Self = Self(10);
+    pub const MaxPool2d: Self = Self(11);
+    pub const Mul: Self = Self(12);
+    pub const Pad2d: Self = Self(13);
+    pub const ReLU: Self = Self(14);
+    pub const Reshape: Self = Self(15);
+    pub const Shape: Self = Self(16);
+    pub const Sigmoid: Self = Self(17);
+    pub const Slice: Self = Self(18);
+    pub const Unsqueeze: Self = Self(19);
 
     pub const ENUM_MIN: i8 = 0;
-    pub const ENUM_MAX: i8 = 18;
+    pub const ENUM_MAX: i8 = 19;
     pub const ENUM_VALUES: &'static [Self] = &[
         Self::Add,
         Self::BatchNormalization,
@@ -83,6 +85,7 @@ impl OperatorType {
         Self::Gather,
         Self::Gemm,
         Self::GlobalAveragePool,
+        Self::LeakyRelu,
         Self::MatMul,
         Self::MaxPool2d,
         Self::Mul,
@@ -106,6 +109,7 @@ impl OperatorType {
             Self::Gather => Some("Gather"),
             Self::Gemm => Some("Gemm"),
             Self::GlobalAveragePool => Some("GlobalAveragePool"),
+            Self::LeakyRelu => Some("LeakyRelu"),
             Self::MatMul => Some("MatMul"),
             Self::MaxPool2d => Some("MaxPool2d"),
             Self::Mul => Some("Mul"),
@@ -274,13 +278,13 @@ pub const ENUM_MIN_OPERATOR_ATTRS: u8 = 0;
     since = "2.0.0",
     note = "Use associated constants instead. This will no longer be generated in 2021."
 )]
-pub const ENUM_MAX_OPERATOR_ATTRS: u8 = 10;
+pub const ENUM_MAX_OPERATOR_ATTRS: u8 = 11;
 #[deprecated(
     since = "2.0.0",
     note = "Use associated constants instead. This will no longer be generated in 2021."
 )]
 #[allow(non_camel_case_types)]
-pub const ENUM_VALUES_OPERATOR_ATTRS: [OperatorAttrs; 11] = [
+pub const ENUM_VALUES_OPERATOR_ATTRS: [OperatorAttrs; 12] = [
     OperatorAttrs::NONE,
     OperatorAttrs::BatchNormalizationAttrs,
     OperatorAttrs::ClipAttrs,
@@ -289,6 +293,7 @@ pub const ENUM_VALUES_OPERATOR_ATTRS: [OperatorAttrs; 11] = [
     OperatorAttrs::ConvTranspose2dAttrs,
     OperatorAttrs::GatherAttrs,
     OperatorAttrs::GemmAttrs,
+    OperatorAttrs::LeakyReluAttrs,
     OperatorAttrs::MaxPool2dAttrs,
     OperatorAttrs::Pad2dAttrs,
     OperatorAttrs::UnsqueezeAttrs,
@@ -307,12 +312,13 @@ impl OperatorAttrs {
     pub const ConvTranspose2dAttrs: Self = Self(5);
     pub const GatherAttrs: Self = Self(6);
     pub const GemmAttrs: Self = Self(7);
-    pub const MaxPool2dAttrs: Self = Self(8);
-    pub const Pad2dAttrs: Self = Self(9);
-    pub const UnsqueezeAttrs: Self = Self(10);
+    pub const LeakyReluAttrs: Self = Self(8);
+    pub const MaxPool2dAttrs: Self = Self(9);
+    pub const Pad2dAttrs: Self = Self(10);
+    pub const UnsqueezeAttrs: Self = Self(11);
 
     pub const ENUM_MIN: u8 = 0;
-    pub const ENUM_MAX: u8 = 10;
+    pub const ENUM_MAX: u8 = 11;
     pub const ENUM_VALUES: &'static [Self] = &[
         Self::NONE,
         Self::BatchNormalizationAttrs,
@@ -322,6 +328,7 @@ impl OperatorAttrs {
         Self::ConvTranspose2dAttrs,
         Self::GatherAttrs,
         Self::GemmAttrs,
+        Self::LeakyReluAttrs,
         Self::MaxPool2dAttrs,
         Self::Pad2dAttrs,
         Self::UnsqueezeAttrs,
@@ -337,6 +344,7 @@ impl OperatorAttrs {
             Self::ConvTranspose2dAttrs => Some("ConvTranspose2dAttrs"),
             Self::GatherAttrs => Some("GatherAttrs"),
             Self::GemmAttrs => Some("GemmAttrs"),
+            Self::LeakyReluAttrs => Some("LeakyReluAttrs"),
             Self::MaxPool2dAttrs => Some("MaxPool2dAttrs"),
             Self::Pad2dAttrs => Some("Pad2dAttrs"),
             Self::UnsqueezeAttrs => Some("UnsqueezeAttrs"),
@@ -1412,6 +1420,103 @@ impl core::fmt::Debug for GemmAttrs<'_> {
         ds.finish()
     }
 }
+pub enum LeakyReluAttrsOffset {}
+#[derive(Copy, Clone, PartialEq)]
+
+pub struct LeakyReluAttrs<'a> {
+    pub _tab: flatbuffers::Table<'a>,
+}
+
+impl<'a> flatbuffers::Follow<'a> for LeakyReluAttrs<'a> {
+    type Inner = LeakyReluAttrs<'a>;
+    #[inline]
+    fn follow(buf: &'a [u8], loc: usize) -> Self::Inner {
+        Self {
+            _tab: flatbuffers::Table { buf, loc },
+        }
+    }
+}
+
+impl<'a> LeakyReluAttrs<'a> {
+    pub const VT_ALPHA: flatbuffers::VOffsetT = 4;
+
+    #[inline]
+    pub fn init_from_table(table: flatbuffers::Table<'a>) -> Self {
+        LeakyReluAttrs { _tab: table }
+    }
+    #[allow(unused_mut)]
+    pub fn create<'bldr: 'args, 'args: 'mut_bldr, 'mut_bldr>(
+        _fbb: &'mut_bldr mut flatbuffers::FlatBufferBuilder<'bldr>,
+        args: &'args LeakyReluAttrsArgs,
+    ) -> flatbuffers::WIPOffset<LeakyReluAttrs<'bldr>> {
+        let mut builder = LeakyReluAttrsBuilder::new(_fbb);
+        builder.add_alpha(args.alpha);
+        builder.finish()
+    }
+
+    #[inline]
+    pub fn alpha(&self) -> f32 {
+        self._tab
+            .get::<f32>(LeakyReluAttrs::VT_ALPHA, Some(0.0))
+            .unwrap()
+    }
+}
+
+impl flatbuffers::Verifiable for LeakyReluAttrs<'_> {
+    #[inline]
+    fn run_verifier(
+        v: &mut flatbuffers::Verifier,
+        pos: usize,
+    ) -> Result<(), flatbuffers::InvalidFlatbuffer> {
+        use self::flatbuffers::Verifiable;
+        v.visit_table(pos)?
+            .visit_field::<f32>("alpha", Self::VT_ALPHA, false)?
+            .finish();
+        Ok(())
+    }
+}
+pub struct LeakyReluAttrsArgs {
+    pub alpha: f32,
+}
+impl<'a> Default for LeakyReluAttrsArgs {
+    #[inline]
+    fn default() -> Self {
+        LeakyReluAttrsArgs { alpha: 0.0 }
+    }
+}
+
+pub struct LeakyReluAttrsBuilder<'a: 'b, 'b> {
+    fbb_: &'b mut flatbuffers::FlatBufferBuilder<'a>,
+    start_: flatbuffers::WIPOffset<flatbuffers::TableUnfinishedWIPOffset>,
+}
+impl<'a: 'b, 'b> LeakyReluAttrsBuilder<'a, 'b> {
+    #[inline]
+    pub fn add_alpha(&mut self, alpha: f32) {
+        self.fbb_
+            .push_slot::<f32>(LeakyReluAttrs::VT_ALPHA, alpha, 0.0);
+    }
+    #[inline]
+    pub fn new(_fbb: &'b mut flatbuffers::FlatBufferBuilder<'a>) -> LeakyReluAttrsBuilder<'a, 'b> {
+        let start = _fbb.start_table();
+        LeakyReluAttrsBuilder {
+            fbb_: _fbb,
+            start_: start,
+        }
+    }
+    #[inline]
+    pub fn finish(self) -> flatbuffers::WIPOffset<LeakyReluAttrs<'a>> {
+        let o = self.fbb_.end_table(self.start_);
+        flatbuffers::WIPOffset::new(o.value())
+    }
+}
+
+impl core::fmt::Debug for LeakyReluAttrs<'_> {
+    fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
+        let mut ds = f.debug_struct("LeakyReluAttrs");
+        ds.field("alpha", &self.alpha());
+        ds.finish()
+    }
+}
 pub enum MaxPool2dAttrsOffset {}
 #[derive(Copy, Clone, PartialEq)]
 
@@ -1912,6 +2017,16 @@ impl<'a> OperatorNode<'a> {
 
     #[inline]
     #[allow(non_snake_case)]
+    pub fn attrs_as_leaky_relu_attrs(&self) -> Option<LeakyReluAttrs<'a>> {
+        if self.attrs_type() == OperatorAttrs::LeakyReluAttrs {
+            self.attrs().map(LeakyReluAttrs::init_from_table)
+        } else {
+            None
+        }
+    }
+
+    #[inline]
+    #[allow(non_snake_case)]
     pub fn attrs_as_max_pool_2d_attrs(&self) -> Option<MaxPool2dAttrs<'a>> {
         if self.attrs_type() == OperatorAttrs::MaxPool2dAttrs {
             self.attrs().map(MaxPool2dAttrs::init_from_table)
@@ -1959,6 +2074,7 @@ impl flatbuffers::Verifiable for OperatorNode<'_> {
           OperatorAttrs::ConvTranspose2dAttrs => v.verify_union_variant::<flatbuffers::ForwardsUOffset<ConvTranspose2dAttrs>>("OperatorAttrs::ConvTranspose2dAttrs", pos),
           OperatorAttrs::GatherAttrs => v.verify_union_variant::<flatbuffers::ForwardsUOffset<GatherAttrs>>("OperatorAttrs::GatherAttrs", pos),
           OperatorAttrs::GemmAttrs => v.verify_union_variant::<flatbuffers::ForwardsUOffset<GemmAttrs>>("OperatorAttrs::GemmAttrs", pos),
+          OperatorAttrs::LeakyReluAttrs => v.verify_union_variant::<flatbuffers::ForwardsUOffset<LeakyReluAttrs>>("OperatorAttrs::LeakyReluAttrs", pos),
           OperatorAttrs::MaxPool2dAttrs => v.verify_union_variant::<flatbuffers::ForwardsUOffset<MaxPool2dAttrs>>("OperatorAttrs::MaxPool2dAttrs", pos),
           OperatorAttrs::Pad2dAttrs => v.verify_union_variant::<flatbuffers::ForwardsUOffset<Pad2dAttrs>>("OperatorAttrs::Pad2dAttrs", pos),
           OperatorAttrs::UnsqueezeAttrs => v.verify_union_variant::<flatbuffers::ForwardsUOffset<UnsqueezeAttrs>>("OperatorAttrs::UnsqueezeAttrs", pos),
@@ -2099,6 +2215,16 @@ impl core::fmt::Debug for OperatorNode<'_> {
             }
             OperatorAttrs::GemmAttrs => {
                 if let Some(x) = self.attrs_as_gemm_attrs() {
+                    ds.field("attrs", &x)
+                } else {
+                    ds.field(
+                        "attrs",
+                        &"InvalidFlatbuffer: Union discriminant does not match value.",
+                    )
+                }
+            }
+            OperatorAttrs::LeakyReluAttrs => {
+                if let Some(x) = self.attrs_as_leaky_relu_attrs() {
                     ds.field("attrs", &x)
                 } else {
                     ds.field(

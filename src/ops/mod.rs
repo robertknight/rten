@@ -145,6 +145,7 @@ pub enum OpType {
     Gather(Gather),
     Gemm(Gemm),
     GlobalAveragePool,
+    LeakyRelu(LeakyRelu),
     MatMul,
     MaxPool2d(MaxPool2d),
     Mul,
@@ -524,6 +525,42 @@ impl Operator for GlobalAveragePool {
     fn run(&self, inputs: &[Input]) -> Output {
         let input = inputs[0].as_float().unwrap();
         global_average_pool(input).into()
+    }
+}
+
+pub fn leaky_relu(input: &Tensor, alpha: f32) -> Tensor {
+    input.map(|el| if el < 0.0 { alpha * el } else { el })
+}
+
+pub fn leaky_relu_in_place(input: &mut Tensor, alpha: f32) {
+    for val in input.data_mut().iter_mut() {
+        *val = if (*val) < 0.0 { alpha * (*val) } else { *val }
+    }
+}
+
+#[derive(Debug)]
+pub struct LeakyRelu {
+    pub alpha: f32,
+}
+
+impl Operator for LeakyRelu {
+    fn name(&self) -> &str {
+        "LeakyRelu"
+    }
+
+    fn run(&self, inputs: &[Input]) -> Output {
+        let input = inputs[0].as_float().unwrap();
+        leaky_relu(input, self.alpha).into()
+    }
+
+    fn can_run_in_place(&self) -> bool {
+        true
+    }
+
+    fn run_in_place(&self, input: Output, _other: &[Input]) -> Output {
+        let mut output = input.as_float().unwrap();
+        leaky_relu_in_place(&mut output, self.alpha);
+        output.into()
     }
 }
 
@@ -1017,9 +1054,9 @@ mod tests {
     use crate::linalg::gemm;
     use crate::ops::{
         add, add_in_place, batch_norm, batch_norm_in_place, clip, clip_in_place, concat, gather,
-        gemm_op, global_average_pool, matmul, max_pool_2d, mul, mul_in_place, pad_2d, relu,
-        relu_in_place, reshape, sigmoid, sigmoid_in_place, slice, slice_in_place, unsqueeze, Add,
-        Operator, Output, Reshape, Shape,
+        gemm_op, global_average_pool, leaky_relu, leaky_relu_in_place, matmul, max_pool_2d, mul,
+        mul_in_place, pad_2d, relu, relu_in_place, reshape, sigmoid, sigmoid_in_place, slice,
+        slice_in_place, unsqueeze, Add, Operator, Output, Reshape, Shape,
     };
     use crate::rng::XorShiftRNG;
     use crate::tensor::{from_data, from_scalar, from_vec, random_tensor, zero_tensor, Tensor};
@@ -1209,6 +1246,24 @@ mod tests {
         let expected = from_data(vec![1, 2, 1, 1], vec![2.5, 25.]);
         let result = global_average_pool(&input);
         expect_equal(&result, &expected)
+    }
+
+    #[test]
+    fn test_leaky_relu() -> Result<(), String> {
+        let input = from_data(vec![2, 2], vec![-5., -2., 3., 20.]);
+        let alpha = 0.1;
+        let expected = from_data(vec![2, 2], vec![-5. * alpha, -2. * alpha, 3., 20.]);
+        let result = leaky_relu(&input, alpha);
+        expect_equal(&result, &expected)
+    }
+
+    #[test]
+    fn test_leaky_relu_in_place() -> Result<(), String> {
+        let mut input = from_data(vec![2, 2], vec![-5., -2., 3., 20.]);
+        let alpha = 0.1;
+        let expected = from_data(vec![2, 2], vec![-5. * alpha, -2. * alpha, 3., 20.]);
+        leaky_relu_in_place(&mut input, alpha);
+        expect_equal(&input, &expected)
     }
 
     #[test]

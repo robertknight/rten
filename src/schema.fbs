@@ -16,6 +16,7 @@ enum OperatorType: byte {
   Gather,
   Gemm,
   GlobalAveragePool,
+  LeakyRelu,
   MatMul,
   MaxPool2d,
   Mul,
@@ -42,6 +43,7 @@ union OperatorAttrs {
   ConvTranspose2dAttrs,
   GatherAttrs,
   GemmAttrs,
+  LeakyReluAttrs,
   MaxPool2dAttrs,
   Pad2dAttrs,
   UnsqueezeAttrs
@@ -81,6 +83,10 @@ table GemmAttrs {
   beta:float;
   transpose_a:bool;
   transpose_b:bool;
+}
+
+table LeakyReluAttrs {
+  alpha:float;
 }
 
 table MaxPool2dAttrs {

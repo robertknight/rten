@@ -232,6 +232,17 @@ impl<'a> ModelBuilder<'a> {
                 ),
             ),
             OpType::GlobalAveragePool => (OT::GlobalAveragePool, no_attrs, None),
+            OpType::LeakyRelu(args) => (
+                OT::LeakyRelu,
+                OA::LeakyReluAttrs,
+                Some(
+                    sg::LeakyReluAttrs::create(
+                        &mut self.builder,
+                        &sg::LeakyReluAttrsArgs { alpha: args.alpha },
+                    )
+                    .as_union_value(),
+                ),
+            ),
             OpType::MatMul => (OT::MatMul, no_attrs, None),
             OpType::MaxPool2d(args) => (
                 OT::MaxPool2d,
