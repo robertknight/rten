@@ -36,6 +36,14 @@ fn read_add_op(_: &OperatorNode) -> Box<dyn Operator> {
     Box::new(ops::Add {})
 }
 
+fn read_batch_normalization_op(node: &OperatorNode) -> Box<dyn Operator> {
+    let epsilon = match node.attrs_as_batch_normalization_attrs() {
+        Some(attrs) => attrs.epsilon(),
+        None => 1e-5,
+    };
+    Box::new(ops::BatchNormalization { epsilon })
+}
+
 fn read_clip_op(node: &OperatorNode) -> Box<dyn Operator> {
     let min;
     let max;
@@ -197,6 +205,7 @@ fn read_unsqueeze_op(node: &OperatorNode) -> Box<dyn Operator> {
 fn read_operator(node: &OperatorNode) -> Result<Box<dyn Operator>, String> {
     let op: Box<dyn Operator> = match node.type_() {
         OperatorType::Add => read_add_op(node),
+        OperatorType::BatchNormalization => read_batch_normalization_op(node),
         OperatorType::Clip => read_clip_op(node),
         OperatorType::Concat => read_concat_op(node),
         OperatorType::Conv2d => read_conv_2d_op(node),
@@ -304,7 +313,7 @@ mod tests {
     use crate::model_builder::ModelBuilder;
     use crate::ops;
     use crate::ops::{OpType, Padding};
-    use crate::tensor::from_data;
+    use crate::tensor::{from_data, from_vec};
 
     fn generate_model_buffer() -> Vec<u8> {
         let mut builder = ModelBuilder::new();
@@ -342,6 +351,9 @@ mod tests {
         assert_eq!(result_tensor.data(), vec![0.5, 0., 0.1, 0., 1., 2., 0., 0.]);
     }
 
+    // This test exercises basic execution of all operators. It doesn't check
+    // the results of operators, it just sure they can be deserialized and
+    // executed with valid inputs.
     #[test]
     fn test_all_op_types() {
         let mut builder = ModelBuilder::new();
@@ -356,6 +368,24 @@ mod tests {
         let indices = builder.add_int_constant(&indices_val);
 
         builder.add_operator("add", OpType::Add, &[input_node, input_node]);
+
+        // Dummy value for BatchNormalization inputs which are vectors with
+        // per-channel values.
+        let batch_norm_param_val = from_vec(vec![1.0]);
+        let batch_norm_param = builder.add_float_constant(&batch_norm_param_val);
+
+        builder.add_operator(
+            "batch_normalization",
+            OpType::BatchNormalization(ops::BatchNormalization { epsilon: 1e-5 }),
+            &[
+                input_node,
+                batch_norm_param, /* scale */
+                batch_norm_param, /* bias */
+                batch_norm_param, /* mean */
+                batch_norm_param, /* variance */
+            ],
+        );
+
         builder.add_operator(
             "clip",
             OpType::Clip(ops::Clip { min: 1.0, max: 5.0 }),
@@ -438,9 +468,10 @@ mod tests {
 
         let model = load_model(&buffer).unwrap();
 
-        // Test cases that accept a 4D input (eg. NCHW).
+        // Operators that accept a 4D input (eg. NCHW).
         let outputs = vec![
             "add",
+            "batch_normalization",
             "clip",
             "concat",
             "conv_2d",
@@ -464,7 +495,7 @@ mod tests {
             assert_eq!(result.len(), 1);
         }
 
-        // Test cases that accept a 2D input.
+        // Operators that accept a 2D input.
         let outputs = vec!["matmul"];
         let input = from_data(vec![3, 3], vec![1., 2., 3., 4., 5., 6., 7., 8., 9.]);
 

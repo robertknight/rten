@@ -137,6 +137,7 @@ pub trait Operator: Debug {
 /// Enum of all the built-in operators
 pub enum OpType {
     Add,
+    BatchNormalization(BatchNormalization),
     Clip(Clip),
     Concat(Concat),
     Conv2d(Conv2d),
@@ -250,6 +251,87 @@ pub fn clip(input: &Tensor, min: f32, max: f32) -> Tensor {
 pub fn clip_in_place(input: &mut Tensor, min: f32, max: f32) {
     for val in input.data_mut().iter_mut() {
         *val = val.max(min).min(max)
+    }
+}
+
+/// Perform in-place batch normalization on the NCHW tensor `out`.
+///
+/// See https://github.com/onnx/onnx/blob/main/docs/Operators.md#batchnormalization
+pub fn batch_norm_in_place(
+    out: &mut Tensor,
+    scale: &Tensor,
+    bias: &Tensor,
+    mean: &Tensor,
+    var: &Tensor,
+    epsilon: f32,
+) {
+    let [batch, chans, in_h, in_w] = out.dims();
+    for n in 0..batch {
+        for c in 0..chans {
+            let chan_mean = mean[[c]];
+            let chan_var = var[[c]];
+            let chan_scale = scale[[c]];
+            let chan_bias = bias[[c]];
+
+            for y in 0..in_h {
+                for x in 0..in_w {
+                    let mut el = &mut out[[n, c, y, x]];
+                    *el = (*el - chan_mean) / (chan_var + epsilon).sqrt() * chan_scale + chan_bias;
+                }
+            }
+        }
+    }
+}
+
+/// Perform batch normalization on the NCHW tensor `input`.
+///
+/// See https://github.com/onnx/onnx/blob/main/docs/Operators.md#batchnormalization
+pub fn batch_norm(
+    input: &Tensor,
+    scale: &Tensor,
+    bias: &Tensor,
+    mean: &Tensor,
+    var: &Tensor,
+    epsilon: f32,
+) -> Tensor {
+    let mut output = input.clone();
+    batch_norm_in_place(&mut output, scale, bias, mean, var, epsilon);
+    output
+}
+
+#[derive(Debug)]
+pub struct BatchNormalization {
+    pub epsilon: f32,
+}
+
+impl Operator for BatchNormalization {
+    fn name(&self) -> &str {
+        "BatchNormalization"
+    }
+
+    fn run(&self, inputs: &[Input]) -> Output {
+        let input = inputs[0].as_float().unwrap();
+        let scale = inputs[1].as_float().unwrap();
+        let bias = inputs[2].as_float().unwrap();
+        let mean = inputs[3].as_float().unwrap();
+        let var = inputs[4].as_float().unwrap();
+        batch_norm(input, scale, bias, mean, var, self.epsilon).into()
+    }
+
+    fn can_run_in_place(&self) -> bool {
+        true
+    }
+
+    fn run_in_place(&self, input: Output, other: &[Input]) -> Output {
+        let mut output = input.as_float().unwrap();
+        let scale = other[0].as_float().unwrap();
+        let bias = other[1].as_float().unwrap();
+        let mean = other[2].as_float().unwrap();
+        let var = other[3].as_float().unwrap();
+
+        batch_norm_in_place(&mut output, scale, bias, mean, var, self.epsilon);
+
+        output.into()
     }
 }
 
@@ -934,9 +1016,10 @@ impl Operator for Unsqueeze {
 mod tests {
     use crate::linalg::gemm;
     use crate::ops::{
-        add, add_in_place, clip, clip_in_place, concat, gather, gemm_op, global_average_pool,
-        matmul, max_pool_2d, mul, mul_in_place, pad_2d, relu, relu_in_place, reshape, sigmoid,
-        sigmoid_in_place, slice, slice_in_place, unsqueeze, Add, Operator, Output, Reshape, Shape,
+        add, add_in_place, batch_norm, batch_norm_in_place, clip, clip_in_place, concat, gather,
+        gemm_op, global_average_pool, matmul, max_pool_2d, mul, mul_in_place, pad_2d, relu,
+        relu_in_place, reshape, sigmoid, sigmoid_in_place, slice, slice_in_place, unsqueeze, Add,
+        Operator, Output, Reshape, Shape,
     };
     use crate::rng::XorShiftRNG;
     use crate::tensor::{from_data, from_scalar, from_vec, random_tensor, zero_tensor, Tensor};
@@ -1003,6 +1086,47 @@ mod tests {
         let expected = from_data(vec![2, 2], vec![11., 21., 31., 41.]);
         let result = op.run_in_place(Output::FloatTensor(scalar), &[(&b).into()]);
         expect_equal(result.as_float_ref().unwrap(), &expected)
+    }
+
+    #[test]
+    fn test_batch_norm() -> Result<(), String> {
+        let input = from_data(vec![1, 2, 1, 1], vec![1.0, 2.0]);
+        let scale = from_data(vec![2], vec![3.0, 3.0]);
+        let bias = from_data(vec![2], vec![0.1, 0.2]);
+        let mean = from_data(vec![2], vec![0.5, -0.5]);
+        let var = from_data(vec![2], vec![1.0, 2.0]);
+
+        let epsilon = 1e-5 as f32;
+
+        let y1 = (input[[0, 0, 0, 0]] - mean[[0]]) / (var[[0]] + epsilon).sqrt() * scale[[0]]
+            + bias[[0]];
+        let y2 = (input[[0, 1, 0, 0]] - mean[[1]]) / (var[[1]] + epsilon).sqrt() * scale[[1]]
+            + bias[[1]];
+        let expected = from_data(vec![1, 2, 1, 1], vec![y1, y2]);
+        let result = batch_norm(&input, &scale, &bias, &mean, &var, epsilon);
+
+        expect_equal(&result, &expected)
+    }
+
+    #[test]
+    fn test_batch_norm_in_place() -> Result<(), String> {
+        let mut input = from_data(vec![1, 2, 1, 1], vec![1.0, 2.0]);
+        let scale = from_data(vec![2], vec![3.0, 3.0]);
+        let bias = from_data(vec![2], vec![0.1, 0.2]);
+        let mean = from_data(vec![2], vec![0.5, -0.5]);
+        let var = from_data(vec![2], vec![1.0, 2.0]);
+
+        let epsilon = 1e-5 as f32;
+
+        let y1 = (input[[0, 0, 0, 0]] - mean[[0]]) / (var[[0]] + epsilon).sqrt() * scale[[0]]
+            + bias[[0]];
+        let y2 = (input[[0, 1, 0, 0]] - mean[[1]]) / (var[[1]] + epsilon).sqrt() * scale[[1]]
+            + bias[[1]];
+        let expected = from_data(vec![1, 2, 1, 1], vec![y1, y2]);
+
+        batch_norm_in_place(&mut input, &scale, &bias, &mean, &var, epsilon);
+
+        expect_equal(&input, &expected)
     }
 
     #[test]

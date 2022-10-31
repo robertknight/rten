@@ -121,6 +121,19 @@ impl<'a> ModelBuilder<'a> {
         // There is unfortunately a lot of boilerplate here.
         let (op_type, attrs_type, attrs) = match op_info {
             OpType::Add => (OT::Add, no_attrs, None),
+            OpType::BatchNormalization(args) => (
+                OT::BatchNormalization,
+                OA::BatchNormalizationAttrs,
+                Some(
+                    sg::BatchNormalizationAttrs::create(
+                        &mut self.builder,
+                        &sg::BatchNormalizationAttrsArgs {
+                            epsilon: args.epsilon,
+                        },
+                    )
+                    .as_union_value(),
+                ),
+            ),
             OpType::Clip(args) => (
                 OT::Clip,
                 OA::ClipAttrs,

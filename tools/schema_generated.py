@@ -8,23 +8,24 @@ np = import_numpy()
 
 class OperatorType(object):
     Add = 0
-    Clip = 1
-    Concat = 2
-    Conv2d = 3
-    ConvTranspose2d = 4
-    Gather = 5
-    Gemm = 6
-    GlobalAveragePool = 7
-    MatMul = 8
-    MaxPool2d = 9
-    Mul = 10
-    Pad2d = 11
-    ReLU = 12
-    Reshape = 13
-    Shape = 14
-    Sigmoid = 15
-    Slice = 16
-    Unsqueeze = 17
+    BatchNormalization = 1
+    Clip = 2
+    Concat = 3
+    Conv2d = 4
+    ConvTranspose2d = 5
+    Gather = 6
+    Gemm = 7
+    GlobalAveragePool = 8
+    MatMul = 9
+    MaxPool2d = 10
+    Mul = 11
+    Pad2d = 12
+    ReLU = 13
+    Reshape = 14
+    Shape = 15
+    Sigmoid = 16
+    Slice = 17
+    Unsqueeze = 18
 
 
 class PadMode(object):
@@ -34,15 +35,16 @@ class PadMode(object):
 
 class OperatorAttrs(object):
     NONE = 0
-    ClipAttrs = 1
-    ConcatAttrs = 2
-    Conv2dAttrs = 3
-    ConvTranspose2dAttrs = 4
-    GatherAttrs = 5
-    GemmAttrs = 6
-    MaxPool2dAttrs = 7
-    Pad2dAttrs = 8
-    UnsqueezeAttrs = 9
+    BatchNormalizationAttrs = 1
+    ClipAttrs = 2
+    ConcatAttrs = 3
+    Conv2dAttrs = 4
+    ConvTranspose2dAttrs = 5
+    GatherAttrs = 6
+    GemmAttrs = 7
+    MaxPool2dAttrs = 8
+    Pad2dAttrs = 9
+    UnsqueezeAttrs = 10
 
 
 class NodeKind(object):
@@ -56,6 +58,40 @@ class ConstantData(object):
     NONE = 0
     FloatData = 1
     IntData = 2
+
+
+class BatchNormalizationAttrs(object):
+    __slots__ = ['_tab']
+
+    @classmethod
+    def GetRootAs(cls, buf, offset=0):
+        n = flatbuffers.encode.Get(flatbuffers.packer.uoffset, buf, offset)
+        x = BatchNormalizationAttrs()
+        x.Init(buf, n + offset)
+        return x
+
+    @classmethod
+    def GetRootAsBatchNormalizationAttrs(cls, buf, offset=0):
+        """This method is deprecated. Please switch to GetRootAs."""
+        return cls.GetRootAs(buf, offset)
+    @classmethod
+    def BatchNormalizationAttrsBufferHasIdentifier(cls, buf, offset, size_prefixed=False):
+        return flatbuffers.util.BufferHasIdentifier(buf, offset, b"\x4D\x4F\x44\x4C", size_prefixed=size_prefixed)
+
+    # BatchNormalizationAttrs
+    def Init(self, buf, pos):
+        self._tab = flatbuffers.table.Table(buf, pos)
+
+    # BatchNormalizationAttrs
+    def Epsilon(self):
+        o = flatbuffers.number_types.UOffsetTFlags.py_type(self._tab.Offset(4))
+        if o != 0:
+            return self._tab.Get(flatbuffers.number_types.Float32Flags, o + self._tab.Pos)
+        return 0.0
+
+def BatchNormalizationAttrsStart(builder): builder.StartObject(1)
+def BatchNormalizationAttrsAddEpsilon(builder, epsilon): builder.PrependFloat32Slot(0, epsilon, 0.0)
+def BatchNormalizationAttrsEnd(builder): return builder.EndObject()
 
 
 class ClipAttrs(object):

@@ -170,6 +170,11 @@ def op_node_from_onnx_operator(
     if onnx_op.op_type == "Add":
         op_type = "Add"
 
+    elif onnx_op.op_type == "BatchNormalization":
+        op_type = "BatchNormalization"
+
+        attrs["epsilon"] = get_attr(onnx_op.attribute, "epsilon", "float", 1e-5)
+
     elif onnx_op.op_type == "Clip":
         op_type = "Clip"
 
@@ -377,6 +382,12 @@ def build_operator_node(builder: flatbuffers.Builder, operator: OperatorNode):
     match operator.op_type:
         case "Add":
             op_type_code = sg.OperatorType.Add
+        case "BatchNormalization":
+            op_type_code = sg.OperatorType.BatchNormalization
+            attrs_type = sg.OperatorAttrs.BatchNormalizationAttrs
+            sg.BatchNormalizationAttrsStart(builder)
+            sg.BatchNormalizationAttrsAddEpsilon(builder, operator.attrs["epsilon"])
+            attrs = sg.BatchNormalizationAttrsEnd(builder)
         case "Clip":
             op_type_code = sg.OperatorType.Clip
             attrs_type = sg.OperatorAttrs.ClipAttrs
