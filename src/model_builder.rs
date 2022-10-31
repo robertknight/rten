@@ -233,6 +233,7 @@ impl<'a> ModelBuilder<'a> {
                     .as_union_value(),
                 ),
             ),
+            OpType::Mul => (OT::Mul, no_attrs, None),
             OpType::Pad2d(args) => (
                 OT::Pad2d,
                 OA::Pad2dAttrs,

@@ -146,6 +146,7 @@ pub enum OpType {
     GlobalAveragePool,
     MatMul,
     MaxPool2d(MaxPool2d),
+    Mul,
     Pad2d(Pad2d),
     ReLU,
     Reshape,
@@ -183,24 +184,32 @@ fn binary_op<T: Copy + Debug, F: Fn(T, T) -> T>(a: &Tensor<T>, b: &Tensor<T>, op
     from_data(out_shape.into(), out_data)
 }
 
-/// Perform binary addition of two tensors.
+/// Return true if an elementwise binary operation can be performed in-place
+/// on `a` given `b` as the other argument.
+fn can_run_binary_op_in_place<T: Copy>(a: &Tensor<T>, b: &Tensor<T>) -> bool {
+    a.shape() == b.shape() && a.is_contiguous() && b.is_contiguous()
+}
+
+/// Perform an elementwise binary operation in-place.
+///
+/// This currently only supports the case where both inputs have exactly the
+/// same shape, so no broadcasting is required, and the inputs are contigious.
+fn binary_op_in_place<T: Copy + Debug, F: Fn(&mut T, T)>(a: &mut Tensor<T>, b: &Tensor<T>, op: F) {
+    assert!(a.is_contiguous());
+    assert!(b.is_contiguous());
+    for (a_elt, b_elt) in zip(a.data_mut().iter_mut(), b.data().iter()) {
+        op(a_elt, *b_elt);
+    }
+}
+
+/// Perform elementwise addition of two tensors.
 pub fn add(a: &Tensor, b: &Tensor) -> Tensor {
     binary_op(a, b, |x, y| x + y)
 }
 
-/// Perform in-place binary addition of two tensors.
-///
-/// This currently only supports the case where both inputs have exactly the
-/// same shape, so no broadcasting is required, and the inputs are contigious.
+/// Perform in-place elementwise addition of two tensors.
 pub fn add_in_place(a: &mut Tensor, b: &Tensor) {
-    // The requirement for contiguous inputs is because `Tensor` lacks a way to
-    // get a mutable iterator over elements in sequence. Once that functionality
-    // is added, this constraint can be relaxed.
-    assert!(a.is_contiguous());
-    assert!(b.is_contiguous());
-    for (a_elt, b_elt) in zip(a.data_mut().iter_mut(), b.data().iter()) {
-        *a_elt += b_elt;
-    }
+    binary_op_in_place(a, b, |x, y| *x += y);
 }
 
 #[derive(Debug)]
@@ -225,7 +234,7 @@ impl Operator for Add {
         let mut a = input.as_float().unwrap();
         let b = other[0].as_float().unwrap();
 
-        if a.shape() == b.shape() && a.is_contiguous() && b.is_contiguous() {
+        if can_run_binary_op_in_place(&a, &b) {
             add_in_place(&mut a, &b);
             a.into()
         } else {
@@ -509,6 +518,47 @@ impl Operator for MaxPool2d {
     fn run(&self, inputs: &[Input]) -> Output {
         let input = inputs[0].as_float().unwrap();
         max_pool_2d(input, self.kernel_size).into()
+    }
+}
+
+/// Multiply two tensors elementwise.
+pub fn mul(a: &Tensor, b: &Tensor) -> Tensor {
+    binary_op(a, b, |x, y| x * y)
+}
+
+/// Perform in-place elementwise multiplication of two tensors.
+pub fn mul_in_place(a: &mut Tensor, b: &Tensor) {
+    binary_op_in_place(a, b, |a_elt, b_elt| *a_elt *= b_elt);
+}
+
+#[derive(Debug)]
+pub struct Mul {}
+
+impl Operator for Mul {
+    fn name(&self) -> &str {
+        "Mul"
+    }
+
+    fn run(&self, inputs: &[Input]) -> Output {
+        let a = inputs[0].as_float().unwrap();
+        let b = inputs[1].as_float().unwrap();
+        mul(a, b).into()
+    }
+
+    fn can_run_in_place(&self) -> bool {
+        true
+    }
+
+    fn run_in_place(&self, input: Output, other: &[Input]) -> Output {
+        let mut a = input.as_float().unwrap();
+        let b = other[0].as_float().unwrap();
+
+        if can_run_binary_op_in_place(&a, &b) {
+            mul_in_place(&mut a, &b);
+            a.into()
+        } else {
+            self.run(&[(&a).into(), b.into()])
+        }
     }
 }
 
@@ -885,8 +935,8 @@ mod tests {
     use crate::linalg::gemm;
     use crate::ops::{
         add, add_in_place, clip, clip_in_place, concat, gather, gemm_op, global_average_pool,
-        matmul, max_pool_2d, pad_2d, relu, relu_in_place, reshape, sigmoid, sigmoid_in_place,
-        slice, slice_in_place, unsqueeze, Add, Operator, Output, Reshape, Shape,
+        matmul, max_pool_2d, mul, mul_in_place, pad_2d, relu, relu_in_place, reshape, sigmoid,
+        sigmoid_in_place, slice, slice_in_place, unsqueeze, Add, Operator, Output, Reshape, Shape,
     };
     use crate::rng::XorShiftRNG;
     use crate::tensor::{from_data, from_scalar, from_vec, random_tensor, zero_tensor, Tensor};
@@ -1072,6 +1122,24 @@ mod tests {
         );
         let result = max_pool_2d(&input, 2);
         expect_equal(&result, &expected)
+    }
+
+    #[test]
+    fn test_mul() -> Result<(), String> {
+        let a = from_data(vec![2, 2], vec![1., 2., 3., 4.]);
+        let b = from_data(vec![2, 2], vec![10., 20., 30., 40.]);
+        let expected = from_data(vec![2, 2], vec![10., 40., 90., 160.]);
+        let result = mul(&a, &b);
+        expect_equal(&result, &expected)
+    }
+
+    #[test]
+    fn test_mul_in_place() -> Result<(), String> {
+        let mut a = from_data(vec![2, 2], vec![1., 2., 3., 4.]);
+        let b = from_data(vec![2, 2], vec![10., 20., 30., 40.]);
+        let expected = from_data(vec![2, 2], vec![10., 40., 90., 160.]);
+        mul_in_place(&mut a, &b);
+        expect_equal(&a, &expected)
     }
 
     #[test]

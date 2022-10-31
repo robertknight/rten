@@ -262,6 +262,9 @@ def op_node_from_onnx_operator(
         check_unsupported_attr(onnx_op.attribute, "storage_order", "int", 0)
         check_unsupported_attr(onnx_op.attribute, "strides", "ints", kernel_shape)
 
+    elif onnx_op.op_type == "Mul":
+        op_type = "Mul"
+
     elif onnx_op.op_type == "Relu":
         op_type = "ReLU"
 
@@ -434,6 +437,8 @@ def build_operator_node(builder: flatbuffers.Builder, operator: OperatorNode):
             sg.MaxPool2dAttrsStart(builder)
             sg.MaxPool2dAttrsAddKernelSize(builder, operator.attrs["kernel_size"])
             attrs = sg.MaxPool2dAttrsEnd(builder)
+        case "Mul":
+            op_type_code = sg.OperatorType.Mul
         case "ReLU":
             op_type_code = sg.OperatorType.ReLU
         case "Reshape":

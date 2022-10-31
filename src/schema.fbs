@@ -17,6 +17,7 @@ enum OperatorType: byte {
   GlobalAveragePool,
   MatMul,
   MaxPool2d,
+  Mul,
   Pad2d,
   ReLU,
   Reshape,

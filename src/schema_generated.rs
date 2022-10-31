@@ -18,13 +18,13 @@ pub const ENUM_MIN_OPERATOR_TYPE: i8 = 0;
     since = "2.0.0",
     note = "Use associated constants instead. This will no longer be generated in 2021."
 )]
-pub const ENUM_MAX_OPERATOR_TYPE: i8 = 16;
+pub const ENUM_MAX_OPERATOR_TYPE: i8 = 17;
 #[deprecated(
     since = "2.0.0",
     note = "Use associated constants instead. This will no longer be generated in 2021."
 )]
 #[allow(non_camel_case_types)]
-pub const ENUM_VALUES_OPERATOR_TYPE: [OperatorType; 17] = [
+pub const ENUM_VALUES_OPERATOR_TYPE: [OperatorType; 18] = [
     OperatorType::Add,
     OperatorType::Clip,
     OperatorType::Concat,
@@ -35,6 +35,7 @@ pub const ENUM_VALUES_OPERATOR_TYPE: [OperatorType; 17] = [
     OperatorType::GlobalAveragePool,
     OperatorType::MatMul,
     OperatorType::MaxPool2d,
+    OperatorType::Mul,
     OperatorType::Pad2d,
     OperatorType::ReLU,
     OperatorType::Reshape,
@@ -59,16 +60,17 @@ impl OperatorType {
     pub const GlobalAveragePool: Self = Self(7);
     pub const MatMul: Self = Self(8);
     pub const MaxPool2d: Self = Self(9);
-    pub const Pad2d: Self = Self(10);
-    pub const ReLU: Self = Self(11);
-    pub const Reshape: Self = Self(12);
-    pub const Shape: Self = Self(13);
-    pub const Sigmoid: Self = Self(14);
-    pub const Slice: Self = Self(15);
-    pub const Unsqueeze: Self = Self(16);
+    pub const Mul: Self = Self(10);
+    pub const Pad2d: Self = Self(11);
+    pub const ReLU: Self = Self(12);
+    pub const Reshape: Self = Self(13);
+    pub const Shape: Self = Self(14);
+    pub const Sigmoid: Self = Self(15);
+    pub const Slice: Self = Self(16);
+    pub const Unsqueeze: Self = Self(17);
 
     pub const ENUM_MIN: i8 = 0;
-    pub const ENUM_MAX: i8 = 16;
+    pub const ENUM_MAX: i8 = 17;
     pub const ENUM_VALUES: &'static [Self] = &[
         Self::Add,
         Self::Clip,
@@ -80,6 +82,7 @@ impl OperatorType {
         Self::GlobalAveragePool,
         Self::MatMul,
         Self::MaxPool2d,
+        Self::Mul,
         Self::Pad2d,
         Self::ReLU,
         Self::Reshape,
@@ -101,6 +104,7 @@ impl OperatorType {
             Self::GlobalAveragePool => Some("GlobalAveragePool"),
             Self::MatMul => Some("MatMul"),
             Self::MaxPool2d => Some("MaxPool2d"),
+            Self::Mul => Some("Mul"),
             Self::Pad2d => Some("Pad2d"),
             Self::ReLU => Some("ReLU"),
             Self::Reshape => Some("Reshape"),
@@ -266,13 +270,13 @@ pub const ENUM_MIN_OPERATOR_ATTRS: u8 = 0;
     since = "2.0.0",
     note = "Use associated constants instead. This will no longer be generated in 2021."
 )]
-pub const ENUM_MAX_OPERATOR_ATTRS: u8 = 10;
+pub const ENUM_MAX_OPERATOR_ATTRS: u8 = 9;
 #[deprecated(
     since = "2.0.0",
     note = "Use associated constants instead. This will no longer be generated in 2021."
 )]
 #[allow(non_camel_case_types)]
-pub const ENUM_VALUES_OPERATOR_ATTRS: [OperatorAttrs; 11] = [
+pub const ENUM_VALUES_OPERATOR_ATTRS: [OperatorAttrs; 10] = [
     OperatorAttrs::NONE,
     OperatorAttrs::ClipAttrs,
     OperatorAttrs::ConcatAttrs,
@@ -282,7 +286,6 @@ pub const ENUM_VALUES_OPERATOR_ATTRS: [OperatorAttrs; 11] = [
     OperatorAttrs::GemmAttrs,
     OperatorAttrs::MaxPool2dAttrs,
     OperatorAttrs::Pad2dAttrs,
-    OperatorAttrs::SliceAttrs,
     OperatorAttrs::UnsqueezeAttrs,
 ];
 
@@ -300,11 +303,10 @@ impl OperatorAttrs {
     pub const GemmAttrs: Self = Self(6);
     pub const MaxPool2dAttrs: Self = Self(7);
     pub const Pad2dAttrs: Self = Self(8);
-    pub const SliceAttrs: Self = Self(9);
-    pub const UnsqueezeAttrs: Self = Self(10);
+    pub const UnsqueezeAttrs: Self = Self(9);
 
     pub const ENUM_MIN: u8 = 0;
-    pub const ENUM_MAX: u8 = 10;
+    pub const ENUM_MAX: u8 = 9;
     pub const ENUM_VALUES: &'static [Self] = &[
         Self::NONE,
         Self::ClipAttrs,
@@ -315,7 +317,6 @@ impl OperatorAttrs {
         Self::GemmAttrs,
         Self::MaxPool2dAttrs,
         Self::Pad2dAttrs,
-        Self::SliceAttrs,
         Self::UnsqueezeAttrs,
     ];
     /// Returns the variant's name or "" if unknown.
@@ -330,7 +331,6 @@ impl OperatorAttrs {
             Self::GemmAttrs => Some("GemmAttrs"),
             Self::MaxPool2dAttrs => Some("MaxPool2dAttrs"),
             Self::Pad2dAttrs => Some("Pad2dAttrs"),
-            Self::SliceAttrs => Some("SliceAttrs"),
             Self::UnsqueezeAttrs => Some("UnsqueezeAttrs"),
             _ => None,
         }
@@ -1552,130 +1552,6 @@ impl core::fmt::Debug for Pad2dAttrs<'_> {
         ds.finish()
     }
 }
-pub enum SliceAttrsOffset {}
-#[derive(Copy, Clone, PartialEq)]
-
-pub struct SliceAttrs<'a> {
-    pub _tab: flatbuffers::Table<'a>,
-}
-
-impl<'a> flatbuffers::Follow<'a> for SliceAttrs<'a> {
-    type Inner = SliceAttrs<'a>;
-    #[inline]
-    fn follow(buf: &'a [u8], loc: usize) -> Self::Inner {
-        Self {
-            _tab: flatbuffers::Table { buf, loc },
-        }
-    }
-}
-
-impl<'a> SliceAttrs<'a> {
-    pub const VT_DIM: flatbuffers::VOffsetT = 4;
-    pub const VT_START: flatbuffers::VOffsetT = 6;
-    pub const VT_END: flatbuffers::VOffsetT = 8;
-
-    #[inline]
-    pub fn init_from_table(table: flatbuffers::Table<'a>) -> Self {
-        SliceAttrs { _tab: table }
-    }
-    #[allow(unused_mut)]
-    pub fn create<'bldr: 'args, 'args: 'mut_bldr, 'mut_bldr>(
-        _fbb: &'mut_bldr mut flatbuffers::FlatBufferBuilder<'bldr>,
-        args: &'args SliceAttrsArgs,
-    ) -> flatbuffers::WIPOffset<SliceAttrs<'bldr>> {
-        let mut builder = SliceAttrsBuilder::new(_fbb);
-        builder.add_end(args.end);
-        builder.add_start(args.start);
-        builder.add_dim(args.dim);
-        builder.finish()
-    }
-
-    #[inline]
-    pub fn dim(&self) -> u32 {
-        self._tab.get::<u32>(SliceAttrs::VT_DIM, Some(0)).unwrap()
-    }
-    #[inline]
-    pub fn start(&self) -> u32 {
-        self._tab.get::<u32>(SliceAttrs::VT_START, Some(0)).unwrap()
-    }
-    #[inline]
-    pub fn end(&self) -> u32 {
-        self._tab.get::<u32>(SliceAttrs::VT_END, Some(0)).unwrap()
-    }
-}
-
-impl flatbuffers::Verifiable for SliceAttrs<'_> {
-    #[inline]
-    fn run_verifier(
-        v: &mut flatbuffers::Verifier,
-        pos: usize,
-    ) -> Result<(), flatbuffers::InvalidFlatbuffer> {
-        use self::flatbuffers::Verifiable;
-        v.visit_table(pos)?
-            .visit_field::<u32>("dim", Self::VT_DIM, false)?
-            .visit_field::<u32>("start", Self::VT_START, false)?
-            .visit_field::<u32>("end", Self::VT_END, false)?
-            .finish();
-        Ok(())
-    }
-}
-pub struct SliceAttrsArgs {
-    pub dim: u32,
-    pub start: u32,
-    pub end: u32,
-}
-impl<'a> Default for SliceAttrsArgs {
-    #[inline]
-    fn default() -> Self {
-        SliceAttrsArgs {
-            dim: 0,
-            start: 0,
-            end: 0,
-        }
-    }
-}
-
-pub struct SliceAttrsBuilder<'a: 'b, 'b> {
-    fbb_: &'b mut flatbuffers::FlatBufferBuilder<'a>,
-    start_: flatbuffers::WIPOffset<flatbuffers::TableUnfinishedWIPOffset>,
-}
-impl<'a: 'b, 'b> SliceAttrsBuilder<'a, 'b> {
-    #[inline]
-    pub fn add_dim(&mut self, dim: u32) {
-        self.fbb_.push_slot::<u32>(SliceAttrs::VT_DIM, dim, 0);
-    }
-    #[inline]
-    pub fn add_start(&mut self, start: u32) {
-        self.fbb_.push_slot::<u32>(SliceAttrs::VT_START, start, 0);
-    }
-    #[inline]
-    pub fn add_end(&mut self, end: u32) {
-        self.fbb_.push_slot::<u32>(SliceAttrs::VT_END, end, 0);
-    }
-    #[inline]
-    pub fn new(_fbb: &'b mut flatbuffers::FlatBufferBuilder<'a>) -> SliceAttrsBuilder<'a, 'b> {
-        let start = _fbb.start_table();
-        SliceAttrsBuilder {
-            fbb_: _fbb,
-            start_: start,
-        }
-    }
-    #[inline]
-    pub fn finish(self) -> flatbuffers::WIPOffset<SliceAttrs<'a>> {
-        let o = self.fbb_.end_table(self.start_);
-        flatbuffers::WIPOffset::new(o.value())
-    }
-}
-
-impl core::fmt::Debug for SliceAttrs<'_> {
-    fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
-        let mut ds = f.debug_struct("SliceAttrs");
-        ds.field("dim", &self.dim());
-        ds.field("start", &self.start());
-        ds.field("end", &self.end());
-        ds.finish()
-    }
-}
 pub enum UnsqueezeAttrsOffset {}
 #[derive(Copy, Clone, PartialEq)]
 
@@ -1939,16 +1815,6 @@ impl<'a> OperatorNode<'a> {
 
     #[inline]
     #[allow(non_snake_case)]
-    pub fn attrs_as_slice_attrs(&self) -> Option<SliceAttrs<'a>> {
-        if self.attrs_type() == OperatorAttrs::SliceAttrs {
-            self.attrs().map(SliceAttrs::init_from_table)
-        } else {
-            None
-        }
-    }
-
-    #[inline]
-    #[allow(non_snake_case)]
     pub fn attrs_as_unsqueeze_attrs(&self) -> Option<UnsqueezeAttrs<'a>> {
         if self.attrs_type() == OperatorAttrs::UnsqueezeAttrs {
             self.attrs().map(UnsqueezeAttrs::init_from_table)
@@ -2012,11 +1878,6 @@ impl flatbuffers::Verifiable for OperatorNode<'_> {
                     OperatorAttrs::Pad2dAttrs => v
                         .verify_union_variant::<flatbuffers::ForwardsUOffset<Pad2dAttrs>>(
                             "OperatorAttrs::Pad2dAttrs",
-                            pos,
-                        ),
-                    OperatorAttrs::SliceAttrs => v
-                        .verify_union_variant::<flatbuffers::ForwardsUOffset<SliceAttrs>>(
-                            "OperatorAttrs::SliceAttrs",
                             pos,
                         ),
                     OperatorAttrs::UnsqueezeAttrs => v
@@ -2175,16 +2036,6 @@ impl core::fmt::Debug for OperatorNode<'_> {
             }
             OperatorAttrs::Pad2dAttrs => {
                 if let Some(x) = self.attrs_as_pad_2d_attrs() {
-                    ds.field("attrs", &x)
-                } else {
-                    ds.field(
-                        "attrs",
-                        &"InvalidFlatbuffer: Union discriminant does not match value.",
-                    )
-                }
-            }
-            OperatorAttrs::SliceAttrs => {
-                if let Some(x) = self.attrs_as_slice_attrs() {
                     ds.field("attrs", &x)
                 } else {
                     ds.field(

@@ -146,6 +146,10 @@ fn read_matmul_op(_: &OperatorNode) -> Box<dyn Operator> {
     Box::new(ops::MatMul {})
 }
 
+fn read_mul_op(_: &OperatorNode) -> Box<dyn Operator> {
+    Box::new(ops::Mul {})
+}
+
 fn read_pad_2d_op(node: &OperatorNode) -> Box<dyn Operator> {
     let padding = match node.attrs_as_pad_2d_attrs() {
         Some(attrs) => [
@@ -202,6 +206,7 @@ fn read_operator(node: &OperatorNode) -> Result<Box<dyn Operator>, String> {
         OperatorType::GlobalAveragePool => read_global_average_pool_op(node),
         OperatorType::MatMul => read_matmul_op(node),
         OperatorType::MaxPool2d => read_max_pool_2d_op(node),
+        OperatorType::Mul => read_mul_op(node),
         OperatorType::Pad2d => read_pad_2d_op(node),
         OperatorType::ReLU => read_relu_op(node),
         OperatorType::Reshape => read_reshape_op(node),
@@ -401,6 +406,7 @@ mod tests {
             OpType::MaxPool2d(ops::MaxPool2d { kernel_size: 2 }),
             &[input_node],
         );
+        builder.add_operator("mul", OpType::Mul, &[input_node, input_node]);
         builder.add_operator(
             "pad_2d",
             OpType::Pad2d(ops::Pad2d {
@@ -441,6 +447,7 @@ mod tests {
             "conv_transpose_2d",
             "global_average_pool",
             "max_pool_2d",
+            "mul",
             "pad_2d",
             "relu",
             "reshape",
