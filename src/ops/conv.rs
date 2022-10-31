@@ -85,8 +85,7 @@ fn im2col(
             for k_y in min_ky..max_ky {
                 let img_y = py * stride + k_y;
                 let out_row_top = c * patch_h * patch_w + k_y * patch_w;
-                let in_row =
-                    input.last_dim_slice([image_index, start_chan + c, img_y - pad_h, 0], in_w);
+                let in_row = input.unchecked_view([image_index, start_chan + c, img_y - pad_h, 0]);
 
                 for k_x in 0..patch_w {
                     let out_row = out_row_top + k_x;
@@ -96,7 +95,7 @@ fn im2col(
                         &mut output.last_dim_slice_mut([out_row, 0], out_w)[out_col_left..];
 
                     for px in min_px..max_px {
-                        out_row_data[px] = in_row[px * stride + k_x - pad_w]
+                        out_row_data[px] = in_row[[px * stride + k_x - pad_w]]
                     }
                 }
             }
@@ -140,7 +139,7 @@ fn col2im(
 
     for c in 0..group_chans {
         let mut out_view = output.unchecked_view_mut([image_index, start_chan + c, 0, 0]);
-        let in_row = input.last_dim_slice([c, 0], n_patches);
+        let in_row = input.unchecked_view([c, 0]);
 
         let bias = if let Some(bias) = bias {
             bias[[start_chan + c]]
@@ -151,7 +150,7 @@ fn col2im(
         for y in 0..y_patches {
             for x in 0..x_patches {
                 let patch = y * x_patches + x;
-                out_view[[y, x]] = in_row[patch] + bias;
+                out_view[[y, x]] = in_row[[patch]] + bias;
             }
         }
     }
@@ -253,6 +252,9 @@ fn conv_2d_depthwise(
                     if in_y < pad_h || in_y >= in_h + pad_h {
                         continue;
                     }
+
+                    // FIXME - Handle case where last dimension of input is not
+                    // contiguous.
                     let in_row = input.last_dim_slice([n, c, in_y - pad_h, 0], in_w);
 
                     for k_x in 0..k_w {
@@ -496,6 +498,8 @@ pub fn conv_transpose_2d(
                 let kernel_view = kernel.unchecked_view([in_chan, out_chan, 0, 0]);
 
                 for in_y in 0..in_h {
+                    // FIXME - Handle case where last dimension of input is not
+                    // contiguous.
                     let in_row = input.last_dim_slice([n, in_chan, in_y, 0], in_w);
 
                     for k_y in 0..k_h {

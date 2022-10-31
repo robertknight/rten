@@ -82,6 +82,10 @@ impl<T: Copy> Tensor<T> {
     /// Using a slice can allow for very efficient access to a range of elements
     /// in a single row or column (or whatever the last dimension represents).
     pub fn last_dim_slice<const N: usize>(&self, index: [usize; N], len: usize) -> &[T] {
+        assert!(
+            self.strides[N - 1] == 1,
+            "last_dim_slice requires contiguous last dimension"
+        );
         let offset = self.offset(index);
         &self.data[offset..offset + len]
     }
@@ -92,6 +96,10 @@ impl<T: Copy> Tensor<T> {
         index: [usize; N],
         len: usize,
     ) -> &mut [T] {
+        assert!(
+            self.strides[N - 1] == 1,
+            "last_dim_slice_mut requires contiguous last dimension"
+        );
         let offset = self.offset(index);
         &mut self.data[offset..offset + len]
     }
