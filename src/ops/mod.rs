@@ -5,6 +5,7 @@ use crate::linalg::{gemm, gemm_slice, Matrix};
 use crate::tensor::{from_data, from_scalar, zero_tensor, Tensor};
 
 mod activations;
+mod binary_elementwise;
 mod conv;
 
 pub use activations::{
@@ -12,6 +13,8 @@ pub use activations::{
     sigmoid_in_place,
 };
 pub use activations::{Clip, LeakyRelu, ReLU, Sigmoid};
+pub use binary_elementwise::{add, add_in_place, mul, mul_in_place};
+pub use binary_elementwise::{Add, Mul};
 pub use conv::{conv_2d, conv_transpose_2d};
 pub use conv::{Conv2d, ConvTranspose2d, Padding};
 
@@ -162,93 +165,6 @@ pub enum OpType {
     Sigmoid,
     Slice,
     Unsqueeze(Unsqueeze),
-}
-
-/// Given the shapes of two inputs to a binary operation, choose the one that
-/// will be used as the output shape. The other tensor will be broadcasted
-/// to match.
-fn choose_broadcast_shape<'a>(a: &'a [usize], b: &'a [usize]) -> &'a [usize] {
-    if a.len() != b.len() {
-        if a.len() < b.len() {
-            b
-        } else {
-            a
-        }
-    } else if a < b {
-        b
-    } else {
-        a
-    }
-}
-
-/// Compute the result of applying the binary operation `op` to corresponding
-/// elements of `a` and `b`. The shapes of `a` and `b` are broadcast to a
-/// matching shape if necessary.
-fn binary_op<T: Copy + Debug, F: Fn(T, T) -> T>(a: &Tensor<T>, b: &Tensor<T>, op: F) -> Tensor<T> {
-    let out_shape = choose_broadcast_shape(a.shape(), b.shape());
-    let a_elts = a.broadcast_elements(out_shape);
-    let b_elts = b.broadcast_elements(out_shape);
-    let out_data = zip(a_elts, b_elts).map(|(a, b)| op(a, b)).collect();
-    from_data(out_shape.into(), out_data)
-}
-
-/// Return true if an elementwise binary operation can be performed in-place
-/// on `a` given `b` as the other argument.
-fn can_run_binary_op_in_place<T: Copy>(a: &Tensor<T>, b: &Tensor<T>) -> bool {
-    a.shape() == b.shape() && a.is_contiguous() && b.is_contiguous()
-}
-
-/// Perform an elementwise binary operation in-place.
-///
-/// This currently only supports the case where both inputs have exactly the
-/// same shape, so no broadcasting is required, and the inputs are contigious.
-fn binary_op_in_place<T: Copy + Debug, F: Fn(&mut T, T)>(a: &mut Tensor<T>, b: &Tensor<T>, op: F) {
-    assert!(a.is_contiguous());
-    assert!(b.is_contiguous());
-    for (a_elt, b_elt) in zip(a.data_mut().iter_mut(), b.data().iter()) {
-        op(a_elt, *b_elt);
-    }
-}
-
-/// Perform elementwise addition of two tensors.
-pub fn add(a: &Tensor, b: &Tensor) -> Tensor {
-    binary_op(a, b, |x, y| x + y)
-}
-
-/// Perform in-place elementwise addition of two tensors.
-pub fn add_in_place(a: &mut Tensor, b: &Tensor) {
-    binary_op_in_place(a, b, |x, y| *x += y);
-}
-
-#[derive(Debug)]
-pub struct Add {}
-
-impl Operator for Add {
-    fn name(&self) -> &str {
-        "Add"
-    }
-
-    fn run(&self, inputs: &[Input]) -> Output {
-        let a = inputs[0].as_float().unwrap();
-        let b = inputs[1].as_float().unwrap();
-        add(a, b).into()
-    }
-
-    fn can_run_in_place(&self) -> bool {
-        true
-    }
-
-    fn run_in_place(&self, input: Output, other: &[Input]) -> Output {
-        let mut a = input.as_float().unwrap();
-        let b = other[0].as_float().unwrap();
-
-        if can_run_binary_op_in_place(&a, &b) {
-            add_in_place(&mut a, &b);
-            a.into()
-        } else {
-            self.run(&[(&a).into(), b.into()])
-        }
-    }
 }
 
 /// Perform in-place batch normalization on the NCHW tensor `out`.
@@ -573,47 +489,6 @@ impl Operator for MaxPool2d {
     }
 }
 
-/// Multiply two tensors elementwise.
-pub fn mul(a: &Tensor, b: &Tensor) -> Tensor {
-    binary_op(a, b, |x, y| x * y)
-}
-
-/// Perform in-place elementwise multiplication of two tensors.
-pub fn mul_in_place(a: &mut Tensor, b: &Tensor) {
-    binary_op_in_place(a, b, |a_elt, b_elt| *a_elt *= b_elt);
-}
-
-#[derive(Debug)]
-pub struct Mul {}
-
-impl Operator for Mul {
-    fn name(&self) -> &str {
-        "Mul"
-    }
-
-    fn run(&self, inputs: &[Input]) -> Output {
-        let a = inputs[0].as_float().unwrap();
-        let b = inputs[1].as_float().unwrap();
-        mul(a, b).into()
-    }
-
-    fn can_run_in_place(&self) -> bool {
-        true
-    }
-
-    fn run_in_place(&self, input: Output, other: &[Input]) -> Output {
-        let mut a = input.as_float().unwrap();
-        let b = other[0].as_float().unwrap();
-
-        if can_run_binary_op_in_place(&a, &b) {
-            mul_in_place(&mut a, &b);
-            a.into()
-        } else {
-            self.run(&[(&a).into(), b.into()])
-        }
-    }
-}
-
 pub fn reshape<T: Copy>(input: &Tensor<T>, shape: &Tensor<i32>) -> Tensor<T> {
     // If exactly one of the new shape's dimensions is -1, infer the size
     // from the input length and the sizes of the other dimensions.
@@ -919,76 +794,12 @@ impl Operator for Unsqueeze {
 mod tests {
     use crate::linalg::gemm;
     use crate::ops::{
-        add, add_in_place, batch_norm, batch_norm_in_place, concat, gather, gemm_op,
-        global_average_pool, matmul, max_pool_2d, mul, mul_in_place, pad_2d, reshape, slice,
-        slice_in_place, unsqueeze, Add, Operator, Output, Reshape, Shape,
+        batch_norm, batch_norm_in_place, concat, gather, gemm_op, global_average_pool, matmul,
+        max_pool_2d, pad_2d, reshape, slice, slice_in_place, unsqueeze, Operator, Reshape, Shape,
     };
     use crate::rng::XorShiftRNG;
     use crate::tensor::{from_data, from_scalar, from_vec, random_tensor, zero_tensor, Tensor};
     use crate::test_util::expect_equal;
-
-    #[test]
-    fn test_add() -> Result<(), String> {
-        let a = from_data(vec![2, 2], vec![1., 2., 3., 4.]);
-        let b = from_data(vec![2, 2], vec![10., 20., 30., 40.]);
-        let expected = from_data(vec![2, 2], vec![11., 22., 33., 44.]);
-        let result = add(&a, &b);
-        expect_equal(&result, &expected)
-    }
-
-    #[test]
-    fn test_add_broadcasted() -> Result<(), String> {
-        // Simple case where comparing ordering of tensor shapes tells us
-        // target shape.
-        let a = from_data(vec![2, 2], vec![1., 2., 3., 4.]);
-        let b = from_data(vec![1], vec![10.]);
-        let expected = from_data(vec![2, 2], vec![11., 12., 13., 14.]);
-        let result = add(&a, &b);
-        expect_equal(&result, &expected)?;
-
-        // Try alternative ordering for inputs.
-        let result = add(&b, &a);
-        expect_equal(&result, &expected)?;
-
-        // Case where the length of tensor shapes needs to be compared before
-        // the ordering, since ([5] > [1,5]).
-        let a = from_data(vec![5], vec![1., 2., 3., 4., 5.]);
-        let b = from_data(vec![1, 5], vec![1., 2., 3., 4., 5.]);
-        let expected = from_data(vec![1, 5], vec![2., 4., 6., 8., 10.]);
-
-        let result = add(&a, &b);
-        expect_equal(&result, &expected)?;
-
-        // Case where one of the inputs is a scalar.
-        let a = from_scalar(3.0);
-        let b = from_data(vec![2, 2], vec![1.0, 2.0, 3.0, 4.0]);
-        let result = add(&a, &b);
-        let expected = from_data(vec![2, 2], vec![4.0, 5.0, 6.0, 7.0]);
-        expect_equal(&result, &expected)
-    }
-
-    #[test]
-    fn test_add_in_place() -> Result<(), String> {
-        // Invoke `add_in_place` directly.
-        let mut a = from_data(vec![2, 2], vec![1., 2., 3., 4.]);
-        let a_copy = a.clone();
-        let b = from_data(vec![2, 2], vec![10., 20., 30., 40.]);
-        let expected = from_data(vec![2, 2], vec![11., 22., 33., 44.]);
-        add_in_place(&mut a, &b);
-        expect_equal(&a, &expected)?;
-
-        // Run `Add` operator in place with inputs that support in-place addition.
-        let op = Add {};
-        let result = op.run_in_place(Output::FloatTensor(a_copy), &[(&b).into()]);
-        expect_equal(result.as_float_ref().unwrap(), &expected)?;
-
-        // Run `Add` operator in-place with inputs that don't support in-place
-        // addition. The operator should fall back to creating a new output tensor.
-        let scalar = from_scalar(1.0);
-        let expected = from_data(vec![2, 2], vec![11., 21., 31., 41.]);
-        let result = op.run_in_place(Output::FloatTensor(scalar), &[(&b).into()]);
-        expect_equal(result.as_float_ref().unwrap(), &expected)
-    }
 
     #[test]
     fn test_batch_norm() -> Result<(), String> {
@@ -1132,24 +943,6 @@ mod tests {
         );
         let result = max_pool_2d(&input, 2);
         expect_equal(&result, &expected)
-    }
-
-    #[test]
-    fn test_mul() -> Result<(), String> {
-        let a = from_data(vec![2, 2], vec![1., 2., 3., 4.]);
-        let b = from_data(vec![2, 2], vec![10., 20., 30., 40.]);
-        let expected = from_data(vec![2, 2], vec![10., 40., 90., 160.]);
-        let result = mul(&a, &b);
-        expect_equal(&result, &expected)
-    }
-
-    #[test]
-    fn test_mul_in_place() -> Result<(), String> {
-        let mut a = from_data(vec![2, 2], vec![1., 2., 3., 4.]);
-        let b = from_data(vec![2, 2], vec![10., 20., 30., 40.]);
-        let expected = from_data(vec![2, 2], vec![10., 40., 90., 160.]);
-        mul_in_place(&mut a, &b);
-        expect_equal(&a, &expected)
     }
 
     #[test]
