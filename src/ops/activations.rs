@@ -85,10 +85,10 @@ pub fn relu(x: &Tensor) -> Tensor {
 }
 
 #[derive(Debug)]
-pub struct ReLU {}
-impl Operator for ReLU {
+pub struct Relu {}
+impl Operator for Relu {
     fn name(&self) -> &str {
-        "ReLU"
+        "Relu"
     }
 
     /// Run `relu` operator with `[input]` inputs.

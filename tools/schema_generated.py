@@ -21,7 +21,7 @@ class OperatorType(object):
     MaxPool2d = 11
     Mul = 12
     Pad2d = 13
-    ReLU = 14
+    Relu = 14
     Reshape = 15
     Shape = 16
     Sigmoid = 17

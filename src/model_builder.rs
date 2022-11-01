@@ -274,7 +274,7 @@ impl<'a> ModelBuilder<'a> {
                     .as_union_value(),
                 ),
             ),
-            OpType::ReLU => (OT::ReLU, no_attrs, None),
+            OpType::Relu => (OT::Relu, no_attrs, None),
             OpType::Reshape => (OT::Reshape, no_attrs, None),
             OpType::Shape => (OT::Shape, no_attrs, None),
             OpType::Sigmoid => (OT::Sigmoid, no_attrs, None),

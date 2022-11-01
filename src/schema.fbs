@@ -21,7 +21,7 @@ enum OperatorType: byte {
   MaxPool2d,
   Mul,
   Pad2d,
-  ReLU,
+  Relu,
   Reshape,
   Shape,
   Sigmoid,

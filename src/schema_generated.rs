@@ -39,7 +39,7 @@ pub const ENUM_VALUES_OPERATOR_TYPE: [OperatorType; 20] = [
     OperatorType::MaxPool2d,
     OperatorType::Mul,
     OperatorType::Pad2d,
-    OperatorType::ReLU,
+    OperatorType::Relu,
     OperatorType::Reshape,
     OperatorType::Shape,
     OperatorType::Sigmoid,
@@ -66,7 +66,7 @@ impl OperatorType {
     pub const MaxPool2d: Self = Self(11);
     pub const Mul: Self = Self(12);
     pub const Pad2d: Self = Self(13);
-    pub const ReLU: Self = Self(14);
+    pub const Relu: Self = Self(14);
     pub const Reshape: Self = Self(15);
     pub const Shape: Self = Self(16);
     pub const Sigmoid: Self = Self(17);
@@ -90,7 +90,7 @@ impl OperatorType {
         Self::MaxPool2d,
         Self::Mul,
         Self::Pad2d,
-        Self::ReLU,
+        Self::Relu,
         Self::Reshape,
         Self::Shape,
         Self::Sigmoid,
@@ -114,7 +114,7 @@ impl OperatorType {
             Self::MaxPool2d => Some("MaxPool2d"),
             Self::Mul => Some("Mul"),
             Self::Pad2d => Some("Pad2d"),
-            Self::ReLU => Some("ReLU"),
+            Self::Relu => Some("Relu"),
             Self::Reshape => Some("Reshape"),
             Self::Shape => Some("Shape"),
             Self::Sigmoid => Some("Sigmoid"),

@@ -342,12 +342,12 @@ impl Graph {
 #[cfg(test)]
 mod tests {
     use crate::graph::Graph;
-    use crate::ops::{Concat, Conv2d, Input, Operator, Output, Padding, ReLU};
+    use crate::ops::{Concat, Conv2d, Input, Operator, Output, Padding, Relu};
     use crate::tensor::{from_data, zero_tensor};
     use crate::test_util::expect_equal;
 
     // Test of a very simple graph with a typical structure (one input, one
-    // output, Conv2d + ReLU operation).
+    // output, Conv2d + Relu operation).
     #[test]
     fn test_graph_run() -> Result<(), String> {
         let mut g = Graph::new();
@@ -369,7 +369,7 @@ mod tests {
             }),
             &[input_id, weights_id],
         );
-        let relu_out = g.add_op(Box::new(ReLU {}), &[conv_out]);
+        let relu_out = g.add_op(Box::new(Relu {}), &[conv_out]);
 
         let input = from_data(
             vec![1, 1, 3, 3],
@@ -491,7 +491,7 @@ mod tests {
     #[should_panic(expected = "Unable to generate execution plan. Missing value 42")]
     fn test_panic_if_missing_operator_input() {
         let mut g = Graph::new();
-        let output = g.add_op(Box::new(ReLU {}), &[42]);
+        let output = g.add_op(Box::new(Relu {}), &[42]);
         g.run(&[], &[output], None);
     }
 

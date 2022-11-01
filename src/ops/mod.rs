@@ -13,7 +13,7 @@ pub use activations::{
     clip, clip_in_place, leaky_relu, leaky_relu_in_place, relu, relu_in_place, sigmoid,
     sigmoid_in_place,
 };
-pub use activations::{Clip, LeakyRelu, ReLU, Sigmoid};
+pub use activations::{Clip, LeakyRelu, Relu, Sigmoid};
 pub use binary_elementwise::{add, add_in_place, mul, mul_in_place};
 pub use binary_elementwise::{Add, Mul};
 pub use conv::{conv_2d, conv_transpose_2d};
@@ -162,7 +162,7 @@ pub enum OpType {
     MaxPool2d(MaxPool2d),
     Mul,
     Pad2d(Pad2d),
-    ReLU,
+    Relu,
     Reshape,
     Shape,
     Sigmoid,

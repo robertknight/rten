@@ -180,7 +180,7 @@ fn read_pad_2d_op(node: &OperatorNode) -> Box<dyn Operator> {
 }
 
 fn read_relu_op(_: &OperatorNode) -> Box<dyn Operator> {
-    Box::new(ops::ReLU {})
+    Box::new(ops::Relu {})
 }
 
 fn read_reshape_op(_: &OperatorNode) -> Box<dyn Operator> {
@@ -226,7 +226,7 @@ fn read_operator(node: &OperatorNode) -> Result<Box<dyn Operator>, String> {
         OperatorType::MaxPool2d => read_max_pool_2d_op(node),
         OperatorType::Mul => read_mul_op(node),
         OperatorType::Pad2d => read_pad_2d_op(node),
-        OperatorType::ReLU => read_relu_op(node),
+        OperatorType::Relu => read_relu_op(node),
         OperatorType::Reshape => read_reshape_op(node),
         OperatorType::Shape => read_shape_op(node),
         OperatorType::Sigmoid => read_sigmoid_op(node),
@@ -336,7 +336,7 @@ mod tests {
             OpType::Concat(ops::Concat { dim: 0 }),
             &[const_node, input_node],
         );
-        builder.add_operator("output", OpType::ReLU, &[concat_node]);
+        builder.add_operator("output", OpType::Relu, &[concat_node]);
 
         builder.finish()
     }
@@ -458,7 +458,7 @@ mod tests {
             }),
             &[input_node],
         );
-        builder.add_operator("relu", OpType::ReLU, &[input_node]);
+        builder.add_operator("relu", OpType::Relu, &[input_node]);
 
         let new_shape = builder.add_int_constant(&from_data(vec![1], vec![9]));
         builder.add_operator("reshape", OpType::Reshape, &[input_node, new_shape]);
