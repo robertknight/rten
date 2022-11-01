@@ -188,7 +188,7 @@ pub fn batch_norm_in_place(
 
             for y in 0..in_h {
                 for x in 0..in_w {
-                    let mut el = &mut out[[n, c, y, x]];
+                    let el = &mut out[[n, c, y, x]];
                     *el = (*el - chan_mean) / (chan_var + epsilon).sqrt() * chan_scale + chan_bias;
                 }
             }

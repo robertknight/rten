@@ -135,7 +135,7 @@ fn col2im(
     x_patches: usize,
     bias: Option<&Tensor>,
 ) {
-    let [group_chans, n_patches] = input.dims();
+    let [group_chans, _n_patches] = input.dims();
 
     for c in 0..group_chans {
         let mut out_view = output.unchecked_view_mut([image_index, start_chan + c, 0, 0]);
