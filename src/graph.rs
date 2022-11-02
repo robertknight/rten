@@ -308,7 +308,12 @@ impl Graph {
                     if let Some(input_op_node) = self.operator_nodes.get(input) {
                         self.visit(*input, input_op_node);
                     } else {
-                        panic!("Unable to generate execution plan. Missing value {}", input)
+                        panic!(
+                            "Unable to generate execution plan. Missing input {} for op {} {}",
+                            input,
+                            op_node.operator.name(),
+                            node_id
+                        )
                     }
                 }
                 self.resolved_values.insert(node_id);
@@ -321,8 +326,8 @@ impl Graph {
                         self.visit(*output_id, op_node);
                     } else if !self.resolved_values.contains(output_id) {
                         panic!(
-                            "Unable to generate execution plan. Missing value {}",
-                            output_id
+                            "Unable to generate execution plan. Missing output {}",
+                            output_id,
                         )
                     }
                 }
@@ -481,14 +486,14 @@ mod tests {
     }
 
     #[test]
-    #[should_panic(expected = "Unable to generate execution plan. Missing value 123")]
+    #[should_panic(expected = "Unable to generate execution plan. Missing output 123")]
     fn test_panic_if_invalid_output() {
         let g = Graph::new();
         g.run(&[], &[123], None);
     }
 
     #[test]
-    #[should_panic(expected = "Unable to generate execution plan. Missing value 42")]
+    #[should_panic(expected = "Unable to generate execution plan. Missing input 42")]
     fn test_panic_if_missing_operator_input() {
         let mut g = Graph::new();
         let output = g.add_op(Box::new(Relu {}), &[42]);
