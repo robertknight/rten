@@ -199,10 +199,19 @@ pub fn batch_norm_in_place(
             let chan_scale = scale[[c]];
             let chan_bias = bias[[c]];
 
+            let mut out_view = out.unchecked_view_mut([n, c, 0, 0]);
+
+            // The batch norm formula, from the ONNX spec, is:
+            //
+            // Y = (X - input_mean) / sqrt(input_var + epsilon) * scale + bias
+            //
+            // It has been rewritten here to simplify the inner loop below.
+            let scaled_std_dev_reciprocal = chan_scale / (chan_var + epsilon).sqrt();
+
             for y in 0..in_h {
                 for x in 0..in_w {
-                    let el = &mut out[[n, c, y, x]];
-                    *el = (*el - chan_mean) / (chan_var + epsilon).sqrt() * chan_scale + chan_bias;
+                    let el = &mut out_view[[y, x]];
+                    *el = (*el - chan_mean) * scaled_std_dev_reciprocal + chan_bias;
                 }
             }
         }
