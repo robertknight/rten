@@ -23,7 +23,7 @@ class ConstantNode(Node):
 
 class OperatorNode(Node):
     def __init__(
-        self, name: str, op_type: str, attrs: dict[str, int|str], inputs: list[int]
+        self, name: str, op_type: str, attrs: dict[str, int|float|str], inputs: list[int]
     ):
         super().__init__(name)
         self.op_type = op_type
@@ -147,6 +147,45 @@ def value_node_from_onnx_value(value: onnx.ValueInfoProto) -> ValueNode:
     return ValueNode(name=value.name)
 
 
+def read_pad_attrs_from_onnx_operator(onnx_op: onnx.OperatorProto, attrs: dict[str, int|float|str]):
+    """
+    Read a padding specification from an ONNX operator.
+    """
+
+    auto_pad = get_attr(onnx_op.attribute, "auto_pad", "string", "NOTSET")
+
+    if auto_pad == "SAME_UPPER" or auto_pad == "SAME_LOWER":
+        attrs["pad_mode"] = "same"
+        attrs["pad_horizontal"] = 0
+        attrs["pad_vertical"] = 0
+    elif auto_pad == "NOTSET":
+        padding = get_attr(onnx_op.attribute, "pads", "ints", [0, 0, 0, 0])
+        if len(padding) != 4:
+            raise Exception("\"padding\" attribute must have 4 values")
+        pad_left, pad_right, pad_top, pad_bottom = iter(padding)
+        if pad_left != pad_right:
+            raise Exception("Left and right padding must be the same")
+        if pad_top != pad_bottom:
+            raise Exception("Top and bottom padding must be the same")
+
+        attrs["pad_mode"] = "fixed"
+        attrs["pad_horizontal"] = pad_left
+        attrs["pad_vertical"] = pad_top
+
+
+def read_stride_attr_from_onnx_operator(onnx_op: onnx.OperatorProto, attrs: dict[str, int|float|str]):
+    """
+    Read a stride specification from an ONNX operator.
+    """
+    strides = get_attr(onnx_op.attribute, "strides", "ints", [1, 1])
+    if len(strides) != 2:
+        raise Exception("\"strides\" attribute must have 2 values")
+    stride_width, stride_height = iter(strides)
+    if stride_width != stride_height:
+        raise Exception("Strides must be the same in all dimensions")
+    attrs["stride"] = stride_width
+
+
 def op_node_from_onnx_operator(
     onnx_op: onnx.OperatorProto, node_index_from_name: dict[str, int]
 ) -> OperatorNode:
@@ -190,43 +229,15 @@ def op_node_from_onnx_operator(
         op_type = "Conv2d"
 
         attrs["groups"] = get_attr(onnx_op.attribute, "group", "int", 1)
-
-        auto_pad = get_attr(onnx_op.attribute, "auto_pad", "string", "NOTSET")
-
-        if auto_pad == "SAME_UPPER" or auto_pad == "SAME_LOWER":
-            attrs["pad_mode"] = "same"
-            attrs["pad_horizontal"] = 0
-            attrs["pad_vertical"] = 0
-        elif auto_pad == "NOTSET":
-            padding = get_attr(onnx_op.attribute, "pads", "ints", [0, 0, 0, 0])
-            if len(padding) != 4:
-                raise Exception("\"padding\" attribute must have 4 values")
-            pad_left, pad_right, pad_top, pad_bottom = iter(padding)
-            if pad_left != pad_right:
-                raise Exception("Left and right padding must be the same")
-            if pad_top != pad_bottom:
-                raise Exception("Top and bottom padding must be the same")
-
-            attrs["pad_mode"] = "fixed"
-            attrs["pad_horizontal"] = pad_left
-            attrs["pad_vertical"] = pad_top
-
-        strides = get_attr(onnx_op.attribute, "strides", "ints", [1, 1])
-        if len(strides) != 2:
-            raise Exception("\"strides\" attribute must have 2 values")
-        stride_width, stride_height = iter(strides)
-        if stride_width != stride_height:
-            raise Exception("Strides must be the same in all dimensions")
-        attrs["stride"] = stride_width
+        read_pad_attrs_from_onnx_operator(onnx_op, attrs)
+        read_stride_attr_from_onnx_operator(onnx_op, attrs)
 
         check_unsupported_attr(onnx_op.attribute, "dilations", "ints", [1, 1])
 
     elif onnx_op.op_type == "ConvTranspose":
         op_type = "ConvTranspose2d"
 
-        strides = get_attr(onnx_op.attribute, "strides", "ints", [1, 1])
-        check_ints_length_and_value("strides", strides, 2)
-        attrs["stride"] = strides[0]
+        read_stride_attr_from_onnx_operator(onnx_op, attrs)
 
         check_unsupported_attr(onnx_op.attribute, "auto_pad", "string", "NOTSET")
         check_unsupported_attr(onnx_op.attribute, "dilations", "ints", [1, 1])
@@ -265,12 +276,12 @@ def op_node_from_onnx_operator(
         check_ints_length_and_value("kernel_shape", kernel_shape, 2)
         attrs["kernel_size"] = kernel_shape[0]
 
-        check_unsupported_attr(onnx_op.attribute, "auto_pad", "string", "NOTSET")
+        read_pad_attrs_from_onnx_operator(onnx_op, attrs)
+        read_stride_attr_from_onnx_operator(onnx_op, attrs)
+
         check_unsupported_attr(onnx_op.attribute, "ceil_mode", "int", 0)
         check_unsupported_attr(onnx_op.attribute, "dilations", "ints", [1, 1])
-        check_unsupported_attr(onnx_op.attribute, "pads", "ints", [0, 0, 0, 0])
         check_unsupported_attr(onnx_op.attribute, "storage_order", "int", 0)
-        check_unsupported_attr(onnx_op.attribute, "strides", "ints", kernel_shape)
 
     elif onnx_op.op_type == "Mul":
         op_type = "Mul"
@@ -456,8 +467,18 @@ def build_operator_node(builder: flatbuffers.Builder, operator: OperatorNode):
         case "MaxPool2d":
             op_type_code = sg.OperatorType.MaxPool2d
             attrs_type = sg.OperatorAttrs.MaxPool2dAttrs
+
+            if operator.attrs["pad_mode"] == "same":
+                pad_mode = sg.PadMode.Same
+            else:
+                pad_mode = sg.PadMode.Fixed
+
             sg.MaxPool2dAttrsStart(builder)
             sg.MaxPool2dAttrsAddKernelSize(builder, operator.attrs["kernel_size"])
+            sg.MaxPool2dAttrsAddPadMode(builder, pad_mode)
+            sg.MaxPool2dAttrsAddPadHorizontal(builder, operator.attrs["pad_horizontal"])
+            sg.MaxPool2dAttrsAddPadVertical(builder, operator.attrs["pad_vertical"])
+            sg.MaxPool2dAttrsAddStride(builder, operator.attrs["stride"])
             attrs = sg.MaxPool2dAttrsEnd(builder)
         case "Mul":
             op_type_code = sg.OperatorType.Mul

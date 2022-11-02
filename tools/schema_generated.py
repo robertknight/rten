@@ -427,8 +427,40 @@ class MaxPool2dAttrs(object):
             return self._tab.Get(flatbuffers.number_types.Uint32Flags, o + self._tab.Pos)
         return 0
 
-def MaxPool2dAttrsStart(builder): builder.StartObject(1)
+    # MaxPool2dAttrs
+    def PadMode(self):
+        o = flatbuffers.number_types.UOffsetTFlags.py_type(self._tab.Offset(6))
+        if o != 0:
+            return self._tab.Get(flatbuffers.number_types.Int8Flags, o + self._tab.Pos)
+        return 0
+
+    # MaxPool2dAttrs
+    def PadHorizontal(self):
+        o = flatbuffers.number_types.UOffsetTFlags.py_type(self._tab.Offset(8))
+        if o != 0:
+            return self._tab.Get(flatbuffers.number_types.Uint32Flags, o + self._tab.Pos)
+        return 0
+
+    # MaxPool2dAttrs
+    def PadVertical(self):
+        o = flatbuffers.number_types.UOffsetTFlags.py_type(self._tab.Offset(10))
+        if o != 0:
+            return self._tab.Get(flatbuffers.number_types.Uint32Flags, o + self._tab.Pos)
+        return 0
+
+    # MaxPool2dAttrs
+    def Stride(self):
+        o = flatbuffers.number_types.UOffsetTFlags.py_type(self._tab.Offset(12))
+        if o != 0:
+            return self._tab.Get(flatbuffers.number_types.Uint32Flags, o + self._tab.Pos)
+        return 0
+
+def MaxPool2dAttrsStart(builder): builder.StartObject(5)
 def MaxPool2dAttrsAddKernelSize(builder, kernelSize): builder.PrependUint32Slot(0, kernelSize, 0)
+def MaxPool2dAttrsAddPadMode(builder, padMode): builder.PrependInt8Slot(1, padMode, 0)
+def MaxPool2dAttrsAddPadHorizontal(builder, padHorizontal): builder.PrependUint32Slot(2, padHorizontal, 0)
+def MaxPool2dAttrsAddPadVertical(builder, padVertical): builder.PrependUint32Slot(3, padVertical, 0)
+def MaxPool2dAttrsAddStride(builder, stride): builder.PrependUint32Slot(4, stride, 0)
 def MaxPool2dAttrsEnd(builder): return builder.EndObject()
 
 

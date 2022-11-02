@@ -17,9 +17,19 @@ pub use activations::{Clip, LeakyRelu, Relu, Sigmoid};
 pub use binary_elementwise::{add, add_in_place, mul, mul_in_place};
 pub use binary_elementwise::{Add, Mul};
 pub use conv::{conv_2d, conv_transpose_2d};
-pub use conv::{Conv2d, ConvTranspose2d, Padding};
+pub use conv::{Conv2d, ConvTranspose2d};
 pub use pooling::{global_average_pool, max_pool_2d};
 pub use pooling::{GlobalAveragePool, MaxPool2d};
+
+#[derive(Copy, Clone, Debug)]
+pub enum Padding {
+    /// Apply enough padding such that the output and input have the same size.
+    Same,
+
+    /// Apply an even amount of padding to the start and end of the height and
+    /// width dimensions respectively.
+    Fixed((usize, usize)),
+}
 
 /// Enum of the different types of input tensor that an operator can accept.
 #[derive(Clone, Copy)]

@@ -1536,6 +1536,10 @@ impl<'a> flatbuffers::Follow<'a> for MaxPool2dAttrs<'a> {
 
 impl<'a> MaxPool2dAttrs<'a> {
     pub const VT_KERNEL_SIZE: flatbuffers::VOffsetT = 4;
+    pub const VT_PAD_MODE: flatbuffers::VOffsetT = 6;
+    pub const VT_PAD_HORIZONTAL: flatbuffers::VOffsetT = 8;
+    pub const VT_PAD_VERTICAL: flatbuffers::VOffsetT = 10;
+    pub const VT_STRIDE: flatbuffers::VOffsetT = 12;
 
     #[inline]
     pub fn init_from_table(table: flatbuffers::Table<'a>) -> Self {
@@ -1547,7 +1551,11 @@ impl<'a> MaxPool2dAttrs<'a> {
         args: &'args MaxPool2dAttrsArgs,
     ) -> flatbuffers::WIPOffset<MaxPool2dAttrs<'bldr>> {
         let mut builder = MaxPool2dAttrsBuilder::new(_fbb);
+        builder.add_stride(args.stride);
+        builder.add_pad_vertical(args.pad_vertical);
+        builder.add_pad_horizontal(args.pad_horizontal);
         builder.add_kernel_size(args.kernel_size);
+        builder.add_pad_mode(args.pad_mode);
         builder.finish()
     }
 
@@ -1555,6 +1563,30 @@ impl<'a> MaxPool2dAttrs<'a> {
     pub fn kernel_size(&self) -> u32 {
         self._tab
             .get::<u32>(MaxPool2dAttrs::VT_KERNEL_SIZE, Some(0))
+            .unwrap()
+    }
+    #[inline]
+    pub fn pad_mode(&self) -> PadMode {
+        self._tab
+            .get::<PadMode>(MaxPool2dAttrs::VT_PAD_MODE, Some(PadMode::Same))
+            .unwrap()
+    }
+    #[inline]
+    pub fn pad_horizontal(&self) -> u32 {
+        self._tab
+            .get::<u32>(MaxPool2dAttrs::VT_PAD_HORIZONTAL, Some(0))
+            .unwrap()
+    }
+    #[inline]
+    pub fn pad_vertical(&self) -> u32 {
+        self._tab
+            .get::<u32>(MaxPool2dAttrs::VT_PAD_VERTICAL, Some(0))
+            .unwrap()
+    }
+    #[inline]
+    pub fn stride(&self) -> u32 {
+        self._tab
+            .get::<u32>(MaxPool2dAttrs::VT_STRIDE, Some(0))
             .unwrap()
     }
 }
@@ -1568,17 +1600,31 @@ impl flatbuffers::Verifiable for MaxPool2dAttrs<'_> {
         use self::flatbuffers::Verifiable;
         v.visit_table(pos)?
             .visit_field::<u32>("kernel_size", Self::VT_KERNEL_SIZE, false)?
+            .visit_field::<PadMode>("pad_mode", Self::VT_PAD_MODE, false)?
+            .visit_field::<u32>("pad_horizontal", Self::VT_PAD_HORIZONTAL, false)?
+            .visit_field::<u32>("pad_vertical", Self::VT_PAD_VERTICAL, false)?
+            .visit_field::<u32>("stride", Self::VT_STRIDE, false)?
             .finish();
         Ok(())
     }
 }
 pub struct MaxPool2dAttrsArgs {
     pub kernel_size: u32,
+    pub pad_mode: PadMode,
+    pub pad_horizontal: u32,
+    pub pad_vertical: u32,
+    pub stride: u32,
 }
 impl<'a> Default for MaxPool2dAttrsArgs {
     #[inline]
     fn default() -> Self {
-        MaxPool2dAttrsArgs { kernel_size: 0 }
+        MaxPool2dAttrsArgs {
+            kernel_size: 0,
+            pad_mode: PadMode::Same,
+            pad_horizontal: 0,
+            pad_vertical: 0,
+            stride: 0,
+        }
     }
 }
 
@@ -1591,6 +1637,26 @@ impl<'a: 'b, 'b> MaxPool2dAttrsBuilder<'a, 'b> {
     pub fn add_kernel_size(&mut self, kernel_size: u32) {
         self.fbb_
             .push_slot::<u32>(MaxPool2dAttrs::VT_KERNEL_SIZE, kernel_size, 0);
+    }
+    #[inline]
+    pub fn add_pad_mode(&mut self, pad_mode: PadMode) {
+        self.fbb_
+            .push_slot::<PadMode>(MaxPool2dAttrs::VT_PAD_MODE, pad_mode, PadMode::Same);
+    }
+    #[inline]
+    pub fn add_pad_horizontal(&mut self, pad_horizontal: u32) {
+        self.fbb_
+            .push_slot::<u32>(MaxPool2dAttrs::VT_PAD_HORIZONTAL, pad_horizontal, 0);
+    }
+    #[inline]
+    pub fn add_pad_vertical(&mut self, pad_vertical: u32) {
+        self.fbb_
+            .push_slot::<u32>(MaxPool2dAttrs::VT_PAD_VERTICAL, pad_vertical, 0);
+    }
+    #[inline]
+    pub fn add_stride(&mut self, stride: u32) {
+        self.fbb_
+            .push_slot::<u32>(MaxPool2dAttrs::VT_STRIDE, stride, 0);
     }
     #[inline]
     pub fn new(_fbb: &'b mut flatbuffers::FlatBufferBuilder<'a>) -> MaxPool2dAttrsBuilder<'a, 'b> {
@@ -1611,6 +1677,10 @@ impl core::fmt::Debug for MaxPool2dAttrs<'_> {
     fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
         let mut ds = f.debug_struct("MaxPool2dAttrs");
         ds.field("kernel_size", &self.kernel_size());
+        ds.field("pad_mode", &self.pad_mode());
+        ds.field("pad_horizontal", &self.pad_horizontal());
+        ds.field("pad_vertical", &self.pad_vertical());
+        ds.field("stride", &self.stride());
         ds.finish()
     }
 }

@@ -151,11 +151,32 @@ fn read_leaky_relu_op(node: &OperatorNode) -> Box<dyn Operator> {
 }
 
 fn read_max_pool_2d_op(node: &OperatorNode) -> Box<dyn Operator> {
-    let kernel_size = match node.attrs_as_max_pool_2d_attrs() {
-        Some(attrs) => attrs.kernel_size() as usize,
-        None => 2,
-    };
-    Box::new(ops::MaxPool2d { kernel_size })
+    let kernel_size;
+    let padding;
+    let stride;
+
+    if let Some(attrs) = node.attrs_as_max_pool_2d_attrs() {
+        kernel_size = attrs.kernel_size() as usize;
+        padding = match attrs.pad_mode() {
+            PadMode::Same => Padding::Same,
+            PadMode::Fixed => Padding::Fixed((
+                attrs.pad_vertical() as usize,
+                attrs.pad_horizontal() as usize,
+            )),
+            _ => Padding::Fixed((0, 0)),
+        };
+        stride = attrs.stride() as usize;
+    } else {
+        kernel_size = 1;
+        padding = Padding::Fixed((0, 0));
+        stride = 1;
+    }
+
+    Box::new(ops::MaxPool2d {
+        kernel_size,
+        padding,
+        stride,
+    })
 }
 
 fn read_matmul_op(_: &OperatorNode) -> Box<dyn Operator> {
@@ -447,7 +468,11 @@ mod tests {
         builder.add_operator("matmul", OpType::MatMul, &[input_2d, input_2d]);
         builder.add_operator(
             "max_pool_2d",
-            OpType::MaxPool2d(ops::MaxPool2d { kernel_size: 2 }),
+            OpType::MaxPool2d(ops::MaxPool2d {
+                kernel_size: 2,
+                stride: 2,
+                padding: Padding::Fixed((0, 0)),
+            }),
             &[input_node],
         );
         builder.add_operator("mul", OpType::Mul, &[input_node, input_node]);

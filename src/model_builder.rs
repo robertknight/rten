@@ -22,6 +22,27 @@ enum NodeData<'a> {
     Operator(WIPOffset<sg::OperatorNode<'a>>),
 }
 
+struct PadArgs {
+    pad_mode: sg::PadMode,
+    pad_horizontal: u32,
+    pad_vertical: u32,
+}
+
+fn pad_args_from_padding(padding: Padding) -> PadArgs {
+    match padding {
+        Padding::Same => PadArgs {
+            pad_mode: sg::PadMode::Same,
+            pad_horizontal: 0,
+            pad_vertical: 0,
+        },
+        Padding::Fixed((pad_h, pad_w)) => PadArgs {
+            pad_mode: sg::PadMode::Fixed,
+            pad_horizontal: pad_w as u32,
+            pad_vertical: pad_h as u32,
+        },
+    }
+}
+
 impl<'a> ModelBuilder<'a> {
     pub fn new() -> ModelBuilder<'a> {
         let builder = FlatBufferBuilder::with_capacity(1024);
@@ -165,27 +186,16 @@ impl<'a> ModelBuilder<'a> {
                 OT::Conv2d,
                 OA::Conv2dAttrs,
                 Some(
-                    sg::Conv2dAttrs::create(
-                        &mut self.builder,
+                    sg::Conv2dAttrs::create(&mut self.builder, {
+                        let pad_args = pad_args_from_padding(args.padding);
                         &sg::Conv2dAttrsArgs {
                             groups: args.groups as u32,
-                            pad_mode: match args.padding {
-                                Padding::Same => sg::PadMode::Same,
-                                Padding::Fixed(_) => sg::PadMode::Fixed,
-                            },
-                            pad_vertical: if let Padding::Fixed(pads) = args.padding {
-                                pads.0 as u32
-                            } else {
-                                0
-                            },
-                            pad_horizontal: if let Padding::Fixed(pads) = args.padding {
-                                pads.1 as u32
-                            } else {
-                                0
-                            },
+                            pad_mode: pad_args.pad_mode,
+                            pad_horizontal: pad_args.pad_horizontal,
+                            pad_vertical: pad_args.pad_vertical,
                             stride: args.stride as u32,
-                        },
-                    )
+                        }
+                    })
                     .as_union_value(),
                 ),
             ),
@@ -248,12 +258,16 @@ impl<'a> ModelBuilder<'a> {
                 OT::MaxPool2d,
                 OA::MaxPool2dAttrs,
                 Some(
-                    sg::MaxPool2dAttrs::create(
-                        &mut self.builder,
+                    sg::MaxPool2dAttrs::create(&mut self.builder, {
+                        let pad_args = pad_args_from_padding(args.padding);
                         &sg::MaxPool2dAttrsArgs {
                             kernel_size: args.kernel_size as u32,
-                        },
-                    )
+                            pad_mode: pad_args.pad_mode,
+                            pad_horizontal: pad_args.pad_horizontal,
+                            pad_vertical: pad_args.pad_vertical,
+                            stride: args.stride as u32,
+                        }
+                    })
                     .as_union_value(),
                 ),
             ),

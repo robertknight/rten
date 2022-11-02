@@ -1,5 +1,5 @@
 use crate::linalg::{add_scaled_vector, div_ceil, gemm, gemm_slice, Matrix};
-use crate::ops::{Input, Operator, Output};
+use crate::ops::{Input, Operator, Output, Padding};
 use crate::tensor::{from_data, zero_tensor, Tensor};
 
 /// Calculate the spatial size of a convolution output given the spatial
@@ -387,16 +387,6 @@ pub fn conv_2d(
     }
 
     output
-}
-
-#[derive(Copy, Clone, Debug)]
-pub enum Padding {
-    /// Apply enough padding such that the output and input have the same size.
-    Same,
-
-    /// Apply an even amount of padding to the start and end of the height and
-    /// width dimensions respectively.
-    Fixed((usize, usize)),
 }
 
 /// Calculate the specific amount of padding required for an operation that
