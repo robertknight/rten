@@ -1,4 +1,4 @@
-use crate::linalg::{add_scaled_vector, div_ceil, gemm, gemm_slice, Matrix};
+use crate::linalg::{add_scaled_vector, div_ceil, gemm_slice, Matrix};
 use crate::ops::{Input, Operator, Output, Padding};
 use crate::tensor::{from_data, zero_tensor, Tensor};
 
@@ -116,41 +116,6 @@ fn unroll_kernel(output: &mut Tensor, kernel: &Tensor, out_chan_start: usize, ou
                     let out_col = in_c * (k_h * k_w) + y * k_w + x;
                     output[[out_row, out_col]] = kernel[[out_c, in_c, y, x]];
                 }
-            }
-        }
-    }
-}
-
-/// Convert a matrix of image patches back into an image.
-///
-/// The output tensor has shape NCHW. The input image has shape GP where G is a
-/// subset of channels C given by `start_chan..start_chan+G` and P is the number
-/// of patches.
-fn col2im(
-    output: &mut Tensor,
-    input: &Tensor,
-    image_index: usize,
-    start_chan: usize,
-    y_patches: usize,
-    x_patches: usize,
-    bias: Option<&Tensor>,
-) {
-    let [group_chans, _n_patches] = input.dims();
-
-    for c in 0..group_chans {
-        let mut out_view = output.unchecked_view_mut([image_index, start_chan + c, 0, 0]);
-        let in_row = input.unchecked_view([c, 0]);
-
-        let bias = if let Some(bias) = bias {
-            bias[[start_chan + c]]
-        } else {
-            0.0
-        };
-
-        for y in 0..y_patches {
-            for x in 0..x_patches {
-                let patch = y * x_patches + x;
-                out_view[[y, x]] = in_row[[patch]] + bias;
             }
         }
     }
@@ -340,10 +305,9 @@ pub fn conv_2d(
     let (out_h, out_w) = conv_output_size((in_h, in_w), (k_h, k_w), (pad_h, pad_w), stride);
 
     let n_patches = out_h * out_w;
+    let mut output = zero_tensor(&[batch, out_c, n_patches]);
     let mut im2col_mat = zero_tensor(&[in_channels_per_group * k_h * k_w, n_patches]);
-    let mut output = zero_tensor(&[batch, out_c, out_h, out_w]);
     let mut kernel_mat = zero_tensor(&[out_channels_per_group, in_channels_per_group * k_h * k_w]);
-    let mut output_mat = zero_tensor(&[out_channels_per_group, n_patches]);
 
     for n in 0..batch {
         for group in 0..groups {
@@ -354,8 +318,8 @@ pub fn conv_2d(
 
             // Perform convolution for group. This uses an indirect method,
             // where image patches and the kernel are first packed into
-            // matrices. The matrices are multiplied, and the results unpacked
-            // into the output tensor.
+            // matrices. The matrices are then multiplied with the results
+            // written into the output tensor.
             im2col(
                 &mut im2col_mat,
                 input,
@@ -369,22 +333,40 @@ pub fn conv_2d(
                 stride,
             );
             unroll_kernel(&mut kernel_mat, kernel, out_chan_start, out_chan_end);
-            gemm(&mut output_mat, &kernel_mat, &im2col_mat);
-            col2im(
-                &mut output,
-                &output_mat,
-                n,
-                out_chan_start,
-                out_h,
-                out_w,
-                bias,
-            );
 
-            // `gemm` currently accumulates into the output buffer, so we need
-            // to clear it between iterations.
-            output_mat.data_mut().fill(0.0);
+            if let Some(bias) = bias {
+                for c in out_chan_start..out_chan_end {
+                    let chan_bias = bias[[c]];
+                    let chan_offset = output.offset([n, out_chan_start + c, 0]);
+                    for el in &mut output.data_mut()[chan_offset..chan_offset + out_h * out_w] {
+                        *el = chan_bias;
+                    }
+                }
+            }
+
+            let out_offset = output.offset([n, out_chan_start, 0]);
+            gemm_slice(
+                &mut output.data_mut()[out_offset..],
+                out_h * out_w,
+                Matrix {
+                    data: kernel_mat.data(),
+                    rows: kernel_mat.shape()[0],
+                    cols: kernel_mat.shape()[1],
+                    row_stride: kernel_mat.shape()[1],
+                    col_stride: 1,
+                },
+                Matrix {
+                    data: im2col_mat.data(),
+                    rows: im2col_mat.shape()[0],
+                    cols: im2col_mat.shape()[1],
+                    row_stride: im2col_mat.shape()[1],
+                    col_stride: 1,
+                },
+            );
         }
     }
+
+    output.reshape(&[batch, out_c, out_h, out_w]);
 
     output
 }
