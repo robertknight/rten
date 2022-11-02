@@ -337,7 +337,7 @@ pub fn conv_2d(
             if let Some(bias) = bias {
                 for c in out_chan_start..out_chan_end {
                     let chan_bias = bias[[c]];
-                    let chan_offset = output.offset([n, out_chan_start + c, 0]);
+                    let chan_offset = output.offset([n, c, 0]);
                     for el in &mut output.data_mut()[chan_offset..chan_offset + out_h * out_w] {
                         *el = chan_bias;
                     }
@@ -715,11 +715,12 @@ mod tests {
         let mut rng = XorShiftRNG::new(1234);
         let kernel = random_tensor(&[10, 5, 1, 1], &mut rng);
         let input = random_tensor(&[1, 5, 20, 20], &mut rng);
+        let bias = random_tensor(&[10], &mut rng);
 
         let result = conv_2d(
             &input,
             &kernel,
-            None,
+            Some(&bias),
             (0, 0),
             1, /* groups */
             1, /* stride */
@@ -727,7 +728,7 @@ mod tests {
         let reference_result = reference_conv(
             &input,
             &kernel,
-            None,
+            Some(&bias),
             (0, 0),
             1, /* groups */
             1, /* stride */
@@ -755,11 +756,19 @@ mod tests {
                 0.4273, 0.4180, 0.4338,
             ],
         );
-        let expected = from_data(vec![1, 3, 1, 1], vec![0.09020272, -0.09061745, 1.1822754]);
+        let bias = from_data(vec![3], vec![0.1, 0.2, 0.3]);
+        let expected = from_data(
+            vec![1, 3, 1, 1],
+            vec![
+                0.09020272 + bias[[0]],
+                -0.09061745 + bias[[1]],
+                1.1822754 + bias[[2]],
+            ],
+        );
         let reference_result = reference_conv(
             &input,
             &kernel,
-            None,
+            Some(&bias),
             (0, 0),
             3, /* groups */
             1, /* stride */
@@ -768,7 +777,7 @@ mod tests {
         let result = conv_2d(
             &input,
             &kernel,
-            None,
+            Some(&bias),
             (0, 0),
             3, /* groups */
             1, /* stride */
@@ -785,11 +794,12 @@ mod tests {
         let mut rng = XorShiftRNG::new(1234);
         let kernel = random_tensor(&[4, 3, 3, 3], &mut rng);
         let input = random_tensor(&[2, 3, 20, 20], &mut rng);
+        let bias = random_tensor(&[4], &mut rng);
 
         let result = conv_2d(
             &input,
             &kernel,
-            None,
+            Some(&bias),
             (1, 1),
             1, /* groups */
             1, /* stride */
@@ -797,7 +807,7 @@ mod tests {
         let reference_result = reference_conv(
             &input,
             &kernel,
-            None,
+            Some(&bias),
             (1, 1),
             1, /* groups */
             1, /* stride */
