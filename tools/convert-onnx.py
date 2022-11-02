@@ -343,6 +343,10 @@ def graph_from_onnx_graph(onnx_graph: onnx.GraphProto) -> list[Node]:
         add_node(node)
 
     for value in onnx_graph.input:
+        # If the same node is referenced in the ONNX model's `initializer` and
+        # `input` properties, ignore the one from the input.
+        if value.name in tensor_map:
+            continue
         node = value_node_from_onnx_value(value)
         add_node(node)
 
