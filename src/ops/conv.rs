@@ -103,28 +103,6 @@ fn im2col(
     }
 }
 
-/// Unroll a subset of channels from a convolution kernel into a matrix of shape
-/// O x (CHW) where O is the number of output channels and C is the number of
-/// input channels.
-fn unroll_kernel(output: &mut Tensor, kernel: &Tensor, out_chan_start: usize, out_chan_end: usize) {
-    let [_, k_in_c, k_h, k_w] = kernel.dims();
-    for out_c in out_chan_start..out_chan_end {
-        let out_row = output.last_dim_slice_mut([out_c - out_chan_start, 0], k_in_c * k_h * k_w);
-
-        for in_c in 0..k_in_c {
-            let kernel_view = kernel.unchecked_view([out_c, in_c, 0, 0]);
-            let mut out_col = in_c * (k_h * k_w);
-
-            for y in 0..k_h {
-                for x in 0..k_w {
-                    out_row[out_col] = kernel_view[[y, x]];
-                    out_col += 1;
-                }
-            }
-        }
-    }
-}
-
 /// Initialize a tensor, typically with NCHW or CHW dimensions, with a vector
 /// of per-channel biases.
 ///
@@ -329,14 +307,12 @@ pub fn conv_2d(
         zero_tensor(&[batch, out_c, n_patches])
     };
     let mut im2col_mat = zero_tensor(&[in_channels_per_group * k_h * k_w, n_patches]);
-    let mut kernel_mat = zero_tensor(&[out_channels_per_group, in_channels_per_group * k_h * k_w]);
 
     for n in 0..batch {
         for group in 0..groups {
             let in_chan_start = group * in_channels_per_group;
             let in_chan_end = in_chan_start + in_channels_per_group;
             let out_chan_start = group * out_channels_per_group;
-            let out_chan_end = out_chan_start + out_channels_per_group;
 
             // Perform convolution for group. This uses an indirect method,
             // where image patches and the kernel are first packed into
@@ -354,25 +330,37 @@ pub fn conv_2d(
                 pad_w,
                 stride,
             );
-            unroll_kernel(&mut kernel_mat, kernel, out_chan_start, out_chan_end);
+
+            // Create "views" of the output and kernel tensors which start at
+            // the first output channel for this group.
+            //
+            // The matrix multiplication below implicitly reshapes the output
+            // view to OxHW and the kernel matrix to OxIHW, which can then be
+            // multiplied by the IHWxHW im2col matrix.
+            let kernel_offset = kernel.offset([out_chan_start, in_chan_start, 0, 0]);
+            let kernel_view = &kernel.data()[kernel_offset..];
 
             let out_offset = output.offset([n, out_chan_start, 0]);
+            let out_view = &mut output.data_mut()[out_offset..];
+
             gemm_slice(
-                &mut output.data_mut()[out_offset..],
+                out_view,
+                // Output row stride. We allocated the output tensor ourselves,
+                // so we know it is contiguous.
                 out_h * out_w,
                 Matrix {
-                    data: kernel_mat.data(),
-                    rows: kernel_mat.shape()[0],
-                    cols: kernel_mat.shape()[1],
-                    row_stride: kernel_mat.shape()[1],
-                    col_stride: 1,
+                    data: kernel_view,
+                    rows: out_channels_per_group,
+                    cols: in_channels_per_group * k_h * k_w,
+                    row_stride: kernel.stride(0),
+                    col_stride: kernel.stride(3),
                 },
                 Matrix {
                     data: im2col_mat.data(),
                     rows: im2col_mat.shape()[0],
                     cols: im2col_mat.shape()[1],
                     row_stride: im2col_mat.shape()[1],
-                    col_stride: 1,
+                    col_stride: im2col_mat.stride(1),
                 },
             );
         }
