@@ -109,12 +109,16 @@ fn im2col(
 fn unroll_kernel(output: &mut Tensor, kernel: &Tensor, out_chan_start: usize, out_chan_end: usize) {
     let [_, k_in_c, k_h, k_w] = kernel.dims();
     for out_c in out_chan_start..out_chan_end {
+        let out_row = output.last_dim_slice_mut([out_c - out_chan_start, 0], k_in_c * k_h * k_w);
+
         for in_c in 0..k_in_c {
+            let kernel_view = kernel.unchecked_view([out_c, in_c, 0, 0]);
+            let mut out_col = in_c * (k_h * k_w);
+
             for y in 0..k_h {
                 for x in 0..k_w {
-                    let out_row = out_c - out_chan_start;
-                    let out_col = in_c * (k_h * k_w) + y * k_w + x;
-                    output[[out_row, out_col]] = kernel[[out_c, in_c, y, x]];
+                    out_row[out_col] = kernel_view[[y, x]];
+                    out_col += 1;
                 }
             }
         }
