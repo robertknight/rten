@@ -121,6 +121,27 @@ fn unroll_kernel(output: &mut Tensor, kernel: &Tensor, out_chan_start: usize, ou
     }
 }
 
+/// Initialize a tensor, typically with NCHW or CHW dimensions, with a vector
+/// of per-channel biases.
+///
+/// This is slightly more efficient than creating a zero-filled tensor and then
+/// adding the appropriate bias to each element.
+fn init_tensor_with_channel_bias(shape: &[usize], chan_dim: usize, bias: &Tensor) -> Tensor {
+    let mut out_data = Vec::with_capacity(shape.iter().product());
+
+    let chan_elts: usize = shape[chan_dim + 1..].iter().product();
+    let all_chan_elts: usize = chan_elts * shape[chan_dim];
+    let repeats = shape[0..chan_dim].iter().product();
+
+    for n in 0..repeats {
+        for c in 0..shape[chan_dim] {
+            out_data.resize(n * all_chan_elts + (c + 1) * chan_elts, bias[[c]]);
+        }
+    }
+
+    from_data(shape.into(), out_data)
+}
+
 /// Specialization of conv_2d for pointwise convolutions over one image. This
 /// can be reduced to tensor reshaping and matrix multiplication.
 fn conv_2d_pointwise(input: &Tensor, kernel: &Tensor, bias: Option<&Tensor>) -> Tensor {
@@ -128,11 +149,7 @@ fn conv_2d_pointwise(input: &Tensor, kernel: &Tensor, bias: Option<&Tensor>) -> 
     let [out_c, in_c, _, _] = kernel.dims();
 
     let mut output = if let Some(bias) = bias {
-        let mut out_data = Vec::with_capacity(out_c * in_h * in_w);
-        for c in 0..out_c {
-            out_data.resize((c + 1) * in_h * in_w, bias[[c]]);
-        }
-        from_data(vec![out_c, in_h * in_w], out_data)
+        init_tensor_with_channel_bias(&[out_c, in_h * in_w], 0, bias)
     } else {
         zero_tensor(&[out_c, in_h * in_w])
     };
@@ -193,7 +210,11 @@ fn conv_2d_depthwise(
     let (pad_h, pad_w) = padding;
     let (out_h, out_w) = conv_output_size((in_h, in_w), (k_h, k_w), (pad_h, pad_w), stride);
 
-    let mut output = zero_tensor::<f32>(&[batch, out_c, out_h, out_w]);
+    let mut output = if let Some(bias) = bias {
+        init_tensor_with_channel_bias(&[batch, out_c, out_h, out_w], 1, bias)
+    } else {
+        zero_tensor::<f32>(&[batch, out_c, out_h, out_w])
+    };
 
     for n in 0..batch {
         for c in 0..in_c {
@@ -204,13 +225,6 @@ fn conv_2d_depthwise(
             // contiguous slice of memory.
             for out_y in 0..out_h {
                 let out_row = output.last_dim_slice_mut([n, c, out_y, 0], out_w);
-
-                if let Some(bias) = bias {
-                    let chan_bias = bias[[c]];
-                    for el in out_row.iter_mut() {
-                        *el += chan_bias;
-                    }
-                }
 
                 for k_y in 0..k_h {
                     let in_y = out_y * stride + k_y;
@@ -305,7 +319,11 @@ pub fn conv_2d(
     let (out_h, out_w) = conv_output_size((in_h, in_w), (k_h, k_w), (pad_h, pad_w), stride);
 
     let n_patches = out_h * out_w;
-    let mut output = zero_tensor(&[batch, out_c, n_patches]);
+    let mut output = if let Some(bias) = bias {
+        init_tensor_with_channel_bias(&[batch, out_c, n_patches], 1, bias)
+    } else {
+        zero_tensor(&[batch, out_c, n_patches])
+    };
     let mut im2col_mat = zero_tensor(&[in_channels_per_group * k_h * k_w, n_patches]);
     let mut kernel_mat = zero_tensor(&[out_channels_per_group, in_channels_per_group * k_h * k_w]);
 
@@ -333,16 +351,6 @@ pub fn conv_2d(
                 stride,
             );
             unroll_kernel(&mut kernel_mat, kernel, out_chan_start, out_chan_end);
-
-            if let Some(bias) = bias {
-                for c in out_chan_start..out_chan_end {
-                    let chan_bias = bias[[c]];
-                    let chan_offset = output.offset([n, c, 0]);
-                    for el in &mut output.data_mut()[chan_offset..chan_offset + out_h * out_w] {
-                        *el = chan_bias;
-                    }
-                }
-            }
 
             let out_offset = output.offset([n, out_chan_start, 0]);
             gemm_slice(
@@ -452,20 +460,14 @@ pub fn conv_transpose_2d(
     let out_h = (in_h - 1) * stride + k_h;
     let out_w = (in_w - 1) * stride + k_w;
 
-    let mut output = zero_tensor::<f32>(&[batch, out_c, out_h, out_w]);
+    let mut output = if let Some(bias) = bias {
+        init_tensor_with_channel_bias(&[batch, out_c, out_h, out_w], 1, bias)
+    } else {
+        zero_tensor::<f32>(&[batch, out_c, out_h, out_w])
+    };
 
     for n in 0..batch {
         for out_chan in 0..out_c {
-            if let Some(bias) = bias {
-                let chan_bias = bias[[out_chan]];
-                for out_y in 0..out_h {
-                    let out_row = output.last_dim_slice_mut([n, out_chan, out_y, 0], out_w);
-                    for el in out_row.iter_mut() {
-                        *el = chan_bias;
-                    }
-                }
-            }
-
             for in_chan in 0..in_c {
                 let kernel_view = kernel.unchecked_view([in_chan, out_chan, 0, 0]);
 
