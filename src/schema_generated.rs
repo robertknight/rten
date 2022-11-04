@@ -2871,7 +2871,7 @@ impl<'a> flatbuffers::Follow<'a> for Node<'a> {
 }
 
 impl<'a> Node<'a> {
-    pub const VT_ID: flatbuffers::VOffsetT = 4;
+    pub const VT_NAME: flatbuffers::VOffsetT = 4;
     pub const VT_DATA_TYPE: flatbuffers::VOffsetT = 6;
     pub const VT_DATA: flatbuffers::VOffsetT = 8;
 
@@ -2888,17 +2888,17 @@ impl<'a> Node<'a> {
         if let Some(x) = args.data {
             builder.add_data(x);
         }
-        if let Some(x) = args.id {
-            builder.add_id(x);
+        if let Some(x) = args.name {
+            builder.add_name(x);
         }
         builder.add_data_type(args.data_type);
         builder.finish()
     }
 
     #[inline]
-    pub fn id(&self) -> Option<&'a str> {
+    pub fn name(&self) -> Option<&'a str> {
         self._tab
-            .get::<flatbuffers::ForwardsUOffset<&str>>(Node::VT_ID, None)
+            .get::<flatbuffers::ForwardsUOffset<&str>>(Node::VT_NAME, None)
     }
     #[inline]
     pub fn data_type(&self) -> NodeKind {
@@ -2950,7 +2950,7 @@ impl flatbuffers::Verifiable for Node<'_> {
     ) -> Result<(), flatbuffers::InvalidFlatbuffer> {
         use self::flatbuffers::Verifiable;
         v.visit_table(pos)?
-            .visit_field::<flatbuffers::ForwardsUOffset<&str>>("id", Self::VT_ID, false)?
+            .visit_field::<flatbuffers::ForwardsUOffset<&str>>("name", Self::VT_NAME, false)?
             .visit_union::<NodeKind, _>(
                 "data_type",
                 Self::VT_DATA_TYPE,
@@ -2981,7 +2981,7 @@ impl flatbuffers::Verifiable for Node<'_> {
     }
 }
 pub struct NodeArgs<'a> {
-    pub id: Option<flatbuffers::WIPOffset<&'a str>>,
+    pub name: Option<flatbuffers::WIPOffset<&'a str>>,
     pub data_type: NodeKind,
     pub data: Option<flatbuffers::WIPOffset<flatbuffers::UnionWIPOffset>>,
 }
@@ -2989,7 +2989,7 @@ impl<'a> Default for NodeArgs<'a> {
     #[inline]
     fn default() -> Self {
         NodeArgs {
-            id: None,
+            name: None,
             data_type: NodeKind::NONE,
             data: None,
         }
@@ -3002,9 +3002,9 @@ pub struct NodeBuilder<'a: 'b, 'b> {
 }
 impl<'a: 'b, 'b> NodeBuilder<'a, 'b> {
     #[inline]
-    pub fn add_id(&mut self, id: flatbuffers::WIPOffset<&'b str>) {
+    pub fn add_name(&mut self, name: flatbuffers::WIPOffset<&'b str>) {
         self.fbb_
-            .push_slot_always::<flatbuffers::WIPOffset<_>>(Node::VT_ID, id);
+            .push_slot_always::<flatbuffers::WIPOffset<_>>(Node::VT_NAME, name);
     }
     #[inline]
     pub fn add_data_type(&mut self, data_type: NodeKind) {
@@ -3034,7 +3034,7 @@ impl<'a: 'b, 'b> NodeBuilder<'a, 'b> {
 impl core::fmt::Debug for Node<'_> {
     fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
         let mut ds = f.debug_struct("Node");
-        ds.field("id", &self.id());
+        ds.field("name", &self.name());
         ds.field("data_type", &self.data_type());
         match self.data_type() {
             NodeKind::OperatorNode => {

@@ -52,14 +52,14 @@ impl<'a> ModelBuilder<'a> {
         }
     }
 
-    fn add_node(&mut self, id: Option<&str>, data: NodeData) -> u32 {
+    fn add_node(&mut self, name: Option<&str>, data: NodeData) -> u32 {
         let (data_type, union_val) = match data {
             NodeData::Constant(offset) => (sg::NodeKind::ConstantNode, offset.as_union_value()),
             NodeData::Value(offset) => (sg::NodeKind::ValueNode, offset.as_union_value()),
             NodeData::Operator(offset) => (sg::NodeKind::OperatorNode, offset.as_union_value()),
         };
         let args = sg::NodeArgs {
-            id: id.map(|x| self.builder.create_string(x)),
+            name: name.map(|x| self.builder.create_string(x)),
             data_type,
             data: Some(union_val),
         };

@@ -565,9 +565,9 @@ def write_graph(graph: list[Node], out_path: str):
         else:
             raise Exception("Unsupported node type")
 
-        id_str = builder.CreateString(node.name)
+        name_str = builder.CreateString(node.name)
         sg.NodeStart(builder)
-        sg.NodeAddId(builder, id_str)
+        sg.NodeAddName(builder, name_str)
         sg.NodeAddDataType(builder, data_type)
         sg.NodeAddData(builder, data)
         node_offset = sg.NodeEnd(builder)

@@ -268,15 +268,15 @@ pub fn load_model(data: &[u8]) -> Result<Model, String> {
 
     let mut graph = Graph::new();
 
-    // Map of model node ID to graph node ID
-    let mut node_id_from_id: HashMap<String, NodeId> = HashMap::new();
+    // Map of model node name to graph node ID
+    let mut node_id_from_name: HashMap<String, NodeId> = HashMap::new();
 
     // Map of model node index to graph node ID
     let mut node_id_from_index: HashMap<usize, NodeId> = HashMap::new();
 
-    let mut add_node_id = |id: Option<&str>, graph_node| {
-        if let Some(id) = id {
-            node_id_from_id.insert(id.to_string(), graph_node);
+    let mut add_node_id = |name: Option<&str>, graph_node| {
+        if let Some(name) = name {
+            node_id_from_name.insert(name.to_string(), graph_node);
         }
     };
 
@@ -297,30 +297,30 @@ pub fn load_model(data: &[u8]) -> Result<Model, String> {
                     }
                 }
 
-                let graph_node = graph.add_op(op, &inputs);
+                let graph_node = graph.add_op(node.name(), op, &inputs);
 
-                add_node_id(node.id(), graph_node);
+                add_node_id(node.name(), graph_node);
                 node_id_from_index.insert(node_index, graph_node);
             } else if node.data_as_value_node().is_some() {
-                let graph_node = graph.add_value();
+                let graph_node = graph.add_value(node.name());
 
-                add_node_id(node.id(), graph_node);
+                add_node_id(node.name(), graph_node);
                 node_id_from_index.insert(node_index, graph_node);
             } else if let Some(constant) = node.data_as_constant_node() {
                 let shape: Vec<usize> = constant.shape().iter().map(|x| x as usize).collect();
                 let graph_node = if let Some(float_data) = constant.data_as_float_data() {
                     let data: Vec<f32> = float_data.data().iter().collect();
                     let tensor = from_data(shape, data);
-                    graph.add_constant(tensor)
+                    graph.add_constant(node.name(), tensor)
                 } else if let Some(int_data) = constant.data_as_int_data() {
                     let data: Vec<i32> = int_data.data().iter().collect();
                     let tensor = from_data(shape, data);
-                    graph.add_constant(tensor)
+                    graph.add_constant(node.name(), tensor)
                 } else {
                     panic!("Unsupported constant data type");
                 };
 
-                add_node_id(node.id(), graph_node);
+                add_node_id(node.name(), graph_node);
                 node_id_from_index.insert(node_index, graph_node);
             } else {
                 return Err("Unknown node type".to_string());
@@ -329,7 +329,7 @@ pub fn load_model(data: &[u8]) -> Result<Model, String> {
     }
 
     let model = Model {
-        node_ids: node_id_from_id,
+        node_ids: node_id_from_name,
         graph,
     };
     Ok(model)

@@ -5,32 +5,57 @@ use crate::tensor::Tensor;
 use crate::timer::Timer;
 
 struct OperatorNode {
+    name: Option<String>,
     inputs: Vec<NodeId>,
     output: NodeId,
     operator: Box<dyn Operator>,
 }
 
-pub enum Constant {
-    Float(Tensor<f32>),
-    Int(Tensor<i32>),
+struct ValueNode {
+    name: Option<String>,
 }
 
-impl From<Tensor<f32>> for Constant {
-    fn from(t: Tensor<f32>) -> Constant {
-        Constant::Float(t)
+pub struct ConstantNode<T: Copy> {
+    name: Option<String>,
+    data: Tensor<T>,
+}
+
+pub enum Constant {
+    Float(ConstantNode<f32>),
+    Int(ConstantNode<i32>),
+}
+
+impl From<ConstantNode<f32>> for Constant {
+    fn from(node: ConstantNode<f32>) -> Constant {
+        Constant::Float(node)
     }
 }
 
-impl From<Tensor<i32>> for Constant {
-    fn from(t: Tensor<i32>) -> Constant {
-        Constant::Int(t)
+impl From<ConstantNode<i32>> for Constant {
+    fn from(node: ConstantNode<i32>) -> Constant {
+        Constant::Int(node)
     }
 }
 
 enum Node {
     Operator(OperatorNode),
     Constant(Constant),
-    Value,
+    Value(ValueNode),
+}
+
+impl Node {
+    /// Return the debug name of this node
+    fn name(&self) -> Option<&str> {
+        let maybe_name = match self {
+            Node::Operator(node) => &node.name,
+            Node::Constant(constant) => match constant {
+                Constant::Float(node) => &node.name,
+                Constant::Int(node) => &node.name,
+            },
+            Node::Value(node) => &node.name,
+        };
+        maybe_name.as_ref().map(|s| s.as_str())
+    }
 }
 
 pub type NodeId = usize;
@@ -58,15 +83,23 @@ impl Graph {
 
     /// Add an operator node to the graph.
     ///
+    /// `name` is an identifier for this node that is used in debug messages etc.
+    ///
     /// `inputs` specifies which other nodes in the graph should be used as
     /// inputs to this operation when the graph is executed. These other nodes
     /// can be inputs, constants (for weights and biases) or outputs of other
     /// operators.
     ///
     /// Returns the ID of the added operator's output node.
-    pub fn add_op(&mut self, op: Box<dyn Operator>, inputs: &[NodeId]) -> NodeId {
-        let output_id = self.add_value();
+    pub fn add_op(
+        &mut self,
+        name: Option<&str>,
+        op: Box<dyn Operator>,
+        inputs: &[NodeId],
+    ) -> NodeId {
+        let output_id = self.add_value(name);
         self.nodes.push(Node::Operator(OperatorNode {
+            name: name.map(|s| s.to_owned()),
             inputs: Vec::from(inputs),
             output: output_id,
             operator: op,
@@ -76,22 +109,44 @@ impl Graph {
 
     /// Add a constant node to the graph.
     ///
+    /// `name` is an identifier for this node that is used in debug messages etc.
+    ///
     /// Returns the ID of the added node.
-    pub fn add_constant<T: Into<Constant>>(&mut self, value: T) -> NodeId {
-        let constant: Constant = value.into();
-        self.nodes.push(Node::Constant(constant));
+    pub fn add_constant<T: Copy>(&mut self, name: Option<&str>, value: Tensor<T>) -> NodeId
+    where
+        ConstantNode<T>: Into<Constant>,
+    {
+        let node = ConstantNode {
+            name: name.map(|s| s.to_owned()),
+            data: value,
+        };
+        self.nodes.push(Node::Constant(node.into()));
         self.nodes.len() - 1
     }
 
     /// Add a value node to the graph.
     ///
+    /// `name` is an identifier for this node that is used in debug messages etc.
+    ///
     /// This serves as a placeholder for a value which is available only when
     /// the graph is executed, such as an input or operator output.
     ///
     /// Returns the ID of the added node.
-    pub fn add_value(&mut self) -> NodeId {
-        self.nodes.push(Node::Value);
+    pub fn add_value(&mut self, name: Option<&str>) -> NodeId {
+        self.nodes.push(Node::Value(ValueNode {
+            name: name.map(|s| s.to_owned()),
+        }));
         self.nodes.len() - 1
+    }
+
+    /// Return the debug name for a node.
+    pub fn node_name(&self, id: NodeId) -> String {
+        self.nodes
+            .get(id)
+            .map(|node| node.name())
+            .flatten()
+            .map(|s| s.to_string())
+            .unwrap_or_else(|| format!("[ID: {}]", id))
     }
 
     /// Compute a set of output values given a set of inputs, using the
@@ -119,8 +174,8 @@ impl Graph {
         for (node_id, node) in self.nodes.iter().enumerate() {
             if let Node::Constant(constant) = node {
                 let input = match constant {
-                    Constant::Float(t) => t.into(),
-                    Constant::Int(t) => t.into(),
+                    Constant::Float(node) => Input::FloatTensor(&node.data),
+                    Constant::Int(node) => Input::IntTensor(&node.data),
                 };
                 values.insert(node_id, input);
             }
@@ -185,7 +240,8 @@ impl Graph {
                     // If this is reached, there was a bug in plan creation.
                     panic!(
                         "Invalid plan did not produce input value {} for operator {}",
-                        node_id, op_node_id
+                        self.node_name(*node_id),
+                        self.node_name(*op_node_id),
                     );
                 }
             }
@@ -295,6 +351,7 @@ impl Graph {
         // starting at the output nodes. A helper struct is used as recursive
         // closures are not supported in Rust.
         struct PlanBuilder<'a> {
+            graph: &'a Graph,
             resolved_values: HashSet<NodeId>,
             plan: Vec<(NodeId, &'a OperatorNode)>,
             operator_nodes: HashMap<NodeId, &'a OperatorNode>,
@@ -309,10 +366,9 @@ impl Graph {
                         self.visit(*input, input_op_node);
                     } else {
                         panic!(
-                            "Unable to generate execution plan. Missing input {} for op {} {}",
-                            input,
-                            op_node.operator.name(),
-                            node_id
+                            "Unable to generate execution plan. Missing input \"{}\" for op \"{}\"",
+                            self.graph.node_name(*input),
+                            self.graph.node_name(node_id),
                         )
                     }
                 }
@@ -336,6 +392,7 @@ impl Graph {
         }
 
         let builder = PlanBuilder {
+            graph: self,
             resolved_values,
             plan: Vec::new(),
             operator_nodes,
@@ -363,10 +420,11 @@ mod tests {
                 0.3230, 0.7632, 0.4616, 0.8837, 0.5898, 0.3424, 0.2101, 0.7821, 0.6861,
             ],
         );
-        let weights_id = g.add_constant(weights);
-        let input_id = g.add_value();
+        let weights_id = g.add_constant(Some("weight"), weights);
+        let input_id = g.add_value(Some("input"));
 
         let conv_out = g.add_op(
+            Some("conv"),
             Box::new(Conv2d {
                 padding: Padding::Fixed((1, 1)),
                 groups: 1,
@@ -374,7 +432,7 @@ mod tests {
             }),
             &[input_id, weights_id],
         );
-        let relu_out = g.add_op(Box::new(Relu {}), &[conv_out]);
+        let relu_out = g.add_op(Some("relu"), Box::new(Relu {}), &[conv_out]);
 
         let input = from_data(
             vec![1, 1, 3, 3],
@@ -395,6 +453,34 @@ mod tests {
         expect_equal(&results[0].as_float_ref().unwrap(), &expected)
     }
 
+    #[test]
+    fn test_graph_node_debug_names() {
+        let mut g = Graph::new();
+
+        let weights = from_data(vec![1], vec![0.3230]);
+        let weights_id = g.add_constant(Some("weights"), weights.clone());
+        let input_id = g.add_value(Some("input"));
+        let relu_op_id = g.add_op(Some("relu"), Box::new(Relu {}), &[input_id]);
+
+        assert_eq!(g.node_name(weights_id), "weights");
+        assert_eq!(g.node_name(input_id), "input");
+        assert_eq!(g.node_name(relu_op_id), "relu");
+
+        let anon_weights_id = g.add_constant(None, weights);
+        let anon_input_id = g.add_value(None);
+        let anon_op_id = g.add_op(None, Box::new(Relu {}), &[input_id]);
+
+        assert_eq!(
+            g.node_name(anon_weights_id),
+            format!("[ID: {}]", anon_weights_id)
+        );
+        assert_eq!(
+            g.node_name(anon_input_id),
+            format!("[ID: {}]", anon_input_id)
+        );
+        assert_eq!(g.node_name(anon_op_id), format!("[ID: {}]", anon_op_id));
+    }
+
     #[derive(Debug)]
     struct AddOne {}
     impl Operator for AddOne {
@@ -413,17 +499,17 @@ mod tests {
     fn test_graph_planning_order() -> Result<(), String> {
         let mut g = Graph::new();
 
-        let input_id = g.add_value();
+        let input_id = g.add_value(Some("input"));
 
-        let op_a = g.add_op(Box::new(AddOne {}), &[input_id]);
-        let op_b = g.add_op(Box::new(AddOne {}), &[op_a]);
+        let op_a = g.add_op(Some("op_a"), Box::new(AddOne {}), &[input_id]);
+        let op_b = g.add_op(Some("op_b"), Box::new(AddOne {}), &[op_a]);
 
         // op_c has both op_a and op_b as inputs. Since op_b depends on op_a,
         // execution must run op_a, then op_b, then op_c.
-        let op_c = g.add_op(Box::new(Concat { dim: 0 }), &[op_a, op_b]);
+        let op_c = g.add_op(Some("op_c"), Box::new(Concat { dim: 0 }), &[op_a, op_b]);
 
         // op_d is the same as op_c, but input order is reversed
-        let op_d = g.add_op(Box::new(Concat { dim: 0 }), &[op_b, op_a]);
+        let op_d = g.add_op(Some("op_d"), Box::new(Concat { dim: 0 }), &[op_b, op_a]);
 
         let input = from_data(vec![1], vec![1.]);
 
@@ -441,11 +527,11 @@ mod tests {
         let mut g = Graph::new();
 
         let input = from_data(vec![5], vec![1., 2., 3., 4., 5.]);
-        let input_id = g.add_value();
+        let input_id = g.add_value(Some("input"));
 
         let mut prev_output = input_id;
         for _ in 0..100 {
-            prev_output = g.add_op(Box::new(AddOne {}), &[prev_output]);
+            prev_output = g.add_op(None, Box::new(AddOne {}), &[prev_output]);
         }
 
         let results = g.run(&[(input_id, &input)], &[prev_output], None);
@@ -459,7 +545,7 @@ mod tests {
         let mut g = Graph::new();
 
         let input = from_data(vec![5], vec![1., 2., 3., 4., 5.]);
-        let input_id = g.add_value();
+        let input_id = g.add_value(Some("input"));
 
         let results = g.run(&[(input_id, &input)], &[input_id], None);
 
@@ -471,7 +557,7 @@ mod tests {
         let mut g = Graph::new();
 
         let value = from_data(vec![5], vec![1., 2., 3., 4., 5.]);
-        let const_id = g.add_constant(value.clone());
+        let const_id = g.add_constant(Some("weight"), value.clone());
 
         let results = g.run(&[], &[const_id], None);
 
@@ -493,10 +579,10 @@ mod tests {
     }
 
     #[test]
-    #[should_panic(expected = "Unable to generate execution plan. Missing input 42")]
+    #[should_panic(expected = "Unable to generate execution plan. Missing input \"[ID: 42]\"")]
     fn test_panic_if_missing_operator_input() {
         let mut g = Graph::new();
-        let output = g.add_op(Box::new(Relu {}), &[42]);
+        let output = g.add_op(Some("op"), Box::new(Relu {}), &[42]);
         g.run(&[], &[output], None);
     }
 
@@ -530,12 +616,12 @@ mod tests {
     #[test]
     fn test_runs_op_in_place() {
         let mut g = Graph::new();
-        let input_id = g.add_value();
+        let input_id = g.add_value(Some("input"));
 
-        let op1_id = g.add_op(Box::new(AddOneInPlace {}), &[input_id]);
-        let op2_id = g.add_op(Box::new(AddOneInPlace {}), &[op1_id]);
-        let op3_id = g.add_op(Box::new(AddOneInPlace {}), &[op2_id]);
-        let op4_id = g.add_op(Box::new(AddOneInPlace {}), &[op2_id]);
+        let op1_id = g.add_op(Some("op1"), Box::new(AddOneInPlace {}), &[input_id]);
+        let op2_id = g.add_op(Some("op2"), Box::new(AddOneInPlace {}), &[op1_id]);
+        let op3_id = g.add_op(Some("op3"), Box::new(AddOneInPlace {}), &[op2_id]);
+        let op4_id = g.add_op(Some("op4"), Box::new(AddOneInPlace {}), &[op2_id]);
         let input = zero_tensor(&[1, 1]);
 
         // First operator should not be run in-place, since it has an

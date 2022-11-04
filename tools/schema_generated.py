@@ -892,7 +892,7 @@ class Node(object):
         self._tab = flatbuffers.table.Table(buf, pos)
 
     # Node
-    def Id(self):
+    def Name(self):
         o = flatbuffers.number_types.UOffsetTFlags.py_type(self._tab.Offset(4))
         if o != 0:
             return self._tab.String(o + self._tab.Pos)
@@ -916,7 +916,7 @@ class Node(object):
         return None
 
 def NodeStart(builder): builder.StartObject(3)
-def NodeAddId(builder, id): builder.PrependUOffsetTRelativeSlot(0, flatbuffers.number_types.UOffsetTFlags.py_type(id), 0)
+def NodeAddName(builder, name): builder.PrependUOffsetTRelativeSlot(0, flatbuffers.number_types.UOffsetTFlags.py_type(name), 0)
 def NodeAddDataType(builder, dataType): builder.PrependUint8Slot(1, dataType, 0)
 def NodeAddData(builder, data): builder.PrependUOffsetTRelativeSlot(2, flatbuffers.number_types.UOffsetTFlags.py_type(data), 0)
 def NodeEnd(builder): return builder.EndObject()

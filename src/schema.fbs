@@ -150,7 +150,7 @@ table ValueNode {}
 
 table Node {
   // Identifier for external referencing and debugging
-  id:string;
+  name:string;
   data:NodeKind;
 }
 
