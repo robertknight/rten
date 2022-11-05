@@ -1,30 +1,12 @@
 extern crate png;
+extern crate wasnn;
 
 use std::fs;
 use std::io::BufWriter;
 
-mod graph;
-mod linalg;
-mod model;
-mod ops;
-mod tensor;
-mod timer;
-
-#[cfg(test)]
-mod rng;
-
-#[allow(dead_code, unused_imports)]
-mod schema_generated;
-
-#[cfg(test)]
-mod model_builder;
-
-#[cfg(test)]
-mod test_util;
-
-use graph::RunOptions;
-use model::load_model;
-use tensor::{zero_tensor, Tensor};
+use wasnn::RunOptions;
+use wasnn::load_model;
+use wasnn::{zero_tensor, Tensor};
 
 /// Convert an 8-bit grayscale image to an NCHW float tensor with values in
 /// the range [-0.5, 0.5].

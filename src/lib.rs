@@ -10,6 +10,10 @@ mod rng;
 mod tensor;
 mod timer;
 
+pub use graph::RunOptions;
+pub use model::load_model;
+pub use tensor::{from_data, zero_tensor, Tensor};
+
 #[allow(dead_code, unused_imports)]
 mod schema_generated;
 
@@ -18,8 +22,6 @@ mod model_builder;
 
 #[cfg(test)]
 mod test_util;
-
-use tensor::{from_data, Tensor};
 
 #[wasm_bindgen]
 pub struct Model {
