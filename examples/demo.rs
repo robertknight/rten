@@ -4,8 +4,8 @@ extern crate wasnn;
 use std::fs;
 use std::io::BufWriter;
 
-use wasnn::RunOptions;
 use wasnn::load_model;
+use wasnn::RunOptions;
 use wasnn::{zero_tensor, Tensor};
 
 /// Convert an 8-bit grayscale image to an NCHW float tensor with values in
