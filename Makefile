@@ -3,7 +3,8 @@ all: src/schema_generated.rs tools/schema_generated.py
 
 .PHONY: clean
 clean:
-	rm src/*_generated.rs tools/*_generated.py
+	rm -rf dist/*
+	rm -rf target/
 
 .PHONY: check
 check:
