@@ -160,9 +160,9 @@ impl<T: Copy> Tensor<T> {
     /// shape, repeating elements as necessary to fill the given dimensions.
     /// Broadcasting is only possible if the actual and broadcast shapes are
     /// compatible according to ONNX's rules. See
-    /// https://github.com/onnx/onnx/blob/main/docs/Operators.md.
+    /// <https://github.com/onnx/onnx/blob/main/docs/Operators.md>.
     ///
-    /// See also https://numpy.org/doc/stable/user/basics.broadcasting.html#general-broadcasting-rules
+    /// See also <https://numpy.org/doc/stable/user/basics.broadcasting.html#general-broadcasting-rules>
     /// for worked examples of how broadcasting works.
     pub fn broadcast_elements(&self, shape: &[usize]) -> Elements<T> {
         if !self.can_broadcast(shape) {
@@ -178,7 +178,7 @@ impl<T: Copy> Tensor<T> {
     /// Return true if the element's shape can be broadcast to `shape` using
     /// `broadcast_elements`.
     ///
-    /// See https://github.com/onnx/onnx/blob/main/docs/Broadcasting.md for
+    /// See <https://github.com/onnx/onnx/blob/main/docs/Broadcasting.md> for
     /// conditions in which broadcasting is allowed.
     pub fn can_broadcast(&self, shape: &[usize]) -> bool {
         if self.shape == shape {
