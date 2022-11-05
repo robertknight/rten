@@ -21,6 +21,34 @@ Wasnn is written in portable Rust and has minimal dependencies.
    optimized as more mature runtimes such as ONNX Runtime or TensorFlow
    Lite.
 
+## Usage
+
+See the [examples/]() directory for projects that show the end-to-end steps to
+use this library to run an ONNX model in the browser or Node. To run the examples,
+you will need to follow the steps under "Building the library" below to build
+the project locally.
+
+The general steps for using Wasnn to run models in a JavaScript project are:
+
+ 1. Develop or find a pre-trained model that you want to run. Various models
+    already in ONNX format are available from the [ONNX Model Zoo](https://github.com/onnx/models).
+ 2. Export the model in ONNX format. PyTorch users can use [torch.onnx](https://pytorch.org/docs/stable/onnx.html)
+    for this.
+ 3. Use the `convert-onnx.py` script in this repository to convert the model
+    to optimized format Wasnn uses. See the section below on preparing models.
+
+    **Note: This library is still new.** You may run into issues where your model
+    uses operators or attributes that are not supported. Please file an issue
+    that includes a link to the ONNX model you want to run.
+
+ 4. In your JavaScript code, fetch the WebAssembly binary and initialize Wasnn.
+ 5. Fetch the prepared Wasnn model and use it to an instantiate the `Model`
+    class from this library.
+ 6. Each time you want to run the model, prepare one or more `Float32Array`s
+    containing input data in the format expected by the model, and call
+    `Model.run`. This will return a `TensorList` that provides access to the
+    shapes and data of the outputs.
+
 ## Preparing ONNX models
 
 Wasnn does not load ONNX models directly. ONNX models must be run through a
@@ -58,5 +86,17 @@ To build Wasnn you will need:
 ```sh
 git clone https://github.com/robertknight/wasnn.git
 cd wasnn
-make wasm
+make wasm-all
 ```
+
+The `make wasm-all` command will build two versions of the library, one for
+browsers that support SIMD (Chrome, Firefox) and one for those which do not
+(Safari <= 16). See the [WebAssembly Roadmap](https://webassembly.org/roadmap/)
+for a full list of which features different engines support. The SIMD build
+is significantly faster.
+
+During development, you can speed up the testing cycle by running `make wasm`
+to build only the SIMD version, or `make wasm-nosimd` for the non-SIMD version.
+
+At runtime, you can find out which build is supported by calling the `binaryName()`
+function exported by this package.
