@@ -23,7 +23,11 @@ class ConstantNode(Node):
 
 class OperatorNode(Node):
     def __init__(
-        self, name: str, op_type: str, attrs: dict[str, int|float|str], inputs: list[int]
+        self,
+        name: str,
+        op_type: str,
+        attrs: dict[str, int | float | str],
+        inputs: list[int],
     ):
         super().__init__(name)
         self.op_type = op_type
@@ -40,11 +44,11 @@ class ValueNode(Node):
 # contains the value. Note that if you try to access the wrong field on an
 # AttributeProto, you get a default value instead of an exception.
 value_fields = {
-    onnx.AttributeProto.FLOAT: 'f',
-    onnx.AttributeProto.INT: 'i',
-    onnx.AttributeProto.INTS: 'ints',
-    onnx.AttributeProto.STRING: 's',
-    onnx.AttributeProto.TENSOR: 't'
+    onnx.AttributeProto.FLOAT: "f",
+    onnx.AttributeProto.INT: "i",
+    onnx.AttributeProto.INTS: "ints",
+    onnx.AttributeProto.STRING: "s",
+    onnx.AttributeProto.TENSOR: "t",
 }
 
 
@@ -54,7 +58,7 @@ def get_attr(attr_list: list[onnx.AttributeProto], name: str, type_: str, defaul
     for attr in attr_list:
         if attr.name == name:
             if attr.type != type_code:
-               raise Exception(f"Attribute {name} type does not match {type_}")
+                raise Exception(f"Attribute {name} type does not match {type_}")
             val = getattr(attr, value_fields[type_code])
 
             # String attribute values are stored as bytes, so we have to decode
@@ -74,11 +78,15 @@ def require_attr(attr_list: list[onnx.AttributeProto], name: str, type_: str):
     return val
 
 
-def check_unsupported_attr(attr_list: list[onnx.AttributeProto], name: str, type_, default):
+def check_unsupported_attr(
+    attr_list: list[onnx.AttributeProto], name: str, type_, default
+):
     """Check if an operator has an unsupported non-default value for an attribute."""
     val = get_attr(attr_list, name, type_, default)
     if val != default:
-        raise Exception(f"Unsupported value {val} for attribute {name}. Default is {default}")
+        raise Exception(
+            f"Unsupported value {val} for attribute {name}. Default is {default}"
+        )
 
 
 def check_ints_length_and_value(name: str, ints: list[int], allowed_length: int):
@@ -90,22 +98,25 @@ def check_ints_length_and_value(name: str, ints: list[int], allowed_length: int)
     supports.
     """
     if len(ints) != allowed_length:
-        raise Exception(f"Attribute \"{name}\" must have {allowed_length} values")
+        raise Exception(f'Attribute "{name}" must have {allowed_length} values')
     for item in ints:
         if item != ints[0]:
-            raise Exception(f"All values of attribute \"{name}\" must be the same")
+            raise Exception(f'All values of attribute "{name}" must be the same')
 
 
 def convert_array(src_type: str, data: bytes, dest_type: str):
     converted = [x for x in array.array(src_type, data)]
     return array.array(dest_type, converted)
 
+
 def constant_node_from_onnx_initializer(tensor) -> ConstantNode:
     dims = list(tensor.dims)
 
     # Tensors can either store data in a type-appropriate field, or the `raw_data`
     # field. Only one of these should be set.
-    tensor_data = tensor.float_data or tensor.int64_data or tensor.int32_data or tensor.raw_data
+    tensor_data = (
+        tensor.float_data or tensor.int64_data or tensor.int32_data or tensor.raw_data
+    )
 
     # Convert the tensor data to a format supported by this library. For int64
     # tensors, we convert them to int32 and just ignore any issues with
@@ -143,11 +154,14 @@ def constant_node_from_onnx_constant_op(onnx_op: onnx.OperatorProto) -> Constant
     const_node.name = onnx_op_output_name(onnx_op)
     return const_node
 
+
 def value_node_from_onnx_value(value: onnx.ValueInfoProto) -> ValueNode:
     return ValueNode(name=value.name)
 
 
-def read_pad_attrs_from_onnx_operator(onnx_op: onnx.OperatorProto, attrs: dict[str, int|float|str]):
+def read_pad_attrs_from_onnx_operator(
+    onnx_op: onnx.OperatorProto, attrs: dict[str, int | float | str]
+):
     """
     Read a padding specification from an ONNX operator.
     """
@@ -161,7 +175,7 @@ def read_pad_attrs_from_onnx_operator(onnx_op: onnx.OperatorProto, attrs: dict[s
     elif auto_pad == "NOTSET":
         padding = get_attr(onnx_op.attribute, "pads", "ints", [0, 0, 0, 0])
         if len(padding) != 4:
-            raise Exception("\"padding\" attribute must have 4 values")
+            raise Exception('"padding" attribute must have 4 values')
         pad_left, pad_right, pad_top, pad_bottom = iter(padding)
         if pad_left != pad_right:
             raise Exception("Left and right padding must be the same")
@@ -173,13 +187,15 @@ def read_pad_attrs_from_onnx_operator(onnx_op: onnx.OperatorProto, attrs: dict[s
         attrs["pad_vertical"] = pad_top
 
 
-def read_stride_attr_from_onnx_operator(onnx_op: onnx.OperatorProto, attrs: dict[str, int|float|str]):
+def read_stride_attr_from_onnx_operator(
+    onnx_op: onnx.OperatorProto, attrs: dict[str, int | float | str]
+):
     """
     Read a stride specification from an ONNX operator.
     """
     strides = get_attr(onnx_op.attribute, "strides", "ints", [1, 1])
     if len(strides) != 2:
-        raise Exception("\"strides\" attribute must have 2 values")
+        raise Exception('"strides" attribute must have 2 values')
     stride_width, stride_height = iter(strides)
     if stride_width != stride_height:
         raise Exception("Strides must be the same in all dimensions")
@@ -204,7 +220,7 @@ def op_node_from_onnx_operator(
             )
         input_indexes.append(index)
 
-    attrs: dict[str, int|str] = {}
+    attrs: dict[str, int | str] = {}
 
     if onnx_op.op_type == "Add":
         op_type = "Add"
@@ -242,7 +258,9 @@ def op_node_from_onnx_operator(
         check_unsupported_attr(onnx_op.attribute, "auto_pad", "string", "NOTSET")
         check_unsupported_attr(onnx_op.attribute, "dilations", "ints", [1, 1])
         check_unsupported_attr(onnx_op.attribute, "group", "int", 1)
-        check_unsupported_attr(onnx_op.attribute, "output_padding", "ints", [0, 0, 0, 0])
+        check_unsupported_attr(
+            onnx_op.attribute, "output_padding", "ints", [0, 0, 0, 0]
+        )
         check_unsupported_attr(onnx_op.attribute, "pads", "ints", [0, 0, 0, 0])
 
     elif onnx_op.op_type == "Gather":
@@ -316,7 +334,10 @@ def op_node_from_onnx_operator(
         raise Exception(f"Unsupported operation {onnx_op.op_type}")
 
     return OperatorNode(
-        name=onnx_op_output_name(onnx_op), op_type=op_type, attrs=attrs, inputs=input_indexes
+        name=onnx_op_output_name(onnx_op),
+        op_type=op_type,
+        attrs=attrs,
+        inputs=input_indexes,
     )
 
 
