@@ -1,0 +1,24 @@
+<!doctype html>
+<html>
+  <head>
+    <title>Wasmnn MobileNet image classification demo</title>
+  <body>
+    <h1>Wasnn image classification demo</h1>
+
+    <p>
+      This demo guesses what is in an image. It uses the popular
+      <a href="https://paperswithcode.com/method/mobilenetv2">MobileNet v2</a>
+      model.
+    </p>
+
+    <label for="file">Choose image to classify:</label>
+    <input type="file" id="file" accept="image/*">
+
+    <h2>Results:</h2>
+    <p id="status"></p>
+    <ul id="result-list">
+    </ul>
+
+    <script type="module" src="classify-web.js"></script>
+  </body>
+</html>
