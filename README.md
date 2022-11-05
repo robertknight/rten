@@ -23,15 +23,15 @@ Wasnn is written in portable Rust and has minimal dependencies.
 
 ## Usage
 
-See the [](examples/) directory for projects that show the end-to-end steps to
+See the [examples/](examples/) directory for projects that show the end-to-end steps to
 use this library to run an ONNX model in the browser or Node. The [image
 classification](examples/image-classification/) example is one of the simplest
 and a good place to start.
 
-Before running the examples, you will need to follow the steps under
-"Building the library" below to build the project locally. You will also need
-to install the dependencies of the model conversion script, explained under
-"Preparing ONNX models".
+Before running the examples, you will need to follow the steps under ["Building
+the library"](#building-the-library) below to build the project locally. You
+will also need to install the dependencies of the model conversion script,
+explained under ["Preparing ONNX models"](#preparing-onnx-models).
 
 The general steps for using Wasnn to run models in a JavaScript project are:
 
