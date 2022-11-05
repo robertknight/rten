@@ -1,4 +1,4 @@
-import { init as initWasnn } from "./node_modules/wasnn/index.js";
+import { init as initWasnn, binaryName } from "./node_modules/wasnn/index.js";
 
 import { ImageClassifier } from "./image-classifier.js";
 import { IMAGENET_CLASSES } from "./imagenet-classes.js";
@@ -49,7 +49,7 @@ function imageDataFromBitmap(bitmap) {
 async function createClassifier() {
   // Fetch the Wasnn engine and MobileNet model in parallel.
   const [, modelData] = await Promise.all([
-    fetchBinary("./node_modules/wasnn/dist/wasnn_bg.wasm").then(initWasnn),
+    fetchBinary("./node_modules/wasnn/dist/" + binaryName()).then(initWasnn),
     fetchBinary("./mobilenet.model"),
   ]);
 

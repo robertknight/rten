@@ -1,7 +1,7 @@
 import { readFileSync } from "fs";
 
 import sharp from "sharp";
-import { initSync } from "wasnn";
+import { initSync, binaryName } from "wasnn";
 
 import { ImageClassifier } from "./image-classifier.js";
 import { IMAGENET_CLASSES } from "./imagenet-classes.js";
@@ -25,7 +25,9 @@ const path = process.argv[2];
 const image = await loadImage(path, 224, 224);
 
 // Initialize Wasnn.
-const wasnnBinary = readFileSync("node_modules/wasnn/dist/wasnn_bg.wasm");
+const wasnnBinary = readFileSync(
+  "node_modules/wasnn/dist/" + binaryName()
+);
 initSync(wasnnBinary);
 
 // Load the MobileNet classification model.
