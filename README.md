@@ -46,13 +46,17 @@ The general steps for using Wasnn to run models in a JavaScript project are:
     uses operators or attributes that are not supported. Please file an issue
     that includes a link to the ONNX model you want to run.
 
- 4. In your JavaScript code, fetch the WebAssembly binary and initialize Wasnn.
+ 4. In your JavaScript code, fetch the WebAssembly binary and initialize Wasnn
+    using the `init` function.
  5. Fetch the prepared Wasnn model and use it to an instantiate the `Model`
     class from this library.
  6. Each time you want to run the model, prepare one or more `Float32Array`s
     containing input data in the format expected by the model, and call
     `Model.run`. This will return a `TensorList` that provides access to the
     shapes and data of the outputs.
+
+After building the library, API documentation for the `Model` and `TensorList`
+classes is available in `dist/wasnn.d.ts`.
 
 ## Preparing ONNX models
 
