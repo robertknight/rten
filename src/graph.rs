@@ -64,15 +64,15 @@ pub struct Graph {
     nodes: Vec<Node>,
 }
 
+#[derive(Default)]
 pub struct RunOptions {
-    /// Whether to log operator timing as the graph executes
+    /// Whether to log times spent in different operators when run completes.
     pub timing: bool,
-}
 
-impl Default for RunOptions {
-    fn default() -> Self {
-        RunOptions { timing: false }
-    }
+    /// Whether to log information about each graph operation as it is executed,
+    /// including input shapes and execution time. This will slow down
+    /// execution.
+    pub verbose: bool,
 }
 
 impl Graph {
@@ -203,8 +203,6 @@ impl Graph {
                 op_timer.start();
             }
 
-            let mut input_shapes = Vec::new();
-
             // Test if the operator can be run in-place to save allocations.
             // This requires that the first input is a temporary value produced by
             // earlier ops, and that they are not going to be needed by other
@@ -249,7 +247,6 @@ impl Graph {
             let output = if let Some(input) = in_place_input {
                 op_node.operator.run_in_place(input, &op_inputs)
             } else {
-                input_shapes = op_inputs.iter().map(|x| x.shape()).collect();
                 op_node.operator.run(&op_inputs[..])
             };
 
@@ -262,13 +259,16 @@ impl Graph {
                     op_elapsed.insert(op_node.operator.name(), op_timer.elapsed());
                 }
 
-                println!(
-                    "#{} {:?} with {:?} in {}ms",
-                    op_node_id,
-                    op_node.operator,
-                    input_shapes,
-                    op_timer.elapsed()
-                );
+                if opts.verbose {
+                    let input_shapes: Vec<_> = op_inputs.iter().map(|x| x.shape()).collect();
+                    println!(
+                        "#{} {:?} with {:?} in {}ms",
+                        op_node_id,
+                        op_node.operator,
+                        input_shapes,
+                        op_timer.elapsed()
+                    );
+                }
             }
 
             temp_values.insert(op_node.output, output);

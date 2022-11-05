@@ -84,7 +84,10 @@ fn main() {
     let outputs = model.run(
         &[(input_id, &img_tensor)],
         &[output_id],
-        Some(RunOptions { timing: true }),
+        Some(RunOptions {
+            timing: true,
+            verbose: false,
+        }),
     );
     let text_mask = &outputs[0].as_float_ref().unwrap();
     let text_img = image_from_prob_tensor(text_mask);
