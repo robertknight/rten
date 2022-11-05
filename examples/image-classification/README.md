@@ -2,14 +2,16 @@
 
 This demo classifies the content of images using MobileNet v2. The known
 categories are listed in `imagenet-classes.js`. The model works best when
-there is an obvious central subject in the image, and that subject is familiar
-to the model.
+there is an obvious central subject in the image, and the subject is a common
+kind of object.
 
 ## Setup
 
-```
-npm install
-```
+1. Build the main Wasnn project. See the README.md file at the root of the
+   repository.
+2. In this directory, run `npm install`
+3. Follow either of the subsections below to run the example in Node or the
+   browser
 
 ## Running in Node
 

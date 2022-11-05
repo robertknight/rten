@@ -18,6 +18,7 @@
   },
   "homepage": "https://github.com/robertknight/wasnn#readme",
   "dependencies": {
+    "wasnn": "file:../../",
     "sharp": "^0.31.2"
   }
 }
