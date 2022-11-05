@@ -157,6 +157,7 @@ pub trait Operator: Debug {
 }
 
 /// Enum of all the built-in operators
+#[cfg(test)]
 pub enum OpType {
     Add,
     BatchNormalization(BatchNormalization),
