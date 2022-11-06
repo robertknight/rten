@@ -49,7 +49,7 @@ function imageDataFromBitmap(bitmap) {
 async function createClassifier() {
   // Fetch the Wasnn engine and MobileNet model in parallel.
   const [, modelData] = await Promise.all([
-    fetchBinary("./node_modules/wasnn/dist/" + binaryName()).then(initWasnn),
+    fetch("./node_modules/wasnn/dist/" + binaryName()).then(initWasnn),
     fetchBinary("./mobilenet.model"),
   ]);
 
