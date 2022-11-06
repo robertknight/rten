@@ -18,13 +18,13 @@ pub const ENUM_MIN_OPERATOR_TYPE: i8 = 0;
     since = "2.0.0",
     note = "Use associated constants instead. This will no longer be generated in 2021."
 )]
-pub const ENUM_MAX_OPERATOR_TYPE: i8 = 19;
+pub const ENUM_MAX_OPERATOR_TYPE: i8 = 20;
 #[deprecated(
     since = "2.0.0",
     note = "Use associated constants instead. This will no longer be generated in 2021."
 )]
 #[allow(non_camel_case_types)]
-pub const ENUM_VALUES_OPERATOR_TYPE: [OperatorType; 20] = [
+pub const ENUM_VALUES_OPERATOR_TYPE: [OperatorType; 21] = [
     OperatorType::Add,
     OperatorType::BatchNormalization,
     OperatorType::Clip,
@@ -44,6 +44,7 @@ pub const ENUM_VALUES_OPERATOR_TYPE: [OperatorType; 20] = [
     OperatorType::Shape,
     OperatorType::Sigmoid,
     OperatorType::Slice,
+    OperatorType::Transpose,
     OperatorType::Unsqueeze,
 ];
 
@@ -71,10 +72,11 @@ impl OperatorType {
     pub const Shape: Self = Self(16);
     pub const Sigmoid: Self = Self(17);
     pub const Slice: Self = Self(18);
-    pub const Unsqueeze: Self = Self(19);
+    pub const Transpose: Self = Self(19);
+    pub const Unsqueeze: Self = Self(20);
 
     pub const ENUM_MIN: i8 = 0;
-    pub const ENUM_MAX: i8 = 19;
+    pub const ENUM_MAX: i8 = 20;
     pub const ENUM_VALUES: &'static [Self] = &[
         Self::Add,
         Self::BatchNormalization,
@@ -95,6 +97,7 @@ impl OperatorType {
         Self::Shape,
         Self::Sigmoid,
         Self::Slice,
+        Self::Transpose,
         Self::Unsqueeze,
     ];
     /// Returns the variant's name or "" if unknown.
@@ -119,6 +122,7 @@ impl OperatorType {
             Self::Shape => Some("Shape"),
             Self::Sigmoid => Some("Sigmoid"),
             Self::Slice => Some("Slice"),
+            Self::Transpose => Some("Transpose"),
             Self::Unsqueeze => Some("Unsqueeze"),
             _ => None,
         }
@@ -278,13 +282,13 @@ pub const ENUM_MIN_OPERATOR_ATTRS: u8 = 0;
     since = "2.0.0",
     note = "Use associated constants instead. This will no longer be generated in 2021."
 )]
-pub const ENUM_MAX_OPERATOR_ATTRS: u8 = 11;
+pub const ENUM_MAX_OPERATOR_ATTRS: u8 = 12;
 #[deprecated(
     since = "2.0.0",
     note = "Use associated constants instead. This will no longer be generated in 2021."
 )]
 #[allow(non_camel_case_types)]
-pub const ENUM_VALUES_OPERATOR_ATTRS: [OperatorAttrs; 12] = [
+pub const ENUM_VALUES_OPERATOR_ATTRS: [OperatorAttrs; 13] = [
     OperatorAttrs::NONE,
     OperatorAttrs::BatchNormalizationAttrs,
     OperatorAttrs::ClipAttrs,
@@ -296,6 +300,7 @@ pub const ENUM_VALUES_OPERATOR_ATTRS: [OperatorAttrs; 12] = [
     OperatorAttrs::LeakyReluAttrs,
     OperatorAttrs::MaxPool2dAttrs,
     OperatorAttrs::Pad2dAttrs,
+    OperatorAttrs::TransposeAttrs,
     OperatorAttrs::UnsqueezeAttrs,
 ];
 
@@ -315,10 +320,11 @@ impl OperatorAttrs {
     pub const LeakyReluAttrs: Self = Self(8);
     pub const MaxPool2dAttrs: Self = Self(9);
     pub const Pad2dAttrs: Self = Self(10);
-    pub const UnsqueezeAttrs: Self = Self(11);
+    pub const TransposeAttrs: Self = Self(11);
+    pub const UnsqueezeAttrs: Self = Self(12);
 
     pub const ENUM_MIN: u8 = 0;
-    pub const ENUM_MAX: u8 = 11;
+    pub const ENUM_MAX: u8 = 12;
     pub const ENUM_VALUES: &'static [Self] = &[
         Self::NONE,
         Self::BatchNormalizationAttrs,
@@ -331,6 +337,7 @@ impl OperatorAttrs {
         Self::LeakyReluAttrs,
         Self::MaxPool2dAttrs,
         Self::Pad2dAttrs,
+        Self::TransposeAttrs,
         Self::UnsqueezeAttrs,
     ];
     /// Returns the variant's name or "" if unknown.
@@ -347,6 +354,7 @@ impl OperatorAttrs {
             Self::LeakyReluAttrs => Some("LeakyReluAttrs"),
             Self::MaxPool2dAttrs => Some("MaxPool2dAttrs"),
             Self::Pad2dAttrs => Some("Pad2dAttrs"),
+            Self::TransposeAttrs => Some("TransposeAttrs"),
             Self::UnsqueezeAttrs => Some("UnsqueezeAttrs"),
             _ => None,
         }
@@ -1834,6 +1842,111 @@ impl core::fmt::Debug for Pad2dAttrs<'_> {
         ds.finish()
     }
 }
+pub enum TransposeAttrsOffset {}
+#[derive(Copy, Clone, PartialEq)]
+
+pub struct TransposeAttrs<'a> {
+    pub _tab: flatbuffers::Table<'a>,
+}
+
+impl<'a> flatbuffers::Follow<'a> for TransposeAttrs<'a> {
+    type Inner = TransposeAttrs<'a>;
+    #[inline]
+    fn follow(buf: &'a [u8], loc: usize) -> Self::Inner {
+        Self {
+            _tab: flatbuffers::Table { buf, loc },
+        }
+    }
+}
+
+impl<'a> TransposeAttrs<'a> {
+    pub const VT_PERM: flatbuffers::VOffsetT = 4;
+
+    #[inline]
+    pub fn init_from_table(table: flatbuffers::Table<'a>) -> Self {
+        TransposeAttrs { _tab: table }
+    }
+    #[allow(unused_mut)]
+    pub fn create<'bldr: 'args, 'args: 'mut_bldr, 'mut_bldr>(
+        _fbb: &'mut_bldr mut flatbuffers::FlatBufferBuilder<'bldr>,
+        args: &'args TransposeAttrsArgs<'args>,
+    ) -> flatbuffers::WIPOffset<TransposeAttrs<'bldr>> {
+        let mut builder = TransposeAttrsBuilder::new(_fbb);
+        if let Some(x) = args.perm {
+            builder.add_perm(x);
+        }
+        builder.finish()
+    }
+
+    #[inline]
+    pub fn perm(&self) -> Option<flatbuffers::Vector<'a, u32>> {
+        self._tab
+            .get::<flatbuffers::ForwardsUOffset<flatbuffers::Vector<'a, u32>>>(
+                TransposeAttrs::VT_PERM,
+                None,
+            )
+    }
+}
+
+impl flatbuffers::Verifiable for TransposeAttrs<'_> {
+    #[inline]
+    fn run_verifier(
+        v: &mut flatbuffers::Verifier,
+        pos: usize,
+    ) -> Result<(), flatbuffers::InvalidFlatbuffer> {
+        use self::flatbuffers::Verifiable;
+        v.visit_table(pos)?
+            .visit_field::<flatbuffers::ForwardsUOffset<flatbuffers::Vector<'_, u32>>>(
+                "perm",
+                Self::VT_PERM,
+                false,
+            )?
+            .finish();
+        Ok(())
+    }
+}
+pub struct TransposeAttrsArgs<'a> {
+    pub perm: Option<flatbuffers::WIPOffset<flatbuffers::Vector<'a, u32>>>,
+}
+impl<'a> Default for TransposeAttrsArgs<'a> {
+    #[inline]
+    fn default() -> Self {
+        TransposeAttrsArgs { perm: None }
+    }
+}
+
+pub struct TransposeAttrsBuilder<'a: 'b, 'b> {
+    fbb_: &'b mut flatbuffers::FlatBufferBuilder<'a>,
+    start_: flatbuffers::WIPOffset<flatbuffers::TableUnfinishedWIPOffset>,
+}
+impl<'a: 'b, 'b> TransposeAttrsBuilder<'a, 'b> {
+    #[inline]
+    pub fn add_perm(&mut self, perm: flatbuffers::WIPOffset<flatbuffers::Vector<'b, u32>>) {
+        self.fbb_
+            .push_slot_always::<flatbuffers::WIPOffset<_>>(TransposeAttrs::VT_PERM, perm);
+    }
+    #[inline]
+    pub fn new(_fbb: &'b mut flatbuffers::FlatBufferBuilder<'a>) -> TransposeAttrsBuilder<'a, 'b> {
+        let start = _fbb.start_table();
+        TransposeAttrsBuilder {
+            fbb_: _fbb,
+            start_: start,
+        }
+    }
+    #[inline]
+    pub fn finish(self) -> flatbuffers::WIPOffset<TransposeAttrs<'a>> {
+        let o = self.fbb_.end_table(self.start_);
+        flatbuffers::WIPOffset::new(o.value())
+    }
+}
+
+impl core::fmt::Debug for TransposeAttrs<'_> {
+    fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
+        let mut ds = f.debug_struct("TransposeAttrs");
+        ds.field("perm", &self.perm());
+        ds.finish()
+    }
+}
 pub enum UnsqueezeAttrsOffset {}
 #[derive(Copy, Clone, PartialEq)]
 
@@ -2117,6 +2230,16 @@ impl<'a> OperatorNode<'a> {
 
     #[inline]
     #[allow(non_snake_case)]
+    pub fn attrs_as_transpose_attrs(&self) -> Option<TransposeAttrs<'a>> {
+        if self.attrs_type() == OperatorAttrs::TransposeAttrs {
+            self.attrs().map(TransposeAttrs::init_from_table)
+        } else {
+            None
+        }
+    }
+
+    #[inline]
+    #[allow(non_snake_case)]
     pub fn attrs_as_unsqueeze_attrs(&self) -> Option<UnsqueezeAttrs<'a>> {
         if self.attrs_type() == OperatorAttrs::UnsqueezeAttrs {
             self.attrs().map(UnsqueezeAttrs::init_from_table)
@@ -2147,6 +2270,7 @@ impl flatbuffers::Verifiable for OperatorNode<'_> {
           OperatorAttrs::LeakyReluAttrs => v.verify_union_variant::<flatbuffers::ForwardsUOffset<LeakyReluAttrs>>("OperatorAttrs::LeakyReluAttrs", pos),
           OperatorAttrs::MaxPool2dAttrs => v.verify_union_variant::<flatbuffers::ForwardsUOffset<MaxPool2dAttrs>>("OperatorAttrs::MaxPool2dAttrs", pos),
           OperatorAttrs::Pad2dAttrs => v.verify_union_variant::<flatbuffers::ForwardsUOffset<Pad2dAttrs>>("OperatorAttrs::Pad2dAttrs", pos),
+          OperatorAttrs::TransposeAttrs => v.verify_union_variant::<flatbuffers::ForwardsUOffset<TransposeAttrs>>("OperatorAttrs::TransposeAttrs", pos),
           OperatorAttrs::UnsqueezeAttrs => v.verify_union_variant::<flatbuffers::ForwardsUOffset<UnsqueezeAttrs>>("OperatorAttrs::UnsqueezeAttrs", pos),
           _ => Ok(()),
         }
@@ -2315,6 +2439,16 @@ impl core::fmt::Debug for OperatorNode<'_> {
             }
             OperatorAttrs::Pad2dAttrs => {
                 if let Some(x) = self.attrs_as_pad_2d_attrs() {
+                    ds.field("attrs", &x)
+                } else {
+                    ds.field(
+                        "attrs",
+                        &"InvalidFlatbuffer: Union discriminant does not match value.",
+                    )
+                }
+            }
+            OperatorAttrs::TransposeAttrs => {
+                if let Some(x) = self.attrs_as_transpose_attrs() {
                     ds.field("attrs", &x)
                 } else {
                     ds.field(

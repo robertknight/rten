@@ -324,6 +324,12 @@ def op_node_from_onnx_operator(
     elif onnx_op.op_type == "Sigmoid":
         op_type = "Sigmoid"
 
+    elif onnx_op.op_type == "Transpose":
+        op_type = "Transpose"
+
+        perm = get_attr(onnx_op.attribute, "perm", "ints", [])
+        attrs["perm"] = perm
+
     elif onnx_op.op_type == "Unsqueeze":
         op_type = "Unsqueeze"
 
@@ -526,6 +532,22 @@ def build_operator_node(builder: flatbuffers.Builder, operator: OperatorNode):
             op_type_code = sg.OperatorType.Sigmoid
         case "Slice":
             op_type_code = sg.OperatorType.Slice
+        case "Transpose":
+            op_type_code = sg.OperatorType.Transpose
+            attrs_type = sg.OperatorAttrs.TransposeAttrs
+
+            perm = operator.attrs["perm"]
+            if perm:
+                sg.TransposeAttrsStartPermVector(builder, len(perm))
+                for item in reversed(perm):
+                    builder.PrependUint32(item)
+                perm_vec = builder.EndVector()
+
+            sg.TransposeAttrsStart(builder)
+            if perm_vec:
+                sg.TransposeAttrsAddPerm(builder, perm_vec)
+            attrs = sg.TransposeAttrsEnd(builder)
+
         case "Unsqueeze":
             op_type_code = sg.OperatorType.Unsqueeze
             attrs_type = sg.OperatorAttrs.UnsqueezeAttrs

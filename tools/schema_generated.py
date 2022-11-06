@@ -26,7 +26,8 @@ class OperatorType(object):
     Shape = 16
     Sigmoid = 17
     Slice = 18
-    Unsqueeze = 19
+    Transpose = 19
+    Unsqueeze = 20
 
 
 class PadMode(object):
@@ -46,7 +47,8 @@ class OperatorAttrs(object):
     LeakyReluAttrs = 8
     MaxPool2dAttrs = 9
     Pad2dAttrs = 10
-    UnsqueezeAttrs = 11
+    TransposeAttrs = 11
+    UnsqueezeAttrs = 12
 
 
 class NodeKind(object):
@@ -520,6 +522,61 @@ def Pad2dAttrsAddPadRight(builder, padRight): builder.PrependUint32Slot(1, padRi
 def Pad2dAttrsAddPadTop(builder, padTop): builder.PrependUint32Slot(2, padTop, 0)
 def Pad2dAttrsAddPadBottom(builder, padBottom): builder.PrependUint32Slot(3, padBottom, 0)
 def Pad2dAttrsEnd(builder): return builder.EndObject()
+
+
+class TransposeAttrs(object):
+    __slots__ = ['_tab']
+
+    @classmethod
+    def GetRootAs(cls, buf, offset=0):
+        n = flatbuffers.encode.Get(flatbuffers.packer.uoffset, buf, offset)
+        x = TransposeAttrs()
+        x.Init(buf, n + offset)
+        return x
+
+    @classmethod
+    def GetRootAsTransposeAttrs(cls, buf, offset=0):
+        """This method is deprecated. Please switch to GetRootAs."""
+        return cls.GetRootAs(buf, offset)
+    @classmethod
+    def TransposeAttrsBufferHasIdentifier(cls, buf, offset, size_prefixed=False):
+        return flatbuffers.util.BufferHasIdentifier(buf, offset, b"\x4D\x4F\x44\x4C", size_prefixed=size_prefixed)
+
+    # TransposeAttrs
+    def Init(self, buf, pos):
+        self._tab = flatbuffers.table.Table(buf, pos)
+
+    # TransposeAttrs
+    def Perm(self, j):
+        o = flatbuffers.number_types.UOffsetTFlags.py_type(self._tab.Offset(4))
+        if o != 0:
+            a = self._tab.Vector(o)
+            return self._tab.Get(flatbuffers.number_types.Uint32Flags, a + flatbuffers.number_types.UOffsetTFlags.py_type(j * 4))
+        return 0
+
+    # TransposeAttrs
+    def PermAsNumpy(self):
+        o = flatbuffers.number_types.UOffsetTFlags.py_type(self._tab.Offset(4))
+        if o != 0:
+            return self._tab.GetVectorAsNumpy(flatbuffers.number_types.Uint32Flags, o)
+        return 0
+
+    # TransposeAttrs
+    def PermLength(self):
+        o = flatbuffers.number_types.UOffsetTFlags.py_type(self._tab.Offset(4))
+        if o != 0:
+            return self._tab.VectorLen(o)
+        return 0
+
+    # TransposeAttrs
+    def PermIsNone(self):
+        o = flatbuffers.number_types.UOffsetTFlags.py_type(self._tab.Offset(4))
+        return o == 0
+
+def TransposeAttrsStart(builder): builder.StartObject(1)
+def TransposeAttrsAddPerm(builder, perm): builder.PrependUOffsetTRelativeSlot(0, flatbuffers.number_types.UOffsetTFlags.py_type(perm), 0)
+def TransposeAttrsStartPermVector(builder, numElems): return builder.StartVector(4, numElems, 4)
+def TransposeAttrsEnd(builder): return builder.EndObject()
 
 
 class UnsqueezeAttrs(object):

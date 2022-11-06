@@ -293,6 +293,23 @@ impl<'a> ModelBuilder<'a> {
             OpType::Shape => (OT::Shape, no_attrs, None),
             OpType::Sigmoid => (OT::Sigmoid, no_attrs, None),
             OpType::Slice => (OT::Slice, no_attrs, None),
+            OpType::Transpose(args) => {
+                let perm_u32: Option<Vec<u32>> = args
+                    .perm
+                    .map(|perm| perm.iter().map(|&dim| dim as u32).collect());
+                let perm = perm_u32.map(|p| self.builder.create_vector(&p));
+                (
+                    OT::Transpose,
+                    OA::TransposeAttrs,
+                    Some(
+                        sg::TransposeAttrs::create(
+                            &mut self.builder,
+                            &sg::TransposeAttrsArgs { perm },
+                        )
+                        .as_union_value(),
+                    ),
+                )
+            }
             OpType::Unsqueeze(args) => {
                 let axes_u32: Vec<u32> = args.axes.iter().map(|&axis| axis as u32).collect();
                 let axes = self.builder.create_vector(&axes_u32);

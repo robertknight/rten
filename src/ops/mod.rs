@@ -178,6 +178,7 @@ pub enum OpType {
     Shape,
     Sigmoid,
     Slice,
+    Transpose(Transpose),
     Unsqueeze(Unsqueeze),
 }
 
@@ -702,6 +703,40 @@ impl Operator for Slice {
     }
 }
 
+pub fn transpose<T: Copy>(input: &Tensor<T>, permutation: Option<&[usize]>) -> Tensor<T> {
+    let mut transposed = input.clone();
+    match permutation {
+        Some(order) => transposed.permute(order),
+        None => {
+            let reversed: Vec<usize> = (0..transposed.shape().len()).rev().collect();
+            transposed.permute(&reversed);
+        }
+    };
+    transposed
+}
+
+#[derive(Debug)]
+pub struct Transpose {
+    /// The order of the transposed dimensions. If ommitted, the dimensions
+    /// are reversed.
+    pub perm: Option<Vec<usize>>,
+}
+
+impl Operator for Transpose {
+    fn name(&self) -> &str {
+        "Transpose"
+    }
+
+    fn run(&self, inputs: &[Input]) -> Output {
+        let input = inputs[0];
+        let perm_slice = self.perm.as_ref().map(|v| v.as_slice());
+        match input {
+            Input::FloatTensor(input) => transpose(&input, perm_slice).into(),
+            Input::IntTensor(input) => transpose(&input, perm_slice).into(),
+        }
+    }
+}
+
 pub fn unsqueeze<T: Copy>(input: &Tensor<T>, axes: &[usize]) -> Tensor<T> {
     let mut new_shape: Vec<_> = input.shape().iter().copied().collect();
     let mut sorted_axes: Vec<_> = axes.iter().collect();
@@ -735,7 +770,7 @@ mod tests {
     use crate::linalg::gemm;
     use crate::ops::{
         batch_norm, batch_norm_in_place, concat, gather, gemm_op, matmul, pad_2d, reshape, slice,
-        slice_in_place, unsqueeze, Operator, Reshape, Shape,
+        slice_in_place, transpose, unsqueeze, Operator, Reshape, Shape,
     };
     use crate::rng::XorShiftRNG;
     use crate::tensor::{from_data, from_scalar, from_vec, random_tensor, zero_tensor, Tensor};
@@ -931,6 +966,27 @@ mod tests {
 
         let result = pad_2d(&input, [0, 0, 0, 0]);
         expect_equal(&result, &input)
+    }
+
+    #[test]
+    fn test_transpose() -> Result<(), String> {
+        let mut rng = XorShiftRNG::new(5678);
+        let input = random_tensor(&[10, 20], &mut rng);
+
+        let mut reversed = input.clone();
+        reversed.permute(&[1, 0]);
+
+        // With no explicit permutation given, the axes should be reversed.
+        let result = transpose(&input, None);
+        expect_equal(&result, &reversed)?;
+
+        // With a no-op permutation given, the output should be unchanged.
+        let result = transpose(&input, Some(&[0, 1]));
+        expect_equal(&result, &input)?;
+
+        // With a transposed permutation given, the axes should be reversed.
+        let result = transpose(&input, Some(&[1, 0]));
+        expect_equal(&result, &reversed)
     }
 
     #[test]
