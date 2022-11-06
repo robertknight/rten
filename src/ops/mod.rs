@@ -11,9 +11,9 @@ mod pooling;
 
 pub use activations::{
     clip, clip_in_place, leaky_relu, leaky_relu_in_place, relu, relu_in_place, sigmoid,
-    sigmoid_in_place,
+    sigmoid_in_place, softmax,
 };
-pub use activations::{Clip, LeakyRelu, Relu, Sigmoid};
+pub use activations::{Clip, LeakyRelu, Relu, Sigmoid, Softmax};
 pub use binary_elementwise::{add, add_in_place, mul, mul_in_place};
 pub use binary_elementwise::{Add, Mul};
 pub use conv::{conv_2d, conv_transpose_2d};
@@ -179,6 +179,7 @@ pub enum OpType {
     Shape,
     Sigmoid,
     Slice,
+    Softmax(Softmax),
     Transpose(Transpose),
     Unsqueeze(Unsqueeze),
 }

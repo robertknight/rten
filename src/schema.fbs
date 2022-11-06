@@ -27,6 +27,7 @@ enum OperatorType: byte {
   Shape,
   Sigmoid,
   Slice,
+  Softmax,
   Transpose,
   Unsqueeze
 }
@@ -49,6 +50,7 @@ union OperatorAttrs {
   LeakyReluAttrs,
   MaxPool2dAttrs,
   Pad2dAttrs,
+  SoftmaxAttrs,
   TransposeAttrs,
   UnsqueezeAttrs
 }
@@ -114,6 +116,10 @@ table Pad2dAttrs {
   pad_right:uint;
   pad_top:uint;
   pad_bottom:uint;
+}
+
+table SoftmaxAttrs {
+  axis:uint;
 }
 
 table TransposeAttrs {

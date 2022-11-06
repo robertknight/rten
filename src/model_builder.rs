@@ -310,6 +310,19 @@ impl<'a> ModelBuilder<'a> {
             OpType::Shape => (OT::Shape, no_attrs, None),
             OpType::Sigmoid => (OT::Sigmoid, no_attrs, None),
             OpType::Slice => (OT::Slice, no_attrs, None),
+            OpType::Softmax(args) => (
+                OT::Softmax,
+                OA::SoftmaxAttrs,
+                Some(
+                    sg::SoftmaxAttrs::create(
+                        &mut self.builder,
+                        &sg::SoftmaxAttrsArgs {
+                            axis: args.axis as u32,
+                        },
+                    )
+                    .as_union_value(),
+                ),
+            ),
             OpType::Transpose(args) => {
                 let perm_u32: Option<Vec<u32>> = args
                     .perm

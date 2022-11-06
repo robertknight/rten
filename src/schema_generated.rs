@@ -18,13 +18,13 @@ pub const ENUM_MIN_OPERATOR_TYPE: i8 = 0;
     since = "2.0.0",
     note = "Use associated constants instead. This will no longer be generated in 2021."
 )]
-pub const ENUM_MAX_OPERATOR_TYPE: i8 = 21;
+pub const ENUM_MAX_OPERATOR_TYPE: i8 = 22;
 #[deprecated(
     since = "2.0.0",
     note = "Use associated constants instead. This will no longer be generated in 2021."
 )]
 #[allow(non_camel_case_types)]
-pub const ENUM_VALUES_OPERATOR_TYPE: [OperatorType; 22] = [
+pub const ENUM_VALUES_OPERATOR_TYPE: [OperatorType; 23] = [
     OperatorType::Add,
     OperatorType::AveragePool2d,
     OperatorType::BatchNormalization,
@@ -45,6 +45,7 @@ pub const ENUM_VALUES_OPERATOR_TYPE: [OperatorType; 22] = [
     OperatorType::Shape,
     OperatorType::Sigmoid,
     OperatorType::Slice,
+    OperatorType::Softmax,
     OperatorType::Transpose,
     OperatorType::Unsqueeze,
 ];
@@ -74,11 +75,12 @@ impl OperatorType {
     pub const Shape: Self = Self(17);
     pub const Sigmoid: Self = Self(18);
     pub const Slice: Self = Self(19);
-    pub const Transpose: Self = Self(20);
-    pub const Unsqueeze: Self = Self(21);
+    pub const Softmax: Self = Self(20);
+    pub const Transpose: Self = Self(21);
+    pub const Unsqueeze: Self = Self(22);
 
     pub const ENUM_MIN: i8 = 0;
-    pub const ENUM_MAX: i8 = 21;
+    pub const ENUM_MAX: i8 = 22;
     pub const ENUM_VALUES: &'static [Self] = &[
         Self::Add,
         Self::AveragePool2d,
@@ -100,6 +102,7 @@ impl OperatorType {
         Self::Shape,
         Self::Sigmoid,
         Self::Slice,
+        Self::Softmax,
         Self::Transpose,
         Self::Unsqueeze,
     ];
@@ -126,6 +129,7 @@ impl OperatorType {
             Self::Shape => Some("Shape"),
             Self::Sigmoid => Some("Sigmoid"),
             Self::Slice => Some("Slice"),
+            Self::Softmax => Some("Softmax"),
             Self::Transpose => Some("Transpose"),
             Self::Unsqueeze => Some("Unsqueeze"),
             _ => None,
@@ -286,13 +290,13 @@ pub const ENUM_MIN_OPERATOR_ATTRS: u8 = 0;
     since = "2.0.0",
     note = "Use associated constants instead. This will no longer be generated in 2021."
 )]
-pub const ENUM_MAX_OPERATOR_ATTRS: u8 = 13;
+pub const ENUM_MAX_OPERATOR_ATTRS: u8 = 14;
 #[deprecated(
     since = "2.0.0",
     note = "Use associated constants instead. This will no longer be generated in 2021."
 )]
 #[allow(non_camel_case_types)]
-pub const ENUM_VALUES_OPERATOR_ATTRS: [OperatorAttrs; 14] = [
+pub const ENUM_VALUES_OPERATOR_ATTRS: [OperatorAttrs; 15] = [
     OperatorAttrs::NONE,
     OperatorAttrs::AveragePool2dAttrs,
     OperatorAttrs::BatchNormalizationAttrs,
@@ -305,6 +309,7 @@ pub const ENUM_VALUES_OPERATOR_ATTRS: [OperatorAttrs; 14] = [
     OperatorAttrs::LeakyReluAttrs,
     OperatorAttrs::MaxPool2dAttrs,
     OperatorAttrs::Pad2dAttrs,
+    OperatorAttrs::SoftmaxAttrs,
     OperatorAttrs::TransposeAttrs,
     OperatorAttrs::UnsqueezeAttrs,
 ];
@@ -326,11 +331,12 @@ impl OperatorAttrs {
     pub const LeakyReluAttrs: Self = Self(9);
     pub const MaxPool2dAttrs: Self = Self(10);
     pub const Pad2dAttrs: Self = Self(11);
-    pub const TransposeAttrs: Self = Self(12);
-    pub const UnsqueezeAttrs: Self = Self(13);
+    pub const SoftmaxAttrs: Self = Self(12);
+    pub const TransposeAttrs: Self = Self(13);
+    pub const UnsqueezeAttrs: Self = Self(14);
 
     pub const ENUM_MIN: u8 = 0;
-    pub const ENUM_MAX: u8 = 13;
+    pub const ENUM_MAX: u8 = 14;
     pub const ENUM_VALUES: &'static [Self] = &[
         Self::NONE,
         Self::AveragePool2dAttrs,
@@ -344,6 +350,7 @@ impl OperatorAttrs {
         Self::LeakyReluAttrs,
         Self::MaxPool2dAttrs,
         Self::Pad2dAttrs,
+        Self::SoftmaxAttrs,
         Self::TransposeAttrs,
         Self::UnsqueezeAttrs,
     ];
@@ -362,6 +369,7 @@ impl OperatorAttrs {
             Self::LeakyReluAttrs => Some("LeakyReluAttrs"),
             Self::MaxPool2dAttrs => Some("MaxPool2dAttrs"),
             Self::Pad2dAttrs => Some("Pad2dAttrs"),
+            Self::SoftmaxAttrs => Some("SoftmaxAttrs"),
             Self::TransposeAttrs => Some("TransposeAttrs"),
             Self::UnsqueezeAttrs => Some("UnsqueezeAttrs"),
             _ => None,
@@ -2019,6 +2027,102 @@ impl core::fmt::Debug for Pad2dAttrs<'_> {
         ds.finish()
     }
 }
+pub enum SoftmaxAttrsOffset {}
+#[derive(Copy, Clone, PartialEq)]
+
+pub struct SoftmaxAttrs<'a> {
+    pub _tab: flatbuffers::Table<'a>,
+}
+
+impl<'a> flatbuffers::Follow<'a> for SoftmaxAttrs<'a> {
+    type Inner = SoftmaxAttrs<'a>;
+    #[inline]
+    fn follow(buf: &'a [u8], loc: usize) -> Self::Inner {
+        Self {
+            _tab: flatbuffers::Table { buf, loc },
+        }
+    }
+}
+
+impl<'a> SoftmaxAttrs<'a> {
+    pub const VT_AXIS: flatbuffers::VOffsetT = 4;
+
+    #[inline]
+    pub fn init_from_table(table: flatbuffers::Table<'a>) -> Self {
+        SoftmaxAttrs { _tab: table }
+    }
+    #[allow(unused_mut)]
+    pub fn create<'bldr: 'args, 'args: 'mut_bldr, 'mut_bldr>(
+        _fbb: &'mut_bldr mut flatbuffers::FlatBufferBuilder<'bldr>,
+        args: &'args SoftmaxAttrsArgs,
+    ) -> flatbuffers::WIPOffset<SoftmaxAttrs<'bldr>> {
+        let mut builder = SoftmaxAttrsBuilder::new(_fbb);
+        builder.add_axis(args.axis);
+        builder.finish()
+    }
+
+    #[inline]
+    pub fn axis(&self) -> u32 {
+        self._tab
+            .get::<u32>(SoftmaxAttrs::VT_AXIS, Some(0))
+            .unwrap()
+    }
+}
+
+impl flatbuffers::Verifiable for SoftmaxAttrs<'_> {
+    #[inline]
+    fn run_verifier(
+        v: &mut flatbuffers::Verifier,
+        pos: usize,
+    ) -> Result<(), flatbuffers::InvalidFlatbuffer> {
+        use self::flatbuffers::Verifiable;
+        v.visit_table(pos)?
+            .visit_field::<u32>("axis", Self::VT_AXIS, false)?
+            .finish();
+        Ok(())
+    }
+}
+pub struct SoftmaxAttrsArgs {
+    pub axis: u32,
+}
+impl<'a> Default for SoftmaxAttrsArgs {
+    #[inline]
+    fn default() -> Self {
+        SoftmaxAttrsArgs { axis: 0 }
+    }
+}
+
+pub struct SoftmaxAttrsBuilder<'a: 'b, 'b> {
+    fbb_: &'b mut flatbuffers::FlatBufferBuilder<'a>,
+    start_: flatbuffers::WIPOffset<flatbuffers::TableUnfinishedWIPOffset>,
+}
+impl<'a: 'b, 'b> SoftmaxAttrsBuilder<'a, 'b> {
+    #[inline]
+    pub fn add_axis(&mut self, axis: u32) {
+        self.fbb_.push_slot::<u32>(SoftmaxAttrs::VT_AXIS, axis, 0);
+    }
+    #[inline]
+    pub fn new(_fbb: &'b mut flatbuffers::FlatBufferBuilder<'a>) -> SoftmaxAttrsBuilder<'a, 'b> {
+        let start = _fbb.start_table();
+        SoftmaxAttrsBuilder {
+            fbb_: _fbb,
+            start_: start,
+        }
+    }
+    #[inline]
+    pub fn finish(self) -> flatbuffers::WIPOffset<SoftmaxAttrs<'a>> {
+        let o = self.fbb_.end_table(self.start_);
+        flatbuffers::WIPOffset::new(o.value())
+    }
+}
+
+impl core::fmt::Debug for SoftmaxAttrs<'_> {
+    fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
+        let mut ds = f.debug_struct("SoftmaxAttrs");
+        ds.field("axis", &self.axis());
+        ds.finish()
+    }
+}
 pub enum TransposeAttrsOffset {}
 #[derive(Copy, Clone, PartialEq)]
 
@@ -2417,6 +2521,16 @@ impl<'a> OperatorNode<'a> {
 
     #[inline]
     #[allow(non_snake_case)]
+    pub fn attrs_as_softmax_attrs(&self) -> Option<SoftmaxAttrs<'a>> {
+        if self.attrs_type() == OperatorAttrs::SoftmaxAttrs {
+            self.attrs().map(SoftmaxAttrs::init_from_table)
+        } else {
+            None
+        }
+    }
+
+    #[inline]
+    #[allow(non_snake_case)]
     pub fn attrs_as_transpose_attrs(&self) -> Option<TransposeAttrs<'a>> {
         if self.attrs_type() == OperatorAttrs::TransposeAttrs {
             self.attrs().map(TransposeAttrs::init_from_table)
@@ -2458,6 +2572,7 @@ impl flatbuffers::Verifiable for OperatorNode<'_> {
           OperatorAttrs::LeakyReluAttrs => v.verify_union_variant::<flatbuffers::ForwardsUOffset<LeakyReluAttrs>>("OperatorAttrs::LeakyReluAttrs", pos),
           OperatorAttrs::MaxPool2dAttrs => v.verify_union_variant::<flatbuffers::ForwardsUOffset<MaxPool2dAttrs>>("OperatorAttrs::MaxPool2dAttrs", pos),
           OperatorAttrs::Pad2dAttrs => v.verify_union_variant::<flatbuffers::ForwardsUOffset<Pad2dAttrs>>("OperatorAttrs::Pad2dAttrs", pos),
+          OperatorAttrs::SoftmaxAttrs => v.verify_union_variant::<flatbuffers::ForwardsUOffset<SoftmaxAttrs>>("OperatorAttrs::SoftmaxAttrs", pos),
           OperatorAttrs::TransposeAttrs => v.verify_union_variant::<flatbuffers::ForwardsUOffset<TransposeAttrs>>("OperatorAttrs::TransposeAttrs", pos),
           OperatorAttrs::UnsqueezeAttrs => v.verify_union_variant::<flatbuffers::ForwardsUOffset<UnsqueezeAttrs>>("OperatorAttrs::UnsqueezeAttrs", pos),
           _ => Ok(()),
@@ -2637,6 +2752,16 @@ impl core::fmt::Debug for OperatorNode<'_> {
             }
             OperatorAttrs::Pad2dAttrs => {
                 if let Some(x) = self.attrs_as_pad_2d_attrs() {
+                    ds.field("attrs", &x)
+                } else {
+                    ds.field(
+                        "attrs",
+                        &"InvalidFlatbuffer: Union discriminant does not match value.",
+                    )
+                }
+            }
+            OperatorAttrs::SoftmaxAttrs => {
+                if let Some(x) = self.attrs_as_softmax_attrs() {
                     ds.field("attrs", &x)
                 } else {
                     ds.field(

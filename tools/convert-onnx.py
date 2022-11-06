@@ -337,6 +337,11 @@ def op_node_from_onnx_operator(
     elif onnx_op.op_type == "Sigmoid":
         op_type = "Sigmoid"
 
+    elif onnx_op.op_type == "Softmax":
+        op_type = "Softmax"
+        
+        attrs["axis"] = get_attr(onnx_op.attribute, "axis", "int", 0)
+
     elif onnx_op.op_type == "Transpose":
         op_type = "Transpose"
 
@@ -561,6 +566,12 @@ def build_operator_node(builder: flatbuffers.Builder, operator: OperatorNode):
             op_type_code = sg.OperatorType.Sigmoid
         case "Slice":
             op_type_code = sg.OperatorType.Slice
+        case "Softmax":
+            op_type_code = sg.OperatorType.Softmax
+            attrs_type = sg.OperatorAttrs.SoftmaxAttrs
+            sg.SoftmaxAttrsStart(builder)
+            sg.SoftmaxAttrsAddAxis(builder, operator.attrs["axis"])
+            attrs = sg.SoftmaxAttrsEnd(builder)
         case "Transpose":
             op_type_code = sg.OperatorType.Transpose
             attrs_type = sg.OperatorAttrs.TransposeAttrs

@@ -27,8 +27,9 @@ class OperatorType(object):
     Shape = 17
     Sigmoid = 18
     Slice = 19
-    Transpose = 20
-    Unsqueeze = 21
+    Softmax = 20
+    Transpose = 21
+    Unsqueeze = 22
 
 
 class PadMode(object):
@@ -49,8 +50,9 @@ class OperatorAttrs(object):
     LeakyReluAttrs = 9
     MaxPool2dAttrs = 10
     Pad2dAttrs = 11
-    TransposeAttrs = 12
-    UnsqueezeAttrs = 13
+    SoftmaxAttrs = 12
+    TransposeAttrs = 13
+    UnsqueezeAttrs = 14
 
 
 class NodeKind(object):
@@ -590,6 +592,40 @@ def Pad2dAttrsAddPadRight(builder, padRight): builder.PrependUint32Slot(1, padRi
 def Pad2dAttrsAddPadTop(builder, padTop): builder.PrependUint32Slot(2, padTop, 0)
 def Pad2dAttrsAddPadBottom(builder, padBottom): builder.PrependUint32Slot(3, padBottom, 0)
 def Pad2dAttrsEnd(builder): return builder.EndObject()
+
+
+class SoftmaxAttrs(object):
+    __slots__ = ['_tab']
+
+    @classmethod
+    def GetRootAs(cls, buf, offset=0):
+        n = flatbuffers.encode.Get(flatbuffers.packer.uoffset, buf, offset)
+        x = SoftmaxAttrs()
+        x.Init(buf, n + offset)
+        return x
+
+    @classmethod
+    def GetRootAsSoftmaxAttrs(cls, buf, offset=0):
+        """This method is deprecated. Please switch to GetRootAs."""
+        return cls.GetRootAs(buf, offset)
+    @classmethod
+    def SoftmaxAttrsBufferHasIdentifier(cls, buf, offset, size_prefixed=False):
+        return flatbuffers.util.BufferHasIdentifier(buf, offset, b"\x4D\x4F\x44\x4C", size_prefixed=size_prefixed)
+
+    # SoftmaxAttrs
+    def Init(self, buf, pos):
+        self._tab = flatbuffers.table.Table(buf, pos)
+
+    # SoftmaxAttrs
+    def Axis(self):
+        o = flatbuffers.number_types.UOffsetTFlags.py_type(self._tab.Offset(4))
+        if o != 0:
+            return self._tab.Get(flatbuffers.number_types.Uint32Flags, o + self._tab.Pos)
+        return 0
+
+def SoftmaxAttrsStart(builder): builder.StartObject(1)
+def SoftmaxAttrsAddAxis(builder, axis): builder.PrependUint32Slot(0, axis, 0)
+def SoftmaxAttrsEnd(builder): return builder.EndObject()
 
 
 class TransposeAttrs(object):

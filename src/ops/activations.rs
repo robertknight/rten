@@ -1,5 +1,7 @@
+use std::ops::Range;
+
 use crate::ops::{Input, Operator, Output};
-use crate::tensor::Tensor;
+use crate::tensor::{IndexIterator, Tensor};
 
 pub fn clip(input: &Tensor, min: f32, max: f32) -> Tensor {
     input.map(|x| x.max(min).min(max))
@@ -141,13 +143,78 @@ impl Operator for Sigmoid {
     }
 }
 
+pub fn softmax(input: &Tensor, axis: usize) -> Tensor {
+    let mut output = input.clone();
+
+    let outer_range: Vec<Range<usize>> = output
+        .shape()
+        .iter()
+        .enumerate()
+        .map(|(dim, &size)| if dim >= axis { 0..1 } else { 0..size })
+        .collect();
+
+    let mut outer_iter = IndexIterator::from_ranges(&outer_range);
+    while let Some(outer_index) = outer_iter.next() {
+        let inner_range: Vec<_> = output
+            .shape()
+            .iter()
+            .enumerate()
+            .map(|(dim, &size)| {
+                if dim < axis {
+                    (outer_index[dim], outer_index[dim] + 1)
+                } else {
+                    (0, size)
+                }
+            })
+            .collect();
+
+        // Numerically stable softmax. See
+        // https://ogunlao.github.io/2020/04/26/you_dont_really_know_softmax.html.
+        let mut max_val: f32 = 0.0;
+        for el in output.slice_elements(&inner_range) {
+            max_val = max_val.max(el);
+        }
+
+        let mut exp_sum = 0.0;
+        for offset in output.slice_offsets(&inner_range) {
+            let el = &mut output.data_mut()[offset];
+            *el = (*el - max_val).exp();
+            exp_sum += *el;
+        }
+
+        for offset in output.slice_offsets(&inner_range) {
+            let el = &mut output.data_mut()[offset];
+            *el /= exp_sum
+        }
+    }
+
+    output
+}
+
+#[derive(Debug)]
+pub struct Softmax {
+    pub axis: usize,
+}
+
+impl Operator for Softmax {
+    fn name(&self) -> &str {
+        "Softmax"
+    }
+
+    fn run(&self, inputs: &[Input]) -> Output {
+        let input = inputs[0].as_float().unwrap();
+        softmax(input, self.axis).into()
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use crate::ops::{
         clip, clip_in_place, leaky_relu, leaky_relu_in_place, relu, relu_in_place, sigmoid,
-        sigmoid_in_place,
+        sigmoid_in_place, softmax,
     };
-    use crate::tensor::from_data;
+    use crate::rng::XorShiftRNG;
+    use crate::tensor::{from_data, from_vec, random_tensor};
     use crate::test_util::expect_equal;
 
     #[test]
@@ -216,5 +283,57 @@ mod tests {
         let mut result = input.clone();
         sigmoid_in_place(&mut result);
         expect_equal(&result, &expected)
+    }
+
+    #[test]
+    fn test_softmax() -> Result<(), String> {
+        // Softmax on a 1D input
+        let mut input = from_vec(vec![0.1634, 0.8647, 0.6401, 0.8265, 0.0560]);
+        let mut expected = from_vec(vec![0.1339, 0.2701, 0.2157, 0.2599, 0.1203]);
+        let result = softmax(&input, 0);
+        expect_equal(&result, &expected)?;
+
+        // Softmax on final dimension of 2D input
+        input.reshape(&[1, 5]);
+        expected.reshape(&[1, 5]);
+        let result = softmax(&input, 1);
+        expect_equal(&result, &expected)?;
+
+        // Softmax on first dimension of 2D input
+        input.reshape(&[5, 1]);
+        expected.reshape(&[5, 1]);
+        let result = softmax(&input, 0);
+        expect_equal(&result, &expected)?;
+
+        // Softmax on second dimension of 2D input with multiple entries in
+        // first dim
+        let matrix_input = from_data(
+            vec![2, 5],
+            vec![
+                0.1634, 0.8647, 0.6401, 0.8265, 0.0560, // First row
+                0.1634, 0.8647, 0.6401, 0.8265, 0.0560, // Second row
+            ],
+        );
+        let matrix_expected = from_data(
+            vec![2, 5],
+            vec![
+                0.1339, 0.2701, 0.2157, 0.2599, 0.1203, // First row
+                0.1339, 0.2701, 0.2157, 0.2599, 0.1203, // Second row
+            ],
+        );
+        let result = softmax(&matrix_input, 1);
+        expect_equal(&result, &matrix_expected)
+    }
+
+    // Test softmax with some additional input sizes and axis dimensions.
+    // These tests don't check the individual output values in detail, but they
+    // do check the shape and that the values sum to 1.
+    #[test]
+    fn test_softmax_sizes() {
+        let mut rng = XorShiftRNG::new(1234);
+        let input = random_tensor(&[1, 1, 3, 3], &mut rng);
+        let result = softmax(&input, 1);
+        assert_eq!(result.shape(), input.shape());
+        assert!((result.elements().sum::<f32>() - 1.0).abs() < 0.001);
     }
 }
