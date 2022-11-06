@@ -2,42 +2,6 @@ use crate::linalg::div_ceil;
 use crate::ops::{Input, Operator, Output, Padding};
 use crate::tensor::{zero_tensor, Tensor};
 
-pub fn global_average_pool(input: &Tensor) -> Tensor {
-    let [batch, chans, in_h, in_w] = input.dims();
-    let mut output = zero_tensor(&[batch, chans, 1, 1]);
-
-    let hw_float = (in_h * in_w) as f32;
-
-    for n in 0..batch {
-        for c in 0..chans {
-            let in_view = input.unchecked_view([n, c, 0, 0]);
-            let mut sum = 0.0;
-            for y in 0..in_h {
-                for x in 0..in_w {
-                    sum += in_view[[y, x]];
-                }
-            }
-            output[[n, c, 0, 0]] = sum / hw_float;
-        }
-    }
-
-    output
-}
-
-#[derive(Debug)]
-pub struct GlobalAveragePool {}
-
-impl Operator for GlobalAveragePool {
-    fn name(&self) -> &str {
-        "GlobalAveragePool"
-    }
-
-    fn run(&self, inputs: &[Input]) -> Output {
-        let input = inputs[0].as_float().unwrap();
-        global_average_pool(input).into()
-    }
-}
-
 /// Calculate the output size and padding for a pooling operation.
 ///
 /// See https://github.com/onnx/onnx/blob/main/docs/Operators.md#maxpool for
@@ -81,6 +45,107 @@ fn calc_output_size_and_padding(
     (out_h, out_w, pad_h, pad_w)
 }
 
+pub fn average_pool_2d(
+    input: &Tensor,
+    kernel_size: usize,
+    stride: usize,
+    padding: Padding,
+) -> Tensor {
+    let [batch, in_c, in_h, in_w] = input.dims();
+    let (out_h, out_w, pad_h, pad_w) =
+        calc_output_size_and_padding((in_h, in_w), kernel_size, stride, padding);
+
+    let mut output = zero_tensor::<f32>(&[batch, in_c, out_h, out_w]);
+
+    for n in 0..batch {
+        for chan in 0..in_c {
+            let mut out_view = output.unchecked_view_mut([n, chan, 0, 0]);
+            let in_view = input.unchecked_view([n, chan, 0, 0]);
+
+            for out_y in 0..out_h {
+                for out_x in 0..out_w {
+                    let mut accumulator = 0.0;
+                    let mut non_padding_elements = 0.0;
+
+                    for k_y in 0..kernel_size {
+                        for k_x in 0..kernel_size {
+                            let in_y = out_y * stride + k_y;
+                            let in_x = out_x * stride + k_x;
+                            if in_y >= pad_h
+                                && in_y < in_h + pad_h
+                                && in_x >= pad_w
+                                && in_x < in_w + pad_w
+                            {
+                                let val = in_view[[in_y - pad_h, in_x - pad_w]];
+                                accumulator += val;
+                                non_padding_elements += 1.0;
+                            }
+                        }
+                    }
+
+                    out_view[[out_y, out_x]] = accumulator / non_padding_elements;
+                }
+            }
+        }
+    }
+
+    output
+}
+
+#[derive(Debug)]
+pub struct AveragePool2d {
+    pub kernel_size: usize,
+    pub padding: Padding,
+    pub stride: usize,
+}
+
+impl Operator for AveragePool2d {
+    fn name(&self) -> &str {
+        "AveragePool2d"
+    }
+
+    fn run(&self, inputs: &[Input]) -> Output {
+        let input = inputs[0].as_float().unwrap();
+        average_pool_2d(input, self.kernel_size, self.stride, self.padding).into()
+    }
+}
+
+pub fn global_average_pool(input: &Tensor) -> Tensor {
+    let [batch, chans, in_h, in_w] = input.dims();
+    let mut output = zero_tensor(&[batch, chans, 1, 1]);
+
+    let hw_float = (in_h * in_w) as f32;
+
+    for n in 0..batch {
+        for c in 0..chans {
+            let in_view = input.unchecked_view([n, c, 0, 0]);
+            let mut sum = 0.0;
+            for y in 0..in_h {
+                for x in 0..in_w {
+                    sum += in_view[[y, x]];
+                }
+            }
+            output[[n, c, 0, 0]] = sum / hw_float;
+        }
+    }
+
+    output
+}
+
+#[derive(Debug)]
+pub struct GlobalAveragePool {}
+
+impl Operator for GlobalAveragePool {
+    fn name(&self) -> &str {
+        "GlobalAveragePool"
+    }
+
+    fn run(&self, inputs: &[Input]) -> Output {
+        let input = inputs[0].as_float().unwrap();
+        global_average_pool(input).into()
+    }
+}
+
 pub fn max_pool_2d(input: &Tensor, kernel_size: usize, stride: usize, padding: Padding) -> Tensor {
     let [batch, in_c, in_h, in_w] = input.dims();
     let (out_h, out_w, pad_h, pad_w) =
@@ -95,7 +160,7 @@ pub fn max_pool_2d(input: &Tensor, kernel_size: usize, stride: usize, padding: P
 
             for out_y in 0..out_h {
                 for out_x in 0..out_w {
-                    let mut max_val = f32::NEG_INFINITY;
+                    let mut accumulator = f32::NEG_INFINITY;
                     for k_y in 0..kernel_size {
                         for k_x in 0..kernel_size {
                             let in_y = out_y * stride + k_y;
@@ -106,11 +171,11 @@ pub fn max_pool_2d(input: &Tensor, kernel_size: usize, stride: usize, padding: P
                                 && in_x < in_w + pad_w
                             {
                                 let val = in_view[[in_y - pad_h, in_x - pad_w]];
-                                max_val = max_val.max(val);
+                                accumulator = accumulator.max(val);
                             }
                         }
                     }
-                    out_view[[out_y, out_x]] = max_val;
+                    out_view[[out_y, out_x]] = accumulator;
                 }
             }
         }
@@ -131,7 +196,6 @@ impl Operator for MaxPool2d {
         "MaxPool2d"
     }
 
-    /// Run `sigmoid` operator with `[input]` inputs.
     fn run(&self, inputs: &[Input]) -> Output {
         let input = inputs[0].as_float().unwrap();
         max_pool_2d(input, self.kernel_size, self.stride, self.padding).into()
@@ -140,9 +204,46 @@ impl Operator for MaxPool2d {
 
 #[cfg(test)]
 mod tests {
-    use crate::ops::{global_average_pool, max_pool_2d, Padding};
+    use crate::ops::{average_pool_2d, global_average_pool, max_pool_2d, Padding};
     use crate::tensor::{from_data, zero_tensor};
     use crate::test_util::expect_equal;
+
+    // nb. For average_pool_2d we test with only one kernel size, stride and
+    // padding combination. The max_pool_2d tests cover this pooling
+    // functionality which is applicable to all non-global pooling operators.
+    #[test]
+    fn test_average_pool_2d() -> Result<(), String> {
+        let height = 4;
+        let width = 4;
+        let mut input = zero_tensor(&[1, 1, height, width]);
+
+        for y in 0..height {
+            for x in 0..width {
+                input[[0, 0, y, x]] = (y as f32) * 10.0 + (x as f32);
+            }
+        }
+
+        let sum_a: f32 = input
+            .slice_elements(&[(0, 1), (0, 1), (0, 2), (0, 2)])
+            .sum();
+        let sum_b: f32 = input
+            .slice_elements(&[(0, 1), (0, 1), (0, 2), (2, 4)])
+            .sum();
+        let sum_c: f32 = input
+            .slice_elements(&[(0, 1), (0, 1), (2, 4), (0, 2)])
+            .sum();
+        let sum_d: f32 = input
+            .slice_elements(&[(0, 1), (0, 1), (2, 4), (2, 4)])
+            .sum();
+
+        let expected = from_data(
+            vec![1, 1, 2, 2],
+            vec![sum_a / 4.0, sum_b / 4.0, sum_c / 4.0, sum_d / 4.0],
+        );
+
+        let result = average_pool_2d(&input, 2, 2 /* stride */, Padding::Fixed((0, 0)));
+        expect_equal(&result, &expected)
+    }
 
     #[test]
     fn test_global_average_pool() -> Result<(), String> {

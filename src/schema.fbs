@@ -8,6 +8,7 @@ file_extension "model";
 // Type for an operator node
 enum OperatorType: byte {
   Add,
+  AveragePool2d,
   BatchNormalization,
   Clip,
   Concat,
@@ -37,6 +38,7 @@ enum PadMode: byte {
 
 // Operator-specific configuration
 union OperatorAttrs {
+  AveragePool2dAttrs,
   BatchNormalizationAttrs,
   ClipAttrs,
   ConcatAttrs,
@@ -49,6 +51,14 @@ union OperatorAttrs {
   Pad2dAttrs,
   TransposeAttrs,
   UnsqueezeAttrs
+}
+
+table AveragePool2dAttrs {
+  kernel_size:uint;
+  pad_mode:PadMode;
+  pad_horizontal:uint;
+  pad_vertical:uint;
+  stride:uint;
 }
 
 table BatchNormalizationAttrs {

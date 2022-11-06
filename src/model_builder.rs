@@ -142,6 +142,23 @@ impl<'a> ModelBuilder<'a> {
         // There is unfortunately a lot of boilerplate here.
         let (op_type, attrs_type, attrs) = match op_info {
             OpType::Add => (OT::Add, no_attrs, None),
+            OpType::AveragePool2d(args) => (
+                OT::AveragePool2d,
+                OA::AveragePool2dAttrs,
+                Some(
+                    sg::AveragePool2dAttrs::create(&mut self.builder, {
+                        let pad_args = pad_args_from_padding(args.padding);
+                        &sg::AveragePool2dAttrsArgs {
+                            kernel_size: args.kernel_size as u32,
+                            pad_mode: pad_args.pad_mode,
+                            pad_horizontal: pad_args.pad_horizontal,
+                            pad_vertical: pad_args.pad_vertical,
+                            stride: args.stride as u32,
+                        }
+                    })
+                    .as_union_value(),
+                ),
+            ),
             OpType::BatchNormalization(args) => (
                 OT::BatchNormalization,
                 OA::BatchNormalizationAttrs,

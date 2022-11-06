@@ -36,6 +36,35 @@ fn read_add_op(_: &OperatorNode) -> Box<dyn Operator> {
     Box::new(ops::Add {})
 }
 
+fn read_average_pool_2d_op(node: &OperatorNode) -> Box<dyn Operator> {
+    let kernel_size;
+    let padding;
+    let stride;
+
+    if let Some(attrs) = node.attrs_as_average_pool_2d_attrs() {
+        kernel_size = attrs.kernel_size() as usize;
+        padding = match attrs.pad_mode() {
+            PadMode::Same => Padding::Same,
+            PadMode::Fixed => Padding::Fixed((
+                attrs.pad_vertical() as usize,
+                attrs.pad_horizontal() as usize,
+            )),
+            _ => Padding::Fixed((0, 0)),
+        };
+        stride = attrs.stride() as usize;
+    } else {
+        kernel_size = 1;
+        padding = Padding::Fixed((0, 0));
+        stride = 1;
+    }
+
+    Box::new(ops::AveragePool2d {
+        kernel_size,
+        padding,
+        stride,
+    })
+}
+
 fn read_batch_normalization_op(node: &OperatorNode) -> Box<dyn Operator> {
     let epsilon = match node.attrs_as_batch_normalization_attrs() {
         Some(attrs) => attrs.epsilon(),
@@ -244,6 +273,7 @@ fn read_unsqueeze_op(node: &OperatorNode) -> Box<dyn Operator> {
 fn read_operator(node: &OperatorNode) -> Result<Box<dyn Operator>, String> {
     let op: Box<dyn Operator> = match node.type_() {
         OperatorType::Add => read_add_op(node),
+        OperatorType::AveragePool2d => read_average_pool_2d_op(node),
         OperatorType::BatchNormalization => read_batch_normalization_op(node),
         OperatorType::Clip => read_clip_op(node),
         OperatorType::Concat => read_concat_op(node),
@@ -410,6 +440,16 @@ mod tests {
 
         builder.add_operator("add", OpType::Add, &[input_node, input_node]);
 
+        builder.add_operator(
+            "average_pool_2d",
+            OpType::AveragePool2d(ops::AveragePool2d {
+                kernel_size: 2,
+                stride: 2,
+                padding: Padding::Fixed((0, 0)),
+            }),
+            &[input_node],
+        );
+
         // Dummy value for BatchNormalization inputs which are vectors with
         // per-channel values.
         let batch_norm_param_val = from_vec(vec![1.0]);
@@ -526,6 +566,7 @@ mod tests {
         // Operators that accept a 4D input (eg. NCHW).
         let outputs = vec![
             "add",
+            "average_pool_2d",
             "batch_normalization",
             "clip",
             "concat",

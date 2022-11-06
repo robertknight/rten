@@ -8,26 +8,27 @@ np = import_numpy()
 
 class OperatorType(object):
     Add = 0
-    BatchNormalization = 1
-    Clip = 2
-    Concat = 3
-    Conv2d = 4
-    ConvTranspose2d = 5
-    Gather = 6
-    Gemm = 7
-    GlobalAveragePool = 8
-    LeakyRelu = 9
-    MatMul = 10
-    MaxPool2d = 11
-    Mul = 12
-    Pad2d = 13
-    Relu = 14
-    Reshape = 15
-    Shape = 16
-    Sigmoid = 17
-    Slice = 18
-    Transpose = 19
-    Unsqueeze = 20
+    AveragePool2d = 1
+    BatchNormalization = 2
+    Clip = 3
+    Concat = 4
+    Conv2d = 5
+    ConvTranspose2d = 6
+    Gather = 7
+    Gemm = 8
+    GlobalAveragePool = 9
+    LeakyRelu = 10
+    MatMul = 11
+    MaxPool2d = 12
+    Mul = 13
+    Pad2d = 14
+    Relu = 15
+    Reshape = 16
+    Shape = 17
+    Sigmoid = 18
+    Slice = 19
+    Transpose = 20
+    Unsqueeze = 21
 
 
 class PadMode(object):
@@ -37,18 +38,19 @@ class PadMode(object):
 
 class OperatorAttrs(object):
     NONE = 0
-    BatchNormalizationAttrs = 1
-    ClipAttrs = 2
-    ConcatAttrs = 3
-    Conv2dAttrs = 4
-    ConvTranspose2dAttrs = 5
-    GatherAttrs = 6
-    GemmAttrs = 7
-    LeakyReluAttrs = 8
-    MaxPool2dAttrs = 9
-    Pad2dAttrs = 10
-    TransposeAttrs = 11
-    UnsqueezeAttrs = 12
+    AveragePool2dAttrs = 1
+    BatchNormalizationAttrs = 2
+    ClipAttrs = 3
+    ConcatAttrs = 4
+    Conv2dAttrs = 5
+    ConvTranspose2dAttrs = 6
+    GatherAttrs = 7
+    GemmAttrs = 8
+    LeakyReluAttrs = 9
+    MaxPool2dAttrs = 10
+    Pad2dAttrs = 11
+    TransposeAttrs = 12
+    UnsqueezeAttrs = 13
 
 
 class NodeKind(object):
@@ -62,6 +64,72 @@ class ConstantData(object):
     NONE = 0
     FloatData = 1
     IntData = 2
+
+
+class AveragePool2dAttrs(object):
+    __slots__ = ['_tab']
+
+    @classmethod
+    def GetRootAs(cls, buf, offset=0):
+        n = flatbuffers.encode.Get(flatbuffers.packer.uoffset, buf, offset)
+        x = AveragePool2dAttrs()
+        x.Init(buf, n + offset)
+        return x
+
+    @classmethod
+    def GetRootAsAveragePool2dAttrs(cls, buf, offset=0):
+        """This method is deprecated. Please switch to GetRootAs."""
+        return cls.GetRootAs(buf, offset)
+    @classmethod
+    def AveragePool2dAttrsBufferHasIdentifier(cls, buf, offset, size_prefixed=False):
+        return flatbuffers.util.BufferHasIdentifier(buf, offset, b"\x4D\x4F\x44\x4C", size_prefixed=size_prefixed)
+
+    # AveragePool2dAttrs
+    def Init(self, buf, pos):
+        self._tab = flatbuffers.table.Table(buf, pos)
+
+    # AveragePool2dAttrs
+    def KernelSize(self):
+        o = flatbuffers.number_types.UOffsetTFlags.py_type(self._tab.Offset(4))
+        if o != 0:
+            return self._tab.Get(flatbuffers.number_types.Uint32Flags, o + self._tab.Pos)
+        return 0
+
+    # AveragePool2dAttrs
+    def PadMode(self):
+        o = flatbuffers.number_types.UOffsetTFlags.py_type(self._tab.Offset(6))
+        if o != 0:
+            return self._tab.Get(flatbuffers.number_types.Int8Flags, o + self._tab.Pos)
+        return 0
+
+    # AveragePool2dAttrs
+    def PadHorizontal(self):
+        o = flatbuffers.number_types.UOffsetTFlags.py_type(self._tab.Offset(8))
+        if o != 0:
+            return self._tab.Get(flatbuffers.number_types.Uint32Flags, o + self._tab.Pos)
+        return 0
+
+    # AveragePool2dAttrs
+    def PadVertical(self):
+        o = flatbuffers.number_types.UOffsetTFlags.py_type(self._tab.Offset(10))
+        if o != 0:
+            return self._tab.Get(flatbuffers.number_types.Uint32Flags, o + self._tab.Pos)
+        return 0
+
+    # AveragePool2dAttrs
+    def Stride(self):
+        o = flatbuffers.number_types.UOffsetTFlags.py_type(self._tab.Offset(12))
+        if o != 0:
+            return self._tab.Get(flatbuffers.number_types.Uint32Flags, o + self._tab.Pos)
+        return 0
+
+def AveragePool2dAttrsStart(builder): builder.StartObject(5)
+def AveragePool2dAttrsAddKernelSize(builder, kernelSize): builder.PrependUint32Slot(0, kernelSize, 0)
+def AveragePool2dAttrsAddPadMode(builder, padMode): builder.PrependInt8Slot(1, padMode, 0)
+def AveragePool2dAttrsAddPadHorizontal(builder, padHorizontal): builder.PrependUint32Slot(2, padHorizontal, 0)
+def AveragePool2dAttrsAddPadVertical(builder, padVertical): builder.PrependUint32Slot(3, padVertical, 0)
+def AveragePool2dAttrsAddStride(builder, stride): builder.PrependUint32Slot(4, stride, 0)
+def AveragePool2dAttrsEnd(builder): return builder.EndObject()
 
 
 class BatchNormalizationAttrs(object):

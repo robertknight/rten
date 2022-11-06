@@ -18,8 +18,8 @@ pub use binary_elementwise::{add, add_in_place, mul, mul_in_place};
 pub use binary_elementwise::{Add, Mul};
 pub use conv::{conv_2d, conv_transpose_2d};
 pub use conv::{Conv2d, ConvTranspose2d};
-pub use pooling::{global_average_pool, max_pool_2d};
-pub use pooling::{GlobalAveragePool, MaxPool2d};
+pub use pooling::{average_pool_2d, global_average_pool, max_pool_2d};
+pub use pooling::{AveragePool2d, GlobalAveragePool, MaxPool2d};
 
 #[derive(Copy, Clone, Debug)]
 pub enum Padding {
@@ -160,6 +160,7 @@ pub trait Operator: Debug {
 #[cfg(test)]
 pub enum OpType {
     Add,
+    AveragePool2d(AveragePool2d),
     BatchNormalization(BatchNormalization),
     Clip(Clip),
     Concat(Concat),

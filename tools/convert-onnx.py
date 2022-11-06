@@ -225,6 +225,19 @@ def op_node_from_onnx_operator(
     if onnx_op.op_type == "Add":
         op_type = "Add"
 
+    elif onnx_op.op_type == "AveragePool":
+        op_type = "AveragePool2d"
+
+        kernel_shape = require_attr(onnx_op.attribute, "kernel_shape", "ints")
+        check_ints_length_and_value("kernel_shape", kernel_shape, 2)
+        attrs["kernel_size"] = kernel_shape[0]
+
+        read_pad_attrs_from_onnx_operator(onnx_op, attrs)
+        read_stride_attr_from_onnx_operator(onnx_op, attrs)
+
+        check_unsupported_attr(onnx_op.attribute, "ceil_mode", "int", 0)
+        check_unsupported_attr(onnx_op.attribute, "count_include_pad", "int", 0)
+
     elif onnx_op.op_type == "BatchNormalization":
         op_type = "BatchNormalization"
 
@@ -429,6 +442,22 @@ def build_operator_node(builder: flatbuffers.Builder, operator: OperatorNode):
     match operator.op_type:
         case "Add":
             op_type_code = sg.OperatorType.Add
+        case "AveragePool2d":
+            op_type_code = sg.OperatorType.AveragePool2d
+            attrs_type = sg.OperatorAttrs.AveragePool2dAttrs
+
+            if operator.attrs["pad_mode"] == "same":
+                pad_mode = sg.PadMode.Same
+            else:
+                pad_mode = sg.PadMode.Fixed
+
+            sg.AveragePool2dAttrsStart(builder)
+            sg.AveragePool2dAttrsAddKernelSize(builder, operator.attrs["kernel_size"])
+            sg.AveragePool2dAttrsAddPadMode(builder, pad_mode)
+            sg.AveragePool2dAttrsAddPadHorizontal(builder, operator.attrs["pad_horizontal"])
+            sg.AveragePool2dAttrsAddPadVertical(builder, operator.attrs["pad_vertical"])
+            sg.AveragePool2dAttrsAddStride(builder, operator.attrs["stride"])
+            attrs = sg.AveragePool2dAttrsEnd(builder)
         case "BatchNormalization":
             op_type_code = sg.OperatorType.BatchNormalization
             attrs_type = sg.OperatorAttrs.BatchNormalizationAttrs
