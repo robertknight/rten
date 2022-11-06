@@ -205,6 +205,20 @@ impl<T: Copy> Tensor<T> {
         Elements::slice(self, indices)
     }
 
+    /// Return an iterator over offsets of elements in this tensor.
+    ///
+    /// The returned offsets can be used to index the data buffer returned by
+    /// `data` and `data_mut`.
+    ///
+    /// Unlike `slice_elements`, the returned `Offsets` struct does not hold
+    /// a reference to this tensor, so it is possible to modify the tensor while
+    /// iterating over offsets.
+    ///
+    /// `indices` is a slice of `(start, end)` tuples for each dimension.
+    pub fn slice_offsets(&self, indices: &[(usize, usize)]) -> Offsets {
+        Offsets::slice(self, indices)
+    }
+
     /// Update the shape of the tensor.
     ///
     /// The total number of elements for the new shape must be the same as the
@@ -539,7 +553,7 @@ impl ElementsBase {
     }
 }
 
-/// Iterator over elements of a tensor
+/// Iterator over elements of a tensor.
 pub struct Elements<'a, T: Copy> {
     base: ElementsBase,
 
@@ -588,6 +602,43 @@ impl<'a, T: Copy> Iterator for Elements<'a, T> {
 }
 
 impl<'a, T: Copy> ExactSizeIterator for Elements<'a, T> {}
+
+/// Iterator over element offsets of a tensor.
+///
+/// `Offsets` does not hold a reference to the tensor, allowing the tensor to
+/// be modified during iteration. It is the caller's responsibilty not to modify
+/// the tensor in ways that invalidate the offset sequence returned by this
+/// iterator.
+pub struct Offsets {
+    base: ElementsBase,
+}
+
+impl Offsets {
+    fn slice<T: Copy>(tensor: &Tensor<T>, ranges: &[(usize, usize)]) -> Offsets {
+        Offsets {
+            base: ElementsBase::slice(tensor, ranges),
+        }
+    }
+}
+
+impl Iterator for Offsets {
+    type Item = usize;
+
+    fn next(&mut self) -> Option<Self::Item> {
+        if self.base.len == 0 {
+            return None;
+        }
+        let offset = self.base.offset;
+        self.base.step();
+        Some(offset)
+    }
+
+    fn size_hint(&self) -> (usize, Option<usize>) {
+        (self.base.len, Some(self.base.len))
+    }
+}
+
+impl ExactSizeIterator for Offsets {}
 
 /// Return the default strides for a given tensor shape.
 ///
@@ -1084,5 +1135,23 @@ mod tests {
         // Slice that removes start and end of second dimension
         let slice: Vec<_> = x.slice_elements(&[(0, 3), (1, 2)]).collect();
         assert_eq!(slice, &[2, 5, 8]);
+    }
+
+    // These tests assume the correctness of `slice_elements`, given the tests
+    // above, and check for consistency between the results of `slice_offsets`
+    // and `slice_elements`.
+    #[test]
+    fn test_slice_offsets() {
+        let x = steps(&[5, 5]);
+
+        // Range that removes the start and end of each dimension.
+        let range = &[(1, 4), (1, 4)];
+        let expected: Vec<_> = x.slice_elements(range).collect();
+        let result: Vec<_> = x
+            .slice_offsets(range)
+            .map(|offset| x.data()[offset])
+            .collect();
+
+        assert_eq!(&result, &expected);
     }
 }
