@@ -337,7 +337,7 @@ pub fn conv_2d(
             // The matrix multiplication below implicitly reshapes the output
             // view to OxHW and the kernel matrix to OxIHW, which can then be
             // multiplied by the IHWxHW im2col matrix.
-            let kernel_offset = kernel.offset([out_chan_start, in_chan_start, 0, 0]);
+            let kernel_offset = kernel.offset([out_chan_start, 0, 0, 0]);
             let kernel_view = &kernel.data()[kernel_offset..];
 
             let out_offset = output.offset([n, out_chan_start, 0]);
@@ -786,8 +786,8 @@ mod tests {
     #[test]
     fn test_conv_2d_not_depthwise_or_pointwise() -> Result<(), String> {
         let mut rng = XorShiftRNG::new(1234);
-        let kernel = random_tensor(&[4, 3, 3, 3], &mut rng);
-        let input = random_tensor(&[2, 3, 20, 20], &mut rng);
+        let kernel = random_tensor(&[4, 2, 3, 3], &mut rng);
+        let input = random_tensor(&[2, 4, 20, 20], &mut rng);
         let bias = random_tensor(&[4], &mut rng);
 
         let result = conv_2d(
@@ -795,7 +795,7 @@ mod tests {
             &kernel,
             Some(&bias),
             (1, 1),
-            1, /* groups */
+            2, /* groups */
             1, /* stride */
         );
         let reference_result = reference_conv(
@@ -803,7 +803,7 @@ mod tests {
             &kernel,
             Some(&bias),
             (1, 1),
-            1, /* groups */
+            2, /* groups */
             1, /* stride */
         );
 
