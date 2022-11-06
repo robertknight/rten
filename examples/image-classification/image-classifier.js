@@ -1,7 +1,7 @@
 import { Model, TensorList } from "./node_modules/wasnn/index.js";
 
 /**
- * Convert a 224x224 RGB or RGBA image loaded with `loadImage` into HWC tensor
+ * Convert a 224x224 RGB or RGBA image loaded with `loadImage` into CHW tensor
  * data ready for input into an ImageNet classification model, such as MobileNet.
  *
  * @param {ImageData} image
