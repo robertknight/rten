@@ -7,7 +7,7 @@ mod timer;
 mod wasm_api;
 
 pub use graph::RunOptions;
-pub use model::{Model, load_model};
+pub use model::{load_model, Model};
 pub use tensor::{from_data, from_scalar, from_vec, zero_tensor, Tensor};
 
 #[allow(dead_code, unused_imports)]
