@@ -1,5 +1,5 @@
 use std::iter::{repeat, zip};
-use std::ops::{Index, IndexMut};
+use std::ops::{Index, IndexMut, Range};
 
 #[cfg(test)]
 use crate::rng::XorShiftRNG;
@@ -640,6 +640,50 @@ impl Iterator for Offsets {
 
 impl ExactSizeIterator for Offsets {}
 
+/// An iterator over indices within a given range.
+///
+/// This struct does not implement the `Iterator` trait because such iterators
+/// cannot return references to data they contain. Use a `while` loop instead.
+pub struct IndexIterator {
+    first: bool,
+    current: Vec<usize>,
+    ranges: Vec<Range<usize>>,
+}
+
+impl IndexIterator {
+    /// Return an iterator over all the indices where each dimension lies
+    /// within the corresponding range in `ranges`.
+    pub fn from_ranges(ranges: &[Range<usize>]) -> IndexIterator {
+        let current = ranges.iter().map(|r| r.start).collect();
+        IndexIterator {
+            first: true,
+            current,
+            ranges: ranges.into(),
+        }
+    }
+
+    pub fn next<'a>(&'a mut self) -> Option<&'a [usize]> {
+        // Find dimension where the last element has not been reached.
+        let mut dim = self.current.len() - 1;
+        while dim > 0 && self.current[dim] >= self.ranges[dim].end - 1 {
+            self.current[dim] = self.ranges[dim].start;
+            dim -= 1;
+        }
+
+        if self.first {
+            self.first = false;
+        } else {
+            self.current[dim] += 1;
+        }
+
+        if self.current[dim] >= self.ranges[dim].end {
+            return None;
+        }
+
+        Some(&self.current[..])
+    }
+}
+
 /// Return the default strides for a given tensor shape.
 ///
 /// The returned strides are for a tightly packed tensor (ie. no unused
@@ -705,7 +749,9 @@ pub fn from_vec<T: Copy>(data: Vec<T>) -> Tensor<T> {
 #[cfg(test)]
 mod tests {
     use crate::rng::XorShiftRNG;
-    use crate::tensor::{from_data, from_scalar, from_vec, random_tensor, zero_tensor, Tensor};
+    use crate::tensor::{
+        from_data, from_scalar, from_vec, random_tensor, zero_tensor, IndexIterator, Tensor,
+    };
 
     /// Create a tensor where the value of each element is its logical index
     /// plus one.
@@ -1153,5 +1199,33 @@ mod tests {
             .collect();
 
         assert_eq!(&result, &expected);
+    }
+
+    #[test]
+    fn test_index_iterator() {
+        // Empty iterator
+        let mut iter = IndexIterator::from_ranges(&[0..0]);
+        assert_eq!(iter.next(), None);
+        assert_eq!(iter.next(), None);
+
+        // 1D index iterator
+        let mut iter = IndexIterator::from_ranges(&[0..5]);
+        let mut visited: Vec<Vec<usize>> = Vec::new();
+        while let Some(index) = iter.next() {
+            visited.push(index.into());
+        }
+        assert_eq!(visited, vec![vec![0], vec![1], vec![2], vec![3], vec![4]]);
+
+        // 2D index iterator
+        let mut iter = IndexIterator::from_ranges(&[2..4, 2..4]);
+        let mut visited: Vec<Vec<usize>> = Vec::new();
+        while let Some(index) = iter.next() {
+            visited.push(index.into());
+        }
+
+        assert_eq!(
+            visited,
+            vec![vec![2, 2], vec![2, 3], vec![3, 2], vec![3, 3],]
+        );
     }
 }
