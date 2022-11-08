@@ -325,6 +325,30 @@ mod tests {
         expect_equal(&result, &matrix_expected)
     }
 
+    // Test softmax with non-contiguous input.
+    #[test]
+    fn test_softmax_transposed() -> Result<(), String> {
+        let mut input = from_data(
+            vec![4, 4],
+            vec![
+                0.6427, 0.7435, 0.9762, 0.0611, 0.1249, 0.9742, 0.5826, 0.4704, 0.1420, 0.8376,
+                0.6692, 0.7090, 0.2448, 0.9083, 0.2881, 0.4971,
+            ],
+        );
+        let expected = from_data(
+            vec![4, 4],
+            vec![
+                0.3480, 0.2073, 0.2109, 0.2337, 0.2204, 0.2776, 0.2421, 0.2599, 0.3433, 0.2316,
+                0.2525, 0.1725, 0.1677, 0.2525, 0.3205, 0.2593,
+            ],
+        );
+
+        input.permute(&[1, 0]);
+        let result = softmax(&input, 1);
+
+        expect_equal(&result, &expected)
+    }
+
     // Test softmax with some additional input sizes and axis dimensions.
     // These tests don't check the individual output values in detail, but they
     // do check the shape and that the values sum to 1.
