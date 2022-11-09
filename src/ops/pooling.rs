@@ -205,12 +205,9 @@ impl Operator for MaxPool2d {
 #[cfg(test)]
 mod tests {
     use crate::ops::{average_pool_2d, global_average_pool, max_pool_2d, Padding};
-    use crate::tensor::{from_data, zero_tensor};
+    use crate::tensor::{from_2d_slice, from_data, zero_tensor};
     use crate::test_util::expect_equal;
 
-    // nb. For average_pool_2d we test with only one kernel size, stride and
-    // padding combination. The max_pool_2d tests cover this pooling
-    // functionality which is applicable to all non-global pooling operators.
     #[test]
     fn test_average_pool_2d() -> Result<(), String> {
         let height = 4;
@@ -242,6 +239,31 @@ mod tests {
         );
 
         let result = average_pool_2d(&input, 2, 2 /* stride */, Padding::Fixed((0, 0)));
+        expect_equal(&result, &expected)
+    }
+
+    #[test]
+    fn test_average_pool_2d_padding() -> Result<(), String> {
+        let mut input = from_2d_slice(&[
+            &[0.0809, 0.5529, 0.1534, 0.7507],
+            &[0.4698, 0.7771, 0.9896, 0.4873],
+            &[0.9750, 0.5160, 0.6419, 0.3670],
+            &[0.4101, 0.3762, 0.9689, 0.4389],
+        ]);
+        let [rows, cols] = input.dims();
+        input.reshape(&[1, 1, rows, cols]);
+
+        // Computed with `torch.nn.functional.avg_pool2d` in PyTorch with
+        // `padding=1` and `count_include_pad=False`.
+        let mut expected = from_2d_slice(&[
+            &[0.0809, 0.3531, 0.7507],
+            &[0.7224, 0.7312, 0.4271],
+            &[0.4101, 0.6725, 0.4389],
+        ]);
+        let [rows, cols] = expected.dims();
+        expected.reshape(&[1, 1, rows, cols]);
+
+        let result = average_pool_2d(&input, 2, 2 /* stride */, Padding::Fixed((1, 1)));
         expect_equal(&result, &expected)
     }
 
