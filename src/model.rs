@@ -257,6 +257,16 @@ fn read_softmax_op(node: &OperatorNode) -> Box<dyn Operator> {
     Box::new(ops::Softmax { axis })
 }
 
+fn read_squeeze_op(node: &OperatorNode) -> Box<dyn Operator> {
+    let mut axes: Option<Vec<usize>> = None;
+    if let Some(attrs) = node.attrs_as_squeeze_attrs() {
+        if let Some(axes_vec) = attrs.axes() {
+            axes = Some(axes_vec.iter().map(|axis| axis as usize).collect());
+        }
+    }
+    Box::new(ops::Squeeze { axes })
+}
+
 fn read_transpose_op(node: &OperatorNode) -> Box<dyn Operator> {
     let mut perm: Option<Vec<usize>> = None;
     if let Some(attrs) = node.attrs_as_transpose_attrs() {
@@ -301,6 +311,7 @@ fn read_operator(node: &OperatorNode) -> Result<Box<dyn Operator>, String> {
         OperatorType::Sigmoid => read_sigmoid_op(node),
         OperatorType::Slice => read_slice_op(node),
         OperatorType::Softmax => read_softmax_op(node),
+        OperatorType::Squeeze => read_squeeze_op(node),
         OperatorType::Transpose => read_transpose_op(node),
         OperatorType::Unsqueeze => read_unsqueeze_op(node),
         _ => return Err("Unknown operator type".to_string()),
@@ -563,6 +574,11 @@ mod tests {
             &[input_node],
         );
         builder.add_operator(
+            "squeeze",
+            OpType::Squeeze(ops::Squeeze { axes: None }),
+            &[input_node],
+        );
+        builder.add_operator(
             "transpose",
             OpType::Transpose(ops::Transpose { perm: None }),
             &[input_node],
@@ -597,6 +613,7 @@ mod tests {
             "sigmoid",
             "slice",
             "softmax",
+            "squeeze",
             "transpose",
             "unsqueeze",
         ];

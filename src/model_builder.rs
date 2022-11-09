@@ -323,6 +323,20 @@ impl<'a> ModelBuilder<'a> {
                     .as_union_value(),
                 ),
             ),
+            OpType::Squeeze(args) => {
+                let axes_u32: Option<Vec<u32>> = args
+                    .axes
+                    .map(|axes| axes.iter().map(|&dim| dim as u32).collect());
+                let axes = axes_u32.map(|a| self.builder.create_vector(&a));
+                (
+                    OT::Squeeze,
+                    OA::SqueezeAttrs,
+                    Some(
+                        sg::SqueezeAttrs::create(&mut self.builder, &sg::SqueezeAttrsArgs { axes })
+                            .as_union_value(),
+                    ),
+                )
+            }
             OpType::Transpose(args) => {
                 let perm_u32: Option<Vec<u32>> = args
                     .perm

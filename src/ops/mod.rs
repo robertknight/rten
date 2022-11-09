@@ -180,6 +180,7 @@ pub enum OpType {
     Sigmoid,
     Slice,
     Softmax(Softmax),
+    Squeeze(Squeeze),
     Transpose(Transpose),
     Unsqueeze(Unsqueeze),
 }
@@ -705,6 +706,72 @@ impl Operator for Slice {
     }
 }
 
+pub fn squeeze_in_place<T: Copy>(input: &mut Tensor<T>, axes: Option<&[usize]>) {
+    let new_shape: Vec<_> = input
+        .shape()
+        .iter()
+        .enumerate()
+        .filter(|(dim, &size)| {
+            if let Some(axes) = axes {
+                let keep_axis = !axes.contains(dim);
+                assert!(
+                    keep_axis || size == 1,
+                    "Can only remove dimensions of size 1"
+                );
+                keep_axis
+            } else {
+                size > 1
+            }
+        })
+        .map(|(_, &size)| size)
+        .collect();
+    input.reshape(&new_shape);
+}
+
+pub fn squeeze<T: Copy>(input: &Tensor<T>, axes: Option<&[usize]>) -> Tensor<T> {
+    let mut output = input.clone();
+    squeeze_in_place(&mut output, axes);
+    output
+}
+
+#[derive(Debug)]
+pub struct Squeeze {
+    pub axes: Option<Vec<usize>>,
+}
+
+impl Operator for Squeeze {
+    fn name(&self) -> &str {
+        "Squeeze"
+    }
+
+    fn run(&self, inputs: &[Input]) -> Output {
+        let input = inputs[0];
+        let axes = self.axes.as_ref().map(|a| &a[..]);
+        match input {
+            Input::FloatTensor(t) => squeeze(&t, axes).into(),
+            Input::IntTensor(t) => squeeze(&t, axes).into(),
+        }
+    }
+
+    fn can_run_in_place(&self) -> bool {
+        true
+    }
+
+    fn run_in_place(&self, input: Output, _: &[Input]) -> Output {
+        let axes = self.axes.as_ref().map(|a| &a[..]);
+        match input {
+            Output::FloatTensor(mut t) => {
+                squeeze_in_place(&mut t, axes);
+                t.into()
+            }
+            Output::IntTensor(mut t) => {
+                squeeze_in_place(&mut t, axes);
+                t.into()
+            }
+        }
+    }
+}
+
 pub fn transpose<T: Copy>(input: &Tensor<T>, permutation: Option<&[usize]>) -> Tensor<T> {
     let mut transposed = input.clone();
     match permutation {
@@ -772,7 +839,7 @@ mod tests {
     use crate::linalg::gemm;
     use crate::ops::{
         batch_norm, batch_norm_in_place, concat, gather, gemm_op, matmul, pad_2d, reshape, slice,
-        slice_in_place, transpose, unsqueeze, Operator, Reshape, Shape,
+        slice_in_place, squeeze, squeeze_in_place, transpose, unsqueeze, Operator, Reshape, Shape,
     };
     use crate::rng::XorShiftRNG;
     use crate::tensor::{from_data, from_scalar, from_vec, random_tensor, zero_tensor, Tensor};
@@ -1103,6 +1170,41 @@ mod tests {
             assert_eq!(sliced.shape(), input.shape());
             assert_eq!(sliced.data(), input.data());
         }
+    }
+
+    #[test]
+    fn test_squeeze() -> Result<(), String> {
+        let mut rng = XorShiftRNG::new(5678);
+        let input = random_tensor(&[1, 5, 5, 1], &mut rng);
+        let mut expected = input.clone();
+
+        // Remove all 1-size axes.
+        expected.reshape(&[5, 5]);
+        let result = squeeze(&input, None);
+        expect_equal(&result, &expected)?;
+
+        // Remove final 1-size axis.
+        expected.reshape(&[1, 5, 5]);
+        let result = squeeze(&input, Some(&[3]));
+        expect_equal(&result, &expected)?;
+
+        // Remove first 1-size axis.
+        expected.reshape(&[5, 5, 1]);
+        let result = squeeze(&input, Some(&[0]));
+        expect_equal(&result, &expected)
+    }
+
+    #[test]
+    fn test_squeeze_in_place() -> Result<(), String> {
+        let mut rng = XorShiftRNG::new(5678);
+        let mut input = random_tensor(&[1, 1, 5, 5], &mut rng);
+
+        let mut expected = input.clone();
+        expected.reshape(&[5, 5]);
+
+        squeeze_in_place(&mut input, None);
+
+        expect_equal(&input, &expected)
     }
 
     #[test]

@@ -27,9 +27,10 @@ class OperatorType(object):
     Shape = 17
     Sigmoid = 18
     Slice = 19
-    Softmax = 20
-    Transpose = 21
-    Unsqueeze = 22
+    Squeeze = 20
+    Softmax = 21
+    Transpose = 22
+    Unsqueeze = 23
 
 
 class PadMode(object):
@@ -50,9 +51,10 @@ class OperatorAttrs(object):
     LeakyReluAttrs = 9
     MaxPool2dAttrs = 10
     Pad2dAttrs = 11
-    SoftmaxAttrs = 12
-    TransposeAttrs = 13
-    UnsqueezeAttrs = 14
+    SqueezeAttrs = 12
+    SoftmaxAttrs = 13
+    TransposeAttrs = 14
+    UnsqueezeAttrs = 15
 
 
 class NodeKind(object):
@@ -626,6 +628,61 @@ class SoftmaxAttrs(object):
 def SoftmaxAttrsStart(builder): builder.StartObject(1)
 def SoftmaxAttrsAddAxis(builder, axis): builder.PrependUint32Slot(0, axis, 0)
 def SoftmaxAttrsEnd(builder): return builder.EndObject()
+
+
+class SqueezeAttrs(object):
+    __slots__ = ['_tab']
+
+    @classmethod
+    def GetRootAs(cls, buf, offset=0):
+        n = flatbuffers.encode.Get(flatbuffers.packer.uoffset, buf, offset)
+        x = SqueezeAttrs()
+        x.Init(buf, n + offset)
+        return x
+
+    @classmethod
+    def GetRootAsSqueezeAttrs(cls, buf, offset=0):
+        """This method is deprecated. Please switch to GetRootAs."""
+        return cls.GetRootAs(buf, offset)
+    @classmethod
+    def SqueezeAttrsBufferHasIdentifier(cls, buf, offset, size_prefixed=False):
+        return flatbuffers.util.BufferHasIdentifier(buf, offset, b"\x4D\x4F\x44\x4C", size_prefixed=size_prefixed)
+
+    # SqueezeAttrs
+    def Init(self, buf, pos):
+        self._tab = flatbuffers.table.Table(buf, pos)
+
+    # SqueezeAttrs
+    def Axes(self, j):
+        o = flatbuffers.number_types.UOffsetTFlags.py_type(self._tab.Offset(4))
+        if o != 0:
+            a = self._tab.Vector(o)
+            return self._tab.Get(flatbuffers.number_types.Uint32Flags, a + flatbuffers.number_types.UOffsetTFlags.py_type(j * 4))
+        return 0
+
+    # SqueezeAttrs
+    def AxesAsNumpy(self):
+        o = flatbuffers.number_types.UOffsetTFlags.py_type(self._tab.Offset(4))
+        if o != 0:
+            return self._tab.GetVectorAsNumpy(flatbuffers.number_types.Uint32Flags, o)
+        return 0
+
+    # SqueezeAttrs
+    def AxesLength(self):
+        o = flatbuffers.number_types.UOffsetTFlags.py_type(self._tab.Offset(4))
+        if o != 0:
+            return self._tab.VectorLen(o)
+        return 0
+
+    # SqueezeAttrs
+    def AxesIsNone(self):
+        o = flatbuffers.number_types.UOffsetTFlags.py_type(self._tab.Offset(4))
+        return o == 0
+
+def SqueezeAttrsStart(builder): builder.StartObject(1)
+def SqueezeAttrsAddAxes(builder, axes): builder.PrependUOffsetTRelativeSlot(0, flatbuffers.number_types.UOffsetTFlags.py_type(axes), 0)
+def SqueezeAttrsStartAxesVector(builder, numElems): return builder.StartVector(4, numElems, 4)
+def SqueezeAttrsEnd(builder): return builder.EndObject()
 
 
 class TransposeAttrs(object):

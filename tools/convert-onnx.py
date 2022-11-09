@@ -339,8 +339,14 @@ def op_node_from_onnx_operator(
 
     elif onnx_op.op_type == "Softmax":
         op_type = "Softmax"
-        
+
         attrs["axis"] = get_attr(onnx_op.attribute, "axis", "int", 0)
+
+    elif onnx_op.op_type == "Squeeze":
+        op_type = "Squeeze"
+
+        axes = get_attr(onnx_op.attribute, "axes", "ints", [])
+        attrs["axes"] = axes
 
     elif onnx_op.op_type == "Transpose":
         op_type = "Transpose"
@@ -572,6 +578,22 @@ def build_operator_node(builder: flatbuffers.Builder, operator: OperatorNode):
             sg.SoftmaxAttrsStart(builder)
             sg.SoftmaxAttrsAddAxis(builder, operator.attrs["axis"])
             attrs = sg.SoftmaxAttrsEnd(builder)
+        case "Squeeze":
+            op_type_code = sg.OperatorType.Squeeze
+            attrs_type = sg.OperatorAttrs.SqueezeAttrs
+
+            axes = operator.attrs["axes"]
+            if axes:
+                sg.SqueezeAttrsStartAxesVector(builder, len(axes))
+                for item in reversed(axes):
+                    builder.PrependUint32(item)
+                axes_vec = builder.EndVector()
+
+            sg.SqueezeAttrsStart(builder)
+            if axes_vec:
+                sg.SqueezeAttrsAddAxes(builder, axes_vec)
+            attrs = sg.SqueezeAttrsEnd(builder)
+
         case "Transpose":
             op_type_code = sg.OperatorType.Transpose
             attrs_type = sg.OperatorAttrs.TransposeAttrs
