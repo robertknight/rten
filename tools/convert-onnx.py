@@ -532,7 +532,7 @@ def build_operator_node(builder: flatbuffers.Builder, operator: OperatorNode):
 
             axes = operator.attrs["axes"]
             sg.UnsqueezeAttrsStartAxesVector(builder, len(axes))
-            for item in axes:
+            for item in reversed(axes):
                 builder.PrependUint32(item)
             axes_vec = builder.EndVector()
 
