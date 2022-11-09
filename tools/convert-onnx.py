@@ -176,7 +176,7 @@ def read_pad_attrs_from_onnx_operator(
         padding = get_attr(onnx_op.attribute, "pads", "ints", [0, 0, 0, 0])
         if len(padding) != 4:
             raise Exception('"padding" attribute must have 4 values')
-        pad_left, pad_right, pad_top, pad_bottom = iter(padding)
+        pad_top, pad_left, pad_right, pad_bottom = iter(padding)
         if pad_left != pad_right:
             raise Exception("Left and right padding must be the same")
         if pad_top != pad_bottom:
