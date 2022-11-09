@@ -746,11 +746,26 @@ pub fn from_vec<T: Copy>(data: Vec<T>) -> Tensor<T> {
     from_data(vec![data.len()], data)
 }
 
+/// Create a new 2D tensor from a nested array of slices.
+pub fn from_2d_slice<T: Copy>(data: &[&[T]]) -> Tensor<T> {
+    let rows = data.len();
+    let cols = data.get(0).map(|first_row| first_row.len()).unwrap_or(0);
+
+    let mut result = Vec::new();
+    for row in data {
+        assert!(cols == row.len(), "All row slices must have same length");
+        result.extend_from_slice(&row);
+    }
+
+    from_data(vec![rows, cols], result)
+}
+
 #[cfg(test)]
 mod tests {
     use crate::rng::XorShiftRNG;
     use crate::tensor::{
-        from_data, from_scalar, from_vec, random_tensor, zero_tensor, IndexIterator, Tensor,
+        from_2d_slice, from_data, from_scalar, from_vec, random_tensor, zero_tensor, IndexIterator,
+        Tensor,
     };
 
     /// Create a tensor where the value of each element is its logical index
@@ -769,6 +784,27 @@ mod tests {
         x.clip_dim(0, 1, 2);
         x.clip_dim(1, 1, 2);
         assert_eq!(x.elements().collect::<Vec<i32>>(), vec![5]);
+    }
+
+    #[test]
+    fn test_from_2d_slice() {
+        let x = from_2d_slice(&[&[1, 2, 3], &[4, 5, 6], &[7, 8, 9]]);
+        assert_eq!(x.shape(), &[3, 3]);
+        assert_eq!(x.data(), &[1, 2, 3, 4, 5, 6, 7, 8, 9]);
+    }
+
+    #[test]
+    fn test_from_scalar() {
+        let x = from_scalar(5);
+        assert_eq!(x.shape(), &[]);
+        assert_eq!(x.data(), &[5]);
+    }
+
+    #[test]
+    fn test_from_vec() {
+        let x = from_vec(vec![1, 2, 3]);
+        assert_eq!(x.shape(), &[3]);
+        assert_eq!(x.data(), &[1, 2, 3]);
     }
 
     #[test]
