@@ -35,10 +35,10 @@ fn pad_args_from_padding(padding: Padding) -> PadArgs {
             pad_horizontal: 0,
             pad_vertical: 0,
         },
-        Padding::Fixed((pad_h, pad_w)) => PadArgs {
+        Padding::Fixed([pad_top, pad_left, _pad_bottom, _pad_right]) => PadArgs {
             pad_mode: sg::PadMode::Fixed,
-            pad_horizontal: pad_w as u32,
-            pad_vertical: pad_h as u32,
+            pad_horizontal: pad_left as u32,
+            pad_vertical: pad_top as u32,
         },
     }
 }

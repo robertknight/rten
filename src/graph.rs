@@ -426,7 +426,7 @@ mod tests {
         let conv_out = g.add_op(
             Some("conv"),
             Box::new(Conv2d {
-                padding: Padding::Fixed((1, 1)),
+                padding: Padding::Fixed([1, 1, 1, 1]),
                 groups: 1,
                 stride: 1,
             }),

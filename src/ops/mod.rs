@@ -24,11 +24,16 @@ pub use pooling::{AveragePool2d, GlobalAveragePool, MaxPool2d};
 #[derive(Copy, Clone, Debug)]
 pub enum Padding {
     /// Apply enough padding such that the output and input have the same size.
+    ///
+    /// If the required amount of padding along each dimension is even, it is
+    /// divided equally between the start and the end. If it is odd, one more
+    /// unit is added on the end than the start. This matches the ONNX spec
+    /// for the "SAME_UPPER" value for the `auto_pad` attribute.
     Same,
 
-    /// Apply an even amount of padding to the start and end of the height and
-    /// width dimensions respectively.
-    Fixed((usize, usize)),
+    /// Apply a given amount of padding to the top, left, bottom and right of
+    /// the input.
+    Fixed([usize; 4]),
 }
 
 /// Enum of the different types of input tensor that an operator can accept.

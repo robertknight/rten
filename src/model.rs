@@ -45,16 +45,18 @@ fn read_average_pool_2d_op(node: &OperatorNode) -> Box<dyn Operator> {
         kernel_size = attrs.kernel_size() as usize;
         padding = match attrs.pad_mode() {
             PadMode::Same => Padding::Same,
-            PadMode::Fixed => Padding::Fixed((
+            PadMode::Fixed => Padding::Fixed([
                 attrs.pad_vertical() as usize,
                 attrs.pad_horizontal() as usize,
-            )),
-            _ => Padding::Fixed((0, 0)),
+                attrs.pad_vertical() as usize,
+                attrs.pad_horizontal() as usize,
+            ]),
+            _ => Padding::Fixed([0, 0, 0, 0]),
         };
         stride = attrs.stride() as usize;
     } else {
         kernel_size = 1;
-        padding = Padding::Fixed((0, 0));
+        padding = Padding::Fixed([0, 0, 0, 0]);
         stride = 1;
     }
 
@@ -105,16 +107,18 @@ fn read_conv_2d_op(node: &OperatorNode) -> Box<dyn Operator> {
         groups = attrs.groups() as usize;
         padding = match attrs.pad_mode() {
             PadMode::Same => Padding::Same,
-            PadMode::Fixed => Padding::Fixed((
+            PadMode::Fixed => Padding::Fixed([
                 attrs.pad_vertical() as usize,
                 attrs.pad_horizontal() as usize,
-            )),
-            _ => Padding::Fixed((0, 0)),
+                attrs.pad_vertical() as usize,
+                attrs.pad_horizontal() as usize,
+            ]),
+            _ => Padding::Fixed([0, 0, 0, 0]),
         };
         stride = attrs.stride() as usize;
     } else {
         groups = 1;
-        padding = Padding::Fixed((0, 0));
+        padding = Padding::Fixed([0, 0, 0, 0]);
         stride = 1;
     }
 
@@ -188,16 +192,18 @@ fn read_max_pool_2d_op(node: &OperatorNode) -> Box<dyn Operator> {
         kernel_size = attrs.kernel_size() as usize;
         padding = match attrs.pad_mode() {
             PadMode::Same => Padding::Same,
-            PadMode::Fixed => Padding::Fixed((
+            PadMode::Fixed => Padding::Fixed([
                 attrs.pad_vertical() as usize,
                 attrs.pad_horizontal() as usize,
-            )),
-            _ => Padding::Fixed((0, 0)),
+                attrs.pad_vertical() as usize,
+                attrs.pad_horizontal() as usize,
+            ]),
+            _ => Padding::Fixed([0, 0, 0, 0]),
         };
         stride = attrs.stride() as usize;
     } else {
         kernel_size = 1;
-        padding = Padding::Fixed((0, 0));
+        padding = Padding::Fixed([0, 0, 0, 0]);
         stride = 1;
     }
 
@@ -465,7 +471,7 @@ mod tests {
             OpType::AveragePool2d(ops::AveragePool2d {
                 kernel_size: 2,
                 stride: 2,
-                padding: Padding::Fixed((0, 0)),
+                padding: Padding::Fixed([0, 0, 0, 0]),
             }),
             &[input_node],
         );
@@ -500,7 +506,7 @@ mod tests {
         builder.add_operator(
             "conv_2d",
             OpType::Conv2d(ops::Conv2d {
-                padding: Padding::Fixed((1, 1)),
+                padding: Padding::Fixed([1, 1, 1, 1]),
                 groups: 1,
                 stride: 1,
             }),
@@ -542,7 +548,7 @@ mod tests {
             OpType::MaxPool2d(ops::MaxPool2d {
                 kernel_size: 2,
                 stride: 2,
-                padding: Padding::Fixed((0, 0)),
+                padding: Padding::Fixed([0, 0, 0, 0]),
             }),
             &[input_node],
         );
