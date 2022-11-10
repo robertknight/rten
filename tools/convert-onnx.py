@@ -20,6 +20,11 @@ class ConstantNode(Node):
         self.shape = shape
         self.data = data
 
+    def get_scalar(self):
+        if self.shape != []:
+            return None
+        return self.data[0]
+
 
 class OperatorNode(Node):
     def __init__(
@@ -75,6 +80,47 @@ def require_attr(attr_list: list[onnx.AttributeProto], name: str, type_: str):
     val = get_attr(attr_list, name, type_, default=None)
     if val is None:
         raise Exception(f"Missing required attribute {name}")
+    return val
+
+
+def require_attr_or_input(
+    name: str,
+    type_: str,
+    input_index: int,
+    onnx_op: onnx.OperatorProto,
+    constant_nodes: dict[str, ConstantNode],
+):
+    """
+    Get the value of a required operator attribute or input.
+
+    Some operator inputs changed from attributes to inputs in different ONNX
+    releases. This function will look up the value for the input from both
+    possible sources.
+
+    In the case where the value comes from an input, it must be a constant
+    (ie. specified via an initializer or Constant node in the graph), rather
+    than a value computed at runtime.
+
+    :param name: The name of the attribute
+    :param type_: The required type of the value
+    :param input_index: The index of the operator input
+    :param constant_nodes: Map of all the constant values in the model
+    """
+    val = get_attr(onnx_op.attribute, name, type_, None)
+    if val is None and len(onnx_op.input) > input_index:
+        input_val = constant_nodes.get(onnx_op.input[input_index])
+        if input_val is None:
+            raise Exception(f'Input node nor found or not a constant for "{name}"')
+
+        # This function currently only supports extracting scalars from
+        # constants, but we could also supports lists as well here.
+        scalar = input_val.get_scalar()
+        if scalar is None:
+            raise Exception(f'Input for "{name}" is not a scalar')
+        return scalar
+
+    if val is None:
+        raise Exception(f'Missing required attribute or input "{name}"')
     return val
 
 
@@ -203,7 +249,9 @@ def read_stride_attr_from_onnx_operator(
 
 
 def op_node_from_onnx_operator(
-    onnx_op: onnx.OperatorProto, node_index_from_name: dict[str, int]
+    onnx_op: onnx.OperatorProto,
+    node_index_from_name: dict[str, int],
+    constant_nodes: dict[str, ConstantNode],
 ) -> OperatorNode:
     """
     Map an ONNX operator to the equivalent operator in this library.
@@ -246,8 +294,8 @@ def op_node_from_onnx_operator(
     elif onnx_op.op_type == "Clip":
         op_type = "Clip"
 
-        attrs["min"] = require_attr(onnx_op.attribute, "min", "float")
-        attrs["max"] = require_attr(onnx_op.attribute, "max", "float")
+        attrs["min"] = require_attr_or_input("min", "float", 1, onnx_op, constant_nodes)
+        attrs["max"] = require_attr_or_input("max", "float", 2, onnx_op, constant_nodes)
 
     elif onnx_op.op_type == "Concat":
         op_type = "Concat"
@@ -380,7 +428,12 @@ def graph_from_onnx_graph(onnx_graph: onnx.GraphProto) -> list[Node]:
     # Map from tensor ID to node index
     tensor_map: dict[str, int] = {}
 
+    # Map of constant/initializer name to node
+    constant_map: dict[str, ConstantNode] = {}
+
     def add_node(node: Node):
+        if isinstance(node, ConstantNode):
+            constant_map[node.name] = node
         nodes.append(node)
         tensor_map[node.name] = len(nodes) - 1
 
@@ -404,7 +457,7 @@ def graph_from_onnx_graph(onnx_graph: onnx.GraphProto) -> list[Node]:
     for operator in onnx_graph.node:
         if operator.op_type == "Constant":
             continue
-        node = op_node_from_onnx_operator(operator, tensor_map)
+        node = op_node_from_onnx_operator(operator, tensor_map, constant_map)
         add_node(node)
 
     return nodes
