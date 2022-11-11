@@ -107,32 +107,45 @@ class AveragePool2dAttrs(object):
         return 0
 
     # AveragePool2dAttrs
-    def PadHorizontal(self):
+    def Pads(self, j):
         o = flatbuffers.number_types.UOffsetTFlags.py_type(self._tab.Offset(8))
         if o != 0:
-            return self._tab.Get(flatbuffers.number_types.Uint32Flags, o + self._tab.Pos)
+            a = self._tab.Vector(o)
+            return self._tab.Get(flatbuffers.number_types.Uint32Flags, a + flatbuffers.number_types.UOffsetTFlags.py_type(j * 4))
         return 0
 
     # AveragePool2dAttrs
-    def PadVertical(self):
+    def PadsAsNumpy(self):
+        o = flatbuffers.number_types.UOffsetTFlags.py_type(self._tab.Offset(8))
+        if o != 0:
+            return self._tab.GetVectorAsNumpy(flatbuffers.number_types.Uint32Flags, o)
+        return 0
+
+    # AveragePool2dAttrs
+    def PadsLength(self):
+        o = flatbuffers.number_types.UOffsetTFlags.py_type(self._tab.Offset(8))
+        if o != 0:
+            return self._tab.VectorLen(o)
+        return 0
+
+    # AveragePool2dAttrs
+    def PadsIsNone(self):
+        o = flatbuffers.number_types.UOffsetTFlags.py_type(self._tab.Offset(8))
+        return o == 0
+
+    # AveragePool2dAttrs
+    def Stride(self):
         o = flatbuffers.number_types.UOffsetTFlags.py_type(self._tab.Offset(10))
         if o != 0:
             return self._tab.Get(flatbuffers.number_types.Uint32Flags, o + self._tab.Pos)
         return 0
 
-    # AveragePool2dAttrs
-    def Stride(self):
-        o = flatbuffers.number_types.UOffsetTFlags.py_type(self._tab.Offset(12))
-        if o != 0:
-            return self._tab.Get(flatbuffers.number_types.Uint32Flags, o + self._tab.Pos)
-        return 0
-
-def AveragePool2dAttrsStart(builder): builder.StartObject(5)
+def AveragePool2dAttrsStart(builder): builder.StartObject(4)
 def AveragePool2dAttrsAddKernelSize(builder, kernelSize): builder.PrependUint32Slot(0, kernelSize, 0)
 def AveragePool2dAttrsAddPadMode(builder, padMode): builder.PrependInt8Slot(1, padMode, 0)
-def AveragePool2dAttrsAddPadHorizontal(builder, padHorizontal): builder.PrependUint32Slot(2, padHorizontal, 0)
-def AveragePool2dAttrsAddPadVertical(builder, padVertical): builder.PrependUint32Slot(3, padVertical, 0)
-def AveragePool2dAttrsAddStride(builder, stride): builder.PrependUint32Slot(4, stride, 0)
+def AveragePool2dAttrsAddPads(builder, pads): builder.PrependUOffsetTRelativeSlot(2, flatbuffers.number_types.UOffsetTFlags.py_type(pads), 0)
+def AveragePool2dAttrsStartPadsVector(builder, numElems): return builder.StartVector(4, numElems, 4)
+def AveragePool2dAttrsAddStride(builder, stride): builder.PrependUint32Slot(3, stride, 0)
 def AveragePool2dAttrsEnd(builder): return builder.EndObject()
 
 
@@ -276,39 +289,52 @@ class Conv2dAttrs(object):
         return 0
 
     # Conv2dAttrs
-    def PadHorizontal(self):
+    def Pads(self, j):
         o = flatbuffers.number_types.UOffsetTFlags.py_type(self._tab.Offset(6))
         if o != 0:
-            return self._tab.Get(flatbuffers.number_types.Uint32Flags, o + self._tab.Pos)
+            a = self._tab.Vector(o)
+            return self._tab.Get(flatbuffers.number_types.Uint32Flags, a + flatbuffers.number_types.UOffsetTFlags.py_type(j * 4))
         return 0
 
     # Conv2dAttrs
-    def PadVertical(self):
+    def PadsAsNumpy(self):
+        o = flatbuffers.number_types.UOffsetTFlags.py_type(self._tab.Offset(6))
+        if o != 0:
+            return self._tab.GetVectorAsNumpy(flatbuffers.number_types.Uint32Flags, o)
+        return 0
+
+    # Conv2dAttrs
+    def PadsLength(self):
+        o = flatbuffers.number_types.UOffsetTFlags.py_type(self._tab.Offset(6))
+        if o != 0:
+            return self._tab.VectorLen(o)
+        return 0
+
+    # Conv2dAttrs
+    def PadsIsNone(self):
+        o = flatbuffers.number_types.UOffsetTFlags.py_type(self._tab.Offset(6))
+        return o == 0
+
+    # Conv2dAttrs
+    def Groups(self):
         o = flatbuffers.number_types.UOffsetTFlags.py_type(self._tab.Offset(8))
         if o != 0:
             return self._tab.Get(flatbuffers.number_types.Uint32Flags, o + self._tab.Pos)
         return 0
 
     # Conv2dAttrs
-    def Groups(self):
+    def Stride(self):
         o = flatbuffers.number_types.UOffsetTFlags.py_type(self._tab.Offset(10))
         if o != 0:
             return self._tab.Get(flatbuffers.number_types.Uint32Flags, o + self._tab.Pos)
         return 0
 
-    # Conv2dAttrs
-    def Stride(self):
-        o = flatbuffers.number_types.UOffsetTFlags.py_type(self._tab.Offset(12))
-        if o != 0:
-            return self._tab.Get(flatbuffers.number_types.Uint32Flags, o + self._tab.Pos)
-        return 0
-
-def Conv2dAttrsStart(builder): builder.StartObject(5)
+def Conv2dAttrsStart(builder): builder.StartObject(4)
 def Conv2dAttrsAddPadMode(builder, padMode): builder.PrependInt8Slot(0, padMode, 0)
-def Conv2dAttrsAddPadHorizontal(builder, padHorizontal): builder.PrependUint32Slot(1, padHorizontal, 0)
-def Conv2dAttrsAddPadVertical(builder, padVertical): builder.PrependUint32Slot(2, padVertical, 0)
-def Conv2dAttrsAddGroups(builder, groups): builder.PrependUint32Slot(3, groups, 0)
-def Conv2dAttrsAddStride(builder, stride): builder.PrependUint32Slot(4, stride, 0)
+def Conv2dAttrsAddPads(builder, pads): builder.PrependUOffsetTRelativeSlot(1, flatbuffers.number_types.UOffsetTFlags.py_type(pads), 0)
+def Conv2dAttrsStartPadsVector(builder, numElems): return builder.StartVector(4, numElems, 4)
+def Conv2dAttrsAddGroups(builder, groups): builder.PrependUint32Slot(2, groups, 0)
+def Conv2dAttrsAddStride(builder, stride): builder.PrependUint32Slot(3, stride, 0)
 def Conv2dAttrsEnd(builder): return builder.EndObject()
 
 
@@ -509,32 +535,45 @@ class MaxPool2dAttrs(object):
         return 0
 
     # MaxPool2dAttrs
-    def PadHorizontal(self):
+    def Pads(self, j):
         o = flatbuffers.number_types.UOffsetTFlags.py_type(self._tab.Offset(8))
         if o != 0:
-            return self._tab.Get(flatbuffers.number_types.Uint32Flags, o + self._tab.Pos)
+            a = self._tab.Vector(o)
+            return self._tab.Get(flatbuffers.number_types.Uint32Flags, a + flatbuffers.number_types.UOffsetTFlags.py_type(j * 4))
         return 0
 
     # MaxPool2dAttrs
-    def PadVertical(self):
+    def PadsAsNumpy(self):
+        o = flatbuffers.number_types.UOffsetTFlags.py_type(self._tab.Offset(8))
+        if o != 0:
+            return self._tab.GetVectorAsNumpy(flatbuffers.number_types.Uint32Flags, o)
+        return 0
+
+    # MaxPool2dAttrs
+    def PadsLength(self):
+        o = flatbuffers.number_types.UOffsetTFlags.py_type(self._tab.Offset(8))
+        if o != 0:
+            return self._tab.VectorLen(o)
+        return 0
+
+    # MaxPool2dAttrs
+    def PadsIsNone(self):
+        o = flatbuffers.number_types.UOffsetTFlags.py_type(self._tab.Offset(8))
+        return o == 0
+
+    # MaxPool2dAttrs
+    def Stride(self):
         o = flatbuffers.number_types.UOffsetTFlags.py_type(self._tab.Offset(10))
         if o != 0:
             return self._tab.Get(flatbuffers.number_types.Uint32Flags, o + self._tab.Pos)
         return 0
 
-    # MaxPool2dAttrs
-    def Stride(self):
-        o = flatbuffers.number_types.UOffsetTFlags.py_type(self._tab.Offset(12))
-        if o != 0:
-            return self._tab.Get(flatbuffers.number_types.Uint32Flags, o + self._tab.Pos)
-        return 0
-
-def MaxPool2dAttrsStart(builder): builder.StartObject(5)
+def MaxPool2dAttrsStart(builder): builder.StartObject(4)
 def MaxPool2dAttrsAddKernelSize(builder, kernelSize): builder.PrependUint32Slot(0, kernelSize, 0)
 def MaxPool2dAttrsAddPadMode(builder, padMode): builder.PrependInt8Slot(1, padMode, 0)
-def MaxPool2dAttrsAddPadHorizontal(builder, padHorizontal): builder.PrependUint32Slot(2, padHorizontal, 0)
-def MaxPool2dAttrsAddPadVertical(builder, padVertical): builder.PrependUint32Slot(3, padVertical, 0)
-def MaxPool2dAttrsAddStride(builder, stride): builder.PrependUint32Slot(4, stride, 0)
+def MaxPool2dAttrsAddPads(builder, pads): builder.PrependUOffsetTRelativeSlot(2, flatbuffers.number_types.UOffsetTFlags.py_type(pads), 0)
+def MaxPool2dAttrsStartPadsVector(builder, numElems): return builder.StartVector(4, numElems, 4)
+def MaxPool2dAttrsAddStride(builder, stride): builder.PrependUint32Slot(3, stride, 0)
 def MaxPool2dAttrsEnd(builder): return builder.EndObject()
 
 

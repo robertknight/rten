@@ -32,6 +32,19 @@ impl Model {
     }
 }
 
+fn padding_from_attrs<'a>(mode: PadMode, pads: Option<flatbuffers::Vector<'a, u32>>) -> Padding {
+    match (mode, pads) {
+        (PadMode::Same, _) => Padding::Same,
+        (PadMode::Fixed, Some(pads)) => Padding::Fixed([
+            pads.get(0) as usize,
+            pads.get(1) as usize,
+            pads.get(2) as usize,
+            pads.get(3) as usize,
+        ]),
+        _ => Padding::Fixed([0, 0, 0, 0]),
+    }
+}
+
 fn read_add_op(_: &OperatorNode) -> Box<dyn Operator> {
     Box::new(ops::Add {})
 }
@@ -43,16 +56,7 @@ fn read_average_pool_2d_op(node: &OperatorNode) -> Box<dyn Operator> {
 
     if let Some(attrs) = node.attrs_as_average_pool_2d_attrs() {
         kernel_size = attrs.kernel_size() as usize;
-        padding = match attrs.pad_mode() {
-            PadMode::Same => Padding::Same,
-            PadMode::Fixed => Padding::Fixed([
-                attrs.pad_vertical() as usize,
-                attrs.pad_horizontal() as usize,
-                attrs.pad_vertical() as usize,
-                attrs.pad_horizontal() as usize,
-            ]),
-            _ => Padding::Fixed([0, 0, 0, 0]),
-        };
+        padding = padding_from_attrs(attrs.pad_mode(), attrs.pads());
         stride = attrs.stride() as usize;
     } else {
         kernel_size = 1;
@@ -105,16 +109,7 @@ fn read_conv_2d_op(node: &OperatorNode) -> Box<dyn Operator> {
 
     if let Some(attrs) = node.attrs_as_conv_2d_attrs() {
         groups = attrs.groups() as usize;
-        padding = match attrs.pad_mode() {
-            PadMode::Same => Padding::Same,
-            PadMode::Fixed => Padding::Fixed([
-                attrs.pad_vertical() as usize,
-                attrs.pad_horizontal() as usize,
-                attrs.pad_vertical() as usize,
-                attrs.pad_horizontal() as usize,
-            ]),
-            _ => Padding::Fixed([0, 0, 0, 0]),
-        };
+        padding = padding_from_attrs(attrs.pad_mode(), attrs.pads());
         stride = attrs.stride() as usize;
     } else {
         groups = 1;
@@ -190,16 +185,7 @@ fn read_max_pool_2d_op(node: &OperatorNode) -> Box<dyn Operator> {
 
     if let Some(attrs) = node.attrs_as_max_pool_2d_attrs() {
         kernel_size = attrs.kernel_size() as usize;
-        padding = match attrs.pad_mode() {
-            PadMode::Same => Padding::Same,
-            PadMode::Fixed => Padding::Fixed([
-                attrs.pad_vertical() as usize,
-                attrs.pad_horizontal() as usize,
-                attrs.pad_vertical() as usize,
-                attrs.pad_horizontal() as usize,
-            ]),
-            _ => Padding::Fixed([0, 0, 0, 0]),
-        };
+        padding = padding_from_attrs(attrs.pad_mode(), attrs.pads());
         stride = attrs.stride() as usize;
     } else {
         kernel_size = 1;

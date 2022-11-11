@@ -1,6 +1,6 @@
 extern crate flatbuffers;
 
-use flatbuffers::{FlatBufferBuilder, UnionWIPOffset, WIPOffset};
+use flatbuffers::{FlatBufferBuilder, UnionWIPOffset, Vector, WIPOffset};
 
 use crate::ops::{OpType, Padding};
 use crate::schema_generated as sg;
@@ -24,21 +24,18 @@ enum NodeData<'a> {
 
 struct PadArgs {
     pad_mode: sg::PadMode,
-    pad_horizontal: u32,
-    pad_vertical: u32,
+    pads: Option<Vec<usize>>,
 }
 
 fn pad_args_from_padding(padding: Padding) -> PadArgs {
     match padding {
         Padding::Same => PadArgs {
             pad_mode: sg::PadMode::Same,
-            pad_horizontal: 0,
-            pad_vertical: 0,
+            pads: None,
         },
-        Padding::Fixed([pad_top, pad_left, _pad_bottom, _pad_right]) => PadArgs {
+        Padding::Fixed(pads) => PadArgs {
             pad_mode: sg::PadMode::Fixed,
-            pad_horizontal: pad_left as u32,
-            pad_vertical: pad_top as u32,
+            pads: Some(pads.into()),
         },
     }
 }
@@ -132,6 +129,15 @@ impl<'a> ModelBuilder<'a> {
         self.add_node(Some(id), NodeData::Value(value_node))
     }
 
+    fn create_u32_vec<'fbb>(
+        &mut self,
+        data: Option<Vec<usize>>,
+    ) -> Option<WIPOffset<Vector<'a, u32>>> {
+        let vec_u32: Option<Vec<u32>> =
+            data.map(|vec| vec.iter().map(|&item| item as u32).collect());
+        vec_u32.map(|v| self.builder.create_vector(&v))
+    }
+
     /// Add an operator node to the model
     pub fn add_operator(&mut self, id: &str, op_info: OpType, inputs: &[u32]) -> u32 {
         type OT = sg::OperatorType;
@@ -145,19 +151,19 @@ impl<'a> ModelBuilder<'a> {
             OpType::AveragePool2d(args) => (
                 OT::AveragePool2d,
                 OA::AveragePool2dAttrs,
-                Some(
+                Some({
+                    let pad_args = pad_args_from_padding(args.padding);
+                    let pads = self.create_u32_vec(pad_args.pads);
                     sg::AveragePool2dAttrs::create(&mut self.builder, {
-                        let pad_args = pad_args_from_padding(args.padding);
                         &sg::AveragePool2dAttrsArgs {
                             kernel_size: args.kernel_size as u32,
                             pad_mode: pad_args.pad_mode,
-                            pad_horizontal: pad_args.pad_horizontal,
-                            pad_vertical: pad_args.pad_vertical,
+                            pads,
                             stride: args.stride as u32,
                         }
                     })
-                    .as_union_value(),
-                ),
+                    .as_union_value()
+                }),
             ),
             OpType::BatchNormalization(args) => (
                 OT::BatchNormalization,
@@ -202,19 +208,19 @@ impl<'a> ModelBuilder<'a> {
             OpType::Conv2d(args) => (
                 OT::Conv2d,
                 OA::Conv2dAttrs,
-                Some(
+                Some({
+                    let pad_args = pad_args_from_padding(args.padding);
+                    let pads = self.create_u32_vec(pad_args.pads);
                     sg::Conv2dAttrs::create(&mut self.builder, {
-                        let pad_args = pad_args_from_padding(args.padding);
                         &sg::Conv2dAttrsArgs {
                             groups: args.groups as u32,
                             pad_mode: pad_args.pad_mode,
-                            pad_horizontal: pad_args.pad_horizontal,
-                            pad_vertical: pad_args.pad_vertical,
+                            pads,
                             stride: args.stride as u32,
                         }
                     })
-                    .as_union_value(),
-                ),
+                    .as_union_value()
+                }),
             ),
             OpType::ConvTranspose2d(args) => (
                 OT::ConvTranspose2d,
@@ -274,19 +280,19 @@ impl<'a> ModelBuilder<'a> {
             OpType::MaxPool2d(args) => (
                 OT::MaxPool2d,
                 OA::MaxPool2dAttrs,
-                Some(
+                Some({
+                    let pad_args = pad_args_from_padding(args.padding);
+                    let pads = self.create_u32_vec(pad_args.pads);
                     sg::MaxPool2dAttrs::create(&mut self.builder, {
-                        let pad_args = pad_args_from_padding(args.padding);
                         &sg::MaxPool2dAttrsArgs {
                             kernel_size: args.kernel_size as u32,
                             pad_mode: pad_args.pad_mode,
-                            pad_horizontal: pad_args.pad_horizontal,
-                            pad_vertical: pad_args.pad_vertical,
+                            pads,
                             stride: args.stride as u32,
                         }
                     })
-                    .as_union_value(),
-                ),
+                    .as_union_value()
+                }),
             ),
             OpType::Mul => (OT::Mul, no_attrs, None),
             OpType::Pad2d(args) => (
@@ -324,10 +330,7 @@ impl<'a> ModelBuilder<'a> {
                 ),
             ),
             OpType::Squeeze(args) => {
-                let axes_u32: Option<Vec<u32>> = args
-                    .axes
-                    .map(|axes| axes.iter().map(|&dim| dim as u32).collect());
-                let axes = axes_u32.map(|a| self.builder.create_vector(&a));
+                let axes = self.create_u32_vec(args.axes);
                 (
                     OT::Squeeze,
                     OA::SqueezeAttrs,
@@ -338,10 +341,7 @@ impl<'a> ModelBuilder<'a> {
                 )
             }
             OpType::Transpose(args) => {
-                let perm_u32: Option<Vec<u32>> = args
-                    .perm
-                    .map(|perm| perm.iter().map(|&dim| dim as u32).collect());
-                let perm = perm_u32.map(|p| self.builder.create_vector(&p));
+                let perm = self.create_u32_vec(args.perm);
                 (
                     OT::Transpose,
                     OA::TransposeAttrs,

@@ -8,6 +8,8 @@ import onnx
 
 import schema_generated as sg
 
+AttributeValue = int | float | str | list[int]
+
 
 class Node:
     def __init__(self, name: str):
@@ -31,7 +33,7 @@ class OperatorNode(Node):
         self,
         name: str,
         op_type: str,
-        attrs: dict[str, int | float | str],
+        attrs: dict[str, AttributeValue],
         inputs: list[int],
     ):
         super().__init__(name)
@@ -206,7 +208,7 @@ def value_node_from_onnx_value(value: onnx.ValueInfoProto) -> ValueNode:
 
 
 def read_pad_attrs_from_onnx_operator(
-    onnx_op: onnx.OperatorProto, attrs: dict[str, int | float | str]
+    onnx_op: onnx.OperatorProto, attrs: dict[str, AttributeValue]
 ):
     """
     Read a padding specification from an ONNX operator.
@@ -216,25 +218,18 @@ def read_pad_attrs_from_onnx_operator(
 
     if auto_pad == "SAME_UPPER" or auto_pad == "SAME_LOWER":
         attrs["pad_mode"] = "same"
-        attrs["pad_horizontal"] = 0
-        attrs["pad_vertical"] = 0
     elif auto_pad == "NOTSET":
         padding = get_attr(onnx_op.attribute, "pads", "ints", [0, 0, 0, 0])
         if len(padding) != 4:
             raise Exception('"padding" attribute must have 4 values')
         pad_top, pad_left, pad_right, pad_bottom = iter(padding)
-        if pad_left != pad_right:
-            raise Exception("Left and right padding must be the same")
-        if pad_top != pad_bottom:
-            raise Exception("Top and bottom padding must be the same")
 
         attrs["pad_mode"] = "fixed"
-        attrs["pad_horizontal"] = pad_left
-        attrs["pad_vertical"] = pad_top
+        attrs["pads"] = [pad_top, pad_left, pad_bottom, pad_right]
 
 
 def read_stride_attr_from_onnx_operator(
-    onnx_op: onnx.OperatorProto, attrs: dict[str, int | float | str]
+    onnx_op: onnx.OperatorProto, attrs: dict[str, AttributeValue]
 ):
     """
     Read a stride specification from an ONNX operator.
@@ -268,7 +263,7 @@ def op_node_from_onnx_operator(
             )
         input_indexes.append(index)
 
-    attrs: dict[str, int | str] = {}
+    attrs: dict[str, AttributeValue] = {}
 
     if onnx_op.op_type == "Add":
         op_type = "Add"
@@ -514,12 +509,17 @@ def build_operator_node(builder: flatbuffers.Builder, operator: OperatorNode):
                 pad_mode = sg.PadMode.Same
             else:
                 pad_mode = sg.PadMode.Fixed
+                pads = operator.attrs["pads"]
+                sg.AveragePool2dAttrsStartPadsVector(builder, len(pads))
+                for item in reversed(pads):
+                    builder.PrependUint32(item)
+                pads_vec = builder.EndVector()
 
             sg.AveragePool2dAttrsStart(builder)
             sg.AveragePool2dAttrsAddKernelSize(builder, operator.attrs["kernel_size"])
             sg.AveragePool2dAttrsAddPadMode(builder, pad_mode)
-            sg.AveragePool2dAttrsAddPadHorizontal(builder, operator.attrs["pad_horizontal"])
-            sg.AveragePool2dAttrsAddPadVertical(builder, operator.attrs["pad_vertical"])
+            if pad_mode == sg.PadMode.Fixed:
+                sg.AveragePool2dAttrsAddPads(builder, pads_vec)
             sg.AveragePool2dAttrsAddStride(builder, operator.attrs["stride"])
             attrs = sg.AveragePool2dAttrsEnd(builder)
         case "BatchNormalization":
@@ -549,12 +549,17 @@ def build_operator_node(builder: flatbuffers.Builder, operator: OperatorNode):
                 pad_mode = sg.PadMode.Same
             else:
                 pad_mode = sg.PadMode.Fixed
+                pads = operator.attrs["pads"]
+                sg.Conv2dAttrsStartPadsVector(builder, len(pads))
+                for item in reversed(pads):
+                    builder.PrependUint32(item)
+                pads_vec = builder.EndVector()
 
             sg.Conv2dAttrsStart(builder)
             sg.Conv2dAttrsAddGroups(builder, operator.attrs["groups"])
             sg.Conv2dAttrsAddPadMode(builder, pad_mode)
-            sg.Conv2dAttrsAddPadHorizontal(builder, operator.attrs["pad_horizontal"])
-            sg.Conv2dAttrsAddPadVertical(builder, operator.attrs["pad_vertical"])
+            if pad_mode == sg.PadMode.Fixed:
+                sg.Conv2dAttrsAddPads(builder, pads_vec)
             sg.Conv2dAttrsAddStride(builder, operator.attrs["stride"])
             attrs = sg.Conv2dAttrsEnd(builder)
         case "ConvTranspose2d":
@@ -596,12 +601,17 @@ def build_operator_node(builder: flatbuffers.Builder, operator: OperatorNode):
                 pad_mode = sg.PadMode.Same
             else:
                 pad_mode = sg.PadMode.Fixed
+                pads = operator.attrs["pads"]
+                sg.MaxPool2dAttrsStartPadsVector(builder, len(pads))
+                for item in reversed(pads):
+                    builder.PrependUint32(item)
+                pads_vec = builder.EndVector()
 
             sg.MaxPool2dAttrsStart(builder)
             sg.MaxPool2dAttrsAddKernelSize(builder, operator.attrs["kernel_size"])
             sg.MaxPool2dAttrsAddPadMode(builder, pad_mode)
-            sg.MaxPool2dAttrsAddPadHorizontal(builder, operator.attrs["pad_horizontal"])
-            sg.MaxPool2dAttrsAddPadVertical(builder, operator.attrs["pad_vertical"])
+            if pad_mode == sg.PadMode.Fixed:
+                sg.MaxPool2dAttrsAddPads(builder, pads_vec)
             sg.MaxPool2dAttrsAddStride(builder, operator.attrs["stride"])
             attrs = sg.MaxPool2dAttrsEnd(builder)
         case "Mul":

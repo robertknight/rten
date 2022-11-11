@@ -60,8 +60,10 @@ union OperatorAttrs {
 table AveragePool2dAttrs {
   kernel_size:uint;
   pad_mode:PadMode;
-  pad_horizontal:uint;
-  pad_vertical:uint;
+
+  // Padding for spatial axes as [top, left, bottom, right]
+  pads:[uint];
+
   stride:uint;
 }
 
@@ -80,8 +82,10 @@ table ConcatAttrs {
 
 table Conv2dAttrs {
   pad_mode:PadMode;
-  pad_horizontal:uint;
-  pad_vertical:uint;
+
+  // Padding for spatial axes as [top, left, bottom, right]
+  pads:[uint];
+
   groups:uint;
   stride:uint;
 }
@@ -108,8 +112,10 @@ table LeakyReluAttrs {
 table MaxPool2dAttrs {
   kernel_size:uint;
   pad_mode:PadMode;
-  pad_horizontal:uint;
-  pad_vertical:uint;
+
+  // Padding for spatial axes as [top, left, bottom, right]
+  pads:[uint];
+
   stride:uint;
 }
 
