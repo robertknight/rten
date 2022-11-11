@@ -1,6 +1,7 @@
 #!/usr/bin/env python
 
 from argparse import ArgumentParser
+from typing import cast
 
 import array
 import flatbuffers
@@ -29,6 +30,10 @@ class ConstantNode(Node):
 
 
 class OperatorNode(Node):
+    op_type: str
+    attrs: dict[str, AttributeValue]
+    inputs: list[int]
+
     def __init__(
         self,
         name: str,
@@ -433,27 +438,27 @@ def graph_from_onnx_graph(onnx_graph: onnx.GraphProto) -> list[Node]:
         tensor_map[node.name] = len(nodes) - 1
 
     for tensor in onnx_graph.initializer:
-        node = constant_node_from_onnx_initializer(tensor)
-        add_node(node)
+        const_node = constant_node_from_onnx_initializer(tensor)
+        add_node(const_node)
     for operator in onnx_graph.node:
         if operator.op_type != "Constant":
             continue
-        node = constant_node_from_onnx_constant_op(operator)
-        add_node(node)
+        const_node = constant_node_from_onnx_constant_op(operator)
+        add_node(const_node)
 
     for value in onnx_graph.input:
         # If the same node is referenced in the ONNX model's `initializer` and
         # `input` properties, ignore the one from the input.
         if value.name in tensor_map:
             continue
-        node = value_node_from_onnx_value(value)
-        add_node(node)
+        value_node = value_node_from_onnx_value(value)
+        add_node(value_node)
 
     for operator in onnx_graph.node:
         if operator.op_type == "Constant":
             continue
-        node = op_node_from_onnx_operator(operator, tensor_map, constant_map)
-        add_node(node)
+        op_node = op_node_from_onnx_operator(operator, tensor_map, constant_map)
+        add_node(op_node)
 
     return nodes
 
@@ -509,7 +514,7 @@ def build_operator_node(builder: flatbuffers.Builder, operator: OperatorNode):
                 pad_mode = sg.PadMode.Same
             else:
                 pad_mode = sg.PadMode.Fixed
-                pads = operator.attrs["pads"]
+                pads = cast(list[int], operator.attrs["pads"])
                 sg.AveragePool2dAttrsStartPadsVector(builder, len(pads))
                 for item in reversed(pads):
                     builder.PrependUint32(item)
@@ -549,7 +554,7 @@ def build_operator_node(builder: flatbuffers.Builder, operator: OperatorNode):
                 pad_mode = sg.PadMode.Same
             else:
                 pad_mode = sg.PadMode.Fixed
-                pads = operator.attrs["pads"]
+                pads = cast(list[int], operator.attrs["pads"])
                 sg.Conv2dAttrsStartPadsVector(builder, len(pads))
                 for item in reversed(pads):
                     builder.PrependUint32(item)
@@ -601,7 +606,7 @@ def build_operator_node(builder: flatbuffers.Builder, operator: OperatorNode):
                 pad_mode = sg.PadMode.Same
             else:
                 pad_mode = sg.PadMode.Fixed
-                pads = operator.attrs["pads"]
+                pads = cast(list[int], operator.attrs["pads"])
                 sg.MaxPool2dAttrsStartPadsVector(builder, len(pads))
                 for item in reversed(pads):
                     builder.PrependUint32(item)
@@ -645,7 +650,7 @@ def build_operator_node(builder: flatbuffers.Builder, operator: OperatorNode):
             op_type_code = sg.OperatorType.Squeeze
             attrs_type = sg.OperatorAttrs.SqueezeAttrs
 
-            axes = operator.attrs["axes"]
+            axes = cast(list[int]|None, operator.attrs["axes"])
             if axes:
                 sg.SqueezeAttrsStartAxesVector(builder, len(axes))
                 for item in reversed(axes):
@@ -661,7 +666,7 @@ def build_operator_node(builder: flatbuffers.Builder, operator: OperatorNode):
             op_type_code = sg.OperatorType.Transpose
             attrs_type = sg.OperatorAttrs.TransposeAttrs
 
-            perm = operator.attrs["perm"]
+            perm = cast(list[int]|None, operator.attrs["perm"])
             if perm:
                 sg.TransposeAttrsStartPermVector(builder, len(perm))
                 for item in reversed(perm):
@@ -677,7 +682,7 @@ def build_operator_node(builder: flatbuffers.Builder, operator: OperatorNode):
             op_type_code = sg.OperatorType.Unsqueeze
             attrs_type = sg.OperatorAttrs.UnsqueezeAttrs
 
-            axes = operator.attrs["axes"]
+            axes = cast(list[int], operator.attrs["axes"])
             sg.UnsqueezeAttrsStartAxesVector(builder, len(axes))
             for item in reversed(axes):
                 builder.PrependUint32(item)
