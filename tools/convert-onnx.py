@@ -174,22 +174,23 @@ def constant_node_from_onnx_initializer(tensor) -> ConstantNode:
     # Convert the tensor data to a format supported by this library. For int64
     # tensors, we convert them to int32 and just ignore any issues with
     # overflows.
-    if tensor.data_type == onnx.TensorProto.FLOAT:
-        data = array.array("f", tensor_data)
-    elif tensor.data_type == onnx.TensorProto.UINT8:
-        data = convert_array("B", tensor_data, "i")
-    elif tensor.data_type == onnx.TensorProto.INT8:
-        data = convert_array("b", tensor_data, "i")
-    elif tensor.data_type == onnx.TensorProto.UINT16:
-        data = convert_array("H", tensor_data, "i")
-    elif tensor.data_type == onnx.TensorProto.INT16:
-        data = convert_array("h", tensor_data, "i")
-    elif tensor.data_type == onnx.TensorProto.INT32:
-        data = array.array("i", tensor_data)
-    elif tensor.data_type == onnx.TensorProto.INT64:
-        data = convert_array("q", tensor_data, "i")
-    else:
-        raise ValueError(f"Unsupported tensor data type {tensor.data_type}")
+    match tensor.data_type:
+        case onnx.TensorProto.FLOAT:
+            data = array.array("f", tensor_data)
+        case onnx.TensorProto.UINT8:
+            data = convert_array("B", tensor_data, "i")
+        case onnx.TensorProto.INT8:
+            data = convert_array("b", tensor_data, "i")
+        case onnx.TensorProto.UINT16:
+            data = convert_array("H", tensor_data, "i")
+        case onnx.TensorProto.INT16:
+            data = convert_array("h", tensor_data, "i")
+        case onnx.TensorProto.INT32:
+            data = array.array("i", tensor_data)
+        case onnx.TensorProto.INT64:
+            data = convert_array("q", tensor_data, "i")
+        case _:
+            raise ValueError(f"Unsupported tensor data type {tensor.data_type}")
 
     return ConstantNode(name=tensor.name, shape=dims, data=data)
 
@@ -221,16 +222,19 @@ def read_pad_attrs_from_onnx_operator(
 
     auto_pad = get_attr(onnx_op.attribute, "auto_pad", "string", "NOTSET")
 
-    if auto_pad == "SAME_UPPER" or auto_pad == "SAME_LOWER":
-        attrs["pad_mode"] = "same"
-    elif auto_pad == "NOTSET":
-        padding = get_attr(onnx_op.attribute, "pads", "ints", [0, 0, 0, 0])
-        if len(padding) != 4:
-            raise Exception('"padding" attribute must have 4 values')
-        pad_top, pad_left, pad_right, pad_bottom = iter(padding)
+    match auto_pad:
+        case "SAME_UPPER" | "SAME_LOWER":
+            attrs["pad_mode"] = "same"
+        case "NOTSET":
+            padding = get_attr(onnx_op.attribute, "pads", "ints", [0, 0, 0, 0])
+            if len(padding) != 4:
+                raise Exception('"padding" attribute must have 4 values')
+            pad_top, pad_left, pad_right, pad_bottom = iter(padding)
 
-        attrs["pad_mode"] = "fixed"
-        attrs["pads"] = [pad_top, pad_left, pad_bottom, pad_right]
+            attrs["pad_mode"] = "fixed"
+            attrs["pads"] = [pad_top, pad_left, pad_bottom, pad_right]
+        case other:
+            raise Exception(f"Unsupported auto_pad value {other}")
 
 
 def read_stride_attr_from_onnx_operator(
@@ -270,146 +274,151 @@ def op_node_from_onnx_operator(
 
     attrs: dict[str, AttributeValue] = {}
 
-    if onnx_op.op_type == "Add":
-        op_type = "Add"
+    match onnx_op.op_type:
+        case "Add":
+            op_type = "Add"
 
-    elif onnx_op.op_type == "AveragePool":
-        op_type = "AveragePool2d"
+        case "AveragePool":
+            op_type = "AveragePool2d"
 
-        kernel_shape = require_attr(onnx_op.attribute, "kernel_shape", "ints")
-        check_ints_length_and_value("kernel_shape", kernel_shape, 2)
-        attrs["kernel_size"] = kernel_shape[0]
+            kernel_shape = require_attr(onnx_op.attribute, "kernel_shape", "ints")
+            check_ints_length_and_value("kernel_shape", kernel_shape, 2)
+            attrs["kernel_size"] = kernel_shape[0]
 
-        read_pad_attrs_from_onnx_operator(onnx_op, attrs)
-        read_stride_attr_from_onnx_operator(onnx_op, attrs)
+            read_pad_attrs_from_onnx_operator(onnx_op, attrs)
+            read_stride_attr_from_onnx_operator(onnx_op, attrs)
 
-        check_unsupported_attr(onnx_op.attribute, "ceil_mode", "int", 0)
-        check_unsupported_attr(onnx_op.attribute, "count_include_pad", "int", 0)
+            check_unsupported_attr(onnx_op.attribute, "ceil_mode", "int", 0)
+            check_unsupported_attr(onnx_op.attribute, "count_include_pad", "int", 0)
 
-    elif onnx_op.op_type == "BatchNormalization":
-        op_type = "BatchNormalization"
+        case "BatchNormalization":
+            op_type = "BatchNormalization"
 
-        attrs["epsilon"] = get_attr(onnx_op.attribute, "epsilon", "float", 1e-5)
+            attrs["epsilon"] = get_attr(onnx_op.attribute, "epsilon", "float", 1e-5)
 
-    elif onnx_op.op_type == "Clip":
-        op_type = "Clip"
+        case "Clip":
+            op_type = "Clip"
 
-        attrs["min"] = require_attr_or_input("min", "float", 1, onnx_op, constant_nodes)
-        attrs["max"] = require_attr_or_input("max", "float", 2, onnx_op, constant_nodes)
+            attrs["min"] = require_attr_or_input(
+                "min", "float", 1, onnx_op, constant_nodes
+            )
+            attrs["max"] = require_attr_or_input(
+                "max", "float", 2, onnx_op, constant_nodes
+            )
 
-    elif onnx_op.op_type == "Concat":
-        op_type = "Concat"
+        case "Concat":
+            op_type = "Concat"
 
-        attrs["dim"] = require_attr(onnx_op.attribute, "axis", "int")
+            attrs["dim"] = require_attr(onnx_op.attribute, "axis", "int")
 
-    elif onnx_op.op_type == "Conv":
-        op_type = "Conv2d"
+        case "Conv":
+            op_type = "Conv2d"
 
-        attrs["groups"] = get_attr(onnx_op.attribute, "group", "int", 1)
-        read_pad_attrs_from_onnx_operator(onnx_op, attrs)
-        read_stride_attr_from_onnx_operator(onnx_op, attrs)
+            attrs["groups"] = get_attr(onnx_op.attribute, "group", "int", 1)
+            read_pad_attrs_from_onnx_operator(onnx_op, attrs)
+            read_stride_attr_from_onnx_operator(onnx_op, attrs)
 
-        check_unsupported_attr(onnx_op.attribute, "dilations", "ints", [1, 1])
+            check_unsupported_attr(onnx_op.attribute, "dilations", "ints", [1, 1])
 
-    elif onnx_op.op_type == "ConvTranspose":
-        op_type = "ConvTranspose2d"
+        case "ConvTranspose":
+            op_type = "ConvTranspose2d"
 
-        read_stride_attr_from_onnx_operator(onnx_op, attrs)
+            read_stride_attr_from_onnx_operator(onnx_op, attrs)
 
-        check_unsupported_attr(onnx_op.attribute, "auto_pad", "string", "NOTSET")
-        check_unsupported_attr(onnx_op.attribute, "dilations", "ints", [1, 1])
-        check_unsupported_attr(onnx_op.attribute, "group", "int", 1)
-        check_unsupported_attr(
-            onnx_op.attribute, "output_padding", "ints", [0, 0, 0, 0]
-        )
-        check_unsupported_attr(onnx_op.attribute, "pads", "ints", [0, 0, 0, 0])
+            check_unsupported_attr(onnx_op.attribute, "auto_pad", "string", "NOTSET")
+            check_unsupported_attr(onnx_op.attribute, "dilations", "ints", [1, 1])
+            check_unsupported_attr(onnx_op.attribute, "group", "int", 1)
+            check_unsupported_attr(
+                onnx_op.attribute, "output_padding", "ints", [0, 0, 0, 0]
+            )
+            check_unsupported_attr(onnx_op.attribute, "pads", "ints", [0, 0, 0, 0])
 
-    elif onnx_op.op_type == "Gather":
-        op_type = "Gather"
+        case "Gather":
+            op_type = "Gather"
 
-        attrs["axis"] = get_attr(onnx_op.attribute, "axis", "int", 0)
+            attrs["axis"] = get_attr(onnx_op.attribute, "axis", "int", 0)
 
-    elif onnx_op.op_type == "Gemm":
-        op_type = "Gemm"
+        case "Gemm":
+            op_type = "Gemm"
 
-        attrs["alpha"] = get_attr(onnx_op.attribute, "alpha", "float", 1.0)
-        attrs["beta"] = get_attr(onnx_op.attribute, "beta", "float", 1.0)
-        attrs["transpose_a"] = bool(get_attr(onnx_op.attribute, "transA", "int", 0))
-        attrs["transpose_b"] = bool(get_attr(onnx_op.attribute, "transB", "int", 0))
+            attrs["alpha"] = get_attr(onnx_op.attribute, "alpha", "float", 1.0)
+            attrs["beta"] = get_attr(onnx_op.attribute, "beta", "float", 1.0)
+            attrs["transpose_a"] = bool(get_attr(onnx_op.attribute, "transA", "int", 0))
+            attrs["transpose_b"] = bool(get_attr(onnx_op.attribute, "transB", "int", 0))
 
-    elif onnx_op.op_type == "GlobalAveragePool":
-        op_type = "GlobalAveragePool"
+        case "GlobalAveragePool":
+            op_type = "GlobalAveragePool"
 
-    elif onnx_op.op_type == "LeakyRelu":
-        op_type = "LeakyRelu"
+        case "LeakyRelu":
+            op_type = "LeakyRelu"
 
-        attrs["alpha"] = get_attr(onnx_op.attribute, "alpha", "float", 0.01)
+            attrs["alpha"] = get_attr(onnx_op.attribute, "alpha", "float", 0.01)
 
-    elif onnx_op.op_type == "MatMul":
-        op_type = "MatMul"
+        case "MatMul":
+            op_type = "MatMul"
 
-    elif onnx_op.op_type == "MaxPool":
-        op_type = "MaxPool2d"
+        case "MaxPool":
+            op_type = "MaxPool2d"
 
-        kernel_shape = require_attr(onnx_op.attribute, "kernel_shape", "ints")
-        check_ints_length_and_value("kernel_shape", kernel_shape, 2)
-        attrs["kernel_size"] = kernel_shape[0]
+            kernel_shape = require_attr(onnx_op.attribute, "kernel_shape", "ints")
+            check_ints_length_and_value("kernel_shape", kernel_shape, 2)
+            attrs["kernel_size"] = kernel_shape[0]
 
-        read_pad_attrs_from_onnx_operator(onnx_op, attrs)
-        read_stride_attr_from_onnx_operator(onnx_op, attrs)
+            read_pad_attrs_from_onnx_operator(onnx_op, attrs)
+            read_stride_attr_from_onnx_operator(onnx_op, attrs)
 
-        check_unsupported_attr(onnx_op.attribute, "ceil_mode", "int", 0)
-        check_unsupported_attr(onnx_op.attribute, "dilations", "ints", [1, 1])
-        check_unsupported_attr(onnx_op.attribute, "storage_order", "int", 0)
+            check_unsupported_attr(onnx_op.attribute, "ceil_mode", "int", 0)
+            check_unsupported_attr(onnx_op.attribute, "dilations", "ints", [1, 1])
+            check_unsupported_attr(onnx_op.attribute, "storage_order", "int", 0)
 
-    elif onnx_op.op_type == "Mul":
-        op_type = "Mul"
+        case "Mul":
+            op_type = "Mul"
 
-    elif onnx_op.op_type == "Relu":
-        op_type = "Relu"
+        case "Relu":
+            op_type = "Relu"
 
-    elif onnx_op.op_type == "Reshape":
-        op_type = "Reshape"
+        case "Reshape":
+            op_type = "Reshape"
 
-        check_unsupported_attr(onnx_op.attribute, "allowzero", "int", 0)
+            check_unsupported_attr(onnx_op.attribute, "allowzero", "int", 0)
 
-    elif onnx_op.op_type == "Shape":
-        op_type = "Shape"
+        case "Shape":
+            op_type = "Shape"
 
-        check_unsupported_attr(onnx_op.attribute, "end", "int", 0)
-        check_unsupported_attr(onnx_op.attribute, "start", "int", 0)
+            check_unsupported_attr(onnx_op.attribute, "end", "int", 0)
+            check_unsupported_attr(onnx_op.attribute, "start", "int", 0)
 
-    elif onnx_op.op_type == "Slice":
-        op_type = "Slice"
+        case "Slice":
+            op_type = "Slice"
 
-    elif onnx_op.op_type == "Sigmoid":
-        op_type = "Sigmoid"
+        case "Sigmoid":
+            op_type = "Sigmoid"
 
-    elif onnx_op.op_type == "Softmax":
-        op_type = "Softmax"
+        case "Softmax":
+            op_type = "Softmax"
 
-        attrs["axis"] = get_attr(onnx_op.attribute, "axis", "int", 0)
+            attrs["axis"] = get_attr(onnx_op.attribute, "axis", "int", 0)
 
-    elif onnx_op.op_type == "Squeeze":
-        op_type = "Squeeze"
+        case "Squeeze":
+            op_type = "Squeeze"
 
-        axes = get_attr(onnx_op.attribute, "axes", "ints", [])
-        attrs["axes"] = axes
+            axes = get_attr(onnx_op.attribute, "axes", "ints", [])
+            attrs["axes"] = axes
 
-    elif onnx_op.op_type == "Transpose":
-        op_type = "Transpose"
+        case "Transpose":
+            op_type = "Transpose"
 
-        perm = get_attr(onnx_op.attribute, "perm", "ints", [])
-        attrs["perm"] = perm
+            perm = get_attr(onnx_op.attribute, "perm", "ints", [])
+            attrs["perm"] = perm
 
-    elif onnx_op.op_type == "Unsqueeze":
-        op_type = "Unsqueeze"
+        case "Unsqueeze":
+            op_type = "Unsqueeze"
 
-        axes = get_attr(onnx_op.attribute, "axes", "ints", [])
-        attrs["axes"] = axes
+            axes = get_attr(onnx_op.attribute, "axes", "ints", [])
+            attrs["axes"] = axes
 
-    else:
-        raise Exception(f"Unsupported operation {onnx_op.op_type}")
+        case _:
+            raise Exception(f"Unsupported operation {onnx_op.op_type}")
 
     return OperatorNode(
         name=onnx_op_output_name(onnx_op),
@@ -469,28 +478,29 @@ def build_constant_node(builder: flatbuffers.Builder, constant: ConstantNode):
         builder.PrependUint32(item)
     shape_vec = builder.EndVector()
 
-    if constant.data.typecode == "f":
-        sg.FloatDataStartDataVector(builder, len(constant.data))
-        for item in reversed(constant.data):
-            builder.PrependFloat32(item)
-        data_vec = builder.EndVector()
+    match constant.data.typecode:
+        case "f":
+            sg.FloatDataStartDataVector(builder, len(constant.data))
+            for item in reversed(constant.data):
+                builder.PrependFloat32(item)
+            data_vec = builder.EndVector()
 
-        sg.FloatDataStart(builder)
-        sg.FloatDataAddData(builder, data_vec)
-        const_data = sg.FloatDataEnd(builder)
-        const_data_type = sg.ConstantData.FloatData
-    elif constant.data.typecode == "i":
-        sg.IntDataStartDataVector(builder, len(constant.data))
-        for item in reversed(constant.data):
-            builder.PrependInt32(item)
-        data_vec = builder.EndVector()
+            sg.FloatDataStart(builder)
+            sg.FloatDataAddData(builder, data_vec)
+            const_data = sg.FloatDataEnd(builder)
+            const_data_type = sg.ConstantData.FloatData
+        case "i":
+            sg.IntDataStartDataVector(builder, len(constant.data))
+            for item in reversed(constant.data):
+                builder.PrependInt32(item)
+            data_vec = builder.EndVector()
 
-        sg.IntDataStart(builder)
-        sg.IntDataAddData(builder, data_vec)
-        const_data = sg.IntDataEnd(builder)
-        const_data_type = sg.ConstantData.IntData
-    else:
-        raise ValueError(f"Unsupported data array type {constant.data.typecode}")
+            sg.IntDataStart(builder)
+            sg.IntDataAddData(builder, data_vec)
+            const_data = sg.IntDataEnd(builder)
+            const_data_type = sg.ConstantData.IntData
+        case _:
+            raise ValueError(f"Unsupported data array type {constant.data.typecode}")
 
     sg.ConstantNodeStart(builder)
     sg.ConstantNodeAddShape(builder, shape_vec)
@@ -650,7 +660,7 @@ def build_operator_node(builder: flatbuffers.Builder, operator: OperatorNode):
             op_type_code = sg.OperatorType.Squeeze
             attrs_type = sg.OperatorAttrs.SqueezeAttrs
 
-            axes = cast(list[int]|None, operator.attrs["axes"])
+            axes = cast(list[int] | None, operator.attrs["axes"])
             if axes:
                 sg.SqueezeAttrsStartAxesVector(builder, len(axes))
                 for item in reversed(axes):
@@ -666,7 +676,7 @@ def build_operator_node(builder: flatbuffers.Builder, operator: OperatorNode):
             op_type_code = sg.OperatorType.Transpose
             attrs_type = sg.OperatorAttrs.TransposeAttrs
 
-            perm = cast(list[int]|None, operator.attrs["perm"])
+            perm = cast(list[int] | None, operator.attrs["perm"])
             if perm:
                 sg.TransposeAttrsStartPermVector(builder, len(perm))
                 for item in reversed(perm):
@@ -726,17 +736,18 @@ def write_graph(graph: list[Node], out_path: str):
 
     node_offsets = []
     for node in graph:
-        if isinstance(node, ConstantNode):
-            data_type = sg.NodeKind.ConstantNode
-            data = build_constant_node(builder, node)
-        elif isinstance(node, OperatorNode):
-            data_type = sg.NodeKind.OperatorNode
-            data = build_operator_node(builder, node)
-        elif isinstance(node, ValueNode):
-            data_type = sg.NodeKind.ValueNode
-            data = build_value_node(builder, node)
-        else:
-            raise Exception("Unsupported node type")
+        match node:
+            case ConstantNode():
+                data_type = sg.NodeKind.ConstantNode
+                data = build_constant_node(builder, node)
+            case OperatorNode():
+                data_type = sg.NodeKind.OperatorNode
+                data = build_operator_node(builder, node)
+            case ValueNode():
+                data_type = sg.NodeKind.ValueNode
+                data = build_value_node(builder, node)
+            case _:
+                raise Exception("Unsupported node type")
 
         name_str = builder.CreateString(node.name)
         sg.NodeStart(builder)
