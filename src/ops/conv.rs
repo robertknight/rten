@@ -187,6 +187,11 @@ fn conv_2d_depthwise(
         zero_tensor::<f32>(&[batch, out_c, out_h, out_w])
     };
 
+    assert!(
+        input.stride(3) == 1,
+        "conv_2d_depthwise currently requires contiguous last dimension"
+    );
+
     for n in 0..batch {
         for c in 0..in_c {
             let kernel_view = kernel.unchecked_view([c, 0, 0, 0]);
