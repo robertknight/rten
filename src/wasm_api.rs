@@ -28,15 +28,25 @@ impl Model {
     /// Execute the model, passing `input` as the tensor values for the node
     /// IDs specified by `input_ids` and calculating the values of the nodes
     /// specified by `output_ids`.
-    pub fn run(&self, input_ids: &[usize], input: TensorList, output_ids: &[usize]) -> TensorList {
+    pub fn run(
+        &self,
+        input_ids: &[usize],
+        input: TensorList,
+        output_ids: &[usize],
+    ) -> Result<TensorList, String> {
         let inputs: Vec<_> = zip(input_ids.iter().copied(), input.tensors.iter()).collect();
-        let outputs = self
-            .model
-            .run(&inputs[..], output_ids, None)
-            .into_iter()
-            .map(|out| out.as_float().unwrap())
-            .collect();
-        TensorList::from_vec(outputs)
+        let result = self.model.run(&inputs[..], output_ids, None);
+        match result {
+            Ok(outputs) => {
+                let tensors = outputs
+                    .into_iter()
+                    // TODO - Handle non-float output types here
+                    .map(|out| out.as_float().unwrap())
+                    .collect();
+                Ok(TensorList::from_vec(tensors))
+            }
+            Err(err) => Err(format!("{:?}", err)),
+        }
     }
 }
 

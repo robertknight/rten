@@ -1,6 +1,6 @@
 use std::ops::Range;
 
-use crate::ops::{Input, Operator, Output};
+use crate::ops::{Input, OpError, Operator, Output};
 use crate::tensor::{IndexIterator, Tensor};
 
 pub fn clip(input: &Tensor, min: f32, max: f32) -> Tensor {
@@ -24,19 +24,19 @@ impl Operator for Clip {
         "Clip"
     }
 
-    fn run(&self, inputs: &[Input]) -> Output {
+    fn run(&self, inputs: &[Input]) -> Result<Output, OpError> {
         let input = inputs[0].as_float().unwrap();
-        clip(input, self.min, self.max).into()
+        Ok(clip(input, self.min, self.max).into())
     }
 
     fn can_run_in_place(&self) -> bool {
         true
     }
 
-    fn run_in_place(&self, input: Output, _: &[Input]) -> Output {
+    fn run_in_place(&self, input: Output, _: &[Input]) -> Result<Output, OpError> {
         let mut output = input.as_float().unwrap();
         clip_in_place(&mut output, self.min, self.max);
-        output.into()
+        Ok(output.into())
     }
 }
 
@@ -60,19 +60,19 @@ impl Operator for LeakyRelu {
         "LeakyRelu"
     }
 
-    fn run(&self, inputs: &[Input]) -> Output {
+    fn run(&self, inputs: &[Input]) -> Result<Output, OpError> {
         let input = inputs[0].as_float().unwrap();
-        leaky_relu(input, self.alpha).into()
+        Ok(leaky_relu(input, self.alpha).into())
     }
 
     fn can_run_in_place(&self) -> bool {
         true
     }
 
-    fn run_in_place(&self, input: Output, _other: &[Input]) -> Output {
+    fn run_in_place(&self, input: Output, _other: &[Input]) -> Result<Output, OpError> {
         let mut output = input.as_float().unwrap();
         leaky_relu_in_place(&mut output, self.alpha);
-        output.into()
+        Ok(output.into())
     }
 }
 
@@ -94,19 +94,19 @@ impl Operator for Relu {
     }
 
     /// Run `relu` operator with `[input]` inputs.
-    fn run(&self, inputs: &[Input]) -> Output {
+    fn run(&self, inputs: &[Input]) -> Result<Output, OpError> {
         let input = inputs[0].as_float().unwrap();
-        relu(input).into()
+        Ok(relu(input).into())
     }
 
     fn can_run_in_place(&self) -> bool {
         true
     }
 
-    fn run_in_place(&self, input: Output, _other: &[Input]) -> Output {
+    fn run_in_place(&self, input: Output, _other: &[Input]) -> Result<Output, OpError> {
         let mut output = input.as_float().unwrap();
         relu_in_place(&mut output);
-        output.into()
+        Ok(output.into())
     }
 }
 
@@ -127,19 +127,19 @@ impl Operator for Sigmoid {
         "Sigmoid"
     }
 
-    fn run(&self, inputs: &[Input]) -> Output {
+    fn run(&self, inputs: &[Input]) -> Result<Output, OpError> {
         let input = inputs[0].as_float().unwrap();
-        sigmoid(input).into()
+        Ok(sigmoid(input).into())
     }
 
     fn can_run_in_place(&self) -> bool {
         true
     }
 
-    fn run_in_place(&self, input: Output, _other: &[Input]) -> Output {
+    fn run_in_place(&self, input: Output, _other: &[Input]) -> Result<Output, OpError> {
         let mut output = input.as_float().unwrap();
         sigmoid_in_place(&mut output);
-        output.into()
+        Ok(output.into())
     }
 }
 
@@ -201,9 +201,9 @@ impl Operator for Softmax {
         "Softmax"
     }
 
-    fn run(&self, inputs: &[Input]) -> Output {
+    fn run(&self, inputs: &[Input]) -> Result<Output, OpError> {
         let input = inputs[0].as_float().unwrap();
-        softmax(input, self.axis).into()
+        Ok(softmax(input, self.axis).into())
     }
 }
 

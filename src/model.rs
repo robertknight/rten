@@ -2,7 +2,7 @@ extern crate flatbuffers;
 
 use std::collections::HashMap;
 
-use crate::graph::{Graph, NodeId, RunOptions};
+use crate::graph::{Graph, NodeId, RunError, RunOptions};
 use crate::ops;
 use crate::ops::{Operator, Output, Padding};
 use crate::schema_generated::{root_as_model, OperatorNode, OperatorType, PadMode};
@@ -27,7 +27,7 @@ impl Model {
         inputs: &[(NodeId, &Tensor)],
         outputs: &[NodeId],
         opts: Option<RunOptions>,
-    ) -> Vec<Output> {
+    ) -> Result<Vec<Output>, RunError> {
         self.graph.run(inputs, outputs, opts)
     }
 }
@@ -424,7 +424,9 @@ mod tests {
         let output_id = model.find_node("output").unwrap();
 
         let input = from_data(vec![1, 2, 2], vec![1., 2., -1., -2.]);
-        let result = model.run(&[(input_id, &input)], &[output_id], None);
+        let result = model
+            .run(&[(input_id, &input)], &[output_id], None)
+            .unwrap();
 
         assert_eq!(result.len(), 1);
 
@@ -613,7 +615,9 @@ mod tests {
 
         for output in outputs {
             let output_id = model.find_node(output).unwrap();
-            let result = model.run(&[(input_node as usize, &input)], &[output_id], None);
+            let result = model
+                .run(&[(input_node as usize, &input)], &[output_id], None)
+                .unwrap();
             assert_eq!(result.len(), 1);
         }
 
@@ -623,7 +627,9 @@ mod tests {
 
         for output in outputs {
             let output_id = model.find_node(output).unwrap();
-            let result = model.run(&[(input_2d as usize, &input)], &[output_id], None);
+            let result = model
+                .run(&[(input_2d as usize, &input)], &[output_id], None)
+                .unwrap();
             assert_eq!(result.len(), 1);
         }
     }

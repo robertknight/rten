@@ -1,5 +1,5 @@
 use crate::linalg::div_ceil;
-use crate::ops::{Input, Operator, Output, Padding};
+use crate::ops::{Input, OpError, Operator, Output, Padding};
 use crate::tensor::{zero_tensor, Tensor};
 
 /// Calculate the output size and padding for a convolution or pooling operation.
@@ -113,9 +113,9 @@ impl Operator for AveragePool2d {
         "AveragePool2d"
     }
 
-    fn run(&self, inputs: &[Input]) -> Output {
+    fn run(&self, inputs: &[Input]) -> Result<Output, OpError> {
         let input = inputs[0].as_float().unwrap();
-        average_pool_2d(input, self.kernel_size, self.stride, self.padding).into()
+        Ok(average_pool_2d(input, self.kernel_size, self.stride, self.padding).into())
     }
 }
 
@@ -149,9 +149,9 @@ impl Operator for GlobalAveragePool {
         "GlobalAveragePool"
     }
 
-    fn run(&self, inputs: &[Input]) -> Output {
+    fn run(&self, inputs: &[Input]) -> Result<Output, OpError> {
         let input = inputs[0].as_float().unwrap();
-        global_average_pool(input).into()
+        Ok(global_average_pool(input).into())
     }
 }
 
@@ -206,9 +206,9 @@ impl Operator for MaxPool2d {
         "MaxPool2d"
     }
 
-    fn run(&self, inputs: &[Input]) -> Output {
+    fn run(&self, inputs: &[Input]) -> Result<Output, OpError> {
         let input = inputs[0].as_float().unwrap();
-        max_pool_2d(input, self.kernel_size, self.stride, self.padding).into()
+        Ok(max_pool_2d(input, self.kernel_size, self.stride, self.padding).into())
     }
 }
 

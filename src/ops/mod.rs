@@ -132,13 +132,27 @@ impl<'a> From<Tensor<i32>> for Output {
     }
 }
 
+#[derive(PartialEq, Debug)]
+pub enum OpError {
+    /// An operator was called with input tensors of a type that is not
+    /// supported by the operator.
+    UnsupportedInputType,
+
+    /// The shapes of input tensors are not compatible with each other or with
+    /// the operator's attributes.
+    IncompatibleInputShapes,
+
+    /// The operator was called with fewer inputs than expected.
+    MissingInputs,
+}
+
 /// An Operator is a computation step in a graph.
 pub trait Operator: Debug {
     /// Return a display name for the operator.
     fn name(&self) -> &str;
 
     /// Execute the operator with the inputs.
-    fn run(&self, input: &[Input]) -> Output;
+    fn run(&self, input: &[Input]) -> Result<Output, OpError>;
 
     /// Return true if this operator supports in-place execution via
     /// `run_in_place`.
@@ -156,8 +170,8 @@ pub trait Operator: Debug {
     /// return as the output. `other` are the remaining inputs.
     ///
     /// The default implementation just returns the input without modifying it.
-    fn run_in_place(&self, input: Output, _other: &[Input]) -> Output {
-        input
+    fn run_in_place(&self, input: Output, _other: &[Input]) -> Result<Output, OpError> {
+        Ok(input)
     }
 }
 
@@ -254,20 +268,20 @@ impl Operator for BatchNormalization {
         "BatchNormalization"
     }
 
-    fn run(&self, inputs: &[Input]) -> Output {
+    fn run(&self, inputs: &[Input]) -> Result<Output, OpError> {
         let input = inputs[0].as_float().unwrap();
         let scale = inputs[1].as_float().unwrap();
         let bias = inputs[2].as_float().unwrap();
         let mean = inputs[3].as_float().unwrap();
         let var = inputs[4].as_float().unwrap();
-        batch_norm(input, scale, bias, mean, var, self.epsilon).into()
+        Ok(batch_norm(input, scale, bias, mean, var, self.epsilon).into())
     }
 
     fn can_run_in_place(&self) -> bool {
         true
     }
 
-    fn run_in_place(&self, input: Output, other: &[Input]) -> Output {
+    fn run_in_place(&self, input: Output, other: &[Input]) -> Result<Output, OpError> {
         let mut output = input.as_float().unwrap();
         let scale = other[0].as_float().unwrap();
         let bias = other[1].as_float().unwrap();
@@ -276,7 +290,7 @@ impl Operator for BatchNormalization {
 
         batch_norm_in_place(&mut output, scale, bias, mean, var, self.epsilon);
 
-        output.into()
+        Ok(output.into())
     }
 }
 
@@ -305,12 +319,13 @@ impl Operator for Gather {
         "Gather"
     }
 
-    fn run(&self, inputs: &[Input]) -> Output {
+    fn run(&self, inputs: &[Input]) -> Result<Output, OpError> {
         let indices = inputs[1].as_int().unwrap();
-        match inputs[0] {
+        let result = match inputs[0] {
             Input::IntTensor(input) => gather(input, self.axis, &indices).into(),
             Input::FloatTensor(input) => gather(input, self.axis, &indices).into(),
-        }
+        };
+        Ok(result)
     }
 }
 
@@ -392,11 +407,11 @@ impl Operator for Gemm {
         "Gemm"
     }
 
-    fn run(&self, inputs: &[Input]) -> Output {
+    fn run(&self, inputs: &[Input]) -> Result<Output, OpError> {
         let a = inputs[0].as_float().unwrap();
         let b = inputs[1].as_float().unwrap();
         let c = inputs.get(2).map(|c| c.as_float().unwrap());
-        gemm_op(
+        let result = gemm_op(
             &a,
             &b,
             c,
@@ -405,7 +420,8 @@ impl Operator for Gemm {
             self.transpose_a,
             self.transpose_b,
         )
-        .into()
+        .into();
+        Ok(result)
     }
 }
 
@@ -431,10 +447,10 @@ impl Operator for MatMul {
         "MatMul"
     }
 
-    fn run(&self, inputs: &[Input]) -> Output {
+    fn run(&self, inputs: &[Input]) -> Result<Output, OpError> {
         let a = inputs[0].as_float().unwrap();
         let b = inputs[1].as_float().unwrap();
-        matmul(a, b).into()
+        Ok(matmul(a, b).into())
     }
 }
 
@@ -483,10 +499,10 @@ impl Operator for Reshape {
         "Reshape"
     }
 
-    fn run(&self, inputs: &[Input]) -> Output {
+    fn run(&self, inputs: &[Input]) -> Result<Output, OpError> {
         let input = inputs[0].as_float().unwrap();
         let shape = inputs[1].as_int().unwrap();
-        reshape(&input, &shape).into()
+        Ok(reshape(&input, &shape).into())
     }
 
     fn can_run_in_place(&self) -> bool {
@@ -505,13 +521,13 @@ impl Operator for Shape {
         "Shape"
     }
 
-    fn run(&self, inputs: &[Input]) -> Output {
+    fn run(&self, inputs: &[Input]) -> Result<Output, OpError> {
         let input = inputs[0].as_float().unwrap();
         let shape = from_data(
             vec![input.shape().len()],
             input.shape().iter().map(|&el| el as i32).collect(),
         );
-        shape.into()
+        Ok(shape.into())
     }
 }
 
@@ -573,15 +589,16 @@ impl Operator for Concat {
     }
 
     /// Run `concat` operator with `[a, b]` inputs.
-    fn run(&self, inputs: &[Input]) -> Output {
+    fn run(&self, inputs: &[Input]) -> Result<Output, OpError> {
         let a = inputs[0];
         let b = inputs[1];
 
-        match (a, b) {
+        let result = match (a, b) {
             (Input::FloatTensor(a), Input::FloatTensor(b)) => concat(a, b, self.dim).into(),
             (Input::IntTensor(a), Input::IntTensor(b)) => concat(a, b, self.dim).into(),
             _ => panic!("Incompatible input tensor types for Concat"),
-        }
+        };
+        Ok(result)
     }
 }
 
@@ -624,9 +641,9 @@ impl Operator for Pad2d {
     }
 
     /// Run `pad` operator with `[input]` inputs.
-    fn run(&self, inputs: &[Input]) -> Output {
+    fn run(&self, inputs: &[Input]) -> Result<Output, OpError> {
         let input = inputs[0].as_float().unwrap();
-        pad_2d(input, self.padding).into()
+        Ok(pad_2d(input, self.padding).into())
     }
 }
 
@@ -686,28 +703,29 @@ impl Operator for Slice {
     }
 
     /// Run `slice` operator with `[input, starts, ends, axes]` inputs.
-    fn run(&self, inputs: &[Input]) -> Output {
+    fn run(&self, inputs: &[Input]) -> Result<Output, OpError> {
         let input = inputs[0];
         let starts = inputs[1].as_int().unwrap();
         let ends = inputs[2].as_int().unwrap();
         let axes = inputs.get(3).map(|t| t.as_int().unwrap());
-        match input {
+        let result = match input {
             Input::FloatTensor(input) => slice(input, starts, ends, axes).into(),
             Input::IntTensor(input) => slice(input, starts, ends, axes).into(),
-        }
+        };
+        Ok(result)
     }
 
     fn can_run_in_place(&self) -> bool {
         true
     }
 
-    fn run_in_place(&self, input: Output, other: &[Input]) -> Output {
+    fn run_in_place(&self, input: Output, other: &[Input]) -> Result<Output, OpError> {
         let mut output = input.as_float().unwrap();
         let starts = other[0].as_int().unwrap();
         let ends = other[1].as_int().unwrap();
         let axes = other.get(2).map(|t| t.as_int().unwrap());
         slice_in_place(&mut output, starts, ends, axes);
-        output.into()
+        Ok(output.into())
     }
 }
 
@@ -749,22 +767,23 @@ impl Operator for Squeeze {
         "Squeeze"
     }
 
-    fn run(&self, inputs: &[Input]) -> Output {
+    fn run(&self, inputs: &[Input]) -> Result<Output, OpError> {
         let input = inputs[0];
         let axes = self.axes.as_ref().map(|a| &a[..]);
-        match input {
+        let result = match input {
             Input::FloatTensor(t) => squeeze(&t, axes).into(),
             Input::IntTensor(t) => squeeze(&t, axes).into(),
-        }
+        };
+        Ok(result)
     }
 
     fn can_run_in_place(&self) -> bool {
         true
     }
 
-    fn run_in_place(&self, input: Output, _: &[Input]) -> Output {
+    fn run_in_place(&self, input: Output, _: &[Input]) -> Result<Output, OpError> {
         let axes = self.axes.as_ref().map(|a| &a[..]);
-        match input {
+        let result = match input {
             Output::FloatTensor(mut t) => {
                 squeeze_in_place(&mut t, axes);
                 t.into()
@@ -773,7 +792,8 @@ impl Operator for Squeeze {
                 squeeze_in_place(&mut t, axes);
                 t.into()
             }
-        }
+        };
+        Ok(result)
     }
 }
 
@@ -801,13 +821,14 @@ impl Operator for Transpose {
         "Transpose"
     }
 
-    fn run(&self, inputs: &[Input]) -> Output {
+    fn run(&self, inputs: &[Input]) -> Result<Output, OpError> {
         let input = inputs[0];
         let perm_slice = self.perm.as_ref().map(|v| v.as_slice());
-        match input {
+        let result = match input {
             Input::FloatTensor(input) => transpose(&input, perm_slice).into(),
             Input::IntTensor(input) => transpose(&input, perm_slice).into(),
-        }
+        };
+        Ok(result)
     }
 }
 
@@ -831,11 +852,12 @@ impl Operator for Unsqueeze {
         "Unsqueeze"
     }
 
-    fn run(&self, inputs: &[Input]) -> Output {
-        match inputs[0] {
+    fn run(&self, inputs: &[Input]) -> Result<Output, OpError> {
+        let result = match inputs[0] {
             Input::FloatTensor(input) => unsqueeze(&input, &self.axes).into(),
             Input::IntTensor(input) => unsqueeze(&input, &self.axes).into(),
-        }
+        };
+        Ok(result)
     }
 }
 
@@ -1004,6 +1026,7 @@ mod tests {
         let op = Reshape {};
         let result = op
             .run(&[(&input).into(), (&shape).into()])
+            .unwrap()
             .as_float()
             .unwrap();
 
@@ -1068,7 +1091,7 @@ mod tests {
         let input = from_data(vec![1, 1, 2, 2], vec![1.0, 2.0, 3.0, 4.0]);
 
         let op = Shape {};
-        let result = op.run(&[(&input).into()]).as_int().unwrap();
+        let result = op.run(&[(&input).into()]).unwrap().as_int().unwrap();
 
         assert_eq!(result.shape(), &[4]);
         assert_eq!(result.data(), &[1, 1, 2, 2]);

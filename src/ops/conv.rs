@@ -1,6 +1,6 @@
 use crate::linalg::{add_scaled_vector, div_ceil, gemm_slice, Matrix};
 use crate::ops::pooling::calc_output_size_and_padding;
-use crate::ops::{Input, Operator, Output, Padding};
+use crate::ops::{Input, OpError, Operator, Output, Padding};
 use crate::tensor::{from_data, zero_tensor, Tensor};
 
 // Calculate the min and max output X coordinates that are valid when updating
@@ -380,11 +380,11 @@ impl Operator for Conv2d {
     }
 
     /// Run `conv_2d` operator with `[input, weight, bias?]` inputs.
-    fn run(&self, inputs: &[Input]) -> Output {
+    fn run(&self, inputs: &[Input]) -> Result<Output, OpError> {
         let input = inputs[0].as_float().unwrap();
         let weight = inputs[1].as_float().unwrap();
         let bias = inputs.get(2).map(|t| t.as_float().unwrap());
-        conv_2d(input, weight, bias, self.padding, self.groups, self.stride).into()
+        Ok(conv_2d(input, weight, bias, self.padding, self.groups, self.stride).into())
     }
 }
 
@@ -460,11 +460,11 @@ impl Operator for ConvTranspose2d {
     }
 
     /// Run `conv_2d` operator with `[input, weight]` inputs.
-    fn run(&self, inputs: &[Input]) -> Output {
+    fn run(&self, inputs: &[Input]) -> Result<Output, OpError> {
         let input = inputs[0].as_float().unwrap();
         let weight = inputs[1].as_float().unwrap();
         let bias = inputs.get(2).map(|t| t.as_float().unwrap());
-        conv_transpose_2d(input, weight, bias, self.stride).into()
+        Ok(conv_transpose_2d(input, weight, bias, self.stride).into())
     }
 }
 
@@ -650,7 +650,11 @@ mod tests {
             groups: 1,
             stride: 1,
         };
-        let result = op.run(&[input.into(), kernel.into()]).as_float().unwrap();
+        let result = op
+            .run(&[input.into(), kernel.into()])
+            .unwrap()
+            .as_float()
+            .unwrap();
         let reference_result = reference_conv(
             input,
             kernel,

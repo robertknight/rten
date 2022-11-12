@@ -1,7 +1,7 @@
 use std::fmt::Debug;
 use std::iter::zip;
 
-use crate::ops::{from_data, Input, Operator, Output};
+use crate::ops::{from_data, Input, OpError, Operator, Output};
 use crate::tensor::Tensor;
 
 /// Given the shapes of two inputs to a binary operation, choose the one that
@@ -68,23 +68,23 @@ impl Operator for Add {
         "Add"
     }
 
-    fn run(&self, inputs: &[Input]) -> Output {
+    fn run(&self, inputs: &[Input]) -> Result<Output, OpError> {
         let a = inputs[0].as_float().unwrap();
         let b = inputs[1].as_float().unwrap();
-        add(a, b).into()
+        Ok(add(a, b).into())
     }
 
     fn can_run_in_place(&self) -> bool {
         true
     }
 
-    fn run_in_place(&self, input: Output, other: &[Input]) -> Output {
+    fn run_in_place(&self, input: Output, other: &[Input]) -> Result<Output, OpError> {
         let mut a = input.as_float().unwrap();
         let b = other[0].as_float().unwrap();
 
         if can_run_binary_op_in_place(&a, &b) {
             add_in_place(&mut a, &b);
-            a.into()
+            Ok(a.into())
         } else {
             self.run(&[(&a).into(), b.into()])
         }
@@ -109,23 +109,23 @@ impl Operator for Mul {
         "Mul"
     }
 
-    fn run(&self, inputs: &[Input]) -> Output {
+    fn run(&self, inputs: &[Input]) -> Result<Output, OpError> {
         let a = inputs[0].as_float().unwrap();
         let b = inputs[1].as_float().unwrap();
-        mul(a, b).into()
+        Ok(mul(a, b).into())
     }
 
     fn can_run_in_place(&self) -> bool {
         true
     }
 
-    fn run_in_place(&self, input: Output, other: &[Input]) -> Output {
+    fn run_in_place(&self, input: Output, other: &[Input]) -> Result<Output, OpError> {
         let mut a = input.as_float().unwrap();
         let b = other[0].as_float().unwrap();
 
         if can_run_binary_op_in_place(&a, &b) {
             mul_in_place(&mut a, &b);
-            a.into()
+            Ok(a.into())
         } else {
             self.run(&[(&a).into(), b.into()])
         }
@@ -190,14 +190,18 @@ mod tests {
 
         // Run `Add` operator in place with inputs that support in-place addition.
         let op = Add {};
-        let result = op.run_in_place(Output::FloatTensor(a_copy), &[(&b).into()]);
+        let result = op
+            .run_in_place(Output::FloatTensor(a_copy), &[(&b).into()])
+            .unwrap();
         expect_equal(result.as_float_ref().unwrap(), &expected)?;
 
         // Run `Add` operator in-place with inputs that don't support in-place
         // addition. The operator should fall back to creating a new output tensor.
         let scalar = from_scalar(1.0);
         let expected = from_data(vec![2, 2], vec![11., 21., 31., 41.]);
-        let result = op.run_in_place(Output::FloatTensor(scalar), &[(&b).into()]);
+        let result = op
+            .run_in_place(Output::FloatTensor(scalar), &[(&b).into()])
+            .unwrap();
         expect_equal(result.as_float_ref().unwrap(), &expected)
     }
 

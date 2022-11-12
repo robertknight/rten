@@ -63,7 +63,7 @@ fn main() {
     let img_data = &buf[..frame_info.buffer_size()];
     let img_tensor = tensor_from_image(600, 800, img_data);
 
-    let outputs = model.run(
+    let result = model.run(
         &[(input_id, &img_tensor)],
         &[output_id],
         Some(RunOptions {
@@ -71,6 +71,11 @@ fn main() {
             verbose: false,
         }),
     );
+    if let Err(err) = result {
+        panic!("Model run failed: {:?}", err);
+    }
+
+    let outputs = result.unwrap();
     let text_mask = &outputs[0].as_float_ref().unwrap();
     let text_img = image_from_prob_tensor(text_mask);
 
