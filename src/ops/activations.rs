@@ -1,6 +1,6 @@
 use std::ops::Range;
 
-use crate::ops::{Input, OpError, Operator, Output};
+use crate::ops::{get_input_as_float, Input, OpError, Operator, Output};
 use crate::tensor::{IndexIterator, Tensor};
 
 pub fn clip(input: &Tensor, min: f32, max: f32) -> Tensor {
@@ -25,7 +25,7 @@ impl Operator for Clip {
     }
 
     fn run(&self, inputs: &[Input]) -> Result<Output, OpError> {
-        let input = inputs[0].as_float().unwrap();
+        let input = get_input_as_float(inputs, 0)?;
         Ok(clip(input, self.min, self.max).into())
     }
 
@@ -34,7 +34,7 @@ impl Operator for Clip {
     }
 
     fn run_in_place(&self, input: Output, _: &[Input]) -> Result<Output, OpError> {
-        let mut output = input.as_float().unwrap();
+        let mut output = input.as_float().ok_or(OpError::UnsupportedInputType)?;
         clip_in_place(&mut output, self.min, self.max);
         Ok(output.into())
     }
@@ -61,7 +61,7 @@ impl Operator for LeakyRelu {
     }
 
     fn run(&self, inputs: &[Input]) -> Result<Output, OpError> {
-        let input = inputs[0].as_float().unwrap();
+        let input = get_input_as_float(inputs, 0)?;
         Ok(leaky_relu(input, self.alpha).into())
     }
 
@@ -70,7 +70,7 @@ impl Operator for LeakyRelu {
     }
 
     fn run_in_place(&self, input: Output, _other: &[Input]) -> Result<Output, OpError> {
-        let mut output = input.as_float().unwrap();
+        let mut output = input.as_float().ok_or(OpError::UnsupportedInputType)?;
         leaky_relu_in_place(&mut output, self.alpha);
         Ok(output.into())
     }
@@ -95,7 +95,7 @@ impl Operator for Relu {
 
     /// Run `relu` operator with `[input]` inputs.
     fn run(&self, inputs: &[Input]) -> Result<Output, OpError> {
-        let input = inputs[0].as_float().unwrap();
+        let input = get_input_as_float(inputs, 0)?;
         Ok(relu(input).into())
     }
 
@@ -104,7 +104,7 @@ impl Operator for Relu {
     }
 
     fn run_in_place(&self, input: Output, _other: &[Input]) -> Result<Output, OpError> {
-        let mut output = input.as_float().unwrap();
+        let mut output = input.as_float().ok_or(OpError::UnsupportedInputType)?;
         relu_in_place(&mut output);
         Ok(output.into())
     }
@@ -128,7 +128,7 @@ impl Operator for Sigmoid {
     }
 
     fn run(&self, inputs: &[Input]) -> Result<Output, OpError> {
-        let input = inputs[0].as_float().unwrap();
+        let input = get_input_as_float(inputs, 0)?;
         Ok(sigmoid(input).into())
     }
 
@@ -137,7 +137,7 @@ impl Operator for Sigmoid {
     }
 
     fn run_in_place(&self, input: Output, _other: &[Input]) -> Result<Output, OpError> {
-        let mut output = input.as_float().unwrap();
+        let mut output = input.as_float().ok_or(OpError::UnsupportedInputType)?;
         sigmoid_in_place(&mut output);
         Ok(output.into())
     }
@@ -202,7 +202,7 @@ impl Operator for Softmax {
     }
 
     fn run(&self, inputs: &[Input]) -> Result<Output, OpError> {
-        let input = inputs[0].as_float().unwrap();
+        let input = get_input_as_float(inputs, 0)?;
         Ok(softmax(input, self.axis).into())
     }
 }

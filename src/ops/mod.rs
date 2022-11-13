@@ -258,6 +258,43 @@ pub fn batch_norm(
     output
 }
 
+pub fn get_input_as_float<'a>(
+    inputs: &'a [Input],
+    index: usize,
+) -> Result<&'a Tensor<f32>, OpError> {
+    inputs
+        .get(index)
+        .ok_or(OpError::MissingInputs)
+        .and_then(|input| input.as_float().ok_or(OpError::UnsupportedInputType))
+}
+
+pub fn get_optional_input_as_float<'a>(
+    inputs: &'a [Input],
+    index: usize,
+) -> Result<Option<&'a Tensor<f32>>, OpError> {
+    inputs
+        .get(index)
+        .map(|input| input.as_float().ok_or(OpError::UnsupportedInputType))
+        .transpose()
+}
+
+pub fn get_input_as_int<'a>(inputs: &'a [Input], index: usize) -> Result<&'a Tensor<i32>, OpError> {
+    inputs
+        .get(index)
+        .ok_or(OpError::MissingInputs)
+        .and_then(|input| input.as_int().ok_or(OpError::UnsupportedInputType))
+}
+
+pub fn get_optional_input_as_int<'a>(
+    inputs: &'a [Input],
+    index: usize,
+) -> Result<Option<&'a Tensor<i32>>, OpError> {
+    inputs
+        .get(index)
+        .map(|input| input.as_int().ok_or(OpError::UnsupportedInputType))
+        .transpose()
+}
+
 #[derive(Debug)]
 pub struct BatchNormalization {
     pub epsilon: f32,
@@ -269,11 +306,11 @@ impl Operator for BatchNormalization {
     }
 
     fn run(&self, inputs: &[Input]) -> Result<Output, OpError> {
-        let input = inputs[0].as_float().unwrap();
-        let scale = inputs[1].as_float().unwrap();
-        let bias = inputs[2].as_float().unwrap();
-        let mean = inputs[3].as_float().unwrap();
-        let var = inputs[4].as_float().unwrap();
+        let input = get_input_as_float(inputs, 0)?;
+        let scale = get_input_as_float(inputs, 1)?;
+        let bias = get_input_as_float(inputs, 2)?;
+        let mean = get_input_as_float(inputs, 3)?;
+        let var = get_input_as_float(inputs, 4)?;
         Ok(batch_norm(input, scale, bias, mean, var, self.epsilon).into())
     }
 
@@ -282,11 +319,11 @@ impl Operator for BatchNormalization {
     }
 
     fn run_in_place(&self, input: Output, other: &[Input]) -> Result<Output, OpError> {
-        let mut output = input.as_float().unwrap();
-        let scale = other[0].as_float().unwrap();
-        let bias = other[1].as_float().unwrap();
-        let mean = other[2].as_float().unwrap();
-        let var = other[3].as_float().unwrap();
+        let mut output = input.as_float().ok_or(OpError::UnsupportedInputType)?;
+        let scale = get_input_as_float(other, 0)?;
+        let bias = get_input_as_float(other, 1)?;
+        let mean = get_input_as_float(other, 2)?;
+        let var = get_input_as_float(other, 3)?;
 
         batch_norm_in_place(&mut output, scale, bias, mean, var, self.epsilon);
 
@@ -320,8 +357,9 @@ impl Operator for Gather {
     }
 
     fn run(&self, inputs: &[Input]) -> Result<Output, OpError> {
-        let indices = inputs[1].as_int().unwrap();
-        let result = match inputs[0] {
+        let input = inputs.get(0).ok_or(OpError::MissingInputs)?;
+        let indices = get_input_as_int(inputs, 1)?;
+        let result = match input {
             Input::IntTensor(input) => gather(input, self.axis, &indices).into(),
             Input::FloatTensor(input) => gather(input, self.axis, &indices).into(),
         };
@@ -408,9 +446,9 @@ impl Operator for Gemm {
     }
 
     fn run(&self, inputs: &[Input]) -> Result<Output, OpError> {
-        let a = inputs[0].as_float().unwrap();
-        let b = inputs[1].as_float().unwrap();
-        let c = inputs.get(2).map(|c| c.as_float().unwrap());
+        let a = get_input_as_float(inputs, 0)?;
+        let b = get_input_as_float(inputs, 1)?;
+        let c = get_optional_input_as_float(inputs, 2)?;
         let result = gemm_op(
             &a,
             &b,
@@ -448,8 +486,8 @@ impl Operator for MatMul {
     }
 
     fn run(&self, inputs: &[Input]) -> Result<Output, OpError> {
-        let a = inputs[0].as_float().unwrap();
-        let b = inputs[1].as_float().unwrap();
+        let a = get_input_as_float(inputs, 0)?;
+        let b = get_input_as_float(inputs, 1)?;
         Ok(matmul(a, b).into())
     }
 }
@@ -500,8 +538,8 @@ impl Operator for Reshape {
     }
 
     fn run(&self, inputs: &[Input]) -> Result<Output, OpError> {
-        let input = inputs[0].as_float().unwrap();
-        let shape = inputs[1].as_int().unwrap();
+        let input = get_input_as_float(inputs, 0)?;
+        let shape = get_input_as_int(inputs, 1)?;
         Ok(reshape(&input, &shape).into())
     }
 
@@ -522,7 +560,7 @@ impl Operator for Shape {
     }
 
     fn run(&self, inputs: &[Input]) -> Result<Output, OpError> {
-        let input = inputs[0].as_float().unwrap();
+        let input = get_input_as_float(inputs, 0)?;
         let shape = from_data(
             vec![input.shape().len()],
             input.shape().iter().map(|&el| el as i32).collect(),
@@ -590,15 +628,14 @@ impl Operator for Concat {
 
     /// Run `concat` operator with `[a, b]` inputs.
     fn run(&self, inputs: &[Input]) -> Result<Output, OpError> {
-        let a = inputs[0];
-        let b = inputs[1];
+        let a = inputs.get(0).ok_or(OpError::MissingInputs)?;
+        let b = inputs.get(1).ok_or(OpError::MissingInputs)?;
 
-        let result = match (a, b) {
-            (Input::FloatTensor(a), Input::FloatTensor(b)) => concat(a, b, self.dim).into(),
-            (Input::IntTensor(a), Input::IntTensor(b)) => concat(a, b, self.dim).into(),
-            _ => panic!("Incompatible input tensor types for Concat"),
-        };
-        Ok(result)
+        match (a, b) {
+            (Input::FloatTensor(a), Input::FloatTensor(b)) => Ok(concat(a, b, self.dim).into()),
+            (Input::IntTensor(a), Input::IntTensor(b)) => Ok(concat(a, b, self.dim).into()),
+            _ => Err(OpError::UnsupportedInputType),
+        }
     }
 }
 
@@ -642,7 +679,7 @@ impl Operator for Pad2d {
 
     /// Run `pad` operator with `[input]` inputs.
     fn run(&self, inputs: &[Input]) -> Result<Output, OpError> {
-        let input = inputs[0].as_float().unwrap();
+        let input = get_input_as_float(inputs, 0)?;
         Ok(pad_2d(input, self.padding).into())
     }
 }
@@ -704,10 +741,10 @@ impl Operator for Slice {
 
     /// Run `slice` operator with `[input, starts, ends, axes]` inputs.
     fn run(&self, inputs: &[Input]) -> Result<Output, OpError> {
-        let input = inputs[0];
-        let starts = inputs[1].as_int().unwrap();
-        let ends = inputs[2].as_int().unwrap();
-        let axes = inputs.get(3).map(|t| t.as_int().unwrap());
+        let input = inputs.get(0).ok_or(OpError::MissingInputs)?;
+        let starts = get_input_as_int(inputs, 1)?;
+        let ends = get_input_as_int(inputs, 2)?;
+        let axes = get_optional_input_as_int(inputs, 3)?;
         let result = match input {
             Input::FloatTensor(input) => slice(input, starts, ends, axes).into(),
             Input::IntTensor(input) => slice(input, starts, ends, axes).into(),
@@ -768,7 +805,7 @@ impl Operator for Squeeze {
     }
 
     fn run(&self, inputs: &[Input]) -> Result<Output, OpError> {
-        let input = inputs[0];
+        let input = inputs.get(0).ok_or(OpError::MissingInputs)?;
         let axes = self.axes.as_ref().map(|a| &a[..]);
         let result = match input {
             Input::FloatTensor(t) => squeeze(&t, axes).into(),
@@ -822,7 +859,7 @@ impl Operator for Transpose {
     }
 
     fn run(&self, inputs: &[Input]) -> Result<Output, OpError> {
-        let input = inputs[0];
+        let input = inputs.get(0).ok_or(OpError::MissingInputs)?;
         let perm_slice = self.perm.as_ref().map(|v| v.as_slice());
         let result = match input {
             Input::FloatTensor(input) => transpose(&input, perm_slice).into(),
@@ -853,7 +890,8 @@ impl Operator for Unsqueeze {
     }
 
     fn run(&self, inputs: &[Input]) -> Result<Output, OpError> {
-        let result = match inputs[0] {
+        let input = inputs.get(0).ok_or(OpError::MissingInputs)?;
+        let result = match input {
             Input::FloatTensor(input) => unsqueeze(&input, &self.axes).into(),
             Input::IntTensor(input) => unsqueeze(&input, &self.axes).into(),
         };

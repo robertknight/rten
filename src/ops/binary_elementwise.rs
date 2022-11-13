@@ -1,7 +1,7 @@
 use std::fmt::Debug;
 use std::iter::zip;
 
-use crate::ops::{from_data, Input, OpError, Operator, Output};
+use crate::ops::{from_data, get_input_as_float, Input, OpError, Operator, Output};
 use crate::tensor::Tensor;
 
 /// Given the shapes of two inputs to a binary operation, choose the one that
@@ -69,8 +69,8 @@ impl Operator for Add {
     }
 
     fn run(&self, inputs: &[Input]) -> Result<Output, OpError> {
-        let a = inputs[0].as_float().unwrap();
-        let b = inputs[1].as_float().unwrap();
+        let a = get_input_as_float(inputs, 0)?;
+        let b = get_input_as_float(inputs, 1)?;
         Ok(add(a, b).into())
     }
 
@@ -79,8 +79,8 @@ impl Operator for Add {
     }
 
     fn run_in_place(&self, input: Output, other: &[Input]) -> Result<Output, OpError> {
-        let mut a = input.as_float().unwrap();
-        let b = other[0].as_float().unwrap();
+        let mut a = input.as_float().ok_or(OpError::UnsupportedInputType)?;
+        let b = get_input_as_float(other, 0)?;
 
         if can_run_binary_op_in_place(&a, &b) {
             add_in_place(&mut a, &b);
@@ -110,8 +110,8 @@ impl Operator for Mul {
     }
 
     fn run(&self, inputs: &[Input]) -> Result<Output, OpError> {
-        let a = inputs[0].as_float().unwrap();
-        let b = inputs[1].as_float().unwrap();
+        let a = get_input_as_float(inputs, 0)?;
+        let b = get_input_as_float(inputs, 1)?;
         Ok(mul(a, b).into())
     }
 
@@ -120,8 +120,8 @@ impl Operator for Mul {
     }
 
     fn run_in_place(&self, input: Output, other: &[Input]) -> Result<Output, OpError> {
-        let mut a = input.as_float().unwrap();
-        let b = other[0].as_float().unwrap();
+        let mut a = input.as_float().ok_or(OpError::UnsupportedInputType)?;
+        let b = get_input_as_float(other, 0)?;
 
         if can_run_binary_op_in_place(&a, &b) {
             mul_in_place(&mut a, &b);
