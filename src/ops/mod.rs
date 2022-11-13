@@ -87,7 +87,7 @@ pub enum Output {
 }
 
 impl Output {
-    pub fn as_int(self) -> Option<Tensor<i32>> {
+    pub fn into_int(self) -> Option<Tensor<i32>> {
         if let Output::IntTensor(t) = self {
             Some(t)
         } else {
@@ -103,7 +103,7 @@ impl Output {
         }
     }
 
-    pub fn as_float(self) -> Option<Tensor<f32>> {
+    pub fn into_float(self) -> Option<Tensor<f32>> {
         if let Output::FloatTensor(t) = self {
             Some(t)
         } else {
@@ -329,7 +329,7 @@ impl Operator for BatchNormalization {
     }
 
     fn run_in_place(&self, input: Output, other: &[Input]) -> Result<Output, OpError> {
-        let mut output = input.as_float().ok_or(OpError::UnsupportedInputType)?;
+        let mut output = input.into_float().ok_or(OpError::UnsupportedInputType)?;
         let scale = get_input_as_float(other, 0)?;
         let bias = get_input_as_float(other, 1)?;
         let mean = get_input_as_float(other, 2)?;
@@ -783,7 +783,7 @@ impl Operator for Slice {
     }
 
     fn run_in_place(&self, input: Output, other: &[Input]) -> Result<Output, OpError> {
-        let mut output = input.as_float().unwrap();
+        let mut output = input.into_float().unwrap();
         let starts = other[0].as_int().unwrap();
         let ends = other[1].as_int().unwrap();
         let axes = other.get(2).map(|t| t.as_int().unwrap());
@@ -1101,7 +1101,7 @@ mod tests {
         let result = op
             .run(&[(&input).into(), (&shape).into()])
             .unwrap()
-            .as_float()
+            .into_float()
             .unwrap();
 
         expect_equal(&result, &expected)
@@ -1165,7 +1165,7 @@ mod tests {
         let input = from_data(vec![1, 1, 2, 2], vec![1.0, 2.0, 3.0, 4.0]);
 
         let op = Shape {};
-        let result = op.run(&[(&input).into()]).unwrap().as_int().unwrap();
+        let result = op.run(&[(&input).into()]).unwrap().into_int().unwrap();
 
         assert_eq!(result.shape(), &[4]);
         assert_eq!(result.data(), &[1, 1, 2, 2]);

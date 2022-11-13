@@ -640,7 +640,7 @@ mod tests {
         }
 
         fn run_in_place(&self, input: Output, _other: &[Input]) -> Result<Output, OpError> {
-            let mut output = input.as_float().unwrap();
+            let mut output = input.into_float().unwrap();
             for x in output.data_mut().iter_mut() {
                 *x = *x + 1.0;
             }

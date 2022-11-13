@@ -41,7 +41,7 @@ impl Model {
                 let tensors = outputs
                     .into_iter()
                     // TODO - Handle non-float output types here
-                    .map(|out| out.as_float().unwrap())
+                    .map(|out| out.into_float().unwrap())
                     .collect();
                 Ok(TensorList::from_vec(tensors))
             }

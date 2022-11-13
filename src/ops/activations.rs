@@ -34,7 +34,7 @@ impl Operator for Clip {
     }
 
     fn run_in_place(&self, input: Output, _: &[Input]) -> Result<Output, OpError> {
-        let mut output = input.as_float().ok_or(OpError::UnsupportedInputType)?;
+        let mut output = input.into_float().ok_or(OpError::UnsupportedInputType)?;
         clip_in_place(&mut output, self.min, self.max);
         Ok(output.into())
     }
@@ -70,7 +70,7 @@ impl Operator for LeakyRelu {
     }
 
     fn run_in_place(&self, input: Output, _other: &[Input]) -> Result<Output, OpError> {
-        let mut output = input.as_float().ok_or(OpError::UnsupportedInputType)?;
+        let mut output = input.into_float().ok_or(OpError::UnsupportedInputType)?;
         leaky_relu_in_place(&mut output, self.alpha);
         Ok(output.into())
     }
@@ -104,7 +104,7 @@ impl Operator for Relu {
     }
 
     fn run_in_place(&self, input: Output, _other: &[Input]) -> Result<Output, OpError> {
-        let mut output = input.as_float().ok_or(OpError::UnsupportedInputType)?;
+        let mut output = input.into_float().ok_or(OpError::UnsupportedInputType)?;
         relu_in_place(&mut output);
         Ok(output.into())
     }
@@ -137,7 +137,7 @@ impl Operator for Sigmoid {
     }
 
     fn run_in_place(&self, input: Output, _other: &[Input]) -> Result<Output, OpError> {
-        let mut output = input.as_float().ok_or(OpError::UnsupportedInputType)?;
+        let mut output = input.into_float().ok_or(OpError::UnsupportedInputType)?;
         sigmoid_in_place(&mut output);
         Ok(output.into())
     }

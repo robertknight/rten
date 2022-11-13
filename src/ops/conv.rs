@@ -661,7 +661,7 @@ mod tests {
         let result = op
             .run(&[input.into(), kernel.into()])
             .unwrap()
-            .as_float()
+            .into_float()
             .unwrap();
         let reference_result = reference_conv(
             input,
