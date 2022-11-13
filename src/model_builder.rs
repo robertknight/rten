@@ -235,6 +235,7 @@ impl<'a> ModelBuilder<'a> {
                     .as_union_value(),
                 ),
             ),
+            OpType::Div => (OT::Div, no_attrs, None),
             OpType::Gather(args) => (
                 OT::Gather,
                 OA::GatherAttrs,
@@ -340,6 +341,7 @@ impl<'a> ModelBuilder<'a> {
                     ),
                 )
             }
+            OpType::Sub => (OT::Sub, no_attrs, None),
             OpType::Transpose(args) => {
                 let perm = self.create_u32_vec(args.perm);
                 (

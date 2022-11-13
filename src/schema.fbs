@@ -14,6 +14,7 @@ enum OperatorType: byte {
   Concat,
   Conv2d,
   ConvTranspose2d,
+  Div,
   Gather,
   Gemm,
   GlobalAveragePool,
@@ -29,6 +30,7 @@ enum OperatorType: byte {
   Slice,
   Squeeze,
   Softmax,
+  Sub,
   Transpose,
   Unsqueeze
 }

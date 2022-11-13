@@ -18,13 +18,13 @@ pub const ENUM_MIN_OPERATOR_TYPE: i8 = 0;
     since = "2.0.0",
     note = "Use associated constants instead. This will no longer be generated in 2021."
 )]
-pub const ENUM_MAX_OPERATOR_TYPE: i8 = 23;
+pub const ENUM_MAX_OPERATOR_TYPE: i8 = 25;
 #[deprecated(
     since = "2.0.0",
     note = "Use associated constants instead. This will no longer be generated in 2021."
 )]
 #[allow(non_camel_case_types)]
-pub const ENUM_VALUES_OPERATOR_TYPE: [OperatorType; 24] = [
+pub const ENUM_VALUES_OPERATOR_TYPE: [OperatorType; 26] = [
     OperatorType::Add,
     OperatorType::AveragePool2d,
     OperatorType::BatchNormalization,
@@ -32,6 +32,7 @@ pub const ENUM_VALUES_OPERATOR_TYPE: [OperatorType; 24] = [
     OperatorType::Concat,
     OperatorType::Conv2d,
     OperatorType::ConvTranspose2d,
+    OperatorType::Div,
     OperatorType::Gather,
     OperatorType::Gemm,
     OperatorType::GlobalAveragePool,
@@ -47,6 +48,7 @@ pub const ENUM_VALUES_OPERATOR_TYPE: [OperatorType; 24] = [
     OperatorType::Slice,
     OperatorType::Squeeze,
     OperatorType::Softmax,
+    OperatorType::Sub,
     OperatorType::Transpose,
     OperatorType::Unsqueeze,
 ];
@@ -63,26 +65,28 @@ impl OperatorType {
     pub const Concat: Self = Self(4);
     pub const Conv2d: Self = Self(5);
     pub const ConvTranspose2d: Self = Self(6);
-    pub const Gather: Self = Self(7);
-    pub const Gemm: Self = Self(8);
-    pub const GlobalAveragePool: Self = Self(9);
-    pub const LeakyRelu: Self = Self(10);
-    pub const MatMul: Self = Self(11);
-    pub const MaxPool2d: Self = Self(12);
-    pub const Mul: Self = Self(13);
-    pub const Pad2d: Self = Self(14);
-    pub const Relu: Self = Self(15);
-    pub const Reshape: Self = Self(16);
-    pub const Shape: Self = Self(17);
-    pub const Sigmoid: Self = Self(18);
-    pub const Slice: Self = Self(19);
-    pub const Squeeze: Self = Self(20);
-    pub const Softmax: Self = Self(21);
-    pub const Transpose: Self = Self(22);
-    pub const Unsqueeze: Self = Self(23);
+    pub const Div: Self = Self(7);
+    pub const Gather: Self = Self(8);
+    pub const Gemm: Self = Self(9);
+    pub const GlobalAveragePool: Self = Self(10);
+    pub const LeakyRelu: Self = Self(11);
+    pub const MatMul: Self = Self(12);
+    pub const MaxPool2d: Self = Self(13);
+    pub const Mul: Self = Self(14);
+    pub const Pad2d: Self = Self(15);
+    pub const Relu: Self = Self(16);
+    pub const Reshape: Self = Self(17);
+    pub const Shape: Self = Self(18);
+    pub const Sigmoid: Self = Self(19);
+    pub const Slice: Self = Self(20);
+    pub const Squeeze: Self = Self(21);
+    pub const Softmax: Self = Self(22);
+    pub const Sub: Self = Self(23);
+    pub const Transpose: Self = Self(24);
+    pub const Unsqueeze: Self = Self(25);
 
     pub const ENUM_MIN: i8 = 0;
-    pub const ENUM_MAX: i8 = 23;
+    pub const ENUM_MAX: i8 = 25;
     pub const ENUM_VALUES: &'static [Self] = &[
         Self::Add,
         Self::AveragePool2d,
@@ -91,6 +95,7 @@ impl OperatorType {
         Self::Concat,
         Self::Conv2d,
         Self::ConvTranspose2d,
+        Self::Div,
         Self::Gather,
         Self::Gemm,
         Self::GlobalAveragePool,
@@ -106,6 +111,7 @@ impl OperatorType {
         Self::Slice,
         Self::Squeeze,
         Self::Softmax,
+        Self::Sub,
         Self::Transpose,
         Self::Unsqueeze,
     ];
@@ -119,6 +125,7 @@ impl OperatorType {
             Self::Concat => Some("Concat"),
             Self::Conv2d => Some("Conv2d"),
             Self::ConvTranspose2d => Some("ConvTranspose2d"),
+            Self::Div => Some("Div"),
             Self::Gather => Some("Gather"),
             Self::Gemm => Some("Gemm"),
             Self::GlobalAveragePool => Some("GlobalAveragePool"),
@@ -134,6 +141,7 @@ impl OperatorType {
             Self::Slice => Some("Slice"),
             Self::Squeeze => Some("Squeeze"),
             Self::Softmax => Some("Softmax"),
+            Self::Sub => Some("Sub"),
             Self::Transpose => Some("Transpose"),
             Self::Unsqueeze => Some("Unsqueeze"),
             _ => None,

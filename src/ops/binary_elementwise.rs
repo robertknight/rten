@@ -100,6 +100,47 @@ impl Operator for Add {
     }
 }
 
+/// Perform elementwise division of two tensors.
+pub fn div(a: &Tensor, b: &Tensor) -> Result<Tensor, OpError> {
+    binary_op(a, b, |x, y| x / y)
+}
+
+/// Perform in-place elementwise division of two tensors.
+pub fn div_in_place(a: &mut Tensor, b: &Tensor) {
+    binary_op_in_place(a, b, |x, y| *x /= y);
+}
+
+#[derive(Debug)]
+pub struct Div {}
+
+impl Operator for Div {
+    fn name(&self) -> &str {
+        "Div"
+    }
+
+    fn run(&self, inputs: &[Input]) -> Result<Output, OpError> {
+        let a = get_input_as_float(inputs, 0)?;
+        let b = get_input_as_float(inputs, 1)?;
+        div(a, b).map(|t| t.into())
+    }
+
+    fn can_run_in_place(&self) -> bool {
+        true
+    }
+
+    fn run_in_place(&self, input: Output, other: &[Input]) -> Result<Output, OpError> {
+        let mut a = input.into_float().ok_or(OpError::UnsupportedInputType)?;
+        let b = get_input_as_float(other, 0)?;
+
+        if can_run_binary_op_in_place(&a, &b) {
+            div_in_place(&mut a, &b);
+            Ok(a.into())
+        } else {
+            self.run(&[(&a).into(), b.into()])
+        }
+    }
+}
+
 /// Multiply two tensors elementwise.
 pub fn mul(a: &Tensor, b: &Tensor) -> Result<Tensor, OpError> {
     binary_op(a, b, |x, y| x * y)
@@ -141,9 +182,53 @@ impl Operator for Mul {
     }
 }
 
+/// Perform elementwise subtraction of two tensors.
+pub fn sub(a: &Tensor, b: &Tensor) -> Result<Tensor, OpError> {
+    binary_op(a, b, |x, y| x - y)
+}
+
+/// Perform in-place elementwise subtraction of two tensors.
+pub fn sub_in_place(a: &mut Tensor, b: &Tensor) {
+    binary_op_in_place(a, b, |x, y| *x -= y);
+}
+
+#[derive(Debug)]
+pub struct Sub {}
+
+impl Operator for Sub {
+    fn name(&self) -> &str {
+        "Sub"
+    }
+
+    fn run(&self, inputs: &[Input]) -> Result<Output, OpError> {
+        let a = get_input_as_float(inputs, 0)?;
+        let b = get_input_as_float(inputs, 1)?;
+        sub(a, b).map(|t| t.into())
+    }
+
+    fn can_run_in_place(&self) -> bool {
+        true
+    }
+
+    fn run_in_place(&self, input: Output, other: &[Input]) -> Result<Output, OpError> {
+        let mut a = input.into_float().ok_or(OpError::UnsupportedInputType)?;
+        let b = get_input_as_float(other, 0)?;
+
+        if can_run_binary_op_in_place(&a, &b) {
+            sub_in_place(&mut a, &b);
+            Ok(a.into())
+        } else {
+            self.run(&[(&a).into(), b.into()])
+        }
+    }
+}
+
 #[cfg(test)]
 mod tests {
-    use crate::ops::{add, add_in_place, mul, mul_in_place, Add, Operator, Output};
+    use crate::ops::{
+        add, add_in_place, div, div_in_place, mul, mul_in_place, sub, sub_in_place, Add, Operator,
+        Output,
+    };
     use crate::tensor::{from_data, from_scalar};
     use crate::test_util::expect_equal;
 
@@ -215,6 +300,24 @@ mod tests {
     }
 
     #[test]
+    fn test_div() -> Result<(), String> {
+        let a = from_data(vec![2, 2], vec![10., 20., 30., 40.]);
+        let b = from_data(vec![2, 2], vec![1., 2., 3., 4.]);
+        let expected = from_data(vec![2, 2], vec![10., 10., 10., 10.]);
+        let result = div(&a, &b).unwrap();
+        expect_equal(&result, &expected)
+    }
+
+    #[test]
+    fn test_div_in_place() -> Result<(), String> {
+        let mut a = from_data(vec![2, 2], vec![10., 20., 30., 40.]);
+        let b = from_data(vec![2, 2], vec![1., 2., 3., 4.]);
+        let expected = from_data(vec![2, 2], vec![10., 10., 10., 10.]);
+        div_in_place(&mut a, &b);
+        expect_equal(&a, &expected)
+    }
+
+    #[test]
     fn test_mul() -> Result<(), String> {
         let a = from_data(vec![2, 2], vec![1., 2., 3., 4.]);
         let b = from_data(vec![2, 2], vec![10., 20., 30., 40.]);
@@ -229,6 +332,24 @@ mod tests {
         let b = from_data(vec![2, 2], vec![10., 20., 30., 40.]);
         let expected = from_data(vec![2, 2], vec![10., 40., 90., 160.]);
         mul_in_place(&mut a, &b);
+        expect_equal(&a, &expected)
+    }
+
+    #[test]
+    fn test_sub() -> Result<(), String> {
+        let a = from_data(vec![2, 2], vec![10., 20., 30., 40.]);
+        let b = from_data(vec![2, 2], vec![1., 2., 3., 4.]);
+        let expected = from_data(vec![2, 2], vec![9., 18., 27., 36.]);
+        let result = sub(&a, &b).unwrap();
+        expect_equal(&result, &expected)
+    }
+
+    #[test]
+    fn test_sub_in_place() -> Result<(), String> {
+        let mut a = from_data(vec![2, 2], vec![10., 20., 30., 40.]);
+        let b = from_data(vec![2, 2], vec![1., 2., 3., 4.]);
+        let expected = from_data(vec![2, 2], vec![9., 18., 27., 36.]);
+        sub_in_place(&mut a, &b);
         expect_equal(&a, &expected)
     }
 }

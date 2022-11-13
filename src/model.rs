@@ -132,6 +132,10 @@ fn read_conv_transpose_2d_op(node: &OperatorNode) -> Box<dyn Operator> {
     Box::new(ops::ConvTranspose2d { stride })
 }
 
+fn read_div_op(_: &OperatorNode) -> Box<dyn Operator> {
+    Box::new(ops::Div {})
+}
+
 fn read_gather_op(node: &OperatorNode) -> Box<dyn Operator> {
     let axis = match node.attrs_as_gather_attrs() {
         Some(attrs) => attrs.axis() as usize,
@@ -259,6 +263,10 @@ fn read_squeeze_op(node: &OperatorNode) -> Box<dyn Operator> {
     Box::new(ops::Squeeze { axes })
 }
 
+fn read_sub_op(_: &OperatorNode) -> Box<dyn Operator> {
+    Box::new(ops::Sub {})
+}
+
 fn read_transpose_op(node: &OperatorNode) -> Box<dyn Operator> {
     let mut perm: Option<Vec<usize>> = None;
     if let Some(attrs) = node.attrs_as_transpose_attrs() {
@@ -289,6 +297,7 @@ fn read_operator(node: &OperatorNode) -> Result<Box<dyn Operator>, String> {
         OperatorType::Concat => read_concat_op(node),
         OperatorType::Conv2d => read_conv_2d_op(node),
         OperatorType::ConvTranspose2d => read_conv_transpose_2d_op(node),
+        OperatorType::Div => read_div_op(node),
         OperatorType::Gather => read_gather_op(node),
         OperatorType::Gemm => read_gemm_op(node),
         OperatorType::GlobalAveragePool => read_global_average_pool_op(node),
@@ -304,6 +313,7 @@ fn read_operator(node: &OperatorNode) -> Result<Box<dyn Operator>, String> {
         OperatorType::Slice => read_slice_op(node),
         OperatorType::Softmax => read_softmax_op(node),
         OperatorType::Squeeze => read_squeeze_op(node),
+        OperatorType::Sub => read_sub_op(node),
         OperatorType::Transpose => read_transpose_op(node),
         OperatorType::Unsqueeze => read_unsqueeze_op(node),
         _ => return Err("Unknown operator type".to_string()),
@@ -505,6 +515,7 @@ mod tests {
             OpType::ConvTranspose2d(ops::ConvTranspose2d { stride: 2 }),
             &[input_node, kernel],
         );
+        builder.add_operator("div", OpType::Div, &[input_node, input_node]);
         builder.add_operator(
             "gather",
             OpType::Gather(ops::Gather { axis: 0 }),
@@ -572,6 +583,7 @@ mod tests {
             OpType::Squeeze(ops::Squeeze { axes: None }),
             &[input_node],
         );
+        builder.add_operator("sub", OpType::Sub, &[input_node, input_node]);
         builder.add_operator(
             "transpose",
             OpType::Transpose(ops::Transpose { perm: None }),
@@ -596,6 +608,7 @@ mod tests {
             "concat",
             "conv_2d",
             "conv_transpose_2d",
+            "div",
             "global_average_pool",
             "leaky_relu",
             "max_pool_2d",
@@ -608,6 +621,7 @@ mod tests {
             "slice",
             "softmax",
             "squeeze",
+            "sub",
             "transpose",
             "unsqueeze",
         ];

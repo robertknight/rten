@@ -14,23 +14,25 @@ class OperatorType(object):
     Concat = 4
     Conv2d = 5
     ConvTranspose2d = 6
-    Gather = 7
-    Gemm = 8
-    GlobalAveragePool = 9
-    LeakyRelu = 10
-    MatMul = 11
-    MaxPool2d = 12
-    Mul = 13
-    Pad2d = 14
-    Relu = 15
-    Reshape = 16
-    Shape = 17
-    Sigmoid = 18
-    Slice = 19
-    Squeeze = 20
-    Softmax = 21
-    Transpose = 22
-    Unsqueeze = 23
+    Div = 7
+    Gather = 8
+    Gemm = 9
+    GlobalAveragePool = 10
+    LeakyRelu = 11
+    MatMul = 12
+    MaxPool2d = 13
+    Mul = 14
+    Pad2d = 15
+    Relu = 16
+    Reshape = 17
+    Shape = 18
+    Sigmoid = 19
+    Slice = 20
+    Squeeze = 21
+    Softmax = 22
+    Sub = 23
+    Transpose = 24
+    Unsqueeze = 25
 
 
 class PadMode(object):
