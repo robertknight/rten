@@ -210,6 +210,47 @@ pub enum OpType {
     Unsqueeze(Unsqueeze),
 }
 
+/// Extract a required float tensor input from `inputs`, or return an error.
+pub fn get_input_as_float<'a>(
+    inputs: &'a [Input],
+    index: usize,
+) -> Result<&'a Tensor<f32>, OpError> {
+    inputs
+        .get(index)
+        .ok_or(OpError::MissingInputs)
+        .and_then(|input| input.as_float().ok_or(OpError::UnsupportedInputType))
+}
+
+/// Extract an optional float tensor input from `inputs`, or return an error.
+pub fn get_optional_input_as_float<'a>(
+    inputs: &'a [Input],
+    index: usize,
+) -> Result<Option<&'a Tensor<f32>>, OpError> {
+    inputs
+        .get(index)
+        .map(|input| input.as_float().ok_or(OpError::UnsupportedInputType))
+        .transpose()
+}
+
+/// Extract a required int tensor input from `inputs`, or return an error.
+pub fn get_input_as_int<'a>(inputs: &'a [Input], index: usize) -> Result<&'a Tensor<i32>, OpError> {
+    inputs
+        .get(index)
+        .ok_or(OpError::MissingInputs)
+        .and_then(|input| input.as_int().ok_or(OpError::UnsupportedInputType))
+}
+
+/// Extract an optional int tensor input from `inputs`, or return an error.
+pub fn get_optional_input_as_int<'a>(
+    inputs: &'a [Input],
+    index: usize,
+) -> Result<Option<&'a Tensor<i32>>, OpError> {
+    inputs
+        .get(index)
+        .map(|input| input.as_int().ok_or(OpError::UnsupportedInputType))
+        .transpose()
+}
+
 /// Perform in-place batch normalization on the NCHW tensor `out`.
 ///
 /// See https://github.com/onnx/onnx/blob/main/docs/Operators.md#batchnormalization
@@ -262,43 +303,6 @@ pub fn batch_norm(
     let mut output = input.clone();
     batch_norm_in_place(&mut output, scale, bias, mean, var, epsilon);
     output
-}
-
-pub fn get_input_as_float<'a>(
-    inputs: &'a [Input],
-    index: usize,
-) -> Result<&'a Tensor<f32>, OpError> {
-    inputs
-        .get(index)
-        .ok_or(OpError::MissingInputs)
-        .and_then(|input| input.as_float().ok_or(OpError::UnsupportedInputType))
-}
-
-pub fn get_optional_input_as_float<'a>(
-    inputs: &'a [Input],
-    index: usize,
-) -> Result<Option<&'a Tensor<f32>>, OpError> {
-    inputs
-        .get(index)
-        .map(|input| input.as_float().ok_or(OpError::UnsupportedInputType))
-        .transpose()
-}
-
-pub fn get_input_as_int<'a>(inputs: &'a [Input], index: usize) -> Result<&'a Tensor<i32>, OpError> {
-    inputs
-        .get(index)
-        .ok_or(OpError::MissingInputs)
-        .and_then(|input| input.as_int().ok_or(OpError::UnsupportedInputType))
-}
-
-pub fn get_optional_input_as_int<'a>(
-    inputs: &'a [Input],
-    index: usize,
-) -> Result<Option<&'a Tensor<i32>>, OpError> {
-    inputs
-        .get(index)
-        .map(|input| input.as_int().ok_or(OpError::UnsupportedInputType))
-        .transpose()
 }
 
 #[derive(Debug)]
