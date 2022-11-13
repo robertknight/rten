@@ -18,6 +18,7 @@ enum OperatorType: byte {
   Gather,
   Gemm,
   GlobalAveragePool,
+  Identity,
   LeakyRelu,
   MatMul,
   MaxPool2d,

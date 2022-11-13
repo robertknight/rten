@@ -174,6 +174,10 @@ fn read_global_average_pool_op(_: &OperatorNode) -> Box<dyn Operator> {
     Box::new(ops::GlobalAveragePool {})
 }
 
+fn read_identity_op(_: &OperatorNode) -> Box<dyn Operator> {
+    Box::new(ops::Identity {})
+}
+
 fn read_leaky_relu_op(node: &OperatorNode) -> Box<dyn Operator> {
     let alpha = match node.attrs_as_leaky_relu_attrs() {
         Some(attrs) => attrs.alpha(),
@@ -302,6 +306,7 @@ fn read_operator(node: &OperatorNode) -> Result<Box<dyn Operator>, String> {
         OperatorType::Gemm => read_gemm_op(node),
         OperatorType::GlobalAveragePool => read_global_average_pool_op(node),
         OperatorType::LeakyRelu => read_leaky_relu_op(node),
+        OperatorType::Identity => read_identity_op(node),
         OperatorType::MatMul => read_matmul_op(node),
         OperatorType::MaxPool2d => read_max_pool_2d_op(node),
         OperatorType::Mul => read_mul_op(node),
@@ -536,6 +541,7 @@ mod tests {
             OpType::GlobalAveragePool,
             &[input_node],
         );
+        builder.add_operator("identity", OpType::Identity, &[input_node]);
         builder.add_operator(
             "leaky_relu",
             OpType::LeakyRelu(ops::LeakyRelu { alpha: 0.01 }),
@@ -609,6 +615,7 @@ mod tests {
             "conv_2d",
             "conv_transpose_2d",
             "div",
+            "identity",
             "global_average_pool",
             "leaky_relu",
             "max_pool_2d",

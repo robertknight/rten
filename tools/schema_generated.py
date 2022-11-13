@@ -18,21 +18,22 @@ class OperatorType(object):
     Gather = 8
     Gemm = 9
     GlobalAveragePool = 10
-    LeakyRelu = 11
-    MatMul = 12
-    MaxPool2d = 13
-    Mul = 14
-    Pad2d = 15
-    Relu = 16
-    Reshape = 17
-    Shape = 18
-    Sigmoid = 19
-    Slice = 20
-    Squeeze = 21
-    Softmax = 22
-    Sub = 23
-    Transpose = 24
-    Unsqueeze = 25
+    Identity = 11
+    LeakyRelu = 12
+    MatMul = 13
+    MaxPool2d = 14
+    Mul = 15
+    Pad2d = 16
+    Relu = 17
+    Reshape = 18
+    Shape = 19
+    Sigmoid = 20
+    Slice = 21
+    Squeeze = 22
+    Softmax = 23
+    Sub = 24
+    Transpose = 25
+    Unsqueeze = 26
 
 
 class PadMode(object):

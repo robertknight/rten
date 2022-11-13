@@ -18,13 +18,13 @@ pub const ENUM_MIN_OPERATOR_TYPE: i8 = 0;
     since = "2.0.0",
     note = "Use associated constants instead. This will no longer be generated in 2021."
 )]
-pub const ENUM_MAX_OPERATOR_TYPE: i8 = 25;
+pub const ENUM_MAX_OPERATOR_TYPE: i8 = 26;
 #[deprecated(
     since = "2.0.0",
     note = "Use associated constants instead. This will no longer be generated in 2021."
 )]
 #[allow(non_camel_case_types)]
-pub const ENUM_VALUES_OPERATOR_TYPE: [OperatorType; 26] = [
+pub const ENUM_VALUES_OPERATOR_TYPE: [OperatorType; 27] = [
     OperatorType::Add,
     OperatorType::AveragePool2d,
     OperatorType::BatchNormalization,
@@ -36,6 +36,7 @@ pub const ENUM_VALUES_OPERATOR_TYPE: [OperatorType; 26] = [
     OperatorType::Gather,
     OperatorType::Gemm,
     OperatorType::GlobalAveragePool,
+    OperatorType::Identity,
     OperatorType::LeakyRelu,
     OperatorType::MatMul,
     OperatorType::MaxPool2d,
@@ -69,24 +70,25 @@ impl OperatorType {
     pub const Gather: Self = Self(8);
     pub const Gemm: Self = Self(9);
     pub const GlobalAveragePool: Self = Self(10);
-    pub const LeakyRelu: Self = Self(11);
-    pub const MatMul: Self = Self(12);
-    pub const MaxPool2d: Self = Self(13);
-    pub const Mul: Self = Self(14);
-    pub const Pad2d: Self = Self(15);
-    pub const Relu: Self = Self(16);
-    pub const Reshape: Self = Self(17);
-    pub const Shape: Self = Self(18);
-    pub const Sigmoid: Self = Self(19);
-    pub const Slice: Self = Self(20);
-    pub const Squeeze: Self = Self(21);
-    pub const Softmax: Self = Self(22);
-    pub const Sub: Self = Self(23);
-    pub const Transpose: Self = Self(24);
-    pub const Unsqueeze: Self = Self(25);
+    pub const Identity: Self = Self(11);
+    pub const LeakyRelu: Self = Self(12);
+    pub const MatMul: Self = Self(13);
+    pub const MaxPool2d: Self = Self(14);
+    pub const Mul: Self = Self(15);
+    pub const Pad2d: Self = Self(16);
+    pub const Relu: Self = Self(17);
+    pub const Reshape: Self = Self(18);
+    pub const Shape: Self = Self(19);
+    pub const Sigmoid: Self = Self(20);
+    pub const Slice: Self = Self(21);
+    pub const Squeeze: Self = Self(22);
+    pub const Softmax: Self = Self(23);
+    pub const Sub: Self = Self(24);
+    pub const Transpose: Self = Self(25);
+    pub const Unsqueeze: Self = Self(26);
 
     pub const ENUM_MIN: i8 = 0;
-    pub const ENUM_MAX: i8 = 25;
+    pub const ENUM_MAX: i8 = 26;
     pub const ENUM_VALUES: &'static [Self] = &[
         Self::Add,
         Self::AveragePool2d,
@@ -99,6 +101,7 @@ impl OperatorType {
         Self::Gather,
         Self::Gemm,
         Self::GlobalAveragePool,
+        Self::Identity,
         Self::LeakyRelu,
         Self::MatMul,
         Self::MaxPool2d,
@@ -129,6 +132,7 @@ impl OperatorType {
             Self::Gather => Some("Gather"),
             Self::Gemm => Some("Gemm"),
             Self::GlobalAveragePool => Some("GlobalAveragePool"),
+            Self::Identity => Some("Identity"),
             Self::LeakyRelu => Some("LeakyRelu"),
             Self::MatMul => Some("MatMul"),
             Self::MaxPool2d => Some("MaxPool2d"),

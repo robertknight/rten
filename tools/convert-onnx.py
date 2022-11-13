@@ -352,6 +352,9 @@ def op_node_from_onnx_operator(
         case "GlobalAveragePool":
             op_type = "GlobalAveragePool"
 
+        case "Identity":
+            op_type = "Identity"
+
         case "LeakyRelu":
             op_type = "LeakyRelu"
 
@@ -608,6 +611,8 @@ def build_operator_node(builder: flatbuffers.Builder, operator: OperatorNode):
             attrs = sg.GemmAttrsEnd(builder)
         case "GlobalAveragePool":
             op_type_code = sg.OperatorType.GlobalAveragePool
+        case "Identity":
+            op_type_code = sg.OperatorType.Identity
         case "LeakyRelu":
             op_type_code = sg.OperatorType.LeakyRelu
             attrs_type = sg.OperatorAttrs.LeakyReluAttrs

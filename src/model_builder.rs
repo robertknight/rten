@@ -266,6 +266,7 @@ impl<'a> ModelBuilder<'a> {
                 ),
             ),
             OpType::GlobalAveragePool => (OT::GlobalAveragePool, no_attrs, None),
+            OpType::Identity => (OT::Identity, no_attrs, None),
             OpType::LeakyRelu(args) => (
                 OT::LeakyRelu,
                 OA::LeakyReluAttrs,

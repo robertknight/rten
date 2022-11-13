@@ -197,6 +197,7 @@ pub enum OpType {
     Gather(Gather),
     Gemm(Gemm),
     GlobalAveragePool,
+    Identity,
     LeakyRelu(LeakyRelu),
     MatMul,
     MaxPool2d(MaxPool2d),
@@ -478,6 +479,31 @@ impl Operator for Gemm {
             self.transpose_b,
         )
         .map(|t| t.into())
+    }
+}
+
+#[derive(Debug)]
+pub struct Identity {}
+
+impl Operator for Identity {
+    fn name(&self) -> &str {
+        "Identity"
+    }
+
+    fn run(&self, inputs: &[Input]) -> Result<Output, OpError> {
+        let input = inputs.get(0).ok_or(OpError::MissingInputs)?;
+        match input {
+            Input::IntTensor(t) => Ok((*t).clone().into()),
+            Input::FloatTensor(t) => Ok((*t).clone().into()),
+        }
+    }
+
+    fn can_run_in_place(&self) -> bool {
+        true
+    }
+
+    fn run_in_place(&self, input: Output, _: &[Input]) -> Result<Output, OpError> {
+        Ok(input)
     }
 }
 
@@ -935,8 +961,8 @@ mod tests {
     use crate::linalg::gemm;
     use crate::ops::{
         batch_norm, batch_norm_in_place, concat, gather, gemm_op, matmul, pad_2d, reshape, slice,
-        slice_in_place, squeeze, squeeze_in_place, transpose, unsqueeze, OpError, Operator,
-        Reshape, Shape,
+        slice_in_place, squeeze, squeeze_in_place, transpose, unsqueeze, Identity, OpError,
+        Operator, Reshape, Shape,
     };
     use crate::rng::XorShiftRNG;
     use crate::tensor::{from_data, from_scalar, from_vec, random_tensor, zero_tensor, Tensor};
@@ -1039,6 +1065,27 @@ mod tests {
         let result = gemm_op(&a, &b, Some(&c), 1.0, 1.0, false, false).unwrap();
 
         expect_equal(&result, &expected)
+    }
+
+    #[test]
+    fn test_identity() -> Result<(), String> {
+        let id_op = Identity {};
+
+        let int_input = from_vec(vec![1, 2, 3]);
+        let result = id_op
+            .run(&[Input::IntTensor(&int_input)])
+            .unwrap()
+            .into_int()
+            .unwrap();
+        assert_eq!(result, int_input);
+
+        let float_input = from_vec(vec![1.0, 2.0, 3.0]);
+        let result = id_op
+            .run(&[Input::FloatTensor(&float_input)])
+            .unwrap()
+            .into_float()
+            .unwrap();
+        expect_equal(&result, &float_input)
     }
 
     #[test]
