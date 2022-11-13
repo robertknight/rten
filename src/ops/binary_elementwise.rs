@@ -91,8 +91,8 @@ impl Operator for Add {
         let mut a = input.as_float().ok_or(OpError::UnsupportedInputType)?;
         let b = get_input_as_float(other, 0)?;
 
-        if can_run_binary_op_in_place(&a, &b) {
-            add_in_place(&mut a, &b);
+        if can_run_binary_op_in_place(&a, b) {
+            add_in_place(&mut a, b);
             Ok(a.into())
         } else {
             self.run(&[(&a).into(), b.into()])
@@ -132,8 +132,8 @@ impl Operator for Mul {
         let mut a = input.as_float().ok_or(OpError::UnsupportedInputType)?;
         let b = get_input_as_float(other, 0)?;
 
-        if can_run_binary_op_in_place(&a, &b) {
-            mul_in_place(&mut a, &b);
+        if can_run_binary_op_in_place(&a, b) {
+            mul_in_place(&mut a, b);
             Ok(a.into())
         } else {
             self.run(&[(&a).into(), b.into()])

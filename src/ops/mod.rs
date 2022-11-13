@@ -97,7 +97,7 @@ impl Output {
 
     pub fn as_int_ref(&self) -> Option<&Tensor<i32>> {
         if let Output::IntTensor(t) = self {
-            Some(&t)
+            Some(t)
         } else {
             None
         }
@@ -113,26 +113,26 @@ impl Output {
 
     pub fn as_float_ref(&self) -> Option<&Tensor<f32>> {
         if let Output::FloatTensor(t) = self {
-            Some(&t)
+            Some(t)
         } else {
             None
         }
     }
 }
 
-impl<'a> From<Tensor<f32>> for Output {
+impl From<Tensor<f32>> for Output {
     fn from(t: Tensor<f32>) -> Output {
         Output::FloatTensor(t)
     }
 }
 
-impl<'a> From<Tensor<i32>> for Output {
+impl From<Tensor<i32>> for Output {
     fn from(t: Tensor<i32>) -> Output {
         Output::IntTensor(t)
     }
 }
 
-#[derive(PartialEq, Debug)]
+#[derive(Eq, PartialEq, Debug)]
 pub enum OpError {
     /// An operator was called with input tensors of a type that is not
     /// supported by the operator.
@@ -372,8 +372,8 @@ impl Operator for Gather {
         let input = inputs.get(0).ok_or(OpError::MissingInputs)?;
         let indices = get_input_as_int(inputs, 1)?;
         match input {
-            Input::IntTensor(input) => gather(input, self.axis, &indices).map(|t| t.into()),
-            Input::FloatTensor(input) => gather(input, self.axis, &indices).map(|t| t.into()),
+            Input::IntTensor(input) => gather(input, self.axis, indices).map(|t| t.into()),
+            Input::FloatTensor(input) => gather(input, self.axis, indices).map(|t| t.into()),
         }
     }
 }
@@ -465,8 +465,8 @@ impl Operator for Gemm {
         let b = get_input_as_float(inputs, 1)?;
         let c = get_optional_input_as_float(inputs, 2)?;
         gemm_op(
-            &a,
-            &b,
+            a,
+            b,
             c,
             self.alpha,
             self.beta,
@@ -560,7 +560,7 @@ impl Operator for Reshape {
     fn run(&self, inputs: &[Input]) -> Result<Output, OpError> {
         let input = get_input_as_float(inputs, 0)?;
         let shape = get_input_as_int(inputs, 1)?;
-        reshape(&input, &shape).map(|t| t.into())
+        reshape(input, shape).map(|t| t.into())
     }
 
     fn can_run_in_place(&self) -> bool {
@@ -739,7 +739,7 @@ pub fn slice<T: Copy>(
     let ranges = slice_ranges(input.shape(), starts, ends, axes);
     let sliced_data = input.slice_elements(&ranges).collect();
     let sliced_shape = ranges.iter().map(|(start, end)| end - start).collect();
-    from_data(sliced_shape, sliced_data).into()
+    from_data(sliced_shape, sliced_data)
 }
 
 /// Clip the dimensions of the input tensor specified by `axes` to the ranges
@@ -835,8 +835,8 @@ impl Operator for Squeeze {
         let input = inputs.get(0).ok_or(OpError::MissingInputs)?;
         let axes = self.axes.as_ref().map(|a| &a[..]);
         let result = match input {
-            Input::FloatTensor(t) => squeeze(&t, axes).into(),
-            Input::IntTensor(t) => squeeze(&t, axes).into(),
+            Input::FloatTensor(t) => squeeze(t, axes).into(),
+            Input::IntTensor(t) => squeeze(t, axes).into(),
         };
         Ok(result)
     }
@@ -887,17 +887,17 @@ impl Operator for Transpose {
 
     fn run(&self, inputs: &[Input]) -> Result<Output, OpError> {
         let input = inputs.get(0).ok_or(OpError::MissingInputs)?;
-        let perm_slice = self.perm.as_ref().map(|v| v.as_slice());
+        let perm_slice = self.perm.as_deref();
         let result = match input {
-            Input::FloatTensor(input) => transpose(&input, perm_slice).into(),
-            Input::IntTensor(input) => transpose(&input, perm_slice).into(),
+            Input::FloatTensor(input) => transpose(input, perm_slice).into(),
+            Input::IntTensor(input) => transpose(input, perm_slice).into(),
         };
         Ok(result)
     }
 }
 
 pub fn unsqueeze<T: Copy>(input: &Tensor<T>, axes: &[usize]) -> Tensor<T> {
-    let mut new_shape: Vec<_> = input.shape().iter().copied().collect();
+    let mut new_shape: Vec<_> = input.shape().to_vec();
     let mut sorted_axes: Vec<_> = axes.iter().collect();
     sorted_axes.sort();
     for &axis in sorted_axes {
@@ -919,8 +919,8 @@ impl Operator for Unsqueeze {
     fn run(&self, inputs: &[Input]) -> Result<Output, OpError> {
         let input = inputs.get(0).ok_or(OpError::MissingInputs)?;
         let result = match input {
-            Input::FloatTensor(input) => unsqueeze(&input, &self.axes).into(),
-            Input::IntTensor(input) => unsqueeze(&input, &self.axes).into(),
+            Input::FloatTensor(input) => unsqueeze(input, &self.axes).into(),
+            Input::IntTensor(input) => unsqueeze(input, &self.axes).into(),
         };
         Ok(result)
     }

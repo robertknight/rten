@@ -242,7 +242,7 @@ impl<T: Copy> Tensor<T> {
         }
 
         self.shape = shape.into();
-        self.strides = strides_for_shape(&shape);
+        self.strides = strides_for_shape(shape);
     }
 
     /// Re-order the dimensions according to `dims`.
@@ -662,7 +662,7 @@ impl IndexIterator {
         }
     }
 
-    pub fn next<'a>(&'a mut self) -> Option<&'a [usize]> {
+    pub fn next(&mut self) -> Option<&[usize]> {
         // Find dimension where the last element has not been reached.
         let mut dim = self.current.len() - 1;
         while dim > 0 && self.current[dim] >= self.ranges[dim].end - 1 {
@@ -701,7 +701,7 @@ fn strides_for_shape(shape: &[usize]) -> Vec<usize> {
 pub fn zero_tensor<T: Copy + Default>(shape: &[usize]) -> Tensor<T> {
     let n_elts = shape.iter().product();
     let data = vec![T::default(); n_elts];
-    let strides = strides_for_shape(&shape);
+    let strides = strides_for_shape(shape);
     Tensor {
         data,
         base: 0,
@@ -754,7 +754,7 @@ pub fn from_2d_slice<T: Copy>(data: &[&[T]]) -> Tensor<T> {
     let mut result = Vec::new();
     for row in data {
         assert!(cols == row.len(), "All row slices must have same length");
-        result.extend_from_slice(&row);
+        result.extend_from_slice(row);
     }
 
     from_data(vec![rows, cols], result)

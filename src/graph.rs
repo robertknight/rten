@@ -64,7 +64,7 @@ pub struct Graph {
     nodes: Vec<Node>,
 }
 
-#[derive(PartialEq, Debug)]
+#[derive(Eq, PartialEq, Debug)]
 pub enum RunError {
     /// An input or output node ID is invalid
     InvalidNodeId,
@@ -156,8 +156,7 @@ impl Graph {
     pub fn node_name(&self, id: NodeId) -> String {
         self.nodes
             .get(id)
-            .map(|node| node.name())
-            .flatten()
+            .and_then(|node| node.name())
             .map(|s| s.to_string())
             .unwrap_or_else(|| format!("[ID: {}]", id))
     }
@@ -243,8 +242,8 @@ impl Graph {
                     op_inputs.push(value);
                 } else if let Some(value) = temp_values.get(node_id) {
                     let input = match value {
-                        Output::IntTensor(t) => Input::IntTensor(&t),
-                        Output::FloatTensor(t) => Input::FloatTensor(&t),
+                        Output::IntTensor(t) => Input::IntTensor(t),
+                        Output::FloatTensor(t) => Input::FloatTensor(t),
                     };
                     op_inputs.push(input);
                 } else {

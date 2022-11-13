@@ -32,7 +32,7 @@ impl Model {
     }
 }
 
-fn padding_from_attrs<'a>(mode: PadMode, pads: Option<flatbuffers::Vector<'a, u32>>) -> Padding {
+fn padding_from_attrs(mode: PadMode, pads: Option<flatbuffers::Vector<'_, u32>>) -> Padding {
     match (mode, pads) {
         (PadMode::Same, _) => Padding::Same,
         (PadMode::Fixed, Some(pads)) => Padding::Fixed([
