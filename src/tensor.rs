@@ -44,11 +44,7 @@ impl<T: Copy> Tensor<T> {
 
     /// Return the total number of elements in this tensor.
     pub fn len(&self) -> usize {
-        if self.shape.len() > 0 {
-            self.shape.iter().product()
-        } else {
-            1
-        }
+        self.shape.iter().product()
     }
 
     /// Clip dimension `dim` to `[start, end)`. The new size for the dimension
