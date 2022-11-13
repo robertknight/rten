@@ -34,18 +34,6 @@ impl<T: Copy> Tensor<T> {
         }
     }
 
-    pub fn clone(&self) -> Tensor<T> {
-        let data = self.data.clone();
-        let shape = self.shape.clone();
-        let strides = self.strides.clone();
-        Tensor {
-            data,
-            base: self.base,
-            shape,
-            strides,
-        }
-    }
-
     /// Clone this tensor with a new shape. The new shape must have the same
     /// total number of elements as the existing shape. See `reshape`.
     pub fn clone_with_shape(&self, shape: &[usize]) -> Tensor<T> {
@@ -334,6 +322,20 @@ impl<T: Copy> Tensor<T> {
         UncheckedViewMut {
             data: &mut self.data,
             offset,
+            strides,
+        }
+    }
+}
+
+impl<T: Copy> Clone for Tensor<T> {
+    fn clone(&self) -> Tensor<T> {
+        let data = self.data.clone();
+        let shape = self.shape.clone();
+        let strides = self.strides.clone();
+        Tensor {
+            data,
+            base: self.base,
+            shape,
             strides,
         }
     }
