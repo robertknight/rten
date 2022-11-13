@@ -264,7 +264,7 @@ pub fn conv_2d(
     padding: Padding,
     groups: usize,
     stride: usize,
-) -> Tensor {
+) -> Result<Tensor, OpError> {
     let [batch, in_c, in_h, in_w] = input.dims();
     let [out_c, k_in_c, k_h, k_w] = kernel.dims();
     let (out_h, out_w, fixed_padding) =
@@ -275,28 +275,32 @@ pub fn conv_2d(
     let has_padding = pad_top > 0 || pad_left > 0 || pad_bottom > 0 || pad_right > 0;
 
     if batch == 1 && k_h == 1 && k_w == 1 && !has_padding && groups == 1 {
-        return conv_2d_pointwise(input, kernel, bias);
+        return Ok(conv_2d_pointwise(input, kernel, bias));
     }
 
     let out_channels_per_group = out_c / groups;
     let in_channels_per_group = in_c / groups;
 
     if in_channels_per_group != k_in_c {
-        panic!(
-            "Input channels (per group) {} does not match kernel input channels {}",
-            in_channels_per_group, k_in_c
-        );
+        return Err(OpError::IncompatibleInputShapes(
+            "Input channels (per group) does not match kernel input channels",
+        ));
     }
 
     if groups == 0 || in_c % groups != 0 || out_c % groups != 0 {
-        panic!(
-            "Input channels {} and output channels {} must be divisible by group count {}",
-            in_c, out_c, groups
-        );
+        return Err(OpError::IncompatibleInputShapes(
+            "Input channels and output channels must be divisible by group count",
+        ));
     }
 
     if in_c == out_c && groups == in_c {
-        return conv_2d_depthwise(input, kernel, bias, fixed_padding, stride);
+        return Ok(conv_2d_depthwise(
+            input,
+            kernel,
+            bias,
+            fixed_padding,
+            stride,
+        ));
     }
 
     let n_patches = out_h * out_w;
@@ -366,7 +370,7 @@ pub fn conv_2d(
 
     output.reshape(&[batch, out_c, out_h, out_w]);
 
-    output
+    Ok(output)
 }
 
 #[derive(Debug)]
@@ -386,7 +390,7 @@ impl Operator for Conv2d {
         let input = get_input_as_float(inputs, 0)?;
         let weight = get_input_as_float(inputs, 1)?;
         let bias = get_optional_input_as_float(inputs, 2)?;
-        Ok(conv_2d(input, weight, bias, self.padding, self.groups, self.stride).into())
+        conv_2d(input, weight, bias, self.padding, self.groups, self.stride).map(|t| t.into())
     }
 }
 
@@ -399,15 +403,14 @@ pub fn conv_transpose_2d(
     kernel: &Tensor,
     bias: Option<&Tensor>,
     stride: usize,
-) -> Tensor {
+) -> Result<Tensor, OpError> {
     let [batch, in_c, in_h, in_w] = input.dims();
     let [k_in_c, out_c, k_h, k_w] = kernel.dims();
 
     if in_c != k_in_c {
-        panic!(
-            "Input channels {} does not match kernel input channels {}",
-            in_c, k_in_c
-        )
+        return Err(OpError::IncompatibleInputShapes(
+            "Input channels does not match kernel input channels",
+        ));
     }
 
     let out_h = (in_h - 1) * stride + k_h;
@@ -448,7 +451,7 @@ pub fn conv_transpose_2d(
         }
     }
 
-    output
+    Ok(output)
 }
 
 #[derive(Debug)]
@@ -466,7 +469,7 @@ impl Operator for ConvTranspose2d {
         let input = get_input_as_float(inputs, 0)?;
         let weight = get_input_as_float(inputs, 1)?;
         let bias = get_optional_input_as_float(inputs, 2)?;
-        Ok(conv_transpose_2d(input, weight, bias, self.stride).into())
+        conv_transpose_2d(input, weight, bias, self.stride).map(|t| t.into())
     }
 }
 
@@ -576,7 +579,8 @@ mod tests {
             Padding::Fixed([1, 1, 1, 1]),
             1, /* groups */
             1, /* stride */
-        );
+        )
+        .unwrap();
         let reference_result = reference_conv(
             &input,
             &kernel,
@@ -597,7 +601,8 @@ mod tests {
             Padding::Fixed([0, 0, 0, 0]),
             1, /* groups */
             1, /* stride */
-        );
+        )
+        .unwrap();
         let reference_result = reference_conv(
             &input,
             &kernel,
@@ -618,7 +623,8 @@ mod tests {
             Padding::Fixed([0, 0, 0, 0]),
             1, /* groups */
             1, /* stride */
-        );
+        )
+        .unwrap();
         let reference_result = reference_conv(
             &input,
             &kernel,
@@ -683,7 +689,8 @@ mod tests {
             Padding::Fixed([0, 0, 1, 1]),
             1, /* groups */
             1, /* stride */
-        );
+        )
+        .unwrap();
         let reference_result = reference_conv(
             &input,
             &kernel,
@@ -710,7 +717,8 @@ mod tests {
             Padding::Fixed([0, 0, 1, 1]),
             10, /* groups */
             1,  /* stride */
-        );
+        )
+        .unwrap();
         let reference_result = reference_conv(
             &input,
             &kernel,
@@ -738,7 +746,8 @@ mod tests {
             Padding::Fixed([0, 0, 0, 0]),
             1, /* groups */
             1, /* stride */
-        );
+        )
+        .unwrap();
         let reference_result = reference_conv(
             &input,
             &kernel,
@@ -795,7 +804,8 @@ mod tests {
             Padding::Fixed([0, 0, 0, 0]),
             3, /* groups */
             1, /* stride */
-        );
+        )
+        .unwrap();
 
         expect_equal(&result, &expected)?;
         expect_equal(&result, &reference_result)
@@ -817,7 +827,8 @@ mod tests {
             Padding::Fixed([1, 1, 1, 1]),
             2, /* groups */
             1, /* stride */
-        );
+        )
+        .unwrap();
         let reference_result = reference_conv(
             &input,
             &kernel,
@@ -846,7 +857,8 @@ mod tests {
                         Padding::Fixed([pad, pad, pad, pad]),
                         1,      /* groups */
                         stride, /* stride */
-                    );
+                    )
+                    .unwrap();
                     let reference_result = reference_conv(
                         &input,
                         &kernel,
@@ -879,7 +891,8 @@ mod tests {
                         Padding::Fixed([pad, pad, pad, pad]),
                         3,      /* groups */
                         stride, /* stride */
-                    );
+                    )
+                    .unwrap();
                     let reference_result = reference_conv(
                         &input,
                         &kernel,
@@ -908,7 +921,7 @@ mod tests {
             ],
         );
 
-        let result = conv_transpose_2d(&input, &kernel, None, 2);
+        let result = conv_transpose_2d(&input, &kernel, None, 2).unwrap();
         expect_equal(&result, &expected)?;
 
         let mut expected_with_bias = from_data(expected.shape().into(), expected.data().into());
@@ -916,7 +929,7 @@ mod tests {
             expected_with_bias.data_mut()[i] += 1.234;
         }
         let bias = from_data(vec![1], vec![1.234]);
-        let result = conv_transpose_2d(&input, &kernel, Some(&bias), 2);
+        let result = conv_transpose_2d(&input, &kernel, Some(&bias), 2).unwrap();
         expect_equal(&result, &expected_with_bias)
     }
 }

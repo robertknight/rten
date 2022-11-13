@@ -24,12 +24,21 @@ fn choose_broadcast_shape<'a>(a: &'a [usize], b: &'a [usize]) -> &'a [usize] {
 /// Compute the result of applying the binary operation `op` to corresponding
 /// elements of `a` and `b`. The shapes of `a` and `b` are broadcast to a
 /// matching shape if necessary.
-fn binary_op<T: Copy + Debug, F: Fn(T, T) -> T>(a: &Tensor<T>, b: &Tensor<T>, op: F) -> Tensor<T> {
+fn binary_op<T: Copy + Debug, F: Fn(T, T) -> T>(
+    a: &Tensor<T>,
+    b: &Tensor<T>,
+    op: F,
+) -> Result<Tensor<T>, OpError> {
     let out_shape = choose_broadcast_shape(a.shape(), b.shape());
+    if !a.can_broadcast(out_shape) || !b.can_broadcast(out_shape) {
+        return Err(OpError::IncompatibleInputShapes(
+            "Cannot broadcast inputs to compatible shape",
+        ));
+    }
     let a_elts = a.broadcast_elements(out_shape);
     let b_elts = b.broadcast_elements(out_shape);
     let out_data = zip(a_elts, b_elts).map(|(a, b)| op(a, b)).collect();
-    from_data(out_shape.into(), out_data)
+    Ok(from_data(out_shape.into(), out_data))
 }
 
 /// Return true if an elementwise binary operation can be performed in-place
@@ -51,7 +60,7 @@ fn binary_op_in_place<T: Copy + Debug, F: Fn(&mut T, T)>(a: &mut Tensor<T>, b: &
 }
 
 /// Perform elementwise addition of two tensors.
-pub fn add(a: &Tensor, b: &Tensor) -> Tensor {
+pub fn add(a: &Tensor, b: &Tensor) -> Result<Tensor, OpError> {
     binary_op(a, b, |x, y| x + y)
 }
 
@@ -71,7 +80,7 @@ impl Operator for Add {
     fn run(&self, inputs: &[Input]) -> Result<Output, OpError> {
         let a = get_input_as_float(inputs, 0)?;
         let b = get_input_as_float(inputs, 1)?;
-        Ok(add(a, b).into())
+        add(a, b).map(|t| t.into())
     }
 
     fn can_run_in_place(&self) -> bool {
@@ -92,7 +101,7 @@ impl Operator for Add {
 }
 
 /// Multiply two tensors elementwise.
-pub fn mul(a: &Tensor, b: &Tensor) -> Tensor {
+pub fn mul(a: &Tensor, b: &Tensor) -> Result<Tensor, OpError> {
     binary_op(a, b, |x, y| x * y)
 }
 
@@ -112,7 +121,7 @@ impl Operator for Mul {
     fn run(&self, inputs: &[Input]) -> Result<Output, OpError> {
         let a = get_input_as_float(inputs, 0)?;
         let b = get_input_as_float(inputs, 1)?;
-        Ok(mul(a, b).into())
+        mul(a, b).map(|t| t.into())
     }
 
     fn can_run_in_place(&self) -> bool {
@@ -143,7 +152,7 @@ mod tests {
         let a = from_data(vec![2, 2], vec![1., 2., 3., 4.]);
         let b = from_data(vec![2, 2], vec![10., 20., 30., 40.]);
         let expected = from_data(vec![2, 2], vec![11., 22., 33., 44.]);
-        let result = add(&a, &b);
+        let result = add(&a, &b).unwrap();
         expect_equal(&result, &expected)
     }
 
@@ -154,11 +163,11 @@ mod tests {
         let a = from_data(vec![2, 2], vec![1., 2., 3., 4.]);
         let b = from_data(vec![1], vec![10.]);
         let expected = from_data(vec![2, 2], vec![11., 12., 13., 14.]);
-        let result = add(&a, &b);
+        let result = add(&a, &b).unwrap();
         expect_equal(&result, &expected)?;
 
         // Try alternative ordering for inputs.
-        let result = add(&b, &a);
+        let result = add(&b, &a).unwrap();
         expect_equal(&result, &expected)?;
 
         // Case where the length of tensor shapes needs to be compared before
@@ -167,13 +176,13 @@ mod tests {
         let b = from_data(vec![1, 5], vec![1., 2., 3., 4., 5.]);
         let expected = from_data(vec![1, 5], vec![2., 4., 6., 8., 10.]);
 
-        let result = add(&a, &b);
+        let result = add(&a, &b).unwrap();
         expect_equal(&result, &expected)?;
 
         // Case where one of the inputs is a scalar.
         let a = from_scalar(3.0);
         let b = from_data(vec![2, 2], vec![1.0, 2.0, 3.0, 4.0]);
-        let result = add(&a, &b);
+        let result = add(&a, &b).unwrap();
         let expected = from_data(vec![2, 2], vec![4.0, 5.0, 6.0, 7.0]);
         expect_equal(&result, &expected)
     }
@@ -210,7 +219,7 @@ mod tests {
         let a = from_data(vec![2, 2], vec![1., 2., 3., 4.]);
         let b = from_data(vec![2, 2], vec![10., 20., 30., 40.]);
         let expected = from_data(vec![2, 2], vec![10., 40., 90., 160.]);
-        let result = mul(&a, &b);
+        let result = mul(&a, &b).unwrap();
         expect_equal(&result, &expected)
     }
 

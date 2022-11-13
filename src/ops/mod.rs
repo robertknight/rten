@@ -140,10 +140,16 @@ pub enum OpError {
 
     /// The shapes of input tensors are not compatible with each other or with
     /// the operator's attributes.
-    IncompatibleInputShapes,
+    IncompatibleInputShapes(&'static str),
 
     /// The operator was called with fewer inputs than expected.
     MissingInputs,
+
+    /// An input has a value that is incorrect.
+    InvalidValue(&'static str),
+
+    /// An input or attribute has a value that is not currently supported.
+    UnsupportedValue(&'static str),
 }
 
 /// An Operator is a computation step in a graph.
@@ -339,10 +345,12 @@ pub fn gather<T: Copy + Default>(
     input: &Tensor<T>,
     axis: usize,
     indices: &Tensor<i32>,
-) -> Tensor<T> {
+) -> Result<Tensor<T>, OpError> {
     match (input.shape().len(), axis, indices.item()) {
-        (1, 0, Some(index)) => from_scalar(input[[index as usize]]),
-        _ => panic!("Gather operator only supports indexing into a 1D tensor with a scalar"),
+        (1, 0, Some(index)) => Ok(from_scalar(input[[index as usize]])),
+        _ => Err(OpError::UnsupportedValue(
+            "Gather operator only supports indexing into a 1D tensor with a scalar",
+        )),
     }
 }
 
@@ -359,11 +367,10 @@ impl Operator for Gather {
     fn run(&self, inputs: &[Input]) -> Result<Output, OpError> {
         let input = inputs.get(0).ok_or(OpError::MissingInputs)?;
         let indices = get_input_as_int(inputs, 1)?;
-        let result = match input {
-            Input::IntTensor(input) => gather(input, self.axis, &indices).into(),
-            Input::FloatTensor(input) => gather(input, self.axis, &indices).into(),
-        };
-        Ok(result)
+        match input {
+            Input::IntTensor(input) => gather(input, self.axis, &indices).map(|t| t.into()),
+            Input::FloatTensor(input) => gather(input, self.axis, &indices).map(|t| t.into()),
+        }
     }
 }
 
@@ -389,12 +396,16 @@ pub fn gemm_op(
     beta: f32,
     transpose_a: bool,
     transpose_b: bool,
-) -> Tensor {
+) -> Result<Tensor, OpError> {
     if alpha != 1.0 {
-        panic!("Gemm only supports `alpha` value of 1.0");
+        return Err(OpError::UnsupportedValue(
+            "Gemm only supports `alpha` value of 1.0",
+        ));
     }
     if beta != 0.0 && beta != 1.0 {
-        panic!("Gemm only supports `beta` values of 0.0 and 1.0");
+        return Err(OpError::UnsupportedValue(
+            "Gemm only supports `beta` values of 0.0 and 1.0",
+        ));
     }
 
     let (a_rows, a_cols, a_row_stride, a_col_stride) = if transpose_a {
@@ -437,7 +448,7 @@ pub fn gemm_op(
         },
     );
 
-    output
+    Ok(output)
 }
 
 impl Operator for Gemm {
@@ -449,7 +460,7 @@ impl Operator for Gemm {
         let a = get_input_as_float(inputs, 0)?;
         let b = get_input_as_float(inputs, 1)?;
         let c = get_optional_input_as_float(inputs, 2)?;
-        let result = gemm_op(
+        gemm_op(
             &a,
             &b,
             c,
@@ -458,23 +469,24 @@ impl Operator for Gemm {
             self.transpose_a,
             self.transpose_b,
         )
-        .into();
-        Ok(result)
+        .map(|t| t.into())
     }
 }
 
-pub fn matmul(a: &Tensor, b: &Tensor) -> Tensor {
+pub fn matmul(a: &Tensor, b: &Tensor) -> Result<Tensor, OpError> {
     let [a_rows, a_cols] = a.dims();
     let [b_rows, b_cols] = b.dims();
 
     if a_cols != b_rows {
-        panic!("Columns of first matrix does not match rows of second matrix")
+        return Err(OpError::IncompatibleInputShapes(
+            "Columns of first matrix does not match rows of second matrix",
+        ));
     }
 
     let mut output = zero_tensor(&[a_rows, b_cols]);
     gemm(&mut output, a, b);
 
-    output
+    Ok(output)
 }
 
 #[derive(Debug)]
@@ -488,22 +500,24 @@ impl Operator for MatMul {
     fn run(&self, inputs: &[Input]) -> Result<Output, OpError> {
         let a = get_input_as_float(inputs, 0)?;
         let b = get_input_as_float(inputs, 1)?;
-        Ok(matmul(a, b).into())
+        matmul(a, b).map(|t| t.into())
     }
 }
 
-pub fn reshape<T: Copy>(input: &Tensor<T>, shape: &Tensor<i32>) -> Tensor<T> {
+pub fn reshape<T: Copy>(input: &Tensor<T>, shape: &Tensor<i32>) -> Result<Tensor<T>, OpError> {
     // If exactly one of the new shape's dimensions is -1, infer the size
     // from the input length and the sizes of the other dimensions.
     let mut unspecified_dim = None;
     let mut specified_dims_size = 1;
     for (dim, size) in shape.elements().enumerate() {
         if size < -1 {
-            panic!("Invalid dimension size {} in shape", size);
+            return Err(OpError::InvalidValue("Invalid dimension size in shape"));
         } else if size != -1 {
             specified_dims_size *= size as usize;
         } else if unspecified_dim.is_some() {
-            panic!("Multiple dimensions in new shape set to -1");
+            return Err(OpError::InvalidValue(
+                "Multiple dimensions in new shape set to -1",
+            ));
         } else {
             unspecified_dim = Some(dim);
         }
@@ -516,7 +530,9 @@ pub fn reshape<T: Copy>(input: &Tensor<T>, shape: &Tensor<i32>) -> Tensor<T> {
         ),
     };
     if remainder != 0 {
-        panic!("Input length must be a multiple of specified dimensions");
+        return Err(OpError::InvalidValue(
+            "Input length must be a multiple of specified dimensions",
+        ));
     }
 
     let complete_shape: Vec<_> = shape
@@ -527,7 +543,7 @@ pub fn reshape<T: Copy>(input: &Tensor<T>, shape: &Tensor<i32>) -> Tensor<T> {
         })
         .collect();
 
-    input.clone_with_shape(&complete_shape)
+    Ok(input.clone_with_shape(&complete_shape))
 }
 
 #[derive(Debug)]
@@ -540,7 +556,7 @@ impl Operator for Reshape {
     fn run(&self, inputs: &[Input]) -> Result<Output, OpError> {
         let input = get_input_as_float(inputs, 0)?;
         let shape = get_input_as_int(inputs, 1)?;
-        Ok(reshape(&input, &shape).into())
+        reshape(&input, &shape).map(|t| t.into())
     }
 
     fn can_run_in_place(&self) -> bool {
@@ -569,26 +585,30 @@ impl Operator for Shape {
     }
 }
 
-pub fn concat<T: Copy>(a: &Tensor<T>, b: &Tensor<T>, dim: usize) -> Tensor<T> {
+pub fn concat<T: Copy>(a: &Tensor<T>, b: &Tensor<T>, dim: usize) -> Result<Tensor<T>, OpError> {
     let a_shape = a.shape();
     let b_shape = b.shape();
 
     if a_shape.len() != b_shape.len() {
-        panic!("Tensors must have the same number of dimensions");
+        return Err(OpError::IncompatibleInputShapes(
+            "Tensors must have the same number of dimensions",
+        ));
     }
     if dim >= a_shape.len() {
-        panic!("Dimension {} is outside of range 0..{}", dim, a_shape.len());
+        return Err(OpError::InvalidValue("dim is larger than input rank"));
     }
     for d in 0..a_shape.len() {
         if d != dim && a_shape[d] != b_shape[d] {
-            panic!("Dimensions must be the same except for concat dim");
+            return Err(OpError::IncompatibleInputShapes(
+                "Dimensions must be the same except for concat dim",
+            ));
         }
     }
 
     if a_shape[dim] == 0 {
-        return b.clone();
+        return Ok(b.clone());
     } else if b_shape[dim] == 0 {
-        return a.clone();
+        return Ok(a.clone());
     }
 
     let mut out_data = Vec::with_capacity(a.len() + b.len());
@@ -613,7 +633,7 @@ pub fn concat<T: Copy>(a: &Tensor<T>, b: &Tensor<T>, dim: usize) -> Tensor<T> {
     let mut out_shape: Vec<_> = a_shape.into();
     out_shape[dim] += b_shape[dim];
 
-    from_data(out_shape, out_data)
+    Ok(from_data(out_shape, out_data))
 }
 
 #[derive(Debug)]
@@ -632,8 +652,10 @@ impl Operator for Concat {
         let b = inputs.get(1).ok_or(OpError::MissingInputs)?;
 
         match (a, b) {
-            (Input::FloatTensor(a), Input::FloatTensor(b)) => Ok(concat(a, b, self.dim).into()),
-            (Input::IntTensor(a), Input::IntTensor(b)) => Ok(concat(a, b, self.dim).into()),
+            (Input::FloatTensor(a), Input::FloatTensor(b)) => {
+                concat(a, b, self.dim).map(|t| t.into())
+            }
+            (Input::IntTensor(a), Input::IntTensor(b)) => concat(a, b, self.dim).map(|t| t.into()),
             _ => Err(OpError::UnsupportedInputType),
         }
     }
@@ -774,6 +796,7 @@ pub fn squeeze_in_place<T: Copy>(input: &mut Tensor<T>, axes: Option<&[usize]>) 
         .filter(|(dim, &size)| {
             if let Some(axes) = axes {
                 let keep_axis = !axes.contains(dim);
+                // TODO - Turn this into a result
                 assert!(
                     keep_axis || size == 1,
                     "Can only remove dimensions of size 1"
@@ -904,7 +927,8 @@ mod tests {
     use crate::linalg::gemm;
     use crate::ops::{
         batch_norm, batch_norm_in_place, concat, gather, gemm_op, matmul, pad_2d, reshape, slice,
-        slice_in_place, squeeze, squeeze_in_place, transpose, unsqueeze, Operator, Reshape, Shape,
+        slice_in_place, squeeze, squeeze_in_place, transpose, unsqueeze, OpError, Operator,
+        Reshape, Shape,
     };
     use crate::rng::XorShiftRNG;
     use crate::tensor::{from_data, from_scalar, from_vec, random_tensor, zero_tensor, Tensor};
@@ -958,7 +982,7 @@ mod tests {
         // a tensor shape.
         let input = from_vec(vec![1, 20, 30]);
         let indices = from_scalar(1);
-        let result = gather(&input, 0, &indices);
+        let result = gather(&input, 0, &indices).unwrap();
         assert_eq!(result.item(), Some(20))
     }
 
@@ -971,7 +995,7 @@ mod tests {
         let mut expected = zero_tensor(&[3, 8]);
         gemm(&mut expected, &a, &b);
 
-        let result = gemm_op(&a, &b, None, 1.0, 1.0, false, false);
+        let result = gemm_op(&a, &b, None, 1.0, 1.0, false, false).unwrap();
 
         expect_equal(&result, &expected)
     }
@@ -989,7 +1013,7 @@ mod tests {
         let mut expected = zero_tensor(&[3, 8]);
         gemm(&mut expected, &a_transposed, &b_transposed);
 
-        let result = gemm_op(&a, &b, None, 1.0, 1.0, true, true);
+        let result = gemm_op(&a, &b, None, 1.0, 1.0, true, true).unwrap();
 
         expect_equal(&result, &expected)
     }
@@ -1004,7 +1028,7 @@ mod tests {
         let mut expected = c.clone();
         gemm(&mut expected, &a, &b);
 
-        let result = gemm_op(&a, &b, Some(&c), 1.0, 1.0, false, false);
+        let result = gemm_op(&a, &b, Some(&c), 1.0, 1.0, false, false).unwrap();
 
         expect_equal(&result, &expected)
     }
@@ -1018,7 +1042,7 @@ mod tests {
         let mut expected = zero_tensor(&[3, 8]);
         gemm(&mut expected, &a, &b);
 
-        let result = matmul(&a, &b);
+        let result = matmul(&a, &b).unwrap();
         expect_equal(&result, &expected)
     }
 
@@ -1028,31 +1052,39 @@ mod tests {
         let input = from_data(vec![2, 2], vec![-0.5, 0.5, 3.0, -5.5]);
         let shape = from_vec(vec![1, -1, 2]);
         let expected = input.clone_with_shape(&[1, 2, 2]);
-        let result = reshape(&input, &shape);
+        let result = reshape(&input, &shape).unwrap();
         expect_equal(&result, &expected)?;
 
         // Reshape with an unspecified (-1) dim and zero-length input
         let zero_sized_input = from_data(vec![4, 0, 1], vec![]);
         let shape = from_vec(vec![100, -1]);
-        let result = reshape(&zero_sized_input, &shape);
+        let result = reshape(&zero_sized_input, &shape).unwrap();
         let expected = zero_sized_input.clone_with_shape(&[100, 0]);
         expect_equal(&result, &expected)
     }
 
     #[test]
-    #[should_panic(expected = "Multiple dimensions in new shape set to -1")]
     fn test_reshape_with_multiple_unspecified_dims() {
         let input = from_data(vec![2, 2], vec![-0.5, 0.5, 3.0, -5.5]);
         let shape = from_vec(vec![1, -1, -1]);
-        reshape(&input, &shape);
+        assert_eq!(
+            reshape(&input, &shape).err(),
+            Some(OpError::InvalidValue(
+                "Multiple dimensions in new shape set to -1"
+            ))
+        );
     }
 
     #[test]
-    #[should_panic(expected = "Input length must be a multiple of specified dimensions")]
     fn test_reshape_with_unsolvable_unspecified_dim() {
         let input = from_data(vec![2, 2], vec![-0.5, 0.5, 3.0, -5.5]);
         let shape = from_vec(vec![5, -1]);
-        reshape(&input, &shape);
+        assert_eq!(
+            reshape(&input, &shape).err(),
+            Some(OpError::InvalidValue(
+                "Input length must be a multiple of specified dimensions"
+            ))
+        );
     }
 
     #[test]
@@ -1078,12 +1110,12 @@ mod tests {
 
         // Test concatenation along the first dimension
         let expected = from_data(vec![4, 2, 1], vec![0.1, 0.2, 0.3, 0.4, 1.0, 2.0, 3.0, 4.0]);
-        let result = concat(&a, &b, 0);
+        let result = concat(&a, &b, 0).unwrap();
         expect_equal(&result, &expected)?;
 
         // Test concatenation along a non-first dimension
         let expected = from_data(vec![2, 2, 2], vec![0.1, 1.0, 0.2, 2.0, 0.3, 3.0, 0.4, 4.0]);
-        let result = concat(&a, &b, 2);
+        let result = concat(&a, &b, 2).unwrap();
         expect_equal(&result, &expected)
     }
 
