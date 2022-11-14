@@ -20,6 +20,35 @@ pub struct Tensor<T: Copy = f32> {
     strides: Vec<usize>,
 }
 
+/// Trait for indexing a `Tensor`
+pub trait TensorIndex {
+    /// Return the number of dimensions in the index.
+    fn len(&self) -> usize;
+
+    /// Return the index for dimension `dim`
+    fn index(&self, dim: usize) -> usize;
+}
+
+impl<const N: usize> TensorIndex for [usize; N] {
+    fn len(&self) -> usize {
+        N
+    }
+
+    fn index(&self, dim: usize) -> usize {
+        self[dim]
+    }
+}
+
+impl TensorIndex for &[usize] {
+    fn len(&self) -> usize {
+        (self as &[usize]).len()
+    }
+
+    fn index(&self, dim: usize) -> usize {
+        self[dim]
+    }
+}
+
 impl<T: Copy> Tensor<T> {
     /// Return a copy of this tensor with each element replaced by `f(element)`
     pub fn map<F, U: Copy>(&self, f: F) -> Tensor<U>
@@ -257,21 +286,26 @@ impl<T: Copy> Tensor<T> {
     /// Return the offset of an element that corresponds to a given index.
     ///
     /// The length of `index` must match the tensor's dimension count.
-    pub fn offset<const N: usize>(&self, index: [usize; N]) -> usize {
+    ///
+    /// Panicks if the index length is incorrect or the value of an index
+    /// exceeds the size of the corresponding dimension.
+    pub fn offset<Idx: TensorIndex>(&self, index: Idx) -> usize {
         let shape = &self.shape;
-        if shape.len() != N {
-            panic!(
-                "Cannot access {} dim tensor with {} dim index",
-                shape.len(),
-                N
-            );
-        }
+        assert!(
+            shape.len() == index.len(),
+            "Cannot access {} dim tensor with {} dim index",
+            shape.len(),
+            index.len()
+        );
         let mut offset = self.base;
-        for i in 0..N {
-            if index[i] >= self.shape[i] {
-                panic!("Invalid index {} for dim {}", index[i], i);
-            }
-            offset += index[i] * self.stride(i)
+        for i in 0..index.len() {
+            assert!(
+                index.index(i) < self.shape[i],
+                "Invalid index {} for dim {}",
+                index.index(i),
+                i
+            );
+            offset += index.index(i) * self.stride(i)
         }
         offset
     }
@@ -350,15 +384,15 @@ impl<T: Copy> Clone for Tensor<T> {
     }
 }
 
-impl<const N: usize, T: Copy> Index<[usize; N]> for Tensor<T> {
+impl<I: TensorIndex, T: Copy> Index<I> for Tensor<T> {
     type Output = T;
-    fn index(&self, index: [usize; N]) -> &Self::Output {
+    fn index(&self, index: I) -> &Self::Output {
         &self.data[self.offset(index)]
     }
 }
 
-impl<const N: usize, T: Copy> IndexMut<[usize; N]> for Tensor<T> {
-    fn index_mut(&mut self, index: [usize; N]) -> &mut Self::Output {
+impl<I: TensorIndex, T: Copy> IndexMut<I> for Tensor<T> {
+    fn index_mut(&mut self, index: I) -> &mut Self::Output {
         let offset = self.offset(index);
         &mut self.data[offset]
     }
@@ -673,6 +707,28 @@ impl IndexIterator {
         }
     }
 
+    /// Return an iterator over all the indices where each dimension is between
+    /// `0` and `shape[dim]`.
+    pub fn from_shape(shape: &[usize]) -> IndexIterator {
+        let ranges = shape.iter().map(|&size| 0..size).collect();
+        let current = vec![0; shape.len()];
+        IndexIterator {
+            first: true,
+            current,
+            ranges,
+        }
+    }
+
+    /// Reset the iterator back to the first index.
+    pub fn reset(&mut self) {
+        self.first = true;
+        for i in 0..self.ranges.len() {
+            self.current[i] = self.ranges[i].start;
+        }
+    }
+
+    /// Return the index index in the sequence, or `None` after all indices
+    /// have been returned.
     pub fn next(&mut self) -> Option<&[usize]> {
         // Find dimension where the last element has not been reached.
         let mut dim = self.current.len() - 1;
@@ -836,10 +892,17 @@ mod tests {
         x.data[2] = 3.0;
         x.data[3] = 4.0;
 
+        // Index with fixed-sized array.
         assert_eq!(x[[0, 0]], 1.0);
         assert_eq!(x[[0, 1]], 2.0);
         assert_eq!(x[[1, 0]], 3.0);
         assert_eq!(x[[1, 1]], 4.0);
+
+        // Index with slice.
+        assert_eq!(x[[0, 0].as_slice()], 1.0);
+        assert_eq!(x[[0, 1].as_slice()], 2.0);
+        assert_eq!(x[[1, 0].as_slice()], 3.0);
+        assert_eq!(x[[1, 1].as_slice()], 4.0);
     }
 
     #[test]
