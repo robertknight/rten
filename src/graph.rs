@@ -165,7 +165,7 @@ impl Graph {
     /// processing steps and constant values defined by the graph.
     pub fn run(
         &self,
-        inputs: &[(NodeId, &Tensor)],
+        inputs: &[(NodeId, Input)],
         outputs: &[NodeId],
         opts: Option<RunOptions>,
     ) -> Result<Vec<Output>, RunError> {
@@ -345,7 +345,7 @@ impl Graph {
     /// omitted from the plan.
     fn create_plan(
         &self,
-        inputs: &[(NodeId, &Tensor)],
+        inputs: &[(NodeId, Input)],
         outputs: &[NodeId],
     ) -> Result<Vec<(NodeId, &OperatorNode)>, RunError> {
         // Map of output node to source operator
@@ -468,7 +468,9 @@ mod tests {
             ],
         );
 
-        let results = g.run(&[(input_id, &input)], &[relu_out], None).unwrap();
+        let results = g
+            .run(&[(input_id, (&input).into())], &[relu_out], None)
+            .unwrap();
 
         let expected = from_data(
             vec![1, 1, 3, 3],
@@ -540,11 +542,15 @@ mod tests {
 
         let input = from_data(vec![1], vec![1.]);
 
-        let results = g.run(&[(input_id, &input)], &[op_c], None).unwrap();
+        let results = g
+            .run(&[(input_id, (&input).into())], &[op_c], None)
+            .unwrap();
         let expected = from_data(vec![2], vec![2., 3.]);
         expect_equal(&results[0].as_float_ref().unwrap(), &expected)?;
 
-        let results = g.run(&[(input_id, &input)], &[op_d], None).unwrap();
+        let results = g
+            .run(&[(input_id, (&input).into())], &[op_d], None)
+            .unwrap();
         let expected = from_data(vec![2], vec![3., 2.]);
         expect_equal(&results[0].as_float_ref().unwrap(), &expected)
     }
@@ -561,7 +567,9 @@ mod tests {
             prev_output = g.add_op(None, Box::new(AddOne {}), &[prev_output]);
         }
 
-        let results = g.run(&[(input_id, &input)], &[prev_output], None).unwrap();
+        let results = g
+            .run(&[(input_id, (&input).into())], &[prev_output], None)
+            .unwrap();
 
         let expected = from_data(vec![5], vec![101., 102., 103., 104., 105.]);
         expect_equal(&results[0].as_float_ref().unwrap(), &expected)
@@ -574,7 +582,9 @@ mod tests {
         let input = from_data(vec![5], vec![1., 2., 3., 4., 5.]);
         let input_id = g.add_value(Some("input"));
 
-        let results = g.run(&[(input_id, &input)], &[input_id], None).unwrap();
+        let results = g
+            .run(&[(input_id, (&input).into())], &[input_id], None)
+            .unwrap();
 
         expect_equal(&results[0].as_float_ref().unwrap(), &input)
     }
@@ -657,23 +667,27 @@ mod tests {
         let op2_id = g.add_op(Some("op2"), Box::new(AddOneInPlace {}), &[op1_id]);
         let op3_id = g.add_op(Some("op3"), Box::new(AddOneInPlace {}), &[op2_id]);
         let op4_id = g.add_op(Some("op4"), Box::new(AddOneInPlace {}), &[op2_id]);
-        let input = zero_tensor(&[1, 1]);
+        let input = zero_tensor::<f32>(&[1, 1]);
 
         // First operator should not be run in-place, since it has an
         // immutable input. The result should be the same as the input.
-        let results = g.run(&[(input_id, &input)], &[op1_id], None).unwrap();
+        let results = g
+            .run(&[(input_id, (&input).into())], &[op1_id], None)
+            .unwrap();
         assert_eq!(results[0].as_float_ref().unwrap()[[0, 0]], 0.0);
 
         // Second operator should be run in-place, as it meets all the
         // requirements for this optimization.
-        let results = g.run(&[(input_id, &input)], &[op2_id], None).unwrap();
+        let results = g
+            .run(&[(input_id, (&input).into())], &[op2_id], None)
+            .unwrap();
         assert_eq!(results[0].as_float_ref().unwrap()[[0, 0]], 1.0);
 
         // Third op should not be run in place, because its input is re-used
         // for fourth op. Fourth op can run in place as by then, it is the
         // only consumer of its input.
         let results = g
-            .run(&[(input_id, &input)], &[op3_id, op4_id], None)
+            .run(&[(input_id, (&input).into())], &[op3_id, op4_id], None)
             .unwrap();
         assert_eq!(results[0].as_float_ref().unwrap()[[0, 0]], 1.0);
         assert_eq!(results[1].as_float_ref().unwrap()[[0, 0]], 2.0);

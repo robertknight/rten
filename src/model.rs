@@ -4,10 +4,10 @@ use std::collections::HashMap;
 
 use crate::graph::{Graph, NodeId, RunError, RunOptions};
 use crate::ops;
-use crate::ops::{DataType, Operator, Output, Padding};
+use crate::ops::{DataType, Input, Operator, Output, Padding};
 use crate::schema_generated as sg;
 use crate::schema_generated::{root_as_model, OperatorNode, OperatorType, PadMode};
-use crate::tensor::{from_data, Tensor};
+use crate::tensor::from_data;
 
 pub struct Model {
     node_ids: HashMap<String, NodeId>,
@@ -25,7 +25,7 @@ impl Model {
     /// The input and output nodes are specified via IDs looked up via `find_node`.
     pub fn run(
         &self,
-        inputs: &[(NodeId, &Tensor)],
+        inputs: &[(NodeId, Input)],
         outputs: &[NodeId],
         opts: Option<RunOptions>,
     ) -> Result<Vec<Output>, RunError> {
@@ -463,7 +463,7 @@ mod tests {
 
         let input = from_data(vec![1, 2, 2], vec![1., 2., -1., -2.]);
         let result = model
-            .run(&[(input_id, &input)], &[output_id], None)
+            .run(&[(input_id, (&input).into())], &[output_id], None)
             .unwrap();
 
         assert_eq!(result.len(), 1);
@@ -674,7 +674,11 @@ mod tests {
         for output in outputs {
             let output_id = model.find_node(output).unwrap();
             let result = model
-                .run(&[(input_node as usize, &input)], &[output_id], None)
+                .run(
+                    &[(input_node as usize, (&input).into())],
+                    &[output_id],
+                    None,
+                )
                 .unwrap();
             assert_eq!(result.len(), 1);
         }
@@ -686,7 +690,7 @@ mod tests {
         for output in outputs {
             let output_id = model.find_node(output).unwrap();
             let result = model
-                .run(&[(input_2d as usize, &input)], &[output_id], None)
+                .run(&[(input_2d as usize, (&input).into())], &[output_id], None)
                 .unwrap();
             assert_eq!(result.len(), 1);
         }

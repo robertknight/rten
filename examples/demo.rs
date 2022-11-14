@@ -64,7 +64,7 @@ fn main() {
     let img_tensor = tensor_from_image(600, 800, img_data);
 
     let result = model.run(
-        &[(input_id, &img_tensor)],
+        &[(input_id, (&img_tensor).into())],
         &[output_id],
         Some(RunOptions {
             timing: true,

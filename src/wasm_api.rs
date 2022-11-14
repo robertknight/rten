@@ -3,6 +3,7 @@ use wasm_bindgen::prelude::*;
 use std::iter::zip;
 
 use crate::model;
+use crate::ops::Input;
 use crate::tensor::{from_data, Tensor};
 
 #[wasm_bindgen]
@@ -34,7 +35,11 @@ impl Model {
         input: TensorList,
         output_ids: &[usize],
     ) -> Result<TensorList, String> {
-        let inputs: Vec<_> = zip(input_ids.iter().copied(), input.tensors.iter()).collect();
+        let inputs: Vec<(usize, Input)> = zip(
+            input_ids.iter().copied(),
+            input.tensors.iter().map(|tensor| tensor.into()),
+        )
+        .collect();
         let result = self.model.run(&inputs[..], output_ids, None);
         match result {
             Ok(outputs) => {
