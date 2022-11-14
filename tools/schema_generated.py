@@ -13,28 +13,29 @@ class OperatorType(object):
     Cast = 3
     Clip = 4
     Concat = 5
-    Conv2d = 6
-    ConvTranspose2d = 7
-    Div = 8
-    Gather = 9
-    Gemm = 10
-    GlobalAveragePool = 11
-    Identity = 12
-    LeakyRelu = 13
-    MatMul = 14
-    MaxPool2d = 15
-    Mul = 16
-    Pad2d = 17
-    Relu = 18
-    Reshape = 19
-    Shape = 20
-    Sigmoid = 21
-    Slice = 22
-    Squeeze = 23
-    Softmax = 24
-    Sub = 25
-    Transpose = 26
-    Unsqueeze = 27
+    ConstantOfShape = 6
+    Conv2d = 7
+    ConvTranspose2d = 8
+    Div = 9
+    Gather = 10
+    Gemm = 11
+    GlobalAveragePool = 12
+    Identity = 13
+    LeakyRelu = 14
+    MatMul = 15
+    MaxPool2d = 16
+    Mul = 17
+    Pad2d = 18
+    Relu = 19
+    Reshape = 20
+    Shape = 21
+    Sigmoid = 22
+    Slice = 23
+    Squeeze = 24
+    Softmax = 25
+    Sub = 26
+    Transpose = 27
+    Unsqueeze = 28
 
 
 class PadMode(object):
@@ -54,17 +55,18 @@ class OperatorAttrs(object):
     CastAttrs = 3
     ClipAttrs = 4
     ConcatAttrs = 5
-    Conv2dAttrs = 6
-    ConvTranspose2dAttrs = 7
-    GatherAttrs = 8
-    GemmAttrs = 9
-    LeakyReluAttrs = 10
-    MaxPool2dAttrs = 11
-    Pad2dAttrs = 12
-    SqueezeAttrs = 13
-    SoftmaxAttrs = 14
-    TransposeAttrs = 15
-    UnsqueezeAttrs = 16
+    ConstantOfShapeAttrs = 6
+    Conv2dAttrs = 7
+    ConvTranspose2dAttrs = 8
+    GatherAttrs = 9
+    GemmAttrs = 10
+    LeakyReluAttrs = 11
+    MaxPool2dAttrs = 12
+    Pad2dAttrs = 13
+    SqueezeAttrs = 14
+    SoftmaxAttrs = 15
+    TransposeAttrs = 16
+    UnsqueezeAttrs = 17
 
 
 class NodeKind(object):
@@ -301,6 +303,40 @@ class ConcatAttrs(object):
 def ConcatAttrsStart(builder): builder.StartObject(1)
 def ConcatAttrsAddDim(builder, dim): builder.PrependUint32Slot(0, dim, 0)
 def ConcatAttrsEnd(builder): return builder.EndObject()
+
+
+class ConstantOfShapeAttrs(object):
+    __slots__ = ['_tab']
+
+    @classmethod
+    def GetRootAs(cls, buf, offset=0):
+        n = flatbuffers.encode.Get(flatbuffers.packer.uoffset, buf, offset)
+        x = ConstantOfShapeAttrs()
+        x.Init(buf, n + offset)
+        return x
+
+    @classmethod
+    def GetRootAsConstantOfShapeAttrs(cls, buf, offset=0):
+        """This method is deprecated. Please switch to GetRootAs."""
+        return cls.GetRootAs(buf, offset)
+    @classmethod
+    def ConstantOfShapeAttrsBufferHasIdentifier(cls, buf, offset, size_prefixed=False):
+        return flatbuffers.util.BufferHasIdentifier(buf, offset, b"\x4D\x4F\x44\x4C", size_prefixed=size_prefixed)
+
+    # ConstantOfShapeAttrs
+    def Init(self, buf, pos):
+        self._tab = flatbuffers.table.Table(buf, pos)
+
+    # ConstantOfShapeAttrs
+    def IntValue(self):
+        o = flatbuffers.number_types.UOffsetTFlags.py_type(self._tab.Offset(4))
+        if o != 0:
+            return self._tab.Get(flatbuffers.number_types.Int32Flags, o + self._tab.Pos)
+        return 0
+
+def ConstantOfShapeAttrsStart(builder): builder.StartObject(1)
+def ConstantOfShapeAttrsAddIntValue(builder, intValue): builder.PrependInt32Slot(0, intValue, 0)
+def ConstantOfShapeAttrsEnd(builder): return builder.EndObject()
 
 
 class Conv2dAttrs(object):

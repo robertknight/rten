@@ -221,6 +221,19 @@ impl<'a> ModelBuilder<'a> {
                     .as_union_value(),
                 ),
             ),
+            OpType::ConstantOfShape(args) => (
+                OT::ConstantOfShape,
+                OA::ConstantOfShapeAttrs,
+                Some(
+                    sg::ConstantOfShapeAttrs::create(
+                        &mut self.builder,
+                        &sg::ConstantOfShapeAttrsArgs {
+                            int_value: args.value,
+                        },
+                    )
+                    .as_union_value(),
+                ),
+            ),
             OpType::Conv2d(args) => (
                 OT::Conv2d,
                 OA::Conv2dAttrs,

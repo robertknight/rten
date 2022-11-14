@@ -324,6 +324,19 @@ def op_node_from_onnx_operator(
 
             attrs["dim"] = require_attr(onnx_op.attribute, "axis", "int")
 
+        case "ConstantOfShape":
+            op_type = "ConstantOfShape"
+
+            tensor = require_attr(onnx_op.attribute, "value", "tensor")
+            const_node = constant_node_from_onnx_initializer(tensor)
+
+            if len(const_node.data) != 1:
+                raise Exception(
+                    "Expected ConstantOfShape value to be a 1-element tensor"
+                )
+
+            attrs["int_value"] = const_node.data[0]
+
         case "Conv":
             op_type = "Conv2d"
 
@@ -584,6 +597,12 @@ def build_operator_node(builder: flatbuffers.Builder, operator: OperatorNode):
             sg.ConcatAttrsStart(builder)
             sg.ConcatAttrsAddDim(builder, operator.attrs["dim"])
             attrs = sg.ConcatAttrsEnd(builder)
+        case "ConstantOfShape":
+            op_type_code = sg.OperatorType.ConstantOfShape
+            attrs_type = sg.OperatorAttrs.ConstantOfShapeAttrs
+            sg.ConstantOfShapeAttrsStart(builder)
+            sg.ConstantOfShapeAttrsAddIntValue(builder, operator.attrs["int_value"])
+            attrs = sg.ConstantOfShapeAttrsEnd(builder)
         case "Conv2d":
             op_type_code = sg.OperatorType.Conv2d
             attrs_type = sg.OperatorAttrs.Conv2dAttrs

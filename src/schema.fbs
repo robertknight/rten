@@ -13,6 +13,7 @@ enum OperatorType: byte {
   Cast,
   Clip,
   Concat,
+  ConstantOfShape,
   Conv2d,
   ConvTranspose2d,
   Div,
@@ -54,6 +55,7 @@ union OperatorAttrs {
   CastAttrs,
   ClipAttrs,
   ConcatAttrs,
+  ConstantOfShapeAttrs,
   Conv2dAttrs,
   ConvTranspose2dAttrs,
   GatherAttrs,
@@ -92,6 +94,10 @@ table ClipAttrs {
 
 table ConcatAttrs {
   dim:uint;
+}
+
+table ConstantOfShapeAttrs {
+  int_value:int32;
 }
 
 table Conv2dAttrs {

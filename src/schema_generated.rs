@@ -18,19 +18,20 @@ pub const ENUM_MIN_OPERATOR_TYPE: i8 = 0;
     since = "2.0.0",
     note = "Use associated constants instead. This will no longer be generated in 2021."
 )]
-pub const ENUM_MAX_OPERATOR_TYPE: i8 = 27;
+pub const ENUM_MAX_OPERATOR_TYPE: i8 = 28;
 #[deprecated(
     since = "2.0.0",
     note = "Use associated constants instead. This will no longer be generated in 2021."
 )]
 #[allow(non_camel_case_types)]
-pub const ENUM_VALUES_OPERATOR_TYPE: [OperatorType; 28] = [
+pub const ENUM_VALUES_OPERATOR_TYPE: [OperatorType; 29] = [
     OperatorType::Add,
     OperatorType::AveragePool2d,
     OperatorType::BatchNormalization,
     OperatorType::Cast,
     OperatorType::Clip,
     OperatorType::Concat,
+    OperatorType::ConstantOfShape,
     OperatorType::Conv2d,
     OperatorType::ConvTranspose2d,
     OperatorType::Div,
@@ -66,31 +67,32 @@ impl OperatorType {
     pub const Cast: Self = Self(3);
     pub const Clip: Self = Self(4);
     pub const Concat: Self = Self(5);
-    pub const Conv2d: Self = Self(6);
-    pub const ConvTranspose2d: Self = Self(7);
-    pub const Div: Self = Self(8);
-    pub const Gather: Self = Self(9);
-    pub const Gemm: Self = Self(10);
-    pub const GlobalAveragePool: Self = Self(11);
-    pub const Identity: Self = Self(12);
-    pub const LeakyRelu: Self = Self(13);
-    pub const MatMul: Self = Self(14);
-    pub const MaxPool2d: Self = Self(15);
-    pub const Mul: Self = Self(16);
-    pub const Pad2d: Self = Self(17);
-    pub const Relu: Self = Self(18);
-    pub const Reshape: Self = Self(19);
-    pub const Shape: Self = Self(20);
-    pub const Sigmoid: Self = Self(21);
-    pub const Slice: Self = Self(22);
-    pub const Squeeze: Self = Self(23);
-    pub const Softmax: Self = Self(24);
-    pub const Sub: Self = Self(25);
-    pub const Transpose: Self = Self(26);
-    pub const Unsqueeze: Self = Self(27);
+    pub const ConstantOfShape: Self = Self(6);
+    pub const Conv2d: Self = Self(7);
+    pub const ConvTranspose2d: Self = Self(8);
+    pub const Div: Self = Self(9);
+    pub const Gather: Self = Self(10);
+    pub const Gemm: Self = Self(11);
+    pub const GlobalAveragePool: Self = Self(12);
+    pub const Identity: Self = Self(13);
+    pub const LeakyRelu: Self = Self(14);
+    pub const MatMul: Self = Self(15);
+    pub const MaxPool2d: Self = Self(16);
+    pub const Mul: Self = Self(17);
+    pub const Pad2d: Self = Self(18);
+    pub const Relu: Self = Self(19);
+    pub const Reshape: Self = Self(20);
+    pub const Shape: Self = Self(21);
+    pub const Sigmoid: Self = Self(22);
+    pub const Slice: Self = Self(23);
+    pub const Squeeze: Self = Self(24);
+    pub const Softmax: Self = Self(25);
+    pub const Sub: Self = Self(26);
+    pub const Transpose: Self = Self(27);
+    pub const Unsqueeze: Self = Self(28);
 
     pub const ENUM_MIN: i8 = 0;
-    pub const ENUM_MAX: i8 = 27;
+    pub const ENUM_MAX: i8 = 28;
     pub const ENUM_VALUES: &'static [Self] = &[
         Self::Add,
         Self::AveragePool2d,
@@ -98,6 +100,7 @@ impl OperatorType {
         Self::Cast,
         Self::Clip,
         Self::Concat,
+        Self::ConstantOfShape,
         Self::Conv2d,
         Self::ConvTranspose2d,
         Self::Div,
@@ -130,6 +133,7 @@ impl OperatorType {
             Self::Cast => Some("Cast"),
             Self::Clip => Some("Clip"),
             Self::Concat => Some("Concat"),
+            Self::ConstantOfShape => Some("ConstantOfShape"),
             Self::Conv2d => Some("Conv2d"),
             Self::ConvTranspose2d => Some("ConvTranspose2d"),
             Self::Div => Some("Div"),
@@ -401,19 +405,20 @@ pub const ENUM_MIN_OPERATOR_ATTRS: u8 = 0;
     since = "2.0.0",
     note = "Use associated constants instead. This will no longer be generated in 2021."
 )]
-pub const ENUM_MAX_OPERATOR_ATTRS: u8 = 16;
+pub const ENUM_MAX_OPERATOR_ATTRS: u8 = 17;
 #[deprecated(
     since = "2.0.0",
     note = "Use associated constants instead. This will no longer be generated in 2021."
 )]
 #[allow(non_camel_case_types)]
-pub const ENUM_VALUES_OPERATOR_ATTRS: [OperatorAttrs; 17] = [
+pub const ENUM_VALUES_OPERATOR_ATTRS: [OperatorAttrs; 18] = [
     OperatorAttrs::NONE,
     OperatorAttrs::AveragePool2dAttrs,
     OperatorAttrs::BatchNormalizationAttrs,
     OperatorAttrs::CastAttrs,
     OperatorAttrs::ClipAttrs,
     OperatorAttrs::ConcatAttrs,
+    OperatorAttrs::ConstantOfShapeAttrs,
     OperatorAttrs::Conv2dAttrs,
     OperatorAttrs::ConvTranspose2dAttrs,
     OperatorAttrs::GatherAttrs,
@@ -438,20 +443,21 @@ impl OperatorAttrs {
     pub const CastAttrs: Self = Self(3);
     pub const ClipAttrs: Self = Self(4);
     pub const ConcatAttrs: Self = Self(5);
-    pub const Conv2dAttrs: Self = Self(6);
-    pub const ConvTranspose2dAttrs: Self = Self(7);
-    pub const GatherAttrs: Self = Self(8);
-    pub const GemmAttrs: Self = Self(9);
-    pub const LeakyReluAttrs: Self = Self(10);
-    pub const MaxPool2dAttrs: Self = Self(11);
-    pub const Pad2dAttrs: Self = Self(12);
-    pub const SqueezeAttrs: Self = Self(13);
-    pub const SoftmaxAttrs: Self = Self(14);
-    pub const TransposeAttrs: Self = Self(15);
-    pub const UnsqueezeAttrs: Self = Self(16);
+    pub const ConstantOfShapeAttrs: Self = Self(6);
+    pub const Conv2dAttrs: Self = Self(7);
+    pub const ConvTranspose2dAttrs: Self = Self(8);
+    pub const GatherAttrs: Self = Self(9);
+    pub const GemmAttrs: Self = Self(10);
+    pub const LeakyReluAttrs: Self = Self(11);
+    pub const MaxPool2dAttrs: Self = Self(12);
+    pub const Pad2dAttrs: Self = Self(13);
+    pub const SqueezeAttrs: Self = Self(14);
+    pub const SoftmaxAttrs: Self = Self(15);
+    pub const TransposeAttrs: Self = Self(16);
+    pub const UnsqueezeAttrs: Self = Self(17);
 
     pub const ENUM_MIN: u8 = 0;
-    pub const ENUM_MAX: u8 = 16;
+    pub const ENUM_MAX: u8 = 17;
     pub const ENUM_VALUES: &'static [Self] = &[
         Self::NONE,
         Self::AveragePool2dAttrs,
@@ -459,6 +465,7 @@ impl OperatorAttrs {
         Self::CastAttrs,
         Self::ClipAttrs,
         Self::ConcatAttrs,
+        Self::ConstantOfShapeAttrs,
         Self::Conv2dAttrs,
         Self::ConvTranspose2dAttrs,
         Self::GatherAttrs,
@@ -480,6 +487,7 @@ impl OperatorAttrs {
             Self::CastAttrs => Some("CastAttrs"),
             Self::ClipAttrs => Some("ClipAttrs"),
             Self::ConcatAttrs => Some("ConcatAttrs"),
+            Self::ConstantOfShapeAttrs => Some("ConstantOfShapeAttrs"),
             Self::Conv2dAttrs => Some("Conv2dAttrs"),
             Self::ConvTranspose2dAttrs => Some("ConvTranspose2dAttrs"),
             Self::GatherAttrs => Some("GatherAttrs"),
@@ -1313,6 +1321,105 @@ impl core::fmt::Debug for ConcatAttrs<'_> {
     fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
         let mut ds = f.debug_struct("ConcatAttrs");
         ds.field("dim", &self.dim());
+        ds.finish()
+    }
+}
+pub enum ConstantOfShapeAttrsOffset {}
+#[derive(Copy, Clone, PartialEq)]
+
+pub struct ConstantOfShapeAttrs<'a> {
+    pub _tab: flatbuffers::Table<'a>,
+}
+
+impl<'a> flatbuffers::Follow<'a> for ConstantOfShapeAttrs<'a> {
+    type Inner = ConstantOfShapeAttrs<'a>;
+    #[inline]
+    fn follow(buf: &'a [u8], loc: usize) -> Self::Inner {
+        Self {
+            _tab: flatbuffers::Table { buf, loc },
+        }
+    }
+}
+
+impl<'a> ConstantOfShapeAttrs<'a> {
+    pub const VT_INT_VALUE: flatbuffers::VOffsetT = 4;
+
+    #[inline]
+    pub fn init_from_table(table: flatbuffers::Table<'a>) -> Self {
+        ConstantOfShapeAttrs { _tab: table }
+    }
+    #[allow(unused_mut)]
+    pub fn create<'bldr: 'args, 'args: 'mut_bldr, 'mut_bldr>(
+        _fbb: &'mut_bldr mut flatbuffers::FlatBufferBuilder<'bldr>,
+        args: &'args ConstantOfShapeAttrsArgs,
+    ) -> flatbuffers::WIPOffset<ConstantOfShapeAttrs<'bldr>> {
+        let mut builder = ConstantOfShapeAttrsBuilder::new(_fbb);
+        builder.add_int_value(args.int_value);
+        builder.finish()
+    }
+
+    #[inline]
+    pub fn int_value(&self) -> i32 {
+        self._tab
+            .get::<i32>(ConstantOfShapeAttrs::VT_INT_VALUE, Some(0))
+            .unwrap()
+    }
+}
+
+impl flatbuffers::Verifiable for ConstantOfShapeAttrs<'_> {
+    #[inline]
+    fn run_verifier(
+        v: &mut flatbuffers::Verifier,
+        pos: usize,
+    ) -> Result<(), flatbuffers::InvalidFlatbuffer> {
+        use self::flatbuffers::Verifiable;
+        v.visit_table(pos)?
+            .visit_field::<i32>("int_value", Self::VT_INT_VALUE, false)?
+            .finish();
+        Ok(())
+    }
+}
+pub struct ConstantOfShapeAttrsArgs {
+    pub int_value: i32,
+}
+impl<'a> Default for ConstantOfShapeAttrsArgs {
+    #[inline]
+    fn default() -> Self {
+        ConstantOfShapeAttrsArgs { int_value: 0 }
+    }
+}
+
+pub struct ConstantOfShapeAttrsBuilder<'a: 'b, 'b> {
+    fbb_: &'b mut flatbuffers::FlatBufferBuilder<'a>,
+    start_: flatbuffers::WIPOffset<flatbuffers::TableUnfinishedWIPOffset>,
+}
+impl<'a: 'b, 'b> ConstantOfShapeAttrsBuilder<'a, 'b> {
+    #[inline]
+    pub fn add_int_value(&mut self, int_value: i32) {
+        self.fbb_
+            .push_slot::<i32>(ConstantOfShapeAttrs::VT_INT_VALUE, int_value, 0);
+    }
+    #[inline]
+    pub fn new(
+        _fbb: &'b mut flatbuffers::FlatBufferBuilder<'a>,
+    ) -> ConstantOfShapeAttrsBuilder<'a, 'b> {
+        let start = _fbb.start_table();
+        ConstantOfShapeAttrsBuilder {
+            fbb_: _fbb,
+            start_: start,
+        }
+    }
+    #[inline]
+    pub fn finish(self) -> flatbuffers::WIPOffset<ConstantOfShapeAttrs<'a>> {
+        let o = self.fbb_.end_table(self.start_);
+        flatbuffers::WIPOffset::new(o.value())
+    }
+}
+
+impl core::fmt::Debug for ConstantOfShapeAttrs<'_> {
+    fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
+        let mut ds = f.debug_struct("ConstantOfShapeAttrs");
+        ds.field("int_value", &self.int_value());
         ds.finish()
     }
 }
@@ -2757,6 +2864,16 @@ impl<'a> OperatorNode<'a> {
 
     #[inline]
     #[allow(non_snake_case)]
+    pub fn attrs_as_constant_of_shape_attrs(&self) -> Option<ConstantOfShapeAttrs<'a>> {
+        if self.attrs_type() == OperatorAttrs::ConstantOfShapeAttrs {
+            self.attrs().map(ConstantOfShapeAttrs::init_from_table)
+        } else {
+            None
+        }
+    }
+
+    #[inline]
+    #[allow(non_snake_case)]
     pub fn attrs_as_conv_2d_attrs(&self) -> Option<Conv2dAttrs<'a>> {
         if self.attrs_type() == OperatorAttrs::Conv2dAttrs {
             self.attrs().map(Conv2dAttrs::init_from_table)
@@ -2882,6 +2999,7 @@ impl flatbuffers::Verifiable for OperatorNode<'_> {
           OperatorAttrs::CastAttrs => v.verify_union_variant::<flatbuffers::ForwardsUOffset<CastAttrs>>("OperatorAttrs::CastAttrs", pos),
           OperatorAttrs::ClipAttrs => v.verify_union_variant::<flatbuffers::ForwardsUOffset<ClipAttrs>>("OperatorAttrs::ClipAttrs", pos),
           OperatorAttrs::ConcatAttrs => v.verify_union_variant::<flatbuffers::ForwardsUOffset<ConcatAttrs>>("OperatorAttrs::ConcatAttrs", pos),
+          OperatorAttrs::ConstantOfShapeAttrs => v.verify_union_variant::<flatbuffers::ForwardsUOffset<ConstantOfShapeAttrs>>("OperatorAttrs::ConstantOfShapeAttrs", pos),
           OperatorAttrs::Conv2dAttrs => v.verify_union_variant::<flatbuffers::ForwardsUOffset<Conv2dAttrs>>("OperatorAttrs::Conv2dAttrs", pos),
           OperatorAttrs::ConvTranspose2dAttrs => v.verify_union_variant::<flatbuffers::ForwardsUOffset<ConvTranspose2dAttrs>>("OperatorAttrs::ConvTranspose2dAttrs", pos),
           OperatorAttrs::GatherAttrs => v.verify_union_variant::<flatbuffers::ForwardsUOffset<GatherAttrs>>("OperatorAttrs::GatherAttrs", pos),
@@ -3010,6 +3128,16 @@ impl core::fmt::Debug for OperatorNode<'_> {
             }
             OperatorAttrs::ConcatAttrs => {
                 if let Some(x) = self.attrs_as_concat_attrs() {
+                    ds.field("attrs", &x)
+                } else {
+                    ds.field(
+                        "attrs",
+                        &"InvalidFlatbuffer: Union discriminant does not match value.",
+                    )
+                }
+            }
+            OperatorAttrs::ConstantOfShapeAttrs => {
+                if let Some(x) = self.attrs_as_constant_of_shape_attrs() {
                     ds.field("attrs", &x)
                 } else {
                     ds.field(

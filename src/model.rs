@@ -137,6 +137,14 @@ fn read_conv_2d_op(node: &OperatorNode) -> Box<dyn Operator> {
     })
 }
 
+fn read_constant_of_shape_op(node: &OperatorNode) -> Box<dyn Operator> {
+    let value = match node.attrs_as_constant_of_shape_attrs() {
+        Some(attrs) => attrs.int_value() as i32,
+        None => 0,
+    };
+    Box::new(ops::ConstantOfShape { value })
+}
+
 fn read_conv_transpose_2d_op(node: &OperatorNode) -> Box<dyn Operator> {
     let stride = match node.attrs_as_conv_transpose_2d_attrs() {
         Some(attrs) => attrs.stride() as usize,
@@ -314,6 +322,7 @@ fn read_operator(node: &OperatorNode) -> Result<Box<dyn Operator>, String> {
         OperatorType::Clip => read_clip_op(node),
         OperatorType::Concat => read_concat_op(node),
         OperatorType::Conv2d => read_conv_2d_op(node),
+        OperatorType::ConstantOfShape => read_constant_of_shape_op(node),
         OperatorType::ConvTranspose2d => read_conv_transpose_2d_op(node),
         OperatorType::Div => read_div_op(node),
         OperatorType::Gather => read_gather_op(node),
@@ -526,6 +535,12 @@ mod tests {
             OpType::Concat(ops::Concat { dim: 0 }),
             &[input_node, input_node],
         );
+        let shape = builder.add_int_constant(&from_data(vec![3], vec![1, 5, 10]));
+        builder.add_operator(
+            "constant_of_shape",
+            OpType::ConstantOfShape(ops::ConstantOfShape { value: 42 }),
+            &[shape],
+        );
         builder.add_operator(
             "conv_2d",
             OpType::Conv2d(ops::Conv2d {
@@ -633,6 +648,7 @@ mod tests {
             "cast",
             "clip",
             "concat",
+            "constant_of_shape",
             "conv_2d",
             "conv_transpose_2d",
             "div",

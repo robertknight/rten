@@ -198,6 +198,7 @@ pub enum OpType {
     Cast(Cast),
     Clip(Clip),
     Concat(Concat),
+    ConstantOfShape(ConstantOfShape),
     Conv2d(Conv2d),
     ConvTranspose2d(ConvTranspose2d),
     Div,
@@ -388,6 +389,24 @@ impl Operator for Cast {
             (Output::FloatTensor(t), DataType::Float) => Ok(t.into()),
             (Output::FloatTensor(t), _) => self.run(&[Input::FloatTensor(&t)]),
         }
+    }
+}
+
+#[derive(Debug)]
+pub struct ConstantOfShape {
+    pub value: i32,
+}
+
+impl Operator for ConstantOfShape {
+    fn name(&self) -> &str {
+        "ConstantOfShape"
+    }
+
+    fn run(&self, inputs: &[Input]) -> Result<Output, OpError> {
+        let input = get_input_as_int(inputs, 0)?;
+        let shape: Vec<_> = input.elements().map(|el| el as usize).collect();
+        let len = shape.iter().product();
+        Ok(from_data(shape, vec![self.value; len]).into())
     }
 }
 
@@ -1006,8 +1025,8 @@ mod tests {
     use crate::linalg::gemm;
     use crate::ops::{
         batch_norm, batch_norm_in_place, concat, gather, gemm_op, matmul, pad_2d, reshape, slice,
-        slice_in_place, squeeze, squeeze_in_place, transpose, unsqueeze, Cast, DataType, Identity,
-        Input, OpError, Operator, Reshape, Shape,
+        slice_in_place, squeeze, squeeze_in_place, transpose, unsqueeze, Cast, ConstantOfShape,
+        DataType, Identity, Input, OpError, Operator, Reshape, Shape,
     };
     use crate::rng::XorShiftRNG;
     use crate::tensor::{from_data, from_scalar, from_vec, random_tensor, zero_tensor, Tensor};
@@ -1096,6 +1115,24 @@ mod tests {
             .into_float()
             .unwrap();
         expect_equal(&result, &float_input)
+    }
+
+    #[test]
+    fn test_constant_of_shape() {
+        let op = ConstantOfShape { value: 42 };
+        let shape = from_vec(vec![1, 5, 10]);
+
+        let result = op
+            .run(&[Input::IntTensor(&shape)])
+            .unwrap()
+            .into_int()
+            .unwrap();
+
+        assert_eq!(result.shape(), &[1, 5, 10]);
+        assert_eq!(
+            result.elements().collect::<Vec<_>>(),
+            vec![42; result.shape().iter().product()]
+        );
     }
 
     #[test]
