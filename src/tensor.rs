@@ -5,6 +5,7 @@ use std::ops::{Index, IndexMut, Range};
 use crate::rng::XorShiftRNG;
 
 /// n-dimensional array
+#[derive(Debug)]
 pub struct Tensor<T: Copy = f32> {
     /// The underlying buffer of elements
     data: Vec<T>,
@@ -326,6 +327,12 @@ impl<T: Copy> Tensor<T> {
             offset,
             strides,
         }
+    }
+}
+
+impl<T: Copy + PartialEq> PartialEq for Tensor<T> {
+    fn eq(&self, other: &Self) -> bool {
+        self.shape == other.shape && self.elements().eq(other.elements())
     }
 }
 
@@ -888,6 +895,17 @@ mod tests {
         assert_eq!(scalar.ndim(), 0);
         assert_eq!(vec.ndim(), 1);
         assert_eq!(matrix.ndim(), 2);
+    }
+
+    #[test]
+    fn test_partial_eq() {
+        let x = from_vec(vec![1, 2, 3, 4, 5]);
+        let y = x.clone();
+        let z = x.clone_with_shape(&[1, 5]);
+
+        // Int tensors are equal if they have the same shape and elements.
+        assert_eq!(&x, &y);
+        assert_ne!(&x, &z);
     }
 
     #[test]
