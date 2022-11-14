@@ -163,7 +163,34 @@ def check_ints_length_and_value(name: str, ints: list[int], allowed_length: int)
 
 def convert_array(src_type: str, data: bytes, dest_type: str):
     converted = [x for x in array.array(src_type, data)]
-    return array.array(dest_type, converted)
+    try:
+        return array.array(dest_type, converted)
+    except OverflowError:
+        # Some ONNX exporters use `INT_MIN` and `INT_MAX` to represent infinity
+        # in certain cases, for example slicing to the end of a dimension with
+        # unknown size (see
+        # https://github.com/onnx/onnx/blob/main/docs/Operators.md#slice and
+        # https://github.com/pytorch/pytorch/issues/17606).
+        #
+        # In the case where the value is an `int64` and we are converting this
+        # to an `int32` in the model, this will cause an overflow. To resolve
+        # this, clamp the value to the min/max values for the smaller integer
+        # type we are using.
+        MAX_INT = 2**31 - 1
+        MIN_INT = -(2**31) + 1
+
+        saturated = []
+
+        for x in converted:
+            if x > MAX_INT:
+                print(f"Clamping out-of-range tensor value {x} to {MAX_INT}")
+                x = MAX_INT
+            elif x < MIN_INT:
+                print(f"Clamping out-of-range tensor value {x} to {MIN_INT}")
+                x = MIN_INT
+            saturated.append(x)
+
+        return array.array(dest_type, saturated)
 
 
 def constant_node_from_onnx_initializer(tensor) -> ConstantNode:
