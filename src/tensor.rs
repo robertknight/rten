@@ -72,6 +72,14 @@ impl<T: Copy> Tensor<T> {
         clone
     }
 
+    /// Return an iterator over all valid indices in this tensor.
+    ///
+    /// The returned iterator does not implement the `Iterator` trait but has
+    /// a similar API. See `IndexIterator` docs.
+    pub fn indices(&self) -> IndexIterator {
+        IndexIterator::from_shape(&self.shape)
+    }
+
     /// Return the total number of elements in this tensor.
     pub fn len(&self) -> usize {
         self.shape.iter().product()
@@ -951,6 +959,23 @@ mod tests {
     fn test_index_panics_if_wrong_dim_count() {
         let x = zero_tensor::<f32>(&[2, 2]);
         x[[0, 0, 0]];
+    }
+
+    #[test]
+    fn test_indices() {
+        let x = zero_tensor::<f32>(&[2, 2]);
+        let x_indices = {
+            let mut indices = Vec::new();
+            let mut iter = x.indices();
+            while let Some(index) = iter.next() {
+                indices.push(index.to_vec());
+            }
+            indices
+        };
+        assert_eq!(
+            x_indices,
+            &[vec![0, 0], vec![0, 1], vec![1, 0], vec![1, 1],]
+        );
     }
 
     #[test]
