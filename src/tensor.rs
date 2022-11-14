@@ -21,9 +21,9 @@ pub struct Tensor<T: Copy = f32> {
 
 impl<T: Copy> Tensor<T> {
     /// Return a copy of this tensor with each element replaced by `f(element)`
-    pub fn map<F>(&self, f: F) -> Tensor<T>
+    pub fn map<F, U: Copy>(&self, f: F) -> Tensor<U>
     where
-        F: FnMut(T) -> T,
+        F: FnMut(T) -> U,
     {
         let data = self.elements().map(f).collect();
         Tensor {
