@@ -1,9 +1,9 @@
 #!/usr/bin/env python
 
+import array
 from argparse import ArgumentParser
 from typing import cast
 
-import array
 import flatbuffers
 import onnx
 
