@@ -414,6 +414,11 @@ def op_node_from_onnx_operator(
 
             check_unsupported_attr(onnx_op.attribute, "allowzero", "int", 0)
 
+        case "Pad":
+            op_type = "Pad"
+
+            check_unsupported_attr(onnx_op.attribute, "mode", "string", "constant")
+
         case "Shape":
             op_type = "Shape"
 
@@ -686,15 +691,8 @@ def build_operator_node(builder: flatbuffers.Builder, operator: OperatorNode):
             op_type_code = sg.OperatorType.Relu
         case "Reshape":
             op_type_code = sg.OperatorType.Reshape
-        case "Pad2d":
-            op_type_code = sg.OperatorType.Pad2d
-            attrs_type = sg.OperatorAttrs.Pad2dAttrs
-            sg.Pad2dAttrsStart(builder)
-            sg.Pad2dAttrsAddPadLeft(builder, operator.attrs["pad_left"])
-            sg.Pad2dAttrsAddPadRight(builder, operator.attrs["pad_right"])
-            sg.Pad2dAttrsAddPadTop(builder, operator.attrs["pad_top"])
-            sg.Pad2dAttrsAddPadBottom(builder, operator.attrs["pad_bottom"])
-            attrs = sg.Pad2dAttrsEnd(builder)
+        case "Pad":
+            op_type_code = sg.OperatorType.Pad
         case "Shape":
             op_type_code = sg.OperatorType.Shape
         case "Sigmoid":

@@ -43,7 +43,7 @@ pub const ENUM_VALUES_OPERATOR_TYPE: [OperatorType; 29] = [
     OperatorType::MatMul,
     OperatorType::MaxPool2d,
     OperatorType::Mul,
-    OperatorType::Pad2d,
+    OperatorType::Pad,
     OperatorType::Relu,
     OperatorType::Reshape,
     OperatorType::Shape,
@@ -79,7 +79,7 @@ impl OperatorType {
     pub const MatMul: Self = Self(15);
     pub const MaxPool2d: Self = Self(16);
     pub const Mul: Self = Self(17);
-    pub const Pad2d: Self = Self(18);
+    pub const Pad: Self = Self(18);
     pub const Relu: Self = Self(19);
     pub const Reshape: Self = Self(20);
     pub const Shape: Self = Self(21);
@@ -112,7 +112,7 @@ impl OperatorType {
         Self::MatMul,
         Self::MaxPool2d,
         Self::Mul,
-        Self::Pad2d,
+        Self::Pad,
         Self::Relu,
         Self::Reshape,
         Self::Shape,
@@ -145,7 +145,7 @@ impl OperatorType {
             Self::MatMul => Some("MatMul"),
             Self::MaxPool2d => Some("MaxPool2d"),
             Self::Mul => Some("Mul"),
-            Self::Pad2d => Some("Pad2d"),
+            Self::Pad => Some("Pad"),
             Self::Relu => Some("Relu"),
             Self::Reshape => Some("Reshape"),
             Self::Shape => Some("Shape"),
@@ -425,7 +425,7 @@ pub const ENUM_VALUES_OPERATOR_ATTRS: [OperatorAttrs; 18] = [
     OperatorAttrs::GemmAttrs,
     OperatorAttrs::LeakyReluAttrs,
     OperatorAttrs::MaxPool2dAttrs,
-    OperatorAttrs::Pad2dAttrs,
+    OperatorAttrs::PadAttrs,
     OperatorAttrs::SqueezeAttrs,
     OperatorAttrs::SoftmaxAttrs,
     OperatorAttrs::TransposeAttrs,
@@ -450,7 +450,7 @@ impl OperatorAttrs {
     pub const GemmAttrs: Self = Self(10);
     pub const LeakyReluAttrs: Self = Self(11);
     pub const MaxPool2dAttrs: Self = Self(12);
-    pub const Pad2dAttrs: Self = Self(13);
+    pub const PadAttrs: Self = Self(13);
     pub const SqueezeAttrs: Self = Self(14);
     pub const SoftmaxAttrs: Self = Self(15);
     pub const TransposeAttrs: Self = Self(16);
@@ -472,7 +472,7 @@ impl OperatorAttrs {
         Self::GemmAttrs,
         Self::LeakyReluAttrs,
         Self::MaxPool2dAttrs,
-        Self::Pad2dAttrs,
+        Self::PadAttrs,
         Self::SqueezeAttrs,
         Self::SoftmaxAttrs,
         Self::TransposeAttrs,
@@ -494,7 +494,7 @@ impl OperatorAttrs {
             Self::GemmAttrs => Some("GemmAttrs"),
             Self::LeakyReluAttrs => Some("LeakyReluAttrs"),
             Self::MaxPool2dAttrs => Some("MaxPool2dAttrs"),
-            Self::Pad2dAttrs => Some("Pad2dAttrs"),
+            Self::PadAttrs => Some("PadAttrs"),
             Self::SqueezeAttrs => Some("SqueezeAttrs"),
             Self::SoftmaxAttrs => Some("SoftmaxAttrs"),
             Self::TransposeAttrs => Some("TransposeAttrs"),
@@ -2175,15 +2175,15 @@ impl core::fmt::Debug for MaxPool2dAttrs<'_> {
         ds.finish()
     }
 }
-pub enum Pad2dAttrsOffset {}
+pub enum PadAttrsOffset {}
 #[derive(Copy, Clone, PartialEq)]
 
-pub struct Pad2dAttrs<'a> {
+pub struct PadAttrs<'a> {
     pub _tab: flatbuffers::Table<'a>,
 }
 
-impl<'a> flatbuffers::Follow<'a> for Pad2dAttrs<'a> {
-    type Inner = Pad2dAttrs<'a>;
+impl<'a> flatbuffers::Follow<'a> for PadAttrs<'a> {
+    type Inner = PadAttrs<'a>;
     #[inline]
     fn follow(buf: &'a [u8], loc: usize) -> Self::Inner {
         Self {
@@ -2192,136 +2192,63 @@ impl<'a> flatbuffers::Follow<'a> for Pad2dAttrs<'a> {
     }
 }
 
-impl<'a> Pad2dAttrs<'a> {
-    pub const VT_PAD_LEFT: flatbuffers::VOffsetT = 4;
-    pub const VT_PAD_RIGHT: flatbuffers::VOffsetT = 6;
-    pub const VT_PAD_TOP: flatbuffers::VOffsetT = 8;
-    pub const VT_PAD_BOTTOM: flatbuffers::VOffsetT = 10;
-
+impl<'a> PadAttrs<'a> {
     #[inline]
     pub fn init_from_table(table: flatbuffers::Table<'a>) -> Self {
-        Pad2dAttrs { _tab: table }
+        PadAttrs { _tab: table }
     }
     #[allow(unused_mut)]
     pub fn create<'bldr: 'args, 'args: 'mut_bldr, 'mut_bldr>(
         _fbb: &'mut_bldr mut flatbuffers::FlatBufferBuilder<'bldr>,
-        args: &'args Pad2dAttrsArgs,
-    ) -> flatbuffers::WIPOffset<Pad2dAttrs<'bldr>> {
-        let mut builder = Pad2dAttrsBuilder::new(_fbb);
-        builder.add_pad_bottom(args.pad_bottom);
-        builder.add_pad_top(args.pad_top);
-        builder.add_pad_right(args.pad_right);
-        builder.add_pad_left(args.pad_left);
+        _args: &'args PadAttrsArgs,
+    ) -> flatbuffers::WIPOffset<PadAttrs<'bldr>> {
+        let mut builder = PadAttrsBuilder::new(_fbb);
         builder.finish()
-    }
-
-    #[inline]
-    pub fn pad_left(&self) -> u32 {
-        self._tab
-            .get::<u32>(Pad2dAttrs::VT_PAD_LEFT, Some(0))
-            .unwrap()
-    }
-    #[inline]
-    pub fn pad_right(&self) -> u32 {
-        self._tab
-            .get::<u32>(Pad2dAttrs::VT_PAD_RIGHT, Some(0))
-            .unwrap()
-    }
-    #[inline]
-    pub fn pad_top(&self) -> u32 {
-        self._tab
-            .get::<u32>(Pad2dAttrs::VT_PAD_TOP, Some(0))
-            .unwrap()
-    }
-    #[inline]
-    pub fn pad_bottom(&self) -> u32 {
-        self._tab
-            .get::<u32>(Pad2dAttrs::VT_PAD_BOTTOM, Some(0))
-            .unwrap()
     }
 }
 
-impl flatbuffers::Verifiable for Pad2dAttrs<'_> {
+impl flatbuffers::Verifiable for PadAttrs<'_> {
     #[inline]
     fn run_verifier(
         v: &mut flatbuffers::Verifier,
         pos: usize,
     ) -> Result<(), flatbuffers::InvalidFlatbuffer> {
         use self::flatbuffers::Verifiable;
-        v.visit_table(pos)?
-            .visit_field::<u32>("pad_left", Self::VT_PAD_LEFT, false)?
-            .visit_field::<u32>("pad_right", Self::VT_PAD_RIGHT, false)?
-            .visit_field::<u32>("pad_top", Self::VT_PAD_TOP, false)?
-            .visit_field::<u32>("pad_bottom", Self::VT_PAD_BOTTOM, false)?
-            .finish();
+        v.visit_table(pos)?.finish();
         Ok(())
     }
 }
-pub struct Pad2dAttrsArgs {
-    pub pad_left: u32,
-    pub pad_right: u32,
-    pub pad_top: u32,
-    pub pad_bottom: u32,
-}
-impl<'a> Default for Pad2dAttrsArgs {
+pub struct PadAttrsArgs {}
+impl<'a> Default for PadAttrsArgs {
     #[inline]
     fn default() -> Self {
-        Pad2dAttrsArgs {
-            pad_left: 0,
-            pad_right: 0,
-            pad_top: 0,
-            pad_bottom: 0,
-        }
+        PadAttrsArgs {}
     }
 }
 
-pub struct Pad2dAttrsBuilder<'a: 'b, 'b> {
+pub struct PadAttrsBuilder<'a: 'b, 'b> {
     fbb_: &'b mut flatbuffers::FlatBufferBuilder<'a>,
     start_: flatbuffers::WIPOffset<flatbuffers::TableUnfinishedWIPOffset>,
 }
-impl<'a: 'b, 'b> Pad2dAttrsBuilder<'a, 'b> {
+impl<'a: 'b, 'b> PadAttrsBuilder<'a, 'b> {
     #[inline]
-    pub fn add_pad_left(&mut self, pad_left: u32) {
-        self.fbb_
-            .push_slot::<u32>(Pad2dAttrs::VT_PAD_LEFT, pad_left, 0);
-    }
-    #[inline]
-    pub fn add_pad_right(&mut self, pad_right: u32) {
-        self.fbb_
-            .push_slot::<u32>(Pad2dAttrs::VT_PAD_RIGHT, pad_right, 0);
-    }
-    #[inline]
-    pub fn add_pad_top(&mut self, pad_top: u32) {
-        self.fbb_
-            .push_slot::<u32>(Pad2dAttrs::VT_PAD_TOP, pad_top, 0);
-    }
-    #[inline]
-    pub fn add_pad_bottom(&mut self, pad_bottom: u32) {
-        self.fbb_
-            .push_slot::<u32>(Pad2dAttrs::VT_PAD_BOTTOM, pad_bottom, 0);
-    }
-    #[inline]
-    pub fn new(_fbb: &'b mut flatbuffers::FlatBufferBuilder<'a>) -> Pad2dAttrsBuilder<'a, 'b> {
+    pub fn new(_fbb: &'b mut flatbuffers::FlatBufferBuilder<'a>) -> PadAttrsBuilder<'a, 'b> {
         let start = _fbb.start_table();
-        Pad2dAttrsBuilder {
+        PadAttrsBuilder {
             fbb_: _fbb,
             start_: start,
         }
     }
     #[inline]
-    pub fn finish(self) -> flatbuffers::WIPOffset<Pad2dAttrs<'a>> {
+    pub fn finish(self) -> flatbuffers::WIPOffset<PadAttrs<'a>> {
         let o = self.fbb_.end_table(self.start_);
         flatbuffers::WIPOffset::new(o.value())
     }
 }
 
-impl core::fmt::Debug for Pad2dAttrs<'_> {
+impl core::fmt::Debug for PadAttrs<'_> {
     fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
-        let mut ds = f.debug_struct("Pad2dAttrs");
-        ds.field("pad_left", &self.pad_left());
-        ds.field("pad_right", &self.pad_right());
-        ds.field("pad_top", &self.pad_top());
-        ds.field("pad_bottom", &self.pad_bottom());
+        let mut ds = f.debug_struct("PadAttrs");
         ds.finish()
     }
 }
@@ -2934,9 +2861,9 @@ impl<'a> OperatorNode<'a> {
 
     #[inline]
     #[allow(non_snake_case)]
-    pub fn attrs_as_pad_2d_attrs(&self) -> Option<Pad2dAttrs<'a>> {
-        if self.attrs_type() == OperatorAttrs::Pad2dAttrs {
-            self.attrs().map(Pad2dAttrs::init_from_table)
+    pub fn attrs_as_pad_attrs(&self) -> Option<PadAttrs<'a>> {
+        if self.attrs_type() == OperatorAttrs::PadAttrs {
+            self.attrs().map(PadAttrs::init_from_table)
         } else {
             None
         }
@@ -3006,7 +2933,7 @@ impl flatbuffers::Verifiable for OperatorNode<'_> {
           OperatorAttrs::GemmAttrs => v.verify_union_variant::<flatbuffers::ForwardsUOffset<GemmAttrs>>("OperatorAttrs::GemmAttrs", pos),
           OperatorAttrs::LeakyReluAttrs => v.verify_union_variant::<flatbuffers::ForwardsUOffset<LeakyReluAttrs>>("OperatorAttrs::LeakyReluAttrs", pos),
           OperatorAttrs::MaxPool2dAttrs => v.verify_union_variant::<flatbuffers::ForwardsUOffset<MaxPool2dAttrs>>("OperatorAttrs::MaxPool2dAttrs", pos),
-          OperatorAttrs::Pad2dAttrs => v.verify_union_variant::<flatbuffers::ForwardsUOffset<Pad2dAttrs>>("OperatorAttrs::Pad2dAttrs", pos),
+          OperatorAttrs::PadAttrs => v.verify_union_variant::<flatbuffers::ForwardsUOffset<PadAttrs>>("OperatorAttrs::PadAttrs", pos),
           OperatorAttrs::SqueezeAttrs => v.verify_union_variant::<flatbuffers::ForwardsUOffset<SqueezeAttrs>>("OperatorAttrs::SqueezeAttrs", pos),
           OperatorAttrs::SoftmaxAttrs => v.verify_union_variant::<flatbuffers::ForwardsUOffset<SoftmaxAttrs>>("OperatorAttrs::SoftmaxAttrs", pos),
           OperatorAttrs::TransposeAttrs => v.verify_union_variant::<flatbuffers::ForwardsUOffset<TransposeAttrs>>("OperatorAttrs::TransposeAttrs", pos),
@@ -3206,8 +3133,8 @@ impl core::fmt::Debug for OperatorNode<'_> {
                     )
                 }
             }
-            OperatorAttrs::Pad2dAttrs => {
-                if let Some(x) = self.attrs_as_pad_2d_attrs() {
+            OperatorAttrs::PadAttrs => {
+                if let Some(x) = self.attrs_as_pad_attrs() {
                     ds.field("attrs", &x)
                 } else {
                     ds.field(

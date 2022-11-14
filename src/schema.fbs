@@ -25,7 +25,7 @@ enum OperatorType: byte {
   MatMul,
   MaxPool2d,
   Mul,
-  Pad2d,
+  Pad,
   Relu,
   Reshape,
   Shape,
@@ -62,7 +62,7 @@ union OperatorAttrs {
   GemmAttrs,
   LeakyReluAttrs,
   MaxPool2dAttrs,
-  Pad2dAttrs,
+  PadAttrs,
   SqueezeAttrs,
   SoftmaxAttrs,
   TransposeAttrs,
@@ -139,12 +139,7 @@ table MaxPool2dAttrs {
   stride:uint;
 }
 
-table Pad2dAttrs {
-  pad_left:uint;
-  pad_right:uint;
-  pad_top:uint;
-  pad_bottom:uint;
-}
+table PadAttrs {}
 
 table SoftmaxAttrs {
   axis:uint;

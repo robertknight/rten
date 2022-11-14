@@ -326,22 +326,7 @@ impl<'a> ModelBuilder<'a> {
                 }),
             ),
             OpType::Mul => (OT::Mul, no_attrs, None),
-            OpType::Pad2d(args) => (
-                OT::Pad2d,
-                OA::Pad2dAttrs,
-                Some(
-                    sg::Pad2dAttrs::create(
-                        &mut self.builder,
-                        &sg::Pad2dAttrsArgs {
-                            pad_left: args.padding[0] as u32,
-                            pad_top: args.padding[1] as u32,
-                            pad_right: args.padding[2] as u32,
-                            pad_bottom: args.padding[3] as u32,
-                        },
-                    )
-                    .as_union_value(),
-                ),
-            ),
+            OpType::Pad => (OT::Pad, no_attrs, None),
             OpType::Relu => (OT::Relu, no_attrs, None),
             OpType::Reshape => (OT::Reshape, no_attrs, None),
             OpType::Shape => (OT::Shape, no_attrs, None),

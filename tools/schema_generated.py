@@ -25,7 +25,7 @@ class OperatorType(object):
     MatMul = 15
     MaxPool2d = 16
     Mul = 17
-    Pad2d = 18
+    Pad = 18
     Relu = 19
     Reshape = 20
     Shape = 21
@@ -62,7 +62,7 @@ class OperatorAttrs(object):
     GemmAttrs = 10
     LeakyReluAttrs = 11
     MaxPool2dAttrs = 12
-    Pad2dAttrs = 13
+    PadAttrs = 13
     SqueezeAttrs = 14
     SoftmaxAttrs = 15
     TransposeAttrs = 16
@@ -657,62 +657,30 @@ def MaxPool2dAttrsAddStride(builder, stride): builder.PrependUint32Slot(3, strid
 def MaxPool2dAttrsEnd(builder): return builder.EndObject()
 
 
-class Pad2dAttrs(object):
+class PadAttrs(object):
     __slots__ = ['_tab']
 
     @classmethod
     def GetRootAs(cls, buf, offset=0):
         n = flatbuffers.encode.Get(flatbuffers.packer.uoffset, buf, offset)
-        x = Pad2dAttrs()
+        x = PadAttrs()
         x.Init(buf, n + offset)
         return x
 
     @classmethod
-    def GetRootAsPad2dAttrs(cls, buf, offset=0):
+    def GetRootAsPadAttrs(cls, buf, offset=0):
         """This method is deprecated. Please switch to GetRootAs."""
         return cls.GetRootAs(buf, offset)
     @classmethod
-    def Pad2dAttrsBufferHasIdentifier(cls, buf, offset, size_prefixed=False):
+    def PadAttrsBufferHasIdentifier(cls, buf, offset, size_prefixed=False):
         return flatbuffers.util.BufferHasIdentifier(buf, offset, b"\x4D\x4F\x44\x4C", size_prefixed=size_prefixed)
 
-    # Pad2dAttrs
+    # PadAttrs
     def Init(self, buf, pos):
         self._tab = flatbuffers.table.Table(buf, pos)
 
-    # Pad2dAttrs
-    def PadLeft(self):
-        o = flatbuffers.number_types.UOffsetTFlags.py_type(self._tab.Offset(4))
-        if o != 0:
-            return self._tab.Get(flatbuffers.number_types.Uint32Flags, o + self._tab.Pos)
-        return 0
-
-    # Pad2dAttrs
-    def PadRight(self):
-        o = flatbuffers.number_types.UOffsetTFlags.py_type(self._tab.Offset(6))
-        if o != 0:
-            return self._tab.Get(flatbuffers.number_types.Uint32Flags, o + self._tab.Pos)
-        return 0
-
-    # Pad2dAttrs
-    def PadTop(self):
-        o = flatbuffers.number_types.UOffsetTFlags.py_type(self._tab.Offset(8))
-        if o != 0:
-            return self._tab.Get(flatbuffers.number_types.Uint32Flags, o + self._tab.Pos)
-        return 0
-
-    # Pad2dAttrs
-    def PadBottom(self):
-        o = flatbuffers.number_types.UOffsetTFlags.py_type(self._tab.Offset(10))
-        if o != 0:
-            return self._tab.Get(flatbuffers.number_types.Uint32Flags, o + self._tab.Pos)
-        return 0
-
-def Pad2dAttrsStart(builder): builder.StartObject(4)
-def Pad2dAttrsAddPadLeft(builder, padLeft): builder.PrependUint32Slot(0, padLeft, 0)
-def Pad2dAttrsAddPadRight(builder, padRight): builder.PrependUint32Slot(1, padRight, 0)
-def Pad2dAttrsAddPadTop(builder, padTop): builder.PrependUint32Slot(2, padTop, 0)
-def Pad2dAttrsAddPadBottom(builder, padBottom): builder.PrependUint32Slot(3, padBottom, 0)
-def Pad2dAttrsEnd(builder): return builder.EndObject()
+def PadAttrsStart(builder): builder.StartObject(0)
+def PadAttrsEnd(builder): return builder.EndObject()
 
 
 class SoftmaxAttrs(object):

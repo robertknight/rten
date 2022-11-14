@@ -237,17 +237,8 @@ fn read_mul_op(_: &OperatorNode) -> Box<dyn Operator> {
     Box::new(ops::Mul {})
 }
 
-fn read_pad_2d_op(node: &OperatorNode) -> Box<dyn Operator> {
-    let padding = match node.attrs_as_pad_2d_attrs() {
-        Some(attrs) => [
-            attrs.pad_left() as usize,
-            attrs.pad_top() as usize,
-            attrs.pad_right() as usize,
-            attrs.pad_bottom() as usize,
-        ],
-        None => [0, 0, 0, 0],
-    };
-    Box::new(ops::Pad2d { padding })
+fn read_pad_op(_: &OperatorNode) -> Box<dyn Operator> {
+    Box::new(ops::Pad {})
 }
 
 fn read_relu_op(_: &OperatorNode) -> Box<dyn Operator> {
@@ -333,7 +324,7 @@ fn read_operator(node: &OperatorNode) -> Result<Box<dyn Operator>, String> {
         OperatorType::MatMul => read_matmul_op(node),
         OperatorType::MaxPool2d => read_max_pool_2d_op(node),
         OperatorType::Mul => read_mul_op(node),
-        OperatorType::Pad2d => read_pad_2d_op(node),
+        OperatorType::Pad => read_pad_op(node),
         OperatorType::Relu => read_relu_op(node),
         OperatorType::Reshape => read_reshape_op(node),
         OperatorType::Shape => read_shape_op(node),
@@ -593,13 +584,8 @@ mod tests {
             &[input_node],
         );
         builder.add_operator("mul", OpType::Mul, &[input_node, input_node]);
-        builder.add_operator(
-            "pad_2d",
-            OpType::Pad2d(ops::Pad2d {
-                padding: [1, 1, 1, 1],
-            }),
-            &[input_node],
-        );
+        let pads = builder.add_int_constant(&from_data(vec![8], vec![0, 0, 1, 1, 0, 0, 1, 1]));
+        builder.add_operator("pad", OpType::Pad, &[input_node, pads]);
         builder.add_operator("relu", OpType::Relu, &[input_node]);
 
         let new_shape = builder.add_int_constant(&from_data(vec![1], vec![9]));
@@ -657,7 +643,7 @@ mod tests {
             "leaky_relu",
             "max_pool_2d",
             "mul",
-            "pad_2d",
+            "pad",
             "relu",
             "reshape",
             "shape",
