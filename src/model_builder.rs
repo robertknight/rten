@@ -2,7 +2,7 @@ extern crate flatbuffers;
 
 use flatbuffers::{FlatBufferBuilder, UnionWIPOffset, Vector, WIPOffset};
 
-use crate::ops::{OpType, Padding};
+use crate::ops::{DataType, OpType, Padding};
 use crate::schema_generated as sg;
 use crate::tensor::Tensor;
 
@@ -173,6 +173,22 @@ impl<'a> ModelBuilder<'a> {
                         &mut self.builder,
                         &sg::BatchNormalizationAttrsArgs {
                             epsilon: args.epsilon,
+                        },
+                    )
+                    .as_union_value(),
+                ),
+            ),
+            OpType::Cast(args) => (
+                OT::Cast,
+                OA::CastAttrs,
+                Some(
+                    sg::CastAttrs::create(
+                        &mut self.builder,
+                        &sg::CastAttrsArgs {
+                            to: match args.to {
+                                DataType::Int32 => sg::DataType::Int32,
+                                DataType::Float => sg::DataType::Float,
+                            },
                         },
                     )
                     .as_union_value(),

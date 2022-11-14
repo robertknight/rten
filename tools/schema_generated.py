@@ -10,30 +10,31 @@ class OperatorType(object):
     Add = 0
     AveragePool2d = 1
     BatchNormalization = 2
-    Clip = 3
-    Concat = 4
-    Conv2d = 5
-    ConvTranspose2d = 6
-    Div = 7
-    Gather = 8
-    Gemm = 9
-    GlobalAveragePool = 10
-    Identity = 11
-    LeakyRelu = 12
-    MatMul = 13
-    MaxPool2d = 14
-    Mul = 15
-    Pad2d = 16
-    Relu = 17
-    Reshape = 18
-    Shape = 19
-    Sigmoid = 20
-    Slice = 21
-    Squeeze = 22
-    Softmax = 23
-    Sub = 24
-    Transpose = 25
-    Unsqueeze = 26
+    Cast = 3
+    Clip = 4
+    Concat = 5
+    Conv2d = 6
+    ConvTranspose2d = 7
+    Div = 8
+    Gather = 9
+    Gemm = 10
+    GlobalAveragePool = 11
+    Identity = 12
+    LeakyRelu = 13
+    MatMul = 14
+    MaxPool2d = 15
+    Mul = 16
+    Pad2d = 17
+    Relu = 18
+    Reshape = 19
+    Shape = 20
+    Sigmoid = 21
+    Slice = 22
+    Squeeze = 23
+    Softmax = 24
+    Sub = 25
+    Transpose = 26
+    Unsqueeze = 27
 
 
 class PadMode(object):
@@ -41,23 +42,29 @@ class PadMode(object):
     Fixed = 1
 
 
+class DataType(object):
+    Int32 = 0
+    Float = 1
+
+
 class OperatorAttrs(object):
     NONE = 0
     AveragePool2dAttrs = 1
     BatchNormalizationAttrs = 2
-    ClipAttrs = 3
-    ConcatAttrs = 4
-    Conv2dAttrs = 5
-    ConvTranspose2dAttrs = 6
-    GatherAttrs = 7
-    GemmAttrs = 8
-    LeakyReluAttrs = 9
-    MaxPool2dAttrs = 10
-    Pad2dAttrs = 11
-    SqueezeAttrs = 12
-    SoftmaxAttrs = 13
-    TransposeAttrs = 14
-    UnsqueezeAttrs = 15
+    CastAttrs = 3
+    ClipAttrs = 4
+    ConcatAttrs = 5
+    Conv2dAttrs = 6
+    ConvTranspose2dAttrs = 7
+    GatherAttrs = 8
+    GemmAttrs = 9
+    LeakyReluAttrs = 10
+    MaxPool2dAttrs = 11
+    Pad2dAttrs = 12
+    SqueezeAttrs = 13
+    SoftmaxAttrs = 14
+    TransposeAttrs = 15
+    UnsqueezeAttrs = 16
 
 
 class NodeKind(object):
@@ -184,6 +191,40 @@ class BatchNormalizationAttrs(object):
 def BatchNormalizationAttrsStart(builder): builder.StartObject(1)
 def BatchNormalizationAttrsAddEpsilon(builder, epsilon): builder.PrependFloat32Slot(0, epsilon, 0.0)
 def BatchNormalizationAttrsEnd(builder): return builder.EndObject()
+
+
+class CastAttrs(object):
+    __slots__ = ['_tab']
+
+    @classmethod
+    def GetRootAs(cls, buf, offset=0):
+        n = flatbuffers.encode.Get(flatbuffers.packer.uoffset, buf, offset)
+        x = CastAttrs()
+        x.Init(buf, n + offset)
+        return x
+
+    @classmethod
+    def GetRootAsCastAttrs(cls, buf, offset=0):
+        """This method is deprecated. Please switch to GetRootAs."""
+        return cls.GetRootAs(buf, offset)
+    @classmethod
+    def CastAttrsBufferHasIdentifier(cls, buf, offset, size_prefixed=False):
+        return flatbuffers.util.BufferHasIdentifier(buf, offset, b"\x4D\x4F\x44\x4C", size_prefixed=size_prefixed)
+
+    # CastAttrs
+    def Init(self, buf, pos):
+        self._tab = flatbuffers.table.Table(buf, pos)
+
+    # CastAttrs
+    def To(self):
+        o = flatbuffers.number_types.UOffsetTFlags.py_type(self._tab.Offset(4))
+        if o != 0:
+            return self._tab.Get(flatbuffers.number_types.Int8Flags, o + self._tab.Pos)
+        return 0
+
+def CastAttrsStart(builder): builder.StartObject(1)
+def CastAttrsAddTo(builder, to): builder.PrependInt8Slot(0, to, 0)
+def CastAttrsEnd(builder): return builder.EndObject()
 
 
 class ClipAttrs(object):

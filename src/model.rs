@@ -4,7 +4,8 @@ use std::collections::HashMap;
 
 use crate::graph::{Graph, NodeId, RunError, RunOptions};
 use crate::ops;
-use crate::ops::{Operator, Output, Padding};
+use crate::ops::{DataType, Operator, Output, Padding};
+use crate::schema_generated as sg;
 use crate::schema_generated::{root_as_model, OperatorNode, OperatorType, PadMode};
 use crate::tensor::{from_data, Tensor};
 
@@ -77,6 +78,18 @@ fn read_batch_normalization_op(node: &OperatorNode) -> Box<dyn Operator> {
         None => 1e-5,
     };
     Box::new(ops::BatchNormalization { epsilon })
+}
+
+fn read_cast_op(node: &OperatorNode) -> Box<dyn Operator> {
+    let to = match node.attrs_as_cast_attrs() {
+        Some(attrs) => match attrs.to() {
+            sg::DataType::Int32 => DataType::Int32,
+            sg::DataType::Float => DataType::Float,
+            _ => DataType::Float,
+        },
+        None => DataType::Float,
+    };
+    Box::new(ops::Cast { to })
 }
 
 fn read_clip_op(node: &OperatorNode) -> Box<dyn Operator> {
@@ -297,6 +310,7 @@ fn read_operator(node: &OperatorNode) -> Result<Box<dyn Operator>, String> {
         OperatorType::Add => read_add_op(node),
         OperatorType::AveragePool2d => read_average_pool_2d_op(node),
         OperatorType::BatchNormalization => read_batch_normalization_op(node),
+        OperatorType::Cast => read_cast_op(node),
         OperatorType::Clip => read_clip_op(node),
         OperatorType::Concat => read_concat_op(node),
         OperatorType::Conv2d => read_conv_2d_op(node),
@@ -495,7 +509,13 @@ mod tests {
                 batch_norm_param, /* variance */
             ],
         );
-
+        builder.add_operator(
+            "cast",
+            OpType::Cast(ops::Cast {
+                to: ops::DataType::Float,
+            }),
+            &[input_node],
+        );
         builder.add_operator(
             "clip",
             OpType::Clip(ops::Clip { min: 1.0, max: 5.0 }),
@@ -610,6 +630,7 @@ mod tests {
             "add",
             "average_pool_2d",
             "batch_normalization",
+            "cast",
             "clip",
             "concat",
             "conv_2d",

@@ -6,6 +6,7 @@ from typing import cast
 
 import flatbuffers
 import onnx
+from onnx import TensorProto
 
 import schema_generated as sg
 
@@ -296,6 +297,18 @@ def op_node_from_onnx_operator(
 
             attrs["epsilon"] = get_attr(onnx_op.attribute, "epsilon", "float", 1e-5)
 
+        case "Cast":
+            op_type = "Cast"
+
+            to = get_attr(onnx_op.attribute, "to", "int", TensorProto.DataType.FLOAT)
+            match to:
+                case TensorProto.DataType.FLOAT:
+                    attrs["to"] = sg.DataType.Float
+                case TensorProto.DataType.INT32 | TensorProto.DataType.INT64:
+                    attrs["to"] = sg.DataType.Int32
+                case _:
+                    raise Exception(f"Unsupported target type for cast {to}")
+
         case "Clip":
             op_type = "Clip"
 
@@ -552,6 +565,12 @@ def build_operator_node(builder: flatbuffers.Builder, operator: OperatorNode):
             sg.BatchNormalizationAttrsStart(builder)
             sg.BatchNormalizationAttrsAddEpsilon(builder, operator.attrs["epsilon"])
             attrs = sg.BatchNormalizationAttrsEnd(builder)
+        case "Cast":
+            op_type_code = sg.OperatorType.Cast
+            attrs_type = sg.OperatorAttrs.CastAttrs
+            sg.CastAttrsStart(builder)
+            sg.CastAttrsAddTo(builder, operator.attrs["to"])
+            attrs = sg.CastAttrsEnd(builder)
         case "Clip":
             op_type_code = sg.OperatorType.Clip
             attrs_type = sg.OperatorAttrs.ClipAttrs

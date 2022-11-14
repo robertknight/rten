@@ -38,6 +38,12 @@ pub enum Padding {
     Fixed([usize; 4]),
 }
 
+#[derive(Copy, Clone, Debug)]
+pub enum DataType {
+    Int32,
+    Float,
+}
+
 /// Enum of the different types of input tensor that an operator can accept.
 #[derive(Clone, Copy)]
 pub enum Input<'a> {
@@ -189,6 +195,7 @@ pub enum OpType {
     Add,
     AveragePool2d(AveragePool2d),
     BatchNormalization(BatchNormalization),
+    Cast(Cast),
     Clip(Clip),
     Concat(Concat),
     Conv2d(Conv2d),
@@ -343,6 +350,44 @@ impl Operator for BatchNormalization {
         batch_norm_in_place(&mut output, scale, bias, mean, var, self.epsilon);
 
         Ok(output.into())
+    }
+}
+
+#[derive(Debug)]
+pub struct Cast {
+    pub to: DataType,
+}
+
+impl Operator for Cast {
+    fn name(&self) -> &str {
+        "Cast"
+    }
+
+    fn run(&self, inputs: &[Input]) -> Result<Output, OpError> {
+        let input = inputs.get(0).ok_or(OpError::MissingInputs)?;
+        match input {
+            Input::IntTensor(t) => match self.to {
+                DataType::Int32 => Ok((*t).clone().into()),
+                DataType::Float => Ok(t.map(|x| x as f32).into()),
+            },
+            Input::FloatTensor(t) => match self.to {
+                DataType::Int32 => Ok(t.map(|x| x as i32).into()),
+                DataType::Float => Ok((*t).clone().into()),
+            },
+        }
+    }
+
+    fn can_run_in_place(&self) -> bool {
+        true
+    }
+
+    fn run_in_place(&self, input: Output, _: &[Input]) -> Result<Output, OpError> {
+        match (input, self.to) {
+            (Output::IntTensor(t), DataType::Int32) => Ok(t.into()),
+            (Output::IntTensor(t), _) => self.run(&[Input::IntTensor(&t)]),
+            (Output::FloatTensor(t), DataType::Float) => Ok(t.into()),
+            (Output::FloatTensor(t), _) => self.run(&[Input::FloatTensor(&t)]),
+        }
     }
 }
 
@@ -961,8 +1006,8 @@ mod tests {
     use crate::linalg::gemm;
     use crate::ops::{
         batch_norm, batch_norm_in_place, concat, gather, gemm_op, matmul, pad_2d, reshape, slice,
-        slice_in_place, squeeze, squeeze_in_place, transpose, unsqueeze, Identity, OpError,
-        Operator, Reshape, Shape,
+        slice_in_place, squeeze, squeeze_in_place, transpose, unsqueeze, Cast, DataType, Identity,
+        Input, OpError, Operator, Reshape, Shape,
     };
     use crate::rng::XorShiftRNG;
     use crate::tensor::{from_data, from_scalar, from_vec, random_tensor, zero_tensor, Tensor};
@@ -1007,6 +1052,50 @@ mod tests {
         batch_norm_in_place(&mut input, &scale, &bias, &mean, &var, epsilon);
 
         expect_equal(&input, &expected)
+    }
+
+    #[test]
+    fn test_cast() -> Result<(), String> {
+        let int_input = from_vec(vec![1, 2, 3]);
+        let float_input = from_vec(vec![1.0, 2.0, 3.0]);
+
+        // No-op cast from int32 => int32
+        let cast_to_int = Cast {
+            to: DataType::Int32,
+        };
+        let result = cast_to_int
+            .run(&[Input::IntTensor(&int_input)])
+            .unwrap()
+            .into_int()
+            .unwrap();
+
+        // Flooring cast from float => int32
+        assert_eq!(result, int_input);
+        let result = cast_to_int
+            .run(&[Input::FloatTensor(&float_input)])
+            .unwrap()
+            .into_int()
+            .unwrap();
+        assert_eq!(&result, &int_input);
+
+        // No-op cast from float => float
+        let cast_to_float = Cast {
+            to: DataType::Float,
+        };
+        let result = cast_to_float
+            .run(&[Input::FloatTensor(&float_input)])
+            .unwrap()
+            .into_float()
+            .unwrap();
+        expect_equal(&result, &float_input)?;
+
+        // Cast from int32 => float
+        let result = cast_to_float
+            .run(&[Input::IntTensor(&int_input)])
+            .unwrap()
+            .into_float()
+            .unwrap();
+        expect_equal(&result, &float_input)
     }
 
     #[test]

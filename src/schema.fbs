@@ -10,6 +10,7 @@ enum OperatorType: byte {
   Add,
   AveragePool2d,
   BatchNormalization,
+  Cast,
   Clip,
   Concat,
   Conv2d,
@@ -41,10 +42,16 @@ enum PadMode: byte {
   Fixed
 }
 
+enum DataType: byte {
+  Int32,
+  Float
+}
+
 // Operator-specific configuration
 union OperatorAttrs {
   AveragePool2dAttrs,
   BatchNormalizationAttrs,
+  CastAttrs,
   ClipAttrs,
   ConcatAttrs,
   Conv2dAttrs,
@@ -72,6 +79,10 @@ table AveragePool2dAttrs {
 
 table BatchNormalizationAttrs {
   epsilon:float;
+}
+
+table CastAttrs {
+  to:DataType;
 }
 
 table ClipAttrs {

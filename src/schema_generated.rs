@@ -18,16 +18,17 @@ pub const ENUM_MIN_OPERATOR_TYPE: i8 = 0;
     since = "2.0.0",
     note = "Use associated constants instead. This will no longer be generated in 2021."
 )]
-pub const ENUM_MAX_OPERATOR_TYPE: i8 = 26;
+pub const ENUM_MAX_OPERATOR_TYPE: i8 = 27;
 #[deprecated(
     since = "2.0.0",
     note = "Use associated constants instead. This will no longer be generated in 2021."
 )]
 #[allow(non_camel_case_types)]
-pub const ENUM_VALUES_OPERATOR_TYPE: [OperatorType; 27] = [
+pub const ENUM_VALUES_OPERATOR_TYPE: [OperatorType; 28] = [
     OperatorType::Add,
     OperatorType::AveragePool2d,
     OperatorType::BatchNormalization,
+    OperatorType::Cast,
     OperatorType::Clip,
     OperatorType::Concat,
     OperatorType::Conv2d,
@@ -62,37 +63,39 @@ impl OperatorType {
     pub const Add: Self = Self(0);
     pub const AveragePool2d: Self = Self(1);
     pub const BatchNormalization: Self = Self(2);
-    pub const Clip: Self = Self(3);
-    pub const Concat: Self = Self(4);
-    pub const Conv2d: Self = Self(5);
-    pub const ConvTranspose2d: Self = Self(6);
-    pub const Div: Self = Self(7);
-    pub const Gather: Self = Self(8);
-    pub const Gemm: Self = Self(9);
-    pub const GlobalAveragePool: Self = Self(10);
-    pub const Identity: Self = Self(11);
-    pub const LeakyRelu: Self = Self(12);
-    pub const MatMul: Self = Self(13);
-    pub const MaxPool2d: Self = Self(14);
-    pub const Mul: Self = Self(15);
-    pub const Pad2d: Self = Self(16);
-    pub const Relu: Self = Self(17);
-    pub const Reshape: Self = Self(18);
-    pub const Shape: Self = Self(19);
-    pub const Sigmoid: Self = Self(20);
-    pub const Slice: Self = Self(21);
-    pub const Squeeze: Self = Self(22);
-    pub const Softmax: Self = Self(23);
-    pub const Sub: Self = Self(24);
-    pub const Transpose: Self = Self(25);
-    pub const Unsqueeze: Self = Self(26);
+    pub const Cast: Self = Self(3);
+    pub const Clip: Self = Self(4);
+    pub const Concat: Self = Self(5);
+    pub const Conv2d: Self = Self(6);
+    pub const ConvTranspose2d: Self = Self(7);
+    pub const Div: Self = Self(8);
+    pub const Gather: Self = Self(9);
+    pub const Gemm: Self = Self(10);
+    pub const GlobalAveragePool: Self = Self(11);
+    pub const Identity: Self = Self(12);
+    pub const LeakyRelu: Self = Self(13);
+    pub const MatMul: Self = Self(14);
+    pub const MaxPool2d: Self = Self(15);
+    pub const Mul: Self = Self(16);
+    pub const Pad2d: Self = Self(17);
+    pub const Relu: Self = Self(18);
+    pub const Reshape: Self = Self(19);
+    pub const Shape: Self = Self(20);
+    pub const Sigmoid: Self = Self(21);
+    pub const Slice: Self = Self(22);
+    pub const Squeeze: Self = Self(23);
+    pub const Softmax: Self = Self(24);
+    pub const Sub: Self = Self(25);
+    pub const Transpose: Self = Self(26);
+    pub const Unsqueeze: Self = Self(27);
 
     pub const ENUM_MIN: i8 = 0;
-    pub const ENUM_MAX: i8 = 26;
+    pub const ENUM_MAX: i8 = 27;
     pub const ENUM_VALUES: &'static [Self] = &[
         Self::Add,
         Self::AveragePool2d,
         Self::BatchNormalization,
+        Self::Cast,
         Self::Clip,
         Self::Concat,
         Self::Conv2d,
@@ -124,6 +127,7 @@ impl OperatorType {
             Self::Add => Some("Add"),
             Self::AveragePool2d => Some("AveragePool2d"),
             Self::BatchNormalization => Some("BatchNormalization"),
+            Self::Cast => Some("Cast"),
             Self::Clip => Some("Clip"),
             Self::Concat => Some("Concat"),
             Self::Conv2d => Some("Conv2d"),
@@ -301,21 +305,113 @@ impl flatbuffers::SimpleToVerifyInSlice for PadMode {}
     since = "2.0.0",
     note = "Use associated constants instead. This will no longer be generated in 2021."
 )]
-pub const ENUM_MIN_OPERATOR_ATTRS: u8 = 0;
+pub const ENUM_MIN_DATA_TYPE: i8 = 0;
 #[deprecated(
     since = "2.0.0",
     note = "Use associated constants instead. This will no longer be generated in 2021."
 )]
-pub const ENUM_MAX_OPERATOR_ATTRS: u8 = 15;
+pub const ENUM_MAX_DATA_TYPE: i8 = 1;
 #[deprecated(
     since = "2.0.0",
     note = "Use associated constants instead. This will no longer be generated in 2021."
 )]
 #[allow(non_camel_case_types)]
-pub const ENUM_VALUES_OPERATOR_ATTRS: [OperatorAttrs; 16] = [
+pub const ENUM_VALUES_DATA_TYPE: [DataType; 2] = [DataType::Int32, DataType::Float];
+
+#[derive(Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash, Default)]
+#[repr(transparent)]
+pub struct DataType(pub i8);
+#[allow(non_upper_case_globals)]
+impl DataType {
+    pub const Int32: Self = Self(0);
+    pub const Float: Self = Self(1);
+
+    pub const ENUM_MIN: i8 = 0;
+    pub const ENUM_MAX: i8 = 1;
+    pub const ENUM_VALUES: &'static [Self] = &[Self::Int32, Self::Float];
+    /// Returns the variant's name or "" if unknown.
+    pub fn variant_name(self) -> Option<&'static str> {
+        match self {
+            Self::Int32 => Some("Int32"),
+            Self::Float => Some("Float"),
+            _ => None,
+        }
+    }
+}
+impl core::fmt::Debug for DataType {
+    fn fmt(&self, f: &mut core::fmt::Formatter) -> core::fmt::Result {
+        if let Some(name) = self.variant_name() {
+            f.write_str(name)
+        } else {
+            f.write_fmt(format_args!("<UNKNOWN {:?}>", self.0))
+        }
+    }
+}
+impl<'a> flatbuffers::Follow<'a> for DataType {
+    type Inner = Self;
+    #[inline]
+    fn follow(buf: &'a [u8], loc: usize) -> Self::Inner {
+        let b = unsafe { flatbuffers::read_scalar_at::<i8>(buf, loc) };
+        Self(b)
+    }
+}
+
+impl flatbuffers::Push for DataType {
+    type Output = DataType;
+    #[inline]
+    fn push(&self, dst: &mut [u8], _rest: &[u8]) {
+        unsafe {
+            flatbuffers::emplace_scalar::<i8>(dst, self.0);
+        }
+    }
+}
+
+impl flatbuffers::EndianScalar for DataType {
+    #[inline]
+    fn to_little_endian(self) -> Self {
+        let b = i8::to_le(self.0);
+        Self(b)
+    }
+    #[inline]
+    #[allow(clippy::wrong_self_convention)]
+    fn from_little_endian(self) -> Self {
+        let b = i8::from_le(self.0);
+        Self(b)
+    }
+}
+
+impl<'a> flatbuffers::Verifiable for DataType {
+    #[inline]
+    fn run_verifier(
+        v: &mut flatbuffers::Verifier,
+        pos: usize,
+    ) -> Result<(), flatbuffers::InvalidFlatbuffer> {
+        use self::flatbuffers::Verifiable;
+        i8::run_verifier(v, pos)
+    }
+}
+
+impl flatbuffers::SimpleToVerifyInSlice for DataType {}
+#[deprecated(
+    since = "2.0.0",
+    note = "Use associated constants instead. This will no longer be generated in 2021."
+)]
+pub const ENUM_MIN_OPERATOR_ATTRS: u8 = 0;
+#[deprecated(
+    since = "2.0.0",
+    note = "Use associated constants instead. This will no longer be generated in 2021."
+)]
+pub const ENUM_MAX_OPERATOR_ATTRS: u8 = 16;
+#[deprecated(
+    since = "2.0.0",
+    note = "Use associated constants instead. This will no longer be generated in 2021."
+)]
+#[allow(non_camel_case_types)]
+pub const ENUM_VALUES_OPERATOR_ATTRS: [OperatorAttrs; 17] = [
     OperatorAttrs::NONE,
     OperatorAttrs::AveragePool2dAttrs,
     OperatorAttrs::BatchNormalizationAttrs,
+    OperatorAttrs::CastAttrs,
     OperatorAttrs::ClipAttrs,
     OperatorAttrs::ConcatAttrs,
     OperatorAttrs::Conv2dAttrs,
@@ -339,26 +435,28 @@ impl OperatorAttrs {
     pub const NONE: Self = Self(0);
     pub const AveragePool2dAttrs: Self = Self(1);
     pub const BatchNormalizationAttrs: Self = Self(2);
-    pub const ClipAttrs: Self = Self(3);
-    pub const ConcatAttrs: Self = Self(4);
-    pub const Conv2dAttrs: Self = Self(5);
-    pub const ConvTranspose2dAttrs: Self = Self(6);
-    pub const GatherAttrs: Self = Self(7);
-    pub const GemmAttrs: Self = Self(8);
-    pub const LeakyReluAttrs: Self = Self(9);
-    pub const MaxPool2dAttrs: Self = Self(10);
-    pub const Pad2dAttrs: Self = Self(11);
-    pub const SqueezeAttrs: Self = Self(12);
-    pub const SoftmaxAttrs: Self = Self(13);
-    pub const TransposeAttrs: Self = Self(14);
-    pub const UnsqueezeAttrs: Self = Self(15);
+    pub const CastAttrs: Self = Self(3);
+    pub const ClipAttrs: Self = Self(4);
+    pub const ConcatAttrs: Self = Self(5);
+    pub const Conv2dAttrs: Self = Self(6);
+    pub const ConvTranspose2dAttrs: Self = Self(7);
+    pub const GatherAttrs: Self = Self(8);
+    pub const GemmAttrs: Self = Self(9);
+    pub const LeakyReluAttrs: Self = Self(10);
+    pub const MaxPool2dAttrs: Self = Self(11);
+    pub const Pad2dAttrs: Self = Self(12);
+    pub const SqueezeAttrs: Self = Self(13);
+    pub const SoftmaxAttrs: Self = Self(14);
+    pub const TransposeAttrs: Self = Self(15);
+    pub const UnsqueezeAttrs: Self = Self(16);
 
     pub const ENUM_MIN: u8 = 0;
-    pub const ENUM_MAX: u8 = 15;
+    pub const ENUM_MAX: u8 = 16;
     pub const ENUM_VALUES: &'static [Self] = &[
         Self::NONE,
         Self::AveragePool2dAttrs,
         Self::BatchNormalizationAttrs,
+        Self::CastAttrs,
         Self::ClipAttrs,
         Self::ConcatAttrs,
         Self::Conv2dAttrs,
@@ -379,6 +477,7 @@ impl OperatorAttrs {
             Self::NONE => Some("NONE"),
             Self::AveragePool2dAttrs => Some("AveragePool2dAttrs"),
             Self::BatchNormalizationAttrs => Some("BatchNormalizationAttrs"),
+            Self::CastAttrs => Some("CastAttrs"),
             Self::ClipAttrs => Some("ClipAttrs"),
             Self::ConcatAttrs => Some("ConcatAttrs"),
             Self::Conv2dAttrs => Some("Conv2dAttrs"),
@@ -914,6 +1013,105 @@ impl core::fmt::Debug for BatchNormalizationAttrs<'_> {
     fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
         let mut ds = f.debug_struct("BatchNormalizationAttrs");
         ds.field("epsilon", &self.epsilon());
+        ds.finish()
+    }
+}
+pub enum CastAttrsOffset {}
+#[derive(Copy, Clone, PartialEq)]
+
+pub struct CastAttrs<'a> {
+    pub _tab: flatbuffers::Table<'a>,
+}
+
+impl<'a> flatbuffers::Follow<'a> for CastAttrs<'a> {
+    type Inner = CastAttrs<'a>;
+    #[inline]
+    fn follow(buf: &'a [u8], loc: usize) -> Self::Inner {
+        Self {
+            _tab: flatbuffers::Table { buf, loc },
+        }
+    }
+}
+
+impl<'a> CastAttrs<'a> {
+    pub const VT_TO: flatbuffers::VOffsetT = 4;
+
+    #[inline]
+    pub fn init_from_table(table: flatbuffers::Table<'a>) -> Self {
+        CastAttrs { _tab: table }
+    }
+    #[allow(unused_mut)]
+    pub fn create<'bldr: 'args, 'args: 'mut_bldr, 'mut_bldr>(
+        _fbb: &'mut_bldr mut flatbuffers::FlatBufferBuilder<'bldr>,
+        args: &'args CastAttrsArgs,
+    ) -> flatbuffers::WIPOffset<CastAttrs<'bldr>> {
+        let mut builder = CastAttrsBuilder::new(_fbb);
+        builder.add_to(args.to);
+        builder.finish()
+    }
+
+    #[inline]
+    pub fn to(&self) -> DataType {
+        self._tab
+            .get::<DataType>(CastAttrs::VT_TO, Some(DataType::Int32))
+            .unwrap()
+    }
+}
+
+impl flatbuffers::Verifiable for CastAttrs<'_> {
+    #[inline]
+    fn run_verifier(
+        v: &mut flatbuffers::Verifier,
+        pos: usize,
+    ) -> Result<(), flatbuffers::InvalidFlatbuffer> {
+        use self::flatbuffers::Verifiable;
+        v.visit_table(pos)?
+            .visit_field::<DataType>("to", Self::VT_TO, false)?
+            .finish();
+        Ok(())
+    }
+}
+pub struct CastAttrsArgs {
+    pub to: DataType,
+}
+impl<'a> Default for CastAttrsArgs {
+    #[inline]
+    fn default() -> Self {
+        CastAttrsArgs {
+            to: DataType::Int32,
+        }
+    }
+}
+
+pub struct CastAttrsBuilder<'a: 'b, 'b> {
+    fbb_: &'b mut flatbuffers::FlatBufferBuilder<'a>,
+    start_: flatbuffers::WIPOffset<flatbuffers::TableUnfinishedWIPOffset>,
+}
+impl<'a: 'b, 'b> CastAttrsBuilder<'a, 'b> {
+    #[inline]
+    pub fn add_to(&mut self, to: DataType) {
+        self.fbb_
+            .push_slot::<DataType>(CastAttrs::VT_TO, to, DataType::Int32);
+    }
+    #[inline]
+    pub fn new(_fbb: &'b mut flatbuffers::FlatBufferBuilder<'a>) -> CastAttrsBuilder<'a, 'b> {
+        let start = _fbb.start_table();
+        CastAttrsBuilder {
+            fbb_: _fbb,
+            start_: start,
+        }
+    }
+    #[inline]
+    pub fn finish(self) -> flatbuffers::WIPOffset<CastAttrs<'a>> {
+        let o = self.fbb_.end_table(self.start_);
+        flatbuffers::WIPOffset::new(o.value())
+    }
+}
+
+impl core::fmt::Debug for CastAttrs<'_> {
+    fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
+        let mut ds = f.debug_struct("CastAttrs");
+        ds.field("to", &self.to());
         ds.finish()
     }
 }
@@ -2529,6 +2727,16 @@ impl<'a> OperatorNode<'a> {
 
     #[inline]
     #[allow(non_snake_case)]
+    pub fn attrs_as_cast_attrs(&self) -> Option<CastAttrs<'a>> {
+        if self.attrs_type() == OperatorAttrs::CastAttrs {
+            self.attrs().map(CastAttrs::init_from_table)
+        } else {
+            None
+        }
+    }
+
+    #[inline]
+    #[allow(non_snake_case)]
     pub fn attrs_as_clip_attrs(&self) -> Option<ClipAttrs<'a>> {
         if self.attrs_type() == OperatorAttrs::ClipAttrs {
             self.attrs().map(ClipAttrs::init_from_table)
@@ -2671,6 +2879,7 @@ impl flatbuffers::Verifiable for OperatorNode<'_> {
         match key {
           OperatorAttrs::AveragePool2dAttrs => v.verify_union_variant::<flatbuffers::ForwardsUOffset<AveragePool2dAttrs>>("OperatorAttrs::AveragePool2dAttrs", pos),
           OperatorAttrs::BatchNormalizationAttrs => v.verify_union_variant::<flatbuffers::ForwardsUOffset<BatchNormalizationAttrs>>("OperatorAttrs::BatchNormalizationAttrs", pos),
+          OperatorAttrs::CastAttrs => v.verify_union_variant::<flatbuffers::ForwardsUOffset<CastAttrs>>("OperatorAttrs::CastAttrs", pos),
           OperatorAttrs::ClipAttrs => v.verify_union_variant::<flatbuffers::ForwardsUOffset<ClipAttrs>>("OperatorAttrs::ClipAttrs", pos),
           OperatorAttrs::ConcatAttrs => v.verify_union_variant::<flatbuffers::ForwardsUOffset<ConcatAttrs>>("OperatorAttrs::ConcatAttrs", pos),
           OperatorAttrs::Conv2dAttrs => v.verify_union_variant::<flatbuffers::ForwardsUOffset<Conv2dAttrs>>("OperatorAttrs::Conv2dAttrs", pos),
@@ -2771,6 +2980,16 @@ impl core::fmt::Debug for OperatorNode<'_> {
             }
             OperatorAttrs::BatchNormalizationAttrs => {
                 if let Some(x) = self.attrs_as_batch_normalization_attrs() {
+                    ds.field("attrs", &x)
+                } else {
+                    ds.field(
+                        "attrs",
+                        &"InvalidFlatbuffer: Union discriminant does not match value.",
+                    )
+                }
+            }
+            OperatorAttrs::CastAttrs => {
+                if let Some(x) = self.attrs_as_cast_attrs() {
                     ds.field("attrs", &x)
                 } else {
                     ds.field(
