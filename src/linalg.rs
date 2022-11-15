@@ -124,7 +124,15 @@ trait Kernel {
     fn supported() -> bool;
 
     /// Compute an `MR * NR`-sized tile of the output matrix.
-    fn kernel(out: &mut [f32], out_row_stride: usize, a: &[f32], b: &[f32], depth: usize);
+    fn kernel(
+        out: &mut [f32],
+        out_row_stride: usize,
+        a: &[f32],
+        b: &[f32],
+        depth: usize,
+        alpha: f32,
+        beta: f32,
+    );
 }
 
 /// Optimized kernel for x64 CPUs that support AVX + FMA instructions.
@@ -140,8 +148,16 @@ impl Kernel for FMAKernel {
         is_x86_feature_detected!("fma")
     }
 
-    fn kernel(out: &mut [f32], out_row_stride: usize, a: &[f32], b: &[f32], depth: usize) {
-        unsafe { Self::kernel_fma(out, out_row_stride, a, b, depth) }
+    fn kernel(
+        out: &mut [f32],
+        out_row_stride: usize,
+        a: &[f32],
+        b: &[f32],
+        depth: usize,
+        alpha: f32,
+        beta: f32,
+    ) {
+        unsafe { Self::kernel_fma(out, out_row_stride, a, b, depth, alpha, beta) }
     }
 }
 
@@ -154,13 +170,15 @@ impl FMAKernel {
         a: &[f32],
         b: &[f32],
         depth: usize,
+        alpha: f32,
+        beta: f32,
     ) {
         const MR: usize = FMAKernel::MR;
         const NR: usize = FMAKernel::NR;
 
         use core::arch::x86_64::{
-            _mm256_add_ps, _mm256_fmadd_ps, _mm256_loadu_ps, _mm256_set1_ps, _mm256_setzero_ps,
-            _mm256_storeu_ps,
+            _mm256_add_ps, _mm256_fmadd_ps, _mm256_loadu_ps, _mm256_mul_ps, _mm256_set1_ps,
+            _mm256_setzero_ps, _mm256_storeu_ps,
         };
 
         // Check that buffer accesses below are going to be valid.
@@ -186,11 +204,26 @@ impl FMAKernel {
             }
         }
 
-        for i in 0..MR {
-            let out_ptr = out.as_mut_ptr().add(out_row_stride * i);
-            let out_val = _mm256_loadu_ps(out_ptr);
-            let out_val = _mm256_add_ps(out_val, tmp[i]);
-            _mm256_storeu_ps(out_ptr, out_val);
+        if beta == 0. && alpha == 1. {
+            for i in 0..MR {
+                let out_ptr = out.as_mut_ptr().add(out_row_stride * i);
+                _mm256_storeu_ps(out_ptr, tmp[i]);
+            }
+        } else if beta == 1. && alpha == 1. {
+            for i in 0..MR {
+                let out_ptr = out.as_mut_ptr().add(out_row_stride * i);
+                let out_val = _mm256_add_ps(_mm256_loadu_ps(out_ptr), tmp[i]);
+                _mm256_storeu_ps(out_ptr, out_val);
+            }
+        } else {
+            let alpha_broadcast = _mm256_set1_ps(alpha);
+            let beta_broadcast = _mm256_set1_ps(beta);
+            for i in 0..MR {
+                let out_ptr = out.as_mut_ptr().add(out_row_stride * i);
+                let out_val = _mm256_mul_ps(_mm256_loadu_ps(out_ptr), beta_broadcast);
+                let out_val = _mm256_fmadd_ps(tmp[i], alpha_broadcast, out_val);
+                _mm256_storeu_ps(out_ptr, out_val);
+            }
         }
     }
 }
@@ -211,7 +244,15 @@ impl Kernel for BaseKernel {
         true
     }
 
-    fn kernel(out: &mut [f32], out_row_stride: usize, a: &[f32], b: &[f32], depth: usize) {
+    fn kernel(
+        out: &mut [f32],
+        out_row_stride: usize,
+        a: &[f32],
+        b: &[f32],
+        depth: usize,
+        alpha: f32,
+        beta: f32,
+    ) {
         const MR: usize = BaseKernel::MR;
         const NR: usize = BaseKernel::NR;
 
@@ -236,11 +277,34 @@ impl Kernel for BaseKernel {
             }
         }
 
-        for i in 0..MR {
-            for j in 0..NR {
-                // Safety: Index is less than length asserted above.
-                unsafe {
-                    *out.get_unchecked_mut(out_row_stride * i + j) += tmp[i][j];
+        if beta == 0. && alpha == 1. {
+            for i in 0..MR {
+                for j in 0..NR {
+                    // Safety: Index is less than length asserted above.
+                    unsafe {
+                        let out_el = out.get_unchecked_mut(out_row_stride * i + j);
+                        *out_el = tmp[i][j];
+                    }
+                }
+            }
+        } else if beta == 1. && alpha == 1. {
+            for i in 0..MR {
+                for j in 0..NR {
+                    // Safety: Index is less than length asserted above.
+                    unsafe {
+                        let out_el = out.get_unchecked_mut(out_row_stride * i + j);
+                        *out_el += tmp[i][j];
+                    }
+                }
+            }
+        } else {
+            for i in 0..MR {
+                for j in 0..NR {
+                    // Safety: Index is less than length asserted above.
+                    unsafe {
+                        let out_el = out.get_unchecked_mut(out_row_stride * i + j);
+                        *out_el = beta * *out_el + alpha * tmp[i][j];
+                    }
                 }
             }
         }
@@ -344,23 +408,15 @@ fn round_up(val: usize, factor: usize) -> usize {
     }
 }
 
-/// Struct specifying details of an input matrix for use in GEMM operation.
+/// Perform a General Matrix Multiplication ("gemm").
 ///
-/// Unlike a `Tensor`, this doesn't own the data.
-#[derive(Copy, Clone)]
-pub struct Matrix<'a> {
-    pub data: &'a [f32],
-    pub rows: usize,
-    pub cols: usize,
-    pub row_stride: usize,
-    pub col_stride: usize,
-}
-
-/// Multiply two matrices and add the results to `output`.
+/// This computes `output = alpha * (a @ b) + beta * output` where `@` is
+/// matrix multiplication.
 ///
-/// This is a high-level API that operates on tensors.
+/// This is a high-level API that operates on `Tensor`s. See `gemm` for
+/// a low-level API that operates on slices.
 #[allow(dead_code)] // Currently only used in tests
-pub fn gemm_tensors(output: &mut Tensor, a: &Tensor, b: &Tensor) {
+pub fn gemm_tensors(output: &mut Tensor, a: &Tensor, b: &Tensor, alpha: f32, beta: f32) {
     let [a_rows, a_cols] = a.dims();
     let [b_rows, b_cols] = b.dims();
     let out_row_stride = output.stride(0);
@@ -382,16 +438,43 @@ pub fn gemm_tensors(output: &mut Tensor, a: &Tensor, b: &Tensor) {
             row_stride: b.stride(0),
             col_stride: b.stride(1),
         },
+        alpha,
+        beta,
     );
 }
 
-/// Multiply two matrices and add the results to `out_data`.
+/// Struct specifying details of an input matrix for use in GEMM operation.
+///
+/// Unlike a `Tensor`, this doesn't own the data.
+#[derive(Copy, Clone)]
+pub struct Matrix<'a> {
+    pub data: &'a [f32],
+    pub rows: usize,
+    pub cols: usize,
+    pub row_stride: usize,
+    pub col_stride: usize,
+}
+
+/// Perform a General Matrix Multiplication ("gemm").
+///
+/// This is a low-level API that operates directly on slices. Use `gemm` for
+/// a more convenient way to multiply two 2D tensors.
+///
+/// This computes `output = alpha * (a @ b) + beta * output` where `@` is
+/// matrix multiplication.
 ///
 /// The implementation uses the general approach of BLIS
 /// (https://github.com/flame/blis), and was informed by the matrixmultiply
 /// crate (https://github.com/bluss/matrixmultiply). See Pages 3-5 of
 /// https://dl.acm.org/doi/pdf/10.1145/2925987 for an outline of the algorithm.
-pub fn gemm(out_data: &mut [f32], out_row_stride: usize, a: Matrix, b: Matrix) {
+pub fn gemm(
+    out_data: &mut [f32],
+    out_row_stride: usize,
+    a: Matrix,
+    b: Matrix,
+    alpha: f32,
+    beta: f32,
+) {
     #[cfg(target_arch = "x86_64")]
     {
         if FMAKernel::supported() {
@@ -400,15 +483,38 @@ pub fn gemm(out_data: &mut [f32], out_row_stride: usize, a: Matrix, b: Matrix) {
                 out_row_stride,
                 a,
                 b,
+                alpha,
+                beta,
             );
         }
     }
-    gemm_impl::<BaseKernel, { BaseKernel::MR * BaseKernel::NR }>(out_data, out_row_stride, a, b)
+    gemm_impl::<BaseKernel, { BaseKernel::MR * BaseKernel::NR }>(
+        out_data,
+        out_row_stride,
+        a,
+        b,
+        alpha,
+        beta,
+    )
 }
 
 #[cfg(test)]
-pub fn gemm_base_kernel(out_data: &mut [f32], out_row_stride: usize, a: Matrix, b: Matrix) {
-    gemm_impl::<BaseKernel, { BaseKernel::MR * BaseKernel::NR }>(out_data, out_row_stride, a, b)
+pub fn gemm_base_kernel(
+    out_data: &mut [f32],
+    out_row_stride: usize,
+    a: Matrix,
+    b: Matrix,
+    alpha: f32,
+    beta: f32,
+) {
+    gemm_impl::<BaseKernel, { BaseKernel::MR * BaseKernel::NR }>(
+        out_data,
+        out_row_stride,
+        a,
+        b,
+        alpha,
+        beta,
+    )
 }
 
 /// Perform matrix multiplication with a given kernel.
@@ -421,6 +527,8 @@ fn gemm_impl<K: Kernel, const MR_NR: usize>(
     out_row_stride: usize,
     a: Matrix,
     b: Matrix,
+    alpha: f32,
+    beta: f32,
 ) {
     assert!(K::supported());
 
@@ -492,8 +600,20 @@ fn gemm_impl<K: Kernel, const MR_NR: usize>(
                         let used_rows = tile_row_end - tile_row_start;
                         let used_cols = tile_col_end - tile_col_start;
 
+                        // Only use provided `beta` on the first write to this output tile. For
+                        // subsequent updates accumulate.
+                        let effective_beta = if depth_start == 0 { beta } else { 1.0 };
+
                         if used_rows == K::MR && used_cols == K::NR {
-                            K::kernel(out_tile, out_row_stride, a_panel, b_panel, panel_length);
+                            K::kernel(
+                                out_tile,
+                                out_row_stride,
+                                a_panel,
+                                b_panel,
+                                panel_length,
+                                alpha,
+                                effective_beta,
+                            );
                         } else {
                             // If this is not a full size tile, run the kernel on a temporary
                             // buffer that is the size of a full tile, then copy the results back
@@ -501,7 +621,15 @@ fn gemm_impl<K: Kernel, const MR_NR: usize>(
                             // whether the tile is full-sized or not.
                             let mut tmp_out_tile = [0.; MR_NR];
 
-                            K::kernel(&mut tmp_out_tile, K::NR, a_panel, b_panel, panel_length);
+                            K::kernel(
+                                &mut tmp_out_tile,
+                                K::NR,
+                                a_panel,
+                                b_panel,
+                                panel_length,
+                                alpha,
+                                0., // Multiplication with `effective_beta` is handled below.
+                            );
 
                             assert!(out_tile.len() >= (used_rows - 1) * out_row_stride + used_cols);
                             assert!(tmp_out_tile.len() >= (used_rows - 1) * K::NR + used_cols);
@@ -509,8 +637,10 @@ fn gemm_impl<K: Kernel, const MR_NR: usize>(
                                 for j in 0..used_cols {
                                     // Safety: Index is less than length asserted above.
                                     unsafe {
-                                        *out_tile.get_unchecked_mut(out_row_stride * i + j) +=
-                                            tmp_out_tile[i * K::NR + j];
+                                        let out_el =
+                                            out_tile.get_unchecked_mut(out_row_stride * i + j);
+                                        *out_el =
+                                            effective_beta * *out_el + tmp_out_tile[i * K::NR + j];
                                     }
                                 }
                             }
@@ -529,18 +659,12 @@ mod tests {
     use crate::tensor::{rand, zeros, Tensor};
     use crate::test_util::expect_equal;
 
-    fn reference_gemm(a: &Tensor, b: &Tensor) -> Tensor {
-        let [a_rows, a_cols] = a.dims();
+    fn reference_matmul(a: &Tensor, b: &Tensor) -> Tensor {
+        let [a_rows, _a_cols] = a.dims();
         let [_b_rows, b_cols] = b.dims();
         let mut output = zeros(&[a_rows, b_cols]);
 
-        for r in 0..a_rows {
-            for c in 0..b_cols {
-                for k in 0..a_cols {
-                    output[[r, c]] += a[[r, k]] * b[[k, c]];
-                }
-            }
-        }
+        reference_gemm(&mut output, a, b, 1.0, 0.0);
 
         output
     }
@@ -553,7 +677,14 @@ mod tests {
         Base,
     }
 
-    fn run_gemm(output: &mut Tensor, a: &Tensor, b: &Tensor, kernel: Kernel) {
+    fn run_gemm(
+        output: &mut Tensor,
+        a: &Tensor,
+        b: &Tensor,
+        alpha: f32,
+        beta: f32,
+        kernel: Kernel,
+    ) {
         let [a_rows, a_cols] = a.dims();
         let [b_rows, b_cols] = b.dims();
         let out_row_stride = output.stride(0);
@@ -580,7 +711,24 @@ mod tests {
                 row_stride: b.stride(0),
                 col_stride: b.stride(1),
             },
+            alpha,
+            beta,
         );
+    }
+
+    fn reference_gemm(output: &mut Tensor, a: &Tensor, b: &Tensor, alpha: f32, beta: f32) {
+        let [a_rows, a_cols] = a.dims();
+        let [_b_rows, b_cols] = b.dims();
+
+        for r in 0..a_rows {
+            for c in 0..b_cols {
+                let mut accum = 0.0;
+                for k in 0..a_cols {
+                    accum += a[[r, k]] * b[[k, c]];
+                }
+                output[[r, c]] = alpha * accum + beta * output[[r, c]];
+            }
+        }
     }
 
     #[test]
@@ -634,14 +782,14 @@ mod tests {
     fn test_simple_gemm() -> Result<(), String> {
         let a = Tensor::from_data(vec![2, 2], vec![1., 2., 3., 4.]);
         let b = Tensor::from_data(vec![2, 2], vec![5., 6., 7., 8.]);
-        let expected = reference_gemm(&a, &b);
+        let expected = reference_matmul(&a, &b);
 
         let mut result = zeros::<f32>(&[a.shape()[0], b.shape()[1]]);
-        run_gemm(&mut result, &a, &b, Kernel::Auto);
+        run_gemm(&mut result, &a, &b, 1., 1., Kernel::Auto);
         expect_equal(&result, &expected)?;
 
         let mut result = zeros::<f32>(&[a.shape()[0], b.shape()[1]]);
-        run_gemm(&mut result, &a, &b, Kernel::Base);
+        run_gemm(&mut result, &a, &b, 1., 1., Kernel::Base);
         expect_equal(&result, &expected)?;
 
         Ok(())
@@ -686,9 +834,9 @@ mod tests {
             let b = rand(&rhs_size, &mut rng);
             let mut result = zeros::<f32>(&[lhs_size[0], rhs_size[1]]);
 
-            run_gemm(&mut result, &a, &b, kernel);
+            run_gemm(&mut result, &a, &b, 1., 0., kernel);
 
-            let expected = reference_gemm(&a, &b);
+            let expected = reference_matmul(&a, &b);
 
             if let Err(err) = expect_equal(&result, &expected) {
                 println!(
@@ -727,9 +875,53 @@ mod tests {
         let [_, b_cols] = b.dims();
 
         let mut result = zeros(&[a_rows, b_cols]);
-        run_gemm(&mut result, &a, &b, Kernel::Auto);
+        run_gemm(&mut result, &a, &b, 1., 1., Kernel::Auto);
 
-        let expected = reference_gemm(&a, &b);
+        let expected = reference_matmul(&a, &b);
         expect_equal(&result, &expected)
+    }
+
+    #[test]
+    fn test_gemm_alpha() -> Result<(), String> {
+        let mut rng = XorShiftRNG::new(1234);
+
+        let a = rand(&[10, 5], &mut rng);
+        let b = rand(&[5, 15], &mut rng);
+
+        for kernel in [Kernel::Auto, Kernel::Base] {
+            for alpha in [0.0, 0.5, 1.0, 2.0] {
+                let mut result = rand(&[10, 15], &mut rng);
+                let mut expected = result.clone();
+
+                run_gemm(&mut result, &a, &b, alpha, 0.0, kernel);
+                reference_gemm(&mut expected, &a, &b, alpha, 0.0);
+
+                expect_equal(&result, &expected)?;
+            }
+        }
+
+        Ok(())
+    }
+
+    #[test]
+    fn test_gemm_beta() -> Result<(), String> {
+        let mut rng = XorShiftRNG::new(1234);
+
+        let a = rand(&[10, 5], &mut rng);
+        let b = rand(&[5, 15], &mut rng);
+
+        for kernel in [Kernel::Auto, Kernel::Base] {
+            for beta in [0.0, 0.5, 1.0, 2.0] {
+                let mut result = rand(&[10, 15], &mut rng);
+                let mut expected = result.clone();
+
+                run_gemm(&mut result, &a, &b, 1., beta, kernel);
+                reference_gemm(&mut expected, &a, &b, 1., beta);
+
+                expect_equal(&result, &expected)?;
+            }
+        }
+
+        Ok(())
     }
 }
