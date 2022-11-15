@@ -1118,6 +1118,37 @@ mod tests {
     }
 
     #[test]
+    fn test_cast_out_of_range() -> Result<(), String> {
+        let int_input = from_vec(vec![i32::MIN, i32::MAX]);
+
+        // Out-of-range cast from int => float. This will simply lose some
+        // significant digits.
+        let cast_to_float = Cast {
+            to: DataType::Float,
+        };
+        let result = cast_to_float
+            .run(&[(&int_input).into()])
+            .unwrap()
+            .into_float()
+            .unwrap();
+        expect_equal(&result, &from_vec(vec![-2147483600.0, 2147483600.0]))?;
+
+        // Out-of-range cast from float => int.
+        let float_input = from_vec(vec![f32::MIN, f32::MAX]);
+        let cast_to_int = Cast {
+            to: DataType::Int32,
+        };
+        let result = cast_to_int
+            .run(&[(&float_input).into()])
+            .unwrap()
+            .into_int()
+            .unwrap();
+        assert_eq!(&result, &from_vec(vec![i32::MIN, i32::MAX]));
+
+        Ok(())
+    }
+
+    #[test]
     fn test_constant_of_shape() {
         let op = ConstantOfShape { value: 42 };
         let shape = from_vec(vec![1, 5, 10]);
