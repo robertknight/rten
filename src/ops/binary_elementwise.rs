@@ -226,8 +226,8 @@ impl Operator for Sub {
 #[cfg(test)]
 mod tests {
     use crate::ops::{
-        add, add_in_place, div, div_in_place, mul, mul_in_place, sub, sub_in_place, Add, Operator,
-        Output,
+        add, add_in_place, div, div_in_place, mul, mul_in_place, sub, sub_in_place, Add, OpError,
+        Operator, Output,
     };
     use crate::tensor::{from_data, from_scalar};
     use crate::test_util::expect_equal;
@@ -297,6 +297,22 @@ mod tests {
             .run_in_place(Output::FloatTensor(scalar), &[(&b).into()])
             .unwrap();
         expect_equal(result.as_float_ref().unwrap(), &expected)
+    }
+
+    #[test]
+    fn test_add_invalid_broadcast() {
+        let a = from_data(vec![2, 2], vec![1., 2., 3., 4.]);
+        let b = from_data(vec![2, 3], vec![1., 2., 3., 4., 5., 6.]);
+
+        let op = Add {};
+        let result = op.run(&[(&a).into(), (&b).into()]);
+
+        assert_eq!(
+            result.err(),
+            Some(OpError::IncompatibleInputShapes(
+                "Cannot broadcast inputs to compatible shape"
+            ))
+        );
     }
 
     #[test]
