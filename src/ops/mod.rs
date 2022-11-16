@@ -652,9 +652,12 @@ impl Operator for Reshape {
     }
 
     fn run(&self, inputs: &[Input]) -> Result<Output, OpError> {
-        let input = get_input_as_float(inputs, 0)?;
+        let input = inputs.get(0).ok_or(OpError::MissingInputs)?;
         let shape = get_input_as_int(inputs, 1)?;
-        reshape(input, shape).map(|t| t.into())
+        match input {
+            Input::IntTensor(t) => reshape(t, shape).map(|t| t.into()),
+            Input::FloatTensor(t) => reshape(t, shape).map(|t| t.into()),
+        }
     }
 
     fn can_run_in_place(&self) -> bool {
