@@ -258,6 +258,7 @@ impl<T: Copy> Tensor<T> {
         // However there are cases of custom strides where copies could be
         // avoided. See https://pytorch.org/docs/stable/generated/torch.Tensor.view.html.
         if !self.is_contiguous() {
+            self.base = 0;
             self.data = self.elements().collect();
         }
 
@@ -1030,6 +1031,25 @@ mod tests {
 
         assert_eq!(x.shape(), &[10, 5, 3 * 7]);
         assert_eq!(x.data(), x_data);
+    }
+
+    #[test]
+    fn test_reshape_non_contiguous() {
+        let mut rng = XorShiftRNG::new(1234);
+        let mut x = random_tensor(&[10, 10], &mut rng);
+
+        // Set the input up so that it is non-contiguous and has a non-zero
+        // `base` offset.
+        x.permute(&[1, 0]);
+        x.clip_dim(0, 2, 8);
+
+        // Reshape the tensor. This should copy the data and reset the `base`
+        // offset.
+        x.reshape(&[x.shape().iter().product()]);
+
+        // After reshaping, we should be able to successfully read all the elements.
+        let elts: Vec<_> = x.elements().collect();
+        assert_eq!(elts.len(), 60);
     }
 
     #[test]
