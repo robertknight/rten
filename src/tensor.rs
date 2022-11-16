@@ -698,6 +698,9 @@ pub struct IndexIterator {
 impl IndexIterator {
     /// Return an iterator over all the indices where each dimension lies
     /// within the corresponding range in `ranges`.
+    ///
+    /// If `ranges` is empty, the iterator yields a single empty index. This
+    /// is consistent with `ndindex` in eg. numpy.
     pub fn from_ranges(ranges: &[Range<usize>]) -> IndexIterator {
         let current = ranges.iter().map(|r| r.start).collect();
         IndexIterator {
@@ -730,6 +733,15 @@ impl IndexIterator {
     /// Return the index index in the sequence, or `None` after all indices
     /// have been returned.
     pub fn next(&mut self) -> Option<&[usize]> {
+        if self.current.is_empty() {
+            if self.first {
+                self.first = false;
+                return Some(&self.current[..]);
+            } else {
+                return None;
+            }
+        }
+
         // Find dimension where the last element has not been reached.
         let mut dim = self.current.len() - 1;
         while dim > 0 && self.current[dim] >= self.ranges[dim].end - 1 {
@@ -903,6 +915,12 @@ mod tests {
         assert_eq!(x[[0, 1].as_slice()], 2.0);
         assert_eq!(x[[1, 0].as_slice()], 3.0);
         assert_eq!(x[[1, 1].as_slice()], 4.0);
+    }
+
+    #[test]
+    fn test_index_scalar() {
+        let x = from_scalar(5.0);
+        assert_eq!(x[[]], 5.0);
     }
 
     #[test]
@@ -1338,6 +1356,11 @@ mod tests {
         // Empty iterator
         let mut iter = IndexIterator::from_ranges(&[0..0]);
         assert_eq!(iter.next(), None);
+        assert_eq!(iter.next(), None);
+
+        // Scalar index iterator
+        let mut iter = IndexIterator::from_ranges(&[]);
+        assert_eq!(iter.next(), Some(&[] as &[usize]));
         assert_eq!(iter.next(), None);
 
         // 1D index iterator
