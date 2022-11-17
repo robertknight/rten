@@ -47,6 +47,12 @@ impl<T: Copy> Tensor<T> {
         self.shape.iter().product()
     }
 
+    /// Return the number of dimensions the tensor has, aka. the rank of the
+    /// tensor.
+    pub fn ndim(&self) -> usize {
+        self.shape.len()
+    }
+
     /// Clip dimension `dim` to `[start, end)`. The new size for the dimension
     /// must be <= the old size.
     ///
@@ -131,7 +137,7 @@ impl<T: Copy> Tensor<T> {
     /// Returns the single item if this tensor is a 0-dimensional tensor
     /// (ie. a scalar)
     pub fn item(&self) -> Option<T> {
-        match self.shape.len() {
+        match self.ndim() {
             0 => Some(self.data[self.base]),
             _ if self.len() == 1 => self.elements().next(),
             _ => None,
@@ -167,7 +173,7 @@ impl<T: Copy> Tensor<T> {
     pub fn can_broadcast(&self, shape: &[usize]) -> bool {
         if self.shape == shape {
             return true;
-        } else if self.shape.len() > shape.len() {
+        } else if self.ndim() > shape.len() {
             return false;
         }
 
@@ -234,7 +240,7 @@ impl<T: Copy> Tensor<T> {
     /// This does not modify the order of elements in the data buffer, it merely
     /// updates the strides used by indexing.
     pub fn permute(&mut self, dims: &[usize]) {
-        if dims.len() != self.shape.len() {
+        if dims.len() != self.ndim() {
             panic!("Permute dims length does not match dimension count");
         }
         self.strides = dims.iter().map(|&dim| self.strides[dim]).collect();
@@ -273,10 +279,10 @@ impl<T: Copy> Tensor<T> {
     ///
     /// The tensor's dimension count must match `N`.
     pub fn dims<const N: usize>(&self) -> [usize; N] {
-        if self.shape.len() != N {
+        if self.ndim() != N {
             panic!(
                 "Cannot extract {} dim tensor as {} dim array",
-                self.shape.len(),
+                self.ndim(),
                 N
             );
         }
@@ -301,7 +307,7 @@ impl<T: Copy> Tensor<T> {
         UncheckedView {
             data: &self.data,
             offset,
-            strides: self.strides[self.shape.len() - N..].try_into().unwrap(),
+            strides: self.strides[self.ndim() - N..].try_into().unwrap(),
         }
     }
 
@@ -314,7 +320,7 @@ impl<T: Copy> Tensor<T> {
         base: [usize; B],
     ) -> UncheckedViewMut<T, N> {
         let offset = self.offset(base);
-        let strides = self.strides[self.shape.len() - N..].try_into().unwrap();
+        let strides = self.strides[self.ndim() - N..].try_into().unwrap();
         UncheckedViewMut {
             data: &mut self.data,
             offset,
@@ -489,11 +495,11 @@ impl ElementsBase {
     }
 
     fn slice<T: Copy>(tensor: &Tensor<T>, ranges: &[(usize, usize)]) -> ElementsBase {
-        if ranges.len() != tensor.shape.len() {
+        if ranges.len() != tensor.ndim() {
             panic!(
                 "slice dimensions {} do not match tensor dimensions {}",
                 ranges.len(),
-                tensor.shape.len()
+                tensor.ndim()
             );
         }
         let mut offset = tensor.base;
@@ -871,6 +877,17 @@ mod tests {
 
         let matrix_one_item = from_data(vec![1, 1], vec![5.0]);
         assert_eq!(matrix_one_item.item(), Some(5.0));
+    }
+
+    #[test]
+    fn test_ndim() {
+        let scalar = from_scalar(5.0);
+        let vec = from_vec(vec![5.0]);
+        let matrix = from_data(vec![1, 1], vec![5.0]);
+
+        assert_eq!(scalar.ndim(), 0);
+        assert_eq!(vec.ndim(), 1);
+        assert_eq!(matrix.ndim(), 2);
     }
 
     #[test]
