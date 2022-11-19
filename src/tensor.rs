@@ -228,8 +228,10 @@ impl<T: Copy> Tensor<T> {
 
     /// Return an iterator over a subset of elements in this tensor.
     ///
-    /// `indices` is a slice of `(start, end)` tuples for each dimension.
-    pub fn slice_elements(&self, indices: &[(usize, usize)]) -> Elements<T> {
+    /// `indices` is a slice of `(start, end, step)` tuples for each dimension.
+    ///
+    /// Panicks if `step` is zero for any dimension.
+    pub fn slice_elements(&self, indices: &[(usize, usize, i32)]) -> Elements<T> {
         Elements::slice(self, indices)
     }
 
@@ -242,8 +244,10 @@ impl<T: Copy> Tensor<T> {
     /// a reference to this tensor, so it is possible to modify the tensor while
     /// iterating over offsets.
     ///
-    /// `indices` is a slice of `(start, end)` tuples for each dimension.
-    pub fn slice_offsets(&self, indices: &[(usize, usize)]) -> Offsets {
+    /// `indices` is a slice of `(start, end, step)` tuples for each dimension.
+    ///
+    /// Panicks if `step` is zero for any dimension.
+    pub fn slice_offsets(&self, indices: &[(usize, usize, i32)]) -> Offsets {
         Offsets::slice(self, indices)
     }
 
@@ -453,35 +457,60 @@ impl<'a, const N: usize, T: Copy> IndexMut<[usize; N]> for UncheckedViewMut<'a, 
 
 #[derive(Debug)]
 struct ElementsDim {
-    /// Current index for this dimension
-    index: usize,
+    /// Current step along this dimension. Each step corresponds to advancing
+    /// one or more indexes either forwards or backwards.
+    step: usize,
 
-    /// Maximum index value for this dimension
-    max_index: usize,
+    /// Number of steps to take along this dimension before resetting.
+    steps: usize,
 
-    /// Amount to increase offset by every time index is incremented in this
-    /// dimension
-    stride: usize,
+    /// Adjustment for element buffer offset for each step along this dimension.
+    offset_step: isize,
 }
 
-/// Struct with shared functionality for iterating over elements, indexes and
-/// offsets of a tensor.
+impl ElementsDim {
+    fn step(&mut self) -> bool {
+        if self.step < self.steps - 1 {
+            self.step += 1;
+            true
+        } else {
+            false
+        }
+    }
+}
+
+/// Struct with shared functionality for iterating over elements of a tensor.
+#[derive(Debug)]
 struct ElementsBase {
     /// Remaining elements to visit
     len: usize,
 
     /// Offset of next element to return in `data`
-    offset: usize,
+    offset: isize,
 
     /// True if the tensor data is contiguous in memory
     contiguous: bool,
 
-    /// Index of next element within each dimension. The stride and max value
-    /// of each dimension are also copied into this struct for faster access
-    /// during iteration.
+    /// Current position within each dimension.
     ///
     /// This is not used if the tensor is contiguous.
     dims: Vec<ElementsDim>,
+}
+
+/// Return the number of indices that will be visited when iterating from
+/// `start` to `end` with a step size of `step` over a dimension.
+///
+/// `start` is inclusive and `end` is exclusive if `step` is positive, or
+/// vice-versa if `step` is negative.
+pub fn step_count(start: usize, end: usize, step: i32) -> usize {
+    if (step > 0 && start >= end) || (step < 0 && start <= end) {
+        return 0;
+    }
+    if step > 0 {
+        1 + (end - start - 1) / step as usize
+    } else {
+        1 + (start - end - 1) / (-step) as usize
+    }
 }
 
 impl ElementsBase {
@@ -495,16 +524,16 @@ impl ElementsBase {
                 .iter()
                 .enumerate()
                 .map(|(dim, &len)| ElementsDim {
-                    index: 0,
-                    max_index: if len > 0 { len - 1 } else { 0 },
-                    stride: tensor.strides[dim],
+                    step: 0,
+                    steps: len,
+                    offset_step: tensor.strides[dim] as isize,
                 })
                 .collect()
         };
 
         ElementsBase {
             len: tensor.len(),
-            offset: tensor.base,
+            offset: tensor.base as isize,
             dims,
             contiguous,
         }
@@ -518,18 +547,14 @@ impl ElementsBase {
         let dims = zip(padded_tensor_shape, shape.iter())
             .enumerate()
             .map(|(dim, (&actual_len, &broadcast_len))| ElementsDim {
-                index: 0,
-                max_index: if broadcast_len > 0 {
-                    broadcast_len - 1
-                } else {
-                    0
-                },
+                step: 0,
+                steps: broadcast_len,
 
                 // If the dimension is being broadcast, set its stride to 0 so
                 // that when we increment in this dimension, we just repeat
                 // elements. Otherwise, use the real stride.
-                stride: if actual_len == broadcast_len {
-                    tensor.strides[dim - added_dims]
+                offset_step: if actual_len == broadcast_len {
+                    tensor.strides[dim - added_dims] as isize
                 } else {
                     0
                 },
@@ -538,13 +563,13 @@ impl ElementsBase {
 
         ElementsBase {
             len: shape.iter().product(),
-            offset: tensor.base,
+            offset: tensor.base as isize,
             dims,
             contiguous: false,
         }
     }
 
-    fn slice<T: Copy>(tensor: &Tensor<T>, ranges: &[(usize, usize)]) -> ElementsBase {
+    fn slice<T: Copy>(tensor: &Tensor<T>, ranges: &[(usize, usize, i32)]) -> ElementsBase {
         if ranges.len() != tensor.ndim() {
             panic!(
                 "slice dimensions {} do not match tensor dimensions {}",
@@ -555,8 +580,12 @@ impl ElementsBase {
         let mut offset = tensor.base;
         let mut dims = Vec::with_capacity(ranges.len());
 
-        for (dim, (start, end)) in ranges.iter().copied().enumerate() {
-            let slice_dim_size = end.saturating_sub(start);
+        for (dim, (start, end, step)) in ranges.iter().copied().enumerate() {
+            let slice_dim_size = if step > 0 {
+                end.saturating_sub(start)
+            } else {
+                start.saturating_sub(end)
+            };
             let dim_size = tensor.shape[dim];
 
             if slice_dim_size > tensor.shape[dim] {
@@ -565,20 +594,28 @@ impl ElementsBase {
                     start, end, dim, dim_size
                 );
             }
+            if step == 0 {
+                panic!("step size is 0 for dimension {}", dim);
+            }
 
             let stride = tensor.strides[dim];
-            offset += stride * start;
+
+            if step > 0 {
+                offset += stride * start;
+            } else {
+                offset += stride * (start - 1);
+            }
 
             dims.push(ElementsDim {
-                index: 0,
-                max_index: slice_dim_size - 1,
-                stride,
+                step: 0,
+                steps: step_count(start, end, step),
+                offset_step: (stride as isize) * (step as isize),
             });
         }
 
         ElementsBase {
-            len: ranges.iter().map(|(start, end)| end - start).product(),
-            offset,
+            len: dims.iter().map(|dim| dim.steps).product(),
+            offset: offset as isize,
             dims,
             contiguous: false,
         }
@@ -593,17 +630,23 @@ impl ElementsBase {
             return;
         }
 
-        // Find dimension where the last element has not been reached.
+        // Take a step along the last dimension which has not reached the end.
         let mut dim = self.dims.len() - 1;
-        while dim > 0 && self.dims[dim].index >= self.dims[dim].max_index {
-            // Reset offset back to the start of this dimension.
-            self.offset -= self.dims[dim].index * self.dims[dim].stride;
-            self.dims[dim].index = 0;
+        while !self.dims[dim].step() {
+            // End of range reached for dimension `dim`. Rewind offset by
+            // amount it moved since iterating from the start of this dimension.
+            self.offset -= self.dims[dim].offset_step * (self.dims[dim].steps as isize - 1);
+            self.dims[dim].step = 0;
+
+            if dim == 0 {
+                break;
+            }
+
             dim -= 1;
         }
 
-        self.dims[dim].index += 1;
-        self.offset += self.dims[dim].stride;
+        // Advance offset for the dimension we stepped along.
+        self.offset += self.dims[dim].offset_step;
     }
 }
 
@@ -630,7 +673,7 @@ impl<'a, T: Copy> Elements<'a, T> {
         }
     }
 
-    fn slice(tensor: &'a Tensor<T>, ranges: &[(usize, usize)]) -> Elements<'a, T> {
+    fn slice(tensor: &'a Tensor<T>, ranges: &[(usize, usize, i32)]) -> Elements<'a, T> {
         Elements {
             base: ElementsBase::slice(tensor, ranges),
             data: &tensor.data,
@@ -645,7 +688,7 @@ impl<'a, T: Copy> Iterator for Elements<'a, T> {
         if self.base.len == 0 {
             return None;
         }
-        let element = self.data[self.base.offset];
+        let element = self.data[self.base.offset as usize];
         self.base.step();
         Some(element)
     }
@@ -668,7 +711,7 @@ pub struct Offsets {
 }
 
 impl Offsets {
-    fn slice<T: Copy>(tensor: &Tensor<T>, ranges: &[(usize, usize)]) -> Offsets {
+    fn slice<T: Copy>(tensor: &Tensor<T>, ranges: &[(usize, usize, i32)]) -> Offsets {
         Offsets {
             base: ElementsBase::slice(tensor, ranges),
         }
@@ -684,7 +727,7 @@ impl Iterator for Offsets {
         }
         let offset = self.base.offset;
         self.base.step();
-        Some(offset)
+        Some(offset as usize)
     }
 
     fn size_hint(&self) -> (usize, Option<usize>) {
@@ -1362,20 +1405,48 @@ mod tests {
         let x = steps(&[3, 3]);
 
         // Slice that removes start of each dimension
-        let slice: Vec<_> = x.slice_elements(&[(1, 3), (1, 3)]).collect();
+        let slice: Vec<_> = x.slice_elements(&[(1, 3, 1), (1, 3, 1)]).collect();
         assert_eq!(slice, &[5, 6, 8, 9]);
 
         // Slice that removes end of each dimension
-        let slice: Vec<_> = x.slice_elements(&[(0, 2), (0, 2)]).collect();
+        let slice: Vec<_> = x.slice_elements(&[(0, 2, 1), (0, 2, 1)]).collect();
         assert_eq!(slice, &[1, 2, 4, 5]);
 
         // Slice that removes start and end of first dimension
-        let slice: Vec<_> = x.slice_elements(&[(1, 2), (0, 3)]).collect();
+        let slice: Vec<_> = x.slice_elements(&[(1, 2, 1), (0, 3, 1)]).collect();
         assert_eq!(slice, &[4, 5, 6]);
 
         // Slice that removes start and end of second dimension
-        let slice: Vec<_> = x.slice_elements(&[(0, 3), (1, 2)]).collect();
+        let slice: Vec<_> = x.slice_elements(&[(0, 3, 1), (1, 2, 1)]).collect();
         assert_eq!(slice, &[2, 5, 8]);
+    }
+
+    #[test]
+    fn test_slice_elements_with_step() {
+        let x = steps(&[10]);
+
+        // Positive steps > 1.
+        let slice: Vec<_> = x.slice_elements(&[(0, 10, 2)]).collect();
+        assert_eq!(slice, &[1, 3, 5, 7, 9]);
+
+        let slice: Vec<_> = x.slice_elements(&[(0, 10, 3)]).collect();
+        assert_eq!(slice, &[1, 4, 7, 10]);
+
+        let slice: Vec<_> = x.slice_elements(&[(0, 10, 10)]).collect();
+        assert_eq!(slice, &[1]);
+
+        // Negative steps.
+        let slice: Vec<_> = x.slice_elements(&[(10, 0, -1)]).collect();
+        assert_eq!(slice, &[10, 9, 8, 7, 6, 5, 4, 3, 2, 1]);
+
+        let slice: Vec<_> = x.slice_elements(&[(9, 1, -1)]).collect();
+        assert_eq!(slice, &[9, 8, 7, 6, 5, 4, 3, 2]);
+
+        let slice: Vec<_> = x.slice_elements(&[(10, 0, -2)]).collect();
+        assert_eq!(slice, &[10, 8, 6, 4, 2]);
+
+        let slice: Vec<_> = x.slice_elements(&[(10, 0, -10)]).collect();
+        assert_eq!(slice, &[10]);
     }
 
     // These tests assume the correctness of `slice_elements`, given the tests
@@ -1386,7 +1457,7 @@ mod tests {
         let x = steps(&[5, 5]);
 
         // Range that removes the start and end of each dimension.
-        let range = &[(1, 4), (1, 4)];
+        let range = &[(1, 4, 1), (1, 4, 1)];
         let expected: Vec<_> = x.slice_elements(range).collect();
         let result: Vec<_> = x
             .slice_offsets(range)

@@ -161,9 +161,9 @@ pub fn softmax(input: &Tensor, axis: usize) -> Tensor {
             .enumerate()
             .map(|(dim, &size)| {
                 if dim < axis {
-                    (outer_index[dim], outer_index[dim] + 1)
+                    (outer_index[dim], outer_index[dim] + 1, 1)
                 } else {
-                    (0, size)
+                    (0, size, 1)
                 }
             })
             .collect();

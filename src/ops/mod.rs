@@ -921,16 +921,18 @@ fn slice_ranges(
     starts: &Tensor<i32>,
     ends: &Tensor<i32>,
     axes: Option<&Tensor<i32>>,
-) -> Vec<(usize, usize)> {
-    let mut ranges: Vec<(usize, usize)> =
-        input_shape.iter().map(|dim_size| (0, *dim_size)).collect();
+) -> Vec<(usize, usize, i32)> {
+    let mut ranges: Vec<(usize, usize, i32)> = input_shape
+        .iter()
+        .map(|dim_size| (0, *dim_size, 1))
+        .collect();
     for (i, (start, end)) in zip(starts.elements(), ends.elements()).enumerate() {
         let axis = if let Some(axes) = axes {
             axes[[i]] as usize
         } else {
             i
         };
-        ranges[axis] = (start as usize, end as usize);
+        ranges[axis] = (start as usize, end as usize, 1);
     }
     ranges
 }
@@ -944,7 +946,10 @@ pub fn slice<T: Copy>(
 ) -> Tensor<T> {
     let ranges = slice_ranges(input.shape(), starts, ends, axes);
     let sliced_data = input.slice_elements(&ranges).collect();
-    let sliced_shape = ranges.iter().map(|(start, end)| end - start).collect();
+    let sliced_shape = ranges
+        .iter()
+        .map(|(start, end, _step)| end - start)
+        .collect();
     from_data(sliced_shape, sliced_data)
 }
 
@@ -958,7 +963,7 @@ pub fn slice_in_place<T: Copy>(
     axes: Option<&Tensor<i32>>,
 ) {
     let ranges = slice_ranges(input.shape(), starts, ends, axes);
-    for (dim, (start, end)) in ranges.iter().copied().enumerate() {
+    for (dim, (start, end, _step)) in ranges.iter().copied().enumerate() {
         input.clip_dim(dim, start, end);
     }
 }

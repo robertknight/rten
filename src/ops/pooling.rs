@@ -231,16 +231,16 @@ mod tests {
         }
 
         let sum_a: f32 = input
-            .slice_elements(&[(0, 1), (0, 1), (0, 2), (0, 2)])
+            .slice_elements(&[(0, 1, 1), (0, 1, 1), (0, 2, 1), (0, 2, 1)])
             .sum();
         let sum_b: f32 = input
-            .slice_elements(&[(0, 1), (0, 1), (0, 2), (2, 4)])
+            .slice_elements(&[(0, 1, 1), (0, 1, 1), (0, 2, 1), (2, 4, 1)])
             .sum();
         let sum_c: f32 = input
-            .slice_elements(&[(0, 1), (0, 1), (2, 4), (0, 2)])
+            .slice_elements(&[(0, 1, 1), (0, 1, 1), (2, 4, 1), (0, 2, 1)])
             .sum();
         let sum_d: f32 = input
-            .slice_elements(&[(0, 1), (0, 1), (2, 4), (2, 4)])
+            .slice_elements(&[(0, 1, 1), (0, 1, 1), (2, 4, 1), (2, 4, 1)])
             .sum();
 
         let expected = from_data(
