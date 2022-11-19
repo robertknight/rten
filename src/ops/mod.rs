@@ -2,7 +2,7 @@ use std::fmt::Debug;
 use std::iter::zip;
 
 use crate::linalg::{gemm, gemm_slice, Matrix};
-use crate::tensor::{from_data, zero_tensor, Tensor};
+use crate::tensor::{from_data, zero_tensor, Elements, Tensor};
 
 mod activations;
 mod binary_elementwise;
@@ -725,53 +725,53 @@ impl Operator for Shape {
     }
 }
 
-pub fn concat<T: Copy>(a: &Tensor<T>, b: &Tensor<T>, dim: usize) -> Result<Tensor<T>, OpError> {
-    let a_shape = a.shape();
-    let b_shape = b.shape();
-
-    if a_shape.len() != b_shape.len() {
-        return Err(OpError::IncompatibleInputShapes(
-            "Tensors must have the same number of dimensions",
-        ));
-    }
-    if dim >= a_shape.len() {
+pub fn concat<'a, T: Copy>(inputs: &'a [&Tensor<T>], dim: usize) -> Result<Tensor<T>, OpError> {
+    let first_shape = inputs[0].shape();
+    if dim >= first_shape.len() {
         return Err(OpError::InvalidValue("dim is larger than input rank"));
     }
-    for d in 0..a_shape.len() {
-        if d != dim && a_shape[d] != b_shape[d] {
+
+    for other in &inputs[1..] {
+        let other_shape = other.shape();
+        if other_shape.len() != first_shape.len() {
             return Err(OpError::IncompatibleInputShapes(
-                "Dimensions must be the same except for concat dim",
+                "Tensors must have the same number of dimensions",
             ));
+        }
+        for d in 0..first_shape.len() {
+            if d != dim && first_shape[d] != other_shape[d] {
+                return Err(OpError::IncompatibleInputShapes(
+                    "Dimensions must be the same except for concat dim",
+                ));
+            }
         }
     }
 
-    if a_shape[dim] == 0 {
-        return Ok(b.clone());
-    } else if b_shape[dim] == 0 {
-        return Ok(a.clone());
+    let mut out_data = Vec::with_capacity(inputs.iter().map(|t| t.len()).sum());
+
+    struct ConcatIter<'a, T: Copy> {
+        elements: Elements<'a, T>,
+        chunk_size: usize,
     }
 
-    let mut out_data = Vec::with_capacity(a.len() + b.len());
+    let mut input_iters: Vec<ConcatIter<'_, T>> = inputs
+        .iter()
+        .map(|tensor| ConcatIter {
+            elements: tensor.elements(),
+            chunk_size: tensor.shape()[dim..].iter().product(),
+        })
+        .collect();
 
-    let a_step_size = a_shape[dim..].iter().product();
-    let b_step_size = b_shape[dim..].iter().product();
-
-    let mut a_pos = 0;
-    let mut b_pos = 0;
-
-    let mut a_elts = a.elements();
-    let mut b_elts = b.elements();
-
-    while a_pos < a.len() && b_pos < b.len() {
-        out_data.extend(a_elts.by_ref().take(a_step_size));
-        a_pos += a_step_size;
-
-        out_data.extend(b_elts.by_ref().take(b_step_size));
-        b_pos += b_step_size;
+    while input_iters.iter().all(|it| it.elements.len() > 0) {
+        for iter in input_iters.iter_mut() {
+            out_data.extend(iter.elements.by_ref().take(iter.chunk_size));
+        }
     }
 
-    let mut out_shape: Vec<_> = a_shape.into();
-    out_shape[dim] += b_shape[dim];
+    let mut out_shape: Vec<_> = first_shape.into();
+    for other in &inputs[1..] {
+        out_shape[dim] += other.shape()[dim];
+    }
 
     Ok(from_data(out_shape, out_data))
 }
@@ -788,15 +788,33 @@ impl Operator for Concat {
 
     /// Run `concat` operator with `[a, b]` inputs.
     fn run(&self, inputs: &[Input]) -> Result<Output, OpError> {
-        let a = inputs.get(0).ok_or(OpError::MissingInputs)?;
-        let b = inputs.get(1).ok_or(OpError::MissingInputs)?;
+        let first = inputs.get(0).ok_or(OpError::MissingInputs)?;
 
-        match (a, b) {
-            (Input::FloatTensor(a), Input::FloatTensor(b)) => {
-                concat(a, b, self.dim).map(|t| t.into())
+        match first {
+            Input::FloatTensor(_) => {
+                let typed_inputs: Vec<_> = inputs
+                    .iter()
+                    .map(|in_| {
+                        in_.as_float().ok_or(Err::<&Tensor<f32>, OpError>(
+                            OpError::IncompatibleInputTypes("Concat inputs must have same type"),
+                        ))
+                    })
+                    .flatten()
+                    .collect();
+                concat(&typed_inputs, self.dim).map(|t| t.into())
             }
-            (Input::IntTensor(a), Input::IntTensor(b)) => concat(a, b, self.dim).map(|t| t.into()),
-            _ => Err(OpError::UnsupportedInputType),
+            Input::IntTensor(_) => {
+                let typed_inputs: Vec<_> = inputs
+                    .iter()
+                    .map(|in_| {
+                        in_.as_int().ok_or(Err::<&Tensor<i32>, OpError>(
+                            OpError::IncompatibleInputTypes("Concat inputs must have same type"),
+                        ))
+                    })
+                    .flatten()
+                    .collect();
+                concat(&typed_inputs, self.dim).map(|t| t.into())
+            }
         }
     }
 }
@@ -1463,13 +1481,56 @@ mod tests {
 
         // Test concatenation along the first dimension
         let expected = from_data(vec![4, 2, 1], vec![0.1, 0.2, 0.3, 0.4, 1.0, 2.0, 3.0, 4.0]);
-        let result = concat(&a, &b, 0).unwrap();
+        let result = concat(&[&a, &b], 0).unwrap();
         expect_equal(&result, &expected)?;
 
         // Test concatenation along a non-first dimension
         let expected = from_data(vec![2, 2, 2], vec![0.1, 1.0, 0.2, 2.0, 0.3, 3.0, 0.4, 4.0]);
-        let result = concat(&a, &b, 2).unwrap();
-        expect_equal(&result, &expected)
+        let result = concat(&[&a, &b], 2).unwrap();
+        expect_equal(&result, &expected)?;
+
+        // Concatenation with one input
+        let result = concat(&[&a], 0).unwrap();
+        expect_equal(&result, &a)?;
+
+        // Concatenation with more than two inputs
+        let result = concat(&[&a, &b, &a], 0).unwrap();
+        assert_eq!(result.shape(), &[6, 2, 1]);
+
+        Ok(())
+    }
+
+    #[test]
+    fn test_concat_invalid_inputs() {
+        // Invalid `dim` attribute
+        let input = from_slice(&[1, 2, 3]);
+        let result = concat(&[&input, &input], 1);
+        assert_eq!(
+            result.err(),
+            Some(OpError::InvalidValue("dim is larger than input rank"))
+        );
+
+        // Shape mismatch
+        let a = zero_tensor::<f32>(&[1]);
+        let b = zero_tensor::<f32>(&[1, 2]);
+        let result = concat(&[&a, &b], 0);
+        assert_eq!(
+            result.err(),
+            Some(OpError::IncompatibleInputShapes(
+                "Tensors must have the same number of dimensions"
+            ))
+        );
+
+        // Shape mismatch in non-`dim` dimension
+        let a = zero_tensor::<f32>(&[5, 10]);
+        let b = zero_tensor::<f32>(&[5, 11]);
+        let result = concat(&[&a, &b], 0);
+        assert_eq!(
+            result.err(),
+            Some(OpError::IncompatibleInputShapes(
+                "Dimensions must be the same except for concat dim"
+            ))
+        );
     }
 
     #[test]
