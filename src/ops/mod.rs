@@ -821,7 +821,7 @@ pub fn pad<T: Copy>(
         .enumerate()
         .map(|(i, size)| {
             let start_pad = padding[[i]] as usize;
-            let end_pad = padding[[i * 2]] as usize;
+            let end_pad = padding[[input.ndim() + i]] as usize;
             start_pad + size + end_pad
         })
         .collect();
@@ -1489,7 +1489,16 @@ mod tests {
         // Zero padding (no-op)
         let zero_pads = from_slice(&[0, 0, 0, 0]);
         let result = pad(&input, &zero_pads, 0.0).unwrap();
-        expect_equal(&result, &input)
+        expect_equal(&result, &input)?;
+
+        // Un-even padding
+        let input = from_data(vec![1, 2, 2], vec![1, 2, 3, 4]);
+        let pads = from_slice(&[0, 0, 0, 0, 1, 0]);
+        let result = pad(&input, &pads, 0).unwrap();
+        assert_eq!(result.shape(), &[1, 3, 2]);
+        assert_eq!(result.data(), &[1, 2, 3, 4, 0, 0]);
+
+        Ok(())
     }
 
     #[test]
