@@ -716,7 +716,7 @@ impl Operator for Shape {
     }
 
     fn run(&self, inputs: &[Input]) -> Result<Output, OpError> {
-        let input = get_input_as_float(inputs, 0)?;
+        let input = inputs.get(0).ok_or(OpError::MissingInputs)?;
         let shape = from_data(
             vec![input.shape().len()],
             input.shape().iter().map(|&el| el as i32).collect(),
@@ -1670,11 +1670,17 @@ mod tests {
 
     #[test]
     fn test_shape() {
-        let input = from_data(vec![1, 1, 2, 2], vec![1.0, 2.0, 3.0, 4.0]);
-
         let op = Shape {};
-        let result = op.run(&[(&input).into()]).unwrap().into_int().unwrap();
 
+        // Float input
+        let input = from_data(vec![1, 1, 2, 2], vec![1.0, 2.0, 3.0, 4.0]);
+        let result = op.run(&[(&input).into()]).unwrap().into_int().unwrap();
+        assert_eq!(result.shape(), &[4]);
+        assert_eq!(result.data(), &[1, 1, 2, 2]);
+
+        // Int input
+        let input = from_data(vec![1, 1, 2, 2], vec![1, 2, 3, 4]);
+        let result = op.run(&[(&input).into()]).unwrap().into_int().unwrap();
         assert_eq!(result.shape(), &[4]);
         assert_eq!(result.data(), &[1, 1, 2, 2]);
     }
