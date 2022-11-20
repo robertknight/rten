@@ -81,9 +81,37 @@ fn binary_op_in_place<T: Copy + Debug, F: Fn(&mut T, T)>(a: &mut Tensor<T>, b: &
     }
 }
 
+/// Perform a commutative elementwise binary operation.
+///
+/// This is an optimized alternative to `binary_op` for the case where the
+/// operands can be swapped without affecting the result. In this case we
+/// copy the larger of the two operands and then perform the operation in-place
+/// on it. This benefits from various optimizations in `binary_op_in_place`.
+fn binary_commutative_op<T: Copy + Debug, F: Fn(&mut T, T)>(
+    a: &Tensor<T>,
+    b: &Tensor<T>,
+    op: F,
+) -> Result<Tensor<T>, OpError> {
+    let mut out;
+    let other;
+    if b.can_broadcast(a.shape()) {
+        out = a.clone();
+        other = b;
+    } else if a.can_broadcast(b.shape()) {
+        out = b.clone();
+        other = a;
+    } else {
+        return Err(OpError::IncompatibleInputShapes(
+            "Cannot broadcast inputs to compatible shape",
+        ));
+    }
+    binary_op_in_place(&mut out, other, op);
+    Ok(out.into())
+}
+
 /// Perform elementwise addition of two tensors.
 pub fn add(a: &Tensor, b: &Tensor) -> Result<Tensor, OpError> {
-    binary_op(a, b, |x, y| x + y)
+    binary_commutative_op(a, b, |x, y| *x += y)
 }
 
 /// Perform in-place elementwise addition of two tensors.
@@ -165,7 +193,7 @@ impl Operator for Div {
 
 /// Multiply two tensors elementwise.
 pub fn mul(a: &Tensor, b: &Tensor) -> Result<Tensor, OpError> {
-    binary_op(a, b, |x, y| x * y)
+    binary_commutative_op(a, b, |x, y| *x *= y)
 }
 
 /// Perform in-place elementwise multiplication of two tensors.
