@@ -168,6 +168,19 @@ impl<T: Copy> Tensor<T> {
         true
     }
 
+    /// Convert the internal layout of elements to be contiguous, as reported
+    /// by `is_contiguous`.
+    ///
+    /// This is a no-op if the tensor is already contiguous.
+    pub fn make_contiguous(&mut self) {
+        if self.is_contiguous() {
+            return;
+        }
+        self.data = self.elements().collect();
+        self.base = 0;
+        self.strides = strides_for_shape(&self.shape);
+    }
+
     /// Return an iterator over elements of this tensor, in their logical order.
     pub fn elements(&self) -> Elements<T> {
         Elements::new(self)
@@ -277,10 +290,7 @@ impl<T: Copy> Tensor<T> {
         // We currently always copy data whenever the input is non-contiguous.
         // However there are cases of custom strides where copies could be
         // avoided. See https://pytorch.org/docs/stable/generated/torch.Tensor.view.html.
-        if !self.is_contiguous() {
-            self.base = 0;
-            self.data = self.elements().collect();
-        }
+        self.make_contiguous();
 
         self.shape = shape.into();
         self.strides = strides_for_shape(shape);
@@ -1213,8 +1223,20 @@ mod tests {
         x.reshape(&[x.shape().iter().product()]);
 
         // After reshaping, we should be able to successfully read all the elements.
+        // Note this test doesn't check that the correct elements were read.
         let elts: Vec<_> = x.elements().collect();
         assert_eq!(elts.len(), 60);
+
+        // Set up another input so it is non-contiguous and has a non-zero `base` offset.
+        let mut x = steps(&[3, 3]);
+        x.clip_dim(0, 1, 3);
+        x.clip_dim(1, 1, 3);
+
+        // Flatten the input with reshape.
+        x.reshape(&[4]);
+
+        // Check that the correct elements were read.
+        assert_eq!(x.elements().collect::<Vec<i32>>(), &[5, 6, 8, 9]);
     }
 
     #[test]
@@ -1486,6 +1508,23 @@ mod tests {
         assert!(x.is_contiguous());
         x.clip_dim(0, 0, 5);
         assert!(x.is_contiguous());
+    }
+
+    #[test]
+    fn test_make_contiguous() {
+        let mut x = steps(&[3, 3]);
+        assert!(x.is_contiguous());
+
+        // Clip outer dimension at start. This will modify the base offset.
+        x.clip_dim(0, 1, 3);
+
+        // Clip inner dimension at start. This will modify the strides.
+        x.clip_dim(1, 1, 3);
+        assert!(!x.is_contiguous());
+
+        x.make_contiguous();
+        assert!(x.is_contiguous());
+        assert_eq!(x.elements().collect::<Vec<i32>>(), &[5, 6, 8, 9]);
     }
 
     #[test]
