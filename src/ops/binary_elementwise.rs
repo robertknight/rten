@@ -51,21 +51,29 @@ fn can_run_binary_op_in_place<T: Copy>(a: &Tensor<T>, b: &Tensor<T>) -> bool {
 ///
 /// This requires that `b` can be broadcast to the shape of `a`.
 fn binary_op_in_place<T: Copy + Debug, F: Fn(&mut T, T)>(a: &mut Tensor<T>, b: &Tensor<T>, op: F) {
-    if a.shape() == b.shape() && a.is_contiguous() && b.is_contiguous() {
-        for (a_elt, b_elt) in zip(a.data_mut().iter_mut(), b.data().iter()) {
-            op(a_elt, *b_elt);
+    // Fast paths for contiguous LHS
+    if a.is_contiguous() {
+        if let Some(scalar) = b.item() {
+            // When RHS is a scalar, we don't need to iterate over it at all.
+            for a_elt in a.data_mut().iter_mut() {
+                op(a_elt, scalar);
+            }
+        } else if a.shape() == b.shape() && b.is_contiguous() {
+            // When RHS is contiguous and same shape as LHS we can use a simple iterator.
+            for (a_elt, b_elt) in zip(a.data_mut().iter_mut(), b.data().iter()) {
+                op(a_elt, *b_elt);
+            }
+        } else {
+            // Otherwise a more complex RHS iterator is required.
+            let b_elts = b.broadcast_elements(a.shape());
+            for (a_elt, b_elt) in zip(a.data_mut().iter_mut(), b_elts) {
+                op(a_elt, b_elt);
+            }
         }
         return;
     }
 
     let b_elts = b.broadcast_elements(a.shape());
-    if a.is_contiguous() {
-        for (a_elt, b_elt) in zip(a.data_mut().iter_mut(), b_elts) {
-            op(a_elt, b_elt);
-        }
-        return;
-    }
-
     let a_offsets = a.offsets();
     let a_data = a.data_mut();
     for (a_offset, b_elt) in zip(a_offsets, b_elts) {
