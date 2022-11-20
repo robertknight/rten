@@ -1,5 +1,6 @@
-use std::iter::{repeat, zip};
+use std::iter::{repeat, zip, Cycle, Take};
 use std::ops::{Index, IndexMut, Range};
+use std::slice::Iter;
 
 #[cfg(test)]
 use crate::rng::XorShiftRNG;
@@ -200,15 +201,11 @@ impl<T: Copy> Tensor<T> {
     ///
     /// See also <https://numpy.org/doc/stable/user/basics.broadcasting.html#general-broadcasting-rules>
     /// for worked examples of how broadcasting works.
-    pub fn broadcast_elements(&self, shape: &[usize]) -> Elements<T> {
+    pub fn broadcast_elements(&self, shape: &[usize]) -> BroadcastElements<'_, T> {
         if !self.can_broadcast(shape) {
             panic!("Broadcast shape is not compatible with actual shape");
         }
-        if self.shape == shape {
-            Elements::new(self)
-        } else {
-            Elements::broadcast(self, shape)
-        }
+        BroadcastElements::new(self, shape)
     }
 
     /// Return true if the element's shape can be broadcast to `shape` using
@@ -753,6 +750,89 @@ impl Iterator for Offsets {
 }
 
 impl ExactSizeIterator for Offsets {}
+
+/// Iterator over elements of a tensor which broadcasts to a different shape.
+///
+/// This iterator will repeat elements of the underlying tensor until the total
+/// number yielded matches the product of the shape being broadcast to.
+pub struct BroadcastElements<'a, T: Copy> {
+    iter: BroadcastElementsIter<'a, T>,
+}
+
+/// Alternate implementations for broadcasting. See notes in
+/// `BroadcastElements::can_broadcast_by_cycling`.
+enum BroadcastElementsIter<'a, T: Copy> {
+    Direct(Take<Cycle<Iter<'a, T>>>),
+    Indexing(Elements<'a, T>),
+}
+
+impl<'a, T: Copy> BroadcastElements<'a, T> {
+    fn new(tensor: &'a Tensor<T>, to_shape: &[usize]) -> BroadcastElements<'a, T> {
+        let iter;
+        if tensor.is_contiguous() && Self::can_broadcast_by_cycling(tensor.shape(), to_shape) {
+            let iter_len = to_shape.iter().product();
+            iter = BroadcastElementsIter::Direct(tensor.data().iter().cycle().take(iter_len));
+        } else {
+            iter = BroadcastElementsIter::Indexing(Elements::broadcast(tensor, to_shape));
+        }
+        BroadcastElements { iter }
+    }
+
+    /// Return true if a tensor with shape `from_shape` can be broadcast to shape
+    /// `to_shape` by cycling through all of its elements repeatedly.
+    ///
+    /// This requires that, after left-padding `from_shape` with 1s to match the
+    /// length of `to_shape`, all non-1 dimensions in `from_shape` are contiguous
+    /// at the end. For example, `[1, 5, 10]` can be broadcast to `[3, 4, 5, 10]`
+    /// by cycling, but `[5, 1, 10]` cannot be broadcast to `[5, 4, 10]` this way,
+    /// as the inner (`[1, 10]`) dimensions will need to be repeated 4 times before
+    /// moving to the next index in the outermost dimension.
+    ///
+    /// If the tensor can be broadcast via cycling, and is also contiguous, it can
+    /// be broadcast efficiently using `tensor.data().iter().cycle()`.
+    fn can_broadcast_by_cycling(from_shape: &[usize], to_shape: &[usize]) -> bool {
+        assert!(to_shape.len() >= from_shape.len());
+
+        let excess_dims = to_shape.len() - from_shape.len();
+        let mut dims_to_check = to_shape.len() - excess_dims;
+
+        while dims_to_check > 0 {
+            if from_shape[dims_to_check - 1] != to_shape[excess_dims + dims_to_check - 1] {
+                break;
+            }
+            dims_to_check -= 1;
+        }
+
+        while dims_to_check > 0 {
+            if from_shape[dims_to_check - 1] != 1 {
+                return false;
+            }
+            dims_to_check -= 1;
+        }
+
+        true
+    }
+}
+
+impl<'a, T: Copy> Iterator for BroadcastElements<'a, T> {
+    type Item = T;
+
+    fn next(&mut self) -> Option<T> {
+        match self.iter {
+            BroadcastElementsIter::Direct(ref mut iter) => iter.next().copied(),
+            BroadcastElementsIter::Indexing(ref mut iter) => iter.next(),
+        }
+    }
+
+    fn size_hint(&self) -> (usize, Option<usize>) {
+        match &self.iter {
+            BroadcastElementsIter::Direct(iter) => iter.size_hint(),
+            BroadcastElementsIter::Indexing(iter) => iter.size_hint(),
+        }
+    }
+}
+
+impl<'a, T: Copy> ExactSizeIterator for BroadcastElements<'a, T> {}
 
 /// An iterator over indices within a given range.
 ///
