@@ -172,6 +172,14 @@ impl<T: Copy> Tensor<T> {
         Elements::new(self)
     }
 
+    /// Return an iterator over offsets of elements in this tensor, in their
+    /// logical order.
+    ///
+    /// See also the notes for `slice_offsets`.
+    pub fn offsets(&self) -> Offsets {
+        Offsets::new(self)
+    }
+
     /// Returns the single item if this tensor is a 0-dimensional tensor
     /// (ie. a scalar)
     pub fn item(&self) -> Option<T> {
@@ -243,6 +251,9 @@ impl<T: Copy> Tensor<T> {
     /// Unlike `slice_elements`, the returned `Offsets` struct does not hold
     /// a reference to this tensor, so it is possible to modify the tensor while
     /// iterating over offsets.
+    ///
+    /// Note that the offset order of the returned iterator will become incorrect
+    /// if the tensor shape is subsequently modified.
     ///
     /// `indices` is a slice of `(start, end, step)` tuples for each dimension.
     ///
@@ -711,6 +722,12 @@ pub struct Offsets {
 }
 
 impl Offsets {
+    fn new<T: Copy>(tensor: &Tensor<T>) -> Offsets {
+        Offsets {
+            base: ElementsBase::new(tensor),
+        }
+    }
+
     fn slice<T: Copy>(tensor: &Tensor<T>, ranges: &[(usize, usize, i32)]) -> Offsets {
         Offsets {
             base: ElementsBase::slice(tensor, ranges),
@@ -1304,6 +1321,20 @@ mod tests {
         let x = from_scalar(5.0);
         let elements = x.elements().collect::<Vec<_>>();
         assert_eq!(&elements, &[5.0]);
+    }
+
+    #[test]
+    fn test_offsets() {
+        let mut rng = XorShiftRNG::new(1234);
+        let mut x = random_tensor(&[10, 10], &mut rng);
+
+        let x_elts: Vec<_> = x.elements().collect();
+
+        let x_offsets = x.offsets();
+        let x_data = x.data_mut();
+        let x_elts_from_offset: Vec<_> = x_offsets.map(|off| x_data[off]).collect();
+
+        assert_eq!(x_elts, x_elts_from_offset);
     }
 
     #[test]
