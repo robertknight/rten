@@ -7,7 +7,7 @@ use crate::tensor::Tensor;
 /// Given the shapes of two inputs to a binary operation, choose the one that
 /// will be used as the output shape. The other tensor will be broadcasted
 /// to match.
-fn choose_broadcast_shape<'a>(a: &'a [usize], b: &'a [usize]) -> &'a [usize] {
+pub fn choose_broadcast_shape<'a>(a: &'a [usize], b: &'a [usize]) -> &'a [usize] {
     if a.len() != b.len() {
         if a.len() < b.len() {
             b

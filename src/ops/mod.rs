@@ -1,7 +1,7 @@
 use std::fmt::Debug;
 use std::iter::zip;
 
-use crate::linalg::{gemm, gemm_slice, Matrix};
+use crate::linalg::{gemm_slice, Matrix};
 use crate::tensor::{from_data, zero_tensor, Elements, Tensor};
 
 mod activations;
@@ -15,7 +15,8 @@ pub use activations::{
 };
 pub use activations::{Clip, LeakyRelu, Relu, Sigmoid, Softmax};
 pub use binary_elementwise::{
-    add, add_in_place, div, div_in_place, mul, mul_in_place, sub, sub_in_place,
+    add, add_in_place, choose_broadcast_shape, div, div_in_place, mul, mul_in_place, sub,
+    sub_in_place,
 };
 pub use binary_elementwise::{Add, Div, Mul, Sub};
 pub use conv::{conv_2d, conv_transpose_2d};
@@ -662,8 +663,15 @@ impl Operator for Identity {
 }
 
 pub fn matmul(a: &Tensor, b: &Tensor) -> Result<Tensor, OpError> {
-    let [a_rows, a_cols] = a.dims();
-    let [b_rows, b_cols] = b.dims();
+    if a.ndim() < 2 || b.ndim() < 2 {
+        return Err(OpError::InvalidValue("Inputs must have >= 2 dimensions"));
+    }
+
+    let a_rows = a.shape()[a.ndim() - 2];
+    let a_cols = a.shape()[a.ndim() - 1];
+
+    let b_rows = b.shape()[b.ndim() - 2];
+    let b_cols = b.shape()[b.ndim() - 1];
 
     if a_cols != b_rows {
         return Err(OpError::IncompatibleInputShapes(
@@ -671,8 +679,49 @@ pub fn matmul(a: &Tensor, b: &Tensor) -> Result<Tensor, OpError> {
         ));
     }
 
-    let mut output = zero_tensor(&[a_rows, b_cols]);
-    gemm(&mut output, a, b);
+    let a_prefix = &a.shape()[0..a.ndim() - 2];
+    let b_prefix = &b.shape()[0..b.ndim() - 2];
+    let out_prefix = choose_broadcast_shape(a_prefix, b_prefix);
+
+    let out_shape = &[out_prefix, &[a_rows, b_cols]].concat();
+    let mut output = zero_tensor(&out_shape);
+
+    let a_broadcast_shape = [out_prefix, &[a_rows, a_cols]].concat();
+    let b_broadcast_shape = [out_prefix, &[b_rows, b_cols]].concat();
+
+    // TODO: Optimize `Iterator::nth` for `Offsets` to optimize the `step_by`
+    // iterator.
+    let a_offsets = a
+        .broadcast_offsets(&a_broadcast_shape)
+        .step_by(a_rows * a_cols);
+    let b_offsets = b
+        .broadcast_offsets(&b_broadcast_shape)
+        .step_by(b_rows * b_cols);
+
+    let out_row_stride = output.stride(output.ndim() - 2);
+    let mut out_offset = 0;
+
+    for (a_offset, b_offset) in zip(a_offsets, b_offsets) {
+        gemm_slice(
+            &mut output.data_mut()[out_offset..],
+            out_row_stride,
+            Matrix {
+                data: &a.data()[a_offset..],
+                rows: a_rows,
+                cols: a_cols,
+                row_stride: a.stride(a.ndim() - 2),
+                col_stride: a.stride(a.ndim() - 1),
+            },
+            Matrix {
+                data: &b.data()[b_offset..],
+                rows: b_rows,
+                cols: b_cols,
+                row_stride: b.stride(b.ndim() - 2),
+                col_stride: b.stride(b.ndim() - 1),
+            },
+        );
+        out_offset += out_row_stride * a_rows;
+    }
 
     Ok(output)
 }
@@ -1556,6 +1605,62 @@ mod tests {
 
         let result = matmul(&a, &b).unwrap();
         expect_equal(&result, &expected)
+    }
+
+    #[test]
+    fn test_matmul_broadcast() -> Result<(), String> {
+        let mut rng = XorShiftRNG::new(1234);
+        let mut a = random_tensor(&[3, 10], &mut rng);
+        let mut b = random_tensor(&[10, 8], &mut rng);
+
+        let mut expected = zero_tensor(&[3, 8]);
+        gemm(&mut expected, &a, &b);
+        expected.reshape(&[1, 1, 3, 8]);
+
+        // LHS input has excess 1 dims
+        a.reshape(&[1, 1, 3, 10]);
+        let result = matmul(&a, &b).unwrap();
+        expect_equal(&result, &expected)?;
+
+        // RHS input has excess 1 dims
+        a.reshape(&[3, 10]);
+        b.reshape(&[1, 1, 10, 8]);
+        let result = matmul(&a, &b).unwrap();
+        expect_equal(&result, &expected)?;
+
+        // RHS input requires broadcasting
+        let broadcast_a_shape = &[1, 4, 3, 10][..];
+        let broadcast_expected_shape = &[1, 4, 3, 8][..];
+        let broadcast_a = from_data(
+            broadcast_a_shape.into(),
+            a.broadcast_elements(broadcast_a_shape).collect(),
+        );
+        let broadcast_expected = from_data(
+            broadcast_expected_shape.into(),
+            expected
+                .broadcast_elements(broadcast_expected_shape)
+                .collect(),
+        );
+        let result = matmul(&broadcast_a, &b).unwrap();
+        expect_equal(&result, &broadcast_expected)?;
+
+        // LHS input requires broadcasting
+        let broadcast_b_shape = &[1, 3, 10, 8][..];
+        let broadcast_expected_shape = &[1, 3, 3, 8][..];
+        let broadcast_b = from_data(
+            broadcast_b_shape.into(),
+            b.broadcast_elements(broadcast_b_shape).collect(),
+        );
+        let expected = from_data(
+            broadcast_expected_shape.into(),
+            expected
+                .broadcast_elements(broadcast_expected_shape)
+                .collect(),
+        );
+        let result = matmul(&a, &broadcast_b).unwrap();
+        expect_equal(&result, &expected)?;
+
+        Ok(())
     }
 
     #[test]
