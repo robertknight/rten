@@ -1,7 +1,5 @@
-use std::ops::Range;
-
 use crate::ops::{get_input_as_float, Input, OpError, Operator, Output};
-use crate::tensor::{IndexIterator, Tensor};
+use crate::tensor::Tensor;
 
 pub fn clip(input: &Tensor, min: f32, max: f32) -> Tensor {
     input.map(|x| x.max(min).min(max))
@@ -150,46 +148,35 @@ pub fn softmax(input: &Tensor, axis: usize) -> Tensor {
 }
 
 pub fn softmax_in_place(output: &mut Tensor, axis: usize) {
-    let outer_range: Vec<Range<usize>> = output
-        .shape()
-        .iter()
-        .enumerate()
-        .map(|(dim, &size)| if dim >= axis { 0..1 } else { 0..size })
-        .collect();
+    output.make_contiguous();
 
-    let mut outer_iter = IndexIterator::from_ranges(&outer_range);
-    while let Some(outer_index) = outer_iter.next() {
-        let inner_range: Vec<_> = output
-            .shape()
-            .iter()
-            .enumerate()
-            .map(|(dim, &size)| {
-                if dim < axis {
-                    (outer_index[dim], outer_index[dim] + 1, 1)
-                } else {
-                    (0, size, 1)
-                }
-            })
-            .collect();
+    let outer_stride = if axis == 0 {
+        output.len()
+    } else {
+        output.stride(axis - 1)
+    };
+
+    let mut offset = 0;
+    while offset < output.len() {
+        let els = &mut output.data_mut()[offset..offset + outer_stride];
 
         // Numerically stable softmax. See
         // https://ogunlao.github.io/2020/04/26/you_dont_really_know_softmax.html.
-        let mut max_val: f32 = 0.0;
-        for el in output.slice_elements(&inner_range) {
-            max_val = max_val.max(el);
-        }
-
+        let max_val = els
+            .iter()
+            .copied()
+            .fold(f32::MIN, |max_val, x| max_val.max(x));
         let mut exp_sum = 0.0;
-        for offset in output.slice_offsets(&inner_range) {
-            let el = &mut output.data_mut()[offset];
+        for el in els.iter_mut() {
             *el = (*el - max_val).exp();
             exp_sum += *el;
         }
 
-        for offset in output.slice_offsets(&inner_range) {
-            let el = &mut output.data_mut()[offset];
+        for el in els.iter_mut() {
             *el /= exp_sum
         }
+
+        offset += outer_stride;
     }
 }
 
