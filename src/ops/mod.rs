@@ -747,7 +747,11 @@ pub fn concat<'a, T: Copy>(inputs: &'a [&Tensor<T>], dim: usize) -> Result<Tenso
         }
     }
 
-    let mut out_data = Vec::with_capacity(inputs.iter().map(|t| t.len()).sum());
+    let mut out_shape: Vec<_> = first_shape.into();
+    for other in &inputs[1..] {
+        out_shape[dim] += other.shape()[dim];
+    }
+    let mut out_data = Vec::with_capacity(out_shape.iter().product());
 
     struct ConcatIter<'a, T: Copy> {
         elements: Elements<'a, T>,
@@ -762,15 +766,10 @@ pub fn concat<'a, T: Copy>(inputs: &'a [&Tensor<T>], dim: usize) -> Result<Tenso
         })
         .collect();
 
-    while input_iters.iter().all(|it| it.elements.len() > 0) {
+    while input_iters.iter().any(|it| it.elements.len() > 0) {
         for iter in input_iters.iter_mut() {
             out_data.extend(iter.elements.by_ref().take(iter.chunk_size));
         }
-    }
-
-    let mut out_shape: Vec<_> = first_shape.into();
-    for other in &inputs[1..] {
-        out_shape[dim] += other.shape()[dim];
     }
 
     Ok(from_data(out_shape, out_data))
@@ -1479,12 +1478,12 @@ mod tests {
         let a = from_data(vec![2, 2, 1], vec![0.1, 0.2, 0.3, 0.4]);
         let b = from_data(vec![2, 2, 1], vec![1.0, 2.0, 3.0, 4.0]);
 
-        // Test concatenation along the first dimension
+        // Concatenation along the first dimension
         let expected = from_data(vec![4, 2, 1], vec![0.1, 0.2, 0.3, 0.4, 1.0, 2.0, 3.0, 4.0]);
         let result = concat(&[&a, &b], 0).unwrap();
         expect_equal(&result, &expected)?;
 
-        // Test concatenation along a non-first dimension
+        // Concatenation along a non-first dimension
         let expected = from_data(vec![2, 2, 2], vec![0.1, 1.0, 0.2, 2.0, 0.3, 3.0, 0.4, 4.0]);
         let result = concat(&[&a, &b], 2).unwrap();
         expect_equal(&result, &expected)?;
@@ -1496,6 +1495,14 @@ mod tests {
         // Concatenation with more than two inputs
         let result = concat(&[&a, &b, &a], 0).unwrap();
         assert_eq!(result.shape(), &[6, 2, 1]);
+
+        // Concatentation with some empty inputs
+        let a = from_slice(&[1, 2, 3]);
+        let b = from_slice(&[]);
+        let c = from_slice(&[4, 5, 6]);
+        let result = concat(&[&a, &b, &c], 0).unwrap();
+        assert_eq!(result.shape(), &[6]);
+        assert_eq!(result.data(), &[1, 2, 3, 4, 5, 6]);
 
         Ok(())
     }
