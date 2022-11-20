@@ -154,8 +154,8 @@ impl<T: Copy> Tensor<T> {
     }
 
     /// Return true if the logical order of elements in this tensor matches the
-    /// order in which they are stored in the underlying buffer, and there are
-    /// no gaps.
+    /// order of elements in the slice returned by `data()` and `data_mut()`,
+    /// with no gaps.
     pub fn is_contiguous(&self) -> bool {
         let mut product = 1;
         for (dim, len) in self.shape.iter().enumerate().rev() {
@@ -1372,11 +1372,28 @@ mod tests {
             *elt = index + 1;
         }
 
+        // Freshly-allocated tensor
         assert!(x.is_contiguous());
-        x.clip_dim(0, 0, 2);
-        assert!(x.is_contiguous());
-        x.clip_dim(1, 0, 2);
-        assert!(!x.is_contiguous());
+
+        // Tensor where outermost dimension has been clipped at the end.
+        let mut y = x.clone();
+        y.clip_dim(0, 0, 2);
+        assert!(y.is_contiguous());
+
+        // Tensor where outermost dimension has been clipped at the start.
+        let mut y = x.clone();
+        y.clip_dim(0, 1, 3);
+        assert!(y.is_contiguous());
+
+        // Tensor where inner dimension has been clipped at the start.
+        let mut y = x.clone();
+        y.clip_dim(1, 1, 3);
+        assert!(!y.is_contiguous());
+
+        // Tensor where inner dimension has been clipped at the end.
+        let mut y = x.clone();
+        y.clip_dim(1, 0, 2);
+        assert!(!y.is_contiguous());
     }
 
     #[test]
