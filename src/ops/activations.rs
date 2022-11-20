@@ -145,7 +145,11 @@ impl Operator for Sigmoid {
 
 pub fn softmax(input: &Tensor, axis: usize) -> Tensor {
     let mut output = input.clone();
+    softmax_in_place(&mut output, axis);
+    output
+}
 
+pub fn softmax_in_place(output: &mut Tensor, axis: usize) {
     let outer_range: Vec<Range<usize>> = output
         .shape()
         .iter()
@@ -187,8 +191,6 @@ pub fn softmax(input: &Tensor, axis: usize) -> Tensor {
             *el /= exp_sum
         }
     }
-
-    output
 }
 
 #[derive(Debug)]
@@ -204,6 +206,16 @@ impl Operator for Softmax {
     fn run(&self, inputs: &[Input]) -> Result<Output, OpError> {
         let input = get_input_as_float(inputs, 0)?;
         Ok(softmax(input, self.axis).into())
+    }
+
+    fn can_run_in_place(&self) -> bool {
+        true
+    }
+
+    fn run_in_place(&self, input: Output, _other: &[Input]) -> Result<Output, OpError> {
+        let mut output = input.into_float().ok_or(OpError::UnsupportedInputType)?;
+        softmax_in_place(&mut output, self.axis);
+        Ok(output.into())
     }
 }
 
