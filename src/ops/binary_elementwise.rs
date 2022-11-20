@@ -44,18 +44,26 @@ fn binary_op<T: Copy + Debug, F: Fn(T, T) -> T>(
 /// Return true if an elementwise binary operation can be performed in-place
 /// on `a` given `b` as the other argument.
 fn can_run_binary_op_in_place<T: Copy>(a: &Tensor<T>, b: &Tensor<T>) -> bool {
-    a.shape() == b.shape() && a.is_contiguous() && b.is_contiguous()
+    b.can_broadcast(a.shape())
 }
 
 /// Perform an elementwise binary operation in-place.
 ///
-/// This currently only supports the case where both inputs have exactly the
-/// same shape, so no broadcasting is required, and the inputs are contigious.
+/// This requires that `b` can be broadcast to the shape of `a`.
 fn binary_op_in_place<T: Copy + Debug, F: Fn(&mut T, T)>(a: &mut Tensor<T>, b: &Tensor<T>, op: F) {
-    assert!(a.is_contiguous());
-    assert!(b.is_contiguous());
-    for (a_elt, b_elt) in zip(a.data_mut().iter_mut(), b.data().iter()) {
-        op(a_elt, *b_elt);
+    if a.shape() == b.shape() && a.is_contiguous() && b.is_contiguous() {
+        for (a_elt, b_elt) in zip(a.data_mut().iter_mut(), b.data().iter()) {
+            op(a_elt, *b_elt);
+        }
+        return;
+    }
+
+    let b_elts = b.broadcast_elements(a.shape());
+    let a_offsets = a.offsets();
+    let a_data = a.data_mut();
+
+    for (a_offset, b_elt) in zip(a_offsets, b_elts) {
+        op(&mut a_data[a_offset], b_elt);
     }
 }
 
@@ -229,7 +237,7 @@ mod tests {
         add, add_in_place, div, div_in_place, mul, mul_in_place, sub, sub_in_place, Add, OpError,
         Operator, Output,
     };
-    use crate::tensor::{from_data, from_scalar};
+    use crate::tensor::{from_data, from_scalar, from_vec};
     use crate::test_util::expect_equal;
 
     #[test]
@@ -274,7 +282,7 @@ mod tests {
 
     #[test]
     fn test_add_in_place() -> Result<(), String> {
-        // Invoke `add_in_place` directly.
+        // In-place addition with inputs that have the same shape.
         let mut a = from_data(vec![2, 2], vec![1., 2., 3., 4.]);
         let a_copy = a.clone();
         let b = from_data(vec![2, 2], vec![10., 20., 30., 40.]);
@@ -296,7 +304,16 @@ mod tests {
         let result = op
             .run_in_place(Output::FloatTensor(scalar), &[(&b).into()])
             .unwrap();
-        expect_equal(result.as_float_ref().unwrap(), &expected)
+        expect_equal(result.as_float_ref().unwrap(), &expected)?;
+
+        // In-place addition where the second input must be broadcast to the
+        // shape of the first.
+        let mut a = from_data(vec![2, 2], vec![1., 2., 3., 4.]);
+        let b = from_vec(vec![1., 2.]);
+        let expected = from_data(vec![2, 2], vec![2., 4., 4., 6.]);
+
+        add_in_place(&mut a, &b);
+        expect_equal(&a, &expected)
     }
 
     #[test]
