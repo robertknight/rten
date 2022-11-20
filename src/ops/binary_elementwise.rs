@@ -59,9 +59,15 @@ fn binary_op_in_place<T: Copy + Debug, F: Fn(&mut T, T)>(a: &mut Tensor<T>, b: &
     }
 
     let b_elts = b.broadcast_elements(a.shape());
+    if a.is_contiguous() {
+        for (a_elt, b_elt) in zip(a.data_mut().iter_mut(), b_elts) {
+            op(a_elt, b_elt);
+        }
+        return;
+    }
+
     let a_offsets = a.offsets();
     let a_data = a.data_mut();
-
     for (a_offset, b_elt) in zip(a_offsets, b_elts) {
         op(&mut a_data[a_offset], b_elt);
     }
@@ -309,6 +315,17 @@ mod tests {
         // In-place addition where the second input must be broadcast to the
         // shape of the first.
         let mut a = from_data(vec![2, 2], vec![1., 2., 3., 4.]);
+        let b = from_vec(vec![1., 2.]);
+        let expected = from_data(vec![2, 2], vec![2., 4., 4., 6.]);
+
+        add_in_place(&mut a, &b);
+        expect_equal(&a, &expected)?;
+
+        // In-place addition where the second input must be broadcast to the
+        // shape of the first, and the first has a non-contiguous layout.
+        let mut a = from_data(vec![2, 3], vec![1., 2., 0., 3., 4., 0.]);
+        a.clip_dim(1, 0, 2);
+        assert!(!a.is_contiguous());
         let b = from_vec(vec![1., 2.]);
         let expected = from_data(vec![2, 2], vec![2., 4., 4., 6.]);
 
