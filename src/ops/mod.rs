@@ -725,7 +725,7 @@ impl Operator for Shape {
     }
 }
 
-pub fn concat<'a, T: Copy>(inputs: &'a [&Tensor<T>], dim: usize) -> Result<Tensor<T>, OpError> {
+pub fn concat<T: Copy>(inputs: &[&Tensor<T>], dim: usize) -> Result<Tensor<T>, OpError> {
     let first_shape = inputs[0].shape();
     if dim >= first_shape.len() {
         return Err(OpError::InvalidValue("dim is larger than input rank"));
@@ -793,24 +793,22 @@ impl Operator for Concat {
             Input::FloatTensor(_) => {
                 let typed_inputs: Vec<_> = inputs
                     .iter()
-                    .map(|in_| {
+                    .flat_map(|in_| {
                         in_.as_float().ok_or(Err::<&Tensor<f32>, OpError>(
                             OpError::IncompatibleInputTypes("Concat inputs must have same type"),
                         ))
                     })
-                    .flatten()
                     .collect();
                 concat(&typed_inputs, self.dim).map(|t| t.into())
             }
             Input::IntTensor(_) => {
                 let typed_inputs: Vec<_> = inputs
                     .iter()
-                    .map(|in_| {
+                    .flat_map(|in_| {
                         in_.as_int().ok_or(Err::<&Tensor<i32>, OpError>(
                             OpError::IncompatibleInputTypes("Concat inputs must have same type"),
                         ))
                     })
-                    .flatten()
                     .collect();
                 concat(&typed_inputs, self.dim).map(|t| t.into())
             }
@@ -849,7 +847,7 @@ pub fn pad<T: Copy>(
     let mut out_index = vec![0; output.shape().len()];
 
     while let Some(in_index) = in_iter.next() {
-        out_index.copy_from_slice(&in_index);
+        out_index.copy_from_slice(in_index);
         for i in 0..out_index.len() {
             out_index[i] += padding[[i]] as usize;
         }
@@ -897,7 +895,7 @@ impl Operator for Pad {
         let const_val = inputs.get(2);
         let axes = get_optional_input_as_int(inputs, 3)?;
 
-        if let Some(_) = axes {
+        if axes.is_some() {
             return Err(OpError::UnsupportedValue(
                 "Pad operator does not yet support `axes` input",
             ));

@@ -106,7 +106,7 @@ fn binary_commutative_op<T: Copy + Debug, F: Fn(&mut T, T)>(
         ));
     }
     binary_op_in_place(&mut out, other, op);
-    Ok(out.into())
+    Ok(out)
 }
 
 /// Perform elementwise addition of two tensors.
@@ -182,8 +182,8 @@ impl Operator for Div {
         let mut a = input.into_float().ok_or(OpError::UnsupportedInputType)?;
         let b = get_input_as_float(other, 0)?;
 
-        if can_run_binary_op_in_place(&a, &b) {
-            div_in_place(&mut a, &b);
+        if can_run_binary_op_in_place(&a, b) {
+            div_in_place(&mut a, b);
             Ok(a.into())
         } else {
             self.run(&[(&a).into(), b.into()])
@@ -264,8 +264,8 @@ impl Operator for Sub {
         let mut a = input.into_float().ok_or(OpError::UnsupportedInputType)?;
         let b = get_input_as_float(other, 0)?;
 
-        if can_run_binary_op_in_place(&a, &b) {
-            sub_in_place(&mut a, &b);
+        if can_run_binary_op_in_place(&a, b) {
+            sub_in_place(&mut a, b);
             Ok(a.into())
         } else {
             self.run(&[(&a).into(), b.into()])

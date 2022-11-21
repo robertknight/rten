@@ -778,13 +778,13 @@ enum BroadcastElementsIter<'a, T: Copy> {
 
 impl<'a, T: Copy> BroadcastElements<'a, T> {
     fn new(tensor: &'a Tensor<T>, to_shape: &[usize]) -> BroadcastElements<'a, T> {
-        let iter;
-        if tensor.is_contiguous() && Self::can_broadcast_by_cycling(tensor.shape(), to_shape) {
-            let iter_len = to_shape.iter().product();
-            iter = BroadcastElementsIter::Direct(tensor.data().iter().cycle().take(iter_len));
-        } else {
-            iter = BroadcastElementsIter::Indexing(Elements::broadcast(tensor, to_shape));
-        }
+        let iter =
+            if tensor.is_contiguous() && Self::can_broadcast_by_cycling(tensor.shape(), to_shape) {
+                let iter_len = to_shape.iter().product();
+                BroadcastElementsIter::Direct(tensor.data().iter().cycle().take(iter_len))
+            } else {
+                BroadcastElementsIter::Indexing(Elements::broadcast(tensor, to_shape))
+            };
         BroadcastElements { iter }
     }
 

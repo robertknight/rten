@@ -178,11 +178,7 @@ impl Graph {
         }
 
         // Collect operator inputs
-        let mut values: HashMap<NodeId, Input> = inputs
-            .iter()
-            .copied()
-            .map(|(id, t)| (id, t.into()))
-            .collect();
+        let mut values: HashMap<NodeId, Input> = inputs.iter().copied().collect();
         for (node_id, node) in self.nodes.iter().enumerate() {
             if let Node::Constant(constant) = node {
                 let input = match constant {
