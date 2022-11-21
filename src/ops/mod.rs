@@ -88,6 +88,15 @@ impl<'a> From<&'a Tensor<i32>> for Input<'a> {
     }
 }
 
+impl<'a> From<&'a Output> for Input<'a> {
+    fn from(output: &'a Output) -> Input {
+        match output {
+            Output::FloatTensor(ref t) => Input::FloatTensor(t),
+            Output::IntTensor(ref t) => Input::IntTensor(t),
+        }
+    }
+}
+
 /// Enum of the different types of output tensor that an operator can produce.
 pub enum Output {
     FloatTensor(Tensor<f32>),
@@ -140,6 +149,43 @@ impl From<Tensor<i32>> for Output {
     }
 }
 
+/// Trait for values that can be converted into the result type used by
+/// `Operator::run`.
+pub trait IntoOpResult {
+    fn into_op_result(self) -> Result<Vec<Output>, OpError>;
+}
+
+impl IntoOpResult for Result<Output, OpError> {
+    fn into_op_result(self) -> Result<Vec<Output>, OpError> {
+        self.map(|out| [out].into())
+    }
+}
+
+impl IntoOpResult for Output {
+    fn into_op_result(self) -> Result<Vec<Output>, OpError> {
+        Ok([self].into())
+    }
+}
+
+impl<T: Copy> IntoOpResult for Tensor<T>
+where
+    Output: From<Tensor<T>>,
+{
+    fn into_op_result(self) -> Result<Vec<Output>, OpError> {
+        let output: Output = self.into();
+        Ok([output].into())
+    }
+}
+
+impl<T: Copy> IntoOpResult for Result<Tensor<T>, OpError>
+where
+    Output: From<Tensor<T>>,
+{
+    fn into_op_result(self) -> Result<Vec<Output>, OpError> {
+        self.map(|tensor| [tensor.into()].into())
+    }
+}
+
 #[derive(Eq, PartialEq, Debug)]
 pub enum OpError {
     /// An operator was called with input tensors of a type that is not
@@ -168,8 +214,8 @@ pub trait Operator: Debug {
     /// Return a display name for the operator.
     fn name(&self) -> &str;
 
-    /// Execute the operator with the inputs.
-    fn run(&self, input: &[Input]) -> Result<Output, OpError>;
+    /// Execute the operator with the given inputs.
+    fn run(&self, input: &[Input]) -> Result<Vec<Output>, OpError>;
 
     /// Return true if this operator supports in-place execution via
     /// `run_in_place`.
@@ -331,13 +377,14 @@ impl Operator for BatchNormalization {
         "BatchNormalization"
     }
 
-    fn run(&self, inputs: &[Input]) -> Result<Output, OpError> {
+    fn run(&self, inputs: &[Input]) -> Result<Vec<Output>, OpError> {
         let input = get_input_as_float(inputs, 0)?;
         let scale = get_input_as_float(inputs, 1)?;
         let bias = get_input_as_float(inputs, 2)?;
         let mean = get_input_as_float(inputs, 3)?;
         let var = get_input_as_float(inputs, 4)?;
-        Ok(batch_norm(input, scale, bias, mean, var, self.epsilon).into())
+
+        batch_norm(input, scale, bias, mean, var, self.epsilon).into_op_result()
     }
 
     fn can_run_in_place(&self) -> bool {
@@ -367,18 +414,19 @@ impl Operator for Cast {
         "Cast"
     }
 
-    fn run(&self, inputs: &[Input]) -> Result<Output, OpError> {
+    fn run(&self, inputs: &[Input]) -> Result<Vec<Output>, OpError> {
         let input = inputs.get(0).ok_or(OpError::MissingInputs)?;
-        match input {
+        let result: Output = match input {
             Input::IntTensor(t) => match self.to {
-                DataType::Int32 => Ok((*t).clone().into()),
-                DataType::Float => Ok(t.map(|x| x as f32).into()),
+                DataType::Int32 => (*t).clone().into(),
+                DataType::Float => t.map(|x| x as f32).into(),
             },
             Input::FloatTensor(t) => match self.to {
-                DataType::Int32 => Ok(t.map(|x| x as i32).into()),
-                DataType::Float => Ok((*t).clone().into()),
+                DataType::Int32 => t.map(|x| x as i32).into(),
+                DataType::Float => (*t).clone().into(),
             },
-        }
+        };
+        result.into_op_result()
     }
 
     fn can_run_in_place(&self) -> bool {
@@ -388,9 +436,10 @@ impl Operator for Cast {
     fn run_in_place(&self, input: Output, _: &[Input]) -> Result<Output, OpError> {
         match (input, self.to) {
             (Output::IntTensor(t), DataType::Int32) => Ok(t.into()),
-            (Output::IntTensor(t), _) => self.run(&[Input::IntTensor(&t)]),
             (Output::FloatTensor(t), DataType::Float) => Ok(t.into()),
-            (Output::FloatTensor(t), _) => self.run(&[Input::FloatTensor(&t)]),
+            (input, _) => self
+                .run(&[(&input).into()])
+                .map(|mut outputs| outputs.remove(0)),
         }
     }
 }
@@ -405,11 +454,11 @@ impl Operator for ConstantOfShape {
         "ConstantOfShape"
     }
 
-    fn run(&self, inputs: &[Input]) -> Result<Output, OpError> {
+    fn run(&self, inputs: &[Input]) -> Result<Vec<Output>, OpError> {
         let input = get_input_as_int(inputs, 0)?;
         let shape: Vec<_> = input.elements().map(|el| el as usize).collect();
         let len = shape.iter().product();
-        Ok(from_data(shape, vec![self.value; len]).into())
+        from_data(shape, vec![self.value; len]).into_op_result()
     }
 }
 
@@ -476,12 +525,12 @@ impl Operator for Gather {
         "Gather"
     }
 
-    fn run(&self, inputs: &[Input]) -> Result<Output, OpError> {
+    fn run(&self, inputs: &[Input]) -> Result<Vec<Output>, OpError> {
         let input = inputs.get(0).ok_or(OpError::MissingInputs)?;
         let indices = get_input_as_int(inputs, 1)?;
         match input {
-            Input::IntTensor(input) => gather(input, self.axis, indices).map(|t| t.into()),
-            Input::FloatTensor(input) => gather(input, self.axis, indices).map(|t| t.into()),
+            Input::IntTensor(input) => gather(input, self.axis, indices).into_op_result(),
+            Input::FloatTensor(input) => gather(input, self.axis, indices).into_op_result(),
         }
     }
 }
@@ -568,7 +617,7 @@ impl Operator for Gemm {
         "Gemm"
     }
 
-    fn run(&self, inputs: &[Input]) -> Result<Output, OpError> {
+    fn run(&self, inputs: &[Input]) -> Result<Vec<Output>, OpError> {
         let a = get_input_as_float(inputs, 0)?;
         let b = get_input_as_float(inputs, 1)?;
         let c = get_optional_input_as_float(inputs, 2)?;
@@ -581,7 +630,7 @@ impl Operator for Gemm {
             self.transpose_a,
             self.transpose_b,
         )
-        .map(|t| t.into())
+        .into_op_result()
     }
 }
 
@@ -593,12 +642,13 @@ impl Operator for Identity {
         "Identity"
     }
 
-    fn run(&self, inputs: &[Input]) -> Result<Output, OpError> {
+    fn run(&self, inputs: &[Input]) -> Result<Vec<Output>, OpError> {
         let input = inputs.get(0).ok_or(OpError::MissingInputs)?;
-        match input {
-            Input::IntTensor(t) => Ok((*t).clone().into()),
-            Input::FloatTensor(t) => Ok((*t).clone().into()),
-        }
+        let result: Output = match input {
+            Input::IntTensor(t) => (*t).clone().into(),
+            Input::FloatTensor(t) => (*t).clone().into(),
+        };
+        result.into_op_result()
     }
 
     fn can_run_in_place(&self) -> bool {
@@ -634,10 +684,10 @@ impl Operator for MatMul {
         "MatMul"
     }
 
-    fn run(&self, inputs: &[Input]) -> Result<Output, OpError> {
+    fn run(&self, inputs: &[Input]) -> Result<Vec<Output>, OpError> {
         let a = get_input_as_float(inputs, 0)?;
         let b = get_input_as_float(inputs, 1)?;
-        matmul(a, b).map(|t| t.into())
+        matmul(a, b).into_op_result()
     }
 }
 
@@ -690,12 +740,12 @@ impl Operator for Reshape {
         "Reshape"
     }
 
-    fn run(&self, inputs: &[Input]) -> Result<Output, OpError> {
+    fn run(&self, inputs: &[Input]) -> Result<Vec<Output>, OpError> {
         let input = inputs.get(0).ok_or(OpError::MissingInputs)?;
         let shape = get_input_as_int(inputs, 1)?;
         match input {
-            Input::IntTensor(t) => reshape(t, shape).map(|t| t.into()),
-            Input::FloatTensor(t) => reshape(t, shape).map(|t| t.into()),
+            Input::IntTensor(t) => reshape(t, shape).into_op_result(),
+            Input::FloatTensor(t) => reshape(t, shape).into_op_result(),
         }
     }
 
@@ -715,13 +765,13 @@ impl Operator for Shape {
         "Shape"
     }
 
-    fn run(&self, inputs: &[Input]) -> Result<Output, OpError> {
+    fn run(&self, inputs: &[Input]) -> Result<Vec<Output>, OpError> {
         let input = inputs.get(0).ok_or(OpError::MissingInputs)?;
         let shape = from_data(
             vec![input.shape().len()],
             input.shape().iter().map(|&el| el as i32).collect(),
         );
-        Ok(shape.into())
+        shape.into_op_result()
     }
 }
 
@@ -786,7 +836,7 @@ impl Operator for Concat {
     }
 
     /// Run `concat` operator with `[a, b]` inputs.
-    fn run(&self, inputs: &[Input]) -> Result<Output, OpError> {
+    fn run(&self, inputs: &[Input]) -> Result<Vec<Output>, OpError> {
         let first = inputs.get(0).ok_or(OpError::MissingInputs)?;
 
         match first {
@@ -799,7 +849,7 @@ impl Operator for Concat {
                         ))
                     })
                     .collect();
-                concat(&typed_inputs, self.dim).map(|t| t.into())
+                concat(&typed_inputs, self.dim).into_op_result()
             }
             Input::IntTensor(_) => {
                 let typed_inputs: Vec<_> = inputs
@@ -810,7 +860,7 @@ impl Operator for Concat {
                         ))
                     })
                     .collect();
-                concat(&typed_inputs, self.dim).map(|t| t.into())
+                concat(&typed_inputs, self.dim).into_op_result()
             }
         }
     }
@@ -889,7 +939,7 @@ impl Operator for Pad {
         "Pad"
     }
 
-    fn run(&self, inputs: &[Input]) -> Result<Output, OpError> {
+    fn run(&self, inputs: &[Input]) -> Result<Vec<Output>, OpError> {
         let input = inputs.get(0).ok_or(OpError::MissingInputs)?;
         let pads = get_input_as_int(inputs, 1)?;
         let const_val = inputs.get(2);
@@ -904,11 +954,11 @@ impl Operator for Pad {
         match input {
             Input::IntTensor(t) => {
                 let const_val = const_val.map(|&v| extract_scalar_int(v)).transpose()?;
-                pad(t, pads, const_val.unwrap_or(0)).map(|t| t.into())
+                pad(t, pads, const_val.unwrap_or(0)).into_op_result()
             }
             Input::FloatTensor(t) => {
                 let const_val = const_val.map(|&v| extract_scalar_float(v)).transpose()?;
-                pad(t, pads, const_val.unwrap_or(0.0)).map(|t| t.into())
+                pad(t, pads, const_val.unwrap_or(0.0)).into_op_result()
             }
         }
     }
@@ -975,16 +1025,16 @@ impl Operator for Slice {
     }
 
     /// Run `slice` operator with `[input, starts, ends, axes]` inputs.
-    fn run(&self, inputs: &[Input]) -> Result<Output, OpError> {
+    fn run(&self, inputs: &[Input]) -> Result<Vec<Output>, OpError> {
         let input = inputs.get(0).ok_or(OpError::MissingInputs)?;
         let starts = get_input_as_int(inputs, 1)?;
         let ends = get_input_as_int(inputs, 2)?;
         let axes = get_optional_input_as_int(inputs, 3)?;
-        let result = match input {
+        let result: Output = match input {
             Input::FloatTensor(input) => slice(input, starts, ends, axes).into(),
             Input::IntTensor(input) => slice(input, starts, ends, axes).into(),
         };
-        Ok(result)
+        result.into_op_result()
     }
 
     fn can_run_in_place(&self) -> bool {
@@ -1040,14 +1090,14 @@ impl Operator for Squeeze {
         "Squeeze"
     }
 
-    fn run(&self, inputs: &[Input]) -> Result<Output, OpError> {
+    fn run(&self, inputs: &[Input]) -> Result<Vec<Output>, OpError> {
         let input = inputs.get(0).ok_or(OpError::MissingInputs)?;
         let axes = self.axes.as_ref().map(|a| &a[..]);
-        let result = match input {
+        let result: Output = match input {
             Input::FloatTensor(t) => squeeze(t, axes).into(),
             Input::IntTensor(t) => squeeze(t, axes).into(),
         };
-        Ok(result)
+        result.into_op_result()
     }
 
     fn can_run_in_place(&self) -> bool {
@@ -1094,14 +1144,14 @@ impl Operator for Transpose {
         "Transpose"
     }
 
-    fn run(&self, inputs: &[Input]) -> Result<Output, OpError> {
+    fn run(&self, inputs: &[Input]) -> Result<Vec<Output>, OpError> {
         let input = inputs.get(0).ok_or(OpError::MissingInputs)?;
         let perm_slice = self.perm.as_deref();
-        let result = match input {
+        let result: Output = match input {
             Input::FloatTensor(input) => transpose(input, perm_slice).into(),
             Input::IntTensor(input) => transpose(input, perm_slice).into(),
         };
-        Ok(result)
+        result.into_op_result()
     }
 }
 
@@ -1125,13 +1175,13 @@ impl Operator for Unsqueeze {
         "Unsqueeze"
     }
 
-    fn run(&self, inputs: &[Input]) -> Result<Output, OpError> {
+    fn run(&self, inputs: &[Input]) -> Result<Vec<Output>, OpError> {
         let input = inputs.get(0).ok_or(OpError::MissingInputs)?;
-        let result = match input {
+        let result: Output = match input {
             Input::FloatTensor(input) => unsqueeze(input, &self.axes).into(),
             Input::IntTensor(input) => unsqueeze(input, &self.axes).into(),
         };
-        Ok(result)
+        result.into_op_result()
     }
 }
 
@@ -1200,6 +1250,7 @@ mod tests {
         let result = cast_to_int
             .run(&[Input::IntTensor(&int_input)])
             .unwrap()
+            .remove(0)
             .into_int()
             .unwrap();
 
@@ -1208,6 +1259,7 @@ mod tests {
         let result = cast_to_int
             .run(&[Input::FloatTensor(&float_input)])
             .unwrap()
+            .remove(0)
             .into_int()
             .unwrap();
         assert_eq!(&result, &int_input);
@@ -1219,6 +1271,7 @@ mod tests {
         let result = cast_to_float
             .run(&[Input::FloatTensor(&float_input)])
             .unwrap()
+            .remove(0)
             .into_float()
             .unwrap();
         expect_equal(&result, &float_input)?;
@@ -1227,6 +1280,7 @@ mod tests {
         let result = cast_to_float
             .run(&[Input::IntTensor(&int_input)])
             .unwrap()
+            .remove(0)
             .into_float()
             .unwrap();
         expect_equal(&result, &float_input)
@@ -1244,6 +1298,7 @@ mod tests {
         let result = cast_to_float
             .run(&[(&int_input).into()])
             .unwrap()
+            .remove(0)
             .into_float()
             .unwrap();
         expect_equal(&result, &from_vec(vec![-2147483600.0, 2147483600.0]))?;
@@ -1256,6 +1311,7 @@ mod tests {
         let result = cast_to_int
             .run(&[(&float_input).into()])
             .unwrap()
+            .remove(0)
             .into_int()
             .unwrap();
         assert_eq!(&result, &from_vec(vec![i32::MIN, i32::MAX]));
@@ -1271,6 +1327,7 @@ mod tests {
         let result = op
             .run(&[Input::IntTensor(&shape)])
             .unwrap()
+            .remove(0)
             .into_int()
             .unwrap();
 
@@ -1393,6 +1450,7 @@ mod tests {
         let result = id_op
             .run(&[Input::IntTensor(&int_input)])
             .unwrap()
+            .remove(0)
             .into_int()
             .unwrap();
         assert_eq!(result, int_input);
@@ -1401,6 +1459,7 @@ mod tests {
         let result = id_op
             .run(&[Input::FloatTensor(&float_input)])
             .unwrap()
+            .remove(0)
             .into_float()
             .unwrap();
         expect_equal(&result, &float_input)
@@ -1470,6 +1529,7 @@ mod tests {
         let result = op
             .run(&[(&input).into(), (&shape).into()])
             .unwrap()
+            .remove(0)
             .into_float()
             .unwrap();
 
@@ -1600,8 +1660,9 @@ mod tests {
         let op = Pad {};
         let result = op
             .run(&[(&input).into(), (&pads).into()])
-            .ok()
-            .and_then(|r| r.into_float())
+            .unwrap()
+            .remove(0)
+            .into_float()
             .unwrap();
         expect_equal(&result, &expected)?;
 
@@ -1677,13 +1738,23 @@ mod tests {
 
         // Float input
         let input = from_data(vec![1, 1, 2, 2], vec![1.0, 2.0, 3.0, 4.0]);
-        let result = op.run(&[(&input).into()]).unwrap().into_int().unwrap();
+        let result = op
+            .run(&[(&input).into()])
+            .unwrap()
+            .remove(0)
+            .into_int()
+            .unwrap();
         assert_eq!(result.shape(), &[4]);
         assert_eq!(result.data(), &[1, 1, 2, 2]);
 
         // Int input
         let input = from_data(vec![1, 1, 2, 2], vec![1, 2, 3, 4]);
-        let result = op.run(&[(&input).into()]).unwrap().into_int().unwrap();
+        let result = op
+            .run(&[(&input).into()])
+            .unwrap()
+            .remove(0)
+            .into_int()
+            .unwrap();
         assert_eq!(result.shape(), &[4]);
         assert_eq!(result.data(), &[1, 1, 2, 2]);
     }

@@ -1,7 +1,7 @@
 use std::fmt::Debug;
 use std::iter::zip;
 
-use crate::ops::{from_data, get_input_as_float, Input, OpError, Operator, Output};
+use crate::ops::{from_data, get_input_as_float, Input, IntoOpResult, OpError, Operator, Output};
 use crate::tensor::Tensor;
 
 /// Given the shapes of two inputs to a binary operation, choose the one that
@@ -127,10 +127,10 @@ impl Operator for Add {
         "Add"
     }
 
-    fn run(&self, inputs: &[Input]) -> Result<Output, OpError> {
+    fn run(&self, inputs: &[Input]) -> Result<Vec<Output>, OpError> {
         let a = get_input_as_float(inputs, 0)?;
         let b = get_input_as_float(inputs, 1)?;
-        add(a, b).map(|t| t.into())
+        add(a, b).into_op_result()
     }
 
     fn can_run_in_place(&self) -> bool {
@@ -145,7 +145,7 @@ impl Operator for Add {
             add_in_place(&mut a, b);
             Ok(a.into())
         } else {
-            self.run(&[(&a).into(), b.into()])
+            add(&a, &b).map(|t| t.into())
         }
     }
 }
@@ -168,10 +168,10 @@ impl Operator for Div {
         "Div"
     }
 
-    fn run(&self, inputs: &[Input]) -> Result<Output, OpError> {
+    fn run(&self, inputs: &[Input]) -> Result<Vec<Output>, OpError> {
         let a = get_input_as_float(inputs, 0)?;
         let b = get_input_as_float(inputs, 1)?;
-        div(a, b).map(|t| t.into())
+        div(a, b).into_op_result()
     }
 
     fn can_run_in_place(&self) -> bool {
@@ -186,7 +186,7 @@ impl Operator for Div {
             div_in_place(&mut a, b);
             Ok(a.into())
         } else {
-            self.run(&[(&a).into(), b.into()])
+            div(&a, &b).map(|t| t.into())
         }
     }
 }
@@ -209,10 +209,10 @@ impl Operator for Mul {
         "Mul"
     }
 
-    fn run(&self, inputs: &[Input]) -> Result<Output, OpError> {
+    fn run(&self, inputs: &[Input]) -> Result<Vec<Output>, OpError> {
         let a = get_input_as_float(inputs, 0)?;
         let b = get_input_as_float(inputs, 1)?;
-        mul(a, b).map(|t| t.into())
+        mul(a, b).into_op_result()
     }
 
     fn can_run_in_place(&self) -> bool {
@@ -227,7 +227,7 @@ impl Operator for Mul {
             mul_in_place(&mut a, b);
             Ok(a.into())
         } else {
-            self.run(&[(&a).into(), b.into()])
+            mul(&a, &b).map(|t| t.into())
         }
     }
 }
@@ -250,10 +250,10 @@ impl Operator for Sub {
         "Sub"
     }
 
-    fn run(&self, inputs: &[Input]) -> Result<Output, OpError> {
+    fn run(&self, inputs: &[Input]) -> Result<Vec<Output>, OpError> {
         let a = get_input_as_float(inputs, 0)?;
         let b = get_input_as_float(inputs, 1)?;
-        sub(a, b).map(|t| t.into())
+        sub(a, b).into_op_result()
     }
 
     fn can_run_in_place(&self) -> bool {
@@ -268,7 +268,7 @@ impl Operator for Sub {
             sub_in_place(&mut a, b);
             Ok(a.into())
         } else {
-            self.run(&[(&a).into(), b.into()])
+            sub(&a, &b).map(|t| t.into())
         }
     }
 }

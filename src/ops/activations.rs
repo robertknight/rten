@@ -1,4 +1,4 @@
-use crate::ops::{get_input_as_float, Input, OpError, Operator, Output};
+use crate::ops::{get_input_as_float, Input, IntoOpResult, OpError, Operator, Output};
 use crate::tensor::Tensor;
 
 pub fn clip(input: &Tensor, min: f32, max: f32) -> Tensor {
@@ -22,9 +22,9 @@ impl Operator for Clip {
         "Clip"
     }
 
-    fn run(&self, inputs: &[Input]) -> Result<Output, OpError> {
+    fn run(&self, inputs: &[Input]) -> Result<Vec<Output>, OpError> {
         let input = get_input_as_float(inputs, 0)?;
-        Ok(clip(input, self.min, self.max).into())
+        clip(input, self.min, self.max).into_op_result()
     }
 
     fn can_run_in_place(&self) -> bool {
@@ -58,9 +58,9 @@ impl Operator for LeakyRelu {
         "LeakyRelu"
     }
 
-    fn run(&self, inputs: &[Input]) -> Result<Output, OpError> {
+    fn run(&self, inputs: &[Input]) -> Result<Vec<Output>, OpError> {
         let input = get_input_as_float(inputs, 0)?;
-        Ok(leaky_relu(input, self.alpha).into())
+        leaky_relu(input, self.alpha).into_op_result()
     }
 
     fn can_run_in_place(&self) -> bool {
@@ -92,9 +92,9 @@ impl Operator for Relu {
     }
 
     /// Run `relu` operator with `[input]` inputs.
-    fn run(&self, inputs: &[Input]) -> Result<Output, OpError> {
+    fn run(&self, inputs: &[Input]) -> Result<Vec<Output>, OpError> {
         let input = get_input_as_float(inputs, 0)?;
-        Ok(relu(input).into())
+        relu(input).into_op_result()
     }
 
     fn can_run_in_place(&self) -> bool {
@@ -125,9 +125,9 @@ impl Operator for Sigmoid {
         "Sigmoid"
     }
 
-    fn run(&self, inputs: &[Input]) -> Result<Output, OpError> {
+    fn run(&self, inputs: &[Input]) -> Result<Vec<Output>, OpError> {
         let input = get_input_as_float(inputs, 0)?;
-        Ok(sigmoid(input).into())
+        sigmoid(input).into_op_result()
     }
 
     fn can_run_in_place(&self) -> bool {
@@ -190,9 +190,9 @@ impl Operator for Softmax {
         "Softmax"
     }
 
-    fn run(&self, inputs: &[Input]) -> Result<Output, OpError> {
+    fn run(&self, inputs: &[Input]) -> Result<Vec<Output>, OpError> {
         let input = get_input_as_float(inputs, 0)?;
-        Ok(softmax(input, self.axis).into())
+        softmax(input, self.axis).into_op_result()
     }
 
     fn can_run_in_place(&self) -> bool {

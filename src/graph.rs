@@ -253,13 +253,16 @@ impl Graph {
             }
 
             let op_result = if let Some(input) = in_place_input {
-                op_node.operator.run_in_place(input, &op_inputs)
+                op_node
+                    .operator
+                    .run_in_place(input, &op_inputs)
+                    .map(|out| [out].into())
             } else {
                 op_node.operator.run(&op_inputs[..])
             };
 
-            let output = match op_result {
-                Ok(output) => output,
+            let mut outputs = match op_result {
+                Ok(outputs) => outputs,
                 Err(op_error) => {
                     return Err(RunError::OperatorError(op_error));
                 }
@@ -286,6 +289,8 @@ impl Graph {
                 }
             }
 
+            // TODO - Save all the outputs here
+            let output = outputs.remove(0);
             temp_values.insert(op_node.output, output);
 
             // Remove temporary values that are no longer needed
@@ -427,7 +432,9 @@ impl Graph {
 #[cfg(test)]
 mod tests {
     use crate::graph::{Graph, RunError};
-    use crate::ops::{Concat, Conv2d, Input, OpError, Operator, Output, Padding, Relu};
+    use crate::ops::{
+        Concat, Conv2d, Input, IntoOpResult, OpError, Operator, Output, Padding, Relu,
+    };
     use crate::tensor::{from_data, zero_tensor};
     use crate::test_util::expect_equal;
 
@@ -513,10 +520,10 @@ mod tests {
             "AddOne"
         }
 
-        fn run(&self, inputs: &[Input]) -> Result<Output, OpError> {
+        fn run(&self, inputs: &[Input]) -> Result<Vec<Output>, OpError> {
             let input = inputs[0].as_float().unwrap();
             let output_data = input.elements().map(|x| x + 1.0).collect();
-            Ok(from_data(input.shape().into(), output_data).into())
+            from_data(input.shape().into(), output_data).into_op_result()
         }
     }
 
@@ -638,11 +645,11 @@ mod tests {
             true
         }
 
-        fn run(&self, inputs: &[Input]) -> Result<Output, OpError> {
+        fn run(&self, inputs: &[Input]) -> Result<Vec<Output>, OpError> {
             // An operator should normally have the same behavior in `run`
             // and `run_in_place`. Here we use different behavior to make it
             // possible to distinguish which path was used.
-            Ok(inputs[0].as_float().unwrap().clone().into())
+            inputs[0].as_float().unwrap().clone().into_op_result()
         }
 
         fn run_in_place(&self, input: Output, _other: &[Input]) -> Result<Output, OpError> {

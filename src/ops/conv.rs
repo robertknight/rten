@@ -1,7 +1,8 @@
 use crate::linalg::{add_scaled_vector, div_ceil, gemm_slice, Matrix};
 use crate::ops::pooling::calc_output_size_and_padding;
 use crate::ops::{
-    get_input_as_float, get_optional_input_as_float, Input, OpError, Operator, Output, Padding,
+    get_input_as_float, get_optional_input_as_float, Input, IntoOpResult, OpError, Operator,
+    Output, Padding,
 };
 use crate::tensor::{from_data, zero_tensor, Tensor};
 
@@ -386,11 +387,11 @@ impl Operator for Conv2d {
     }
 
     /// Run `conv_2d` operator with `[input, weight, bias?]` inputs.
-    fn run(&self, inputs: &[Input]) -> Result<Output, OpError> {
+    fn run(&self, inputs: &[Input]) -> Result<Vec<Output>, OpError> {
         let input = get_input_as_float(inputs, 0)?;
         let weight = get_input_as_float(inputs, 1)?;
         let bias = get_optional_input_as_float(inputs, 2)?;
-        conv_2d(input, weight, bias, self.padding, self.groups, self.stride).map(|t| t.into())
+        conv_2d(input, weight, bias, self.padding, self.groups, self.stride).into_op_result()
     }
 }
 
@@ -464,12 +465,11 @@ impl Operator for ConvTranspose2d {
         "ConvTranspose2d"
     }
 
-    /// Run `conv_2d` operator with `[input, weight]` inputs.
-    fn run(&self, inputs: &[Input]) -> Result<Output, OpError> {
+    fn run(&self, inputs: &[Input]) -> Result<Vec<Output>, OpError> {
         let input = get_input_as_float(inputs, 0)?;
         let weight = get_input_as_float(inputs, 1)?;
         let bias = get_optional_input_as_float(inputs, 2)?;
-        conv_transpose_2d(input, weight, bias, self.stride).map(|t| t.into())
+        conv_transpose_2d(input, weight, bias, self.stride).into_op_result()
     }
 }
 
@@ -661,6 +661,7 @@ mod tests {
         let result = op
             .run(&[input.into(), kernel.into()])
             .unwrap()
+            .remove(0)
             .into_float()
             .unwrap();
         let reference_result = reference_conv(
