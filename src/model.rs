@@ -368,9 +368,9 @@ pub fn load_model(data: &[u8]) -> Result<Model, String> {
                 let op = read_operator(&operator)?;
 
                 let mut inputs: Vec<NodeId> = Vec::new();
-                if let Some(model_inputs) = operator.inputs() {
-                    for model_node_index in model_inputs.iter() {
-                        let index_usize = model_node_index as usize;
+                if let Some(op_input_ids) = operator.inputs() {
+                    for node_index in op_input_ids.iter() {
+                        let index_usize = node_index as usize;
                         if let Some(node_id) = node_id_from_index.get(&index_usize) {
                             inputs.push(*node_id)
                         } else {
@@ -379,7 +379,19 @@ pub fn load_model(data: &[u8]) -> Result<Model, String> {
                     }
                 }
 
-                let graph_node = graph.add_op(node.name(), op, &inputs);
+                let mut outputs: Vec<NodeId> = Vec::new();
+                if let Some(op_output_ids) = operator.outputs() {
+                    for node_index in op_output_ids.iter() {
+                        let index_usize = node_index as usize;
+                        if let Some(node_id) = node_id_from_index.get(&index_usize) {
+                            outputs.push(*node_id)
+                        } else {
+                            return Err("Operator output is invalid".to_string());
+                        }
+                    }
+                }
+
+                let graph_node = graph.add_op(node.name(), op, &inputs, &outputs);
 
                 add_node_id(node.name(), graph_node);
                 node_id_from_index.insert(node_index, graph_node);
@@ -433,13 +445,16 @@ mod tests {
         let const_val = from_data(vec![1, 2, 2], vec![0.5, -0.5, 0.1, -0.1]);
         let const_node = builder.add_float_constant(&const_val);
         let input_node = builder.add_value("input");
+        let output_node = builder.add_value("output");
 
-        let concat_node = builder.add_operator(
+        let concat_out = builder.add_value("concat_out");
+        builder.add_operator(
             "concat",
             OpType::Concat(ops::Concat { dim: 0 }),
             &[const_node, input_node],
+            &[concat_out],
         );
-        builder.add_operator("output", OpType::Relu, &[concat_node]);
+        builder.add_operator("relu", OpType::Relu, &[concat_out], &[output_node]);
 
         builder.finish()
     }
@@ -481,8 +496,10 @@ mod tests {
         let indices_val = from_data(vec![1], vec![1]);
         let indices = builder.add_int_constant(&indices_val);
 
-        builder.add_operator("add", OpType::Add, &[input_node, input_node]);
+        let add_out = builder.add_value("add_out");
+        builder.add_operator("add", OpType::Add, &[input_node, input_node], &[add_out]);
 
+        let average_pool_2d_out = builder.add_value("average_pool_2d_out");
         builder.add_operator(
             "average_pool_2d",
             OpType::AveragePool2d(ops::AveragePool2d {
@@ -491,6 +508,7 @@ mod tests {
                 padding: Padding::Fixed([0, 0, 0, 0]),
             }),
             &[input_node],
+            &[average_pool_2d_out],
         );
 
         // Dummy value for BatchNormalization inputs which are vectors with
@@ -498,6 +516,7 @@ mod tests {
         let batch_norm_param_val = from_vec(vec![1.0]);
         let batch_norm_param = builder.add_float_constant(&batch_norm_param_val);
 
+        let batch_normalization_out = builder.add_value("batch_normalization_out");
         builder.add_operator(
             "batch_normalization",
             OpType::BatchNormalization(ops::BatchNormalization { epsilon: 1e-5 }),
@@ -508,30 +527,45 @@ mod tests {
                 batch_norm_param, /* mean */
                 batch_norm_param, /* variance */
             ],
+            &[batch_normalization_out],
         );
+
+        let cast_out = builder.add_value("cast_out");
         builder.add_operator(
             "cast",
             OpType::Cast(ops::Cast {
                 to: ops::DataType::Float,
             }),
             &[input_node],
+            &[cast_out],
         );
+
+        let clip_out = builder.add_value("clip_out");
         builder.add_operator(
             "clip",
             OpType::Clip(ops::Clip { min: 1.0, max: 5.0 }),
             &[input_node],
+            &[clip_out],
         );
+
+        let concat_out = builder.add_value("concat_out");
         builder.add_operator(
             "concat",
             OpType::Concat(ops::Concat { dim: 0 }),
             &[input_node, input_node],
+            &[concat_out],
         );
+
         let shape = builder.add_int_constant(&from_data(vec![3], vec![1, 5, 10]));
+        let constant_of_shape_out = builder.add_value("constant_of_shape_out");
         builder.add_operator(
             "constant_of_shape",
             OpType::ConstantOfShape(ops::ConstantOfShape { value: 42 }),
             &[shape],
+            &[constant_of_shape_out],
         );
+
+        let conv_2d_out = builder.add_value("conv_2d_out");
         builder.add_operator(
             "conv_2d",
             OpType::Conv2d(ops::Conv2d {
@@ -540,18 +574,29 @@ mod tests {
                 stride: 1,
             }),
             &[input_node, kernel],
+            &[conv_2d_out],
         );
+
+        let conv_transpose_2d_out = builder.add_value("conv_transpose_2d_out");
         builder.add_operator(
             "conv_transpose_2d",
             OpType::ConvTranspose2d(ops::ConvTranspose2d { stride: 2 }),
             &[input_node, kernel],
+            &[conv_transpose_2d_out],
         );
-        builder.add_operator("div", OpType::Div, &[input_node, input_node]);
+
+        let div_out = builder.add_value("div_out");
+        builder.add_operator("div", OpType::Div, &[input_node, input_node], &[div_out]);
+
+        let gather_out = builder.add_value("gather_out");
         builder.add_operator(
             "gather",
             OpType::Gather(ops::Gather { axis: 0 }),
             &[input_node, indices],
+            &[gather_out],
         );
+
+        let gemm_out = builder.add_value("gemm_out");
         builder.add_operator(
             "gemm",
             OpType::Gemm(ops::Gemm {
@@ -561,19 +606,37 @@ mod tests {
                 transpose_b: false,
             }),
             &[input_2d, input_2d],
+            &[gemm_out],
         );
+
+        let global_average_pool_out = builder.add_value("global_average_pool_out");
         builder.add_operator(
             "global_average_pool",
             OpType::GlobalAveragePool,
             &[input_node],
+            &[global_average_pool_out],
         );
-        builder.add_operator("identity", OpType::Identity, &[input_node]);
+
+        let identity_out = builder.add_value("identity_out");
+        builder.add_operator("identity", OpType::Identity, &[input_node], &[identity_out]);
+
+        let leaky_relu_out = builder.add_value("leaky_relu_out");
         builder.add_operator(
             "leaky_relu",
             OpType::LeakyRelu(ops::LeakyRelu { alpha: 0.01 }),
             &[input_node],
+            &[leaky_relu_out],
         );
-        builder.add_operator("matmul", OpType::MatMul, &[input_2d, input_2d]);
+
+        let matmul_out = builder.add_value("matmul_out");
+        builder.add_operator(
+            "matmul",
+            OpType::MatMul,
+            &[input_2d, input_2d],
+            &[matmul_out],
+        );
+
+        let max_pool_2d_out = builder.add_value("max_pool_2d_out");
         builder.add_operator(
             "max_pool_2d",
             OpType::MaxPool2d(ops::MaxPool2d {
@@ -582,78 +645,111 @@ mod tests {
                 padding: Padding::Fixed([0, 0, 0, 0]),
             }),
             &[input_node],
+            &[max_pool_2d_out],
         );
-        builder.add_operator("mul", OpType::Mul, &[input_node, input_node]);
+
+        let mul_out = builder.add_value("mul_out");
+        builder.add_operator("mul", OpType::Mul, &[input_node, input_node], &[mul_out]);
+
         let pads = builder.add_int_constant(&from_data(vec![8], vec![0, 0, 1, 1, 0, 0, 1, 1]));
-        builder.add_operator("pad", OpType::Pad, &[input_node, pads]);
-        builder.add_operator("relu", OpType::Relu, &[input_node]);
+        let pad_out = builder.add_value("pad_out");
+        builder.add_operator("pad", OpType::Pad, &[input_node, pads], &[pad_out]);
+
+        let relu_out = builder.add_value("relu_out");
+        builder.add_operator("relu", OpType::Relu, &[input_node], &[relu_out]);
 
         let new_shape = builder.add_int_constant(&from_data(vec![1], vec![9]));
-        builder.add_operator("reshape", OpType::Reshape, &[input_node, new_shape]);
-        builder.add_operator("shape", OpType::Shape, &[input_node]);
-        builder.add_operator("sigmoid", OpType::Sigmoid, &[input_node]);
+        let reshape_out = builder.add_value("reshape_out");
+        builder.add_operator(
+            "reshape",
+            OpType::Reshape,
+            &[input_node, new_shape],
+            &[reshape_out],
+        );
+
+        let shape_out = builder.add_value("shape_out");
+        builder.add_operator("shape", OpType::Shape, &[input_node], &[shape_out]);
+
+        let sigmoid_out = builder.add_value("sigmoid_out");
+        builder.add_operator("sigmoid", OpType::Sigmoid, &[input_node], &[sigmoid_out]);
 
         let const_0 = builder.add_int_constant(&from_data(vec![1], vec![0]));
         let const_1 = builder.add_int_constant(&from_data(vec![1], vec![1]));
+        let slice_out = builder.add_value("slice_out");
         builder.add_operator(
             "slice",
             OpType::Slice,
             &[input_node, const_0, const_1, const_0],
+            &[slice_out],
         );
+
+        let softmax_out = builder.add_value("softmax_out");
         builder.add_operator(
             "softmax",
             OpType::Softmax(ops::Softmax { axis: 1 }),
             &[input_node],
+            &[softmax_out],
         );
+
+        let squeeze_out = builder.add_value("squeeze_out");
         builder.add_operator(
             "squeeze",
             OpType::Squeeze(ops::Squeeze { axes: None }),
             &[input_node],
+            &[squeeze_out],
         );
-        builder.add_operator("sub", OpType::Sub, &[input_node, input_node]);
+
+        let sub_out = builder.add_value("sub_out");
+        builder.add_operator("sub", OpType::Sub, &[input_node, input_node], &[sub_out]);
+
+        let transpose_out = builder.add_value("transpose_out");
         builder.add_operator(
             "transpose",
             OpType::Transpose(ops::Transpose { perm: None }),
             &[input_node],
+            &[transpose_out],
         );
+
+        let unsqueeze_out = builder.add_value("unsqueeze_out");
         builder.add_operator(
             "unsqueeze",
             OpType::Unsqueeze(ops::Unsqueeze { axes: vec![0, 4] }),
             &[input_node],
+            &[unsqueeze_out],
         );
 
         let buffer = builder.finish();
 
         let model = load_model(&buffer).unwrap();
 
-        // Operators that accept a 4D input (eg. NCHW).
+        // Outputs of ops that accept a 4D input (eg. NCHW).
         let outputs = vec![
-            "add",
-            "average_pool_2d",
-            "batch_normalization",
-            "cast",
-            "clip",
-            "concat",
-            "constant_of_shape",
-            "conv_2d",
-            "conv_transpose_2d",
-            "div",
-            "identity",
-            "global_average_pool",
-            "leaky_relu",
-            "max_pool_2d",
-            "mul",
-            "pad",
-            "relu",
-            "reshape",
-            "shape",
-            "sigmoid",
-            "slice",
-            "softmax",
-            "squeeze",
-            "sub",
-            "transpose",
-            "unsqueeze",
+            "add_out",
+            "average_pool_2d_out",
+            "batch_normalization_out",
+            "cast_out",
+            "clip_out",
+            "concat_out",
+            "constant_of_shape_out",
+            "conv_2d_out",
+            "conv_transpose_2d_out",
+            "div_out",
+            "identity_out",
+            "global_average_pool_out",
+            "leaky_relu_out",
+            "max_pool_2d_out",
+            "mul_out",
+            "pad_out",
+            "relu_out",
+            "reshape_out",
+            "shape_out",
+            "sigmoid_out",
+            "slice_out",
+            "softmax_out",
+            "squeeze_out",
+            "sub_out",
+            "transpose_out",
+            "unsqueeze_out",
         ];
         let input = from_data(vec![1, 1, 3, 3], vec![1., 2., 3., 4., 5., 6., 7., 8., 9.]);
 
@@ -669,8 +765,8 @@ mod tests {
             assert_eq!(result.len(), 1);
         }
 
-        // Operators that accept a 2D input.
-        let outputs = vec!["matmul"];
+        // Outputs of ops that accept a 2D input.
+        let outputs = vec!["matmul_out"];
         let input = from_data(vec![3, 3], vec![1., 2., 3., 4., 5., 6., 7., 8., 9.]);
 
         for output in outputs {

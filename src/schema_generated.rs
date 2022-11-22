@@ -2689,6 +2689,7 @@ impl<'a> OperatorNode<'a> {
     pub const VT_ATTRS_TYPE: flatbuffers::VOffsetT = 6;
     pub const VT_ATTRS: flatbuffers::VOffsetT = 8;
     pub const VT_INPUTS: flatbuffers::VOffsetT = 10;
+    pub const VT_OUTPUTS: flatbuffers::VOffsetT = 12;
 
     #[inline]
     pub fn init_from_table(table: flatbuffers::Table<'a>) -> Self {
@@ -2700,6 +2701,9 @@ impl<'a> OperatorNode<'a> {
         args: &'args OperatorNodeArgs<'args>,
     ) -> flatbuffers::WIPOffset<OperatorNode<'bldr>> {
         let mut builder = OperatorNodeBuilder::new(_fbb);
+        if let Some(x) = args.outputs {
+            builder.add_outputs(x);
+        }
         if let Some(x) = args.inputs {
             builder.add_inputs(x);
         }
@@ -2736,6 +2740,14 @@ impl<'a> OperatorNode<'a> {
         self._tab
             .get::<flatbuffers::ForwardsUOffset<flatbuffers::Vector<'a, u32>>>(
                 OperatorNode::VT_INPUTS,
+                None,
+            )
+    }
+    #[inline]
+    pub fn outputs(&self) -> Option<flatbuffers::Vector<'a, u32>> {
+        self._tab
+            .get::<flatbuffers::ForwardsUOffset<flatbuffers::Vector<'a, u32>>>(
+                OperatorNode::VT_OUTPUTS,
                 None,
             )
     }
@@ -2942,6 +2954,7 @@ impl flatbuffers::Verifiable for OperatorNode<'_> {
         }
      })?
      .visit_field::<flatbuffers::ForwardsUOffset<flatbuffers::Vector<'_, u32>>>("inputs", Self::VT_INPUTS, false)?
+     .visit_field::<flatbuffers::ForwardsUOffset<flatbuffers::Vector<'_, u32>>>("outputs", Self::VT_OUTPUTS, false)?
      .finish();
         Ok(())
     }
@@ -2951,6 +2964,7 @@ pub struct OperatorNodeArgs<'a> {
     pub attrs_type: OperatorAttrs,
     pub attrs: Option<flatbuffers::WIPOffset<flatbuffers::UnionWIPOffset>>,
     pub inputs: Option<flatbuffers::WIPOffset<flatbuffers::Vector<'a, u32>>>,
+    pub outputs: Option<flatbuffers::WIPOffset<flatbuffers::Vector<'a, u32>>>,
 }
 impl<'a> Default for OperatorNodeArgs<'a> {
     #[inline]
@@ -2960,6 +2974,7 @@ impl<'a> Default for OperatorNodeArgs<'a> {
             attrs_type: OperatorAttrs::NONE,
             attrs: None,
             inputs: None,
+            outputs: None,
         }
     }
 }
@@ -2991,6 +3006,11 @@ impl<'a: 'b, 'b> OperatorNodeBuilder<'a, 'b> {
     pub fn add_inputs(&mut self, inputs: flatbuffers::WIPOffset<flatbuffers::Vector<'b, u32>>) {
         self.fbb_
             .push_slot_always::<flatbuffers::WIPOffset<_>>(OperatorNode::VT_INPUTS, inputs);
+    }
+    #[inline]
+    pub fn add_outputs(&mut self, outputs: flatbuffers::WIPOffset<flatbuffers::Vector<'b, u32>>) {
+        self.fbb_
+            .push_slot_always::<flatbuffers::WIPOffset<_>>(OperatorNode::VT_OUTPUTS, outputs);
     }
     #[inline]
     pub fn new(_fbb: &'b mut flatbuffers::FlatBufferBuilder<'a>) -> OperatorNodeBuilder<'a, 'b> {
@@ -3189,6 +3209,7 @@ impl core::fmt::Debug for OperatorNode<'_> {
             }
         };
         ds.field("inputs", &self.inputs());
+        ds.field("outputs", &self.outputs());
         ds.finish()
     }
 }

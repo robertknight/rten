@@ -139,7 +139,13 @@ impl<'a> ModelBuilder<'a> {
     }
 
     /// Add an operator node to the model
-    pub fn add_operator(&mut self, id: &str, op_info: OpType, inputs: &[u32]) -> u32 {
+    pub fn add_operator(
+        &mut self,
+        id: &str,
+        op_info: OpType,
+        inputs: &[u32],
+        outputs: &[u32],
+    ) -> u32 {
         type OT = sg::OperatorType;
         type OA = sg::OperatorAttrs;
         let no_attrs = sg::OperatorAttrs::NONE;
@@ -389,6 +395,7 @@ impl<'a> ModelBuilder<'a> {
         };
 
         let input_vec = self.builder.create_vector(inputs);
+        let output_vec = self.builder.create_vector(outputs);
         let op_node = sg::OperatorNode::create(
             &mut self.builder,
             &sg::OperatorNodeArgs {
@@ -396,6 +403,7 @@ impl<'a> ModelBuilder<'a> {
                 attrs_type,
                 attrs,
                 inputs: Some(input_vec),
+                outputs: Some(output_vec),
             },
         );
         self.add_node(Some(id), NodeData::Operator(op_node))

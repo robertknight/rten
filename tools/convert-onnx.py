@@ -34,6 +34,7 @@ class OperatorNode(Node):
     op_type: str
     attrs: dict[str, AttributeValue]
     inputs: list[int]
+    outputs: list[int]
 
     def __init__(
         self,
@@ -41,11 +42,13 @@ class OperatorNode(Node):
         op_type: str,
         attrs: dict[str, AttributeValue],
         inputs: list[int],
+        outputs: list[int],
     ):
         super().__init__(name)
         self.op_type = op_type
         self.attrs = attrs
         self.inputs = inputs
+        self.outputs = outputs
 
 
 class ValueNode(Node):
@@ -196,17 +199,14 @@ def constant_node_from_onnx_initializer(tensor) -> ConstantNode:
     return ConstantNode(name=tensor.name, shape=dims, data=data)
 
 
-def onnx_op_output_name(onnx_op: onnx.OperatorProto) -> str:
-    if not len(onnx_op.output):
-        raise Exception(f'Operator "{onnx_op.name}" has no outputs')
-    output_name = onnx_op.output[0]
-    return output_name
-
-
 def constant_node_from_onnx_constant_op(onnx_op: onnx.OperatorProto) -> ConstantNode:
     tensor = require_attr(onnx_op.attribute, "value", "tensor")
     const_node = constant_node_from_onnx_initializer(tensor)
-    const_node.name = onnx_op_output_name(onnx_op)
+
+    if not len(onnx_op.output):
+        raise Exception(f'Operator "{onnx_op.name}" has no outputs')
+    const_node.name = onnx_op.output[0]
+
     return const_node
 
 
@@ -272,6 +272,15 @@ def op_node_from_onnx_operator(
                 f'Unable to find input "{input_name}" for operator {onnx_op.name}'
             )
         input_indexes.append(index)
+
+    output_indexes = []
+    for output_name in onnx_op.output:
+        index = node_index_from_name.get(output_name)
+        if index is None:
+            raise Exception(
+                f'Unable to find output "{output_name}" for operator {onnx_op.name}'
+            )
+        output_indexes.append(index)
 
     attrs: dict[str, AttributeValue] = {}
 
@@ -461,10 +470,11 @@ def op_node_from_onnx_operator(
             raise Exception(f"Unsupported operation {onnx_op.op_type}")
 
     return OperatorNode(
-        name=onnx_op_output_name(onnx_op),
+        name=onnx_op.name,
         op_type=op_type,
         attrs=attrs,
         inputs=input_indexes,
+        outputs=output_indexes,
     )
 
 
@@ -481,6 +491,8 @@ def graph_from_onnx_graph(onnx_graph: onnx.GraphProto) -> list[Node]:
     constant_map: dict[str, ConstantNode] = {}
 
     def add_node(node: Node):
+        if node.name in tensor_map:
+            raise Exception(f'Node name "{node.name}" conflicts with another node')
         if isinstance(node, ConstantNode):
             constant_map[node.name] = node
         nodes.append(node)
@@ -506,6 +518,12 @@ def graph_from_onnx_graph(onnx_graph: onnx.GraphProto) -> list[Node]:
     for operator in onnx_graph.node:
         if operator.op_type == "Constant":
             continue
+
+        # Create placeholder nodes in the graph for outputs.
+        for output_name in operator.output:
+            value_node = ValueNode(output_name)
+            add_node(value_node)
+
         op_node = op_node_from_onnx_operator(operator, tensor_map, constant_map)
         add_node(op_node)
 
@@ -760,12 +778,18 @@ def build_operator_node(builder: flatbuffers.Builder, operator: OperatorNode):
         builder.PrependUint32(input_index)
     inputs_vec = builder.EndVector()
 
+    sg.OperatorNodeStartOutputsVector(builder, len(operator.outputs))
+    for output_index in reversed(operator.outputs):
+        builder.PrependUint32(output_index)
+    outputs_vec = builder.EndVector()
+
     sg.OperatorNodeStart(builder)
     sg.OperatorNodeAddType(builder, op_type_code)
     sg.OperatorNodeAddAttrsType(builder, attrs_type)
     if attrs:
         sg.OperatorNodeAddAttrs(builder, attrs)
     sg.OperatorNodeAddInputs(builder, inputs_vec)
+    sg.OperatorNodeAddOutputs(builder, outputs_vec)
     return sg.OperatorNodeEnd(builder)
 
 

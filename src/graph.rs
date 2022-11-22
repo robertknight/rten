@@ -1,4 +1,5 @@
 use std::collections::{HashMap, HashSet};
+use std::iter::zip;
 
 use crate::ops::{Input, OpError, Operator, Output};
 use crate::tensor::Tensor;
@@ -7,7 +8,7 @@ use crate::timer::Timer;
 struct OperatorNode {
     name: Option<String>,
     inputs: Vec<NodeId>,
-    output: NodeId,
+    outputs: Vec<NodeId>,
     operator: Box<dyn Operator>,
 }
 
@@ -75,6 +76,10 @@ pub enum RunError {
 
     /// Execution of an operator failed
     OperatorError(OpError),
+
+    /// The output of a graph operator did not match expectations (eg. the
+    /// count, types or shapes of outputs did not match what was expected.)
+    OutputMismatch(&'static str),
 }
 
 #[derive(Default)]
@@ -109,15 +114,15 @@ impl Graph {
         name: Option<&str>,
         op: Box<dyn Operator>,
         inputs: &[NodeId],
+        outputs: &[NodeId],
     ) -> NodeId {
-        let output_id = self.add_value(name);
         self.nodes.push(Node::Operator(OperatorNode {
             name: name.map(|s| s.to_owned()),
             inputs: Vec::from(inputs),
-            output: output_id,
+            outputs: Vec::from(outputs),
             operator: op,
         }));
-        output_id
+        self.nodes.len() - 1
     }
 
     /// Add a constant node to the graph.
@@ -261,7 +266,7 @@ impl Graph {
                 op_node.operator.run(&op_inputs[..])
             };
 
-            let mut outputs = match op_result {
+            let outputs = match op_result {
                 Ok(outputs) => outputs,
                 Err(op_error) => {
                     return Err(RunError::OperatorError(op_error));
@@ -289,9 +294,15 @@ impl Graph {
                 }
             }
 
-            // TODO - Save all the outputs here
-            let output = outputs.remove(0);
-            temp_values.insert(op_node.output, output);
+            if op_node.outputs.len() != outputs.len() {
+                return Err(RunError::OutputMismatch(
+                    "operator output count did not match expected count",
+                ));
+            }
+
+            for (&output_id, output) in zip(op_node.outputs.iter(), outputs.into_iter()) {
+                temp_values.insert(output_id, output);
+            }
 
             // Remove temporary values that are no longer needed
             for node_id in op_node.inputs.iter() {
@@ -350,14 +361,14 @@ impl Graph {
         outputs: &[NodeId],
     ) -> Result<Vec<(NodeId, &OperatorNode)>, RunError> {
         // Map of output node to source operator
-        let operator_nodes: HashMap<NodeId, &OperatorNode> = self
-            .nodes
-            .iter()
-            .filter_map(|node| match node {
-                Node::Operator(op_node) => Some((op_node.output, op_node)),
-                _ => None,
-            })
-            .collect();
+        let mut operator_nodes = HashMap::new();
+        for node in self.nodes.iter() {
+            if let Node::Operator(op_node) = node {
+                for output_id in op_node.outputs.iter() {
+                    operator_nodes.insert(*output_id, op_node);
+                }
+            }
+        }
 
         // Set of values that are available after executing the plan
         let mut resolved_values: HashSet<NodeId> =
@@ -378,9 +389,11 @@ impl Graph {
             operator_nodes: HashMap<NodeId, &'a OperatorNode>,
         }
         impl<'a> PlanBuilder<'a> {
+            /// Add all the transitive dependencies of `op_node` to the plan,
+            /// followed by `op_node`, in order to generate `output_id`.
             fn visit(
                 &mut self,
-                node_id: NodeId,
+                output_id: NodeId,
                 op_node: &'a OperatorNode,
             ) -> Result<(), RunError> {
                 for input in op_node.inputs.iter() {
@@ -393,16 +406,18 @@ impl Graph {
                         let msg = format!(
                             "Missing input \"{}\" for op \"{}\"",
                             self.graph.node_name(*input),
-                            self.graph.node_name(node_id),
+                            op_node.name.as_deref().unwrap_or("(no name)")
                         );
                         return Err(RunError::PlanningError(msg));
                     }
                 }
-                self.resolved_values.insert(node_id);
-                self.plan.push((node_id, op_node));
+                self.resolved_values.insert(output_id);
+                self.plan.push((output_id, op_node));
                 Ok(())
             }
 
+            /// Return a sequential plan to generate `outputs`. The plan is
+            /// a vec of `(output_id, operator)` tuples.
             fn plan(
                 mut self,
                 outputs: &[NodeId],
@@ -453,7 +468,8 @@ mod tests {
         let weights_id = g.add_constant(Some("weight"), weights);
         let input_id = g.add_value(Some("input"));
 
-        let conv_out = g.add_op(
+        let conv_out = g.add_value(Some("conv_out"));
+        g.add_op(
             Some("conv"),
             Box::new(Conv2d {
                 padding: Padding::Fixed([1, 1, 1, 1]),
@@ -461,8 +477,10 @@ mod tests {
                 stride: 1,
             }),
             &[input_id, weights_id],
+            &[conv_out],
         );
-        let relu_out = g.add_op(Some("relu"), Box::new(Relu {}), &[conv_out]);
+        let relu_out = g.add_value(Some("relu_out"));
+        g.add_op(Some("relu"), Box::new(Relu {}), &[conv_out], &[relu_out]);
 
         let input = from_data(
             vec![1, 1, 3, 3],
@@ -492,7 +510,8 @@ mod tests {
         let weights = from_data(vec![1], vec![0.3230]);
         let weights_id = g.add_constant(Some("weights"), weights.clone());
         let input_id = g.add_value(Some("input"));
-        let relu_op_id = g.add_op(Some("relu"), Box::new(Relu {}), &[input_id]);
+        let relu_out_id = g.add_value(Some("relu_out"));
+        let relu_op_id = g.add_op(Some("relu"), Box::new(Relu {}), &[input_id], &[relu_out_id]);
 
         assert_eq!(g.node_name(weights_id), "weights");
         assert_eq!(g.node_name(input_id), "input");
@@ -500,7 +519,8 @@ mod tests {
 
         let anon_weights_id = g.add_constant(None, weights);
         let anon_input_id = g.add_value(None);
-        let anon_op_id = g.add_op(None, Box::new(Relu {}), &[input_id]);
+        let anon_out_id = g.add_value(None);
+        let anon_op_id = g.add_op(None, Box::new(Relu {}), &[input_id], &[anon_out_id]);
 
         assert_eq!(
             g.node_name(anon_weights_id),
@@ -533,26 +553,40 @@ mod tests {
 
         let input_id = g.add_value(Some("input"));
 
-        let op_a = g.add_op(Some("op_a"), Box::new(AddOne {}), &[input_id]);
-        let op_b = g.add_op(Some("op_b"), Box::new(AddOne {}), &[op_a]);
+        let op_a_out = g.add_value(Some("op_a_out"));
+        g.add_op(Some("op_a"), Box::new(AddOne {}), &[input_id], &[op_a_out]);
+        let op_b_out = g.add_value(Some("op_b_out"));
+        g.add_op(Some("op_b"), Box::new(AddOne {}), &[op_a_out], &[op_b_out]);
 
         // op_c has both op_a and op_b as inputs. Since op_b depends on op_a,
         // execution must run op_a, then op_b, then op_c.
-        let op_c = g.add_op(Some("op_c"), Box::new(Concat { dim: 0 }), &[op_a, op_b]);
+        let op_c_out = g.add_value(Some("op_c_out"));
+        g.add_op(
+            Some("op_c"),
+            Box::new(Concat { dim: 0 }),
+            &[op_a_out, op_b_out],
+            &[op_c_out],
+        );
 
         // op_d is the same as op_c, but input order is reversed
-        let op_d = g.add_op(Some("op_d"), Box::new(Concat { dim: 0 }), &[op_b, op_a]);
+        let op_d_out = g.add_value(Some("op_d_out"));
+        g.add_op(
+            Some("op_d"),
+            Box::new(Concat { dim: 0 }),
+            &[op_b_out, op_a_out],
+            &[op_d_out],
+        );
 
         let input = from_data(vec![1], vec![1.]);
 
         let results = g
-            .run(&[(input_id, (&input).into())], &[op_c], None)
+            .run(&[(input_id, (&input).into())], &[op_c_out], None)
             .unwrap();
         let expected = from_data(vec![2], vec![2., 3.]);
         expect_equal(&results[0].as_float_ref().unwrap(), &expected)?;
 
         let results = g
-            .run(&[(input_id, (&input).into())], &[op_d], None)
+            .run(&[(input_id, (&input).into())], &[op_d_out], None)
             .unwrap();
         let expected = from_data(vec![2], vec![3., 2.]);
         expect_equal(&results[0].as_float_ref().unwrap(), &expected)
@@ -567,7 +601,9 @@ mod tests {
 
         let mut prev_output = input_id;
         for _ in 0..100 {
-            prev_output = g.add_op(None, Box::new(AddOne {}), &[prev_output]);
+            let next_output = g.add_value(None);
+            g.add_op(None, Box::new(AddOne {}), &[prev_output], &[next_output]);
+            prev_output = next_output;
         }
 
         let results = g
@@ -624,7 +660,8 @@ mod tests {
     #[test]
     fn test_err_if_missing_operator_input() {
         let mut g = Graph::new();
-        let output = g.add_op(Some("op"), Box::new(Relu {}), &[42]);
+        let output = g.add_value(None);
+        g.add_op(Some("op"), Box::new(Relu {}), &[42], &[output]);
         let result = g.run(&[], &[output], None);
         assert_eq!(
             result.err(),
@@ -666,23 +703,47 @@ mod tests {
         let mut g = Graph::new();
         let input_id = g.add_value(Some("input"));
 
-        let op1_id = g.add_op(Some("op1"), Box::new(AddOneInPlace {}), &[input_id]);
-        let op2_id = g.add_op(Some("op2"), Box::new(AddOneInPlace {}), &[op1_id]);
-        let op3_id = g.add_op(Some("op3"), Box::new(AddOneInPlace {}), &[op2_id]);
-        let op4_id = g.add_op(Some("op4"), Box::new(AddOneInPlace {}), &[op2_id]);
+        let op1_out = g.add_value(Some("op1_out"));
+        g.add_op(
+            Some("op1"),
+            Box::new(AddOneInPlace {}),
+            &[input_id],
+            &[op1_out],
+        );
+        let op2_out = g.add_value(Some("op2_out"));
+        g.add_op(
+            Some("op2"),
+            Box::new(AddOneInPlace {}),
+            &[op1_out],
+            &[op2_out],
+        );
+        let op3_out = g.add_value(Some("op3_out"));
+        g.add_op(
+            Some("op3"),
+            Box::new(AddOneInPlace {}),
+            &[op2_out],
+            &[op3_out],
+        );
+        let op4_out = g.add_value(Some("op4_out"));
+        g.add_op(
+            Some("op4"),
+            Box::new(AddOneInPlace {}),
+            &[op2_out],
+            &[op4_out],
+        );
         let input = zero_tensor::<f32>(&[1, 1]);
 
         // First operator should not be run in-place, since it has an
         // immutable input. The result should be the same as the input.
         let results = g
-            .run(&[(input_id, (&input).into())], &[op1_id], None)
+            .run(&[(input_id, (&input).into())], &[op1_out], None)
             .unwrap();
         assert_eq!(results[0].as_float_ref().unwrap()[[0, 0]], 0.0);
 
         // Second operator should be run in-place, as it meets all the
         // requirements for this optimization.
         let results = g
-            .run(&[(input_id, (&input).into())], &[op2_id], None)
+            .run(&[(input_id, (&input).into())], &[op2_out], None)
             .unwrap();
         assert_eq!(results[0].as_float_ref().unwrap()[[0, 0]], 1.0);
 
@@ -690,7 +751,7 @@ mod tests {
         // for fourth op. Fourth op can run in place as by then, it is the
         // only consumer of its input.
         let results = g
-            .run(&[(input_id, (&input).into())], &[op3_id, op4_id], None)
+            .run(&[(input_id, (&input).into())], &[op3_out, op4_out], None)
             .unwrap();
         assert_eq!(results[0].as_float_ref().unwrap()[[0, 0]], 1.0);
         assert_eq!(results[1].as_float_ref().unwrap()[[0, 0]], 2.0);

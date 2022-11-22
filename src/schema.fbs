@@ -172,6 +172,9 @@ table OperatorNode {
 
   // Indexes of input nodes
   inputs:[uint];
+
+  // Indexes of output nodes
+  outputs:[uint];
 }
 
 union ConstantData {
