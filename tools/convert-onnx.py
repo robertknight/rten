@@ -519,7 +519,6 @@ def graph_from_onnx_graph(onnx_graph: onnx.GraphProto) -> list[Node]:
         if operator.op_type == "Constant":
             continue
 
-        # Create placeholder nodes in the graph for outputs.
         for output_name in operator.output:
             value_node = ValueNode(output_name)
             add_node(value_node)

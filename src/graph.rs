@@ -392,7 +392,7 @@ impl Graph {
         }
         impl<'a> PlanBuilder<'a> {
             /// Add all the transitive dependencies of `op_node` to the plan,
-            /// followed by `op_node`, in order to generate `output_id`.
+            /// followed by `op_node`.
             fn visit(
                 &mut self,
                 op_node_id: NodeId,
@@ -423,16 +423,15 @@ impl Graph {
             }
 
             /// Return a sequential plan to generate `outputs`. The plan is
-            /// a vec of `(output_id, operator)` tuples.
+            /// a vec of `(op_node_id, operator)` tuples.
             fn plan(
                 mut self,
                 outputs: &[NodeId],
             ) -> Result<Vec<(NodeId, &'a OperatorNode)>, RunError> {
                 for output_id in outputs.iter() {
                     if self.resolved_values.contains(output_id) {
-                        // Value is either a constant node in the graph or
-                        // was produced by an operator that has already been
-                        // added to the plan.
+                        // Value is either a constant node or is produced by
+                        // an operator that is already in the plan.
                         continue;
                     }
 
