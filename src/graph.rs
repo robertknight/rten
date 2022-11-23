@@ -362,10 +362,10 @@ impl Graph {
     ) -> Result<Vec<(NodeId, &OperatorNode)>, RunError> {
         // Map of output node to source operator
         let mut operator_nodes = HashMap::new();
-        for node in self.nodes.iter() {
+        for (node_id, node) in self.nodes.iter().enumerate() {
             if let Node::Operator(op_node) = node {
                 for output_id in op_node.outputs.iter() {
-                    operator_nodes.insert(*output_id, op_node);
+                    operator_nodes.insert(*output_id, (node_id, op_node));
                 }
             }
         }
@@ -386,33 +386,39 @@ impl Graph {
             graph: &'a Graph,
             resolved_values: HashSet<NodeId>,
             plan: Vec<(NodeId, &'a OperatorNode)>,
-            operator_nodes: HashMap<NodeId, &'a OperatorNode>,
+
+            // Map of output ID to (op node ID, op)
+            operator_nodes: HashMap<NodeId, (NodeId, &'a OperatorNode)>,
         }
         impl<'a> PlanBuilder<'a> {
             /// Add all the transitive dependencies of `op_node` to the plan,
             /// followed by `op_node`, in order to generate `output_id`.
             fn visit(
                 &mut self,
-                output_id: NodeId,
+                op_node_id: NodeId,
                 op_node: &'a OperatorNode,
             ) -> Result<(), RunError> {
                 for input in op_node.inputs.iter() {
                     if self.resolved_values.contains(input) {
                         continue;
                     }
-                    if let Some(input_op_node) = self.operator_nodes.get(input) {
-                        self.visit(*input, input_op_node)?;
+                    if let Some((input_op_id, input_op_node)) =
+                        self.operator_nodes.get(input).copied()
+                    {
+                        self.visit(input_op_id, input_op_node)?;
                     } else {
                         let msg = format!(
                             "Missing input \"{}\" for op \"{}\"",
                             self.graph.node_name(*input),
-                            op_node.name.as_deref().unwrap_or("(no name)")
+                            self.graph.node_name(op_node_id)
                         );
                         return Err(RunError::PlanningError(msg));
                     }
                 }
-                self.resolved_values.insert(output_id);
-                self.plan.push((output_id, op_node));
+                for output_id in op_node.outputs.iter() {
+                    self.resolved_values.insert(*output_id);
+                }
+                self.plan.push((op_node_id, op_node));
                 Ok(())
             }
 
@@ -423,10 +429,18 @@ impl Graph {
                 outputs: &[NodeId],
             ) -> Result<Vec<(NodeId, &'a OperatorNode)>, RunError> {
                 for output_id in outputs.iter() {
-                    if let Some(op_node) = self.operator_nodes.get(output_id) {
-                        self.visit(*output_id, op_node)?;
-                    } else if !self.resolved_values.contains(output_id) {
-                        let msg = format!("Missing output {}", output_id,);
+                    if self.resolved_values.contains(output_id) {
+                        // Value is either a constant node in the graph or
+                        // was produced by an operator that has already been
+                        // added to the plan.
+                        continue;
+                    }
+
+                    if let Some((op_node_id, op_node)) = self.operator_nodes.get(output_id).copied()
+                    {
+                        self.visit(op_node_id, op_node)?;
+                    } else {
+                        let msg = format!("Missing output {}", output_id);
                         return Err(RunError::PlanningError(msg));
                     }
                 }
@@ -446,11 +460,14 @@ impl Graph {
 
 #[cfg(test)]
 mod tests {
+    use std::cell::Cell;
+    use std::rc::Rc;
+
     use crate::graph::{Graph, RunError};
     use crate::ops::{
         Concat, Conv2d, Input, IntoOpResult, OpError, Operator, Output, Padding, Relu,
     };
-    use crate::tensor::{from_data, zero_tensor};
+    use crate::tensor::{from_data, from_vec, zero_tensor};
     use crate::test_util::expect_equal;
 
     // Test of a very simple graph with a typical structure (one input, one
@@ -755,5 +772,70 @@ mod tests {
             .unwrap();
         assert_eq!(results[0].as_float_ref().unwrap()[[0, 0]], 1.0);
         assert_eq!(results[1].as_float_ref().unwrap()[[0, 0]], 2.0);
+    }
+
+    /// Test operator that produces multiple outputs
+    #[derive(Debug)]
+    struct Split {
+        run_count: Rc<Cell<u32>>,
+    }
+
+    impl Split {
+        fn new() -> Split {
+            Split {
+                run_count: Rc::new(Cell::new(0)),
+            }
+        }
+    }
+
+    impl Operator for Split {
+        fn name(&self) -> &str {
+            "Split"
+        }
+
+        fn run(&self, inputs: &[Input]) -> Result<Vec<Output>, OpError> {
+            self.run_count.set(self.run_count.get() + 1);
+
+            let input = inputs[0].as_float().unwrap();
+            let left_split_len = input.len() / 2;
+            let left_split = from_vec(input.elements().take(left_split_len).collect());
+            let right_split = from_vec(input.elements().skip(left_split_len).collect());
+            Ok([left_split.into(), right_split.into()].into())
+        }
+    }
+
+    #[test]
+    fn test_multiple_outputs() {
+        let mut g = Graph::new();
+        let input_id = g.add_value(Some("input"));
+        let left_split_out = g.add_value(Some("left_split"));
+        let right_split_out = g.add_value(Some("right_split"));
+
+        let split_op = Box::new(Split::new());
+        let run_count = split_op.run_count.clone();
+
+        g.add_op(
+            Some("split"),
+            split_op,
+            &[input_id],
+            &[left_split_out, right_split_out],
+        );
+
+        let input = from_vec(vec![1.0, 2.0, 3.0, 4.0, 5.0]);
+        let mut results = g
+            .run(
+                &[(input_id, (&input).into())],
+                &[left_split_out, right_split_out],
+                None,
+            )
+            .unwrap();
+
+        assert_eq!(run_count.get(), 1);
+
+        assert_eq!(results.len(), 2);
+        let left_split = results.remove(0).into_float().unwrap();
+        let right_split = results.remove(0).into_float().unwrap();
+        assert_eq!(left_split.elements().collect::<Vec<_>>(), &[1.0, 2.0]);
+        assert_eq!(right_split.elements().collect::<Vec<_>>(), &[3.0, 4.0, 5.0]);
     }
 }
