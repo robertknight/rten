@@ -269,6 +269,20 @@ fn read_softmax_op(node: &OperatorNode) -> Box<dyn Operator> {
     Box::new(ops::Softmax { axis })
 }
 
+fn read_split_op(node: &OperatorNode) -> Box<dyn Operator> {
+    let mut axis = 0;
+    let mut split: Vec<usize> = Vec::new();
+
+    if let Some(attrs) = node.attrs_as_split_attrs() {
+        axis = attrs.axis() as isize;
+        if let Some(split_vec) = attrs.split() {
+            split.extend(split_vec.iter().map(|size| size as usize));
+        }
+    }
+
+    Box::new(ops::Split { axis, split })
+}
+
 fn read_squeeze_op(node: &OperatorNode) -> Box<dyn Operator> {
     let mut axes: Option<Vec<usize>> = None;
     if let Some(attrs) = node.attrs_as_squeeze_attrs() {
@@ -331,6 +345,7 @@ fn read_operator(node: &OperatorNode) -> Result<Box<dyn Operator>, String> {
         OperatorType::Sigmoid => read_sigmoid_op(node),
         OperatorType::Slice => read_slice_op(node),
         OperatorType::Softmax => read_softmax_op(node),
+        OperatorType::Split => read_split_op(node),
         OperatorType::Squeeze => read_squeeze_op(node),
         OperatorType::Sub => read_sub_op(node),
         OperatorType::Transpose => read_transpose_op(node),
@@ -699,6 +714,18 @@ mod tests {
             &[squeeze_out],
         );
 
+        let split_out_1 = builder.add_value("split_out_1");
+        let split_out_2 = builder.add_value("split_out_2");
+        builder.add_operator(
+            "split",
+            OpType::Split(ops::Split {
+                axis: 1,
+                split: vec![1, 2],
+            }),
+            &[input_2d],
+            &[split_out_1, split_out_2],
+        );
+
         let sub_out = builder.add_value("sub_out");
         builder.add_operator("sub", OpType::Sub, &[input_node, input_node], &[sub_out]);
 
@@ -722,7 +749,7 @@ mod tests {
 
         let model = load_model(&buffer).unwrap();
 
-        // Outputs of ops that accept a 4D input (eg. NCHW).
+        // Outputs of ops tested with a 4D input (eg. NCHW image).
         let outputs = vec![
             "add_out",
             "average_pool_2d_out",
@@ -765,8 +792,8 @@ mod tests {
             assert_eq!(result.len(), 1);
         }
 
-        // Outputs of ops that accept a 2D input.
-        let outputs = vec!["matmul_out"];
+        // Outputs of ops tested with a 2D input.
+        let outputs = vec!["matmul_out", "split_out_1", "split_out_2"];
         let input = from_data(vec![3, 3], vec![1., 2., 3., 4., 5., 6., 7., 8., 9.]);
 
         for output in outputs {

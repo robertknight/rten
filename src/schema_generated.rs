@@ -18,13 +18,13 @@ pub const ENUM_MIN_OPERATOR_TYPE: i8 = 0;
     since = "2.0.0",
     note = "Use associated constants instead. This will no longer be generated in 2021."
 )]
-pub const ENUM_MAX_OPERATOR_TYPE: i8 = 28;
+pub const ENUM_MAX_OPERATOR_TYPE: i8 = 29;
 #[deprecated(
     since = "2.0.0",
     note = "Use associated constants instead. This will no longer be generated in 2021."
 )]
 #[allow(non_camel_case_types)]
-pub const ENUM_VALUES_OPERATOR_TYPE: [OperatorType; 29] = [
+pub const ENUM_VALUES_OPERATOR_TYPE: [OperatorType; 30] = [
     OperatorType::Add,
     OperatorType::AveragePool2d,
     OperatorType::BatchNormalization,
@@ -49,6 +49,7 @@ pub const ENUM_VALUES_OPERATOR_TYPE: [OperatorType; 29] = [
     OperatorType::Shape,
     OperatorType::Sigmoid,
     OperatorType::Slice,
+    OperatorType::Split,
     OperatorType::Squeeze,
     OperatorType::Softmax,
     OperatorType::Sub,
@@ -85,14 +86,15 @@ impl OperatorType {
     pub const Shape: Self = Self(21);
     pub const Sigmoid: Self = Self(22);
     pub const Slice: Self = Self(23);
-    pub const Squeeze: Self = Self(24);
-    pub const Softmax: Self = Self(25);
-    pub const Sub: Self = Self(26);
-    pub const Transpose: Self = Self(27);
-    pub const Unsqueeze: Self = Self(28);
+    pub const Split: Self = Self(24);
+    pub const Squeeze: Self = Self(25);
+    pub const Softmax: Self = Self(26);
+    pub const Sub: Self = Self(27);
+    pub const Transpose: Self = Self(28);
+    pub const Unsqueeze: Self = Self(29);
 
     pub const ENUM_MIN: i8 = 0;
-    pub const ENUM_MAX: i8 = 28;
+    pub const ENUM_MAX: i8 = 29;
     pub const ENUM_VALUES: &'static [Self] = &[
         Self::Add,
         Self::AveragePool2d,
@@ -118,6 +120,7 @@ impl OperatorType {
         Self::Shape,
         Self::Sigmoid,
         Self::Slice,
+        Self::Split,
         Self::Squeeze,
         Self::Softmax,
         Self::Sub,
@@ -151,6 +154,7 @@ impl OperatorType {
             Self::Shape => Some("Shape"),
             Self::Sigmoid => Some("Sigmoid"),
             Self::Slice => Some("Slice"),
+            Self::Split => Some("Split"),
             Self::Squeeze => Some("Squeeze"),
             Self::Softmax => Some("Softmax"),
             Self::Sub => Some("Sub"),
@@ -405,13 +409,13 @@ pub const ENUM_MIN_OPERATOR_ATTRS: u8 = 0;
     since = "2.0.0",
     note = "Use associated constants instead. This will no longer be generated in 2021."
 )]
-pub const ENUM_MAX_OPERATOR_ATTRS: u8 = 17;
+pub const ENUM_MAX_OPERATOR_ATTRS: u8 = 18;
 #[deprecated(
     since = "2.0.0",
     note = "Use associated constants instead. This will no longer be generated in 2021."
 )]
 #[allow(non_camel_case_types)]
-pub const ENUM_VALUES_OPERATOR_ATTRS: [OperatorAttrs; 18] = [
+pub const ENUM_VALUES_OPERATOR_ATTRS: [OperatorAttrs; 19] = [
     OperatorAttrs::NONE,
     OperatorAttrs::AveragePool2dAttrs,
     OperatorAttrs::BatchNormalizationAttrs,
@@ -426,6 +430,7 @@ pub const ENUM_VALUES_OPERATOR_ATTRS: [OperatorAttrs; 18] = [
     OperatorAttrs::LeakyReluAttrs,
     OperatorAttrs::MaxPool2dAttrs,
     OperatorAttrs::PadAttrs,
+    OperatorAttrs::SplitAttrs,
     OperatorAttrs::SqueezeAttrs,
     OperatorAttrs::SoftmaxAttrs,
     OperatorAttrs::TransposeAttrs,
@@ -451,13 +456,14 @@ impl OperatorAttrs {
     pub const LeakyReluAttrs: Self = Self(11);
     pub const MaxPool2dAttrs: Self = Self(12);
     pub const PadAttrs: Self = Self(13);
-    pub const SqueezeAttrs: Self = Self(14);
-    pub const SoftmaxAttrs: Self = Self(15);
-    pub const TransposeAttrs: Self = Self(16);
-    pub const UnsqueezeAttrs: Self = Self(17);
+    pub const SplitAttrs: Self = Self(14);
+    pub const SqueezeAttrs: Self = Self(15);
+    pub const SoftmaxAttrs: Self = Self(16);
+    pub const TransposeAttrs: Self = Self(17);
+    pub const UnsqueezeAttrs: Self = Self(18);
 
     pub const ENUM_MIN: u8 = 0;
-    pub const ENUM_MAX: u8 = 17;
+    pub const ENUM_MAX: u8 = 18;
     pub const ENUM_VALUES: &'static [Self] = &[
         Self::NONE,
         Self::AveragePool2dAttrs,
@@ -473,6 +479,7 @@ impl OperatorAttrs {
         Self::LeakyReluAttrs,
         Self::MaxPool2dAttrs,
         Self::PadAttrs,
+        Self::SplitAttrs,
         Self::SqueezeAttrs,
         Self::SoftmaxAttrs,
         Self::TransposeAttrs,
@@ -495,6 +502,7 @@ impl OperatorAttrs {
             Self::LeakyReluAttrs => Some("LeakyReluAttrs"),
             Self::MaxPool2dAttrs => Some("MaxPool2dAttrs"),
             Self::PadAttrs => Some("PadAttrs"),
+            Self::SplitAttrs => Some("SplitAttrs"),
             Self::SqueezeAttrs => Some("SqueezeAttrs"),
             Self::SoftmaxAttrs => Some("SoftmaxAttrs"),
             Self::TransposeAttrs => Some("TransposeAttrs"),
@@ -2348,6 +2356,127 @@ impl core::fmt::Debug for SoftmaxAttrs<'_> {
         ds.finish()
     }
 }
+pub enum SplitAttrsOffset {}
+#[derive(Copy, Clone, PartialEq)]
+
+pub struct SplitAttrs<'a> {
+    pub _tab: flatbuffers::Table<'a>,
+}
+
+impl<'a> flatbuffers::Follow<'a> for SplitAttrs<'a> {
+    type Inner = SplitAttrs<'a>;
+    #[inline]
+    fn follow(buf: &'a [u8], loc: usize) -> Self::Inner {
+        Self {
+            _tab: flatbuffers::Table { buf, loc },
+        }
+    }
+}
+
+impl<'a> SplitAttrs<'a> {
+    pub const VT_AXIS: flatbuffers::VOffsetT = 4;
+    pub const VT_SPLIT: flatbuffers::VOffsetT = 6;
+
+    #[inline]
+    pub fn init_from_table(table: flatbuffers::Table<'a>) -> Self {
+        SplitAttrs { _tab: table }
+    }
+    #[allow(unused_mut)]
+    pub fn create<'bldr: 'args, 'args: 'mut_bldr, 'mut_bldr>(
+        _fbb: &'mut_bldr mut flatbuffers::FlatBufferBuilder<'bldr>,
+        args: &'args SplitAttrsArgs<'args>,
+    ) -> flatbuffers::WIPOffset<SplitAttrs<'bldr>> {
+        let mut builder = SplitAttrsBuilder::new(_fbb);
+        if let Some(x) = args.split {
+            builder.add_split(x);
+        }
+        builder.add_axis(args.axis);
+        builder.finish()
+    }
+
+    #[inline]
+    pub fn axis(&self) -> i32 {
+        self._tab.get::<i32>(SplitAttrs::VT_AXIS, Some(0)).unwrap()
+    }
+    #[inline]
+    pub fn split(&self) -> Option<flatbuffers::Vector<'a, u32>> {
+        self._tab
+            .get::<flatbuffers::ForwardsUOffset<flatbuffers::Vector<'a, u32>>>(
+                SplitAttrs::VT_SPLIT,
+                None,
+            )
+    }
+}
+
+impl flatbuffers::Verifiable for SplitAttrs<'_> {
+    #[inline]
+    fn run_verifier(
+        v: &mut flatbuffers::Verifier,
+        pos: usize,
+    ) -> Result<(), flatbuffers::InvalidFlatbuffer> {
+        use self::flatbuffers::Verifiable;
+        v.visit_table(pos)?
+            .visit_field::<i32>("axis", Self::VT_AXIS, false)?
+            .visit_field::<flatbuffers::ForwardsUOffset<flatbuffers::Vector<'_, u32>>>(
+                "split",
+                Self::VT_SPLIT,
+                false,
+            )?
+            .finish();
+        Ok(())
+    }
+}
+pub struct SplitAttrsArgs<'a> {
+    pub axis: i32,
+    pub split: Option<flatbuffers::WIPOffset<flatbuffers::Vector<'a, u32>>>,
+}
+impl<'a> Default for SplitAttrsArgs<'a> {
+    #[inline]
+    fn default() -> Self {
+        SplitAttrsArgs {
+            axis: 0,
+            split: None,
+        }
+    }
+}
+
+pub struct SplitAttrsBuilder<'a: 'b, 'b> {
+    fbb_: &'b mut flatbuffers::FlatBufferBuilder<'a>,
+    start_: flatbuffers::WIPOffset<flatbuffers::TableUnfinishedWIPOffset>,
+}
+impl<'a: 'b, 'b> SplitAttrsBuilder<'a, 'b> {
+    #[inline]
+    pub fn add_axis(&mut self, axis: i32) {
+        self.fbb_.push_slot::<i32>(SplitAttrs::VT_AXIS, axis, 0);
+    }
+    #[inline]
+    pub fn add_split(&mut self, split: flatbuffers::WIPOffset<flatbuffers::Vector<'b, u32>>) {
+        self.fbb_
+            .push_slot_always::<flatbuffers::WIPOffset<_>>(SplitAttrs::VT_SPLIT, split);
+    }
+    #[inline]
+    pub fn new(_fbb: &'b mut flatbuffers::FlatBufferBuilder<'a>) -> SplitAttrsBuilder<'a, 'b> {
+        let start = _fbb.start_table();
+        SplitAttrsBuilder {
+            fbb_: _fbb,
+            start_: start,
+        }
+    }
+    #[inline]
+    pub fn finish(self) -> flatbuffers::WIPOffset<SplitAttrs<'a>> {
+        let o = self.fbb_.end_table(self.start_);
+        flatbuffers::WIPOffset::new(o.value())
+    }
+}
+
+impl core::fmt::Debug for SplitAttrs<'_> {
+    fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
+        let mut ds = f.debug_struct("SplitAttrs");
+        ds.field("axis", &self.axis());
+        ds.field("split", &self.split());
+        ds.finish()
+    }
+}
 pub enum SqueezeAttrsOffset {}
 #[derive(Copy, Clone, PartialEq)]
 
@@ -2883,6 +3012,16 @@ impl<'a> OperatorNode<'a> {
 
     #[inline]
     #[allow(non_snake_case)]
+    pub fn attrs_as_split_attrs(&self) -> Option<SplitAttrs<'a>> {
+        if self.attrs_type() == OperatorAttrs::SplitAttrs {
+            self.attrs().map(SplitAttrs::init_from_table)
+        } else {
+            None
+        }
+    }
+
+    #[inline]
+    #[allow(non_snake_case)]
     pub fn attrs_as_squeeze_attrs(&self) -> Option<SqueezeAttrs<'a>> {
         if self.attrs_type() == OperatorAttrs::SqueezeAttrs {
             self.attrs().map(SqueezeAttrs::init_from_table)
@@ -2946,6 +3085,7 @@ impl flatbuffers::Verifiable for OperatorNode<'_> {
           OperatorAttrs::LeakyReluAttrs => v.verify_union_variant::<flatbuffers::ForwardsUOffset<LeakyReluAttrs>>("OperatorAttrs::LeakyReluAttrs", pos),
           OperatorAttrs::MaxPool2dAttrs => v.verify_union_variant::<flatbuffers::ForwardsUOffset<MaxPool2dAttrs>>("OperatorAttrs::MaxPool2dAttrs", pos),
           OperatorAttrs::PadAttrs => v.verify_union_variant::<flatbuffers::ForwardsUOffset<PadAttrs>>("OperatorAttrs::PadAttrs", pos),
+          OperatorAttrs::SplitAttrs => v.verify_union_variant::<flatbuffers::ForwardsUOffset<SplitAttrs>>("OperatorAttrs::SplitAttrs", pos),
           OperatorAttrs::SqueezeAttrs => v.verify_union_variant::<flatbuffers::ForwardsUOffset<SqueezeAttrs>>("OperatorAttrs::SqueezeAttrs", pos),
           OperatorAttrs::SoftmaxAttrs => v.verify_union_variant::<flatbuffers::ForwardsUOffset<SoftmaxAttrs>>("OperatorAttrs::SoftmaxAttrs", pos),
           OperatorAttrs::TransposeAttrs => v.verify_union_variant::<flatbuffers::ForwardsUOffset<TransposeAttrs>>("OperatorAttrs::TransposeAttrs", pos),
@@ -3155,6 +3295,16 @@ impl core::fmt::Debug for OperatorNode<'_> {
             }
             OperatorAttrs::PadAttrs => {
                 if let Some(x) = self.attrs_as_pad_attrs() {
+                    ds.field("attrs", &x)
+                } else {
+                    ds.field(
+                        "attrs",
+                        &"InvalidFlatbuffer: Union discriminant does not match value.",
+                    )
+                }
+            }
+            OperatorAttrs::SplitAttrs => {
+                if let Some(x) = self.attrs_as_split_attrs() {
                     ds.field("attrs", &x)
                 } else {
                     ds.field(

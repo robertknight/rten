@@ -351,6 +351,23 @@ impl<'a> ModelBuilder<'a> {
                     .as_union_value(),
                 ),
             ),
+            OpType::Split(args) => {
+                let split = self.create_u32_vec(Some(args.split));
+                (
+                    OT::Split,
+                    OA::SplitAttrs,
+                    Some(
+                        sg::SplitAttrs::create(
+                            &mut self.builder,
+                            &sg::SplitAttrsArgs {
+                                axis: args.axis as i32,
+                                split,
+                            },
+                        )
+                        .as_union_value(),
+                    ),
+                )
+            }
             OpType::Squeeze(args) => {
                 let axes = self.create_u32_vec(args.axes);
                 (

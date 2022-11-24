@@ -31,11 +31,12 @@ class OperatorType(object):
     Shape = 21
     Sigmoid = 22
     Slice = 23
-    Squeeze = 24
-    Softmax = 25
-    Sub = 26
-    Transpose = 27
-    Unsqueeze = 28
+    Split = 24
+    Squeeze = 25
+    Softmax = 26
+    Sub = 27
+    Transpose = 28
+    Unsqueeze = 29
 
 
 class PadMode(object):
@@ -63,10 +64,11 @@ class OperatorAttrs(object):
     LeakyReluAttrs = 11
     MaxPool2dAttrs = 12
     PadAttrs = 13
-    SqueezeAttrs = 14
-    SoftmaxAttrs = 15
-    TransposeAttrs = 16
-    UnsqueezeAttrs = 17
+    SplitAttrs = 14
+    SqueezeAttrs = 15
+    SoftmaxAttrs = 16
+    TransposeAttrs = 17
+    UnsqueezeAttrs = 18
 
 
 class NodeKind(object):
@@ -715,6 +717,69 @@ class SoftmaxAttrs(object):
 def SoftmaxAttrsStart(builder): builder.StartObject(1)
 def SoftmaxAttrsAddAxis(builder, axis): builder.PrependUint32Slot(0, axis, 0)
 def SoftmaxAttrsEnd(builder): return builder.EndObject()
+
+
+class SplitAttrs(object):
+    __slots__ = ['_tab']
+
+    @classmethod
+    def GetRootAs(cls, buf, offset=0):
+        n = flatbuffers.encode.Get(flatbuffers.packer.uoffset, buf, offset)
+        x = SplitAttrs()
+        x.Init(buf, n + offset)
+        return x
+
+    @classmethod
+    def GetRootAsSplitAttrs(cls, buf, offset=0):
+        """This method is deprecated. Please switch to GetRootAs."""
+        return cls.GetRootAs(buf, offset)
+    @classmethod
+    def SplitAttrsBufferHasIdentifier(cls, buf, offset, size_prefixed=False):
+        return flatbuffers.util.BufferHasIdentifier(buf, offset, b"\x4D\x4F\x44\x4C", size_prefixed=size_prefixed)
+
+    # SplitAttrs
+    def Init(self, buf, pos):
+        self._tab = flatbuffers.table.Table(buf, pos)
+
+    # SplitAttrs
+    def Axis(self):
+        o = flatbuffers.number_types.UOffsetTFlags.py_type(self._tab.Offset(4))
+        if o != 0:
+            return self._tab.Get(flatbuffers.number_types.Int32Flags, o + self._tab.Pos)
+        return 0
+
+    # SplitAttrs
+    def Split(self, j):
+        o = flatbuffers.number_types.UOffsetTFlags.py_type(self._tab.Offset(6))
+        if o != 0:
+            a = self._tab.Vector(o)
+            return self._tab.Get(flatbuffers.number_types.Uint32Flags, a + flatbuffers.number_types.UOffsetTFlags.py_type(j * 4))
+        return 0
+
+    # SplitAttrs
+    def SplitAsNumpy(self):
+        o = flatbuffers.number_types.UOffsetTFlags.py_type(self._tab.Offset(6))
+        if o != 0:
+            return self._tab.GetVectorAsNumpy(flatbuffers.number_types.Uint32Flags, o)
+        return 0
+
+    # SplitAttrs
+    def SplitLength(self):
+        o = flatbuffers.number_types.UOffsetTFlags.py_type(self._tab.Offset(6))
+        if o != 0:
+            return self._tab.VectorLen(o)
+        return 0
+
+    # SplitAttrs
+    def SplitIsNone(self):
+        o = flatbuffers.number_types.UOffsetTFlags.py_type(self._tab.Offset(6))
+        return o == 0
+
+def SplitAttrsStart(builder): builder.StartObject(2)
+def SplitAttrsAddAxis(builder, axis): builder.PrependInt32Slot(0, axis, 0)
+def SplitAttrsAddSplit(builder, split): builder.PrependUOffsetTRelativeSlot(1, flatbuffers.number_types.UOffsetTFlags.py_type(split), 0)
+def SplitAttrsStartSplitVector(builder, numElems): return builder.StartVector(4, numElems, 4)
+def SplitAttrsEnd(builder): return builder.EndObject()
 
 
 class SqueezeAttrs(object):

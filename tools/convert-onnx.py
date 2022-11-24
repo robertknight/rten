@@ -445,6 +445,14 @@ def op_node_from_onnx_operator(
 
             attrs["axis"] = get_attr(onnx_op.attribute, "axis", "int", 0)
 
+        case "Split":
+            op_type = "Split"
+
+            attrs["axis"] = get_attr(onnx_op.attribute, "axis", "int", 0)
+            attrs["split"] = get_attr(onnx_op.attribute, "split", "ints", [])
+
+            check_unsupported_attr(onnx_op.attribute, "num_outputs", "int", 0)
+
         case "Squeeze":
             op_type = "Squeeze"
 
@@ -722,6 +730,23 @@ def build_operator_node(builder: flatbuffers.Builder, operator: OperatorNode):
             sg.SoftmaxAttrsStart(builder)
             sg.SoftmaxAttrsAddAxis(builder, operator.attrs["axis"])
             attrs = sg.SoftmaxAttrsEnd(builder)
+        case "Split":
+            op_type_code = sg.OperatorType.Split
+            attrs_type = sg.OperatorAttrs.SplitAttrs
+
+            split = cast(list[int] | None, operator.attrs["split"])
+            if split:
+                sg.SplitAttrsStartSplitVector(builder, len(split))
+                for item in reversed(split):
+                    builder.PrependUint32(item)
+                split_vec = builder.EndVector()
+
+            sg.SplitAttrsStart(builder)
+            sg.SplitAttrsAddAxis(builder, operator.attrs["axis"])
+            if split_vec:
+                sg.SplitAttrsAddSplit(builder, split_vec)
+            attrs = sg.SplitAttrsEnd(builder)
+
         case "Squeeze":
             op_type_code = sg.OperatorType.Squeeze
             attrs_type = sg.OperatorAttrs.SqueezeAttrs

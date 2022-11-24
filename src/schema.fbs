@@ -31,6 +31,7 @@ enum OperatorType: byte {
   Shape,
   Sigmoid,
   Slice,
+  Split,
   Squeeze,
   Softmax,
   Sub,
@@ -63,6 +64,7 @@ union OperatorAttrs {
   LeakyReluAttrs,
   MaxPool2dAttrs,
   PadAttrs,
+  SplitAttrs,
   SqueezeAttrs,
   SoftmaxAttrs,
   TransposeAttrs,
@@ -143,6 +145,11 @@ table PadAttrs {}
 
 table SoftmaxAttrs {
   axis:uint;
+}
+
+table SplitAttrs {
+  axis:int;
+  split:[uint];
 }
 
 table SqueezeAttrs {
