@@ -221,6 +221,17 @@ impl<T: Copy> Tensor<T> {
         BroadcastElements::new(self, shape)
     }
 
+    /// Return an iterator over offsets of this tensor, broadcasted to `shape`.
+    ///
+    /// This is very similar to `broadcast_elements`, except that the iterator
+    /// yields offsets into rather than elements of the data buffer.
+    pub fn broadcast_offsets(&self, shape: &[usize]) -> Offsets {
+        if !self.can_broadcast(shape) {
+            panic!("Broadcast shape is not compatible with actual shape");
+        }
+        Offsets::broadcast(self, shape)
+    }
+
     /// Return true if the element's shape can be broadcast to `shape` using
     /// `broadcast_elements`.
     ///
@@ -732,6 +743,12 @@ impl Offsets {
     fn new<T: Copy>(tensor: &Tensor<T>) -> Offsets {
         Offsets {
             base: ElementsBase::new(tensor),
+        }
+    }
+
+    fn broadcast<T: Copy>(tensor: &Tensor<T>, shape: &[usize]) -> Offsets {
+        Offsets {
+            base: ElementsBase::broadcast(tensor, shape),
         }
     }
 
@@ -1565,6 +1582,27 @@ mod tests {
     fn test_broadcast_elements_with_shorter_shape() {
         let x = steps(&[2, 2]);
         x.broadcast_elements(&[4]);
+    }
+
+    #[test]
+    fn test_broadcast_offsets() {
+        let x = steps(&[2, 1, 4]);
+        let to_shape = &[2, 2, 1, 4];
+
+        let expected: Vec<i32> = x.broadcast_elements(to_shape).collect();
+        let actual: Vec<i32> = x
+            .broadcast_offsets(to_shape)
+            .map(|off| x.data()[off])
+            .collect();
+
+        assert_eq!(&actual, &expected);
+    }
+
+    #[test]
+    #[should_panic(expected = "Broadcast shape is not compatible with actual shape")]
+    fn test_broadcast_offsets_with_invalid_shape() {
+        let x = steps(&[2, 2]);
+        x.broadcast_offsets(&[3, 2]);
     }
 
     #[test]
