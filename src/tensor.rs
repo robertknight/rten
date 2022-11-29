@@ -490,8 +490,9 @@ impl<'a, const N: usize, T: Copy> IndexMut<[usize; N]> for UncheckedViewMut<'a, 
     }
 }
 
+/// IterPos tracks the position within a single dimension of an IndexingIter.
 #[derive(Debug)]
-struct ElementsDim {
+struct IterPos {
     /// Current step along this dimension. Each step corresponds to advancing
     /// one or more indexes either forwards or backwards.
     step: usize,
@@ -503,7 +504,7 @@ struct ElementsDim {
     offset_step: isize,
 }
 
-impl ElementsDim {
+impl IterPos {
     fn step(&mut self) -> bool {
         if self.step < self.steps - 1 {
             self.step += 1;
@@ -514,22 +515,17 @@ impl ElementsDim {
     }
 }
 
-/// Struct with shared functionality for iterating over elements of a tensor.
+/// Shared functionality for iterating over elements or offsets of a tensor.
 #[derive(Debug)]
-struct ElementsBase {
+struct IndexingIterBase {
     /// Remaining elements to visit
     len: usize,
 
     /// Offset of the next element to return from the tensor's element buffer.
     offset: isize,
 
-    /// True if the tensor data is contiguous in memory
-    contiguous: bool,
-
     /// Current position within each dimension.
-    ///
-    /// This is not used if the tensor is contiguous.
-    dims: Vec<ElementsDim>,
+    pos: Vec<IterPos>,
 }
 
 /// Return the number of indices that will be visited when iterating from
@@ -548,40 +544,34 @@ pub fn step_count(start: usize, end: usize, step: i32) -> usize {
     }
 }
 
-impl ElementsBase {
-    fn new<T: Copy>(tensor: &Tensor<T>) -> ElementsBase {
-        let contiguous = tensor.is_contiguous();
-        let dims = if contiguous {
-            Vec::new()
-        } else {
-            tensor
-                .shape
-                .iter()
-                .enumerate()
-                .map(|(dim, &len)| ElementsDim {
-                    step: 0,
-                    steps: len,
-                    offset_step: tensor.strides[dim] as isize,
-                })
-                .collect()
-        };
+impl IndexingIterBase {
+    fn new<T: Copy>(tensor: &Tensor<T>) -> IndexingIterBase {
+        let dims = tensor
+            .shape
+            .iter()
+            .enumerate()
+            .map(|(dim, &len)| IterPos {
+                step: 0,
+                steps: len,
+                offset_step: tensor.strides[dim] as isize,
+            })
+            .collect();
 
-        ElementsBase {
+        IndexingIterBase {
             len: tensor.len(),
             offset: tensor.base as isize,
-            dims,
-            contiguous,
+            pos: dims,
         }
     }
 
-    fn broadcast<T: Copy>(tensor: &Tensor<T>, shape: &[usize]) -> ElementsBase {
+    fn broadcast<T: Copy>(tensor: &Tensor<T>, shape: &[usize]) -> IndexingIterBase {
         // nb. We require that the broadcast shape has a length >= the actual
         // shape.
         let added_dims = shape.len() - tensor.shape().len();
         let padded_tensor_shape = repeat(&0).take(added_dims).chain(tensor.shape().iter());
         let dims = zip(padded_tensor_shape, shape.iter())
             .enumerate()
-            .map(|(dim, (&actual_len, &broadcast_len))| ElementsDim {
+            .map(|(dim, (&actual_len, &broadcast_len))| IterPos {
                 step: 0,
                 steps: broadcast_len,
 
@@ -596,15 +586,14 @@ impl ElementsBase {
             })
             .collect();
 
-        ElementsBase {
+        IndexingIterBase {
             len: shape.iter().product(),
             offset: tensor.base as isize,
-            dims,
-            contiguous: false,
+            pos: dims,
         }
     }
 
-    fn slice<T: Copy>(tensor: &Tensor<T>, ranges: &[(usize, usize, i32)]) -> ElementsBase {
+    fn slice<T: Copy>(tensor: &Tensor<T>, ranges: &[(usize, usize, i32)]) -> IndexingIterBase {
         if ranges.len() != tensor.ndim() {
             panic!(
                 "slice dimensions {} do not match tensor dimensions {}",
@@ -641,37 +630,30 @@ impl ElementsBase {
                 offset += stride * (start - 1);
             }
 
-            dims.push(ElementsDim {
+            dims.push(IterPos {
                 step: 0,
                 steps: step_count(start, end, step),
                 offset_step: (stride as isize) * (step as isize),
             });
         }
 
-        ElementsBase {
+        IndexingIterBase {
             len: dims.iter().map(|dim| dim.steps).product(),
             offset: offset as isize,
-            dims,
-            contiguous: false,
+            pos: dims,
         }
     }
 
     fn step(&mut self) {
         self.len -= 1;
 
-        // Fast path for contiguous tensors
-        if self.contiguous {
-            self.offset += 1;
-            return;
-        }
-
         // Take a step along the last dimension which has not reached the end.
-        let mut dim = self.dims.len() - 1;
-        while !self.dims[dim].step() {
+        let mut dim = self.pos.len() - 1;
+        while !self.pos[dim].step() {
             // End of range reached for dimension `dim`. Rewind offset by
             // amount it moved since iterating from the start of this dimension.
-            self.offset -= self.dims[dim].offset_step * (self.dims[dim].steps as isize - 1);
-            self.dims[dim].step = 0;
+            self.offset -= self.pos[dim].offset_step * (self.pos[dim].steps as isize - 1);
+            self.pos[dim].step = 0;
 
             if dim == 0 {
                 break;
@@ -681,42 +663,92 @@ impl ElementsBase {
         }
 
         // Advance offset for the dimension we stepped along.
-        self.offset += self.dims[dim].offset_step;
+        self.offset += self.pos[dim].offset_step;
     }
 }
 
 /// Iterator over elements of a tensor.
 pub struct Elements<'a, T: Copy> {
-    base: ElementsBase,
+    iter: ElementsIter<'a, T>,
+}
 
-    /// Data buffer of the tensor
-    data: &'a [T],
+/// Alternate implementations of `Elements`.
+///
+/// When the tensor has a contiguous layout, this iterator is just a thin
+/// wrapper around a slice iterator.
+enum ElementsIter<'a, T: Copy> {
+    Direct(Iter<'a, T>),
+    Indexing(IndexingIter<'a, T>),
 }
 
 impl<'a, T: Copy> Elements<'a, T> {
     fn new(tensor: &'a Tensor<T>) -> Elements<'a, T> {
-        Elements {
-            base: ElementsBase::new(tensor),
-            data: &tensor.data,
-        }
-    }
-
-    fn broadcast(tensor: &'a Tensor<T>, shape: &[usize]) -> Elements<'a, T> {
-        Elements {
-            base: ElementsBase::broadcast(tensor, shape),
-            data: &tensor.data,
+        if tensor.is_contiguous() {
+            Elements {
+                iter: ElementsIter::Direct(tensor.data().iter()),
+            }
+        } else {
+            Elements {
+                iter: ElementsIter::Indexing(IndexingIter::new(tensor)),
+            }
         }
     }
 
     fn slice(tensor: &'a Tensor<T>, ranges: &[(usize, usize, i32)]) -> Elements<'a, T> {
-        Elements {
-            base: ElementsBase::slice(tensor, ranges),
+        let iter = IndexingIter {
+            base: IndexingIterBase::slice(tensor, ranges),
             data: &tensor.data,
+        };
+        Elements {
+            iter: ElementsIter::Indexing(iter),
         }
     }
 }
 
 impl<'a, T: Copy> Iterator for Elements<'a, T> {
+    type Item = T;
+
+    fn next(&mut self) -> Option<T> {
+        match self.iter {
+            ElementsIter::Direct(ref mut iter) => iter.next().copied(),
+            ElementsIter::Indexing(ref mut iter) => iter.next(),
+        }
+    }
+
+    fn size_hint(&self) -> (usize, Option<usize>) {
+        match &self.iter {
+            ElementsIter::Direct(iter) => iter.size_hint(),
+            ElementsIter::Indexing(iter) => iter.size_hint(),
+        }
+    }
+}
+
+impl<'a, T: Copy> ExactSizeIterator for Elements<'a, T> {}
+
+struct IndexingIter<'a, T: Copy> {
+    base: IndexingIterBase,
+
+    /// Data buffer of the tensor
+    data: &'a [T],
+}
+
+impl<'a, T: Copy> IndexingIter<'a, T> {
+    fn new(tensor: &'a Tensor<T>) -> IndexingIter<'a, T> {
+        IndexingIter {
+            base: IndexingIterBase::new(tensor),
+            data: &tensor.data,
+        }
+    }
+
+    fn broadcast(tensor: &'a Tensor<T>, shape: &[usize]) -> IndexingIter<'a, T> {
+        IndexingIter {
+            base: IndexingIterBase::broadcast(tensor, shape),
+            data: &tensor.data,
+        }
+    }
+}
+
+impl<'a, T: Copy> Iterator for IndexingIter<'a, T> {
     type Item = T;
 
     fn next(&mut self) -> Option<T> {
@@ -733,7 +765,7 @@ impl<'a, T: Copy> Iterator for Elements<'a, T> {
     }
 }
 
-impl<'a, T: Copy> ExactSizeIterator for Elements<'a, T> {}
+impl<'a, T: Copy> ExactSizeIterator for IndexingIter<'a, T> {}
 
 /// Iterator over element offsets of a tensor.
 ///
@@ -742,25 +774,25 @@ impl<'a, T: Copy> ExactSizeIterator for Elements<'a, T> {}
 /// the tensor in ways that invalidate the offset sequence returned by this
 /// iterator.
 pub struct Offsets {
-    base: ElementsBase,
+    base: IndexingIterBase,
 }
 
 impl Offsets {
     fn new<T: Copy>(tensor: &Tensor<T>) -> Offsets {
         Offsets {
-            base: ElementsBase::new(tensor),
+            base: IndexingIterBase::new(tensor),
         }
     }
 
     fn broadcast<T: Copy>(tensor: &Tensor<T>, shape: &[usize]) -> Offsets {
         Offsets {
-            base: ElementsBase::broadcast(tensor, shape),
+            base: IndexingIterBase::broadcast(tensor, shape),
         }
     }
 
     fn slice<T: Copy>(tensor: &Tensor<T>, ranges: &[(usize, usize, i32)]) -> Offsets {
         Offsets {
-            base: ElementsBase::slice(tensor, ranges),
+            base: IndexingIterBase::slice(tensor, ranges),
         }
     }
 }
@@ -796,7 +828,7 @@ pub struct BroadcastElements<'a, T: Copy> {
 /// `BroadcastElements::can_broadcast_by_cycling`.
 enum BroadcastElementsIter<'a, T: Copy> {
     Direct(Take<Cycle<Iter<'a, T>>>),
-    Indexing(Elements<'a, T>),
+    Indexing(IndexingIter<'a, T>),
 }
 
 impl<'a, T: Copy> BroadcastElements<'a, T> {
@@ -806,7 +838,7 @@ impl<'a, T: Copy> BroadcastElements<'a, T> {
                 let iter_len = to_shape.iter().product();
                 BroadcastElementsIter::Direct(tensor.data().iter().cycle().take(iter_len))
             } else {
-                BroadcastElementsIter::Indexing(Elements::broadcast(tensor, to_shape))
+                BroadcastElementsIter::Indexing(IndexingIter::broadcast(tensor, to_shape))
             };
         BroadcastElements { iter }
     }
