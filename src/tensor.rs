@@ -103,6 +103,12 @@ impl<T: Copy> Tensor<T> {
         }
         self.base += self.strides[dim] * start;
         self.shape[dim] = end - start;
+
+        if self.is_contiguous() {
+            // Truncate buffer to preserve invariant that `Tensor::data` yields
+            // the same elements as `Tensor::elements` for a contiguous tensor.
+            self.data.truncate(self.base + self.len());
+        }
     }
 
     /// Return a contiguous slice of `len` elements starting at `index`.
@@ -1421,14 +1427,18 @@ mod tests {
         // match.
         assert_eq!(x.data(), x.elements().collect::<Vec<_>>());
 
-        // Slice the tensor. Afterwards the data buffer will be the same but
-        // `elements` will only iterate over the new shape.
+        // Slice the tensor along an outer dimension. This will leave the tensor
+        // contiguous, and hence `data` and `elements` should return the same
+        // elements.
         x.clip_dim(0, 0, 2);
-        assert_eq!(x.data(), &[1, 2, 3, 4, 5, 6, 7, 8, 9]);
+        assert_eq!(x.data(), &[1, 2, 3, 4, 5, 6]);
         assert_eq!(x.elements().collect::<Vec<_>>(), &[1, 2, 3, 4, 5, 6]);
 
+        // Slice the tensor along an inner dimension. The tensor will no longer
+        // be contiguous and hence `elements` will return different results than
+        // `data`.
         x.clip_dim(1, 0, 2);
-        assert_eq!(x.data(), &[1, 2, 3, 4, 5, 6, 7, 8, 9]);
+        assert_eq!(x.data(), &[1, 2, 3, 4, 5, 6]);
         assert_eq!(x.elements().collect::<Vec<_>>(), &[1, 2, 4, 5]);
     }
 
@@ -1498,11 +1508,13 @@ mod tests {
         let mut y = x.clone();
         y.clip_dim(0, 0, 2);
         assert!(y.is_contiguous());
+        assert_eq!(y.data(), &[1, 2, 3, 4, 5, 6]);
 
         // Tensor where outermost dimension has been clipped at the start.
         let mut y = x.clone();
         y.clip_dim(0, 1, 3);
         assert!(y.is_contiguous());
+        assert_eq!(y.data(), &[4, 5, 6, 7, 8, 9]);
 
         // Tensor where inner dimension has been clipped at the start.
         let mut y = x.clone();
