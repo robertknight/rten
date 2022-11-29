@@ -514,7 +514,7 @@ struct ElementsBase {
     /// Remaining elements to visit
     len: usize,
 
-    /// Offset of next element to return in `data`
+    /// Offset of the next element to return from the tensor's element buffer.
     offset: isize,
 
     /// True if the tensor data is contiguous in memory
