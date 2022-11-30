@@ -108,7 +108,10 @@ impl Graph {
     /// can be inputs, constants (for weights and biases) or outputs of other
     /// operators.
     ///
-    /// Returns the ID of the added operator's output node.
+    /// `outputs` specifies which value nodes the operator's outputs should be
+    /// written to.
+    ///
+    /// Returns the ID of the operator node.
     pub fn add_op(
         &mut self,
         name: Option<&str>,
@@ -217,8 +220,8 @@ impl Graph {
             }
 
             // Test if the operator can be run in-place to save allocations.
-            // This requires that the first input is a temporary value produced by
-            // earlier ops, and that they are not going to be needed by other
+            // This requires that the first input is a temporary value produced
+            // by earlier ops, and this value is not going to be needed by other
             // ops in future.
             let can_run_in_place = op_node.operator.can_run_in_place()
                 && temp_values.contains_key(&op_node.inputs[0])
