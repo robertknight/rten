@@ -1,3 +1,5 @@
+use std::ops::Deref;
+
 use crate::linalg::{add_scaled_vector, div_ceil, gemm_slice, Matrix};
 use crate::ops::pooling::calc_output_size_and_padding;
 use crate::ops::{
@@ -115,6 +117,50 @@ fn init_tensor_with_channel_bias(shape: &[usize], chan_dim: usize, bias: &Tensor
     from_data(shape.into(), out_data)
 }
 
+/// A smart pointer that wraps either an owned value or an existing reference.
+///
+/// This is useful to avoid expensive copies of values in situations where an
+/// existing reference can often, but not always, be used.
+enum MaybeOwned<'a, T> {
+    Owned(T),
+    Ref(&'a T),
+}
+
+impl<'a, T> From<T> for MaybeOwned<'a, T> {
+    fn from(value: T) -> MaybeOwned<'a, T> {
+        MaybeOwned::Owned(value)
+    }
+}
+
+impl<'a, T> From<&'a T> for MaybeOwned<'a, T> {
+    fn from(value: &'a T) -> MaybeOwned<'a, T> {
+        MaybeOwned::Ref(value)
+    }
+}
+
+impl<'a, T> Deref for MaybeOwned<'a, T> {
+    type Target = T;
+
+    fn deref(&self) -> &T {
+        match self {
+            MaybeOwned::Owned(val) => val,
+            MaybeOwned::Ref(val) => val,
+        }
+    }
+}
+
+/// Return a smart pointer that wraps a tensor reference if it is contiguous,
+/// or a contiguous copy otherwise.
+fn contiguous_tensor<'a, T: Copy>(tensor: &'a Tensor<T>) -> MaybeOwned<'a, Tensor<T>> {
+    if tensor.is_contiguous() {
+        tensor.into()
+    } else {
+        let mut copy = tensor.clone();
+        copy.make_contiguous();
+        copy.into()
+    }
+}
+
 /// Specialization of conv_2d for pointwise convolutions over one image. This
 /// can be reduced to tensor reshaping and matrix multiplication.
 fn conv_2d_pointwise(input: &Tensor, kernel: &Tensor, bias: Option<&Tensor>) -> Tensor {
@@ -127,21 +173,14 @@ fn conv_2d_pointwise(input: &Tensor, kernel: &Tensor, bias: Option<&Tensor>) -> 
         zero_tensor(&[out_c, in_h * in_w])
     };
 
-    // The implicit reshaping of the inputs below assumes they have a contiguous
-    // layout. This constraint could be lifted by using reshaping where possible
-    // or copying the input otherwise.
-    assert!(
-        input.is_contiguous() && kernel.is_contiguous(),
-        "conv_2d_pointwise currently requires contiguous inputs"
-    );
+    let input: MaybeOwned<Tensor> = contiguous_tensor(input);
+    let kernel: MaybeOwned<Tensor> = contiguous_tensor(kernel);
 
     let out_row_stride = output.stride(0);
 
-    // Use the low-level gemm_slice API to implicitly reshape the input and
-    // kernel to `in_c x in_h*in_w` and `out_c x in_c` matrices respectively.
-    //
-    // If this package supported creating reshaped views of existing tensors,
-    // we could use that instead.
+    // Use the low-level gemm_slice API to implicitly reshape the kernel from
+    // `OCHW` (where H=1, W=1) to `OC` and the input from `NCHW` (where N=1)
+    // to `C x HW` (where HW is the spatial area of the input).
     gemm_slice(
         output.data_mut(),
         out_row_stride,
@@ -740,6 +779,7 @@ mod tests {
         let input = random_tensor(&[1, 5, 20, 20], &mut rng);
         let bias = random_tensor(&[10], &mut rng);
 
+        // Contiguous inputs
         let result = conv_2d(
             &input,
             &kernel,
@@ -759,7 +799,34 @@ mod tests {
         );
 
         assert_eq!(result.shape(), [1, 10, 20, 20]);
-        expect_equal(&result, &reference_result)
+        expect_equal(&result, &reference_result)?;
+
+        // Non-contiguous inputs
+        let mut input_transposed = input.clone();
+        input_transposed.permute(&[0, 1, 3, 2]);
+        assert!(!input_transposed.is_contiguous());
+
+        let result = conv_2d(
+            &input_transposed,
+            &kernel,
+            Some(&bias),
+            Padding::Fixed([0, 0, 0, 0]),
+            1, /* groups */
+            1, /* stride */
+        )
+        .unwrap();
+        let reference_result = reference_conv(
+            &input_transposed,
+            &kernel,
+            Some(&bias),
+            [0, 0, 0, 0],
+            1, /* groups */
+            1, /* stride */
+        );
+        assert_eq!(result.shape(), [1, 10, 20, 20]);
+        expect_equal(&result, &reference_result)?;
+
+        Ok(())
     }
 
     // Specific tests for convolutions that operate over one output channel and
