@@ -128,7 +128,7 @@ pub fn matmul(a: &Tensor, b: &Tensor) -> Result<Tensor, OpError> {
     let out_prefix = choose_broadcast_shape(a_prefix, b_prefix);
 
     let out_shape = &[out_prefix, &[a_rows, b_cols]].concat();
-    let mut output = zero_tensor(&out_shape);
+    let mut output = zero_tensor(out_shape);
 
     let a_broadcast_shape = [out_prefix, &[a_rows, a_cols]].concat();
     let b_broadcast_shape = [out_prefix, &[b_rows, b_cols]].concat();

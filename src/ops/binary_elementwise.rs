@@ -145,7 +145,7 @@ impl Operator for Add {
             add_in_place(&mut a, b);
             Ok(a.into())
         } else {
-            add(&a, &b).map(|t| t.into())
+            add(&a, b).map(|t| t.into())
         }
     }
 }
@@ -186,7 +186,7 @@ impl Operator for Div {
             div_in_place(&mut a, b);
             Ok(a.into())
         } else {
-            div(&a, &b).map(|t| t.into())
+            div(&a, b).map(|t| t.into())
         }
     }
 }
@@ -227,7 +227,7 @@ impl Operator for Mul {
             mul_in_place(&mut a, b);
             Ok(a.into())
         } else {
-            mul(&a, &b).map(|t| t.into())
+            mul(&a, b).map(|t| t.into())
         }
     }
 }
@@ -268,7 +268,7 @@ impl Operator for Sub {
             sub_in_place(&mut a, b);
             Ok(a.into())
         } else {
-            sub(&a, &b).map(|t| t.into())
+            sub(&a, b).map(|t| t.into())
         }
     }
 }
