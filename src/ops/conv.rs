@@ -238,10 +238,14 @@ fn conv_2d_depthwise(
         zero_tensor::<f32>(&[batch, out_c, out_h, out_w])
     };
 
-    assert!(
-        input.stride(3) == 1,
-        "conv_2d_depthwise currently requires contiguous last dimension"
-    );
+    // Use of `last_dim_slice` requires contiguous last dimension.
+    let input: MaybeOwned<_> = if input.stride(input.ndim() - 1) == 1 {
+        input.into()
+    } else {
+        let mut copy = input.clone();
+        copy.make_contiguous();
+        copy.into()
+    };
 
     for n in 0..batch {
         for c in 0..in_c {
@@ -259,8 +263,6 @@ fn conv_2d_depthwise(
                         continue;
                     }
 
-                    // FIXME - Handle case where last dimension of input is not
-                    // contiguous.
                     let in_row = input.last_dim_slice([n, c, in_y - pad_top, 0], in_w);
 
                     for k_x in 0..k_w {
@@ -471,14 +473,21 @@ pub fn conv_transpose_2d(
         zero_tensor::<f32>(&[batch, out_c, out_h, out_w])
     };
 
+    // Use of `last_dim_slice` requires contiguous last dimension.
+    let input: MaybeOwned<_> = if input.stride(input.ndim() - 1) == 1 {
+        input.into()
+    } else {
+        let mut copy = input.clone();
+        copy.make_contiguous();
+        copy.into()
+    };
+
     for n in 0..batch {
         for out_chan in 0..out_c {
             for in_chan in 0..in_c {
                 let kernel_view = kernel.unchecked_view([in_chan, out_chan, 0, 0]);
 
                 for in_y in 0..in_h {
-                    // FIXME - Handle case where last dimension of input is not
-                    // contiguous.
                     let in_row = input.last_dim_slice([n, in_chan, in_y, 0], in_w);
 
                     for k_y in 0..k_h {
