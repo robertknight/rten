@@ -2,9 +2,47 @@ extern crate flatbuffers;
 
 use flatbuffers::{FlatBufferBuilder, UnionWIPOffset, Vector, WIPOffset};
 
-use crate::ops::{DataType, OpType, Padding};
+use crate::ops::{
+    AveragePool2d, BatchNormalization, Cast, Clip, Concat, ConstantOfShape, Conv2d,
+    ConvTranspose2d, DataType, Gather, Gemm, LeakyRelu, MaxPool2d, Padding, Softmax, Split,
+    Squeeze, Transpose, Unsqueeze,
+};
 use crate::schema_generated as sg;
 use crate::tensor::Tensor;
+
+/// Enum of all the built-in operators
+pub enum OpType {
+    Add,
+    AveragePool2d(AveragePool2d),
+    BatchNormalization(BatchNormalization),
+    Cast(Cast),
+    Clip(Clip),
+    Concat(Concat),
+    ConstantOfShape(ConstantOfShape),
+    Conv2d(Conv2d),
+    ConvTranspose2d(ConvTranspose2d),
+    Div,
+    Gather(Gather),
+    Gemm(Gemm),
+    GlobalAveragePool,
+    Identity,
+    LeakyRelu(LeakyRelu),
+    MatMul,
+    MaxPool2d(MaxPool2d),
+    Mul,
+    Pad,
+    Relu,
+    Reshape,
+    Shape,
+    Sigmoid,
+    Slice,
+    Softmax(Softmax),
+    Split(Split),
+    Squeeze(Squeeze),
+    Sub,
+    Transpose(Transpose),
+    Unsqueeze(Unsqueeze),
+}
 
 /// Builds a serialized FlatBuffers representation of a model using the schema
 /// defined in schema.fbs.

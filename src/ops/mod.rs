@@ -244,41 +244,6 @@ pub trait Operator: Debug {
     }
 }
 
-/// Enum of all the built-in operators
-#[cfg(test)]
-pub enum OpType {
-    Add,
-    AveragePool2d(AveragePool2d),
-    BatchNormalization(BatchNormalization),
-    Cast(Cast),
-    Clip(Clip),
-    Concat(Concat),
-    ConstantOfShape(ConstantOfShape),
-    Conv2d(Conv2d),
-    ConvTranspose2d(ConvTranspose2d),
-    Div,
-    Gather(Gather),
-    Gemm(Gemm),
-    GlobalAveragePool,
-    Identity,
-    LeakyRelu(LeakyRelu),
-    MatMul,
-    MaxPool2d(MaxPool2d),
-    Mul,
-    Pad,
-    Relu,
-    Reshape,
-    Shape,
-    Sigmoid,
-    Slice,
-    Softmax(Softmax),
-    Split(Split),
-    Squeeze(Squeeze),
-    Sub,
-    Transpose(Transpose),
-    Unsqueeze(Unsqueeze),
-}
-
 /// Extract a required float tensor input from `inputs`, or return an error.
 pub fn get_input_as_float<'a>(
     inputs: &'a [Input],

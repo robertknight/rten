@@ -449,9 +449,9 @@ mod tests {
     extern crate flatbuffers;
 
     use crate::model::load_model;
-    use crate::model_builder::ModelBuilder;
+    use crate::model_builder::{ModelBuilder, OpType};
     use crate::ops;
-    use crate::ops::{OpType, Padding};
+    use crate::ops::Padding;
     use crate::tensor::{from_data, from_vec};
 
     fn generate_model_buffer() -> Vec<u8> {
