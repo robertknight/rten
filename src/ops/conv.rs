@@ -173,6 +173,8 @@ fn conv_2d_pointwise(input: &Tensor, kernel: &Tensor, bias: Option<&Tensor>) -> 
         zero_tensor(&[out_c, in_h * in_w])
     };
 
+    // We require contiguous inputs due to the implicit reshaping in the
+    // matrix multiplication below.
     let input: MaybeOwned<Tensor> = contiguous_tensor(input);
     let kernel: MaybeOwned<Tensor> = contiguous_tensor(kernel);
 
