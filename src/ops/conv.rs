@@ -164,13 +164,13 @@ fn contiguous_tensor<'a, T: Copy>(tensor: &'a Tensor<T>) -> MaybeOwned<'a, Tenso
 /// Specialization of conv_2d for pointwise convolutions over one image. This
 /// can be reduced to tensor reshaping and matrix multiplication.
 fn conv_2d_pointwise(input: &Tensor, kernel: &Tensor, bias: Option<&Tensor>) -> Tensor {
-    let [_, _, in_h, in_w] = input.dims();
+    let [batch, _, in_h, in_w] = input.dims();
     let [out_c, in_c, _, _] = kernel.dims();
 
     let mut output = if let Some(bias) = bias {
-        init_tensor_with_channel_bias(&[out_c, in_h * in_w], 0, bias)
+        init_tensor_with_channel_bias(&[batch, out_c, in_h * in_w], 1, bias)
     } else {
-        zero_tensor(&[out_c, in_h * in_w])
+        zero_tensor(&[batch, out_c, in_h * in_w])
     };
 
     // We require contiguous inputs due to the implicit reshaping in the
@@ -178,31 +178,38 @@ fn conv_2d_pointwise(input: &Tensor, kernel: &Tensor, bias: Option<&Tensor>) -> 
     let input: MaybeOwned<Tensor> = contiguous_tensor(input);
     let kernel: MaybeOwned<Tensor> = contiguous_tensor(kernel);
 
-    let out_row_stride = output.stride(0);
+    let out_row_stride = output.stride(1);
 
-    // Use the low-level gemm_slice API to implicitly reshape the kernel from
-    // `OCHW` (where H=1, W=1) to `OC` and the input from `NCHW` (where N=1)
-    // to `C x HW` (where HW is the spatial area of the input).
-    gemm_slice(
-        output.data_mut(),
-        out_row_stride,
-        Matrix {
-            data: kernel.data(),
-            rows: out_c,
-            cols: in_c,
-            row_stride: in_c,
-            col_stride: 1,
-        },
-        Matrix {
-            data: input.data(),
-            rows: in_c,
-            cols: in_h * in_w,
-            row_stride: in_h * in_w,
-            col_stride: 1,
-        },
-    );
+    for n in 0..batch {
+        let in_offset = input.offset([n, 0, 0, 0]);
+        let in_offset_end = in_offset + input.stride(0);
+        let out_offset = output.offset([n, 0, 0]);
+        let out_offset_end = out_offset + output.stride(0);
 
-    output.reshape(&[1, out_c, in_h, in_w]);
+        // Use the low-level gemm_slice API to implicitly reshape the kernel from
+        // `OCHW` (where H=1, W=1) to `OC` and the n'th input image from
+        // `CHW` to `C x HW` (where HW is the spatial area of the input).
+        gemm_slice(
+            &mut output.data_mut()[out_offset..out_offset_end],
+            out_row_stride,
+            Matrix {
+                data: kernel.data(),
+                rows: out_c,
+                cols: in_c,
+                row_stride: in_c,
+                col_stride: 1,
+            },
+            Matrix {
+                data: &input.data()[in_offset..in_offset_end],
+                rows: in_c,
+                cols: in_h * in_w,
+                row_stride: in_h * in_w,
+                col_stride: 1,
+            },
+        );
+    }
+
+    output.reshape(&[batch, out_c, in_h, in_w]);
 
     output
 }
@@ -316,7 +323,7 @@ pub fn conv_2d(
 
     let has_padding = pad_top > 0 || pad_left > 0 || pad_bottom > 0 || pad_right > 0;
 
-    if batch == 1 && k_h == 1 && k_w == 1 && !has_padding && groups == 1 {
+    if k_h == 1 && k_w == 1 && !has_padding && groups == 1 {
         return Ok(conv_2d_pointwise(input, kernel, bias));
     }
 
@@ -826,6 +833,28 @@ mod tests {
             1, /* stride */
         );
         assert_eq!(result.shape(), [1, 10, 20, 20]);
+        expect_equal(&result, &reference_result)?;
+
+        // Batch size > 1
+        let input = random_tensor(&[2, 5, 20, 20], &mut rng);
+        let result = conv_2d(
+            &input,
+            &kernel,
+            Some(&bias),
+            Padding::Fixed([0, 0, 0, 0]),
+            1, /* groups */
+            1, /* stride */
+        )
+        .unwrap();
+        let reference_result = reference_conv(
+            &input,
+            &kernel,
+            Some(&bias),
+            [0, 0, 0, 0],
+            1, /* groups */
+            1, /* stride */
+        );
+        assert_eq!(result.shape(), [2, 10, 20, 20]);
         expect_equal(&result, &reference_result)?;
 
         Ok(())
