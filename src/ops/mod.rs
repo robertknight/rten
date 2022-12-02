@@ -1,7 +1,7 @@
 use std::fmt::Debug;
 use std::iter::zip;
 
-use crate::tensor::{from_data, zero_tensor, Elements, Tensor};
+use crate::tensor::{from_data, zero_tensor, Elements, SliceRange, Tensor};
 
 mod activations;
 mod binary_elementwise;
@@ -636,10 +636,10 @@ fn slice_ranges(
     starts: &Tensor<i32>,
     ends: &Tensor<i32>,
     axes: Option<&Tensor<i32>>,
-) -> Vec<(usize, usize, i32)> {
-    let mut ranges: Vec<(usize, usize, i32)> = input_shape
+) -> Vec<SliceRange> {
+    let mut ranges: Vec<SliceRange> = input_shape
         .iter()
-        .map(|dim_size| (0, *dim_size, 1))
+        .map(|dim_size| SliceRange::new(0, *dim_size as isize, 1))
         .collect();
     for (i, (start, end)) in zip(starts.elements(), ends.elements()).enumerate() {
         let axis = if let Some(axes) = axes {
@@ -647,7 +647,7 @@ fn slice_ranges(
         } else {
             i
         };
-        ranges[axis] = (start as usize, end as usize, 1);
+        ranges[axis] = SliceRange::new(start as isize, end as isize, 1);
     }
     ranges
 }
@@ -663,7 +663,8 @@ pub fn slice<T: Copy>(
     let sliced_data = input.slice_elements(&ranges).collect();
     let sliced_shape = ranges
         .iter()
-        .map(|(start, end, _step)| end - start)
+        .enumerate()
+        .map(|(dim, range)| range.steps(input.shape()[dim]))
         .collect();
     from_data(sliced_shape, sliced_data)
 }
@@ -678,8 +679,13 @@ pub fn slice_in_place<T: Copy>(
     axes: Option<&Tensor<i32>>,
 ) {
     let ranges = slice_ranges(input.shape(), starts, ends, axes);
-    for (dim, (start, end, _step)) in ranges.iter().copied().enumerate() {
-        input.clip_dim(dim, start, end);
+    for (dim, range) in ranges.iter().copied().enumerate() {
+        // TODO - Handle negative starts/ends here.
+        assert!(
+            range.start >= 0 && range.end >= 0,
+            "in-place slicing requires positive starts/ends"
+        );
+        input.clip_dim(dim, range.start as usize, range.end as usize);
     }
 }
 
@@ -752,23 +758,22 @@ pub fn split<T: Copy>(
     let mut start = 0;
 
     for split_size in split {
-        let slice_ranges: Vec<(usize, usize, i32)> = input
+        let slice_ranges: Vec<SliceRange> = input
             .shape()
             .iter()
             .copied()
             .enumerate()
             .map(|(dim, size)| {
                 if dim == axis {
-                    (start, start + split_size, 1)
+                    SliceRange::new(start as isize, (start + split_size) as isize, 1)
                 } else {
-                    (0, size, 1)
+                    SliceRange::new(0, size as isize, 1)
                 }
             })
             .collect();
         let elements = input.slice_elements(&slice_ranges).collect();
-        let slice_shape = slice_ranges
-            .iter()
-            .map(|(start, end, _step)| end - start)
+        let slice_shape = zip(input.shape().iter(), slice_ranges)
+            .map(|(&dim_size, range)| range.steps(dim_size))
             .collect();
         let tensor = from_data(slice_shape, elements);
         outputs.push(tensor);

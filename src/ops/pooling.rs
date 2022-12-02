@@ -215,7 +215,7 @@ impl Operator for MaxPool2d {
 #[cfg(test)]
 mod tests {
     use crate::ops::{average_pool_2d, global_average_pool, max_pool_2d, Padding};
-    use crate::tensor::{from_2d_slice, from_data, zero_tensor};
+    use crate::tensor::{from_2d_slice, from_data, zero_tensor, SliceRange};
     use crate::test_util::expect_equal;
 
     #[test]
@@ -230,17 +230,19 @@ mod tests {
             }
         }
 
+        let sr = SliceRange::new;
+
         let sum_a: f32 = input
-            .slice_elements(&[(0, 1, 1), (0, 1, 1), (0, 2, 1), (0, 2, 1)])
+            .slice_elements(&[sr(0, 1, 1), sr(0, 1, 1), sr(0, 2, 1), sr(0, 2, 1)])
             .sum();
         let sum_b: f32 = input
-            .slice_elements(&[(0, 1, 1), (0, 1, 1), (0, 2, 1), (2, 4, 1)])
+            .slice_elements(&[sr(0, 1, 1), sr(0, 1, 1), sr(0, 2, 1), sr(2, 4, 1)])
             .sum();
         let sum_c: f32 = input
-            .slice_elements(&[(0, 1, 1), (0, 1, 1), (2, 4, 1), (0, 2, 1)])
+            .slice_elements(&[sr(0, 1, 1), sr(0, 1, 1), sr(2, 4, 1), sr(0, 2, 1)])
             .sum();
         let sum_d: f32 = input
-            .slice_elements(&[(0, 1, 1), (0, 1, 1), (2, 4, 1), (2, 4, 1)])
+            .slice_elements(&[sr(0, 1, 1), sr(0, 1, 1), sr(2, 4, 1), sr(2, 4, 1)])
             .sum();
 
         let expected = from_data(

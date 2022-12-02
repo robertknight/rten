@@ -5,6 +5,106 @@ use std::slice::Iter;
 #[cfg(test)]
 use crate::rng::XorShiftRNG;
 
+/// A range for slicing a Tensor.
+///
+/// Unlike a regular Rust Range, this supports a specifying a (non-zero) step
+/// between indexes. The step can be negative, in which case indices are visited
+/// in reverse order. The `start` and `end` indexes can also be negative, in
+/// which case they count backwards from the end of the array.
+///
+/// This system for specifying slicing and indexing follows NumPy, which in
+/// turn strongly influenced slicing in ONNX.
+#[derive(Clone, Copy, Debug)]
+pub struct SliceRange {
+    pub start: isize,
+    pub end: isize,
+
+    /// The steps between adjacent elements selected by this range. This
+    /// is private so this module can enforce the invariant that it is non-zero.
+    step: isize,
+}
+
+impl SliceRange {
+    /// Create a new range from `start` to `end`. The `start` index is inclusive
+    /// and the `end` value is exclusive.
+    ///
+    /// Panicks if the `step` size is 0.
+    pub fn new(start: isize, end: isize, step: isize) -> SliceRange {
+        assert!(step != 0, "Slice step cannot be 0");
+        SliceRange { start, end, step }
+    }
+
+    /// Return the number of elements that would be retained if using this range
+    /// to slice a dimension of size `dim_size`.
+    pub fn steps(&self, dim_size: usize) -> usize {
+        let clamped = self.clamp(dim_size);
+
+        let start_idx = Self::offset_from_start(self.start, dim_size);
+        let end_idx = Self::offset_from_start(self.end, dim_size);
+
+        if (clamped.step > 0 && end_idx <= start_idx) || (clamped.step < 0 && end_idx >= start_idx)
+        {
+            return 0;
+        }
+
+        let steps = if clamped.step > 0 {
+            1 + (end_idx - start_idx - 1) / clamped.step
+        } else {
+            1 + (start_idx - end_idx - 1) / -clamped.step
+        };
+
+        steps.max(0) as usize
+    }
+
+    /// Return a copy of this range with indexes adjusted so that they are valid
+    /// for a tensor dimension of size `len`.
+    ///
+    /// Valid indexes depend on direction that the dimension is traversed
+    /// (forwards if `self.step` is positive or backwards if negative). They
+    /// start at the first element going in that direction and end after the
+    /// last element.
+    pub fn clamp(&self, len: usize) -> SliceRange {
+        let len = len as isize;
+
+        let min_idx;
+        let max_idx;
+
+        if self.step > 0 {
+            // When traversing forwards, the range of valid +ve indexes is `[0,
+            // len]` and for -ve indexes `[-len, -1]`.
+            min_idx = -len;
+            max_idx = len;
+        } else {
+            // When traversing backwards, the range of valid +ve indexes are
+            // `[0, len-1]` and for -ve indexes `[-len-1, -1]`.
+            min_idx = -len - 1;
+            max_idx = len - 1;
+        }
+
+        SliceRange::new(
+            self.start.max(min_idx).min(max_idx),
+            self.end.max(min_idx).min(max_idx),
+            self.step,
+        )
+    }
+
+    /// Resolve an index that is relative either to the start of the array (if
+    /// >= 0) or end of the array (if < 0) to one that is relative to the start.
+    fn offset_from_start(index: isize, dim_size: usize) -> isize {
+        if index >= 0 {
+            index
+        } else {
+            dim_size as isize + index
+        }
+    }
+}
+
+impl From<Range<isize>> for SliceRange {
+    fn from(r: Range<isize>) -> SliceRange {
+        SliceRange::new(r.start, r.end, 1)
+    }
+}
+
 /// n-dimensional array
 #[derive(Debug)]
 pub struct Tensor<T: Copy = f32> {
@@ -262,12 +362,8 @@ impl<T: Copy> Tensor<T> {
     }
 
     /// Return an iterator over a subset of elements in this tensor.
-    ///
-    /// `indices` is a slice of `(start, end, step)` tuples for each dimension.
-    ///
-    /// Panicks if `step` is zero for any dimension.
-    pub fn slice_elements(&self, indices: &[(usize, usize, i32)]) -> Elements<T> {
-        Elements::slice(self, indices)
+    pub fn slice_elements(&self, ranges: &[SliceRange]) -> Elements<T> {
+        Elements::slice(self, ranges)
     }
 
     /// Return an iterator over offsets of elements in this tensor.
@@ -281,12 +377,8 @@ impl<T: Copy> Tensor<T> {
     ///
     /// Note that the offset order of the returned iterator will become incorrect
     /// if the tensor shape is subsequently modified.
-    ///
-    /// `indices` is a slice of `(start, end, step)` tuples for each dimension.
-    ///
-    /// Panicks if `step` is zero for any dimension.
-    pub fn slice_offsets(&self, indices: &[(usize, usize, i32)]) -> Offsets {
-        Offsets::slice(self, indices)
+    pub fn slice_offsets(&self, ranges: &[SliceRange]) -> Offsets {
+        Offsets::slice(self, ranges)
     }
 
     /// Update the shape of the tensor.
@@ -528,22 +620,6 @@ struct IndexingIterBase {
     pos: Vec<IterPos>,
 }
 
-/// Return the number of indices that will be visited when iterating from
-/// `start` to `end` with a step size of `step` over a dimension.
-///
-/// `start` is inclusive and `end` is exclusive if `step` is positive, or
-/// vice-versa if `step` is negative.
-pub fn step_count(start: usize, end: usize, step: i32) -> usize {
-    if (step > 0 && start >= end) || (step < 0 && start <= end) {
-        return 0;
-    }
-    if step > 0 {
-        1 + (end - start - 1) / step as usize
-    } else {
-        1 + (start - end - 1) / (-step) as usize
-    }
-}
-
 impl IndexingIterBase {
     fn new<T: Copy>(tensor: &Tensor<T>) -> IndexingIterBase {
         let dims = tensor
@@ -593,7 +669,7 @@ impl IndexingIterBase {
         }
     }
 
-    fn slice<T: Copy>(tensor: &Tensor<T>, ranges: &[(usize, usize, i32)]) -> IndexingIterBase {
+    fn slice<T: Copy>(tensor: &Tensor<T>, ranges: &[SliceRange]) -> IndexingIterBase {
         if ranges.len() != tensor.ndim() {
             panic!(
                 "slice dimensions {} do not match tensor dimensions {}",
@@ -602,40 +678,37 @@ impl IndexingIterBase {
             );
         }
         let mut offset = tensor.base;
-        let mut dims = Vec::with_capacity(ranges.len());
+        let dims: Vec<_> = ranges
+            .iter()
+            .enumerate()
+            .map(|(dim, range)| {
+                let len = tensor.shape[dim];
+                let range = range.clamp(len);
+                let stride = tensor.strides[dim];
 
-        for (dim, (start, end, step)) in ranges.iter().copied().enumerate() {
-            let slice_dim_size = if step > 0 {
-                end.saturating_sub(start)
-            } else {
-                start.saturating_sub(end)
-            };
-            let dim_size = tensor.shape[dim];
+                let start_index = if range.start >= 0 {
+                    range.start
+                } else {
+                    (len as isize) + range.start
+                };
 
-            if slice_dim_size > tensor.shape[dim] {
-                panic!(
-                    "slice range {}..{} for dimension {} exceeds dimension size {}",
-                    start, end, dim, dim_size
-                );
-            }
-            if step == 0 {
-                panic!("step size is 0 for dimension {}", dim);
-            }
+                // Clamped ranges either have a start index that is valid, or
+                // that is one before/after the first/last valid index
+                // (depending on step direction). If invalid, the slice is
+                // empty.
+                if start_index >= 0 && start_index < (len as isize) {
+                    offset += stride * start_index as usize;
+                } else {
+                    assert!(range.steps(len) == 0);
+                }
 
-            let stride = tensor.strides[dim];
-
-            if step > 0 {
-                offset += stride * start;
-            } else {
-                offset += stride * (start - 1);
-            }
-
-            dims.push(IterPos {
-                step: 0,
-                steps: step_count(start, end, step),
-                offset_step: (stride as isize) * (step as isize),
-            });
-        }
+                IterPos {
+                    step: 0,
+                    steps: range.steps(len),
+                    offset_step: (stride as isize) * range.step,
+                }
+            })
+            .collect();
 
         IndexingIterBase {
             len: dims.iter().map(|dim| dim.steps).product(),
@@ -694,7 +767,7 @@ impl<'a, T: Copy> Elements<'a, T> {
         }
     }
 
-    fn slice(tensor: &'a Tensor<T>, ranges: &[(usize, usize, i32)]) -> Elements<'a, T> {
+    fn slice(tensor: &'a Tensor<T>, ranges: &[SliceRange]) -> Elements<'a, T> {
         let iter = IndexingIter {
             base: IndexingIterBase::slice(tensor, ranges),
             data: &tensor.data,
@@ -790,7 +863,7 @@ impl Offsets {
         }
     }
 
-    fn slice<T: Copy>(tensor: &Tensor<T>, ranges: &[(usize, usize, i32)]) -> Offsets {
+    fn slice<T: Copy>(tensor: &Tensor<T>, ranges: &[SliceRange]) -> Offsets {
         Offsets {
             base: IndexingIterBase::slice(tensor, ranges),
         }
@@ -1058,7 +1131,7 @@ mod tests {
     use crate::rng::XorShiftRNG;
     use crate::tensor::{
         from_2d_slice, from_data, from_scalar, from_vec, random_tensor, zero_tensor, IndexIterator,
-        Tensor,
+        SliceRange, Tensor,
     };
 
     /// Create a tensor where the value of each element is its logical index
@@ -1651,51 +1724,133 @@ mod tests {
 
     #[test]
     fn test_slice_elements() {
+        let sr = SliceRange::new;
         let x = steps(&[3, 3]);
 
         // Slice that removes start of each dimension
-        let slice: Vec<_> = x.slice_elements(&[(1, 3, 1), (1, 3, 1)]).collect();
+        let slice: Vec<_> = x.slice_elements(&[sr(1, 3, 1), sr(1, 3, 1)]).collect();
         assert_eq!(slice, &[5, 6, 8, 9]);
 
         // Slice that removes end of each dimension
-        let slice: Vec<_> = x.slice_elements(&[(0, 2, 1), (0, 2, 1)]).collect();
+        let slice: Vec<_> = x.slice_elements(&[sr(0, 2, 1), sr(0, 2, 1)]).collect();
         assert_eq!(slice, &[1, 2, 4, 5]);
 
         // Slice that removes start and end of first dimension
-        let slice: Vec<_> = x.slice_elements(&[(1, 2, 1), (0, 3, 1)]).collect();
+        let slice: Vec<_> = x.slice_elements(&[sr(1, 2, 1), sr(0, 3, 1)]).collect();
         assert_eq!(slice, &[4, 5, 6]);
 
         // Slice that removes start and end of second dimension
-        let slice: Vec<_> = x.slice_elements(&[(0, 3, 1), (1, 2, 1)]).collect();
+        let slice: Vec<_> = x.slice_elements(&[sr(0, 3, 1), sr(1, 2, 1)]).collect();
         assert_eq!(slice, &[2, 5, 8]);
     }
 
     #[test]
     fn test_slice_elements_with_step() {
+        let sr = SliceRange::new;
         let x = steps(&[10]);
 
         // Positive steps > 1.
-        let slice: Vec<_> = x.slice_elements(&[(0, 10, 2)]).collect();
+        let slice: Vec<_> = x.slice_elements(&[sr(0, 10, 2)]).collect();
         assert_eq!(slice, &[1, 3, 5, 7, 9]);
 
-        let slice: Vec<_> = x.slice_elements(&[(0, 10, 3)]).collect();
+        let slice: Vec<_> = x.slice_elements(&[sr(0, 10, 3)]).collect();
         assert_eq!(slice, &[1, 4, 7, 10]);
 
-        let slice: Vec<_> = x.slice_elements(&[(0, 10, 10)]).collect();
+        let slice: Vec<_> = x.slice_elements(&[sr(0, 10, 10)]).collect();
         assert_eq!(slice, &[1]);
 
         // Negative steps.
-        let slice: Vec<_> = x.slice_elements(&[(10, 0, -1)]).collect();
+        let slice: Vec<_> = x.slice_elements(&[sr(10, -11, -1)]).collect();
         assert_eq!(slice, &[10, 9, 8, 7, 6, 5, 4, 3, 2, 1]);
 
-        let slice: Vec<_> = x.slice_elements(&[(9, 1, -1)]).collect();
+        let slice: Vec<_> = x.slice_elements(&[sr(8, 0, -1)]).collect();
         assert_eq!(slice, &[9, 8, 7, 6, 5, 4, 3, 2]);
 
-        let slice: Vec<_> = x.slice_elements(&[(10, 0, -2)]).collect();
+        let slice: Vec<_> = x.slice_elements(&[sr(10, 0, -2)]).collect();
         assert_eq!(slice, &[10, 8, 6, 4, 2]);
 
-        let slice: Vec<_> = x.slice_elements(&[(10, 0, -10)]).collect();
+        let slice: Vec<_> = x.slice_elements(&[sr(10, 0, -10)]).collect();
         assert_eq!(slice, &[10]);
+    }
+
+    #[test]
+    fn test_slice_elements_negative_indices() {
+        let sr = SliceRange::new;
+        let x = steps(&[10]);
+
+        // Negative start
+        let slice: Vec<_> = x.slice_elements(&[sr(-2, 10, 1)]).collect();
+        assert_eq!(slice, &[9, 10]);
+
+        // Negative end
+        let slice: Vec<_> = x.slice_elements(&[sr(7, -1, 1)]).collect();
+        assert_eq!(slice, &[8, 9]);
+
+        // Negative start and end
+        let slice: Vec<_> = x.slice_elements(&[sr(-3, -1, 1)]).collect();
+        assert_eq!(slice, &[8, 9]);
+    }
+
+    #[test]
+    fn test_slice_elements_clamps_indices() {
+        let sr = SliceRange::new;
+        let x = steps(&[5]);
+
+        // Test cases for positive steps (ie. traversing forwards).
+
+        // Positive start out of bounds
+        let slice: Vec<_> = x.slice_elements(&[sr(10, 11, 1)]).collect();
+        assert_eq!(slice, &[]);
+
+        // Positive end out of bounds
+        let slice: Vec<_> = x.slice_elements(&[sr(0, 10, 1)]).collect();
+        assert_eq!(slice, &[1, 2, 3, 4, 5]);
+
+        // Negative start out of bounds
+        let slice: Vec<_> = x.slice_elements(&[sr(-10, 5, 1)]).collect();
+        assert_eq!(slice, &[1, 2, 3, 4, 5]);
+
+        // Negative end out of bounds
+        let slice: Vec<_> = x.slice_elements(&[sr(-10, -5, 1)]).collect();
+        assert_eq!(slice, &[]);
+
+        // Test cases for negative steps (ie. traversing backwards).
+
+        // Positive start out of bounds
+        let slice: Vec<_> = x.slice_elements(&[sr(10, -6, -1)]).collect();
+        assert_eq!(slice, &[5, 4, 3, 2, 1]);
+
+        // Positive end out of bounds
+        let slice: Vec<_> = x.slice_elements(&[sr(0, 10, -1)]).collect();
+        assert_eq!(slice, &[]);
+
+        // Negative start out of bounds
+        let slice: Vec<_> = x.slice_elements(&[sr(-10, 5, -1)]).collect();
+        assert_eq!(slice, &[]);
+
+        // Negative end out of bounds
+        let slice: Vec<_> = x.slice_elements(&[sr(-1, -10, -1)]).collect();
+        assert_eq!(slice, &[5, 4, 3, 2, 1]);
+    }
+
+    #[test]
+    fn test_slice_elements_start_end_step_combinations() {
+        let sr = SliceRange::new;
+        let x = steps(&[3]);
+
+        // Test various combinations of slice starts, ends and steps that are
+        // positive and negative, in-bounds and out-of-bounds, and ensure they
+        // don't cause a panic.
+        for start in -5..5 {
+            for end in -5..5 {
+                for step in -5..5 {
+                    if step == 0 {
+                        continue;
+                    }
+                    x.slice_elements(&[sr(start, end, step)]).for_each(drop);
+                }
+            }
+        }
     }
 
     // These tests assume the correctness of `slice_elements`, given the tests
@@ -1706,7 +1861,7 @@ mod tests {
         let x = steps(&[5, 5]);
 
         // Range that removes the start and end of each dimension.
-        let range = &[(1, 4, 1), (1, 4, 1)];
+        let range = &[SliceRange::new(1, 4, 1), SliceRange::new(1, 4, 1)];
         let expected: Vec<_> = x.slice_elements(range).collect();
         let result: Vec<_> = x
             .slice_offsets(range)
