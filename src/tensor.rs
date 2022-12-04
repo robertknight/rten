@@ -39,8 +39,8 @@ impl SliceRange {
     pub fn steps(&self, dim_size: usize) -> usize {
         let clamped = self.clamp(dim_size);
 
-        let start_idx = Self::offset_from_start(self.start, dim_size);
-        let end_idx = Self::offset_from_start(self.end, dim_size);
+        let start_idx = Self::offset_from_start(clamped.start, dim_size);
+        let end_idx = Self::offset_from_start(clamped.end, dim_size);
 
         if (clamped.step > 0 && end_idx <= start_idx) || (clamped.step < 0 && end_idx >= start_idx)
         {
