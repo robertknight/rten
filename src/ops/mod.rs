@@ -1357,6 +1357,11 @@ mod tests {
         let mut rng = XorShiftRNG::new(5678);
         let input = random_tensor(&[20, 20], &mut rng);
 
+        // Simulate how a range without a start/end may be given in a model.
+        //
+        // The ONNX Slice spec does not support unbounded ranges (like
+        // `array[start:]` in numpy) but instead recommends the use of INT_MAX /
+        // -INT_MAX together with clamping to achieve the same result.
         let starts = from_slice(&[-i32::MAX, -100]);
         let ends = from_slice(&[i32::MAX, 100]);
 
