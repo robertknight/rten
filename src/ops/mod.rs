@@ -683,10 +683,7 @@ pub fn slice<T: Copy>(
     let sliced_shape = ranges
         .iter()
         .enumerate()
-        .map(|(dim, range)| {
-            let len = input.shape()[dim];
-            range.clamp(len).steps(len)
-        })
+        .map(|(dim, range)| range.steps(input.shape()[dim]))
         .collect();
     Ok(from_data(sliced_shape, sliced_data).into())
 }
