@@ -469,7 +469,7 @@ mod tests {
     use crate::ops::{
         Concat, Conv2d, Input, IntoOpResult, OpError, Operator, Output, Padding, Relu,
     };
-    use crate::tensor::{from_data, from_vec, zero_tensor};
+    use crate::tensor::{from_data, from_vec, zeros};
     use crate::test_util::expect_equal;
 
     // Test of a very simple graph with a typical structure (one input, one
@@ -750,7 +750,7 @@ mod tests {
             &[op2_out],
             &[op4_out],
         );
-        let input = zero_tensor::<f32>(&[1, 1]);
+        let input = zeros::<f32>(&[1, 1]);
 
         // First operator should not be run in-place, since it has an
         // immutable input. The result should be the same as the input.

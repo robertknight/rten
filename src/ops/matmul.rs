@@ -5,7 +5,7 @@ use crate::ops::{
     choose_broadcast_shape, get_input_as_float, get_optional_input_as_float, Input, IntoOpResult,
     OpError, Operator, Output,
 };
-use crate::tensor::{from_data, zero_tensor, Tensor};
+use crate::tensor::{from_data, zeros, Tensor};
 
 #[derive(Debug)]
 pub struct Gemm {
@@ -57,7 +57,7 @@ pub fn gemm_op(
         let out_data = c.unwrap().broadcast_elements(out_shape).collect();
         from_data(out_shape.into(), out_data)
     } else {
-        zero_tensor(out_shape)
+        zeros(out_shape)
     };
 
     let out_row_stride = output.stride(0);
@@ -128,7 +128,7 @@ pub fn matmul(a: &Tensor, b: &Tensor) -> Result<Tensor, OpError> {
     let out_prefix = choose_broadcast_shape(a_prefix, b_prefix);
 
     let out_shape = &[out_prefix, &[a_rows, b_cols]].concat();
-    let mut output = zero_tensor(out_shape);
+    let mut output = zeros(out_shape);
 
     let a_broadcast_shape = [out_prefix, &[a_rows, a_cols]].concat();
     let b_broadcast_shape = [out_prefix, &[b_rows, b_cols]].concat();
@@ -190,16 +190,16 @@ mod tests {
     use crate::linalg::gemm;
     use crate::ops::matmul::{gemm_op, matmul};
     use crate::rng::XorShiftRNG;
-    use crate::tensor::{from_data, random_tensor, zero_tensor};
+    use crate::tensor::{from_data, rand, zeros};
     use crate::test_util::expect_equal;
 
     #[test]
     fn test_gemm_op() -> Result<(), String> {
         let mut rng = XorShiftRNG::new(1234);
-        let a = random_tensor(&[3, 10], &mut rng);
-        let b = random_tensor(&[10, 8], &mut rng);
+        let a = rand(&[3, 10], &mut rng);
+        let b = rand(&[10, 8], &mut rng);
 
-        let mut expected = zero_tensor(&[3, 8]);
+        let mut expected = zeros(&[3, 8]);
         gemm(&mut expected, &a, &b);
 
         let result = gemm_op(&a, &b, None, 1.0, 1.0, false, false).unwrap();
@@ -210,14 +210,14 @@ mod tests {
     #[test]
     fn test_gemm_op_transposed() -> Result<(), String> {
         let mut rng = XorShiftRNG::new(1234);
-        let a = random_tensor(&[10, 3], &mut rng);
-        let b = random_tensor(&[8, 10], &mut rng);
+        let a = rand(&[10, 3], &mut rng);
+        let b = rand(&[8, 10], &mut rng);
 
         let mut a_transposed = a.clone();
         a_transposed.permute(&[1, 0]);
         let mut b_transposed = b.clone();
         b_transposed.permute(&[1, 0]);
-        let mut expected = zero_tensor(&[3, 8]);
+        let mut expected = zeros(&[3, 8]);
         gemm(&mut expected, &a_transposed, &b_transposed);
 
         let result = gemm_op(&a, &b, None, 1.0, 1.0, true, true).unwrap();
@@ -228,9 +228,9 @@ mod tests {
     #[test]
     fn test_gemm_op_adds_c() -> Result<(), String> {
         let mut rng = XorShiftRNG::new(1234);
-        let a = random_tensor(&[3, 10], &mut rng);
-        let b = random_tensor(&[10, 8], &mut rng);
-        let c = random_tensor(&[3, 8], &mut rng);
+        let a = rand(&[3, 10], &mut rng);
+        let b = rand(&[10, 8], &mut rng);
+        let c = rand(&[3, 8], &mut rng);
 
         let mut expected = c.clone();
         gemm(&mut expected, &a, &b);
@@ -243,10 +243,10 @@ mod tests {
     #[test]
     fn test_matmul() -> Result<(), String> {
         let mut rng = XorShiftRNG::new(1234);
-        let a = random_tensor(&[3, 10], &mut rng);
-        let b = random_tensor(&[10, 8], &mut rng);
+        let a = rand(&[3, 10], &mut rng);
+        let b = rand(&[10, 8], &mut rng);
 
-        let mut expected = zero_tensor(&[3, 8]);
+        let mut expected = zeros(&[3, 8]);
         gemm(&mut expected, &a, &b);
 
         let result = matmul(&a, &b).unwrap();
@@ -256,10 +256,10 @@ mod tests {
     #[test]
     fn test_matmul_broadcast() -> Result<(), String> {
         let mut rng = XorShiftRNG::new(1234);
-        let mut a = random_tensor(&[3, 10], &mut rng);
-        let mut b = random_tensor(&[10, 8], &mut rng);
+        let mut a = rand(&[3, 10], &mut rng);
+        let mut b = rand(&[10, 8], &mut rng);
 
-        let mut expected = zero_tensor(&[3, 8]);
+        let mut expected = zeros(&[3, 8]);
         gemm(&mut expected, &a, &b);
         expected.reshape(&[1, 1, 3, 8]);
 

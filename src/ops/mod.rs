@@ -1,7 +1,7 @@
 use std::fmt::Debug;
 use std::iter::zip;
 
-use crate::tensor::{from_data, zero_tensor, Elements, SliceRange, Tensor};
+use crate::tensor::{from_data, zeros, Elements, SliceRange, Tensor};
 
 mod activations;
 mod binary_elementwise;
@@ -369,7 +369,7 @@ pub fn gather<T: Copy + Default>(
         &input.shape()[axis + 1..],
     ]
     .concat();
-    let mut output = zero_tensor::<T>(&out_shape);
+    let mut output = zeros::<T>(&out_shape);
     let mut out_index_iter = output.indices();
     let mut in_index = vec![0; input.ndim()];
 
@@ -846,7 +846,7 @@ mod tests {
         Identity, Input, OpError, Operator, Pad,
     };
     use crate::rng::XorShiftRNG;
-    use crate::tensor::{from_data, from_scalar, from_vec, random_tensor, zero_tensor, Tensor};
+    use crate::tensor::{from_data, from_scalar, from_vec, rand, zeros, Tensor};
     use crate::test_util::expect_equal;
 
     #[test]
@@ -964,7 +964,7 @@ mod tests {
         // Test case shrunk down from a small BERT model where `gather` is used
         // to lookup up embeddings.
         let mut rng = XorShiftRNG::new(1234);
-        let input = random_tensor(&[128, 10], &mut rng);
+        let input = rand(&[128, 10], &mut rng);
         let indices = from_data(vec![2, 2], vec![2, 5, 8, 50]);
         let result = gather(&input, 0, &indices).unwrap();
         assert_eq!(result.shape(), &[2, 2, 10]);
@@ -990,7 +990,7 @@ mod tests {
     #[test]
     fn test_gather_invalid_inputs() {
         let mut rng = XorShiftRNG::new(1234);
-        let input = random_tensor(&[128, 10], &mut rng);
+        let input = rand(&[128, 10], &mut rng);
         let indices = from_data(vec![2, 2], vec![2, 5, 8, 50]);
         let result = gather(&input, 5, &indices);
         assert_eq!(
@@ -1074,8 +1074,8 @@ mod tests {
         );
 
         // Shape mismatch
-        let a = zero_tensor::<f32>(&[1]);
-        let b = zero_tensor::<f32>(&[1, 2]);
+        let a = zeros::<f32>(&[1]);
+        let b = zeros::<f32>(&[1, 2]);
         let result = concat(&[&a, &b], 0);
         assert_eq!(
             result.err(),
@@ -1085,8 +1085,8 @@ mod tests {
         );
 
         // Shape mismatch in non-`dim` dimension
-        let a = zero_tensor::<f32>(&[5, 10]);
-        let b = zero_tensor::<f32>(&[5, 11]);
+        let a = zeros::<f32>(&[5, 10]);
+        let b = zeros::<f32>(&[5, 11]);
         let result = concat(&[&a, &b], 0);
         assert_eq!(
             result.err(),
@@ -1211,7 +1211,7 @@ mod tests {
     #[test]
     fn test_slice_in_place() {
         let mut rng = XorShiftRNG::new(5678);
-        let mut input = random_tensor(&[2, 2, 5, 3], &mut rng);
+        let mut input = rand(&[2, 2, 5, 3], &mut rng);
 
         let starts = from_slice(&[2]);
         let ends = from_slice(&[4]);
@@ -1228,7 +1228,7 @@ mod tests {
     #[test]
     fn test_slice_first_dim() {
         let mut rng = XorShiftRNG::new(5678);
-        let input = random_tensor(&[5, 2, 5, 3], &mut rng);
+        let input = rand(&[5, 2, 5, 3], &mut rng);
 
         let starts = from_slice(&[2]);
         let ends = from_slice(&[4]);
@@ -1260,7 +1260,7 @@ mod tests {
     #[test]
     fn test_slice_inner_dim() {
         let mut rng = XorShiftRNG::new(5678);
-        let input = random_tensor(&[2, 2, 5, 3], &mut rng);
+        let input = rand(&[2, 2, 5, 3], &mut rng);
 
         let starts = from_slice(&[2]);
         let ends = from_slice(&[4]);
@@ -1292,7 +1292,7 @@ mod tests {
     #[test]
     fn test_slice_noop() {
         let mut rng = XorShiftRNG::new(5678);
-        let input = random_tensor(&[5, 2, 5, 3], &mut rng);
+        let input = rand(&[5, 2, 5, 3], &mut rng);
 
         for dim in 0..input.shape().len() {
             let dim_size = input.shape()[dim] as i32;
@@ -1355,7 +1355,7 @@ mod tests {
     #[test]
     fn test_slice_clamps_starts_and_ends() -> Result<(), String> {
         let mut rng = XorShiftRNG::new(5678);
-        let input = random_tensor(&[20, 20], &mut rng);
+        let input = rand(&[20, 20], &mut rng);
 
         // Simulate how a range without a start/end may be given in a model.
         //

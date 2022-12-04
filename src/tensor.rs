@@ -151,6 +151,51 @@ impl TensorIndex for &[usize] {
 }
 
 impl<T: Copy> Tensor<T> {
+    /// Create a new zero-filled tensor with a given shape.
+    pub fn zeros(shape: &[usize]) -> Tensor<T>
+    where
+        T: Default,
+    {
+        let n_elts = shape.iter().product();
+        let data = vec![T::default(); n_elts];
+        let strides = strides_for_shape(shape);
+        Tensor {
+            data,
+            base: 0,
+            shape: shape.into(),
+            strides,
+        }
+    }
+
+    /// Create a new tensor from a given shape and set of elements. No copying
+    /// is required.
+    pub fn from_data(shape: Vec<usize>, data: Vec<T>) -> Tensor<T> {
+        if shape[..].iter().product::<usize>() != data.len() {
+            panic!(
+                "Number of elements given by shape {:?} does not match data length {}",
+                &shape[..],
+                data.len()
+            );
+        }
+        let strides = strides_for_shape(&shape);
+        Tensor {
+            data,
+            base: 0,
+            shape,
+            strides,
+        }
+    }
+
+    /// Create a new 0-dimensional (scalar) tensor from a single value.
+    pub fn from_scalar(value: T) -> Tensor<T> {
+        from_data(vec![], vec![value])
+    }
+
+    /// Create a new 1-dimensional tensor from a vector. No copying is required.
+    pub fn from_vec(data: Vec<T>) -> Tensor<T> {
+        from_data(vec![data.len()], data)
+    }
+
     /// Return a copy of this tensor with each element replaced by `f(element)`
     pub fn map<F, U: Copy>(&self, f: F) -> Tensor<U>
     where
@@ -1064,52 +1109,31 @@ fn strides_for_shape(shape: &[usize]) -> Vec<usize> {
 }
 
 /// Create a new tensor with all values set to 0.
-pub fn zero_tensor<T: Copy + Default>(shape: &[usize]) -> Tensor<T> {
-    let n_elts = shape.iter().product();
-    let data = vec![T::default(); n_elts];
-    let strides = strides_for_shape(shape);
-    Tensor {
-        data,
-        base: 0,
-        shape: shape.into(),
-        strides,
-    }
+pub fn zeros<T: Copy + Default>(shape: &[usize]) -> Tensor<T> {
+    Tensor::zeros(shape)
 }
 
 /// Create a new tensor filled with random values supplied by `rng`.
 #[cfg(test)]
-pub fn random_tensor(shape: &[usize], rng: &mut XorShiftRNG) -> Tensor {
-    let mut t = zero_tensor(shape);
+pub fn rand(shape: &[usize], rng: &mut XorShiftRNG) -> Tensor {
+    let mut t = zeros(shape);
     t.data.fill_with(|| rng.next_f32());
     t
 }
 
 /// Create a new tensor with a given shape and values
 pub fn from_data<T: Copy>(shape: Vec<usize>, data: Vec<T>) -> Tensor<T> {
-    if shape[..].iter().product::<usize>() != data.len() {
-        panic!(
-            "Number of elements given by shape {:?} does not match data length {}",
-            &shape[..],
-            data.len()
-        );
-    }
-    let strides = strides_for_shape(&shape);
-    Tensor {
-        data,
-        base: 0,
-        shape,
-        strides,
-    }
+    Tensor::from_data(shape, data)
 }
 
 /// Create a new 0-dimensional (scalar) tensor from a single value.
 pub fn from_scalar<T: Copy>(value: T) -> Tensor<T> {
-    from_data(vec![], vec![value])
+    Tensor::from_scalar(value)
 }
 
 /// Create a new 1-dimensional tensor from a vector
 pub fn from_vec<T: Copy>(data: Vec<T>) -> Tensor<T> {
-    from_data(vec![data.len()], data)
+    Tensor::from_vec(data)
 }
 
 /// Create a new 2D tensor from a nested array of slices.
@@ -1130,14 +1154,14 @@ pub fn from_2d_slice<T: Copy>(data: &[&[T]]) -> Tensor<T> {
 mod tests {
     use crate::rng::XorShiftRNG;
     use crate::tensor::{
-        from_2d_slice, from_data, from_scalar, from_vec, random_tensor, zero_tensor, IndexIterator,
-        SliceRange, Tensor,
+        from_2d_slice, from_data, from_scalar, from_vec, rand, zeros, IndexIterator, SliceRange,
+        Tensor,
     };
 
     /// Create a tensor where the value of each element is its logical index
     /// plus one.
     fn steps(shape: &[usize]) -> Tensor<i32> {
-        let mut x = zero_tensor(shape);
+        let mut x = zeros(shape);
         for (index, elt) in x.data_mut().iter_mut().enumerate() {
             *elt = (index + 1) as i32;
         }
@@ -1175,7 +1199,7 @@ mod tests {
 
     #[test]
     fn test_stride() {
-        let x = zero_tensor::<f32>(&[2, 5, 7, 3]);
+        let x = zeros::<f32>(&[2, 5, 7, 3]);
         assert_eq!(x.stride(3), 1);
         assert_eq!(x.stride(2), 3);
         assert_eq!(x.stride(1), 7 * 3);
@@ -1184,7 +1208,7 @@ mod tests {
 
     #[test]
     fn test_index() {
-        let mut x = zero_tensor::<f32>(&[2, 2]);
+        let mut x = zeros::<f32>(&[2, 2]);
 
         x.data[0] = 1.0;
         x.data[1] = 2.0;
@@ -1212,7 +1236,7 @@ mod tests {
 
     #[test]
     fn test_index_mut() {
-        let mut x = zero_tensor::<f32>(&[2, 2]);
+        let mut x = zeros::<f32>(&[2, 2]);
 
         x[[0, 0]] = 1.0;
         x[[0, 1]] = 2.0;
@@ -1228,20 +1252,20 @@ mod tests {
     #[test]
     #[should_panic]
     fn test_index_panics_if_invalid() {
-        let x = zero_tensor::<f32>(&[2, 2]);
+        let x = zeros::<f32>(&[2, 2]);
         x[[2, 0]];
     }
 
     #[test]
     #[should_panic]
     fn test_index_panics_if_wrong_dim_count() {
-        let x = zero_tensor::<f32>(&[2, 2]);
+        let x = zeros::<f32>(&[2, 2]);
         x[[0, 0, 0]];
     }
 
     #[test]
     fn test_indices() {
-        let x = zero_tensor::<f32>(&[2, 2]);
+        let x = zeros::<f32>(&[2, 2]);
         let x_indices = {
             let mut indices = Vec::new();
             let mut iter = x.indices();
@@ -1295,7 +1319,7 @@ mod tests {
 
     #[test]
     fn test_dims() {
-        let x = zero_tensor::<f32>(&[10, 5, 3, 7]);
+        let x = zeros::<f32>(&[10, 5, 3, 7]);
         let [i, j, k, l] = x.dims();
 
         assert_eq!(i, 10);
@@ -1307,7 +1331,7 @@ mod tests {
     #[test]
     #[should_panic]
     fn test_dims_panics_if_wrong_array_length() {
-        let x = zero_tensor::<f32>(&[10, 5, 3, 7]);
+        let x = zeros::<f32>(&[10, 5, 3, 7]);
         let [_i, _j, _k] = x.dims();
     }
 
@@ -1325,7 +1349,7 @@ mod tests {
     #[test]
     fn test_reshape() {
         let mut rng = XorShiftRNG::new(1234);
-        let mut x = random_tensor(&[10, 5, 3, 7], &mut rng);
+        let mut x = rand(&[10, 5, 3, 7], &mut rng);
         let x_data: Vec<f32> = x.data().into();
 
         assert_eq!(x.shape(), &[10, 5, 3, 7]);
@@ -1339,7 +1363,7 @@ mod tests {
     #[test]
     fn test_reshape_non_contiguous() {
         let mut rng = XorShiftRNG::new(1234);
-        let mut x = random_tensor(&[10, 10], &mut rng);
+        let mut x = rand(&[10, 10], &mut rng);
 
         // Set the input up so that it is non-contiguous and has a non-zero
         // `base` offset.
@@ -1370,7 +1394,7 @@ mod tests {
     #[test]
     fn test_reshape_copies_with_custom_strides() {
         let mut rng = XorShiftRNG::new(1234);
-        let mut x = random_tensor(&[10, 10], &mut rng);
+        let mut x = rand(&[10, 10], &mut rng);
 
         // Give the tensor a non-default stride
         x.clip_dim(1, 0, 8);
@@ -1390,7 +1414,7 @@ mod tests {
     #[should_panic(expected = "New shape must have same total elements as current shape")]
     fn test_reshape_with_wrong_size() {
         let mut rng = XorShiftRNG::new(1234);
-        let mut x = random_tensor(&[10, 5, 3, 7], &mut rng);
+        let mut x = rand(&[10, 5, 3, 7], &mut rng);
         x.reshape(&[10, 5]);
     }
 
@@ -1432,7 +1456,7 @@ mod tests {
     #[test]
     fn test_clone_with_shape() {
         let mut rng = XorShiftRNG::new(1234);
-        let x = random_tensor(&[10, 5, 3, 7], &mut rng);
+        let x = rand(&[10, 5, 3, 7], &mut rng);
         let y = x.clone_with_shape(&[10, 5, 3 * 7]);
 
         assert_eq!(y.shape(), &[10, 5, 3 * 7]);
@@ -1442,7 +1466,7 @@ mod tests {
     #[test]
     fn test_unchecked_view() {
         let mut rng = XorShiftRNG::new(1234);
-        let x = random_tensor(&[10, 5, 3, 7], &mut rng);
+        let x = rand(&[10, 5, 3, 7], &mut rng);
         let x_view = x.unchecked_view([5, 3, 0, 0]);
 
         for a in 0..x.shape()[2] {
@@ -1455,7 +1479,7 @@ mod tests {
     #[test]
     fn test_unchecked_view_mut() {
         let mut rng = XorShiftRNG::new(1234);
-        let mut x = random_tensor(&[10, 5, 3, 7], &mut rng);
+        let mut x = rand(&[10, 5, 3, 7], &mut rng);
 
         let [_, _, a_size, b_size] = x.dims();
         let mut x_view = x.unchecked_view_mut([5, 3, 0, 0]);
@@ -1476,7 +1500,7 @@ mod tests {
     #[test]
     fn test_last_dim_slice() {
         let mut rng = XorShiftRNG::new(1234);
-        let x = random_tensor(&[10, 5, 3, 7], &mut rng);
+        let x = rand(&[10, 5, 3, 7], &mut rng);
         let x_slice = x.last_dim_slice([5, 3, 2, 0], x.shape()[3]);
 
         for i in 0..x.shape()[3] {
@@ -1487,7 +1511,7 @@ mod tests {
     #[test]
     fn test_last_dim_slice_mut() {
         let mut rng = XorShiftRNG::new(1234);
-        let mut x = random_tensor(&[10, 5, 3, 7], &mut rng);
+        let mut x = rand(&[10, 5, 3, 7], &mut rng);
         let x_slice = x.last_dim_slice_mut([5, 3, 2, 0], x.shape()[3]);
 
         for val in x_slice.iter_mut() {
@@ -1507,7 +1531,7 @@ mod tests {
                 shape.push(d + 1);
             }
             let mut rng = XorShiftRNG::new(1234);
-            let x = random_tensor(&shape, &mut rng);
+            let x = rand(&shape, &mut rng);
 
             let elts: Vec<f32> = x.elements().collect();
 
@@ -1517,13 +1541,13 @@ mod tests {
 
     #[test]
     fn test_elements_for_empty_array() {
-        let empty = zero_tensor::<f32>(&[3, 0, 5]);
+        let empty = zeros::<f32>(&[3, 0, 5]);
         assert!(empty.elements().next().is_none());
     }
 
     #[test]
     fn test_elements_for_non_contiguous_array() {
-        let mut x = zero_tensor(&[3, 3]);
+        let mut x = zeros(&[3, 3]);
         for (index, elt) in x.data_mut().iter_mut().enumerate() {
             *elt = index + 1;
         }
@@ -1560,7 +1584,7 @@ mod tests {
     #[test]
     fn test_offsets() {
         let mut rng = XorShiftRNG::new(1234);
-        let mut x = random_tensor(&[10, 10], &mut rng);
+        let mut x = rand(&[10, 10], &mut rng);
 
         let x_elts: Vec<_> = x.elements().collect();
 
@@ -1601,7 +1625,7 @@ mod tests {
 
     #[test]
     fn test_is_contiguous() {
-        let mut x = zero_tensor(&[3, 3]);
+        let mut x = zeros(&[3, 3]);
         for (index, elt) in x.data_mut().iter_mut().enumerate() {
             *elt = index + 1;
         }
@@ -1634,7 +1658,7 @@ mod tests {
 
     #[test]
     fn test_is_contiguous_1d() {
-        let mut x = zero_tensor(&[10]);
+        let mut x = zeros(&[10]);
         for (index, elt) in x.data_mut().iter_mut().enumerate() {
             *elt = index + 1;
         }

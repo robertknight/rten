@@ -6,12 +6,12 @@ use std::io::BufWriter;
 
 use wasnn::load_model;
 use wasnn::RunOptions;
-use wasnn::{zero_tensor, Tensor};
+use wasnn::{zeros, Tensor};
 
 /// Convert an 8-bit grayscale image to an NCHW float tensor with values in
 /// the range [-0.5, 0.5].
 fn tensor_from_image(width: usize, height: usize, data: &[u8]) -> Tensor {
-    let mut img_tensor = zero_tensor(&[1, 1, height, width]);
+    let mut img_tensor = zeros(&[1, 1, height, width]);
     for y in 0..img_tensor.shape()[2] {
         for x in 0..img_tensor.shape()[3] {
             let b = y * width + x;

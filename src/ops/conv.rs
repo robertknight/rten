@@ -6,7 +6,7 @@ use crate::ops::{
     get_input_as_float, get_optional_input_as_float, Input, IntoOpResult, OpError, Operator,
     Output, Padding,
 };
-use crate::tensor::{from_data, zero_tensor, Tensor};
+use crate::tensor::{from_data, zeros, Tensor};
 
 // Calculate the min and max output X coordinates that are valid when updating
 // a row of convolution output using a loop:
@@ -170,7 +170,7 @@ fn conv_2d_pointwise(input: &Tensor, kernel: &Tensor, bias: Option<&Tensor>) -> 
     let mut output = if let Some(bias) = bias {
         init_tensor_with_channel_bias(&[batch, out_c, in_h * in_w], 1, bias)
     } else {
-        zero_tensor(&[batch, out_c, in_h * in_w])
+        zeros(&[batch, out_c, in_h * in_w])
     };
 
     // We require contiguous inputs due to the implicit reshaping in the
@@ -235,7 +235,7 @@ fn conv_2d_depthwise(
     let mut output = if let Some(bias) = bias {
         init_tensor_with_channel_bias(&[batch, out_c, out_h, out_w], 1, bias)
     } else {
-        zero_tensor::<f32>(&[batch, out_c, out_h, out_w])
+        zeros::<f32>(&[batch, out_c, out_h, out_w])
     };
 
     // Use of `last_dim_slice` requires contiguous last dimension.
@@ -358,9 +358,9 @@ pub fn conv_2d(
     let mut output = if let Some(bias) = bias {
         init_tensor_with_channel_bias(&[batch, out_c, n_patches], 1, bias)
     } else {
-        zero_tensor(&[batch, out_c, n_patches])
+        zeros(&[batch, out_c, n_patches])
     };
-    let mut im2col_mat = zero_tensor(&[in_channels_per_group * k_h * k_w, n_patches]);
+    let mut im2col_mat = zeros(&[in_channels_per_group * k_h * k_w, n_patches]);
 
     for n in 0..batch {
         for group in 0..groups {
@@ -470,7 +470,7 @@ pub fn conv_transpose_2d(
     let mut output = if let Some(bias) = bias {
         init_tensor_with_channel_bias(&[batch, out_c, out_h, out_w], 1, bias)
     } else {
-        zero_tensor::<f32>(&[batch, out_c, out_h, out_w])
+        zeros::<f32>(&[batch, out_c, out_h, out_w])
     };
 
     // Use of `last_dim_slice` requires contiguous last dimension.
@@ -535,7 +535,7 @@ mod tests {
     use crate::ops::pooling::calc_output_size_and_padding;
     use crate::ops::{conv_2d, conv_transpose_2d, Conv2d, Operator, Padding};
     use crate::rng::XorShiftRNG;
-    use crate::tensor::{from_data, random_tensor, zero_tensor, Tensor};
+    use crate::tensor::{from_data, rand, zeros, Tensor};
     use crate::test_util::expect_equal;
 
     /// Un-optimized reference implementation of convolution.
@@ -557,7 +557,7 @@ mod tests {
         let out_channels_per_group = out_chans / groups;
         assert_eq!(in_channels_per_group, k_in_chans);
 
-        let mut output = zero_tensor(&[batch, out_chans, out_h, out_w]);
+        let mut output = zeros(&[batch, out_chans, out_h, out_w]);
 
         for n in 0..batch {
             for group in 0..groups {
@@ -736,9 +736,9 @@ mod tests {
     #[test]
     fn test_conv_2d_uneven_padding() -> Result<(), String> {
         let mut rng = XorShiftRNG::new(1234);
-        let kernel = random_tensor(&[10, 5, 3, 3], &mut rng);
-        let input = random_tensor(&[1, 5, 10, 10], &mut rng);
-        let bias = random_tensor(&[10], &mut rng);
+        let kernel = rand(&[10, 5, 3, 3], &mut rng);
+        let input = rand(&[1, 5, 10, 10], &mut rng);
+        let bias = rand(&[10], &mut rng);
 
         let result = conv_2d(
             &input,
@@ -764,9 +764,9 @@ mod tests {
     #[test]
     fn test_conv_2d_depthwise_uneven_padding() -> Result<(), String> {
         let mut rng = XorShiftRNG::new(1234);
-        let kernel = random_tensor(&[10, 1, 3, 3], &mut rng);
-        let input = random_tensor(&[1, 10, 10, 10], &mut rng);
-        let bias = random_tensor(&[10], &mut rng);
+        let kernel = rand(&[10, 1, 3, 3], &mut rng);
+        let input = rand(&[1, 10, 10, 10], &mut rng);
+        let bias = rand(&[10], &mut rng);
 
         let result = conv_2d(
             &input,
@@ -793,9 +793,9 @@ mod tests {
     #[test]
     fn test_conv_2d_pointwise() -> Result<(), String> {
         let mut rng = XorShiftRNG::new(1234);
-        let kernel = random_tensor(&[10, 5, 1, 1], &mut rng);
-        let input = random_tensor(&[1, 5, 20, 20], &mut rng);
-        let bias = random_tensor(&[10], &mut rng);
+        let kernel = rand(&[10, 5, 1, 1], &mut rng);
+        let input = rand(&[1, 5, 20, 20], &mut rng);
+        let bias = rand(&[10], &mut rng);
 
         // Contiguous inputs
         let result = conv_2d(
@@ -845,7 +845,7 @@ mod tests {
         expect_equal(&result, &reference_result)?;
 
         // Batch size > 1
-        let input = random_tensor(&[2, 5, 20, 20], &mut rng);
+        let input = rand(&[2, 5, 20, 20], &mut rng);
         let result = conv_2d(
             &input,
             &kernel,
@@ -924,9 +924,9 @@ mod tests {
     #[test]
     fn test_conv_2d_not_depthwise_or_pointwise() -> Result<(), String> {
         let mut rng = XorShiftRNG::new(1234);
-        let kernel = random_tensor(&[4, 2, 3, 3], &mut rng);
-        let input = random_tensor(&[2, 4, 20, 20], &mut rng);
-        let bias = random_tensor(&[4], &mut rng);
+        let kernel = rand(&[4, 2, 3, 3], &mut rng);
+        let input = rand(&[2, 4, 20, 20], &mut rng);
+        let bias = rand(&[4], &mut rng);
 
         let result = conv_2d(
             &input,
@@ -952,12 +952,12 @@ mod tests {
     #[test]
     fn test_conv_2d_strided() -> Result<(), String> {
         let mut rng = XorShiftRNG::new(1234);
-        let kernel = random_tensor(&[4, 3, 3, 3], &mut rng);
+        let kernel = rand(&[4, 3, 3, 3], &mut rng);
 
         for stride in [2, 3] {
             for pad in [0, 1] {
                 for input_size in [3, 4, 5, 10, 20] {
-                    let input = random_tensor(&[2, 3, input_size, input_size], &mut rng);
+                    let input = rand(&[2, 3, input_size, input_size], &mut rng);
                     let result = conv_2d(
                         &input,
                         &kernel,
@@ -986,12 +986,12 @@ mod tests {
     #[test]
     fn test_conv_2d_strided_depthwise() -> Result<(), String> {
         let mut rng = XorShiftRNG::new(1234);
-        let kernel = random_tensor(&[3, 1, 3, 3], &mut rng);
+        let kernel = rand(&[3, 1, 3, 3], &mut rng);
 
         for stride in [2, 3] {
             for pad in [0, 1] {
                 for input_size in [3, 4, 5, 10, 20] {
-                    let input = random_tensor(&[1, 3, input_size, input_size], &mut rng);
+                    let input = rand(&[1, 3, input_size, input_size], &mut rng);
                     let result = conv_2d(
                         &input,
                         &kernel,

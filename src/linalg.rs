@@ -449,13 +449,13 @@ pub fn gemm_slice(out_data: &mut [f32], out_row_stride: usize, a: Matrix, b: Mat
 mod tests {
     use crate::linalg::{add_scaled_vector, gemm};
     use crate::rng::XorShiftRNG;
-    use crate::tensor::{random_tensor, zero_tensor, Tensor};
+    use crate::tensor::{rand, zeros, Tensor};
     use crate::test_util::expect_equal;
 
     fn reference_gemm(a: &Tensor, b: &Tensor) -> Tensor {
         let [a_rows, a_cols] = a.dims();
         let [_b_rows, b_cols] = b.dims();
-        let mut output = zero_tensor(&[a_rows, b_cols]);
+        let mut output = zeros(&[a_rows, b_cols]);
 
         for r in 0..a_rows {
             for c in 0..b_cols {
@@ -550,9 +550,9 @@ mod tests {
 
         for (lhs_size, rhs_size) in cases {
             let mut rng = XorShiftRNG::new(1234);
-            let a = random_tensor(&lhs_size, &mut rng);
-            let b = random_tensor(&rhs_size, &mut rng);
-            let mut result = zero_tensor::<f32>(&[lhs_size[0], rhs_size[1]]);
+            let a = rand(&lhs_size, &mut rng);
+            let b = rand(&rhs_size, &mut rng);
+            let mut result = zeros::<f32>(&[lhs_size[0], rhs_size[1]]);
 
             gemm(&mut result, &a, &b);
 
@@ -573,8 +573,8 @@ mod tests {
     #[test]
     fn test_gemm_transposed() -> Result<(), String> {
         let mut rng = XorShiftRNG::new(1234);
-        let mut a = random_tensor(&[20, 30], &mut rng);
-        let mut b = random_tensor(&[10, 20], &mut rng);
+        let mut a = rand(&[20, 30], &mut rng);
+        let mut b = rand(&[10, 20], &mut rng);
 
         // Transpose the input matrices. This will alter their row and column
         // strides and shapes, but not re-order the data.
@@ -584,7 +584,7 @@ mod tests {
         let [a_rows, _] = a.dims();
         let [_, b_cols] = b.dims();
 
-        let mut result = zero_tensor(&[a_rows, b_cols]);
+        let mut result = zeros(&[a_rows, b_cols]);
         gemm(&mut result, &a, &b);
 
         let expected = reference_gemm(&a, &b);

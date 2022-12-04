@@ -213,7 +213,7 @@ mod tests {
         sigmoid_in_place, softmax,
     };
     use crate::rng::XorShiftRNG;
-    use crate::tensor::{from_data, from_vec, random_tensor};
+    use crate::tensor::{from_data, from_vec, rand};
     use crate::test_util::expect_equal;
 
     #[test]
@@ -354,7 +354,7 @@ mod tests {
     #[test]
     fn test_softmax_sizes() {
         let mut rng = XorShiftRNG::new(1234);
-        let input = random_tensor(&[1, 1, 3, 3], &mut rng);
+        let input = rand(&[1, 1, 3, 3], &mut rng);
         let result = softmax(&input, 1);
         assert_eq!(result.shape(), input.shape());
         assert!((result.elements().sum::<f32>() - 1.0).abs() < 0.001);

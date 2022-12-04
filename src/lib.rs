@@ -9,7 +9,7 @@ mod wasm_api;
 pub use graph::RunOptions;
 pub use model::{load_model, Model};
 pub use ops::{Input, Output};
-pub use tensor::{from_data, from_scalar, from_vec, zero_tensor, Tensor};
+pub use tensor::{from_data, from_scalar, from_vec, zeros, Tensor};
 
 #[allow(dead_code, unused_imports)]
 mod schema_generated;

@@ -228,7 +228,7 @@ mod tests {
     };
     use crate::ops::{OpError, Operator};
     use crate::rng::XorShiftRNG;
-    use crate::tensor::{from_data, from_scalar, from_vec, random_tensor};
+    use crate::tensor::{from_data, from_scalar, from_vec, rand};
     use crate::test_util::expect_equal;
 
     #[test]
@@ -319,7 +319,7 @@ mod tests {
     #[test]
     fn test_squeeze() -> Result<(), String> {
         let mut rng = XorShiftRNG::new(5678);
-        let input = random_tensor(&[1, 5, 5, 1], &mut rng);
+        let input = rand(&[1, 5, 5, 1], &mut rng);
         let mut expected = input.clone();
 
         // Remove all 1-size axes.
@@ -341,7 +341,7 @@ mod tests {
     #[test]
     fn test_squeeze_in_place() -> Result<(), String> {
         let mut rng = XorShiftRNG::new(5678);
-        let mut input = random_tensor(&[1, 1, 5, 5], &mut rng);
+        let mut input = rand(&[1, 1, 5, 5], &mut rng);
 
         let mut expected = input.clone();
         expected.reshape(&[5, 5]);
@@ -354,7 +354,7 @@ mod tests {
     #[test]
     fn test_transpose() -> Result<(), String> {
         let mut rng = XorShiftRNG::new(5678);
-        let input = random_tensor(&[10, 20], &mut rng);
+        let input = rand(&[10, 20], &mut rng);
 
         let mut reversed = input.clone();
         reversed.permute(&[1, 0]);
@@ -375,7 +375,7 @@ mod tests {
     #[test]
     fn test_unsqueeze() {
         let mut rng = XorShiftRNG::new(5678);
-        let input = random_tensor(&[3, 4, 5], &mut rng);
+        let input = rand(&[3, 4, 5], &mut rng);
 
         // Unsqueeze with axes in increasing order
         let output = unsqueeze(&input, &[0, 4]);

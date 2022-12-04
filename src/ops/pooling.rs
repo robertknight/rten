@@ -1,6 +1,6 @@
 use crate::linalg::div_ceil;
 use crate::ops::{get_input_as_float, Input, IntoOpResult, OpError, Operator, Output, Padding};
-use crate::tensor::{zero_tensor, Tensor};
+use crate::tensor::{zeros, Tensor};
 
 /// Calculate the output size and padding for a convolution or pooling operation.
 ///
@@ -64,7 +64,7 @@ pub fn average_pool_2d(
         calc_output_size_and_padding((in_h, in_w), (kernel_size, kernel_size), stride, padding);
     let [pad_top, pad_left, _pad_bottom, _pad_right] = fixed_padding;
 
-    let mut output = zero_tensor::<f32>(&[batch, in_c, out_h, out_w]);
+    let mut output = zeros::<f32>(&[batch, in_c, out_h, out_w]);
 
     for n in 0..batch {
         for chan in 0..in_c {
@@ -121,7 +121,7 @@ impl Operator for AveragePool2d {
 
 pub fn global_average_pool(input: &Tensor) -> Tensor {
     let [batch, chans, in_h, in_w] = input.dims();
-    let mut output = zero_tensor(&[batch, chans, 1, 1]);
+    let mut output = zeros(&[batch, chans, 1, 1]);
 
     let hw_float = (in_h * in_w) as f32;
 
@@ -161,7 +161,7 @@ pub fn max_pool_2d(input: &Tensor, kernel_size: usize, stride: usize, padding: P
         calc_output_size_and_padding((in_h, in_w), (kernel_size, kernel_size), stride, padding);
     let [pad_top, pad_left, _pad_bottom, _pad_right] = fixed_padding;
 
-    let mut output = zero_tensor::<f32>(&[batch, in_c, out_h, out_w]);
+    let mut output = zeros::<f32>(&[batch, in_c, out_h, out_w]);
 
     for n in 0..batch {
         for chan in 0..in_c {
@@ -215,14 +215,14 @@ impl Operator for MaxPool2d {
 #[cfg(test)]
 mod tests {
     use crate::ops::{average_pool_2d, global_average_pool, max_pool_2d, Padding};
-    use crate::tensor::{from_2d_slice, from_data, zero_tensor, SliceRange};
+    use crate::tensor::{from_2d_slice, from_data, zeros, SliceRange};
     use crate::test_util::expect_equal;
 
     #[test]
     fn test_average_pool_2d() -> Result<(), String> {
         let height = 4;
         let width = 4;
-        let mut input = zero_tensor(&[1, 1, height, width]);
+        let mut input = zeros(&[1, 1, height, width]);
 
         for y in 0..height {
             for x in 0..width {
@@ -291,7 +291,7 @@ mod tests {
     fn test_max_pool_2d() -> Result<(), String> {
         let height = 4;
         let width = 8;
-        let mut input = zero_tensor(&[1, 1, height, width]);
+        let mut input = zeros(&[1, 1, height, width]);
 
         input[[0, 0, 0, 0]] = 1.0;
         input[[0, 0, 0, 1]] = 2.0;
@@ -314,7 +314,7 @@ mod tests {
 
     #[test]
     fn test_max_pool_2d_stride() -> Result<(), String> {
-        let mut input = zero_tensor(&[1, 1, 9, 9]);
+        let mut input = zeros(&[1, 1, 9, 9]);
 
         for y in 0..9 {
             for x in 0..9 {
@@ -341,7 +341,7 @@ mod tests {
 
     #[test]
     fn test_max_pool_2d_padding() {
-        let input = zero_tensor(&[1, 1, 9, 9]);
+        let input = zeros(&[1, 1, 9, 9]);
 
         let result = max_pool_2d(&input, 2, 2, Padding::Fixed([0, 0, 0, 0]));
         assert_eq!(result.shape(), &[1, 1, 4, 4]);
