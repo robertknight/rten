@@ -436,7 +436,6 @@ impl Operator for Conv2d {
         "Conv2d"
     }
 
-    /// Run `conv_2d` operator with `[input, weight, bias?]` inputs.
     fn run(&self, inputs: &[Input]) -> Result<Vec<Output>, OpError> {
         let input = get_input_as_float(inputs, 0)?;
         let weight = get_input_as_float(inputs, 1)?;

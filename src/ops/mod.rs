@@ -502,10 +502,8 @@ impl Operator for Concat {
         "Concat"
     }
 
-    /// Run `concat` operator with `[a, b]` inputs.
     fn run(&self, inputs: &[Input]) -> Result<Vec<Output>, OpError> {
         let first = inputs.get(0).ok_or(OpError::MissingInputs)?;
-
         match first {
             Input::FloatTensor(_) => {
                 let typed_inputs: Vec<_> = inputs
@@ -716,7 +714,6 @@ impl Operator for Slice {
         "Slice"
     }
 
-    /// Run `slice` operator with `[input, starts, ends, axes]` inputs.
     fn run(&self, inputs: &[Input]) -> Result<Vec<Output>, OpError> {
         let input = inputs.get(0).ok_or(OpError::MissingInputs)?;
         let starts = get_input_as_int(inputs, 1)?;

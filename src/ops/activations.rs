@@ -91,7 +91,6 @@ impl Operator for Relu {
         "Relu"
     }
 
-    /// Run `relu` operator with `[input]` inputs.
     fn run(&self, inputs: &[Input]) -> Result<Vec<Output>, OpError> {
         let input = get_input_as_float(inputs, 0)?;
         relu(input).into_op_result()
