@@ -1,7 +1,7 @@
 use std::fmt::Debug;
 use std::iter::zip;
 
-use crate::ops::{from_data, get_input_as_float, Input, IntoOpResult, OpError, Operator, Output};
+use crate::ops::{from_data, get_input, Input, IntoOpResult, OpError, Operator, Output};
 use crate::tensor::Tensor;
 
 /// Given the shapes of two inputs to a binary operation, choose the one that
@@ -128,8 +128,8 @@ impl Operator for Add {
     }
 
     fn run(&self, inputs: &[Input]) -> Result<Vec<Output>, OpError> {
-        let a = get_input_as_float(inputs, 0)?;
-        let b = get_input_as_float(inputs, 1)?;
+        let a = get_input(inputs, 0)?;
+        let b = get_input(inputs, 1)?;
         add(a, b).into_op_result()
     }
 
@@ -139,7 +139,7 @@ impl Operator for Add {
 
     fn run_in_place(&self, input: Output, other: &[Input]) -> Result<Output, OpError> {
         let mut a = input.into_float().ok_or(OpError::UnsupportedInputType)?;
-        let b = get_input_as_float(other, 0)?;
+        let b = get_input(other, 0)?;
 
         if can_run_binary_op_in_place(&a, b) {
             add_in_place(&mut a, b);
@@ -169,8 +169,8 @@ impl Operator for Div {
     }
 
     fn run(&self, inputs: &[Input]) -> Result<Vec<Output>, OpError> {
-        let a = get_input_as_float(inputs, 0)?;
-        let b = get_input_as_float(inputs, 1)?;
+        let a = get_input(inputs, 0)?;
+        let b = get_input(inputs, 1)?;
         div(a, b).into_op_result()
     }
 
@@ -180,7 +180,7 @@ impl Operator for Div {
 
     fn run_in_place(&self, input: Output, other: &[Input]) -> Result<Output, OpError> {
         let mut a = input.into_float().ok_or(OpError::UnsupportedInputType)?;
-        let b = get_input_as_float(other, 0)?;
+        let b = get_input(other, 0)?;
 
         if can_run_binary_op_in_place(&a, b) {
             div_in_place(&mut a, b);
@@ -210,8 +210,8 @@ impl Operator for Mul {
     }
 
     fn run(&self, inputs: &[Input]) -> Result<Vec<Output>, OpError> {
-        let a = get_input_as_float(inputs, 0)?;
-        let b = get_input_as_float(inputs, 1)?;
+        let a = get_input(inputs, 0)?;
+        let b = get_input(inputs, 1)?;
         mul(a, b).into_op_result()
     }
 
@@ -221,7 +221,7 @@ impl Operator for Mul {
 
     fn run_in_place(&self, input: Output, other: &[Input]) -> Result<Output, OpError> {
         let mut a = input.into_float().ok_or(OpError::UnsupportedInputType)?;
-        let b = get_input_as_float(other, 0)?;
+        let b = get_input(other, 0)?;
 
         if can_run_binary_op_in_place(&a, b) {
             mul_in_place(&mut a, b);
@@ -251,8 +251,8 @@ impl Operator for Sub {
     }
 
     fn run(&self, inputs: &[Input]) -> Result<Vec<Output>, OpError> {
-        let a = get_input_as_float(inputs, 0)?;
-        let b = get_input_as_float(inputs, 1)?;
+        let a = get_input(inputs, 0)?;
+        let b = get_input(inputs, 1)?;
         sub(a, b).into_op_result()
     }
 
@@ -262,7 +262,7 @@ impl Operator for Sub {
 
     fn run_in_place(&self, input: Output, other: &[Input]) -> Result<Output, OpError> {
         let mut a = input.into_float().ok_or(OpError::UnsupportedInputType)?;
-        let b = get_input_as_float(other, 0)?;
+        let b = get_input(other, 0)?;
 
         if can_run_binary_op_in_place(&a, b) {
             sub_in_place(&mut a, b);

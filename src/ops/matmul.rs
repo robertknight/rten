@@ -2,8 +2,8 @@ use std::iter::zip;
 
 use crate::linalg::{gemm_slice, Matrix};
 use crate::ops::{
-    choose_broadcast_shape, get_input_as_float, get_optional_input_as_float, Input, IntoOpResult,
-    OpError, Operator, Output,
+    choose_broadcast_shape, get_input, get_optional_input, Input, IntoOpResult, OpError, Operator,
+    Output,
 };
 use crate::tensor::{from_data, zeros, Tensor};
 
@@ -90,9 +90,9 @@ impl Operator for Gemm {
     }
 
     fn run(&self, inputs: &[Input]) -> Result<Vec<Output>, OpError> {
-        let a = get_input_as_float(inputs, 0)?;
-        let b = get_input_as_float(inputs, 1)?;
-        let c = get_optional_input_as_float(inputs, 2)?;
+        let a = get_input(inputs, 0)?;
+        let b = get_input(inputs, 1)?;
+        let c = get_optional_input(inputs, 2)?;
         gemm_op(
             a,
             b,
@@ -179,8 +179,8 @@ impl Operator for MatMul {
     }
 
     fn run(&self, inputs: &[Input]) -> Result<Vec<Output>, OpError> {
-        let a = get_input_as_float(inputs, 0)?;
-        let b = get_input_as_float(inputs, 1)?;
+        let a = get_input(inputs, 0)?;
+        let b = get_input(inputs, 1)?;
         matmul(a, b).into_op_result()
     }
 }

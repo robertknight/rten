@@ -1,6 +1,6 @@
 ///! Operators which query or change the shape of a tensor, or the order of
 ///! elements, but don't modify, add or remove elements.
-use crate::ops::{get_input_as_int, Input, IntoOpResult, OpError, Operator, Output};
+use crate::ops::{get_input, Input, IntoOpResult, OpError, Operator, Output};
 use crate::tensor::{from_data, Tensor};
 
 pub fn reshape<T: Copy>(input: &Tensor<T>, shape: &Tensor<i32>) -> Result<Tensor<T>, OpError> {
@@ -54,7 +54,7 @@ impl Operator for Reshape {
 
     fn run(&self, inputs: &[Input]) -> Result<Vec<Output>, OpError> {
         let input = inputs.get(0).ok_or(OpError::MissingInputs)?;
-        let shape = get_input_as_int(inputs, 1)?;
+        let shape = get_input(inputs, 1)?;
         match input {
             Input::IntTensor(t) => reshape(t, shape).into_op_result(),
             Input::FloatTensor(t) => reshape(t, shape).into_op_result(),

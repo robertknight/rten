@@ -3,8 +3,7 @@ use std::ops::Deref;
 use crate::linalg::{add_scaled_vector, div_ceil, gemm_slice, Matrix};
 use crate::ops::pooling::calc_output_size_and_padding;
 use crate::ops::{
-    get_input_as_float, get_optional_input_as_float, Input, IntoOpResult, OpError, Operator,
-    Output, Padding,
+    get_input, get_optional_input, Input, IntoOpResult, OpError, Operator, Output, Padding,
 };
 use crate::tensor::{from_data, zeros, Tensor};
 
@@ -437,9 +436,9 @@ impl Operator for Conv2d {
     }
 
     fn run(&self, inputs: &[Input]) -> Result<Vec<Output>, OpError> {
-        let input = get_input_as_float(inputs, 0)?;
-        let weight = get_input_as_float(inputs, 1)?;
-        let bias = get_optional_input_as_float(inputs, 2)?;
+        let input = get_input(inputs, 0)?;
+        let weight = get_input(inputs, 1)?;
+        let bias = get_optional_input(inputs, 2)?;
         conv_2d(input, weight, bias, self.padding, self.groups, self.stride).into_op_result()
     }
 }
@@ -522,9 +521,9 @@ impl Operator for ConvTranspose2d {
     }
 
     fn run(&self, inputs: &[Input]) -> Result<Vec<Output>, OpError> {
-        let input = get_input_as_float(inputs, 0)?;
-        let weight = get_input_as_float(inputs, 1)?;
-        let bias = get_optional_input_as_float(inputs, 2)?;
+        let input = get_input(inputs, 0)?;
+        let weight = get_input(inputs, 1)?;
+        let bias = get_optional_input(inputs, 2)?;
         conv_transpose_2d(input, weight, bias, self.stride).into_op_result()
     }
 }

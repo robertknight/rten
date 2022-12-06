@@ -1,4 +1,4 @@
-use crate::ops::{get_input_as_float, Input, IntoOpResult, OpError, Operator, Output};
+use crate::ops::{get_input, Input, IntoOpResult, OpError, Operator, Output};
 use crate::tensor::Tensor;
 
 pub fn clip(input: &Tensor, min: f32, max: f32) -> Tensor {
@@ -23,7 +23,7 @@ impl Operator for Clip {
     }
 
     fn run(&self, inputs: &[Input]) -> Result<Vec<Output>, OpError> {
-        let input = get_input_as_float(inputs, 0)?;
+        let input = get_input(inputs, 0)?;
         clip(input, self.min, self.max).into_op_result()
     }
 
@@ -59,7 +59,7 @@ impl Operator for LeakyRelu {
     }
 
     fn run(&self, inputs: &[Input]) -> Result<Vec<Output>, OpError> {
-        let input = get_input_as_float(inputs, 0)?;
+        let input = get_input(inputs, 0)?;
         leaky_relu(input, self.alpha).into_op_result()
     }
 
@@ -92,7 +92,7 @@ impl Operator for Relu {
     }
 
     fn run(&self, inputs: &[Input]) -> Result<Vec<Output>, OpError> {
-        let input = get_input_as_float(inputs, 0)?;
+        let input = get_input(inputs, 0)?;
         relu(input).into_op_result()
     }
 
@@ -125,7 +125,7 @@ impl Operator for Sigmoid {
     }
 
     fn run(&self, inputs: &[Input]) -> Result<Vec<Output>, OpError> {
-        let input = get_input_as_float(inputs, 0)?;
+        let input = get_input(inputs, 0)?;
         sigmoid(input).into_op_result()
     }
 
@@ -190,7 +190,7 @@ impl Operator for Softmax {
     }
 
     fn run(&self, inputs: &[Input]) -> Result<Vec<Output>, OpError> {
-        let input = get_input_as_float(inputs, 0)?;
+        let input = get_input(inputs, 0)?;
         softmax(input, self.axis).into_op_result()
     }
 

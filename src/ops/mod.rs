@@ -82,6 +82,28 @@ impl<'a> Input<'a> {
     }
 }
 
+impl<'a> TryFrom<Input<'a>> for &'a Tensor<f32> {
+    type Error = ();
+
+    fn try_from(input: Input<'a>) -> Result<&'a Tensor<f32>, ()> {
+        match input {
+            Input::FloatTensor(t) => Ok(t),
+            _ => Err(()),
+        }
+    }
+}
+
+impl<'a> TryFrom<Input<'a>> for &'a Tensor<i32> {
+    type Error = ();
+
+    fn try_from(input: Input<'a>) -> Result<&'a Tensor<i32>, ()> {
+        match input {
+            Input::IntTensor(t) => Ok(t),
+            _ => Err(()),
+        }
+    }
+}
+
 impl<'a> From<&'a Tensor<f32>> for Input<'a> {
     fn from(t: &'a Tensor<f32>) -> Input {
         Input::FloatTensor(t)
@@ -244,44 +266,28 @@ pub trait Operator: Debug {
     }
 }
 
-/// Extract a required float tensor input from `inputs`, or return an error.
-pub fn get_input_as_float<'a>(
-    inputs: &'a [Input],
-    index: usize,
-) -> Result<&'a Tensor<f32>, OpError> {
+/// Extract a required tensor input from `inputs`, or return an error.
+pub fn get_input<'a, T: Copy>(inputs: &'a [Input], index: usize) -> Result<&'a Tensor<T>, OpError>
+where
+    &'a Tensor<T>: TryFrom<Input<'a>>,
+{
     inputs
         .get(index)
         .ok_or(OpError::MissingInputs)
-        .and_then(|input| input.as_float().ok_or(OpError::UnsupportedInputType))
+        .and_then(|&input| input.try_into().or(Err(OpError::UnsupportedInputType)))
 }
 
-/// Extract an optional float tensor input from `inputs`, or return an error.
-pub fn get_optional_input_as_float<'a>(
+/// Extract an optional tensor input from `inputs`, or return an error.
+pub fn get_optional_input<'a, T: Copy>(
     inputs: &'a [Input],
     index: usize,
-) -> Result<Option<&'a Tensor<f32>>, OpError> {
+) -> Result<Option<&'a Tensor<T>>, OpError>
+where
+    &'a Tensor<T>: TryFrom<Input<'a>>,
+{
     inputs
         .get(index)
-        .map(|input| input.as_float().ok_or(OpError::UnsupportedInputType))
-        .transpose()
-}
-
-/// Extract a required int tensor input from `inputs`, or return an error.
-pub fn get_input_as_int<'a>(inputs: &'a [Input], index: usize) -> Result<&'a Tensor<i32>, OpError> {
-    inputs
-        .get(index)
-        .ok_or(OpError::MissingInputs)
-        .and_then(|input| input.as_int().ok_or(OpError::UnsupportedInputType))
-}
-
-/// Extract an optional int tensor input from `inputs`, or return an error.
-pub fn get_optional_input_as_int<'a>(
-    inputs: &'a [Input],
-    index: usize,
-) -> Result<Option<&'a Tensor<i32>>, OpError> {
-    inputs
-        .get(index)
-        .map(|input| input.as_int().ok_or(OpError::UnsupportedInputType))
+        .map(|&input| input.try_into().or(Err(OpError::UnsupportedInputType)))
         .transpose()
 }
 
@@ -336,7 +342,7 @@ impl Operator for ConstantOfShape {
     }
 
     fn run(&self, inputs: &[Input]) -> Result<Vec<Output>, OpError> {
-        let input = get_input_as_int(inputs, 0)?;
+        let input = get_input::<i32>(inputs, 0)?;
         let shape: Vec<_> = input.elements().map(|el| el as usize).collect();
         let len = shape.iter().product();
         from_data(shape, vec![self.value; len]).into_op_result()
@@ -408,7 +414,7 @@ impl Operator for Gather {
 
     fn run(&self, inputs: &[Input]) -> Result<Vec<Output>, OpError> {
         let input = inputs.get(0).ok_or(OpError::MissingInputs)?;
-        let indices = get_input_as_int(inputs, 1)?;
+        let indices = get_input(inputs, 1)?;
         match input {
             Input::IntTensor(input) => gather(input, self.axis, indices).into_op_result(),
             Input::FloatTensor(input) => gather(input, self.axis, indices).into_op_result(),
@@ -606,9 +612,9 @@ impl Operator for Pad {
 
     fn run(&self, inputs: &[Input]) -> Result<Vec<Output>, OpError> {
         let input = inputs.get(0).ok_or(OpError::MissingInputs)?;
-        let pads = get_input_as_int(inputs, 1)?;
+        let pads = get_input(inputs, 1)?;
         let const_val = inputs.get(2);
-        let axes = get_optional_input_as_int(inputs, 3)?;
+        let axes = get_optional_input::<i32>(inputs, 3)?;
 
         if axes.is_some() {
             return Err(OpError::UnsupportedValue(
@@ -716,10 +722,10 @@ impl Operator for Slice {
 
     fn run(&self, inputs: &[Input]) -> Result<Vec<Output>, OpError> {
         let input = inputs.get(0).ok_or(OpError::MissingInputs)?;
-        let starts = get_input_as_int(inputs, 1)?;
-        let ends = get_input_as_int(inputs, 2)?;
-        let axes = get_optional_input_as_int(inputs, 3)?;
-        let steps = get_optional_input_as_int(inputs, 4)?;
+        let starts = get_input(inputs, 1)?;
+        let ends = get_input(inputs, 2)?;
+        let axes = get_optional_input(inputs, 3)?;
+        let steps = get_optional_input(inputs, 4)?;
         let result: Result<Output, OpError> = match input {
             Input::FloatTensor(input) => slice(input, starts, ends, axes, steps).map(|t| t.into()),
             Input::IntTensor(input) => slice(input, starts, ends, axes, steps).map(|t| t.into()),
@@ -732,10 +738,10 @@ impl Operator for Slice {
     }
 
     fn run_in_place(&self, input: Output, other: &[Input]) -> Result<Output, OpError> {
-        let starts = get_input_as_int(other, 0)?;
-        let ends = get_input_as_int(other, 1)?;
-        let axes = get_optional_input_as_int(other, 2)?;
-        let steps = get_optional_input_as_int(other, 3)?;
+        let starts = get_input(other, 0)?;
+        let ends = get_input(other, 1)?;
+        let axes = get_optional_input(other, 2)?;
+        let steps = get_optional_input::<i32>(other, 3)?;
 
         // Fall back to copying if non-default steps are given.
         if let Some(steps) = steps {
@@ -830,7 +836,7 @@ impl Operator for Split {
     }
 
     fn run(&self, inputs: &[Input]) -> Result<Vec<Output>, OpError> {
-        let input = get_input_as_float(inputs, 0)?;
+        let input = get_input::<f32>(inputs, 0)?;
         split(input, self.axis, &self.split[..])
             .map(|tensors| tensors.into_iter().map(|t| t.into()).collect())
     }

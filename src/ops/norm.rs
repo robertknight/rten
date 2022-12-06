@@ -1,4 +1,4 @@
-use crate::ops::{get_input_as_float, Input, IntoOpResult, OpError, Operator, Output};
+use crate::ops::{get_input, Input, IntoOpResult, OpError, Operator, Output};
 use crate::tensor::Tensor;
 
 /// Perform in-place batch normalization on the NCHW tensor `out`.
@@ -66,11 +66,11 @@ impl Operator for BatchNormalization {
     }
 
     fn run(&self, inputs: &[Input]) -> Result<Vec<Output>, OpError> {
-        let input = get_input_as_float(inputs, 0)?;
-        let scale = get_input_as_float(inputs, 1)?;
-        let bias = get_input_as_float(inputs, 2)?;
-        let mean = get_input_as_float(inputs, 3)?;
-        let var = get_input_as_float(inputs, 4)?;
+        let input = get_input(inputs, 0)?;
+        let scale = get_input(inputs, 1)?;
+        let bias = get_input(inputs, 2)?;
+        let mean = get_input(inputs, 3)?;
+        let var = get_input(inputs, 4)?;
 
         batch_norm(input, scale, bias, mean, var, self.epsilon).into_op_result()
     }
@@ -81,10 +81,10 @@ impl Operator for BatchNormalization {
 
     fn run_in_place(&self, input: Output, other: &[Input]) -> Result<Output, OpError> {
         let mut output = input.into_float().ok_or(OpError::UnsupportedInputType)?;
-        let scale = get_input_as_float(other, 0)?;
-        let bias = get_input_as_float(other, 1)?;
-        let mean = get_input_as_float(other, 2)?;
-        let var = get_input_as_float(other, 3)?;
+        let scale = get_input(other, 0)?;
+        let bias = get_input(other, 1)?;
+        let mean = get_input(other, 2)?;
+        let var = get_input(other, 3)?;
 
         batch_norm_in_place(&mut output, scale, bias, mean, var, self.epsilon);
 
