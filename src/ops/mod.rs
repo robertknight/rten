@@ -306,6 +306,21 @@ where
     Ok(tensors)
 }
 
+/// Extract a scalar value from an input tensor.
+fn get_scalar<'a, T: Copy + 'a>(input: Input<'a>) -> Result<T, OpError>
+where
+    &'a Tensor<T>: TryFrom<Input<'a>>,
+{
+    let tensor: &Tensor<T> = input
+        .try_into()
+        .or(Err(OpError::IncompatibleInputTypes("Incorrect input type")))?;
+    if let Some(scalar) = tensor.item() {
+        Ok(scalar)
+    } else {
+        Err(OpError::InvalidValue("Expected scalar value"))
+    }
+}
+
 #[derive(Debug)]
 pub struct Cast {
     pub to: DataType,
@@ -579,30 +594,6 @@ pub fn pad<T: Copy>(
     Ok(output)
 }
 
-fn extract_scalar<T: Copy>(x: &Tensor<T>) -> Result<T, OpError> {
-    if let Some(scalar) = x.item() {
-        Ok(scalar)
-    } else {
-        Err(OpError::InvalidValue("Expected scalar value"))
-    }
-}
-
-fn extract_scalar_int(x: Input) -> Result<i32, OpError> {
-    if let Input::IntTensor(val) = x {
-        extract_scalar(val)
-    } else {
-        Err(OpError::IncompatibleInputTypes("Expected int input"))
-    }
-}
-
-fn extract_scalar_float(x: Input) -> Result<f32, OpError> {
-    if let Input::FloatTensor(val) = x {
-        extract_scalar(val)
-    } else {
-        Err(OpError::IncompatibleInputTypes("Expected int input"))
-    }
-}
-
 #[derive(Debug)]
 pub struct Pad {}
 
@@ -625,11 +616,11 @@ impl Operator for Pad {
 
         match input {
             Input::IntTensor(t) => {
-                let const_val = const_val.map(|&v| extract_scalar_int(v)).transpose()?;
+                let const_val = const_val.map(|&v| get_scalar(v)).transpose()?;
                 pad(t, pads, const_val.unwrap_or(0)).into_op_result()
             }
             Input::FloatTensor(t) => {
-                let const_val = const_val.map(|&v| extract_scalar_float(v)).transpose()?;
+                let const_val = const_val.map(|&v| get_scalar(v)).transpose()?;
                 pad(t, pads, const_val.unwrap_or(0.0)).into_op_result()
             }
         }
@@ -1195,7 +1186,7 @@ mod tests {
         let result = op.run(&[(&input).into(), (&invalid_pads).into(), (&const_int).into()]);
         assert_eq!(
             result.err(),
-            Some(OpError::IncompatibleInputTypes("Expected int input"))
+            Some(OpError::IncompatibleInputTypes("Incorrect input type"))
         );
 
         // Constant value not a scalar.
