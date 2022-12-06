@@ -291,6 +291,21 @@ where
         .transpose()
 }
 
+/// Extract input tensors of the same type from a list of inputs.
+fn get_inputs<'a, T: Copy>(inputs: &'a [Input]) -> Result<Vec<&'a Tensor<T>>, OpError>
+where
+    &'a Tensor<T>: TryFrom<Input<'a>>,
+{
+    let mut tensors = Vec::with_capacity(inputs.len());
+    for &input in inputs {
+        let tensor = input.try_into().or(Err(OpError::IncompatibleInputTypes(
+            "Inputs have incompatible types",
+        )))?;
+        tensors.push(tensor);
+    }
+    Ok(tensors)
+}
+
 #[derive(Debug)]
 pub struct Cast {
     pub to: DataType,
@@ -512,25 +527,11 @@ impl Operator for Concat {
         let first = inputs.get(0).ok_or(OpError::MissingInputs)?;
         match first {
             Input::FloatTensor(_) => {
-                let typed_inputs: Vec<_> = inputs
-                    .iter()
-                    .flat_map(|in_| {
-                        in_.as_float().ok_or(Err::<&Tensor<f32>, OpError>(
-                            OpError::IncompatibleInputTypes("Concat inputs must have same type"),
-                        ))
-                    })
-                    .collect();
+                let typed_inputs = get_inputs::<f32>(inputs)?;
                 concat(&typed_inputs, self.dim).into_op_result()
             }
             Input::IntTensor(_) => {
-                let typed_inputs: Vec<_> = inputs
-                    .iter()
-                    .flat_map(|in_| {
-                        in_.as_int().ok_or(Err::<&Tensor<i32>, OpError>(
-                            OpError::IncompatibleInputTypes("Concat inputs must have same type"),
-                        ))
-                    })
-                    .collect();
+                let typed_inputs = get_inputs::<i32>(inputs)?;
                 concat(&typed_inputs, self.dim).into_op_result()
             }
         }
