@@ -469,7 +469,7 @@ mod tests {
     use crate::ops::{
         Concat, Conv2d, Input, IntoOpResult, OpError, Operator, Output, Padding, Relu,
     };
-    use crate::tensor::{from_data, from_vec, zeros};
+    use crate::tensor::{from_data, from_vec, zeros, Tensor};
     use crate::test_util::expect_equal;
 
     // Test of a very simple graph with a typical structure (one input, one
@@ -560,7 +560,7 @@ mod tests {
         }
 
         fn run(&self, inputs: &[Input]) -> Result<Vec<Output>, OpError> {
-            let input = inputs[0].as_float().unwrap();
+            let input: &Tensor<f32> = inputs[0].try_into().unwrap();
             let output_data = input.elements().map(|x| x + 1.0).collect();
             from_data(input.shape().into(), output_data).into_op_result()
         }
@@ -705,7 +705,8 @@ mod tests {
             // An operator should normally have the same behavior in `run`
             // and `run_in_place`. Here we use different behavior to make it
             // possible to distinguish which path was used.
-            inputs[0].as_float().unwrap().clone().into_op_result()
+            let input: &Tensor<f32> = inputs[0].try_into().unwrap();
+            input.clone().into_op_result()
         }
 
         fn run_in_place(&self, input: Output, _other: &[Input]) -> Result<Output, OpError> {
@@ -798,7 +799,7 @@ mod tests {
         fn run(&self, inputs: &[Input]) -> Result<Vec<Output>, OpError> {
             self.run_count.set(self.run_count.get() + 1);
 
-            let input = inputs[0].as_float().unwrap();
+            let input: &Tensor<f32> = inputs[0].try_into().unwrap();
             let left_split_len = input.len() / 2;
             let left_split = from_vec(input.elements().take(left_split_len).collect());
             let right_split = from_vec(input.elements().skip(left_split_len).collect());

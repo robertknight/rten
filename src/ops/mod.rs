@@ -64,22 +64,6 @@ impl<'a> Input<'a> {
             Input::IntTensor(t) => t.shape(),
         }
     }
-
-    pub fn as_float(&self) -> Option<&'a Tensor<f32>> {
-        if let Input::FloatTensor(t) = self {
-            Some(t)
-        } else {
-            None
-        }
-    }
-
-    pub fn as_int(&self) -> Option<&'a Tensor<i32>> {
-        if let Input::IntTensor(t) = self {
-            Some(t)
-        } else {
-            None
-        }
-    }
 }
 
 impl<'a> TryFrom<Input<'a>> for &'a Tensor<f32> {
