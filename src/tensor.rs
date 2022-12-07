@@ -284,6 +284,19 @@ impl<T: Copy> Tensor<T> {
         &mut self.data[offset..offset + len]
     }
 
+    /// Return a copy of the elements of this tensor as a contiguous vector
+    /// in row-major order.
+    ///
+    /// This is slightly more efficient than `elements().collect()` in the case
+    /// where the tensor is already contiguous.
+    pub fn elements_vec(&self) -> Vec<T> {
+        if self.is_contiguous() {
+            self.data().to_vec()
+        } else {
+            self.elements().collect()
+        }
+    }
+
     /// Return the underlying element buffer for this tensor.
     ///
     /// If the tensor is contiguous, the buffer will contain the same elements
@@ -1579,6 +1592,19 @@ mod tests {
         let x = from_scalar(5.0);
         let elements = x.elements().collect::<Vec<_>>();
         assert_eq!(&elements, &[5.0]);
+    }
+
+    #[test]
+    fn test_elements_vec() {
+        let mut x = steps(&[3, 3]);
+
+        // Contiguous case. This should use the fast-path.
+        assert_eq!(x.elements_vec(), x.elements().collect::<Vec<_>>());
+
+        // Non-contiguous case.
+        x.clip_dim(1, 0, 2);
+        assert!(!x.is_contiguous());
+        assert_eq!(x.elements_vec(), x.elements().collect::<Vec<_>>());
     }
 
     #[test]

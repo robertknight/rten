@@ -4,7 +4,7 @@ use std::iter::zip;
 
 use crate::model;
 use crate::ops::Input;
-use crate::tensor::{from_data, Tensor};
+use crate::tensor::Tensor;
 
 #[wasm_bindgen]
 pub struct Model {
@@ -73,7 +73,8 @@ impl TensorList {
 
     /// Add a new tensor to the list with the given shape and data.
     pub fn push(&mut self, shape: &[usize], data: &[f32]) {
-        self.tensors.push(from_data(shape.into(), data.into()));
+        self.tensors
+            .push(Tensor::from_data(shape.into(), data.into()));
     }
 
     /// Extract the dimensions of a tensor in the list.
@@ -85,7 +86,7 @@ impl TensorList {
     /// Extract the elements of a tensor in the list.
     #[wasm_bindgen(js_name = getData)]
     pub fn get_data(&self, index: usize) -> Option<Vec<f32>> {
-        self.tensors.get(index).map(|t| t.data().into())
+        self.tensors.get(index).map(|t| t.elements_vec().into())
     }
 
     #[wasm_bindgen(getter)]
