@@ -1,11 +1,10 @@
-import { Model, TensorList } from "./node_modules/wasnn/index.js";
+import { Model, Tensor, TensorList } from "./node_modules/wasnn/index.js";
 
 /**
  * Convert a 224x224 RGB or RGBA image loaded with `loadImage` into CHW tensor
  * data ready for input into an ImageNet classification model, such as MobileNet.
  *
  * @param {ImageData} image
- * @return {Float32Array}
  */
 function tensorFromImage(image) {
   const { width, height, data } = image;
@@ -20,7 +19,7 @@ function tensorFromImage(image) {
   }
 
   const outChannels = 3;
-  const tensor = new Float32Array(height * width * outChannels);
+  const outData = new Float32Array(height * width * outChannels);
 
   const shape = new Uint32Array(4);
   shape[0] = 1;
@@ -41,14 +40,14 @@ function tensorFromImage(image) {
     for (let col = 0; col < width; col++) {
       for (let channel = 0; channel < outChannels; channel++) {
         const pixel = data[inOffset + channel];
-        tensor[channel * (width * height) + row * width + col] =
+        outData[channel * (width * height) + row * width + col] =
           (pixel / 255 - chanMeans[channel]) / chanStdDev[channel];
       }
       inOffset += inChannels;
     }
   }
 
-  return { shape, tensor };
+  return { shape, data: outData };
 }
 
 /**
@@ -91,15 +90,18 @@ export class ImageClassifier {
     const inputId = this.model.findNode("input");
     const outputId = this.model.findNode("output");
 
-    const { shape: inputShape, tensor: inputData } = tensorFromImage(image);
+    const { shape, data } = tensorFromImage(image);
     const inputs = new TensorList();
-    inputs.push(inputShape, inputData);
+
+    const tensor = Tensor.floatTensor(shape, data);
+    inputs.push(tensor);
 
     const outputs = this.model.run([inputId], inputs, [outputId]);
+    const output = outputs.shift();
 
     // `scores` has shape [1, 1000] where the second dimension are the scores for each
     // ImageNet category.
-    const scores = outputs.getData(0);
+    const scores = output.floatData();
     return topK(scores, 5);
   }
 }

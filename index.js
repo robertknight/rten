@@ -1,4 +1,4 @@
-export { default as init, initSync, Model, TensorList } from "./dist/wasnn.js";
+export { default as init, initSync, Model, Tensor, TensorList } from "./dist/wasnn.js";
 
 /**
  * Return true if the current JS environment supports the SIMD extension for
