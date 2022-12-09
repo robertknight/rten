@@ -2,6 +2,7 @@ use wasm_bindgen::prelude::*;
 
 use std::collections::VecDeque;
 use std::iter::zip;
+use std::rc::Rc;
 
 use crate::model;
 use crate::ops::{Input, Output};
@@ -38,7 +39,7 @@ impl Model {
     ) -> Result<TensorList, String> {
         let inputs: Vec<(usize, Input)> = zip(
             input_ids.iter().copied(),
-            input.tensors.iter().map(|tensor| (&tensor.data).into()),
+            input.tensors.iter().map(|tensor| (&*tensor.data).into()),
         )
         .collect();
         let result = self.model.run(&inputs[..], output_ids, None);
@@ -46,7 +47,7 @@ impl Model {
             Ok(outputs) => {
                 let mut list = TensorList::new();
                 for output in outputs.into_iter() {
-                    list.push(Tensor::from_output(output));
+                    list.push(&Tensor::from_output(output));
                 }
                 Ok(list)
             }
@@ -57,8 +58,9 @@ impl Model {
 
 /// A wrapper around a multi-dimensional array model input or output.
 #[wasm_bindgen]
+#[derive(Clone)]
 pub struct Tensor {
-    data: Output,
+    data: Rc<Output>,
 }
 
 #[wasm_bindgen]
@@ -66,17 +68,21 @@ impl Tensor {
     #[wasm_bindgen(js_name = floatTensor)]
     pub fn float_tensor(shape: &[usize], data: &[f32]) -> Tensor {
         let data: Output = tensor::Tensor::from_data(shape.into(), data.into()).into();
-        Tensor { data }
+        Tensor {
+            data: Rc::new(data),
+        }
     }
 
     #[wasm_bindgen(js_name = intTensor)]
     pub fn int_tensor(shape: &[usize], data: &[i32]) -> Tensor {
         let data: Output = tensor::Tensor::from_data(shape.into(), data.into()).into();
-        Tensor { data }
+        Tensor {
+            data: Rc::new(data),
+        }
     }
 
     pub fn shape(&self) -> Vec<usize> {
-        match self.data {
+        match *self.data {
             Output::IntTensor(ref t) => t.shape().into(),
             Output::FloatTensor(ref t) => t.shape().into(),
         }
@@ -84,7 +90,7 @@ impl Tensor {
 
     #[wasm_bindgen(js_name = floatData)]
     pub fn float_data(&self) -> Option<Vec<f32>> {
-        match self.data {
+        match *self.data {
             Output::FloatTensor(ref t) => Some(t.elements_vec()),
             _ => None,
         }
@@ -92,14 +98,14 @@ impl Tensor {
 
     #[wasm_bindgen(js_name = intData)]
     pub fn int_data(&self) -> Option<Vec<i32>> {
-        match self.data {
+        match *self.data {
             Output::IntTensor(ref t) => Some(t.elements_vec()),
             _ => None,
         }
     }
 
     fn from_output(out: Output) -> Tensor {
-        Tensor { data: out }
+        Tensor { data: Rc::new(out) }
     }
 }
 
@@ -125,8 +131,8 @@ impl TensorList {
     }
 
     /// Add a new tensor to the end of the list.
-    pub fn push(&mut self, tensor: Tensor) {
-        self.tensors.push_back(tensor);
+    pub fn push(&mut self, tensor: &Tensor) {
+        self.tensors.push_back(tensor.clone());
     }
 
     /// Remove and return the first tensor from this list.
