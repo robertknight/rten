@@ -1,4 +1,19 @@
-export { default as init, initSync, Model, Tensor, TensorList } from "./dist/wasnn.js";
+export {
+  default as init,
+  initSync,
+  Model,
+  Tensor,
+  TensorList,
+} from "./dist/wasnn.js";
+
+import { TensorList } from "./dist/wasnn.js";
+
+// Make TensorList usable with `Array.from`, `for ... of` etc.
+TensorList.prototype[Symbol.iterator] = function* () {
+  for (let i = 0; i < this.length; i++) {
+    yield this.item(i);
+  }
+};
 
 /**
  * Return true if the current JS environment supports the SIMD extension for

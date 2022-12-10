@@ -1,6 +1,5 @@
 use wasm_bindgen::prelude::*;
 
-use std::collections::VecDeque;
 use std::iter::zip;
 use std::rc::Rc;
 
@@ -112,13 +111,14 @@ impl Tensor {
 /// A list of tensors that can be passed as the input to or received as the
 /// result from a model run.
 ///
-/// Due to wasm-bindgen constraints, this structure has a queue-like interface
-/// that only supports adding and removing items, but not retrieving a reference
-/// to an item at an arbitrary index. JS code will likely want to convert this
-/// into a JS array for more convenient access.
+/// This custom list class exists because wasm-bindgen does not support passing
+/// or returning arrays of custom structs. The interface of this class is
+/// similar to array-like DOM APIs like `NodeList`. Like `NodeList`, TensorList
+/// is iterable and can be converted to an array using `Array.from` (nb. the
+/// iterator implementation is defined in JS).
 #[wasm_bindgen]
 pub struct TensorList {
-    tensors: VecDeque<Tensor>,
+    tensors: Vec<Tensor>,
 }
 
 #[wasm_bindgen]
@@ -126,22 +126,18 @@ impl TensorList {
     #[wasm_bindgen(constructor)]
     pub fn new() -> TensorList {
         TensorList {
-            tensors: VecDeque::new(),
+            tensors: Vec::new(),
         }
     }
 
     /// Add a new tensor to the end of the list.
     pub fn push(&mut self, tensor: &Tensor) {
-        self.tensors.push_back(tensor.clone());
+        self.tensors.push(tensor.clone());
     }
 
-    /// Remove and return the first tensor from this list.
-    ///
-    /// This method is named `shift` as it matches the behavior of
-    /// `Array::shift` in JS.
-    #[wasm_bindgen(js_name = shift)]
-    pub fn shift(&mut self) -> Option<Tensor> {
-        self.tensors.pop_front()
+    /// Return the item at a given index.
+    pub fn item(&self, index: usize) -> Option<Tensor> {
+        self.tensors.get(index).cloned()
     }
 
     #[wasm_bindgen(getter)]

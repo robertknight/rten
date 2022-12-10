@@ -97,7 +97,7 @@ export class ImageClassifier {
     inputs.push(tensor);
 
     const outputs = this.model.run([inputId], inputs, [outputId]);
-    const output = outputs.shift();
+    const output = outputs.item(0);
 
     // `scores` has shape [1, 1000] where the second dimension are the scores for each
     // ImageNet category.
