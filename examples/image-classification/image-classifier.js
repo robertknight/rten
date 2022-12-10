@@ -47,7 +47,7 @@ function tensorFromImage(image) {
     }
   }
 
-  return { shape, data: outData };
+  return Tensor.floatTensor(shape, outData);
 }
 
 /**
@@ -90,12 +90,9 @@ export class ImageClassifier {
     const inputId = this.model.findNode("input");
     const outputId = this.model.findNode("output");
 
-    const { shape, data } = tensorFromImage(image);
-    const inputs = new TensorList();
-
-    const tensor = Tensor.floatTensor(shape, data);
-    inputs.push(tensor);
-
+    const inputs = TensorList.from([
+      tensorFromImage(image)
+    ]);
     const outputs = this.model.run([inputId], inputs, [outputId]);
     const output = outputs.item(0);
 

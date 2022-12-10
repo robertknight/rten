@@ -16,6 +16,17 @@ TensorList.prototype[Symbol.iterator] = function* () {
 };
 
 /**
+ * Construct a TensorList from an iterable, such as an Array, Set etc.
+ */
+TensorList.from = (iterable) => {
+  const list = new TensorList();
+  for (const tensor of iterable) {
+    list.push(tensor);
+  }
+  return list;
+};
+
+/**
  * Return true if the current JS environment supports the SIMD extension for
  * WebAssembly.
  */
