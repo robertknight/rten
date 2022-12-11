@@ -241,6 +241,10 @@ fn read_pad_op(_: &OperatorNode) -> Box<dyn Operator> {
     Box::new(ops::Pad {})
 }
 
+fn read_pow_op(_: &OperatorNode) -> Box<dyn Operator> {
+    Box::new(ops::Pow {})
+}
+
 fn read_relu_op(_: &OperatorNode) -> Box<dyn Operator> {
     Box::new(ops::Relu {})
 }
@@ -343,6 +347,7 @@ fn read_operator(node: &OperatorNode) -> Result<Box<dyn Operator>, String> {
         OperatorType::MaxPool2d => read_max_pool_2d_op(node),
         OperatorType::Mul => read_mul_op(node),
         OperatorType::Pad => read_pad_op(node),
+        OperatorType::Pow => read_pow_op(node),
         OperatorType::Relu => read_relu_op(node),
         OperatorType::Reshape => read_reshape_op(node),
         OperatorType::Shape => read_shape_op(node),
@@ -675,6 +680,9 @@ mod tests {
         let pad_out = builder.add_value("pad_out");
         builder.add_operator("pad", OpType::Pad, &[input_node, pads], &[pad_out]);
 
+        let pow_out = builder.add_value("pow_out");
+        builder.add_operator("pow", OpType::Pow, &[input_node, input_node], &[pow_out]);
+
         let relu_out = builder.add_value("relu_out");
         builder.add_operator("relu", OpType::Relu, &[input_node], &[relu_out]);
 
@@ -775,6 +783,7 @@ mod tests {
             "max_pool_2d_out",
             "mul_out",
             "pad_out",
+            "pow_out",
             "relu_out",
             "reshape_out",
             "shape_out",

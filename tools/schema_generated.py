@@ -26,18 +26,19 @@ class OperatorType(object):
     MaxPool2d = 16
     Mul = 17
     Pad = 18
-    Relu = 19
-    Reshape = 20
-    Shape = 21
-    Sigmoid = 22
-    Slice = 23
-    Split = 24
-    Sqrt = 25
-    Squeeze = 26
-    Softmax = 27
-    Sub = 28
-    Transpose = 29
-    Unsqueeze = 30
+    Pow = 19
+    Relu = 20
+    Reshape = 21
+    Shape = 22
+    Sigmoid = 23
+    Slice = 24
+    Split = 25
+    Sqrt = 26
+    Squeeze = 27
+    Softmax = 28
+    Sub = 29
+    Transpose = 30
+    Unsqueeze = 31
 
 
 class PadMode(object):

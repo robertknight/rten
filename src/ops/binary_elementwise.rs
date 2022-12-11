@@ -232,6 +232,47 @@ impl Operator for Mul {
     }
 }
 
+/// Raise elements of `a` to powers of corresponding elements in `b`.
+pub fn pow(a: &Tensor, b: &Tensor) -> Result<Tensor, OpError> {
+    binary_op(a, b, |x, y| x.powf(y))
+}
+
+/// Perform in-place raise of elements of `a` to power of corresponding elements in `b`.
+pub fn pow_in_place(a: &mut Tensor, b: &Tensor) {
+    binary_op_in_place(a, b, |a_elt, b_elt| *a_elt = a_elt.powf(b_elt));
+}
+
+#[derive(Debug)]
+pub struct Pow {}
+
+impl Operator for Pow {
+    fn name(&self) -> &str {
+        "Pow"
+    }
+
+    fn run(&self, inputs: &[Input]) -> Result<Vec<Output>, OpError> {
+        let a = get_input(inputs, 0)?;
+        let b = get_input(inputs, 1)?;
+        pow(a, b).into_op_result()
+    }
+
+    fn can_run_in_place(&self) -> bool {
+        true
+    }
+
+    fn run_in_place(&self, input: Output, other: &[Input]) -> Result<Output, OpError> {
+        let mut a = input.into_float().ok_or(OpError::UnsupportedInputType)?;
+        let b = get_input(other, 0)?;
+
+        if can_run_binary_op_in_place(&a, b) {
+            pow_in_place(&mut a, b);
+            Ok(a.into())
+        } else {
+            pow(&a, b).map(|t| t.into())
+        }
+    }
+}
+
 /// Perform elementwise subtraction of two tensors.
 pub fn sub(a: &Tensor, b: &Tensor) -> Result<Tensor, OpError> {
     binary_op(a, b, |x, y| x - y)
@@ -276,8 +317,8 @@ impl Operator for Sub {
 #[cfg(test)]
 mod tests {
     use crate::ops::{
-        add, add_in_place, div, div_in_place, mul, mul_in_place, sub, sub_in_place, Add, OpError,
-        Operator, Output,
+        add, add_in_place, div, div_in_place, mul, mul_in_place, pow, pow_in_place, sub,
+        sub_in_place, Add, OpError, Operator, Output,
     };
     use crate::tensor::{from_data, from_scalar, from_vec};
     use crate::test_util::expect_equal;
@@ -418,6 +459,24 @@ mod tests {
         let b = from_data(vec![2, 2], vec![10., 20., 30., 40.]);
         let expected = from_data(vec![2, 2], vec![10., 40., 90., 160.]);
         mul_in_place(&mut a, &b);
+        expect_equal(&a, &expected)
+    }
+
+    #[test]
+    fn test_pow() -> Result<(), String> {
+        let a = from_vec(vec![2., 3., 4.]);
+        let b = from_scalar(2.);
+        let expected = from_vec(vec![4., 9., 16.]);
+        let result = pow(&a, &b).unwrap();
+        expect_equal(&result, &expected)
+    }
+
+    #[test]
+    fn test_pow_in_place() -> Result<(), String> {
+        let mut a = from_vec(vec![2., 3., 4.]);
+        let b = from_scalar(2.);
+        let expected = from_vec(vec![4., 9., 16.]);
+        pow_in_place(&mut a, &b);
         expect_equal(&a, &expected)
     }
 

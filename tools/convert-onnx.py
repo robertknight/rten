@@ -455,6 +455,9 @@ def op_node_from_onnx_operator(
 
             check_unsupported_attr(onnx_op.attribute, "mode", "string", "constant")
 
+        case "Pow":
+            op_type = "Pow"
+
         case "Shape":
             op_type = "Shape"
 
@@ -748,6 +751,8 @@ def build_operator_node(builder: flatbuffers.Builder, operator: OperatorNode):
             op_type_code = sg.OperatorType.Reshape
         case "Pad":
             op_type_code = sg.OperatorType.Pad
+        case "Pow":
+            op_type_code = sg.OperatorType.Pow
         case "Shape":
             op_type_code = sg.OperatorType.Shape
         case "Sigmoid":
