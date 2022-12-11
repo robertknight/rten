@@ -32,6 +32,7 @@ enum OperatorType: byte {
   Sigmoid,
   Slice,
   Split,
+  Sqrt,
   Squeeze,
   Softmax,
   Sub,

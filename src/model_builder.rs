@@ -38,6 +38,7 @@ pub enum OpType {
     Slice,
     Softmax(Softmax),
     Split(Split),
+    Sqrt,
     Squeeze(Squeeze),
     Sub,
     Transpose(Transpose),
@@ -406,6 +407,7 @@ impl<'a> ModelBuilder<'a> {
                     ),
                 )
             }
+            OpType::Sqrt => (OT::Sqrt, no_attrs, None),
             OpType::Squeeze(args) => {
                 let axes = self.create_u32_vec(args.axes);
                 (

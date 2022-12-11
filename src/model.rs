@@ -283,6 +283,10 @@ fn read_split_op(node: &OperatorNode) -> Box<dyn Operator> {
     Box::new(ops::Split { axis, split })
 }
 
+fn read_sqrt_op(_: &OperatorNode) -> Box<dyn Operator> {
+    Box::new(ops::Sqrt {})
+}
+
 fn read_squeeze_op(node: &OperatorNode) -> Box<dyn Operator> {
     let mut axes: Option<Vec<usize>> = None;
     if let Some(attrs) = node.attrs_as_squeeze_attrs() {
@@ -346,6 +350,7 @@ fn read_operator(node: &OperatorNode) -> Result<Box<dyn Operator>, String> {
         OperatorType::Slice => read_slice_op(node),
         OperatorType::Softmax => read_softmax_op(node),
         OperatorType::Split => read_split_op(node),
+        OperatorType::Sqrt => read_sqrt_op(node),
         OperatorType::Squeeze => read_squeeze_op(node),
         OperatorType::Sub => read_sub_op(node),
         OperatorType::Transpose => read_transpose_op(node),
@@ -706,6 +711,9 @@ mod tests {
             &[softmax_out],
         );
 
+        let sqrt_out = builder.add_value("sqrt_out");
+        builder.add_operator("sqrt", OpType::Sqrt, &[input_node], &[sqrt_out]);
+
         let squeeze_out = builder.add_value("squeeze_out");
         builder.add_operator(
             "squeeze",
@@ -773,6 +781,7 @@ mod tests {
             "sigmoid_out",
             "slice_out",
             "softmax_out",
+            "sqrt_out",
             "squeeze_out",
             "sub_out",
             "transpose_out",

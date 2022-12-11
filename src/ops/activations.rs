@@ -205,11 +205,45 @@ impl Operator for Softmax {
     }
 }
 
+pub fn sqrt(input: &Tensor) -> Tensor {
+    input.map(|x| x.sqrt())
+}
+
+pub fn sqrt_in_place(input: &mut Tensor) {
+    for val in input.data_mut().iter_mut() {
+        *val = val.sqrt();
+    }
+}
+
+#[derive(Debug)]
+pub struct Sqrt {}
+
+impl Operator for Sqrt {
+    fn name(&self) -> &str {
+        "Sqrt"
+    }
+
+    fn run(&self, inputs: &[Input]) -> Result<Vec<Output>, OpError> {
+        let input: &Tensor<f32> = get_input(inputs, 0)?;
+        sqrt(input).into_op_result()
+    }
+
+    fn can_run_in_place(&self) -> bool {
+        true
+    }
+
+    fn run_in_place(&self, input: Output, _other: &[Input]) -> Result<Output, OpError> {
+        let mut output = input.into_float().ok_or(OpError::UnsupportedInputType)?;
+        sqrt_in_place(&mut output);
+        Ok(output.into())
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use crate::ops::{
         clip, clip_in_place, leaky_relu, leaky_relu_in_place, relu, relu_in_place, sigmoid,
-        sigmoid_in_place, softmax,
+        sigmoid_in_place, softmax, sqrt, sqrt_in_place,
     };
     use crate::rng::XorShiftRNG;
     use crate::tensor::{from_data, from_vec, rand};
@@ -357,5 +391,21 @@ mod tests {
         let result = softmax(&input, 1);
         assert_eq!(result.shape(), input.shape());
         assert!((result.elements().sum::<f32>() - 1.0).abs() < 0.001);
+    }
+
+    #[test]
+    fn test_sqrt() -> Result<(), String> {
+        let input = from_vec(vec![4., 9., 16.]);
+        let expected = from_vec(vec![2., 3., 4.]);
+        let result = sqrt(&input);
+        expect_equal(&result, &expected)
+    }
+
+    #[test]
+    fn test_sqrt_in_place() -> Result<(), String> {
+        let mut input = from_vec(vec![4., 9., 16.]);
+        let expected = from_vec(vec![2., 3., 4.]);
+        sqrt_in_place(&mut input);
+        expect_equal(&input, &expected)
     }
 }

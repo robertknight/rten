@@ -18,13 +18,13 @@ pub const ENUM_MIN_OPERATOR_TYPE: i8 = 0;
     since = "2.0.0",
     note = "Use associated constants instead. This will no longer be generated in 2021."
 )]
-pub const ENUM_MAX_OPERATOR_TYPE: i8 = 29;
+pub const ENUM_MAX_OPERATOR_TYPE: i8 = 30;
 #[deprecated(
     since = "2.0.0",
     note = "Use associated constants instead. This will no longer be generated in 2021."
 )]
 #[allow(non_camel_case_types)]
-pub const ENUM_VALUES_OPERATOR_TYPE: [OperatorType; 30] = [
+pub const ENUM_VALUES_OPERATOR_TYPE: [OperatorType; 31] = [
     OperatorType::Add,
     OperatorType::AveragePool2d,
     OperatorType::BatchNormalization,
@@ -50,6 +50,7 @@ pub const ENUM_VALUES_OPERATOR_TYPE: [OperatorType; 30] = [
     OperatorType::Sigmoid,
     OperatorType::Slice,
     OperatorType::Split,
+    OperatorType::Sqrt,
     OperatorType::Squeeze,
     OperatorType::Softmax,
     OperatorType::Sub,
@@ -87,14 +88,15 @@ impl OperatorType {
     pub const Sigmoid: Self = Self(22);
     pub const Slice: Self = Self(23);
     pub const Split: Self = Self(24);
-    pub const Squeeze: Self = Self(25);
-    pub const Softmax: Self = Self(26);
-    pub const Sub: Self = Self(27);
-    pub const Transpose: Self = Self(28);
-    pub const Unsqueeze: Self = Self(29);
+    pub const Sqrt: Self = Self(25);
+    pub const Squeeze: Self = Self(26);
+    pub const Softmax: Self = Self(27);
+    pub const Sub: Self = Self(28);
+    pub const Transpose: Self = Self(29);
+    pub const Unsqueeze: Self = Self(30);
 
     pub const ENUM_MIN: i8 = 0;
-    pub const ENUM_MAX: i8 = 29;
+    pub const ENUM_MAX: i8 = 30;
     pub const ENUM_VALUES: &'static [Self] = &[
         Self::Add,
         Self::AveragePool2d,
@@ -121,6 +123,7 @@ impl OperatorType {
         Self::Sigmoid,
         Self::Slice,
         Self::Split,
+        Self::Sqrt,
         Self::Squeeze,
         Self::Softmax,
         Self::Sub,
@@ -155,6 +158,7 @@ impl OperatorType {
             Self::Sigmoid => Some("Sigmoid"),
             Self::Slice => Some("Slice"),
             Self::Split => Some("Split"),
+            Self::Sqrt => Some("Sqrt"),
             Self::Squeeze => Some("Squeeze"),
             Self::Softmax => Some("Softmax"),
             Self::Sub => Some("Sub"),

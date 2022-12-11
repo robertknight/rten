@@ -32,11 +32,12 @@ class OperatorType(object):
     Sigmoid = 22
     Slice = 23
     Split = 24
-    Squeeze = 25
-    Softmax = 26
-    Sub = 27
-    Transpose = 28
-    Unsqueeze = 29
+    Sqrt = 25
+    Squeeze = 26
+    Softmax = 27
+    Sub = 28
+    Transpose = 29
+    Unsqueeze = 30
 
 
 class PadMode(object):

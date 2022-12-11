@@ -13,9 +13,9 @@ mod pooling;
 
 pub use activations::{
     clip, clip_in_place, leaky_relu, leaky_relu_in_place, relu, relu_in_place, sigmoid,
-    sigmoid_in_place, softmax,
+    sigmoid_in_place, softmax, sqrt, sqrt_in_place,
 };
-pub use activations::{Clip, LeakyRelu, Relu, Sigmoid, Softmax};
+pub use activations::{Clip, LeakyRelu, Relu, Sigmoid, Softmax, Sqrt};
 pub use binary_elementwise::{
     add, add_in_place, choose_broadcast_shape, div, div_in_place, mul, mul_in_place, sub,
     sub_in_place,

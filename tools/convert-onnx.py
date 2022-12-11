@@ -480,6 +480,9 @@ def op_node_from_onnx_operator(
 
             check_unsupported_attr(onnx_op.attribute, "num_outputs", "int", 0)
 
+        case "Sqrt":
+            op_type = "Sqrt"
+
         case "Squeeze":
             op_type = "Squeeze"
 
@@ -773,6 +776,9 @@ def build_operator_node(builder: flatbuffers.Builder, operator: OperatorNode):
             if split_vec:
                 sg.SplitAttrsAddSplit(builder, split_vec)
             attrs = sg.SplitAttrsEnd(builder)
+
+        case "Sqrt":
+            op_type_code = sg.OperatorType.Sqrt
 
         case "Squeeze":
             op_type_code = sg.OperatorType.Squeeze
