@@ -18,13 +18,13 @@ pub const ENUM_MIN_OPERATOR_TYPE: i8 = 0;
     since = "2.0.0",
     note = "Use associated constants instead. This will no longer be generated in 2021."
 )]
-pub const ENUM_MAX_OPERATOR_TYPE: i8 = 31;
+pub const ENUM_MAX_OPERATOR_TYPE: i8 = 32;
 #[deprecated(
     since = "2.0.0",
     note = "Use associated constants instead. This will no longer be generated in 2021."
 )]
 #[allow(non_camel_case_types)]
-pub const ENUM_VALUES_OPERATOR_TYPE: [OperatorType; 32] = [
+pub const ENUM_VALUES_OPERATOR_TYPE: [OperatorType; 33] = [
     OperatorType::Add,
     OperatorType::AveragePool2d,
     OperatorType::BatchNormalization,
@@ -45,6 +45,7 @@ pub const ENUM_VALUES_OPERATOR_TYPE: [OperatorType; 32] = [
     OperatorType::Mul,
     OperatorType::Pad,
     OperatorType::Pow,
+    OperatorType::ReduceMean,
     OperatorType::Relu,
     OperatorType::Reshape,
     OperatorType::Shape,
@@ -84,21 +85,22 @@ impl OperatorType {
     pub const Mul: Self = Self(17);
     pub const Pad: Self = Self(18);
     pub const Pow: Self = Self(19);
-    pub const Relu: Self = Self(20);
-    pub const Reshape: Self = Self(21);
-    pub const Shape: Self = Self(22);
-    pub const Sigmoid: Self = Self(23);
-    pub const Slice: Self = Self(24);
-    pub const Split: Self = Self(25);
-    pub const Sqrt: Self = Self(26);
-    pub const Squeeze: Self = Self(27);
-    pub const Softmax: Self = Self(28);
-    pub const Sub: Self = Self(29);
-    pub const Transpose: Self = Self(30);
-    pub const Unsqueeze: Self = Self(31);
+    pub const ReduceMean: Self = Self(20);
+    pub const Relu: Self = Self(21);
+    pub const Reshape: Self = Self(22);
+    pub const Shape: Self = Self(23);
+    pub const Sigmoid: Self = Self(24);
+    pub const Slice: Self = Self(25);
+    pub const Split: Self = Self(26);
+    pub const Sqrt: Self = Self(27);
+    pub const Squeeze: Self = Self(28);
+    pub const Softmax: Self = Self(29);
+    pub const Sub: Self = Self(30);
+    pub const Transpose: Self = Self(31);
+    pub const Unsqueeze: Self = Self(32);
 
     pub const ENUM_MIN: i8 = 0;
-    pub const ENUM_MAX: i8 = 31;
+    pub const ENUM_MAX: i8 = 32;
     pub const ENUM_VALUES: &'static [Self] = &[
         Self::Add,
         Self::AveragePool2d,
@@ -120,6 +122,7 @@ impl OperatorType {
         Self::Mul,
         Self::Pad,
         Self::Pow,
+        Self::ReduceMean,
         Self::Relu,
         Self::Reshape,
         Self::Shape,
@@ -156,6 +159,7 @@ impl OperatorType {
             Self::Mul => Some("Mul"),
             Self::Pad => Some("Pad"),
             Self::Pow => Some("Pow"),
+            Self::ReduceMean => Some("ReduceMean"),
             Self::Relu => Some("Relu"),
             Self::Reshape => Some("Reshape"),
             Self::Shape => Some("Shape"),
@@ -417,13 +421,13 @@ pub const ENUM_MIN_OPERATOR_ATTRS: u8 = 0;
     since = "2.0.0",
     note = "Use associated constants instead. This will no longer be generated in 2021."
 )]
-pub const ENUM_MAX_OPERATOR_ATTRS: u8 = 18;
+pub const ENUM_MAX_OPERATOR_ATTRS: u8 = 19;
 #[deprecated(
     since = "2.0.0",
     note = "Use associated constants instead. This will no longer be generated in 2021."
 )]
 #[allow(non_camel_case_types)]
-pub const ENUM_VALUES_OPERATOR_ATTRS: [OperatorAttrs; 19] = [
+pub const ENUM_VALUES_OPERATOR_ATTRS: [OperatorAttrs; 20] = [
     OperatorAttrs::NONE,
     OperatorAttrs::AveragePool2dAttrs,
     OperatorAttrs::BatchNormalizationAttrs,
@@ -438,6 +442,7 @@ pub const ENUM_VALUES_OPERATOR_ATTRS: [OperatorAttrs; 19] = [
     OperatorAttrs::LeakyReluAttrs,
     OperatorAttrs::MaxPool2dAttrs,
     OperatorAttrs::PadAttrs,
+    OperatorAttrs::ReduceMeanAttrs,
     OperatorAttrs::SplitAttrs,
     OperatorAttrs::SqueezeAttrs,
     OperatorAttrs::SoftmaxAttrs,
@@ -464,14 +469,15 @@ impl OperatorAttrs {
     pub const LeakyReluAttrs: Self = Self(11);
     pub const MaxPool2dAttrs: Self = Self(12);
     pub const PadAttrs: Self = Self(13);
-    pub const SplitAttrs: Self = Self(14);
-    pub const SqueezeAttrs: Self = Self(15);
-    pub const SoftmaxAttrs: Self = Self(16);
-    pub const TransposeAttrs: Self = Self(17);
-    pub const UnsqueezeAttrs: Self = Self(18);
+    pub const ReduceMeanAttrs: Self = Self(14);
+    pub const SplitAttrs: Self = Self(15);
+    pub const SqueezeAttrs: Self = Self(16);
+    pub const SoftmaxAttrs: Self = Self(17);
+    pub const TransposeAttrs: Self = Self(18);
+    pub const UnsqueezeAttrs: Self = Self(19);
 
     pub const ENUM_MIN: u8 = 0;
-    pub const ENUM_MAX: u8 = 18;
+    pub const ENUM_MAX: u8 = 19;
     pub const ENUM_VALUES: &'static [Self] = &[
         Self::NONE,
         Self::AveragePool2dAttrs,
@@ -487,6 +493,7 @@ impl OperatorAttrs {
         Self::LeakyReluAttrs,
         Self::MaxPool2dAttrs,
         Self::PadAttrs,
+        Self::ReduceMeanAttrs,
         Self::SplitAttrs,
         Self::SqueezeAttrs,
         Self::SoftmaxAttrs,
@@ -510,6 +517,7 @@ impl OperatorAttrs {
             Self::LeakyReluAttrs => Some("LeakyReluAttrs"),
             Self::MaxPool2dAttrs => Some("MaxPool2dAttrs"),
             Self::PadAttrs => Some("PadAttrs"),
+            Self::ReduceMeanAttrs => Some("ReduceMeanAttrs"),
             Self::SplitAttrs => Some("SplitAttrs"),
             Self::SqueezeAttrs => Some("SqueezeAttrs"),
             Self::SoftmaxAttrs => Some("SoftmaxAttrs"),
@@ -2268,6 +2276,130 @@ impl core::fmt::Debug for PadAttrs<'_> {
         ds.finish()
     }
 }
+pub enum ReduceMeanAttrsOffset {}
+#[derive(Copy, Clone, PartialEq)]
+
+pub struct ReduceMeanAttrs<'a> {
+    pub _tab: flatbuffers::Table<'a>,
+}
+
+impl<'a> flatbuffers::Follow<'a> for ReduceMeanAttrs<'a> {
+    type Inner = ReduceMeanAttrs<'a>;
+    #[inline]
+    fn follow(buf: &'a [u8], loc: usize) -> Self::Inner {
+        Self {
+            _tab: flatbuffers::Table { buf, loc },
+        }
+    }
+}
+
+impl<'a> ReduceMeanAttrs<'a> {
+    pub const VT_AXES: flatbuffers::VOffsetT = 4;
+    pub const VT_KEEP_DIMS: flatbuffers::VOffsetT = 6;
+
+    #[inline]
+    pub fn init_from_table(table: flatbuffers::Table<'a>) -> Self {
+        ReduceMeanAttrs { _tab: table }
+    }
+    #[allow(unused_mut)]
+    pub fn create<'bldr: 'args, 'args: 'mut_bldr, 'mut_bldr>(
+        _fbb: &'mut_bldr mut flatbuffers::FlatBufferBuilder<'bldr>,
+        args: &'args ReduceMeanAttrsArgs<'args>,
+    ) -> flatbuffers::WIPOffset<ReduceMeanAttrs<'bldr>> {
+        let mut builder = ReduceMeanAttrsBuilder::new(_fbb);
+        if let Some(x) = args.axes {
+            builder.add_axes(x);
+        }
+        builder.add_keep_dims(args.keep_dims);
+        builder.finish()
+    }
+
+    #[inline]
+    pub fn axes(&self) -> Option<flatbuffers::Vector<'a, i32>> {
+        self._tab
+            .get::<flatbuffers::ForwardsUOffset<flatbuffers::Vector<'a, i32>>>(
+                ReduceMeanAttrs::VT_AXES,
+                None,
+            )
+    }
+    #[inline]
+    pub fn keep_dims(&self) -> bool {
+        self._tab
+            .get::<bool>(ReduceMeanAttrs::VT_KEEP_DIMS, Some(false))
+            .unwrap()
+    }
+}
+
+impl flatbuffers::Verifiable for ReduceMeanAttrs<'_> {
+    #[inline]
+    fn run_verifier(
+        v: &mut flatbuffers::Verifier,
+        pos: usize,
+    ) -> Result<(), flatbuffers::InvalidFlatbuffer> {
+        use self::flatbuffers::Verifiable;
+        v.visit_table(pos)?
+            .visit_field::<flatbuffers::ForwardsUOffset<flatbuffers::Vector<'_, i32>>>(
+                "axes",
+                Self::VT_AXES,
+                false,
+            )?
+            .visit_field::<bool>("keep_dims", Self::VT_KEEP_DIMS, false)?
+            .finish();
+        Ok(())
+    }
+}
+pub struct ReduceMeanAttrsArgs<'a> {
+    pub axes: Option<flatbuffers::WIPOffset<flatbuffers::Vector<'a, i32>>>,
+    pub keep_dims: bool,
+}
+impl<'a> Default for ReduceMeanAttrsArgs<'a> {
+    #[inline]
+    fn default() -> Self {
+        ReduceMeanAttrsArgs {
+            axes: None,
+            keep_dims: false,
+        }
+    }
+}
+
+pub struct ReduceMeanAttrsBuilder<'a: 'b, 'b> {
+    fbb_: &'b mut flatbuffers::FlatBufferBuilder<'a>,
+    start_: flatbuffers::WIPOffset<flatbuffers::TableUnfinishedWIPOffset>,
+}
+impl<'a: 'b, 'b> ReduceMeanAttrsBuilder<'a, 'b> {
+    #[inline]
+    pub fn add_axes(&mut self, axes: flatbuffers::WIPOffset<flatbuffers::Vector<'b, i32>>) {
+        self.fbb_
+            .push_slot_always::<flatbuffers::WIPOffset<_>>(ReduceMeanAttrs::VT_AXES, axes);
+    }
+    #[inline]
+    pub fn add_keep_dims(&mut self, keep_dims: bool) {
+        self.fbb_
+            .push_slot::<bool>(ReduceMeanAttrs::VT_KEEP_DIMS, keep_dims, false);
+    }
+    #[inline]
+    pub fn new(_fbb: &'b mut flatbuffers::FlatBufferBuilder<'a>) -> ReduceMeanAttrsBuilder<'a, 'b> {
+        let start = _fbb.start_table();
+        ReduceMeanAttrsBuilder {
+            fbb_: _fbb,
+            start_: start,
+        }
+    }
+    #[inline]
+    pub fn finish(self) -> flatbuffers::WIPOffset<ReduceMeanAttrs<'a>> {
+        let o = self.fbb_.end_table(self.start_);
+        flatbuffers::WIPOffset::new(o.value())
+    }
+}
+
+impl core::fmt::Debug for ReduceMeanAttrs<'_> {
+    fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
+        let mut ds = f.debug_struct("ReduceMeanAttrs");
+        ds.field("axes", &self.axes());
+        ds.field("keep_dims", &self.keep_dims());
+        ds.finish()
+    }
+}
 pub enum SoftmaxAttrsOffset {}
 #[derive(Copy, Clone, PartialEq)]
 
@@ -3020,6 +3152,16 @@ impl<'a> OperatorNode<'a> {
 
     #[inline]
     #[allow(non_snake_case)]
+    pub fn attrs_as_reduce_mean_attrs(&self) -> Option<ReduceMeanAttrs<'a>> {
+        if self.attrs_type() == OperatorAttrs::ReduceMeanAttrs {
+            self.attrs().map(ReduceMeanAttrs::init_from_table)
+        } else {
+            None
+        }
+    }
+
+    #[inline]
+    #[allow(non_snake_case)]
     pub fn attrs_as_split_attrs(&self) -> Option<SplitAttrs<'a>> {
         if self.attrs_type() == OperatorAttrs::SplitAttrs {
             self.attrs().map(SplitAttrs::init_from_table)
@@ -3093,6 +3235,7 @@ impl flatbuffers::Verifiable for OperatorNode<'_> {
           OperatorAttrs::LeakyReluAttrs => v.verify_union_variant::<flatbuffers::ForwardsUOffset<LeakyReluAttrs>>("OperatorAttrs::LeakyReluAttrs", pos),
           OperatorAttrs::MaxPool2dAttrs => v.verify_union_variant::<flatbuffers::ForwardsUOffset<MaxPool2dAttrs>>("OperatorAttrs::MaxPool2dAttrs", pos),
           OperatorAttrs::PadAttrs => v.verify_union_variant::<flatbuffers::ForwardsUOffset<PadAttrs>>("OperatorAttrs::PadAttrs", pos),
+          OperatorAttrs::ReduceMeanAttrs => v.verify_union_variant::<flatbuffers::ForwardsUOffset<ReduceMeanAttrs>>("OperatorAttrs::ReduceMeanAttrs", pos),
           OperatorAttrs::SplitAttrs => v.verify_union_variant::<flatbuffers::ForwardsUOffset<SplitAttrs>>("OperatorAttrs::SplitAttrs", pos),
           OperatorAttrs::SqueezeAttrs => v.verify_union_variant::<flatbuffers::ForwardsUOffset<SqueezeAttrs>>("OperatorAttrs::SqueezeAttrs", pos),
           OperatorAttrs::SoftmaxAttrs => v.verify_union_variant::<flatbuffers::ForwardsUOffset<SoftmaxAttrs>>("OperatorAttrs::SoftmaxAttrs", pos),
@@ -3303,6 +3446,16 @@ impl core::fmt::Debug for OperatorNode<'_> {
             }
             OperatorAttrs::PadAttrs => {
                 if let Some(x) = self.attrs_as_pad_attrs() {
+                    ds.field("attrs", &x)
+                } else {
+                    ds.field(
+                        "attrs",
+                        &"InvalidFlatbuffer: Union discriminant does not match value.",
+                    )
+                }
+            }
+            OperatorAttrs::ReduceMeanAttrs => {
+                if let Some(x) = self.attrs_as_reduce_mean_attrs() {
                     ds.field("attrs", &x)
                 } else {
                     ds.field(

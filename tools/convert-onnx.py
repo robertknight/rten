@@ -442,6 +442,12 @@ def op_node_from_onnx_operator(
         case "Mul":
             op_type = "Mul"
 
+        case "ReduceMean":
+            op_type = "ReduceMean"
+
+            attrs["axes"] = get_attr(onnx_op.attribute, "axes", "ints", None)
+            attrs["keep_dims"] = bool(get_attr(onnx_op.attribute, "keepdims", "int", 1))
+
         case "Relu":
             op_type = "Relu"
 
@@ -745,14 +751,30 @@ def build_operator_node(builder: flatbuffers.Builder, operator: OperatorNode):
             attrs = sg.MaxPool2dAttrsEnd(builder)
         case "Mul":
             op_type_code = sg.OperatorType.Mul
-        case "Relu":
-            op_type_code = sg.OperatorType.Relu
-        case "Reshape":
-            op_type_code = sg.OperatorType.Reshape
         case "Pad":
             op_type_code = sg.OperatorType.Pad
         case "Pow":
             op_type_code = sg.OperatorType.Pow
+        case "ReduceMean":
+            op_type_code = sg.OperatorType.ReduceMean
+            attrs_type = sg.OperatorAttrs.ReduceMeanAttrs
+
+            axes = cast(list[int] | None, operator.attrs["axes"])
+            if axes:
+                sg.ReduceMeanAttrsStartAxesVector(builder, len(axes))
+                for item in reversed(axes):
+                    builder.PrependInt32(item)
+                axes_vec = builder.EndVector()
+
+            sg.ReduceMeanAttrsStart(builder)
+            sg.ReduceMeanAttrsAddKeepDims(builder, operator.attrs["keep_dims"])
+            if axes_vec:
+                sg.ReduceMeanAttrsAddAxes(builder, axes_vec)
+            attrs = sg.ReduceMeanAttrsEnd(builder)
+        case "Relu":
+            op_type_code = sg.OperatorType.Relu
+        case "Reshape":
+            op_type_code = sg.OperatorType.Reshape
         case "Shape":
             op_type_code = sg.OperatorType.Shape
         case "Sigmoid":

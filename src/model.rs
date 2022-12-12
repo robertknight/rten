@@ -245,6 +245,18 @@ fn read_pow_op(_: &OperatorNode) -> Box<dyn Operator> {
     Box::new(ops::Pow {})
 }
 
+fn read_reduce_mean_op(node: &OperatorNode) -> Box<dyn Operator> {
+    let mut keep_dims = true;
+    let mut axes: Option<Vec<i32>> = None;
+    if let Some(attrs) = node.attrs_as_reduce_mean_attrs() {
+        if let Some(axes_vec) = attrs.axes() {
+            axes = Some(axes_vec.iter().collect());
+        }
+        keep_dims = attrs.keep_dims();
+    }
+    Box::new(ops::ReduceMean { axes, keep_dims })
+}
+
 fn read_relu_op(_: &OperatorNode) -> Box<dyn Operator> {
     Box::new(ops::Relu {})
 }
@@ -348,6 +360,7 @@ fn read_operator(node: &OperatorNode) -> Result<Box<dyn Operator>, String> {
         OperatorType::Mul => read_mul_op(node),
         OperatorType::Pad => read_pad_op(node),
         OperatorType::Pow => read_pow_op(node),
+        OperatorType::ReduceMean => read_reduce_mean_op(node),
         OperatorType::Relu => read_relu_op(node),
         OperatorType::Reshape => read_reshape_op(node),
         OperatorType::Shape => read_shape_op(node),
@@ -683,6 +696,17 @@ mod tests {
         let pow_out = builder.add_value("pow_out");
         builder.add_operator("pow", OpType::Pow, &[input_node, input_node], &[pow_out]);
 
+        let reduce_mean_out = builder.add_value("reduce_mean_out");
+        builder.add_operator(
+            "reduce_mean",
+            OpType::ReduceMean(ops::ReduceMean {
+                axes: None,
+                keep_dims: false,
+            }),
+            &[input_node],
+            &[reduce_mean_out],
+        );
+
         let relu_out = builder.add_value("relu_out");
         builder.add_operator("relu", OpType::Relu, &[input_node], &[relu_out]);
 
@@ -784,6 +808,7 @@ mod tests {
             "mul_out",
             "pad_out",
             "pow_out",
+            "reduce_mean_out",
             "relu_out",
             "reshape_out",
             "shape_out",

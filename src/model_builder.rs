@@ -4,8 +4,8 @@ use flatbuffers::{FlatBufferBuilder, UnionWIPOffset, Vector, WIPOffset};
 
 use crate::ops::{
     AveragePool2d, BatchNormalization, Cast, Clip, Concat, ConstantOfShape, Conv2d,
-    ConvTranspose2d, DataType, Gather, Gemm, LeakyRelu, MaxPool2d, Padding, Softmax, Split,
-    Squeeze, Transpose, Unsqueeze,
+    ConvTranspose2d, DataType, Gather, Gemm, LeakyRelu, MaxPool2d, Padding, ReduceMean, Softmax,
+    Split, Squeeze, Transpose, Unsqueeze,
 };
 use crate::schema_generated as sg;
 use crate::tensor::Tensor;
@@ -32,6 +32,7 @@ pub enum OpType {
     Mul,
     Pad,
     Pow,
+    ReduceMean(ReduceMean),
     Relu,
     Reshape,
     Shape,
@@ -176,6 +177,15 @@ impl<'a> ModelBuilder<'a> {
         let vec_u32: Option<Vec<u32>> =
             data.map(|vec| vec.iter().map(|&item| item as u32).collect());
         vec_u32.map(|v| self.builder.create_vector(&v))
+    }
+
+    fn create_i32_vec<'fbb>(
+        &mut self,
+        data: Option<Vec<i32>>,
+    ) -> Option<WIPOffset<Vector<'a, i32>>> {
+        let vec_i32: Option<Vec<i32>> =
+            data.map(|vec| vec.iter().map(|&item| item as i32).collect());
+        vec_i32.map(|v| self.builder.create_vector(&v))
     }
 
     /// Add an operator node to the model
@@ -374,6 +384,23 @@ impl<'a> ModelBuilder<'a> {
             OpType::Mul => (OT::Mul, no_attrs, None),
             OpType::Pad => (OT::Pad, no_attrs, None),
             OpType::Pow => (OT::Pow, no_attrs, None),
+            OpType::ReduceMean(args) => {
+                let axes = self.create_i32_vec(args.axes);
+                (
+                    OT::ReduceMean,
+                    OA::ReduceMeanAttrs,
+                    Some(
+                        sg::ReduceMeanAttrs::create(
+                            &mut self.builder,
+                            &sg::ReduceMeanAttrsArgs {
+                                axes,
+                                keep_dims: args.keep_dims,
+                            },
+                        )
+                        .as_union_value(),
+                    ),
+                )
+            }
             OpType::Relu => (OT::Relu, no_attrs, None),
             OpType::Reshape => (OT::Reshape, no_attrs, None),
             OpType::Shape => (OT::Shape, no_attrs, None),

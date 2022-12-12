@@ -27,18 +27,19 @@ class OperatorType(object):
     Mul = 17
     Pad = 18
     Pow = 19
-    Relu = 20
-    Reshape = 21
-    Shape = 22
-    Sigmoid = 23
-    Slice = 24
-    Split = 25
-    Sqrt = 26
-    Squeeze = 27
-    Softmax = 28
-    Sub = 29
-    Transpose = 30
-    Unsqueeze = 31
+    ReduceMean = 20
+    Relu = 21
+    Reshape = 22
+    Shape = 23
+    Sigmoid = 24
+    Slice = 25
+    Split = 26
+    Sqrt = 27
+    Squeeze = 28
+    Softmax = 29
+    Sub = 30
+    Transpose = 31
+    Unsqueeze = 32
 
 
 class PadMode(object):
@@ -66,11 +67,12 @@ class OperatorAttrs(object):
     LeakyReluAttrs = 11
     MaxPool2dAttrs = 12
     PadAttrs = 13
-    SplitAttrs = 14
-    SqueezeAttrs = 15
-    SoftmaxAttrs = 16
-    TransposeAttrs = 17
-    UnsqueezeAttrs = 18
+    ReduceMeanAttrs = 14
+    SplitAttrs = 15
+    SqueezeAttrs = 16
+    SoftmaxAttrs = 17
+    TransposeAttrs = 18
+    UnsqueezeAttrs = 19
 
 
 class NodeKind(object):
@@ -685,6 +687,69 @@ class PadAttrs(object):
 
 def PadAttrsStart(builder): builder.StartObject(0)
 def PadAttrsEnd(builder): return builder.EndObject()
+
+
+class ReduceMeanAttrs(object):
+    __slots__ = ['_tab']
+
+    @classmethod
+    def GetRootAs(cls, buf, offset=0):
+        n = flatbuffers.encode.Get(flatbuffers.packer.uoffset, buf, offset)
+        x = ReduceMeanAttrs()
+        x.Init(buf, n + offset)
+        return x
+
+    @classmethod
+    def GetRootAsReduceMeanAttrs(cls, buf, offset=0):
+        """This method is deprecated. Please switch to GetRootAs."""
+        return cls.GetRootAs(buf, offset)
+    @classmethod
+    def ReduceMeanAttrsBufferHasIdentifier(cls, buf, offset, size_prefixed=False):
+        return flatbuffers.util.BufferHasIdentifier(buf, offset, b"\x4D\x4F\x44\x4C", size_prefixed=size_prefixed)
+
+    # ReduceMeanAttrs
+    def Init(self, buf, pos):
+        self._tab = flatbuffers.table.Table(buf, pos)
+
+    # ReduceMeanAttrs
+    def Axes(self, j):
+        o = flatbuffers.number_types.UOffsetTFlags.py_type(self._tab.Offset(4))
+        if o != 0:
+            a = self._tab.Vector(o)
+            return self._tab.Get(flatbuffers.number_types.Int32Flags, a + flatbuffers.number_types.UOffsetTFlags.py_type(j * 4))
+        return 0
+
+    # ReduceMeanAttrs
+    def AxesAsNumpy(self):
+        o = flatbuffers.number_types.UOffsetTFlags.py_type(self._tab.Offset(4))
+        if o != 0:
+            return self._tab.GetVectorAsNumpy(flatbuffers.number_types.Int32Flags, o)
+        return 0
+
+    # ReduceMeanAttrs
+    def AxesLength(self):
+        o = flatbuffers.number_types.UOffsetTFlags.py_type(self._tab.Offset(4))
+        if o != 0:
+            return self._tab.VectorLen(o)
+        return 0
+
+    # ReduceMeanAttrs
+    def AxesIsNone(self):
+        o = flatbuffers.number_types.UOffsetTFlags.py_type(self._tab.Offset(4))
+        return o == 0
+
+    # ReduceMeanAttrs
+    def KeepDims(self):
+        o = flatbuffers.number_types.UOffsetTFlags.py_type(self._tab.Offset(6))
+        if o != 0:
+            return bool(self._tab.Get(flatbuffers.number_types.BoolFlags, o + self._tab.Pos))
+        return False
+
+def ReduceMeanAttrsStart(builder): builder.StartObject(2)
+def ReduceMeanAttrsAddAxes(builder, axes): builder.PrependUOffsetTRelativeSlot(0, flatbuffers.number_types.UOffsetTFlags.py_type(axes), 0)
+def ReduceMeanAttrsStartAxesVector(builder, numElems): return builder.StartVector(4, numElems, 4)
+def ReduceMeanAttrsAddKeepDims(builder, keepDims): builder.PrependBoolSlot(1, keepDims, 0)
+def ReduceMeanAttrsEnd(builder): return builder.EndObject()
 
 
 class SoftmaxAttrs(object):

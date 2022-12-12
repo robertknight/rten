@@ -27,6 +27,7 @@ enum OperatorType: byte {
   Mul,
   Pad,
   Pow,
+  ReduceMean,
   Relu,
   Reshape,
   Shape,
@@ -66,6 +67,7 @@ union OperatorAttrs {
   LeakyReluAttrs,
   MaxPool2dAttrs,
   PadAttrs,
+  ReduceMeanAttrs,
   SplitAttrs,
   SqueezeAttrs,
   SoftmaxAttrs,
@@ -144,6 +146,11 @@ table MaxPool2dAttrs {
 }
 
 table PadAttrs {}
+
+table ReduceMeanAttrs {
+  axes:[int];
+  keep_dims:bool;
+}
 
 table SoftmaxAttrs {
   axis:uint;

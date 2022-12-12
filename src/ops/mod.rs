@@ -10,6 +10,7 @@ mod layout;
 mod matmul;
 mod norm;
 mod pooling;
+mod reduce;
 
 pub use activations::{
     clip, clip_in_place, leaky_relu, leaky_relu_in_place, relu, relu_in_place, sigmoid,
@@ -23,11 +24,14 @@ pub use binary_elementwise::{
 pub use binary_elementwise::{Add, Div, Mul, Pow, Sub};
 pub use conv::{conv_2d, conv_transpose_2d};
 pub use conv::{Conv2d, ConvTranspose2d};
-pub use layout::{reshape, squeeze, Reshape, Shape, Squeeze, Transpose, Unsqueeze};
+pub use layout::{
+    reshape, squeeze, squeeze_in_place, Reshape, Shape, Squeeze, Transpose, Unsqueeze,
+};
 pub use matmul::{gemm_op, matmul, Gemm, MatMul};
 pub use norm::{batch_norm, batch_norm_in_place, BatchNormalization};
 pub use pooling::{average_pool_2d, global_average_pool, max_pool_2d};
 pub use pooling::{AveragePool2d, GlobalAveragePool, MaxPool2d};
+pub use reduce::{reduce_mean, ReduceMean};
 
 #[derive(Copy, Clone, Debug)]
 pub enum Padding {
@@ -639,7 +643,7 @@ fn slice_ranges(
         .collect();
     for (i, (start, end)) in zip(starts.elements(), ends.elements()).enumerate() {
         let axis = if let Some(axes) = axes {
-            resolve_axis(input_shape, axes[[i]] as isize)?
+            resolve_axis(input_shape.len(), axes[[i]] as isize)?
         } else {
             i
         };
@@ -740,12 +744,12 @@ impl Operator for Slice {
     }
 }
 
-/// Resolve an axis given as a value in `[-rank, rank-1]` to the dimension of
-/// a tensor with shape `input_shape`, where `rank` is `input_shape.len()`.
+/// Resolve an axis given as a value in `[-ndim, ndim-1]` to the zero-based
+/// dimension of a tensor with `ndim` dimensions.
 ///
 /// Negative axis values count backwards from the last dimension.
-fn resolve_axis(input_shape: &[usize], axis: isize) -> Result<usize, OpError> {
-    let rank = input_shape.len() as isize;
+fn resolve_axis(ndim: usize, axis: isize) -> Result<usize, OpError> {
+    let rank = ndim as isize;
     if axis < -rank || axis >= rank {
         return Err(OpError::InvalidValue("axis is invalid"));
     }
@@ -757,12 +761,25 @@ fn resolve_axis(input_shape: &[usize], axis: isize) -> Result<usize, OpError> {
     }
 }
 
+/// Resolve an array of axes values in `[-ndim, ndim-1]` to zero-based dimension
+/// indexes in a tensor with `ndim` dimensions.
+///
+/// Negative axis values count backwards from the last dimension.
+pub fn resolve_axes(ndim: usize, axes: &[i32]) -> Result<Vec<usize>, OpError> {
+    let mut resolved_axes = Vec::with_capacity(axes.len());
+    for &axis in axes {
+        let resolved = resolve_axis(ndim, axis as isize)?;
+        resolved_axes.push(resolved);
+    }
+    Ok(resolved_axes)
+}
+
 pub fn split<T: Copy>(
     input: &Tensor<T>,
     axis: isize,
     split: &[usize],
 ) -> Result<Vec<Tensor<T>>, OpError> {
-    let axis = resolve_axis(input.shape(), axis)?;
+    let axis = resolve_axis(input.ndim(), axis)?;
     let split_sum: usize = split.iter().sum();
     if split_sum != input.shape()[axis] {
         return Err(OpError::InvalidValue(
