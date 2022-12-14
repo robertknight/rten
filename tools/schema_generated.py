@@ -27,19 +27,20 @@ class OperatorType(object):
     Mul = 17
     Pad = 18
     Pow = 19
-    ReduceMean = 20
-    Relu = 21
-    Reshape = 22
-    Shape = 23
-    Sigmoid = 24
-    Slice = 25
-    Split = 26
-    Sqrt = 27
-    Squeeze = 28
-    Softmax = 29
-    Sub = 30
-    Transpose = 31
-    Unsqueeze = 32
+    Range = 20
+    ReduceMean = 21
+    Relu = 22
+    Reshape = 23
+    Shape = 24
+    Sigmoid = 25
+    Slice = 26
+    Split = 27
+    Sqrt = 28
+    Squeeze = 29
+    Softmax = 30
+    Sub = 31
+    Transpose = 32
+    Unsqueeze = 33
 
 
 class PadMode(object):

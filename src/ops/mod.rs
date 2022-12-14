@@ -1,7 +1,8 @@
 use std::fmt::Debug;
 use std::iter::zip;
+use std::ops;
 
-use crate::tensor::{from_data, zeros, Elements, SliceRange, Tensor};
+use crate::tensor::{from_data, from_vec, zeros, Elements, SliceRange, Tensor};
 
 mod activations;
 mod binary_elementwise;
@@ -541,6 +542,57 @@ impl Operator for Concat {
     }
 }
 
+fn range<T: Copy + Default + ops::Add<Output = T> + PartialOrd>(
+    start: T,
+    limit: T,
+    delta: T,
+) -> Result<Tensor<T>, OpError> {
+    if delta == T::default() {
+        return Err(OpError::InvalidValue("delta must be non-zero"));
+    }
+
+    // This is not very efficient as it grows the output gradually instead of
+    // allocating once. This however made the initial implementation easier by
+    // minimizing the traits that T needs to implement.
+    let mut output = Vec::new();
+    let mut val = start;
+    while (delta > T::default() && val < limit) || (delta < T::default() && val > limit) {
+        output.push(val);
+        val = val + delta;
+    }
+    Ok(from_vec(output))
+}
+
+#[derive(Debug)]
+pub struct Range {}
+
+impl Operator for Range {
+    fn name(&self) -> &str {
+        "Range"
+    }
+
+    fn run(&self, inputs: &[Input]) -> Result<Vec<Output>, OpError> {
+        if inputs.len() < 3 {
+            return Err(OpError::MissingInputs);
+        }
+
+        match inputs[0] {
+            Input::FloatTensor(_) => {
+                let start = get_scalar::<f32>(inputs[0])?;
+                let limit = get_scalar::<f32>(inputs[1])?;
+                let delta = get_scalar::<f32>(inputs[2])?;
+                range(start, limit, delta).into_op_result()
+            }
+            Input::IntTensor(_) => {
+                let start = get_scalar::<i32>(inputs[0])?;
+                let limit = get_scalar::<i32>(inputs[1])?;
+                let delta = get_scalar::<i32>(inputs[2])?;
+                range(start, limit, delta).into_op_result()
+            }
+        }
+    }
+}
+
 pub fn pad<T: Copy>(
     input: &Tensor<T>,
     padding: &Tensor<i32>,
@@ -838,7 +890,7 @@ impl Operator for Split {
 #[cfg(test)]
 mod tests {
     use crate::ops::{
-        concat, gather, pad, slice, slice_in_place, split, Cast, ConstantOfShape, DataType,
+        concat, gather, pad, range, slice, slice_in_place, split, Cast, ConstantOfShape, DataType,
         Identity, Input, OpError, Operator, Pad,
     };
     use crate::rng::XorShiftRNG;
@@ -1197,6 +1249,38 @@ mod tests {
         assert_eq!(
             result.err(),
             Some(OpError::InvalidValue("Expected scalar value"))
+        );
+    }
+
+    #[test]
+    fn test_range() {
+        // Int range from zero
+        let r = range(0, 5, 1).unwrap();
+        assert_eq!(r.elements_vec(), vec![0, 1, 2, 3, 4]);
+
+        // Float range from zero
+        let r = range(0., 5., 1.).unwrap();
+        assert_eq!(r.elements_vec(), vec![0., 1., 2., 3., 4.]);
+
+        // Int range from negative value with step > 1
+        let r = range(-5, 5, 2).unwrap();
+        assert_eq!(r.elements_vec(), vec![-5, -3, -1, 1, 3]);
+
+        // Float range from negative value with step > 1
+        let r = range(-5., 5., 2.).unwrap();
+        assert_eq!(r.elements_vec(), vec![-5., -3., -1., 1., 3.]);
+
+        // Negative step
+        let r = range(10, 4, -2).unwrap();
+        assert_eq!(r.elements_vec(), vec![10, 8, 6]);
+    }
+
+    #[test]
+    fn test_range_invalid_inputs() {
+        let r = range(0, 5, 0);
+        assert_eq!(
+            r.err(),
+            Some(OpError::InvalidValue("delta must be non-zero"))
         );
     }
 

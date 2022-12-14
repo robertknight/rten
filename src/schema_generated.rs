@@ -18,13 +18,13 @@ pub const ENUM_MIN_OPERATOR_TYPE: i8 = 0;
     since = "2.0.0",
     note = "Use associated constants instead. This will no longer be generated in 2021."
 )]
-pub const ENUM_MAX_OPERATOR_TYPE: i8 = 32;
+pub const ENUM_MAX_OPERATOR_TYPE: i8 = 33;
 #[deprecated(
     since = "2.0.0",
     note = "Use associated constants instead. This will no longer be generated in 2021."
 )]
 #[allow(non_camel_case_types)]
-pub const ENUM_VALUES_OPERATOR_TYPE: [OperatorType; 33] = [
+pub const ENUM_VALUES_OPERATOR_TYPE: [OperatorType; 34] = [
     OperatorType::Add,
     OperatorType::AveragePool2d,
     OperatorType::BatchNormalization,
@@ -45,6 +45,7 @@ pub const ENUM_VALUES_OPERATOR_TYPE: [OperatorType; 33] = [
     OperatorType::Mul,
     OperatorType::Pad,
     OperatorType::Pow,
+    OperatorType::Range,
     OperatorType::ReduceMean,
     OperatorType::Relu,
     OperatorType::Reshape,
@@ -85,22 +86,23 @@ impl OperatorType {
     pub const Mul: Self = Self(17);
     pub const Pad: Self = Self(18);
     pub const Pow: Self = Self(19);
-    pub const ReduceMean: Self = Self(20);
-    pub const Relu: Self = Self(21);
-    pub const Reshape: Self = Self(22);
-    pub const Shape: Self = Self(23);
-    pub const Sigmoid: Self = Self(24);
-    pub const Slice: Self = Self(25);
-    pub const Split: Self = Self(26);
-    pub const Sqrt: Self = Self(27);
-    pub const Squeeze: Self = Self(28);
-    pub const Softmax: Self = Self(29);
-    pub const Sub: Self = Self(30);
-    pub const Transpose: Self = Self(31);
-    pub const Unsqueeze: Self = Self(32);
+    pub const Range: Self = Self(20);
+    pub const ReduceMean: Self = Self(21);
+    pub const Relu: Self = Self(22);
+    pub const Reshape: Self = Self(23);
+    pub const Shape: Self = Self(24);
+    pub const Sigmoid: Self = Self(25);
+    pub const Slice: Self = Self(26);
+    pub const Split: Self = Self(27);
+    pub const Sqrt: Self = Self(28);
+    pub const Squeeze: Self = Self(29);
+    pub const Softmax: Self = Self(30);
+    pub const Sub: Self = Self(31);
+    pub const Transpose: Self = Self(32);
+    pub const Unsqueeze: Self = Self(33);
 
     pub const ENUM_MIN: i8 = 0;
-    pub const ENUM_MAX: i8 = 32;
+    pub const ENUM_MAX: i8 = 33;
     pub const ENUM_VALUES: &'static [Self] = &[
         Self::Add,
         Self::AveragePool2d,
@@ -122,6 +124,7 @@ impl OperatorType {
         Self::Mul,
         Self::Pad,
         Self::Pow,
+        Self::Range,
         Self::ReduceMean,
         Self::Relu,
         Self::Reshape,
@@ -159,6 +162,7 @@ impl OperatorType {
             Self::Mul => Some("Mul"),
             Self::Pad => Some("Pad"),
             Self::Pow => Some("Pow"),
+            Self::Range => Some("Range"),
             Self::ReduceMean => Some("ReduceMean"),
             Self::Relu => Some("Relu"),
             Self::Reshape => Some("Reshape"),

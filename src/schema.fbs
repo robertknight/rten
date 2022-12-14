@@ -27,6 +27,7 @@ enum OperatorType: byte {
   Mul,
   Pad,
   Pow,
+  Range,
   ReduceMean,
   Relu,
   Reshape,

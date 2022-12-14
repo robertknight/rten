@@ -442,6 +442,9 @@ def op_node_from_onnx_operator(
         case "Mul":
             op_type = "Mul"
 
+        case "Range":
+            op_type = "Range"
+
         case "ReduceMean":
             op_type = "ReduceMean"
 
@@ -755,6 +758,8 @@ def build_operator_node(builder: flatbuffers.Builder, operator: OperatorNode):
             op_type_code = sg.OperatorType.Pad
         case "Pow":
             op_type_code = sg.OperatorType.Pow
+        case "Range":
+            op_type_code = sg.OperatorType.Range
         case "ReduceMean":
             op_type_code = sg.OperatorType.ReduceMean
             attrs_type = sg.OperatorAttrs.ReduceMeanAttrs

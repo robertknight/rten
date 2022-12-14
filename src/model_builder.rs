@@ -32,6 +32,7 @@ pub enum OpType {
     Mul,
     Pad,
     Pow,
+    Range,
     ReduceMean(ReduceMean),
     Relu,
     Reshape,
@@ -384,6 +385,7 @@ impl<'a> ModelBuilder<'a> {
             OpType::Mul => (OT::Mul, no_attrs, None),
             OpType::Pad => (OT::Pad, no_attrs, None),
             OpType::Pow => (OT::Pow, no_attrs, None),
+            OpType::Range => (OT::Range, no_attrs, None),
             OpType::ReduceMean(args) => {
                 let axes = self.create_i32_vec(args.axes);
                 (

@@ -245,6 +245,10 @@ fn read_pow_op(_: &OperatorNode) -> Box<dyn Operator> {
     Box::new(ops::Pow {})
 }
 
+fn read_range_op(_: &OperatorNode) -> Box<dyn Operator> {
+    Box::new(ops::Range {})
+}
+
 fn read_reduce_mean_op(node: &OperatorNode) -> Box<dyn Operator> {
     let mut keep_dims = true;
     let mut axes: Option<Vec<i32>> = None;
@@ -360,6 +364,7 @@ fn read_operator(node: &OperatorNode) -> Result<Box<dyn Operator>, String> {
         OperatorType::Mul => read_mul_op(node),
         OperatorType::Pad => read_pad_op(node),
         OperatorType::Pow => read_pow_op(node),
+        OperatorType::Range => read_range_op(node),
         OperatorType::ReduceMean => read_reduce_mean_op(node),
         OperatorType::Relu => read_relu_op(node),
         OperatorType::Reshape => read_reshape_op(node),
@@ -475,7 +480,7 @@ mod tests {
     use crate::model_builder::{ModelBuilder, OpType};
     use crate::ops;
     use crate::ops::Padding;
-    use crate::tensor::{from_data, from_vec};
+    use crate::tensor::{from_data, from_scalar, from_vec};
 
     fn generate_model_buffer() -> Vec<u8> {
         let mut builder = ModelBuilder::new();
@@ -696,6 +701,17 @@ mod tests {
         let pow_out = builder.add_value("pow_out");
         builder.add_operator("pow", OpType::Pow, &[input_node, input_node], &[pow_out]);
 
+        let range_start_node = builder.add_value("range_start");
+        let range_limit_node = builder.add_value("range_limit");
+        let range_delta_node = builder.add_value("range_delta");
+        let range_out = builder.add_value("range");
+        builder.add_operator(
+            "range",
+            OpType::Range,
+            &[range_start_node, range_limit_node, range_delta_node],
+            &[range_out],
+        );
+
         let reduce_mean_out = builder.add_value("reduce_mean_out");
         builder.add_operator(
             "reduce_mean",
@@ -846,5 +862,22 @@ mod tests {
                 .unwrap();
             assert_eq!(result.len(), 1);
         }
+
+        // Range op
+        let start = from_scalar(0.);
+        let limit = from_scalar(5.);
+        let delta = from_scalar(1.);
+        let result = model
+            .run(
+                &[
+                    (range_start_node as usize, (&start).into()),
+                    (range_limit_node as usize, (&limit).into()),
+                    (range_delta_node as usize, (&delta).into()),
+                ],
+                &[range_out as usize],
+                None,
+            )
+            .unwrap();
+        assert_eq!(result.len(), 1);
     }
 }
