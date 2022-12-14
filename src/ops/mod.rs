@@ -26,7 +26,8 @@ pub use binary_elementwise::{Add, Div, Equal, Less, Mul, Pow, Sub, Where};
 pub use conv::{conv_2d, conv_transpose_2d};
 pub use conv::{Conv2d, ConvTranspose2d};
 pub use layout::{
-    reshape, squeeze, squeeze_in_place, Reshape, Shape, Squeeze, Transpose, Unsqueeze,
+    expand, reshape, squeeze, squeeze_in_place, Expand, Reshape, Shape, Squeeze, Transpose,
+    Unsqueeze,
 };
 pub use matmul::{gemm_op, matmul, Gemm, MatMul};
 pub use norm::{batch_norm, batch_norm_in_place, BatchNormalization};

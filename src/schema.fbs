@@ -18,6 +18,7 @@ enum OperatorType: byte {
   ConvTranspose2d,
   Div,
   Equal,
+  Expand,
   Gather,
   Gemm,
   GlobalAveragePool,

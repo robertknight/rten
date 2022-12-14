@@ -3,6 +3,41 @@
 use crate::ops::{get_input, Input, IntoOpResult, OpError, Operator, Output};
 use crate::tensor::{from_data, Tensor};
 
+pub fn expand<T: Copy>(input: &Tensor<T>, shape: &Tensor<i32>) -> Result<Tensor<T>, OpError> {
+    if shape.ndim() != 1 {
+        return Err(OpError::InvalidValue("shape must be a vector"));
+    }
+
+    let out_shape: Vec<_> = shape.elements().map(|el| el as usize).collect();
+    if !input.can_broadcast(&out_shape) {
+        return Err(OpError::IncompatibleInputShapes(
+            "Cannot broadcast to output shape",
+        ));
+    }
+
+    let out_elts = input.broadcast_elements(&out_shape).collect();
+    Ok(from_data(out_shape, out_elts))
+}
+
+#[derive(Debug)]
+pub struct Expand {}
+
+impl Operator for Expand {
+    fn name(&self) -> &str {
+        "Expand"
+    }
+
+    fn run(&self, inputs: &[Input]) -> Result<Vec<Output>, OpError> {
+        let input = inputs.get(0).ok_or(OpError::MissingInputs)?;
+        let shape = get_input(inputs, 1)?;
+
+        match input {
+            Input::FloatTensor(input) => expand(&input, &shape).into_op_result(),
+            Input::IntTensor(input) => expand(&input, &shape).into_op_result(),
+        }
+    }
+}
+
 pub fn reshape<T: Copy>(input: &Tensor<T>, shape: &Tensor<i32>) -> Result<Tensor<T>, OpError> {
     // If exactly one of the new shape's dimensions is -1, infer the size
     // from the input length and the sizes of the other dimensions.
@@ -224,12 +259,57 @@ impl Operator for Unsqueeze {
 #[cfg(test)]
 mod tests {
     use crate::ops::layout::{
-        reshape, squeeze, squeeze_in_place, transpose, unsqueeze, Reshape, Shape,
+        expand, reshape, squeeze, squeeze_in_place, transpose, unsqueeze, Reshape, Shape,
     };
     use crate::ops::{OpError, Operator};
     use crate::rng::XorShiftRNG;
     use crate::tensor::{from_data, from_scalar, from_vec, rand};
     use crate::test_util::expect_equal;
+
+    #[test]
+    fn test_expand() {
+        // Broadcast scalar
+        let input = from_scalar(5.);
+        let shape = from_vec(vec![2, 2]);
+        let expected = from_data(vec![2, 2], vec![5., 5., 5., 5.]);
+        let result = expand(&input, &shape).unwrap();
+        assert_eq!(&result, &expected);
+
+        // Broadcast that changes dim count
+        let input = from_data(vec![3, 1], (0..3).collect());
+        let shape = from_vec(vec![2, 1, 6]);
+        let result = expand(&input, &shape).unwrap();
+        assert_eq!(result.shape(), &[2, 1, 6]);
+
+        // Broadcast that does not change dim count
+        let input = from_data(vec![3, 1], (0..3).collect());
+        let shape = from_vec(vec![3, 4]);
+        let result = expand(&input, &shape).unwrap();
+        assert_eq!(result.shape(), &[3, 4]);
+    }
+
+    #[test]
+    fn test_expand_invalid_inputs() {
+        // Invalid broadcast shape
+        let input = from_vec(vec![1, 2, 3]);
+        let shape = from_vec(vec![2, 2]);
+        let result = expand(&input, &shape);
+        assert_eq!(
+            result.err(),
+            Some(OpError::IncompatibleInputShapes(
+                "Cannot broadcast to output shape"
+            ))
+        );
+
+        // Non-vector shape
+        let input = from_scalar(5.);
+        let shape = from_scalar(4);
+        let result = expand(&input, &shape);
+        assert_eq!(
+            result.err(),
+            Some(OpError::InvalidValue("shape must be a vector"))
+        );
+    }
 
     #[test]
     fn test_reshape_with_unspecified_dim() -> Result<(), String> {

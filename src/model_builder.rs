@@ -23,6 +23,7 @@ pub enum OpType {
     ConvTranspose2d(ConvTranspose2d),
     Div,
     Equal,
+    Expand,
     Gather(Gather),
     Gemm(Gemm),
     GlobalAveragePool,
@@ -326,6 +327,7 @@ impl<'a> ModelBuilder<'a> {
             ),
             OpType::Div => (OT::Div, no_attrs, None),
             OpType::Equal => (OT::Equal, no_attrs, None),
+            OpType::Expand => (OT::Expand, no_attrs, None),
             OpType::Gather(args) => (
                 OT::Gather,
                 OA::GatherAttrs,

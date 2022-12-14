@@ -161,6 +161,10 @@ fn read_equal_op(_: &OperatorNode) -> Box<dyn Operator> {
     Box::new(ops::Equal {})
 }
 
+fn read_expand_op(_: &OperatorNode) -> Box<dyn Operator> {
+    Box::new(ops::Expand {})
+}
+
 fn read_gather_op(node: &OperatorNode) -> Box<dyn Operator> {
     let axis = match node.attrs_as_gather_attrs() {
         Some(attrs) => attrs.axis() as usize,
@@ -367,6 +371,7 @@ fn read_operator(node: &OperatorNode) -> Result<Box<dyn Operator>, String> {
         OperatorType::ConvTranspose2d => read_conv_transpose_2d_op(node),
         OperatorType::Div => read_div_op(node),
         OperatorType::Equal => read_equal_op(node),
+        OperatorType::Expand => read_expand_op(node),
         OperatorType::Gather => read_gather_op(node),
         OperatorType::Gemm => read_gemm_op(node),
         OperatorType::GlobalAveragePool => read_global_average_pool_op(node),
@@ -646,6 +651,16 @@ mod tests {
         let div_out = builder.add_value("div_out");
         builder.add_operator("div", OpType::Div, &[input_node, input_node], &[div_out]);
 
+        let expand_shape_val = from_vec(vec![2, 2, 3, 3]);
+        let expand_shape = builder.add_int_constant(&expand_shape_val);
+        let expand_out = builder.add_value("expand_out");
+        builder.add_operator(
+            "expand",
+            OpType::Expand,
+            &[input_node, expand_shape],
+            &[expand_out],
+        );
+
         let equal_out = builder.add_value("equal_out");
         builder.add_operator(
             "equal",
@@ -855,6 +870,7 @@ mod tests {
             "conv_transpose_2d_out",
             "div_out",
             "equal_out",
+            "expand_out",
             "identity_out",
             "global_average_pool_out",
             "leaky_relu_out",
