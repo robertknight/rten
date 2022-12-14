@@ -351,9 +351,21 @@ impl Operator for Cast {
     }
 }
 
+pub fn constant_of_shape<T: Copy>(value: T, shape: &Tensor<i32>) -> Tensor<T> {
+    let shape: Vec<_> = shape.elements().map(|el| el as usize).collect();
+    let len = shape.iter().product();
+    from_data(shape, vec![value; len])
+}
+
+#[derive(Debug)]
+pub enum Scalar {
+    Int(i32),
+    Float(f32),
+}
+
 #[derive(Debug)]
 pub struct ConstantOfShape {
-    pub value: i32,
+    pub value: Scalar,
 }
 
 impl Operator for ConstantOfShape {
@@ -362,10 +374,11 @@ impl Operator for ConstantOfShape {
     }
 
     fn run(&self, inputs: &[Input]) -> Result<Vec<Output>, OpError> {
-        let input = get_input::<i32>(inputs, 0)?;
-        let shape: Vec<_> = input.elements().map(|el| el as usize).collect();
-        let len = shape.iter().product();
-        from_data(shape, vec![self.value; len]).into_op_result()
+        let shape = get_input::<i32>(inputs, 0)?;
+        match self.value {
+            Scalar::Int(value) => constant_of_shape(value, shape).into_op_result(),
+            Scalar::Float(value) => constant_of_shape(value, shape).into_op_result(),
+        }
     }
 }
 
@@ -892,7 +905,7 @@ impl Operator for Split {
 mod tests {
     use crate::ops::{
         concat, gather, pad, range, slice, slice_in_place, split, Cast, ConstantOfShape, DataType,
-        Identity, Input, OpError, Operator, Pad,
+        Identity, Input, OpError, Operator, Pad, Scalar,
     };
     use crate::rng::XorShiftRNG;
     use crate::tensor::{from_data, from_scalar, from_vec, rand, zeros, Tensor};
@@ -981,7 +994,9 @@ mod tests {
 
     #[test]
     fn test_constant_of_shape() {
-        let op = ConstantOfShape { value: 42 };
+        let op = ConstantOfShape {
+            value: Scalar::Int(42),
+        };
         let shape = from_vec(vec![1, 5, 10]);
 
         let result = op

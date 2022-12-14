@@ -107,8 +107,21 @@ table ConcatAttrs {
   dim:uint;
 }
 
+union Scalar {
+  IntScalar,
+  FloatScalar
+}
+
+table IntScalar {
+  value:int32;
+}
+
+table FloatScalar {
+  value:float32;
+}
+
 table ConstantOfShapeAttrs {
-  int_value:int32;
+  value:Scalar (required);
 }
 
 table Conv2dAttrs {

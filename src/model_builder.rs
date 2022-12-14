@@ -4,8 +4,8 @@ use flatbuffers::{FlatBufferBuilder, UnionWIPOffset, Vector, WIPOffset};
 
 use crate::ops::{
     AveragePool2d, BatchNormalization, Cast, Clip, Concat, ConstantOfShape, Conv2d,
-    ConvTranspose2d, DataType, Gather, Gemm, LeakyRelu, MaxPool2d, Padding, ReduceMean, Softmax,
-    Split, Squeeze, Transpose, Unsqueeze,
+    ConvTranspose2d, DataType, Gather, Gemm, LeakyRelu, MaxPool2d, Padding, ReduceMean, Scalar,
+    Softmax, Split, Squeeze, Transpose, Unsqueeze,
 };
 use crate::schema_generated as sg;
 use crate::tensor::Tensor;
@@ -285,15 +285,31 @@ impl<'a> ModelBuilder<'a> {
             OpType::ConstantOfShape(args) => (
                 OT::ConstantOfShape,
                 OA::ConstantOfShapeAttrs,
-                Some(
-                    sg::ConstantOfShapeAttrs::create(
-                        &mut self.builder,
-                        &sg::ConstantOfShapeAttrsArgs {
-                            int_value: args.value,
+                Some({
+                    let args = match args.value {
+                        Scalar::Int(int_value) => sg::ConstantOfShapeAttrsArgs {
+                            value_type: sg::Scalar::IntScalar,
+                            value: Some(
+                                sg::IntScalar::create(
+                                    &mut self.builder,
+                                    &sg::IntScalarArgs { value: int_value },
+                                )
+                                .as_union_value(),
+                            ),
                         },
-                    )
-                    .as_union_value(),
-                ),
+                        Scalar::Float(float_value) => sg::ConstantOfShapeAttrsArgs {
+                            value_type: sg::Scalar::FloatScalar,
+                            value: Some(
+                                sg::FloatScalar::create(
+                                    &mut self.builder,
+                                    &sg::FloatScalarArgs { value: float_value },
+                                )
+                                .as_union_value(),
+                            ),
+                        },
+                    };
+                    sg::ConstantOfShapeAttrs::create(&mut self.builder, &args).as_union_value()
+                }),
             ),
             OpType::Conv2d(args) => (
                 OT::Conv2d,

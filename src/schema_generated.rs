@@ -607,6 +607,101 @@ pub struct OperatorAttrsUnionTableOffset {}
     since = "2.0.0",
     note = "Use associated constants instead. This will no longer be generated in 2021."
 )]
+pub const ENUM_MIN_SCALAR: u8 = 0;
+#[deprecated(
+    since = "2.0.0",
+    note = "Use associated constants instead. This will no longer be generated in 2021."
+)]
+pub const ENUM_MAX_SCALAR: u8 = 2;
+#[deprecated(
+    since = "2.0.0",
+    note = "Use associated constants instead. This will no longer be generated in 2021."
+)]
+#[allow(non_camel_case_types)]
+pub const ENUM_VALUES_SCALAR: [Scalar; 3] = [Scalar::NONE, Scalar::IntScalar, Scalar::FloatScalar];
+
+#[derive(Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash, Default)]
+#[repr(transparent)]
+pub struct Scalar(pub u8);
+#[allow(non_upper_case_globals)]
+impl Scalar {
+    pub const NONE: Self = Self(0);
+    pub const IntScalar: Self = Self(1);
+    pub const FloatScalar: Self = Self(2);
+
+    pub const ENUM_MIN: u8 = 0;
+    pub const ENUM_MAX: u8 = 2;
+    pub const ENUM_VALUES: &'static [Self] = &[Self::NONE, Self::IntScalar, Self::FloatScalar];
+    /// Returns the variant's name or "" if unknown.
+    pub fn variant_name(self) -> Option<&'static str> {
+        match self {
+            Self::NONE => Some("NONE"),
+            Self::IntScalar => Some("IntScalar"),
+            Self::FloatScalar => Some("FloatScalar"),
+            _ => None,
+        }
+    }
+}
+impl core::fmt::Debug for Scalar {
+    fn fmt(&self, f: &mut core::fmt::Formatter) -> core::fmt::Result {
+        if let Some(name) = self.variant_name() {
+            f.write_str(name)
+        } else {
+            f.write_fmt(format_args!("<UNKNOWN {:?}>", self.0))
+        }
+    }
+}
+impl<'a> flatbuffers::Follow<'a> for Scalar {
+    type Inner = Self;
+    #[inline]
+    fn follow(buf: &'a [u8], loc: usize) -> Self::Inner {
+        let b = unsafe { flatbuffers::read_scalar_at::<u8>(buf, loc) };
+        Self(b)
+    }
+}
+
+impl flatbuffers::Push for Scalar {
+    type Output = Scalar;
+    #[inline]
+    fn push(&self, dst: &mut [u8], _rest: &[u8]) {
+        unsafe {
+            flatbuffers::emplace_scalar::<u8>(dst, self.0);
+        }
+    }
+}
+
+impl flatbuffers::EndianScalar for Scalar {
+    #[inline]
+    fn to_little_endian(self) -> Self {
+        let b = u8::to_le(self.0);
+        Self(b)
+    }
+    #[inline]
+    #[allow(clippy::wrong_self_convention)]
+    fn from_little_endian(self) -> Self {
+        let b = u8::from_le(self.0);
+        Self(b)
+    }
+}
+
+impl<'a> flatbuffers::Verifiable for Scalar {
+    #[inline]
+    fn run_verifier(
+        v: &mut flatbuffers::Verifier,
+        pos: usize,
+    ) -> Result<(), flatbuffers::InvalidFlatbuffer> {
+        use self::flatbuffers::Verifiable;
+        u8::run_verifier(v, pos)
+    }
+}
+
+impl flatbuffers::SimpleToVerifyInSlice for Scalar {}
+pub struct ScalarUnionTableOffset {}
+
+#[deprecated(
+    since = "2.0.0",
+    note = "Use associated constants instead. This will no longer be generated in 2021."
+)]
 pub const ENUM_MIN_NODE_KIND: u8 = 0;
 #[deprecated(
     since = "2.0.0",
@@ -1368,6 +1463,197 @@ impl core::fmt::Debug for ConcatAttrs<'_> {
         ds.finish()
     }
 }
+pub enum IntScalarOffset {}
+#[derive(Copy, Clone, PartialEq)]
+
+pub struct IntScalar<'a> {
+    pub _tab: flatbuffers::Table<'a>,
+}
+
+impl<'a> flatbuffers::Follow<'a> for IntScalar<'a> {
+    type Inner = IntScalar<'a>;
+    #[inline]
+    fn follow(buf: &'a [u8], loc: usize) -> Self::Inner {
+        Self {
+            _tab: flatbuffers::Table { buf, loc },
+        }
+    }
+}
+
+impl<'a> IntScalar<'a> {
+    pub const VT_VALUE: flatbuffers::VOffsetT = 4;
+
+    #[inline]
+    pub fn init_from_table(table: flatbuffers::Table<'a>) -> Self {
+        IntScalar { _tab: table }
+    }
+    #[allow(unused_mut)]
+    pub fn create<'bldr: 'args, 'args: 'mut_bldr, 'mut_bldr>(
+        _fbb: &'mut_bldr mut flatbuffers::FlatBufferBuilder<'bldr>,
+        args: &'args IntScalarArgs,
+    ) -> flatbuffers::WIPOffset<IntScalar<'bldr>> {
+        let mut builder = IntScalarBuilder::new(_fbb);
+        builder.add_value(args.value);
+        builder.finish()
+    }
+
+    #[inline]
+    pub fn value(&self) -> i32 {
+        self._tab.get::<i32>(IntScalar::VT_VALUE, Some(0)).unwrap()
+    }
+}
+
+impl flatbuffers::Verifiable for IntScalar<'_> {
+    #[inline]
+    fn run_verifier(
+        v: &mut flatbuffers::Verifier,
+        pos: usize,
+    ) -> Result<(), flatbuffers::InvalidFlatbuffer> {
+        use self::flatbuffers::Verifiable;
+        v.visit_table(pos)?
+            .visit_field::<i32>("value", Self::VT_VALUE, false)?
+            .finish();
+        Ok(())
+    }
+}
+pub struct IntScalarArgs {
+    pub value: i32,
+}
+impl<'a> Default for IntScalarArgs {
+    #[inline]
+    fn default() -> Self {
+        IntScalarArgs { value: 0 }
+    }
+}
+
+pub struct IntScalarBuilder<'a: 'b, 'b> {
+    fbb_: &'b mut flatbuffers::FlatBufferBuilder<'a>,
+    start_: flatbuffers::WIPOffset<flatbuffers::TableUnfinishedWIPOffset>,
+}
+impl<'a: 'b, 'b> IntScalarBuilder<'a, 'b> {
+    #[inline]
+    pub fn add_value(&mut self, value: i32) {
+        self.fbb_.push_slot::<i32>(IntScalar::VT_VALUE, value, 0);
+    }
+    #[inline]
+    pub fn new(_fbb: &'b mut flatbuffers::FlatBufferBuilder<'a>) -> IntScalarBuilder<'a, 'b> {
+        let start = _fbb.start_table();
+        IntScalarBuilder {
+            fbb_: _fbb,
+            start_: start,
+        }
+    }
+    #[inline]
+    pub fn finish(self) -> flatbuffers::WIPOffset<IntScalar<'a>> {
+        let o = self.fbb_.end_table(self.start_);
+        flatbuffers::WIPOffset::new(o.value())
+    }
+}
+
+impl core::fmt::Debug for IntScalar<'_> {
+    fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
+        let mut ds = f.debug_struct("IntScalar");
+        ds.field("value", &self.value());
+        ds.finish()
+    }
+}
+pub enum FloatScalarOffset {}
+#[derive(Copy, Clone, PartialEq)]
+
+pub struct FloatScalar<'a> {
+    pub _tab: flatbuffers::Table<'a>,
+}
+
+impl<'a> flatbuffers::Follow<'a> for FloatScalar<'a> {
+    type Inner = FloatScalar<'a>;
+    #[inline]
+    fn follow(buf: &'a [u8], loc: usize) -> Self::Inner {
+        Self {
+            _tab: flatbuffers::Table { buf, loc },
+        }
+    }
+}
+
+impl<'a> FloatScalar<'a> {
+    pub const VT_VALUE: flatbuffers::VOffsetT = 4;
+
+    #[inline]
+    pub fn init_from_table(table: flatbuffers::Table<'a>) -> Self {
+        FloatScalar { _tab: table }
+    }
+    #[allow(unused_mut)]
+    pub fn create<'bldr: 'args, 'args: 'mut_bldr, 'mut_bldr>(
+        _fbb: &'mut_bldr mut flatbuffers::FlatBufferBuilder<'bldr>,
+        args: &'args FloatScalarArgs,
+    ) -> flatbuffers::WIPOffset<FloatScalar<'bldr>> {
+        let mut builder = FloatScalarBuilder::new(_fbb);
+        builder.add_value(args.value);
+        builder.finish()
+    }
+
+    #[inline]
+    pub fn value(&self) -> f32 {
+        self._tab
+            .get::<f32>(FloatScalar::VT_VALUE, Some(0.0))
+            .unwrap()
+    }
+}
+
+impl flatbuffers::Verifiable for FloatScalar<'_> {
+    #[inline]
+    fn run_verifier(
+        v: &mut flatbuffers::Verifier,
+        pos: usize,
+    ) -> Result<(), flatbuffers::InvalidFlatbuffer> {
+        use self::flatbuffers::Verifiable;
+        v.visit_table(pos)?
+            .visit_field::<f32>("value", Self::VT_VALUE, false)?
+            .finish();
+        Ok(())
+    }
+}
+pub struct FloatScalarArgs {
+    pub value: f32,
+}
+impl<'a> Default for FloatScalarArgs {
+    #[inline]
+    fn default() -> Self {
+        FloatScalarArgs { value: 0.0 }
+    }
+}
+
+pub struct FloatScalarBuilder<'a: 'b, 'b> {
+    fbb_: &'b mut flatbuffers::FlatBufferBuilder<'a>,
+    start_: flatbuffers::WIPOffset<flatbuffers::TableUnfinishedWIPOffset>,
+}
+impl<'a: 'b, 'b> FloatScalarBuilder<'a, 'b> {
+    #[inline]
+    pub fn add_value(&mut self, value: f32) {
+        self.fbb_
+            .push_slot::<f32>(FloatScalar::VT_VALUE, value, 0.0);
+    }
+    #[inline]
+    pub fn new(_fbb: &'b mut flatbuffers::FlatBufferBuilder<'a>) -> FloatScalarBuilder<'a, 'b> {
+        let start = _fbb.start_table();
+        FloatScalarBuilder {
+            fbb_: _fbb,
+            start_: start,
+        }
+    }
+    #[inline]
+    pub fn finish(self) -> flatbuffers::WIPOffset<FloatScalar<'a>> {
+        let o = self.fbb_.end_table(self.start_);
+        flatbuffers::WIPOffset::new(o.value())
+    }
+}
+
+impl core::fmt::Debug for FloatScalar<'_> {
+    fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
+        let mut ds = f.debug_struct("FloatScalar");
+        ds.field("value", &self.value());
+        ds.finish()
+    }
+}
 pub enum ConstantOfShapeAttrsOffset {}
 #[derive(Copy, Clone, PartialEq)]
 
@@ -1386,7 +1672,8 @@ impl<'a> flatbuffers::Follow<'a> for ConstantOfShapeAttrs<'a> {
 }
 
 impl<'a> ConstantOfShapeAttrs<'a> {
-    pub const VT_INT_VALUE: flatbuffers::VOffsetT = 4;
+    pub const VT_VALUE_TYPE: flatbuffers::VOffsetT = 4;
+    pub const VT_VALUE: flatbuffers::VOffsetT = 6;
 
     #[inline]
     pub fn init_from_table(table: flatbuffers::Table<'a>) -> Self {
@@ -1398,15 +1685,48 @@ impl<'a> ConstantOfShapeAttrs<'a> {
         args: &'args ConstantOfShapeAttrsArgs,
     ) -> flatbuffers::WIPOffset<ConstantOfShapeAttrs<'bldr>> {
         let mut builder = ConstantOfShapeAttrsBuilder::new(_fbb);
-        builder.add_int_value(args.int_value);
+        if let Some(x) = args.value {
+            builder.add_value(x);
+        }
+        builder.add_value_type(args.value_type);
         builder.finish()
     }
 
     #[inline]
-    pub fn int_value(&self) -> i32 {
+    pub fn value_type(&self) -> Scalar {
         self._tab
-            .get::<i32>(ConstantOfShapeAttrs::VT_INT_VALUE, Some(0))
+            .get::<Scalar>(ConstantOfShapeAttrs::VT_VALUE_TYPE, Some(Scalar::NONE))
             .unwrap()
+    }
+    #[inline]
+    pub fn value(&self) -> flatbuffers::Table<'a> {
+        self._tab
+            .get::<flatbuffers::ForwardsUOffset<flatbuffers::Table<'a>>>(
+                ConstantOfShapeAttrs::VT_VALUE,
+                None,
+            )
+            .unwrap()
+    }
+    #[inline]
+    #[allow(non_snake_case)]
+    pub fn value_as_int_scalar(&self) -> Option<IntScalar<'a>> {
+        if self.value_type() == Scalar::IntScalar {
+            let u = self.value();
+            Some(IntScalar::init_from_table(u))
+        } else {
+            None
+        }
+    }
+
+    #[inline]
+    #[allow(non_snake_case)]
+    pub fn value_as_float_scalar(&self) -> Option<FloatScalar<'a>> {
+        if self.value_type() == Scalar::FloatScalar {
+            let u = self.value();
+            Some(FloatScalar::init_from_table(u))
+        } else {
+            None
+        }
     }
 }
 
@@ -1418,18 +1738,41 @@ impl flatbuffers::Verifiable for ConstantOfShapeAttrs<'_> {
     ) -> Result<(), flatbuffers::InvalidFlatbuffer> {
         use self::flatbuffers::Verifiable;
         v.visit_table(pos)?
-            .visit_field::<i32>("int_value", Self::VT_INT_VALUE, false)?
+            .visit_union::<Scalar, _>(
+                "value_type",
+                Self::VT_VALUE_TYPE,
+                "value",
+                Self::VT_VALUE,
+                true,
+                |key, v, pos| match key {
+                    Scalar::IntScalar => v
+                        .verify_union_variant::<flatbuffers::ForwardsUOffset<IntScalar>>(
+                            "Scalar::IntScalar",
+                            pos,
+                        ),
+                    Scalar::FloatScalar => v
+                        .verify_union_variant::<flatbuffers::ForwardsUOffset<FloatScalar>>(
+                            "Scalar::FloatScalar",
+                            pos,
+                        ),
+                    _ => Ok(()),
+                },
+            )?
             .finish();
         Ok(())
     }
 }
 pub struct ConstantOfShapeAttrsArgs {
-    pub int_value: i32,
+    pub value_type: Scalar,
+    pub value: Option<flatbuffers::WIPOffset<flatbuffers::UnionWIPOffset>>,
 }
 impl<'a> Default for ConstantOfShapeAttrsArgs {
     #[inline]
     fn default() -> Self {
-        ConstantOfShapeAttrsArgs { int_value: 0 }
+        ConstantOfShapeAttrsArgs {
+            value_type: Scalar::NONE,
+            value: None, // required field
+        }
     }
 }
 
@@ -1439,9 +1782,17 @@ pub struct ConstantOfShapeAttrsBuilder<'a: 'b, 'b> {
 }
 impl<'a: 'b, 'b> ConstantOfShapeAttrsBuilder<'a, 'b> {
     #[inline]
-    pub fn add_int_value(&mut self, int_value: i32) {
+    pub fn add_value_type(&mut self, value_type: Scalar) {
+        self.fbb_.push_slot::<Scalar>(
+            ConstantOfShapeAttrs::VT_VALUE_TYPE,
+            value_type,
+            Scalar::NONE,
+        );
+    }
+    #[inline]
+    pub fn add_value(&mut self, value: flatbuffers::WIPOffset<flatbuffers::UnionWIPOffset>) {
         self.fbb_
-            .push_slot::<i32>(ConstantOfShapeAttrs::VT_INT_VALUE, int_value, 0);
+            .push_slot_always::<flatbuffers::WIPOffset<_>>(ConstantOfShapeAttrs::VT_VALUE, value);
     }
     #[inline]
     pub fn new(
@@ -1456,6 +1807,8 @@ impl<'a: 'b, 'b> ConstantOfShapeAttrsBuilder<'a, 'b> {
     #[inline]
     pub fn finish(self) -> flatbuffers::WIPOffset<ConstantOfShapeAttrs<'a>> {
         let o = self.fbb_.end_table(self.start_);
+        self.fbb_
+            .required(o, ConstantOfShapeAttrs::VT_VALUE, "value");
         flatbuffers::WIPOffset::new(o.value())
     }
 }
@@ -1463,7 +1816,33 @@ impl<'a: 'b, 'b> ConstantOfShapeAttrsBuilder<'a, 'b> {
 impl core::fmt::Debug for ConstantOfShapeAttrs<'_> {
     fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
         let mut ds = f.debug_struct("ConstantOfShapeAttrs");
-        ds.field("int_value", &self.int_value());
+        ds.field("value_type", &self.value_type());
+        match self.value_type() {
+            Scalar::IntScalar => {
+                if let Some(x) = self.value_as_int_scalar() {
+                    ds.field("value", &x)
+                } else {
+                    ds.field(
+                        "value",
+                        &"InvalidFlatbuffer: Union discriminant does not match value.",
+                    )
+                }
+            }
+            Scalar::FloatScalar => {
+                if let Some(x) = self.value_as_float_scalar() {
+                    ds.field("value", &x)
+                } else {
+                    ds.field(
+                        "value",
+                        &"InvalidFlatbuffer: Union discriminant does not match value.",
+                    )
+                }
+            }
+            _ => {
+                let x: Option<()> = None;
+                ds.field("value", &x)
+            }
+        };
         ds.finish()
     }
 }

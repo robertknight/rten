@@ -80,6 +80,12 @@ class OperatorAttrs(object):
     UnsqueezeAttrs = 19
 
 
+class Scalar(object):
+    NONE = 0
+    IntScalar = 1
+    FloatScalar = 2
+
+
 class NodeKind(object):
     NONE = 0
     OperatorNode = 1
@@ -316,6 +322,74 @@ def ConcatAttrsAddDim(builder, dim): builder.PrependUint32Slot(0, dim, 0)
 def ConcatAttrsEnd(builder): return builder.EndObject()
 
 
+class IntScalar(object):
+    __slots__ = ['_tab']
+
+    @classmethod
+    def GetRootAs(cls, buf, offset=0):
+        n = flatbuffers.encode.Get(flatbuffers.packer.uoffset, buf, offset)
+        x = IntScalar()
+        x.Init(buf, n + offset)
+        return x
+
+    @classmethod
+    def GetRootAsIntScalar(cls, buf, offset=0):
+        """This method is deprecated. Please switch to GetRootAs."""
+        return cls.GetRootAs(buf, offset)
+    @classmethod
+    def IntScalarBufferHasIdentifier(cls, buf, offset, size_prefixed=False):
+        return flatbuffers.util.BufferHasIdentifier(buf, offset, b"\x4D\x4F\x44\x4C", size_prefixed=size_prefixed)
+
+    # IntScalar
+    def Init(self, buf, pos):
+        self._tab = flatbuffers.table.Table(buf, pos)
+
+    # IntScalar
+    def Value(self):
+        o = flatbuffers.number_types.UOffsetTFlags.py_type(self._tab.Offset(4))
+        if o != 0:
+            return self._tab.Get(flatbuffers.number_types.Int32Flags, o + self._tab.Pos)
+        return 0
+
+def IntScalarStart(builder): builder.StartObject(1)
+def IntScalarAddValue(builder, value): builder.PrependInt32Slot(0, value, 0)
+def IntScalarEnd(builder): return builder.EndObject()
+
+
+class FloatScalar(object):
+    __slots__ = ['_tab']
+
+    @classmethod
+    def GetRootAs(cls, buf, offset=0):
+        n = flatbuffers.encode.Get(flatbuffers.packer.uoffset, buf, offset)
+        x = FloatScalar()
+        x.Init(buf, n + offset)
+        return x
+
+    @classmethod
+    def GetRootAsFloatScalar(cls, buf, offset=0):
+        """This method is deprecated. Please switch to GetRootAs."""
+        return cls.GetRootAs(buf, offset)
+    @classmethod
+    def FloatScalarBufferHasIdentifier(cls, buf, offset, size_prefixed=False):
+        return flatbuffers.util.BufferHasIdentifier(buf, offset, b"\x4D\x4F\x44\x4C", size_prefixed=size_prefixed)
+
+    # FloatScalar
+    def Init(self, buf, pos):
+        self._tab = flatbuffers.table.Table(buf, pos)
+
+    # FloatScalar
+    def Value(self):
+        o = flatbuffers.number_types.UOffsetTFlags.py_type(self._tab.Offset(4))
+        if o != 0:
+            return self._tab.Get(flatbuffers.number_types.Float32Flags, o + self._tab.Pos)
+        return 0.0
+
+def FloatScalarStart(builder): builder.StartObject(1)
+def FloatScalarAddValue(builder, value): builder.PrependFloat32Slot(0, value, 0.0)
+def FloatScalarEnd(builder): return builder.EndObject()
+
+
 class ConstantOfShapeAttrs(object):
     __slots__ = ['_tab']
 
@@ -339,14 +413,25 @@ class ConstantOfShapeAttrs(object):
         self._tab = flatbuffers.table.Table(buf, pos)
 
     # ConstantOfShapeAttrs
-    def IntValue(self):
+    def ValueType(self):
         o = flatbuffers.number_types.UOffsetTFlags.py_type(self._tab.Offset(4))
         if o != 0:
-            return self._tab.Get(flatbuffers.number_types.Int32Flags, o + self._tab.Pos)
+            return self._tab.Get(flatbuffers.number_types.Uint8Flags, o + self._tab.Pos)
         return 0
 
-def ConstantOfShapeAttrsStart(builder): builder.StartObject(1)
-def ConstantOfShapeAttrsAddIntValue(builder, intValue): builder.PrependInt32Slot(0, intValue, 0)
+    # ConstantOfShapeAttrs
+    def Value(self):
+        o = flatbuffers.number_types.UOffsetTFlags.py_type(self._tab.Offset(6))
+        if o != 0:
+            from flatbuffers.table import Table
+            obj = Table(bytearray(), 0)
+            self._tab.Union(obj, o)
+            return obj
+        return None
+
+def ConstantOfShapeAttrsStart(builder): builder.StartObject(2)
+def ConstantOfShapeAttrsAddValueType(builder, valueType): builder.PrependUint8Slot(0, valueType, 0)
+def ConstantOfShapeAttrsAddValue(builder, value): builder.PrependUOffsetTRelativeSlot(1, flatbuffers.number_types.UOffsetTFlags.py_type(value), 0)
 def ConstantOfShapeAttrsEnd(builder): return builder.EndObject()
 
 

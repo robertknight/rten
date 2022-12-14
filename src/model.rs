@@ -4,7 +4,7 @@ use std::collections::HashMap;
 
 use crate::graph::{Graph, NodeId, RunError, RunOptions};
 use crate::ops;
-use crate::ops::{DataType, Input, Operator, Output, Padding};
+use crate::ops::{DataType, Input, Operator, Output, Padding, Scalar};
 use crate::schema_generated as sg;
 use crate::schema_generated::{root_as_model, OperatorNode, OperatorType, PadMode};
 use crate::tensor::from_data;
@@ -139,8 +139,16 @@ fn read_conv_2d_op(node: &OperatorNode) -> Box<dyn Operator> {
 
 fn read_constant_of_shape_op(node: &OperatorNode) -> Box<dyn Operator> {
     let value = match node.attrs_as_constant_of_shape_attrs() {
-        Some(attrs) => attrs.int_value() as i32,
-        None => 0,
+        Some(attrs) => {
+            if let Some(int_val) = attrs.value_as_int_scalar() {
+                Scalar::Int(int_val.value())
+            } else if let Some(float_val) = attrs.value_as_float_scalar() {
+                Scalar::Float(float_val.value())
+            } else {
+                Scalar::Int(0)
+            }
+        }
+        None => Scalar::Int(0),
     };
     Box::new(ops::ConstantOfShape { value })
 }
@@ -499,7 +507,7 @@ mod tests {
     use crate::model::load_model;
     use crate::model_builder::{ModelBuilder, OpType};
     use crate::ops;
-    use crate::ops::Padding;
+    use crate::ops::{Padding, Scalar};
     use crate::tensor::{from_data, from_scalar, from_vec};
 
     fn generate_model_buffer() -> Vec<u8> {
@@ -623,7 +631,9 @@ mod tests {
         let constant_of_shape_out = builder.add_value("constant_of_shape_out");
         builder.add_operator(
             "constant_of_shape",
-            OpType::ConstantOfShape(ops::ConstantOfShape { value: 42 }),
+            OpType::ConstantOfShape(ops::ConstantOfShape {
+                value: Scalar::Int(42),
+            }),
             &[shape],
             &[constant_of_shape_out],
         );
