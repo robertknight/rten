@@ -40,7 +40,8 @@ enum OperatorType: byte {
   Softmax,
   Sub,
   Transpose,
-  Unsqueeze
+  Unsqueeze,
+  Where
 }
 
 enum PadMode: byte {

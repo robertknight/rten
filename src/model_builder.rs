@@ -46,6 +46,7 @@ pub enum OpType {
     Sub,
     Transpose(Transpose),
     Unsqueeze(Unsqueeze),
+    Where,
 }
 
 /// Builds a serialized FlatBuffers representation of a model using the schema
@@ -480,6 +481,7 @@ impl<'a> ModelBuilder<'a> {
                     ),
                 )
             }
+            OpType::Where => (OT::Where, no_attrs, None),
         };
 
         let input_vec = self.builder.create_vector(inputs);

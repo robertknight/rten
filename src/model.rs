@@ -342,6 +342,10 @@ fn read_unsqueeze_op(node: &OperatorNode) -> Box<dyn Operator> {
     Box::new(ops::Unsqueeze { axes })
 }
 
+fn read_where_op(_: &OperatorNode) -> Box<dyn Operator> {
+    Box::new(ops::Where {})
+}
+
 fn read_operator(node: &OperatorNode) -> Result<Box<dyn Operator>, String> {
     let op: Box<dyn Operator> = match node.type_() {
         OperatorType::Add => read_add_op(node),
@@ -378,6 +382,7 @@ fn read_operator(node: &OperatorNode) -> Result<Box<dyn Operator>, String> {
         OperatorType::Sub => read_sub_op(node),
         OperatorType::Transpose => read_transpose_op(node),
         OperatorType::Unsqueeze => read_unsqueeze_op(node),
+        OperatorType::Where => read_where_op(node),
         _ => return Err("Unknown operator type".to_string()),
     };
     Ok(op)
@@ -801,6 +806,17 @@ mod tests {
             &[unsqueeze_out],
         );
 
+        let where_out = builder.add_value("where_out");
+        let where_cond = builder.add_value("where_cond");
+        let where_x = builder.add_value("where_x");
+        let where_y = builder.add_value("where_y");
+        builder.add_operator(
+            "where",
+            OpType::Where,
+            &[where_cond, where_x, where_y],
+            &[where_out],
+        );
+
         let buffer = builder.finish();
 
         let model = load_model(&buffer).unwrap();
@@ -875,6 +891,23 @@ mod tests {
                     (range_delta_node as usize, (&delta).into()),
                 ],
                 &[range_out as usize],
+                None,
+            )
+            .unwrap();
+        assert_eq!(result.len(), 1);
+
+        // Where op
+        let cond = from_scalar(1);
+        let x = from_vec(vec![1, 2, 3]);
+        let y = from_vec(vec![4, 5, 6]);
+        let result = model
+            .run(
+                &[
+                    (where_cond as usize, (&cond).into()),
+                    (where_x as usize, (&x).into()),
+                    (where_y as usize, (&y).into()),
+                ],
+                &[where_out as usize],
                 None,
             )
             .unwrap();

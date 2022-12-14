@@ -41,6 +41,7 @@ class OperatorType(object):
     Sub = 31
     Transpose = 32
     Unsqueeze = 33
+    Where = 34
 
 
 class PadMode(object):

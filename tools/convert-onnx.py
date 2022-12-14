@@ -516,6 +516,9 @@ def op_node_from_onnx_operator(
             axes = get_attr(onnx_op.attribute, "axes", "ints", [])
             attrs["axes"] = axes
 
+        case "Where":
+            op_type = "Where"
+
         case _:
             raise Exception(f"Unsupported operation {onnx_op.op_type}")
 
@@ -858,6 +861,9 @@ def build_operator_node(builder: flatbuffers.Builder, operator: OperatorNode):
             sg.UnsqueezeAttrsStart(builder)
             sg.UnsqueezeAttrsAddAxes(builder, axes_vec)
             attrs = sg.UnsqueezeAttrsEnd(builder)
+
+        case "Where":
+            op_type_code = sg.OperatorType.Where
 
         case _:
             raise Exception(f"Unsupported operator type {operator.op_type}")

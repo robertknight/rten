@@ -314,11 +314,62 @@ impl Operator for Sub {
     }
 }
 
+pub fn where_op<T: Copy>(
+    cond: &Tensor<i32>,
+    x: &Tensor<T>,
+    y: &Tensor<T>,
+) -> Result<Tensor<T>, OpError> {
+    let result_shape =
+        choose_broadcast_shape(cond.shape(), choose_broadcast_shape(x.shape(), y.shape()));
+    if !cond.can_broadcast(result_shape)
+        || !x.can_broadcast(result_shape)
+        || !y.can_broadcast(result_shape)
+    {
+        return Err(OpError::IncompatibleInputShapes(
+            "Cannot broadcast inputs to result shape",
+        ));
+    }
+    let result_elts = zip(
+        cond.broadcast_elements(result_shape),
+        zip(
+            x.broadcast_elements(result_shape),
+            y.broadcast_elements(result_shape),
+        ),
+    )
+    .map(|(cond, (x, y))| if cond != 0 { x } else { y })
+    .collect();
+    Ok(from_data(result_shape.into(), result_elts))
+}
+
+#[derive(Debug)]
+pub struct Where {}
+
+impl Operator for Where {
+    fn name(&self) -> &str {
+        "Where"
+    }
+
+    fn run(&self, inputs: &[Input]) -> Result<Vec<Output>, OpError> {
+        let condition = get_input(inputs, 0)?;
+        let x = inputs.get(1).ok_or(OpError::MissingInputs)?;
+        match x {
+            Input::FloatTensor(x) => {
+                let y = get_input(inputs, 2)?;
+                where_op(condition, x, y).into_op_result()
+            }
+            Input::IntTensor(x) => {
+                let y = get_input(inputs, 2)?;
+                where_op(condition, x, y).into_op_result()
+            }
+        }
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use crate::ops::{
         add, add_in_place, div, div_in_place, mul, mul_in_place, pow, pow_in_place, sub,
-        sub_in_place, Add, OpError, Operator, Output,
+        sub_in_place, where_op, Add, OpError, Operator, Output,
     };
     use crate::tensor::{from_data, from_scalar, from_vec};
     use crate::test_util::expect_equal;
@@ -496,5 +547,65 @@ mod tests {
         let expected = from_data(vec![2, 2], vec![9., 18., 27., 36.]);
         sub_in_place(&mut a, &b);
         expect_equal(&a, &expected)
+    }
+
+    #[test]
+    fn test_where() {
+        // Float tensor with exact matching shapes
+        let cond = from_data(vec![2, 2], vec![1, 0, 0, 1]);
+        let x = from_data(vec![2, 2], vec![1., 2., 3., 4.]);
+        let y = from_data(vec![2, 2], vec![10., 20., 30., 40.]);
+        let result = where_op(&cond, &x, &y).unwrap();
+        let expected = from_data(vec![2, 2], vec![1., 20., 30., 4.]);
+        assert_eq!(&result, &expected);
+
+        // Float tensor broadcasting `x` and `y`
+        let cond = from_vec(vec![1, 1, 0, 0]);
+        let x = from_scalar(1.);
+        let y = from_scalar(2.);
+        let result = where_op(&cond, &x, &y).unwrap();
+        let expected = from_vec(vec![1., 1., 2., 2.]);
+        assert_eq!(&result, &expected);
+
+        // Float tensor broadcasting `cond`
+        let cond = from_scalar(1);
+        let x = from_vec(vec![1., 2.]);
+        let y = from_vec(vec![3., 4.]);
+        let result = where_op(&cond, &x, &y).unwrap();
+        let expected = from_vec(vec![1., 2.]);
+        assert_eq!(&result, &expected);
+
+        // Int tensor broadcasting `x` and `y`
+        let cond = from_vec(vec![1, 1, 0, 0]);
+        let x = from_scalar(3);
+        let y = from_scalar(4);
+        let result = where_op(&cond, &x, &y).unwrap();
+        let expected = from_vec(vec![3, 3, 4, 4]);
+        assert_eq!(&result, &expected);
+    }
+
+    #[test]
+    fn test_where_invalid_inputs() {
+        let cond = from_vec(vec![1, 1]);
+        let x = from_vec(vec![1, 2, 3]);
+        let y = from_vec(vec![2, 2]);
+
+        // Failure to broadcast `x` to match `cond`
+        let result = where_op(&cond, &x, &y);
+        assert_eq!(
+            result.err(),
+            Some(OpError::IncompatibleInputShapes(
+                "Cannot broadcast inputs to result shape"
+            ))
+        );
+
+        // Failure to broadcast `y` to match `cond`
+        let result = where_op(&cond, &y, &x);
+        assert_eq!(
+            result.err(),
+            Some(OpError::IncompatibleInputShapes(
+                "Cannot broadcast inputs to result shape"
+            ))
+        );
     }
 }
