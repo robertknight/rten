@@ -398,6 +398,9 @@ def op_node_from_onnx_operator(
         case "Div":
             op_type = "Div"
 
+        case "Equal":
+            op_type = "Equal"
+
         case "Gather":
             op_type = "Gather"
 
@@ -421,6 +424,9 @@ def op_node_from_onnx_operator(
             op_type = "LeakyRelu"
 
             attrs["alpha"] = get_attr(onnx_op.attribute, "alpha", "float", 0.01)
+
+        case "Less":
+            op_type = "Less"
 
         case "MatMul":
             op_type = "MatMul"
@@ -707,6 +713,8 @@ def build_operator_node(builder: flatbuffers.Builder, operator: OperatorNode):
             attrs = sg.ConvTranspose2dAttrsEnd(builder)
         case "Div":
             op_type_code = sg.OperatorType.Div
+        case "Equal":
+            op_type_code = sg.OperatorType.Equal
         case "Gather":
             op_type_code = sg.OperatorType.Gather
             attrs_type = sg.OperatorAttrs.GatherAttrs
@@ -732,6 +740,8 @@ def build_operator_node(builder: flatbuffers.Builder, operator: OperatorNode):
             sg.LeakyReluAttrsStart(builder)
             sg.LeakyReluAttrsAddAlpha(builder, operator.attrs["alpha"])
             attrs = sg.LeakyReluAttrsEnd(builder)
+        case "Less":
+            op_type_code = sg.OperatorType.Less
         case "MatMul":
             op_type_code = sg.OperatorType.MatMul
         case "MaxPool2d":

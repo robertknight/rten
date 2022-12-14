@@ -19,10 +19,10 @@ pub use activations::{
 };
 pub use activations::{Clip, LeakyRelu, Relu, Sigmoid, Softmax, Sqrt};
 pub use binary_elementwise::{
-    add, add_in_place, choose_broadcast_shape, div, div_in_place, mul, mul_in_place, pow,
-    pow_in_place, sub, sub_in_place, where_op,
+    add, add_in_place, choose_broadcast_shape, div, div_in_place, equal, less, mul, mul_in_place,
+    pow, pow_in_place, sub, sub_in_place, where_op,
 };
-pub use binary_elementwise::{Add, Div, Mul, Pow, Sub, Where};
+pub use binary_elementwise::{Add, Div, Equal, Less, Mul, Pow, Sub, Where};
 pub use conv::{conv_2d, conv_transpose_2d};
 pub use conv::{Conv2d, ConvTranspose2d};
 pub use layout::{

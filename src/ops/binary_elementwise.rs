@@ -24,11 +24,11 @@ pub fn choose_broadcast_shape<'a>(a: &'a [usize], b: &'a [usize]) -> &'a [usize]
 /// Compute the result of applying the binary operation `op` to corresponding
 /// elements of `a` and `b`. The shapes of `a` and `b` are broadcast to a
 /// matching shape if necessary.
-fn binary_op<T: Copy + Debug, F: Fn(T, T) -> T>(
+fn binary_op<T: Copy + Debug, R: Copy, F: Fn(T, T) -> R>(
     a: &Tensor<T>,
     b: &Tensor<T>,
     op: F,
-) -> Result<Tensor<T>, OpError> {
+) -> Result<Tensor<R>, OpError> {
     let out_shape = choose_broadcast_shape(a.shape(), b.shape());
     if !a.can_broadcast(out_shape) || !b.can_broadcast(out_shape) {
         return Err(OpError::IncompatibleInputShapes(
@@ -187,6 +187,66 @@ impl Operator for Div {
             Ok(a.into())
         } else {
             div(&a, b).map(|t| t.into())
+        }
+    }
+}
+
+pub fn equal<T: Copy + Debug + PartialEq>(
+    a: &Tensor<T>,
+    b: &Tensor<T>,
+) -> Result<Tensor<i32>, OpError> {
+    binary_op(a, b, |x, y| if x == y { 1 } else { 0 })
+}
+
+#[derive(Debug)]
+pub struct Equal {}
+
+impl Operator for Equal {
+    fn name(&self) -> &str {
+        "Equal"
+    }
+
+    fn run(&self, inputs: &[Input]) -> Result<Vec<Output>, OpError> {
+        let a = inputs.get(0).ok_or(OpError::MissingInputs)?;
+        match a {
+            Input::FloatTensor(a) => {
+                let b = get_input(inputs, 1)?;
+                equal(a, b).into_op_result()
+            }
+            Input::IntTensor(a) => {
+                let b = get_input(inputs, 1)?;
+                equal(a, b).into_op_result()
+            }
+        }
+    }
+}
+
+pub fn less<T: Copy + Debug + PartialOrd>(
+    a: &Tensor<T>,
+    b: &Tensor<T>,
+) -> Result<Tensor<i32>, OpError> {
+    binary_op(a, b, |x, y| if x < y { 1 } else { 0 })
+}
+
+#[derive(Debug)]
+pub struct Less {}
+
+impl Operator for Less {
+    fn name(&self) -> &str {
+        "Less"
+    }
+
+    fn run(&self, inputs: &[Input]) -> Result<Vec<Output>, OpError> {
+        let a = inputs.get(0).ok_or(OpError::MissingInputs)?;
+        match a {
+            Input::FloatTensor(a) => {
+                let b = get_input(inputs, 1)?;
+                less(a, b).into_op_result()
+            }
+            Input::IntTensor(a) => {
+                let b = get_input(inputs, 1)?;
+                less(a, b).into_op_result()
+            }
         }
     }
 }
@@ -368,8 +428,8 @@ impl Operator for Where {
 #[cfg(test)]
 mod tests {
     use crate::ops::{
-        add, add_in_place, div, div_in_place, mul, mul_in_place, pow, pow_in_place, sub,
-        sub_in_place, where_op, Add, OpError, Operator, Output,
+        add, add_in_place, div, div_in_place, equal, less, mul, mul_in_place, pow, pow_in_place,
+        sub, sub_in_place, where_op, Add, OpError, Operator, Output,
     };
     use crate::tensor::{from_data, from_scalar, from_vec};
     use crate::test_util::expect_equal;
@@ -493,6 +553,40 @@ mod tests {
         let expected = from_data(vec![2, 2], vec![10., 10., 10., 10.]);
         div_in_place(&mut a, &b);
         expect_equal(&a, &expected)
+    }
+
+    #[test]
+    fn test_equal() {
+        // Int tensor
+        let a = from_vec(vec![1, 2]);
+        let b = from_vec(vec![1, 3]);
+        let expected = from_vec(vec![1, 0]);
+        let result = equal(&a, &b).unwrap();
+        assert_eq!(&result, &expected);
+
+        // Float tensor
+        let a = from_vec(vec![1., 2.]);
+        let b = from_vec(vec![1., 3.]);
+        let expected = from_vec(vec![1, 0]);
+        let result = equal(&a, &b).unwrap();
+        assert_eq!(&result, &expected);
+    }
+
+    #[test]
+    fn test_less() {
+        // Int tensor
+        let a = from_vec(vec![1, 2]);
+        let b = from_vec(vec![1, 3]);
+        let expected = from_vec(vec![0, 1]);
+        let result = less(&a, &b).unwrap();
+        assert_eq!(&result, &expected);
+
+        // Float tensor
+        let a = from_vec(vec![1., 2.]);
+        let b = from_vec(vec![1., 3.]);
+        let expected = from_vec(vec![0, 1]);
+        let result = less(&a, &b).unwrap();
+        assert_eq!(&result, &expected);
     }
 
     #[test]

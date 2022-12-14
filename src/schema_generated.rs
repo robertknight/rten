@@ -18,13 +18,13 @@ pub const ENUM_MIN_OPERATOR_TYPE: i8 = 0;
     since = "2.0.0",
     note = "Use associated constants instead. This will no longer be generated in 2021."
 )]
-pub const ENUM_MAX_OPERATOR_TYPE: i8 = 34;
+pub const ENUM_MAX_OPERATOR_TYPE: i8 = 36;
 #[deprecated(
     since = "2.0.0",
     note = "Use associated constants instead. This will no longer be generated in 2021."
 )]
 #[allow(non_camel_case_types)]
-pub const ENUM_VALUES_OPERATOR_TYPE: [OperatorType; 35] = [
+pub const ENUM_VALUES_OPERATOR_TYPE: [OperatorType; 37] = [
     OperatorType::Add,
     OperatorType::AveragePool2d,
     OperatorType::BatchNormalization,
@@ -35,11 +35,13 @@ pub const ENUM_VALUES_OPERATOR_TYPE: [OperatorType; 35] = [
     OperatorType::Conv2d,
     OperatorType::ConvTranspose2d,
     OperatorType::Div,
+    OperatorType::Equal,
     OperatorType::Gather,
     OperatorType::Gemm,
     OperatorType::GlobalAveragePool,
     OperatorType::Identity,
     OperatorType::LeakyRelu,
+    OperatorType::Less,
     OperatorType::MatMul,
     OperatorType::MaxPool2d,
     OperatorType::Mul,
@@ -77,34 +79,36 @@ impl OperatorType {
     pub const Conv2d: Self = Self(7);
     pub const ConvTranspose2d: Self = Self(8);
     pub const Div: Self = Self(9);
-    pub const Gather: Self = Self(10);
-    pub const Gemm: Self = Self(11);
-    pub const GlobalAveragePool: Self = Self(12);
-    pub const Identity: Self = Self(13);
-    pub const LeakyRelu: Self = Self(14);
-    pub const MatMul: Self = Self(15);
-    pub const MaxPool2d: Self = Self(16);
-    pub const Mul: Self = Self(17);
-    pub const Pad: Self = Self(18);
-    pub const Pow: Self = Self(19);
-    pub const Range: Self = Self(20);
-    pub const ReduceMean: Self = Self(21);
-    pub const Relu: Self = Self(22);
-    pub const Reshape: Self = Self(23);
-    pub const Shape: Self = Self(24);
-    pub const Sigmoid: Self = Self(25);
-    pub const Slice: Self = Self(26);
-    pub const Split: Self = Self(27);
-    pub const Sqrt: Self = Self(28);
-    pub const Squeeze: Self = Self(29);
-    pub const Softmax: Self = Self(30);
-    pub const Sub: Self = Self(31);
-    pub const Transpose: Self = Self(32);
-    pub const Unsqueeze: Self = Self(33);
-    pub const Where: Self = Self(34);
+    pub const Equal: Self = Self(10);
+    pub const Gather: Self = Self(11);
+    pub const Gemm: Self = Self(12);
+    pub const GlobalAveragePool: Self = Self(13);
+    pub const Identity: Self = Self(14);
+    pub const LeakyRelu: Self = Self(15);
+    pub const Less: Self = Self(16);
+    pub const MatMul: Self = Self(17);
+    pub const MaxPool2d: Self = Self(18);
+    pub const Mul: Self = Self(19);
+    pub const Pad: Self = Self(20);
+    pub const Pow: Self = Self(21);
+    pub const Range: Self = Self(22);
+    pub const ReduceMean: Self = Self(23);
+    pub const Relu: Self = Self(24);
+    pub const Reshape: Self = Self(25);
+    pub const Shape: Self = Self(26);
+    pub const Sigmoid: Self = Self(27);
+    pub const Slice: Self = Self(28);
+    pub const Split: Self = Self(29);
+    pub const Sqrt: Self = Self(30);
+    pub const Squeeze: Self = Self(31);
+    pub const Softmax: Self = Self(32);
+    pub const Sub: Self = Self(33);
+    pub const Transpose: Self = Self(34);
+    pub const Unsqueeze: Self = Self(35);
+    pub const Where: Self = Self(36);
 
     pub const ENUM_MIN: i8 = 0;
-    pub const ENUM_MAX: i8 = 34;
+    pub const ENUM_MAX: i8 = 36;
     pub const ENUM_VALUES: &'static [Self] = &[
         Self::Add,
         Self::AveragePool2d,
@@ -116,11 +120,13 @@ impl OperatorType {
         Self::Conv2d,
         Self::ConvTranspose2d,
         Self::Div,
+        Self::Equal,
         Self::Gather,
         Self::Gemm,
         Self::GlobalAveragePool,
         Self::Identity,
         Self::LeakyRelu,
+        Self::Less,
         Self::MatMul,
         Self::MaxPool2d,
         Self::Mul,
@@ -155,11 +161,13 @@ impl OperatorType {
             Self::Conv2d => Some("Conv2d"),
             Self::ConvTranspose2d => Some("ConvTranspose2d"),
             Self::Div => Some("Div"),
+            Self::Equal => Some("Equal"),
             Self::Gather => Some("Gather"),
             Self::Gemm => Some("Gemm"),
             Self::GlobalAveragePool => Some("GlobalAveragePool"),
             Self::Identity => Some("Identity"),
             Self::LeakyRelu => Some("LeakyRelu"),
+            Self::Less => Some("Less"),
             Self::MatMul => Some("MatMul"),
             Self::MaxPool2d => Some("MaxPool2d"),
             Self::Mul => Some("Mul"),

@@ -157,6 +157,10 @@ fn read_div_op(_: &OperatorNode) -> Box<dyn Operator> {
     Box::new(ops::Div {})
 }
 
+fn read_equal_op(_: &OperatorNode) -> Box<dyn Operator> {
+    Box::new(ops::Equal {})
+}
+
 fn read_gather_op(node: &OperatorNode) -> Box<dyn Operator> {
     let axis = match node.attrs_as_gather_attrs() {
         Some(attrs) => attrs.axis() as usize,
@@ -205,6 +209,10 @@ fn read_leaky_relu_op(node: &OperatorNode) -> Box<dyn Operator> {
         None => 0.0,
     };
     Box::new(ops::LeakyRelu { alpha })
+}
+
+fn read_less_op(_: &OperatorNode) -> Box<dyn Operator> {
+    Box::new(ops::Less {})
 }
 
 fn read_max_pool_2d_op(node: &OperatorNode) -> Box<dyn Operator> {
@@ -358,11 +366,13 @@ fn read_operator(node: &OperatorNode) -> Result<Box<dyn Operator>, String> {
         OperatorType::ConstantOfShape => read_constant_of_shape_op(node),
         OperatorType::ConvTranspose2d => read_conv_transpose_2d_op(node),
         OperatorType::Div => read_div_op(node),
+        OperatorType::Equal => read_equal_op(node),
         OperatorType::Gather => read_gather_op(node),
         OperatorType::Gemm => read_gemm_op(node),
         OperatorType::GlobalAveragePool => read_global_average_pool_op(node),
-        OperatorType::LeakyRelu => read_leaky_relu_op(node),
         OperatorType::Identity => read_identity_op(node),
+        OperatorType::LeakyRelu => read_leaky_relu_op(node),
+        OperatorType::Less => read_less_op(node),
         OperatorType::MatMul => read_matmul_op(node),
         OperatorType::MaxPool2d => read_max_pool_2d_op(node),
         OperatorType::Mul => read_mul_op(node),
@@ -636,6 +646,14 @@ mod tests {
         let div_out = builder.add_value("div_out");
         builder.add_operator("div", OpType::Div, &[input_node, input_node], &[div_out]);
 
+        let equal_out = builder.add_value("equal_out");
+        builder.add_operator(
+            "equal",
+            OpType::Equal,
+            &[input_node, input_node],
+            &[equal_out],
+        );
+
         let gather_out = builder.add_value("gather_out");
         builder.add_operator(
             "gather",
@@ -675,6 +693,9 @@ mod tests {
             &[input_node],
             &[leaky_relu_out],
         );
+
+        let less_out = builder.add_value("less_out");
+        builder.add_operator("less", OpType::Less, &[input_node, input_node], &[less_out]);
 
         let matmul_out = builder.add_value("matmul_out");
         builder.add_operator(
@@ -833,9 +854,11 @@ mod tests {
             "conv_2d_out",
             "conv_transpose_2d_out",
             "div_out",
+            "equal_out",
             "identity_out",
             "global_average_pool_out",
             "leaky_relu_out",
+            "less_out",
             "max_pool_2d_out",
             "mul_out",
             "pad_out",
