@@ -340,7 +340,7 @@ def op_node_from_onnx_operator(
             match to:
                 case TensorProto.DataType.FLOAT:
                     attrs["to"] = sg.DataType.Float
-                case TensorProto.DataType.INT32 | TensorProto.DataType.INT64:
+                case TensorProto.DataType.BOOL | TensorProto.DataType.INT32 | TensorProto.DataType.INT64:
                     attrs["to"] = sg.DataType.Int32
                 case _:
                     raise Exception(f"Unsupported target type for cast {to}")
