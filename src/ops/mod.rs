@@ -204,30 +204,36 @@ where
     }
 }
 
+/// Possible reasons why an operator may fail on a given input.
 #[derive(Eq, PartialEq, Debug)]
 pub enum OpError {
-    /// An operator was called with input tensors of a type that is not
-    /// supported by the operator.
+    /// Input tensors have an unsupported element type.
     UnsupportedInputType,
 
-    /// The shapes of input tensors are not compatible with each other or with
-    /// the operator's attributes.
+    /// Input tensor shapes are not compatible with each other or operator
+    /// attributes.
     IncompatibleInputShapes(&'static str),
 
-    /// Two operator inputs which should have the same type, have different types.
+    /// Operator inputs have non-matching element types.
     IncompatibleInputTypes(&'static str),
 
-    /// The operator was called with fewer inputs than expected.
+    /// The number of inputs was less than the required number.
     MissingInputs,
 
     /// An input has a value that is incorrect.
     InvalidValue(&'static str),
 
-    /// An input or attribute has a value that is not currently supported.
+    /// An input or attribute has a value that is valid, but not currently supported.
     UnsupportedValue(&'static str),
 }
 
-/// An Operator is a computation step in a graph.
+/// An Operator performs a computation step when executing a data flow graph.
+///
+/// Operators take zero or more dynamic input values, plus a set of static
+/// attributes and produce one or more output values.
+///
+/// Operators are usually named after the ONNX operator that they implement.
+/// See https://onnx.ai/onnx/operators/.
 pub trait Operator: Debug {
     /// Return a display name for the operator.
     fn name(&self) -> &str;

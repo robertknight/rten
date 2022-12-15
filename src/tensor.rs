@@ -105,7 +105,8 @@ impl From<Range<isize>> for SliceRange {
     }
 }
 
-/// n-dimensional array
+/// Tensor is the core n-dimensional array type used for inputs, outputs and
+/// intermediate values when executing an ML graph.
 #[derive(Debug)]
 pub struct Tensor<T: Copy = f32> {
     /// The underlying buffer of elements
