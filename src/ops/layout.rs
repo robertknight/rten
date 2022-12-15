@@ -1,5 +1,5 @@
-///! Operators which query or change the shape of a tensor, or the order of
-///! elements, but don't modify, add or remove elements.
+///! Operators which query or change the shape of a tensor, or copy/move/reorder
+///! elements.
 use crate::ops::{get_input, Input, IntoOpResult, OpError, Operator, Output};
 use crate::tensor::{from_data, Tensor};
 
