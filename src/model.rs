@@ -46,10 +46,6 @@ fn padding_from_attrs(mode: PadMode, pads: Option<flatbuffers::Vector<'_, u32>>)
     }
 }
 
-fn read_add_op(_: &OperatorNode) -> Box<dyn Operator> {
-    Box::new(ops::Add {})
-}
-
 fn read_average_pool_2d_op(node: &OperatorNode) -> Box<dyn Operator> {
     let kernel_size;
     let padding;
@@ -161,18 +157,6 @@ fn read_conv_transpose_2d_op(node: &OperatorNode) -> Box<dyn Operator> {
     Box::new(ops::ConvTranspose2d { stride })
 }
 
-fn read_div_op(_: &OperatorNode) -> Box<dyn Operator> {
-    Box::new(ops::Div {})
-}
-
-fn read_equal_op(_: &OperatorNode) -> Box<dyn Operator> {
-    Box::new(ops::Equal {})
-}
-
-fn read_expand_op(_: &OperatorNode) -> Box<dyn Operator> {
-    Box::new(ops::Expand {})
-}
-
 fn read_gather_op(node: &OperatorNode) -> Box<dyn Operator> {
     let axis = match node.attrs_as_gather_attrs() {
         Some(attrs) => attrs.axis() as usize,
@@ -207,24 +191,12 @@ fn read_gemm_op(node: &OperatorNode) -> Box<dyn Operator> {
     })
 }
 
-fn read_global_average_pool_op(_: &OperatorNode) -> Box<dyn Operator> {
-    Box::new(ops::GlobalAveragePool {})
-}
-
-fn read_identity_op(_: &OperatorNode) -> Box<dyn Operator> {
-    Box::new(ops::Identity {})
-}
-
 fn read_leaky_relu_op(node: &OperatorNode) -> Box<dyn Operator> {
     let alpha = match node.attrs_as_leaky_relu_attrs() {
         Some(attrs) => attrs.alpha(),
         None => 0.0,
     };
     Box::new(ops::LeakyRelu { alpha })
-}
-
-fn read_less_op(_: &OperatorNode) -> Box<dyn Operator> {
-    Box::new(ops::Less {})
 }
 
 fn read_max_pool_2d_op(node: &OperatorNode) -> Box<dyn Operator> {
@@ -249,26 +221,6 @@ fn read_max_pool_2d_op(node: &OperatorNode) -> Box<dyn Operator> {
     })
 }
 
-fn read_matmul_op(_: &OperatorNode) -> Box<dyn Operator> {
-    Box::new(ops::MatMul {})
-}
-
-fn read_mul_op(_: &OperatorNode) -> Box<dyn Operator> {
-    Box::new(ops::Mul {})
-}
-
-fn read_pad_op(_: &OperatorNode) -> Box<dyn Operator> {
-    Box::new(ops::Pad {})
-}
-
-fn read_pow_op(_: &OperatorNode) -> Box<dyn Operator> {
-    Box::new(ops::Pow {})
-}
-
-fn read_range_op(_: &OperatorNode) -> Box<dyn Operator> {
-    Box::new(ops::Range {})
-}
-
 fn read_reduce_mean_op(node: &OperatorNode) -> Box<dyn Operator> {
     let mut keep_dims = true;
     let mut axes: Option<Vec<i32>> = None;
@@ -279,26 +231,6 @@ fn read_reduce_mean_op(node: &OperatorNode) -> Box<dyn Operator> {
         keep_dims = attrs.keep_dims();
     }
     Box::new(ops::ReduceMean { axes, keep_dims })
-}
-
-fn read_relu_op(_: &OperatorNode) -> Box<dyn Operator> {
-    Box::new(ops::Relu {})
-}
-
-fn read_reshape_op(_: &OperatorNode) -> Box<dyn Operator> {
-    Box::new(ops::Reshape {})
-}
-
-fn read_shape_op(_: &OperatorNode) -> Box<dyn Operator> {
-    Box::new(ops::Shape {})
-}
-
-fn read_sigmoid_op(_: &OperatorNode) -> Box<dyn Operator> {
-    Box::new(ops::Sigmoid {})
-}
-
-fn read_slice_op(_: &OperatorNode) -> Box<dyn Operator> {
-    Box::new(ops::Slice {})
 }
 
 fn read_softmax_op(node: &OperatorNode) -> Box<dyn Operator> {
@@ -323,10 +255,6 @@ fn read_split_op(node: &OperatorNode) -> Box<dyn Operator> {
     Box::new(ops::Split { axis, split })
 }
 
-fn read_sqrt_op(_: &OperatorNode) -> Box<dyn Operator> {
-    Box::new(ops::Sqrt {})
-}
-
 fn read_squeeze_op(node: &OperatorNode) -> Box<dyn Operator> {
     let mut axes: Option<Vec<usize>> = None;
     if let Some(attrs) = node.attrs_as_squeeze_attrs() {
@@ -335,10 +263,6 @@ fn read_squeeze_op(node: &OperatorNode) -> Box<dyn Operator> {
         }
     }
     Box::new(ops::Squeeze { axes })
-}
-
-fn read_sub_op(_: &OperatorNode) -> Box<dyn Operator> {
-    Box::new(ops::Sub {})
 }
 
 fn read_transpose_op(node: &OperatorNode) -> Box<dyn Operator> {
@@ -362,13 +286,16 @@ fn read_unsqueeze_op(node: &OperatorNode) -> Box<dyn Operator> {
     Box::new(ops::Unsqueeze { axes })
 }
 
-fn read_where_op(_: &OperatorNode) -> Box<dyn Operator> {
-    Box::new(ops::Where {})
+/// Create a `Box<dyn Operator>` for an operator that has no attributes.
+macro_rules! op {
+    ($op_name:ident) => {
+        Box::new(ops::$op_name {})
+    };
 }
 
 fn read_operator(node: &OperatorNode) -> Result<Box<dyn Operator>, String> {
     let op: Box<dyn Operator> = match node.type_() {
-        OperatorType::Add => read_add_op(node),
+        OperatorType::Add => op!(Add),
         OperatorType::AveragePool2d => read_average_pool_2d_op(node),
         OperatorType::BatchNormalization => read_batch_normalization_op(node),
         OperatorType::Cast => read_cast_op(node),
@@ -377,35 +304,35 @@ fn read_operator(node: &OperatorNode) -> Result<Box<dyn Operator>, String> {
         OperatorType::Conv2d => read_conv_2d_op(node),
         OperatorType::ConstantOfShape => read_constant_of_shape_op(node),
         OperatorType::ConvTranspose2d => read_conv_transpose_2d_op(node),
-        OperatorType::Div => read_div_op(node),
-        OperatorType::Equal => read_equal_op(node),
-        OperatorType::Expand => read_expand_op(node),
+        OperatorType::Div => op!(Div),
+        OperatorType::Equal => op!(Equal),
+        OperatorType::Expand => op!(Expand),
         OperatorType::Gather => read_gather_op(node),
         OperatorType::Gemm => read_gemm_op(node),
-        OperatorType::GlobalAveragePool => read_global_average_pool_op(node),
-        OperatorType::Identity => read_identity_op(node),
+        OperatorType::GlobalAveragePool => op!(GlobalAveragePool),
+        OperatorType::Identity => op!(Identity),
         OperatorType::LeakyRelu => read_leaky_relu_op(node),
-        OperatorType::Less => read_less_op(node),
-        OperatorType::MatMul => read_matmul_op(node),
+        OperatorType::Less => op!(Less),
+        OperatorType::MatMul => op!(MatMul),
         OperatorType::MaxPool2d => read_max_pool_2d_op(node),
-        OperatorType::Mul => read_mul_op(node),
-        OperatorType::Pad => read_pad_op(node),
-        OperatorType::Pow => read_pow_op(node),
-        OperatorType::Range => read_range_op(node),
+        OperatorType::Mul => op!(Mul),
+        OperatorType::Pad => op!(Pad),
+        OperatorType::Pow => op!(Pow),
+        OperatorType::Range => op!(Range),
         OperatorType::ReduceMean => read_reduce_mean_op(node),
-        OperatorType::Relu => read_relu_op(node),
-        OperatorType::Reshape => read_reshape_op(node),
-        OperatorType::Shape => read_shape_op(node),
-        OperatorType::Sigmoid => read_sigmoid_op(node),
-        OperatorType::Slice => read_slice_op(node),
+        OperatorType::Relu => op!(Relu),
+        OperatorType::Reshape => op!(Reshape),
+        OperatorType::Shape => op!(Shape),
+        OperatorType::Sigmoid => op!(Sigmoid),
+        OperatorType::Slice => op!(Slice),
         OperatorType::Softmax => read_softmax_op(node),
         OperatorType::Split => read_split_op(node),
-        OperatorType::Sqrt => read_sqrt_op(node),
+        OperatorType::Sqrt => op!(Sqrt),
         OperatorType::Squeeze => read_squeeze_op(node),
-        OperatorType::Sub => read_sub_op(node),
+        OperatorType::Sub => op!(Sub),
         OperatorType::Transpose => read_transpose_op(node),
         OperatorType::Unsqueeze => read_unsqueeze_op(node),
-        OperatorType::Where => read_where_op(node),
+        OperatorType::Where => op!(Where),
         _ => return Err("Unknown operator type".to_string()),
     };
     Ok(op)
