@@ -35,12 +35,13 @@ explained under ["Preparing ONNX models"](#preparing-onnx-models).
 
 The general steps for using Wasnn to run models in a JavaScript project are:
 
- 1. Develop or find a pre-trained model that you want to run. Various models
-    already in ONNX format are available from the [ONNX Model Zoo](https://github.com/onnx/models).
- 2. Export the model in ONNX format. PyTorch users can use [torch.onnx](https://pytorch.org/docs/stable/onnx.html)
-    for this.
+ 1. Develop a model or find a pre-trained one that you want to run. Pre-trained
+    models in ONNX format can be obtained from the [ONNX Model Zoo](https://github.com/onnx/models)
+    or [Hugging Face](https://huggingface.co/docs/transformers/serialization).
+ 2. If the model is not already in ONNX format, convert it to ONNX. PyTorch
+    users can use [torch.onnx](https://pytorch.org/docs/stable/onnx.html) for this.
  3. Use the `convert-onnx.py` script in this repository to convert the model
-    to optimized format Wasnn uses. See the section below on preparing models.
+    to the optimized format Wasnn uses. See the section below on preparing models.
 
     **Note: This library is still new.** You may run into issues where your model
     uses operators or attributes that are not supported. Please file an issue
