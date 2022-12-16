@@ -35,17 +35,18 @@ class OperatorType(object):
     ReduceMean = 25
     Relu = 26
     Reshape = 27
-    Shape = 28
-    Sigmoid = 29
-    Slice = 30
-    Split = 31
-    Sqrt = 32
-    Squeeze = 33
-    Softmax = 34
-    Sub = 35
-    Transpose = 36
-    Unsqueeze = 37
-    Where = 38
+    Resize = 28
+    Shape = 29
+    Sigmoid = 30
+    Slice = 31
+    Split = 32
+    Sqrt = 33
+    Squeeze = 34
+    Softmax = 35
+    Sub = 36
+    Transpose = 37
+    Unsqueeze = 38
+    Where = 39
 
 
 class PadMode(object):
@@ -56,6 +57,11 @@ class PadMode(object):
 class DataType(object):
     Int32 = 0
     Float = 1
+
+
+class ResizeMode(object):
+    Nearest = 0
+    Linear = 1
 
 
 class OperatorAttrs(object):
@@ -74,11 +80,12 @@ class OperatorAttrs(object):
     MaxPoolAttrs = 12
     PadAttrs = 13
     ReduceMeanAttrs = 14
-    SplitAttrs = 15
-    SqueezeAttrs = 16
-    SoftmaxAttrs = 17
-    TransposeAttrs = 18
-    UnsqueezeAttrs = 19
+    ResizeAttrs = 15
+    SplitAttrs = 16
+    SqueezeAttrs = 17
+    SoftmaxAttrs = 18
+    TransposeAttrs = 19
+    UnsqueezeAttrs = 20
 
 
 class Scalar(object):
@@ -1103,6 +1110,40 @@ def UnsqueezeAttrsStart(builder): builder.StartObject(1)
 def UnsqueezeAttrsAddAxes(builder, axes): builder.PrependUOffsetTRelativeSlot(0, flatbuffers.number_types.UOffsetTFlags.py_type(axes), 0)
 def UnsqueezeAttrsStartAxesVector(builder, numElems): return builder.StartVector(4, numElems, 4)
 def UnsqueezeAttrsEnd(builder): return builder.EndObject()
+
+
+class ResizeAttrs(object):
+    __slots__ = ['_tab']
+
+    @classmethod
+    def GetRootAs(cls, buf, offset=0):
+        n = flatbuffers.encode.Get(flatbuffers.packer.uoffset, buf, offset)
+        x = ResizeAttrs()
+        x.Init(buf, n + offset)
+        return x
+
+    @classmethod
+    def GetRootAsResizeAttrs(cls, buf, offset=0):
+        """This method is deprecated. Please switch to GetRootAs."""
+        return cls.GetRootAs(buf, offset)
+    @classmethod
+    def ResizeAttrsBufferHasIdentifier(cls, buf, offset, size_prefixed=False):
+        return flatbuffers.util.BufferHasIdentifier(buf, offset, b"\x4D\x4F\x44\x4C", size_prefixed=size_prefixed)
+
+    # ResizeAttrs
+    def Init(self, buf, pos):
+        self._tab = flatbuffers.table.Table(buf, pos)
+
+    # ResizeAttrs
+    def Mode(self):
+        o = flatbuffers.number_types.UOffsetTFlags.py_type(self._tab.Offset(4))
+        if o != 0:
+            return self._tab.Get(flatbuffers.number_types.Int8Flags, o + self._tab.Pos)
+        return 0
+
+def ResizeAttrsStart(builder): builder.StartObject(1)
+def ResizeAttrsAddMode(builder, mode): builder.PrependInt8Slot(0, mode, 0)
+def ResizeAttrsEnd(builder): return builder.EndObject()
 
 
 class OperatorNode(object):

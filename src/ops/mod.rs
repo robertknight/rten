@@ -12,6 +12,7 @@ mod matmul;
 mod norm;
 mod pooling;
 mod reduce;
+mod resize;
 
 pub use activations::{
     clip, clip_in_place, erf, erf_in_place, leaky_relu, leaky_relu_in_place, relu, relu_in_place,
@@ -34,6 +35,7 @@ pub use norm::{batch_norm, batch_norm_in_place, BatchNormalization};
 pub use pooling::{average_pool, global_average_pool, max_pool};
 pub use pooling::{AveragePool, GlobalAveragePool, MaxPool};
 pub use reduce::{reduce_mean, ReduceMean};
+pub use resize::{resize, Resize, ResizeMode, ResizeTarget};
 
 #[derive(Copy, Clone, Debug)]
 pub enum Padding {

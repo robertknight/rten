@@ -18,13 +18,13 @@ pub const ENUM_MIN_OPERATOR_TYPE: i8 = 0;
     since = "2.0.0",
     note = "Use associated constants instead. This will no longer be generated in 2021."
 )]
-pub const ENUM_MAX_OPERATOR_TYPE: i8 = 38;
+pub const ENUM_MAX_OPERATOR_TYPE: i8 = 39;
 #[deprecated(
     since = "2.0.0",
     note = "Use associated constants instead. This will no longer be generated in 2021."
 )]
 #[allow(non_camel_case_types)]
-pub const ENUM_VALUES_OPERATOR_TYPE: [OperatorType; 39] = [
+pub const ENUM_VALUES_OPERATOR_TYPE: [OperatorType; 40] = [
     OperatorType::Add,
     OperatorType::AveragePool,
     OperatorType::BatchNormalization,
@@ -53,6 +53,7 @@ pub const ENUM_VALUES_OPERATOR_TYPE: [OperatorType; 39] = [
     OperatorType::ReduceMean,
     OperatorType::Relu,
     OperatorType::Reshape,
+    OperatorType::Resize,
     OperatorType::Shape,
     OperatorType::Sigmoid,
     OperatorType::Slice,
@@ -99,20 +100,21 @@ impl OperatorType {
     pub const ReduceMean: Self = Self(25);
     pub const Relu: Self = Self(26);
     pub const Reshape: Self = Self(27);
-    pub const Shape: Self = Self(28);
-    pub const Sigmoid: Self = Self(29);
-    pub const Slice: Self = Self(30);
-    pub const Split: Self = Self(31);
-    pub const Sqrt: Self = Self(32);
-    pub const Squeeze: Self = Self(33);
-    pub const Softmax: Self = Self(34);
-    pub const Sub: Self = Self(35);
-    pub const Transpose: Self = Self(36);
-    pub const Unsqueeze: Self = Self(37);
-    pub const Where: Self = Self(38);
+    pub const Resize: Self = Self(28);
+    pub const Shape: Self = Self(29);
+    pub const Sigmoid: Self = Self(30);
+    pub const Slice: Self = Self(31);
+    pub const Split: Self = Self(32);
+    pub const Sqrt: Self = Self(33);
+    pub const Squeeze: Self = Self(34);
+    pub const Softmax: Self = Self(35);
+    pub const Sub: Self = Self(36);
+    pub const Transpose: Self = Self(37);
+    pub const Unsqueeze: Self = Self(38);
+    pub const Where: Self = Self(39);
 
     pub const ENUM_MIN: i8 = 0;
-    pub const ENUM_MAX: i8 = 38;
+    pub const ENUM_MAX: i8 = 39;
     pub const ENUM_VALUES: &'static [Self] = &[
         Self::Add,
         Self::AveragePool,
@@ -142,6 +144,7 @@ impl OperatorType {
         Self::ReduceMean,
         Self::Relu,
         Self::Reshape,
+        Self::Resize,
         Self::Shape,
         Self::Sigmoid,
         Self::Slice,
@@ -185,6 +188,7 @@ impl OperatorType {
             Self::ReduceMean => Some("ReduceMean"),
             Self::Relu => Some("Relu"),
             Self::Reshape => Some("Reshape"),
+            Self::Resize => Some("Resize"),
             Self::Shape => Some("Shape"),
             Self::Sigmoid => Some("Sigmoid"),
             Self::Slice => Some("Slice"),
@@ -434,18 +438,107 @@ impl flatbuffers::SimpleToVerifyInSlice for DataType {}
     since = "2.0.0",
     note = "Use associated constants instead. This will no longer be generated in 2021."
 )]
-pub const ENUM_MIN_OPERATOR_ATTRS: u8 = 0;
+pub const ENUM_MIN_RESIZE_MODE: i8 = 0;
 #[deprecated(
     since = "2.0.0",
     note = "Use associated constants instead. This will no longer be generated in 2021."
 )]
-pub const ENUM_MAX_OPERATOR_ATTRS: u8 = 19;
+pub const ENUM_MAX_RESIZE_MODE: i8 = 1;
 #[deprecated(
     since = "2.0.0",
     note = "Use associated constants instead. This will no longer be generated in 2021."
 )]
 #[allow(non_camel_case_types)]
-pub const ENUM_VALUES_OPERATOR_ATTRS: [OperatorAttrs; 20] = [
+pub const ENUM_VALUES_RESIZE_MODE: [ResizeMode; 2] = [ResizeMode::Nearest, ResizeMode::Linear];
+
+#[derive(Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash, Default)]
+#[repr(transparent)]
+pub struct ResizeMode(pub i8);
+#[allow(non_upper_case_globals)]
+impl ResizeMode {
+    pub const Nearest: Self = Self(0);
+    pub const Linear: Self = Self(1);
+
+    pub const ENUM_MIN: i8 = 0;
+    pub const ENUM_MAX: i8 = 1;
+    pub const ENUM_VALUES: &'static [Self] = &[Self::Nearest, Self::Linear];
+    /// Returns the variant's name or "" if unknown.
+    pub fn variant_name(self) -> Option<&'static str> {
+        match self {
+            Self::Nearest => Some("Nearest"),
+            Self::Linear => Some("Linear"),
+            _ => None,
+        }
+    }
+}
+impl core::fmt::Debug for ResizeMode {
+    fn fmt(&self, f: &mut core::fmt::Formatter) -> core::fmt::Result {
+        if let Some(name) = self.variant_name() {
+            f.write_str(name)
+        } else {
+            f.write_fmt(format_args!("<UNKNOWN {:?}>", self.0))
+        }
+    }
+}
+impl<'a> flatbuffers::Follow<'a> for ResizeMode {
+    type Inner = Self;
+    #[inline]
+    unsafe fn follow(buf: &'a [u8], loc: usize) -> Self::Inner {
+        let b = flatbuffers::read_scalar_at::<i8>(buf, loc);
+        Self(b)
+    }
+}
+
+impl flatbuffers::Push for ResizeMode {
+    type Output = ResizeMode;
+    #[inline]
+    unsafe fn push(&self, dst: &mut [u8], _written_len: usize) {
+        flatbuffers::emplace_scalar::<i8>(dst, self.0);
+    }
+}
+
+impl flatbuffers::EndianScalar for ResizeMode {
+    type Scalar = i8;
+    #[inline]
+    fn to_little_endian(self) -> i8 {
+        self.0.to_le()
+    }
+    #[inline]
+    #[allow(clippy::wrong_self_convention)]
+    fn from_little_endian(v: i8) -> Self {
+        let b = i8::from_le(v);
+        Self(b)
+    }
+}
+
+impl<'a> flatbuffers::Verifiable for ResizeMode {
+    #[inline]
+    fn run_verifier(
+        v: &mut flatbuffers::Verifier,
+        pos: usize,
+    ) -> Result<(), flatbuffers::InvalidFlatbuffer> {
+        use self::flatbuffers::Verifiable;
+        i8::run_verifier(v, pos)
+    }
+}
+
+impl flatbuffers::SimpleToVerifyInSlice for ResizeMode {}
+#[deprecated(
+    since = "2.0.0",
+    note = "Use associated constants instead. This will no longer be generated in 2021."
+)]
+pub const ENUM_MIN_OPERATOR_ATTRS: u8 = 0;
+#[deprecated(
+    since = "2.0.0",
+    note = "Use associated constants instead. This will no longer be generated in 2021."
+)]
+pub const ENUM_MAX_OPERATOR_ATTRS: u8 = 20;
+#[deprecated(
+    since = "2.0.0",
+    note = "Use associated constants instead. This will no longer be generated in 2021."
+)]
+#[allow(non_camel_case_types)]
+pub const ENUM_VALUES_OPERATOR_ATTRS: [OperatorAttrs; 21] = [
     OperatorAttrs::NONE,
     OperatorAttrs::AveragePoolAttrs,
     OperatorAttrs::BatchNormalizationAttrs,
@@ -461,6 +554,7 @@ pub const ENUM_VALUES_OPERATOR_ATTRS: [OperatorAttrs; 20] = [
     OperatorAttrs::MaxPoolAttrs,
     OperatorAttrs::PadAttrs,
     OperatorAttrs::ReduceMeanAttrs,
+    OperatorAttrs::ResizeAttrs,
     OperatorAttrs::SplitAttrs,
     OperatorAttrs::SqueezeAttrs,
     OperatorAttrs::SoftmaxAttrs,
@@ -488,14 +582,15 @@ impl OperatorAttrs {
     pub const MaxPoolAttrs: Self = Self(12);
     pub const PadAttrs: Self = Self(13);
     pub const ReduceMeanAttrs: Self = Self(14);
-    pub const SplitAttrs: Self = Self(15);
-    pub const SqueezeAttrs: Self = Self(16);
-    pub const SoftmaxAttrs: Self = Self(17);
-    pub const TransposeAttrs: Self = Self(18);
-    pub const UnsqueezeAttrs: Self = Self(19);
+    pub const ResizeAttrs: Self = Self(15);
+    pub const SplitAttrs: Self = Self(16);
+    pub const SqueezeAttrs: Self = Self(17);
+    pub const SoftmaxAttrs: Self = Self(18);
+    pub const TransposeAttrs: Self = Self(19);
+    pub const UnsqueezeAttrs: Self = Self(20);
 
     pub const ENUM_MIN: u8 = 0;
-    pub const ENUM_MAX: u8 = 19;
+    pub const ENUM_MAX: u8 = 20;
     pub const ENUM_VALUES: &'static [Self] = &[
         Self::NONE,
         Self::AveragePoolAttrs,
@@ -512,6 +607,7 @@ impl OperatorAttrs {
         Self::MaxPoolAttrs,
         Self::PadAttrs,
         Self::ReduceMeanAttrs,
+        Self::ResizeAttrs,
         Self::SplitAttrs,
         Self::SqueezeAttrs,
         Self::SoftmaxAttrs,
@@ -536,6 +632,7 @@ impl OperatorAttrs {
             Self::MaxPoolAttrs => Some("MaxPoolAttrs"),
             Self::PadAttrs => Some("PadAttrs"),
             Self::ReduceMeanAttrs => Some("ReduceMeanAttrs"),
+            Self::ResizeAttrs => Some("ResizeAttrs"),
             Self::SplitAttrs => Some("SplitAttrs"),
             Self::SqueezeAttrs => Some("SqueezeAttrs"),
             Self::SoftmaxAttrs => Some("SoftmaxAttrs"),
@@ -3487,6 +3584,110 @@ impl core::fmt::Debug for UnsqueezeAttrs<'_> {
         ds.finish()
     }
 }
+pub enum ResizeAttrsOffset {}
+#[derive(Copy, Clone, PartialEq)]
+
+pub struct ResizeAttrs<'a> {
+    pub _tab: flatbuffers::Table<'a>,
+}
+
+impl<'a> flatbuffers::Follow<'a> for ResizeAttrs<'a> {
+    type Inner = ResizeAttrs<'a>;
+    #[inline]
+    unsafe fn follow(buf: &'a [u8], loc: usize) -> Self::Inner {
+        Self {
+            _tab: flatbuffers::Table::new(buf, loc),
+        }
+    }
+}
+
+impl<'a> ResizeAttrs<'a> {
+    pub const VT_MODE: flatbuffers::VOffsetT = 4;
+
+    #[inline]
+    pub unsafe fn init_from_table(table: flatbuffers::Table<'a>) -> Self {
+        ResizeAttrs { _tab: table }
+    }
+    #[allow(unused_mut)]
+    pub fn create<'bldr: 'args, 'args: 'mut_bldr, 'mut_bldr>(
+        _fbb: &'mut_bldr mut flatbuffers::FlatBufferBuilder<'bldr>,
+        args: &'args ResizeAttrsArgs,
+    ) -> flatbuffers::WIPOffset<ResizeAttrs<'bldr>> {
+        let mut builder = ResizeAttrsBuilder::new(_fbb);
+        builder.add_mode(args.mode);
+        builder.finish()
+    }
+
+    #[inline]
+    pub fn mode(&self) -> ResizeMode {
+        // Safety:
+        // Created from valid Table for this object
+        // which contains a valid value in this slot
+        unsafe {
+            self._tab
+                .get::<ResizeMode>(ResizeAttrs::VT_MODE, Some(ResizeMode::Nearest))
+                .unwrap()
+        }
+    }
+}
+
+impl flatbuffers::Verifiable for ResizeAttrs<'_> {
+    #[inline]
+    fn run_verifier(
+        v: &mut flatbuffers::Verifier,
+        pos: usize,
+    ) -> Result<(), flatbuffers::InvalidFlatbuffer> {
+        use self::flatbuffers::Verifiable;
+        v.visit_table(pos)?
+            .visit_field::<ResizeMode>("mode", Self::VT_MODE, false)?
+            .finish();
+        Ok(())
+    }
+}
+pub struct ResizeAttrsArgs {
+    pub mode: ResizeMode,
+}
+impl<'a> Default for ResizeAttrsArgs {
+    #[inline]
+    fn default() -> Self {
+        ResizeAttrsArgs {
+            mode: ResizeMode::Nearest,
+        }
+    }
+}
+
+pub struct ResizeAttrsBuilder<'a: 'b, 'b> {
+    fbb_: &'b mut flatbuffers::FlatBufferBuilder<'a>,
+    start_: flatbuffers::WIPOffset<flatbuffers::TableUnfinishedWIPOffset>,
+}
+impl<'a: 'b, 'b> ResizeAttrsBuilder<'a, 'b> {
+    #[inline]
+    pub fn add_mode(&mut self, mode: ResizeMode) {
+        self.fbb_
+            .push_slot::<ResizeMode>(ResizeAttrs::VT_MODE, mode, ResizeMode::Nearest);
+    }
+    #[inline]
+    pub fn new(_fbb: &'b mut flatbuffers::FlatBufferBuilder<'a>) -> ResizeAttrsBuilder<'a, 'b> {
+        let start = _fbb.start_table();
+        ResizeAttrsBuilder {
+            fbb_: _fbb,
+            start_: start,
+        }
+    }
+    #[inline]
+    pub fn finish(self) -> flatbuffers::WIPOffset<ResizeAttrs<'a>> {
+        let o = self.fbb_.end_table(self.start_);
+        flatbuffers::WIPOffset::new(o.value())
+    }
+}
+
+impl core::fmt::Debug for ResizeAttrs<'_> {
+    fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
+        let mut ds = f.debug_struct("ResizeAttrs");
+        ds.field("mode", &self.mode());
+        ds.finish()
+    }
+}
 pub enum OperatorNodeOffset {}
 #[derive(Copy, Clone, PartialEq)]
 
@@ -3808,6 +4009,21 @@ impl<'a> OperatorNode<'a> {
 
     #[inline]
     #[allow(non_snake_case)]
+    pub fn attrs_as_resize_attrs(&self) -> Option<ResizeAttrs<'a>> {
+        if self.attrs_type() == OperatorAttrs::ResizeAttrs {
+            self.attrs().map(|t| {
+                // Safety:
+                // Created from a valid Table for this object
+                // Which contains a valid union in this slot
+                unsafe { ResizeAttrs::init_from_table(t) }
+            })
+        } else {
+            None
+        }
+    }
+
+    #[inline]
+    #[allow(non_snake_case)]
     pub fn attrs_as_split_attrs(&self) -> Option<SplitAttrs<'a>> {
         if self.attrs_type() == OperatorAttrs::SplitAttrs {
             self.attrs().map(|t| {
@@ -3907,6 +4123,7 @@ impl flatbuffers::Verifiable for OperatorNode<'_> {
           OperatorAttrs::MaxPoolAttrs => v.verify_union_variant::<flatbuffers::ForwardsUOffset<MaxPoolAttrs>>("OperatorAttrs::MaxPoolAttrs", pos),
           OperatorAttrs::PadAttrs => v.verify_union_variant::<flatbuffers::ForwardsUOffset<PadAttrs>>("OperatorAttrs::PadAttrs", pos),
           OperatorAttrs::ReduceMeanAttrs => v.verify_union_variant::<flatbuffers::ForwardsUOffset<ReduceMeanAttrs>>("OperatorAttrs::ReduceMeanAttrs", pos),
+          OperatorAttrs::ResizeAttrs => v.verify_union_variant::<flatbuffers::ForwardsUOffset<ResizeAttrs>>("OperatorAttrs::ResizeAttrs", pos),
           OperatorAttrs::SplitAttrs => v.verify_union_variant::<flatbuffers::ForwardsUOffset<SplitAttrs>>("OperatorAttrs::SplitAttrs", pos),
           OperatorAttrs::SqueezeAttrs => v.verify_union_variant::<flatbuffers::ForwardsUOffset<SqueezeAttrs>>("OperatorAttrs::SqueezeAttrs", pos),
           OperatorAttrs::SoftmaxAttrs => v.verify_union_variant::<flatbuffers::ForwardsUOffset<SoftmaxAttrs>>("OperatorAttrs::SoftmaxAttrs", pos),
@@ -4127,6 +4344,16 @@ impl core::fmt::Debug for OperatorNode<'_> {
             }
             OperatorAttrs::ReduceMeanAttrs => {
                 if let Some(x) = self.attrs_as_reduce_mean_attrs() {
+                    ds.field("attrs", &x)
+                } else {
+                    ds.field(
+                        "attrs",
+                        &"InvalidFlatbuffer: Union discriminant does not match value.",
+                    )
+                }
+            }
+            OperatorAttrs::ResizeAttrs => {
+                if let Some(x) = self.attrs_as_resize_attrs() {
                     ds.field("attrs", &x)
                 } else {
                     ds.field(
