@@ -216,7 +216,7 @@ impl<T: Copy> Tensor<T> {
     /// correspond to the logical order.
     pub fn map<F, U: Copy>(&self, f: F) -> Tensor<U>
     where
-        F: FnMut(T) -> U,
+        F: Fn(T) -> U,
     {
         let data = self.elements().map(f).collect();
         Tensor {
