@@ -3,12 +3,16 @@ extern crate libm;
 use crate::ops::{get_input, Input, IntoOpResult, OpError, Operator, Output};
 use crate::tensor::Tensor;
 
+fn clip_op(val: f32, min: f32, max: f32) -> f32 {
+    val.max(min).min(max)
+}
+
 pub fn clip(input: &Tensor, min: f32, max: f32) -> Tensor {
-    input.map(|x| x.max(min).min(max))
+    input.map(|x| clip_op(x, min, max))
 }
 
 pub fn clip_in_place(input: &mut Tensor, min: f32, max: f32) {
-    input.apply(|val| val.max(min).min(max));
+    input.apply(|val| clip_op(val, min, max))
 }
 
 #[derive(Debug)]
@@ -38,12 +42,16 @@ impl Operator for Clip {
     }
 }
 
+fn erf_op(val: f32) -> f32 {
+    libm::erf(val.into()) as f32
+}
+
 pub fn erf(input: &Tensor) -> Tensor {
-    input.map(|x| libm::erf(x.into()) as f32)
+    input.map(erf_op)
 }
 
 pub fn erf_in_place(input: &mut Tensor) {
-    input.apply(|val| libm::erf(val.into()) as f32);
+    input.apply(erf_op)
 }
 
 #[derive(Debug)]
@@ -70,12 +78,20 @@ impl Operator for Erf {
     }
 }
 
+fn leaky_relu_op(val: f32, alpha: f32) -> f32 {
+    if val < 0.0 {
+        alpha * val
+    } else {
+        val
+    }
+}
+
 pub fn leaky_relu(input: &Tensor, alpha: f32) -> Tensor {
-    input.map(|el| if el < 0.0 { alpha * el } else { el })
+    input.map(|val| leaky_relu_op(val, alpha))
 }
 
 pub fn leaky_relu_in_place(input: &mut Tensor, alpha: f32) {
-    input.apply(|val| if val < 0.0 { alpha * val } else { val });
+    input.apply(|val| leaky_relu_op(val, alpha))
 }
 
 #[derive(Debug)]
@@ -135,12 +151,16 @@ impl Operator for Relu {
     }
 }
 
+fn sigmoid_op(val: f32) -> f32 {
+    1. / (1. + (-val).exp())
+}
+
 pub fn sigmoid(x: &Tensor) -> Tensor {
-    x.map(|e| 1. / (1. + (-e).exp()))
+    x.map(sigmoid_op)
 }
 
 pub fn sigmoid_in_place(x: &mut Tensor) {
-    x.apply(|val| 1. / (1. + (-val).exp()));
+    x.apply(sigmoid_op)
 }
 
 #[derive(Debug)]
