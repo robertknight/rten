@@ -6,9 +6,7 @@ pub fn clip(input: &Tensor, min: f32, max: f32) -> Tensor {
 }
 
 pub fn clip_in_place(input: &mut Tensor, min: f32, max: f32) {
-    for val in input.data_mut().iter_mut() {
-        *val = val.max(min).min(max)
-    }
+    input.apply(|val| val.max(min).min(max));
 }
 
 #[derive(Debug)]
@@ -43,9 +41,7 @@ pub fn leaky_relu(input: &Tensor, alpha: f32) -> Tensor {
 }
 
 pub fn leaky_relu_in_place(input: &mut Tensor, alpha: f32) {
-    for val in input.data_mut().iter_mut() {
-        *val = if (*val) < 0.0 { alpha * (*val) } else { *val }
-    }
+    input.apply(|val| if val < 0.0 { alpha * val } else { val });
 }
 
 #[derive(Debug)]
@@ -75,9 +71,7 @@ impl Operator for LeakyRelu {
 }
 
 pub fn relu_in_place(x: &mut Tensor) {
-    for val in x.data_mut().iter_mut() {
-        *val = val.max(0f32);
-    }
+    x.apply(|val| val.max(0f32));
 }
 
 pub fn relu(x: &Tensor) -> Tensor {
@@ -112,9 +106,7 @@ pub fn sigmoid(x: &Tensor) -> Tensor {
 }
 
 pub fn sigmoid_in_place(x: &mut Tensor) {
-    for val in x.data_mut().iter_mut() {
-        *val = 1. / (1. + (-*val).exp());
-    }
+    x.apply(|val| 1. / (1. + (-val).exp()));
 }
 
 #[derive(Debug)]
@@ -210,9 +202,7 @@ pub fn sqrt(input: &Tensor) -> Tensor {
 }
 
 pub fn sqrt_in_place(input: &mut Tensor) {
-    for val in input.data_mut().iter_mut() {
-        *val = val.sqrt();
-    }
+    input.apply(|val| val.sqrt());
 }
 
 #[derive(Debug)]

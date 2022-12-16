@@ -197,7 +197,23 @@ impl<T: Copy> Tensor<T> {
         from_data(vec![data.len()], data)
     }
 
-    /// Return a copy of this tensor with each element replaced by `f(element)`
+    /// Replace elements of this tensor with `f(element)`.
+    ///
+    /// This is the in-place version of `map`.
+    ///
+    /// The order in which elements are visited is unspecified and may not
+    /// correspond to the logical order.
+    pub fn apply<F: Fn(T) -> T>(&mut self, f: F) {
+        // TODO: Skip unused elements when tensor is not contiguous.
+        for val in self.data_mut().iter_mut() {
+            *val = f(*val);
+        }
+    }
+
+    /// Return a copy of this tensor with each element replaced by `f(element)`.
+    ///
+    /// The order in which elements are visited is unspecified and may not
+    /// correspond to the logical order.
     pub fn map<F, U: Copy>(&self, f: F) -> Tensor<U>
     where
         F: FnMut(T) -> U,
@@ -1180,6 +1196,14 @@ mod tests {
             *elt = (index + 1) as i32;
         }
         x
+    }
+
+    #[test]
+    fn test_apply() {
+        let mut x = steps(&[3, 3]);
+        x.apply(|el| el * el);
+        let expected = from_data(vec![3, 3], vec![1, 4, 9, 16, 25, 36, 49, 64, 81]);
+        assert_eq!(x, expected);
     }
 
     #[test]
