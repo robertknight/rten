@@ -14,10 +14,10 @@ mod pooling;
 mod reduce;
 
 pub use activations::{
-    clip, clip_in_place, leaky_relu, leaky_relu_in_place, relu, relu_in_place, sigmoid,
-    sigmoid_in_place, softmax, sqrt, sqrt_in_place,
+    clip, clip_in_place, erf, erf_in_place, leaky_relu, leaky_relu_in_place, relu, relu_in_place,
+    sigmoid, sigmoid_in_place, softmax, sqrt, sqrt_in_place,
 };
-pub use activations::{Clip, LeakyRelu, Relu, Sigmoid, Softmax, Sqrt};
+pub use activations::{Clip, Erf, LeakyRelu, Relu, Sigmoid, Softmax, Sqrt};
 pub use binary_elementwise::{
     add, add_in_place, choose_broadcast_shape, div, div_in_place, equal, less, mul, mul_in_place,
     pow, pow_in_place, sub, sub_in_place, where_op,

@@ -401,6 +401,9 @@ def op_node_from_onnx_operator(
         case "Equal":
             op_type = "Equal"
 
+        case "Erf":
+            op_type = "Erf"
+
         case "Expand":
             op_type = "Expand"
 
@@ -732,6 +735,8 @@ def build_operator_node(builder: flatbuffers.Builder, operator: OperatorNode):
             op_type_code = sg.OperatorType.Div
         case "Equal":
             op_type_code = sg.OperatorType.Equal
+        case "Erf":
+            op_type_code = sg.OperatorType.Erf
         case "Expand":
             op_type_code = sg.OperatorType.Expand
         case "Gather":

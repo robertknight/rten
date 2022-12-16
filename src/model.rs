@@ -306,6 +306,7 @@ fn read_operator(node: &OperatorNode) -> Result<Box<dyn Operator>, String> {
         OperatorType::ConvTranspose2d => read_conv_transpose_2d_op(node),
         OperatorType::Div => op!(Div),
         OperatorType::Equal => op!(Equal),
+        OperatorType::Erf => op!(Erf),
         OperatorType::Expand => op!(Expand),
         OperatorType::Gather => read_gather_op(node),
         OperatorType::Gemm => read_gemm_op(node),
@@ -588,6 +589,9 @@ mod tests {
         let div_out = builder.add_value("div_out");
         builder.add_operator("div", OpType::Div, &[input_node, input_node], &[div_out]);
 
+        let erf_out = builder.add_value("erf_out");
+        builder.add_operator("erf", OpType::Erf, &[input_node], &[erf_out]);
+
         let expand_shape_val = from_vec(vec![2, 2, 3, 3]);
         let expand_shape = builder.add_int_constant(&expand_shape_val);
         let expand_out = builder.add_value("expand_out");
@@ -807,6 +811,7 @@ mod tests {
             "conv_transpose_2d_out",
             "div_out",
             "equal_out",
+            "erf_out",
             "expand_out",
             "identity_out",
             "global_average_pool_out",

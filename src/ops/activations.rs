@@ -1,3 +1,5 @@
+extern crate libm;
+
 use crate::ops::{get_input, Input, IntoOpResult, OpError, Operator, Output};
 use crate::tensor::Tensor;
 
@@ -32,6 +34,38 @@ impl Operator for Clip {
     fn run_in_place(&self, input: Output, _: &[Input]) -> Result<Output, OpError> {
         let mut output = input.into_float().ok_or(OpError::UnsupportedInputType)?;
         clip_in_place(&mut output, self.min, self.max);
+        Ok(output.into())
+    }
+}
+
+pub fn erf(input: &Tensor) -> Tensor {
+    input.map(|x| libm::erf(x.into()) as f32)
+}
+
+pub fn erf_in_place(input: &mut Tensor) {
+    input.apply(|val| libm::erf(val.into()) as f32);
+}
+
+#[derive(Debug)]
+pub struct Erf {}
+
+impl Operator for Erf {
+    fn name(&self) -> &str {
+        "Erf"
+    }
+
+    fn run(&self, inputs: &[Input]) -> Result<Vec<Output>, OpError> {
+        let input = get_input(inputs, 0)?;
+        erf(input).into_op_result()
+    }
+
+    fn can_run_in_place(&self) -> bool {
+        true
+    }
+
+    fn run_in_place(&self, input: Output, _: &[Input]) -> Result<Output, OpError> {
+        let mut output = input.into_float().ok_or(OpError::UnsupportedInputType)?;
+        erf_in_place(&mut output);
         Ok(output.into())
     }
 }
@@ -232,8 +266,8 @@ impl Operator for Sqrt {
 #[cfg(test)]
 mod tests {
     use crate::ops::{
-        clip, clip_in_place, leaky_relu, leaky_relu_in_place, relu, relu_in_place, sigmoid,
-        sigmoid_in_place, softmax, sqrt, sqrt_in_place,
+        clip, clip_in_place, erf, erf_in_place, leaky_relu, leaky_relu_in_place, relu,
+        relu_in_place, sigmoid, sigmoid_in_place, softmax, sqrt, sqrt_in_place,
     };
     use crate::rng::XorShiftRNG;
     use crate::tensor::{from_data, from_vec, rand};
@@ -252,6 +286,32 @@ mod tests {
         let mut input = from_data(vec![2, 2], vec![-5., -2., 3., 20.]);
         let expected = from_data(vec![2, 2], vec![1., 1., 3., 5.]);
         clip_in_place(&mut input, 1.0, 5.0);
+        expect_equal(&input, &expected)
+    }
+
+    #[test]
+    fn test_erf() -> Result<(), String> {
+        let input = from_vec(vec![-2.0, -0.5, 0.5, 2.0]);
+        let expected = from_vec(vec![
+            -0.9953222650189527,
+            -0.5204998778130465,
+            0.5204998778130465,
+            0.9953222650189527,
+        ]);
+        let result = erf(&input);
+        expect_equal(&result, &expected)
+    }
+
+    #[test]
+    fn test_erf_in_place() -> Result<(), String> {
+        let mut input = from_vec(vec![-2.0, -0.5, 0.5, 2.0]);
+        let expected = from_vec(vec![
+            -0.9953222650189527,
+            -0.5204998778130465,
+            0.5204998778130465,
+            0.9953222650189527,
+        ]);
+        erf_in_place(&mut input);
         expect_equal(&input, &expected)
     }
 
