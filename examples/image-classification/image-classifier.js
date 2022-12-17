@@ -87,13 +87,13 @@ export class ImageClassifier {
    *   to the model
    */
   classify(image) {
-    const inputId = this.model.findNode("input");
-    const outputId = this.model.findNode("output");
+    const inputIds = this.model.inputIds();
+    const outputIds = this.model.outputIds();
 
     const inputs = TensorList.from([
       tensorFromImage(image)
     ]);
-    const outputs = this.model.run([inputId], inputs, [outputId]);
+    const outputs = this.model.run(inputIds, inputs, outputIds);
     const output = outputs.item(0);
 
     // `scores` has shape [1, 1000] where the second dimension are the scores for each

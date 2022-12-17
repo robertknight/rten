@@ -36,8 +36,16 @@ fn main() {
     let model_bytes = fs::read("output.model").unwrap();
     let model = Model::load(&model_bytes).unwrap();
 
-    let input_id = model.find_node("input.1").unwrap();
-    let output_id = model.find_node("380").unwrap();
+    let input_id = model
+        .input_ids()
+        .get(0)
+        .copied()
+        .expect("model has no inputs");
+    let output_id = model
+        .output_ids()
+        .get(0)
+        .copied()
+        .expect("model has no outputs");
 
     let input_img = fs::File::open("test-image-800x600.png").unwrap();
     let decoder = png::Decoder::new(input_img);
