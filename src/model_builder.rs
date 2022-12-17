@@ -196,16 +196,30 @@ impl<'a> ModelBuilder<'a> {
         inputs: &[u32],
         outputs: &[u32],
     ) -> u32 {
-        type OT = sg::OperatorType;
-        type OA = sg::OperatorAttrs;
-
         // Generate an (op_type, attr_type, attrs) tuple for an operator with
         // no attributes.
         macro_rules! no_attr_op {
             ($op_name:ident) => {
-                (OT::$op_name, sg::OperatorAttrs::NONE, None)
+                (sg::OperatorType::$op_name, sg::OperatorAttrs::NONE, None)
             };
         }
+
+        /// Generate an (op_type, attr_type, attrs) tuple for an operator with
+        /// attributes.
+        macro_rules! attr_op {
+            ($op_name:ident, $attr_type:ident, $args: expr) => {{
+                let args = ($args);
+                let attrs = sg::$attr_type::create(&mut self.builder, &args).as_union_value();
+                (
+                    sg::OperatorType::$op_name,
+                    sg::OperatorAttrs::$attr_type,
+                    Some(attrs),
+                )
+            }};
+        }
+
+        type OT = sg::OperatorType;
+        type OA = sg::OperatorAttrs;
 
         // Translate internal operator info to the types in the schema.
         // There is unfortunately a lot of boilerplate here.
@@ -228,61 +242,37 @@ impl<'a> ModelBuilder<'a> {
                     .as_union_value()
                 }),
             ),
-            OpType::BatchNormalization(args) => (
-                OT::BatchNormalization,
-                OA::BatchNormalizationAttrs,
-                Some(
-                    sg::BatchNormalizationAttrs::create(
-                        &mut self.builder,
-                        &sg::BatchNormalizationAttrsArgs {
-                            epsilon: args.epsilon,
-                        },
-                    )
-                    .as_union_value(),
-                ),
+            OpType::BatchNormalization(args) => attr_op!(
+                BatchNormalization,
+                BatchNormalizationAttrs,
+                sg::BatchNormalizationAttrsArgs {
+                    epsilon: args.epsilon
+                }
             ),
-            OpType::Cast(args) => (
-                OT::Cast,
-                OA::CastAttrs,
-                Some(
-                    sg::CastAttrs::create(
-                        &mut self.builder,
-                        &sg::CastAttrsArgs {
-                            to: match args.to {
-                                DataType::Int32 => sg::DataType::Int32,
-                                DataType::Float => sg::DataType::Float,
-                            },
-                        },
-                    )
-                    .as_union_value(),
-                ),
+            OpType::Cast(args) => attr_op!(
+                Cast,
+                CastAttrs,
+                sg::CastAttrsArgs {
+                    to: match args.to {
+                        DataType::Int32 => sg::DataType::Int32,
+                        DataType::Float => sg::DataType::Float,
+                    },
+                }
             ),
-            OpType::Clip(args) => (
-                OT::Clip,
-                OA::ClipAttrs,
-                Some(
-                    sg::ClipAttrs::create(
-                        &mut self.builder,
-                        &sg::ClipAttrsArgs {
-                            min: args.min,
-                            max: args.max,
-                        },
-                    )
-                    .as_union_value(),
-                ),
+            OpType::Clip(args) => attr_op!(
+                Clip,
+                ClipAttrs,
+                sg::ClipAttrsArgs {
+                    min: args.min,
+                    max: args.max,
+                }
             ),
-            OpType::Concat(args) => (
-                OT::Concat,
-                OA::ConcatAttrs,
-                Some(
-                    sg::ConcatAttrs::create(
-                        &mut self.builder,
-                        &sg::ConcatAttrsArgs {
-                            dim: args.dim as u32,
-                        },
-                    )
-                    .as_union_value(),
-                ),
+            OpType::Concat(args) => attr_op!(
+                Concat,
+                ConcatAttrs,
+                sg::ConcatAttrsArgs {
+                    dim: args.dim as u32,
+                }
             ),
             OpType::ConstantOfShape(args) => (
                 OT::ConstantOfShape,
@@ -330,64 +320,40 @@ impl<'a> ModelBuilder<'a> {
                     .as_union_value()
                 }),
             ),
-            OpType::ConvTranspose2d(args) => (
-                OT::ConvTranspose2d,
-                OA::ConvTranspose2dAttrs,
-                Some(
-                    sg::ConvTranspose2dAttrs::create(
-                        &mut self.builder,
-                        &sg::ConvTranspose2dAttrsArgs {
-                            stride: args.stride as u32,
-                        },
-                    )
-                    .as_union_value(),
-                ),
+            OpType::ConvTranspose2d(args) => attr_op!(
+                ConvTranspose2d,
+                ConvTranspose2dAttrs,
+                sg::ConvTranspose2dAttrsArgs {
+                    stride: args.stride as u32,
+                }
             ),
             OpType::Div => no_attr_op!(Div),
             OpType::Equal => no_attr_op!(Equal),
             OpType::Erf => no_attr_op!(Erf),
             OpType::Expand => no_attr_op!(Expand),
-            OpType::Gather(args) => (
-                OT::Gather,
-                OA::GatherAttrs,
-                Some(
-                    sg::GatherAttrs::create(
-                        &mut self.builder,
-                        &sg::GatherAttrsArgs {
-                            axis: args.axis as u32,
-                        },
-                    )
-                    .as_union_value(),
-                ),
+            OpType::Gather(args) => attr_op!(
+                Gather,
+                GatherAttrs,
+                sg::GatherAttrsArgs {
+                    axis: args.axis as u32,
+                }
             ),
-            OpType::Gemm(args) => (
-                OT::Gemm,
-                OA::GemmAttrs,
-                Some(
-                    sg::GemmAttrs::create(
-                        &mut self.builder,
-                        &sg::GemmAttrsArgs {
-                            alpha: args.alpha,
-                            beta: args.beta,
-                            transpose_a: args.transpose_a,
-                            transpose_b: args.transpose_b,
-                        },
-                    )
-                    .as_union_value(),
-                ),
+            OpType::Gemm(args) => attr_op!(
+                Gemm,
+                GemmAttrs,
+                sg::GemmAttrsArgs {
+                    alpha: args.alpha,
+                    beta: args.beta,
+                    transpose_a: args.transpose_a,
+                    transpose_b: args.transpose_b,
+                }
             ),
             OpType::GlobalAveragePool => no_attr_op!(GlobalAveragePool),
             OpType::Identity => no_attr_op!(Identity),
-            OpType::LeakyRelu(args) => (
-                OT::LeakyRelu,
-                OA::LeakyReluAttrs,
-                Some(
-                    sg::LeakyReluAttrs::create(
-                        &mut self.builder,
-                        &sg::LeakyReluAttrsArgs { alpha: args.alpha },
-                    )
-                    .as_union_value(),
-                ),
+            OpType::LeakyRelu(args) => attr_op!(
+                LeakyRelu,
+                LeakyReluAttrs,
+                sg::LeakyReluAttrsArgs { alpha: args.alpha }
             ),
             OpType::Less => no_attr_op!(Less),
             OpType::MatMul => no_attr_op!(MatMul),
@@ -434,18 +400,12 @@ impl<'a> ModelBuilder<'a> {
             OpType::Shape => no_attr_op!(Shape),
             OpType::Sigmoid => no_attr_op!(Sigmoid),
             OpType::Slice => no_attr_op!(Slice),
-            OpType::Softmax(args) => (
-                OT::Softmax,
-                OA::SoftmaxAttrs,
-                Some(
-                    sg::SoftmaxAttrs::create(
-                        &mut self.builder,
-                        &sg::SoftmaxAttrsArgs {
-                            axis: args.axis as u32,
-                        },
-                    )
-                    .as_union_value(),
-                ),
+            OpType::Softmax(args) => attr_op!(
+                Softmax,
+                SoftmaxAttrs,
+                sg::SoftmaxAttrsArgs {
+                    axis: args.axis as u32,
+                }
             ),
             OpType::Split(args) => {
                 let split = self.create_vec(Some(args.split), |size| size as u32);
