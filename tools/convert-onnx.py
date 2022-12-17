@@ -31,7 +31,10 @@ class ConstantNode(Node):
 
 
 class OperatorNode(Node):
+    # Wasnn operator name. This should match the operator name in the FlatBuffers
+    # schema.
     op_type: str
+
     attrs: dict[str, AttributeValue]
     inputs: list[int]
     outputs: list[int]
@@ -576,9 +579,8 @@ def build_operator_node(builder: flatbuffers.Builder, operator: OperatorNode):
 
     match operator.op_type:
         case "Add":
-            op_type_code = sg.OperatorType.Add
+            pass
         case "AveragePool2d":
-            op_type_code = sg.OperatorType.AveragePool2d
             attrs_type = sg.OperatorAttrs.AveragePool2dAttrs
 
             if operator.attrs["pad_mode"] == "same":
@@ -599,32 +601,27 @@ def build_operator_node(builder: flatbuffers.Builder, operator: OperatorNode):
             sg.AveragePool2dAttrsAddStride(builder, operator.attrs["stride"])
             attrs = sg.AveragePool2dAttrsEnd(builder)
         case "BatchNormalization":
-            op_type_code = sg.OperatorType.BatchNormalization
             attrs_type = sg.OperatorAttrs.BatchNormalizationAttrs
             sg.BatchNormalizationAttrsStart(builder)
             sg.BatchNormalizationAttrsAddEpsilon(builder, operator.attrs["epsilon"])
             attrs = sg.BatchNormalizationAttrsEnd(builder)
         case "Cast":
-            op_type_code = sg.OperatorType.Cast
             attrs_type = sg.OperatorAttrs.CastAttrs
             sg.CastAttrsStart(builder)
             sg.CastAttrsAddTo(builder, operator.attrs["to"])
             attrs = sg.CastAttrsEnd(builder)
         case "Clip":
-            op_type_code = sg.OperatorType.Clip
             attrs_type = sg.OperatorAttrs.ClipAttrs
             sg.ClipAttrsStart(builder)
             sg.ClipAttrsAddMin(builder, operator.attrs["min"])
             sg.ClipAttrsAddMax(builder, operator.attrs["max"])
             attrs = sg.ClipAttrsEnd(builder)
         case "Concat":
-            op_type_code = sg.OperatorType.Concat
             attrs_type = sg.OperatorAttrs.ConcatAttrs
             sg.ConcatAttrsStart(builder)
             sg.ConcatAttrsAddDim(builder, operator.attrs["dim"])
             attrs = sg.ConcatAttrsEnd(builder)
         case "ConstantOfShape":
-            op_type_code = sg.OperatorType.ConstantOfShape
             attrs_type = sg.OperatorAttrs.ConstantOfShapeAttrs
             value = operator.attrs["value"]
 
@@ -644,7 +641,6 @@ def build_operator_node(builder: flatbuffers.Builder, operator: OperatorNode):
             sg.ConstantOfShapeAttrsAddValue(builder, scalar)
             attrs = sg.ConstantOfShapeAttrsEnd(builder)
         case "Conv2d":
-            op_type_code = sg.OperatorType.Conv2d
             attrs_type = sg.OperatorAttrs.Conv2dAttrs
 
             if operator.attrs["pad_mode"] == "same":
@@ -665,27 +661,25 @@ def build_operator_node(builder: flatbuffers.Builder, operator: OperatorNode):
             sg.Conv2dAttrsAddStride(builder, operator.attrs["stride"])
             attrs = sg.Conv2dAttrsEnd(builder)
         case "ConvTranspose2d":
-            op_type_code = sg.OperatorType.ConvTranspose2d
             attrs_type = sg.OperatorAttrs.ConvTranspose2dAttrs
             sg.ConvTranspose2dAttrsStart(builder)
             sg.ConvTranspose2dAttrsAddStride(builder, operator.attrs["stride"])
             attrs = sg.ConvTranspose2dAttrsEnd(builder)
         case "Div":
-            op_type_code = sg.OperatorType.Div
+            pass
         case "Equal":
-            op_type_code = sg.OperatorType.Equal
+            pass
         case "Erf":
-            op_type_code = sg.OperatorType.Erf
+            pass
         case "Expand":
-            op_type_code = sg.OperatorType.Expand
+            pass
         case "Gather":
-            op_type_code = sg.OperatorType.Gather
             attrs_type = sg.OperatorAttrs.GatherAttrs
             sg.GatherAttrsStart(builder)
             sg.GatherAttrsAddAxis(builder, operator.attrs["axis"])
             attrs = sg.GatherAttrsEnd(builder)
         case "Gemm":
-            op_type_code = sg.OperatorType.Gemm
+            pass
             attrs_type = sg.OperatorAttrs.GemmAttrs
             sg.GemmAttrsStart(builder)
             sg.GemmAttrsAddAlpha(builder, operator.attrs["alpha"])
@@ -694,21 +688,20 @@ def build_operator_node(builder: flatbuffers.Builder, operator: OperatorNode):
             sg.GemmAttrsAddTransposeB(builder, operator.attrs["transpose_b"])
             attrs = sg.GemmAttrsEnd(builder)
         case "GlobalAveragePool":
-            op_type_code = sg.OperatorType.GlobalAveragePool
+            pass
         case "Identity":
-            op_type_code = sg.OperatorType.Identity
+            pass
         case "LeakyRelu":
-            op_type_code = sg.OperatorType.LeakyRelu
             attrs_type = sg.OperatorAttrs.LeakyReluAttrs
             sg.LeakyReluAttrsStart(builder)
             sg.LeakyReluAttrsAddAlpha(builder, operator.attrs["alpha"])
             attrs = sg.LeakyReluAttrsEnd(builder)
         case "Less":
-            op_type_code = sg.OperatorType.Less
+            pass
         case "MatMul":
-            op_type_code = sg.OperatorType.MatMul
+            pass
         case "MaxPool2d":
-            op_type_code = sg.OperatorType.MaxPool2d
+            pass
             attrs_type = sg.OperatorAttrs.MaxPool2dAttrs
 
             if operator.attrs["pad_mode"] == "same":
@@ -729,15 +722,14 @@ def build_operator_node(builder: flatbuffers.Builder, operator: OperatorNode):
             sg.MaxPool2dAttrsAddStride(builder, operator.attrs["stride"])
             attrs = sg.MaxPool2dAttrsEnd(builder)
         case "Mul":
-            op_type_code = sg.OperatorType.Mul
+            pass
         case "Pad":
-            op_type_code = sg.OperatorType.Pad
+            pass
         case "Pow":
-            op_type_code = sg.OperatorType.Pow
+            pass
         case "Range":
-            op_type_code = sg.OperatorType.Range
+            pass
         case "ReduceMean":
-            op_type_code = sg.OperatorType.ReduceMean
             attrs_type = sg.OperatorAttrs.ReduceMeanAttrs
 
             axes = cast(list[int] | None, operator.attrs["axes"])
@@ -753,23 +745,21 @@ def build_operator_node(builder: flatbuffers.Builder, operator: OperatorNode):
                 sg.ReduceMeanAttrsAddAxes(builder, axes_vec)
             attrs = sg.ReduceMeanAttrsEnd(builder)
         case "Relu":
-            op_type_code = sg.OperatorType.Relu
+            pass
         case "Reshape":
-            op_type_code = sg.OperatorType.Reshape
+            pass
         case "Shape":
-            op_type_code = sg.OperatorType.Shape
+            pass
         case "Sigmoid":
-            op_type_code = sg.OperatorType.Sigmoid
+            pass
         case "Slice":
-            op_type_code = sg.OperatorType.Slice
+            pass
         case "Softmax":
-            op_type_code = sg.OperatorType.Softmax
             attrs_type = sg.OperatorAttrs.SoftmaxAttrs
             sg.SoftmaxAttrsStart(builder)
             sg.SoftmaxAttrsAddAxis(builder, operator.attrs["axis"])
             attrs = sg.SoftmaxAttrsEnd(builder)
         case "Split":
-            op_type_code = sg.OperatorType.Split
             attrs_type = sg.OperatorAttrs.SplitAttrs
 
             split = cast(list[int] | None, operator.attrs["split"])
@@ -786,10 +776,9 @@ def build_operator_node(builder: flatbuffers.Builder, operator: OperatorNode):
             attrs = sg.SplitAttrsEnd(builder)
 
         case "Sqrt":
-            op_type_code = sg.OperatorType.Sqrt
+            pass
 
         case "Squeeze":
-            op_type_code = sg.OperatorType.Squeeze
             attrs_type = sg.OperatorAttrs.SqueezeAttrs
 
             axes = cast(list[int] | None, operator.attrs["axes"])
@@ -804,9 +793,8 @@ def build_operator_node(builder: flatbuffers.Builder, operator: OperatorNode):
                 sg.SqueezeAttrsAddAxes(builder, axes_vec)
             attrs = sg.SqueezeAttrsEnd(builder)
         case "Sub":
-            op_type_code = sg.OperatorType.Sub
+            pass
         case "Transpose":
-            op_type_code = sg.OperatorType.Transpose
             attrs_type = sg.OperatorAttrs.TransposeAttrs
 
             perm = cast(list[int] | None, operator.attrs["perm"])
@@ -822,7 +810,6 @@ def build_operator_node(builder: flatbuffers.Builder, operator: OperatorNode):
             attrs = sg.TransposeAttrsEnd(builder)
 
         case "Unsqueeze":
-            op_type_code = sg.OperatorType.Unsqueeze
             attrs_type = sg.OperatorAttrs.UnsqueezeAttrs
 
             axes = cast(list[int], operator.attrs["axes"])
@@ -836,7 +823,7 @@ def build_operator_node(builder: flatbuffers.Builder, operator: OperatorNode):
             attrs = sg.UnsqueezeAttrsEnd(builder)
 
         case "Where":
-            op_type_code = sg.OperatorType.Where
+            pass
 
         case _:
             raise Exception(f"Unsupported operator type {operator.op_type}")
@@ -852,6 +839,7 @@ def build_operator_node(builder: flatbuffers.Builder, operator: OperatorNode):
     outputs_vec = builder.EndVector()
 
     sg.OperatorNodeStart(builder)
+    op_type_code = getattr(sg.OperatorType, operator.op_type)
     sg.OperatorNodeAddType(builder, op_type_code)
     sg.OperatorNodeAddAttrsType(builder, attrs_type)
     if attrs:
