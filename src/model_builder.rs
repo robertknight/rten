@@ -176,22 +176,16 @@ impl<'a> ModelBuilder<'a> {
         self.add_node(Some(id), NodeData::Value(value_node))
     }
 
-    fn create_u32_vec<'fbb>(
+    /// Convert a `Vec<T>` of elements to a `Vec<U>` and add them to the model buffer
+    fn create_vec<'fbb, T: Copy, U: flatbuffers::Push + Copy, F: Fn(T) -> U>(
         &mut self,
-        data: Option<Vec<usize>>,
-    ) -> Option<WIPOffset<Vector<'a, u32>>> {
-        let vec_u32: Option<Vec<u32>> =
-            data.map(|vec| vec.iter().map(|&item| item as u32).collect());
-        vec_u32.map(|v| self.builder.create_vector(&v))
-    }
-
-    fn create_i32_vec<'fbb>(
-        &mut self,
-        data: Option<Vec<i32>>,
-    ) -> Option<WIPOffset<Vector<'a, i32>>> {
-        let vec_i32: Option<Vec<i32>> =
-            data.map(|vec| vec.iter().map(|&item| item as i32).collect());
-        vec_i32.map(|v| self.builder.create_vector(&v))
+        data: Option<Vec<T>>,
+        map: F,
+    ) -> Option<WIPOffset<Vector<'a, U::Output>>> {
+        data.map(|vec| {
+            let converted_vec: Vec<U> = vec.iter().copied().map(map).collect();
+            self.builder.create_vector(&converted_vec)
+        })
     }
 
     /// Add an operator node to the model
@@ -222,7 +216,7 @@ impl<'a> ModelBuilder<'a> {
                 OA::AveragePool2dAttrs,
                 Some({
                     let pad_args = pad_args_from_padding(args.padding);
-                    let pads = self.create_u32_vec(pad_args.pads);
+                    let pads = self.create_vec(pad_args.pads, |pad| pad as u32);
                     sg::AveragePool2dAttrs::create(&mut self.builder, {
                         &sg::AveragePool2dAttrsArgs {
                             kernel_size: args.kernel_size as u32,
@@ -324,7 +318,7 @@ impl<'a> ModelBuilder<'a> {
                 OA::Conv2dAttrs,
                 Some({
                     let pad_args = pad_args_from_padding(args.padding);
-                    let pads = self.create_u32_vec(pad_args.pads);
+                    let pads = self.create_vec(pad_args.pads, |pad| pad as u32);
                     sg::Conv2dAttrs::create(&mut self.builder, {
                         &sg::Conv2dAttrsArgs {
                             groups: args.groups as u32,
@@ -402,7 +396,7 @@ impl<'a> ModelBuilder<'a> {
                 OA::MaxPool2dAttrs,
                 Some({
                     let pad_args = pad_args_from_padding(args.padding);
-                    let pads = self.create_u32_vec(pad_args.pads);
+                    let pads = self.create_vec(pad_args.pads, |pad| pad as u32);
                     sg::MaxPool2dAttrs::create(&mut self.builder, {
                         &sg::MaxPool2dAttrsArgs {
                             kernel_size: args.kernel_size as u32,
@@ -419,7 +413,7 @@ impl<'a> ModelBuilder<'a> {
             OpType::Pow => no_attr_op!(Pow),
             OpType::Range => no_attr_op!(Range),
             OpType::ReduceMean(args) => {
-                let axes = self.create_i32_vec(args.axes);
+                let axes = self.create_vec(args.axes, |axis| axis as i32);
                 (
                     OT::ReduceMean,
                     OA::ReduceMeanAttrs,
@@ -454,7 +448,7 @@ impl<'a> ModelBuilder<'a> {
                 ),
             ),
             OpType::Split(args) => {
-                let split = self.create_u32_vec(Some(args.split));
+                let split = self.create_vec(Some(args.split), |size| size as u32);
                 (
                     OT::Split,
                     OA::SplitAttrs,
@@ -472,7 +466,7 @@ impl<'a> ModelBuilder<'a> {
             }
             OpType::Sqrt => no_attr_op!(Sqrt),
             OpType::Squeeze(args) => {
-                let axes = self.create_u32_vec(args.axes);
+                let axes = self.create_vec(args.axes, |axis| axis as u32);
                 (
                     OT::Squeeze,
                     OA::SqueezeAttrs,
@@ -484,7 +478,7 @@ impl<'a> ModelBuilder<'a> {
             }
             OpType::Sub => no_attr_op!(Sub),
             OpType::Transpose(args) => {
-                let perm = self.create_u32_vec(args.perm);
+                let perm = self.create_vec(args.perm, |dim| dim as u32);
                 (
                     OT::Transpose,
                     OA::TransposeAttrs,
@@ -498,15 +492,14 @@ impl<'a> ModelBuilder<'a> {
                 )
             }
             OpType::Unsqueeze(args) => {
-                let axes_u32: Vec<u32> = args.axes.iter().map(|&axis| axis as u32).collect();
-                let axes = self.builder.create_vector(&axes_u32);
+                let axes = self.create_vec(Some(args.axes), |axis| axis as u32);
                 (
                     OT::Unsqueeze,
                     OA::UnsqueezeAttrs,
                     Some(
                         sg::UnsqueezeAttrs::create(
                             &mut self.builder,
-                            &sg::UnsqueezeAttrsArgs { axes: Some(axes) },
+                            &sg::UnsqueezeAttrsArgs { axes },
                         )
                         .as_union_value(),
                     ),
