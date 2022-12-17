@@ -283,6 +283,30 @@ def read_stride_attr_from_onnx_operator(
     attrs["stride"] = stride_width
 
 
+# Set of operators that have no attributes and for which the ONNX operator name
+# matches the Wasnn op name.
+NO_ATTR_OPS = {
+    "Add",
+    "Div",
+    "Equal",
+    "Erf",
+    "Expand",
+    "GlobalAveragePool",
+    "Identity",
+    "Less",
+    "MatMul",
+    "Mul",
+    "Range",
+    "Relu",
+    "Pow",
+    "Slice",
+    "Sigmoid",
+    "Sqrt",
+    "Sub",
+    "Where",
+}
+
+
 def op_node_from_onnx_operator(
     onnx_op: onnx.OperatorProto,
     node_index_from_name: dict[str, int],
@@ -313,28 +337,6 @@ def op_node_from_onnx_operator(
         output_indexes.append(index)
 
     attrs: dict[str, AttributeValue] = {}
-
-    # Operators that have no attributes.
-    no_attr_ops = {
-        "Add",
-        "Div",
-        "Equal",
-        "Erf",
-        "Expand",
-        "GlobalAveragePool",
-        "Identity",
-        "Less",
-        "MatMul",
-        "Mul",
-        "Range",
-        "Relu",
-        "Pow",
-        "Slice",
-        "Sigmoid",
-        "Sqrt",
-        "Sub",
-        "Where",
-    }
 
     # Operator type name in Wasnn models. By default assume this is the same as
     # the ONNX type.
@@ -473,7 +475,7 @@ def op_node_from_onnx_operator(
             attrs["axes"] = axes
 
         case other_type:
-            if other_type not in no_attr_ops:
+            if other_type not in NO_ATTR_OPS:
                 raise Exception(f"Unsupported operation {onnx_op.op_type}")
 
     return OperatorNode(
@@ -578,8 +580,6 @@ def build_operator_node(builder: flatbuffers.Builder, operator: OperatorNode):
     attrs = None
 
     match operator.op_type:
-        case "Add":
-            pass
         case "AveragePool2d":
             attrs_type = sg.OperatorAttrs.AveragePool2dAttrs
 
@@ -665,21 +665,12 @@ def build_operator_node(builder: flatbuffers.Builder, operator: OperatorNode):
             sg.ConvTranspose2dAttrsStart(builder)
             sg.ConvTranspose2dAttrsAddStride(builder, operator.attrs["stride"])
             attrs = sg.ConvTranspose2dAttrsEnd(builder)
-        case "Div":
-            pass
-        case "Equal":
-            pass
-        case "Erf":
-            pass
-        case "Expand":
-            pass
         case "Gather":
             attrs_type = sg.OperatorAttrs.GatherAttrs
             sg.GatherAttrsStart(builder)
             sg.GatherAttrsAddAxis(builder, operator.attrs["axis"])
             attrs = sg.GatherAttrsEnd(builder)
         case "Gemm":
-            pass
             attrs_type = sg.OperatorAttrs.GemmAttrs
             sg.GemmAttrsStart(builder)
             sg.GemmAttrsAddAlpha(builder, operator.attrs["alpha"])
@@ -687,21 +678,12 @@ def build_operator_node(builder: flatbuffers.Builder, operator: OperatorNode):
             sg.GemmAttrsAddTransposeA(builder, operator.attrs["transpose_a"])
             sg.GemmAttrsAddTransposeB(builder, operator.attrs["transpose_b"])
             attrs = sg.GemmAttrsEnd(builder)
-        case "GlobalAveragePool":
-            pass
-        case "Identity":
-            pass
         case "LeakyRelu":
             attrs_type = sg.OperatorAttrs.LeakyReluAttrs
             sg.LeakyReluAttrsStart(builder)
             sg.LeakyReluAttrsAddAlpha(builder, operator.attrs["alpha"])
             attrs = sg.LeakyReluAttrsEnd(builder)
-        case "Less":
-            pass
-        case "MatMul":
-            pass
         case "MaxPool2d":
-            pass
             attrs_type = sg.OperatorAttrs.MaxPool2dAttrs
 
             if operator.attrs["pad_mode"] == "same":
@@ -721,14 +703,6 @@ def build_operator_node(builder: flatbuffers.Builder, operator: OperatorNode):
                 sg.MaxPool2dAttrsAddPads(builder, pads_vec)
             sg.MaxPool2dAttrsAddStride(builder, operator.attrs["stride"])
             attrs = sg.MaxPool2dAttrsEnd(builder)
-        case "Mul":
-            pass
-        case "Pad":
-            pass
-        case "Pow":
-            pass
-        case "Range":
-            pass
         case "ReduceMean":
             attrs_type = sg.OperatorAttrs.ReduceMeanAttrs
 
@@ -744,16 +718,6 @@ def build_operator_node(builder: flatbuffers.Builder, operator: OperatorNode):
             if axes_vec:
                 sg.ReduceMeanAttrsAddAxes(builder, axes_vec)
             attrs = sg.ReduceMeanAttrsEnd(builder)
-        case "Relu":
-            pass
-        case "Reshape":
-            pass
-        case "Shape":
-            pass
-        case "Sigmoid":
-            pass
-        case "Slice":
-            pass
         case "Softmax":
             attrs_type = sg.OperatorAttrs.SoftmaxAttrs
             sg.SoftmaxAttrsStart(builder)
@@ -775,9 +739,6 @@ def build_operator_node(builder: flatbuffers.Builder, operator: OperatorNode):
                 sg.SplitAttrsAddSplit(builder, split_vec)
             attrs = sg.SplitAttrsEnd(builder)
 
-        case "Sqrt":
-            pass
-
         case "Squeeze":
             attrs_type = sg.OperatorAttrs.SqueezeAttrs
 
@@ -792,8 +753,6 @@ def build_operator_node(builder: flatbuffers.Builder, operator: OperatorNode):
             if axes_vec:
                 sg.SqueezeAttrsAddAxes(builder, axes_vec)
             attrs = sg.SqueezeAttrsEnd(builder)
-        case "Sub":
-            pass
         case "Transpose":
             attrs_type = sg.OperatorAttrs.TransposeAttrs
 
@@ -822,11 +781,9 @@ def build_operator_node(builder: flatbuffers.Builder, operator: OperatorNode):
             sg.UnsqueezeAttrsAddAxes(builder, axes_vec)
             attrs = sg.UnsqueezeAttrsEnd(builder)
 
-        case "Where":
-            pass
-
-        case _:
-            raise Exception(f"Unsupported operator type {operator.op_type}")
+        case other:
+            if operator.op_type not in NO_ATTR_OPS:
+                raise Exception(f"Unsupported operator type {operator.op_type}")
 
     sg.OperatorNodeStartInputsVector(builder, len(operator.inputs))
     for input_index in reversed(operator.inputs):
