@@ -23,16 +23,16 @@ pub use binary_elementwise::{
     pow, pow_in_place, sub, sub_in_place, where_op,
 };
 pub use binary_elementwise::{Add, Div, Equal, Less, Mul, Pow, Sub, Where};
-pub use conv::{conv_2d, conv_transpose_2d};
-pub use conv::{Conv2d, ConvTranspose2d};
+pub use conv::{conv, conv_transpose};
+pub use conv::{Conv, ConvTranspose};
 pub use layout::{
     expand, reshape, squeeze, squeeze_in_place, Expand, Reshape, Shape, Squeeze, Transpose,
     Unsqueeze,
 };
 pub use matmul::{gemm_op, matmul, Gemm, MatMul};
 pub use norm::{batch_norm, batch_norm_in_place, BatchNormalization};
-pub use pooling::{average_pool_2d, global_average_pool, max_pool_2d};
-pub use pooling::{AveragePool2d, GlobalAveragePool, MaxPool2d};
+pub use pooling::{average_pool, global_average_pool, max_pool};
+pub use pooling::{AveragePool, GlobalAveragePool, MaxPool};
 pub use reduce::{reduce_mean, ReduceMean};
 
 #[derive(Copy, Clone, Debug)]

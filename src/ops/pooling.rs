@@ -53,12 +53,7 @@ pub fn calc_output_size_and_padding(
     (out_h, out_w, padding)
 }
 
-pub fn average_pool_2d(
-    input: &Tensor,
-    kernel_size: usize,
-    stride: usize,
-    padding: Padding,
-) -> Tensor {
+pub fn average_pool(input: &Tensor, kernel_size: usize, stride: usize, padding: Padding) -> Tensor {
     let [batch, in_c, in_h, in_w] = input.dims();
     let (out_h, out_w, fixed_padding) =
         calc_output_size_and_padding((in_h, in_w), (kernel_size, kernel_size), stride, padding);
@@ -102,20 +97,20 @@ pub fn average_pool_2d(
 }
 
 #[derive(Debug)]
-pub struct AveragePool2d {
+pub struct AveragePool {
     pub kernel_size: usize,
     pub padding: Padding,
     pub stride: usize,
 }
 
-impl Operator for AveragePool2d {
+impl Operator for AveragePool {
     fn name(&self) -> &str {
-        "AveragePool2d"
+        "AveragePool"
     }
 
     fn run(&self, inputs: &[Input]) -> Result<Vec<Output>, OpError> {
         let input = get_input(inputs, 0)?;
-        average_pool_2d(input, self.kernel_size, self.stride, self.padding).into_op_result()
+        average_pool(input, self.kernel_size, self.stride, self.padding).into_op_result()
     }
 }
 
@@ -155,7 +150,7 @@ impl Operator for GlobalAveragePool {
     }
 }
 
-pub fn max_pool_2d(input: &Tensor, kernel_size: usize, stride: usize, padding: Padding) -> Tensor {
+pub fn max_pool(input: &Tensor, kernel_size: usize, stride: usize, padding: Padding) -> Tensor {
     let [batch, in_c, in_h, in_w] = input.dims();
     let (out_h, out_w, fixed_padding) =
         calc_output_size_and_padding((in_h, in_w), (kernel_size, kernel_size), stride, padding);
@@ -195,31 +190,31 @@ pub fn max_pool_2d(input: &Tensor, kernel_size: usize, stride: usize, padding: P
 }
 
 #[derive(Debug)]
-pub struct MaxPool2d {
+pub struct MaxPool {
     pub kernel_size: usize,
     pub padding: Padding,
     pub stride: usize,
 }
 
-impl Operator for MaxPool2d {
+impl Operator for MaxPool {
     fn name(&self) -> &str {
-        "MaxPool2d"
+        "MaxPool"
     }
 
     fn run(&self, inputs: &[Input]) -> Result<Vec<Output>, OpError> {
         let input = get_input(inputs, 0)?;
-        max_pool_2d(input, self.kernel_size, self.stride, self.padding).into_op_result()
+        max_pool(input, self.kernel_size, self.stride, self.padding).into_op_result()
     }
 }
 
 #[cfg(test)]
 mod tests {
-    use crate::ops::{average_pool_2d, global_average_pool, max_pool_2d, Padding};
+    use crate::ops::{average_pool, global_average_pool, max_pool, Padding};
     use crate::tensor::{from_2d_slice, from_data, zeros, SliceRange};
     use crate::test_util::expect_equal;
 
     #[test]
-    fn test_average_pool_2d() -> Result<(), String> {
+    fn test_average_pool() -> Result<(), String> {
         let height = 4;
         let width = 4;
         let mut input = zeros(&[1, 1, height, width]);
@@ -250,12 +245,12 @@ mod tests {
             vec![sum_a / 4.0, sum_b / 4.0, sum_c / 4.0, sum_d / 4.0],
         );
 
-        let result = average_pool_2d(&input, 2, 2 /* stride */, Padding::Fixed([0, 0, 0, 0]));
+        let result = average_pool(&input, 2, 2 /* stride */, Padding::Fixed([0, 0, 0, 0]));
         expect_equal(&result, &expected)
     }
 
     #[test]
-    fn test_average_pool_2d_padding() -> Result<(), String> {
+    fn test_average_pool_padding() -> Result<(), String> {
         let mut input = from_2d_slice(&[
             &[0.0809, 0.5529, 0.1534, 0.7507],
             &[0.4698, 0.7771, 0.9896, 0.4873],
@@ -275,7 +270,7 @@ mod tests {
         let [rows, cols] = expected.dims();
         expected.reshape(&[1, 1, rows, cols]);
 
-        let result = average_pool_2d(&input, 2, 2 /* stride */, Padding::Fixed([1, 1, 1, 1]));
+        let result = average_pool(&input, 2, 2 /* stride */, Padding::Fixed([1, 1, 1, 1]));
         expect_equal(&result, &expected)
     }
 
@@ -288,7 +283,7 @@ mod tests {
     }
 
     #[test]
-    fn test_max_pool_2d() -> Result<(), String> {
+    fn test_max_pool() -> Result<(), String> {
         let height = 4;
         let width = 8;
         let mut input = zeros(&[1, 1, height, width]);
@@ -308,12 +303,12 @@ mod tests {
             vec![4.0, 0.4, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0],
         );
 
-        let result = max_pool_2d(&input, 2, 2 /* stride */, Padding::Fixed([0, 0, 0, 0]));
+        let result = max_pool(&input, 2, 2 /* stride */, Padding::Fixed([0, 0, 0, 0]));
         expect_equal(&result, &expected)
     }
 
     #[test]
-    fn test_max_pool_2d_stride() -> Result<(), String> {
+    fn test_max_pool_stride() -> Result<(), String> {
         let mut input = zeros(&[1, 1, 9, 9]);
 
         for y in 0..9 {
@@ -330,7 +325,7 @@ mod tests {
             }
         }
 
-        let result = max_pool_2d(&input, 2, 3 /* stride */, Padding::Fixed([0, 0, 0, 0]));
+        let result = max_pool(&input, 2, 3 /* stride */, Padding::Fixed([0, 0, 0, 0]));
         let expected = from_data(
             vec![1, 1, 3, 3],
             vec![0., 1., 2., 10., 11., 12., 20., 21., 22.],
@@ -340,22 +335,22 @@ mod tests {
     }
 
     #[test]
-    fn test_max_pool_2d_padding() {
+    fn test_max_pool_padding() {
         let input = zeros(&[1, 1, 9, 9]);
 
-        let result = max_pool_2d(&input, 2, 2, Padding::Fixed([0, 0, 0, 0]));
+        let result = max_pool(&input, 2, 2, Padding::Fixed([0, 0, 0, 0]));
         assert_eq!(result.shape(), &[1, 1, 4, 4]);
 
-        let result = max_pool_2d(&input, 2, 2, Padding::Fixed([1, 1, 1, 1]));
+        let result = max_pool(&input, 2, 2, Padding::Fixed([1, 1, 1, 1]));
         assert_eq!(result.shape(), &[1, 1, 5, 5]);
 
-        let result = max_pool_2d(&input, 2, 2, Padding::Fixed([2, 2, 2, 2]));
+        let result = max_pool(&input, 2, 2, Padding::Fixed([2, 2, 2, 2]));
         assert_eq!(result.shape(), &[1, 1, 6, 6]);
 
-        let result = max_pool_2d(&input, 2, 2, Padding::Same);
+        let result = max_pool(&input, 2, 2, Padding::Same);
         assert_eq!(result.shape(), &[1, 1, 5, 5]);
 
-        let result = max_pool_2d(&input, 2, 3, Padding::Same);
+        let result = max_pool(&input, 2, 3, Padding::Same);
         assert_eq!(result.shape(), &[1, 1, 3, 3]);
     }
 }

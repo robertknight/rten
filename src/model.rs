@@ -46,12 +46,12 @@ fn padding_from_attrs(mode: PadMode, pads: Option<flatbuffers::Vector<'_, u32>>)
     }
 }
 
-fn read_average_pool_2d_op(node: &OperatorNode) -> Box<dyn Operator> {
+fn read_average_pool_op(node: &OperatorNode) -> Box<dyn Operator> {
     let kernel_size;
     let padding;
     let stride;
 
-    if let Some(attrs) = node.attrs_as_average_pool_2d_attrs() {
+    if let Some(attrs) = node.attrs_as_average_pool_attrs() {
         kernel_size = attrs.kernel_size() as usize;
         padding = padding_from_attrs(attrs.pad_mode(), attrs.pads());
         stride = attrs.stride() as usize;
@@ -61,7 +61,7 @@ fn read_average_pool_2d_op(node: &OperatorNode) -> Box<dyn Operator> {
         stride = 1;
     }
 
-    Box::new(ops::AveragePool2d {
+    Box::new(ops::AveragePool {
         kernel_size,
         padding,
         stride,
@@ -111,12 +111,12 @@ fn read_concat_op(node: &OperatorNode) -> Box<dyn Operator> {
     Box::new(ops::Concat { dim })
 }
 
-fn read_conv_2d_op(node: &OperatorNode) -> Box<dyn Operator> {
+fn read_conv_op(node: &OperatorNode) -> Box<dyn Operator> {
     let groups;
     let padding;
     let stride;
 
-    if let Some(attrs) = node.attrs_as_conv_2d_attrs() {
+    if let Some(attrs) = node.attrs_as_conv_attrs() {
         groups = attrs.groups() as usize;
         padding = padding_from_attrs(attrs.pad_mode(), attrs.pads());
         stride = attrs.stride() as usize;
@@ -126,7 +126,7 @@ fn read_conv_2d_op(node: &OperatorNode) -> Box<dyn Operator> {
         stride = 1;
     }
 
-    Box::new(ops::Conv2d {
+    Box::new(ops::Conv {
         groups,
         padding,
         stride,
@@ -149,12 +149,12 @@ fn read_constant_of_shape_op(node: &OperatorNode) -> Box<dyn Operator> {
     Box::new(ops::ConstantOfShape { value })
 }
 
-fn read_conv_transpose_2d_op(node: &OperatorNode) -> Box<dyn Operator> {
-    let stride = match node.attrs_as_conv_transpose_2d_attrs() {
+fn read_conv_transpose_op(node: &OperatorNode) -> Box<dyn Operator> {
+    let stride = match node.attrs_as_conv_transpose_attrs() {
         Some(attrs) => attrs.stride() as usize,
         None => 2,
     };
-    Box::new(ops::ConvTranspose2d { stride })
+    Box::new(ops::ConvTranspose { stride })
 }
 
 fn read_gather_op(node: &OperatorNode) -> Box<dyn Operator> {
@@ -199,12 +199,12 @@ fn read_leaky_relu_op(node: &OperatorNode) -> Box<dyn Operator> {
     Box::new(ops::LeakyRelu { alpha })
 }
 
-fn read_max_pool_2d_op(node: &OperatorNode) -> Box<dyn Operator> {
+fn read_max_pool_op(node: &OperatorNode) -> Box<dyn Operator> {
     let kernel_size;
     let padding;
     let stride;
 
-    if let Some(attrs) = node.attrs_as_max_pool_2d_attrs() {
+    if let Some(attrs) = node.attrs_as_max_pool_attrs() {
         kernel_size = attrs.kernel_size() as usize;
         padding = padding_from_attrs(attrs.pad_mode(), attrs.pads());
         stride = attrs.stride() as usize;
@@ -214,7 +214,7 @@ fn read_max_pool_2d_op(node: &OperatorNode) -> Box<dyn Operator> {
         stride = 1;
     }
 
-    Box::new(ops::MaxPool2d {
+    Box::new(ops::MaxPool {
         kernel_size,
         padding,
         stride,
@@ -296,14 +296,14 @@ macro_rules! op {
 fn read_operator(node: &OperatorNode) -> Result<Box<dyn Operator>, String> {
     let op: Box<dyn Operator> = match node.type_() {
         OperatorType::Add => op!(Add),
-        OperatorType::AveragePool2d => read_average_pool_2d_op(node),
+        OperatorType::AveragePool => read_average_pool_op(node),
         OperatorType::BatchNormalization => read_batch_normalization_op(node),
         OperatorType::Cast => read_cast_op(node),
         OperatorType::Clip => read_clip_op(node),
         OperatorType::Concat => read_concat_op(node),
-        OperatorType::Conv2d => read_conv_2d_op(node),
+        OperatorType::Conv => read_conv_op(node),
         OperatorType::ConstantOfShape => read_constant_of_shape_op(node),
-        OperatorType::ConvTranspose2d => read_conv_transpose_2d_op(node),
+        OperatorType::ConvTranspose => read_conv_transpose_op(node),
         OperatorType::Div => op!(Div),
         OperatorType::Equal => op!(Equal),
         OperatorType::Erf => op!(Erf),
@@ -315,7 +315,7 @@ fn read_operator(node: &OperatorNode) -> Result<Box<dyn Operator>, String> {
         OperatorType::LeakyRelu => read_leaky_relu_op(node),
         OperatorType::Less => op!(Less),
         OperatorType::MatMul => op!(MatMul),
-        OperatorType::MaxPool2d => read_max_pool_2d_op(node),
+        OperatorType::MaxPool => read_max_pool_op(node),
         OperatorType::Mul => op!(Mul),
         OperatorType::Pad => op!(Pad),
         OperatorType::Pow => op!(Pow),
@@ -498,16 +498,16 @@ mod tests {
         let add_out = builder.add_value("add_out");
         builder.add_operator("add", OpType::Add, &[input_node, input_node], &[add_out]);
 
-        let average_pool_2d_out = builder.add_value("average_pool_2d_out");
+        let average_pool_out = builder.add_value("average_pool_out");
         builder.add_operator(
-            "average_pool_2d",
-            OpType::AveragePool2d(ops::AveragePool2d {
+            "average_pool",
+            OpType::AveragePool(ops::AveragePool {
                 kernel_size: 2,
                 stride: 2,
                 padding: Padding::Fixed([0, 0, 0, 0]),
             }),
             &[input_node],
-            &[average_pool_2d_out],
+            &[average_pool_out],
         );
 
         // Dummy value for BatchNormalization inputs which are vectors with
@@ -566,24 +566,24 @@ mod tests {
             &[constant_of_shape_out],
         );
 
-        let conv_2d_out = builder.add_value("conv_2d_out");
+        let conv_out = builder.add_value("conv_out");
         builder.add_operator(
-            "conv_2d",
-            OpType::Conv2d(ops::Conv2d {
+            "conv",
+            OpType::Conv(ops::Conv {
                 padding: Padding::Fixed([1, 1, 1, 1]),
                 groups: 1,
                 stride: 1,
             }),
             &[input_node, kernel],
-            &[conv_2d_out],
+            &[conv_out],
         );
 
-        let conv_transpose_2d_out = builder.add_value("conv_transpose_2d_out");
+        let conv_transpose_out = builder.add_value("conv_transpose_out");
         builder.add_operator(
-            "conv_transpose_2d",
-            OpType::ConvTranspose2d(ops::ConvTranspose2d { stride: 2 }),
+            "conv_transpose",
+            OpType::ConvTranspose(ops::ConvTranspose { stride: 2 }),
             &[input_node, kernel],
-            &[conv_transpose_2d_out],
+            &[conv_transpose_out],
         );
 
         let div_out = builder.add_value("div_out");
@@ -661,16 +661,16 @@ mod tests {
             &[matmul_out],
         );
 
-        let max_pool_2d_out = builder.add_value("max_pool_2d_out");
+        let max_pool_out = builder.add_value("max_pool_out");
         builder.add_operator(
-            "max_pool_2d",
-            OpType::MaxPool2d(ops::MaxPool2d {
+            "max_pool",
+            OpType::MaxPool(ops::MaxPool {
                 kernel_size: 2,
                 stride: 2,
                 padding: Padding::Fixed([0, 0, 0, 0]),
             }),
             &[input_node],
-            &[max_pool_2d_out],
+            &[max_pool_out],
         );
 
         let mul_out = builder.add_value("mul_out");
@@ -801,14 +801,14 @@ mod tests {
         // Outputs of ops tested with a 4D input (eg. NCHW image).
         let outputs = vec![
             "add_out",
-            "average_pool_2d_out",
+            "average_pool_out",
             "batch_normalization_out",
             "cast_out",
             "clip_out",
             "concat_out",
             "constant_of_shape_out",
-            "conv_2d_out",
-            "conv_transpose_2d_out",
+            "conv_out",
+            "conv_transpose_out",
             "div_out",
             "equal_out",
             "erf_out",
@@ -817,7 +817,7 @@ mod tests {
             "global_average_pool_out",
             "leaky_relu_out",
             "less_out",
-            "max_pool_2d_out",
+            "max_pool_out",
             "mul_out",
             "pad_out",
             "pow_out",

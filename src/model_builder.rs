@@ -3,9 +3,9 @@ extern crate flatbuffers;
 use flatbuffers::{FlatBufferBuilder, UnionWIPOffset, Vector, WIPOffset};
 
 use crate::ops::{
-    AveragePool2d, BatchNormalization, Cast, Clip, Concat, ConstantOfShape, Conv2d,
-    ConvTranspose2d, DataType, Gather, Gemm, LeakyRelu, MaxPool2d, Padding, ReduceMean, Scalar,
-    Softmax, Split, Squeeze, Transpose, Unsqueeze,
+    AveragePool, BatchNormalization, Cast, Clip, Concat, ConstantOfShape, Conv, ConvTranspose,
+    DataType, Gather, Gemm, LeakyRelu, MaxPool, Padding, ReduceMean, Scalar, Softmax, Split,
+    Squeeze, Transpose, Unsqueeze,
 };
 use crate::schema_generated as sg;
 use crate::tensor::Tensor;
@@ -13,14 +13,14 @@ use crate::tensor::Tensor;
 /// Enum of all the built-in operators
 pub enum OpType {
     Add,
-    AveragePool2d(AveragePool2d),
+    AveragePool(AveragePool),
     BatchNormalization(BatchNormalization),
     Cast(Cast),
     Clip(Clip),
     Concat(Concat),
     ConstantOfShape(ConstantOfShape),
-    Conv2d(Conv2d),
-    ConvTranspose2d(ConvTranspose2d),
+    Conv(Conv),
+    ConvTranspose(ConvTranspose),
     Div,
     Equal,
     Erf,
@@ -32,7 +32,7 @@ pub enum OpType {
     LeakyRelu(LeakyRelu),
     Less,
     MatMul,
-    MaxPool2d(MaxPool2d),
+    MaxPool(MaxPool),
     Mul,
     Pad,
     Pow,
@@ -222,10 +222,10 @@ impl<'a> ModelBuilder<'a> {
         // FlatBuffers types, and write attribute data into buffer.
         let (op_type, attrs_type, attrs) = match op_info {
             OpType::Add => op!(Add),
-            OpType::AveragePool2d(args) => op_with_attrs!(AveragePool2d, AveragePool2dAttrs, {
+            OpType::AveragePool(args) => op_with_attrs!(AveragePool, AveragePoolAttrs, {
                 let pad_args = pad_args_from_padding(args.padding);
                 let pads = self.create_vec(pad_args.pads, |pad| pad as u32);
-                sg::AveragePool2dAttrsArgs {
+                sg::AveragePoolAttrsArgs {
                     kernel_size: args.kernel_size as u32,
                     pad_mode: pad_args.pad_mode,
                     pads,
@@ -290,20 +290,20 @@ impl<'a> ModelBuilder<'a> {
                     }
                 })
             }
-            OpType::Conv2d(args) => op_with_attrs!(Conv2d, Conv2dAttrs, {
+            OpType::Conv(args) => op_with_attrs!(Conv, ConvAttrs, {
                 let pad_args = pad_args_from_padding(args.padding);
                 let pads = self.create_vec(pad_args.pads, |pad| pad as u32);
-                sg::Conv2dAttrsArgs {
+                sg::ConvAttrsArgs {
                     groups: args.groups as u32,
                     pad_mode: pad_args.pad_mode,
                     pads,
                     stride: args.stride as u32,
                 }
             }),
-            OpType::ConvTranspose2d(args) => op_with_attrs!(
-                ConvTranspose2d,
-                ConvTranspose2dAttrs,
-                sg::ConvTranspose2dAttrsArgs {
+            OpType::ConvTranspose(args) => op_with_attrs!(
+                ConvTranspose,
+                ConvTransposeAttrs,
+                sg::ConvTransposeAttrsArgs {
                     stride: args.stride as u32,
                 }
             ),
@@ -337,10 +337,10 @@ impl<'a> ModelBuilder<'a> {
             ),
             OpType::Less => op!(Less),
             OpType::MatMul => op!(MatMul),
-            OpType::MaxPool2d(args) => op_with_attrs!(MaxPool2d, MaxPool2dAttrs, {
+            OpType::MaxPool(args) => op_with_attrs!(MaxPool, MaxPoolAttrs, {
                 let pad_args = pad_args_from_padding(args.padding);
                 let pads = self.create_vec(pad_args.pads, |pad| pad as u32);
-                sg::MaxPool2dAttrsArgs {
+                sg::MaxPoolAttrsArgs {
                     kernel_size: args.kernel_size as u32,
                     pad_mode: pad_args.pad_mode,
                     pads,

@@ -26,14 +26,14 @@ pub const ENUM_MAX_OPERATOR_TYPE: i8 = 38;
 #[allow(non_camel_case_types)]
 pub const ENUM_VALUES_OPERATOR_TYPE: [OperatorType; 39] = [
     OperatorType::Add,
-    OperatorType::AveragePool2d,
+    OperatorType::AveragePool,
     OperatorType::BatchNormalization,
     OperatorType::Cast,
     OperatorType::Clip,
     OperatorType::Concat,
     OperatorType::ConstantOfShape,
-    OperatorType::Conv2d,
-    OperatorType::ConvTranspose2d,
+    OperatorType::Conv,
+    OperatorType::ConvTranspose,
     OperatorType::Div,
     OperatorType::Equal,
     OperatorType::Erf,
@@ -45,7 +45,7 @@ pub const ENUM_VALUES_OPERATOR_TYPE: [OperatorType; 39] = [
     OperatorType::LeakyRelu,
     OperatorType::Less,
     OperatorType::MatMul,
-    OperatorType::MaxPool2d,
+    OperatorType::MaxPool,
     OperatorType::Mul,
     OperatorType::Pad,
     OperatorType::Pow,
@@ -72,14 +72,14 @@ pub struct OperatorType(pub i8);
 #[allow(non_upper_case_globals)]
 impl OperatorType {
     pub const Add: Self = Self(0);
-    pub const AveragePool2d: Self = Self(1);
+    pub const AveragePool: Self = Self(1);
     pub const BatchNormalization: Self = Self(2);
     pub const Cast: Self = Self(3);
     pub const Clip: Self = Self(4);
     pub const Concat: Self = Self(5);
     pub const ConstantOfShape: Self = Self(6);
-    pub const Conv2d: Self = Self(7);
-    pub const ConvTranspose2d: Self = Self(8);
+    pub const Conv: Self = Self(7);
+    pub const ConvTranspose: Self = Self(8);
     pub const Div: Self = Self(9);
     pub const Equal: Self = Self(10);
     pub const Erf: Self = Self(11);
@@ -91,7 +91,7 @@ impl OperatorType {
     pub const LeakyRelu: Self = Self(17);
     pub const Less: Self = Self(18);
     pub const MatMul: Self = Self(19);
-    pub const MaxPool2d: Self = Self(20);
+    pub const MaxPool: Self = Self(20);
     pub const Mul: Self = Self(21);
     pub const Pad: Self = Self(22);
     pub const Pow: Self = Self(23);
@@ -115,14 +115,14 @@ impl OperatorType {
     pub const ENUM_MAX: i8 = 38;
     pub const ENUM_VALUES: &'static [Self] = &[
         Self::Add,
-        Self::AveragePool2d,
+        Self::AveragePool,
         Self::BatchNormalization,
         Self::Cast,
         Self::Clip,
         Self::Concat,
         Self::ConstantOfShape,
-        Self::Conv2d,
-        Self::ConvTranspose2d,
+        Self::Conv,
+        Self::ConvTranspose,
         Self::Div,
         Self::Equal,
         Self::Erf,
@@ -134,7 +134,7 @@ impl OperatorType {
         Self::LeakyRelu,
         Self::Less,
         Self::MatMul,
-        Self::MaxPool2d,
+        Self::MaxPool,
         Self::Mul,
         Self::Pad,
         Self::Pow,
@@ -158,14 +158,14 @@ impl OperatorType {
     pub fn variant_name(self) -> Option<&'static str> {
         match self {
             Self::Add => Some("Add"),
-            Self::AveragePool2d => Some("AveragePool2d"),
+            Self::AveragePool => Some("AveragePool"),
             Self::BatchNormalization => Some("BatchNormalization"),
             Self::Cast => Some("Cast"),
             Self::Clip => Some("Clip"),
             Self::Concat => Some("Concat"),
             Self::ConstantOfShape => Some("ConstantOfShape"),
-            Self::Conv2d => Some("Conv2d"),
-            Self::ConvTranspose2d => Some("ConvTranspose2d"),
+            Self::Conv => Some("Conv"),
+            Self::ConvTranspose => Some("ConvTranspose"),
             Self::Div => Some("Div"),
             Self::Equal => Some("Equal"),
             Self::Erf => Some("Erf"),
@@ -177,7 +177,7 @@ impl OperatorType {
             Self::LeakyRelu => Some("LeakyRelu"),
             Self::Less => Some("Less"),
             Self::MatMul => Some("MatMul"),
-            Self::MaxPool2d => Some("MaxPool2d"),
+            Self::MaxPool => Some("MaxPool"),
             Self::Mul => Some("Mul"),
             Self::Pad => Some("Pad"),
             Self::Pow => Some("Pow"),
@@ -453,18 +453,18 @@ pub const ENUM_MAX_OPERATOR_ATTRS: u8 = 19;
 #[allow(non_camel_case_types)]
 pub const ENUM_VALUES_OPERATOR_ATTRS: [OperatorAttrs; 20] = [
     OperatorAttrs::NONE,
-    OperatorAttrs::AveragePool2dAttrs,
+    OperatorAttrs::AveragePoolAttrs,
     OperatorAttrs::BatchNormalizationAttrs,
     OperatorAttrs::CastAttrs,
     OperatorAttrs::ClipAttrs,
     OperatorAttrs::ConcatAttrs,
     OperatorAttrs::ConstantOfShapeAttrs,
-    OperatorAttrs::Conv2dAttrs,
-    OperatorAttrs::ConvTranspose2dAttrs,
+    OperatorAttrs::ConvAttrs,
+    OperatorAttrs::ConvTransposeAttrs,
     OperatorAttrs::GatherAttrs,
     OperatorAttrs::GemmAttrs,
     OperatorAttrs::LeakyReluAttrs,
-    OperatorAttrs::MaxPool2dAttrs,
+    OperatorAttrs::MaxPoolAttrs,
     OperatorAttrs::PadAttrs,
     OperatorAttrs::ReduceMeanAttrs,
     OperatorAttrs::SplitAttrs,
@@ -480,18 +480,18 @@ pub struct OperatorAttrs(pub u8);
 #[allow(non_upper_case_globals)]
 impl OperatorAttrs {
     pub const NONE: Self = Self(0);
-    pub const AveragePool2dAttrs: Self = Self(1);
+    pub const AveragePoolAttrs: Self = Self(1);
     pub const BatchNormalizationAttrs: Self = Self(2);
     pub const CastAttrs: Self = Self(3);
     pub const ClipAttrs: Self = Self(4);
     pub const ConcatAttrs: Self = Self(5);
     pub const ConstantOfShapeAttrs: Self = Self(6);
-    pub const Conv2dAttrs: Self = Self(7);
-    pub const ConvTranspose2dAttrs: Self = Self(8);
+    pub const ConvAttrs: Self = Self(7);
+    pub const ConvTransposeAttrs: Self = Self(8);
     pub const GatherAttrs: Self = Self(9);
     pub const GemmAttrs: Self = Self(10);
     pub const LeakyReluAttrs: Self = Self(11);
-    pub const MaxPool2dAttrs: Self = Self(12);
+    pub const MaxPoolAttrs: Self = Self(12);
     pub const PadAttrs: Self = Self(13);
     pub const ReduceMeanAttrs: Self = Self(14);
     pub const SplitAttrs: Self = Self(15);
@@ -504,18 +504,18 @@ impl OperatorAttrs {
     pub const ENUM_MAX: u8 = 19;
     pub const ENUM_VALUES: &'static [Self] = &[
         Self::NONE,
-        Self::AveragePool2dAttrs,
+        Self::AveragePoolAttrs,
         Self::BatchNormalizationAttrs,
         Self::CastAttrs,
         Self::ClipAttrs,
         Self::ConcatAttrs,
         Self::ConstantOfShapeAttrs,
-        Self::Conv2dAttrs,
-        Self::ConvTranspose2dAttrs,
+        Self::ConvAttrs,
+        Self::ConvTransposeAttrs,
         Self::GatherAttrs,
         Self::GemmAttrs,
         Self::LeakyReluAttrs,
-        Self::MaxPool2dAttrs,
+        Self::MaxPoolAttrs,
         Self::PadAttrs,
         Self::ReduceMeanAttrs,
         Self::SplitAttrs,
@@ -528,18 +528,18 @@ impl OperatorAttrs {
     pub fn variant_name(self) -> Option<&'static str> {
         match self {
             Self::NONE => Some("NONE"),
-            Self::AveragePool2dAttrs => Some("AveragePool2dAttrs"),
+            Self::AveragePoolAttrs => Some("AveragePoolAttrs"),
             Self::BatchNormalizationAttrs => Some("BatchNormalizationAttrs"),
             Self::CastAttrs => Some("CastAttrs"),
             Self::ClipAttrs => Some("ClipAttrs"),
             Self::ConcatAttrs => Some("ConcatAttrs"),
             Self::ConstantOfShapeAttrs => Some("ConstantOfShapeAttrs"),
-            Self::Conv2dAttrs => Some("Conv2dAttrs"),
-            Self::ConvTranspose2dAttrs => Some("ConvTranspose2dAttrs"),
+            Self::ConvAttrs => Some("ConvAttrs"),
+            Self::ConvTransposeAttrs => Some("ConvTransposeAttrs"),
             Self::GatherAttrs => Some("GatherAttrs"),
             Self::GemmAttrs => Some("GemmAttrs"),
             Self::LeakyReluAttrs => Some("LeakyReluAttrs"),
-            Self::MaxPool2dAttrs => Some("MaxPool2dAttrs"),
+            Self::MaxPoolAttrs => Some("MaxPoolAttrs"),
             Self::PadAttrs => Some("PadAttrs"),
             Self::ReduceMeanAttrs => Some("ReduceMeanAttrs"),
             Self::SplitAttrs => Some("SplitAttrs"),
@@ -908,15 +908,15 @@ impl<'a> flatbuffers::Verifiable for ConstantData {
 impl flatbuffers::SimpleToVerifyInSlice for ConstantData {}
 pub struct ConstantDataUnionTableOffset {}
 
-pub enum AveragePool2dAttrsOffset {}
+pub enum AveragePoolAttrsOffset {}
 #[derive(Copy, Clone, PartialEq)]
 
-pub struct AveragePool2dAttrs<'a> {
+pub struct AveragePoolAttrs<'a> {
     pub _tab: flatbuffers::Table<'a>,
 }
 
-impl<'a> flatbuffers::Follow<'a> for AveragePool2dAttrs<'a> {
-    type Inner = AveragePool2dAttrs<'a>;
+impl<'a> flatbuffers::Follow<'a> for AveragePoolAttrs<'a> {
+    type Inner = AveragePoolAttrs<'a>;
     #[inline]
     fn follow(buf: &'a [u8], loc: usize) -> Self::Inner {
         Self {
@@ -925,7 +925,7 @@ impl<'a> flatbuffers::Follow<'a> for AveragePool2dAttrs<'a> {
     }
 }
 
-impl<'a> AveragePool2dAttrs<'a> {
+impl<'a> AveragePoolAttrs<'a> {
     pub const VT_KERNEL_SIZE: flatbuffers::VOffsetT = 4;
     pub const VT_PAD_MODE: flatbuffers::VOffsetT = 6;
     pub const VT_PADS: flatbuffers::VOffsetT = 8;
@@ -933,14 +933,14 @@ impl<'a> AveragePool2dAttrs<'a> {
 
     #[inline]
     pub fn init_from_table(table: flatbuffers::Table<'a>) -> Self {
-        AveragePool2dAttrs { _tab: table }
+        AveragePoolAttrs { _tab: table }
     }
     #[allow(unused_mut)]
     pub fn create<'bldr: 'args, 'args: 'mut_bldr, 'mut_bldr>(
         _fbb: &'mut_bldr mut flatbuffers::FlatBufferBuilder<'bldr>,
-        args: &'args AveragePool2dAttrsArgs<'args>,
-    ) -> flatbuffers::WIPOffset<AveragePool2dAttrs<'bldr>> {
-        let mut builder = AveragePool2dAttrsBuilder::new(_fbb);
+        args: &'args AveragePoolAttrsArgs<'args>,
+    ) -> flatbuffers::WIPOffset<AveragePoolAttrs<'bldr>> {
+        let mut builder = AveragePoolAttrsBuilder::new(_fbb);
         builder.add_stride(args.stride);
         if let Some(x) = args.pads {
             builder.add_pads(x);
@@ -953,32 +953,32 @@ impl<'a> AveragePool2dAttrs<'a> {
     #[inline]
     pub fn kernel_size(&self) -> u32 {
         self._tab
-            .get::<u32>(AveragePool2dAttrs::VT_KERNEL_SIZE, Some(0))
+            .get::<u32>(AveragePoolAttrs::VT_KERNEL_SIZE, Some(0))
             .unwrap()
     }
     #[inline]
     pub fn pad_mode(&self) -> PadMode {
         self._tab
-            .get::<PadMode>(AveragePool2dAttrs::VT_PAD_MODE, Some(PadMode::Same))
+            .get::<PadMode>(AveragePoolAttrs::VT_PAD_MODE, Some(PadMode::Same))
             .unwrap()
     }
     #[inline]
     pub fn pads(&self) -> Option<flatbuffers::Vector<'a, u32>> {
         self._tab
             .get::<flatbuffers::ForwardsUOffset<flatbuffers::Vector<'a, u32>>>(
-                AveragePool2dAttrs::VT_PADS,
+                AveragePoolAttrs::VT_PADS,
                 None,
             )
     }
     #[inline]
     pub fn stride(&self) -> u32 {
         self._tab
-            .get::<u32>(AveragePool2dAttrs::VT_STRIDE, Some(0))
+            .get::<u32>(AveragePoolAttrs::VT_STRIDE, Some(0))
             .unwrap()
     }
 }
 
-impl flatbuffers::Verifiable for AveragePool2dAttrs<'_> {
+impl flatbuffers::Verifiable for AveragePoolAttrs<'_> {
     #[inline]
     fn run_verifier(
         v: &mut flatbuffers::Verifier,
@@ -998,16 +998,16 @@ impl flatbuffers::Verifiable for AveragePool2dAttrs<'_> {
         Ok(())
     }
 }
-pub struct AveragePool2dAttrsArgs<'a> {
+pub struct AveragePoolAttrsArgs<'a> {
     pub kernel_size: u32,
     pub pad_mode: PadMode,
     pub pads: Option<flatbuffers::WIPOffset<flatbuffers::Vector<'a, u32>>>,
     pub stride: u32,
 }
-impl<'a> Default for AveragePool2dAttrsArgs<'a> {
+impl<'a> Default for AveragePoolAttrsArgs<'a> {
     #[inline]
     fn default() -> Self {
-        AveragePool2dAttrsArgs {
+        AveragePoolAttrsArgs {
             kernel_size: 0,
             pad_mode: PadMode::Same,
             pads: None,
@@ -1016,51 +1016,51 @@ impl<'a> Default for AveragePool2dAttrsArgs<'a> {
     }
 }
 
-pub struct AveragePool2dAttrsBuilder<'a: 'b, 'b> {
+pub struct AveragePoolAttrsBuilder<'a: 'b, 'b> {
     fbb_: &'b mut flatbuffers::FlatBufferBuilder<'a>,
     start_: flatbuffers::WIPOffset<flatbuffers::TableUnfinishedWIPOffset>,
 }
-impl<'a: 'b, 'b> AveragePool2dAttrsBuilder<'a, 'b> {
+impl<'a: 'b, 'b> AveragePoolAttrsBuilder<'a, 'b> {
     #[inline]
     pub fn add_kernel_size(&mut self, kernel_size: u32) {
         self.fbb_
-            .push_slot::<u32>(AveragePool2dAttrs::VT_KERNEL_SIZE, kernel_size, 0);
+            .push_slot::<u32>(AveragePoolAttrs::VT_KERNEL_SIZE, kernel_size, 0);
     }
     #[inline]
     pub fn add_pad_mode(&mut self, pad_mode: PadMode) {
         self.fbb_
-            .push_slot::<PadMode>(AveragePool2dAttrs::VT_PAD_MODE, pad_mode, PadMode::Same);
+            .push_slot::<PadMode>(AveragePoolAttrs::VT_PAD_MODE, pad_mode, PadMode::Same);
     }
     #[inline]
     pub fn add_pads(&mut self, pads: flatbuffers::WIPOffset<flatbuffers::Vector<'b, u32>>) {
         self.fbb_
-            .push_slot_always::<flatbuffers::WIPOffset<_>>(AveragePool2dAttrs::VT_PADS, pads);
+            .push_slot_always::<flatbuffers::WIPOffset<_>>(AveragePoolAttrs::VT_PADS, pads);
     }
     #[inline]
     pub fn add_stride(&mut self, stride: u32) {
         self.fbb_
-            .push_slot::<u32>(AveragePool2dAttrs::VT_STRIDE, stride, 0);
+            .push_slot::<u32>(AveragePoolAttrs::VT_STRIDE, stride, 0);
     }
     #[inline]
     pub fn new(
         _fbb: &'b mut flatbuffers::FlatBufferBuilder<'a>,
-    ) -> AveragePool2dAttrsBuilder<'a, 'b> {
+    ) -> AveragePoolAttrsBuilder<'a, 'b> {
         let start = _fbb.start_table();
-        AveragePool2dAttrsBuilder {
+        AveragePoolAttrsBuilder {
             fbb_: _fbb,
             start_: start,
         }
     }
     #[inline]
-    pub fn finish(self) -> flatbuffers::WIPOffset<AveragePool2dAttrs<'a>> {
+    pub fn finish(self) -> flatbuffers::WIPOffset<AveragePoolAttrs<'a>> {
         let o = self.fbb_.end_table(self.start_);
         flatbuffers::WIPOffset::new(o.value())
     }
 }
 
-impl core::fmt::Debug for AveragePool2dAttrs<'_> {
+impl core::fmt::Debug for AveragePoolAttrs<'_> {
     fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
-        let mut ds = f.debug_struct("AveragePool2dAttrs");
+        let mut ds = f.debug_struct("AveragePoolAttrs");
         ds.field("kernel_size", &self.kernel_size());
         ds.field("pad_mode", &self.pad_mode());
         ds.field("pads", &self.pads());
@@ -1850,15 +1850,15 @@ impl core::fmt::Debug for ConstantOfShapeAttrs<'_> {
         ds.finish()
     }
 }
-pub enum Conv2dAttrsOffset {}
+pub enum ConvAttrsOffset {}
 #[derive(Copy, Clone, PartialEq)]
 
-pub struct Conv2dAttrs<'a> {
+pub struct ConvAttrs<'a> {
     pub _tab: flatbuffers::Table<'a>,
 }
 
-impl<'a> flatbuffers::Follow<'a> for Conv2dAttrs<'a> {
-    type Inner = Conv2dAttrs<'a>;
+impl<'a> flatbuffers::Follow<'a> for ConvAttrs<'a> {
+    type Inner = ConvAttrs<'a>;
     #[inline]
     fn follow(buf: &'a [u8], loc: usize) -> Self::Inner {
         Self {
@@ -1867,7 +1867,7 @@ impl<'a> flatbuffers::Follow<'a> for Conv2dAttrs<'a> {
     }
 }
 
-impl<'a> Conv2dAttrs<'a> {
+impl<'a> ConvAttrs<'a> {
     pub const VT_PAD_MODE: flatbuffers::VOffsetT = 4;
     pub const VT_PADS: flatbuffers::VOffsetT = 6;
     pub const VT_GROUPS: flatbuffers::VOffsetT = 8;
@@ -1875,14 +1875,14 @@ impl<'a> Conv2dAttrs<'a> {
 
     #[inline]
     pub fn init_from_table(table: flatbuffers::Table<'a>) -> Self {
-        Conv2dAttrs { _tab: table }
+        ConvAttrs { _tab: table }
     }
     #[allow(unused_mut)]
     pub fn create<'bldr: 'args, 'args: 'mut_bldr, 'mut_bldr>(
         _fbb: &'mut_bldr mut flatbuffers::FlatBufferBuilder<'bldr>,
-        args: &'args Conv2dAttrsArgs<'args>,
-    ) -> flatbuffers::WIPOffset<Conv2dAttrs<'bldr>> {
-        let mut builder = Conv2dAttrsBuilder::new(_fbb);
+        args: &'args ConvAttrsArgs<'args>,
+    ) -> flatbuffers::WIPOffset<ConvAttrs<'bldr>> {
+        let mut builder = ConvAttrsBuilder::new(_fbb);
         builder.add_stride(args.stride);
         builder.add_groups(args.groups);
         if let Some(x) = args.pads {
@@ -1895,32 +1895,28 @@ impl<'a> Conv2dAttrs<'a> {
     #[inline]
     pub fn pad_mode(&self) -> PadMode {
         self._tab
-            .get::<PadMode>(Conv2dAttrs::VT_PAD_MODE, Some(PadMode::Same))
+            .get::<PadMode>(ConvAttrs::VT_PAD_MODE, Some(PadMode::Same))
             .unwrap()
     }
     #[inline]
     pub fn pads(&self) -> Option<flatbuffers::Vector<'a, u32>> {
         self._tab
             .get::<flatbuffers::ForwardsUOffset<flatbuffers::Vector<'a, u32>>>(
-                Conv2dAttrs::VT_PADS,
+                ConvAttrs::VT_PADS,
                 None,
             )
     }
     #[inline]
     pub fn groups(&self) -> u32 {
-        self._tab
-            .get::<u32>(Conv2dAttrs::VT_GROUPS, Some(0))
-            .unwrap()
+        self._tab.get::<u32>(ConvAttrs::VT_GROUPS, Some(0)).unwrap()
     }
     #[inline]
     pub fn stride(&self) -> u32 {
-        self._tab
-            .get::<u32>(Conv2dAttrs::VT_STRIDE, Some(0))
-            .unwrap()
+        self._tab.get::<u32>(ConvAttrs::VT_STRIDE, Some(0)).unwrap()
     }
 }
 
-impl flatbuffers::Verifiable for Conv2dAttrs<'_> {
+impl flatbuffers::Verifiable for ConvAttrs<'_> {
     #[inline]
     fn run_verifier(
         v: &mut flatbuffers::Verifier,
@@ -1940,16 +1936,16 @@ impl flatbuffers::Verifiable for Conv2dAttrs<'_> {
         Ok(())
     }
 }
-pub struct Conv2dAttrsArgs<'a> {
+pub struct ConvAttrsArgs<'a> {
     pub pad_mode: PadMode,
     pub pads: Option<flatbuffers::WIPOffset<flatbuffers::Vector<'a, u32>>>,
     pub groups: u32,
     pub stride: u32,
 }
-impl<'a> Default for Conv2dAttrsArgs<'a> {
+impl<'a> Default for ConvAttrsArgs<'a> {
     #[inline]
     fn default() -> Self {
-        Conv2dAttrsArgs {
+        ConvAttrsArgs {
             pad_mode: PadMode::Same,
             pads: None,
             groups: 0,
@@ -1958,49 +1954,47 @@ impl<'a> Default for Conv2dAttrsArgs<'a> {
     }
 }
 
-pub struct Conv2dAttrsBuilder<'a: 'b, 'b> {
+pub struct ConvAttrsBuilder<'a: 'b, 'b> {
     fbb_: &'b mut flatbuffers::FlatBufferBuilder<'a>,
     start_: flatbuffers::WIPOffset<flatbuffers::TableUnfinishedWIPOffset>,
 }
-impl<'a: 'b, 'b> Conv2dAttrsBuilder<'a, 'b> {
+impl<'a: 'b, 'b> ConvAttrsBuilder<'a, 'b> {
     #[inline]
     pub fn add_pad_mode(&mut self, pad_mode: PadMode) {
         self.fbb_
-            .push_slot::<PadMode>(Conv2dAttrs::VT_PAD_MODE, pad_mode, PadMode::Same);
+            .push_slot::<PadMode>(ConvAttrs::VT_PAD_MODE, pad_mode, PadMode::Same);
     }
     #[inline]
     pub fn add_pads(&mut self, pads: flatbuffers::WIPOffset<flatbuffers::Vector<'b, u32>>) {
         self.fbb_
-            .push_slot_always::<flatbuffers::WIPOffset<_>>(Conv2dAttrs::VT_PADS, pads);
+            .push_slot_always::<flatbuffers::WIPOffset<_>>(ConvAttrs::VT_PADS, pads);
     }
     #[inline]
     pub fn add_groups(&mut self, groups: u32) {
-        self.fbb_
-            .push_slot::<u32>(Conv2dAttrs::VT_GROUPS, groups, 0);
+        self.fbb_.push_slot::<u32>(ConvAttrs::VT_GROUPS, groups, 0);
     }
     #[inline]
     pub fn add_stride(&mut self, stride: u32) {
-        self.fbb_
-            .push_slot::<u32>(Conv2dAttrs::VT_STRIDE, stride, 0);
+        self.fbb_.push_slot::<u32>(ConvAttrs::VT_STRIDE, stride, 0);
     }
     #[inline]
-    pub fn new(_fbb: &'b mut flatbuffers::FlatBufferBuilder<'a>) -> Conv2dAttrsBuilder<'a, 'b> {
+    pub fn new(_fbb: &'b mut flatbuffers::FlatBufferBuilder<'a>) -> ConvAttrsBuilder<'a, 'b> {
         let start = _fbb.start_table();
-        Conv2dAttrsBuilder {
+        ConvAttrsBuilder {
             fbb_: _fbb,
             start_: start,
         }
     }
     #[inline]
-    pub fn finish(self) -> flatbuffers::WIPOffset<Conv2dAttrs<'a>> {
+    pub fn finish(self) -> flatbuffers::WIPOffset<ConvAttrs<'a>> {
         let o = self.fbb_.end_table(self.start_);
         flatbuffers::WIPOffset::new(o.value())
     }
 }
 
-impl core::fmt::Debug for Conv2dAttrs<'_> {
+impl core::fmt::Debug for ConvAttrs<'_> {
     fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
-        let mut ds = f.debug_struct("Conv2dAttrs");
+        let mut ds = f.debug_struct("ConvAttrs");
         ds.field("pad_mode", &self.pad_mode());
         ds.field("pads", &self.pads());
         ds.field("groups", &self.groups());
@@ -2008,15 +2002,15 @@ impl core::fmt::Debug for Conv2dAttrs<'_> {
         ds.finish()
     }
 }
-pub enum ConvTranspose2dAttrsOffset {}
+pub enum ConvTransposeAttrsOffset {}
 #[derive(Copy, Clone, PartialEq)]
 
-pub struct ConvTranspose2dAttrs<'a> {
+pub struct ConvTransposeAttrs<'a> {
     pub _tab: flatbuffers::Table<'a>,
 }
 
-impl<'a> flatbuffers::Follow<'a> for ConvTranspose2dAttrs<'a> {
-    type Inner = ConvTranspose2dAttrs<'a>;
+impl<'a> flatbuffers::Follow<'a> for ConvTransposeAttrs<'a> {
+    type Inner = ConvTransposeAttrs<'a>;
     #[inline]
     fn follow(buf: &'a [u8], loc: usize) -> Self::Inner {
         Self {
@@ -2025,19 +2019,19 @@ impl<'a> flatbuffers::Follow<'a> for ConvTranspose2dAttrs<'a> {
     }
 }
 
-impl<'a> ConvTranspose2dAttrs<'a> {
+impl<'a> ConvTransposeAttrs<'a> {
     pub const VT_STRIDE: flatbuffers::VOffsetT = 4;
 
     #[inline]
     pub fn init_from_table(table: flatbuffers::Table<'a>) -> Self {
-        ConvTranspose2dAttrs { _tab: table }
+        ConvTransposeAttrs { _tab: table }
     }
     #[allow(unused_mut)]
     pub fn create<'bldr: 'args, 'args: 'mut_bldr, 'mut_bldr>(
         _fbb: &'mut_bldr mut flatbuffers::FlatBufferBuilder<'bldr>,
-        args: &'args ConvTranspose2dAttrsArgs,
-    ) -> flatbuffers::WIPOffset<ConvTranspose2dAttrs<'bldr>> {
-        let mut builder = ConvTranspose2dAttrsBuilder::new(_fbb);
+        args: &'args ConvTransposeAttrsArgs,
+    ) -> flatbuffers::WIPOffset<ConvTransposeAttrs<'bldr>> {
+        let mut builder = ConvTransposeAttrsBuilder::new(_fbb);
         builder.add_stride(args.stride);
         builder.finish()
     }
@@ -2045,12 +2039,12 @@ impl<'a> ConvTranspose2dAttrs<'a> {
     #[inline]
     pub fn stride(&self) -> u32 {
         self._tab
-            .get::<u32>(ConvTranspose2dAttrs::VT_STRIDE, Some(0))
+            .get::<u32>(ConvTransposeAttrs::VT_STRIDE, Some(0))
             .unwrap()
     }
 }
 
-impl flatbuffers::Verifiable for ConvTranspose2dAttrs<'_> {
+impl flatbuffers::Verifiable for ConvTransposeAttrs<'_> {
     #[inline]
     fn run_verifier(
         v: &mut flatbuffers::Verifier,
@@ -2063,46 +2057,46 @@ impl flatbuffers::Verifiable for ConvTranspose2dAttrs<'_> {
         Ok(())
     }
 }
-pub struct ConvTranspose2dAttrsArgs {
+pub struct ConvTransposeAttrsArgs {
     pub stride: u32,
 }
-impl<'a> Default for ConvTranspose2dAttrsArgs {
+impl<'a> Default for ConvTransposeAttrsArgs {
     #[inline]
     fn default() -> Self {
-        ConvTranspose2dAttrsArgs { stride: 0 }
+        ConvTransposeAttrsArgs { stride: 0 }
     }
 }
 
-pub struct ConvTranspose2dAttrsBuilder<'a: 'b, 'b> {
+pub struct ConvTransposeAttrsBuilder<'a: 'b, 'b> {
     fbb_: &'b mut flatbuffers::FlatBufferBuilder<'a>,
     start_: flatbuffers::WIPOffset<flatbuffers::TableUnfinishedWIPOffset>,
 }
-impl<'a: 'b, 'b> ConvTranspose2dAttrsBuilder<'a, 'b> {
+impl<'a: 'b, 'b> ConvTransposeAttrsBuilder<'a, 'b> {
     #[inline]
     pub fn add_stride(&mut self, stride: u32) {
         self.fbb_
-            .push_slot::<u32>(ConvTranspose2dAttrs::VT_STRIDE, stride, 0);
+            .push_slot::<u32>(ConvTransposeAttrs::VT_STRIDE, stride, 0);
     }
     #[inline]
     pub fn new(
         _fbb: &'b mut flatbuffers::FlatBufferBuilder<'a>,
-    ) -> ConvTranspose2dAttrsBuilder<'a, 'b> {
+    ) -> ConvTransposeAttrsBuilder<'a, 'b> {
         let start = _fbb.start_table();
-        ConvTranspose2dAttrsBuilder {
+        ConvTransposeAttrsBuilder {
             fbb_: _fbb,
             start_: start,
         }
     }
     #[inline]
-    pub fn finish(self) -> flatbuffers::WIPOffset<ConvTranspose2dAttrs<'a>> {
+    pub fn finish(self) -> flatbuffers::WIPOffset<ConvTransposeAttrs<'a>> {
         let o = self.fbb_.end_table(self.start_);
         flatbuffers::WIPOffset::new(o.value())
     }
 }
 
-impl core::fmt::Debug for ConvTranspose2dAttrs<'_> {
+impl core::fmt::Debug for ConvTransposeAttrs<'_> {
     fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
-        let mut ds = f.debug_struct("ConvTranspose2dAttrs");
+        let mut ds = f.debug_struct("ConvTransposeAttrs");
         ds.field("stride", &self.stride());
         ds.finish()
     }
@@ -2444,15 +2438,15 @@ impl core::fmt::Debug for LeakyReluAttrs<'_> {
         ds.finish()
     }
 }
-pub enum MaxPool2dAttrsOffset {}
+pub enum MaxPoolAttrsOffset {}
 #[derive(Copy, Clone, PartialEq)]
 
-pub struct MaxPool2dAttrs<'a> {
+pub struct MaxPoolAttrs<'a> {
     pub _tab: flatbuffers::Table<'a>,
 }
 
-impl<'a> flatbuffers::Follow<'a> for MaxPool2dAttrs<'a> {
-    type Inner = MaxPool2dAttrs<'a>;
+impl<'a> flatbuffers::Follow<'a> for MaxPoolAttrs<'a> {
+    type Inner = MaxPoolAttrs<'a>;
     #[inline]
     fn follow(buf: &'a [u8], loc: usize) -> Self::Inner {
         Self {
@@ -2461,7 +2455,7 @@ impl<'a> flatbuffers::Follow<'a> for MaxPool2dAttrs<'a> {
     }
 }
 
-impl<'a> MaxPool2dAttrs<'a> {
+impl<'a> MaxPoolAttrs<'a> {
     pub const VT_KERNEL_SIZE: flatbuffers::VOffsetT = 4;
     pub const VT_PAD_MODE: flatbuffers::VOffsetT = 6;
     pub const VT_PADS: flatbuffers::VOffsetT = 8;
@@ -2469,14 +2463,14 @@ impl<'a> MaxPool2dAttrs<'a> {
 
     #[inline]
     pub fn init_from_table(table: flatbuffers::Table<'a>) -> Self {
-        MaxPool2dAttrs { _tab: table }
+        MaxPoolAttrs { _tab: table }
     }
     #[allow(unused_mut)]
     pub fn create<'bldr: 'args, 'args: 'mut_bldr, 'mut_bldr>(
         _fbb: &'mut_bldr mut flatbuffers::FlatBufferBuilder<'bldr>,
-        args: &'args MaxPool2dAttrsArgs<'args>,
-    ) -> flatbuffers::WIPOffset<MaxPool2dAttrs<'bldr>> {
-        let mut builder = MaxPool2dAttrsBuilder::new(_fbb);
+        args: &'args MaxPoolAttrsArgs<'args>,
+    ) -> flatbuffers::WIPOffset<MaxPoolAttrs<'bldr>> {
+        let mut builder = MaxPoolAttrsBuilder::new(_fbb);
         builder.add_stride(args.stride);
         if let Some(x) = args.pads {
             builder.add_pads(x);
@@ -2489,32 +2483,32 @@ impl<'a> MaxPool2dAttrs<'a> {
     #[inline]
     pub fn kernel_size(&self) -> u32 {
         self._tab
-            .get::<u32>(MaxPool2dAttrs::VT_KERNEL_SIZE, Some(0))
+            .get::<u32>(MaxPoolAttrs::VT_KERNEL_SIZE, Some(0))
             .unwrap()
     }
     #[inline]
     pub fn pad_mode(&self) -> PadMode {
         self._tab
-            .get::<PadMode>(MaxPool2dAttrs::VT_PAD_MODE, Some(PadMode::Same))
+            .get::<PadMode>(MaxPoolAttrs::VT_PAD_MODE, Some(PadMode::Same))
             .unwrap()
     }
     #[inline]
     pub fn pads(&self) -> Option<flatbuffers::Vector<'a, u32>> {
         self._tab
             .get::<flatbuffers::ForwardsUOffset<flatbuffers::Vector<'a, u32>>>(
-                MaxPool2dAttrs::VT_PADS,
+                MaxPoolAttrs::VT_PADS,
                 None,
             )
     }
     #[inline]
     pub fn stride(&self) -> u32 {
         self._tab
-            .get::<u32>(MaxPool2dAttrs::VT_STRIDE, Some(0))
+            .get::<u32>(MaxPoolAttrs::VT_STRIDE, Some(0))
             .unwrap()
     }
 }
 
-impl flatbuffers::Verifiable for MaxPool2dAttrs<'_> {
+impl flatbuffers::Verifiable for MaxPoolAttrs<'_> {
     #[inline]
     fn run_verifier(
         v: &mut flatbuffers::Verifier,
@@ -2534,16 +2528,16 @@ impl flatbuffers::Verifiable for MaxPool2dAttrs<'_> {
         Ok(())
     }
 }
-pub struct MaxPool2dAttrsArgs<'a> {
+pub struct MaxPoolAttrsArgs<'a> {
     pub kernel_size: u32,
     pub pad_mode: PadMode,
     pub pads: Option<flatbuffers::WIPOffset<flatbuffers::Vector<'a, u32>>>,
     pub stride: u32,
 }
-impl<'a> Default for MaxPool2dAttrsArgs<'a> {
+impl<'a> Default for MaxPoolAttrsArgs<'a> {
     #[inline]
     fn default() -> Self {
-        MaxPool2dAttrsArgs {
+        MaxPoolAttrsArgs {
             kernel_size: 0,
             pad_mode: PadMode::Same,
             pads: None,
@@ -2552,49 +2546,49 @@ impl<'a> Default for MaxPool2dAttrsArgs<'a> {
     }
 }
 
-pub struct MaxPool2dAttrsBuilder<'a: 'b, 'b> {
+pub struct MaxPoolAttrsBuilder<'a: 'b, 'b> {
     fbb_: &'b mut flatbuffers::FlatBufferBuilder<'a>,
     start_: flatbuffers::WIPOffset<flatbuffers::TableUnfinishedWIPOffset>,
 }
-impl<'a: 'b, 'b> MaxPool2dAttrsBuilder<'a, 'b> {
+impl<'a: 'b, 'b> MaxPoolAttrsBuilder<'a, 'b> {
     #[inline]
     pub fn add_kernel_size(&mut self, kernel_size: u32) {
         self.fbb_
-            .push_slot::<u32>(MaxPool2dAttrs::VT_KERNEL_SIZE, kernel_size, 0);
+            .push_slot::<u32>(MaxPoolAttrs::VT_KERNEL_SIZE, kernel_size, 0);
     }
     #[inline]
     pub fn add_pad_mode(&mut self, pad_mode: PadMode) {
         self.fbb_
-            .push_slot::<PadMode>(MaxPool2dAttrs::VT_PAD_MODE, pad_mode, PadMode::Same);
+            .push_slot::<PadMode>(MaxPoolAttrs::VT_PAD_MODE, pad_mode, PadMode::Same);
     }
     #[inline]
     pub fn add_pads(&mut self, pads: flatbuffers::WIPOffset<flatbuffers::Vector<'b, u32>>) {
         self.fbb_
-            .push_slot_always::<flatbuffers::WIPOffset<_>>(MaxPool2dAttrs::VT_PADS, pads);
+            .push_slot_always::<flatbuffers::WIPOffset<_>>(MaxPoolAttrs::VT_PADS, pads);
     }
     #[inline]
     pub fn add_stride(&mut self, stride: u32) {
         self.fbb_
-            .push_slot::<u32>(MaxPool2dAttrs::VT_STRIDE, stride, 0);
+            .push_slot::<u32>(MaxPoolAttrs::VT_STRIDE, stride, 0);
     }
     #[inline]
-    pub fn new(_fbb: &'b mut flatbuffers::FlatBufferBuilder<'a>) -> MaxPool2dAttrsBuilder<'a, 'b> {
+    pub fn new(_fbb: &'b mut flatbuffers::FlatBufferBuilder<'a>) -> MaxPoolAttrsBuilder<'a, 'b> {
         let start = _fbb.start_table();
-        MaxPool2dAttrsBuilder {
+        MaxPoolAttrsBuilder {
             fbb_: _fbb,
             start_: start,
         }
     }
     #[inline]
-    pub fn finish(self) -> flatbuffers::WIPOffset<MaxPool2dAttrs<'a>> {
+    pub fn finish(self) -> flatbuffers::WIPOffset<MaxPoolAttrs<'a>> {
         let o = self.fbb_.end_table(self.start_);
         flatbuffers::WIPOffset::new(o.value())
     }
 }
 
-impl core::fmt::Debug for MaxPool2dAttrs<'_> {
+impl core::fmt::Debug for MaxPoolAttrs<'_> {
     fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
-        let mut ds = f.debug_struct("MaxPool2dAttrs");
+        let mut ds = f.debug_struct("MaxPoolAttrs");
         ds.field("kernel_size", &self.kernel_size());
         ds.field("pad_mode", &self.pad_mode());
         ds.field("pads", &self.pads());
@@ -3425,9 +3419,9 @@ impl<'a> OperatorNode<'a> {
     }
     #[inline]
     #[allow(non_snake_case)]
-    pub fn attrs_as_average_pool_2d_attrs(&self) -> Option<AveragePool2dAttrs<'a>> {
-        if self.attrs_type() == OperatorAttrs::AveragePool2dAttrs {
-            self.attrs().map(AveragePool2dAttrs::init_from_table)
+    pub fn attrs_as_average_pool_attrs(&self) -> Option<AveragePoolAttrs<'a>> {
+        if self.attrs_type() == OperatorAttrs::AveragePoolAttrs {
+            self.attrs().map(AveragePoolAttrs::init_from_table)
         } else {
             None
         }
@@ -3485,9 +3479,9 @@ impl<'a> OperatorNode<'a> {
 
     #[inline]
     #[allow(non_snake_case)]
-    pub fn attrs_as_conv_2d_attrs(&self) -> Option<Conv2dAttrs<'a>> {
-        if self.attrs_type() == OperatorAttrs::Conv2dAttrs {
-            self.attrs().map(Conv2dAttrs::init_from_table)
+    pub fn attrs_as_conv_attrs(&self) -> Option<ConvAttrs<'a>> {
+        if self.attrs_type() == OperatorAttrs::ConvAttrs {
+            self.attrs().map(ConvAttrs::init_from_table)
         } else {
             None
         }
@@ -3495,9 +3489,9 @@ impl<'a> OperatorNode<'a> {
 
     #[inline]
     #[allow(non_snake_case)]
-    pub fn attrs_as_conv_transpose_2d_attrs(&self) -> Option<ConvTranspose2dAttrs<'a>> {
-        if self.attrs_type() == OperatorAttrs::ConvTranspose2dAttrs {
-            self.attrs().map(ConvTranspose2dAttrs::init_from_table)
+    pub fn attrs_as_conv_transpose_attrs(&self) -> Option<ConvTransposeAttrs<'a>> {
+        if self.attrs_type() == OperatorAttrs::ConvTransposeAttrs {
+            self.attrs().map(ConvTransposeAttrs::init_from_table)
         } else {
             None
         }
@@ -3535,9 +3529,9 @@ impl<'a> OperatorNode<'a> {
 
     #[inline]
     #[allow(non_snake_case)]
-    pub fn attrs_as_max_pool_2d_attrs(&self) -> Option<MaxPool2dAttrs<'a>> {
-        if self.attrs_type() == OperatorAttrs::MaxPool2dAttrs {
-            self.attrs().map(MaxPool2dAttrs::init_from_table)
+    pub fn attrs_as_max_pool_attrs(&self) -> Option<MaxPoolAttrs<'a>> {
+        if self.attrs_type() == OperatorAttrs::MaxPoolAttrs {
+            self.attrs().map(MaxPoolAttrs::init_from_table)
         } else {
             None
         }
@@ -3625,18 +3619,18 @@ impl flatbuffers::Verifiable for OperatorNode<'_> {
      .visit_field::<OperatorType>("type_", Self::VT_TYPE_, false)?
      .visit_union::<OperatorAttrs, _>("attrs_type", Self::VT_ATTRS_TYPE, "attrs", Self::VT_ATTRS, false, |key, v, pos| {
         match key {
-          OperatorAttrs::AveragePool2dAttrs => v.verify_union_variant::<flatbuffers::ForwardsUOffset<AveragePool2dAttrs>>("OperatorAttrs::AveragePool2dAttrs", pos),
+          OperatorAttrs::AveragePoolAttrs => v.verify_union_variant::<flatbuffers::ForwardsUOffset<AveragePoolAttrs>>("OperatorAttrs::AveragePoolAttrs", pos),
           OperatorAttrs::BatchNormalizationAttrs => v.verify_union_variant::<flatbuffers::ForwardsUOffset<BatchNormalizationAttrs>>("OperatorAttrs::BatchNormalizationAttrs", pos),
           OperatorAttrs::CastAttrs => v.verify_union_variant::<flatbuffers::ForwardsUOffset<CastAttrs>>("OperatorAttrs::CastAttrs", pos),
           OperatorAttrs::ClipAttrs => v.verify_union_variant::<flatbuffers::ForwardsUOffset<ClipAttrs>>("OperatorAttrs::ClipAttrs", pos),
           OperatorAttrs::ConcatAttrs => v.verify_union_variant::<flatbuffers::ForwardsUOffset<ConcatAttrs>>("OperatorAttrs::ConcatAttrs", pos),
           OperatorAttrs::ConstantOfShapeAttrs => v.verify_union_variant::<flatbuffers::ForwardsUOffset<ConstantOfShapeAttrs>>("OperatorAttrs::ConstantOfShapeAttrs", pos),
-          OperatorAttrs::Conv2dAttrs => v.verify_union_variant::<flatbuffers::ForwardsUOffset<Conv2dAttrs>>("OperatorAttrs::Conv2dAttrs", pos),
-          OperatorAttrs::ConvTranspose2dAttrs => v.verify_union_variant::<flatbuffers::ForwardsUOffset<ConvTranspose2dAttrs>>("OperatorAttrs::ConvTranspose2dAttrs", pos),
+          OperatorAttrs::ConvAttrs => v.verify_union_variant::<flatbuffers::ForwardsUOffset<ConvAttrs>>("OperatorAttrs::ConvAttrs", pos),
+          OperatorAttrs::ConvTransposeAttrs => v.verify_union_variant::<flatbuffers::ForwardsUOffset<ConvTransposeAttrs>>("OperatorAttrs::ConvTransposeAttrs", pos),
           OperatorAttrs::GatherAttrs => v.verify_union_variant::<flatbuffers::ForwardsUOffset<GatherAttrs>>("OperatorAttrs::GatherAttrs", pos),
           OperatorAttrs::GemmAttrs => v.verify_union_variant::<flatbuffers::ForwardsUOffset<GemmAttrs>>("OperatorAttrs::GemmAttrs", pos),
           OperatorAttrs::LeakyReluAttrs => v.verify_union_variant::<flatbuffers::ForwardsUOffset<LeakyReluAttrs>>("OperatorAttrs::LeakyReluAttrs", pos),
-          OperatorAttrs::MaxPool2dAttrs => v.verify_union_variant::<flatbuffers::ForwardsUOffset<MaxPool2dAttrs>>("OperatorAttrs::MaxPool2dAttrs", pos),
+          OperatorAttrs::MaxPoolAttrs => v.verify_union_variant::<flatbuffers::ForwardsUOffset<MaxPoolAttrs>>("OperatorAttrs::MaxPoolAttrs", pos),
           OperatorAttrs::PadAttrs => v.verify_union_variant::<flatbuffers::ForwardsUOffset<PadAttrs>>("OperatorAttrs::PadAttrs", pos),
           OperatorAttrs::ReduceMeanAttrs => v.verify_union_variant::<flatbuffers::ForwardsUOffset<ReduceMeanAttrs>>("OperatorAttrs::ReduceMeanAttrs", pos),
           OperatorAttrs::SplitAttrs => v.verify_union_variant::<flatbuffers::ForwardsUOffset<SplitAttrs>>("OperatorAttrs::SplitAttrs", pos),
@@ -3727,8 +3721,8 @@ impl core::fmt::Debug for OperatorNode<'_> {
         ds.field("type_", &self.type_());
         ds.field("attrs_type", &self.attrs_type());
         match self.attrs_type() {
-            OperatorAttrs::AveragePool2dAttrs => {
-                if let Some(x) = self.attrs_as_average_pool_2d_attrs() {
+            OperatorAttrs::AveragePoolAttrs => {
+                if let Some(x) = self.attrs_as_average_pool_attrs() {
                     ds.field("attrs", &x)
                 } else {
                     ds.field(
@@ -3787,8 +3781,8 @@ impl core::fmt::Debug for OperatorNode<'_> {
                     )
                 }
             }
-            OperatorAttrs::Conv2dAttrs => {
-                if let Some(x) = self.attrs_as_conv_2d_attrs() {
+            OperatorAttrs::ConvAttrs => {
+                if let Some(x) = self.attrs_as_conv_attrs() {
                     ds.field("attrs", &x)
                 } else {
                     ds.field(
@@ -3797,8 +3791,8 @@ impl core::fmt::Debug for OperatorNode<'_> {
                     )
                 }
             }
-            OperatorAttrs::ConvTranspose2dAttrs => {
-                if let Some(x) = self.attrs_as_conv_transpose_2d_attrs() {
+            OperatorAttrs::ConvTransposeAttrs => {
+                if let Some(x) = self.attrs_as_conv_transpose_attrs() {
                     ds.field("attrs", &x)
                 } else {
                     ds.field(
@@ -3837,8 +3831,8 @@ impl core::fmt::Debug for OperatorNode<'_> {
                     )
                 }
             }
-            OperatorAttrs::MaxPool2dAttrs => {
-                if let Some(x) = self.attrs_as_max_pool_2d_attrs() {
+            OperatorAttrs::MaxPoolAttrs => {
+                if let Some(x) = self.attrs_as_max_pool_attrs() {
                     ds.field("attrs", &x)
                 } else {
                     ds.field(

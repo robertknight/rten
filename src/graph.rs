@@ -475,14 +475,12 @@ mod tests {
     use std::rc::Rc;
 
     use crate::graph::{Graph, RunError};
-    use crate::ops::{
-        Concat, Conv2d, Input, IntoOpResult, OpError, Operator, Output, Padding, Relu,
-    };
+    use crate::ops::{Concat, Conv, Input, IntoOpResult, OpError, Operator, Output, Padding, Relu};
     use crate::tensor::{from_data, from_vec, zeros, Tensor};
     use crate::test_util::expect_equal;
 
     // Test of a very simple graph with a typical structure (one input, one
-    // output, Conv2d + Relu operation).
+    // output, Conv + Relu operation).
     #[test]
     fn test_graph_run() -> Result<(), String> {
         let mut g = Graph::new();
@@ -499,7 +497,7 @@ mod tests {
         let conv_out = g.add_value(Some("conv_out"));
         g.add_op(
             Some("conv"),
-            Box::new(Conv2d {
+            Box::new(Conv {
                 padding: Padding::Fixed([1, 1, 1, 1]),
                 groups: 1,
                 stride: 1,

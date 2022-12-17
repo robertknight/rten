@@ -8,14 +8,14 @@ file_extension "model";
 // Type for an operator node
 enum OperatorType: byte {
   Add,
-  AveragePool2d,
+  AveragePool,
   BatchNormalization,
   Cast,
   Clip,
   Concat,
   ConstantOfShape,
-  Conv2d,
-  ConvTranspose2d,
+  Conv,
+  ConvTranspose,
   Div,
   Equal,
   Erf,
@@ -27,7 +27,7 @@ enum OperatorType: byte {
   LeakyRelu,
   Less,
   MatMul,
-  MaxPool2d,
+  MaxPool,
   Mul,
   Pad,
   Pow,
@@ -60,18 +60,18 @@ enum DataType: byte {
 
 // Operator-specific configuration
 union OperatorAttrs {
-  AveragePool2dAttrs,
+  AveragePoolAttrs,
   BatchNormalizationAttrs,
   CastAttrs,
   ClipAttrs,
   ConcatAttrs,
   ConstantOfShapeAttrs,
-  Conv2dAttrs,
-  ConvTranspose2dAttrs,
+  ConvAttrs,
+  ConvTransposeAttrs,
   GatherAttrs,
   GemmAttrs,
   LeakyReluAttrs,
-  MaxPool2dAttrs,
+  MaxPoolAttrs,
   PadAttrs,
   ReduceMeanAttrs,
   SplitAttrs,
@@ -81,7 +81,7 @@ union OperatorAttrs {
   UnsqueezeAttrs
 }
 
-table AveragePool2dAttrs {
+table AveragePoolAttrs {
   kernel_size:uint;
   pad_mode:PadMode;
 
@@ -125,7 +125,7 @@ table ConstantOfShapeAttrs {
   value:Scalar (required);
 }
 
-table Conv2dAttrs {
+table ConvAttrs {
   pad_mode:PadMode;
 
   // Padding for spatial axes as [top, left, bottom, right]
@@ -135,7 +135,7 @@ table Conv2dAttrs {
   stride:uint;
 }
 
-table ConvTranspose2dAttrs {
+table ConvTransposeAttrs {
   stride:uint;
 }
 
@@ -154,7 +154,7 @@ table LeakyReluAttrs {
   alpha:float;
 }
 
-table MaxPool2dAttrs {
+table MaxPoolAttrs {
   kernel_size:uint;
   pad_mode:PadMode;
 

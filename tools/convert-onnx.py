@@ -24,6 +24,7 @@ class ConstantNode(Node):
 
     These are used for model weights, biases etc.
     """
+
     def __init__(self, name: str, shape: list[int], data: array.array):
         super().__init__(name)
         self.shape = shape
@@ -69,6 +70,7 @@ class ValueNode(Node):
 
     These are used for operator inputs and outputs.
     """
+
     def __init__(self, name: str):
         super().__init__(name)
 
@@ -358,8 +360,6 @@ def op_node_from_onnx_operator(
 
     match onnx_op.op_type:
         case "AveragePool":
-            op_type = "AveragePool2d"
-
             kernel_shape = require_attr(onnx_op.attribute, "kernel_shape", "ints")
             check_ints_length_and_value("kernel_shape", kernel_shape, 2)
             attrs["kernel_size"] = kernel_shape[0]
@@ -406,8 +406,6 @@ def op_node_from_onnx_operator(
             attrs["value"] = const_node.data[0]
 
         case "Conv":
-            op_type = "Conv2d"
-
             attrs["groups"] = get_attr(onnx_op.attribute, "group", "int", 1)
             read_pad_attrs_from_onnx_operator(onnx_op, attrs)
             read_stride_attr_from_onnx_operator(onnx_op, attrs)
@@ -415,8 +413,6 @@ def op_node_from_onnx_operator(
             check_unsupported_attr(onnx_op.attribute, "dilations", "ints", [1, 1])
 
         case "ConvTranspose":
-            op_type = "ConvTranspose2d"
-
             read_stride_attr_from_onnx_operator(onnx_op, attrs)
 
             check_unsupported_attr(onnx_op.attribute, "auto_pad", "string", "NOTSET")
@@ -440,8 +436,6 @@ def op_node_from_onnx_operator(
             attrs["alpha"] = get_attr(onnx_op.attribute, "alpha", "float", 0.01)
 
         case "MaxPool":
-            op_type = "MaxPool2d"
-
             kernel_shape = require_attr(onnx_op.attribute, "kernel_shape", "ints")
             check_ints_length_and_value("kernel_shape", kernel_shape, 2)
             attrs["kernel_size"] = kernel_shape[0]
@@ -603,24 +597,24 @@ def build_operator_node(builder: flatbuffers.Builder, operator: OperatorNode):
     attrs = None
 
     match operator.op_type:
-        case "AveragePool2d":
+        case "AveragePool":
             if operator.attrs["pad_mode"] == "same":
                 pad_mode = sg.PadMode.Same
             else:
                 pad_mode = sg.PadMode.Fixed
                 pads = cast(list[int], operator.attrs["pads"])
-                sg.AveragePool2dAttrsStartPadsVector(builder, len(pads))
+                sg.AveragePoolAttrsStartPadsVector(builder, len(pads))
                 for item in reversed(pads):
                     builder.PrependUint32(item)
                 pads_vec = builder.EndVector()
 
-            sg.AveragePool2dAttrsStart(builder)
-            sg.AveragePool2dAttrsAddKernelSize(builder, operator.attrs["kernel_size"])
-            sg.AveragePool2dAttrsAddPadMode(builder, pad_mode)
+            sg.AveragePoolAttrsStart(builder)
+            sg.AveragePoolAttrsAddKernelSize(builder, operator.attrs["kernel_size"])
+            sg.AveragePoolAttrsAddPadMode(builder, pad_mode)
             if pad_mode == sg.PadMode.Fixed:
-                sg.AveragePool2dAttrsAddPads(builder, pads_vec)
-            sg.AveragePool2dAttrsAddStride(builder, operator.attrs["stride"])
-            attrs = sg.AveragePool2dAttrsEnd(builder)
+                sg.AveragePoolAttrsAddPads(builder, pads_vec)
+            sg.AveragePoolAttrsAddStride(builder, operator.attrs["stride"])
+            attrs = sg.AveragePoolAttrsEnd(builder)
         case "BatchNormalization":
             sg.BatchNormalizationAttrsStart(builder)
             sg.BatchNormalizationAttrsAddEpsilon(builder, operator.attrs["epsilon"])
@@ -656,28 +650,28 @@ def build_operator_node(builder: flatbuffers.Builder, operator: OperatorNode):
             sg.ConstantOfShapeAttrsAddValueType(builder, scalar_type)
             sg.ConstantOfShapeAttrsAddValue(builder, scalar)
             attrs = sg.ConstantOfShapeAttrsEnd(builder)
-        case "Conv2d":
+        case "Conv":
             if operator.attrs["pad_mode"] == "same":
                 pad_mode = sg.PadMode.Same
             else:
                 pad_mode = sg.PadMode.Fixed
                 pads = cast(list[int], operator.attrs["pads"])
-                sg.Conv2dAttrsStartPadsVector(builder, len(pads))
+                sg.ConvAttrsStartPadsVector(builder, len(pads))
                 for item in reversed(pads):
                     builder.PrependUint32(item)
                 pads_vec = builder.EndVector()
 
-            sg.Conv2dAttrsStart(builder)
-            sg.Conv2dAttrsAddGroups(builder, operator.attrs["groups"])
-            sg.Conv2dAttrsAddPadMode(builder, pad_mode)
+            sg.ConvAttrsStart(builder)
+            sg.ConvAttrsAddGroups(builder, operator.attrs["groups"])
+            sg.ConvAttrsAddPadMode(builder, pad_mode)
             if pad_mode == sg.PadMode.Fixed:
-                sg.Conv2dAttrsAddPads(builder, pads_vec)
-            sg.Conv2dAttrsAddStride(builder, operator.attrs["stride"])
-            attrs = sg.Conv2dAttrsEnd(builder)
-        case "ConvTranspose2d":
-            sg.ConvTranspose2dAttrsStart(builder)
-            sg.ConvTranspose2dAttrsAddStride(builder, operator.attrs["stride"])
-            attrs = sg.ConvTranspose2dAttrsEnd(builder)
+                sg.ConvAttrsAddPads(builder, pads_vec)
+            sg.ConvAttrsAddStride(builder, operator.attrs["stride"])
+            attrs = sg.ConvAttrsEnd(builder)
+        case "ConvTranspose":
+            sg.ConvTransposeAttrsStart(builder)
+            sg.ConvTransposeAttrsAddStride(builder, operator.attrs["stride"])
+            attrs = sg.ConvTransposeAttrsEnd(builder)
         case "Gather":
             sg.GatherAttrsStart(builder)
             sg.GatherAttrsAddAxis(builder, operator.attrs["axis"])
@@ -693,24 +687,24 @@ def build_operator_node(builder: flatbuffers.Builder, operator: OperatorNode):
             sg.LeakyReluAttrsStart(builder)
             sg.LeakyReluAttrsAddAlpha(builder, operator.attrs["alpha"])
             attrs = sg.LeakyReluAttrsEnd(builder)
-        case "MaxPool2d":
+        case "MaxPool":
             if operator.attrs["pad_mode"] == "same":
                 pad_mode = sg.PadMode.Same
             else:
                 pad_mode = sg.PadMode.Fixed
                 pads = cast(list[int], operator.attrs["pads"])
-                sg.MaxPool2dAttrsStartPadsVector(builder, len(pads))
+                sg.MaxPoolAttrsStartPadsVector(builder, len(pads))
                 for item in reversed(pads):
                     builder.PrependUint32(item)
                 pads_vec = builder.EndVector()
 
-            sg.MaxPool2dAttrsStart(builder)
-            sg.MaxPool2dAttrsAddKernelSize(builder, operator.attrs["kernel_size"])
-            sg.MaxPool2dAttrsAddPadMode(builder, pad_mode)
+            sg.MaxPoolAttrsStart(builder)
+            sg.MaxPoolAttrsAddKernelSize(builder, operator.attrs["kernel_size"])
+            sg.MaxPoolAttrsAddPadMode(builder, pad_mode)
             if pad_mode == sg.PadMode.Fixed:
-                sg.MaxPool2dAttrsAddPads(builder, pads_vec)
-            sg.MaxPool2dAttrsAddStride(builder, operator.attrs["stride"])
-            attrs = sg.MaxPool2dAttrsEnd(builder)
+                sg.MaxPoolAttrsAddPads(builder, pads_vec)
+            sg.MaxPoolAttrsAddStride(builder, operator.attrs["stride"])
+            attrs = sg.MaxPoolAttrsEnd(builder)
         case "ReduceMean":
             axes = cast(list[int] | None, operator.attrs["axes"])
             if axes:

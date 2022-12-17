@@ -307,7 +307,7 @@ fn conv_2d_depthwise(
 ///   A value equal to the input channel count convolves each input channel
 ///   separately with `output_channels / groups` outputs. This is known as
 ///   depthwise convolution.
-pub fn conv_2d(
+pub fn conv(
     input: &Tensor,
     kernel: &Tensor,
     bias: Option<&Tensor>,
@@ -424,22 +424,22 @@ pub fn conv_2d(
 }
 
 #[derive(Debug)]
-pub struct Conv2d {
+pub struct Conv {
     pub padding: Padding,
     pub groups: usize,
     pub stride: usize,
 }
 
-impl Operator for Conv2d {
+impl Operator for Conv {
     fn name(&self) -> &str {
-        "Conv2d"
+        "Conv"
     }
 
     fn run(&self, inputs: &[Input]) -> Result<Vec<Output>, OpError> {
         let input = get_input(inputs, 0)?;
         let weight = get_input(inputs, 1)?;
         let bias = get_optional_input(inputs, 2)?;
-        conv_2d(input, weight, bias, self.padding, self.groups, self.stride).into_op_result()
+        conv(input, weight, bias, self.padding, self.groups, self.stride).into_op_result()
     }
 }
 
@@ -447,7 +447,7 @@ impl Operator for Conv2d {
 ///
 /// `input` has dimensions NCHW and kernel has dimensions COHW where `O` is
 /// the number of output channels.
-pub fn conv_transpose_2d(
+pub fn conv_transpose(
     input: &Tensor,
     kernel: &Tensor,
     bias: Option<&Tensor>,
@@ -511,27 +511,27 @@ pub fn conv_transpose_2d(
 }
 
 #[derive(Debug)]
-pub struct ConvTranspose2d {
+pub struct ConvTranspose {
     pub stride: usize,
 }
 
-impl Operator for ConvTranspose2d {
+impl Operator for ConvTranspose {
     fn name(&self) -> &str {
-        "ConvTranspose2d"
+        "ConvTranspose"
     }
 
     fn run(&self, inputs: &[Input]) -> Result<Vec<Output>, OpError> {
         let input = get_input(inputs, 0)?;
         let weight = get_input(inputs, 1)?;
         let bias = get_optional_input(inputs, 2)?;
-        conv_transpose_2d(input, weight, bias, self.stride).into_op_result()
+        conv_transpose(input, weight, bias, self.stride).into_op_result()
     }
 }
 
 #[cfg(test)]
 mod tests {
     use crate::ops::pooling::calc_output_size_and_padding;
-    use crate::ops::{conv_2d, conv_transpose_2d, Conv2d, Operator, Padding};
+    use crate::ops::{conv, conv_transpose, Conv, Operator, Padding};
     use crate::rng::XorShiftRNG;
     use crate::tensor::{from_data, rand, zeros, Tensor};
     use crate::test_util::expect_equal;
@@ -602,10 +602,10 @@ mod tests {
         output
     }
 
-    /// Basic tests for conv_2d. These compare the results against values
+    /// Basic tests for conv. These compare the results against values
     /// computed from PyTorch as well as the reference implementation.
     #[test]
-    fn test_conv_2d() -> Result<(), String> {
+    fn test_conv() -> Result<(), String> {
         let kernel = from_data(
             vec![1, 1, 3, 3],
             vec![
@@ -627,7 +627,7 @@ mod tests {
             ],
         );
 
-        let result = conv_2d(
+        let result = conv(
             &input,
             &kernel,
             None,
@@ -649,7 +649,7 @@ mod tests {
 
         let expected_with_no_padding = from_data(vec![1, 1, 1, 1], vec![2.6358]);
 
-        let result = conv_2d(
+        let result = conv(
             &input,
             &kernel,
             None,
@@ -671,7 +671,7 @@ mod tests {
 
         let expected_with_bias = from_data(vec![1, 1, 1, 1], vec![3.6358]);
         let bias = from_data(vec![1], vec![1.0]);
-        let result = conv_2d(
+        let result = conv(
             &input,
             &kernel,
             Some(&bias),
@@ -693,7 +693,7 @@ mod tests {
     }
 
     #[test]
-    fn test_conv_2d_same_padding() -> Result<(), String> {
+    fn test_conv_same_padding() -> Result<(), String> {
         let kernel = &from_data(
             vec![1, 1, 3, 3],
             vec![
@@ -708,7 +708,7 @@ mod tests {
             ],
         );
 
-        let op = Conv2d {
+        let op = Conv {
             padding: Padding::Same,
             groups: 1,
             stride: 1,
@@ -732,13 +732,13 @@ mod tests {
     }
 
     #[test]
-    fn test_conv_2d_uneven_padding() -> Result<(), String> {
+    fn test_conv_uneven_padding() -> Result<(), String> {
         let mut rng = XorShiftRNG::new(1234);
         let kernel = rand(&[10, 5, 3, 3], &mut rng);
         let input = rand(&[1, 5, 10, 10], &mut rng);
         let bias = rand(&[10], &mut rng);
 
-        let result = conv_2d(
+        let result = conv(
             &input,
             &kernel,
             Some(&bias),
@@ -760,13 +760,13 @@ mod tests {
     }
 
     #[test]
-    fn test_conv_2d_depthwise_uneven_padding() -> Result<(), String> {
+    fn test_conv_depthwise_uneven_padding() -> Result<(), String> {
         let mut rng = XorShiftRNG::new(1234);
         let kernel = rand(&[10, 1, 3, 3], &mut rng);
         let input = rand(&[1, 10, 10, 10], &mut rng);
         let bias = rand(&[10], &mut rng);
 
-        let result = conv_2d(
+        let result = conv(
             &input,
             &kernel,
             Some(&bias),
@@ -789,14 +789,14 @@ mod tests {
 
     // Specific tests for convolutions with a 1x1 kernel.
     #[test]
-    fn test_conv_2d_pointwise() -> Result<(), String> {
+    fn test_conv_pointwise() -> Result<(), String> {
         let mut rng = XorShiftRNG::new(1234);
         let kernel = rand(&[10, 5, 1, 1], &mut rng);
         let input = rand(&[1, 5, 20, 20], &mut rng);
         let bias = rand(&[10], &mut rng);
 
         // Contiguous inputs
-        let result = conv_2d(
+        let result = conv(
             &input,
             &kernel,
             Some(&bias),
@@ -822,7 +822,7 @@ mod tests {
         input_transposed.permute(&[0, 1, 3, 2]);
         assert!(!input_transposed.is_contiguous());
 
-        let result = conv_2d(
+        let result = conv(
             &input_transposed,
             &kernel,
             Some(&bias),
@@ -844,7 +844,7 @@ mod tests {
 
         // Batch size > 1
         let input = rand(&[2, 5, 20, 20], &mut rng);
-        let result = conv_2d(
+        let result = conv(
             &input,
             &kernel,
             Some(&bias),
@@ -870,7 +870,7 @@ mod tests {
     // Specific tests for convolutions that operate over one output channel and
     // one input channel at a time.
     #[test]
-    fn test_conv_2d_depthwise() -> Result<(), String> {
+    fn test_conv_depthwise() -> Result<(), String> {
         let input = from_data(
             vec![1, 3, 2, 2],
             vec![
@@ -903,7 +903,7 @@ mod tests {
             1, /* stride */
         );
 
-        let result = conv_2d(
+        let result = conv(
             &input,
             &kernel,
             Some(&bias),
@@ -920,13 +920,13 @@ mod tests {
     // Tests for convolutions that are neither pointwise nor depthwise. In
     // other words, the kernel has a spatial size > 1x1 and a channel depth > 1.
     #[test]
-    fn test_conv_2d_not_depthwise_or_pointwise() -> Result<(), String> {
+    fn test_conv_not_depthwise_or_pointwise() -> Result<(), String> {
         let mut rng = XorShiftRNG::new(1234);
         let kernel = rand(&[4, 2, 3, 3], &mut rng);
         let input = rand(&[2, 4, 20, 20], &mut rng);
         let bias = rand(&[4], &mut rng);
 
-        let result = conv_2d(
+        let result = conv(
             &input,
             &kernel,
             Some(&bias),
@@ -948,7 +948,7 @@ mod tests {
     }
 
     #[test]
-    fn test_conv_2d_strided() -> Result<(), String> {
+    fn test_conv_strided() -> Result<(), String> {
         let mut rng = XorShiftRNG::new(1234);
         let kernel = rand(&[4, 3, 3, 3], &mut rng);
 
@@ -956,7 +956,7 @@ mod tests {
             for pad in [0, 1] {
                 for input_size in [3, 4, 5, 10, 20] {
                     let input = rand(&[2, 3, input_size, input_size], &mut rng);
-                    let result = conv_2d(
+                    let result = conv(
                         &input,
                         &kernel,
                         None,
@@ -982,7 +982,7 @@ mod tests {
     }
 
     #[test]
-    fn test_conv_2d_strided_depthwise() -> Result<(), String> {
+    fn test_conv_strided_depthwise() -> Result<(), String> {
         let mut rng = XorShiftRNG::new(1234);
         let kernel = rand(&[3, 1, 3, 3], &mut rng);
 
@@ -990,7 +990,7 @@ mod tests {
             for pad in [0, 1] {
                 for input_size in [3, 4, 5, 10, 20] {
                     let input = rand(&[1, 3, input_size, input_size], &mut rng);
-                    let result = conv_2d(
+                    let result = conv(
                         &input,
                         &kernel,
                         None,
@@ -1016,7 +1016,7 @@ mod tests {
     }
 
     #[test]
-    fn test_conv_transpose_2d() -> Result<(), String> {
+    fn test_conv_transpose() -> Result<(), String> {
         let input = from_data(vec![1, 1, 2, 2], vec![1.0, 2.0, 3.0, 4.0]);
         let kernel = from_data(vec![1, 1, 2, 2], vec![0.1, 0.2, 0.3, 0.4]);
         let expected = from_data(
@@ -1027,7 +1027,7 @@ mod tests {
             ],
         );
 
-        let result = conv_transpose_2d(&input, &kernel, None, 2).unwrap();
+        let result = conv_transpose(&input, &kernel, None, 2).unwrap();
         expect_equal(&result, &expected)?;
 
         let mut expected_with_bias = from_data(expected.shape().into(), expected.data().into());
@@ -1035,7 +1035,7 @@ mod tests {
             expected_with_bias.data_mut()[i] += 1.234;
         }
         let bias = from_data(vec![1], vec![1.234]);
-        let result = conv_transpose_2d(&input, &kernel, Some(&bias), 2).unwrap();
+        let result = conv_transpose(&input, &kernel, Some(&bias), 2).unwrap();
         expect_equal(&result, &expected_with_bias)
     }
 }
