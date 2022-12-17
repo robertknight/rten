@@ -4,7 +4,7 @@ extern crate wasnn;
 use std::fs;
 use std::io::BufWriter;
 
-use wasnn::load_model;
+use wasnn::Model;
 use wasnn::RunOptions;
 use wasnn::{zeros, Tensor};
 
@@ -49,7 +49,7 @@ fn image_from_prob_tensor(tensor: &Tensor) -> Vec<u8> {
 
 fn main() {
     let model_bytes = fs::read("output.model").unwrap();
-    let model = load_model(&model_bytes).unwrap();
+    let model = Model::load(&model_bytes).unwrap();
 
     let input_id = model.find_node("input.1").unwrap();
     let output_id = model.find_node("380").unwrap();

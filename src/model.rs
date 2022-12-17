@@ -15,6 +15,11 @@ pub struct Model {
 }
 
 impl Model {
+    /// Load a serialized model.
+    pub fn load(data: &[u8]) -> Result<Model, String> {
+        load_model(data)
+    }
+
     /// Find a node in the model's graph given its string ID.
     pub fn find_node(&self, id: &str) -> Option<NodeId> {
         self.node_ids.get(id).copied()
@@ -339,8 +344,7 @@ fn read_operator(node: &OperatorNode) -> Result<Box<dyn Operator>, String> {
     Ok(op)
 }
 
-/// Load a serialized model.
-pub fn load_model(data: &[u8]) -> Result<Model, String> {
+fn load_model(data: &[u8]) -> Result<Model, String> {
     let model = root_as_model(data).map_err(|e| format!("Error parsing flatbuffer {:?}", e))?;
 
     if model.schema_version() != 1 {
@@ -432,7 +436,7 @@ pub fn load_model(data: &[u8]) -> Result<Model, String> {
 mod tests {
     extern crate flatbuffers;
 
-    use crate::model::load_model;
+    use crate::model::Model;
     use crate::model_builder::{ModelBuilder, OpType};
     use crate::ops;
     use crate::ops::{Padding, Scalar};
@@ -462,7 +466,7 @@ mod tests {
     fn test_load_and_run_model() {
         let buffer = generate_model_buffer();
 
-        let model = load_model(&buffer).unwrap();
+        let model = Model::load(&buffer).unwrap();
         let input_id = model.find_node("input").unwrap();
         let output_id = model.find_node("output").unwrap();
 
@@ -796,7 +800,7 @@ mod tests {
 
         let buffer = builder.finish();
 
-        let model = load_model(&buffer).unwrap();
+        let model = Model::load(&buffer).unwrap();
 
         // Outputs of ops tested with a 4D input (eg. NCHW image).
         let outputs = vec![

@@ -17,7 +17,7 @@ impl Model {
     /// Construct a new model from a serialized graph.
     #[wasm_bindgen(constructor)]
     pub fn new(model_data: &[u8]) -> Result<Model, String> {
-        let model = model::load_model(model_data)?;
+        let model = model::Model::load(model_data)?;
         Ok(Model { model })
     }
 
