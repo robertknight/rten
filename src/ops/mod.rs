@@ -244,21 +244,21 @@ pub trait Operator: Debug {
     /// Return true if this operator supports in-place execution via
     /// `run_in_place`.
     ///
-    /// In-place execution writes outputs to an existing tensor rather than
-    /// allocating a new tensor. This can speed up execution by reducing the
-    /// number of allocations during execution of a computation graph.
+    /// In-place execution returns results by modifying an existing tensor
+    /// instead of allocating a new one. Reducing memory allocations can
+    /// significantly speed up graph runs.
     fn can_run_in_place(&self) -> bool {
         false
     }
 
     /// Execute this operator in-place on an existing tensor.
     ///
+    /// This may only be called if `can_run_in_place` returns true.
+    ///
     /// `input` is the first input, which the implementation may modify and
     /// return as the output. `other` are the remaining inputs.
-    ///
-    /// The default implementation just returns the input without modifying it.
-    fn run_in_place(&self, input: Output, _other: &[Input]) -> Result<Output, OpError> {
-        Ok(input)
+    fn run_in_place(&self, _input: Output, _other: &[Input]) -> Result<Output, OpError> {
+        unimplemented!("in-place execution not supported")
     }
 }
 
