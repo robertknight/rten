@@ -14,7 +14,7 @@ Wasnn is written in portable Rust and has minimal dependencies.
 
 ## Limitations
 
- - Only a subset of ONNX operators are currently supported.
+ - Only a subset of ONNX operators are currently supported (see `OperatorType` in [src/schema.fbs](src/schema.fbs)). For implemented operators, some attributes or input shapes may not be supported.
  - There is no support for running models on the GPU or other neural network
    accelerators.
  - Wasnn is fast enough to be useful for many applications, but not as well
