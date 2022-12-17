@@ -19,6 +19,11 @@ class Node:
 
 
 class ConstantNode(Node):
+    """
+    Data for a constant value graph node.
+
+    These are used for model weights, biases etc.
+    """
     def __init__(self, name: str, shape: list[int], data: array.array):
         super().__init__(name)
         self.shape = shape
@@ -31,6 +36,10 @@ class ConstantNode(Node):
 
 
 class OperatorNode(Node):
+    """
+    Data for an operator graph node.
+    """
+
     # Wasnn operator name. This should match the operator name in the FlatBuffers
     # schema.
     op_type: str
@@ -55,6 +64,11 @@ class OperatorNode(Node):
 
 
 class ValueNode(Node):
+    """
+    Data for a value placeholder graph node.
+
+    These are used for operator inputs and outputs.
+    """
     def __init__(self, name: str):
         super().__init__(name)
 
@@ -539,6 +553,9 @@ def graph_from_onnx_graph(onnx_graph: onnx.GraphProto) -> list[Node]:
 
 
 def build_constant_node(builder: flatbuffers.Builder, constant: ConstantNode):
+    """
+    Serialize a constant tensor value (eg. model weights) into a FlatBuffers model.
+    """
     sg.ConstantNodeStartShapeVector(builder, len(constant.shape))
     for item in reversed(constant.shape):
         builder.PrependUint32(item)
@@ -576,6 +593,9 @@ def build_constant_node(builder: flatbuffers.Builder, constant: ConstantNode):
 
 
 def build_operator_node(builder: flatbuffers.Builder, operator: OperatorNode):
+    """
+    Serialize an operator into a FlatBuffers model.
+    """
     if operator.op_type in NO_ATTR_OPS:
         attrs_type = sg.OperatorAttrs.NONE
     else:
@@ -784,6 +804,9 @@ def build_operator_node(builder: flatbuffers.Builder, operator: OperatorNode):
 
 
 def build_value_node(builder: flatbuffers.Builder, value: ValueNode):
+    """
+    Serialize a placeholder for an input/output value into a FlatBuffers model.
+    """
     sg.ValueNodeStart(builder)
     return sg.ValueNodeEnd(builder)
 
