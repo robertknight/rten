@@ -75,6 +75,21 @@ class ValueNode(Node):
         super().__init__(name)
 
 
+class Graph:
+    nodes: list[Node]
+
+    inputs: list[int]
+    """Indices of nodes in `nodes` that are model inputs."""
+
+    outputs: list[int]
+    """Indices of nodes in `nodes` that are model outputs."""
+
+    def __init__(self, nodes: list[Node], inputs: list[int], outputs: list[int]):
+        self.nodes = nodes
+        self.inputs = inputs
+        self.outputs = outputs
+
+
 # Mapping of ONNX attribute types to the field on an AttributeProto which
 # contains the value. Note that if you try to access the wrong field on an
 # AttributeProto, you get a default value instead of an exception.
@@ -495,7 +510,7 @@ def op_node_from_onnx_operator(
     )
 
 
-def graph_from_onnx_graph(onnx_graph: onnx.GraphProto) -> list[Node]:
+def graph_from_onnx_graph(onnx_graph: onnx.GraphProto) -> Graph:
     """
     Parse an ONNX model into a graph representation compatible with this library.
     """
@@ -543,7 +558,9 @@ def graph_from_onnx_graph(onnx_graph: onnx.GraphProto) -> list[Node]:
         op_node = op_node_from_onnx_operator(operator, tensor_map, constant_map)
         add_node(op_node)
 
-    return nodes
+    inputs = [tensor_map[info.name] for info in onnx_graph.input]
+    outputs = [tensor_map[info.name] for info in onnx_graph.output]
+    return Graph(nodes=nodes, inputs=inputs, outputs=outputs)
 
 
 def build_constant_node(builder: flatbuffers.Builder, constant: ConstantNode):
@@ -805,7 +822,7 @@ def build_value_node(builder: flatbuffers.Builder, value: ValueNode):
     return sg.ValueNodeEnd(builder)
 
 
-def write_graph(graph: list[Node], out_path: str):
+def write_graph(graph: Graph, out_path: str):
     """
     Serialize a model graph into a flatbuffers model.
 
@@ -816,7 +833,7 @@ def write_graph(graph: list[Node], out_path: str):
     builder = flatbuffers.Builder(initialSize=1024)
 
     node_offsets = []
-    for node in graph:
+    for node in graph.nodes:
         match node:
             case ConstantNode():
                 data_type = sg.NodeKind.ConstantNode
@@ -838,13 +855,25 @@ def write_graph(graph: list[Node], out_path: str):
         node_offset = sg.NodeEnd(builder)
         node_offsets.append(node_offset)
 
-    sg.GraphStartNodesVector(builder, len(graph))
+    sg.GraphStartNodesVector(builder, len(graph.nodes))
     for node_offset in reversed(node_offsets):
         builder.PrependUOffsetTRelative(node_offset)
     graph_nodes = builder.EndVector()
 
+    sg.GraphStartInputsVector(builder, len(graph.inputs))
+    for node_id in reversed(graph.inputs):
+        builder.PrependUint32(node_id)
+    inputs = builder.EndVector()
+
+    sg.GraphStartOutputsVector(builder, len(graph.outputs))
+    for node_id in reversed(graph.outputs):
+        builder.PrependUint32(node_id)
+    outputs = builder.EndVector()
+
     sg.GraphStart(builder)
     sg.GraphAddNodes(builder, graph_nodes)
+    sg.GraphAddInputs(builder, inputs)
+    sg.GraphAddOutputs(builder, outputs)
     graph = sg.GraphEnd(builder)
 
     sg.ModelStart(builder)

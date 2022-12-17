@@ -247,6 +247,12 @@ table Graph {
   // other nodes (eg. an operator node referencing inputs), the referents must
   // come earlier in the list.
   nodes:[Node];
+
+  // IDs of input nodes
+  inputs:[uint];
+
+  // IDs of output nodes
+  outputs:[uint];
 }
 
 table Model {

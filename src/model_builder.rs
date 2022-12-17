@@ -61,6 +61,8 @@ pub enum OpType {
 pub struct ModelBuilder<'a> {
     builder: FlatBufferBuilder<'a>,
     nodes: Vec<WIPOffset<sg::Node<'a>>>,
+    input_ids: Vec<u32>,
+    output_ids: Vec<u32>,
 }
 
 enum NodeData<'a> {
@@ -93,6 +95,8 @@ impl<'a> ModelBuilder<'a> {
         ModelBuilder {
             builder,
             nodes: Vec::new(),
+            input_ids: Vec::new(),
+            output_ids: Vec::new(),
         }
     }
 
@@ -409,14 +413,28 @@ impl<'a> ModelBuilder<'a> {
         self.add_node(Some(id), NodeData::Operator(op_node))
     }
 
+    /// Mark a node in the graph as an input.
+    pub fn add_input(&mut self, node_id: u32) {
+        self.input_ids.push(node_id);
+    }
+
+    /// Mark a node in the graph as an output.
+    pub fn add_output(&mut self, node_id: u32) {
+        self.output_ids.push(node_id);
+    }
+
     /// Finish writing the model data to the buffer and return the buffer's contents.
     pub fn finish(mut self) -> Vec<u8> {
+        let inputs_vec = self.builder.create_vector(&self.input_ids[..]);
+        let outputs_vec = self.builder.create_vector(&self.output_ids[..]);
         let nodes_vec = self.builder.create_vector(&self.nodes[..]);
 
         let graph = sg::Graph::create(
             &mut self.builder,
             &sg::GraphArgs {
                 nodes: Some(nodes_vec),
+                inputs: Some(inputs_vec),
+                outputs: Some(outputs_vec),
             },
         );
 

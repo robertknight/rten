@@ -11,6 +11,8 @@ use crate::tensor::from_data;
 
 pub struct Model {
     node_ids: HashMap<String, NodeId>,
+    input_ids: Vec<NodeId>,
+    output_ids: Vec<NodeId>,
     graph: Graph,
 }
 
@@ -23,6 +25,16 @@ impl Model {
     /// Find a node in the model's graph given its string ID.
     pub fn find_node(&self, id: &str) -> Option<NodeId> {
         self.node_ids.get(id).copied()
+    }
+
+    /// Return the IDs of input nodes.
+    pub fn input_ids(&self) -> &[NodeId] {
+        &self.input_ids
+    }
+
+    /// Return the IDs of output nodes.
+    pub fn output_ids(&self) -> &[NodeId] {
+        &self.output_ids
     }
 
     /// Execute the model.
@@ -365,6 +377,18 @@ fn load_model(data: &[u8]) -> Result<Model, String> {
         }
     };
 
+    let input_ids = model
+        .graph()
+        .inputs()
+        .map(|ids| ids.iter().map(|id| id as NodeId).collect())
+        .unwrap_or(Vec::new());
+
+    let output_ids = model
+        .graph()
+        .outputs()
+        .map(|ids| ids.iter().map(|id| id as NodeId).collect())
+        .unwrap_or(Vec::new());
+
     if let Some(nodes) = model.graph().nodes() {
         for (node_index, node) in nodes.iter().enumerate() {
             if let Some(operator) = node.data_as_operator_node() {
@@ -427,6 +451,8 @@ fn load_model(data: &[u8]) -> Result<Model, String> {
 
     let model = Model {
         node_ids: node_id_from_name,
+        input_ids,
+        output_ids,
         graph,
     };
     Ok(model)
@@ -450,6 +476,9 @@ mod tests {
         let input_node = builder.add_value("input");
         let output_node = builder.add_value("output");
 
+        builder.add_input(input_node);
+        builder.add_output(output_node);
+
         let concat_out = builder.add_value("concat_out");
         builder.add_operator(
             "concat",
@@ -463,12 +492,24 @@ mod tests {
     }
 
     #[test]
-    fn test_load_and_run_model() {
+    fn test_model_input_output_ids() {
         let buffer = generate_model_buffer();
 
         let model = Model::load(&buffer).unwrap();
         let input_id = model.find_node("input").unwrap();
         let output_id = model.find_node("output").unwrap();
+
+        assert_eq!(model.input_ids(), &[input_id]);
+        assert_eq!(model.output_ids(), &[output_id]);
+    }
+
+    #[test]
+    fn test_load_and_run_model() {
+        let buffer = generate_model_buffer();
+
+        let model = Model::load(&buffer).unwrap();
+        let input_id = model.input_ids()[0];
+        let output_id = model.output_ids()[0];
 
         let input = from_data(vec![1, 2, 2], vec![1., 2., -1., -2.]);
         let result = model

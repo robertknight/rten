@@ -4673,6 +4673,8 @@ impl<'a> flatbuffers::Follow<'a> for Graph<'a> {
 
 impl<'a> Graph<'a> {
     pub const VT_NODES: flatbuffers::VOffsetT = 4;
+    pub const VT_INPUTS: flatbuffers::VOffsetT = 6;
+    pub const VT_OUTPUTS: flatbuffers::VOffsetT = 8;
 
     #[inline]
     pub fn init_from_table(table: flatbuffers::Table<'a>) -> Self {
@@ -4684,6 +4686,12 @@ impl<'a> Graph<'a> {
         args: &'args GraphArgs<'args>,
     ) -> flatbuffers::WIPOffset<Graph<'bldr>> {
         let mut builder = GraphBuilder::new(_fbb);
+        if let Some(x) = args.outputs {
+            builder.add_outputs(x);
+        }
+        if let Some(x) = args.inputs {
+            builder.add_inputs(x);
+        }
         if let Some(x) = args.nodes {
             builder.add_nodes(x);
         }
@@ -4695,6 +4703,22 @@ impl<'a> Graph<'a> {
         self._tab.get::<flatbuffers::ForwardsUOffset<
             flatbuffers::Vector<'a, flatbuffers::ForwardsUOffset<Node>>,
         >>(Graph::VT_NODES, None)
+    }
+    #[inline]
+    pub fn inputs(&self) -> Option<flatbuffers::Vector<'a, u32>> {
+        self._tab
+            .get::<flatbuffers::ForwardsUOffset<flatbuffers::Vector<'a, u32>>>(
+                Graph::VT_INPUTS,
+                None,
+            )
+    }
+    #[inline]
+    pub fn outputs(&self) -> Option<flatbuffers::Vector<'a, u32>> {
+        self._tab
+            .get::<flatbuffers::ForwardsUOffset<flatbuffers::Vector<'a, u32>>>(
+                Graph::VT_OUTPUTS,
+                None,
+            )
     }
 }
 
@@ -4709,6 +4733,16 @@ impl flatbuffers::Verifiable for Graph<'_> {
             .visit_field::<flatbuffers::ForwardsUOffset<
                 flatbuffers::Vector<'_, flatbuffers::ForwardsUOffset<Node>>,
             >>("nodes", Self::VT_NODES, false)?
+            .visit_field::<flatbuffers::ForwardsUOffset<flatbuffers::Vector<'_, u32>>>(
+                "inputs",
+                Self::VT_INPUTS,
+                false,
+            )?
+            .visit_field::<flatbuffers::ForwardsUOffset<flatbuffers::Vector<'_, u32>>>(
+                "outputs",
+                Self::VT_OUTPUTS,
+                false,
+            )?
             .finish();
         Ok(())
     }
@@ -4717,11 +4751,17 @@ pub struct GraphArgs<'a> {
     pub nodes: Option<
         flatbuffers::WIPOffset<flatbuffers::Vector<'a, flatbuffers::ForwardsUOffset<Node<'a>>>>,
     >,
+    pub inputs: Option<flatbuffers::WIPOffset<flatbuffers::Vector<'a, u32>>>,
+    pub outputs: Option<flatbuffers::WIPOffset<flatbuffers::Vector<'a, u32>>>,
 }
 impl<'a> Default for GraphArgs<'a> {
     #[inline]
     fn default() -> Self {
-        GraphArgs { nodes: None }
+        GraphArgs {
+            nodes: None,
+            inputs: None,
+            outputs: None,
+        }
     }
 }
 
@@ -4739,6 +4779,16 @@ impl<'a: 'b, 'b> GraphBuilder<'a, 'b> {
     ) {
         self.fbb_
             .push_slot_always::<flatbuffers::WIPOffset<_>>(Graph::VT_NODES, nodes);
+    }
+    #[inline]
+    pub fn add_inputs(&mut self, inputs: flatbuffers::WIPOffset<flatbuffers::Vector<'b, u32>>) {
+        self.fbb_
+            .push_slot_always::<flatbuffers::WIPOffset<_>>(Graph::VT_INPUTS, inputs);
+    }
+    #[inline]
+    pub fn add_outputs(&mut self, outputs: flatbuffers::WIPOffset<flatbuffers::Vector<'b, u32>>) {
+        self.fbb_
+            .push_slot_always::<flatbuffers::WIPOffset<_>>(Graph::VT_OUTPUTS, outputs);
     }
     #[inline]
     pub fn new(_fbb: &'b mut flatbuffers::FlatBufferBuilder<'a>) -> GraphBuilder<'a, 'b> {
@@ -4759,6 +4809,8 @@ impl core::fmt::Debug for Graph<'_> {
     fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
         let mut ds = f.debug_struct("Graph");
         ds.field("nodes", &self.nodes());
+        ds.field("inputs", &self.inputs());
+        ds.field("outputs", &self.outputs());
         ds.finish()
     }
 }

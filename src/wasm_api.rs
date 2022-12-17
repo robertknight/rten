@@ -27,6 +27,18 @@ impl Model {
         self.model.find_node(name)
     }
 
+    /// Return the IDs of input nodes.
+    #[wasm_bindgen(js_name = inputIds)]
+    pub fn input_ids(&self) -> Vec<usize> {
+        self.model.input_ids().into()
+    }
+
+    /// Return the IDs of output nodes.
+    #[wasm_bindgen(js_name = outputIds)]
+    pub fn output_ids(&self) -> Vec<usize> {
+        self.model.output_ids().into()
+    }
+
     /// Execute the model, passing `input` as the tensor values for the node
     /// IDs specified by `input_ids` and calculating the values of the nodes
     /// specified by `output_ids`.
