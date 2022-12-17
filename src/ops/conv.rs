@@ -150,7 +150,7 @@ impl<'a, T> Deref for MaybeOwned<'a, T> {
 
 /// Return a smart pointer that wraps a tensor reference if it is contiguous,
 /// or a contiguous copy otherwise.
-fn contiguous_tensor<'a, T: Copy>(tensor: &'a Tensor<T>) -> MaybeOwned<'a, Tensor<T>> {
+fn contiguous_tensor<T: Copy>(tensor: &Tensor<T>) -> MaybeOwned<'_, Tensor<T>> {
     if tensor.is_contiguous() {
         tensor.into()
     } else {

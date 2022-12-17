@@ -117,6 +117,7 @@ impl Tensor {
 /// is iterable and can be converted to an array using `Array.from` (nb. the
 /// iterator implementation is defined in JS).
 #[wasm_bindgen]
+#[derive(Default)]
 pub struct TensorList {
     tensors: Vec<Tensor>,
 }

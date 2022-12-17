@@ -248,6 +248,11 @@ impl<T: Copy> Tensor<T> {
         self.shape.iter().product()
     }
 
+    /// Return true if this tensor has no elements.
+    pub fn is_empty(&self) -> bool {
+        self.len() == 0
+    }
+
     /// Return the number of dimensions the tensor has, aka. the rank of the
     /// tensor.
     pub fn ndim(&self) -> usize {
@@ -1382,6 +1387,13 @@ mod tests {
         assert_eq!(scalar.len(), 1);
         assert_eq!(vec.len(), 3);
         assert_eq!(matrix.len(), 4);
+    }
+
+    #[test]
+    fn test_is_empty() {
+        assert!(from_vec::<f32>(vec![]).is_empty());
+        assert!(!from_vec(vec![1]).is_empty());
+        assert!(!from_scalar(5.0).is_empty());
     }
 
     #[test]

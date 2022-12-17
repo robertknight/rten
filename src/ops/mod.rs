@@ -741,7 +741,7 @@ pub fn slice<T: Copy>(
         .enumerate()
         .map(|(dim, range)| range.steps(input.shape()[dim]))
         .collect();
-    Ok(from_data(sliced_shape, sliced_data).into())
+    Ok(from_data(sliced_shape, sliced_data))
 }
 
 /// Clip the dimensions of the input tensor specified by `axes` to the ranges

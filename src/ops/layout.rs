@@ -32,8 +32,8 @@ impl Operator for Expand {
         let shape = get_input(inputs, 1)?;
 
         match input {
-            Input::FloatTensor(input) => expand(&input, &shape).into_op_result(),
-            Input::IntTensor(input) => expand(&input, &shape).into_op_result(),
+            Input::FloatTensor(input) => expand(input, shape).into_op_result(),
+            Input::IntTensor(input) => expand(input, shape).into_op_result(),
         }
     }
 }

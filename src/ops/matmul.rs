@@ -53,11 +53,12 @@ pub fn gemm_op(
     };
 
     let out_shape = &[a_rows, b_cols][..];
-    let mut output = if c.is_some() && beta == 1.0 {
-        let out_data = c.unwrap().broadcast_elements(out_shape).collect();
-        from_data(out_shape.into(), out_data)
-    } else {
-        zeros(out_shape)
+    let mut output = match c {
+        Some(c) if beta == 1.0 => {
+            let out_data = c.broadcast_elements(out_shape).collect();
+            from_data(out_shape.into(), out_data)
+        }
+        _ => zeros(out_shape),
     };
 
     let out_row_stride = output.stride(0);

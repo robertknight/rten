@@ -203,7 +203,7 @@ pub fn equal<T: Copy + Debug + PartialEq>(
     a: &Tensor<T>,
     b: &Tensor<T>,
 ) -> Result<Tensor<i32>, OpError> {
-    binary_op(a, b, |x, y| if x == y { 1 } else { 0 })
+    binary_op(a, b, |x, y| i32::from(x == y))
 }
 
 #[derive(Debug)]
@@ -233,7 +233,7 @@ pub fn less<T: Copy + Debug + PartialOrd>(
     a: &Tensor<T>,
     b: &Tensor<T>,
 ) -> Result<Tensor<i32>, OpError> {
-    binary_op(a, b, |x, y| if x < y { 1 } else { 0 })
+    binary_op(a, b, |x, y| i32::from(x < y))
 }
 
 #[derive(Debug)]
