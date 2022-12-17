@@ -21,19 +21,6 @@ fn tensor_from_image(width: usize, height: usize, data: &[u8]) -> Tensor {
 
 /// Convert an NCHW float tensor with values in the range [0, 1] to an
 /// 8-bit grayscale image.
-fn image_from_tensor(tensor: &Tensor) -> Vec<u8> {
-    let mut buf = Vec::new();
-    for y in 0..tensor.shape()[2] {
-        for x in 0..tensor.shape()[3] {
-            let byte = ((tensor[[0, 0, y, x]] + 0.5) * 255.0) as u8;
-            buf.push(byte);
-        }
-    }
-    buf
-}
-
-/// Convert an NCHW float tensor with values in the range [0, 1] to an
-/// 8-bit grayscale image.
 fn image_from_prob_tensor(tensor: &Tensor) -> Vec<u8> {
     let mut buf = Vec::new();
     for y in 0..tensor.shape()[2] {
