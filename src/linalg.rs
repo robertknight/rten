@@ -5,6 +5,7 @@
 ///! and vector-scalar products.
 use std::ops::Range;
 
+#[cfg(test)]
 use crate::tensor::Tensor;
 
 pub fn div_ceil(a: usize, b: usize) -> usize {
@@ -299,6 +300,7 @@ fn round_up(val: usize, factor: usize) -> usize {
 /// Multiply two matrices and add the results to `output`.
 ///
 /// This is a high-level API that operates on tensors.
+#[cfg(test)]
 pub fn gemm(output: &mut Tensor, a: &Tensor, b: &Tensor) {
     let [a_rows, a_cols] = a.dims();
     let [b_rows, b_cols] = b.dims();

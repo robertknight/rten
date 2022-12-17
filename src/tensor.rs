@@ -1162,6 +1162,7 @@ pub fn from_data<T: Copy>(shape: Vec<usize>, data: Vec<T>) -> Tensor<T> {
 }
 
 /// Create a new 0-dimensional (scalar) tensor from a single value.
+#[cfg(test)]
 pub fn from_scalar<T: Copy>(value: T) -> Tensor<T> {
     Tensor::from_scalar(value)
 }
@@ -1172,6 +1173,7 @@ pub fn from_vec<T: Copy>(data: Vec<T>) -> Tensor<T> {
 }
 
 /// Create a new 2D tensor from a nested array of slices.
+#[cfg(test)]
 pub fn from_2d_slice<T: Copy>(data: &[&[T]]) -> Tensor<T> {
     let rows = data.len();
     let cols = data.get(0).map(|first_row| first_row.len()).unwrap_or(0);
