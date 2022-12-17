@@ -218,8 +218,8 @@ impl<'a> ModelBuilder<'a> {
             }};
         }
 
-        // Translate internal operator info to the types in the schema.
-        // There is unfortunately a lot of boilerplate here.
+        // Convert internal operator and attribute types to corresponding
+        // FlatBuffers types, and write attribute data into buffer.
         let (op_type, attrs_type, attrs) = match op_info {
             OpType::Add => op!(Add),
             OpType::AveragePool2d(args) => op_with_attrs!(AveragePool2d, AveragePool2dAttrs, {
