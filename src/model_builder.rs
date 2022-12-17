@@ -204,12 +204,19 @@ impl<'a> ModelBuilder<'a> {
     ) -> u32 {
         type OT = sg::OperatorType;
         type OA = sg::OperatorAttrs;
-        let no_attrs = sg::OperatorAttrs::NONE;
+
+        // Generate an (op_type, attr_type, attrs) tuple for an operator with
+        // no attributes.
+        macro_rules! no_attr_op {
+            ($op_name:ident) => {
+                (OT::$op_name, sg::OperatorAttrs::NONE, None)
+            };
+        }
 
         // Translate internal operator info to the types in the schema.
         // There is unfortunately a lot of boilerplate here.
         let (op_type, attrs_type, attrs) = match op_info {
-            OpType::Add => (OT::Add, no_attrs, None),
+            OpType::Add => no_attr_op!(Add),
             OpType::AveragePool2d(args) => (
                 OT::AveragePool2d,
                 OA::AveragePool2dAttrs,
@@ -342,10 +349,10 @@ impl<'a> ModelBuilder<'a> {
                     .as_union_value(),
                 ),
             ),
-            OpType::Div => (OT::Div, no_attrs, None),
-            OpType::Equal => (OT::Equal, no_attrs, None),
-            OpType::Erf => (OT::Erf, no_attrs, None),
-            OpType::Expand => (OT::Expand, no_attrs, None),
+            OpType::Div => no_attr_op!(Div),
+            OpType::Equal => no_attr_op!(Equal),
+            OpType::Erf => no_attr_op!(Erf),
+            OpType::Expand => no_attr_op!(Expand),
             OpType::Gather(args) => (
                 OT::Gather,
                 OA::GatherAttrs,
@@ -375,8 +382,8 @@ impl<'a> ModelBuilder<'a> {
                     .as_union_value(),
                 ),
             ),
-            OpType::GlobalAveragePool => (OT::GlobalAveragePool, no_attrs, None),
-            OpType::Identity => (OT::Identity, no_attrs, None),
+            OpType::GlobalAveragePool => no_attr_op!(GlobalAveragePool),
+            OpType::Identity => no_attr_op!(Identity),
             OpType::LeakyRelu(args) => (
                 OT::LeakyRelu,
                 OA::LeakyReluAttrs,
@@ -388,8 +395,8 @@ impl<'a> ModelBuilder<'a> {
                     .as_union_value(),
                 ),
             ),
-            OpType::Less => (OT::Less, no_attrs, None),
-            OpType::MatMul => (OT::MatMul, no_attrs, None),
+            OpType::Less => no_attr_op!(Less),
+            OpType::MatMul => no_attr_op!(MatMul),
             OpType::MaxPool2d(args) => (
                 OT::MaxPool2d,
                 OA::MaxPool2dAttrs,
@@ -407,10 +414,10 @@ impl<'a> ModelBuilder<'a> {
                     .as_union_value()
                 }),
             ),
-            OpType::Mul => (OT::Mul, no_attrs, None),
-            OpType::Pad => (OT::Pad, no_attrs, None),
-            OpType::Pow => (OT::Pow, no_attrs, None),
-            OpType::Range => (OT::Range, no_attrs, None),
+            OpType::Mul => no_attr_op!(Mul),
+            OpType::Pad => no_attr_op!(Pad),
+            OpType::Pow => no_attr_op!(Pow),
+            OpType::Range => no_attr_op!(Range),
             OpType::ReduceMean(args) => {
                 let axes = self.create_i32_vec(args.axes);
                 (
@@ -428,11 +435,11 @@ impl<'a> ModelBuilder<'a> {
                     ),
                 )
             }
-            OpType::Relu => (OT::Relu, no_attrs, None),
-            OpType::Reshape => (OT::Reshape, no_attrs, None),
-            OpType::Shape => (OT::Shape, no_attrs, None),
-            OpType::Sigmoid => (OT::Sigmoid, no_attrs, None),
-            OpType::Slice => (OT::Slice, no_attrs, None),
+            OpType::Relu => no_attr_op!(Relu),
+            OpType::Reshape => no_attr_op!(Reshape),
+            OpType::Shape => no_attr_op!(Shape),
+            OpType::Sigmoid => no_attr_op!(Sigmoid),
+            OpType::Slice => no_attr_op!(Slice),
             OpType::Softmax(args) => (
                 OT::Softmax,
                 OA::SoftmaxAttrs,
@@ -463,7 +470,7 @@ impl<'a> ModelBuilder<'a> {
                     ),
                 )
             }
-            OpType::Sqrt => (OT::Sqrt, no_attrs, None),
+            OpType::Sqrt => no_attr_op!(Sqrt),
             OpType::Squeeze(args) => {
                 let axes = self.create_u32_vec(args.axes);
                 (
@@ -475,7 +482,7 @@ impl<'a> ModelBuilder<'a> {
                     ),
                 )
             }
-            OpType::Sub => (OT::Sub, no_attrs, None),
+            OpType::Sub => no_attr_op!(Sub),
             OpType::Transpose(args) => {
                 let perm = self.create_u32_vec(args.perm);
                 (
@@ -505,7 +512,7 @@ impl<'a> ModelBuilder<'a> {
                     ),
                 )
             }
-            OpType::Where => (OT::Where, no_attrs, None),
+            OpType::Where => no_attr_op!(Where),
         };
 
         let input_vec = self.builder.create_vector(inputs);
