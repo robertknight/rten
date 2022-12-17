@@ -311,10 +311,33 @@ def op_node_from_onnx_operator(
 
     attrs: dict[str, AttributeValue] = {}
 
-    match onnx_op.op_type:
-        case "Add":
-            op_type = "Add"
+    # Operators that have no attributes.
+    no_attr_ops = {
+        "Add",
+        "Div",
+        "Equal",
+        "Erf",
+        "Expand",
+        "GlobalAveragePool",
+        "Identity",
+        "Less",
+        "MatMul",
+        "Mul",
+        "Range",
+        "Relu",
+        "Pow",
+        "Slice",
+        "Sigmoid",
+        "Sqrt",
+        "Sub",
+        "Where",
+    }
 
+    # Operator type name in Wasnn models. By default assume this is the same as
+    # the ONNX type.
+    op_type = onnx_op.op_type
+
+    match onnx_op.op_type:
         case "AveragePool":
             op_type = "AveragePool2d"
 
@@ -329,13 +352,9 @@ def op_node_from_onnx_operator(
             check_unsupported_attr(onnx_op.attribute, "count_include_pad", "int", 0)
 
         case "BatchNormalization":
-            op_type = "BatchNormalization"
-
             attrs["epsilon"] = get_attr(onnx_op.attribute, "epsilon", "float", 1e-5)
 
         case "Cast":
-            op_type = "Cast"
-
             to = get_attr(onnx_op.attribute, "to", "int", TensorProto.DataType.FLOAT)
             match to:
                 case TensorProto.DataType.FLOAT:
@@ -346,8 +365,6 @@ def op_node_from_onnx_operator(
                     raise Exception(f"Unsupported target type for cast {to}")
 
         case "Clip":
-            op_type = "Clip"
-
             attrs["min"] = require_attr_or_input(
                 "min", "float", 1, onnx_op, constant_nodes
             )
@@ -356,13 +373,9 @@ def op_node_from_onnx_operator(
             )
 
         case "Concat":
-            op_type = "Concat"
-
             attrs["dim"] = require_attr(onnx_op.attribute, "axis", "int")
 
         case "ConstantOfShape":
-            op_type = "ConstantOfShape"
-
             tensor = require_attr(onnx_op.attribute, "value", "tensor")
             const_node = constant_node_from_onnx_initializer(tensor)
 
@@ -395,47 +408,17 @@ def op_node_from_onnx_operator(
             )
             check_unsupported_attr(onnx_op.attribute, "pads", "ints", [0, 0, 0, 0])
 
-        case "Div":
-            op_type = "Div"
-
-        case "Equal":
-            op_type = "Equal"
-
-        case "Erf":
-            op_type = "Erf"
-
-        case "Expand":
-            op_type = "Expand"
-
         case "Gather":
-            op_type = "Gather"
-
             attrs["axis"] = get_attr(onnx_op.attribute, "axis", "int", 0)
 
         case "Gemm":
-            op_type = "Gemm"
-
             attrs["alpha"] = get_attr(onnx_op.attribute, "alpha", "float", 1.0)
             attrs["beta"] = get_attr(onnx_op.attribute, "beta", "float", 1.0)
             attrs["transpose_a"] = bool(get_attr(onnx_op.attribute, "transA", "int", 0))
             attrs["transpose_b"] = bool(get_attr(onnx_op.attribute, "transB", "int", 0))
 
-        case "GlobalAveragePool":
-            op_type = "GlobalAveragePool"
-
-        case "Identity":
-            op_type = "Identity"
-
         case "LeakyRelu":
-            op_type = "LeakyRelu"
-
             attrs["alpha"] = get_attr(onnx_op.attribute, "alpha", "float", 0.01)
-
-        case "Less":
-            op_type = "Less"
-
-        case "MatMul":
-            op_type = "MatMul"
 
         case "MaxPool":
             op_type = "MaxPool2d"
@@ -451,88 +434,44 @@ def op_node_from_onnx_operator(
             check_unsupported_attr(onnx_op.attribute, "dilations", "ints", [1, 1])
             check_unsupported_attr(onnx_op.attribute, "storage_order", "int", 0)
 
-        case "Mul":
-            op_type = "Mul"
-
-        case "Range":
-            op_type = "Range"
-
         case "ReduceMean":
-            op_type = "ReduceMean"
-
             attrs["axes"] = get_attr(onnx_op.attribute, "axes", "ints", None)
             attrs["keep_dims"] = bool(get_attr(onnx_op.attribute, "keepdims", "int", 1))
 
-        case "Relu":
-            op_type = "Relu"
-
         case "Reshape":
-            op_type = "Reshape"
-
             check_unsupported_attr(onnx_op.attribute, "allowzero", "int", 0)
 
         case "Pad":
-            op_type = "Pad"
-
             check_unsupported_attr(onnx_op.attribute, "mode", "string", "constant")
 
-        case "Pow":
-            op_type = "Pow"
-
         case "Shape":
-            op_type = "Shape"
-
             check_unsupported_attr(onnx_op.attribute, "end", "int", 0)
             check_unsupported_attr(onnx_op.attribute, "start", "int", 0)
 
-        case "Slice":
-            op_type = "Slice"
-
-        case "Sigmoid":
-            op_type = "Sigmoid"
-
         case "Softmax":
-            op_type = "Softmax"
-
             attrs["axis"] = get_attr(onnx_op.attribute, "axis", "int", 0)
 
         case "Split":
-            op_type = "Split"
-
             attrs["axis"] = get_attr(onnx_op.attribute, "axis", "int", 0)
             attrs["split"] = get_attr(onnx_op.attribute, "split", "ints", [])
 
             check_unsupported_attr(onnx_op.attribute, "num_outputs", "int", 0)
 
-        case "Sqrt":
-            op_type = "Sqrt"
-
         case "Squeeze":
-            op_type = "Squeeze"
-
             axes = get_attr(onnx_op.attribute, "axes", "ints", [])
             attrs["axes"] = axes
 
-        case "Sub":
-            op_type = "Sub"
-
         case "Transpose":
-            op_type = "Transpose"
-
             perm = get_attr(onnx_op.attribute, "perm", "ints", [])
             attrs["perm"] = perm
 
         case "Unsqueeze":
-            op_type = "Unsqueeze"
-
             axes = get_attr(onnx_op.attribute, "axes", "ints", [])
             attrs["axes"] = axes
 
-        case "Where":
-            op_type = "Where"
-
-        case _:
-            raise Exception(f"Unsupported operation {onnx_op.op_type}")
+        case other_type:
+            if other_type not in no_attr_ops:
+                raise Exception(f"Unsupported operation {onnx_op.op_type}")
 
     return OperatorNode(
         name=onnx_op.name,
