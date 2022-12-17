@@ -43,7 +43,7 @@ impl Operator for Clip {
 }
 
 fn erf_op(val: f32) -> f32 {
-    libm::erf(val.into()) as f32
+    libm::erff(val)
 }
 
 pub fn erf(input: &Tensor) -> Tensor {
