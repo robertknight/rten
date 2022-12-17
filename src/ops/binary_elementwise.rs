@@ -152,12 +152,20 @@ impl Operator for Add {
 
 /// Perform elementwise division of two tensors.
 pub fn div(a: &Tensor, b: &Tensor) -> Result<Tensor, OpError> {
-    binary_op(a, b, |x, y| x / y)
+    if let Some(scalar) = b.item() {
+        mul(a, &Tensor::from_scalar(1. / scalar))
+    } else {
+        binary_op(a, b, |x, y| x / y)
+    }
 }
 
 /// Perform in-place elementwise division of two tensors.
 pub fn div_in_place(a: &mut Tensor, b: &Tensor) {
-    binary_op_in_place(a, b, |x, y| *x /= y);
+    if let Some(scalar) = b.item() {
+        mul_in_place(a, &Tensor::from_scalar(1. / scalar))
+    } else {
+        binary_op_in_place(a, b, |x, y| *x /= y);
+    }
 }
 
 #[derive(Debug)]
@@ -539,20 +547,40 @@ mod tests {
 
     #[test]
     fn test_div() -> Result<(), String> {
+        // Non-scalar a and b
         let a = from_data(vec![2, 2], vec![10., 20., 30., 40.]);
         let b = from_data(vec![2, 2], vec![1., 2., 3., 4.]);
         let expected = from_data(vec![2, 2], vec![10., 10., 10., 10.]);
         let result = div(&a, &b).unwrap();
-        expect_equal(&result, &expected)
+        expect_equal(&result, &expected)?;
+
+        // Scalar b
+        let a = from_data(vec![2, 2], vec![10., 20., 30., 40.]);
+        let b = from_scalar(10.);
+        let expected = from_data(vec![2, 2], vec![1., 2., 3., 4.]);
+        let result = div(&a, &b).unwrap();
+        expect_equal(&result, &expected)?;
+
+        Ok(())
     }
 
     #[test]
     fn test_div_in_place() -> Result<(), String> {
+        // Non-scalar a and b
         let mut a = from_data(vec![2, 2], vec![10., 20., 30., 40.]);
         let b = from_data(vec![2, 2], vec![1., 2., 3., 4.]);
         let expected = from_data(vec![2, 2], vec![10., 10., 10., 10.]);
         div_in_place(&mut a, &b);
-        expect_equal(&a, &expected)
+        expect_equal(&a, &expected)?;
+
+        // Scalar b
+        let mut a = from_data(vec![2, 2], vec![10., 20., 30., 40.]);
+        let b = from_scalar(10.);
+        let expected = from_data(vec![2, 2], vec![1., 2., 3., 4.]);
+        div_in_place(&mut a, &b);
+        expect_equal(&a, &expected)?;
+
+        Ok(())
     }
 
     #[test]
