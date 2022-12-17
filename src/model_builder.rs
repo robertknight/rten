@@ -198,7 +198,7 @@ impl<'a> ModelBuilder<'a> {
     ) -> u32 {
         // Generate an (op_type, attr_type, attrs) tuple for an operator with
         // no attributes.
-        macro_rules! no_attr_op {
+        macro_rules! op {
             ($op_name:ident) => {
                 (sg::OperatorType::$op_name, sg::OperatorAttrs::NONE, None)
             };
@@ -206,7 +206,7 @@ impl<'a> ModelBuilder<'a> {
 
         /// Generate an (op_type, attr_type, attrs) tuple for an operator with
         /// attributes.
-        macro_rules! attr_op {
+        macro_rules! op_with_attrs {
             ($op_name:ident, $attr_type:ident, $args: expr) => {{
                 let args = ($args);
                 let attrs = sg::$attr_type::create(&mut self.builder, &args).as_union_value();
@@ -218,38 +218,28 @@ impl<'a> ModelBuilder<'a> {
             }};
         }
 
-        type OT = sg::OperatorType;
-        type OA = sg::OperatorAttrs;
-
         // Translate internal operator info to the types in the schema.
         // There is unfortunately a lot of boilerplate here.
         let (op_type, attrs_type, attrs) = match op_info {
-            OpType::Add => no_attr_op!(Add),
-            OpType::AveragePool2d(args) => (
-                OT::AveragePool2d,
-                OA::AveragePool2dAttrs,
-                Some({
-                    let pad_args = pad_args_from_padding(args.padding);
-                    let pads = self.create_vec(pad_args.pads, |pad| pad as u32);
-                    sg::AveragePool2dAttrs::create(&mut self.builder, {
-                        &sg::AveragePool2dAttrsArgs {
-                            kernel_size: args.kernel_size as u32,
-                            pad_mode: pad_args.pad_mode,
-                            pads,
-                            stride: args.stride as u32,
-                        }
-                    })
-                    .as_union_value()
-                }),
-            ),
-            OpType::BatchNormalization(args) => attr_op!(
+            OpType::Add => op!(Add),
+            OpType::AveragePool2d(args) => op_with_attrs!(AveragePool2d, AveragePool2dAttrs, {
+                let pad_args = pad_args_from_padding(args.padding);
+                let pads = self.create_vec(pad_args.pads, |pad| pad as u32);
+                sg::AveragePool2dAttrsArgs {
+                    kernel_size: args.kernel_size as u32,
+                    pad_mode: pad_args.pad_mode,
+                    pads,
+                    stride: args.stride as u32,
+                }
+            }),
+            OpType::BatchNormalization(args) => op_with_attrs!(
                 BatchNormalization,
                 BatchNormalizationAttrs,
                 sg::BatchNormalizationAttrsArgs {
                     epsilon: args.epsilon
                 }
             ),
-            OpType::Cast(args) => attr_op!(
+            OpType::Cast(args) => op_with_attrs!(
                 Cast,
                 CastAttrs,
                 sg::CastAttrsArgs {
@@ -259,7 +249,7 @@ impl<'a> ModelBuilder<'a> {
                     },
                 }
             ),
-            OpType::Clip(args) => attr_op!(
+            OpType::Clip(args) => op_with_attrs!(
                 Clip,
                 ClipAttrs,
                 sg::ClipAttrsArgs {
@@ -267,18 +257,16 @@ impl<'a> ModelBuilder<'a> {
                     max: args.max,
                 }
             ),
-            OpType::Concat(args) => attr_op!(
+            OpType::Concat(args) => op_with_attrs!(
                 Concat,
                 ConcatAttrs,
                 sg::ConcatAttrsArgs {
                     dim: args.dim as u32,
                 }
             ),
-            OpType::ConstantOfShape(args) => (
-                OT::ConstantOfShape,
-                OA::ConstantOfShapeAttrs,
-                Some({
-                    let args = match args.value {
+            OpType::ConstantOfShape(args) => {
+                op_with_attrs!(ConstantOfShape, ConstantOfShapeAttrs, {
+                    match args.value {
                         Scalar::Int(int_value) => sg::ConstantOfShapeAttrsArgs {
                             value_type: sg::Scalar::IntScalar,
                             value: Some(
@@ -299,46 +287,38 @@ impl<'a> ModelBuilder<'a> {
                                 .as_union_value(),
                             ),
                         },
-                    };
-                    sg::ConstantOfShapeAttrs::create(&mut self.builder, &args).as_union_value()
-                }),
-            ),
-            OpType::Conv2d(args) => (
-                OT::Conv2d,
-                OA::Conv2dAttrs,
-                Some({
-                    let pad_args = pad_args_from_padding(args.padding);
-                    let pads = self.create_vec(pad_args.pads, |pad| pad as u32);
-                    sg::Conv2dAttrs::create(&mut self.builder, {
-                        &sg::Conv2dAttrsArgs {
-                            groups: args.groups as u32,
-                            pad_mode: pad_args.pad_mode,
-                            pads,
-                            stride: args.stride as u32,
-                        }
-                    })
-                    .as_union_value()
-                }),
-            ),
-            OpType::ConvTranspose2d(args) => attr_op!(
+                    }
+                })
+            }
+            OpType::Conv2d(args) => op_with_attrs!(Conv2d, Conv2dAttrs, {
+                let pad_args = pad_args_from_padding(args.padding);
+                let pads = self.create_vec(pad_args.pads, |pad| pad as u32);
+                sg::Conv2dAttrsArgs {
+                    groups: args.groups as u32,
+                    pad_mode: pad_args.pad_mode,
+                    pads,
+                    stride: args.stride as u32,
+                }
+            }),
+            OpType::ConvTranspose2d(args) => op_with_attrs!(
                 ConvTranspose2d,
                 ConvTranspose2dAttrs,
                 sg::ConvTranspose2dAttrsArgs {
                     stride: args.stride as u32,
                 }
             ),
-            OpType::Div => no_attr_op!(Div),
-            OpType::Equal => no_attr_op!(Equal),
-            OpType::Erf => no_attr_op!(Erf),
-            OpType::Expand => no_attr_op!(Expand),
-            OpType::Gather(args) => attr_op!(
+            OpType::Div => op!(Div),
+            OpType::Equal => op!(Equal),
+            OpType::Erf => op!(Erf),
+            OpType::Expand => op!(Expand),
+            OpType::Gather(args) => op_with_attrs!(
                 Gather,
                 GatherAttrs,
                 sg::GatherAttrsArgs {
                     axis: args.axis as u32,
                 }
             ),
-            OpType::Gemm(args) => attr_op!(
+            OpType::Gemm(args) => op_with_attrs!(
                 Gemm,
                 GemmAttrs,
                 sg::GemmAttrsArgs {
@@ -348,124 +328,70 @@ impl<'a> ModelBuilder<'a> {
                     transpose_b: args.transpose_b,
                 }
             ),
-            OpType::GlobalAveragePool => no_attr_op!(GlobalAveragePool),
-            OpType::Identity => no_attr_op!(Identity),
-            OpType::LeakyRelu(args) => attr_op!(
+            OpType::GlobalAveragePool => op!(GlobalAveragePool),
+            OpType::Identity => op!(Identity),
+            OpType::LeakyRelu(args) => op_with_attrs!(
                 LeakyRelu,
                 LeakyReluAttrs,
                 sg::LeakyReluAttrsArgs { alpha: args.alpha }
             ),
-            OpType::Less => no_attr_op!(Less),
-            OpType::MatMul => no_attr_op!(MatMul),
-            OpType::MaxPool2d(args) => (
-                OT::MaxPool2d,
-                OA::MaxPool2dAttrs,
-                Some({
-                    let pad_args = pad_args_from_padding(args.padding);
-                    let pads = self.create_vec(pad_args.pads, |pad| pad as u32);
-                    sg::MaxPool2dAttrs::create(&mut self.builder, {
-                        &sg::MaxPool2dAttrsArgs {
-                            kernel_size: args.kernel_size as u32,
-                            pad_mode: pad_args.pad_mode,
-                            pads,
-                            stride: args.stride as u32,
-                        }
-                    })
-                    .as_union_value()
-                }),
-            ),
-            OpType::Mul => no_attr_op!(Mul),
-            OpType::Pad => no_attr_op!(Pad),
-            OpType::Pow => no_attr_op!(Pow),
-            OpType::Range => no_attr_op!(Range),
-            OpType::ReduceMean(args) => {
+            OpType::Less => op!(Less),
+            OpType::MatMul => op!(MatMul),
+            OpType::MaxPool2d(args) => op_with_attrs!(MaxPool2d, MaxPool2dAttrs, {
+                let pad_args = pad_args_from_padding(args.padding);
+                let pads = self.create_vec(pad_args.pads, |pad| pad as u32);
+                sg::MaxPool2dAttrsArgs {
+                    kernel_size: args.kernel_size as u32,
+                    pad_mode: pad_args.pad_mode,
+                    pads,
+                    stride: args.stride as u32,
+                }
+            }),
+            OpType::Mul => op!(Mul),
+            OpType::Pad => op!(Pad),
+            OpType::Pow => op!(Pow),
+            OpType::Range => op!(Range),
+            OpType::ReduceMean(args) => op_with_attrs!(ReduceMean, ReduceMeanAttrs, {
                 let axes = self.create_vec(args.axes, |axis| axis as i32);
-                (
-                    OT::ReduceMean,
-                    OA::ReduceMeanAttrs,
-                    Some(
-                        sg::ReduceMeanAttrs::create(
-                            &mut self.builder,
-                            &sg::ReduceMeanAttrsArgs {
-                                axes,
-                                keep_dims: args.keep_dims,
-                            },
-                        )
-                        .as_union_value(),
-                    ),
-                )
-            }
-            OpType::Relu => no_attr_op!(Relu),
-            OpType::Reshape => no_attr_op!(Reshape),
-            OpType::Shape => no_attr_op!(Shape),
-            OpType::Sigmoid => no_attr_op!(Sigmoid),
-            OpType::Slice => no_attr_op!(Slice),
-            OpType::Softmax(args) => attr_op!(
+                sg::ReduceMeanAttrsArgs {
+                    axes,
+                    keep_dims: args.keep_dims,
+                }
+            }),
+            OpType::Relu => op!(Relu),
+            OpType::Reshape => op!(Reshape),
+            OpType::Shape => op!(Shape),
+            OpType::Sigmoid => op!(Sigmoid),
+            OpType::Slice => op!(Slice),
+            OpType::Softmax(args) => op_with_attrs!(
                 Softmax,
                 SoftmaxAttrs,
                 sg::SoftmaxAttrsArgs {
                     axis: args.axis as u32,
                 }
             ),
-            OpType::Split(args) => {
+            OpType::Split(args) => op_with_attrs!(Split, SplitAttrs, {
                 let split = self.create_vec(Some(args.split), |size| size as u32);
-                (
-                    OT::Split,
-                    OA::SplitAttrs,
-                    Some(
-                        sg::SplitAttrs::create(
-                            &mut self.builder,
-                            &sg::SplitAttrsArgs {
-                                axis: args.axis as i32,
-                                split,
-                            },
-                        )
-                        .as_union_value(),
-                    ),
-                )
-            }
-            OpType::Sqrt => no_attr_op!(Sqrt),
-            OpType::Squeeze(args) => {
+                sg::SplitAttrsArgs {
+                    axis: args.axis as i32,
+                    split,
+                }
+            }),
+            OpType::Sqrt => op!(Sqrt),
+            OpType::Squeeze(args) => op_with_attrs!(Squeeze, SqueezeAttrs, {
                 let axes = self.create_vec(args.axes, |axis| axis as u32);
-                (
-                    OT::Squeeze,
-                    OA::SqueezeAttrs,
-                    Some(
-                        sg::SqueezeAttrs::create(&mut self.builder, &sg::SqueezeAttrsArgs { axes })
-                            .as_union_value(),
-                    ),
-                )
-            }
-            OpType::Sub => no_attr_op!(Sub),
-            OpType::Transpose(args) => {
+                sg::SqueezeAttrsArgs { axes }
+            }),
+            OpType::Sub => op!(Sub),
+            OpType::Transpose(args) => op_with_attrs!(Transpose, TransposeAttrs, {
                 let perm = self.create_vec(args.perm, |dim| dim as u32);
-                (
-                    OT::Transpose,
-                    OA::TransposeAttrs,
-                    Some(
-                        sg::TransposeAttrs::create(
-                            &mut self.builder,
-                            &sg::TransposeAttrsArgs { perm },
-                        )
-                        .as_union_value(),
-                    ),
-                )
-            }
-            OpType::Unsqueeze(args) => {
+                sg::TransposeAttrsArgs { perm }
+            }),
+            OpType::Unsqueeze(args) => op_with_attrs!(Unsqueeze, UnsqueezeAttrs, {
                 let axes = self.create_vec(Some(args.axes), |axis| axis as u32);
-                (
-                    OT::Unsqueeze,
-                    OA::UnsqueezeAttrs,
-                    Some(
-                        sg::UnsqueezeAttrs::create(
-                            &mut self.builder,
-                            &sg::UnsqueezeAttrsArgs { axes },
-                        )
-                        .as_union_value(),
-                    ),
-                )
-            }
-            OpType::Where => no_attr_op!(Where),
+                sg::UnsqueezeAttrsArgs { axes }
+            }),
+            OpType::Where => op!(Where),
         };
 
         let input_vec = self.builder.create_vector(inputs);
