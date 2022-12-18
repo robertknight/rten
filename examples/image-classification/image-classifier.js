@@ -1,8 +1,9 @@
 import { Model, Tensor, TensorList } from "./node_modules/wasnn/index.js";
 
 /**
- * Convert a 224x224 RGB or RGBA image loaded with `loadImage` into CHW tensor
- * data ready for input into an ImageNet classification model, such as MobileNet.
+ * Convert a 224x224 RGB or RGBA image loaded with `loadImage` into an NCHW
+ * tensor ready for input into an ImageNet classification model, such as
+ * MobileNet.
  *
  * @param {ImageData} image
  */
@@ -31,8 +32,8 @@ function tensorFromImage(image) {
   const chanMeans = [0.485, 0.456, 0.406];
   const chanStdDev = [0.229, 0.224, 0.225];
 
-  // The input image is a sequence of RGB bytes in HWC order. Convert it to a
-  // CHW tensor where each input is normalized using the standard per-channel
+  // The input image is a sequence of RGB bytes in HWC order. Convert it to an
+  // NCHW tensor where each input is normalized using the standard per-channel
   // mean and standard deviation for ImageNet models.
   let inOffset = 0;
 
@@ -90,9 +91,7 @@ export class ImageClassifier {
     const inputIds = this.model.inputIds();
     const outputIds = this.model.outputIds();
 
-    const inputs = TensorList.from([
-      tensorFromImage(image)
-    ]);
+    const inputs = TensorList.from([tensorFromImage(image)]);
     const outputs = this.model.run(inputIds, inputs, outputIds);
     const output = outputs.item(0);
 
