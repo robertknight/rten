@@ -1,4 +1,6 @@
 use std::collections::{HashMap, HashSet};
+use std::error::Error;
+use std::fmt;
 use std::iter::zip;
 
 use crate::ops::{Input, OpError, Operator, Output};
@@ -90,6 +92,19 @@ pub enum RunError {
     /// count, types or shapes of outputs did not match what was expected.)
     OutputMismatch(&'static str),
 }
+
+impl fmt::Display for RunError {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            RunError::InvalidNodeId => write!(f, "node ID is invalid"),
+            RunError::PlanningError(ref err) => write!(f, "planning error {:?}", err),
+            RunError::OperatorError(ref err) => write!(f, "operator error {:?}", err),
+            RunError::OutputMismatch(err) => write!(f, "output mismatch {:?}", err),
+        }
+    }
+}
+
+impl Error for RunError {}
 
 #[derive(Default)]
 pub struct RunOptions {
