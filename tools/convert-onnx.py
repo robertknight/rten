@@ -314,8 +314,10 @@ def read_stride_attr_from_onnx_operator(
     attrs["stride"] = stride_width
 
 
-# Set of operators that have no attributes and for which the ONNX operator name
-# matches the Wasnn op name.
+# Set of operators that have no attributes.
+#
+# Some of these ops *do* have attributes in the ONNX version, but those
+# attributes are not yet supported in Wasnn.
 NO_ATTR_OPS = {
     "Add",
     "Div",
@@ -327,11 +329,14 @@ NO_ATTR_OPS = {
     "Less",
     "MatMul",
     "Mul",
+    "Pad",
+    "Pow",
     "Range",
     "Relu",
-    "Pow",
-    "Slice",
+    "Reshape",
+    "Shape",
     "Sigmoid",
+    "Slice",
     "Sqrt",
     "Sub",
     "Where",
