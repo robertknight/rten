@@ -381,13 +381,13 @@ fn load_model(data: &[u8]) -> Result<Model, String> {
         .graph()
         .inputs()
         .map(|ids| ids.iter().map(|id| id as NodeId).collect())
-        .unwrap_or(Vec::new());
+        .unwrap_or_default();
 
     let output_ids = model
         .graph()
         .outputs()
         .map(|ids| ids.iter().map(|id| id as NodeId).collect())
-        .unwrap_or(Vec::new());
+        .unwrap_or_default();
 
     if let Some(nodes) = model.graph().nodes() {
         for (node_index, node) in nodes.iter().enumerate() {
