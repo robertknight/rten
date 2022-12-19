@@ -45,6 +45,12 @@ fn read_image<N: Fn(usize, f32) -> f32>(
     Ok(img_tensor)
 }
 
+/// This example loads a PNG image (RGB or RGBA format, 224x224 size recommended)
+/// and uses an image classification model such as MobileNet to classify it into
+/// one of the 1000 ImageNet classes.
+///
+/// Some common image classification models can be obtained from the ONNX Model
+/// Zoo at https://github.com/onnx/models/tree/main/vision/classification.
 fn main() -> Result<(), Box<dyn Error>> {
     let args: Vec<_> = std::env::args().collect();
     if args.len() <= 1 {
