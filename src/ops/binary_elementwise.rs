@@ -439,7 +439,7 @@ mod tests {
         add, add_in_place, div, div_in_place, equal, less, mul, mul_in_place, pow, pow_in_place,
         sub, sub_in_place, where_op, Add, OpError, Operator, Output,
     };
-    use crate::tensor::{from_data, from_scalar, from_vec};
+    use crate::tensor::{from_data, from_scalar, from_vec, Tensor};
     use crate::test_util::expect_equal;
 
     #[test]
@@ -480,6 +480,14 @@ mod tests {
         let result = add(&a, &b).unwrap();
         let expected = from_data(vec![2, 2], vec![4.0, 5.0, 6.0, 7.0]);
         expect_equal(&result, &expected)
+    }
+
+    #[test]
+    fn test_add_broadcast_first_input() {
+        let a = Tensor::zeros(&[1, 1, 10]);
+        let b = Tensor::zeros(&[1, 5, 10]);
+        let result = add(&a, &b).unwrap();
+        assert_eq!(result.shape(), &[1, 5, 10]);
     }
 
     #[test]

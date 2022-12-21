@@ -438,7 +438,7 @@ impl<T: Copy> Tensor<T> {
         let self_dims = self.shape.iter().copied();
         let target_dims = shape[shape.len() - self.shape.len()..].iter().copied();
 
-        zip(self_dims, target_dims).all(|(a, b)| a == b || a == 1 || b == 1)
+        zip(self_dims, target_dims).all(|(a, b)| a == b || a == 1)
     }
 
     /// Return an iterator over a subset of elements in this tensor.
@@ -1809,6 +1809,14 @@ mod tests {
     fn test_broadcast_offsets_with_invalid_shape() {
         let x = steps(&[2, 2]);
         x.broadcast_offsets(&[3, 2]);
+    }
+
+    #[test]
+    fn test_can_broadcast() {
+        let x = steps(&[1, 5, 10]);
+        assert!(x.can_broadcast(&[2, 5, 10]));
+        assert!(x.can_broadcast(&[1, 5, 10]));
+        assert!(!x.can_broadcast(&[1, 1, 10]));
     }
 
     #[test]

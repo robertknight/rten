@@ -277,9 +277,16 @@ mod tests {
 
         // Broadcast that changes dim count
         let input = from_data(vec![3, 1], (0..3).collect());
-        let shape = from_vec(vec![2, 1, 6]);
+        let shape = from_vec(vec![2, 3, 1]);
         let result = expand(&input, &shape).unwrap();
-        assert_eq!(result.shape(), &[2, 1, 6]);
+        assert_eq!(result.shape(), &[2, 3, 1]);
+
+        // TODO - The ONNX spec for Expand (https://onnx.ai/onnx/operators/onnx__Expand.html)
+        // has an example of broadcasting a tensor of shape [3, 1] to [2, 1, 6].
+        //
+        // This is not supported by Wasnn's standard broadcasting behavior,
+        // which is intended to match NumPy. Either implement this extended
+        // broadcasting or raise an issue if the spec seems wrong.
 
         // Broadcast that does not change dim count
         let input = from_data(vec![3, 1], (0..3).collect());
