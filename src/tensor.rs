@@ -1,3 +1,4 @@
+use std::io;
 use std::iter::{repeat, zip, Cycle, Take};
 use std::ops::{Index, IndexMut, Range};
 use std::slice::Iter;
@@ -581,6 +582,27 @@ impl<T: Copy> Tensor<T> {
             offset,
             strides,
         }
+    }
+}
+
+impl Tensor<f32> {
+    /// Serialize the tensor to a simple binary format.
+    ///
+    /// The serialized data is in little-endian order and has the structure:
+    ///
+    /// [rank: u32][dim: u32 * rank][element: T * product(dims)]
+    ///
+    /// Where `T` is the tensor's element type.
+    pub fn write<W: io::Write>(&self, writer: &mut W) -> io::Result<()> {
+        let ndim: u32 = self.ndim() as u32;
+        writer.write_all(&ndim.to_le_bytes())?;
+        for &dim in self.shape.iter() {
+            writer.write_all(&(dim as u32).to_le_bytes())?;
+        }
+        for el in self.elements() {
+            writer.write_all(&el.to_le_bytes())?;
+        }
+        Ok(())
     }
 }
 
@@ -1999,5 +2021,37 @@ mod tests {
             visited,
             vec![vec![2, 2], vec![2, 3], vec![3, 2], vec![3, 3],]
         );
+    }
+
+    #[test]
+    fn test_write() -> std::io::Result<()> {
+        use std::io::{Cursor, Read};
+        let x = from_data(vec![2, 3], vec![1., 2., 3., 4., 5., 6.]);
+        let mut buf: Vec<u8> = Vec::new();
+
+        x.write(&mut buf)?;
+
+        assert_eq!(buf.len(), 4 + x.ndim() * 4 + x.len() * 4);
+
+        let mut cursor = Cursor::new(buf);
+        let mut tmp = [0u8; 4];
+
+        cursor.read(&mut tmp)?;
+        let ndim = u32::from_le_bytes(tmp);
+        assert_eq!(ndim, x.ndim() as u32);
+
+        for &size in x.shape().iter() {
+            cursor.read(&mut tmp)?;
+            let written_size = u32::from_le_bytes(tmp);
+            assert_eq!(written_size, size as u32);
+        }
+
+        for el in x.elements() {
+            cursor.read(&mut tmp)?;
+            let written_el = f32::from_le_bytes(tmp);
+            assert_eq!(written_el, el);
+        }
+
+        Ok(())
     }
 }
