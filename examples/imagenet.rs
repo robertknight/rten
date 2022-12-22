@@ -6,10 +6,57 @@ use std::fs;
 
 use wasnn::{Model, RunOptions, Tensor};
 
+#[derive(Clone, Copy, PartialEq)]
+enum PixelNorm {
+    /// Do not apply any per-pixel normalization, other than converting u8
+    /// pixel values in [0, 255] to floats in [0-1].
+    NoNorm,
+
+    /// Apply the standard ImageNet normalization `(input - mean) / std_dev`
+    /// where `mean` and `std_dev` are per-channel constants.
+    ImageNetNorm,
+}
+
+#[derive(Clone, Copy, PartialEq)]
+enum ChannelOrder {
+    Rgb,
+    Bgr,
+}
+
+#[derive(Clone, Copy, PartialEq)]
+enum DimOrder {
+    /// Use "channels-first" order
+    Nchw,
+    /// Use "channels-last" order
+    Nhwc,
+}
+
+/// Specifies the input format that the model expects.
+struct InputConfig {
+    /// Normalization for input pixels.
+    norm: PixelNorm,
+
+    /// Expected order of channels within the channel dimension.
+    chan_order: ChannelOrder,
+
+    /// Expected order of dimensions in the input tensor.
+    dim_order: DimOrder,
+
+    /// Expected width of input. Some models require the input size to match
+    /// exactly, others allow varying sizes but may produce less accurate results.
+    width: u32,
+
+    /// Expected height of input. Some models require the input size to match
+    /// exactly, others allow varying sizes but may produce less accurate results.
+    height: u32,
+}
+
 /// Read a PNG image from `path` into an NCHW tensor.
 fn read_image<N: Fn(usize, f32) -> f32>(
     path: &str,
     normalize_pixel: N,
+    out_chan_order: ChannelOrder,
+    out_dim_order: DimOrder,
 ) -> Result<Tensor<f32>, Box<dyn Error>> {
     let input_img = fs::File::open(path)?;
     let decoder = png::Decoder::new(input_img);
@@ -21,6 +68,12 @@ fn read_image<N: Fn(usize, f32) -> f32>(
 
         // TODO - Convert this to an Err.
         _ => panic!("Unsupported input image format"),
+    };
+
+    // Map input channel index, in RGB order, to output channel index
+    let out_chans = match out_chan_order {
+        ChannelOrder::Rgb => [0, 1, 2],
+        ChannelOrder::Bgr => [2, 1, 0],
     };
 
     let info = reader.info();
@@ -37,25 +90,61 @@ fn read_image<N: Fn(usize, f32) -> f32>(
             for c in 0..3 {
                 let b = y * (width * in_chans) + x * in_chans + c;
                 let in_val = normalize_pixel(c, buf[b] as f32 / 255.0);
-                img_tensor[[0, c, y, x]] = in_val;
+                img_tensor[[0, out_chans[c], y, x]] = in_val;
             }
         }
+    }
+
+    if out_dim_order == DimOrder::Nhwc {
+        // NCHW => NHWC
+        img_tensor.permute(&[0, 3, 2, 1]);
     }
 
     Ok(img_tensor)
 }
 
-/// This example loads a PNG image (RGB or RGBA format, 224x224 size recommended)
-/// and uses an image classification model such as MobileNet to classify it into
-/// one of the 1000 ImageNet classes.
+// Config for MobileViT model exported from https://huggingface.co/apple/mobilevit-small
+const MOBILEVIT_CONFIG: InputConfig = InputConfig {
+    chan_order: ChannelOrder::Bgr,
+    norm: PixelNorm::NoNorm,
+    dim_order: DimOrder::Nchw,
+    width: 256,
+    height: 256,
+};
+
+// Config for EfficientNet model from ONNX Model Zoo.
+//
+// See https://github.com/onnx/models/tree/main/vision/classification/efficientnet-lite4
+const EFFICIENTNET_CONFIG: InputConfig = InputConfig {
+    chan_order: ChannelOrder::Rgb,
+    norm: PixelNorm::ImageNetNorm,
+    dim_order: DimOrder::Nhwc,
+    width: 224,
+    height: 224,
+};
+
+// Config for MobileNet model from ONNX Model Zoo.
+//
+// See https://github.com/onnx/models/tree/main/vision/classification/mobilenet
+const MOBILENET_CONFIG: InputConfig = InputConfig {
+    chan_order: ChannelOrder::Rgb,
+    norm: PixelNorm::ImageNetNorm,
+    dim_order: DimOrder::Nchw,
+    width: 224,
+    height: 224,
+};
+
+/// This example loads a PNG image (RGB or RGBA format, 224x224 size for most
+/// models) and  uses an image classification model such as MobileNet to
+/// classify it into one of the 1000 ImageNet classes.
 ///
-/// Some common image classification models can be obtained from the ONNX Model
-/// Zoo at https://github.com/onnx/models/tree/main/vision/classification.
+/// See the `_CONFIG` constants in this model for details of where to obtain the
+/// models.
 fn main() -> Result<(), Box<dyn Error>> {
     let args: Vec<_> = std::env::args().collect();
     if args.len() <= 1 {
         println!(
-            "Usage: {} <model> <image>",
+            "Usage: {} <model> <image> <config name>",
             args.get(0).map(|s| s.as_str()).unwrap_or("")
         );
         // Exit with non-zero status, but also don't show an error.
@@ -64,28 +153,42 @@ fn main() -> Result<(), Box<dyn Error>> {
 
     let model_name = args.get(1).expect("model name not specified");
     let image_path = args.get(2).expect("image path not specified");
+    let model_config = args.get(3).expect("model config name not specified");
 
     let model_bytes = fs::read(model_name).expect("failed to read model");
     let model = Model::load(&model_bytes).expect("failed to load model");
 
-    let imagenet_mean = &[0.485, 0.456, 0.406];
-    let imagenet_std_dev = &[0.229, 0.224, 0.225];
+    // Config values specifying preprocessing for the current model.
+    let in_config = match model_config.as_str() {
+        "mobilenet" => MOBILENET_CONFIG,
+        "efficientnet" => EFFICIENTNET_CONFIG,
+        "mobilevit" => MOBILEVIT_CONFIG,
+        _ => return Err("Unknown model config name.".into()),
+    };
 
-    let img_tensor = read_image(&image_path, |chan, value| {
-        (value - imagenet_mean[chan]) / imagenet_std_dev[chan]
-    })?;
-    let [_, _, height, width] = img_tensor.dims();
+    let normalize_pixel = match in_config.norm {
+        PixelNorm::NoNorm => |_, value| value,
+        PixelNorm::ImageNetNorm => |chan, value| {
+            let imagenet_mean = &[0.485, 0.456, 0.406];
+            let imagenet_std_dev = &[0.229, 0.224, 0.225];
+            (value - imagenet_mean[chan]) / imagenet_std_dev[chan]
+        },
+    };
 
-    // Assume the model takes the ImageNet-standard 224x224 input size. If Wasnn
-    // models exposed expected input shape info, we could use that instead.
-    //
-    // If Wasnn implemented the ONNX `Resize` operator and exposed it as an API,
-    // we could also use that to resize the tensor to the model's preferred
-    // into shape.
-    let expected_height = 224;
-    let expected_width = 224;
-    if height != expected_height || width != expected_width {
-        println!("Image size {}x{} is different than ImageNet standard of {}x{}. This may cause incorrect results.", width, height, expected_width, expected_height);
+    let img_tensor = read_image(
+        &image_path,
+        normalize_pixel,
+        in_config.chan_order,
+        in_config.dim_order,
+    )?;
+
+    let (height, width) = match in_config.dim_order {
+        DimOrder::Nchw => (img_tensor.shape()[2], img_tensor.shape()[3]),
+        DimOrder::Nhwc => (img_tensor.shape()[1], img_tensor.shape()[2]),
+    };
+
+    if height != in_config.height as usize || width != in_config.width as usize {
+        println!("Image size {}x{} is different than expected size of {}x{}. This may cause incorrect results.", width, height, in_config.width, in_config.height);
     }
 
     let input_id = model
@@ -119,7 +222,7 @@ fn main() -> Result<(), Box<dyn Error>> {
 
     println!("Top classes:");
     for (cls, score) in class_scores {
-        println!("  {} ({})", IMAGENET_CLASSES[cls], score);
+        println!("  {} ({}) ({})", IMAGENET_CLASSES[cls], cls, score);
     }
 
     Ok(())
