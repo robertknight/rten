@@ -82,8 +82,8 @@ impl SliceRange {
         }
 
         SliceRange::new(
-            self.start.max(min_idx).min(max_idx),
-            self.end.max(min_idx).min(max_idx),
+            self.start.clamp(min_idx, max_idx),
+            self.end.clamp(min_idx, max_idx),
             self.step,
         )
     }

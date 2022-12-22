@@ -3,16 +3,12 @@ extern crate libm;
 use crate::ops::{get_input, Input, IntoOpResult, OpError, Operator, Output};
 use crate::tensor::Tensor;
 
-fn clip_op(val: f32, min: f32, max: f32) -> f32 {
-    val.max(min).min(max)
-}
-
 pub fn clip(input: &Tensor, min: f32, max: f32) -> Tensor {
-    input.map(|x| clip_op(x, min, max))
+    input.map(|x| x.clamp(min, max))
 }
 
 pub fn clip_in_place(input: &mut Tensor, min: f32, max: f32) {
-    input.apply(|val| clip_op(val, min, max))
+    input.apply(|val| val.clamp(min, max))
 }
 
 #[derive(Debug)]
