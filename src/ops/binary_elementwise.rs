@@ -109,13 +109,62 @@ fn binary_commutative_op<T: Copy + Debug, F: Fn(&mut T, T)>(
     Ok(out)
 }
 
+/// Extract two input operands from `$inputs` and invoke the appropriate
+/// instantiation of `$op_func` depending on the tensor type.
+macro_rules! run_typed_op {
+    ($inputs:expr, $op_func:ident) => {{
+        let a = $inputs.get(0).ok_or(OpError::MissingInputs)?;
+        match a {
+            Input::FloatTensor(a) => {
+                let b = get_input($inputs, 1)?;
+                $op_func(a, b).into_op_result()
+            }
+            Input::IntTensor(a) => {
+                let b = get_input($inputs, 1)?;
+                $op_func(a, b).into_op_result()
+            }
+        }
+    }};
+}
+
+/// Extract two input operands from `$input` and `$other` and invoke the
+/// appropriate instantiations of `$in_place_op_func` or `$op_func` depending
+/// on the tensor type.
+macro_rules! run_typed_op_in_place {
+    ($input:expr, $other: expr, $in_place_op_func:ident, $op_func:ident) => {{
+        match $input {
+            Output::FloatTensor(mut a) => {
+                let b = get_input($other, 0)?;
+                if can_run_binary_op_in_place(&a, b) {
+                    $in_place_op_func(&mut a, b);
+                    Ok(a.into())
+                } else {
+                    $op_func(&a, b).map(|t| t.into())
+                }
+            }
+            Output::IntTensor(mut a) => {
+                let b = get_input($other, 0)?;
+                if can_run_binary_op_in_place(&a, b) {
+                    $in_place_op_func(&mut a, b);
+                    Ok(a.into())
+                } else {
+                    $op_func(&a, b).map(|t| t.into())
+                }
+            }
+        }
+    }};
+}
+
 /// Perform elementwise addition of two tensors.
-pub fn add(a: &Tensor, b: &Tensor) -> Result<Tensor, OpError> {
+pub fn add<T: Copy + Debug + std::ops::AddAssign>(
+    a: &Tensor<T>,
+    b: &Tensor<T>,
+) -> Result<Tensor<T>, OpError> {
     binary_commutative_op(a, b, |x, y| *x += y)
 }
 
 /// Perform in-place elementwise addition of two tensors.
-pub fn add_in_place(a: &mut Tensor, b: &Tensor) {
+pub fn add_in_place<T: Copy + Debug + std::ops::AddAssign>(a: &mut Tensor<T>, b: &Tensor<T>) {
     binary_op_in_place(a, b, |x, y| *x += y);
 }
 
@@ -128,9 +177,7 @@ impl Operator for Add {
     }
 
     fn run(&self, inputs: &[Input]) -> Result<Vec<Output>, OpError> {
-        let a = get_input(inputs, 0)?;
-        let b = get_input(inputs, 1)?;
-        add(a, b).into_op_result()
+        run_typed_op!(inputs, add)
     }
 
     fn can_run_in_place(&self) -> bool {
@@ -138,15 +185,7 @@ impl Operator for Add {
     }
 
     fn run_in_place(&self, input: Output, other: &[Input]) -> Result<Output, OpError> {
-        let mut a = input.into_float().ok_or(OpError::UnsupportedInputType)?;
-        let b = get_input(other, 0)?;
-
-        if can_run_binary_op_in_place(&a, b) {
-            add_in_place(&mut a, b);
-            Ok(a.into())
-        } else {
-            add(&a, b).map(|t| t.into())
-        }
+        run_typed_op_in_place!(input, other, add_in_place, add)
     }
 }
 
@@ -215,17 +254,7 @@ impl Operator for Equal {
     }
 
     fn run(&self, inputs: &[Input]) -> Result<Vec<Output>, OpError> {
-        let a = inputs.get(0).ok_or(OpError::MissingInputs)?;
-        match a {
-            Input::FloatTensor(a) => {
-                let b = get_input(inputs, 1)?;
-                equal(a, b).into_op_result()
-            }
-            Input::IntTensor(a) => {
-                let b = get_input(inputs, 1)?;
-                equal(a, b).into_op_result()
-            }
-        }
+        run_typed_op!(inputs, equal)
     }
 }
 
@@ -245,27 +274,20 @@ impl Operator for Less {
     }
 
     fn run(&self, inputs: &[Input]) -> Result<Vec<Output>, OpError> {
-        let a = inputs.get(0).ok_or(OpError::MissingInputs)?;
-        match a {
-            Input::FloatTensor(a) => {
-                let b = get_input(inputs, 1)?;
-                less(a, b).into_op_result()
-            }
-            Input::IntTensor(a) => {
-                let b = get_input(inputs, 1)?;
-                less(a, b).into_op_result()
-            }
-        }
+        run_typed_op!(inputs, less)
     }
 }
 
 /// Multiply two tensors elementwise.
-pub fn mul(a: &Tensor, b: &Tensor) -> Result<Tensor, OpError> {
+pub fn mul<T: Copy + Debug + std::ops::MulAssign>(
+    a: &Tensor<T>,
+    b: &Tensor<T>,
+) -> Result<Tensor<T>, OpError> {
     binary_commutative_op(a, b, |x, y| *x *= y)
 }
 
 /// Perform in-place elementwise multiplication of two tensors.
-pub fn mul_in_place(a: &mut Tensor, b: &Tensor) {
+pub fn mul_in_place<T: Copy + Debug + std::ops::MulAssign>(a: &mut Tensor<T>, b: &Tensor<T>) {
     binary_op_in_place(a, b, |a_elt, b_elt| *a_elt *= b_elt);
 }
 
@@ -278,9 +300,7 @@ impl Operator for Mul {
     }
 
     fn run(&self, inputs: &[Input]) -> Result<Vec<Output>, OpError> {
-        let a = get_input(inputs, 0)?;
-        let b = get_input(inputs, 1)?;
-        mul(a, b).into_op_result()
+        run_typed_op!(inputs, mul)
     }
 
     fn can_run_in_place(&self) -> bool {
@@ -288,15 +308,7 @@ impl Operator for Mul {
     }
 
     fn run_in_place(&self, input: Output, other: &[Input]) -> Result<Output, OpError> {
-        let mut a = input.into_float().ok_or(OpError::UnsupportedInputType)?;
-        let b = get_input(other, 0)?;
-
-        if can_run_binary_op_in_place(&a, b) {
-            mul_in_place(&mut a, b);
-            Ok(a.into())
-        } else {
-            mul(&a, b).map(|t| t.into())
-        }
+        run_typed_op_in_place!(input, other, mul_in_place, mul)
     }
 }
 
@@ -342,12 +354,15 @@ impl Operator for Pow {
 }
 
 /// Perform elementwise subtraction of two tensors.
-pub fn sub(a: &Tensor, b: &Tensor) -> Result<Tensor, OpError> {
+pub fn sub<T: Copy + Debug + std::ops::Sub<Output = T>>(
+    a: &Tensor<T>,
+    b: &Tensor<T>,
+) -> Result<Tensor<T>, OpError> {
     binary_op(a, b, |x, y| x - y)
 }
 
 /// Perform in-place elementwise subtraction of two tensors.
-pub fn sub_in_place(a: &mut Tensor, b: &Tensor) {
+pub fn sub_in_place<T: Copy + Debug + std::ops::SubAssign>(a: &mut Tensor<T>, b: &Tensor<T>) {
     binary_op_in_place(a, b, |x, y| *x -= y);
 }
 
@@ -360,9 +375,7 @@ impl Operator for Sub {
     }
 
     fn run(&self, inputs: &[Input]) -> Result<Vec<Output>, OpError> {
-        let a = get_input(inputs, 0)?;
-        let b = get_input(inputs, 1)?;
-        sub(a, b).into_op_result()
+        run_typed_op!(inputs, sub)
     }
 
     fn can_run_in_place(&self) -> bool {
@@ -370,15 +383,7 @@ impl Operator for Sub {
     }
 
     fn run_in_place(&self, input: Output, other: &[Input]) -> Result<Output, OpError> {
-        let mut a = input.into_float().ok_or(OpError::UnsupportedInputType)?;
-        let b = get_input(other, 0)?;
-
-        if can_run_binary_op_in_place(&a, b) {
-            sub_in_place(&mut a, b);
-            Ok(a.into())
-        } else {
-            sub(&a, b).map(|t| t.into())
-        }
+        run_typed_op_in_place!(input, other, sub_in_place, sub)
     }
 }
 
@@ -444,11 +449,21 @@ mod tests {
 
     #[test]
     fn test_add() -> Result<(), String> {
+        // Float tensor
         let a = from_data(vec![2, 2], vec![1., 2., 3., 4.]);
         let b = from_data(vec![2, 2], vec![10., 20., 30., 40.]);
         let expected = from_data(vec![2, 2], vec![11., 22., 33., 44.]);
         let result = add(&a, &b).unwrap();
-        expect_equal(&result, &expected)
+        expect_equal(&result, &expected)?;
+
+        // Int tensor
+        let a = from_data(vec![2, 2], vec![1, 2, 3, 4]);
+        let b = from_data(vec![2, 2], vec![10, 20, 30, 40]);
+        let expected = from_data(vec![2, 2], vec![11, 22, 33, 44]);
+        let result = add(&a, &b).unwrap();
+        assert_eq!(result, expected);
+
+        Ok(())
     }
 
     #[test]
@@ -484,7 +499,7 @@ mod tests {
 
     #[test]
     fn test_add_broadcast_first_input() {
-        let a = Tensor::zeros(&[1, 1, 10]);
+        let a: Tensor<i32> = Tensor::zeros(&[1, 1, 10]);
         let b = Tensor::zeros(&[1, 5, 10]);
         let result = add(&a, &b).unwrap();
         assert_eq!(result.shape(), &[1, 5, 10]);
@@ -492,13 +507,20 @@ mod tests {
 
     #[test]
     fn test_add_in_place() -> Result<(), String> {
-        // In-place addition with inputs that have the same shape.
+        // In-place addition with float inputs that have the same shape.
         let mut a = from_data(vec![2, 2], vec![1., 2., 3., 4.]);
         let a_copy = a.clone();
         let b = from_data(vec![2, 2], vec![10., 20., 30., 40.]);
         let expected = from_data(vec![2, 2], vec![11., 22., 33., 44.]);
         add_in_place(&mut a, &b);
         expect_equal(&a, &expected)?;
+
+        // In-place addition with int inputs that have the same shape.
+        let mut a_ints = from_data(vec![2, 2], vec![1, 2, 3, 4]);
+        let b_ints = from_data(vec![2, 2], vec![10, 20, 30, 40]);
+        let expected_ints = from_data(vec![2, 2], vec![11, 22, 33, 44]);
+        add_in_place(&mut a_ints, &b_ints);
+        assert_eq!(&a_ints, &expected_ints);
 
         // Run `Add` operator in place with inputs that support in-place addition.
         let op = Add {};
@@ -627,20 +649,40 @@ mod tests {
 
     #[test]
     fn test_mul() -> Result<(), String> {
+        // Float tensor
         let a = from_data(vec![2, 2], vec![1., 2., 3., 4.]);
         let b = from_data(vec![2, 2], vec![10., 20., 30., 40.]);
         let expected = from_data(vec![2, 2], vec![10., 40., 90., 160.]);
         let result = mul(&a, &b).unwrap();
-        expect_equal(&result, &expected)
+        expect_equal(&result, &expected)?;
+
+        // Int tensor
+        let a = from_data(vec![2, 2], vec![1, 2, 3, 4]);
+        let b = from_data(vec![2, 2], vec![10, 20, 30, 40]);
+        let expected = from_data(vec![2, 2], vec![10, 40, 90, 160]);
+        let result = mul(&a, &b).unwrap();
+        assert_eq!(&result, &expected);
+
+        Ok(())
     }
 
     #[test]
     fn test_mul_in_place() -> Result<(), String> {
+        // Float tensor
         let mut a = from_data(vec![2, 2], vec![1., 2., 3., 4.]);
         let b = from_data(vec![2, 2], vec![10., 20., 30., 40.]);
         let expected = from_data(vec![2, 2], vec![10., 40., 90., 160.]);
         mul_in_place(&mut a, &b);
-        expect_equal(&a, &expected)
+        expect_equal(&a, &expected)?;
+
+        // Int tensor
+        let mut a = from_data(vec![2, 2], vec![1, 2, 3, 4]);
+        let b = from_data(vec![2, 2], vec![10, 20, 30, 40]);
+        let expected = from_data(vec![2, 2], vec![10, 40, 90, 160]);
+        mul_in_place(&mut a, &b);
+        assert_eq!(&a, &expected);
+
+        Ok(())
     }
 
     #[test]
@@ -663,20 +705,40 @@ mod tests {
 
     #[test]
     fn test_sub() -> Result<(), String> {
+        // Float tensor
         let a = from_data(vec![2, 2], vec![10., 20., 30., 40.]);
         let b = from_data(vec![2, 2], vec![1., 2., 3., 4.]);
         let expected = from_data(vec![2, 2], vec![9., 18., 27., 36.]);
         let result = sub(&a, &b).unwrap();
-        expect_equal(&result, &expected)
+        expect_equal(&result, &expected)?;
+
+        // Int tensor
+        let a = from_data(vec![2, 2], vec![10, 20, 30, 40]);
+        let b = from_data(vec![2, 2], vec![1, 2, 3, 4]);
+        let expected = from_data(vec![2, 2], vec![9, 18, 27, 36]);
+        let result = sub(&a, &b).unwrap();
+        assert_eq!(&result, &expected);
+
+        Ok(())
     }
 
     #[test]
     fn test_sub_in_place() -> Result<(), String> {
+        // Float tensor
         let mut a = from_data(vec![2, 2], vec![10., 20., 30., 40.]);
         let b = from_data(vec![2, 2], vec![1., 2., 3., 4.]);
         let expected = from_data(vec![2, 2], vec![9., 18., 27., 36.]);
         sub_in_place(&mut a, &b);
-        expect_equal(&a, &expected)
+        expect_equal(&a, &expected)?;
+
+        // Int tensor
+        let mut a = from_data(vec![2, 2], vec![10, 20, 30, 40]);
+        let b = from_data(vec![2, 2], vec![1, 2, 3, 4]);
+        let expected = from_data(vec![2, 2], vec![9, 18, 27, 36]);
+        sub_in_place(&mut a, &b);
+        assert_eq!(&a, &expected);
+
+        Ok(())
     }
 
     #[test]
