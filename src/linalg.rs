@@ -13,7 +13,7 @@ pub fn div_ceil(a: usize, b: usize) -> usize {
         // Fast path
         return a;
     }
-    let rounding = if a % b == 0 { 0 } else { 1 };
+    let rounding = usize::from(a % b != 0);
     a / b + rounding
 }
 
