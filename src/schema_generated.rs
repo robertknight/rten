@@ -212,8 +212,8 @@ impl core::fmt::Debug for OperatorType {
 impl<'a> flatbuffers::Follow<'a> for OperatorType {
     type Inner = Self;
     #[inline]
-    fn follow(buf: &'a [u8], loc: usize) -> Self::Inner {
-        let b = unsafe { flatbuffers::read_scalar_at::<i8>(buf, loc) };
+    unsafe fn follow(buf: &'a [u8], loc: usize) -> Self::Inner {
+        let b = flatbuffers::read_scalar_at::<i8>(buf, loc);
         Self(b)
     }
 }
@@ -221,23 +221,21 @@ impl<'a> flatbuffers::Follow<'a> for OperatorType {
 impl flatbuffers::Push for OperatorType {
     type Output = OperatorType;
     #[inline]
-    fn push(&self, dst: &mut [u8], _rest: &[u8]) {
-        unsafe {
-            flatbuffers::emplace_scalar::<i8>(dst, self.0);
-        }
+    unsafe fn push(&self, dst: &mut [u8], _written_len: usize) {
+        flatbuffers::emplace_scalar::<i8>(dst, self.0);
     }
 }
 
 impl flatbuffers::EndianScalar for OperatorType {
+    type Scalar = i8;
     #[inline]
-    fn to_little_endian(self) -> Self {
-        let b = i8::to_le(self.0);
-        Self(b)
+    fn to_little_endian(self) -> i8 {
+        self.0.to_le()
     }
     #[inline]
     #[allow(clippy::wrong_self_convention)]
-    fn from_little_endian(self) -> Self {
-        let b = i8::from_le(self.0);
+    fn from_little_endian(v: i8) -> Self {
+        let b = i8::from_le(v);
         Self(b)
     }
 }
@@ -303,8 +301,8 @@ impl core::fmt::Debug for PadMode {
 impl<'a> flatbuffers::Follow<'a> for PadMode {
     type Inner = Self;
     #[inline]
-    fn follow(buf: &'a [u8], loc: usize) -> Self::Inner {
-        let b = unsafe { flatbuffers::read_scalar_at::<i8>(buf, loc) };
+    unsafe fn follow(buf: &'a [u8], loc: usize) -> Self::Inner {
+        let b = flatbuffers::read_scalar_at::<i8>(buf, loc);
         Self(b)
     }
 }
@@ -312,23 +310,21 @@ impl<'a> flatbuffers::Follow<'a> for PadMode {
 impl flatbuffers::Push for PadMode {
     type Output = PadMode;
     #[inline]
-    fn push(&self, dst: &mut [u8], _rest: &[u8]) {
-        unsafe {
-            flatbuffers::emplace_scalar::<i8>(dst, self.0);
-        }
+    unsafe fn push(&self, dst: &mut [u8], _written_len: usize) {
+        flatbuffers::emplace_scalar::<i8>(dst, self.0);
     }
 }
 
 impl flatbuffers::EndianScalar for PadMode {
+    type Scalar = i8;
     #[inline]
-    fn to_little_endian(self) -> Self {
-        let b = i8::to_le(self.0);
-        Self(b)
+    fn to_little_endian(self) -> i8 {
+        self.0.to_le()
     }
     #[inline]
     #[allow(clippy::wrong_self_convention)]
-    fn from_little_endian(self) -> Self {
-        let b = i8::from_le(self.0);
+    fn from_little_endian(v: i8) -> Self {
+        let b = i8::from_le(v);
         Self(b)
     }
 }
@@ -394,8 +390,8 @@ impl core::fmt::Debug for DataType {
 impl<'a> flatbuffers::Follow<'a> for DataType {
     type Inner = Self;
     #[inline]
-    fn follow(buf: &'a [u8], loc: usize) -> Self::Inner {
-        let b = unsafe { flatbuffers::read_scalar_at::<i8>(buf, loc) };
+    unsafe fn follow(buf: &'a [u8], loc: usize) -> Self::Inner {
+        let b = flatbuffers::read_scalar_at::<i8>(buf, loc);
         Self(b)
     }
 }
@@ -403,23 +399,21 @@ impl<'a> flatbuffers::Follow<'a> for DataType {
 impl flatbuffers::Push for DataType {
     type Output = DataType;
     #[inline]
-    fn push(&self, dst: &mut [u8], _rest: &[u8]) {
-        unsafe {
-            flatbuffers::emplace_scalar::<i8>(dst, self.0);
-        }
+    unsafe fn push(&self, dst: &mut [u8], _written_len: usize) {
+        flatbuffers::emplace_scalar::<i8>(dst, self.0);
     }
 }
 
 impl flatbuffers::EndianScalar for DataType {
+    type Scalar = i8;
     #[inline]
-    fn to_little_endian(self) -> Self {
-        let b = i8::to_le(self.0);
-        Self(b)
+    fn to_little_endian(self) -> i8 {
+        self.0.to_le()
     }
     #[inline]
     #[allow(clippy::wrong_self_convention)]
-    fn from_little_endian(self) -> Self {
-        let b = i8::from_le(self.0);
+    fn from_little_endian(v: i8) -> Self {
+        let b = i8::from_le(v);
         Self(b)
     }
 }
@@ -563,8 +557,8 @@ impl core::fmt::Debug for OperatorAttrs {
 impl<'a> flatbuffers::Follow<'a> for OperatorAttrs {
     type Inner = Self;
     #[inline]
-    fn follow(buf: &'a [u8], loc: usize) -> Self::Inner {
-        let b = unsafe { flatbuffers::read_scalar_at::<u8>(buf, loc) };
+    unsafe fn follow(buf: &'a [u8], loc: usize) -> Self::Inner {
+        let b = flatbuffers::read_scalar_at::<u8>(buf, loc);
         Self(b)
     }
 }
@@ -572,23 +566,21 @@ impl<'a> flatbuffers::Follow<'a> for OperatorAttrs {
 impl flatbuffers::Push for OperatorAttrs {
     type Output = OperatorAttrs;
     #[inline]
-    fn push(&self, dst: &mut [u8], _rest: &[u8]) {
-        unsafe {
-            flatbuffers::emplace_scalar::<u8>(dst, self.0);
-        }
+    unsafe fn push(&self, dst: &mut [u8], _written_len: usize) {
+        flatbuffers::emplace_scalar::<u8>(dst, self.0);
     }
 }
 
 impl flatbuffers::EndianScalar for OperatorAttrs {
+    type Scalar = u8;
     #[inline]
-    fn to_little_endian(self) -> Self {
-        let b = u8::to_le(self.0);
-        Self(b)
+    fn to_little_endian(self) -> u8 {
+        self.0.to_le()
     }
     #[inline]
     #[allow(clippy::wrong_self_convention)]
-    fn from_little_endian(self) -> Self {
-        let b = u8::from_le(self.0);
+    fn from_little_endian(v: u8) -> Self {
+        let b = u8::from_le(v);
         Self(b)
     }
 }
@@ -658,8 +650,8 @@ impl core::fmt::Debug for Scalar {
 impl<'a> flatbuffers::Follow<'a> for Scalar {
     type Inner = Self;
     #[inline]
-    fn follow(buf: &'a [u8], loc: usize) -> Self::Inner {
-        let b = unsafe { flatbuffers::read_scalar_at::<u8>(buf, loc) };
+    unsafe fn follow(buf: &'a [u8], loc: usize) -> Self::Inner {
+        let b = flatbuffers::read_scalar_at::<u8>(buf, loc);
         Self(b)
     }
 }
@@ -667,23 +659,21 @@ impl<'a> flatbuffers::Follow<'a> for Scalar {
 impl flatbuffers::Push for Scalar {
     type Output = Scalar;
     #[inline]
-    fn push(&self, dst: &mut [u8], _rest: &[u8]) {
-        unsafe {
-            flatbuffers::emplace_scalar::<u8>(dst, self.0);
-        }
+    unsafe fn push(&self, dst: &mut [u8], _written_len: usize) {
+        flatbuffers::emplace_scalar::<u8>(dst, self.0);
     }
 }
 
 impl flatbuffers::EndianScalar for Scalar {
+    type Scalar = u8;
     #[inline]
-    fn to_little_endian(self) -> Self {
-        let b = u8::to_le(self.0);
-        Self(b)
+    fn to_little_endian(self) -> u8 {
+        self.0.to_le()
     }
     #[inline]
     #[allow(clippy::wrong_self_convention)]
-    fn from_little_endian(self) -> Self {
-        let b = u8::from_le(self.0);
+    fn from_little_endian(v: u8) -> Self {
+        let b = u8::from_le(v);
         Self(b)
     }
 }
@@ -765,8 +755,8 @@ impl core::fmt::Debug for NodeKind {
 impl<'a> flatbuffers::Follow<'a> for NodeKind {
     type Inner = Self;
     #[inline]
-    fn follow(buf: &'a [u8], loc: usize) -> Self::Inner {
-        let b = unsafe { flatbuffers::read_scalar_at::<u8>(buf, loc) };
+    unsafe fn follow(buf: &'a [u8], loc: usize) -> Self::Inner {
+        let b = flatbuffers::read_scalar_at::<u8>(buf, loc);
         Self(b)
     }
 }
@@ -774,23 +764,21 @@ impl<'a> flatbuffers::Follow<'a> for NodeKind {
 impl flatbuffers::Push for NodeKind {
     type Output = NodeKind;
     #[inline]
-    fn push(&self, dst: &mut [u8], _rest: &[u8]) {
-        unsafe {
-            flatbuffers::emplace_scalar::<u8>(dst, self.0);
-        }
+    unsafe fn push(&self, dst: &mut [u8], _written_len: usize) {
+        flatbuffers::emplace_scalar::<u8>(dst, self.0);
     }
 }
 
 impl flatbuffers::EndianScalar for NodeKind {
+    type Scalar = u8;
     #[inline]
-    fn to_little_endian(self) -> Self {
-        let b = u8::to_le(self.0);
-        Self(b)
+    fn to_little_endian(self) -> u8 {
+        self.0.to_le()
     }
     #[inline]
     #[allow(clippy::wrong_self_convention)]
-    fn from_little_endian(self) -> Self {
-        let b = u8::from_le(self.0);
+    fn from_little_endian(v: u8) -> Self {
+        let b = u8::from_le(v);
         Self(b)
     }
 }
@@ -864,8 +852,8 @@ impl core::fmt::Debug for ConstantData {
 impl<'a> flatbuffers::Follow<'a> for ConstantData {
     type Inner = Self;
     #[inline]
-    fn follow(buf: &'a [u8], loc: usize) -> Self::Inner {
-        let b = unsafe { flatbuffers::read_scalar_at::<u8>(buf, loc) };
+    unsafe fn follow(buf: &'a [u8], loc: usize) -> Self::Inner {
+        let b = flatbuffers::read_scalar_at::<u8>(buf, loc);
         Self(b)
     }
 }
@@ -873,23 +861,21 @@ impl<'a> flatbuffers::Follow<'a> for ConstantData {
 impl flatbuffers::Push for ConstantData {
     type Output = ConstantData;
     #[inline]
-    fn push(&self, dst: &mut [u8], _rest: &[u8]) {
-        unsafe {
-            flatbuffers::emplace_scalar::<u8>(dst, self.0);
-        }
+    unsafe fn push(&self, dst: &mut [u8], _written_len: usize) {
+        flatbuffers::emplace_scalar::<u8>(dst, self.0);
     }
 }
 
 impl flatbuffers::EndianScalar for ConstantData {
+    type Scalar = u8;
     #[inline]
-    fn to_little_endian(self) -> Self {
-        let b = u8::to_le(self.0);
-        Self(b)
+    fn to_little_endian(self) -> u8 {
+        self.0.to_le()
     }
     #[inline]
     #[allow(clippy::wrong_self_convention)]
-    fn from_little_endian(self) -> Self {
-        let b = u8::from_le(self.0);
+    fn from_little_endian(v: u8) -> Self {
+        let b = u8::from_le(v);
         Self(b)
     }
 }
@@ -918,9 +904,9 @@ pub struct AveragePoolAttrs<'a> {
 impl<'a> flatbuffers::Follow<'a> for AveragePoolAttrs<'a> {
     type Inner = AveragePoolAttrs<'a>;
     #[inline]
-    fn follow(buf: &'a [u8], loc: usize) -> Self::Inner {
+    unsafe fn follow(buf: &'a [u8], loc: usize) -> Self::Inner {
         Self {
-            _tab: flatbuffers::Table { buf, loc },
+            _tab: flatbuffers::Table::new(buf, loc),
         }
     }
 }
@@ -932,7 +918,7 @@ impl<'a> AveragePoolAttrs<'a> {
     pub const VT_STRIDE: flatbuffers::VOffsetT = 10;
 
     #[inline]
-    pub fn init_from_table(table: flatbuffers::Table<'a>) -> Self {
+    pub unsafe fn init_from_table(table: flatbuffers::Table<'a>) -> Self {
         AveragePoolAttrs { _tab: table }
     }
     #[allow(unused_mut)]
@@ -952,29 +938,49 @@ impl<'a> AveragePoolAttrs<'a> {
 
     #[inline]
     pub fn kernel_size(&self) -> u32 {
-        self._tab
-            .get::<u32>(AveragePoolAttrs::VT_KERNEL_SIZE, Some(0))
-            .unwrap()
+        // Safety:
+        // Created from valid Table for this object
+        // which contains a valid value in this slot
+        unsafe {
+            self._tab
+                .get::<u32>(AveragePoolAttrs::VT_KERNEL_SIZE, Some(0))
+                .unwrap()
+        }
     }
     #[inline]
     pub fn pad_mode(&self) -> PadMode {
-        self._tab
-            .get::<PadMode>(AveragePoolAttrs::VT_PAD_MODE, Some(PadMode::Same))
-            .unwrap()
+        // Safety:
+        // Created from valid Table for this object
+        // which contains a valid value in this slot
+        unsafe {
+            self._tab
+                .get::<PadMode>(AveragePoolAttrs::VT_PAD_MODE, Some(PadMode::Same))
+                .unwrap()
+        }
     }
     #[inline]
     pub fn pads(&self) -> Option<flatbuffers::Vector<'a, u32>> {
-        self._tab
-            .get::<flatbuffers::ForwardsUOffset<flatbuffers::Vector<'a, u32>>>(
-                AveragePoolAttrs::VT_PADS,
-                None,
-            )
+        // Safety:
+        // Created from valid Table for this object
+        // which contains a valid value in this slot
+        unsafe {
+            self._tab
+                .get::<flatbuffers::ForwardsUOffset<flatbuffers::Vector<'a, u32>>>(
+                    AveragePoolAttrs::VT_PADS,
+                    None,
+                )
+        }
     }
     #[inline]
     pub fn stride(&self) -> u32 {
-        self._tab
-            .get::<u32>(AveragePoolAttrs::VT_STRIDE, Some(0))
-            .unwrap()
+        // Safety:
+        // Created from valid Table for this object
+        // which contains a valid value in this slot
+        unsafe {
+            self._tab
+                .get::<u32>(AveragePoolAttrs::VT_STRIDE, Some(0))
+                .unwrap()
+        }
     }
 }
 
@@ -1078,9 +1084,9 @@ pub struct BatchNormalizationAttrs<'a> {
 impl<'a> flatbuffers::Follow<'a> for BatchNormalizationAttrs<'a> {
     type Inner = BatchNormalizationAttrs<'a>;
     #[inline]
-    fn follow(buf: &'a [u8], loc: usize) -> Self::Inner {
+    unsafe fn follow(buf: &'a [u8], loc: usize) -> Self::Inner {
         Self {
-            _tab: flatbuffers::Table { buf, loc },
+            _tab: flatbuffers::Table::new(buf, loc),
         }
     }
 }
@@ -1089,7 +1095,7 @@ impl<'a> BatchNormalizationAttrs<'a> {
     pub const VT_EPSILON: flatbuffers::VOffsetT = 4;
 
     #[inline]
-    pub fn init_from_table(table: flatbuffers::Table<'a>) -> Self {
+    pub unsafe fn init_from_table(table: flatbuffers::Table<'a>) -> Self {
         BatchNormalizationAttrs { _tab: table }
     }
     #[allow(unused_mut)]
@@ -1104,9 +1110,14 @@ impl<'a> BatchNormalizationAttrs<'a> {
 
     #[inline]
     pub fn epsilon(&self) -> f32 {
-        self._tab
-            .get::<f32>(BatchNormalizationAttrs::VT_EPSILON, Some(0.0))
-            .unwrap()
+        // Safety:
+        // Created from valid Table for this object
+        // which contains a valid value in this slot
+        unsafe {
+            self._tab
+                .get::<f32>(BatchNormalizationAttrs::VT_EPSILON, Some(0.0))
+                .unwrap()
+        }
     }
 }
 
@@ -1177,9 +1188,9 @@ pub struct CastAttrs<'a> {
 impl<'a> flatbuffers::Follow<'a> for CastAttrs<'a> {
     type Inner = CastAttrs<'a>;
     #[inline]
-    fn follow(buf: &'a [u8], loc: usize) -> Self::Inner {
+    unsafe fn follow(buf: &'a [u8], loc: usize) -> Self::Inner {
         Self {
-            _tab: flatbuffers::Table { buf, loc },
+            _tab: flatbuffers::Table::new(buf, loc),
         }
     }
 }
@@ -1188,7 +1199,7 @@ impl<'a> CastAttrs<'a> {
     pub const VT_TO: flatbuffers::VOffsetT = 4;
 
     #[inline]
-    pub fn init_from_table(table: flatbuffers::Table<'a>) -> Self {
+    pub unsafe fn init_from_table(table: flatbuffers::Table<'a>) -> Self {
         CastAttrs { _tab: table }
     }
     #[allow(unused_mut)]
@@ -1203,9 +1214,14 @@ impl<'a> CastAttrs<'a> {
 
     #[inline]
     pub fn to(&self) -> DataType {
-        self._tab
-            .get::<DataType>(CastAttrs::VT_TO, Some(DataType::Int32))
-            .unwrap()
+        // Safety:
+        // Created from valid Table for this object
+        // which contains a valid value in this slot
+        unsafe {
+            self._tab
+                .get::<DataType>(CastAttrs::VT_TO, Some(DataType::Int32))
+                .unwrap()
+        }
     }
 }
 
@@ -1276,9 +1292,9 @@ pub struct ClipAttrs<'a> {
 impl<'a> flatbuffers::Follow<'a> for ClipAttrs<'a> {
     type Inner = ClipAttrs<'a>;
     #[inline]
-    fn follow(buf: &'a [u8], loc: usize) -> Self::Inner {
+    unsafe fn follow(buf: &'a [u8], loc: usize) -> Self::Inner {
         Self {
-            _tab: flatbuffers::Table { buf, loc },
+            _tab: flatbuffers::Table::new(buf, loc),
         }
     }
 }
@@ -1288,7 +1304,7 @@ impl<'a> ClipAttrs<'a> {
     pub const VT_MAX: flatbuffers::VOffsetT = 6;
 
     #[inline]
-    pub fn init_from_table(table: flatbuffers::Table<'a>) -> Self {
+    pub unsafe fn init_from_table(table: flatbuffers::Table<'a>) -> Self {
         ClipAttrs { _tab: table }
     }
     #[allow(unused_mut)]
@@ -1304,11 +1320,17 @@ impl<'a> ClipAttrs<'a> {
 
     #[inline]
     pub fn min(&self) -> f32 {
-        self._tab.get::<f32>(ClipAttrs::VT_MIN, Some(0.0)).unwrap()
+        // Safety:
+        // Created from valid Table for this object
+        // which contains a valid value in this slot
+        unsafe { self._tab.get::<f32>(ClipAttrs::VT_MIN, Some(0.0)).unwrap() }
     }
     #[inline]
     pub fn max(&self) -> f32 {
-        self._tab.get::<f32>(ClipAttrs::VT_MAX, Some(0.0)).unwrap()
+        // Safety:
+        // Created from valid Table for this object
+        // which contains a valid value in this slot
+        unsafe { self._tab.get::<f32>(ClipAttrs::VT_MAX, Some(0.0)).unwrap() }
     }
 }
 
@@ -1383,9 +1405,9 @@ pub struct ConcatAttrs<'a> {
 impl<'a> flatbuffers::Follow<'a> for ConcatAttrs<'a> {
     type Inner = ConcatAttrs<'a>;
     #[inline]
-    fn follow(buf: &'a [u8], loc: usize) -> Self::Inner {
+    unsafe fn follow(buf: &'a [u8], loc: usize) -> Self::Inner {
         Self {
-            _tab: flatbuffers::Table { buf, loc },
+            _tab: flatbuffers::Table::new(buf, loc),
         }
     }
 }
@@ -1394,7 +1416,7 @@ impl<'a> ConcatAttrs<'a> {
     pub const VT_DIM: flatbuffers::VOffsetT = 4;
 
     #[inline]
-    pub fn init_from_table(table: flatbuffers::Table<'a>) -> Self {
+    pub unsafe fn init_from_table(table: flatbuffers::Table<'a>) -> Self {
         ConcatAttrs { _tab: table }
     }
     #[allow(unused_mut)]
@@ -1409,7 +1431,10 @@ impl<'a> ConcatAttrs<'a> {
 
     #[inline]
     pub fn dim(&self) -> u32 {
-        self._tab.get::<u32>(ConcatAttrs::VT_DIM, Some(0)).unwrap()
+        // Safety:
+        // Created from valid Table for this object
+        // which contains a valid value in this slot
+        unsafe { self._tab.get::<u32>(ConcatAttrs::VT_DIM, Some(0)).unwrap() }
     }
 }
 
@@ -1477,9 +1502,9 @@ pub struct IntScalar<'a> {
 impl<'a> flatbuffers::Follow<'a> for IntScalar<'a> {
     type Inner = IntScalar<'a>;
     #[inline]
-    fn follow(buf: &'a [u8], loc: usize) -> Self::Inner {
+    unsafe fn follow(buf: &'a [u8], loc: usize) -> Self::Inner {
         Self {
-            _tab: flatbuffers::Table { buf, loc },
+            _tab: flatbuffers::Table::new(buf, loc),
         }
     }
 }
@@ -1488,7 +1513,7 @@ impl<'a> IntScalar<'a> {
     pub const VT_VALUE: flatbuffers::VOffsetT = 4;
 
     #[inline]
-    pub fn init_from_table(table: flatbuffers::Table<'a>) -> Self {
+    pub unsafe fn init_from_table(table: flatbuffers::Table<'a>) -> Self {
         IntScalar { _tab: table }
     }
     #[allow(unused_mut)]
@@ -1503,7 +1528,10 @@ impl<'a> IntScalar<'a> {
 
     #[inline]
     pub fn value(&self) -> i32 {
-        self._tab.get::<i32>(IntScalar::VT_VALUE, Some(0)).unwrap()
+        // Safety:
+        // Created from valid Table for this object
+        // which contains a valid value in this slot
+        unsafe { self._tab.get::<i32>(IntScalar::VT_VALUE, Some(0)).unwrap() }
     }
 }
 
@@ -1571,9 +1599,9 @@ pub struct FloatScalar<'a> {
 impl<'a> flatbuffers::Follow<'a> for FloatScalar<'a> {
     type Inner = FloatScalar<'a>;
     #[inline]
-    fn follow(buf: &'a [u8], loc: usize) -> Self::Inner {
+    unsafe fn follow(buf: &'a [u8], loc: usize) -> Self::Inner {
         Self {
-            _tab: flatbuffers::Table { buf, loc },
+            _tab: flatbuffers::Table::new(buf, loc),
         }
     }
 }
@@ -1582,7 +1610,7 @@ impl<'a> FloatScalar<'a> {
     pub const VT_VALUE: flatbuffers::VOffsetT = 4;
 
     #[inline]
-    pub fn init_from_table(table: flatbuffers::Table<'a>) -> Self {
+    pub unsafe fn init_from_table(table: flatbuffers::Table<'a>) -> Self {
         FloatScalar { _tab: table }
     }
     #[allow(unused_mut)]
@@ -1597,9 +1625,14 @@ impl<'a> FloatScalar<'a> {
 
     #[inline]
     pub fn value(&self) -> f32 {
-        self._tab
-            .get::<f32>(FloatScalar::VT_VALUE, Some(0.0))
-            .unwrap()
+        // Safety:
+        // Created from valid Table for this object
+        // which contains a valid value in this slot
+        unsafe {
+            self._tab
+                .get::<f32>(FloatScalar::VT_VALUE, Some(0.0))
+                .unwrap()
+        }
     }
 }
 
@@ -1668,9 +1701,9 @@ pub struct ConstantOfShapeAttrs<'a> {
 impl<'a> flatbuffers::Follow<'a> for ConstantOfShapeAttrs<'a> {
     type Inner = ConstantOfShapeAttrs<'a>;
     #[inline]
-    fn follow(buf: &'a [u8], loc: usize) -> Self::Inner {
+    unsafe fn follow(buf: &'a [u8], loc: usize) -> Self::Inner {
         Self {
-            _tab: flatbuffers::Table { buf, loc },
+            _tab: flatbuffers::Table::new(buf, loc),
         }
     }
 }
@@ -1680,7 +1713,7 @@ impl<'a> ConstantOfShapeAttrs<'a> {
     pub const VT_VALUE: flatbuffers::VOffsetT = 6;
 
     #[inline]
-    pub fn init_from_table(table: flatbuffers::Table<'a>) -> Self {
+    pub unsafe fn init_from_table(table: flatbuffers::Table<'a>) -> Self {
         ConstantOfShapeAttrs { _tab: table }
     }
     #[allow(unused_mut)]
@@ -1698,25 +1731,38 @@ impl<'a> ConstantOfShapeAttrs<'a> {
 
     #[inline]
     pub fn value_type(&self) -> Scalar {
-        self._tab
-            .get::<Scalar>(ConstantOfShapeAttrs::VT_VALUE_TYPE, Some(Scalar::NONE))
-            .unwrap()
+        // Safety:
+        // Created from valid Table for this object
+        // which contains a valid value in this slot
+        unsafe {
+            self._tab
+                .get::<Scalar>(ConstantOfShapeAttrs::VT_VALUE_TYPE, Some(Scalar::NONE))
+                .unwrap()
+        }
     }
     #[inline]
     pub fn value(&self) -> flatbuffers::Table<'a> {
-        self._tab
-            .get::<flatbuffers::ForwardsUOffset<flatbuffers::Table<'a>>>(
-                ConstantOfShapeAttrs::VT_VALUE,
-                None,
-            )
-            .unwrap()
+        // Safety:
+        // Created from valid Table for this object
+        // which contains a valid value in this slot
+        unsafe {
+            self._tab
+                .get::<flatbuffers::ForwardsUOffset<flatbuffers::Table<'a>>>(
+                    ConstantOfShapeAttrs::VT_VALUE,
+                    None,
+                )
+                .unwrap()
+        }
     }
     #[inline]
     #[allow(non_snake_case)]
     pub fn value_as_int_scalar(&self) -> Option<IntScalar<'a>> {
         if self.value_type() == Scalar::IntScalar {
             let u = self.value();
-            Some(IntScalar::init_from_table(u))
+            // Safety:
+            // Created from a valid Table for this object
+            // Which contains a valid union in this slot
+            Some(unsafe { IntScalar::init_from_table(u) })
         } else {
             None
         }
@@ -1727,7 +1773,10 @@ impl<'a> ConstantOfShapeAttrs<'a> {
     pub fn value_as_float_scalar(&self) -> Option<FloatScalar<'a>> {
         if self.value_type() == Scalar::FloatScalar {
             let u = self.value();
-            Some(FloatScalar::init_from_table(u))
+            // Safety:
+            // Created from a valid Table for this object
+            // Which contains a valid union in this slot
+            Some(unsafe { FloatScalar::init_from_table(u) })
         } else {
             None
         }
@@ -1860,9 +1909,9 @@ pub struct ConvAttrs<'a> {
 impl<'a> flatbuffers::Follow<'a> for ConvAttrs<'a> {
     type Inner = ConvAttrs<'a>;
     #[inline]
-    fn follow(buf: &'a [u8], loc: usize) -> Self::Inner {
+    unsafe fn follow(buf: &'a [u8], loc: usize) -> Self::Inner {
         Self {
-            _tab: flatbuffers::Table { buf, loc },
+            _tab: flatbuffers::Table::new(buf, loc),
         }
     }
 }
@@ -1874,7 +1923,7 @@ impl<'a> ConvAttrs<'a> {
     pub const VT_STRIDE: flatbuffers::VOffsetT = 10;
 
     #[inline]
-    pub fn init_from_table(table: flatbuffers::Table<'a>) -> Self {
+    pub unsafe fn init_from_table(table: flatbuffers::Table<'a>) -> Self {
         ConvAttrs { _tab: table }
     }
     #[allow(unused_mut)]
@@ -1894,25 +1943,41 @@ impl<'a> ConvAttrs<'a> {
 
     #[inline]
     pub fn pad_mode(&self) -> PadMode {
-        self._tab
-            .get::<PadMode>(ConvAttrs::VT_PAD_MODE, Some(PadMode::Same))
-            .unwrap()
+        // Safety:
+        // Created from valid Table for this object
+        // which contains a valid value in this slot
+        unsafe {
+            self._tab
+                .get::<PadMode>(ConvAttrs::VT_PAD_MODE, Some(PadMode::Same))
+                .unwrap()
+        }
     }
     #[inline]
     pub fn pads(&self) -> Option<flatbuffers::Vector<'a, u32>> {
-        self._tab
-            .get::<flatbuffers::ForwardsUOffset<flatbuffers::Vector<'a, u32>>>(
-                ConvAttrs::VT_PADS,
-                None,
-            )
+        // Safety:
+        // Created from valid Table for this object
+        // which contains a valid value in this slot
+        unsafe {
+            self._tab
+                .get::<flatbuffers::ForwardsUOffset<flatbuffers::Vector<'a, u32>>>(
+                    ConvAttrs::VT_PADS,
+                    None,
+                )
+        }
     }
     #[inline]
     pub fn groups(&self) -> u32 {
-        self._tab.get::<u32>(ConvAttrs::VT_GROUPS, Some(0)).unwrap()
+        // Safety:
+        // Created from valid Table for this object
+        // which contains a valid value in this slot
+        unsafe { self._tab.get::<u32>(ConvAttrs::VT_GROUPS, Some(0)).unwrap() }
     }
     #[inline]
     pub fn stride(&self) -> u32 {
-        self._tab.get::<u32>(ConvAttrs::VT_STRIDE, Some(0)).unwrap()
+        // Safety:
+        // Created from valid Table for this object
+        // which contains a valid value in this slot
+        unsafe { self._tab.get::<u32>(ConvAttrs::VT_STRIDE, Some(0)).unwrap() }
     }
 }
 
@@ -2012,9 +2077,9 @@ pub struct ConvTransposeAttrs<'a> {
 impl<'a> flatbuffers::Follow<'a> for ConvTransposeAttrs<'a> {
     type Inner = ConvTransposeAttrs<'a>;
     #[inline]
-    fn follow(buf: &'a [u8], loc: usize) -> Self::Inner {
+    unsafe fn follow(buf: &'a [u8], loc: usize) -> Self::Inner {
         Self {
-            _tab: flatbuffers::Table { buf, loc },
+            _tab: flatbuffers::Table::new(buf, loc),
         }
     }
 }
@@ -2023,7 +2088,7 @@ impl<'a> ConvTransposeAttrs<'a> {
     pub const VT_STRIDE: flatbuffers::VOffsetT = 4;
 
     #[inline]
-    pub fn init_from_table(table: flatbuffers::Table<'a>) -> Self {
+    pub unsafe fn init_from_table(table: flatbuffers::Table<'a>) -> Self {
         ConvTransposeAttrs { _tab: table }
     }
     #[allow(unused_mut)]
@@ -2038,9 +2103,14 @@ impl<'a> ConvTransposeAttrs<'a> {
 
     #[inline]
     pub fn stride(&self) -> u32 {
-        self._tab
-            .get::<u32>(ConvTransposeAttrs::VT_STRIDE, Some(0))
-            .unwrap()
+        // Safety:
+        // Created from valid Table for this object
+        // which contains a valid value in this slot
+        unsafe {
+            self._tab
+                .get::<u32>(ConvTransposeAttrs::VT_STRIDE, Some(0))
+                .unwrap()
+        }
     }
 }
 
@@ -2111,9 +2181,9 @@ pub struct GatherAttrs<'a> {
 impl<'a> flatbuffers::Follow<'a> for GatherAttrs<'a> {
     type Inner = GatherAttrs<'a>;
     #[inline]
-    fn follow(buf: &'a [u8], loc: usize) -> Self::Inner {
+    unsafe fn follow(buf: &'a [u8], loc: usize) -> Self::Inner {
         Self {
-            _tab: flatbuffers::Table { buf, loc },
+            _tab: flatbuffers::Table::new(buf, loc),
         }
     }
 }
@@ -2122,7 +2192,7 @@ impl<'a> GatherAttrs<'a> {
     pub const VT_AXIS: flatbuffers::VOffsetT = 4;
 
     #[inline]
-    pub fn init_from_table(table: flatbuffers::Table<'a>) -> Self {
+    pub unsafe fn init_from_table(table: flatbuffers::Table<'a>) -> Self {
         GatherAttrs { _tab: table }
     }
     #[allow(unused_mut)]
@@ -2137,7 +2207,10 @@ impl<'a> GatherAttrs<'a> {
 
     #[inline]
     pub fn axis(&self) -> u32 {
-        self._tab.get::<u32>(GatherAttrs::VT_AXIS, Some(0)).unwrap()
+        // Safety:
+        // Created from valid Table for this object
+        // which contains a valid value in this slot
+        unsafe { self._tab.get::<u32>(GatherAttrs::VT_AXIS, Some(0)).unwrap() }
     }
 }
 
@@ -2205,9 +2278,9 @@ pub struct GemmAttrs<'a> {
 impl<'a> flatbuffers::Follow<'a> for GemmAttrs<'a> {
     type Inner = GemmAttrs<'a>;
     #[inline]
-    fn follow(buf: &'a [u8], loc: usize) -> Self::Inner {
+    unsafe fn follow(buf: &'a [u8], loc: usize) -> Self::Inner {
         Self {
-            _tab: flatbuffers::Table { buf, loc },
+            _tab: flatbuffers::Table::new(buf, loc),
         }
     }
 }
@@ -2219,7 +2292,7 @@ impl<'a> GemmAttrs<'a> {
     pub const VT_TRANSPOSE_B: flatbuffers::VOffsetT = 10;
 
     #[inline]
-    pub fn init_from_table(table: flatbuffers::Table<'a>) -> Self {
+    pub unsafe fn init_from_table(table: flatbuffers::Table<'a>) -> Self {
         GemmAttrs { _tab: table }
     }
     #[allow(unused_mut)]
@@ -2237,25 +2310,43 @@ impl<'a> GemmAttrs<'a> {
 
     #[inline]
     pub fn alpha(&self) -> f32 {
-        self._tab
-            .get::<f32>(GemmAttrs::VT_ALPHA, Some(0.0))
-            .unwrap()
+        // Safety:
+        // Created from valid Table for this object
+        // which contains a valid value in this slot
+        unsafe {
+            self._tab
+                .get::<f32>(GemmAttrs::VT_ALPHA, Some(0.0))
+                .unwrap()
+        }
     }
     #[inline]
     pub fn beta(&self) -> f32 {
-        self._tab.get::<f32>(GemmAttrs::VT_BETA, Some(0.0)).unwrap()
+        // Safety:
+        // Created from valid Table for this object
+        // which contains a valid value in this slot
+        unsafe { self._tab.get::<f32>(GemmAttrs::VT_BETA, Some(0.0)).unwrap() }
     }
     #[inline]
     pub fn transpose_a(&self) -> bool {
-        self._tab
-            .get::<bool>(GemmAttrs::VT_TRANSPOSE_A, Some(false))
-            .unwrap()
+        // Safety:
+        // Created from valid Table for this object
+        // which contains a valid value in this slot
+        unsafe {
+            self._tab
+                .get::<bool>(GemmAttrs::VT_TRANSPOSE_A, Some(false))
+                .unwrap()
+        }
     }
     #[inline]
     pub fn transpose_b(&self) -> bool {
-        self._tab
-            .get::<bool>(GemmAttrs::VT_TRANSPOSE_B, Some(false))
-            .unwrap()
+        // Safety:
+        // Created from valid Table for this object
+        // which contains a valid value in this slot
+        unsafe {
+            self._tab
+                .get::<bool>(GemmAttrs::VT_TRANSPOSE_B, Some(false))
+                .unwrap()
+        }
     }
 }
 
@@ -2351,9 +2442,9 @@ pub struct LeakyReluAttrs<'a> {
 impl<'a> flatbuffers::Follow<'a> for LeakyReluAttrs<'a> {
     type Inner = LeakyReluAttrs<'a>;
     #[inline]
-    fn follow(buf: &'a [u8], loc: usize) -> Self::Inner {
+    unsafe fn follow(buf: &'a [u8], loc: usize) -> Self::Inner {
         Self {
-            _tab: flatbuffers::Table { buf, loc },
+            _tab: flatbuffers::Table::new(buf, loc),
         }
     }
 }
@@ -2362,7 +2453,7 @@ impl<'a> LeakyReluAttrs<'a> {
     pub const VT_ALPHA: flatbuffers::VOffsetT = 4;
 
     #[inline]
-    pub fn init_from_table(table: flatbuffers::Table<'a>) -> Self {
+    pub unsafe fn init_from_table(table: flatbuffers::Table<'a>) -> Self {
         LeakyReluAttrs { _tab: table }
     }
     #[allow(unused_mut)]
@@ -2377,9 +2468,14 @@ impl<'a> LeakyReluAttrs<'a> {
 
     #[inline]
     pub fn alpha(&self) -> f32 {
-        self._tab
-            .get::<f32>(LeakyReluAttrs::VT_ALPHA, Some(0.0))
-            .unwrap()
+        // Safety:
+        // Created from valid Table for this object
+        // which contains a valid value in this slot
+        unsafe {
+            self._tab
+                .get::<f32>(LeakyReluAttrs::VT_ALPHA, Some(0.0))
+                .unwrap()
+        }
     }
 }
 
@@ -2448,9 +2544,9 @@ pub struct MaxPoolAttrs<'a> {
 impl<'a> flatbuffers::Follow<'a> for MaxPoolAttrs<'a> {
     type Inner = MaxPoolAttrs<'a>;
     #[inline]
-    fn follow(buf: &'a [u8], loc: usize) -> Self::Inner {
+    unsafe fn follow(buf: &'a [u8], loc: usize) -> Self::Inner {
         Self {
-            _tab: flatbuffers::Table { buf, loc },
+            _tab: flatbuffers::Table::new(buf, loc),
         }
     }
 }
@@ -2462,7 +2558,7 @@ impl<'a> MaxPoolAttrs<'a> {
     pub const VT_STRIDE: flatbuffers::VOffsetT = 10;
 
     #[inline]
-    pub fn init_from_table(table: flatbuffers::Table<'a>) -> Self {
+    pub unsafe fn init_from_table(table: flatbuffers::Table<'a>) -> Self {
         MaxPoolAttrs { _tab: table }
     }
     #[allow(unused_mut)]
@@ -2482,29 +2578,49 @@ impl<'a> MaxPoolAttrs<'a> {
 
     #[inline]
     pub fn kernel_size(&self) -> u32 {
-        self._tab
-            .get::<u32>(MaxPoolAttrs::VT_KERNEL_SIZE, Some(0))
-            .unwrap()
+        // Safety:
+        // Created from valid Table for this object
+        // which contains a valid value in this slot
+        unsafe {
+            self._tab
+                .get::<u32>(MaxPoolAttrs::VT_KERNEL_SIZE, Some(0))
+                .unwrap()
+        }
     }
     #[inline]
     pub fn pad_mode(&self) -> PadMode {
-        self._tab
-            .get::<PadMode>(MaxPoolAttrs::VT_PAD_MODE, Some(PadMode::Same))
-            .unwrap()
+        // Safety:
+        // Created from valid Table for this object
+        // which contains a valid value in this slot
+        unsafe {
+            self._tab
+                .get::<PadMode>(MaxPoolAttrs::VT_PAD_MODE, Some(PadMode::Same))
+                .unwrap()
+        }
     }
     #[inline]
     pub fn pads(&self) -> Option<flatbuffers::Vector<'a, u32>> {
-        self._tab
-            .get::<flatbuffers::ForwardsUOffset<flatbuffers::Vector<'a, u32>>>(
-                MaxPoolAttrs::VT_PADS,
-                None,
-            )
+        // Safety:
+        // Created from valid Table for this object
+        // which contains a valid value in this slot
+        unsafe {
+            self._tab
+                .get::<flatbuffers::ForwardsUOffset<flatbuffers::Vector<'a, u32>>>(
+                    MaxPoolAttrs::VT_PADS,
+                    None,
+                )
+        }
     }
     #[inline]
     pub fn stride(&self) -> u32 {
-        self._tab
-            .get::<u32>(MaxPoolAttrs::VT_STRIDE, Some(0))
-            .unwrap()
+        // Safety:
+        // Created from valid Table for this object
+        // which contains a valid value in this slot
+        unsafe {
+            self._tab
+                .get::<u32>(MaxPoolAttrs::VT_STRIDE, Some(0))
+                .unwrap()
+        }
     }
 }
 
@@ -2606,16 +2722,16 @@ pub struct PadAttrs<'a> {
 impl<'a> flatbuffers::Follow<'a> for PadAttrs<'a> {
     type Inner = PadAttrs<'a>;
     #[inline]
-    fn follow(buf: &'a [u8], loc: usize) -> Self::Inner {
+    unsafe fn follow(buf: &'a [u8], loc: usize) -> Self::Inner {
         Self {
-            _tab: flatbuffers::Table { buf, loc },
+            _tab: flatbuffers::Table::new(buf, loc),
         }
     }
 }
 
 impl<'a> PadAttrs<'a> {
     #[inline]
-    pub fn init_from_table(table: flatbuffers::Table<'a>) -> Self {
+    pub unsafe fn init_from_table(table: flatbuffers::Table<'a>) -> Self {
         PadAttrs { _tab: table }
     }
     #[allow(unused_mut)]
@@ -2683,9 +2799,9 @@ pub struct ReduceMeanAttrs<'a> {
 impl<'a> flatbuffers::Follow<'a> for ReduceMeanAttrs<'a> {
     type Inner = ReduceMeanAttrs<'a>;
     #[inline]
-    fn follow(buf: &'a [u8], loc: usize) -> Self::Inner {
+    unsafe fn follow(buf: &'a [u8], loc: usize) -> Self::Inner {
         Self {
-            _tab: flatbuffers::Table { buf, loc },
+            _tab: flatbuffers::Table::new(buf, loc),
         }
     }
 }
@@ -2695,7 +2811,7 @@ impl<'a> ReduceMeanAttrs<'a> {
     pub const VT_KEEP_DIMS: flatbuffers::VOffsetT = 6;
 
     #[inline]
-    pub fn init_from_table(table: flatbuffers::Table<'a>) -> Self {
+    pub unsafe fn init_from_table(table: flatbuffers::Table<'a>) -> Self {
         ReduceMeanAttrs { _tab: table }
     }
     #[allow(unused_mut)]
@@ -2713,17 +2829,27 @@ impl<'a> ReduceMeanAttrs<'a> {
 
     #[inline]
     pub fn axes(&self) -> Option<flatbuffers::Vector<'a, i32>> {
-        self._tab
-            .get::<flatbuffers::ForwardsUOffset<flatbuffers::Vector<'a, i32>>>(
-                ReduceMeanAttrs::VT_AXES,
-                None,
-            )
+        // Safety:
+        // Created from valid Table for this object
+        // which contains a valid value in this slot
+        unsafe {
+            self._tab
+                .get::<flatbuffers::ForwardsUOffset<flatbuffers::Vector<'a, i32>>>(
+                    ReduceMeanAttrs::VT_AXES,
+                    None,
+                )
+        }
     }
     #[inline]
     pub fn keep_dims(&self) -> bool {
-        self._tab
-            .get::<bool>(ReduceMeanAttrs::VT_KEEP_DIMS, Some(false))
-            .unwrap()
+        // Safety:
+        // Created from valid Table for this object
+        // which contains a valid value in this slot
+        unsafe {
+            self._tab
+                .get::<bool>(ReduceMeanAttrs::VT_KEEP_DIMS, Some(false))
+                .unwrap()
+        }
     }
 }
 
@@ -2807,9 +2933,9 @@ pub struct SoftmaxAttrs<'a> {
 impl<'a> flatbuffers::Follow<'a> for SoftmaxAttrs<'a> {
     type Inner = SoftmaxAttrs<'a>;
     #[inline]
-    fn follow(buf: &'a [u8], loc: usize) -> Self::Inner {
+    unsafe fn follow(buf: &'a [u8], loc: usize) -> Self::Inner {
         Self {
-            _tab: flatbuffers::Table { buf, loc },
+            _tab: flatbuffers::Table::new(buf, loc),
         }
     }
 }
@@ -2818,7 +2944,7 @@ impl<'a> SoftmaxAttrs<'a> {
     pub const VT_AXIS: flatbuffers::VOffsetT = 4;
 
     #[inline]
-    pub fn init_from_table(table: flatbuffers::Table<'a>) -> Self {
+    pub unsafe fn init_from_table(table: flatbuffers::Table<'a>) -> Self {
         SoftmaxAttrs { _tab: table }
     }
     #[allow(unused_mut)]
@@ -2833,9 +2959,14 @@ impl<'a> SoftmaxAttrs<'a> {
 
     #[inline]
     pub fn axis(&self) -> u32 {
-        self._tab
-            .get::<u32>(SoftmaxAttrs::VT_AXIS, Some(0))
-            .unwrap()
+        // Safety:
+        // Created from valid Table for this object
+        // which contains a valid value in this slot
+        unsafe {
+            self._tab
+                .get::<u32>(SoftmaxAttrs::VT_AXIS, Some(0))
+                .unwrap()
+        }
     }
 }
 
@@ -2903,9 +3034,9 @@ pub struct SplitAttrs<'a> {
 impl<'a> flatbuffers::Follow<'a> for SplitAttrs<'a> {
     type Inner = SplitAttrs<'a>;
     #[inline]
-    fn follow(buf: &'a [u8], loc: usize) -> Self::Inner {
+    unsafe fn follow(buf: &'a [u8], loc: usize) -> Self::Inner {
         Self {
-            _tab: flatbuffers::Table { buf, loc },
+            _tab: flatbuffers::Table::new(buf, loc),
         }
     }
 }
@@ -2915,7 +3046,7 @@ impl<'a> SplitAttrs<'a> {
     pub const VT_SPLIT: flatbuffers::VOffsetT = 6;
 
     #[inline]
-    pub fn init_from_table(table: flatbuffers::Table<'a>) -> Self {
+    pub unsafe fn init_from_table(table: flatbuffers::Table<'a>) -> Self {
         SplitAttrs { _tab: table }
     }
     #[allow(unused_mut)]
@@ -2933,15 +3064,23 @@ impl<'a> SplitAttrs<'a> {
 
     #[inline]
     pub fn axis(&self) -> i32 {
-        self._tab.get::<i32>(SplitAttrs::VT_AXIS, Some(0)).unwrap()
+        // Safety:
+        // Created from valid Table for this object
+        // which contains a valid value in this slot
+        unsafe { self._tab.get::<i32>(SplitAttrs::VT_AXIS, Some(0)).unwrap() }
     }
     #[inline]
     pub fn split(&self) -> Option<flatbuffers::Vector<'a, u32>> {
-        self._tab
-            .get::<flatbuffers::ForwardsUOffset<flatbuffers::Vector<'a, u32>>>(
-                SplitAttrs::VT_SPLIT,
-                None,
-            )
+        // Safety:
+        // Created from valid Table for this object
+        // which contains a valid value in this slot
+        unsafe {
+            self._tab
+                .get::<flatbuffers::ForwardsUOffset<flatbuffers::Vector<'a, u32>>>(
+                    SplitAttrs::VT_SPLIT,
+                    None,
+                )
+        }
     }
 }
 
@@ -3024,9 +3163,9 @@ pub struct SqueezeAttrs<'a> {
 impl<'a> flatbuffers::Follow<'a> for SqueezeAttrs<'a> {
     type Inner = SqueezeAttrs<'a>;
     #[inline]
-    fn follow(buf: &'a [u8], loc: usize) -> Self::Inner {
+    unsafe fn follow(buf: &'a [u8], loc: usize) -> Self::Inner {
         Self {
-            _tab: flatbuffers::Table { buf, loc },
+            _tab: flatbuffers::Table::new(buf, loc),
         }
     }
 }
@@ -3035,7 +3174,7 @@ impl<'a> SqueezeAttrs<'a> {
     pub const VT_AXES: flatbuffers::VOffsetT = 4;
 
     #[inline]
-    pub fn init_from_table(table: flatbuffers::Table<'a>) -> Self {
+    pub unsafe fn init_from_table(table: flatbuffers::Table<'a>) -> Self {
         SqueezeAttrs { _tab: table }
     }
     #[allow(unused_mut)]
@@ -3052,11 +3191,16 @@ impl<'a> SqueezeAttrs<'a> {
 
     #[inline]
     pub fn axes(&self) -> Option<flatbuffers::Vector<'a, u32>> {
-        self._tab
-            .get::<flatbuffers::ForwardsUOffset<flatbuffers::Vector<'a, u32>>>(
-                SqueezeAttrs::VT_AXES,
-                None,
-            )
+        // Safety:
+        // Created from valid Table for this object
+        // which contains a valid value in this slot
+        unsafe {
+            self._tab
+                .get::<flatbuffers::ForwardsUOffset<flatbuffers::Vector<'a, u32>>>(
+                    SqueezeAttrs::VT_AXES,
+                    None,
+                )
+        }
     }
 }
 
@@ -3129,9 +3273,9 @@ pub struct TransposeAttrs<'a> {
 impl<'a> flatbuffers::Follow<'a> for TransposeAttrs<'a> {
     type Inner = TransposeAttrs<'a>;
     #[inline]
-    fn follow(buf: &'a [u8], loc: usize) -> Self::Inner {
+    unsafe fn follow(buf: &'a [u8], loc: usize) -> Self::Inner {
         Self {
-            _tab: flatbuffers::Table { buf, loc },
+            _tab: flatbuffers::Table::new(buf, loc),
         }
     }
 }
@@ -3140,7 +3284,7 @@ impl<'a> TransposeAttrs<'a> {
     pub const VT_PERM: flatbuffers::VOffsetT = 4;
 
     #[inline]
-    pub fn init_from_table(table: flatbuffers::Table<'a>) -> Self {
+    pub unsafe fn init_from_table(table: flatbuffers::Table<'a>) -> Self {
         TransposeAttrs { _tab: table }
     }
     #[allow(unused_mut)]
@@ -3157,11 +3301,16 @@ impl<'a> TransposeAttrs<'a> {
 
     #[inline]
     pub fn perm(&self) -> Option<flatbuffers::Vector<'a, u32>> {
-        self._tab
-            .get::<flatbuffers::ForwardsUOffset<flatbuffers::Vector<'a, u32>>>(
-                TransposeAttrs::VT_PERM,
-                None,
-            )
+        // Safety:
+        // Created from valid Table for this object
+        // which contains a valid value in this slot
+        unsafe {
+            self._tab
+                .get::<flatbuffers::ForwardsUOffset<flatbuffers::Vector<'a, u32>>>(
+                    TransposeAttrs::VT_PERM,
+                    None,
+                )
+        }
     }
 }
 
@@ -3234,9 +3383,9 @@ pub struct UnsqueezeAttrs<'a> {
 impl<'a> flatbuffers::Follow<'a> for UnsqueezeAttrs<'a> {
     type Inner = UnsqueezeAttrs<'a>;
     #[inline]
-    fn follow(buf: &'a [u8], loc: usize) -> Self::Inner {
+    unsafe fn follow(buf: &'a [u8], loc: usize) -> Self::Inner {
         Self {
-            _tab: flatbuffers::Table { buf, loc },
+            _tab: flatbuffers::Table::new(buf, loc),
         }
     }
 }
@@ -3245,7 +3394,7 @@ impl<'a> UnsqueezeAttrs<'a> {
     pub const VT_AXES: flatbuffers::VOffsetT = 4;
 
     #[inline]
-    pub fn init_from_table(table: flatbuffers::Table<'a>) -> Self {
+    pub unsafe fn init_from_table(table: flatbuffers::Table<'a>) -> Self {
         UnsqueezeAttrs { _tab: table }
     }
     #[allow(unused_mut)]
@@ -3262,12 +3411,17 @@ impl<'a> UnsqueezeAttrs<'a> {
 
     #[inline]
     pub fn axes(&self) -> flatbuffers::Vector<'a, u32> {
-        self._tab
-            .get::<flatbuffers::ForwardsUOffset<flatbuffers::Vector<'a, u32>>>(
-                UnsqueezeAttrs::VT_AXES,
-                None,
-            )
-            .unwrap()
+        // Safety:
+        // Created from valid Table for this object
+        // which contains a valid value in this slot
+        unsafe {
+            self._tab
+                .get::<flatbuffers::ForwardsUOffset<flatbuffers::Vector<'a, u32>>>(
+                    UnsqueezeAttrs::VT_AXES,
+                    None,
+                )
+                .unwrap()
+        }
     }
 }
 
@@ -3343,9 +3497,9 @@ pub struct OperatorNode<'a> {
 impl<'a> flatbuffers::Follow<'a> for OperatorNode<'a> {
     type Inner = OperatorNode<'a>;
     #[inline]
-    fn follow(buf: &'a [u8], loc: usize) -> Self::Inner {
+    unsafe fn follow(buf: &'a [u8], loc: usize) -> Self::Inner {
         Self {
-            _tab: flatbuffers::Table { buf, loc },
+            _tab: flatbuffers::Table::new(buf, loc),
         }
     }
 }
@@ -3358,7 +3512,7 @@ impl<'a> OperatorNode<'a> {
     pub const VT_OUTPUTS: flatbuffers::VOffsetT = 12;
 
     #[inline]
-    pub fn init_from_table(table: flatbuffers::Table<'a>) -> Self {
+    pub unsafe fn init_from_table(table: flatbuffers::Table<'a>) -> Self {
         OperatorNode { _tab: table }
     }
     #[allow(unused_mut)]
@@ -3383,45 +3537,75 @@ impl<'a> OperatorNode<'a> {
 
     #[inline]
     pub fn type_(&self) -> OperatorType {
-        self._tab
-            .get::<OperatorType>(OperatorNode::VT_TYPE_, Some(OperatorType::Add))
-            .unwrap()
+        // Safety:
+        // Created from valid Table for this object
+        // which contains a valid value in this slot
+        unsafe {
+            self._tab
+                .get::<OperatorType>(OperatorNode::VT_TYPE_, Some(OperatorType::Add))
+                .unwrap()
+        }
     }
     #[inline]
     pub fn attrs_type(&self) -> OperatorAttrs {
-        self._tab
-            .get::<OperatorAttrs>(OperatorNode::VT_ATTRS_TYPE, Some(OperatorAttrs::NONE))
-            .unwrap()
+        // Safety:
+        // Created from valid Table for this object
+        // which contains a valid value in this slot
+        unsafe {
+            self._tab
+                .get::<OperatorAttrs>(OperatorNode::VT_ATTRS_TYPE, Some(OperatorAttrs::NONE))
+                .unwrap()
+        }
     }
     #[inline]
     pub fn attrs(&self) -> Option<flatbuffers::Table<'a>> {
-        self._tab
-            .get::<flatbuffers::ForwardsUOffset<flatbuffers::Table<'a>>>(
-                OperatorNode::VT_ATTRS,
-                None,
-            )
+        // Safety:
+        // Created from valid Table for this object
+        // which contains a valid value in this slot
+        unsafe {
+            self._tab
+                .get::<flatbuffers::ForwardsUOffset<flatbuffers::Table<'a>>>(
+                    OperatorNode::VT_ATTRS,
+                    None,
+                )
+        }
     }
     #[inline]
     pub fn inputs(&self) -> Option<flatbuffers::Vector<'a, u32>> {
-        self._tab
-            .get::<flatbuffers::ForwardsUOffset<flatbuffers::Vector<'a, u32>>>(
-                OperatorNode::VT_INPUTS,
-                None,
-            )
+        // Safety:
+        // Created from valid Table for this object
+        // which contains a valid value in this slot
+        unsafe {
+            self._tab
+                .get::<flatbuffers::ForwardsUOffset<flatbuffers::Vector<'a, u32>>>(
+                    OperatorNode::VT_INPUTS,
+                    None,
+                )
+        }
     }
     #[inline]
     pub fn outputs(&self) -> Option<flatbuffers::Vector<'a, u32>> {
-        self._tab
-            .get::<flatbuffers::ForwardsUOffset<flatbuffers::Vector<'a, u32>>>(
-                OperatorNode::VT_OUTPUTS,
-                None,
-            )
+        // Safety:
+        // Created from valid Table for this object
+        // which contains a valid value in this slot
+        unsafe {
+            self._tab
+                .get::<flatbuffers::ForwardsUOffset<flatbuffers::Vector<'a, u32>>>(
+                    OperatorNode::VT_OUTPUTS,
+                    None,
+                )
+        }
     }
     #[inline]
     #[allow(non_snake_case)]
     pub fn attrs_as_average_pool_attrs(&self) -> Option<AveragePoolAttrs<'a>> {
         if self.attrs_type() == OperatorAttrs::AveragePoolAttrs {
-            self.attrs().map(AveragePoolAttrs::init_from_table)
+            self.attrs().map(|t| {
+                // Safety:
+                // Created from a valid Table for this object
+                // Which contains a valid union in this slot
+                unsafe { AveragePoolAttrs::init_from_table(t) }
+            })
         } else {
             None
         }
@@ -3431,7 +3615,12 @@ impl<'a> OperatorNode<'a> {
     #[allow(non_snake_case)]
     pub fn attrs_as_batch_normalization_attrs(&self) -> Option<BatchNormalizationAttrs<'a>> {
         if self.attrs_type() == OperatorAttrs::BatchNormalizationAttrs {
-            self.attrs().map(BatchNormalizationAttrs::init_from_table)
+            self.attrs().map(|t| {
+                // Safety:
+                // Created from a valid Table for this object
+                // Which contains a valid union in this slot
+                unsafe { BatchNormalizationAttrs::init_from_table(t) }
+            })
         } else {
             None
         }
@@ -3441,7 +3630,12 @@ impl<'a> OperatorNode<'a> {
     #[allow(non_snake_case)]
     pub fn attrs_as_cast_attrs(&self) -> Option<CastAttrs<'a>> {
         if self.attrs_type() == OperatorAttrs::CastAttrs {
-            self.attrs().map(CastAttrs::init_from_table)
+            self.attrs().map(|t| {
+                // Safety:
+                // Created from a valid Table for this object
+                // Which contains a valid union in this slot
+                unsafe { CastAttrs::init_from_table(t) }
+            })
         } else {
             None
         }
@@ -3451,7 +3645,12 @@ impl<'a> OperatorNode<'a> {
     #[allow(non_snake_case)]
     pub fn attrs_as_clip_attrs(&self) -> Option<ClipAttrs<'a>> {
         if self.attrs_type() == OperatorAttrs::ClipAttrs {
-            self.attrs().map(ClipAttrs::init_from_table)
+            self.attrs().map(|t| {
+                // Safety:
+                // Created from a valid Table for this object
+                // Which contains a valid union in this slot
+                unsafe { ClipAttrs::init_from_table(t) }
+            })
         } else {
             None
         }
@@ -3461,7 +3660,12 @@ impl<'a> OperatorNode<'a> {
     #[allow(non_snake_case)]
     pub fn attrs_as_concat_attrs(&self) -> Option<ConcatAttrs<'a>> {
         if self.attrs_type() == OperatorAttrs::ConcatAttrs {
-            self.attrs().map(ConcatAttrs::init_from_table)
+            self.attrs().map(|t| {
+                // Safety:
+                // Created from a valid Table for this object
+                // Which contains a valid union in this slot
+                unsafe { ConcatAttrs::init_from_table(t) }
+            })
         } else {
             None
         }
@@ -3471,7 +3675,12 @@ impl<'a> OperatorNode<'a> {
     #[allow(non_snake_case)]
     pub fn attrs_as_constant_of_shape_attrs(&self) -> Option<ConstantOfShapeAttrs<'a>> {
         if self.attrs_type() == OperatorAttrs::ConstantOfShapeAttrs {
-            self.attrs().map(ConstantOfShapeAttrs::init_from_table)
+            self.attrs().map(|t| {
+                // Safety:
+                // Created from a valid Table for this object
+                // Which contains a valid union in this slot
+                unsafe { ConstantOfShapeAttrs::init_from_table(t) }
+            })
         } else {
             None
         }
@@ -3481,7 +3690,12 @@ impl<'a> OperatorNode<'a> {
     #[allow(non_snake_case)]
     pub fn attrs_as_conv_attrs(&self) -> Option<ConvAttrs<'a>> {
         if self.attrs_type() == OperatorAttrs::ConvAttrs {
-            self.attrs().map(ConvAttrs::init_from_table)
+            self.attrs().map(|t| {
+                // Safety:
+                // Created from a valid Table for this object
+                // Which contains a valid union in this slot
+                unsafe { ConvAttrs::init_from_table(t) }
+            })
         } else {
             None
         }
@@ -3491,7 +3705,12 @@ impl<'a> OperatorNode<'a> {
     #[allow(non_snake_case)]
     pub fn attrs_as_conv_transpose_attrs(&self) -> Option<ConvTransposeAttrs<'a>> {
         if self.attrs_type() == OperatorAttrs::ConvTransposeAttrs {
-            self.attrs().map(ConvTransposeAttrs::init_from_table)
+            self.attrs().map(|t| {
+                // Safety:
+                // Created from a valid Table for this object
+                // Which contains a valid union in this slot
+                unsafe { ConvTransposeAttrs::init_from_table(t) }
+            })
         } else {
             None
         }
@@ -3501,7 +3720,12 @@ impl<'a> OperatorNode<'a> {
     #[allow(non_snake_case)]
     pub fn attrs_as_gather_attrs(&self) -> Option<GatherAttrs<'a>> {
         if self.attrs_type() == OperatorAttrs::GatherAttrs {
-            self.attrs().map(GatherAttrs::init_from_table)
+            self.attrs().map(|t| {
+                // Safety:
+                // Created from a valid Table for this object
+                // Which contains a valid union in this slot
+                unsafe { GatherAttrs::init_from_table(t) }
+            })
         } else {
             None
         }
@@ -3511,7 +3735,12 @@ impl<'a> OperatorNode<'a> {
     #[allow(non_snake_case)]
     pub fn attrs_as_gemm_attrs(&self) -> Option<GemmAttrs<'a>> {
         if self.attrs_type() == OperatorAttrs::GemmAttrs {
-            self.attrs().map(GemmAttrs::init_from_table)
+            self.attrs().map(|t| {
+                // Safety:
+                // Created from a valid Table for this object
+                // Which contains a valid union in this slot
+                unsafe { GemmAttrs::init_from_table(t) }
+            })
         } else {
             None
         }
@@ -3521,7 +3750,12 @@ impl<'a> OperatorNode<'a> {
     #[allow(non_snake_case)]
     pub fn attrs_as_leaky_relu_attrs(&self) -> Option<LeakyReluAttrs<'a>> {
         if self.attrs_type() == OperatorAttrs::LeakyReluAttrs {
-            self.attrs().map(LeakyReluAttrs::init_from_table)
+            self.attrs().map(|t| {
+                // Safety:
+                // Created from a valid Table for this object
+                // Which contains a valid union in this slot
+                unsafe { LeakyReluAttrs::init_from_table(t) }
+            })
         } else {
             None
         }
@@ -3531,7 +3765,12 @@ impl<'a> OperatorNode<'a> {
     #[allow(non_snake_case)]
     pub fn attrs_as_max_pool_attrs(&self) -> Option<MaxPoolAttrs<'a>> {
         if self.attrs_type() == OperatorAttrs::MaxPoolAttrs {
-            self.attrs().map(MaxPoolAttrs::init_from_table)
+            self.attrs().map(|t| {
+                // Safety:
+                // Created from a valid Table for this object
+                // Which contains a valid union in this slot
+                unsafe { MaxPoolAttrs::init_from_table(t) }
+            })
         } else {
             None
         }
@@ -3541,7 +3780,12 @@ impl<'a> OperatorNode<'a> {
     #[allow(non_snake_case)]
     pub fn attrs_as_pad_attrs(&self) -> Option<PadAttrs<'a>> {
         if self.attrs_type() == OperatorAttrs::PadAttrs {
-            self.attrs().map(PadAttrs::init_from_table)
+            self.attrs().map(|t| {
+                // Safety:
+                // Created from a valid Table for this object
+                // Which contains a valid union in this slot
+                unsafe { PadAttrs::init_from_table(t) }
+            })
         } else {
             None
         }
@@ -3551,7 +3795,12 @@ impl<'a> OperatorNode<'a> {
     #[allow(non_snake_case)]
     pub fn attrs_as_reduce_mean_attrs(&self) -> Option<ReduceMeanAttrs<'a>> {
         if self.attrs_type() == OperatorAttrs::ReduceMeanAttrs {
-            self.attrs().map(ReduceMeanAttrs::init_from_table)
+            self.attrs().map(|t| {
+                // Safety:
+                // Created from a valid Table for this object
+                // Which contains a valid union in this slot
+                unsafe { ReduceMeanAttrs::init_from_table(t) }
+            })
         } else {
             None
         }
@@ -3561,7 +3810,12 @@ impl<'a> OperatorNode<'a> {
     #[allow(non_snake_case)]
     pub fn attrs_as_split_attrs(&self) -> Option<SplitAttrs<'a>> {
         if self.attrs_type() == OperatorAttrs::SplitAttrs {
-            self.attrs().map(SplitAttrs::init_from_table)
+            self.attrs().map(|t| {
+                // Safety:
+                // Created from a valid Table for this object
+                // Which contains a valid union in this slot
+                unsafe { SplitAttrs::init_from_table(t) }
+            })
         } else {
             None
         }
@@ -3571,7 +3825,12 @@ impl<'a> OperatorNode<'a> {
     #[allow(non_snake_case)]
     pub fn attrs_as_squeeze_attrs(&self) -> Option<SqueezeAttrs<'a>> {
         if self.attrs_type() == OperatorAttrs::SqueezeAttrs {
-            self.attrs().map(SqueezeAttrs::init_from_table)
+            self.attrs().map(|t| {
+                // Safety:
+                // Created from a valid Table for this object
+                // Which contains a valid union in this slot
+                unsafe { SqueezeAttrs::init_from_table(t) }
+            })
         } else {
             None
         }
@@ -3581,7 +3840,12 @@ impl<'a> OperatorNode<'a> {
     #[allow(non_snake_case)]
     pub fn attrs_as_softmax_attrs(&self) -> Option<SoftmaxAttrs<'a>> {
         if self.attrs_type() == OperatorAttrs::SoftmaxAttrs {
-            self.attrs().map(SoftmaxAttrs::init_from_table)
+            self.attrs().map(|t| {
+                // Safety:
+                // Created from a valid Table for this object
+                // Which contains a valid union in this slot
+                unsafe { SoftmaxAttrs::init_from_table(t) }
+            })
         } else {
             None
         }
@@ -3591,7 +3855,12 @@ impl<'a> OperatorNode<'a> {
     #[allow(non_snake_case)]
     pub fn attrs_as_transpose_attrs(&self) -> Option<TransposeAttrs<'a>> {
         if self.attrs_type() == OperatorAttrs::TransposeAttrs {
-            self.attrs().map(TransposeAttrs::init_from_table)
+            self.attrs().map(|t| {
+                // Safety:
+                // Created from a valid Table for this object
+                // Which contains a valid union in this slot
+                unsafe { TransposeAttrs::init_from_table(t) }
+            })
         } else {
             None
         }
@@ -3601,7 +3870,12 @@ impl<'a> OperatorNode<'a> {
     #[allow(non_snake_case)]
     pub fn attrs_as_unsqueeze_attrs(&self) -> Option<UnsqueezeAttrs<'a>> {
         if self.attrs_type() == OperatorAttrs::UnsqueezeAttrs {
-            self.attrs().map(UnsqueezeAttrs::init_from_table)
+            self.attrs().map(|t| {
+                // Safety:
+                // Created from a valid Table for this object
+                // Which contains a valid union in this slot
+                unsafe { UnsqueezeAttrs::init_from_table(t) }
+            })
         } else {
             None
         }
@@ -3931,9 +4205,9 @@ pub struct FloatData<'a> {
 impl<'a> flatbuffers::Follow<'a> for FloatData<'a> {
     type Inner = FloatData<'a>;
     #[inline]
-    fn follow(buf: &'a [u8], loc: usize) -> Self::Inner {
+    unsafe fn follow(buf: &'a [u8], loc: usize) -> Self::Inner {
         Self {
-            _tab: flatbuffers::Table { buf, loc },
+            _tab: flatbuffers::Table::new(buf, loc),
         }
     }
 }
@@ -3942,7 +4216,7 @@ impl<'a> FloatData<'a> {
     pub const VT_DATA: flatbuffers::VOffsetT = 4;
 
     #[inline]
-    pub fn init_from_table(table: flatbuffers::Table<'a>) -> Self {
+    pub unsafe fn init_from_table(table: flatbuffers::Table<'a>) -> Self {
         FloatData { _tab: table }
     }
     #[allow(unused_mut)]
@@ -3959,12 +4233,17 @@ impl<'a> FloatData<'a> {
 
     #[inline]
     pub fn data(&self) -> flatbuffers::Vector<'a, f32> {
-        self._tab
-            .get::<flatbuffers::ForwardsUOffset<flatbuffers::Vector<'a, f32>>>(
-                FloatData::VT_DATA,
-                None,
-            )
-            .unwrap()
+        // Safety:
+        // Created from valid Table for this object
+        // which contains a valid value in this slot
+        unsafe {
+            self._tab
+                .get::<flatbuffers::ForwardsUOffset<flatbuffers::Vector<'a, f32>>>(
+                    FloatData::VT_DATA,
+                    None,
+                )
+                .unwrap()
+        }
     }
 }
 
@@ -4040,9 +4319,9 @@ pub struct IntData<'a> {
 impl<'a> flatbuffers::Follow<'a> for IntData<'a> {
     type Inner = IntData<'a>;
     #[inline]
-    fn follow(buf: &'a [u8], loc: usize) -> Self::Inner {
+    unsafe fn follow(buf: &'a [u8], loc: usize) -> Self::Inner {
         Self {
-            _tab: flatbuffers::Table { buf, loc },
+            _tab: flatbuffers::Table::new(buf, loc),
         }
     }
 }
@@ -4051,7 +4330,7 @@ impl<'a> IntData<'a> {
     pub const VT_DATA: flatbuffers::VOffsetT = 4;
 
     #[inline]
-    pub fn init_from_table(table: flatbuffers::Table<'a>) -> Self {
+    pub unsafe fn init_from_table(table: flatbuffers::Table<'a>) -> Self {
         IntData { _tab: table }
     }
     #[allow(unused_mut)]
@@ -4068,12 +4347,17 @@ impl<'a> IntData<'a> {
 
     #[inline]
     pub fn data(&self) -> flatbuffers::Vector<'a, i32> {
-        self._tab
-            .get::<flatbuffers::ForwardsUOffset<flatbuffers::Vector<'a, i32>>>(
-                IntData::VT_DATA,
-                None,
-            )
-            .unwrap()
+        // Safety:
+        // Created from valid Table for this object
+        // which contains a valid value in this slot
+        unsafe {
+            self._tab
+                .get::<flatbuffers::ForwardsUOffset<flatbuffers::Vector<'a, i32>>>(
+                    IntData::VT_DATA,
+                    None,
+                )
+                .unwrap()
+        }
     }
 }
 
@@ -4149,9 +4433,9 @@ pub struct ConstantNode<'a> {
 impl<'a> flatbuffers::Follow<'a> for ConstantNode<'a> {
     type Inner = ConstantNode<'a>;
     #[inline]
-    fn follow(buf: &'a [u8], loc: usize) -> Self::Inner {
+    unsafe fn follow(buf: &'a [u8], loc: usize) -> Self::Inner {
         Self {
-            _tab: flatbuffers::Table { buf, loc },
+            _tab: flatbuffers::Table::new(buf, loc),
         }
     }
 }
@@ -4162,7 +4446,7 @@ impl<'a> ConstantNode<'a> {
     pub const VT_DATA: flatbuffers::VOffsetT = 8;
 
     #[inline]
-    pub fn init_from_table(table: flatbuffers::Table<'a>) -> Self {
+    pub unsafe fn init_from_table(table: flatbuffers::Table<'a>) -> Self {
         ConstantNode { _tab: table }
     }
     #[allow(unused_mut)]
@@ -4183,34 +4467,52 @@ impl<'a> ConstantNode<'a> {
 
     #[inline]
     pub fn shape(&self) -> flatbuffers::Vector<'a, u32> {
-        self._tab
-            .get::<flatbuffers::ForwardsUOffset<flatbuffers::Vector<'a, u32>>>(
-                ConstantNode::VT_SHAPE,
-                None,
-            )
-            .unwrap()
+        // Safety:
+        // Created from valid Table for this object
+        // which contains a valid value in this slot
+        unsafe {
+            self._tab
+                .get::<flatbuffers::ForwardsUOffset<flatbuffers::Vector<'a, u32>>>(
+                    ConstantNode::VT_SHAPE,
+                    None,
+                )
+                .unwrap()
+        }
     }
     #[inline]
     pub fn data_type(&self) -> ConstantData {
-        self._tab
-            .get::<ConstantData>(ConstantNode::VT_DATA_TYPE, Some(ConstantData::NONE))
-            .unwrap()
+        // Safety:
+        // Created from valid Table for this object
+        // which contains a valid value in this slot
+        unsafe {
+            self._tab
+                .get::<ConstantData>(ConstantNode::VT_DATA_TYPE, Some(ConstantData::NONE))
+                .unwrap()
+        }
     }
     #[inline]
     pub fn data(&self) -> flatbuffers::Table<'a> {
-        self._tab
-            .get::<flatbuffers::ForwardsUOffset<flatbuffers::Table<'a>>>(
-                ConstantNode::VT_DATA,
-                None,
-            )
-            .unwrap()
+        // Safety:
+        // Created from valid Table for this object
+        // which contains a valid value in this slot
+        unsafe {
+            self._tab
+                .get::<flatbuffers::ForwardsUOffset<flatbuffers::Table<'a>>>(
+                    ConstantNode::VT_DATA,
+                    None,
+                )
+                .unwrap()
+        }
     }
     #[inline]
     #[allow(non_snake_case)]
     pub fn data_as_float_data(&self) -> Option<FloatData<'a>> {
         if self.data_type() == ConstantData::FloatData {
             let u = self.data();
-            Some(FloatData::init_from_table(u))
+            // Safety:
+            // Created from a valid Table for this object
+            // Which contains a valid union in this slot
+            Some(unsafe { FloatData::init_from_table(u) })
         } else {
             None
         }
@@ -4221,7 +4523,10 @@ impl<'a> ConstantNode<'a> {
     pub fn data_as_int_data(&self) -> Option<IntData<'a>> {
         if self.data_type() == ConstantData::IntData {
             let u = self.data();
-            Some(IntData::init_from_table(u))
+            // Safety:
+            // Created from a valid Table for this object
+            // Which contains a valid union in this slot
+            Some(unsafe { IntData::init_from_table(u) })
         } else {
             None
         }
@@ -4365,16 +4670,16 @@ pub struct ValueNode<'a> {
 impl<'a> flatbuffers::Follow<'a> for ValueNode<'a> {
     type Inner = ValueNode<'a>;
     #[inline]
-    fn follow(buf: &'a [u8], loc: usize) -> Self::Inner {
+    unsafe fn follow(buf: &'a [u8], loc: usize) -> Self::Inner {
         Self {
-            _tab: flatbuffers::Table { buf, loc },
+            _tab: flatbuffers::Table::new(buf, loc),
         }
     }
 }
 
 impl<'a> ValueNode<'a> {
     #[inline]
-    pub fn init_from_table(table: flatbuffers::Table<'a>) -> Self {
+    pub unsafe fn init_from_table(table: flatbuffers::Table<'a>) -> Self {
         ValueNode { _tab: table }
     }
     #[allow(unused_mut)]
@@ -4442,9 +4747,9 @@ pub struct Node<'a> {
 impl<'a> flatbuffers::Follow<'a> for Node<'a> {
     type Inner = Node<'a>;
     #[inline]
-    fn follow(buf: &'a [u8], loc: usize) -> Self::Inner {
+    unsafe fn follow(buf: &'a [u8], loc: usize) -> Self::Inner {
         Self {
-            _tab: flatbuffers::Table { buf, loc },
+            _tab: flatbuffers::Table::new(buf, loc),
         }
     }
 }
@@ -4455,7 +4760,7 @@ impl<'a> Node<'a> {
     pub const VT_DATA: flatbuffers::VOffsetT = 8;
 
     #[inline]
-    pub fn init_from_table(table: flatbuffers::Table<'a>) -> Self {
+    pub unsafe fn init_from_table(table: flatbuffers::Table<'a>) -> Self {
         Node { _tab: table }
     }
     #[allow(unused_mut)]
@@ -4476,25 +4781,45 @@ impl<'a> Node<'a> {
 
     #[inline]
     pub fn name(&self) -> Option<&'a str> {
-        self._tab
-            .get::<flatbuffers::ForwardsUOffset<&str>>(Node::VT_NAME, None)
+        // Safety:
+        // Created from valid Table for this object
+        // which contains a valid value in this slot
+        unsafe {
+            self._tab
+                .get::<flatbuffers::ForwardsUOffset<&str>>(Node::VT_NAME, None)
+        }
     }
     #[inline]
     pub fn data_type(&self) -> NodeKind {
-        self._tab
-            .get::<NodeKind>(Node::VT_DATA_TYPE, Some(NodeKind::NONE))
-            .unwrap()
+        // Safety:
+        // Created from valid Table for this object
+        // which contains a valid value in this slot
+        unsafe {
+            self._tab
+                .get::<NodeKind>(Node::VT_DATA_TYPE, Some(NodeKind::NONE))
+                .unwrap()
+        }
     }
     #[inline]
     pub fn data(&self) -> Option<flatbuffers::Table<'a>> {
-        self._tab
-            .get::<flatbuffers::ForwardsUOffset<flatbuffers::Table<'a>>>(Node::VT_DATA, None)
+        // Safety:
+        // Created from valid Table for this object
+        // which contains a valid value in this slot
+        unsafe {
+            self._tab
+                .get::<flatbuffers::ForwardsUOffset<flatbuffers::Table<'a>>>(Node::VT_DATA, None)
+        }
     }
     #[inline]
     #[allow(non_snake_case)]
     pub fn data_as_operator_node(&self) -> Option<OperatorNode<'a>> {
         if self.data_type() == NodeKind::OperatorNode {
-            self.data().map(OperatorNode::init_from_table)
+            self.data().map(|t| {
+                // Safety:
+                // Created from a valid Table for this object
+                // Which contains a valid union in this slot
+                unsafe { OperatorNode::init_from_table(t) }
+            })
         } else {
             None
         }
@@ -4504,7 +4829,12 @@ impl<'a> Node<'a> {
     #[allow(non_snake_case)]
     pub fn data_as_constant_node(&self) -> Option<ConstantNode<'a>> {
         if self.data_type() == NodeKind::ConstantNode {
-            self.data().map(ConstantNode::init_from_table)
+            self.data().map(|t| {
+                // Safety:
+                // Created from a valid Table for this object
+                // Which contains a valid union in this slot
+                unsafe { ConstantNode::init_from_table(t) }
+            })
         } else {
             None
         }
@@ -4514,7 +4844,12 @@ impl<'a> Node<'a> {
     #[allow(non_snake_case)]
     pub fn data_as_value_node(&self) -> Option<ValueNode<'a>> {
         if self.data_type() == NodeKind::ValueNode {
-            self.data().map(ValueNode::init_from_table)
+            self.data().map(|t| {
+                // Safety:
+                // Created from a valid Table for this object
+                // Which contains a valid union in this slot
+                unsafe { ValueNode::init_from_table(t) }
+            })
         } else {
             None
         }
@@ -4664,9 +4999,9 @@ pub struct Graph<'a> {
 impl<'a> flatbuffers::Follow<'a> for Graph<'a> {
     type Inner = Graph<'a>;
     #[inline]
-    fn follow(buf: &'a [u8], loc: usize) -> Self::Inner {
+    unsafe fn follow(buf: &'a [u8], loc: usize) -> Self::Inner {
         Self {
-            _tab: flatbuffers::Table { buf, loc },
+            _tab: flatbuffers::Table::new(buf, loc),
         }
     }
 }
@@ -4677,7 +5012,7 @@ impl<'a> Graph<'a> {
     pub const VT_OUTPUTS: flatbuffers::VOffsetT = 8;
 
     #[inline]
-    pub fn init_from_table(table: flatbuffers::Table<'a>) -> Self {
+    pub unsafe fn init_from_table(table: flatbuffers::Table<'a>) -> Self {
         Graph { _tab: table }
     }
     #[allow(unused_mut)]
@@ -4700,25 +5035,40 @@ impl<'a> Graph<'a> {
 
     #[inline]
     pub fn nodes(&self) -> Option<flatbuffers::Vector<'a, flatbuffers::ForwardsUOffset<Node<'a>>>> {
-        self._tab.get::<flatbuffers::ForwardsUOffset<
-            flatbuffers::Vector<'a, flatbuffers::ForwardsUOffset<Node>>,
-        >>(Graph::VT_NODES, None)
+        // Safety:
+        // Created from valid Table for this object
+        // which contains a valid value in this slot
+        unsafe {
+            self._tab.get::<flatbuffers::ForwardsUOffset<
+                flatbuffers::Vector<'a, flatbuffers::ForwardsUOffset<Node>>,
+            >>(Graph::VT_NODES, None)
+        }
     }
     #[inline]
     pub fn inputs(&self) -> Option<flatbuffers::Vector<'a, u32>> {
-        self._tab
-            .get::<flatbuffers::ForwardsUOffset<flatbuffers::Vector<'a, u32>>>(
-                Graph::VT_INPUTS,
-                None,
-            )
+        // Safety:
+        // Created from valid Table for this object
+        // which contains a valid value in this slot
+        unsafe {
+            self._tab
+                .get::<flatbuffers::ForwardsUOffset<flatbuffers::Vector<'a, u32>>>(
+                    Graph::VT_INPUTS,
+                    None,
+                )
+        }
     }
     #[inline]
     pub fn outputs(&self) -> Option<flatbuffers::Vector<'a, u32>> {
-        self._tab
-            .get::<flatbuffers::ForwardsUOffset<flatbuffers::Vector<'a, u32>>>(
-                Graph::VT_OUTPUTS,
-                None,
-            )
+        // Safety:
+        // Created from valid Table for this object
+        // which contains a valid value in this slot
+        unsafe {
+            self._tab
+                .get::<flatbuffers::ForwardsUOffset<flatbuffers::Vector<'a, u32>>>(
+                    Graph::VT_OUTPUTS,
+                    None,
+                )
+        }
     }
 }
 
@@ -4824,9 +5174,9 @@ pub struct Model<'a> {
 impl<'a> flatbuffers::Follow<'a> for Model<'a> {
     type Inner = Model<'a>;
     #[inline]
-    fn follow(buf: &'a [u8], loc: usize) -> Self::Inner {
+    unsafe fn follow(buf: &'a [u8], loc: usize) -> Self::Inner {
         Self {
-            _tab: flatbuffers::Table { buf, loc },
+            _tab: flatbuffers::Table::new(buf, loc),
         }
     }
 }
@@ -4836,7 +5186,7 @@ impl<'a> Model<'a> {
     pub const VT_GRAPH: flatbuffers::VOffsetT = 6;
 
     #[inline]
-    pub fn init_from_table(table: flatbuffers::Table<'a>) -> Self {
+    pub unsafe fn init_from_table(table: flatbuffers::Table<'a>) -> Self {
         Model { _tab: table }
     }
     #[allow(unused_mut)]
@@ -4854,15 +5204,25 @@ impl<'a> Model<'a> {
 
     #[inline]
     pub fn schema_version(&self) -> i32 {
-        self._tab
-            .get::<i32>(Model::VT_SCHEMA_VERSION, Some(0))
-            .unwrap()
+        // Safety:
+        // Created from valid Table for this object
+        // which contains a valid value in this slot
+        unsafe {
+            self._tab
+                .get::<i32>(Model::VT_SCHEMA_VERSION, Some(0))
+                .unwrap()
+        }
     }
     #[inline]
     pub fn graph(&self) -> Graph<'a> {
-        self._tab
-            .get::<flatbuffers::ForwardsUOffset<Graph>>(Model::VT_GRAPH, None)
-            .unwrap()
+        // Safety:
+        // Created from valid Table for this object
+        // which contains a valid value in this slot
+        unsafe {
+            self._tab
+                .get::<flatbuffers::ForwardsUOffset<Graph>>(Model::VT_GRAPH, None)
+                .unwrap()
+        }
     }
 }
 
@@ -4933,18 +5293,6 @@ impl core::fmt::Debug for Model<'_> {
         ds.finish()
     }
 }
-#[inline]
-#[deprecated(since = "2.0.0", note = "Deprecated in favor of `root_as...` methods.")]
-pub fn get_root_as_model<'a>(buf: &'a [u8]) -> Model<'a> {
-    unsafe { flatbuffers::root_unchecked::<Model<'a>>(buf) }
-}
-
-#[inline]
-#[deprecated(since = "2.0.0", note = "Deprecated in favor of `root_as...` methods.")]
-pub fn get_size_prefixed_root_as_model<'a>(buf: &'a [u8]) -> Model<'a> {
-    unsafe { flatbuffers::size_prefixed_root_unchecked::<Model<'a>>(buf) }
-}
-
 #[inline]
 /// Verifies that a buffer of bytes contains a `Model`
 /// and returns it.
