@@ -51,7 +51,7 @@ struct InputConfig {
     height: u32,
 }
 
-/// Read a PNG image from `path` into an NCHW tensor.
+/// Read a PNG image from `path` into a tensor.
 fn read_image<N: Fn(usize, f32) -> f32>(
     path: &str,
     normalize_pixel: N,
