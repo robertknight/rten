@@ -65,9 +65,7 @@ fn read_image<N: Fn(usize, f32) -> f32>(
     let in_chans = match reader.output_color_type() {
         (png::ColorType::Rgb, png::BitDepth::Eight) => 3,
         (png::ColorType::Rgba, png::BitDepth::Eight) => 4,
-
-        // TODO - Convert this to an Err.
-        _ => panic!("Unsupported input image format"),
+        _ => return Err("Unsupported input image format".into()),
     };
 
     // Map input channel index, in RGB order, to output channel index
@@ -151,12 +149,12 @@ fn main() -> Result<(), Box<dyn Error>> {
         std::process::exit(1);
     }
 
-    let model_name = args.get(1).expect("model name not specified");
-    let image_path = args.get(2).expect("image path not specified");
-    let model_config = args.get(3).expect("model config name not specified");
+    let model_name = args.get(1).ok_or("model name not specified")?;
+    let image_path = args.get(2).ok_or("image path not specified")?;
+    let model_config = args.get(3).ok_or("model config name not specified")?;
 
-    let model_bytes = fs::read(model_name).expect("failed to read model");
-    let model = Model::load(&model_bytes).expect("failed to load model");
+    let model_bytes = fs::read(model_name)?;
+    let model = Model::load(&model_bytes)?;
 
     // Config values specifying preprocessing for the current model.
     let in_config = match model_config.as_str() {
@@ -195,12 +193,12 @@ fn main() -> Result<(), Box<dyn Error>> {
         .input_ids()
         .get(0)
         .copied()
-        .expect("model has no inputs");
+        .ok_or("model has no inputs")?;
     let output_id = model
         .output_ids()
         .get(0)
         .copied()
-        .expect("model has no outputs");
+        .ok_or("model has no outputs")?;
     let outputs = model.run(
         &[(input_id, (&img_tensor).into())],
         &[output_id],
