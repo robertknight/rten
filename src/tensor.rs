@@ -709,7 +709,7 @@ impl IterPos {
     }
 }
 
-/// Shared functionality for iterating over elements or offsets of a tensor.
+/// Helper for iterating over offsets of elements in a tensor.
 #[derive(Debug)]
 struct IndexingIterBase {
     /// Remaining elements to visit
@@ -723,6 +723,7 @@ struct IndexingIterBase {
 }
 
 impl IndexingIterBase {
+    /// Create an iterator over element offsets in `tensor`.
     fn new<T: Copy>(tensor: &Tensor<T>) -> IndexingIterBase {
         let dims = tensor
             .shape
@@ -742,6 +743,8 @@ impl IndexingIterBase {
         }
     }
 
+    /// Create an iterator over offsets of elements in `tensor`, as if it had
+    /// a given `shape`. This will repeat offsets as necessary.
     fn broadcast<T: Copy>(tensor: &Tensor<T>, shape: &[usize]) -> IndexingIterBase {
         // nb. We require that the broadcast shape has a length >= the actual
         // shape.
@@ -771,6 +774,7 @@ impl IndexingIterBase {
         }
     }
 
+    /// Create an iterator over offsets of a subset of elements in `tensor`.
     fn slice<T: Copy>(tensor: &Tensor<T>, ranges: &[SliceRange]) -> IndexingIterBase {
         if ranges.len() != tensor.ndim() {
             panic!(
@@ -819,26 +823,58 @@ impl IndexingIterBase {
         }
     }
 
-    fn step(&mut self) {
-        self.len -= 1;
-
-        // Take a step along the last dimension which has not reached the end.
-        let mut dim = self.pos.len() - 1;
-        while !self.pos[dim].step() {
+    /// Advance the iterator by stepping along dimension `dim`.
+    ///
+    /// The caller must calculate `stride`, the number of indices being stepped
+    /// over.
+    fn step_dim(&mut self, mut dim: usize, stride: usize) {
+        self.len -= stride;
+        let mut pos = &mut self.pos[dim];
+        while !pos.step() {
             // End of range reached for dimension `dim`. Rewind offset by
             // amount it moved since iterating from the start of this dimension.
-            self.offset -= self.pos[dim].offset_step * (self.pos[dim].steps as isize - 1);
-            self.pos[dim].step = 0;
+            self.offset -= pos.offset_step * (pos.steps as isize - 1);
+            pos.step = 0;
 
             if dim == 0 {
                 break;
             }
 
             dim -= 1;
+            pos = &mut self.pos[dim];
         }
+        self.offset += pos.offset_step;
+    }
 
-        // Advance offset for the dimension we stepped along.
-        self.offset += self.pos[dim].offset_step;
+    /// Advance iterator by one index.
+    fn step(&mut self) {
+        self.step_dim(self.pos.len() - 1, 1);
+    }
+
+    /// Advance iterator by up to `n` indices.
+    fn step_by(&mut self, n: usize) {
+        let mut n = n.min(self.len);
+        while n > 0 {
+            // Find the outermost dimension that we can step along which will
+            // advance the iterator by <= N elements.
+            let mut dim = self.pos.len() - 1;
+            let mut stride = 1;
+            while dim > 0 {
+                let next_stride = stride * self.pos[dim].steps;
+                if next_stride >= n {
+                    break;
+                }
+                dim -= 1;
+                stride = next_stride;
+            }
+
+            // Step along the selected dimension.
+            let n_steps = n / stride;
+            for _ in 0..n_steps {
+                n -= stride;
+                self.step_dim(dim, stride);
+            }
+        }
     }
 }
 
@@ -986,6 +1022,11 @@ impl Iterator for Offsets {
 
     fn size_hint(&self) -> (usize, Option<usize>) {
         (self.base.len, Some(self.base.len))
+    }
+
+    fn nth(&mut self, n: usize) -> Option<Self::Item> {
+        self.base.step_by(n);
+        self.next()
     }
 }
 
@@ -1680,6 +1721,23 @@ mod tests {
         let x_elts_from_offset: Vec<_> = x_offsets.map(|off| x_data[off]).collect();
 
         assert_eq!(x_elts, x_elts_from_offset);
+    }
+
+    #[test]
+    fn test_offsets_nth() {
+        let x = steps(&[3]);
+        let mut iter = x.offsets();
+        assert_eq!(iter.nth(0), Some(0));
+        assert_eq!(iter.nth(0), Some(1));
+        assert_eq!(iter.nth(0), Some(2));
+        assert_eq!(iter.nth(0), None);
+
+        let x = steps(&[10]);
+        let mut iter = x.offsets();
+        assert_eq!(iter.nth(1), Some(1));
+        assert_eq!(iter.nth(5), Some(7));
+        assert_eq!(iter.nth(1), Some(9));
+        assert_eq!(iter.nth(0), None);
     }
 
     #[test]

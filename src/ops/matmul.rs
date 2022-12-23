@@ -134,8 +134,6 @@ pub fn matmul(a: &Tensor, b: &Tensor) -> Result<Tensor, OpError> {
     let a_broadcast_shape = [out_prefix, &[a_rows, a_cols]].concat();
     let b_broadcast_shape = [out_prefix, &[b_rows, b_cols]].concat();
 
-    // TODO: Optimize `Iterator::nth` for `Offsets` to optimize the `step_by`
-    // iterator.
     let a_offsets = a
         .broadcast_offsets(&a_broadcast_shape)
         .step_by(a_rows * a_cols);
