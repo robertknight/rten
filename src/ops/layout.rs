@@ -38,7 +38,10 @@ impl Operator for Expand {
     }
 }
 
-pub fn reshape<T: Copy>(input: &Tensor<T>, shape: &Tensor<i32>) -> Result<Tensor<T>, OpError> {
+/// Compute the target shape for a reshape operation, given the shape of the
+/// input tensor and a target `shape` which may contain a "-1" entry to indicate
+/// a dimension whose size should be inferred.
+fn resolve_shape(input_shape: &[usize], shape: &Tensor<i32>) -> Result<Vec<usize>, OpError> {
     // If exactly one of the new shape's dimensions is -1, infer the size
     // from the input length and the sizes of the other dimensions.
     let mut unspecified_dim = None;
@@ -56,28 +59,43 @@ pub fn reshape<T: Copy>(input: &Tensor<T>, shape: &Tensor<i32>) -> Result<Tensor
             unspecified_dim = Some(dim);
         }
     }
-    let (unspecified_dim_size, remainder) = match input.len() {
+
+    let input_len = input_shape.iter().product();
+    let (unspecified_dim_size, remainder) = match input_len {
         0 => (0, 0),
         _ => (
-            input.len() / specified_dims_size,
-            input.len() % specified_dims_size,
+            input_len / specified_dims_size,
+            input_len % specified_dims_size,
         ),
     };
+
     if remainder != 0 {
         return Err(OpError::InvalidValue(
             "Input length must be a multiple of specified dimensions",
         ));
     }
 
-    let complete_shape: Vec<_> = shape
+    Ok(shape
         .elements()
         .map(|size| match size {
             -1 => unspecified_dim_size,
             valid => valid as usize,
         })
-        .collect();
+        .collect())
+}
 
-    Ok(input.clone_with_shape(&complete_shape))
+pub fn reshape<T: Copy>(input: &Tensor<T>, shape: &Tensor<i32>) -> Result<Tensor<T>, OpError> {
+    let out_shape = resolve_shape(input.shape(), shape)?;
+    Ok(input.clone_with_shape(&out_shape))
+}
+
+pub fn reshape_in_place<T: Copy>(
+    input: &mut Tensor<T>,
+    shape: &Tensor<i32>,
+) -> Result<(), OpError> {
+    let out_shape = resolve_shape(input.shape(), shape)?;
+    input.reshape(&out_shape);
+    Ok(())
 }
 
 #[derive(Debug)]
@@ -97,10 +115,21 @@ impl Operator for Reshape {
     }
 
     fn can_run_in_place(&self) -> bool {
-        // The ability to reshape in place depends on input and target types.
-        // If the planned inputs were passed to this method, we could do an
-        // in-place reshape if the inputs/targets were compatible.
-        false
+        true
+    }
+
+    fn run_in_place(&self, input: Output, other: &[Input]) -> Result<Output, OpError> {
+        let shape = get_input(other, 0)?;
+        match input {
+            Output::IntTensor(mut output) => {
+                reshape_in_place(&mut output, shape)?;
+                Ok(output.into())
+            }
+            Output::FloatTensor(mut output) => {
+                reshape_in_place(&mut output, shape)?;
+                Ok(output.into())
+            }
+        }
     }
 }
 
@@ -259,7 +288,8 @@ impl Operator for Unsqueeze {
 #[cfg(test)]
 mod tests {
     use crate::ops::layout::{
-        expand, reshape, squeeze, squeeze_in_place, transpose, unsqueeze, Reshape, Shape,
+        expand, reshape, reshape_in_place, squeeze, squeeze_in_place, transpose, unsqueeze,
+        Reshape, Shape,
     };
     use crate::ops::{OpError, Operator};
     use crate::rng::XorShiftRNG;
@@ -357,6 +387,15 @@ mod tests {
                 "Input length must be a multiple of specified dimensions"
             ))
         );
+    }
+
+    #[test]
+    fn test_reshape_in_place() {
+        let mut input = from_data(vec![2, 2], vec![-0.5, 0.5, 3.0, -5.5]);
+        let shape = from_data(vec![1], vec![4]);
+        let expected = input.clone_with_shape(&[4]);
+        reshape_in_place(&mut input, &shape).unwrap();
+        assert_eq!(&input, &expected);
     }
 
     #[test]
