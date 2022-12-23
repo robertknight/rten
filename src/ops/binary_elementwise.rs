@@ -29,6 +29,10 @@ fn binary_op<T: Copy + Debug, R: Copy, F: Fn(T, T) -> R>(
     b: &Tensor<T>,
     op: F,
 ) -> Result<Tensor<R>, OpError> {
+    if let Some(scalar) = b.item() {
+        return Ok(a.map(|x| op(x, scalar)));
+    }
+
     let out_shape = choose_broadcast_shape(a.shape(), b.shape());
     if !a.can_broadcast(out_shape) || !b.can_broadcast(out_shape) {
         return Err(OpError::IncompatibleInputShapes(
