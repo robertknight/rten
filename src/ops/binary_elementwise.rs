@@ -314,12 +314,20 @@ impl Operator for Mul {
 
 /// Raise elements of `a` to powers of corresponding elements in `b`.
 pub fn pow(a: &Tensor, b: &Tensor) -> Result<Tensor, OpError> {
-    binary_op(a, b, |x, y| x.powf(y))
+    if b.item() == Some(2.0) {
+        Ok(a.map(|x| x * x))
+    } else {
+        binary_op(a, b, |x, y| x.powf(y))
+    }
 }
 
 /// Perform in-place raise of elements of `a` to power of corresponding elements in `b`.
 pub fn pow_in_place(a: &mut Tensor, b: &Tensor) {
-    binary_op_in_place(a, b, |a_elt, b_elt| *a_elt = a_elt.powf(b_elt));
+    if b.item() == Some(2.0) {
+        a.apply(|x| x * x);
+    } else {
+        binary_op_in_place(a, b, |a_elt, b_elt| *a_elt = a_elt.powf(b_elt));
+    }
 }
 
 #[derive(Debug)]
@@ -687,20 +695,45 @@ mod tests {
 
     #[test]
     fn test_pow() -> Result<(), String> {
-        let a = from_vec(vec![2., 3., 4.]);
-        let b = from_scalar(2.);
-        let expected = from_vec(vec![4., 9., 16.]);
-        let result = pow(&a, &b).unwrap();
-        expect_equal(&result, &expected)
-    }
+        struct Case {
+            a: Tensor<f32>,
+            b: Tensor<f32>,
+            expected: Tensor<f32>,
+        }
 
-    #[test]
-    fn test_pow_in_place() -> Result<(), String> {
-        let mut a = from_vec(vec![2., 3., 4.]);
-        let b = from_scalar(2.);
-        let expected = from_vec(vec![4., 9., 16.]);
-        pow_in_place(&mut a, &b);
-        expect_equal(&a, &expected)
+        let cases = [
+            // Square input
+            Case {
+                a: from_vec(vec![2., 3., 4.]),
+                b: from_scalar(2.),
+                expected: from_vec(vec![4., 9., 16.]),
+            },
+            // Raise all inputs to scalar
+            Case {
+                a: from_vec(vec![2., 3., 4.]),
+                b: from_scalar(3.),
+                expected: from_vec(vec![8., 27., 64.]),
+            },
+            // Raise each input to different powers
+            Case {
+                a: from_vec(vec![2., 3., 4.]),
+                b: from_vec(vec![1., 2., 3.]),
+                expected: from_vec(vec![2., 9., 64.]),
+            },
+        ];
+
+        for case in cases {
+            // Copying variant
+            let result = pow(&case.a, &case.b).unwrap();
+            expect_equal(&result, &case.expected)?;
+
+            // In-place variant
+            let mut a = case.a.clone();
+            pow_in_place(&mut a, &case.b);
+            expect_equal(&a, &case.expected)?;
+        }
+
+        Ok(())
     }
 
     #[test]
