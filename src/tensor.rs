@@ -231,9 +231,12 @@ impl<T: Copy> Tensor<T> {
     /// Clone this tensor with a new shape. The new shape must have the same
     /// total number of elements as the existing shape. See `reshape`.
     pub fn clone_with_shape(&self, shape: &[usize]) -> Tensor<T> {
-        let mut clone = self.clone();
-        clone.reshape(shape);
-        clone
+        let data = if self.is_contiguous() {
+            self.data().into()
+        } else {
+            self.elements().collect()
+        };
+        Self::from_data(shape.into(), data)
     }
 
     /// Return an iterator over all valid indices in this tensor.
