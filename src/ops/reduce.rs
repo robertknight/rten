@@ -1,18 +1,35 @@
 use crate::ops::layout::squeeze_in_place;
 use crate::ops::{get_input, resolve_axes, Input, IntoOpResult, OpError, Operator, Output};
-use crate::tensor::{Elements, IndexIterator, SliceRange, Tensor};
+use crate::tensor::{IndexIterator, SliceRange, Tensor};
 
-fn reduce<T: Copy + Default, R: Fn(Elements<T>) -> T>(
+/// Trait for reducing a subset of elements from a tensor to a single value.
+///
+/// This is a trait rather than a closure to support being invoked with
+/// dynamically chosen iterator types.
+trait Reducer<T: Copy> {
+    fn reduce<I: ExactSizeIterator<Item = T>>(&self, iter: I) -> T;
+}
+
+fn reduce<T: Copy + Default, R: Reducer<T>>(
     input: &Tensor<T>,
     axes: Option<&[i32]>,
     keep_dims: bool,
-    reduce_op: R,
+    reducer: R,
 ) -> Result<Tensor<T>, OpError> {
-    let resolved_axes = if let Some(axes) = axes {
+    let mut resolved_axes = if let Some(axes) = axes {
         resolve_axes(input.ndim(), axes)?
     } else {
         (0..input.ndim()).collect()
     };
+    resolved_axes.sort_by(|a, b| a.cmp(b));
+
+    // Number of innermost dims being iterated over, or None if we're not
+    // iterating over innermost dims.
+    let reduced_inner_dims: Option<usize> = resolved_axes
+        .iter()
+        .enumerate()
+        .all(|(i, &axis)| axis == input.ndim() - 1 - i)
+        .then_some(resolved_axes.len());
 
     let reduced_shape: Vec<usize> = input
         .shape()
@@ -26,31 +43,44 @@ fn reduce<T: Copy + Default, R: Fn(Elements<T>) -> T>(
             }
         })
         .collect();
-
-    let outer_range: Vec<_> = (0..input.ndim())
-        .map(|dim| {
-            if resolved_axes.contains(&dim) {
-                0..1
-            } else {
-                0..input.shape()[dim]
-            }
-        })
-        .collect();
-
-    let mut outer_iter = IndexIterator::from_ranges(&outer_range);
-    let mut inner_range = Vec::with_capacity(input.ndim());
     let mut reduced_data = Vec::with_capacity(reduced_shape.iter().product());
 
-    while let Some(index) = outer_iter.next() {
-        inner_range.clear();
-        inner_range.extend(index.iter().enumerate().map(|(dim, &idx)| {
-            if resolved_axes.contains(&dim) {
-                SliceRange::new(0, input.shape()[dim] as isize, 1)
-            } else {
-                SliceRange::new(idx as isize, idx as isize + 1, 1)
+    match (reduced_inner_dims, input.is_contiguous()) {
+        (Some(ndims), true) => {
+            // Fast path for reducing over contiguous chunks of the input.
+            let slice_len = input.stride(input.ndim() - 1 - ndims);
+            reduced_data.extend((0..input.len()).step_by(slice_len).map(|offset| {
+                let slice = &input.data()[offset..offset + slice_len];
+                reducer.reduce(slice.iter().copied())
+            }));
+        }
+        _ => {
+            let outer_range: Vec<_> = (0..input.ndim())
+                .map(|dim| {
+                    if resolved_axes.contains(&dim) {
+                        0..1
+                    } else {
+                        0..input.shape()[dim]
+                    }
+                })
+                .collect();
+
+            let mut outer_iter = IndexIterator::from_ranges(&outer_range);
+            let mut inner_range = Vec::with_capacity(input.ndim());
+
+            while let Some(index) = outer_iter.next() {
+                inner_range.clear();
+                inner_range.extend(index.iter().enumerate().map(|(dim, &idx)| {
+                    if resolved_axes.contains(&dim) {
+                        SliceRange::new(0, input.shape()[dim] as isize, 1)
+                    } else {
+                        SliceRange::new(idx as isize, idx as isize + 1, 1)
+                    }
+                }));
+                let reduced = reducer.reduce(input.slice_elements(&inner_range));
+                reduced_data.push(reduced);
             }
-        }));
-        reduced_data.push(reduce_op(input.slice_elements(&inner_range)));
+        }
     }
 
     let mut reduced = Tensor::<T>::from_data(reduced_shape, reduced_data);
@@ -67,10 +97,15 @@ pub fn reduce_mean(
     axes: Option<&[i32]>,
     keep_dims: bool,
 ) -> Result<Tensor, OpError> {
-    reduce(input, axes, keep_dims, |elements| {
-        let len = elements.len() as f32;
-        elements.sum::<f32>() / len
-    })
+    struct MeanReducer {}
+    impl Reducer<f32> for MeanReducer {
+        fn reduce<I: ExactSizeIterator<Item = f32>>(&self, iter: I) -> f32 {
+            let len = iter.len() as f32;
+            iter.sum::<f32>() / len
+        }
+    }
+
+    reduce(input, axes, keep_dims, MeanReducer {})
 }
 
 #[derive(Debug)]
