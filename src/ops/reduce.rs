@@ -17,10 +17,10 @@ fn reduce<T: Copy + Default, R: Reducer<T>>(
     reducer: R,
 ) -> Result<Tensor<T>, OpError> {
     let mut resolved_axes = match axes {
-        Some(axes) if axes.len() > 0 => resolve_axes(input.ndim(), axes)?,
+        Some(axes) if !axes.is_empty() => resolve_axes(input.ndim(), axes)?,
         _ => (0..input.ndim()).collect(),
     };
-    resolved_axes.sort_by(|a, b| a.cmp(b));
+    resolved_axes.sort();
 
     if input.ndim() == 0 {
         return Ok(Tensor::from_scalar(reducer.reduce(input.elements())));
