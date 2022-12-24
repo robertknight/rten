@@ -67,6 +67,12 @@ fn binary_op_in_place<T: Copy + Debug, F: Fn(&mut T, T)>(a: &mut Tensor<T>, b: &
             for (a_elt, b_elt) in zip(a.data_mut().iter_mut(), b.data().iter()) {
                 op(a_elt, *b_elt);
             }
+        } else if &a.shape()[a.ndim() - b.ndim()..] == b.shape() && b.is_contiguous() {
+            // Variation of the above for when broadcasting just involves cycling
+            // the RHS.
+            for (a_elt, b_elt) in zip(a.data_mut().iter_mut(), b.data().iter().cycle()) {
+                op(a_elt, *b_elt);
+            }
         } else {
             // Otherwise a more complex RHS iterator is required.
             let b_elts = b.broadcast_elements(a.shape());
