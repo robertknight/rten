@@ -133,11 +133,11 @@ const MOBILENET_CONFIG: InputConfig = InputConfig {
 };
 
 /// This example loads a PNG image (RGB or RGBA format, 224x224 size for most
-/// models) and  uses an image classification model such as MobileNet to
+/// models) and uses an image classification model such as MobileNet to
 /// classify it into one of the 1000 ImageNet classes.
 ///
-/// See the `_CONFIG` constants in this model for details of where to obtain the
-/// models.
+/// See the `_CONFIG` constants in this module for details of where to obtain
+/// the models.
 fn main() -> Result<(), Box<dyn Error>> {
     let args: Vec<_> = std::env::args().collect();
     if args.len() <= 1 {
