@@ -932,6 +932,16 @@ impl<'a, T: Copy> Iterator for Elements<'a, T> {
             ElementsIter::Indexing(iter) => iter.size_hint(),
         }
     }
+
+    fn nth(&mut self, n: usize) -> Option<Self::Item> {
+        match self.iter {
+            ElementsIter::Direct(ref mut iter) => iter.nth(n).copied(),
+            ElementsIter::Indexing(ref mut iter) => {
+                iter.base.step_by(n);
+                iter.next()
+            }
+        }
+    }
 }
 
 impl<'a, T: Copy> ExactSizeIterator for Elements<'a, T> {}
@@ -1677,6 +1687,8 @@ mod tests {
         x.clip_dim(0, 0, 2);
         assert_eq!(x.data(), &[1, 2, 3, 4, 5, 6]);
         assert_eq!(x.elements().collect::<Vec<_>>(), &[1, 2, 3, 4, 5, 6]);
+        // Test with step > 1 to exercise `Elements::nth`.
+        assert_eq!(x.elements().step_by(2).collect::<Vec<_>>(), &[1, 3, 5]);
 
         // Slice the tensor along an inner dimension. The tensor will no longer
         // be contiguous and hence `elements` will return different results than
@@ -1684,6 +1696,8 @@ mod tests {
         x.clip_dim(1, 0, 2);
         assert_eq!(x.data(), &[1, 2, 3, 4, 5, 6]);
         assert_eq!(x.elements().collect::<Vec<_>>(), &[1, 2, 4, 5]);
+        // Test with step > 1 to exercise `Elements::nth`.
+        assert_eq!(x.elements().step_by(2).collect::<Vec<_>>(), &[1, 4]);
     }
 
     // PyTorch and numpy do not allow iteration over a scalar, but it seems
