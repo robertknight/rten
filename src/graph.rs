@@ -349,13 +349,7 @@ impl Graph {
                 plan.len(),
                 run_timer.elapsed()
             );
-
-            // Display cumulative times for each op type, sorted by op name
-            let mut op_timings: Vec<_> = op_elapsed.iter().collect();
-            op_timings.sort_by(|a, b| a.0.cmp(b.0));
-            for (op_name, total_time) in op_timings.iter() {
-                println!("  {} {}ms", op_name, total_time);
-            }
+            self.print_timings(&op_elapsed, run_timer.elapsed());
         }
 
         // Return the requested outputs
@@ -375,6 +369,43 @@ impl Graph {
             })
             .collect();
         Ok(result)
+    }
+
+    /// Print a table of operator timings from a graph run.
+    fn print_timings(&self, op_elapsed: &HashMap<&str, f32>, run_time: f32) {
+        // Display cumulative times for each op type, sorted by op name
+        let total_op_time: f32 = op_elapsed.values().sum();
+        let mut op_timings: Vec<_> = op_elapsed
+            .iter()
+            .map(|(name, time)| (*name, *time))
+            .collect();
+        op_timings.sort_by(|a, b| a.0.cmp(b.0));
+
+        // Show time taken by non-operator processing, such as any memory
+        // allocation / freeing that is done outside of ops.
+        op_timings.push(("[Other]", run_time - total_op_time));
+
+        let rows: Vec<_> = op_timings
+            .iter()
+            .map(|(op_name, op_total_time)| {
+                let op_percent = (*op_total_time / total_op_time) * 100.;
+                [
+                    op_name.to_string(),
+                    format!("{:.2}ms", op_total_time),
+                    format!("({:.2}%)", op_percent),
+                ]
+            })
+            .collect();
+        let col_widths: Vec<usize> = (0..3)
+            .map(|col| rows.iter().fold(0, |width, row| row[col].len().max(width)))
+            .collect();
+
+        for row in rows {
+            println!(
+                "{0:1$} {2:3$} {4:5$}",
+                row[0], col_widths[0], row[1], col_widths[1], row[2], col_widths[2]
+            );
+        }
     }
 
     /// Create an execution plan for a sequence of computation steps that begin
