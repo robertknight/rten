@@ -471,6 +471,10 @@ def op_node_from_onnx_operator(
             attrs["axes"] = get_attr(onnx_op.attribute, "axes", "ints", None)
             attrs["keep_dims"] = bool(get_attr(onnx_op.attribute, "keepdims", "int", 1))
 
+            check_unsupported_attr(
+                onnx_op.attribute, "noop_with_empty_axes", "int", 0
+            )
+
         case "Reshape":
             check_unsupported_attr(onnx_op.attribute, "allowzero", "int", 0)
 

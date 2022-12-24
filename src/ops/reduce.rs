@@ -16,12 +16,15 @@ fn reduce<T: Copy + Default, R: Reducer<T>>(
     keep_dims: bool,
     reducer: R,
 ) -> Result<Tensor<T>, OpError> {
-    let mut resolved_axes = if let Some(axes) = axes {
-        resolve_axes(input.ndim(), axes)?
-    } else {
-        (0..input.ndim()).collect()
+    let mut resolved_axes = match axes {
+        Some(axes) if axes.len() > 0 => resolve_axes(input.ndim(), axes)?,
+        _ => (0..input.ndim()).collect(),
     };
     resolved_axes.sort_by(|a, b| a.cmp(b));
+
+    if input.ndim() == 0 {
+        return Ok(Tensor::from_scalar(reducer.reduce(input.elements())));
+    }
 
     // Number of innermost dims being iterated over, or None if we're not
     // iterating over innermost dims.
@@ -160,6 +163,11 @@ mod tests {
         let expected = from_scalar(5.);
         expect_equal(&result, &expected)?;
 
+        // Reduce all axes (specified via empty array)
+        let result = reduce_mean(&input, Some(&[]), false /* keep_dims */).unwrap();
+        let expected = from_scalar(5.);
+        expect_equal(&result, &expected)?;
+
         // Test case from ONNX spec
         let input = from_data(
             vec![3, 2, 2],
@@ -168,6 +176,10 @@ mod tests {
         let expected = from_data(vec![3, 2], vec![12.5, 1.5, 35., 1.5, 57.5, 1.5]);
         let result = reduce_mean(&input, Some(&[1]), false /* keep_dims */).unwrap();
         expect_equal(&result, &expected)?;
+
+        // Reduce a scalar value
+        let result = reduce_mean(&from_scalar(5.0), Some(&[]), false /* keep_dims */).unwrap();
+        assert_eq!(result.item(), Some(5.0));
 
         Ok(())
     }
