@@ -1,4 +1,4 @@
-use std::ops::Deref;
+use std::borrow::Cow;
 
 use crate::linalg::{add_scaled_vector, div_ceil, gemm_slice, Matrix};
 use crate::ops::pooling::calc_output_size_and_padding;
@@ -116,47 +116,15 @@ fn init_tensor_with_channel_bias(shape: &[usize], chan_dim: usize, bias: &Tensor
     from_data(shape.into(), out_data)
 }
 
-/// A smart pointer that wraps either an owned value or an existing reference.
-///
-/// This is useful to avoid expensive copies of values in situations where an
-/// existing reference can often, but not always, be used.
-enum MaybeOwned<'a, T> {
-    Owned(T),
-    Ref(&'a T),
-}
-
-impl<'a, T> From<T> for MaybeOwned<'a, T> {
-    fn from(value: T) -> MaybeOwned<'a, T> {
-        MaybeOwned::Owned(value)
-    }
-}
-
-impl<'a, T> From<&'a T> for MaybeOwned<'a, T> {
-    fn from(value: &'a T) -> MaybeOwned<'a, T> {
-        MaybeOwned::Ref(value)
-    }
-}
-
-impl<'a, T> Deref for MaybeOwned<'a, T> {
-    type Target = T;
-
-    fn deref(&self) -> &T {
-        match self {
-            MaybeOwned::Owned(val) => val,
-            MaybeOwned::Ref(val) => val,
-        }
-    }
-}
-
 /// Return a smart pointer that wraps a tensor reference if it is contiguous,
 /// or a contiguous copy otherwise.
-fn contiguous_tensor<T: Copy>(tensor: &Tensor<T>) -> MaybeOwned<'_, Tensor<T>> {
+fn contiguous_tensor<T: Copy>(tensor: &Tensor<T>) -> Cow<'_, Tensor<T>> {
     if tensor.is_contiguous() {
-        tensor.into()
+        Cow::Borrowed(tensor)
     } else {
         let mut copy = tensor.clone();
         copy.make_contiguous();
-        copy.into()
+        Cow::Owned(copy)
     }
 }
 
@@ -174,8 +142,8 @@ fn conv_2d_pointwise(input: &Tensor, kernel: &Tensor, bias: Option<&Tensor>) -> 
 
     // We require contiguous inputs due to the implicit reshaping in the
     // matrix multiplication below.
-    let input: MaybeOwned<Tensor> = contiguous_tensor(input);
-    let kernel: MaybeOwned<Tensor> = contiguous_tensor(kernel);
+    let input: Cow<Tensor> = contiguous_tensor(input);
+    let kernel: Cow<Tensor> = contiguous_tensor(kernel);
 
     let out_row_stride = output.stride(1);
 
@@ -238,12 +206,12 @@ fn conv_2d_depthwise(
     };
 
     // Use of `last_dim_slice` requires contiguous last dimension.
-    let input: MaybeOwned<_> = if input.stride(input.ndim() - 1) == 1 {
-        input.into()
+    let input: Cow<_> = if input.stride(input.ndim() - 1) == 1 {
+        Cow::Borrowed(input)
     } else {
         let mut copy = input.clone();
         copy.make_contiguous();
-        copy.into()
+        Cow::Owned(copy)
     };
 
     for n in 0..batch {
@@ -472,12 +440,12 @@ pub fn conv_transpose(
     };
 
     // Use of `last_dim_slice` requires contiguous last dimension.
-    let input: MaybeOwned<_> = if input.stride(input.ndim() - 1) == 1 {
-        input.into()
+    let input: Cow<_> = if input.stride(input.ndim() - 1) == 1 {
+        Cow::Borrowed(input)
     } else {
         let mut copy = input.clone();
         copy.make_contiguous();
-        copy.into()
+        Cow::Owned(copy)
     };
 
     for n in 0..batch {
