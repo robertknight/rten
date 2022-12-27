@@ -1,10 +1,11 @@
 mod graph;
 mod linalg;
 mod model;
-mod ops;
 mod tensor;
 mod timer;
 mod wasm_api;
+
+pub mod ops;
 
 pub use graph::RunOptions;
 pub use model::Model;
