@@ -471,12 +471,35 @@ def op_node_from_onnx_operator(
             attrs["axes"] = get_attr(onnx_op.attribute, "axes", "ints", None)
             attrs["keep_dims"] = bool(get_attr(onnx_op.attribute, "keepdims", "int", 1))
 
-            check_unsupported_attr(
-                onnx_op.attribute, "noop_with_empty_axes", "int", 0
-            )
+            check_unsupported_attr(onnx_op.attribute, "noop_with_empty_axes", "int", 0)
 
         case "Reshape":
             check_unsupported_attr(onnx_op.attribute, "allowzero", "int", 0)
+
+        case "Resize":
+            attrs["mode"] = get_attr(onnx_op.attribute, "mode", "string", "nearest")
+
+            check_unsupported_attr(onnx_op.attribute, "antialias", "int", 0)
+            check_unsupported_attr(
+                onnx_op.attribute,
+                "coordinate_transformation_mode",
+                "string",
+                "half_pixel",
+            )
+            check_unsupported_attr(onnx_op.attribute, "cubic_coeff_a", "float", -0.75)
+            check_unsupported_attr(onnx_op.attribute, "exclude_outside", "int", 0)
+            check_unsupported_attr(
+                onnx_op.attribute, "extrapolation_value", "float", 0.0
+            )
+            check_unsupported_attr(
+                onnx_op.attribute, "keep_aspect_ratio_policy", "string", "stretch"
+            )
+            check_unsupported_attr(
+                onnx_op.attribute, "nearest_mode", "string", "prefer_round_floor"
+            )
+
+            # We only support resizing HW dimensions of NCHW tensor
+            check_unsupported_attr(onnx_op.attribute, "axes", "ints", [2, 3])
 
         case "Pad":
             check_unsupported_attr(onnx_op.attribute, "mode", "string", "constant")
@@ -744,6 +767,19 @@ def build_operator_node(builder: flatbuffers.Builder, operator: OperatorNode):
             if axes_vec:
                 sg.ReduceMeanAttrsAddAxes(builder, axes_vec)
             attrs = sg.ReduceMeanAttrsEnd(builder)
+
+        case "Resize":
+            if operator.attrs["mode"] == "nearest":
+                mode = sg.ResizeMode.Nearest
+            elif operator.attrs["mode"] == "linear":
+                mode = sg.ResizeMode.Linear
+            else:
+                raise ValueError(f"Unsupported resize mode {operator.attrs['mode']}")
+
+            sg.ResizeAttrsStart(builder)
+            sg.ResizeAttrsAddMode(builder, mode)
+            attrs = sg.ResizeAttrsEnd(builder)
+
         case "Softmax":
             sg.SoftmaxAttrsStart(builder)
             sg.SoftmaxAttrsAddAxis(builder, operator.attrs["axis"])

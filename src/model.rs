@@ -4,7 +4,7 @@ use std::collections::HashMap;
 
 use crate::graph::{Graph, NodeId, RunError, RunOptions};
 use crate::ops;
-use crate::ops::{DataType, Input, Operator, Output, Padding, Scalar};
+use crate::ops::{DataType, Input, Operator, Output, Padding, ResizeMode, Scalar};
 use crate::schema_generated as sg;
 use crate::schema_generated::{root_as_model, OperatorNode, OperatorType, PadMode};
 use crate::tensor::from_data;
@@ -250,6 +250,19 @@ fn read_reduce_mean_op(node: &OperatorNode) -> Box<dyn Operator> {
     Box::new(ops::ReduceMean { axes, keep_dims })
 }
 
+fn read_resize_op(node: &OperatorNode) -> Box<dyn Operator> {
+    let mode = if let Some(attrs) = node.attrs_as_resize_attrs() {
+        match attrs.mode() {
+            sg::ResizeMode::Nearest => ResizeMode::Nearest,
+            sg::ResizeMode::Linear => ResizeMode::Linear,
+            _ => ResizeMode::Nearest,
+        }
+    } else {
+        ResizeMode::Nearest
+    };
+    Box::new(ops::Resize { mode })
+}
+
 fn read_softmax_op(node: &OperatorNode) -> Box<dyn Operator> {
     let axis = match node.attrs_as_softmax_attrs() {
         Some(attrs) => attrs.axis() as usize,
@@ -340,6 +353,7 @@ fn read_operator(node: &OperatorNode) -> Result<Box<dyn Operator>, String> {
         OperatorType::ReduceMean => read_reduce_mean_op(node),
         OperatorType::Relu => op!(Relu),
         OperatorType::Reshape => op!(Reshape),
+        OperatorType::Resize => read_resize_op(node),
         OperatorType::Shape => op!(Shape),
         OperatorType::Sigmoid => op!(Sigmoid),
         OperatorType::Slice => op!(Slice),
@@ -465,7 +479,7 @@ mod tests {
     use crate::model::Model;
     use crate::model_builder::{ModelBuilder, OpType};
     use crate::ops;
-    use crate::ops::{Padding, Scalar};
+    use crate::ops::{Padding, ResizeMode, Scalar};
     use crate::tensor::{from_data, from_scalar, from_vec};
 
     fn generate_model_buffer() -> Vec<u8> {
@@ -762,6 +776,20 @@ mod tests {
             &[reshape_out],
         );
 
+        let resize_out = builder.add_value("resize_out");
+        let resize_roi_val = from_vec(vec![0., 0., 0., 0., 1., 1., 1., 1.]);
+        let resize_scales_val = from_vec(vec![1., 1., 2., 2.]);
+        let resize_roi = builder.add_float_constant(&resize_roi_val);
+        let resize_scales = builder.add_float_constant(&resize_scales_val);
+        builder.add_operator(
+            "resize",
+            OpType::Resize(ops::Resize {
+                mode: ResizeMode::Nearest,
+            }),
+            &[input_node, resize_roi, resize_scales],
+            &[resize_out],
+        );
+
         let shape_out = builder.add_value("shape_out");
         builder.add_operator("shape", OpType::Shape, &[input_node], &[shape_out]);
 
@@ -869,6 +897,7 @@ mod tests {
             "reduce_mean_out",
             "relu_out",
             "reshape_out",
+            "resize_out",
             "shape_out",
             "sigmoid_out",
             "slice_out",

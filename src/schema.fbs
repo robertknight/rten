@@ -35,6 +35,7 @@ enum OperatorType: byte {
   ReduceMean,
   Relu,
   Reshape,
+  Resize,
   Shape,
   Sigmoid,
   Slice,
@@ -58,6 +59,11 @@ enum DataType: byte {
   Float
 }
 
+enum ResizeMode: byte {
+  Nearest,
+  Linear
+}
+
 // Operator-specific configuration
 union OperatorAttrs {
   AveragePoolAttrs,
@@ -74,11 +80,12 @@ union OperatorAttrs {
   MaxPoolAttrs,
   PadAttrs,
   ReduceMeanAttrs,
+  ResizeAttrs,
   SplitAttrs,
   SqueezeAttrs,
   SoftmaxAttrs,
   TransposeAttrs,
-  UnsqueezeAttrs
+  UnsqueezeAttrs,
 }
 
 table AveragePoolAttrs {
@@ -190,6 +197,10 @@ table TransposeAttrs {
 
 table UnsqueezeAttrs {
   axes:[uint] (required);
+}
+
+table ResizeAttrs {
+  mode:ResizeMode;
 }
 
 // Node in the dataflow graph
