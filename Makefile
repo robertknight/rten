@@ -39,3 +39,8 @@ src/schema_generated.rs: src/schema.fbs
 
 tools/schema_generated.py: src/schema.fbs
 	flatc -o tools/ --gen-onefile --gen-object-api --python src/schema.fbs
+
+
+.PHONY: gen-pytorch-references
+gen-pytorch-references:
+	python -m pytorch-ref-tests.lstm

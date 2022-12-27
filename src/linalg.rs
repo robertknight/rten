@@ -495,6 +495,18 @@ pub struct Matrix<'a> {
     pub col_stride: usize,
 }
 
+impl<'a> Matrix<'a> {
+    pub fn transposed(self) -> Matrix<'a> {
+        Matrix {
+            data: self.data,
+            rows: self.cols,
+            cols: self.rows,
+            row_stride: self.col_stride,
+            col_stride: self.row_stride,
+        }
+    }
+}
+
 /// Perform a General Matrix Multiplication ("gemm").
 ///
 /// This computes `output = alpha * (a @ b) + beta * output` where `@` is

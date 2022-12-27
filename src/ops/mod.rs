@@ -10,6 +10,7 @@ mod conv;
 mod convert;
 mod generate;
 mod layout;
+mod lstm;
 mod matmul;
 mod norm;
 mod pad;
@@ -32,6 +33,7 @@ pub use layout::{
     expand, reshape, squeeze, squeeze_in_place, Expand, Reshape, Shape, Squeeze, Transpose,
     Unsqueeze,
 };
+pub use lstm::{lstm, LSTMDirection, LSTM};
 pub use matmul::{gemm_op, matmul, Gemm, MatMul};
 pub use norm::{batch_norm, batch_norm_in_place, softmax, BatchNormalization, Softmax};
 pub use pad::{pad, Pad};
@@ -235,6 +237,15 @@ where
 {
     fn into_op_result(self) -> Result<Vec<Output>, OpError> {
         self.map(|tensor| [tensor.into()].into())
+    }
+}
+
+impl<T: Copy> IntoOpResult for Result<Vec<Tensor<T>>, OpError>
+where
+    Output: From<Tensor<T>>,
+{
+    fn into_op_result(self) -> Result<Vec<Output>, OpError> {
+        self.map(|tensors| tensors.into_iter().map(|t| t.into()).collect())
     }
 }
 

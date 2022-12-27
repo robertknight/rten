@@ -520,6 +520,28 @@ def op_node_from_onnx_operator(
             attrs = sg.LeakyReluAttrsT()
             attrs.alpha = op_reader.get_attr("alpha", "float", 0.01)
 
+        case "LSTM":
+            attrs = sg.LSTMAttrsT()
+            dir_str = op_reader.get_attr("direction", "string", "forward")
+            attrs.hiddenSize = op_reader.require_attr("hidden_size", "int")
+
+            match dir_str:
+                case "forward":
+                    attrs.direction = sg.LSTMDirection.Forwards
+                case "reverse":
+                    attrs.direction = sg.LSTMDirection.Reverse
+                case "bidirectional":
+                    attrs.direction = sg.LSTMDirection.Bidirectional
+                case _:
+                    raise ValueError(f'Invalid LSTM direction "{dir_str}"')
+
+            op_reader.check_attr("activation_alpha", "floats", [])
+            op_reader.check_attr("activation_beta", "floats", [])
+            op_reader.check_attr("activations", "strings", [])
+            op_reader.check_attr("clip", "float", 0.0)
+            op_reader.check_attr("input_forget", "int", 0)
+            op_reader.check_attr("layout", "int", 0)
+
         case "MaxPool":
             attrs = sg.MaxPoolAttrsT()
             kernel_shape = op_reader.require_attr("kernel_shape", "ints")
@@ -762,6 +784,7 @@ def build_operator_node(builder: flatbuffers.Builder, operator: OperatorNode):
         attrs_type = getattr(sg.OperatorAttrs, attr_const_name)
     else:
         attrs_type = sg.OperatorAttrs.NONE
+
     operator_table = sg.OperatorNodeT()
     operator_table.type = getattr(sg.OperatorType, operator.op_type)
     operator_table.attrsType = attrs_type
