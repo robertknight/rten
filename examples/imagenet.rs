@@ -4,6 +4,7 @@ extern crate wasnn;
 use std::error::Error;
 use std::fs;
 
+use wasnn::ops::{resize, ResizeMode, ResizeTarget};
 use wasnn::{Model, RunOptions, Tensor};
 
 #[derive(Clone, Copy, PartialEq)]
@@ -185,9 +186,20 @@ fn main() -> Result<(), Box<dyn Error>> {
         DimOrder::Nhwc => (img_tensor.shape()[1], img_tensor.shape()[2]),
     };
 
-    if height != in_config.height as usize || width != in_config.width as usize {
-        println!("Image size {}x{} is different than expected size of {}x{}. This may cause incorrect results.", width, height, in_config.width, in_config.height);
-    }
+    let img_tensor = if height != in_config.height as usize || width != in_config.width as usize {
+        resize(
+            &img_tensor,
+            ResizeTarget::Sizes(&Tensor::from_vec(vec![
+                1,
+                img_tensor.shape()[1] as i32,
+                in_config.height as i32,
+                in_config.width as i32,
+            ])),
+            ResizeMode::Linear,
+        )?
+    } else {
+        img_tensor
+    };
 
     let input_id = model
         .input_ids()
