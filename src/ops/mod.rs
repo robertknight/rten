@@ -1,4 +1,6 @@
-use std::fmt::Debug;
+use std::error::Error;
+use std::fmt;
+use std::fmt::{Debug, Display};
 use std::iter::zip;
 use std::ops;
 
@@ -228,6 +230,29 @@ pub enum OpError {
     /// An input or attribute has a value that is valid, but not currently supported.
     UnsupportedValue(&'static str),
 }
+
+impl Display for OpError {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            OpError::UnsupportedInputType => write!(f, "unsupported input type"),
+            OpError::IncompatibleInputShapes(details) => {
+                write!(f, "incompatible input shapes: {}", details)
+            }
+            OpError::IncompatibleInputTypes(details) => {
+                write!(f, "incompatible input types: {}", details)
+            }
+            OpError::MissingInputs => write!(f, "required inputs were missing"),
+            OpError::InvalidValue(details) => {
+                write!(f, "input or attribute has invalid value: {}", details)
+            }
+            OpError::UnsupportedValue(details) => {
+                write!(f, "unsupported input or attribute value: {}", details)
+            }
+        }
+    }
+}
+
+impl Error for OpError {}
 
 /// An Operator performs a computation step when executing a data flow graph.
 ///
