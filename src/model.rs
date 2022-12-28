@@ -76,274 +76,230 @@ fn array_from_iter<const N: usize, T: Default + Copy, I: Iterator<Item = T>>(
     result
 }
 
-fn read_average_pool_op(node: &OperatorNode) -> Box<dyn Operator> {
-    let kernel_size: [usize; 2];
-    let padding;
-    let stride: [usize; 2];
+/// Error type for errors that occur when de-serializing an operator.
+enum ReadOpError {
+    /// The operator attributes were missing or of the wrong type.
+    AttrError,
+    /// The operator type is incorrect or unsupported.
+    UnsupportedOperator,
+}
 
-    if let Some(attrs) = node.attrs_as_average_pool_attrs() {
-        kernel_size = array_from_iter(attrs.kernel_size().iter().map(|x| x as usize));
-        padding = padding_from_attrs(attrs.pad_mode(), attrs.pads());
-        stride = attrs
-            .stride()
-            .map(|stride| array_from_iter(stride.iter().map(|x| x as usize)))
-            .unwrap_or([1, 1]);
-    } else {
-        kernel_size = [1, 1];
-        padding = Padding::Fixed([0, 0, 0, 0]);
-        stride = [1, 1];
-    }
+type ReadOpResult = Result<Box<dyn Operator>, ReadOpError>;
 
-    Box::new(ops::AveragePool {
+fn read_average_pool_op(node: &OperatorNode) -> ReadOpResult {
+    let attrs = node
+        .attrs_as_average_pool_attrs()
+        .ok_or(ReadOpError::AttrError)?;
+
+    let kernel_size = array_from_iter(attrs.kernel_size().iter().map(|x| x as usize));
+    let padding = padding_from_attrs(attrs.pad_mode(), attrs.pads());
+    let stride = attrs
+        .stride()
+        .map(|stride| array_from_iter(stride.iter().map(|x| x as usize)))
+        .unwrap_or([1, 1]);
+
+    Ok(Box::new(ops::AveragePool {
         kernel_size,
         padding,
         stride,
-    })
+    }))
 }
 
-fn read_batch_normalization_op(node: &OperatorNode) -> Box<dyn Operator> {
-    let epsilon = match node.attrs_as_batch_normalization_attrs() {
-        Some(attrs) => attrs.epsilon(),
-        None => 1e-5,
+fn read_batch_normalization_op(node: &OperatorNode) -> ReadOpResult {
+    let attrs = node
+        .attrs_as_batch_normalization_attrs()
+        .ok_or(ReadOpError::AttrError)?;
+    Ok(Box::new(ops::BatchNormalization {
+        epsilon: attrs.epsilon(),
+    }))
+}
+
+fn read_cast_op(node: &OperatorNode) -> ReadOpResult {
+    let attrs = node.attrs_as_cast_attrs().ok_or(ReadOpError::AttrError)?;
+    let to = match attrs.to() {
+        sg::DataType::Int32 => DataType::Int32,
+        sg::DataType::Float => DataType::Float,
+        _ => DataType::Float,
     };
-    Box::new(ops::BatchNormalization { epsilon })
+    Ok(Box::new(ops::Cast { to }))
 }
 
-fn read_cast_op(node: &OperatorNode) -> Box<dyn Operator> {
-    let to = match node.attrs_as_cast_attrs() {
-        Some(attrs) => match attrs.to() {
-            sg::DataType::Int32 => DataType::Int32,
-            sg::DataType::Float => DataType::Float,
-            _ => DataType::Float,
-        },
-        None => DataType::Float,
-    };
-    Box::new(ops::Cast { to })
+fn read_clip_op(node: &OperatorNode) -> ReadOpResult {
+    let attrs = node.attrs_as_clip_attrs().ok_or(ReadOpError::AttrError)?;
+    Ok(Box::new(ops::Clip {
+        min: attrs.min(),
+        max: attrs.max(),
+    }))
 }
 
-fn read_clip_op(node: &OperatorNode) -> Box<dyn Operator> {
-    let min;
-    let max;
-
-    if let Some(attrs) = node.attrs_as_clip_attrs() {
-        min = attrs.min();
-        max = attrs.max();
-    } else {
-        min = f32::NEG_INFINITY;
-        max = f32::INFINITY;
-    }
-
-    Box::new(ops::Clip { min, max })
+fn read_concat_op(node: &OperatorNode) -> ReadOpResult {
+    let attrs = node.attrs_as_concat_attrs().ok_or(ReadOpError::AttrError)?;
+    Ok(Box::new(ops::Concat {
+        dim: attrs.dim() as usize,
+    }))
 }
 
-fn read_concat_op(node: &OperatorNode) -> Box<dyn Operator> {
-    let dim = match node.attrs_as_concat_attrs() {
-        Some(concat_attrs) => concat_attrs.dim() as usize,
-        None => 0,
-    };
-    Box::new(ops::Concat { dim })
-}
+fn read_conv_op(node: &OperatorNode) -> ReadOpResult {
+    let attrs = node.attrs_as_conv_attrs().ok_or(ReadOpError::AttrError)?;
 
-fn read_conv_op(node: &OperatorNode) -> Box<dyn Operator> {
-    let groups;
-    let padding;
-    let stride;
+    let groups = attrs.groups() as usize;
+    let padding = padding_from_attrs(attrs.pad_mode(), attrs.pads());
+    let stride = attrs.stride() as usize;
 
-    if let Some(attrs) = node.attrs_as_conv_attrs() {
-        groups = attrs.groups() as usize;
-        padding = padding_from_attrs(attrs.pad_mode(), attrs.pads());
-        stride = attrs.stride() as usize;
-    } else {
-        groups = 1;
-        padding = Padding::Fixed([0, 0, 0, 0]);
-        stride = 1;
-    }
-
-    Box::new(ops::Conv {
+    Ok(Box::new(ops::Conv {
         groups,
         padding,
         stride,
-    })
+    }))
 }
 
-fn read_constant_of_shape_op(node: &OperatorNode) -> Box<dyn Operator> {
-    let value = match node.attrs_as_constant_of_shape_attrs() {
-        Some(attrs) => {
-            if let Some(int_val) = attrs.value_as_int_scalar() {
-                Scalar::Int(int_val.value())
-            } else if let Some(float_val) = attrs.value_as_float_scalar() {
-                Scalar::Float(float_val.value())
-            } else {
-                Scalar::Int(0)
-            }
-        }
-        None => Scalar::Int(0),
-    };
-    Box::new(ops::ConstantOfShape { value })
-}
-
-fn read_conv_transpose_op(node: &OperatorNode) -> Box<dyn Operator> {
-    let stride = match node.attrs_as_conv_transpose_attrs() {
-        Some(attrs) => attrs.stride() as usize,
-        None => 2,
-    };
-    Box::new(ops::ConvTranspose { stride })
-}
-
-fn read_gather_op(node: &OperatorNode) -> Box<dyn Operator> {
-    let axis = match node.attrs_as_gather_attrs() {
-        Some(attrs) => attrs.axis() as usize,
-        None => 0,
-    };
-    Box::new(ops::Gather { axis })
-}
-
-fn read_gemm_op(node: &OperatorNode) -> Box<dyn Operator> {
-    let alpha;
-    let beta;
-    let transpose_a;
-    let transpose_b;
-
-    if let Some(attrs) = node.attrs_as_gemm_attrs() {
-        alpha = attrs.alpha();
-        beta = attrs.beta();
-        transpose_a = attrs.transpose_a();
-        transpose_b = attrs.transpose_b();
+fn read_constant_of_shape_op(node: &OperatorNode) -> ReadOpResult {
+    let attrs = node
+        .attrs_as_constant_of_shape_attrs()
+        .ok_or(ReadOpError::AttrError)?;
+    let value = if let Some(int_val) = attrs.value_as_int_scalar() {
+        Scalar::Int(int_val.value())
+    } else if let Some(float_val) = attrs.value_as_float_scalar() {
+        Scalar::Float(float_val.value())
     } else {
-        alpha = 1.0;
-        beta = 1.0;
-        transpose_a = false;
-        transpose_b = false;
-    }
-
-    Box::new(ops::Gemm {
-        alpha,
-        beta,
-        transpose_a,
-        transpose_b,
-    })
-}
-
-fn read_leaky_relu_op(node: &OperatorNode) -> Box<dyn Operator> {
-    let alpha = match node.attrs_as_leaky_relu_attrs() {
-        Some(attrs) => attrs.alpha(),
-        None => 0.0,
+        Scalar::Int(0)
     };
-    Box::new(ops::LeakyRelu { alpha })
+    Ok(Box::new(ops::ConstantOfShape { value }))
 }
 
-fn read_max_pool_op(node: &OperatorNode) -> Box<dyn Operator> {
-    let kernel_size: [usize; 2];
-    let padding;
-    let stride: [usize; 2];
+fn read_conv_transpose_op(node: &OperatorNode) -> ReadOpResult {
+    let attrs = node
+        .attrs_as_conv_transpose_attrs()
+        .ok_or(ReadOpError::AttrError)?;
+    Ok(Box::new(ops::ConvTranspose {
+        stride: attrs.stride() as usize,
+    }))
+}
 
-    if let Some(attrs) = node.attrs_as_max_pool_attrs() {
-        kernel_size = array_from_iter(attrs.kernel_size().iter().map(|x| x as usize));
-        padding = padding_from_attrs(attrs.pad_mode(), attrs.pads());
-        stride = attrs
-            .stride()
-            .map(|stride| array_from_iter(stride.iter().map(|x| x as usize)))
-            .unwrap_or([1, 1]);
-    } else {
-        kernel_size = [1, 1];
-        padding = Padding::Fixed([0, 0, 0, 0]);
-        stride = [1, 1];
-    }
+fn read_gather_op(node: &OperatorNode) -> ReadOpResult {
+    let attrs = node.attrs_as_gather_attrs().ok_or(ReadOpError::AttrError)?;
+    Ok(Box::new(ops::Gather {
+        axis: attrs.axis() as usize,
+    }))
+}
 
-    Box::new(ops::MaxPool {
+fn read_gemm_op(node: &OperatorNode) -> ReadOpResult {
+    let attrs = node.attrs_as_gemm_attrs().ok_or(ReadOpError::AttrError)?;
+    Ok(Box::new(ops::Gemm {
+        alpha: attrs.alpha(),
+        beta: attrs.beta(),
+        transpose_a: attrs.transpose_a(),
+        transpose_b: attrs.transpose_b(),
+    }))
+}
+
+fn read_leaky_relu_op(node: &OperatorNode) -> ReadOpResult {
+    let attrs = node
+        .attrs_as_leaky_relu_attrs()
+        .ok_or(ReadOpError::AttrError)?;
+    Ok(Box::new(ops::LeakyRelu {
+        alpha: attrs.alpha(),
+    }))
+}
+
+fn read_max_pool_op(node: &OperatorNode) -> ReadOpResult {
+    let attrs = node
+        .attrs_as_max_pool_attrs()
+        .ok_or(ReadOpError::AttrError)?;
+
+    let kernel_size = array_from_iter(attrs.kernel_size().iter().map(|x| x as usize));
+    let padding = padding_from_attrs(attrs.pad_mode(), attrs.pads());
+    let stride = attrs
+        .stride()
+        .map(|stride| array_from_iter(stride.iter().map(|x| x as usize)))
+        .unwrap_or([1, 1]);
+
+    Ok(Box::new(ops::MaxPool {
         kernel_size,
         padding,
         stride,
-    })
+    }))
 }
 
-fn read_reduce_mean_op(node: &OperatorNode) -> Box<dyn Operator> {
-    let mut keep_dims = true;
-    let mut axes: Option<Vec<i32>> = None;
-    if let Some(attrs) = node.attrs_as_reduce_mean_attrs() {
-        if let Some(axes_vec) = attrs.axes() {
-            axes = Some(axes_vec.iter().collect());
-        }
-        keep_dims = attrs.keep_dims();
-    }
-    Box::new(ops::ReduceMean { axes, keep_dims })
+fn read_reduce_mean_op(node: &OperatorNode) -> ReadOpResult {
+    let attrs = node
+        .attrs_as_reduce_mean_attrs()
+        .ok_or(ReadOpError::AttrError)?;
+    let axes = attrs.axes().map(|axes| axes.iter().collect());
+    let keep_dims = attrs.keep_dims();
+    Ok(Box::new(ops::ReduceMean { axes, keep_dims }))
 }
 
-fn read_resize_op(node: &OperatorNode) -> Box<dyn Operator> {
-    let mode = if let Some(attrs) = node.attrs_as_resize_attrs() {
-        match attrs.mode() {
-            sg::ResizeMode::Nearest => ResizeMode::Nearest,
-            sg::ResizeMode::Linear => ResizeMode::Linear,
-            _ => ResizeMode::Nearest,
-        }
-    } else {
-        ResizeMode::Nearest
+fn read_resize_op(node: &OperatorNode) -> ReadOpResult {
+    let attrs = node.attrs_as_resize_attrs().ok_or(ReadOpError::AttrError)?;
+    let mode = match attrs.mode() {
+        sg::ResizeMode::Nearest => ResizeMode::Nearest,
+        sg::ResizeMode::Linear => ResizeMode::Linear,
+        _ => ResizeMode::Nearest,
     };
-    Box::new(ops::Resize { mode })
+    Ok(Box::new(ops::Resize { mode }))
 }
 
-fn read_softmax_op(node: &OperatorNode) -> Box<dyn Operator> {
-    let axis = match node.attrs_as_softmax_attrs() {
-        Some(attrs) => attrs.axis() as usize,
-        None => 0,
-    };
-    Box::new(ops::Softmax { axis })
+fn read_softmax_op(node: &OperatorNode) -> ReadOpResult {
+    let attrs = node
+        .attrs_as_softmax_attrs()
+        .ok_or(ReadOpError::AttrError)?;
+    Ok(Box::new(ops::Softmax {
+        axis: attrs.axis() as usize,
+    }))
 }
 
-fn read_split_op(node: &OperatorNode) -> Box<dyn Operator> {
-    let mut axis = 0;
-    let mut split: Vec<usize> = Vec::new();
+fn read_split_op(node: &OperatorNode) -> ReadOpResult {
+    let attrs = node.attrs_as_split_attrs().ok_or(ReadOpError::AttrError)?;
 
-    if let Some(attrs) = node.attrs_as_split_attrs() {
-        axis = attrs.axis() as isize;
-        if let Some(split_vec) = attrs.split() {
-            split.extend(split_vec.iter().map(|size| size as usize));
-        }
-    }
-
-    Box::new(ops::Split { axis, split })
-}
-
-fn read_squeeze_op(node: &OperatorNode) -> Box<dyn Operator> {
-    let mut axes: Option<Vec<usize>> = None;
-    if let Some(attrs) = node.attrs_as_squeeze_attrs() {
-        if let Some(axes_vec) = attrs.axes() {
-            axes = Some(axes_vec.iter().map(|axis| axis as usize).collect());
-        }
-    }
-    Box::new(ops::Squeeze { axes })
-}
-
-fn read_transpose_op(node: &OperatorNode) -> Box<dyn Operator> {
-    let mut perm: Option<Vec<usize>> = None;
-    if let Some(attrs) = node.attrs_as_transpose_attrs() {
-        if let Some(perm_vec) = attrs.perm() {
-            perm = Some(perm_vec.iter().map(|dim| dim as usize).collect());
-        }
-    }
-    Box::new(ops::Transpose { perm })
-}
-
-fn read_unsqueeze_op(node: &OperatorNode) -> Box<dyn Operator> {
-    let mut axes: Vec<usize>;
-    if let Some(attrs) = node.attrs_as_unsqueeze_attrs() {
-        axes = attrs.axes().iter().map(|axis| axis as usize).collect();
-        axes.sort();
+    let axis = attrs.axis() as isize;
+    let split = if let Some(split_vec) = attrs.split() {
+        split_vec.iter().map(|size| size as usize).collect()
     } else {
-        axes = Vec::new();
-    }
-    Box::new(ops::Unsqueeze { axes })
+        Vec::new()
+    };
+
+    Ok(Box::new(ops::Split { axis, split }))
+}
+
+fn read_squeeze_op(node: &OperatorNode) -> ReadOpResult {
+    let attrs = node
+        .attrs_as_squeeze_attrs()
+        .ok_or(ReadOpError::AttrError)?;
+    let axes = attrs
+        .axes()
+        .map(|axes| axes.iter().map(|axis| axis as usize).collect());
+    Ok(Box::new(ops::Squeeze { axes }))
+}
+
+fn read_transpose_op(node: &OperatorNode) -> ReadOpResult {
+    let attrs = node
+        .attrs_as_transpose_attrs()
+        .ok_or(ReadOpError::AttrError)?;
+    let perm = attrs
+        .perm()
+        .map(|perm| perm.iter().map(|dim| dim as usize).collect());
+    Ok(Box::new(ops::Transpose { perm }))
+}
+
+fn read_unsqueeze_op(node: &OperatorNode) -> ReadOpResult {
+    let attrs = node
+        .attrs_as_unsqueeze_attrs()
+        .ok_or(ReadOpError::AttrError)?;
+    let mut axes: Vec<usize> = attrs.axes().iter().map(|axis| axis as usize).collect();
+    axes.sort();
+    Ok(Box::new(ops::Unsqueeze { axes }))
 }
 
 /// Create a `Box<dyn Operator>` for an operator that has no attributes.
 macro_rules! op {
     ($op_name:ident) => {
-        Box::new(ops::$op_name {})
+        Ok(Box::new(ops::$op_name {}))
     };
 }
 
-fn read_operator(node: &OperatorNode) -> Result<Box<dyn Operator>, String> {
-    let op: Box<dyn Operator> = match node.type_() {
+fn read_operator(node: &OperatorNode) -> ReadOpResult {
+    match node.type_() {
         OperatorType::Add => op!(Add),
         OperatorType::AveragePool => read_average_pool_op(node),
         OperatorType::BatchNormalization => read_batch_normalization_op(node),
@@ -384,9 +340,8 @@ fn read_operator(node: &OperatorNode) -> Result<Box<dyn Operator>, String> {
         OperatorType::Transpose => read_transpose_op(node),
         OperatorType::Unsqueeze => read_unsqueeze_op(node),
         OperatorType::Where => op!(Where),
-        _ => return Err("Unknown operator type".to_string()),
-    };
-    Ok(op)
+        _ => Err(ReadOpError::UnsupportedOperator),
+    }
 }
 
 fn load_model(data: &[u8]) -> Result<Model, String> {
@@ -425,7 +380,10 @@ fn load_model(data: &[u8]) -> Result<Model, String> {
     if let Some(nodes) = model.graph().nodes() {
         for (node_index, node) in nodes.iter().enumerate() {
             if let Some(operator) = node.data_as_operator_node() {
-                let op = read_operator(&operator)?;
+                let op = read_operator(&operator).map_err(|err| match err {
+                    ReadOpError::UnsupportedOperator => "unsupported operator".to_string(),
+                    ReadOpError::AttrError => "incorrect or missing attributes".to_string(),
+                })?;
 
                 let mut inputs: Vec<NodeId> = Vec::new();
                 if let Some(op_input_ids) = operator.inputs() {
