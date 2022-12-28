@@ -5,6 +5,7 @@ from argparse import ArgumentParser
 from typing import cast
 
 import flatbuffers
+import numpy as np
 import onnx
 from onnx import TensorProto
 
@@ -601,23 +602,17 @@ def build_constant_node(builder: flatbuffers.Builder, constant: ConstantNode):
     """
     shape_vec = write_u32_vec(builder, sg.ConstantNodeStartShapeVector, constant.shape)
 
+    # Convert data to NumPy array then serialize. This is much faster than
+    # serializing a Python array element by element.
+    data_vec = builder.CreateNumpyVector(np.array(constant.data))
+
     match constant.data.typecode:
         case "f":
-            sg.FloatDataStartDataVector(builder, len(constant.data))
-            for item in reversed(constant.data):
-                builder.PrependFloat32(item)
-            data_vec = builder.EndVector()
-
             sg.FloatDataStart(builder)
             sg.FloatDataAddData(builder, data_vec)
             const_data = sg.FloatDataEnd(builder)
             const_data_type = sg.ConstantData.FloatData
         case "i":
-            sg.IntDataStartDataVector(builder, len(constant.data))
-            for item in reversed(constant.data):
-                builder.PrependInt32(item)
-            data_vec = builder.EndVector()
-
             sg.IntDataStart(builder)
             sg.IntDataAddData(builder, data_vec)
             const_data = sg.IntDataEnd(builder)
