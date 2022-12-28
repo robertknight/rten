@@ -1,6 +1,6 @@
 use std::borrow::Cow;
 
-use crate::linalg::{add_scaled_vector, div_ceil, gemm_slice, Matrix};
+use crate::linalg::{add_scaled_vector, div_ceil, gemm, Matrix};
 use crate::ops::pooling::calc_output_size_and_padding;
 use crate::ops::{
     get_input, get_optional_input, Input, IntoOpResult, OpError, Operator, Output, Padding,
@@ -156,7 +156,7 @@ fn conv_2d_pointwise(input: &Tensor, kernel: &Tensor, bias: Option<&Tensor>) -> 
         // Use the low-level gemm_slice API to implicitly reshape the kernel from
         // `OCHW` (where H=1, W=1) to `OC` and the n'th input image from
         // `CHW` to `C x HW` (where HW is the spatial area of the input).
-        gemm_slice(
+        gemm(
             &mut output.data_mut()[out_offset..out_offset_end],
             out_row_stride,
             Matrix {
@@ -367,7 +367,7 @@ pub fn conv(
             let out_offset = output.offset([n, out_chan_start, 0]);
             let out_view = &mut output.data_mut()[out_offset..];
 
-            gemm_slice(
+            gemm(
                 out_view,
                 // Output row stride. We allocated the output tensor ourselves,
                 // so we know it is contiguous.

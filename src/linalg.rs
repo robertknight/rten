@@ -5,7 +5,6 @@
 ///! and vector-scalar products.
 use std::ops::Range;
 
-#[cfg(test)]
 use crate::tensor::Tensor;
 
 pub fn div_ceil(a: usize, b: usize) -> usize {
@@ -297,16 +296,28 @@ fn round_up(val: usize, factor: usize) -> usize {
     }
 }
 
+/// Struct specifying details of an input matrix for use in GEMM operation.
+///
+/// Unlike a `Tensor`, this doesn't own the data.
+#[derive(Copy, Clone)]
+pub struct Matrix<'a> {
+    pub data: &'a [f32],
+    pub rows: usize,
+    pub cols: usize,
+    pub row_stride: usize,
+    pub col_stride: usize,
+}
+
 /// Multiply two matrices and add the results to `output`.
 ///
 /// This is a high-level API that operates on tensors.
-#[cfg(test)]
-pub fn gemm(output: &mut Tensor, a: &Tensor, b: &Tensor) {
+#[allow(dead_code)] // Currently only used in tests
+pub fn gemm_tensors(output: &mut Tensor, a: &Tensor, b: &Tensor) {
     let [a_rows, a_cols] = a.dims();
     let [b_rows, b_cols] = b.dims();
     let out_row_stride = output.stride(0);
 
-    gemm_slice(
+    gemm(
         output.data_mut(),
         out_row_stride,
         Matrix {
@@ -326,18 +337,6 @@ pub fn gemm(output: &mut Tensor, a: &Tensor, b: &Tensor) {
     );
 }
 
-/// Struct specifying details of an input matrix for use in GEMM operation.
-///
-/// Unlike a `Tensor`, this doesn't own the data.
-#[derive(Copy, Clone)]
-pub struct Matrix<'a> {
-    pub data: &'a [f32],
-    pub rows: usize,
-    pub cols: usize,
-    pub row_stride: usize,
-    pub col_stride: usize,
-}
-
 /// Multiply two matrices and add the results to `out_data`.
 ///
 /// This is a low-level API that operates directly on slices. Use `gemm` for
@@ -347,7 +346,7 @@ pub struct Matrix<'a> {
 /// (https://github.com/flame/blis), and was informed by the matrixmultiply
 /// crate (https://github.com/bluss/matrixmultiply). See Pages 3-5 of
 /// https://dl.acm.org/doi/pdf/10.1145/2925987 for an outline of the algorithm.
-pub fn gemm_slice(out_data: &mut [f32], out_row_stride: usize, a: Matrix, b: Matrix) {
+pub fn gemm(out_data: &mut [f32], out_row_stride: usize, a: Matrix, b: Matrix) {
     if a.cols != b.rows {
         panic!("Columns of matrix `a` must match rows of matrix `b`");
     }
@@ -449,7 +448,7 @@ pub fn gemm_slice(out_data: &mut [f32], out_row_stride: usize, a: Matrix, b: Mat
 
 #[cfg(test)]
 mod tests {
-    use crate::linalg::{add_scaled_vector, gemm};
+    use crate::linalg::{add_scaled_vector, gemm_tensors};
     use crate::rng::XorShiftRNG;
     use crate::tensor::{rand, zeros, Tensor};
     use crate::test_util::expect_equal;
@@ -556,7 +555,7 @@ mod tests {
             let b = rand(&rhs_size, &mut rng);
             let mut result = zeros::<f32>(&[lhs_size[0], rhs_size[1]]);
 
-            gemm(&mut result, &a, &b);
+            gemm_tensors(&mut result, &a, &b);
 
             let expected = reference_gemm(&a, &b);
 
@@ -587,7 +586,7 @@ mod tests {
         let [_, b_cols] = b.dims();
 
         let mut result = zeros(&[a_rows, b_cols]);
-        gemm(&mut result, &a, &b);
+        gemm_tensors(&mut result, &a, &b);
 
         let expected = reference_gemm(&a, &b);
         expect_equal(&result, &expected)

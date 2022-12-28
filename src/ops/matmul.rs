@@ -1,6 +1,6 @@
 use std::iter::zip;
 
-use crate::linalg::{gemm_slice, Matrix};
+use crate::linalg::{gemm, Matrix};
 use crate::ops::{
     choose_broadcast_shape, get_input, get_optional_input, Input, IntoOpResult, OpError, Operator,
     Output,
@@ -63,7 +63,7 @@ pub fn gemm_op(
 
     let out_row_stride = output.stride(0);
 
-    gemm_slice(
+    gemm(
         output.data_mut(),
         out_row_stride,
         Matrix {
@@ -145,7 +145,7 @@ pub fn matmul(a: &Tensor, b: &Tensor) -> Result<Tensor, OpError> {
     let mut out_offset = 0;
 
     for (a_offset, b_offset) in zip(a_offsets, b_offsets) {
-        gemm_slice(
+        gemm(
             &mut output.data_mut()[out_offset..],
             out_row_stride,
             Matrix {
@@ -186,7 +186,7 @@ impl Operator for MatMul {
 
 #[cfg(test)]
 mod tests {
-    use crate::linalg::gemm;
+    use crate::linalg::gemm_tensors;
     use crate::ops::matmul::{gemm_op, matmul};
     use crate::rng::XorShiftRNG;
     use crate::tensor::{from_data, rand, zeros};
@@ -199,7 +199,7 @@ mod tests {
         let b = rand(&[10, 8], &mut rng);
 
         let mut expected = zeros(&[3, 8]);
-        gemm(&mut expected, &a, &b);
+        gemm_tensors(&mut expected, &a, &b);
 
         let result = gemm_op(&a, &b, None, 1.0, 1.0, false, false).unwrap();
 
@@ -217,7 +217,7 @@ mod tests {
         let mut b_transposed = b.clone();
         b_transposed.permute(&[1, 0]);
         let mut expected = zeros(&[3, 8]);
-        gemm(&mut expected, &a_transposed, &b_transposed);
+        gemm_tensors(&mut expected, &a_transposed, &b_transposed);
 
         let result = gemm_op(&a, &b, None, 1.0, 1.0, true, true).unwrap();
 
@@ -232,7 +232,7 @@ mod tests {
         let c = rand(&[3, 8], &mut rng);
 
         let mut expected = c.clone();
-        gemm(&mut expected, &a, &b);
+        gemm_tensors(&mut expected, &a, &b);
 
         let result = gemm_op(&a, &b, Some(&c), 1.0, 1.0, false, false).unwrap();
 
@@ -246,7 +246,7 @@ mod tests {
         let b = rand(&[10, 8], &mut rng);
 
         let mut expected = zeros(&[3, 8]);
-        gemm(&mut expected, &a, &b);
+        gemm_tensors(&mut expected, &a, &b);
 
         let result = matmul(&a, &b).unwrap();
         expect_equal(&result, &expected)
@@ -259,7 +259,7 @@ mod tests {
         let mut b = rand(&[10, 8], &mut rng);
 
         let mut expected = zeros(&[3, 8]);
-        gemm(&mut expected, &a, &b);
+        gemm_tensors(&mut expected, &a, &b);
         expected.reshape(&[1, 1, 3, 8]);
 
         // LHS input has excess 1 dims
