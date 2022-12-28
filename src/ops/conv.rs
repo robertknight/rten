@@ -53,7 +53,7 @@ fn im2col(
     let (y_patches, x_patches, _) = calc_output_size_and_padding(
         (in_h, in_w),
         (patch_h, patch_w),
-        stride,
+        (stride, stride),
         Padding::Fixed(padding),
     );
     let n_chans = end_chan - start_chan;
@@ -196,8 +196,12 @@ fn conv_2d_depthwise(
     let [batch, in_c, in_h, in_w] = input.dims();
     let [out_c, _, k_h, k_w] = kernel.dims();
     let [pad_top, pad_left, _pad_bottom, _pad_right] = padding;
-    let (out_h, out_w, _) =
-        calc_output_size_and_padding((in_h, in_w), (k_h, k_w), stride, Padding::Fixed(padding));
+    let (out_h, out_w, _) = calc_output_size_and_padding(
+        (in_h, in_w),
+        (k_h, k_w),
+        (stride, stride),
+        Padding::Fixed(padding),
+    );
 
     let mut output = if let Some(bias) = bias {
         init_tensor_with_channel_bias(&[batch, out_c, out_h, out_w], 1, bias)
@@ -286,7 +290,7 @@ pub fn conv(
     let [batch, in_c, in_h, in_w] = input.dims();
     let [out_c, k_in_c, k_h, k_w] = kernel.dims();
     let (out_h, out_w, fixed_padding) =
-        calc_output_size_and_padding((in_h, in_w), (k_h, k_w), stride, padding);
+        calc_output_size_and_padding((in_h, in_w), (k_h, k_w), (stride, stride), padding);
 
     let [pad_top, pad_left, pad_bottom, pad_right] = fixed_padding;
 
@@ -515,8 +519,12 @@ mod tests {
     ) -> Tensor {
         let [batch, in_chans, in_h, in_w] = input.dims();
         let [out_chans, k_in_chans, k_h, k_w] = kernel.dims();
-        let (out_h, out_w, _) =
-            calc_output_size_and_padding((in_h, in_w), (k_h, k_w), stride, Padding::Fixed(padding));
+        let (out_h, out_w, _) = calc_output_size_and_padding(
+            (in_h, in_w),
+            (k_h, k_w),
+            (stride, stride),
+            Padding::Fixed(padding),
+        );
         let [pad_top, pad_left, _pad_bottom, _pad_right] = padding;
 
         let in_channels_per_group = in_chans / groups;

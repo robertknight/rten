@@ -89,13 +89,13 @@ union OperatorAttrs {
 }
 
 table AveragePoolAttrs {
-  kernel_size:uint;
+  kernel_size:[uint] (required);
   pad_mode:PadMode;
 
   // Padding for spatial axes as [top, left, bottom, right]
   pads:[uint];
 
-  stride:uint;
+  stride:[uint];
 }
 
 table BatchNormalizationAttrs {
@@ -162,13 +162,13 @@ table LeakyReluAttrs {
 }
 
 table MaxPoolAttrs {
-  kernel_size:uint;
+  kernel_size:[uint] (required);
   pad_mode:PadMode;
 
   // Padding for spatial axes as [top, left, bottom, right]
   pads:[uint];
 
-  stride:uint;
+  stride:[uint];
 }
 
 table PadAttrs {}

@@ -130,11 +130,31 @@ class AveragePoolAttrs(object):
         self._tab = flatbuffers.table.Table(buf, pos)
 
     # AveragePoolAttrs
-    def KernelSize(self):
+    def KernelSize(self, j):
         o = flatbuffers.number_types.UOffsetTFlags.py_type(self._tab.Offset(4))
         if o != 0:
-            return self._tab.Get(flatbuffers.number_types.Uint32Flags, o + self._tab.Pos)
+            a = self._tab.Vector(o)
+            return self._tab.Get(flatbuffers.number_types.Uint32Flags, a + flatbuffers.number_types.UOffsetTFlags.py_type(j * 4))
         return 0
+
+    # AveragePoolAttrs
+    def KernelSizeAsNumpy(self):
+        o = flatbuffers.number_types.UOffsetTFlags.py_type(self._tab.Offset(4))
+        if o != 0:
+            return self._tab.GetVectorAsNumpy(flatbuffers.number_types.Uint32Flags, o)
+        return 0
+
+    # AveragePoolAttrs
+    def KernelSizeLength(self):
+        o = flatbuffers.number_types.UOffsetTFlags.py_type(self._tab.Offset(4))
+        if o != 0:
+            return self._tab.VectorLen(o)
+        return 0
+
+    # AveragePoolAttrs
+    def KernelSizeIsNone(self):
+        o = flatbuffers.number_types.UOffsetTFlags.py_type(self._tab.Offset(4))
+        return o == 0
 
     # AveragePoolAttrs
     def PadMode(self):
@@ -171,18 +191,40 @@ class AveragePoolAttrs(object):
         return o == 0
 
     # AveragePoolAttrs
-    def Stride(self):
+    def Stride(self, j):
         o = flatbuffers.number_types.UOffsetTFlags.py_type(self._tab.Offset(10))
         if o != 0:
-            return self._tab.Get(flatbuffers.number_types.Uint32Flags, o + self._tab.Pos)
+            a = self._tab.Vector(o)
+            return self._tab.Get(flatbuffers.number_types.Uint32Flags, a + flatbuffers.number_types.UOffsetTFlags.py_type(j * 4))
         return 0
 
+    # AveragePoolAttrs
+    def StrideAsNumpy(self):
+        o = flatbuffers.number_types.UOffsetTFlags.py_type(self._tab.Offset(10))
+        if o != 0:
+            return self._tab.GetVectorAsNumpy(flatbuffers.number_types.Uint32Flags, o)
+        return 0
+
+    # AveragePoolAttrs
+    def StrideLength(self):
+        o = flatbuffers.number_types.UOffsetTFlags.py_type(self._tab.Offset(10))
+        if o != 0:
+            return self._tab.VectorLen(o)
+        return 0
+
+    # AveragePoolAttrs
+    def StrideIsNone(self):
+        o = flatbuffers.number_types.UOffsetTFlags.py_type(self._tab.Offset(10))
+        return o == 0
+
 def AveragePoolAttrsStart(builder): builder.StartObject(4)
-def AveragePoolAttrsAddKernelSize(builder, kernelSize): builder.PrependUint32Slot(0, kernelSize, 0)
+def AveragePoolAttrsAddKernelSize(builder, kernelSize): builder.PrependUOffsetTRelativeSlot(0, flatbuffers.number_types.UOffsetTFlags.py_type(kernelSize), 0)
+def AveragePoolAttrsStartKernelSizeVector(builder, numElems): return builder.StartVector(4, numElems, 4)
 def AveragePoolAttrsAddPadMode(builder, padMode): builder.PrependInt8Slot(1, padMode, 0)
 def AveragePoolAttrsAddPads(builder, pads): builder.PrependUOffsetTRelativeSlot(2, flatbuffers.number_types.UOffsetTFlags.py_type(pads), 0)
 def AveragePoolAttrsStartPadsVector(builder, numElems): return builder.StartVector(4, numElems, 4)
-def AveragePoolAttrsAddStride(builder, stride): builder.PrependUint32Slot(3, stride, 0)
+def AveragePoolAttrsAddStride(builder, stride): builder.PrependUOffsetTRelativeSlot(3, flatbuffers.number_types.UOffsetTFlags.py_type(stride), 0)
+def AveragePoolAttrsStartStrideVector(builder, numElems): return builder.StartVector(4, numElems, 4)
 def AveragePoolAttrsEnd(builder): return builder.EndObject()
 
 
@@ -705,11 +747,31 @@ class MaxPoolAttrs(object):
         self._tab = flatbuffers.table.Table(buf, pos)
 
     # MaxPoolAttrs
-    def KernelSize(self):
+    def KernelSize(self, j):
         o = flatbuffers.number_types.UOffsetTFlags.py_type(self._tab.Offset(4))
         if o != 0:
-            return self._tab.Get(flatbuffers.number_types.Uint32Flags, o + self._tab.Pos)
+            a = self._tab.Vector(o)
+            return self._tab.Get(flatbuffers.number_types.Uint32Flags, a + flatbuffers.number_types.UOffsetTFlags.py_type(j * 4))
         return 0
+
+    # MaxPoolAttrs
+    def KernelSizeAsNumpy(self):
+        o = flatbuffers.number_types.UOffsetTFlags.py_type(self._tab.Offset(4))
+        if o != 0:
+            return self._tab.GetVectorAsNumpy(flatbuffers.number_types.Uint32Flags, o)
+        return 0
+
+    # MaxPoolAttrs
+    def KernelSizeLength(self):
+        o = flatbuffers.number_types.UOffsetTFlags.py_type(self._tab.Offset(4))
+        if o != 0:
+            return self._tab.VectorLen(o)
+        return 0
+
+    # MaxPoolAttrs
+    def KernelSizeIsNone(self):
+        o = flatbuffers.number_types.UOffsetTFlags.py_type(self._tab.Offset(4))
+        return o == 0
 
     # MaxPoolAttrs
     def PadMode(self):
@@ -746,18 +808,40 @@ class MaxPoolAttrs(object):
         return o == 0
 
     # MaxPoolAttrs
-    def Stride(self):
+    def Stride(self, j):
         o = flatbuffers.number_types.UOffsetTFlags.py_type(self._tab.Offset(10))
         if o != 0:
-            return self._tab.Get(flatbuffers.number_types.Uint32Flags, o + self._tab.Pos)
+            a = self._tab.Vector(o)
+            return self._tab.Get(flatbuffers.number_types.Uint32Flags, a + flatbuffers.number_types.UOffsetTFlags.py_type(j * 4))
         return 0
 
+    # MaxPoolAttrs
+    def StrideAsNumpy(self):
+        o = flatbuffers.number_types.UOffsetTFlags.py_type(self._tab.Offset(10))
+        if o != 0:
+            return self._tab.GetVectorAsNumpy(flatbuffers.number_types.Uint32Flags, o)
+        return 0
+
+    # MaxPoolAttrs
+    def StrideLength(self):
+        o = flatbuffers.number_types.UOffsetTFlags.py_type(self._tab.Offset(10))
+        if o != 0:
+            return self._tab.VectorLen(o)
+        return 0
+
+    # MaxPoolAttrs
+    def StrideIsNone(self):
+        o = flatbuffers.number_types.UOffsetTFlags.py_type(self._tab.Offset(10))
+        return o == 0
+
 def MaxPoolAttrsStart(builder): builder.StartObject(4)
-def MaxPoolAttrsAddKernelSize(builder, kernelSize): builder.PrependUint32Slot(0, kernelSize, 0)
+def MaxPoolAttrsAddKernelSize(builder, kernelSize): builder.PrependUOffsetTRelativeSlot(0, flatbuffers.number_types.UOffsetTFlags.py_type(kernelSize), 0)
+def MaxPoolAttrsStartKernelSizeVector(builder, numElems): return builder.StartVector(4, numElems, 4)
 def MaxPoolAttrsAddPadMode(builder, padMode): builder.PrependInt8Slot(1, padMode, 0)
 def MaxPoolAttrsAddPads(builder, pads): builder.PrependUOffsetTRelativeSlot(2, flatbuffers.number_types.UOffsetTFlags.py_type(pads), 0)
 def MaxPoolAttrsStartPadsVector(builder, numElems): return builder.StartVector(4, numElems, 4)
-def MaxPoolAttrsAddStride(builder, stride): builder.PrependUint32Slot(3, stride, 0)
+def MaxPoolAttrsAddStride(builder, stride): builder.PrependUOffsetTRelativeSlot(3, flatbuffers.number_types.UOffsetTFlags.py_type(stride), 0)
+def MaxPoolAttrsStartStrideVector(builder, numElems): return builder.StartVector(4, numElems, 4)
 def MaxPoolAttrsEnd(builder): return builder.EndObject()
 
 

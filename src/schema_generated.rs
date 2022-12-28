@@ -1024,23 +1024,30 @@ impl<'a> AveragePoolAttrs<'a> {
         args: &'args AveragePoolAttrsArgs<'args>,
     ) -> flatbuffers::WIPOffset<AveragePoolAttrs<'bldr>> {
         let mut builder = AveragePoolAttrsBuilder::new(_fbb);
-        builder.add_stride(args.stride);
+        if let Some(x) = args.stride {
+            builder.add_stride(x);
+        }
         if let Some(x) = args.pads {
             builder.add_pads(x);
         }
-        builder.add_kernel_size(args.kernel_size);
+        if let Some(x) = args.kernel_size {
+            builder.add_kernel_size(x);
+        }
         builder.add_pad_mode(args.pad_mode);
         builder.finish()
     }
 
     #[inline]
-    pub fn kernel_size(&self) -> u32 {
+    pub fn kernel_size(&self) -> flatbuffers::Vector<'a, u32> {
         // Safety:
         // Created from valid Table for this object
         // which contains a valid value in this slot
         unsafe {
             self._tab
-                .get::<u32>(AveragePoolAttrs::VT_KERNEL_SIZE, Some(0))
+                .get::<flatbuffers::ForwardsUOffset<flatbuffers::Vector<'a, u32>>>(
+                    AveragePoolAttrs::VT_KERNEL_SIZE,
+                    None,
+                )
                 .unwrap()
         }
     }
@@ -1069,14 +1076,16 @@ impl<'a> AveragePoolAttrs<'a> {
         }
     }
     #[inline]
-    pub fn stride(&self) -> u32 {
+    pub fn stride(&self) -> Option<flatbuffers::Vector<'a, u32>> {
         // Safety:
         // Created from valid Table for this object
         // which contains a valid value in this slot
         unsafe {
             self._tab
-                .get::<u32>(AveragePoolAttrs::VT_STRIDE, Some(0))
-                .unwrap()
+                .get::<flatbuffers::ForwardsUOffset<flatbuffers::Vector<'a, u32>>>(
+                    AveragePoolAttrs::VT_STRIDE,
+                    None,
+                )
         }
     }
 }
@@ -1089,32 +1098,40 @@ impl flatbuffers::Verifiable for AveragePoolAttrs<'_> {
     ) -> Result<(), flatbuffers::InvalidFlatbuffer> {
         use self::flatbuffers::Verifiable;
         v.visit_table(pos)?
-            .visit_field::<u32>("kernel_size", Self::VT_KERNEL_SIZE, false)?
+            .visit_field::<flatbuffers::ForwardsUOffset<flatbuffers::Vector<'_, u32>>>(
+                "kernel_size",
+                Self::VT_KERNEL_SIZE,
+                true,
+            )?
             .visit_field::<PadMode>("pad_mode", Self::VT_PAD_MODE, false)?
             .visit_field::<flatbuffers::ForwardsUOffset<flatbuffers::Vector<'_, u32>>>(
                 "pads",
                 Self::VT_PADS,
                 false,
             )?
-            .visit_field::<u32>("stride", Self::VT_STRIDE, false)?
+            .visit_field::<flatbuffers::ForwardsUOffset<flatbuffers::Vector<'_, u32>>>(
+                "stride",
+                Self::VT_STRIDE,
+                false,
+            )?
             .finish();
         Ok(())
     }
 }
 pub struct AveragePoolAttrsArgs<'a> {
-    pub kernel_size: u32,
+    pub kernel_size: Option<flatbuffers::WIPOffset<flatbuffers::Vector<'a, u32>>>,
     pub pad_mode: PadMode,
     pub pads: Option<flatbuffers::WIPOffset<flatbuffers::Vector<'a, u32>>>,
-    pub stride: u32,
+    pub stride: Option<flatbuffers::WIPOffset<flatbuffers::Vector<'a, u32>>>,
 }
 impl<'a> Default for AveragePoolAttrsArgs<'a> {
     #[inline]
     fn default() -> Self {
         AveragePoolAttrsArgs {
-            kernel_size: 0,
+            kernel_size: None, // required field
             pad_mode: PadMode::Same,
             pads: None,
-            stride: 0,
+            stride: None,
         }
     }
 }
@@ -1125,9 +1142,14 @@ pub struct AveragePoolAttrsBuilder<'a: 'b, 'b> {
 }
 impl<'a: 'b, 'b> AveragePoolAttrsBuilder<'a, 'b> {
     #[inline]
-    pub fn add_kernel_size(&mut self, kernel_size: u32) {
-        self.fbb_
-            .push_slot::<u32>(AveragePoolAttrs::VT_KERNEL_SIZE, kernel_size, 0);
+    pub fn add_kernel_size(
+        &mut self,
+        kernel_size: flatbuffers::WIPOffset<flatbuffers::Vector<'b, u32>>,
+    ) {
+        self.fbb_.push_slot_always::<flatbuffers::WIPOffset<_>>(
+            AveragePoolAttrs::VT_KERNEL_SIZE,
+            kernel_size,
+        );
     }
     #[inline]
     pub fn add_pad_mode(&mut self, pad_mode: PadMode) {
@@ -1140,9 +1162,9 @@ impl<'a: 'b, 'b> AveragePoolAttrsBuilder<'a, 'b> {
             .push_slot_always::<flatbuffers::WIPOffset<_>>(AveragePoolAttrs::VT_PADS, pads);
     }
     #[inline]
-    pub fn add_stride(&mut self, stride: u32) {
+    pub fn add_stride(&mut self, stride: flatbuffers::WIPOffset<flatbuffers::Vector<'b, u32>>) {
         self.fbb_
-            .push_slot::<u32>(AveragePoolAttrs::VT_STRIDE, stride, 0);
+            .push_slot_always::<flatbuffers::WIPOffset<_>>(AveragePoolAttrs::VT_STRIDE, stride);
     }
     #[inline]
     pub fn new(
@@ -1157,6 +1179,8 @@ impl<'a: 'b, 'b> AveragePoolAttrsBuilder<'a, 'b> {
     #[inline]
     pub fn finish(self) -> flatbuffers::WIPOffset<AveragePoolAttrs<'a>> {
         let o = self.fbb_.end_table(self.start_);
+        self.fbb_
+            .required(o, AveragePoolAttrs::VT_KERNEL_SIZE, "kernel_size");
         flatbuffers::WIPOffset::new(o.value())
     }
 }
@@ -2664,23 +2688,30 @@ impl<'a> MaxPoolAttrs<'a> {
         args: &'args MaxPoolAttrsArgs<'args>,
     ) -> flatbuffers::WIPOffset<MaxPoolAttrs<'bldr>> {
         let mut builder = MaxPoolAttrsBuilder::new(_fbb);
-        builder.add_stride(args.stride);
+        if let Some(x) = args.stride {
+            builder.add_stride(x);
+        }
         if let Some(x) = args.pads {
             builder.add_pads(x);
         }
-        builder.add_kernel_size(args.kernel_size);
+        if let Some(x) = args.kernel_size {
+            builder.add_kernel_size(x);
+        }
         builder.add_pad_mode(args.pad_mode);
         builder.finish()
     }
 
     #[inline]
-    pub fn kernel_size(&self) -> u32 {
+    pub fn kernel_size(&self) -> flatbuffers::Vector<'a, u32> {
         // Safety:
         // Created from valid Table for this object
         // which contains a valid value in this slot
         unsafe {
             self._tab
-                .get::<u32>(MaxPoolAttrs::VT_KERNEL_SIZE, Some(0))
+                .get::<flatbuffers::ForwardsUOffset<flatbuffers::Vector<'a, u32>>>(
+                    MaxPoolAttrs::VT_KERNEL_SIZE,
+                    None,
+                )
                 .unwrap()
         }
     }
@@ -2709,14 +2740,16 @@ impl<'a> MaxPoolAttrs<'a> {
         }
     }
     #[inline]
-    pub fn stride(&self) -> u32 {
+    pub fn stride(&self) -> Option<flatbuffers::Vector<'a, u32>> {
         // Safety:
         // Created from valid Table for this object
         // which contains a valid value in this slot
         unsafe {
             self._tab
-                .get::<u32>(MaxPoolAttrs::VT_STRIDE, Some(0))
-                .unwrap()
+                .get::<flatbuffers::ForwardsUOffset<flatbuffers::Vector<'a, u32>>>(
+                    MaxPoolAttrs::VT_STRIDE,
+                    None,
+                )
         }
     }
 }
@@ -2729,32 +2762,40 @@ impl flatbuffers::Verifiable for MaxPoolAttrs<'_> {
     ) -> Result<(), flatbuffers::InvalidFlatbuffer> {
         use self::flatbuffers::Verifiable;
         v.visit_table(pos)?
-            .visit_field::<u32>("kernel_size", Self::VT_KERNEL_SIZE, false)?
+            .visit_field::<flatbuffers::ForwardsUOffset<flatbuffers::Vector<'_, u32>>>(
+                "kernel_size",
+                Self::VT_KERNEL_SIZE,
+                true,
+            )?
             .visit_field::<PadMode>("pad_mode", Self::VT_PAD_MODE, false)?
             .visit_field::<flatbuffers::ForwardsUOffset<flatbuffers::Vector<'_, u32>>>(
                 "pads",
                 Self::VT_PADS,
                 false,
             )?
-            .visit_field::<u32>("stride", Self::VT_STRIDE, false)?
+            .visit_field::<flatbuffers::ForwardsUOffset<flatbuffers::Vector<'_, u32>>>(
+                "stride",
+                Self::VT_STRIDE,
+                false,
+            )?
             .finish();
         Ok(())
     }
 }
 pub struct MaxPoolAttrsArgs<'a> {
-    pub kernel_size: u32,
+    pub kernel_size: Option<flatbuffers::WIPOffset<flatbuffers::Vector<'a, u32>>>,
     pub pad_mode: PadMode,
     pub pads: Option<flatbuffers::WIPOffset<flatbuffers::Vector<'a, u32>>>,
-    pub stride: u32,
+    pub stride: Option<flatbuffers::WIPOffset<flatbuffers::Vector<'a, u32>>>,
 }
 impl<'a> Default for MaxPoolAttrsArgs<'a> {
     #[inline]
     fn default() -> Self {
         MaxPoolAttrsArgs {
-            kernel_size: 0,
+            kernel_size: None, // required field
             pad_mode: PadMode::Same,
             pads: None,
-            stride: 0,
+            stride: None,
         }
     }
 }
@@ -2765,9 +2806,14 @@ pub struct MaxPoolAttrsBuilder<'a: 'b, 'b> {
 }
 impl<'a: 'b, 'b> MaxPoolAttrsBuilder<'a, 'b> {
     #[inline]
-    pub fn add_kernel_size(&mut self, kernel_size: u32) {
-        self.fbb_
-            .push_slot::<u32>(MaxPoolAttrs::VT_KERNEL_SIZE, kernel_size, 0);
+    pub fn add_kernel_size(
+        &mut self,
+        kernel_size: flatbuffers::WIPOffset<flatbuffers::Vector<'b, u32>>,
+    ) {
+        self.fbb_.push_slot_always::<flatbuffers::WIPOffset<_>>(
+            MaxPoolAttrs::VT_KERNEL_SIZE,
+            kernel_size,
+        );
     }
     #[inline]
     pub fn add_pad_mode(&mut self, pad_mode: PadMode) {
@@ -2780,9 +2826,9 @@ impl<'a: 'b, 'b> MaxPoolAttrsBuilder<'a, 'b> {
             .push_slot_always::<flatbuffers::WIPOffset<_>>(MaxPoolAttrs::VT_PADS, pads);
     }
     #[inline]
-    pub fn add_stride(&mut self, stride: u32) {
+    pub fn add_stride(&mut self, stride: flatbuffers::WIPOffset<flatbuffers::Vector<'b, u32>>) {
         self.fbb_
-            .push_slot::<u32>(MaxPoolAttrs::VT_STRIDE, stride, 0);
+            .push_slot_always::<flatbuffers::WIPOffset<_>>(MaxPoolAttrs::VT_STRIDE, stride);
     }
     #[inline]
     pub fn new(_fbb: &'b mut flatbuffers::FlatBufferBuilder<'a>) -> MaxPoolAttrsBuilder<'a, 'b> {
@@ -2795,6 +2841,8 @@ impl<'a: 'b, 'b> MaxPoolAttrsBuilder<'a, 'b> {
     #[inline]
     pub fn finish(self) -> flatbuffers::WIPOffset<MaxPoolAttrs<'a>> {
         let o = self.fbb_.end_table(self.start_);
+        self.fbb_
+            .required(o, MaxPoolAttrs::VT_KERNEL_SIZE, "kernel_size");
         flatbuffers::WIPOffset::new(o.value())
     }
 }

@@ -16,22 +16,23 @@ use crate::tensor::{zeros, Tensor};
 pub fn calc_output_size_and_padding(
     in_size: (usize, usize),
     kernel_size: (usize, usize),
-    stride: usize,
+    stride: (usize, usize),
     padding: Padding,
 ) -> (usize, usize, [usize; 4]) {
     let (in_h, in_w) = in_size;
     let (k_h, k_w) = kernel_size;
+    let (stride_h, stride_w) = stride;
 
     assert!(in_h >= k_h);
     assert!(in_w >= k_w);
 
     let (out_h, out_w, padding) = match padding {
         Padding::Same => {
-            let out_h = div_ceil(in_h, stride);
-            let out_w = div_ceil(in_w, stride);
+            let out_h = div_ceil(in_h, stride_h);
+            let out_w = div_ceil(in_w, stride_w);
 
-            let pad_total_h = (out_h - 1) * stride + k_h.saturating_sub(in_h);
-            let pad_total_w = (out_w - 1) * stride + k_w.saturating_sub(in_w);
+            let pad_total_h = (out_h - 1) * stride_h + k_h.saturating_sub(in_h);
+            let pad_total_w = (out_w - 1) * stride_w + k_w.saturating_sub(in_w);
 
             let pad_top = pad_total_h / 2;
             let pad_left = pad_total_w / 2;
@@ -45,19 +46,30 @@ pub fn calc_output_size_and_padding(
             (out_h, out_w, [pad_top, pad_left, pad_bottom, pad_right])
         }
         Padding::Fixed([pad_top, pad_left, pad_bottom, pad_right]) => {
-            let out_h = (in_h + pad_top + pad_bottom - k_h) / stride + 1;
-            let out_w = (in_w + pad_left + pad_right - k_w) / stride + 1;
+            let out_h = (in_h + pad_top + pad_bottom - k_h) / stride_h + 1;
+            let out_w = (in_w + pad_left + pad_right - k_w) / stride_w + 1;
             (out_h, out_w, [pad_top, pad_left, pad_bottom, pad_right])
         }
     };
     (out_h, out_w, padding)
 }
 
-pub fn average_pool(input: &Tensor, kernel_size: usize, stride: usize, padding: Padding) -> Tensor {
+pub fn average_pool(
+    input: &Tensor,
+    kernel_size: [usize; 2],
+    stride: [usize; 2],
+    padding: Padding,
+) -> Tensor {
     let [batch, in_c, in_h, in_w] = input.dims();
-    let (out_h, out_w, fixed_padding) =
-        calc_output_size_and_padding((in_h, in_w), (kernel_size, kernel_size), stride, padding);
+    let (out_h, out_w, fixed_padding) = calc_output_size_and_padding(
+        (in_h, in_w),
+        (kernel_size[0], kernel_size[1]),
+        (stride[0], stride[1]),
+        padding,
+    );
     let [pad_top, pad_left, _pad_bottom, _pad_right] = fixed_padding;
+    let [kernel_h, kernel_w] = kernel_size;
+    let [stride_h, stride_w] = stride;
 
     let mut output = zeros::<f32>(&[batch, in_c, out_h, out_w]);
 
@@ -71,10 +83,10 @@ pub fn average_pool(input: &Tensor, kernel_size: usize, stride: usize, padding: 
                     let mut accumulator = 0.0;
                     let mut non_padding_elements = 0.0;
 
-                    for k_y in 0..kernel_size {
-                        for k_x in 0..kernel_size {
-                            let in_y = out_y * stride + k_y;
-                            let in_x = out_x * stride + k_x;
+                    for k_y in 0..kernel_h {
+                        for k_x in 0..kernel_w {
+                            let in_y = out_y * stride_h + k_y;
+                            let in_x = out_x * stride_w + k_x;
                             if in_y >= pad_top
                                 && in_y < in_h + pad_top
                                 && in_x >= pad_left
@@ -98,9 +110,9 @@ pub fn average_pool(input: &Tensor, kernel_size: usize, stride: usize, padding: 
 
 #[derive(Debug)]
 pub struct AveragePool {
-    pub kernel_size: usize,
+    pub kernel_size: [usize; 2],
     pub padding: Padding,
-    pub stride: usize,
+    pub stride: [usize; 2],
 }
 
 impl Operator for AveragePool {
@@ -150,11 +162,22 @@ impl Operator for GlobalAveragePool {
     }
 }
 
-pub fn max_pool(input: &Tensor, kernel_size: usize, stride: usize, padding: Padding) -> Tensor {
+pub fn max_pool(
+    input: &Tensor,
+    kernel_size: [usize; 2],
+    stride: [usize; 2],
+    padding: Padding,
+) -> Tensor {
     let [batch, in_c, in_h, in_w] = input.dims();
-    let (out_h, out_w, fixed_padding) =
-        calc_output_size_and_padding((in_h, in_w), (kernel_size, kernel_size), stride, padding);
+    let (out_h, out_w, fixed_padding) = calc_output_size_and_padding(
+        (in_h, in_w),
+        (kernel_size[0], kernel_size[1]),
+        (stride[0], stride[1]),
+        padding,
+    );
     let [pad_top, pad_left, _pad_bottom, _pad_right] = fixed_padding;
+    let [kernel_h, kernel_w] = kernel_size;
+    let [stride_h, stride_w] = stride;
 
     let mut output = zeros::<f32>(&[batch, in_c, out_h, out_w]);
 
@@ -166,10 +189,10 @@ pub fn max_pool(input: &Tensor, kernel_size: usize, stride: usize, padding: Padd
             for out_y in 0..out_h {
                 for out_x in 0..out_w {
                     let mut accumulator = f32::NEG_INFINITY;
-                    for k_y in 0..kernel_size {
-                        for k_x in 0..kernel_size {
-                            let in_y = out_y * stride + k_y;
-                            let in_x = out_x * stride + k_x;
+                    for k_y in 0..kernel_h {
+                        for k_x in 0..kernel_w {
+                            let in_y = out_y * stride_h + k_y;
+                            let in_x = out_x * stride_w + k_x;
                             if in_y >= pad_top
                                 && in_y < in_h + pad_top
                                 && in_x >= pad_left
@@ -191,9 +214,9 @@ pub fn max_pool(input: &Tensor, kernel_size: usize, stride: usize, padding: Padd
 
 #[derive(Debug)]
 pub struct MaxPool {
-    pub kernel_size: usize,
+    pub kernel_size: [usize; 2],
     pub padding: Padding,
-    pub stride: usize,
+    pub stride: [usize; 2],
 }
 
 impl Operator for MaxPool {
@@ -210,43 +233,85 @@ impl Operator for MaxPool {
 #[cfg(test)]
 mod tests {
     use crate::ops::{average_pool, global_average_pool, max_pool, Padding};
-    use crate::tensor::{from_2d_slice, from_data, zeros, SliceRange};
+    use crate::tensor::{from_2d_slice, from_data, zeros, Tensor};
     use crate::test_util::expect_equal;
 
     #[test]
     fn test_average_pool() -> Result<(), String> {
-        let height = 4;
-        let width = 4;
-        let mut input = zeros(&[1, 1, height, width]);
-
-        for y in 0..height {
-            for x in 0..width {
-                input[[0, 0, y, x]] = (y as f32) * 10.0 + (x as f32);
-            }
-        }
-
-        let sr = |start, end| SliceRange::new(start, end, 1);
-
-        let sum_a: f32 = input
-            .slice_elements(&[sr(0, 1), sr(0, 1), sr(0, 2), sr(0, 2)])
-            .sum();
-        let sum_b: f32 = input
-            .slice_elements(&[sr(0, 1), sr(0, 1), sr(0, 2), sr(2, 4)])
-            .sum();
-        let sum_c: f32 = input
-            .slice_elements(&[sr(0, 1), sr(0, 1), sr(2, 4), sr(0, 2)])
-            .sum();
-        let sum_d: f32 = input
-            .slice_elements(&[sr(0, 1), sr(0, 1), sr(2, 4), sr(2, 4)])
-            .sum();
-
-        let expected = from_data(
-            vec![1, 1, 2, 2],
-            vec![sum_a / 4.0, sum_b / 4.0, sum_c / 4.0, sum_d / 4.0],
+        let input = from_data(
+            vec![1, 1, 4, 4],
+            vec![
+                0.1, 0.2, 0.3, 0.4, // Y=0
+                0.5, 0.6, 0.7, 0.8, // Y=1
+                0.1, 0.2, 0.3, 0.4, // Y=2
+                0.6, 0.7, 0.8, 0.9, // Y=3
+            ],
         );
 
-        let result = average_pool(&input, 2, 2 /* stride */, Padding::Fixed([0, 0, 0, 0]));
-        expect_equal(&result, &expected)
+        struct Case {
+            kernel_size: [usize; 2],
+            stride: [usize; 2],
+            expected: Tensor,
+        }
+
+        let cases = [
+            // Most common case of uniform stride and kernel size
+            Case {
+                kernel_size: [2, 2],
+                stride: [2, 2],
+                expected: from_data(vec![1, 1, 2, 2], vec![0.35, 0.55, 0.4, 0.6]),
+            },
+            // Large uniform kernel size and stride
+            Case {
+                kernel_size: [4, 4],
+                stride: [4, 4],
+                expected: from_data(vec![1, 1, 1, 1], vec![0.475]),
+            },
+            // Kernel height > kernel width
+            Case {
+                kernel_size: [2, 4],
+                stride: [2, 4],
+                expected: from_data(vec![1, 1, 2, 1], vec![0.45, 0.5]),
+            },
+            // W stride > H stride
+            Case {
+                kernel_size: [2, 2],
+                stride: [1, 2],
+                expected: from_data(
+                    vec![1, 1, 3, 2],
+                    vec![
+                        0.35, 0.55, // Y=0
+                        0.35, 0.55, // Y=1
+                        0.4, 0.6, // Y=2
+                    ],
+                ),
+            },
+            // H stride > W stride
+            Case {
+                kernel_size: [2, 2],
+                stride: [2, 1],
+                expected: from_data(
+                    vec![1, 1, 2, 3],
+                    vec![
+                        0.35, 0.45, // Y=0
+                        0.55, 0.4, // Y=1
+                        0.5, 0.6, // Y=2
+                    ],
+                ),
+            },
+        ];
+
+        for case in cases {
+            let result = average_pool(
+                &input,
+                case.kernel_size,
+                case.stride,
+                Padding::Fixed([0, 0, 0, 0]),
+            );
+            expect_equal(&result, &case.expected)?;
+        }
+
+        Ok(())
     }
 
     #[test]
@@ -270,7 +335,12 @@ mod tests {
         let [rows, cols] = expected.dims();
         expected.reshape(&[1, 1, rows, cols]);
 
-        let result = average_pool(&input, 2, 2 /* stride */, Padding::Fixed([1, 1, 1, 1]));
+        let result = average_pool(
+            &input,
+            [2, 2],
+            [2, 2], /* stride */
+            Padding::Fixed([1, 1, 1, 1]),
+        );
         expect_equal(&result, &expected)
     }
 
@@ -284,73 +354,98 @@ mod tests {
 
     #[test]
     fn test_max_pool() -> Result<(), String> {
-        let height = 4;
-        let width = 8;
-        let mut input = zeros(&[1, 1, height, width]);
-
-        input[[0, 0, 0, 0]] = 1.0;
-        input[[0, 0, 0, 1]] = 2.0;
-        input[[0, 0, 1, 0]] = 3.0;
-        input[[0, 0, 1, 1]] = 4.0;
-
-        input[[0, 0, 0, 2]] = 0.1;
-        input[[0, 0, 0, 3]] = 0.2;
-        input[[0, 0, 1, 2]] = 0.3;
-        input[[0, 0, 1, 3]] = 0.4;
-
-        let expected = from_data(
-            vec![1, 1, 2, 4],
-            vec![4.0, 0.4, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0],
+        let input = from_data(
+            vec![1, 1, 4, 4],
+            vec![
+                0.1, 0.2, 0.3, 0.4, // Y=0
+                0.5, 0.6, 0.7, 0.8, // Y=1
+                0.1, 0.2, 0.3, 0.4, // Y=2
+                0.6, 0.7, 0.8, 0.9, // Y=3
+            ],
         );
 
-        let result = max_pool(&input, 2, 2 /* stride */, Padding::Fixed([0, 0, 0, 0]));
-        expect_equal(&result, &expected)
-    }
-
-    #[test]
-    fn test_max_pool_stride() -> Result<(), String> {
-        let mut input = zeros(&[1, 1, 9, 9]);
-
-        for y in 0..9 {
-            for x in 0..9 {
-                if x % 3 == 2 && y % 3 == 2 {
-                    // Set every third element along each axis to a large
-                    // value. These should be skipped over due to the stride
-                    // below.
-                    input[[0, 0, y, x]] = 1000.0;
-                } else {
-                    // Result should be the pooled values of these entries.
-                    input[[0, 0, y, x]] = ((y / 3) * 10 + x / 3) as f32;
-                }
-            }
+        struct Case {
+            kernel_size: [usize; 2],
+            stride: [usize; 2],
+            expected: Tensor,
         }
 
-        let result = max_pool(&input, 2, 3 /* stride */, Padding::Fixed([0, 0, 0, 0]));
-        let expected = from_data(
-            vec![1, 1, 3, 3],
-            vec![0., 1., 2., 10., 11., 12., 20., 21., 22.],
-        );
+        let cases = [
+            // Most common case of uniform stride and kernel size
+            Case {
+                kernel_size: [2, 2],
+                stride: [2, 2],
+                expected: from_data(vec![1, 1, 2, 2], vec![0.6, 0.8, 0.7, 0.9]),
+            },
+            // Large uniform kernel size and stride
+            Case {
+                kernel_size: [4, 4],
+                stride: [4, 4],
+                expected: from_data(vec![1, 1, 1, 1], vec![0.9]),
+            },
+            // Kernel height > kernel width
+            Case {
+                kernel_size: [2, 4],
+                stride: [2, 4],
+                expected: from_data(vec![1, 1, 2, 1], vec![0.8, 0.9]),
+            },
+            // W stride > H stride
+            Case {
+                kernel_size: [2, 2],
+                stride: [1, 2],
+                expected: from_data(
+                    vec![1, 1, 3, 2],
+                    vec![
+                        0.6, 0.8, // Y=0
+                        0.6, 0.8, // Y=1
+                        0.7, 0.9, // Y=2
+                    ],
+                ),
+            },
+            // H stride > W stride
+            Case {
+                kernel_size: [2, 2],
+                stride: [2, 1],
+                expected: from_data(
+                    vec![1, 1, 2, 3],
+                    vec![
+                        0.6, 0.7, 0.8, // Y=0
+                        0.7, 0.8, 0.9, // Y=1
+                    ],
+                ),
+            },
+        ];
 
-        expect_equal(&result, &expected)
+        for case in cases {
+            let result = max_pool(
+                &input,
+                case.kernel_size,
+                case.stride,
+                Padding::Fixed([0, 0, 0, 0]),
+            );
+            expect_equal(&result, &case.expected)?;
+        }
+
+        Ok(())
     }
 
     #[test]
     fn test_max_pool_padding() {
         let input = zeros(&[1, 1, 9, 9]);
 
-        let result = max_pool(&input, 2, 2, Padding::Fixed([0, 0, 0, 0]));
+        let result = max_pool(&input, [2, 2], [2, 2], Padding::Fixed([0, 0, 0, 0]));
         assert_eq!(result.shape(), &[1, 1, 4, 4]);
 
-        let result = max_pool(&input, 2, 2, Padding::Fixed([1, 1, 1, 1]));
+        let result = max_pool(&input, [2, 2], [2, 2], Padding::Fixed([1, 1, 1, 1]));
         assert_eq!(result.shape(), &[1, 1, 5, 5]);
 
-        let result = max_pool(&input, 2, 2, Padding::Fixed([2, 2, 2, 2]));
+        let result = max_pool(&input, [2, 2], [2, 2], Padding::Fixed([2, 2, 2, 2]));
         assert_eq!(result.shape(), &[1, 1, 6, 6]);
 
-        let result = max_pool(&input, 2, 2, Padding::Same);
+        let result = max_pool(&input, [2, 2], [2, 2], Padding::Same);
         assert_eq!(result.shape(), &[1, 1, 5, 5]);
 
-        let result = max_pool(&input, 2, 3, Padding::Same);
+        let result = max_pool(&input, [2, 2], [3, 3], Padding::Same);
         assert_eq!(result.shape(), &[1, 1, 3, 3]);
     }
 }

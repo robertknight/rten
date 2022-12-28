@@ -230,11 +230,13 @@ impl<'a> ModelBuilder<'a> {
             OpType::AveragePool(args) => op_with_attrs!(AveragePool, AveragePoolAttrs, {
                 let pad_args = pad_args_from_padding(args.padding);
                 let pads = self.create_vec(pad_args.pads, |pad| pad as u32);
+                let kernel_size = self.create_vec(Some(args.kernel_size.into()), |sz| sz as u32);
+                let stride = self.create_vec(Some(args.stride.into()), |s| s as u32);
                 sg::AveragePoolAttrsArgs {
-                    kernel_size: args.kernel_size as u32,
+                    kernel_size,
                     pad_mode: pad_args.pad_mode,
                     pads,
-                    stride: args.stride as u32,
+                    stride,
                 }
             }),
             OpType::BatchNormalization(args) => op_with_attrs!(
@@ -345,11 +347,13 @@ impl<'a> ModelBuilder<'a> {
             OpType::MaxPool(args) => op_with_attrs!(MaxPool, MaxPoolAttrs, {
                 let pad_args = pad_args_from_padding(args.padding);
                 let pads = self.create_vec(pad_args.pads, |pad| pad as u32);
+                let kernel_size = self.create_vec(Some(args.kernel_size.into()), |sz| sz as u32);
+                let stride = self.create_vec(Some(args.stride.into()), |s| s as u32);
                 sg::MaxPoolAttrsArgs {
-                    kernel_size: args.kernel_size as u32,
+                    kernel_size,
                     pad_mode: pad_args.pad_mode,
                     pads,
-                    stride: args.stride as u32,
+                    stride,
                 }
             }),
             OpType::Mul => op!(Mul),

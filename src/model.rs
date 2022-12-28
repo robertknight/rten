@@ -63,19 +63,35 @@ fn padding_from_attrs(mode: PadMode, pads: Option<flatbuffers::Vector<'_, u32>>)
     }
 }
 
+/// Read the first N items from `iter` into an array.
+///
+/// Panics if the iterator yields fewer than N items.
+fn array_from_iter<const N: usize, T: Default + Copy, I: Iterator<Item = T>>(
+    mut iter: I,
+) -> [T; N] {
+    let mut result = [T::default(); N];
+    for i in 0..N {
+        result[i] = iter.next().expect("incorrect array size");
+    }
+    result
+}
+
 fn read_average_pool_op(node: &OperatorNode) -> Box<dyn Operator> {
-    let kernel_size;
+    let kernel_size: [usize; 2];
     let padding;
-    let stride;
+    let stride: [usize; 2];
 
     if let Some(attrs) = node.attrs_as_average_pool_attrs() {
-        kernel_size = attrs.kernel_size() as usize;
+        kernel_size = array_from_iter(attrs.kernel_size().iter().map(|x| x as usize));
         padding = padding_from_attrs(attrs.pad_mode(), attrs.pads());
-        stride = attrs.stride() as usize;
+        stride = attrs
+            .stride()
+            .map(|stride| array_from_iter(stride.iter().map(|x| x as usize)))
+            .unwrap_or([1, 1]);
     } else {
-        kernel_size = 1;
+        kernel_size = [1, 1];
         padding = Padding::Fixed([0, 0, 0, 0]);
-        stride = 1;
+        stride = [1, 1];
     }
 
     Box::new(ops::AveragePool {
@@ -217,18 +233,21 @@ fn read_leaky_relu_op(node: &OperatorNode) -> Box<dyn Operator> {
 }
 
 fn read_max_pool_op(node: &OperatorNode) -> Box<dyn Operator> {
-    let kernel_size;
+    let kernel_size: [usize; 2];
     let padding;
-    let stride;
+    let stride: [usize; 2];
 
     if let Some(attrs) = node.attrs_as_max_pool_attrs() {
-        kernel_size = attrs.kernel_size() as usize;
+        kernel_size = array_from_iter(attrs.kernel_size().iter().map(|x| x as usize));
         padding = padding_from_attrs(attrs.pad_mode(), attrs.pads());
-        stride = attrs.stride() as usize;
+        stride = attrs
+            .stride()
+            .map(|stride| array_from_iter(stride.iter().map(|x| x as usize)))
+            .unwrap_or([1, 1]);
     } else {
-        kernel_size = 1;
+        kernel_size = [1, 1];
         padding = Padding::Fixed([0, 0, 0, 0]);
-        stride = 1;
+        stride = [1, 1];
     }
 
     Box::new(ops::MaxPool {
@@ -561,8 +580,8 @@ mod tests {
         builder.add_operator(
             "average_pool",
             OpType::AveragePool(ops::AveragePool {
-                kernel_size: 2,
-                stride: 2,
+                kernel_size: [2, 2],
+                stride: [2, 2],
                 padding: Padding::Fixed([0, 0, 0, 0]),
             }),
             &[input_node],
@@ -724,8 +743,8 @@ mod tests {
         builder.add_operator(
             "max_pool",
             OpType::MaxPool(ops::MaxPool {
-                kernel_size: 2,
-                stride: 2,
+                kernel_size: [2, 2],
+                stride: [2, 2],
                 padding: Padding::Fixed([0, 0, 0, 0]),
             }),
             &[input_node],

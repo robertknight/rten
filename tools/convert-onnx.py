@@ -180,9 +180,9 @@ def check_unsupported_attr(
         )
 
 
-def check_ints_length_and_value(name: str, ints: list[int], allowed_length: int):
+def check_ints_length(name: str, ints: list[int], allowed_length: int):
     """
-    Check that an ints attribute has a fixed length and all values are equal.
+    Check that an ints attribute has a fixed length.
 
     Various ONNX operators allow for a wider range of dimensions and per-axis
     values (eg. for strides, dilations, padding...) than this library currently
@@ -190,9 +190,6 @@ def check_ints_length_and_value(name: str, ints: list[int], allowed_length: int)
     """
     if len(ints) != allowed_length:
         raise Exception(f'Attribute "{name}" must have {allowed_length} values')
-    for item in ints:
-        if item != ints[0]:
-            raise Exception(f'All values of attribute "{name}" must be the same')
 
 
 def convert_array(src_type: str, data: bytes, dest_type: str):
@@ -300,7 +297,7 @@ def read_pad_attrs_from_onnx_operator(
 
 
 def read_stride_attr_from_onnx_operator(
-    onnx_op: onnx.OperatorProto, attrs: dict[str, AttributeValue]
+    onnx_op: onnx.OperatorProto, attrs: dict[str, AttributeValue], require_uniform: bool
 ):
     """
     Read a stride specification from an ONNX operator.
@@ -309,9 +306,12 @@ def read_stride_attr_from_onnx_operator(
     if len(strides) != 2:
         raise Exception('"strides" attribute must have 2 values')
     stride_width, stride_height = iter(strides)
-    if stride_width != stride_height:
-        raise Exception("Strides must be the same in all dimensions")
-    attrs["stride"] = stride_width
+    if require_uniform:
+        if stride_width != stride_height:
+            raise Exception("Strides must be the same in all dimensions")
+        attrs["stride"] = stride_width
+    else:
+        attrs["stride"] = [stride_width, stride_height]
 
 
 # Set of operators that have no attributes.
@@ -381,11 +381,11 @@ def op_node_from_onnx_operator(
     match onnx_op.op_type:
         case "AveragePool":
             kernel_shape = require_attr(onnx_op.attribute, "kernel_shape", "ints")
-            check_ints_length_and_value("kernel_shape", kernel_shape, 2)
-            attrs["kernel_size"] = kernel_shape[0]
+            check_ints_length("kernel_shape", kernel_shape, 2)
+            attrs["kernel_size"] = kernel_shape
 
             read_pad_attrs_from_onnx_operator(onnx_op, attrs)
-            read_stride_attr_from_onnx_operator(onnx_op, attrs)
+            read_stride_attr_from_onnx_operator(onnx_op, attrs, require_uniform=False)
 
             check_unsupported_attr(onnx_op.attribute, "ceil_mode", "int", 0)
             check_unsupported_attr(onnx_op.attribute, "count_include_pad", "int", 0)
@@ -428,12 +428,12 @@ def op_node_from_onnx_operator(
         case "Conv":
             attrs["groups"] = get_attr(onnx_op.attribute, "group", "int", 1)
             read_pad_attrs_from_onnx_operator(onnx_op, attrs)
-            read_stride_attr_from_onnx_operator(onnx_op, attrs)
+            read_stride_attr_from_onnx_operator(onnx_op, attrs, require_uniform=True)
 
             check_unsupported_attr(onnx_op.attribute, "dilations", "ints", [1, 1])
 
         case "ConvTranspose":
-            read_stride_attr_from_onnx_operator(onnx_op, attrs)
+            read_stride_attr_from_onnx_operator(onnx_op, attrs, require_uniform=True)
 
             check_unsupported_attr(onnx_op.attribute, "auto_pad", "string", "NOTSET")
             check_unsupported_attr(onnx_op.attribute, "dilations", "ints", [1, 1])
@@ -457,11 +457,11 @@ def op_node_from_onnx_operator(
 
         case "MaxPool":
             kernel_shape = require_attr(onnx_op.attribute, "kernel_shape", "ints")
-            check_ints_length_and_value("kernel_shape", kernel_shape, 2)
-            attrs["kernel_size"] = kernel_shape[0]
+            check_ints_length("kernel_shape", kernel_shape, 2)
+            attrs["kernel_size"] = kernel_shape
 
             read_pad_attrs_from_onnx_operator(onnx_op, attrs)
-            read_stride_attr_from_onnx_operator(onnx_op, attrs)
+            read_stride_attr_from_onnx_operator(onnx_op, attrs, require_uniform=False)
 
             check_unsupported_attr(onnx_op.attribute, "ceil_mode", "int", 0)
             check_unsupported_attr(onnx_op.attribute, "dilations", "ints", [1, 1])
@@ -635,6 +635,13 @@ def build_constant_node(builder: flatbuffers.Builder, constant: ConstantNode):
     return sg.ConstantNodeEnd(builder)
 
 
+def write_u32_vec(builder: flatbuffers.Builder, start_vec, data: list[int]):
+    start_vec(builder, len(data))
+    for item in reversed(data):
+        builder.PrependUint32(item)
+    return builder.EndVector()
+
+
 def build_operator_node(builder: flatbuffers.Builder, operator: OperatorNode):
     """
     Serialize an operator into a FlatBuffers model.
@@ -652,17 +659,29 @@ def build_operator_node(builder: flatbuffers.Builder, operator: OperatorNode):
             else:
                 pad_mode = sg.PadMode.Fixed
                 pads = cast(list[int], operator.attrs["pads"])
-                sg.AveragePoolAttrsStartPadsVector(builder, len(pads))
-                for item in reversed(pads):
-                    builder.PrependUint32(item)
-                pads_vec = builder.EndVector()
+                pads_vec = write_u32_vec(
+                    builder, sg.AveragePoolAttrsStartPadsVector, pads
+                )
+
+            kernel_size_vec = write_u32_vec(
+                builder,
+                sg.AveragePoolAttrsStartKernelSizeVector,
+                operator.attrs["kernel_size"],
+            )
+            if "stride" in operator.attrs:
+                stride_vec = write_u32_vec(
+                    builder,
+                    sg.AveragePoolAttrsStartStrideVector,
+                    operator.attrs["stride"],
+                )
 
             sg.AveragePoolAttrsStart(builder)
-            sg.AveragePoolAttrsAddKernelSize(builder, operator.attrs["kernel_size"])
+            sg.AveragePoolAttrsAddKernelSize(builder, kernel_size_vec)
             sg.AveragePoolAttrsAddPadMode(builder, pad_mode)
             if pad_mode == sg.PadMode.Fixed:
                 sg.AveragePoolAttrsAddPads(builder, pads_vec)
-            sg.AveragePoolAttrsAddStride(builder, operator.attrs["stride"])
+            if stride_vec:
+                sg.AveragePoolAttrsAddStride(builder, stride)
             attrs = sg.AveragePoolAttrsEnd(builder)
         case "BatchNormalization":
             sg.BatchNormalizationAttrsStart(builder)
@@ -742,17 +761,27 @@ def build_operator_node(builder: flatbuffers.Builder, operator: OperatorNode):
             else:
                 pad_mode = sg.PadMode.Fixed
                 pads = cast(list[int], operator.attrs["pads"])
-                sg.MaxPoolAttrsStartPadsVector(builder, len(pads))
-                for item in reversed(pads):
-                    builder.PrependUint32(item)
-                pads_vec = builder.EndVector()
+                pads_vec = write_u32_vec(builder, sg.MaxPoolAttrsStartPadsVector, pads)
+
+            kernel_size_vec = write_u32_vec(
+                builder,
+                sg.AveragePoolAttrsStartKernelSizeVector,
+                operator.attrs["kernel_size"],
+            )
+            if "stride" in operator.attrs:
+                stride_vec = write_u32_vec(
+                    builder,
+                    sg.AveragePoolAttrsStartStrideVector,
+                    operator.attrs["stride"],
+                )
 
             sg.MaxPoolAttrsStart(builder)
-            sg.MaxPoolAttrsAddKernelSize(builder, operator.attrs["kernel_size"])
+            sg.MaxPoolAttrsAddKernelSize(builder, kernel_size_vec)
             sg.MaxPoolAttrsAddPadMode(builder, pad_mode)
             if pad_mode == sg.PadMode.Fixed:
                 sg.MaxPoolAttrsAddPads(builder, pads_vec)
-            sg.MaxPoolAttrsAddStride(builder, operator.attrs["stride"])
+            if stride_vec:
+                sg.MaxPoolAttrsAddStride(builder, stride_vec)
             attrs = sg.MaxPoolAttrsEnd(builder)
         case "ReduceMean":
             axes = cast(list[int] | None, operator.attrs["axes"])
