@@ -1918,23 +1918,23 @@ mod tests {
 
     #[test]
     fn test_slice_elements() {
-        let sr = SliceRange::new;
+        let sr = |start, end| SliceRange::new(start, end, 1);
         let x = steps(&[3, 3]);
 
         // Slice that removes start of each dimension
-        let slice: Vec<_> = x.slice_elements(&[sr(1, 3, 1), sr(1, 3, 1)]).collect();
+        let slice: Vec<_> = x.slice_elements(&[sr(1, 3), sr(1, 3)]).collect();
         assert_eq!(slice, &[5, 6, 8, 9]);
 
         // Slice that removes end of each dimension
-        let slice: Vec<_> = x.slice_elements(&[sr(0, 2, 1), sr(0, 2, 1)]).collect();
+        let slice: Vec<_> = x.slice_elements(&[sr(0, 2), sr(0, 2)]).collect();
         assert_eq!(slice, &[1, 2, 4, 5]);
 
         // Slice that removes start and end of first dimension
-        let slice: Vec<_> = x.slice_elements(&[sr(1, 2, 1), sr(0, 3, 1)]).collect();
+        let slice: Vec<_> = x.slice_elements(&[sr(1, 2), sr(0, 3)]).collect();
         assert_eq!(slice, &[4, 5, 6]);
 
         // Slice that removes start and end of second dimension
-        let slice: Vec<_> = x.slice_elements(&[sr(0, 3, 1), sr(1, 2, 1)]).collect();
+        let slice: Vec<_> = x.slice_elements(&[sr(0, 3), sr(1, 2)]).collect();
         assert_eq!(slice, &[2, 5, 8]);
     }
 
@@ -1969,19 +1969,19 @@ mod tests {
 
     #[test]
     fn test_slice_elements_negative_indices() {
-        let sr = SliceRange::new;
+        let sr = |start, end| SliceRange::new(start, end, 1);
         let x = steps(&[10]);
 
         // Negative start
-        let slice: Vec<_> = x.slice_elements(&[sr(-2, 10, 1)]).collect();
+        let slice: Vec<_> = x.slice_elements(&[sr(-2, 10)]).collect();
         assert_eq!(slice, &[9, 10]);
 
         // Negative end
-        let slice: Vec<_> = x.slice_elements(&[sr(7, -1, 1)]).collect();
+        let slice: Vec<_> = x.slice_elements(&[sr(7, -1)]).collect();
         assert_eq!(slice, &[8, 9]);
 
         // Negative start and end
-        let slice: Vec<_> = x.slice_elements(&[sr(-3, -1, 1)]).collect();
+        let slice: Vec<_> = x.slice_elements(&[sr(-3, -1)]).collect();
         assert_eq!(slice, &[8, 9]);
     }
 

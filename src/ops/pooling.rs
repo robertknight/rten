@@ -225,19 +225,19 @@ mod tests {
             }
         }
 
-        let sr = SliceRange::new;
+        let sr = |start, end| SliceRange::new(start, end, 1);
 
         let sum_a: f32 = input
-            .slice_elements(&[sr(0, 1, 1), sr(0, 1, 1), sr(0, 2, 1), sr(0, 2, 1)])
+            .slice_elements(&[sr(0, 1), sr(0, 1), sr(0, 2), sr(0, 2)])
             .sum();
         let sum_b: f32 = input
-            .slice_elements(&[sr(0, 1, 1), sr(0, 1, 1), sr(0, 2, 1), sr(2, 4, 1)])
+            .slice_elements(&[sr(0, 1), sr(0, 1), sr(0, 2), sr(2, 4)])
             .sum();
         let sum_c: f32 = input
-            .slice_elements(&[sr(0, 1, 1), sr(0, 1, 1), sr(2, 4, 1), sr(0, 2, 1)])
+            .slice_elements(&[sr(0, 1), sr(0, 1), sr(2, 4), sr(0, 2)])
             .sum();
         let sum_d: f32 = input
-            .slice_elements(&[sr(0, 1, 1), sr(0, 1, 1), sr(2, 4, 1), sr(2, 4, 1)])
+            .slice_elements(&[sr(0, 1), sr(0, 1), sr(2, 4), sr(2, 4)])
             .sum();
 
         let expected = from_data(
