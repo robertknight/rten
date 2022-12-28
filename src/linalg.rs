@@ -108,51 +108,6 @@ fn blocks(start: usize, end: usize, step: usize) -> BlockIter {
 fn kernel<const H: usize, const W: usize>(
     out: &mut [f32],
     out_row_stride: usize,
-    used_rows: usize,
-    used_cols: usize,
-    a: &[f32],
-    b: &[f32],
-    depth: usize,
-) {
-    assert!(a.len() >= depth * H);
-    assert!(b.len() >= depth * W);
-    assert!(out.len() >= (used_rows - 1) * out_row_stride + used_cols);
-
-    // Accumulate into a fixed-sized array to allow the compiler to generate
-    // more efficient code for the loop over `depth`.
-    let mut tmp = [[0.0; W]; H];
-    for k in 0..depth {
-        let a_off = k * H;
-        let b_off = k * W;
-
-        for i in 0..H {
-            for j in 0..W {
-                // Safety: Indexes are less than lengths asserted above.
-                unsafe {
-                    tmp[i][j] += a.get_unchecked(a_off + i) * b.get_unchecked(b_off + j);
-                }
-            }
-        }
-    }
-
-    // The `min` operations here are strictly redundant as `used_rows` <= H and
-    // `used_cols` <= W. Curiously the kernel ran faster under WASM when they
-    // are left in.
-    for i in 0..used_rows {
-        for j in 0..used_cols {
-            // Safety: Index is less than length asserted above.
-            unsafe {
-                *out.get_unchecked_mut(out_row_stride * i + j) += tmp[i][j];
-            }
-        }
-    }
-}
-
-/// This is the same as `kernel`, but optimized for a "full" tile where all rows
-/// and columns are used.
-fn kernel_full<const H: usize, const W: usize>(
-    out: &mut [f32],
-    out_row_stride: usize,
     a: &[f32],
     b: &[f32],
     depth: usize,
@@ -421,7 +376,7 @@ pub fn gemm(out_data: &mut [f32], out_row_stride: usize, a: Matrix, b: Matrix) {
                         let used_cols = tile_col_end - tile_col_start;
 
                         if used_rows == MR && used_cols == NR {
-                            kernel_full::<MR, NR>(
+                            kernel::<MR, NR>(
                                 out_tile,
                                 out_row_stride,
                                 a_panel,
@@ -429,15 +384,25 @@ pub fn gemm(out_data: &mut [f32], out_row_stride: usize, a: Matrix, b: Matrix) {
                                 panel_length,
                             );
                         } else {
-                            kernel::<MR, NR>(
-                                out_tile,
-                                out_row_stride,
-                                tile_row_end - tile_row_start,
-                                tile_col_end - tile_col_start,
-                                a_panel,
-                                b_panel,
-                                panel_length,
-                            );
+                            // If this is not a full size tile, run the kernel on a temporary
+                            // buffer that is the size of a full tile, then copy the results back
+                            // to the output. This allows the same kernel implementation to be used
+                            // whether the tile is full-sized or not.
+                            let mut tmp = [0.; MR * NR];
+
+                            kernel::<MR, NR>(&mut tmp, NR, a_panel, b_panel, panel_length);
+
+                            assert!(out_tile.len() >= (used_rows - 1) * out_row_stride + used_cols);
+                            assert!(tmp.len() >= (used_rows - 1) * NR + used_cols);
+                            for i in 0..used_rows {
+                                for j in 0..used_cols {
+                                    // Safety: Index is less than length asserted above.
+                                    unsafe {
+                                        *out_tile.get_unchecked_mut(out_row_stride * i + j) +=
+                                            tmp[i * NR + j];
+                                    }
+                                }
+                            }
                         }
                     }
                 }
