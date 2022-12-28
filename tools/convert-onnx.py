@@ -599,10 +599,7 @@ def build_constant_node(builder: flatbuffers.Builder, constant: ConstantNode):
     """
     Serialize a constant tensor value (eg. model weights) into a FlatBuffers model.
     """
-    sg.ConstantNodeStartShapeVector(builder, len(constant.shape))
-    for item in reversed(constant.shape):
-        builder.PrependUint32(item)
-    shape_vec = builder.EndVector()
+    shape_vec = write_u32_vec(builder, sg.ConstantNodeStartShapeVector, constant.shape)
 
     match constant.data.typecode:
         case "f":
@@ -636,6 +633,11 @@ def build_constant_node(builder: flatbuffers.Builder, constant: ConstantNode):
 
 
 def write_u32_vec(builder: flatbuffers.Builder, start_vec, data: list[int]):
+    """
+    Serialize a list of unsigned ints into a table in a FlatBuffers buffer.
+
+    `start_vec` is the generated function that starts the vector.
+    """
     start_vec(builder, len(data))
     for item in reversed(data):
         builder.PrependUint32(item)
@@ -724,10 +726,7 @@ def build_operator_node(builder: flatbuffers.Builder, operator: OperatorNode):
             else:
                 pad_mode = sg.PadMode.Fixed
                 pads = cast(list[int], operator.attrs["pads"])
-                sg.ConvAttrsStartPadsVector(builder, len(pads))
-                for item in reversed(pads):
-                    builder.PrependUint32(item)
-                pads_vec = builder.EndVector()
+                pads_vec = write_u32_vec(builder, sg.ConvAttrsStartPadsVector, pads)
 
             sg.ConvAttrsStart(builder)
             sg.ConvAttrsAddGroups(builder, operator.attrs["groups"])
@@ -816,10 +815,7 @@ def build_operator_node(builder: flatbuffers.Builder, operator: OperatorNode):
         case "Split":
             split = cast(list[int] | None, operator.attrs["split"])
             if split:
-                sg.SplitAttrsStartSplitVector(builder, len(split))
-                for item in reversed(split):
-                    builder.PrependUint32(item)
-                split_vec = builder.EndVector()
+                split_vec = write_u32_vec(builder, sg.SplitAttrsStartSplitVector, split)
 
             sg.SplitAttrsStart(builder)
             sg.SplitAttrsAddAxis(builder, operator.attrs["axis"])
@@ -830,10 +826,7 @@ def build_operator_node(builder: flatbuffers.Builder, operator: OperatorNode):
         case "Squeeze":
             axes = cast(list[int] | None, operator.attrs["axes"])
             if axes:
-                sg.SqueezeAttrsStartAxesVector(builder, len(axes))
-                for item in reversed(axes):
-                    builder.PrependUint32(item)
-                axes_vec = builder.EndVector()
+                axes_vec = write_u32_vec(builder, sg.SqueezeAttrsStartAxesVector, axes)
 
             sg.SqueezeAttrsStart(builder)
             if axes_vec:
@@ -842,10 +835,9 @@ def build_operator_node(builder: flatbuffers.Builder, operator: OperatorNode):
         case "Transpose":
             perm = cast(list[int] | None, operator.attrs["perm"])
             if perm:
-                sg.TransposeAttrsStartPermVector(builder, len(perm))
-                for item in reversed(perm):
-                    builder.PrependUint32(item)
-                perm_vec = builder.EndVector()
+                perm_vec = write_u32_vec(
+                    builder, sg.TransposeAttrsStartPermVector, perm
+                )
 
             sg.TransposeAttrsStart(builder)
             if perm_vec:
@@ -854,10 +846,7 @@ def build_operator_node(builder: flatbuffers.Builder, operator: OperatorNode):
 
         case "Unsqueeze":
             axes = cast(list[int], operator.attrs["axes"])
-            sg.UnsqueezeAttrsStartAxesVector(builder, len(axes))
-            for item in reversed(axes):
-                builder.PrependUint32(item)
-            axes_vec = builder.EndVector()
+            axes_vec = write_u32_vec(builder, sg.UnsqueezeAttrsStartAxesVector, axes)
 
             sg.UnsqueezeAttrsStart(builder)
             sg.UnsqueezeAttrsAddAxes(builder, axes_vec)
@@ -867,15 +856,12 @@ def build_operator_node(builder: flatbuffers.Builder, operator: OperatorNode):
             if operator.op_type not in NO_ATTR_OPS:
                 raise Exception(f"Unsupported operator type {operator.op_type}")
 
-    sg.OperatorNodeStartInputsVector(builder, len(operator.inputs))
-    for input_index in reversed(operator.inputs):
-        builder.PrependUint32(input_index)
-    inputs_vec = builder.EndVector()
-
-    sg.OperatorNodeStartOutputsVector(builder, len(operator.outputs))
-    for output_index in reversed(operator.outputs):
-        builder.PrependUint32(output_index)
-    outputs_vec = builder.EndVector()
+    inputs_vec = write_u32_vec(
+        builder, sg.OperatorNodeStartInputsVector, operator.inputs
+    )
+    outputs_vec = write_u32_vec(
+        builder, sg.OperatorNodeStartOutputsVector, operator.outputs
+    )
 
     sg.OperatorNodeStart(builder)
     op_type_code = getattr(sg.OperatorType, operator.op_type)
@@ -934,15 +920,8 @@ def write_graph(graph: Graph, out_path: str):
         builder.PrependUOffsetTRelative(node_offset)
     graph_nodes = builder.EndVector()
 
-    sg.GraphStartInputsVector(builder, len(graph.inputs))
-    for node_id in reversed(graph.inputs):
-        builder.PrependUint32(node_id)
-    inputs = builder.EndVector()
-
-    sg.GraphStartOutputsVector(builder, len(graph.outputs))
-    for node_id in reversed(graph.outputs):
-        builder.PrependUint32(node_id)
-    outputs = builder.EndVector()
+    inputs = write_u32_vec(builder, sg.GraphStartInputsVector, graph.inputs)
+    outputs = write_u32_vec(builder, sg.GraphStartOutputsVector, graph.outputs)
 
     sg.GraphStart(builder)
     sg.GraphAddNodes(builder, graph_nodes)
