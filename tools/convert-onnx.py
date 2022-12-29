@@ -663,13 +663,13 @@ def build_operator_node(builder: flatbuffers.Builder, operator: OperatorNode):
             kernel_size_vec = write_u32_vec(
                 builder,
                 sg.AveragePoolAttrsStartKernelSizeVector,
-                operator.attrs["kernel_size"],
+                cast(list[int], operator.attrs["kernel_size"]),
             )
             if "stride" in operator.attrs:
                 stride_vec = write_u32_vec(
                     builder,
                     sg.AveragePoolAttrsStartStrideVector,
-                    operator.attrs["stride"],
+                    cast(list[int], operator.attrs["stride"]),
                 )
 
             sg.AveragePoolAttrsStart(builder)
@@ -678,7 +678,7 @@ def build_operator_node(builder: flatbuffers.Builder, operator: OperatorNode):
             if pad_mode == sg.PadMode.Fixed:
                 sg.AveragePoolAttrsAddPads(builder, pads_vec)
             if stride_vec:
-                sg.AveragePoolAttrsAddStride(builder, stride)
+                sg.AveragePoolAttrsAddStride(builder, stride_vec)
             attrs = sg.AveragePoolAttrsEnd(builder)
         case "BatchNormalization":
             sg.BatchNormalizationAttrsStart(builder)
@@ -760,13 +760,13 @@ def build_operator_node(builder: flatbuffers.Builder, operator: OperatorNode):
             kernel_size_vec = write_u32_vec(
                 builder,
                 sg.AveragePoolAttrsStartKernelSizeVector,
-                operator.attrs["kernel_size"],
+                cast(list[int], operator.attrs["kernel_size"]),
             )
             if "stride" in operator.attrs:
                 stride_vec = write_u32_vec(
                     builder,
                     sg.AveragePoolAttrsStartStrideVector,
-                    operator.attrs["stride"],
+                    cast(list[int], operator.attrs["stride"]),
                 )
 
             sg.MaxPoolAttrsStart(builder)
