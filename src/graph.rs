@@ -240,7 +240,7 @@ impl Graph {
         let mut temp_values: HashMap<NodeId, Output> = HashMap::new();
         let mut op_elapsed: HashMap<&str, f32> = HashMap::new();
 
-        for (op_node_id, op_node) in plan.iter() {
+        for (step, (op_node_id, op_node)) in plan.iter().enumerate() {
             let mut op_timer = Timer::new();
             if opts.timing {
                 op_timer.start();
@@ -296,17 +296,9 @@ impl Graph {
                 op_node.operator.run(&op_inputs[..])
             };
 
-            let outputs = match op_result {
-                Ok(outputs) => outputs,
-                Err(op_error) => {
-                    let err = RunError::OperatorError {
-                        name: op_node.name.as_deref().unwrap_or("").to_string(),
-                        error: op_error,
-                    };
-                    return Err(err);
-                }
-            };
-
+            // Log verbose info if enabled. This is done before we check the
+            // result so that in the event of an error, the verbose log includes
+            // the failing operator's inputs.
             if opts.timing {
                 op_timer.end();
 
@@ -317,16 +309,29 @@ impl Graph {
                 }
 
                 if opts.verbose {
+                    // FIXME: If the operator ran in-place, the shape of the
+                    // first input is not included.
                     let input_shapes: Vec<_> = op_inputs.iter().map(|x| x.shape()).collect();
                     println!(
                         "#{} {:?} with {:?} in {}ms",
-                        op_node_id,
+                        step,
                         op_node.operator,
                         input_shapes,
                         op_timer.elapsed()
                     );
                 }
             }
+
+            let outputs = match op_result {
+                Ok(outputs) => outputs,
+                Err(op_error) => {
+                    let err = RunError::OperatorError {
+                        name: op_node.name.as_deref().unwrap_or("").to_string(),
+                        error: op_error,
+                    };
+                    return Err(err);
+                }
+            };
 
             if op_node.outputs.len() != outputs.len() {
                 return Err(RunError::OutputMismatch(
