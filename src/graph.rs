@@ -86,7 +86,7 @@ pub enum RunError {
     PlanningError(String),
 
     /// Execution of an operator failed
-    OperatorError(OpError),
+    OperatorError { name: String, error: OpError },
 
     /// The output of a graph operator did not match expectations (eg. the
     /// count, types or shapes of outputs did not match what was expected.)
@@ -98,7 +98,10 @@ impl fmt::Display for RunError {
         match self {
             RunError::InvalidNodeId => write!(f, "node ID is invalid"),
             RunError::PlanningError(ref err) => write!(f, "planning error {:?}", err),
-            RunError::OperatorError(ref err) => write!(f, "operator error {:?}", err),
+            RunError::OperatorError {
+                name,
+                error: ref err,
+            } => write!(f, "operator \"{}\" failed: {:?}", name, err),
             RunError::OutputMismatch(err) => write!(f, "output mismatch {:?}", err),
         }
     }
@@ -296,7 +299,11 @@ impl Graph {
             let outputs = match op_result {
                 Ok(outputs) => outputs,
                 Err(op_error) => {
-                    return Err(RunError::OperatorError(op_error));
+                    let err = RunError::OperatorError {
+                        name: op_node.name.as_deref().unwrap_or("").to_string(),
+                        error: op_error,
+                    };
+                    return Err(err);
                 }
             };
 
