@@ -87,11 +87,67 @@ class OperatorAttrs(object):
     TransposeAttrs = 19
     UnsqueezeAttrs = 20
 
+def OperatorAttrsCreator(unionType, table):
+    from flatbuffers.table import Table
+    if not isinstance(table, Table):
+        return None
+    if unionType == OperatorAttrs().AveragePoolAttrs:
+        return AveragePoolAttrsT.InitFromBuf(table.Bytes, table.Pos)
+    if unionType == OperatorAttrs().BatchNormalizationAttrs:
+        return BatchNormalizationAttrsT.InitFromBuf(table.Bytes, table.Pos)
+    if unionType == OperatorAttrs().CastAttrs:
+        return CastAttrsT.InitFromBuf(table.Bytes, table.Pos)
+    if unionType == OperatorAttrs().ClipAttrs:
+        return ClipAttrsT.InitFromBuf(table.Bytes, table.Pos)
+    if unionType == OperatorAttrs().ConcatAttrs:
+        return ConcatAttrsT.InitFromBuf(table.Bytes, table.Pos)
+    if unionType == OperatorAttrs().ConstantOfShapeAttrs:
+        return ConstantOfShapeAttrsT.InitFromBuf(table.Bytes, table.Pos)
+    if unionType == OperatorAttrs().ConvAttrs:
+        return ConvAttrsT.InitFromBuf(table.Bytes, table.Pos)
+    if unionType == OperatorAttrs().ConvTransposeAttrs:
+        return ConvTransposeAttrsT.InitFromBuf(table.Bytes, table.Pos)
+    if unionType == OperatorAttrs().GatherAttrs:
+        return GatherAttrsT.InitFromBuf(table.Bytes, table.Pos)
+    if unionType == OperatorAttrs().GemmAttrs:
+        return GemmAttrsT.InitFromBuf(table.Bytes, table.Pos)
+    if unionType == OperatorAttrs().LeakyReluAttrs:
+        return LeakyReluAttrsT.InitFromBuf(table.Bytes, table.Pos)
+    if unionType == OperatorAttrs().MaxPoolAttrs:
+        return MaxPoolAttrsT.InitFromBuf(table.Bytes, table.Pos)
+    if unionType == OperatorAttrs().PadAttrs:
+        return PadAttrsT.InitFromBuf(table.Bytes, table.Pos)
+    if unionType == OperatorAttrs().ReduceMeanAttrs:
+        return ReduceMeanAttrsT.InitFromBuf(table.Bytes, table.Pos)
+    if unionType == OperatorAttrs().ResizeAttrs:
+        return ResizeAttrsT.InitFromBuf(table.Bytes, table.Pos)
+    if unionType == OperatorAttrs().SplitAttrs:
+        return SplitAttrsT.InitFromBuf(table.Bytes, table.Pos)
+    if unionType == OperatorAttrs().SqueezeAttrs:
+        return SqueezeAttrsT.InitFromBuf(table.Bytes, table.Pos)
+    if unionType == OperatorAttrs().SoftmaxAttrs:
+        return SoftmaxAttrsT.InitFromBuf(table.Bytes, table.Pos)
+    if unionType == OperatorAttrs().TransposeAttrs:
+        return TransposeAttrsT.InitFromBuf(table.Bytes, table.Pos)
+    if unionType == OperatorAttrs().UnsqueezeAttrs:
+        return UnsqueezeAttrsT.InitFromBuf(table.Bytes, table.Pos)
+    return None
+
 
 class Scalar(object):
     NONE = 0
     IntScalar = 1
     FloatScalar = 2
+
+def ScalarCreator(unionType, table):
+    from flatbuffers.table import Table
+    if not isinstance(table, Table):
+        return None
+    if unionType == Scalar().IntScalar:
+        return IntScalarT.InitFromBuf(table.Bytes, table.Pos)
+    if unionType == Scalar().FloatScalar:
+        return FloatScalarT.InitFromBuf(table.Bytes, table.Pos)
+    return None
 
 
 class NodeKind(object):
@@ -100,11 +156,33 @@ class NodeKind(object):
     ConstantNode = 2
     ValueNode = 3
 
+def NodeKindCreator(unionType, table):
+    from flatbuffers.table import Table
+    if not isinstance(table, Table):
+        return None
+    if unionType == NodeKind().OperatorNode:
+        return OperatorNodeT.InitFromBuf(table.Bytes, table.Pos)
+    if unionType == NodeKind().ConstantNode:
+        return ConstantNodeT.InitFromBuf(table.Bytes, table.Pos)
+    if unionType == NodeKind().ValueNode:
+        return ValueNodeT.InitFromBuf(table.Bytes, table.Pos)
+    return None
+
 
 class ConstantData(object):
     NONE = 0
     FloatData = 1
     IntData = 2
+
+def ConstantDataCreator(unionType, table):
+    from flatbuffers.table import Table
+    if not isinstance(table, Table):
+        return None
+    if unionType == ConstantData().FloatData:
+        return FloatDataT.InitFromBuf(table.Bytes, table.Pos)
+    if unionType == ConstantData().IntData:
+        return IntDataT.InitFromBuf(table.Bytes, table.Pos)
+    return None
 
 
 class AveragePoolAttrs(object):
@@ -227,6 +305,101 @@ def AveragePoolAttrsAddStride(builder, stride): builder.PrependUOffsetTRelativeS
 def AveragePoolAttrsStartStrideVector(builder, numElems): return builder.StartVector(4, numElems, 4)
 def AveragePoolAttrsEnd(builder): return builder.EndObject()
 
+try:
+    from typing import List
+except:
+    pass
+
+class AveragePoolAttrsT(object):
+
+    # AveragePoolAttrsT
+    def __init__(self):
+        self.kernelSize = None  # type: List[int]
+        self.padMode = 0  # type: int
+        self.pads = None  # type: List[int]
+        self.stride = None  # type: List[int]
+
+    @classmethod
+    def InitFromBuf(cls, buf, pos):
+        averagePoolAttrs = AveragePoolAttrs()
+        averagePoolAttrs.Init(buf, pos)
+        return cls.InitFromObj(averagePoolAttrs)
+
+    @classmethod
+    def InitFromPackedBuf(cls, buf, pos=0):
+        n = flatbuffers.encode.Get(flatbuffers.packer.uoffset, buf, pos)
+        return cls.InitFromBuf(buf, pos+n)
+
+    @classmethod
+    def InitFromObj(cls, averagePoolAttrs):
+        x = AveragePoolAttrsT()
+        x._UnPack(averagePoolAttrs)
+        return x
+
+    # AveragePoolAttrsT
+    def _UnPack(self, averagePoolAttrs):
+        if averagePoolAttrs is None:
+            return
+        if not averagePoolAttrs.KernelSizeIsNone():
+            if np is None:
+                self.kernelSize = []
+                for i in range(averagePoolAttrs.KernelSizeLength()):
+                    self.kernelSize.append(averagePoolAttrs.KernelSize(i))
+            else:
+                self.kernelSize = averagePoolAttrs.KernelSizeAsNumpy()
+        self.padMode = averagePoolAttrs.PadMode()
+        if not averagePoolAttrs.PadsIsNone():
+            if np is None:
+                self.pads = []
+                for i in range(averagePoolAttrs.PadsLength()):
+                    self.pads.append(averagePoolAttrs.Pads(i))
+            else:
+                self.pads = averagePoolAttrs.PadsAsNumpy()
+        if not averagePoolAttrs.StrideIsNone():
+            if np is None:
+                self.stride = []
+                for i in range(averagePoolAttrs.StrideLength()):
+                    self.stride.append(averagePoolAttrs.Stride(i))
+            else:
+                self.stride = averagePoolAttrs.StrideAsNumpy()
+
+    # AveragePoolAttrsT
+    def Pack(self, builder):
+        if self.kernelSize is not None:
+            if np is not None and type(self.kernelSize) is np.ndarray:
+                kernelSize = builder.CreateNumpyVector(self.kernelSize)
+            else:
+                AveragePoolAttrsStartKernelSizeVector(builder, len(self.kernelSize))
+                for i in reversed(range(len(self.kernelSize))):
+                    builder.PrependUint32(self.kernelSize[i])
+                kernelSize = builder.EndVector()
+        if self.pads is not None:
+            if np is not None and type(self.pads) is np.ndarray:
+                pads = builder.CreateNumpyVector(self.pads)
+            else:
+                AveragePoolAttrsStartPadsVector(builder, len(self.pads))
+                for i in reversed(range(len(self.pads))):
+                    builder.PrependUint32(self.pads[i])
+                pads = builder.EndVector()
+        if self.stride is not None:
+            if np is not None and type(self.stride) is np.ndarray:
+                stride = builder.CreateNumpyVector(self.stride)
+            else:
+                AveragePoolAttrsStartStrideVector(builder, len(self.stride))
+                for i in reversed(range(len(self.stride))):
+                    builder.PrependUint32(self.stride[i])
+                stride = builder.EndVector()
+        AveragePoolAttrsStart(builder)
+        if self.kernelSize is not None:
+            AveragePoolAttrsAddKernelSize(builder, kernelSize)
+        AveragePoolAttrsAddPadMode(builder, self.padMode)
+        if self.pads is not None:
+            AveragePoolAttrsAddPads(builder, pads)
+        if self.stride is not None:
+            AveragePoolAttrsAddStride(builder, stride)
+        averagePoolAttrs = AveragePoolAttrsEnd(builder)
+        return averagePoolAttrs
+
 
 class BatchNormalizationAttrs(object):
     __slots__ = ['_tab']
@@ -262,6 +435,43 @@ def BatchNormalizationAttrsAddEpsilon(builder, epsilon): builder.PrependFloat32S
 def BatchNormalizationAttrsEnd(builder): return builder.EndObject()
 
 
+class BatchNormalizationAttrsT(object):
+
+    # BatchNormalizationAttrsT
+    def __init__(self):
+        self.epsilon = 0.0  # type: float
+
+    @classmethod
+    def InitFromBuf(cls, buf, pos):
+        batchNormalizationAttrs = BatchNormalizationAttrs()
+        batchNormalizationAttrs.Init(buf, pos)
+        return cls.InitFromObj(batchNormalizationAttrs)
+
+    @classmethod
+    def InitFromPackedBuf(cls, buf, pos=0):
+        n = flatbuffers.encode.Get(flatbuffers.packer.uoffset, buf, pos)
+        return cls.InitFromBuf(buf, pos+n)
+
+    @classmethod
+    def InitFromObj(cls, batchNormalizationAttrs):
+        x = BatchNormalizationAttrsT()
+        x._UnPack(batchNormalizationAttrs)
+        return x
+
+    # BatchNormalizationAttrsT
+    def _UnPack(self, batchNormalizationAttrs):
+        if batchNormalizationAttrs is None:
+            return
+        self.epsilon = batchNormalizationAttrs.Epsilon()
+
+    # BatchNormalizationAttrsT
+    def Pack(self, builder):
+        BatchNormalizationAttrsStart(builder)
+        BatchNormalizationAttrsAddEpsilon(builder, self.epsilon)
+        batchNormalizationAttrs = BatchNormalizationAttrsEnd(builder)
+        return batchNormalizationAttrs
+
+
 class CastAttrs(object):
     __slots__ = ['_tab']
 
@@ -294,6 +504,43 @@ class CastAttrs(object):
 def CastAttrsStart(builder): builder.StartObject(1)
 def CastAttrsAddTo(builder, to): builder.PrependInt8Slot(0, to, 0)
 def CastAttrsEnd(builder): return builder.EndObject()
+
+
+class CastAttrsT(object):
+
+    # CastAttrsT
+    def __init__(self):
+        self.to = 0  # type: int
+
+    @classmethod
+    def InitFromBuf(cls, buf, pos):
+        castAttrs = CastAttrs()
+        castAttrs.Init(buf, pos)
+        return cls.InitFromObj(castAttrs)
+
+    @classmethod
+    def InitFromPackedBuf(cls, buf, pos=0):
+        n = flatbuffers.encode.Get(flatbuffers.packer.uoffset, buf, pos)
+        return cls.InitFromBuf(buf, pos+n)
+
+    @classmethod
+    def InitFromObj(cls, castAttrs):
+        x = CastAttrsT()
+        x._UnPack(castAttrs)
+        return x
+
+    # CastAttrsT
+    def _UnPack(self, castAttrs):
+        if castAttrs is None:
+            return
+        self.to = castAttrs.To()
+
+    # CastAttrsT
+    def Pack(self, builder):
+        CastAttrsStart(builder)
+        CastAttrsAddTo(builder, self.to)
+        castAttrs = CastAttrsEnd(builder)
+        return castAttrs
 
 
 class ClipAttrs(object):
@@ -338,6 +585,46 @@ def ClipAttrsAddMax(builder, max): builder.PrependFloat32Slot(1, max, 0.0)
 def ClipAttrsEnd(builder): return builder.EndObject()
 
 
+class ClipAttrsT(object):
+
+    # ClipAttrsT
+    def __init__(self):
+        self.min = 0.0  # type: float
+        self.max = 0.0  # type: float
+
+    @classmethod
+    def InitFromBuf(cls, buf, pos):
+        clipAttrs = ClipAttrs()
+        clipAttrs.Init(buf, pos)
+        return cls.InitFromObj(clipAttrs)
+
+    @classmethod
+    def InitFromPackedBuf(cls, buf, pos=0):
+        n = flatbuffers.encode.Get(flatbuffers.packer.uoffset, buf, pos)
+        return cls.InitFromBuf(buf, pos+n)
+
+    @classmethod
+    def InitFromObj(cls, clipAttrs):
+        x = ClipAttrsT()
+        x._UnPack(clipAttrs)
+        return x
+
+    # ClipAttrsT
+    def _UnPack(self, clipAttrs):
+        if clipAttrs is None:
+            return
+        self.min = clipAttrs.Min()
+        self.max = clipAttrs.Max()
+
+    # ClipAttrsT
+    def Pack(self, builder):
+        ClipAttrsStart(builder)
+        ClipAttrsAddMin(builder, self.min)
+        ClipAttrsAddMax(builder, self.max)
+        clipAttrs = ClipAttrsEnd(builder)
+        return clipAttrs
+
+
 class ConcatAttrs(object):
     __slots__ = ['_tab']
 
@@ -370,6 +657,43 @@ class ConcatAttrs(object):
 def ConcatAttrsStart(builder): builder.StartObject(1)
 def ConcatAttrsAddDim(builder, dim): builder.PrependUint32Slot(0, dim, 0)
 def ConcatAttrsEnd(builder): return builder.EndObject()
+
+
+class ConcatAttrsT(object):
+
+    # ConcatAttrsT
+    def __init__(self):
+        self.dim = 0  # type: int
+
+    @classmethod
+    def InitFromBuf(cls, buf, pos):
+        concatAttrs = ConcatAttrs()
+        concatAttrs.Init(buf, pos)
+        return cls.InitFromObj(concatAttrs)
+
+    @classmethod
+    def InitFromPackedBuf(cls, buf, pos=0):
+        n = flatbuffers.encode.Get(flatbuffers.packer.uoffset, buf, pos)
+        return cls.InitFromBuf(buf, pos+n)
+
+    @classmethod
+    def InitFromObj(cls, concatAttrs):
+        x = ConcatAttrsT()
+        x._UnPack(concatAttrs)
+        return x
+
+    # ConcatAttrsT
+    def _UnPack(self, concatAttrs):
+        if concatAttrs is None:
+            return
+        self.dim = concatAttrs.Dim()
+
+    # ConcatAttrsT
+    def Pack(self, builder):
+        ConcatAttrsStart(builder)
+        ConcatAttrsAddDim(builder, self.dim)
+        concatAttrs = ConcatAttrsEnd(builder)
+        return concatAttrs
 
 
 class IntScalar(object):
@@ -406,6 +730,43 @@ def IntScalarAddValue(builder, value): builder.PrependInt32Slot(0, value, 0)
 def IntScalarEnd(builder): return builder.EndObject()
 
 
+class IntScalarT(object):
+
+    # IntScalarT
+    def __init__(self):
+        self.value = 0  # type: int
+
+    @classmethod
+    def InitFromBuf(cls, buf, pos):
+        intScalar = IntScalar()
+        intScalar.Init(buf, pos)
+        return cls.InitFromObj(intScalar)
+
+    @classmethod
+    def InitFromPackedBuf(cls, buf, pos=0):
+        n = flatbuffers.encode.Get(flatbuffers.packer.uoffset, buf, pos)
+        return cls.InitFromBuf(buf, pos+n)
+
+    @classmethod
+    def InitFromObj(cls, intScalar):
+        x = IntScalarT()
+        x._UnPack(intScalar)
+        return x
+
+    # IntScalarT
+    def _UnPack(self, intScalar):
+        if intScalar is None:
+            return
+        self.value = intScalar.Value()
+
+    # IntScalarT
+    def Pack(self, builder):
+        IntScalarStart(builder)
+        IntScalarAddValue(builder, self.value)
+        intScalar = IntScalarEnd(builder)
+        return intScalar
+
+
 class FloatScalar(object):
     __slots__ = ['_tab']
 
@@ -438,6 +799,43 @@ class FloatScalar(object):
 def FloatScalarStart(builder): builder.StartObject(1)
 def FloatScalarAddValue(builder, value): builder.PrependFloat32Slot(0, value, 0.0)
 def FloatScalarEnd(builder): return builder.EndObject()
+
+
+class FloatScalarT(object):
+
+    # FloatScalarT
+    def __init__(self):
+        self.value = 0.0  # type: float
+
+    @classmethod
+    def InitFromBuf(cls, buf, pos):
+        floatScalar = FloatScalar()
+        floatScalar.Init(buf, pos)
+        return cls.InitFromObj(floatScalar)
+
+    @classmethod
+    def InitFromPackedBuf(cls, buf, pos=0):
+        n = flatbuffers.encode.Get(flatbuffers.packer.uoffset, buf, pos)
+        return cls.InitFromBuf(buf, pos+n)
+
+    @classmethod
+    def InitFromObj(cls, floatScalar):
+        x = FloatScalarT()
+        x._UnPack(floatScalar)
+        return x
+
+    # FloatScalarT
+    def _UnPack(self, floatScalar):
+        if floatScalar is None:
+            return
+        self.value = floatScalar.Value()
+
+    # FloatScalarT
+    def Pack(self, builder):
+        FloatScalarStart(builder)
+        FloatScalarAddValue(builder, self.value)
+        floatScalar = FloatScalarEnd(builder)
+        return floatScalar
 
 
 class ConstantOfShapeAttrs(object):
@@ -483,6 +881,53 @@ def ConstantOfShapeAttrsStart(builder): builder.StartObject(2)
 def ConstantOfShapeAttrsAddValueType(builder, valueType): builder.PrependUint8Slot(0, valueType, 0)
 def ConstantOfShapeAttrsAddValue(builder, value): builder.PrependUOffsetTRelativeSlot(1, flatbuffers.number_types.UOffsetTFlags.py_type(value), 0)
 def ConstantOfShapeAttrsEnd(builder): return builder.EndObject()
+
+try:
+    from typing import Union
+except:
+    pass
+
+class ConstantOfShapeAttrsT(object):
+
+    # ConstantOfShapeAttrsT
+    def __init__(self):
+        self.valueType = 0  # type: int
+        self.value = None  # type: Union[None, IntScalarT, FloatScalarT]
+
+    @classmethod
+    def InitFromBuf(cls, buf, pos):
+        constantOfShapeAttrs = ConstantOfShapeAttrs()
+        constantOfShapeAttrs.Init(buf, pos)
+        return cls.InitFromObj(constantOfShapeAttrs)
+
+    @classmethod
+    def InitFromPackedBuf(cls, buf, pos=0):
+        n = flatbuffers.encode.Get(flatbuffers.packer.uoffset, buf, pos)
+        return cls.InitFromBuf(buf, pos+n)
+
+    @classmethod
+    def InitFromObj(cls, constantOfShapeAttrs):
+        x = ConstantOfShapeAttrsT()
+        x._UnPack(constantOfShapeAttrs)
+        return x
+
+    # ConstantOfShapeAttrsT
+    def _UnPack(self, constantOfShapeAttrs):
+        if constantOfShapeAttrs is None:
+            return
+        self.valueType = constantOfShapeAttrs.ValueType()
+        self.value = ScalarCreator(self.valueType, constantOfShapeAttrs.Value())
+
+    # ConstantOfShapeAttrsT
+    def Pack(self, builder):
+        if self.value is not None:
+            value = self.value.Pack(builder)
+        ConstantOfShapeAttrsStart(builder)
+        ConstantOfShapeAttrsAddValueType(builder, self.valueType)
+        if self.value is not None:
+            ConstantOfShapeAttrsAddValue(builder, value)
+        constantOfShapeAttrs = ConstantOfShapeAttrsEnd(builder)
+        return constantOfShapeAttrs
 
 
 class ConvAttrs(object):
@@ -563,6 +1008,71 @@ def ConvAttrsAddGroups(builder, groups): builder.PrependUint32Slot(2, groups, 0)
 def ConvAttrsAddStride(builder, stride): builder.PrependUint32Slot(3, stride, 0)
 def ConvAttrsEnd(builder): return builder.EndObject()
 
+try:
+    from typing import List
+except:
+    pass
+
+class ConvAttrsT(object):
+
+    # ConvAttrsT
+    def __init__(self):
+        self.padMode = 0  # type: int
+        self.pads = None  # type: List[int]
+        self.groups = 0  # type: int
+        self.stride = 0  # type: int
+
+    @classmethod
+    def InitFromBuf(cls, buf, pos):
+        convAttrs = ConvAttrs()
+        convAttrs.Init(buf, pos)
+        return cls.InitFromObj(convAttrs)
+
+    @classmethod
+    def InitFromPackedBuf(cls, buf, pos=0):
+        n = flatbuffers.encode.Get(flatbuffers.packer.uoffset, buf, pos)
+        return cls.InitFromBuf(buf, pos+n)
+
+    @classmethod
+    def InitFromObj(cls, convAttrs):
+        x = ConvAttrsT()
+        x._UnPack(convAttrs)
+        return x
+
+    # ConvAttrsT
+    def _UnPack(self, convAttrs):
+        if convAttrs is None:
+            return
+        self.padMode = convAttrs.PadMode()
+        if not convAttrs.PadsIsNone():
+            if np is None:
+                self.pads = []
+                for i in range(convAttrs.PadsLength()):
+                    self.pads.append(convAttrs.Pads(i))
+            else:
+                self.pads = convAttrs.PadsAsNumpy()
+        self.groups = convAttrs.Groups()
+        self.stride = convAttrs.Stride()
+
+    # ConvAttrsT
+    def Pack(self, builder):
+        if self.pads is not None:
+            if np is not None and type(self.pads) is np.ndarray:
+                pads = builder.CreateNumpyVector(self.pads)
+            else:
+                ConvAttrsStartPadsVector(builder, len(self.pads))
+                for i in reversed(range(len(self.pads))):
+                    builder.PrependUint32(self.pads[i])
+                pads = builder.EndVector()
+        ConvAttrsStart(builder)
+        ConvAttrsAddPadMode(builder, self.padMode)
+        if self.pads is not None:
+            ConvAttrsAddPads(builder, pads)
+        ConvAttrsAddGroups(builder, self.groups)
+        ConvAttrsAddStride(builder, self.stride)
+        convAttrs = ConvAttrsEnd(builder)
+        return convAttrs
+
 
 class ConvTransposeAttrs(object):
     __slots__ = ['_tab']
@@ -598,6 +1108,43 @@ def ConvTransposeAttrsAddStride(builder, stride): builder.PrependUint32Slot(0, s
 def ConvTransposeAttrsEnd(builder): return builder.EndObject()
 
 
+class ConvTransposeAttrsT(object):
+
+    # ConvTransposeAttrsT
+    def __init__(self):
+        self.stride = 0  # type: int
+
+    @classmethod
+    def InitFromBuf(cls, buf, pos):
+        convTransposeAttrs = ConvTransposeAttrs()
+        convTransposeAttrs.Init(buf, pos)
+        return cls.InitFromObj(convTransposeAttrs)
+
+    @classmethod
+    def InitFromPackedBuf(cls, buf, pos=0):
+        n = flatbuffers.encode.Get(flatbuffers.packer.uoffset, buf, pos)
+        return cls.InitFromBuf(buf, pos+n)
+
+    @classmethod
+    def InitFromObj(cls, convTransposeAttrs):
+        x = ConvTransposeAttrsT()
+        x._UnPack(convTransposeAttrs)
+        return x
+
+    # ConvTransposeAttrsT
+    def _UnPack(self, convTransposeAttrs):
+        if convTransposeAttrs is None:
+            return
+        self.stride = convTransposeAttrs.Stride()
+
+    # ConvTransposeAttrsT
+    def Pack(self, builder):
+        ConvTransposeAttrsStart(builder)
+        ConvTransposeAttrsAddStride(builder, self.stride)
+        convTransposeAttrs = ConvTransposeAttrsEnd(builder)
+        return convTransposeAttrs
+
+
 class GatherAttrs(object):
     __slots__ = ['_tab']
 
@@ -630,6 +1177,43 @@ class GatherAttrs(object):
 def GatherAttrsStart(builder): builder.StartObject(1)
 def GatherAttrsAddAxis(builder, axis): builder.PrependUint32Slot(0, axis, 0)
 def GatherAttrsEnd(builder): return builder.EndObject()
+
+
+class GatherAttrsT(object):
+
+    # GatherAttrsT
+    def __init__(self):
+        self.axis = 0  # type: int
+
+    @classmethod
+    def InitFromBuf(cls, buf, pos):
+        gatherAttrs = GatherAttrs()
+        gatherAttrs.Init(buf, pos)
+        return cls.InitFromObj(gatherAttrs)
+
+    @classmethod
+    def InitFromPackedBuf(cls, buf, pos=0):
+        n = flatbuffers.encode.Get(flatbuffers.packer.uoffset, buf, pos)
+        return cls.InitFromBuf(buf, pos+n)
+
+    @classmethod
+    def InitFromObj(cls, gatherAttrs):
+        x = GatherAttrsT()
+        x._UnPack(gatherAttrs)
+        return x
+
+    # GatherAttrsT
+    def _UnPack(self, gatherAttrs):
+        if gatherAttrs is None:
+            return
+        self.axis = gatherAttrs.Axis()
+
+    # GatherAttrsT
+    def Pack(self, builder):
+        GatherAttrsStart(builder)
+        GatherAttrsAddAxis(builder, self.axis)
+        gatherAttrs = GatherAttrsEnd(builder)
+        return gatherAttrs
 
 
 class GemmAttrs(object):
@@ -690,6 +1274,52 @@ def GemmAttrsAddTransposeB(builder, transposeB): builder.PrependBoolSlot(3, tran
 def GemmAttrsEnd(builder): return builder.EndObject()
 
 
+class GemmAttrsT(object):
+
+    # GemmAttrsT
+    def __init__(self):
+        self.alpha = 0.0  # type: float
+        self.beta = 0.0  # type: float
+        self.transposeA = False  # type: bool
+        self.transposeB = False  # type: bool
+
+    @classmethod
+    def InitFromBuf(cls, buf, pos):
+        gemmAttrs = GemmAttrs()
+        gemmAttrs.Init(buf, pos)
+        return cls.InitFromObj(gemmAttrs)
+
+    @classmethod
+    def InitFromPackedBuf(cls, buf, pos=0):
+        n = flatbuffers.encode.Get(flatbuffers.packer.uoffset, buf, pos)
+        return cls.InitFromBuf(buf, pos+n)
+
+    @classmethod
+    def InitFromObj(cls, gemmAttrs):
+        x = GemmAttrsT()
+        x._UnPack(gemmAttrs)
+        return x
+
+    # GemmAttrsT
+    def _UnPack(self, gemmAttrs):
+        if gemmAttrs is None:
+            return
+        self.alpha = gemmAttrs.Alpha()
+        self.beta = gemmAttrs.Beta()
+        self.transposeA = gemmAttrs.TransposeA()
+        self.transposeB = gemmAttrs.TransposeB()
+
+    # GemmAttrsT
+    def Pack(self, builder):
+        GemmAttrsStart(builder)
+        GemmAttrsAddAlpha(builder, self.alpha)
+        GemmAttrsAddBeta(builder, self.beta)
+        GemmAttrsAddTransposeA(builder, self.transposeA)
+        GemmAttrsAddTransposeB(builder, self.transposeB)
+        gemmAttrs = GemmAttrsEnd(builder)
+        return gemmAttrs
+
+
 class LeakyReluAttrs(object):
     __slots__ = ['_tab']
 
@@ -722,6 +1352,43 @@ class LeakyReluAttrs(object):
 def LeakyReluAttrsStart(builder): builder.StartObject(1)
 def LeakyReluAttrsAddAlpha(builder, alpha): builder.PrependFloat32Slot(0, alpha, 0.0)
 def LeakyReluAttrsEnd(builder): return builder.EndObject()
+
+
+class LeakyReluAttrsT(object):
+
+    # LeakyReluAttrsT
+    def __init__(self):
+        self.alpha = 0.0  # type: float
+
+    @classmethod
+    def InitFromBuf(cls, buf, pos):
+        leakyReluAttrs = LeakyReluAttrs()
+        leakyReluAttrs.Init(buf, pos)
+        return cls.InitFromObj(leakyReluAttrs)
+
+    @classmethod
+    def InitFromPackedBuf(cls, buf, pos=0):
+        n = flatbuffers.encode.Get(flatbuffers.packer.uoffset, buf, pos)
+        return cls.InitFromBuf(buf, pos+n)
+
+    @classmethod
+    def InitFromObj(cls, leakyReluAttrs):
+        x = LeakyReluAttrsT()
+        x._UnPack(leakyReluAttrs)
+        return x
+
+    # LeakyReluAttrsT
+    def _UnPack(self, leakyReluAttrs):
+        if leakyReluAttrs is None:
+            return
+        self.alpha = leakyReluAttrs.Alpha()
+
+    # LeakyReluAttrsT
+    def Pack(self, builder):
+        LeakyReluAttrsStart(builder)
+        LeakyReluAttrsAddAlpha(builder, self.alpha)
+        leakyReluAttrs = LeakyReluAttrsEnd(builder)
+        return leakyReluAttrs
 
 
 class MaxPoolAttrs(object):
@@ -844,6 +1511,101 @@ def MaxPoolAttrsAddStride(builder, stride): builder.PrependUOffsetTRelativeSlot(
 def MaxPoolAttrsStartStrideVector(builder, numElems): return builder.StartVector(4, numElems, 4)
 def MaxPoolAttrsEnd(builder): return builder.EndObject()
 
+try:
+    from typing import List
+except:
+    pass
+
+class MaxPoolAttrsT(object):
+
+    # MaxPoolAttrsT
+    def __init__(self):
+        self.kernelSize = None  # type: List[int]
+        self.padMode = 0  # type: int
+        self.pads = None  # type: List[int]
+        self.stride = None  # type: List[int]
+
+    @classmethod
+    def InitFromBuf(cls, buf, pos):
+        maxPoolAttrs = MaxPoolAttrs()
+        maxPoolAttrs.Init(buf, pos)
+        return cls.InitFromObj(maxPoolAttrs)
+
+    @classmethod
+    def InitFromPackedBuf(cls, buf, pos=0):
+        n = flatbuffers.encode.Get(flatbuffers.packer.uoffset, buf, pos)
+        return cls.InitFromBuf(buf, pos+n)
+
+    @classmethod
+    def InitFromObj(cls, maxPoolAttrs):
+        x = MaxPoolAttrsT()
+        x._UnPack(maxPoolAttrs)
+        return x
+
+    # MaxPoolAttrsT
+    def _UnPack(self, maxPoolAttrs):
+        if maxPoolAttrs is None:
+            return
+        if not maxPoolAttrs.KernelSizeIsNone():
+            if np is None:
+                self.kernelSize = []
+                for i in range(maxPoolAttrs.KernelSizeLength()):
+                    self.kernelSize.append(maxPoolAttrs.KernelSize(i))
+            else:
+                self.kernelSize = maxPoolAttrs.KernelSizeAsNumpy()
+        self.padMode = maxPoolAttrs.PadMode()
+        if not maxPoolAttrs.PadsIsNone():
+            if np is None:
+                self.pads = []
+                for i in range(maxPoolAttrs.PadsLength()):
+                    self.pads.append(maxPoolAttrs.Pads(i))
+            else:
+                self.pads = maxPoolAttrs.PadsAsNumpy()
+        if not maxPoolAttrs.StrideIsNone():
+            if np is None:
+                self.stride = []
+                for i in range(maxPoolAttrs.StrideLength()):
+                    self.stride.append(maxPoolAttrs.Stride(i))
+            else:
+                self.stride = maxPoolAttrs.StrideAsNumpy()
+
+    # MaxPoolAttrsT
+    def Pack(self, builder):
+        if self.kernelSize is not None:
+            if np is not None and type(self.kernelSize) is np.ndarray:
+                kernelSize = builder.CreateNumpyVector(self.kernelSize)
+            else:
+                MaxPoolAttrsStartKernelSizeVector(builder, len(self.kernelSize))
+                for i in reversed(range(len(self.kernelSize))):
+                    builder.PrependUint32(self.kernelSize[i])
+                kernelSize = builder.EndVector()
+        if self.pads is not None:
+            if np is not None and type(self.pads) is np.ndarray:
+                pads = builder.CreateNumpyVector(self.pads)
+            else:
+                MaxPoolAttrsStartPadsVector(builder, len(self.pads))
+                for i in reversed(range(len(self.pads))):
+                    builder.PrependUint32(self.pads[i])
+                pads = builder.EndVector()
+        if self.stride is not None:
+            if np is not None and type(self.stride) is np.ndarray:
+                stride = builder.CreateNumpyVector(self.stride)
+            else:
+                MaxPoolAttrsStartStrideVector(builder, len(self.stride))
+                for i in reversed(range(len(self.stride))):
+                    builder.PrependUint32(self.stride[i])
+                stride = builder.EndVector()
+        MaxPoolAttrsStart(builder)
+        if self.kernelSize is not None:
+            MaxPoolAttrsAddKernelSize(builder, kernelSize)
+        MaxPoolAttrsAddPadMode(builder, self.padMode)
+        if self.pads is not None:
+            MaxPoolAttrsAddPads(builder, pads)
+        if self.stride is not None:
+            MaxPoolAttrsAddStride(builder, stride)
+        maxPoolAttrs = MaxPoolAttrsEnd(builder)
+        return maxPoolAttrs
+
 
 class PadAttrs(object):
     __slots__ = ['_tab']
@@ -869,6 +1631,41 @@ class PadAttrs(object):
 
 def PadAttrsStart(builder): builder.StartObject(0)
 def PadAttrsEnd(builder): return builder.EndObject()
+
+
+class PadAttrsT(object):
+
+    # PadAttrsT
+    def __init__(self):
+        pass
+
+    @classmethod
+    def InitFromBuf(cls, buf, pos):
+        padAttrs = PadAttrs()
+        padAttrs.Init(buf, pos)
+        return cls.InitFromObj(padAttrs)
+
+    @classmethod
+    def InitFromPackedBuf(cls, buf, pos=0):
+        n = flatbuffers.encode.Get(flatbuffers.packer.uoffset, buf, pos)
+        return cls.InitFromBuf(buf, pos+n)
+
+    @classmethod
+    def InitFromObj(cls, padAttrs):
+        x = PadAttrsT()
+        x._UnPack(padAttrs)
+        return x
+
+    # PadAttrsT
+    def _UnPack(self, padAttrs):
+        if padAttrs is None:
+            return
+
+    # PadAttrsT
+    def Pack(self, builder):
+        PadAttrsStart(builder)
+        padAttrs = PadAttrsEnd(builder)
+        return padAttrs
 
 
 class ReduceMeanAttrs(object):
@@ -933,6 +1730,65 @@ def ReduceMeanAttrsStartAxesVector(builder, numElems): return builder.StartVecto
 def ReduceMeanAttrsAddKeepDims(builder, keepDims): builder.PrependBoolSlot(1, keepDims, 0)
 def ReduceMeanAttrsEnd(builder): return builder.EndObject()
 
+try:
+    from typing import List
+except:
+    pass
+
+class ReduceMeanAttrsT(object):
+
+    # ReduceMeanAttrsT
+    def __init__(self):
+        self.axes = None  # type: List[int]
+        self.keepDims = False  # type: bool
+
+    @classmethod
+    def InitFromBuf(cls, buf, pos):
+        reduceMeanAttrs = ReduceMeanAttrs()
+        reduceMeanAttrs.Init(buf, pos)
+        return cls.InitFromObj(reduceMeanAttrs)
+
+    @classmethod
+    def InitFromPackedBuf(cls, buf, pos=0):
+        n = flatbuffers.encode.Get(flatbuffers.packer.uoffset, buf, pos)
+        return cls.InitFromBuf(buf, pos+n)
+
+    @classmethod
+    def InitFromObj(cls, reduceMeanAttrs):
+        x = ReduceMeanAttrsT()
+        x._UnPack(reduceMeanAttrs)
+        return x
+
+    # ReduceMeanAttrsT
+    def _UnPack(self, reduceMeanAttrs):
+        if reduceMeanAttrs is None:
+            return
+        if not reduceMeanAttrs.AxesIsNone():
+            if np is None:
+                self.axes = []
+                for i in range(reduceMeanAttrs.AxesLength()):
+                    self.axes.append(reduceMeanAttrs.Axes(i))
+            else:
+                self.axes = reduceMeanAttrs.AxesAsNumpy()
+        self.keepDims = reduceMeanAttrs.KeepDims()
+
+    # ReduceMeanAttrsT
+    def Pack(self, builder):
+        if self.axes is not None:
+            if np is not None and type(self.axes) is np.ndarray:
+                axes = builder.CreateNumpyVector(self.axes)
+            else:
+                ReduceMeanAttrsStartAxesVector(builder, len(self.axes))
+                for i in reversed(range(len(self.axes))):
+                    builder.PrependInt32(self.axes[i])
+                axes = builder.EndVector()
+        ReduceMeanAttrsStart(builder)
+        if self.axes is not None:
+            ReduceMeanAttrsAddAxes(builder, axes)
+        ReduceMeanAttrsAddKeepDims(builder, self.keepDims)
+        reduceMeanAttrs = ReduceMeanAttrsEnd(builder)
+        return reduceMeanAttrs
+
 
 class SoftmaxAttrs(object):
     __slots__ = ['_tab']
@@ -966,6 +1822,43 @@ class SoftmaxAttrs(object):
 def SoftmaxAttrsStart(builder): builder.StartObject(1)
 def SoftmaxAttrsAddAxis(builder, axis): builder.PrependUint32Slot(0, axis, 0)
 def SoftmaxAttrsEnd(builder): return builder.EndObject()
+
+
+class SoftmaxAttrsT(object):
+
+    # SoftmaxAttrsT
+    def __init__(self):
+        self.axis = 0  # type: int
+
+    @classmethod
+    def InitFromBuf(cls, buf, pos):
+        softmaxAttrs = SoftmaxAttrs()
+        softmaxAttrs.Init(buf, pos)
+        return cls.InitFromObj(softmaxAttrs)
+
+    @classmethod
+    def InitFromPackedBuf(cls, buf, pos=0):
+        n = flatbuffers.encode.Get(flatbuffers.packer.uoffset, buf, pos)
+        return cls.InitFromBuf(buf, pos+n)
+
+    @classmethod
+    def InitFromObj(cls, softmaxAttrs):
+        x = SoftmaxAttrsT()
+        x._UnPack(softmaxAttrs)
+        return x
+
+    # SoftmaxAttrsT
+    def _UnPack(self, softmaxAttrs):
+        if softmaxAttrs is None:
+            return
+        self.axis = softmaxAttrs.Axis()
+
+    # SoftmaxAttrsT
+    def Pack(self, builder):
+        SoftmaxAttrsStart(builder)
+        SoftmaxAttrsAddAxis(builder, self.axis)
+        softmaxAttrs = SoftmaxAttrsEnd(builder)
+        return softmaxAttrs
 
 
 class SplitAttrs(object):
@@ -1030,6 +1923,65 @@ def SplitAttrsAddSplit(builder, split): builder.PrependUOffsetTRelativeSlot(1, f
 def SplitAttrsStartSplitVector(builder, numElems): return builder.StartVector(4, numElems, 4)
 def SplitAttrsEnd(builder): return builder.EndObject()
 
+try:
+    from typing import List
+except:
+    pass
+
+class SplitAttrsT(object):
+
+    # SplitAttrsT
+    def __init__(self):
+        self.axis = 0  # type: int
+        self.split = None  # type: List[int]
+
+    @classmethod
+    def InitFromBuf(cls, buf, pos):
+        splitAttrs = SplitAttrs()
+        splitAttrs.Init(buf, pos)
+        return cls.InitFromObj(splitAttrs)
+
+    @classmethod
+    def InitFromPackedBuf(cls, buf, pos=0):
+        n = flatbuffers.encode.Get(flatbuffers.packer.uoffset, buf, pos)
+        return cls.InitFromBuf(buf, pos+n)
+
+    @classmethod
+    def InitFromObj(cls, splitAttrs):
+        x = SplitAttrsT()
+        x._UnPack(splitAttrs)
+        return x
+
+    # SplitAttrsT
+    def _UnPack(self, splitAttrs):
+        if splitAttrs is None:
+            return
+        self.axis = splitAttrs.Axis()
+        if not splitAttrs.SplitIsNone():
+            if np is None:
+                self.split = []
+                for i in range(splitAttrs.SplitLength()):
+                    self.split.append(splitAttrs.Split(i))
+            else:
+                self.split = splitAttrs.SplitAsNumpy()
+
+    # SplitAttrsT
+    def Pack(self, builder):
+        if self.split is not None:
+            if np is not None and type(self.split) is np.ndarray:
+                split = builder.CreateNumpyVector(self.split)
+            else:
+                SplitAttrsStartSplitVector(builder, len(self.split))
+                for i in reversed(range(len(self.split))):
+                    builder.PrependUint32(self.split[i])
+                split = builder.EndVector()
+        SplitAttrsStart(builder)
+        SplitAttrsAddAxis(builder, self.axis)
+        if self.split is not None:
+            SplitAttrsAddSplit(builder, split)
+        splitAttrs = SplitAttrsEnd(builder)
+        return splitAttrs
+
 
 class SqueezeAttrs(object):
     __slots__ = ['_tab']
@@ -1084,6 +2036,62 @@ def SqueezeAttrsStart(builder): builder.StartObject(1)
 def SqueezeAttrsAddAxes(builder, axes): builder.PrependUOffsetTRelativeSlot(0, flatbuffers.number_types.UOffsetTFlags.py_type(axes), 0)
 def SqueezeAttrsStartAxesVector(builder, numElems): return builder.StartVector(4, numElems, 4)
 def SqueezeAttrsEnd(builder): return builder.EndObject()
+
+try:
+    from typing import List
+except:
+    pass
+
+class SqueezeAttrsT(object):
+
+    # SqueezeAttrsT
+    def __init__(self):
+        self.axes = None  # type: List[int]
+
+    @classmethod
+    def InitFromBuf(cls, buf, pos):
+        squeezeAttrs = SqueezeAttrs()
+        squeezeAttrs.Init(buf, pos)
+        return cls.InitFromObj(squeezeAttrs)
+
+    @classmethod
+    def InitFromPackedBuf(cls, buf, pos=0):
+        n = flatbuffers.encode.Get(flatbuffers.packer.uoffset, buf, pos)
+        return cls.InitFromBuf(buf, pos+n)
+
+    @classmethod
+    def InitFromObj(cls, squeezeAttrs):
+        x = SqueezeAttrsT()
+        x._UnPack(squeezeAttrs)
+        return x
+
+    # SqueezeAttrsT
+    def _UnPack(self, squeezeAttrs):
+        if squeezeAttrs is None:
+            return
+        if not squeezeAttrs.AxesIsNone():
+            if np is None:
+                self.axes = []
+                for i in range(squeezeAttrs.AxesLength()):
+                    self.axes.append(squeezeAttrs.Axes(i))
+            else:
+                self.axes = squeezeAttrs.AxesAsNumpy()
+
+    # SqueezeAttrsT
+    def Pack(self, builder):
+        if self.axes is not None:
+            if np is not None and type(self.axes) is np.ndarray:
+                axes = builder.CreateNumpyVector(self.axes)
+            else:
+                SqueezeAttrsStartAxesVector(builder, len(self.axes))
+                for i in reversed(range(len(self.axes))):
+                    builder.PrependUint32(self.axes[i])
+                axes = builder.EndVector()
+        SqueezeAttrsStart(builder)
+        if self.axes is not None:
+            SqueezeAttrsAddAxes(builder, axes)
+        squeezeAttrs = SqueezeAttrsEnd(builder)
+        return squeezeAttrs
 
 
 class TransposeAttrs(object):
@@ -1140,6 +2148,62 @@ def TransposeAttrsAddPerm(builder, perm): builder.PrependUOffsetTRelativeSlot(0,
 def TransposeAttrsStartPermVector(builder, numElems): return builder.StartVector(4, numElems, 4)
 def TransposeAttrsEnd(builder): return builder.EndObject()
 
+try:
+    from typing import List
+except:
+    pass
+
+class TransposeAttrsT(object):
+
+    # TransposeAttrsT
+    def __init__(self):
+        self.perm = None  # type: List[int]
+
+    @classmethod
+    def InitFromBuf(cls, buf, pos):
+        transposeAttrs = TransposeAttrs()
+        transposeAttrs.Init(buf, pos)
+        return cls.InitFromObj(transposeAttrs)
+
+    @classmethod
+    def InitFromPackedBuf(cls, buf, pos=0):
+        n = flatbuffers.encode.Get(flatbuffers.packer.uoffset, buf, pos)
+        return cls.InitFromBuf(buf, pos+n)
+
+    @classmethod
+    def InitFromObj(cls, transposeAttrs):
+        x = TransposeAttrsT()
+        x._UnPack(transposeAttrs)
+        return x
+
+    # TransposeAttrsT
+    def _UnPack(self, transposeAttrs):
+        if transposeAttrs is None:
+            return
+        if not transposeAttrs.PermIsNone():
+            if np is None:
+                self.perm = []
+                for i in range(transposeAttrs.PermLength()):
+                    self.perm.append(transposeAttrs.Perm(i))
+            else:
+                self.perm = transposeAttrs.PermAsNumpy()
+
+    # TransposeAttrsT
+    def Pack(self, builder):
+        if self.perm is not None:
+            if np is not None and type(self.perm) is np.ndarray:
+                perm = builder.CreateNumpyVector(self.perm)
+            else:
+                TransposeAttrsStartPermVector(builder, len(self.perm))
+                for i in reversed(range(len(self.perm))):
+                    builder.PrependUint32(self.perm[i])
+                perm = builder.EndVector()
+        TransposeAttrsStart(builder)
+        if self.perm is not None:
+            TransposeAttrsAddPerm(builder, perm)
+        transposeAttrs = TransposeAttrsEnd(builder)
+        return transposeAttrs
+
 
 class UnsqueezeAttrs(object):
     __slots__ = ['_tab']
@@ -1195,6 +2259,62 @@ def UnsqueezeAttrsAddAxes(builder, axes): builder.PrependUOffsetTRelativeSlot(0,
 def UnsqueezeAttrsStartAxesVector(builder, numElems): return builder.StartVector(4, numElems, 4)
 def UnsqueezeAttrsEnd(builder): return builder.EndObject()
 
+try:
+    from typing import List
+except:
+    pass
+
+class UnsqueezeAttrsT(object):
+
+    # UnsqueezeAttrsT
+    def __init__(self):
+        self.axes = None  # type: List[int]
+
+    @classmethod
+    def InitFromBuf(cls, buf, pos):
+        unsqueezeAttrs = UnsqueezeAttrs()
+        unsqueezeAttrs.Init(buf, pos)
+        return cls.InitFromObj(unsqueezeAttrs)
+
+    @classmethod
+    def InitFromPackedBuf(cls, buf, pos=0):
+        n = flatbuffers.encode.Get(flatbuffers.packer.uoffset, buf, pos)
+        return cls.InitFromBuf(buf, pos+n)
+
+    @classmethod
+    def InitFromObj(cls, unsqueezeAttrs):
+        x = UnsqueezeAttrsT()
+        x._UnPack(unsqueezeAttrs)
+        return x
+
+    # UnsqueezeAttrsT
+    def _UnPack(self, unsqueezeAttrs):
+        if unsqueezeAttrs is None:
+            return
+        if not unsqueezeAttrs.AxesIsNone():
+            if np is None:
+                self.axes = []
+                for i in range(unsqueezeAttrs.AxesLength()):
+                    self.axes.append(unsqueezeAttrs.Axes(i))
+            else:
+                self.axes = unsqueezeAttrs.AxesAsNumpy()
+
+    # UnsqueezeAttrsT
+    def Pack(self, builder):
+        if self.axes is not None:
+            if np is not None and type(self.axes) is np.ndarray:
+                axes = builder.CreateNumpyVector(self.axes)
+            else:
+                UnsqueezeAttrsStartAxesVector(builder, len(self.axes))
+                for i in reversed(range(len(self.axes))):
+                    builder.PrependUint32(self.axes[i])
+                axes = builder.EndVector()
+        UnsqueezeAttrsStart(builder)
+        if self.axes is not None:
+            UnsqueezeAttrsAddAxes(builder, axes)
+        unsqueezeAttrs = UnsqueezeAttrsEnd(builder)
+        return unsqueezeAttrs
+
 
 class ResizeAttrs(object):
     __slots__ = ['_tab']
@@ -1228,6 +2348,43 @@ class ResizeAttrs(object):
 def ResizeAttrsStart(builder): builder.StartObject(1)
 def ResizeAttrsAddMode(builder, mode): builder.PrependInt8Slot(0, mode, 0)
 def ResizeAttrsEnd(builder): return builder.EndObject()
+
+
+class ResizeAttrsT(object):
+
+    # ResizeAttrsT
+    def __init__(self):
+        self.mode = 0  # type: int
+
+    @classmethod
+    def InitFromBuf(cls, buf, pos):
+        resizeAttrs = ResizeAttrs()
+        resizeAttrs.Init(buf, pos)
+        return cls.InitFromObj(resizeAttrs)
+
+    @classmethod
+    def InitFromPackedBuf(cls, buf, pos=0):
+        n = flatbuffers.encode.Get(flatbuffers.packer.uoffset, buf, pos)
+        return cls.InitFromBuf(buf, pos+n)
+
+    @classmethod
+    def InitFromObj(cls, resizeAttrs):
+        x = ResizeAttrsT()
+        x._UnPack(resizeAttrs)
+        return x
+
+    # ResizeAttrsT
+    def _UnPack(self, resizeAttrs):
+        if resizeAttrs is None:
+            return
+        self.mode = resizeAttrs.Mode()
+
+    # ResizeAttrsT
+    def Pack(self, builder):
+        ResizeAttrsStart(builder)
+        ResizeAttrsAddMode(builder, self.mode)
+        resizeAttrs = ResizeAttrsEnd(builder)
+        return resizeAttrs
 
 
 class OperatorNode(object):
@@ -1340,6 +2497,92 @@ def OperatorNodeAddOutputs(builder, outputs): builder.PrependUOffsetTRelativeSlo
 def OperatorNodeStartOutputsVector(builder, numElems): return builder.StartVector(4, numElems, 4)
 def OperatorNodeEnd(builder): return builder.EndObject()
 
+try:
+    from typing import List, Union
+except:
+    pass
+
+class OperatorNodeT(object):
+
+    # OperatorNodeT
+    def __init__(self):
+        self.type = 0  # type: int
+        self.attrsType = 0  # type: int
+        self.attrs = None  # type: Union[None, AveragePoolAttrsT, BatchNormalizationAttrsT, CastAttrsT, ClipAttrsT, ConcatAttrsT, ConstantOfShapeAttrsT, ConvAttrsT, ConvTransposeAttrsT, GatherAttrsT, GemmAttrsT, LeakyReluAttrsT, MaxPoolAttrsT, PadAttrsT, ReduceMeanAttrsT, ResizeAttrsT, SplitAttrsT, SqueezeAttrsT, SoftmaxAttrsT, TransposeAttrsT, UnsqueezeAttrsT]
+        self.inputs = None  # type: List[int]
+        self.outputs = None  # type: List[int]
+
+    @classmethod
+    def InitFromBuf(cls, buf, pos):
+        operatorNode = OperatorNode()
+        operatorNode.Init(buf, pos)
+        return cls.InitFromObj(operatorNode)
+
+    @classmethod
+    def InitFromPackedBuf(cls, buf, pos=0):
+        n = flatbuffers.encode.Get(flatbuffers.packer.uoffset, buf, pos)
+        return cls.InitFromBuf(buf, pos+n)
+
+    @classmethod
+    def InitFromObj(cls, operatorNode):
+        x = OperatorNodeT()
+        x._UnPack(operatorNode)
+        return x
+
+    # OperatorNodeT
+    def _UnPack(self, operatorNode):
+        if operatorNode is None:
+            return
+        self.type = operatorNode.Type()
+        self.attrsType = operatorNode.AttrsType()
+        self.attrs = OperatorAttrsCreator(self.attrsType, operatorNode.Attrs())
+        if not operatorNode.InputsIsNone():
+            if np is None:
+                self.inputs = []
+                for i in range(operatorNode.InputsLength()):
+                    self.inputs.append(operatorNode.Inputs(i))
+            else:
+                self.inputs = operatorNode.InputsAsNumpy()
+        if not operatorNode.OutputsIsNone():
+            if np is None:
+                self.outputs = []
+                for i in range(operatorNode.OutputsLength()):
+                    self.outputs.append(operatorNode.Outputs(i))
+            else:
+                self.outputs = operatorNode.OutputsAsNumpy()
+
+    # OperatorNodeT
+    def Pack(self, builder):
+        if self.attrs is not None:
+            attrs = self.attrs.Pack(builder)
+        if self.inputs is not None:
+            if np is not None and type(self.inputs) is np.ndarray:
+                inputs = builder.CreateNumpyVector(self.inputs)
+            else:
+                OperatorNodeStartInputsVector(builder, len(self.inputs))
+                for i in reversed(range(len(self.inputs))):
+                    builder.PrependUint32(self.inputs[i])
+                inputs = builder.EndVector()
+        if self.outputs is not None:
+            if np is not None and type(self.outputs) is np.ndarray:
+                outputs = builder.CreateNumpyVector(self.outputs)
+            else:
+                OperatorNodeStartOutputsVector(builder, len(self.outputs))
+                for i in reversed(range(len(self.outputs))):
+                    builder.PrependUint32(self.outputs[i])
+                outputs = builder.EndVector()
+        OperatorNodeStart(builder)
+        OperatorNodeAddType(builder, self.type)
+        OperatorNodeAddAttrsType(builder, self.attrsType)
+        if self.attrs is not None:
+            OperatorNodeAddAttrs(builder, attrs)
+        if self.inputs is not None:
+            OperatorNodeAddInputs(builder, inputs)
+        if self.outputs is not None:
+            OperatorNodeAddOutputs(builder, outputs)
+        operatorNode = OperatorNodeEnd(builder)
+        return operatorNode
+
 
 class FloatData(object):
     __slots__ = ['_tab']
@@ -1395,6 +2638,62 @@ def FloatDataAddData(builder, data): builder.PrependUOffsetTRelativeSlot(0, flat
 def FloatDataStartDataVector(builder, numElems): return builder.StartVector(4, numElems, 4)
 def FloatDataEnd(builder): return builder.EndObject()
 
+try:
+    from typing import List
+except:
+    pass
+
+class FloatDataT(object):
+
+    # FloatDataT
+    def __init__(self):
+        self.data = None  # type: List[float]
+
+    @classmethod
+    def InitFromBuf(cls, buf, pos):
+        floatData = FloatData()
+        floatData.Init(buf, pos)
+        return cls.InitFromObj(floatData)
+
+    @classmethod
+    def InitFromPackedBuf(cls, buf, pos=0):
+        n = flatbuffers.encode.Get(flatbuffers.packer.uoffset, buf, pos)
+        return cls.InitFromBuf(buf, pos+n)
+
+    @classmethod
+    def InitFromObj(cls, floatData):
+        x = FloatDataT()
+        x._UnPack(floatData)
+        return x
+
+    # FloatDataT
+    def _UnPack(self, floatData):
+        if floatData is None:
+            return
+        if not floatData.DataIsNone():
+            if np is None:
+                self.data = []
+                for i in range(floatData.DataLength()):
+                    self.data.append(floatData.Data(i))
+            else:
+                self.data = floatData.DataAsNumpy()
+
+    # FloatDataT
+    def Pack(self, builder):
+        if self.data is not None:
+            if np is not None and type(self.data) is np.ndarray:
+                data = builder.CreateNumpyVector(self.data)
+            else:
+                FloatDataStartDataVector(builder, len(self.data))
+                for i in reversed(range(len(self.data))):
+                    builder.PrependFloat32(self.data[i])
+                data = builder.EndVector()
+        FloatDataStart(builder)
+        if self.data is not None:
+            FloatDataAddData(builder, data)
+        floatData = FloatDataEnd(builder)
+        return floatData
+
 
 class IntData(object):
     __slots__ = ['_tab']
@@ -1449,6 +2748,62 @@ def IntDataStart(builder): builder.StartObject(1)
 def IntDataAddData(builder, data): builder.PrependUOffsetTRelativeSlot(0, flatbuffers.number_types.UOffsetTFlags.py_type(data), 0)
 def IntDataStartDataVector(builder, numElems): return builder.StartVector(4, numElems, 4)
 def IntDataEnd(builder): return builder.EndObject()
+
+try:
+    from typing import List
+except:
+    pass
+
+class IntDataT(object):
+
+    # IntDataT
+    def __init__(self):
+        self.data = None  # type: List[int]
+
+    @classmethod
+    def InitFromBuf(cls, buf, pos):
+        intData = IntData()
+        intData.Init(buf, pos)
+        return cls.InitFromObj(intData)
+
+    @classmethod
+    def InitFromPackedBuf(cls, buf, pos=0):
+        n = flatbuffers.encode.Get(flatbuffers.packer.uoffset, buf, pos)
+        return cls.InitFromBuf(buf, pos+n)
+
+    @classmethod
+    def InitFromObj(cls, intData):
+        x = IntDataT()
+        x._UnPack(intData)
+        return x
+
+    # IntDataT
+    def _UnPack(self, intData):
+        if intData is None:
+            return
+        if not intData.DataIsNone():
+            if np is None:
+                self.data = []
+                for i in range(intData.DataLength()):
+                    self.data.append(intData.Data(i))
+            else:
+                self.data = intData.DataAsNumpy()
+
+    # IntDataT
+    def Pack(self, builder):
+        if self.data is not None:
+            if np is not None and type(self.data) is np.ndarray:
+                data = builder.CreateNumpyVector(self.data)
+            else:
+                IntDataStartDataVector(builder, len(self.data))
+                for i in reversed(range(len(self.data))):
+                    builder.PrependInt32(self.data[i])
+                data = builder.EndVector()
+        IntDataStart(builder)
+        if self.data is not None:
+            IntDataAddData(builder, data)
+        intData = IntDataEnd(builder)
+        return intData
 
 
 class ConstantNode(object):
@@ -1524,6 +2879,71 @@ def ConstantNodeAddDataType(builder, dataType): builder.PrependUint8Slot(1, data
 def ConstantNodeAddData(builder, data): builder.PrependUOffsetTRelativeSlot(2, flatbuffers.number_types.UOffsetTFlags.py_type(data), 0)
 def ConstantNodeEnd(builder): return builder.EndObject()
 
+try:
+    from typing import List, Union
+except:
+    pass
+
+class ConstantNodeT(object):
+
+    # ConstantNodeT
+    def __init__(self):
+        self.shape = None  # type: List[int]
+        self.dataType = 0  # type: int
+        self.data = None  # type: Union[None, FloatDataT, IntDataT]
+
+    @classmethod
+    def InitFromBuf(cls, buf, pos):
+        constantNode = ConstantNode()
+        constantNode.Init(buf, pos)
+        return cls.InitFromObj(constantNode)
+
+    @classmethod
+    def InitFromPackedBuf(cls, buf, pos=0):
+        n = flatbuffers.encode.Get(flatbuffers.packer.uoffset, buf, pos)
+        return cls.InitFromBuf(buf, pos+n)
+
+    @classmethod
+    def InitFromObj(cls, constantNode):
+        x = ConstantNodeT()
+        x._UnPack(constantNode)
+        return x
+
+    # ConstantNodeT
+    def _UnPack(self, constantNode):
+        if constantNode is None:
+            return
+        if not constantNode.ShapeIsNone():
+            if np is None:
+                self.shape = []
+                for i in range(constantNode.ShapeLength()):
+                    self.shape.append(constantNode.Shape(i))
+            else:
+                self.shape = constantNode.ShapeAsNumpy()
+        self.dataType = constantNode.DataType()
+        self.data = ConstantDataCreator(self.dataType, constantNode.Data())
+
+    # ConstantNodeT
+    def Pack(self, builder):
+        if self.shape is not None:
+            if np is not None and type(self.shape) is np.ndarray:
+                shape = builder.CreateNumpyVector(self.shape)
+            else:
+                ConstantNodeStartShapeVector(builder, len(self.shape))
+                for i in reversed(range(len(self.shape))):
+                    builder.PrependUint32(self.shape[i])
+                shape = builder.EndVector()
+        if self.data is not None:
+            data = self.data.Pack(builder)
+        ConstantNodeStart(builder)
+        if self.shape is not None:
+            ConstantNodeAddShape(builder, shape)
+        ConstantNodeAddDataType(builder, self.dataType)
+        if self.data is not None:
+            ConstantNodeAddData(builder, data)
+        constantNode = ConstantNodeEnd(builder)
+        return constantNode
+
 
 class ValueNode(object):
     __slots__ = ['_tab']
@@ -1549,6 +2969,41 @@ class ValueNode(object):
 
 def ValueNodeStart(builder): builder.StartObject(0)
 def ValueNodeEnd(builder): return builder.EndObject()
+
+
+class ValueNodeT(object):
+
+    # ValueNodeT
+    def __init__(self):
+        pass
+
+    @classmethod
+    def InitFromBuf(cls, buf, pos):
+        valueNode = ValueNode()
+        valueNode.Init(buf, pos)
+        return cls.InitFromObj(valueNode)
+
+    @classmethod
+    def InitFromPackedBuf(cls, buf, pos=0):
+        n = flatbuffers.encode.Get(flatbuffers.packer.uoffset, buf, pos)
+        return cls.InitFromBuf(buf, pos+n)
+
+    @classmethod
+    def InitFromObj(cls, valueNode):
+        x = ValueNodeT()
+        x._UnPack(valueNode)
+        return x
+
+    # ValueNodeT
+    def _UnPack(self, valueNode):
+        if valueNode is None:
+            return
+
+    # ValueNodeT
+    def Pack(self, builder):
+        ValueNodeStart(builder)
+        valueNode = ValueNodeEnd(builder)
+        return valueNode
 
 
 class Node(object):
@@ -1602,6 +3057,59 @@ def NodeAddName(builder, name): builder.PrependUOffsetTRelativeSlot(0, flatbuffe
 def NodeAddDataType(builder, dataType): builder.PrependUint8Slot(1, dataType, 0)
 def NodeAddData(builder, data): builder.PrependUOffsetTRelativeSlot(2, flatbuffers.number_types.UOffsetTFlags.py_type(data), 0)
 def NodeEnd(builder): return builder.EndObject()
+
+try:
+    from typing import Union
+except:
+    pass
+
+class NodeT(object):
+
+    # NodeT
+    def __init__(self):
+        self.name = None  # type: str
+        self.dataType = 0  # type: int
+        self.data = None  # type: Union[None, OperatorNodeT, ConstantNodeT, ValueNodeT]
+
+    @classmethod
+    def InitFromBuf(cls, buf, pos):
+        node = Node()
+        node.Init(buf, pos)
+        return cls.InitFromObj(node)
+
+    @classmethod
+    def InitFromPackedBuf(cls, buf, pos=0):
+        n = flatbuffers.encode.Get(flatbuffers.packer.uoffset, buf, pos)
+        return cls.InitFromBuf(buf, pos+n)
+
+    @classmethod
+    def InitFromObj(cls, node):
+        x = NodeT()
+        x._UnPack(node)
+        return x
+
+    # NodeT
+    def _UnPack(self, node):
+        if node is None:
+            return
+        self.name = node.Name()
+        self.dataType = node.DataType()
+        self.data = NodeKindCreator(self.dataType, node.Data())
+
+    # NodeT
+    def Pack(self, builder):
+        if self.name is not None:
+            name = builder.CreateString(self.name)
+        if self.data is not None:
+            data = self.data.Pack(builder)
+        NodeStart(builder)
+        if self.name is not None:
+            NodeAddName(builder, name)
+        NodeAddDataType(builder, self.dataType)
+        if self.data is not None:
+            NodeAddData(builder, data)
+        node = NodeEnd(builder)
+        return node
 
 
 class Graph(object):
@@ -1713,6 +3221,99 @@ def GraphAddOutputs(builder, outputs): builder.PrependUOffsetTRelativeSlot(2, fl
 def GraphStartOutputsVector(builder, numElems): return builder.StartVector(4, numElems, 4)
 def GraphEnd(builder): return builder.EndObject()
 
+try:
+    from typing import List
+except:
+    pass
+
+class GraphT(object):
+
+    # GraphT
+    def __init__(self):
+        self.nodes = None  # type: List[NodeT]
+        self.inputs = None  # type: List[int]
+        self.outputs = None  # type: List[int]
+
+    @classmethod
+    def InitFromBuf(cls, buf, pos):
+        graph = Graph()
+        graph.Init(buf, pos)
+        return cls.InitFromObj(graph)
+
+    @classmethod
+    def InitFromPackedBuf(cls, buf, pos=0):
+        n = flatbuffers.encode.Get(flatbuffers.packer.uoffset, buf, pos)
+        return cls.InitFromBuf(buf, pos+n)
+
+    @classmethod
+    def InitFromObj(cls, graph):
+        x = GraphT()
+        x._UnPack(graph)
+        return x
+
+    # GraphT
+    def _UnPack(self, graph):
+        if graph is None:
+            return
+        if not graph.NodesIsNone():
+            self.nodes = []
+            for i in range(graph.NodesLength()):
+                if graph.Nodes(i) is None:
+                    self.nodes.append(None)
+                else:
+                    node_ = NodeT.InitFromObj(graph.Nodes(i))
+                    self.nodes.append(node_)
+        if not graph.InputsIsNone():
+            if np is None:
+                self.inputs = []
+                for i in range(graph.InputsLength()):
+                    self.inputs.append(graph.Inputs(i))
+            else:
+                self.inputs = graph.InputsAsNumpy()
+        if not graph.OutputsIsNone():
+            if np is None:
+                self.outputs = []
+                for i in range(graph.OutputsLength()):
+                    self.outputs.append(graph.Outputs(i))
+            else:
+                self.outputs = graph.OutputsAsNumpy()
+
+    # GraphT
+    def Pack(self, builder):
+        if self.nodes is not None:
+            nodeslist = []
+            for i in range(len(self.nodes)):
+                nodeslist.append(self.nodes[i].Pack(builder))
+            GraphStartNodesVector(builder, len(self.nodes))
+            for i in reversed(range(len(self.nodes))):
+                builder.PrependUOffsetTRelative(nodeslist[i])
+            nodes = builder.EndVector()
+        if self.inputs is not None:
+            if np is not None and type(self.inputs) is np.ndarray:
+                inputs = builder.CreateNumpyVector(self.inputs)
+            else:
+                GraphStartInputsVector(builder, len(self.inputs))
+                for i in reversed(range(len(self.inputs))):
+                    builder.PrependUint32(self.inputs[i])
+                inputs = builder.EndVector()
+        if self.outputs is not None:
+            if np is not None and type(self.outputs) is np.ndarray:
+                outputs = builder.CreateNumpyVector(self.outputs)
+            else:
+                GraphStartOutputsVector(builder, len(self.outputs))
+                for i in reversed(range(len(self.outputs))):
+                    builder.PrependUint32(self.outputs[i])
+                outputs = builder.EndVector()
+        GraphStart(builder)
+        if self.nodes is not None:
+            GraphAddNodes(builder, nodes)
+        if self.inputs is not None:
+            GraphAddInputs(builder, inputs)
+        if self.outputs is not None:
+            GraphAddOutputs(builder, outputs)
+        graph = GraphEnd(builder)
+        return graph
+
 
 class Model(object):
     __slots__ = ['_tab']
@@ -1757,5 +3358,53 @@ def ModelStart(builder): builder.StartObject(2)
 def ModelAddSchemaVersion(builder, schemaVersion): builder.PrependInt32Slot(0, schemaVersion, 0)
 def ModelAddGraph(builder, graph): builder.PrependUOffsetTRelativeSlot(1, flatbuffers.number_types.UOffsetTFlags.py_type(graph), 0)
 def ModelEnd(builder): return builder.EndObject()
+
+try:
+    from typing import Optional
+except:
+    pass
+
+class ModelT(object):
+
+    # ModelT
+    def __init__(self):
+        self.schemaVersion = 0  # type: int
+        self.graph = None  # type: Optional[GraphT]
+
+    @classmethod
+    def InitFromBuf(cls, buf, pos):
+        model = Model()
+        model.Init(buf, pos)
+        return cls.InitFromObj(model)
+
+    @classmethod
+    def InitFromPackedBuf(cls, buf, pos=0):
+        n = flatbuffers.encode.Get(flatbuffers.packer.uoffset, buf, pos)
+        return cls.InitFromBuf(buf, pos+n)
+
+    @classmethod
+    def InitFromObj(cls, model):
+        x = ModelT()
+        x._UnPack(model)
+        return x
+
+    # ModelT
+    def _UnPack(self, model):
+        if model is None:
+            return
+        self.schemaVersion = model.SchemaVersion()
+        if model.Graph() is not None:
+            self.graph = GraphT.InitFromObj(model.Graph())
+
+    # ModelT
+    def Pack(self, builder):
+        if self.graph is not None:
+            graph = self.graph.Pack(builder)
+        ModelStart(builder)
+        ModelAddSchemaVersion(builder, self.schemaVersion)
+        if self.graph is not None:
+            ModelAddGraph(builder, graph)
+        model = ModelEnd(builder)
+        return model
 
 

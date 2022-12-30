@@ -2,7 +2,7 @@
 
 import array
 from argparse import ArgumentParser
-from typing import Literal, cast
+from typing import Any, Literal, cast
 
 import flatbuffers
 import numpy as np
@@ -670,146 +670,95 @@ def build_operator_node(builder: flatbuffers.Builder, operator: OperatorNode):
                 pad_mode = sg.PadMode.Same
             else:
                 pad_mode = sg.PadMode.Fixed
-                pads = cast(list[int], operator.attrs["pads"])
-                pads_vec = write_vec(
-                    builder, sg.AveragePoolAttrsStartPadsVector, pads, "u32"
-                )
+            attrs = sg.AveragePoolAttrsT()
+            attrs.kernelSize = cast(list[int], operator.attrs["kernel_size"])
+            attrs.padMode = pad_mode
+            attrs.pads = cast(list[int], operator.attrs.get("pads"))
+            attrs.stride = cast(list[int], operator.attrs["stride"])
 
-            kernel_size_vec = write_vec(
-                builder,
-                sg.AveragePoolAttrsStartKernelSizeVector,
-                cast(list[int], operator.attrs["kernel_size"]),
-                "u32",
-            )
-            if "stride" in operator.attrs:
-                stride_vec = write_vec(
-                    builder,
-                    sg.AveragePoolAttrsStartStrideVector,
-                    cast(list[int], operator.attrs["stride"]),
-                    "u32",
-                )
-
-            sg.AveragePoolAttrsStart(builder)
-            sg.AveragePoolAttrsAddKernelSize(builder, kernel_size_vec)
-            sg.AveragePoolAttrsAddPadMode(builder, pad_mode)
-            if pad_mode == sg.PadMode.Fixed:
-                sg.AveragePoolAttrsAddPads(builder, pads_vec)
-            if stride_vec:
-                sg.AveragePoolAttrsAddStride(builder, stride_vec)
-            attrs = sg.AveragePoolAttrsEnd(builder)
         case "BatchNormalization":
-            sg.BatchNormalizationAttrsStart(builder)
-            sg.BatchNormalizationAttrsAddEpsilon(builder, operator.attrs["epsilon"])
-            attrs = sg.BatchNormalizationAttrsEnd(builder)
+            attrs = sg.BatchNormalizationAttrsT()
+            attrs.epsilon = cast(float, operator.attrs["epsilon"])
+
         case "Cast":
-            sg.CastAttrsStart(builder)
-            sg.CastAttrsAddTo(builder, operator.attrs["to"])
-            attrs = sg.CastAttrsEnd(builder)
+            attrs = sg.CastAttrsT()
+            attrs.to = cast(int, operator.attrs["to"])
+
         case "Clip":
-            sg.ClipAttrsStart(builder)
-            sg.ClipAttrsAddMin(builder, operator.attrs["min"])
-            sg.ClipAttrsAddMax(builder, operator.attrs["max"])
-            attrs = sg.ClipAttrsEnd(builder)
+            attrs = sg.ClipAttrsT()
+            attrs.min = cast(float, operator.attrs["min"])
+            attrs.max = cast(float, operator.attrs["max"])
+
         case "Concat":
-            sg.ConcatAttrsStart(builder)
-            sg.ConcatAttrsAddDim(builder, operator.attrs["dim"])
-            attrs = sg.ConcatAttrsEnd(builder)
+            attrs = sg.ConcatAttrsT()
+            attrs.dim = cast(int, operator.attrs["dim"])
+
         case "ConstantOfShape":
             value = operator.attrs["value"]
 
             if isinstance(value, float):
                 scalar_type = sg.Scalar.FloatScalar
-                sg.FloatScalarStart(builder)
-                sg.FloatScalarAddValue(builder, value)
-                scalar = sg.FloatScalarEnd(builder)
-            else:
+                scalar = sg.FloatScalarT()
+                scalar.value = value
+            elif isinstance(value, int):
                 scalar_type = sg.Scalar.IntScalar
-                sg.IntScalarStart(builder)
-                sg.IntScalarAddValue(builder, value)
-                scalar = sg.IntScalarEnd(builder)
+                scalar = sg.IntScalarT()
+                scalar.value = value
+            else:
+                raise ValueError(
+                    f"Unsupported value type {type(value)} for ConstantOfShape"
+                )
 
-            sg.ConstantOfShapeAttrsStart(builder)
-            sg.ConstantOfShapeAttrsAddValueType(builder, scalar_type)
-            sg.ConstantOfShapeAttrsAddValue(builder, scalar)
-            attrs = sg.ConstantOfShapeAttrsEnd(builder)
+            attrs = sg.ConstantOfShapeAttrsT()
+            attrs.valueType = scalar_type
+            attrs.value = scalar
+
         case "Conv":
+            attrs = sg.ConvAttrsT()
             if operator.attrs["pad_mode"] == "same":
-                pad_mode = sg.PadMode.Same
+                attrs.padMode = sg.PadMode.Same
             else:
-                pad_mode = sg.PadMode.Fixed
-                pads = cast(list[int], operator.attrs["pads"])
-                pads_vec = write_vec(builder, sg.ConvAttrsStartPadsVector, pads, "u32")
+                attrs.padMode = sg.PadMode.Fixed
+                attrs.pads = cast(list[int], operator.attrs["pads"])
+            attrs.groups = cast(int, operator.attrs["groups"])
+            attrs.stride = cast(int, operator.attrs["stride"])
 
-            sg.ConvAttrsStart(builder)
-            sg.ConvAttrsAddGroups(builder, operator.attrs["groups"])
-            sg.ConvAttrsAddPadMode(builder, pad_mode)
-            if pad_mode == sg.PadMode.Fixed:
-                sg.ConvAttrsAddPads(builder, pads_vec)
-            sg.ConvAttrsAddStride(builder, operator.attrs["stride"])
-            attrs = sg.ConvAttrsEnd(builder)
         case "ConvTranspose":
-            sg.ConvTransposeAttrsStart(builder)
-            sg.ConvTransposeAttrsAddStride(builder, operator.attrs["stride"])
-            attrs = sg.ConvTransposeAttrsEnd(builder)
+            attrs = sg.ConvTransposeAttrsT()
+            attrs.stride = cast(int, operator.attrs["stride"])
+
         case "Gather":
-            sg.GatherAttrsStart(builder)
-            sg.GatherAttrsAddAxis(builder, operator.attrs["axis"])
-            attrs = sg.GatherAttrsEnd(builder)
+            attrs = sg.GatherAttrsT()
+            attrs.axis = cast(int, operator.attrs["axis"])
+
         case "Gemm":
-            sg.GemmAttrsStart(builder)
-            sg.GemmAttrsAddAlpha(builder, operator.attrs["alpha"])
-            sg.GemmAttrsAddBeta(builder, operator.attrs["beta"])
-            sg.GemmAttrsAddTransposeA(builder, operator.attrs["transpose_a"])
-            sg.GemmAttrsAddTransposeB(builder, operator.attrs["transpose_b"])
-            attrs = sg.GemmAttrsEnd(builder)
+            attrs = sg.GemmAttrsT()
+            attrs.alpha = cast(float, operator.attrs["alpha"])
+            attrs.beta = cast(float, operator.attrs["beta"])
+            attrs.transposeA = cast(bool, operator.attrs["transpose_a"])
+            attrs.transposeB = cast(bool, operator.attrs["transpose_b"])
+
         case "LeakyRelu":
-            sg.LeakyReluAttrsStart(builder)
-            sg.LeakyReluAttrsAddAlpha(builder, operator.attrs["alpha"])
-            attrs = sg.LeakyReluAttrsEnd(builder)
+            attrs = sg.LeakyReluAttrsT()
+            attrs.alpha = cast(float, operator.attrs["alpha"])
+
         case "MaxPool":
+            attrs = sg.MaxPoolAttrsT()
             if operator.attrs["pad_mode"] == "same":
-                pad_mode = sg.PadMode.Same
+                attrs.padMode = sg.PadMode.Same
             else:
-                pad_mode = sg.PadMode.Fixed
-                pads = cast(list[int], operator.attrs["pads"])
-                pads_vec = write_vec(
-                    builder, sg.MaxPoolAttrsStartPadsVector, pads, "u32"
-                )
+                attrs.padMode = sg.PadMode.Fixed
+                attrs.pads = cast(list[int], operator.attrs["pads"])
 
-            kernel_size_vec = write_vec(
-                builder,
-                sg.AveragePoolAttrsStartKernelSizeVector,
-                cast(list[int], operator.attrs["kernel_size"]),
-                "u32",
-            )
+            attrs.kernelSize = cast(list[int], operator.attrs["kernel_size"])
             if "stride" in operator.attrs:
-                stride_vec = write_vec(
-                    builder,
-                    sg.AveragePoolAttrsStartStrideVector,
-                    cast(list[int], operator.attrs["stride"]),
-                    "u32",
-                )
+                attrs.stride = cast(list[int], operator.attrs["stride"])
 
-            sg.MaxPoolAttrsStart(builder)
-            sg.MaxPoolAttrsAddKernelSize(builder, kernel_size_vec)
-            sg.MaxPoolAttrsAddPadMode(builder, pad_mode)
-            if pad_mode == sg.PadMode.Fixed:
-                sg.MaxPoolAttrsAddPads(builder, pads_vec)
-            if stride_vec:
-                sg.MaxPoolAttrsAddStride(builder, stride_vec)
-            attrs = sg.MaxPoolAttrsEnd(builder)
         case "ReduceMean":
-            axes = cast(list[int] | None, operator.attrs["axes"])
-            if axes:
-                axes_vec = write_vec(
-                    builder, sg.ReduceMeanAttrsStartAxesVector, axes, "i32"
-                )
-
-            sg.ReduceMeanAttrsStart(builder)
-            sg.ReduceMeanAttrsAddKeepDims(builder, operator.attrs["keep_dims"])
-            if axes_vec:
-                sg.ReduceMeanAttrsAddAxes(builder, axes_vec)
-            attrs = sg.ReduceMeanAttrsEnd(builder)
+            attrs = sg.ReduceMeanAttrsT()
+            attrs.keepDims = cast(bool, operator.attrs["keep_dims"])
+            if operator.attrs["axes"]:
+                attrs.axes = cast(list[int], operator.attrs["axes"])
 
         case "Resize":
             if operator.attrs["mode"] == "nearest":
@@ -818,79 +767,44 @@ def build_operator_node(builder: flatbuffers.Builder, operator: OperatorNode):
                 mode = sg.ResizeMode.Linear
             else:
                 raise ValueError(f"Unsupported resize mode {operator.attrs['mode']}")
-
-            sg.ResizeAttrsStart(builder)
-            sg.ResizeAttrsAddMode(builder, mode)
-            attrs = sg.ResizeAttrsEnd(builder)
+            attrs = sg.ResizeAttrsT()
+            attrs.mode = mode
 
         case "Softmax":
-            sg.SoftmaxAttrsStart(builder)
-            sg.SoftmaxAttrsAddAxis(builder, operator.attrs["axis"])
-            attrs = sg.SoftmaxAttrsEnd(builder)
-        case "Split":
-            split = cast(list[int] | None, operator.attrs["split"])
-            if split:
-                split_vec = write_vec(
-                    builder, sg.SplitAttrsStartSplitVector, split, "u32"
-                )
+            attrs = sg.SoftmaxAttrsT()
+            attrs.axis = cast(int, operator.attrs["axis"])
 
-            sg.SplitAttrsStart(builder)
-            sg.SplitAttrsAddAxis(builder, operator.attrs["axis"])
-            if split_vec:
-                sg.SplitAttrsAddSplit(builder, split_vec)
-            attrs = sg.SplitAttrsEnd(builder)
+        case "Split":
+            attrs = sg.SplitAttrsT()
+            attrs.axis = cast(int, operator.attrs["axis"])
+            if operator.attrs["split"]:
+                attrs.split = cast(list[int], operator.attrs["split"])
 
         case "Squeeze":
-            axes = cast(list[int] | None, operator.attrs["axes"])
-            if axes:
-                axes_vec = write_vec(
-                    builder, sg.SqueezeAttrsStartAxesVector, axes, "u32"
-                )
+            attrs = sg.SqueezeAttrsT()
+            if operator.attrs["axes"]:
+                attrs.axes = cast(list[int], operator.attrs["axes"])
 
-            sg.SqueezeAttrsStart(builder)
-            if axes_vec:
-                sg.SqueezeAttrsAddAxes(builder, axes_vec)
-            attrs = sg.SqueezeAttrsEnd(builder)
         case "Transpose":
-            perm = cast(list[int] | None, operator.attrs["perm"])
-            if perm:
-                perm_vec = write_vec(
-                    builder, sg.TransposeAttrsStartPermVector, perm, "u32"
-                )
-
-            sg.TransposeAttrsStart(builder)
-            if perm_vec:
-                sg.TransposeAttrsAddPerm(builder, perm_vec)
-            attrs = sg.TransposeAttrsEnd(builder)
+            attrs = sg.TransposeAttrsT()
+            if operator.attrs["perm"]:
+                attrs.perm = cast(list[int], operator.attrs["perm"])
 
         case "Unsqueeze":
-            axes = cast(list[int], operator.attrs["axes"])
-            axes_vec = write_vec(builder, sg.UnsqueezeAttrsStartAxesVector, axes, "u32")
-
-            sg.UnsqueezeAttrsStart(builder)
-            sg.UnsqueezeAttrsAddAxes(builder, axes_vec)
-            attrs = sg.UnsqueezeAttrsEnd(builder)
+            attrs = sg.UnsqueezeAttrsT()
+            attrs.axes = cast(list[int], operator.attrs["axes"])
 
         case other:
             if operator.op_type not in NO_ATTR_OPS:
                 raise Exception(f"Unsupported operator type {operator.op_type}")
 
-    inputs_vec = write_vec(
-        builder, sg.OperatorNodeStartInputsVector, operator.inputs, "u32"
-    )
-    outputs_vec = write_vec(
-        builder, sg.OperatorNodeStartOutputsVector, operator.outputs, "u32"
-    )
-
-    sg.OperatorNodeStart(builder)
-    op_type_code = getattr(sg.OperatorType, operator.op_type)
-    sg.OperatorNodeAddType(builder, op_type_code)
-    sg.OperatorNodeAddAttrsType(builder, attrs_type)
-    if attrs:
-        sg.OperatorNodeAddAttrs(builder, attrs)
-    sg.OperatorNodeAddInputs(builder, inputs_vec)
-    sg.OperatorNodeAddOutputs(builder, outputs_vec)
-    return sg.OperatorNodeEnd(builder)
+    operator_table = sg.OperatorNodeT()
+    operator_table.type = getattr(sg.OperatorType, operator.op_type)
+    operator_table.attrsType = attrs_type
+    operator_table.attrs = attrs
+    operator_table.inputs = operator.inputs
+    operator_table.outputs = operator.outputs
+    return operator_table.Pack(builder)
 
 
 def build_value_node(builder: flatbuffers.Builder, value: ValueNode):

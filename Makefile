@@ -38,4 +38,4 @@ src/schema_generated.rs: src/schema.fbs
 	mv src/schema_generated.rs.tmp src/schema_generated.rs
 
 tools/schema_generated.py: src/schema.fbs
-	flatc -o tools/ --gen-onefile --python src/schema.fbs
+	flatc -o tools/ --gen-onefile --gen-object-api --python src/schema.fbs
