@@ -8,6 +8,7 @@ import flatbuffers
 import numpy as np
 import onnx
 from onnx import TensorProto
+import sys
 
 import schema_generated as sg
 
@@ -103,82 +104,116 @@ value_fields = {
 }
 
 
-def get_attr(attr_list: list[onnx.AttributeProto], name: str, type_: str, default):
-    """Get the value of an optional operator attribute."""
-    type_code = getattr(onnx.AttributeProto, type_.upper())
-    for attr in attr_list:
-        if attr.name == name:
-            if attr.type != type_code:
-                raise Exception(f"Attribute {name} type does not match {type_}")
-            val = getattr(attr, value_fields[type_code])
-
-            # String attribute values are stored as bytes, so we have to decode
-            # them.
-            if type_ == "string":
-                val = val.decode()
-
-            return val
-    return default
-
-
-def require_attr(attr_list: list[onnx.AttributeProto], name: str, type_: str):
-    """Get the value of a required operator attribute."""
-    val = get_attr(attr_list, name, type_, default=None)
-    if val is None:
-        raise Exception(f"Missing required attribute {name}")
-    return val
-
-
-def require_attr_or_input(
-    name: str,
-    type_: str,
-    input_index: int,
-    onnx_op: onnx.OperatorProto,
-    constant_nodes: dict[str, ConstantNode],
-):
+class ONNXOperatorReader:
     """
-    Get the value of a required operator attribute or input.
+    Utiliy for extracting attribute and input values from an ONNX operator.
 
-    Some operator inputs changed from attributes to inputs in different ONNX
-    releases. This function will look up the value for the input from both
-    possible sources.
-
-    In the case where the value comes from an input, it must be a constant
-    (ie. specified via an initializer or Constant node in the graph), rather
-    than a value computed at runtime.
-
-    :param name: The name of the attribute
-    :param type_: The required type of the value
-    :param input_index: The index of the operator input
-    :param constant_nodes: Map of all the constant values in the model
+    This keeps track of which attributes have been read so that we can warn about
+    any unhandled ones.
     """
-    val = get_attr(onnx_op.attribute, name, type_, None)
-    if val is None and len(onnx_op.input) > input_index:
-        input_val = constant_nodes.get(onnx_op.input[input_index])
-        if input_val is None:
-            raise Exception(f'Input node nor found or not a constant for "{name}"')
 
-        # This function currently only supports extracting scalars from
-        # constants, but we could also supports lists as well here.
-        scalar = input_val.get_scalar()
-        if scalar is None:
-            raise Exception(f'Input for "{name}" is not a scalar')
-        return scalar
+    onnx_op: onnx.OperatorProto
 
-    if val is None:
-        raise Exception(f'Missing required attribute or input "{name}"')
-    return val
+    _handled_attrs: set[str]
+    """Names of attributes that have been handled."""
 
+    def __init__(self, onnx_op: onnx.OperatorProto):
+        self.onnx_op = onnx_op
 
-def check_unsupported_attr(
-    attr_list: list[onnx.AttributeProto], name: str, type_, default
-):
-    """Check if an operator has an unsupported non-default value for an attribute."""
-    val = get_attr(attr_list, name, type_, default)
-    if val != default:
-        raise Exception(
-            f"Unsupported value {val} for attribute {name}. Default is {default}"
-        )
+        self._handled_attrs = set()
+
+    def get_attr(self, name: str, expected_type: str, default):
+        """Get the value of an optional operator attribute."""
+
+        self._handled_attrs.add(name)
+
+        type_code = getattr(onnx.AttributeProto, expected_type.upper())
+        for attr in self.onnx_op.attribute:
+            if attr.name == name:
+                if attr.type != type_code:
+                    raise Exception(
+                        f"Attribute {name} type does not match {expected_type}"
+                    )
+                val = getattr(attr, value_fields[type_code])
+
+                # String attribute values are stored as bytes, so we have to decode
+                # them.
+                if expected_type == "string":
+                    val = val.decode()
+
+                return val
+        return default
+
+    def ignore_attr(self, name: str):
+        """
+        Mark an attribute as ignored.
+
+        This is useful in cases where an attribute contains redundant information.
+        """
+        self._handled_attrs.add(name)
+
+    def require_attr(self, name: str, expected_type: str):
+        """Get the value of a required operator attribute."""
+        val = self.get_attr(name, expected_type, default=None)
+        if val is None:
+            raise Exception(f"Missing required attribute {name}")
+        return val
+
+    def require_attr_or_input(
+        self,
+        name: str,
+        expected_type: str,
+        input_index: int,
+        constant_nodes: dict[str, ConstantNode],
+    ):
+        """
+        Get the value of a required operator attribute or input.
+
+        Some operator inputs changed from attributes to inputs in different ONNX
+        releases. This function will look up the value for the input from both
+        possible sources.
+
+        In the case where the value comes from an input, it must be a constant
+        (ie. specified via an initializer or Constant node in the graph), rather
+        than a value computed at runtime.
+
+        :param name: The name of the attribute
+        :param expected_type: The required type of the value
+        :param input_index: The index of the operator input
+        :param constant_nodes: Map of all the constant values in the model
+        """
+        val = self.get_attr(name, expected_type, None)
+        if val is None and len(self.onnx_op.input) > input_index:
+            input_val = constant_nodes.get(self.onnx_op.input[input_index])
+            if input_val is None:
+                raise Exception(f'Input node nor found or not a constant for "{name}"')
+
+            # This function currently only supports extracting scalars from
+            # constants, but we could also supports lists as well here.
+            scalar = input_val.get_scalar()
+            if scalar is None:
+                raise Exception(f'Input for "{name}" is not a scalar')
+            return scalar
+
+        if val is None:
+            raise Exception(f'Missing required attribute or input "{name}"')
+        return val
+
+    def check_attr(self, name: str, expected_type, default):
+        """Check if an operator has an unsupported non-default value for an attribute."""
+        val = self.get_attr(name, expected_type, default)
+        if val != default:
+            raise Exception(
+                f"Unsupported value {val} for attribute {name}. Default is {default}"
+            )
+
+    def unhandled_attrs(self) -> list[onnx.AttributeProto]:
+        """Return a list of attributes which have not been read."""
+        return [
+            attr
+            for attr in self.onnx_op.attribute
+            if attr.name not in self._handled_attrs
+        ]
 
 
 def check_ints_length(name: str, ints: list[int], allowed_length: int):
@@ -259,7 +294,7 @@ def constant_node_from_onnx_initializer(tensor) -> ConstantNode:
 
 
 def constant_node_from_onnx_constant_op(onnx_op: onnx.OperatorProto) -> ConstantNode:
-    tensor = require_attr(onnx_op.attribute, "value", "tensor")
+    tensor = ONNXOperatorReader(onnx_op).require_attr("value", "tensor")
     const_node = constant_node_from_onnx_initializer(tensor)
 
     if not len(onnx_op.output):
@@ -273,20 +308,18 @@ def value_node_from_onnx_value(value: onnx.ValueInfoProto) -> ValueNode:
     return ValueNode(name=value.name)
 
 
-def read_pad_attrs_from_onnx_operator(
-    onnx_op: onnx.OperatorProto, attrs: dict[str, AttributeValue]
-):
+def read_pads(op_reader: ONNXOperatorReader, attrs: dict[str, AttributeValue]):
     """
     Read a padding specification from an ONNX operator.
     """
 
-    auto_pad = get_attr(onnx_op.attribute, "auto_pad", "string", "NOTSET")
+    auto_pad = op_reader.get_attr("auto_pad", "string", "NOTSET")
 
     match auto_pad:
         case "SAME_UPPER" | "SAME_LOWER":
             attrs["pad_mode"] = "same"
         case "NOTSET":
-            padding = get_attr(onnx_op.attribute, "pads", "ints", [0, 0, 0, 0])
+            padding = op_reader.get_attr("pads", "ints", [0, 0, 0, 0])
             if len(padding) != 4:
                 raise Exception('"padding" attribute must have 4 values')
             pad_top, pad_left, pad_right, pad_bottom = iter(padding)
@@ -297,13 +330,15 @@ def read_pad_attrs_from_onnx_operator(
             raise Exception(f"Unsupported auto_pad value {other}")
 
 
-def read_stride_attr_from_onnx_operator(
-    onnx_op: onnx.OperatorProto, attrs: dict[str, AttributeValue], require_uniform: bool
+def read_stride(
+    op_reader: ONNXOperatorReader,
+    attrs: dict[str, AttributeValue],
+    require_uniform: bool,
 ):
     """
     Read a stride specification from an ONNX operator.
     """
-    strides = get_attr(onnx_op.attribute, "strides", "ints", [1, 1])
+    strides = op_reader.get_attr("strides", "ints", [1, 1])
     if len(strides) != 2:
         raise Exception('"strides" attribute must have 2 values')
     stride_width, stride_height = iter(strides)
@@ -379,23 +414,25 @@ def op_node_from_onnx_operator(
     # the ONNX type.
     op_type = onnx_op.op_type
 
+    op_reader = ONNXOperatorReader(onnx_op)
+
     match onnx_op.op_type:
         case "AveragePool":
-            kernel_shape = require_attr(onnx_op.attribute, "kernel_shape", "ints")
+            kernel_shape = op_reader.require_attr("kernel_shape", "ints")
             check_ints_length("kernel_shape", kernel_shape, 2)
             attrs["kernel_size"] = kernel_shape
 
-            read_pad_attrs_from_onnx_operator(onnx_op, attrs)
-            read_stride_attr_from_onnx_operator(onnx_op, attrs, require_uniform=False)
+            read_pads(op_reader, attrs)
+            read_stride(op_reader, attrs, require_uniform=False)
 
-            check_unsupported_attr(onnx_op.attribute, "ceil_mode", "int", 0)
-            check_unsupported_attr(onnx_op.attribute, "count_include_pad", "int", 0)
+            op_reader.check_attr("ceil_mode", "int", 0)
+            op_reader.check_attr("count_include_pad", "int", 0)
 
         case "BatchNormalization":
-            attrs["epsilon"] = get_attr(onnx_op.attribute, "epsilon", "float", 1e-5)
+            attrs["epsilon"] = op_reader.get_attr("epsilon", "float", 1e-5)
 
         case "Cast":
-            to = get_attr(onnx_op.attribute, "to", "int", TensorProto.DataType.FLOAT)
+            to = op_reader.get_attr("to", "int", TensorProto.DataType.FLOAT)
             match to:
                 case TensorProto.DataType.FLOAT:
                     attrs["to"] = sg.DataType.Float
@@ -405,18 +442,18 @@ def op_node_from_onnx_operator(
                     raise Exception(f"Unsupported target type for cast {to}")
 
         case "Clip":
-            attrs["min"] = require_attr_or_input(
-                "min", "float", 1, onnx_op, constant_nodes
+            attrs["min"] = op_reader.require_attr_or_input(
+                "min", "float", 1, constant_nodes
             )
-            attrs["max"] = require_attr_or_input(
-                "max", "float", 2, onnx_op, constant_nodes
+            attrs["max"] = op_reader.require_attr_or_input(
+                "max", "float", 2, constant_nodes
             )
 
         case "Concat":
-            attrs["dim"] = require_attr(onnx_op.attribute, "axis", "int")
+            attrs["dim"] = op_reader.require_attr("axis", "int")
 
         case "ConstantOfShape":
-            tensor = require_attr(onnx_op.attribute, "value", "tensor")
+            tensor = op_reader.require_attr("value", "tensor")
             const_node = constant_node_from_onnx_initializer(tensor)
 
             if len(const_node.data) != 1:
@@ -427,112 +464,118 @@ def op_node_from_onnx_operator(
             attrs["value"] = const_node.data[0]
 
         case "Conv":
-            attrs["groups"] = get_attr(onnx_op.attribute, "group", "int", 1)
-            read_pad_attrs_from_onnx_operator(onnx_op, attrs)
-            read_stride_attr_from_onnx_operator(onnx_op, attrs, require_uniform=True)
+            attrs["groups"] = op_reader.get_attr("group", "int", 1)
+            read_pads(op_reader, attrs)
+            read_stride(op_reader, attrs, require_uniform=True)
 
-            check_unsupported_attr(onnx_op.attribute, "dilations", "ints", [1, 1])
+            op_reader.check_attr("dilations", "ints", [1, 1])
+
+            # The kernel shape is inferred at runtime from the input weight tensor.
+            op_reader.ignore_attr("kernel_shape")
 
         case "ConvTranspose":
-            read_stride_attr_from_onnx_operator(onnx_op, attrs, require_uniform=True)
+            read_stride(op_reader, attrs, require_uniform=True)
 
-            check_unsupported_attr(onnx_op.attribute, "auto_pad", "string", "NOTSET")
-            check_unsupported_attr(onnx_op.attribute, "dilations", "ints", [1, 1])
-            check_unsupported_attr(onnx_op.attribute, "group", "int", 1)
-            check_unsupported_attr(
-                onnx_op.attribute, "output_padding", "ints", [0, 0, 0, 0]
-            )
-            check_unsupported_attr(onnx_op.attribute, "pads", "ints", [0, 0, 0, 0])
+            op_reader.check_attr("auto_pad", "string", "NOTSET")
+            op_reader.check_attr("dilations", "ints", [1, 1])
+            op_reader.check_attr("group", "int", 1)
+
+            # The kernel shape is inferred at runtime from the input weight tensor.
+            op_reader.ignore_attr("kernel_shape")
+
+            op_reader.check_attr("output_padding", "ints", [0, 0, 0, 0])
+            op_reader.check_attr("pads", "ints", [0, 0, 0, 0])
 
         case "Gather":
-            attrs["axis"] = get_attr(onnx_op.attribute, "axis", "int", 0)
+            attrs["axis"] = op_reader.get_attr("axis", "int", 0)
 
         case "Gemm":
-            attrs["alpha"] = get_attr(onnx_op.attribute, "alpha", "float", 1.0)
-            attrs["beta"] = get_attr(onnx_op.attribute, "beta", "float", 1.0)
-            attrs["transpose_a"] = bool(get_attr(onnx_op.attribute, "transA", "int", 0))
-            attrs["transpose_b"] = bool(get_attr(onnx_op.attribute, "transB", "int", 0))
+            attrs["alpha"] = op_reader.get_attr("alpha", "float", 1.0)
+            attrs["beta"] = op_reader.get_attr("beta", "float", 1.0)
+            attrs["transpose_a"] = bool(op_reader.get_attr("transA", "int", 0))
+            attrs["transpose_b"] = bool(op_reader.get_attr("transB", "int", 0))
 
         case "LeakyRelu":
-            attrs["alpha"] = get_attr(onnx_op.attribute, "alpha", "float", 0.01)
+            attrs["alpha"] = op_reader.get_attr("alpha", "float", 0.01)
 
         case "MaxPool":
-            kernel_shape = require_attr(onnx_op.attribute, "kernel_shape", "ints")
+            kernel_shape = op_reader.require_attr("kernel_shape", "ints")
             check_ints_length("kernel_shape", kernel_shape, 2)
             attrs["kernel_size"] = kernel_shape
 
-            read_pad_attrs_from_onnx_operator(onnx_op, attrs)
-            read_stride_attr_from_onnx_operator(onnx_op, attrs, require_uniform=False)
+            read_pads(op_reader, attrs)
+            read_stride(op_reader, attrs, require_uniform=False)
 
-            check_unsupported_attr(onnx_op.attribute, "ceil_mode", "int", 0)
-            check_unsupported_attr(onnx_op.attribute, "dilations", "ints", [1, 1])
-            check_unsupported_attr(onnx_op.attribute, "storage_order", "int", 0)
+            op_reader.check_attr("ceil_mode", "int", 0)
+            op_reader.check_attr("dilations", "ints", [1, 1])
+            op_reader.check_attr("storage_order", "int", 0)
 
         case "ReduceMean":
-            attrs["axes"] = get_attr(onnx_op.attribute, "axes", "ints", None)
-            attrs["keep_dims"] = bool(get_attr(onnx_op.attribute, "keepdims", "int", 1))
+            attrs["axes"] = op_reader.get_attr("axes", "ints", None)
+            attrs["keep_dims"] = bool(op_reader.get_attr("keepdims", "int", 1))
 
-            check_unsupported_attr(onnx_op.attribute, "noop_with_empty_axes", "int", 0)
+            op_reader.check_attr("noop_with_empty_axes", "int", 0)
 
         case "Reshape":
-            check_unsupported_attr(onnx_op.attribute, "allowzero", "int", 0)
+            op_reader.check_attr("allowzero", "int", 0)
 
         case "Resize":
-            attrs["mode"] = get_attr(onnx_op.attribute, "mode", "string", "nearest")
+            attrs["mode"] = op_reader.get_attr("mode", "string", "nearest")
 
-            check_unsupported_attr(onnx_op.attribute, "antialias", "int", 0)
-            check_unsupported_attr(
-                onnx_op.attribute,
+            op_reader.check_attr("antialias", "int", 0)
+
+            # We only support resizing HW dimensions of NCHW tensor
+            op_reader.check_attr("axes", "ints", [2, 3])
+
+            op_reader.check_attr(
                 "coordinate_transformation_mode",
                 "string",
                 "half_pixel",
             )
-            check_unsupported_attr(onnx_op.attribute, "cubic_coeff_a", "float", -0.75)
-            check_unsupported_attr(onnx_op.attribute, "exclude_outside", "int", 0)
-            check_unsupported_attr(
-                onnx_op.attribute, "extrapolation_value", "float", 0.0
-            )
-            check_unsupported_attr(
-                onnx_op.attribute, "keep_aspect_ratio_policy", "string", "stretch"
-            )
-            check_unsupported_attr(
-                onnx_op.attribute, "nearest_mode", "string", "prefer_round_floor"
-            )
-
-            # We only support resizing HW dimensions of NCHW tensor
-            check_unsupported_attr(onnx_op.attribute, "axes", "ints", [2, 3])
+            op_reader.check_attr("cubic_coeff_a", "float", -0.75)
+            op_reader.check_attr("exclude_outside", "int", 0)
+            op_reader.check_attr("extrapolation_value", "float", 0.0)
+            op_reader.check_attr("keep_aspect_ratio_policy", "string", "stretch")
+            op_reader.check_attr("nearest_mode", "string", "prefer_round_floor")
 
         case "Pad":
-            check_unsupported_attr(onnx_op.attribute, "mode", "string", "constant")
+            op_reader.check_attr("mode", "string", "constant")
 
         case "Shape":
-            check_unsupported_attr(onnx_op.attribute, "end", "int", 0)
-            check_unsupported_attr(onnx_op.attribute, "start", "int", 0)
+            op_reader.check_attr("end", "int", 0)
+            op_reader.check_attr("start", "int", 0)
 
         case "Softmax":
-            attrs["axis"] = get_attr(onnx_op.attribute, "axis", "int", 0)
+            attrs["axis"] = op_reader.get_attr("axis", "int", 0)
 
         case "Split":
-            attrs["axis"] = get_attr(onnx_op.attribute, "axis", "int", 0)
-            attrs["split"] = get_attr(onnx_op.attribute, "split", "ints", [])
+            attrs["axis"] = op_reader.get_attr("axis", "int", 0)
+            attrs["split"] = op_reader.get_attr("split", "ints", [])
 
-            check_unsupported_attr(onnx_op.attribute, "num_outputs", "int", 0)
+            op_reader.check_attr("num_outputs", "int", 0)
 
         case "Squeeze":
-            axes = get_attr(onnx_op.attribute, "axes", "ints", [])
+            axes = op_reader.get_attr("axes", "ints", [])
             attrs["axes"] = axes
 
         case "Transpose":
-            perm = get_attr(onnx_op.attribute, "perm", "ints", [])
+            perm = op_reader.get_attr("perm", "ints", [])
             attrs["perm"] = perm
 
         case "Unsqueeze":
-            axes = get_attr(onnx_op.attribute, "axes", "ints", [])
+            axes = op_reader.get_attr("axes", "ints", [])
             attrs["axes"] = axes
 
         case other_type:
             if other_type not in NO_ATTR_OPS:
                 raise Exception(f"Unsupported operation {onnx_op.op_type}")
+
+    # Display a warning for any attributes that were not handled above.
+    for attr in op_reader.unhandled_attrs():
+        print(
+            f"WARNING: Unsupported attribute {attr.name} for operator {onnx_op.op_type}",
+            file=sys.stderr,
+        )
 
     return OperatorNode(
         name=onnx_op.name,
