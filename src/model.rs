@@ -93,15 +93,15 @@ fn read_average_pool_op(node: &OperatorNode) -> ReadOpResult {
 
     let kernel_size = array_from_iter(attrs.kernel_size().iter().map(|x| x as usize));
     let padding = padding_from_attrs(attrs.pad_mode(), attrs.pads());
-    let stride = attrs
-        .stride()
+    let strides = attrs
+        .strides()
         .map(|stride| array_from_iter(stride.iter().map(|x| x as usize)))
         .unwrap_or([1, 1]);
 
     Ok(Box::new(ops::AveragePool {
         kernel_size,
         padding,
-        stride,
+        strides,
     }))
 }
 
@@ -144,12 +144,15 @@ fn read_conv_op(node: &OperatorNode) -> ReadOpResult {
 
     let groups = attrs.groups() as usize;
     let padding = padding_from_attrs(attrs.pad_mode(), attrs.pads());
-    let stride = attrs.stride() as usize;
+    let strides = attrs
+        .strides()
+        .map(|stride| array_from_iter(stride.iter().map(|x| x as usize)))
+        .unwrap_or([1, 1]);
 
     Ok(Box::new(ops::Conv {
         groups,
         padding,
-        stride,
+        strides,
     }))
 }
 
@@ -171,9 +174,11 @@ fn read_conv_transpose_op(node: &OperatorNode) -> ReadOpResult {
     let attrs = node
         .attrs_as_conv_transpose_attrs()
         .ok_or(ReadOpError::AttrError)?;
-    Ok(Box::new(ops::ConvTranspose {
-        stride: attrs.stride() as usize,
-    }))
+    let strides = attrs
+        .strides()
+        .map(|stride| array_from_iter(stride.iter().map(|x| x as usize)))
+        .unwrap_or([1, 1]);
+    Ok(Box::new(ops::ConvTranspose { strides }))
 }
 
 fn read_gather_op(node: &OperatorNode) -> ReadOpResult {
@@ -209,15 +214,15 @@ fn read_max_pool_op(node: &OperatorNode) -> ReadOpResult {
 
     let kernel_size = array_from_iter(attrs.kernel_size().iter().map(|x| x as usize));
     let padding = padding_from_attrs(attrs.pad_mode(), attrs.pads());
-    let stride = attrs
-        .stride()
+    let strides = attrs
+        .strides()
         .map(|stride| array_from_iter(stride.iter().map(|x| x as usize)))
         .unwrap_or([1, 1]);
 
     Ok(Box::new(ops::MaxPool {
         kernel_size,
         padding,
-        stride,
+        strides,
     }))
 }
 
@@ -539,7 +544,7 @@ mod tests {
             "average_pool",
             OpType::AveragePool(ops::AveragePool {
                 kernel_size: [2, 2],
-                stride: [2, 2],
+                strides: [2, 2],
                 padding: Padding::Fixed([0, 0, 0, 0]),
             }),
             &[input_node],
@@ -608,7 +613,7 @@ mod tests {
             OpType::Conv(ops::Conv {
                 padding: Padding::Fixed([1, 1, 1, 1]),
                 groups: 1,
-                stride: 1,
+                strides: [1, 1],
             }),
             &[input_node, kernel],
             &[conv_out],
@@ -617,7 +622,7 @@ mod tests {
         let conv_transpose_out = builder.add_value("conv_transpose_out");
         builder.add_operator(
             "conv_transpose",
-            OpType::ConvTranspose(ops::ConvTranspose { stride: 2 }),
+            OpType::ConvTranspose(ops::ConvTranspose { strides: [2, 2] }),
             &[input_node, kernel],
             &[conv_transpose_out],
         );
@@ -702,7 +707,7 @@ mod tests {
             "max_pool",
             OpType::MaxPool(ops::MaxPool {
                 kernel_size: [2, 2],
-                stride: [2, 2],
+                strides: [2, 2],
                 padding: Padding::Fixed([0, 0, 0, 0]),
             }),
             &[input_node],

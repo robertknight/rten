@@ -558,7 +558,7 @@ mod tests {
             Box::new(Conv {
                 padding: Padding::Fixed([1, 1, 1, 1]),
                 groups: 1,
-                stride: 1,
+                strides: [1, 1],
             }),
             &[input_id, weights_id],
             &[conv_out],

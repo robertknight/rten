@@ -1012,7 +1012,7 @@ impl<'a> AveragePoolAttrs<'a> {
     pub const VT_KERNEL_SIZE: flatbuffers::VOffsetT = 4;
     pub const VT_PAD_MODE: flatbuffers::VOffsetT = 6;
     pub const VT_PADS: flatbuffers::VOffsetT = 8;
-    pub const VT_STRIDE: flatbuffers::VOffsetT = 10;
+    pub const VT_STRIDES: flatbuffers::VOffsetT = 10;
 
     #[inline]
     pub unsafe fn init_from_table(table: flatbuffers::Table<'a>) -> Self {
@@ -1024,8 +1024,8 @@ impl<'a> AveragePoolAttrs<'a> {
         args: &'args AveragePoolAttrsArgs<'args>,
     ) -> flatbuffers::WIPOffset<AveragePoolAttrs<'bldr>> {
         let mut builder = AveragePoolAttrsBuilder::new(_fbb);
-        if let Some(x) = args.stride {
-            builder.add_stride(x);
+        if let Some(x) = args.strides {
+            builder.add_strides(x);
         }
         if let Some(x) = args.pads {
             builder.add_pads(x);
@@ -1076,14 +1076,14 @@ impl<'a> AveragePoolAttrs<'a> {
         }
     }
     #[inline]
-    pub fn stride(&self) -> Option<flatbuffers::Vector<'a, u32>> {
+    pub fn strides(&self) -> Option<flatbuffers::Vector<'a, u32>> {
         // Safety:
         // Created from valid Table for this object
         // which contains a valid value in this slot
         unsafe {
             self._tab
                 .get::<flatbuffers::ForwardsUOffset<flatbuffers::Vector<'a, u32>>>(
-                    AveragePoolAttrs::VT_STRIDE,
+                    AveragePoolAttrs::VT_STRIDES,
                     None,
                 )
         }
@@ -1110,8 +1110,8 @@ impl flatbuffers::Verifiable for AveragePoolAttrs<'_> {
                 false,
             )?
             .visit_field::<flatbuffers::ForwardsUOffset<flatbuffers::Vector<'_, u32>>>(
-                "stride",
-                Self::VT_STRIDE,
+                "strides",
+                Self::VT_STRIDES,
                 false,
             )?
             .finish();
@@ -1122,7 +1122,7 @@ pub struct AveragePoolAttrsArgs<'a> {
     pub kernel_size: Option<flatbuffers::WIPOffset<flatbuffers::Vector<'a, u32>>>,
     pub pad_mode: PadMode,
     pub pads: Option<flatbuffers::WIPOffset<flatbuffers::Vector<'a, u32>>>,
-    pub stride: Option<flatbuffers::WIPOffset<flatbuffers::Vector<'a, u32>>>,
+    pub strides: Option<flatbuffers::WIPOffset<flatbuffers::Vector<'a, u32>>>,
 }
 impl<'a> Default for AveragePoolAttrsArgs<'a> {
     #[inline]
@@ -1131,7 +1131,7 @@ impl<'a> Default for AveragePoolAttrsArgs<'a> {
             kernel_size: None, // required field
             pad_mode: PadMode::Same,
             pads: None,
-            stride: None,
+            strides: None,
         }
     }
 }
@@ -1162,9 +1162,9 @@ impl<'a: 'b, 'b> AveragePoolAttrsBuilder<'a, 'b> {
             .push_slot_always::<flatbuffers::WIPOffset<_>>(AveragePoolAttrs::VT_PADS, pads);
     }
     #[inline]
-    pub fn add_stride(&mut self, stride: flatbuffers::WIPOffset<flatbuffers::Vector<'b, u32>>) {
+    pub fn add_strides(&mut self, strides: flatbuffers::WIPOffset<flatbuffers::Vector<'b, u32>>) {
         self.fbb_
-            .push_slot_always::<flatbuffers::WIPOffset<_>>(AveragePoolAttrs::VT_STRIDE, stride);
+            .push_slot_always::<flatbuffers::WIPOffset<_>>(AveragePoolAttrs::VT_STRIDES, strides);
     }
     #[inline]
     pub fn new(
@@ -1191,7 +1191,7 @@ impl core::fmt::Debug for AveragePoolAttrs<'_> {
         ds.field("kernel_size", &self.kernel_size());
         ds.field("pad_mode", &self.pad_mode());
         ds.field("pads", &self.pads());
-        ds.field("stride", &self.stride());
+        ds.field("strides", &self.strides());
         ds.finish()
     }
 }
@@ -2041,7 +2041,7 @@ impl<'a> ConvAttrs<'a> {
     pub const VT_PAD_MODE: flatbuffers::VOffsetT = 4;
     pub const VT_PADS: flatbuffers::VOffsetT = 6;
     pub const VT_GROUPS: flatbuffers::VOffsetT = 8;
-    pub const VT_STRIDE: flatbuffers::VOffsetT = 10;
+    pub const VT_STRIDES: flatbuffers::VOffsetT = 10;
 
     #[inline]
     pub unsafe fn init_from_table(table: flatbuffers::Table<'a>) -> Self {
@@ -2053,7 +2053,9 @@ impl<'a> ConvAttrs<'a> {
         args: &'args ConvAttrsArgs<'args>,
     ) -> flatbuffers::WIPOffset<ConvAttrs<'bldr>> {
         let mut builder = ConvAttrsBuilder::new(_fbb);
-        builder.add_stride(args.stride);
+        if let Some(x) = args.strides {
+            builder.add_strides(x);
+        }
         builder.add_groups(args.groups);
         if let Some(x) = args.pads {
             builder.add_pads(x);
@@ -2094,11 +2096,17 @@ impl<'a> ConvAttrs<'a> {
         unsafe { self._tab.get::<u32>(ConvAttrs::VT_GROUPS, Some(0)).unwrap() }
     }
     #[inline]
-    pub fn stride(&self) -> u32 {
+    pub fn strides(&self) -> Option<flatbuffers::Vector<'a, u32>> {
         // Safety:
         // Created from valid Table for this object
         // which contains a valid value in this slot
-        unsafe { self._tab.get::<u32>(ConvAttrs::VT_STRIDE, Some(0)).unwrap() }
+        unsafe {
+            self._tab
+                .get::<flatbuffers::ForwardsUOffset<flatbuffers::Vector<'a, u32>>>(
+                    ConvAttrs::VT_STRIDES,
+                    None,
+                )
+        }
     }
 }
 
@@ -2117,7 +2125,11 @@ impl flatbuffers::Verifiable for ConvAttrs<'_> {
                 false,
             )?
             .visit_field::<u32>("groups", Self::VT_GROUPS, false)?
-            .visit_field::<u32>("stride", Self::VT_STRIDE, false)?
+            .visit_field::<flatbuffers::ForwardsUOffset<flatbuffers::Vector<'_, u32>>>(
+                "strides",
+                Self::VT_STRIDES,
+                false,
+            )?
             .finish();
         Ok(())
     }
@@ -2126,7 +2138,7 @@ pub struct ConvAttrsArgs<'a> {
     pub pad_mode: PadMode,
     pub pads: Option<flatbuffers::WIPOffset<flatbuffers::Vector<'a, u32>>>,
     pub groups: u32,
-    pub stride: u32,
+    pub strides: Option<flatbuffers::WIPOffset<flatbuffers::Vector<'a, u32>>>,
 }
 impl<'a> Default for ConvAttrsArgs<'a> {
     #[inline]
@@ -2135,7 +2147,7 @@ impl<'a> Default for ConvAttrsArgs<'a> {
             pad_mode: PadMode::Same,
             pads: None,
             groups: 0,
-            stride: 0,
+            strides: None,
         }
     }
 }
@@ -2160,8 +2172,9 @@ impl<'a: 'b, 'b> ConvAttrsBuilder<'a, 'b> {
         self.fbb_.push_slot::<u32>(ConvAttrs::VT_GROUPS, groups, 0);
     }
     #[inline]
-    pub fn add_stride(&mut self, stride: u32) {
-        self.fbb_.push_slot::<u32>(ConvAttrs::VT_STRIDE, stride, 0);
+    pub fn add_strides(&mut self, strides: flatbuffers::WIPOffset<flatbuffers::Vector<'b, u32>>) {
+        self.fbb_
+            .push_slot_always::<flatbuffers::WIPOffset<_>>(ConvAttrs::VT_STRIDES, strides);
     }
     #[inline]
     pub fn new(_fbb: &'b mut flatbuffers::FlatBufferBuilder<'a>) -> ConvAttrsBuilder<'a, 'b> {
@@ -2184,7 +2197,7 @@ impl core::fmt::Debug for ConvAttrs<'_> {
         ds.field("pad_mode", &self.pad_mode());
         ds.field("pads", &self.pads());
         ds.field("groups", &self.groups());
-        ds.field("stride", &self.stride());
+        ds.field("strides", &self.strides());
         ds.finish()
     }
 }
@@ -2206,7 +2219,7 @@ impl<'a> flatbuffers::Follow<'a> for ConvTransposeAttrs<'a> {
 }
 
 impl<'a> ConvTransposeAttrs<'a> {
-    pub const VT_STRIDE: flatbuffers::VOffsetT = 4;
+    pub const VT_STRIDES: flatbuffers::VOffsetT = 4;
 
     #[inline]
     pub unsafe fn init_from_table(table: flatbuffers::Table<'a>) -> Self {
@@ -2215,22 +2228,26 @@ impl<'a> ConvTransposeAttrs<'a> {
     #[allow(unused_mut)]
     pub fn create<'bldr: 'args, 'args: 'mut_bldr, 'mut_bldr>(
         _fbb: &'mut_bldr mut flatbuffers::FlatBufferBuilder<'bldr>,
-        args: &'args ConvTransposeAttrsArgs,
+        args: &'args ConvTransposeAttrsArgs<'args>,
     ) -> flatbuffers::WIPOffset<ConvTransposeAttrs<'bldr>> {
         let mut builder = ConvTransposeAttrsBuilder::new(_fbb);
-        builder.add_stride(args.stride);
+        if let Some(x) = args.strides {
+            builder.add_strides(x);
+        }
         builder.finish()
     }
 
     #[inline]
-    pub fn stride(&self) -> u32 {
+    pub fn strides(&self) -> Option<flatbuffers::Vector<'a, u32>> {
         // Safety:
         // Created from valid Table for this object
         // which contains a valid value in this slot
         unsafe {
             self._tab
-                .get::<u32>(ConvTransposeAttrs::VT_STRIDE, Some(0))
-                .unwrap()
+                .get::<flatbuffers::ForwardsUOffset<flatbuffers::Vector<'a, u32>>>(
+                    ConvTransposeAttrs::VT_STRIDES,
+                    None,
+                )
         }
     }
 }
@@ -2243,18 +2260,22 @@ impl flatbuffers::Verifiable for ConvTransposeAttrs<'_> {
     ) -> Result<(), flatbuffers::InvalidFlatbuffer> {
         use self::flatbuffers::Verifiable;
         v.visit_table(pos)?
-            .visit_field::<u32>("stride", Self::VT_STRIDE, false)?
+            .visit_field::<flatbuffers::ForwardsUOffset<flatbuffers::Vector<'_, u32>>>(
+                "strides",
+                Self::VT_STRIDES,
+                false,
+            )?
             .finish();
         Ok(())
     }
 }
-pub struct ConvTransposeAttrsArgs {
-    pub stride: u32,
+pub struct ConvTransposeAttrsArgs<'a> {
+    pub strides: Option<flatbuffers::WIPOffset<flatbuffers::Vector<'a, u32>>>,
 }
-impl<'a> Default for ConvTransposeAttrsArgs {
+impl<'a> Default for ConvTransposeAttrsArgs<'a> {
     #[inline]
     fn default() -> Self {
-        ConvTransposeAttrsArgs { stride: 0 }
+        ConvTransposeAttrsArgs { strides: None }
     }
 }
 
@@ -2264,9 +2285,9 @@ pub struct ConvTransposeAttrsBuilder<'a: 'b, 'b> {
 }
 impl<'a: 'b, 'b> ConvTransposeAttrsBuilder<'a, 'b> {
     #[inline]
-    pub fn add_stride(&mut self, stride: u32) {
+    pub fn add_strides(&mut self, strides: flatbuffers::WIPOffset<flatbuffers::Vector<'b, u32>>) {
         self.fbb_
-            .push_slot::<u32>(ConvTransposeAttrs::VT_STRIDE, stride, 0);
+            .push_slot_always::<flatbuffers::WIPOffset<_>>(ConvTransposeAttrs::VT_STRIDES, strides);
     }
     #[inline]
     pub fn new(
@@ -2288,7 +2309,7 @@ impl<'a: 'b, 'b> ConvTransposeAttrsBuilder<'a, 'b> {
 impl core::fmt::Debug for ConvTransposeAttrs<'_> {
     fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
         let mut ds = f.debug_struct("ConvTransposeAttrs");
-        ds.field("stride", &self.stride());
+        ds.field("strides", &self.strides());
         ds.finish()
     }
 }
@@ -2676,7 +2697,7 @@ impl<'a> MaxPoolAttrs<'a> {
     pub const VT_KERNEL_SIZE: flatbuffers::VOffsetT = 4;
     pub const VT_PAD_MODE: flatbuffers::VOffsetT = 6;
     pub const VT_PADS: flatbuffers::VOffsetT = 8;
-    pub const VT_STRIDE: flatbuffers::VOffsetT = 10;
+    pub const VT_STRIDES: flatbuffers::VOffsetT = 10;
 
     #[inline]
     pub unsafe fn init_from_table(table: flatbuffers::Table<'a>) -> Self {
@@ -2688,8 +2709,8 @@ impl<'a> MaxPoolAttrs<'a> {
         args: &'args MaxPoolAttrsArgs<'args>,
     ) -> flatbuffers::WIPOffset<MaxPoolAttrs<'bldr>> {
         let mut builder = MaxPoolAttrsBuilder::new(_fbb);
-        if let Some(x) = args.stride {
-            builder.add_stride(x);
+        if let Some(x) = args.strides {
+            builder.add_strides(x);
         }
         if let Some(x) = args.pads {
             builder.add_pads(x);
@@ -2740,14 +2761,14 @@ impl<'a> MaxPoolAttrs<'a> {
         }
     }
     #[inline]
-    pub fn stride(&self) -> Option<flatbuffers::Vector<'a, u32>> {
+    pub fn strides(&self) -> Option<flatbuffers::Vector<'a, u32>> {
         // Safety:
         // Created from valid Table for this object
         // which contains a valid value in this slot
         unsafe {
             self._tab
                 .get::<flatbuffers::ForwardsUOffset<flatbuffers::Vector<'a, u32>>>(
-                    MaxPoolAttrs::VT_STRIDE,
+                    MaxPoolAttrs::VT_STRIDES,
                     None,
                 )
         }
@@ -2774,8 +2795,8 @@ impl flatbuffers::Verifiable for MaxPoolAttrs<'_> {
                 false,
             )?
             .visit_field::<flatbuffers::ForwardsUOffset<flatbuffers::Vector<'_, u32>>>(
-                "stride",
-                Self::VT_STRIDE,
+                "strides",
+                Self::VT_STRIDES,
                 false,
             )?
             .finish();
@@ -2786,7 +2807,7 @@ pub struct MaxPoolAttrsArgs<'a> {
     pub kernel_size: Option<flatbuffers::WIPOffset<flatbuffers::Vector<'a, u32>>>,
     pub pad_mode: PadMode,
     pub pads: Option<flatbuffers::WIPOffset<flatbuffers::Vector<'a, u32>>>,
-    pub stride: Option<flatbuffers::WIPOffset<flatbuffers::Vector<'a, u32>>>,
+    pub strides: Option<flatbuffers::WIPOffset<flatbuffers::Vector<'a, u32>>>,
 }
 impl<'a> Default for MaxPoolAttrsArgs<'a> {
     #[inline]
@@ -2795,7 +2816,7 @@ impl<'a> Default for MaxPoolAttrsArgs<'a> {
             kernel_size: None, // required field
             pad_mode: PadMode::Same,
             pads: None,
-            stride: None,
+            strides: None,
         }
     }
 }
@@ -2826,9 +2847,9 @@ impl<'a: 'b, 'b> MaxPoolAttrsBuilder<'a, 'b> {
             .push_slot_always::<flatbuffers::WIPOffset<_>>(MaxPoolAttrs::VT_PADS, pads);
     }
     #[inline]
-    pub fn add_stride(&mut self, stride: flatbuffers::WIPOffset<flatbuffers::Vector<'b, u32>>) {
+    pub fn add_strides(&mut self, strides: flatbuffers::WIPOffset<flatbuffers::Vector<'b, u32>>) {
         self.fbb_
-            .push_slot_always::<flatbuffers::WIPOffset<_>>(MaxPoolAttrs::VT_STRIDE, stride);
+            .push_slot_always::<flatbuffers::WIPOffset<_>>(MaxPoolAttrs::VT_STRIDES, strides);
     }
     #[inline]
     pub fn new(_fbb: &'b mut flatbuffers::FlatBufferBuilder<'a>) -> MaxPoolAttrsBuilder<'a, 'b> {
@@ -2853,7 +2874,7 @@ impl core::fmt::Debug for MaxPoolAttrs<'_> {
         ds.field("kernel_size", &self.kernel_size());
         ds.field("pad_mode", &self.pad_mode());
         ds.field("pads", &self.pads());
-        ds.field("stride", &self.stride());
+        ds.field("strides", &self.strides());
         ds.finish()
     }
 }

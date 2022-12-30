@@ -16,12 +16,12 @@ use crate::tensor::{zeros, Tensor};
 pub fn calc_output_size_and_padding(
     in_size: (usize, usize),
     kernel_size: (usize, usize),
-    stride: (usize, usize),
+    strides: (usize, usize),
     padding: Padding,
 ) -> (usize, usize, [usize; 4]) {
     let (in_h, in_w) = in_size;
     let (k_h, k_w) = kernel_size;
-    let (stride_h, stride_w) = stride;
+    let (stride_h, stride_w) = strides;
 
     assert!(in_h >= k_h);
     assert!(in_w >= k_w);
@@ -57,19 +57,19 @@ pub fn calc_output_size_and_padding(
 pub fn average_pool(
     input: &Tensor,
     kernel_size: [usize; 2],
-    stride: [usize; 2],
+    strides: [usize; 2],
     padding: Padding,
 ) -> Tensor {
     let [batch, in_c, in_h, in_w] = input.dims();
     let (out_h, out_w, fixed_padding) = calc_output_size_and_padding(
         (in_h, in_w),
         (kernel_size[0], kernel_size[1]),
-        (stride[0], stride[1]),
+        (strides[0], strides[1]),
         padding,
     );
     let [pad_top, pad_left, _pad_bottom, _pad_right] = fixed_padding;
     let [kernel_h, kernel_w] = kernel_size;
-    let [stride_h, stride_w] = stride;
+    let [stride_h, stride_w] = strides;
 
     let mut output = zeros::<f32>(&[batch, in_c, out_h, out_w]);
 
@@ -112,7 +112,7 @@ pub fn average_pool(
 pub struct AveragePool {
     pub kernel_size: [usize; 2],
     pub padding: Padding,
-    pub stride: [usize; 2],
+    pub strides: [usize; 2],
 }
 
 impl Operator for AveragePool {
@@ -122,7 +122,7 @@ impl Operator for AveragePool {
 
     fn run(&self, inputs: &[Input]) -> Result<Vec<Output>, OpError> {
         let input = get_input(inputs, 0)?;
-        average_pool(input, self.kernel_size, self.stride, self.padding).into_op_result()
+        average_pool(input, self.kernel_size, self.strides, self.padding).into_op_result()
     }
 }
 
@@ -165,19 +165,19 @@ impl Operator for GlobalAveragePool {
 pub fn max_pool(
     input: &Tensor,
     kernel_size: [usize; 2],
-    stride: [usize; 2],
+    strides: [usize; 2],
     padding: Padding,
 ) -> Tensor {
     let [batch, in_c, in_h, in_w] = input.dims();
     let (out_h, out_w, fixed_padding) = calc_output_size_and_padding(
         (in_h, in_w),
         (kernel_size[0], kernel_size[1]),
-        (stride[0], stride[1]),
+        (strides[0], strides[1]),
         padding,
     );
     let [pad_top, pad_left, _pad_bottom, _pad_right] = fixed_padding;
     let [kernel_h, kernel_w] = kernel_size;
-    let [stride_h, stride_w] = stride;
+    let [stride_h, stride_w] = strides;
 
     let mut output = zeros::<f32>(&[batch, in_c, out_h, out_w]);
 
@@ -216,7 +216,7 @@ pub fn max_pool(
 pub struct MaxPool {
     pub kernel_size: [usize; 2],
     pub padding: Padding,
-    pub stride: [usize; 2],
+    pub strides: [usize; 2],
 }
 
 impl Operator for MaxPool {
@@ -226,7 +226,7 @@ impl Operator for MaxPool {
 
     fn run(&self, inputs: &[Input]) -> Result<Vec<Output>, OpError> {
         let input = get_input(inputs, 0)?;
-        max_pool(input, self.kernel_size, self.stride, self.padding).into_op_result()
+        max_pool(input, self.kernel_size, self.strides, self.padding).into_op_result()
     }
 }
 
@@ -250,7 +250,7 @@ mod tests {
 
         struct Case {
             kernel_size: [usize; 2],
-            stride: [usize; 2],
+            strides: [usize; 2],
             expected: Tensor,
         }
 
@@ -258,25 +258,25 @@ mod tests {
             // Most common case of uniform stride and kernel size
             Case {
                 kernel_size: [2, 2],
-                stride: [2, 2],
+                strides: [2, 2],
                 expected: from_data(vec![1, 1, 2, 2], vec![0.35, 0.55, 0.4, 0.6]),
             },
             // Large uniform kernel size and stride
             Case {
                 kernel_size: [4, 4],
-                stride: [4, 4],
+                strides: [4, 4],
                 expected: from_data(vec![1, 1, 1, 1], vec![0.475]),
             },
             // Kernel height > kernel width
             Case {
                 kernel_size: [2, 4],
-                stride: [2, 4],
+                strides: [2, 4],
                 expected: from_data(vec![1, 1, 2, 1], vec![0.45, 0.5]),
             },
             // W stride > H stride
             Case {
                 kernel_size: [2, 2],
-                stride: [1, 2],
+                strides: [1, 2],
                 expected: from_data(
                     vec![1, 1, 3, 2],
                     vec![
@@ -289,7 +289,7 @@ mod tests {
             // H stride > W stride
             Case {
                 kernel_size: [2, 2],
-                stride: [2, 1],
+                strides: [2, 1],
                 expected: from_data(
                     vec![1, 1, 2, 3],
                     vec![
@@ -305,7 +305,7 @@ mod tests {
             let result = average_pool(
                 &input,
                 case.kernel_size,
-                case.stride,
+                case.strides,
                 Padding::Fixed([0, 0, 0, 0]),
             );
             expect_equal(&result, &case.expected)?;
@@ -366,7 +366,7 @@ mod tests {
 
         struct Case {
             kernel_size: [usize; 2],
-            stride: [usize; 2],
+            strides: [usize; 2],
             expected: Tensor,
         }
 
@@ -374,25 +374,25 @@ mod tests {
             // Most common case of uniform stride and kernel size
             Case {
                 kernel_size: [2, 2],
-                stride: [2, 2],
+                strides: [2, 2],
                 expected: from_data(vec![1, 1, 2, 2], vec![0.6, 0.8, 0.7, 0.9]),
             },
             // Large uniform kernel size and stride
             Case {
                 kernel_size: [4, 4],
-                stride: [4, 4],
+                strides: [4, 4],
                 expected: from_data(vec![1, 1, 1, 1], vec![0.9]),
             },
             // Kernel height > kernel width
             Case {
                 kernel_size: [2, 4],
-                stride: [2, 4],
+                strides: [2, 4],
                 expected: from_data(vec![1, 1, 2, 1], vec![0.8, 0.9]),
             },
             // W stride > H stride
             Case {
                 kernel_size: [2, 2],
-                stride: [1, 2],
+                strides: [1, 2],
                 expected: from_data(
                     vec![1, 1, 3, 2],
                     vec![
@@ -405,7 +405,7 @@ mod tests {
             // H stride > W stride
             Case {
                 kernel_size: [2, 2],
-                stride: [2, 1],
+                strides: [2, 1],
                 expected: from_data(
                     vec![1, 1, 2, 3],
                     vec![
@@ -420,7 +420,7 @@ mod tests {
             let result = max_pool(
                 &input,
                 case.kernel_size,
-                case.stride,
+                case.strides,
                 Padding::Fixed([0, 0, 0, 0]),
             );
             expect_equal(&result, &case.expected)?;

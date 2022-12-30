@@ -269,7 +269,7 @@ class AveragePoolAttrs(object):
         return o == 0
 
     # AveragePoolAttrs
-    def Stride(self, j):
+    def Strides(self, j):
         o = flatbuffers.number_types.UOffsetTFlags.py_type(self._tab.Offset(10))
         if o != 0:
             a = self._tab.Vector(o)
@@ -277,21 +277,21 @@ class AveragePoolAttrs(object):
         return 0
 
     # AveragePoolAttrs
-    def StrideAsNumpy(self):
+    def StridesAsNumpy(self):
         o = flatbuffers.number_types.UOffsetTFlags.py_type(self._tab.Offset(10))
         if o != 0:
             return self._tab.GetVectorAsNumpy(flatbuffers.number_types.Uint32Flags, o)
         return 0
 
     # AveragePoolAttrs
-    def StrideLength(self):
+    def StridesLength(self):
         o = flatbuffers.number_types.UOffsetTFlags.py_type(self._tab.Offset(10))
         if o != 0:
             return self._tab.VectorLen(o)
         return 0
 
     # AveragePoolAttrs
-    def StrideIsNone(self):
+    def StridesIsNone(self):
         o = flatbuffers.number_types.UOffsetTFlags.py_type(self._tab.Offset(10))
         return o == 0
 
@@ -301,8 +301,8 @@ def AveragePoolAttrsStartKernelSizeVector(builder, numElems): return builder.Sta
 def AveragePoolAttrsAddPadMode(builder, padMode): builder.PrependInt8Slot(1, padMode, 0)
 def AveragePoolAttrsAddPads(builder, pads): builder.PrependUOffsetTRelativeSlot(2, flatbuffers.number_types.UOffsetTFlags.py_type(pads), 0)
 def AveragePoolAttrsStartPadsVector(builder, numElems): return builder.StartVector(4, numElems, 4)
-def AveragePoolAttrsAddStride(builder, stride): builder.PrependUOffsetTRelativeSlot(3, flatbuffers.number_types.UOffsetTFlags.py_type(stride), 0)
-def AveragePoolAttrsStartStrideVector(builder, numElems): return builder.StartVector(4, numElems, 4)
+def AveragePoolAttrsAddStrides(builder, strides): builder.PrependUOffsetTRelativeSlot(3, flatbuffers.number_types.UOffsetTFlags.py_type(strides), 0)
+def AveragePoolAttrsStartStridesVector(builder, numElems): return builder.StartVector(4, numElems, 4)
 def AveragePoolAttrsEnd(builder): return builder.EndObject()
 
 try:
@@ -317,7 +317,7 @@ class AveragePoolAttrsT(object):
         self.kernelSize = None  # type: List[int]
         self.padMode = 0  # type: int
         self.pads = None  # type: List[int]
-        self.stride = None  # type: List[int]
+        self.strides = None  # type: List[int]
 
     @classmethod
     def InitFromBuf(cls, buf, pos):
@@ -355,13 +355,13 @@ class AveragePoolAttrsT(object):
                     self.pads.append(averagePoolAttrs.Pads(i))
             else:
                 self.pads = averagePoolAttrs.PadsAsNumpy()
-        if not averagePoolAttrs.StrideIsNone():
+        if not averagePoolAttrs.StridesIsNone():
             if np is None:
-                self.stride = []
-                for i in range(averagePoolAttrs.StrideLength()):
-                    self.stride.append(averagePoolAttrs.Stride(i))
+                self.strides = []
+                for i in range(averagePoolAttrs.StridesLength()):
+                    self.strides.append(averagePoolAttrs.Strides(i))
             else:
-                self.stride = averagePoolAttrs.StrideAsNumpy()
+                self.strides = averagePoolAttrs.StridesAsNumpy()
 
     # AveragePoolAttrsT
     def Pack(self, builder):
@@ -381,22 +381,22 @@ class AveragePoolAttrsT(object):
                 for i in reversed(range(len(self.pads))):
                     builder.PrependUint32(self.pads[i])
                 pads = builder.EndVector()
-        if self.stride is not None:
-            if np is not None and type(self.stride) is np.ndarray:
-                stride = builder.CreateNumpyVector(self.stride)
+        if self.strides is not None:
+            if np is not None and type(self.strides) is np.ndarray:
+                strides = builder.CreateNumpyVector(self.strides)
             else:
-                AveragePoolAttrsStartStrideVector(builder, len(self.stride))
-                for i in reversed(range(len(self.stride))):
-                    builder.PrependUint32(self.stride[i])
-                stride = builder.EndVector()
+                AveragePoolAttrsStartStridesVector(builder, len(self.strides))
+                for i in reversed(range(len(self.strides))):
+                    builder.PrependUint32(self.strides[i])
+                strides = builder.EndVector()
         AveragePoolAttrsStart(builder)
         if self.kernelSize is not None:
             AveragePoolAttrsAddKernelSize(builder, kernelSize)
         AveragePoolAttrsAddPadMode(builder, self.padMode)
         if self.pads is not None:
             AveragePoolAttrsAddPads(builder, pads)
-        if self.stride is not None:
-            AveragePoolAttrsAddStride(builder, stride)
+        if self.strides is not None:
+            AveragePoolAttrsAddStrides(builder, strides)
         averagePoolAttrs = AveragePoolAttrsEnd(builder)
         return averagePoolAttrs
 
@@ -994,18 +994,39 @@ class ConvAttrs(object):
         return 0
 
     # ConvAttrs
-    def Stride(self):
+    def Strides(self, j):
         o = flatbuffers.number_types.UOffsetTFlags.py_type(self._tab.Offset(10))
         if o != 0:
-            return self._tab.Get(flatbuffers.number_types.Uint32Flags, o + self._tab.Pos)
+            a = self._tab.Vector(o)
+            return self._tab.Get(flatbuffers.number_types.Uint32Flags, a + flatbuffers.number_types.UOffsetTFlags.py_type(j * 4))
         return 0
+
+    # ConvAttrs
+    def StridesAsNumpy(self):
+        o = flatbuffers.number_types.UOffsetTFlags.py_type(self._tab.Offset(10))
+        if o != 0:
+            return self._tab.GetVectorAsNumpy(flatbuffers.number_types.Uint32Flags, o)
+        return 0
+
+    # ConvAttrs
+    def StridesLength(self):
+        o = flatbuffers.number_types.UOffsetTFlags.py_type(self._tab.Offset(10))
+        if o != 0:
+            return self._tab.VectorLen(o)
+        return 0
+
+    # ConvAttrs
+    def StridesIsNone(self):
+        o = flatbuffers.number_types.UOffsetTFlags.py_type(self._tab.Offset(10))
+        return o == 0
 
 def ConvAttrsStart(builder): builder.StartObject(4)
 def ConvAttrsAddPadMode(builder, padMode): builder.PrependInt8Slot(0, padMode, 0)
 def ConvAttrsAddPads(builder, pads): builder.PrependUOffsetTRelativeSlot(1, flatbuffers.number_types.UOffsetTFlags.py_type(pads), 0)
 def ConvAttrsStartPadsVector(builder, numElems): return builder.StartVector(4, numElems, 4)
 def ConvAttrsAddGroups(builder, groups): builder.PrependUint32Slot(2, groups, 0)
-def ConvAttrsAddStride(builder, stride): builder.PrependUint32Slot(3, stride, 0)
+def ConvAttrsAddStrides(builder, strides): builder.PrependUOffsetTRelativeSlot(3, flatbuffers.number_types.UOffsetTFlags.py_type(strides), 0)
+def ConvAttrsStartStridesVector(builder, numElems): return builder.StartVector(4, numElems, 4)
 def ConvAttrsEnd(builder): return builder.EndObject()
 
 try:
@@ -1020,7 +1041,7 @@ class ConvAttrsT(object):
         self.padMode = 0  # type: int
         self.pads = None  # type: List[int]
         self.groups = 0  # type: int
-        self.stride = 0  # type: int
+        self.strides = None  # type: List[int]
 
     @classmethod
     def InitFromBuf(cls, buf, pos):
@@ -1052,7 +1073,13 @@ class ConvAttrsT(object):
             else:
                 self.pads = convAttrs.PadsAsNumpy()
         self.groups = convAttrs.Groups()
-        self.stride = convAttrs.Stride()
+        if not convAttrs.StridesIsNone():
+            if np is None:
+                self.strides = []
+                for i in range(convAttrs.StridesLength()):
+                    self.strides.append(convAttrs.Strides(i))
+            else:
+                self.strides = convAttrs.StridesAsNumpy()
 
     # ConvAttrsT
     def Pack(self, builder):
@@ -1064,12 +1091,21 @@ class ConvAttrsT(object):
                 for i in reversed(range(len(self.pads))):
                     builder.PrependUint32(self.pads[i])
                 pads = builder.EndVector()
+        if self.strides is not None:
+            if np is not None and type(self.strides) is np.ndarray:
+                strides = builder.CreateNumpyVector(self.strides)
+            else:
+                ConvAttrsStartStridesVector(builder, len(self.strides))
+                for i in reversed(range(len(self.strides))):
+                    builder.PrependUint32(self.strides[i])
+                strides = builder.EndVector()
         ConvAttrsStart(builder)
         ConvAttrsAddPadMode(builder, self.padMode)
         if self.pads is not None:
             ConvAttrsAddPads(builder, pads)
         ConvAttrsAddGroups(builder, self.groups)
-        ConvAttrsAddStride(builder, self.stride)
+        if self.strides is not None:
+            ConvAttrsAddStrides(builder, strides)
         convAttrs = ConvAttrsEnd(builder)
         return convAttrs
 
@@ -1097,22 +1133,47 @@ class ConvTransposeAttrs(object):
         self._tab = flatbuffers.table.Table(buf, pos)
 
     # ConvTransposeAttrs
-    def Stride(self):
+    def Strides(self, j):
         o = flatbuffers.number_types.UOffsetTFlags.py_type(self._tab.Offset(4))
         if o != 0:
-            return self._tab.Get(flatbuffers.number_types.Uint32Flags, o + self._tab.Pos)
+            a = self._tab.Vector(o)
+            return self._tab.Get(flatbuffers.number_types.Uint32Flags, a + flatbuffers.number_types.UOffsetTFlags.py_type(j * 4))
         return 0
 
+    # ConvTransposeAttrs
+    def StridesAsNumpy(self):
+        o = flatbuffers.number_types.UOffsetTFlags.py_type(self._tab.Offset(4))
+        if o != 0:
+            return self._tab.GetVectorAsNumpy(flatbuffers.number_types.Uint32Flags, o)
+        return 0
+
+    # ConvTransposeAttrs
+    def StridesLength(self):
+        o = flatbuffers.number_types.UOffsetTFlags.py_type(self._tab.Offset(4))
+        if o != 0:
+            return self._tab.VectorLen(o)
+        return 0
+
+    # ConvTransposeAttrs
+    def StridesIsNone(self):
+        o = flatbuffers.number_types.UOffsetTFlags.py_type(self._tab.Offset(4))
+        return o == 0
+
 def ConvTransposeAttrsStart(builder): builder.StartObject(1)
-def ConvTransposeAttrsAddStride(builder, stride): builder.PrependUint32Slot(0, stride, 0)
+def ConvTransposeAttrsAddStrides(builder, strides): builder.PrependUOffsetTRelativeSlot(0, flatbuffers.number_types.UOffsetTFlags.py_type(strides), 0)
+def ConvTransposeAttrsStartStridesVector(builder, numElems): return builder.StartVector(4, numElems, 4)
 def ConvTransposeAttrsEnd(builder): return builder.EndObject()
 
+try:
+    from typing import List
+except:
+    pass
 
 class ConvTransposeAttrsT(object):
 
     # ConvTransposeAttrsT
     def __init__(self):
-        self.stride = 0  # type: int
+        self.strides = None  # type: List[int]
 
     @classmethod
     def InitFromBuf(cls, buf, pos):
@@ -1135,12 +1196,27 @@ class ConvTransposeAttrsT(object):
     def _UnPack(self, convTransposeAttrs):
         if convTransposeAttrs is None:
             return
-        self.stride = convTransposeAttrs.Stride()
+        if not convTransposeAttrs.StridesIsNone():
+            if np is None:
+                self.strides = []
+                for i in range(convTransposeAttrs.StridesLength()):
+                    self.strides.append(convTransposeAttrs.Strides(i))
+            else:
+                self.strides = convTransposeAttrs.StridesAsNumpy()
 
     # ConvTransposeAttrsT
     def Pack(self, builder):
+        if self.strides is not None:
+            if np is not None and type(self.strides) is np.ndarray:
+                strides = builder.CreateNumpyVector(self.strides)
+            else:
+                ConvTransposeAttrsStartStridesVector(builder, len(self.strides))
+                for i in reversed(range(len(self.strides))):
+                    builder.PrependUint32(self.strides[i])
+                strides = builder.EndVector()
         ConvTransposeAttrsStart(builder)
-        ConvTransposeAttrsAddStride(builder, self.stride)
+        if self.strides is not None:
+            ConvTransposeAttrsAddStrides(builder, strides)
         convTransposeAttrs = ConvTransposeAttrsEnd(builder)
         return convTransposeAttrs
 
@@ -1475,7 +1551,7 @@ class MaxPoolAttrs(object):
         return o == 0
 
     # MaxPoolAttrs
-    def Stride(self, j):
+    def Strides(self, j):
         o = flatbuffers.number_types.UOffsetTFlags.py_type(self._tab.Offset(10))
         if o != 0:
             a = self._tab.Vector(o)
@@ -1483,21 +1559,21 @@ class MaxPoolAttrs(object):
         return 0
 
     # MaxPoolAttrs
-    def StrideAsNumpy(self):
+    def StridesAsNumpy(self):
         o = flatbuffers.number_types.UOffsetTFlags.py_type(self._tab.Offset(10))
         if o != 0:
             return self._tab.GetVectorAsNumpy(flatbuffers.number_types.Uint32Flags, o)
         return 0
 
     # MaxPoolAttrs
-    def StrideLength(self):
+    def StridesLength(self):
         o = flatbuffers.number_types.UOffsetTFlags.py_type(self._tab.Offset(10))
         if o != 0:
             return self._tab.VectorLen(o)
         return 0
 
     # MaxPoolAttrs
-    def StrideIsNone(self):
+    def StridesIsNone(self):
         o = flatbuffers.number_types.UOffsetTFlags.py_type(self._tab.Offset(10))
         return o == 0
 
@@ -1507,8 +1583,8 @@ def MaxPoolAttrsStartKernelSizeVector(builder, numElems): return builder.StartVe
 def MaxPoolAttrsAddPadMode(builder, padMode): builder.PrependInt8Slot(1, padMode, 0)
 def MaxPoolAttrsAddPads(builder, pads): builder.PrependUOffsetTRelativeSlot(2, flatbuffers.number_types.UOffsetTFlags.py_type(pads), 0)
 def MaxPoolAttrsStartPadsVector(builder, numElems): return builder.StartVector(4, numElems, 4)
-def MaxPoolAttrsAddStride(builder, stride): builder.PrependUOffsetTRelativeSlot(3, flatbuffers.number_types.UOffsetTFlags.py_type(stride), 0)
-def MaxPoolAttrsStartStrideVector(builder, numElems): return builder.StartVector(4, numElems, 4)
+def MaxPoolAttrsAddStrides(builder, strides): builder.PrependUOffsetTRelativeSlot(3, flatbuffers.number_types.UOffsetTFlags.py_type(strides), 0)
+def MaxPoolAttrsStartStridesVector(builder, numElems): return builder.StartVector(4, numElems, 4)
 def MaxPoolAttrsEnd(builder): return builder.EndObject()
 
 try:
@@ -1523,7 +1599,7 @@ class MaxPoolAttrsT(object):
         self.kernelSize = None  # type: List[int]
         self.padMode = 0  # type: int
         self.pads = None  # type: List[int]
-        self.stride = None  # type: List[int]
+        self.strides = None  # type: List[int]
 
     @classmethod
     def InitFromBuf(cls, buf, pos):
@@ -1561,13 +1637,13 @@ class MaxPoolAttrsT(object):
                     self.pads.append(maxPoolAttrs.Pads(i))
             else:
                 self.pads = maxPoolAttrs.PadsAsNumpy()
-        if not maxPoolAttrs.StrideIsNone():
+        if not maxPoolAttrs.StridesIsNone():
             if np is None:
-                self.stride = []
-                for i in range(maxPoolAttrs.StrideLength()):
-                    self.stride.append(maxPoolAttrs.Stride(i))
+                self.strides = []
+                for i in range(maxPoolAttrs.StridesLength()):
+                    self.strides.append(maxPoolAttrs.Strides(i))
             else:
-                self.stride = maxPoolAttrs.StrideAsNumpy()
+                self.strides = maxPoolAttrs.StridesAsNumpy()
 
     # MaxPoolAttrsT
     def Pack(self, builder):
@@ -1587,22 +1663,22 @@ class MaxPoolAttrsT(object):
                 for i in reversed(range(len(self.pads))):
                     builder.PrependUint32(self.pads[i])
                 pads = builder.EndVector()
-        if self.stride is not None:
-            if np is not None and type(self.stride) is np.ndarray:
-                stride = builder.CreateNumpyVector(self.stride)
+        if self.strides is not None:
+            if np is not None and type(self.strides) is np.ndarray:
+                strides = builder.CreateNumpyVector(self.strides)
             else:
-                MaxPoolAttrsStartStrideVector(builder, len(self.stride))
-                for i in reversed(range(len(self.stride))):
-                    builder.PrependUint32(self.stride[i])
-                stride = builder.EndVector()
+                MaxPoolAttrsStartStridesVector(builder, len(self.strides))
+                for i in reversed(range(len(self.strides))):
+                    builder.PrependUint32(self.strides[i])
+                strides = builder.EndVector()
         MaxPoolAttrsStart(builder)
         if self.kernelSize is not None:
             MaxPoolAttrsAddKernelSize(builder, kernelSize)
         MaxPoolAttrsAddPadMode(builder, self.padMode)
         if self.pads is not None:
             MaxPoolAttrsAddPads(builder, pads)
-        if self.stride is not None:
-            MaxPoolAttrsAddStride(builder, stride)
+        if self.strides is not None:
+            MaxPoolAttrsAddStrides(builder, strides)
         maxPoolAttrs = MaxPoolAttrsEnd(builder)
         return maxPoolAttrs
 

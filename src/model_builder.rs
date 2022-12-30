@@ -231,12 +231,12 @@ impl<'a> ModelBuilder<'a> {
                 let pad_args = pad_args_from_padding(args.padding);
                 let pads = self.create_vec(pad_args.pads, |pad| pad as u32);
                 let kernel_size = self.create_vec(Some(args.kernel_size.into()), |sz| sz as u32);
-                let stride = self.create_vec(Some(args.stride.into()), |s| s as u32);
+                let strides = self.create_vec(Some(args.strides.into()), |s| s as u32);
                 sg::AveragePoolAttrsArgs {
                     kernel_size,
                     pad_mode: pad_args.pad_mode,
                     pads,
-                    stride,
+                    strides,
                 }
             }),
             OpType::BatchNormalization(args) => op_with_attrs!(
@@ -300,20 +300,19 @@ impl<'a> ModelBuilder<'a> {
             OpType::Conv(args) => op_with_attrs!(Conv, ConvAttrs, {
                 let pad_args = pad_args_from_padding(args.padding);
                 let pads = self.create_vec(pad_args.pads, |pad| pad as u32);
+                let strides = self.create_vec(Some(args.strides.into()), |s| s as u32);
+
                 sg::ConvAttrsArgs {
                     groups: args.groups as u32,
                     pad_mode: pad_args.pad_mode,
                     pads,
-                    stride: args.stride as u32,
+                    strides,
                 }
             }),
-            OpType::ConvTranspose(args) => op_with_attrs!(
-                ConvTranspose,
-                ConvTransposeAttrs,
-                sg::ConvTransposeAttrsArgs {
-                    stride: args.stride as u32,
-                }
-            ),
+            OpType::ConvTranspose(args) => op_with_attrs!(ConvTranspose, ConvTransposeAttrs, {
+                let strides = self.create_vec(Some(args.strides.into()), |s| s as u32);
+                sg::ConvTransposeAttrsArgs { strides }
+            }),
             OpType::Div => op!(Div),
             OpType::Equal => op!(Equal),
             OpType::Erf => op!(Erf),
@@ -348,12 +347,12 @@ impl<'a> ModelBuilder<'a> {
                 let pad_args = pad_args_from_padding(args.padding);
                 let pads = self.create_vec(pad_args.pads, |pad| pad as u32);
                 let kernel_size = self.create_vec(Some(args.kernel_size.into()), |sz| sz as u32);
-                let stride = self.create_vec(Some(args.stride.into()), |s| s as u32);
+                let strides = self.create_vec(Some(args.strides.into()), |s| s as u32);
                 sg::MaxPoolAttrsArgs {
                     kernel_size,
                     pad_mode: pad_args.pad_mode,
                     pads,
-                    stride,
+                    strides,
                 }
             }),
             OpType::Mul => op!(Mul),

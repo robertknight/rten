@@ -330,10 +330,9 @@ def read_pads(op_reader: ONNXOperatorReader, attrs: dict[str, AttributeValue]):
             raise Exception(f"Unsupported auto_pad value {other}")
 
 
-def read_stride(
+def read_strides(
     op_reader: ONNXOperatorReader,
     attrs: dict[str, AttributeValue],
-    require_uniform: bool,
 ):
     """
     Read a stride specification from an ONNX operator.
@@ -342,12 +341,7 @@ def read_stride(
     if len(strides) != 2:
         raise Exception('"strides" attribute must have 2 values')
     stride_width, stride_height = iter(strides)
-    if require_uniform:
-        if stride_width != stride_height:
-            raise Exception("Strides must be the same in all dimensions")
-        attrs["stride"] = stride_width
-    else:
-        attrs["stride"] = [stride_width, stride_height]
+    attrs["strides"] = [stride_width, stride_height]
 
 
 # Set of operators that have no attributes.
@@ -423,7 +417,7 @@ def op_node_from_onnx_operator(
             attrs["kernel_size"] = kernel_shape
 
             read_pads(op_reader, attrs)
-            read_stride(op_reader, attrs, require_uniform=False)
+            read_strides(op_reader, attrs)
 
             op_reader.check_attr("ceil_mode", "int", 0)
             op_reader.check_attr("count_include_pad", "int", 0)
@@ -466,7 +460,7 @@ def op_node_from_onnx_operator(
         case "Conv":
             attrs["groups"] = op_reader.get_attr("group", "int", 1)
             read_pads(op_reader, attrs)
-            read_stride(op_reader, attrs, require_uniform=True)
+            read_strides(op_reader, attrs)
 
             op_reader.check_attr("dilations", "ints", [1, 1])
 
@@ -474,7 +468,7 @@ def op_node_from_onnx_operator(
             op_reader.ignore_attr("kernel_shape")
 
         case "ConvTranspose":
-            read_stride(op_reader, attrs, require_uniform=True)
+            read_strides(op_reader, attrs)
 
             op_reader.check_attr("auto_pad", "string", "NOTSET")
             op_reader.check_attr("dilations", "ints", [1, 1])
@@ -504,7 +498,7 @@ def op_node_from_onnx_operator(
             attrs["kernel_size"] = kernel_shape
 
             read_pads(op_reader, attrs)
-            read_stride(op_reader, attrs, require_uniform=False)
+            read_strides(op_reader, attrs)
 
             op_reader.check_attr("ceil_mode", "int", 0)
             op_reader.check_attr("dilations", "ints", [1, 1])
@@ -729,7 +723,7 @@ def build_operator_node(builder: flatbuffers.Builder, operator: OperatorNode):
             attrs.kernelSize = cast(list[int], operator.attrs["kernel_size"])
             attrs.padMode = pad_mode
             attrs.pads = cast(list[int], operator.attrs.get("pads"))
-            attrs.stride = cast(list[int], operator.attrs["stride"])
+            attrs.strides = cast(list[int], operator.attrs["strides"])
 
         case "BatchNormalization":
             attrs = sg.BatchNormalizationAttrsT()
@@ -776,11 +770,11 @@ def build_operator_node(builder: flatbuffers.Builder, operator: OperatorNode):
                 attrs.padMode = sg.PadMode.Fixed
                 attrs.pads = cast(list[int], operator.attrs["pads"])
             attrs.groups = cast(int, operator.attrs["groups"])
-            attrs.stride = cast(int, operator.attrs["stride"])
+            attrs.strides = cast(int, operator.attrs["strides"])
 
         case "ConvTranspose":
             attrs = sg.ConvTransposeAttrsT()
-            attrs.stride = cast(int, operator.attrs["stride"])
+            attrs.strides = cast(int, operator.attrs["strides"])
 
         case "Gather":
             attrs = sg.GatherAttrsT()
@@ -806,8 +800,8 @@ def build_operator_node(builder: flatbuffers.Builder, operator: OperatorNode):
                 attrs.pads = cast(list[int], operator.attrs["pads"])
 
             attrs.kernelSize = cast(list[int], operator.attrs["kernel_size"])
-            if "stride" in operator.attrs:
-                attrs.stride = cast(list[int], operator.attrs["stride"])
+            if "strides" in operator.attrs:
+                attrs.strides = cast(list[int], operator.attrs["strides"])
 
         case "ReduceMean":
             attrs = sg.ReduceMeanAttrsT()

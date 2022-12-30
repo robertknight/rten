@@ -95,7 +95,7 @@ table AveragePoolAttrs {
   // Padding for spatial axes as [top, left, bottom, right]
   pads:[uint];
 
-  stride:[uint];
+  strides:[uint];
 }
 
 table BatchNormalizationAttrs {
@@ -139,11 +139,11 @@ table ConvAttrs {
   pads:[uint];
 
   groups:uint;
-  stride:uint;
+  strides:[uint];
 }
 
 table ConvTransposeAttrs {
-  stride:uint;
+  strides:[uint];
 }
 
 table GatherAttrs {
@@ -168,7 +168,7 @@ table MaxPoolAttrs {
   // Padding for spatial axes as [top, left, bottom, right]
   pads:[uint];
 
-  stride:[uint];
+  strides:[uint];
 }
 
 table PadAttrs {}

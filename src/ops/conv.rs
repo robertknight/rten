@@ -44,16 +44,17 @@ fn im2col(
     start_chan: usize,
     end_chan: usize,
     padding: [usize; 4],
-    stride: usize,
+    strides: [usize; 2],
 ) {
     let [_, out_w] = output.dims();
     let [_, _, in_h, in_w] = input.dims();
     let [pad_top, pad_left, _pad_bottom, _pad_right] = padding;
+    let [stride_h, stride_w] = strides;
 
     let (y_patches, x_patches, _) = calc_output_size_and_padding(
         (in_h, in_w),
         (patch_h, patch_w),
-        (stride, stride),
+        (stride_h, stride_w),
         Padding::Fixed(padding),
     );
     let n_chans = end_chan - start_chan;
@@ -69,11 +70,11 @@ fn im2col(
             // Calculate range of kernel rows that will lead to valid input
             // row coordinates. For other rows zero padding is used, meaning
             // the output will be zero.
-            let min_ky = pad_top.saturating_sub(py * stride);
-            let max_ky = (in_h + pad_top).saturating_sub(py * stride).min(patch_h);
+            let min_ky = pad_top.saturating_sub(py * stride_h);
+            let max_ky = (in_h + pad_top).saturating_sub(py * stride_h).min(patch_h);
 
             for k_y in min_ky..max_ky {
-                let img_y = py * stride + k_y;
+                let img_y = py * stride_h + k_y;
                 let out_row_top = c * patch_h * patch_w + k_y * patch_w;
 
                 let in_row =
@@ -82,12 +83,12 @@ fn im2col(
                 for k_x in 0..patch_w {
                     let out_row = out_row_top + k_x;
                     let (min_px, max_px) =
-                        min_max_out_x_coords(k_x, in_w, pad_left, stride, x_patches);
+                        min_max_out_x_coords(k_x, in_w, pad_left, stride_w, x_patches);
                     let out_row_data =
                         &mut output.last_dim_slice_mut([out_row, 0], out_w)[out_col_left..];
 
                     for px in min_px..max_px {
-                        out_row_data[px] = in_row[[px * stride + k_x - pad_left]]
+                        out_row_data[px] = in_row[[px * stride_w + k_x - pad_left]]
                     }
                 }
             }
@@ -191,15 +192,16 @@ fn conv_2d_depthwise(
     kernel: &Tensor,
     bias: Option<&Tensor>,
     padding: [usize; 4],
-    stride: usize,
+    strides: [usize; 2],
 ) -> Tensor {
     let [batch, in_c, in_h, in_w] = input.dims();
     let [out_c, _, k_h, k_w] = kernel.dims();
     let [pad_top, pad_left, _pad_bottom, _pad_right] = padding;
+    let [stride_h, stride_w] = strides;
     let (out_h, out_w, _) = calc_output_size_and_padding(
         (in_h, in_w),
         (k_h, k_w),
-        (stride, stride),
+        (stride_h, stride_w),
         Padding::Fixed(padding),
     );
 
@@ -229,7 +231,7 @@ fn conv_2d_depthwise(
                 let out_row = output.last_dim_slice_mut([n, c, out_y, 0], out_w);
 
                 for k_y in 0..k_h {
-                    let in_y = out_y * stride + k_y;
+                    let in_y = out_y * stride_h + k_y;
                     if in_y < pad_top || in_y >= in_h + pad_top {
                         continue;
                     }
@@ -239,21 +241,21 @@ fn conv_2d_depthwise(
                     for k_x in 0..k_w {
                         let kernel_val = kernel_view[[k_y, k_x]];
                         let (min_out_x, max_out_x) =
-                            min_max_out_x_coords(k_x, in_w, pad_left, stride, out_w);
+                            min_max_out_x_coords(k_x, in_w, pad_left, stride_w, out_w);
 
                         if min_out_x == max_out_x {
                             continue;
                         }
 
                         let out_row_slice = &mut out_row[min_out_x..max_out_x];
-                        let in_row_slice = &in_row[min_out_x * stride + k_x - pad_left
-                            ..(max_out_x - 1) * stride + k_x - pad_left + 1];
+                        let in_row_slice = &in_row[min_out_x * stride_w + k_x - pad_left
+                            ..(max_out_x - 1) * stride_w + k_x - pad_left + 1];
 
                         add_scaled_vector(
                             out_row_slice,
                             in_row_slice,
-                            1,      /* dest_stride */
-                            stride, /* src_stride */
+                            1,        /* dest_stride */
+                            stride_w, /* src_stride */
                             kernel_val,
                         );
                     }
@@ -285,12 +287,13 @@ pub fn conv(
     bias: Option<&Tensor>,
     padding: Padding,
     groups: usize,
-    stride: usize,
+    strides: [usize; 2],
 ) -> Result<Tensor, OpError> {
     let [batch, in_c, in_h, in_w] = input.dims();
     let [out_c, k_in_c, k_h, k_w] = kernel.dims();
+    let [stride_h, stride_w] = strides;
     let (out_h, out_w, fixed_padding) =
-        calc_output_size_and_padding((in_h, in_w), (k_h, k_w), (stride, stride), padding);
+        calc_output_size_and_padding((in_h, in_w), (k_h, k_w), (stride_h, stride_w), padding);
 
     let [pad_top, pad_left, pad_bottom, pad_right] = fixed_padding;
 
@@ -321,7 +324,7 @@ pub fn conv(
             kernel,
             bias,
             fixed_padding,
-            stride,
+            strides,
         ));
     }
 
@@ -352,7 +355,7 @@ pub fn conv(
                 in_chan_start,
                 in_chan_end,
                 fixed_padding,
-                stride,
+                strides,
             );
 
             // Create "views" of the output and kernel tensors which start at
@@ -399,7 +402,7 @@ pub fn conv(
 pub struct Conv {
     pub padding: Padding,
     pub groups: usize,
-    pub stride: usize,
+    pub strides: [usize; 2],
 }
 
 impl Operator for Conv {
@@ -411,7 +414,7 @@ impl Operator for Conv {
         let input = get_input(inputs, 0)?;
         let weight = get_input(inputs, 1)?;
         let bias = get_optional_input(inputs, 2)?;
-        conv(input, weight, bias, self.padding, self.groups, self.stride).into_op_result()
+        conv(input, weight, bias, self.padding, self.groups, self.strides).into_op_result()
     }
 }
 
@@ -423,7 +426,7 @@ pub fn conv_transpose(
     input: &Tensor,
     kernel: &Tensor,
     bias: Option<&Tensor>,
-    stride: usize,
+    strides: [usize; 2],
 ) -> Result<Tensor, OpError> {
     let [batch, in_c, in_h, in_w] = input.dims();
     let [k_in_c, out_c, k_h, k_w] = kernel.dims();
@@ -434,8 +437,9 @@ pub fn conv_transpose(
         ));
     }
 
-    let out_h = (in_h - 1) * stride + k_h;
-    let out_w = (in_w - 1) * stride + k_w;
+    let [stride_h, stride_w] = strides;
+    let out_h = (in_h - 1) * stride_h + k_h;
+    let out_w = (in_w - 1) * stride_w + k_w;
 
     let mut output = if let Some(bias) = bias {
         init_tensor_with_channel_bias(&[batch, out_c, out_h, out_w], 1, bias)
@@ -461,14 +465,14 @@ pub fn conv_transpose(
                     let in_row = input.last_dim_slice([n, in_chan, in_y, 0], in_w);
 
                     for k_y in 0..k_h {
-                        let out_y = in_y * stride + k_y;
+                        let out_y = in_y * stride_h + k_y;
                         let out_row = output.last_dim_slice_mut([n, out_chan, out_y, 0], out_w);
 
                         for k_x in 0..k_w {
                             add_scaled_vector(
                                 &mut out_row[k_x..out_w - k_w + k_x + 1],
                                 in_row,
-                                stride,
+                                stride_w,
                                 1, // src_stride
                                 kernel_view[[k_y, k_x]],
                             );
@@ -484,7 +488,7 @@ pub fn conv_transpose(
 
 #[derive(Debug)]
 pub struct ConvTranspose {
-    pub stride: usize,
+    pub strides: [usize; 2],
 }
 
 impl Operator for ConvTranspose {
@@ -496,7 +500,7 @@ impl Operator for ConvTranspose {
         let input = get_input(inputs, 0)?;
         let weight = get_input(inputs, 1)?;
         let bias = get_optional_input(inputs, 2)?;
-        conv_transpose(input, weight, bias, self.stride).into_op_result()
+        conv_transpose(input, weight, bias, self.strides).into_op_result()
     }
 }
 
@@ -515,14 +519,15 @@ mod tests {
         bias: Option<&Tensor>,
         padding: [usize; 4],
         groups: usize,
-        stride: usize,
+        strides: [usize; 2],
     ) -> Tensor {
         let [batch, in_chans, in_h, in_w] = input.dims();
         let [out_chans, k_in_chans, k_h, k_w] = kernel.dims();
+        let [stride_h, stride_w] = strides;
         let (out_h, out_w, _) = calc_output_size_and_padding(
             (in_h, in_w),
             (k_h, k_w),
-            (stride, stride),
+            (stride_h, stride_w),
             Padding::Fixed(padding),
         );
         let [pad_top, pad_left, _pad_bottom, _pad_right] = padding;
@@ -552,8 +557,8 @@ mod tests {
                             for in_chan in in_chan_start..in_chan_end {
                                 for k_y in 0..k_h {
                                     for k_x in 0..k_w {
-                                        let in_y = out_y * stride + k_y;
-                                        let in_x = out_x * stride + k_x;
+                                        let in_y = out_y * stride_h + k_y;
+                                        let in_x = out_x * stride_w + k_x;
 
                                         if in_y >= pad_top
                                             && in_y < in_h + pad_top
@@ -608,8 +613,8 @@ mod tests {
             &kernel,
             None,
             Padding::Fixed([1, 1, 1, 1]),
-            1, /* groups */
-            1, /* stride */
+            1,      /* groups */
+            [1, 1], /* stride */
         )
         .unwrap();
         let reference_result = reference_conv(
@@ -617,8 +622,8 @@ mod tests {
             &kernel,
             None,
             [1, 1, 1, 1],
-            1, /* groups */
-            1, /* stride */
+            1,      /* groups */
+            [1, 1], /* stride */
         );
         expect_equal(&result, &expected_with_same_padding)?;
         expect_equal(&result, &reference_result)?;
@@ -630,8 +635,8 @@ mod tests {
             &kernel,
             None,
             Padding::Fixed([0, 0, 0, 0]),
-            1, /* groups */
-            1, /* stride */
+            1,      /* groups */
+            [1, 1], /* stride */
         )
         .unwrap();
         let reference_result = reference_conv(
@@ -639,8 +644,8 @@ mod tests {
             &kernel,
             None,
             [0, 0, 0, 0],
-            1, /* groups */
-            1, /* stride */
+            1,      /* groups */
+            [1, 1], /* stride */
         );
         expect_equal(&result, &expected_with_no_padding)?;
         expect_equal(&result, &reference_result)?;
@@ -652,8 +657,8 @@ mod tests {
             &kernel,
             Some(&bias),
             Padding::Fixed([0, 0, 0, 0]),
-            1, /* groups */
-            1, /* stride */
+            1,      /* groups */
+            [1, 1], /* stride */
         )
         .unwrap();
         let reference_result = reference_conv(
@@ -661,8 +666,8 @@ mod tests {
             &kernel,
             Some(&bias),
             [0, 0, 0, 0],
-            1, /* groups */
-            1, /* stride */
+            1,      /* groups */
+            [1, 1], /* stride */
         );
         expect_equal(&result, &expected_with_bias)?;
         expect_equal(&result, &reference_result)
@@ -687,7 +692,7 @@ mod tests {
         let op = Conv {
             padding: Padding::Same,
             groups: 1,
-            stride: 1,
+            strides: [1, 1],
         };
         let result = op
             .run(&[input.into(), kernel.into()])
@@ -700,8 +705,8 @@ mod tests {
             kernel,
             None,
             [1, 1, 1, 1],
-            1, /* groups */
-            1, /* stride */
+            1,      /* groups */
+            [1, 1], /* stride */
         );
 
         expect_equal(&result, &reference_result)
@@ -719,8 +724,8 @@ mod tests {
             &kernel,
             Some(&bias),
             Padding::Fixed([0, 0, 1, 1]),
-            1, /* groups */
-            1, /* stride */
+            1,      /* groups */
+            [1, 1], /* stride */
         )
         .unwrap();
         let reference_result = reference_conv(
@@ -728,8 +733,8 @@ mod tests {
             &kernel,
             Some(&bias),
             [0, 0, 1, 1],
-            1, /* groups */
-            1, /* stride */
+            1,      /* groups */
+            [1, 1], /* stride */
         );
 
         expect_equal(&result, &reference_result)
@@ -747,8 +752,8 @@ mod tests {
             &kernel,
             Some(&bias),
             Padding::Fixed([0, 0, 1, 1]),
-            10, /* groups */
-            1,  /* stride */
+            10,     /* groups */
+            [1, 1], /* stride */
         )
         .unwrap();
         let reference_result = reference_conv(
@@ -756,8 +761,8 @@ mod tests {
             &kernel,
             Some(&bias),
             [0, 0, 1, 1],
-            10, /* groups */
-            1,  /* stride */
+            10,     /* groups */
+            [1, 1], /* stride */
         );
 
         expect_equal(&result, &reference_result)
@@ -777,8 +782,8 @@ mod tests {
             &kernel,
             Some(&bias),
             Padding::Fixed([0, 0, 0, 0]),
-            1, /* groups */
-            1, /* stride */
+            1,      /* groups */
+            [1, 1], /* stride */
         )
         .unwrap();
         let reference_result = reference_conv(
@@ -786,8 +791,8 @@ mod tests {
             &kernel,
             Some(&bias),
             [0, 0, 0, 0],
-            1, /* groups */
-            1, /* stride */
+            1,      /* groups */
+            [1, 1], /* stride */
         );
 
         assert_eq!(result.shape(), [1, 10, 20, 20]);
@@ -803,8 +808,8 @@ mod tests {
             &kernel,
             Some(&bias),
             Padding::Fixed([0, 0, 0, 0]),
-            1, /* groups */
-            1, /* stride */
+            1,      /* groups */
+            [1, 1], /* stride */
         )
         .unwrap();
         let reference_result = reference_conv(
@@ -812,8 +817,8 @@ mod tests {
             &kernel,
             Some(&bias),
             [0, 0, 0, 0],
-            1, /* groups */
-            1, /* stride */
+            1,      /* groups */
+            [1, 1], /* stride */
         );
         assert_eq!(result.shape(), [1, 10, 20, 20]);
         expect_equal(&result, &reference_result)?;
@@ -825,8 +830,8 @@ mod tests {
             &kernel,
             Some(&bias),
             Padding::Fixed([0, 0, 0, 0]),
-            1, /* groups */
-            1, /* stride */
+            1,      /* groups */
+            [1, 1], /* stride */
         )
         .unwrap();
         let reference_result = reference_conv(
@@ -834,8 +839,8 @@ mod tests {
             &kernel,
             Some(&bias),
             [0, 0, 0, 0],
-            1, /* groups */
-            1, /* stride */
+            1,      /* groups */
+            [1, 1], /* stride */
         );
         assert_eq!(result.shape(), [2, 10, 20, 20]);
         expect_equal(&result, &reference_result)?;
@@ -875,8 +880,8 @@ mod tests {
             &kernel,
             Some(&bias),
             [0, 0, 0, 0],
-            3, /* groups */
-            1, /* stride */
+            3,      /* groups */
+            [1, 1], /* stride */
         );
 
         let result = conv(
@@ -884,8 +889,8 @@ mod tests {
             &kernel,
             Some(&bias),
             Padding::Fixed([0, 0, 0, 0]),
-            3, /* groups */
-            1, /* stride */
+            3,      /* groups */
+            [1, 1], /* stride */
         )
         .unwrap();
 
@@ -907,8 +912,8 @@ mod tests {
             &kernel,
             Some(&bias),
             Padding::Fixed([1, 1, 1, 1]),
-            2, /* groups */
-            1, /* stride */
+            2,      /* groups */
+            [1, 1], /* stride */
         )
         .unwrap();
         let reference_result = reference_conv(
@@ -916,8 +921,8 @@ mod tests {
             &kernel,
             Some(&bias),
             [1, 1, 1, 1],
-            2, /* groups */
-            1, /* stride */
+            2,      /* groups */
+            [1, 1], /* stride */
         );
 
         expect_equal(&result, &reference_result)
@@ -928,7 +933,7 @@ mod tests {
         let mut rng = XorShiftRNG::new(1234);
         let kernel = rand(&[4, 3, 3, 3], &mut rng);
 
-        for stride in [2, 3] {
+        for strides in [[2, 2], [3, 3], [1, 3]] {
             for pad in [0, 1] {
                 for input_size in [3, 4, 5, 10, 20] {
                     let input = rand(&[2, 3, input_size, input_size], &mut rng);
@@ -937,8 +942,8 @@ mod tests {
                         &kernel,
                         None,
                         Padding::Fixed([pad, pad, pad, pad]),
-                        1,      /* groups */
-                        stride, /* stride */
+                        1, /* groups */
+                        strides,
                     )
                     .unwrap();
                     let reference_result = reference_conv(
@@ -946,8 +951,8 @@ mod tests {
                         &kernel,
                         None,
                         [pad, pad, pad, pad],
-                        1,      /* groups */
-                        stride, /* stride */
+                        1, /* groups */
+                        strides,
                     );
                     expect_equal(&result, &reference_result)?;
                 }
@@ -962,7 +967,7 @@ mod tests {
         let mut rng = XorShiftRNG::new(1234);
         let kernel = rand(&[3, 1, 3, 3], &mut rng);
 
-        for stride in [2, 3] {
+        for strides in [[2, 2], [3, 3], [1, 3]] {
             for pad in [0, 1] {
                 for input_size in [3, 4, 5, 10, 20] {
                     let input = rand(&[1, 3, input_size, input_size], &mut rng);
@@ -971,8 +976,8 @@ mod tests {
                         &kernel,
                         None,
                         Padding::Fixed([pad, pad, pad, pad]),
-                        3,      /* groups */
-                        stride, /* stride */
+                        3, /* groups */
+                        strides,
                     )
                     .unwrap();
                     let reference_result = reference_conv(
@@ -980,8 +985,8 @@ mod tests {
                         &kernel,
                         None,
                         [pad, pad, pad, pad],
-                        3,      /* groups */
-                        stride, /* stride */
+                        3, /* groups */
+                        strides,
                     );
                     expect_equal(&result, &reference_result)?;
                 }
@@ -1003,7 +1008,7 @@ mod tests {
             ],
         );
 
-        let result = conv_transpose(&input, &kernel, None, 2).unwrap();
+        let result = conv_transpose(&input, &kernel, None, [2, 2]).unwrap();
         expect_equal(&result, &expected)?;
 
         let mut expected_with_bias = from_data(expected.shape().into(), expected.data().into());
@@ -1011,7 +1016,7 @@ mod tests {
             expected_with_bias.data_mut()[i] += 1.234;
         }
         let bias = from_data(vec![1], vec![1.234]);
-        let result = conv_transpose(&input, &kernel, Some(&bias), 2).unwrap();
+        let result = conv_transpose(&input, &kernel, Some(&bias), [2, 2]).unwrap();
         expect_equal(&result, &expected_with_bias)
     }
 }
