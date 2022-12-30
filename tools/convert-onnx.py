@@ -55,16 +55,16 @@ class OperatorNode(Node):
     eg. `sg.AveragePoolAttrsT` for the AveragePool op.
     """
 
-    inputs: list[int]
-    outputs: list[int]
+    inputs: list[int | None]
+    outputs: list[int | None]
 
     def __init__(
         self,
         name: str,
         op_type: str,
         attrs: Any,
-        inputs: list[int],
-        outputs: list[int],
+        inputs: list[int | None],
+        outputs: list[int | None],
     ):
         super().__init__(name)
         self.op_type = op_type
@@ -367,7 +367,14 @@ def op_node_from_onnx_operator(
     """
     input_indexes = []
     for input_name in onnx_op.input:
-        index = node_index_from_name.get(input_name)
+        if input_name:
+            index = node_index_from_name.get(input_name)
+        else:
+            # An empty input name indicates an omitted optional input. This is
+            # only required in cases where at least one subsequent optional
+            # input is provided. All trailing optional inputs can simply be
+            # omitted.
+            index = None
         if index is None:
             raise Exception(
                 f'Unable to find input "{input_name}" for operator {onnx_op.name}'
@@ -622,6 +629,7 @@ def graph_from_onnx_graph(onnx_graph: onnx.GraphProto) -> Graph:
     """
     Parse an ONNX model into a graph representation compatible with this library.
     """
+
     nodes: list[Node] = []
 
     # Map from tensor ID to node index
@@ -630,13 +638,15 @@ def graph_from_onnx_graph(onnx_graph: onnx.GraphProto) -> Graph:
     # Map of constant/initializer name to node
     constant_map: dict[str, ConstantNode] = {}
 
-    def add_node(node: Node):
+    def add_node(node: Node) -> int:
         if node.name in tensor_map:
             raise Exception(f'Node name "{node.name}" conflicts with another node')
         if isinstance(node, ConstantNode):
             constant_map[node.name] = node
         nodes.append(node)
-        tensor_map[node.name] = len(nodes) - 1
+        node_index = len(nodes) - 1
+        tensor_map[node.name] = node_index
+        return node_index
 
     for tensor in onnx_graph.initializer:
         const_node = constant_node_from_onnx_initializer(tensor)
@@ -755,8 +765,14 @@ def build_operator_node(builder: flatbuffers.Builder, operator: OperatorNode):
     operator_table.type = getattr(sg.OperatorType, operator.op_type)
     operator_table.attrsType = attrs_type
     operator_table.attrs = operator.attrs
-    operator_table.inputs = operator.inputs
-    operator_table.outputs = operator.outputs
+
+    def node_id(maybe_id: int | None) -> int:
+        if maybe_id is None:
+            return -1
+        return maybe_id
+
+    operator_table.inputs = [node_id(id_) for id_ in operator.inputs]
+    operator_table.outputs = [node_id(id_) for id_ in operator.outputs]
     return operator_table.Pack(builder)
 
 

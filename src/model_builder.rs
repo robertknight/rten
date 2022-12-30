@@ -201,7 +201,7 @@ impl<'a> ModelBuilder<'a> {
         &mut self,
         id: &str,
         op_info: OpType,
-        inputs: &[u32],
+        inputs: &[Option<u32>],
         outputs: &[u32],
     ) -> u32 {
         // Generate an (op_type, attr_type, attrs) tuple for an operator with
@@ -415,8 +415,17 @@ impl<'a> ModelBuilder<'a> {
             OpType::Where => op!(Where),
         };
 
-        let input_vec = self.builder.create_vector(inputs);
-        let output_vec = self.builder.create_vector(outputs);
+        let input_ids: Vec<i32> = inputs
+            .iter()
+            .map(|&id| match id {
+                Some(id) => id as i32,
+                None => -1,
+            })
+            .collect();
+        let output_ids: Vec<i32> = outputs.iter().map(|&id| id as i32).collect();
+
+        let input_vec = self.builder.create_vector(&input_ids);
+        let output_vec = self.builder.create_vector(&output_ids);
         let op_node = sg::OperatorNode::create(
             &mut self.builder,
             &sg::OperatorNodeArgs {

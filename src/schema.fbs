@@ -219,11 +219,11 @@ table OperatorNode {
   type:OperatorType;
   attrs:OperatorAttrs;
 
-  // Indexes of input nodes
-  inputs:[uint];
+  // Indexes of input nodes. Negative values indicate missing optional inputs.
+  inputs:[int];
 
-  // Indexes of output nodes
-  outputs:[uint];
+  // Indexes of output nodes. Negative values indicate unused outputs.
+  outputs:[int];
 }
 
 union ConstantData {
