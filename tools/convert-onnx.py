@@ -623,6 +623,8 @@ def graph_from_onnx_graph(onnx_graph: onnx.GraphProto) -> Graph:
         value_node = value_node_from_onnx_value(value)
         add_node(value_node)
 
+    ops_with_errors = 0
+
     for operator in onnx_graph.node:
         if operator.op_type == "Constant":
             continue
@@ -631,8 +633,18 @@ def graph_from_onnx_graph(onnx_graph: onnx.GraphProto) -> Graph:
             value_node = ValueNode(output_name)
             add_node(value_node)
 
-        op_node = op_node_from_onnx_operator(operator, tensor_map, constant_map)
-        add_node(op_node)
+        try:
+            op_node = op_node_from_onnx_operator(operator, tensor_map, constant_map)
+            add_node(op_node)
+        except Exception as ex:
+            print(
+                f"Error converting {operator.op_type} operator {operator.name}: {ex}",
+                file=sys.stderr,
+            )
+            ops_with_errors += 1
+
+    if ops_with_errors > 0:
+        raise ValueError(f"Errors occurred when converting {ops_with_errors} operators")
 
     inputs = [tensor_map[info.name] for info in onnx_graph.input]
     outputs = [tensor_map[info.name] for info in onnx_graph.output]
