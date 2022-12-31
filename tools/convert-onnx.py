@@ -354,35 +354,6 @@ def read_strides(
     return [stride_width, stride_height]
 
 
-# Set of operators that have no attributes.
-#
-# Some of these ops *do* have attributes in the ONNX version, but those
-# attributes are not yet supported in Wasnn.
-NO_ATTR_OPS = {
-    "Add",
-    "Div",
-    "Equal",
-    "Erf",
-    "Expand",
-    "GlobalAveragePool",
-    "Identity",
-    "Less",
-    "MatMul",
-    "Mul",
-    "Pad",
-    "Pow",
-    "Range",
-    "Relu",
-    "Reshape",
-    "Shape",
-    "Sigmoid",
-    "Slice",
-    "Sqrt",
-    "Sub",
-    "Where",
-}
-
-
 def op_node_from_onnx_operator(
     onnx_op: onnx.OperatorProto,
     node_index_from_name: dict[str, int],
@@ -419,9 +390,10 @@ def op_node_from_onnx_operator(
     # Operator type name in Wasnn models. By default assume this is the same as
     # the ONNX type.
     op_type = onnx_op.op_type
-
     op_reader = ONNXOperatorReader(onnx_op)
 
+    # Check / convert operator attributes and operator name, if different than
+    # ONNX.
     match onnx_op.op_type:
         case "AveragePool":
             kernel_shape = op_reader.require_attr("kernel_shape", "ints")
@@ -627,9 +599,8 @@ def op_node_from_onnx_operator(
             attrs = sg.UnsqueezeAttrsT()
             attrs.axes = op_reader.get_attr("axes", "ints", [])
 
-        case other_type:
-            if other_type not in NO_ATTR_OPS:
-                raise Exception(f"Unsupported operation {onnx_op.op_type}")
+    if not hasattr(sg.OperatorType, op_type):
+        raise Exception(f"Unsupported operator {op_type}")
 
     # Display a warning for any attributes that were not handled above.
     for attr in op_reader.unhandled_attrs():
@@ -774,15 +745,12 @@ def build_operator_node(builder: flatbuffers.Builder, operator: OperatorNode):
     """
     Serialize an operator into a FlatBuffers model.
     """
-    if operator.op_type in NO_ATTR_OPS:
-        attrs_type = sg.OperatorAttrs.NONE
+
+    attr_const_name = operator.op_type + "Attrs"
+    if hasattr(sg.OperatorAttrs, attr_const_name):
+        attrs_type = getattr(sg.OperatorAttrs, attr_const_name)
     else:
-        attrs_type = getattr(sg.OperatorAttrs, operator.op_type + "Attrs")
-    attrs = None
-
-    if operator.attrs is None and operator.op_type not in NO_ATTR_OPS:
-        raise Exception(f"Unsupported operator type {operator.op_type}")
-
+        attrs_type = sg.OperatorAttrs.NONE
     operator_table = sg.OperatorNodeT()
     operator_table.type = getattr(sg.OperatorType, operator.op_type)
     operator_table.attrsType = attrs_type
