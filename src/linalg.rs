@@ -326,15 +326,38 @@ fn pack_a_block<K: Kernel>(out: &mut [f32], a: Matrix, rows: Range<usize>, cols:
         let panel_offset = panel * a_cols * K::MR;
         let panel_start_row = panel * K::MR;
 
-        for col in 0..a_cols {
-            let out_col_offset = panel_offset + col * K::MR;
-            for row in 0..K::MR {
-                let a_row = rows.start + panel_start_row + row;
-                out[out_col_offset + row] = if a_row < rows.end {
-                    a.data[a_row * a.row_stride + (cols.start + col) * a.col_stride]
-                } else {
-                    0.0
-                };
+        if a_rows - panel_start_row >= K::MR {
+            // Optimized loop for panels that don't need any padding
+            let a_offset =
+                (rows.start + panel_start_row) * a.row_stride + cols.start * a.col_stride;
+
+            assert!(out.len() > panel_offset + (a_cols - 1) * K::MR + K::MR - 1);
+            assert!(
+                a.data.len() > a_offset + (K::MR - 1) * a.row_stride + (a_cols - 1) * a.col_stride
+            );
+
+            for col in 0..a_cols {
+                for row in 0..K::MR {
+                    // Safety: Indexes are less than lengths asserted above.
+                    unsafe {
+                        *out.get_unchecked_mut(panel_offset + col * K::MR + row) = *a
+                            .data
+                            .get_unchecked(a_offset + row * a.row_stride + col * a.col_stride);
+                    }
+                }
+            }
+        } else {
+            // Fallback for final panel if padding is required
+            for col in 0..a_cols {
+                let out_col_offset = panel_offset + col * K::MR;
+                for row in 0..K::MR {
+                    let a_row = rows.start + panel_start_row + row;
+                    out[out_col_offset + row] = if a_row < rows.end {
+                        a.data[a_row * a.row_stride + (cols.start + col) * a.col_stride]
+                    } else {
+                        0.0
+                    };
+                }
             }
         }
     }
@@ -357,11 +380,10 @@ fn pack_b_block<K: Kernel>(out: &mut [f32], b: Matrix, rows: Range<usize>, cols:
 
         if b_cols - panel_start_col >= K::NR {
             // Optimized loop for panels that don't need any padding
-            let out_offset = panel_offset;
             let b_offset =
                 rows.start * b.row_stride + (cols.start + panel_start_col) * b.col_stride;
 
-            assert!(out.len() >= out_offset + (b_rows - 1) * K::NR + K::NR);
+            assert!(out.len() >= panel_offset + (b_rows - 1) * K::NR + K::NR);
             assert!(
                 b.data.len() > b_offset + (b_rows - 1) * b.row_stride + (K::NR - 1) * b.col_stride
             );
@@ -370,7 +392,7 @@ fn pack_b_block<K: Kernel>(out: &mut [f32], b: Matrix, rows: Range<usize>, cols:
                 for col in 0..K::NR {
                     // Safety: Indexes are less than lengths asserted above.
                     unsafe {
-                        *out.get_unchecked_mut(out_offset + row * K::NR + col) = *b
+                        *out.get_unchecked_mut(panel_offset + row * K::NR + col) = *b
                             .data
                             .get_unchecked(b_offset + row * b.row_stride + col * b.col_stride);
                     }
