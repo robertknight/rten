@@ -308,31 +308,34 @@ def value_node_from_onnx_value(value: onnx.ValueInfoProto) -> ValueNode:
     return ValueNode(name=value.name)
 
 
-def read_pads(op_reader: ONNXOperatorReader, attrs: dict[str, AttributeValue]):
+def read_pads(op_reader: ONNXOperatorReader) -> tuple[str, list[int] | None]:
     """
     Read a padding specification from an ONNX operator.
     """
 
+    pads = None
     auto_pad = op_reader.get_attr("auto_pad", "string", "NOTSET")
 
     match auto_pad:
         case "SAME_UPPER" | "SAME_LOWER":
-            attrs["pad_mode"] = "same"
+            pad_mode = "same"
+            pads = []
         case "NOTSET":
             padding = op_reader.get_attr("pads", "ints", [0, 0, 0, 0])
             if len(padding) != 4:
                 raise Exception('"padding" attribute must have 4 values')
             pad_top, pad_left, pad_right, pad_bottom = iter(padding)
 
-            attrs["pad_mode"] = "fixed"
-            attrs["pads"] = [pad_top, pad_left, pad_bottom, pad_right]
+            pad_mode = "fixed"
+            pads = [pad_top, pad_left, pad_bottom, pad_right]
         case other:
             raise Exception(f"Unsupported auto_pad value {other}")
+
+    return (pad_mode, pads)
 
 
 def read_strides(
     op_reader: ONNXOperatorReader,
-    attrs: dict[str, AttributeValue],
 ):
     """
     Read a stride specification from an ONNX operator.
@@ -341,7 +344,7 @@ def read_strides(
     if len(strides) != 2:
         raise Exception('"strides" attribute must have 2 values')
     stride_width, stride_height = iter(strides)
-    attrs["strides"] = [stride_width, stride_height]
+    return [stride_width, stride_height]
 
 
 # Set of operators that have no attributes.
@@ -416,8 +419,11 @@ def op_node_from_onnx_operator(
             check_ints_length("kernel_shape", kernel_shape, 2)
             attrs["kernel_size"] = kernel_shape
 
-            read_pads(op_reader, attrs)
-            read_strides(op_reader, attrs)
+            pad_mode, pads = read_pads(op_reader)
+            attrs["pad_mode"] = pad_mode
+            if pads:
+                attrs["pads"] = pads
+            attrs["strides"] = read_strides(op_reader)
 
             op_reader.check_attr("ceil_mode", "int", 0)
             op_reader.check_attr("count_include_pad", "int", 0)
@@ -459,8 +465,11 @@ def op_node_from_onnx_operator(
 
         case "Conv":
             attrs["groups"] = op_reader.get_attr("group", "int", 1)
-            read_pads(op_reader, attrs)
-            read_strides(op_reader, attrs)
+            pad_mode, pads = read_pads(op_reader)
+            attrs["pad_mode"] = pad_mode
+            if pads:
+                attrs["pads"] = pads
+            attrs["strides"] = read_strides(op_reader)
 
             op_reader.check_attr("dilations", "ints", [1, 1])
 
@@ -468,7 +477,7 @@ def op_node_from_onnx_operator(
             op_reader.ignore_attr("kernel_shape")
 
         case "ConvTranspose":
-            read_strides(op_reader, attrs)
+            attrs["strides"] = read_strides(op_reader)
 
             op_reader.check_attr("auto_pad", "string", "NOTSET")
             op_reader.check_attr("dilations", "ints", [1, 1])
@@ -497,8 +506,11 @@ def op_node_from_onnx_operator(
             check_ints_length("kernel_shape", kernel_shape, 2)
             attrs["kernel_size"] = kernel_shape
 
-            read_pads(op_reader, attrs)
-            read_strides(op_reader, attrs)
+            pad_mode, pads = read_pads(op_reader)
+            attrs["pad_mode"] = pad_mode
+            if pads:
+                attrs["pads"] = pads
+            attrs["strides"] = read_strides(op_reader)
 
             op_reader.check_attr("ceil_mode", "int", 0)
             op_reader.check_attr("dilations", "ints", [1, 1])
