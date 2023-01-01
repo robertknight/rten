@@ -726,6 +726,9 @@ fn slice_ranges(
     axes: Option<&Tensor<i32>>,
     steps: Option<&Tensor<i32>>,
 ) -> Result<Vec<SliceRange>, OpError> {
+    // FIXME: Verify that `starts`, `ends`, `axes` and `steps` are vectors with
+    // compatible lengths.
+
     if let Some(steps) = steps {
         if steps.ndim() != 1 {
             return Err(OpError::InvalidValue("`steps` should be a vector"));
