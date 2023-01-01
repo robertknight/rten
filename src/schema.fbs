@@ -46,6 +46,7 @@ enum OperatorType: byte {
   Squeeze,
   Softmax,
   Sub,
+  Tanh,
   Transpose,
   Unsqueeze,
   Where

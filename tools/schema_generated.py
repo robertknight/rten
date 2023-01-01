@@ -46,9 +46,10 @@ class OperatorType(object):
     Squeeze = 36
     Softmax = 37
     Sub = 38
-    Transpose = 39
-    Unsqueeze = 40
-    Where = 41
+    Tanh = 39
+    Transpose = 40
+    Unsqueeze = 41
+    Where = 42
 
 
 class PadMode(object):

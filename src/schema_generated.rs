@@ -18,13 +18,13 @@ pub const ENUM_MIN_OPERATOR_TYPE: i8 = 0;
     since = "2.0.0",
     note = "Use associated constants instead. This will no longer be generated in 2021."
 )]
-pub const ENUM_MAX_OPERATOR_TYPE: i8 = 41;
+pub const ENUM_MAX_OPERATOR_TYPE: i8 = 42;
 #[deprecated(
     since = "2.0.0",
     note = "Use associated constants instead. This will no longer be generated in 2021."
 )]
 #[allow(non_camel_case_types)]
-pub const ENUM_VALUES_OPERATOR_TYPE: [OperatorType; 42] = [
+pub const ENUM_VALUES_OPERATOR_TYPE: [OperatorType; 43] = [
     OperatorType::Add,
     OperatorType::AveragePool,
     OperatorType::BatchNormalization,
@@ -64,6 +64,7 @@ pub const ENUM_VALUES_OPERATOR_TYPE: [OperatorType; 42] = [
     OperatorType::Squeeze,
     OperatorType::Softmax,
     OperatorType::Sub,
+    OperatorType::Tanh,
     OperatorType::Transpose,
     OperatorType::Unsqueeze,
     OperatorType::Where,
@@ -113,12 +114,13 @@ impl OperatorType {
     pub const Squeeze: Self = Self(36);
     pub const Softmax: Self = Self(37);
     pub const Sub: Self = Self(38);
-    pub const Transpose: Self = Self(39);
-    pub const Unsqueeze: Self = Self(40);
-    pub const Where: Self = Self(41);
+    pub const Tanh: Self = Self(39);
+    pub const Transpose: Self = Self(40);
+    pub const Unsqueeze: Self = Self(41);
+    pub const Where: Self = Self(42);
 
     pub const ENUM_MIN: i8 = 0;
-    pub const ENUM_MAX: i8 = 41;
+    pub const ENUM_MAX: i8 = 42;
     pub const ENUM_VALUES: &'static [Self] = &[
         Self::Add,
         Self::AveragePool,
@@ -159,6 +161,7 @@ impl OperatorType {
         Self::Squeeze,
         Self::Softmax,
         Self::Sub,
+        Self::Tanh,
         Self::Transpose,
         Self::Unsqueeze,
         Self::Where,
@@ -205,6 +208,7 @@ impl OperatorType {
             Self::Squeeze => Some("Squeeze"),
             Self::Softmax => Some("Softmax"),
             Self::Sub => Some("Sub"),
+            Self::Tanh => Some("Tanh"),
             Self::Transpose => Some("Transpose"),
             Self::Unsqueeze => Some("Unsqueeze"),
             Self::Where => Some("Where"),

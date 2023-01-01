@@ -344,6 +344,7 @@ fn read_operator(node: &OperatorNode) -> ReadOpResult {
         OperatorType::Sqrt => op!(Sqrt),
         OperatorType::Squeeze => read_squeeze_op(node),
         OperatorType::Sub => op!(Sub),
+        OperatorType::Tanh => op!(Tanh),
         OperatorType::Transpose => read_transpose_op(node),
         OperatorType::Unsqueeze => read_unsqueeze_op(node),
         OperatorType::Where => op!(Where),
@@ -830,6 +831,9 @@ mod tests {
         let sub_out = builder.add_value("sub_out");
         builder.add_operator("sub", OpType::Sub, &[input_node, input_node], &[sub_out]);
 
+        let tanh_out = builder.add_value("tanh_out");
+        builder.add_operator("tanh", OpType::Tanh, &[input_node], &[tanh_out]);
+
         let transpose_out = builder.add_value("transpose_out");
         builder.add_operator(
             "transpose",
@@ -897,6 +901,7 @@ mod tests {
             "squeeze_out",
             "sin_out",
             "sub_out",
+            "tanh_out",
             "transpose_out",
             "unsqueeze_out",
         ];

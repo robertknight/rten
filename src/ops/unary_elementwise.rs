@@ -220,11 +220,33 @@ impl UnaryFloatOp for Sqrt {
     }
 }
 
+pub fn tanh(input: &Tensor) -> Tensor {
+    Tanh {}.map(input)
+}
+
+pub fn tanh_in_place(input: &mut Tensor) {
+    Tanh {}.apply(input)
+}
+
+#[derive(Debug)]
+pub struct Tanh {}
+
+impl UnaryFloatOp for Tanh {
+    fn name(&self) -> &str {
+        "Tanh"
+    }
+
+    fn map_element(&self, val: f32) -> f32 {
+        val.tanh()
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use crate::ops::{
         clip, clip_in_place, cos, cos_in_place, erf, erf_in_place, leaky_relu, leaky_relu_in_place,
         relu, relu_in_place, sigmoid, sigmoid_in_place, sin, sin_in_place, sqrt, sqrt_in_place,
+        tanh, tanh_in_place,
     };
     use crate::tensor::{from_data, from_vec};
     use crate::test_util::expect_equal;
@@ -371,6 +393,22 @@ mod tests {
         let mut input = from_vec(vec![4., 9., 16.]);
         let expected = from_vec(vec![2., 3., 4.]);
         sqrt_in_place(&mut input);
+        expect_equal(&input, &expected)
+    }
+
+    #[test]
+    fn test_tanh() -> Result<(), String> {
+        let input = from_vec(vec![0.1, 3.14, -5.]);
+        let expected = input.map(|x: f32| x.tanh());
+        let result = tanh(&input);
+        expect_equal(&result, &expected)
+    }
+
+    #[test]
+    fn test_tanh_in_place() -> Result<(), String> {
+        let mut input = from_vec(vec![0.1, 3.14, -5.]);
+        let expected = input.map(|x: f32| x.tanh());
+        tanh_in_place(&mut input);
         expect_equal(&input, &expected)
     }
 }

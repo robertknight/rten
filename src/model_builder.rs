@@ -51,6 +51,7 @@ pub enum OpType {
     Sqrt,
     Squeeze(Squeeze),
     Sub,
+    Tanh,
     Transpose(Transpose),
     Unsqueeze(Unsqueeze),
     Where,
@@ -402,6 +403,7 @@ impl<'a> ModelBuilder<'a> {
                 sg::SqueezeAttrsArgs { axes }
             }),
             OpType::Sub => op!(Sub),
+            OpType::Tanh => op!(Tanh),
             OpType::Transpose(args) => op_with_attrs!(Transpose, TransposeAttrs, {
                 let perm = self.create_vec(args.perm, |dim| dim as u32);
                 sg::TransposeAttrsArgs { perm }

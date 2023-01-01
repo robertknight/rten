@@ -35,9 +35,10 @@ pub use reduce::{reduce_mean, ReduceMean};
 pub use resize::{resize, Resize, ResizeMode, ResizeTarget};
 pub use unary_elementwise::{
     clip, clip_in_place, cos, cos_in_place, erf, erf_in_place, leaky_relu, leaky_relu_in_place,
-    relu, relu_in_place, sigmoid, sigmoid_in_place, sin, sin_in_place, sqrt, sqrt_in_place,
+    relu, relu_in_place, sigmoid, sigmoid_in_place, sin, sin_in_place, sqrt, sqrt_in_place, tanh,
+    tanh_in_place,
 };
-pub use unary_elementwise::{Clip, Cos, Erf, LeakyRelu, Relu, Sigmoid, Sin, Sqrt};
+pub use unary_elementwise::{Clip, Cos, Erf, LeakyRelu, Relu, Sigmoid, Sin, Sqrt, Tanh};
 
 #[derive(Copy, Clone, Debug)]
 pub enum Padding {
