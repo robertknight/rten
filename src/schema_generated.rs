@@ -18,13 +18,13 @@ pub const ENUM_MIN_OPERATOR_TYPE: i8 = 0;
     since = "2.0.0",
     note = "Use associated constants instead. This will no longer be generated in 2021."
 )]
-pub const ENUM_MAX_OPERATOR_TYPE: i8 = 39;
+pub const ENUM_MAX_OPERATOR_TYPE: i8 = 41;
 #[deprecated(
     since = "2.0.0",
     note = "Use associated constants instead. This will no longer be generated in 2021."
 )]
 #[allow(non_camel_case_types)]
-pub const ENUM_VALUES_OPERATOR_TYPE: [OperatorType; 40] = [
+pub const ENUM_VALUES_OPERATOR_TYPE: [OperatorType; 42] = [
     OperatorType::Add,
     OperatorType::AveragePool,
     OperatorType::BatchNormalization,
@@ -34,6 +34,7 @@ pub const ENUM_VALUES_OPERATOR_TYPE: [OperatorType; 40] = [
     OperatorType::ConstantOfShape,
     OperatorType::Conv,
     OperatorType::ConvTranspose,
+    OperatorType::Cos,
     OperatorType::Div,
     OperatorType::Equal,
     OperatorType::Erf,
@@ -56,6 +57,7 @@ pub const ENUM_VALUES_OPERATOR_TYPE: [OperatorType; 40] = [
     OperatorType::Resize,
     OperatorType::Shape,
     OperatorType::Sigmoid,
+    OperatorType::Sin,
     OperatorType::Slice,
     OperatorType::Split,
     OperatorType::Sqrt,
@@ -81,40 +83,42 @@ impl OperatorType {
     pub const ConstantOfShape: Self = Self(6);
     pub const Conv: Self = Self(7);
     pub const ConvTranspose: Self = Self(8);
-    pub const Div: Self = Self(9);
-    pub const Equal: Self = Self(10);
-    pub const Erf: Self = Self(11);
-    pub const Expand: Self = Self(12);
-    pub const Gather: Self = Self(13);
-    pub const Gemm: Self = Self(14);
-    pub const GlobalAveragePool: Self = Self(15);
-    pub const Identity: Self = Self(16);
-    pub const LeakyRelu: Self = Self(17);
-    pub const Less: Self = Self(18);
-    pub const MatMul: Self = Self(19);
-    pub const MaxPool: Self = Self(20);
-    pub const Mul: Self = Self(21);
-    pub const Pad: Self = Self(22);
-    pub const Pow: Self = Self(23);
-    pub const Range: Self = Self(24);
-    pub const ReduceMean: Self = Self(25);
-    pub const Relu: Self = Self(26);
-    pub const Reshape: Self = Self(27);
-    pub const Resize: Self = Self(28);
-    pub const Shape: Self = Self(29);
-    pub const Sigmoid: Self = Self(30);
-    pub const Slice: Self = Self(31);
-    pub const Split: Self = Self(32);
-    pub const Sqrt: Self = Self(33);
-    pub const Squeeze: Self = Self(34);
-    pub const Softmax: Self = Self(35);
-    pub const Sub: Self = Self(36);
-    pub const Transpose: Self = Self(37);
-    pub const Unsqueeze: Self = Self(38);
-    pub const Where: Self = Self(39);
+    pub const Cos: Self = Self(9);
+    pub const Div: Self = Self(10);
+    pub const Equal: Self = Self(11);
+    pub const Erf: Self = Self(12);
+    pub const Expand: Self = Self(13);
+    pub const Gather: Self = Self(14);
+    pub const Gemm: Self = Self(15);
+    pub const GlobalAveragePool: Self = Self(16);
+    pub const Identity: Self = Self(17);
+    pub const LeakyRelu: Self = Self(18);
+    pub const Less: Self = Self(19);
+    pub const MatMul: Self = Self(20);
+    pub const MaxPool: Self = Self(21);
+    pub const Mul: Self = Self(22);
+    pub const Pad: Self = Self(23);
+    pub const Pow: Self = Self(24);
+    pub const Range: Self = Self(25);
+    pub const ReduceMean: Self = Self(26);
+    pub const Relu: Self = Self(27);
+    pub const Reshape: Self = Self(28);
+    pub const Resize: Self = Self(29);
+    pub const Shape: Self = Self(30);
+    pub const Sigmoid: Self = Self(31);
+    pub const Sin: Self = Self(32);
+    pub const Slice: Self = Self(33);
+    pub const Split: Self = Self(34);
+    pub const Sqrt: Self = Self(35);
+    pub const Squeeze: Self = Self(36);
+    pub const Softmax: Self = Self(37);
+    pub const Sub: Self = Self(38);
+    pub const Transpose: Self = Self(39);
+    pub const Unsqueeze: Self = Self(40);
+    pub const Where: Self = Self(41);
 
     pub const ENUM_MIN: i8 = 0;
-    pub const ENUM_MAX: i8 = 39;
+    pub const ENUM_MAX: i8 = 41;
     pub const ENUM_VALUES: &'static [Self] = &[
         Self::Add,
         Self::AveragePool,
@@ -125,6 +129,7 @@ impl OperatorType {
         Self::ConstantOfShape,
         Self::Conv,
         Self::ConvTranspose,
+        Self::Cos,
         Self::Div,
         Self::Equal,
         Self::Erf,
@@ -147,6 +152,7 @@ impl OperatorType {
         Self::Resize,
         Self::Shape,
         Self::Sigmoid,
+        Self::Sin,
         Self::Slice,
         Self::Split,
         Self::Sqrt,
@@ -169,6 +175,7 @@ impl OperatorType {
             Self::ConstantOfShape => Some("ConstantOfShape"),
             Self::Conv => Some("Conv"),
             Self::ConvTranspose => Some("ConvTranspose"),
+            Self::Cos => Some("Cos"),
             Self::Div => Some("Div"),
             Self::Equal => Some("Equal"),
             Self::Erf => Some("Erf"),
@@ -191,6 +198,7 @@ impl OperatorType {
             Self::Resize => Some("Resize"),
             Self::Shape => Some("Shape"),
             Self::Sigmoid => Some("Sigmoid"),
+            Self::Sin => Some("Sin"),
             Self::Slice => Some("Slice"),
             Self::Split => Some("Split"),
             Self::Sqrt => Some("Sqrt"),

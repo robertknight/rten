@@ -314,6 +314,7 @@ fn read_operator(node: &OperatorNode) -> ReadOpResult {
         OperatorType::Conv => read_conv_op(node),
         OperatorType::ConstantOfShape => read_constant_of_shape_op(node),
         OperatorType::ConvTranspose => read_conv_transpose_op(node),
+        OperatorType::Cos => op!(Cos),
         OperatorType::Div => op!(Div),
         OperatorType::Equal => op!(Equal),
         OperatorType::Erf => op!(Erf),
@@ -336,6 +337,7 @@ fn read_operator(node: &OperatorNode) -> ReadOpResult {
         OperatorType::Resize => read_resize_op(node),
         OperatorType::Shape => op!(Shape),
         OperatorType::Sigmoid => op!(Sigmoid),
+        OperatorType::Sin => op!(Sin),
         OperatorType::Slice => op!(Slice),
         OperatorType::Softmax => read_softmax_op(node),
         OperatorType::Split => read_split_op(node),
@@ -627,6 +629,9 @@ mod tests {
             &[conv_transpose_out],
         );
 
+        let cos_out = builder.add_value("cos_out");
+        builder.add_operator("cos", OpType::Cos, &[input_node], &[cos_out]);
+
         let div_out = builder.add_value("div_out");
         builder.add_operator("div", OpType::Div, &[input_node, input_node], &[div_out]);
 
@@ -778,6 +783,9 @@ mod tests {
         let sigmoid_out = builder.add_value("sigmoid_out");
         builder.add_operator("sigmoid", OpType::Sigmoid, &[input_node], &[sigmoid_out]);
 
+        let sin_out = builder.add_value("sin_out");
+        builder.add_operator("sin", OpType::Sin, &[input_node], &[sin_out]);
+
         let const_0 = builder.add_int_constant(&from_data(vec![1], vec![0]));
         let const_1 = builder.add_int_constant(&from_data(vec![1], vec![1]));
         let slice_out = builder.add_value("slice_out");
@@ -864,6 +872,7 @@ mod tests {
             "constant_of_shape_out",
             "conv_out",
             "conv_transpose_out",
+            "cos_out",
             "div_out",
             "equal_out",
             "erf_out",
@@ -886,6 +895,7 @@ mod tests {
             "softmax_out",
             "sqrt_out",
             "squeeze_out",
+            "sin_out",
             "sub_out",
             "transpose_out",
             "unsqueeze_out",

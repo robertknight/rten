@@ -69,6 +69,27 @@ impl UnaryFloatOp for Clip {
     }
 }
 
+pub fn cos(input: &Tensor) -> Tensor {
+    Cos {}.map(input)
+}
+
+pub fn cos_in_place(input: &mut Tensor) {
+    Cos {}.apply(input)
+}
+
+#[derive(Debug)]
+pub struct Cos {}
+
+impl UnaryFloatOp for Cos {
+    fn name(&self) -> &str {
+        "Cos"
+    }
+
+    fn map_element(&self, val: f32) -> f32 {
+        val.cos()
+    }
+}
+
 pub fn erf(input: &Tensor) -> Tensor {
     Erf {}.map(input)
 }
@@ -154,6 +175,27 @@ impl UnaryFloatOp for Sigmoid {
 
     fn map_element(&self, val: f32) -> f32 {
         1. / (1. + (-val).exp())
+    }
+}
+
+pub fn sin(input: &Tensor) -> Tensor {
+    Sin {}.map(input)
+}
+
+pub fn sin_in_place(input: &mut Tensor) {
+    Sin {}.apply(input)
+}
+
+#[derive(Debug)]
+pub struct Sin {}
+
+impl UnaryFloatOp for Sin {
+    fn name(&self) -> &str {
+        "Sin"
+    }
+
+    fn map_element(&self, val: f32) -> f32 {
+        val.sin()
     }
 }
 
@@ -246,12 +288,16 @@ impl UnaryFloatOp for Sqrt {
 #[cfg(test)]
 mod tests {
     use crate::ops::{
-        clip, clip_in_place, erf, erf_in_place, leaky_relu, leaky_relu_in_place, relu,
-        relu_in_place, sigmoid, sigmoid_in_place, softmax, sqrt, sqrt_in_place,
+        clip, clip_in_place, cos, cos_in_place, erf, erf_in_place, leaky_relu, leaky_relu_in_place,
+        relu, relu_in_place, sigmoid, sigmoid_in_place, sin, sin_in_place, softmax, sqrt,
+        sqrt_in_place,
     };
     use crate::rng::XorShiftRNG;
     use crate::tensor::{from_data, from_vec, rand};
     use crate::test_util::expect_equal;
+
+    // TODO: Eliminate the duplication for tests that apply the operator
+    // in-place vs returning a new tensor.
 
     #[test]
     fn test_clip() -> Result<(), String> {
@@ -266,6 +312,22 @@ mod tests {
         let mut input = from_data(vec![2, 2], vec![-5., -2., 3., 20.]);
         let expected = from_data(vec![2, 2], vec![1., 1., 3., 5.]);
         clip_in_place(&mut input, 1.0, 5.0);
+        expect_equal(&input, &expected)
+    }
+
+    #[test]
+    fn test_cos() -> Result<(), String> {
+        let input = from_vec(vec![0.1, 3.14, -5.]);
+        let expected = input.map(|x: f32| x.cos());
+        let result = cos(&input);
+        expect_equal(&result, &expected)
+    }
+
+    #[test]
+    fn test_cos_in_place() -> Result<(), String> {
+        let mut input = from_vec(vec![0.1, 3.14, -5.]);
+        let expected = input.map(|x: f32| x.cos());
+        cos_in_place(&mut input);
         expect_equal(&input, &expected)
     }
 
@@ -345,6 +407,22 @@ mod tests {
         let mut result = input.clone();
         sigmoid_in_place(&mut result);
         expect_equal(&result, &expected)
+    }
+
+    #[test]
+    fn test_sin() -> Result<(), String> {
+        let input = from_vec(vec![0.1, 3.14, -5.]);
+        let expected = input.map(|x: f32| x.sin());
+        let result = sin(&input);
+        expect_equal(&result, &expected)
+    }
+
+    #[test]
+    fn test_sin_in_place() -> Result<(), String> {
+        let mut input = from_vec(vec![0.1, 3.14, -5.]);
+        let expected = input.map(|x: f32| x.sin());
+        sin_in_place(&mut input);
+        expect_equal(&input, &expected)
     }
 
     #[test]

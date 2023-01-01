@@ -21,6 +21,7 @@ pub enum OpType {
     ConstantOfShape(ConstantOfShape),
     Conv(Conv),
     ConvTranspose(ConvTranspose),
+    Cos,
     Div,
     Equal,
     Erf,
@@ -43,6 +44,7 @@ pub enum OpType {
     Resize(Resize),
     Shape,
     Sigmoid,
+    Sin,
     Slice,
     Softmax(Softmax),
     Split(Split),
@@ -313,6 +315,7 @@ impl<'a> ModelBuilder<'a> {
                 let strides = self.create_vec(Some(args.strides.into()), |s| s as u32);
                 sg::ConvTransposeAttrsArgs { strides }
             }),
+            OpType::Cos => op!(Cos),
             OpType::Div => op!(Div),
             OpType::Equal => op!(Equal),
             OpType::Erf => op!(Erf),
@@ -378,6 +381,7 @@ impl<'a> ModelBuilder<'a> {
             OpType::Shape => op!(Shape),
             OpType::Sigmoid => op!(Sigmoid),
             OpType::Slice => op!(Slice),
+            OpType::Sin => op!(Sin),
             OpType::Softmax(args) => op_with_attrs!(
                 Softmax,
                 SoftmaxAttrs,
