@@ -6,7 +6,6 @@ use std::ops;
 
 use crate::tensor::{from_data, from_vec, zeros, Elements, SliceRange, Tensor};
 
-mod activations;
 mod binary_elementwise;
 mod conv;
 mod layout;
@@ -15,15 +14,8 @@ mod norm;
 mod pooling;
 mod reduce;
 mod resize;
+mod unary_elementwise;
 
-// TODO - Rename `activations` to `unary_elementwise` and split out
-// non-elementwise ops (eg. softmax).
-pub use activations::{
-    clip, clip_in_place, cos, cos_in_place, erf, erf_in_place, leaky_relu, leaky_relu_in_place,
-    relu, relu_in_place, sigmoid, sigmoid_in_place, sin, sin_in_place, softmax, sqrt,
-    sqrt_in_place,
-};
-pub use activations::{Clip, Cos, Erf, LeakyRelu, Relu, Sigmoid, Sin, Softmax, Sqrt};
 pub use binary_elementwise::{
     add, add_in_place, choose_broadcast_shape, div, div_in_place, equal, less, mul, mul_in_place,
     pow, pow_in_place, sub, sub_in_place, where_op,
@@ -36,11 +28,16 @@ pub use layout::{
     Unsqueeze,
 };
 pub use matmul::{gemm_op, matmul, Gemm, MatMul};
-pub use norm::{batch_norm, batch_norm_in_place, BatchNormalization};
+pub use norm::{batch_norm, batch_norm_in_place, softmax, BatchNormalization, Softmax};
 pub use pooling::{average_pool, global_average_pool, max_pool};
 pub use pooling::{AveragePool, GlobalAveragePool, MaxPool};
 pub use reduce::{reduce_mean, ReduceMean};
 pub use resize::{resize, Resize, ResizeMode, ResizeTarget};
+pub use unary_elementwise::{
+    clip, clip_in_place, cos, cos_in_place, erf, erf_in_place, leaky_relu, leaky_relu_in_place,
+    relu, relu_in_place, sigmoid, sigmoid_in_place, sin, sin_in_place, sqrt, sqrt_in_place,
+};
+pub use unary_elementwise::{Clip, Cos, Erf, LeakyRelu, Relu, Sigmoid, Sin, Sqrt};
 
 #[derive(Copy, Clone, Debug)]
 pub enum Padding {

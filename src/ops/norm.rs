@@ -92,10 +92,76 @@ impl Operator for BatchNormalization {
     }
 }
 
+pub fn softmax(input: &Tensor, axis: usize) -> Tensor {
+    let mut output = input.clone();
+    softmax_in_place(&mut output, axis);
+    output
+}
+
+pub fn softmax_in_place(output: &mut Tensor, axis: usize) {
+    output.make_contiguous();
+
+    let outer_stride = if axis == 0 {
+        output.len()
+    } else {
+        output.stride(axis - 1)
+    };
+
+    let mut offset = 0;
+    while offset < output.len() {
+        let els = &mut output.data_mut()[offset..offset + outer_stride];
+
+        // Numerically stable softmax. See
+        // https://ogunlao.github.io/2020/04/26/you_dont_really_know_softmax.html.
+        let max_val = els
+            .iter()
+            .copied()
+            .fold(f32::MIN, |max_val, x| max_val.max(x));
+        let mut exp_sum = 0.0;
+        for el in els.iter_mut() {
+            *el = (*el - max_val).exp();
+            exp_sum += *el;
+        }
+
+        for el in els.iter_mut() {
+            *el /= exp_sum
+        }
+
+        offset += outer_stride;
+    }
+}
+
+#[derive(Debug)]
+pub struct Softmax {
+    pub axis: usize,
+}
+
+impl Operator for Softmax {
+    fn name(&self) -> &str {
+        "Softmax"
+    }
+
+    fn run(&self, inputs: &[Input]) -> Result<Vec<Output>, OpError> {
+        let input = get_input(inputs, 0)?;
+        softmax(input, self.axis).into_op_result()
+    }
+
+    fn can_run_in_place(&self) -> bool {
+        true
+    }
+
+    fn run_in_place(&self, input: Output, _other: &[Input]) -> Result<Output, OpError> {
+        let mut output = input.into_float().ok_or(OpError::UnsupportedInputType)?;
+        softmax_in_place(&mut output, self.axis);
+        Ok(output.into())
+    }
+}
+
 #[cfg(test)]
 mod tests {
-    use crate::ops::{batch_norm, batch_norm_in_place};
-    use crate::tensor::from_data;
+    use crate::ops::{batch_norm, batch_norm_in_place, softmax};
+    use crate::rng::XorShiftRNG;
+    use crate::tensor::{from_data, from_vec, rand};
     use crate::test_util::expect_equal;
 
     #[test]
@@ -137,5 +203,81 @@ mod tests {
         batch_norm_in_place(&mut input, &scale, &bias, &mean, &var, epsilon);
 
         expect_equal(&input, &expected)
+    }
+
+    #[test]
+    fn test_softmax() -> Result<(), String> {
+        // Softmax on a 1D input
+        let mut input = from_vec(vec![0.1634, 0.8647, 0.6401, 0.8265, 0.0560]);
+        let mut expected = from_vec(vec![0.1339, 0.2701, 0.2157, 0.2599, 0.1203]);
+        let result = softmax(&input, 0);
+        expect_equal(&result, &expected)?;
+
+        // Softmax on final dimension of 2D input
+        input.reshape(&[1, 5]);
+        expected.reshape(&[1, 5]);
+        let result = softmax(&input, 1);
+        expect_equal(&result, &expected)?;
+
+        // Softmax on first dimension of 2D input
+        input.reshape(&[5, 1]);
+        expected.reshape(&[5, 1]);
+        let result = softmax(&input, 0);
+        expect_equal(&result, &expected)?;
+
+        // Softmax on second dimension of 2D input with multiple entries in
+        // first dim
+        let matrix_input = from_data(
+            vec![2, 5],
+            vec![
+                0.1634, 0.8647, 0.6401, 0.8265, 0.0560, // First row
+                0.1634, 0.8647, 0.6401, 0.8265, 0.0560, // Second row
+            ],
+        );
+        let matrix_expected = from_data(
+            vec![2, 5],
+            vec![
+                0.1339, 0.2701, 0.2157, 0.2599, 0.1203, // First row
+                0.1339, 0.2701, 0.2157, 0.2599, 0.1203, // Second row
+            ],
+        );
+        let result = softmax(&matrix_input, 1);
+        expect_equal(&result, &matrix_expected)
+    }
+
+    // Test softmax with non-contiguous input.
+    #[test]
+    fn test_softmax_transposed() -> Result<(), String> {
+        let mut input = from_data(
+            vec![4, 4],
+            vec![
+                0.6427, 0.7435, 0.9762, 0.0611, 0.1249, 0.9742, 0.5826, 0.4704, 0.1420, 0.8376,
+                0.6692, 0.7090, 0.2448, 0.9083, 0.2881, 0.4971,
+            ],
+        );
+        let expected = from_data(
+            vec![4, 4],
+            vec![
+                0.3480, 0.2073, 0.2109, 0.2337, 0.2204, 0.2776, 0.2421, 0.2599, 0.3433, 0.2316,
+                0.2525, 0.1725, 0.1677, 0.2525, 0.3205, 0.2593,
+            ],
+        );
+
+        input.permute(&[1, 0]);
+        let result = softmax(&input, 1);
+
+        expect_equal(&result, &expected)
+    }
+
+    // Test softmax with some additional input sizes and axis dimensions.
+    // These tests don't check the individual output values in detail, but they
+    // do check the shape and that the values sum to 1.
+    #[test]
+    fn test_softmax_sizes() {
+        let mut rng = XorShiftRNG::new(1234);
+        let input = rand(&[1, 1, 3, 3], &mut rng);
+        let result = softmax(&input, 1);
+        assert_eq!(result.shape(), input.shape());
+        assert!((result.elements().sum::<f32>() - 1.0).abs() < 0.001);
     }
 }
