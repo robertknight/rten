@@ -2517,14 +2517,14 @@ class OperatorNode(object):
         o = flatbuffers.number_types.UOffsetTFlags.py_type(self._tab.Offset(10))
         if o != 0:
             a = self._tab.Vector(o)
-            return self._tab.Get(flatbuffers.number_types.Uint32Flags, a + flatbuffers.number_types.UOffsetTFlags.py_type(j * 4))
+            return self._tab.Get(flatbuffers.number_types.Int32Flags, a + flatbuffers.number_types.UOffsetTFlags.py_type(j * 4))
         return 0
 
     # OperatorNode
     def InputsAsNumpy(self):
         o = flatbuffers.number_types.UOffsetTFlags.py_type(self._tab.Offset(10))
         if o != 0:
-            return self._tab.GetVectorAsNumpy(flatbuffers.number_types.Uint32Flags, o)
+            return self._tab.GetVectorAsNumpy(flatbuffers.number_types.Int32Flags, o)
         return 0
 
     # OperatorNode
@@ -2544,14 +2544,14 @@ class OperatorNode(object):
         o = flatbuffers.number_types.UOffsetTFlags.py_type(self._tab.Offset(12))
         if o != 0:
             a = self._tab.Vector(o)
-            return self._tab.Get(flatbuffers.number_types.Uint32Flags, a + flatbuffers.number_types.UOffsetTFlags.py_type(j * 4))
+            return self._tab.Get(flatbuffers.number_types.Int32Flags, a + flatbuffers.number_types.UOffsetTFlags.py_type(j * 4))
         return 0
 
     # OperatorNode
     def OutputsAsNumpy(self):
         o = flatbuffers.number_types.UOffsetTFlags.py_type(self._tab.Offset(12))
         if o != 0:
-            return self._tab.GetVectorAsNumpy(flatbuffers.number_types.Uint32Flags, o)
+            return self._tab.GetVectorAsNumpy(flatbuffers.number_types.Int32Flags, o)
         return 0
 
     # OperatorNode
@@ -2640,7 +2640,7 @@ class OperatorNodeT(object):
             else:
                 OperatorNodeStartInputsVector(builder, len(self.inputs))
                 for i in reversed(range(len(self.inputs))):
-                    builder.PrependUint32(self.inputs[i])
+                    builder.PrependInt32(self.inputs[i])
                 inputs = builder.EndVector()
         if self.outputs is not None:
             if np is not None and type(self.outputs) is np.ndarray:
@@ -2648,7 +2648,7 @@ class OperatorNodeT(object):
             else:
                 OperatorNodeStartOutputsVector(builder, len(self.outputs))
                 for i in reversed(range(len(self.outputs))):
-                    builder.PrependUint32(self.outputs[i])
+                    builder.PrependInt32(self.outputs[i])
                 outputs = builder.EndVector()
         OperatorNodeStart(builder)
         OperatorNodeAddType(builder, self.type)
