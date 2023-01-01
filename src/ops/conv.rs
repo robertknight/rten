@@ -174,8 +174,8 @@ fn conv_2d_pointwise(input: &Tensor, kernel: &Tensor, bias: Option<&Tensor>) -> 
                 row_stride: in_h * in_w,
                 col_stride: 1,
             },
-            1.0,
-            1.0,
+            1.,                                   // alpha
+            if bias.is_some() { 1. } else { 0. }, // beta
         );
     }
 
@@ -391,8 +391,8 @@ pub fn conv(
                     row_stride: im2col_mat.shape()[1],
                     col_stride: im2col_mat.stride(1),
                 },
-                1.,
-                1.,
+                1.,                                   // alpha
+                if bias.is_some() { 1. } else { 0. }, // beta
             );
         }
     }
