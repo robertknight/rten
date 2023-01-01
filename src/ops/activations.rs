@@ -1,14 +1,56 @@
 extern crate libm;
 
+use std::fmt::Debug;
+
 use crate::ops::{get_input, Input, IntoOpResult, OpError, Operator, Output};
 use crate::tensor::Tensor;
 
+/// Trait for operators which take a single float tensor and apply a function
+/// to each element.
+trait UnaryFloatOp {
+    fn name(&self) -> &str;
+
+    /// Apply the operator to a single element.
+    fn map_element(&self, val: f32) -> f32;
+
+    /// Apply the operator to all elements in `input`.
+    fn map(&self, input: &Tensor) -> Tensor {
+        input.map(|val| self.map_element(val))
+    }
+
+    /// Apply the operator to all elements in `input`.
+    fn apply(&self, input: &mut Tensor) {
+        input.apply(|val| self.map_element(val))
+    }
+}
+
+impl<Op: UnaryFloatOp + Debug> Operator for Op {
+    fn name(&self) -> &str {
+        self.name()
+    }
+
+    fn run(&self, inputs: &[Input]) -> Result<Vec<Output>, OpError> {
+        let input = get_input(inputs, 0)?;
+        self.map(input).into_op_result()
+    }
+
+    fn can_run_in_place(&self) -> bool {
+        true
+    }
+
+    fn run_in_place(&self, input: Output, _: &[Input]) -> Result<Output, OpError> {
+        let mut output = input.into_float().ok_or(OpError::UnsupportedInputType)?;
+        self.apply(&mut output);
+        Ok(output.into())
+    }
+}
+
 pub fn clip(input: &Tensor, min: f32, max: f32) -> Tensor {
-    input.map(|x| x.clamp(min, max))
+    Clip { min, max }.map(input)
 }
 
 pub fn clip_in_place(input: &mut Tensor, min: f32, max: f32) {
-    input.apply(|val| val.clamp(min, max))
+    Clip { min, max }.apply(input)
 }
 
 #[derive(Debug)]
@@ -17,77 +59,43 @@ pub struct Clip {
     pub max: f32,
 }
 
-impl Operator for Clip {
+impl UnaryFloatOp for Clip {
     fn name(&self) -> &str {
         "Clip"
     }
 
-    fn run(&self, inputs: &[Input]) -> Result<Vec<Output>, OpError> {
-        let input = get_input(inputs, 0)?;
-        clip(input, self.min, self.max).into_op_result()
+    fn map_element(&self, val: f32) -> f32 {
+        val.clamp(self.min, self.max)
     }
-
-    fn can_run_in_place(&self) -> bool {
-        true
-    }
-
-    fn run_in_place(&self, input: Output, _: &[Input]) -> Result<Output, OpError> {
-        let mut output = input.into_float().ok_or(OpError::UnsupportedInputType)?;
-        clip_in_place(&mut output, self.min, self.max);
-        Ok(output.into())
-    }
-}
-
-fn erf_op(val: f32) -> f32 {
-    libm::erff(val)
 }
 
 pub fn erf(input: &Tensor) -> Tensor {
-    input.map(erf_op)
+    Erf {}.map(input)
 }
 
 pub fn erf_in_place(input: &mut Tensor) {
-    input.apply(erf_op)
+    Erf {}.apply(input)
 }
 
 #[derive(Debug)]
 pub struct Erf {}
 
-impl Operator for Erf {
+impl UnaryFloatOp for Erf {
     fn name(&self) -> &str {
         "Erf"
     }
 
-    fn run(&self, inputs: &[Input]) -> Result<Vec<Output>, OpError> {
-        let input = get_input(inputs, 0)?;
-        erf(input).into_op_result()
-    }
-
-    fn can_run_in_place(&self) -> bool {
-        true
-    }
-
-    fn run_in_place(&self, input: Output, _: &[Input]) -> Result<Output, OpError> {
-        let mut output = input.into_float().ok_or(OpError::UnsupportedInputType)?;
-        erf_in_place(&mut output);
-        Ok(output.into())
-    }
-}
-
-fn leaky_relu_op(val: f32, alpha: f32) -> f32 {
-    if val < 0.0 {
-        alpha * val
-    } else {
-        val
+    fn map_element(&self, val: f32) -> f32 {
+        libm::erff(val)
     }
 }
 
 pub fn leaky_relu(input: &Tensor, alpha: f32) -> Tensor {
-    input.map(|val| leaky_relu_op(val, alpha))
+    LeakyRelu { alpha }.map(input)
 }
 
 pub fn leaky_relu_in_place(input: &mut Tensor, alpha: f32) {
-    input.apply(|val| leaky_relu_op(val, alpha))
+    LeakyRelu { alpha }.apply(input)
 }
 
 #[derive(Debug)]
@@ -95,90 +103,57 @@ pub struct LeakyRelu {
     pub alpha: f32,
 }
 
-impl Operator for LeakyRelu {
+impl UnaryFloatOp for LeakyRelu {
     fn name(&self) -> &str {
         "LeakyRelu"
     }
 
-    fn run(&self, inputs: &[Input]) -> Result<Vec<Output>, OpError> {
-        let input = get_input(inputs, 0)?;
-        leaky_relu(input, self.alpha).into_op_result()
-    }
-
-    fn can_run_in_place(&self) -> bool {
-        true
-    }
-
-    fn run_in_place(&self, input: Output, _other: &[Input]) -> Result<Output, OpError> {
-        let mut output = input.into_float().ok_or(OpError::UnsupportedInputType)?;
-        leaky_relu_in_place(&mut output, self.alpha);
-        Ok(output.into())
+    fn map_element(&self, val: f32) -> f32 {
+        if val < 0.0 {
+            self.alpha * val
+        } else {
+            val
+        }
     }
 }
 
 pub fn relu_in_place(x: &mut Tensor) {
-    x.apply(|val| val.max(0f32));
+    Relu {}.apply(x)
 }
 
 pub fn relu(x: &Tensor) -> Tensor {
-    x.map(|e| e.max(0f32))
+    Relu {}.map(x)
 }
 
 #[derive(Debug)]
 pub struct Relu {}
-impl Operator for Relu {
+impl UnaryFloatOp for Relu {
     fn name(&self) -> &str {
         "Relu"
     }
 
-    fn run(&self, inputs: &[Input]) -> Result<Vec<Output>, OpError> {
-        let input = get_input(inputs, 0)?;
-        relu(input).into_op_result()
+    fn map_element(&self, val: f32) -> f32 {
+        val.max(0.)
     }
-
-    fn can_run_in_place(&self) -> bool {
-        true
-    }
-
-    fn run_in_place(&self, input: Output, _other: &[Input]) -> Result<Output, OpError> {
-        let mut output = input.into_float().ok_or(OpError::UnsupportedInputType)?;
-        relu_in_place(&mut output);
-        Ok(output.into())
-    }
-}
-
-fn sigmoid_op(val: f32) -> f32 {
-    1. / (1. + (-val).exp())
 }
 
 pub fn sigmoid(x: &Tensor) -> Tensor {
-    x.map(sigmoid_op)
+    Sigmoid {}.map(x)
 }
 
 pub fn sigmoid_in_place(x: &mut Tensor) {
-    x.apply(sigmoid_op)
+    Sigmoid {}.apply(x)
 }
 
 #[derive(Debug)]
 pub struct Sigmoid {}
-impl Operator for Sigmoid {
+impl UnaryFloatOp for Sigmoid {
     fn name(&self) -> &str {
         "Sigmoid"
     }
 
-    fn run(&self, inputs: &[Input]) -> Result<Vec<Output>, OpError> {
-        let input = get_input(inputs, 0)?;
-        sigmoid(input).into_op_result()
-    }
-
-    fn can_run_in_place(&self) -> bool {
-        true
-    }
-
-    fn run_in_place(&self, input: Output, _other: &[Input]) -> Result<Output, OpError> {
-        let mut output = input.into_float().ok_or(OpError::UnsupportedInputType)?;
-        sigmoid_in_place(&mut output);
-        Ok(output.into())
+    fn map_element(&self, val: f32) -> f32 {
+        1. / (1. + (-val).exp())
     }
 }
 
@@ -248,34 +223,23 @@ impl Operator for Softmax {
 }
 
 pub fn sqrt(input: &Tensor) -> Tensor {
-    input.map(|x| x.sqrt())
+    Sqrt {}.map(input)
 }
 
 pub fn sqrt_in_place(input: &mut Tensor) {
-    input.apply(|val| val.sqrt());
+    Sqrt {}.apply(input)
 }
 
 #[derive(Debug)]
 pub struct Sqrt {}
 
-impl Operator for Sqrt {
+impl UnaryFloatOp for Sqrt {
     fn name(&self) -> &str {
         "Sqrt"
     }
 
-    fn run(&self, inputs: &[Input]) -> Result<Vec<Output>, OpError> {
-        let input: &Tensor<f32> = get_input(inputs, 0)?;
-        sqrt(input).into_op_result()
-    }
-
-    fn can_run_in_place(&self) -> bool {
-        true
-    }
-
-    fn run_in_place(&self, input: Output, _other: &[Input]) -> Result<Output, OpError> {
-        let mut output = input.into_float().ok_or(OpError::UnsupportedInputType)?;
-        sqrt_in_place(&mut output);
-        Ok(output.into())
+    fn map_element(&self, val: f32) -> f32 {
+        val.sqrt()
     }
 }
 
