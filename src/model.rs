@@ -584,297 +584,141 @@ mod tests {
                 op_output_node
             };
 
-        add_operator(
-            &mut builder,
-            "add",
-            OpType::Add,
-            &[input_node, input_node].map(Some),
-        );
+        // Add a new operator node and associated output value node to the model.
+        //
+        // Returns the node ID of the output node.
+        macro_rules! add_operator {
+            ($op_name:ident, $op_inputs:expr) => {
+                add_operator(
+                    &mut builder,
+                    stringify!($op_name),
+                    OpType::$op_name,
+                    &$op_inputs.map(Some),
+                )
+            };
 
-        add_operator(
-            &mut builder,
-            "average_pool",
-            OpType::AveragePool(ops::AveragePool {
-                kernel_size: [2, 2],
-                strides: [2, 2],
-                padding: Padding::Fixed([0, 0, 0, 0]),
-            }),
-            &[input_node].map(Some),
-        );
+            ($op_name:ident, $op_inputs:expr, $attrs: tt) => {
+                add_operator(
+                    &mut builder,
+                    stringify!($op_name),
+                    OpType::$op_name(ops::$op_name $attrs),
+                    &$op_inputs.map(Some),
+                )
+            };
+        }
+
+        add_operator!(Add, [input_node, input_node]);
+        add_operator!(AveragePool, [input_node], {
+            kernel_size: [2, 2],
+            strides: [2, 2],
+            padding: Padding::Fixed([0, 0, 0, 0]),
+        });
 
         // Dummy value for BatchNormalization inputs which are vectors with
         // per-channel values.
         let batch_norm_param_val = from_vec(vec![1.0]);
         let batch_norm_param = builder.add_float_constant(&batch_norm_param_val);
-
-        add_operator(
-            &mut builder,
-            "batch_normalization",
-            OpType::BatchNormalization(ops::BatchNormalization { epsilon: 1e-5 }),
-            &[
+        add_operator!(
+            BatchNormalization,
+            [
                 input_node,
                 batch_norm_param, /* scale */
                 batch_norm_param, /* bias */
                 batch_norm_param, /* mean */
                 batch_norm_param, /* variance */
-            ]
-            .map(Some),
+            ],
+            { epsilon: 1e-5 }
         );
 
-        add_operator(
-            &mut builder,
-            "cast",
-            OpType::Cast(ops::Cast {
-                to: ops::DataType::Float,
-            }),
-            &[input_node].map(Some),
-        );
-
-        add_operator(
-            &mut builder,
-            "clip",
-            OpType::Clip(ops::Clip { min: 1.0, max: 5.0 }),
-            &[input_node].map(Some),
-        );
-
-        add_operator(
-            &mut builder,
-            "concat",
-            OpType::Concat(ops::Concat { dim: 0 }),
-            &[input_node, input_node].map(Some),
-        );
+        add_operator!(Cast, [input_node], { to: ops::DataType::Float });
+        add_operator!(Clip, [input_node], { min: 1.0, max: 5.0 });
+        add_operator!(Concat, [input_node, input_node], { dim: 0 });
 
         let shape = builder.add_int_constant(&from_data(vec![3], vec![1, 5, 10]));
-        add_operator(
-            &mut builder,
-            "constant_of_shape",
-            OpType::ConstantOfShape(ops::ConstantOfShape {
-                value: Scalar::Int(42),
-            }),
-            &[shape].map(Some),
-        );
+        add_operator!(ConstantOfShape, [shape], { value: Scalar::Int(42) });
 
-        add_operator(
-            &mut builder,
-            "conv",
-            OpType::Conv(ops::Conv {
-                padding: Padding::Fixed([1, 1, 1, 1]),
-                groups: 1,
-                strides: [1, 1],
-            }),
-            &[input_node, kernel].map(Some),
-        );
+        add_operator!(Conv, [input_node, kernel], {
+            padding: Padding::Fixed([1, 1, 1, 1]),
+            groups: 1,
+            strides: [1, 1],
+        });
 
-        add_operator(
-            &mut builder,
-            "conv_transpose",
-            OpType::ConvTranspose(ops::ConvTranspose { strides: [2, 2] }),
-            &[input_node, kernel].map(Some),
-        );
-
-        add_operator(&mut builder, "cos", OpType::Cos, &[input_node].map(Some));
-
-        add_operator(
-            &mut builder,
-            "div",
-            OpType::Div,
-            &[input_node, input_node].map(Some),
-        );
-
-        add_operator(&mut builder, "erf", OpType::Erf, &[input_node].map(Some));
+        add_operator!(ConvTranspose, [input_node, kernel], { strides: [2, 2] });
+        add_operator!(Cos, [input_node]);
+        add_operator!(Div, [input_node, input_node]);
+        add_operator!(Equal, [input_node, input_node]);
+        add_operator!(Erf, [input_node]);
 
         let expand_shape_val = from_vec(vec![2, 2, 3, 3]);
         let expand_shape = builder.add_int_constant(&expand_shape_val);
-        add_operator(
-            &mut builder,
-            "expand",
-            OpType::Expand,
-            &[input_node, expand_shape].map(Some),
-        );
+        add_operator!(Expand, [input_node, expand_shape]);
 
-        add_operator(
-            &mut builder,
-            "equal",
-            OpType::Equal,
-            &[input_node, input_node].map(Some),
-        );
+        // FIXME - Add this to the list of output nodes for model runs at the end.
+        add_operator!(Gather, [input_node, indices], { axis: 0 });
 
-        add_operator(
-            &mut builder,
-            "gather",
-            OpType::Gather(ops::Gather { axis: 0 }),
-            &[input_node, indices].map(Some),
-        );
-
-        add_operator(
-            &mut builder,
-            "gemm",
-            OpType::Gemm(ops::Gemm {
-                alpha: 1.0,
-                beta: 1.0,
-                transpose_a: false,
-                transpose_b: false,
-            }),
-            &[input_2d, input_2d].map(Some),
-        );
-
-        add_operator(
-            &mut builder,
-            "global_average_pool",
-            OpType::GlobalAveragePool,
-            &[input_node].map(Some),
-        );
-
-        add_operator(
-            &mut builder,
-            "identity",
-            OpType::Identity,
-            &[input_node].map(Some),
-        );
-
-        add_operator(
-            &mut builder,
-            "leaky_relu",
-            OpType::LeakyRelu(ops::LeakyRelu { alpha: 0.01 }),
-            &[input_node].map(Some),
-        );
-
-        add_operator(
-            &mut builder,
-            "less",
-            OpType::Less,
-            &[input_node, input_node].map(Some),
-        );
-
-        add_operator(
-            &mut builder,
-            "matmul",
-            OpType::MatMul,
-            &[input_2d, input_2d].map(Some),
-        );
-
-        add_operator(
-            &mut builder,
-            "max_pool",
-            OpType::MaxPool(ops::MaxPool {
-                kernel_size: [2, 2],
-                strides: [2, 2],
-                padding: Padding::Fixed([0, 0, 0, 0]),
-            }),
-            &[input_node].map(Some),
-        );
-
-        add_operator(
-            &mut builder,
-            "mul",
-            OpType::Mul,
-            &[input_node, input_node].map(Some),
-        );
+        add_operator!(Gemm, [input_2d, input_2d], {
+            alpha: 1.0,
+            beta: 1.0,
+            transpose_a: false,
+            transpose_b: false,
+        });
+        add_operator!(GlobalAveragePool, [input_node]);
+        add_operator!(Identity, [input_node]);
+        add_operator!(LeakyRelu, [input_node], { alpha: 0.01 });
+        add_operator!(Less, [input_node, input_node]);
+        add_operator!(MatMul, [input_2d, input_2d]);
+        add_operator!(MaxPool, [input_node], {
+            kernel_size: [2, 2],
+            strides: [2, 2],
+            padding: Padding::Fixed([0, 0, 0, 0]),
+        });
+        add_operator!(Mul, [input_node, input_node]);
 
         let pads = builder.add_int_constant(&from_data(vec![8], vec![0, 0, 1, 1, 0, 0, 1, 1]));
-        add_operator(
-            &mut builder,
-            "pad",
-            OpType::Pad,
-            &[input_node, pads].map(Some),
-        );
-
-        add_operator(
-            &mut builder,
-            "pow",
-            OpType::Pow,
-            &[input_node, input_node].map(Some),
-        );
+        add_operator!(Pad, [input_node, pads]);
+        add_operator!(Pow, [input_node, input_node]);
 
         let range_start_node = builder.add_value("range_start");
         let range_limit_node = builder.add_value("range_limit");
         let range_delta_node = builder.add_value("range_delta");
-        let range_out = add_operator(
-            &mut builder,
-            "range",
-            OpType::Range,
-            &[range_start_node, range_limit_node, range_delta_node].map(Some),
+        let range_out = add_operator!(
+            Range,
+            [range_start_node, range_limit_node, range_delta_node]
         );
 
-        add_operator(
-            &mut builder,
-            "reduce_mean",
-            OpType::ReduceMean(ops::ReduceMean {
-                axes: None,
-                keep_dims: false,
-            }),
-            &[input_node].map(Some),
-        );
-
-        add_operator(&mut builder, "relu", OpType::Relu, &[input_node].map(Some));
+        add_operator!(ReduceMean, [input_node], {
+            axes: None,
+            keep_dims: false,
+        });
+        add_operator!(Relu, [input_node]);
 
         let new_shape = builder.add_int_constant(&from_data(vec![1], vec![9]));
-        add_operator(
-            &mut builder,
-            "reshape",
-            OpType::Reshape,
-            &[input_node, new_shape].map(Some),
-        );
+        add_operator!(Reshape, [input_node, new_shape]);
 
         let resize_roi_val = from_vec(vec![0., 0., 0., 0., 1., 1., 1., 1.]);
         let resize_scales_val = from_vec(vec![1., 1., 2., 2.]);
         let resize_roi = builder.add_float_constant(&resize_roi_val);
         let resize_scales = builder.add_float_constant(&resize_scales_val);
-        add_operator(
-            &mut builder,
-            "resize",
-            OpType::Resize(ops::Resize {
-                mode: ResizeMode::Nearest,
-            }),
-            &[input_node, resize_roi, resize_scales].map(Some),
-        );
+        add_operator!(Resize, [input_node, resize_roi, resize_scales], {
+            mode: ResizeMode::Nearest,
+        });
 
-        add_operator(
-            &mut builder,
-            "shape",
-            OpType::Shape,
-            &[input_node].map(Some),
-        );
-
-        add_operator(
-            &mut builder,
-            "sigmoid",
-            OpType::Sigmoid,
-            &[input_node].map(Some),
-        );
-
-        add_operator(&mut builder, "sin", OpType::Sin, &[input_node].map(Some));
+        add_operator!(Shape, [input_node]);
+        add_operator!(Sigmoid, [input_node]);
+        add_operator!(Sin, [input_node]);
 
         let const_0 = builder.add_int_constant(&from_data(vec![1], vec![0]));
         let const_1 = builder.add_int_constant(&from_data(vec![1], vec![1]));
-        add_operator(
-            &mut builder,
-            "slice",
-            OpType::Slice,
-            &[input_node, const_0, const_1, const_0].map(Some),
-        );
+        add_operator!(Slice, [input_node, const_0, const_1, const_0]);
 
-        add_operator(
-            &mut builder,
-            "softmax",
-            OpType::Softmax(ops::Softmax { axis: 1 }),
-            &[input_node].map(Some),
-        );
+        add_operator!(Softmax, [input_node], { axis: 1 });
+        add_operator!(Sqrt, [input_node]);
+        add_operator!(Squeeze, [input_node], { axes: None });
 
-        add_operator(&mut builder, "sqrt", OpType::Sqrt, &[input_node].map(Some));
-
-        let squeeze_out = builder.add_value("squeeze_out");
+        let split_out_1 = builder.add_value("Split_out_1");
+        let split_out_2 = builder.add_value("Split_out_2");
         builder.add_operator(
-            "squeeze",
-            OpType::Squeeze(ops::Squeeze { axes: None }),
-            &[input_node].map(Some),
-            &[squeeze_out],
-        );
-
-        let split_out_1 = builder.add_value("split_out_1");
-        let split_out_2 = builder.add_value("split_out_2");
-        builder.add_operator(
-            "split",
+            "Split",
             OpType::Split(ops::Split {
                 axis: 1,
                 split: vec![1, 2],
@@ -883,38 +727,15 @@ mod tests {
             &[split_out_1, split_out_2],
         );
 
-        add_operator(
-            &mut builder,
-            "sub",
-            OpType::Sub,
-            &[input_node, input_node].map(Some),
-        );
-
-        add_operator(&mut builder, "tanh", OpType::Tanh, &[input_node].map(Some));
-
-        add_operator(
-            &mut builder,
-            "transpose",
-            OpType::Transpose(ops::Transpose { perm: None }),
-            &[input_node].map(Some),
-        );
-
-        add_operator(
-            &mut builder,
-            "unsqueeze",
-            OpType::Unsqueeze(ops::Unsqueeze { axes: vec![0, 4] }),
-            &[input_node].map(Some),
-        );
+        add_operator!(Sub, [input_node, input_node]);
+        add_operator!(Tanh, [input_node]);
+        add_operator!(Transpose, [input_node], { perm: None });
+        add_operator!(Unsqueeze, [input_node], { axes: vec![0, 4] });
 
         let where_cond = builder.add_value("where_cond");
         let where_x = builder.add_value("where_x");
         let where_y = builder.add_value("where_y");
-        let where_out = add_operator(
-            &mut builder,
-            "where",
-            OpType::Where,
-            &[where_cond, where_x, where_y].map(Some),
-        );
+        let where_out = add_operator!(Where, [where_cond, where_x, where_y]);
 
         let buffer = builder.finish();
 
@@ -922,43 +743,43 @@ mod tests {
 
         // Outputs of ops tested with a 4D input (eg. NCHW image).
         let outputs = vec![
-            "add_out",
-            "average_pool_out",
-            "batch_normalization_out",
-            "cast_out",
-            "clip_out",
-            "concat_out",
-            "constant_of_shape_out",
-            "conv_out",
-            "conv_transpose_out",
-            "cos_out",
-            "div_out",
-            "equal_out",
-            "erf_out",
-            "expand_out",
-            "identity_out",
-            "global_average_pool_out",
-            "leaky_relu_out",
-            "less_out",
-            "max_pool_out",
-            "mul_out",
-            "pad_out",
-            "pow_out",
-            "reduce_mean_out",
-            "relu_out",
-            "reshape_out",
-            "resize_out",
-            "shape_out",
-            "sigmoid_out",
-            "slice_out",
-            "softmax_out",
-            "sqrt_out",
-            "squeeze_out",
-            "sin_out",
-            "sub_out",
-            "tanh_out",
-            "transpose_out",
-            "unsqueeze_out",
+            "Add_out",
+            "AveragePool_out",
+            "BatchNormalization_out",
+            "Cast_out",
+            "Clip_out",
+            "Concat_out",
+            "ConstantOfShape_out",
+            "Conv_out",
+            "ConvTranspose_out",
+            "Cos_out",
+            "Div_out",
+            "Equal_out",
+            "Erf_out",
+            "Expand_out",
+            "Identity_out",
+            "GlobalAveragePool_out",
+            "LeakyRelu_out",
+            "Less_out",
+            "MaxPool_out",
+            "Mul_out",
+            "Pad_out",
+            "Pow_out",
+            "ReduceMean_out",
+            "Relu_out",
+            "Reshape_out",
+            "Resize_out",
+            "Shape_out",
+            "Sigmoid_out",
+            "Slice_out",
+            "Softmax_out",
+            "Sqrt_out",
+            "Squeeze_out",
+            "Sin_out",
+            "Sub_out",
+            "Tanh_out",
+            "Transpose_out",
+            "Unsqueeze_out",
         ];
         let input = from_data(vec![1, 1, 3, 3], vec![1., 2., 3., 4., 5., 6., 7., 8., 9.]);
 
@@ -975,7 +796,7 @@ mod tests {
         }
 
         // Outputs of ops tested with a 2D input.
-        let outputs = vec!["matmul_out", "split_out_1", "split_out_2"];
+        let outputs = vec!["Gemm_out", "MatMul_out", "Split_out_1", "Split_out_2"];
         let input = from_data(vec![3, 3], vec![1., 2., 3., 4., 5., 6., 7., 8., 9.]);
 
         for output in outputs {
