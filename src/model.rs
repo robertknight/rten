@@ -561,8 +561,8 @@ mod tests {
     }
 
     // This test exercises basic execution of all operators. It doesn't check
-    // the results of operators, it just sure they can be deserialized and
-    // executed with valid inputs.
+    // the results of operators, it just makes sure they can be deserialized and
+    // executed successfully.
     #[test]
     fn test_all_op_types() {
         let mut builder = ModelBuilder::new();
@@ -576,16 +576,23 @@ mod tests {
         let indices_val = from_data(vec![1], vec![1]);
         let indices = builder.add_int_constant(&indices_val);
 
-        let add_out = builder.add_value("add_out");
-        builder.add_operator(
+        let add_operator =
+            |builder: &mut ModelBuilder, name: &str, op: OpType, input_nodes: &[Option<u32>]| {
+                let output_name = format!("{}_out", name);
+                let op_output_node = builder.add_value(&output_name);
+                builder.add_operator(name, op, input_nodes, &[op_output_node]);
+                op_output_node
+            };
+
+        add_operator(
+            &mut builder,
             "add",
             OpType::Add,
             &[input_node, input_node].map(Some),
-            &[add_out],
         );
 
-        let average_pool_out = builder.add_value("average_pool_out");
-        builder.add_operator(
+        add_operator(
+            &mut builder,
             "average_pool",
             OpType::AveragePool(ops::AveragePool {
                 kernel_size: [2, 2],
@@ -593,7 +600,6 @@ mod tests {
                 padding: Padding::Fixed([0, 0, 0, 0]),
             }),
             &[input_node].map(Some),
-            &[average_pool_out],
         );
 
         // Dummy value for BatchNormalization inputs which are vectors with
@@ -601,8 +607,8 @@ mod tests {
         let batch_norm_param_val = from_vec(vec![1.0]);
         let batch_norm_param = builder.add_float_constant(&batch_norm_param_val);
 
-        let batch_normalization_out = builder.add_value("batch_normalization_out");
-        builder.add_operator(
+        add_operator(
+            &mut builder,
             "batch_normalization",
             OpType::BatchNormalization(ops::BatchNormalization { epsilon: 1e-5 }),
             &[
@@ -613,48 +619,43 @@ mod tests {
                 batch_norm_param, /* variance */
             ]
             .map(Some),
-            &[batch_normalization_out],
         );
 
-        let cast_out = builder.add_value("cast_out");
-        builder.add_operator(
+        add_operator(
+            &mut builder,
             "cast",
             OpType::Cast(ops::Cast {
                 to: ops::DataType::Float,
             }),
             &[input_node].map(Some),
-            &[cast_out],
         );
 
-        let clip_out = builder.add_value("clip_out");
-        builder.add_operator(
+        add_operator(
+            &mut builder,
             "clip",
             OpType::Clip(ops::Clip { min: 1.0, max: 5.0 }),
             &[input_node].map(Some),
-            &[clip_out],
         );
 
-        let concat_out = builder.add_value("concat_out");
-        builder.add_operator(
+        add_operator(
+            &mut builder,
             "concat",
             OpType::Concat(ops::Concat { dim: 0 }),
             &[input_node, input_node].map(Some),
-            &[concat_out],
         );
 
         let shape = builder.add_int_constant(&from_data(vec![3], vec![1, 5, 10]));
-        let constant_of_shape_out = builder.add_value("constant_of_shape_out");
-        builder.add_operator(
+        add_operator(
+            &mut builder,
             "constant_of_shape",
             OpType::ConstantOfShape(ops::ConstantOfShape {
                 value: Scalar::Int(42),
             }),
             &[shape].map(Some),
-            &[constant_of_shape_out],
         );
 
-        let conv_out = builder.add_value("conv_out");
-        builder.add_operator(
+        add_operator(
+            &mut builder,
             "conv",
             OpType::Conv(ops::Conv {
                 padding: Padding::Fixed([1, 1, 1, 1]),
@@ -662,59 +663,51 @@ mod tests {
                 strides: [1, 1],
             }),
             &[input_node, kernel].map(Some),
-            &[conv_out],
         );
 
-        let conv_transpose_out = builder.add_value("conv_transpose_out");
-        builder.add_operator(
+        add_operator(
+            &mut builder,
             "conv_transpose",
             OpType::ConvTranspose(ops::ConvTranspose { strides: [2, 2] }),
             &[input_node, kernel].map(Some),
-            &[conv_transpose_out],
         );
 
-        let cos_out = builder.add_value("cos_out");
-        builder.add_operator("cos", OpType::Cos, &[input_node].map(Some), &[cos_out]);
+        add_operator(&mut builder, "cos", OpType::Cos, &[input_node].map(Some));
 
-        let div_out = builder.add_value("div_out");
-        builder.add_operator(
+        add_operator(
+            &mut builder,
             "div",
             OpType::Div,
             &[input_node, input_node].map(Some),
-            &[div_out],
         );
 
-        let erf_out = builder.add_value("erf_out");
-        builder.add_operator("erf", OpType::Erf, &[input_node].map(Some), &[erf_out]);
+        add_operator(&mut builder, "erf", OpType::Erf, &[input_node].map(Some));
 
         let expand_shape_val = from_vec(vec![2, 2, 3, 3]);
         let expand_shape = builder.add_int_constant(&expand_shape_val);
-        let expand_out = builder.add_value("expand_out");
-        builder.add_operator(
+        add_operator(
+            &mut builder,
             "expand",
             OpType::Expand,
             &[input_node, expand_shape].map(Some),
-            &[expand_out],
         );
 
-        let equal_out = builder.add_value("equal_out");
-        builder.add_operator(
+        add_operator(
+            &mut builder,
             "equal",
             OpType::Equal,
             &[input_node, input_node].map(Some),
-            &[equal_out],
         );
 
-        let gather_out = builder.add_value("gather_out");
-        builder.add_operator(
+        add_operator(
+            &mut builder,
             "gather",
             OpType::Gather(ops::Gather { axis: 0 }),
             &[input_node, indices].map(Some),
-            &[gather_out],
         );
 
-        let gemm_out = builder.add_value("gemm_out");
-        builder.add_operator(
+        add_operator(
+            &mut builder,
             "gemm",
             OpType::Gemm(ops::Gemm {
                 alpha: 1.0,
@@ -723,51 +716,45 @@ mod tests {
                 transpose_b: false,
             }),
             &[input_2d, input_2d].map(Some),
-            &[gemm_out],
         );
 
-        let global_average_pool_out = builder.add_value("global_average_pool_out");
-        builder.add_operator(
+        add_operator(
+            &mut builder,
             "global_average_pool",
             OpType::GlobalAveragePool,
             &[input_node].map(Some),
-            &[global_average_pool_out],
         );
 
-        let identity_out = builder.add_value("identity_out");
-        builder.add_operator(
+        add_operator(
+            &mut builder,
             "identity",
             OpType::Identity,
             &[input_node].map(Some),
-            &[identity_out],
         );
 
-        let leaky_relu_out = builder.add_value("leaky_relu_out");
-        builder.add_operator(
+        add_operator(
+            &mut builder,
             "leaky_relu",
             OpType::LeakyRelu(ops::LeakyRelu { alpha: 0.01 }),
             &[input_node].map(Some),
-            &[leaky_relu_out],
         );
 
-        let less_out = builder.add_value("less_out");
-        builder.add_operator(
+        add_operator(
+            &mut builder,
             "less",
             OpType::Less,
             &[input_node, input_node].map(Some),
-            &[less_out],
         );
 
-        let matmul_out = builder.add_value("matmul_out");
-        builder.add_operator(
+        add_operator(
+            &mut builder,
             "matmul",
             OpType::MatMul,
             &[input_2d, input_2d].map(Some),
-            &[matmul_out],
         );
 
-        let max_pool_out = builder.add_value("max_pool_out");
-        builder.add_operator(
+        add_operator(
+            &mut builder,
             "max_pool",
             OpType::MaxPool(ops::MaxPool {
                 kernel_size: [2, 2],
@@ -775,121 +762,106 @@ mod tests {
                 padding: Padding::Fixed([0, 0, 0, 0]),
             }),
             &[input_node].map(Some),
-            &[max_pool_out],
         );
 
-        let mul_out = builder.add_value("mul_out");
-        builder.add_operator(
+        add_operator(
+            &mut builder,
             "mul",
             OpType::Mul,
             &[input_node, input_node].map(Some),
-            &[mul_out],
         );
 
         let pads = builder.add_int_constant(&from_data(vec![8], vec![0, 0, 1, 1, 0, 0, 1, 1]));
-        let pad_out = builder.add_value("pad_out");
-        builder.add_operator(
+        add_operator(
+            &mut builder,
             "pad",
             OpType::Pad,
             &[input_node, pads].map(Some),
-            &[pad_out],
         );
 
-        let pow_out = builder.add_value("pow_out");
-        builder.add_operator(
+        add_operator(
+            &mut builder,
             "pow",
             OpType::Pow,
             &[input_node, input_node].map(Some),
-            &[pow_out],
         );
 
         let range_start_node = builder.add_value("range_start");
         let range_limit_node = builder.add_value("range_limit");
         let range_delta_node = builder.add_value("range_delta");
-        let range_out = builder.add_value("range");
-        builder.add_operator(
+        let range_out = add_operator(
+            &mut builder,
             "range",
             OpType::Range,
             &[range_start_node, range_limit_node, range_delta_node].map(Some),
-            &[range_out],
         );
 
-        let reduce_mean_out = builder.add_value("reduce_mean_out");
-        builder.add_operator(
+        add_operator(
+            &mut builder,
             "reduce_mean",
             OpType::ReduceMean(ops::ReduceMean {
                 axes: None,
                 keep_dims: false,
             }),
             &[input_node].map(Some),
-            &[reduce_mean_out],
         );
 
-        let relu_out = builder.add_value("relu_out");
-        builder.add_operator("relu", OpType::Relu, &[input_node].map(Some), &[relu_out]);
+        add_operator(&mut builder, "relu", OpType::Relu, &[input_node].map(Some));
 
         let new_shape = builder.add_int_constant(&from_data(vec![1], vec![9]));
-        let reshape_out = builder.add_value("reshape_out");
-        builder.add_operator(
+        add_operator(
+            &mut builder,
             "reshape",
             OpType::Reshape,
             &[input_node, new_shape].map(Some),
-            &[reshape_out],
         );
 
-        let resize_out = builder.add_value("resize_out");
         let resize_roi_val = from_vec(vec![0., 0., 0., 0., 1., 1., 1., 1.]);
         let resize_scales_val = from_vec(vec![1., 1., 2., 2.]);
         let resize_roi = builder.add_float_constant(&resize_roi_val);
         let resize_scales = builder.add_float_constant(&resize_scales_val);
-        builder.add_operator(
+        add_operator(
+            &mut builder,
             "resize",
             OpType::Resize(ops::Resize {
                 mode: ResizeMode::Nearest,
             }),
             &[input_node, resize_roi, resize_scales].map(Some),
-            &[resize_out],
         );
 
-        let shape_out = builder.add_value("shape_out");
-        builder.add_operator(
+        add_operator(
+            &mut builder,
             "shape",
             OpType::Shape,
             &[input_node].map(Some),
-            &[shape_out],
         );
 
-        let sigmoid_out = builder.add_value("sigmoid_out");
-        builder.add_operator(
+        add_operator(
+            &mut builder,
             "sigmoid",
             OpType::Sigmoid,
             &[input_node].map(Some),
-            &[sigmoid_out],
         );
 
-        let sin_out = builder.add_value("sin_out");
-        builder.add_operator("sin", OpType::Sin, &[input_node].map(Some), &[sin_out]);
+        add_operator(&mut builder, "sin", OpType::Sin, &[input_node].map(Some));
 
         let const_0 = builder.add_int_constant(&from_data(vec![1], vec![0]));
         let const_1 = builder.add_int_constant(&from_data(vec![1], vec![1]));
-        let slice_out = builder.add_value("slice_out");
-        builder.add_operator(
+        add_operator(
+            &mut builder,
             "slice",
             OpType::Slice,
             &[input_node, const_0, const_1, const_0].map(Some),
-            &[slice_out],
         );
 
-        let softmax_out = builder.add_value("softmax_out");
-        builder.add_operator(
+        add_operator(
+            &mut builder,
             "softmax",
             OpType::Softmax(ops::Softmax { axis: 1 }),
             &[input_node].map(Some),
-            &[softmax_out],
         );
 
-        let sqrt_out = builder.add_value("sqrt_out");
-        builder.add_operator("sqrt", OpType::Sqrt, &[input_node].map(Some), &[sqrt_out]);
+        add_operator(&mut builder, "sqrt", OpType::Sqrt, &[input_node].map(Some));
 
         let squeeze_out = builder.add_value("squeeze_out");
         builder.add_operator(
@@ -911,42 +883,37 @@ mod tests {
             &[split_out_1, split_out_2],
         );
 
-        let sub_out = builder.add_value("sub_out");
-        builder.add_operator(
+        add_operator(
+            &mut builder,
             "sub",
             OpType::Sub,
             &[input_node, input_node].map(Some),
-            &[sub_out],
         );
 
-        let tanh_out = builder.add_value("tanh_out");
-        builder.add_operator("tanh", OpType::Tanh, &[input_node].map(Some), &[tanh_out]);
+        add_operator(&mut builder, "tanh", OpType::Tanh, &[input_node].map(Some));
 
-        let transpose_out = builder.add_value("transpose_out");
-        builder.add_operator(
+        add_operator(
+            &mut builder,
             "transpose",
             OpType::Transpose(ops::Transpose { perm: None }),
             &[input_node].map(Some),
-            &[transpose_out],
         );
 
-        let unsqueeze_out = builder.add_value("unsqueeze_out");
-        builder.add_operator(
+        add_operator(
+            &mut builder,
             "unsqueeze",
             OpType::Unsqueeze(ops::Unsqueeze { axes: vec![0, 4] }),
             &[input_node].map(Some),
-            &[unsqueeze_out],
         );
 
-        let where_out = builder.add_value("where_out");
         let where_cond = builder.add_value("where_cond");
         let where_x = builder.add_value("where_x");
         let where_y = builder.add_value("where_y");
-        builder.add_operator(
+        let where_out = add_operator(
+            &mut builder,
             "where",
             OpType::Where,
             &[where_cond, where_x, where_y].map(Some),
-            &[where_out],
         );
 
         let buffer = builder.finish();
