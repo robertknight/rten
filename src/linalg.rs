@@ -558,12 +558,11 @@ fn gemm_impl<K: Kernel, const MR_NR: usize>(
         panic!("Columns of matrix `a` must match rows of matrix `b`");
     }
 
-    // The constant values below were taken from the matrixmultiply crate. The
-    // MR and NR sizes correspond to its fallback (non-SIMD) and SSE kernels.
-    // See https://dl.acm.org/doi/pdf/10.1145/2925987 for an explanation of how
-    // suitable values are determined. Since we don't know exactly which CPU
-    // this code will be run on, we try to pick something that will work well on
-    // most systems.
+    // The constant values for block sizes below were taken from the
+    // matrixmultiply crate. See https://dl.acm.org/doi/pdf/10.1145/2925987 for
+    // an explanation of how suitable values are determined. Since we don't know
+    // exactly which CPU this code will be run on, we try to pick something that
+    // will work well on most systems.
 
     // Sizes of blocks that the width (nc), depth (kc) and height (mc)
     // dimensions are partitioned into in the outer loops. These are chosen
