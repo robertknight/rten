@@ -573,9 +573,6 @@ mod tests {
         let kernel_val = from_data(vec![1, 1, 1, 1], vec![0.5]);
         let kernel = builder.add_float_constant(&kernel_val);
 
-        let indices_val = from_data(vec![1], vec![1]);
-        let indices = builder.add_int_constant(&indices_val);
-
         let add_operator =
             |builder: &mut ModelBuilder, name: &str, op: OpType, input_nodes: &[Option<u32>]| {
                 let output_name = format!("{}_out", name);
@@ -653,8 +650,9 @@ mod tests {
         let expand_shape = builder.add_int_constant(&expand_shape_val);
         add_operator!(Expand, [input_node, expand_shape]);
 
-        // FIXME - Add this to the list of output nodes for model runs at the end.
-        add_operator!(Gather, [input_node, indices], { axis: 0 });
+        let gather_indices_val = from_data(vec![1], vec![0]);
+        let gather_indices = builder.add_int_constant(&gather_indices_val);
+        add_operator!(Gather, [input_node, gather_indices], { axis: 0 });
 
         add_operator!(Gemm, [input_2d, input_2d], {
             alpha: 1.0,
@@ -758,6 +756,7 @@ mod tests {
             "Erf_out",
             "Expand_out",
             "Identity_out",
+            "Gather_out",
             "GlobalAveragePool_out",
             "LeakyRelu_out",
             "Less_out",
