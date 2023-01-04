@@ -479,9 +479,6 @@ pub struct Matrix<'a> {
 
 /// Perform a General Matrix Multiplication ("gemm").
 ///
-/// This is a low-level API that operates directly on slices. Use `gemm` for
-/// a more convenient way to multiply two 2D tensors.
-///
 /// This computes `output = alpha * (a @ b) + beta * output` where `@` is
 /// matrix multiplication.
 ///
