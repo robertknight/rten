@@ -78,23 +78,23 @@ impl<'a> Input<'a> {
 }
 
 impl<'a> TryFrom<Input<'a>> for &'a Tensor<f32> {
-    type Error = ();
+    type Error = OpError;
 
-    fn try_from(input: Input<'a>) -> Result<&'a Tensor<f32>, ()> {
+    fn try_from(input: Input<'a>) -> Result<&'a Tensor<f32>, Self::Error> {
         match input {
             Input::FloatTensor(t) => Ok(t),
-            _ => Err(()),
+            _ => Err(OpError::UnsupportedInputType),
         }
     }
 }
 
 impl<'a> TryFrom<Input<'a>> for &'a Tensor<i32> {
-    type Error = ();
+    type Error = OpError;
 
-    fn try_from(input: Input<'a>) -> Result<&'a Tensor<i32>, ()> {
+    fn try_from(input: Input<'a>) -> Result<&'a Tensor<i32>, Self::Error> {
         match input {
             Input::IntTensor(t) => Ok(t),
-            _ => Err(()),
+            _ => Err(OpError::UnsupportedInputType),
         }
     }
 }
