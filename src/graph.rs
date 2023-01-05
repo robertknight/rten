@@ -3,7 +3,7 @@ use std::error::Error;
 use std::fmt;
 use std::iter::zip;
 
-use crate::ops::{Input, OpError, Operator, Output};
+use crate::ops::{Input, InputList, OpError, Operator, Output};
 use crate::tensor::Tensor;
 use crate::timer::Timer;
 
@@ -236,11 +236,6 @@ impl Graph {
             }
         }
 
-        // Empty vector used to represent missing optional inputs. This is a
-        // placeholder until the `Operator::run` API changes to support
-        // omitting inputs.
-        let missing_input = Tensor::<f32>::zeros(&[0]);
-
         // Execute the plan
         let mut temp_values: HashMap<NodeId, Output> = HashMap::new();
         let mut op_elapsed: HashMap<&str, f32> = HashMap::new();
@@ -273,7 +268,7 @@ impl Graph {
             });
 
             // Collect all or remaining inputs for the operator
-            let mut op_inputs: Vec<Input> = Vec::new();
+            let mut op_inputs: Vec<Option<Input>> = Vec::new();
             let immutable_inputs = if in_place_input.is_some() {
                 &op_node.inputs[1..]
             } else {
@@ -282,13 +277,13 @@ impl Graph {
             for node_id in immutable_inputs.iter() {
                 if let Some(node_id) = node_id {
                     if let Some(&value) = values.get(node_id) {
-                        op_inputs.push(value);
+                        op_inputs.push(Some(value));
                     } else if let Some(value) = temp_values.get(node_id) {
                         let input = match value {
                             Output::IntTensor(t) => Input::IntTensor(t),
                             Output::FloatTensor(t) => Input::FloatTensor(t),
                         };
-                        op_inputs.push(input);
+                        op_inputs.push(Some(input));
                     } else {
                         // If this is reached, there was a bug in plan creation.
                         panic!(
@@ -298,19 +293,19 @@ impl Graph {
                         );
                     }
                 } else {
-                    // The Operator trait doesn't yet support omitting optional
-                    // inputs. Pass a placeholder until that work is complete.
-                    op_inputs.push((&missing_input).into());
+                    op_inputs.push(None);
                 }
             }
 
             let op_result = if let Some(input) = in_place_input {
                 op_node
                     .operator
-                    .run_in_place(input, &op_inputs)
+                    .run_in_place(input, InputList::from_optional(&op_inputs))
                     .map(|out| [out].into())
             } else {
-                op_node.operator.run(&op_inputs[..])
+                op_node
+                    .operator
+                    .run(InputList::from_optional(&op_inputs[..]))
             };
 
             // Log verbose info if enabled. This is done before we check the
@@ -328,7 +323,10 @@ impl Graph {
                 if opts.verbose {
                     // FIXME: If the operator ran in-place, the shape of the
                     // first input is not included.
-                    let input_shapes: Vec<_> = op_inputs.iter().map(|x| x.shape()).collect();
+                    let input_shapes: Vec<_> = op_inputs
+                        .iter()
+                        .map(|x| x.map(|input| input.shape()))
+                        .collect();
                     println!(
                         "#{} {:?} with {:?} in {}ms",
                         step,
@@ -553,7 +551,7 @@ mod tests {
 
     use crate::graph::{Graph, RunError};
     use crate::ops::{
-        Concat, Conv, Input, IntoOpResult, OpError, Operator, Output, Padding, Relu, Shape,
+        Concat, Conv, InputList, IntoOpResult, OpError, Operator, Output, Padding, Relu, Shape,
     };
     use crate::tensor::{from_data, from_vec, zeros, Tensor};
     use crate::test_util::expect_equal;
@@ -660,8 +658,8 @@ mod tests {
             "AddOne"
         }
 
-        fn run(&self, inputs: &[Input]) -> Result<Vec<Output>, OpError> {
-            let input: &Tensor<f32> = inputs[0].try_into().unwrap();
+        fn run(&self, inputs: InputList) -> Result<Vec<Output>, OpError> {
+            let input: &Tensor<f32> = inputs.require_as(0)?;
             let output_data = input.elements().map(|x| x + 1.0).collect();
             from_data(input.shape().into(), output_data).into_op_result()
         }
@@ -789,14 +787,18 @@ mod tests {
 
         // Call an operator with an input omitted by setting it to `None`,
         // as opposed to passing a shorter input list. This enables omitting
-        // an input but still providing subsequent ones. The Operator API
-        // doesn't support this yet, so the graph just calls it with an empty
-        // tensor as a placeholder.
-        g.add_op(Some("op"), Box::new(Shape {}), &[None], &[Some(output)]);
+        // an input but still providing subsequent ones.
+        g.add_op(Some("shape"), Box::new(Shape {}), &[None], &[Some(output)]);
 
-        let results = g.run(&[], &[output], None).unwrap();
+        let results = g.run(&[], &[output], None);
 
-        assert_eq!(results[0].as_int_ref().unwrap(), &from_vec(vec![0]));
+        assert_eq!(
+            results.err(),
+            Some(RunError::OperatorError {
+                name: "shape".to_string(),
+                error: OpError::MissingInputs
+            })
+        );
     }
 
     #[test]
@@ -834,15 +836,15 @@ mod tests {
             true
         }
 
-        fn run(&self, inputs: &[Input]) -> Result<Vec<Output>, OpError> {
+        fn run(&self, inputs: InputList) -> Result<Vec<Output>, OpError> {
             // An operator should normally have the same behavior in `run`
             // and `run_in_place`. Here we use different behavior to make it
             // possible to distinguish which path was used.
-            let input: &Tensor<f32> = inputs[0].try_into().unwrap();
+            let input: &Tensor<f32> = inputs.require_as(0)?;
             input.clone().into_op_result()
         }
 
-        fn run_in_place(&self, input: Output, _other: &[Input]) -> Result<Output, OpError> {
+        fn run_in_place(&self, input: Output, _other: InputList) -> Result<Output, OpError> {
             let mut output = input.into_float().unwrap();
             for x in output.data_mut().iter_mut() {
                 *x = *x + 1.0;
@@ -929,10 +931,10 @@ mod tests {
             "Split"
         }
 
-        fn run(&self, inputs: &[Input]) -> Result<Vec<Output>, OpError> {
+        fn run(&self, inputs: InputList) -> Result<Vec<Output>, OpError> {
             self.run_count.set(self.run_count.get() + 1);
 
-            let input: &Tensor<f32> = inputs[0].try_into().unwrap();
+            let input: &Tensor<f32> = inputs.require_as(0)?;
             let left_split_len = input.len() / 2;
             let left_split = from_vec(input.elements().take(left_split_len).collect());
             let right_split = from_vec(input.elements().skip(left_split_len).collect());

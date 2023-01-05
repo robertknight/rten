@@ -1,6 +1,6 @@
 ///! Operators which query or change the shape of a tensor, or copy/move/reorder
 ///! elements.
-use crate::ops::{get_input, Input, IntoOpResult, OpError, Operator, Output};
+use crate::ops::{Input, InputList, IntoOpResult, OpError, Operator, Output};
 use crate::tensor::{from_data, Tensor};
 
 pub fn expand<T: Copy>(input: &Tensor<T>, shape: &Tensor<i32>) -> Result<Tensor<T>, OpError> {
@@ -27,9 +27,9 @@ impl Operator for Expand {
         "Expand"
     }
 
-    fn run(&self, inputs: &[Input]) -> Result<Vec<Output>, OpError> {
-        let input = inputs.get(0).ok_or(OpError::MissingInputs)?;
-        let shape = get_input(inputs, 1)?;
+    fn run(&self, inputs: InputList) -> Result<Vec<Output>, OpError> {
+        let input = inputs.require(0)?;
+        let shape = inputs.require_as(1)?;
 
         match input {
             Input::FloatTensor(input) => expand(input, shape).into_op_result(),
@@ -105,9 +105,9 @@ impl Operator for Reshape {
         "Reshape"
     }
 
-    fn run(&self, inputs: &[Input]) -> Result<Vec<Output>, OpError> {
-        let input = inputs.get(0).ok_or(OpError::MissingInputs)?;
-        let shape = get_input(inputs, 1)?;
+    fn run(&self, inputs: InputList) -> Result<Vec<Output>, OpError> {
+        let input = inputs.require(0)?;
+        let shape = inputs.require_as(1)?;
         match input {
             Input::IntTensor(t) => reshape(t, shape).into_op_result(),
             Input::FloatTensor(t) => reshape(t, shape).into_op_result(),
@@ -118,8 +118,8 @@ impl Operator for Reshape {
         true
     }
 
-    fn run_in_place(&self, input: Output, other: &[Input]) -> Result<Output, OpError> {
-        let shape = get_input(other, 0)?;
+    fn run_in_place(&self, input: Output, other: InputList) -> Result<Output, OpError> {
+        let shape = other.require_as(0)?;
         match input {
             Output::IntTensor(mut output) => {
                 reshape_in_place(&mut output, shape)?;
@@ -141,8 +141,8 @@ impl Operator for Shape {
         "Shape"
     }
 
-    fn run(&self, inputs: &[Input]) -> Result<Vec<Output>, OpError> {
-        let input = inputs.get(0).ok_or(OpError::MissingInputs)?;
+    fn run(&self, inputs: InputList) -> Result<Vec<Output>, OpError> {
+        let input = inputs.require(0)?;
         let shape = from_data(
             vec![input.shape().len()],
             input.shape().iter().map(|&el| el as i32).collect(),
@@ -190,8 +190,8 @@ impl Operator for Squeeze {
         "Squeeze"
     }
 
-    fn run(&self, inputs: &[Input]) -> Result<Vec<Output>, OpError> {
-        let input = inputs.get(0).ok_or(OpError::MissingInputs)?;
+    fn run(&self, inputs: InputList) -> Result<Vec<Output>, OpError> {
+        let input = inputs.require(0)?;
         let axes = self.axes.as_ref().map(|a| &a[..]);
         let result: Output = match input {
             Input::FloatTensor(t) => squeeze(t, axes).into(),
@@ -204,7 +204,7 @@ impl Operator for Squeeze {
         true
     }
 
-    fn run_in_place(&self, input: Output, _: &[Input]) -> Result<Output, OpError> {
+    fn run_in_place(&self, input: Output, _: InputList) -> Result<Output, OpError> {
         let axes = self.axes.as_ref().map(|a| &a[..]);
         let result = match input {
             Output::FloatTensor(mut t) => {
@@ -244,8 +244,8 @@ impl Operator for Transpose {
         "Transpose"
     }
 
-    fn run(&self, inputs: &[Input]) -> Result<Vec<Output>, OpError> {
-        let input = inputs.get(0).ok_or(OpError::MissingInputs)?;
+    fn run(&self, inputs: InputList) -> Result<Vec<Output>, OpError> {
+        let input = inputs.require(0)?;
         let perm_slice = self.perm.as_deref();
         let result: Output = match input {
             Input::FloatTensor(input) => transpose(input, perm_slice).into(),
@@ -275,8 +275,8 @@ impl Operator for Unsqueeze {
         "Unsqueeze"
     }
 
-    fn run(&self, inputs: &[Input]) -> Result<Vec<Output>, OpError> {
-        let input = inputs.get(0).ok_or(OpError::MissingInputs)?;
+    fn run(&self, inputs: InputList) -> Result<Vec<Output>, OpError> {
+        let input = inputs.require(0)?;
         let result: Output = match input {
             Input::FloatTensor(input) => unsqueeze(input, &self.axes).into(),
             Input::IntTensor(input) => unsqueeze(input, &self.axes).into(),
@@ -289,7 +289,7 @@ impl Operator for Unsqueeze {
 mod tests {
     use crate::ops::layout::{
         expand, reshape, reshape_in_place, squeeze, squeeze_in_place, transpose, unsqueeze,
-        Reshape, Shape,
+        InputList, Reshape, Shape,
     };
     use crate::ops::{OpError, Operator};
     use crate::rng::XorShiftRNG;
@@ -406,7 +406,7 @@ mod tests {
 
         let op = Reshape {};
         let result = op
-            .run(&[(&input).into(), (&shape).into()])
+            .run(InputList::from(&[(&input).into(), (&shape).into()]))
             .unwrap()
             .remove(0)
             .into_float()
@@ -422,7 +422,7 @@ mod tests {
         // Float input
         let input = from_data(vec![1, 1, 2, 2], vec![1.0, 2.0, 3.0, 4.0]);
         let result = op
-            .run(&[(&input).into()])
+            .run(InputList::from(&[(&input).into()]))
             .unwrap()
             .remove(0)
             .into_int()
@@ -433,7 +433,7 @@ mod tests {
         // Int input
         let input = from_data(vec![1, 1, 2, 2], vec![1, 2, 3, 4]);
         let result = op
-            .run(&[(&input).into()])
+            .run(InputList::from(&[(&input).into()]))
             .unwrap()
             .remove(0)
             .into_int()

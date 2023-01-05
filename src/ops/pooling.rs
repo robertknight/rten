@@ -1,5 +1,5 @@
 use crate::linalg::div_ceil;
-use crate::ops::{get_input, Input, IntoOpResult, OpError, Operator, Output, Padding};
+use crate::ops::{InputList, IntoOpResult, OpError, Operator, Output, Padding};
 use crate::tensor::{zeros, Tensor};
 
 /// Calculate the output size and padding for a convolution or pooling operation.
@@ -120,8 +120,8 @@ impl Operator for AveragePool {
         "AveragePool"
     }
 
-    fn run(&self, inputs: &[Input]) -> Result<Vec<Output>, OpError> {
-        let input = get_input(inputs, 0)?;
+    fn run(&self, inputs: InputList) -> Result<Vec<Output>, OpError> {
+        let input = inputs.require_as(0)?;
         average_pool(input, self.kernel_size, self.strides, self.padding).into_op_result()
     }
 }
@@ -156,8 +156,8 @@ impl Operator for GlobalAveragePool {
         "GlobalAveragePool"
     }
 
-    fn run(&self, inputs: &[Input]) -> Result<Vec<Output>, OpError> {
-        let input = get_input(inputs, 0)?;
+    fn run(&self, inputs: InputList) -> Result<Vec<Output>, OpError> {
+        let input = inputs.require_as(0)?;
         global_average_pool(input).into_op_result()
     }
 }
@@ -224,8 +224,8 @@ impl Operator for MaxPool {
         "MaxPool"
     }
 
-    fn run(&self, inputs: &[Input]) -> Result<Vec<Output>, OpError> {
-        let input = get_input(inputs, 0)?;
+    fn run(&self, inputs: InputList) -> Result<Vec<Output>, OpError> {
+        let input = inputs.require_as(0)?;
         max_pool(input, self.kernel_size, self.strides, self.padding).into_op_result()
     }
 }

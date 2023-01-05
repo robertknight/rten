@@ -1,5 +1,5 @@
 use crate::ops::layout::squeeze_in_place;
-use crate::ops::{get_input, resolve_axes, Input, IntoOpResult, OpError, Operator, Output};
+use crate::ops::{resolve_axes, InputList, IntoOpResult, OpError, Operator, Output};
 use crate::tensor::{IndexIterator, SliceRange, Tensor};
 
 /// Trait for reducing a subset of elements from a tensor to a single value.
@@ -122,8 +122,8 @@ impl Operator for ReduceMean {
         "ReduceMean"
     }
 
-    fn run(&self, inputs: &[Input]) -> Result<Vec<Output>, OpError> {
-        let input = get_input(inputs, 0)?;
+    fn run(&self, inputs: InputList) -> Result<Vec<Output>, OpError> {
+        let input = inputs.require_as(0)?;
         reduce_mean(
             input,
             self.axes.as_ref().map(|axis| &axis[..]),

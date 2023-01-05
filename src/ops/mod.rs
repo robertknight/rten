@@ -83,7 +83,7 @@ impl<'a> TryFrom<Input<'a>> for &'a Tensor<f32> {
     fn try_from(input: Input<'a>) -> Result<&'a Tensor<f32>, Self::Error> {
         match input {
             Input::FloatTensor(t) => Ok(t),
-            _ => Err(OpError::UnsupportedInputType),
+            _ => Err(OpError::IncorrectInputType),
         }
     }
 }
@@ -94,8 +94,30 @@ impl<'a> TryFrom<Input<'a>> for &'a Tensor<i32> {
     fn try_from(input: Input<'a>) -> Result<&'a Tensor<i32>, Self::Error> {
         match input {
             Input::IntTensor(t) => Ok(t),
-            _ => Err(OpError::UnsupportedInputType),
+            _ => Err(OpError::IncorrectInputType),
         }
+    }
+}
+
+impl<'a> TryFrom<Input<'a>> for f32 {
+    type Error = OpError;
+
+    fn try_from(input: Input<'a>) -> Result<f32, Self::Error> {
+        let tensor: &Tensor<_> = input.try_into()?;
+        tensor
+            .item()
+            .ok_or(OpError::InvalidValue("Expected scalar value"))
+    }
+}
+
+impl<'a> TryFrom<Input<'a>> for i32 {
+    type Error = OpError;
+
+    fn try_from(input: Input<'a>) -> Result<i32, Self::Error> {
+        let tensor: &Tensor<_> = input.try_into()?;
+        tensor
+            .item()
+            .ok_or(OpError::InvalidValue("Expected scalar value"))
     }
 }
 
@@ -212,15 +234,13 @@ where
 /// Possible reasons why an operator may fail on a given input.
 #[derive(Eq, PartialEq, Debug)]
 pub enum OpError {
-    /// Input tensors have an unsupported element type.
-    UnsupportedInputType,
+    /// Input tensors have an element type that is unsupported or incompatible
+    /// with other inputs.
+    IncorrectInputType,
 
     /// Input tensor shapes are not compatible with each other or operator
     /// attributes.
     IncompatibleInputShapes(&'static str),
-
-    /// Operator inputs have non-matching element types.
-    IncompatibleInputTypes(&'static str),
 
     /// The number of inputs was less than the required number.
     MissingInputs,
@@ -235,12 +255,9 @@ pub enum OpError {
 impl Display for OpError {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
-            OpError::UnsupportedInputType => write!(f, "unsupported input type"),
+            OpError::IncorrectInputType => write!(f, "incorrect or unsupported input type"),
             OpError::IncompatibleInputShapes(details) => {
                 write!(f, "incompatible input shapes: {}", details)
-            }
-            OpError::IncompatibleInputTypes(details) => {
-                write!(f, "incompatible input types: {}", details)
             }
             OpError::MissingInputs => write!(f, "required inputs were missing"),
             OpError::InvalidValue(details) => {
@@ -267,7 +284,7 @@ pub trait Operator: Debug {
     fn name(&self) -> &str;
 
     /// Execute the operator with the given inputs.
-    fn run(&self, input: &[Input]) -> Result<Vec<Output>, OpError>;
+    fn run(&self, input: InputList) -> Result<Vec<Output>, OpError>;
 
     /// Return true if this operator supports in-place execution via
     /// `run_in_place`.
@@ -285,63 +302,106 @@ pub trait Operator: Debug {
     ///
     /// `input` is the first input, which the implementation may modify and
     /// return as the output. `other` are the remaining inputs.
-    fn run_in_place(&self, _input: Output, _other: &[Input]) -> Result<Output, OpError> {
+    fn run_in_place(&self, _input: Output, _other: InputList) -> Result<Output, OpError> {
         unimplemented!("in-place execution not supported")
     }
 }
 
-/// Extract a required tensor input from `inputs`, or return an error.
-pub fn get_input<'a, T: Copy>(inputs: &'a [Input], index: usize) -> Result<&'a Tensor<T>, OpError>
-where
-    &'a Tensor<T>: TryFrom<Input<'a>>,
-{
-    inputs
-        .get(index)
-        .ok_or(OpError::MissingInputs)
-        .and_then(|&input| input.try_into().or(Err(OpError::UnsupportedInputType)))
+/// List of inputs for an operator evaluation.
+///
+/// Conceptually this is like a `&[Option<Input>]` with methods to conveniently
+/// extract inputs and produce appropriate errors if inputs are missing or of
+/// the wrong type.
+pub struct InputList<'a> {
+    inputs: Vec<Option<Input<'a>>>,
 }
 
-/// Extract an optional tensor input from `inputs`, or return an error.
-pub fn get_optional_input<'a, T: Copy>(
-    inputs: &'a [Input],
-    index: usize,
-) -> Result<Option<&'a Tensor<T>>, OpError>
-where
-    &'a Tensor<T>: TryFrom<Input<'a>>,
-{
-    inputs
-        .get(index)
-        .map(|&input| input.try_into().or(Err(OpError::UnsupportedInputType)))
-        .transpose()
-}
-
-/// Extract input tensors of the same type from a list of inputs.
-fn get_inputs<'a, T: Copy>(inputs: &'a [Input]) -> Result<Vec<&'a Tensor<T>>, OpError>
-where
-    &'a Tensor<T>: TryFrom<Input<'a>>,
-{
-    let mut tensors = Vec::with_capacity(inputs.len());
-    for &input in inputs {
-        let tensor = input.try_into().or(Err(OpError::IncompatibleInputTypes(
-            "Inputs have incompatible types",
-        )))?;
-        tensors.push(tensor);
+impl<'a> InputList<'a> {
+    pub fn from<'b>(inputs: &'b [Input<'b>]) -> InputList<'b> {
+        InputList {
+            inputs: inputs.iter().copied().map(Some).collect(),
+        }
     }
-    Ok(tensors)
+
+    pub fn from_optional<'b>(inputs: &'b [Option<Input<'b>>]) -> InputList<'b> {
+        InputList {
+            inputs: inputs.to_vec(),
+        }
+    }
+
+    /// Get an optional input.
+    pub fn get(&self, index: usize) -> Option<Input<'a>> {
+        self.inputs.get(index).copied().flatten()
+    }
+
+    /// Get an optional input as a tensor.
+    pub fn get_as<T: Copy>(&self, index: usize) -> Result<Option<&'a Tensor<T>>, OpError>
+    where
+        &'a Tensor<T>: TryFrom<Input<'a>, Error = OpError>,
+    {
+        self.get(index).map(|input| input.try_into()).transpose()
+    }
+
+    /// Get an optional input as a scalar value.
+    pub fn get_as_scalar<T: Copy + 'a>(&self, index: usize) -> Result<Option<T>, OpError>
+    where
+        &'a Tensor<T>: TryFrom<Input<'a>, Error = OpError>,
+    {
+        let tensor = self.get_as::<T>(index)?;
+        tensor
+            .map(|t| {
+                t.item()
+                    .ok_or(OpError::InvalidValue("Expected scalar value"))
+            })
+            .transpose()
+    }
+
+    /// Get a required operator input.
+    pub fn require(&self, index: usize) -> Result<Input<'a>, OpError> {
+        self.get(index).ok_or(OpError::MissingInputs)
+    }
+
+    /// Get a required operator input as a tensor.
+    pub fn require_as<T: Copy>(&self, index: usize) -> Result<&'a Tensor<T>, OpError>
+    where
+        &'a Tensor<T>: TryFrom<Input<'a>, Error = OpError>,
+    {
+        self.require(index).and_then(|input| input.try_into())
+    }
+
+    #[allow(dead_code)] // Not currently used, but exists for consistency with `get_as_scalar`
+    pub fn require_as_scalar<T: Copy + 'a>(&self, index: usize) -> Result<T, OpError>
+    where
+        T: TryFrom<Input<'a>, Error = OpError>,
+    {
+        self.require(index).and_then(|input| input.try_into())
+    }
+
+    pub fn iter(&'a self) -> InputListIter<'a> {
+        InputListIter {
+            index: 0,
+            inputs: self,
+        }
+    }
 }
 
-/// Extract a scalar value from an input tensor.
-fn get_scalar<'a, T: Copy + 'a>(input: Input<'a>) -> Result<T, OpError>
-where
-    &'a Tensor<T>: TryFrom<Input<'a>>,
-{
-    let tensor: &Tensor<T> = input
-        .try_into()
-        .or(Err(OpError::IncompatibleInputTypes("Incorrect input type")))?;
-    if let Some(scalar) = tensor.item() {
-        Ok(scalar)
-    } else {
-        Err(OpError::InvalidValue("Expected scalar value"))
+pub struct InputListIter<'a> {
+    inputs: &'a InputList<'a>,
+    index: usize,
+}
+
+impl<'a> Iterator for InputListIter<'a> {
+    type Item = Input<'a>;
+
+    fn next(&mut self) -> Option<Self::Item> {
+        let input = self.inputs.get(self.index);
+        self.index += 1;
+        input
+    }
+
+    fn size_hint(&self) -> (usize, Option<usize>) {
+        let remaining = self.inputs.inputs.len() - self.index;
+        (remaining, Some(remaining))
     }
 }
 
@@ -355,8 +415,8 @@ impl Operator for Cast {
         "Cast"
     }
 
-    fn run(&self, inputs: &[Input]) -> Result<Vec<Output>, OpError> {
-        let input = inputs.get(0).ok_or(OpError::MissingInputs)?;
+    fn run(&self, inputs: InputList) -> Result<Vec<Output>, OpError> {
+        let input = inputs.require(0)?;
         let result: Output = match input {
             Input::IntTensor(t) => match self.to {
                 DataType::Int32 => (*t).clone().into(),
@@ -374,12 +434,12 @@ impl Operator for Cast {
         true
     }
 
-    fn run_in_place(&self, input: Output, _: &[Input]) -> Result<Output, OpError> {
+    fn run_in_place(&self, input: Output, _: InputList) -> Result<Output, OpError> {
         match (input, self.to) {
             (Output::IntTensor(t), DataType::Int32) => Ok(t.into()),
             (Output::FloatTensor(t), DataType::Float) => Ok(t.into()),
             (input, _) => self
-                .run(&[(&input).into()])
+                .run(InputList::from(&[(&input).into()]))
                 .map(|mut outputs| outputs.remove(0)),
         }
     }
@@ -407,8 +467,8 @@ impl Operator for ConstantOfShape {
         "ConstantOfShape"
     }
 
-    fn run(&self, inputs: &[Input]) -> Result<Vec<Output>, OpError> {
-        let shape = get_input::<i32>(inputs, 0)?;
+    fn run(&self, inputs: InputList) -> Result<Vec<Output>, OpError> {
+        let shape = inputs.require_as::<i32>(0)?;
         match self.value {
             Scalar::Int(value) => constant_of_shape(value, shape).into_op_result(),
             Scalar::Float(value) => constant_of_shape(value, shape).into_op_result(),
@@ -479,9 +539,9 @@ impl Operator for Gather {
         "Gather"
     }
 
-    fn run(&self, inputs: &[Input]) -> Result<Vec<Output>, OpError> {
-        let input = inputs.get(0).ok_or(OpError::MissingInputs)?;
-        let indices = get_input(inputs, 1)?;
+    fn run(&self, inputs: InputList) -> Result<Vec<Output>, OpError> {
+        let input = inputs.require(0)?;
+        let indices = inputs.require_as::<i32>(1)?;
         match input {
             Input::IntTensor(input) => gather(input, self.axis, indices).into_op_result(),
             Input::FloatTensor(input) => gather(input, self.axis, indices).into_op_result(),
@@ -497,8 +557,8 @@ impl Operator for Identity {
         "Identity"
     }
 
-    fn run(&self, inputs: &[Input]) -> Result<Vec<Output>, OpError> {
-        let input = inputs.get(0).ok_or(OpError::MissingInputs)?;
+    fn run(&self, inputs: InputList) -> Result<Vec<Output>, OpError> {
+        let input = inputs.require(0)?;
         let result: Output = match input {
             Input::IntTensor(t) => (*t).clone().into(),
             Input::FloatTensor(t) => (*t).clone().into(),
@@ -510,7 +570,7 @@ impl Operator for Identity {
         true
     }
 
-    fn run_in_place(&self, input: Output, _: &[Input]) -> Result<Output, OpError> {
+    fn run_in_place(&self, input: Output, _: InputList) -> Result<Output, OpError> {
         Ok(input)
     }
 }
@@ -575,15 +635,23 @@ impl Operator for Concat {
         "Concat"
     }
 
-    fn run(&self, inputs: &[Input]) -> Result<Vec<Output>, OpError> {
-        let first = inputs.get(0).ok_or(OpError::MissingInputs)?;
+    fn run(&self, inputs: InputList) -> Result<Vec<Output>, OpError> {
+        let first = inputs.require(0)?;
         match first {
             Input::FloatTensor(_) => {
-                let typed_inputs = get_inputs::<f32>(inputs)?;
+                let mut typed_inputs: Vec<_> = Vec::new();
+                for input in inputs.iter() {
+                    let tensor: &Tensor<f32> = input.try_into()?;
+                    typed_inputs.push(tensor);
+                }
                 concat(&typed_inputs, self.dim).into_op_result()
             }
             Input::IntTensor(_) => {
-                let typed_inputs = get_inputs::<i32>(inputs)?;
+                let mut typed_inputs: Vec<_> = Vec::new();
+                for input in inputs.iter() {
+                    let tensor: &Tensor<i32> = input.try_into()?;
+                    typed_inputs.push(tensor);
+                }
                 concat(&typed_inputs, self.dim).into_op_result()
             }
         }
@@ -619,23 +687,23 @@ impl Operator for Range {
         "Range"
     }
 
-    fn run(&self, inputs: &[Input]) -> Result<Vec<Output>, OpError> {
-        if inputs.len() < 3 {
-            return Err(OpError::MissingInputs);
-        }
+    fn run(&self, inputs: InputList) -> Result<Vec<Output>, OpError> {
+        let start = inputs.require(0)?;
+        let limit = inputs.require(1)?;
+        let delta = inputs.require(2)?;
 
-        match inputs[0] {
+        match start {
             Input::FloatTensor(_) => {
-                let start = get_scalar::<f32>(inputs[0])?;
-                let limit = get_scalar::<f32>(inputs[1])?;
-                let delta = get_scalar::<f32>(inputs[2])?;
-                range(start, limit, delta).into_op_result()
+                let start = start.try_into()?;
+                let limit = limit.try_into()?;
+                let delta = delta.try_into()?;
+                range::<f32>(start, limit, delta).into_op_result()
             }
             Input::IntTensor(_) => {
-                let start = get_scalar::<i32>(inputs[0])?;
-                let limit = get_scalar::<i32>(inputs[1])?;
-                let delta = get_scalar::<i32>(inputs[2])?;
-                range(start, limit, delta).into_op_result()
+                let start = start.try_into()?;
+                let limit = limit.try_into()?;
+                let delta = delta.try_into()?;
+                range::<i32>(start, limit, delta).into_op_result()
             }
         }
     }
@@ -690,11 +758,10 @@ impl Operator for Pad {
         "Pad"
     }
 
-    fn run(&self, inputs: &[Input]) -> Result<Vec<Output>, OpError> {
-        let input = inputs.get(0).ok_or(OpError::MissingInputs)?;
-        let pads = get_input(inputs, 1)?;
-        let const_val = inputs.get(2);
-        let axes = get_optional_input::<i32>(inputs, 3)?;
+    fn run(&self, inputs: InputList) -> Result<Vec<Output>, OpError> {
+        let input = inputs.require(0)?;
+        let pads = inputs.require_as::<i32>(1)?;
+        let axes = inputs.get_as::<i32>(3)?;
 
         if axes.is_some() {
             return Err(OpError::UnsupportedValue(
@@ -704,11 +771,11 @@ impl Operator for Pad {
 
         match input {
             Input::IntTensor(t) => {
-                let const_val = const_val.map(|&v| get_scalar(v)).transpose()?;
+                let const_val = inputs.get_as_scalar::<i32>(2)?;
                 pad(t, pads, const_val.unwrap_or(0)).into_op_result()
             }
             Input::FloatTensor(t) => {
-                let const_val = const_val.map(|&v| get_scalar(v)).transpose()?;
+                let const_val = inputs.get_as_scalar::<f32>(2)?;
                 pad(t, pads, const_val.unwrap_or(0.0)).into_op_result()
             }
         }
@@ -803,12 +870,13 @@ impl Operator for Slice {
         "Slice"
     }
 
-    fn run(&self, inputs: &[Input]) -> Result<Vec<Output>, OpError> {
-        let input = inputs.get(0).ok_or(OpError::MissingInputs)?;
-        let starts = get_input(inputs, 1)?;
-        let ends = get_input(inputs, 2)?;
-        let axes = get_optional_input(inputs, 3)?;
-        let steps = get_optional_input(inputs, 4)?;
+    fn run(&self, inputs: InputList) -> Result<Vec<Output>, OpError> {
+        let input = inputs.require(0)?;
+        let starts = inputs.require_as::<i32>(1)?;
+        let ends = inputs.require_as::<i32>(2)?;
+        let axes = inputs.get_as::<i32>(3)?;
+        let steps = inputs.get_as::<i32>(4)?;
+
         let result: Result<Output, OpError> = match input {
             Input::FloatTensor(input) => slice(input, starts, ends, axes, steps).map(|t| t.into()),
             Input::IntTensor(input) => slice(input, starts, ends, axes, steps).map(|t| t.into()),
@@ -820,17 +888,20 @@ impl Operator for Slice {
         true
     }
 
-    fn run_in_place(&self, input: Output, other: &[Input]) -> Result<Output, OpError> {
-        let starts = get_input(other, 0)?;
-        let ends = get_input(other, 1)?;
-        let axes = get_optional_input(other, 2)?;
-        let steps = get_optional_input::<i32>(other, 3)?;
+    fn run_in_place(&self, input: Output, other: InputList) -> Result<Output, OpError> {
+        let starts = other.require_as::<i32>(0)?;
+        let ends = other.require_as::<i32>(1)?;
+        let axes = other.get_as::<i32>(2)?;
+        let steps = other.get_as::<i32>(3)?;
 
         // Fall back to copying if non-default steps are given.
         if let Some(steps) = steps {
             if steps.elements().any(|step| step != 1) {
-                let inputs = [&[(&input).into()], other].concat();
-                return self.run(&inputs).map(|mut outputs| outputs.remove(0));
+                let mut inputs: Vec<_> = vec![(&input).into()];
+                inputs.extend(other.iter());
+                return self
+                    .run(InputList::from(&inputs))
+                    .map(|mut outputs| outputs.remove(0));
             }
         }
 
@@ -931,8 +1002,8 @@ impl Operator for Split {
         "Split"
     }
 
-    fn run(&self, inputs: &[Input]) -> Result<Vec<Output>, OpError> {
-        let input = get_input::<f32>(inputs, 0)?;
+    fn run(&self, inputs: InputList) -> Result<Vec<Output>, OpError> {
+        let input = inputs.require_as::<f32>(0)?;
         split(input, self.axis, &self.split[..])
             .map(|tensors| tensors.into_iter().map(|t| t.into()).collect())
     }
@@ -942,7 +1013,7 @@ impl Operator for Split {
 mod tests {
     use crate::ops::{
         concat, gather, pad, range, slice, slice_in_place, split, Cast, ConstantOfShape, DataType,
-        Identity, Input, OpError, Operator, Pad, Scalar,
+        Identity, Input, InputList, OpError, Operator, Pad, Scalar,
     };
     use crate::rng::XorShiftRNG;
     use crate::tensor::{from_data, from_scalar, from_vec, rand, zeros, Tensor};
@@ -958,7 +1029,7 @@ mod tests {
             to: DataType::Int32,
         };
         let result = cast_to_int
-            .run(&[Input::IntTensor(&int_input)])
+            .run(InputList::from(&[Input::IntTensor(&int_input)]))
             .unwrap()
             .remove(0)
             .into_int()
@@ -967,7 +1038,7 @@ mod tests {
         // Flooring cast from float => int32
         assert_eq!(result, int_input);
         let result = cast_to_int
-            .run(&[Input::FloatTensor(&float_input)])
+            .run(InputList::from(&[Input::FloatTensor(&float_input)]))
             .unwrap()
             .remove(0)
             .into_int()
@@ -979,7 +1050,7 @@ mod tests {
             to: DataType::Float,
         };
         let result = cast_to_float
-            .run(&[Input::FloatTensor(&float_input)])
+            .run(InputList::from(&[Input::FloatTensor(&float_input)]))
             .unwrap()
             .remove(0)
             .into_float()
@@ -988,7 +1059,7 @@ mod tests {
 
         // Cast from int32 => float
         let result = cast_to_float
-            .run(&[Input::IntTensor(&int_input)])
+            .run(InputList::from(&[Input::IntTensor(&int_input)]))
             .unwrap()
             .remove(0)
             .into_float()
@@ -1006,7 +1077,7 @@ mod tests {
             to: DataType::Float,
         };
         let result = cast_to_float
-            .run(&[(&int_input).into()])
+            .run(InputList::from(&[(&int_input).into()]))
             .unwrap()
             .remove(0)
             .into_float()
@@ -1019,7 +1090,7 @@ mod tests {
             to: DataType::Int32,
         };
         let result = cast_to_int
-            .run(&[(&float_input).into()])
+            .run(InputList::from(&[(&float_input).into()]))
             .unwrap()
             .remove(0)
             .into_int()
@@ -1037,7 +1108,7 @@ mod tests {
         let shape = from_vec(vec![1, 5, 10]);
 
         let result = op
-            .run(&[Input::IntTensor(&shape)])
+            .run(InputList::from(&[Input::IntTensor(&shape)]))
             .unwrap()
             .remove(0)
             .into_int()
@@ -1113,7 +1184,7 @@ mod tests {
 
         let int_input = from_vec(vec![1, 2, 3]);
         let result = id_op
-            .run(&[Input::IntTensor(&int_input)])
+            .run(InputList::from(&[Input::IntTensor(&int_input)]))
             .unwrap()
             .remove(0)
             .into_int()
@@ -1122,7 +1193,7 @@ mod tests {
 
         let float_input = from_vec(vec![1.0, 2.0, 3.0]);
         let result = id_op
-            .run(&[Input::FloatTensor(&float_input)])
+            .run(InputList::from(&[Input::FloatTensor(&float_input)]))
             .unwrap()
             .remove(0)
             .into_float()
@@ -1253,7 +1324,7 @@ mod tests {
 
         let op = Pad {};
         let result = op
-            .run(&[(&input).into(), (&pads).into()])
+            .run(InputList::from(&[(&input).into(), (&pads).into()]))
             .unwrap()
             .remove(0)
             .into_float()
@@ -1270,7 +1341,7 @@ mod tests {
 
         // Wrong padding vector length.
         let invalid_pads = from_slice(&[1]);
-        let result = op.run(&[(&input).into(), (&invalid_pads).into()]);
+        let result = op.run(InputList::from(&[(&input).into(), (&invalid_pads).into()]));
         assert_eq!(
             result.err(),
             Some(OpError::InvalidValue(
@@ -1280,7 +1351,7 @@ mod tests {
 
         // Unsupported padding amounts.
         let invalid_pads = from_slice(&[1, 1, 1, -1]);
-        let result = op.run(&[(&input).into(), (&invalid_pads).into()]);
+        let result = op.run(InputList::from(&[(&input).into(), (&invalid_pads).into()]));
         assert_eq!(
             result.err(),
             Some(OpError::InvalidValue("Pad only supports positive pads"))
@@ -1289,16 +1360,21 @@ mod tests {
         // Wrong constant value type.
         let invalid_pads = from_slice(&[1, 1, 1, -1]);
         let const_int = from_scalar(1);
-        let result = op.run(&[(&input).into(), (&invalid_pads).into(), (&const_int).into()]);
-        assert_eq!(
-            result.err(),
-            Some(OpError::IncompatibleInputTypes("Incorrect input type"))
-        );
+        let result = op.run(InputList::from(&[
+            (&input).into(),
+            (&invalid_pads).into(),
+            (&const_int).into(),
+        ]));
+        assert_eq!(result.err(), Some(OpError::IncorrectInputType));
 
         // Constant value not a scalar.
         let invalid_pads = from_slice(&[1, 1, 1, -1]);
         let int_vec = from_slice(&[1.0, 2.0]);
-        let result = op.run(&[(&input).into(), (&invalid_pads).into(), (&int_vec).into()]);
+        let result = op.run(InputList::from(&[
+            (&input).into(),
+            (&invalid_pads).into(),
+            (&int_vec).into(),
+        ]));
         assert_eq!(
             result.err(),
             Some(OpError::InvalidValue("Expected scalar value"))
