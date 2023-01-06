@@ -2,12 +2,12 @@ use std::error::Error;
 use std::fmt;
 use std::fmt::{Debug, Display};
 use std::iter::zip;
-use std::ops;
 
-use crate::tensor::{from_data, from_vec, zeros, Elements, SliceRange, Tensor};
+use crate::tensor::{from_data, zeros, Elements, SliceRange, Tensor};
 
 mod binary_elementwise;
 mod conv;
+mod generate;
 mod layout;
 mod matmul;
 mod norm;
@@ -23,6 +23,7 @@ pub use binary_elementwise::{
 pub use binary_elementwise::{Add, Div, Equal, Less, Mul, Pow, Sub, Where};
 pub use conv::{conv, conv_transpose};
 pub use conv::{Conv, ConvTranspose};
+pub use generate::{constant_of_shape, range, ConstantOfShape, Range};
 pub use layout::{
     expand, reshape, squeeze, squeeze_in_place, Expand, Reshape, Shape, Squeeze, Transpose,
     Unsqueeze,
@@ -426,35 +427,10 @@ impl Operator for Cast {
     }
 }
 
-pub fn constant_of_shape<T: Copy>(value: T, shape: &Tensor<i32>) -> Tensor<T> {
-    let shape: Vec<_> = shape.elements().map(|el| el as usize).collect();
-    let len = shape.iter().product();
-    from_data(shape, vec![value; len])
-}
-
 #[derive(Debug)]
 pub enum Scalar {
     Int(i32),
     Float(f32),
-}
-
-#[derive(Debug)]
-pub struct ConstantOfShape {
-    pub value: Scalar,
-}
-
-impl Operator for ConstantOfShape {
-    fn name(&self) -> &str {
-        "ConstantOfShape"
-    }
-
-    fn run(&self, inputs: InputList) -> Result<Vec<Output>, OpError> {
-        let shape = inputs.require_as::<i32>(0)?;
-        match self.value {
-            Scalar::Int(value) => constant_of_shape(value, shape).into_op_result(),
-            Scalar::Float(value) => constant_of_shape(value, shape).into_op_result(),
-        }
-    }
 }
 
 /// Gather elements from `input` specified by `indices`.
@@ -634,57 +610,6 @@ impl Operator for Concat {
                     typed_inputs.push(tensor);
                 }
                 concat(&typed_inputs, self.dim).into_op_result()
-            }
-        }
-    }
-}
-
-fn range<T: Copy + Default + ops::Add<Output = T> + PartialOrd>(
-    start: T,
-    limit: T,
-    delta: T,
-) -> Result<Tensor<T>, OpError> {
-    if delta == T::default() {
-        return Err(OpError::InvalidValue("delta must be non-zero"));
-    }
-
-    // This is not very efficient as it grows the output gradually instead of
-    // allocating once. This however made the initial implementation easier by
-    // minimizing the traits that T needs to implement.
-    let mut output = Vec::new();
-    let mut val = start;
-    while (delta > T::default() && val < limit) || (delta < T::default() && val > limit) {
-        output.push(val);
-        val = val + delta;
-    }
-    Ok(from_vec(output))
-}
-
-#[derive(Debug)]
-pub struct Range {}
-
-impl Operator for Range {
-    fn name(&self) -> &str {
-        "Range"
-    }
-
-    fn run(&self, inputs: InputList) -> Result<Vec<Output>, OpError> {
-        let start = inputs.require(0)?;
-        let limit = inputs.require(1)?;
-        let delta = inputs.require(2)?;
-
-        match start {
-            Input::FloatTensor(_) => {
-                let start = start.try_into()?;
-                let limit = limit.try_into()?;
-                let delta = delta.try_into()?;
-                range::<f32>(start, limit, delta).into_op_result()
-            }
-            Input::IntTensor(_) => {
-                let start = start.try_into()?;
-                let limit = limit.try_into()?;
-                let delta = delta.try_into()?;
-                range::<i32>(start, limit, delta).into_op_result()
             }
         }
     }
@@ -993,8 +918,8 @@ impl Operator for Split {
 #[cfg(test)]
 mod tests {
     use crate::ops::{
-        concat, gather, pad, range, slice, slice_in_place, split, Cast, ConstantOfShape, DataType,
-        Identity, Input, InputList, OpError, Operator, Pad, Scalar,
+        concat, gather, pad, slice, slice_in_place, split, Cast, DataType, Identity, Input,
+        InputList, OpError, Operator, Pad,
     };
     use crate::rng::XorShiftRNG;
     use crate::tensor::{from_data, from_scalar, from_vec, rand, zeros, Tensor};
@@ -1079,27 +1004,6 @@ mod tests {
         assert_eq!(&result, &from_vec(vec![i32::MIN, i32::MAX]));
 
         Ok(())
-    }
-
-    #[test]
-    fn test_constant_of_shape() {
-        let op = ConstantOfShape {
-            value: Scalar::Int(42),
-        };
-        let shape = from_vec(vec![1, 5, 10]);
-
-        let result = op
-            .run(InputList::from(&[Input::IntTensor(&shape)]))
-            .unwrap()
-            .remove(0)
-            .into_int()
-            .unwrap();
-
-        assert_eq!(result.shape(), &[1, 5, 10]);
-        assert_eq!(
-            result.elements().collect::<Vec<_>>(),
-            vec![42; result.shape().iter().product()]
-        );
     }
 
     #[test]
@@ -1359,38 +1263,6 @@ mod tests {
         assert_eq!(
             result.err(),
             Some(OpError::InvalidValue("Expected scalar value"))
-        );
-    }
-
-    #[test]
-    fn test_range() {
-        // Int range from zero
-        let r = range(0, 5, 1).unwrap();
-        assert_eq!(r.elements_vec(), vec![0, 1, 2, 3, 4]);
-
-        // Float range from zero
-        let r = range(0., 5., 1.).unwrap();
-        assert_eq!(r.elements_vec(), vec![0., 1., 2., 3., 4.]);
-
-        // Int range from negative value with step > 1
-        let r = range(-5, 5, 2).unwrap();
-        assert_eq!(r.elements_vec(), vec![-5, -3, -1, 1, 3]);
-
-        // Float range from negative value with step > 1
-        let r = range(-5., 5., 2.).unwrap();
-        assert_eq!(r.elements_vec(), vec![-5., -3., -1., 1., 3.]);
-
-        // Negative step
-        let r = range(10, 4, -2).unwrap();
-        assert_eq!(r.elements_vec(), vec![10, 8, 6]);
-    }
-
-    #[test]
-    fn test_range_invalid_inputs() {
-        let r = range(0, 5, 0);
-        assert_eq!(
-            r.err(),
-            Some(OpError::InvalidValue("delta must be non-zero"))
         );
     }
 

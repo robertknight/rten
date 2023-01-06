@@ -1244,6 +1244,7 @@ pub fn from_scalar<T: Copy>(value: T) -> Tensor<T> {
 }
 
 /// Create a new 1-dimensional tensor from a vector
+#[cfg(test)]
 pub fn from_vec<T: Copy>(data: Vec<T>) -> Tensor<T> {
     Tensor::from_vec(data)
 }
