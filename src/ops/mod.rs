@@ -377,31 +377,12 @@ impl<'a> InputList<'a> {
         self.require(index).and_then(|input| input.try_into())
     }
 
-    pub fn iter(&'a self) -> InputListIter<'a> {
-        InputListIter {
-            index: 0,
-            inputs: self,
-        }
-    }
-}
-
-pub struct InputListIter<'a> {
-    inputs: &'a InputList<'a>,
-    index: usize,
-}
-
-impl<'a> Iterator for InputListIter<'a> {
-    type Item = Input<'a>;
-
-    fn next(&mut self) -> Option<Self::Item> {
-        let input = self.inputs.get(self.index);
-        self.index += 1;
-        input
-    }
-
-    fn size_hint(&self) -> (usize, Option<usize>) {
-        let remaining = self.inputs.inputs.len() - self.index;
-        (remaining, Some(remaining))
+    /// Return an iterator over provided inputs.
+    ///
+    /// If the InputList was constructed with `from_optional`, this will skip
+    /// over any missing inputs.
+    pub fn iter(&'a self) -> impl Iterator<Item = Input<'a>> + 'a {
+        self.inputs.iter().filter_map(|inp| *inp)
     }
 }
 
