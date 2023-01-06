@@ -1,6 +1,6 @@
 use std::iter::zip;
 
-use crate::ops::{get_input, get_optional_input, Input, IntoOpResult, OpError, Operator, Output};
+use crate::ops::{InputList, IntoOpResult, OpError, Operator, Output};
 use crate::tensor::Tensor;
 
 /// Specifies an output size for a resize operation.
@@ -183,8 +183,8 @@ impl Operator for Resize {
         "Resize"
     }
 
-    fn run(&self, inputs: &[Input]) -> Result<Vec<Output>, OpError> {
-        let input = get_input(inputs, 0)?;
+    fn run(&self, inputs: InputList) -> Result<Vec<Output>, OpError> {
+        let input = inputs.require_as(0)?;
 
         // The `roi` input is marked as optional in ONNX, but the spec also says
         // that one of the subsequent `scales` or `sizes` inputs must be provided.
@@ -196,9 +196,11 @@ impl Operator for Resize {
         // The `roi` input is only used if the `coordinate_transformation_mode`
         // attr is `tf_crop_and_resize`, which is not currently supported.
 
-        let _roi = get_input::<f32>(inputs, 1)?;
-        let scales = get_input(inputs, 2)?;
-        let sizes = get_optional_input(inputs, 3)?;
+        let _roi = inputs.get_as::<f32>(1)?;
+
+        // FIXME - `scales` should be optional. It is not required if `sizes` is provided.
+        let scales = inputs.require_as(2)?;
+        let sizes = inputs.get_as(3)?;
 
         let target = if let Some(sizes) = sizes {
             ResizeTarget::Sizes(sizes)

@@ -1,4 +1,4 @@
-use crate::ops::{get_input, Input, IntoOpResult, OpError, Operator, Output};
+use crate::ops::{InputList, IntoOpResult, OpError, Operator, Output};
 use crate::tensor::Tensor;
 
 /// Perform in-place batch normalization on the NCHW tensor `out`.
@@ -65,12 +65,12 @@ impl Operator for BatchNormalization {
         "BatchNormalization"
     }
 
-    fn run(&self, inputs: &[Input]) -> Result<Vec<Output>, OpError> {
-        let input = get_input(inputs, 0)?;
-        let scale = get_input(inputs, 1)?;
-        let bias = get_input(inputs, 2)?;
-        let mean = get_input(inputs, 3)?;
-        let var = get_input(inputs, 4)?;
+    fn run(&self, inputs: InputList) -> Result<Vec<Output>, OpError> {
+        let input = inputs.require_as(0)?;
+        let scale = inputs.require_as(1)?;
+        let bias = inputs.require_as(2)?;
+        let mean = inputs.require_as(3)?;
+        let var = inputs.require_as(4)?;
 
         batch_norm(input, scale, bias, mean, var, self.epsilon).into_op_result()
     }
@@ -79,12 +79,12 @@ impl Operator for BatchNormalization {
         true
     }
 
-    fn run_in_place(&self, input: Output, other: &[Input]) -> Result<Output, OpError> {
-        let mut output = input.into_float().ok_or(OpError::UnsupportedInputType)?;
-        let scale = get_input(other, 0)?;
-        let bias = get_input(other, 1)?;
-        let mean = get_input(other, 2)?;
-        let var = get_input(other, 3)?;
+    fn run_in_place(&self, input: Output, other: InputList) -> Result<Output, OpError> {
+        let mut output = input.into_float().ok_or(OpError::IncorrectInputType)?;
+        let scale = other.require_as(0)?;
+        let bias = other.require_as(1)?;
+        let mean = other.require_as(2)?;
+        let var = other.require_as(3)?;
 
         batch_norm_in_place(&mut output, scale, bias, mean, var, self.epsilon);
 
@@ -141,8 +141,8 @@ impl Operator for Softmax {
         "Softmax"
     }
 
-    fn run(&self, inputs: &[Input]) -> Result<Vec<Output>, OpError> {
-        let input = get_input(inputs, 0)?;
+    fn run(&self, inputs: InputList) -> Result<Vec<Output>, OpError> {
+        let input = inputs.require_as(0)?;
         softmax(input, self.axis).into_op_result()
     }
 
@@ -150,8 +150,8 @@ impl Operator for Softmax {
         true
     }
 
-    fn run_in_place(&self, input: Output, _other: &[Input]) -> Result<Output, OpError> {
-        let mut output = input.into_float().ok_or(OpError::UnsupportedInputType)?;
+    fn run_in_place(&self, input: Output, _other: InputList) -> Result<Output, OpError> {
+        let mut output = input.into_float().ok_or(OpError::IncorrectInputType)?;
         softmax_in_place(&mut output, self.axis);
         Ok(output.into())
     }

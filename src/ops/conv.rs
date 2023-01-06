@@ -2,9 +2,7 @@ use std::borrow::Cow;
 
 use crate::linalg::{add_scaled_vector, div_ceil, gemm, Matrix};
 use crate::ops::pooling::calc_output_size_and_padding;
-use crate::ops::{
-    get_input, get_optional_input, Input, IntoOpResult, OpError, Operator, Output, Padding,
-};
+use crate::ops::{InputList, IntoOpResult, OpError, Operator, Output, Padding};
 use crate::tensor::{from_data, zeros, Tensor};
 
 // Calculate the min and max output X coordinates that are valid when updating
@@ -414,10 +412,10 @@ impl Operator for Conv {
         "Conv"
     }
 
-    fn run(&self, inputs: &[Input]) -> Result<Vec<Output>, OpError> {
-        let input = get_input(inputs, 0)?;
-        let weight = get_input(inputs, 1)?;
-        let bias = get_optional_input(inputs, 2)?;
+    fn run(&self, inputs: InputList) -> Result<Vec<Output>, OpError> {
+        let input = inputs.require_as(0)?;
+        let weight = inputs.require_as(1)?;
+        let bias = inputs.get_as(2)?;
         conv(input, weight, bias, self.padding, self.groups, self.strides).into_op_result()
     }
 }
@@ -500,10 +498,10 @@ impl Operator for ConvTranspose {
         "ConvTranspose"
     }
 
-    fn run(&self, inputs: &[Input]) -> Result<Vec<Output>, OpError> {
-        let input = get_input(inputs, 0)?;
-        let weight = get_input(inputs, 1)?;
-        let bias = get_optional_input(inputs, 2)?;
+    fn run(&self, inputs: InputList) -> Result<Vec<Output>, OpError> {
+        let input = inputs.require_as(0)?;
+        let weight = inputs.require_as(1)?;
+        let bias = inputs.get_as(2)?;
         conv_transpose(input, weight, bias, self.strides).into_op_result()
     }
 }
@@ -511,7 +509,7 @@ impl Operator for ConvTranspose {
 #[cfg(test)]
 mod tests {
     use crate::ops::pooling::calc_output_size_and_padding;
-    use crate::ops::{conv, conv_transpose, Conv, Operator, Padding};
+    use crate::ops::{conv, conv_transpose, Conv, InputList, Operator, Padding};
     use crate::rng::XorShiftRNG;
     use crate::tensor::{from_data, rand, zeros, Tensor};
     use crate::test_util::expect_equal;
@@ -699,7 +697,7 @@ mod tests {
             strides: [1, 1],
         };
         let result = op
-            .run(&[input.into(), kernel.into()])
+            .run(InputList::from(&[input.into(), kernel.into()]))
             .unwrap()
             .remove(0)
             .into_float()

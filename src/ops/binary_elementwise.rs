@@ -1,7 +1,7 @@
 use std::fmt::Debug;
 use std::iter::zip;
 
-use crate::ops::{from_data, get_input, Input, IntoOpResult, OpError, Operator, Output};
+use crate::ops::{from_data, Input, InputList, IntoOpResult, OpError, Operator, Output};
 use crate::tensor::Tensor;
 
 /// Given the shapes of two inputs to a binary operation, choose the one that
@@ -123,14 +123,14 @@ fn binary_commutative_op<T: Copy + Debug, F: Fn(&mut T, T)>(
 /// instantiation of `$op_func` depending on the tensor type.
 macro_rules! run_typed_op {
     ($inputs:expr, $op_func:ident) => {{
-        let a = $inputs.get(0).ok_or(OpError::MissingInputs)?;
+        let a = $inputs.require(0)?;
         match a {
             Input::FloatTensor(a) => {
-                let b = get_input($inputs, 1)?;
+                let b = $inputs.require_as::<f32>(1)?;
                 $op_func(a, b).into_op_result()
             }
             Input::IntTensor(a) => {
-                let b = get_input($inputs, 1)?;
+                let b = $inputs.require_as::<i32>(1)?;
                 $op_func(a, b).into_op_result()
             }
         }
@@ -144,7 +144,7 @@ macro_rules! run_typed_op_in_place {
     ($input:expr, $other: expr, $in_place_op_func:ident, $op_func:ident) => {{
         match $input {
             Output::FloatTensor(mut a) => {
-                let b = get_input($other, 0)?;
+                let b = $other.require_as::<f32>(0)?;
                 if can_run_binary_op_in_place(&a, b) {
                     $in_place_op_func(&mut a, b);
                     Ok(a.into())
@@ -153,7 +153,7 @@ macro_rules! run_typed_op_in_place {
                 }
             }
             Output::IntTensor(mut a) => {
-                let b = get_input($other, 0)?;
+                let b = $other.require_as::<i32>(0)?;
                 if can_run_binary_op_in_place(&a, b) {
                     $in_place_op_func(&mut a, b);
                     Ok(a.into())
@@ -186,7 +186,7 @@ impl Operator for Add {
         "Add"
     }
 
-    fn run(&self, inputs: &[Input]) -> Result<Vec<Output>, OpError> {
+    fn run(&self, inputs: InputList) -> Result<Vec<Output>, OpError> {
         run_typed_op!(inputs, add)
     }
 
@@ -194,7 +194,7 @@ impl Operator for Add {
         true
     }
 
-    fn run_in_place(&self, input: Output, other: &[Input]) -> Result<Output, OpError> {
+    fn run_in_place(&self, input: Output, other: InputList) -> Result<Output, OpError> {
         run_typed_op_in_place!(input, other, add_in_place, add)
     }
 }
@@ -225,9 +225,9 @@ impl Operator for Div {
         "Div"
     }
 
-    fn run(&self, inputs: &[Input]) -> Result<Vec<Output>, OpError> {
-        let a = get_input(inputs, 0)?;
-        let b = get_input(inputs, 1)?;
+    fn run(&self, inputs: InputList) -> Result<Vec<Output>, OpError> {
+        let a = inputs.require_as(0)?;
+        let b = inputs.require_as(1)?;
         div(a, b).into_op_result()
     }
 
@@ -235,9 +235,9 @@ impl Operator for Div {
         true
     }
 
-    fn run_in_place(&self, input: Output, other: &[Input]) -> Result<Output, OpError> {
-        let mut a = input.into_float().ok_or(OpError::UnsupportedInputType)?;
-        let b = get_input(other, 0)?;
+    fn run_in_place(&self, input: Output, other: InputList) -> Result<Output, OpError> {
+        let mut a = input.into_float().ok_or(OpError::IncorrectInputType)?;
+        let b = other.require_as(0)?;
 
         if can_run_binary_op_in_place(&a, b) {
             div_in_place(&mut a, b);
@@ -263,7 +263,7 @@ impl Operator for Equal {
         "Equal"
     }
 
-    fn run(&self, inputs: &[Input]) -> Result<Vec<Output>, OpError> {
+    fn run(&self, inputs: InputList) -> Result<Vec<Output>, OpError> {
         run_typed_op!(inputs, equal)
     }
 }
@@ -283,7 +283,7 @@ impl Operator for Less {
         "Less"
     }
 
-    fn run(&self, inputs: &[Input]) -> Result<Vec<Output>, OpError> {
+    fn run(&self, inputs: InputList) -> Result<Vec<Output>, OpError> {
         run_typed_op!(inputs, less)
     }
 }
@@ -309,7 +309,7 @@ impl Operator for Mul {
         "Mul"
     }
 
-    fn run(&self, inputs: &[Input]) -> Result<Vec<Output>, OpError> {
+    fn run(&self, inputs: InputList) -> Result<Vec<Output>, OpError> {
         run_typed_op!(inputs, mul)
     }
 
@@ -317,7 +317,7 @@ impl Operator for Mul {
         true
     }
 
-    fn run_in_place(&self, input: Output, other: &[Input]) -> Result<Output, OpError> {
+    fn run_in_place(&self, input: Output, other: InputList) -> Result<Output, OpError> {
         run_typed_op_in_place!(input, other, mul_in_place, mul)
     }
 }
@@ -348,9 +348,9 @@ impl Operator for Pow {
         "Pow"
     }
 
-    fn run(&self, inputs: &[Input]) -> Result<Vec<Output>, OpError> {
-        let a = get_input(inputs, 0)?;
-        let b = get_input(inputs, 1)?;
+    fn run(&self, inputs: InputList) -> Result<Vec<Output>, OpError> {
+        let a = inputs.require_as(0)?;
+        let b = inputs.require_as(1)?;
         pow(a, b).into_op_result()
     }
 
@@ -358,9 +358,9 @@ impl Operator for Pow {
         true
     }
 
-    fn run_in_place(&self, input: Output, other: &[Input]) -> Result<Output, OpError> {
-        let mut a = input.into_float().ok_or(OpError::UnsupportedInputType)?;
-        let b = get_input(other, 0)?;
+    fn run_in_place(&self, input: Output, other: InputList) -> Result<Output, OpError> {
+        let mut a = input.into_float().ok_or(OpError::IncorrectInputType)?;
+        let b = other.require_as(0)?;
 
         if can_run_binary_op_in_place(&a, b) {
             pow_in_place(&mut a, b);
@@ -392,7 +392,7 @@ impl Operator for Sub {
         "Sub"
     }
 
-    fn run(&self, inputs: &[Input]) -> Result<Vec<Output>, OpError> {
+    fn run(&self, inputs: InputList) -> Result<Vec<Output>, OpError> {
         run_typed_op!(inputs, sub)
     }
 
@@ -400,7 +400,7 @@ impl Operator for Sub {
         true
     }
 
-    fn run_in_place(&self, input: Output, other: &[Input]) -> Result<Output, OpError> {
+    fn run_in_place(&self, input: Output, other: InputList) -> Result<Output, OpError> {
         run_typed_op_in_place!(input, other, sub_in_place, sub)
     }
 }
@@ -440,16 +440,17 @@ impl Operator for Where {
         "Where"
     }
 
-    fn run(&self, inputs: &[Input]) -> Result<Vec<Output>, OpError> {
-        let condition = get_input(inputs, 0)?;
-        let x = inputs.get(1).ok_or(OpError::MissingInputs)?;
+    fn run(&self, inputs: InputList) -> Result<Vec<Output>, OpError> {
+        let condition = inputs.require_as::<i32>(0)?;
+        let x = inputs.require(1)?;
+        let y = inputs.require(2)?;
         match x {
             Input::FloatTensor(x) => {
-                let y = get_input(inputs, 2)?;
+                let y = y.try_into()?;
                 where_op(condition, x, y).into_op_result()
             }
             Input::IntTensor(x) => {
-                let y = get_input(inputs, 2)?;
+                let y = y.try_into()?;
                 where_op(condition, x, y).into_op_result()
             }
         }
@@ -460,7 +461,7 @@ impl Operator for Where {
 mod tests {
     use crate::ops::{
         add, add_in_place, div, div_in_place, equal, less, mul, mul_in_place, pow, pow_in_place,
-        sub, sub_in_place, where_op, Add, OpError, Operator, Output,
+        sub, sub_in_place, where_op, Add, InputList, OpError, Operator, Output,
     };
     use crate::tensor::{from_data, from_scalar, from_vec, Tensor};
     use crate::test_util::expect_equal;
@@ -543,7 +544,7 @@ mod tests {
         // Run `Add` operator in place with inputs that support in-place addition.
         let op = Add {};
         let result = op
-            .run_in_place(Output::FloatTensor(a_copy), &[(&b).into()])
+            .run_in_place(Output::FloatTensor(a_copy), InputList::from(&[(&b).into()]))
             .unwrap();
         expect_equal(result.as_float_ref().unwrap(), &expected)?;
 
@@ -552,7 +553,7 @@ mod tests {
         let scalar = from_scalar(1.0);
         let expected = from_data(vec![2, 2], vec![11., 21., 31., 41.]);
         let result = op
-            .run_in_place(Output::FloatTensor(scalar), &[(&b).into()])
+            .run_in_place(Output::FloatTensor(scalar), InputList::from(&[(&b).into()]))
             .unwrap();
         expect_equal(result.as_float_ref().unwrap(), &expected)?;
 
@@ -583,7 +584,7 @@ mod tests {
         let b = from_data(vec![2, 3], vec![1., 2., 3., 4., 5., 6.]);
 
         let op = Add {};
-        let result = op.run(&[(&a).into(), (&b).into()]);
+        let result = op.run(InputList::from(&[(&a).into(), (&b).into()]));
 
         assert_eq!(
             result.err(),

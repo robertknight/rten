@@ -469,10 +469,11 @@ fn load_model(data: &[u8]) -> Result<Model, String> {
 mod tests {
     extern crate flatbuffers;
 
+    use crate::graph::RunError;
     use crate::model::Model;
     use crate::model_builder::{ModelBuilder, OpType};
     use crate::ops;
-    use crate::ops::{Padding, ResizeMode, Scalar};
+    use crate::ops::{OpError, Padding, ResizeMode, Scalar};
     use crate::tensor::{from_data, from_scalar, from_vec};
 
     fn generate_model_buffer() -> Vec<u8> {
@@ -537,27 +538,20 @@ mod tests {
 
         let output_node = builder.add_value("output");
         builder.add_output(output_node);
-
-        // Run Shape op with a missing input. This should fail since the input
-        // is required, however the `Operator::run` API only supports omitting
-        // inputs by passing a shorter input list. The graph executor will
-        // instead pass an empty tensor, with shape [0], as a placeholder.
-        //
-        // Once support for omitting optional inputs is complete, this test
-        // should fail with `OpError::MissingInputs`.
         builder.add_operator("shape", OpType::Shape, &[None], &[output_node]);
 
         let buffer = builder.finish();
         let model = Model::load(&buffer).unwrap();
 
-        let result = model
-            .run(&[], &[output_node as usize], None)
-            .unwrap()
-            .remove(0)
-            .into_int()
-            .unwrap();
+        let result = model.run(&[], &[output_node as usize], None);
 
-        assert_eq!(result.elements_vec(), &[0]);
+        assert_eq!(
+            result.err(),
+            Some(RunError::OperatorError {
+                name: "shape".to_string(),
+                error: OpError::MissingInputs
+            })
+        );
     }
 
     // This test exercises basic execution of all operators. It doesn't check

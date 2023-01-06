@@ -1,10 +1,7 @@
 use std::iter::zip;
 
 use crate::linalg::{gemm, Matrix};
-use crate::ops::{
-    choose_broadcast_shape, get_input, get_optional_input, Input, IntoOpResult, OpError, Operator,
-    Output,
-};
+use crate::ops::{choose_broadcast_shape, InputList, IntoOpResult, OpError, Operator, Output};
 use crate::tensor::{from_data, zeros, Tensor};
 
 #[derive(Debug)]
@@ -81,10 +78,10 @@ impl Operator for Gemm {
         "Gemm"
     }
 
-    fn run(&self, inputs: &[Input]) -> Result<Vec<Output>, OpError> {
-        let a = get_input(inputs, 0)?;
-        let b = get_input(inputs, 1)?;
-        let c = get_optional_input(inputs, 2)?;
+    fn run(&self, inputs: InputList) -> Result<Vec<Output>, OpError> {
+        let a = inputs.require_as(0)?;
+        let b = inputs.require_as(1)?;
+        let c = inputs.get_as(2)?;
         gemm_op(
             a,
             b,
@@ -170,9 +167,9 @@ impl Operator for MatMul {
         "MatMul"
     }
 
-    fn run(&self, inputs: &[Input]) -> Result<Vec<Output>, OpError> {
-        let a = get_input(inputs, 0)?;
-        let b = get_input(inputs, 1)?;
+    fn run(&self, inputs: InputList) -> Result<Vec<Output>, OpError> {
+        let a = inputs.require_as(0)?;
+        let b = inputs.require_as(1)?;
         matmul(a, b).into_op_result()
     }
 }

@@ -2,7 +2,7 @@ extern crate libm;
 
 use std::fmt::Debug;
 
-use crate::ops::{get_input, Input, IntoOpResult, OpError, Operator, Output};
+use crate::ops::{InputList, IntoOpResult, OpError, Operator, Output};
 use crate::tensor::Tensor;
 
 /// Trait for operators which take a single float tensor and apply a function
@@ -29,8 +29,8 @@ impl<Op: UnaryFloatOp + Debug> Operator for Op {
         self.name()
     }
 
-    fn run(&self, inputs: &[Input]) -> Result<Vec<Output>, OpError> {
-        let input = get_input(inputs, 0)?;
+    fn run(&self, inputs: InputList) -> Result<Vec<Output>, OpError> {
+        let input = inputs.require_as(0)?;
         self.map(input).into_op_result()
     }
 
@@ -38,8 +38,8 @@ impl<Op: UnaryFloatOp + Debug> Operator for Op {
         true
     }
 
-    fn run_in_place(&self, input: Output, _: &[Input]) -> Result<Output, OpError> {
-        let mut output = input.into_float().ok_or(OpError::UnsupportedInputType)?;
+    fn run_in_place(&self, input: Output, _: InputList) -> Result<Output, OpError> {
+        let mut output = input.into_float().ok_or(OpError::IncorrectInputType)?;
         self.apply(&mut output);
         Ok(output.into())
     }
