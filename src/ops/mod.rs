@@ -12,6 +12,7 @@ mod generate;
 mod layout;
 mod matmul;
 mod norm;
+mod pad;
 mod pooling;
 mod reduce;
 mod resize;
@@ -32,6 +33,7 @@ pub use layout::{
 };
 pub use matmul::{gemm_op, matmul, Gemm, MatMul};
 pub use norm::{batch_norm, batch_norm_in_place, softmax, BatchNormalization, Softmax};
+pub use pad::{pad, Pad};
 pub use pooling::{average_pool, global_average_pool, max_pool};
 pub use pooling::{AveragePool, GlobalAveragePool, MaxPool};
 pub use reduce::{reduce_mean, ReduceMean};
@@ -577,79 +579,6 @@ impl Operator for Concat {
     }
 }
 
-pub fn pad<T: Copy>(
-    input: &Tensor<T>,
-    padding: &Tensor<i32>,
-    const_val: T,
-) -> Result<Tensor<T>, OpError> {
-    if padding.ndim() != 1 || padding.shape()[0] != input.ndim() * 2 {
-        return Err(OpError::InvalidValue(
-            "padding should be vector of length 2 * input dimensions",
-        ));
-    }
-    if !padding.elements().all(|x| x >= 0) {
-        return Err(OpError::InvalidValue("Pad only supports positive pads"));
-    }
-
-    let out_shape: Vec<_> = input
-        .shape()
-        .iter()
-        .enumerate()
-        .map(|(i, size)| {
-            let start_pad = padding[[i]] as usize;
-            let end_pad = padding[[input.ndim() + i]] as usize;
-            start_pad + size + end_pad
-        })
-        .collect();
-    let out_len = out_shape.iter().product();
-
-    let mut output = from_data(out_shape, vec![const_val; out_len]);
-    let mut in_iter = input.indices();
-    let mut out_index = vec![0; output.shape().len()];
-
-    while let Some(in_index) = in_iter.next() {
-        out_index.copy_from_slice(in_index);
-        for i in 0..out_index.len() {
-            out_index[i] += padding[[i]] as usize;
-        }
-        output[&out_index[..]] = input[in_index];
-    }
-
-    Ok(output)
-}
-
-#[derive(Debug)]
-pub struct Pad {}
-
-impl Operator for Pad {
-    fn name(&self) -> &str {
-        "Pad"
-    }
-
-    fn run(&self, inputs: InputList) -> Result<Vec<Output>, OpError> {
-        let input = inputs.require(0)?;
-        let pads = inputs.require_as::<i32>(1)?;
-        let axes = inputs.get_as::<i32>(3)?;
-
-        if axes.is_some() {
-            return Err(OpError::UnsupportedValue(
-                "Pad operator does not yet support `axes` input",
-            ));
-        }
-
-        match input {
-            Input::IntTensor(t) => {
-                let const_val = inputs.get_as_scalar::<i32>(2)?;
-                pad(t, pads, const_val.unwrap_or(0)).into_op_result()
-            }
-            Input::FloatTensor(t) => {
-                let const_val = inputs.get_as_scalar::<f32>(2)?;
-                pad(t, pads, const_val.unwrap_or(0.0)).into_op_result()
-            }
-        }
-    }
-}
-
 /// Compute the effective starts, ends and steps for each input dimension in
 /// a Slice operation.
 ///
@@ -880,8 +809,7 @@ impl Operator for Split {
 #[cfg(test)]
 mod tests {
     use crate::ops::{
-        concat, gather, pad, slice, slice_in_place, split, Identity, Input, InputList, OpError,
-        Operator, Pad,
+        concat, gather, slice, slice_in_place, split, Identity, Input, InputList, OpError, Operator,
     };
     use crate::rng::XorShiftRNG;
     use crate::tensor::{from_data, from_scalar, from_vec, rand, zeros, Tensor};
@@ -1031,119 +959,6 @@ mod tests {
             Some(OpError::IncompatibleInputShapes(
                 "Dimensions must be the same except for concat dim"
             ))
-        );
-    }
-
-    #[test]
-    fn test_pad() -> Result<(), String> {
-        // Same padding around each edge.
-        let input = from_data(vec![2, 2], vec![1.0, 2.0, 3.0, 4.0]);
-        let expected = from_data(
-            vec![4, 4],
-            vec![
-                0.0, 0.0, 0.0, 0.0, 0.0, 1.0, 2.0, 0.0, 0.0, 3.0, 4.0, 0.0, 0.0, 0.0, 0.0, 0.0,
-            ],
-        );
-        let const_pads = from_slice(&[1, 1, 1, 1]);
-        let result = pad(&input, &const_pads, 0.0).unwrap();
-        expect_equal(&result, &expected)?;
-
-        // Zero padding (no-op)
-        let zero_pads = from_slice(&[0, 0, 0, 0]);
-        let result = pad(&input, &zero_pads, 0.0).unwrap();
-        expect_equal(&result, &input)?;
-
-        // Un-even padding
-        let input = from_data(vec![1, 2, 2], vec![1, 2, 3, 4]);
-        let pads = from_slice(&[0, 0, 0, 0, 1, 0]);
-        let result = pad(&input, &pads, 0).unwrap();
-        assert_eq!(result.shape(), &[1, 3, 2]);
-        assert_eq!(result.data(), &[1, 2, 3, 4, 0, 0]);
-
-        Ok(())
-    }
-
-    #[test]
-    fn test_pad_constant_val() -> Result<(), String> {
-        let input = from_data(vec![2, 2], vec![1.0, 2.0, 3.0, 4.0]);
-        let expected = from_data(
-            vec![4, 4],
-            vec![
-                9., 9., 9., 9., 9., 1., 2., 9., 9., 3., 4., 9., 9., 9., 9., 9.,
-            ],
-        );
-        let const_pads = from_slice(&[1, 1, 1, 1]);
-        let result = pad(&input, &const_pads, 9.).unwrap();
-        expect_equal(&result, &expected)
-    }
-
-    #[test]
-    fn test_pad_op() -> Result<(), String> {
-        let input = from_data(vec![2, 2], vec![1.0, 2.0, 3.0, 4.0]);
-        let pads = from_slice(&[1, 1, 1, 1]);
-        let expected = from_data(
-            vec![4, 4],
-            vec![
-                0.0, 0.0, 0.0, 0.0, 0.0, 1.0, 2.0, 0.0, 0.0, 3.0, 4.0, 0.0, 0.0, 0.0, 0.0, 0.0,
-            ],
-        );
-
-        let op = Pad {};
-        let result = op
-            .run(InputList::from(&[(&input).into(), (&pads).into()]))
-            .unwrap()
-            .remove(0)
-            .into_float()
-            .unwrap();
-        expect_equal(&result, &expected)?;
-
-        Ok(())
-    }
-
-    #[test]
-    fn test_pad_invalid_inputs() {
-        let input = from_data(vec![2, 2], vec![1.0, 2.0, 3.0, 4.0]);
-        let op = Pad {};
-
-        // Wrong padding vector length.
-        let invalid_pads = from_slice(&[1]);
-        let result = op.run(InputList::from(&[(&input).into(), (&invalid_pads).into()]));
-        assert_eq!(
-            result.err(),
-            Some(OpError::InvalidValue(
-                "padding should be vector of length 2 * input dimensions"
-            ))
-        );
-
-        // Unsupported padding amounts.
-        let invalid_pads = from_slice(&[1, 1, 1, -1]);
-        let result = op.run(InputList::from(&[(&input).into(), (&invalid_pads).into()]));
-        assert_eq!(
-            result.err(),
-            Some(OpError::InvalidValue("Pad only supports positive pads"))
-        );
-
-        // Wrong constant value type.
-        let invalid_pads = from_slice(&[1, 1, 1, -1]);
-        let const_int = from_scalar(1);
-        let result = op.run(InputList::from(&[
-            (&input).into(),
-            (&invalid_pads).into(),
-            (&const_int).into(),
-        ]));
-        assert_eq!(result.err(), Some(OpError::IncorrectInputType));
-
-        // Constant value not a scalar.
-        let invalid_pads = from_slice(&[1, 1, 1, -1]);
-        let int_vec = from_slice(&[1.0, 2.0]);
-        let result = op.run(InputList::from(&[
-            (&input).into(),
-            (&invalid_pads).into(),
-            (&int_vec).into(),
-        ]));
-        assert_eq!(
-            result.err(),
-            Some(OpError::InvalidValue("Expected scalar value"))
         );
     }
 
