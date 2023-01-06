@@ -197,16 +197,9 @@ impl Operator for Resize {
         // attr is `tf_crop_and_resize`, which is not currently supported.
 
         let _roi = inputs.get_as::<f32>(1)?;
-
-        // FIXME - `scales` should be optional. It is not required if `sizes` is provided.
-        let scales = inputs.require_as(2)?;
-        let sizes = inputs.get_as(3)?;
-
-        let target = if let Some(sizes) = sizes {
-            ResizeTarget::Sizes(sizes)
-        } else {
-            ResizeTarget::Scales(scales)
-        };
+        let scales = inputs.get_as(2)?.map(ResizeTarget::Scales);
+        let sizes = inputs.get_as(3)?.map(ResizeTarget::Sizes);
+        let target = scales.or(sizes).ok_or(OpError::MissingInputs)?;
 
         resize(input, target, self.mode).into_op_result()
     }
@@ -214,7 +207,7 @@ impl Operator for Resize {
 
 #[cfg(test)]
 mod tests {
-    use crate::ops::{resize, OpError, ResizeMode, ResizeTarget};
+    use crate::ops::{resize, InputList, OpError, Operator, Resize, ResizeMode, ResizeTarget};
     use crate::tensor::Tensor;
     use crate::test_util::expect_equal;
 
@@ -445,6 +438,51 @@ mod tests {
                 ResizeMode::Linear,
             );
             assert_eq!(result.err(), Some(case.expected));
+        }
+    }
+
+    #[test]
+    fn test_resize_scales_sizes() {
+        struct Case {
+            image: Tensor,
+            scales: Option<Tensor>,
+            sizes: Option<Tensor<i32>>,
+            expected: Option<OpError>,
+        }
+
+        let cases = [
+            Case {
+                image: Tensor::from_data(vec![1, 1, 1, 1], vec![1.]),
+                scales: Some(Tensor::from_vec(vec![1., 1., 1., 1.])),
+                sizes: None,
+                expected: None,
+            },
+            Case {
+                image: Tensor::from_data(vec![1, 1, 1, 1], vec![1.]),
+                scales: None,
+                sizes: Some(Tensor::from_vec(vec![1, 1, 2, 2])),
+                expected: None,
+            },
+            Case {
+                image: Tensor::from_data(vec![1, 1, 1, 1], vec![1.]),
+                scales: None,
+                sizes: None,
+                expected: Some(OpError::MissingInputs),
+            },
+        ];
+
+        for case in cases {
+            let op = Resize {
+                mode: ResizeMode::Linear,
+            };
+            let inputs = [
+                Some((&case.image).into()),
+                None, // `roi`
+                case.scales.as_ref().map(|t| t.into()),
+                case.sizes.as_ref().map(|t| t.into()),
+            ];
+            let result = op.run(InputList::from_optional(&inputs));
+            assert_eq!(result.err(), case.expected);
         }
     }
 }
