@@ -83,12 +83,13 @@ class OperatorAttrs(object):
     MaxPoolAttrs = 12
     PadAttrs = 13
     ReduceMeanAttrs = 14
-    ResizeAttrs = 15
-    SplitAttrs = 16
-    SqueezeAttrs = 17
-    SoftmaxAttrs = 18
-    TransposeAttrs = 19
-    UnsqueezeAttrs = 20
+    ReshapeAttrs = 15
+    ResizeAttrs = 16
+    SplitAttrs = 17
+    SqueezeAttrs = 18
+    SoftmaxAttrs = 19
+    TransposeAttrs = 20
+    UnsqueezeAttrs = 21
 
 def OperatorAttrsCreator(unionType, table):
     from flatbuffers.table import Table
@@ -122,6 +123,8 @@ def OperatorAttrsCreator(unionType, table):
         return PadAttrsT.InitFromBuf(table.Bytes, table.Pos)
     if unionType == OperatorAttrs().ReduceMeanAttrs:
         return ReduceMeanAttrsT.InitFromBuf(table.Bytes, table.Pos)
+    if unionType == OperatorAttrs().ReshapeAttrs:
+        return ReshapeAttrsT.InitFromBuf(table.Bytes, table.Pos)
     if unionType == OperatorAttrs().ResizeAttrs:
         return ResizeAttrsT.InitFromBuf(table.Bytes, table.Pos)
     if unionType == OperatorAttrs().SplitAttrs:
@@ -1869,6 +1872,148 @@ class ReduceMeanAttrsT(object):
         return reduceMeanAttrs
 
 
+class ReshapeAttrs(object):
+    __slots__ = ['_tab']
+
+    @classmethod
+    def GetRootAs(cls, buf, offset=0):
+        n = flatbuffers.encode.Get(flatbuffers.packer.uoffset, buf, offset)
+        x = ReshapeAttrs()
+        x.Init(buf, n + offset)
+        return x
+
+    @classmethod
+    def GetRootAsReshapeAttrs(cls, buf, offset=0):
+        """This method is deprecated. Please switch to GetRootAs."""
+        return cls.GetRootAs(buf, offset)
+    @classmethod
+    def ReshapeAttrsBufferHasIdentifier(cls, buf, offset, size_prefixed=False):
+        return flatbuffers.util.BufferHasIdentifier(buf, offset, b"\x4D\x4F\x44\x4C", size_prefixed=size_prefixed)
+
+    # ReshapeAttrs
+    def Init(self, buf, pos):
+        self._tab = flatbuffers.table.Table(buf, pos)
+
+    # ReshapeAttrs
+    def AllowZero(self):
+        o = flatbuffers.number_types.UOffsetTFlags.py_type(self._tab.Offset(4))
+        if o != 0:
+            return bool(self._tab.Get(flatbuffers.number_types.BoolFlags, o + self._tab.Pos))
+        return False
+
+def ReshapeAttrsStart(builder): builder.StartObject(1)
+def ReshapeAttrsAddAllowZero(builder, allowZero): builder.PrependBoolSlot(0, allowZero, 0)
+def ReshapeAttrsEnd(builder): return builder.EndObject()
+
+
+class ReshapeAttrsT(object):
+
+    # ReshapeAttrsT
+    def __init__(self):
+        self.allowZero = False  # type: bool
+
+    @classmethod
+    def InitFromBuf(cls, buf, pos):
+        reshapeAttrs = ReshapeAttrs()
+        reshapeAttrs.Init(buf, pos)
+        return cls.InitFromObj(reshapeAttrs)
+
+    @classmethod
+    def InitFromPackedBuf(cls, buf, pos=0):
+        n = flatbuffers.encode.Get(flatbuffers.packer.uoffset, buf, pos)
+        return cls.InitFromBuf(buf, pos+n)
+
+    @classmethod
+    def InitFromObj(cls, reshapeAttrs):
+        x = ReshapeAttrsT()
+        x._UnPack(reshapeAttrs)
+        return x
+
+    # ReshapeAttrsT
+    def _UnPack(self, reshapeAttrs):
+        if reshapeAttrs is None:
+            return
+        self.allowZero = reshapeAttrs.AllowZero()
+
+    # ReshapeAttrsT
+    def Pack(self, builder):
+        ReshapeAttrsStart(builder)
+        ReshapeAttrsAddAllowZero(builder, self.allowZero)
+        reshapeAttrs = ReshapeAttrsEnd(builder)
+        return reshapeAttrs
+
+
+class ResizeAttrs(object):
+    __slots__ = ['_tab']
+
+    @classmethod
+    def GetRootAs(cls, buf, offset=0):
+        n = flatbuffers.encode.Get(flatbuffers.packer.uoffset, buf, offset)
+        x = ResizeAttrs()
+        x.Init(buf, n + offset)
+        return x
+
+    @classmethod
+    def GetRootAsResizeAttrs(cls, buf, offset=0):
+        """This method is deprecated. Please switch to GetRootAs."""
+        return cls.GetRootAs(buf, offset)
+    @classmethod
+    def ResizeAttrsBufferHasIdentifier(cls, buf, offset, size_prefixed=False):
+        return flatbuffers.util.BufferHasIdentifier(buf, offset, b"\x4D\x4F\x44\x4C", size_prefixed=size_prefixed)
+
+    # ResizeAttrs
+    def Init(self, buf, pos):
+        self._tab = flatbuffers.table.Table(buf, pos)
+
+    # ResizeAttrs
+    def Mode(self):
+        o = flatbuffers.number_types.UOffsetTFlags.py_type(self._tab.Offset(4))
+        if o != 0:
+            return self._tab.Get(flatbuffers.number_types.Int8Flags, o + self._tab.Pos)
+        return 0
+
+def ResizeAttrsStart(builder): builder.StartObject(1)
+def ResizeAttrsAddMode(builder, mode): builder.PrependInt8Slot(0, mode, 0)
+def ResizeAttrsEnd(builder): return builder.EndObject()
+
+
+class ResizeAttrsT(object):
+
+    # ResizeAttrsT
+    def __init__(self):
+        self.mode = 0  # type: int
+
+    @classmethod
+    def InitFromBuf(cls, buf, pos):
+        resizeAttrs = ResizeAttrs()
+        resizeAttrs.Init(buf, pos)
+        return cls.InitFromObj(resizeAttrs)
+
+    @classmethod
+    def InitFromPackedBuf(cls, buf, pos=0):
+        n = flatbuffers.encode.Get(flatbuffers.packer.uoffset, buf, pos)
+        return cls.InitFromBuf(buf, pos+n)
+
+    @classmethod
+    def InitFromObj(cls, resizeAttrs):
+        x = ResizeAttrsT()
+        x._UnPack(resizeAttrs)
+        return x
+
+    # ResizeAttrsT
+    def _UnPack(self, resizeAttrs):
+        if resizeAttrs is None:
+            return
+        self.mode = resizeAttrs.Mode()
+
+    # ResizeAttrsT
+    def Pack(self, builder):
+        ResizeAttrsStart(builder)
+        ResizeAttrsAddMode(builder, self.mode)
+        resizeAttrs = ResizeAttrsEnd(builder)
+        return resizeAttrs
+
+
 class SoftmaxAttrs(object):
     __slots__ = ['_tab']
 
@@ -2395,77 +2540,6 @@ class UnsqueezeAttrsT(object):
         return unsqueezeAttrs
 
 
-class ResizeAttrs(object):
-    __slots__ = ['_tab']
-
-    @classmethod
-    def GetRootAs(cls, buf, offset=0):
-        n = flatbuffers.encode.Get(flatbuffers.packer.uoffset, buf, offset)
-        x = ResizeAttrs()
-        x.Init(buf, n + offset)
-        return x
-
-    @classmethod
-    def GetRootAsResizeAttrs(cls, buf, offset=0):
-        """This method is deprecated. Please switch to GetRootAs."""
-        return cls.GetRootAs(buf, offset)
-    @classmethod
-    def ResizeAttrsBufferHasIdentifier(cls, buf, offset, size_prefixed=False):
-        return flatbuffers.util.BufferHasIdentifier(buf, offset, b"\x4D\x4F\x44\x4C", size_prefixed=size_prefixed)
-
-    # ResizeAttrs
-    def Init(self, buf, pos):
-        self._tab = flatbuffers.table.Table(buf, pos)
-
-    # ResizeAttrs
-    def Mode(self):
-        o = flatbuffers.number_types.UOffsetTFlags.py_type(self._tab.Offset(4))
-        if o != 0:
-            return self._tab.Get(flatbuffers.number_types.Int8Flags, o + self._tab.Pos)
-        return 0
-
-def ResizeAttrsStart(builder): builder.StartObject(1)
-def ResizeAttrsAddMode(builder, mode): builder.PrependInt8Slot(0, mode, 0)
-def ResizeAttrsEnd(builder): return builder.EndObject()
-
-
-class ResizeAttrsT(object):
-
-    # ResizeAttrsT
-    def __init__(self):
-        self.mode = 0  # type: int
-
-    @classmethod
-    def InitFromBuf(cls, buf, pos):
-        resizeAttrs = ResizeAttrs()
-        resizeAttrs.Init(buf, pos)
-        return cls.InitFromObj(resizeAttrs)
-
-    @classmethod
-    def InitFromPackedBuf(cls, buf, pos=0):
-        n = flatbuffers.encode.Get(flatbuffers.packer.uoffset, buf, pos)
-        return cls.InitFromBuf(buf, pos+n)
-
-    @classmethod
-    def InitFromObj(cls, resizeAttrs):
-        x = ResizeAttrsT()
-        x._UnPack(resizeAttrs)
-        return x
-
-    # ResizeAttrsT
-    def _UnPack(self, resizeAttrs):
-        if resizeAttrs is None:
-            return
-        self.mode = resizeAttrs.Mode()
-
-    # ResizeAttrsT
-    def Pack(self, builder):
-        ResizeAttrsStart(builder)
-        ResizeAttrsAddMode(builder, self.mode)
-        resizeAttrs = ResizeAttrsEnd(builder)
-        return resizeAttrs
-
-
 class OperatorNode(object):
     __slots__ = ['_tab']
 
@@ -2587,7 +2661,7 @@ class OperatorNodeT(object):
     def __init__(self):
         self.type = 0  # type: int
         self.attrsType = 0  # type: int
-        self.attrs = None  # type: Union[None, AveragePoolAttrsT, BatchNormalizationAttrsT, CastAttrsT, ClipAttrsT, ConcatAttrsT, ConstantOfShapeAttrsT, ConvAttrsT, ConvTransposeAttrsT, GatherAttrsT, GemmAttrsT, LeakyReluAttrsT, MaxPoolAttrsT, PadAttrsT, ReduceMeanAttrsT, ResizeAttrsT, SplitAttrsT, SqueezeAttrsT, SoftmaxAttrsT, TransposeAttrsT, UnsqueezeAttrsT]
+        self.attrs = None  # type: Union[None, AveragePoolAttrsT, BatchNormalizationAttrsT, CastAttrsT, ClipAttrsT, ConcatAttrsT, ConstantOfShapeAttrsT, ConvAttrsT, ConvTransposeAttrsT, GatherAttrsT, GemmAttrsT, LeakyReluAttrsT, MaxPoolAttrsT, PadAttrsT, ReduceMeanAttrsT, ReshapeAttrsT, ResizeAttrsT, SplitAttrsT, SqueezeAttrsT, SoftmaxAttrsT, TransposeAttrsT, UnsqueezeAttrsT]
         self.inputs = None  # type: List[int]
         self.outputs = None  # type: List[int]
 

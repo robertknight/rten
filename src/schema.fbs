@@ -83,6 +83,7 @@ union OperatorAttrs {
   MaxPoolAttrs,
   PadAttrs,
   ReduceMeanAttrs,
+  ReshapeAttrs,
   ResizeAttrs,
   SplitAttrs,
   SqueezeAttrs,
@@ -181,6 +182,14 @@ table ReduceMeanAttrs {
   keep_dims:bool;
 }
 
+table ReshapeAttrs {
+  allow_zero:bool;
+}
+
+table ResizeAttrs {
+  mode:ResizeMode;
+}
+
 table SoftmaxAttrs {
   axis:uint;
 }
@@ -200,10 +209,6 @@ table TransposeAttrs {
 
 table UnsqueezeAttrs {
   axes:[uint] (required);
-}
-
-table ResizeAttrs {
-  mode:ResizeMode;
 }
 
 // Node in the dataflow graph

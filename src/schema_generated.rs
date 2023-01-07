@@ -544,13 +544,13 @@ pub const ENUM_MIN_OPERATOR_ATTRS: u8 = 0;
     since = "2.0.0",
     note = "Use associated constants instead. This will no longer be generated in 2021."
 )]
-pub const ENUM_MAX_OPERATOR_ATTRS: u8 = 20;
+pub const ENUM_MAX_OPERATOR_ATTRS: u8 = 21;
 #[deprecated(
     since = "2.0.0",
     note = "Use associated constants instead. This will no longer be generated in 2021."
 )]
 #[allow(non_camel_case_types)]
-pub const ENUM_VALUES_OPERATOR_ATTRS: [OperatorAttrs; 21] = [
+pub const ENUM_VALUES_OPERATOR_ATTRS: [OperatorAttrs; 22] = [
     OperatorAttrs::NONE,
     OperatorAttrs::AveragePoolAttrs,
     OperatorAttrs::BatchNormalizationAttrs,
@@ -566,6 +566,7 @@ pub const ENUM_VALUES_OPERATOR_ATTRS: [OperatorAttrs; 21] = [
     OperatorAttrs::MaxPoolAttrs,
     OperatorAttrs::PadAttrs,
     OperatorAttrs::ReduceMeanAttrs,
+    OperatorAttrs::ReshapeAttrs,
     OperatorAttrs::ResizeAttrs,
     OperatorAttrs::SplitAttrs,
     OperatorAttrs::SqueezeAttrs,
@@ -594,15 +595,16 @@ impl OperatorAttrs {
     pub const MaxPoolAttrs: Self = Self(12);
     pub const PadAttrs: Self = Self(13);
     pub const ReduceMeanAttrs: Self = Self(14);
-    pub const ResizeAttrs: Self = Self(15);
-    pub const SplitAttrs: Self = Self(16);
-    pub const SqueezeAttrs: Self = Self(17);
-    pub const SoftmaxAttrs: Self = Self(18);
-    pub const TransposeAttrs: Self = Self(19);
-    pub const UnsqueezeAttrs: Self = Self(20);
+    pub const ReshapeAttrs: Self = Self(15);
+    pub const ResizeAttrs: Self = Self(16);
+    pub const SplitAttrs: Self = Self(17);
+    pub const SqueezeAttrs: Self = Self(18);
+    pub const SoftmaxAttrs: Self = Self(19);
+    pub const TransposeAttrs: Self = Self(20);
+    pub const UnsqueezeAttrs: Self = Self(21);
 
     pub const ENUM_MIN: u8 = 0;
-    pub const ENUM_MAX: u8 = 20;
+    pub const ENUM_MAX: u8 = 21;
     pub const ENUM_VALUES: &'static [Self] = &[
         Self::NONE,
         Self::AveragePoolAttrs,
@@ -619,6 +621,7 @@ impl OperatorAttrs {
         Self::MaxPoolAttrs,
         Self::PadAttrs,
         Self::ReduceMeanAttrs,
+        Self::ReshapeAttrs,
         Self::ResizeAttrs,
         Self::SplitAttrs,
         Self::SqueezeAttrs,
@@ -644,6 +647,7 @@ impl OperatorAttrs {
             Self::MaxPoolAttrs => Some("MaxPoolAttrs"),
             Self::PadAttrs => Some("PadAttrs"),
             Self::ReduceMeanAttrs => Some("ReduceMeanAttrs"),
+            Self::ReshapeAttrs => Some("ReshapeAttrs"),
             Self::ResizeAttrs => Some("ResizeAttrs"),
             Self::SplitAttrs => Some("SplitAttrs"),
             Self::SqueezeAttrs => Some("SqueezeAttrs"),
@@ -3101,6 +3105,212 @@ impl core::fmt::Debug for ReduceMeanAttrs<'_> {
         ds.finish()
     }
 }
+pub enum ReshapeAttrsOffset {}
+#[derive(Copy, Clone, PartialEq)]
+
+pub struct ReshapeAttrs<'a> {
+    pub _tab: flatbuffers::Table<'a>,
+}
+
+impl<'a> flatbuffers::Follow<'a> for ReshapeAttrs<'a> {
+    type Inner = ReshapeAttrs<'a>;
+    #[inline]
+    unsafe fn follow(buf: &'a [u8], loc: usize) -> Self::Inner {
+        Self {
+            _tab: flatbuffers::Table::new(buf, loc),
+        }
+    }
+}
+
+impl<'a> ReshapeAttrs<'a> {
+    pub const VT_ALLOW_ZERO: flatbuffers::VOffsetT = 4;
+
+    #[inline]
+    pub unsafe fn init_from_table(table: flatbuffers::Table<'a>) -> Self {
+        ReshapeAttrs { _tab: table }
+    }
+    #[allow(unused_mut)]
+    pub fn create<'bldr: 'args, 'args: 'mut_bldr, 'mut_bldr>(
+        _fbb: &'mut_bldr mut flatbuffers::FlatBufferBuilder<'bldr>,
+        args: &'args ReshapeAttrsArgs,
+    ) -> flatbuffers::WIPOffset<ReshapeAttrs<'bldr>> {
+        let mut builder = ReshapeAttrsBuilder::new(_fbb);
+        builder.add_allow_zero(args.allow_zero);
+        builder.finish()
+    }
+
+    #[inline]
+    pub fn allow_zero(&self) -> bool {
+        // Safety:
+        // Created from valid Table for this object
+        // which contains a valid value in this slot
+        unsafe {
+            self._tab
+                .get::<bool>(ReshapeAttrs::VT_ALLOW_ZERO, Some(false))
+                .unwrap()
+        }
+    }
+}
+
+impl flatbuffers::Verifiable for ReshapeAttrs<'_> {
+    #[inline]
+    fn run_verifier(
+        v: &mut flatbuffers::Verifier,
+        pos: usize,
+    ) -> Result<(), flatbuffers::InvalidFlatbuffer> {
+        use self::flatbuffers::Verifiable;
+        v.visit_table(pos)?
+            .visit_field::<bool>("allow_zero", Self::VT_ALLOW_ZERO, false)?
+            .finish();
+        Ok(())
+    }
+}
+pub struct ReshapeAttrsArgs {
+    pub allow_zero: bool,
+}
+impl<'a> Default for ReshapeAttrsArgs {
+    #[inline]
+    fn default() -> Self {
+        ReshapeAttrsArgs { allow_zero: false }
+    }
+}
+
+pub struct ReshapeAttrsBuilder<'a: 'b, 'b> {
+    fbb_: &'b mut flatbuffers::FlatBufferBuilder<'a>,
+    start_: flatbuffers::WIPOffset<flatbuffers::TableUnfinishedWIPOffset>,
+}
+impl<'a: 'b, 'b> ReshapeAttrsBuilder<'a, 'b> {
+    #[inline]
+    pub fn add_allow_zero(&mut self, allow_zero: bool) {
+        self.fbb_
+            .push_slot::<bool>(ReshapeAttrs::VT_ALLOW_ZERO, allow_zero, false);
+    }
+    #[inline]
+    pub fn new(_fbb: &'b mut flatbuffers::FlatBufferBuilder<'a>) -> ReshapeAttrsBuilder<'a, 'b> {
+        let start = _fbb.start_table();
+        ReshapeAttrsBuilder {
+            fbb_: _fbb,
+            start_: start,
+        }
+    }
+    #[inline]
+    pub fn finish(self) -> flatbuffers::WIPOffset<ReshapeAttrs<'a>> {
+        let o = self.fbb_.end_table(self.start_);
+        flatbuffers::WIPOffset::new(o.value())
+    }
+}
+
+impl core::fmt::Debug for ReshapeAttrs<'_> {
+    fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
+        let mut ds = f.debug_struct("ReshapeAttrs");
+        ds.field("allow_zero", &self.allow_zero());
+        ds.finish()
+    }
+}
+pub enum ResizeAttrsOffset {}
+#[derive(Copy, Clone, PartialEq)]
+
+pub struct ResizeAttrs<'a> {
+    pub _tab: flatbuffers::Table<'a>,
+}
+
+impl<'a> flatbuffers::Follow<'a> for ResizeAttrs<'a> {
+    type Inner = ResizeAttrs<'a>;
+    #[inline]
+    unsafe fn follow(buf: &'a [u8], loc: usize) -> Self::Inner {
+        Self {
+            _tab: flatbuffers::Table::new(buf, loc),
+        }
+    }
+}
+
+impl<'a> ResizeAttrs<'a> {
+    pub const VT_MODE: flatbuffers::VOffsetT = 4;
+
+    #[inline]
+    pub unsafe fn init_from_table(table: flatbuffers::Table<'a>) -> Self {
+        ResizeAttrs { _tab: table }
+    }
+    #[allow(unused_mut)]
+    pub fn create<'bldr: 'args, 'args: 'mut_bldr, 'mut_bldr>(
+        _fbb: &'mut_bldr mut flatbuffers::FlatBufferBuilder<'bldr>,
+        args: &'args ResizeAttrsArgs,
+    ) -> flatbuffers::WIPOffset<ResizeAttrs<'bldr>> {
+        let mut builder = ResizeAttrsBuilder::new(_fbb);
+        builder.add_mode(args.mode);
+        builder.finish()
+    }
+
+    #[inline]
+    pub fn mode(&self) -> ResizeMode {
+        // Safety:
+        // Created from valid Table for this object
+        // which contains a valid value in this slot
+        unsafe {
+            self._tab
+                .get::<ResizeMode>(ResizeAttrs::VT_MODE, Some(ResizeMode::Nearest))
+                .unwrap()
+        }
+    }
+}
+
+impl flatbuffers::Verifiable for ResizeAttrs<'_> {
+    #[inline]
+    fn run_verifier(
+        v: &mut flatbuffers::Verifier,
+        pos: usize,
+    ) -> Result<(), flatbuffers::InvalidFlatbuffer> {
+        use self::flatbuffers::Verifiable;
+        v.visit_table(pos)?
+            .visit_field::<ResizeMode>("mode", Self::VT_MODE, false)?
+            .finish();
+        Ok(())
+    }
+}
+pub struct ResizeAttrsArgs {
+    pub mode: ResizeMode,
+}
+impl<'a> Default for ResizeAttrsArgs {
+    #[inline]
+    fn default() -> Self {
+        ResizeAttrsArgs {
+            mode: ResizeMode::Nearest,
+        }
+    }
+}
+
+pub struct ResizeAttrsBuilder<'a: 'b, 'b> {
+    fbb_: &'b mut flatbuffers::FlatBufferBuilder<'a>,
+    start_: flatbuffers::WIPOffset<flatbuffers::TableUnfinishedWIPOffset>,
+}
+impl<'a: 'b, 'b> ResizeAttrsBuilder<'a, 'b> {
+    #[inline]
+    pub fn add_mode(&mut self, mode: ResizeMode) {
+        self.fbb_
+            .push_slot::<ResizeMode>(ResizeAttrs::VT_MODE, mode, ResizeMode::Nearest);
+    }
+    #[inline]
+    pub fn new(_fbb: &'b mut flatbuffers::FlatBufferBuilder<'a>) -> ResizeAttrsBuilder<'a, 'b> {
+        let start = _fbb.start_table();
+        ResizeAttrsBuilder {
+            fbb_: _fbb,
+            start_: start,
+        }
+    }
+    #[inline]
+    pub fn finish(self) -> flatbuffers::WIPOffset<ResizeAttrs<'a>> {
+        let o = self.fbb_.end_table(self.start_);
+        flatbuffers::WIPOffset::new(o.value())
+    }
+}
+
+impl core::fmt::Debug for ResizeAttrs<'_> {
+    fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
+        let mut ds = f.debug_struct("ResizeAttrs");
+        ds.field("mode", &self.mode());
+        ds.finish()
+    }
+}
 pub enum SoftmaxAttrsOffset {}
 #[derive(Copy, Clone, PartialEq)]
 
@@ -3665,110 +3875,6 @@ impl core::fmt::Debug for UnsqueezeAttrs<'_> {
         ds.finish()
     }
 }
-pub enum ResizeAttrsOffset {}
-#[derive(Copy, Clone, PartialEq)]
-
-pub struct ResizeAttrs<'a> {
-    pub _tab: flatbuffers::Table<'a>,
-}
-
-impl<'a> flatbuffers::Follow<'a> for ResizeAttrs<'a> {
-    type Inner = ResizeAttrs<'a>;
-    #[inline]
-    unsafe fn follow(buf: &'a [u8], loc: usize) -> Self::Inner {
-        Self {
-            _tab: flatbuffers::Table::new(buf, loc),
-        }
-    }
-}
-
-impl<'a> ResizeAttrs<'a> {
-    pub const VT_MODE: flatbuffers::VOffsetT = 4;
-
-    #[inline]
-    pub unsafe fn init_from_table(table: flatbuffers::Table<'a>) -> Self {
-        ResizeAttrs { _tab: table }
-    }
-    #[allow(unused_mut)]
-    pub fn create<'bldr: 'args, 'args: 'mut_bldr, 'mut_bldr>(
-        _fbb: &'mut_bldr mut flatbuffers::FlatBufferBuilder<'bldr>,
-        args: &'args ResizeAttrsArgs,
-    ) -> flatbuffers::WIPOffset<ResizeAttrs<'bldr>> {
-        let mut builder = ResizeAttrsBuilder::new(_fbb);
-        builder.add_mode(args.mode);
-        builder.finish()
-    }
-
-    #[inline]
-    pub fn mode(&self) -> ResizeMode {
-        // Safety:
-        // Created from valid Table for this object
-        // which contains a valid value in this slot
-        unsafe {
-            self._tab
-                .get::<ResizeMode>(ResizeAttrs::VT_MODE, Some(ResizeMode::Nearest))
-                .unwrap()
-        }
-    }
-}
-
-impl flatbuffers::Verifiable for ResizeAttrs<'_> {
-    #[inline]
-    fn run_verifier(
-        v: &mut flatbuffers::Verifier,
-        pos: usize,
-    ) -> Result<(), flatbuffers::InvalidFlatbuffer> {
-        use self::flatbuffers::Verifiable;
-        v.visit_table(pos)?
-            .visit_field::<ResizeMode>("mode", Self::VT_MODE, false)?
-            .finish();
-        Ok(())
-    }
-}
-pub struct ResizeAttrsArgs {
-    pub mode: ResizeMode,
-}
-impl<'a> Default for ResizeAttrsArgs {
-    #[inline]
-    fn default() -> Self {
-        ResizeAttrsArgs {
-            mode: ResizeMode::Nearest,
-        }
-    }
-}
-
-pub struct ResizeAttrsBuilder<'a: 'b, 'b> {
-    fbb_: &'b mut flatbuffers::FlatBufferBuilder<'a>,
-    start_: flatbuffers::WIPOffset<flatbuffers::TableUnfinishedWIPOffset>,
-}
-impl<'a: 'b, 'b> ResizeAttrsBuilder<'a, 'b> {
-    #[inline]
-    pub fn add_mode(&mut self, mode: ResizeMode) {
-        self.fbb_
-            .push_slot::<ResizeMode>(ResizeAttrs::VT_MODE, mode, ResizeMode::Nearest);
-    }
-    #[inline]
-    pub fn new(_fbb: &'b mut flatbuffers::FlatBufferBuilder<'a>) -> ResizeAttrsBuilder<'a, 'b> {
-        let start = _fbb.start_table();
-        ResizeAttrsBuilder {
-            fbb_: _fbb,
-            start_: start,
-        }
-    }
-    #[inline]
-    pub fn finish(self) -> flatbuffers::WIPOffset<ResizeAttrs<'a>> {
-        let o = self.fbb_.end_table(self.start_);
-        flatbuffers::WIPOffset::new(o.value())
-    }
-}
-
-impl core::fmt::Debug for ResizeAttrs<'_> {
-    fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
-        let mut ds = f.debug_struct("ResizeAttrs");
-        ds.field("mode", &self.mode());
-        ds.finish()
-    }
-}
 pub enum OperatorNodeOffset {}
 #[derive(Copy, Clone, PartialEq)]
 
@@ -4090,6 +4196,21 @@ impl<'a> OperatorNode<'a> {
 
     #[inline]
     #[allow(non_snake_case)]
+    pub fn attrs_as_reshape_attrs(&self) -> Option<ReshapeAttrs<'a>> {
+        if self.attrs_type() == OperatorAttrs::ReshapeAttrs {
+            self.attrs().map(|t| {
+                // Safety:
+                // Created from a valid Table for this object
+                // Which contains a valid union in this slot
+                unsafe { ReshapeAttrs::init_from_table(t) }
+            })
+        } else {
+            None
+        }
+    }
+
+    #[inline]
+    #[allow(non_snake_case)]
     pub fn attrs_as_resize_attrs(&self) -> Option<ResizeAttrs<'a>> {
         if self.attrs_type() == OperatorAttrs::ResizeAttrs {
             self.attrs().map(|t| {
@@ -4204,6 +4325,7 @@ impl flatbuffers::Verifiable for OperatorNode<'_> {
           OperatorAttrs::MaxPoolAttrs => v.verify_union_variant::<flatbuffers::ForwardsUOffset<MaxPoolAttrs>>("OperatorAttrs::MaxPoolAttrs", pos),
           OperatorAttrs::PadAttrs => v.verify_union_variant::<flatbuffers::ForwardsUOffset<PadAttrs>>("OperatorAttrs::PadAttrs", pos),
           OperatorAttrs::ReduceMeanAttrs => v.verify_union_variant::<flatbuffers::ForwardsUOffset<ReduceMeanAttrs>>("OperatorAttrs::ReduceMeanAttrs", pos),
+          OperatorAttrs::ReshapeAttrs => v.verify_union_variant::<flatbuffers::ForwardsUOffset<ReshapeAttrs>>("OperatorAttrs::ReshapeAttrs", pos),
           OperatorAttrs::ResizeAttrs => v.verify_union_variant::<flatbuffers::ForwardsUOffset<ResizeAttrs>>("OperatorAttrs::ResizeAttrs", pos),
           OperatorAttrs::SplitAttrs => v.verify_union_variant::<flatbuffers::ForwardsUOffset<SplitAttrs>>("OperatorAttrs::SplitAttrs", pos),
           OperatorAttrs::SqueezeAttrs => v.verify_union_variant::<flatbuffers::ForwardsUOffset<SqueezeAttrs>>("OperatorAttrs::SqueezeAttrs", pos),
@@ -4425,6 +4547,16 @@ impl core::fmt::Debug for OperatorNode<'_> {
             }
             OperatorAttrs::ReduceMeanAttrs => {
                 if let Some(x) = self.attrs_as_reduce_mean_attrs() {
+                    ds.field("attrs", &x)
+                } else {
+                    ds.field(
+                        "attrs",
+                        &"InvalidFlatbuffer: Union discriminant does not match value.",
+                    )
+                }
+            }
+            OperatorAttrs::ReshapeAttrs => {
+                if let Some(x) = self.attrs_as_reshape_attrs() {
                     ds.field("attrs", &x)
                 } else {
                     ds.field(

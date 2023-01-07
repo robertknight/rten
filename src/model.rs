@@ -235,6 +235,14 @@ fn read_reduce_mean_op(node: &OperatorNode) -> ReadOpResult {
     Ok(Box::new(ops::ReduceMean { axes, keep_dims }))
 }
 
+fn read_reshape_op(node: &OperatorNode) -> ReadOpResult {
+    let attrs = node
+        .attrs_as_reshape_attrs()
+        .ok_or(ReadOpError::AttrError)?;
+    let allow_zero = attrs.allow_zero();
+    Ok(Box::new(ops::Reshape { allow_zero }))
+}
+
 fn read_resize_op(node: &OperatorNode) -> ReadOpResult {
     let attrs = node.attrs_as_resize_attrs().ok_or(ReadOpError::AttrError)?;
     let mode = match attrs.mode() {
@@ -333,7 +341,7 @@ fn read_operator(node: &OperatorNode) -> ReadOpResult {
         OperatorType::Range => op!(Range),
         OperatorType::ReduceMean => read_reduce_mean_op(node),
         OperatorType::Relu => op!(Relu),
-        OperatorType::Reshape => op!(Reshape),
+        OperatorType::Reshape => read_reshape_op(node),
         OperatorType::Resize => read_resize_op(node),
         OperatorType::Shape => op!(Shape),
         OperatorType::Sigmoid => op!(Sigmoid),
@@ -689,7 +697,9 @@ mod tests {
         add_operator!(Relu, [input_node]);
 
         let new_shape = builder.add_int_constant(&from_data(vec![1], vec![9]));
-        add_operator!(Reshape, [input_node, new_shape]);
+        add_operator!(Reshape, [input_node, new_shape], {
+            allow_zero: false,
+        });
 
         let resize_roi_val = from_vec(vec![0., 0., 0., 0., 1., 1., 1., 1.]);
         let resize_scales_val = from_vec(vec![1., 1., 2., 2.]);

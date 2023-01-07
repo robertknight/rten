@@ -42,10 +42,14 @@ impl Operator for Expand {
 /// input tensor and a target `shape` which may contain a "-1" entry to indicate
 /// a dimension whose size should be inferred.
 ///
-/// When the target shape contains a zero, the corresponding input dimension
-/// is copied. Note that this is different to how reshaping in NumPy works.
-/// See https://github.com/onnx/onnx/issues/2507.
-fn resolve_shape(input_shape: &[usize], shape: &Tensor<i32>) -> Result<Vec<usize>, OpError> {
+/// Handling of zeros in the target shape depends on `allow_zero`. If false,
+/// the corresponding input dimension is copied, otherwise the zero is
+/// preserved in the output shape.
+fn resolve_shape(
+    input_shape: &[usize],
+    shape: &Tensor<i32>,
+    allow_zero: bool,
+) -> Result<Vec<usize>, OpError> {
     // If exactly one of the new shape's dimensions is -1, infer the size
     // from the input length and the sizes of the other dimensions.
     let mut unspecified_dim = None;
@@ -53,7 +57,7 @@ fn resolve_shape(input_shape: &[usize], shape: &Tensor<i32>) -> Result<Vec<usize
     for (dim, size) in shape.elements().enumerate() {
         if size < -1 {
             return Err(OpError::InvalidValue("Invalid dimension size in shape"));
-        } else if size == 0 {
+        } else if size == 0 && !allow_zero {
             if dim >= input_shape.len() {
                 return Err(OpError::InvalidValue(
                     "Zero dim has no corresponding input dim",
@@ -74,10 +78,21 @@ fn resolve_shape(input_shape: &[usize], shape: &Tensor<i32>) -> Result<Vec<usize
     let input_len = input_shape.iter().product();
     let (unspecified_dim_size, remainder) = match input_len {
         0 => (0, 0),
-        _ => (
-            input_len / specified_dims_size,
-            input_len % specified_dims_size,
-        ),
+        _ => {
+            if specified_dims_size == 0 {
+                // If `specified_dims_size` is zero but `input_len` is non-zero,
+                // this means that the target shape doesn't match the input length.
+                //
+                // Return a non-zero remainder here to cause the appropriate
+                // error to be returned.
+                (0, 1)
+            } else {
+                (
+                    input_len / specified_dims_size,
+                    input_len % specified_dims_size,
+                )
+            }
+        }
     };
 
     if remainder != 0 {
@@ -91,28 +106,36 @@ fn resolve_shape(input_shape: &[usize], shape: &Tensor<i32>) -> Result<Vec<usize
         .enumerate()
         .map(|(dim, size)| match size {
             -1 => unspecified_dim_size,
-            0 => input_shape[dim],
+            0 if !allow_zero => input_shape[dim],
             valid => valid as usize,
         })
         .collect())
 }
 
-pub fn reshape<T: Copy>(input: &Tensor<T>, shape: &Tensor<i32>) -> Result<Tensor<T>, OpError> {
-    let out_shape = resolve_shape(input.shape(), shape)?;
+pub fn reshape<T: Copy>(
+    input: &Tensor<T>,
+    shape: &Tensor<i32>,
+    allow_zero: bool,
+) -> Result<Tensor<T>, OpError> {
+    let out_shape = resolve_shape(input.shape(), shape, allow_zero)?;
     Ok(input.clone_with_shape(&out_shape))
 }
 
 pub fn reshape_in_place<T: Copy>(
     input: &mut Tensor<T>,
     shape: &Tensor<i32>,
+    allow_zero: bool,
 ) -> Result<(), OpError> {
-    let out_shape = resolve_shape(input.shape(), shape)?;
+    let out_shape = resolve_shape(input.shape(), shape, allow_zero)?;
     input.reshape(&out_shape);
     Ok(())
 }
 
 #[derive(Debug)]
-pub struct Reshape {}
+pub struct Reshape {
+    pub allow_zero: bool,
+}
+
 impl Operator for Reshape {
     fn name(&self) -> &str {
         "Reshape"
@@ -122,8 +145,8 @@ impl Operator for Reshape {
         let input = inputs.require(0)?;
         let shape = inputs.require_as(1)?;
         match input {
-            Input::IntTensor(t) => reshape(t, shape).into_op_result(),
-            Input::FloatTensor(t) => reshape(t, shape).into_op_result(),
+            Input::IntTensor(t) => reshape(t, shape, self.allow_zero).into_op_result(),
+            Input::FloatTensor(t) => reshape(t, shape, self.allow_zero).into_op_result(),
         }
     }
 
@@ -135,11 +158,11 @@ impl Operator for Reshape {
         let shape = other.require_as(0)?;
         match input {
             Output::IntTensor(mut output) => {
-                reshape_in_place(&mut output, shape)?;
+                reshape_in_place(&mut output, shape, self.allow_zero)?;
                 Ok(output.into())
             }
             Output::FloatTensor(mut output) => {
-                reshape_in_place(&mut output, shape)?;
+                reshape_in_place(&mut output, shape, self.allow_zero)?;
                 Ok(output.into())
             }
         }
@@ -367,13 +390,13 @@ mod tests {
         let input = from_data(vec![2, 2], vec![-0.5, 0.5, 3.0, -5.5]);
         let shape = from_vec(vec![1, -1, 2]);
         let expected = input.clone_with_shape(&[1, 2, 2]);
-        let result = reshape(&input, &shape).unwrap();
+        let result = reshape(&input, &shape, false /* allow_zero */).unwrap();
         expect_equal(&result, &expected)?;
 
         // Reshape with an unspecified (-1) dim and zero-length input
         let zero_sized_input = from_data(vec![4, 0, 1], vec![]);
         let shape = from_vec(vec![100, -1]);
-        let result = reshape(&zero_sized_input, &shape).unwrap();
+        let result = reshape(&zero_sized_input, &shape, false /* allow_zero */).unwrap();
         let expected = zero_sized_input.clone_with_shape(&[100, 0]);
         expect_equal(&result, &expected)
     }
@@ -385,26 +408,33 @@ mod tests {
         let input = from_data(vec![1, 1, 4], vec![-0.5, 0.5, 3.0, -5.5]);
         let shape = from_vec(vec![-1, 0]);
         let expected = input.clone_with_shape(&[4, 1]);
-        let result = reshape(&input, &shape).unwrap();
+        let result = reshape(&input, &shape, false /* allow_zero */).unwrap();
         expect_equal(&result, &expected)?;
 
-        // Test case where copied input dim is also zero.
+        // Case where copied input dim is also zero.
         let input = from_data(vec![0], vec![]);
         let shape = from_vec(vec![0]);
         let expected = input.clone_with_shape(&[0]);
-        let result = reshape(&input, &shape).unwrap();
+        let result = reshape(&input, &shape, false /* allow_zero */).unwrap();
         expect_equal(&result, &expected)?;
 
-        // Test case where there is no corresponding input dim.
+        // Case where there is no corresponding input dim.
         let input = from_data(vec![1], vec![5.]);
         let shape = from_vec(vec![1, 0]);
-        let result = reshape(&input, &shape);
+        let result = reshape(&input, &shape, false /* allow_zero */);
         assert_eq!(
             result.err(),
             Some(OpError::InvalidValue(
                 "Zero dim has no corresponding input dim"
             ))
         );
+
+        // Case when allow_zero is true
+        let input = from_data(vec![0, 0, 10], vec![]);
+        let shape = from_vec(vec![10, 0, 0]);
+        let result = reshape(&input, &shape, true /* allow_zero */).unwrap();
+        let expected = input.clone_with_shape(&[10, 0, 0]);
+        expect_equal(&result, &expected)?;
 
         Ok(())
     }
@@ -414,7 +444,7 @@ mod tests {
         let input = from_data(vec![2, 2], vec![-0.5, 0.5, 3.0, -5.5]);
         let shape = from_vec(vec![1, -1, -1]);
         assert_eq!(
-            reshape(&input, &shape).err(),
+            reshape(&input, &shape, false /* allow_zero */).err(),
             Some(OpError::InvalidValue(
                 "Multiple dimensions in new shape set to -1"
             ))
@@ -423,14 +453,20 @@ mod tests {
 
     #[test]
     fn test_reshape_with_unsolvable_unspecified_dim() {
+        let expected_err = Some(OpError::InvalidValue(
+            "Input length must be a multiple of specified dimensions",
+        ));
+
         let input = from_data(vec![2, 2], vec![-0.5, 0.5, 3.0, -5.5]);
         let shape = from_vec(vec![5, -1]);
-        assert_eq!(
-            reshape(&input, &shape).err(),
-            Some(OpError::InvalidValue(
-                "Input length must be a multiple of specified dimensions"
-            ))
-        );
+        let result = reshape(&input, &shape, false /* allow_zero */);
+        assert_eq!(result.err(), expected_err);
+
+        // Case when allow_zero is true
+        let input = from_data(vec![1], vec![1]);
+        let shape = from_vec(vec![0, -1]);
+        let result = reshape(&input, &shape, true /* allow_zero */);
+        assert_eq!(result.err(), expected_err);
     }
 
     #[test]
@@ -438,7 +474,7 @@ mod tests {
         let mut input = from_data(vec![2, 2], vec![-0.5, 0.5, 3.0, -5.5]);
         let shape = from_data(vec![1], vec![4]);
         let expected = input.clone_with_shape(&[4]);
-        reshape_in_place(&mut input, &shape).unwrap();
+        reshape_in_place(&mut input, &shape, false /* allow_zero */).unwrap();
         assert_eq!(&input, &expected);
     }
 
@@ -448,7 +484,7 @@ mod tests {
         let shape = from_data(vec![1], vec![4]);
         let expected = input.clone_with_shape(&[4]);
 
-        let op = Reshape {};
+        let op = Reshape { allow_zero: false };
         let result = op
             .run(InputList::from(&[(&input).into(), (&shape).into()]))
             .unwrap()

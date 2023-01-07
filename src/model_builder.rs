@@ -4,8 +4,8 @@ use flatbuffers::{FlatBufferBuilder, UnionWIPOffset, Vector, WIPOffset};
 
 use crate::ops::{
     AveragePool, BatchNormalization, Cast, Clip, Concat, ConstantOfShape, Conv, ConvTranspose,
-    DataType, Gather, Gemm, LeakyRelu, MaxPool, Padding, ReduceMean, Resize, ResizeMode, Scalar,
-    Softmax, Split, Squeeze, Transpose, Unsqueeze,
+    DataType, Gather, Gemm, LeakyRelu, MaxPool, Padding, ReduceMean, Reshape, Resize, ResizeMode,
+    Scalar, Softmax, Split, Squeeze, Transpose, Unsqueeze,
 };
 use crate::schema_generated as sg;
 use crate::tensor::Tensor;
@@ -40,7 +40,7 @@ pub enum OpType {
     Range,
     ReduceMean(ReduceMean),
     Relu,
-    Reshape,
+    Reshape(Reshape),
     Resize(Resize),
     Shape,
     Sigmoid,
@@ -371,7 +371,11 @@ impl<'a> ModelBuilder<'a> {
                 }
             }),
             OpType::Relu => op!(Relu),
-            OpType::Reshape => op!(Reshape),
+            OpType::Reshape(args) => op_with_attrs!(Reshape, ReshapeAttrs, {
+                sg::ReshapeAttrsArgs {
+                    allow_zero: args.allow_zero,
+                }
+            }),
             OpType::Resize(args) => op_with_attrs!(Resize, ResizeAttrs, {
                 let mode = match args.mode {
                     ResizeMode::Nearest => sg::ResizeMode::Nearest,

@@ -546,7 +546,8 @@ def op_node_from_onnx_operator(
             op_reader.check_attr("noop_with_empty_axes", "int", 0)
 
         case "Reshape":
-            op_reader.check_attr("allowzero", "int", 0)
+            attrs = sg.ReshapeAttrsT()
+            attrs.allowZero = bool(op_reader.get_attr("allowzero", "int", 0))
 
         case "Resize":
             attrs = sg.ResizeAttrsT()
