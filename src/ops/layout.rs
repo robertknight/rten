@@ -41,6 +41,10 @@ impl Operator for Expand {
 /// Compute the target shape for a reshape operation, given the shape of the
 /// input tensor and a target `shape` which may contain a "-1" entry to indicate
 /// a dimension whose size should be inferred.
+///
+/// When the target shape contains a zero, the corresponding input dimension
+/// is copied. Note that this is different to how reshaping in NumPy works.
+/// See https://github.com/onnx/onnx/issues/2507.
 fn resolve_shape(input_shape: &[usize], shape: &Tensor<i32>) -> Result<Vec<usize>, OpError> {
     // If exactly one of the new shape's dimensions is -1, infer the size
     // from the input length and the sizes of the other dimensions.
@@ -49,6 +53,13 @@ fn resolve_shape(input_shape: &[usize], shape: &Tensor<i32>) -> Result<Vec<usize
     for (dim, size) in shape.elements().enumerate() {
         if size < -1 {
             return Err(OpError::InvalidValue("Invalid dimension size in shape"));
+        } else if size == 0 {
+            if dim >= input_shape.len() {
+                return Err(OpError::InvalidValue(
+                    "Zero dim has no corresponding input dim",
+                ));
+            }
+            specified_dims_size *= input_shape[dim];
         } else if size != -1 {
             specified_dims_size *= size as usize;
         } else if unspecified_dim.is_some() {
@@ -77,8 +88,10 @@ fn resolve_shape(input_shape: &[usize], shape: &Tensor<i32>) -> Result<Vec<usize
 
     Ok(shape
         .elements()
-        .map(|size| match size {
+        .enumerate()
+        .map(|(dim, size)| match size {
             -1 => unspecified_dim_size,
+            0 => input_shape[dim],
             valid => valid as usize,
         })
         .collect())
@@ -363,6 +376,37 @@ mod tests {
         let result = reshape(&zero_sized_input, &shape).unwrap();
         let expected = zero_sized_input.clone_with_shape(&[100, 0]);
         expect_equal(&result, &expected)
+    }
+
+    #[test]
+    fn test_reshape_with_zero_dim() -> Result<(), String> {
+        // When the target shape has a zero dim, the corresponding input dim
+        // size should be copied.
+        let input = from_data(vec![1, 1, 4], vec![-0.5, 0.5, 3.0, -5.5]);
+        let shape = from_vec(vec![-1, 0]);
+        let expected = input.clone_with_shape(&[4, 1]);
+        let result = reshape(&input, &shape).unwrap();
+        expect_equal(&result, &expected)?;
+
+        // Test case where copied input dim is also zero.
+        let input = from_data(vec![0], vec![]);
+        let shape = from_vec(vec![0]);
+        let expected = input.clone_with_shape(&[0]);
+        let result = reshape(&input, &shape).unwrap();
+        expect_equal(&result, &expected)?;
+
+        // Test case where there is no corresponding input dim.
+        let input = from_data(vec![1], vec![5.]);
+        let shape = from_vec(vec![1, 0]);
+        let result = reshape(&input, &shape);
+        assert_eq!(
+            result.err(),
+            Some(OpError::InvalidValue(
+                "Zero dim has no corresponding input dim"
+            ))
+        );
+
+        Ok(())
     }
 
     #[test]
