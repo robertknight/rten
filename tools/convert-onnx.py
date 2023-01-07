@@ -369,16 +369,16 @@ def op_node_from_onnx_operator(
     for input_name in onnx_op.input:
         if input_name:
             index = node_index_from_name.get(input_name)
+            if index is None:
+                raise Exception(
+                    f'Unable to find input "{input_name}" for operator {onnx_op.name}'
+                )
         else:
             # An empty input name indicates an omitted optional input. This is
             # only required in cases where at least one subsequent optional
             # input is provided. All trailing optional inputs can simply be
             # omitted.
             index = None
-        if index is None:
-            raise Exception(
-                f'Unable to find input "{input_name}" for operator {onnx_op.name}'
-            )
         input_indexes.append(index)
 
     output_indexes = []
