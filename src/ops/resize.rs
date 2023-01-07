@@ -186,17 +186,10 @@ impl Operator for Resize {
     fn run(&self, inputs: InputList) -> Result<Vec<Output>, OpError> {
         let input = inputs.require_as(0)?;
 
-        // The `roi` input is marked as optional in ONNX, but the spec also says
-        // that one of the subsequent `scales` or `sizes` inputs must be provided.
-        //
-        // Wasnn doesn't yet support omitting an optional input and then specifying
-        // a subsequent optional input, so for now we require that `roi` and
-        // `scales` must be provided, but `sizes` can be omitted.
-        //
         // The `roi` input is only used if the `coordinate_transformation_mode`
-        // attr is `tf_crop_and_resize`, which is not currently supported.
-
+        // ONNX attr is `tf_crop_and_resize`, which is not currently supported.
         let _roi = inputs.get_as::<f32>(1)?;
+
         let scales = inputs.get_as(2)?.map(ResizeTarget::Scales);
         let sizes = inputs.get_as(3)?.map(ResizeTarget::Sizes);
         let target = scales.or(sizes).ok_or(OpError::MissingInputs)?;
