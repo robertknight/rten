@@ -115,18 +115,6 @@ fn init_tensor_with_channel_bias(shape: &[usize], chan_dim: usize, bias: &Tensor
     from_data(shape.into(), out_data)
 }
 
-/// Return a smart pointer that wraps a tensor reference if it is contiguous,
-/// or a contiguous copy otherwise.
-fn contiguous_tensor<T: Copy>(tensor: &Tensor<T>) -> Cow<'_, Tensor<T>> {
-    if tensor.is_contiguous() {
-        Cow::Borrowed(tensor)
-    } else {
-        let mut copy = tensor.clone();
-        copy.make_contiguous();
-        Cow::Owned(copy)
-    }
-}
-
 /// Specialization of conv_2d for pointwise convolutions over one image. This
 /// can be reduced to tensor reshaping and matrix multiplication.
 fn conv_2d_pointwise(input: &Tensor, kernel: &Tensor, bias: Option<&Tensor>) -> Tensor {
@@ -141,8 +129,8 @@ fn conv_2d_pointwise(input: &Tensor, kernel: &Tensor, bias: Option<&Tensor>) -> 
 
     // We require contiguous inputs due to the implicit reshaping in the
     // matrix multiplication below.
-    let input: Cow<Tensor> = contiguous_tensor(input);
-    let kernel: Cow<Tensor> = contiguous_tensor(kernel);
+    let input = input.as_contiguous();
+    let kernel = kernel.as_contiguous();
 
     let out_row_stride = output.stride(1);
 

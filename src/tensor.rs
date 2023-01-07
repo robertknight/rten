@@ -1,3 +1,4 @@
+use std::borrow::Cow;
 use std::io;
 use std::iter::{repeat, zip, Cycle, Take};
 use std::ops::{Index, IndexMut, Range};
@@ -369,6 +370,18 @@ impl<T: Copy> Tensor<T> {
         self.data = self.elements().collect();
         self.base = 0;
         self.strides = strides_for_shape(&self.shape);
+    }
+
+    /// Return a contiguous version of this tensor, either as a reference if
+    /// the tensor is already contiguous, or a copy if not.
+    pub fn as_contiguous(&self) -> Cow<Tensor<T>> {
+        if self.is_contiguous() {
+            Cow::Borrowed(self)
+        } else {
+            let mut copy = self.clone();
+            copy.make_contiguous();
+            Cow::Owned(copy)
+        }
     }
 
     /// Return an iterator over elements of this tensor, in their logical order.
@@ -1266,6 +1279,8 @@ pub fn from_2d_slice<T: Copy>(data: &[&[T]]) -> Tensor<T> {
 
 #[cfg(test)]
 mod tests {
+    use std::borrow::Cow;
+
     use crate::rng::XorShiftRNG;
     use crate::tensor::{
         from_2d_slice, from_data, from_scalar, from_vec, rand, zeros, IndexIterator, SliceRange,
@@ -1846,6 +1861,17 @@ mod tests {
         x.make_contiguous();
         assert!(x.is_contiguous());
         assert_eq!(x.elements().collect::<Vec<i32>>(), &[5, 6, 8, 9]);
+    }
+
+    #[test]
+    fn test_as_contiguous() {
+        let mut x = steps(&[3, 3]);
+        let y = x.as_contiguous();
+        assert!(matches!(y, Cow::Borrowed(_)));
+
+        x.permute(&[1, 0]);
+        let y = x.as_contiguous();
+        assert!(matches!(y, Cow::Owned(_)));
     }
 
     #[test]
