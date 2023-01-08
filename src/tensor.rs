@@ -532,6 +532,13 @@ impl<T: Copy> Tensor<T> {
         self.shape = dims.iter().map(|&dim| self.shape[dim]).collect();
     }
 
+    /// Insert a dimension of size one at index `dim`.
+    pub fn insert_dim(&mut self, dim: usize) {
+        let mut new_shape: Vec<usize> = self.shape.clone();
+        new_shape.insert(dim, 1);
+        self.reshape(&new_shape);
+    }
+
     /// Return the number of elements between successive entries in the `dim`
     /// dimension.
     pub fn stride(&self, dim: usize) -> usize {
@@ -1613,6 +1620,19 @@ mod tests {
     fn test_permute_wrong_dim_count() {
         let mut input = steps(&[2, 3]);
         input.permute(&[1, 2, 3]);
+    }
+
+    #[test]
+    fn test_insert_dim() {
+        let mut input = steps(&[2, 3]);
+        input.insert_dim(1);
+        assert_eq!(input.shape(), &[2, 1, 3]);
+
+        input.insert_dim(1);
+        assert_eq!(input.shape(), &[2, 1, 1, 3]);
+
+        input.insert_dim(0);
+        assert_eq!(input.shape(), &[1, 2, 1, 1, 3]);
     }
 
     #[test]
