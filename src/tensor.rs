@@ -1341,7 +1341,7 @@ mod tests {
     #[test]
     fn test_from_scalar() {
         let x = from_scalar(5);
-        assert_eq!(x.shape(), &[]);
+        assert_eq!(x.shape().len(), 0);
         assert_eq!(x.data(), &[5]);
     }
 
@@ -2039,7 +2039,7 @@ mod tests {
 
         // Positive start out of bounds
         let slice: Vec<_> = x.slice_elements(&[sr(10, 11, 1)]).collect();
-        assert_eq!(slice, &[]);
+        assert_eq!(slice.len(), 0);
 
         // Positive end out of bounds
         let slice: Vec<_> = x.slice_elements(&[sr(0, 10, 1)]).collect();
@@ -2051,7 +2051,7 @@ mod tests {
 
         // Negative end out of bounds
         let slice: Vec<_> = x.slice_elements(&[sr(-10, -5, 1)]).collect();
-        assert_eq!(slice, &[]);
+        assert_eq!(slice.len(), 0);
 
         // Test cases for negative steps (ie. traversing backwards).
 
@@ -2061,11 +2061,11 @@ mod tests {
 
         // Positive end out of bounds
         let slice: Vec<_> = x.slice_elements(&[sr(0, 10, -1)]).collect();
-        assert_eq!(slice, &[]);
+        assert_eq!(slice.len(), 0);
 
         // Negative start out of bounds
         let slice: Vec<_> = x.slice_elements(&[sr(-10, 5, -1)]).collect();
-        assert_eq!(slice, &[]);
+        assert_eq!(slice.len(), 0);
 
         // Negative end out of bounds
         let slice: Vec<_> = x.slice_elements(&[sr(-1, -10, -1)]).collect();
