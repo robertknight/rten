@@ -18,13 +18,13 @@ pub const ENUM_MIN_OPERATOR_TYPE: i8 = 0;
     since = "2.0.0",
     note = "Use associated constants instead. This will no longer be generated in 2021."
 )]
-pub const ENUM_MAX_OPERATOR_TYPE: i8 = 42;
+pub const ENUM_MAX_OPERATOR_TYPE: i8 = 43;
 #[deprecated(
     since = "2.0.0",
     note = "Use associated constants instead. This will no longer be generated in 2021."
 )]
 #[allow(non_camel_case_types)]
-pub const ENUM_VALUES_OPERATOR_TYPE: [OperatorType; 43] = [
+pub const ENUM_VALUES_OPERATOR_TYPE: [OperatorType; 44] = [
     OperatorType::Add,
     OperatorType::AveragePool,
     OperatorType::BatchNormalization,
@@ -45,6 +45,7 @@ pub const ENUM_VALUES_OPERATOR_TYPE: [OperatorType; 43] = [
     OperatorType::Identity,
     OperatorType::LeakyRelu,
     OperatorType::Less,
+    OperatorType::LSTM,
     OperatorType::MatMul,
     OperatorType::MaxPool,
     OperatorType::Mul,
@@ -95,32 +96,33 @@ impl OperatorType {
     pub const Identity: Self = Self(17);
     pub const LeakyRelu: Self = Self(18);
     pub const Less: Self = Self(19);
-    pub const MatMul: Self = Self(20);
-    pub const MaxPool: Self = Self(21);
-    pub const Mul: Self = Self(22);
-    pub const Pad: Self = Self(23);
-    pub const Pow: Self = Self(24);
-    pub const Range: Self = Self(25);
-    pub const ReduceMean: Self = Self(26);
-    pub const Relu: Self = Self(27);
-    pub const Reshape: Self = Self(28);
-    pub const Resize: Self = Self(29);
-    pub const Shape: Self = Self(30);
-    pub const Sigmoid: Self = Self(31);
-    pub const Sin: Self = Self(32);
-    pub const Slice: Self = Self(33);
-    pub const Split: Self = Self(34);
-    pub const Sqrt: Self = Self(35);
-    pub const Squeeze: Self = Self(36);
-    pub const Softmax: Self = Self(37);
-    pub const Sub: Self = Self(38);
-    pub const Tanh: Self = Self(39);
-    pub const Transpose: Self = Self(40);
-    pub const Unsqueeze: Self = Self(41);
-    pub const Where: Self = Self(42);
+    pub const LSTM: Self = Self(20);
+    pub const MatMul: Self = Self(21);
+    pub const MaxPool: Self = Self(22);
+    pub const Mul: Self = Self(23);
+    pub const Pad: Self = Self(24);
+    pub const Pow: Self = Self(25);
+    pub const Range: Self = Self(26);
+    pub const ReduceMean: Self = Self(27);
+    pub const Relu: Self = Self(28);
+    pub const Reshape: Self = Self(29);
+    pub const Resize: Self = Self(30);
+    pub const Shape: Self = Self(31);
+    pub const Sigmoid: Self = Self(32);
+    pub const Sin: Self = Self(33);
+    pub const Slice: Self = Self(34);
+    pub const Split: Self = Self(35);
+    pub const Sqrt: Self = Self(36);
+    pub const Squeeze: Self = Self(37);
+    pub const Softmax: Self = Self(38);
+    pub const Sub: Self = Self(39);
+    pub const Tanh: Self = Self(40);
+    pub const Transpose: Self = Self(41);
+    pub const Unsqueeze: Self = Self(42);
+    pub const Where: Self = Self(43);
 
     pub const ENUM_MIN: i8 = 0;
-    pub const ENUM_MAX: i8 = 42;
+    pub const ENUM_MAX: i8 = 43;
     pub const ENUM_VALUES: &'static [Self] = &[
         Self::Add,
         Self::AveragePool,
@@ -142,6 +144,7 @@ impl OperatorType {
         Self::Identity,
         Self::LeakyRelu,
         Self::Less,
+        Self::LSTM,
         Self::MatMul,
         Self::MaxPool,
         Self::Mul,
@@ -189,6 +192,7 @@ impl OperatorType {
             Self::Identity => Some("Identity"),
             Self::LeakyRelu => Some("LeakyRelu"),
             Self::Less => Some("Less"),
+            Self::LSTM => Some("LSTM"),
             Self::MatMul => Some("MatMul"),
             Self::MaxPool => Some("MaxPool"),
             Self::Mul => Some("Mul"),
@@ -268,6 +272,101 @@ impl<'a> flatbuffers::Verifiable for OperatorType {
 }
 
 impl flatbuffers::SimpleToVerifyInSlice for OperatorType {}
+#[deprecated(
+    since = "2.0.0",
+    note = "Use associated constants instead. This will no longer be generated in 2021."
+)]
+pub const ENUM_MIN_LSTMDIRECTION: i8 = 0;
+#[deprecated(
+    since = "2.0.0",
+    note = "Use associated constants instead. This will no longer be generated in 2021."
+)]
+pub const ENUM_MAX_LSTMDIRECTION: i8 = 2;
+#[deprecated(
+    since = "2.0.0",
+    note = "Use associated constants instead. This will no longer be generated in 2021."
+)]
+#[allow(non_camel_case_types)]
+pub const ENUM_VALUES_LSTMDIRECTION: [LSTMDirection; 3] = [
+    LSTMDirection::Forwards,
+    LSTMDirection::Reverse,
+    LSTMDirection::Bidirectional,
+];
+
+#[derive(Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash, Default)]
+#[repr(transparent)]
+pub struct LSTMDirection(pub i8);
+#[allow(non_upper_case_globals)]
+impl LSTMDirection {
+    pub const Forwards: Self = Self(0);
+    pub const Reverse: Self = Self(1);
+    pub const Bidirectional: Self = Self(2);
+
+    pub const ENUM_MIN: i8 = 0;
+    pub const ENUM_MAX: i8 = 2;
+    pub const ENUM_VALUES: &'static [Self] = &[Self::Forwards, Self::Reverse, Self::Bidirectional];
+    /// Returns the variant's name or "" if unknown.
+    pub fn variant_name(self) -> Option<&'static str> {
+        match self {
+            Self::Forwards => Some("Forwards"),
+            Self::Reverse => Some("Reverse"),
+            Self::Bidirectional => Some("Bidirectional"),
+            _ => None,
+        }
+    }
+}
+impl core::fmt::Debug for LSTMDirection {
+    fn fmt(&self, f: &mut core::fmt::Formatter) -> core::fmt::Result {
+        if let Some(name) = self.variant_name() {
+            f.write_str(name)
+        } else {
+            f.write_fmt(format_args!("<UNKNOWN {:?}>", self.0))
+        }
+    }
+}
+impl<'a> flatbuffers::Follow<'a> for LSTMDirection {
+    type Inner = Self;
+    #[inline]
+    unsafe fn follow(buf: &'a [u8], loc: usize) -> Self::Inner {
+        let b = flatbuffers::read_scalar_at::<i8>(buf, loc);
+        Self(b)
+    }
+}
+
+impl flatbuffers::Push for LSTMDirection {
+    type Output = LSTMDirection;
+    #[inline]
+    unsafe fn push(&self, dst: &mut [u8], _written_len: usize) {
+        flatbuffers::emplace_scalar::<i8>(dst, self.0);
+    }
+}
+
+impl flatbuffers::EndianScalar for LSTMDirection {
+    type Scalar = i8;
+    #[inline]
+    fn to_little_endian(self) -> i8 {
+        self.0.to_le()
+    }
+    #[inline]
+    #[allow(clippy::wrong_self_convention)]
+    fn from_little_endian(v: i8) -> Self {
+        let b = i8::from_le(v);
+        Self(b)
+    }
+}
+
+impl<'a> flatbuffers::Verifiable for LSTMDirection {
+    #[inline]
+    fn run_verifier(
+        v: &mut flatbuffers::Verifier,
+        pos: usize,
+    ) -> Result<(), flatbuffers::InvalidFlatbuffer> {
+        use self::flatbuffers::Verifiable;
+        i8::run_verifier(v, pos)
+    }
+}
+
+impl flatbuffers::SimpleToVerifyInSlice for LSTMDirection {}
 #[deprecated(
     since = "2.0.0",
     note = "Use associated constants instead. This will no longer be generated in 2021."
@@ -544,13 +643,13 @@ pub const ENUM_MIN_OPERATOR_ATTRS: u8 = 0;
     since = "2.0.0",
     note = "Use associated constants instead. This will no longer be generated in 2021."
 )]
-pub const ENUM_MAX_OPERATOR_ATTRS: u8 = 21;
+pub const ENUM_MAX_OPERATOR_ATTRS: u8 = 22;
 #[deprecated(
     since = "2.0.0",
     note = "Use associated constants instead. This will no longer be generated in 2021."
 )]
 #[allow(non_camel_case_types)]
-pub const ENUM_VALUES_OPERATOR_ATTRS: [OperatorAttrs; 22] = [
+pub const ENUM_VALUES_OPERATOR_ATTRS: [OperatorAttrs; 23] = [
     OperatorAttrs::NONE,
     OperatorAttrs::AveragePoolAttrs,
     OperatorAttrs::BatchNormalizationAttrs,
@@ -563,6 +662,7 @@ pub const ENUM_VALUES_OPERATOR_ATTRS: [OperatorAttrs; 22] = [
     OperatorAttrs::GatherAttrs,
     OperatorAttrs::GemmAttrs,
     OperatorAttrs::LeakyReluAttrs,
+    OperatorAttrs::LSTMAttrs,
     OperatorAttrs::MaxPoolAttrs,
     OperatorAttrs::PadAttrs,
     OperatorAttrs::ReduceMeanAttrs,
@@ -592,19 +692,20 @@ impl OperatorAttrs {
     pub const GatherAttrs: Self = Self(9);
     pub const GemmAttrs: Self = Self(10);
     pub const LeakyReluAttrs: Self = Self(11);
-    pub const MaxPoolAttrs: Self = Self(12);
-    pub const PadAttrs: Self = Self(13);
-    pub const ReduceMeanAttrs: Self = Self(14);
-    pub const ReshapeAttrs: Self = Self(15);
-    pub const ResizeAttrs: Self = Self(16);
-    pub const SplitAttrs: Self = Self(17);
-    pub const SqueezeAttrs: Self = Self(18);
-    pub const SoftmaxAttrs: Self = Self(19);
-    pub const TransposeAttrs: Self = Self(20);
-    pub const UnsqueezeAttrs: Self = Self(21);
+    pub const LSTMAttrs: Self = Self(12);
+    pub const MaxPoolAttrs: Self = Self(13);
+    pub const PadAttrs: Self = Self(14);
+    pub const ReduceMeanAttrs: Self = Self(15);
+    pub const ReshapeAttrs: Self = Self(16);
+    pub const ResizeAttrs: Self = Self(17);
+    pub const SplitAttrs: Self = Self(18);
+    pub const SqueezeAttrs: Self = Self(19);
+    pub const SoftmaxAttrs: Self = Self(20);
+    pub const TransposeAttrs: Self = Self(21);
+    pub const UnsqueezeAttrs: Self = Self(22);
 
     pub const ENUM_MIN: u8 = 0;
-    pub const ENUM_MAX: u8 = 21;
+    pub const ENUM_MAX: u8 = 22;
     pub const ENUM_VALUES: &'static [Self] = &[
         Self::NONE,
         Self::AveragePoolAttrs,
@@ -618,6 +719,7 @@ impl OperatorAttrs {
         Self::GatherAttrs,
         Self::GemmAttrs,
         Self::LeakyReluAttrs,
+        Self::LSTMAttrs,
         Self::MaxPoolAttrs,
         Self::PadAttrs,
         Self::ReduceMeanAttrs,
@@ -644,6 +746,7 @@ impl OperatorAttrs {
             Self::GatherAttrs => Some("GatherAttrs"),
             Self::GemmAttrs => Some("GemmAttrs"),
             Self::LeakyReluAttrs => Some("LeakyReluAttrs"),
+            Self::LSTMAttrs => Some("LSTMAttrs"),
             Self::MaxPoolAttrs => Some("MaxPoolAttrs"),
             Self::PadAttrs => Some("PadAttrs"),
             Self::ReduceMeanAttrs => Some("ReduceMeanAttrs"),
@@ -2692,6 +2795,135 @@ impl core::fmt::Debug for LeakyReluAttrs<'_> {
         ds.finish()
     }
 }
+pub enum LSTMAttrsOffset {}
+#[derive(Copy, Clone, PartialEq)]
+
+pub struct LSTMAttrs<'a> {
+    pub _tab: flatbuffers::Table<'a>,
+}
+
+impl<'a> flatbuffers::Follow<'a> for LSTMAttrs<'a> {
+    type Inner = LSTMAttrs<'a>;
+    #[inline]
+    unsafe fn follow(buf: &'a [u8], loc: usize) -> Self::Inner {
+        Self {
+            _tab: flatbuffers::Table::new(buf, loc),
+        }
+    }
+}
+
+impl<'a> LSTMAttrs<'a> {
+    pub const VT_DIRECTION: flatbuffers::VOffsetT = 4;
+    pub const VT_HIDDEN_SIZE: flatbuffers::VOffsetT = 6;
+
+    #[inline]
+    pub unsafe fn init_from_table(table: flatbuffers::Table<'a>) -> Self {
+        LSTMAttrs { _tab: table }
+    }
+    #[allow(unused_mut)]
+    pub fn create<'bldr: 'args, 'args: 'mut_bldr, 'mut_bldr>(
+        _fbb: &'mut_bldr mut flatbuffers::FlatBufferBuilder<'bldr>,
+        args: &'args LSTMAttrsArgs,
+    ) -> flatbuffers::WIPOffset<LSTMAttrs<'bldr>> {
+        let mut builder = LSTMAttrsBuilder::new(_fbb);
+        builder.add_hidden_size(args.hidden_size);
+        builder.add_direction(args.direction);
+        builder.finish()
+    }
+
+    #[inline]
+    pub fn direction(&self) -> LSTMDirection {
+        // Safety:
+        // Created from valid Table for this object
+        // which contains a valid value in this slot
+        unsafe {
+            self._tab
+                .get::<LSTMDirection>(LSTMAttrs::VT_DIRECTION, Some(LSTMDirection::Forwards))
+                .unwrap()
+        }
+    }
+    #[inline]
+    pub fn hidden_size(&self) -> u32 {
+        // Safety:
+        // Created from valid Table for this object
+        // which contains a valid value in this slot
+        unsafe {
+            self._tab
+                .get::<u32>(LSTMAttrs::VT_HIDDEN_SIZE, Some(0))
+                .unwrap()
+        }
+    }
+}
+
+impl flatbuffers::Verifiable for LSTMAttrs<'_> {
+    #[inline]
+    fn run_verifier(
+        v: &mut flatbuffers::Verifier,
+        pos: usize,
+    ) -> Result<(), flatbuffers::InvalidFlatbuffer> {
+        use self::flatbuffers::Verifiable;
+        v.visit_table(pos)?
+            .visit_field::<LSTMDirection>("direction", Self::VT_DIRECTION, false)?
+            .visit_field::<u32>("hidden_size", Self::VT_HIDDEN_SIZE, false)?
+            .finish();
+        Ok(())
+    }
+}
+pub struct LSTMAttrsArgs {
+    pub direction: LSTMDirection,
+    pub hidden_size: u32,
+}
+impl<'a> Default for LSTMAttrsArgs {
+    #[inline]
+    fn default() -> Self {
+        LSTMAttrsArgs {
+            direction: LSTMDirection::Forwards,
+            hidden_size: 0,
+        }
+    }
+}
+
+pub struct LSTMAttrsBuilder<'a: 'b, 'b> {
+    fbb_: &'b mut flatbuffers::FlatBufferBuilder<'a>,
+    start_: flatbuffers::WIPOffset<flatbuffers::TableUnfinishedWIPOffset>,
+}
+impl<'a: 'b, 'b> LSTMAttrsBuilder<'a, 'b> {
+    #[inline]
+    pub fn add_direction(&mut self, direction: LSTMDirection) {
+        self.fbb_.push_slot::<LSTMDirection>(
+            LSTMAttrs::VT_DIRECTION,
+            direction,
+            LSTMDirection::Forwards,
+        );
+    }
+    #[inline]
+    pub fn add_hidden_size(&mut self, hidden_size: u32) {
+        self.fbb_
+            .push_slot::<u32>(LSTMAttrs::VT_HIDDEN_SIZE, hidden_size, 0);
+    }
+    #[inline]
+    pub fn new(_fbb: &'b mut flatbuffers::FlatBufferBuilder<'a>) -> LSTMAttrsBuilder<'a, 'b> {
+        let start = _fbb.start_table();
+        LSTMAttrsBuilder {
+            fbb_: _fbb,
+            start_: start,
+        }
+    }
+    #[inline]
+    pub fn finish(self) -> flatbuffers::WIPOffset<LSTMAttrs<'a>> {
+        let o = self.fbb_.end_table(self.start_);
+        flatbuffers::WIPOffset::new(o.value())
+    }
+}
+
+impl core::fmt::Debug for LSTMAttrs<'_> {
+    fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
+        let mut ds = f.debug_struct("LSTMAttrs");
+        ds.field("direction", &self.direction());
+        ds.field("hidden_size", &self.hidden_size());
+        ds.finish()
+    }
+}
 pub enum MaxPoolAttrsOffset {}
 #[derive(Copy, Clone, PartialEq)]
 
@@ -4151,6 +4383,21 @@ impl<'a> OperatorNode<'a> {
 
     #[inline]
     #[allow(non_snake_case)]
+    pub fn attrs_as_lstmattrs(&self) -> Option<LSTMAttrs<'a>> {
+        if self.attrs_type() == OperatorAttrs::LSTMAttrs {
+            self.attrs().map(|t| {
+                // Safety:
+                // Created from a valid Table for this object
+                // Which contains a valid union in this slot
+                unsafe { LSTMAttrs::init_from_table(t) }
+            })
+        } else {
+            None
+        }
+    }
+
+    #[inline]
+    #[allow(non_snake_case)]
     pub fn attrs_as_max_pool_attrs(&self) -> Option<MaxPoolAttrs<'a>> {
         if self.attrs_type() == OperatorAttrs::MaxPoolAttrs {
             self.attrs().map(|t| {
@@ -4322,6 +4569,7 @@ impl flatbuffers::Verifiable for OperatorNode<'_> {
           OperatorAttrs::GatherAttrs => v.verify_union_variant::<flatbuffers::ForwardsUOffset<GatherAttrs>>("OperatorAttrs::GatherAttrs", pos),
           OperatorAttrs::GemmAttrs => v.verify_union_variant::<flatbuffers::ForwardsUOffset<GemmAttrs>>("OperatorAttrs::GemmAttrs", pos),
           OperatorAttrs::LeakyReluAttrs => v.verify_union_variant::<flatbuffers::ForwardsUOffset<LeakyReluAttrs>>("OperatorAttrs::LeakyReluAttrs", pos),
+          OperatorAttrs::LSTMAttrs => v.verify_union_variant::<flatbuffers::ForwardsUOffset<LSTMAttrs>>("OperatorAttrs::LSTMAttrs", pos),
           OperatorAttrs::MaxPoolAttrs => v.verify_union_variant::<flatbuffers::ForwardsUOffset<MaxPoolAttrs>>("OperatorAttrs::MaxPoolAttrs", pos),
           OperatorAttrs::PadAttrs => v.verify_union_variant::<flatbuffers::ForwardsUOffset<PadAttrs>>("OperatorAttrs::PadAttrs", pos),
           OperatorAttrs::ReduceMeanAttrs => v.verify_union_variant::<flatbuffers::ForwardsUOffset<ReduceMeanAttrs>>("OperatorAttrs::ReduceMeanAttrs", pos),
@@ -4517,6 +4765,16 @@ impl core::fmt::Debug for OperatorNode<'_> {
             }
             OperatorAttrs::LeakyReluAttrs => {
                 if let Some(x) = self.attrs_as_leaky_relu_attrs() {
+                    ds.field("attrs", &x)
+                } else {
+                    ds.field(
+                        "attrs",
+                        &"InvalidFlatbuffer: Union discriminant does not match value.",
+                    )
+                }
+            }
+            OperatorAttrs::LSTMAttrs => {
+                if let Some(x) = self.attrs_as_lstmattrs() {
                     ds.field("attrs", &x)
                 } else {
                     ds.field(

@@ -7,7 +7,7 @@ use crate::tensor::Tensor;
 
 /// Trait for operators which take a single float tensor and apply a function
 /// to each element.
-trait UnaryFloatOp {
+pub trait UnaryFloatOp {
     fn name(&self) -> &str;
 
     /// Apply the operator to a single element.

@@ -1,7 +1,8 @@
 use std::borrow::Cow;
+use std::fmt::Debug;
 use std::io;
 use std::iter::{repeat, zip, Cycle, Take};
-use std::ops::{Index, IndexMut, Range};
+use std::ops::{Index, IndexMut, Range, RangeTo};
 use std::slice::Iter;
 
 #[cfg(test)]
@@ -101,9 +102,26 @@ impl SliceRange {
     }
 }
 
-impl From<Range<isize>> for SliceRange {
-    fn from(r: Range<isize>) -> SliceRange {
-        SliceRange::new(r.start, r.end, 1)
+impl<T> From<Range<T>> for SliceRange
+where
+    T: TryInto<isize>,
+    <T as TryInto<isize>>::Error: Debug,
+{
+    fn from(r: Range<T>) -> SliceRange {
+        let start = r.start.try_into().unwrap();
+        let end = r.end.try_into().unwrap();
+        SliceRange::new(start, end, 1)
+    }
+}
+
+impl<T> From<RangeTo<T>> for SliceRange
+where
+    T: TryInto<isize>,
+    <T as TryInto<isize>>::Error: Debug,
+{
+    fn from(r: RangeTo<T>) -> SliceRange {
+        let end = r.end.try_into().unwrap();
+        SliceRange::new(0, end, 1)
     }
 }
 
@@ -512,6 +530,13 @@ impl<T: Copy> Tensor<T> {
         }
         self.strides = dims.iter().map(|&dim| self.strides[dim]).collect();
         self.shape = dims.iter().map(|&dim| self.shape[dim]).collect();
+    }
+
+    /// Insert a dimension of size one at index `dim`.
+    pub fn insert_dim(&mut self, dim: usize) {
+        let mut new_shape: Vec<usize> = self.shape.clone();
+        new_shape.insert(dim, 1);
+        self.reshape(&new_shape);
     }
 
     /// Return the number of elements between successive entries in the `dim`
@@ -1323,7 +1348,7 @@ mod tests {
     #[test]
     fn test_from_scalar() {
         let x = from_scalar(5);
-        assert_eq!(x.shape(), &[]);
+        assert_eq!(x.shape().len(), 0);
         assert_eq!(x.data(), &[5]);
     }
 
@@ -1595,6 +1620,19 @@ mod tests {
     fn test_permute_wrong_dim_count() {
         let mut input = steps(&[2, 3]);
         input.permute(&[1, 2, 3]);
+    }
+
+    #[test]
+    fn test_insert_dim() {
+        let mut input = steps(&[2, 3]);
+        input.insert_dim(1);
+        assert_eq!(input.shape(), &[2, 1, 3]);
+
+        input.insert_dim(1);
+        assert_eq!(input.shape(), &[2, 1, 1, 3]);
+
+        input.insert_dim(0);
+        assert_eq!(input.shape(), &[1, 2, 1, 1, 3]);
     }
 
     #[test]
@@ -2021,7 +2059,7 @@ mod tests {
 
         // Positive start out of bounds
         let slice: Vec<_> = x.slice_elements(&[sr(10, 11, 1)]).collect();
-        assert_eq!(slice, &[]);
+        assert_eq!(slice.len(), 0);
 
         // Positive end out of bounds
         let slice: Vec<_> = x.slice_elements(&[sr(0, 10, 1)]).collect();
@@ -2033,7 +2071,7 @@ mod tests {
 
         // Negative end out of bounds
         let slice: Vec<_> = x.slice_elements(&[sr(-10, -5, 1)]).collect();
-        assert_eq!(slice, &[]);
+        assert_eq!(slice.len(), 0);
 
         // Test cases for negative steps (ie. traversing backwards).
 
@@ -2043,11 +2081,11 @@ mod tests {
 
         // Positive end out of bounds
         let slice: Vec<_> = x.slice_elements(&[sr(0, 10, -1)]).collect();
-        assert_eq!(slice, &[]);
+        assert_eq!(slice.len(), 0);
 
         // Negative start out of bounds
         let slice: Vec<_> = x.slice_elements(&[sr(-10, 5, -1)]).collect();
-        assert_eq!(slice, &[]);
+        assert_eq!(slice.len(), 0);
 
         // Negative end out of bounds
         let slice: Vec<_> = x.slice_elements(&[sr(-1, -10, -1)]).collect();

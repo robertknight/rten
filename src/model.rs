@@ -4,7 +4,7 @@ use std::collections::HashMap;
 
 use crate::graph::{Graph, NodeId, RunError, RunOptions};
 use crate::ops;
-use crate::ops::{DataType, Input, Operator, Output, Padding, ResizeMode, Scalar};
+use crate::ops::{DataType, Input, LSTMDirection, Operator, Output, Padding, ResizeMode, Scalar};
 use crate::schema_generated as sg;
 use crate::schema_generated::{root_as_model, OperatorNode, OperatorType, PadMode};
 use crate::tensor::from_data;
@@ -207,6 +207,23 @@ fn read_leaky_relu_op(node: &OperatorNode) -> ReadOpResult {
     }))
 }
 
+fn read_lstm_op(node: &OperatorNode) -> ReadOpResult {
+    let attrs = node.attrs_as_lstmattrs().ok_or(ReadOpError::AttrError)?;
+
+    let hidden_size = attrs.hidden_size() as usize;
+    let direction = match attrs.direction() {
+        sg::LSTMDirection::Forwards => LSTMDirection::Forwards,
+        sg::LSTMDirection::Reverse => LSTMDirection::Reverse,
+        sg::LSTMDirection::Bidirectional => LSTMDirection::Bidirectional,
+        _ => LSTMDirection::Forwards,
+    };
+
+    Ok(Box::new(ops::LSTM {
+        direction,
+        hidden_size,
+    }))
+}
+
 fn read_max_pool_op(node: &OperatorNode) -> ReadOpResult {
     let attrs = node
         .attrs_as_max_pool_attrs()
@@ -333,6 +350,7 @@ fn read_operator(node: &OperatorNode) -> ReadOpResult {
         OperatorType::Identity => op!(Identity),
         OperatorType::LeakyRelu => read_leaky_relu_op(node),
         OperatorType::Less => op!(Less),
+        OperatorType::LSTM => read_lstm_op(node),
         OperatorType::MatMul => op!(MatMul),
         OperatorType::MaxPool => read_max_pool_op(node),
         OperatorType::Mul => op!(Mul),
