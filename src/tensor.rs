@@ -1,7 +1,8 @@
 use std::borrow::Cow;
+use std::fmt::Debug;
 use std::io;
 use std::iter::{repeat, zip, Cycle, Take};
-use std::ops::{Index, IndexMut, Range};
+use std::ops::{Index, IndexMut, Range, RangeTo};
 use std::slice::Iter;
 
 #[cfg(test)]
@@ -101,9 +102,26 @@ impl SliceRange {
     }
 }
 
-impl From<Range<isize>> for SliceRange {
-    fn from(r: Range<isize>) -> SliceRange {
-        SliceRange::new(r.start, r.end, 1)
+impl<T> From<Range<T>> for SliceRange
+where
+    T: TryInto<isize>,
+    <T as TryInto<isize>>::Error: Debug,
+{
+    fn from(r: Range<T>) -> SliceRange {
+        let start = r.start.try_into().unwrap();
+        let end = r.end.try_into().unwrap();
+        SliceRange::new(start, end, 1)
+    }
+}
+
+impl<T> From<RangeTo<T>> for SliceRange
+where
+    T: TryInto<isize>,
+    <T as TryInto<isize>>::Error: Debug,
+{
+    fn from(r: RangeTo<T>) -> SliceRange {
+        let end = r.end.try_into().unwrap();
+        SliceRange::new(0, end, 1)
     }
 }
 
