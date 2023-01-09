@@ -483,19 +483,18 @@ pub fn gemm_tensors(output: &mut Tensor, a: &Tensor, b: &Tensor, alpha: f32, bet
     );
 }
 
-/// Struct specifying details of an input matrix for use in GEMM operation.
-///
-/// Unlike a `Tensor`, this doesn't own the data.
+/// Describes a view of a slice as a matrix for use by a GEMM operation.
 #[derive(Copy, Clone)]
 pub struct Matrix<'a> {
-    pub data: &'a [f32],
-    pub rows: usize,
-    pub cols: usize,
-    pub row_stride: usize,
-    pub col_stride: usize,
+    data: &'a [f32],
+    rows: usize,
+    cols: usize,
+    row_stride: usize,
+    col_stride: usize,
 }
 
 impl<'a> Matrix<'a> {
+    /// Return a new view which transposes the columns and rows.
     pub fn transposed(self) -> Matrix<'a> {
         Matrix {
             data: self.data,
@@ -504,6 +503,41 @@ impl<'a> Matrix<'a> {
             row_stride: self.col_stride,
             col_stride: self.row_stride,
         }
+    }
+
+    /// Return true if the slice length is valid for the dimensions and strides
+    /// of the matrix.
+    fn valid(&self) -> bool {
+        if self.rows == 0 || self.cols == 0 {
+            true // Min slice len is 0, and all slice lengths are >= 0.
+        } else {
+            let max_offset = (self.rows - 1) * self.row_stride + (self.cols - 1) * self.col_stride;
+            self.data.len() > max_offset
+        }
+    }
+
+    /// Constructs a Matrix from a slice.
+    ///
+    /// `strides` specifies the row and column strides or (rows, 1) (ie. row-
+    /// major layout) if None.
+    ///
+    /// Panics if the slice is too short for the dimensions and strides specified.
+    pub fn from_slice(
+        data: &'a [f32],
+        rows: usize,
+        cols: usize,
+        strides: Option<(usize, usize)>,
+    ) -> Matrix {
+        let (row_stride, col_stride) = strides.unwrap_or((rows, 1));
+        let m = Matrix {
+            data,
+            rows,
+            cols,
+            row_stride,
+            col_stride,
+        };
+        assert!(m.valid(), "Slice is too short");
+        m
     }
 }
 
@@ -580,10 +614,12 @@ fn gemm_impl<K: Kernel, const MR_NR: usize>(
     beta: f32,
 ) {
     assert!(K::supported());
-
-    if a.cols != b.rows {
-        panic!("Columns of matrix `a` must match rows of matrix `b`");
-    }
+    assert!(
+        a.cols == b.rows,
+        "Columns of matrix `a` must match rows of matrix `b`"
+    );
+    // Construct a Matrix from the implied dimensions, to validate the slice length.
+    Matrix::from_slice(out_data, a.rows, b.cols, Some((out_row_stride, 1)));
 
     // The constant values for block sizes below were taken from the
     // matrixmultiply crate. See https://dl.acm.org/doi/pdf/10.1145/2925987 for
@@ -825,6 +861,24 @@ mod tests {
         add_scaled_vector(&mut dest, &src, 2, 1, 1.0);
     }
 
+    #[test]
+    fn test_matrix_from_slice() {
+        let data = vec![1., 2., 3., 4.];
+        let mat = Matrix::from_slice(&data, 2, 2, None);
+        assert_eq!(mat.data, data);
+        assert_eq!(mat.rows, 2);
+        assert_eq!(mat.cols, 2);
+        assert_eq!(mat.row_stride, 2);
+        assert_eq!(mat.col_stride, 1);
+    }
+
+    #[test]
+    #[should_panic(expected = "Slice is too short")]
+    fn test_matrix_from_slice_panics_if_too_short() {
+        let data = vec![1., 2., 3., 4.];
+        Matrix::from_slice(&data, 3, 3, Some((2, 1)));
+    }
+
     // Simplest possible test case for easy debugging.
     #[test]
     fn test_simple_gemm() -> Result<(), String> {
@@ -841,6 +895,38 @@ mod tests {
         expect_equal(&result, &expected)?;
 
         Ok(())
+    }
+
+    #[test]
+    #[should_panic(expected = "Slice is too short")]
+    fn test_gemm_panics_if_output_is_too_short() {
+        let a = Tensor::from_data(vec![2, 2], vec![1., 2., 3., 4.]);
+        let [a_rows, a_cols] = a.dims();
+        let b = Tensor::from_data(vec![2, 2], vec![5., 6., 7., 8.]);
+        let [b_rows, b_cols] = b.dims();
+
+        let mut output = vec![1., 2.];
+
+        gemm(
+            &mut output,
+            2,
+            Matrix {
+                data: a.data(),
+                rows: a_rows,
+                cols: a_cols,
+                row_stride: a.stride(0),
+                col_stride: a.stride(1),
+            },
+            Matrix {
+                data: b.data(),
+                rows: b_rows,
+                cols: b_cols,
+                row_stride: b.stride(0),
+                col_stride: b.stride(1),
+            },
+            1., /* alpha */
+            1., /* beta */
+        );
     }
 
     fn test_gemm_with_kernel(kernel: Kernel) -> Result<(), String> {

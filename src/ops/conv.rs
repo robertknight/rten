@@ -146,20 +146,13 @@ fn conv_2d_pointwise(input: &Tensor, kernel: &Tensor, bias: Option<&Tensor>) -> 
         gemm(
             &mut output.data_mut()[out_offset..out_offset_end],
             out_row_stride,
-            Matrix {
-                data: kernel.data(),
-                rows: out_c,
-                cols: in_c,
-                row_stride: in_c,
-                col_stride: 1,
-            },
-            Matrix {
-                data: &input.data()[in_offset..in_offset_end],
-                rows: in_c,
-                cols: in_h * in_w,
-                row_stride: in_h * in_w,
-                col_stride: 1,
-            },
+            Matrix::from_slice(kernel.data(), out_c, in_c, Some((in_c, 1))),
+            Matrix::from_slice(
+                &input.data()[in_offset..in_offset_end],
+                in_c,
+                in_h * in_w,
+                Some((in_h * in_w, 1)),
+            ),
             1.,                                   // alpha
             if bias.is_some() { 1. } else { 0. }, // beta
         );
@@ -363,20 +356,18 @@ pub fn conv(
                 // Output row stride. We allocated the output tensor ourselves,
                 // so we know it is contiguous.
                 out_h * out_w,
-                Matrix {
-                    data: kernel_view,
-                    rows: out_channels_per_group,
-                    cols: in_channels_per_group * k_h * k_w,
-                    row_stride: kernel.stride(0),
-                    col_stride: kernel.stride(3),
-                },
-                Matrix {
-                    data: im2col_mat.data(),
-                    rows: im2col_mat.shape()[0],
-                    cols: im2col_mat.shape()[1],
-                    row_stride: im2col_mat.shape()[1],
-                    col_stride: im2col_mat.stride(1),
-                },
+                Matrix::from_slice(
+                    kernel_view,
+                    out_channels_per_group,
+                    in_channels_per_group * k_h * k_w,
+                    Some((kernel.stride(0), kernel.stride(3))),
+                ),
+                Matrix::from_slice(
+                    im2col_mat.data(),
+                    im2col_mat.shape()[0],
+                    im2col_mat.shape()[1],
+                    Some((im2col_mat.shape()[1], im2col_mat.stride(1))),
+                ),
                 1.,                                   // alpha
                 if bias.is_some() { 1. } else { 0. }, // beta
             );

@@ -52,20 +52,8 @@ pub fn gemm_op(
     gemm(
         output.data_mut(),
         out_row_stride,
-        Matrix {
-            data: a.data(),
-            rows: a_rows,
-            cols: a_cols,
-            row_stride: a_row_stride,
-            col_stride: a_col_stride,
-        },
-        Matrix {
-            data: b.data(),
-            rows: b_rows,
-            cols: b_cols,
-            row_stride: b_row_stride,
-            col_stride: b_col_stride,
-        },
+        Matrix::from_slice(a.data(), a_rows, a_cols, Some((a_row_stride, a_col_stride))),
+        Matrix::from_slice(b.data(), b_rows, b_cols, Some((b_row_stride, b_col_stride))),
         alpha,
         beta,
     );
@@ -136,20 +124,18 @@ pub fn matmul(a: &Tensor, b: &Tensor) -> Result<Tensor, OpError> {
         gemm(
             &mut output.data_mut()[out_offset..],
             out_row_stride,
-            Matrix {
-                data: &a.data()[a_offset..],
-                rows: a_rows,
-                cols: a_cols,
-                row_stride: a.stride(a.ndim() - 2),
-                col_stride: a.stride(a.ndim() - 1),
-            },
-            Matrix {
-                data: &b.data()[b_offset..],
-                rows: b_rows,
-                cols: b_cols,
-                row_stride: b.stride(b.ndim() - 2),
-                col_stride: b.stride(b.ndim() - 1),
-            },
+            Matrix::from_slice(
+                &a.data()[a_offset..],
+                a_rows,
+                a_cols,
+                Some((a.stride(a.ndim() - 2), a.stride(a.ndim() - 1))),
+            ),
+            Matrix::from_slice(
+                &b.data()[b_offset..],
+                b_rows,
+                b_cols,
+                Some((b.stride(b.ndim() - 2), b.stride(b.ndim() - 1))),
+            ),
             1., // alpha
             0., // beta
         );

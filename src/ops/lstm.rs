@@ -66,13 +66,7 @@ fn update_lstm_gate(
     let sigmoid_op = Sigmoid {};
     let tanh_op = Tanh {};
 
-    let in_mat = Matrix {
-        data: input,
-        rows: 1,
-        cols: input.len(),
-        row_stride: input.len(),
-        col_stride: 1,
-    };
+    let in_mat = Matrix::from_slice(input, 1, input.len(), None);
     gemm(
         output,
         output.len(),
@@ -82,13 +76,7 @@ fn update_lstm_gate(
         0., /* beta */
     );
 
-    let hidden_mat = Matrix {
-        data: hidden,
-        rows: 1,
-        cols: hidden.len(),
-        row_stride: hidden.len(),
-        col_stride: 1,
-    };
+    let hidden_mat = Matrix::from_slice(hidden, 1, hidden.len(), None);
     gemm(
         output,
         output.len(),
@@ -194,13 +182,12 @@ pub fn lstm(
         assert!(hidden_total % num_gates == 0);
         let hidden_size = hidden_total / num_gates;
 
-        Matrix {
-            data: &tensor.data()[tensor.offset([dir, index * hidden_size, 0])..],
-            rows: tensor.shape()[1] / num_gates,
-            cols: tensor.shape()[2],
-            row_stride: tensor.stride(1),
-            col_stride: tensor.stride(2),
-        }
+        Matrix::from_slice(
+            &tensor.data()[tensor.offset([dir, index * hidden_size, 0])..],
+            tensor.shape()[1] / num_gates,
+            tensor.shape()[2],
+            Some((tensor.stride(1), tensor.stride(2))),
+        )
     }
 
     // Specifies which gate's weight or bias to extract.
