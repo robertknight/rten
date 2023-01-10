@@ -59,7 +59,7 @@ fn binary_op<T: Copy + Debug, R: Copy, F: Fn(T, T) -> R>(
     let a_elts = a.broadcast_elements(&out_shape);
     let b_elts = b.broadcast_elements(&out_shape);
     let out_data = zip(a_elts, b_elts).map(|(a, b)| op(a, b)).collect();
-    Ok(from_data(out_shape.into(), out_data))
+    Ok(from_data(out_shape, out_data))
 }
 
 /// Return true if an elementwise binary operation can be performed in-place
@@ -458,7 +458,7 @@ pub fn where_op<T: Copy>(
     )
     .map(|(cond, (x, y))| if cond != 0 { x } else { y })
     .collect();
-    Ok(from_data(result_shape.into(), result_elts))
+    Ok(from_data(result_shape, result_elts))
 }
 
 #[derive(Debug)]
