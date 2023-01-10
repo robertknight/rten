@@ -607,7 +607,7 @@ mod tests {
         // In-place addition where the second input must be broadcast to the
         // shape of the first, and the first has a non-contiguous layout.
         let mut a = from_data(vec![2, 3], vec![1., 2., 0., 3., 4., 0.]);
-        a.clip_dim(1, 0, 2);
+        a.clip_dim(1, 0..2);
         assert!(!a.is_contiguous());
         let b = from_vec(vec![1., 2.]);
         let expected = from_data(vec![2, 2], vec![2., 4., 4., 6.]);

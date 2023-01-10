@@ -10,10 +10,12 @@ use crate::rng::XorShiftRNG;
 
 /// A range for slicing a Tensor.
 ///
-/// Unlike a regular Rust Range, this supports a specifying a (non-zero) step
-/// between indexes. The step can be negative, in which case indices are visited
-/// in reverse order. The `start` and `end` indexes can also be negative, in
-/// which case they count backwards from the end of the array.
+/// This has two main differences from a standard Rust range (`std::ops::Range`):
+///
+/// - A non-zero step between indices can be specified. The step can be negative,
+///   which means that the dimension should be traversed in reverse order.
+/// - The `start` and `end` indexes can also be negative, in which case they
+///   count backwards from the end of the array.
 ///
 /// This system for specifying slicing and indexing follows NumPy, which in
 /// turn strongly influenced slicing in ONNX.
@@ -60,14 +62,14 @@ impl SliceRange {
     }
 
     /// Return a copy of this range with indexes adjusted so that they are valid
-    /// for a tensor dimension of size `len`.
+    /// for a tensor dimension of size `dim_size`.
     ///
     /// Valid indexes depend on direction that the dimension is traversed
     /// (forwards if `self.step` is positive or backwards if negative). They
     /// start at the first element going in that direction and end after the
     /// last element.
-    pub fn clamp(&self, len: usize) -> SliceRange {
-        let len = len as isize;
+    pub fn clamp(&self, dim_size: usize) -> SliceRange {
+        let len = dim_size as isize;
 
         let min_idx;
         let max_idx;
@@ -91,11 +93,39 @@ impl SliceRange {
         )
     }
 
-    /// Resolve an index that is relative either to the start of the array (if
-    /// >= 0) or end of the array (if < 0) to one that is relative to the start.
+    /// Resolve the range endpoints to positive indices in `[0, dim_size)`.
+    ///
+    /// If `self.step` is positive, the returned range counts forwards from
+    /// the first index of the dimension, otherwise it counts backwards from
+    /// the last index.
+    pub fn resolve(&self, dim_size: usize) -> Range<usize> {
+        let clamped = self.clamp(dim_size);
+
+        let offset_fn = if self.step > 0 {
+            Self::offset_from_start
+        } else {
+            Self::offset_from_end
+        };
+
+        let start = offset_fn(clamped.start, dim_size) as usize;
+        let end = offset_fn(clamped.end, dim_size) as usize;
+
+        start..end
+    }
+
+    /// Resolve an index to an offset from the first index of the dimension.
     fn offset_from_start(index: isize, dim_size: usize) -> isize {
         if index >= 0 {
             index
+        } else {
+            dim_size as isize + index
+        }
+    }
+
+    /// Resolve an index to an offset from the last index of the dimension.
+    fn offset_from_end(index: isize, dim_size: usize) -> isize {
+        if index >= 0 {
+            dim_size as isize - 1 - index
         } else {
             dim_size as isize + index
         }
@@ -283,15 +313,17 @@ impl<T: Copy> Tensor<T> {
         self.shape.len()
     }
 
-    /// Clip dimension `dim` to `[start, end)`. The new size for the dimension
-    /// must be <= the old size.
+    /// Clip dimension `dim` to `[range.start, range.end)`. The new size for
+    /// the dimension must be <= the old size.
     ///
     /// This is a fast operation since it just alters the start offset within
     /// the tensor's element buffer and length of the specified dimension.
-    pub fn clip_dim(&mut self, dim: usize, start: usize, end: usize) {
-        if end > self.shape[dim] {
-            panic!("New end must be <= old end");
-        }
+    pub fn clip_dim(&mut self, dim: usize, range: Range<usize>) {
+        let (start, end) = (range.start, range.end);
+
+        assert!(start <= end, "start must be <= end");
+        assert!(end <= self.shape[dim], "end must be <= dim size");
+
         self.base += self.strides[dim] * start;
         self.shape[dim] = end - start;
 
@@ -1359,6 +1391,20 @@ mod tests {
     }
 
     #[test]
+    fn test_slice_range_resolve() {
+        // +ve endpoints, +ve step
+        assert_eq!(SliceRange::new(0, 5, 1).resolve(10), 0..5);
+        assert_eq!(SliceRange::new(15, 20, 1).resolve(10), 10..10);
+
+        // -ve endpoints, +ve step
+        assert_eq!(SliceRange::new(-5, -1, 1).resolve(10), 5..9);
+        assert_eq!(SliceRange::new(-20, -1, 1).resolve(10), 0..9);
+
+        // +ve endpoints, -ve step
+        assert_eq!(SliceRange::new(5, 0, -1).resolve(10), 4..9);
+    }
+
+    #[test]
     fn test_apply() {
         let mut x = steps(&[3, 3]);
         x.apply(|el| el * el);
@@ -1369,8 +1415,8 @@ mod tests {
     #[test]
     fn test_clip_dim() {
         let mut x = steps(&[3, 3]);
-        x.clip_dim(0, 1, 2);
-        x.clip_dim(1, 1, 2);
+        x.clip_dim(0, 1..2);
+        x.clip_dim(1, 1..2);
         assert_eq!(x.elements().collect::<Vec<i32>>(), vec![5]);
     }
 
@@ -1379,7 +1425,7 @@ mod tests {
         let mut x = steps(&[3, 3]);
 
         // Clip the start of the tensor, adjusting the `base` offset.
-        x.clip_dim(0, 1, 3);
+        x.clip_dim(0, 1..3);
 
         // Indexing should reflect the slice.
         assert_eq!(x.elements().collect::<Vec<i32>>(), &[4, 5, 6, 7, 8, 9]);
@@ -1595,7 +1641,7 @@ mod tests {
         // Set the input up so that it is non-contiguous and has a non-zero
         // `base` offset.
         x.permute(&[1, 0]);
-        x.clip_dim(0, 2, 8);
+        x.clip_dim(0, 2..8);
 
         // Reshape the tensor. This should copy the data and reset the `base`
         // offset.
@@ -1608,8 +1654,8 @@ mod tests {
 
         // Set up another input so it is non-contiguous and has a non-zero `base` offset.
         let mut x = steps(&[3, 3]);
-        x.clip_dim(0, 1, 3);
-        x.clip_dim(1, 1, 3);
+        x.clip_dim(0, 1..3);
+        x.clip_dim(1, 1..3);
 
         // Flatten the input with reshape.
         x.reshape(&[4]);
@@ -1624,7 +1670,7 @@ mod tests {
         let mut x = rand(&[10, 10], &mut rng);
 
         // Give the tensor a non-default stride
-        x.clip_dim(1, 0, 8);
+        x.clip_dim(1, 0..8);
         assert!(!x.is_contiguous());
         let x_elements: Vec<f32> = x.elements().collect();
 
@@ -1799,7 +1845,7 @@ mod tests {
         // Slice the tensor along an outer dimension. This will leave the tensor
         // contiguous, and hence `data` and `elements` should return the same
         // elements.
-        x.clip_dim(0, 0, 2);
+        x.clip_dim(0, 0..2);
         assert_eq!(x.data(), &[1, 2, 3, 4, 5, 6]);
         assert_eq!(x.elements().collect::<Vec<_>>(), &[1, 2, 3, 4, 5, 6]);
         // Test with step > 1 to exercise `Elements::nth`.
@@ -1808,7 +1854,7 @@ mod tests {
         // Slice the tensor along an inner dimension. The tensor will no longer
         // be contiguous and hence `elements` will return different results than
         // `data`.
-        x.clip_dim(1, 0, 2);
+        x.clip_dim(1, 0..2);
         assert_eq!(x.data(), &[1, 2, 3, 4, 5, 6]);
         assert_eq!(x.elements().collect::<Vec<_>>(), &[1, 2, 4, 5]);
         // Test with step > 1 to exercise `Elements::nth`.
@@ -1833,7 +1879,7 @@ mod tests {
         assert_eq!(x.elements_vec(), x.elements().collect::<Vec<_>>());
 
         // Non-contiguous case.
-        x.clip_dim(1, 0, 2);
+        x.clip_dim(1, 0..2);
         assert!(!x.is_contiguous());
         assert_eq!(x.elements_vec(), x.elements().collect::<Vec<_>>());
     }
@@ -1909,24 +1955,24 @@ mod tests {
 
         // Tensor where outermost dimension has been clipped at the end.
         let mut y = x.clone();
-        y.clip_dim(0, 0, 2);
+        y.clip_dim(0, 0..2);
         assert!(y.is_contiguous());
         assert_eq!(y.data(), &[1, 2, 3, 4, 5, 6]);
 
         // Tensor where outermost dimension has been clipped at the start.
         let mut y = x.clone();
-        y.clip_dim(0, 1, 3);
+        y.clip_dim(0, 1..3);
         assert!(y.is_contiguous());
         assert_eq!(y.data(), &[4, 5, 6, 7, 8, 9]);
 
         // Tensor where inner dimension has been clipped at the start.
         let mut y = x.clone();
-        y.clip_dim(1, 1, 3);
+        y.clip_dim(1, 1..3);
         assert!(!y.is_contiguous());
 
         // Tensor where inner dimension has been clipped at the end.
         let mut y = x.clone();
-        y.clip_dim(1, 0, 2);
+        y.clip_dim(1, 0..2);
         assert!(!y.is_contiguous());
     }
 
@@ -1938,7 +1984,7 @@ mod tests {
         }
 
         assert!(x.is_contiguous());
-        x.clip_dim(0, 0, 5);
+        x.clip_dim(0, 0..5);
         assert!(x.is_contiguous());
     }
 
@@ -1948,10 +1994,10 @@ mod tests {
         assert!(x.is_contiguous());
 
         // Clip outer dimension at start. This will modify the base offset.
-        x.clip_dim(0, 1, 3);
+        x.clip_dim(0, 1..3);
 
         // Clip inner dimension at start. This will modify the strides.
-        x.clip_dim(1, 1, 3);
+        x.clip_dim(1, 1..3);
         assert!(!x.is_contiguous());
 
         x.make_contiguous();

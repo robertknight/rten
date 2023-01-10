@@ -73,12 +73,8 @@ pub fn slice_in_place<T: Copy>(
 ) -> Result<(), OpError> {
     let ranges = slice_ranges(input.shape(), starts, ends, axes, None)?;
     for (dim, range) in ranges.iter().enumerate() {
-        // TODO - Handle negative `range.start` and `range.end` here.
-        assert!(
-            range.start >= 0 && range.end >= 0,
-            "in-place slicing requires positive starts/ends"
-        );
-        input.clip_dim(dim, range.start as usize, range.end as usize);
+        let dim_size = input.shape()[dim];
+        input.clip_dim(dim, range.resolve(dim_size));
     }
     Ok(())
 }
@@ -152,6 +148,7 @@ mod tests {
 
     #[test]
     fn test_slice_in_place() {
+        // Slice with +ve and in-bounds endpoints.
         let mut rng = XorShiftRNG::new(5678);
         let mut input = rand(&[2, 2, 5, 3], &mut rng);
 
@@ -165,6 +162,27 @@ mod tests {
             input.shape(),
             vec![2, 2, ends[[0]] as usize - starts[[0]] as usize, 3]
         );
+
+        // Slice with -ve endpoints.
+        let mut input = Tensor::from_vec((0..10).collect());
+        let starts = from_slice(&[-9]);
+        let ends = from_slice(&[-6]);
+        slice_in_place(&mut input, &starts, &ends, None).unwrap();
+        assert_eq!(input.elements_vec(), &[1, 2, 3]);
+
+        // Slice with out-of-bounds end.
+        let mut input = Tensor::from_vec((0..10).collect());
+        let starts = from_slice(&[5]);
+        let ends = from_slice(&[20]);
+        slice_in_place(&mut input, &starts, &ends, None).unwrap();
+        assert_eq!(input.elements_vec(), &[5, 6, 7, 8, 9]);
+
+        // Slice with out-of-bounds start.
+        let mut input = Tensor::from_vec((0..10).collect());
+        let starts = from_slice(&[-20]);
+        let ends = from_slice(&[5]);
+        slice_in_place(&mut input, &starts, &ends, None).unwrap();
+        assert_eq!(input.elements_vec(), &[0, 1, 2, 3, 4]);
     }
 
     #[test]
