@@ -1,6 +1,7 @@
 mod graph;
 mod linalg;
 mod model;
+mod number;
 mod tensor;
 mod timer;
 mod wasm_api;

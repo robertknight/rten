@@ -1,6 +1,7 @@
 use std::fmt::Debug;
 use std::iter::{repeat, zip};
 
+use crate::number::{Identities, IsInt};
 use crate::ops::{from_data, Input, InputList, IntoOpResult, OpError, Operator, Output};
 use crate::tensor::Tensor;
 
@@ -219,20 +220,44 @@ impl Operator for Add {
 }
 
 /// Perform elementwise division of two tensors.
-pub fn div(a: &Tensor, b: &Tensor) -> Result<Tensor, OpError> {
-    if let Some(scalar) = b.item() {
-        mul(a, &Tensor::from_scalar(1. / scalar))
-    } else {
-        binary_op(a, b, |x, y| x / y)
+pub fn div<
+    T: Copy
+        + Debug
+        + std::ops::Mul<Output = T>
+        + std::ops::MulAssign
+        + std::ops::Div<Output = T>
+        + IsInt
+        + Identities,
+>(
+    a: &Tensor<T>,
+    b: &Tensor<T>,
+) -> Result<Tensor<T>, OpError> {
+    match (T::is_int(), b.item()) {
+        // Optimize division as multiplication-by-reciprocal.
+        //
+        // This loses some precision, so we might want to revisit this in future.
+        (false, Some(scalar)) => mul(a, &Tensor::from_scalar(T::one() / scalar)),
+        _ => binary_op(a, b, |x, y| x / y),
     }
 }
 
 /// Perform in-place elementwise division of two tensors.
-pub fn div_in_place(a: &mut Tensor, b: &Tensor) {
-    if let Some(scalar) = b.item() {
-        mul_in_place(a, &Tensor::from_scalar(1. / scalar))
-    } else {
-        binary_op_in_place(a, b, |x, y| *x /= y);
+pub fn div_in_place<
+    T: Copy
+        + Debug
+        + std::ops::Mul<Output = T>
+        + std::ops::MulAssign
+        + std::ops::Div<Output = T>
+        + std::ops::DivAssign
+        + IsInt
+        + Identities,
+>(
+    a: &mut Tensor<T>,
+    b: &Tensor<T>,
+) {
+    match (T::is_int(), b.item()) {
+        (false, Some(scalar)) => mul_in_place(a, &Tensor::from_scalar(T::one() / scalar)),
+        _ => binary_op_in_place(a, b, |x, y| *x /= y),
     }
 }
 
@@ -245,9 +270,7 @@ impl Operator for Div {
     }
 
     fn run(&self, inputs: InputList) -> Result<Vec<Output>, OpError> {
-        let a = inputs.require_as(0)?;
-        let b = inputs.require_as(1)?;
-        div(a, b).into_op_result()
+        run_typed_op!(inputs, div)
     }
 
     fn can_run_in_place(&self) -> bool {
@@ -255,15 +278,7 @@ impl Operator for Div {
     }
 
     fn run_in_place(&self, input: Output, other: InputList) -> Result<Output, OpError> {
-        let mut a = input.into_float().ok_or(OpError::IncorrectInputType)?;
-        let b = other.require_as(0)?;
-
-        if can_run_binary_op_in_place(&a, b) {
-            div_in_place(&mut a, b);
-            Ok(a.into())
-        } else {
-            div(&a, b).map(|t| t.into())
-        }
+        run_typed_op_in_place!(input, other, div_in_place, div)
     }
 }
 
@@ -631,6 +646,20 @@ mod tests {
         let result = div(&a, &b).unwrap();
         expect_equal(&result, &expected)?;
 
+        // Non-scalar a and b ints
+        let a = from_vec(vec![1, 2, 3, 4]);
+        let b = from_vec(vec![2, 2, 2, 2]);
+        let expected = from_vec(vec![0, 1, 1, 2]);
+        let result = div(&a, &b).unwrap();
+        assert_eq!(&result, &expected);
+
+        // Scalar b int
+        let a = from_vec(vec![1, 2, 3, 4]);
+        let b = from_scalar(2);
+        let expected = from_vec(vec![0, 1, 1, 2]);
+        let result = div(&a, &b).unwrap();
+        assert_eq!(&result, &expected);
+
         Ok(())
     }
 
@@ -649,6 +678,20 @@ mod tests {
         let expected = from_data(vec![2, 2], vec![1., 2., 3., 4.]);
         div_in_place(&mut a, &b);
         expect_equal(&a, &expected)?;
+
+        // Non-scalar a and b ints
+        let mut a = from_vec(vec![1, 2, 3, 4]);
+        let b = from_vec(vec![2, 2, 2, 2]);
+        let expected = from_vec(vec![0, 1, 1, 2]);
+        div_in_place(&mut a, &b);
+        assert_eq!(&a, &expected);
+
+        // Scalar b int
+        let mut a = from_vec(vec![1, 2, 3, 4]);
+        let b = from_scalar(2);
+        let expected = from_vec(vec![0, 1, 1, 2]);
+        div_in_place(&mut a, &b);
+        assert_eq!(&a, &expected);
 
         Ok(())
     }
