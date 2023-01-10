@@ -1,5 +1,6 @@
 ///! Operators which query or change the shape of a tensor, or copy/move/reorder
 ///! elements.
+use crate::ops::binary_elementwise::broadcast_shapes;
 use crate::ops::{Input, InputList, IntoOpResult, OpError, Operator, Output};
 use crate::tensor::{from_data, Tensor};
 
@@ -8,12 +9,10 @@ pub fn expand<T: Copy>(input: &Tensor<T>, shape: &Tensor<i32>) -> Result<Tensor<
         return Err(OpError::InvalidValue("shape must be a vector"));
     }
 
-    let out_shape: Vec<_> = shape.elements().map(|el| el as usize).collect();
-    if !input.can_broadcast(&out_shape) {
-        return Err(OpError::IncompatibleInputShapes(
-            "Cannot broadcast to output shape",
-        ));
-    }
+    let shape_vec: Vec<_> = shape.elements().map(|el| el as usize).collect();
+    let out_shape = broadcast_shapes(input.shape(), &shape_vec).ok_or(
+        OpError::IncompatibleInputShapes("Cannot broadcast input with target shape"),
+    )?;
 
     let out_elts = input.broadcast_elements(&out_shape).collect();
     Ok(from_data(out_shape, out_elts))
@@ -347,12 +346,12 @@ mod tests {
         let result = expand(&input, &shape).unwrap();
         assert_eq!(result.shape(), &[2, 3, 1]);
 
-        // TODO - The ONNX spec for Expand (https://onnx.ai/onnx/operators/onnx__Expand.html)
-        // has an example of broadcasting a tensor of shape [3, 1] to [2, 1, 6].
-        //
-        // This is not supported by Wasnn's standard broadcasting behavior,
-        // which is intended to match NumPy. Either implement this extended
-        // broadcasting or raise an issue if the spec seems wrong.
+        // Broadcast that uses dimensions from both the input shape and target
+        // shape in the output shape.
+        let input = from_data(vec![3, 1], (0..3).collect());
+        let shape = from_vec(vec![2, 1, 6]);
+        let result = expand(&input, &shape).unwrap();
+        assert_eq!(result.shape(), &[2, 3, 6]);
 
         // Broadcast that does not change dim count
         let input = from_data(vec![3, 1], (0..3).collect());
@@ -370,7 +369,7 @@ mod tests {
         assert_eq!(
             result.err(),
             Some(OpError::IncompatibleInputShapes(
-                "Cannot broadcast to output shape"
+                "Cannot broadcast input with target shape"
             ))
         );
 

@@ -1,7 +1,8 @@
 use std::iter::zip;
 
 use crate::linalg::{gemm, Matrix};
-use crate::ops::{choose_broadcast_shape, InputList, IntoOpResult, OpError, Operator, Output};
+use crate::ops::binary_elementwise::broadcast_shapes;
+use crate::ops::{InputList, IntoOpResult, OpError, Operator, Output};
 use crate::tensor::{from_data, zeros, Tensor};
 
 #[derive(Debug)]
@@ -102,13 +103,14 @@ pub fn matmul(a: &Tensor, b: &Tensor) -> Result<Tensor, OpError> {
 
     let a_prefix = &a.shape()[0..a.ndim() - 2];
     let b_prefix = &b.shape()[0..b.ndim() - 2];
-    let out_prefix = choose_broadcast_shape(a_prefix, b_prefix);
+    let out_prefix = broadcast_shapes(a_prefix, b_prefix)
+        .ok_or(OpError::IncompatibleInputShapes("Cannot broadcast shapes"))?;
 
-    let out_shape = &[out_prefix, &[a_rows, b_cols]].concat();
+    let out_shape = &[out_prefix.as_slice(), &[a_rows, b_cols]].concat();
     let mut output = zeros(out_shape);
 
-    let a_broadcast_shape = [out_prefix, &[a_rows, a_cols]].concat();
-    let b_broadcast_shape = [out_prefix, &[b_rows, b_cols]].concat();
+    let a_broadcast_shape = [out_prefix.as_slice(), &[a_rows, a_cols]].concat();
+    let b_broadcast_shape = [out_prefix.as_slice(), &[b_rows, b_cols]].concat();
 
     let a_offsets = a
         .broadcast_offsets(&a_broadcast_shape)

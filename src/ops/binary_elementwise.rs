@@ -1,24 +1,43 @@
 use std::fmt::Debug;
-use std::iter::zip;
+use std::iter::{repeat, zip};
 
 use crate::ops::{from_data, Input, InputList, IntoOpResult, OpError, Operator, Output};
 use crate::tensor::Tensor;
 
-/// Given the shapes of two inputs to a binary operation, choose the one that
-/// will be used as the output shape. The other tensor will be broadcasted
-/// to match.
-pub fn choose_broadcast_shape<'a>(a: &'a [usize], b: &'a [usize]) -> &'a [usize] {
-    if a.len() != b.len() {
-        if a.len() < b.len() {
-            b
+/// Given the shapes of two inputs to a binary operation, return the shape
+/// that will result from broadcasting them following NumPy rules or `None`
+/// if the shapes are not compatible.
+///
+/// Broadcasting works by left-padding the input shapes with 1s so they are
+/// the same length, then matching dimensions starting from the right. For
+/// each dimension, the values are compatible if they are the same or one of
+/// them is 1. The larger of the two values is the size of that dimension in
+/// the output shape.
+///
+/// See https://numpy.org/doc/stable/user/basics.broadcasting.html#general-broadcasting-rules
+pub fn broadcast_shapes(a: &[usize], b: &[usize]) -> Option<Vec<usize>> {
+    let a_pad = b.len().saturating_sub(a.len());
+    let b_pad = a.len().saturating_sub(b.len());
+
+    let a_iter = a.iter().copied().rev().chain(repeat(1).take(a_pad));
+    let b_iter = b.iter().copied().rev().chain(repeat(1).take(b_pad));
+
+    let mut result = Vec::with_capacity(a.len().max(b.len()));
+    for (a, b) in zip(a_iter, b_iter) {
+        if a == b {
+            result.push(a);
+        } else if a == 1 {
+            result.push(b);
+        } else if b == 1 {
+            result.push(a);
         } else {
-            a
+            println!("cannot match {} and {}", a, b);
+            return None;
         }
-    } else if a < b {
-        b
-    } else {
-        a
     }
+    result.reverse();
+
+    Some(result)
 }
 
 /// Compute the result of applying the binary operation `op` to corresponding
@@ -33,14 +52,11 @@ fn binary_op<T: Copy + Debug, R: Copy, F: Fn(T, T) -> R>(
         return Ok(a.map(|x| op(x, scalar)));
     }
 
-    let out_shape = choose_broadcast_shape(a.shape(), b.shape());
-    if !a.can_broadcast(out_shape) || !b.can_broadcast(out_shape) {
-        return Err(OpError::IncompatibleInputShapes(
-            "Cannot broadcast inputs to compatible shape",
-        ));
-    }
-    let a_elts = a.broadcast_elements(out_shape);
-    let b_elts = b.broadcast_elements(out_shape);
+    let out_shape = broadcast_shapes(a.shape(), b.shape())
+        .ok_or(OpError::IncompatibleInputShapes("Cannot broadcast inputs"))?;
+
+    let a_elts = a.broadcast_elements(&out_shape);
+    let b_elts = b.broadcast_elements(&out_shape);
     let out_data = zip(a_elts, b_elts).map(|(a, b)| op(a, b)).collect();
     Ok(from_data(out_shape.into(), out_data))
 }
@@ -48,7 +64,7 @@ fn binary_op<T: Copy + Debug, R: Copy, F: Fn(T, T) -> R>(
 /// Return true if an elementwise binary operation can be performed in-place
 /// on `a` given `b` as the other argument.
 fn can_run_binary_op_in_place<T: Copy>(a: &Tensor<T>, b: &Tensor<T>) -> bool {
-    b.can_broadcast(a.shape())
+    b.can_broadcast_to(a.shape())
 }
 
 /// Perform an elementwise binary operation in-place.
@@ -97,25 +113,28 @@ fn binary_op_in_place<T: Copy + Debug, F: Fn(&mut T, T)>(a: &mut Tensor<T>, b: &
 /// operands can be swapped without affecting the result. In this case we
 /// copy the larger of the two operands and then perform the operation in-place
 /// on it. This benefits from various optimizations in `binary_op_in_place`.
-fn binary_commutative_op<T: Copy + Debug, F: Fn(&mut T, T)>(
+///
+/// When broadcasting is involved, the output may be larger than either of the
+/// inputs (eg. if the inputs are `[1, 5]` and `[5, 1]` respectively). In that
+/// case this falls back to a non-place op.
+fn binary_commutative_op<T: Copy + Debug, F: Fn(&mut T, T), F2: Fn(T, T) -> T>(
     a: &Tensor<T>,
     b: &Tensor<T>,
-    op: F,
+    op_mut: F,
+    op: F2,
 ) -> Result<Tensor<T>, OpError> {
     let mut out;
     let other;
-    if b.can_broadcast(a.shape()) {
+    if b.can_broadcast_to(a.shape()) {
         out = a.clone();
         other = b;
-    } else if a.can_broadcast(b.shape()) {
+    } else if a.can_broadcast_to(b.shape()) {
         out = b.clone();
         other = a;
     } else {
-        return Err(OpError::IncompatibleInputShapes(
-            "Cannot broadcast inputs to compatible shape",
-        ));
+        return binary_op(a, b, op);
     }
-    binary_op_in_place(&mut out, other, op);
+    binary_op_in_place(&mut out, other, op_mut);
     Ok(out)
 }
 
@@ -166,11 +185,11 @@ macro_rules! run_typed_op_in_place {
 }
 
 /// Perform elementwise addition of two tensors.
-pub fn add<T: Copy + Debug + std::ops::AddAssign>(
+pub fn add<T: Copy + Debug + std::ops::Add<Output = T> + std::ops::AddAssign>(
     a: &Tensor<T>,
     b: &Tensor<T>,
 ) -> Result<Tensor<T>, OpError> {
-    binary_commutative_op(a, b, |x, y| *x += y)
+    binary_commutative_op(a, b, |x, y| *x += y, |x, y| x + y)
 }
 
 /// Perform in-place elementwise addition of two tensors.
@@ -289,11 +308,11 @@ impl Operator for Less {
 }
 
 /// Multiply two tensors elementwise.
-pub fn mul<T: Copy + Debug + std::ops::MulAssign>(
+pub fn mul<T: Copy + Debug + std::ops::Mul<Output = T> + std::ops::MulAssign>(
     a: &Tensor<T>,
     b: &Tensor<T>,
 ) -> Result<Tensor<T>, OpError> {
-    binary_commutative_op(a, b, |x, y| *x *= y)
+    binary_commutative_op(a, b, |x, y| *x *= y, |x, y| x * y)
 }
 
 /// Perform in-place elementwise multiplication of two tensors.
@@ -410,21 +429,16 @@ pub fn where_op<T: Copy>(
     x: &Tensor<T>,
     y: &Tensor<T>,
 ) -> Result<Tensor<T>, OpError> {
-    let result_shape =
-        choose_broadcast_shape(cond.shape(), choose_broadcast_shape(x.shape(), y.shape()));
-    if !cond.can_broadcast(result_shape)
-        || !x.can_broadcast(result_shape)
-        || !y.can_broadcast(result_shape)
-    {
-        return Err(OpError::IncompatibleInputShapes(
-            "Cannot broadcast inputs to result shape",
-        ));
-    }
+    let broadcast_xy_shape = broadcast_shapes(x.shape(), y.shape())
+        .ok_or(OpError::IncompatibleInputShapes("Cannot broadcast inputs"))?;
+    let result_shape = broadcast_shapes(cond.shape(), &broadcast_xy_shape)
+        .ok_or(OpError::IncompatibleInputShapes("Cannot broadcast inputs"))?;
+
     let result_elts = zip(
-        cond.broadcast_elements(result_shape),
+        cond.broadcast_elements(&result_shape),
         zip(
-            x.broadcast_elements(result_shape),
-            y.broadcast_elements(result_shape),
+            x.broadcast_elements(&result_shape),
+            y.broadcast_elements(&result_shape),
         ),
     )
     .map(|(cond, (x, y))| if cond != 0 { x } else { y })
@@ -513,7 +527,16 @@ mod tests {
         let b = from_data(vec![2, 2], vec![1.0, 2.0, 3.0, 4.0]);
         let result = add(&a, &b).unwrap();
         let expected = from_data(vec![2, 2], vec![4.0, 5.0, 6.0, 7.0]);
-        expect_equal(&result, &expected)
+        expect_equal(&result, &expected)?;
+
+        // Case where broadcast shape uses dimensions from both inputs.
+        let a = from_data(vec![2, 1], vec![1, 2]);
+        let b = from_data(vec![1, 2], vec![3, 4]);
+        let result = add(&a, &b).unwrap();
+        assert_eq!(result.shape(), &[2, 2]);
+        assert_eq!(result.elements_vec(), &[4, 5, 5, 6]);
+
+        Ok(())
     }
 
     #[test]
@@ -588,9 +611,7 @@ mod tests {
 
         assert_eq!(
             result.err(),
-            Some(OpError::IncompatibleInputShapes(
-                "Cannot broadcast inputs to compatible shape"
-            ))
+            Some(OpError::IncompatibleInputShapes("Cannot broadcast inputs"))
         );
     }
 
@@ -830,18 +851,14 @@ mod tests {
         let result = where_op(&cond, &x, &y);
         assert_eq!(
             result.err(),
-            Some(OpError::IncompatibleInputShapes(
-                "Cannot broadcast inputs to result shape"
-            ))
+            Some(OpError::IncompatibleInputShapes("Cannot broadcast inputs"))
         );
 
         // Failure to broadcast `y` to match `cond`
         let result = where_op(&cond, &y, &x);
         assert_eq!(
             result.err(),
-            Some(OpError::IncompatibleInputShapes(
-                "Cannot broadcast inputs to result shape"
-            ))
+            Some(OpError::IncompatibleInputShapes("Cannot broadcast inputs"))
         );
     }
 }

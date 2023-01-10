@@ -21,8 +21,8 @@ mod slice;
 mod unary_elementwise;
 
 pub use binary_elementwise::{
-    add, add_in_place, choose_broadcast_shape, div, div_in_place, equal, less, mul, mul_in_place,
-    pow, pow_in_place, sub, sub_in_place, where_op,
+    add, add_in_place, div, div_in_place, equal, less, mul, mul_in_place, pow, pow_in_place, sub,
+    sub_in_place, where_op,
 };
 pub use binary_elementwise::{Add, Div, Equal, Less, Mul, Pow, Sub, Where};
 pub use conv::{conv, conv_transpose};
