@@ -436,8 +436,8 @@ impl<T: Copy> Tensor<T> {
     /// See also <https://numpy.org/doc/stable/user/basics.broadcasting.html#general-broadcasting-rules>
     /// for worked examples of how broadcasting works.
     pub fn broadcast_elements(&self, shape: &[usize]) -> BroadcastElements<'_, T> {
-        if !self.can_broadcast(shape) {
-            panic!("Broadcast shape is not compatible with actual shape");
+        if !self.can_broadcast_to(shape) {
+            panic!("Cannot broadcast to specified shape");
         }
         BroadcastElements::new(self, shape)
     }
@@ -447,18 +447,19 @@ impl<T: Copy> Tensor<T> {
     /// This is very similar to `broadcast_elements`, except that the iterator
     /// yields offsets into rather than elements of the data buffer.
     pub fn broadcast_offsets(&self, shape: &[usize]) -> Offsets {
-        if !self.can_broadcast(shape) {
-            panic!("Broadcast shape is not compatible with actual shape");
+        if !self.can_broadcast_to(shape) {
+            panic!("Cannot broadcast to specified shape");
         }
         Offsets::broadcast(self, shape)
     }
 
     /// Return true if the element's shape can be broadcast to `shape` using
-    /// `broadcast_elements`.
+    /// `broadcast_elements`. The result of the broadcasted tensor will have
+    /// exactly the shape `shape`.
     ///
     /// See <https://github.com/onnx/onnx/blob/main/docs/Broadcasting.md> for
     /// conditions in which broadcasting is allowed.
-    pub fn can_broadcast(&self, shape: &[usize]) -> bool {
+    pub fn can_broadcast_to(&self, shape: &[usize]) -> bool {
         if self.shape == shape {
             return true;
         } else if self.ndim() > shape.len() {
@@ -474,6 +475,38 @@ impl<T: Copy> Tensor<T> {
         let target_dims = shape[shape.len() - self.shape.len()..].iter().copied();
 
         zip(self_dims, target_dims).all(|(a, b)| a == b || a == 1)
+    }
+
+    /// Return true if the element's shape can be broadcast with `shape` using
+    /// `broadcast_elements`.
+    ///
+    /// The shape of the result may be larger than either the current shape
+    /// or `shape`. eg. If a tensor of shape `[1, 5]` is broadcast with one
+    /// of size `[2, 1, 1]` the result has shape `[2, 1, 5]`.
+    ///
+    /// See <https://github.com/onnx/onnx/blob/main/docs/Broadcasting.md> for
+    /// conditions in which broadcasting is allowed.
+    pub fn can_broadcast_with(&self, shape: &[usize]) -> bool {
+        if self.shape == shape {
+            return true;
+        }
+
+        // For two shapes to be compatible for broadcasting, each dimension must
+        // either be the same or be 1.
+        //
+        // If the tensor has fewer dimensions, pretend that it was prefixed with
+        // 1-length dimensions to make the dimension counts equal.
+
+        let a = self.shape.as_slice();
+        let b = shape;
+
+        let a_pad = b.len().saturating_sub(a.len());
+        let b_pad = a.len().saturating_sub(b.len());
+
+        let a_iter = a.iter().copied().rev().chain(repeat(1).take(a_pad));
+        let b_iter = b.iter().copied().rev().chain(repeat(1).take(b_pad));
+
+        zip(a_iter, b_iter).all(|(a, b)| a == b || a == 1 || b == 1)
     }
 
     /// Return an iterator over a subset of elements in this tensor.
@@ -1939,14 +1972,14 @@ mod tests {
     }
 
     #[test]
-    #[should_panic(expected = "Broadcast shape is not compatible with actual shape")]
+    #[should_panic(expected = "Cannot broadcast to specified shape")]
     fn test_broadcast_elements_with_invalid_shape() {
         let x = steps(&[2, 2]);
         x.broadcast_elements(&[3, 2]);
     }
 
     #[test]
-    #[should_panic(expected = "Broadcast shape is not compatible with actual shape")]
+    #[should_panic(expected = "Cannot broadcast to specified shape")]
     fn test_broadcast_elements_with_shorter_shape() {
         let x = steps(&[2, 2]);
         x.broadcast_elements(&[4]);
@@ -1967,18 +2000,26 @@ mod tests {
     }
 
     #[test]
-    #[should_panic(expected = "Broadcast shape is not compatible with actual shape")]
+    #[should_panic(expected = "Cannot broadcast to specified shape")]
     fn test_broadcast_offsets_with_invalid_shape() {
         let x = steps(&[2, 2]);
         x.broadcast_offsets(&[3, 2]);
     }
 
     #[test]
-    fn test_can_broadcast() {
+    fn test_can_broadcast_to() {
         let x = steps(&[1, 5, 10]);
-        assert!(x.can_broadcast(&[2, 5, 10]));
-        assert!(x.can_broadcast(&[1, 5, 10]));
-        assert!(!x.can_broadcast(&[1, 1, 10]));
+        assert!(x.can_broadcast_to(&[2, 5, 10]));
+        assert!(x.can_broadcast_to(&[1, 5, 10]));
+        assert!(!x.can_broadcast_to(&[1, 1, 10]));
+    }
+
+    #[test]
+    fn test_can_broadcast_with() {
+        let x = steps(&[1, 5, 10]);
+        assert!(x.can_broadcast_with(&[2, 5, 10]));
+        assert!(x.can_broadcast_with(&[1, 5, 10]));
+        assert!(x.can_broadcast_with(&[1, 1, 10]));
     }
 
     #[test]
