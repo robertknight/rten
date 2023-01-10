@@ -132,7 +132,8 @@ pub struct Tensor<T: Copy = f32> {
     /// The underlying buffer of elements
     data: Vec<T>,
 
-    /// The offset in the buffer of the first element
+    /// The offset in the buffer of the first element. This is initially 0 but
+    /// will be changed if the tensor is sliced.
     base: usize,
 
     /// The size of each dimension of the array
@@ -311,7 +312,7 @@ impl<T: Copy> Tensor<T> {
             self.strides[N - 1] == 1,
             "last_dim_slice requires contiguous last dimension"
         );
-        let offset = self.offset(index);
+        let offset = self.base + self.offset(index);
         &self.data[offset..offset + len]
     }
 
@@ -325,7 +326,7 @@ impl<T: Copy> Tensor<T> {
             self.strides[N - 1] == 1,
             "last_dim_slice_mut requires contiguous last dimension"
         );
-        let offset = self.offset(index);
+        let offset = self.base + self.offset(index);
         &mut self.data[offset..offset + len]
     }
 
@@ -578,7 +579,8 @@ impl<T: Copy> Tensor<T> {
         self.strides[dim]
     }
 
-    /// Return the offset of an element that corresponds to a given index.
+    /// Return the offset of an element in the slices returned by `data`
+    /// and `data_mut`.
     ///
     /// The length of `index` must match the tensor's dimension count.
     ///
@@ -592,7 +594,7 @@ impl<T: Copy> Tensor<T> {
             shape.len(),
             index.len()
         );
-        let mut offset = self.base;
+        let mut offset = 0;
         for i in 0..index.len() {
             assert!(
                 index.index(i) < self.shape[i],
@@ -635,7 +637,7 @@ impl<T: Copy> Tensor<T> {
     ) -> UncheckedView<T, N> {
         let offset = self.offset(base);
         UncheckedView {
-            data: &self.data,
+            data: self.data(),
             offset,
             strides: self.strides[self.ndim() - N..].try_into().unwrap(),
         }
@@ -652,7 +654,7 @@ impl<T: Copy> Tensor<T> {
         let offset = self.offset(base);
         let strides = self.strides[self.ndim() - N..].try_into().unwrap();
         UncheckedViewMut {
-            data: &mut self.data,
+            data: self.data_mut(),
             offset,
             strides,
         }
@@ -703,13 +705,13 @@ impl<T: Copy> Clone for Tensor<T> {
 impl<I: TensorIndex, T: Copy> Index<I> for Tensor<T> {
     type Output = T;
     fn index(&self, index: I) -> &Self::Output {
-        &self.data[self.offset(index)]
+        &self.data[self.base + self.offset(index)]
     }
 }
 
 impl<I: TensorIndex, T: Copy> IndexMut<I> for Tensor<T> {
     fn index_mut(&mut self, index: I) -> &mut Self::Output {
-        let offset = self.offset(index);
+        let offset = self.base + self.offset(index);
         &mut self.data[offset]
     }
 }
@@ -812,7 +814,7 @@ impl IndexingIterBase {
 
         IndexingIterBase {
             len: tensor.len(),
-            offset: tensor.base as isize,
+            offset: 0,
             pos: dims,
         }
     }
@@ -843,7 +845,7 @@ impl IndexingIterBase {
 
         IndexingIterBase {
             len: shape.iter().product(),
-            offset: tensor.base as isize,
+            offset: 0,
             pos: dims,
         }
     }
@@ -857,7 +859,7 @@ impl IndexingIterBase {
                 tensor.ndim()
             );
         }
-        let mut offset = tensor.base;
+        let mut offset = 0;
         let dims: Vec<_> = ranges
             .iter()
             .enumerate()
@@ -982,7 +984,7 @@ impl<'a, T: Copy> Elements<'a, T> {
     fn slice(tensor: &'a Tensor<T>, ranges: &[SliceRange]) -> Elements<'a, T> {
         let iter = IndexingIter {
             base: IndexingIterBase::slice(tensor, ranges),
-            data: &tensor.data,
+            data: tensor.data(),
         };
         Elements {
             iter: ElementsIter::Indexing(iter),
@@ -1031,14 +1033,14 @@ impl<'a, T: Copy> IndexingIter<'a, T> {
     fn new(tensor: &'a Tensor<T>) -> IndexingIter<'a, T> {
         IndexingIter {
             base: IndexingIterBase::new(tensor),
-            data: &tensor.data,
+            data: tensor.data(),
         }
     }
 
     fn broadcast(tensor: &'a Tensor<T>, shape: &[usize]) -> IndexingIter<'a, T> {
         IndexingIter {
             base: IndexingIterBase::broadcast(tensor, shape),
-            data: &tensor.data,
+            data: tensor.data(),
         }
     }
 }
@@ -1338,6 +1340,7 @@ pub fn from_2d_slice<T: Copy>(data: &[&[T]]) -> Tensor<T> {
 #[cfg(test)]
 mod tests {
     use std::borrow::Cow;
+    use std::ops::IndexMut;
 
     use crate::rng::XorShiftRNG;
     use crate::tensor::{
@@ -1369,6 +1372,28 @@ mod tests {
         x.clip_dim(0, 1, 2);
         x.clip_dim(1, 1, 2);
         assert_eq!(x.elements().collect::<Vec<i32>>(), vec![5]);
+    }
+
+    #[test]
+    fn test_clip_dim_start() {
+        let mut x = steps(&[3, 3]);
+
+        // Clip the start of the tensor, adjusting the `base` offset.
+        x.clip_dim(0, 1, 3);
+
+        // Indexing should reflect the slice.
+        assert_eq!(x.elements().collect::<Vec<i32>>(), &[4, 5, 6, 7, 8, 9]);
+        assert_eq!(x[[0, 0]], 4);
+        assert_eq!(*x.index_mut([0, 0]), 4);
+
+        // Slices returned by `data`, `data_mut` should reflect the slice.
+        assert_eq!(x.data(), &[4, 5, 6, 7, 8, 9]);
+        assert_eq!(x.data_mut(), &[4, 5, 6, 7, 8, 9]);
+
+        // Offsets should be relative to the sliced returned by `data`,
+        // `data_mut`.
+        assert_eq!(x.offsets().collect::<Vec<usize>>(), &[0, 1, 2, 3, 4, 5]);
+        assert_eq!(x.offset([0, 0]), 0);
     }
 
     #[test]
