@@ -150,6 +150,12 @@ fn reduce<T: Copy + Default, R: Reducer<T>>(
         return Ok(Tensor::from_scalar(reducer.reduce(input.elements())));
     }
 
+    // nb. Some reduce operations cannot produce a meaningful result with
+    // an empty tensor, but others can, if there is a suitable identity.
+    if input.is_empty() {
+        return Err(OpError::InvalidValue("Cannot reduce empty tensor"));
+    }
+
     // Number of innermost dims being iterated over, or None if we're not
     // iterating over innermost dims.
     let reduced_inner_dims: Option<usize> = resolved_axes
@@ -175,7 +181,11 @@ fn reduce<T: Copy + Default, R: Reducer<T>>(
     match (reduced_inner_dims, input.is_contiguous()) {
         (Some(ndims), true) => {
             // Fast path for reducing over contiguous chunks of the input.
-            let slice_len = input.stride(input.ndim() - 1 - ndims);
+            let slice_len = if ndims == input.ndim() {
+                input.len()
+            } else {
+                input.stride(input.ndim() - 1 - ndims)
+            };
             reduced_data.extend((0..input.len()).step_by(slice_len).map(|offset| {
                 let slice = &input.data()[offset..offset + slice_len];
                 reducer.reduce(slice.iter().copied())
@@ -363,6 +373,22 @@ mod tests {
         // Reduce a scalar value
         let result = reduce_mean(&from_scalar(5.0), Some(&[]), false /* keep_dims */).unwrap();
         assert_eq!(result.item(), Some(5.0));
+
+        // Reduce a vector
+        let result = reduce_mean(
+            &from_vec(vec![0., 10.]),
+            Some(&[0]),
+            false, /* keep_dims */
+        )
+        .unwrap();
+        assert_eq!(result.elements_vec(), &[5.0]);
+
+        // Empty tensor
+        let result = reduce_mean(&from_vec(vec![]), Some(&[0]), false /* keep_dims */);
+        assert_eq!(
+            result.err(),
+            Some(OpError::InvalidValue("Cannot reduce empty tensor"))
+        );
 
         Ok(())
     }
