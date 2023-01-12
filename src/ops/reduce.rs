@@ -383,13 +383,6 @@ mod tests {
         .unwrap();
         assert_eq!(result.elements_vec(), &[5.0]);
 
-        // Empty tensor
-        let result = reduce_mean(&from_vec(vec![]), Some(&[0]), false /* keep_dims */);
-        assert_eq!(
-            result.err(),
-            Some(OpError::InvalidValue("Cannot reduce empty tensor"))
-        );
-
         Ok(())
     }
 
@@ -402,5 +395,12 @@ mod tests {
 
         let result = reduce_mean(&input, Some(&[-3]), false /* keep_dims */);
         assert_eq!(result.err(), Some(OpError::InvalidValue("axis is invalid")));
+
+        // Empty tensor
+        let result = reduce_mean(&from_vec(vec![]), Some(&[0]), false /* keep_dims */);
+        assert_eq!(
+            result.err(),
+            Some(OpError::InvalidValue("Cannot reduce empty tensor"))
+        );
     }
 }
