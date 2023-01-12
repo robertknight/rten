@@ -3,9 +3,9 @@ extern crate flatbuffers;
 use flatbuffers::{FlatBufferBuilder, UnionWIPOffset, Vector, WIPOffset};
 
 use crate::ops::{
-    AveragePool, BatchNormalization, Cast, Clip, Concat, ConstantOfShape, Conv, ConvTranspose,
-    DataType, Gather, Gemm, LeakyRelu, MaxPool, Padding, ReduceMean, Reshape, Resize, ResizeMode,
-    Scalar, Softmax, Split, Squeeze, Transpose, Unsqueeze,
+    ArgMax, ArgMin, AveragePool, BatchNormalization, Cast, Clip, Concat, ConstantOfShape, Conv,
+    ConvTranspose, DataType, Gather, Gemm, LeakyRelu, MaxPool, Padding, ReduceMean, Reshape,
+    Resize, ResizeMode, Scalar, Softmax, Split, Squeeze, Transpose, Unsqueeze,
 };
 use crate::schema_generated as sg;
 use crate::tensor::Tensor;
@@ -13,6 +13,8 @@ use crate::tensor::Tensor;
 /// Enum of all the built-in operators
 pub enum OpType {
     Add,
+    ArgMax(ArgMax),
+    ArgMin(ArgMin),
     AveragePool(AveragePool),
     BatchNormalization(BatchNormalization),
     Cast(Cast),
@@ -230,6 +232,18 @@ impl<'a> ModelBuilder<'a> {
         // FlatBuffers types, and write attribute data into buffer.
         let (op_type, attrs_type, attrs) = match op_info {
             OpType::Add => op!(Add),
+            OpType::ArgMax(args) => op_with_attrs!(ArgMax, ArgMaxAttrs, {
+                sg::ArgMaxAttrsArgs {
+                    axis: args.axis as i32,
+                    keep_dims: args.keep_dims,
+                }
+            }),
+            OpType::ArgMin(args) => op_with_attrs!(ArgMin, ArgMaxAttrs, {
+                sg::ArgMaxAttrsArgs {
+                    axis: args.axis as i32,
+                    keep_dims: args.keep_dims,
+                }
+            }),
             OpType::AveragePool(args) => op_with_attrs!(AveragePool, AveragePoolAttrs, {
                 let pad_args = pad_args_from_padding(args.padding);
                 let pads = self.create_vec(pad_args.pads, |pad| pad as u32);

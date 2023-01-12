@@ -651,6 +651,8 @@ mod tests {
         }
 
         add_operator!(Add, [input_node, input_node]);
+        add_operator!(ArgMax, [input_node], { axis: 3, keep_dims: false });
+        add_operator!(ArgMin, [input_node], { axis: 3, keep_dims: false });
         add_operator!(AveragePool, [input_node], {
             kernel_size: [2, 2],
             strides: [2, 2],
