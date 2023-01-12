@@ -8,6 +8,8 @@ file_extension "model";
 // Type for an operator node
 enum OperatorType: byte {
   Add,
+  ArgMin,
+  ArgMax,
   AveragePool,
   BatchNormalization,
   Cast,
@@ -76,6 +78,7 @@ enum ResizeMode: byte {
 
 // Operator-specific configuration
 union OperatorAttrs {
+  ArgMaxAttrs, // Also used for ArgMin
   AveragePoolAttrs,
   BatchNormalizationAttrs,
   CastAttrs,
@@ -98,6 +101,11 @@ union OperatorAttrs {
   SoftmaxAttrs,
   TransposeAttrs,
   UnsqueezeAttrs,
+}
+
+table ArgMaxAttrs {
+  axis:int;
+  keep_dims:bool;
 }
 
 table AveragePoolAttrs {

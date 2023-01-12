@@ -1,6 +1,130 @@
 use crate::ops::layout::squeeze_in_place;
-use crate::ops::{resolve_axes, InputList, IntoOpResult, OpError, Operator, Output};
+use crate::ops::{resolve_axes, resolve_axis, InputList, IntoOpResult, OpError, Operator, Output};
 use crate::tensor::{IndexIterator, SliceRange, Tensor};
+
+/// Compute the indices of the max elements along an axis, according to a
+/// comparison function `compare`.
+fn index_select<T: Copy, Cmp: Fn(T, T) -> bool>(
+    input: &Tensor<T>,
+    axis: isize,
+    keep_dims: bool,
+    compare: Cmp,
+) -> Result<Tensor<i32>, OpError> {
+    let resolved_axis = resolve_axis(input.ndim(), axis)?;
+    if input.shape()[resolved_axis] == 0 {
+        return Err(OpError::InvalidValue(
+            "Cannot select index from empty sequence",
+        ));
+    }
+
+    let reduced_shape: Vec<usize> = input
+        .shape()
+        .iter()
+        .enumerate()
+        .map(|(dim, &size)| if resolved_axis == dim { 1 } else { size })
+        .collect();
+    let mut reduced_data = Vec::with_capacity(reduced_shape.iter().product());
+
+    let outer_range: Vec<_> = (0..input.ndim())
+        .map(|dim| {
+            if resolved_axis == dim {
+                0..1
+            } else {
+                0..input.shape()[dim]
+            }
+        })
+        .collect();
+
+    let mut outer_iter = IndexIterator::from_ranges(&outer_range);
+
+    if !input.is_empty() {
+        while let Some(index) = outer_iter.next() {
+            let stride = input.stride(resolved_axis);
+            let size = input.shape()[resolved_axis];
+            let offset = input.offset(index);
+
+            let (index, _) = input
+                .data()
+                .iter()
+                .copied()
+                .skip(offset)
+                .step_by(stride)
+                .enumerate()
+                .take(size)
+                .fold(None, |acc, (i, val)| match acc {
+                    Some((_index, max_val)) => {
+                        if compare(val, max_val) {
+                            Some((i, val))
+                        } else {
+                            acc
+                        }
+                    }
+                    None => Some((i, val)),
+                })
+                .unwrap(); // OK because we checked tensor is not empty.
+
+            reduced_data.push(index as i32);
+        }
+    }
+
+    let mut reduced = Tensor::<i32>::from_data(reduced_shape, reduced_data);
+
+    if !keep_dims {
+        squeeze_in_place(&mut reduced, Some(&[resolved_axis]));
+    }
+
+    Ok(reduced)
+}
+
+pub fn arg_max<T: Copy + PartialOrd>(
+    input: &Tensor<T>,
+    axis: isize,
+    keep_dims: bool,
+) -> Result<Tensor<i32>, OpError> {
+    index_select(input, axis, keep_dims, |a, b| a > b)
+}
+
+#[derive(Debug)]
+pub struct ArgMax {
+    pub axis: isize,
+    pub keep_dims: bool,
+}
+
+impl Operator for ArgMax {
+    fn name(&self) -> &str {
+        "ArgMax"
+    }
+
+    fn run(&self, inputs: InputList) -> Result<Vec<Output>, OpError> {
+        let input = inputs.require_as::<f32>(0)?;
+        arg_max(input, self.axis, self.keep_dims).into_op_result()
+    }
+}
+
+pub fn arg_min<T: Copy + PartialOrd>(
+    input: &Tensor<T>,
+    axis: isize,
+    keep_dims: bool,
+) -> Result<Tensor<i32>, OpError> {
+    index_select(input, axis, keep_dims, |a, b| a < b)
+}
+
+#[derive(Debug)]
+pub struct ArgMin {
+    pub axis: isize,
+    pub keep_dims: bool,
+}
+
+impl Operator for ArgMin {
+    fn name(&self) -> &str {
+        "ArgMin"
+    }
+
+    fn run(&self, inputs: InputList) -> Result<Vec<Output>, OpError> {
+        let input = inputs.require_as::<f32>(0)?;
+        arg_min(input, self.axis, self.keep_dims).into_op_result()
+    }
+}
 
 /// Trait for reducing a subset of elements from a tensor to a single value.
 ///
@@ -135,9 +259,68 @@ impl Operator for ReduceMean {
 
 #[cfg(test)]
 mod tests {
-    use crate::ops::{reduce_mean, OpError};
+    use crate::ops::{arg_max, arg_min, reduce_mean, OpError};
     use crate::tensor::{from_data, from_scalar, from_vec};
     use crate::test_util::expect_equal;
+
+    #[test]
+    fn test_arg_max() {
+        // Reduce a simple vector.
+        let probs = from_vec(vec![0.1, 0.5, 0.2, 0.9, 0.01, 0.6]);
+        let class = arg_max(&probs, 0, false /* keep_dims */).unwrap();
+        assert_eq!(class.item(), Some(3));
+
+        // Same, but keep dims
+        let class = arg_max(&probs, 0, true /* keep_dims */).unwrap();
+        assert_eq!(class.shape(), &[1]);
+        assert_eq!(class.elements_vec(), &[3]);
+
+        // Common use case of a tensor of (batch, item, prob) where
+        // `item` is eg. a token index in a sequence or box ID for object
+        // detection.
+        let seq_probs = from_data(
+            vec![1, 4, 3],
+            vec![
+                0.1, 0.2, 0.9, // First item
+                0.9, 0.1, 0.2, // Second item
+                0.3, 0.8, 0.4, // Third item
+                0.1, 0.01, 0.2, // Fourth item
+            ],
+        );
+        let seq_classes = arg_max(&seq_probs, 2, false /* keep_dims */).unwrap();
+        assert_eq!(seq_classes.shape(), &[1, 4]);
+        assert_eq!(seq_classes.elements_vec(), &[2, 0, 1, 2]);
+
+        // Same, but keep dims
+        let seq_classes = arg_max(&seq_probs, 2, true /* keep_dims */).unwrap();
+        assert_eq!(seq_classes.shape(), &[1, 4, 1]);
+        assert_eq!(seq_classes.elements_vec(), &[2, 0, 1, 2]);
+
+        // Empty tensor, axis is a non-zero-sized dim
+        let empty = from_data::<i32>(vec![10, 0, 5], vec![]);
+        let result = arg_max(&empty, 0, false /* keep_dims */).unwrap();
+        assert_eq!(result.shape(), &[0, 5]);
+        assert_eq!(result.elements_vec(), &[] as &[i32]);
+
+        // Empty tensor, axis is a zero-sized dim
+        let empty = from_data::<i32>(vec![10, 0, 5], vec![]);
+        let result = arg_max(&empty, 1, false /* keep_dims */);
+        assert_eq!(
+            result.err(),
+            Some(OpError::InvalidValue(
+                "Cannot select index from empty sequence"
+            ))
+        );
+    }
+
+    // We only have base tests for ArgMin since most of the implementation is
+    // shared with ArgMax.
+    #[test]
+    fn test_arg_min() {
+        let probs = from_vec(vec![0.1, 0.5, 0.2, 0.9, 0.01, 0.6]);
+        let class = arg_min(&probs, 0, false /* keep_dims */).unwrap();
+        assert_eq!(class.item(), Some(4));
+    }
 
     #[test]
     fn test_reduce_mean() -> Result<(), String> {

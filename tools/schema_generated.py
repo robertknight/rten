@@ -8,49 +8,51 @@ np = import_numpy()
 
 class OperatorType(object):
     Add = 0
-    AveragePool = 1
-    BatchNormalization = 2
-    Cast = 3
-    Clip = 4
-    Concat = 5
-    ConstantOfShape = 6
-    Conv = 7
-    ConvTranspose = 8
-    Cos = 9
-    Div = 10
-    Equal = 11
-    Erf = 12
-    Expand = 13
-    Gather = 14
-    Gemm = 15
-    GlobalAveragePool = 16
-    Identity = 17
-    LeakyRelu = 18
-    Less = 19
-    LSTM = 20
-    MatMul = 21
-    MaxPool = 22
-    Mul = 23
-    Pad = 24
-    Pow = 25
-    Range = 26
-    ReduceMean = 27
-    Relu = 28
-    Reshape = 29
-    Resize = 30
-    Shape = 31
-    Sigmoid = 32
-    Sin = 33
-    Slice = 34
-    Split = 35
-    Sqrt = 36
-    Squeeze = 37
-    Softmax = 38
-    Sub = 39
-    Tanh = 40
-    Transpose = 41
-    Unsqueeze = 42
-    Where = 43
+    ArgMin = 1
+    ArgMax = 2
+    AveragePool = 3
+    BatchNormalization = 4
+    Cast = 5
+    Clip = 6
+    Concat = 7
+    ConstantOfShape = 8
+    Conv = 9
+    ConvTranspose = 10
+    Cos = 11
+    Div = 12
+    Equal = 13
+    Erf = 14
+    Expand = 15
+    Gather = 16
+    Gemm = 17
+    GlobalAveragePool = 18
+    Identity = 19
+    LeakyRelu = 20
+    Less = 21
+    LSTM = 22
+    MatMul = 23
+    MaxPool = 24
+    Mul = 25
+    Pad = 26
+    Pow = 27
+    Range = 28
+    ReduceMean = 29
+    Relu = 30
+    Reshape = 31
+    Resize = 32
+    Shape = 33
+    Sigmoid = 34
+    Sin = 35
+    Slice = 36
+    Split = 37
+    Sqrt = 38
+    Squeeze = 39
+    Softmax = 40
+    Sub = 41
+    Tanh = 42
+    Transpose = 43
+    Unsqueeze = 44
+    Where = 45
 
 
 class LSTMDirection(object):
@@ -76,33 +78,36 @@ class ResizeMode(object):
 
 class OperatorAttrs(object):
     NONE = 0
-    AveragePoolAttrs = 1
-    BatchNormalizationAttrs = 2
-    CastAttrs = 3
-    ClipAttrs = 4
-    ConcatAttrs = 5
-    ConstantOfShapeAttrs = 6
-    ConvAttrs = 7
-    ConvTransposeAttrs = 8
-    GatherAttrs = 9
-    GemmAttrs = 10
-    LeakyReluAttrs = 11
-    LSTMAttrs = 12
-    MaxPoolAttrs = 13
-    PadAttrs = 14
-    ReduceMeanAttrs = 15
-    ReshapeAttrs = 16
-    ResizeAttrs = 17
-    SplitAttrs = 18
-    SqueezeAttrs = 19
-    SoftmaxAttrs = 20
-    TransposeAttrs = 21
-    UnsqueezeAttrs = 22
+    ArgMaxAttrs = 1
+    AveragePoolAttrs = 2
+    BatchNormalizationAttrs = 3
+    CastAttrs = 4
+    ClipAttrs = 5
+    ConcatAttrs = 6
+    ConstantOfShapeAttrs = 7
+    ConvAttrs = 8
+    ConvTransposeAttrs = 9
+    GatherAttrs = 10
+    GemmAttrs = 11
+    LeakyReluAttrs = 12
+    LSTMAttrs = 13
+    MaxPoolAttrs = 14
+    PadAttrs = 15
+    ReduceMeanAttrs = 16
+    ReshapeAttrs = 17
+    ResizeAttrs = 18
+    SplitAttrs = 19
+    SqueezeAttrs = 20
+    SoftmaxAttrs = 21
+    TransposeAttrs = 22
+    UnsqueezeAttrs = 23
 
 def OperatorAttrsCreator(unionType, table):
     from flatbuffers.table import Table
     if not isinstance(table, Table):
         return None
+    if unionType == OperatorAttrs().ArgMaxAttrs:
+        return ArgMaxAttrsT.InitFromBuf(table.Bytes, table.Pos)
     if unionType == OperatorAttrs().AveragePoolAttrs:
         return AveragePoolAttrsT.InitFromBuf(table.Bytes, table.Pos)
     if unionType == OperatorAttrs().BatchNormalizationAttrs:
@@ -199,6 +204,88 @@ def ConstantDataCreator(unionType, table):
     if unionType == ConstantData().IntData:
         return IntDataT.InitFromBuf(table.Bytes, table.Pos)
     return None
+
+
+class ArgMaxAttrs(object):
+    __slots__ = ['_tab']
+
+    @classmethod
+    def GetRootAs(cls, buf, offset=0):
+        n = flatbuffers.encode.Get(flatbuffers.packer.uoffset, buf, offset)
+        x = ArgMaxAttrs()
+        x.Init(buf, n + offset)
+        return x
+
+    @classmethod
+    def GetRootAsArgMaxAttrs(cls, buf, offset=0):
+        """This method is deprecated. Please switch to GetRootAs."""
+        return cls.GetRootAs(buf, offset)
+    @classmethod
+    def ArgMaxAttrsBufferHasIdentifier(cls, buf, offset, size_prefixed=False):
+        return flatbuffers.util.BufferHasIdentifier(buf, offset, b"\x4D\x4F\x44\x4C", size_prefixed=size_prefixed)
+
+    # ArgMaxAttrs
+    def Init(self, buf, pos):
+        self._tab = flatbuffers.table.Table(buf, pos)
+
+    # ArgMaxAttrs
+    def Axis(self):
+        o = flatbuffers.number_types.UOffsetTFlags.py_type(self._tab.Offset(4))
+        if o != 0:
+            return self._tab.Get(flatbuffers.number_types.Int32Flags, o + self._tab.Pos)
+        return 0
+
+    # ArgMaxAttrs
+    def KeepDims(self):
+        o = flatbuffers.number_types.UOffsetTFlags.py_type(self._tab.Offset(6))
+        if o != 0:
+            return bool(self._tab.Get(flatbuffers.number_types.BoolFlags, o + self._tab.Pos))
+        return False
+
+def ArgMaxAttrsStart(builder): builder.StartObject(2)
+def ArgMaxAttrsAddAxis(builder, axis): builder.PrependInt32Slot(0, axis, 0)
+def ArgMaxAttrsAddKeepDims(builder, keepDims): builder.PrependBoolSlot(1, keepDims, 0)
+def ArgMaxAttrsEnd(builder): return builder.EndObject()
+
+
+class ArgMaxAttrsT(object):
+
+    # ArgMaxAttrsT
+    def __init__(self):
+        self.axis = 0  # type: int
+        self.keepDims = False  # type: bool
+
+    @classmethod
+    def InitFromBuf(cls, buf, pos):
+        argMaxAttrs = ArgMaxAttrs()
+        argMaxAttrs.Init(buf, pos)
+        return cls.InitFromObj(argMaxAttrs)
+
+    @classmethod
+    def InitFromPackedBuf(cls, buf, pos=0):
+        n = flatbuffers.encode.Get(flatbuffers.packer.uoffset, buf, pos)
+        return cls.InitFromBuf(buf, pos+n)
+
+    @classmethod
+    def InitFromObj(cls, argMaxAttrs):
+        x = ArgMaxAttrsT()
+        x._UnPack(argMaxAttrs)
+        return x
+
+    # ArgMaxAttrsT
+    def _UnPack(self, argMaxAttrs):
+        if argMaxAttrs is None:
+            return
+        self.axis = argMaxAttrs.Axis()
+        self.keepDims = argMaxAttrs.KeepDims()
+
+    # ArgMaxAttrsT
+    def Pack(self, builder):
+        ArgMaxAttrsStart(builder)
+        ArgMaxAttrsAddAxis(builder, self.axis)
+        ArgMaxAttrsAddKeepDims(builder, self.keepDims)
+        argMaxAttrs = ArgMaxAttrsEnd(builder)
+        return argMaxAttrs
 
 
 class AveragePoolAttrs(object):
@@ -2753,7 +2840,7 @@ class OperatorNodeT(object):
     def __init__(self):
         self.type = 0  # type: int
         self.attrsType = 0  # type: int
-        self.attrs = None  # type: Union[None, AveragePoolAttrsT, BatchNormalizationAttrsT, CastAttrsT, ClipAttrsT, ConcatAttrsT, ConstantOfShapeAttrsT, ConvAttrsT, ConvTransposeAttrsT, GatherAttrsT, GemmAttrsT, LeakyReluAttrsT, LSTMAttrsT, MaxPoolAttrsT, PadAttrsT, ReduceMeanAttrsT, ReshapeAttrsT, ResizeAttrsT, SplitAttrsT, SqueezeAttrsT, SoftmaxAttrsT, TransposeAttrsT, UnsqueezeAttrsT]
+        self.attrs = None  # type: Union[None, ArgMaxAttrsT, AveragePoolAttrsT, BatchNormalizationAttrsT, CastAttrsT, ClipAttrsT, ConcatAttrsT, ConstantOfShapeAttrsT, ConvAttrsT, ConvTransposeAttrsT, GatherAttrsT, GemmAttrsT, LeakyReluAttrsT, LSTMAttrsT, MaxPoolAttrsT, PadAttrsT, ReduceMeanAttrsT, ReshapeAttrsT, ResizeAttrsT, SplitAttrsT, SqueezeAttrsT, SoftmaxAttrsT, TransposeAttrsT, UnsqueezeAttrsT]
         self.inputs = None  # type: List[int]
         self.outputs = None  # type: List[int]
 

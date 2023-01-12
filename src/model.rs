@@ -86,6 +86,26 @@ enum ReadOpError {
 
 type ReadOpResult = Result<Box<dyn Operator>, ReadOpError>;
 
+fn read_arg_max_op(node: &OperatorNode) -> ReadOpResult {
+    let attrs = node
+        .attrs_as_arg_max_attrs()
+        .ok_or(ReadOpError::AttrError)?;
+    Ok(Box::new(ops::ArgMax {
+        axis: attrs.axis() as isize,
+        keep_dims: attrs.keep_dims(),
+    }))
+}
+
+fn read_arg_min_op(node: &OperatorNode) -> ReadOpResult {
+    let attrs = node
+        .attrs_as_arg_max_attrs()
+        .ok_or(ReadOpError::AttrError)?;
+    Ok(Box::new(ops::ArgMin {
+        axis: attrs.axis() as isize,
+        keep_dims: attrs.keep_dims(),
+    }))
+}
+
 fn read_average_pool_op(node: &OperatorNode) -> ReadOpResult {
     let attrs = node
         .attrs_as_average_pool_attrs()
@@ -331,6 +351,8 @@ macro_rules! op {
 fn read_operator(node: &OperatorNode) -> ReadOpResult {
     match node.type_() {
         OperatorType::Add => op!(Add),
+        OperatorType::ArgMax => read_arg_max_op(node),
+        OperatorType::ArgMin => read_arg_min_op(node),
         OperatorType::AveragePool => read_average_pool_op(node),
         OperatorType::BatchNormalization => read_batch_normalization_op(node),
         OperatorType::Cast => read_cast_op(node),

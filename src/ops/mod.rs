@@ -39,7 +39,7 @@ pub use norm::{batch_norm, batch_norm_in_place, softmax, BatchNormalization, Sof
 pub use pad::{pad, Pad};
 pub use pooling::{average_pool, global_average_pool, max_pool};
 pub use pooling::{AveragePool, GlobalAveragePool, MaxPool};
-pub use reduce::{reduce_mean, ReduceMean};
+pub use reduce::{arg_max, arg_min, reduce_mean, ArgMax, ArgMin, ReduceMean};
 pub use resize::{resize, Resize, ResizeMode, ResizeTarget};
 pub use slice::{slice, slice_in_place, Slice};
 pub use unary_elementwise::{

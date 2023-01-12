@@ -402,6 +402,12 @@ def op_node_from_onnx_operator(
     # Check / convert operator attributes and operator name, if different than
     # ONNX.
     match onnx_op.op_type:
+        case "ArgMax" | "ArgMin":
+            attrs = sg.ArgMaxAttrsT()
+            attrs.axes = op_reader.get_attr("axis", "int", None)
+            attrs.keepDims = bool(op_reader.get_attr("keepdims", "int", 1))
+            op_reader.check_attr("select_last_index", "int", 0)
+
         case "AveragePool":
             kernel_shape = op_reader.require_attr("kernel_shape", "ints")
             check_ints_length("kernel_shape", kernel_shape, 2)
