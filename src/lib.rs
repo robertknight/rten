@@ -13,7 +13,7 @@ pub use model::Model;
 pub use ops::{Input, Output};
 pub use tensor::{SliceRange, Tensor};
 
-#[allow(dead_code, unused_imports)]
+#[allow(clippy::extra_unused_lifetimes, dead_code, unused_imports)]
 mod schema_generated;
 
 #[cfg(test)]
