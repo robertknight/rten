@@ -4,7 +4,7 @@ extern crate wasnn;
 use std::error::Error;
 use std::fs;
 
-use wasnn::ops::{resize, ResizeMode, ResizeTarget};
+use wasnn::ops::{resize, CoordTransformMode, NearestMode, ResizeMode, ResizeTarget};
 use wasnn::{Model, RunOptions, Tensor};
 
 #[derive(Clone, Copy, PartialEq)]
@@ -196,6 +196,8 @@ fn main() -> Result<(), Box<dyn Error>> {
                 in_config.width as i32,
             ])),
             ResizeMode::Linear,
+            CoordTransformMode::default(),
+            NearestMode::default(),
         )?
     } else {
         img_tensor

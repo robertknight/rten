@@ -71,6 +71,18 @@ class DataType(object):
     Float = 1
 
 
+class CoordTransformMode(object):
+    HalfPixel = 0
+    Asymmetric = 1
+
+
+class NearestMode(object):
+    Floor = 0
+    Ceil = 1
+    RoundPreferFloor = 2
+    RoundPreferCeil = 3
+
+
 class ResizeMode(object):
     Nearest = 0
     Linear = 1
@@ -2151,8 +2163,24 @@ class ResizeAttrs(object):
             return self._tab.Get(flatbuffers.number_types.Int8Flags, o + self._tab.Pos)
         return 0
 
-def ResizeAttrsStart(builder): builder.StartObject(1)
+    # ResizeAttrs
+    def CoordMode(self):
+        o = flatbuffers.number_types.UOffsetTFlags.py_type(self._tab.Offset(6))
+        if o != 0:
+            return self._tab.Get(flatbuffers.number_types.Int8Flags, o + self._tab.Pos)
+        return 0
+
+    # ResizeAttrs
+    def NearestMode(self):
+        o = flatbuffers.number_types.UOffsetTFlags.py_type(self._tab.Offset(8))
+        if o != 0:
+            return self._tab.Get(flatbuffers.number_types.Int8Flags, o + self._tab.Pos)
+        return 0
+
+def ResizeAttrsStart(builder): builder.StartObject(3)
 def ResizeAttrsAddMode(builder, mode): builder.PrependInt8Slot(0, mode, 0)
+def ResizeAttrsAddCoordMode(builder, coordMode): builder.PrependInt8Slot(1, coordMode, 0)
+def ResizeAttrsAddNearestMode(builder, nearestMode): builder.PrependInt8Slot(2, nearestMode, 0)
 def ResizeAttrsEnd(builder): return builder.EndObject()
 
 
@@ -2161,6 +2189,8 @@ class ResizeAttrsT(object):
     # ResizeAttrsT
     def __init__(self):
         self.mode = 0  # type: int
+        self.coordMode = 0  # type: int
+        self.nearestMode = 0  # type: int
 
     @classmethod
     def InitFromBuf(cls, buf, pos):
@@ -2184,11 +2214,15 @@ class ResizeAttrsT(object):
         if resizeAttrs is None:
             return
         self.mode = resizeAttrs.Mode()
+        self.coordMode = resizeAttrs.CoordMode()
+        self.nearestMode = resizeAttrs.NearestMode()
 
     # ResizeAttrsT
     def Pack(self, builder):
         ResizeAttrsStart(builder)
         ResizeAttrsAddMode(builder, self.mode)
+        ResizeAttrsAddCoordMode(builder, self.coordMode)
+        ResizeAttrsAddNearestMode(builder, self.nearestMode)
         resizeAttrs = ResizeAttrsEnd(builder)
         return resizeAttrs
 

@@ -40,7 +40,7 @@ pub use pad::{pad, Pad};
 pub use pooling::{average_pool, global_average_pool, max_pool};
 pub use pooling::{AveragePool, GlobalAveragePool, MaxPool};
 pub use reduce::{arg_max, arg_min, reduce_mean, ArgMax, ArgMin, ReduceMean};
-pub use resize::{resize, Resize, ResizeMode, ResizeTarget};
+pub use resize::{resize, CoordTransformMode, NearestMode, Resize, ResizeMode, ResizeTarget};
 pub use slice::{slice, slice_in_place, Slice};
 pub use unary_elementwise::{
     clip, clip_in_place, cos, cos_in_place, erf, erf_in_place, leaky_relu, leaky_relu_in_place,

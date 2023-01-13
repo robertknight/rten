@@ -39,38 +39,93 @@ struct ImageMut<'a> {
 /// (`cv2.resize`) and PyTorch (`torch.nn.functional.interpolate`) work. See
 /// https://jricheimer.github.io/tensorflow/2019/02/11/resize-confusion/
 /// for rationale.
-fn input_coord(dest_coord: usize, scale: f32) -> f32 {
-    scale * (dest_coord as f32 + 0.5) - 0.5
+fn input_coord(dest_coord: usize, scale: f32, mode: CoordTransformMode) -> f32 {
+    type Ctm = CoordTransformMode;
+    match mode {
+        Ctm::HalfPixel => scale * (dest_coord as f32 + 0.5) - 0.5,
+        Ctm::Asymmetric => scale * dest_coord as f32,
+    }
 }
 
-fn nearest_resize(input: &Image, output: &mut ImageMut) {
+/// Specifies how resizing with `ResizeMode::Nearest` should map a fractional
+/// input coordinate to an image coordinate.
+#[derive(Copy, Clone, Debug, Default)]
+pub enum NearestMode {
+    Ceil,
+    Floor,
+    RoundPreferCeil,
+
+    #[default]
+    RoundPreferFloor,
+}
+
+/// Specifies how resizing maps output coordinates to input coordinates.
+#[derive(Copy, Clone, Debug, Default)]
+pub enum CoordTransformMode {
+    #[default]
+    HalfPixel,
+    Asymmetric,
+}
+
+fn nearest_resize(
+    input: &Image,
+    output: &mut ImageMut,
+    mode: NearestMode,
+    coord_mode: CoordTransformMode,
+) {
     // Scale factors to map output coords to input coords.
     let inv_scale_y = input.height as f32 / output.height as f32;
     let inv_scale_x = input.width as f32 / output.width as f32;
 
+    let round_coord = |coord: f32| match mode {
+        NearestMode::Ceil => coord.ceil() as usize,
+        NearestMode::Floor => coord as usize,
+
+        // `f32::round` has round-away-from-zero behavior. For `RoundPreferCeil`
+        // and `RoundPreferFloor` we need to always round up or down.
+        NearestMode::RoundPreferCeil => {
+            if coord.fract() == 0.5 {
+                coord.ceil() as usize
+            } else {
+                coord.round() as usize
+            }
+        }
+        NearestMode::RoundPreferFloor => {
+            if coord.fract() == 0.5 {
+                coord.floor() as usize
+            } else {
+                coord.round() as usize
+            }
+        }
+    };
+
     for y in 0..output.height {
-        let in_y = (y as f32 * inv_scale_y) as usize;
+        let in_y = round_coord(
+            input_coord(y, inv_scale_y, coord_mode).clamp(0., input.height as f32 - 1.),
+        );
         for x in 0..output.width {
-            let in_x = (x as f32 * inv_scale_x) as usize;
+            let in_x = round_coord(
+                input_coord(x, inv_scale_x, coord_mode).clamp(0., input.width as f32 - 1.),
+            );
             let out = input.data[in_y * input.h_stride + in_x * input.w_stride];
             output.data[y * output.h_stride + x * output.w_stride] = out;
         }
     }
 }
 
-fn bilinear_resize(input: &Image, output: &mut ImageMut) {
+fn bilinear_resize(input: &Image, output: &mut ImageMut, coord_mode: CoordTransformMode) {
     // Scale factors to map output coords to input coords.
     let inv_scale_y = input.height as f32 / output.height as f32;
     let inv_scale_x = input.width as f32 / output.width as f32;
 
     for y in 0..output.height {
-        let in_y = input_coord(y, inv_scale_y).clamp(0., input.height as f32 - 1.);
+        let in_y = input_coord(y, inv_scale_y, coord_mode).clamp(0., input.height as f32 - 1.);
         let in_y1 = in_y as usize;
         let in_y2 = (in_y1 + 1).min(input.height - 1);
         let weight_y = in_y - (in_y1 as f32);
 
         for x in 0..output.width {
-            let in_x = input_coord(x, inv_scale_x).clamp(0., input.width as f32 - 1.);
+            let in_x = input_coord(x, inv_scale_x, coord_mode).clamp(0., input.width as f32 - 1.);
             let in_x1 = in_x as usize;
             let in_x2 = (in_x1 + 1).min(input.width - 1);
             let weight_x = in_x - (in_x1 as f32);
@@ -92,7 +147,13 @@ fn bilinear_resize(input: &Image, output: &mut ImageMut) {
     }
 }
 
-pub fn resize(input: &Tensor, target: ResizeTarget, mode: ResizeMode) -> Result<Tensor, OpError> {
+pub fn resize(
+    input: &Tensor,
+    target: ResizeTarget,
+    mode: ResizeMode,
+    coord_mode: CoordTransformMode,
+    nearest_mode: NearestMode,
+) -> Result<Tensor, OpError> {
     let scales = match target {
         ResizeTarget::Scales(s) => s.clone(),
         ResizeTarget::Sizes(sizes) => {
@@ -155,10 +216,10 @@ pub fn resize(input: &Tensor, target: ResizeTarget, mode: ResizeMode) -> Result<
 
             match mode {
                 ResizeMode::Nearest => {
-                    nearest_resize(&in_image, &mut out_image);
+                    nearest_resize(&in_image, &mut out_image, nearest_mode, coord_mode);
                 }
                 ResizeMode::Linear => {
-                    bilinear_resize(&in_image, &mut out_image);
+                    bilinear_resize(&in_image, &mut out_image, coord_mode);
                 }
             };
         }
@@ -167,8 +228,9 @@ pub fn resize(input: &Tensor, target: ResizeTarget, mode: ResizeMode) -> Result<
     Ok(output)
 }
 
-#[derive(Clone, Copy, Debug)]
+#[derive(Clone, Copy, Debug, Default)]
 pub enum ResizeMode {
+    #[default]
     Nearest,
     Linear,
 }
@@ -176,6 +238,18 @@ pub enum ResizeMode {
 #[derive(Debug)]
 pub struct Resize {
     pub mode: ResizeMode,
+    pub coord_mode: CoordTransformMode,
+    pub nearest_mode: NearestMode,
+}
+
+impl Default for Resize {
+    fn default() -> Resize {
+        Resize {
+            mode: ResizeMode::Nearest,
+            coord_mode: CoordTransformMode::default(),
+            nearest_mode: NearestMode::default(),
+        }
+    }
 }
 
 impl Operator for Resize {
@@ -194,13 +268,16 @@ impl Operator for Resize {
         let sizes = inputs.get_as(3)?.map(ResizeTarget::Sizes);
         let target = scales.or(sizes).ok_or(OpError::MissingInputs)?;
 
-        resize(input, target, self.mode).into_op_result()
+        resize(input, target, self.mode, self.coord_mode, self.nearest_mode).into_op_result()
     }
 }
 
 #[cfg(test)]
 mod tests {
-    use crate::ops::{resize, InputList, OpError, Operator, Resize, ResizeMode, ResizeTarget};
+    use crate::ops::{
+        resize, CoordTransformMode, InputList, NearestMode, OpError, Operator, Resize, ResizeMode,
+        ResizeTarget,
+    };
     use crate::tensor::Tensor;
     use crate::test_util::expect_equal;
 
@@ -285,6 +362,73 @@ mod tests {
                 &case.image,
                 ResizeTarget::Scales(&scales),
                 ResizeMode::Nearest,
+                CoordTransformMode::HalfPixel,
+                NearestMode::RoundPreferFloor,
+            )
+            .unwrap();
+
+            expect_equal(&result, &case.expected)?;
+        }
+
+        Ok(())
+    }
+
+    #[test]
+    fn test_resize_nearest_mode() -> Result<(), String> {
+        let image = Tensor::from_data(vec![1, 1, 1, 2], vec![0.1, 0.2]);
+
+        // Use a scale factor of 4 so that we have output pixels that map
+        // to input coordinates with fractional values of 0, 0.25, 0.5 and 0.75.
+        // This allows the same input to exercise all the rounding modes.
+        let scales = Tensor::from_vec(vec![1., 1., 1., 4.]);
+
+        struct Case {
+            mode: NearestMode,
+
+            // Expected output after nearest resizing using `mode` and the
+            // "asymmetric" output => input coord transform. This coord transform
+            // is used because it is the simplest (input_coord = output_coord / scale).
+            expected: Tensor,
+        }
+
+        let cases = [
+            Case {
+                mode: NearestMode::Ceil,
+                expected: Tensor::from_data(
+                    vec![1, 1, 1, 8],
+                    vec![0.1, 0.2, 0.2, 0.2, 0.2, 0.2, 0.2, 0.2],
+                ),
+            },
+            Case {
+                mode: NearestMode::Floor,
+                expected: Tensor::from_data(
+                    vec![1, 1, 1, 8],
+                    vec![0.1, 0.1, 0.1, 0.1, 0.2, 0.2, 0.2, 0.2],
+                ),
+            },
+            Case {
+                mode: NearestMode::RoundPreferCeil,
+                expected: Tensor::from_data(
+                    vec![1, 1, 1, 8],
+                    vec![0.1, 0.1, 0.2, 0.2, 0.2, 0.2, 0.2, 0.2],
+                ),
+            },
+            Case {
+                mode: NearestMode::RoundPreferFloor,
+                expected: Tensor::from_data(
+                    vec![1, 1, 1, 8],
+                    vec![0.1, 0.1, 0.1, 0.2, 0.2, 0.2, 0.2, 0.2],
+                ),
+            },
+        ];
+
+        for case in cases {
+            let result = resize(
+                &image,
+                ResizeTarget::Scales(&scales),
+                ResizeMode::Nearest,
+                CoordTransformMode::Asymmetric,
+                case.mode,
             )
             .unwrap();
 
@@ -378,6 +522,8 @@ mod tests {
                 &case.image,
                 ResizeTarget::Scales(&scales),
                 ResizeMode::Linear,
+                CoordTransformMode::HalfPixel,
+                NearestMode::Floor,
             )
             .unwrap();
 
@@ -429,6 +575,8 @@ mod tests {
                 &case.image,
                 ResizeTarget::Scales(&case.scales),
                 ResizeMode::Linear,
+                CoordTransformMode::HalfPixel,
+                NearestMode::Floor,
             );
             assert_eq!(result.err(), Some(case.expected));
         }
@@ -467,6 +615,7 @@ mod tests {
         for case in cases {
             let op = Resize {
                 mode: ResizeMode::Linear,
+                ..Resize::default()
             };
             let inputs = [
                 Some((&case.image).into()),

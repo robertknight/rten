@@ -4,7 +4,10 @@ use std::collections::HashMap;
 
 use crate::graph::{Graph, NodeId, RunError, RunOptions};
 use crate::ops;
-use crate::ops::{DataType, Input, LSTMDirection, Operator, Output, Padding, ResizeMode, Scalar};
+use crate::ops::{
+    CoordTransformMode, DataType, Input, LSTMDirection, NearestMode, Operator, Output, Padding,
+    ResizeMode, Scalar,
+};
 use crate::schema_generated as sg;
 use crate::schema_generated::{root_as_model, OperatorNode, OperatorType, PadMode};
 use crate::tensor::from_data;
@@ -287,7 +290,25 @@ fn read_resize_op(node: &OperatorNode) -> ReadOpResult {
         sg::ResizeMode::Linear => ResizeMode::Linear,
         _ => ResizeMode::Nearest,
     };
-    Ok(Box::new(ops::Resize { mode }))
+    let nearest_mode = match attrs.nearest_mode() {
+        sg::NearestMode::Floor => NearestMode::Floor,
+        sg::NearestMode::Ceil => NearestMode::Ceil,
+        sg::NearestMode::RoundPreferFloor => NearestMode::RoundPreferFloor,
+        sg::NearestMode::RoundPreferCeil => NearestMode::RoundPreferCeil,
+        _ => NearestMode::default(),
+    };
+
+    let coord_mode = match attrs.coord_mode() {
+        sg::CoordTransformMode::Asymmetric => CoordTransformMode::Asymmetric,
+        sg::CoordTransformMode::HalfPixel => CoordTransformMode::HalfPixel,
+        _ => CoordTransformMode::default(),
+    };
+
+    Ok(Box::new(ops::Resize {
+        mode,
+        coord_mode,
+        nearest_mode,
+    }))
 }
 
 fn read_softmax_op(node: &OperatorNode) -> ReadOpResult {
@@ -521,7 +542,7 @@ mod tests {
     use crate::model::Model;
     use crate::model_builder::{ModelBuilder, OpType};
     use crate::ops;
-    use crate::ops::{OpError, Padding, ResizeMode, Scalar};
+    use crate::ops::{CoordTransformMode, NearestMode, OpError, Padding, ResizeMode, Scalar};
     use crate::tensor::{from_data, from_scalar, from_vec};
 
     fn generate_model_buffer() -> Vec<u8> {
@@ -749,6 +770,8 @@ mod tests {
         let resize_scales = builder.add_float_constant(&resize_scales_val);
         add_operator!(Resize, [input_node, resize_roi, resize_scales], {
             mode: ResizeMode::Nearest,
+            nearest_mode: NearestMode::default(),
+            coord_mode: CoordTransformMode::default()
         });
 
         add_operator!(Shape, [input_node]);

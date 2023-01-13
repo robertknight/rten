@@ -71,6 +71,20 @@ enum DataType: byte {
   Float
 }
 
+// Coordinate transform modes for Resize operator.
+enum CoordTransformMode: byte {
+  HalfPixel,
+  Asymmetric
+}
+
+// Rounding modes supported by Resize operator when `ResizeMode` is `Nearest`.
+enum NearestMode: byte {
+  Floor,
+  Ceil,
+  RoundPreferFloor,
+  RoundPreferCeil,
+}
+
 enum ResizeMode: byte {
   Nearest,
   Linear
@@ -209,6 +223,8 @@ table ReshapeAttrs {
 
 table ResizeAttrs {
   mode:ResizeMode;
+  coord_mode:CoordTransformMode;
+  nearest_mode:NearestMode;
 }
 
 table SoftmaxAttrs {

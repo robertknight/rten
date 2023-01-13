@@ -4,8 +4,9 @@ use flatbuffers::{FlatBufferBuilder, UnionWIPOffset, Vector, WIPOffset};
 
 use crate::ops::{
     ArgMax, ArgMin, AveragePool, BatchNormalization, Cast, Clip, Concat, ConstantOfShape, Conv,
-    ConvTranspose, DataType, Gather, Gemm, LeakyRelu, MaxPool, Padding, ReduceMean, Reshape,
-    Resize, ResizeMode, Scalar, Softmax, Split, Squeeze, Transpose, Unsqueeze,
+    ConvTranspose, CoordTransformMode, DataType, Gather, Gemm, LeakyRelu, MaxPool, NearestMode,
+    Padding, ReduceMean, Reshape, Resize, ResizeMode, Scalar, Softmax, Split, Squeeze, Transpose,
+    Unsqueeze,
 };
 use crate::schema_generated as sg;
 use crate::tensor::Tensor;
@@ -395,7 +396,21 @@ impl<'a> ModelBuilder<'a> {
                     ResizeMode::Nearest => sg::ResizeMode::Nearest,
                     ResizeMode::Linear => sg::ResizeMode::Linear,
                 };
-                sg::ResizeAttrsArgs { mode }
+                let coord_mode = match args.coord_mode {
+                    CoordTransformMode::Asymmetric => sg::CoordTransformMode::Asymmetric,
+                    CoordTransformMode::HalfPixel => sg::CoordTransformMode::HalfPixel,
+                };
+                let nearest_mode = match args.nearest_mode {
+                    NearestMode::Ceil => sg::NearestMode::Ceil,
+                    NearestMode::Floor => sg::NearestMode::Floor,
+                    NearestMode::RoundPreferCeil => sg::NearestMode::RoundPreferCeil,
+                    NearestMode::RoundPreferFloor => sg::NearestMode::RoundPreferFloor,
+                };
+                sg::ResizeAttrsArgs {
+                    mode,
+                    coord_mode,
+                    nearest_mode,
+                }
             }),
             OpType::Shape => op!(Shape),
             OpType::Sigmoid => op!(Sigmoid),

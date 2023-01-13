@@ -111,6 +111,11 @@ value_fields = {
 }
 
 
+def snake_case_to_pascal_case(s: str) -> str:
+    """Transform a snake_case string to PascalCase."""
+    return "".join([word[0].upper() + word[1:] for word in s.split("_")])
+
+
 class ONNXOperatorReader:
     """
     Utiliy for extracting attribute and input values from an ONNX operator.
@@ -150,6 +155,20 @@ class ONNXOperatorReader:
 
                 return val
         return default
+
+    def get_enum_attr(self, name: str, enum: Any, default: str):
+        """
+        Get an optional attribute whose value is an enum variant.
+
+        The variant name is Pascal-Cased and looked up on the enum object.
+        eg. `round_prefer_floor` => `RoundPreferFloor`.
+        """
+        val = self.get_attr(name, "string", default)
+        pascal_case = snake_case_to_pascal_case(val)
+        try:
+            return getattr(enum, pascal_case)
+        except AttributeError:
+            raise ValueError(f"Unsupported value {val} for {name} attr")
 
     def ignore_attr(self, name: str):
         """
@@ -594,16 +613,18 @@ def op_node_from_onnx_operator(
             # We only support resizing HW dimensions of NCHW tensor
             op_reader.check_attr("axes", "ints", [2, 3])
 
-            op_reader.check_attr(
-                "coordinate_transformation_mode",
-                "string",
-                "half_pixel",
+            attrs.coordMode = op_reader.get_enum_attr(
+                "coordinate_transformation_mode", sg.CoordTransformMode, "half_pixel"
             )
+
             op_reader.check_attr("cubic_coeff_a", "float", -0.75)
             op_reader.check_attr("exclude_outside", "int", 0)
             op_reader.check_attr("extrapolation_value", "float", 0.0)
             op_reader.check_attr("keep_aspect_ratio_policy", "string", "stretch")
-            op_reader.check_attr("nearest_mode", "string", "prefer_round_floor")
+
+            attrs.nearestMode = op_reader.get_enum_attr(
+                "nearest_mode", sg.NearestMode, "round_prefer_floor"
+            )
 
         case "Pad":
             op_reader.check_attr("mode", "string", "constant")
