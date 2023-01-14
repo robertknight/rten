@@ -547,18 +547,10 @@ def op_node_from_onnx_operator(
 
         case "LSTM":
             attrs = sg.LSTMAttrsT()
-            dir_str = op_reader.get_attr("direction", "string", "forward")
+            attrs.direction = op_reader.get_enum_attr(
+                "direction", sg.LSTMDirection, "forward"
+            )
             attrs.hiddenSize = op_reader.require_attr("hidden_size", "int")
-
-            match dir_str:
-                case "forward":
-                    attrs.direction = sg.LSTMDirection.Forwards
-                case "reverse":
-                    attrs.direction = sg.LSTMDirection.Reverse
-                case "bidirectional":
-                    attrs.direction = sg.LSTMDirection.Bidirectional
-                case _:
-                    raise ValueError(f'Invalid LSTM direction "{dir_str}"')
 
             op_reader.check_attr("activation_alpha", "floats", [])
             op_reader.check_attr("activation_beta", "floats", [])
@@ -598,15 +590,7 @@ def op_node_from_onnx_operator(
 
         case "Resize":
             attrs = sg.ResizeAttrsT()
-            mode_str = op_reader.get_attr("mode", "string", "nearest")
-
-            match mode_str:
-                case "nearest":
-                    attrs.mode = sg.ResizeMode.Nearest
-                case "linear":
-                    attrs.mode = sg.ResizeMode.Linear
-                case _:
-                    raise ValueError(f"Unsupported resize mode {mode_str}")
+            attrs.mode = op_reader.get_enum_attr("mode", sg.ResizeMode, "nearest")
 
             op_reader.check_attr("antialias", "int", 0)
 
