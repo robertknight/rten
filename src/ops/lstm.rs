@@ -1,5 +1,6 @@
 use std::iter::zip;
 
+use crate::check_dims;
 use crate::linalg::{gemm, Matrix};
 use crate::ops::unary_elementwise::UnaryFloatOp;
 use crate::ops::{InputList, IntoOpResult, OpError, Operator, Output, Sigmoid, Tanh};
@@ -130,39 +131,25 @@ pub fn lstm(
     initial_hidden: Option<&Tensor>,
     initial_cell: Option<&Tensor>,
 ) -> Result<Vec<Tensor>, OpError> {
-    // TODO - Add validation of the sizes of individual dimensions in the inputs.
+    check_dims!(input, 3);
+    check_dims!(weights, 3);
+    check_dims!(recurrent_weights, 3);
 
-    if input.ndim() != 3 {
-        return Err(OpError::InvalidValue("input must have 3 dims"));
-    }
-
-    if weights.ndim() != 3 || recurrent_weights.ndim() != 3 {
-        return Err(OpError::InvalidValue("weights must have 3 dims"));
-    }
     if weights.shape()[1] % 4 != 0 {
         return Err(OpError::InvalidValue(
             "weights dim 1 must be 4 * hidden_size",
         ));
     }
     if let Some(bias) = bias {
-        if bias.ndim() != 2 {
-            return Err(OpError::InvalidValue("bias must have 2 dims"));
-        }
+        check_dims!(bias, 2);
         if bias.shape()[1] % 8 != 0 {
             return Err(OpError::InvalidValue("bias dim 1 must be 8 * hidden_size"));
         }
     }
-    if let Some(initial_hidden) = initial_hidden {
-        if initial_hidden.ndim() != 3 {
-            return Err(OpError::InvalidValue("initial hidden must have 3 dims"));
-        }
-    }
-    if let Some(initial_cell) = initial_cell {
-        if initial_cell.ndim() != 3 {
-            return Err(OpError::InvalidValue("initial cell must have 3 dims"));
-        }
-    }
+    check_dims!(initial_hidden?, 3);
+    check_dims!(initial_cell?, 3);
 
+    // TODO - Add validation of the sizes of individual dimensions in the inputs.
     let [seq_len, batch, input_size] = input.dims();
 
     // Contiguous input and bias needed due to use of `last_dim_slice`.

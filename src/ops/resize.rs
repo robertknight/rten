@@ -1,5 +1,6 @@
 use std::iter::zip;
 
+use crate::check_dims;
 use crate::ops::{InputList, IntoOpResult, OpError, Operator, Output};
 use crate::tensor::Tensor;
 
@@ -165,9 +166,10 @@ pub fn resize(
         }
     };
 
-    if scales.ndim() != 1 || scales.len() != input.ndim() {
+    check_dims!(scales, 1);
+    if scales.len() != input.ndim() {
         return Err(OpError::IncompatibleInputShapes(
-            "scales should be a vector with length equal to input rank",
+            "scales length should equal input rank",
         ));
     }
 
@@ -550,16 +552,12 @@ mod tests {
             Case {
                 image: Tensor::from_data(vec![1, 1, 2, 2], vec![0.2, 0.7, 0.3, 0.8]),
                 scales: Tensor::from_data(vec![1, 1, 2, 2], vec![1., 1., 3., 3.]),
-                expected: OpError::IncompatibleInputShapes(
-                    "scales should be a vector with length equal to input rank",
-                ),
+                expected: OpError::InvalidValue("scales must be a vector"),
             },
             Case {
                 image: Tensor::from_data(vec![1, 1, 2, 2], vec![0.2, 0.7, 0.3, 0.8]),
                 scales: Tensor::from_vec(vec![3., 3.]),
-                expected: OpError::IncompatibleInputShapes(
-                    "scales should be a vector with length equal to input rank",
-                ),
+                expected: OpError::IncompatibleInputShapes("scales length should equal input rank"),
             },
             Case {
                 image: Tensor::from_data(vec![1, 1, 2, 2], vec![0.2, 0.7, 0.3, 0.8]),

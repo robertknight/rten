@@ -290,6 +290,41 @@ impl Display for OpError {
 
 impl Error for OpError {}
 
+/// Check that a tensor has an expected number of dimensions, or return an
+/// `OpError::InvalidValue`.
+///
+/// Can be used with `check_dims!(input, expected_rank)` if `input` is a
+/// `Tensor<T>` or `check_dims!(input?, expected_rank)` if `input` is an
+/// `Option<Tensor<T>>`.
+#[macro_export]
+macro_rules! check_dims {
+    ($tensor:ident, 1) => {
+        if $tensor.ndim() != 1 {
+            return Err(OpError::InvalidValue(concat!(
+                stringify!($tensor),
+                " must be a vector"
+            )));
+        }
+    };
+
+    ($tensor:ident, $ndim:expr) => {
+        if $tensor.ndim() != $ndim {
+            return Err(OpError::InvalidValue(concat!(
+                stringify!($tensor),
+                " must have ",
+                stringify!($ndim),
+                " dims"
+            )));
+        }
+    };
+
+    ($tensor:ident?, $ndim: expr) => {
+        if let Some($tensor) = $tensor {
+            check_dims!($tensor, $ndim);
+        }
+    };
+}
+
 /// An Operator performs a computation step when executing a data flow graph.
 ///
 /// Operators take zero or more dynamic input values, plus a set of static

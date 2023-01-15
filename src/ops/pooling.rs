@@ -1,3 +1,4 @@
+use crate::check_dims;
 use crate::linalg::div_ceil;
 use crate::ops::{InputList, IntoOpResult, OpError, Operator, Output, Padding};
 use crate::tensor::{zeros, Tensor};
@@ -59,7 +60,9 @@ pub fn average_pool(
     kernel_size: [usize; 2],
     strides: [usize; 2],
     padding: Padding,
-) -> Tensor {
+) -> Result<Tensor, OpError> {
+    check_dims!(input, 4);
+
     let [batch, in_c, in_h, in_w] = input.dims();
     let (out_h, out_w, fixed_padding) = calc_output_size_and_padding(
         (in_h, in_w),
@@ -105,7 +108,7 @@ pub fn average_pool(
         }
     }
 
-    output
+    Ok(output)
 }
 
 #[derive(Debug)]
@@ -126,7 +129,9 @@ impl Operator for AveragePool {
     }
 }
 
-pub fn global_average_pool(input: &Tensor) -> Tensor {
+pub fn global_average_pool(input: &Tensor) -> Result<Tensor, OpError> {
+    check_dims!(input, 4);
+
     let [batch, chans, in_h, in_w] = input.dims();
     let mut output = zeros(&[batch, chans, 1, 1]);
 
@@ -145,7 +150,7 @@ pub fn global_average_pool(input: &Tensor) -> Tensor {
         }
     }
 
-    output
+    Ok(output)
 }
 
 #[derive(Debug)]
@@ -167,7 +172,9 @@ pub fn max_pool(
     kernel_size: [usize; 2],
     strides: [usize; 2],
     padding: Padding,
-) -> Tensor {
+) -> Result<Tensor, OpError> {
+    check_dims!(input, 4);
+
     let [batch, in_c, in_h, in_w] = input.dims();
     let (out_h, out_w, fixed_padding) = calc_output_size_and_padding(
         (in_h, in_w),
@@ -209,7 +216,7 @@ pub fn max_pool(
         }
     }
 
-    output
+    Ok(output)
 }
 
 #[derive(Debug)]
@@ -307,7 +314,8 @@ mod tests {
                 case.kernel_size,
                 case.strides,
                 Padding::Fixed([0, 0, 0, 0]),
-            );
+            )
+            .unwrap();
             expect_equal(&result, &case.expected)?;
         }
 
@@ -340,7 +348,8 @@ mod tests {
             [2, 2],
             [2, 2], /* stride */
             Padding::Fixed([1, 1, 1, 1]),
-        );
+        )
+        .unwrap();
         expect_equal(&result, &expected)
     }
 
@@ -348,7 +357,7 @@ mod tests {
     fn test_global_average_pool() -> Result<(), String> {
         let input = from_data(vec![1, 2, 2, 2], vec![1., 2., 3., 4., 10., 20., 30., 40.]);
         let expected = from_data(vec![1, 2, 1, 1], vec![2.5, 25.]);
-        let result = global_average_pool(&input);
+        let result = global_average_pool(&input).unwrap();
         expect_equal(&result, &expected)
     }
 
@@ -422,7 +431,8 @@ mod tests {
                 case.kernel_size,
                 case.strides,
                 Padding::Fixed([0, 0, 0, 0]),
-            );
+            )
+            .unwrap();
             expect_equal(&result, &case.expected)?;
         }
 
@@ -433,19 +443,19 @@ mod tests {
     fn test_max_pool_padding() {
         let input = zeros(&[1, 1, 9, 9]);
 
-        let result = max_pool(&input, [2, 2], [2, 2], Padding::Fixed([0, 0, 0, 0]));
+        let result = max_pool(&input, [2, 2], [2, 2], Padding::Fixed([0, 0, 0, 0])).unwrap();
         assert_eq!(result.shape(), &[1, 1, 4, 4]);
 
-        let result = max_pool(&input, [2, 2], [2, 2], Padding::Fixed([1, 1, 1, 1]));
+        let result = max_pool(&input, [2, 2], [2, 2], Padding::Fixed([1, 1, 1, 1])).unwrap();
         assert_eq!(result.shape(), &[1, 1, 5, 5]);
 
-        let result = max_pool(&input, [2, 2], [2, 2], Padding::Fixed([2, 2, 2, 2]));
+        let result = max_pool(&input, [2, 2], [2, 2], Padding::Fixed([2, 2, 2, 2])).unwrap();
         assert_eq!(result.shape(), &[1, 1, 6, 6]);
 
-        let result = max_pool(&input, [2, 2], [2, 2], Padding::Same);
+        let result = max_pool(&input, [2, 2], [2, 2], Padding::Same).unwrap();
         assert_eq!(result.shape(), &[1, 1, 5, 5]);
 
-        let result = max_pool(&input, [2, 2], [3, 3], Padding::Same);
+        let result = max_pool(&input, [2, 2], [3, 3], Padding::Same).unwrap();
         assert_eq!(result.shape(), &[1, 1, 3, 3]);
     }
 }

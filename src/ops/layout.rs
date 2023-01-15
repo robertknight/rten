@@ -1,13 +1,12 @@
 ///! Operators which query or change the shape of a tensor, or copy/move/reorder
 ///! elements.
+use crate::check_dims;
 use crate::ops::binary_elementwise::broadcast_shapes;
 use crate::ops::{Input, InputList, IntoOpResult, OpError, Operator, Output};
 use crate::tensor::{from_data, Tensor};
 
 pub fn expand<T: Copy>(input: &Tensor<T>, shape: &Tensor<i32>) -> Result<Tensor<T>, OpError> {
-    if shape.ndim() != 1 {
-        return Err(OpError::InvalidValue("shape must be a vector"));
-    }
+    check_dims!(shape, 1);
 
     let shape_vec: Vec<_> = shape.elements().map(|el| el as usize).collect();
     let out_shape = broadcast_shapes(input.shape(), &shape_vec).ok_or(

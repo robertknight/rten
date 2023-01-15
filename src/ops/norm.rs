@@ -1,3 +1,4 @@
+use crate::check_dims;
 use crate::ops::{InputList, IntoOpResult, OpError, Operator, Output};
 use crate::tensor::Tensor;
 
@@ -5,14 +6,16 @@ use crate::tensor::Tensor;
 ///
 /// See https://github.com/onnx/onnx/blob/main/docs/Operators.md#batchnormalization
 pub fn batch_norm_in_place(
-    out: &mut Tensor,
+    input: &mut Tensor,
     scale: &Tensor,
     bias: &Tensor,
     mean: &Tensor,
     var: &Tensor,
     epsilon: f32,
-) {
-    let [batch, chans, in_h, in_w] = out.dims();
+) -> Result<(), OpError> {
+    check_dims!(input, 4);
+
+    let [batch, chans, in_h, in_w] = input.dims();
     for n in 0..batch {
         for c in 0..chans {
             let chan_mean = mean[[c]];
@@ -20,7 +23,7 @@ pub fn batch_norm_in_place(
             let chan_scale = scale[[c]];
             let chan_bias = bias[[c]];
 
-            let mut out_view = out.unchecked_view_mut([n, c, 0, 0]);
+            let mut out_view = input.unchecked_view_mut([n, c, 0, 0]);
 
             // The batch norm formula, from the ONNX spec, is:
             //
@@ -37,6 +40,8 @@ pub fn batch_norm_in_place(
             }
         }
     }
+
+    Ok(())
 }
 
 /// Perform batch normalization on the NCHW tensor `input`.
@@ -49,10 +54,10 @@ pub fn batch_norm(
     mean: &Tensor,
     var: &Tensor,
     epsilon: f32,
-) -> Tensor {
+) -> Result<Tensor, OpError> {
     let mut output = input.clone();
-    batch_norm_in_place(&mut output, scale, bias, mean, var, epsilon);
-    output
+    batch_norm_in_place(&mut output, scale, bias, mean, var, epsilon)?;
+    Ok(output)
 }
 
 #[derive(Debug)]
@@ -86,7 +91,7 @@ impl Operator for BatchNormalization {
         let mean = other.require_as(2)?;
         let var = other.require_as(3)?;
 
-        batch_norm_in_place(&mut output, scale, bias, mean, var, self.epsilon);
+        batch_norm_in_place(&mut output, scale, bias, mean, var, self.epsilon)?;
 
         Ok(output.into())
     }
@@ -179,7 +184,7 @@ mod tests {
         let y2 = (input[[0, 1, 0, 0]] - mean[[1]]) / (var[[1]] + epsilon).sqrt() * scale[[1]]
             + bias[[1]];
         let expected = from_data(vec![1, 2, 1, 1], vec![y1, y2]);
-        let result = batch_norm(&input, &scale, &bias, &mean, &var, epsilon);
+        let result = batch_norm(&input, &scale, &bias, &mean, &var, epsilon).unwrap();
 
         expect_equal(&result, &expected)
     }
@@ -200,7 +205,7 @@ mod tests {
             + bias[[1]];
         let expected = from_data(vec![1, 2, 1, 1], vec![y1, y2]);
 
-        batch_norm_in_place(&mut input, &scale, &bias, &mean, &var, epsilon);
+        batch_norm_in_place(&mut input, &scale, &bias, &mean, &var, epsilon).unwrap();
 
         expect_equal(&input, &expected)
     }

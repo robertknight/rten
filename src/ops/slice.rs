@@ -1,5 +1,6 @@
 use std::iter::zip;
 
+use crate::check_dims;
 use crate::ops::{resolve_axis, Input, InputList, IntoOpResult, OpError, Operator, Output};
 use crate::tensor::{SliceRange, Tensor};
 
@@ -14,13 +15,15 @@ fn slice_ranges(
     axes: Option<&Tensor<i32>>,
     steps: Option<&Tensor<i32>>,
 ) -> Result<Vec<SliceRange>, OpError> {
-    // FIXME: Verify that `starts`, `ends`, `axes` and `steps` are vectors with
-    // compatible lengths.
+    // FIXME: Verify that `starts`, `ends`, `axes` and `steps` have compatible
+    // lengths.
+
+    check_dims!(starts, 1);
+    check_dims!(ends, 1);
+    check_dims!(axes?, 1);
+    check_dims!(steps?, 1);
 
     if let Some(steps) = steps {
-        if steps.ndim() != 1 {
-            return Err(OpError::InvalidValue("`steps` should be a vector"));
-        }
         for step in steps.elements() {
             if step == 0 {
                 return Err(OpError::InvalidValue("steps must be non-zero"));

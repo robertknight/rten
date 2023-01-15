@@ -1,3 +1,4 @@
+use crate::check_dims;
 use crate::ops::{Input, InputList, IntoOpResult, OpError, Operator, Output};
 use crate::tensor::Tensor;
 
@@ -6,9 +7,11 @@ pub fn pad<T: Copy>(
     padding: &Tensor<i32>,
     const_val: T,
 ) -> Result<Tensor<T>, OpError> {
-    if padding.ndim() != 1 || padding.shape()[0] != input.ndim() * 2 {
+    check_dims!(padding, 1);
+
+    if padding.shape()[0] != input.ndim() * 2 {
         return Err(OpError::InvalidValue(
-            "padding should be vector of length 2 * input dimensions",
+            "padding length should be 2 * input dims",
         ));
     }
     if !padding.elements().all(|x| x >= 0) {
@@ -161,7 +164,7 @@ mod tests {
         assert_eq!(
             result.err(),
             Some(OpError::InvalidValue(
-                "padding should be vector of length 2 * input dimensions"
+                "padding length should be 2 * input dims"
             ))
         );
 

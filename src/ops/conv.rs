@@ -1,5 +1,6 @@
 use std::borrow::Cow;
 
+use crate::check_dims;
 use crate::linalg::{add_scaled_vector, div_ceil, gemm, Matrix};
 use crate::ops::pooling::calc_output_size_and_padding;
 use crate::ops::{InputList, IntoOpResult, OpError, Operator, Output, Padding};
@@ -270,6 +271,10 @@ pub fn conv(
     groups: usize,
     strides: [usize; 2],
 ) -> Result<Tensor, OpError> {
+    check_dims!(input, 4);
+    check_dims!(kernel, 4);
+    check_dims!(bias?, 1);
+
     let [batch, in_c, in_h, in_w] = input.dims();
     let [out_c, k_in_c, k_h, k_w] = kernel.dims();
     let [stride_h, stride_w] = strides;
@@ -409,6 +414,10 @@ pub fn conv_transpose(
     bias: Option<&Tensor>,
     strides: [usize; 2],
 ) -> Result<Tensor, OpError> {
+    check_dims!(input, 4);
+    check_dims!(kernel, 4);
+    check_dims!(bias?, 1);
+
     let [batch, in_c, in_h, in_w] = input.dims();
     let [k_in_c, out_c, k_h, k_w] = kernel.dims();
 
