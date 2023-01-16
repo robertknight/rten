@@ -6,9 +6,30 @@ use serde_json::Value;
 
 use crate::tensor::Tensor;
 
+/// Trait that tests whether two values are approximately equal.
+///
+/// Here "approximately" means "a value that is reasonable for this crate's
+/// tests".
+pub trait ApproxEq {
+    fn approx_eq(self, other: Self) -> bool;
+}
+
+impl ApproxEq for f32 {
+    fn approx_eq(self, other: f32) -> bool {
+        let eps = 0.001;
+        (self - other).abs() < eps
+    }
+}
+
+impl ApproxEq for i32 {
+    fn approx_eq(self, other: i32) -> bool {
+        self == other
+    }
+}
+
 /// Check that the shapes of two tensors are equal and that their contents
 /// are approximately equal.
-pub fn expect_equal(x: &Tensor, y: &Tensor) -> Result<(), String> {
+pub fn expect_equal<T: ApproxEq + Copy>(x: &Tensor<T>, y: &Tensor<T>) -> Result<(), String> {
     if x.shape() != y.shape() {
         return Err(format!(
             "Tensors have different shapes. {:?} vs. {:?}",
@@ -18,10 +39,8 @@ pub fn expect_equal(x: &Tensor, y: &Tensor) -> Result<(), String> {
     }
 
     let mut mismatches = 0;
-    let eps = 0.001;
-
     for (xi, yi) in zip(x.elements(), y.elements()) {
-        if (xi - yi).abs() > eps {
+        if !xi.approx_eq(yi) {
             mismatches += 1;
         }
     }

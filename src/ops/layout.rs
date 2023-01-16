@@ -392,7 +392,7 @@ mod tests {
         expect_equal(&result, &expected)?;
 
         // Reshape with an unspecified (-1) dim and zero-length input
-        let zero_sized_input = from_data(vec![4, 0, 1], vec![]);
+        let zero_sized_input = from_data::<f32>(vec![4, 0, 1], vec![]);
         let shape = from_vec(vec![100, -1]);
         let result = reshape(&zero_sized_input, &shape, false /* allow_zero */).unwrap();
         let expected = zero_sized_input.clone_with_shape(&[100, 0]);
@@ -410,7 +410,7 @@ mod tests {
         expect_equal(&result, &expected)?;
 
         // Case where copied input dim is also zero.
-        let input = from_data(vec![0], vec![]);
+        let input = from_data::<f32>(vec![0], vec![]);
         let shape = from_vec(vec![0]);
         let expected = input.clone_with_shape(&[0]);
         let result = reshape(&input, &shape, false /* allow_zero */).unwrap();
@@ -428,7 +428,7 @@ mod tests {
         );
 
         // Case when allow_zero is true
-        let input = from_data(vec![0, 0, 10], vec![]);
+        let input = from_data::<f32>(vec![0, 0, 10], vec![]);
         let shape = from_vec(vec![10, 0, 0]);
         let result = reshape(&input, &shape, true /* allow_zero */).unwrap();
         let expected = input.clone_with_shape(&[10, 0, 0]);
