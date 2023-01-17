@@ -120,11 +120,11 @@ pub fn matmul(a: &Tensor, b: &Tensor) -> Result<Tensor, OpError> {
         .step_by(b_rows * b_cols);
 
     let out_row_stride = output.stride(output.ndim() - 2);
-    let mut out_offset = 0;
+    let out_batches = output.data_mut().chunks_mut(out_row_stride * a_rows);
 
-    for (a_offset, b_offset) in zip(a_offsets, b_offsets) {
+    for (out_batch, (a_offset, b_offset)) in zip(out_batches, zip(a_offsets, b_offsets)) {
         gemm(
-            &mut output.data_mut()[out_offset..],
+            out_batch,
             out_row_stride,
             Matrix::from_slice(
                 &a.data()[a_offset..],
@@ -141,7 +141,6 @@ pub fn matmul(a: &Tensor, b: &Tensor) -> Result<Tensor, OpError> {
             1., // alpha
             0., // beta
         );
-        out_offset += out_row_stride * a_rows;
     }
 
     Ok(output)

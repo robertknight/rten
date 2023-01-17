@@ -186,10 +186,13 @@ fn reduce<T: Copy + Default, R: Reducer<T>>(
             } else {
                 input.stride(input.ndim() - 1 - ndims)
             };
-            reduced_data.extend((0..input.len()).step_by(slice_len).map(|offset| {
-                let slice = &input.data()[offset..offset + slice_len];
-                reducer.reduce(slice.iter().copied())
-            }));
+
+            reduced_data.extend(
+                input
+                    .data()
+                    .chunks(slice_len)
+                    .map(|chunk| reducer.reduce(chunk.iter().copied())),
+            );
         }
         _ => {
             let outer_range: Vec<_> = (0..input.ndim())

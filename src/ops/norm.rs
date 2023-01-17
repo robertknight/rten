@@ -112,10 +112,7 @@ pub fn softmax_in_place(output: &mut Tensor, axis: usize) {
         output.stride(axis - 1)
     };
 
-    let mut offset = 0;
-    while offset < output.len() {
-        let els = &mut output.data_mut()[offset..offset + outer_stride];
-
+    for els in output.data_mut().chunks_mut(outer_stride) {
         // Numerically stable softmax. See
         // https://ogunlao.github.io/2020/04/26/you_dont_really_know_softmax.html.
         let max_val = els
@@ -131,8 +128,6 @@ pub fn softmax_in_place(output: &mut Tensor, axis: usize) {
         for el in els.iter_mut() {
             *el /= exp_sum
         }
-
-        offset += outer_stride;
     }
 }
 
