@@ -108,7 +108,6 @@ union OperatorAttrs {
   LeakyReluAttrs,
   LSTMAttrs,
   MaxPoolAttrs,
-  PadAttrs,
   ReduceMeanAttrs,
   ReshapeAttrs,
   ResizeAttrs,
@@ -215,8 +214,6 @@ table MaxPoolAttrs {
 
   strides:[uint];
 }
-
-table PadAttrs {}
 
 table ReduceMeanAttrs {
   axes:[int];

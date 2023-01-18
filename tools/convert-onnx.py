@@ -797,11 +797,16 @@ def build_operator_node(builder: flatbuffers.Builder, operator: OperatorNode):
     attr_const_name = operator.op_type + "Attrs"
     if hasattr(sg.OperatorAttrs, attr_const_name):
         attrs_type = getattr(sg.OperatorAttrs, attr_const_name)
+        if not operator.attrs:
+            raise ValueError(f"Expected operator {operator.op_type} to have attributes")
     else:
         attrs_type = sg.OperatorAttrs.NONE
+        if operator.attrs:
+            raise ValueError(f"Expected operator {operator.op_type} NOT to have attributes")
 
     operator_table = sg.OperatorNodeT()
     operator_table.type = getattr(sg.OperatorType, operator.op_type)
+
     operator_table.attrsType = attrs_type
     operator_table.attrs = operator.attrs
 

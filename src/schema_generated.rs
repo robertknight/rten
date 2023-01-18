@@ -850,13 +850,13 @@ pub const ENUM_MIN_OPERATOR_ATTRS: u8 = 0;
     since = "2.0.0",
     note = "Use associated constants instead. This will no longer be generated in 2021."
 )]
-pub const ENUM_MAX_OPERATOR_ATTRS: u8 = 24;
+pub const ENUM_MAX_OPERATOR_ATTRS: u8 = 23;
 #[deprecated(
     since = "2.0.0",
     note = "Use associated constants instead. This will no longer be generated in 2021."
 )]
 #[allow(non_camel_case_types)]
-pub const ENUM_VALUES_OPERATOR_ATTRS: [OperatorAttrs; 25] = [
+pub const ENUM_VALUES_OPERATOR_ATTRS: [OperatorAttrs; 24] = [
     OperatorAttrs::NONE,
     OperatorAttrs::ArgMaxAttrs,
     OperatorAttrs::AveragePoolAttrs,
@@ -873,7 +873,6 @@ pub const ENUM_VALUES_OPERATOR_ATTRS: [OperatorAttrs; 25] = [
     OperatorAttrs::LeakyReluAttrs,
     OperatorAttrs::LSTMAttrs,
     OperatorAttrs::MaxPoolAttrs,
-    OperatorAttrs::PadAttrs,
     OperatorAttrs::ReduceMeanAttrs,
     OperatorAttrs::ReshapeAttrs,
     OperatorAttrs::ResizeAttrs,
@@ -905,18 +904,17 @@ impl OperatorAttrs {
     pub const LeakyReluAttrs: Self = Self(13);
     pub const LSTMAttrs: Self = Self(14);
     pub const MaxPoolAttrs: Self = Self(15);
-    pub const PadAttrs: Self = Self(16);
-    pub const ReduceMeanAttrs: Self = Self(17);
-    pub const ReshapeAttrs: Self = Self(18);
-    pub const ResizeAttrs: Self = Self(19);
-    pub const SplitAttrs: Self = Self(20);
-    pub const SqueezeAttrs: Self = Self(21);
-    pub const SoftmaxAttrs: Self = Self(22);
-    pub const TransposeAttrs: Self = Self(23);
-    pub const UnsqueezeAttrs: Self = Self(24);
+    pub const ReduceMeanAttrs: Self = Self(16);
+    pub const ReshapeAttrs: Self = Self(17);
+    pub const ResizeAttrs: Self = Self(18);
+    pub const SplitAttrs: Self = Self(19);
+    pub const SqueezeAttrs: Self = Self(20);
+    pub const SoftmaxAttrs: Self = Self(21);
+    pub const TransposeAttrs: Self = Self(22);
+    pub const UnsqueezeAttrs: Self = Self(23);
 
     pub const ENUM_MIN: u8 = 0;
-    pub const ENUM_MAX: u8 = 24;
+    pub const ENUM_MAX: u8 = 23;
     pub const ENUM_VALUES: &'static [Self] = &[
         Self::NONE,
         Self::ArgMaxAttrs,
@@ -934,7 +932,6 @@ impl OperatorAttrs {
         Self::LeakyReluAttrs,
         Self::LSTMAttrs,
         Self::MaxPoolAttrs,
-        Self::PadAttrs,
         Self::ReduceMeanAttrs,
         Self::ReshapeAttrs,
         Self::ResizeAttrs,
@@ -963,7 +960,6 @@ impl OperatorAttrs {
             Self::LeakyReluAttrs => Some("LeakyReluAttrs"),
             Self::LSTMAttrs => Some("LSTMAttrs"),
             Self::MaxPoolAttrs => Some("MaxPoolAttrs"),
-            Self::PadAttrs => Some("PadAttrs"),
             Self::ReduceMeanAttrs => Some("ReduceMeanAttrs"),
             Self::ReshapeAttrs => Some("ReshapeAttrs"),
             Self::ResizeAttrs => Some("ResizeAttrs"),
@@ -3563,83 +3559,6 @@ impl core::fmt::Debug for MaxPoolAttrs<'_> {
         ds.finish()
     }
 }
-pub enum PadAttrsOffset {}
-#[derive(Copy, Clone, PartialEq)]
-
-pub struct PadAttrs<'a> {
-    pub _tab: flatbuffers::Table<'a>,
-}
-
-impl<'a> flatbuffers::Follow<'a> for PadAttrs<'a> {
-    type Inner = PadAttrs<'a>;
-    #[inline]
-    unsafe fn follow(buf: &'a [u8], loc: usize) -> Self::Inner {
-        Self {
-            _tab: flatbuffers::Table::new(buf, loc),
-        }
-    }
-}
-
-impl<'a> PadAttrs<'a> {
-    #[inline]
-    pub unsafe fn init_from_table(table: flatbuffers::Table<'a>) -> Self {
-        PadAttrs { _tab: table }
-    }
-    #[allow(unused_mut)]
-    pub fn create<'bldr: 'args, 'args: 'mut_bldr, 'mut_bldr>(
-        _fbb: &'mut_bldr mut flatbuffers::FlatBufferBuilder<'bldr>,
-        _args: &'args PadAttrsArgs,
-    ) -> flatbuffers::WIPOffset<PadAttrs<'bldr>> {
-        let mut builder = PadAttrsBuilder::new(_fbb);
-        builder.finish()
-    }
-}
-
-impl flatbuffers::Verifiable for PadAttrs<'_> {
-    #[inline]
-    fn run_verifier(
-        v: &mut flatbuffers::Verifier,
-        pos: usize,
-    ) -> Result<(), flatbuffers::InvalidFlatbuffer> {
-        use self::flatbuffers::Verifiable;
-        v.visit_table(pos)?.finish();
-        Ok(())
-    }
-}
-pub struct PadAttrsArgs {}
-impl<'a> Default for PadAttrsArgs {
-    #[inline]
-    fn default() -> Self {
-        PadAttrsArgs {}
-    }
-}
-
-pub struct PadAttrsBuilder<'a: 'b, 'b> {
-    fbb_: &'b mut flatbuffers::FlatBufferBuilder<'a>,
-    start_: flatbuffers::WIPOffset<flatbuffers::TableUnfinishedWIPOffset>,
-}
-impl<'a: 'b, 'b> PadAttrsBuilder<'a, 'b> {
-    #[inline]
-    pub fn new(_fbb: &'b mut flatbuffers::FlatBufferBuilder<'a>) -> PadAttrsBuilder<'a, 'b> {
-        let start = _fbb.start_table();
-        PadAttrsBuilder {
-            fbb_: _fbb,
-            start_: start,
-        }
-    }
-    #[inline]
-    pub fn finish(self) -> flatbuffers::WIPOffset<PadAttrs<'a>> {
-        let o = self.fbb_.end_table(self.start_);
-        flatbuffers::WIPOffset::new(o.value())
-    }
-}
-
-impl core::fmt::Debug for PadAttrs<'_> {
-    fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
-        let mut ds = f.debug_struct("PadAttrs");
-        ds.finish()
-    }
-}
 pub enum ReduceMeanAttrsOffset {}
 #[derive(Copy, Clone, PartialEq)]
 
@@ -4933,21 +4852,6 @@ impl<'a> OperatorNode<'a> {
 
     #[inline]
     #[allow(non_snake_case)]
-    pub fn attrs_as_pad_attrs(&self) -> Option<PadAttrs<'a>> {
-        if self.attrs_type() == OperatorAttrs::PadAttrs {
-            self.attrs().map(|t| {
-                // Safety:
-                // Created from a valid Table for this object
-                // Which contains a valid union in this slot
-                unsafe { PadAttrs::init_from_table(t) }
-            })
-        } else {
-            None
-        }
-    }
-
-    #[inline]
-    #[allow(non_snake_case)]
     pub fn attrs_as_reduce_mean_attrs(&self) -> Option<ReduceMeanAttrs<'a>> {
         if self.attrs_type() == OperatorAttrs::ReduceMeanAttrs {
             self.attrs().map(|t| {
@@ -5093,7 +4997,6 @@ impl flatbuffers::Verifiable for OperatorNode<'_> {
           OperatorAttrs::LeakyReluAttrs => v.verify_union_variant::<flatbuffers::ForwardsUOffset<LeakyReluAttrs>>("OperatorAttrs::LeakyReluAttrs", pos),
           OperatorAttrs::LSTMAttrs => v.verify_union_variant::<flatbuffers::ForwardsUOffset<LSTMAttrs>>("OperatorAttrs::LSTMAttrs", pos),
           OperatorAttrs::MaxPoolAttrs => v.verify_union_variant::<flatbuffers::ForwardsUOffset<MaxPoolAttrs>>("OperatorAttrs::MaxPoolAttrs", pos),
-          OperatorAttrs::PadAttrs => v.verify_union_variant::<flatbuffers::ForwardsUOffset<PadAttrs>>("OperatorAttrs::PadAttrs", pos),
           OperatorAttrs::ReduceMeanAttrs => v.verify_union_variant::<flatbuffers::ForwardsUOffset<ReduceMeanAttrs>>("OperatorAttrs::ReduceMeanAttrs", pos),
           OperatorAttrs::ReshapeAttrs => v.verify_union_variant::<flatbuffers::ForwardsUOffset<ReshapeAttrs>>("OperatorAttrs::ReshapeAttrs", pos),
           OperatorAttrs::ResizeAttrs => v.verify_union_variant::<flatbuffers::ForwardsUOffset<ResizeAttrs>>("OperatorAttrs::ResizeAttrs", pos),
@@ -5327,16 +5230,6 @@ impl core::fmt::Debug for OperatorNode<'_> {
             }
             OperatorAttrs::MaxPoolAttrs => {
                 if let Some(x) = self.attrs_as_max_pool_attrs() {
-                    ds.field("attrs", &x)
-                } else {
-                    ds.field(
-                        "attrs",
-                        &"InvalidFlatbuffer: Union discriminant does not match value.",
-                    )
-                }
-            }
-            OperatorAttrs::PadAttrs => {
-                if let Some(x) = self.attrs_as_pad_attrs() {
                     ds.field("attrs", &x)
                 } else {
                     ds.field(

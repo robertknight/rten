@@ -106,15 +106,14 @@ class OperatorAttrs(object):
     LeakyReluAttrs = 13
     LSTMAttrs = 14
     MaxPoolAttrs = 15
-    PadAttrs = 16
-    ReduceMeanAttrs = 17
-    ReshapeAttrs = 18
-    ResizeAttrs = 19
-    SplitAttrs = 20
-    SqueezeAttrs = 21
-    SoftmaxAttrs = 22
-    TransposeAttrs = 23
-    UnsqueezeAttrs = 24
+    ReduceMeanAttrs = 16
+    ReshapeAttrs = 17
+    ResizeAttrs = 18
+    SplitAttrs = 19
+    SqueezeAttrs = 20
+    SoftmaxAttrs = 21
+    TransposeAttrs = 22
+    UnsqueezeAttrs = 23
 
 def OperatorAttrsCreator(unionType, table):
     from flatbuffers.table import Table
@@ -150,8 +149,6 @@ def OperatorAttrsCreator(unionType, table):
         return LSTMAttrsT.InitFromBuf(table.Bytes, table.Pos)
     if unionType == OperatorAttrs().MaxPoolAttrs:
         return MaxPoolAttrsT.InitFromBuf(table.Bytes, table.Pos)
-    if unionType == OperatorAttrs().PadAttrs:
-        return PadAttrsT.InitFromBuf(table.Bytes, table.Pos)
     if unionType == OperatorAttrs().ReduceMeanAttrs:
         return ReduceMeanAttrsT.InitFromBuf(table.Bytes, table.Pos)
     if unionType == OperatorAttrs().ReshapeAttrs:
@@ -1955,67 +1952,6 @@ class MaxPoolAttrsT(object):
         return maxPoolAttrs
 
 
-class PadAttrs(object):
-    __slots__ = ['_tab']
-
-    @classmethod
-    def GetRootAs(cls, buf, offset=0):
-        n = flatbuffers.encode.Get(flatbuffers.packer.uoffset, buf, offset)
-        x = PadAttrs()
-        x.Init(buf, n + offset)
-        return x
-
-    @classmethod
-    def GetRootAsPadAttrs(cls, buf, offset=0):
-        """This method is deprecated. Please switch to GetRootAs."""
-        return cls.GetRootAs(buf, offset)
-    @classmethod
-    def PadAttrsBufferHasIdentifier(cls, buf, offset, size_prefixed=False):
-        return flatbuffers.util.BufferHasIdentifier(buf, offset, b"\x4D\x4F\x44\x4C", size_prefixed=size_prefixed)
-
-    # PadAttrs
-    def Init(self, buf, pos):
-        self._tab = flatbuffers.table.Table(buf, pos)
-
-def PadAttrsStart(builder): builder.StartObject(0)
-def PadAttrsEnd(builder): return builder.EndObject()
-
-
-class PadAttrsT(object):
-
-    # PadAttrsT
-    def __init__(self):
-        pass
-
-    @classmethod
-    def InitFromBuf(cls, buf, pos):
-        padAttrs = PadAttrs()
-        padAttrs.Init(buf, pos)
-        return cls.InitFromObj(padAttrs)
-
-    @classmethod
-    def InitFromPackedBuf(cls, buf, pos=0):
-        n = flatbuffers.encode.Get(flatbuffers.packer.uoffset, buf, pos)
-        return cls.InitFromBuf(buf, pos+n)
-
-    @classmethod
-    def InitFromObj(cls, padAttrs):
-        x = PadAttrsT()
-        x._UnPack(padAttrs)
-        return x
-
-    # PadAttrsT
-    def _UnPack(self, padAttrs):
-        if padAttrs is None:
-            return
-
-    # PadAttrsT
-    def Pack(self, builder):
-        PadAttrsStart(builder)
-        padAttrs = PadAttrsEnd(builder)
-        return padAttrs
-
-
 class ReduceMeanAttrs(object):
     __slots__ = ['_tab']
 
@@ -2949,7 +2885,7 @@ class OperatorNodeT(object):
     def __init__(self):
         self.type = 0  # type: int
         self.attrsType = 0  # type: int
-        self.attrs = None  # type: Union[None, ArgMaxAttrsT, AveragePoolAttrsT, BatchNormalizationAttrsT, CastAttrsT, ClipAttrsT, ConcatAttrsT, ConstantOfShapeAttrsT, ConvAttrsT, ConvTransposeAttrsT, FlattenAttrsT, GatherAttrsT, GemmAttrsT, LeakyReluAttrsT, LSTMAttrsT, MaxPoolAttrsT, PadAttrsT, ReduceMeanAttrsT, ReshapeAttrsT, ResizeAttrsT, SplitAttrsT, SqueezeAttrsT, SoftmaxAttrsT, TransposeAttrsT, UnsqueezeAttrsT]
+        self.attrs = None  # type: Union[None, ArgMaxAttrsT, AveragePoolAttrsT, BatchNormalizationAttrsT, CastAttrsT, ClipAttrsT, ConcatAttrsT, ConstantOfShapeAttrsT, ConvAttrsT, ConvTransposeAttrsT, FlattenAttrsT, GatherAttrsT, GemmAttrsT, LeakyReluAttrsT, LSTMAttrsT, MaxPoolAttrsT, ReduceMeanAttrsT, ReshapeAttrsT, ResizeAttrsT, SplitAttrsT, SqueezeAttrsT, SoftmaxAttrsT, TransposeAttrsT, UnsqueezeAttrsT]
         self.inputs = None  # type: List[int]
         self.outputs = None  # type: List[int]
 
