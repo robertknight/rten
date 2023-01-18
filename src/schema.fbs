@@ -234,7 +234,7 @@ table ResizeAttrs {
 }
 
 table SoftmaxAttrs {
-  axis:uint;
+  axis:int;
 }
 
 table SplitAttrs {

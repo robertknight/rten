@@ -428,7 +428,7 @@ impl<'a> ModelBuilder<'a> {
                 Softmax,
                 SoftmaxAttrs,
                 sg::SoftmaxAttrsArgs {
-                    axis: args.axis as u32,
+                    axis: args.axis as i32,
                 }
             ),
             OpType::Split(args) => op_with_attrs!(Split, SplitAttrs, {

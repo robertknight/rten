@@ -2328,11 +2328,11 @@ class SoftmaxAttrs(object):
     def Axis(self):
         o = flatbuffers.number_types.UOffsetTFlags.py_type(self._tab.Offset(4))
         if o != 0:
-            return self._tab.Get(flatbuffers.number_types.Uint32Flags, o + self._tab.Pos)
+            return self._tab.Get(flatbuffers.number_types.Int32Flags, o + self._tab.Pos)
         return 0
 
 def SoftmaxAttrsStart(builder): builder.StartObject(1)
-def SoftmaxAttrsAddAxis(builder, axis): builder.PrependUint32Slot(0, axis, 0)
+def SoftmaxAttrsAddAxis(builder, axis): builder.PrependInt32Slot(0, axis, 0)
 def SoftmaxAttrsEnd(builder): return builder.EndObject()
 
 

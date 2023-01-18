@@ -325,7 +325,7 @@ fn read_softmax_op(node: &OperatorNode) -> ReadOpResult {
         .attrs_as_softmax_attrs()
         .ok_or(ReadOpError::AttrError)?;
     Ok(Box::new(ops::Softmax {
-        axis: attrs.axis() as usize,
+        axis: attrs.axis() as isize,
     }))
 }
 
