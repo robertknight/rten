@@ -18,13 +18,13 @@ pub const ENUM_MIN_OPERATOR_TYPE: i8 = 0;
     since = "2.0.0",
     note = "Use associated constants instead. This will no longer be generated in 2021."
 )]
-pub const ENUM_MAX_OPERATOR_TYPE: i8 = 45;
+pub const ENUM_MAX_OPERATOR_TYPE: i8 = 46;
 #[deprecated(
     since = "2.0.0",
     note = "Use associated constants instead. This will no longer be generated in 2021."
 )]
 #[allow(non_camel_case_types)]
-pub const ENUM_VALUES_OPERATOR_TYPE: [OperatorType; 46] = [
+pub const ENUM_VALUES_OPERATOR_TYPE: [OperatorType; 47] = [
     OperatorType::Add,
     OperatorType::ArgMin,
     OperatorType::ArgMax,
@@ -41,6 +41,7 @@ pub const ENUM_VALUES_OPERATOR_TYPE: [OperatorType; 46] = [
     OperatorType::Equal,
     OperatorType::Erf,
     OperatorType::Expand,
+    OperatorType::Flatten,
     OperatorType::Gather,
     OperatorType::Gemm,
     OperatorType::GlobalAveragePool,
@@ -94,39 +95,40 @@ impl OperatorType {
     pub const Equal: Self = Self(13);
     pub const Erf: Self = Self(14);
     pub const Expand: Self = Self(15);
-    pub const Gather: Self = Self(16);
-    pub const Gemm: Self = Self(17);
-    pub const GlobalAveragePool: Self = Self(18);
-    pub const Identity: Self = Self(19);
-    pub const LeakyRelu: Self = Self(20);
-    pub const Less: Self = Self(21);
-    pub const LSTM: Self = Self(22);
-    pub const MatMul: Self = Self(23);
-    pub const MaxPool: Self = Self(24);
-    pub const Mul: Self = Self(25);
-    pub const Pad: Self = Self(26);
-    pub const Pow: Self = Self(27);
-    pub const Range: Self = Self(28);
-    pub const ReduceMean: Self = Self(29);
-    pub const Relu: Self = Self(30);
-    pub const Reshape: Self = Self(31);
-    pub const Resize: Self = Self(32);
-    pub const Shape: Self = Self(33);
-    pub const Sigmoid: Self = Self(34);
-    pub const Sin: Self = Self(35);
-    pub const Slice: Self = Self(36);
-    pub const Split: Self = Self(37);
-    pub const Sqrt: Self = Self(38);
-    pub const Squeeze: Self = Self(39);
-    pub const Softmax: Self = Self(40);
-    pub const Sub: Self = Self(41);
-    pub const Tanh: Self = Self(42);
-    pub const Transpose: Self = Self(43);
-    pub const Unsqueeze: Self = Self(44);
-    pub const Where: Self = Self(45);
+    pub const Flatten: Self = Self(16);
+    pub const Gather: Self = Self(17);
+    pub const Gemm: Self = Self(18);
+    pub const GlobalAveragePool: Self = Self(19);
+    pub const Identity: Self = Self(20);
+    pub const LeakyRelu: Self = Self(21);
+    pub const Less: Self = Self(22);
+    pub const LSTM: Self = Self(23);
+    pub const MatMul: Self = Self(24);
+    pub const MaxPool: Self = Self(25);
+    pub const Mul: Self = Self(26);
+    pub const Pad: Self = Self(27);
+    pub const Pow: Self = Self(28);
+    pub const Range: Self = Self(29);
+    pub const ReduceMean: Self = Self(30);
+    pub const Relu: Self = Self(31);
+    pub const Reshape: Self = Self(32);
+    pub const Resize: Self = Self(33);
+    pub const Shape: Self = Self(34);
+    pub const Sigmoid: Self = Self(35);
+    pub const Sin: Self = Self(36);
+    pub const Slice: Self = Self(37);
+    pub const Split: Self = Self(38);
+    pub const Sqrt: Self = Self(39);
+    pub const Squeeze: Self = Self(40);
+    pub const Softmax: Self = Self(41);
+    pub const Sub: Self = Self(42);
+    pub const Tanh: Self = Self(43);
+    pub const Transpose: Self = Self(44);
+    pub const Unsqueeze: Self = Self(45);
+    pub const Where: Self = Self(46);
 
     pub const ENUM_MIN: i8 = 0;
-    pub const ENUM_MAX: i8 = 45;
+    pub const ENUM_MAX: i8 = 46;
     pub const ENUM_VALUES: &'static [Self] = &[
         Self::Add,
         Self::ArgMin,
@@ -144,6 +146,7 @@ impl OperatorType {
         Self::Equal,
         Self::Erf,
         Self::Expand,
+        Self::Flatten,
         Self::Gather,
         Self::Gemm,
         Self::GlobalAveragePool,
@@ -194,6 +197,7 @@ impl OperatorType {
             Self::Equal => Some("Equal"),
             Self::Erf => Some("Erf"),
             Self::Expand => Some("Expand"),
+            Self::Flatten => Some("Flatten"),
             Self::Gather => Some("Gather"),
             Self::Gemm => Some("Gemm"),
             Self::GlobalAveragePool => Some("GlobalAveragePool"),
@@ -846,13 +850,13 @@ pub const ENUM_MIN_OPERATOR_ATTRS: u8 = 0;
     since = "2.0.0",
     note = "Use associated constants instead. This will no longer be generated in 2021."
 )]
-pub const ENUM_MAX_OPERATOR_ATTRS: u8 = 23;
+pub const ENUM_MAX_OPERATOR_ATTRS: u8 = 24;
 #[deprecated(
     since = "2.0.0",
     note = "Use associated constants instead. This will no longer be generated in 2021."
 )]
 #[allow(non_camel_case_types)]
-pub const ENUM_VALUES_OPERATOR_ATTRS: [OperatorAttrs; 24] = [
+pub const ENUM_VALUES_OPERATOR_ATTRS: [OperatorAttrs; 25] = [
     OperatorAttrs::NONE,
     OperatorAttrs::ArgMaxAttrs,
     OperatorAttrs::AveragePoolAttrs,
@@ -863,6 +867,7 @@ pub const ENUM_VALUES_OPERATOR_ATTRS: [OperatorAttrs; 24] = [
     OperatorAttrs::ConstantOfShapeAttrs,
     OperatorAttrs::ConvAttrs,
     OperatorAttrs::ConvTransposeAttrs,
+    OperatorAttrs::FlattenAttrs,
     OperatorAttrs::GatherAttrs,
     OperatorAttrs::GemmAttrs,
     OperatorAttrs::LeakyReluAttrs,
@@ -894,23 +899,24 @@ impl OperatorAttrs {
     pub const ConstantOfShapeAttrs: Self = Self(7);
     pub const ConvAttrs: Self = Self(8);
     pub const ConvTransposeAttrs: Self = Self(9);
-    pub const GatherAttrs: Self = Self(10);
-    pub const GemmAttrs: Self = Self(11);
-    pub const LeakyReluAttrs: Self = Self(12);
-    pub const LSTMAttrs: Self = Self(13);
-    pub const MaxPoolAttrs: Self = Self(14);
-    pub const PadAttrs: Self = Self(15);
-    pub const ReduceMeanAttrs: Self = Self(16);
-    pub const ReshapeAttrs: Self = Self(17);
-    pub const ResizeAttrs: Self = Self(18);
-    pub const SplitAttrs: Self = Self(19);
-    pub const SqueezeAttrs: Self = Self(20);
-    pub const SoftmaxAttrs: Self = Self(21);
-    pub const TransposeAttrs: Self = Self(22);
-    pub const UnsqueezeAttrs: Self = Self(23);
+    pub const FlattenAttrs: Self = Self(10);
+    pub const GatherAttrs: Self = Self(11);
+    pub const GemmAttrs: Self = Self(12);
+    pub const LeakyReluAttrs: Self = Self(13);
+    pub const LSTMAttrs: Self = Self(14);
+    pub const MaxPoolAttrs: Self = Self(15);
+    pub const PadAttrs: Self = Self(16);
+    pub const ReduceMeanAttrs: Self = Self(17);
+    pub const ReshapeAttrs: Self = Self(18);
+    pub const ResizeAttrs: Self = Self(19);
+    pub const SplitAttrs: Self = Self(20);
+    pub const SqueezeAttrs: Self = Self(21);
+    pub const SoftmaxAttrs: Self = Self(22);
+    pub const TransposeAttrs: Self = Self(23);
+    pub const UnsqueezeAttrs: Self = Self(24);
 
     pub const ENUM_MIN: u8 = 0;
-    pub const ENUM_MAX: u8 = 23;
+    pub const ENUM_MAX: u8 = 24;
     pub const ENUM_VALUES: &'static [Self] = &[
         Self::NONE,
         Self::ArgMaxAttrs,
@@ -922,6 +928,7 @@ impl OperatorAttrs {
         Self::ConstantOfShapeAttrs,
         Self::ConvAttrs,
         Self::ConvTransposeAttrs,
+        Self::FlattenAttrs,
         Self::GatherAttrs,
         Self::GemmAttrs,
         Self::LeakyReluAttrs,
@@ -950,6 +957,7 @@ impl OperatorAttrs {
             Self::ConstantOfShapeAttrs => Some("ConstantOfShapeAttrs"),
             Self::ConvAttrs => Some("ConvAttrs"),
             Self::ConvTransposeAttrs => Some("ConvTransposeAttrs"),
+            Self::FlattenAttrs => Some("FlattenAttrs"),
             Self::GatherAttrs => Some("GatherAttrs"),
             Self::GemmAttrs => Some("GemmAttrs"),
             Self::LeakyReluAttrs => Some("LeakyReluAttrs"),
@@ -2757,6 +2765,107 @@ impl core::fmt::Debug for ConvTransposeAttrs<'_> {
     fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
         let mut ds = f.debug_struct("ConvTransposeAttrs");
         ds.field("strides", &self.strides());
+        ds.finish()
+    }
+}
+pub enum FlattenAttrsOffset {}
+#[derive(Copy, Clone, PartialEq)]
+
+pub struct FlattenAttrs<'a> {
+    pub _tab: flatbuffers::Table<'a>,
+}
+
+impl<'a> flatbuffers::Follow<'a> for FlattenAttrs<'a> {
+    type Inner = FlattenAttrs<'a>;
+    #[inline]
+    unsafe fn follow(buf: &'a [u8], loc: usize) -> Self::Inner {
+        Self {
+            _tab: flatbuffers::Table::new(buf, loc),
+        }
+    }
+}
+
+impl<'a> FlattenAttrs<'a> {
+    pub const VT_AXIS: flatbuffers::VOffsetT = 4;
+
+    #[inline]
+    pub unsafe fn init_from_table(table: flatbuffers::Table<'a>) -> Self {
+        FlattenAttrs { _tab: table }
+    }
+    #[allow(unused_mut)]
+    pub fn create<'bldr: 'args, 'args: 'mut_bldr, 'mut_bldr>(
+        _fbb: &'mut_bldr mut flatbuffers::FlatBufferBuilder<'bldr>,
+        args: &'args FlattenAttrsArgs,
+    ) -> flatbuffers::WIPOffset<FlattenAttrs<'bldr>> {
+        let mut builder = FlattenAttrsBuilder::new(_fbb);
+        builder.add_axis(args.axis);
+        builder.finish()
+    }
+
+    #[inline]
+    pub fn axis(&self) -> i32 {
+        // Safety:
+        // Created from valid Table for this object
+        // which contains a valid value in this slot
+        unsafe {
+            self._tab
+                .get::<i32>(FlattenAttrs::VT_AXIS, Some(0))
+                .unwrap()
+        }
+    }
+}
+
+impl flatbuffers::Verifiable for FlattenAttrs<'_> {
+    #[inline]
+    fn run_verifier(
+        v: &mut flatbuffers::Verifier,
+        pos: usize,
+    ) -> Result<(), flatbuffers::InvalidFlatbuffer> {
+        use self::flatbuffers::Verifiable;
+        v.visit_table(pos)?
+            .visit_field::<i32>("axis", Self::VT_AXIS, false)?
+            .finish();
+        Ok(())
+    }
+}
+pub struct FlattenAttrsArgs {
+    pub axis: i32,
+}
+impl<'a> Default for FlattenAttrsArgs {
+    #[inline]
+    fn default() -> Self {
+        FlattenAttrsArgs { axis: 0 }
+    }
+}
+
+pub struct FlattenAttrsBuilder<'a: 'b, 'b> {
+    fbb_: &'b mut flatbuffers::FlatBufferBuilder<'a>,
+    start_: flatbuffers::WIPOffset<flatbuffers::TableUnfinishedWIPOffset>,
+}
+impl<'a: 'b, 'b> FlattenAttrsBuilder<'a, 'b> {
+    #[inline]
+    pub fn add_axis(&mut self, axis: i32) {
+        self.fbb_.push_slot::<i32>(FlattenAttrs::VT_AXIS, axis, 0);
+    }
+    #[inline]
+    pub fn new(_fbb: &'b mut flatbuffers::FlatBufferBuilder<'a>) -> FlattenAttrsBuilder<'a, 'b> {
+        let start = _fbb.start_table();
+        FlattenAttrsBuilder {
+            fbb_: _fbb,
+            start_: start,
+        }
+    }
+    #[inline]
+    pub fn finish(self) -> flatbuffers::WIPOffset<FlattenAttrs<'a>> {
+        let o = self.fbb_.end_table(self.start_);
+        flatbuffers::WIPOffset::new(o.value())
+    }
+}
+
+impl core::fmt::Debug for FlattenAttrs<'_> {
+    fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
+        let mut ds = f.debug_struct("FlattenAttrs");
+        ds.field("axis", &self.axis());
         ds.finish()
     }
 }
@@ -4734,6 +4843,21 @@ impl<'a> OperatorNode<'a> {
 
     #[inline]
     #[allow(non_snake_case)]
+    pub fn attrs_as_flatten_attrs(&self) -> Option<FlattenAttrs<'a>> {
+        if self.attrs_type() == OperatorAttrs::FlattenAttrs {
+            self.attrs().map(|t| {
+                // Safety:
+                // Created from a valid Table for this object
+                // Which contains a valid union in this slot
+                unsafe { FlattenAttrs::init_from_table(t) }
+            })
+        } else {
+            None
+        }
+    }
+
+    #[inline]
+    #[allow(non_snake_case)]
     pub fn attrs_as_gather_attrs(&self) -> Option<GatherAttrs<'a>> {
         if self.attrs_type() == OperatorAttrs::GatherAttrs {
             self.attrs().map(|t| {
@@ -4963,6 +5087,7 @@ impl flatbuffers::Verifiable for OperatorNode<'_> {
           OperatorAttrs::ConstantOfShapeAttrs => v.verify_union_variant::<flatbuffers::ForwardsUOffset<ConstantOfShapeAttrs>>("OperatorAttrs::ConstantOfShapeAttrs", pos),
           OperatorAttrs::ConvAttrs => v.verify_union_variant::<flatbuffers::ForwardsUOffset<ConvAttrs>>("OperatorAttrs::ConvAttrs", pos),
           OperatorAttrs::ConvTransposeAttrs => v.verify_union_variant::<flatbuffers::ForwardsUOffset<ConvTransposeAttrs>>("OperatorAttrs::ConvTransposeAttrs", pos),
+          OperatorAttrs::FlattenAttrs => v.verify_union_variant::<flatbuffers::ForwardsUOffset<FlattenAttrs>>("OperatorAttrs::FlattenAttrs", pos),
           OperatorAttrs::GatherAttrs => v.verify_union_variant::<flatbuffers::ForwardsUOffset<GatherAttrs>>("OperatorAttrs::GatherAttrs", pos),
           OperatorAttrs::GemmAttrs => v.verify_union_variant::<flatbuffers::ForwardsUOffset<GemmAttrs>>("OperatorAttrs::GemmAttrs", pos),
           OperatorAttrs::LeakyReluAttrs => v.verify_union_variant::<flatbuffers::ForwardsUOffset<LeakyReluAttrs>>("OperatorAttrs::LeakyReluAttrs", pos),
@@ -5142,6 +5267,16 @@ impl core::fmt::Debug for OperatorNode<'_> {
             }
             OperatorAttrs::ConvTransposeAttrs => {
                 if let Some(x) = self.attrs_as_conv_transpose_attrs() {
+                    ds.field("attrs", &x)
+                } else {
+                    ds.field(
+                        "attrs",
+                        &"InvalidFlatbuffer: Union discriminant does not match value.",
+                    )
+                }
+            }
+            OperatorAttrs::FlattenAttrs => {
+                if let Some(x) = self.attrs_as_flatten_attrs() {
                     ds.field("attrs", &x)
                 } else {
                     ds.field(

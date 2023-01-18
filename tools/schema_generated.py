@@ -23,36 +23,37 @@ class OperatorType(object):
     Equal = 13
     Erf = 14
     Expand = 15
-    Gather = 16
-    Gemm = 17
-    GlobalAveragePool = 18
-    Identity = 19
-    LeakyRelu = 20
-    Less = 21
-    LSTM = 22
-    MatMul = 23
-    MaxPool = 24
-    Mul = 25
-    Pad = 26
-    Pow = 27
-    Range = 28
-    ReduceMean = 29
-    Relu = 30
-    Reshape = 31
-    Resize = 32
-    Shape = 33
-    Sigmoid = 34
-    Sin = 35
-    Slice = 36
-    Split = 37
-    Sqrt = 38
-    Squeeze = 39
-    Softmax = 40
-    Sub = 41
-    Tanh = 42
-    Transpose = 43
-    Unsqueeze = 44
-    Where = 45
+    Flatten = 16
+    Gather = 17
+    Gemm = 18
+    GlobalAveragePool = 19
+    Identity = 20
+    LeakyRelu = 21
+    Less = 22
+    LSTM = 23
+    MatMul = 24
+    MaxPool = 25
+    Mul = 26
+    Pad = 27
+    Pow = 28
+    Range = 29
+    ReduceMean = 30
+    Relu = 31
+    Reshape = 32
+    Resize = 33
+    Shape = 34
+    Sigmoid = 35
+    Sin = 36
+    Slice = 37
+    Split = 38
+    Sqrt = 39
+    Squeeze = 40
+    Softmax = 41
+    Sub = 42
+    Tanh = 43
+    Transpose = 44
+    Unsqueeze = 45
+    Where = 46
 
 
 class LSTMDirection(object):
@@ -99,20 +100,21 @@ class OperatorAttrs(object):
     ConstantOfShapeAttrs = 7
     ConvAttrs = 8
     ConvTransposeAttrs = 9
-    GatherAttrs = 10
-    GemmAttrs = 11
-    LeakyReluAttrs = 12
-    LSTMAttrs = 13
-    MaxPoolAttrs = 14
-    PadAttrs = 15
-    ReduceMeanAttrs = 16
-    ReshapeAttrs = 17
-    ResizeAttrs = 18
-    SplitAttrs = 19
-    SqueezeAttrs = 20
-    SoftmaxAttrs = 21
-    TransposeAttrs = 22
-    UnsqueezeAttrs = 23
+    FlattenAttrs = 10
+    GatherAttrs = 11
+    GemmAttrs = 12
+    LeakyReluAttrs = 13
+    LSTMAttrs = 14
+    MaxPoolAttrs = 15
+    PadAttrs = 16
+    ReduceMeanAttrs = 17
+    ReshapeAttrs = 18
+    ResizeAttrs = 19
+    SplitAttrs = 20
+    SqueezeAttrs = 21
+    SoftmaxAttrs = 22
+    TransposeAttrs = 23
+    UnsqueezeAttrs = 24
 
 def OperatorAttrsCreator(unionType, table):
     from flatbuffers.table import Table
@@ -136,6 +138,8 @@ def OperatorAttrsCreator(unionType, table):
         return ConvAttrsT.InitFromBuf(table.Bytes, table.Pos)
     if unionType == OperatorAttrs().ConvTransposeAttrs:
         return ConvTransposeAttrsT.InitFromBuf(table.Bytes, table.Pos)
+    if unionType == OperatorAttrs().FlattenAttrs:
+        return FlattenAttrsT.InitFromBuf(table.Bytes, table.Pos)
     if unionType == OperatorAttrs().GatherAttrs:
         return GatherAttrsT.InitFromBuf(table.Bytes, table.Pos)
     if unionType == OperatorAttrs().GemmAttrs:
@@ -1334,6 +1338,77 @@ class ConvTransposeAttrsT(object):
             ConvTransposeAttrsAddStrides(builder, strides)
         convTransposeAttrs = ConvTransposeAttrsEnd(builder)
         return convTransposeAttrs
+
+
+class FlattenAttrs(object):
+    __slots__ = ['_tab']
+
+    @classmethod
+    def GetRootAs(cls, buf, offset=0):
+        n = flatbuffers.encode.Get(flatbuffers.packer.uoffset, buf, offset)
+        x = FlattenAttrs()
+        x.Init(buf, n + offset)
+        return x
+
+    @classmethod
+    def GetRootAsFlattenAttrs(cls, buf, offset=0):
+        """This method is deprecated. Please switch to GetRootAs."""
+        return cls.GetRootAs(buf, offset)
+    @classmethod
+    def FlattenAttrsBufferHasIdentifier(cls, buf, offset, size_prefixed=False):
+        return flatbuffers.util.BufferHasIdentifier(buf, offset, b"\x4D\x4F\x44\x4C", size_prefixed=size_prefixed)
+
+    # FlattenAttrs
+    def Init(self, buf, pos):
+        self._tab = flatbuffers.table.Table(buf, pos)
+
+    # FlattenAttrs
+    def Axis(self):
+        o = flatbuffers.number_types.UOffsetTFlags.py_type(self._tab.Offset(4))
+        if o != 0:
+            return self._tab.Get(flatbuffers.number_types.Int32Flags, o + self._tab.Pos)
+        return 0
+
+def FlattenAttrsStart(builder): builder.StartObject(1)
+def FlattenAttrsAddAxis(builder, axis): builder.PrependInt32Slot(0, axis, 0)
+def FlattenAttrsEnd(builder): return builder.EndObject()
+
+
+class FlattenAttrsT(object):
+
+    # FlattenAttrsT
+    def __init__(self):
+        self.axis = 0  # type: int
+
+    @classmethod
+    def InitFromBuf(cls, buf, pos):
+        flattenAttrs = FlattenAttrs()
+        flattenAttrs.Init(buf, pos)
+        return cls.InitFromObj(flattenAttrs)
+
+    @classmethod
+    def InitFromPackedBuf(cls, buf, pos=0):
+        n = flatbuffers.encode.Get(flatbuffers.packer.uoffset, buf, pos)
+        return cls.InitFromBuf(buf, pos+n)
+
+    @classmethod
+    def InitFromObj(cls, flattenAttrs):
+        x = FlattenAttrsT()
+        x._UnPack(flattenAttrs)
+        return x
+
+    # FlattenAttrsT
+    def _UnPack(self, flattenAttrs):
+        if flattenAttrs is None:
+            return
+        self.axis = flattenAttrs.Axis()
+
+    # FlattenAttrsT
+    def Pack(self, builder):
+        FlattenAttrsStart(builder)
+        FlattenAttrsAddAxis(builder, self.axis)
+        flattenAttrs = FlattenAttrsEnd(builder)
+        return flattenAttrs
 
 
 class GatherAttrs(object):
@@ -2874,7 +2949,7 @@ class OperatorNodeT(object):
     def __init__(self):
         self.type = 0  # type: int
         self.attrsType = 0  # type: int
-        self.attrs = None  # type: Union[None, ArgMaxAttrsT, AveragePoolAttrsT, BatchNormalizationAttrsT, CastAttrsT, ClipAttrsT, ConcatAttrsT, ConstantOfShapeAttrsT, ConvAttrsT, ConvTransposeAttrsT, GatherAttrsT, GemmAttrsT, LeakyReluAttrsT, LSTMAttrsT, MaxPoolAttrsT, PadAttrsT, ReduceMeanAttrsT, ReshapeAttrsT, ResizeAttrsT, SplitAttrsT, SqueezeAttrsT, SoftmaxAttrsT, TransposeAttrsT, UnsqueezeAttrsT]
+        self.attrs = None  # type: Union[None, ArgMaxAttrsT, AveragePoolAttrsT, BatchNormalizationAttrsT, CastAttrsT, ClipAttrsT, ConcatAttrsT, ConstantOfShapeAttrsT, ConvAttrsT, ConvTransposeAttrsT, FlattenAttrsT, GatherAttrsT, GemmAttrsT, LeakyReluAttrsT, LSTMAttrsT, MaxPoolAttrsT, PadAttrsT, ReduceMeanAttrsT, ReshapeAttrsT, ResizeAttrsT, SplitAttrsT, SqueezeAttrsT, SoftmaxAttrsT, TransposeAttrsT, UnsqueezeAttrsT]
         self.inputs = None  # type: List[int]
         self.outputs = None  # type: List[int]
 

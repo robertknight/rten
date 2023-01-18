@@ -204,6 +204,15 @@ fn read_conv_transpose_op(node: &OperatorNode) -> ReadOpResult {
     Ok(Box::new(ops::ConvTranspose { strides }))
 }
 
+fn read_flatten_op(node: &OperatorNode) -> ReadOpResult {
+    let attrs = node
+        .attrs_as_flatten_attrs()
+        .ok_or(ReadOpError::AttrError)?;
+    Ok(Box::new(ops::Flatten {
+        axis: attrs.axis() as isize,
+    }))
+}
+
 fn read_gather_op(node: &OperatorNode) -> ReadOpResult {
     let attrs = node.attrs_as_gather_attrs().ok_or(ReadOpError::AttrError)?;
     Ok(Box::new(ops::Gather {
@@ -387,6 +396,7 @@ fn read_operator(node: &OperatorNode) -> ReadOpResult {
         OperatorType::Equal => op!(Equal),
         OperatorType::Erf => op!(Erf),
         OperatorType::Expand => op!(Expand),
+        OperatorType::Flatten => read_flatten_op(node),
         OperatorType::Gather => read_gather_op(node),
         OperatorType::Gemm => read_gemm_op(node),
         OperatorType::GlobalAveragePool => op!(GlobalAveragePool),
@@ -718,6 +728,8 @@ mod tests {
         let expand_shape_val = from_vec(vec![2, 2, 3, 3]);
         let expand_shape = builder.add_int_constant(&expand_shape_val);
         add_operator!(Expand, [input_node, expand_shape]);
+
+        add_operator!(Flatten, [input_node], { axis: 1 });
 
         let gather_indices_val = from_data(vec![1], vec![0]);
         let gather_indices = builder.add_int_constant(&gather_indices_val);

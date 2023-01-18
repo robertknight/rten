@@ -36,8 +36,8 @@ pub use gather::{gather, Gather};
 pub use generate::{constant_of_shape, range, ConstantOfShape, Range};
 pub use identity::Identity;
 pub use layout::{
-    expand, reshape, squeeze, squeeze_in_place, Expand, Reshape, Shape, Squeeze, Transpose,
-    Unsqueeze,
+    expand, flatten, reshape, squeeze, squeeze_in_place, Expand, Flatten, Reshape, Shape, Squeeze,
+    Transpose, Unsqueeze,
 };
 pub use lstm::{lstm, LSTMDirection, LSTM};
 pub use matmul::{gemm_op, matmul, Gemm, MatMul};

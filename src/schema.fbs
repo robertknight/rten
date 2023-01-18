@@ -23,6 +23,7 @@ enum OperatorType: byte {
   Equal,
   Erf,
   Expand,
+  Flatten,
   Gather,
   Gemm,
   GlobalAveragePool,
@@ -101,6 +102,7 @@ union OperatorAttrs {
   ConstantOfShapeAttrs,
   ConvAttrs,
   ConvTransposeAttrs,
+  FlattenAttrs,
   GatherAttrs,
   GemmAttrs,
   LeakyReluAttrs,
@@ -178,6 +180,10 @@ table ConvAttrs {
 
 table ConvTransposeAttrs {
   strides:[uint];
+}
+
+table FlattenAttrs {
+  axis:int;
 }
 
 table GatherAttrs {

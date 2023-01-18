@@ -4,9 +4,9 @@ use flatbuffers::{FlatBufferBuilder, UnionWIPOffset, Vector, WIPOffset};
 
 use crate::ops::{
     ArgMax, ArgMin, AveragePool, BatchNormalization, Cast, Clip, Concat, ConstantOfShape, Conv,
-    ConvTranspose, CoordTransformMode, DataType, Gather, Gemm, LeakyRelu, MaxPool, NearestMode,
-    Padding, ReduceMean, Reshape, Resize, ResizeMode, Scalar, Softmax, Split, Squeeze, Transpose,
-    Unsqueeze,
+    ConvTranspose, CoordTransformMode, DataType, Flatten, Gather, Gemm, LeakyRelu, MaxPool,
+    NearestMode, Padding, ReduceMean, Reshape, Resize, ResizeMode, Scalar, Softmax, Split, Squeeze,
+    Transpose, Unsqueeze,
 };
 use crate::schema_generated as sg;
 use crate::tensor::Tensor;
@@ -29,6 +29,7 @@ pub enum OpType {
     Equal,
     Erf,
     Expand,
+    Flatten(Flatten),
     Gather(Gather),
     Gemm(Gemm),
     GlobalAveragePool,
@@ -336,6 +337,13 @@ impl<'a> ModelBuilder<'a> {
             OpType::Equal => op!(Equal),
             OpType::Erf => op!(Erf),
             OpType::Expand => op!(Expand),
+            OpType::Flatten(args) => op_with_attrs!(
+                Flatten,
+                FlattenAttrs,
+                sg::FlattenAttrsArgs {
+                    axis: args.axis as i32,
+                }
+            ),
             OpType::Gather(args) => op_with_attrs!(
                 Gather,
                 GatherAttrs,

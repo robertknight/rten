@@ -2,7 +2,7 @@
 ///! elements.
 use crate::check_dims;
 use crate::ops::binary_elementwise::broadcast_shapes;
-use crate::ops::{Input, InputList, IntoOpResult, OpError, Operator, Output};
+use crate::ops::{resolve_axis, Input, InputList, IntoOpResult, OpError, Operator, Output};
 use crate::tensor::{from_data, Tensor};
 
 pub fn expand<T: Copy>(input: &Tensor<T>, shape: &Tensor<i32>) -> Result<Tensor<T>, OpError> {
@@ -32,6 +32,61 @@ impl Operator for Expand {
         match input {
             Input::FloatTensor(input) => expand(input, shape).into_op_result(),
             Input::IntTensor(input) => expand(input, shape).into_op_result(),
+        }
+    }
+}
+
+fn flattened_shape(shape: &[usize], axis: isize) -> Result<[usize; 2], OpError> {
+    let resolved_axis = resolve_axis(shape.len(), axis)?;
+    let outer_size = shape.iter().take(resolved_axis).product();
+    let inner_size = shape.iter().skip(resolved_axis).product();
+    Ok([outer_size, inner_size])
+}
+
+pub fn flatten<T: Copy>(input: &Tensor<T>, axis: isize) -> Result<Tensor<T>, OpError> {
+    let shape = flattened_shape(input.shape(), axis)?;
+    Ok(input.clone_with_shape(&shape))
+}
+
+pub fn flatten_in_place<T: Copy>(input: &mut Tensor<T>, axis: isize) -> Result<(), OpError> {
+    let shape = flattened_shape(input.shape(), axis)?;
+    input.reshape(&shape);
+    Ok(())
+}
+
+#[derive(Debug)]
+pub struct Flatten {
+    pub axis: isize,
+}
+
+impl Operator for Flatten {
+    fn name(&self) -> &str {
+        "Flatten"
+    }
+
+    fn run(&self, inputs: InputList) -> Result<Vec<Output>, OpError> {
+        let input = inputs.require(0)?;
+
+        match input {
+            Input::FloatTensor(input) => flatten(input, self.axis).into_op_result(),
+            Input::IntTensor(input) => flatten(input, self.axis).into_op_result(),
+        }
+    }
+
+    fn can_run_in_place(&self) -> bool {
+        true
+    }
+
+    fn run_in_place(&self, input: Output, _: InputList) -> Result<Output, OpError> {
+        match input {
+            Output::IntTensor(mut output) => {
+                flatten_in_place(&mut output, self.axis)?;
+                Ok(output.into())
+            }
+            Output::FloatTensor(mut output) => {
+                flatten_in_place(&mut output, self.axis)?;
+                Ok(output.into())
+            }
         }
     }
 }
@@ -322,8 +377,8 @@ impl Operator for Unsqueeze {
 #[cfg(test)]
 mod tests {
     use crate::ops::layout::{
-        expand, reshape, reshape_in_place, squeeze, squeeze_in_place, transpose, unsqueeze,
-        InputList, Reshape, Shape,
+        expand, flatten, reshape, reshape_in_place, squeeze, squeeze_in_place, transpose,
+        unsqueeze, InputList, Reshape, Shape,
     };
     use crate::ops::{OpError, Operator};
     use crate::rng::XorShiftRNG;
@@ -380,6 +435,21 @@ mod tests {
             result.err(),
             Some(OpError::InvalidValue("shape must be a vector"))
         );
+    }
+
+    #[test]
+    fn test_flatten() {
+        let input = from_data(vec![1, 5, 1, 1], vec![1, 2, 3, 4, 5]);
+        let result = flatten(&input, 1 /* axis */).unwrap();
+        assert_eq!(result.shape(), &[1, 5]);
+
+        let input = from_data(vec![2, 3, 1, 4], (1..=24).collect());
+        let result = flatten(&input, 2 /* axis */).unwrap();
+        assert_eq!(result.shape(), &[6, 4]);
+
+        // Case when `axis` is zero, first output dim should always be 1
+        let result = flatten(&input, 0 /* axis */).unwrap();
+        assert_eq!(result.shape(), &[1, 24]);
     }
 
     #[test]

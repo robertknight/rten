@@ -530,6 +530,10 @@ def op_node_from_onnx_operator(
             op_reader.check_attr("output_padding", "ints", [0, 0, 0, 0])
             op_reader.check_attr("pads", "ints", [0, 0, 0, 0])
 
+        case "Flatten":
+            attrs = sg.FlattenAttrsT()
+            attrs.axis = op_reader.get_attr("axis", "int", 1)
+
         case "Gather":
             attrs = sg.GatherAttrsT()
             attrs.axis = op_reader.get_attr("axis", "int", 0)
