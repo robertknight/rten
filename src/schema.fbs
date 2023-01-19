@@ -236,7 +236,6 @@ table SoftmaxAttrs {
 
 table SplitAttrs {
   axis:int;
-  split:[uint];
 }
 
 table TransposeAttrs {

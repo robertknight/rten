@@ -670,7 +670,6 @@ def op_node_from_onnx_operator(
         case "Split":
             attrs = sg.SplitAttrsT()
             attrs.axis = op_reader.get_attr("axis", "int", 0)
-            attrs.split = op_reader.get_attr("split", "ints", [])
 
             op_reader.check_attr("num_outputs", "int", 0)
 

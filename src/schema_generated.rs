@@ -858,13 +858,13 @@ pub const ENUM_MIN_OPERATOR_ATTRS: u8 = 0;
     since = "2.0.0",
     note = "Use associated constants instead. This will no longer be generated in 2021."
 )]
-pub const ENUM_MAX_OPERATOR_ATTRS: u8 = 23;
+pub const ENUM_MAX_OPERATOR_ATTRS: u8 = 21;
 #[deprecated(
     since = "2.0.0",
     note = "Use associated constants instead. This will no longer be generated in 2021."
 )]
 #[allow(non_camel_case_types)]
-pub const ENUM_VALUES_OPERATOR_ATTRS: [OperatorAttrs; 24] = [
+pub const ENUM_VALUES_OPERATOR_ATTRS: [OperatorAttrs; 22] = [
     OperatorAttrs::NONE,
     OperatorAttrs::ArgMaxAttrs,
     OperatorAttrs::AveragePoolAttrs,
@@ -885,10 +885,8 @@ pub const ENUM_VALUES_OPERATOR_ATTRS: [OperatorAttrs; 24] = [
     OperatorAttrs::ReshapeAttrs,
     OperatorAttrs::ResizeAttrs,
     OperatorAttrs::SplitAttrs,
-    OperatorAttrs::SqueezeAttrs,
     OperatorAttrs::SoftmaxAttrs,
     OperatorAttrs::TransposeAttrs,
-    OperatorAttrs::UnsqueezeAttrs,
 ];
 
 #[derive(Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash, Default)]
@@ -916,13 +914,11 @@ impl OperatorAttrs {
     pub const ReshapeAttrs: Self = Self(17);
     pub const ResizeAttrs: Self = Self(18);
     pub const SplitAttrs: Self = Self(19);
-    pub const SqueezeAttrs: Self = Self(20);
-    pub const SoftmaxAttrs: Self = Self(21);
-    pub const TransposeAttrs: Self = Self(22);
-    pub const UnsqueezeAttrs: Self = Self(23);
+    pub const SoftmaxAttrs: Self = Self(20);
+    pub const TransposeAttrs: Self = Self(21);
 
     pub const ENUM_MIN: u8 = 0;
-    pub const ENUM_MAX: u8 = 23;
+    pub const ENUM_MAX: u8 = 21;
     pub const ENUM_VALUES: &'static [Self] = &[
         Self::NONE,
         Self::ArgMaxAttrs,
@@ -944,10 +940,8 @@ impl OperatorAttrs {
         Self::ReshapeAttrs,
         Self::ResizeAttrs,
         Self::SplitAttrs,
-        Self::SqueezeAttrs,
         Self::SoftmaxAttrs,
         Self::TransposeAttrs,
-        Self::UnsqueezeAttrs,
     ];
     /// Returns the variant's name or "" if unknown.
     pub fn variant_name(self) -> Option<&'static str> {
@@ -972,10 +966,8 @@ impl OperatorAttrs {
             Self::ReshapeAttrs => Some("ReshapeAttrs"),
             Self::ResizeAttrs => Some("ResizeAttrs"),
             Self::SplitAttrs => Some("SplitAttrs"),
-            Self::SqueezeAttrs => Some("SqueezeAttrs"),
             Self::SoftmaxAttrs => Some("SoftmaxAttrs"),
             Self::TransposeAttrs => Some("TransposeAttrs"),
-            Self::UnsqueezeAttrs => Some("UnsqueezeAttrs"),
             _ => None,
         }
     }
@@ -4080,7 +4072,6 @@ impl<'a> flatbuffers::Follow<'a> for SplitAttrs<'a> {
 
 impl<'a> SplitAttrs<'a> {
     pub const VT_AXIS: flatbuffers::VOffsetT = 4;
-    pub const VT_SPLIT: flatbuffers::VOffsetT = 6;
 
     #[inline]
     pub unsafe fn init_from_table(table: flatbuffers::Table<'a>) -> Self {
@@ -4089,12 +4080,9 @@ impl<'a> SplitAttrs<'a> {
     #[allow(unused_mut)]
     pub fn create<'bldr: 'args, 'args: 'mut_bldr, 'mut_bldr>(
         _fbb: &'mut_bldr mut flatbuffers::FlatBufferBuilder<'bldr>,
-        args: &'args SplitAttrsArgs<'args>,
+        args: &'args SplitAttrsArgs,
     ) -> flatbuffers::WIPOffset<SplitAttrs<'bldr>> {
         let mut builder = SplitAttrsBuilder::new(_fbb);
-        if let Some(x) = args.split {
-            builder.add_split(x);
-        }
         builder.add_axis(args.axis);
         builder.finish()
     }
@@ -4105,19 +4093,6 @@ impl<'a> SplitAttrs<'a> {
         // Created from valid Table for this object
         // which contains a valid value in this slot
         unsafe { self._tab.get::<i32>(SplitAttrs::VT_AXIS, Some(0)).unwrap() }
-    }
-    #[inline]
-    pub fn split(&self) -> Option<flatbuffers::Vector<'a, u32>> {
-        // Safety:
-        // Created from valid Table for this object
-        // which contains a valid value in this slot
-        unsafe {
-            self._tab
-                .get::<flatbuffers::ForwardsUOffset<flatbuffers::Vector<'a, u32>>>(
-                    SplitAttrs::VT_SPLIT,
-                    None,
-                )
-        }
     }
 }
 
@@ -4130,26 +4105,17 @@ impl flatbuffers::Verifiable for SplitAttrs<'_> {
         use self::flatbuffers::Verifiable;
         v.visit_table(pos)?
             .visit_field::<i32>("axis", Self::VT_AXIS, false)?
-            .visit_field::<flatbuffers::ForwardsUOffset<flatbuffers::Vector<'_, u32>>>(
-                "split",
-                Self::VT_SPLIT,
-                false,
-            )?
             .finish();
         Ok(())
     }
 }
-pub struct SplitAttrsArgs<'a> {
+pub struct SplitAttrsArgs {
     pub axis: i32,
-    pub split: Option<flatbuffers::WIPOffset<flatbuffers::Vector<'a, u32>>>,
 }
-impl<'a> Default for SplitAttrsArgs<'a> {
+impl<'a> Default for SplitAttrsArgs {
     #[inline]
     fn default() -> Self {
-        SplitAttrsArgs {
-            axis: 0,
-            split: None,
-        }
+        SplitAttrsArgs { axis: 0 }
     }
 }
 
@@ -4161,11 +4127,6 @@ impl<'a: 'b, 'b> SplitAttrsBuilder<'a, 'b> {
     #[inline]
     pub fn add_axis(&mut self, axis: i32) {
         self.fbb_.push_slot::<i32>(SplitAttrs::VT_AXIS, axis, 0);
-    }
-    #[inline]
-    pub fn add_split(&mut self, split: flatbuffers::WIPOffset<flatbuffers::Vector<'b, u32>>) {
-        self.fbb_
-            .push_slot_always::<flatbuffers::WIPOffset<_>>(SplitAttrs::VT_SPLIT, split);
     }
     #[inline]
     pub fn new(_fbb: &'b mut flatbuffers::FlatBufferBuilder<'a>) -> SplitAttrsBuilder<'a, 'b> {
@@ -4186,117 +4147,6 @@ impl core::fmt::Debug for SplitAttrs<'_> {
     fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
         let mut ds = f.debug_struct("SplitAttrs");
         ds.field("axis", &self.axis());
-        ds.field("split", &self.split());
-        ds.finish()
-    }
-}
-pub enum SqueezeAttrsOffset {}
-#[derive(Copy, Clone, PartialEq)]
-
-pub struct SqueezeAttrs<'a> {
-    pub _tab: flatbuffers::Table<'a>,
-}
-
-impl<'a> flatbuffers::Follow<'a> for SqueezeAttrs<'a> {
-    type Inner = SqueezeAttrs<'a>;
-    #[inline]
-    unsafe fn follow(buf: &'a [u8], loc: usize) -> Self::Inner {
-        Self {
-            _tab: flatbuffers::Table::new(buf, loc),
-        }
-    }
-}
-
-impl<'a> SqueezeAttrs<'a> {
-    pub const VT_AXES: flatbuffers::VOffsetT = 4;
-
-    #[inline]
-    pub unsafe fn init_from_table(table: flatbuffers::Table<'a>) -> Self {
-        SqueezeAttrs { _tab: table }
-    }
-    #[allow(unused_mut)]
-    pub fn create<'bldr: 'args, 'args: 'mut_bldr, 'mut_bldr>(
-        _fbb: &'mut_bldr mut flatbuffers::FlatBufferBuilder<'bldr>,
-        args: &'args SqueezeAttrsArgs<'args>,
-    ) -> flatbuffers::WIPOffset<SqueezeAttrs<'bldr>> {
-        let mut builder = SqueezeAttrsBuilder::new(_fbb);
-        if let Some(x) = args.axes {
-            builder.add_axes(x);
-        }
-        builder.finish()
-    }
-
-    #[inline]
-    pub fn axes(&self) -> Option<flatbuffers::Vector<'a, u32>> {
-        // Safety:
-        // Created from valid Table for this object
-        // which contains a valid value in this slot
-        unsafe {
-            self._tab
-                .get::<flatbuffers::ForwardsUOffset<flatbuffers::Vector<'a, u32>>>(
-                    SqueezeAttrs::VT_AXES,
-                    None,
-                )
-        }
-    }
-}
-
-impl flatbuffers::Verifiable for SqueezeAttrs<'_> {
-    #[inline]
-    fn run_verifier(
-        v: &mut flatbuffers::Verifier,
-        pos: usize,
-    ) -> Result<(), flatbuffers::InvalidFlatbuffer> {
-        use self::flatbuffers::Verifiable;
-        v.visit_table(pos)?
-            .visit_field::<flatbuffers::ForwardsUOffset<flatbuffers::Vector<'_, u32>>>(
-                "axes",
-                Self::VT_AXES,
-                false,
-            )?
-            .finish();
-        Ok(())
-    }
-}
-pub struct SqueezeAttrsArgs<'a> {
-    pub axes: Option<flatbuffers::WIPOffset<flatbuffers::Vector<'a, u32>>>,
-}
-impl<'a> Default for SqueezeAttrsArgs<'a> {
-    #[inline]
-    fn default() -> Self {
-        SqueezeAttrsArgs { axes: None }
-    }
-}
-
-pub struct SqueezeAttrsBuilder<'a: 'b, 'b> {
-    fbb_: &'b mut flatbuffers::FlatBufferBuilder<'a>,
-    start_: flatbuffers::WIPOffset<flatbuffers::TableUnfinishedWIPOffset>,
-}
-impl<'a: 'b, 'b> SqueezeAttrsBuilder<'a, 'b> {
-    #[inline]
-    pub fn add_axes(&mut self, axes: flatbuffers::WIPOffset<flatbuffers::Vector<'b, u32>>) {
-        self.fbb_
-            .push_slot_always::<flatbuffers::WIPOffset<_>>(SqueezeAttrs::VT_AXES, axes);
-    }
-    #[inline]
-    pub fn new(_fbb: &'b mut flatbuffers::FlatBufferBuilder<'a>) -> SqueezeAttrsBuilder<'a, 'b> {
-        let start = _fbb.start_table();
-        SqueezeAttrsBuilder {
-            fbb_: _fbb,
-            start_: start,
-        }
-    }
-    #[inline]
-    pub fn finish(self) -> flatbuffers::WIPOffset<SqueezeAttrs<'a>> {
-        let o = self.fbb_.end_table(self.start_);
-        flatbuffers::WIPOffset::new(o.value())
-    }
-}
-
-impl core::fmt::Debug for SqueezeAttrs<'_> {
-    fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
-        let mut ds = f.debug_struct("SqueezeAttrs");
-        ds.field("axes", &self.axes());
         ds.finish()
     }
 }
@@ -4407,120 +4257,6 @@ impl core::fmt::Debug for TransposeAttrs<'_> {
     fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
         let mut ds = f.debug_struct("TransposeAttrs");
         ds.field("perm", &self.perm());
-        ds.finish()
-    }
-}
-pub enum UnsqueezeAttrsOffset {}
-#[derive(Copy, Clone, PartialEq)]
-
-pub struct UnsqueezeAttrs<'a> {
-    pub _tab: flatbuffers::Table<'a>,
-}
-
-impl<'a> flatbuffers::Follow<'a> for UnsqueezeAttrs<'a> {
-    type Inner = UnsqueezeAttrs<'a>;
-    #[inline]
-    unsafe fn follow(buf: &'a [u8], loc: usize) -> Self::Inner {
-        Self {
-            _tab: flatbuffers::Table::new(buf, loc),
-        }
-    }
-}
-
-impl<'a> UnsqueezeAttrs<'a> {
-    pub const VT_AXES: flatbuffers::VOffsetT = 4;
-
-    #[inline]
-    pub unsafe fn init_from_table(table: flatbuffers::Table<'a>) -> Self {
-        UnsqueezeAttrs { _tab: table }
-    }
-    #[allow(unused_mut)]
-    pub fn create<'bldr: 'args, 'args: 'mut_bldr, 'mut_bldr>(
-        _fbb: &'mut_bldr mut flatbuffers::FlatBufferBuilder<'bldr>,
-        args: &'args UnsqueezeAttrsArgs<'args>,
-    ) -> flatbuffers::WIPOffset<UnsqueezeAttrs<'bldr>> {
-        let mut builder = UnsqueezeAttrsBuilder::new(_fbb);
-        if let Some(x) = args.axes {
-            builder.add_axes(x);
-        }
-        builder.finish()
-    }
-
-    #[inline]
-    pub fn axes(&self) -> flatbuffers::Vector<'a, u32> {
-        // Safety:
-        // Created from valid Table for this object
-        // which contains a valid value in this slot
-        unsafe {
-            self._tab
-                .get::<flatbuffers::ForwardsUOffset<flatbuffers::Vector<'a, u32>>>(
-                    UnsqueezeAttrs::VT_AXES,
-                    None,
-                )
-                .unwrap()
-        }
-    }
-}
-
-impl flatbuffers::Verifiable for UnsqueezeAttrs<'_> {
-    #[inline]
-    fn run_verifier(
-        v: &mut flatbuffers::Verifier,
-        pos: usize,
-    ) -> Result<(), flatbuffers::InvalidFlatbuffer> {
-        use self::flatbuffers::Verifiable;
-        v.visit_table(pos)?
-            .visit_field::<flatbuffers::ForwardsUOffset<flatbuffers::Vector<'_, u32>>>(
-                "axes",
-                Self::VT_AXES,
-                true,
-            )?
-            .finish();
-        Ok(())
-    }
-}
-pub struct UnsqueezeAttrsArgs<'a> {
-    pub axes: Option<flatbuffers::WIPOffset<flatbuffers::Vector<'a, u32>>>,
-}
-impl<'a> Default for UnsqueezeAttrsArgs<'a> {
-    #[inline]
-    fn default() -> Self {
-        UnsqueezeAttrsArgs {
-            axes: None, // required field
-        }
-    }
-}
-
-pub struct UnsqueezeAttrsBuilder<'a: 'b, 'b> {
-    fbb_: &'b mut flatbuffers::FlatBufferBuilder<'a>,
-    start_: flatbuffers::WIPOffset<flatbuffers::TableUnfinishedWIPOffset>,
-}
-impl<'a: 'b, 'b> UnsqueezeAttrsBuilder<'a, 'b> {
-    #[inline]
-    pub fn add_axes(&mut self, axes: flatbuffers::WIPOffset<flatbuffers::Vector<'b, u32>>) {
-        self.fbb_
-            .push_slot_always::<flatbuffers::WIPOffset<_>>(UnsqueezeAttrs::VT_AXES, axes);
-    }
-    #[inline]
-    pub fn new(_fbb: &'b mut flatbuffers::FlatBufferBuilder<'a>) -> UnsqueezeAttrsBuilder<'a, 'b> {
-        let start = _fbb.start_table();
-        UnsqueezeAttrsBuilder {
-            fbb_: _fbb,
-            start_: start,
-        }
-    }
-    #[inline]
-    pub fn finish(self) -> flatbuffers::WIPOffset<UnsqueezeAttrs<'a>> {
-        let o = self.fbb_.end_table(self.start_);
-        self.fbb_.required(o, UnsqueezeAttrs::VT_AXES, "axes");
-        flatbuffers::WIPOffset::new(o.value())
-    }
-}
-
-impl core::fmt::Debug for UnsqueezeAttrs<'_> {
-    fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
-        let mut ds = f.debug_struct("UnsqueezeAttrs");
-        ds.field("axes", &self.axes());
         ds.finish()
     }
 }
@@ -4920,21 +4656,6 @@ impl<'a> OperatorNode<'a> {
 
     #[inline]
     #[allow(non_snake_case)]
-    pub fn attrs_as_squeeze_attrs(&self) -> Option<SqueezeAttrs<'a>> {
-        if self.attrs_type() == OperatorAttrs::SqueezeAttrs {
-            self.attrs().map(|t| {
-                // Safety:
-                // Created from a valid Table for this object
-                // Which contains a valid union in this slot
-                unsafe { SqueezeAttrs::init_from_table(t) }
-            })
-        } else {
-            None
-        }
-    }
-
-    #[inline]
-    #[allow(non_snake_case)]
     pub fn attrs_as_softmax_attrs(&self) -> Option<SoftmaxAttrs<'a>> {
         if self.attrs_type() == OperatorAttrs::SoftmaxAttrs {
             self.attrs().map(|t| {
@@ -4957,21 +4678,6 @@ impl<'a> OperatorNode<'a> {
                 // Created from a valid Table for this object
                 // Which contains a valid union in this slot
                 unsafe { TransposeAttrs::init_from_table(t) }
-            })
-        } else {
-            None
-        }
-    }
-
-    #[inline]
-    #[allow(non_snake_case)]
-    pub fn attrs_as_unsqueeze_attrs(&self) -> Option<UnsqueezeAttrs<'a>> {
-        if self.attrs_type() == OperatorAttrs::UnsqueezeAttrs {
-            self.attrs().map(|t| {
-                // Safety:
-                // Created from a valid Table for this object
-                // Which contains a valid union in this slot
-                unsafe { UnsqueezeAttrs::init_from_table(t) }
             })
         } else {
             None
@@ -5009,10 +4715,8 @@ impl flatbuffers::Verifiable for OperatorNode<'_> {
           OperatorAttrs::ReshapeAttrs => v.verify_union_variant::<flatbuffers::ForwardsUOffset<ReshapeAttrs>>("OperatorAttrs::ReshapeAttrs", pos),
           OperatorAttrs::ResizeAttrs => v.verify_union_variant::<flatbuffers::ForwardsUOffset<ResizeAttrs>>("OperatorAttrs::ResizeAttrs", pos),
           OperatorAttrs::SplitAttrs => v.verify_union_variant::<flatbuffers::ForwardsUOffset<SplitAttrs>>("OperatorAttrs::SplitAttrs", pos),
-          OperatorAttrs::SqueezeAttrs => v.verify_union_variant::<flatbuffers::ForwardsUOffset<SqueezeAttrs>>("OperatorAttrs::SqueezeAttrs", pos),
           OperatorAttrs::SoftmaxAttrs => v.verify_union_variant::<flatbuffers::ForwardsUOffset<SoftmaxAttrs>>("OperatorAttrs::SoftmaxAttrs", pos),
           OperatorAttrs::TransposeAttrs => v.verify_union_variant::<flatbuffers::ForwardsUOffset<TransposeAttrs>>("OperatorAttrs::TransposeAttrs", pos),
-          OperatorAttrs::UnsqueezeAttrs => v.verify_union_variant::<flatbuffers::ForwardsUOffset<UnsqueezeAttrs>>("OperatorAttrs::UnsqueezeAttrs", pos),
           _ => Ok(()),
         }
      })?
@@ -5286,16 +4990,6 @@ impl core::fmt::Debug for OperatorNode<'_> {
                     )
                 }
             }
-            OperatorAttrs::SqueezeAttrs => {
-                if let Some(x) = self.attrs_as_squeeze_attrs() {
-                    ds.field("attrs", &x)
-                } else {
-                    ds.field(
-                        "attrs",
-                        &"InvalidFlatbuffer: Union discriminant does not match value.",
-                    )
-                }
-            }
             OperatorAttrs::SoftmaxAttrs => {
                 if let Some(x) = self.attrs_as_softmax_attrs() {
                     ds.field("attrs", &x)
@@ -5308,16 +5002,6 @@ impl core::fmt::Debug for OperatorNode<'_> {
             }
             OperatorAttrs::TransposeAttrs => {
                 if let Some(x) = self.attrs_as_transpose_attrs() {
-                    ds.field("attrs", &x)
-                } else {
-                    ds.field(
-                        "attrs",
-                        &"InvalidFlatbuffer: Union discriminant does not match value.",
-                    )
-                }
-            }
-            OperatorAttrs::UnsqueezeAttrs => {
-                if let Some(x) = self.attrs_as_unsqueeze_attrs() {
                     ds.field("attrs", &x)
                 } else {
                     ds.field(

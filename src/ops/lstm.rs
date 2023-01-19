@@ -481,7 +481,7 @@ mod tests {
     /// used by ONNX.
     fn reorder_ifco_to_iofc(x: &Tensor, dim: usize) -> Tensor {
         let size = x.shape()[dim] / 4;
-        let splits = [size; 4];
+        let splits = Tensor::from_vec(vec![size as i32; 4]);
 
         // Split input into seperate tensor for each of the gates.
         let ifco = split(x, dim as isize, &splits).expect("split failed");

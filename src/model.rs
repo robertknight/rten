@@ -340,15 +340,8 @@ fn read_softmax_op(node: &OperatorNode) -> ReadOpResult {
 
 fn read_split_op(node: &OperatorNode) -> ReadOpResult {
     let attrs = node.attrs_as_split_attrs().ok_or(ReadOpError::AttrError)?;
-
     let axis = attrs.axis() as isize;
-    let split = if let Some(split_vec) = attrs.split() {
-        split_vec.iter().map(|size| size as usize).collect()
-    } else {
-        Vec::new()
-    };
-
-    Ok(Box::new(ops::Split { axis, split }))
+    Ok(Box::new(ops::Split { axis }))
 }
 
 fn read_transpose_op(node: &OperatorNode) -> ReadOpResult {
@@ -545,6 +538,7 @@ mod tests {
     use crate::model_builder::{ModelBuilder, OpType};
     use crate::ops;
     use crate::ops::{CoordTransformMode, NearestMode, OpError, Padding, ResizeMode, Scalar};
+    use crate::tensor;
     use crate::tensor::{from_data, from_scalar, from_vec, TensorLayout};
 
     fn generate_model_buffer() -> Vec<u8> {
@@ -790,15 +784,13 @@ mod tests {
         add_operator!(Sqrt, [input_node]);
         add_operator!(Squeeze, [input_node]);
 
+        let split_splits = builder.add_int_constant(&tensor!([1, 2]));
         let split_out_1 = builder.add_value("Split_out_1");
         let split_out_2 = builder.add_value("Split_out_2");
         builder.add_operator(
             "Split",
-            OpType::Split(ops::Split {
-                axis: 1,
-                split: vec![1, 2],
-            }),
-            &[input_2d].map(Some),
+            OpType::Split(ops::Split { axis: 1 }),
+            &[input_2d, split_splits].map(Some),
             &[split_out_1, split_out_2],
         );
 

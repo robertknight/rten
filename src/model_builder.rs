@@ -432,10 +432,8 @@ impl<'a> ModelBuilder<'a> {
                 }
             ),
             OpType::Split(args) => op_with_attrs!(Split, SplitAttrs, {
-                let split = self.create_vec(Some(args.split), |size| size as u32);
                 sg::SplitAttrsArgs {
                     axis: args.axis as i32,
-                    split,
                 }
             }),
             OpType::Sqrt => op!(Sqrt),

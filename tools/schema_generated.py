@@ -112,10 +112,8 @@ class OperatorAttrs(object):
     ReshapeAttrs = 17
     ResizeAttrs = 18
     SplitAttrs = 19
-    SqueezeAttrs = 20
-    SoftmaxAttrs = 21
-    TransposeAttrs = 22
-    UnsqueezeAttrs = 23
+    SoftmaxAttrs = 20
+    TransposeAttrs = 21
 
 def OperatorAttrsCreator(unionType, table):
     from flatbuffers.table import Table
@@ -159,14 +157,10 @@ def OperatorAttrsCreator(unionType, table):
         return ResizeAttrsT.InitFromBuf(table.Bytes, table.Pos)
     if unionType == OperatorAttrs().SplitAttrs:
         return SplitAttrsT.InitFromBuf(table.Bytes, table.Pos)
-    if unionType == OperatorAttrs().SqueezeAttrs:
-        return SqueezeAttrsT.InitFromBuf(table.Bytes, table.Pos)
     if unionType == OperatorAttrs().SoftmaxAttrs:
         return SoftmaxAttrsT.InitFromBuf(table.Bytes, table.Pos)
     if unionType == OperatorAttrs().TransposeAttrs:
         return TransposeAttrsT.InitFromBuf(table.Bytes, table.Pos)
-    if unionType == OperatorAttrs().UnsqueezeAttrs:
-        return UnsqueezeAttrsT.InitFromBuf(table.Bytes, table.Pos)
     return None
 
 
@@ -2340,50 +2334,16 @@ class SplitAttrs(object):
             return self._tab.Get(flatbuffers.number_types.Int32Flags, o + self._tab.Pos)
         return 0
 
-    # SplitAttrs
-    def Split(self, j):
-        o = flatbuffers.number_types.UOffsetTFlags.py_type(self._tab.Offset(6))
-        if o != 0:
-            a = self._tab.Vector(o)
-            return self._tab.Get(flatbuffers.number_types.Uint32Flags, a + flatbuffers.number_types.UOffsetTFlags.py_type(j * 4))
-        return 0
-
-    # SplitAttrs
-    def SplitAsNumpy(self):
-        o = flatbuffers.number_types.UOffsetTFlags.py_type(self._tab.Offset(6))
-        if o != 0:
-            return self._tab.GetVectorAsNumpy(flatbuffers.number_types.Uint32Flags, o)
-        return 0
-
-    # SplitAttrs
-    def SplitLength(self):
-        o = flatbuffers.number_types.UOffsetTFlags.py_type(self._tab.Offset(6))
-        if o != 0:
-            return self._tab.VectorLen(o)
-        return 0
-
-    # SplitAttrs
-    def SplitIsNone(self):
-        o = flatbuffers.number_types.UOffsetTFlags.py_type(self._tab.Offset(6))
-        return o == 0
-
-def SplitAttrsStart(builder): builder.StartObject(2)
+def SplitAttrsStart(builder): builder.StartObject(1)
 def SplitAttrsAddAxis(builder, axis): builder.PrependInt32Slot(0, axis, 0)
-def SplitAttrsAddSplit(builder, split): builder.PrependUOffsetTRelativeSlot(1, flatbuffers.number_types.UOffsetTFlags.py_type(split), 0)
-def SplitAttrsStartSplitVector(builder, numElems): return builder.StartVector(4, numElems, 4)
 def SplitAttrsEnd(builder): return builder.EndObject()
 
-try:
-    from typing import List
-except:
-    pass
 
 class SplitAttrsT(object):
 
     # SplitAttrsT
     def __init__(self):
         self.axis = 0  # type: int
-        self.split = None  # type: List[int]
 
     @classmethod
     def InitFromBuf(cls, buf, pos):
@@ -2407,141 +2367,13 @@ class SplitAttrsT(object):
         if splitAttrs is None:
             return
         self.axis = splitAttrs.Axis()
-        if not splitAttrs.SplitIsNone():
-            if np is None:
-                self.split = []
-                for i in range(splitAttrs.SplitLength()):
-                    self.split.append(splitAttrs.Split(i))
-            else:
-                self.split = splitAttrs.SplitAsNumpy()
 
     # SplitAttrsT
     def Pack(self, builder):
-        if self.split is not None:
-            if np is not None and type(self.split) is np.ndarray:
-                split = builder.CreateNumpyVector(self.split)
-            else:
-                SplitAttrsStartSplitVector(builder, len(self.split))
-                for i in reversed(range(len(self.split))):
-                    builder.PrependUint32(self.split[i])
-                split = builder.EndVector()
         SplitAttrsStart(builder)
         SplitAttrsAddAxis(builder, self.axis)
-        if self.split is not None:
-            SplitAttrsAddSplit(builder, split)
         splitAttrs = SplitAttrsEnd(builder)
         return splitAttrs
-
-
-class SqueezeAttrs(object):
-    __slots__ = ['_tab']
-
-    @classmethod
-    def GetRootAs(cls, buf, offset=0):
-        n = flatbuffers.encode.Get(flatbuffers.packer.uoffset, buf, offset)
-        x = SqueezeAttrs()
-        x.Init(buf, n + offset)
-        return x
-
-    @classmethod
-    def GetRootAsSqueezeAttrs(cls, buf, offset=0):
-        """This method is deprecated. Please switch to GetRootAs."""
-        return cls.GetRootAs(buf, offset)
-    @classmethod
-    def SqueezeAttrsBufferHasIdentifier(cls, buf, offset, size_prefixed=False):
-        return flatbuffers.util.BufferHasIdentifier(buf, offset, b"\x4D\x4F\x44\x4C", size_prefixed=size_prefixed)
-
-    # SqueezeAttrs
-    def Init(self, buf, pos):
-        self._tab = flatbuffers.table.Table(buf, pos)
-
-    # SqueezeAttrs
-    def Axes(self, j):
-        o = flatbuffers.number_types.UOffsetTFlags.py_type(self._tab.Offset(4))
-        if o != 0:
-            a = self._tab.Vector(o)
-            return self._tab.Get(flatbuffers.number_types.Uint32Flags, a + flatbuffers.number_types.UOffsetTFlags.py_type(j * 4))
-        return 0
-
-    # SqueezeAttrs
-    def AxesAsNumpy(self):
-        o = flatbuffers.number_types.UOffsetTFlags.py_type(self._tab.Offset(4))
-        if o != 0:
-            return self._tab.GetVectorAsNumpy(flatbuffers.number_types.Uint32Flags, o)
-        return 0
-
-    # SqueezeAttrs
-    def AxesLength(self):
-        o = flatbuffers.number_types.UOffsetTFlags.py_type(self._tab.Offset(4))
-        if o != 0:
-            return self._tab.VectorLen(o)
-        return 0
-
-    # SqueezeAttrs
-    def AxesIsNone(self):
-        o = flatbuffers.number_types.UOffsetTFlags.py_type(self._tab.Offset(4))
-        return o == 0
-
-def SqueezeAttrsStart(builder): builder.StartObject(1)
-def SqueezeAttrsAddAxes(builder, axes): builder.PrependUOffsetTRelativeSlot(0, flatbuffers.number_types.UOffsetTFlags.py_type(axes), 0)
-def SqueezeAttrsStartAxesVector(builder, numElems): return builder.StartVector(4, numElems, 4)
-def SqueezeAttrsEnd(builder): return builder.EndObject()
-
-try:
-    from typing import List
-except:
-    pass
-
-class SqueezeAttrsT(object):
-
-    # SqueezeAttrsT
-    def __init__(self):
-        self.axes = None  # type: List[int]
-
-    @classmethod
-    def InitFromBuf(cls, buf, pos):
-        squeezeAttrs = SqueezeAttrs()
-        squeezeAttrs.Init(buf, pos)
-        return cls.InitFromObj(squeezeAttrs)
-
-    @classmethod
-    def InitFromPackedBuf(cls, buf, pos=0):
-        n = flatbuffers.encode.Get(flatbuffers.packer.uoffset, buf, pos)
-        return cls.InitFromBuf(buf, pos+n)
-
-    @classmethod
-    def InitFromObj(cls, squeezeAttrs):
-        x = SqueezeAttrsT()
-        x._UnPack(squeezeAttrs)
-        return x
-
-    # SqueezeAttrsT
-    def _UnPack(self, squeezeAttrs):
-        if squeezeAttrs is None:
-            return
-        if not squeezeAttrs.AxesIsNone():
-            if np is None:
-                self.axes = []
-                for i in range(squeezeAttrs.AxesLength()):
-                    self.axes.append(squeezeAttrs.Axes(i))
-            else:
-                self.axes = squeezeAttrs.AxesAsNumpy()
-
-    # SqueezeAttrsT
-    def Pack(self, builder):
-        if self.axes is not None:
-            if np is not None and type(self.axes) is np.ndarray:
-                axes = builder.CreateNumpyVector(self.axes)
-            else:
-                SqueezeAttrsStartAxesVector(builder, len(self.axes))
-                for i in reversed(range(len(self.axes))):
-                    builder.PrependUint32(self.axes[i])
-                axes = builder.EndVector()
-        SqueezeAttrsStart(builder)
-        if self.axes is not None:
-            SqueezeAttrsAddAxes(builder, axes)
-        squeezeAttrs = SqueezeAttrsEnd(builder)
-        return squeezeAttrs
 
 
 class TransposeAttrs(object):
@@ -2653,117 +2485,6 @@ class TransposeAttrsT(object):
             TransposeAttrsAddPerm(builder, perm)
         transposeAttrs = TransposeAttrsEnd(builder)
         return transposeAttrs
-
-
-class UnsqueezeAttrs(object):
-    __slots__ = ['_tab']
-
-    @classmethod
-    def GetRootAs(cls, buf, offset=0):
-        n = flatbuffers.encode.Get(flatbuffers.packer.uoffset, buf, offset)
-        x = UnsqueezeAttrs()
-        x.Init(buf, n + offset)
-        return x
-
-    @classmethod
-    def GetRootAsUnsqueezeAttrs(cls, buf, offset=0):
-        """This method is deprecated. Please switch to GetRootAs."""
-        return cls.GetRootAs(buf, offset)
-    @classmethod
-    def UnsqueezeAttrsBufferHasIdentifier(cls, buf, offset, size_prefixed=False):
-        return flatbuffers.util.BufferHasIdentifier(buf, offset, b"\x4D\x4F\x44\x4C", size_prefixed=size_prefixed)
-
-    # UnsqueezeAttrs
-    def Init(self, buf, pos):
-        self._tab = flatbuffers.table.Table(buf, pos)
-
-    # UnsqueezeAttrs
-    def Axes(self, j):
-        o = flatbuffers.number_types.UOffsetTFlags.py_type(self._tab.Offset(4))
-        if o != 0:
-            a = self._tab.Vector(o)
-            return self._tab.Get(flatbuffers.number_types.Uint32Flags, a + flatbuffers.number_types.UOffsetTFlags.py_type(j * 4))
-        return 0
-
-    # UnsqueezeAttrs
-    def AxesAsNumpy(self):
-        o = flatbuffers.number_types.UOffsetTFlags.py_type(self._tab.Offset(4))
-        if o != 0:
-            return self._tab.GetVectorAsNumpy(flatbuffers.number_types.Uint32Flags, o)
-        return 0
-
-    # UnsqueezeAttrs
-    def AxesLength(self):
-        o = flatbuffers.number_types.UOffsetTFlags.py_type(self._tab.Offset(4))
-        if o != 0:
-            return self._tab.VectorLen(o)
-        return 0
-
-    # UnsqueezeAttrs
-    def AxesIsNone(self):
-        o = flatbuffers.number_types.UOffsetTFlags.py_type(self._tab.Offset(4))
-        return o == 0
-
-def UnsqueezeAttrsStart(builder): builder.StartObject(1)
-def UnsqueezeAttrsAddAxes(builder, axes): builder.PrependUOffsetTRelativeSlot(0, flatbuffers.number_types.UOffsetTFlags.py_type(axes), 0)
-def UnsqueezeAttrsStartAxesVector(builder, numElems): return builder.StartVector(4, numElems, 4)
-def UnsqueezeAttrsEnd(builder): return builder.EndObject()
-
-try:
-    from typing import List
-except:
-    pass
-
-class UnsqueezeAttrsT(object):
-
-    # UnsqueezeAttrsT
-    def __init__(self):
-        self.axes = None  # type: List[int]
-
-    @classmethod
-    def InitFromBuf(cls, buf, pos):
-        unsqueezeAttrs = UnsqueezeAttrs()
-        unsqueezeAttrs.Init(buf, pos)
-        return cls.InitFromObj(unsqueezeAttrs)
-
-    @classmethod
-    def InitFromPackedBuf(cls, buf, pos=0):
-        n = flatbuffers.encode.Get(flatbuffers.packer.uoffset, buf, pos)
-        return cls.InitFromBuf(buf, pos+n)
-
-    @classmethod
-    def InitFromObj(cls, unsqueezeAttrs):
-        x = UnsqueezeAttrsT()
-        x._UnPack(unsqueezeAttrs)
-        return x
-
-    # UnsqueezeAttrsT
-    def _UnPack(self, unsqueezeAttrs):
-        if unsqueezeAttrs is None:
-            return
-        if not unsqueezeAttrs.AxesIsNone():
-            if np is None:
-                self.axes = []
-                for i in range(unsqueezeAttrs.AxesLength()):
-                    self.axes.append(unsqueezeAttrs.Axes(i))
-            else:
-                self.axes = unsqueezeAttrs.AxesAsNumpy()
-
-    # UnsqueezeAttrsT
-    def Pack(self, builder):
-        if self.axes is not None:
-            if np is not None and type(self.axes) is np.ndarray:
-                axes = builder.CreateNumpyVector(self.axes)
-            else:
-                UnsqueezeAttrsStartAxesVector(builder, len(self.axes))
-                for i in reversed(range(len(self.axes))):
-                    builder.PrependUint32(self.axes[i])
-                axes = builder.EndVector()
-        UnsqueezeAttrsStart(builder)
-        if self.axes is not None:
-            UnsqueezeAttrsAddAxes(builder, axes)
-        unsqueezeAttrs = UnsqueezeAttrsEnd(builder)
-        return unsqueezeAttrs
 
 
 class OperatorNode(object):
@@ -2887,7 +2608,7 @@ class OperatorNodeT(object):
     def __init__(self):
         self.type = 0  # type: int
         self.attrsType = 0  # type: int
-        self.attrs = None  # type: Union[None, ArgMaxAttrsT, AveragePoolAttrsT, BatchNormalizationAttrsT, CastAttrsT, ClipAttrsT, ConcatAttrsT, ConstantOfShapeAttrsT, ConvAttrsT, ConvTransposeAttrsT, FlattenAttrsT, GatherAttrsT, GemmAttrsT, LeakyReluAttrsT, LSTMAttrsT, MaxPoolAttrsT, ReduceMeanAttrsT, ReshapeAttrsT, ResizeAttrsT, SplitAttrsT, SqueezeAttrsT, SoftmaxAttrsT, TransposeAttrsT, UnsqueezeAttrsT]
+        self.attrs = None  # type: Union[None, ArgMaxAttrsT, AveragePoolAttrsT, BatchNormalizationAttrsT, CastAttrsT, ClipAttrsT, ConcatAttrsT, ConstantOfShapeAttrsT, ConvAttrsT, ConvTransposeAttrsT, FlattenAttrsT, GatherAttrsT, GemmAttrsT, LeakyReluAttrsT, LSTMAttrsT, MaxPoolAttrsT, ReduceMeanAttrsT, ReshapeAttrsT, ResizeAttrsT, SplitAttrsT, SoftmaxAttrsT, TransposeAttrsT]
         self.inputs = None  # type: List[int]
         self.outputs = None  # type: List[int]
 
