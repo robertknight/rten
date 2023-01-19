@@ -14,18 +14,22 @@ use crate::tensor::{Tensor, TensorLayout};
 ///
 /// Returns an `(out_h, out_w, [pad_top, pad_left, pad_bottom, pad_right])`
 /// tuple.
+///
+/// Returns an error if the padded input size is too small for the kernel
+/// size.
 pub fn calc_output_size_and_padding(
     in_size: (usize, usize),
     kernel_size: (usize, usize),
     strides: (usize, usize),
     padding: Padding,
-) -> (usize, usize, [usize; 4]) {
+) -> Result<(usize, usize, [usize; 4]), OpError> {
     let (in_h, in_w) = in_size;
     let (k_h, k_w) = kernel_size;
     let (stride_h, stride_w) = strides;
 
-    assert!(in_h >= k_h);
-    assert!(in_w >= k_w);
+    if stride_h == 0 || stride_w == 0 {
+        return Err(OpError::InvalidValue("Stride must be > 0"));
+    }
 
     let (out_h, out_w, padding) = match padding {
         Padding::Same => {
@@ -47,12 +51,17 @@ pub fn calc_output_size_and_padding(
             (out_h, out_w, [pad_top, pad_left, pad_bottom, pad_right])
         }
         Padding::Fixed([pad_top, pad_left, pad_bottom, pad_right]) => {
-            let out_h = (in_h + pad_top + pad_bottom - k_h) / stride_h + 1;
-            let out_w = (in_w + pad_left + pad_right - k_w) / stride_w + 1;
+            let padded_in_h = in_h + pad_top + pad_bottom;
+            let padded_in_w = in_w + pad_left + pad_right;
+            if padded_in_h < k_h || padded_in_w < k_w {
+                return Err(OpError::InvalidValue("Input too small for kernel size"));
+            }
+            let out_h = (padded_in_h - k_h) / stride_h + 1;
+            let out_w = (padded_in_w - k_w) / stride_w + 1;
             (out_h, out_w, [pad_top, pad_left, pad_bottom, pad_right])
         }
     };
-    (out_h, out_w, padding)
+    Ok((out_h, out_w, padding))
 }
 
 pub fn average_pool(
@@ -69,7 +78,7 @@ pub fn average_pool(
         (kernel_size[0], kernel_size[1]),
         (strides[0], strides[1]),
         padding,
-    );
+    )?;
     let [pad_top, pad_left, _pad_bottom, _pad_right] = fixed_padding;
     let [kernel_h, kernel_w] = kernel_size;
     let [stride_h, stride_w] = strides;
@@ -181,7 +190,7 @@ pub fn max_pool(
         (kernel_size[0], kernel_size[1]),
         (strides[0], strides[1]),
         padding,
-    );
+    )?;
     let [pad_top, pad_left, _pad_bottom, _pad_right] = fixed_padding;
     let [kernel_h, kernel_w] = kernel_size;
     let [stride_h, stride_w] = strides;

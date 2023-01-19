@@ -44,18 +44,13 @@ fn im2col(
     end_chan: usize,
     padding: [usize; 4],
     strides: [usize; 2],
+    out_hw: [usize; 2],
 ) {
     let [_, out_w] = output.dims();
     let [_, _, in_h, in_w] = input.dims();
     let [pad_top, pad_left, _pad_bottom, _pad_right] = padding;
     let [stride_h, stride_w] = strides;
-
-    let (y_patches, x_patches, _) = calc_output_size_and_padding(
-        (in_h, in_w),
-        (patch_h, patch_w),
-        (stride_h, stride_w),
-        Padding::Fixed(padding),
-    );
+    let [y_patches, x_patches] = out_hw;
     let n_chans = end_chan - start_chan;
 
     for c in 0..n_chans {
@@ -171,17 +166,13 @@ fn conv_2d_depthwise(
     bias: Option<&Tensor>,
     padding: [usize; 4],
     strides: [usize; 2],
+    out_hw: [usize; 2],
 ) -> Tensor {
     let [batch, in_c, in_h, in_w] = input.dims();
     let [out_c, _, k_h, k_w] = kernel.dims();
     let [pad_top, pad_left, _pad_bottom, _pad_right] = padding;
     let [stride_h, stride_w] = strides;
-    let (out_h, out_w, _) = calc_output_size_and_padding(
-        (in_h, in_w),
-        (k_h, k_w),
-        (stride_h, stride_w),
-        Padding::Fixed(padding),
-    );
+    let [out_h, out_w] = out_hw;
 
     let mut output = if let Some(bias) = bias {
         init_tensor_with_channel_bias(&[batch, out_c, out_h, out_w], 1, bias)
@@ -275,7 +266,7 @@ pub fn conv(
     let [out_c, k_in_c, k_h, k_w] = kernel.dims();
     let [stride_h, stride_w] = strides;
     let (out_h, out_w, fixed_padding) =
-        calc_output_size_and_padding((in_h, in_w), (k_h, k_w), (stride_h, stride_w), padding);
+        calc_output_size_and_padding((in_h, in_w), (k_h, k_w), (stride_h, stride_w), padding)?;
 
     let [pad_top, pad_left, pad_bottom, pad_right] = fixed_padding;
 
@@ -307,6 +298,7 @@ pub fn conv(
             bias,
             fixed_padding,
             strides,
+            [out_h, out_w],
         ));
     }
 
@@ -338,6 +330,7 @@ pub fn conv(
                 in_chan_end,
                 fixed_padding,
                 strides,
+                [out_h, out_w],
             );
 
             let kernel_mat = kernel
@@ -485,7 +478,7 @@ impl Operator for ConvTranspose {
 #[cfg(test)]
 mod tests {
     use crate::ops::pooling::calc_output_size_and_padding;
-    use crate::ops::{conv, conv_transpose, Conv, InputList, Operator, Padding};
+    use crate::ops::{conv, conv_transpose, Conv, InputList, OpError, Operator, Padding};
     use crate::rng::XorShiftRng;
     use crate::tensor::{from_data, rand, zeros, Tensor, TensorLayout};
     use crate::test_util::expect_equal;
@@ -507,7 +500,8 @@ mod tests {
             (k_h, k_w),
             (stride_h, stride_w),
             Padding::Fixed(padding),
-        );
+        )
+        .expect("Input too small");
         let [pad_top, pad_left, _pad_bottom, _pad_right] = padding;
 
         let in_channels_per_group = in_chans / groups;
@@ -972,6 +966,48 @@ mod tests {
         }
 
         Ok(())
+    }
+
+    #[test]
+    fn test_conv_input_too_small() {
+        let mut rng = XorShiftRng::new(1234);
+        let input = rand(&[1, 1, 2, 2], &mut rng);
+        let kernel = rand(&[1, 1, 3, 3], &mut rng);
+
+        let result = conv(
+            &input,
+            &kernel,
+            None,
+            Padding::Fixed([0; 4]),
+            1,      /* groups */
+            [1, 1], /* stride */
+        );
+
+        assert_eq!(
+            result.err(),
+            Some(OpError::InvalidValue("Input too small for kernel size"))
+        );
+    }
+
+    #[test]
+    fn test_conv_zero_stride() {
+        let mut rng = XorShiftRng::new(1234);
+        let input = rand(&[1, 1, 2, 2], &mut rng);
+        let kernel = rand(&[1, 1, 2, 2], &mut rng);
+
+        let result = conv(
+            &input,
+            &kernel,
+            None,
+            Padding::Fixed([0; 4]),
+            1,      /* groups */
+            [0, 0], /* stride */
+        );
+
+        assert_eq!(
+            result.err(),
+            Some(OpError::InvalidValue("Stride must be > 0"))
+        );
     }
 
     #[test]
