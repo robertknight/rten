@@ -826,15 +826,13 @@ def build_operator_node(builder: flatbuffers.Builder, operator: OperatorNode):
     Serialize an operator into a FlatBuffers model.
     """
 
-    attr_const_name = operator.op_type + "Attrs"
-    if hasattr(sg.OperatorAttrs, attr_const_name):
-        attrs_type = getattr(sg.OperatorAttrs, attr_const_name)
-        if not operator.attrs:
-            raise ValueError(f"Expected operator {operator.op_type} to have attributes")
+    if operator.attrs:
+        # Given an `operator.attrs` which is an instance of `SomeOpAttrsT`,
+        # find the `sg.OperatorAttrs.SomeOpAttrs` constant.
+        attrs_const_name = operator.attrs.__class__.__name__[:-1]
+        attrs_type = getattr(sg.OperatorAttrs, attrs_const_name)
     else:
         attrs_type = sg.OperatorAttrs.NONE
-        if operator.attrs:
-            raise ValueError(f"Expected operator {operator.op_type} NOT to have attributes")
 
     operator_table = sg.OperatorNodeT()
     operator_table.type = getattr(sg.OperatorType, operator.op_type)
