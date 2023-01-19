@@ -155,22 +155,26 @@ pub fn resize(
     coord_mode: CoordTransformMode,
     nearest_mode: NearestMode,
 ) -> Result<Tensor, OpError> {
-    let scales = match target {
-        ResizeTarget::Scales(s) => s.clone(),
+    let sizes = match target {
+        ResizeTarget::Scales(scales) => {
+            check_dims!(scales, 1);
+            zip(input.shape().iter(), scales.elements())
+                .map(|(&in_size, scale)| ((in_size as f32) * scale).floor() as i32)
+                .collect()
+        }
         ResizeTarget::Sizes(sizes) => {
-            // TODO - Check sizes shape is correct
-            let scales = zip(input.shape().iter(), sizes.elements())
-                .map(|(&in_size, out_size)| (out_size as f32) / (in_size) as f32)
-                .collect();
-            Tensor::from_vec(scales)
+            check_dims!(sizes, 1);
+            sizes.clone()
         }
     };
 
-    check_dims!(scales, 1);
-    if scales.len() != input.ndim() {
+    if sizes.len() != input.ndim() {
         return Err(OpError::IncompatibleInputShapes(
-            "scales length should equal input rank",
+            "scales/sizes length should equal input rank",
         ));
+    }
+    if sizes.elements().any(|size| size < 0) {
+        return Err(OpError::InvalidValue("scales/sizes must be positive"));
     }
 
     // The current implementation only supports NCHW tensors with scale factors
@@ -180,18 +184,17 @@ pub fn resize(
     }
     let [batch, chans, height, width] = input.dims();
 
-    let scales_valid = (0..input.ndim())
-        .all(|dim| dim == input.ndim() - 1 || dim == input.ndim() - 2 || scales[[dim]] == 1.);
-    if !scales_valid {
+    let sizes_valid = zip(0..input.ndim(), input.shape().iter()).all(|(dim, &in_size)| {
+        dim == input.ndim() - 1 || dim == input.ndim() - 2 || sizes[[dim]] == in_size as i32
+    });
+    if !sizes_valid {
         return Err(OpError::UnsupportedValue(
             "only height and width dimensions can be resized",
         ));
     }
 
-    let out_shape: Vec<_> = zip(input.shape().iter(), scales.elements())
-        .map(|(&size, scale)| ((size as f32) * scale) as usize)
-        .collect();
-    let mut output = Tensor::zeros(out_shape.as_slice());
+    let sizes_usize: Vec<_> = sizes.elements().map(|size| size as usize).collect();
+    let mut output = Tensor::zeros(&sizes_usize);
 
     if output.is_empty() {
         return Ok(output);
@@ -552,77 +555,40 @@ mod tests {
     }
 
     #[test]
-    fn test_resize_invalid_inputs() {
-        struct Case {
-            image: Tensor,
-            scales: Tensor,
-            expected: OpError,
-        }
-
-        let cases = [
-            Case {
-                image: Tensor::from_vec(vec![1., 1.]),
-                scales: Tensor::from_vec(vec![1.]),
-                expected: OpError::UnsupportedValue("input must be an NCHW tensor"),
-            },
-            Case {
-                image: Tensor::from_data(vec![1, 1, 2, 2], vec![0.2, 0.7, 0.3, 0.8]),
-                scales: Tensor::from_data(vec![1, 1, 2, 2], vec![1., 1., 3., 3.]),
-                expected: OpError::InvalidValue("scales must be a vector"),
-            },
-            Case {
-                image: Tensor::from_data(vec![1, 1, 2, 2], vec![0.2, 0.7, 0.3, 0.8]),
-                scales: Tensor::from_vec(vec![3., 3.]),
-                expected: OpError::IncompatibleInputShapes("scales length should equal input rank"),
-            },
-            Case {
-                image: Tensor::from_data(vec![1, 1, 2, 2], vec![0.2, 0.7, 0.3, 0.8]),
-                scales: Tensor::from_vec(vec![2., 1., 3., 3.]),
-                expected: OpError::UnsupportedValue(
-                    "only height and width dimensions can be resized",
-                ),
-            },
-        ];
-
-        for case in cases {
-            let result = resize(
-                &case.image,
-                ResizeTarget::Scales(&case.scales),
-                ResizeMode::Linear,
-                CoordTransformMode::HalfPixel,
-                NearestMode::Floor,
-            );
-            assert_eq!(result.err(), Some(case.expected));
-        }
-    }
-
-    #[test]
     fn test_resize_scales_sizes() {
+        enum CaseOutput {
+            Shape(Vec<usize>),
+            Error(OpError),
+        }
+
         struct Case {
             image: Tensor,
             scales: Option<Tensor>,
             sizes: Option<Tensor<i32>>,
-            expected: Option<OpError>,
+            expected: CaseOutput,
         }
 
         let cases = [
+            // Specify output size via `scales`
             Case {
                 image: Tensor::from_data(vec![1, 1, 1, 1], vec![1.]),
                 scales: Some(Tensor::from_vec(vec![1., 1., 1., 1.])),
                 sizes: None,
-                expected: None,
+                expected: CaseOutput::Shape(vec![1, 1, 1, 1]),
             },
+            // Specify output size via `sizes`
             Case {
                 image: Tensor::from_data(vec![1, 1, 1, 1], vec![1.]),
                 scales: None,
                 sizes: Some(Tensor::from_vec(vec![1, 1, 2, 2])),
-                expected: None,
+                expected: CaseOutput::Shape(vec![1, 1, 2, 2]),
             },
+            // At least one of `scales` or `sizes` must be provided
             Case {
                 image: Tensor::from_data(vec![1, 1, 1, 1], vec![1.]),
                 scales: None,
                 sizes: None,
-                expected: Some(OpError::MissingInputs),
+                expected: CaseOutput::Error(OpError::MissingInputs),
             },
             // Test empty tensors are also treated as missing inputs, for
             // compatibility with PyTorch targeting ONNX opset < 13.
@@ -630,7 +596,46 @@ mod tests {
                 image: Tensor::from_data(vec![1, 1, 1, 1], vec![1.]),
                 scales: Some(Tensor::from_vec(vec![])),
                 sizes: Some(Tensor::from_vec(vec![])),
-                expected: Some(OpError::MissingInputs),
+                expected: CaseOutput::Error(OpError::MissingInputs),
+            },
+            // Invalid values for scales/sizes
+            Case {
+                image: Tensor::from_data(vec![1, 1, 1, 1], vec![1.]),
+                scales: Some(Tensor::from_vec(vec![1., 1., 1.])),
+                sizes: None,
+                expected: CaseOutput::Error(OpError::IncompatibleInputShapes(
+                    "scales/sizes length should equal input rank",
+                )),
+            },
+            Case {
+                image: Tensor::from_data(vec![1, 1, 1, 1], vec![1.]),
+                scales: Some(Tensor::from_vec(vec![1., 1., -1., 1.])),
+                sizes: None,
+                expected: CaseOutput::Error(OpError::InvalidValue("scales/sizes must be positive")),
+            },
+            Case {
+                image: Tensor::from_data(vec![1, 1, 2, 2], vec![0.2, 0.7, 0.3, 0.8]),
+                scales: Some(Tensor::from_data(vec![1, 1, 2, 2], vec![1., 1., 3., 3.])),
+                sizes: None,
+                expected: CaseOutput::Error(OpError::InvalidValue("scales must be a vector")),
+            },
+            // Values for scales/sizes and input shapes which are legal according to the spec,
+            // but not currently supported in our implementation.
+            Case {
+                image: Tensor::from_data(vec![1, 1, 2, 2], vec![0.2, 0.7, 0.3, 0.8]),
+                scales: Some(Tensor::from_vec(vec![2., 1., 3., 3.])),
+                sizes: None,
+                expected: CaseOutput::Error(OpError::UnsupportedValue(
+                    "only height and width dimensions can be resized",
+                )),
+            },
+            Case {
+                image: Tensor::from_vec(vec![1., 1.]),
+                scales: Some(Tensor::from_vec(vec![1.])),
+                sizes: None,
+                expected: CaseOutput::Error(OpError::UnsupportedValue(
+                    "input must be an NCHW tensor",
+                )),
             },
         ];
 
@@ -646,7 +651,21 @@ mod tests {
                 case.sizes.as_ref().map(|t| t.into()),
             ];
             let result = op.run(InputList::from_optional(&inputs));
-            assert_eq!(result.err(), case.expected);
+            match (case.expected, result) {
+                (CaseOutput::Shape(shape), Ok(out)) => {
+                    let tensor = out[0].as_float_ref().unwrap();
+                    assert_eq!(tensor.shape(), &shape);
+                }
+                (CaseOutput::Error(expected_err), Err(err)) => {
+                    assert_eq!(err, expected_err);
+                }
+                (CaseOutput::Shape(_), Err(err)) => {
+                    panic!("Expected output but got error {:?}", err);
+                }
+                (CaseOutput::Error(_), Ok(_)) => {
+                    panic!("Expected error but got output");
+                }
+            }
         }
     }
 }
