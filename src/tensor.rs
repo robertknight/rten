@@ -734,6 +734,16 @@ impl<T: Copy> Clone for Tensor<T> {
     }
 }
 
+impl<T: Copy> FromIterator<T> for Tensor<T> {
+    fn from_iter<I>(iter: I) -> Self
+    where
+        I: IntoIterator<Item = T>,
+    {
+        let data: Vec<_> = FromIterator::from_iter(iter);
+        Tensor::from_vec(data)
+    }
+}
+
 impl<I: TensorIndex, T: Copy> Index<I> for Tensor<T> {
     type Output = T;
     fn index(&self, index: I) -> &Self::Output {
@@ -1461,6 +1471,13 @@ mod tests {
         let x = from_vec(vec![1, 2, 3]);
         assert_eq!(x.shape(), &[3]);
         assert_eq!(x.data(), &[1, 2, 3]);
+    }
+
+    #[test]
+    fn test_from_iterator() {
+        let x: Tensor<i32> = FromIterator::from_iter(0..10);
+        assert_eq!(x.shape(), &[10]);
+        assert_eq!(x.data(), &[0, 1, 2, 3, 4, 5, 6, 7, 8, 9]);
     }
 
     #[test]
