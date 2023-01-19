@@ -218,12 +218,22 @@ class ONNXOperatorReader:
             if input_val is None:
                 raise Exception(f'Input node nor found or not a constant for "{name}"')
 
-            # This function currently only supports extracting scalars from
-            # constants, but we could also supports lists as well here.
-            scalar = input_val.get_scalar()
-            if scalar is None:
-                raise Exception(f'Input for "{name}" is not a scalar')
-            return scalar
+            match expected_type:
+                case "int" | "float":
+                    # This function currently only supports extracting scalars from
+                    # constants, but we could also supports lists as well here.
+                    scalar = input_val.get_scalar()
+                    if scalar is None:
+                        raise Exception(f'Input for "{name}" is not a scalar')
+                    return scalar
+                case "ints":
+                    if input_val.data.typecode != "i":
+                        raise Exception("Incorrect constant input type")
+                    return list(input_val.data)
+                case _:
+                    raise Exception(
+                        f"Unsupported type for get_attr_or_input {expected_type}"
+                    )
 
         if val is None:
             return default
@@ -666,7 +676,9 @@ def op_node_from_onnx_operator(
 
         case "Squeeze":
             attrs = sg.SqueezeAttrsT()
-            attrs.axes = op_reader.get_attr("axes", "ints", [])
+            attrs.axes = op_reader.get_attr_or_input(
+                "axes", "ints", 1, constant_nodes, []
+            )
 
         case "Transpose":
             attrs = sg.TransposeAttrsT()
@@ -674,7 +686,9 @@ def op_node_from_onnx_operator(
 
         case "Unsqueeze":
             attrs = sg.UnsqueezeAttrsT()
-            attrs.axes = op_reader.get_attr("axes", "ints", [])
+            attrs.axes = op_reader.get_attr_or_input(
+                "axes", "ints", 1, constant_nodes, []
+            )
 
     if not hasattr(sg.OperatorType, op_type):
         raise Exception(f"Unsupported operator {op_type}")
