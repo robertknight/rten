@@ -185,15 +185,16 @@ class ONNXOperatorReader:
             raise Exception(f"Missing required attribute {name}")
         return val
 
-    def require_attr_or_input(
+    def get_attr_or_input(
         self,
         name: str,
         expected_type: str,
         input_index: int,
         constant_nodes: dict[str, ConstantNode],
+        default,
     ):
         """
-        Get the value of a required operator attribute or input.
+        Get the value of an optional operator attribute or input.
 
         Some operator inputs changed from attributes to inputs in different ONNX
         releases. This function will look up the value for the input from both
@@ -209,8 +210,11 @@ class ONNXOperatorReader:
         :param constant_nodes: Map of all the constant values in the model
         """
         val = self.get_attr(name, expected_type, None)
-        if val is None and len(self.onnx_op.input) > input_index:
-            input_val = constant_nodes.get(self.onnx_op.input[input_index])
+        inputs = self.onnx_op.input
+        input_name = inputs[input_index] if len(inputs) > input_index else None
+
+        if val is None and input_name:
+            input_val = constant_nodes.get(input_name)
             if input_val is None:
                 raise Exception(f'Input node nor found or not a constant for "{name}"')
 
@@ -222,8 +226,28 @@ class ONNXOperatorReader:
             return scalar
 
         if val is None:
+            return default
+        else:
+            return val
+
+    def require_attr_or_input(
+        self,
+        name: str,
+        expected_type: str,
+        input_index: int,
+        constant_nodes: dict[str, ConstantNode],
+    ):
+        """
+        Get the value of a required operator attribute or input.
+
+        This is like `get_attr_or_input` but either the attribute or input must
+        exist.
+        """
+        val = self.get_attr_or_input(
+            name, expected_type, input_index, constant_nodes, default=None
+        )
+        if val is None:
             raise Exception(f'Missing required attribute or input "{name}"')
-        return val
 
     def check_attr(self, name: str, expected_type, default):
         """Check if an operator has an unsupported non-default value for an attribute."""
@@ -460,12 +484,20 @@ def op_node_from_onnx_operator(
                     raise Exception(f"Unsupported target type for cast {to}")
 
         case "Clip":
+            # Min and max values for floats. These correspond to
+            # `numeric_limits<float>::lowest()` and `numeric_limits<float>::max()`
+            # which are referenced in the spec [1]
+            #
+            # [1] https://onnx.ai/onnx/operators/onnx__Clip.html#clip-13
+            MIN_F32 = -3.40282347e38
+            MAX_F32 = 3.40282347e38
+
             attrs = sg.ClipAttrsT()
-            attrs.min = op_reader.require_attr_or_input(
-                "min", "float", 1, constant_nodes
+            attrs.min = op_reader.get_attr_or_input(
+                "min", "float", 1, constant_nodes, default=MIN_F32
             )
-            attrs.max = op_reader.require_attr_or_input(
-                "max", "float", 2, constant_nodes
+            attrs.max = op_reader.get_attr_or_input(
+                "max", "float", 2, constant_nodes, default=MAX_F32
             )
 
         case "Concat":
