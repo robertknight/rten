@@ -3,7 +3,53 @@ use crate::ops::layout::squeeze_in_place;
 use crate::ops::{
     resolve_axes, resolve_axis, Input, InputList, IntoOpResult, OpError, Operator, Output,
 };
-use crate::tensor::{IndexIterator, SliceRange, Tensor};
+use crate::tensor::{IndexIterator, Offsets, SliceRange, Tensor};
+
+/// Iterator over slices of a tensor along a target dimension of size N.
+///
+/// Conceptually this iterator steps through every distinct slice of a tensor
+/// where a target dim is varied from 0..N and other indices are held fixed.
+struct DimSlices<'a, T: Copy> {
+    tensor: &'a Tensor<T>,
+    slice_start_offsets: Offsets,
+    dim_size: usize,
+    dim_stride: usize,
+}
+
+impl<'a, T: Copy> DimSlices<'a, T> {
+    /// Create a DimSlices iterator which yields all possible slices over
+    /// the `dim` dimension of `tensor`.
+    fn new(tensor: &'a Tensor<T>, dim: usize) -> DimSlices<'a, T> {
+        let slice_starts: Vec<SliceRange> = (0..tensor.ndim())
+            .map(|i| {
+                if i == dim {
+                    (0..1).into()
+                } else {
+                    (0..(tensor.shape()[i] as isize)).into()
+                }
+            })
+            .collect();
+        DimSlices {
+            tensor,
+            slice_start_offsets: tensor.slice_offsets(&slice_starts),
+            dim_size: tensor.shape()[dim],
+            dim_stride: tensor.stride(dim),
+        }
+    }
+
+    /// Yield the next slice over the target dimension.
+    fn next(&mut self) -> Option<impl ExactSizeIterator<Item = T> + 'a> {
+        self.slice_start_offsets.next().map(|offset| {
+            self.tensor
+                .data()
+                .iter()
+                .copied()
+                .skip(offset)
+                .step_by(self.dim_stride)
+                .take(self.dim_size)
+        })
+    }
+}
 
 /// Compute the indices of the max elements along an axis, according to a
 /// comparison function `compare`.
@@ -28,32 +74,11 @@ fn index_select<T: Copy, Cmp: Fn(T, T) -> bool>(
         .collect();
     let mut reduced_data = Vec::with_capacity(reduced_shape.iter().product());
 
-    let outer_range: Vec<_> = (0..input.ndim())
-        .map(|dim| {
-            if resolved_axis == dim {
-                0..1
-            } else {
-                0..input.shape()[dim]
-            }
-        })
-        .collect();
-
-    let mut outer_iter = IndexIterator::from_ranges(&outer_range);
-
     if !input.is_empty() {
-        while let Some(index) = outer_iter.next() {
-            let stride = input.stride(resolved_axis);
-            let size = input.shape()[resolved_axis];
-            let offset = input.offset(index);
-
-            let (index, _) = input
-                .data()
-                .iter()
-                .copied()
-                .skip(offset)
-                .step_by(stride)
+        let mut slice_iter = DimSlices::new(input, resolved_axis);
+        while let Some(slice) = slice_iter.next() {
+            let (index, _) = slice
                 .enumerate()
-                .take(size)
                 .fold(None, |acc, (i, val)| match acc {
                     Some((_index, max_val)) => {
                         if compare(val, max_val) {
@@ -64,8 +89,7 @@ fn index_select<T: Copy, Cmp: Fn(T, T) -> bool>(
                     }
                     None => Some((i, val)),
                 })
-                .unwrap(); // OK because we checked tensor is not empty.
-
+                .unwrap(); // Ok because we checked tensor is not empty.
             reduced_data.push(index as i32);
         }
     }
@@ -134,41 +158,16 @@ pub fn cum_sum<T: Copy + Identities + std::ops::AddAssign>(
     axis: isize,
 ) -> Result<Tensor<T>, OpError> {
     let resolved_axis = resolve_axis(input.ndim(), axis)?;
-
-    let outer_range: Vec<_> = (0..input.ndim())
-        .map(|dim| {
-            if resolved_axis == dim {
-                0..1
-            } else {
-                0..input.shape()[dim]
-            }
-        })
-        .collect();
-
-    let mut outer_iter = IndexIterator::from_ranges(&outer_range);
     let mut out_data = Vec::with_capacity(input.len());
 
     if !input.is_empty() {
-        while let Some(index) = outer_iter.next() {
-            let stride = input.stride(resolved_axis);
-            let size = input.shape()[resolved_axis];
-            let offset = input.offset(index);
-
+        let mut slice_iter = DimSlices::new(input, resolved_axis);
+        while let Some(slice) = slice_iter.next() {
             let mut cum_sum = T::zero();
-
-            out_data.extend(
-                input
-                    .data()
-                    .iter()
-                    .copied()
-                    .skip(offset)
-                    .step_by(stride)
-                    .take(size)
-                    .map(|val| {
-                        cum_sum += val;
-                        cum_sum
-                    }),
-            );
+            out_data.extend(slice.map(|val| {
+                cum_sum += val;
+                cum_sum
+            }));
         }
     }
 
@@ -262,40 +261,25 @@ fn reduce<T: Copy + Default, R: Reducer<T>>(
             );
         }
         _ => {
-            let outer_range: Vec<_> = (0..input.ndim())
-                .map(|dim| {
-                    if resolved_axes.contains(&dim) {
-                        0..1
-                    } else {
-                        0..input.shape()[dim]
-                    }
-                })
-                .collect();
-
-            let mut outer_iter = IndexIterator::from_ranges(&outer_range);
-
             if resolved_axes.len() == 1 {
                 // Fast path for reducing a single axis.
                 let resolved_axis = resolved_axes[0];
-                while let Some(index) = outer_iter.next() {
-                    let stride = input.stride(resolved_axis);
-                    let size = input.shape()[resolved_axis];
-                    let offset = input.offset(index);
-
-                    reduced_data.push(
-                        reducer.reduce(
-                            input
-                                .data()
-                                .iter()
-                                .copied()
-                                .skip(offset)
-                                .step_by(stride)
-                                .take(size),
-                        ),
-                    );
+                let mut slice_iter = DimSlices::new(input, resolved_axis);
+                while let Some(slice) = slice_iter.next() {
+                    reduced_data.push(reducer.reduce(slice));
                 }
             } else {
                 // Slow case when we have to step through each index
+                let outer_range: Vec<_> = (0..input.ndim())
+                    .map(|dim| {
+                        if resolved_axes.contains(&dim) {
+                            0..1
+                        } else {
+                            0..input.shape()[dim]
+                        }
+                    })
+                    .collect();
+                let mut outer_iter = IndexIterator::from_ranges(&outer_range);
                 let mut inner_range = Vec::with_capacity(input.ndim());
                 while let Some(index) = outer_iter.next() {
                     inner_range.clear();
