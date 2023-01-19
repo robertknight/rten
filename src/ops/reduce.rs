@@ -270,9 +270,43 @@ impl Operator for ReduceMean {
     }
 }
 
+pub fn reduce_l2(input: &Tensor, axes: Option<&[i32]>, keep_dims: bool) -> Result<Tensor, OpError> {
+    struct L2Reducer {}
+    impl Reducer<f32> for L2Reducer {
+        fn reduce<I: ExactSizeIterator<Item = f32>>(&self, iter: I) -> f32 {
+            let sum_of_squares: f32 = iter.map(|val| val * val).sum();
+            sum_of_squares.sqrt()
+        }
+    }
+
+    reduce(input, axes, keep_dims, L2Reducer {})
+}
+
+#[derive(Debug)]
+pub struct ReduceL2 {
+    pub axes: Option<Vec<i32>>,
+    pub keep_dims: bool,
+}
+
+impl Operator for ReduceL2 {
+    fn name(&self) -> &str {
+        "ReduceL2"
+    }
+
+    fn run(&self, inputs: InputList) -> Result<Vec<Output>, OpError> {
+        let input = inputs.require_as(0)?;
+        reduce_l2(
+            input,
+            self.axes.as_ref().map(|axis| &axis[..]),
+            self.keep_dims,
+        )
+        .into_op_result()
+    }
+}
+
 #[cfg(test)]
 mod tests {
-    use crate::ops::{arg_max, arg_min, reduce_mean, OpError};
+    use crate::ops::{arg_max, arg_min, reduce_l2, reduce_mean, OpError};
     use crate::tensor::{from_data, from_scalar, from_vec};
     use crate::test_util::expect_equal;
 
@@ -333,6 +367,31 @@ mod tests {
         let probs = from_vec(vec![0.1, 0.5, 0.2, 0.9, 0.01, 0.6]);
         let class = arg_min(&probs, 0, false /* keep_dims */).unwrap();
         assert_eq!(class.item(), Some(4));
+    }
+
+    #[test]
+    fn test_reduce_l2() -> Result<(), String> {
+        let input = from_data(vec![3, 2, 2], (1..=12).map(|i| i as f32).collect());
+        let expected = from_data(
+            vec![3, 2],
+            vec![
+                2.23606798,
+                5.,
+                7.81024968,
+                10.63014581,
+                13.45362405,
+                16.2788206,
+            ],
+        );
+
+        let result = reduce_l2(&input, Some(&[2]), false /* keep_dims */).unwrap();
+        expect_equal(&result, &expected)?;
+
+        let result = reduce_l2(&input, Some(&[2]), true /* keep_dims */).unwrap();
+        let expected = expected.clone_with_shape(&[3, 2, 1]);
+        expect_equal(&result, &expected)?;
+
+        Ok(())
     }
 
     #[test]

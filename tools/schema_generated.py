@@ -38,22 +38,23 @@ class OperatorType(object):
     Pow = 28
     Range = 29
     ReduceMean = 30
-    Relu = 31
-    Reshape = 32
-    Resize = 33
-    Shape = 34
-    Sigmoid = 35
-    Sin = 36
-    Slice = 37
-    Split = 38
-    Sqrt = 39
-    Squeeze = 40
-    Softmax = 41
-    Sub = 42
-    Tanh = 43
-    Transpose = 44
-    Unsqueeze = 45
-    Where = 46
+    ReduceL2 = 31
+    Relu = 32
+    Reshape = 33
+    Resize = 34
+    Shape = 35
+    Sigmoid = 36
+    Sin = 37
+    Slice = 38
+    Split = 39
+    Sqrt = 40
+    Squeeze = 41
+    Softmax = 42
+    Sub = 43
+    Tanh = 44
+    Transpose = 45
+    Unsqueeze = 46
+    Where = 47
 
 
 class LSTMDirection(object):
