@@ -273,19 +273,42 @@ fn reduce<T: Copy + Default, R: Reducer<T>>(
                 .collect();
 
             let mut outer_iter = IndexIterator::from_ranges(&outer_range);
-            let mut inner_range = Vec::with_capacity(input.ndim());
 
-            while let Some(index) = outer_iter.next() {
-                inner_range.clear();
-                inner_range.extend(index.iter().enumerate().map(|(dim, &idx)| {
-                    if resolved_axes.contains(&dim) {
-                        SliceRange::new(0, input.shape()[dim] as isize, 1)
-                    } else {
-                        SliceRange::new(idx as isize, idx as isize + 1, 1)
-                    }
-                }));
-                let reduced = reducer.reduce(input.slice_elements(&inner_range));
-                reduced_data.push(reduced);
+            if resolved_axes.len() == 1 {
+                // Fast path for reducing a single axis.
+                let resolved_axis = resolved_axes[0];
+                while let Some(index) = outer_iter.next() {
+                    let stride = input.stride(resolved_axis);
+                    let size = input.shape()[resolved_axis];
+                    let offset = input.offset(index);
+
+                    reduced_data.push(
+                        reducer.reduce(
+                            input
+                                .data()
+                                .iter()
+                                .copied()
+                                .skip(offset)
+                                .step_by(stride)
+                                .take(size),
+                        ),
+                    );
+                }
+            } else {
+                // Slow case when we have to step through each index
+                let mut inner_range = Vec::with_capacity(input.ndim());
+                while let Some(index) = outer_iter.next() {
+                    inner_range.clear();
+                    inner_range.extend(index.iter().enumerate().map(|(dim, &idx)| {
+                        if resolved_axes.contains(&dim) {
+                            SliceRange::new(0, input.shape()[dim] as isize, 1)
+                        } else {
+                            SliceRange::new(idx as isize, idx as isize + 1, 1)
+                        }
+                    }));
+                    let reduced = reducer.reduce(input.slice_elements(&inner_range));
+                    reduced_data.push(reduced);
+                }
             }
         }
     }
