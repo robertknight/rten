@@ -401,6 +401,7 @@ fn read_operator(node: &OperatorNode) -> ReadOpResult {
         OperatorType::ConstantOfShape => read_constant_of_shape_op(node),
         OperatorType::ConvTranspose => read_conv_transpose_op(node),
         OperatorType::Cos => op!(Cos),
+        OperatorType::CumSum => op!(CumSum),
         OperatorType::Div => op!(Div),
         OperatorType::Equal => op!(Equal),
         OperatorType::Erf => op!(Erf),

@@ -1,5 +1,8 @@
+use crate::number::Identities;
 use crate::ops::layout::squeeze_in_place;
-use crate::ops::{resolve_axes, resolve_axis, InputList, IntoOpResult, OpError, Operator, Output};
+use crate::ops::{
+    resolve_axes, resolve_axis, Input, InputList, IntoOpResult, OpError, Operator, Output,
+};
 use crate::tensor::{IndexIterator, SliceRange, Tensor};
 
 /// Compute the indices of the max elements along an axis, according to a
@@ -123,6 +126,70 @@ impl Operator for ArgMin {
     fn run(&self, inputs: InputList) -> Result<Vec<Output>, OpError> {
         let input = inputs.require_as::<f32>(0)?;
         arg_min(input, self.axis, self.keep_dims).into_op_result()
+    }
+}
+
+pub fn cum_sum<T: Copy + Identities + std::ops::AddAssign>(
+    input: &Tensor<T>,
+    axis: isize,
+) -> Result<Tensor<T>, OpError> {
+    let resolved_axis = resolve_axis(input.ndim(), axis)?;
+
+    let outer_range: Vec<_> = (0..input.ndim())
+        .map(|dim| {
+            if resolved_axis == dim {
+                0..1
+            } else {
+                0..input.shape()[dim]
+            }
+        })
+        .collect();
+
+    let mut outer_iter = IndexIterator::from_ranges(&outer_range);
+    let mut out_data = Vec::with_capacity(input.len());
+
+    if !input.is_empty() {
+        while let Some(index) = outer_iter.next() {
+            let stride = input.stride(resolved_axis);
+            let size = input.shape()[resolved_axis];
+            let offset = input.offset(index);
+
+            let mut cum_sum = T::zero();
+
+            out_data.extend(
+                input
+                    .data()
+                    .iter()
+                    .copied()
+                    .skip(offset)
+                    .step_by(stride)
+                    .take(size)
+                    .map(|val| {
+                        cum_sum += val;
+                        cum_sum
+                    }),
+            );
+        }
+    }
+
+    Ok(Tensor::from_data(input.shape().into(), out_data))
+}
+
+#[derive(Debug)]
+pub struct CumSum {}
+
+impl Operator for CumSum {
+    fn name(&self) -> &str {
+        "CumSum"
+    }
+
+    fn run(&self, inputs: InputList) -> Result<Vec<Output>, OpError> {
+        let input = inputs.require(0)?;
+        let axis: i32 = inputs.require_as_scalar(1)?;
+        match input {
+            Input::IntTensor(input) => cum_sum(input, axis as isize).into_op_result(),
+            Input::FloatTensor(input) => cum_sum(input, axis as isize).into_op_result(),
+        }
     }
 }
 
@@ -306,8 +373,8 @@ impl Operator for ReduceL2 {
 
 #[cfg(test)]
 mod tests {
-    use crate::ops::{arg_max, arg_min, reduce_l2, reduce_mean, OpError};
-    use crate::tensor::{from_data, from_scalar, from_vec};
+    use crate::ops::{arg_max, arg_min, cum_sum, reduce_l2, reduce_mean, OpError};
+    use crate::tensor::{from_data, from_scalar, from_vec, Tensor};
     use crate::test_util::expect_equal;
 
     #[test]
@@ -367,6 +434,28 @@ mod tests {
         let probs = from_vec(vec![0.1, 0.5, 0.2, 0.9, 0.01, 0.6]);
         let class = arg_min(&probs, 0, false /* keep_dims */).unwrap();
         assert_eq!(class.item(), Some(4));
+    }
+
+    #[test]
+    fn test_cum_sum() {
+        let elements = from_vec((0..=5).collect());
+        let sums = cum_sum(&elements, 0).unwrap();
+        assert_eq!(sums.shape(), &[6]);
+        assert_eq!(sums.elements_vec(), &[0, 1, 3, 6, 10, 15]);
+
+        let elements = from_data(vec![2, 4], (0..4).chain(0..4).collect());
+        let sums = cum_sum(&elements, 1).unwrap();
+        assert_eq!(sums.shape(), &[2, 4]);
+        assert_eq!(sums.elements_vec(), &[0, 1, 3, 6, 0, 1, 3, 6]);
+
+        let sums = cum_sum(&elements, 0).unwrap();
+        assert_eq!(sums.shape(), &[2, 4]);
+        assert_eq!(sums.elements_vec(), &[0, 0, 1, 2, 2, 4, 3, 6]);
+
+        let elements: Tensor<f32> = from_vec(vec![]);
+        let sums = cum_sum(&elements, 0).unwrap();
+        assert_eq!(sums.shape(), &[0]);
+        assert_eq!(sums.elements_vec(), &[] as &[f32]);
     }
 
     #[test]

@@ -45,7 +45,9 @@ pub use norm::{batch_norm, batch_norm_in_place, softmax, BatchNormalization, Sof
 pub use pad::{pad, Pad};
 pub use pooling::{average_pool, global_average_pool, max_pool};
 pub use pooling::{AveragePool, GlobalAveragePool, MaxPool};
-pub use reduce::{arg_max, arg_min, reduce_l2, reduce_mean, ArgMax, ArgMin, ReduceL2, ReduceMean};
+pub use reduce::{
+    arg_max, arg_min, cum_sum, reduce_l2, reduce_mean, ArgMax, ArgMin, CumSum, ReduceL2, ReduceMean,
+};
 pub use resize::{resize, CoordTransformMode, NearestMode, Resize, ResizeMode, ResizeTarget};
 pub use slice::{slice, slice_in_place, Slice};
 pub use split::{split, Split};

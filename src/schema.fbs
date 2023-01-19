@@ -19,6 +19,7 @@ enum OperatorType: byte {
   Conv,
   ConvTranspose,
   Cos,
+  CumSum,
   Div,
   Equal,
   Erf,

@@ -18,13 +18,13 @@ pub const ENUM_MIN_OPERATOR_TYPE: i8 = 0;
     since = "2.0.0",
     note = "Use associated constants instead. This will no longer be generated in 2021."
 )]
-pub const ENUM_MAX_OPERATOR_TYPE: i8 = 47;
+pub const ENUM_MAX_OPERATOR_TYPE: i8 = 48;
 #[deprecated(
     since = "2.0.0",
     note = "Use associated constants instead. This will no longer be generated in 2021."
 )]
 #[allow(non_camel_case_types)]
-pub const ENUM_VALUES_OPERATOR_TYPE: [OperatorType; 48] = [
+pub const ENUM_VALUES_OPERATOR_TYPE: [OperatorType; 49] = [
     OperatorType::Add,
     OperatorType::ArgMin,
     OperatorType::ArgMax,
@@ -37,6 +37,7 @@ pub const ENUM_VALUES_OPERATOR_TYPE: [OperatorType; 48] = [
     OperatorType::Conv,
     OperatorType::ConvTranspose,
     OperatorType::Cos,
+    OperatorType::CumSum,
     OperatorType::Div,
     OperatorType::Equal,
     OperatorType::Erf,
@@ -92,45 +93,46 @@ impl OperatorType {
     pub const Conv: Self = Self(9);
     pub const ConvTranspose: Self = Self(10);
     pub const Cos: Self = Self(11);
-    pub const Div: Self = Self(12);
-    pub const Equal: Self = Self(13);
-    pub const Erf: Self = Self(14);
-    pub const Expand: Self = Self(15);
-    pub const Flatten: Self = Self(16);
-    pub const Gather: Self = Self(17);
-    pub const Gemm: Self = Self(18);
-    pub const GlobalAveragePool: Self = Self(19);
-    pub const Identity: Self = Self(20);
-    pub const LeakyRelu: Self = Self(21);
-    pub const Less: Self = Self(22);
-    pub const LSTM: Self = Self(23);
-    pub const MatMul: Self = Self(24);
-    pub const MaxPool: Self = Self(25);
-    pub const Mul: Self = Self(26);
-    pub const Pad: Self = Self(27);
-    pub const Pow: Self = Self(28);
-    pub const Range: Self = Self(29);
-    pub const ReduceMean: Self = Self(30);
-    pub const ReduceL2: Self = Self(31);
-    pub const Relu: Self = Self(32);
-    pub const Reshape: Self = Self(33);
-    pub const Resize: Self = Self(34);
-    pub const Shape: Self = Self(35);
-    pub const Sigmoid: Self = Self(36);
-    pub const Sin: Self = Self(37);
-    pub const Slice: Self = Self(38);
-    pub const Split: Self = Self(39);
-    pub const Sqrt: Self = Self(40);
-    pub const Squeeze: Self = Self(41);
-    pub const Softmax: Self = Self(42);
-    pub const Sub: Self = Self(43);
-    pub const Tanh: Self = Self(44);
-    pub const Transpose: Self = Self(45);
-    pub const Unsqueeze: Self = Self(46);
-    pub const Where: Self = Self(47);
+    pub const CumSum: Self = Self(12);
+    pub const Div: Self = Self(13);
+    pub const Equal: Self = Self(14);
+    pub const Erf: Self = Self(15);
+    pub const Expand: Self = Self(16);
+    pub const Flatten: Self = Self(17);
+    pub const Gather: Self = Self(18);
+    pub const Gemm: Self = Self(19);
+    pub const GlobalAveragePool: Self = Self(20);
+    pub const Identity: Self = Self(21);
+    pub const LeakyRelu: Self = Self(22);
+    pub const Less: Self = Self(23);
+    pub const LSTM: Self = Self(24);
+    pub const MatMul: Self = Self(25);
+    pub const MaxPool: Self = Self(26);
+    pub const Mul: Self = Self(27);
+    pub const Pad: Self = Self(28);
+    pub const Pow: Self = Self(29);
+    pub const Range: Self = Self(30);
+    pub const ReduceMean: Self = Self(31);
+    pub const ReduceL2: Self = Self(32);
+    pub const Relu: Self = Self(33);
+    pub const Reshape: Self = Self(34);
+    pub const Resize: Self = Self(35);
+    pub const Shape: Self = Self(36);
+    pub const Sigmoid: Self = Self(37);
+    pub const Sin: Self = Self(38);
+    pub const Slice: Self = Self(39);
+    pub const Split: Self = Self(40);
+    pub const Sqrt: Self = Self(41);
+    pub const Squeeze: Self = Self(42);
+    pub const Softmax: Self = Self(43);
+    pub const Sub: Self = Self(44);
+    pub const Tanh: Self = Self(45);
+    pub const Transpose: Self = Self(46);
+    pub const Unsqueeze: Self = Self(47);
+    pub const Where: Self = Self(48);
 
     pub const ENUM_MIN: i8 = 0;
-    pub const ENUM_MAX: i8 = 47;
+    pub const ENUM_MAX: i8 = 48;
     pub const ENUM_VALUES: &'static [Self] = &[
         Self::Add,
         Self::ArgMin,
@@ -144,6 +146,7 @@ impl OperatorType {
         Self::Conv,
         Self::ConvTranspose,
         Self::Cos,
+        Self::CumSum,
         Self::Div,
         Self::Equal,
         Self::Erf,
@@ -196,6 +199,7 @@ impl OperatorType {
             Self::Conv => Some("Conv"),
             Self::ConvTranspose => Some("ConvTranspose"),
             Self::Cos => Some("Cos"),
+            Self::CumSum => Some("CumSum"),
             Self::Div => Some("Div"),
             Self::Equal => Some("Equal"),
             Self::Erf => Some("Erf"),
