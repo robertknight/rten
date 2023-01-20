@@ -155,6 +155,144 @@ where
     }
 }
 
+#[derive(Clone, Debug)]
+struct Layout {
+    /// The size of each dimension of the array
+    shape: Vec<usize>,
+
+    /// The stride of each dimension of the array
+    strides: Vec<usize>,
+}
+
+impl Layout {
+    fn new(shape: &[usize]) -> Layout {
+        Layout {
+            shape: shape.into(),
+            strides: strides_for_shape(shape),
+        }
+    }
+
+    fn len(&self) -> usize {
+        self.shape.iter().product()
+    }
+
+    fn is_empty(&self) -> bool {
+        self.len() == 0
+    }
+
+    fn ndim(&self) -> usize {
+        self.shape.len()
+    }
+
+    fn shape(&self) -> &[usize] {
+        &self.shape
+    }
+
+    fn stride(&self, dim: usize) -> usize {
+        self.strides[dim]
+    }
+
+    fn resize_dim(&mut self, dim: usize, new_size: usize) {
+        self.shape[dim] = new_size;
+    }
+
+    fn is_contiguous(&self) -> bool {
+        let mut product = 1;
+        for (dim, len) in self.shape.iter().enumerate().rev() {
+            if self.strides[dim] != product {
+                return false;
+            }
+            product *= len;
+        }
+        true
+    }
+
+    fn make_contiguous(&mut self) {
+        self.strides = strides_for_shape(&self.shape);
+    }
+
+    fn can_broadcast_to(&self, shape: &[usize]) -> bool {
+        if self.shape == shape {
+            return true;
+        } else if self.ndim() > shape.len() {
+            return false;
+        }
+
+        // For two shapes to be compatible for broadcasting, each dimension must
+        // either be the same or be 1.
+        //
+        // If the tensor has fewer dimensions, pretend that it was prefixed with
+        // 1-length dimensions to make the dimension counts equal.
+        let self_dims = self.shape.iter().copied();
+        let target_dims = shape[shape.len() - self.shape.len()..].iter().copied();
+
+        zip(self_dims, target_dims).all(|(a, b)| a == b || a == 1)
+    }
+
+    fn can_broadcast_with(&self, shape: &[usize]) -> bool {
+        if self.shape == shape {
+            return true;
+        }
+
+        // For two shapes to be compatible for broadcasting, each dimension must
+        // either be the same or be 1.
+        //
+        // If the tensor has fewer dimensions, pretend that it was prefixed with
+        // 1-length dimensions to make the dimension counts equal.
+
+        let a = self.shape.as_slice();
+        let b = shape;
+
+        let a_pad = b.len().saturating_sub(a.len());
+        let b_pad = a.len().saturating_sub(b.len());
+
+        let a_iter = a.iter().copied().rev().chain(repeat(1).take(a_pad));
+        let b_iter = b.iter().copied().rev().chain(repeat(1).take(b_pad));
+
+        zip(a_iter, b_iter).all(|(a, b)| a == b || a == 1 || b == 1)
+    }
+
+    fn permute(&mut self, dims: &[usize]) {
+        if dims.len() != self.ndim() {
+            panic!("Permute dims length does not match dimension count");
+        }
+        self.strides = dims.iter().map(|&dim| self.strides[dim]).collect();
+        self.shape = dims.iter().map(|&dim| self.shape[dim]).collect();
+    }
+
+    fn offset<Idx: TensorIndex>(&self, index: Idx) -> usize {
+        let shape = &self.shape;
+        assert!(
+            shape.len() == index.len(),
+            "Cannot access {} dim tensor with {} dim index",
+            shape.len(),
+            index.len()
+        );
+        let mut offset = 0;
+        for i in 0..index.len() {
+            assert!(
+                index.index(i) < self.shape[i],
+                "Invalid index {} for dim {}",
+                index.index(i),
+                i
+            );
+            offset += index.index(i) * self.stride(i)
+        }
+        offset
+    }
+
+    pub fn dims<const N: usize>(&self) -> [usize; N] {
+        if self.ndim() != N {
+            panic!(
+                "Cannot extract {} dim tensor as {} dim array",
+                self.ndim(),
+                N
+            );
+        }
+        self.shape[..].try_into().unwrap()
+    }
+}
+
 /// Tensor is the core n-dimensional array type used for inputs, outputs and
 /// intermediate values when executing an ML graph.
 #[derive(Debug)]
@@ -166,11 +304,7 @@ pub struct Tensor<T: Copy = f32> {
     /// will be changed if the tensor is sliced.
     base: usize,
 
-    /// The size of each dimension of the array
-    shape: Vec<usize>,
-
-    /// The stride of each dimension of the array
-    strides: Vec<usize>,
+    layout: Layout,
 }
 
 /// Trait for indexing a `Tensor`
@@ -210,12 +344,10 @@ impl<T: Copy> Tensor<T> {
     {
         let n_elts = shape.iter().product();
         let data = vec![T::default(); n_elts];
-        let strides = strides_for_shape(shape);
         Tensor {
             data,
             base: 0,
-            shape: shape.into(),
-            strides,
+            layout: Layout::new(shape),
         }
     }
 
@@ -229,12 +361,10 @@ impl<T: Copy> Tensor<T> {
                 data.len()
             );
         }
-        let strides = strides_for_shape(&shape);
         Tensor {
             data,
             base: 0,
-            shape,
-            strides,
+            layout: Layout::new(&shape),
         }
     }
 
@@ -273,8 +403,7 @@ impl<T: Copy> Tensor<T> {
         Tensor {
             data,
             base: 0,
-            shape: self.shape.clone(),
-            strides: self.strides.clone(),
+            layout: self.layout.clone(),
         }
     }
 
@@ -294,23 +423,23 @@ impl<T: Copy> Tensor<T> {
     /// The returned iterator does not implement the `Iterator` trait but has
     /// a similar API. See `IndexIterator` docs.
     pub fn indices(&self) -> IndexIterator {
-        IndexIterator::from_shape(&self.shape)
+        IndexIterator::from_shape(self.shape())
     }
 
     /// Return the total number of elements in this tensor.
     pub fn len(&self) -> usize {
-        self.shape.iter().product()
+        self.layout.len()
     }
 
     /// Return true if this tensor has no elements.
     pub fn is_empty(&self) -> bool {
-        self.len() == 0
+        self.layout.is_empty()
     }
 
     /// Return the number of dimensions the tensor has, aka. the rank of the
     /// tensor.
     pub fn ndim(&self) -> usize {
-        self.shape.len()
+        self.layout.ndim()
     }
 
     /// Clip dimension `dim` to `[range.start, range.end)`. The new size for
@@ -322,10 +451,10 @@ impl<T: Copy> Tensor<T> {
         let (start, end) = (range.start, range.end);
 
         assert!(start <= end, "start must be <= end");
-        assert!(end <= self.shape[dim], "end must be <= dim size");
+        assert!(end <= self.shape()[dim], "end must be <= dim size");
 
-        self.base += self.strides[dim] * start;
-        self.shape[dim] = end - start;
+        self.base += self.layout.stride(dim) * start;
+        self.layout.resize_dim(dim, end - start);
 
         if self.is_contiguous() {
             // Truncate buffer to preserve invariant that `Tensor::data` yields
@@ -341,7 +470,7 @@ impl<T: Copy> Tensor<T> {
     /// in a single row or column (or whatever the last dimension represents).
     pub fn last_dim_slice<const N: usize>(&self, index: [usize; N], len: usize) -> &[T] {
         assert!(
-            self.strides[N - 1] == 1,
+            self.stride(N - 1) == 1,
             "last_dim_slice requires contiguous last dimension"
         );
         let offset = self.base + self.offset(index);
@@ -355,7 +484,7 @@ impl<T: Copy> Tensor<T> {
         len: usize,
     ) -> &mut [T] {
         assert!(
-            self.strides[N - 1] == 1,
+            self.stride(N - 1) == 1,
             "last_dim_slice_mut requires contiguous last dimension"
         );
         let offset = self.base + self.offset(index);
@@ -393,21 +522,14 @@ impl<T: Copy> Tensor<T> {
 
     /// Return a slice of the sizes of each dimension.
     pub fn shape(&self) -> &[usize] {
-        &self.shape
+        self.layout.shape()
     }
 
     /// Return true if the logical order of elements in this tensor matches the
     /// order of elements in the slice returned by `data()` and `data_mut()`,
     /// with no gaps.
     pub fn is_contiguous(&self) -> bool {
-        let mut product = 1;
-        for (dim, len) in self.shape.iter().enumerate().rev() {
-            if self.strides[dim] != product {
-                return false;
-            }
-            product *= len;
-        }
-        true
+        self.layout.is_contiguous()
     }
 
     /// Convert the internal layout of elements to be contiguous, as reported
@@ -420,7 +542,7 @@ impl<T: Copy> Tensor<T> {
         }
         self.data = self.iter().collect();
         self.base = 0;
-        self.strides = strides_for_shape(&self.shape);
+        self.layout.make_contiguous();
     }
 
     /// Return a contiguous version of this tensor, either as a reference if
@@ -493,21 +615,7 @@ impl<T: Copy> Tensor<T> {
     /// See <https://github.com/onnx/onnx/blob/main/docs/Broadcasting.md> for
     /// conditions in which broadcasting is allowed.
     pub fn can_broadcast_to(&self, shape: &[usize]) -> bool {
-        if self.shape == shape {
-            return true;
-        } else if self.ndim() > shape.len() {
-            return false;
-        }
-
-        // For two shapes to be compatible for broadcasting, each dimension must
-        // either be the same or be 1.
-        //
-        // If the tensor has fewer dimensions, pretend that it was prefixed with
-        // 1-length dimensions to make the dimension counts equal.
-        let self_dims = self.shape.iter().copied();
-        let target_dims = shape[shape.len() - self.shape.len()..].iter().copied();
-
-        zip(self_dims, target_dims).all(|(a, b)| a == b || a == 1)
+        self.layout.can_broadcast_to(shape)
     }
 
     /// Return true if the element's shape can be broadcast with `shape` using
@@ -520,26 +628,7 @@ impl<T: Copy> Tensor<T> {
     /// See <https://github.com/onnx/onnx/blob/main/docs/Broadcasting.md> for
     /// conditions in which broadcasting is allowed.
     pub fn can_broadcast_with(&self, shape: &[usize]) -> bool {
-        if self.shape == shape {
-            return true;
-        }
-
-        // For two shapes to be compatible for broadcasting, each dimension must
-        // either be the same or be 1.
-        //
-        // If the tensor has fewer dimensions, pretend that it was prefixed with
-        // 1-length dimensions to make the dimension counts equal.
-
-        let a = self.shape.as_slice();
-        let b = shape;
-
-        let a_pad = b.len().saturating_sub(a.len());
-        let b_pad = a.len().saturating_sub(b.len());
-
-        let a_iter = a.iter().copied().rev().chain(repeat(1).take(a_pad));
-        let b_iter = b.iter().copied().rev().chain(repeat(1).take(b_pad));
-
-        zip(a_iter, b_iter).all(|(a, b)| a == b || a == 1 || b == 1)
+        self.layout.can_broadcast_with(shape)
     }
 
     /// Return an iterator over a subset of elements in this tensor.
@@ -581,9 +670,7 @@ impl<T: Copy> Tensor<T> {
         // However there are cases of custom strides where copies could be
         // avoided. See https://pytorch.org/docs/stable/generated/torch.Tensor.view.html.
         self.make_contiguous();
-
-        self.shape = shape.into();
-        self.strides = strides_for_shape(shape);
+        self.layout = Layout::new(shape);
     }
 
     /// Re-order the dimensions according to `dims`.
@@ -591,16 +678,12 @@ impl<T: Copy> Tensor<T> {
     /// This does not modify the order of elements in the data buffer, it merely
     /// updates the strides used by indexing.
     pub fn permute(&mut self, dims: &[usize]) {
-        if dims.len() != self.ndim() {
-            panic!("Permute dims length does not match dimension count");
-        }
-        self.strides = dims.iter().map(|&dim| self.strides[dim]).collect();
-        self.shape = dims.iter().map(|&dim| self.shape[dim]).collect();
+        self.layout.permute(dims);
     }
 
     /// Insert a dimension of size one at index `dim`.
     pub fn insert_dim(&mut self, dim: usize) {
-        let mut new_shape: Vec<usize> = self.shape.clone();
+        let mut new_shape: Vec<usize> = self.shape().into();
         new_shape.insert(dim, 1);
         self.reshape(&new_shape);
     }
@@ -608,7 +691,7 @@ impl<T: Copy> Tensor<T> {
     /// Return the number of elements between successive entries in the `dim`
     /// dimension.
     pub fn stride(&self, dim: usize) -> usize {
-        self.strides[dim]
+        self.layout.stride(dim)
     }
 
     /// Return the offset of an element in the slices returned by `data`
@@ -619,38 +702,14 @@ impl<T: Copy> Tensor<T> {
     /// Panicks if the index length is incorrect or the value of an index
     /// exceeds the size of the corresponding dimension.
     pub fn offset<Idx: TensorIndex>(&self, index: Idx) -> usize {
-        let shape = &self.shape;
-        assert!(
-            shape.len() == index.len(),
-            "Cannot access {} dim tensor with {} dim index",
-            shape.len(),
-            index.len()
-        );
-        let mut offset = 0;
-        for i in 0..index.len() {
-            assert!(
-                index.index(i) < self.shape[i],
-                "Invalid index {} for dim {}",
-                index.index(i),
-                i
-            );
-            offset += index.index(i) * self.stride(i)
-        }
-        offset
+        self.layout.offset(index)
     }
 
     /// Return the shape of this tensor as a fixed-sized array.
     ///
     /// The tensor's dimension count must match `N`.
     pub fn dims<const N: usize>(&self) -> [usize; N] {
-        if self.ndim() != N {
-            panic!(
-                "Cannot extract {} dim tensor as {} dim array",
-                self.ndim(),
-                N
-            );
-        }
-        self.shape[..].try_into().unwrap()
+        self.layout.dims()
     }
 
     /// Return a view of a subset of the data in this tensor.
@@ -671,7 +730,7 @@ impl<T: Copy> Tensor<T> {
         UncheckedView {
             data: self.data(),
             offset,
-            strides: self.strides[self.ndim() - N..].try_into().unwrap(),
+            strides: self.layout.strides[self.ndim() - N..].try_into().unwrap(),
         }
     }
 
@@ -684,7 +743,7 @@ impl<T: Copy> Tensor<T> {
         base: [usize; B],
     ) -> UncheckedViewMut<T, N> {
         let offset = self.offset(base);
-        let strides = self.strides[self.ndim() - N..].try_into().unwrap();
+        let strides = self.layout.strides[self.ndim() - N..].try_into().unwrap();
         UncheckedViewMut {
             data: self.data_mut(),
             offset,
@@ -704,7 +763,7 @@ impl Tensor<f32> {
     pub fn write<W: io::Write>(&self, writer: &mut W) -> io::Result<()> {
         let ndim: u32 = self.ndim() as u32;
         writer.write_all(&ndim.to_le_bytes())?;
-        for &dim in self.shape.iter() {
+        for &dim in self.shape() {
             writer.write_all(&(dim as u32).to_le_bytes())?;
         }
         for el in self.iter() {
@@ -716,20 +775,17 @@ impl Tensor<f32> {
 
 impl<T: Copy + PartialEq> PartialEq for Tensor<T> {
     fn eq(&self, other: &Self) -> bool {
-        self.shape == other.shape && self.iter().eq(other.iter())
+        self.shape() == other.shape() && self.iter().eq(other.iter())
     }
 }
 
 impl<T: Copy> Clone for Tensor<T> {
     fn clone(&self) -> Tensor<T> {
         let data = self.data.clone();
-        let shape = self.shape.clone();
-        let strides = self.strides.clone();
         Tensor {
             data,
             base: self.base,
-            shape,
-            strides,
+            layout: self.layout.clone(),
         }
     }
 }
@@ -844,13 +900,13 @@ impl IndexingIterBase {
     /// Create an iterator over element offsets in `tensor`.
     fn new<T: Copy>(tensor: &Tensor<T>) -> IndexingIterBase {
         let dims = tensor
-            .shape
+            .shape()
             .iter()
             .enumerate()
             .map(|(dim, &len)| IterPos {
                 step: 0,
                 steps: len,
-                offset_step: tensor.strides[dim] as isize,
+                offset_step: tensor.stride(dim) as isize,
             })
             .collect();
 
@@ -878,7 +934,7 @@ impl IndexingIterBase {
                 // that when we increment in this dimension, we just repeat
                 // elements. Otherwise, use the real stride.
                 offset_step: if actual_len == broadcast_len {
-                    tensor.strides[dim - added_dims] as isize
+                    tensor.stride(dim - added_dims) as isize
                 } else {
                     0
                 },
@@ -906,9 +962,9 @@ impl IndexingIterBase {
             .iter()
             .enumerate()
             .map(|(dim, range)| {
-                let len = tensor.shape[dim];
+                let len = tensor.shape()[dim];
                 let range = range.clamp(len);
-                let stride = tensor.strides[dim];
+                let stride = tensor.stride(dim);
 
                 let start_index = if range.start >= 0 {
                     range.start
