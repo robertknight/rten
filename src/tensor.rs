@@ -293,6 +293,21 @@ impl Layout {
     }
 }
 
+#[derive(Clone)]
+pub struct TensorView<'a, T: Copy = f32> {
+    data: &'a [T],
+    layout: Cow<'a, Layout>,
+}
+
+impl<'a, T: Copy> TensorView<'a, T> {
+    fn new(data: &'a [T], layout: &'a Layout) -> TensorView<'a, T> {
+        TensorView {
+            data,
+            layout: Cow::Borrowed(layout),
+        }
+    }
+}
+
 /// Tensor is the core n-dimensional array type used for inputs, outputs and
 /// intermediate values when executing an ML graph.
 #[derive(Debug)]
@@ -559,7 +574,7 @@ impl<T: Copy> Tensor<T> {
 
     /// Return an iterator over elements of this tensor, in their logical order.
     pub fn iter(&self) -> Elements<T> {
-        Elements::new(self)
+        Elements::new(&self.view())
     }
 
     /// Return an iterator over offsets of elements in this tensor, in their
@@ -567,7 +582,7 @@ impl<T: Copy> Tensor<T> {
     ///
     /// See also the notes for `slice_offsets`.
     pub fn offsets(&self) -> Offsets {
-        Offsets::new(self)
+        Offsets::new(&self.layout)
     }
 
     /// Returns the single item if this tensor is a 0-dimensional tensor
@@ -594,7 +609,7 @@ impl<T: Copy> Tensor<T> {
         if !self.can_broadcast_to(shape) {
             panic!("Cannot broadcast to specified shape");
         }
-        BroadcastElements::new(self, shape)
+        BroadcastElements::new(&self.view(), shape)
     }
 
     /// Return an iterator over offsets of this tensor, broadcasted to `shape`.
@@ -605,7 +620,7 @@ impl<T: Copy> Tensor<T> {
         if !self.can_broadcast_to(shape) {
             panic!("Cannot broadcast to specified shape");
         }
-        Offsets::broadcast(self, shape)
+        Offsets::broadcast(&self.layout, shape)
     }
 
     /// Return true if the element's shape can be broadcast to `shape` using
@@ -633,7 +648,7 @@ impl<T: Copy> Tensor<T> {
 
     /// Return an iterator over a subset of elements in this tensor.
     pub fn slice_elements(&self, ranges: &[SliceRange]) -> Elements<T> {
-        Elements::slice(self, ranges)
+        Elements::slice(&self.view(), ranges)
     }
 
     /// Return an iterator over offsets of elements in this tensor.
@@ -648,7 +663,7 @@ impl<T: Copy> Tensor<T> {
     /// Note that the offset order of the returned iterator will become incorrect
     /// if the tensor shape is subsequently modified.
     pub fn slice_offsets(&self, ranges: &[SliceRange]) -> Offsets {
-        Offsets::slice(self, ranges)
+        Offsets::slice(&self.layout, ranges)
     }
 
     /// Update the shape of the tensor.
@@ -749,6 +764,10 @@ impl<T: Copy> Tensor<T> {
             offset,
             strides,
         }
+    }
+
+    pub fn view(&self) -> TensorView<T> {
+        TensorView::new(self.data(), &self.layout)
     }
 }
 
@@ -1067,22 +1086,28 @@ enum ElementsIter<'a, T: Copy> {
 }
 
 impl<'a, T: Copy> Elements<'a, T> {
-    fn new(tensor: &'a Tensor<T>) -> Elements<'a, T> {
-        if tensor.is_contiguous() {
+    fn new<'b>(view: &'b TensorView<'a, T>) -> Elements<'a, T>
+    where
+        'a: 'b,
+    {
+        if view.layout.is_contiguous() {
             Elements {
-                iter: ElementsIter::Direct(tensor.data().iter()),
+                iter: ElementsIter::Direct(view.data.iter()),
             }
         } else {
             Elements {
-                iter: ElementsIter::Indexing(IndexingIter::new(tensor)),
+                iter: ElementsIter::Indexing(IndexingIter::new(view)),
             }
         }
     }
 
-    fn slice(tensor: &'a Tensor<T>, ranges: &[SliceRange]) -> Elements<'a, T> {
+    fn slice<'b>(view: &'b TensorView<'a, T>, ranges: &[SliceRange]) -> Elements<'a, T>
+    where
+        'a: 'b,
+    {
         let iter = IndexingIter {
-            base: IndexingIterBase::slice(&tensor.layout, ranges),
-            data: tensor.data(),
+            base: IndexingIterBase::slice(&view.layout, ranges),
+            data: view.data,
         };
         Elements {
             iter: ElementsIter::Indexing(iter),
@@ -1128,17 +1153,23 @@ struct IndexingIter<'a, T: Copy> {
 }
 
 impl<'a, T: Copy> IndexingIter<'a, T> {
-    fn new(tensor: &'a Tensor<T>) -> IndexingIter<'a, T> {
+    fn new<'b>(view: &'b TensorView<'a, T>) -> IndexingIter<'a, T>
+    where
+        'a: 'b,
+    {
         IndexingIter {
-            base: IndexingIterBase::new(&tensor.layout),
-            data: tensor.data(),
+            base: IndexingIterBase::new(&view.layout),
+            data: view.data,
         }
     }
 
-    fn broadcast(tensor: &'a Tensor<T>, shape: &[usize]) -> IndexingIter<'a, T> {
+    fn broadcast<'b>(view: &'b TensorView<'a, T>, shape: &[usize]) -> IndexingIter<'a, T>
+    where
+        'a: 'b,
+    {
         IndexingIter {
-            base: IndexingIterBase::broadcast(&tensor.layout, shape),
-            data: tensor.data(),
+            base: IndexingIterBase::broadcast(&view.layout, shape),
+            data: view.data,
         }
     }
 }
@@ -1173,21 +1204,21 @@ pub struct Offsets {
 }
 
 impl Offsets {
-    fn new<T: Copy>(tensor: &Tensor<T>) -> Offsets {
+    fn new(layout: &Layout) -> Offsets {
         Offsets {
-            base: IndexingIterBase::new(&tensor.layout),
+            base: IndexingIterBase::new(layout),
         }
     }
 
-    fn broadcast<T: Copy>(tensor: &Tensor<T>, shape: &[usize]) -> Offsets {
+    fn broadcast(layout: &Layout, shape: &[usize]) -> Offsets {
         Offsets {
-            base: IndexingIterBase::broadcast(&tensor.layout, shape),
+            base: IndexingIterBase::broadcast(layout, shape),
         }
     }
 
-    fn slice<T: Copy>(tensor: &Tensor<T>, ranges: &[SliceRange]) -> Offsets {
+    fn slice(layout: &Layout, ranges: &[SliceRange]) -> Offsets {
         Offsets {
-            base: IndexingIterBase::slice(&tensor.layout, ranges),
+            base: IndexingIterBase::slice(layout, ranges),
         }
     }
 }
@@ -1232,14 +1263,18 @@ enum BroadcastElementsIter<'a, T: Copy> {
 }
 
 impl<'a, T: Copy> BroadcastElements<'a, T> {
-    fn new(tensor: &'a Tensor<T>, to_shape: &[usize]) -> BroadcastElements<'a, T> {
-        let iter =
-            if tensor.is_contiguous() && Self::can_broadcast_by_cycling(tensor.shape(), to_shape) {
-                let iter_len = to_shape.iter().product();
-                BroadcastElementsIter::Direct(tensor.data().iter().cycle().take(iter_len))
-            } else {
-                BroadcastElementsIter::Indexing(IndexingIter::broadcast(tensor, to_shape))
-            };
+    fn new<'b>(view: &'b TensorView<'a, T>, to_shape: &[usize]) -> BroadcastElements<'a, T>
+    where
+        'a: 'b,
+    {
+        let iter = if view.layout.is_contiguous()
+            && Self::can_broadcast_by_cycling(view.layout.shape(), to_shape)
+        {
+            let iter_len = to_shape.iter().product();
+            BroadcastElementsIter::Direct(view.data.iter().cycle().take(iter_len))
+        } else {
+            BroadcastElementsIter::Indexing(IndexingIter::broadcast(view, to_shape))
+        };
         BroadcastElements { iter }
     }
 
