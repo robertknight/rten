@@ -898,20 +898,20 @@ struct IndexingIterBase {
 
 impl IndexingIterBase {
     /// Create an iterator over element offsets in `tensor`.
-    fn new<T: Copy>(tensor: &Tensor<T>) -> IndexingIterBase {
-        let dims = tensor
+    fn new(layout: &Layout) -> IndexingIterBase {
+        let dims = layout
             .shape()
             .iter()
             .enumerate()
             .map(|(dim, &len)| IterPos {
                 step: 0,
                 steps: len,
-                offset_step: tensor.stride(dim) as isize,
+                offset_step: layout.stride(dim) as isize,
             })
             .collect();
 
         IndexingIterBase {
-            len: tensor.len(),
+            len: layout.len(),
             offset: 0,
             pos: dims,
         }
@@ -919,11 +919,11 @@ impl IndexingIterBase {
 
     /// Create an iterator over offsets of elements in `tensor`, as if it had
     /// a given `shape`. This will repeat offsets as necessary.
-    fn broadcast<T: Copy>(tensor: &Tensor<T>, shape: &[usize]) -> IndexingIterBase {
+    fn broadcast(layout: &Layout, shape: &[usize]) -> IndexingIterBase {
         // nb. We require that the broadcast shape has a length >= the actual
         // shape.
-        let added_dims = shape.len() - tensor.shape().len();
-        let padded_tensor_shape = repeat(&0).take(added_dims).chain(tensor.shape().iter());
+        let added_dims = shape.len() - layout.shape().len();
+        let padded_tensor_shape = repeat(&0).take(added_dims).chain(layout.shape().iter());
         let dims = zip(padded_tensor_shape, shape.iter())
             .enumerate()
             .map(|(dim, (&actual_len, &broadcast_len))| IterPos {
@@ -934,7 +934,7 @@ impl IndexingIterBase {
                 // that when we increment in this dimension, we just repeat
                 // elements. Otherwise, use the real stride.
                 offset_step: if actual_len == broadcast_len {
-                    tensor.stride(dim - added_dims) as isize
+                    layout.stride(dim - added_dims) as isize
                 } else {
                     0
                 },
@@ -949,12 +949,12 @@ impl IndexingIterBase {
     }
 
     /// Create an iterator over offsets of a subset of elements in `tensor`.
-    fn slice<T: Copy>(tensor: &Tensor<T>, ranges: &[SliceRange]) -> IndexingIterBase {
-        if ranges.len() != tensor.ndim() {
+    fn slice(layout: &Layout, ranges: &[SliceRange]) -> IndexingIterBase {
+        if ranges.len() != layout.ndim() {
             panic!(
                 "slice dimensions {} do not match tensor dimensions {}",
                 ranges.len(),
-                tensor.ndim()
+                layout.ndim()
             );
         }
         let mut offset = 0;
@@ -962,9 +962,9 @@ impl IndexingIterBase {
             .iter()
             .enumerate()
             .map(|(dim, range)| {
-                let len = tensor.shape()[dim];
+                let len = layout.shape()[dim];
                 let range = range.clamp(len);
-                let stride = tensor.stride(dim);
+                let stride = layout.stride(dim);
 
                 let start_index = if range.start >= 0 {
                     range.start
@@ -1081,7 +1081,7 @@ impl<'a, T: Copy> Elements<'a, T> {
 
     fn slice(tensor: &'a Tensor<T>, ranges: &[SliceRange]) -> Elements<'a, T> {
         let iter = IndexingIter {
-            base: IndexingIterBase::slice(tensor, ranges),
+            base: IndexingIterBase::slice(&tensor.layout, ranges),
             data: tensor.data(),
         };
         Elements {
@@ -1130,14 +1130,14 @@ struct IndexingIter<'a, T: Copy> {
 impl<'a, T: Copy> IndexingIter<'a, T> {
     fn new(tensor: &'a Tensor<T>) -> IndexingIter<'a, T> {
         IndexingIter {
-            base: IndexingIterBase::new(tensor),
+            base: IndexingIterBase::new(&tensor.layout),
             data: tensor.data(),
         }
     }
 
     fn broadcast(tensor: &'a Tensor<T>, shape: &[usize]) -> IndexingIter<'a, T> {
         IndexingIter {
-            base: IndexingIterBase::broadcast(tensor, shape),
+            base: IndexingIterBase::broadcast(&tensor.layout, shape),
             data: tensor.data(),
         }
     }
@@ -1175,19 +1175,19 @@ pub struct Offsets {
 impl Offsets {
     fn new<T: Copy>(tensor: &Tensor<T>) -> Offsets {
         Offsets {
-            base: IndexingIterBase::new(tensor),
+            base: IndexingIterBase::new(&tensor.layout),
         }
     }
 
     fn broadcast<T: Copy>(tensor: &Tensor<T>, shape: &[usize]) -> Offsets {
         Offsets {
-            base: IndexingIterBase::broadcast(tensor, shape),
+            base: IndexingIterBase::broadcast(&tensor.layout, shape),
         }
     }
 
     fn slice<T: Copy>(tensor: &Tensor<T>, ranges: &[SliceRange]) -> Offsets {
         Offsets {
-            base: IndexingIterBase::slice(tensor, ranges),
+            base: IndexingIterBase::slice(&tensor.layout, ranges),
         }
     }
 }
