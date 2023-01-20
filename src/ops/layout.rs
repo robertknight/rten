@@ -8,7 +8,7 @@ use crate::tensor::{from_data, Tensor};
 pub fn expand<T: Copy>(input: &Tensor<T>, shape: &Tensor<i32>) -> Result<Tensor<T>, OpError> {
     check_dims!(shape, 1);
 
-    let shape_vec: Vec<_> = shape.elements().map(|el| el as usize).collect();
+    let shape_vec: Vec<_> = shape.iter().map(|el| el as usize).collect();
     let out_shape = broadcast_shapes(input.shape(), &shape_vec).ok_or(
         OpError::IncompatibleInputShapes("Cannot broadcast input with target shape"),
     )?;
@@ -107,7 +107,7 @@ fn resolve_shape(
     // from the input length and the sizes of the other dimensions.
     let mut unspecified_dim = None;
     let mut specified_dims_size = 1;
-    for (dim, size) in shape.elements().enumerate() {
+    for (dim, size) in shape.iter().enumerate() {
         if size < -1 {
             return Err(OpError::InvalidValue("Invalid dimension size in shape"));
         } else if size == 0 && !allow_zero {
@@ -155,7 +155,7 @@ fn resolve_shape(
     }
 
     Ok(shape
-        .elements()
+        .iter()
         .enumerate()
         .map(|(dim, size)| match size {
             -1 => unspecified_dim_size,

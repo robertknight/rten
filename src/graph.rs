@@ -660,7 +660,7 @@ mod tests {
 
         fn run(&self, inputs: InputList) -> Result<Vec<Output>, OpError> {
             let input: &Tensor<f32> = inputs.require_as(0)?;
-            let output_data = input.elements().map(|x| x + 1.0).collect();
+            let output_data = input.iter().map(|x| x + 1.0).collect();
             from_data(input.shape().into(), output_data).into_op_result()
         }
     }
@@ -936,8 +936,8 @@ mod tests {
 
             let input: &Tensor<f32> = inputs.require_as(0)?;
             let left_split_len = input.len() / 2;
-            let left_split = from_vec(input.elements().take(left_split_len).collect());
-            let right_split = from_vec(input.elements().skip(left_split_len).collect());
+            let left_split = from_vec(input.iter().take(left_split_len).collect());
+            let right_split = from_vec(input.iter().skip(left_split_len).collect());
             Ok([left_split.into(), right_split.into()].into())
         }
     }
@@ -973,7 +973,7 @@ mod tests {
         assert_eq!(results.len(), 2);
         let left_split = results.remove(0).into_float().unwrap();
         let right_split = results.remove(0).into_float().unwrap();
-        assert_eq!(left_split.elements().collect::<Vec<_>>(), &[1.0, 2.0]);
-        assert_eq!(right_split.elements().collect::<Vec<_>>(), &[3.0, 4.0, 5.0]);
+        assert_eq!(left_split.iter().collect::<Vec<_>>(), &[1.0, 2.0]);
+        assert_eq!(right_split.iter().collect::<Vec<_>>(), &[3.0, 4.0, 5.0]);
     }
 }

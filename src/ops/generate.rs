@@ -4,7 +4,7 @@ use crate::ops::{Input, InputList, IntoOpResult, OpError, Operator, Output, Scal
 use crate::tensor::Tensor;
 
 pub fn constant_of_shape<T: Copy>(value: T, shape: &Tensor<i32>) -> Tensor<T> {
-    let shape: Vec<_> = shape.elements().map(|el| el as usize).collect();
+    let shape: Vec<_> = shape.iter().map(|el| el as usize).collect();
     let len = shape.iter().product();
     Tensor::from_data(shape, vec![value; len])
 }
@@ -100,7 +100,7 @@ mod tests {
 
         assert_eq!(result.shape(), &[1, 5, 10]);
         assert_eq!(
-            result.elements().collect::<Vec<_>>(),
+            result.iter().collect::<Vec<_>>(),
             vec![42; result.shape().iter().product()]
         );
     }
@@ -109,23 +109,23 @@ mod tests {
     fn test_range() {
         // Int range from zero
         let r = range(0, 5, 1).unwrap();
-        assert_eq!(r.elements_vec(), vec![0, 1, 2, 3, 4]);
+        assert_eq!(r.to_vec(), vec![0, 1, 2, 3, 4]);
 
         // Float range from zero
         let r = range(0., 5., 1.).unwrap();
-        assert_eq!(r.elements_vec(), vec![0., 1., 2., 3., 4.]);
+        assert_eq!(r.to_vec(), vec![0., 1., 2., 3., 4.]);
 
         // Int range from negative value with step > 1
         let r = range(-5, 5, 2).unwrap();
-        assert_eq!(r.elements_vec(), vec![-5, -3, -1, 1, 3]);
+        assert_eq!(r.to_vec(), vec![-5, -3, -1, 1, 3]);
 
         // Float range from negative value with step > 1
         let r = range(-5., 5., 2.).unwrap();
-        assert_eq!(r.elements_vec(), vec![-5., -3., -1., 1., 3.]);
+        assert_eq!(r.to_vec(), vec![-5., -3., -1., 1., 3.]);
 
         // Negative step
         let r = range(10, 4, -2).unwrap();
-        assert_eq!(r.elements_vec(), vec![10, 8, 6]);
+        assert_eq!(r.to_vec(), vec![10, 8, 6]);
     }
 
     #[test]

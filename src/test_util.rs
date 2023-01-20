@@ -39,7 +39,7 @@ pub fn expect_equal<T: ApproxEq + Copy>(x: &Tensor<T>, y: &Tensor<T>) -> Result<
     }
 
     let mut mismatches = 0;
-    for (xi, yi) in zip(x.elements(), y.elements()) {
+    for (xi, yi) in zip(x.iter(), y.iter()) {
         if !xi.approx_eq(yi) {
             mismatches += 1;
         }

@@ -269,7 +269,7 @@ impl<T: Copy> Tensor<T> {
     where
         F: Fn(T) -> U,
     {
-        let data = self.elements().map(f).collect();
+        let data = self.iter().map(f).collect();
         Tensor {
             data,
             base: 0,
@@ -284,7 +284,7 @@ impl<T: Copy> Tensor<T> {
         let data = if self.is_contiguous() {
             self.data().into()
         } else {
-            self.elements().collect()
+            self.iter().collect()
         };
         Self::from_data(shape.into(), data)
     }
@@ -365,13 +365,13 @@ impl<T: Copy> Tensor<T> {
     /// Return a copy of the elements of this tensor as a contiguous vector
     /// in row-major order.
     ///
-    /// This is slightly more efficient than `elements().collect()` in the case
+    /// This is slightly more efficient than `iter().collect()` in the case
     /// where the tensor is already contiguous.
-    pub fn elements_vec(&self) -> Vec<T> {
+    pub fn to_vec(&self) -> Vec<T> {
         if self.is_contiguous() {
             self.data().to_vec()
         } else {
-            self.elements().collect()
+            self.iter().collect()
         }
     }
 
@@ -418,7 +418,7 @@ impl<T: Copy> Tensor<T> {
         if self.is_contiguous() {
             return;
         }
-        self.data = self.elements().collect();
+        self.data = self.iter().collect();
         self.base = 0;
         self.strides = strides_for_shape(&self.shape);
     }
@@ -436,7 +436,7 @@ impl<T: Copy> Tensor<T> {
     }
 
     /// Return an iterator over elements of this tensor, in their logical order.
-    pub fn elements(&self) -> Elements<T> {
+    pub fn iter(&self) -> Elements<T> {
         Elements::new(self)
     }
 
@@ -453,7 +453,7 @@ impl<T: Copy> Tensor<T> {
     pub fn item(&self) -> Option<T> {
         match self.ndim() {
             0 => Some(self.data[self.base]),
-            _ if self.len() == 1 => self.elements().next(),
+            _ if self.len() == 1 => self.iter().next(),
             _ => None,
         }
     }
@@ -707,7 +707,7 @@ impl Tensor<f32> {
         for &dim in self.shape.iter() {
             writer.write_all(&(dim as u32).to_le_bytes())?;
         }
-        for el in self.elements() {
+        for el in self.iter() {
             writer.write_all(&el.to_le_bytes())?;
         }
         Ok(())
@@ -716,7 +716,7 @@ impl Tensor<f32> {
 
 impl<T: Copy + PartialEq> PartialEq for Tensor<T> {
     fn eq(&self, other: &Self) -> bool {
-        self.shape == other.shape && self.elements().eq(other.elements())
+        self.shape == other.shape && self.iter().eq(other.iter())
     }
 }
 
@@ -1427,7 +1427,7 @@ mod tests {
         let mut x = steps(&[3, 3]);
         x.clip_dim(0, 1..2);
         x.clip_dim(1, 1..2);
-        assert_eq!(x.elements().collect::<Vec<i32>>(), vec![5]);
+        assert_eq!(x.iter().collect::<Vec<i32>>(), vec![5]);
     }
 
     #[test]
@@ -1438,7 +1438,7 @@ mod tests {
         x.clip_dim(0, 1..3);
 
         // Indexing should reflect the slice.
-        assert_eq!(x.elements().collect::<Vec<i32>>(), &[4, 5, 6, 7, 8, 9]);
+        assert_eq!(x.iter().collect::<Vec<i32>>(), &[4, 5, 6, 7, 8, 9]);
         assert_eq!(x[[0, 0]], 4);
         assert_eq!(*x.index_mut([0, 0]), 4);
 
@@ -1666,7 +1666,7 @@ mod tests {
 
         // After reshaping, we should be able to successfully read all the elements.
         // Note this test doesn't check that the correct elements were read.
-        let elts: Vec<_> = x.elements().collect();
+        let elts: Vec<_> = x.iter().collect();
         assert_eq!(elts.len(), 60);
 
         // Set up another input so it is non-contiguous and has a non-zero `base` offset.
@@ -1678,7 +1678,7 @@ mod tests {
         x.reshape(&[4]);
 
         // Check that the correct elements were read.
-        assert_eq!(x.elements().collect::<Vec<i32>>(), &[5, 6, 8, 9]);
+        assert_eq!(x.iter().collect::<Vec<i32>>(), &[5, 6, 8, 9]);
     }
 
     #[test]
@@ -1689,7 +1689,7 @@ mod tests {
         // Give the tensor a non-default stride
         x.clip_dim(1, 0..8);
         assert!(!x.is_contiguous());
-        let x_elements: Vec<f32> = x.elements().collect();
+        let x_elements: Vec<f32> = x.iter().collect();
 
         x.reshape(&[80]);
 
@@ -1712,16 +1712,16 @@ mod tests {
     fn test_permute() {
         // Test with a vector (this is a no-op)
         let mut input = steps(&[5]);
-        assert!(input.elements().eq([1, 2, 3, 4, 5].iter().copied()));
+        assert!(input.iter().eq([1, 2, 3, 4, 5].iter().copied()));
         input.permute(&[0]);
-        assert!(input.elements().eq([1, 2, 3, 4, 5].iter().copied()));
+        assert!(input.iter().eq([1, 2, 3, 4, 5].iter().copied()));
 
         // Test with a matrix (ie. transpose the matrix)
         let mut input = steps(&[2, 3]);
-        assert!(input.elements().eq([1, 2, 3, 4, 5, 6].iter().copied()));
+        assert!(input.iter().eq([1, 2, 3, 4, 5, 6].iter().copied()));
         input.permute(&[1, 0]);
         assert_eq!(input.shape(), &[3, 2]);
-        assert!(input.elements().eq([1, 4, 2, 5, 3, 6].iter().copied()));
+        assert!(input.iter().eq([1, 4, 2, 5, 3, 6].iter().copied()));
 
         // Test with a higher-rank tensor. For this test we don't list out the
         // full permuted element sequence, but just check the shape and strides
@@ -1836,7 +1836,7 @@ mod tests {
             let mut rng = XorShiftRNG::new(1234);
             let x = rand(&shape, &mut rng);
 
-            let elts: Vec<f32> = x.elements().collect();
+            let elts: Vec<f32> = x.iter().collect();
 
             assert_eq!(x.data(), elts);
         }
@@ -1845,7 +1845,7 @@ mod tests {
     #[test]
     fn test_elements_for_empty_array() {
         let empty = zeros::<f32>(&[3, 0, 5]);
-        assert!(empty.elements().next().is_none());
+        assert!(empty.iter().next().is_none());
     }
 
     #[test]
@@ -1857,25 +1857,25 @@ mod tests {
 
         // Initially tensor is contiguous, so data buffer and element sequence
         // match.
-        assert_eq!(x.data(), x.elements().collect::<Vec<_>>());
+        assert_eq!(x.data(), x.iter().collect::<Vec<_>>());
 
         // Slice the tensor along an outer dimension. This will leave the tensor
         // contiguous, and hence `data` and `elements` should return the same
         // elements.
         x.clip_dim(0, 0..2);
         assert_eq!(x.data(), &[1, 2, 3, 4, 5, 6]);
-        assert_eq!(x.elements().collect::<Vec<_>>(), &[1, 2, 3, 4, 5, 6]);
+        assert_eq!(x.iter().collect::<Vec<_>>(), &[1, 2, 3, 4, 5, 6]);
         // Test with step > 1 to exercise `Elements::nth`.
-        assert_eq!(x.elements().step_by(2).collect::<Vec<_>>(), &[1, 3, 5]);
+        assert_eq!(x.iter().step_by(2).collect::<Vec<_>>(), &[1, 3, 5]);
 
         // Slice the tensor along an inner dimension. The tensor will no longer
         // be contiguous and hence `elements` will return different results than
         // `data`.
         x.clip_dim(1, 0..2);
         assert_eq!(x.data(), &[1, 2, 3, 4, 5, 6]);
-        assert_eq!(x.elements().collect::<Vec<_>>(), &[1, 2, 4, 5]);
+        assert_eq!(x.iter().collect::<Vec<_>>(), &[1, 2, 4, 5]);
         // Test with step > 1 to exercise `Elements::nth`.
-        assert_eq!(x.elements().step_by(2).collect::<Vec<_>>(), &[1, 4]);
+        assert_eq!(x.iter().step_by(2).collect::<Vec<_>>(), &[1, 4]);
     }
 
     // PyTorch and numpy do not allow iteration over a scalar, but it seems
@@ -1884,7 +1884,7 @@ mod tests {
     #[test]
     fn test_elements_for_scalar() {
         let x = from_scalar(5.0);
-        let elements = x.elements().collect::<Vec<_>>();
+        let elements = x.iter().collect::<Vec<_>>();
         assert_eq!(&elements, &[5.0]);
     }
 
@@ -1893,12 +1893,12 @@ mod tests {
         let mut x = steps(&[3, 3]);
 
         // Contiguous case. This should use the fast-path.
-        assert_eq!(x.elements_vec(), x.elements().collect::<Vec<_>>());
+        assert_eq!(x.to_vec(), x.iter().collect::<Vec<_>>());
 
         // Non-contiguous case.
         x.clip_dim(1, 0..2);
         assert!(!x.is_contiguous());
-        assert_eq!(x.elements_vec(), x.elements().collect::<Vec<_>>());
+        assert_eq!(x.to_vec(), x.iter().collect::<Vec<_>>());
     }
 
     #[test]
@@ -1906,7 +1906,7 @@ mod tests {
         let mut rng = XorShiftRNG::new(1234);
         let mut x = rand(&[10, 10], &mut rng);
 
-        let x_elts: Vec<_> = x.elements().collect();
+        let x_elts: Vec<_> = x.iter().collect();
 
         let x_offsets = x.offsets();
         let x_data = x.data_mut();
@@ -2019,7 +2019,7 @@ mod tests {
 
         x.make_contiguous();
         assert!(x.is_contiguous());
-        assert_eq!(x.elements().collect::<Vec<i32>>(), &[5, 6, 8, 9]);
+        assert_eq!(x.iter().collect::<Vec<i32>>(), &[5, 6, 8, 9]);
     }
 
     #[test]
@@ -2036,7 +2036,7 @@ mod tests {
     #[test]
     fn test_broadcast_elements() {
         let x = steps(&[1, 2, 1, 2]);
-        assert_eq!(x.elements().collect::<Vec<i32>>(), &[1, 2, 3, 4]);
+        assert_eq!(x.iter().collect::<Vec<i32>>(), &[1, 2, 3, 4]);
 
         // Broadcast a 1-size dimension to size 2
         let bx = x.broadcast_elements(&[2, 2, 1, 2]);
@@ -2315,7 +2315,7 @@ mod tests {
             assert_eq!(written_size, size as u32);
         }
 
-        for el in x.elements() {
+        for el in x.iter() {
             cursor.read(&mut tmp)?;
             let written_el = f32::from_le_bytes(tmp);
             assert_eq!(written_el, el);

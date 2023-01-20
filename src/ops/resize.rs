@@ -158,7 +158,7 @@ pub fn resize(
     let sizes = match target {
         ResizeTarget::Scales(scales) => {
             check_dims!(scales, 1);
-            zip(input.shape().iter(), scales.elements())
+            zip(input.shape().iter(), scales.iter())
                 .map(|(&in_size, scale)| ((in_size as f32) * scale).floor() as i32)
                 .collect()
         }
@@ -173,7 +173,7 @@ pub fn resize(
             "scales/sizes length should equal input rank",
         ));
     }
-    if sizes.elements().any(|size| size < 0) {
+    if sizes.iter().any(|size| size < 0) {
         return Err(OpError::InvalidValue("scales/sizes must be positive"));
     }
 
@@ -193,7 +193,7 @@ pub fn resize(
         ));
     }
 
-    let sizes_usize: Vec<_> = sizes.elements().map(|size| size as usize).collect();
+    let sizes_usize: Vec<_> = sizes.iter().map(|size| size as usize).collect();
     let mut output = Tensor::zeros(&sizes_usize);
 
     if output.is_empty() {

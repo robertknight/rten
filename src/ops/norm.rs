@@ -282,6 +282,6 @@ mod tests {
         let input = rand(&[1, 1, 3, 3], &mut rng);
         let result = softmax(&input, 1).unwrap();
         assert_eq!(result.shape(), input.shape());
-        assert!((result.elements().sum::<f32>() - 1.0).abs() < 0.001);
+        assert!((result.iter().sum::<f32>() - 1.0).abs() < 0.001);
     }
 }

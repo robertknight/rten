@@ -24,7 +24,7 @@ fn slice_ranges(
     check_dims!(steps?, 1);
 
     if let Some(steps) = steps {
-        for step in steps.elements() {
+        for step in steps.iter() {
             if step == 0 {
                 return Err(OpError::InvalidValue("steps must be non-zero"));
             }
@@ -35,7 +35,7 @@ fn slice_ranges(
         .iter()
         .map(|dim_size| SliceRange::new(0, *dim_size as isize, 1))
         .collect();
-    for (i, (start, end)) in zip(starts.elements(), ends.elements()).enumerate() {
+    for (i, (start, end)) in zip(starts.iter(), ends.iter()).enumerate() {
         let axis = if let Some(axes) = axes {
             resolve_axis(input_shape.len(), axes[[i]] as isize)?
         } else {
@@ -116,7 +116,7 @@ impl Operator for Slice {
 
         // Fall back to copying if non-default steps are given.
         if let Some(steps) = steps {
-            if steps.elements().any(|step| step != 1) {
+            if steps.iter().any(|step| step != 1) {
                 let mut inputs: Vec<_> = vec![(&input).into()];
                 inputs.extend(other.iter());
                 return self
@@ -171,21 +171,21 @@ mod tests {
         let starts = from_slice(&[-9]);
         let ends = from_slice(&[-6]);
         slice_in_place(&mut input, &starts, &ends, None).unwrap();
-        assert_eq!(input.elements_vec(), &[1, 2, 3]);
+        assert_eq!(input.to_vec(), &[1, 2, 3]);
 
         // Slice with out-of-bounds end.
         let mut input = Tensor::from_vec((0..10).collect());
         let starts = from_slice(&[5]);
         let ends = from_slice(&[20]);
         slice_in_place(&mut input, &starts, &ends, None).unwrap();
-        assert_eq!(input.elements_vec(), &[5, 6, 7, 8, 9]);
+        assert_eq!(input.to_vec(), &[5, 6, 7, 8, 9]);
 
         // Slice with out-of-bounds start.
         let mut input = Tensor::from_vec((0..10).collect());
         let starts = from_slice(&[-20]);
         let ends = from_slice(&[5]);
         slice_in_place(&mut input, &starts, &ends, None).unwrap();
-        assert_eq!(input.elements_vec(), &[0, 1, 2, 3, 4]);
+        assert_eq!(input.to_vec(), &[0, 1, 2, 3, 4]);
     }
 
     #[test]
@@ -278,11 +278,11 @@ mod tests {
 
         let axes = from_slice(&[-1]);
         let sliced = slice(&input, &starts, &ends, Some(&axes), None).unwrap();
-        assert_eq!(sliced.elements().collect::<Vec<_>>(), &[1, 2, 4, 5, 7, 8]);
+        assert_eq!(sliced.iter().collect::<Vec<_>>(), &[1, 2, 4, 5, 7, 8]);
 
         let axes = from_slice(&[-2]);
         let sliced = slice(&input, &starts, &ends, Some(&axes), None).unwrap();
-        assert_eq!(sliced.elements().collect::<Vec<_>>(), &[1, 2, 3, 4, 5, 6]);
+        assert_eq!(sliced.iter().collect::<Vec<_>>(), &[1, 2, 3, 4, 5, 6]);
     }
 
     #[test]
@@ -293,11 +293,11 @@ mod tests {
 
         let starts = from_slice(&[-3]);
         let sliced = slice(&input, &starts, &ends, Some(&axes), None).unwrap();
-        assert_eq!(sliced.elements().collect::<Vec<_>>(), &[1, 2, 4, 5, 7, 8]);
+        assert_eq!(sliced.iter().collect::<Vec<_>>(), &[1, 2, 4, 5, 7, 8]);
 
         let starts = from_slice(&[-2]);
         let sliced = slice(&input, &starts, &ends, Some(&axes), None).unwrap();
-        assert_eq!(sliced.elements().collect::<Vec<_>>(), &[2, 5, 8]);
+        assert_eq!(sliced.iter().collect::<Vec<_>>(), &[2, 5, 8]);
     }
 
     #[test]
@@ -308,11 +308,11 @@ mod tests {
 
         let ends = from_slice(&[-1]);
         let sliced = slice(&input, &starts, &ends, Some(&axes), None).unwrap();
-        assert_eq!(sliced.elements().collect::<Vec<_>>(), &[1, 2, 4, 5, 7, 8]);
+        assert_eq!(sliced.iter().collect::<Vec<_>>(), &[1, 2, 4, 5, 7, 8]);
 
         let ends = from_slice(&[-2]);
         let sliced = slice(&input, &starts, &ends, Some(&axes), None).unwrap();
-        assert_eq!(sliced.elements().collect::<Vec<_>>(), &[1, 4, 7]);
+        assert_eq!(sliced.iter().collect::<Vec<_>>(), &[1, 4, 7]);
     }
 
     #[test]

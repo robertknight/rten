@@ -126,7 +126,7 @@ impl<'a> ModelBuilder<'a> {
 
     /// Add a constant node (eg. weights, biases) to the model
     pub fn add_float_constant(&mut self, input: &Tensor) -> u32 {
-        let elts: Vec<f32> = input.elements().collect();
+        let elts: Vec<f32> = input.iter().collect();
         let data_vec = self.builder.create_vector(&elts);
 
         let float_data = sg::FloatData::create(
@@ -145,7 +145,7 @@ impl<'a> ModelBuilder<'a> {
 
     /// Add a constant node (eg. weights, biases) to the model
     pub fn add_int_constant(&mut self, input: &Tensor<i32>) -> u32 {
-        let elts: Vec<i32> = input.elements().collect();
+        let elts: Vec<i32> = input.iter().collect();
         let data_vec = self.builder.create_vector(&elts);
 
         let int_data = sg::IntData::create(

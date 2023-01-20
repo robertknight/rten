@@ -14,7 +14,7 @@ pub fn pad<T: Copy>(
             "padding length should be 2 * input dims",
         ));
     }
-    if !padding.elements().all(|x| x >= 0) {
+    if !padding.iter().all(|x| x >= 0) {
         return Err(OpError::InvalidValue("Pad only supports positive pads"));
     }
 

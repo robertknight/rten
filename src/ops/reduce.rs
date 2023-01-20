@@ -213,7 +213,7 @@ fn reduce<T: Copy + Default, R: Reducer<T>>(
     resolved_axes.sort();
 
     if input.ndim() == 0 {
-        return Ok(Tensor::from_scalar(reducer.reduce(input.elements())));
+        return Ok(Tensor::from_scalar(reducer.reduce(input.iter())));
     }
 
     // nb. Some reduce operations cannot produce a meaningful result with
@@ -394,7 +394,7 @@ mod tests {
         // Same, but keep dims
         let class = arg_max(&probs, 0, true /* keep_dims */).unwrap();
         assert_eq!(class.shape(), &[1]);
-        assert_eq!(class.elements_vec(), &[3]);
+        assert_eq!(class.to_vec(), &[3]);
 
         // Common use case of a tensor of (batch, item, prob) where
         // `item` is eg. a token index in a sequence or box ID for object
@@ -410,18 +410,18 @@ mod tests {
         );
         let seq_classes = arg_max(&seq_probs, 2, false /* keep_dims */).unwrap();
         assert_eq!(seq_classes.shape(), &[1, 4]);
-        assert_eq!(seq_classes.elements_vec(), &[2, 0, 1, 2]);
+        assert_eq!(seq_classes.to_vec(), &[2, 0, 1, 2]);
 
         // Same, but keep dims
         let seq_classes = arg_max(&seq_probs, 2, true /* keep_dims */).unwrap();
         assert_eq!(seq_classes.shape(), &[1, 4, 1]);
-        assert_eq!(seq_classes.elements_vec(), &[2, 0, 1, 2]);
+        assert_eq!(seq_classes.to_vec(), &[2, 0, 1, 2]);
 
         // Empty tensor, axis is a non-zero-sized dim
         let empty = from_data::<i32>(vec![10, 0, 5], vec![]);
         let result = arg_max(&empty, 0, false /* keep_dims */).unwrap();
         assert_eq!(result.shape(), &[0, 5]);
-        assert_eq!(result.elements_vec(), &[] as &[i32]);
+        assert_eq!(result.to_vec(), &[] as &[i32]);
 
         // Empty tensor, axis is a zero-sized dim
         let empty = from_data::<i32>(vec![10, 0, 5], vec![]);
@@ -448,21 +448,21 @@ mod tests {
         let elements = from_vec((0..=5).collect());
         let sums = cum_sum(&elements, 0).unwrap();
         assert_eq!(sums.shape(), &[6]);
-        assert_eq!(sums.elements_vec(), &[0, 1, 3, 6, 10, 15]);
+        assert_eq!(sums.to_vec(), &[0, 1, 3, 6, 10, 15]);
 
         let elements = from_data(vec![2, 4], (0..4).chain(0..4).collect());
         let sums = cum_sum(&elements, 1).unwrap();
         assert_eq!(sums.shape(), &[2, 4]);
-        assert_eq!(sums.elements_vec(), &[0, 1, 3, 6, 0, 1, 3, 6]);
+        assert_eq!(sums.to_vec(), &[0, 1, 3, 6, 0, 1, 3, 6]);
 
         let sums = cum_sum(&elements, 0).unwrap();
         assert_eq!(sums.shape(), &[2, 4]);
-        assert_eq!(sums.elements_vec(), &[0, 0, 1, 2, 2, 4, 3, 6]);
+        assert_eq!(sums.to_vec(), &[0, 0, 1, 2, 2, 4, 3, 6]);
 
         let elements: Tensor<f32> = from_vec(vec![]);
         let sums = cum_sum(&elements, 0).unwrap();
         assert_eq!(sums.shape(), &[0]);
-        assert_eq!(sums.elements_vec(), &[] as &[f32]);
+        assert_eq!(sums.to_vec(), &[] as &[f32]);
     }
 
     #[test]
@@ -539,7 +539,7 @@ mod tests {
             false, /* keep_dims */
         )
         .unwrap();
-        assert_eq!(result.elements_vec(), &[5.0]);
+        assert_eq!(result.to_vec(), &[5.0]);
 
         Ok(())
     }

@@ -305,10 +305,7 @@ pub fn lstm(
                 let cell_iter = elements_mut(&mut cell, cell_offset, hidden_size);
                 for (cell, (forget_gate, (input_gate, cell_gate))) in zip(
                     cell_iter,
-                    zip(
-                        forget_gate.elements(),
-                        zip(input_gate.elements(), cell_gate.elements()),
-                    ),
+                    zip(forget_gate.iter(), zip(input_gate.iter(), cell_gate.iter())),
                 ) {
                     *cell = forget_gate * *cell + input_gate * cell_gate;
                 }
@@ -318,7 +315,7 @@ pub fn lstm(
                 let tanh_op = Tanh {};
                 for (hidden, (out_gate, cell)) in zip(
                     hidden_iter,
-                    zip(out_gate.elements(), cell.elements().skip(cell_offset)),
+                    zip(out_gate.iter(), cell.iter().skip(cell_offset)),
                 ) {
                     *hidden = out_gate * tanh_op.map_element(cell)
                 }

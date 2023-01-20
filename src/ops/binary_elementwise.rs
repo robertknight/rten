@@ -549,7 +549,7 @@ mod tests {
         let b = from_data(vec![1, 2], vec![3, 4]);
         let result = add(&a, &b).unwrap();
         assert_eq!(result.shape(), &[2, 2]);
-        assert_eq!(result.elements_vec(), &[4, 5, 5, 6]);
+        assert_eq!(result.to_vec(), &[4, 5, 5, 6]);
 
         Ok(())
     }

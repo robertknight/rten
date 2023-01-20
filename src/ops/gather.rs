@@ -15,7 +15,7 @@ pub fn gather<T: Copy + Default>(
     if axis >= input.ndim() {
         return Err(OpError::InvalidValue("`axis` is out of range"));
     }
-    for index in indices.elements() {
+    for index in indices.iter() {
         if index < 0 || index >= input.shape()[axis] as i32 {
             return Err(OpError::InvalidValue("Entry in `indices` is out of range"));
         }

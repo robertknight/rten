@@ -37,7 +37,7 @@ pub fn concat<T: Copy>(inputs: &[&Tensor<T>], dim: usize) -> Result<Tensor<T>, O
     let mut input_iters: Vec<ConcatIter<'_, T>> = inputs
         .iter()
         .map(|tensor| ConcatIter {
-            elements: tensor.elements(),
+            elements: tensor.iter(),
             chunk_size: tensor.shape()[dim..].iter().product(),
         })
         .collect();
