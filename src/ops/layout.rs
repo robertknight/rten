@@ -310,7 +310,7 @@ impl Operator for Squeeze {
 }
 
 pub fn transpose<T: Copy>(input: &Tensor<T>, permutation: Option<&[usize]>) -> Tensor<T> {
-    let mut transposed = input.clone();
+    let mut transposed = input.view();
     match permutation {
         Some(order) => transposed.permute(order),
         None => {
@@ -318,7 +318,7 @@ pub fn transpose<T: Copy>(input: &Tensor<T>, permutation: Option<&[usize]>) -> T
             transposed.permute(&reversed);
         }
     };
-    transposed
+    transposed.to_tensor()
 }
 
 #[derive(Debug)]
