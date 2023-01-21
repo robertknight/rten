@@ -3,7 +3,7 @@ use std::fmt::Debug;
 use std::io;
 use std::iter::{repeat, zip, Cycle, Take};
 use std::ops::{Index, IndexMut, Range, RangeTo};
-use std::slice::Iter;
+use std::slice::{Iter, IterMut};
 
 #[cfg(test)]
 use crate::rng::XorShiftRNG;
@@ -196,6 +196,10 @@ impl Layout {
         self.shape[dim] = new_size;
     }
 
+    fn is_broadcast(&self) -> bool {
+        self.strides.iter().any(|&stride| stride == 0)
+    }
+
     fn is_contiguous(&self) -> bool {
         let mut product = 1;
         for (dim, len) in self.shape.iter().enumerate().rev() {
@@ -327,6 +331,35 @@ impl<'a, T: Copy> TensorView<'a, T> {
     /// view.
     pub fn to_tensor(&self) -> Tensor<T> {
         Tensor::from_data(self.shape().into(), self.iter().collect())
+    }
+}
+
+pub struct TensorViewMut<'a, T: Copy = f32> {
+    data: &'a mut [T],
+    layout: Cow<'a, Layout>,
+}
+
+impl<'a, T: Copy> TensorViewMut<'a, T> {
+    fn new(data: &'a mut [T], layout: &'a Layout) -> TensorViewMut<'a, T> {
+        TensorViewMut {
+            data,
+            layout: Cow::Borrowed(layout),
+        }
+    }
+
+    /// Return a slice of the sizes of each dimension.
+    pub fn shape(&self) -> &[usize] {
+        self.layout.shape()
+    }
+
+    /// Change the layout of this view to put dimensions in the order specified
+    /// by `dims`.
+    pub fn permute(&mut self, dims: &[usize]) {
+        self.layout.to_mut().permute(dims);
+    }
+
+    pub fn iter_mut(&mut self) -> ElementsMut<T> {
+        ElementsMut::new(self)
     }
 }
 
@@ -791,6 +824,13 @@ impl<T: Copy> Tensor<T> {
     pub fn view(&self) -> TensorView<T> {
         TensorView::new(self.data(), &self.layout)
     }
+
+    pub fn view_mut(&mut self) -> TensorViewMut<T> {
+        // We slice `self.data` here rather than using `self.data_mut()` to
+        // avoid a borrow-checker complaint.
+        let data = &mut self.data[self.base..];
+        TensorViewMut::new(data, &self.layout)
+    }
 }
 
 impl Tensor<f32> {
@@ -1199,7 +1239,7 @@ impl<'a, T: Copy> IndexingIter<'a, T> {
 impl<'a, T: Copy> Iterator for IndexingIter<'a, T> {
     type Item = T;
 
-    fn next(&mut self) -> Option<T> {
+    fn next(&mut self) -> Option<Self::Item> {
         if self.base.len == 0 {
             return None;
         }
@@ -1214,6 +1254,129 @@ impl<'a, T: Copy> Iterator for IndexingIter<'a, T> {
 }
 
 impl<'a, T: Copy> ExactSizeIterator for IndexingIter<'a, T> {}
+
+/// Mutable iterator over elements of a tensor.
+pub struct ElementsMut<'a, T: Copy> {
+    iter: ElementsIterMut<'a, T>,
+}
+
+/// Alternate implementations of `ElementsMut`.
+///
+/// When the tensor has a contiguous layout, this iterator is just a thin
+/// wrapper around a slice iterator.
+enum ElementsIterMut<'a, T: Copy> {
+    Direct(IterMut<'a, T>),
+    Indexing(IndexingIterMut<'a, T>),
+}
+
+impl<'a, T: Copy> ElementsMut<'a, T> {
+    fn new<'b>(view: &'b mut TensorViewMut<'a, T>) -> ElementsMut<'b, T>
+    where
+        'a: 'b,
+    {
+        if view.layout.is_contiguous() {
+            ElementsMut {
+                iter: ElementsIterMut::Direct(view.data.iter_mut()),
+            }
+        } else {
+            ElementsMut {
+                iter: ElementsIterMut::Indexing(IndexingIterMut::new(view)),
+            }
+        }
+    }
+
+    fn slice<'b>(view: &'b mut TensorViewMut<'a, T>, ranges: &[SliceRange]) -> ElementsMut<'b, T>
+    where
+        'a: 'b,
+    {
+        let iter = IndexingIterMut {
+            base: IndexingIterBase::slice(&view.layout, ranges),
+            data: view.data,
+        };
+        ElementsMut {
+            iter: ElementsIterMut::Indexing(iter),
+        }
+    }
+}
+
+impl<'a, T: Copy> Iterator for ElementsMut<'a, T> {
+    type Item = &'a mut T;
+
+    fn next(&mut self) -> Option<Self::Item> {
+        match self.iter {
+            ElementsIterMut::Direct(ref mut iter) => iter.next(),
+            ElementsIterMut::Indexing(ref mut iter) => iter.next(),
+        }
+    }
+
+    fn size_hint(&self) -> (usize, Option<usize>) {
+        match &self.iter {
+            ElementsIterMut::Direct(iter) => iter.size_hint(),
+            ElementsIterMut::Indexing(iter) => iter.size_hint(),
+        }
+    }
+
+    fn nth(&mut self, n: usize) -> Option<Self::Item> {
+        match self.iter {
+            ElementsIterMut::Direct(ref mut iter) => iter.nth(n),
+            ElementsIterMut::Indexing(ref mut iter) => {
+                iter.base.step_by(n);
+                iter.next()
+            }
+        }
+    }
+}
+
+impl<'a, T: Copy> ExactSizeIterator for ElementsMut<'a, T> {}
+
+struct IndexingIterMut<'a, T: Copy> {
+    base: IndexingIterBase,
+
+    /// Data buffer of the tensor
+    data: &'a mut [T],
+}
+
+impl<'a, T: Copy> IndexingIterMut<'a, T> {
+    fn new<'b>(view: &'b mut TensorViewMut<'a, T>) -> IndexingIterMut<'b, T>
+    where
+        'a: 'b,
+    {
+        assert!(
+            !view.layout.is_broadcast(),
+            "Cannot mutably iterate over a broadcasting view"
+        );
+        IndexingIterMut {
+            base: IndexingIterBase::new(&view.layout),
+            data: view.data,
+        }
+    }
+}
+
+impl<'a, T: Copy> Iterator for IndexingIterMut<'a, T> {
+    type Item = &'a mut T;
+
+    fn next(&mut self) -> Option<Self::Item> {
+        if self.base.len == 0 {
+            return None;
+        }
+        let element = unsafe {
+            let el = &mut self.data[self.base.offset as usize];
+
+            // Safety: IndexingIterBase never yields the same offset more than
+            // once as long as we're not broadcasting, which was checked in the
+            // constructor.
+            std::mem::transmute::<&'_ mut T, &'a mut T>(el)
+        };
+        self.base.step();
+        Some(element)
+    }
+
+    fn size_hint(&self) -> (usize, Option<usize>) {
+        (self.base.len, Some(self.base.len))
+    }
+}
+
+impl<'a, T: Copy> ExactSizeIterator for IndexingIterMut<'a, T> {}
 
 /// Iterator over element offsets of a tensor.
 ///
@@ -1999,6 +2162,41 @@ mod tests {
         let x = from_scalar(5.0);
         let elements = x.iter().collect::<Vec<_>>();
         assert_eq!(&elements, &[5.0]);
+    }
+
+    #[test]
+    fn test_iter_mut_for_contiguous_array() {
+        for dims in 1..7 {
+            let mut shape = Vec::new();
+            for d in 0..dims {
+                shape.push(d + 1);
+            }
+            let mut rng = XorShiftRNG::new(1234);
+            let mut x = rand(&shape, &mut rng);
+
+            let elts: Vec<f32> = x.iter().map(|x| x * 2.).collect();
+
+            for elt in x.view_mut().iter_mut() {
+                *elt *= 2.;
+            }
+
+            assert_eq!(x.data(), elts);
+        }
+    }
+
+    #[test]
+    fn test_iter_mut_for_non_contiguous_array() {
+        let mut x = zeros(&[3, 3]);
+        for (index, elt) in x.data_mut().iter_mut().enumerate() {
+            *elt = index + 1;
+        }
+        x.permute(&[1, 0]);
+
+        let x_doubled: Vec<usize> = x.iter().map(|x| x * 2).collect();
+        for elt in x.view_mut().iter_mut() {
+            *elt *= 2;
+        }
+        assert_eq!(x.to_vec(), x_doubled);
     }
 
     #[test]
