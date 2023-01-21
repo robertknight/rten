@@ -306,6 +306,28 @@ impl<'a, T: Copy> TensorView<'a, T> {
             layout: Cow::Borrowed(layout),
         }
     }
+
+    /// Return a slice of the sizes of each dimension.
+    pub fn shape(&self) -> &[usize] {
+        self.layout.shape()
+    }
+
+    /// Change the layout of this view to put dimensions in the order specified
+    /// by `dims`.
+    pub fn permute(&mut self, dims: &[usize]) {
+        self.layout.to_mut().permute(dims);
+    }
+
+    /// Return an iterator over elements of this tensor, in their logical order.
+    pub fn iter(&self) -> Elements<'a, T> {
+        Elements::new(self)
+    }
+
+    /// Return a new contiguous tensor with the same shape and elements as this
+    /// view.
+    pub fn to_tensor(&self) -> Tensor<T> {
+        Tensor::from_data(self.shape().into(), self.iter().collect())
+    }
 }
 
 /// Tensor is the core n-dimensional array type used for inputs, outputs and
