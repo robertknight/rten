@@ -1,5 +1,7 @@
 use std::iter::{repeat, zip};
 
+use smallvec::SmallVec;
+
 use super::TensorIndex;
 
 /// Describes how to map offsets in a buffer of elements to coordinates in an
@@ -14,7 +16,7 @@ pub struct Layout {
     /// Since we always have the same number of stride and shape dims, these
     /// are combined into one array to avoid redundantly storing separate
     /// lengths for each.
-    shape_and_strides: Vec<usize>,
+    shape_and_strides: SmallVec<[usize; 8]>,
 }
 
 impl Layout {
@@ -22,7 +24,7 @@ impl Layout {
     /// (contiguous) strides.
     pub fn new(shape: &[usize]) -> Layout {
         Layout {
-            shape_and_strides: [shape, &strides_for_shape(shape)].concat(),
+            shape_and_strides: Self::contiguous_shape_and_strides(shape),
         }
     }
 
@@ -82,8 +84,7 @@ impl Layout {
     }
 
     pub fn make_contiguous(&mut self) {
-        let shape = self.shape();
-        self.shape_and_strides = [shape, &strides_for_shape(shape)].concat()
+        self.shape_and_strides = Self::contiguous_shape_and_strides(self.shape());
     }
 
     /// Return true if this layout's shape can be broadcast to the given shape.
@@ -176,17 +177,15 @@ impl Layout {
         }
         self.shape().try_into().unwrap()
     }
-}
 
-/// Return the default strides for a given tensor shape.
-///
-/// The returned strides are for a tightly packed tensor (ie. no unused
-/// elements) where all elements are stored in the default order.
-fn strides_for_shape(shape: &[usize]) -> Vec<usize> {
-    let mut strides = Vec::with_capacity(shape.len());
-    for i in 0..shape.len() {
-        let stride = shape[i + 1..].iter().product();
-        strides.push(stride);
+    /// Create a shape-and-strides array for a contiguous layout.
+    fn contiguous_shape_and_strides(shape: &[usize]) -> SmallVec<[usize; 8]> {
+        let mut strides_and_shape = SmallVec::with_capacity(shape.len() * 2);
+        strides_and_shape.extend_from_slice(shape);
+        for i in 0..shape.len() {
+            let stride = shape[i + 1..].iter().product();
+            strides_and_shape.push(stride);
+        }
+        strides_and_shape
     }
-    strides
 }
