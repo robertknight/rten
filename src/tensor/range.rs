@@ -151,3 +151,22 @@ where
         SliceRange::new(0, end, 1)
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::SliceRange;
+
+    #[test]
+    fn test_slice_range_resolve() {
+        // +ve endpoints, +ve step
+        assert_eq!(SliceRange::new(0, 5, 1).resolve(10), 0..5);
+        assert_eq!(SliceRange::new(15, 20, 1).resolve(10), 10..10);
+
+        // -ve endpoints, +ve step
+        assert_eq!(SliceRange::new(-5, -1, 1).resolve(10), 5..9);
+        assert_eq!(SliceRange::new(-20, -1, 1).resolve(10), 0..9);
+
+        // +ve endpoints, -ve step
+        assert_eq!(SliceRange::new(5, 0, -1).resolve(10), 4..9);
+    }
+}
