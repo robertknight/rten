@@ -331,6 +331,10 @@ impl Layout {
     }
 }
 
+/// TensorView provides a view onto data owned by a Tensor.
+///
+/// Conceptually the relationship between TensorView and Tensor is similar to
+/// that between slice and Vec.
 #[derive(Clone)]
 pub struct TensorView<'a, T: Copy = f32> {
     data: &'a [T],
@@ -368,6 +372,10 @@ impl<'a, T: Copy> TensorView<'a, T> {
     }
 }
 
+/// TensorViewMut provides a mutable view onto data owned by a Tensor.
+///
+/// Conceptually the relationship between TensorViewMut and Tensor is similar to
+/// that between a mutable slice and Vec.
 pub struct TensorViewMut<'a, T: Copy = f32> {
     data: &'a mut [T],
     layout: Cow<'a, Layout>,
