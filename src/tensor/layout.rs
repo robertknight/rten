@@ -2,6 +2,7 @@ use std::iter::{repeat, zip};
 
 use smallvec::SmallVec;
 
+use super::range::SliceItem;
 use super::TensorIndex;
 
 /// Describes how to map offsets in a buffer of elements to coordinates in an
@@ -26,6 +27,49 @@ impl Layout {
         Layout {
             shape_and_strides: Self::contiguous_shape_and_strides(shape),
         }
+    }
+
+    /// Compute the new layout and offset of the first element for a slice into
+    /// an existing tensor view.
+    ///
+    /// Returns a tuple of (offset, layout) for the sliced view.
+    pub fn slice(&self, range: &[SliceItem]) -> (usize, Layout) {
+        assert!(
+            self.ndim() >= range.len(),
+            "Slice dims must be <= current dims"
+        );
+
+        let padded_range = range
+            .iter()
+            .chain(repeat(&SliceItem::RangeFull))
+            .take(self.ndim())
+            .enumerate();
+
+        let offset = padded_range
+            .clone()
+            .map(|(dim, item)| {
+                let start = match item {
+                    SliceItem::Index(idx) => *idx,
+                    SliceItem::Range(r) => r.start,
+                    SliceItem::RangeFull => 0,
+                };
+                self.stride(dim) * start
+            })
+            .sum();
+
+        let retained_dims = padded_range.clone().filter_map(|(dim, item)| match item {
+            SliceItem::Index(_) => None,
+            SliceItem::Range(range) => Some((dim, range.clone())),
+            SliceItem::RangeFull => Some((dim, 0..self.shape()[dim])),
+        });
+
+        let shape_and_strides = retained_dims
+            .clone()
+            .map(|(_, item)| item.end - item.start)
+            .chain(retained_dims.map(|(dim, _)| self.stride(dim)))
+            .collect();
+
+        (offset, Self { shape_and_strides })
     }
 
     /// Return the number of elements in the tensor shape described by this layout.
@@ -55,6 +99,21 @@ impl Layout {
     /// Return the stride for a specific dimension.
     pub fn stride(&self, dim: usize) -> usize {
         self.shape_and_strides[self.ndim() + dim]
+    }
+
+    /// Return one past the maximum offset into the tensor/view's data buffer
+    /// that will be accessed when indexing into it using the mapping defined
+    /// by this layout.
+    pub fn end_offset(&self) -> usize {
+        let shape = self.shape();
+        if shape.iter().any(|&size| size == 0) {
+            return 0;
+        }
+        let strides = self.strides();
+        (0..self.ndim())
+            .map(|dim| (shape[dim] - 1) * strides[dim])
+            .sum::<usize>()
+            + 1
     }
 
     pub fn resize_dim(&mut self, dim: usize, new_size: usize) {

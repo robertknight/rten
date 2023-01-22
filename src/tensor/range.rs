@@ -1,6 +1,13 @@
 use std::fmt::Debug;
 use std::ops::{Range, RangeTo};
 
+#[derive(Clone)]
+pub enum SliceItem {
+    Index(usize),
+    Range(Range<usize>),
+    RangeFull,
+}
+
 /// A range for slicing a Tensor.
 ///
 /// This has two main differences from a standard Rust range (`std::ops::Range`):

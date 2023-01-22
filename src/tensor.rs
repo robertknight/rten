@@ -3,6 +3,8 @@ use std::fmt::Debug;
 use std::io;
 use std::ops::{Index, IndexMut, Range};
 
+use crate::linalg::Matrix;
+
 #[cfg(test)]
 use crate::rng::XorShiftRNG;
 
@@ -14,7 +16,7 @@ mod range;
 pub use self::index_iterator::IndexIterator;
 pub use self::iterators::{BroadcastElements, Elements, ElementsMut, Offsets};
 use self::layout::Layout;
-pub use self::range::SliceRange;
+pub use self::range::{SliceItem, SliceRange};
 
 /// TensorView provides a view onto data owned by a Tensor.
 ///
@@ -75,10 +77,38 @@ impl<'a, T: Copy> TensorView<'a, T> {
         Elements::new(self)
     }
 
+    pub fn slice(&self, range: &[SliceItem]) -> TensorView<'a, T> {
+        let (offset, layout) = self.layout.slice(range);
+        Self {
+            data: &self.data[offset..offset + layout.end_offset()],
+            layout: Cow::Owned(layout),
+        }
+    }
+
     /// Return a new contiguous tensor with the same shape and elements as this
     /// view.
     pub fn to_tensor(&self) -> Tensor<T> {
         Tensor::from_data(self.shape().into(), self.iter().collect())
+    }
+}
+
+pub trait AsMatrix<'a> {
+    fn as_matrix(&self) -> Matrix<'a>;
+}
+
+impl<'a> AsMatrix<'a> for TensorView<'a, f32> {
+    fn as_matrix(&self) -> Matrix<'a> {
+        assert!(
+            self.layout.ndim() == 2,
+            "Can only convert 2D view to matrix"
+        );
+        let shape = self.shape();
+        Matrix::from_slice(
+            self.data,
+            shape[0],
+            shape[1],
+            Some((self.layout.stride(0), self.layout.stride(1))),
+        )
     }
 }
 
@@ -99,9 +129,17 @@ impl<'a, T: Copy> TensorViewMut<'a, T> {
         }
     }
 
+    pub fn data_mut(&mut self) -> &mut [T] {
+        self.data
+    }
+
     /// Return a slice of the sizes of each dimension.
     pub fn shape(&self) -> &[usize] {
         self.layout.shape()
+    }
+
+    pub fn stride(&self, dim: usize) -> usize {
+        self.layout.stride(dim)
     }
 
     /// Change the layout of this view to put dimensions in the order specified
@@ -112,6 +150,17 @@ impl<'a, T: Copy> TensorViewMut<'a, T> {
 
     pub fn iter_mut(&mut self) -> ElementsMut<T> {
         ElementsMut::new(self)
+    }
+
+    pub fn slice<'b>(&'b mut self, range: &[SliceItem]) -> TensorViewMut<'b, T>
+    where
+        'b: 'a,
+    {
+        let (offset, layout) = self.layout.slice(range);
+        Self {
+            data: &mut self.data[offset..offset + layout.end_offset()],
+            layout: Cow::Owned(layout),
+        }
     }
 }
 
