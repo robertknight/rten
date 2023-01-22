@@ -1827,7 +1827,7 @@ mod tests {
     }
 
     #[test]
-    fn test_elements_for_contiguous_array() {
+    fn test_iter_for_contiguous_array() {
         for dims in 1..7 {
             let mut shape = Vec::new();
             for d in 0..dims {
@@ -1843,13 +1843,13 @@ mod tests {
     }
 
     #[test]
-    fn test_elements_for_empty_array() {
+    fn test_iter_for_empty_array() {
         let empty = zeros::<f32>(&[3, 0, 5]);
         assert!(empty.iter().next().is_none());
     }
 
     #[test]
-    fn test_elements_for_non_contiguous_array() {
+    fn test_iter_for_non_contiguous_array() {
         let mut x = zeros(&[3, 3]);
         for (index, elt) in x.data_mut().iter_mut().enumerate() {
             *elt = index + 1;
@@ -1879,17 +1879,17 @@ mod tests {
     }
 
     // PyTorch and numpy do not allow iteration over a scalar, but it seems
-    // consistent for `Tensor::elements` to always yield `Tensor::len` elements,
+    // consistent for `Tensor::iter` to always yield `Tensor::len` elements,
     // and `len` returns 1 for a scalar.
     #[test]
-    fn test_elements_for_scalar() {
+    fn test_iter_for_scalar() {
         let x = from_scalar(5.0);
         let elements = x.iter().collect::<Vec<_>>();
         assert_eq!(&elements, &[5.0]);
     }
 
     #[test]
-    fn test_elements_vec() {
+    fn test_to_vec() {
         let mut x = steps(&[3, 3]);
 
         // Contiguous case. This should use the fast-path.
