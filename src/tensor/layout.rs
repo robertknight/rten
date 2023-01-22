@@ -5,8 +5,8 @@ use smallvec::SmallVec;
 use super::range::SliceItem;
 use super::TensorIndex;
 
-/// Describes how to map offsets in a buffer of elements to coordinates in an
-/// N-dimensional array / tensor.
+/// Describes how to map coordinates in an N-dimensional array / tensor to
+/// offsets in a buffer of elements.
 ///
 /// Logically this data consists of the size of each dimension of the tensor,
 /// and the stride (gap) between offsets in that dimension.
