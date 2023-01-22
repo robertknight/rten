@@ -155,6 +155,11 @@ where
     }
 }
 
+/// Describes how to map offsets in a buffer of elements to coordinates in an
+/// N-dimensional array / tensor.
+///
+/// Logically this data consists of the size of each dimension of the tensor,
+/// and the stride (gap) between offsets in that dimension.
 #[derive(Clone, Debug)]
 struct Layout {
     /// Array of dimension sizes followed by the corresponding dimension strides.
@@ -166,12 +171,15 @@ struct Layout {
 }
 
 impl Layout {
+    /// Construct a layout with dimension sizes given by `shape` and default
+    /// (contiguous) strides.
     fn new(shape: &[usize]) -> Layout {
         Layout {
             shape_and_strides: [shape, &strides_for_shape(shape)].concat(),
         }
     }
 
+    /// Return the number of elements in the tensor shape described by this layout.
     fn len(&self) -> usize {
         self.shape().iter().product()
     }
@@ -180,18 +188,22 @@ impl Layout {
         self.len() == 0
     }
 
+    /// Return the number of dimensions.
     fn ndim(&self) -> usize {
         self.shape_and_strides.len() / 2
     }
 
+    /// Return the sizes of each dimension.
     fn shape(&self) -> &[usize] {
         &self.shape_and_strides[0..self.ndim()]
     }
 
+    /// Return the stride (offset between elements) in the tensor's data buffer.
     fn strides(&self) -> &[usize] {
         &self.shape_and_strides[self.ndim()..]
     }
 
+    /// Return the stride for a specific dimension.
     fn stride(&self, dim: usize) -> usize {
         self.shape_and_strides[self.ndim() + dim]
     }
@@ -200,10 +212,17 @@ impl Layout {
         self.shape_and_strides[dim] = new_size;
     }
 
+    /// Return true if this layout describes viewing a tensor with N elements
+    /// as a larger tensor with some multiple of N elements.
+    ///
+    /// To enforce Rust's invariant that only one mutable reference to a value
+    /// can exist at once, broadcasted views / iterators must be read-only.
     fn is_broadcast(&self) -> bool {
         self.strides().iter().any(|&stride| stride == 0)
     }
 
+    /// Return true if this layout describes a contiguous tensor, where the
+    /// logical order of elements matches the order in which they are stored.
     fn is_contiguous(&self) -> bool {
         let mut product = 1;
         for (dim, len) in self.shape().iter().enumerate().rev() {
@@ -220,6 +239,7 @@ impl Layout {
         self.shape_and_strides = [shape, &strides_for_shape(shape)].concat()
     }
 
+    /// Return true if this layout's shape can be broadcast to the given shape.
     fn can_broadcast_to(&self, shape: &[usize]) -> bool {
         if self.shape() == shape {
             return true;
@@ -238,6 +258,8 @@ impl Layout {
         zip(self_dims, target_dims).all(|(a, b)| a == b || a == 1)
     }
 
+    /// Return true if this layout's shape can be broadcast with another layout
+    /// that has shape `shape`.
     fn can_broadcast_with(&self, shape: &[usize]) -> bool {
         if self.shape() == shape {
             return true;
@@ -261,6 +283,8 @@ impl Layout {
         zip(a_iter, b_iter).all(|(a, b)| a == b || a == 1 || b == 1)
     }
 
+    /// Swap the order of dimensions in this layout to the order described by
+    /// `dims`.
     fn permute(&mut self, dims: &[usize]) {
         if dims.len() != self.ndim() {
             panic!("Permute dims length does not match dimension count");
