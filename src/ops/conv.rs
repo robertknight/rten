@@ -1,10 +1,10 @@
 use std::borrow::Cow;
 
 use crate::check_dims;
-use crate::linalg::{add_scaled_vector, div_ceil, gemm, Matrix};
+use crate::linalg::{add_scaled_vector, div_ceil, gemm};
 use crate::ops::pooling::calc_output_size_and_padding;
 use crate::ops::{InputList, IntoOpResult, OpError, Operator, Output, Padding};
-use crate::tensor::{from_data, zeros, Tensor};
+use crate::tensor::{from_data, zeros, AsMatrix, SliceItem, Tensor};
 
 // Calculate the min and max output X coordinates that are valid when updating
 // a row of convolution output using a loop:
@@ -128,32 +128,28 @@ fn conv_2d_pointwise(input: &Tensor, kernel: &Tensor, bias: Option<&Tensor>) -> 
         zeros(&[batch, out_c, in_h * in_w])
     };
 
-    // We require contiguous inputs due to the implicit reshaping in the
-    // matrix multiplication below.
+    // Get input and kernel as contiguous tensors so we can create reshaped
+    // views.
     let input = input.as_contiguous();
     let kernel = kernel.as_contiguous();
-
-    let out_row_stride = output.stride(1);
+    let kernel_mat = kernel.view().reshaped(&[out_c, in_c]).as_matrix();
 
     for n in 0..batch {
-        let in_offset = input.offset([n, 0, 0, 0]);
-        let in_offset_end = in_offset + input.stride(0);
-        let out_offset = output.offset([n, 0, 0]);
-        let out_offset_end = out_offset + output.stride(0);
+        let mut out_view = output.view_mut();
+        let mut out_item = out_view.slice(&[SliceItem::Index(n)]);
+        let out_row_stride = out_item.stride(0);
 
-        // Use the low-level gemm_slice API to implicitly reshape the kernel from
-        // `OCHW` (where H=1, W=1) to `OC` and the n'th input image from
-        // `CHW` to `C x HW` (where HW is the spatial area of the input).
+        let in_mat = input
+            .view()
+            .slice(&[SliceItem::Index(n)])
+            .reshaped(&[in_c, in_h * in_w])
+            .as_matrix();
+
         gemm(
-            &mut output.data_mut()[out_offset..out_offset_end],
+            out_item.data_mut(),
             out_row_stride,
-            Matrix::from_slice(kernel.data(), out_c, in_c, Some((in_c, 1))),
-            Matrix::from_slice(
-                &input.data()[in_offset..in_offset_end],
-                in_c,
-                in_h * in_w,
-                Some((in_h * in_w, 1)),
-            ),
+            kernel_mat,
+            in_mat,
             1.,                                   // alpha
             if bias.is_some() { 1. } else { 0. }, // beta
         );
@@ -344,35 +340,27 @@ pub fn conv(
                 strides,
             );
 
-            // Create "views" of the output and kernel tensors which start at
-            // the first output channel for this group.
-            //
-            // The matrix multiplication below implicitly reshapes the output
-            // view to OxHW and the kernel matrix to OxIHW, which can then be
-            // multiplied by the IHWxHW im2col matrix.
-            let kernel_offset = kernel.offset([out_chan_start, 0, 0, 0]);
-            let kernel_view = &kernel.data()[kernel_offset..];
+            let kernel_mat = kernel
+                .view()
+                .slice(&[SliceItem::Range(
+                    out_chan_start..out_chan_start + out_channels_per_group,
+                )])
+                .reshaped(&[out_channels_per_group, in_channels_per_group * k_h * k_w])
+                .as_matrix();
 
-            let out_offset = output.offset([n, out_chan_start, 0]);
-            let out_view = &mut output.data_mut()[out_offset..];
+            let mut out_view = output.view_mut();
+            let mut out_item = out_view.slice(&[
+                SliceItem::Index(n),
+                SliceItem::Range(out_chan_start..out_chan_start + out_channels_per_group),
+            ]);
+            let mut out_mat = out_item.reshaped(&[out_channels_per_group, out_h * out_w]);
+            let out_row_stride = out_mat.stride(0);
 
             gemm(
-                out_view,
-                // Output row stride. We allocated the output tensor ourselves,
-                // so we know it is contiguous.
-                out_h * out_w,
-                Matrix::from_slice(
-                    kernel_view,
-                    out_channels_per_group,
-                    in_channels_per_group * k_h * k_w,
-                    Some((kernel.stride(0), kernel.stride(3))),
-                ),
-                Matrix::from_slice(
-                    im2col_mat.data(),
-                    im2col_mat.shape()[0],
-                    im2col_mat.shape()[1],
-                    Some((im2col_mat.shape()[1], im2col_mat.stride(1))),
-                ),
+                out_mat.data_mut(),
+                out_row_stride,
+                kernel_mat,
+                im2col_mat.view().as_matrix(),
                 1.,                                   // alpha
                 if bias.is_some() { 1. } else { 0. }, // beta
             );
