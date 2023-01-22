@@ -4,7 +4,7 @@ use crate::check_dims;
 use crate::linalg::{gemm, Matrix};
 use crate::ops::unary_elementwise::UnaryFloatOp;
 use crate::ops::{InputList, IntoOpResult, OpError, Operator, Output, Sigmoid, Tanh};
-use crate::tensor::Tensor;
+use crate::tensor::{AsMatrix, SliceItem, Tensor};
 
 #[derive(Copy, Clone, Debug)]
 pub enum LSTMDirection {
@@ -35,17 +35,6 @@ pub struct LSTM {
 enum Activation {
     Sigmoid,
     Tanh,
-}
-
-/// Return a mutable iterator over `len` items in a contiguous tensor, starting
-/// from the element at offset `start_offset`.
-fn elements_mut(
-    tensor: &mut Tensor,
-    start_offset: usize,
-    len: usize,
-) -> impl Iterator<Item = &mut f32> {
-    assert!(tensor.is_contiguous());
-    tensor.data_mut().iter_mut().skip(start_offset).take(len)
 }
 
 /// Compute output of an LSTM gate, according to the formula:
@@ -169,12 +158,13 @@ pub fn lstm(
         assert!(hidden_total % num_gates == 0);
         let hidden_size = hidden_total / num_gates;
 
-        Matrix::from_slice(
-            &tensor.data()[tensor.offset([dir, index * hidden_size, 0])..],
-            tensor.shape()[1] / num_gates,
-            tensor.shape()[2],
-            Some((tensor.stride(1), tensor.stride(2))),
-        )
+        tensor
+            .view()
+            .slice(&[
+                SliceItem::Index(dir),
+                SliceItem::Range(index * hidden_size..(index + 1) * hidden_size),
+            ])
+            .as_matrix()
     }
 
     // Specifies which gate's weight or bias to extract.
@@ -301,29 +291,37 @@ pub fn lstm(
                 );
 
                 // Compute new values of cell and hidden state
-                let cell_offset = cell.offset([dir, b, 0]);
-                let cell_iter = elements_mut(&mut cell, cell_offset, hidden_size);
+                let mut cell_view = cell.view_mut();
+                let mut cell_item = cell_view.slice(&[SliceItem::Index(dir), SliceItem::Index(b)]);
+
                 for (cell, (forget_gate, (input_gate, cell_gate))) in zip(
-                    cell_iter,
+                    cell_item.iter_mut(),
                     zip(forget_gate.iter(), zip(input_gate.iter(), cell_gate.iter())),
                 ) {
                     *cell = forget_gate * *cell + input_gate * cell_gate;
                 }
 
-                let hidden_offset = hidden.offset([dir, b, 0]);
-                let hidden_iter = elements_mut(&mut hidden, hidden_offset, hidden_size);
+                let mut hidden_view = hidden.view_mut();
+                let mut hidden_item =
+                    hidden_view.slice(&[SliceItem::Index(dir), SliceItem::Index(b)]);
                 let tanh_op = Tanh {};
                 for (hidden, (out_gate, cell)) in zip(
-                    hidden_iter,
-                    zip(out_gate.iter(), cell.iter().skip(cell_offset)),
+                    hidden_item.iter_mut(),
+                    zip(out_gate.iter(), cell_item.as_view().iter()),
                 ) {
                     *hidden = out_gate * tanh_op.map_element(cell)
                 }
 
                 // Copy latest value of hidden seq to output tensor
-                let hidden_seq_offset = hidden_seq.offset([seq, dir, b, 0]);
-                hidden_seq.data_mut()[hidden_seq_offset..hidden_seq_offset + hidden_size]
-                    .clone_from_slice(&hidden.data()[hidden_offset..hidden_offset + hidden_size]);
+                let mut hidden_seq_view = hidden_seq.view_mut();
+                let mut hidden_seq_item = hidden_seq_view.slice(&[
+                    SliceItem::Index(seq),
+                    SliceItem::Index(dir),
+                    SliceItem::Index(b),
+                ]);
+                hidden_seq_item
+                    .data_mut()
+                    .clone_from_slice(hidden_item.data_mut());
             }
         }
     }
