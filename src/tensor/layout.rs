@@ -146,6 +146,36 @@ impl Layout {
             .collect();
     }
 
+    /// Return a copy of this layout with dimensions re-ordered according to
+    /// `dims`.
+    pub fn permuted(&self, dims: &[usize]) -> Layout {
+        let mut permuted = self.clone();
+        permuted.permute(dims);
+        permuted
+    }
+
+    /// Change the shape of this layout to `shape`.
+    ///
+    /// `shape` must have the same product as the current shape (ie. must
+    /// specify the same number of elements) and the layout must be contiguous.
+    pub fn reshape(&mut self, shape: &[usize]) {
+        assert!(
+            shape.iter().product::<usize>() == self.len(),
+            "New shape must have same number of elements as current shape"
+        );
+        assert!(
+            self.is_contiguous(),
+            "Can only reshape a contiguous tensor/view"
+        );
+        *self = Layout::new(shape);
+    }
+
+    pub fn reshaped(&self, shape: &[usize]) -> Layout {
+        let mut reshaped = self.clone();
+        reshaped.reshape(shape);
+        reshaped
+    }
+
     pub fn offset<Idx: TensorIndex>(&self, index: Idx) -> usize {
         let shape = self.shape();
         assert!(

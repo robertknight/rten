@@ -45,6 +45,31 @@ impl<'a, T: Copy> TensorView<'a, T> {
         self.layout.to_mut().permute(dims);
     }
 
+    /// Return a new view with the dimensions re-ordered according to `dims`.
+    pub fn permuted(&self, dims: &[usize]) -> TensorView<'a, T> {
+        Self {
+            data: self.data,
+            layout: Cow::Owned(self.layout.permuted(dims)),
+        }
+    }
+
+    /// Change the layout of this view to have the given shape.
+    ///
+    /// The current view must be contiguous and the new shape must have the
+    /// same product as the current shape.
+    pub fn reshape(&mut self, shape: &[usize]) {
+        self.layout.to_mut().reshape(shape);
+    }
+
+    /// Return a new view with a given shape. This has the same requirements
+    /// as `reshape`.
+    pub fn reshaped(&self, shape: &[usize]) -> TensorView<'a, T> {
+        Self {
+            data: self.data,
+            layout: Cow::Owned(self.layout.reshaped(shape)),
+        }
+    }
+
     /// Return an iterator over elements of this tensor, in their logical order.
     pub fn iter(&self) -> Elements<'a, T> {
         Elements::new(self)
