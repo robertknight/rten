@@ -13,7 +13,7 @@ pub fn expand<T: Copy>(input: &Tensor<T>, shape: &Tensor<i32>) -> Result<Tensor<
         OpError::IncompatibleInputShapes("Cannot broadcast input with target shape"),
     )?;
 
-    let out_elts = input.broadcast_elements(&out_shape).collect();
+    let out_elts = input.broadcast_iter(&out_shape).collect();
     Ok(from_data(out_shape, out_elts))
 }
 

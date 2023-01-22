@@ -290,7 +290,7 @@ fn reduce<T: Copy + Default, R: Reducer<T>>(
                             SliceRange::new(idx as isize, idx as isize + 1, 1)
                         }
                     }));
-                    let reduced = reducer.reduce(input.slice_elements(&inner_range));
+                    let reduced = reducer.reduce(input.slice_iter(&inner_range));
                     reduced_data.push(reduced);
                 }
             }

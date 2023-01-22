@@ -387,7 +387,7 @@ impl<T: Copy> Tensor<T> {
     ///
     /// See also <https://numpy.org/doc/stable/user/basics.broadcasting.html#general-broadcasting-rules>
     /// for worked examples of how broadcasting works.
-    pub fn broadcast_elements(&self, shape: &[usize]) -> BroadcastElements<'_, T> {
+    pub fn broadcast_iter(&self, shape: &[usize]) -> BroadcastElements<'_, T> {
         if !self.can_broadcast_to(shape) {
             panic!("Cannot broadcast to specified shape");
         }
@@ -396,7 +396,7 @@ impl<T: Copy> Tensor<T> {
 
     /// Return an iterator over offsets of this tensor, broadcasted to `shape`.
     ///
-    /// This is very similar to `broadcast_elements`, except that the iterator
+    /// This is very similar to `broadcast_iter`, except that the iterator
     /// yields offsets into rather than elements of the data buffer.
     pub fn broadcast_offsets(&self, shape: &[usize]) -> Offsets {
         if !self.can_broadcast_to(shape) {
@@ -406,7 +406,7 @@ impl<T: Copy> Tensor<T> {
     }
 
     /// Return true if the element's shape can be broadcast to `shape` using
-    /// `broadcast_elements`. The result of the broadcasted tensor will have
+    /// `broadcast_iter`. The result of the broadcasted tensor will have
     /// exactly the shape `shape`.
     ///
     /// See <https://github.com/onnx/onnx/blob/main/docs/Broadcasting.md> for
@@ -416,7 +416,7 @@ impl<T: Copy> Tensor<T> {
     }
 
     /// Return true if the element's shape can be broadcast with `shape` using
-    /// `broadcast_elements`.
+    /// `broadcast_iter`.
     ///
     /// The shape of the result may be larger than either the current shape
     /// or `shape`. eg. If a tensor of shape `[1, 5]` is broadcast with one
@@ -429,7 +429,7 @@ impl<T: Copy> Tensor<T> {
     }
 
     /// Return an iterator over a subset of elements in this tensor.
-    pub fn slice_elements(&self, ranges: &[SliceRange]) -> Elements<T> {
+    pub fn slice_iter(&self, ranges: &[SliceRange]) -> Elements<T> {
         Elements::slice(&self.view(), ranges)
     }
 
@@ -438,7 +438,7 @@ impl<T: Copy> Tensor<T> {
     /// The returned offsets can be used to index the data buffer returned by
     /// `data` and `data_mut`.
     ///
-    /// Unlike `slice_elements`, the returned `Offsets` struct does not hold
+    /// Unlike `slice_iter`, the returned `Offsets` struct does not hold
     /// a reference to this tensor, so it is possible to modify the tensor while
     /// iterating over offsets.
     ///
@@ -1386,43 +1386,43 @@ mod tests {
     }
 
     #[test]
-    fn test_broadcast_elements() {
+    fn test_broadcast_iter() {
         let x = steps(&[1, 2, 1, 2]);
         assert_eq!(x.iter().collect::<Vec<i32>>(), &[1, 2, 3, 4]);
 
         // Broadcast a 1-size dimension to size 2
-        let bx = x.broadcast_elements(&[2, 2, 1, 2]);
+        let bx = x.broadcast_iter(&[2, 2, 1, 2]);
         assert_eq!(bx.collect::<Vec<i32>>(), &[1, 2, 3, 4, 1, 2, 3, 4]);
 
         // Broadcast a different 1-size dimension to size 2
-        let bx = x.broadcast_elements(&[1, 2, 2, 2]);
+        let bx = x.broadcast_iter(&[1, 2, 2, 2]);
         assert_eq!(bx.collect::<Vec<i32>>(), &[1, 2, 1, 2, 3, 4, 3, 4]);
 
         // Broadcast to a larger number of dimensions
         let x = steps(&[5]);
-        let bx = x.broadcast_elements(&[1, 5]);
+        let bx = x.broadcast_iter(&[1, 5]);
         assert_eq!(bx.collect::<Vec<i32>>(), &[1, 2, 3, 4, 5]);
     }
 
     #[test]
-    fn test_broadcast_elements_with_scalar() {
+    fn test_broadcast_iter_with_scalar() {
         let scalar = from_scalar(7);
-        let bx = scalar.broadcast_elements(&[3, 3]);
+        let bx = scalar.broadcast_iter(&[3, 3]);
         assert_eq!(bx.collect::<Vec<i32>>(), &[7, 7, 7, 7, 7, 7, 7, 7, 7]);
     }
 
     #[test]
     #[should_panic(expected = "Cannot broadcast to specified shape")]
-    fn test_broadcast_elements_with_invalid_shape() {
+    fn test_broadcast_iter_with_invalid_shape() {
         let x = steps(&[2, 2]);
-        x.broadcast_elements(&[3, 2]);
+        x.broadcast_iter(&[3, 2]);
     }
 
     #[test]
     #[should_panic(expected = "Cannot broadcast to specified shape")]
-    fn test_broadcast_elements_with_shorter_shape() {
+    fn test_broadcast_iter_with_shorter_shape() {
         let x = steps(&[2, 2]);
-        x.broadcast_elements(&[4]);
+        x.broadcast_iter(&[4]);
     }
 
     #[test]
@@ -1430,7 +1430,7 @@ mod tests {
         let x = steps(&[2, 1, 4]);
         let to_shape = &[2, 2, 1, 4];
 
-        let expected: Vec<i32> = x.broadcast_elements(to_shape).collect();
+        let expected: Vec<i32> = x.broadcast_iter(to_shape).collect();
         let actual: Vec<i32> = x
             .broadcast_offsets(to_shape)
             .map(|off| x.data()[off])
@@ -1463,118 +1463,118 @@ mod tests {
     }
 
     #[test]
-    fn test_slice_elements() {
+    fn test_slice_iter() {
         let sr = |start, end| SliceRange::new(start, end, 1);
         let x = steps(&[3, 3]);
 
         // Slice that removes start of each dimension
-        let slice: Vec<_> = x.slice_elements(&[sr(1, 3), sr(1, 3)]).collect();
+        let slice: Vec<_> = x.slice_iter(&[sr(1, 3), sr(1, 3)]).collect();
         assert_eq!(slice, &[5, 6, 8, 9]);
 
         // Slice that removes end of each dimension
-        let slice: Vec<_> = x.slice_elements(&[sr(0, 2), sr(0, 2)]).collect();
+        let slice: Vec<_> = x.slice_iter(&[sr(0, 2), sr(0, 2)]).collect();
         assert_eq!(slice, &[1, 2, 4, 5]);
 
         // Slice that removes start and end of first dimension
-        let slice: Vec<_> = x.slice_elements(&[sr(1, 2), sr(0, 3)]).collect();
+        let slice: Vec<_> = x.slice_iter(&[sr(1, 2), sr(0, 3)]).collect();
         assert_eq!(slice, &[4, 5, 6]);
 
         // Slice that removes start and end of second dimension
-        let slice: Vec<_> = x.slice_elements(&[sr(0, 3), sr(1, 2)]).collect();
+        let slice: Vec<_> = x.slice_iter(&[sr(0, 3), sr(1, 2)]).collect();
         assert_eq!(slice, &[2, 5, 8]);
     }
 
     #[test]
-    fn test_slice_elements_with_step() {
+    fn test_slice_iter_with_step() {
         let sr = SliceRange::new;
         let x = steps(&[10]);
 
         // Positive steps > 1.
-        let slice: Vec<_> = x.slice_elements(&[sr(0, 10, 2)]).collect();
+        let slice: Vec<_> = x.slice_iter(&[sr(0, 10, 2)]).collect();
         assert_eq!(slice, &[1, 3, 5, 7, 9]);
 
-        let slice: Vec<_> = x.slice_elements(&[sr(0, 10, 3)]).collect();
+        let slice: Vec<_> = x.slice_iter(&[sr(0, 10, 3)]).collect();
         assert_eq!(slice, &[1, 4, 7, 10]);
 
-        let slice: Vec<_> = x.slice_elements(&[sr(0, 10, 10)]).collect();
+        let slice: Vec<_> = x.slice_iter(&[sr(0, 10, 10)]).collect();
         assert_eq!(slice, &[1]);
 
         // Negative steps.
-        let slice: Vec<_> = x.slice_elements(&[sr(10, -11, -1)]).collect();
+        let slice: Vec<_> = x.slice_iter(&[sr(10, -11, -1)]).collect();
         assert_eq!(slice, &[10, 9, 8, 7, 6, 5, 4, 3, 2, 1]);
 
-        let slice: Vec<_> = x.slice_elements(&[sr(8, 0, -1)]).collect();
+        let slice: Vec<_> = x.slice_iter(&[sr(8, 0, -1)]).collect();
         assert_eq!(slice, &[9, 8, 7, 6, 5, 4, 3, 2]);
 
-        let slice: Vec<_> = x.slice_elements(&[sr(10, 0, -2)]).collect();
+        let slice: Vec<_> = x.slice_iter(&[sr(10, 0, -2)]).collect();
         assert_eq!(slice, &[10, 8, 6, 4, 2]);
 
-        let slice: Vec<_> = x.slice_elements(&[sr(10, 0, -10)]).collect();
+        let slice: Vec<_> = x.slice_iter(&[sr(10, 0, -10)]).collect();
         assert_eq!(slice, &[10]);
     }
 
     #[test]
-    fn test_slice_elements_negative_indices() {
+    fn test_slice_iter_negative_indices() {
         let sr = |start, end| SliceRange::new(start, end, 1);
         let x = steps(&[10]);
 
         // Negative start
-        let slice: Vec<_> = x.slice_elements(&[sr(-2, 10)]).collect();
+        let slice: Vec<_> = x.slice_iter(&[sr(-2, 10)]).collect();
         assert_eq!(slice, &[9, 10]);
 
         // Negative end
-        let slice: Vec<_> = x.slice_elements(&[sr(7, -1)]).collect();
+        let slice: Vec<_> = x.slice_iter(&[sr(7, -1)]).collect();
         assert_eq!(slice, &[8, 9]);
 
         // Negative start and end
-        let slice: Vec<_> = x.slice_elements(&[sr(-3, -1)]).collect();
+        let slice: Vec<_> = x.slice_iter(&[sr(-3, -1)]).collect();
         assert_eq!(slice, &[8, 9]);
     }
 
     #[test]
-    fn test_slice_elements_clamps_indices() {
+    fn test_slice_iter_clamps_indices() {
         let sr = SliceRange::new;
         let x = steps(&[5]);
 
         // Test cases for positive steps (ie. traversing forwards).
 
         // Positive start out of bounds
-        let slice: Vec<_> = x.slice_elements(&[sr(10, 11, 1)]).collect();
+        let slice: Vec<_> = x.slice_iter(&[sr(10, 11, 1)]).collect();
         assert_eq!(slice.len(), 0);
 
         // Positive end out of bounds
-        let slice: Vec<_> = x.slice_elements(&[sr(0, 10, 1)]).collect();
+        let slice: Vec<_> = x.slice_iter(&[sr(0, 10, 1)]).collect();
         assert_eq!(slice, &[1, 2, 3, 4, 5]);
 
         // Negative start out of bounds
-        let slice: Vec<_> = x.slice_elements(&[sr(-10, 5, 1)]).collect();
+        let slice: Vec<_> = x.slice_iter(&[sr(-10, 5, 1)]).collect();
         assert_eq!(slice, &[1, 2, 3, 4, 5]);
 
         // Negative end out of bounds
-        let slice: Vec<_> = x.slice_elements(&[sr(-10, -5, 1)]).collect();
+        let slice: Vec<_> = x.slice_iter(&[sr(-10, -5, 1)]).collect();
         assert_eq!(slice.len(), 0);
 
         // Test cases for negative steps (ie. traversing backwards).
 
         // Positive start out of bounds
-        let slice: Vec<_> = x.slice_elements(&[sr(10, -6, -1)]).collect();
+        let slice: Vec<_> = x.slice_iter(&[sr(10, -6, -1)]).collect();
         assert_eq!(slice, &[5, 4, 3, 2, 1]);
 
         // Positive end out of bounds
-        let slice: Vec<_> = x.slice_elements(&[sr(0, 10, -1)]).collect();
+        let slice: Vec<_> = x.slice_iter(&[sr(0, 10, -1)]).collect();
         assert_eq!(slice.len(), 0);
 
         // Negative start out of bounds
-        let slice: Vec<_> = x.slice_elements(&[sr(-10, 5, -1)]).collect();
+        let slice: Vec<_> = x.slice_iter(&[sr(-10, 5, -1)]).collect();
         assert_eq!(slice.len(), 0);
 
         // Negative end out of bounds
-        let slice: Vec<_> = x.slice_elements(&[sr(-1, -10, -1)]).collect();
+        let slice: Vec<_> = x.slice_iter(&[sr(-1, -10, -1)]).collect();
         assert_eq!(slice, &[5, 4, 3, 2, 1]);
     }
 
     #[test]
-    fn test_slice_elements_start_end_step_combinations() {
+    fn test_slice_iter_start_end_step_combinations() {
         let sr = SliceRange::new;
         let x = steps(&[3]);
 
@@ -1587,22 +1587,22 @@ mod tests {
                     if step == 0 {
                         continue;
                     }
-                    x.slice_elements(&[sr(start, end, step)]).for_each(drop);
+                    x.slice_iter(&[sr(start, end, step)]).for_each(drop);
                 }
             }
         }
     }
 
-    // These tests assume the correctness of `slice_elements`, given the tests
+    // These tests assume the correctness of `slice_iter`, given the tests
     // above, and check for consistency between the results of `slice_offsets`
-    // and `slice_elements`.
+    // and `slice_iter`.
     #[test]
     fn test_slice_offsets() {
         let x = steps(&[5, 5]);
 
         // Range that removes the start and end of each dimension.
         let range = &[SliceRange::new(1, 4, 1), SliceRange::new(1, 4, 1)];
-        let expected: Vec<_> = x.slice_elements(range).collect();
+        let expected: Vec<_> = x.slice_iter(range).collect();
         let result: Vec<_> = x
             .slice_offsets(range)
             .map(|offset| x.data()[offset])

@@ -447,7 +447,7 @@ mod tests {
             // for the reverse direction.
             let hss = hidden_seq.shape();
             let hidden_seq_fwd = hidden_seq
-                .slice_elements(&[
+                .slice_iter(&[
                     (..hss[0]).into(), // seq
                     (0..1).into(),     // direction
                     (..hss[2]).into(), // batch
@@ -455,7 +455,7 @@ mod tests {
                 ])
                 .collect::<Vec<_>>();
             let last_hidden_fwd = last_hidden
-                .slice_elements(&[(0..1).into(), (..batch).into(), (..hidden_size).into()])
+                .slice_iter(&[(0..1).into(), (..batch).into(), (..hidden_size).into()])
                 .collect::<Vec<_>>();
 
             assert_eq!(
@@ -464,7 +464,7 @@ mod tests {
             );
 
             let hidden_seq_rev = hidden_seq
-                .slice_elements(&[
+                .slice_iter(&[
                     (..hss[0]).into(), // seq
                     (1..2).into(),     // direction
                     (..hss[2]).into(), // batch
@@ -472,7 +472,7 @@ mod tests {
                 ])
                 .collect::<Vec<_>>();
             let last_hidden_rev = last_hidden
-                .slice_elements(&[(1..2).into(), (..batch).into(), (..hidden_size).into()])
+                .slice_iter(&[(1..2).into(), (..batch).into(), (..hidden_size).into()])
                 .collect::<Vec<_>>();
             assert_eq!(hidden_seq_rev[0..batch * hidden_size], last_hidden_rev);
         }

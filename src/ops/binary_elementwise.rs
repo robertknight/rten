@@ -56,8 +56,8 @@ fn binary_op<T: Copy + Debug, R: Copy, F: Fn(T, T) -> R>(
     let out_shape = broadcast_shapes(a.shape(), b.shape())
         .ok_or(OpError::IncompatibleInputShapes("Cannot broadcast inputs"))?;
 
-    let a_elts = a.broadcast_elements(&out_shape);
-    let b_elts = b.broadcast_elements(&out_shape);
+    let a_elts = a.broadcast_iter(&out_shape);
+    let b_elts = b.broadcast_iter(&out_shape);
     let out_data = zip(a_elts, b_elts).map(|(a, b)| op(a, b)).collect();
     Ok(Tensor::from_data(out_shape, out_data))
 }
@@ -92,7 +92,7 @@ fn binary_op_in_place<T: Copy + Debug, F: Fn(&mut T, T)>(a: &mut Tensor<T>, b: &
             }
         } else {
             // Otherwise a more complex RHS iterator is required.
-            let b_elts = b.broadcast_elements(a.shape());
+            let b_elts = b.broadcast_iter(a.shape());
             for (a_elt, b_elt) in zip(a.data_mut().iter_mut(), b_elts) {
                 op(a_elt, b_elt);
             }
@@ -100,7 +100,7 @@ fn binary_op_in_place<T: Copy + Debug, F: Fn(&mut T, T)>(a: &mut Tensor<T>, b: &
         return;
     }
 
-    let b_elts = b.broadcast_elements(a.shape());
+    let b_elts = b.broadcast_iter(a.shape());
     for (a_elt, b_elt) in zip(a.view_mut().iter_mut(), b_elts) {
         op(a_elt, b_elt);
     }
@@ -448,10 +448,10 @@ pub fn where_op<T: Copy>(
         .ok_or(OpError::IncompatibleInputShapes("Cannot broadcast inputs"))?;
 
     let result_elts = zip(
-        cond.broadcast_elements(&result_shape),
+        cond.broadcast_iter(&result_shape),
         zip(
-            x.broadcast_elements(&result_shape),
-            y.broadcast_elements(&result_shape),
+            x.broadcast_iter(&result_shape),
+            y.broadcast_iter(&result_shape),
         ),
     )
     .map(|(cond, (x, y))| if cond != 0 { x } else { y })

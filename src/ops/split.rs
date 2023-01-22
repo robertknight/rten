@@ -33,7 +33,7 @@ pub fn split<T: Copy>(
                 }
             })
             .collect();
-        let elements = input.slice_elements(&slice_ranges).collect();
+        let elements = input.slice_iter(&slice_ranges).collect();
         let slice_shape = zip(input.shape().iter(), slice_ranges)
             .map(|(&dim_size, range)| range.steps(dim_size))
             .collect();

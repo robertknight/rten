@@ -42,7 +42,7 @@ pub fn gemm_op(
     let out_shape = &[a_rows, b_cols][..];
     let mut output = match c {
         Some(c) if beta != 0. => {
-            let out_data = c.broadcast_elements(out_shape).collect();
+            let out_data = c.broadcast_iter(out_shape).collect();
             from_data(out_shape.into(), out_data)
         }
         _ => zeros(out_shape),
@@ -255,13 +255,11 @@ mod tests {
         let broadcast_expected_shape = &[1, 4, 3, 8][..];
         let broadcast_a = from_data(
             broadcast_a_shape.into(),
-            a.broadcast_elements(broadcast_a_shape).collect(),
+            a.broadcast_iter(broadcast_a_shape).collect(),
         );
         let broadcast_expected = from_data(
             broadcast_expected_shape.into(),
-            expected
-                .broadcast_elements(broadcast_expected_shape)
-                .collect(),
+            expected.broadcast_iter(broadcast_expected_shape).collect(),
         );
         let result = matmul(&broadcast_a, &b).unwrap();
         expect_equal(&result, &broadcast_expected)?;
@@ -271,13 +269,11 @@ mod tests {
         let broadcast_expected_shape = &[1, 3, 3, 8][..];
         let broadcast_b = from_data(
             broadcast_b_shape.into(),
-            b.broadcast_elements(broadcast_b_shape).collect(),
+            b.broadcast_iter(broadcast_b_shape).collect(),
         );
         let expected = from_data(
             broadcast_expected_shape.into(),
-            expected
-                .broadcast_elements(broadcast_expected_shape)
-                .collect(),
+            expected.broadcast_iter(broadcast_expected_shape).collect(),
         );
         let result = matmul(&a, &broadcast_b).unwrap();
         expect_equal(&result, &expected)?;

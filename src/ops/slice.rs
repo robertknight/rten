@@ -57,7 +57,7 @@ pub fn slice<T: Copy>(
     steps: Option<&Tensor<i32>>,
 ) -> Result<Tensor<T>, OpError> {
     let ranges = slice_ranges(input.shape(), starts, ends, axes, steps)?;
-    let sliced_data = input.slice_elements(&ranges).collect();
+    let sliced_data = input.slice_iter(&ranges).collect();
     let sliced_shape = ranges
         .iter()
         .enumerate()
