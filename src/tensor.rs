@@ -160,8 +160,14 @@ impl<'a, T: Copy> TensorViewMut<'a, T> {
         }
     }
 
+    /// Return a mutable iterator over elements of this view.
     pub fn iter_mut(&mut self) -> ElementsMut<T> {
         ElementsMut::new(self)
+    }
+
+    /// Return an immutable copy of this view.
+    pub fn as_view(&self) -> TensorView<T> {
+        TensorView::new(self.data, self.layout.as_ref())
     }
 
     pub fn slice<'b>(&'b mut self, range: &[SliceItem]) -> TensorViewMut<'b, T>
