@@ -157,23 +157,23 @@ where
 
 #[derive(Clone, Debug)]
 struct Layout {
-    /// The size of each dimension of the array
-    shape: Vec<usize>,
-
-    /// The stride of each dimension of the array
-    strides: Vec<usize>,
+    /// Array of dimension sizes followed by the corresponding dimension strides.
+    ///
+    /// Since we always have the same number of stride and shape dims, these
+    /// are combined into one array to avoid redundantly storing separate
+    /// lengths for each.
+    shape_and_strides: Vec<usize>,
 }
 
 impl Layout {
     fn new(shape: &[usize]) -> Layout {
         Layout {
-            shape: shape.into(),
-            strides: strides_for_shape(shape),
+            shape_and_strides: [shape, &strides_for_shape(shape)].concat(),
         }
     }
 
     fn len(&self) -> usize {
-        self.shape.iter().product()
+        self.shape().iter().product()
     }
 
     fn is_empty(&self) -> bool {
@@ -181,29 +181,33 @@ impl Layout {
     }
 
     fn ndim(&self) -> usize {
-        self.shape.len()
+        self.shape_and_strides.len() / 2
     }
 
     fn shape(&self) -> &[usize] {
-        &self.shape
+        &self.shape_and_strides[0..self.ndim()]
+    }
+
+    fn strides(&self) -> &[usize] {
+        &self.shape_and_strides[self.ndim()..]
     }
 
     fn stride(&self, dim: usize) -> usize {
-        self.strides[dim]
+        self.shape_and_strides[self.ndim() + dim]
     }
 
     fn resize_dim(&mut self, dim: usize, new_size: usize) {
-        self.shape[dim] = new_size;
+        self.shape_and_strides[dim] = new_size;
     }
 
     fn is_broadcast(&self) -> bool {
-        self.strides.iter().any(|&stride| stride == 0)
+        self.strides().iter().any(|&stride| stride == 0)
     }
 
     fn is_contiguous(&self) -> bool {
         let mut product = 1;
-        for (dim, len) in self.shape.iter().enumerate().rev() {
-            if self.strides[dim] != product {
+        for (dim, len) in self.shape().iter().enumerate().rev() {
+            if self.stride(dim) != product {
                 return false;
             }
             product *= len;
@@ -212,11 +216,12 @@ impl Layout {
     }
 
     fn make_contiguous(&mut self) {
-        self.strides = strides_for_shape(&self.shape);
+        let shape = self.shape();
+        self.shape_and_strides = [shape, &strides_for_shape(shape)].concat()
     }
 
     fn can_broadcast_to(&self, shape: &[usize]) -> bool {
-        if self.shape == shape {
+        if self.shape() == shape {
             return true;
         } else if self.ndim() > shape.len() {
             return false;
@@ -227,14 +232,14 @@ impl Layout {
         //
         // If the tensor has fewer dimensions, pretend that it was prefixed with
         // 1-length dimensions to make the dimension counts equal.
-        let self_dims = self.shape.iter().copied();
-        let target_dims = shape[shape.len() - self.shape.len()..].iter().copied();
+        let self_dims = self.shape().iter().copied();
+        let target_dims = shape[shape.len() - self.shape().len()..].iter().copied();
 
         zip(self_dims, target_dims).all(|(a, b)| a == b || a == 1)
     }
 
     fn can_broadcast_with(&self, shape: &[usize]) -> bool {
-        if self.shape == shape {
+        if self.shape() == shape {
             return true;
         }
 
@@ -244,7 +249,7 @@ impl Layout {
         // If the tensor has fewer dimensions, pretend that it was prefixed with
         // 1-length dimensions to make the dimension counts equal.
 
-        let a = self.shape.as_slice();
+        let a = self.shape();
         let b = shape;
 
         let a_pad = b.len().saturating_sub(a.len());
@@ -260,12 +265,17 @@ impl Layout {
         if dims.len() != self.ndim() {
             panic!("Permute dims length does not match dimension count");
         }
-        self.strides = dims.iter().map(|&dim| self.strides[dim]).collect();
-        self.shape = dims.iter().map(|&dim| self.shape[dim]).collect();
+        let strides = self.strides();
+        let shape = self.shape();
+        self.shape_and_strides = dims
+            .iter()
+            .map(|&dim| shape[dim])
+            .chain(dims.iter().map(|&dim| strides[dim]))
+            .collect();
     }
 
     fn offset<Idx: TensorIndex>(&self, index: Idx) -> usize {
-        let shape = &self.shape;
+        let shape = self.shape();
         assert!(
             shape.len() == index.len(),
             "Cannot access {} dim tensor with {} dim index",
@@ -275,7 +285,7 @@ impl Layout {
         let mut offset = 0;
         for i in 0..index.len() {
             assert!(
-                index.index(i) < self.shape[i],
+                index.index(i) < shape[i],
                 "Invalid index {} for dim {}",
                 index.index(i),
                 i
@@ -293,7 +303,7 @@ impl Layout {
                 N
             );
         }
-        self.shape[..].try_into().unwrap()
+        self.shape().try_into().unwrap()
     }
 }
 
@@ -800,7 +810,7 @@ impl<T: Copy> Tensor<T> {
         UncheckedView {
             data: self.data(),
             offset,
-            strides: self.layout.strides[self.ndim() - N..].try_into().unwrap(),
+            strides: self.layout.strides()[self.ndim() - N..].try_into().unwrap(),
         }
     }
 
@@ -813,7 +823,7 @@ impl<T: Copy> Tensor<T> {
         base: [usize; B],
     ) -> UncheckedViewMut<T, N> {
         let offset = self.offset(base);
-        let strides = self.layout.strides[self.ndim() - N..].try_into().unwrap();
+        let strides = self.layout.strides()[self.ndim() - N..].try_into().unwrap();
         UncheckedViewMut {
             data: self.data_mut(),
             offset,
