@@ -148,6 +148,18 @@ impl<'a, T: Copy> TensorViewMut<'a, T> {
         self.layout.to_mut().permute(dims);
     }
 
+    /// Return a new view with a given shape. This has the same requirements
+    /// as `reshape`.
+    pub fn reshaped<'b>(&'b mut self, shape: &[usize]) -> TensorViewMut<'b, T>
+    where
+        'b: 'a,
+    {
+        Self {
+            data: self.data,
+            layout: Cow::Owned(self.layout.reshaped(shape)),
+        }
+    }
+
     pub fn iter_mut(&mut self) -> ElementsMut<T> {
         ElementsMut::new(self)
     }
