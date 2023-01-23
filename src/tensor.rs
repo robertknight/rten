@@ -18,13 +18,11 @@ pub use self::iterators::{BroadcastElements, Elements, ElementsMut, Offsets};
 use self::layout::Layout;
 pub use self::range::{SliceItem, SliceRange};
 
-/// Provides methods for querying the shape and memory layout of a tensor or
-/// view of a tensor.
+/// Provides methods for querying the shape and data layout of a [Tensor]
+/// or [TensorView].
 pub trait TensorLayout {
-    /// Internal: Returns the internal struct that contains layout information
-    /// for the tensor.
-    ///
-    /// #[doc(hidden)]
+    /// Returns the internal struct that contains layout information for the tensor.
+    #[doc(hidden)]
     fn layout(&self) -> &Layout;
 
     /// Return a slice of the sizes of each dimension.
@@ -504,7 +502,7 @@ impl<T: Copy> Tensor<T> {
     /// Return the underlying element buffer for this tensor.
     ///
     /// If the tensor is contiguous, the buffer will contain the same elements
-    /// in the same order as yielded by `elements`. In other cases the buffer
+    /// in the same order as yielded by [Tensor::iter]. In other cases the buffer
     /// may have unused indexes or a different ordering.
     pub fn data(&self) -> &[T] {
         &self.data[self.base..]
@@ -512,7 +510,7 @@ impl<T: Copy> Tensor<T> {
 
     /// Return the underlying element buffer for this tensor.
     ///
-    /// See notes for `data` about the ordering and validity of elements.
+    /// See notes for [Tensor::data] about the ordering and validity of elements.
     pub fn data_mut(&mut self) -> &mut [T] {
         &mut self.data[self.base..]
     }
