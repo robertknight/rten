@@ -25,8 +25,7 @@ wasm:
 wasm-nosimd:
 	cargo build --release --target wasm32-unknown-unknown
 	wasm-bindgen target/wasm32-unknown-unknown/release/wasnn.wasm --out-dir dist/ --out-name wasnn-nosimd --target web --weak-refs
-	tools/optimize-wasm.sh dist/wasnn_bg.wasm
-
+	tools/optimize-wasm.sh dist/wasnn-nosimd_bg.wasm
 
 .PHONY: wasm-all
 wasm-all: wasm wasm-nosimd

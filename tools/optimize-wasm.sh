@@ -15,5 +15,10 @@ if [ -z "$WASMOPT_BIN" ]; then
   exit
 fi
 
+if [ -n "${SKIP_WASM_OPT:-}" ]; then
+  echo  "Skipping post-compilation optimization because SKIP_WASM_OPT is set"
+  exit
+fi
+
 wasm-opt --enable-simd -O2 "$BIN_PATH" -o "$BIN_PATH".optimized
 mv "$BIN_PATH.optimized" "$BIN_PATH"
