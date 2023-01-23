@@ -6,10 +6,10 @@ use super::range::SliceItem;
 use super::TensorIndex;
 
 /// Describes how to map coordinates in an N-dimensional array / tensor to
-/// offsets in a buffer of elements.
+/// offsets in the underlying array of elements.
 ///
-/// Logically this data consists of the size of each dimension of the tensor,
-/// and the stride (gap) between offsets in that dimension.
+/// The layout specifies the size of each dimension of the tensor (the _shape_)
+/// and the stride (gap) between offsets in each dimension.
 #[derive(Clone, Debug)]
 pub struct Layout {
     /// Array of dimension sizes followed by the corresponding dimension strides.
@@ -91,7 +91,7 @@ impl Layout {
         &self.shape_and_strides[0..self.ndim()]
     }
 
-    /// Return the stride (offset between elements) in the tensor's data buffer.
+    /// Return the stride (offset between elements) in the tensor's element array.
     pub fn strides(&self) -> &[usize] {
         &self.shape_and_strides[self.ndim()..]
     }
@@ -102,8 +102,7 @@ impl Layout {
     }
 
     /// Return one past the maximum offset into the tensor/view's data buffer
-    /// that will be accessed when indexing into it using the mapping defined
-    /// by this layout.
+    /// that will be accessed when indexing into it using this layout.
     pub fn end_offset(&self) -> usize {
         let shape = self.shape();
         if shape.iter().any(|&size| size == 0) {

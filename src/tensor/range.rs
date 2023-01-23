@@ -41,7 +41,7 @@ impl SliceRange {
     /// Create a new range from `start` to `end`. The `start` index is inclusive
     /// and the `end` value is exclusive.
     ///
-    /// Panicks if the `step` size is 0.
+    /// Panics if the `step` size is 0.
     pub fn new(start: isize, end: isize, step: isize) -> SliceRange {
         assert!(step != 0, "Slice step cannot be 0");
         SliceRange { start, end, step }

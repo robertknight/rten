@@ -70,7 +70,7 @@ pub trait TensorLayout {
     ///
     /// The length of `index` must match the tensor's dimension count.
     ///
-    /// Panicks if the index length is incorrect or the value of an index
+    /// Panics if the index length is incorrect or the value of an index
     /// exceeds the size of the corresponding dimension.
     fn offset<Idx: TensorIndex>(&self, index: Idx) -> usize {
         self.layout().offset(index)
@@ -236,7 +236,7 @@ impl<'a, T: Copy> TensorViewMut<'a, T> {
         }
     }
 
-    /// Return a slice of the underyling array that is accessible through this
+    /// Return the slice of the underlying array that is accessible through this
     /// view.
     pub fn data_mut(&mut self) -> &mut [T] {
         self.data
@@ -270,8 +270,7 @@ impl<'a, T: Copy> TensorViewMut<'a, T> {
         TensorView::new(self.data, self.layout.as_ref())
     }
 
-    /// Return a new mutable view which views a subset of the elements
-    /// accessible in this view.
+    /// Return a new mutable view of a subset of the elements in this view.
     ///
     /// Slices are specified in the same way as for [TensorView::slice].
     pub fn slice<'b>(&'b mut self, range: &[SliceItem]) -> TensorViewMut<'b, T>
