@@ -9,7 +9,7 @@ use crate::ops::{
     Transpose, Unsqueeze,
 };
 use crate::schema_generated as sg;
-use crate::tensor::Tensor;
+use crate::tensor::{Tensor, TensorLayout};
 
 /// Enum of all the built-in operators
 pub enum OpType {

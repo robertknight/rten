@@ -6,6 +6,7 @@ use std::rc::Rc;
 use crate::model;
 use crate::ops::{Input, Output};
 use crate::tensor;
+use crate::tensor::TensorLayout;
 
 #[wasm_bindgen]
 pub struct Model {

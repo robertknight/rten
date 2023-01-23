@@ -3,7 +3,7 @@ use crate::ops::layout::squeeze_in_place;
 use crate::ops::{
     resolve_axes, resolve_axis, Input, InputList, IntoOpResult, OpError, Operator, Output,
 };
-use crate::tensor::{IndexIterator, Offsets, SliceRange, Tensor};
+use crate::tensor::{IndexIterator, Offsets, SliceRange, Tensor, TensorLayout};
 
 /// Iterator over slices of a tensor along a target dimension of size N.
 ///
@@ -290,7 +290,7 @@ fn reduce<T: Copy + Default, R: Reducer<T>>(
                             SliceRange::new(idx as isize, idx as isize + 1, 1)
                         }
                     }));
-                    let reduced = reducer.reduce(input.slice_elements(&inner_range));
+                    let reduced = reducer.reduce(input.slice_iter(&inner_range));
                     reduced_data.push(reduced);
                 }
             }
@@ -381,7 +381,7 @@ impl Operator for ReduceL2 {
 #[cfg(test)]
 mod tests {
     use crate::ops::{arg_max, arg_min, cum_sum, reduce_l2, reduce_mean, OpError};
-    use crate::tensor::{from_data, from_scalar, from_vec, Tensor};
+    use crate::tensor::{from_data, from_scalar, from_vec, Tensor, TensorLayout};
     use crate::test_util::expect_equal;
 
     #[test]

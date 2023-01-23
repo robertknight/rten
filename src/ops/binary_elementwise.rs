@@ -3,7 +3,7 @@ use std::iter::{repeat, zip};
 
 use crate::number::{Identities, IsInt};
 use crate::ops::{Input, InputList, IntoOpResult, OpError, Operator, Output};
-use crate::tensor::Tensor;
+use crate::tensor::{Tensor, TensorLayout};
 
 /// Given the shapes of two inputs to a binary operation, return the shape
 /// that will result from broadcasting them following NumPy rules or `None`
@@ -56,8 +56,8 @@ fn binary_op<T: Copy + Debug, R: Copy, F: Fn(T, T) -> R>(
     let out_shape = broadcast_shapes(a.shape(), b.shape())
         .ok_or(OpError::IncompatibleInputShapes("Cannot broadcast inputs"))?;
 
-    let a_elts = a.broadcast_elements(&out_shape);
-    let b_elts = b.broadcast_elements(&out_shape);
+    let a_elts = a.broadcast_iter(&out_shape);
+    let b_elts = b.broadcast_iter(&out_shape);
     let out_data = zip(a_elts, b_elts).map(|(a, b)| op(a, b)).collect();
     Ok(Tensor::from_data(out_shape, out_data))
 }
@@ -92,7 +92,7 @@ fn binary_op_in_place<T: Copy + Debug, F: Fn(&mut T, T)>(a: &mut Tensor<T>, b: &
             }
         } else {
             // Otherwise a more complex RHS iterator is required.
-            let b_elts = b.broadcast_elements(a.shape());
+            let b_elts = b.broadcast_iter(a.shape());
             for (a_elt, b_elt) in zip(a.data_mut().iter_mut(), b_elts) {
                 op(a_elt, b_elt);
             }
@@ -100,11 +100,9 @@ fn binary_op_in_place<T: Copy + Debug, F: Fn(&mut T, T)>(a: &mut Tensor<T>, b: &
         return;
     }
 
-    let b_elts = b.broadcast_elements(a.shape());
-    let a_offsets = a.offsets();
-    let a_data = a.data_mut();
-    for (a_offset, b_elt) in zip(a_offsets, b_elts) {
-        op(&mut a_data[a_offset], b_elt);
+    let b_elts = b.broadcast_iter(a.shape());
+    for (a_elt, b_elt) in zip(a.view_mut().iter_mut(), b_elts) {
+        op(a_elt, b_elt);
     }
 }
 
@@ -450,10 +448,10 @@ pub fn where_op<T: Copy>(
         .ok_or(OpError::IncompatibleInputShapes("Cannot broadcast inputs"))?;
 
     let result_elts = zip(
-        cond.broadcast_elements(&result_shape),
+        cond.broadcast_iter(&result_shape),
         zip(
-            x.broadcast_elements(&result_shape),
-            y.broadcast_elements(&result_shape),
+            x.broadcast_iter(&result_shape),
+            y.broadcast_iter(&result_shape),
         ),
     )
     .map(|(cond, (x, y))| if cond != 0 { x } else { y })
@@ -492,7 +490,7 @@ mod tests {
         add, add_in_place, div, div_in_place, equal, less, mul, mul_in_place, pow, pow_in_place,
         sub, sub_in_place, where_op, Add, InputList, OpError, Operator, Output,
     };
-    use crate::tensor::{from_data, from_scalar, from_vec, Tensor};
+    use crate::tensor::{from_data, from_scalar, from_vec, Tensor, TensorLayout};
     use crate::test_util::expect_equal;
 
     #[test]

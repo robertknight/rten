@@ -82,7 +82,7 @@ impl Operator for Range {
 #[cfg(test)]
 mod tests {
     use crate::ops::{range, ConstantOfShape, Input, InputList, OpError, Operator, Scalar};
-    use crate::tensor::from_vec;
+    use crate::tensor::{from_vec, TensorLayout};
 
     #[test]
     fn test_constant_of_shape() {

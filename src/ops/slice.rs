@@ -2,7 +2,7 @@ use std::iter::zip;
 
 use crate::check_dims;
 use crate::ops::{resolve_axis, Input, InputList, IntoOpResult, OpError, Operator, Output};
-use crate::tensor::{SliceRange, Tensor};
+use crate::tensor::{SliceRange, Tensor, TensorLayout};
 
 /// Compute the effective starts, ends and steps for each input dimension in
 /// a Slice operation.
@@ -57,7 +57,7 @@ pub fn slice<T: Copy>(
     steps: Option<&Tensor<i32>>,
 ) -> Result<Tensor<T>, OpError> {
     let ranges = slice_ranges(input.shape(), starts, ends, axes, steps)?;
-    let sliced_data = input.slice_elements(&ranges).collect();
+    let sliced_data = input.slice_iter(&ranges).collect();
     let sliced_shape = ranges
         .iter()
         .enumerate()
@@ -142,7 +142,7 @@ impl Operator for Slice {
 mod tests {
     use crate::ops::{slice, slice_in_place};
     use crate::rng::XorShiftRNG;
-    use crate::tensor::{from_data, rand, Tensor};
+    use crate::tensor::{from_data, rand, Tensor, TensorLayout};
     use crate::test_util::expect_equal;
 
     fn from_slice<T: Copy>(data: &[T]) -> Tensor<T> {

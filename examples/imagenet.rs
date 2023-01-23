@@ -5,7 +5,7 @@ use std::error::Error;
 use std::fs;
 
 use wasnn::ops::{resize, CoordTransformMode, NearestMode, ResizeMode, ResizeTarget};
-use wasnn::{Model, RunOptions, Tensor};
+use wasnn::{Model, RunOptions, Tensor, TensorLayout};
 
 #[derive(Clone, Copy, PartialEq)]
 enum PixelNorm {

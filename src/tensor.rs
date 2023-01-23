@@ -1,162 +1,316 @@
 use std::borrow::Cow;
 use std::fmt::Debug;
 use std::io;
-use std::iter::{repeat, zip, Cycle, Take};
-use std::ops::{Index, IndexMut, Range, RangeTo};
-use std::slice::Iter;
+use std::ops::{Index, IndexMut, Range};
+
+use crate::linalg::Matrix;
 
 #[cfg(test)]
 use crate::rng::XorShiftRNG;
 
-/// A range for slicing a Tensor.
-///
-/// This has two main differences from a standard Rust range (`std::ops::Range`):
-///
-/// - A non-zero step between indices can be specified. The step can be negative,
-///   which means that the dimension should be traversed in reverse order.
-/// - The `start` and `end` indexes can also be negative, in which case they
-///   count backwards from the end of the array.
-///
-/// This system for specifying slicing and indexing follows NumPy, which in
-/// turn strongly influenced slicing in ONNX.
-#[derive(Clone, Copy, Debug)]
-pub struct SliceRange {
-    pub start: isize,
-    pub end: isize,
+mod index_iterator;
+mod iterators;
+mod layout;
+mod range;
 
-    /// The steps between adjacent elements selected by this range. This
-    /// is private so this module can enforce the invariant that it is non-zero.
-    step: isize,
+pub use self::index_iterator::IndexIterator;
+pub use self::iterators::{BroadcastElements, Elements, ElementsMut, Offsets};
+use self::layout::Layout;
+pub use self::range::{SliceItem, SliceRange};
+
+/// Provides methods for querying the shape and data layout of a [Tensor]
+/// or [TensorView].
+pub trait TensorLayout {
+    /// Returns the internal struct that contains layout information for the tensor.
+    #[doc(hidden)]
+    fn layout(&self) -> &Layout;
+
+    /// Return a slice of the sizes of each dimension.
+    fn shape(&self) -> &[usize] {
+        self.layout().shape()
+    }
+
+    /// Return the number of elements between successive entries in the `dim`
+    /// dimension.
+    fn stride(&self, dim: usize) -> usize {
+        self.layout().stride(dim)
+    }
+
+    /// Return the total number of elements in this tensor.
+    fn len(&self) -> usize {
+        self.layout().len()
+    }
+
+    /// Return true if this tensor has no elements.
+    fn is_empty(&self) -> bool {
+        self.layout().is_empty()
+    }
+
+    /// Return the number of dimensions the tensor has, aka. the rank of the
+    /// tensor.
+    fn ndim(&self) -> usize {
+        self.layout().ndim()
+    }
+
+    /// Return an iterator over all valid indices in this tensor.
+    ///
+    /// The returned iterator does not implement the `Iterator` trait but has
+    /// a similar API. See `IndexIterator` docs.
+    fn indices(&self) -> IndexIterator {
+        IndexIterator::from_shape(self.shape())
+    }
+
+    /// Return true if the logical order of elements in this tensor matches the
+    /// order in which elements are stored in the underlying array.
+    fn is_contiguous(&self) -> bool {
+        self.layout().is_contiguous()
+    }
+
+    /// Return the offset of an element in the array.
+    ///
+    /// The length of `index` must match the tensor's dimension count.
+    ///
+    /// Panics if the index length is incorrect or the value of an index
+    /// exceeds the size of the corresponding dimension.
+    fn offset<Idx: TensorIndex>(&self, index: Idx) -> usize {
+        self.layout().offset(index)
+    }
+
+    /// Return an iterator over offsets of elements in this tensor, in their
+    /// logical order.
+    ///
+    /// See also the notes for `slice_offsets`.
+    fn offsets(&self) -> Offsets {
+        Offsets::new(self.layout())
+    }
+
+    /// Return an iterator over offsets of elements in this tensor.
+    ///
+    /// Note that the offset order of the returned iterator will become incorrect
+    /// if the tensor's layout is modified during iteration.
+    fn slice_offsets(&self, ranges: &[SliceRange]) -> Offsets {
+        Offsets::slice(self.layout(), ranges)
+    }
+
+    /// Return true if the tensor/view can be broadcast with another tensor or
+    /// view with a given `shape` as part of a binary operation.
+    ///
+    /// The shape of the result may be larger than either the current shape
+    /// or `shape`. eg. If a tensor of shape `[1, 5]` is broadcast with one
+    /// of size `[2, 1, 1]` the result has shape `[2, 1, 5]`.
+    ///
+    /// See <https://github.com/onnx/onnx/blob/main/docs/Broadcasting.md> for
+    /// conditions in which broadcasting is allowed.
+    fn can_broadcast_with(&self, shape: &[usize]) -> bool {
+        self.layout().can_broadcast_with(shape)
+    }
+
+    /// Return true if the tensor/view can be broadcast to a given `shape`.
+    ///
+    /// See <https://github.com/onnx/onnx/blob/main/docs/Broadcasting.md> for
+    /// conditions in which broadcasting is allowed.
+    fn can_broadcast_to(&self, shape: &[usize]) -> bool {
+        self.layout().can_broadcast_to(shape)
+    }
+
+    /// Return the shape of this tensor/view as a fixed-sized array.
+    ///
+    /// Panics if the tensor's dimension count does not match `N`.
+    fn dims<const N: usize>(&self) -> [usize; N] {
+        self.layout().dims()
+    }
 }
 
-impl SliceRange {
-    /// Create a new range from `start` to `end`. The `start` index is inclusive
-    /// and the `end` value is exclusive.
-    ///
-    /// Panicks if the `step` size is 0.
-    pub fn new(start: isize, end: isize, step: isize) -> SliceRange {
-        assert!(step != 0, "Slice step cannot be 0");
-        SliceRange { start, end, step }
+/// TensorView provides a view onto data owned by a [Tensor].
+///
+/// Conceptually the relationship between TensorView and Tensor is similar to
+/// that between slice and Vec. They share the same element buffer, but views
+/// can have distinct layouts, with some limitations.
+#[derive(Clone)]
+pub struct TensorView<'a, T: Copy = f32> {
+    data: &'a [T],
+    layout: Cow<'a, Layout>,
+}
+
+impl<'a, T: Copy> TensorView<'a, T> {
+    fn new(data: &'a [T], layout: &'a Layout) -> TensorView<'a, T> {
+        TensorView {
+            data,
+            layout: Cow::Borrowed(layout),
+        }
     }
 
-    /// Return the number of elements that would be retained if using this range
-    /// to slice a dimension of size `dim_size`.
-    pub fn steps(&self, dim_size: usize) -> usize {
-        let clamped = self.clamp(dim_size);
-
-        let start_idx = Self::offset_from_start(clamped.start, dim_size);
-        let end_idx = Self::offset_from_start(clamped.end, dim_size);
-
-        if (clamped.step > 0 && end_idx <= start_idx) || (clamped.step < 0 && end_idx >= start_idx)
-        {
-            return 0;
-        }
-
-        let steps = if clamped.step > 0 {
-            1 + (end_idx - start_idx - 1) / clamped.step
-        } else {
-            1 + (start_idx - end_idx - 1) / -clamped.step
-        };
-
-        steps.max(0) as usize
+    /// Change the layout of this view to put dimensions in the order specified
+    /// by `dims`.
+    pub fn permute(&mut self, dims: &[usize]) {
+        self.layout.to_mut().permute(dims);
     }
 
-    /// Return a copy of this range with indexes adjusted so that they are valid
-    /// for a tensor dimension of size `dim_size`.
-    ///
-    /// Valid indexes depend on direction that the dimension is traversed
-    /// (forwards if `self.step` is positive or backwards if negative). They
-    /// start at the first element going in that direction and end after the
-    /// last element.
-    pub fn clamp(&self, dim_size: usize) -> SliceRange {
-        let len = dim_size as isize;
-
-        let min_idx;
-        let max_idx;
-
-        if self.step > 0 {
-            // When traversing forwards, the range of valid +ve indexes is `[0,
-            // len]` and for -ve indexes `[-len, -1]`.
-            min_idx = -len;
-            max_idx = len;
-        } else {
-            // When traversing backwards, the range of valid +ve indexes are
-            // `[0, len-1]` and for -ve indexes `[-len-1, -1]`.
-            min_idx = -len - 1;
-            max_idx = len - 1;
+    /// Return a new view with the dimensions re-ordered according to `dims`.
+    pub fn permuted(&self, dims: &[usize]) -> TensorView<'a, T> {
+        Self {
+            data: self.data,
+            layout: Cow::Owned(self.layout.permuted(dims)),
         }
+    }
 
-        SliceRange::new(
-            self.start.clamp(min_idx, max_idx),
-            self.end.clamp(min_idx, max_idx),
-            self.step,
+    /// Change the layout of this view to have the given shape.
+    ///
+    /// The current view must be contiguous and the new shape must have the
+    /// same product as the current shape.
+    pub fn reshape(&mut self, shape: &[usize]) {
+        self.layout.to_mut().reshape(shape);
+    }
+
+    /// Return a new view with a given shape. This has the same requirements
+    /// as `reshape`.
+    pub fn reshaped(&self, shape: &[usize]) -> TensorView<'a, T> {
+        Self {
+            data: self.data,
+            layout: Cow::Owned(self.layout.reshaped(shape)),
+        }
+    }
+
+    /// Return an iterator over elements of this tensor, in their logical order.
+    pub fn iter(&self) -> Elements<'a, T> {
+        Elements::new(self)
+    }
+
+    /// Return a new view which views a subset of the elements accessible in
+    /// this view.
+    pub fn slice(&self, range: &[SliceItem]) -> TensorView<'a, T> {
+        let (offset, layout) = self.layout.slice(range);
+        Self {
+            data: &self.data[offset..offset + layout.end_offset()],
+            layout: Cow::Owned(layout),
+        }
+    }
+
+    /// Return a new contiguous tensor with the same shape and elements as this
+    /// view.
+    pub fn to_tensor(&self) -> Tensor<T> {
+        Tensor::from_data(self.shape().into(), self.iter().collect())
+    }
+}
+
+impl<'a, T: Copy> TensorLayout for TensorView<'a, T> {
+    fn layout(&self) -> &Layout {
+        self.layout.as_ref()
+    }
+}
+
+pub trait AsMatrix<'a> {
+    fn as_matrix(&self) -> Matrix<'a>;
+}
+
+impl<'a> AsMatrix<'a> for TensorView<'a, f32> {
+    fn as_matrix(&self) -> Matrix<'a> {
+        assert!(
+            self.layout.ndim() == 2,
+            "Can only convert 2D view to matrix"
+        );
+        let shape = self.shape();
+        Matrix::from_slice(
+            self.data,
+            shape[0],
+            shape[1],
+            Some((self.layout.stride(0), self.layout.stride(1))),
         )
     }
+}
 
-    /// Resolve the range endpoints to positive indices in `[0, dim_size)`.
+/// TensorViewMut provides a mutable view onto data owned by a [Tensor].
+///
+/// This is similar to [TensorView], except elements in the underyling
+/// Tensor can be modified through it.
+pub struct TensorViewMut<'a, T: Copy = f32> {
+    data: &'a mut [T],
+    layout: Cow<'a, Layout>,
+}
+
+impl<'a, T: Copy> TensorViewMut<'a, T> {
+    fn new(data: &'a mut [T], layout: &'a Layout) -> TensorViewMut<'a, T> {
+        TensorViewMut {
+            data,
+            layout: Cow::Borrowed(layout),
+        }
+    }
+
+    /// Return the slice of the underlying array that is accessible through this
+    /// view.
+    pub fn data_mut(&mut self) -> &mut [T] {
+        self.data
+    }
+
+    /// Change the layout of this view to put dimensions in the order specified
+    /// by `dims`.
+    pub fn permute(&mut self, dims: &[usize]) {
+        self.layout.to_mut().permute(dims);
+    }
+
+    /// Return a new view with a given shape. This has the same requirements
+    /// as `reshape`.
+    pub fn reshaped<'b>(&'b mut self, shape: &[usize]) -> TensorViewMut<'b, T>
+    where
+        'b: 'a,
+    {
+        Self {
+            data: self.data,
+            layout: Cow::Owned(self.layout.reshaped(shape)),
+        }
+    }
+
+    /// Return a mutable iterator over elements of this view.
+    pub fn iter_mut(&mut self) -> ElementsMut<T> {
+        ElementsMut::new(self)
+    }
+
+    /// Return an immutable copy of this view.
+    pub fn as_view(&self) -> TensorView<T> {
+        TensorView::new(self.data, self.layout.as_ref())
+    }
+
+    /// Return a new mutable view of a subset of the elements in this view.
     ///
-    /// If `self.step` is positive, the returned range counts forwards from
-    /// the first index of the dimension, otherwise it counts backwards from
-    /// the last index.
-    pub fn resolve(&self, dim_size: usize) -> Range<usize> {
-        let clamped = self.clamp(dim_size);
-
-        let offset_fn = if self.step > 0 {
-            Self::offset_from_start
-        } else {
-            Self::offset_from_end
-        };
-
-        let start = offset_fn(clamped.start, dim_size) as usize;
-        let end = offset_fn(clamped.end, dim_size) as usize;
-
-        start..end
-    }
-
-    /// Resolve an index to an offset from the first index of the dimension.
-    fn offset_from_start(index: isize, dim_size: usize) -> isize {
-        if index >= 0 {
-            index
-        } else {
-            dim_size as isize + index
-        }
-    }
-
-    /// Resolve an index to an offset from the last index of the dimension.
-    fn offset_from_end(index: isize, dim_size: usize) -> isize {
-        if index >= 0 {
-            dim_size as isize - 1 - index
-        } else {
-            dim_size as isize + index
+    /// Slices are specified in the same way as for [TensorView::slice].
+    pub fn slice<'b>(&'b mut self, range: &[SliceItem]) -> TensorViewMut<'b, T>
+    where
+        'b: 'a,
+    {
+        let (offset, layout) = self.layout.slice(range);
+        Self {
+            data: &mut self.data[offset..offset + layout.end_offset()],
+            layout: Cow::Owned(layout),
         }
     }
 }
 
-impl<T> From<Range<T>> for SliceRange
-where
-    T: TryInto<isize>,
-    <T as TryInto<isize>>::Error: Debug,
-{
-    fn from(r: Range<T>) -> SliceRange {
-        let start = r.start.try_into().unwrap();
-        let end = r.end.try_into().unwrap();
-        SliceRange::new(start, end, 1)
-    }
-}
-
-impl<T> From<RangeTo<T>> for SliceRange
-where
-    T: TryInto<isize>,
-    <T as TryInto<isize>>::Error: Debug,
-{
-    fn from(r: RangeTo<T>) -> SliceRange {
-        let end = r.end.try_into().unwrap();
-        SliceRange::new(0, end, 1)
+impl<'a, T: Copy> TensorLayout for TensorViewMut<'a, T> {
+    fn layout(&self) -> &Layout {
+        self.layout.as_ref()
     }
 }
 
 /// Tensor is the core n-dimensional array type used for inputs, outputs and
-/// intermediate values when executing an ML graph.
+/// intermediate values when executing a [crate::Model].
+///
+/// Tensor and its associated types [TensorView] and [TensorViewMut] are
+/// conceptually a pair of a dynamically sized array (either owned or a
+/// reference) and a _layout_ which specifies how to view the contents of that
+/// array as an N-dimensional tensor. The layout specifies the number of
+/// dimensions, size of each dimension and stride of each dimension (offset
+/// between elements in the underlying array).
+///
+/// Information about a tensor or view's layout is available via the
+/// [TensorLayout] trait.
+///
+/// By default, new tensors have a _contiguous_ layout, in which the stride of
+/// the innermost (fastest-changing) dimension `Dn` is 1, the stride of
+/// dimension `Di+1` is the size of dimension `Di` and so on. The layout will
+/// become non-contiguous if the dimensions are permuted/transposed or if the
+/// tensor is sliced in-place. Whether the tensor is contiguous does not matter
+/// if accessing elements via indexing, slicing or iterators. It does matter if
+/// accessing the underlying element buffer directly.
 #[derive(Debug)]
 pub struct Tensor<T: Copy = f32> {
     /// The underlying buffer of elements
@@ -166,11 +320,7 @@ pub struct Tensor<T: Copy = f32> {
     /// will be changed if the tensor is sliced.
     base: usize,
 
-    /// The size of each dimension of the array
-    shape: Vec<usize>,
-
-    /// The stride of each dimension of the array
-    strides: Vec<usize>,
+    layout: Layout,
 }
 
 /// Trait for indexing a `Tensor`
@@ -210,12 +360,10 @@ impl<T: Copy> Tensor<T> {
     {
         let n_elts = shape.iter().product();
         let data = vec![T::default(); n_elts];
-        let strides = strides_for_shape(shape);
         Tensor {
             data,
             base: 0,
-            shape: shape.into(),
-            strides,
+            layout: Layout::new(shape),
         }
     }
 
@@ -229,12 +377,10 @@ impl<T: Copy> Tensor<T> {
                 data.len()
             );
         }
-        let strides = strides_for_shape(&shape);
         Tensor {
             data,
             base: 0,
-            shape,
-            strides,
+            layout: Layout::new(&shape),
         }
     }
 
@@ -273,8 +419,7 @@ impl<T: Copy> Tensor<T> {
         Tensor {
             data,
             base: 0,
-            shape: self.shape.clone(),
-            strides: self.strides.clone(),
+            layout: self.layout.clone(),
         }
     }
 
@@ -289,30 +434,6 @@ impl<T: Copy> Tensor<T> {
         Self::from_data(shape.into(), data)
     }
 
-    /// Return an iterator over all valid indices in this tensor.
-    ///
-    /// The returned iterator does not implement the `Iterator` trait but has
-    /// a similar API. See `IndexIterator` docs.
-    pub fn indices(&self) -> IndexIterator {
-        IndexIterator::from_shape(&self.shape)
-    }
-
-    /// Return the total number of elements in this tensor.
-    pub fn len(&self) -> usize {
-        self.shape.iter().product()
-    }
-
-    /// Return true if this tensor has no elements.
-    pub fn is_empty(&self) -> bool {
-        self.len() == 0
-    }
-
-    /// Return the number of dimensions the tensor has, aka. the rank of the
-    /// tensor.
-    pub fn ndim(&self) -> usize {
-        self.shape.len()
-    }
-
     /// Clip dimension `dim` to `[range.start, range.end)`. The new size for
     /// the dimension must be <= the old size.
     ///
@@ -322,10 +443,10 @@ impl<T: Copy> Tensor<T> {
         let (start, end) = (range.start, range.end);
 
         assert!(start <= end, "start must be <= end");
-        assert!(end <= self.shape[dim], "end must be <= dim size");
+        assert!(end <= self.shape()[dim], "end must be <= dim size");
 
-        self.base += self.strides[dim] * start;
-        self.shape[dim] = end - start;
+        self.base += self.layout.stride(dim) * start;
+        self.layout.resize_dim(dim, end - start);
 
         if self.is_contiguous() {
             // Truncate buffer to preserve invariant that `Tensor::data` yields
@@ -339,9 +460,10 @@ impl<T: Copy> Tensor<T> {
     ///
     /// Using a slice can allow for very efficient access to a range of elements
     /// in a single row or column (or whatever the last dimension represents).
+    #[doc(hidden)]
     pub fn last_dim_slice<const N: usize>(&self, index: [usize; N], len: usize) -> &[T] {
         assert!(
-            self.strides[N - 1] == 1,
+            self.stride(N - 1) == 1,
             "last_dim_slice requires contiguous last dimension"
         );
         let offset = self.base + self.offset(index);
@@ -349,13 +471,14 @@ impl<T: Copy> Tensor<T> {
     }
 
     /// Similar to `last_dim_slice`, but returns a mutable slice.
+    #[doc(hidden)]
     pub fn last_dim_slice_mut<const N: usize>(
         &mut self,
         index: [usize; N],
         len: usize,
     ) -> &mut [T] {
         assert!(
-            self.strides[N - 1] == 1,
+            self.stride(N - 1) == 1,
             "last_dim_slice_mut requires contiguous last dimension"
         );
         let offset = self.base + self.offset(index);
@@ -378,7 +501,7 @@ impl<T: Copy> Tensor<T> {
     /// Return the underlying element buffer for this tensor.
     ///
     /// If the tensor is contiguous, the buffer will contain the same elements
-    /// in the same order as yielded by `elements`. In other cases the buffer
+    /// in the same order as yielded by [Tensor::iter]. In other cases the buffer
     /// may have unused indexes or a different ordering.
     pub fn data(&self) -> &[T] {
         &self.data[self.base..]
@@ -386,28 +509,9 @@ impl<T: Copy> Tensor<T> {
 
     /// Return the underlying element buffer for this tensor.
     ///
-    /// See notes for `data` about the ordering and validity of elements.
+    /// See notes for [Tensor::data] about the ordering and validity of elements.
     pub fn data_mut(&mut self) -> &mut [T] {
         &mut self.data[self.base..]
-    }
-
-    /// Return a slice of the sizes of each dimension.
-    pub fn shape(&self) -> &[usize] {
-        &self.shape
-    }
-
-    /// Return true if the logical order of elements in this tensor matches the
-    /// order of elements in the slice returned by `data()` and `data_mut()`,
-    /// with no gaps.
-    pub fn is_contiguous(&self) -> bool {
-        let mut product = 1;
-        for (dim, len) in self.shape.iter().enumerate().rev() {
-            if self.strides[dim] != product {
-                return false;
-            }
-            product *= len;
-        }
-        true
     }
 
     /// Convert the internal layout of elements to be contiguous, as reported
@@ -420,7 +524,7 @@ impl<T: Copy> Tensor<T> {
         }
         self.data = self.iter().collect();
         self.base = 0;
-        self.strides = strides_for_shape(&self.shape);
+        self.layout.make_contiguous();
     }
 
     /// Return a contiguous version of this tensor, either as a reference if
@@ -437,15 +541,7 @@ impl<T: Copy> Tensor<T> {
 
     /// Return an iterator over elements of this tensor, in their logical order.
     pub fn iter(&self) -> Elements<T> {
-        Elements::new(self)
-    }
-
-    /// Return an iterator over offsets of elements in this tensor, in their
-    /// logical order.
-    ///
-    /// See also the notes for `slice_offsets`.
-    pub fn offsets(&self) -> Offsets {
-        Offsets::new(self)
+        Elements::new(&self.view())
     }
 
     /// Returns the single item if this tensor is a 0-dimensional tensor
@@ -468,98 +564,27 @@ impl<T: Copy> Tensor<T> {
     ///
     /// See also <https://numpy.org/doc/stable/user/basics.broadcasting.html#general-broadcasting-rules>
     /// for worked examples of how broadcasting works.
-    pub fn broadcast_elements(&self, shape: &[usize]) -> BroadcastElements<'_, T> {
+    pub fn broadcast_iter(&self, shape: &[usize]) -> BroadcastElements<'_, T> {
         if !self.can_broadcast_to(shape) {
             panic!("Cannot broadcast to specified shape");
         }
-        BroadcastElements::new(self, shape)
+        BroadcastElements::new(&self.view(), shape)
     }
 
     /// Return an iterator over offsets of this tensor, broadcasted to `shape`.
     ///
-    /// This is very similar to `broadcast_elements`, except that the iterator
+    /// This is very similar to `broadcast_iter`, except that the iterator
     /// yields offsets into rather than elements of the data buffer.
     pub fn broadcast_offsets(&self, shape: &[usize]) -> Offsets {
         if !self.can_broadcast_to(shape) {
             panic!("Cannot broadcast to specified shape");
         }
-        Offsets::broadcast(self, shape)
-    }
-
-    /// Return true if the element's shape can be broadcast to `shape` using
-    /// `broadcast_elements`. The result of the broadcasted tensor will have
-    /// exactly the shape `shape`.
-    ///
-    /// See <https://github.com/onnx/onnx/blob/main/docs/Broadcasting.md> for
-    /// conditions in which broadcasting is allowed.
-    pub fn can_broadcast_to(&self, shape: &[usize]) -> bool {
-        if self.shape == shape {
-            return true;
-        } else if self.ndim() > shape.len() {
-            return false;
-        }
-
-        // For two shapes to be compatible for broadcasting, each dimension must
-        // either be the same or be 1.
-        //
-        // If the tensor has fewer dimensions, pretend that it was prefixed with
-        // 1-length dimensions to make the dimension counts equal.
-        let self_dims = self.shape.iter().copied();
-        let target_dims = shape[shape.len() - self.shape.len()..].iter().copied();
-
-        zip(self_dims, target_dims).all(|(a, b)| a == b || a == 1)
-    }
-
-    /// Return true if the element's shape can be broadcast with `shape` using
-    /// `broadcast_elements`.
-    ///
-    /// The shape of the result may be larger than either the current shape
-    /// or `shape`. eg. If a tensor of shape `[1, 5]` is broadcast with one
-    /// of size `[2, 1, 1]` the result has shape `[2, 1, 5]`.
-    ///
-    /// See <https://github.com/onnx/onnx/blob/main/docs/Broadcasting.md> for
-    /// conditions in which broadcasting is allowed.
-    pub fn can_broadcast_with(&self, shape: &[usize]) -> bool {
-        if self.shape == shape {
-            return true;
-        }
-
-        // For two shapes to be compatible for broadcasting, each dimension must
-        // either be the same or be 1.
-        //
-        // If the tensor has fewer dimensions, pretend that it was prefixed with
-        // 1-length dimensions to make the dimension counts equal.
-
-        let a = self.shape.as_slice();
-        let b = shape;
-
-        let a_pad = b.len().saturating_sub(a.len());
-        let b_pad = a.len().saturating_sub(b.len());
-
-        let a_iter = a.iter().copied().rev().chain(repeat(1).take(a_pad));
-        let b_iter = b.iter().copied().rev().chain(repeat(1).take(b_pad));
-
-        zip(a_iter, b_iter).all(|(a, b)| a == b || a == 1 || b == 1)
+        Offsets::broadcast(&self.layout, shape)
     }
 
     /// Return an iterator over a subset of elements in this tensor.
-    pub fn slice_elements(&self, ranges: &[SliceRange]) -> Elements<T> {
-        Elements::slice(self, ranges)
-    }
-
-    /// Return an iterator over offsets of elements in this tensor.
-    ///
-    /// The returned offsets can be used to index the data buffer returned by
-    /// `data` and `data_mut`.
-    ///
-    /// Unlike `slice_elements`, the returned `Offsets` struct does not hold
-    /// a reference to this tensor, so it is possible to modify the tensor while
-    /// iterating over offsets.
-    ///
-    /// Note that the offset order of the returned iterator will become incorrect
-    /// if the tensor shape is subsequently modified.
-    pub fn slice_offsets(&self, ranges: &[SliceRange]) -> Offsets {
-        Offsets::slice(self, ranges)
+    pub fn slice_iter(&self, ranges: &[SliceRange]) -> Elements<T> {
+        Elements::slice(&self.view(), ranges)
     }
 
     /// Update the shape of the tensor.
@@ -581,9 +606,7 @@ impl<T: Copy> Tensor<T> {
         // However there are cases of custom strides where copies could be
         // avoided. See https://pytorch.org/docs/stable/generated/torch.Tensor.view.html.
         self.make_contiguous();
-
-        self.shape = shape.into();
-        self.strides = strides_for_shape(shape);
+        self.layout = Layout::new(shape);
     }
 
     /// Re-order the dimensions according to `dims`.
@@ -591,78 +614,27 @@ impl<T: Copy> Tensor<T> {
     /// This does not modify the order of elements in the data buffer, it merely
     /// updates the strides used by indexing.
     pub fn permute(&mut self, dims: &[usize]) {
-        if dims.len() != self.ndim() {
-            panic!("Permute dims length does not match dimension count");
-        }
-        self.strides = dims.iter().map(|&dim| self.strides[dim]).collect();
-        self.shape = dims.iter().map(|&dim| self.shape[dim]).collect();
+        self.layout.permute(dims);
     }
 
     /// Insert a dimension of size one at index `dim`.
     pub fn insert_dim(&mut self, dim: usize) {
-        let mut new_shape: Vec<usize> = self.shape.clone();
+        let mut new_shape: Vec<usize> = self.shape().into();
         new_shape.insert(dim, 1);
         self.reshape(&new_shape);
     }
 
-    /// Return the number of elements between successive entries in the `dim`
-    /// dimension.
-    pub fn stride(&self, dim: usize) -> usize {
-        self.strides[dim]
-    }
-
-    /// Return the offset of an element in the slices returned by `data`
-    /// and `data_mut`.
+    /// Return an _unchecked_ view of a subset of the data in this tensor.
     ///
-    /// The length of `index` must match the tensor's dimension count.
-    ///
-    /// Panicks if the index length is incorrect or the value of an index
-    /// exceeds the size of the corresponding dimension.
-    pub fn offset<Idx: TensorIndex>(&self, index: Idx) -> usize {
-        let shape = &self.shape;
-        assert!(
-            shape.len() == index.len(),
-            "Cannot access {} dim tensor with {} dim index",
-            shape.len(),
-            index.len()
-        );
-        let mut offset = 0;
-        for i in 0..index.len() {
-            assert!(
-                index.index(i) < self.shape[i],
-                "Invalid index {} for dim {}",
-                index.index(i),
-                i
-            );
-            offset += index.index(i) * self.stride(i)
-        }
-        offset
-    }
-
-    /// Return the shape of this tensor as a fixed-sized array.
-    ///
-    /// The tensor's dimension count must match `N`.
-    pub fn dims<const N: usize>(&self) -> [usize; N] {
-        if self.ndim() != N {
-            panic!(
-                "Cannot extract {} dim tensor as {} dim array",
-                self.ndim(),
-                N
-            );
-        }
-        self.shape[..].try_into().unwrap()
-    }
-
-    /// Return a view of a subset of the data in this tensor.
-    ///
-    /// This provides faster indexing, at the cost of not bounds-checking
-    /// individual dimensions, although generated offsets into the data buffer
-    /// are still checked.
+    /// "Unchecked" means that individual dimensions of an index are not
+    /// bounds-checked against the tensor's shape, but the final offset that
+    /// is generated is.
     ///
     /// N specifies the number of dimensions used for indexing into the view
     /// and `base` specifies a fixed index to add to all indexes. `base` must
     /// have the same number of dimensions as this tensor. N can be the same
     /// or less. If less, it refers to the last N dimensions.
+    #[doc(hidden)]
     pub fn unchecked_view<const B: usize, const N: usize>(
         &self,
         base: [usize; B],
@@ -671,25 +643,45 @@ impl<T: Copy> Tensor<T> {
         UncheckedView {
             data: self.data(),
             offset,
-            strides: self.strides[self.ndim() - N..].try_into().unwrap(),
+            strides: self.layout.strides()[self.ndim() - N..].try_into().unwrap(),
         }
     }
 
-    /// Return a mutable view of a subset of the data in this tensor.
+    /// Return an _unchecked_ mutable view of a subset of the data in this tensor.
     ///
-    /// This is the same as `unchecked_view` except that the returned view can
+    /// This is the same as [Tensor::unchecked_view] except that the returned view can
     /// be used to modify elements.
+    #[doc(hidden)]
     pub fn unchecked_view_mut<const B: usize, const N: usize>(
         &mut self,
         base: [usize; B],
     ) -> UncheckedViewMut<T, N> {
         let offset = self.offset(base);
-        let strides = self.strides[self.ndim() - N..].try_into().unwrap();
+        let strides = self.layout.strides()[self.ndim() - N..].try_into().unwrap();
         UncheckedViewMut {
             data: self.data_mut(),
             offset,
             strides,
         }
+    }
+
+    /// Return an immutable view of this tensor.
+    ///
+    /// Views share the same element array, but can have an independent layout,
+    /// with some limitations.
+    pub fn view(&self) -> TensorView<T> {
+        TensorView::new(self.data(), &self.layout)
+    }
+
+    /// Return a mutable view of this tensor.
+    ///
+    /// Views share the same element array, but can have an independent layout,
+    /// with some limitations.
+    pub fn view_mut(&mut self) -> TensorViewMut<T> {
+        // We slice `self.data` here rather than using `self.data_mut()` to
+        // avoid a borrow-checker complaint.
+        let data = &mut self.data[self.base..];
+        TensorViewMut::new(data, &self.layout)
     }
 }
 
@@ -698,13 +690,13 @@ impl Tensor<f32> {
     ///
     /// The serialized data is in little-endian order and has the structure:
     ///
-    /// [rank: u32][dim: u32 * rank][element: T * product(dims)]
+    /// `[rank: u32][dim: u32 * rank][element: T * product(dims)]`
     ///
     /// Where `T` is the tensor's element type.
     pub fn write<W: io::Write>(&self, writer: &mut W) -> io::Result<()> {
         let ndim: u32 = self.ndim() as u32;
         writer.write_all(&ndim.to_le_bytes())?;
-        for &dim in self.shape.iter() {
+        for &dim in self.shape() {
             writer.write_all(&(dim as u32).to_le_bytes())?;
         }
         for el in self.iter() {
@@ -714,22 +706,25 @@ impl Tensor<f32> {
     }
 }
 
+impl<T: Copy> TensorLayout for Tensor<T> {
+    fn layout(&self) -> &Layout {
+        &self.layout
+    }
+}
+
 impl<T: Copy + PartialEq> PartialEq for Tensor<T> {
     fn eq(&self, other: &Self) -> bool {
-        self.shape == other.shape && self.iter().eq(other.iter())
+        self.shape() == other.shape() && self.iter().eq(other.iter())
     }
 }
 
 impl<T: Copy> Clone for Tensor<T> {
     fn clone(&self) -> Tensor<T> {
         let data = self.data.clone();
-        let shape = self.shape.clone();
-        let strides = self.strides.clone();
         Tensor {
             data,
             base: self.base,
-            shape,
-            strides,
+            layout: self.layout.clone(),
         }
     }
 }
@@ -802,538 +797,6 @@ impl<'a, const N: usize, T: Copy> IndexMut<[usize; N]> for UncheckedViewMut<'a, 
     }
 }
 
-/// IterPos tracks the position within a single dimension of an IndexingIter.
-#[derive(Debug)]
-struct IterPos {
-    /// Current step along this dimension. Each step corresponds to advancing
-    /// one or more indexes either forwards or backwards.
-    step: usize,
-
-    /// Number of steps to take along this dimension before resetting.
-    steps: usize,
-
-    /// Adjustment for element buffer offset for each step along this dimension.
-    offset_step: isize,
-}
-
-impl IterPos {
-    fn step(&mut self) -> bool {
-        if self.step < self.steps - 1 {
-            self.step += 1;
-            true
-        } else {
-            false
-        }
-    }
-}
-
-/// Helper for iterating over offsets of elements in a tensor.
-#[derive(Debug)]
-struct IndexingIterBase {
-    /// Remaining elements to visit
-    len: usize,
-
-    /// Offset of the next element to return from the tensor's element buffer.
-    offset: isize,
-
-    /// Current position within each dimension.
-    pos: Vec<IterPos>,
-}
-
-impl IndexingIterBase {
-    /// Create an iterator over element offsets in `tensor`.
-    fn new<T: Copy>(tensor: &Tensor<T>) -> IndexingIterBase {
-        let dims = tensor
-            .shape
-            .iter()
-            .enumerate()
-            .map(|(dim, &len)| IterPos {
-                step: 0,
-                steps: len,
-                offset_step: tensor.strides[dim] as isize,
-            })
-            .collect();
-
-        IndexingIterBase {
-            len: tensor.len(),
-            offset: 0,
-            pos: dims,
-        }
-    }
-
-    /// Create an iterator over offsets of elements in `tensor`, as if it had
-    /// a given `shape`. This will repeat offsets as necessary.
-    fn broadcast<T: Copy>(tensor: &Tensor<T>, shape: &[usize]) -> IndexingIterBase {
-        // nb. We require that the broadcast shape has a length >= the actual
-        // shape.
-        let added_dims = shape.len() - tensor.shape().len();
-        let padded_tensor_shape = repeat(&0).take(added_dims).chain(tensor.shape().iter());
-        let dims = zip(padded_tensor_shape, shape.iter())
-            .enumerate()
-            .map(|(dim, (&actual_len, &broadcast_len))| IterPos {
-                step: 0,
-                steps: broadcast_len,
-
-                // If the dimension is being broadcast, set its stride to 0 so
-                // that when we increment in this dimension, we just repeat
-                // elements. Otherwise, use the real stride.
-                offset_step: if actual_len == broadcast_len {
-                    tensor.strides[dim - added_dims] as isize
-                } else {
-                    0
-                },
-            })
-            .collect();
-
-        IndexingIterBase {
-            len: shape.iter().product(),
-            offset: 0,
-            pos: dims,
-        }
-    }
-
-    /// Create an iterator over offsets of a subset of elements in `tensor`.
-    fn slice<T: Copy>(tensor: &Tensor<T>, ranges: &[SliceRange]) -> IndexingIterBase {
-        if ranges.len() != tensor.ndim() {
-            panic!(
-                "slice dimensions {} do not match tensor dimensions {}",
-                ranges.len(),
-                tensor.ndim()
-            );
-        }
-        let mut offset = 0;
-        let dims: Vec<_> = ranges
-            .iter()
-            .enumerate()
-            .map(|(dim, range)| {
-                let len = tensor.shape[dim];
-                let range = range.clamp(len);
-                let stride = tensor.strides[dim];
-
-                let start_index = if range.start >= 0 {
-                    range.start
-                } else {
-                    (len as isize) + range.start
-                };
-
-                // Clamped ranges either have a start index that is valid, or
-                // that is one before/after the first/last valid index
-                // (depending on step direction). If invalid, the slice is
-                // empty.
-                if start_index >= 0 && start_index < (len as isize) {
-                    offset += stride * start_index as usize;
-                } else {
-                    assert!(range.steps(len) == 0);
-                }
-
-                IterPos {
-                    step: 0,
-                    steps: range.steps(len),
-                    offset_step: (stride as isize) * range.step,
-                }
-            })
-            .collect();
-
-        IndexingIterBase {
-            len: dims.iter().map(|dim| dim.steps).product(),
-            offset: offset as isize,
-            pos: dims,
-        }
-    }
-
-    /// Advance the iterator by stepping along dimension `dim`.
-    ///
-    /// The caller must calculate `stride`, the number of indices being stepped
-    /// over.
-    fn step_dim(&mut self, mut dim: usize, stride: usize) {
-        self.len -= stride;
-        let mut pos = &mut self.pos[dim];
-        while !pos.step() {
-            // End of range reached for dimension `dim`. Rewind offset by
-            // amount it moved since iterating from the start of this dimension.
-            self.offset -= pos.offset_step * (pos.steps as isize - 1);
-            pos.step = 0;
-
-            if dim == 0 {
-                break;
-            }
-
-            dim -= 1;
-            pos = &mut self.pos[dim];
-        }
-        self.offset += pos.offset_step;
-    }
-
-    /// Advance iterator by one index.
-    fn step(&mut self) {
-        self.step_dim(self.pos.len() - 1, 1);
-    }
-
-    /// Advance iterator by up to `n` indices.
-    fn step_by(&mut self, n: usize) {
-        let mut n = n.min(self.len);
-        while n > 0 {
-            // Find the outermost dimension that we can step along which will
-            // advance the iterator by <= N elements.
-            let mut dim = self.pos.len() - 1;
-            let mut stride = 1;
-            while dim > 0 {
-                let next_stride = stride * self.pos[dim].steps;
-                if next_stride >= n {
-                    break;
-                }
-                dim -= 1;
-                stride = next_stride;
-            }
-
-            // Step along the selected dimension.
-            let n_steps = n / stride;
-            for _ in 0..n_steps {
-                n -= stride;
-                self.step_dim(dim, stride);
-            }
-        }
-    }
-}
-
-/// Iterator over elements of a tensor.
-pub struct Elements<'a, T: Copy> {
-    iter: ElementsIter<'a, T>,
-}
-
-/// Alternate implementations of `Elements`.
-///
-/// When the tensor has a contiguous layout, this iterator is just a thin
-/// wrapper around a slice iterator.
-enum ElementsIter<'a, T: Copy> {
-    Direct(Iter<'a, T>),
-    Indexing(IndexingIter<'a, T>),
-}
-
-impl<'a, T: Copy> Elements<'a, T> {
-    fn new(tensor: &'a Tensor<T>) -> Elements<'a, T> {
-        if tensor.is_contiguous() {
-            Elements {
-                iter: ElementsIter::Direct(tensor.data().iter()),
-            }
-        } else {
-            Elements {
-                iter: ElementsIter::Indexing(IndexingIter::new(tensor)),
-            }
-        }
-    }
-
-    fn slice(tensor: &'a Tensor<T>, ranges: &[SliceRange]) -> Elements<'a, T> {
-        let iter = IndexingIter {
-            base: IndexingIterBase::slice(tensor, ranges),
-            data: tensor.data(),
-        };
-        Elements {
-            iter: ElementsIter::Indexing(iter),
-        }
-    }
-}
-
-impl<'a, T: Copy> Iterator for Elements<'a, T> {
-    type Item = T;
-
-    fn next(&mut self) -> Option<T> {
-        match self.iter {
-            ElementsIter::Direct(ref mut iter) => iter.next().copied(),
-            ElementsIter::Indexing(ref mut iter) => iter.next(),
-        }
-    }
-
-    fn size_hint(&self) -> (usize, Option<usize>) {
-        match &self.iter {
-            ElementsIter::Direct(iter) => iter.size_hint(),
-            ElementsIter::Indexing(iter) => iter.size_hint(),
-        }
-    }
-
-    fn nth(&mut self, n: usize) -> Option<Self::Item> {
-        match self.iter {
-            ElementsIter::Direct(ref mut iter) => iter.nth(n).copied(),
-            ElementsIter::Indexing(ref mut iter) => {
-                iter.base.step_by(n);
-                iter.next()
-            }
-        }
-    }
-}
-
-impl<'a, T: Copy> ExactSizeIterator for Elements<'a, T> {}
-
-struct IndexingIter<'a, T: Copy> {
-    base: IndexingIterBase,
-
-    /// Data buffer of the tensor
-    data: &'a [T],
-}
-
-impl<'a, T: Copy> IndexingIter<'a, T> {
-    fn new(tensor: &'a Tensor<T>) -> IndexingIter<'a, T> {
-        IndexingIter {
-            base: IndexingIterBase::new(tensor),
-            data: tensor.data(),
-        }
-    }
-
-    fn broadcast(tensor: &'a Tensor<T>, shape: &[usize]) -> IndexingIter<'a, T> {
-        IndexingIter {
-            base: IndexingIterBase::broadcast(tensor, shape),
-            data: tensor.data(),
-        }
-    }
-}
-
-impl<'a, T: Copy> Iterator for IndexingIter<'a, T> {
-    type Item = T;
-
-    fn next(&mut self) -> Option<T> {
-        if self.base.len == 0 {
-            return None;
-        }
-        let element = self.data[self.base.offset as usize];
-        self.base.step();
-        Some(element)
-    }
-
-    fn size_hint(&self) -> (usize, Option<usize>) {
-        (self.base.len, Some(self.base.len))
-    }
-}
-
-impl<'a, T: Copy> ExactSizeIterator for IndexingIter<'a, T> {}
-
-/// Iterator over element offsets of a tensor.
-///
-/// `Offsets` does not hold a reference to the tensor, allowing the tensor to
-/// be modified during iteration. It is the caller's responsibilty not to modify
-/// the tensor in ways that invalidate the offset sequence returned by this
-/// iterator.
-pub struct Offsets {
-    base: IndexingIterBase,
-}
-
-impl Offsets {
-    fn new<T: Copy>(tensor: &Tensor<T>) -> Offsets {
-        Offsets {
-            base: IndexingIterBase::new(tensor),
-        }
-    }
-
-    fn broadcast<T: Copy>(tensor: &Tensor<T>, shape: &[usize]) -> Offsets {
-        Offsets {
-            base: IndexingIterBase::broadcast(tensor, shape),
-        }
-    }
-
-    fn slice<T: Copy>(tensor: &Tensor<T>, ranges: &[SliceRange]) -> Offsets {
-        Offsets {
-            base: IndexingIterBase::slice(tensor, ranges),
-        }
-    }
-}
-
-impl Iterator for Offsets {
-    type Item = usize;
-
-    fn next(&mut self) -> Option<Self::Item> {
-        if self.base.len == 0 {
-            return None;
-        }
-        let offset = self.base.offset;
-        self.base.step();
-        Some(offset as usize)
-    }
-
-    fn size_hint(&self) -> (usize, Option<usize>) {
-        (self.base.len, Some(self.base.len))
-    }
-
-    fn nth(&mut self, n: usize) -> Option<Self::Item> {
-        self.base.step_by(n);
-        self.next()
-    }
-}
-
-impl ExactSizeIterator for Offsets {}
-
-/// Iterator over elements of a tensor which broadcasts to a different shape.
-///
-/// This iterator will repeat elements of the underlying tensor until the total
-/// number yielded matches the product of the shape being broadcast to.
-pub struct BroadcastElements<'a, T: Copy> {
-    iter: BroadcastElementsIter<'a, T>,
-}
-
-/// Alternate implementations for broadcasting. See notes in
-/// `BroadcastElements::can_broadcast_by_cycling`.
-enum BroadcastElementsIter<'a, T: Copy> {
-    Direct(Take<Cycle<Iter<'a, T>>>),
-    Indexing(IndexingIter<'a, T>),
-}
-
-impl<'a, T: Copy> BroadcastElements<'a, T> {
-    fn new(tensor: &'a Tensor<T>, to_shape: &[usize]) -> BroadcastElements<'a, T> {
-        let iter =
-            if tensor.is_contiguous() && Self::can_broadcast_by_cycling(tensor.shape(), to_shape) {
-                let iter_len = to_shape.iter().product();
-                BroadcastElementsIter::Direct(tensor.data().iter().cycle().take(iter_len))
-            } else {
-                BroadcastElementsIter::Indexing(IndexingIter::broadcast(tensor, to_shape))
-            };
-        BroadcastElements { iter }
-    }
-
-    /// Return true if a tensor with shape `from_shape` can be broadcast to shape
-    /// `to_shape` by cycling through all of its elements repeatedly.
-    ///
-    /// This requires that, after left-padding `from_shape` with 1s to match the
-    /// length of `to_shape`, all non-1 dimensions in `from_shape` are contiguous
-    /// at the end. For example, `[1, 5, 10]` can be broadcast to `[3, 4, 5, 10]`
-    /// by cycling, but `[5, 1, 10]` cannot be broadcast to `[5, 4, 10]` this way,
-    /// as the inner (`[1, 10]`) dimensions will need to be repeated 4 times before
-    /// moving to the next index in the outermost dimension.
-    ///
-    /// If the tensor can be broadcast via cycling, and is also contiguous, it can
-    /// be broadcast efficiently using `tensor.data().iter().cycle()`.
-    fn can_broadcast_by_cycling(from_shape: &[usize], to_shape: &[usize]) -> bool {
-        assert!(to_shape.len() >= from_shape.len());
-
-        let excess_dims = to_shape.len() - from_shape.len();
-        let mut dims_to_check = to_shape.len() - excess_dims;
-
-        while dims_to_check > 0 {
-            if from_shape[dims_to_check - 1] != to_shape[excess_dims + dims_to_check - 1] {
-                break;
-            }
-            dims_to_check -= 1;
-        }
-
-        while dims_to_check > 0 {
-            if from_shape[dims_to_check - 1] != 1 {
-                return false;
-            }
-            dims_to_check -= 1;
-        }
-
-        true
-    }
-}
-
-impl<'a, T: Copy> Iterator for BroadcastElements<'a, T> {
-    type Item = T;
-
-    fn next(&mut self) -> Option<T> {
-        match self.iter {
-            BroadcastElementsIter::Direct(ref mut iter) => iter.next().copied(),
-            BroadcastElementsIter::Indexing(ref mut iter) => iter.next(),
-        }
-    }
-
-    fn size_hint(&self) -> (usize, Option<usize>) {
-        match &self.iter {
-            BroadcastElementsIter::Direct(iter) => iter.size_hint(),
-            BroadcastElementsIter::Indexing(iter) => iter.size_hint(),
-        }
-    }
-}
-
-impl<'a, T: Copy> ExactSizeIterator for BroadcastElements<'a, T> {}
-
-/// An iterator over indices within a given range.
-///
-/// This struct does not implement the `Iterator` trait because such iterators
-/// cannot return references to data they contain. Use a `while` loop instead.
-pub struct IndexIterator {
-    first: bool,
-    current: Vec<usize>,
-    ranges: Vec<Range<usize>>,
-}
-
-impl IndexIterator {
-    /// Return an iterator over all the indices where each dimension lies
-    /// within the corresponding range in `ranges`.
-    ///
-    /// If `ranges` is empty, the iterator yields a single empty index. This
-    /// is consistent with `ndindex` in eg. numpy.
-    pub fn from_ranges(ranges: &[Range<usize>]) -> IndexIterator {
-        let current = ranges.iter().map(|r| r.start).collect();
-        IndexIterator {
-            first: true,
-            current,
-            ranges: ranges.into(),
-        }
-    }
-
-    /// Return an iterator over all the indices where each dimension is between
-    /// `0` and `shape[dim]`.
-    pub fn from_shape(shape: &[usize]) -> IndexIterator {
-        let ranges = shape.iter().map(|&size| 0..size).collect();
-        let current = vec![0; shape.len()];
-        IndexIterator {
-            first: true,
-            current,
-            ranges,
-        }
-    }
-
-    /// Reset the iterator back to the first index.
-    pub fn reset(&mut self) {
-        self.first = true;
-        for i in 0..self.ranges.len() {
-            self.current[i] = self.ranges[i].start;
-        }
-    }
-
-    /// Return the index index in the sequence, or `None` after all indices
-    /// have been returned.
-    pub fn next(&mut self) -> Option<&[usize]> {
-        if self.current.is_empty() {
-            if self.first {
-                self.first = false;
-                return Some(&self.current[..]);
-            } else {
-                return None;
-            }
-        }
-
-        // Find dimension where the last element has not been reached.
-        let mut dim = self.current.len() - 1;
-        while dim > 0 && self.current[dim] >= self.ranges[dim].end - 1 {
-            self.current[dim] = self.ranges[dim].start;
-            dim -= 1;
-        }
-
-        if self.first {
-            self.first = false;
-        } else {
-            self.current[dim] += 1;
-        }
-
-        if self.current[dim] >= self.ranges[dim].end {
-            return None;
-        }
-
-        Some(&self.current[..])
-    }
-}
-
-/// Return the default strides for a given tensor shape.
-///
-/// The returned strides are for a tightly packed tensor (ie. no unused
-/// elements) where all elements are stored in the default order.
-fn strides_for_shape(shape: &[usize]) -> Vec<usize> {
-    let mut strides = Vec::with_capacity(shape.len());
-    for i in 0..shape.len() {
-        let stride = shape[i + 1..].iter().product();
-        strides.push(stride);
-    }
-    strides
-}
-
 /// Create a new tensor with all values set to 0.
 pub fn zeros<T: Copy + Default>(shape: &[usize]) -> Tensor<T> {
     Tensor::zeros(shape)
@@ -1386,8 +849,8 @@ mod tests {
 
     use crate::rng::XorShiftRNG;
     use crate::tensor::{
-        from_2d_slice, from_data, from_scalar, from_vec, rand, zeros, IndexIterator, SliceRange,
-        Tensor,
+        from_2d_slice, from_data, from_scalar, from_vec, rand, zeros, SliceRange, Tensor,
+        TensorLayout,
     };
 
     /// Create a tensor where the value of each element is its logical index
@@ -1398,20 +861,6 @@ mod tests {
             *elt = (index + 1) as i32;
         }
         x
-    }
-
-    #[test]
-    fn test_slice_range_resolve() {
-        // +ve endpoints, +ve step
-        assert_eq!(SliceRange::new(0, 5, 1).resolve(10), 0..5);
-        assert_eq!(SliceRange::new(15, 20, 1).resolve(10), 10..10);
-
-        // -ve endpoints, +ve step
-        assert_eq!(SliceRange::new(-5, -1, 1).resolve(10), 5..9);
-        assert_eq!(SliceRange::new(-20, -1, 1).resolve(10), 0..9);
-
-        // +ve endpoints, -ve step
-        assert_eq!(SliceRange::new(5, 0, -1).resolve(10), 4..9);
     }
 
     #[test]
@@ -1827,7 +1276,7 @@ mod tests {
     }
 
     #[test]
-    fn test_elements_for_contiguous_array() {
+    fn test_iter_for_contiguous_array() {
         for dims in 1..7 {
             let mut shape = Vec::new();
             for d in 0..dims {
@@ -1843,13 +1292,13 @@ mod tests {
     }
 
     #[test]
-    fn test_elements_for_empty_array() {
+    fn test_iter_for_empty_array() {
         let empty = zeros::<f32>(&[3, 0, 5]);
         assert!(empty.iter().next().is_none());
     }
 
     #[test]
-    fn test_elements_for_non_contiguous_array() {
+    fn test_iter_for_non_contiguous_array() {
         let mut x = zeros(&[3, 3]);
         for (index, elt) in x.data_mut().iter_mut().enumerate() {
             *elt = index + 1;
@@ -1879,17 +1328,52 @@ mod tests {
     }
 
     // PyTorch and numpy do not allow iteration over a scalar, but it seems
-    // consistent for `Tensor::elements` to always yield `Tensor::len` elements,
+    // consistent for `Tensor::iter` to always yield `Tensor::len` elements,
     // and `len` returns 1 for a scalar.
     #[test]
-    fn test_elements_for_scalar() {
+    fn test_iter_for_scalar() {
         let x = from_scalar(5.0);
         let elements = x.iter().collect::<Vec<_>>();
         assert_eq!(&elements, &[5.0]);
     }
 
     #[test]
-    fn test_elements_vec() {
+    fn test_iter_mut_for_contiguous_array() {
+        for dims in 1..7 {
+            let mut shape = Vec::new();
+            for d in 0..dims {
+                shape.push(d + 1);
+            }
+            let mut rng = XorShiftRNG::new(1234);
+            let mut x = rand(&shape, &mut rng);
+
+            let elts: Vec<f32> = x.iter().map(|x| x * 2.).collect();
+
+            for elt in x.view_mut().iter_mut() {
+                *elt *= 2.;
+            }
+
+            assert_eq!(x.data(), elts);
+        }
+    }
+
+    #[test]
+    fn test_iter_mut_for_non_contiguous_array() {
+        let mut x = zeros(&[3, 3]);
+        for (index, elt) in x.data_mut().iter_mut().enumerate() {
+            *elt = index + 1;
+        }
+        x.permute(&[1, 0]);
+
+        let x_doubled: Vec<usize> = x.iter().map(|x| x * 2).collect();
+        for elt in x.view_mut().iter_mut() {
+            *elt *= 2;
+        }
+        assert_eq!(x.to_vec(), x_doubled);
+    }
+
+    #[test]
+    fn test_to_vec() {
         let mut x = steps(&[3, 3]);
 
         // Contiguous case. This should use the fast-path.
@@ -2034,43 +1518,43 @@ mod tests {
     }
 
     #[test]
-    fn test_broadcast_elements() {
+    fn test_broadcast_iter() {
         let x = steps(&[1, 2, 1, 2]);
         assert_eq!(x.iter().collect::<Vec<i32>>(), &[1, 2, 3, 4]);
 
         // Broadcast a 1-size dimension to size 2
-        let bx = x.broadcast_elements(&[2, 2, 1, 2]);
+        let bx = x.broadcast_iter(&[2, 2, 1, 2]);
         assert_eq!(bx.collect::<Vec<i32>>(), &[1, 2, 3, 4, 1, 2, 3, 4]);
 
         // Broadcast a different 1-size dimension to size 2
-        let bx = x.broadcast_elements(&[1, 2, 2, 2]);
+        let bx = x.broadcast_iter(&[1, 2, 2, 2]);
         assert_eq!(bx.collect::<Vec<i32>>(), &[1, 2, 1, 2, 3, 4, 3, 4]);
 
         // Broadcast to a larger number of dimensions
         let x = steps(&[5]);
-        let bx = x.broadcast_elements(&[1, 5]);
+        let bx = x.broadcast_iter(&[1, 5]);
         assert_eq!(bx.collect::<Vec<i32>>(), &[1, 2, 3, 4, 5]);
     }
 
     #[test]
-    fn test_broadcast_elements_with_scalar() {
+    fn test_broadcast_iter_with_scalar() {
         let scalar = from_scalar(7);
-        let bx = scalar.broadcast_elements(&[3, 3]);
+        let bx = scalar.broadcast_iter(&[3, 3]);
         assert_eq!(bx.collect::<Vec<i32>>(), &[7, 7, 7, 7, 7, 7, 7, 7, 7]);
     }
 
     #[test]
     #[should_panic(expected = "Cannot broadcast to specified shape")]
-    fn test_broadcast_elements_with_invalid_shape() {
+    fn test_broadcast_iter_with_invalid_shape() {
         let x = steps(&[2, 2]);
-        x.broadcast_elements(&[3, 2]);
+        x.broadcast_iter(&[3, 2]);
     }
 
     #[test]
     #[should_panic(expected = "Cannot broadcast to specified shape")]
-    fn test_broadcast_elements_with_shorter_shape() {
+    fn test_broadcast_iter_with_shorter_shape() {
         let x = steps(&[2, 2]);
-        x.broadcast_elements(&[4]);
+        x.broadcast_iter(&[4]);
     }
 
     #[test]
@@ -2078,7 +1562,7 @@ mod tests {
         let x = steps(&[2, 1, 4]);
         let to_shape = &[2, 2, 1, 4];
 
-        let expected: Vec<i32> = x.broadcast_elements(to_shape).collect();
+        let expected: Vec<i32> = x.broadcast_iter(to_shape).collect();
         let actual: Vec<i32> = x
             .broadcast_offsets(to_shape)
             .map(|off| x.data()[off])
@@ -2111,118 +1595,118 @@ mod tests {
     }
 
     #[test]
-    fn test_slice_elements() {
+    fn test_slice_iter() {
         let sr = |start, end| SliceRange::new(start, end, 1);
         let x = steps(&[3, 3]);
 
         // Slice that removes start of each dimension
-        let slice: Vec<_> = x.slice_elements(&[sr(1, 3), sr(1, 3)]).collect();
+        let slice: Vec<_> = x.slice_iter(&[sr(1, 3), sr(1, 3)]).collect();
         assert_eq!(slice, &[5, 6, 8, 9]);
 
         // Slice that removes end of each dimension
-        let slice: Vec<_> = x.slice_elements(&[sr(0, 2), sr(0, 2)]).collect();
+        let slice: Vec<_> = x.slice_iter(&[sr(0, 2), sr(0, 2)]).collect();
         assert_eq!(slice, &[1, 2, 4, 5]);
 
         // Slice that removes start and end of first dimension
-        let slice: Vec<_> = x.slice_elements(&[sr(1, 2), sr(0, 3)]).collect();
+        let slice: Vec<_> = x.slice_iter(&[sr(1, 2), sr(0, 3)]).collect();
         assert_eq!(slice, &[4, 5, 6]);
 
         // Slice that removes start and end of second dimension
-        let slice: Vec<_> = x.slice_elements(&[sr(0, 3), sr(1, 2)]).collect();
+        let slice: Vec<_> = x.slice_iter(&[sr(0, 3), sr(1, 2)]).collect();
         assert_eq!(slice, &[2, 5, 8]);
     }
 
     #[test]
-    fn test_slice_elements_with_step() {
+    fn test_slice_iter_with_step() {
         let sr = SliceRange::new;
         let x = steps(&[10]);
 
         // Positive steps > 1.
-        let slice: Vec<_> = x.slice_elements(&[sr(0, 10, 2)]).collect();
+        let slice: Vec<_> = x.slice_iter(&[sr(0, 10, 2)]).collect();
         assert_eq!(slice, &[1, 3, 5, 7, 9]);
 
-        let slice: Vec<_> = x.slice_elements(&[sr(0, 10, 3)]).collect();
+        let slice: Vec<_> = x.slice_iter(&[sr(0, 10, 3)]).collect();
         assert_eq!(slice, &[1, 4, 7, 10]);
 
-        let slice: Vec<_> = x.slice_elements(&[sr(0, 10, 10)]).collect();
+        let slice: Vec<_> = x.slice_iter(&[sr(0, 10, 10)]).collect();
         assert_eq!(slice, &[1]);
 
         // Negative steps.
-        let slice: Vec<_> = x.slice_elements(&[sr(10, -11, -1)]).collect();
+        let slice: Vec<_> = x.slice_iter(&[sr(10, -11, -1)]).collect();
         assert_eq!(slice, &[10, 9, 8, 7, 6, 5, 4, 3, 2, 1]);
 
-        let slice: Vec<_> = x.slice_elements(&[sr(8, 0, -1)]).collect();
+        let slice: Vec<_> = x.slice_iter(&[sr(8, 0, -1)]).collect();
         assert_eq!(slice, &[9, 8, 7, 6, 5, 4, 3, 2]);
 
-        let slice: Vec<_> = x.slice_elements(&[sr(10, 0, -2)]).collect();
+        let slice: Vec<_> = x.slice_iter(&[sr(10, 0, -2)]).collect();
         assert_eq!(slice, &[10, 8, 6, 4, 2]);
 
-        let slice: Vec<_> = x.slice_elements(&[sr(10, 0, -10)]).collect();
+        let slice: Vec<_> = x.slice_iter(&[sr(10, 0, -10)]).collect();
         assert_eq!(slice, &[10]);
     }
 
     #[test]
-    fn test_slice_elements_negative_indices() {
+    fn test_slice_iter_negative_indices() {
         let sr = |start, end| SliceRange::new(start, end, 1);
         let x = steps(&[10]);
 
         // Negative start
-        let slice: Vec<_> = x.slice_elements(&[sr(-2, 10)]).collect();
+        let slice: Vec<_> = x.slice_iter(&[sr(-2, 10)]).collect();
         assert_eq!(slice, &[9, 10]);
 
         // Negative end
-        let slice: Vec<_> = x.slice_elements(&[sr(7, -1)]).collect();
+        let slice: Vec<_> = x.slice_iter(&[sr(7, -1)]).collect();
         assert_eq!(slice, &[8, 9]);
 
         // Negative start and end
-        let slice: Vec<_> = x.slice_elements(&[sr(-3, -1)]).collect();
+        let slice: Vec<_> = x.slice_iter(&[sr(-3, -1)]).collect();
         assert_eq!(slice, &[8, 9]);
     }
 
     #[test]
-    fn test_slice_elements_clamps_indices() {
+    fn test_slice_iter_clamps_indices() {
         let sr = SliceRange::new;
         let x = steps(&[5]);
 
         // Test cases for positive steps (ie. traversing forwards).
 
         // Positive start out of bounds
-        let slice: Vec<_> = x.slice_elements(&[sr(10, 11, 1)]).collect();
+        let slice: Vec<_> = x.slice_iter(&[sr(10, 11, 1)]).collect();
         assert_eq!(slice.len(), 0);
 
         // Positive end out of bounds
-        let slice: Vec<_> = x.slice_elements(&[sr(0, 10, 1)]).collect();
+        let slice: Vec<_> = x.slice_iter(&[sr(0, 10, 1)]).collect();
         assert_eq!(slice, &[1, 2, 3, 4, 5]);
 
         // Negative start out of bounds
-        let slice: Vec<_> = x.slice_elements(&[sr(-10, 5, 1)]).collect();
+        let slice: Vec<_> = x.slice_iter(&[sr(-10, 5, 1)]).collect();
         assert_eq!(slice, &[1, 2, 3, 4, 5]);
 
         // Negative end out of bounds
-        let slice: Vec<_> = x.slice_elements(&[sr(-10, -5, 1)]).collect();
+        let slice: Vec<_> = x.slice_iter(&[sr(-10, -5, 1)]).collect();
         assert_eq!(slice.len(), 0);
 
         // Test cases for negative steps (ie. traversing backwards).
 
         // Positive start out of bounds
-        let slice: Vec<_> = x.slice_elements(&[sr(10, -6, -1)]).collect();
+        let slice: Vec<_> = x.slice_iter(&[sr(10, -6, -1)]).collect();
         assert_eq!(slice, &[5, 4, 3, 2, 1]);
 
         // Positive end out of bounds
-        let slice: Vec<_> = x.slice_elements(&[sr(0, 10, -1)]).collect();
+        let slice: Vec<_> = x.slice_iter(&[sr(0, 10, -1)]).collect();
         assert_eq!(slice.len(), 0);
 
         // Negative start out of bounds
-        let slice: Vec<_> = x.slice_elements(&[sr(-10, 5, -1)]).collect();
+        let slice: Vec<_> = x.slice_iter(&[sr(-10, 5, -1)]).collect();
         assert_eq!(slice.len(), 0);
 
         // Negative end out of bounds
-        let slice: Vec<_> = x.slice_elements(&[sr(-1, -10, -1)]).collect();
+        let slice: Vec<_> = x.slice_iter(&[sr(-1, -10, -1)]).collect();
         assert_eq!(slice, &[5, 4, 3, 2, 1]);
     }
 
     #[test]
-    fn test_slice_elements_start_end_step_combinations() {
+    fn test_slice_iter_start_end_step_combinations() {
         let sr = SliceRange::new;
         let x = steps(&[3]);
 
@@ -2235,61 +1719,28 @@ mod tests {
                     if step == 0 {
                         continue;
                     }
-                    x.slice_elements(&[sr(start, end, step)]).for_each(drop);
+                    x.slice_iter(&[sr(start, end, step)]).for_each(drop);
                 }
             }
         }
     }
 
-    // These tests assume the correctness of `slice_elements`, given the tests
+    // These tests assume the correctness of `slice_iter`, given the tests
     // above, and check for consistency between the results of `slice_offsets`
-    // and `slice_elements`.
+    // and `slice_iter`.
     #[test]
     fn test_slice_offsets() {
         let x = steps(&[5, 5]);
 
         // Range that removes the start and end of each dimension.
         let range = &[SliceRange::new(1, 4, 1), SliceRange::new(1, 4, 1)];
-        let expected: Vec<_> = x.slice_elements(range).collect();
+        let expected: Vec<_> = x.slice_iter(range).collect();
         let result: Vec<_> = x
             .slice_offsets(range)
             .map(|offset| x.data()[offset])
             .collect();
 
         assert_eq!(&result, &expected);
-    }
-
-    #[test]
-    fn test_index_iterator() {
-        // Empty iterator
-        let mut iter = IndexIterator::from_ranges(&[0..0]);
-        assert_eq!(iter.next(), None);
-        assert_eq!(iter.next(), None);
-
-        // Scalar index iterator
-        let mut iter = IndexIterator::from_ranges(&[]);
-        assert_eq!(iter.next(), Some(&[] as &[usize]));
-        assert_eq!(iter.next(), None);
-
-        // 1D index iterator
-        let mut iter = IndexIterator::from_ranges(&[0..5]);
-        let mut visited: Vec<Vec<usize>> = Vec::new();
-        while let Some(index) = iter.next() {
-            visited.push(index.into());
-        }
-        assert_eq!(visited, vec![vec![0], vec![1], vec![2], vec![3], vec![4]]);
-
-        // 2D index iterator
-        let mut iter = IndexIterator::from_ranges(&[2..4, 2..4]);
-        let mut visited: Vec<Vec<usize>> = Vec::new();
-        while let Some(index) = iter.next() {
-            visited.push(index.into());
-        }
-
-        assert_eq!(
-            visited,
-            vec![vec![2, 2], vec![2, 3], vec![3, 2], vec![3, 3],]
-        );
     }
 
     #[test]

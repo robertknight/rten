@@ -3,7 +3,7 @@
 use crate::check_dims;
 use crate::ops::binary_elementwise::broadcast_shapes;
 use crate::ops::{resolve_axis, Input, InputList, IntoOpResult, OpError, Operator, Output};
-use crate::tensor::{from_data, Tensor};
+use crate::tensor::{from_data, Tensor, TensorLayout};
 
 pub fn expand<T: Copy>(input: &Tensor<T>, shape: &Tensor<i32>) -> Result<Tensor<T>, OpError> {
     check_dims!(shape, 1);
@@ -13,7 +13,7 @@ pub fn expand<T: Copy>(input: &Tensor<T>, shape: &Tensor<i32>) -> Result<Tensor<
         OpError::IncompatibleInputShapes("Cannot broadcast input with target shape"),
     )?;
 
-    let out_elts = input.broadcast_elements(&out_shape).collect();
+    let out_elts = input.broadcast_iter(&out_shape).collect();
     Ok(from_data(out_shape, out_elts))
 }
 
@@ -310,7 +310,7 @@ impl Operator for Squeeze {
 }
 
 pub fn transpose<T: Copy>(input: &Tensor<T>, permutation: Option<&[usize]>) -> Tensor<T> {
-    let mut transposed = input.clone();
+    let mut transposed = input.view();
     match permutation {
         Some(order) => transposed.permute(order),
         None => {
@@ -318,7 +318,7 @@ pub fn transpose<T: Copy>(input: &Tensor<T>, permutation: Option<&[usize]>) -> T
             transposed.permute(&reversed);
         }
     };
-    transposed
+    transposed.to_tensor()
 }
 
 #[derive(Debug)]
@@ -382,7 +382,7 @@ mod tests {
     };
     use crate::ops::{OpError, Operator};
     use crate::rng::XorShiftRNG;
-    use crate::tensor::{from_data, from_scalar, from_vec, rand};
+    use crate::tensor::{from_data, from_scalar, from_vec, rand, TensorLayout};
     use crate::test_util::expect_equal;
 
     #[test]
