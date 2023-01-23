@@ -3,7 +3,7 @@ use std::iter::zip;
 use crate::linalg::{gemm, Matrix};
 use crate::ops::binary_elementwise::broadcast_shapes;
 use crate::ops::{InputList, IntoOpResult, OpError, Operator, Output};
-use crate::tensor::{from_data, zeros, Tensor};
+use crate::tensor::{from_data, zeros, Tensor, TensorLayout};
 
 #[derive(Debug)]
 pub struct Gemm {

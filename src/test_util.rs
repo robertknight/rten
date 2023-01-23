@@ -4,7 +4,7 @@ use std::iter::zip;
 
 use serde_json::Value;
 
-use crate::tensor::Tensor;
+use crate::tensor::{Tensor, TensorLayout};
 
 /// Trait that tests whether two values are approximately equal.
 ///

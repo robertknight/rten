@@ -564,7 +564,7 @@ mod tests {
     use crate::model_builder::{ModelBuilder, OpType};
     use crate::ops;
     use crate::ops::{CoordTransformMode, NearestMode, OpError, Padding, ResizeMode, Scalar};
-    use crate::tensor::{from_data, from_scalar, from_vec};
+    use crate::tensor::{from_data, from_scalar, from_vec, TensorLayout};
 
     fn generate_model_buffer() -> Vec<u8> {
         let mut builder = ModelBuilder::new();

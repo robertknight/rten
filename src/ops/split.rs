@@ -1,7 +1,7 @@
 use std::iter::zip;
 
 use crate::ops::{resolve_axis, InputList, OpError, Operator, Output};
-use crate::tensor::{SliceRange, Tensor};
+use crate::tensor::{SliceRange, Tensor, TensorLayout};
 
 pub fn split<T: Copy>(
     input: &Tensor<T>,

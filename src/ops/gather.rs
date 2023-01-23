@@ -1,5 +1,5 @@
 use crate::ops::{Input, InputList, IntoOpResult, OpError, Operator, Output};
-use crate::tensor::Tensor;
+use crate::tensor::{Tensor, TensorLayout};
 
 /// Gather elements from `input` specified by `indices`.
 ///
@@ -78,7 +78,7 @@ impl Operator for Gather {
 mod tests {
     use crate::ops::{gather, OpError};
     use crate::rng::XorShiftRNG;
-    use crate::tensor::{from_data, from_scalar, from_vec, rand};
+    use crate::tensor::{from_data, from_scalar, from_vec, rand, TensorLayout};
     use crate::test_util::expect_equal;
 
     #[test]

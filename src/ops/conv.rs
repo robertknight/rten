@@ -4,7 +4,7 @@ use crate::check_dims;
 use crate::linalg::{add_scaled_vector, div_ceil, gemm};
 use crate::ops::pooling::calc_output_size_and_padding;
 use crate::ops::{InputList, IntoOpResult, OpError, Operator, Output, Padding};
-use crate::tensor::{from_data, zeros, AsMatrix, SliceItem, Tensor};
+use crate::tensor::{from_data, zeros, AsMatrix, SliceItem, Tensor, TensorLayout};
 
 // Calculate the min and max output X coordinates that are valid when updating
 // a row of convolution output using a loop:
@@ -487,7 +487,7 @@ mod tests {
     use crate::ops::pooling::calc_output_size_and_padding;
     use crate::ops::{conv, conv_transpose, Conv, InputList, Operator, Padding};
     use crate::rng::XorShiftRNG;
-    use crate::tensor::{from_data, rand, zeros, Tensor};
+    use crate::tensor::{from_data, rand, zeros, Tensor, TensorLayout};
     use crate::test_util::expect_equal;
 
     /// Un-optimized reference implementation of convolution.

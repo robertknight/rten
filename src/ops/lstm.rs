@@ -4,7 +4,7 @@ use crate::check_dims;
 use crate::linalg::{gemm, Matrix};
 use crate::ops::unary_elementwise::UnaryFloatOp;
 use crate::ops::{InputList, IntoOpResult, OpError, Operator, Output, Sigmoid, Tanh};
-use crate::tensor::{AsMatrix, SliceItem, Tensor};
+use crate::tensor::{AsMatrix, SliceItem, Tensor, TensorLayout};
 
 #[derive(Copy, Clone, Debug)]
 pub enum LSTMDirection {
@@ -362,7 +362,7 @@ mod tests {
 
     use crate::ops::{concat, lstm, split, LSTMDirection};
     use crate::rng::XorShiftRNG;
-    use crate::tensor::{rand, Tensor};
+    use crate::tensor::{rand, Tensor, TensorLayout};
     use crate::test_util::{expect_equal, read_json_file, read_tensor};
 
     // Basic test that runs a bidirectional LSTM with random inputs and checks

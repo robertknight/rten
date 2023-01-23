@@ -2,7 +2,7 @@ use std::error::Error;
 use std::fmt;
 use std::fmt::{Debug, Display};
 
-use crate::tensor::Tensor;
+use crate::tensor::{Tensor, TensorLayout};
 
 mod binary_elementwise;
 mod concat;

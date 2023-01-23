@@ -3,7 +3,7 @@
 use crate::check_dims;
 use crate::ops::binary_elementwise::broadcast_shapes;
 use crate::ops::{resolve_axis, Input, InputList, IntoOpResult, OpError, Operator, Output};
-use crate::tensor::{from_data, Tensor};
+use crate::tensor::{from_data, Tensor, TensorLayout};
 
 pub fn expand<T: Copy>(input: &Tensor<T>, shape: &Tensor<i32>) -> Result<Tensor<T>, OpError> {
     check_dims!(shape, 1);
@@ -382,7 +382,7 @@ mod tests {
     };
     use crate::ops::{OpError, Operator};
     use crate::rng::XorShiftRNG;
-    use crate::tensor::{from_data, from_scalar, from_vec, rand};
+    use crate::tensor::{from_data, from_scalar, from_vec, rand, TensorLayout};
     use crate::test_util::expect_equal;
 
     #[test]

@@ -5,7 +5,7 @@
 ///! and vector-scalar products.
 use std::ops::Range;
 
-use crate::tensor::Tensor;
+use crate::tensor::{Tensor, TensorLayout};
 
 pub fn div_ceil(a: usize, b: usize) -> usize {
     if b == 1 {
@@ -740,7 +740,7 @@ fn gemm_impl<K: Kernel, const MR_NR: usize>(
 mod tests {
     use crate::linalg::{add_scaled_vector, gemm, gemm_base_kernel, Matrix};
     use crate::rng::XorShiftRNG;
-    use crate::tensor::{rand, zeros, Tensor};
+    use crate::tensor::{rand, zeros, Tensor, TensorLayout};
     use crate::test_util::expect_equal;
 
     fn reference_matmul(a: &Tensor, b: &Tensor) -> Tensor {

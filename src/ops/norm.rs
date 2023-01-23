@@ -1,6 +1,6 @@
 use crate::check_dims;
 use crate::ops::{resolve_axis, InputList, IntoOpResult, OpError, Operator, Output};
-use crate::tensor::Tensor;
+use crate::tensor::{Tensor, TensorLayout};
 
 /// Perform in-place batch normalization on the NCHW tensor `out`.
 ///
@@ -165,7 +165,7 @@ impl Operator for Softmax {
 mod tests {
     use crate::ops::{batch_norm, batch_norm_in_place, softmax};
     use crate::rng::XorShiftRNG;
-    use crate::tensor::{from_data, from_vec, rand};
+    use crate::tensor::{from_data, from_vec, rand, TensorLayout};
     use crate::test_util::expect_equal;
 
     #[test]

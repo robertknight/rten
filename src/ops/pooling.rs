@@ -1,7 +1,7 @@
 use crate::check_dims;
 use crate::linalg::div_ceil;
 use crate::ops::{InputList, IntoOpResult, OpError, Operator, Output, Padding};
-use crate::tensor::{zeros, Tensor};
+use crate::tensor::{zeros, Tensor, TensorLayout};
 
 /// Calculate the output size and padding for a convolution or pooling operation.
 ///
@@ -240,7 +240,7 @@ impl Operator for MaxPool {
 #[cfg(test)]
 mod tests {
     use crate::ops::{average_pool, global_average_pool, max_pool, Padding};
-    use crate::tensor::{from_2d_slice, from_data, zeros, Tensor};
+    use crate::tensor::{from_2d_slice, from_data, zeros, Tensor, TensorLayout};
     use crate::test_util::expect_equal;
 
     #[test]

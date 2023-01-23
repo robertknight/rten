@@ -1,5 +1,5 @@
 use crate::ops::{Input, InputList, IntoOpResult, OpError, Operator, Output};
-use crate::tensor::{Elements, Tensor};
+use crate::tensor::{Elements, Tensor, TensorLayout};
 
 pub fn concat<T: Copy>(inputs: &[&Tensor<T>], dim: usize) -> Result<Tensor<T>, OpError> {
     let first_shape = inputs[0].shape();
@@ -87,7 +87,7 @@ impl Operator for Concat {
 #[cfg(test)]
 mod tests {
     use crate::ops::{concat, OpError};
-    use crate::tensor::{from_data, zeros, Tensor};
+    use crate::tensor::{from_data, zeros, Tensor, TensorLayout};
     use crate::test_util::expect_equal;
 
     fn from_slice<T: Copy>(data: &[T]) -> Tensor<T> {

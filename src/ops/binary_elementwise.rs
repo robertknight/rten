@@ -3,7 +3,7 @@ use std::iter::{repeat, zip};
 
 use crate::number::{Identities, IsInt};
 use crate::ops::{Input, InputList, IntoOpResult, OpError, Operator, Output};
-use crate::tensor::Tensor;
+use crate::tensor::{Tensor, TensorLayout};
 
 /// Given the shapes of two inputs to a binary operation, return the shape
 /// that will result from broadcasting them following NumPy rules or `None`
@@ -490,7 +490,7 @@ mod tests {
         add, add_in_place, div, div_in_place, equal, less, mul, mul_in_place, pow, pow_in_place,
         sub, sub_in_place, where_op, Add, InputList, OpError, Operator, Output,
     };
-    use crate::tensor::{from_data, from_scalar, from_vec, Tensor};
+    use crate::tensor::{from_data, from_scalar, from_vec, Tensor, TensorLayout};
     use crate::test_util::expect_equal;
 
     #[test]

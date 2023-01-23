@@ -2,7 +2,7 @@ use std::iter::zip;
 
 use crate::check_dims;
 use crate::ops::{Input, InputList, IntoOpResult, OpError, Operator, Output};
-use crate::tensor::Tensor;
+use crate::tensor::{Tensor, TensorLayout};
 
 /// Specifies an output size for a resize operation.
 pub enum ResizeTarget<'a> {
@@ -299,7 +299,7 @@ mod tests {
         resize, CoordTransformMode, InputList, NearestMode, OpError, Operator, Resize, ResizeMode,
         ResizeTarget,
     };
-    use crate::tensor::Tensor;
+    use crate::tensor::{Tensor, TensorLayout};
     use crate::test_util::expect_equal;
 
     // Reference values for these tests can be computed with either OpenCV

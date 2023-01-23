@@ -18,6 +18,120 @@ pub use self::iterators::{BroadcastElements, Elements, ElementsMut, Offsets};
 use self::layout::Layout;
 pub use self::range::{SliceItem, SliceRange};
 
+/// Provides methods for querying the shape and memory layout of a tensor or
+/// view of a tensor.
+pub trait TensorLayout {
+    /// Internal: Returns the internal struct that contains layout information
+    /// for the tensor.
+    fn layout(&self) -> &Layout;
+
+    /// Return a slice of the sizes of each dimension.
+    fn shape(&self) -> &[usize] {
+        self.layout().shape()
+    }
+
+    /// Return the number of elements between successive entries in the `dim`
+    /// dimension.
+    fn stride(&self, dim: usize) -> usize {
+        self.layout().stride(dim)
+    }
+
+    /// Return the total number of elements in this tensor.
+    fn len(&self) -> usize {
+        self.layout().len()
+    }
+
+    /// Return true if this tensor has no elements.
+    fn is_empty(&self) -> bool {
+        self.layout().is_empty()
+    }
+
+    /// Return the number of dimensions the tensor has, aka. the rank of the
+    /// tensor.
+    fn ndim(&self) -> usize {
+        self.layout().ndim()
+    }
+
+    /// Return an iterator over all valid indices in this tensor.
+    ///
+    /// The returned iterator does not implement the `Iterator` trait but has
+    /// a similar API. See `IndexIterator` docs.
+    fn indices(&self) -> IndexIterator {
+        IndexIterator::from_shape(self.shape())
+    }
+
+    /// Return true if the logical order of elements in this tensor matches the
+    /// order of elements in the slice returned by `data()` and `data_mut()`,
+    /// with no gaps.
+    fn is_contiguous(&self) -> bool {
+        self.layout().is_contiguous()
+    }
+
+    /// Return the offset of an element in the slices returned by `data`
+    /// and `data_mut`.
+    ///
+    /// The length of `index` must match the tensor's dimension count.
+    ///
+    /// Panicks if the index length is incorrect or the value of an index
+    /// exceeds the size of the corresponding dimension.
+    fn offset<Idx: TensorIndex>(&self, index: Idx) -> usize {
+        self.layout().offset(index)
+    }
+
+    /// Return an iterator over offsets of elements in this tensor, in their
+    /// logical order.
+    ///
+    /// See also the notes for `slice_offsets`.
+    fn offsets(&self) -> Offsets {
+        Offsets::new(self.layout())
+    }
+
+    /// Return an iterator over offsets of elements in this tensor.
+    ///
+    /// The returned offsets can be used to index the data buffer returned by
+    /// `data` and `data_mut`.
+    ///
+    /// Unlike `slice_iter`, the returned `Offsets` struct does not hold
+    /// a reference to this tensor, so it is possible to modify the tensor while
+    /// iterating over offsets.
+    ///
+    /// Note that the offset order of the returned iterator will become incorrect
+    /// if the tensor shape is subsequently modified.
+    fn slice_offsets(&self, ranges: &[SliceRange]) -> Offsets {
+        Offsets::slice(self.layout(), ranges)
+    }
+
+    /// Return true if the element's shape can be broadcast with `shape` using
+    /// `broadcast_iter`.
+    ///
+    /// The shape of the result may be larger than either the current shape
+    /// or `shape`. eg. If a tensor of shape `[1, 5]` is broadcast with one
+    /// of size `[2, 1, 1]` the result has shape `[2, 1, 5]`.
+    ///
+    /// See <https://github.com/onnx/onnx/blob/main/docs/Broadcasting.md> for
+    /// conditions in which broadcasting is allowed.
+    fn can_broadcast_with(&self, shape: &[usize]) -> bool {
+        self.layout().can_broadcast_with(shape)
+    }
+
+    /// Return true if the element's shape can be broadcast to `shape` using
+    /// `broadcast_iter`. The result of the broadcasted tensor will have
+    /// exactly the shape `shape`.
+    ///
+    /// See <https://github.com/onnx/onnx/blob/main/docs/Broadcasting.md> for
+    /// conditions in which broadcasting is allowed.
+    fn can_broadcast_to(&self, shape: &[usize]) -> bool {
+        self.layout().can_broadcast_to(shape)
+    }
+
+    /// Return the shape of this tensor as a fixed-sized array.
+    ///
+    /// The tensor's dimension count must match `N`.
+    fn dims<const N: usize>(&self) -> [usize; N] {
+        self.layout().dims()
+    }
+}
+
 /// TensorView provides a view onto data owned by a Tensor.
 ///
 /// Conceptually the relationship between TensorView and Tensor is similar to
@@ -34,11 +148,6 @@ impl<'a, T: Copy> TensorView<'a, T> {
             data,
             layout: Cow::Borrowed(layout),
         }
-    }
-
-    /// Return a slice of the sizes of each dimension.
-    pub fn shape(&self) -> &[usize] {
-        self.layout.shape()
     }
 
     /// Change the layout of this view to put dimensions in the order specified
@@ -92,6 +201,12 @@ impl<'a, T: Copy> TensorView<'a, T> {
     }
 }
 
+impl<'a, T: Copy> TensorLayout for TensorView<'a, T> {
+    fn layout(&self) -> &Layout {
+        self.layout.as_ref()
+    }
+}
+
 pub trait AsMatrix<'a> {
     fn as_matrix(&self) -> Matrix<'a>;
 }
@@ -133,15 +248,6 @@ impl<'a, T: Copy> TensorViewMut<'a, T> {
         self.data
     }
 
-    /// Return a slice of the sizes of each dimension.
-    pub fn shape(&self) -> &[usize] {
-        self.layout.shape()
-    }
-
-    pub fn stride(&self, dim: usize) -> usize {
-        self.layout.stride(dim)
-    }
-
     /// Change the layout of this view to put dimensions in the order specified
     /// by `dims`.
     pub fn permute(&mut self, dims: &[usize]) {
@@ -179,6 +285,12 @@ impl<'a, T: Copy> TensorViewMut<'a, T> {
             data: &mut self.data[offset..offset + layout.end_offset()],
             layout: Cow::Owned(layout),
         }
+    }
+}
+
+impl<'a, T: Copy> TensorLayout for TensorViewMut<'a, T> {
+    fn layout(&self) -> &Layout {
+        self.layout.as_ref()
     }
 }
 
@@ -307,30 +419,6 @@ impl<T: Copy> Tensor<T> {
         Self::from_data(shape.into(), data)
     }
 
-    /// Return an iterator over all valid indices in this tensor.
-    ///
-    /// The returned iterator does not implement the `Iterator` trait but has
-    /// a similar API. See `IndexIterator` docs.
-    pub fn indices(&self) -> IndexIterator {
-        IndexIterator::from_shape(self.shape())
-    }
-
-    /// Return the total number of elements in this tensor.
-    pub fn len(&self) -> usize {
-        self.layout.len()
-    }
-
-    /// Return true if this tensor has no elements.
-    pub fn is_empty(&self) -> bool {
-        self.layout.is_empty()
-    }
-
-    /// Return the number of dimensions the tensor has, aka. the rank of the
-    /// tensor.
-    pub fn ndim(&self) -> usize {
-        self.layout.ndim()
-    }
-
     /// Clip dimension `dim` to `[range.start, range.end)`. The new size for
     /// the dimension must be <= the old size.
     ///
@@ -409,18 +497,6 @@ impl<T: Copy> Tensor<T> {
         &mut self.data[self.base..]
     }
 
-    /// Return a slice of the sizes of each dimension.
-    pub fn shape(&self) -> &[usize] {
-        self.layout.shape()
-    }
-
-    /// Return true if the logical order of elements in this tensor matches the
-    /// order of elements in the slice returned by `data()` and `data_mut()`,
-    /// with no gaps.
-    pub fn is_contiguous(&self) -> bool {
-        self.layout.is_contiguous()
-    }
-
     /// Convert the internal layout of elements to be contiguous, as reported
     /// by `is_contiguous`.
     ///
@@ -449,14 +525,6 @@ impl<T: Copy> Tensor<T> {
     /// Return an iterator over elements of this tensor, in their logical order.
     pub fn iter(&self) -> Elements<T> {
         Elements::new(&self.view())
-    }
-
-    /// Return an iterator over offsets of elements in this tensor, in their
-    /// logical order.
-    ///
-    /// See also the notes for `slice_offsets`.
-    pub fn offsets(&self) -> Offsets {
-        Offsets::new(&self.layout)
     }
 
     /// Returns the single item if this tensor is a 0-dimensional tensor
@@ -497,47 +565,9 @@ impl<T: Copy> Tensor<T> {
         Offsets::broadcast(&self.layout, shape)
     }
 
-    /// Return true if the element's shape can be broadcast to `shape` using
-    /// `broadcast_iter`. The result of the broadcasted tensor will have
-    /// exactly the shape `shape`.
-    ///
-    /// See <https://github.com/onnx/onnx/blob/main/docs/Broadcasting.md> for
-    /// conditions in which broadcasting is allowed.
-    pub fn can_broadcast_to(&self, shape: &[usize]) -> bool {
-        self.layout.can_broadcast_to(shape)
-    }
-
-    /// Return true if the element's shape can be broadcast with `shape` using
-    /// `broadcast_iter`.
-    ///
-    /// The shape of the result may be larger than either the current shape
-    /// or `shape`. eg. If a tensor of shape `[1, 5]` is broadcast with one
-    /// of size `[2, 1, 1]` the result has shape `[2, 1, 5]`.
-    ///
-    /// See <https://github.com/onnx/onnx/blob/main/docs/Broadcasting.md> for
-    /// conditions in which broadcasting is allowed.
-    pub fn can_broadcast_with(&self, shape: &[usize]) -> bool {
-        self.layout.can_broadcast_with(shape)
-    }
-
     /// Return an iterator over a subset of elements in this tensor.
     pub fn slice_iter(&self, ranges: &[SliceRange]) -> Elements<T> {
         Elements::slice(&self.view(), ranges)
-    }
-
-    /// Return an iterator over offsets of elements in this tensor.
-    ///
-    /// The returned offsets can be used to index the data buffer returned by
-    /// `data` and `data_mut`.
-    ///
-    /// Unlike `slice_iter`, the returned `Offsets` struct does not hold
-    /// a reference to this tensor, so it is possible to modify the tensor while
-    /// iterating over offsets.
-    ///
-    /// Note that the offset order of the returned iterator will become incorrect
-    /// if the tensor shape is subsequently modified.
-    pub fn slice_offsets(&self, ranges: &[SliceRange]) -> Offsets {
-        Offsets::slice(&self.layout, ranges)
     }
 
     /// Update the shape of the tensor.
@@ -575,30 +605,6 @@ impl<T: Copy> Tensor<T> {
         let mut new_shape: Vec<usize> = self.shape().into();
         new_shape.insert(dim, 1);
         self.reshape(&new_shape);
-    }
-
-    /// Return the number of elements between successive entries in the `dim`
-    /// dimension.
-    pub fn stride(&self, dim: usize) -> usize {
-        self.layout.stride(dim)
-    }
-
-    /// Return the offset of an element in the slices returned by `data`
-    /// and `data_mut`.
-    ///
-    /// The length of `index` must match the tensor's dimension count.
-    ///
-    /// Panicks if the index length is incorrect or the value of an index
-    /// exceeds the size of the corresponding dimension.
-    pub fn offset<Idx: TensorIndex>(&self, index: Idx) -> usize {
-        self.layout.offset(index)
-    }
-
-    /// Return the shape of this tensor as a fixed-sized array.
-    ///
-    /// The tensor's dimension count must match `N`.
-    pub fn dims<const N: usize>(&self) -> [usize; N] {
-        self.layout.dims()
     }
 
     /// Return a view of a subset of the data in this tensor.
@@ -670,6 +676,12 @@ impl Tensor<f32> {
             writer.write_all(&el.to_le_bytes())?;
         }
         Ok(())
+    }
+}
+
+impl<T: Copy> TensorLayout for Tensor<T> {
+    fn layout(&self) -> &Layout {
+        &self.layout
     }
 }
 
@@ -811,6 +823,7 @@ mod tests {
     use crate::rng::XorShiftRNG;
     use crate::tensor::{
         from_2d_slice, from_data, from_scalar, from_vec, rand, zeros, SliceRange, Tensor,
+        TensorLayout,
     };
 
     /// Create a tensor where the value of each element is its logical index

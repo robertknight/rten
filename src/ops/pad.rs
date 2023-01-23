@@ -1,6 +1,6 @@
 use crate::check_dims;
 use crate::ops::{Input, InputList, IntoOpResult, OpError, Operator, Output};
-use crate::tensor::Tensor;
+use crate::tensor::{Tensor, TensorLayout};
 
 pub fn pad<T: Copy>(
     input: &Tensor<T>,
@@ -80,7 +80,7 @@ impl Operator for Pad {
 #[cfg(test)]
 mod tests {
     use crate::ops::{pad, InputList, OpError, Operator, Pad};
-    use crate::tensor::{from_data, from_scalar, Tensor};
+    use crate::tensor::{from_data, from_scalar, Tensor, TensorLayout};
     use crate::test_util::expect_equal;
 
     fn from_slice<T: Copy>(data: &[T]) -> Tensor<T> {

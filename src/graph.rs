@@ -553,7 +553,7 @@ mod tests {
     use crate::ops::{
         Concat, Conv, InputList, IntoOpResult, OpError, Operator, Output, Padding, Relu, Shape,
     };
-    use crate::tensor::{from_data, from_vec, zeros, Tensor};
+    use crate::tensor::{from_data, from_vec, zeros, Tensor, TensorLayout};
     use crate::test_util::expect_equal;
 
     // Test of a very simple graph with a typical structure (one input, one
