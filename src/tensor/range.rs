@@ -1,16 +1,24 @@
 use std::fmt::Debug;
 use std::ops::{Range, RangeTo};
 
+/// Specifies a subset of a dimension to include when slicing a tensor or view.
 #[derive(Clone)]
 pub enum SliceItem {
+    /// View a specific index from a dimension. The number of dimensions in the
+    /// sliced view will be one minus the number of dimensions sliced with an
+    /// index.
     Index(usize),
+
+    /// Include a subset of the range of the dimension.
     Range(Range<usize>),
+
+    /// Include the full range of the dimension.
     RangeFull,
 }
 
 /// A range for slicing a Tensor.
 ///
-/// This has two main differences from a standard Rust range (`std::ops::Range`):
+/// This has two main differences from [Range].
 ///
 /// - A non-zero step between indices can be specified. The step can be negative,
 ///   which means that the dimension should be traversed in reverse order.

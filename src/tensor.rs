@@ -23,6 +23,8 @@ pub use self::range::{SliceItem, SliceRange};
 pub trait TensorLayout {
     /// Internal: Returns the internal struct that contains layout information
     /// for the tensor.
+    ///
+    /// #[doc(hidden)]
     fn layout(&self) -> &Layout;
 
     /// Return a slice of the sizes of each dimension.
@@ -61,14 +63,12 @@ pub trait TensorLayout {
     }
 
     /// Return true if the logical order of elements in this tensor matches the
-    /// order of elements in the slice returned by `data()` and `data_mut()`,
-    /// with no gaps.
+    /// order in which elements are stored in the underlying array.
     fn is_contiguous(&self) -> bool {
         self.layout().is_contiguous()
     }
 
-    /// Return the offset of an element in the slices returned by `data`
-    /// and `data_mut`.
+    /// Return the offset of an element in the array.
     ///
     /// The length of `index` must match the tensor's dimension count.
     ///
@@ -88,21 +88,14 @@ pub trait TensorLayout {
 
     /// Return an iterator over offsets of elements in this tensor.
     ///
-    /// The returned offsets can be used to index the data buffer returned by
-    /// `data` and `data_mut`.
-    ///
-    /// Unlike `slice_iter`, the returned `Offsets` struct does not hold
-    /// a reference to this tensor, so it is possible to modify the tensor while
-    /// iterating over offsets.
-    ///
     /// Note that the offset order of the returned iterator will become incorrect
-    /// if the tensor shape is subsequently modified.
+    /// if the tensor's layout is modified during iteration.
     fn slice_offsets(&self, ranges: &[SliceRange]) -> Offsets {
         Offsets::slice(self.layout(), ranges)
     }
 
-    /// Return true if the element's shape can be broadcast with `shape` using
-    /// `broadcast_iter`.
+    /// Return true if the tensor/view can be broadcast with another tensor or
+    /// view with a given `shape` as part of a binary operation.
     ///
     /// The shape of the result may be larger than either the current shape
     /// or `shape`. eg. If a tensor of shape `[1, 5]` is broadcast with one
@@ -114,9 +107,7 @@ pub trait TensorLayout {
         self.layout().can_broadcast_with(shape)
     }
 
-    /// Return true if the element's shape can be broadcast to `shape` using
-    /// `broadcast_iter`. The result of the broadcasted tensor will have
-    /// exactly the shape `shape`.
+    /// Return true if the tensor/view can be broadcast to a given `shape`.
     ///
     /// See <https://github.com/onnx/onnx/blob/main/docs/Broadcasting.md> for
     /// conditions in which broadcasting is allowed.
@@ -124,18 +115,19 @@ pub trait TensorLayout {
         self.layout().can_broadcast_to(shape)
     }
 
-    /// Return the shape of this tensor as a fixed-sized array.
+    /// Return the shape of this tensor/view as a fixed-sized array.
     ///
-    /// The tensor's dimension count must match `N`.
+    /// Panics if the tensor's dimension count does not match `N`.
     fn dims<const N: usize>(&self) -> [usize; N] {
         self.layout().dims()
     }
 }
 
-/// TensorView provides a view onto data owned by a Tensor.
+/// TensorView provides a view onto data owned by a [Tensor].
 ///
 /// Conceptually the relationship between TensorView and Tensor is similar to
-/// that between slice and Vec.
+/// that between slice and Vec. They share the same element buffer, but views
+/// can have distinct layouts, with some limitations.
 #[derive(Clone)]
 pub struct TensorView<'a, T: Copy = f32> {
     data: &'a [T],
@@ -186,6 +178,8 @@ impl<'a, T: Copy> TensorView<'a, T> {
         Elements::new(self)
     }
 
+    /// Return a new view which views a subset of the elements accessible in
+    /// this view.
     pub fn slice(&self, range: &[SliceItem]) -> TensorView<'a, T> {
         let (offset, layout) = self.layout.slice(range);
         Self {
@@ -227,10 +221,10 @@ impl<'a> AsMatrix<'a> for TensorView<'a, f32> {
     }
 }
 
-/// TensorViewMut provides a mutable view onto data owned by a Tensor.
+/// TensorViewMut provides a mutable view onto data owned by a [Tensor].
 ///
-/// Conceptually the relationship between TensorViewMut and Tensor is similar to
-/// that between a mutable slice and Vec.
+/// This is similar to [TensorView], except elements in the underyling
+/// Tensor can be modified through it.
 pub struct TensorViewMut<'a, T: Copy = f32> {
     data: &'a mut [T],
     layout: Cow<'a, Layout>,
@@ -244,6 +238,8 @@ impl<'a, T: Copy> TensorViewMut<'a, T> {
         }
     }
 
+    /// Return a slice of the underyling array that is accessible through this
+    /// view.
     pub fn data_mut(&mut self) -> &mut [T] {
         self.data
     }
@@ -276,6 +272,10 @@ impl<'a, T: Copy> TensorViewMut<'a, T> {
         TensorView::new(self.data, self.layout.as_ref())
     }
 
+    /// Return a new mutable view which views a subset of the elements
+    /// accessible in this view.
+    ///
+    /// Slices are specified in the same way as for [TensorView::slice].
     pub fn slice<'b>(&'b mut self, range: &[SliceItem]) -> TensorViewMut<'b, T>
     where
         'b: 'a,
@@ -295,7 +295,17 @@ impl<'a, T: Copy> TensorLayout for TensorViewMut<'a, T> {
 }
 
 /// Tensor is the core n-dimensional array type used for inputs, outputs and
-/// intermediate values when executing an ML graph.
+/// intermediate values when executing a [crate::Model].
+///
+/// Tensor and its associated types [TensorView] and [TensorViewMut] are
+/// conceptually a pair of a dynamically sized array (either owned or a
+/// reference) and a _layout_ which specifies how to view the contents of that
+/// array as an N-dimensional tensor. The layout specifies the number of
+/// dimensions, size of each dimension and stride of each dimension (offset
+/// between elements in the underlying array).
+///
+/// Information about a tensor or view's layout is available via the
+/// [TensorLayout] trait.
 #[derive(Debug)]
 pub struct Tensor<T: Copy = f32> {
     /// The underlying buffer of elements
@@ -445,6 +455,7 @@ impl<T: Copy> Tensor<T> {
     ///
     /// Using a slice can allow for very efficient access to a range of elements
     /// in a single row or column (or whatever the last dimension represents).
+    #[doc(hidden)]
     pub fn last_dim_slice<const N: usize>(&self, index: [usize; N], len: usize) -> &[T] {
         assert!(
             self.stride(N - 1) == 1,
@@ -455,6 +466,7 @@ impl<T: Copy> Tensor<T> {
     }
 
     /// Similar to `last_dim_slice`, but returns a mutable slice.
+    #[doc(hidden)]
     pub fn last_dim_slice_mut<const N: usize>(
         &mut self,
         index: [usize; N],
@@ -607,16 +619,17 @@ impl<T: Copy> Tensor<T> {
         self.reshape(&new_shape);
     }
 
-    /// Return a view of a subset of the data in this tensor.
+    /// Return an _unchecked_ view of a subset of the data in this tensor.
     ///
-    /// This provides faster indexing, at the cost of not bounds-checking
-    /// individual dimensions, although generated offsets into the data buffer
-    /// are still checked.
+    /// "Unchecked" means that individual dimensions of an index are not
+    /// bounds-checked against the tensor's shape, but the final offset that
+    /// is generated is.
     ///
     /// N specifies the number of dimensions used for indexing into the view
     /// and `base` specifies a fixed index to add to all indexes. `base` must
     /// have the same number of dimensions as this tensor. N can be the same
     /// or less. If less, it refers to the last N dimensions.
+    #[doc(hidden)]
     pub fn unchecked_view<const B: usize, const N: usize>(
         &self,
         base: [usize; B],
@@ -629,10 +642,11 @@ impl<T: Copy> Tensor<T> {
         }
     }
 
-    /// Return a mutable view of a subset of the data in this tensor.
+    /// Return an _unchecked_ mutable view of a subset of the data in this tensor.
     ///
-    /// This is the same as `unchecked_view` except that the returned view can
+    /// This is the same as [Tensor::unchecked_view] except that the returned view can
     /// be used to modify elements.
+    #[doc(hidden)]
     pub fn unchecked_view_mut<const B: usize, const N: usize>(
         &mut self,
         base: [usize; B],
@@ -646,10 +660,18 @@ impl<T: Copy> Tensor<T> {
         }
     }
 
+    /// Return an immutable view of this tensor.
+    ///
+    /// Views share the same element array, but can have an independent layout,
+    /// with some limitations.
     pub fn view(&self) -> TensorView<T> {
         TensorView::new(self.data(), &self.layout)
     }
 
+    /// Return a mutable view of this tensor.
+    ///
+    /// Views share the same element array, but can have an independent layout,
+    /// with some limitations.
     pub fn view_mut(&mut self) -> TensorViewMut<T> {
         // We slice `self.data` here rather than using `self.data_mut()` to
         // avoid a borrow-checker complaint.
@@ -663,7 +685,7 @@ impl Tensor<f32> {
     ///
     /// The serialized data is in little-endian order and has the structure:
     ///
-    /// [rank: u32][dim: u32 * rank][element: T * product(dims)]
+    /// `[rank: u32][dim: u32 * rank][element: T * product(dims)]`
     ///
     /// Where `T` is the tensor's element type.
     pub fn write<W: io::Write>(&self, writer: &mut W) -> io::Result<()> {

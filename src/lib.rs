@@ -11,7 +11,10 @@ pub mod ops;
 pub use graph::RunOptions;
 pub use model::Model;
 pub use ops::{Input, Output};
-pub use tensor::{SliceRange, Tensor, TensorLayout};
+pub use tensor::{
+    BroadcastElements, Elements, SliceItem, SliceRange, Tensor, TensorLayout, TensorView,
+    TensorViewMut,
+};
 
 #[allow(clippy::extra_unused_lifetimes, dead_code, unused_imports)]
 mod schema_generated;

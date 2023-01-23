@@ -199,7 +199,7 @@ impl IndexingIterBase {
     }
 }
 
-/// Iterator over elements of a tensor.
+/// Iterator over elements of a tensor, in their logical order.
 pub struct Elements<'a, T: Copy> {
     iter: ElementsIter<'a, T>,
 }
