@@ -306,6 +306,14 @@ impl<'a, T: Copy> TensorLayout for TensorViewMut<'a, T> {
 ///
 /// Information about a tensor or view's layout is available via the
 /// [TensorLayout] trait.
+///
+/// By default, new tensors have a _contiguous_ layout, in which the stride of
+/// the innermost (fastest-changing) dimension `Dn` is 1, the stride of
+/// dimension `Di+1` is the size of dimension `Di` and so on. The layout will
+/// become non-contiguous if the dimensions are permuted/transposed or if the
+/// tensor is sliced in-place. Whether the tensor is contiguous does not matter
+/// if accessing elements via indexing, slicing or iterators. It does matter if
+/// accessing the underlying element buffer directly.
 #[derive(Debug)]
 pub struct Tensor<T: Copy = f32> {
     /// The underlying buffer of elements
