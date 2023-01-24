@@ -97,7 +97,7 @@ fn index_select<T: Copy, Cmp: Fn(T, T) -> bool>(
     let mut reduced = Tensor::<i32>::from_data(reduced_shape, reduced_data);
 
     if !keep_dims {
-        squeeze_in_place(&mut reduced, Some(&[resolved_axis]));
+        squeeze_in_place(&mut reduced, Some(&[resolved_axis]))?;
     }
 
     Ok(reduced)
@@ -300,7 +300,7 @@ fn reduce<T: Copy + Default, R: Reducer<T>>(
     let mut reduced = Tensor::<T>::from_data(reduced_shape, reduced_data);
 
     if !keep_dims {
-        squeeze_in_place(&mut reduced, Some(&resolved_axes));
+        squeeze_in_place(&mut reduced, Some(&resolved_axes))?;
     }
 
     Ok(reduced)

@@ -240,20 +240,30 @@ impl Operator for Shape {
     }
 }
 
-pub fn squeeze_in_place<T: Copy>(input: &mut Tensor<T>, axes: Option<&[usize]>) {
+pub fn squeeze_in_place<T: Copy>(
+    input: &mut Tensor<T>,
+    axes: Option<&[usize]>,
+) -> Result<(), OpError> {
+    if let Some(axes) = axes {
+        for &axis in axes {
+            if axis >= input.ndim() {
+                return Err(OpError::InvalidValue("axis is invalid"));
+            }
+            if input.shape()[axis] != 1 {
+                return Err(OpError::InvalidValue(
+                    "Can only remove dimensions of size 1",
+                ));
+            }
+        }
+    }
+
     let new_shape: Vec<_> = input
         .shape()
         .iter()
         .enumerate()
         .filter(|(dim, &size)| {
             if let Some(axes) = axes {
-                let keep_axis = !axes.contains(dim);
-                // TODO - Turn this into a result
-                assert!(
-                    keep_axis || size == 1,
-                    "Can only remove dimensions of size 1"
-                );
-                keep_axis
+                !axes.contains(dim)
             } else {
                 size > 1
             }
@@ -261,12 +271,13 @@ pub fn squeeze_in_place<T: Copy>(input: &mut Tensor<T>, axes: Option<&[usize]>) 
         .map(|(_, &size)| size)
         .collect();
     input.reshape(&new_shape);
+    Ok(())
 }
 
-pub fn squeeze<T: Copy>(input: &Tensor<T>, axes: Option<&[usize]>) -> Tensor<T> {
+pub fn squeeze<T: Copy>(input: &Tensor<T>, axes: Option<&[usize]>) -> Result<Tensor<T>, OpError> {
     let mut output = input.clone();
-    squeeze_in_place(&mut output, axes);
-    output
+    squeeze_in_place(&mut output, axes)?;
+    Ok(output)
 }
 
 #[derive(Debug)]
@@ -282,11 +293,10 @@ impl Operator for Squeeze {
     fn run(&self, inputs: InputList) -> Result<Vec<Output>, OpError> {
         let input = inputs.require(0)?;
         let axes = self.axes.as_ref().map(|a| &a[..]);
-        let result: Output = match input {
-            Input::FloatTensor(t) => squeeze(t, axes).into(),
-            Input::IntTensor(t) => squeeze(t, axes).into(),
-        };
-        result.into_op_result()
+        match input {
+            Input::FloatTensor(t) => squeeze(t, axes).into_op_result(),
+            Input::IntTensor(t) => squeeze(t, axes).into_op_result(),
+        }
     }
 
     fn can_run_in_place(&self) -> bool {
@@ -297,11 +307,11 @@ impl Operator for Squeeze {
         let axes = self.axes.as_ref().map(|a| &a[..]);
         let result = match input {
             Output::FloatTensor(mut t) => {
-                squeeze_in_place(&mut t, axes);
+                squeeze_in_place(&mut t, axes)?;
                 t.into()
             }
             Output::IntTensor(mut t) => {
-                squeeze_in_place(&mut t, axes);
+                squeeze_in_place(&mut t, axes)?;
                 t.into()
             }
         };
@@ -605,17 +615,17 @@ mod tests {
 
         // Remove all 1-size axes.
         expected.reshape(&[5, 5]);
-        let result = squeeze(&input, None);
+        let result = squeeze(&input, None).unwrap();
         expect_equal(&result, &expected)?;
 
         // Remove final 1-size axis.
         expected.reshape(&[1, 5, 5]);
-        let result = squeeze(&input, Some(&[3]));
+        let result = squeeze(&input, Some(&[3])).unwrap();
         expect_equal(&result, &expected)?;
 
         // Remove first 1-size axis.
         expected.reshape(&[5, 5, 1]);
-        let result = squeeze(&input, Some(&[0]));
+        let result = squeeze(&input, Some(&[0])).unwrap();
         expect_equal(&result, &expected)
     }
 
@@ -627,9 +637,24 @@ mod tests {
         let mut expected = input.clone();
         expected.reshape(&[5, 5]);
 
-        squeeze_in_place(&mut input, None);
+        squeeze_in_place(&mut input, None).unwrap();
 
         expect_equal(&input, &expected)
+    }
+
+    #[test]
+    fn test_squeeze_invalid_inputs() {
+        let mut rng = XorShiftRNG::new(5678);
+        let input = rand(&[1, 5, 5, 1], &mut rng);
+
+        let result = squeeze(&input, Some(&[1]));
+
+        assert_eq!(
+            result.err(),
+            Some(OpError::InvalidValue(
+                "Can only remove dimensions of size 1"
+            ))
+        );
     }
 
     #[test]
