@@ -3,7 +3,7 @@ use std::iter::zip;
 use crate::linalg::{gemm, Matrix};
 use crate::ops::binary_elementwise::broadcast_shapes;
 use crate::ops::{InputList, IntoOpResult, OpError, Operator, Output};
-use crate::tensor::{from_data, zeros, Tensor, TensorLayout};
+use crate::tensor::{from_data, zeros, AsMatrix, Tensor, TensorLayout};
 
 #[derive(Debug)]
 pub struct Gemm {
@@ -28,18 +28,18 @@ pub fn gemm_op(
     transpose_a: bool,
     transpose_b: bool,
 ) -> Result<Tensor, OpError> {
-    let (a_rows, a_cols, a_row_stride, a_col_stride) = if transpose_a {
-        (a.shape()[1], a.shape()[0], a.stride(1), a.stride(0))
+    let a_view = if transpose_a {
+        a.view().permuted(&[1, 0])
     } else {
-        (a.shape()[0], a.shape()[1], a.stride(0), a.stride(1))
+        a.view()
     };
-    let (b_rows, b_cols, b_row_stride, b_col_stride) = if transpose_b {
-        (b.shape()[1], b.shape()[0], b.stride(1), b.stride(0))
+    let b_view = if transpose_b {
+        b.view().permuted(&[1, 0])
     } else {
-        (b.shape()[0], b.shape()[1], b.stride(0), b.stride(1))
+        b.view()
     };
 
-    let out_shape = &[a_rows, b_cols][..];
+    let out_shape = &[a_view.shape()[0], b_view.shape()[1]][..];
     let mut output = match c {
         Some(c) if beta != 0. => {
             let out_data = c.broadcast_iter(out_shape).collect();
@@ -53,8 +53,8 @@ pub fn gemm_op(
     gemm(
         output.data_mut(),
         out_row_stride,
-        Matrix::from_slice(a.data(), a_rows, a_cols, Some((a_row_stride, a_col_stride))),
-        Matrix::from_slice(b.data(), b_rows, b_cols, Some((b_row_stride, b_col_stride))),
+        a_view.as_matrix(),
+        b_view.as_matrix(),
         alpha,
         beta,
     );
