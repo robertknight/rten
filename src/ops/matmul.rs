@@ -1,5 +1,6 @@
 use std::iter::zip;
 
+use crate::check_dims;
 use crate::linalg::{gemm, Matrix};
 use crate::ops::binary_elementwise::broadcast_shapes;
 use crate::ops::{InputList, IntoOpResult, OpError, Operator, Output};
@@ -28,6 +29,9 @@ pub fn gemm_op(
     transpose_a: bool,
     transpose_b: bool,
 ) -> Result<Tensor, OpError> {
+    check_dims!(a, 2);
+    check_dims!(b, 2);
+
     let a_view = if transpose_a {
         a.view().permuted(&[1, 0])
     } else {
@@ -42,6 +46,11 @@ pub fn gemm_op(
     let out_shape = &[a_view.shape()[0], b_view.shape()[1]][..];
     let mut output = match c {
         Some(c) if beta != 0. => {
+            if !c.can_broadcast_to(out_shape) {
+                return Err(OpError::IncompatibleInputShapes(
+                    "Cannot broadcast c to output shape",
+                ));
+            }
             let out_data = c.broadcast_iter(out_shape).collect();
             from_data(out_shape.into(), out_data)
         }
@@ -164,7 +173,7 @@ impl Operator for MatMul {
 #[cfg(test)]
 mod tests {
     use crate::linalg::gemm_tensors;
-    use crate::ops::matmul::{gemm_op, matmul};
+    use crate::ops::matmul::{gemm_op, matmul, OpError};
     use crate::rng::XorShiftRNG;
     use crate::tensor::{from_data, rand, zeros};
     use crate::test_util::expect_equal;
@@ -214,6 +223,23 @@ mod tests {
         let result = gemm_op(&a, &b, Some(&c), 1.0, 1.0, false, false).unwrap();
 
         expect_equal(&result, &expected)
+    }
+
+    #[test]
+    fn test_gemm_op_invalid_inputs() {
+        let mut rng = XorShiftRNG::new(1234);
+        let a = rand(&[3, 10], &mut rng);
+        let b = rand(&[10, 8], &mut rng);
+        let c = rand(&[3, 5], &mut rng);
+
+        let result = gemm_op(&a, &b, Some(&c), 1.0, 1.0, false, false);
+
+        assert_eq!(
+            result.err(),
+            Some(OpError::IncompatibleInputShapes(
+                "Cannot broadcast c to output shape"
+            ))
+        );
     }
 
     #[test]
