@@ -309,16 +309,26 @@ impl Operator for Squeeze {
     }
 }
 
-pub fn transpose<T: Copy>(input: &Tensor<T>, permutation: Option<&[usize]>) -> Tensor<T> {
+pub fn transpose<T: Copy>(
+    input: &Tensor<T>,
+    permutation: Option<&[usize]>,
+) -> Result<Tensor<T>, OpError> {
     let mut transposed = input.view();
     match permutation {
-        Some(order) => transposed.permute(order),
+        Some(order) => {
+            if order.len() != input.ndim() {
+                return Err(OpError::InvalidValue(
+                    "Permuted dims length does not match tensor rank",
+                ));
+            }
+            transposed.permute(order)
+        }
         None => {
             let reversed: Vec<usize> = (0..transposed.shape().len()).rev().collect();
             transposed.permute(&reversed);
         }
     };
-    transposed.to_tensor()
+    Ok(transposed.to_tensor())
 }
 
 #[derive(Debug)]
@@ -336,11 +346,10 @@ impl Operator for Transpose {
     fn run(&self, inputs: InputList) -> Result<Vec<Output>, OpError> {
         let input = inputs.require(0)?;
         let perm_slice = self.perm.as_deref();
-        let result: Output = match input {
-            Input::FloatTensor(input) => transpose(input, perm_slice).into(),
-            Input::IntTensor(input) => transpose(input, perm_slice).into(),
-        };
-        result.into_op_result()
+        match input {
+            Input::FloatTensor(input) => transpose(input, perm_slice).into_op_result(),
+            Input::IntTensor(input) => transpose(input, perm_slice).into_op_result(),
+        }
     }
 }
 
@@ -634,16 +643,29 @@ mod tests {
         reversed.permute(&[1, 0]);
 
         // With no explicit permutation given, the axes should be reversed.
-        let result = transpose(&input, None);
+        let result = transpose(&input, None).unwrap();
         expect_equal(&result, &reversed)?;
 
         // With a no-op permutation given, the output should be unchanged.
-        let result = transpose(&input, Some(&[0, 1]));
+        let result = transpose(&input, Some(&[0, 1])).unwrap();
         expect_equal(&result, &input)?;
 
         // With a transposed permutation given, the axes should be reversed.
-        let result = transpose(&input, Some(&[1, 0]));
+        let result = transpose(&input, Some(&[1, 0])).unwrap();
         expect_equal(&result, &reversed)
+    }
+
+    #[test]
+    fn test_transpose_invalid_inputs() {
+        let mut rng = XorShiftRNG::new(5678);
+        let input = rand(&[10, 20], &mut rng);
+        let result = transpose(&input, Some(&[0, 1, 1]));
+        assert_eq!(
+            result.err(),
+            Some(OpError::InvalidValue(
+                "Permuted dims length does not match tensor rank"
+            ))
+        );
     }
 
     #[test]
