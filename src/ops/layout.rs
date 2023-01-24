@@ -3,7 +3,7 @@
 use crate::check_dims;
 use crate::ops::binary_elementwise::broadcast_shapes;
 use crate::ops::{resolve_axis, Input, InputList, IntoOpResult, OpError, Operator, Output};
-use crate::tensor::{from_data, Tensor, TensorLayout};
+use crate::tensor::{from_data, is_valid_permutation, Tensor, TensorLayout};
 
 pub fn expand<T: Copy>(input: &Tensor<T>, shape: &Tensor<i32>) -> Result<Tensor<T>, OpError> {
     check_dims!(shape, 1);
@@ -316,10 +316,8 @@ pub fn transpose<T: Copy>(
     let mut transposed = input.view();
     match permutation {
         Some(order) => {
-            if order.len() != input.ndim() {
-                return Err(OpError::InvalidValue(
-                    "Permuted dims length does not match tensor rank",
-                ));
+            if !is_valid_permutation(input.ndim(), order) {
+                return Err(OpError::InvalidValue("Permutation is invalid"));
             }
             transposed.permute(order)
         }
@@ -659,12 +657,33 @@ mod tests {
     fn test_transpose_invalid_inputs() {
         let mut rng = XorShiftRNG::new(5678);
         let input = rand(&[10, 20], &mut rng);
+
+        // Too many dims
         let result = transpose(&input, Some(&[0, 1, 1]));
         assert_eq!(
             result.err(),
-            Some(OpError::InvalidValue(
-                "Permuted dims length does not match tensor rank"
-            ))
+            Some(OpError::InvalidValue("Permutation is invalid"))
+        );
+
+        // Too few dims
+        let result = transpose(&input, Some(&[]));
+        assert_eq!(
+            result.err(),
+            Some(OpError::InvalidValue("Permutation is invalid"))
+        );
+
+        // Invalid dimension index
+        let result = transpose(&input, Some(&[2, 1]));
+        assert_eq!(
+            result.err(),
+            Some(OpError::InvalidValue("Permutation is invalid"))
+        );
+
+        // Repeated dimension index
+        let result = transpose(&input, Some(&[1, 1]));
+        assert_eq!(
+            result.err(),
+            Some(OpError::InvalidValue("Permutation is invalid"))
         );
     }
 

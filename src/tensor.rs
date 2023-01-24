@@ -17,6 +17,7 @@ pub use self::index_iterator::IndexIterator;
 pub use self::iterators::{BroadcastElements, Elements, ElementsMut, Offsets};
 use self::layout::Layout;
 pub use self::range::{SliceItem, SliceRange};
+pub use layout::is_valid_permutation;
 
 /// Provides methods for querying the shape and data layout of a [Tensor]
 /// or [TensorView].
@@ -1186,7 +1187,7 @@ mod tests {
     }
 
     #[test]
-    #[should_panic(expected = "Permute dims length does not match dimension count")]
+    #[should_panic(expected = "Permutation is invalid")]
     fn test_permute_wrong_dim_count() {
         let mut input = steps(&[2, 3]);
         input.permute(&[1, 2, 3]);

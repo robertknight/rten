@@ -5,6 +5,13 @@ use smallvec::SmallVec;
 use super::range::SliceItem;
 use super::TensorIndex;
 
+/// Return true if `permutation` is a valid permutation of dimensions for
+/// a tensor of rank `ndim`.
+pub fn is_valid_permutation(ndim: usize, permutation: &[usize]) -> bool {
+    permutation.len() == ndim
+        && (0..ndim).all(|dim| permutation.iter().filter(|d| **d == dim).count() == 1)
+}
+
 /// Describes how to map coordinates in an N-dimensional array / tensor to
 /// offsets in the underlying array of elements.
 ///
@@ -192,9 +199,10 @@ impl Layout {
     /// Swap the order of dimensions in this layout to the order described by
     /// `dims`.
     pub fn permute(&mut self, dims: &[usize]) {
-        if dims.len() != self.ndim() {
-            panic!("Permute dims length does not match dimension count");
-        }
+        assert!(
+            is_valid_permutation(self.ndim(), dims),
+            "Permutation is invalid"
+        );
         let strides = self.strides();
         let shape = self.shape();
         self.shape_and_strides = dims
@@ -275,5 +283,31 @@ impl Layout {
             strides_and_shape.push(stride);
         }
         strides_and_shape
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use crate::tensor::layout::Layout;
+
+    #[test]
+    #[should_panic(expected = "Permutation is invalid")]
+    fn test_permute_invalid_len() {
+        let mut layout = Layout::new(&[5, 5]);
+        layout.permute(&[1, 0, 3]);
+    }
+
+    #[test]
+    #[should_panic(expected = "Permutation is invalid")]
+    fn test_permute_too_few_dims() {
+        let mut layout = Layout::new(&[5, 5]);
+        layout.permute(&[1]);
+    }
+
+    #[test]
+    #[should_panic(expected = "Permutation is invalid")]
+    fn test_permute_repeated_dims() {
+        let mut layout = Layout::new(&[5, 5]);
+        layout.permute(&[1, 1]);
     }
 }
