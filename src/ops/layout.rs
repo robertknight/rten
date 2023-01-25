@@ -417,34 +417,35 @@ mod tests {
     };
     use crate::ops::{OpError, Operator};
     use crate::rng::XorShiftRng;
-    use crate::tensor::{from_data, from_scalar, from_vec, rand, TensorLayout};
+    use crate::tensor;
+    use crate::tensor::{from_data, rand, TensorLayout};
     use crate::test_util::expect_equal;
 
     #[test]
     fn test_expand() {
         // Broadcast scalar
-        let input = from_scalar(5.);
-        let shape = from_vec(vec![2, 2]);
+        let input = tensor!(5.);
+        let shape = tensor!([2, 2]);
         let expected = from_data(&[2, 2], vec![5., 5., 5., 5.]);
         let result = expand(&input, &shape).unwrap();
         assert_eq!(&result, &expected);
 
         // Broadcast that changes dim count
         let input = from_data(&[3, 1], (0..3).collect());
-        let shape = from_vec(vec![2, 3, 1]);
+        let shape = tensor!([2, 3, 1]);
         let result = expand(&input, &shape).unwrap();
         assert_eq!(result.shape(), &[2, 3, 1]);
 
         // Broadcast that uses dimensions from both the input shape and target
         // shape in the output shape.
         let input = from_data(&[3, 1], (0..3).collect());
-        let shape = from_vec(vec![2, 1, 6]);
+        let shape = tensor!([2, 1, 6]);
         let result = expand(&input, &shape).unwrap();
         assert_eq!(result.shape(), &[2, 3, 6]);
 
         // Broadcast that does not change dim count
         let input = from_data(&[3, 1], (0..3).collect());
-        let shape = from_vec(vec![3, 4]);
+        let shape = tensor!([3, 4]);
         let result = expand(&input, &shape).unwrap();
         assert_eq!(result.shape(), &[3, 4]);
     }
@@ -452,8 +453,8 @@ mod tests {
     #[test]
     fn test_expand_invalid_inputs() {
         // Invalid broadcast shape
-        let input = from_vec(vec![1, 2, 3]);
-        let shape = from_vec(vec![2, 2]);
+        let input = tensor!([1, 2, 3]);
+        let shape = tensor!([2, 2]);
         let result = expand(&input, &shape);
         assert_eq!(
             result.err(),
@@ -463,8 +464,8 @@ mod tests {
         );
 
         // Non-vector shape
-        let input = from_scalar(5.);
-        let shape = from_scalar(4);
+        let input = tensor!(5.);
+        let shape = tensor!(4);
         let result = expand(&input, &shape);
         assert_eq!(
             result.err(),
@@ -491,14 +492,14 @@ mod tests {
     fn test_reshape_with_unspecified_dim() -> Result<(), String> {
         // Reshape with an unspecified (-1) dim and nonzero-length input
         let input = from_data(&[2, 2], vec![-0.5, 0.5, 3.0, -5.5]);
-        let shape = from_vec(vec![1, -1, 2]);
+        let shape = tensor!([1, -1, 2]);
         let expected = input.clone_with_shape(&[1, 2, 2]);
         let result = reshape(&input, &shape, false /* allow_zero */).unwrap();
         expect_equal(&result, &expected)?;
 
         // Reshape with an unspecified (-1) dim and zero-length input
         let zero_sized_input = from_data::<f32>(&[4, 0, 1], vec![]);
-        let shape = from_vec(vec![100, -1]);
+        let shape = tensor!([100, -1]);
         let result = reshape(&zero_sized_input, &shape, false /* allow_zero */).unwrap();
         let expected = zero_sized_input.clone_with_shape(&[100, 0]);
         expect_equal(&result, &expected)
@@ -509,21 +510,21 @@ mod tests {
         // When the target shape has a zero dim, the corresponding input dim
         // size should be copied.
         let input = from_data(&[1, 1, 4], vec![-0.5, 0.5, 3.0, -5.5]);
-        let shape = from_vec(vec![-1, 0]);
+        let shape = tensor!([-1, 0]);
         let expected = input.clone_with_shape(&[4, 1]);
         let result = reshape(&input, &shape, false /* allow_zero */).unwrap();
         expect_equal(&result, &expected)?;
 
         // Case where copied input dim is also zero.
         let input = from_data::<f32>(&[0], vec![]);
-        let shape = from_vec(vec![0]);
+        let shape = tensor!([0]);
         let expected = input.clone_with_shape(&[0]);
         let result = reshape(&input, &shape, false /* allow_zero */).unwrap();
         expect_equal(&result, &expected)?;
 
         // Case where there is no corresponding input dim.
         let input = from_data(&[1], vec![5.]);
-        let shape = from_vec(vec![1, 0]);
+        let shape = tensor!([1, 0]);
         let result = reshape(&input, &shape, false /* allow_zero */);
         assert_eq!(
             result.err(),
@@ -534,7 +535,7 @@ mod tests {
 
         // Case when allow_zero is true
         let input = from_data::<f32>(&[0, 0, 10], vec![]);
-        let shape = from_vec(vec![10, 0, 0]);
+        let shape = tensor!([10, 0, 0]);
         let result = reshape(&input, &shape, true /* allow_zero */).unwrap();
         let expected = input.clone_with_shape(&[10, 0, 0]);
         expect_equal(&result, &expected)?;
@@ -545,7 +546,7 @@ mod tests {
     #[test]
     fn test_reshape_with_multiple_unspecified_dims() {
         let input = from_data(&[2, 2], vec![-0.5, 0.5, 3.0, -5.5]);
-        let shape = from_vec(vec![1, -1, -1]);
+        let shape = tensor!([1, -1, -1]);
         assert_eq!(
             reshape(&input, &shape, false /* allow_zero */).err(),
             Some(OpError::InvalidValue(
@@ -561,13 +562,13 @@ mod tests {
         ));
 
         let input = from_data(&[2, 2], vec![-0.5, 0.5, 3.0, -5.5]);
-        let shape = from_vec(vec![5, -1]);
+        let shape = tensor!([5, -1]);
         let result = reshape(&input, &shape, false /* allow_zero */);
         assert_eq!(result.err(), expected_err);
 
         // Case when allow_zero is true
         let input = from_data(&[1], vec![1]);
-        let shape = from_vec(vec![0, -1]);
+        let shape = tensor!([0, -1]);
         let result = reshape(&input, &shape, true /* allow_zero */);
         assert_eq!(result.err(), expected_err);
     }
@@ -638,12 +639,12 @@ mod tests {
 
         // Remove final 1-size axis.
         expected.reshape(&[1, 5, 5]);
-        let result = squeeze(&input, Some(&from_vec(vec![3]))).unwrap();
+        let result = squeeze(&input, Some(&tensor!([3]))).unwrap();
         expect_equal(&result, &expected)?;
 
         // Remove first 1-size axis.
         expected.reshape(&[5, 5, 1]);
-        let result = squeeze(&input, Some(&from_vec(vec![0]))).unwrap();
+        let result = squeeze(&input, Some(&tensor!([0]))).unwrap();
         expect_equal(&result, &expected)
     }
 
@@ -665,7 +666,7 @@ mod tests {
         let mut rng = XorShiftRng::new(5678);
         let input = rand(&[1, 5, 5, 1], &mut rng);
 
-        let result = squeeze(&input, Some(&from_vec(vec![1])));
+        let result = squeeze(&input, Some(&tensor!([1])));
 
         assert_eq!(
             result.err(),
@@ -736,16 +737,16 @@ mod tests {
         let input = rand(&[3, 4, 5], &mut rng);
 
         // Unsqueeze with axes in increasing order
-        let output = unsqueeze(&input, &from_vec(vec![0, 4])).unwrap();
+        let output = unsqueeze(&input, &tensor!([0, 4])).unwrap();
         assert_eq!(output.shape(), &[1, 3, 4, 5, 1]);
 
         // Unsqueeze with axes in decreasing order
-        let output = unsqueeze(&input, &from_vec(vec![4, 0])).unwrap();
+        let output = unsqueeze(&input, &tensor!([4, 0])).unwrap();
         assert_eq!(output.shape(), &[1, 3, 4, 5, 1]);
 
         // Unsqueeze a scalar into a 1-item vec
-        let scalar = from_scalar(2.0);
-        let output = unsqueeze(&scalar, &from_vec(vec![0])).unwrap();
+        let scalar = tensor!(2.0);
+        let output = unsqueeze(&scalar, &tensor!([0])).unwrap();
         assert_eq!(output.shape(), &[1]);
         assert_eq!(output.data(), &[2.0]);
     }
@@ -756,11 +757,11 @@ mod tests {
         let input = rand(&[10, 20], &mut rng);
 
         // Invalid dimension index
-        let result = unsqueeze(&input, &from_vec(vec![3]));
+        let result = unsqueeze(&input, &tensor!([3]));
         assert_eq!(result.err(), Some(OpError::InvalidValue("Axis is invalid")));
 
         // Repeated dimension index
-        let result = unsqueeze(&input, &from_vec(vec![1, 1]));
+        let result = unsqueeze(&input, &tensor!([1, 1]));
         assert_eq!(
             result.err(),
             Some(OpError::InvalidValue("Axes must be unique"))
