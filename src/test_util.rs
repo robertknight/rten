@@ -81,7 +81,7 @@ pub fn read_tensor(val: &Value) -> Result<Tensor<f32>, &'static str> {
         .map(|v| v.as_f64().map(|v| v as f32).ok_or("Expected float array"))
         .collect::<Result<Vec<f32>, _>>()?;
 
-    Ok(Tensor::from_data(shape, data))
+    Ok(Tensor::from_data(&shape, data))
 }
 
 pub fn read_json_file(path: &str) -> Value {

@@ -170,11 +170,11 @@ mod tests {
 
     #[test]
     fn test_batch_norm() -> Result<(), String> {
-        let input = from_data(vec![1, 2, 1, 1], vec![1.0, 2.0]);
-        let scale = from_data(vec![2], vec![3.0, 3.0]);
-        let bias = from_data(vec![2], vec![0.1, 0.2]);
-        let mean = from_data(vec![2], vec![0.5, -0.5]);
-        let var = from_data(vec![2], vec![1.0, 2.0]);
+        let input = from_data(&[1, 2, 1, 1], vec![1.0, 2.0]);
+        let scale = from_data(&[2], vec![3.0, 3.0]);
+        let bias = from_data(&[2], vec![0.1, 0.2]);
+        let mean = from_data(&[2], vec![0.5, -0.5]);
+        let var = from_data(&[2], vec![1.0, 2.0]);
 
         let epsilon = 1e-5 as f32;
 
@@ -182,7 +182,7 @@ mod tests {
             + bias[[0]];
         let y2 = (input[[0, 1, 0, 0]] - mean[[1]]) / (var[[1]] + epsilon).sqrt() * scale[[1]]
             + bias[[1]];
-        let expected = from_data(vec![1, 2, 1, 1], vec![y1, y2]);
+        let expected = from_data(&[1, 2, 1, 1], vec![y1, y2]);
         let result = batch_norm(&input, &scale, &bias, &mean, &var, epsilon).unwrap();
 
         expect_equal(&result, &expected)
@@ -190,11 +190,11 @@ mod tests {
 
     #[test]
     fn test_batch_norm_in_place() -> Result<(), String> {
-        let mut input = from_data(vec![1, 2, 1, 1], vec![1.0, 2.0]);
-        let scale = from_data(vec![2], vec![3.0, 3.0]);
-        let bias = from_data(vec![2], vec![0.1, 0.2]);
-        let mean = from_data(vec![2], vec![0.5, -0.5]);
-        let var = from_data(vec![2], vec![1.0, 2.0]);
+        let mut input = from_data(&[1, 2, 1, 1], vec![1.0, 2.0]);
+        let scale = from_data(&[2], vec![3.0, 3.0]);
+        let bias = from_data(&[2], vec![0.1, 0.2]);
+        let mean = from_data(&[2], vec![0.5, -0.5]);
+        let var = from_data(&[2], vec![1.0, 2.0]);
 
         let epsilon = 1e-5 as f32;
 
@@ -202,7 +202,7 @@ mod tests {
             + bias[[0]];
         let y2 = (input[[0, 1, 0, 0]] - mean[[1]]) / (var[[1]] + epsilon).sqrt() * scale[[1]]
             + bias[[1]];
-        let expected = from_data(vec![1, 2, 1, 1], vec![y1, y2]);
+        let expected = from_data(&[1, 2, 1, 1], vec![y1, y2]);
 
         batch_norm_in_place(&mut input, &scale, &bias, &mean, &var, epsilon).unwrap();
 
@@ -232,14 +232,14 @@ mod tests {
         // Softmax on second dimension of 2D input with multiple entries in
         // first dim
         let matrix_input = from_data(
-            vec![2, 5],
+            &[2, 5],
             vec![
                 0.1634, 0.8647, 0.6401, 0.8265, 0.0560, // First row
                 0.1634, 0.8647, 0.6401, 0.8265, 0.0560, // Second row
             ],
         );
         let matrix_expected = from_data(
-            vec![2, 5],
+            &[2, 5],
             vec![
                 0.1339, 0.2701, 0.2157, 0.2599, 0.1203, // First row
                 0.1339, 0.2701, 0.2157, 0.2599, 0.1203, // Second row
@@ -253,14 +253,14 @@ mod tests {
     #[test]
     fn test_softmax_transposed() -> Result<(), String> {
         let mut input = from_data(
-            vec![4, 4],
+            &[4, 4],
             vec![
                 0.6427, 0.7435, 0.9762, 0.0611, 0.1249, 0.9742, 0.5826, 0.4704, 0.1420, 0.8376,
                 0.6692, 0.7090, 0.2448, 0.9083, 0.2881, 0.4971,
             ],
         );
         let expected = from_data(
-            vec![4, 4],
+            &[4, 4],
             vec![
                 0.3480, 0.2073, 0.2109, 0.2337, 0.2204, 0.2776, 0.2421, 0.2599, 0.3433, 0.2316,
                 0.2525, 0.1725, 0.1677, 0.2525, 0.3205, 0.2593,

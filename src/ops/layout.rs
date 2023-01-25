@@ -7,7 +7,7 @@ use crate::ops::binary_elementwise::broadcast_shapes;
 use crate::ops::{
     resolve_axes, resolve_axis, Input, InputList, IntoOpResult, OpError, Operator, Output,
 };
-use crate::tensor::{from_data, is_valid_permutation, Tensor, TensorLayout};
+use crate::tensor::{is_valid_permutation, Tensor, TensorLayout};
 
 pub fn expand<T: Copy>(input: &Tensor<T>, shape: &Tensor<i32>) -> Result<Tensor<T>, OpError> {
     check_dims!(shape, 1);
@@ -18,7 +18,7 @@ pub fn expand<T: Copy>(input: &Tensor<T>, shape: &Tensor<i32>) -> Result<Tensor<
     )?;
 
     let out_elts = input.broadcast_iter(&out_shape).collect();
-    Ok(from_data(out_shape, out_elts))
+    Ok(Tensor::from_data(&out_shape, out_elts))
 }
 
 #[derive(Debug)]
@@ -236,8 +236,8 @@ impl Operator for Shape {
 
     fn run(&self, inputs: InputList) -> Result<Vec<Output>, OpError> {
         let input = inputs.require(0)?;
-        let shape = from_data(
-            vec![input.shape().len()],
+        let shape = Tensor::from_data(
+            &[input.shape().len()],
             input.shape().iter().map(|&el| el as i32).collect(),
         );
         shape.into_op_result()
@@ -425,25 +425,25 @@ mod tests {
         // Broadcast scalar
         let input = from_scalar(5.);
         let shape = from_vec(vec![2, 2]);
-        let expected = from_data(vec![2, 2], vec![5., 5., 5., 5.]);
+        let expected = from_data(&[2, 2], vec![5., 5., 5., 5.]);
         let result = expand(&input, &shape).unwrap();
         assert_eq!(&result, &expected);
 
         // Broadcast that changes dim count
-        let input = from_data(vec![3, 1], (0..3).collect());
+        let input = from_data(&[3, 1], (0..3).collect());
         let shape = from_vec(vec![2, 3, 1]);
         let result = expand(&input, &shape).unwrap();
         assert_eq!(result.shape(), &[2, 3, 1]);
 
         // Broadcast that uses dimensions from both the input shape and target
         // shape in the output shape.
-        let input = from_data(vec![3, 1], (0..3).collect());
+        let input = from_data(&[3, 1], (0..3).collect());
         let shape = from_vec(vec![2, 1, 6]);
         let result = expand(&input, &shape).unwrap();
         assert_eq!(result.shape(), &[2, 3, 6]);
 
         // Broadcast that does not change dim count
-        let input = from_data(vec![3, 1], (0..3).collect());
+        let input = from_data(&[3, 1], (0..3).collect());
         let shape = from_vec(vec![3, 4]);
         let result = expand(&input, &shape).unwrap();
         assert_eq!(result.shape(), &[3, 4]);
@@ -474,11 +474,11 @@ mod tests {
 
     #[test]
     fn test_flatten() {
-        let input = from_data(vec![1, 5, 1, 1], vec![1, 2, 3, 4, 5]);
+        let input = from_data(&[1, 5, 1, 1], vec![1, 2, 3, 4, 5]);
         let result = flatten(&input, 1 /* axis */).unwrap();
         assert_eq!(result.shape(), &[1, 5]);
 
-        let input = from_data(vec![2, 3, 1, 4], (1..=24).collect());
+        let input = from_data(&[2, 3, 1, 4], (1..=24).collect());
         let result = flatten(&input, 2 /* axis */).unwrap();
         assert_eq!(result.shape(), &[6, 4]);
 
@@ -490,14 +490,14 @@ mod tests {
     #[test]
     fn test_reshape_with_unspecified_dim() -> Result<(), String> {
         // Reshape with an unspecified (-1) dim and nonzero-length input
-        let input = from_data(vec![2, 2], vec![-0.5, 0.5, 3.0, -5.5]);
+        let input = from_data(&[2, 2], vec![-0.5, 0.5, 3.0, -5.5]);
         let shape = from_vec(vec![1, -1, 2]);
         let expected = input.clone_with_shape(&[1, 2, 2]);
         let result = reshape(&input, &shape, false /* allow_zero */).unwrap();
         expect_equal(&result, &expected)?;
 
         // Reshape with an unspecified (-1) dim and zero-length input
-        let zero_sized_input = from_data::<f32>(vec![4, 0, 1], vec![]);
+        let zero_sized_input = from_data::<f32>(&[4, 0, 1], vec![]);
         let shape = from_vec(vec![100, -1]);
         let result = reshape(&zero_sized_input, &shape, false /* allow_zero */).unwrap();
         let expected = zero_sized_input.clone_with_shape(&[100, 0]);
@@ -508,21 +508,21 @@ mod tests {
     fn test_reshape_with_zero_dim() -> Result<(), String> {
         // When the target shape has a zero dim, the corresponding input dim
         // size should be copied.
-        let input = from_data(vec![1, 1, 4], vec![-0.5, 0.5, 3.0, -5.5]);
+        let input = from_data(&[1, 1, 4], vec![-0.5, 0.5, 3.0, -5.5]);
         let shape = from_vec(vec![-1, 0]);
         let expected = input.clone_with_shape(&[4, 1]);
         let result = reshape(&input, &shape, false /* allow_zero */).unwrap();
         expect_equal(&result, &expected)?;
 
         // Case where copied input dim is also zero.
-        let input = from_data::<f32>(vec![0], vec![]);
+        let input = from_data::<f32>(&[0], vec![]);
         let shape = from_vec(vec![0]);
         let expected = input.clone_with_shape(&[0]);
         let result = reshape(&input, &shape, false /* allow_zero */).unwrap();
         expect_equal(&result, &expected)?;
 
         // Case where there is no corresponding input dim.
-        let input = from_data(vec![1], vec![5.]);
+        let input = from_data(&[1], vec![5.]);
         let shape = from_vec(vec![1, 0]);
         let result = reshape(&input, &shape, false /* allow_zero */);
         assert_eq!(
@@ -533,7 +533,7 @@ mod tests {
         );
 
         // Case when allow_zero is true
-        let input = from_data::<f32>(vec![0, 0, 10], vec![]);
+        let input = from_data::<f32>(&[0, 0, 10], vec![]);
         let shape = from_vec(vec![10, 0, 0]);
         let result = reshape(&input, &shape, true /* allow_zero */).unwrap();
         let expected = input.clone_with_shape(&[10, 0, 0]);
@@ -544,7 +544,7 @@ mod tests {
 
     #[test]
     fn test_reshape_with_multiple_unspecified_dims() {
-        let input = from_data(vec![2, 2], vec![-0.5, 0.5, 3.0, -5.5]);
+        let input = from_data(&[2, 2], vec![-0.5, 0.5, 3.0, -5.5]);
         let shape = from_vec(vec![1, -1, -1]);
         assert_eq!(
             reshape(&input, &shape, false /* allow_zero */).err(),
@@ -560,13 +560,13 @@ mod tests {
             "Input length must be a multiple of specified dimensions",
         ));
 
-        let input = from_data(vec![2, 2], vec![-0.5, 0.5, 3.0, -5.5]);
+        let input = from_data(&[2, 2], vec![-0.5, 0.5, 3.0, -5.5]);
         let shape = from_vec(vec![5, -1]);
         let result = reshape(&input, &shape, false /* allow_zero */);
         assert_eq!(result.err(), expected_err);
 
         // Case when allow_zero is true
-        let input = from_data(vec![1], vec![1]);
+        let input = from_data(&[1], vec![1]);
         let shape = from_vec(vec![0, -1]);
         let result = reshape(&input, &shape, true /* allow_zero */);
         assert_eq!(result.err(), expected_err);
@@ -574,8 +574,8 @@ mod tests {
 
     #[test]
     fn test_reshape_in_place() {
-        let mut input = from_data(vec![2, 2], vec![-0.5, 0.5, 3.0, -5.5]);
-        let shape = from_data(vec![1], vec![4]);
+        let mut input = from_data(&[2, 2], vec![-0.5, 0.5, 3.0, -5.5]);
+        let shape = from_data(&[1], vec![4]);
         let expected = input.clone_with_shape(&[4]);
         reshape_in_place(&mut input, &shape, false /* allow_zero */).unwrap();
         assert_eq!(&input, &expected);
@@ -583,8 +583,8 @@ mod tests {
 
     #[test]
     fn test_reshape_op() -> Result<(), String> {
-        let input = from_data(vec![2, 2], vec![-0.5, 0.5, 3.0, -5.5]);
-        let shape = from_data(vec![1], vec![4]);
+        let input = from_data(&[2, 2], vec![-0.5, 0.5, 3.0, -5.5]);
+        let shape = from_data(&[1], vec![4]);
         let expected = input.clone_with_shape(&[4]);
 
         let op = Reshape { allow_zero: false };
@@ -603,7 +603,7 @@ mod tests {
         let op = Shape {};
 
         // Float input
-        let input = from_data(vec![1, 1, 2, 2], vec![1.0, 2.0, 3.0, 4.0]);
+        let input = from_data(&[1, 1, 2, 2], vec![1.0, 2.0, 3.0, 4.0]);
         let result = op
             .run(InputList::from(&[(&input).into()]))
             .unwrap()
@@ -614,7 +614,7 @@ mod tests {
         assert_eq!(result.data(), &[1, 1, 2, 2]);
 
         // Int input
-        let input = from_data(vec![1, 1, 2, 2], vec![1, 2, 3, 4]);
+        let input = from_data(&[1, 1, 2, 2], vec![1, 2, 3, 4]);
         let result = op
             .run(InputList::from(&[(&input).into()]))
             .unwrap()

@@ -246,7 +246,7 @@ mod tests {
     #[test]
     fn test_average_pool() -> Result<(), String> {
         let input = from_data(
-            vec![1, 1, 4, 4],
+            &[1, 1, 4, 4],
             vec![
                 0.1, 0.2, 0.3, 0.4, // Y=0
                 0.5, 0.6, 0.7, 0.8, // Y=1
@@ -266,26 +266,26 @@ mod tests {
             Case {
                 kernel_size: [2, 2],
                 strides: [2, 2],
-                expected: from_data(vec![1, 1, 2, 2], vec![0.35, 0.55, 0.4, 0.6]),
+                expected: from_data(&[1, 1, 2, 2], vec![0.35, 0.55, 0.4, 0.6]),
             },
             // Large uniform kernel size and stride
             Case {
                 kernel_size: [4, 4],
                 strides: [4, 4],
-                expected: from_data(vec![1, 1, 1, 1], vec![0.475]),
+                expected: from_data(&[1, 1, 1, 1], vec![0.475]),
             },
             // Kernel height > kernel width
             Case {
                 kernel_size: [2, 4],
                 strides: [2, 4],
-                expected: from_data(vec![1, 1, 2, 1], vec![0.45, 0.5]),
+                expected: from_data(&[1, 1, 2, 1], vec![0.45, 0.5]),
             },
             // W stride > H stride
             Case {
                 kernel_size: [2, 2],
                 strides: [1, 2],
                 expected: from_data(
-                    vec![1, 1, 3, 2],
+                    &[1, 1, 3, 2],
                     vec![
                         0.35, 0.55, // Y=0
                         0.35, 0.55, // Y=1
@@ -298,7 +298,7 @@ mod tests {
                 kernel_size: [2, 2],
                 strides: [2, 1],
                 expected: from_data(
-                    vec![1, 1, 2, 3],
+                    &[1, 1, 2, 3],
                     vec![
                         0.35, 0.45, // Y=0
                         0.55, 0.4, // Y=1
@@ -355,8 +355,8 @@ mod tests {
 
     #[test]
     fn test_global_average_pool() -> Result<(), String> {
-        let input = from_data(vec![1, 2, 2, 2], vec![1., 2., 3., 4., 10., 20., 30., 40.]);
-        let expected = from_data(vec![1, 2, 1, 1], vec![2.5, 25.]);
+        let input = from_data(&[1, 2, 2, 2], vec![1., 2., 3., 4., 10., 20., 30., 40.]);
+        let expected = from_data(&[1, 2, 1, 1], vec![2.5, 25.]);
         let result = global_average_pool(&input).unwrap();
         expect_equal(&result, &expected)
     }
@@ -364,7 +364,7 @@ mod tests {
     #[test]
     fn test_max_pool() -> Result<(), String> {
         let input = from_data(
-            vec![1, 1, 4, 4],
+            &[1, 1, 4, 4],
             vec![
                 0.1, 0.2, 0.3, 0.4, // Y=0
                 0.5, 0.6, 0.7, 0.8, // Y=1
@@ -384,26 +384,26 @@ mod tests {
             Case {
                 kernel_size: [2, 2],
                 strides: [2, 2],
-                expected: from_data(vec![1, 1, 2, 2], vec![0.6, 0.8, 0.7, 0.9]),
+                expected: from_data(&[1, 1, 2, 2], vec![0.6, 0.8, 0.7, 0.9]),
             },
             // Large uniform kernel size and stride
             Case {
                 kernel_size: [4, 4],
                 strides: [4, 4],
-                expected: from_data(vec![1, 1, 1, 1], vec![0.9]),
+                expected: from_data(&[1, 1, 1, 1], vec![0.9]),
             },
             // Kernel height > kernel width
             Case {
                 kernel_size: [2, 4],
                 strides: [2, 4],
-                expected: from_data(vec![1, 1, 2, 1], vec![0.8, 0.9]),
+                expected: from_data(&[1, 1, 2, 1], vec![0.8, 0.9]),
             },
             // W stride > H stride
             Case {
                 kernel_size: [2, 2],
                 strides: [1, 2],
                 expected: from_data(
-                    vec![1, 1, 3, 2],
+                    &[1, 1, 3, 2],
                     vec![
                         0.6, 0.8, // Y=0
                         0.6, 0.8, // Y=1
@@ -416,7 +416,7 @@ mod tests {
                 kernel_size: [2, 2],
                 strides: [2, 1],
                 expected: from_data(
-                    vec![1, 1, 2, 3],
+                    &[1, 1, 2, 3],
                     vec![
                         0.6, 0.7, 0.8, // Y=0
                         0.7, 0.8, 0.9, // Y=1

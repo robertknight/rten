@@ -48,7 +48,7 @@ pub fn concat<T: Copy>(inputs: &[&Tensor<T>], dim: usize) -> Result<Tensor<T>, O
         }
     }
 
-    Ok(Tensor::from_data(out_shape, out_data))
+    Ok(Tensor::from_data(&out_shape, out_data))
 }
 
 #[derive(Debug)]
@@ -91,21 +91,21 @@ mod tests {
     use crate::test_util::expect_equal;
 
     fn from_slice<T: Copy>(data: &[T]) -> Tensor<T> {
-        from_data(vec![data.len()], data.into())
+        from_data(&[data.len()], data.into())
     }
 
     #[test]
     fn test_concat() -> Result<(), String> {
-        let a = from_data(vec![2, 2, 1], vec![0.1, 0.2, 0.3, 0.4]);
-        let b = from_data(vec![2, 2, 1], vec![1.0, 2.0, 3.0, 4.0]);
+        let a = from_data(&[2, 2, 1], vec![0.1, 0.2, 0.3, 0.4]);
+        let b = from_data(&[2, 2, 1], vec![1.0, 2.0, 3.0, 4.0]);
 
         // Concatenation along the first dimension
-        let expected = from_data(vec![4, 2, 1], vec![0.1, 0.2, 0.3, 0.4, 1.0, 2.0, 3.0, 4.0]);
+        let expected = from_data(&[4, 2, 1], vec![0.1, 0.2, 0.3, 0.4, 1.0, 2.0, 3.0, 4.0]);
         let result = concat(&[&a, &b], 0).unwrap();
         expect_equal(&result, &expected)?;
 
         // Concatenation along a non-first dimension
-        let expected = from_data(vec![2, 2, 2], vec![0.1, 1.0, 0.2, 2.0, 0.3, 3.0, 0.4, 4.0]);
+        let expected = from_data(&[2, 2, 2], vec![0.1, 1.0, 0.2, 2.0, 0.3, 3.0, 0.4, 4.0]);
         let result = concat(&[&a, &b], 2).unwrap();
         expect_equal(&result, &expected)?;
 

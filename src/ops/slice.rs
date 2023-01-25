@@ -58,12 +58,12 @@ pub fn slice<T: Copy>(
 ) -> Result<Tensor<T>, OpError> {
     let ranges = slice_ranges(input.shape(), starts, ends, axes, steps)?;
     let sliced_data = input.slice_iter(&ranges).collect();
-    let sliced_shape = ranges
+    let sliced_shape: Vec<_> = ranges
         .iter()
         .enumerate()
         .map(|(dim, range)| range.steps(input.shape()[dim]))
         .collect();
-    Ok(Tensor::from_data(sliced_shape, sliced_data))
+    Ok(Tensor::from_data(&sliced_shape, sliced_data))
 }
 
 /// Clip the dimensions of the input tensor specified by `axes` to the ranges
@@ -146,7 +146,7 @@ mod tests {
     use crate::test_util::expect_equal;
 
     fn from_slice<T: Copy>(data: &[T]) -> Tensor<T> {
-        from_data(vec![data.len()], data.into())
+        from_data(&[data.len()], data.into())
     }
 
     #[test]
@@ -272,7 +272,7 @@ mod tests {
 
     #[test]
     fn test_slice_negative_axes() {
-        let input = from_data(vec![3, 3], vec![1, 2, 3, 4, 5, 6, 7, 8, 9]);
+        let input = from_data(&[3, 3], vec![1, 2, 3, 4, 5, 6, 7, 8, 9]);
         let starts = from_slice(&[0]);
         let ends = from_slice(&[2]);
 
@@ -287,7 +287,7 @@ mod tests {
 
     #[test]
     fn test_slice_negative_starts() {
-        let input = from_data(vec![3, 3], vec![1, 2, 3, 4, 5, 6, 7, 8, 9]);
+        let input = from_data(&[3, 3], vec![1, 2, 3, 4, 5, 6, 7, 8, 9]);
         let axes = from_slice(&[-1]);
         let ends = from_slice(&[2]);
 
@@ -302,7 +302,7 @@ mod tests {
 
     #[test]
     fn test_slice_negative_ends() {
-        let input = from_data(vec![3, 3], vec![1, 2, 3, 4, 5, 6, 7, 8, 9]);
+        let input = from_data(&[3, 3], vec![1, 2, 3, 4, 5, 6, 7, 8, 9]);
         let axes = from_slice(&[-1]);
         let starts = from_slice(&[0]);
 

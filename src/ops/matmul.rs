@@ -4,7 +4,7 @@ use crate::check_dims;
 use crate::linalg::{gemm, Matrix};
 use crate::ops::binary_elementwise::broadcast_shapes;
 use crate::ops::{InputList, IntoOpResult, OpError, Operator, Output};
-use crate::tensor::{from_data, zeros, AsMatrix, Tensor, TensorLayout};
+use crate::tensor::{zeros, AsMatrix, Tensor, TensorLayout};
 
 #[derive(Debug)]
 pub struct Gemm {
@@ -52,7 +52,7 @@ pub fn gemm_op(
                 ));
             }
             let out_data = c.broadcast_iter(out_shape).collect();
-            from_data(out_shape.into(), out_data)
+            Tensor::from_data(out_shape, out_data)
         }
         _ => zeros(out_shape),
     };

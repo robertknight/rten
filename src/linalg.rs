@@ -882,8 +882,8 @@ mod tests {
     // Simplest possible test case for easy debugging.
     #[test]
     fn test_simple_gemm() -> Result<(), String> {
-        let a = Tensor::from_data(vec![2, 2], vec![1., 2., 3., 4.]);
-        let b = Tensor::from_data(vec![2, 2], vec![5., 6., 7., 8.]);
+        let a = Tensor::from_data(&[2, 2], vec![1., 2., 3., 4.]);
+        let b = Tensor::from_data(&[2, 2], vec![5., 6., 7., 8.]);
         let expected = reference_matmul(&a, &b);
 
         let mut result = zeros::<f32>(&[a.shape()[0], b.shape()[1]]);
@@ -900,9 +900,9 @@ mod tests {
     #[test]
     #[should_panic(expected = "Slice is too short")]
     fn test_gemm_panics_if_output_is_too_short() {
-        let a = Tensor::from_data(vec![2, 2], vec![1., 2., 3., 4.]);
+        let a = Tensor::from_data(&[2, 2], vec![1., 2., 3., 4.]);
         let [a_rows, a_cols] = a.dims();
-        let b = Tensor::from_data(vec![2, 2], vec![5., 6., 7., 8.]);
+        let b = Tensor::from_data(&[2, 2], vec![5., 6., 7., 8.]);
         let [b_rows, b_cols] = b.dims();
 
         let mut output = vec![1., 2.];

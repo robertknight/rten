@@ -316,28 +316,28 @@ mod tests {
         let cases = [
             // Scale width and height by 0x
             Case {
-                image: Tensor::from_data(vec![1, 1, 2, 2], vec![0.2, 0.7, 0.3, 0.8]),
+                image: Tensor::from_data(&[1, 1, 2, 2], vec![0.2, 0.7, 0.3, 0.8]),
                 scales: vec![1., 1., 0., 0.],
-                expected: Tensor::from_data(vec![1, 1, 0, 0], vec![]),
+                expected: Tensor::from_data(&[1, 1, 0, 0], vec![]),
             },
             // Scale width and height by 0.5x
             Case {
-                image: Tensor::from_data(vec![1, 1, 2, 2], vec![0.2, 0.7, 0.3, 0.8]),
+                image: Tensor::from_data(&[1, 1, 2, 2], vec![0.2, 0.7, 0.3, 0.8]),
                 scales: vec![1., 1., 0.5, 0.5],
-                expected: Tensor::from_data(vec![1, 1, 1, 1], vec![0.2]),
+                expected: Tensor::from_data(&[1, 1, 1, 1], vec![0.2]),
             },
             // Scale width and height by 1x
             Case {
-                image: Tensor::from_data(vec![1, 1, 2, 2], vec![0.2, 0.7, 0.3, 0.8]),
+                image: Tensor::from_data(&[1, 1, 2, 2], vec![0.2, 0.7, 0.3, 0.8]),
                 scales: vec![1., 1., 1., 1.],
-                expected: Tensor::from_data(vec![1, 1, 2, 2], vec![0.2, 0.7, 0.3, 0.8]),
+                expected: Tensor::from_data(&[1, 1, 2, 2], vec![0.2, 0.7, 0.3, 0.8]),
             },
             // Scale width and height by 1.5x
             Case {
-                image: Tensor::from_data(vec![1, 1, 2, 2], vec![0.2, 0.7, 0.3, 0.8]),
+                image: Tensor::from_data(&[1, 1, 2, 2], vec![0.2, 0.7, 0.3, 0.8]),
                 scales: vec![1., 1., 1.5, 1.5],
                 expected: Tensor::from_data(
-                    vec![1, 1, 3, 3],
+                    &[1, 1, 3, 3],
                     vec![
                         0.2000, 0.2000, 0.7000, // Y=0
                         0.2000, 0.2000, 0.7000, // Y=1
@@ -347,10 +347,10 @@ mod tests {
             },
             // Scale width and height by 2x
             Case {
-                image: Tensor::from_data(vec![1, 1, 2, 2], vec![0.2, 0.7, 0.3, 0.8]),
+                image: Tensor::from_data(&[1, 1, 2, 2], vec![0.2, 0.7, 0.3, 0.8]),
                 scales: vec![1., 1., 2., 2.],
                 expected: Tensor::from_data(
-                    vec![1, 1, 4, 4],
+                    &[1, 1, 4, 4],
                     vec![
                         0.2, 0.2, 0.7, 0.7, // Y=0
                         0.2, 0.2, 0.7, 0.7, // Y=1
@@ -361,10 +361,10 @@ mod tests {
             },
             // Scale width and height by 3x
             Case {
-                image: Tensor::from_data(vec![1, 1, 2, 2], vec![0.2, 0.7, 0.3, 0.8]),
+                image: Tensor::from_data(&[1, 1, 2, 2], vec![0.2, 0.7, 0.3, 0.8]),
                 scales: vec![1., 1., 3., 3.],
                 expected: Tensor::from_data(
-                    vec![1, 1, 6, 6],
+                    &[1, 1, 6, 6],
                     vec![
                         0.2000, 0.2000, 0.2000, 0.7000, 0.7000, 0.7000, // Y=0
                         0.2000, 0.2000, 0.2000, 0.7000, 0.7000, 0.7000, // Y=1
@@ -396,7 +396,7 @@ mod tests {
 
     #[test]
     fn test_resize_nearest_mode() -> Result<(), String> {
-        let image = Tensor::from_data(vec![1, 1, 1, 2], vec![0.1, 0.2]);
+        let image = Tensor::from_data(&[1, 1, 1, 2], vec![0.1, 0.2]);
 
         // Use a scale factor of 4 so that we have output pixels that map
         // to input coordinates with fractional values of 0, 0.25, 0.5 and 0.75.
@@ -416,28 +416,28 @@ mod tests {
             Case {
                 mode: NearestMode::Ceil,
                 expected: Tensor::from_data(
-                    vec![1, 1, 1, 8],
+                    &[1, 1, 1, 8],
                     vec![0.1, 0.2, 0.2, 0.2, 0.2, 0.2, 0.2, 0.2],
                 ),
             },
             Case {
                 mode: NearestMode::Floor,
                 expected: Tensor::from_data(
-                    vec![1, 1, 1, 8],
+                    &[1, 1, 1, 8],
                     vec![0.1, 0.1, 0.1, 0.1, 0.2, 0.2, 0.2, 0.2],
                 ),
             },
             Case {
                 mode: NearestMode::RoundPreferCeil,
                 expected: Tensor::from_data(
-                    vec![1, 1, 1, 8],
+                    &[1, 1, 1, 8],
                     vec![0.1, 0.1, 0.2, 0.2, 0.2, 0.2, 0.2, 0.2],
                 ),
             },
             Case {
                 mode: NearestMode::RoundPreferFloor,
                 expected: Tensor::from_data(
-                    vec![1, 1, 1, 8],
+                    &[1, 1, 1, 8],
                     vec![0.1, 0.1, 0.1, 0.2, 0.2, 0.2, 0.2, 0.2],
                 ),
             },
@@ -470,33 +470,33 @@ mod tests {
         let cases = [
             // Scale width and height by 0x
             Case {
-                image: Tensor::from_data(vec![1, 1, 2, 2], vec![0.2, 0.7, 0.3, 0.8]),
+                image: Tensor::from_data(&[1, 1, 2, 2], vec![0.2, 0.7, 0.3, 0.8]),
                 scales: vec![1., 1., 0., 0.],
-                expected: Tensor::from_data(vec![1, 1, 0, 0], vec![]),
+                expected: Tensor::from_data(&[1, 1, 0, 0], vec![]),
             },
             // Scale width and height by 0.5x
             Case {
-                image: Tensor::from_data(vec![1, 1, 2, 2], vec![0.2, 0.7, 0.3, 0.8]),
+                image: Tensor::from_data(&[1, 1, 2, 2], vec![0.2, 0.7, 0.3, 0.8]),
                 scales: vec![1., 1., 0.5, 0.5],
 
                 // OpenCV and PyTorch produce different results for this case.
                 // This result matches OpenCV. This relates to the `half_pixel`
                 // vs `pytorch_half_pixel` values for the `coordinate_transformation_mode`
                 // attribute in the ONNX op.
-                expected: Tensor::from_data(vec![1, 1, 1, 1], vec![0.5]),
+                expected: Tensor::from_data(&[1, 1, 1, 1], vec![0.5]),
             },
             // Scale width and height by 1x
             Case {
-                image: Tensor::from_data(vec![1, 1, 2, 2], vec![0.2, 0.7, 0.3, 0.8]),
+                image: Tensor::from_data(&[1, 1, 2, 2], vec![0.2, 0.7, 0.3, 0.8]),
                 scales: vec![1., 1., 1., 1.],
-                expected: Tensor::from_data(vec![1, 1, 2, 2], vec![0.2, 0.7, 0.3, 0.8]),
+                expected: Tensor::from_data(&[1, 1, 2, 2], vec![0.2, 0.7, 0.3, 0.8]),
             },
             // Scale width and height by 1.5x
             Case {
-                image: Tensor::from_data(vec![1, 1, 2, 2], vec![0.2, 0.7, 0.3, 0.8]),
+                image: Tensor::from_data(&[1, 1, 2, 2], vec![0.2, 0.7, 0.3, 0.8]),
                 scales: vec![1., 1., 1.5, 1.5],
                 expected: Tensor::from_data(
-                    vec![1, 1, 3, 3],
+                    &[1, 1, 3, 3],
                     vec![
                         0.2, 0.45, 0.7, // Y=0
                         0.25, 0.5, 0.75, // Y=1
@@ -506,10 +506,10 @@ mod tests {
             },
             // Scale width and height by 2x
             Case {
-                image: Tensor::from_data(vec![1, 1, 2, 2], vec![0.2, 0.7, 0.3, 0.8]),
+                image: Tensor::from_data(&[1, 1, 2, 2], vec![0.2, 0.7, 0.3, 0.8]),
                 scales: vec![1., 1., 2., 2.],
                 expected: Tensor::from_data(
-                    vec![1, 1, 4, 4],
+                    &[1, 1, 4, 4],
                     vec![
                         0.2, 0.325, 0.575, 0.7, // Y=0
                         0.225, 0.35, 0.6, 0.725, // Y=1
@@ -520,10 +520,10 @@ mod tests {
             },
             // Scale width and height by 3x
             Case {
-                image: Tensor::from_data(vec![1, 1, 2, 2], vec![0.2, 0.7, 0.3, 0.8]),
+                image: Tensor::from_data(&[1, 1, 2, 2], vec![0.2, 0.7, 0.3, 0.8]),
                 scales: vec![1., 1., 3., 3.],
                 expected: Tensor::from_data(
-                    vec![1, 1, 6, 6],
+                    &[1, 1, 6, 6],
                     vec![
                         0.2000, 0.2000, 0.3667, 0.5333, 0.7000, 0.7000, // Y=0
                         0.2000, 0.2000, 0.3667, 0.5333, 0.7000, 0.7000, // Y=1
@@ -571,21 +571,21 @@ mod tests {
         let cases = [
             // Specify output size via `scales`
             Case {
-                image: Tensor::from_data(vec![1, 1, 1, 1], vec![1.]),
+                image: Tensor::from_data(&[1, 1, 1, 1], vec![1.]),
                 scales: Some(Tensor::from_vec(vec![1., 1., 1., 1.])),
                 sizes: None,
                 expected: CaseOutput::Shape(vec![1, 1, 1, 1]),
             },
             // Specify output size via `sizes`
             Case {
-                image: Tensor::from_data(vec![1, 1, 1, 1], vec![1.]),
+                image: Tensor::from_data(&[1, 1, 1, 1], vec![1.]),
                 scales: None,
                 sizes: Some(Tensor::from_vec(vec![1, 1, 2, 2])),
                 expected: CaseOutput::Shape(vec![1, 1, 2, 2]),
             },
             // At least one of `scales` or `sizes` must be provided
             Case {
-                image: Tensor::from_data(vec![1, 1, 1, 1], vec![1.]),
+                image: Tensor::from_data(&[1, 1, 1, 1], vec![1.]),
                 scales: None,
                 sizes: None,
                 expected: CaseOutput::Error(OpError::MissingInputs),
@@ -593,14 +593,14 @@ mod tests {
             // Test empty tensors are also treated as missing inputs, for
             // compatibility with PyTorch targeting ONNX opset < 13.
             Case {
-                image: Tensor::from_data(vec![1, 1, 1, 1], vec![1.]),
+                image: Tensor::from_data(&[1, 1, 1, 1], vec![1.]),
                 scales: Some(Tensor::from_vec(vec![])),
                 sizes: Some(Tensor::from_vec(vec![])),
                 expected: CaseOutput::Error(OpError::MissingInputs),
             },
             // Invalid values for scales/sizes
             Case {
-                image: Tensor::from_data(vec![1, 1, 1, 1], vec![1.]),
+                image: Tensor::from_data(&[1, 1, 1, 1], vec![1.]),
                 scales: Some(Tensor::from_vec(vec![1., 1., 1.])),
                 sizes: None,
                 expected: CaseOutput::Error(OpError::IncompatibleInputShapes(
@@ -608,21 +608,21 @@ mod tests {
                 )),
             },
             Case {
-                image: Tensor::from_data(vec![1, 1, 1, 1], vec![1.]),
+                image: Tensor::from_data(&[1, 1, 1, 1], vec![1.]),
                 scales: Some(Tensor::from_vec(vec![1., 1., -1., 1.])),
                 sizes: None,
                 expected: CaseOutput::Error(OpError::InvalidValue("scales/sizes must be positive")),
             },
             Case {
-                image: Tensor::from_data(vec![1, 1, 2, 2], vec![0.2, 0.7, 0.3, 0.8]),
-                scales: Some(Tensor::from_data(vec![1, 1, 2, 2], vec![1., 1., 3., 3.])),
+                image: Tensor::from_data(&[1, 1, 2, 2], vec![0.2, 0.7, 0.3, 0.8]),
+                scales: Some(Tensor::from_data(&[1, 1, 2, 2], vec![1., 1., 3., 3.])),
                 sizes: None,
                 expected: CaseOutput::Error(OpError::InvalidValue("scales must be a vector")),
             },
             // Values for scales/sizes and input shapes which are legal according to the spec,
             // but not currently supported in our implementation.
             Case {
-                image: Tensor::from_data(vec![1, 1, 2, 2], vec![0.2, 0.7, 0.3, 0.8]),
+                image: Tensor::from_data(&[1, 1, 2, 2], vec![0.2, 0.7, 0.3, 0.8]),
                 scales: Some(Tensor::from_vec(vec![2., 1., 3., 3.])),
                 sizes: None,
                 expected: CaseOutput::Error(OpError::UnsupportedValue(

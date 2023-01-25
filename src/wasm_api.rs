@@ -79,7 +79,7 @@ pub struct Tensor {
 impl Tensor {
     #[wasm_bindgen(js_name = floatTensor)]
     pub fn float_tensor(shape: &[usize], data: &[f32]) -> Tensor {
-        let data: Output = tensor::Tensor::from_data(shape.into(), data.into()).into();
+        let data: Output = tensor::Tensor::from_data(shape, data.into()).into();
         Tensor {
             data: Rc::new(data),
         }
@@ -87,7 +87,7 @@ impl Tensor {
 
     #[wasm_bindgen(js_name = intTensor)]
     pub fn int_tensor(shape: &[usize], data: &[i32]) -> Tensor {
-        let data: Output = tensor::Tensor::from_data(shape.into(), data.into()).into();
+        let data: Output = tensor::Tensor::from_data(shape, data.into()).into();
         Tensor {
             data: Rc::new(data),
         }

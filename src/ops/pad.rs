@@ -30,7 +30,7 @@ pub fn pad<T: Copy>(
         .collect();
     let out_len = out_shape.iter().product();
 
-    let mut output = Tensor::from_data(out_shape, vec![const_val; out_len]);
+    let mut output = Tensor::from_data(&out_shape, vec![const_val; out_len]);
     let mut in_iter = input.indices();
     let mut out_index = vec![0; output.shape().len()];
 
@@ -84,15 +84,15 @@ mod tests {
     use crate::test_util::expect_equal;
 
     fn from_slice<T: Copy>(data: &[T]) -> Tensor<T> {
-        from_data(vec![data.len()], data.into())
+        from_data(&[data.len()], data.into())
     }
 
     #[test]
     fn test_pad() -> Result<(), String> {
         // Same padding around each edge.
-        let input = from_data(vec![2, 2], vec![1.0, 2.0, 3.0, 4.0]);
+        let input = from_data(&[2, 2], vec![1.0, 2.0, 3.0, 4.0]);
         let expected = from_data(
-            vec![4, 4],
+            &[4, 4],
             vec![
                 0.0, 0.0, 0.0, 0.0, 0.0, 1.0, 2.0, 0.0, 0.0, 3.0, 4.0, 0.0, 0.0, 0.0, 0.0, 0.0,
             ],
@@ -107,7 +107,7 @@ mod tests {
         expect_equal(&result, &input)?;
 
         // Un-even padding
-        let input = from_data(vec![1, 2, 2], vec![1, 2, 3, 4]);
+        let input = from_data(&[1, 2, 2], vec![1, 2, 3, 4]);
         let pads = from_slice(&[0, 0, 0, 0, 1, 0]);
         let result = pad(&input, &pads, 0).unwrap();
         assert_eq!(result.shape(), &[1, 3, 2]);
@@ -118,9 +118,9 @@ mod tests {
 
     #[test]
     fn test_pad_constant_val() -> Result<(), String> {
-        let input = from_data(vec![2, 2], vec![1.0, 2.0, 3.0, 4.0]);
+        let input = from_data(&[2, 2], vec![1.0, 2.0, 3.0, 4.0]);
         let expected = from_data(
-            vec![4, 4],
+            &[4, 4],
             vec![
                 9., 9., 9., 9., 9., 1., 2., 9., 9., 3., 4., 9., 9., 9., 9., 9.,
             ],
@@ -132,10 +132,10 @@ mod tests {
 
     #[test]
     fn test_pad_op() -> Result<(), String> {
-        let input = from_data(vec![2, 2], vec![1.0, 2.0, 3.0, 4.0]);
+        let input = from_data(&[2, 2], vec![1.0, 2.0, 3.0, 4.0]);
         let pads = from_slice(&[1, 1, 1, 1]);
         let expected = from_data(
-            vec![4, 4],
+            &[4, 4],
             vec![
                 0.0, 0.0, 0.0, 0.0, 0.0, 1.0, 2.0, 0.0, 0.0, 3.0, 4.0, 0.0, 0.0, 0.0, 0.0, 0.0,
             ],
@@ -155,7 +155,7 @@ mod tests {
 
     #[test]
     fn test_pad_invalid_inputs() {
-        let input = from_data(vec![2, 2], vec![1.0, 2.0, 3.0, 4.0]);
+        let input = from_data(&[2, 2], vec![1.0, 2.0, 3.0, 4.0]);
         let op = Pad {};
 
         // Wrong padding vector length.

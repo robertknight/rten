@@ -256,16 +256,16 @@ mod tests {
 
     #[test]
     fn test_clip() -> Result<(), String> {
-        let input = from_data(vec![2, 2], vec![-5., -2., 3., 20.]);
-        let expected = from_data(vec![2, 2], vec![1., 1., 3., 5.]);
+        let input = from_data(&[2, 2], vec![-5., -2., 3., 20.]);
+        let expected = from_data(&[2, 2], vec![1., 1., 3., 5.]);
         let result = clip(&input, 1.0, 5.0);
         expect_equal(&result, &expected)
     }
 
     #[test]
     fn test_clip_in_place() -> Result<(), String> {
-        let mut input = from_data(vec![2, 2], vec![-5., -2., 3., 20.]);
-        let expected = from_data(vec![2, 2], vec![1., 1., 3., 5.]);
+        let mut input = from_data(&[2, 2], vec![-5., -2., 3., 20.]);
+        let expected = from_data(&[2, 2], vec![1., 1., 3., 5.]);
         clip_in_place(&mut input, 1.0, 5.0);
         expect_equal(&input, &expected)
     }
@@ -314,26 +314,26 @@ mod tests {
 
     #[test]
     fn test_leaky_relu() -> Result<(), String> {
-        let input = from_data(vec![2, 2], vec![-5., -2., 3., 20.]);
+        let input = from_data(&[2, 2], vec![-5., -2., 3., 20.]);
         let alpha = 0.1;
-        let expected = from_data(vec![2, 2], vec![-5. * alpha, -2. * alpha, 3., 20.]);
+        let expected = from_data(&[2, 2], vec![-5. * alpha, -2. * alpha, 3., 20.]);
         let result = leaky_relu(&input, alpha);
         expect_equal(&result, &expected)
     }
 
     #[test]
     fn test_leaky_relu_in_place() -> Result<(), String> {
-        let mut input = from_data(vec![2, 2], vec![-5., -2., 3., 20.]);
+        let mut input = from_data(&[2, 2], vec![-5., -2., 3., 20.]);
         let alpha = 0.1;
-        let expected = from_data(vec![2, 2], vec![-5. * alpha, -2. * alpha, 3., 20.]);
+        let expected = from_data(&[2, 2], vec![-5. * alpha, -2. * alpha, 3., 20.]);
         leaky_relu_in_place(&mut input, alpha);
         expect_equal(&input, &expected)
     }
 
     #[test]
     fn test_relu() -> Result<(), String> {
-        let input = from_data(vec![2, 2, 1], vec![-0.5, 0.5, 3.0, -5.5]);
-        let expected = from_data(vec![2, 2, 1], vec![0.0, 0.5, 3.0, 0.0]);
+        let input = from_data(&[2, 2, 1], vec![-0.5, 0.5, 3.0, -5.5]);
+        let expected = from_data(&[2, 2, 1], vec![0.0, 0.5, 3.0, 0.0]);
 
         let result = relu(&input);
         expect_equal(&result, &expected)?;
@@ -346,11 +346,11 @@ mod tests {
     #[test]
     fn test_sigmoid() -> Result<(), String> {
         let input = from_data(
-            vec![9],
+            &[9],
             vec![-500.0, -3.0, -1.0, -0.5, 0.0, 0.5, 1.0, 3.0, 500.0],
         );
         let expected = from_data(
-            vec![9],
+            &[9],
             vec![
                 0.0000, 0.0474, 0.2689, 0.3775, 0.5000, 0.6225, 0.7311, 0.9526, 1.0000,
             ],

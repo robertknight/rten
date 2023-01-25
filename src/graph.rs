@@ -563,7 +563,7 @@ mod tests {
         let mut g = Graph::new();
 
         let weights = from_data(
-            vec![1, 1, 3, 3],
+            &[1, 1, 3, 3],
             vec![
                 0.3230, 0.7632, 0.4616, 0.8837, 0.5898, 0.3424, 0.2101, 0.7821, 0.6861,
             ],
@@ -591,7 +591,7 @@ mod tests {
         );
 
         let input = from_data(
-            vec![1, 1, 3, 3],
+            &[1, 1, 3, 3],
             vec![
                 0.5946, 0.8249, 0.0448, 0.9552, 0.2041, 0.2501, 0.2693, 0.1007, 0.8862,
             ],
@@ -602,7 +602,7 @@ mod tests {
             .unwrap();
 
         let expected = from_data(
-            vec![1, 1, 3, 3],
+            &[1, 1, 3, 3],
             vec![
                 1.5202, 1.5592, 0.9939, 1.7475, 2.6358, 1.3428, 1.0165, 1.1806, 0.8685,
             ],
@@ -615,7 +615,7 @@ mod tests {
     fn test_graph_node_debug_names() {
         let mut g = Graph::new();
 
-        let weights = from_data(vec![1], vec![0.3230]);
+        let weights = from_data(&[1], vec![0.3230]);
         let weights_id = g.add_constant(Some("weights"), weights.clone());
         let input_id = g.add_value(Some("input"));
         let relu_out_id = g.add_value(Some("relu_out"));
@@ -705,18 +705,18 @@ mod tests {
             &[Some(op_d_out)],
         );
 
-        let input = from_data(vec![1], vec![1.]);
+        let input = from_data(&[1], vec![1.]);
 
         let results = g
             .run(&[(input_id, (&input).into())], &[op_c_out], None)
             .unwrap();
-        let expected = from_data(vec![2], vec![2., 3.]);
+        let expected = from_data(&[2], vec![2., 3.]);
         expect_equal(&results[0].as_float_ref().unwrap(), &expected)?;
 
         let results = g
             .run(&[(input_id, (&input).into())], &[op_d_out], None)
             .unwrap();
-        let expected = from_data(vec![2], vec![3., 2.]);
+        let expected = from_data(&[2], vec![3., 2.]);
         expect_equal(&results[0].as_float_ref().unwrap(), &expected)
     }
 
@@ -724,7 +724,7 @@ mod tests {
     fn test_graph_many_steps() -> Result<(), String> {
         let mut g = Graph::new();
 
-        let input = from_data(vec![5], vec![1., 2., 3., 4., 5.]);
+        let input = from_data(&[5], vec![1., 2., 3., 4., 5.]);
         let input_id = g.add_value(Some("input"));
 
         let mut prev_output = input_id;
@@ -743,7 +743,7 @@ mod tests {
             .run(&[(input_id, (&input).into())], &[prev_output], None)
             .unwrap();
 
-        let expected = from_data(vec![5], vec![101., 102., 103., 104., 105.]);
+        let expected = from_data(&[5], vec![101., 102., 103., 104., 105.]);
         expect_equal(&results[0].as_float_ref().unwrap(), &expected)
     }
 
@@ -751,7 +751,7 @@ mod tests {
     fn test_noop_graph() -> Result<(), String> {
         let mut g = Graph::new();
 
-        let input = from_data(vec![5], vec![1., 2., 3., 4., 5.]);
+        let input = from_data(&[5], vec![1., 2., 3., 4., 5.]);
         let input_id = g.add_value(Some("input"));
 
         let results = g
@@ -765,7 +765,7 @@ mod tests {
     fn test_constant_graph() -> Result<(), String> {
         let mut g = Graph::new();
 
-        let value = from_data(vec![5], vec![1., 2., 3., 4., 5.]);
+        let value = from_data(&[5], vec![1., 2., 3., 4., 5.]);
         let const_id = g.add_constant(Some("weight"), value.clone());
 
         let results = g.run(&[], &[const_id], None).unwrap();

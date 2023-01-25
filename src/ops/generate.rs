@@ -6,7 +6,7 @@ use crate::tensor::Tensor;
 pub fn constant_of_shape<T: Copy>(value: T, shape: &Tensor<i32>) -> Tensor<T> {
     let shape: Vec<_> = shape.iter().map(|el| el as usize).collect();
     let len = shape.iter().product();
-    Tensor::from_data(shape, vec![value; len])
+    Tensor::from_data(&shape, vec![value; len])
 }
 
 #[derive(Debug)]

@@ -34,10 +34,10 @@ pub fn split<T: Copy>(
             })
             .collect();
         let elements = input.slice_iter(&slice_ranges).collect();
-        let slice_shape = zip(input.shape().iter(), slice_ranges)
+        let slice_shape: Vec<_> = zip(input.shape().iter(), slice_ranges)
             .map(|(&dim_size, range)| range.steps(dim_size))
             .collect();
-        let tensor = Tensor::from_data(slice_shape, elements);
+        let tensor = Tensor::from_data(&slice_shape, elements);
         outputs.push(tensor);
 
         start += split_size;
@@ -71,7 +71,7 @@ mod tests {
 
     #[test]
     fn test_split() {
-        let input = from_data(vec![5, 2], vec![0., 1., 2., 3., 4., 5., 6., 7., 8., 9.]);
+        let input = from_data(&[5, 2], vec![0., 1., 2., 3., 4., 5., 6., 7., 8., 9.]);
 
         // Split with positive axis
         let results = split(&input, 1, &[1, 1]).unwrap();
@@ -90,7 +90,7 @@ mod tests {
 
     #[test]
     fn test_split_invalid_inputs() {
-        let input = from_data(vec![5, 2], vec![0., 1., 2., 3., 4., 5., 6., 7., 8., 9.]);
+        let input = from_data(&[5, 2], vec![0., 1., 2., 3., 4., 5., 6., 7., 8., 9.]);
 
         let result = split(&input, 2, &[1, 1]);
         assert_eq!(result.err(), Some(OpError::InvalidValue("Axis is invalid")));

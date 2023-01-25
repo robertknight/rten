@@ -94,7 +94,7 @@ fn index_select<T: Copy, Cmp: Fn(T, T) -> bool>(
         }
     }
 
-    let mut reduced = Tensor::<i32>::from_data(reduced_shape, reduced_data);
+    let mut reduced = Tensor::<i32>::from_data(&reduced_shape, reduced_data);
 
     if !keep_dims {
         squeeze_in_place(
@@ -175,7 +175,7 @@ pub fn cum_sum<T: Copy + Identities + std::ops::AddAssign>(
         }
     }
 
-    Ok(Tensor::from_data(input.shape().into(), out_data))
+    Ok(Tensor::from_data(input.shape(), out_data))
 }
 
 #[derive(Debug)]
@@ -301,7 +301,7 @@ fn reduce<T: Copy + Default, R: Reducer<T>>(
         }
     }
 
-    let mut reduced = Tensor::<T>::from_data(reduced_shape, reduced_data);
+    let mut reduced = Tensor::<T>::from_data(&reduced_shape, reduced_data);
 
     if !keep_dims {
         let resolved_axes_i32 = resolved_axes.iter().map(|&axis| axis as i32).collect();
@@ -406,7 +406,7 @@ mod tests {
         // `item` is eg. a token index in a sequence or box ID for object
         // detection.
         let seq_probs = from_data(
-            vec![1, 4, 3],
+            &[1, 4, 3],
             vec![
                 0.1, 0.2, 0.9, // First item
                 0.9, 0.1, 0.2, // Second item
@@ -424,13 +424,13 @@ mod tests {
         assert_eq!(seq_classes.to_vec(), &[2, 0, 1, 2]);
 
         // Empty tensor, axis is a non-zero-sized dim
-        let empty = from_data::<i32>(vec![10, 0, 5], vec![]);
+        let empty = from_data::<i32>(&[10, 0, 5], vec![]);
         let result = arg_max(&empty, 0, false /* keep_dims */).unwrap();
         assert_eq!(result.shape(), &[0, 5]);
         assert_eq!(result.to_vec(), &[] as &[i32]);
 
         // Empty tensor, axis is a zero-sized dim
-        let empty = from_data::<i32>(vec![10, 0, 5], vec![]);
+        let empty = from_data::<i32>(&[10, 0, 5], vec![]);
         let result = arg_max(&empty, 1, false /* keep_dims */);
         assert_eq!(
             result.err(),
@@ -456,7 +456,7 @@ mod tests {
         assert_eq!(sums.shape(), &[6]);
         assert_eq!(sums.to_vec(), &[0, 1, 3, 6, 10, 15]);
 
-        let elements = from_data(vec![2, 4], (0..4).chain(0..4).collect());
+        let elements = from_data(&[2, 4], (0..4).chain(0..4).collect());
         let sums = cum_sum(&elements, 1).unwrap();
         assert_eq!(sums.shape(), &[2, 4]);
         assert_eq!(sums.to_vec(), &[0, 1, 3, 6, 0, 1, 3, 6]);
@@ -473,9 +473,9 @@ mod tests {
 
     #[test]
     fn test_reduce_l2() -> Result<(), String> {
-        let input = from_data(vec![3, 2, 2], (1..=12).map(|i| i as f32).collect());
+        let input = from_data(&[3, 2, 2], (1..=12).map(|i| i as f32).collect());
         let expected = from_data(
-            vec![3, 2],
+            &[3, 2],
             vec![
                 2.23606798,
                 5.,
@@ -498,7 +498,7 @@ mod tests {
 
     #[test]
     fn test_reduce_mean() -> Result<(), String> {
-        let input = from_data(vec![3, 3], vec![1., 2., 3., 4., 5., 6., 7., 8., 9.]);
+        let input = from_data(&[3, 3], vec![1., 2., 3., 4., 5., 6., 7., 8., 9.]);
 
         // Test with `keep_dims` off
         let result = reduce_mean(&input, Some(&[-1]), false /* keep_dims */).unwrap();
@@ -507,7 +507,7 @@ mod tests {
 
         // Test with `keep_dims` on
         let result = reduce_mean(&input, Some(&[-1]), true /* keep_dims */).unwrap();
-        let expected = from_data(vec![3, 1], vec![2., 5., 8.]);
+        let expected = from_data(&[3, 1], vec![2., 5., 8.]);
         expect_equal(&result, &expected)?;
 
         // Reduce first dim
@@ -527,10 +527,10 @@ mod tests {
 
         // Test case from ONNX spec
         let input = from_data(
-            vec![3, 2, 2],
+            &[3, 2, 2],
             vec![5., 1., 20., 2., 30., 1., 40., 2., 55., 1., 60., 2.],
         );
-        let expected = from_data(vec![3, 2], vec![12.5, 1.5, 35., 1.5, 57.5, 1.5]);
+        let expected = from_data(&[3, 2], vec![12.5, 1.5, 35., 1.5, 57.5, 1.5]);
         let result = reduce_mean(&input, Some(&[1]), false /* keep_dims */).unwrap();
         expect_equal(&result, &expected)?;
 
@@ -552,7 +552,7 @@ mod tests {
 
     #[test]
     fn test_reduce_mean_invalid_inputs() {
-        let input = from_data(vec![3, 3], vec![1., 2., 3., 4., 5., 6., 7., 8., 9.]);
+        let input = from_data(&[3, 3], vec![1., 2., 3., 4., 5., 6., 7., 8., 9.]);
 
         let result = reduce_mean(&input, Some(&[3]), false /* keep_dims */);
         assert_eq!(result.err(), Some(OpError::InvalidValue("Axis is invalid")));
