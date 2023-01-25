@@ -858,19 +858,18 @@ pub const ENUM_MIN_OPERATOR_ATTRS: u8 = 0;
     since = "2.0.0",
     note = "Use associated constants instead. This will no longer be generated in 2021."
 )]
-pub const ENUM_MAX_OPERATOR_ATTRS: u8 = 21;
+pub const ENUM_MAX_OPERATOR_ATTRS: u8 = 20;
 #[deprecated(
     since = "2.0.0",
     note = "Use associated constants instead. This will no longer be generated in 2021."
 )]
 #[allow(non_camel_case_types)]
-pub const ENUM_VALUES_OPERATOR_ATTRS: [OperatorAttrs; 22] = [
+pub const ENUM_VALUES_OPERATOR_ATTRS: [OperatorAttrs; 21] = [
     OperatorAttrs::NONE,
     OperatorAttrs::ArgMaxAttrs,
     OperatorAttrs::AveragePoolAttrs,
     OperatorAttrs::BatchNormalizationAttrs,
     OperatorAttrs::CastAttrs,
-    OperatorAttrs::ClipAttrs,
     OperatorAttrs::ConcatAttrs,
     OperatorAttrs::ConstantOfShapeAttrs,
     OperatorAttrs::ConvAttrs,
@@ -899,33 +898,31 @@ impl OperatorAttrs {
     pub const AveragePoolAttrs: Self = Self(2);
     pub const BatchNormalizationAttrs: Self = Self(3);
     pub const CastAttrs: Self = Self(4);
-    pub const ClipAttrs: Self = Self(5);
-    pub const ConcatAttrs: Self = Self(6);
-    pub const ConstantOfShapeAttrs: Self = Self(7);
-    pub const ConvAttrs: Self = Self(8);
-    pub const ConvTransposeAttrs: Self = Self(9);
-    pub const FlattenAttrs: Self = Self(10);
-    pub const GatherAttrs: Self = Self(11);
-    pub const GemmAttrs: Self = Self(12);
-    pub const LeakyReluAttrs: Self = Self(13);
-    pub const LSTMAttrs: Self = Self(14);
-    pub const MaxPoolAttrs: Self = Self(15);
-    pub const ReduceMeanAttrs: Self = Self(16);
-    pub const ReshapeAttrs: Self = Self(17);
-    pub const ResizeAttrs: Self = Self(18);
-    pub const SplitAttrs: Self = Self(19);
-    pub const SoftmaxAttrs: Self = Self(20);
-    pub const TransposeAttrs: Self = Self(21);
+    pub const ConcatAttrs: Self = Self(5);
+    pub const ConstantOfShapeAttrs: Self = Self(6);
+    pub const ConvAttrs: Self = Self(7);
+    pub const ConvTransposeAttrs: Self = Self(8);
+    pub const FlattenAttrs: Self = Self(9);
+    pub const GatherAttrs: Self = Self(10);
+    pub const GemmAttrs: Self = Self(11);
+    pub const LeakyReluAttrs: Self = Self(12);
+    pub const LSTMAttrs: Self = Self(13);
+    pub const MaxPoolAttrs: Self = Self(14);
+    pub const ReduceMeanAttrs: Self = Self(15);
+    pub const ReshapeAttrs: Self = Self(16);
+    pub const ResizeAttrs: Self = Self(17);
+    pub const SplitAttrs: Self = Self(18);
+    pub const SoftmaxAttrs: Self = Self(19);
+    pub const TransposeAttrs: Self = Self(20);
 
     pub const ENUM_MIN: u8 = 0;
-    pub const ENUM_MAX: u8 = 21;
+    pub const ENUM_MAX: u8 = 20;
     pub const ENUM_VALUES: &'static [Self] = &[
         Self::NONE,
         Self::ArgMaxAttrs,
         Self::AveragePoolAttrs,
         Self::BatchNormalizationAttrs,
         Self::CastAttrs,
-        Self::ClipAttrs,
         Self::ConcatAttrs,
         Self::ConstantOfShapeAttrs,
         Self::ConvAttrs,
@@ -951,7 +948,6 @@ impl OperatorAttrs {
             Self::AveragePoolAttrs => Some("AveragePoolAttrs"),
             Self::BatchNormalizationAttrs => Some("BatchNormalizationAttrs"),
             Self::CastAttrs => Some("CastAttrs"),
-            Self::ClipAttrs => Some("ClipAttrs"),
             Self::ConcatAttrs => Some("ConcatAttrs"),
             Self::ConstantOfShapeAttrs => Some("ConstantOfShapeAttrs"),
             Self::ConvAttrs => Some("ConvAttrs"),
@@ -1851,119 +1847,6 @@ impl core::fmt::Debug for CastAttrs<'_> {
     fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
         let mut ds = f.debug_struct("CastAttrs");
         ds.field("to", &self.to());
-        ds.finish()
-    }
-}
-pub enum ClipAttrsOffset {}
-#[derive(Copy, Clone, PartialEq)]
-
-pub struct ClipAttrs<'a> {
-    pub _tab: flatbuffers::Table<'a>,
-}
-
-impl<'a> flatbuffers::Follow<'a> for ClipAttrs<'a> {
-    type Inner = ClipAttrs<'a>;
-    #[inline]
-    unsafe fn follow(buf: &'a [u8], loc: usize) -> Self::Inner {
-        Self {
-            _tab: flatbuffers::Table::new(buf, loc),
-        }
-    }
-}
-
-impl<'a> ClipAttrs<'a> {
-    pub const VT_MIN: flatbuffers::VOffsetT = 4;
-    pub const VT_MAX: flatbuffers::VOffsetT = 6;
-
-    #[inline]
-    pub unsafe fn init_from_table(table: flatbuffers::Table<'a>) -> Self {
-        ClipAttrs { _tab: table }
-    }
-    #[allow(unused_mut)]
-    pub fn create<'bldr: 'args, 'args: 'mut_bldr, 'mut_bldr>(
-        _fbb: &'mut_bldr mut flatbuffers::FlatBufferBuilder<'bldr>,
-        args: &'args ClipAttrsArgs,
-    ) -> flatbuffers::WIPOffset<ClipAttrs<'bldr>> {
-        let mut builder = ClipAttrsBuilder::new(_fbb);
-        builder.add_max(args.max);
-        builder.add_min(args.min);
-        builder.finish()
-    }
-
-    #[inline]
-    pub fn min(&self) -> f32 {
-        // Safety:
-        // Created from valid Table for this object
-        // which contains a valid value in this slot
-        unsafe { self._tab.get::<f32>(ClipAttrs::VT_MIN, Some(0.0)).unwrap() }
-    }
-    #[inline]
-    pub fn max(&self) -> f32 {
-        // Safety:
-        // Created from valid Table for this object
-        // which contains a valid value in this slot
-        unsafe { self._tab.get::<f32>(ClipAttrs::VT_MAX, Some(0.0)).unwrap() }
-    }
-}
-
-impl flatbuffers::Verifiable for ClipAttrs<'_> {
-    #[inline]
-    fn run_verifier(
-        v: &mut flatbuffers::Verifier,
-        pos: usize,
-    ) -> Result<(), flatbuffers::InvalidFlatbuffer> {
-        use self::flatbuffers::Verifiable;
-        v.visit_table(pos)?
-            .visit_field::<f32>("min", Self::VT_MIN, false)?
-            .visit_field::<f32>("max", Self::VT_MAX, false)?
-            .finish();
-        Ok(())
-    }
-}
-pub struct ClipAttrsArgs {
-    pub min: f32,
-    pub max: f32,
-}
-impl<'a> Default for ClipAttrsArgs {
-    #[inline]
-    fn default() -> Self {
-        ClipAttrsArgs { min: 0.0, max: 0.0 }
-    }
-}
-
-pub struct ClipAttrsBuilder<'a: 'b, 'b> {
-    fbb_: &'b mut flatbuffers::FlatBufferBuilder<'a>,
-    start_: flatbuffers::WIPOffset<flatbuffers::TableUnfinishedWIPOffset>,
-}
-impl<'a: 'b, 'b> ClipAttrsBuilder<'a, 'b> {
-    #[inline]
-    pub fn add_min(&mut self, min: f32) {
-        self.fbb_.push_slot::<f32>(ClipAttrs::VT_MIN, min, 0.0);
-    }
-    #[inline]
-    pub fn add_max(&mut self, max: f32) {
-        self.fbb_.push_slot::<f32>(ClipAttrs::VT_MAX, max, 0.0);
-    }
-    #[inline]
-    pub fn new(_fbb: &'b mut flatbuffers::FlatBufferBuilder<'a>) -> ClipAttrsBuilder<'a, 'b> {
-        let start = _fbb.start_table();
-        ClipAttrsBuilder {
-            fbb_: _fbb,
-            start_: start,
-        }
-    }
-    #[inline]
-    pub fn finish(self) -> flatbuffers::WIPOffset<ClipAttrs<'a>> {
-        let o = self.fbb_.end_table(self.start_);
-        flatbuffers::WIPOffset::new(o.value())
-    }
-}
-
-impl core::fmt::Debug for ClipAttrs<'_> {
-    fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
-        let mut ds = f.debug_struct("ClipAttrs");
-        ds.field("min", &self.min());
-        ds.field("max", &self.max());
         ds.finish()
     }
 }
@@ -4431,21 +4314,6 @@ impl<'a> OperatorNode<'a> {
 
     #[inline]
     #[allow(non_snake_case)]
-    pub fn attrs_as_clip_attrs(&self) -> Option<ClipAttrs<'a>> {
-        if self.attrs_type() == OperatorAttrs::ClipAttrs {
-            self.attrs().map(|t| {
-                // Safety:
-                // Created from a valid Table for this object
-                // Which contains a valid union in this slot
-                unsafe { ClipAttrs::init_from_table(t) }
-            })
-        } else {
-            None
-        }
-    }
-
-    #[inline]
-    #[allow(non_snake_case)]
     pub fn attrs_as_concat_attrs(&self) -> Option<ConcatAttrs<'a>> {
         if self.attrs_type() == OperatorAttrs::ConcatAttrs {
             self.attrs().map(|t| {
@@ -4700,7 +4568,6 @@ impl flatbuffers::Verifiable for OperatorNode<'_> {
           OperatorAttrs::AveragePoolAttrs => v.verify_union_variant::<flatbuffers::ForwardsUOffset<AveragePoolAttrs>>("OperatorAttrs::AveragePoolAttrs", pos),
           OperatorAttrs::BatchNormalizationAttrs => v.verify_union_variant::<flatbuffers::ForwardsUOffset<BatchNormalizationAttrs>>("OperatorAttrs::BatchNormalizationAttrs", pos),
           OperatorAttrs::CastAttrs => v.verify_union_variant::<flatbuffers::ForwardsUOffset<CastAttrs>>("OperatorAttrs::CastAttrs", pos),
-          OperatorAttrs::ClipAttrs => v.verify_union_variant::<flatbuffers::ForwardsUOffset<ClipAttrs>>("OperatorAttrs::ClipAttrs", pos),
           OperatorAttrs::ConcatAttrs => v.verify_union_variant::<flatbuffers::ForwardsUOffset<ConcatAttrs>>("OperatorAttrs::ConcatAttrs", pos),
           OperatorAttrs::ConstantOfShapeAttrs => v.verify_union_variant::<flatbuffers::ForwardsUOffset<ConstantOfShapeAttrs>>("OperatorAttrs::ConstantOfShapeAttrs", pos),
           OperatorAttrs::ConvAttrs => v.verify_union_variant::<flatbuffers::ForwardsUOffset<ConvAttrs>>("OperatorAttrs::ConvAttrs", pos),
@@ -4832,16 +4699,6 @@ impl core::fmt::Debug for OperatorNode<'_> {
             }
             OperatorAttrs::CastAttrs => {
                 if let Some(x) = self.attrs_as_cast_attrs() {
-                    ds.field("attrs", &x)
-                } else {
-                    ds.field(
-                        "attrs",
-                        &"InvalidFlatbuffer: Union discriminant does not match value.",
-                    )
-                }
-            }
-            OperatorAttrs::ClipAttrs => {
-                if let Some(x) = self.attrs_as_clip_attrs() {
                     ds.field("attrs", &x)
                 } else {
                     ds.field(

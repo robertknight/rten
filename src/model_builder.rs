@@ -3,7 +3,7 @@ extern crate flatbuffers;
 use flatbuffers::{FlatBufferBuilder, UnionWIPOffset, Vector, WIPOffset};
 
 use crate::ops::{
-    ArgMax, ArgMin, AveragePool, BatchNormalization, Cast, Clip, Concat, ConstantOfShape, Conv,
+    ArgMax, ArgMin, AveragePool, BatchNormalization, Cast, Concat, ConstantOfShape, Conv,
     ConvTranspose, CoordTransformMode, DataType, Flatten, Gather, Gemm, LeakyRelu, MaxPool,
     NearestMode, Padding, ReduceMean, Reshape, Resize, ResizeMode, Scalar, Softmax, Split,
     Transpose,
@@ -19,7 +19,7 @@ pub enum OpType {
     AveragePool(AveragePool),
     BatchNormalization(BatchNormalization),
     Cast(Cast),
-    Clip(Clip),
+    Clip,
     Concat(Concat),
     ConstantOfShape(ConstantOfShape),
     Conv(Conv),
@@ -275,14 +275,7 @@ impl<'a> ModelBuilder<'a> {
                     },
                 }
             ),
-            OpType::Clip(args) => op_with_attrs!(
-                Clip,
-                ClipAttrs,
-                sg::ClipAttrsArgs {
-                    min: args.min,
-                    max: args.max,
-                }
-            ),
+            OpType::Clip => op!(Clip),
             OpType::Concat(args) => op_with_attrs!(
                 Concat,
                 ConcatAttrs,

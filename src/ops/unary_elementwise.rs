@@ -45,27 +45,46 @@ impl<Op: UnaryFloatOp + Debug> Operator for Op {
     }
 }
 
-pub fn clip(input: &Tensor, min: f32, max: f32) -> Tensor {
-    Clip { min, max }.map(input)
+pub fn clip(input: &Tensor, min: Option<f32>, max: Option<f32>) -> Tensor {
+    let min = min.unwrap_or(f32::MIN);
+    let max = max.unwrap_or(f32::MAX);
+    input.map(|x| x.clamp(min, max))
 }
 
-pub fn clip_in_place(input: &mut Tensor, min: f32, max: f32) {
-    Clip { min, max }.apply(input)
+pub fn clip_in_place(input: &mut Tensor, min: Option<f32>, max: Option<f32>) {
+    let min = min.unwrap_or(f32::MIN);
+    let max = max.unwrap_or(f32::MAX);
+    input.apply(|x| x.clamp(min, max))
 }
+
+// TODO - Move `Clip` operator into another module since it is no longer a
+// unary op (it used to take `min` and `max` as attributes).
 
 #[derive(Debug)]
-pub struct Clip {
-    pub min: f32,
-    pub max: f32,
-}
+pub struct Clip {}
 
-impl UnaryFloatOp for Clip {
+impl Operator for Clip {
     fn name(&self) -> &str {
         "Clip"
     }
 
-    fn map_element(&self, val: f32) -> f32 {
-        val.clamp(self.min, self.max)
+    fn run(&self, inputs: InputList) -> Result<Vec<Output>, OpError> {
+        let input = inputs.require_as(0)?;
+        let min = inputs.get_as_scalar(1)?;
+        let max = inputs.get_as_scalar(2)?;
+        clip(input, min, max).into_op_result()
+    }
+
+    fn can_run_in_place(&self) -> bool {
+        true
+    }
+
+    fn run_in_place(&self, input: Output, other: InputList) -> Result<Output, OpError> {
+        let mut input = input.into_float().ok_or(OpError::IncorrectInputType)?;
+        let min = other.get_as_scalar(0)?;
+        let max = other.get_as_scalar(1)?;
+        clip_in_place(&mut input, min, max);
+        Ok(input.into())
     }
 }
 
@@ -248,27 +267,54 @@ mod tests {
         relu, relu_in_place, sigmoid, sigmoid_in_place, sin, sin_in_place, sqrt, sqrt_in_place,
         tanh, tanh_in_place,
     };
-    use crate::tensor::{from_data, from_vec};
+    use crate::tensor;
+    use crate::tensor::{from_data, from_vec, Tensor};
     use crate::test_util::expect_equal;
-
-    // TODO: Eliminate the duplication for tests that apply the operator
-    // in-place vs returning a new tensor.
 
     #[test]
     fn test_clip() -> Result<(), String> {
-        let input = from_data(&[2, 2], vec![-5., -2., 3., 20.]);
-        let expected = from_data(&[2, 2], vec![1., 1., 3., 5.]);
-        let result = clip(&input, 1.0, 5.0);
-        expect_equal(&result, &expected)
+        struct Case {
+            input: Tensor,
+            min: Option<f32>,
+            max: Option<f32>,
+            expected: Tensor,
+        }
+
+        let cases = [
+            Case {
+                input: tensor!((2, 2); [-5., -2., 3., 20.]),
+                min: Some(1.),
+                max: Some(5.),
+                expected: tensor!((2, 2); [1., 1., 3., 5.]),
+            },
+            Case {
+                input: tensor!((2, 2); [-5., -2., 3., 20.]),
+                min: Some(1.),
+                max: None,
+                expected: tensor!((2, 2); [1., 1., 3., 20.]),
+            },
+            Case {
+                input: tensor!((2, 2); [-5., -2., 3., 20.]),
+                min: None,
+                max: Some(5.),
+                expected: tensor!((2, 2); [-5., -2., 3., 5.]),
+            },
+        ];
+
+        for case in cases {
+            let result = clip(&case.input, case.min, case.max);
+            expect_equal(&result, &case.expected)?;
+
+            let mut input = case.input.clone();
+            clip_in_place(&mut input, case.min, case.max);
+            expect_equal(&input, &case.expected)?;
+        }
+
+        Ok(())
     }
 
-    #[test]
-    fn test_clip_in_place() -> Result<(), String> {
-        let mut input = from_data(&[2, 2], vec![-5., -2., 3., 20.]);
-        let expected = from_data(&[2, 2], vec![1., 1., 3., 5.]);
-        clip_in_place(&mut input, 1.0, 5.0);
-        expect_equal(&input, &expected)
-    }
+    // TODO: Eliminate the duplication for tests that apply the operator
+    // in-place vs returning a new tensor.
 
     #[test]
     fn test_cos() -> Result<(), String> {

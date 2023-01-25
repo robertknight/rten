@@ -147,14 +147,6 @@ fn read_cast_op(node: &OperatorNode) -> ReadOpResult {
     Ok(Box::new(ops::Cast { to }))
 }
 
-fn read_clip_op(node: &OperatorNode) -> ReadOpResult {
-    let attrs = node.attrs_as_clip_attrs().ok_or(ReadOpError::AttrError)?;
-    Ok(Box::new(ops::Clip {
-        min: attrs.min(),
-        max: attrs.max(),
-    }))
-}
-
 fn read_concat_op(node: &OperatorNode) -> ReadOpResult {
     let attrs = node.attrs_as_concat_attrs().ok_or(ReadOpError::AttrError)?;
     Ok(Box::new(ops::Concat {
@@ -369,7 +361,7 @@ fn read_operator(node: &OperatorNode) -> ReadOpResult {
         OperatorType::AveragePool => read_average_pool_op(node),
         OperatorType::BatchNormalization => read_batch_normalization_op(node),
         OperatorType::Cast => read_cast_op(node),
-        OperatorType::Clip => read_clip_op(node),
+        OperatorType::Clip => op!(Clip),
         OperatorType::Concat => read_concat_op(node),
         OperatorType::Conv => read_conv_op(node),
         OperatorType::ConstantOfShape => read_constant_of_shape_op(node),
@@ -693,7 +685,10 @@ mod tests {
         );
 
         add_operator!(Cast, [input_node], { to: ops::DataType::Float });
-        add_operator!(Clip, [input_node], { min: 1.0, max: 5.0 });
+
+        let clip_min = builder.add_float_constant(&tensor!(1.));
+        let clip_max = builder.add_float_constant(&tensor!(5.));
+        add_operator!(Clip, [input_node, clip_min, clip_max]);
         add_operator!(Concat, [input_node, input_node], { dim: 0 });
 
         let shape = builder.add_int_constant(&from_data(&[3], vec![1, 5, 10]));

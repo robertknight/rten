@@ -581,21 +581,8 @@ def op_node_from_onnx_operator(
                     raise Exception(f"Unsupported target type for cast {to}")
 
         case "Clip":
-            # Min and max values for floats. These correspond to
-            # `numeric_limits<float>::lowest()` and `numeric_limits<float>::max()`
-            # which are referenced in the spec [1]
-            #
-            # [1] https://onnx.ai/onnx/operators/onnx__Clip.html#clip-13
-            MIN_F32 = -3.40282347e38
-            MAX_F32 = 3.40282347e38
-
-            attrs = sg.ClipAttrsT()
-            attrs.min = op_reader.get_attr_or_input(
-                "min", "float", 1, constant_nodes, default=MIN_F32
-            )
-            attrs.max = op_reader.get_attr_or_input(
-                "max", "float", 2, constant_nodes, default=MAX_F32
-            )
+            op_reader.generate_input_from_attr(1, "min", "float")
+            op_reader.generate_input_from_attr(2, "max", "float")
 
         case "Concat":
             attrs = sg.ConcatAttrsT()

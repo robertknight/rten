@@ -99,7 +99,6 @@ union OperatorAttrs {
   AveragePoolAttrs,
   BatchNormalizationAttrs,
   CastAttrs,
-  ClipAttrs,
   ConcatAttrs,
   ConstantOfShapeAttrs,
   ConvAttrs,
@@ -139,11 +138,6 @@ table BatchNormalizationAttrs {
 
 table CastAttrs {
   to:DataType;
-}
-
-table ClipAttrs {
-  min:float;
-  max:float;
 }
 
 table ConcatAttrs {

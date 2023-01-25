@@ -97,23 +97,22 @@ class OperatorAttrs(object):
     AveragePoolAttrs = 2
     BatchNormalizationAttrs = 3
     CastAttrs = 4
-    ClipAttrs = 5
-    ConcatAttrs = 6
-    ConstantOfShapeAttrs = 7
-    ConvAttrs = 8
-    ConvTransposeAttrs = 9
-    FlattenAttrs = 10
-    GatherAttrs = 11
-    GemmAttrs = 12
-    LeakyReluAttrs = 13
-    LSTMAttrs = 14
-    MaxPoolAttrs = 15
-    ReduceMeanAttrs = 16
-    ReshapeAttrs = 17
-    ResizeAttrs = 18
-    SplitAttrs = 19
-    SoftmaxAttrs = 20
-    TransposeAttrs = 21
+    ConcatAttrs = 5
+    ConstantOfShapeAttrs = 6
+    ConvAttrs = 7
+    ConvTransposeAttrs = 8
+    FlattenAttrs = 9
+    GatherAttrs = 10
+    GemmAttrs = 11
+    LeakyReluAttrs = 12
+    LSTMAttrs = 13
+    MaxPoolAttrs = 14
+    ReduceMeanAttrs = 15
+    ReshapeAttrs = 16
+    ResizeAttrs = 17
+    SplitAttrs = 18
+    SoftmaxAttrs = 19
+    TransposeAttrs = 20
 
 def OperatorAttrsCreator(unionType, table):
     from flatbuffers.table import Table
@@ -127,8 +126,6 @@ def OperatorAttrsCreator(unionType, table):
         return BatchNormalizationAttrsT.InitFromBuf(table.Bytes, table.Pos)
     if unionType == OperatorAttrs().CastAttrs:
         return CastAttrsT.InitFromBuf(table.Bytes, table.Pos)
-    if unionType == OperatorAttrs().ClipAttrs:
-        return ClipAttrsT.InitFromBuf(table.Bytes, table.Pos)
     if unionType == OperatorAttrs().ConcatAttrs:
         return ConcatAttrsT.InitFromBuf(table.Bytes, table.Pos)
     if unionType == OperatorAttrs().ConstantOfShapeAttrs:
@@ -653,88 +650,6 @@ class CastAttrsT(object):
         CastAttrsAddTo(builder, self.to)
         castAttrs = CastAttrsEnd(builder)
         return castAttrs
-
-
-class ClipAttrs(object):
-    __slots__ = ['_tab']
-
-    @classmethod
-    def GetRootAs(cls, buf, offset=0):
-        n = flatbuffers.encode.Get(flatbuffers.packer.uoffset, buf, offset)
-        x = ClipAttrs()
-        x.Init(buf, n + offset)
-        return x
-
-    @classmethod
-    def GetRootAsClipAttrs(cls, buf, offset=0):
-        """This method is deprecated. Please switch to GetRootAs."""
-        return cls.GetRootAs(buf, offset)
-    @classmethod
-    def ClipAttrsBufferHasIdentifier(cls, buf, offset, size_prefixed=False):
-        return flatbuffers.util.BufferHasIdentifier(buf, offset, b"\x4D\x4F\x44\x4C", size_prefixed=size_prefixed)
-
-    # ClipAttrs
-    def Init(self, buf, pos):
-        self._tab = flatbuffers.table.Table(buf, pos)
-
-    # ClipAttrs
-    def Min(self):
-        o = flatbuffers.number_types.UOffsetTFlags.py_type(self._tab.Offset(4))
-        if o != 0:
-            return self._tab.Get(flatbuffers.number_types.Float32Flags, o + self._tab.Pos)
-        return 0.0
-
-    # ClipAttrs
-    def Max(self):
-        o = flatbuffers.number_types.UOffsetTFlags.py_type(self._tab.Offset(6))
-        if o != 0:
-            return self._tab.Get(flatbuffers.number_types.Float32Flags, o + self._tab.Pos)
-        return 0.0
-
-def ClipAttrsStart(builder): builder.StartObject(2)
-def ClipAttrsAddMin(builder, min): builder.PrependFloat32Slot(0, min, 0.0)
-def ClipAttrsAddMax(builder, max): builder.PrependFloat32Slot(1, max, 0.0)
-def ClipAttrsEnd(builder): return builder.EndObject()
-
-
-class ClipAttrsT(object):
-
-    # ClipAttrsT
-    def __init__(self):
-        self.min = 0.0  # type: float
-        self.max = 0.0  # type: float
-
-    @classmethod
-    def InitFromBuf(cls, buf, pos):
-        clipAttrs = ClipAttrs()
-        clipAttrs.Init(buf, pos)
-        return cls.InitFromObj(clipAttrs)
-
-    @classmethod
-    def InitFromPackedBuf(cls, buf, pos=0):
-        n = flatbuffers.encode.Get(flatbuffers.packer.uoffset, buf, pos)
-        return cls.InitFromBuf(buf, pos+n)
-
-    @classmethod
-    def InitFromObj(cls, clipAttrs):
-        x = ClipAttrsT()
-        x._UnPack(clipAttrs)
-        return x
-
-    # ClipAttrsT
-    def _UnPack(self, clipAttrs):
-        if clipAttrs is None:
-            return
-        self.min = clipAttrs.Min()
-        self.max = clipAttrs.Max()
-
-    # ClipAttrsT
-    def Pack(self, builder):
-        ClipAttrsStart(builder)
-        ClipAttrsAddMin(builder, self.min)
-        ClipAttrsAddMax(builder, self.max)
-        clipAttrs = ClipAttrsEnd(builder)
-        return clipAttrs
 
 
 class ConcatAttrs(object):
@@ -2608,7 +2523,7 @@ class OperatorNodeT(object):
     def __init__(self):
         self.type = 0  # type: int
         self.attrsType = 0  # type: int
-        self.attrs = None  # type: Union[None, ArgMaxAttrsT, AveragePoolAttrsT, BatchNormalizationAttrsT, CastAttrsT, ClipAttrsT, ConcatAttrsT, ConstantOfShapeAttrsT, ConvAttrsT, ConvTransposeAttrsT, FlattenAttrsT, GatherAttrsT, GemmAttrsT, LeakyReluAttrsT, LSTMAttrsT, MaxPoolAttrsT, ReduceMeanAttrsT, ReshapeAttrsT, ResizeAttrsT, SplitAttrsT, SoftmaxAttrsT, TransposeAttrsT]
+        self.attrs = None  # type: Union[None, ArgMaxAttrsT, AveragePoolAttrsT, BatchNormalizationAttrsT, CastAttrsT, ConcatAttrsT, ConstantOfShapeAttrsT, ConvAttrsT, ConvTransposeAttrsT, FlattenAttrsT, GatherAttrsT, GemmAttrsT, LeakyReluAttrsT, LSTMAttrsT, MaxPoolAttrsT, ReduceMeanAttrsT, ReshapeAttrsT, ResizeAttrsT, SplitAttrsT, SoftmaxAttrsT, TransposeAttrsT]
         self.inputs = None  # type: List[int]
         self.outputs = None  # type: List[int]
 
