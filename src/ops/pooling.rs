@@ -1,7 +1,7 @@
 use crate::check_dims;
 use crate::linalg::div_ceil;
 use crate::ops::{InputList, IntoOpResult, OpError, Operator, Output, Padding};
-use crate::tensor::{zeros, Tensor, TensorLayout};
+use crate::tensor::{Tensor, TensorLayout};
 
 /// Calculate the output size and padding for a convolution or pooling operation.
 ///
@@ -74,7 +74,7 @@ pub fn average_pool(
     let [kernel_h, kernel_w] = kernel_size;
     let [stride_h, stride_w] = strides;
 
-    let mut output = zeros::<f32>(&[batch, in_c, out_h, out_w]);
+    let mut output = Tensor::zeros(&[batch, in_c, out_h, out_w]);
 
     for n in 0..batch {
         for chan in 0..in_c {
@@ -133,7 +133,7 @@ pub fn global_average_pool(input: &Tensor) -> Result<Tensor, OpError> {
     check_dims!(input, 4);
 
     let [batch, chans, in_h, in_w] = input.dims();
-    let mut output = zeros(&[batch, chans, 1, 1]);
+    let mut output = Tensor::zeros(&[batch, chans, 1, 1]);
 
     let hw_float = (in_h * in_w) as f32;
 
@@ -186,7 +186,7 @@ pub fn max_pool(
     let [kernel_h, kernel_w] = kernel_size;
     let [stride_h, stride_w] = strides;
 
-    let mut output = zeros::<f32>(&[batch, in_c, out_h, out_w]);
+    let mut output = Tensor::zeros(&[batch, in_c, out_h, out_w]);
 
     for n in 0..batch {
         for chan in 0..in_c {

@@ -4,7 +4,7 @@ use crate::check_dims;
 use crate::linalg::{gemm, Matrix};
 use crate::ops::binary_elementwise::broadcast_shapes;
 use crate::ops::{InputList, IntoOpResult, OpError, Operator, Output};
-use crate::tensor::{zeros, AsMatrix, Tensor, TensorLayout};
+use crate::tensor::{AsMatrix, Tensor, TensorLayout};
 
 #[derive(Debug)]
 pub struct Gemm {
@@ -54,7 +54,7 @@ pub fn gemm_op(
             let out_data = c.broadcast_iter(out_shape).collect();
             Tensor::from_data(out_shape, out_data)
         }
-        _ => zeros(out_shape),
+        _ => Tensor::zeros(out_shape),
     };
 
     let out_row_stride = output.stride(0);
@@ -116,7 +116,7 @@ pub fn matmul(a: &Tensor, b: &Tensor) -> Result<Tensor, OpError> {
         .ok_or(OpError::IncompatibleInputShapes("Cannot broadcast shapes"))?;
 
     let out_shape = &[out_prefix.as_slice(), &[a_rows, b_cols]].concat();
-    let mut output = zeros(out_shape);
+    let mut output = Tensor::zeros(out_shape);
 
     let a_broadcast_shape = [out_prefix.as_slice(), &[a_rows, a_cols]].concat();
     let b_broadcast_shape = [out_prefix.as_slice(), &[b_rows, b_cols]].concat();

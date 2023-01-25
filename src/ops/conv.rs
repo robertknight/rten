@@ -4,7 +4,7 @@ use crate::check_dims;
 use crate::linalg::{add_scaled_vector, div_ceil, gemm};
 use crate::ops::pooling::calc_output_size_and_padding;
 use crate::ops::{InputList, IntoOpResult, OpError, Operator, Output, Padding};
-use crate::tensor::{zeros, AsMatrix, SliceItem, Tensor, TensorLayout};
+use crate::tensor::{AsMatrix, SliceItem, Tensor, TensorLayout};
 
 // Calculate the min and max output X coordinates that are valid when updating
 // a row of convolution output using a loop:
@@ -125,7 +125,7 @@ fn conv_2d_pointwise(input: &Tensor, kernel: &Tensor, bias: Option<&Tensor>) -> 
     let mut output = if let Some(bias) = bias {
         init_tensor_with_channel_bias(&[batch, out_c, in_h * in_w], 1, bias)
     } else {
-        zeros(&[batch, out_c, in_h * in_w])
+        Tensor::zeros(&[batch, out_c, in_h * in_w])
     };
 
     // Get input and kernel as contiguous tensors so we can create reshaped
@@ -186,7 +186,7 @@ fn conv_2d_depthwise(
     let mut output = if let Some(bias) = bias {
         init_tensor_with_channel_bias(&[batch, out_c, out_h, out_w], 1, bias)
     } else {
-        zeros::<f32>(&[batch, out_c, out_h, out_w])
+        Tensor::zeros(&[batch, out_c, out_h, out_w])
     };
 
     // Use of `last_dim_slice` requires contiguous last dimension.
@@ -314,9 +314,9 @@ pub fn conv(
     let mut output = if let Some(bias) = bias {
         init_tensor_with_channel_bias(&[batch, out_c, n_patches], 1, bias)
     } else {
-        zeros(&[batch, out_c, n_patches])
+        Tensor::zeros(&[batch, out_c, n_patches])
     };
-    let mut im2col_mat = zeros(&[in_channels_per_group * k_h * k_w, n_patches]);
+    let mut im2col_mat = Tensor::zeros(&[in_channels_per_group * k_h * k_w, n_patches]);
 
     for n in 0..batch {
         for group in 0..groups {
@@ -422,7 +422,7 @@ pub fn conv_transpose(
     let mut output = if let Some(bias) = bias {
         init_tensor_with_channel_bias(&[batch, out_c, out_h, out_w], 1, bias)
     } else {
-        zeros::<f32>(&[batch, out_c, out_h, out_w])
+        Tensor::zeros(&[batch, out_c, out_h, out_w])
     };
 
     // Use of `last_dim_slice` requires contiguous last dimension.

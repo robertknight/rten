@@ -800,6 +800,7 @@ impl<'a, const N: usize, T: Copy> IndexMut<[usize; N]> for UncheckedViewMut<'a, 
 }
 
 /// Create a new tensor with all values set to 0.
+#[cfg(test)]
 pub fn zeros<T: Copy + Default>(shape: &[usize]) -> Tensor<T> {
     Tensor::zeros(shape)
 }
