@@ -11,6 +11,7 @@ use crate::rng::XorShiftRng;
 mod index_iterator;
 mod iterators;
 mod layout;
+mod macros;
 mod range;
 
 pub use self::index_iterator::IndexIterator;
