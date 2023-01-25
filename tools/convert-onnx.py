@@ -2,7 +2,7 @@
 
 import array
 from argparse import ArgumentParser
-from typing import Any, Literal, cast
+from typing import Any, Callable, Literal, cast
 
 import flatbuffers
 import numpy as np
@@ -126,11 +126,35 @@ class ONNXOperatorReader:
 
     onnx_op: onnx.OperatorProto
 
+    add_node: Callable[[Node], int]
+    """
+    Function that adds a new node to the graph and returns its ID.
+
+    This is used if a new constant node has to be generated to replace an
+    operator attribute.
+    """
+
+    input_indexes: list[int | None]
+    """
+    IDs of the operator's input nodes.
+
+    New inputs may be generated while reading an operator if it has an attribute
+    that needs to be converted to a dynamic input.
+    """
+
     _handled_attrs: set[str]
     """Names of attributes that have been handled."""
 
-    def __init__(self, onnx_op: onnx.OperatorProto):
+    def __init__(
+        self,
+        onnx_op: onnx.OperatorProto,
+        input_indexes: list[int | None],
+        add_node: Callable[[Node], int],
+    ):
         self.onnx_op = onnx_op
+
+        self.add_node = add_node
+        self.input_indexes = input_indexes.copy()
 
         self._handled_attrs = set()
 
@@ -184,6 +208,55 @@ class ONNXOperatorReader:
         if val is None:
             raise Exception(f"Missing required attribute {name}")
         return val
+
+    def generate_input_from_attr(
+        self, input_index: int, attr_name: str, attr_type: str
+    ):
+        """
+        Generate a constant operator input from an attribute, if it exists.
+
+        Some operator inputs changed from attributes to inputs in different ONNX
+        releases. This function checks to see if an operator has an attribute
+        and synthesizes a constant input.
+
+        :param input_index: Index of the input that the attribute corresponds to
+        :param attr_name: Name of the attribute
+        :param attr_type: Expected type of the attribute
+        """
+
+        attr_val = self.get_attr(attr_name, attr_type, default=None)
+        if attr_val is None:
+            return
+
+        if input_index < len(self.input_indexes):
+            raise Exception(
+                f'Operator has both an attribute "{attr_name}" and corresponding input at index {input_index}'
+            )
+
+        match attr_type:
+            case "int":
+                shape = []
+                data = array.array("i", [attr_val])
+
+            case "float":
+                shape = []
+                data = array.array("f", [attr_val])
+
+            case "ints":
+                shape = [len(attr_val)]
+                data = array.array("i", attr_val)
+            case _:
+                raise ValueError(
+                    f'Unable to generate input from "{attr_name}" attribute of type "{attr_type}"'
+                )
+
+        generated_name = self.onnx_op.name + ":wasnn-" + attr_name
+        const_node = ConstantNode(generated_name, shape, data)
+        input_id = self.add_node(const_node)
+
+        while len(self.input_indexes) < input_index + 1:
+            self.input_indexes.append(None)
+        self.input_indexes[input_index] = input_id
 
     def get_attr_or_input(
         self,
@@ -354,7 +427,12 @@ def constant_node_from_onnx_initializer(tensor) -> ConstantNode:
 
 
 def constant_node_from_onnx_constant_op(onnx_op: onnx.OperatorProto) -> ConstantNode:
-    tensor = ONNXOperatorReader(onnx_op).require_attr("value", "tensor")
+    def noop_add_node(node: Node) -> int:
+        raise ValueError("Not implemented")
+
+    tensor = ONNXOperatorReader(
+        onnx_op, input_indexes=[], add_node=noop_add_node
+    ).require_attr("value", "tensor")
     const_node = constant_node_from_onnx_initializer(tensor)
 
     if not len(onnx_op.output):
@@ -411,12 +489,21 @@ def op_node_from_onnx_operator(
     onnx_op: onnx.OperatorProto,
     node_index_from_name: dict[str, int],
     constant_nodes: dict[str, ConstantNode],
+    add_node: Callable[[Node], int],
 ) -> OperatorNode:
     """
     Map an ONNX operator to the equivalent operator in this library.
 
     See https://github.com/onnx/onnx/blob/main/docs/Operators.md for list of
     available ONNX operators and attributes for each.
+
+    :param onnx_op: ONNX operator to convert
+    :param node_index_from_name: Mapping of constant and value tensor node names
+      in the graph to corresponding input names
+    :param constant_nodes: Map of constant value tensor node names
+    :param add_node: Function that adds a new node to the graph and returns its
+      node ID. This is called if an operator attribute needs to be converted
+      to a constant input.
     """
     input_indexes = []
     for input_name in onnx_op.input:
@@ -450,7 +537,7 @@ def op_node_from_onnx_operator(
     # Operator type name in Wasnn models. By default assume this is the same as
     # the ONNX type.
     op_type = onnx_op.op_type
-    op_reader = ONNXOperatorReader(onnx_op)
+    op_reader = ONNXOperatorReader(onnx_op, input_indexes, add_node)
 
     # Check / convert operator attributes and operator name, if different than
     # ONNX.
@@ -670,24 +757,18 @@ def op_node_from_onnx_operator(
         case "Split":
             attrs = sg.SplitAttrsT()
             attrs.axis = op_reader.get_attr("axis", "int", 0)
-
             op_reader.check_attr("num_outputs", "int", 0)
+            op_reader.generate_input_from_attr(1, "split", "ints")
 
         case "Squeeze":
-            attrs = sg.SqueezeAttrsT()
-            attrs.axes = op_reader.get_attr_or_input(
-                "axes", "ints", 1, constant_nodes, []
-            )
+            op_reader.generate_input_from_attr(1, "axes", "ints")
 
         case "Transpose":
             attrs = sg.TransposeAttrsT()
             attrs.perm = op_reader.get_attr("perm", "ints", [])
 
         case "Unsqueeze":
-            attrs = sg.UnsqueezeAttrsT()
-            attrs.axes = op_reader.get_attr_or_input(
-                "axes", "ints", 1, constant_nodes, []
-            )
+            op_reader.generate_input_from_attr(1, "axes", "ints")
 
     if not hasattr(sg.OperatorType, op_type):
         raise Exception(f"Unsupported operator {op_type}")
@@ -703,7 +784,7 @@ def op_node_from_onnx_operator(
         name=onnx_op.name,
         op_type=op_type,
         attrs=attrs,
-        inputs=input_indexes,
+        inputs=op_reader.input_indexes,
         outputs=output_indexes,
     )
 
@@ -759,7 +840,9 @@ def graph_from_onnx_graph(onnx_graph: onnx.GraphProto) -> Graph:
             add_node(value_node)
 
         try:
-            op_node = op_node_from_onnx_operator(operator, tensor_map, constant_map)
+            op_node = op_node_from_onnx_operator(
+                operator, tensor_map, constant_map, add_node=add_node
+            )
             add_node(op_node)
         except Exception as ex:
             print(
