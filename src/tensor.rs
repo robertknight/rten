@@ -6,7 +6,7 @@ use std::ops::{Index, IndexMut, Range};
 use crate::linalg::Matrix;
 
 #[cfg(test)]
-use crate::rng::XorShiftRNG;
+use crate::rng::XorShiftRng;
 
 mod index_iterator;
 mod iterators;
@@ -805,7 +805,7 @@ pub fn zeros<T: Copy + Default>(shape: &[usize]) -> Tensor<T> {
 
 /// Create a new tensor filled with random values supplied by `rng`.
 #[cfg(test)]
-pub fn rand(shape: &[usize], rng: &mut XorShiftRNG) -> Tensor {
+pub fn rand(shape: &[usize], rng: &mut XorShiftRng) -> Tensor {
     let mut t = zeros(shape);
     t.data.fill_with(|| rng.next_f32());
     t
@@ -849,7 +849,7 @@ mod tests {
     use std::borrow::Cow;
     use std::ops::IndexMut;
 
-    use crate::rng::XorShiftRNG;
+    use crate::rng::XorShiftRng;
     use crate::tensor::{
         from_2d_slice, from_data, from_scalar, from_vec, rand, zeros, SliceRange, Tensor,
         TensorLayout,
@@ -1089,7 +1089,7 @@ mod tests {
 
     #[test]
     fn test_reshape() {
-        let mut rng = XorShiftRNG::new(1234);
+        let mut rng = XorShiftRng::new(1234);
         let mut x = rand(&[10, 5, 3, 7], &mut rng);
         let x_data: Vec<f32> = x.data().into();
 
@@ -1103,7 +1103,7 @@ mod tests {
 
     #[test]
     fn test_reshape_non_contiguous() {
-        let mut rng = XorShiftRNG::new(1234);
+        let mut rng = XorShiftRng::new(1234);
         let mut x = rand(&[10, 10], &mut rng);
 
         // Set the input up so that it is non-contiguous and has a non-zero
@@ -1134,7 +1134,7 @@ mod tests {
 
     #[test]
     fn test_reshape_copies_with_custom_strides() {
-        let mut rng = XorShiftRNG::new(1234);
+        let mut rng = XorShiftRng::new(1234);
         let mut x = rand(&[10, 10], &mut rng);
 
         // Give the tensor a non-default stride
@@ -1154,7 +1154,7 @@ mod tests {
     #[test]
     #[should_panic(expected = "New shape must have same total elements as current shape")]
     fn test_reshape_with_wrong_size() {
-        let mut rng = XorShiftRNG::new(1234);
+        let mut rng = XorShiftRng::new(1234);
         let mut x = rand(&[10, 5, 3, 7], &mut rng);
         x.reshape(&[10, 5]);
     }
@@ -1209,7 +1209,7 @@ mod tests {
 
     #[test]
     fn test_clone_with_shape() {
-        let mut rng = XorShiftRNG::new(1234);
+        let mut rng = XorShiftRng::new(1234);
         let x = rand(&[10, 5, 3, 7], &mut rng);
         let y = x.clone_with_shape(&[10, 5, 3 * 7]);
 
@@ -1219,7 +1219,7 @@ mod tests {
 
     #[test]
     fn test_unchecked_view() {
-        let mut rng = XorShiftRNG::new(1234);
+        let mut rng = XorShiftRng::new(1234);
         let x = rand(&[10, 5, 3, 7], &mut rng);
         let x_view = x.unchecked_view([5, 3, 0, 0]);
 
@@ -1232,7 +1232,7 @@ mod tests {
 
     #[test]
     fn test_unchecked_view_mut() {
-        let mut rng = XorShiftRNG::new(1234);
+        let mut rng = XorShiftRng::new(1234);
         let mut x = rand(&[10, 5, 3, 7], &mut rng);
 
         let [_, _, a_size, b_size] = x.dims();
@@ -1253,7 +1253,7 @@ mod tests {
 
     #[test]
     fn test_last_dim_slice() {
-        let mut rng = XorShiftRNG::new(1234);
+        let mut rng = XorShiftRng::new(1234);
         let x = rand(&[10, 5, 3, 7], &mut rng);
         let x_slice = x.last_dim_slice([5, 3, 2, 0], x.shape()[3]);
 
@@ -1264,7 +1264,7 @@ mod tests {
 
     #[test]
     fn test_last_dim_slice_mut() {
-        let mut rng = XorShiftRNG::new(1234);
+        let mut rng = XorShiftRng::new(1234);
         let mut x = rand(&[10, 5, 3, 7], &mut rng);
         let x_slice = x.last_dim_slice_mut([5, 3, 2, 0], x.shape()[3]);
 
@@ -1284,7 +1284,7 @@ mod tests {
             for d in 0..dims {
                 shape.push(d + 1);
             }
-            let mut rng = XorShiftRNG::new(1234);
+            let mut rng = XorShiftRng::new(1234);
             let x = rand(&shape, &mut rng);
 
             let elts: Vec<f32> = x.iter().collect();
@@ -1346,7 +1346,7 @@ mod tests {
             for d in 0..dims {
                 shape.push(d + 1);
             }
-            let mut rng = XorShiftRNG::new(1234);
+            let mut rng = XorShiftRng::new(1234);
             let mut x = rand(&shape, &mut rng);
 
             let elts: Vec<f32> = x.iter().map(|x| x * 2.).collect();
@@ -1389,7 +1389,7 @@ mod tests {
 
     #[test]
     fn test_offsets() {
-        let mut rng = XorShiftRNG::new(1234);
+        let mut rng = XorShiftRng::new(1234);
         let mut x = rand(&[10, 10], &mut rng);
 
         let x_elts: Vec<_> = x.iter().collect();

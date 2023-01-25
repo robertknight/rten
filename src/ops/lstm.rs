@@ -361,7 +361,7 @@ mod tests {
     use serde_json::Value;
 
     use crate::ops::{concat, lstm, split, LSTMDirection};
-    use crate::rng::XorShiftRNG;
+    use crate::rng::XorShiftRng;
     use crate::tensor::{rand, Tensor, TensorLayout};
     use crate::test_util::{expect_equal, read_json_file, read_tensor};
 
@@ -370,7 +370,7 @@ mod tests {
     // and that the last hidden / hidden seq outputs are consistent.
     #[test]
     fn test_lstm_with_random_input() {
-        let mut rng = XorShiftRNG::new(1234);
+        let mut rng = XorShiftRng::new(1234);
         let batch = 2;
         let seq_len = 5;
         let dir = LSTMDirection::Bidirectional;

@@ -1,13 +1,13 @@
 /// Simple, non-cryptographically secure random number generator.
 ///
-/// See https://en.wikipedia.org/wiki/Xorshift
-pub struct XorShiftRNG {
+/// See https://en.wikipedia.org/wiki/Xorshift.
+pub struct XorShiftRng {
     state: u64,
 }
 
-impl XorShiftRNG {
-    pub fn new(seed: u64) -> XorShiftRNG {
-        XorShiftRNG { state: seed }
+impl XorShiftRng {
+    pub fn new(seed: u64) -> XorShiftRng {
+        XorShiftRng { state: seed }
     }
 
     /// Return a random value in the range [0, 2^64]

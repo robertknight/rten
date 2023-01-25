@@ -739,7 +739,7 @@ fn gemm_impl<K: Kernel, const MR_NR: usize>(
 #[cfg(test)]
 mod tests {
     use crate::linalg::{add_scaled_vector, gemm, gemm_base_kernel, Matrix};
-    use crate::rng::XorShiftRNG;
+    use crate::rng::XorShiftRng;
     use crate::tensor::{rand, zeros, Tensor, TensorLayout};
     use crate::test_util::expect_equal;
 
@@ -963,7 +963,7 @@ mod tests {
         }
 
         for (lhs_size, rhs_size) in cases {
-            let mut rng = XorShiftRNG::new(1234);
+            let mut rng = XorShiftRng::new(1234);
             let a = rand(&lhs_size, &mut rng);
             let b = rand(&rhs_size, &mut rng);
             let mut result = zeros::<f32>(&[lhs_size[0], rhs_size[1]]);
@@ -996,7 +996,7 @@ mod tests {
 
     #[test]
     fn test_gemm_transposed() -> Result<(), String> {
-        let mut rng = XorShiftRNG::new(1234);
+        let mut rng = XorShiftRng::new(1234);
         let mut a = rand(&[20, 30], &mut rng);
         let mut b = rand(&[10, 20], &mut rng);
 
@@ -1017,7 +1017,7 @@ mod tests {
 
     #[test]
     fn test_gemm_alpha() -> Result<(), String> {
-        let mut rng = XorShiftRNG::new(1234);
+        let mut rng = XorShiftRng::new(1234);
 
         let a = rand(&[10, 5], &mut rng);
         let b = rand(&[5, 15], &mut rng);
@@ -1039,7 +1039,7 @@ mod tests {
 
     #[test]
     fn test_gemm_beta() -> Result<(), String> {
-        let mut rng = XorShiftRNG::new(1234);
+        let mut rng = XorShiftRng::new(1234);
 
         let a = rand(&[10, 5], &mut rng);
         let b = rand(&[5, 15], &mut rng);

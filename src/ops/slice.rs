@@ -141,7 +141,7 @@ impl Operator for Slice {
 #[cfg(test)]
 mod tests {
     use crate::ops::{slice, slice_in_place};
-    use crate::rng::XorShiftRNG;
+    use crate::rng::XorShiftRng;
     use crate::tensor::{from_data, rand, Tensor, TensorLayout};
     use crate::test_util::expect_equal;
 
@@ -152,7 +152,7 @@ mod tests {
     #[test]
     fn test_slice_in_place() {
         // Slice with +ve and in-bounds endpoints.
-        let mut rng = XorShiftRNG::new(5678);
+        let mut rng = XorShiftRng::new(5678);
         let mut input = rand(&[2, 2, 5, 3], &mut rng);
 
         let starts = from_slice(&[2]);
@@ -190,7 +190,7 @@ mod tests {
 
     #[test]
     fn test_slice_first_dim() {
-        let mut rng = XorShiftRNG::new(5678);
+        let mut rng = XorShiftRng::new(5678);
         let input = rand(&[5, 2, 5, 3], &mut rng);
 
         let starts = from_slice(&[2]);
@@ -222,7 +222,7 @@ mod tests {
 
     #[test]
     fn test_slice_inner_dim() {
-        let mut rng = XorShiftRNG::new(5678);
+        let mut rng = XorShiftRng::new(5678);
         let input = rand(&[2, 2, 5, 3], &mut rng);
 
         let starts = from_slice(&[2]);
@@ -254,7 +254,7 @@ mod tests {
 
     #[test]
     fn test_slice_noop() {
-        let mut rng = XorShiftRNG::new(5678);
+        let mut rng = XorShiftRng::new(5678);
         let input = rand(&[5, 2, 5, 3], &mut rng);
 
         for dim in 0..input.shape().len() {
@@ -317,7 +317,7 @@ mod tests {
 
     #[test]
     fn test_slice_clamps_starts_and_ends() -> Result<(), String> {
-        let mut rng = XorShiftRNG::new(5678);
+        let mut rng = XorShiftRng::new(5678);
         let input = rand(&[20, 20], &mut rng);
 
         // Simulate how a range without a start/end may be given in a model.

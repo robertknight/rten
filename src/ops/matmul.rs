@@ -174,13 +174,13 @@ impl Operator for MatMul {
 mod tests {
     use crate::linalg::gemm_tensors;
     use crate::ops::matmul::{gemm_op, matmul, OpError};
-    use crate::rng::XorShiftRNG;
+    use crate::rng::XorShiftRng;
     use crate::tensor::{from_data, rand, zeros};
     use crate::test_util::expect_equal;
 
     #[test]
     fn test_gemm_op() -> Result<(), String> {
-        let mut rng = XorShiftRNG::new(1234);
+        let mut rng = XorShiftRng::new(1234);
         let a = rand(&[3, 10], &mut rng);
         let b = rand(&[10, 8], &mut rng);
 
@@ -194,7 +194,7 @@ mod tests {
 
     #[test]
     fn test_gemm_op_transposed() -> Result<(), String> {
-        let mut rng = XorShiftRNG::new(1234);
+        let mut rng = XorShiftRng::new(1234);
         let a = rand(&[10, 3], &mut rng);
         let b = rand(&[8, 10], &mut rng);
 
@@ -212,7 +212,7 @@ mod tests {
 
     #[test]
     fn test_gemm_op_adds_c() -> Result<(), String> {
-        let mut rng = XorShiftRNG::new(1234);
+        let mut rng = XorShiftRng::new(1234);
         let a = rand(&[3, 10], &mut rng);
         let b = rand(&[10, 8], &mut rng);
         let c = rand(&[3, 8], &mut rng);
@@ -227,7 +227,7 @@ mod tests {
 
     #[test]
     fn test_gemm_op_invalid_inputs() {
-        let mut rng = XorShiftRNG::new(1234);
+        let mut rng = XorShiftRng::new(1234);
         let a = rand(&[3, 10], &mut rng);
         let b = rand(&[10, 8], &mut rng);
         let c = rand(&[3, 5], &mut rng);
@@ -244,7 +244,7 @@ mod tests {
 
     #[test]
     fn test_matmul() -> Result<(), String> {
-        let mut rng = XorShiftRNG::new(1234);
+        let mut rng = XorShiftRng::new(1234);
         let a = rand(&[3, 10], &mut rng);
         let b = rand(&[10, 8], &mut rng);
 
@@ -257,7 +257,7 @@ mod tests {
 
     #[test]
     fn test_matmul_broadcast() -> Result<(), String> {
-        let mut rng = XorShiftRNG::new(1234);
+        let mut rng = XorShiftRng::new(1234);
         let mut a = rand(&[3, 10], &mut rng);
         let mut b = rand(&[10, 8], &mut rng);
 

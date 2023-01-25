@@ -486,7 +486,7 @@ impl Operator for ConvTranspose {
 mod tests {
     use crate::ops::pooling::calc_output_size_and_padding;
     use crate::ops::{conv, conv_transpose, Conv, InputList, Operator, Padding};
-    use crate::rng::XorShiftRNG;
+    use crate::rng::XorShiftRng;
     use crate::tensor::{from_data, rand, zeros, Tensor, TensorLayout};
     use crate::test_util::expect_equal;
 
@@ -692,7 +692,7 @@ mod tests {
 
     #[test]
     fn test_conv_uneven_padding() -> Result<(), String> {
-        let mut rng = XorShiftRNG::new(1234);
+        let mut rng = XorShiftRng::new(1234);
         let kernel = rand(&[10, 5, 3, 3], &mut rng);
         let input = rand(&[1, 5, 10, 10], &mut rng);
         let bias = rand(&[10], &mut rng);
@@ -720,7 +720,7 @@ mod tests {
 
     #[test]
     fn test_conv_depthwise_uneven_padding() -> Result<(), String> {
-        let mut rng = XorShiftRNG::new(1234);
+        let mut rng = XorShiftRng::new(1234);
         let kernel = rand(&[10, 1, 3, 3], &mut rng);
         let input = rand(&[1, 10, 10, 10], &mut rng);
         let bias = rand(&[10], &mut rng);
@@ -749,7 +749,7 @@ mod tests {
     // Specific tests for convolutions with a 1x1 kernel.
     #[test]
     fn test_conv_pointwise() -> Result<(), String> {
-        let mut rng = XorShiftRNG::new(1234);
+        let mut rng = XorShiftRng::new(1234);
         let kernel = rand(&[10, 5, 1, 1], &mut rng);
         let input = rand(&[1, 5, 20, 20], &mut rng);
         let bias = rand(&[10], &mut rng);
@@ -880,7 +880,7 @@ mod tests {
     // other words, the kernel has a spatial size > 1x1 and a channel depth > 1.
     #[test]
     fn test_conv_not_depthwise_or_pointwise() -> Result<(), String> {
-        let mut rng = XorShiftRNG::new(1234);
+        let mut rng = XorShiftRng::new(1234);
         let kernel = rand(&[4, 2, 3, 3], &mut rng);
         let input = rand(&[2, 4, 20, 20], &mut rng);
         let bias = rand(&[4], &mut rng);
@@ -908,7 +908,7 @@ mod tests {
 
     #[test]
     fn test_conv_strided() -> Result<(), String> {
-        let mut rng = XorShiftRNG::new(1234);
+        let mut rng = XorShiftRng::new(1234);
         let kernel = rand(&[4, 3, 3, 3], &mut rng);
 
         for strides in [[2, 2], [3, 3], [1, 3]] {
@@ -942,7 +942,7 @@ mod tests {
 
     #[test]
     fn test_conv_strided_depthwise() -> Result<(), String> {
-        let mut rng = XorShiftRNG::new(1234);
+        let mut rng = XorShiftRng::new(1234);
         let kernel = rand(&[3, 1, 3, 3], &mut rng);
 
         for strides in [[2, 2], [3, 3], [1, 3]] {

@@ -164,7 +164,7 @@ impl Operator for Softmax {
 #[cfg(test)]
 mod tests {
     use crate::ops::{batch_norm, batch_norm_in_place, softmax};
-    use crate::rng::XorShiftRNG;
+    use crate::rng::XorShiftRng;
     use crate::tensor::{from_data, from_vec, rand, TensorLayout};
     use crate::test_util::expect_equal;
 
@@ -278,7 +278,7 @@ mod tests {
     // do check the shape and that the values sum to 1.
     #[test]
     fn test_softmax_sizes() {
-        let mut rng = XorShiftRNG::new(1234);
+        let mut rng = XorShiftRng::new(1234);
         let input = rand(&[1, 1, 3, 3], &mut rng);
         let result = softmax(&input, 1).unwrap();
         assert_eq!(result.shape(), input.shape());

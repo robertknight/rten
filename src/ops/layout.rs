@@ -416,7 +416,7 @@ mod tests {
         unsqueeze, InputList, Reshape, Shape,
     };
     use crate::ops::{OpError, Operator};
-    use crate::rng::XorShiftRNG;
+    use crate::rng::XorShiftRng;
     use crate::tensor::{from_data, from_scalar, from_vec, rand, TensorLayout};
     use crate::test_util::expect_equal;
 
@@ -627,7 +627,7 @@ mod tests {
 
     #[test]
     fn test_squeeze() -> Result<(), String> {
-        let mut rng = XorShiftRNG::new(5678);
+        let mut rng = XorShiftRng::new(5678);
         let input = rand(&[1, 5, 5, 1], &mut rng);
         let mut expected = input.clone();
 
@@ -649,7 +649,7 @@ mod tests {
 
     #[test]
     fn test_squeeze_in_place() -> Result<(), String> {
-        let mut rng = XorShiftRNG::new(5678);
+        let mut rng = XorShiftRng::new(5678);
         let mut input = rand(&[1, 1, 5, 5], &mut rng);
 
         let mut expected = input.clone();
@@ -662,7 +662,7 @@ mod tests {
 
     #[test]
     fn test_squeeze_invalid_inputs() {
-        let mut rng = XorShiftRNG::new(5678);
+        let mut rng = XorShiftRng::new(5678);
         let input = rand(&[1, 5, 5, 1], &mut rng);
 
         let result = squeeze(&input, Some(&from_vec(vec![1])));
@@ -677,7 +677,7 @@ mod tests {
 
     #[test]
     fn test_transpose() -> Result<(), String> {
-        let mut rng = XorShiftRNG::new(5678);
+        let mut rng = XorShiftRng::new(5678);
         let input = rand(&[10, 20], &mut rng);
 
         let mut reversed = input.clone();
@@ -698,7 +698,7 @@ mod tests {
 
     #[test]
     fn test_transpose_invalid_inputs() {
-        let mut rng = XorShiftRNG::new(5678);
+        let mut rng = XorShiftRng::new(5678);
         let input = rand(&[10, 20], &mut rng);
 
         // Too many dims
@@ -732,7 +732,7 @@ mod tests {
 
     #[test]
     fn test_unsqueeze() {
-        let mut rng = XorShiftRNG::new(5678);
+        let mut rng = XorShiftRng::new(5678);
         let input = rand(&[3, 4, 5], &mut rng);
 
         // Unsqueeze with axes in increasing order
@@ -752,7 +752,7 @@ mod tests {
 
     #[test]
     fn test_unsqueeze_invalid_inputs() {
-        let mut rng = XorShiftRNG::new(5678);
+        let mut rng = XorShiftRng::new(5678);
         let input = rand(&[10, 20], &mut rng);
 
         // Invalid dimension index
