@@ -461,7 +461,7 @@ pub enum Scalar {
 fn resolve_axis(ndim: usize, axis: isize) -> Result<usize, OpError> {
     let rank = ndim as isize;
     if axis < -rank || axis >= rank {
-        return Err(OpError::InvalidValue("axis is invalid"));
+        return Err(OpError::InvalidValue("Axis is invalid"));
     }
 
     if axis >= 0 {
@@ -471,13 +471,16 @@ fn resolve_axis(ndim: usize, axis: isize) -> Result<usize, OpError> {
     }
 }
 
-/// Resolve an array of axes values in `[-ndim, ndim-1]` to zero-based dimension
+/// Resolve a sequence of axes values in `[-ndim, ndim-1]` to zero-based dimension
 /// indexes in a tensor with `ndim` dimensions.
 ///
 /// Negative axis values count backwards from the last dimension.
-pub fn resolve_axes(ndim: usize, axes: &[i32]) -> Result<Vec<usize>, OpError> {
+pub fn resolve_axes<I: ExactSizeIterator<Item = i32>>(
+    ndim: usize,
+    axes: I,
+) -> Result<Vec<usize>, OpError> {
     let mut resolved_axes = Vec::with_capacity(axes.len());
-    for &axis in axes {
+    for axis in axes {
         let resolved = resolve_axis(ndim, axis as isize)?;
         resolved_axes.push(resolved);
     }

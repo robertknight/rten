@@ -1,8 +1,12 @@
 ///! Operators which query or change the shape of a tensor, or copy/move/reorder
 ///! elements.
+use std::iter::zip;
+
 use crate::check_dims;
 use crate::ops::binary_elementwise::broadcast_shapes;
-use crate::ops::{resolve_axis, Input, InputList, IntoOpResult, OpError, Operator, Output};
+use crate::ops::{
+    resolve_axes, resolve_axis, Input, InputList, IntoOpResult, OpError, Operator, Output,
+};
 use crate::tensor::{from_data, is_valid_permutation, Tensor, TensorLayout};
 
 pub fn expand<T: Copy>(input: &Tensor<T>, shape: &Tensor<i32>) -> Result<Tensor<T>, OpError> {
@@ -242,12 +246,19 @@ impl Operator for Shape {
 
 pub fn squeeze_in_place<T: Copy>(
     input: &mut Tensor<T>,
-    axes: Option<&[usize]>,
+    axes: Option<&Tensor<i32>>,
 ) -> Result<(), OpError> {
     if let Some(axes) = axes {
-        for &axis in axes {
+        check_dims!(axes, 1);
+    }
+
+    let axes = axes
+        .map(|axes| resolve_axes(input.ndim(), axes.iter()))
+        .transpose()?;
+    if let Some(ref axes) = axes {
+        for &axis in axes.iter() {
             if axis >= input.ndim() {
-                return Err(OpError::InvalidValue("axis is invalid"));
+                return Err(OpError::InvalidValue("Axis is invalid"));
             }
             if input.shape()[axis] != 1 {
                 return Err(OpError::InvalidValue(
@@ -262,7 +273,7 @@ pub fn squeeze_in_place<T: Copy>(
         .iter()
         .enumerate()
         .filter(|(dim, &size)| {
-            if let Some(axes) = axes {
+            if let Some(ref axes) = axes {
                 !axes.contains(dim)
             } else {
                 size > 1
@@ -274,16 +285,17 @@ pub fn squeeze_in_place<T: Copy>(
     Ok(())
 }
 
-pub fn squeeze<T: Copy>(input: &Tensor<T>, axes: Option<&[usize]>) -> Result<Tensor<T>, OpError> {
+pub fn squeeze<T: Copy>(
+    input: &Tensor<T>,
+    axes: Option<&Tensor<i32>>,
+) -> Result<Tensor<T>, OpError> {
     let mut output = input.clone();
     squeeze_in_place(&mut output, axes)?;
     Ok(output)
 }
 
 #[derive(Debug)]
-pub struct Squeeze {
-    pub axes: Option<Vec<usize>>,
-}
+pub struct Squeeze {}
 
 impl Operator for Squeeze {
     fn name(&self) -> &str {
@@ -292,7 +304,7 @@ impl Operator for Squeeze {
 
     fn run(&self, inputs: InputList) -> Result<Vec<Output>, OpError> {
         let input = inputs.require(0)?;
-        let axes = self.axes.as_ref().map(|a| &a[..]);
+        let axes = inputs.get_as(1)?;
         match input {
             Input::FloatTensor(t) => squeeze(t, axes).into_op_result(),
             Input::IntTensor(t) => squeeze(t, axes).into_op_result(),
@@ -303,8 +315,8 @@ impl Operator for Squeeze {
         true
     }
 
-    fn run_in_place(&self, input: Output, _: InputList) -> Result<Output, OpError> {
-        let axes = self.axes.as_ref().map(|a| &a[..]);
+    fn run_in_place(&self, input: Output, other: InputList) -> Result<Output, OpError> {
+        let axes = other.get_as(0)?;
         let result = match input {
             Output::FloatTensor(mut t) => {
                 squeeze_in_place(&mut t, axes)?;
@@ -361,20 +373,26 @@ impl Operator for Transpose {
     }
 }
 
-pub fn unsqueeze<T: Copy>(input: &Tensor<T>, axes: &[usize]) -> Tensor<T> {
+pub fn unsqueeze<T: Copy>(input: &Tensor<T>, axes: &Tensor<i32>) -> Result<Tensor<T>, OpError> {
+    check_dims!(axes, 1);
     let mut new_shape: Vec<_> = input.shape().to_vec();
-    let mut sorted_axes: Vec<_> = axes.iter().collect();
+    let mut sorted_axes: Vec<_> = resolve_axes(input.ndim() + axes.len(), axes.iter())?;
     sorted_axes.sort();
-    for &axis in sorted_axes {
+
+    let axes_unique =
+        zip(sorted_axes.iter().skip(1), sorted_axes.iter()).all(|(prev, current)| prev != current);
+    if !axes_unique {
+        return Err(OpError::InvalidValue("Axes must be unique"));
+    }
+
+    for axis in sorted_axes {
         new_shape.insert(axis, 1);
     }
-    input.clone_with_shape(&new_shape)
+    Ok(input.clone_with_shape(&new_shape))
 }
 
 #[derive(Debug)]
-pub struct Unsqueeze {
-    pub axes: Vec<usize>,
-}
+pub struct Unsqueeze {}
 
 impl Operator for Unsqueeze {
     fn name(&self) -> &str {
@@ -383,11 +401,11 @@ impl Operator for Unsqueeze {
 
     fn run(&self, inputs: InputList) -> Result<Vec<Output>, OpError> {
         let input = inputs.require(0)?;
-        let result: Output = match input {
-            Input::FloatTensor(input) => unsqueeze(input, &self.axes).into(),
-            Input::IntTensor(input) => unsqueeze(input, &self.axes).into(),
-        };
-        result.into_op_result()
+        let axes = inputs.require_as(1)?;
+        match input {
+            Input::FloatTensor(input) => unsqueeze(input, axes).into_op_result(),
+            Input::IntTensor(input) => unsqueeze(input, axes).into_op_result(),
+        }
     }
 }
 
@@ -620,12 +638,12 @@ mod tests {
 
         // Remove final 1-size axis.
         expected.reshape(&[1, 5, 5]);
-        let result = squeeze(&input, Some(&[3])).unwrap();
+        let result = squeeze(&input, Some(&from_vec(vec![3]))).unwrap();
         expect_equal(&result, &expected)?;
 
         // Remove first 1-size axis.
         expected.reshape(&[5, 5, 1]);
-        let result = squeeze(&input, Some(&[0])).unwrap();
+        let result = squeeze(&input, Some(&from_vec(vec![0]))).unwrap();
         expect_equal(&result, &expected)
     }
 
@@ -647,7 +665,7 @@ mod tests {
         let mut rng = XorShiftRNG::new(5678);
         let input = rand(&[1, 5, 5, 1], &mut rng);
 
-        let result = squeeze(&input, Some(&[1]));
+        let result = squeeze(&input, Some(&from_vec(vec![1])));
 
         assert_eq!(
             result.err(),
@@ -718,17 +736,34 @@ mod tests {
         let input = rand(&[3, 4, 5], &mut rng);
 
         // Unsqueeze with axes in increasing order
-        let output = unsqueeze(&input, &[0, 4]);
+        let output = unsqueeze(&input, &from_vec(vec![0, 4])).unwrap();
         assert_eq!(output.shape(), &[1, 3, 4, 5, 1]);
 
         // Unsqueeze with axes in decreasing order
-        let output = unsqueeze(&input, &[4, 0]);
+        let output = unsqueeze(&input, &from_vec(vec![4, 0])).unwrap();
         assert_eq!(output.shape(), &[1, 3, 4, 5, 1]);
 
         // Unsqueeze a scalar into a 1-item vec
         let scalar = from_scalar(2.0);
-        let output = unsqueeze(&scalar, &[0]);
+        let output = unsqueeze(&scalar, &from_vec(vec![0])).unwrap();
         assert_eq!(output.shape(), &[1]);
         assert_eq!(output.data(), &[2.0]);
+    }
+
+    #[test]
+    fn test_unsqueeze_invalid_inputs() {
+        let mut rng = XorShiftRNG::new(5678);
+        let input = rand(&[10, 20], &mut rng);
+
+        // Invalid dimension index
+        let result = unsqueeze(&input, &from_vec(vec![3]));
+        assert_eq!(result.err(), Some(OpError::InvalidValue("Axis is invalid")));
+
+        // Repeated dimension index
+        let result = unsqueeze(&input, &from_vec(vec![1, 1]));
+        assert_eq!(
+            result.err(),
+            Some(OpError::InvalidValue("Axes must be unique"))
+        );
     }
 }

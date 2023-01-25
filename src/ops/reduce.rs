@@ -97,7 +97,11 @@ fn index_select<T: Copy, Cmp: Fn(T, T) -> bool>(
     let mut reduced = Tensor::<i32>::from_data(reduced_shape, reduced_data);
 
     if !keep_dims {
-        squeeze_in_place(&mut reduced, Some(&[resolved_axis]))?;
+        squeeze_in_place(
+            &mut reduced,
+            Some(&Tensor::from_vec(vec![resolved_axis as i32])),
+        )
+        .expect("Invalid axis");
     }
 
     Ok(reduced)
@@ -207,7 +211,7 @@ fn reduce<T: Copy + Default, R: Reducer<T>>(
     reducer: R,
 ) -> Result<Tensor<T>, OpError> {
     let mut resolved_axes = match axes {
-        Some(axes) if !axes.is_empty() => resolve_axes(input.ndim(), axes)?,
+        Some(axes) if !axes.is_empty() => resolve_axes(input.ndim(), axes.iter().copied())?,
         _ => (0..input.ndim()).collect(),
     };
     resolved_axes.sort();
@@ -300,7 +304,9 @@ fn reduce<T: Copy + Default, R: Reducer<T>>(
     let mut reduced = Tensor::<T>::from_data(reduced_shape, reduced_data);
 
     if !keep_dims {
-        squeeze_in_place(&mut reduced, Some(&resolved_axes))?;
+        let resolved_axes_i32 = resolved_axes.iter().map(|&axis| axis as i32).collect();
+        squeeze_in_place(&mut reduced, Some(&Tensor::from_vec(resolved_axes_i32)))
+            .expect("Invalid axis");
     }
 
     Ok(reduced)
@@ -549,10 +555,10 @@ mod tests {
         let input = from_data(vec![3, 3], vec![1., 2., 3., 4., 5., 6., 7., 8., 9.]);
 
         let result = reduce_mean(&input, Some(&[3]), false /* keep_dims */);
-        assert_eq!(result.err(), Some(OpError::InvalidValue("axis is invalid")));
+        assert_eq!(result.err(), Some(OpError::InvalidValue("Axis is invalid")));
 
         let result = reduce_mean(&input, Some(&[-3]), false /* keep_dims */);
-        assert_eq!(result.err(), Some(OpError::InvalidValue("axis is invalid")));
+        assert_eq!(result.err(), Some(OpError::InvalidValue("Axis is invalid")));
 
         // Empty tensor
         let result = reduce_mean(&from_vec(vec![]), Some(&[0]), false /* keep_dims */);

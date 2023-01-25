@@ -5,8 +5,8 @@ use flatbuffers::{FlatBufferBuilder, UnionWIPOffset, Vector, WIPOffset};
 use crate::ops::{
     ArgMax, ArgMin, AveragePool, BatchNormalization, Cast, Clip, Concat, ConstantOfShape, Conv,
     ConvTranspose, CoordTransformMode, DataType, Flatten, Gather, Gemm, LeakyRelu, MaxPool,
-    NearestMode, Padding, ReduceMean, Reshape, Resize, ResizeMode, Scalar, Softmax, Split, Squeeze,
-    Transpose, Unsqueeze,
+    NearestMode, Padding, ReduceMean, Reshape, Resize, ResizeMode, Scalar, Softmax, Split,
+    Transpose,
 };
 use crate::schema_generated as sg;
 use crate::tensor::{Tensor, TensorLayout};
@@ -53,11 +53,11 @@ pub enum OpType {
     Softmax(Softmax),
     Split(Split),
     Sqrt,
-    Squeeze(Squeeze),
+    Squeeze,
     Sub,
     Tanh,
     Transpose(Transpose),
-    Unsqueeze(Unsqueeze),
+    Unsqueeze,
     Where,
 }
 
@@ -439,20 +439,14 @@ impl<'a> ModelBuilder<'a> {
                 }
             }),
             OpType::Sqrt => op!(Sqrt),
-            OpType::Squeeze(args) => op_with_attrs!(Squeeze, SqueezeAttrs, {
-                let axes = self.create_vec(args.axes, |axis| axis as u32);
-                sg::SqueezeAttrsArgs { axes }
-            }),
+            OpType::Squeeze => op!(Squeeze),
             OpType::Sub => op!(Sub),
             OpType::Tanh => op!(Tanh),
             OpType::Transpose(args) => op_with_attrs!(Transpose, TransposeAttrs, {
                 let perm = self.create_vec(args.perm, |dim| dim as u32);
                 sg::TransposeAttrsArgs { perm }
             }),
-            OpType::Unsqueeze(args) => op_with_attrs!(Unsqueeze, UnsqueezeAttrs, {
-                let axes = self.create_vec(Some(args.axes), |axis| axis as u32);
-                sg::UnsqueezeAttrsArgs { axes }
-            }),
+            OpType::Unsqueeze => op!(Unsqueeze),
             OpType::Where => op!(Where),
         };
 

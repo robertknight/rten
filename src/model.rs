@@ -351,16 +351,6 @@ fn read_split_op(node: &OperatorNode) -> ReadOpResult {
     Ok(Box::new(ops::Split { axis, split }))
 }
 
-fn read_squeeze_op(node: &OperatorNode) -> ReadOpResult {
-    let attrs = node
-        .attrs_as_squeeze_attrs()
-        .ok_or(ReadOpError::AttrError)?;
-    let axes = attrs
-        .axes()
-        .map(|axes| axes.iter().map(|axis| axis as usize).collect());
-    Ok(Box::new(ops::Squeeze { axes }))
-}
-
 fn read_transpose_op(node: &OperatorNode) -> ReadOpResult {
     let attrs = node
         .attrs_as_transpose_attrs()
@@ -369,15 +359,6 @@ fn read_transpose_op(node: &OperatorNode) -> ReadOpResult {
         .perm()
         .map(|perm| perm.iter().map(|dim| dim as usize).collect());
     Ok(Box::new(ops::Transpose { perm }))
-}
-
-fn read_unsqueeze_op(node: &OperatorNode) -> ReadOpResult {
-    let attrs = node
-        .attrs_as_unsqueeze_attrs()
-        .ok_or(ReadOpError::AttrError)?;
-    let mut axes: Vec<usize> = attrs.axes().iter().map(|axis| axis as usize).collect();
-    axes.sort();
-    Ok(Box::new(ops::Unsqueeze { axes }))
 }
 
 /// Create a `Box<dyn Operator>` for an operator that has no attributes.
@@ -432,11 +413,11 @@ fn read_operator(node: &OperatorNode) -> ReadOpResult {
         OperatorType::Softmax => read_softmax_op(node),
         OperatorType::Split => read_split_op(node),
         OperatorType::Sqrt => op!(Sqrt),
-        OperatorType::Squeeze => read_squeeze_op(node),
+        OperatorType::Squeeze => op!(Squeeze),
         OperatorType::Sub => op!(Sub),
         OperatorType::Tanh => op!(Tanh),
         OperatorType::Transpose => read_transpose_op(node),
-        OperatorType::Unsqueeze => read_unsqueeze_op(node),
+        OperatorType::Unsqueeze => op!(Unsqueeze),
         OperatorType::Where => op!(Where),
         _ => Err(ReadOpError::UnsupportedOperator),
     }
@@ -807,7 +788,7 @@ mod tests {
 
         add_operator!(Softmax, [input_node], { axis: 1 });
         add_operator!(Sqrt, [input_node]);
-        add_operator!(Squeeze, [input_node], { axes: None });
+        add_operator!(Squeeze, [input_node]);
 
         let split_out_1 = builder.add_value("Split_out_1");
         let split_out_2 = builder.add_value("Split_out_2");
@@ -824,7 +805,9 @@ mod tests {
         add_operator!(Sub, [input_node, input_node]);
         add_operator!(Tanh, [input_node]);
         add_operator!(Transpose, [input_node], { perm: None });
-        add_operator!(Unsqueeze, [input_node], { axes: vec![0, 4] });
+
+        let unsqueeze_axes = builder.add_int_constant(&from_vec(vec![0, 4]));
+        add_operator!(Unsqueeze, [input_node, unsqueeze_axes]);
 
         let where_cond = builder.add_value("where_cond");
         let where_x = builder.add_value("where_x");

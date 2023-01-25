@@ -93,10 +93,10 @@ mod tests {
         let input = from_data(vec![5, 2], vec![0., 1., 2., 3., 4., 5., 6., 7., 8., 9.]);
 
         let result = split(&input, 2, &[1, 1]);
-        assert_eq!(result.err(), Some(OpError::InvalidValue("axis is invalid")));
+        assert_eq!(result.err(), Some(OpError::InvalidValue("Axis is invalid")));
 
         let result = split(&input, -3, &[1, 1]);
-        assert_eq!(result.err(), Some(OpError::InvalidValue("axis is invalid")));
+        assert_eq!(result.err(), Some(OpError::InvalidValue("Axis is invalid")));
 
         let result = split(&input, 1, &[1, 2]);
         assert_eq!(

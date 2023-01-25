@@ -114,10 +114,8 @@ union OperatorAttrs {
   ReshapeAttrs,
   ResizeAttrs,
   SplitAttrs,
-  SqueezeAttrs,
   SoftmaxAttrs,
   TransposeAttrs,
-  UnsqueezeAttrs,
 }
 
 table ArgMaxAttrs {
@@ -241,16 +239,8 @@ table SplitAttrs {
   split:[uint];
 }
 
-table SqueezeAttrs {
-  axes:[uint];
-}
-
 table TransposeAttrs {
   perm:[uint];
-}
-
-table UnsqueezeAttrs {
-  axes:[uint] (required);
 }
 
 // Node in the dataflow graph
