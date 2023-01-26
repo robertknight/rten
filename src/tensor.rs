@@ -852,6 +852,7 @@ mod tests {
     use std::ops::IndexMut;
 
     use crate::rng::XorShiftRng;
+    use crate::tensor;
     use crate::tensor::{
         from_2d_slice, from_data, from_scalar, from_vec, rand, zeros, SliceRange, Tensor,
         TensorLayout,
@@ -921,7 +922,7 @@ mod tests {
 
     #[test]
     fn test_from_vec() {
-        let x = from_vec(vec![1, 2, 3]);
+        let x = tensor!([1, 2, 3]);
         assert_eq!(x.shape(), &[3]);
         assert_eq!(x.data(), &[1, 2, 3]);
     }
@@ -1021,10 +1022,10 @@ mod tests {
         let scalar = from_scalar(5.0);
         assert_eq!(scalar.item(), Some(5.0));
 
-        let vec_one_item = from_vec(vec![5.0]);
+        let vec_one_item = tensor!([5.0]);
         assert_eq!(vec_one_item.item(), Some(5.0));
 
-        let vec_many_items = from_vec(vec![1.0, 2.0]);
+        let vec_many_items = tensor!([1.0, 2.0]);
         assert_eq!(vec_many_items.item(), None);
 
         let matrix_one_item = from_data(&[1, 1], vec![5.0]);
@@ -1034,7 +1035,7 @@ mod tests {
     #[test]
     fn test_ndim() {
         let scalar = from_scalar(5.0);
-        let vec = from_vec(vec![5.0]);
+        let vec = tensor!([5.0]);
         let matrix = from_data(&[1, 1], vec![5.0]);
 
         assert_eq!(scalar.ndim(), 0);
@@ -1044,7 +1045,7 @@ mod tests {
 
     #[test]
     fn test_partial_eq() {
-        let x = from_vec(vec![1, 2, 3, 4, 5]);
+        let x = tensor!([1, 2, 3, 4, 5]);
         let y = x.clone();
         let z = x.clone_with_shape(&[1, 5]);
 
@@ -1074,7 +1075,7 @@ mod tests {
     #[test]
     fn test_len() {
         let scalar = from_scalar(5);
-        let vec = from_vec(vec![1, 2, 3]);
+        let vec = tensor!([1, 2, 3]);
         let matrix = from_data(&[2, 2], vec![1, 2, 3, 4]);
 
         assert_eq!(scalar.len(), 1);
@@ -1085,7 +1086,7 @@ mod tests {
     #[test]
     fn test_is_empty() {
         assert!(from_vec::<f32>(vec![]).is_empty());
-        assert!(!from_vec(vec![1]).is_empty());
+        assert!(!tensor!([1]).is_empty());
         assert!(!from_scalar(5.0).is_empty());
     }
 

@@ -490,7 +490,8 @@ mod tests {
         add, add_in_place, div, div_in_place, equal, less, mul, mul_in_place, pow, pow_in_place,
         sub, sub_in_place, where_op, Add, InputList, OpError, Operator, Output,
     };
-    use crate::tensor::{from_data, from_scalar, from_vec, Tensor, TensorLayout};
+    use crate::tensor;
+    use crate::tensor::{from_data, from_scalar, Tensor, TensorLayout};
     use crate::test_util::expect_equal;
 
     #[test]
@@ -596,7 +597,7 @@ mod tests {
         // In-place addition where the second input must be broadcast to the
         // shape of the first.
         let mut a = from_data(&[2, 2], vec![1., 2., 3., 4.]);
-        let b = from_vec(vec![1., 2.]);
+        let b = tensor!([1., 2.]);
         let expected = from_data(&[2, 2], vec![2., 4., 4., 6.]);
 
         add_in_place(&mut a, &b);
@@ -607,7 +608,7 @@ mod tests {
         let mut a = from_data(&[2, 3], vec![1., 2., 0., 3., 4., 0.]);
         a.clip_dim(1, 0..2);
         assert!(!a.is_contiguous());
-        let b = from_vec(vec![1., 2.]);
+        let b = tensor!([1., 2.]);
         let expected = from_data(&[2, 2], vec![2., 4., 4., 6.]);
 
         add_in_place(&mut a, &b);
@@ -645,16 +646,16 @@ mod tests {
         expect_equal(&result, &expected)?;
 
         // Non-scalar a and b ints
-        let a = from_vec(vec![1, 2, 3, 4]);
-        let b = from_vec(vec![2, 2, 2, 2]);
-        let expected = from_vec(vec![0, 1, 1, 2]);
+        let a = tensor!([1, 2, 3, 4]);
+        let b = tensor!([2, 2, 2, 2]);
+        let expected = tensor!([0, 1, 1, 2]);
         let result = div(&a, &b).unwrap();
         assert_eq!(&result, &expected);
 
         // Scalar b int
-        let a = from_vec(vec![1, 2, 3, 4]);
+        let a = tensor!([1, 2, 3, 4]);
         let b = from_scalar(2);
-        let expected = from_vec(vec![0, 1, 1, 2]);
+        let expected = tensor!([0, 1, 1, 2]);
         let result = div(&a, &b).unwrap();
         assert_eq!(&result, &expected);
 
@@ -678,16 +679,16 @@ mod tests {
         expect_equal(&a, &expected)?;
 
         // Non-scalar a and b ints
-        let mut a = from_vec(vec![1, 2, 3, 4]);
-        let b = from_vec(vec![2, 2, 2, 2]);
-        let expected = from_vec(vec![0, 1, 1, 2]);
+        let mut a = tensor!([1, 2, 3, 4]);
+        let b = tensor!([2, 2, 2, 2]);
+        let expected = tensor!([0, 1, 1, 2]);
         div_in_place(&mut a, &b);
         assert_eq!(&a, &expected);
 
         // Scalar b int
-        let mut a = from_vec(vec![1, 2, 3, 4]);
+        let mut a = tensor!([1, 2, 3, 4]);
         let b = from_scalar(2);
-        let expected = from_vec(vec![0, 1, 1, 2]);
+        let expected = tensor!([0, 1, 1, 2]);
         div_in_place(&mut a, &b);
         assert_eq!(&a, &expected);
 
@@ -697,16 +698,16 @@ mod tests {
     #[test]
     fn test_equal() {
         // Int tensor
-        let a = from_vec(vec![1, 2]);
-        let b = from_vec(vec![1, 3]);
-        let expected = from_vec(vec![1, 0]);
+        let a = tensor!([1, 2]);
+        let b = tensor!([1, 3]);
+        let expected = tensor!([1, 0]);
         let result = equal(&a, &b).unwrap();
         assert_eq!(&result, &expected);
 
         // Float tensor
-        let a = from_vec(vec![1., 2.]);
-        let b = from_vec(vec![1., 3.]);
-        let expected = from_vec(vec![1, 0]);
+        let a = tensor!([1., 2.]);
+        let b = tensor!([1., 3.]);
+        let expected = tensor!([1, 0]);
         let result = equal(&a, &b).unwrap();
         assert_eq!(&result, &expected);
     }
@@ -714,16 +715,16 @@ mod tests {
     #[test]
     fn test_less() {
         // Int tensor
-        let a = from_vec(vec![1, 2]);
-        let b = from_vec(vec![1, 3]);
-        let expected = from_vec(vec![0, 1]);
+        let a = tensor!([1, 2]);
+        let b = tensor!([1, 3]);
+        let expected = tensor!([0, 1]);
         let result = less(&a, &b).unwrap();
         assert_eq!(&result, &expected);
 
         // Float tensor
-        let a = from_vec(vec![1., 2.]);
-        let b = from_vec(vec![1., 3.]);
-        let expected = from_vec(vec![0, 1]);
+        let a = tensor!([1., 2.]);
+        let b = tensor!([1., 3.]);
+        let expected = tensor!([0, 1]);
         let result = less(&a, &b).unwrap();
         assert_eq!(&result, &expected);
     }
@@ -777,21 +778,21 @@ mod tests {
         let cases = [
             // Square input
             Case {
-                a: from_vec(vec![2., 3., 4.]),
+                a: tensor!([2., 3., 4.]),
                 b: from_scalar(2.),
-                expected: from_vec(vec![4., 9., 16.]),
+                expected: tensor!([4., 9., 16.]),
             },
             // Raise all inputs to scalar
             Case {
-                a: from_vec(vec![2., 3., 4.]),
+                a: tensor!([2., 3., 4.]),
                 b: from_scalar(3.),
-                expected: from_vec(vec![8., 27., 64.]),
+                expected: tensor!([8., 27., 64.]),
             },
             // Raise each input to different powers
             Case {
-                a: from_vec(vec![2., 3., 4.]),
-                b: from_vec(vec![1., 2., 3.]),
-                expected: from_vec(vec![2., 9., 64.]),
+                a: tensor!([2., 3., 4.]),
+                b: tensor!([1., 2., 3.]),
+                expected: tensor!([2., 9., 64.]),
             },
         ];
 
@@ -858,35 +859,35 @@ mod tests {
         assert_eq!(&result, &expected);
 
         // Float tensor broadcasting `x` and `y`
-        let cond = from_vec(vec![1, 1, 0, 0]);
+        let cond = tensor!([1, 1, 0, 0]);
         let x = from_scalar(1.);
         let y = from_scalar(2.);
         let result = where_op(&cond, &x, &y).unwrap();
-        let expected = from_vec(vec![1., 1., 2., 2.]);
+        let expected = tensor!([1., 1., 2., 2.]);
         assert_eq!(&result, &expected);
 
         // Float tensor broadcasting `cond`
         let cond = from_scalar(1);
-        let x = from_vec(vec![1., 2.]);
-        let y = from_vec(vec![3., 4.]);
+        let x = tensor!([1., 2.]);
+        let y = tensor!([3., 4.]);
         let result = where_op(&cond, &x, &y).unwrap();
-        let expected = from_vec(vec![1., 2.]);
+        let expected = tensor!([1., 2.]);
         assert_eq!(&result, &expected);
 
         // Int tensor broadcasting `x` and `y`
-        let cond = from_vec(vec![1, 1, 0, 0]);
+        let cond = tensor!([1, 1, 0, 0]);
         let x = from_scalar(3);
         let y = from_scalar(4);
         let result = where_op(&cond, &x, &y).unwrap();
-        let expected = from_vec(vec![3, 3, 4, 4]);
+        let expected = tensor!([3, 3, 4, 4]);
         assert_eq!(&result, &expected);
     }
 
     #[test]
     fn test_where_invalid_inputs() {
-        let cond = from_vec(vec![1, 1]);
-        let x = from_vec(vec![1, 2, 3]);
-        let y = from_vec(vec![2, 2]);
+        let cond = tensor!([1, 1]);
+        let x = tensor!([1, 2, 3]);
+        let y = tensor!([2, 2]);
 
         // Failure to broadcast `x` to match `cond`
         let result = where_op(&cond, &x, &y);

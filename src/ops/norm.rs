@@ -165,7 +165,8 @@ impl Operator for Softmax {
 mod tests {
     use crate::ops::{batch_norm, batch_norm_in_place, softmax};
     use crate::rng::XorShiftRng;
-    use crate::tensor::{from_data, from_vec, rand, TensorLayout};
+    use crate::tensor;
+    use crate::tensor::{from_data, rand, TensorLayout};
     use crate::test_util::expect_equal;
 
     #[test]
@@ -212,8 +213,8 @@ mod tests {
     #[test]
     fn test_softmax() -> Result<(), String> {
         // Softmax on a 1D input
-        let mut input = from_vec(vec![0.1634, 0.8647, 0.6401, 0.8265, 0.0560]);
-        let mut expected = from_vec(vec![0.1339, 0.2701, 0.2157, 0.2599, 0.1203]);
+        let mut input = tensor!([0.1634, 0.8647, 0.6401, 0.8265, 0.0560]);
+        let mut expected = tensor!([0.1339, 0.2701, 0.2157, 0.2599, 0.1203]);
         let result = softmax(&input, 0).unwrap();
         expect_equal(&result, &expected)?;
 

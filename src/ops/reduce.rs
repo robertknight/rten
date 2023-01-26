@@ -3,6 +3,7 @@ use crate::ops::layout::squeeze_in_place;
 use crate::ops::{
     resolve_axes, resolve_axis, Input, InputList, IntoOpResult, OpError, Operator, Output,
 };
+use crate::tensor;
 use crate::tensor::{IndexIterator, Offsets, SliceRange, Tensor, TensorLayout};
 
 /// Iterator over slices of a tensor along a target dimension of size N.
@@ -97,11 +98,8 @@ fn index_select<T: Copy, Cmp: Fn(T, T) -> bool>(
     let mut reduced = Tensor::<i32>::from_data(&reduced_shape, reduced_data);
 
     if !keep_dims {
-        squeeze_in_place(
-            &mut reduced,
-            Some(&Tensor::from_vec(vec![resolved_axis as i32])),
-        )
-        .expect("Invalid axis");
+        squeeze_in_place(&mut reduced, Some(&tensor!([resolved_axis as i32])))
+            .expect("Invalid axis");
     }
 
     Ok(reduced)
@@ -387,13 +385,14 @@ impl Operator for ReduceL2 {
 #[cfg(test)]
 mod tests {
     use crate::ops::{arg_max, arg_min, cum_sum, reduce_l2, reduce_mean, OpError};
+    use crate::tensor;
     use crate::tensor::{from_data, from_scalar, from_vec, Tensor, TensorLayout};
     use crate::test_util::expect_equal;
 
     #[test]
     fn test_arg_max() {
         // Reduce a simple vector.
-        let probs = from_vec(vec![0.1, 0.5, 0.2, 0.9, 0.01, 0.6]);
+        let probs = tensor!([0.1, 0.5, 0.2, 0.9, 0.01, 0.6]);
         let class = arg_max(&probs, 0, false /* keep_dims */).unwrap();
         assert_eq!(class.item(), Some(3));
 
@@ -444,7 +443,7 @@ mod tests {
     // shared with ArgMax.
     #[test]
     fn test_arg_min() {
-        let probs = from_vec(vec![0.1, 0.5, 0.2, 0.9, 0.01, 0.6]);
+        let probs = tensor!([0.1, 0.5, 0.2, 0.9, 0.01, 0.6]);
         let class = arg_min(&probs, 0, false /* keep_dims */).unwrap();
         assert_eq!(class.item(), Some(4));
     }
@@ -465,7 +464,7 @@ mod tests {
         assert_eq!(sums.shape(), &[2, 4]);
         assert_eq!(sums.to_vec(), &[0, 0, 1, 2, 2, 4, 3, 6]);
 
-        let elements: Tensor<f32> = from_vec(vec![]);
+        let elements: Tensor<f32> = tensor!([]);
         let sums = cum_sum(&elements, 0).unwrap();
         assert_eq!(sums.shape(), &[0]);
         assert_eq!(sums.to_vec(), &[] as &[f32]);
@@ -502,7 +501,7 @@ mod tests {
 
         // Test with `keep_dims` off
         let result = reduce_mean(&input, Some(&[-1]), false /* keep_dims */).unwrap();
-        let expected = from_vec(vec![2., 5., 8.]);
+        let expected = tensor!([2., 5., 8.]);
         expect_equal(&result, &expected)?;
 
         // Test with `keep_dims` on
@@ -512,7 +511,7 @@ mod tests {
 
         // Reduce first dim
         let result = reduce_mean(&input, Some(&[0]), false /* keep_dims */).unwrap();
-        let expected = from_vec(vec![4., 5., 6.]);
+        let expected = tensor!([4., 5., 6.]);
         expect_equal(&result, &expected)?;
 
         // Reduce all axes
@@ -539,12 +538,7 @@ mod tests {
         assert_eq!(result.item(), Some(5.0));
 
         // Reduce a vector
-        let result = reduce_mean(
-            &from_vec(vec![0., 10.]),
-            Some(&[0]),
-            false, /* keep_dims */
-        )
-        .unwrap();
+        let result = reduce_mean(&tensor!([0., 10.]), Some(&[0]), false /* keep_dims */).unwrap();
         assert_eq!(result.to_vec(), &[5.0]);
 
         Ok(())
@@ -561,7 +555,7 @@ mod tests {
         assert_eq!(result.err(), Some(OpError::InvalidValue("Axis is invalid")));
 
         // Empty tensor
-        let result = reduce_mean(&from_vec(vec![]), Some(&[0]), false /* keep_dims */);
+        let result = reduce_mean(&tensor!([]), Some(&[0]), false /* keep_dims */);
         assert_eq!(
             result.err(),
             Some(OpError::InvalidValue("Cannot reduce empty tensor"))

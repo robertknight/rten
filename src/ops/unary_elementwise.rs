@@ -268,7 +268,7 @@ mod tests {
         tanh, tanh_in_place,
     };
     use crate::tensor;
-    use crate::tensor::{from_data, from_vec, Tensor};
+    use crate::tensor::{from_data, Tensor};
     use crate::test_util::expect_equal;
 
     #[test]
@@ -318,7 +318,7 @@ mod tests {
 
     #[test]
     fn test_cos() -> Result<(), String> {
-        let input = from_vec(vec![0.1, 3.14, -5.]);
+        let input = tensor!([0.1, 3.14, -5.]);
         let expected = input.map(|x: f32| x.cos());
         let result = cos(&input);
         expect_equal(&result, &expected)
@@ -326,7 +326,7 @@ mod tests {
 
     #[test]
     fn test_cos_in_place() -> Result<(), String> {
-        let mut input = from_vec(vec![0.1, 3.14, -5.]);
+        let mut input = tensor!([0.1, 3.14, -5.]);
         let expected = input.map(|x: f32| x.cos());
         cos_in_place(&mut input);
         expect_equal(&input, &expected)
@@ -334,8 +334,8 @@ mod tests {
 
     #[test]
     fn test_erf() -> Result<(), String> {
-        let input = from_vec(vec![-2.0, -0.5, 0.5, 2.0]);
-        let expected = from_vec(vec![
+        let input = tensor!([-2.0, -0.5, 0.5, 2.0]);
+        let expected = tensor!([
             -0.9953222650189527,
             -0.5204998778130465,
             0.5204998778130465,
@@ -347,8 +347,8 @@ mod tests {
 
     #[test]
     fn test_erf_in_place() -> Result<(), String> {
-        let mut input = from_vec(vec![-2.0, -0.5, 0.5, 2.0]);
-        let expected = from_vec(vec![
+        let mut input = tensor!([-2.0, -0.5, 0.5, 2.0]);
+        let expected = tensor!([
             -0.9953222650189527,
             -0.5204998778130465,
             0.5204998778130465,
@@ -412,7 +412,7 @@ mod tests {
 
     #[test]
     fn test_sin() -> Result<(), String> {
-        let input = from_vec(vec![0.1, 3.14, -5.]);
+        let input = tensor!([0.1, 3.14, -5.]);
         let expected = input.map(|x: f32| x.sin());
         let result = sin(&input);
         expect_equal(&result, &expected)
@@ -420,7 +420,7 @@ mod tests {
 
     #[test]
     fn test_sin_in_place() -> Result<(), String> {
-        let mut input = from_vec(vec![0.1, 3.14, -5.]);
+        let mut input = tensor!([0.1, 3.14, -5.]);
         let expected = input.map(|x: f32| x.sin());
         sin_in_place(&mut input);
         expect_equal(&input, &expected)
@@ -428,23 +428,23 @@ mod tests {
 
     #[test]
     fn test_sqrt() -> Result<(), String> {
-        let input = from_vec(vec![4., 9., 16.]);
-        let expected = from_vec(vec![2., 3., 4.]);
+        let input = tensor!([4., 9., 16.]);
+        let expected = tensor!([2., 3., 4.]);
         let result = sqrt(&input);
         expect_equal(&result, &expected)
     }
 
     #[test]
     fn test_sqrt_in_place() -> Result<(), String> {
-        let mut input = from_vec(vec![4., 9., 16.]);
-        let expected = from_vec(vec![2., 3., 4.]);
+        let mut input = tensor!([4., 9., 16.]);
+        let expected = tensor!([2., 3., 4.]);
         sqrt_in_place(&mut input);
         expect_equal(&input, &expected)
     }
 
     #[test]
     fn test_tanh() -> Result<(), String> {
-        let input = from_vec(vec![0.1, 3.14, -5.]);
+        let input = tensor!([0.1, 3.14, -5.]);
         let expected = input.map(|x: f32| x.tanh());
         let result = tanh(&input);
         expect_equal(&result, &expected)
@@ -452,7 +452,7 @@ mod tests {
 
     #[test]
     fn test_tanh_in_place() -> Result<(), String> {
-        let mut input = from_vec(vec![0.1, 3.14, -5.]);
+        let mut input = tensor!([0.1, 3.14, -5.]);
         let expected = input.map(|x: f32| x.tanh());
         tanh_in_place(&mut input);
         expect_equal(&input, &expected)

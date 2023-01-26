@@ -43,13 +43,13 @@ impl Operator for Cast {
 #[cfg(test)]
 mod tests {
     use crate::ops::{Cast, DataType, Input, InputList, Operator};
-    use crate::tensor::from_vec;
+    use crate::tensor;
     use crate::test_util::expect_equal;
 
     #[test]
     fn test_cast() -> Result<(), String> {
-        let int_input = from_vec(vec![1, 2, 3]);
-        let float_input = from_vec(vec![1.0, 2.0, 3.0]);
+        let int_input = tensor!([1, 2, 3]);
+        let float_input = tensor!([1.0, 2.0, 3.0]);
 
         // No-op cast from int32 => int32
         let cast_to_int = Cast {
@@ -96,7 +96,7 @@ mod tests {
 
     #[test]
     fn test_cast_out_of_range() -> Result<(), String> {
-        let int_input = from_vec(vec![i32::MIN, i32::MAX]);
+        let int_input = tensor!([i32::MIN, i32::MAX]);
 
         // Out-of-range cast from int => float. This will simply lose some
         // significant digits.
@@ -109,10 +109,10 @@ mod tests {
             .remove(0)
             .into_float()
             .unwrap();
-        expect_equal(&result, &from_vec(vec![-2147483600.0, 2147483600.0]))?;
+        expect_equal(&result, &tensor!([-2147483600.0, 2147483600.0]))?;
 
         // Out-of-range cast from float => int.
-        let float_input = from_vec(vec![f32::MIN, f32::MAX]);
+        let float_input = tensor!([f32::MIN, f32::MAX]);
         let cast_to_int = Cast {
             to: DataType::Int32,
         };
@@ -122,7 +122,7 @@ mod tests {
             .remove(0)
             .into_int()
             .unwrap();
-        assert_eq!(&result, &from_vec(vec![i32::MIN, i32::MAX]));
+        assert_eq!(&result, &tensor!([i32::MIN, i32::MAX]));
 
         Ok(())
     }

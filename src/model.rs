@@ -531,7 +531,7 @@ mod tests {
     use crate::ops;
     use crate::ops::{CoordTransformMode, NearestMode, OpError, Padding, ResizeMode, Scalar};
     use crate::tensor;
-    use crate::tensor::{from_data, from_scalar, from_vec, TensorLayout};
+    use crate::tensor::{from_data, from_scalar, TensorLayout};
 
     fn generate_model_buffer() -> Vec<u8> {
         let mut builder = ModelBuilder::new();
@@ -670,7 +670,7 @@ mod tests {
 
         // Dummy value for BatchNormalization inputs which are vectors with
         // per-channel values.
-        let batch_norm_param_val = from_vec(vec![1.0]);
+        let batch_norm_param_val = tensor!([1.0]);
         let batch_norm_param = builder.add_float_constant(&batch_norm_param_val);
         add_operator!(
             BatchNormalization,
@@ -706,7 +706,7 @@ mod tests {
         add_operator!(Equal, [input_node, input_node]);
         add_operator!(Erf, [input_node]);
 
-        let expand_shape_val = from_vec(vec![2, 2, 3, 3]);
+        let expand_shape_val = tensor!([2, 2, 3, 3]);
         let expand_shape = builder.add_int_constant(&expand_shape_val);
         add_operator!(Expand, [input_node, expand_shape]);
 
@@ -757,8 +757,8 @@ mod tests {
             allow_zero: false,
         });
 
-        let resize_roi_val = from_vec(vec![0., 0., 0., 0., 1., 1., 1., 1.]);
-        let resize_scales_val = from_vec(vec![1., 1., 2., 2.]);
+        let resize_roi_val = tensor!([0., 0., 0., 0., 1., 1., 1., 1.]);
+        let resize_scales_val = tensor!([1., 1., 2., 2.]);
         let resize_roi = builder.add_float_constant(&resize_roi_val);
         let resize_scales = builder.add_float_constant(&resize_scales_val);
         add_operator!(Resize, [input_node, resize_roi, resize_scales], {
@@ -793,7 +793,7 @@ mod tests {
         add_operator!(Tanh, [input_node]);
         add_operator!(Transpose, [input_node], { perm: None });
 
-        let unsqueeze_axes = builder.add_int_constant(&from_vec(vec![0, 4]));
+        let unsqueeze_axes = builder.add_int_constant(&tensor!([0, 4]));
         add_operator!(Unsqueeze, [input_node, unsqueeze_axes]);
 
         let where_cond = builder.add_value("where_cond");
@@ -865,8 +865,8 @@ mod tests {
 
         // Where op
         let cond = from_scalar(1);
-        let x = from_vec(vec![1, 2, 3]);
-        let y = from_vec(vec![4, 5, 6]);
+        let x = tensor!([1, 2, 3]);
+        let y = tensor!([4, 5, 6]);
         let result = model
             .run(
                 &[
