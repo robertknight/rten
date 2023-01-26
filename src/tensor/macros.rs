@@ -14,17 +14,22 @@
 /// ```
 #[macro_export]
 macro_rules! tensor {
-    [[$($elem:expr),+]] => {
+    [[$($elem:expr),*]] => {
         {
             use $crate::Tensor;
-            Tensor::from_vec(vec![$($elem),+])
+            Tensor::from_vec(vec![$($elem),*])
         }
     };
 
-    (($($dim:expr),+); [$($elem:expr),+]) => {
+    // As above, but with trailing comma.
+    [[$($elem:expr),*,]] => {
+        tensor!([$($elem),*])
+    };
+
+    (($($dim:expr),+); [$($elem:expr),*]) => {
         {
             use $crate::Tensor;
-            Tensor::from_data(&[$($dim),+], vec![$($elem),+])
+            Tensor::from_data(&[$($dim),+], vec![$($elem),*])
         }
     };
 
