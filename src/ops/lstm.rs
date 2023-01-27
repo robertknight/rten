@@ -4,7 +4,7 @@ use crate::check_dims;
 use crate::linalg::{gemm, Matrix};
 use crate::ops::unary_elementwise::UnaryFloatOp;
 use crate::ops::{InputList, IntoOpResult, OpError, Operator, Output, Sigmoid, Tanh};
-use crate::tensor::{AsMatrix, Tensor, TensorLayout};
+use crate::tensor::{AsMatrix, Tensor, TensorLayout, TensorView};
 
 #[derive(Copy, Clone, Debug)]
 pub enum LSTMDirection {
@@ -47,30 +47,28 @@ enum Activation {
 fn update_lstm_gate(
     output: &mut [f32],
     act: Activation,
-    input: &[f32],
+    input: &TensorView,
     input_weight: Matrix,
-    hidden: &[f32],
+    hidden: &TensorView,
     hidden_weight: Matrix,
     bias: Option<(&[f32], &[f32])>,
 ) {
     let sigmoid_op = Sigmoid {};
     let tanh_op = Tanh {};
 
-    let in_mat = Matrix::from_slice(input, 1, input.len(), None);
     gemm(
         output,
         output.len(),
-        in_mat,
+        input.as_matrix(),
         input_weight,
         1., /* alpha */
         0., /* beta */
     );
 
-    let hidden_mat = Matrix::from_slice(hidden, 1, hidden.len(), None);
     gemm(
         output,
         output.len(),
-        hidden_mat,
+        hidden.as_matrix(),
         hidden_weight,
         1., /* alpha */
         1., /* beta */
@@ -142,7 +140,7 @@ pub fn lstm(
     check_dims!(initial_hidden?, 3);
     check_dims!(initial_cell?, 3);
 
-    // Contiguous input and bias needed due to use of `last_dim_slice`.
+    // Contiguous input and bias needed to allow reshaping below.
     let input = input.as_contiguous();
     let bias = bias.map(|t| t.as_contiguous());
 
@@ -242,16 +240,22 @@ pub fn lstm(
                 //  - `P{i,o,f,c}` are peephole weights. These are not currently
                 //    supported.
 
-                let in_vec = input.last_dim_slice([seq, b, 0], input_size);
-                let hidden_vec = hidden.last_dim_slice([dir, b, 0], hidden_size);
+                let in_item = input
+                    .view()
+                    .slice(&[seq.into(), b.into()])
+                    .reshaped(&[1, input_size]);
+                let hidden_item = hidden
+                    .view()
+                    .slice(&[dir.into(), b.into()])
+                    .reshaped(&[1, hidden_size]);
 
                 // Compute outputs for input, forget, cell and output gates.
                 update_lstm_gate(
                     input_gate.data_mut(),
                     Activation::Sigmoid,
-                    in_vec,
+                    &in_item,
                     weight_input,
-                    hidden_vec,
+                    &hidden_item,
                     rec_weight_input,
                     bias_input,
                 );
@@ -259,9 +263,9 @@ pub fn lstm(
                 update_lstm_gate(
                     forget_gate.data_mut(),
                     Activation::Sigmoid,
-                    in_vec,
+                    &in_item,
                     weight_forget,
-                    hidden_vec,
+                    &hidden_item,
                     rec_weight_forget,
                     bias_forget,
                 );
@@ -269,9 +273,9 @@ pub fn lstm(
                 update_lstm_gate(
                     cell_gate.data_mut(),
                     Activation::Tanh,
-                    in_vec,
+                    &in_item,
                     weight_cell,
-                    hidden_vec,
+                    &hidden_item,
                     rec_weight_cell,
                     bias_cell,
                 );
@@ -279,9 +283,9 @@ pub fn lstm(
                 update_lstm_gate(
                     out_gate.data_mut(),
                     Activation::Sigmoid,
-                    in_vec,
+                    &in_item,
                     weight_out,
-                    hidden_vec,
+                    &hidden_item,
                     rec_weight_out,
                     bias_out,
                 );
