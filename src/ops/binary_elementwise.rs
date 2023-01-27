@@ -300,6 +300,26 @@ impl Operator for Equal {
     }
 }
 
+pub fn greater<T: Copy + Debug + PartialOrd>(
+    a: &Tensor<T>,
+    b: &Tensor<T>,
+) -> Result<Tensor<i32>, OpError> {
+    binary_op(a, b, |x, y| i32::from(x > y))
+}
+
+#[derive(Debug)]
+pub struct Greater {}
+
+impl Operator for Greater {
+    fn name(&self) -> &str {
+        "Greater"
+    }
+
+    fn run(&self, inputs: InputList) -> Result<Vec<Output>, OpError> {
+        run_typed_op!(inputs, greater)
+    }
+}
+
 pub fn less<T: Copy + Debug + PartialOrd>(
     a: &Tensor<T>,
     b: &Tensor<T>,
@@ -317,6 +337,26 @@ impl Operator for Less {
 
     fn run(&self, inputs: InputList) -> Result<Vec<Output>, OpError> {
         run_typed_op!(inputs, less)
+    }
+}
+
+pub fn less_or_equal<T: Copy + Debug + PartialOrd>(
+    a: &Tensor<T>,
+    b: &Tensor<T>,
+) -> Result<Tensor<i32>, OpError> {
+    binary_op(a, b, |x, y| i32::from(x <= y))
+}
+
+#[derive(Debug)]
+pub struct LessOrEqual {}
+
+impl Operator for LessOrEqual {
+    fn name(&self) -> &str {
+        "LessOrEqual"
+    }
+
+    fn run(&self, inputs: InputList) -> Result<Vec<Output>, OpError> {
+        run_typed_op!(inputs, less_or_equal)
     }
 }
 
@@ -487,8 +527,9 @@ impl Operator for Where {
 #[cfg(test)]
 mod tests {
     use crate::ops::{
-        add, add_in_place, div, div_in_place, equal, less, mul, mul_in_place, pow, pow_in_place,
-        sub, sub_in_place, where_op, Add, InputList, OpError, Operator, Output,
+        add, add_in_place, div, div_in_place, equal, greater, less, less_or_equal, mul,
+        mul_in_place, pow, pow_in_place, sub, sub_in_place, where_op, Add, InputList, OpError,
+        Operator, Output,
     };
     use crate::tensor;
     use crate::tensor::{from_data, from_scalar, Tensor, TensorLayout};
@@ -713,6 +754,23 @@ mod tests {
     }
 
     #[test]
+    fn test_greater() {
+        // Int tensor
+        let a = tensor!([1, 2, 5]);
+        let b = tensor!([1, 3, 4]);
+        let expected = tensor!([0, 0, 1]);
+        let result = greater(&a, &b).unwrap();
+        assert_eq!(&result, &expected);
+
+        // Float tensor
+        let a = tensor!([1., 2., 5.]);
+        let b = tensor!([1., 3., 4.]);
+        let expected = tensor!([0, 0, 1]);
+        let result = greater(&a, &b).unwrap();
+        assert_eq!(&result, &expected);
+    }
+
+    #[test]
     fn test_less() {
         // Int tensor
         let a = tensor!([1, 2]);
@@ -726,6 +784,23 @@ mod tests {
         let b = tensor!([1., 3.]);
         let expected = tensor!([0, 1]);
         let result = less(&a, &b).unwrap();
+        assert_eq!(&result, &expected);
+    }
+
+    #[test]
+    fn test_less_or_equal() {
+        // Int tensor
+        let a = tensor!([1, 2, 5]);
+        let b = tensor!([1, 3, 4]);
+        let expected = tensor!([1, 1, 0]);
+        let result = less_or_equal(&a, &b).unwrap();
+        assert_eq!(&result, &expected);
+
+        // Float tensor
+        let a = tensor!([1., 2., 5.]);
+        let b = tensor!([1., 3., 4.]);
+        let expected = tensor!([1, 1, 0]);
+        let result = less_or_equal(&a, &b).unwrap();
         assert_eq!(&result, &expected);
     }
 

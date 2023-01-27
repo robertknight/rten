@@ -24,10 +24,10 @@ mod split;
 mod unary_elementwise;
 
 pub use binary_elementwise::{
-    add, add_in_place, div, div_in_place, equal, less, mul, mul_in_place, pow, pow_in_place, sub,
-    sub_in_place, where_op,
+    add, add_in_place, div, div_in_place, equal, greater, less, less_or_equal, mul, mul_in_place,
+    pow, pow_in_place, sub, sub_in_place, where_op,
 };
-pub use binary_elementwise::{Add, Div, Equal, Less, Mul, Pow, Sub, Where};
+pub use binary_elementwise::{Add, Div, Equal, Greater, Less, LessOrEqual, Mul, Pow, Sub, Where};
 pub use concat::{concat, Concat};
 pub use conv::{conv, conv_transpose};
 pub use conv::{Conv, ConvTranspose};

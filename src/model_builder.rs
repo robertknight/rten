@@ -33,9 +33,11 @@ pub enum OpType {
     Gather(Gather),
     Gemm(Gemm),
     GlobalAveragePool,
+    Greater,
     Identity,
     LeakyRelu(LeakyRelu),
     Less,
+    LessOrEqual,
     MatMul,
     MaxPool(MaxPool),
     Mul,
@@ -355,6 +357,7 @@ impl<'a> ModelBuilder<'a> {
                 }
             ),
             OpType::GlobalAveragePool => op!(GlobalAveragePool),
+            OpType::Greater => op!(Greater),
             OpType::Identity => op!(Identity),
             OpType::LeakyRelu(args) => op_with_attrs!(
                 LeakyRelu,
@@ -362,6 +365,7 @@ impl<'a> ModelBuilder<'a> {
                 sg::LeakyReluAttrsArgs { alpha: args.alpha }
             ),
             OpType::Less => op!(Less),
+            OpType::LessOrEqual => op!(LessOrEqual),
             OpType::MatMul => op!(MatMul),
             OpType::MaxPool(args) => op_with_attrs!(MaxPool, MaxPoolAttrs, {
                 let pad_args = pad_args_from_padding(args.padding);
