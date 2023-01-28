@@ -280,11 +280,33 @@ impl Operator for Div {
     }
 }
 
-pub fn equal<T: Copy + Debug + PartialEq>(
+enum BooleanOp {
+    Equal,
+    Less,
+    LessOrEqual,
+    Greater,
+}
+
+fn boolean_op<T: Copy + Debug + PartialEq + PartialOrd>(
+    a: &Tensor<T>,
+    b: &Tensor<T>,
+    op: BooleanOp,
+) -> Result<Tensor<i32>, OpError> {
+    binary_op(a, b, |x, y| {
+        i32::from(match op {
+            BooleanOp::Equal => x == y,
+            BooleanOp::Less => x < y,
+            BooleanOp::LessOrEqual => x <= y,
+            BooleanOp::Greater => x > y,
+        })
+    })
+}
+
+pub fn equal<T: Copy + Debug + PartialEq + PartialOrd>(
     a: &Tensor<T>,
     b: &Tensor<T>,
 ) -> Result<Tensor<i32>, OpError> {
-    binary_op(a, b, |x, y| i32::from(x == y))
+    boolean_op(a, b, BooleanOp::Equal)
 }
 
 #[derive(Debug)]
@@ -304,7 +326,7 @@ pub fn greater<T: Copy + Debug + PartialOrd>(
     a: &Tensor<T>,
     b: &Tensor<T>,
 ) -> Result<Tensor<i32>, OpError> {
-    binary_op(a, b, |x, y| i32::from(x > y))
+    boolean_op(a, b, BooleanOp::Greater)
 }
 
 #[derive(Debug)]
@@ -324,7 +346,7 @@ pub fn less<T: Copy + Debug + PartialOrd>(
     a: &Tensor<T>,
     b: &Tensor<T>,
 ) -> Result<Tensor<i32>, OpError> {
-    binary_op(a, b, |x, y| i32::from(x < y))
+    boolean_op(a, b, BooleanOp::Less)
 }
 
 #[derive(Debug)]
@@ -344,7 +366,7 @@ pub fn less_or_equal<T: Copy + Debug + PartialOrd>(
     a: &Tensor<T>,
     b: &Tensor<T>,
 ) -> Result<Tensor<i32>, OpError> {
-    binary_op(a, b, |x, y| i32::from(x <= y))
+    boolean_op(a, b, BooleanOp::LessOrEqual)
 }
 
 #[derive(Debug)]
