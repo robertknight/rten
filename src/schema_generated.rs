@@ -18,13 +18,13 @@ pub const ENUM_MIN_OPERATOR_TYPE: i8 = 0;
     since = "2.0.0",
     note = "Use associated constants instead. This will no longer be generated in 2021."
 )]
-pub const ENUM_MAX_OPERATOR_TYPE: i8 = 50;
+pub const ENUM_MAX_OPERATOR_TYPE: i8 = 51;
 #[deprecated(
     since = "2.0.0",
     note = "Use associated constants instead. This will no longer be generated in 2021."
 )]
 #[allow(non_camel_case_types)]
-pub const ENUM_VALUES_OPERATOR_TYPE: [OperatorType; 51] = [
+pub const ENUM_VALUES_OPERATOR_TYPE: [OperatorType; 52] = [
     OperatorType::Add,
     OperatorType::ArgMin,
     OperatorType::ArgMax,
@@ -51,6 +51,7 @@ pub const ENUM_VALUES_OPERATOR_TYPE: [OperatorType; 51] = [
     OperatorType::LeakyRelu,
     OperatorType::Less,
     OperatorType::LessOrEqual,
+    OperatorType::Log,
     OperatorType::LSTM,
     OperatorType::MatMul,
     OperatorType::MaxPool,
@@ -109,34 +110,35 @@ impl OperatorType {
     pub const LeakyRelu: Self = Self(23);
     pub const Less: Self = Self(24);
     pub const LessOrEqual: Self = Self(25);
-    pub const LSTM: Self = Self(26);
-    pub const MatMul: Self = Self(27);
-    pub const MaxPool: Self = Self(28);
-    pub const Mul: Self = Self(29);
-    pub const Pad: Self = Self(30);
-    pub const Pow: Self = Self(31);
-    pub const Range: Self = Self(32);
-    pub const ReduceMean: Self = Self(33);
-    pub const ReduceL2: Self = Self(34);
-    pub const Relu: Self = Self(35);
-    pub const Reshape: Self = Self(36);
-    pub const Resize: Self = Self(37);
-    pub const Shape: Self = Self(38);
-    pub const Sigmoid: Self = Self(39);
-    pub const Sin: Self = Self(40);
-    pub const Slice: Self = Self(41);
-    pub const Split: Self = Self(42);
-    pub const Sqrt: Self = Self(43);
-    pub const Squeeze: Self = Self(44);
-    pub const Softmax: Self = Self(45);
-    pub const Sub: Self = Self(46);
-    pub const Tanh: Self = Self(47);
-    pub const Transpose: Self = Self(48);
-    pub const Unsqueeze: Self = Self(49);
-    pub const Where: Self = Self(50);
+    pub const Log: Self = Self(26);
+    pub const LSTM: Self = Self(27);
+    pub const MatMul: Self = Self(28);
+    pub const MaxPool: Self = Self(29);
+    pub const Mul: Self = Self(30);
+    pub const Pad: Self = Self(31);
+    pub const Pow: Self = Self(32);
+    pub const Range: Self = Self(33);
+    pub const ReduceMean: Self = Self(34);
+    pub const ReduceL2: Self = Self(35);
+    pub const Relu: Self = Self(36);
+    pub const Reshape: Self = Self(37);
+    pub const Resize: Self = Self(38);
+    pub const Shape: Self = Self(39);
+    pub const Sigmoid: Self = Self(40);
+    pub const Sin: Self = Self(41);
+    pub const Slice: Self = Self(42);
+    pub const Split: Self = Self(43);
+    pub const Sqrt: Self = Self(44);
+    pub const Squeeze: Self = Self(45);
+    pub const Softmax: Self = Self(46);
+    pub const Sub: Self = Self(47);
+    pub const Tanh: Self = Self(48);
+    pub const Transpose: Self = Self(49);
+    pub const Unsqueeze: Self = Self(50);
+    pub const Where: Self = Self(51);
 
     pub const ENUM_MIN: i8 = 0;
-    pub const ENUM_MAX: i8 = 50;
+    pub const ENUM_MAX: i8 = 51;
     pub const ENUM_VALUES: &'static [Self] = &[
         Self::Add,
         Self::ArgMin,
@@ -164,6 +166,7 @@ impl OperatorType {
         Self::LeakyRelu,
         Self::Less,
         Self::LessOrEqual,
+        Self::Log,
         Self::LSTM,
         Self::MatMul,
         Self::MaxPool,
@@ -219,6 +222,7 @@ impl OperatorType {
             Self::LeakyRelu => Some("LeakyRelu"),
             Self::Less => Some("Less"),
             Self::LessOrEqual => Some("LessOrEqual"),
+            Self::Log => Some("Log"),
             Self::LSTM => Some("LSTM"),
             Self::MatMul => Some("MatMul"),
             Self::MaxPool => Some("MaxPool"),

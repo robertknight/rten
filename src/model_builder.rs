@@ -38,6 +38,7 @@ pub enum OpType {
     LeakyRelu(LeakyRelu),
     Less,
     LessOrEqual,
+    Log,
     MatMul,
     MaxPool(MaxPool),
     Mul,
@@ -366,6 +367,7 @@ impl<'a> ModelBuilder<'a> {
             ),
             OpType::Less => op!(Less),
             OpType::LessOrEqual => op!(LessOrEqual),
+            OpType::Log => op!(Log),
             OpType::MatMul => op!(MatMul),
             OpType::MaxPool(args) => op_with_attrs!(MaxPool, MaxPoolAttrs, {
                 let pad_args = pad_args_from_padding(args.padding);

@@ -381,6 +381,7 @@ fn read_operator(node: &OperatorNode) -> ReadOpResult {
         OperatorType::LeakyRelu => read_leaky_relu_op(node),
         OperatorType::Less => op!(Less),
         OperatorType::LessOrEqual => op!(LessOrEqual),
+        OperatorType::Log => op!(Log),
         OperatorType::LSTM => read_lstm_op(node),
         OperatorType::MatMul => op!(MatMul),
         OperatorType::MaxPool => read_max_pool_op(node),
@@ -730,6 +731,7 @@ mod tests {
         add_operator!(LeakyRelu, [input_node], { alpha: 0.01 });
         add_operator!(Less, [input_node, input_node]);
         add_operator!(LessOrEqual, [input_node, input_node]);
+        add_operator!(Log, [input_node]);
         add_operator!(MatMul, [input_2d, input_2d]);
         add_operator!(MaxPool, [input_node], {
             kernel_size: [2, 2],

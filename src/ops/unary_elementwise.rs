@@ -157,6 +157,27 @@ impl UnaryFloatOp for LeakyRelu {
     }
 }
 
+pub fn log(input: &Tensor) -> Tensor {
+    Log {}.map(input)
+}
+
+pub fn log_in_place(input: &mut Tensor) {
+    Log {}.apply(input)
+}
+
+#[derive(Debug)]
+pub struct Log {}
+
+impl UnaryFloatOp for Log {
+    fn name(&self) -> &str {
+        "Log"
+    }
+
+    fn map_element(&self, val: f32) -> f32 {
+        val.ln()
+    }
+}
+
 pub fn relu_in_place(x: &mut Tensor) {
     Relu {}.apply(x)
 }
@@ -264,8 +285,8 @@ impl UnaryFloatOp for Tanh {
 mod tests {
     use crate::ops::{
         clip, clip_in_place, cos, cos_in_place, erf, erf_in_place, leaky_relu, leaky_relu_in_place,
-        relu, relu_in_place, sigmoid, sigmoid_in_place, sin, sin_in_place, sqrt, sqrt_in_place,
-        tanh, tanh_in_place,
+        log, log_in_place, relu, relu_in_place, sigmoid, sigmoid_in_place, sin, sin_in_place, sqrt,
+        sqrt_in_place, tanh, tanh_in_place,
     };
     use crate::tensor;
     use crate::tensor::{from_data, Tensor};
@@ -373,6 +394,32 @@ mod tests {
         let alpha = 0.1;
         let expected = from_data(&[2, 2], vec![-5. * alpha, -2. * alpha, 3., 20.]);
         leaky_relu_in_place(&mut input, alpha);
+        expect_equal(&input, &expected)
+    }
+
+    #[test]
+    fn test_log() -> Result<(), String> {
+        let input = tensor!([0.1, 0.5, 1., 10.]);
+        let expected = tensor!([
+            -2.3025850929940455,
+            -0.6931471805599453,
+            0.,
+            2.302585092994046
+        ]);
+        let result = log(&input);
+        expect_equal(&result, &expected)
+    }
+
+    #[test]
+    fn test_log_in_place() -> Result<(), String> {
+        let mut input = tensor!([0.1, 0.5, 1., 10.]);
+        let expected = tensor!([
+            -2.3025850929940455,
+            -0.6931471805599453,
+            0.,
+            2.302585092994046
+        ]);
+        log_in_place(&mut input);
         expect_equal(&input, &expected)
     }
 

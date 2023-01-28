@@ -33,6 +33,7 @@ enum OperatorType: byte {
   LeakyRelu,
   Less,
   LessOrEqual,
+  Log,
   LSTM,
   MatMul,
   MaxPool,
