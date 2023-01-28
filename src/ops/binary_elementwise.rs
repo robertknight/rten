@@ -71,30 +71,30 @@ fn can_run_binary_op_in_place<T: Copy>(a: &Tensor<T>, b: &Tensor<T>) -> bool {
 /// Perform an elementwise binary operation in-place.
 ///
 /// This requires that `b` can be broadcast to the shape of `a`.
-fn binary_op_in_place<T: Copy + Debug, F: Fn(&mut T, T)>(a: &mut Tensor<T>, b: &Tensor<T>, op: F) {
+fn binary_op_in_place<T: Copy + Debug, F: Fn(T, T) -> T>(a: &mut Tensor<T>, b: &Tensor<T>, op: F) {
     // Fast paths for contiguous LHS
     if a.is_contiguous() {
         if let Some(scalar) = b.item() {
             // When RHS is a scalar, we don't need to iterate over it at all.
             for a_elt in a.data_mut().iter_mut() {
-                op(a_elt, scalar);
+                *a_elt = op(*a_elt, scalar);
             }
         } else if a.shape() == b.shape() && b.is_contiguous() {
             // When RHS is contiguous and same shape as LHS we can use a simple iterator.
             for (a_elt, b_elt) in zip(a.data_mut().iter_mut(), b.data().iter()) {
-                op(a_elt, *b_elt);
+                *a_elt = op(*a_elt, *b_elt);
             }
         } else if &a.shape()[a.ndim() - b.ndim()..] == b.shape() && b.is_contiguous() {
             // Variation of the above for when broadcasting just involves cycling
             // the RHS.
             for (a_elt, b_elt) in zip(a.data_mut().iter_mut(), b.data().iter().cycle()) {
-                op(a_elt, *b_elt);
+                *a_elt = op(*a_elt, *b_elt);
             }
         } else {
             // Otherwise a more complex RHS iterator is required.
             let b_elts = b.broadcast_iter(a.shape());
             for (a_elt, b_elt) in zip(a.data_mut().iter_mut(), b_elts) {
-                op(a_elt, b_elt);
+                *a_elt = op(*a_elt, b_elt);
             }
         }
         return;
@@ -102,7 +102,7 @@ fn binary_op_in_place<T: Copy + Debug, F: Fn(&mut T, T)>(a: &mut Tensor<T>, b: &
 
     let b_elts = b.broadcast_iter(a.shape());
     for (a_elt, b_elt) in zip(a.view_mut().iter_mut(), b_elts) {
-        op(a_elt, b_elt);
+        *a_elt = op(*a_elt, b_elt);
     }
 }
 
@@ -116,11 +116,10 @@ fn binary_op_in_place<T: Copy + Debug, F: Fn(&mut T, T)>(a: &mut Tensor<T>, b: &
 /// When broadcasting is involved, the output may be larger than either of the
 /// inputs (eg. if the inputs are `[1, 5]` and `[5, 1]` respectively). In that
 /// case this falls back to a non-place op.
-fn binary_commutative_op<T: Copy + Debug, F: Fn(&mut T, T), F2: Fn(T, T) -> T>(
+fn binary_commutative_op<T: Copy + Debug, F: Fn(T, T) -> T>(
     a: &Tensor<T>,
     b: &Tensor<T>,
-    op_mut: F,
-    op: F2,
+    op: F,
 ) -> Result<Tensor<T>, OpError> {
     let mut out;
     let other;
@@ -133,7 +132,7 @@ fn binary_commutative_op<T: Copy + Debug, F: Fn(&mut T, T), F2: Fn(T, T) -> T>(
     } else {
         return binary_op(a, b, op);
     }
-    binary_op_in_place(&mut out, other, op_mut);
+    binary_op_in_place(&mut out, other, op);
     Ok(out)
 }
 
@@ -184,16 +183,16 @@ macro_rules! run_typed_op_in_place {
 }
 
 /// Perform elementwise addition of two tensors.
-pub fn add<T: Copy + Debug + std::ops::Add<Output = T> + std::ops::AddAssign>(
+pub fn add<T: Copy + Debug + std::ops::Add<Output = T>>(
     a: &Tensor<T>,
     b: &Tensor<T>,
 ) -> Result<Tensor<T>, OpError> {
-    binary_commutative_op(a, b, |x, y| *x += y, |x, y| x + y)
+    binary_commutative_op(a, b, |x, y| x + y)
 }
 
 /// Perform in-place elementwise addition of two tensors.
-pub fn add_in_place<T: Copy + Debug + std::ops::AddAssign>(a: &mut Tensor<T>, b: &Tensor<T>) {
-    binary_op_in_place(a, b, |x, y| *x += y);
+pub fn add_in_place<T: Copy + Debug + std::ops::Add<Output = T>>(a: &mut Tensor<T>, b: &Tensor<T>) {
+    binary_op_in_place(a, b, |x, y| x + y);
 }
 
 #[derive(Debug)]
@@ -219,13 +218,7 @@ impl Operator for Add {
 
 /// Perform elementwise division of two tensors.
 pub fn div<
-    T: Copy
-        + Debug
-        + std::ops::Mul<Output = T>
-        + std::ops::MulAssign
-        + std::ops::Div<Output = T>
-        + IsInt
-        + Identities,
+    T: Copy + Debug + std::ops::Mul<Output = T> + std::ops::Div<Output = T> + IsInt + Identities,
 >(
     a: &Tensor<T>,
     b: &Tensor<T>,
@@ -241,21 +234,14 @@ pub fn div<
 
 /// Perform in-place elementwise division of two tensors.
 pub fn div_in_place<
-    T: Copy
-        + Debug
-        + std::ops::Mul<Output = T>
-        + std::ops::MulAssign
-        + std::ops::Div<Output = T>
-        + std::ops::DivAssign
-        + IsInt
-        + Identities,
+    T: Copy + Debug + std::ops::Mul<Output = T> + std::ops::Div<Output = T> + IsInt + Identities,
 >(
     a: &mut Tensor<T>,
     b: &Tensor<T>,
 ) {
     match (T::is_int(), b.item()) {
         (false, Some(scalar)) => mul_in_place(a, &Tensor::from_scalar(T::one() / scalar)),
-        _ => binary_op_in_place(a, b, |x, y| *x /= y),
+        _ => binary_op_in_place(a, b, |x, y| x / y),
     }
 }
 
@@ -383,16 +369,16 @@ impl Operator for LessOrEqual {
 }
 
 /// Multiply two tensors elementwise.
-pub fn mul<T: Copy + Debug + std::ops::Mul<Output = T> + std::ops::MulAssign>(
+pub fn mul<T: Copy + Debug + std::ops::Mul<Output = T>>(
     a: &Tensor<T>,
     b: &Tensor<T>,
 ) -> Result<Tensor<T>, OpError> {
-    binary_commutative_op(a, b, |x, y| *x *= y, |x, y| x * y)
+    binary_commutative_op(a, b, |x, y| x * y)
 }
 
 /// Perform in-place elementwise multiplication of two tensors.
-pub fn mul_in_place<T: Copy + Debug + std::ops::MulAssign>(a: &mut Tensor<T>, b: &Tensor<T>) {
-    binary_op_in_place(a, b, |a_elt, b_elt| *a_elt *= b_elt);
+pub fn mul_in_place<T: Copy + Debug + std::ops::Mul<Output = T>>(a: &mut Tensor<T>, b: &Tensor<T>) {
+    binary_op_in_place(a, b, |a_elt, b_elt| a_elt * b_elt);
 }
 
 #[derive(Debug)]
@@ -430,7 +416,7 @@ pub fn pow_in_place(a: &mut Tensor, b: &Tensor) {
     if b.item() == Some(2.0) {
         a.apply(|x| x * x);
     } else {
-        binary_op_in_place(a, b, |a_elt, b_elt| *a_elt = a_elt.powf(b_elt));
+        binary_op_in_place(a, b, |a_elt, b_elt| a_elt.powf(b_elt));
     }
 }
 
@@ -474,8 +460,8 @@ pub fn sub<T: Copy + Debug + std::ops::Sub<Output = T>>(
 }
 
 /// Perform in-place elementwise subtraction of two tensors.
-pub fn sub_in_place<T: Copy + Debug + std::ops::SubAssign>(a: &mut Tensor<T>, b: &Tensor<T>) {
-    binary_op_in_place(a, b, |x, y| *x -= y);
+pub fn sub_in_place<T: Copy + Debug + std::ops::Sub<Output = T>>(a: &mut Tensor<T>, b: &Tensor<T>) {
+    binary_op_in_place(a, b, |x, y| x - y);
 }
 
 #[derive(Debug)]
