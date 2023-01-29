@@ -8,23 +8,37 @@ use super::{TensorView, TensorViewMut};
 /// IterPos tracks the position within a single dimension of an IndexingIter.
 #[derive(Debug)]
 struct IterPos {
-    /// Current step along this dimension. Each step corresponds to advancing
-    /// one or more indexes either forwards or backwards.
-    step: usize,
+    /// Steps remaining along this dimension before we reset. Each step
+    /// corresponds to advancing one or more indexes either forwards or backwards.
+    ///
+    /// This starts at `steps - 1` in each iteration, since the first step is
+    /// effectively taken when we reset.
+    steps_remaining: usize,
 
-    /// Number of steps to take along this dimension before resetting.
+    /// Number of steps in each iteration over this dimension.
     steps: usize,
 
-    /// Adjustment for element buffer offset for each step along this dimension.
+    /// Data offset adjustment for each step along this dimension.
     offset_step: isize,
 }
 
 impl IterPos {
+    fn new(steps: usize, offset_step: isize) -> IterPos {
+        IterPos {
+            steps_remaining: steps.saturating_sub(1),
+            steps,
+            offset_step,
+        }
+    }
+
+    /// Take one step along this dimension or reset if we reached the end.
+    #[inline(always)]
     fn step(&mut self) -> bool {
-        if self.step < self.steps - 1 {
-            self.step += 1;
+        if self.steps_remaining != 0 {
+            self.steps_remaining -= 1;
             true
         } else {
+            self.steps_remaining = self.steps.saturating_sub(1);
             false
         }
     }
@@ -50,11 +64,7 @@ impl IndexingIterBase {
             .shape()
             .iter()
             .enumerate()
-            .map(|(dim, &len)| IterPos {
-                step: 0,
-                steps: len,
-                offset_step: layout.stride(dim) as isize,
-            })
+            .map(|(dim, &len)| IterPos::new(len, layout.stride(dim) as isize))
             .collect();
 
         IndexingIterBase {
@@ -73,18 +83,17 @@ impl IndexingIterBase {
         let padded_tensor_shape = repeat(&0).take(added_dims).chain(layout.shape().iter());
         let dims = zip(padded_tensor_shape, shape.iter())
             .enumerate()
-            .map(|(dim, (&actual_len, &broadcast_len))| IterPos {
-                step: 0,
-                steps: broadcast_len,
-
+            .map(|(dim, (&actual_len, &broadcast_len))| {
                 // If the dimension is being broadcast, set its stride to 0 so
                 // that when we increment in this dimension, we just repeat
                 // elements. Otherwise, use the real stride.
-                offset_step: if actual_len == broadcast_len {
+                let offset_step = if actual_len == broadcast_len {
                     layout.stride(dim - added_dims) as isize
                 } else {
                     0
-                },
+                };
+
+                IterPos::new(broadcast_len, offset_step)
             })
             .collect();
 
@@ -129,11 +138,7 @@ impl IndexingIterBase {
                     assert!(range.steps(len) == 0);
                 }
 
-                IterPos {
-                    step: 0,
-                    steps: range.steps(len),
-                    offset_step: (stride as isize) * range.step(),
-                }
+                IterPos::new(range.steps(len), (stride as isize) * range.step())
             })
             .collect();
 
@@ -148,6 +153,7 @@ impl IndexingIterBase {
     ///
     /// The caller must calculate `stride`, the number of indices being stepped
     /// over.
+    #[inline(always)]
     fn step_dim(&mut self, mut dim: usize, stride: usize) {
         self.len -= stride;
         let mut pos = &mut self.pos[dim];
@@ -155,7 +161,6 @@ impl IndexingIterBase {
             // End of range reached for dimension `dim`. Rewind offset by
             // amount it moved since iterating from the start of this dimension.
             self.offset -= pos.offset_step * (pos.steps as isize - 1);
-            pos.step = 0;
 
             if dim == 0 {
                 break;
@@ -168,6 +173,7 @@ impl IndexingIterBase {
     }
 
     /// Advance iterator by one index.
+    #[inline(always)]
     fn step(&mut self) {
         self.step_dim(self.pos.len() - 1, 1);
     }
@@ -246,6 +252,7 @@ impl<'a, T: Copy> Elements<'a, T> {
 impl<'a, T: Copy> Iterator for Elements<'a, T> {
     type Item = T;
 
+    #[inline(always)]
     fn next(&mut self) -> Option<T> {
         match self.iter {
             ElementsIter::Direct(ref mut iter) => iter.next().copied(),
@@ -305,6 +312,7 @@ impl<'a, T: Copy> IndexingIter<'a, T> {
 impl<'a, T: Copy> Iterator for IndexingIter<'a, T> {
     type Item = T;
 
+    #[inline(always)]
     fn next(&mut self) -> Option<Self::Item> {
         if self.base.len == 0 {
             return None;
