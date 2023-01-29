@@ -4,7 +4,7 @@ use crate::check_dims;
 use crate::linalg::{add_scaled_vector, div_ceil, gemm};
 use crate::ops::pooling::calc_output_size_and_padding;
 use crate::ops::{InputList, IntoOpResult, OpError, Operator, Output, Padding};
-use crate::tensor::{AsMatrix, SliceItem, Tensor, TensorLayout};
+use crate::tensor::{AsMatrix, Tensor, TensorLayout};
 
 // Calculate the min and max output X coordinates that are valid when updating
 // a row of convolution output using a loop:
@@ -131,12 +131,12 @@ fn conv_2d_pointwise(input: &Tensor, kernel: &Tensor, bias: Option<&Tensor>) -> 
 
     for n in 0..batch {
         let mut out_view = output.view_mut();
-        let mut out_item = out_view.slice(&[SliceItem::Index(n)]);
+        let mut out_item = out_view.slice(&[n.into()]);
         let out_row_stride = out_item.stride(0);
 
         let in_mat = input
             .view()
-            .slice(&[SliceItem::Index(n)])
+            .slice(&[n.into()])
             .reshaped(&[in_c, in_h * in_w])
             .as_matrix();
 
@@ -335,16 +335,14 @@ pub fn conv(
 
             let kernel_mat = kernel
                 .view()
-                .slice(&[SliceItem::Range(
-                    out_chan_start..out_chan_start + out_channels_per_group,
-                )])
+                .slice(&[(out_chan_start..out_chan_start + out_channels_per_group).into()])
                 .reshaped(&[out_channels_per_group, in_channels_per_group * k_h * k_w])
                 .as_matrix();
 
             let mut out_view = output.view_mut();
             let mut out_item = out_view.slice(&[
-                SliceItem::Index(n),
-                SliceItem::Range(out_chan_start..out_chan_start + out_channels_per_group),
+                n.into(),
+                (out_chan_start..out_chan_start + out_channels_per_group).into(),
             ]);
             let mut out_mat = out_item.reshaped(&[out_channels_per_group, out_h * out_w]);
             let out_row_stride = out_mat.stride(0);

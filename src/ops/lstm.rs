@@ -4,7 +4,7 @@ use crate::check_dims;
 use crate::linalg::{gemm, Matrix};
 use crate::ops::unary_elementwise::UnaryFloatOp;
 use crate::ops::{InputList, IntoOpResult, OpError, Operator, Output, Sigmoid, Tanh};
-use crate::tensor::{AsMatrix, SliceItem, Tensor, TensorLayout};
+use crate::tensor::{AsMatrix, Tensor, TensorLayout};
 
 #[derive(Copy, Clone, Debug)]
 pub enum LSTMDirection {
@@ -161,8 +161,8 @@ pub fn lstm(
         tensor
             .view()
             .slice(&[
-                SliceItem::Index(dir),
-                SliceItem::Range(index * hidden_size..(index + 1) * hidden_size),
+                dir.into(),
+                (index * hidden_size..(index + 1) * hidden_size).into(),
             ])
             .as_matrix()
     }
@@ -292,7 +292,7 @@ pub fn lstm(
 
                 // Compute new values of cell and hidden state
                 let mut cell_view = cell.view_mut();
-                let mut cell_item = cell_view.slice(&[SliceItem::Index(dir), SliceItem::Index(b)]);
+                let mut cell_item = cell_view.slice(&[dir.into(), b.into()]);
 
                 for (cell, (forget_gate, (input_gate, cell_gate))) in zip(
                     cell_item.iter_mut(),
@@ -302,8 +302,7 @@ pub fn lstm(
                 }
 
                 let mut hidden_view = hidden.view_mut();
-                let mut hidden_item =
-                    hidden_view.slice(&[SliceItem::Index(dir), SliceItem::Index(b)]);
+                let mut hidden_item = hidden_view.slice(&[dir.into(), b.into()]);
                 let tanh_op = Tanh {};
                 for (hidden, (out_gate, cell)) in zip(
                     hidden_item.iter_mut(),
@@ -314,11 +313,8 @@ pub fn lstm(
 
                 // Copy latest value of hidden seq to output tensor
                 let mut hidden_seq_view = hidden_seq.view_mut();
-                let mut hidden_seq_item = hidden_seq_view.slice(&[
-                    SliceItem::Index(seq),
-                    SliceItem::Index(dir),
-                    SliceItem::Index(b),
-                ]);
+                let mut hidden_seq_item =
+                    hidden_seq_view.slice(&[seq.into(), dir.into(), b.into()]);
                 hidden_seq_item
                     .data_mut()
                     .clone_from_slice(hidden_item.data_mut());

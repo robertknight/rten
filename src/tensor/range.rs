@@ -2,6 +2,8 @@ use std::fmt::Debug;
 use std::ops::{Range, RangeTo};
 
 /// Specifies a subset of a dimension to include when slicing a tensor or view.
+///
+/// Can be constructed from an index or range using `index_or_range.into()`.
 #[derive(Clone)]
 pub enum SliceItem {
     /// View a specific index from a dimension. The number of dimensions in the
@@ -14,6 +16,18 @@ pub enum SliceItem {
 
     /// Include the full range of the dimension.
     RangeFull,
+}
+
+impl From<usize> for SliceItem {
+    fn from(value: usize) -> Self {
+        SliceItem::Index(value)
+    }
+}
+
+impl From<Range<usize>> for SliceItem {
+    fn from(value: Range<usize>) -> Self {
+        SliceItem::Range(value)
+    }
 }
 
 /// A range for slicing a Tensor.
