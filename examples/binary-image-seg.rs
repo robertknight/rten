@@ -7,7 +7,7 @@ use std::io::BufWriter;
 use std::iter::zip;
 
 use wasnn::ops::{resize, CoordTransformMode, NearestMode, ResizeMode, ResizeTarget};
-use wasnn::{tensor, Model, RunOptions, Tensor, TensorLayout};
+use wasnn::{tensor, Dimension, Model, RunOptions, Tensor, TensorLayout};
 
 /// Read a PNG image from `path` into an NCHW tensor with one channel.
 fn read_greyscale_image<N: Fn(f32) -> f32>(
@@ -89,6 +89,10 @@ fn main() -> Result<(), Box<dyn Error>> {
         .get(0)
         .copied()
         .expect("model has no inputs");
+    let input_shape = model
+        .node_info(input_id)
+        .and_then(|info| info.shape())
+        .ok_or("model does not specify expected input shape")?;
     let output_id = model
         .output_ids()
         .get(0)
@@ -110,8 +114,14 @@ fn main() -> Result<(), Box<dyn Error>> {
         )
     };
 
-    // TODO - Read the input sizes from the model.
-    let resized_img = bilinear_resize(&img, 800, 600)?;
+    let (in_height, in_width) = match input_shape[..] {
+        [_, _, Dimension::Fixed(h), Dimension::Fixed(w)] => (h, w),
+        _ => {
+            return Err("failed to get model dims".into());
+        }
+    };
+
+    let resized_img = bilinear_resize(&img, in_height as i32, in_width as i32)?;
 
     let outputs = model.run(
         &[(input_id, (&resized_img).into())],
