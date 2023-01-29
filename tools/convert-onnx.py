@@ -78,10 +78,15 @@ class ValueNode(Node):
     Data for a value placeholder graph node.
 
     These are used for operator inputs and outputs.
+
+    The shape can be missing, or a mix of fixed and symbolic (unknown at model
+    export time) sizes.
     """
 
-    def __init__(self, name: str):
+    def __init__(self, name: str, shape: list[int|str] | None):
         super().__init__(name)
+
+        self.shape = shape
 
 
 class Graph:
@@ -369,7 +374,11 @@ def constant_node_from_onnx_constant_op(onnx_op: onnx.OperatorProto) -> Constant
 
 
 def value_node_from_onnx_value(value: onnx.ValueInfoProto) -> ValueNode:
-    return ValueNode(name=value.name)
+    if value.type.tensor_type.shape.dim:
+        dims = [d.dim_param or d.dim_value for d in value.type.tensor_type.shape.dim]
+    else:
+        dims = None
+    return ValueNode(name=value.name, shape=dims)
 
 
 def read_pads(op_reader: ONNXOperatorReader) -> tuple[str, list[int] | None]:
@@ -749,7 +758,8 @@ def graph_from_onnx_graph(onnx_graph: onnx.GraphProto) -> Graph:
             continue
 
         for output_name in operator.output:
-            value_node = ValueNode(output_name)
+            # TODO - Add shape info for operator outputs, if available.
+            value_node = ValueNode(output_name, shape=None)
             add_node(value_node)
 
         try:
@@ -863,7 +873,26 @@ def build_value_node(builder: flatbuffers.Builder, value: ValueNode):
     """
     Serialize a placeholder for an input/output value into a FlatBuffers model.
     """
+
+    def write_dim(builder, dim: str|int) -> int:
+        if isinstance(dim, str):
+            name = builder.CreateString(dim)
+            sg.DimStart(builder)
+            sg.DimAddName(builder, name)
+        else:
+            sg.DimStart(builder)
+            sg.DimAddValue(builder, dim)
+        return sg.DimEnd(builder)
+
+    if value.shape is not None:
+        dims = [write_dim(builder, dim) for dim in value.shape]
+        shape_vec = write_vec(builder, sg.ValueNodeStartShapeVector, dims, "offset")
+    else:
+        shape_vec = None
+
     sg.ValueNodeStart(builder)
+    if shape_vec:
+        sg.ValueNodeAddShape(builder, shape_vec)
     return sg.ValueNodeEnd(builder)
 
 

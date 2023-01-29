@@ -4,18 +4,32 @@ use std::fmt;
 use std::iter::zip;
 
 use crate::ops::{Input, InputList, OpError, Operator, Output};
-use crate::tensor::Tensor;
+use crate::tensor::{Tensor, TensorLayout};
 use crate::timer::Timer;
 
-struct OperatorNode {
+/// Represents the size of a dimension of a runtime-provided value, such as
+/// an operator input, output or intermediate value.
+#[derive(Clone, Debug, PartialEq)]
+pub enum Dimension {
+    /// A dimension whose expected size is fixed and specified as part of the
+    /// model.
+    Fixed(usize),
+
+    /// A dimension whose size is determined at runtime. The symbol provides
+    /// a name to identify when different values share a size.
+    Symbolic(String),
+}
+
+pub struct OperatorNode {
     name: Option<String>,
     inputs: Vec<Option<NodeId>>,
     outputs: Vec<Option<NodeId>>,
     operator: Box<dyn Operator>,
 }
 
-struct ValueNode {
+pub struct ValueNode {
     name: Option<String>,
+    shape: Option<Vec<Dimension>>,
 }
 
 pub struct ConstantNode<T: Copy> {
@@ -40,7 +54,7 @@ impl From<ConstantNode<i32>> for Constant {
     }
 }
 
-enum Node {
+pub enum Node {
     Operator(OperatorNode),
     Constant(Constant),
     Value(ValueNode),
@@ -48,7 +62,7 @@ enum Node {
 
 impl Node {
     /// Return the debug name of this node
-    fn name(&self) -> Option<&str> {
+    pub fn name(&self) -> Option<&str> {
         let maybe_name = match self {
             Node::Operator(node) => &node.name,
             Node::Constant(constant) => match constant {
@@ -58,6 +72,24 @@ impl Node {
             Node::Value(node) => &node.name,
         };
         maybe_name.as_ref().map(|s| s.as_str())
+    }
+
+    /// Return the tensor shape associated with this node.
+    ///
+    /// For constants this is the shape of the tensor. Operator nodes have no
+    /// shape. For values (eg. inputs/outputs) this is the expected shape.
+    pub fn shape(&self) -> Option<Vec<Dimension>> {
+        let dims_from_fixed_shape =
+            |shape: &[usize]| shape.iter().copied().map(Dimension::Fixed).collect();
+
+        match self {
+            Node::Operator(_) => None,
+            Node::Constant(constant) => match constant {
+                Constant::Float(node) => Some(dims_from_fixed_shape(node.data.shape())),
+                Constant::Int(node) => Some(dims_from_fixed_shape(node.data.shape())),
+            },
+            Node::Value(node) => node.shape.clone(),
+        }
     }
 }
 
@@ -175,25 +207,32 @@ impl Graph {
     /// Add a value node to the graph.
     ///
     /// `name` is an identifier for this node that is used in debug messages etc.
+    /// `shape` is the expected shape of the value at runtime, or None if not
+    /// known.
     ///
     /// This serves as a placeholder for a value which is available only when
     /// the graph is executed, such as an input or operator output.
     ///
     /// Returns the ID of the added node.
-    pub fn add_value(&mut self, name: Option<&str>) -> NodeId {
+    pub fn add_value(&mut self, name: Option<&str>, shape: Option<Vec<Dimension>>) -> NodeId {
         self.nodes.push(Node::Value(ValueNode {
             name: name.map(|s| s.to_owned()),
+            shape,
         }));
         self.nodes.len() - 1
     }
 
     /// Return the debug name for a node.
     pub fn node_name(&self, id: NodeId) -> String {
-        self.nodes
-            .get(id)
+        self.get_node(id)
             .and_then(|node| node.name())
             .map(|s| s.to_string())
             .unwrap_or_else(|| format!("[ID: {}]", id))
+    }
+
+    /// Retrieve a node by ID
+    pub fn get_node(&self, id: NodeId) -> Option<&Node> {
+        self.nodes.get(id)
     }
 
     /// Compute a set of output values given a set of inputs, using the
@@ -549,7 +588,7 @@ mod tests {
     use std::cell::Cell;
     use std::rc::Rc;
 
-    use crate::graph::{Graph, RunError};
+    use crate::graph::{Dimension, Graph, RunError};
     use crate::ops::{
         Concat, Conv, InputList, IntoOpResult, OpError, Operator, Output, Padding, Relu, Shape,
     };
@@ -569,9 +608,9 @@ mod tests {
             ],
         );
         let weights_id = g.add_constant(Some("weight"), weights);
-        let input_id = g.add_value(Some("input"));
+        let input_id = g.add_value(Some("input"), None);
 
-        let conv_out = g.add_value(Some("conv_out"));
+        let conv_out = g.add_value(Some("conv_out"), None);
         g.add_op(
             Some("conv"),
             Box::new(Conv {
@@ -582,7 +621,7 @@ mod tests {
             &[input_id, weights_id].map(Some),
             &[conv_out].map(Some),
         );
-        let relu_out = g.add_value(Some("relu_out"));
+        let relu_out = g.add_value(Some("relu_out"), None);
         g.add_op(
             Some("relu"),
             Box::new(Relu {}),
@@ -617,8 +656,8 @@ mod tests {
 
         let weights = from_data(&[1], vec![0.3230]);
         let weights_id = g.add_constant(Some("weights"), weights.clone());
-        let input_id = g.add_value(Some("input"));
-        let relu_out_id = g.add_value(Some("relu_out"));
+        let input_id = g.add_value(Some("input"), None);
+        let relu_out_id = g.add_value(Some("relu_out"), None);
         let relu_op_id = g.add_op(
             Some("relu"),
             Box::new(Relu {}),
@@ -631,8 +670,8 @@ mod tests {
         assert_eq!(g.node_name(relu_op_id), "relu");
 
         let anon_weights_id = g.add_constant(None, weights);
-        let anon_input_id = g.add_value(None);
-        let anon_out_id = g.add_value(None);
+        let anon_input_id = g.add_value(None, None);
+        let anon_out_id = g.add_value(None, None);
         let anon_op_id = g.add_op(
             None,
             Box::new(Relu {}),
@@ -649,6 +688,51 @@ mod tests {
             format!("[ID: {}]", anon_input_id)
         );
         assert_eq!(g.node_name(anon_op_id), format!("[ID: {}]", anon_op_id));
+    }
+
+    #[test]
+    fn test_graph_node_shapes() {
+        let mut g = Graph::new();
+
+        let weights = from_data(&[1, 1, 2], vec![0.3230, 0.5]);
+        let weights_id = g.add_constant(Some("weights"), weights.clone());
+        let input_id = g.add_value(
+            Some("input"),
+            Some(
+                [
+                    Dimension::Symbolic("batch".to_string()),
+                    Dimension::Fixed(3),
+                    Dimension::Fixed(5),
+                    Dimension::Fixed(5),
+                ]
+                .to_vec(),
+            ),
+        );
+        let relu_out_id = g.add_value(Some("relu_out"), None);
+        let relu_op_id = g.add_op(
+            Some("relu"),
+            Box::new(Relu {}),
+            &[Some(input_id)],
+            &[Some(relu_out_id)],
+        );
+
+        assert_eq!(
+            g.get_node(weights_id).and_then(|n| n.shape()),
+            Some([1, 1, 2].map(Dimension::Fixed).to_vec())
+        );
+        assert_eq!(
+            g.get_node(input_id).and_then(|n| n.shape()),
+            Some(
+                [
+                    Dimension::Symbolic("batch".to_string()),
+                    Dimension::Fixed(3),
+                    Dimension::Fixed(5),
+                    Dimension::Fixed(5),
+                ]
+                .to_vec()
+            )
+        );
+        assert_eq!(g.get_node(relu_op_id).and_then(|n| n.shape()), None);
     }
 
     #[derive(Debug)]
@@ -669,16 +753,16 @@ mod tests {
     fn test_graph_planning_order() -> Result<(), String> {
         let mut g = Graph::new();
 
-        let input_id = g.add_value(Some("input"));
+        let input_id = g.add_value(Some("input"), None);
 
-        let op_a_out = g.add_value(Some("op_a_out"));
+        let op_a_out = g.add_value(Some("op_a_out"), None);
         g.add_op(
             Some("op_a"),
             Box::new(AddOne {}),
             &[Some(input_id)],
             &[Some(op_a_out)],
         );
-        let op_b_out = g.add_value(Some("op_b_out"));
+        let op_b_out = g.add_value(Some("op_b_out"), None);
         g.add_op(
             Some("op_b"),
             Box::new(AddOne {}),
@@ -688,7 +772,7 @@ mod tests {
 
         // op_c has both op_a and op_b as inputs. Since op_b depends on op_a,
         // execution must run op_a, then op_b, then op_c.
-        let op_c_out = g.add_value(Some("op_c_out"));
+        let op_c_out = g.add_value(Some("op_c_out"), None);
         g.add_op(
             Some("op_c"),
             Box::new(Concat { dim: 0 }),
@@ -697,7 +781,7 @@ mod tests {
         );
 
         // op_d is the same as op_c, but input order is reversed
-        let op_d_out = g.add_value(Some("op_d_out"));
+        let op_d_out = g.add_value(Some("op_d_out"), None);
         g.add_op(
             Some("op_d"),
             Box::new(Concat { dim: 0 }),
@@ -725,11 +809,11 @@ mod tests {
         let mut g = Graph::new();
 
         let input = from_data(&[5], vec![1., 2., 3., 4., 5.]);
-        let input_id = g.add_value(Some("input"));
+        let input_id = g.add_value(Some("input"), None);
 
         let mut prev_output = input_id;
         for _ in 0..100 {
-            let next_output = g.add_value(None);
+            let next_output = g.add_value(None, None);
             g.add_op(
                 None,
                 Box::new(AddOne {}),
@@ -752,7 +836,7 @@ mod tests {
         let mut g = Graph::new();
 
         let input = from_data(&[5], vec![1., 2., 3., 4., 5.]);
-        let input_id = g.add_value(Some("input"));
+        let input_id = g.add_value(Some("input"), None);
 
         let results = g
             .run(&[(input_id, (&input).into())], &[input_id], None)
@@ -783,7 +867,7 @@ mod tests {
     #[test]
     fn test_call_op_with_missing_input() {
         let mut g = Graph::new();
-        let output = g.add_value(None);
+        let output = g.add_value(None, None);
 
         // Call an operator with an input omitted by setting it to `None`,
         // as opposed to passing a shorter input list. This enables omitting
@@ -814,7 +898,7 @@ mod tests {
     #[test]
     fn test_err_if_missing_operator_input() {
         let mut g = Graph::new();
-        let output = g.add_value(None);
+        let output = g.add_value(None, None);
         g.add_op(Some("op"), Box::new(Relu {}), &[Some(42)], &[Some(output)]);
         let result = g.run(&[], &[output], None);
         assert_eq!(
@@ -856,30 +940,30 @@ mod tests {
     #[test]
     fn test_runs_op_in_place() {
         let mut g = Graph::new();
-        let input_id = g.add_value(Some("input"));
+        let input_id = g.add_value(Some("input"), None);
 
-        let op1_out = g.add_value(Some("op1_out"));
+        let op1_out = g.add_value(Some("op1_out"), None);
         g.add_op(
             Some("op1"),
             Box::new(AddOneInPlace {}),
             &[Some(input_id)],
             &[Some(op1_out)],
         );
-        let op2_out = g.add_value(Some("op2_out"));
+        let op2_out = g.add_value(Some("op2_out"), None);
         g.add_op(
             Some("op2"),
             Box::new(AddOneInPlace {}),
             &[Some(op1_out)],
             &[Some(op2_out)],
         );
-        let op3_out = g.add_value(Some("op3_out"));
+        let op3_out = g.add_value(Some("op3_out"), None);
         g.add_op(
             Some("op3"),
             Box::new(AddOneInPlace {}),
             &[Some(op2_out)],
             &[Some(op3_out)],
         );
-        let op4_out = g.add_value(Some("op4_out"));
+        let op4_out = g.add_value(Some("op4_out"), None);
         g.add_op(
             Some("op4"),
             Box::new(AddOneInPlace {}),
@@ -945,9 +1029,9 @@ mod tests {
     #[test]
     fn test_multiple_outputs() {
         let mut g = Graph::new();
-        let input_id = g.add_value(Some("input"));
-        let left_split_out = g.add_value(Some("left_split"));
-        let right_split_out = g.add_value(Some("right_split"));
+        let input_id = g.add_value(Some("input"), None);
+        let left_split_out = g.add_value(Some("left_split"), None);
+        let right_split_out = g.add_value(Some("right_split"), None);
 
         let split_op = Box::new(Split::new());
         let run_count = split_op.run_count.clone();

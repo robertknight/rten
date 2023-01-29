@@ -8,7 +8,7 @@ mod wasm_api;
 
 pub mod ops;
 
-pub use graph::RunOptions;
+pub use graph::{Dimension, RunOptions};
 pub use model::Model;
 pub use ops::{Input, Output};
 pub use tensor::{

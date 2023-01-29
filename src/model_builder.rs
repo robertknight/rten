@@ -2,6 +2,7 @@ extern crate flatbuffers;
 
 use flatbuffers::{FlatBufferBuilder, UnionWIPOffset, Vector, WIPOffset};
 
+use crate::graph::Dimension;
 use crate::ops::{
     ArgMax, ArgMin, AveragePool, BatchNormalization, Cast, Concat, ConstantOfShape, Conv,
     ConvTranspose, CoordTransformMode, DataType, Flatten, Gather, Gemm, LeakyRelu, MaxPool,
@@ -186,8 +187,33 @@ impl<'a> ModelBuilder<'a> {
     }
 
     /// Add a value node to the model
-    pub fn add_value(&mut self, id: &str) -> u32 {
-        let value_node = sg::ValueNode::create(&mut self.builder, &sg::ValueNodeArgs {});
+    pub fn add_value(&mut self, id: &str, shape: Option<&[Dimension]>) -> u32 {
+        let shape = shape.map(|shape| {
+            let dim_vec: Vec<_> = shape
+                .iter()
+                .map(|dim| match dim {
+                    Dimension::Fixed(value) => sg::Dim::create(
+                        &mut self.builder,
+                        &sg::DimArgs {
+                            name: None,
+                            value: *value as u32,
+                        },
+                    ),
+                    Dimension::Symbolic(name) => {
+                        let name_offset = self.builder.create_string(&name);
+                        sg::Dim::create(
+                            &mut self.builder,
+                            &sg::DimArgs {
+                                name: Some(name_offset),
+                                value: 0,
+                            },
+                        )
+                    }
+                })
+                .collect();
+            self.builder.create_vector(&dim_vec[..])
+        });
+        let value_node = sg::ValueNode::create(&mut self.builder, &sg::ValueNodeArgs { shape });
         self.add_node(Some(id), NodeData::Value(value_node))
     }
 

@@ -5354,6 +5354,128 @@ impl core::fmt::Debug for ConstantNode<'_> {
         ds.finish()
     }
 }
+pub enum DimOffset {}
+#[derive(Copy, Clone, PartialEq)]
+
+pub struct Dim<'a> {
+    pub _tab: flatbuffers::Table<'a>,
+}
+
+impl<'a> flatbuffers::Follow<'a> for Dim<'a> {
+    type Inner = Dim<'a>;
+    #[inline]
+    unsafe fn follow(buf: &'a [u8], loc: usize) -> Self::Inner {
+        Self {
+            _tab: flatbuffers::Table::new(buf, loc),
+        }
+    }
+}
+
+impl<'a> Dim<'a> {
+    pub const VT_VALUE: flatbuffers::VOffsetT = 4;
+    pub const VT_NAME: flatbuffers::VOffsetT = 6;
+
+    #[inline]
+    pub unsafe fn init_from_table(table: flatbuffers::Table<'a>) -> Self {
+        Dim { _tab: table }
+    }
+    #[allow(unused_mut)]
+    pub fn create<'bldr: 'args, 'args: 'mut_bldr, 'mut_bldr>(
+        _fbb: &'mut_bldr mut flatbuffers::FlatBufferBuilder<'bldr>,
+        args: &'args DimArgs<'args>,
+    ) -> flatbuffers::WIPOffset<Dim<'bldr>> {
+        let mut builder = DimBuilder::new(_fbb);
+        if let Some(x) = args.name {
+            builder.add_name(x);
+        }
+        builder.add_value(args.value);
+        builder.finish()
+    }
+
+    #[inline]
+    pub fn value(&self) -> u32 {
+        // Safety:
+        // Created from valid Table for this object
+        // which contains a valid value in this slot
+        unsafe { self._tab.get::<u32>(Dim::VT_VALUE, Some(0)).unwrap() }
+    }
+    #[inline]
+    pub fn name(&self) -> Option<&'a str> {
+        // Safety:
+        // Created from valid Table for this object
+        // which contains a valid value in this slot
+        unsafe {
+            self._tab
+                .get::<flatbuffers::ForwardsUOffset<&str>>(Dim::VT_NAME, None)
+        }
+    }
+}
+
+impl flatbuffers::Verifiable for Dim<'_> {
+    #[inline]
+    fn run_verifier(
+        v: &mut flatbuffers::Verifier,
+        pos: usize,
+    ) -> Result<(), flatbuffers::InvalidFlatbuffer> {
+        use self::flatbuffers::Verifiable;
+        v.visit_table(pos)?
+            .visit_field::<u32>("value", Self::VT_VALUE, false)?
+            .visit_field::<flatbuffers::ForwardsUOffset<&str>>("name", Self::VT_NAME, false)?
+            .finish();
+        Ok(())
+    }
+}
+pub struct DimArgs<'a> {
+    pub value: u32,
+    pub name: Option<flatbuffers::WIPOffset<&'a str>>,
+}
+impl<'a> Default for DimArgs<'a> {
+    #[inline]
+    fn default() -> Self {
+        DimArgs {
+            value: 0,
+            name: None,
+        }
+    }
+}
+
+pub struct DimBuilder<'a: 'b, 'b> {
+    fbb_: &'b mut flatbuffers::FlatBufferBuilder<'a>,
+    start_: flatbuffers::WIPOffset<flatbuffers::TableUnfinishedWIPOffset>,
+}
+impl<'a: 'b, 'b> DimBuilder<'a, 'b> {
+    #[inline]
+    pub fn add_value(&mut self, value: u32) {
+        self.fbb_.push_slot::<u32>(Dim::VT_VALUE, value, 0);
+    }
+    #[inline]
+    pub fn add_name(&mut self, name: flatbuffers::WIPOffset<&'b str>) {
+        self.fbb_
+            .push_slot_always::<flatbuffers::WIPOffset<_>>(Dim::VT_NAME, name);
+    }
+    #[inline]
+    pub fn new(_fbb: &'b mut flatbuffers::FlatBufferBuilder<'a>) -> DimBuilder<'a, 'b> {
+        let start = _fbb.start_table();
+        DimBuilder {
+            fbb_: _fbb,
+            start_: start,
+        }
+    }
+    #[inline]
+    pub fn finish(self) -> flatbuffers::WIPOffset<Dim<'a>> {
+        let o = self.fbb_.end_table(self.start_);
+        flatbuffers::WIPOffset::new(o.value())
+    }
+}
+
+impl core::fmt::Debug for Dim<'_> {
+    fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
+        let mut ds = f.debug_struct("Dim");
+        ds.field("value", &self.value());
+        ds.field("name", &self.name());
+        ds.finish()
+    }
+}
 pub enum ValueNodeOffset {}
 #[derive(Copy, Clone, PartialEq)]
 
@@ -5372,6 +5494,8 @@ impl<'a> flatbuffers::Follow<'a> for ValueNode<'a> {
 }
 
 impl<'a> ValueNode<'a> {
+    pub const VT_SHAPE: flatbuffers::VOffsetT = 4;
+
     #[inline]
     pub unsafe fn init_from_table(table: flatbuffers::Table<'a>) -> Self {
         ValueNode { _tab: table }
@@ -5379,10 +5503,25 @@ impl<'a> ValueNode<'a> {
     #[allow(unused_mut)]
     pub fn create<'bldr: 'args, 'args: 'mut_bldr, 'mut_bldr>(
         _fbb: &'mut_bldr mut flatbuffers::FlatBufferBuilder<'bldr>,
-        _args: &'args ValueNodeArgs,
+        args: &'args ValueNodeArgs<'args>,
     ) -> flatbuffers::WIPOffset<ValueNode<'bldr>> {
         let mut builder = ValueNodeBuilder::new(_fbb);
+        if let Some(x) = args.shape {
+            builder.add_shape(x);
+        }
         builder.finish()
+    }
+
+    #[inline]
+    pub fn shape(&self) -> Option<flatbuffers::Vector<'a, flatbuffers::ForwardsUOffset<Dim<'a>>>> {
+        // Safety:
+        // Created from valid Table for this object
+        // which contains a valid value in this slot
+        unsafe {
+            self._tab.get::<flatbuffers::ForwardsUOffset<
+                flatbuffers::Vector<'a, flatbuffers::ForwardsUOffset<Dim>>,
+            >>(ValueNode::VT_SHAPE, None)
+        }
     }
 }
 
@@ -5393,15 +5532,23 @@ impl flatbuffers::Verifiable for ValueNode<'_> {
         pos: usize,
     ) -> Result<(), flatbuffers::InvalidFlatbuffer> {
         use self::flatbuffers::Verifiable;
-        v.visit_table(pos)?.finish();
+        v.visit_table(pos)?
+            .visit_field::<flatbuffers::ForwardsUOffset<
+                flatbuffers::Vector<'_, flatbuffers::ForwardsUOffset<Dim>>,
+            >>("shape", Self::VT_SHAPE, false)?
+            .finish();
         Ok(())
     }
 }
-pub struct ValueNodeArgs {}
-impl<'a> Default for ValueNodeArgs {
+pub struct ValueNodeArgs<'a> {
+    pub shape: Option<
+        flatbuffers::WIPOffset<flatbuffers::Vector<'a, flatbuffers::ForwardsUOffset<Dim<'a>>>>,
+    >,
+}
+impl<'a> Default for ValueNodeArgs<'a> {
     #[inline]
     fn default() -> Self {
-        ValueNodeArgs {}
+        ValueNodeArgs { shape: None }
     }
 }
 
@@ -5410,6 +5557,16 @@ pub struct ValueNodeBuilder<'a: 'b, 'b> {
     start_: flatbuffers::WIPOffset<flatbuffers::TableUnfinishedWIPOffset>,
 }
 impl<'a: 'b, 'b> ValueNodeBuilder<'a, 'b> {
+    #[inline]
+    pub fn add_shape(
+        &mut self,
+        shape: flatbuffers::WIPOffset<
+            flatbuffers::Vector<'b, flatbuffers::ForwardsUOffset<Dim<'b>>>,
+        >,
+    ) {
+        self.fbb_
+            .push_slot_always::<flatbuffers::WIPOffset<_>>(ValueNode::VT_SHAPE, shape);
+    }
     #[inline]
     pub fn new(_fbb: &'b mut flatbuffers::FlatBufferBuilder<'a>) -> ValueNodeBuilder<'a, 'b> {
         let start = _fbb.start_table();
@@ -5428,6 +5585,7 @@ impl<'a: 'b, 'b> ValueNodeBuilder<'a, 'b> {
 impl core::fmt::Debug for ValueNode<'_> {
     fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
         let mut ds = f.debug_struct("ValueNode");
+        ds.field("shape", &self.shape());
         ds.finish()
     }
 }

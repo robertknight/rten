@@ -2963,6 +2963,91 @@ class ConstantNodeT(object):
         return constantNode
 
 
+class Dim(object):
+    __slots__ = ['_tab']
+
+    @classmethod
+    def GetRootAs(cls, buf, offset=0):
+        n = flatbuffers.encode.Get(flatbuffers.packer.uoffset, buf, offset)
+        x = Dim()
+        x.Init(buf, n + offset)
+        return x
+
+    @classmethod
+    def GetRootAsDim(cls, buf, offset=0):
+        """This method is deprecated. Please switch to GetRootAs."""
+        return cls.GetRootAs(buf, offset)
+    @classmethod
+    def DimBufferHasIdentifier(cls, buf, offset, size_prefixed=False):
+        return flatbuffers.util.BufferHasIdentifier(buf, offset, b"\x4D\x4F\x44\x4C", size_prefixed=size_prefixed)
+
+    # Dim
+    def Init(self, buf, pos):
+        self._tab = flatbuffers.table.Table(buf, pos)
+
+    # Dim
+    def Value(self):
+        o = flatbuffers.number_types.UOffsetTFlags.py_type(self._tab.Offset(4))
+        if o != 0:
+            return self._tab.Get(flatbuffers.number_types.Uint32Flags, o + self._tab.Pos)
+        return 0
+
+    # Dim
+    def Name(self):
+        o = flatbuffers.number_types.UOffsetTFlags.py_type(self._tab.Offset(6))
+        if o != 0:
+            return self._tab.String(o + self._tab.Pos)
+        return None
+
+def DimStart(builder): builder.StartObject(2)
+def DimAddValue(builder, value): builder.PrependUint32Slot(0, value, 0)
+def DimAddName(builder, name): builder.PrependUOffsetTRelativeSlot(1, flatbuffers.number_types.UOffsetTFlags.py_type(name), 0)
+def DimEnd(builder): return builder.EndObject()
+
+
+class DimT(object):
+
+    # DimT
+    def __init__(self):
+        self.value = 0  # type: int
+        self.name = None  # type: str
+
+    @classmethod
+    def InitFromBuf(cls, buf, pos):
+        dim = Dim()
+        dim.Init(buf, pos)
+        return cls.InitFromObj(dim)
+
+    @classmethod
+    def InitFromPackedBuf(cls, buf, pos=0):
+        n = flatbuffers.encode.Get(flatbuffers.packer.uoffset, buf, pos)
+        return cls.InitFromBuf(buf, pos+n)
+
+    @classmethod
+    def InitFromObj(cls, dim):
+        x = DimT()
+        x._UnPack(dim)
+        return x
+
+    # DimT
+    def _UnPack(self, dim):
+        if dim is None:
+            return
+        self.value = dim.Value()
+        self.name = dim.Name()
+
+    # DimT
+    def Pack(self, builder):
+        if self.name is not None:
+            name = builder.CreateString(self.name)
+        DimStart(builder)
+        DimAddValue(builder, self.value)
+        if self.name is not None:
+            DimAddName(builder, name)
+        dim = DimEnd(builder)
+        return dim
+
+
 class ValueNode(object):
     __slots__ = ['_tab']
 
@@ -2985,15 +3070,45 @@ class ValueNode(object):
     def Init(self, buf, pos):
         self._tab = flatbuffers.table.Table(buf, pos)
 
-def ValueNodeStart(builder): builder.StartObject(0)
+    # ValueNode
+    def Shape(self, j):
+        o = flatbuffers.number_types.UOffsetTFlags.py_type(self._tab.Offset(4))
+        if o != 0:
+            x = self._tab.Vector(o)
+            x += flatbuffers.number_types.UOffsetTFlags.py_type(j) * 4
+            x = self._tab.Indirect(x)
+            obj = Dim()
+            obj.Init(self._tab.Bytes, x)
+            return obj
+        return None
+
+    # ValueNode
+    def ShapeLength(self):
+        o = flatbuffers.number_types.UOffsetTFlags.py_type(self._tab.Offset(4))
+        if o != 0:
+            return self._tab.VectorLen(o)
+        return 0
+
+    # ValueNode
+    def ShapeIsNone(self):
+        o = flatbuffers.number_types.UOffsetTFlags.py_type(self._tab.Offset(4))
+        return o == 0
+
+def ValueNodeStart(builder): builder.StartObject(1)
+def ValueNodeAddShape(builder, shape): builder.PrependUOffsetTRelativeSlot(0, flatbuffers.number_types.UOffsetTFlags.py_type(shape), 0)
+def ValueNodeStartShapeVector(builder, numElems): return builder.StartVector(4, numElems, 4)
 def ValueNodeEnd(builder): return builder.EndObject()
 
+try:
+    from typing import List
+except:
+    pass
 
 class ValueNodeT(object):
 
     # ValueNodeT
     def __init__(self):
-        pass
+        self.shape = None  # type: List[DimT]
 
     @classmethod
     def InitFromBuf(cls, buf, pos):
@@ -3016,10 +3131,28 @@ class ValueNodeT(object):
     def _UnPack(self, valueNode):
         if valueNode is None:
             return
+        if not valueNode.ShapeIsNone():
+            self.shape = []
+            for i in range(valueNode.ShapeLength()):
+                if valueNode.Shape(i) is None:
+                    self.shape.append(None)
+                else:
+                    dim_ = DimT.InitFromObj(valueNode.Shape(i))
+                    self.shape.append(dim_)
 
     # ValueNodeT
     def Pack(self, builder):
+        if self.shape is not None:
+            shapelist = []
+            for i in range(len(self.shape)):
+                shapelist.append(self.shape[i].Pack(builder))
+            ValueNodeStartShapeVector(builder, len(self.shape))
+            for i in reversed(range(len(self.shape))):
+                builder.PrependUOffsetTRelative(shapelist[i])
+            shape = builder.EndVector()
         ValueNodeStart(builder)
+        if self.shape is not None:
+            ValueNodeAddShape(builder, shape)
         valueNode = ValueNodeEnd(builder)
         return valueNode
 

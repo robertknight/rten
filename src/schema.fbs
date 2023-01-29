@@ -278,9 +278,22 @@ table ConstantNode {
   data:ConstantData (required);
 }
 
+// Dimension of a ValueNode's shape. This can be either a fixed value or a
+// symbolic name.
+//
+// This is logically a union, but uses a table due to
+// https://github.com/google/flatbuffers/issues/5024.
+table Dim {
+  value:uint;
+  name:string;
+}
+
 // Graph node for a dynamic tensor value, such as a model input or operator
 // output.
-table ValueNode {}
+table ValueNode {
+  // Expected shape of the tensor at runtime.
+  shape:[Dim];
+}
 
 table Node {
   // Identifier for external referencing and debugging

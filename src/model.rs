@@ -2,7 +2,7 @@ extern crate flatbuffers;
 
 use std::collections::HashMap;
 
-use crate::graph::{Graph, NodeId, RunError, RunOptions};
+use crate::graph::{Dimension, Graph, Node, NodeId, RunError, RunOptions};
 use crate::ops;
 use crate::ops::{
     CoordTransformMode, DataType, Input, LSTMDirection, NearestMode, Operator, Output, Padding,
@@ -19,6 +19,22 @@ pub struct Model {
     graph: Graph,
 }
 
+pub struct NodeInfo<'a> {
+    node: &'a Node,
+}
+
+impl<'a> NodeInfo<'a> {
+    /// Return the unique name associated with the node, if present.
+    pub fn name(&self) -> Option<&str> {
+        self.node.name()
+    }
+
+    /// Return the tensor shape associated with a node.
+    pub fn shape(&self) -> Option<Vec<Dimension>> {
+        self.node.shape()
+    }
+}
+
 impl Model {
     /// Load a serialized model.
     pub fn load(data: &[u8]) -> Result<Model, String> {
@@ -28,6 +44,11 @@ impl Model {
     /// Find a node in the model's graph given its string ID.
     pub fn find_node(&self, id: &str) -> Option<NodeId> {
         self.node_ids.get(id).copied()
+    }
+
+    /// Return metadata about a node in the model's graph.
+    pub fn node_info(&self, id: NodeId) -> Option<NodeInfo> {
+        self.graph.get_node(id).map(|node| NodeInfo { node })
     }
 
     /// Return the IDs of input nodes.
@@ -488,8 +509,20 @@ fn load_model(data: &[u8]) -> Result<Model, String> {
 
                 add_node_id(node.name(), graph_node);
                 node_id_from_index.insert(node_index, graph_node);
-            } else if node.data_as_value_node().is_some() {
-                let graph_node = graph.add_value(node.name());
+            } else if let Some(value_node) = node.data_as_value_node() {
+                let shape: Option<Vec<Dimension>> = value_node.shape().map(|shape| {
+                    shape
+                        .iter()
+                        .map(|dim| {
+                            if let Some(name) = dim.name() {
+                                Dimension::Symbolic(name.to_string())
+                            } else {
+                                Dimension::Fixed(dim.value() as usize)
+                            }
+                        })
+                        .collect()
+                });
+                let graph_node = graph.add_value(node.name(), shape);
 
                 add_node_id(node.name(), graph_node);
                 node_id_from_index.insert(node_index, graph_node);
@@ -528,7 +561,7 @@ fn load_model(data: &[u8]) -> Result<Model, String> {
 mod tests {
     extern crate flatbuffers;
 
-    use crate::graph::RunError;
+    use crate::graph::{Dimension, RunError};
     use crate::model::Model;
     use crate::model_builder::{ModelBuilder, OpType};
     use crate::ops;
@@ -541,13 +574,20 @@ mod tests {
 
         let const_val = from_data(&[1, 2, 2], vec![0.5, -0.5, 0.1, -0.1]);
         let const_node = builder.add_float_constant(&const_val);
-        let input_node = builder.add_value("input");
-        let output_node = builder.add_value("output");
+
+        let input_shape: Vec<Dimension> = const_val
+            .shape()
+            .iter()
+            .copied()
+            .map(Dimension::Fixed)
+            .collect();
+        let input_node = builder.add_value("input", Some(&input_shape));
+        let output_node = builder.add_value("output", None);
 
         builder.add_input(input_node);
         builder.add_output(output_node);
 
-        let concat_out = builder.add_value("concat_out");
+        let concat_out = builder.add_value("concat_out", None);
         builder.add_operator(
             "concat",
             OpType::Concat(ops::Concat { dim: 0 }),
@@ -569,6 +609,19 @@ mod tests {
 
         assert_eq!(model.input_ids(), &[input_id]);
         assert_eq!(model.output_ids(), &[output_id]);
+    }
+
+    #[test]
+    fn test_shape_info() {
+        let buffer = generate_model_buffer();
+        let model = Model::load(&buffer).unwrap();
+        let input_id = model.input_ids()[0];
+
+        let shape = model
+            .node_info(input_id)
+            .and_then(|ni| ni.shape())
+            .expect("input shape missing");
+        assert_eq!(shape, &[1, 2, 2].map(Dimension::Fixed));
     }
 
     #[test]
@@ -596,7 +649,7 @@ mod tests {
     fn test_omitted_optional_inputs() {
         let mut builder = ModelBuilder::new();
 
-        let output_node = builder.add_value("output");
+        let output_node = builder.add_value("output", None);
         builder.add_output(output_node);
         builder.add_operator("shape", OpType::Shape, &[None], &[output_node]);
 
@@ -621,8 +674,8 @@ mod tests {
     fn test_all_op_types() {
         let mut builder = ModelBuilder::new();
 
-        let input_node = builder.add_value("input");
-        let input_2d = builder.add_value("input.2d");
+        let input_node = builder.add_value("input", None);
+        let input_2d = builder.add_value("input.2d", None);
 
         let kernel_val = from_data(&[1, 1, 1, 1], vec![0.5]);
         let kernel = builder.add_float_constant(&kernel_val);
@@ -633,7 +686,7 @@ mod tests {
         let mut add_operator =
             |builder: &mut ModelBuilder, name: &str, op: OpType, input_nodes: &[Option<u32>]| {
                 let output_name = format!("{}_out", name);
-                let op_output_node = builder.add_value(&output_name);
+                let op_output_node = builder.add_value(&output_name, None);
                 builder.add_operator(name, op, input_nodes, &[op_output_node]);
                 op_outputs.push(output_name);
                 op_output_node
@@ -744,9 +797,9 @@ mod tests {
         add_operator!(Pad, [input_node, pads]);
         add_operator!(Pow, [input_node, input_node]);
 
-        let range_start_node = builder.add_value("range_start");
-        let range_limit_node = builder.add_value("range_limit");
-        let range_delta_node = builder.add_value("range_delta");
+        let range_start_node = builder.add_value("range_start", None);
+        let range_limit_node = builder.add_value("range_limit", None);
+        let range_delta_node = builder.add_value("range_delta", None);
         let range_out = add_operator!(
             Range,
             [range_start_node, range_limit_node, range_delta_node]
@@ -786,8 +839,8 @@ mod tests {
         add_operator!(Squeeze, [input_node]);
 
         let split_splits = builder.add_int_constant(&tensor!([1, 2]));
-        let split_out_1 = builder.add_value("Split_out_1");
-        let split_out_2 = builder.add_value("Split_out_2");
+        let split_out_1 = builder.add_value("Split_out_1", None);
+        let split_out_2 = builder.add_value("Split_out_2", None);
         builder.add_operator(
             "Split",
             OpType::Split(ops::Split { axis: 1 }),
@@ -802,9 +855,9 @@ mod tests {
         let unsqueeze_axes = builder.add_int_constant(&tensor!([0, 4]));
         add_operator!(Unsqueeze, [input_node, unsqueeze_axes]);
 
-        let where_cond = builder.add_value("where_cond");
-        let where_x = builder.add_value("where_x");
-        let where_y = builder.add_value("where_y");
+        let where_cond = builder.add_value("where_cond", None);
+        let where_x = builder.add_value("where_x", None);
+        let where_y = builder.add_value("where_y", None);
         let where_out = add_operator!(Where, [where_cond, where_x, where_y]);
 
         let buffer = builder.finish();
