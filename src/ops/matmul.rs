@@ -33,12 +33,12 @@ pub fn gemm_op(
     check_dims!(b, 2);
 
     let a_view = if transpose_a {
-        a.view().permuted(&[1, 0])
+        a.view().transposed()
     } else {
         a.view()
     };
     let b_view = if transpose_b {
-        b.view().permuted(&[1, 0])
+        b.view().transposed()
     } else {
         b.view()
     };

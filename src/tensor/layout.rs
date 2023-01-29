@@ -196,6 +196,14 @@ impl Layout {
         zip(a_iter, b_iter).all(|(a, b)| a == b || a == 1 || b == 1)
     }
 
+    fn permute_iter<I: Clone + Iterator<Item = usize>>(&mut self, dims: I) {
+        let strides = self.strides();
+        let shape = self.shape();
+        let shape_iter = dims.clone().map(|dim| shape[dim]);
+        let stride_iter = dims.map(|dim| strides[dim]);
+        self.shape_and_strides = shape_iter.chain(stride_iter).collect();
+    }
+
     /// Swap the order of dimensions in this layout to the order described by
     /// `dims`.
     pub fn permute(&mut self, dims: &[usize]) {
@@ -203,13 +211,7 @@ impl Layout {
             is_valid_permutation(self.ndim(), dims),
             "Permutation is invalid"
         );
-        let strides = self.strides();
-        let shape = self.shape();
-        self.shape_and_strides = dims
-            .iter()
-            .map(|&dim| shape[dim])
-            .chain(dims.iter().map(|&dim| strides[dim]))
-            .collect();
+        self.permute_iter(dims.iter().copied());
     }
 
     /// Return a copy of this layout with dimensions re-ordered according to
@@ -218,6 +220,18 @@ impl Layout {
         let mut permuted = self.clone();
         permuted.permute(dims);
         permuted
+    }
+
+    /// Reverse the order of dimensions in this layout.
+    pub fn transpose(&mut self) {
+        self.permute_iter((0..self.ndim()).rev());
+    }
+
+    /// Return a copy of this layout with the order of dimensions reversed.
+    pub fn transposed(&self) -> Layout {
+        let mut transposed = self.clone();
+        transposed.transpose();
+        transposed
     }
 
     /// Change the shape of this layout to `shape`.

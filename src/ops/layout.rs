@@ -344,8 +344,7 @@ pub fn transpose<T: Copy>(
             transposed.permute(order)
         }
         None => {
-            let reversed: Vec<usize> = (0..transposed.shape().len()).rev().collect();
-            transposed.permute(&reversed);
+            transposed.transpose();
         }
     };
     Ok(transposed.to_tensor())

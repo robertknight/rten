@@ -156,6 +156,19 @@ impl<'a, T: Copy> TensorView<'a, T> {
         }
     }
 
+    /// Reverse the order of dimension in this view.
+    pub fn transpose(&mut self) {
+        self.layout.to_mut().transpose();
+    }
+
+    /// Return a new view with the order of dimensions reversed.
+    pub fn transposed(&self) -> TensorView<'a, T> {
+        Self {
+            data: self.data,
+            layout: Cow::Owned(self.layout.transposed()),
+        }
+    }
+
     /// Change the layout of this view to have the given shape.
     ///
     /// The current view must be contiguous and the new shape must have the
@@ -627,6 +640,14 @@ impl<T: Copy> Tensor<T> {
     /// updates the strides used by indexing.
     pub fn permute(&mut self, dims: &[usize]) {
         self.layout.permute(dims);
+    }
+
+    /// Reverse the order of dimensions.
+    ///
+    /// This does not modify the order of elements in the data buffer, it merely
+    /// updates the strides used by indexing.
+    pub fn transpose(&mut self) {
+        self.layout.transpose();
     }
 
     /// Insert a dimension of size one at index `dim`.
@@ -1205,6 +1226,26 @@ mod tests {
     fn test_permute_wrong_dim_count() {
         let mut input = steps(&[2, 3]);
         input.permute(&[1, 2, 3]);
+    }
+
+    #[test]
+    fn test_transpose() {
+        // Test with a vector (this is a no-op)
+        let mut input = steps(&[5]);
+        input.transpose();
+        assert_eq!(input.shape(), &[5]);
+
+        // Test with a matrix
+        let mut input = steps(&[2, 3]);
+        assert!(input.iter().eq([1, 2, 3, 4, 5, 6].iter().copied()));
+        input.transpose();
+        assert_eq!(input.shape(), &[3, 2]);
+        assert!(input.iter().eq([1, 4, 2, 5, 3, 6].iter().copied()));
+
+        // Test with a higher-rank tensor
+        let mut input = steps(&[1, 3, 7]);
+        input.transpose();
+        assert_eq!(input.shape(), [7, 3, 1]);
     }
 
     #[test]
