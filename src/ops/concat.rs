@@ -1,6 +1,52 @@
 use crate::ops::{Input, InputList, IntoOpResult, OpError, Operator, Output};
 use crate::tensor::{Elements, Tensor, TensorLayout};
 
+enum ChunkSource<'a, T: Copy> {
+    Slice(&'a [T]),
+    Iter(Elements<'a, T>),
+}
+
+/// Reads chunks of a tensor, where each chunk consists of one iteration over
+/// N innermost dimensions.
+struct TensorChunks<'a, T: Copy> {
+    source: ChunkSource<'a, T>,
+    chunk_size: usize,
+}
+
+impl<'a, T: Copy> TensorChunks<'a, T> {
+    fn new(tensor: &'a Tensor<T>, from_dim: usize) -> TensorChunks<'a, T> {
+        TensorChunks {
+            source: if tensor.is_contiguous() {
+                ChunkSource::Slice(tensor.data())
+            } else {
+                ChunkSource::Iter(tensor.iter())
+            },
+            chunk_size: tensor.shape()[from_dim..].iter().product(),
+        }
+    }
+
+    /// Return total remaining elements.
+    fn remaining_len(&self) -> usize {
+        match self.source {
+            ChunkSource::Slice(it) => it.len(),
+            ChunkSource::Iter(ref it) => it.len(),
+        }
+    }
+
+    /// Add the next chunk of elements from this tensor to `dest`.
+    fn append_next_chunk(&mut self, dest: &mut Vec<T>) {
+        match self.source {
+            ChunkSource::Slice(ref mut it) => {
+                // Take advantage of `Vec::extend`'s fast path for slices.
+                let (start, end) = it.split_at(self.chunk_size);
+                *it = end;
+                dest.extend(start);
+            }
+            ChunkSource::Iter(ref mut it) => dest.extend(it.by_ref().take(self.chunk_size)),
+        }
+    }
+}
+
 pub fn concat<T: Copy>(inputs: &[&Tensor<T>], dim: usize) -> Result<Tensor<T>, OpError> {
     let first_shape = inputs[0].shape();
     if dim >= first_shape.len() {
@@ -29,22 +75,14 @@ pub fn concat<T: Copy>(inputs: &[&Tensor<T>], dim: usize) -> Result<Tensor<T>, O
     }
     let mut out_data = Vec::with_capacity(out_shape.iter().product());
 
-    struct ConcatIter<'a, T: Copy> {
-        elements: Elements<'a, T>,
-        chunk_size: usize,
-    }
-
-    let mut input_iters: Vec<ConcatIter<'_, T>> = inputs
+    let mut input_iters: Vec<TensorChunks<'_, T>> = inputs
         .iter()
-        .map(|tensor| ConcatIter {
-            elements: tensor.iter(),
-            chunk_size: tensor.shape()[dim..].iter().product(),
-        })
+        .map(|tensor| TensorChunks::new(tensor, dim))
         .collect();
 
-    while input_iters.iter().any(|it| it.elements.len() > 0) {
+    while input_iters.iter().any(|it| it.remaining_len() > 0) {
         for iter in input_iters.iter_mut() {
-            out_data.extend(iter.elements.by_ref().take(iter.chunk_size));
+            iter.append_next_chunk(&mut out_data);
         }
     }
 
