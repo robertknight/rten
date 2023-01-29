@@ -184,9 +184,7 @@ fn conv_2d_depthwise(
     let input: Cow<_> = if input.stride(input.ndim() - 1) == 1 {
         Cow::Borrowed(input)
     } else {
-        let mut copy = input.clone();
-        copy.make_contiguous();
-        Cow::Owned(copy)
+        input.as_contiguous()
     };
 
     for n in 0..batch {
@@ -415,9 +413,7 @@ pub fn conv_transpose(
     let input: Cow<_> = if input.stride(input.ndim() - 1) == 1 {
         Cow::Borrowed(input)
     } else {
-        let mut copy = input.clone();
-        copy.make_contiguous();
-        Cow::Owned(copy)
+        input.as_contiguous()
     };
 
     for n in 0..batch {

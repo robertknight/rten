@@ -581,9 +581,12 @@ impl<T: Copy> Tensor<T> {
         if self.is_contiguous() {
             Cow::Borrowed(self)
         } else {
-            let mut copy = self.clone();
-            copy.make_contiguous();
-            Cow::Owned(copy)
+            let mut contiguous_layout = self.layout.clone();
+            contiguous_layout.make_contiguous();
+            Cow::Owned(Tensor {
+                data: VecWithOffset::new(self.iter().collect()),
+                layout: contiguous_layout,
+            })
         }
     }
 
