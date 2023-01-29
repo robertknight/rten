@@ -13,9 +13,7 @@ pub fn batch_norm_in_place(
     var: &Tensor,
     epsilon: f32,
 ) -> Result<(), OpError> {
-    check_dims!(input, 4);
-
-    let [batch, chans, in_h, in_w] = input.dims();
+    let [batch, chans, in_h, in_w] = check_dims!(input, 4);
     for n in 0..batch {
         for c in 0..chans {
             let chan_mean = mean[[c]];

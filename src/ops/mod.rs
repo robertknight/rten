@@ -305,16 +305,24 @@ impl Error for OpError {}
 /// Can be used with `check_dims!(input, expected_rank)` if `input` is a
 /// `Tensor<T>` or `check_dims!(input?, expected_rank)` if `input` is an
 /// `Option<Tensor<T>>`.
+///
+/// If `$ndim` is a literal, the macro returns an array of `$ndim` sizes for
+/// each dimension. This conveniently allows checking the rank of a tensor
+/// and extracting the sizes of dimension in one call. For example:
+/// `let [rows, cols] = check_dims!(matrix, 2)`.
 #[macro_export]
 macro_rules! check_dims {
-    ($tensor:ident, 1) => {
-        if $tensor.ndim() != 1 {
+    ($tensor:ident, $ndim:literal) => {{
+        if $tensor.ndim() != $ndim {
             return Err(OpError::InvalidValue(concat!(
                 stringify!($tensor),
-                " must be a vector"
+                " must have ",
+                stringify!($ndim),
+                " dims"
             )));
         }
-    };
+        $tensor.dims::<$ndim>()
+    }};
 
     ($tensor:ident, $ndim:expr) => {
         if $tensor.ndim() != $ndim {

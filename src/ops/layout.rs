@@ -468,7 +468,7 @@ mod tests {
         let result = expand(&input, &shape);
         assert_eq!(
             result.err(),
-            Some(OpError::InvalidValue("shape must be a vector"))
+            Some(OpError::InvalidValue("shape must have 1 dims"))
         );
     }
 

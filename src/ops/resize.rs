@@ -617,7 +617,7 @@ mod tests {
                 image: Tensor::from_data(&[1, 1, 2, 2], vec![0.2, 0.7, 0.3, 0.8]),
                 scales: Some(Tensor::from_data(&[1, 1, 2, 2], vec![1., 1., 3., 3.])),
                 sizes: None,
-                expected: CaseOutput::Error(OpError::InvalidValue("scales must be a vector")),
+                expected: CaseOutput::Error(OpError::InvalidValue("scales must have 1 dims")),
             },
             // Values for scales/sizes and input shapes which are legal according to the spec,
             // but not currently supported in our implementation.

@@ -120,9 +120,13 @@ pub fn lstm(
     initial_hidden: Option<&Tensor>,
     initial_cell: Option<&Tensor>,
 ) -> Result<Vec<Tensor>, OpError> {
-    check_dims!(input, 3);
-    check_dims!(weights, 3);
+    // TODO - Add validation of the sizes of individual dimensions in the inputs.
+    let [seq_len, batch, input_size] = check_dims!(input, 3);
+    let [_directions, hidden_x4, _input_size] = check_dims!(weights, 3);
     check_dims!(recurrent_weights, 3);
+
+    let num_directions = direction.num_directions();
+    let hidden_size = hidden_x4 / 4;
 
     if weights.shape()[1] % 4 != 0 {
         return Err(OpError::InvalidValue(
@@ -138,17 +142,9 @@ pub fn lstm(
     check_dims!(initial_hidden?, 3);
     check_dims!(initial_cell?, 3);
 
-    // TODO - Add validation of the sizes of individual dimensions in the inputs.
-    let [seq_len, batch, input_size] = input.dims();
-
     // Contiguous input and bias needed due to use of `last_dim_slice`.
     let input = input.as_contiguous();
     let bias = bias.map(|t| t.as_contiguous());
-
-    let num_directions = direction.num_directions();
-
-    let [_directions, hidden_x4, _input_size] = weights.dims();
-    let hidden_size = hidden_x4 / 4;
 
     // Extract an LSTM gate weight matrix from a tensor. The tensor has dims
     // [direction, 4 * hidden_size, *].
