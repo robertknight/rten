@@ -264,7 +264,8 @@ impl<'a, T: Copy> TensorViewMut<'a, T> {
 
     /// Return a mutable iterator over elements of this view.
     pub fn iter_mut(&mut self) -> ElementsMut<T> {
-        ElementsMut::new(self)
+        let layout = self.layout.as_ref();
+        ElementsMut::new(self.data, layout)
     }
 
     /// Return an immutable copy of this view.
@@ -544,6 +545,15 @@ impl<T: Copy> Tensor<T> {
     /// Return an iterator over elements of this tensor, in their logical order.
     pub fn iter(&self) -> Elements<T> {
         Elements::new(&self.view())
+    }
+
+    /// Return a mutable iterator over elements of this tensor, in their
+    /// logical order.
+    pub fn iter_mut(&mut self) -> ElementsMut<T> {
+        // We slice `self.data` here rather than using `self.data_mut()` to
+        // avoid a borrow-checker complaint.
+        let data = &mut self.data[self.base..];
+        ElementsMut::new(data, &self.layout)
     }
 
     /// Returns the single item if this tensor is a 0-dimensional tensor
@@ -1354,7 +1364,7 @@ mod tests {
 
             let elts: Vec<f32> = x.iter().map(|x| x * 2.).collect();
 
-            for elt in x.view_mut().iter_mut() {
+            for elt in x.iter_mut() {
                 *elt *= 2.;
             }
 
@@ -1371,7 +1381,7 @@ mod tests {
         x.permute(&[1, 0]);
 
         let x_doubled: Vec<usize> = x.iter().map(|x| x * 2).collect();
-        for elt in x.view_mut().iter_mut() {
+        for elt in x.iter_mut() {
             *elt *= 2;
         }
         assert_eq!(x.to_vec(), x_doubled);

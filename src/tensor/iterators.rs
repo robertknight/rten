@@ -3,7 +3,7 @@ use std::slice::{Iter, IterMut};
 
 use super::layout::Layout;
 use super::range::SliceRange;
-use super::{TensorView, TensorViewMut};
+use super::TensorView;
 
 /// IterPos tracks the position within a single dimension of an IndexingIter.
 #[derive(Debug)]
@@ -220,7 +220,7 @@ enum ElementsIter<'a, T: Copy> {
 }
 
 impl<'a, T: Copy> Elements<'a, T> {
-    pub fn new<'b>(view: &'b TensorView<'a, T>) -> Elements<'a, T>
+    pub(super) fn new<'b>(view: &'b TensorView<'a, T>) -> Elements<'a, T>
     where
         'a: 'b,
     {
@@ -235,7 +235,7 @@ impl<'a, T: Copy> Elements<'a, T> {
         }
     }
 
-    pub fn slice<'b>(view: &'b TensorView<'a, T>, ranges: &[SliceRange]) -> Elements<'a, T>
+    pub(super) fn slice<'b>(view: &'b TensorView<'a, T>, ranges: &[SliceRange]) -> Elements<'a, T>
     where
         'a: 'b,
     {
@@ -344,34 +344,15 @@ enum ElementsIterMut<'a, T: Copy> {
 }
 
 impl<'a, T: Copy> ElementsMut<'a, T> {
-    pub fn new<'b>(view: &'b mut TensorViewMut<'a, T>) -> ElementsMut<'b, T>
-    where
-        'a: 'b,
-    {
-        if view.layout.is_contiguous() {
+    pub(super) fn new(data: &'a mut [T], layout: &Layout) -> ElementsMut<'a, T> {
+        if layout.is_contiguous() {
             ElementsMut {
-                iter: ElementsIterMut::Direct(view.data.iter_mut()),
+                iter: ElementsIterMut::Direct(data.iter_mut()),
             }
         } else {
             ElementsMut {
-                iter: ElementsIterMut::Indexing(IndexingIterMut::new(view)),
+                iter: ElementsIterMut::Indexing(IndexingIterMut::new(data, layout)),
             }
-        }
-    }
-
-    pub fn slice<'b>(
-        view: &'b mut TensorViewMut<'a, T>,
-        ranges: &[SliceRange],
-    ) -> ElementsMut<'b, T>
-    where
-        'a: 'b,
-    {
-        let iter = IndexingIterMut {
-            base: IndexingIterBase::slice(&view.layout, ranges),
-            data: view.data,
-        };
-        ElementsMut {
-            iter: ElementsIterMut::Indexing(iter),
         }
     }
 }
@@ -414,17 +395,14 @@ struct IndexingIterMut<'a, T: Copy> {
 }
 
 impl<'a, T: Copy> IndexingIterMut<'a, T> {
-    fn new<'b>(view: &'b mut TensorViewMut<'a, T>) -> IndexingIterMut<'b, T>
-    where
-        'a: 'b,
-    {
+    fn new(data: &'a mut [T], layout: &Layout) -> IndexingIterMut<'a, T> {
         assert!(
-            !view.layout.is_broadcast(),
+            !layout.is_broadcast(),
             "Cannot mutably iterate over a broadcasting view"
         );
         IndexingIterMut {
-            base: IndexingIterBase::new(&view.layout),
-            data: view.data,
+            base: IndexingIterBase::new(layout),
+            data,
         }
     }
 }

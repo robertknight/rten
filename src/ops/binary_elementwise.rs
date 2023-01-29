@@ -101,7 +101,7 @@ fn binary_op_in_place<T: Copy + Debug, F: Fn(T, T) -> T>(a: &mut Tensor<T>, b: &
     }
 
     let b_elts = b.broadcast_iter(a.shape());
-    for (a_elt, b_elt) in zip(a.view_mut().iter_mut(), b_elts) {
+    for (a_elt, b_elt) in zip(a.iter_mut(), b_elts) {
         *a_elt = op(*a_elt, b_elt);
     }
 }
