@@ -307,6 +307,52 @@ impl<'a, T: Copy> TensorLayout for TensorViewMut<'a, T> {
     }
 }
 
+/// Wrapper around Vec which allows for unused elements at the start. Indexing
+/// and slicing operate on the used portion of the Vec.
+#[derive(Clone, Debug)]
+struct VecWithOffset<T> {
+    data: Vec<T>,
+
+    /// Offset of the first used element in `data`.
+    base: usize,
+}
+
+impl<T> VecWithOffset<T> {
+    fn new(data: Vec<T>) -> VecWithOffset<T> {
+        VecWithOffset { data, base: 0 }
+    }
+
+    /// Return a slice of the used portion of the wrapped Vec.
+    fn as_slice(&self) -> &[T] {
+        &self.data[self.base..]
+    }
+
+    /// Return a mutable slice of the used portion of the wrapped Vec.
+    fn as_mut_slice(&mut self) -> &mut [T] {
+        &mut self.data[self.base..]
+    }
+
+    /// Set the indices within the vec that are used. Subsequent indexing and
+    /// slicing will operator on `previous_data[range.start..range.end]`.
+    fn set_used_range(&mut self, range: Range<usize>) {
+        self.base += range.start;
+        self.data.truncate(self.base + (range.end - range.start));
+    }
+}
+
+impl<T> Index<usize> for VecWithOffset<T> {
+    type Output = T;
+    fn index(&self, index: usize) -> &T {
+        &self.data[self.base + index]
+    }
+}
+
+impl<T> IndexMut<usize> for VecWithOffset<T> {
+    fn index_mut(&mut self, index: usize) -> &mut T {
+        &mut self.data[self.base + index]
+    }
+}
+
 /// Tensor is the core n-dimensional array type used for inputs, outputs and
 /// intermediate values when executing a [crate::Model].
 ///
@@ -329,13 +375,7 @@ impl<'a, T: Copy> TensorLayout for TensorViewMut<'a, T> {
 /// accessing the underlying element buffer directly.
 #[derive(Debug)]
 pub struct Tensor<T: Copy = f32> {
-    /// The underlying buffer of elements
-    data: Vec<T>,
-
-    /// The offset in the buffer of the first element. This is initially 0 but
-    /// will be changed if the tensor is sliced.
-    base: usize,
-
+    data: VecWithOffset<T>,
     layout: Layout,
 }
 
@@ -377,8 +417,7 @@ impl<T: Copy> Tensor<T> {
         let n_elts = shape.iter().product();
         let data = vec![T::default(); n_elts];
         Tensor {
-            data,
-            base: 0,
+            data: VecWithOffset::new(data),
             layout: Layout::new(shape),
         }
     }
@@ -394,8 +433,7 @@ impl<T: Copy> Tensor<T> {
             );
         }
         Tensor {
-            data,
-            base: 0,
+            data: VecWithOffset::new(data),
             layout: Layout::new(shape),
         }
     }
@@ -433,8 +471,7 @@ impl<T: Copy> Tensor<T> {
     {
         let data = self.iter().map(f).collect();
         Tensor {
-            data,
-            base: 0,
+            data: VecWithOffset::new(data),
             layout: self.layout.clone(),
         }
     }
@@ -461,14 +498,10 @@ impl<T: Copy> Tensor<T> {
         assert!(start <= end, "start must be <= end");
         assert!(end <= self.shape()[dim], "end must be <= dim size");
 
-        self.base += self.layout.stride(dim) * start;
+        let start_offset = self.layout.stride(dim) * start;
         self.layout.resize_dim(dim, end - start);
-
-        if self.is_contiguous() {
-            // Truncate buffer to preserve invariant that `Tensor::data` yields
-            // the same elements as `Tensor::elements` for a contiguous tensor.
-            self.data.truncate(self.base + self.len());
-        }
+        self.data
+            .set_used_range(start_offset..start_offset + self.layout.end_offset());
     }
 
     /// Return a contiguous slice of `len` elements starting at `index`.
@@ -482,8 +515,8 @@ impl<T: Copy> Tensor<T> {
             self.stride(N - 1) == 1,
             "last_dim_slice requires contiguous last dimension"
         );
-        let offset = self.base + self.offset(index);
-        &self.data[offset..offset + len]
+        let offset = self.offset(index);
+        &self.data.as_slice()[offset..offset + len]
     }
 
     /// Similar to `last_dim_slice`, but returns a mutable slice.
@@ -497,8 +530,8 @@ impl<T: Copy> Tensor<T> {
             self.stride(N - 1) == 1,
             "last_dim_slice_mut requires contiguous last dimension"
         );
-        let offset = self.base + self.offset(index);
-        &mut self.data[offset..offset + len]
+        let offset = self.offset(index);
+        &mut self.data.as_mut_slice()[offset..offset + len]
     }
 
     /// Return a copy of the elements of this tensor as a contiguous vector
@@ -520,14 +553,14 @@ impl<T: Copy> Tensor<T> {
     /// in the same order as yielded by [Tensor::iter]. In other cases the buffer
     /// may have unused indexes or a different ordering.
     pub fn data(&self) -> &[T] {
-        &self.data[self.base..]
+        self.data.as_slice()
     }
 
     /// Return the underlying element buffer for this tensor.
     ///
     /// See notes for [Tensor::data] about the ordering and validity of elements.
     pub fn data_mut(&mut self) -> &mut [T] {
-        &mut self.data[self.base..]
+        self.data.as_mut_slice()
     }
 
     /// Convert the internal layout of elements to be contiguous, as reported
@@ -538,8 +571,7 @@ impl<T: Copy> Tensor<T> {
         if self.is_contiguous() {
             return;
         }
-        self.data = self.iter().collect();
-        self.base = 0;
+        self.data = VecWithOffset::new(self.iter().collect());
         self.layout.make_contiguous();
     }
 
@@ -563,17 +595,14 @@ impl<T: Copy> Tensor<T> {
     /// Return a mutable iterator over elements of this tensor, in their
     /// logical order.
     pub fn iter_mut(&mut self) -> ElementsMut<T> {
-        // We slice `self.data` here rather than using `self.data_mut()` to
-        // avoid a borrow-checker complaint.
-        let data = &mut self.data[self.base..];
-        ElementsMut::new(data, &self.layout)
+        ElementsMut::new(self.data.as_mut_slice(), &self.layout)
     }
 
     /// Returns the single item if this tensor is a 0-dimensional tensor
     /// (ie. a scalar)
     pub fn item(&self) -> Option<T> {
         match self.ndim() {
-            0 => Some(self.data[self.base]),
+            0 => Some(self.data[0]),
             _ if self.len() == 1 => self.iter().next(),
             _ => None,
         }
@@ -711,10 +740,7 @@ impl<T: Copy> Tensor<T> {
     /// Views share the same element array, but can have an independent layout,
     /// with some limitations.
     pub fn view_mut(&mut self) -> TensorViewMut<T> {
-        // We slice `self.data` here rather than using `self.data_mut()` to
-        // avoid a borrow-checker complaint.
-        let data = &mut self.data[self.base..];
-        TensorViewMut::new(data, &self.layout)
+        TensorViewMut::new(self.data.as_mut_slice(), &self.layout)
     }
 }
 
@@ -756,7 +782,6 @@ impl<T: Copy> Clone for Tensor<T> {
         let data = self.data.clone();
         Tensor {
             data,
-            base: self.base,
             layout: self.layout.clone(),
         }
     }
@@ -775,13 +800,13 @@ impl<T: Copy> FromIterator<T> for Tensor<T> {
 impl<I: TensorIndex, T: Copy> Index<I> for Tensor<T> {
     type Output = T;
     fn index(&self, index: I) -> &Self::Output {
-        &self.data[self.base + self.offset(index)]
+        &self.data[self.offset(index)]
     }
 }
 
 impl<I: TensorIndex, T: Copy> IndexMut<I> for Tensor<T> {
     fn index_mut(&mut self, index: I) -> &mut Self::Output {
-        let offset = self.base + self.offset(index);
+        let offset = self.offset(index);
         &mut self.data[offset]
     }
 }
@@ -840,7 +865,7 @@ pub fn zeros<T: Copy + Default>(shape: &[usize]) -> Tensor<T> {
 #[cfg(test)]
 pub fn rand(shape: &[usize], rng: &mut XorShiftRng) -> Tensor {
     let mut t = zeros(shape);
-    t.data.fill_with(|| rng.next_f32());
+    t.data_mut().fill_with(|| rng.next_f32());
     t
 }
 
@@ -1377,7 +1402,7 @@ mod tests {
         // be contiguous and hence `elements` will return different results than
         // `data`.
         x.clip_dim(1, 0..2);
-        assert_eq!(x.data(), &[1, 2, 3, 4, 5, 6]);
+        assert_eq!(x.data(), &[1, 2, 3, 4, 5]);
         assert_eq!(x.iter().collect::<Vec<_>>(), &[1, 2, 4, 5]);
         // Test with step > 1 to exercise `Elements::nth`.
         assert_eq!(x.iter().step_by(2).collect::<Vec<_>>(), &[1, 4]);
