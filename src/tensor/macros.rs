@@ -9,7 +9,7 @@
 /// // Create a vector (1D tensor)
 /// tensor!([1, 2, 3]);
 ///
-/// // Create a 3D tensor with shape [1, 2, 3] and elements [1, 2, 3, 4].
+/// // Create a 3D tensor with shape [1, 2, 2] and elements [1, 2, 3, 4].
 /// tensor!((1, 2, 2); [1, 2, 3, 4]);
 /// ```
 #[macro_export]
