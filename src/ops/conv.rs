@@ -31,29 +31,25 @@ fn min_max_out_x_coords(
 
 /// Unroll patches from an image into a matrix.
 ///
-/// The input has shape NCHW. The result has shape (GHW)xP where G is the subset
-/// of image channels from `start_chan` to `end_chan` and P is the number of
-/// patches that the padded input divides into.
+/// `input` has shape [C,H,W]. `output` has shape [C * Kh * Kw, Oh * Ow] where
+/// Kh/Kw are the patch sizes and Oh/Ow are the number of patches in the Y and
+/// X directions.
 fn im2col(
     output: &mut Tensor,
-    input: &Tensor,
-    image_index: usize,
+    input: &TensorView,
     patch_h: usize,
     patch_w: usize,
-    start_chan: usize,
-    end_chan: usize,
     padding: [usize; 4],
     strides: [usize; 2],
     out_hw: [usize; 2],
 ) {
     let [_, out_w] = output.dims();
-    let [_, _, in_h, in_w] = input.dims();
+    let [in_chans, in_h, in_w] = input.dims();
     let [pad_top, pad_left, _pad_bottom, _pad_right] = padding;
     let [stride_h, stride_w] = strides;
     let [y_patches, x_patches] = out_hw;
-    let n_chans = end_chan - start_chan;
 
-    for c in 0..n_chans {
+    for c in 0..in_chans {
         // The loop ordering here is chosen to maximize the number of
         // consecutive steps that we read/write the same rows of the inputs and
         // outputs. This is more efficient assuming the tensors are stored in
@@ -71,8 +67,7 @@ fn im2col(
                 let img_y = py * stride_h + k_y;
                 let out_row_top = c * patch_h * patch_w + k_y * patch_w;
 
-                let in_row =
-                    input.unchecked_view([image_index, start_chan + c, img_y - pad_top, 0]);
+                let in_row = input.slice(&[c.into(), (img_y - pad_top).into()]);
 
                 for k_x in 0..patch_w {
                     let out_row = out_row_top + k_x;
@@ -312,18 +307,19 @@ pub fn conv(
             let in_chan_end = in_chan_start + in_channels_per_group;
             let out_chan_start = group * out_channels_per_group;
 
+            let in_group = input
+                .view()
+                .slice(&[n.into(), (in_chan_start..in_chan_end).into()]);
+
             // Perform convolution for group. This uses an indirect method,
             // where image patches and the kernel are first packed into
             // matrices. The matrices are then multiplied with the results
             // written into the output tensor.
             im2col(
                 &mut im2col_mat,
-                input,
-                n,
+                &in_group,
                 k_h,
                 k_w,
-                in_chan_start,
-                in_chan_end,
                 fixed_padding,
                 strides,
                 [out_h, out_w],
