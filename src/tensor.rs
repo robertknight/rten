@@ -234,6 +234,13 @@ impl<'a> AsMatrix<'a> for TensorView<'a, f32> {
     }
 }
 
+impl<'a, I: TensorIndex, T: Copy> Index<I> for TensorView<'a, T> {
+    type Output = T;
+    fn index(&self, index: I) -> &Self::Output {
+        &self.data[self.offset(index)]
+    }
+}
+
 /// TensorViewMut provides a mutable view onto data owned by a [Tensor].
 ///
 /// This is similar to [TensorView], except elements in the underyling
@@ -298,6 +305,20 @@ impl<'a, T: Copy> TensorViewMut<'a, T> {
             data: &mut self.data[offset..offset + layout.end_offset()],
             layout: Cow::Owned(layout),
         }
+    }
+}
+
+impl<'a, I: TensorIndex, T: Copy> Index<I> for TensorViewMut<'a, T> {
+    type Output = T;
+    fn index(&self, index: I) -> &Self::Output {
+        &self.data[self.offset(index)]
+    }
+}
+
+impl<'a, I: TensorIndex, T: Copy> IndexMut<I> for TensorViewMut<'a, T> {
+    fn index_mut(&mut self, index: I) -> &mut Self::Output {
+        let offset = self.offset(index);
+        &mut self.data[offset]
     }
 }
 
