@@ -4,7 +4,7 @@ use crate::check_dims;
 use crate::linalg::{add_scaled_vector, div_ceil, gemm};
 use crate::ops::pooling::calc_output_size_and_padding;
 use crate::ops::{InputList, IntoOpResult, OpError, Operator, Output, Padding};
-use crate::tensor::{AsMatrix, Tensor, TensorLayout};
+use crate::tensor::{AsMatrix, Tensor, TensorLayout, TensorView, TensorViewMut};
 
 // Calculate the min and max output X coordinates that are valid when updating
 // a row of convolution output using a loop:
@@ -379,9 +379,45 @@ impl Operator for Conv {
     }
 }
 
+/// Unpack columns of a matrix into an image. This is the inverse of the
+/// `im2col` operation.
+///
+/// `output` has shape [O,H,W] where O is the number of output channels and H/W
+/// are the output height/width.
+///
+/// `columns` is a view of a matrix (Hi x Wi, O x Kh x Kw) reshaped to
+/// [Hi,Wi,O,Kh,Kw], where Hi and Wi are the image size, and Kh/Kw are the patch
+/// sizes. This matrix is passed as a view to avoid needing to pass the
+/// sub-dimensions separately.
+///
+/// The unpacked columns are added to the existing output values to preserve
+/// any bias stored in the output.
+fn col2im(output: &mut TensorViewMut, columns: &TensorView, strides: [usize; 2]) {
+    let [in_h, in_w, _out_chans, k_h, k_w] = columns.dims();
+    let [out_chans, _, _] = output.dims();
+    let [stride_h, stride_w] = strides;
+
+    let col_view = columns.unchecked_view();
+    let mut out_view = output.unchecked_view_mut();
+
+    for y in 0..in_h {
+        for x in 0..in_w {
+            for out_c in 0..out_chans {
+                for k_y in 0..k_h {
+                    let out_y = y * stride_h + k_y;
+                    for k_x in 0..k_w {
+                        let out_x = x * stride_w + k_x;
+                        out_view[[out_c, out_y, out_x]] += col_view[[y, x, out_c, k_y, k_x]];
+                    }
+                }
+            }
+        }
+    }
+}
+
 /// Perform a transposed 2D convolution of a tensor by a kernel.
 ///
-/// `input` has dimensions NCHW and kernel has dimensions COHW where `O` is
+/// `input` has dimensions NCHW and `kernel` has dimensions COHW where `O` is
 /// the number of output channels.
 pub fn conv_transpose(
     input: &Tensor,
@@ -409,38 +445,37 @@ pub fn conv_transpose(
         Tensor::zeros(&[batch, out_c, out_h, out_w])
     };
 
-    // Use of `last_dim_slice` requires contiguous last dimension.
-    let input: Cow<_> = if input.stride(input.ndim() - 1) == 1 {
-        Cow::Borrowed(input)
-    } else {
-        input.as_contiguous()
-    };
+    // Ensure input and kernel are contiguous to support reshaping.
+    let input = input.as_contiguous();
+    let kernel = kernel.as_contiguous();
 
+    let mut col2im_mat = Tensor::zeros(&[in_h * in_w, out_c * k_h * k_w]);
+    let kernel_mat = kernel.view().reshaped(&[k_in_c, out_c * k_h * k_w]);
+
+    // The implementation here is the inverse of the im2col-based convolution.
     for n in 0..batch {
-        for out_chan in 0..out_c {
-            for in_chan in 0..in_c {
-                let kernel_view = kernel.unchecked_view([in_chan, out_chan, 0, 0]);
+        let input_mat = input
+            .view()
+            .slice(&[n.into()])
+            .reshaped(&[in_c, in_h * in_w])
+            .transposed();
 
-                for in_y in 0..in_h {
-                    let in_row = input.last_dim_slice([n, in_chan, in_y, 0], in_w);
+        let col2im_row_stride = col2im_mat.stride(0);
+        gemm(
+            col2im_mat.data_mut(),
+            col2im_row_stride,
+            input_mat.as_matrix(),
+            kernel_mat.as_matrix(),
+            1., /* alpha */
+            1., /* beta */
+        );
 
-                    for k_y in 0..k_h {
-                        let out_y = in_y * stride_h + k_y;
-                        let out_row = output.last_dim_slice_mut([n, out_chan, out_y, 0], out_w);
-
-                        for k_x in 0..k_w {
-                            add_scaled_vector(
-                                &mut out_row[k_x..out_w - k_w + k_x + 1],
-                                in_row,
-                                stride_w,
-                                1, // src_stride
-                                kernel_view[[k_y, k_x]],
-                            );
-                        }
-                    }
-                }
-            }
-        }
+        let mut out_view = output.view_mut();
+        col2im(
+            &mut out_view.slice(&[n.into()]),
+            &col2im_mat.view().reshaped(&[in_h, in_w, out_c, k_h, k_w]),
+            strides,
+        );
     }
 
     Ok(output)
