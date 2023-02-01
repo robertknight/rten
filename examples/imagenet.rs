@@ -5,7 +5,7 @@ use std::error::Error;
 use std::fs;
 
 use wasnn::ops::{resize, CoordTransformMode, NearestMode, ResizeMode, ResizeTarget};
-use wasnn::{Model, RunOptions, Tensor, TensorLayout};
+use wasnn::{Dimension, Model, RunOptions, Tensor, TensorLayout};
 
 #[derive(Clone, Copy, PartialEq)]
 enum PixelNorm {
@@ -42,14 +42,6 @@ struct InputConfig {
 
     /// Expected order of dimensions in the input tensor.
     dim_order: DimOrder,
-
-    /// Expected width of input. Some models require the input size to match
-    /// exactly, others allow varying sizes but may produce less accurate results.
-    width: u32,
-
-    /// Expected height of input. Some models require the input size to match
-    /// exactly, others allow varying sizes but may produce less accurate results.
-    height: u32,
 }
 
 /// Read a PNG image from `path` into a tensor.
@@ -107,8 +99,6 @@ const MOBILEVIT_CONFIG: InputConfig = InputConfig {
     chan_order: ChannelOrder::Bgr,
     norm: PixelNorm::NoNorm,
     dim_order: DimOrder::Nchw,
-    width: 256,
-    height: 256,
 };
 
 // Config for EfficientNet model from ONNX Model Zoo.
@@ -118,8 +108,6 @@ const EFFICIENTNET_CONFIG: InputConfig = InputConfig {
     chan_order: ChannelOrder::Rgb,
     norm: PixelNorm::ImageNetNorm,
     dim_order: DimOrder::Nhwc,
-    width: 224,
-    height: 224,
 };
 
 // Config for MobileNet model from ONNX Model Zoo.
@@ -129,8 +117,6 @@ const MOBILENET_CONFIG: InputConfig = InputConfig {
     chan_order: ChannelOrder::Rgb,
     norm: PixelNorm::ImageNetNorm,
     dim_order: DimOrder::Nchw,
-    width: 224,
-    height: 224,
 };
 
 /// This example loads a PNG image (RGB or RGBA format, 224x224 size for most
@@ -186,14 +172,30 @@ fn main() -> Result<(), Box<dyn Error>> {
         DimOrder::Nhwc => (img_tensor.shape()[1], img_tensor.shape()[2]),
     };
 
-    let img_tensor = if height != in_config.height as usize || width != in_config.width as usize {
+    let input_id = model
+        .input_ids()
+        .get(0)
+        .copied()
+        .ok_or("model has no inputs")?;
+    let input_shape = model
+        .node_info(input_id)
+        .and_then(|info| info.shape())
+        .ok_or("model does not specify expected input shape")?;
+    let (in_height, in_width) = match input_shape[..] {
+        [_, _, Dimension::Fixed(h), Dimension::Fixed(w)] => (h, w),
+        _ => {
+            return Err("failed to get model dims".into());
+        }
+    };
+
+    let img_tensor = if height != in_height as usize || width != in_width as usize {
         resize(
             &img_tensor,
             ResizeTarget::Sizes(&Tensor::from_vec(vec![
                 1,
                 img_tensor.shape()[1] as i32,
-                in_config.height as i32,
-                in_config.width as i32,
+                in_height as i32,
+                in_width as i32,
             ])),
             ResizeMode::Linear,
             CoordTransformMode::default(),
@@ -203,11 +205,6 @@ fn main() -> Result<(), Box<dyn Error>> {
         img_tensor
     };
 
-    let input_id = model
-        .input_ids()
-        .get(0)
-        .copied()
-        .ok_or("model has no inputs")?;
     let output_id = model
         .output_ids()
         .get(0)
