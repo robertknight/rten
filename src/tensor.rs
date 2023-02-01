@@ -206,6 +206,20 @@ impl<'a, T: Copy> TensorView<'a, T> {
     pub fn to_tensor(&self) -> Tensor<T> {
         Tensor::from_data(self.shape(), self.iter().collect())
     }
+
+    /// Return an unchecked version of this view.
+    ///
+    /// This provides faster indexing at the cost of not bounds-checking
+    /// individual dimensions.
+    ///
+    /// Panics if the rank of this view is not `N`.
+    pub fn unchecked_view<const N: usize>(&self) -> UncheckedView<T, N> {
+        UncheckedView {
+            data: self.data,
+            offset: 0,
+            strides: self.layout.strides().try_into().unwrap(),
+        }
+    }
 }
 
 impl<'a, T: Copy> TensorLayout for TensorView<'a, T> {
@@ -304,6 +318,20 @@ impl<'a, T: Copy> TensorViewMut<'a, T> {
         Self {
             data: &mut self.data[offset..offset + layout.end_offset()],
             layout: Cow::Owned(layout),
+        }
+    }
+
+    /// Return an unchecked version of this view.
+    ///
+    /// This provides faster indexing at the cost of not bounds-checking
+    /// individual dimensions.
+    ///
+    /// Panics if the rank of this view is not `N`.
+    pub fn unchecked_view_mut<const N: usize>(&mut self) -> UncheckedViewMut<T, N> {
+        UncheckedViewMut {
+            data: self.data,
+            offset: 0,
+            strides: self.layout.strides().try_into().unwrap(),
         }
     }
 }
@@ -835,6 +863,17 @@ impl<I: TensorIndex, T: Copy> IndexMut<I> for Tensor<T> {
     }
 }
 
+/// A view of a tensor which offers faster indexing at the cost of requiring
+/// the rank to be known at compile time, and not bounds-checking individual
+/// dimensions of an index.
+///
+/// Although individual dimensions are not bounds-checked, the generated offset
+/// into the underlying buffer is, so unchecked views are not unsafe, in the
+/// usual Rust sense. If a dimension index is out of bounds, but the offset
+/// is still in-bounds, the view will access the wrong element.
+///
+/// UncheckedView and UncheckedViewMut can make operations which perform a
+/// large number of indexed accesses, into tensors of a known rank, much faster.
 pub struct UncheckedView<'a, T: Copy, const N: usize> {
     data: &'a [T],
     offset: usize,
@@ -852,6 +891,8 @@ impl<'a, const N: usize, T: Copy> Index<[usize; N]> for UncheckedView<'a, T, N> 
     }
 }
 
+/// Variant of [UncheckedView] which suppors mutable indexing into a view or
+/// tensor.
 pub struct UncheckedViewMut<'a, T: Copy, const N: usize> {
     data: &'a mut [T],
     offset: usize,
