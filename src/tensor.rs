@@ -125,6 +125,35 @@ pub trait TensorLayout {
     }
 }
 
+/// Trait for indexing a `Tensor`
+pub trait TensorIndex {
+    /// Return the number of dimensions in the index.
+    fn len(&self) -> usize;
+
+    /// Return the index for dimension `dim`
+    fn index(&self, dim: usize) -> usize;
+}
+
+impl<const N: usize> TensorIndex for [usize; N] {
+    fn len(&self) -> usize {
+        N
+    }
+
+    fn index(&self, dim: usize) -> usize {
+        self[dim]
+    }
+}
+
+impl TensorIndex for &[usize] {
+    fn len(&self) -> usize {
+        (self as &[usize]).len()
+    }
+
+    fn index(&self, dim: usize) -> usize {
+        self[dim]
+    }
+}
+
 /// TensorView provides a view onto data owned by a [Tensor].
 ///
 /// Conceptually the relationship between TensorView and Tensor is similar to
@@ -382,35 +411,6 @@ impl<'a, T: Copy> TensorLayout for TensorViewMut<'a, T> {
 pub struct Tensor<T: Copy = f32> {
     data: VecWithOffset<T>,
     layout: Layout,
-}
-
-/// Trait for indexing a `Tensor`
-pub trait TensorIndex {
-    /// Return the number of dimensions in the index.
-    fn len(&self) -> usize;
-
-    /// Return the index for dimension `dim`
-    fn index(&self, dim: usize) -> usize;
-}
-
-impl<const N: usize> TensorIndex for [usize; N] {
-    fn len(&self) -> usize {
-        N
-    }
-
-    fn index(&self, dim: usize) -> usize {
-        self[dim]
-    }
-}
-
-impl TensorIndex for &[usize] {
-    fn len(&self) -> usize {
-        (self as &[usize]).len()
-    }
-
-    fn index(&self, dim: usize) -> usize {
-        self[dim]
-    }
 }
 
 impl<T: Copy> Tensor<T> {
