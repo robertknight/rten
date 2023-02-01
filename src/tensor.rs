@@ -13,12 +13,14 @@ mod iterators;
 mod layout;
 mod macros;
 mod range;
+mod vec_with_offset;
 
 pub use self::index_iterator::IndexIterator;
 pub use self::iterators::{BroadcastElements, Elements, ElementsMut, Offsets};
 use self::layout::Layout;
 pub use self::range::{SliceItem, SliceRange};
 pub use layout::is_valid_permutation;
+use vec_with_offset::VecWithOffset;
 
 /// Provides methods for querying the shape and data layout of a [Tensor]
 /// or [TensorView].
@@ -353,52 +355,6 @@ impl<'a, I: TensorIndex, T: Copy> IndexMut<I> for TensorViewMut<'a, T> {
 impl<'a, T: Copy> TensorLayout for TensorViewMut<'a, T> {
     fn layout(&self) -> &Layout {
         self.layout.as_ref()
-    }
-}
-
-/// Wrapper around Vec which allows for unused elements at the start. Indexing
-/// and slicing operate on the used portion of the Vec.
-#[derive(Clone, Debug)]
-struct VecWithOffset<T> {
-    data: Vec<T>,
-
-    /// Offset of the first used element in `data`.
-    base: usize,
-}
-
-impl<T> VecWithOffset<T> {
-    fn new(data: Vec<T>) -> VecWithOffset<T> {
-        VecWithOffset { data, base: 0 }
-    }
-
-    /// Return a slice of the used portion of the wrapped Vec.
-    fn as_slice(&self) -> &[T] {
-        &self.data[self.base..]
-    }
-
-    /// Return a mutable slice of the used portion of the wrapped Vec.
-    fn as_mut_slice(&mut self) -> &mut [T] {
-        &mut self.data[self.base..]
-    }
-
-    /// Set the indices within the vec that are used. Subsequent indexing and
-    /// slicing will operator on `previous_data[range.start..range.end]`.
-    fn set_used_range(&mut self, range: Range<usize>) {
-        self.base += range.start;
-        self.data.truncate(self.base + (range.end - range.start));
-    }
-}
-
-impl<T> Index<usize> for VecWithOffset<T> {
-    type Output = T;
-    fn index(&self, index: usize) -> &T {
-        &self.data[self.base + index]
-    }
-}
-
-impl<T> IndexMut<usize> for VecWithOffset<T> {
-    fn index_mut(&mut self, index: usize) -> &mut T {
-        &mut self.data[self.base + index]
     }
 }
 
