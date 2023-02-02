@@ -1,8 +1,6 @@
-use std::iter::zip;
-
 use crate::check_dims;
 use crate::ops::{resolve_axis, InputList, OpError, Operator, Output};
-use crate::tensor::{SliceRange, Tensor, TensorLayout};
+use crate::tensor::{SliceItem, Tensor, TensorLayout};
 
 pub fn split<T: Copy>(
     input: &Tensor<T>,
@@ -23,32 +21,26 @@ pub fn split<T: Copy>(
         ));
     }
 
-    let mut outputs = Vec::new();
-    let mut start = 0;
+    let mut split_start = 0;
+    let outputs = split
+        .iter()
+        .map(|split_size| {
+            let split_size = split_size as usize;
+            let slice_range: Vec<SliceItem> = (0..input.ndim())
+                .map(|dim| {
+                    if dim == axis {
+                        (split_start..split_start + split_size).into()
+                    } else {
+                        SliceItem::RangeFull
+                    }
+                })
+                .collect();
 
-    for split_size in split.iter() {
-        let slice_ranges: Vec<SliceRange> = input
-            .shape()
-            .iter()
-            .copied()
-            .enumerate()
-            .map(|(dim, size)| {
-                if dim == axis {
-                    SliceRange::new(start as isize, (start + split_size) as isize, 1)
-                } else {
-                    SliceRange::new(0, size as isize, 1)
-                }
-            })
-            .collect();
-        let elements = input.slice_iter(&slice_ranges).collect();
-        let slice_shape: Vec<_> = zip(input.shape().iter(), slice_ranges)
-            .map(|(&dim_size, range)| range.steps(dim_size))
-            .collect();
-        let tensor = Tensor::from_data(&slice_shape, elements);
-        outputs.push(tensor);
+            split_start += split_size;
 
-        start += split_size;
-    }
+            input.view().slice(&slice_range).to_tensor()
+        })
+        .collect();
 
     Ok(outputs)
 }
