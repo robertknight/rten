@@ -5,8 +5,6 @@
 ///! and vector-scalar products.
 use std::ops::Range;
 
-use crate::tensor::{Tensor, TensorLayout};
-
 pub fn div_ceil(a: usize, b: usize) -> usize {
     if b == 1 {
         // Fast path
@@ -446,41 +444,6 @@ fn round_up(val: usize, factor: usize) -> usize {
     } else {
         (val + factor) - rem
     }
-}
-
-/// Perform a General Matrix Multiplication ("gemm").
-///
-/// This computes `output = alpha * (a @ b) + beta * output` where `@` is
-/// matrix multiplication.
-///
-/// This is a high-level API that operates on `Tensor`s. See `gemm` for
-/// a low-level API that operates on slices.
-#[allow(dead_code)] // Currently only used in tests
-pub fn gemm_tensors(output: &mut Tensor, a: &Tensor, b: &Tensor, alpha: f32, beta: f32) {
-    let [a_rows, a_cols] = a.dims();
-    let [b_rows, b_cols] = b.dims();
-    let out_row_stride = output.stride(0);
-
-    gemm(
-        output.data_mut(),
-        out_row_stride,
-        Matrix {
-            data: a.data(),
-            rows: a_rows,
-            cols: a_cols,
-            row_stride: a.stride(0),
-            col_stride: a.stride(1),
-        },
-        Matrix {
-            data: b.data(),
-            rows: b_rows,
-            cols: b_cols,
-            row_stride: b.stride(0),
-            col_stride: b.stride(1),
-        },
-        alpha,
-        beta,
-    );
 }
 
 /// Describes a view of a slice as a matrix for use by a GEMM operation.

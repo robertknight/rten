@@ -172,11 +172,23 @@ impl Operator for MatMul {
 
 #[cfg(test)]
 mod tests {
-    use crate::linalg::gemm_tensors;
+    use crate::linalg::gemm;
     use crate::ops::matmul::{gemm_op, matmul, OpError};
     use crate::rng::XorShiftRng;
-    use crate::tensor::{from_data, rand, zeros};
+    use crate::tensor::{from_data, rand, zeros, AsMatrix, Tensor, TensorLayout};
     use crate::test_util::expect_equal;
+
+    fn gemm_tensors(c: &mut Tensor, a: &Tensor, b: &Tensor, alpha: f32, beta: f32) {
+        let c_row_stride = c.stride(c.ndim() - 2);
+        gemm(
+            c.data_mut(),
+            c_row_stride,
+            a.view().as_matrix(),
+            b.view().as_matrix(),
+            alpha,
+            beta,
+        )
+    }
 
     #[test]
     fn test_gemm_op() -> Result<(), String> {
