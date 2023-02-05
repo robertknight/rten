@@ -173,6 +173,13 @@ impl<'a, T: Copy> TensorView<'a, T> {
         }
     }
 
+    /// Return the underlying data which is accessible through this view.
+    ///
+    /// WARNING: See notes about ordering in [Tensor::data].
+    pub fn data(&self) -> &'a [T] {
+        self.data
+    }
+
     /// Change the layout of this view to put dimensions in the order specified
     /// by `dims`.
     pub fn permute(&mut self, dims: &[usize]) {
@@ -305,7 +312,17 @@ impl<'a, T: Copy> TensorViewMut<'a, T> {
 
     /// Return the slice of the underlying array that is accessible through this
     /// view.
+    ///
+    /// WARNING: See notes about ordering in [Tensor::data].
     pub fn data_mut(&mut self) -> &mut [T] {
+        self.data
+    }
+
+    /// Consume this view and return the underlying data slice.
+    ///
+    /// This differs from [Self::data_mut] as the lifetime of the returned slice
+    /// is tied to the underlying tensor, rather than the view.
+    pub fn into_data_mut(self) -> &'a mut [T] {
         self.data
     }
 
