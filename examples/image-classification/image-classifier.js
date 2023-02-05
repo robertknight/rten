@@ -90,7 +90,7 @@ export class ImageClassifier {
       throw new Error("Model has no inputs");
     }
     const shape = this.model.nodeInfo(inputIds[0]).shape();
-    const [width, height] = shape.slice(shape.length - 2);
+    const [height, width] = shape.slice(shape.length - 2);
     if (width < 0 || height < 0) {
       throw new Error("Model does not specify expected size");
     }
