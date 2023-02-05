@@ -22,23 +22,29 @@ async function loadImage(path, width, height) {
 }
 
 const path = process.argv[2];
+const modelPath = process.argv[3] ?? "./mobilenet.model";
 
 // Initialize Wasnn.
 const wasnnBinary = readFileSync("node_modules/wasnn/dist/" + binaryName());
 initSync(wasnnBinary);
 
 // Load the MobileNet classification model.
-const modelData = new Uint8Array(readFileSync("./mobilenet.model"));
+const modelData = new Uint8Array(readFileSync(modelPath));
 const classifier = new ImageClassifier(modelData);
 const { width, height } = classifier.inputSize();
 const image = await loadImage(path, width, height);
+
+const classifyStart = Date.now();
 const top5 = classifier.classify(image);
+const classifyEnd = Date.now();
 
 const topCategories = top5.map(
   ([classIndex, score]) => IMAGENET_CLASSES[classIndex]
 );
 
-console.log("Most likely categories:");
+console.log(
+  `Analyzed image in ${classifyEnd - classifyStart}ms. Most likely categories:`
+);
 for (let category of topCategories) {
   console.log("  - " + category);
 }
