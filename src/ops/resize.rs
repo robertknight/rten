@@ -2,7 +2,7 @@ use std::iter::zip;
 
 use crate::check_dims;
 use crate::ops::{Input, InputList, IntoOpResult, OpError, Operator, Output};
-use crate::tensor::{Tensor, TensorLayout};
+use crate::tensor::{Tensor, TensorLayout, TensorView, TensorViewMut};
 
 /// Specifies an output size for a resize operation.
 pub enum ResizeTarget<'a> {
@@ -23,12 +23,40 @@ struct Image<'a> {
     w_stride: usize,
 }
 
+impl<'a> From<TensorView<'a, f32>> for Image<'a> {
+    /// Convert a 2D tensor view into an [Image].
+    fn from(view: TensorView<'a, f32>) -> Image<'a> {
+        assert!(view.ndim() == 2, "Tensor must have 2 dims");
+        Image {
+            data: view.data(),
+            height: view.shape()[0],
+            width: view.shape()[1],
+            h_stride: view.stride(0),
+            w_stride: view.stride(1),
+        }
+    }
+}
+
 struct ImageMut<'a> {
     data: &'a mut [f32],
     height: usize,
     width: usize,
     h_stride: usize,
     w_stride: usize,
+}
+
+impl<'a> From<TensorViewMut<'a, f32>> for ImageMut<'a> {
+    /// Convert a 2D tensor view into an [ImageMut]
+    fn from(view: TensorViewMut<'a, f32>) -> ImageMut<'a> {
+        assert!(view.ndim() == 2, "Tensor must have 2 dims");
+        ImageMut {
+            height: view.shape()[0],
+            width: view.shape()[1],
+            h_stride: view.stride(0),
+            w_stride: view.stride(1),
+            data: view.into_data_mut(),
+        }
+    }
 }
 
 /// Compute the input image coordinate that corresponds to an output coordinate,
@@ -179,11 +207,7 @@ pub fn resize(
 
     // The current implementation only supports NCHW tensors with scale factors
     // other than 1.0 for the H and W dims.
-    if input.ndim() != 4 {
-        return Err(OpError::UnsupportedValue("input must be an NCHW tensor"));
-    }
-    let [batch, chans, height, width] = input.dims();
-
+    let [batch, chans, _height, _width] = check_dims!(input, 4, "NCHW");
     let sizes_valid = zip(0..input.ndim(), input.shape().iter()).all(|(dim, &in_size)| {
         dim == input.ndim() - 1 || dim == input.ndim() - 2 || sizes[[dim]] == in_size as i32
     });
@@ -202,23 +226,9 @@ pub fn resize(
 
     for n in 0..batch {
         for c in 0..chans {
-            let in_offset = input.offset([n, c, 0, 0]);
-            let in_image = Image {
-                data: &input.data()[in_offset..],
-                h_stride: input.stride(2),
-                height,
-                w_stride: input.stride(3),
-                width,
-            };
-            let out_offset = output.offset([n, c, 0, 0]);
-            let mut out_image = ImageMut {
-                h_stride: output.stride(2),
-                height: output.shape()[2],
-                w_stride: output.stride(3),
-                width: output.shape()[3],
-                data: &mut output.data_mut()[out_offset..],
-            };
-
+            let in_image: Image = input.view().slice(&[n.into(), c.into()]).into();
+            let mut out_view = output.view_mut();
+            let mut out_image: ImageMut = out_view.slice(&[n.into(), c.into()]).into();
             match mode {
                 ResizeMode::Nearest => {
                     nearest_resize(&in_image, &mut out_image, nearest_mode, coord_mode);
@@ -633,9 +643,7 @@ mod tests {
                 image: Tensor::from_vec(vec![1., 1.]),
                 scales: Some(Tensor::from_vec(vec![1.])),
                 sizes: None,
-                expected: CaseOutput::Error(OpError::UnsupportedValue(
-                    "input must be an NCHW tensor",
-                )),
+                expected: CaseOutput::Error(OpError::InvalidValue("input must have 4 dims (NCHW)")),
             },
         ];
 
