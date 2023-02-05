@@ -309,9 +309,26 @@ impl Error for OpError {}
 /// If `$ndim` is a literal, the macro returns an array of `$ndim` sizes for
 /// each dimension. This conveniently allows checking the rank of a tensor
 /// and extracting the sizes of dimension in one call. For example:
-/// `let [rows, cols] = check_dims!(matrix, 2)`.
+/// `let [rows, cols] = check_dims!(matrix, 2)`. When `$ndim` is a literal,
+/// a third argument can also be passed to specify the names of the dimensions,
+/// eg. "NCHW" or "dir, batch, seq". This can produce more helpful errors if
+/// the input does not match the expected shape.
 #[macro_export]
 macro_rules! check_dims {
+    ($tensor:ident, $ndim:literal, $dim_names:literal) => {{
+        if $tensor.ndim() != $ndim {
+            return Err(OpError::InvalidValue(concat!(
+                stringify!($tensor),
+                " must have ",
+                stringify!($ndim),
+                " dims (",
+                $dim_names,
+                ")"
+            )));
+        }
+        $tensor.dims::<$ndim>()
+    }};
+
     ($tensor:ident, $ndim:literal) => {{
         if $tensor.ndim() != $ndim {
             return Err(OpError::InvalidValue(concat!(

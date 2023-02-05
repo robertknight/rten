@@ -251,8 +251,8 @@ pub fn conv(
     groups: usize,
     strides: [usize; 2],
 ) -> Result<Tensor, OpError> {
-    let [batch, in_c, in_h, in_w] = check_dims!(input, 4);
-    let [out_c, k_in_c, k_h, k_w] = check_dims!(kernel, 4);
+    let [batch, in_c, in_h, in_w] = check_dims!(input, 4, "NCHW");
+    let [out_c, k_in_c, k_h, k_w] = check_dims!(kernel, 4, "OCHW");
     check_dims!(bias?, 1);
 
     let [stride_h, stride_w] = strides;
@@ -421,8 +421,8 @@ pub fn conv_transpose(
     bias: Option<&Tensor>,
     strides: [usize; 2],
 ) -> Result<Tensor, OpError> {
-    let [batch, in_c, in_h, in_w] = check_dims!(input, 4);
-    let [k_in_c, out_c, k_h, k_w] = check_dims!(kernel, 4);
+    let [batch, in_c, in_h, in_w] = check_dims!(input, 4, "NCHW");
+    let [k_in_c, out_c, k_h, k_w] = check_dims!(kernel, 4, "OCHW");
     check_dims!(bias?, 1);
 
     if in_c != k_in_c {

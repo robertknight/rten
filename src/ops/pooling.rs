@@ -70,7 +70,7 @@ pub fn average_pool(
     strides: [usize; 2],
     padding: Padding,
 ) -> Result<Tensor, OpError> {
-    let [batch, in_c, in_h, in_w] = check_dims!(input, 4);
+    let [batch, in_c, in_h, in_w] = check_dims!(input, 4, "NCHW");
     let (out_h, out_w, fixed_padding) = calc_output_size_and_padding(
         (in_h, in_w),
         (kernel_size[0], kernel_size[1]),
@@ -137,7 +137,7 @@ impl Operator for AveragePool {
 }
 
 pub fn global_average_pool(input: &Tensor) -> Result<Tensor, OpError> {
-    let [batch, chans, in_h, in_w] = check_dims!(input, 4);
+    let [batch, chans, in_h, in_w] = check_dims!(input, 4, "NCHW");
 
     let mut output = Tensor::zeros(&[batch, chans, 1, 1]);
 
@@ -179,7 +179,7 @@ pub fn max_pool(
     strides: [usize; 2],
     padding: Padding,
 ) -> Result<Tensor, OpError> {
-    let [batch, in_c, in_h, in_w] = check_dims!(input, 4);
+    let [batch, in_c, in_h, in_w] = check_dims!(input, 4, "NCHW");
     let (out_h, out_w, fixed_padding) = calc_output_size_and_padding(
         (in_h, in_w),
         (kernel_size[0], kernel_size[1]),

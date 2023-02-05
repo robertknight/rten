@@ -121,8 +121,8 @@ pub fn lstm(
     initial_cell: Option<&Tensor>,
 ) -> Result<Vec<Tensor>, OpError> {
     // TODO - Add validation of the sizes of individual dimensions in the inputs.
-    let [seq_len, batch, input_size] = check_dims!(input, 3);
-    let [_directions, hidden_x4, _input_size] = check_dims!(weights, 3);
+    let [seq_len, batch, input_size] = check_dims!(input, 3, "seq, batch, input");
+    let [_directions, hidden_x4, _input_size] = check_dims!(weights, 3, "dir, hidden x 4, input");
     check_dims!(recurrent_weights, 3);
 
     let num_directions = direction.num_directions();
