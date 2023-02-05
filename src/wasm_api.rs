@@ -3,6 +3,7 @@ use wasm_bindgen::prelude::*;
 use std::iter::zip;
 use std::rc::Rc;
 
+use crate::graph::Dimension;
 use crate::model;
 use crate::ops::{Input, Output};
 use crate::tensor;
@@ -28,13 +29,28 @@ impl Model {
         self.model.find_node(name)
     }
 
+    /// Get metadata about the node with a given ID.
+    ///
+    /// This is useful for getting the input tensor shape expected by the model.
+    #[wasm_bindgen(js_name = nodeInfo)]
+    pub fn node_info(&self, id: usize) -> Option<NodeInfo> {
+        self.model.node_info(id).map(|ni| NodeInfo {
+            name: ni.name().map(|n| n.to_string()),
+            shape: ni.shape(),
+        })
+    }
+
     /// Return the IDs of input nodes.
+    ///
+    /// Additional details about the nodes can be obtained using `node_info`.
     #[wasm_bindgen(js_name = inputIds)]
     pub fn input_ids(&self) -> Vec<usize> {
         self.model.input_ids().into()
     }
 
     /// Return the IDs of output nodes.
+    ///
+    /// Additional details about the nodes can be obtained using `node_info`.
     #[wasm_bindgen(js_name = outputIds)]
     pub fn output_ids(&self) -> Vec<usize> {
         self.model.output_ids().into()
@@ -65,6 +81,39 @@ impl Model {
             }
             Err(err) => Err(format!("{:?}", err)),
         }
+    }
+}
+
+/// Metadata about a node in the model.
+#[wasm_bindgen]
+pub struct NodeInfo {
+    name: Option<String>,
+    shape: Option<Vec<Dimension>>,
+}
+
+#[wasm_bindgen]
+impl NodeInfo {
+    /// Returns the name of a node in the graph, if it has one.
+    pub fn name(&self) -> Option<String> {
+        self.name.clone()
+    }
+
+    /// Returns the tensor shape of a node in the graph.
+    ///
+    /// For inputs, this specifies the shape that the model expects the input
+    /// to have. Dimensions can be -1 if the model does not specify a size.
+    ///
+    /// Note: Ideally this would return `null` for unknown dimensions, but
+    /// wasm_bindgen does not support returning a `Vec<Option<i32>>`.
+    pub fn shape(&self) -> Option<Vec<i32>> {
+        self.shape.as_ref().map(|dims| {
+            dims.iter()
+                .map(|dim| match dim {
+                    Dimension::Fixed(size) => *size as i32,
+                    Dimension::Symbolic(_) => -1,
+                })
+                .collect()
+        })
     }
 }
 

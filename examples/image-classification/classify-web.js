@@ -67,20 +67,21 @@ async function init() {
   const statusInfo = document.querySelector("#status");
 
   fileInput.onchange = async () => {
+    statusInfo.textContent = "Downloading model...";
+    const classifier = await classifierPromise;
+    const { width, height } = classifier.inputSize();
+
     const bitmap = await createImageBitmap(fileInput.files[0], {
       // Resize image to input dimensions expected by model.
-      resizeWidth: 224,
-      resizeHeight: 224,
+      resizeWidth: width,
+      resizeHeight: height,
     });
 
-    statusInfo.textContent = 'Downloading brain...';
-    const classifier = await classifierPromise;
-
-    statusInfo.textContent = 'Thinking...';
+    statusInfo.textContent = "Thinking...";
     const imageData = imageDataFromBitmap(bitmap);
     const classes = classifier.classify(imageData);
 
-    statusInfo.textContent = 'Things that may be in this image:';
+    statusInfo.textContent = "Things that may be in this image:";
 
     resultList.innerHTML = "";
     const listItems = classes.map(([classIndex, score]) => {

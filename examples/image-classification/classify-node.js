@@ -22,18 +22,16 @@ async function loadImage(path, width, height) {
 }
 
 const path = process.argv[2];
-const image = await loadImage(path, 224, 224);
 
 // Initialize Wasnn.
-const wasnnBinary = readFileSync(
-  "node_modules/wasnn/dist/" + binaryName()
-);
+const wasnnBinary = readFileSync("node_modules/wasnn/dist/" + binaryName());
 initSync(wasnnBinary);
 
 // Load the MobileNet classification model.
 const modelData = new Uint8Array(readFileSync("./mobilenet.model"));
-
 const classifier = new ImageClassifier(modelData);
+const { width, height } = classifier.inputSize();
+const image = await loadImage(path, width, height);
 const top5 = classifier.classify(image);
 
 const topCategories = top5.map(

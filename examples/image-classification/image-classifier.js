@@ -1,7 +1,7 @@
 import { Model, Tensor, TensorList } from "./node_modules/wasnn/index.js";
 
 /**
- * Convert a 224x224 RGB or RGBA image loaded with `loadImage` into an NCHW
+ * Convert an RGB or RGBA image loaded with `loadImage` into an NCHW
  * tensor ready for input into an ImageNet classification model, such as
  * MobileNet.
  *
@@ -11,12 +11,8 @@ function tensorFromImage(image) {
   const { width, height, data } = image;
   const inChannels = data.length / (width * height);
 
-  if (
-    width !== 224 ||
-    height !== 224 ||
-    (inChannels !== 3 && inChannels !== 4)
-  ) {
-    throw new Error("Input image is not a 224x224 RGB or RGBA image");
+  if (inChannels !== 3 && inChannels !== 4) {
+    throw new Error("Input image is not an RGB or RGBA image");
   }
 
   const outChannels = 3;
@@ -76,20 +72,50 @@ export class ImageClassifier {
    * @param {Uint8Array} modelData - Serialized Wasnn model
    */
   constructor(modelData) {
-    this.model = new Model(modelData);
+    try {
+      this.model = new Model(modelData);
+    } catch (err) {
+      throw new Error(`Failed to load model: ${err}`);
+    }
+  }
+
+  /**
+   * Returns the expected size of input images for the model.
+   *
+   * @return {{ width: number|null, height: number|null }}
+   */
+  inputSize() {
+    const inputIds = this.model.inputIds();
+    if (inputIds.length < 1) {
+      throw new Error("Model has no inputs");
+    }
+    const shape = this.model.nodeInfo(inputIds[0]).shape();
+    const [width, height] = shape.slice(shape.length - 2);
+    if (width < 0 || height < 0) {
+      throw new Error("Model does not specify expected size");
+    }
+    return { width, height };
   }
 
   /**
    * Classify the content of an image.
    *
-   * @param {ImageData} image - The input image. This should be a 224x224 RGB
-   *   image.
+   * @param {ImageData} image - The input image. This should be an RGB image
+   *   matching the size returned by {@link inputSize}.
    * @return {number[]} - Returns the 5 most likely ImageNet categories according
    *   to the model
    */
   classify(image) {
     const inputIds = this.model.inputIds();
     const outputIds = this.model.outputIds();
+    const { width: expectedWidth, height: expectedHeight } = this.inputSize();
+
+    if (
+      (image.width !== null && image.width !== expectedWidth) ||
+      (image.height !== null && image.height !== expectedHeight)
+    ) {
+      throw new Error("Image size does not match expected size");
+    }
 
     const inputs = TensorList.from([tensorFromImage(image)]);
     const outputs = this.model.run(inputIds, inputs, outputIds);
