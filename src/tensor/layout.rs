@@ -17,6 +17,25 @@ pub fn is_valid_permutation(ndim: usize, permutation: &[usize]) -> bool {
 ///
 /// The layout specifies the size of each dimension of the tensor (the _shape_)
 /// and the stride (gap) between offsets in each dimension.
+///
+/// ## Safety and internal overlap
+///
+/// Rust requires that only one mutable reference can exist for any value. To
+/// ensure this, mutable iteration over a tensor must visit each element only
+/// once. This means that in the tensor's Layout, every valid index must map to
+/// a unique offset. Verifying this for the general case of arbitrary shape and
+/// strides is non-trivial. See notes in `mem_overlap.c` in the NumPy source. In
+/// this library the problem is simplified by limiting the stride patterns that
+/// can be constructed. All Layout functions must uphold the invariant:
+///
+///   Every Layout either has one or more strides set to zero, or every valid
+///   index must map to a unique offset.
+///
+/// Zero-strides are used for broadcasting, which is widely used and easy to
+/// check for.
+///
+/// This means that there is no safe function to construct a layout from
+/// arbitrary strides for example (ala. `stride_tricks.as_strided` in NumPy).
 #[derive(Clone, Debug)]
 pub struct Layout {
     /// Array of dimension sizes followed by the corresponding dimension strides.
@@ -126,11 +145,7 @@ impl Layout {
         self.shape_and_strides[dim] = new_size;
     }
 
-    /// Return true if this layout describes viewing a tensor with N elements
-    /// as a larger tensor with some multiple of N elements.
-    ///
-    /// To enforce Rust's invariant that only one mutable reference to a value
-    /// can exist at once, broadcasted views / iterators must be read-only.
+    /// Return true if this is a broadcasting layout which repeats dimensions.
     pub fn is_broadcast(&self) -> bool {
         self.strides().iter().any(|&stride| stride == 0)
     }

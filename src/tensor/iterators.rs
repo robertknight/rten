@@ -395,9 +395,10 @@ struct IndexingIterMut<'a, T: Copy> {
 
 impl<'a, T: Copy> IndexingIterMut<'a, T> {
     fn new(data: &'a mut [T], layout: &Layout) -> IndexingIterMut<'a, T> {
+        // See notes in `Layout` about internal overlap.
         assert!(
             !layout.is_broadcast(),
-            "Cannot mutably iterate over a broadcasting view"
+            "Cannot mutably iterate over broadcasting view"
         );
         IndexingIterMut {
             base: IndexingIterBase::new(layout),
