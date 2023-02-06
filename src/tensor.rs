@@ -447,13 +447,12 @@ impl<T: Copy> Tensor<T> {
     /// Create a new tensor from a given shape and set of elements. No copying
     /// is required.
     pub fn from_data(shape: &[usize], data: Vec<T>) -> Tensor<T> {
-        if shape[..].iter().product::<usize>() != data.len() {
-            panic!(
-                "Number of elements given by shape {:?} does not match data length {}",
-                shape,
-                data.len()
-            );
-        }
+        assert!(
+            shape[..].iter().product::<usize>() == data.len(),
+            "Number of elements given by shape {:?} does not match data length {}",
+            shape,
+            data.len()
+        );
         Tensor {
             data: VecWithOffset::new(data),
             layout: Layout::new(shape),
@@ -644,9 +643,10 @@ impl<T: Copy> Tensor<T> {
     /// See also <https://numpy.org/doc/stable/user/basics.broadcasting.html#general-broadcasting-rules>
     /// for worked examples of how broadcasting works.
     pub fn broadcast_iter(&self, shape: &[usize]) -> BroadcastElements<'_, T> {
-        if !self.can_broadcast_to(shape) {
-            panic!("Cannot broadcast to specified shape");
-        }
+        assert!(
+            self.can_broadcast_to(shape),
+            "Cannot broadcast to specified shape"
+        );
         BroadcastElements::new(&self.view(), shape)
     }
 
@@ -655,9 +655,10 @@ impl<T: Copy> Tensor<T> {
     /// This is very similar to `broadcast_iter`, except that the iterator
     /// yields offsets into rather than elements of the data buffer.
     pub fn broadcast_offsets(&self, shape: &[usize]) -> Offsets {
-        if !self.can_broadcast_to(shape) {
-            panic!("Cannot broadcast to specified shape");
-        }
+        assert!(
+            self.can_broadcast_to(shape),
+            "Cannot broadcast to specified shape"
+        );
         Offsets::broadcast(&self.layout, shape)
     }
 
@@ -676,10 +677,10 @@ impl<T: Copy> Tensor<T> {
     pub fn reshape(&mut self, shape: &[usize]) {
         let len: usize = shape.iter().product();
         let current_len = self.len();
-
-        if len != current_len {
-            panic!("New shape must have same total elements as current shape");
-        }
+        assert!(
+            len == current_len,
+            "New shape must have same total elements as current shape"
+        );
 
         // We currently always copy data whenever the input is non-contiguous.
         // However there are cases of custom strides where copies could be

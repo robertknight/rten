@@ -30,9 +30,10 @@ pub fn add_scaled_vector(
     // Fast path for non-strided case. We write a trivial loop and leave the
     // compiler to optimize it.
     if src_stride == 1 && dest_stride == 1 {
-        if src.len() != dest.len() {
-            panic!("src and dest vector sizes do not match");
-        }
+        assert!(
+            src.len() == dest.len(),
+            "src and dest vector sizes do not match"
+        );
         for i in 0..dest.len() {
             dest[i] += src[i] * scale;
         }
@@ -41,10 +42,10 @@ pub fn add_scaled_vector(
 
     let src_els = div_ceil(src.len(), src_stride);
     let dest_els = div_ceil(dest.len(), dest_stride);
-
-    if src_els != dest_els {
-        panic!("src and dest vector sizes do not match");
-    }
+    assert!(
+        src_els == dest_els,
+        "src and dest vector sizes do not match"
+    );
 
     const N: usize = 4;
     let n_blocks = src_els / N;

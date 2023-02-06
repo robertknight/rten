@@ -106,13 +106,12 @@ impl IndexingIterBase {
 
     /// Create an iterator over offsets of a subset of elements in `tensor`.
     fn slice(layout: &Layout, ranges: &[SliceRange]) -> IndexingIterBase {
-        if ranges.len() != layout.ndim() {
-            panic!(
-                "slice dimensions {} do not match tensor dimensions {}",
-                ranges.len(),
-                layout.ndim()
-            );
-        }
+        assert!(
+            ranges.len() == layout.ndim(),
+            "slice dimensions {} do not match tensor dimensions {}",
+            ranges.len(),
+            layout.ndim()
+        );
         let mut offset = 0;
         let dims: Vec<_> = ranges
             .iter()

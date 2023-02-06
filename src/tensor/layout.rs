@@ -278,13 +278,12 @@ impl Layout {
     }
 
     pub fn dims<const N: usize>(&self) -> [usize; N] {
-        if self.ndim() != N {
-            panic!(
-                "Cannot extract {} dim tensor as {} dim array",
-                self.ndim(),
-                N
-            );
-        }
+        assert!(
+            self.ndim() == N,
+            "Cannot extract {} dim tensor as {} dim array",
+            self.ndim(),
+            N
+        );
         self.shape().try_into().unwrap()
     }
 
