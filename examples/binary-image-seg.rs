@@ -61,6 +61,16 @@ fn image_from_tensor(tensor: &Tensor) -> Vec<u8> {
         .collect()
 }
 
+/// Compute color of composited pixel using source-over compositing.
+///
+/// See https://en.wikipedia.org/wiki/Alpha_compositing#Description.
+fn composite_pixel(src_color: f32, src_alpha: f32, dest_color: f32, dest_alpha: f32) -> f32 {
+    let alpha_out = src_alpha + dest_alpha * (1. - src_alpha);
+    let color_out =
+        (src_color * src_alpha + (dest_color * dest_alpha) * (1. - src_alpha)) / alpha_out;
+    color_out
+}
+
 /// This example loads a PNG image and uses a binary image segmentation model
 /// to classify pixels, for tasks such as detecting text, faces or
 /// foreground/background separation. The output is the result of multiplying
@@ -141,7 +151,9 @@ fn main() -> Result<(), Box<dyn Error>> {
     ) {
         // Convert normalized image pixel back to greyscale value in [0, 1]
         let in_grey = img + 0.5;
-        *out = in_grey * prob;
+        let threshold = 0.2;
+        let mask_pixel = if prob > threshold { 1. } else { 0. };
+        *out = composite_pixel(mask_pixel, 0.5, in_grey, 1.);
     }
     let out_img = image_from_tensor(&combined_img_mask);
 
