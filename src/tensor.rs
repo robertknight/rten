@@ -334,11 +334,8 @@ impl<'a, T: Copy> TensorViewMut<'a, T> {
 
     /// Return a new view with a given shape. This has the same requirements
     /// as `reshape`.
-    pub fn reshaped<'b>(&'b mut self, shape: &[usize]) -> TensorViewMut<'b, T>
-    where
-        'b: 'a,
-    {
-        Self {
+    pub fn reshaped(&mut self, shape: &[usize]) -> TensorViewMut<T> {
+        TensorViewMut {
             data: self.data,
             layout: Cow::Owned(self.layout.reshaped(shape)),
         }
@@ -358,13 +355,12 @@ impl<'a, T: Copy> TensorViewMut<'a, T> {
     /// Return a new mutable view of a subset of the elements in this view.
     ///
     /// Slices are specified in the same way as for [TensorView::slice].
-    pub fn slice<'b>(&'b mut self, range: &[SliceItem]) -> TensorViewMut<'b, T>
-    where
-        'b: 'a,
-    {
+    pub fn slice(&mut self, range: &[SliceItem]) -> TensorViewMut<T> {
         let (offset, layout) = self.layout.slice(range);
-        Self {
-            data: &mut self.data[offset..offset + layout.end_offset()],
+        let data = &mut self.data[offset..offset + layout.end_offset()];
+
+        TensorViewMut {
+            data,
             layout: Cow::Owned(layout),
         }
     }
