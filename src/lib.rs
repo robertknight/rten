@@ -1,5 +1,6 @@
 mod graph;
 mod linalg;
+mod matrix;
 mod model;
 mod number;
 mod tensor;

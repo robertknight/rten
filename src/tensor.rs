@@ -4,7 +4,7 @@ use std::io;
 use std::marker::PhantomData;
 use std::ops::{Index, IndexMut, Range};
 
-use crate::linalg::Matrix;
+use crate::matrix::Matrix;
 
 #[cfg(test)]
 use crate::rng::XorShiftRng;
@@ -434,12 +434,12 @@ impl<T: Copy, S: AsRef<[T]>> TensorLayout for TensorBase<T, S> {
     }
 }
 
-pub trait AsMatrix<'a> {
-    fn as_matrix(&self) -> Matrix<'a>;
+pub trait AsMatrix<'a, T> {
+    fn as_matrix(&self) -> Matrix<'a, T>;
 }
 
-impl<'a> AsMatrix<'a> for TensorView<'a, f32> {
-    fn as_matrix(&self) -> Matrix<'a> {
+impl<'a, T: Copy> AsMatrix<'a, T> for TensorView<'a, T> {
+    fn as_matrix(&self) -> Matrix<'a, T> {
         assert!(
             self.layout.ndim() == 2,
             "Can only convert 2D view to matrix"

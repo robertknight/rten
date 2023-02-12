@@ -1,3 +1,4 @@
+use crate::matrix::Matrix;
 ///! Optimized linear algebra functions.
 ///!
 ///! This module provides a subset of BLAS-like functions that are used by
@@ -346,11 +347,12 @@ fn pack_a_block<K: Kernel>(out: &mut [f32], a: Matrix, rows: Range<usize>, cols:
         if a_rows - panel_start_row >= K::MR {
             // Optimized loop for panels that don't need any padding
             let a_offset =
-                (rows.start + panel_start_row) * a.row_stride + cols.start * a.col_stride;
+                (rows.start + panel_start_row) * a.row_stride() + cols.start * a.col_stride();
 
             assert!(out.len() > panel_offset + (a_cols - 1) * K::MR + K::MR - 1);
             assert!(
-                a.data.len() > a_offset + (K::MR - 1) * a.row_stride + (a_cols - 1) * a.col_stride
+                a.data().len()
+                    > a_offset + (K::MR - 1) * a.row_stride() + (a_cols - 1) * a.col_stride()
             );
 
             for col in 0..a_cols {
@@ -358,8 +360,8 @@ fn pack_a_block<K: Kernel>(out: &mut [f32], a: Matrix, rows: Range<usize>, cols:
                     // Safety: Indexes are less than lengths asserted above.
                     unsafe {
                         *out.get_unchecked_mut(panel_offset + col * K::MR + row) = *a
-                            .data
-                            .get_unchecked(a_offset + row * a.row_stride + col * a.col_stride);
+                            .data()
+                            .get_unchecked(a_offset + row * a.row_stride() + col * a.col_stride());
                     }
                 }
             }
@@ -370,7 +372,7 @@ fn pack_a_block<K: Kernel>(out: &mut [f32], a: Matrix, rows: Range<usize>, cols:
                 for row in 0..K::MR {
                     let a_row = rows.start + panel_start_row + row;
                     out[out_col_offset + row] = if a_row < rows.end {
-                        a.data[a_row * a.row_stride + (cols.start + col) * a.col_stride]
+                        a.data()[a_row * a.row_stride() + (cols.start + col) * a.col_stride()]
                     } else {
                         0.0
                     };
@@ -398,11 +400,12 @@ fn pack_b_block<K: Kernel>(out: &mut [f32], b: Matrix, rows: Range<usize>, cols:
         if b_cols - panel_start_col >= K::NR {
             // Optimized loop for panels that don't need any padding
             let b_offset =
-                rows.start * b.row_stride + (cols.start + panel_start_col) * b.col_stride;
+                rows.start * b.row_stride() + (cols.start + panel_start_col) * b.col_stride();
 
             assert!(out.len() >= panel_offset + (b_rows - 1) * K::NR + K::NR);
             assert!(
-                b.data.len() > b_offset + (b_rows - 1) * b.row_stride + (K::NR - 1) * b.col_stride
+                b.data().len()
+                    > b_offset + (b_rows - 1) * b.row_stride() + (K::NR - 1) * b.col_stride()
             );
 
             for row in 0..b_rows {
@@ -410,8 +413,8 @@ fn pack_b_block<K: Kernel>(out: &mut [f32], b: Matrix, rows: Range<usize>, cols:
                     // Safety: Indexes are less than lengths asserted above.
                     unsafe {
                         *out.get_unchecked_mut(panel_offset + row * K::NR + col) = *b
-                            .data
-                            .get_unchecked(b_offset + row * b.row_stride + col * b.col_stride);
+                            .data()
+                            .get_unchecked(b_offset + row * b.row_stride() + col * b.col_stride());
                     }
                 }
             }
@@ -419,15 +422,15 @@ fn pack_b_block<K: Kernel>(out: &mut [f32], b: Matrix, rows: Range<usize>, cols:
             // Fallback for final panel if padding is required
             for row in 0..b_rows {
                 let out_row_offset = panel_offset + row * K::NR;
-                let b_row_offset = (rows.start + row) * b.row_stride;
+                let b_row_offset = (rows.start + row) * b.row_stride();
 
                 for col in 0..K::NR {
                     let out_col = panel_start_col + col;
                     let b_offset =
-                        b_row_offset + (cols.start + panel_start_col + col) * b.col_stride;
+                        b_row_offset + (cols.start + panel_start_col + col) * b.col_stride();
 
                     out[out_row_offset + col] = if out_col < b_cols {
-                        b.data[b_offset]
+                        b.data()[b_offset]
                     } else {
                         0.0
                     };
@@ -444,64 +447,6 @@ fn round_up(val: usize, factor: usize) -> usize {
         val
     } else {
         (val + factor) - rem
-    }
-}
-
-/// Describes a view of a slice as a matrix for use by a GEMM operation.
-#[derive(Copy, Clone)]
-pub struct Matrix<'a> {
-    data: &'a [f32],
-    rows: usize,
-    cols: usize,
-    row_stride: usize,
-    col_stride: usize,
-}
-
-impl<'a> Matrix<'a> {
-    /// Return a new view which transposes the columns and rows.
-    pub fn transposed(self) -> Matrix<'a> {
-        Matrix {
-            data: self.data,
-            rows: self.cols,
-            cols: self.rows,
-            row_stride: self.col_stride,
-            col_stride: self.row_stride,
-        }
-    }
-
-    /// Return true if the slice length is valid for the dimensions and strides
-    /// of the matrix.
-    fn valid(&self) -> bool {
-        if self.rows == 0 || self.cols == 0 {
-            true // Min slice len is 0, and all slice lengths are >= 0.
-        } else {
-            let max_offset = (self.rows - 1) * self.row_stride + (self.cols - 1) * self.col_stride;
-            self.data.len() > max_offset
-        }
-    }
-
-    /// Constructs a Matrix from a slice.
-    ///
-    /// `strides` specifies the row and column strides or (rows, 1) (ie. row-
-    /// major layout) if None.
-    ///
-    /// Panics if the slice is too short for the dimensions and strides specified.
-    pub fn from_slice(
-        data: &'a [f32],
-        rows: usize,
-        cols: usize,
-        strides: Option<(usize, usize)>,
-    ) -> Matrix {
-        let (row_stride, col_stride) = strides.unwrap_or((rows, 1));
-        let m = Matrix {
-            data,
-            rows,
-            cols,
-            row_stride,
-            col_stride,
-        };
-        assert!(m.valid(), "Slice is too short");
-        m
     }
 }
 
@@ -579,11 +524,11 @@ fn gemm_impl<K: Kernel, const MR_NR: usize>(
 ) {
     assert!(K::supported());
     assert!(
-        a.cols == b.rows,
+        a.cols() == b.rows(),
         "Columns of matrix `a` must match rows of matrix `b`"
     );
     // Construct a Matrix from the implied dimensions, to validate the slice length.
-    Matrix::from_slice(out_data, a.rows, b.cols, Some((out_row_stride, 1)));
+    Matrix::<f32>::from_slice(out_data, a.rows(), b.cols(), Some((out_row_stride, 1)));
 
     // The constant values for block sizes below were taken from the
     // matrixmultiply crate. See https://dl.acm.org/doi/pdf/10.1145/2925987 for
@@ -594,9 +539,9 @@ fn gemm_impl<K: Kernel, const MR_NR: usize>(
     // Sizes of blocks that the width (nc), depth (kc) and height (mc)
     // dimensions are partitioned into in the outer loops. These are chosen
     // so that blocks can fit in specific cache levels.
-    let nc = round_up(1024.min(b.cols), K::NR);
-    let mc = round_up(64.min(a.rows), K::MR);
-    let kc = 256.min(a.cols);
+    let nc = round_up(1024.min(b.cols()), K::NR);
+    let mc = round_up(64.min(a.rows()), K::MR);
+    let kc = 256.min(a.cols());
 
     // Buffer for packed blocks of the matrix. Conceptually there are two
     // buffers, but we coalesce them into one allocation.
@@ -608,8 +553,8 @@ fn gemm_impl<K: Kernel, const MR_NR: usize>(
     let packed_a_size = mc * kc;
     let mut packed = vec![0.; packed_b_size + packed_a_size];
 
-    for (col_start, col_end) in blocks(0, b.cols, nc) {
-        for (depth_start, depth_end) in blocks(0, a.cols, kc) {
+    for (col_start, col_end) in blocks(0, b.cols(), nc) {
+        for (depth_start, depth_end) in blocks(0, a.cols(), kc) {
             let panel_length = depth_end - depth_start;
             pack_b_block::<K>(
                 &mut packed[..packed_b_size],
@@ -618,7 +563,7 @@ fn gemm_impl<K: Kernel, const MR_NR: usize>(
                 col_start..col_end,
             );
 
-            for (row_start, row_end) in blocks(0, a.rows, mc) {
+            for (row_start, row_end) in blocks(0, a.rows(), mc) {
                 pack_a_block::<K>(
                     &mut packed[packed_b_size..],
                     a,
@@ -704,7 +649,7 @@ fn gemm_impl<K: Kernel, const MR_NR: usize>(
 mod tests {
     use crate::linalg::{add_scaled_vector, gemm, gemm_base_kernel, Matrix};
     use crate::rng::XorShiftRng;
-    use crate::tensor::{rand, zeros, Tensor, TensorLayout};
+    use crate::tensor::{rand, zeros, AsMatrix, Tensor, TensorLayout};
     use crate::test_util::expect_equal;
 
     fn reference_matmul(a: &Tensor, b: &Tensor) -> Tensor {
@@ -733,8 +678,6 @@ mod tests {
         beta: f32,
         kernel: Kernel,
     ) {
-        let [a_rows, a_cols] = a.dims();
-        let [b_rows, b_cols] = b.dims();
         let out_row_stride = output.stride(0);
 
         let gemm_fn = match kernel {
@@ -745,20 +688,8 @@ mod tests {
         gemm_fn(
             output.data_mut(),
             out_row_stride,
-            Matrix {
-                data: a.data(),
-                rows: a_rows,
-                cols: a_cols,
-                row_stride: a.stride(0),
-                col_stride: a.stride(1),
-            },
-            Matrix {
-                data: b.data(),
-                rows: b_rows,
-                cols: b_cols,
-                row_stride: b.stride(0),
-                col_stride: b.stride(1),
-            },
+            a.view().as_matrix(),
+            b.view().as_matrix(),
             alpha,
             beta,
         );
@@ -828,19 +759,19 @@ mod tests {
     #[test]
     fn test_matrix_from_slice() {
         let data = vec![1., 2., 3., 4.];
-        let mat = Matrix::from_slice(&data, 2, 2, None);
-        assert_eq!(mat.data, data);
-        assert_eq!(mat.rows, 2);
-        assert_eq!(mat.cols, 2);
-        assert_eq!(mat.row_stride, 2);
-        assert_eq!(mat.col_stride, 1);
+        let mat = Matrix::<f32>::from_slice(&data, 2, 2, None);
+        assert_eq!(mat.data(), data);
+        assert_eq!(mat.rows(), 2);
+        assert_eq!(mat.cols(), 2);
+        assert_eq!(mat.row_stride(), 2);
+        assert_eq!(mat.col_stride(), 1);
     }
 
     #[test]
     #[should_panic(expected = "Slice is too short")]
     fn test_matrix_from_slice_panics_if_too_short() {
         let data = vec![1., 2., 3., 4.];
-        Matrix::from_slice(&data, 3, 3, Some((2, 1)));
+        Matrix::<f32>::from_slice(&data, 3, 3, Some((2, 1)));
     }
 
     // Simplest possible test case for easy debugging.
@@ -865,29 +796,15 @@ mod tests {
     #[should_panic(expected = "Slice is too short")]
     fn test_gemm_panics_if_output_is_too_short() {
         let a = Tensor::from_data(&[2, 2], vec![1., 2., 3., 4.]);
-        let [a_rows, a_cols] = a.dims();
         let b = Tensor::from_data(&[2, 2], vec![5., 6., 7., 8.]);
-        let [b_rows, b_cols] = b.dims();
 
         let mut output = vec![1., 2.];
 
         gemm(
             &mut output,
             2,
-            Matrix {
-                data: a.data(),
-                rows: a_rows,
-                cols: a_cols,
-                row_stride: a.stride(0),
-                col_stride: a.stride(1),
-            },
-            Matrix {
-                data: b.data(),
-                rows: b_rows,
-                cols: b_cols,
-                row_stride: b.stride(0),
-                col_stride: b.stride(1),
-            },
+            a.view().as_matrix(),
+            b.view().as_matrix(),
             1., /* alpha */
             1., /* beta */
         );

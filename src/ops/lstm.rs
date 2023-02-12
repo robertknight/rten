@@ -1,7 +1,8 @@
 use std::iter::zip;
 
 use crate::check_dims;
-use crate::linalg::{gemm, Matrix};
+use crate::linalg::gemm;
+use crate::matrix::Matrix;
 use crate::ops::unary_elementwise::UnaryFloatOp;
 use crate::ops::{InputList, IntoOpResult, OpError, Operator, Output, Sigmoid, Tanh};
 use crate::tensor::{AsMatrix, Tensor, TensorLayout, TensorView};
