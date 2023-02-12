@@ -2,7 +2,7 @@ use std::error::Error;
 use std::fmt;
 use std::fmt::{Debug, Display};
 
-use crate::tensor::{Tensor, TensorLayout};
+use crate::tensor::{Layout, Tensor, TensorLayout};
 
 mod binary_elementwise;
 mod concat;
@@ -86,11 +86,11 @@ pub enum Input<'a> {
     IntTensor(&'a Tensor<i32>),
 }
 
-impl<'a> Input<'a> {
-    pub fn shape(&self) -> &'a [usize] {
+impl<'a> TensorLayout for Input<'a> {
+    fn layout(&self) -> &'a Layout {
         match self {
-            Input::FloatTensor(t) => t.shape(),
-            Input::IntTensor(t) => t.shape(),
+            Input::FloatTensor(t) => t.layout(),
+            Input::IntTensor(t) => t.layout(),
         }
     }
 }

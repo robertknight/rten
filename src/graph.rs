@@ -364,7 +364,7 @@ impl Graph {
                     // first input is not included.
                     let input_shapes: Vec<_> = op_inputs
                         .iter()
-                        .map(|x| x.map(|input| input.shape()))
+                        .map(|x| x.as_ref().map(|input| input.shape()))
                         .collect();
                     println!(
                         "#{} {:?} with {:?} in {}ms",

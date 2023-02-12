@@ -17,7 +17,7 @@ mod vec_with_offset;
 
 pub use self::index_iterator::IndexIterator;
 pub use self::iterators::{BroadcastElements, Elements, ElementsMut, Offsets};
-use self::layout::Layout;
+pub(crate) use self::layout::Layout;
 pub use self::range::{SliceItem, SliceRange};
 pub use layout::is_valid_permutation;
 use vec_with_offset::VecWithOffset;
