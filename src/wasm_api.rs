@@ -145,10 +145,7 @@ impl Tensor {
     }
 
     pub fn shape(&self) -> Vec<usize> {
-        match *self.data {
-            Output::IntTensor(ref t) => t.shape().into(),
-            Output::FloatTensor(ref t) => t.shape().into(),
-        }
+        self.data.shape().into()
     }
 
     /// Return the elements of a float tensor in their logical order.

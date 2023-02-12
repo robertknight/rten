@@ -200,6 +200,15 @@ impl Output {
     }
 }
 
+impl TensorLayout for Output {
+    fn layout(&self) -> &Layout {
+        match self {
+            Output::FloatTensor(ref t) => t.layout(),
+            Output::IntTensor(ref t) => t.layout(),
+        }
+    }
+}
+
 impl From<Tensor<f32>> for Output {
     fn from(t: Tensor<f32>) -> Output {
         Output::FloatTensor(t)
