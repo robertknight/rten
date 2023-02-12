@@ -126,6 +126,7 @@ pub struct Tensor {
 
 #[wasm_bindgen]
 impl Tensor {
+    /// Construct a float tensor from the given shape and data.
     #[wasm_bindgen(js_name = floatTensor)]
     pub fn float_tensor(shape: &[usize], data: &[f32]) -> Tensor {
         let data: Output = tensor::Tensor::from_data(shape, data.into()).into();
@@ -134,6 +135,7 @@ impl Tensor {
         }
     }
 
+    /// Construct an int tensor from the given shape and data.
     #[wasm_bindgen(js_name = intTensor)]
     pub fn int_tensor(shape: &[usize], data: &[i32]) -> Tensor {
         let data: Output = tensor::Tensor::from_data(shape, data.into()).into();
@@ -149,6 +151,7 @@ impl Tensor {
         }
     }
 
+    /// Return the elements of a float tensor in their logical order.
     #[wasm_bindgen(js_name = floatData)]
     pub fn float_data(&self) -> Option<Vec<f32>> {
         match *self.data {
@@ -157,6 +160,7 @@ impl Tensor {
         }
     }
 
+    /// Return the elements of an int tensor in their logical order.
     #[wasm_bindgen(js_name = intData)]
     pub fn int_data(&self) -> Option<Vec<i32>> {
         match *self.data {
