@@ -1,9 +1,9 @@
 use std::iter::zip;
 
 use crate::check_dims;
-use crate::matrix::Matrix;
+use crate::matrix::{Matrix, MatrixMut};
 use crate::ops::{Input, InputList, IntoOpResult, OpError, Operator, Output};
-use crate::tensor::{AsMatrix, Tensor, TensorLayout, TensorViewMut};
+use crate::tensor::{AsMatrix, AsMatrixMut, Tensor, TensorLayout};
 
 /// Specifies an output size for a resize operation.
 pub enum ResizeTarget<'a> {
@@ -14,28 +14,6 @@ pub enum ResizeTarget<'a> {
     /// Vector of output sizes for each dimension. The length should match the
     /// input rank.
     Sizes(&'a Tensor<i32>),
-}
-
-struct ImageMut<'a> {
-    data: &'a mut [f32],
-    height: usize,
-    width: usize,
-    h_stride: usize,
-    w_stride: usize,
-}
-
-impl<'a> From<TensorViewMut<'a, f32>> for ImageMut<'a> {
-    /// Convert a 2D tensor view into an [ImageMut]
-    fn from(view: TensorViewMut<'a, f32>) -> ImageMut<'a> {
-        assert!(view.ndim() == 2, "Tensor must have 2 dims");
-        ImageMut {
-            height: view.shape()[0],
-            width: view.shape()[1],
-            h_stride: view.stride(0),
-            w_stride: view.stride(1),
-            data: view.into_data_mut(),
-        }
-    }
 }
 
 /// Compute the input image coordinate that corresponds to an output coordinate,
@@ -77,13 +55,13 @@ pub enum CoordTransformMode {
 
 fn nearest_resize(
     input: &Matrix,
-    output: &mut ImageMut,
+    output: &mut MatrixMut,
     mode: NearestMode,
     coord_mode: CoordTransformMode,
 ) {
     // Scale factors to map output coords to input coords.
-    let inv_scale_y = input.rows() as f32 / output.height as f32;
-    let inv_scale_x = input.cols() as f32 / output.width as f32;
+    let inv_scale_y = input.rows() as f32 / output.rows() as f32;
+    let inv_scale_x = input.cols() as f32 / output.cols() as f32;
 
     let round_coord = |coord: f32| match mode {
         NearestMode::Ceil => coord.ceil() as usize,
@@ -107,32 +85,32 @@ fn nearest_resize(
         }
     };
 
-    for y in 0..output.height {
+    for y in 0..output.rows() {
         let in_y = round_coord(
             input_coord(y, inv_scale_y, coord_mode).clamp(0., input.rows() as f32 - 1.),
         );
-        for x in 0..output.width {
+        for x in 0..output.cols() {
             let in_x = round_coord(
                 input_coord(x, inv_scale_x, coord_mode).clamp(0., input.cols() as f32 - 1.),
             );
             let out = input[[in_y, in_x]];
-            output.data[y * output.h_stride + x * output.w_stride] = out;
+            output[[y, x]] = out;
         }
     }
 }
 
-fn bilinear_resize(input: &Matrix, output: &mut ImageMut, coord_mode: CoordTransformMode) {
+fn bilinear_resize(input: &Matrix, output: &mut MatrixMut, coord_mode: CoordTransformMode) {
     // Scale factors to map output coords to input coords.
-    let inv_scale_y = input.rows() as f32 / output.height as f32;
-    let inv_scale_x = input.cols() as f32 / output.width as f32;
+    let inv_scale_y = input.rows() as f32 / output.rows() as f32;
+    let inv_scale_x = input.cols() as f32 / output.cols() as f32;
 
-    for y in 0..output.height {
+    for y in 0..output.rows() {
         let in_y = input_coord(y, inv_scale_y, coord_mode).clamp(0., input.rows() as f32 - 1.);
         let in_y1 = in_y as usize;
         let in_y2 = (in_y1 + 1).min(input.rows() - 1);
         let weight_y = in_y - (in_y1 as f32);
 
-        for x in 0..output.width {
+        for x in 0..output.cols() {
             let in_x = input_coord(x, inv_scale_x, coord_mode).clamp(0., input.cols() as f32 - 1.);
             let in_x1 = in_x as usize;
             let in_x2 = (in_x1 + 1).min(input.cols() - 1);
@@ -150,7 +128,7 @@ fn bilinear_resize(input: &Matrix, output: &mut ImageMut, coord_mode: CoordTrans
             // Interpolate in Y direction
             let out = (1. - weight_y) * out_top + weight_y * out_bottom;
 
-            output.data[y * output.h_stride + x * output.w_stride] = out;
+            output[[y, x]] = out;
         }
     }
 }
@@ -206,13 +184,18 @@ pub fn resize(
     for n in 0..batch {
         for c in 0..chans {
             let in_image = input.slice(&[n.into(), c.into()]).as_matrix();
-            let mut out_image: ImageMut = output.slice_mut(&[n.into(), c.into()]).into();
+            let mut out_image = output.slice_mut(&[n.into(), c.into()]);
             match mode {
                 ResizeMode::Nearest => {
-                    nearest_resize(&in_image, &mut out_image, nearest_mode, coord_mode);
+                    nearest_resize(
+                        &in_image,
+                        &mut out_image.as_matrix_mut(),
+                        nearest_mode,
+                        coord_mode,
+                    );
                 }
                 ResizeMode::Linear => {
-                    bilinear_resize(&in_image, &mut out_image, coord_mode);
+                    bilinear_resize(&in_image, &mut out_image.as_matrix_mut(), coord_mode);
                 }
             };
         }
