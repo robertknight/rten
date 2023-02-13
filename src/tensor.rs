@@ -4,7 +4,7 @@ use std::io;
 use std::marker::PhantomData;
 use std::ops::{Index, IndexMut, Range};
 
-use crate::matrix::{Matrix, MatrixMut};
+use crate::ndtensorview::{Matrix, MatrixMut, NdTensorView, NdTensorViewMut};
 
 #[cfg(test)]
 use crate::rng::XorShiftRng;
@@ -434,23 +434,26 @@ impl<T: Copy, S: AsRef<[T]>> TensorLayout for TensorBase<T, S> {
     }
 }
 
+pub trait AsNdTensorView<'a, T, const N: usize> {
+    fn as_nd_view(&self) -> NdTensorView<'a, T, N>;
+}
+
 pub trait AsMatrix<'a, T> {
     fn as_matrix(&self) -> Matrix<'a, T>;
 }
 
-impl<'a, T: Copy> AsMatrix<'a, T> for TensorView<'a, T> {
+impl<'a, T, A: AsNdTensorView<'a, T, 2>> AsMatrix<'a, T> for A {
     fn as_matrix(&self) -> Matrix<'a, T> {
-        assert!(
-            self.layout.ndim() == 2,
-            "Can only convert 2D view to matrix"
-        );
-        let shape = self.shape();
-        Matrix::from_slice(
-            self.data,
-            shape[0],
-            shape[1],
-            Some((self.layout.stride(0), self.layout.stride(1))),
-        )
+        self.as_nd_view()
+    }
+}
+
+impl<'a, T: Copy, const N: usize> AsNdTensorView<'a, T, N> for TensorView<'a, T> {
+    fn as_nd_view(&self) -> NdTensorView<'a, T, N> {
+        assert!(self.layout.ndim() == N, "Incorrect number of dims");
+        let shape = self.shape().try_into().unwrap();
+        let strides = self.layout.strides().try_into().unwrap();
+        NdTensorView::from_slice(self.data, shape, Some(strides))
     }
 }
 
@@ -600,23 +603,26 @@ impl<I: TensorIndex, T: Copy, S: AsRef<[T]> + AsMut<[T]>> IndexMut<I> for Tensor
     }
 }
 
+pub trait AsNdTensorViewMut<'a, T, const N: usize> {
+    fn as_nd_view_mut(&mut self) -> NdTensorViewMut<T, N>;
+}
+
 pub trait AsMatrixMut<'a, T> {
     fn as_matrix_mut(&mut self) -> MatrixMut<T>;
 }
 
-impl<'a, T: Copy> AsMatrixMut<'a, T> for TensorViewMut<'a, T> {
+impl<'a, T, A: AsNdTensorViewMut<'a, T, 2>> AsMatrixMut<'a, T> for A {
     fn as_matrix_mut(&mut self) -> MatrixMut<T> {
-        assert!(
-            self.layout.ndim() == 2,
-            "Can only convert 2D view to matrix"
-        );
-        let shape = self.shape();
-        MatrixMut::from_slice(
-            self.data,
-            shape[0],
-            shape[1],
-            Some((self.layout.stride(0), self.layout.stride(1))),
-        )
+        self.as_nd_view_mut()
+    }
+}
+
+impl<'a, T: Copy, const N: usize> AsNdTensorViewMut<'a, T, N> for TensorViewMut<'a, T> {
+    fn as_nd_view_mut(&mut self) -> NdTensorViewMut<T, N> {
+        assert!(self.layout.ndim() == N, "Incorrect number of dims");
+        let shape = self.shape().try_into().unwrap();
+        let strides = self.layout.strides().try_into().unwrap();
+        NdTensorViewMut::from_slice(self.data, shape, Some(strides))
     }
 }
 

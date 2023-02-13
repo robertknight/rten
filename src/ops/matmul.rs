@@ -2,7 +2,7 @@ use std::iter::zip;
 
 use crate::check_dims;
 use crate::linalg::gemm;
-use crate::matrix::Matrix;
+use crate::ndtensorview::Matrix;
 use crate::ops::binary_elementwise::broadcast_shapes;
 use crate::ops::{InputList, IntoOpResult, OpError, Operator, Output};
 use crate::tensor::{AsMatrix, Tensor, TensorLayout};
@@ -138,15 +138,13 @@ pub fn matmul(a: &Tensor, b: &Tensor) -> Result<Tensor, OpError> {
             out_row_stride,
             Matrix::from_slice(
                 &a.data()[a_offset..],
-                a_rows,
-                a_cols,
-                Some((a.stride(a.ndim() - 2), a.stride(a.ndim() - 1))),
+                [a_rows, a_cols],
+                Some([a.stride(a.ndim() - 2), a.stride(a.ndim() - 1)]),
             ),
             Matrix::from_slice(
                 &b.data()[b_offset..],
-                b_rows,
-                b_cols,
-                Some((b.stride(b.ndim() - 2), b.stride(b.ndim() - 1))),
+                [b_rows, b_cols],
+                Some([b.stride(b.ndim() - 2), b.stride(b.ndim() - 1)]),
             ),
             1., // alpha
             0., // beta

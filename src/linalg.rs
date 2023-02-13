@@ -1,10 +1,11 @@
-use crate::matrix::Matrix;
 ///! Optimized linear algebra functions.
 ///!
 ///! This module provides a subset of BLAS-like functions that are used by
 ///! neural network operators. This includes general matrix multiplication ("gemm"),
 ///! and vector-scalar products.
 use std::ops::Range;
+
+use crate::ndtensorview::{Matrix, MatrixLayout};
 
 pub fn div_ceil(a: usize, b: usize) -> usize {
     if b == 1 {
@@ -528,7 +529,7 @@ fn gemm_impl<K: Kernel, const MR_NR: usize>(
         "Columns of matrix `a` must match rows of matrix `b`"
     );
     // Construct a Matrix from the implied dimensions, to validate the slice length.
-    Matrix::<f32>::from_slice(out_data, a.rows(), b.cols(), Some((out_row_stride, 1)));
+    Matrix::<f32>::from_slice(out_data, [a.rows(), b.cols()], Some([out_row_stride, 1]));
 
     // The constant values for block sizes below were taken from the
     // matrixmultiply crate. See https://dl.acm.org/doi/pdf/10.1145/2925987 for
@@ -647,7 +648,8 @@ fn gemm_impl<K: Kernel, const MR_NR: usize>(
 
 #[cfg(test)]
 mod tests {
-    use crate::linalg::{add_scaled_vector, gemm, gemm_base_kernel, Matrix};
+    use crate::linalg::{add_scaled_vector, gemm, gemm_base_kernel};
+    use crate::ndtensorview::{Matrix, MatrixLayout};
     use crate::rng::XorShiftRng;
     use crate::tensor::{rand, zeros, AsMatrix, Tensor, TensorLayout};
     use crate::test_util::expect_equal;
@@ -759,7 +761,7 @@ mod tests {
     #[test]
     fn test_matrix_from_slice() {
         let data = vec![1., 2., 3., 4.];
-        let mat = Matrix::<f32>::from_slice(&data, 2, 2, None);
+        let mat = Matrix::<f32>::from_slice(&data, [2, 2], None);
         assert_eq!(mat.data(), data);
         assert_eq!(mat.rows(), 2);
         assert_eq!(mat.cols(), 2);
@@ -771,7 +773,7 @@ mod tests {
     #[should_panic(expected = "Slice is too short")]
     fn test_matrix_from_slice_panics_if_too_short() {
         let data = vec![1., 2., 3., 4.];
-        Matrix::<f32>::from_slice(&data, 3, 3, Some((2, 1)));
+        Matrix::<f32>::from_slice(&data, [3, 3], Some([2, 1]));
     }
 
     // Simplest possible test case for easy debugging.
