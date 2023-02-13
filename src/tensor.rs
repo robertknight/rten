@@ -4,7 +4,7 @@ use std::io;
 use std::marker::PhantomData;
 use std::ops::{Index, IndexMut, Range};
 
-use crate::matrix::Matrix;
+use crate::matrix::{Matrix, MatrixMut};
 
 #[cfg(test)]
 use crate::rng::XorShiftRng;
@@ -597,6 +597,26 @@ impl<I: TensorIndex, T: Copy, S: AsRef<[T]> + AsMut<[T]>> IndexMut<I> for Tensor
     fn index_mut(&mut self, index: I) -> &mut Self::Output {
         let offset = self.offset(index);
         &mut self.data.as_mut()[offset]
+    }
+}
+
+pub trait AsMatrixMut<'a, T> {
+    fn as_matrix_mut(&mut self) -> MatrixMut<T>;
+}
+
+impl<'a, T: Copy> AsMatrixMut<'a, T> for TensorViewMut<'a, T> {
+    fn as_matrix_mut(&mut self) -> MatrixMut<T> {
+        assert!(
+            self.layout.ndim() == 2,
+            "Can only convert 2D view to matrix"
+        );
+        let shape = self.shape();
+        MatrixMut::from_slice(
+            self.data,
+            shape[0],
+            shape[1],
+            Some((self.layout.stride(0), self.layout.stride(1))),
+        )
     }
 }
 
