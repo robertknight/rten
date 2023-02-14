@@ -134,7 +134,7 @@ impl<'a, T, const N: usize> NdTensorView<'a, T, N> {
             shape,
             strides: strides.unwrap_or(NdLayout::contiguous_strides(shape)),
         };
-        assert!(data.len() >= layout.max_offset(), "Slice is too short");
+        assert!(data.len() > layout.max_offset(), "Slice is too short");
         NdTensorView { data, layout }
     }
 }
@@ -182,7 +182,7 @@ impl<'a, T, const N: usize> NdTensorViewMut<'a, T, N> {
             shape,
             strides: strides.unwrap_or(NdLayout::contiguous_strides(shape)),
         };
-        assert!(data.len() >= layout.max_offset(), "Slice is too short");
+        assert!(data.len() > layout.max_offset(), "Slice is too short");
         Self { data, layout }
     }
 }
