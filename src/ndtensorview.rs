@@ -37,14 +37,16 @@ impl<const N: usize> NdLayout<N> {
         offset
     }
 
-    /// Return the maximum index in the slice that any valid index will map to.
-    fn max_offset(&self) -> usize {
+    /// Return the minimum length required for the element data buffer used
+    /// with this layout.
+    fn min_data_len(&self) -> usize {
         if self.shape.iter().any(|&size| size == 0) {
             return 0;
         }
-        zip(self.shape.iter(), self.strides.iter())
+        let max_offset: usize = zip(self.shape.iter(), self.strides.iter())
             .map(|(size, stride)| (size - 1) * stride)
-            .sum()
+            .sum();
+        max_offset + 1
     }
 
     /// Return the strides that a contiguous layout with a given shape would
@@ -134,7 +136,7 @@ impl<'a, T, const N: usize> NdTensorView<'a, T, N> {
             shape,
             strides: strides.unwrap_or(NdLayout::contiguous_strides(shape)),
         };
-        assert!(data.len() > layout.max_offset(), "Slice is too short");
+        assert!(data.len() >= layout.min_data_len(), "Slice is too short");
         NdTensorView { data, layout }
     }
 }
@@ -182,7 +184,7 @@ impl<'a, T, const N: usize> NdTensorViewMut<'a, T, N> {
             shape,
             strides: strides.unwrap_or(NdLayout::contiguous_strides(shape)),
         };
-        assert!(data.len() > layout.max_offset(), "Slice is too short");
+        assert!(data.len() >= layout.min_data_len(), "Slice is too short");
         Self { data, layout }
     }
 }
