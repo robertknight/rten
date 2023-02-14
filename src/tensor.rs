@@ -4,7 +4,7 @@ use std::io;
 use std::marker::PhantomData;
 use std::ops::{Index, IndexMut, Range};
 
-use crate::ndtensorview::{Matrix, MatrixMut, NdTensorView, NdTensorViewMut};
+use crate::ndtensorview::{Matrix, MatrixMut, NdTensorView};
 
 #[cfg(test)]
 use crate::rng::XorShiftRng;
@@ -435,7 +435,7 @@ impl<T: Copy, S: AsRef<[T]>> TensorLayout for TensorBase<T, S> {
 }
 
 pub trait AsNdTensorView<'a, T, const N: usize> {
-    fn as_nd_view(&self) -> NdTensorView<'a, T, N>;
+    fn as_nd_view(&self) -> NdTensorView<T, &'a [T], N>;
 }
 
 pub trait AsMatrix<'a, T> {
@@ -449,7 +449,7 @@ impl<'a, T, A: AsNdTensorView<'a, T, 2>> AsMatrix<'a, T> for A {
 }
 
 impl<'a, T: Copy, const N: usize> AsNdTensorView<'a, T, N> for TensorView<'a, T> {
-    fn as_nd_view(&self) -> NdTensorView<'a, T, N> {
+    fn as_nd_view(&self) -> NdTensorView<T, &'a [T], N> {
         assert!(self.layout.ndim() == N, "Incorrect number of dims");
         let shape = self.shape().try_into().unwrap();
         let strides = self.layout.strides().try_into().unwrap();
@@ -604,25 +604,25 @@ impl<I: TensorIndex, T: Copy, S: AsRef<[T]> + AsMut<[T]>> IndexMut<I> for Tensor
 }
 
 pub trait AsNdTensorViewMut<'a, T, const N: usize> {
-    fn as_nd_view_mut(&mut self) -> NdTensorViewMut<T, N>;
+    fn as_nd_view_mut(&mut self) -> NdTensorView<T, &mut [T], N>;
 }
 
-pub trait AsMatrixMut<'a, T> {
+pub trait AsMatrixMut<T> {
     fn as_matrix_mut(&mut self) -> MatrixMut<T>;
 }
 
-impl<'a, T, A: AsNdTensorViewMut<'a, T, 2>> AsMatrixMut<'a, T> for A {
+impl<'a, T, A: AsNdTensorViewMut<'a, T, 2>> AsMatrixMut<T> for A {
     fn as_matrix_mut(&mut self) -> MatrixMut<T> {
         self.as_nd_view_mut()
     }
 }
 
 impl<'a, T: Copy, const N: usize> AsNdTensorViewMut<'a, T, N> for TensorViewMut<'a, T> {
-    fn as_nd_view_mut(&mut self) -> NdTensorViewMut<T, N> {
+    fn as_nd_view_mut(&mut self) -> NdTensorView<T, &mut [T], N> {
         assert!(self.layout.ndim() == N, "Incorrect number of dims");
         let shape = self.shape().try_into().unwrap();
         let strides = self.layout.strides().try_into().unwrap();
-        NdTensorViewMut::from_slice(self.data, shape, Some(strides))
+        NdTensorView::from_slice(self.data, shape, Some(strides))
     }
 }
 

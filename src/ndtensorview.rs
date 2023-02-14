@@ -1,4 +1,5 @@
 use std::iter::zip;
+use std::marker::PhantomData;
 use std::ops::{Index, IndexMut};
 
 /// Describes how to view a slice as an `N`-dimensional array.
@@ -113,104 +114,87 @@ impl<NTL: NdTensorLayout<2>> MatrixLayout for NTL {
 }
 
 /// Provides a view of a slice as an N-dimensional tensor.
+///
+/// `T` is the element type, `S` is the slice type (eg. `&[T]` or `&mut [T]`)
+/// and `N` is the number of dimensions.
 #[derive(Clone, Copy)]
-pub struct NdTensorView<'a, T, const N: usize> {
-    data: &'a [T],
+pub struct NdTensorView<T, S: AsRef<[T]>, const N: usize> {
+    data: S,
     layout: NdLayout<N>,
+    element_type: PhantomData<T>,
 }
 
-impl<'a, T, const N: usize> NdTensorView<'a, T, N> {
-    pub fn data(&self) -> &'a [T] {
-        self.data
-    }
-
+impl<'a, T, S: AsRef<[T]>, const N: usize> NdTensorView<T, S, N> {
     /// Constructs an NdTensorView from a slice.
     ///
     /// Panics if the slice is too short for the dimensions and strides specified.
     pub fn from_slice(
-        data: &'a [T],
+        data: S,
         shape: [usize; N],
         strides: Option<[usize; N]>,
-    ) -> NdTensorView<'a, T, N> {
+    ) -> NdTensorView<T, S, N> {
         let layout = NdLayout {
             shape,
             strides: strides.unwrap_or(NdLayout::contiguous_strides(shape)),
         };
-        assert!(data.len() >= layout.min_data_len(), "Slice is too short");
-        NdTensorView { data, layout }
+        assert!(
+            data.as_ref().len() >= layout.min_data_len(),
+            "Slice is too short"
+        );
+        NdTensorView {
+            data,
+            layout,
+            element_type: PhantomData,
+        }
     }
 }
 
-impl<'a, T, const N: usize> Index<[usize; N]> for NdTensorView<'a, T, N> {
+impl<'a, T, S: AsRef<[T]> + ?Sized, const N: usize> NdTensorView<T, &'a S, N> {
+    pub fn data(&self) -> &'a [T] {
+        self.data.as_ref()
+    }
+}
+
+impl<'a, T, S: AsRef<[T]> + AsMut<[T]> + ?Sized, const N: usize> NdTensorView<T, &'a mut S, N> {
+    pub fn data_mut(&mut self) -> &mut [T] {
+        self.data.as_mut()
+    }
+}
+
+impl<T, S: AsRef<[T]>, const N: usize> Index<[usize; N]> for NdTensorView<T, S, N> {
     type Output = T;
     fn index(&self, index: [usize; N]) -> &Self::Output {
-        &self.data[self.layout.offset(index)]
+        &self.data.as_ref()[self.layout.offset(index)]
     }
 }
 
-impl<'a, T, const N: usize> NdTensorLayout<N> for NdTensorView<'a, T, N> {
+impl<T, S: AsRef<[T]> + AsMut<[T]>, const N: usize> IndexMut<[usize; N]> for NdTensorView<T, S, N> {
+    fn index_mut(&mut self, index: [usize; N]) -> &mut Self::Output {
+        let offset = self.layout.offset(index);
+        &mut self.data.as_mut()[offset]
+    }
+}
+
+impl<T, S: AsRef<[T]>, const N: usize> NdTensorLayout<N> for NdTensorView<T, S, N> {
     fn layout(&self) -> &NdLayout<N> {
         &self.layout
     }
 }
 
 /// Provides methods specific to 2D tensors (matrices).
-impl<'a, T> NdTensorView<'a, T, 2> {
+impl<T, S: AsRef<[T]>> NdTensorView<T, S, 2> {
     /// Return a new view which transposes the columns and rows.
     pub fn transposed(self) -> Self {
         NdTensorView {
             data: self.data,
             layout: self.layout.transposed(),
+            element_type: PhantomData,
         }
     }
 }
 
-/// Provides a view of a mutable slice as an N-dimensional tensor.
-pub struct NdTensorViewMut<'a, T, const N: usize> {
-    data: &'a mut [T],
-    layout: NdLayout<N>,
-}
-
-impl<'a, T, const N: usize> NdTensorViewMut<'a, T, N> {
-    pub fn data(&mut self) -> &mut [T] {
-        self.data
-    }
-
-    /// Constructs an NdTensorViewMut from a slice.
-    ///
-    /// Panics if the slice is too short for the dimensions and strides specified.
-    pub fn from_slice(data: &'a mut [T], shape: [usize; N], strides: Option<[usize; N]>) -> Self {
-        let layout = NdLayout {
-            shape,
-            strides: strides.unwrap_or(NdLayout::contiguous_strides(shape)),
-        };
-        assert!(data.len() >= layout.min_data_len(), "Slice is too short");
-        Self { data, layout }
-    }
-}
-
-impl<'a, T, const N: usize> NdTensorLayout<N> for NdTensorViewMut<'a, T, N> {
-    fn layout(&self) -> &NdLayout<N> {
-        &self.layout
-    }
-}
-
-impl<'a, T, const N: usize> Index<[usize; N]> for NdTensorViewMut<'a, T, N> {
-    type Output = T;
-    fn index(&self, index: [usize; N]) -> &Self::Output {
-        &self.data[self.layout.offset(index)]
-    }
-}
-
-impl<'a, T, const N: usize> IndexMut<[usize; N]> for NdTensorViewMut<'a, T, N> {
-    fn index_mut(&mut self, index: [usize; N]) -> &mut Self::Output {
-        let offset = self.layout.offset(index);
-        &mut self.data[offset]
-    }
-}
-
 /// Alias for a 2D tensor view.
-pub type Matrix<'a, T = f32> = NdTensorView<'a, T, 2>;
+pub type Matrix<'a, T = f32> = NdTensorView<T, &'a [T], 2>;
 
 /// Alias for a mutable 2D tensor view.
-pub type MatrixMut<'a, T = f32> = NdTensorViewMut<'a, T, 2>;
+pub type MatrixMut<'a, T = f32> = NdTensorView<T, &'a mut [T], 2>;
