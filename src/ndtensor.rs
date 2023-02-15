@@ -117,6 +117,11 @@ impl<NTL: NdTensorLayout<2>> MatrixLayout for NTL {
 ///
 /// `T` is the element type, `S` is the storage (eg. `&[T]` or `&mut [T]`)
 /// and `N` is the number of dimensions.
+///
+/// This uses patterns from
+/// https://lab.whitequark.org/notes/2016-12-13/abstracting-over-mutability-in-rust/
+/// to allow the same type to work with owned, borrowed, mutable and immutable
+/// element storage.
 #[derive(Clone, Copy)]
 pub struct NdTensor<T, S: AsRef<[T]>, const N: usize> {
     data: S,
