@@ -158,13 +158,15 @@ impl<T, S: AsRef<[T]>, const N: usize> NdTensor<T, S, N> {
     }
 }
 
+// Note: `S` refers to `[T]` here rather than `&[T]` so we can preserve
+// liftimes on the result.
 impl<'a, T, S: AsRef<[T]> + ?Sized, const N: usize> NdTensor<T, &'a S, N> {
     pub fn data(&self) -> &'a [T] {
         self.data.as_ref()
     }
 }
 
-impl<'a, T, S: AsRef<[T]> + AsMut<[T]> + ?Sized, const N: usize> NdTensor<T, &'a mut S, N> {
+impl<T, S: AsRef<[T]> + AsMut<[T]>, const N: usize> NdTensor<T, S, N> {
     pub fn data_mut(&mut self) -> &mut [T] {
         self.data.as_mut()
     }
