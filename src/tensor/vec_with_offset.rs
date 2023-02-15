@@ -1,4 +1,4 @@
-use std::ops::{Index, IndexMut, Range};
+use std::ops::{Deref, DerefMut, Range};
 
 /// Wrapper around Vec which allows for unused elements at the start. Indexing
 /// and slicing operate on the used portion of the Vec.
@@ -15,16 +15,6 @@ impl<T> VecWithOffset<T> {
         VecWithOffset { data, base: 0 }
     }
 
-    /// Return a slice of the used portion of the wrapped Vec.
-    pub fn as_slice(&self) -> &[T] {
-        &self.data[self.base..]
-    }
-
-    /// Return a mutable slice of the used portion of the wrapped Vec.
-    pub fn as_mut_slice(&mut self) -> &mut [T] {
-        &mut self.data[self.base..]
-    }
-
     /// Set the indices within the vec that are used. Subsequent indexing and
     /// slicing will operator on `previous_data[range.start..range.end]`.
     pub fn set_used_range(&mut self, range: Range<usize>) {
@@ -33,15 +23,30 @@ impl<T> VecWithOffset<T> {
     }
 }
 
-impl<T> Index<usize> for VecWithOffset<T> {
-    type Output = T;
-    fn index(&self, index: usize) -> &T {
-        &self.data[self.base + index]
+impl<T> Deref for VecWithOffset<T> {
+    type Target = [T];
+
+    fn deref(&self) -> &[T] {
+        self.as_ref()
     }
 }
 
-impl<T> IndexMut<usize> for VecWithOffset<T> {
-    fn index_mut(&mut self, index: usize) -> &mut T {
-        &mut self.data[self.base + index]
+impl<T> DerefMut for VecWithOffset<T> {
+    fn deref_mut(&mut self) -> &mut [T] {
+        self.as_mut()
+    }
+}
+
+impl<T> AsRef<[T]> for VecWithOffset<T> {
+    /// Return a slice of the used portion of the wrapped Vec.
+    fn as_ref(&self) -> &[T] {
+        &self.data[self.base..]
+    }
+}
+
+impl<T> AsMut<[T]> for VecWithOffset<T> {
+    /// Return a mutable slice of the used portion of the wrapped Vec.
+    fn as_mut(&mut self) -> &mut [T] {
+        &mut self.data[self.base..]
     }
 }

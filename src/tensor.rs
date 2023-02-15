@@ -533,7 +533,7 @@ impl<T: Copy> Tensor<T> {
             "last_dim_slice requires contiguous last dimension"
         );
         let offset = self.offset(index);
-        &self.data.as_slice()[offset..offset + len]
+        &self.data[offset..offset + len]
     }
 
     /// Similar to `last_dim_slice`, but returns a mutable slice.
@@ -548,7 +548,7 @@ impl<T: Copy> Tensor<T> {
             "last_dim_slice_mut requires contiguous last dimension"
         );
         let offset = self.offset(index);
-        &mut self.data.as_mut_slice()[offset..offset + len]
+        &mut self.data[offset..offset + len]
     }
 
     /// Return a copy of the elements of this tensor as a contiguous vector
@@ -570,14 +570,14 @@ impl<T: Copy> Tensor<T> {
     /// in the same order as yielded by [Tensor::iter]. In other cases the buffer
     /// may have unused indexes or a different ordering.
     pub fn data(&self) -> &[T] {
-        self.data.as_slice()
+        self.data.as_ref()
     }
 
     /// Return the underlying element buffer for this tensor.
     ///
     /// See notes for [Tensor::data] about the ordering and validity of elements.
     pub fn data_mut(&mut self) -> &mut [T] {
-        self.data.as_mut_slice()
+        self.data.as_mut()
     }
 
     /// Convert the internal layout of elements to be contiguous, as reported
@@ -615,7 +615,7 @@ impl<T: Copy> Tensor<T> {
     /// Return a mutable iterator over elements of this tensor, in their
     /// logical order.
     pub fn iter_mut(&mut self) -> ElementsMut<T> {
-        ElementsMut::new(self.data.as_mut_slice(), &self.layout)
+        ElementsMut::new(self.data.as_mut(), &self.layout)
     }
 
     /// Returns the single item if this tensor is a 0-dimensional tensor
@@ -762,7 +762,7 @@ impl<T: Copy> Tensor<T> {
     /// Views share the same element array, but can have an independent layout,
     /// with some limitations.
     pub fn view_mut(&mut self) -> TensorViewMut<T> {
-        TensorViewMut::new(self.data.as_mut_slice(), &self.layout)
+        TensorViewMut::new(self.data.as_mut(), &self.layout)
     }
 }
 
