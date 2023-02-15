@@ -1,7 +1,7 @@
 use std::iter::zip;
 
 use crate::check_dims;
-use crate::ndtensorview::{Matrix, MatrixLayout, MatrixMut};
+use crate::ndtensor::{Matrix, MatrixLayout, MatrixMut};
 use crate::ops::{Input, InputList, IntoOpResult, OpError, Operator, Output};
 use crate::tensor::{AsMatrix, AsMatrixMut, Tensor, TensorLayout};
 

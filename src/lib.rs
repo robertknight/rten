@@ -1,7 +1,7 @@
 mod graph;
 mod linalg;
 mod model;
-mod ndtensorview;
+mod ndtensor;
 mod number;
 mod tensor;
 mod timer;

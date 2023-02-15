@@ -4,7 +4,7 @@ use std::io;
 use std::marker::PhantomData;
 use std::ops::{Index, IndexMut, Range};
 
-use crate::ndtensorview::{Matrix, MatrixMut, NdTensorView};
+use crate::ndtensor::{Matrix, MatrixMut, NdTensor};
 
 #[cfg(test)]
 use crate::rng::XorShiftRng;
@@ -435,7 +435,7 @@ impl<T: Copy, S: AsRef<[T]>> TensorLayout for TensorBase<T, S> {
 }
 
 pub trait AsNdTensorView<'a, T, const N: usize> {
-    fn as_nd_view(&self) -> NdTensorView<T, &'a [T], N>;
+    fn as_nd_view(&self) -> NdTensor<T, &'a [T], N>;
 }
 
 pub trait AsMatrix<'a, T> {
@@ -449,11 +449,11 @@ impl<'a, T, A: AsNdTensorView<'a, T, 2>> AsMatrix<'a, T> for A {
 }
 
 impl<'a, T: Copy, const N: usize> AsNdTensorView<'a, T, N> for TensorView<'a, T> {
-    fn as_nd_view(&self) -> NdTensorView<T, &'a [T], N> {
+    fn as_nd_view(&self) -> NdTensor<T, &'a [T], N> {
         assert!(self.layout.ndim() == N, "Incorrect number of dims");
         let shape = self.shape().try_into().unwrap();
         let strides = self.layout.strides().try_into().unwrap();
-        NdTensorView::from_slice(self.data, shape, Some(strides))
+        NdTensor::from_slice(self.data, shape, Some(strides))
     }
 }
 
@@ -604,7 +604,7 @@ impl<I: TensorIndex, T: Copy, S: AsRef<[T]> + AsMut<[T]>> IndexMut<I> for Tensor
 }
 
 pub trait AsNdTensorViewMut<'a, T, const N: usize> {
-    fn as_nd_view_mut(&mut self) -> NdTensorView<T, &mut [T], N>;
+    fn as_nd_view_mut(&mut self) -> NdTensor<T, &mut [T], N>;
 }
 
 pub trait AsMatrixMut<T> {
@@ -618,11 +618,11 @@ impl<'a, T, A: AsNdTensorViewMut<'a, T, 2>> AsMatrixMut<T> for A {
 }
 
 impl<'a, T: Copy, const N: usize> AsNdTensorViewMut<'a, T, N> for TensorViewMut<'a, T> {
-    fn as_nd_view_mut(&mut self) -> NdTensorView<T, &mut [T], N> {
+    fn as_nd_view_mut(&mut self) -> NdTensor<T, &mut [T], N> {
         assert!(self.layout.ndim() == N, "Incorrect number of dims");
         let shape = self.shape().try_into().unwrap();
         let strides = self.layout.strides().try_into().unwrap();
-        NdTensorView::from_slice(self.data, shape, Some(strides))
+        NdTensor::from_slice(self.data, shape, Some(strides))
     }
 }
 
