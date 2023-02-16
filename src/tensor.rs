@@ -816,61 +816,6 @@ impl<T: Copy> FromIterator<T> for Tensor<T> {
     }
 }
 
-/// A view of a tensor which offers faster indexing at the cost of requiring
-/// the rank to be known at compile time, and not bounds-checking individual
-/// dimensions of an index.
-///
-/// Although individual dimensions are not bounds-checked, the generated offset
-/// into the underlying buffer is, so unchecked views are not unsafe, in the
-/// usual Rust sense. If a dimension index is out of bounds, but the offset
-/// is still in-bounds, the view will access the wrong element.
-///
-/// UncheckedView and UncheckedViewMut can make operations which perform a
-/// large number of indexed accesses, into tensors of a known rank, much faster.
-pub struct UncheckedView<'a, T: Copy, const N: usize> {
-    data: &'a [T],
-    strides: [usize; N],
-}
-
-impl<'a, const N: usize, T: Copy> Index<[usize; N]> for UncheckedView<'a, T, N> {
-    type Output = T;
-    fn index(&self, index: [usize; N]) -> &Self::Output {
-        let mut offset = 0;
-        for i in 0..N {
-            offset += index[i] * self.strides[i];
-        }
-        &self.data[offset]
-    }
-}
-
-/// Variant of [UncheckedView] which suppors mutable indexing into a view or
-/// tensor.
-pub struct UncheckedViewMut<'a, T: Copy, const N: usize> {
-    data: &'a mut [T],
-    strides: [usize; N],
-}
-
-impl<'a, const N: usize, T: Copy> Index<[usize; N]> for UncheckedViewMut<'a, T, N> {
-    type Output = T;
-    fn index(&self, index: [usize; N]) -> &Self::Output {
-        let mut offset = 0;
-        for i in 0..N {
-            offset += index[i] * self.strides[i];
-        }
-        &self.data[offset]
-    }
-}
-
-impl<'a, const N: usize, T: Copy> IndexMut<[usize; N]> for UncheckedViewMut<'a, T, N> {
-    fn index_mut(&mut self, index: [usize; N]) -> &mut Self::Output {
-        let mut offset = 0;
-        for i in 0..N {
-            offset += index[i] * self.strides[i];
-        }
-        &mut self.data[offset]
-    }
-}
-
 /// Create a new tensor with all values set to 0.
 #[cfg(test)]
 pub fn zeros<T: Copy + Default>(shape: &[usize]) -> Tensor<T> {
