@@ -339,11 +339,8 @@ impl<T: Copy, S: AsRef<[T]>> TensorBase<T, S> {
     ///
     /// Panics if the rank of this tensor is not `N`.
     #[doc(hidden)]
-    pub fn unchecked_view<const N: usize>(&self) -> UncheckedView<T, N> {
-        UncheckedView {
-            data: self.data.as_ref(),
-            strides: self.layout.strides().try_into().unwrap(),
-        }
+    pub fn unchecked_view<const N: usize>(&self) -> NdTensor<T, &[T], N> {
+        self.unchecked_slice([])
     }
 
     /// Return an unchecked view of a slice of this tensor.
@@ -357,13 +354,13 @@ impl<T: Copy, S: AsRef<[T]>> TensorBase<T, S> {
     pub fn unchecked_slice<const B: usize, const N: usize>(
         &self,
         base: [usize; B],
-    ) -> UncheckedView<T, N> {
+    ) -> NdTensor<T, &[T], N> {
         assert!(B + N == self.ndim());
         let offset = self.slice_offset(base);
-        UncheckedView {
-            data: &self.data()[offset..],
-            strides: self.layout.strides()[self.ndim() - N..].try_into().unwrap(),
-        }
+        let data = &self.data()[offset..];
+        let strides = self.layout.strides()[self.ndim() - N..].try_into().unwrap();
+        let shape = self.layout.shape()[self.ndim() - N..].try_into().unwrap();
+        NdTensor::from_slice(data, shape, Some(strides))
     }
 
     /// Return a contiguous slice of `len` elements starting at `index`.
@@ -521,25 +518,21 @@ impl<T: Copy, S: AsRef<[T]> + AsMut<[T]>> TensorBase<T, S> {
     pub fn unchecked_slice_mut<const B: usize, const N: usize>(
         &mut self,
         base: [usize; B],
-    ) -> UncheckedViewMut<T, N> {
+    ) -> NdTensor<T, &mut [T], N> {
         assert!(B + N == self.ndim());
         let offset = self.slice_offset(base);
         let strides = self.layout.strides()[self.ndim() - N..].try_into().unwrap();
-        UncheckedViewMut {
-            data: &mut self.data_mut()[offset..],
-            strides,
-        }
+        let shape = self.layout.shape()[self.ndim() - N..].try_into().unwrap();
+        let data = &mut self.data_mut()[offset..];
+        NdTensor::from_slice(data, shape, Some(strides))
     }
 
     /// Return an unchecked view of this tensor.
     ///
     /// See notes in `[TensorBase::unchecked_view]`.
     #[doc(hidden)]
-    pub fn unchecked_view_mut<const N: usize>(&mut self) -> UncheckedViewMut<T, N> {
-        UncheckedViewMut {
-            data: self.data.as_mut(),
-            strides: self.layout.strides().try_into().unwrap(),
-        }
+    pub fn unchecked_view_mut<const N: usize>(&mut self) -> NdTensor<T, &mut [T], N> {
+        self.unchecked_slice_mut([])
     }
 
     /// Similar to `last_dim_slice`, but returns a mutable slice.
