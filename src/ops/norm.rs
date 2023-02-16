@@ -21,7 +21,7 @@ pub fn batch_norm_in_place(
             let chan_scale = scale[[c]];
             let chan_bias = bias[[c]];
 
-            let mut out_view = input.unchecked_view_mut([n, c, 0, 0]);
+            let mut out_view = input.unchecked_view_mut([n, c]);
 
             // The batch norm formula, from the ONNX spec, is:
             //

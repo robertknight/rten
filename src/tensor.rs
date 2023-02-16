@@ -80,6 +80,15 @@ pub trait TensorLayout {
         self.layout().offset(index)
     }
 
+    /// Return the offset of the first element in a slice of the array.
+    ///
+    /// This is the same as `slice`, except that `index` can have fewer
+    /// dimensions than the tensor, in which case the index is implicitly
+    /// zero-padded on the right.
+    fn slice_offset<Idx: TensorIndex>(&self, index: Idx) -> usize {
+        self.layout().slice_offset(index)
+    }
+
     /// Return an iterator over offsets of elements in this tensor, in their
     /// logical order.
     ///
@@ -712,16 +721,16 @@ impl<T: Copy> Tensor<T> {
     /// bounds-checked against the tensor's shape, but the final offset that
     /// is generated is.
     ///
-    /// N specifies the number of dimensions used for indexing into the view
-    /// and `base` specifies a fixed index to add to all indexes. `base` must
-    /// have the same number of dimensions as this tensor. N can be the same
-    /// or less. If less, it refers to the last N dimensions.
+    /// Base specifies zero or more indices to slice the view with, and N
+    /// is the nubmer of indices to use for unchecked indexing. `B + N` must
+    /// equal `self.ndim()`.
     #[doc(hidden)]
     pub fn unchecked_view<const B: usize, const N: usize>(
         &self,
         base: [usize; B],
     ) -> UncheckedView<T, N> {
-        let offset = self.offset(base);
+        assert!(B + N == self.ndim());
+        let offset = self.slice_offset(base);
         UncheckedView {
             data: &self.data()[offset..],
             strides: self.layout.strides()[self.ndim() - N..].try_into().unwrap(),
@@ -737,7 +746,8 @@ impl<T: Copy> Tensor<T> {
         &mut self,
         base: [usize; B],
     ) -> UncheckedViewMut<T, N> {
-        let offset = self.offset(base);
+        assert!(B + N == self.ndim());
+        let offset = self.slice_offset(base);
         let strides = self.layout.strides()[self.ndim() - N..].try_into().unwrap();
         UncheckedViewMut {
             data: &mut self.data_mut()[offset..],
@@ -1329,7 +1339,7 @@ mod tests {
     fn test_unchecked_view() {
         let mut rng = XorShiftRng::new(1234);
         let x = rand(&[10, 5, 3, 7], &mut rng);
-        let x_view = x.unchecked_view([5, 3, 0, 0]);
+        let x_view = x.unchecked_view([5, 3]);
 
         for a in 0..x.shape()[2] {
             for b in 0..x.shape()[3] {
@@ -1344,7 +1354,7 @@ mod tests {
         let mut x = rand(&[10, 5, 3, 7], &mut rng);
 
         let [_, _, a_size, b_size] = x.dims();
-        let mut x_view = x.unchecked_view_mut([5, 3, 0, 0]);
+        let mut x_view = x.unchecked_view_mut([5, 3]);
 
         for a in 0..a_size {
             for b in 0..b_size {

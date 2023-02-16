@@ -271,14 +271,21 @@ impl Layout {
         reshaped
     }
 
+    /// Return the offset of the element with a given index.
     pub fn offset<Idx: TensorIndex>(&self, index: Idx) -> usize {
-        let shape = self.shape();
         assert!(
-            shape.len() == index.len(),
-            "Cannot access {} dim tensor with {} dim index",
-            shape.len(),
+            self.ndim() == index.len(),
+            "Cannot index {} dim tensor with {} dim index",
+            self.ndim(),
             index.len()
         );
+        self.slice_offset(index)
+    }
+
+    /// Return the offset of the slice that begins at the given index.
+    pub fn slice_offset<Idx: TensorIndex>(&self, index: Idx) -> usize {
+        assert!(index.len() <= self.ndim());
+        let shape = self.shape();
         let mut offset = 0;
         for i in 0..index.len() {
             assert!(
