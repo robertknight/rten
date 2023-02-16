@@ -279,6 +279,17 @@ impl<'a, T: Copy, S: AsRef<[T]>> TensorBase<'a, T, S> {
         Elements::new(self)
     }
 
+    /// Return a new view which views a subset of the elements accessible in
+    /// this view.
+    pub fn slice(&self, range: &[SliceItem]) -> TensorView<T> {
+        let (offset, layout) = self.layout.slice(range);
+        TensorBase {
+            data: &self.data.as_ref()[offset..offset + layout.end_offset()],
+            layout: Cow::Owned(layout),
+            element_type: PhantomData,
+        }
+    }
+
     /// Return an iterator over elements of this tensor, broadcasted to `shape`.
     ///
     /// A broadcasted iterator behaves as if the tensor had the broadcasted
@@ -331,17 +342,6 @@ impl<'a, T: Copy> TensorBase<'a, T, &'a [T]> {
     /// underlying storage rather than the view.
     pub fn to_data(&self) -> &'a [T] {
         self.data
-    }
-
-    /// Return a new view which views a subset of the elements accessible in
-    /// this view.
-    pub fn slice(&self, range: &[SliceItem]) -> Self {
-        let (offset, layout) = self.layout.slice(range);
-        TensorBase {
-            data: &self.data[offset..offset + layout.end_offset()],
-            layout: Cow::Owned(layout),
-            element_type: PhantomData,
-        }
     }
 
     /// Change the layout of this view to have the given shape.

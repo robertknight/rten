@@ -130,7 +130,6 @@ fn conv_2d_pointwise(input: &Tensor, kernel: &Tensor, bias: Option<&Tensor>) -> 
         let out_row_stride = out_item.stride(0);
 
         let in_mat = input
-            .view()
             .slice(&[n.into()])
             .reshaped(&[in_c, in_h * in_w])
             .as_matrix();
@@ -307,9 +306,7 @@ pub fn conv(
             let in_chan_end = in_chan_start + in_channels_per_group;
             let out_chan_start = group * out_channels_per_group;
 
-            let in_group = input
-                .view()
-                .slice(&[n.into(), (in_chan_start..in_chan_end).into()]);
+            let in_group = input.slice(&[n.into(), (in_chan_start..in_chan_end).into()]);
 
             // Perform convolution for group. This uses an indirect method,
             // where image patches and the kernel are first packed into
@@ -326,7 +323,6 @@ pub fn conv(
             );
 
             let kernel_mat = kernel
-                .view()
                 .slice(&[(out_chan_start..out_chan_start + out_channels_per_group).into()])
                 .reshaped(&[out_channels_per_group, in_channels_per_group * k_h * k_w])
                 .as_matrix();
@@ -451,7 +447,6 @@ pub fn conv_transpose(
     // The implementation here is the inverse of the im2col-based convolution.
     for n in 0..batch {
         let input_mat = input
-            .view()
             .slice(&[n.into()])
             .reshaped(&[in_c, in_h * in_w])
             .transposed();

@@ -153,7 +153,6 @@ pub fn lstm(
         let hidden_size = hidden_total / num_gates;
 
         tensor
-            .view()
             .slice(&[
                 dir.into(),
                 (index * hidden_size..(index + 1) * hidden_size).into(),
@@ -241,11 +240,9 @@ pub fn lstm(
                 //    supported.
 
                 let in_item = input
-                    .view()
                     .slice(&[seq.into(), b.into()])
                     .reshaped(&[1, input_size]);
                 let hidden_item = hidden
-                    .view()
                     .slice(&[dir.into(), b.into()])
                     .reshaped(&[1, hidden_size]);
 
