@@ -9,15 +9,6 @@ pub struct NdLayout<const N: usize> {
     strides: [usize; N],
 }
 
-impl NdLayout<2> {
-    fn transposed(self) -> NdLayout<2> {
-        NdLayout {
-            shape: [self.shape[1], self.shape[0]],
-            strides: [self.strides[1], self.strides[0]],
-        }
-    }
-}
-
 impl<const N: usize> NdLayout<N> {
     /// Return true if all components of `index` are in-bounds.
     fn index_valid(&self, index: [usize; N]) -> bool {
@@ -58,6 +49,15 @@ impl<const N: usize> NdLayout<N> {
             strides[i] = shape[i + 1..].iter().product();
         }
         strides
+    }
+}
+
+impl NdLayout<2> {
+    fn transposed(self) -> NdLayout<2> {
+        NdLayout {
+            shape: [self.shape[1], self.shape[0]],
+            strides: [self.strides[1], self.strides[0]],
+        }
     }
 }
 
