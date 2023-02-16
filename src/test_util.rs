@@ -16,7 +16,7 @@ pub trait ApproxEq {
 
 impl ApproxEq for f32 {
     fn approx_eq(self, other: f32) -> bool {
-        let eps = 0.001;
+        let eps = 1e-4;
         (self - other).abs() < eps
     }
 }
