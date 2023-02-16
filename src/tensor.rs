@@ -328,30 +328,22 @@ impl<T: Copy, S: AsRef<[T]>> TensorBase<T, S> {
         self.layout.transpose();
     }
 
-    /// Return an unchecked view of this tensor.
-    ///
-    /// "Unchecked" means that individual dimensions of an index are not
-    /// bounds-checked against the tensor's shape, but the final offset that
-    /// is generated is.
-    ///
-    /// This provides faster indexing at the cost of not bounds-checking
-    /// individual dimensions.
+    /// Return an `NdTensor` version of this view.
     ///
     /// Panics if the rank of this tensor is not `N`.
     #[doc(hidden)]
-    pub fn unchecked_view<const N: usize>(&self) -> NdTensor<T, &[T], N> {
-        self.unchecked_slice([])
+    pub fn nd_view<const N: usize>(&self) -> NdTensor<T, &[T], N> {
+        self.nd_slice([])
     }
 
-    /// Return an unchecked view of a slice of this tensor.
+    /// Return an N-dimensional view of a slice of this tensor.
     ///
-    /// See notes in `[TensorBase::unchecked_view]`.
+    /// See notes in `[TensorBase::nd_view]`.
     ///
     /// Base specifies zero or more indices to slice the view with, and N
-    /// is the nubmer of indices to use for unchecked indexing. `B + N` must
-    /// equal `self.ndim()`.
+    /// is the rank of the returned view. `B + N` must equal `self.ndim()`.
     #[doc(hidden)]
-    pub fn unchecked_slice<const B: usize, const N: usize>(
+    pub fn nd_slice<const B: usize, const N: usize>(
         &self,
         base: [usize; B],
     ) -> NdTensor<T, &[T], N> {
@@ -510,12 +502,12 @@ impl<T: Copy, S: AsRef<[T]> + AsMut<[T]>> TensorBase<T, S> {
         TensorViewMut::new(self.data.as_mut(), &self.layout)
     }
 
-    /// Return an unchecked mutable view of a slice of this tensor.
+    /// Return an N-dimensional slice of this tensor.
     ///
-    /// This is the same as [TensorBase::unchecked_view] except that the
+    /// This is the same as [TensorBase::nd_slice] except that the
     /// returned view can be used to modify elements.
     #[doc(hidden)]
-    pub fn unchecked_slice_mut<const B: usize, const N: usize>(
+    pub fn nd_slice_mut<const B: usize, const N: usize>(
         &mut self,
         base: [usize; B],
     ) -> NdTensor<T, &mut [T], N> {
@@ -527,12 +519,12 @@ impl<T: Copy, S: AsRef<[T]> + AsMut<[T]>> TensorBase<T, S> {
         NdTensor::from_slice(data, shape, Some(strides))
     }
 
-    /// Return an unchecked view of this tensor.
+    /// Return a mutable N-dimensional view of this tensor.
     ///
-    /// See notes in `[TensorBase::unchecked_view]`.
+    /// See notes in `[TensorBase::nd_view]`.
     #[doc(hidden)]
-    pub fn unchecked_view_mut<const N: usize>(&mut self) -> NdTensor<T, &mut [T], N> {
-        self.unchecked_slice_mut([])
+    pub fn nd_view_mut<const N: usize>(&mut self) -> NdTensor<T, &mut [T], N> {
+        self.nd_slice_mut([])
     }
 
     /// Similar to `last_dim_slice`, but returns a mutable slice.
@@ -1258,10 +1250,10 @@ mod tests {
     }
 
     #[test]
-    fn test_unchecked_view() {
+    fn test_nd_slice() {
         let mut rng = XorShiftRng::new(1234);
         let x = rand(&[10, 5, 3, 7], &mut rng);
-        let x_view = x.unchecked_slice([5, 3]);
+        let x_view = x.nd_slice([5, 3]);
 
         for a in 0..x.shape()[2] {
             for b in 0..x.shape()[3] {
@@ -1271,12 +1263,12 @@ mod tests {
     }
 
     #[test]
-    fn test_unchecked_view_mut() {
+    fn test_nd_slice_mut() {
         let mut rng = XorShiftRng::new(1234);
         let mut x = rand(&[10, 5, 3, 7], &mut rng);
 
         let [_, _, a_size, b_size] = x.dims();
-        let mut x_view = x.unchecked_slice_mut([5, 3]);
+        let mut x_view = x.nd_slice_mut([5, 3]);
 
         for a in 0..a_size {
             for b in 0..b_size {
