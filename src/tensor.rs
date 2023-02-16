@@ -181,9 +181,9 @@ impl TensorIndex for &[usize] {
 ///
 /// It is parametrized by an element type T and the data storage type S.
 #[derive(Debug)]
-pub struct TensorBase<'a, T: Copy, S: AsRef<[T]>> {
+pub struct TensorBase<T: Copy, S: AsRef<[T]>> {
     data: S,
-    layout: Cow<'a, Layout>,
+    layout: Layout,
     element_type: PhantomData<T>,
 }
 
@@ -192,19 +192,19 @@ pub struct TensorBase<'a, T: Copy, S: AsRef<[T]>> {
 /// Conceptually the relationship between TensorView and Tensor is similar to
 /// that between slice and Vec. They share the same element buffer, but views
 /// can have distinct layouts, with some limitations.
-pub type TensorView<'a, T = f32> = TensorBase<'a, T, &'a [T]>;
+pub type TensorView<'a, T = f32> = TensorBase<T, &'a [T]>;
 
 /// TensorViewMut provides a mutable view onto data owned by a [Tensor].
 ///
 /// This is similar to [TensorView], except elements in the underyling
 /// Tensor can be modified through it.
-pub type TensorViewMut<'a, T = f32> = TensorBase<'a, T, &'a mut [T]>;
+pub type TensorViewMut<'a, T = f32> = TensorBase<T, &'a mut [T]>;
 
-impl<'a, T: Copy, S: AsRef<[T]>> TensorBase<'a, T, S> {
-    fn new(data: S, layout: &'a Layout) -> Self {
+impl<T: Copy, S: AsRef<[T]>> TensorBase<T, S> {
+    fn new(data: S, layout: &Layout) -> Self {
         TensorBase {
             data,
-            layout: Cow::Borrowed(layout),
+            layout: layout.clone(),
             element_type: PhantomData,
         }
     }
@@ -232,7 +232,7 @@ impl<'a, T: Copy, S: AsRef<[T]>> TensorBase<'a, T, S> {
         let data = self.iter().map(f).collect();
         Tensor {
             data: VecWithOffset::new(data),
-            layout: Cow::Owned(self.layout.as_ref().clone()),
+            layout: self.layout.clone(),
             element_type: PhantomData,
         }
     }
@@ -285,7 +285,7 @@ impl<'a, T: Copy, S: AsRef<[T]>> TensorBase<'a, T, S> {
         let (offset, layout) = self.layout.slice(range);
         TensorBase {
             data: &self.data.as_ref()[offset..offset + layout.end_offset()],
-            layout: Cow::Owned(layout),
+            layout,
             element_type: PhantomData,
         }
     }
@@ -318,7 +318,7 @@ impl<'a, T: Copy, S: AsRef<[T]>> TensorBase<'a, T, S> {
     /// This does not modify the order of elements in the data buffer, it just
     /// updates the strides used by indexing.
     pub fn permute(&mut self, dims: &[usize]) {
-        self.layout.to_mut().permute(dims);
+        self.layout.permute(dims);
     }
 
     /// Reverse the order of dimensions.
@@ -326,16 +326,16 @@ impl<'a, T: Copy, S: AsRef<[T]>> TensorBase<'a, T, S> {
     /// This does not modify the order of elements in the data buffer, it just
     /// changes the strides used by indexing.
     pub fn transpose(&mut self) {
-        self.layout.to_mut().transpose();
+        self.layout.transpose();
     }
 
     /// Return an immutable copy of this view.
     pub fn as_view(&self) -> TensorView<T> {
-        TensorView::new(self.data.as_ref(), self.layout.as_ref())
+        TensorView::new(self.data.as_ref(), &self.layout)
     }
 }
 
-impl<'a, T: Copy> TensorBase<'a, T, &'a [T]> {
+impl<'a, T: Copy> TensorBase<T, &'a [T]> {
     /// Return the slice underlying this view.
     ///
     /// This is similar to [TensorBase::data], but the lifetime is that of the
@@ -349,14 +349,14 @@ impl<'a, T: Copy> TensorBase<'a, T, &'a [T]> {
     /// The current view must be contiguous and the new shape must have the
     /// same product as the current shape.
     pub fn reshape(&mut self, shape: &[usize]) {
-        self.layout.to_mut().reshape(shape);
+        self.layout.reshape(shape);
     }
 
     /// Return a new view with the dimensions re-ordered according to `dims`.
     pub fn permuted(&self, dims: &[usize]) -> Self {
         Self {
             data: self.data,
-            layout: Cow::Owned(self.layout.permuted(dims)),
+            layout: self.layout.permuted(dims),
             element_type: PhantomData,
         }
     }
@@ -365,7 +365,7 @@ impl<'a, T: Copy> TensorBase<'a, T, &'a [T]> {
     pub fn transposed(&self) -> Self {
         Self {
             data: self.data,
-            layout: Cow::Owned(self.layout.transposed()),
+            layout: self.layout.transposed(),
             element_type: PhantomData,
         }
     }
@@ -375,7 +375,7 @@ impl<'a, T: Copy> TensorBase<'a, T, &'a [T]> {
     pub fn reshaped(&self, shape: &[usize]) -> Self {
         Self {
             data: self.data,
-            layout: Cow::Owned(self.layout.reshaped(shape)),
+            layout: self.layout.reshaped(shape),
             element_type: PhantomData,
         }
     }
@@ -394,9 +394,9 @@ impl<'a, T: Copy> TensorBase<'a, T, &'a [T]> {
     }
 }
 
-impl<'a, T: Copy, S: AsRef<[T]>> TensorLayout for TensorBase<'a, T, S> {
+impl<T: Copy, S: AsRef<[T]>> TensorLayout for TensorBase<T, S> {
     fn layout(&self) -> &Layout {
-        self.layout.as_ref()
+        &self.layout
     }
 }
 
@@ -420,14 +420,14 @@ impl<'a> AsMatrix<'a> for TensorView<'a, f32> {
     }
 }
 
-impl<'a, I: TensorIndex, T: Copy, S: AsRef<[T]>> Index<I> for TensorBase<'a, T, S> {
+impl<I: TensorIndex, T: Copy, S: AsRef<[T]>> Index<I> for TensorBase<T, S> {
     type Output = T;
     fn index(&self, index: I) -> &Self::Output {
         &self.data.as_ref()[self.offset(index)]
     }
 }
 
-impl<'a, T: Copy, S: AsRef<[T]> + AsMut<[T]>> TensorBase<'a, T, S> {
+impl<T: Copy, S: AsRef<[T]> + AsMut<[T]>> TensorBase<T, S> {
     /// Return the slice of the underlying array that is accessible through this
     /// view.
     ///
@@ -438,7 +438,7 @@ impl<'a, T: Copy, S: AsRef<[T]> + AsMut<[T]>> TensorBase<'a, T, S> {
 
     /// Return a mutable iterator over elements of this view.
     pub fn iter_mut(&mut self) -> ElementsMut<T> {
-        let layout = self.layout.as_ref();
+        let layout = &self.layout;
         ElementsMut::new(self.data.as_mut(), layout)
     }
 
@@ -464,7 +464,7 @@ impl<'a, T: Copy, S: AsRef<[T]> + AsMut<[T]>> TensorBase<'a, T, S> {
 
         TensorViewMut {
             data,
-            layout: Cow::Owned(layout),
+            layout,
             element_type: PhantomData,
         }
     }
@@ -478,7 +478,7 @@ impl<'a, T: Copy, S: AsRef<[T]> + AsMut<[T]>> TensorBase<'a, T, S> {
     }
 }
 
-impl<'a, T: Copy> TensorBase<'a, T, &'a mut [T]> {
+impl<'a, T: Copy> TensorBase<T, &'a mut [T]> {
     /// Consume this view and return the underlying data slice.
     ///
     /// This differs from [Self::data_mut] as the lifetime of the returned slice
@@ -491,7 +491,7 @@ impl<'a, T: Copy> TensorBase<'a, T, &'a mut [T]> {
     pub fn permuted(&mut self, dims: &[usize]) -> TensorBase<T, &mut [T]> {
         TensorBase {
             data: self.data,
-            layout: Cow::Owned(self.layout.permuted(dims)),
+            layout: self.layout.permuted(dims),
             element_type: PhantomData,
         }
     }
@@ -500,7 +500,7 @@ impl<'a, T: Copy> TensorBase<'a, T, &'a mut [T]> {
     pub fn transposed(&mut self) -> TensorBase<T, &mut [T]> {
         TensorBase {
             data: self.data,
-            layout: Cow::Owned(self.layout.transposed()),
+            layout: self.layout.transposed(),
             element_type: PhantomData,
         }
     }
@@ -510,7 +510,7 @@ impl<'a, T: Copy> TensorBase<'a, T, &'a mut [T]> {
     pub fn reshaped(&mut self, shape: &[usize]) -> TensorBase<T, &mut [T]> {
         TensorBase {
             data: self.data,
-            layout: Cow::Owned(self.layout.reshaped(shape)),
+            layout: self.layout.reshaped(shape),
             element_type: PhantomData,
         }
     }
@@ -529,7 +529,7 @@ impl<'a, T: Copy> TensorBase<'a, T, &'a mut [T]> {
     }
 }
 
-impl<'a, I: TensorIndex, T: Copy, S: AsRef<[T]> + AsMut<[T]>> IndexMut<I> for TensorBase<'a, T, S> {
+impl<I: TensorIndex, T: Copy, S: AsRef<[T]> + AsMut<[T]>> IndexMut<I> for TensorBase<T, S> {
     fn index_mut(&mut self, index: I) -> &mut Self::Output {
         let offset = self.offset(index);
         &mut self.data.as_mut()[offset]
@@ -556,9 +556,9 @@ impl<'a, I: TensorIndex, T: Copy, S: AsRef<[T]> + AsMut<[T]>> IndexMut<I> for Te
 /// tensor is sliced in-place. Whether the tensor is contiguous does not matter
 /// if accessing elements via indexing, slicing or iterators. It does matter if
 /// accessing the underlying element buffer directly.
-pub type Tensor<T = f32> = TensorBase<'static, T, VecWithOffset<T>>;
+pub type Tensor<T = f32> = TensorBase<T, VecWithOffset<T>>;
 
-impl<T: Copy> TensorBase<'static, T, VecWithOffset<T>> {
+impl<T: Copy> TensorBase<T, VecWithOffset<T>> {
     /// Create a new zero-filled tensor with a given shape.
     pub fn zeros(shape: &[usize]) -> Tensor<T>
     where
@@ -568,7 +568,7 @@ impl<T: Copy> TensorBase<'static, T, VecWithOffset<T>> {
         let data = vec![T::default(); n_elts];
         Tensor {
             data: VecWithOffset::new(data),
-            layout: Cow::Owned(Layout::new(shape)),
+            layout: Layout::new(shape),
             element_type: PhantomData,
         }
     }
@@ -584,7 +584,7 @@ impl<T: Copy> TensorBase<'static, T, VecWithOffset<T>> {
         );
         Tensor {
             data: VecWithOffset::new(data),
-            layout: Cow::Owned(Layout::new(shape)),
+            layout: Layout::new(shape),
             element_type: PhantomData,
         }
     }
@@ -622,7 +622,7 @@ impl<T: Copy> TensorBase<'static, T, VecWithOffset<T>> {
         assert!(end <= self.shape()[dim], "end must be <= dim size");
 
         let start_offset = self.layout.stride(dim) * start;
-        self.layout.to_mut().resize_dim(dim, end - start);
+        self.layout.resize_dim(dim, end - start);
         self.data
             .set_used_range(start_offset..start_offset + self.layout.end_offset());
     }
@@ -666,7 +666,7 @@ impl<T: Copy> TensorBase<'static, T, VecWithOffset<T>> {
             return;
         }
         self.data = VecWithOffset::new(self.iter().collect());
-        self.layout.to_mut().make_contiguous();
+        self.layout.make_contiguous();
     }
 
     /// Return a contiguous version of this tensor, either as a reference if
@@ -676,7 +676,7 @@ impl<T: Copy> TensorBase<'static, T, VecWithOffset<T>> {
             Cow::Borrowed(self)
         } else {
             let mut contiguous_layout = self.layout.clone();
-            contiguous_layout.to_mut().make_contiguous();
+            contiguous_layout.make_contiguous();
             Cow::Owned(Tensor {
                 data: VecWithOffset::new(self.iter().collect()),
                 layout: contiguous_layout,
@@ -704,7 +704,7 @@ impl<T: Copy> TensorBase<'static, T, VecWithOffset<T>> {
         // However there are cases of custom strides where copies could be
         // avoided. See https://pytorch.org/docs/stable/generated/torch.Tensor.view.html.
         self.make_contiguous();
-        self.layout = Cow::Owned(Layout::new(shape));
+        self.layout = Layout::new(shape);
     }
 
     /// Insert a dimension of size one at index `dim`.

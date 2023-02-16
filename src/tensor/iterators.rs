@@ -218,8 +218,8 @@ enum ElementsIter<'a, T: Copy> {
     Indexing(IndexingIter<'a, T>),
 }
 
-impl<'a, T: Copy> Elements<'a, T> {
-    pub(super) fn new<'b, S: AsRef<[T]>>(view: &'b TensorBase<'a, T, S>) -> Elements<'b, T> {
+impl<T: Copy> Elements<'_, T> {
+    pub(super) fn new<S: AsRef<[T]>>(view: &TensorBase<T, S>) -> Elements<T> {
         if view.layout.is_contiguous() {
             Elements {
                 iter: ElementsIter::Direct(view.data.as_ref().iter()),
@@ -231,10 +231,10 @@ impl<'a, T: Copy> Elements<'a, T> {
         }
     }
 
-    pub(super) fn slice<'b, S: AsRef<[T]>>(
-        view: &'b TensorBase<'a, T, S>,
+    pub(super) fn slice<'a, S: AsRef<[T]>>(
+        view: &'a TensorBase<T, S>,
         ranges: &[SliceRange],
-    ) -> Elements<'b, T> {
+    ) -> Elements<'a, T> {
         let iter = IndexingIter {
             base: IndexingIterBase::slice(&view.layout, ranges),
             data: view.data.as_ref(),
@@ -284,17 +284,17 @@ struct IndexingIter<'a, T: Copy> {
 }
 
 impl<'a, T: Copy> IndexingIter<'a, T> {
-    fn new<'b, S: AsRef<[T]>>(view: &'b TensorBase<'a, T, S>) -> IndexingIter<'b, T> {
+    fn new<S: AsRef<[T]>>(view: &TensorBase<T, S>) -> IndexingIter<T> {
         IndexingIter {
             base: IndexingIterBase::new(&view.layout),
             data: view.data.as_ref(),
         }
     }
 
-    fn broadcast<'b, S: AsRef<[T]>>(
-        view: &'b TensorBase<'a, T, S>,
+    fn broadcast<S: AsRef<[T]>>(
+        view: &'a TensorBase<T, S>,
         shape: &[usize],
-    ) -> IndexingIter<'b, T> {
+    ) -> IndexingIter<'a, T> {
         IndexingIter {
             base: IndexingIterBase::broadcast(&view.layout, shape),
             data: view.data.as_ref(),
@@ -532,13 +532,10 @@ fn can_broadcast_by_cycling(from_shape: &[usize], to_shape: &[usize]) -> bool {
 }
 
 impl<'a, T: Copy> BroadcastElements<'a, T> {
-    pub fn new<'b, S: AsRef<[T]>>(
-        view: &'b TensorBase<'a, T, S>,
+    pub fn new<S: AsRef<[T]>>(
+        view: &'a TensorBase<T, S>,
         to_shape: &[usize],
-    ) -> BroadcastElements<'b, T>
-    where
-        'a: 'b,
-    {
+    ) -> BroadcastElements<'a, T> {
         let iter = if view.layout.is_contiguous()
             && can_broadcast_by_cycling(view.layout.shape(), to_shape)
         {
