@@ -254,7 +254,6 @@ impl<'a, T: Copy> TensorView<'a, T> {
     pub fn unchecked_view<const N: usize>(&self) -> UncheckedView<T, N> {
         UncheckedView {
             data: self.data,
-            offset: 0,
             strides: self.layout.strides().try_into().unwrap(),
         }
     }
@@ -374,7 +373,6 @@ impl<'a, T: Copy> TensorViewMut<'a, T> {
     pub fn unchecked_view_mut<const N: usize>(&mut self) -> UncheckedViewMut<T, N> {
         UncheckedViewMut {
             data: self.data,
-            offset: 0,
             strides: self.layout.strides().try_into().unwrap(),
         }
     }
@@ -725,8 +723,7 @@ impl<T: Copy> Tensor<T> {
     ) -> UncheckedView<T, N> {
         let offset = self.offset(base);
         UncheckedView {
-            data: self.data(),
-            offset,
+            data: &self.data()[offset..],
             strides: self.layout.strides()[self.ndim() - N..].try_into().unwrap(),
         }
     }
@@ -743,8 +740,7 @@ impl<T: Copy> Tensor<T> {
         let offset = self.offset(base);
         let strides = self.layout.strides()[self.ndim() - N..].try_into().unwrap();
         UncheckedViewMut {
-            data: self.data_mut(),
-            offset,
+            data: &mut self.data_mut()[offset..],
             strides,
         }
     }
@@ -846,14 +842,13 @@ impl<I: TensorIndex, T: Copy> IndexMut<I> for Tensor<T> {
 /// large number of indexed accesses, into tensors of a known rank, much faster.
 pub struct UncheckedView<'a, T: Copy, const N: usize> {
     data: &'a [T],
-    offset: usize,
     strides: [usize; N],
 }
 
 impl<'a, const N: usize, T: Copy> Index<[usize; N]> for UncheckedView<'a, T, N> {
     type Output = T;
     fn index(&self, index: [usize; N]) -> &Self::Output {
-        let mut offset = self.offset;
+        let mut offset = 0;
         for i in 0..N {
             offset += index[i] * self.strides[i];
         }
@@ -865,14 +860,13 @@ impl<'a, const N: usize, T: Copy> Index<[usize; N]> for UncheckedView<'a, T, N> 
 /// tensor.
 pub struct UncheckedViewMut<'a, T: Copy, const N: usize> {
     data: &'a mut [T],
-    offset: usize,
     strides: [usize; N],
 }
 
 impl<'a, const N: usize, T: Copy> Index<[usize; N]> for UncheckedViewMut<'a, T, N> {
     type Output = T;
     fn index(&self, index: [usize; N]) -> &Self::Output {
-        let mut offset = self.offset;
+        let mut offset = 0;
         for i in 0..N {
             offset += index[i] * self.strides[i];
         }
@@ -882,7 +876,7 @@ impl<'a, const N: usize, T: Copy> Index<[usize; N]> for UncheckedViewMut<'a, T, 
 
 impl<'a, const N: usize, T: Copy> IndexMut<[usize; N]> for UncheckedViewMut<'a, T, N> {
     fn index_mut(&mut self, index: [usize; N]) -> &mut Self::Output {
-        let mut offset = self.offset;
+        let mut offset = 0;
         for i in 0..N {
             offset += index[i] * self.strides[i];
         }
