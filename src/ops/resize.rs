@@ -28,7 +28,7 @@ impl<'a> From<TensorView<'a, f32>> for Image<'a> {
     fn from(view: TensorView<'a, f32>) -> Image<'a> {
         assert!(view.ndim() == 2, "Tensor must have 2 dims");
         Image {
-            data: view.data(),
+            data: view.to_data(),
             height: view.shape()[0],
             width: view.shape()[1],
             h_stride: view.stride(0),
@@ -228,7 +228,7 @@ pub fn resize(
         for c in 0..chans {
             let in_image: Image = input.view().slice(&[n.into(), c.into()]).into();
             let mut out_view = output.view_mut();
-            let mut out_image: ImageMut = out_view.slice(&[n.into(), c.into()]).into();
+            let mut out_image: ImageMut = out_view.slice_mut(&[n.into(), c.into()]).into();
             match mode {
                 ResizeMode::Nearest => {
                     nearest_resize(&in_image, &mut out_image, nearest_mode, coord_mode);

@@ -1,6 +1,7 @@
 use std::borrow::Cow;
 use std::fmt::Debug;
 use std::io;
+use std::marker::PhantomData;
 use std::ops::{Index, IndexMut, Range};
 
 use crate::linalg::Matrix;
@@ -97,6 +98,18 @@ pub trait TensorLayout {
         Offsets::new(self.layout())
     }
 
+    /// Return an iterator over offsets of this tensor, broadcasted to `shape`.
+    ///
+    /// This is very similar to `broadcast_iter`, except that the iterator
+    /// yields offsets into rather than elements of the data buffer.
+    fn broadcast_offsets(&self, shape: &[usize]) -> Offsets {
+        assert!(
+            self.can_broadcast_to(shape),
+            "Cannot broadcast to specified shape"
+        );
+        Offsets::broadcast(self.layout(), shape)
+    }
+
     /// Return an iterator over offsets of elements in this tensor.
     ///
     /// Note that the offset order of the returned iterator will become incorrect
@@ -163,56 +176,171 @@ impl TensorIndex for &[usize] {
     }
 }
 
+/// TensorBase is the base tensor type used by [Tensor], [TensorView]
+/// and [TensorViewMut].
+///
+/// It is parametrized by an element type T and the data storage type S.
+#[derive(Debug)]
+pub struct TensorBase<'a, T: Copy, S: AsRef<[T]>> {
+    data: S,
+    layout: Cow<'a, Layout>,
+    element_type: PhantomData<T>,
+}
+
 /// TensorView provides a view onto data owned by a [Tensor].
 ///
 /// Conceptually the relationship between TensorView and Tensor is similar to
 /// that between slice and Vec. They share the same element buffer, but views
 /// can have distinct layouts, with some limitations.
-#[derive(Clone)]
-pub struct TensorView<'a, T: Copy = f32> {
-    data: &'a [T],
-    layout: Cow<'a, Layout>,
-}
+pub type TensorView<'a, T = f32> = TensorBase<'a, T, &'a [T]>;
 
-impl<'a, T: Copy> TensorView<'a, T> {
-    fn new(data: &'a [T], layout: &'a Layout) -> TensorView<'a, T> {
-        TensorView {
+/// TensorViewMut provides a mutable view onto data owned by a [Tensor].
+///
+/// This is similar to [TensorView], except elements in the underyling
+/// Tensor can be modified through it.
+pub type TensorViewMut<'a, T = f32> = TensorBase<'a, T, &'a mut [T]>;
+
+impl<'a, T: Copy, S: AsRef<[T]>> TensorBase<'a, T, S> {
+    fn new(data: S, layout: &'a Layout) -> Self {
+        TensorBase {
             data,
             layout: Cow::Borrowed(layout),
+            element_type: PhantomData,
         }
     }
 
-    /// Return the underlying data which is accessible through this view.
+    /// Return the underlying element buffer for this tensor or view.
     ///
-    /// WARNING: See notes about ordering in [Tensor::data].
-    pub fn data(&self) -> &'a [T] {
-        self.data
+    /// If the tensor is contiguous, the buffer will contain the same elements
+    /// in the same order as yielded by [Tensor::iter]. In other cases the buffer
+    /// may have unused indexes or a different ordering.
+    ///
+    /// The lifetime of the returned data is tied to self. See [TensorBase::to_data]
+    /// for getting data with lifetime tied to the underlying storage.
+    pub fn data(&self) -> &[T] {
+        self.data.as_ref()
     }
 
-    /// Change the layout of this view to put dimensions in the order specified
-    /// by `dims`.
+    /// Return a copy of this tensor with each element replaced by `f(element)`.
+    ///
+    /// The order in which elements are visited is unspecified and may not
+    /// correspond to the logical order.
+    pub fn map<F, U: Copy>(&self, f: F) -> Tensor<U>
+    where
+        F: Fn(T) -> U,
+    {
+        let data = self.iter().map(f).collect();
+        Tensor {
+            data: VecWithOffset::new(data),
+            layout: Cow::Owned(self.layout.as_ref().clone()),
+            element_type: PhantomData,
+        }
+    }
+
+    /// Return a new contiguous tensor with the same shape and elements as this
+    /// view.
+    pub fn to_tensor(&self) -> Tensor<T> {
+        Tensor::from_data(self.shape(), self.iter().collect())
+    }
+
+    /// Return a copy of the elements of this tensor as a contiguous vector
+    /// in row-major order.
+    ///
+    /// This is slightly more efficient than `iter().collect()` in the case
+    /// where the tensor is already contiguous.
+    pub fn to_vec(&self) -> Vec<T> {
+        if self.is_contiguous() {
+            self.data().to_vec()
+        } else {
+            self.iter().collect()
+        }
+    }
+
+    /// Returns the single item if this tensor is a 0-dimensional tensor
+    /// (ie. a scalar)
+    pub fn item(&self) -> Option<T> {
+        match self.ndim() {
+            0 => Some(self.data.as_ref()[0]),
+            _ if self.len() == 1 => self.iter().next(),
+            _ => None,
+        }
+    }
+
+    /// Return an immutable view of this tensor.
+    ///
+    /// Views share the same element array, but can have an independent layout,
+    /// with some limitations.
+    pub fn view(&self) -> TensorView<T> {
+        TensorView::new(self.data.as_ref(), &self.layout)
+    }
+
+    /// Return an iterator over elements of this tensor, in their logical order.
+    pub fn iter(&self) -> Elements<T> {
+        Elements::new(self)
+    }
+
+    /// Return an iterator over elements of this tensor, broadcasted to `shape`.
+    ///
+    /// A broadcasted iterator behaves as if the tensor had the broadcasted
+    /// shape, repeating elements as necessary to fill the given dimensions.
+    /// Broadcasting is only possible if the actual and broadcast shapes are
+    /// compatible according to ONNX's rules. See
+    /// <https://github.com/onnx/onnx/blob/main/docs/Operators.md>.
+    ///
+    /// See also <https://numpy.org/doc/stable/user/basics.broadcasting.html#general-broadcasting-rules>
+    /// for worked examples of how broadcasting works.
+    pub fn broadcast_iter(&self, shape: &[usize]) -> BroadcastElements<T> {
+        assert!(
+            self.can_broadcast_to(shape),
+            "Cannot broadcast to specified shape"
+        );
+        BroadcastElements::new(&self, shape)
+    }
+
+    /// Return an iterator over a subset of elements in this tensor.
+    pub fn slice_iter(&self, ranges: &[SliceRange]) -> Elements<T> {
+        Elements::slice(&self, ranges)
+    }
+
+    /// Change the layout to put dimensions in the order specified by `dims`.
+    ///
+    /// This does not modify the order of elements in the data buffer, it just
+    /// updates the strides used by indexing.
     pub fn permute(&mut self, dims: &[usize]) {
         self.layout.to_mut().permute(dims);
     }
 
-    /// Return a new view with the dimensions re-ordered according to `dims`.
-    pub fn permuted(&self, dims: &[usize]) -> TensorView<'a, T> {
-        Self {
-            data: self.data,
-            layout: Cow::Owned(self.layout.permuted(dims)),
-        }
-    }
-
-    /// Reverse the order of dimension in this view.
+    /// Reverse the order of dimensions.
+    ///
+    /// This does not modify the order of elements in the data buffer, it just
+    /// changes the strides used by indexing.
     pub fn transpose(&mut self) {
         self.layout.to_mut().transpose();
     }
 
-    /// Return a new view with the order of dimensions reversed.
-    pub fn transposed(&self) -> TensorView<'a, T> {
-        Self {
-            data: self.data,
-            layout: Cow::Owned(self.layout.transposed()),
+    /// Return an immutable copy of this view.
+    pub fn as_view(&self) -> TensorView<T> {
+        TensorView::new(self.data.as_ref(), self.layout.as_ref())
+    }
+}
+
+impl<'a, T: Copy> TensorBase<'a, T, &'a [T]> {
+    /// Return the slice underlying this view.
+    ///
+    /// This is similar to [TensorBase::data], but the lifetime is that of the
+    /// underlying storage rather than the view.
+    pub fn to_data(&self) -> &'a [T] {
+        self.data
+    }
+
+    /// Return a new view which views a subset of the elements accessible in
+    /// this view.
+    pub fn slice(&self, range: &[SliceItem]) -> Self {
+        let (offset, layout) = self.layout.slice(range);
+        TensorBase {
+            data: &self.data[offset..offset + layout.end_offset()],
+            layout: Cow::Owned(layout),
+            element_type: PhantomData,
         }
     }
 
@@ -224,34 +352,32 @@ impl<'a, T: Copy> TensorView<'a, T> {
         self.layout.to_mut().reshape(shape);
     }
 
+    /// Return a new view with the dimensions re-ordered according to `dims`.
+    pub fn permuted(&self, dims: &[usize]) -> Self {
+        Self {
+            data: self.data,
+            layout: Cow::Owned(self.layout.permuted(dims)),
+            element_type: PhantomData,
+        }
+    }
+
+    /// Return a new view with the order of dimensions reversed.
+    pub fn transposed(&self) -> Self {
+        Self {
+            data: self.data,
+            layout: Cow::Owned(self.layout.transposed()),
+            element_type: PhantomData,
+        }
+    }
+
     /// Return a new view with a given shape. This has the same requirements
     /// as `reshape`.
-    pub fn reshaped(&self, shape: &[usize]) -> TensorView<'a, T> {
+    pub fn reshaped(&self, shape: &[usize]) -> Self {
         Self {
             data: self.data,
             layout: Cow::Owned(self.layout.reshaped(shape)),
+            element_type: PhantomData,
         }
-    }
-
-    /// Return an iterator over elements of this tensor, in their logical order.
-    pub fn iter(&self) -> Elements<'a, T> {
-        Elements::new(self)
-    }
-
-    /// Return a new view which views a subset of the elements accessible in
-    /// this view.
-    pub fn slice(&self, range: &[SliceItem]) -> TensorView<'a, T> {
-        let (offset, layout) = self.layout.slice(range);
-        Self {
-            data: &self.data[offset..offset + layout.end_offset()],
-            layout: Cow::Owned(layout),
-        }
-    }
-
-    /// Return a new contiguous tensor with the same shape and elements as this
-    /// view.
-    pub fn to_tensor(&self) -> Tensor<T> {
-        Tensor::from_data(self.shape(), self.iter().collect())
     }
 
     /// Return an unchecked version of this view.
@@ -262,13 +388,13 @@ impl<'a, T: Copy> TensorView<'a, T> {
     /// Panics if the rank of this view is not `N`.
     pub fn unchecked_view<const N: usize>(&self) -> UncheckedView<T, N> {
         UncheckedView {
-            data: self.data,
+            data: self.data.as_ref(),
             strides: self.layout.strides().try_into().unwrap(),
         }
     }
 }
 
-impl<'a, T: Copy> TensorLayout for TensorView<'a, T> {
+impl<'a, T: Copy, S: AsRef<[T]>> TensorLayout for TensorBase<'a, T, S> {
     fn layout(&self) -> &Layout {
         self.layout.as_ref()
     }
@@ -294,38 +420,65 @@ impl<'a> AsMatrix<'a> for TensorView<'a, f32> {
     }
 }
 
-impl<'a, I: TensorIndex, T: Copy> Index<I> for TensorView<'a, T> {
+impl<'a, I: TensorIndex, T: Copy, S: AsRef<[T]>> Index<I> for TensorBase<'a, T, S> {
     type Output = T;
     fn index(&self, index: I) -> &Self::Output {
-        &self.data[self.offset(index)]
+        &self.data.as_ref()[self.offset(index)]
     }
 }
 
-/// TensorViewMut provides a mutable view onto data owned by a [Tensor].
-///
-/// This is similar to [TensorView], except elements in the underyling
-/// Tensor can be modified through it.
-pub struct TensorViewMut<'a, T: Copy = f32> {
-    data: &'a mut [T],
-    layout: Cow<'a, Layout>,
-}
-
-impl<'a, T: Copy> TensorViewMut<'a, T> {
-    fn new(data: &'a mut [T], layout: &'a Layout) -> TensorViewMut<'a, T> {
-        TensorViewMut {
-            data,
-            layout: Cow::Borrowed(layout),
-        }
-    }
-
+impl<'a, T: Copy, S: AsRef<[T]> + AsMut<[T]>> TensorBase<'a, T, S> {
     /// Return the slice of the underlying array that is accessible through this
     /// view.
     ///
     /// WARNING: See notes about ordering in [Tensor::data].
     pub fn data_mut(&mut self) -> &mut [T] {
-        self.data
+        self.data.as_mut()
     }
 
+    /// Return a mutable iterator over elements of this view.
+    pub fn iter_mut(&mut self) -> ElementsMut<T> {
+        let layout = self.layout.as_ref();
+        ElementsMut::new(self.data.as_mut(), layout)
+    }
+
+    /// Replace elements of this tensor with `f(element)`.
+    ///
+    /// This is the in-place version of `map`.
+    ///
+    /// The order in which elements are visited is unspecified and may not
+    /// correspond to the logical order.
+    pub fn apply<F: Fn(T) -> T>(&mut self, f: F) {
+        // TODO: Skip unused elements when tensor is not contiguous.
+        for val in self.data.as_mut().iter_mut() {
+            *val = f(*val);
+        }
+    }
+
+    /// Return a new mutable view of a subset of the elements in this view.
+    ///
+    /// Slices are specified in the same way as for [TensorView::slice].
+    pub fn slice_mut(&mut self, range: &[SliceItem]) -> TensorViewMut<T> {
+        let (offset, layout) = self.layout.slice(range);
+        let data = &mut self.data.as_mut()[offset..offset + layout.end_offset()];
+
+        TensorViewMut {
+            data,
+            layout: Cow::Owned(layout),
+            element_type: PhantomData,
+        }
+    }
+
+    /// Return a mutable view of this tensor.
+    ///
+    /// Views share the same element array, but can have an independent layout,
+    /// with some limitations.
+    pub fn view_mut(&mut self) -> TensorViewMut<T> {
+        TensorViewMut::new(self.data.as_mut(), &self.layout)
+    }
+}
+
+impl<'a, T: Copy> TensorBase<'a, T, &'a mut [T]> {
     /// Consume this view and return the underlying data slice.
     ///
     /// This differs from [Self::data_mut] as the lifetime of the returned slice
@@ -334,42 +487,31 @@ impl<'a, T: Copy> TensorViewMut<'a, T> {
         self.data
     }
 
-    /// Change the layout of this view to put dimensions in the order specified
-    /// by `dims`.
-    pub fn permute(&mut self, dims: &[usize]) {
-        self.layout.to_mut().permute(dims);
+    /// Return a new view with the dimensions re-ordered according to `dims`.
+    pub fn permuted(&mut self, dims: &[usize]) -> TensorBase<T, &mut [T]> {
+        TensorBase {
+            data: self.data,
+            layout: Cow::Owned(self.layout.permuted(dims)),
+            element_type: PhantomData,
+        }
+    }
+
+    /// Return a new view with the order of dimensions reversed.
+    pub fn transposed(&mut self) -> TensorBase<T, &mut [T]> {
+        TensorBase {
+            data: self.data,
+            layout: Cow::Owned(self.layout.transposed()),
+            element_type: PhantomData,
+        }
     }
 
     /// Return a new view with a given shape. This has the same requirements
     /// as `reshape`.
-    pub fn reshaped(&mut self, shape: &[usize]) -> TensorViewMut<T> {
-        TensorViewMut {
+    pub fn reshaped(&mut self, shape: &[usize]) -> TensorBase<T, &mut [T]> {
+        TensorBase {
             data: self.data,
             layout: Cow::Owned(self.layout.reshaped(shape)),
-        }
-    }
-
-    /// Return a mutable iterator over elements of this view.
-    pub fn iter_mut(&mut self) -> ElementsMut<T> {
-        let layout = self.layout.as_ref();
-        ElementsMut::new(self.data, layout)
-    }
-
-    /// Return an immutable copy of this view.
-    pub fn as_view(&self) -> TensorView<T> {
-        TensorView::new(self.data, self.layout.as_ref())
-    }
-
-    /// Return a new mutable view of a subset of the elements in this view.
-    ///
-    /// Slices are specified in the same way as for [TensorView::slice].
-    pub fn slice(&mut self, range: &[SliceItem]) -> TensorViewMut<T> {
-        let (offset, layout) = self.layout.slice(range);
-        let data = &mut self.data[offset..offset + layout.end_offset()];
-
-        TensorViewMut {
-            data,
-            layout: Cow::Owned(layout),
+            element_type: PhantomData,
         }
     }
 
@@ -381,29 +523,16 @@ impl<'a, T: Copy> TensorViewMut<'a, T> {
     /// Panics if the rank of this view is not `N`.
     pub fn unchecked_view_mut<const N: usize>(&mut self) -> UncheckedViewMut<T, N> {
         UncheckedViewMut {
-            data: self.data,
+            data: self.data.as_mut(),
             strides: self.layout.strides().try_into().unwrap(),
         }
     }
 }
 
-impl<'a, I: TensorIndex, T: Copy> Index<I> for TensorViewMut<'a, T> {
-    type Output = T;
-    fn index(&self, index: I) -> &Self::Output {
-        &self.data[self.offset(index)]
-    }
-}
-
-impl<'a, I: TensorIndex, T: Copy> IndexMut<I> for TensorViewMut<'a, T> {
+impl<'a, I: TensorIndex, T: Copy, S: AsRef<[T]> + AsMut<[T]>> IndexMut<I> for TensorBase<'a, T, S> {
     fn index_mut(&mut self, index: I) -> &mut Self::Output {
         let offset = self.offset(index);
-        &mut self.data[offset]
-    }
-}
-
-impl<'a, T: Copy> TensorLayout for TensorViewMut<'a, T> {
-    fn layout(&self) -> &Layout {
-        self.layout.as_ref()
+        &mut self.data.as_mut()[offset]
     }
 }
 
@@ -427,13 +556,9 @@ impl<'a, T: Copy> TensorLayout for TensorViewMut<'a, T> {
 /// tensor is sliced in-place. Whether the tensor is contiguous does not matter
 /// if accessing elements via indexing, slicing or iterators. It does matter if
 /// accessing the underlying element buffer directly.
-#[derive(Debug)]
-pub struct Tensor<T: Copy = f32> {
-    data: VecWithOffset<T>,
-    layout: Layout,
-}
+pub type Tensor<T = f32> = TensorBase<'static, T, VecWithOffset<T>>;
 
-impl<T: Copy> Tensor<T> {
+impl<T: Copy> TensorBase<'static, T, VecWithOffset<T>> {
     /// Create a new zero-filled tensor with a given shape.
     pub fn zeros(shape: &[usize]) -> Tensor<T>
     where
@@ -443,7 +568,8 @@ impl<T: Copy> Tensor<T> {
         let data = vec![T::default(); n_elts];
         Tensor {
             data: VecWithOffset::new(data),
-            layout: Layout::new(shape),
+            layout: Cow::Owned(Layout::new(shape)),
+            element_type: PhantomData,
         }
     }
 
@@ -458,7 +584,8 @@ impl<T: Copy> Tensor<T> {
         );
         Tensor {
             data: VecWithOffset::new(data),
-            layout: Layout::new(shape),
+            layout: Cow::Owned(Layout::new(shape)),
+            element_type: PhantomData,
         }
     }
 
@@ -470,34 +597,6 @@ impl<T: Copy> Tensor<T> {
     /// Create a new 1-dimensional tensor from a vector. No copying is required.
     pub fn from_vec(data: Vec<T>) -> Tensor<T> {
         Self::from_data(&[data.len()], data)
-    }
-
-    /// Replace elements of this tensor with `f(element)`.
-    ///
-    /// This is the in-place version of `map`.
-    ///
-    /// The order in which elements are visited is unspecified and may not
-    /// correspond to the logical order.
-    pub fn apply<F: Fn(T) -> T>(&mut self, f: F) {
-        // TODO: Skip unused elements when tensor is not contiguous.
-        for val in self.data_mut().iter_mut() {
-            *val = f(*val);
-        }
-    }
-
-    /// Return a copy of this tensor with each element replaced by `f(element)`.
-    ///
-    /// The order in which elements are visited is unspecified and may not
-    /// correspond to the logical order.
-    pub fn map<F, U: Copy>(&self, f: F) -> Tensor<U>
-    where
-        F: Fn(T) -> U,
-    {
-        let data = self.iter().map(f).collect();
-        Tensor {
-            data: VecWithOffset::new(data),
-            layout: self.layout.clone(),
-        }
     }
 
     /// Clone this tensor with a new shape. The new shape must have the same
@@ -523,7 +622,7 @@ impl<T: Copy> Tensor<T> {
         assert!(end <= self.shape()[dim], "end must be <= dim size");
 
         let start_offset = self.layout.stride(dim) * start;
-        self.layout.resize_dim(dim, end - start);
+        self.layout.to_mut().resize_dim(dim, end - start);
         self.data
             .set_used_range(start_offset..start_offset + self.layout.end_offset());
     }
@@ -558,35 +657,6 @@ impl<T: Copy> Tensor<T> {
         &mut self.data[offset..offset + len]
     }
 
-    /// Return a copy of the elements of this tensor as a contiguous vector
-    /// in row-major order.
-    ///
-    /// This is slightly more efficient than `iter().collect()` in the case
-    /// where the tensor is already contiguous.
-    pub fn to_vec(&self) -> Vec<T> {
-        if self.is_contiguous() {
-            self.data().to_vec()
-        } else {
-            self.iter().collect()
-        }
-    }
-
-    /// Return the underlying element buffer for this tensor.
-    ///
-    /// If the tensor is contiguous, the buffer will contain the same elements
-    /// in the same order as yielded by [Tensor::iter]. In other cases the buffer
-    /// may have unused indexes or a different ordering.
-    pub fn data(&self) -> &[T] {
-        self.data.as_ref()
-    }
-
-    /// Return the underlying element buffer for this tensor.
-    ///
-    /// See notes for [Tensor::data] about the ordering and validity of elements.
-    pub fn data_mut(&mut self) -> &mut [T] {
-        self.data.as_mut()
-    }
-
     /// Convert the internal layout of elements to be contiguous, as reported
     /// by `is_contiguous`.
     ///
@@ -596,7 +666,7 @@ impl<T: Copy> Tensor<T> {
             return;
         }
         self.data = VecWithOffset::new(self.iter().collect());
-        self.layout.make_contiguous();
+        self.layout.to_mut().make_contiguous();
     }
 
     /// Return a contiguous version of this tensor, either as a reference if
@@ -606,68 +676,13 @@ impl<T: Copy> Tensor<T> {
             Cow::Borrowed(self)
         } else {
             let mut contiguous_layout = self.layout.clone();
-            contiguous_layout.make_contiguous();
+            contiguous_layout.to_mut().make_contiguous();
             Cow::Owned(Tensor {
                 data: VecWithOffset::new(self.iter().collect()),
                 layout: contiguous_layout,
+                element_type: PhantomData,
             })
         }
-    }
-
-    /// Return an iterator over elements of this tensor, in their logical order.
-    pub fn iter(&self) -> Elements<T> {
-        Elements::new(&self.view())
-    }
-
-    /// Return a mutable iterator over elements of this tensor, in their
-    /// logical order.
-    pub fn iter_mut(&mut self) -> ElementsMut<T> {
-        ElementsMut::new(self.data.as_mut(), &self.layout)
-    }
-
-    /// Returns the single item if this tensor is a 0-dimensional tensor
-    /// (ie. a scalar)
-    pub fn item(&self) -> Option<T> {
-        match self.ndim() {
-            0 => Some(self.data[0]),
-            _ if self.len() == 1 => self.iter().next(),
-            _ => None,
-        }
-    }
-
-    /// Return an iterator over elements of this tensor, broadcasted to `shape`.
-    ///
-    /// A broadcasted iterator behaves as if the tensor had the broadcasted
-    /// shape, repeating elements as necessary to fill the given dimensions.
-    /// Broadcasting is only possible if the actual and broadcast shapes are
-    /// compatible according to ONNX's rules. See
-    /// <https://github.com/onnx/onnx/blob/main/docs/Operators.md>.
-    ///
-    /// See also <https://numpy.org/doc/stable/user/basics.broadcasting.html#general-broadcasting-rules>
-    /// for worked examples of how broadcasting works.
-    pub fn broadcast_iter(&self, shape: &[usize]) -> BroadcastElements<'_, T> {
-        assert!(
-            self.can_broadcast_to(shape),
-            "Cannot broadcast to specified shape"
-        );
-        BroadcastElements::new(&self.view(), shape)
-    }
-
-    /// Return an iterator over offsets of this tensor, broadcasted to `shape`.
-    ///
-    /// This is very similar to `broadcast_iter`, except that the iterator
-    /// yields offsets into rather than elements of the data buffer.
-    pub fn broadcast_offsets(&self, shape: &[usize]) -> Offsets {
-        assert!(
-            self.can_broadcast_to(shape),
-            "Cannot broadcast to specified shape"
-        );
-        Offsets::broadcast(&self.layout, shape)
-    }
-
-    /// Return an iterator over a subset of elements in this tensor.
-    pub fn slice_iter(&self, ranges: &[SliceRange]) -> Elements<T> {
-        Elements::slice(&self.view(), ranges)
     }
 
     /// Update the shape of the tensor.
@@ -689,23 +704,7 @@ impl<T: Copy> Tensor<T> {
         // However there are cases of custom strides where copies could be
         // avoided. See https://pytorch.org/docs/stable/generated/torch.Tensor.view.html.
         self.make_contiguous();
-        self.layout = Layout::new(shape);
-    }
-
-    /// Re-order the dimensions according to `dims`.
-    ///
-    /// This does not modify the order of elements in the data buffer, it merely
-    /// updates the strides used by indexing.
-    pub fn permute(&mut self, dims: &[usize]) {
-        self.layout.permute(dims);
-    }
-
-    /// Reverse the order of dimensions.
-    ///
-    /// This does not modify the order of elements in the data buffer, it merely
-    /// updates the strides used by indexing.
-    pub fn transpose(&mut self) {
-        self.layout.transpose();
+        self.layout = Cow::Owned(Layout::new(shape));
     }
 
     /// Insert a dimension of size one at index `dim`.
@@ -754,22 +753,6 @@ impl<T: Copy> Tensor<T> {
             strides,
         }
     }
-
-    /// Return an immutable view of this tensor.
-    ///
-    /// Views share the same element array, but can have an independent layout,
-    /// with some limitations.
-    pub fn view(&self) -> TensorView<T> {
-        TensorView::new(self.data(), &self.layout)
-    }
-
-    /// Return a mutable view of this tensor.
-    ///
-    /// Views share the same element array, but can have an independent layout,
-    /// with some limitations.
-    pub fn view_mut(&mut self) -> TensorViewMut<T> {
-        TensorViewMut::new(self.data.as_mut(), &self.layout)
-    }
 }
 
 impl Tensor<f32> {
@@ -793,12 +776,6 @@ impl Tensor<f32> {
     }
 }
 
-impl<T: Copy> TensorLayout for Tensor<T> {
-    fn layout(&self) -> &Layout {
-        &self.layout
-    }
-}
-
 impl<T: Copy + PartialEq> PartialEq for Tensor<T> {
     fn eq(&self, other: &Self) -> bool {
         self.shape() == other.shape() && self.iter().eq(other.iter())
@@ -811,6 +788,7 @@ impl<T: Copy> Clone for Tensor<T> {
         Tensor {
             data,
             layout: self.layout.clone(),
+            element_type: PhantomData,
         }
     }
 }
@@ -822,20 +800,6 @@ impl<T: Copy> FromIterator<T> for Tensor<T> {
     {
         let data: Vec<_> = FromIterator::from_iter(iter);
         Tensor::from_vec(data)
-    }
-}
-
-impl<I: TensorIndex, T: Copy> Index<I> for Tensor<T> {
-    type Output = T;
-    fn index(&self, index: I) -> &Self::Output {
-        &self.data[self.offset(index)]
-    }
-}
-
-impl<I: TensorIndex, T: Copy> IndexMut<I> for Tensor<T> {
-    fn index_mut(&mut self, index: I) -> &mut Self::Output {
-        let offset = self.offset(index);
-        &mut self.data[offset]
     }
 }
 

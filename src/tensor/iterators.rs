@@ -3,7 +3,7 @@ use std::slice::{Iter, IterMut};
 
 use super::layout::Layout;
 use super::range::SliceRange;
-use super::TensorView;
+use super::TensorBase;
 
 /// IterPos tracks the position within a single dimension of an IndexingIter.
 #[derive(Debug)]
@@ -219,13 +219,10 @@ enum ElementsIter<'a, T: Copy> {
 }
 
 impl<'a, T: Copy> Elements<'a, T> {
-    pub(super) fn new<'b>(view: &'b TensorView<'a, T>) -> Elements<'a, T>
-    where
-        'a: 'b,
-    {
+    pub(super) fn new<'b, S: AsRef<[T]>>(view: &'b TensorBase<'a, T, S>) -> Elements<'b, T> {
         if view.layout.is_contiguous() {
             Elements {
-                iter: ElementsIter::Direct(view.data.iter()),
+                iter: ElementsIter::Direct(view.data.as_ref().iter()),
             }
         } else {
             Elements {
@@ -234,13 +231,13 @@ impl<'a, T: Copy> Elements<'a, T> {
         }
     }
 
-    pub(super) fn slice<'b>(view: &'b TensorView<'a, T>, ranges: &[SliceRange]) -> Elements<'a, T>
-    where
-        'a: 'b,
-    {
+    pub(super) fn slice<'b, S: AsRef<[T]>>(
+        view: &'b TensorBase<'a, T, S>,
+        ranges: &[SliceRange],
+    ) -> Elements<'b, T> {
         let iter = IndexingIter {
             base: IndexingIterBase::slice(&view.layout, ranges),
-            data: view.data,
+            data: view.data.as_ref(),
         };
         Elements {
             iter: ElementsIter::Indexing(iter),
@@ -287,23 +284,20 @@ struct IndexingIter<'a, T: Copy> {
 }
 
 impl<'a, T: Copy> IndexingIter<'a, T> {
-    fn new<'b>(view: &'b TensorView<'a, T>) -> IndexingIter<'a, T>
-    where
-        'a: 'b,
-    {
+    fn new<'b, S: AsRef<[T]>>(view: &'b TensorBase<'a, T, S>) -> IndexingIter<'b, T> {
         IndexingIter {
             base: IndexingIterBase::new(&view.layout),
-            data: view.data,
+            data: view.data.as_ref(),
         }
     }
 
-    fn broadcast<'b>(view: &'b TensorView<'a, T>, shape: &[usize]) -> IndexingIter<'a, T>
-    where
-        'a: 'b,
-    {
+    fn broadcast<'b, S: AsRef<[T]>>(
+        view: &'b TensorBase<'a, T, S>,
+        shape: &[usize],
+    ) -> IndexingIter<'b, T> {
         IndexingIter {
             base: IndexingIterBase::broadcast(&view.layout, shape),
-            data: view.data,
+            data: view.data.as_ref(),
         }
     }
 }
@@ -502,55 +496,58 @@ enum BroadcastElementsIter<'a, T: Copy> {
     Indexing(IndexingIter<'a, T>),
 }
 
+/// Return true if a tensor with shape `from_shape` can be broadcast to shape
+/// `to_shape` by cycling through all of its elements repeatedly.
+///
+/// This requires that, after left-padding `from_shape` with 1s to match the
+/// length of `to_shape`, all non-1 dimensions in `from_shape` are contiguous
+/// at the end. For example, `[1, 5, 10]` can be broadcast to `[3, 4, 5, 10]`
+/// by cycling, but `[5, 1, 10]` cannot be broadcast to `[5, 4, 10]` this way,
+/// as the inner (`[1, 10]`) dimensions will need to be repeated 4 times before
+/// moving to the next index in the outermost dimension.
+///
+/// If the tensor can be broadcast via cycling, and is also contiguous, it can
+/// be broadcast efficiently using `tensor.data().iter().cycle()`.
+fn can_broadcast_by_cycling(from_shape: &[usize], to_shape: &[usize]) -> bool {
+    assert!(to_shape.len() >= from_shape.len());
+
+    let excess_dims = to_shape.len() - from_shape.len();
+    let mut dims_to_check = to_shape.len() - excess_dims;
+
+    while dims_to_check > 0 {
+        if from_shape[dims_to_check - 1] != to_shape[excess_dims + dims_to_check - 1] {
+            break;
+        }
+        dims_to_check -= 1;
+    }
+
+    while dims_to_check > 0 {
+        if from_shape[dims_to_check - 1] != 1 {
+            return false;
+        }
+        dims_to_check -= 1;
+    }
+
+    true
+}
+
 impl<'a, T: Copy> BroadcastElements<'a, T> {
-    pub fn new<'b>(view: &'b TensorView<'a, T>, to_shape: &[usize]) -> BroadcastElements<'a, T>
+    pub fn new<'b, S: AsRef<[T]>>(
+        view: &'b TensorBase<'a, T, S>,
+        to_shape: &[usize],
+    ) -> BroadcastElements<'b, T>
     where
         'a: 'b,
     {
         let iter = if view.layout.is_contiguous()
-            && Self::can_broadcast_by_cycling(view.layout.shape(), to_shape)
+            && can_broadcast_by_cycling(view.layout.shape(), to_shape)
         {
             let iter_len = to_shape.iter().product();
-            BroadcastElementsIter::Direct(view.data.iter().cycle().take(iter_len))
+            BroadcastElementsIter::Direct(view.data.as_ref().iter().cycle().take(iter_len))
         } else {
             BroadcastElementsIter::Indexing(IndexingIter::broadcast(view, to_shape))
         };
         BroadcastElements { iter }
-    }
-
-    /// Return true if a tensor with shape `from_shape` can be broadcast to shape
-    /// `to_shape` by cycling through all of its elements repeatedly.
-    ///
-    /// This requires that, after left-padding `from_shape` with 1s to match the
-    /// length of `to_shape`, all non-1 dimensions in `from_shape` are contiguous
-    /// at the end. For example, `[1, 5, 10]` can be broadcast to `[3, 4, 5, 10]`
-    /// by cycling, but `[5, 1, 10]` cannot be broadcast to `[5, 4, 10]` this way,
-    /// as the inner (`[1, 10]`) dimensions will need to be repeated 4 times before
-    /// moving to the next index in the outermost dimension.
-    ///
-    /// If the tensor can be broadcast via cycling, and is also contiguous, it can
-    /// be broadcast efficiently using `tensor.data().iter().cycle()`.
-    fn can_broadcast_by_cycling(from_shape: &[usize], to_shape: &[usize]) -> bool {
-        assert!(to_shape.len() >= from_shape.len());
-
-        let excess_dims = to_shape.len() - from_shape.len();
-        let mut dims_to_check = to_shape.len() - excess_dims;
-
-        while dims_to_check > 0 {
-            if from_shape[dims_to_check - 1] != to_shape[excess_dims + dims_to_check - 1] {
-                break;
-            }
-            dims_to_check -= 1;
-        }
-
-        while dims_to_check > 0 {
-            if from_shape[dims_to_check - 1] != 1 {
-                return false;
-            }
-            dims_to_check -= 1;
-        }
-
-        true
     }
 }
 

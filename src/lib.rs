@@ -12,8 +12,8 @@ pub use graph::{Dimension, RunOptions};
 pub use model::Model;
 pub use ops::{Input, Output};
 pub use tensor::{
-    BroadcastElements, Elements, SliceItem, SliceRange, Tensor, TensorLayout, TensorView,
-    TensorViewMut,
+    BroadcastElements, Elements, SliceItem, SliceRange, Tensor, TensorBase, TensorLayout,
+    TensorView, TensorViewMut,
 };
 
 #[allow(clippy::extra_unused_lifetimes, dead_code, unused_imports)]
