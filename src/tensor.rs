@@ -755,7 +755,7 @@ impl<T: Copy> TensorBase<T, VecWithOffset<T>> {
     }
 }
 
-impl Tensor<f32> {
+impl<S: AsRef<[f32]>> TensorBase<f32, S> {
     /// Serialize the tensor to a simple binary format.
     ///
     /// The serialized data is in little-endian order and has the structure:
@@ -776,7 +776,7 @@ impl Tensor<f32> {
     }
 }
 
-impl<T: Copy + PartialEq> PartialEq for Tensor<T> {
+impl<T: Copy + PartialEq, S: AsRef<[T]>> PartialEq for TensorBase<T, S> {
     fn eq(&self, other: &Self) -> bool {
         self.shape() == other.shape() && self.iter().eq(other.iter())
     }
