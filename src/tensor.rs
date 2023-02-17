@@ -209,7 +209,7 @@ impl<T: Copy, S: AsRef<[T]>> TensorBase<T, S> {
         }
     }
 
-    /// Return the underlying element buffer for this tensor or view.
+    /// Return the element buffer for this tensor as a slice.
     ///
     /// If the tensor is contiguous, the buffer will contain the same elements
     /// in the same order as yielded by [Tensor::iter]. In other cases the buffer
@@ -279,8 +279,7 @@ impl<T: Copy, S: AsRef<[T]>> TensorBase<T, S> {
         Elements::new(self)
     }
 
-    /// Return a new view which views a subset of the elements accessible in
-    /// this view.
+    /// Return a view of part of this tensor.
     pub fn slice(&self, range: &[SliceItem]) -> TensorView<T> {
         let (offset, layout) = self.layout.slice(range);
         TensorBase {
@@ -308,7 +307,7 @@ impl<T: Copy, S: AsRef<[T]>> TensorBase<T, S> {
         BroadcastElements::new(self, shape)
     }
 
-    /// Return an iterator over a subset of elements in this tensor.
+    /// Return an iterator over a slice of this tensor.
     pub fn slice_iter(&self, ranges: &[SliceRange]) -> Elements<T> {
         Elements::slice(self, ranges)
     }
@@ -329,17 +328,17 @@ impl<T: Copy, S: AsRef<[T]>> TensorBase<T, S> {
         self.layout.transpose();
     }
 
-    /// Return an immutable copy of this view.
-    pub fn as_view(&self) -> TensorView<T> {
-        TensorView::new(self.data.as_ref(), &self.layout)
-    }
-
-    /// Return an unchecked version of this view.
+    /// Return an unchecked view of this tensor.
+    ///
+    /// "Unchecked" means that individual dimensions of an index are not
+    /// bounds-checked against the tensor's shape, but the final offset that
+    /// is generated is.
     ///
     /// This provides faster indexing at the cost of not bounds-checking
     /// individual dimensions.
     ///
-    /// Panics if the rank of this view is not `N`.
+    /// Panics if the rank of this tensor is not `N`.
+    #[doc(hidden)]
     pub fn unchecked_view<const N: usize>(&self) -> UncheckedView<T, N> {
         UncheckedView {
             data: self.data.as_ref(),
@@ -347,11 +346,9 @@ impl<T: Copy, S: AsRef<[T]>> TensorBase<T, S> {
         }
     }
 
-    /// Return an _unchecked_ view of a subset of the data in this tensor.
+    /// Return an unchecked view of a slice of this tensor.
     ///
-    /// "Unchecked" means that individual dimensions of an index are not
-    /// bounds-checked against the tensor's shape, but the final offset that
-    /// is generated is.
+    /// See notes in `[TensorBase::unchecked_view]`.
     ///
     /// Base specifies zero or more indices to slice the view with, and N
     /// is the nubmer of indices to use for unchecked indexing. `B + N` must
@@ -465,10 +462,9 @@ impl<I: TensorIndex, T: Copy, S: AsRef<[T]>> Index<I> for TensorBase<T, S> {
 }
 
 impl<T: Copy, S: AsRef<[T]> + AsMut<[T]>> TensorBase<T, S> {
-    /// Return the slice of the underlying array that is accessible through this
-    /// view.
+    /// Return the element buffer for this tensor as a mutable slice.
     ///
-    /// WARNING: See notes about ordering in [Tensor::data].
+    /// WARNING: See notes about ordering in [TensorBase::data].
     pub fn data_mut(&mut self) -> &mut [T] {
         self.data.as_mut()
     }
@@ -492,7 +488,7 @@ impl<T: Copy, S: AsRef<[T]> + AsMut<[T]>> TensorBase<T, S> {
         }
     }
 
-    /// Return a new mutable view of a subset of the elements in this view.
+    /// Return a new mutable slice of this tensor.
     ///
     /// Slices are specified in the same way as for [TensorView::slice].
     pub fn slice_mut(&mut self, range: &[SliceItem]) -> TensorViewMut<T> {
@@ -514,10 +510,10 @@ impl<T: Copy, S: AsRef<[T]> + AsMut<[T]>> TensorBase<T, S> {
         TensorViewMut::new(self.data.as_mut(), &self.layout)
     }
 
-    /// Return an _unchecked_ mutable view of a subset of the data in this tensor.
+    /// Return an unchecked mutable view of a slice of this tensor.
     ///
-    /// This is the same as [Tensor::unchecked_view] except that the returned view can
-    /// be used to modify elements.
+    /// This is the same as [TensorBase::unchecked_view] except that the
+    /// returned view can be used to modify elements.
     #[doc(hidden)]
     pub fn unchecked_slice_mut<const B: usize, const N: usize>(
         &mut self,
@@ -532,12 +528,10 @@ impl<T: Copy, S: AsRef<[T]> + AsMut<[T]>> TensorBase<T, S> {
         }
     }
 
-    /// Return an unchecked version of this view.
+    /// Return an unchecked view of this tensor.
     ///
-    /// This provides faster indexing at the cost of not bounds-checking
-    /// individual dimensions.
-    ///
-    /// Panics if the rank of this view is not `N`.
+    /// See notes in `[TensorBase::unchecked_view]`.
+    #[doc(hidden)]
     pub fn unchecked_view_mut<const N: usize>(&mut self) -> UncheckedViewMut<T, N> {
         UncheckedViewMut {
             data: self.data.as_mut(),

@@ -303,7 +303,7 @@ pub fn lstm(
                 let tanh_op = Tanh {};
                 for (hidden, (out_gate, cell)) in zip(
                     hidden_item.iter_mut(),
-                    zip(out_gate.iter(), cell_item.as_view().iter()),
+                    zip(out_gate.iter(), cell_item.iter()),
                 ) {
                     *hidden = out_gate * tanh_op.map_element(cell)
                 }
