@@ -305,12 +305,12 @@ impl<T: Copy, S: AsRef<[T]>> TensorBase<T, S> {
             self.can_broadcast_to(shape),
             "Cannot broadcast to specified shape"
         );
-        BroadcastElements::new(&self, shape)
+        BroadcastElements::new(self, shape)
     }
 
     /// Return an iterator over a subset of elements in this tensor.
     pub fn slice_iter(&self, ranges: &[SliceRange]) -> Elements<T> {
-        Elements::slice(&self, ranges)
+        Elements::slice(self, ranges)
     }
 
     /// Change the layout to put dimensions in the order specified by `dims`.
