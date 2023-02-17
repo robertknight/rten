@@ -86,7 +86,8 @@ pub fn average_pool(
     for n in 0..batch {
         for chan in 0..in_c {
             let mut out_view = output.nd_slice_mut([n, chan]);
-            let in_view = input.nd_slice([n, chan]);
+            let mut out_view = out_view.unchecked_mut();
+            let in_view = input.nd_slice([n, chan]).unchecked();
 
             for out_y in 0..out_h {
                 for out_x in 0..out_w {
@@ -145,7 +146,7 @@ pub fn global_average_pool(input: &Tensor) -> Result<Tensor, OpError> {
 
     for n in 0..batch {
         for c in 0..chans {
-            let in_view = input.nd_slice([n, c]);
+            let in_view = input.nd_slice([n, c]).unchecked();
             let mut sum = 0.0;
             for y in 0..in_h {
                 for x in 0..in_w {
@@ -195,7 +196,8 @@ pub fn max_pool(
     for n in 0..batch {
         for chan in 0..in_c {
             let mut out_view = output.nd_slice_mut([n, chan]);
-            let in_view = input.nd_slice([n, chan]);
+            let mut out_view = out_view.unchecked_mut();
+            let in_view = input.nd_slice([n, chan]).unchecked();
 
             for out_y in 0..out_h {
                 for out_x in 0..out_w {

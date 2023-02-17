@@ -29,6 +29,18 @@ impl<const N: usize> NdLayout<N> {
         offset
     }
 
+    /// Return the offset in the slice that an index maps to.
+    ///
+    /// Unlike `offset`, this does not bounds-check elements of `index` against
+    /// the corresponding shape. Hence the returned offset may be out of bounds.
+    fn offset_unchecked(&self, index: [usize; N]) -> usize {
+        let mut offset = 0;
+        for i in 0..N {
+            offset += index[i] * self.strides[i];
+        }
+        offset
+    }
+
     /// Return the minimum length required for the element data buffer used
     /// with this layout.
     fn min_data_len(&self) -> usize {
@@ -164,11 +176,29 @@ impl<'a, T, S: AsRef<[T]> + ?Sized, const N: usize> NdTensor<T, &'a S, N> {
     pub fn data(&self) -> &'a [T] {
         self.data.as_ref()
     }
+
+    /// Return a view of this tensor which uses unchecked indexing.
+    pub fn unchecked(&self) -> UncheckedNdTensor<T, &'a [T], N> {
+        UncheckedNdTensor {
+            data: self.data.as_ref(),
+            layout: self.layout,
+            element_type: PhantomData,
+        }
+    }
 }
 
 impl<T, S: AsRef<[T]> + AsMut<[T]>, const N: usize> NdTensor<T, S, N> {
     pub fn data_mut(&mut self) -> &mut [T] {
         self.data.as_mut()
+    }
+
+    /// Return a mutable view of this tensor which uses unchecked indexing.
+    pub fn unchecked_mut(&mut self) -> UncheckedNdTensor<T, &mut [T], N> {
+        UncheckedNdTensor {
+            data: self.data.as_mut(),
+            layout: self.layout,
+            element_type: PhantomData,
+        }
     }
 }
 
@@ -209,3 +239,33 @@ pub type Matrix<'a, T = f32> = NdTensor<T, &'a [T], 2>;
 
 /// Alias for viewing a mutable slice as a 2D matrix.
 pub type MatrixMut<'a, T = f32> = NdTensor<T, &'a mut [T], 2>;
+
+/// A variant of NdTensor which does not bounds-check individual dimensions
+/// when indexing, although the computed offset into the underlying storage
+/// is still bounds-checked.
+///
+/// Using unchecked indexing is faster, at the cost of not catching errors
+/// in specific indices.
+pub struct UncheckedNdTensor<T, S: AsRef<[T]>, const N: usize> {
+    data: S,
+    layout: NdLayout<N>,
+
+    /// Avoids compiler complaining `T` is unused.
+    element_type: PhantomData<T>,
+}
+
+impl<T, S: AsRef<[T]>, const N: usize> Index<[usize; N]> for UncheckedNdTensor<T, S, N> {
+    type Output = T;
+    fn index(&self, index: [usize; N]) -> &Self::Output {
+        &self.data.as_ref()[self.layout.offset_unchecked(index)]
+    }
+}
+
+impl<T, S: AsRef<[T]> + AsMut<[T]>, const N: usize> IndexMut<[usize; N]>
+    for UncheckedNdTensor<T, S, N>
+{
+    fn index_mut(&mut self, index: [usize; N]) -> &mut Self::Output {
+        let offset = self.layout.offset_unchecked(index);
+        &mut self.data.as_mut()[offset]
+    }
+}

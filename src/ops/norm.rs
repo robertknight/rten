@@ -22,6 +22,7 @@ pub fn batch_norm_in_place(
             let chan_bias = bias[[c]];
 
             let mut out_view = input.nd_slice_mut([n, c]);
+            let mut out_view = out_view.unchecked_mut();
 
             // The batch norm formula, from the ONNX spec, is:
             //

@@ -182,7 +182,7 @@ fn conv_2d_depthwise(
 
     for n in 0..batch {
         for c in 0..in_c {
-            let kernel_view = kernel.nd_slice([c, 0]);
+            let kernel_view = kernel.nd_slice([c, 0]).unchecked();
 
             // The loops here are ordered so that the inner-most loop is as
             // efficient as possible and runs for as long as possible over a
@@ -387,8 +387,9 @@ fn col2im(output: &mut TensorViewMut, columns: &TensorView, strides: [usize; 2])
     let [out_chans, _, _] = output.dims();
     let [stride_h, stride_w] = strides;
 
-    let col_view = columns.nd_view();
+    let col_view = columns.nd_view().unchecked();
     let mut out_view = output.nd_view_mut();
+    let mut out_view = out_view.unchecked_mut();
 
     for y in 0..in_h {
         for x in 0..in_w {
