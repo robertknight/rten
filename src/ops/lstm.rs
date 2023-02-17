@@ -288,8 +288,7 @@ pub fn lstm(
                 );
 
                 // Compute new values of cell and hidden state
-                let mut cell_view = cell.view_mut();
-                let mut cell_item = cell_view.slice_mut(&[dir.into(), b.into()]);
+                let mut cell_item = cell.slice_mut(&[dir.into(), b.into()]);
 
                 for (cell, (forget_gate, (input_gate, cell_gate))) in zip(
                     cell_item.iter_mut(),
@@ -298,8 +297,7 @@ pub fn lstm(
                     *cell = forget_gate * *cell + input_gate * cell_gate;
                 }
 
-                let mut hidden_view = hidden.view_mut();
-                let mut hidden_item = hidden_view.slice_mut(&[dir.into(), b.into()]);
+                let mut hidden_item = hidden.slice_mut(&[dir.into(), b.into()]);
                 let tanh_op = Tanh {};
                 for (hidden, (out_gate, cell)) in zip(
                     hidden_item.iter_mut(),
@@ -309,9 +307,7 @@ pub fn lstm(
                 }
 
                 // Copy latest value of hidden seq to output tensor
-                let mut hidden_seq_view = hidden_seq.view_mut();
-                let mut hidden_seq_item =
-                    hidden_seq_view.slice_mut(&[seq.into(), dir.into(), b.into()]);
+                let mut hidden_seq_item = hidden_seq.slice_mut(&[seq.into(), dir.into(), b.into()]);
                 hidden_seq_item
                     .data_mut()
                     .clone_from_slice(hidden_item.data_mut());

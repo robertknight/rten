@@ -227,8 +227,7 @@ pub fn resize(
     for n in 0..batch {
         for c in 0..chans {
             let in_image: Image = input.slice(&[n.into(), c.into()]).into();
-            let mut out_view = output.view_mut();
-            let mut out_image: ImageMut = out_view.slice_mut(&[n.into(), c.into()]).into();
+            let mut out_image: ImageMut = output.slice_mut(&[n.into(), c.into()]).into();
             match mode {
                 ResizeMode::Nearest => {
                     nearest_resize(&in_image, &mut out_image, nearest_mode, coord_mode);

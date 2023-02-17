@@ -125,8 +125,7 @@ fn conv_2d_pointwise(input: &Tensor, kernel: &Tensor, bias: Option<&Tensor>) -> 
     let kernel_mat = kernel.view().reshaped(&[out_c, in_c]).as_matrix();
 
     for n in 0..batch {
-        let mut out_view = output.view_mut();
-        let mut out_item = out_view.slice_mut(&[n.into()]);
+        let mut out_item = output.slice_mut(&[n.into()]);
         let out_row_stride = out_item.stride(0);
 
         let in_mat = input
@@ -327,8 +326,7 @@ pub fn conv(
                 .reshaped(&[out_channels_per_group, in_channels_per_group * k_h * k_w])
                 .as_matrix();
 
-            let mut out_view = output.view_mut();
-            let mut out_item = out_view.slice_mut(&[
+            let mut out_item = output.slice_mut(&[
                 n.into(),
                 (out_chan_start..out_chan_start + out_channels_per_group).into(),
             ]);
@@ -461,9 +459,8 @@ pub fn conv_transpose(
             1., /* beta */
         );
 
-        let mut out_view = output.view_mut();
         col2im(
-            &mut out_view.slice_mut(&[n.into()]),
+            &mut output.slice_mut(&[n.into()]),
             &col2im_mat.view().reshaped(&[in_h, in_w, out_c, k_h, k_w]),
             strides,
         );
