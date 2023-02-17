@@ -368,6 +368,21 @@ impl<T: Copy, S: AsRef<[T]>> TensorBase<T, S> {
             strides: self.layout.strides()[self.ndim() - N..].try_into().unwrap(),
         }
     }
+
+    /// Return a contiguous slice of `len` elements starting at `index`.
+    /// `len` must be less than or equal to the size of the last dimension.
+    ///
+    /// Using a slice can allow for very efficient access to a range of elements
+    /// in a single row or column (or whatever the last dimension represents).
+    #[doc(hidden)]
+    pub fn last_dim_slice<const N: usize>(&self, index: [usize; N], len: usize) -> &[T] {
+        assert!(
+            self.stride(N - 1) == 1,
+            "last_dim_slice requires contiguous last dimension"
+        );
+        let offset = self.offset(index);
+        &self.data.as_ref()[offset..offset + len]
+    }
 }
 
 impl<'a, T: Copy> TensorBase<T, &'a [T]> {
@@ -529,6 +544,21 @@ impl<T: Copy, S: AsRef<[T]> + AsMut<[T]>> TensorBase<T, S> {
             strides: self.layout.strides().try_into().unwrap(),
         }
     }
+
+    /// Similar to `last_dim_slice`, but returns a mutable slice.
+    #[doc(hidden)]
+    pub fn last_dim_slice_mut<const N: usize>(
+        &mut self,
+        index: [usize; N],
+        len: usize,
+    ) -> &mut [T] {
+        assert!(
+            self.stride(N - 1) == 1,
+            "last_dim_slice_mut requires contiguous last dimension"
+        );
+        let offset = self.offset(index);
+        &mut self.data.as_mut()[offset..offset + len]
+    }
 }
 
 impl<'a, T: Copy> TensorBase<T, &'a mut [T]> {
@@ -665,36 +695,6 @@ impl<T: Copy> TensorBase<T, VecWithOffset<T>> {
         self.layout.resize_dim(dim, end - start);
         self.data
             .set_used_range(start_offset..start_offset + self.layout.end_offset());
-    }
-
-    /// Return a contiguous slice of `len` elements starting at `index`.
-    /// `len` must be less than or equal to the size of the last dimension.
-    ///
-    /// Using a slice can allow for very efficient access to a range of elements
-    /// in a single row or column (or whatever the last dimension represents).
-    #[doc(hidden)]
-    pub fn last_dim_slice<const N: usize>(&self, index: [usize; N], len: usize) -> &[T] {
-        assert!(
-            self.stride(N - 1) == 1,
-            "last_dim_slice requires contiguous last dimension"
-        );
-        let offset = self.offset(index);
-        &self.data[offset..offset + len]
-    }
-
-    /// Similar to `last_dim_slice`, but returns a mutable slice.
-    #[doc(hidden)]
-    pub fn last_dim_slice_mut<const N: usize>(
-        &mut self,
-        index: [usize; N],
-        len: usize,
-    ) -> &mut [T] {
-        assert!(
-            self.stride(N - 1) == 1,
-            "last_dim_slice_mut requires contiguous last dimension"
-        );
-        let offset = self.offset(index);
-        &mut self.data[offset..offset + len]
     }
 
     /// Convert the internal layout of elements to be contiguous, as reported
