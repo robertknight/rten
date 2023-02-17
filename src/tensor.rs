@@ -4,7 +4,7 @@ use std::io;
 use std::marker::PhantomData;
 use std::ops::{Index, IndexMut, Range};
 
-use crate::ndtensor::{Matrix, MatrixMut, NdTensor};
+use crate::ndtensor::{Matrix, MatrixMut, NdTensorView, NdTensorViewMut};
 
 #[cfg(test)]
 use crate::rng::XorShiftRng;
@@ -332,7 +332,7 @@ impl<T: Copy, S: AsRef<[T]>> TensorBase<T, S> {
     ///
     /// Panics if the rank of this tensor is not `N`.
     #[doc(hidden)]
-    pub fn nd_view<const N: usize>(&self) -> NdTensor<T, &[T], N> {
+    pub fn nd_view<const N: usize>(&self) -> NdTensorView<T, N> {
         self.nd_slice([])
     }
 
@@ -343,16 +343,13 @@ impl<T: Copy, S: AsRef<[T]>> TensorBase<T, S> {
     /// Base specifies zero or more indices to slice the view with, and N
     /// is the rank of the returned view. `B + N` must equal `self.ndim()`.
     #[doc(hidden)]
-    pub fn nd_slice<const B: usize, const N: usize>(
-        &self,
-        base: [usize; B],
-    ) -> NdTensor<T, &[T], N> {
+    pub fn nd_slice<const B: usize, const N: usize>(&self, base: [usize; B]) -> NdTensorView<T, N> {
         assert!(B + N == self.ndim());
         let offset = self.slice_offset(base);
         let data = &self.data()[offset..];
         let strides = self.layout.strides()[self.ndim() - N..].try_into().unwrap();
         let shape = self.layout.shape()[self.ndim() - N..].try_into().unwrap();
-        NdTensor::from_slice(data, shape, Some(strides))
+        NdTensorView::from_slice(data, shape, Some(strides))
     }
 
     /// Return a contiguous slice of `len` elements starting at `index`.
@@ -424,7 +421,7 @@ impl<T: Copy, S: AsRef<[T]>> TensorLayout for TensorBase<T, S> {
 }
 
 pub trait AsNdTensorView<'a, T, const N: usize> {
-    fn as_nd_view(&self) -> NdTensor<T, &'a [T], N>;
+    fn as_nd_view(&self) -> NdTensorView<'a, T, N>;
 }
 
 pub trait AsMatrix<'a, T> {
@@ -438,11 +435,11 @@ impl<'a, T, A: AsNdTensorView<'a, T, 2>> AsMatrix<'a, T> for A {
 }
 
 impl<'a, T: Copy, const N: usize> AsNdTensorView<'a, T, N> for TensorView<'a, T> {
-    fn as_nd_view(&self) -> NdTensor<T, &'a [T], N> {
+    fn as_nd_view(&self) -> NdTensorView<'a, T, N> {
         assert!(self.layout.ndim() == N, "Incorrect number of dims");
         let shape = self.shape().try_into().unwrap();
         let strides = self.layout.strides().try_into().unwrap();
-        NdTensor::from_slice(self.data, shape, Some(strides))
+        NdTensorView::from_slice(self.data, shape, Some(strides))
     }
 }
 
@@ -510,20 +507,20 @@ impl<T: Copy, S: AsRef<[T]> + AsMut<[T]>> TensorBase<T, S> {
     pub fn nd_slice_mut<const B: usize, const N: usize>(
         &mut self,
         base: [usize; B],
-    ) -> NdTensor<T, &mut [T], N> {
+    ) -> NdTensorViewMut<T, N> {
         assert!(B + N == self.ndim());
         let offset = self.slice_offset(base);
         let strides = self.layout.strides()[self.ndim() - N..].try_into().unwrap();
         let shape = self.layout.shape()[self.ndim() - N..].try_into().unwrap();
         let data = &mut self.data_mut()[offset..];
-        NdTensor::from_slice(data, shape, Some(strides))
+        NdTensorViewMut::from_slice(data, shape, Some(strides))
     }
 
     /// Return a mutable N-dimensional view of this tensor.
     ///
     /// See notes in `[TensorBase::nd_view]`.
     #[doc(hidden)]
-    pub fn nd_view_mut<const N: usize>(&mut self) -> NdTensor<T, &mut [T], N> {
+    pub fn nd_view_mut<const N: usize>(&mut self) -> NdTensorViewMut<T, N> {
         self.nd_slice_mut([])
     }
 
@@ -589,7 +586,7 @@ impl<I: TensorIndex, T: Copy, S: AsRef<[T]> + AsMut<[T]>> IndexMut<I> for Tensor
 }
 
 pub trait AsNdTensorViewMut<'a, T, const N: usize> {
-    fn as_nd_view_mut(&mut self) -> NdTensor<T, &mut [T], N>;
+    fn as_nd_view_mut(&mut self) -> NdTensorViewMut<T, N>;
 }
 
 pub trait AsMatrixMut<T> {
@@ -603,11 +600,11 @@ impl<'a, T, A: AsNdTensorViewMut<'a, T, 2>> AsMatrixMut<T> for A {
 }
 
 impl<'a, T: Copy, const N: usize> AsNdTensorViewMut<'a, T, N> for TensorViewMut<'a, T> {
-    fn as_nd_view_mut(&mut self) -> NdTensor<T, &mut [T], N> {
+    fn as_nd_view_mut(&mut self) -> NdTensorViewMut<T, N> {
         assert!(self.layout.ndim() == N, "Incorrect number of dims");
         let shape = self.shape().try_into().unwrap();
         let strides = self.layout.strides().try_into().unwrap();
-        NdTensor::from_slice(self.data, shape, Some(strides))
+        NdTensorViewMut::from_slice(self.data, shape, Some(strides))
     }
 }
 

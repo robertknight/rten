@@ -125,17 +125,17 @@ impl<NTL: NdTensorLayout<2>> MatrixLayout for NTL {
     }
 }
 
-/// Provides a view of a slice as an N-dimensional tensor.
+/// Provides a view of an array of elements as an N-dimensional tensor.
 ///
-/// `T` is the element type, `S` is the storage (eg. `&[T]` or `&mut [T]`)
-/// and `N` is the number of dimensions.
+/// `T` is the element type, `S` is the storage and `N` is the number of
+/// dimensions. The storage may be owned (eg. a Vec) or a slice.
 ///
 /// This uses patterns from
 /// https://lab.whitequark.org/notes/2016-12-13/abstracting-over-mutability-in-rust/
 /// to allow the same type to work with owned, borrowed, mutable and immutable
 /// element storage.
 #[derive(Clone, Copy)]
-pub struct NdTensor<T, S: AsRef<[T]>, const N: usize> {
+pub struct NdTensorBase<T, S: AsRef<[T]>, const N: usize> {
     data: S,
     layout: NdLayout<N>,
 
@@ -143,7 +143,7 @@ pub struct NdTensor<T, S: AsRef<[T]>, const N: usize> {
     element_type: PhantomData<T>,
 }
 
-impl<T, S: AsRef<[T]>, const N: usize> NdTensor<T, S, N> {
+impl<T, S: AsRef<[T]>, const N: usize> NdTensorBase<T, S, N> {
     /// Constructs an NdTensorView from a slice.
     ///
     /// Panics if the slice is too short for the dimensions and strides specified.
@@ -151,7 +151,7 @@ impl<T, S: AsRef<[T]>, const N: usize> NdTensor<T, S, N> {
         data: S,
         shape: [usize; N],
         strides: Option<[usize; N]>,
-    ) -> NdTensor<T, S, N> {
+    ) -> NdTensorBase<T, S, N> {
         // TODO - Check that the strides here do not allow for multiple
         // elements to alias.
         let layout = NdLayout {
@@ -162,7 +162,7 @@ impl<T, S: AsRef<[T]>, const N: usize> NdTensor<T, S, N> {
             data.as_ref().len() >= layout.min_data_len(),
             "Slice is too short"
         );
-        NdTensor {
+        NdTensorBase {
             data,
             layout,
             element_type: PhantomData,
@@ -172,7 +172,7 @@ impl<T, S: AsRef<[T]>, const N: usize> NdTensor<T, S, N> {
 
 // Note: `S` refers to `[T]` here rather than `&[T]` so we can preserve
 // liftimes on the result.
-impl<'a, T, S: AsRef<[T]> + ?Sized, const N: usize> NdTensor<T, &'a S, N> {
+impl<'a, T, S: AsRef<[T]> + ?Sized, const N: usize> NdTensorBase<T, &'a S, N> {
     pub fn data(&self) -> &'a [T] {
         self.data.as_ref()
     }
@@ -187,7 +187,7 @@ impl<'a, T, S: AsRef<[T]> + ?Sized, const N: usize> NdTensor<T, &'a S, N> {
     }
 }
 
-impl<T, S: AsRef<[T]> + AsMut<[T]>, const N: usize> NdTensor<T, S, N> {
+impl<T, S: AsRef<[T]> + AsMut<[T]>, const N: usize> NdTensorBase<T, S, N> {
     pub fn data_mut(&mut self) -> &mut [T] {
         self.data.as_mut()
     }
@@ -202,31 +202,31 @@ impl<T, S: AsRef<[T]> + AsMut<[T]>, const N: usize> NdTensor<T, S, N> {
     }
 }
 
-impl<T, S: AsRef<[T]>, const N: usize> Index<[usize; N]> for NdTensor<T, S, N> {
+impl<T, S: AsRef<[T]>, const N: usize> Index<[usize; N]> for NdTensorBase<T, S, N> {
     type Output = T;
     fn index(&self, index: [usize; N]) -> &Self::Output {
         &self.data.as_ref()[self.layout.offset(index)]
     }
 }
 
-impl<T, S: AsRef<[T]> + AsMut<[T]>, const N: usize> IndexMut<[usize; N]> for NdTensor<T, S, N> {
+impl<T, S: AsRef<[T]> + AsMut<[T]>, const N: usize> IndexMut<[usize; N]> for NdTensorBase<T, S, N> {
     fn index_mut(&mut self, index: [usize; N]) -> &mut Self::Output {
         let offset = self.layout.offset(index);
         &mut self.data.as_mut()[offset]
     }
 }
 
-impl<T, S: AsRef<[T]>, const N: usize> NdTensorLayout<N> for NdTensor<T, S, N> {
+impl<T, S: AsRef<[T]>, const N: usize> NdTensorLayout<N> for NdTensorBase<T, S, N> {
     fn layout(&self) -> &NdLayout<N> {
         &self.layout
     }
 }
 
 /// Provides methods specific to 2D tensors (matrices).
-impl<T, S: AsRef<[T]>> NdTensor<T, S, 2> {
+impl<T, S: AsRef<[T]>> NdTensorBase<T, S, 2> {
     /// Return a new view which transposes the columns and rows.
     pub fn transposed(self) -> Self {
-        NdTensor {
+        NdTensorBase {
             data: self.data,
             layout: self.layout.transposed(),
             element_type: PhantomData,
@@ -234,11 +234,21 @@ impl<T, S: AsRef<[T]>> NdTensor<T, S, 2> {
     }
 }
 
+/// N-dimensional view of a slice of data.
+///
+/// See [NdTensorBase] for available methods.
+pub type NdTensorView<'a, T, const N: usize> = NdTensorBase<T, &'a [T], N>;
+
+/// Mutable N-dimensional view of a slice of data.
+///
+/// See [NdTensorBase] for available methods.
+pub type NdTensorViewMut<'a, T, const N: usize> = NdTensorBase<T, &'a mut [T], N>;
+
 /// Alias for viewing a slice as a 2D matrix.
-pub type Matrix<'a, T = f32> = NdTensor<T, &'a [T], 2>;
+pub type Matrix<'a, T = f32> = NdTensorBase<T, &'a [T], 2>;
 
 /// Alias for viewing a mutable slice as a 2D matrix.
-pub type MatrixMut<'a, T = f32> = NdTensor<T, &'a mut [T], 2>;
+pub type MatrixMut<'a, T = f32> = NdTensorBase<T, &'a mut [T], 2>;
 
 /// A variant of NdTensor which does not bounds-check individual dimensions
 /// when indexing, although the computed offset into the underlying storage
