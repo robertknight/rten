@@ -183,7 +183,7 @@ fn conv_2d_depthwise(
 
     for n in 0..batch {
         for c in 0..in_c {
-            let kernel_view = kernel.unchecked_view([c, 0]);
+            let kernel_view = kernel.unchecked_slice([c, 0]);
 
             // The loops here are ordered so that the inner-most loop is as
             // efficient as possible and runs for as long as possible over a

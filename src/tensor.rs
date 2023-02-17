@@ -333,6 +333,41 @@ impl<T: Copy, S: AsRef<[T]>> TensorBase<T, S> {
     pub fn as_view(&self) -> TensorView<T> {
         TensorView::new(self.data.as_ref(), &self.layout)
     }
+
+    /// Return an unchecked version of this view.
+    ///
+    /// This provides faster indexing at the cost of not bounds-checking
+    /// individual dimensions.
+    ///
+    /// Panics if the rank of this view is not `N`.
+    pub fn unchecked_view<const N: usize>(&self) -> UncheckedView<T, N> {
+        UncheckedView {
+            data: self.data.as_ref(),
+            strides: self.layout.strides().try_into().unwrap(),
+        }
+    }
+
+    /// Return an _unchecked_ view of a subset of the data in this tensor.
+    ///
+    /// "Unchecked" means that individual dimensions of an index are not
+    /// bounds-checked against the tensor's shape, but the final offset that
+    /// is generated is.
+    ///
+    /// Base specifies zero or more indices to slice the view with, and N
+    /// is the nubmer of indices to use for unchecked indexing. `B + N` must
+    /// equal `self.ndim()`.
+    #[doc(hidden)]
+    pub fn unchecked_slice<const B: usize, const N: usize>(
+        &self,
+        base: [usize; B],
+    ) -> UncheckedView<T, N> {
+        assert!(B + N == self.ndim());
+        let offset = self.slice_offset(base);
+        UncheckedView {
+            data: &self.data()[offset..],
+            strides: self.layout.strides()[self.ndim() - N..].try_into().unwrap(),
+        }
+    }
 }
 
 impl<'a, T: Copy> TensorBase<T, &'a [T]> {
@@ -377,19 +412,6 @@ impl<'a, T: Copy> TensorBase<T, &'a [T]> {
             data: self.data,
             layout: self.layout.reshaped(shape),
             element_type: PhantomData,
-        }
-    }
-
-    /// Return an unchecked version of this view.
-    ///
-    /// This provides faster indexing at the cost of not bounds-checking
-    /// individual dimensions.
-    ///
-    /// Panics if the rank of this view is not `N`.
-    pub fn unchecked_view<const N: usize>(&self) -> UncheckedView<T, N> {
-        UncheckedView {
-            data: self.data.as_ref(),
-            strides: self.layout.strides().try_into().unwrap(),
         }
     }
 }
@@ -476,6 +498,37 @@ impl<T: Copy, S: AsRef<[T]> + AsMut<[T]>> TensorBase<T, S> {
     pub fn view_mut(&mut self) -> TensorViewMut<T> {
         TensorViewMut::new(self.data.as_mut(), &self.layout)
     }
+
+    /// Return an _unchecked_ mutable view of a subset of the data in this tensor.
+    ///
+    /// This is the same as [Tensor::unchecked_view] except that the returned view can
+    /// be used to modify elements.
+    #[doc(hidden)]
+    pub fn unchecked_slice_mut<const B: usize, const N: usize>(
+        &mut self,
+        base: [usize; B],
+    ) -> UncheckedViewMut<T, N> {
+        assert!(B + N == self.ndim());
+        let offset = self.slice_offset(base);
+        let strides = self.layout.strides()[self.ndim() - N..].try_into().unwrap();
+        UncheckedViewMut {
+            data: &mut self.data_mut()[offset..],
+            strides,
+        }
+    }
+
+    /// Return an unchecked version of this view.
+    ///
+    /// This provides faster indexing at the cost of not bounds-checking
+    /// individual dimensions.
+    ///
+    /// Panics if the rank of this view is not `N`.
+    pub fn unchecked_view_mut<const N: usize>(&mut self) -> UncheckedViewMut<T, N> {
+        UncheckedViewMut {
+            data: self.data.as_mut(),
+            strides: self.layout.strides().try_into().unwrap(),
+        }
+    }
 }
 
 impl<'a, T: Copy> TensorBase<T, &'a mut [T]> {
@@ -512,19 +565,6 @@ impl<'a, T: Copy> TensorBase<T, &'a mut [T]> {
             data: self.data,
             layout: self.layout.reshaped(shape),
             element_type: PhantomData,
-        }
-    }
-
-    /// Return an unchecked version of this view.
-    ///
-    /// This provides faster indexing at the cost of not bounds-checking
-    /// individual dimensions.
-    ///
-    /// Panics if the rank of this view is not `N`.
-    pub fn unchecked_view_mut<const N: usize>(&mut self) -> UncheckedViewMut<T, N> {
-        UncheckedViewMut {
-            data: self.data.as_mut(),
-            strides: self.layout.strides().try_into().unwrap(),
         }
     }
 }
@@ -712,46 +752,6 @@ impl<T: Copy> TensorBase<T, VecWithOffset<T>> {
         let mut new_shape: Vec<usize> = self.shape().into();
         new_shape.insert(dim, 1);
         self.reshape(&new_shape);
-    }
-
-    /// Return an _unchecked_ view of a subset of the data in this tensor.
-    ///
-    /// "Unchecked" means that individual dimensions of an index are not
-    /// bounds-checked against the tensor's shape, but the final offset that
-    /// is generated is.
-    ///
-    /// Base specifies zero or more indices to slice the view with, and N
-    /// is the nubmer of indices to use for unchecked indexing. `B + N` must
-    /// equal `self.ndim()`.
-    #[doc(hidden)]
-    pub fn unchecked_view<const B: usize, const N: usize>(
-        &self,
-        base: [usize; B],
-    ) -> UncheckedView<T, N> {
-        assert!(B + N == self.ndim());
-        let offset = self.slice_offset(base);
-        UncheckedView {
-            data: &self.data()[offset..],
-            strides: self.layout.strides()[self.ndim() - N..].try_into().unwrap(),
-        }
-    }
-
-    /// Return an _unchecked_ mutable view of a subset of the data in this tensor.
-    ///
-    /// This is the same as [Tensor::unchecked_view] except that the returned view can
-    /// be used to modify elements.
-    #[doc(hidden)]
-    pub fn unchecked_view_mut<const B: usize, const N: usize>(
-        &mut self,
-        base: [usize; B],
-    ) -> UncheckedViewMut<T, N> {
-        assert!(B + N == self.ndim());
-        let offset = self.slice_offset(base);
-        let strides = self.layout.strides()[self.ndim() - N..].try_into().unwrap();
-        UncheckedViewMut {
-            data: &mut self.data_mut()[offset..],
-            strides,
-        }
     }
 }
 
@@ -1303,7 +1303,7 @@ mod tests {
     fn test_unchecked_view() {
         let mut rng = XorShiftRng::new(1234);
         let x = rand(&[10, 5, 3, 7], &mut rng);
-        let x_view = x.unchecked_view([5, 3]);
+        let x_view = x.unchecked_slice([5, 3]);
 
         for a in 0..x.shape()[2] {
             for b in 0..x.shape()[3] {
@@ -1318,7 +1318,7 @@ mod tests {
         let mut x = rand(&[10, 5, 3, 7], &mut rng);
 
         let [_, _, a_size, b_size] = x.dims();
-        let mut x_view = x.unchecked_view_mut([5, 3]);
+        let mut x_view = x.unchecked_slice_mut([5, 3]);
 
         for a in 0..a_size {
             for b in 0..b_size {
