@@ -43,7 +43,6 @@ fn im2col(
     strides: [usize; 2],
     out_hw: [usize; 2],
 ) {
-    let [_, out_w] = output.dims();
     let [in_chans, in_h, in_w] = input.dims();
     let [pad_top, pad_left, _pad_bottom, _pad_right] = padding;
     let [stride_h, stride_w] = strides;
@@ -73,8 +72,8 @@ fn im2col(
                     let out_row = out_row_top + k_x;
                     let (min_px, max_px) =
                         min_max_out_x_coords(k_x, in_w, pad_left, stride_w, x_patches);
-                    let out_row_data =
-                        &mut output.last_dim_slice_mut([out_row, 0], out_w)[out_col_left..];
+                    let mut out_row_view = output.nd_slice_mut::<1, 1>([out_row]);
+                    let out_row_data = &mut out_row_view.data_mut()[out_col_left..];
 
                     for px in min_px..max_px {
                         out_row_data[px] = in_row[[px * stride_w + k_x - pad_left]]
@@ -188,7 +187,8 @@ fn conv_2d_depthwise(
             // efficient as possible and runs for as long as possible over a
             // contiguous slice of memory.
             for out_y in 0..out_h {
-                let out_row = output.last_dim_slice_mut([n, c, out_y, 0], out_w);
+                let mut out_row = output.nd_slice_mut::<3, 1>([n, c, out_y]);
+                let out_row = out_row.data_mut();
 
                 for k_y in 0..k_h {
                     let in_y = out_y * stride_h + k_y;
@@ -196,7 +196,7 @@ fn conv_2d_depthwise(
                         continue;
                     }
 
-                    let in_row = input.last_dim_slice([n, c, in_y - pad_top, 0], in_w);
+                    let in_row = input.nd_slice::<3, 1>([n, c, in_y - pad_top]).data();
 
                     for k_x in 0..k_w {
                         let kernel_val = kernel_view[[k_y, k_x]];

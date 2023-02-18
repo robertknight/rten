@@ -355,21 +355,6 @@ impl<T: Copy, S: AsRef<[T]>> TensorBase<T, S> {
         let shape = self.layout.shape()[self.ndim() - N..].try_into().unwrap();
         NdTensorView::from_slice(data, shape, Some(strides))
     }
-
-    /// Return a contiguous slice of `len` elements starting at `index`.
-    /// `len` must be less than or equal to the size of the last dimension.
-    ///
-    /// Using a slice can allow for very efficient access to a range of elements
-    /// in a single row or column (or whatever the last dimension represents).
-    #[doc(hidden)]
-    pub fn last_dim_slice<const N: usize>(&self, index: [usize; N], len: usize) -> &[T] {
-        assert!(
-            self.stride(N - 1) == 1,
-            "last_dim_slice requires contiguous last dimension"
-        );
-        let offset = self.offset(index);
-        &self.data.as_ref()[offset..offset + len]
-    }
 }
 
 impl<'a, T: Copy> TensorBase<T, &'a [T]> {
@@ -514,21 +499,6 @@ impl<T: Copy, S: AsRef<[T]> + AsMut<[T]>> TensorBase<T, S> {
     #[doc(hidden)]
     pub fn nd_view_mut<const N: usize>(&mut self) -> NdTensorViewMut<T, N> {
         self.nd_slice_mut([])
-    }
-
-    /// Similar to `last_dim_slice`, but returns a mutable slice.
-    #[doc(hidden)]
-    pub fn last_dim_slice_mut<const N: usize>(
-        &mut self,
-        index: [usize; N],
-        len: usize,
-    ) -> &mut [T] {
-        assert!(
-            self.stride(N - 1) == 1,
-            "last_dim_slice_mut requires contiguous last dimension"
-        );
-        let offset = self.offset(index);
-        &mut self.data.as_mut()[offset..offset + len]
     }
 }
 
@@ -1246,32 +1216,6 @@ mod tests {
             for b in 0..x.shape()[3] {
                 assert_eq!(x[[5, 3, a, b]], (a + b) as f32);
             }
-        }
-    }
-
-    #[test]
-    fn test_last_dim_slice() {
-        let mut rng = XorShiftRng::new(1234);
-        let x = rand(&[10, 5, 3, 7], &mut rng);
-        let x_slice = x.last_dim_slice([5, 3, 2, 0], x.shape()[3]);
-
-        for i in 0..x.shape()[3] {
-            assert_eq!(x[[5, 3, 2, i]], x_slice[i]);
-        }
-    }
-
-    #[test]
-    fn test_last_dim_slice_mut() {
-        let mut rng = XorShiftRng::new(1234);
-        let mut x = rand(&[10, 5, 3, 7], &mut rng);
-        let x_slice = x.last_dim_slice_mut([5, 3, 2, 0], x.shape()[3]);
-
-        for val in x_slice.iter_mut() {
-            *val = 1.0;
-        }
-
-        for i in 0..x.shape()[3] {
-            assert_eq!(x[[5, 3, 2, i]], 1.0);
         }
     }
 

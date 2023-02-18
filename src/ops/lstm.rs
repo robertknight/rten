@@ -171,9 +171,16 @@ pub fn lstm(
         let weight = extract_matrix(weights, dir, gate_index).transposed();
         let rec_weight = extract_matrix(recurrent_weights, dir, gate_index).transposed();
         let bias = bias.as_ref().map(|bias| {
-            let input_bias = bias.last_dim_slice([dir, gate_index * hidden_size], hidden_size);
-            let hidden_bias =
-                bias.last_dim_slice([dir, (gate_index + 4) * hidden_size], hidden_size);
+            let nth_gate =
+                |gate_index| (gate_index * hidden_size)..((gate_index + 1) * hidden_size);
+
+            let input_bias = bias
+                .slice(&[dir.into(), nth_gate(gate_index).into()])
+                .to_data();
+            let hidden_bias = bias
+                .slice(&[dir.into(), nth_gate(gate_index + 4).into()])
+                .to_data();
+
             (input_bias, hidden_bias)
         });
         (weight, rec_weight, bias)
