@@ -5,7 +5,7 @@ use crate::linalg::gemm;
 use crate::ndtensor::Matrix;
 use crate::ops::binary_elementwise::broadcast_shapes;
 use crate::ops::{InputList, IntoOpResult, OpError, Operator, Output};
-use crate::tensor::{AsMatrix, Tensor, TensorLayout};
+use crate::tensor::{Tensor, TensorLayout};
 
 #[derive(Debug)]
 pub struct Gemm {
@@ -63,8 +63,8 @@ pub fn gemm_op(
     gemm(
         output.data_mut(),
         out_row_stride,
-        a_view.as_matrix(),
-        b_view.as_matrix(),
+        a_view.nd_view(),
+        b_view.nd_view(),
         alpha,
         beta,
     );
@@ -174,7 +174,7 @@ mod tests {
     use crate::linalg::gemm;
     use crate::ops::matmul::{gemm_op, matmul, OpError};
     use crate::rng::XorShiftRng;
-    use crate::tensor::{from_data, rand, zeros, AsMatrix, Tensor, TensorLayout};
+    use crate::tensor::{from_data, rand, zeros, Tensor, TensorLayout};
     use crate::test_util::expect_equal;
 
     fn gemm_tensors(c: &mut Tensor, a: &Tensor, b: &Tensor, alpha: f32, beta: f32) {
@@ -182,8 +182,8 @@ mod tests {
         gemm(
             c.data_mut(),
             c_row_stride,
-            a.view().as_matrix(),
-            b.view().as_matrix(),
+            a.nd_view(),
+            b.nd_view(),
             alpha,
             beta,
         )

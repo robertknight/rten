@@ -3,7 +3,7 @@ use std::iter::zip;
 use crate::check_dims;
 use crate::ndtensor::{Matrix, MatrixLayout, MatrixMut};
 use crate::ops::{Input, InputList, IntoOpResult, OpError, Operator, Output};
-use crate::tensor::{AsMatrix, AsMatrixMut, Tensor, TensorLayout};
+use crate::tensor::{Tensor, TensorLayout};
 
 /// Specifies an output size for a resize operation.
 pub enum ResizeTarget<'a> {
@@ -183,19 +183,19 @@ pub fn resize(
 
     for n in 0..batch {
         for c in 0..chans {
-            let in_image = input.slice(&[n.into(), c.into()]).as_matrix();
+            let in_image = input.slice(&[n.into(), c.into()]).to_nd_view();
             let mut out_image = output.slice_mut(&[n.into(), c.into()]);
             match mode {
                 ResizeMode::Nearest => {
                     nearest_resize(
                         &in_image,
-                        &mut out_image.as_matrix_mut(),
+                        &mut out_image.nd_view_mut(),
                         nearest_mode,
                         coord_mode,
                     );
                 }
                 ResizeMode::Linear => {
-                    bilinear_resize(&in_image, &mut out_image.as_matrix_mut(), coord_mode);
+                    bilinear_resize(&in_image, &mut out_image.nd_view_mut(), coord_mode);
                 }
             };
         }

@@ -651,7 +651,7 @@ mod tests {
     use crate::linalg::{add_scaled_vector, gemm, gemm_base_kernel};
     use crate::ndtensor::{Matrix, MatrixLayout};
     use crate::rng::XorShiftRng;
-    use crate::tensor::{rand, zeros, AsMatrix, Tensor, TensorLayout};
+    use crate::tensor::{rand, zeros, Tensor, TensorLayout};
     use crate::test_util::expect_equal;
 
     fn reference_matmul(a: &Tensor, b: &Tensor) -> Tensor {
@@ -690,8 +690,8 @@ mod tests {
         gemm_fn(
             output.data_mut(),
             out_row_stride,
-            a.view().as_matrix(),
-            b.view().as_matrix(),
+            a.nd_view(),
+            b.nd_view(),
             alpha,
             beta,
         );
@@ -805,8 +805,8 @@ mod tests {
         gemm(
             &mut output,
             2,
-            a.view().as_matrix(),
-            b.view().as_matrix(),
+            a.nd_view(),
+            b.nd_view(),
             1., /* alpha */
             1., /* beta */
         );

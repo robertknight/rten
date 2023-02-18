@@ -4,7 +4,7 @@ use std::io;
 use std::marker::PhantomData;
 use std::ops::{Index, IndexMut, Range};
 
-use crate::ndtensor::{Matrix, MatrixMut, NdTensorView, NdTensorViewMut};
+use crate::ndtensor::{NdTensorView, NdTensorViewMut};
 
 #[cfg(test)]
 use crate::rng::XorShiftRng;
@@ -330,6 +330,10 @@ impl<T: Copy, S: AsRef<[T]>> TensorBase<T, S> {
 
     /// Return an `NdTensor` version of this view.
     ///
+    /// The lifetime of the result is that of the current tensor. See also
+    /// [TensorBase::to_nd_view] for a variant which returns a view with
+    /// a lifetime tied to the underlying storage.
+    ///
     /// Panics if the rank of this tensor is not `N`.
     #[doc(hidden)]
     pub fn nd_view<const N: usize>(&self) -> NdTensorView<T, N> {
@@ -338,7 +342,7 @@ impl<T: Copy, S: AsRef<[T]>> TensorBase<T, S> {
 
     /// Return an N-dimensional view of a slice of this tensor.
     ///
-    /// See notes in `[TensorBase::nd_view]`.
+    /// See notes in [TensorBase::nd_view].
     ///
     /// Base specifies zero or more indices to slice the view with, and N
     /// is the rank of the returned view. `B + N` must equal `self.ndim()`.
@@ -375,6 +379,17 @@ impl<'a, T: Copy> TensorBase<T, &'a [T]> {
     /// underlying storage rather than the view.
     pub fn to_data(&self) -> &'a [T] {
         self.data
+    }
+
+    /// Return an N-dimensional view of this tensor.
+    ///
+    /// This is similar to [TensorBase::nd_view], but the lifetime is that of the
+    /// underlying storage rather than the view.
+    pub fn to_nd_view<const N: usize>(&self) -> NdTensorView<'a, T, N> {
+        assert!(self.layout.ndim() == N, "Incorrect number of dims");
+        let shape = self.shape().try_into().unwrap();
+        let strides = self.layout.strides().try_into().unwrap();
+        NdTensorView::from_slice(self.data, shape, Some(strides))
     }
 
     /// Change the layout of this view to have the given shape.
@@ -417,29 +432,6 @@ impl<'a, T: Copy> TensorBase<T, &'a [T]> {
 impl<T: Copy, S: AsRef<[T]>> TensorLayout for TensorBase<T, S> {
     fn layout(&self) -> &Layout {
         &self.layout
-    }
-}
-
-pub trait AsNdTensorView<'a, T, const N: usize> {
-    fn as_nd_view(&self) -> NdTensorView<'a, T, N>;
-}
-
-pub trait AsMatrix<'a, T> {
-    fn as_matrix(&self) -> Matrix<'a, T>;
-}
-
-impl<'a, T, A: AsNdTensorView<'a, T, 2>> AsMatrix<'a, T> for A {
-    fn as_matrix(&self) -> Matrix<'a, T> {
-        self.as_nd_view()
-    }
-}
-
-impl<'a, T: Copy, const N: usize> AsNdTensorView<'a, T, N> for TensorView<'a, T> {
-    fn as_nd_view(&self) -> NdTensorView<'a, T, N> {
-        assert!(self.layout.ndim() == N, "Incorrect number of dims");
-        let shape = self.shape().try_into().unwrap();
-        let strides = self.layout.strides().try_into().unwrap();
-        NdTensorView::from_slice(self.data, shape, Some(strides))
     }
 }
 
@@ -582,29 +574,6 @@ impl<I: TensorIndex, T: Copy, S: AsRef<[T]> + AsMut<[T]>> IndexMut<I> for Tensor
     fn index_mut(&mut self, index: I) -> &mut Self::Output {
         let offset = self.offset(index);
         &mut self.data.as_mut()[offset]
-    }
-}
-
-pub trait AsNdTensorViewMut<'a, T, const N: usize> {
-    fn as_nd_view_mut(&mut self) -> NdTensorViewMut<T, N>;
-}
-
-pub trait AsMatrixMut<T> {
-    fn as_matrix_mut(&mut self) -> MatrixMut<T>;
-}
-
-impl<'a, T, A: AsNdTensorViewMut<'a, T, 2>> AsMatrixMut<T> for A {
-    fn as_matrix_mut(&mut self) -> MatrixMut<T> {
-        self.as_nd_view_mut()
-    }
-}
-
-impl<'a, T: Copy, const N: usize> AsNdTensorViewMut<'a, T, N> for TensorViewMut<'a, T> {
-    fn as_nd_view_mut(&mut self) -> NdTensorViewMut<T, N> {
-        assert!(self.layout.ndim() == N, "Incorrect number of dims");
-        let shape = self.shape().try_into().unwrap();
-        let strides = self.layout.strides().try_into().unwrap();
-        NdTensorViewMut::from_slice(self.data, shape, Some(strides))
     }
 }
 

@@ -4,7 +4,7 @@ use crate::check_dims;
 use crate::linalg::{add_scaled_vector, div_ceil, gemm};
 use crate::ops::pooling::calc_output_size_and_padding;
 use crate::ops::{InputList, IntoOpResult, OpError, Operator, Output, Padding};
-use crate::tensor::{AsMatrix, Tensor, TensorLayout, TensorView, TensorViewMut};
+use crate::tensor::{Tensor, TensorLayout, TensorView, TensorViewMut};
 
 // Calculate the min and max output X coordinates that are valid when updating
 // a row of convolution output using a loop:
@@ -122,7 +122,7 @@ fn conv_2d_pointwise(input: &Tensor, kernel: &Tensor, bias: Option<&Tensor>) -> 
     // views.
     let input = input.as_contiguous();
     let kernel = kernel.as_contiguous();
-    let kernel_mat = kernel.view().reshaped(&[out_c, in_c]).as_matrix();
+    let kernel_mat = kernel.view().reshaped(&[out_c, in_c]).to_nd_view();
 
     for n in 0..batch {
         let mut out_item = output.slice_mut(&[n.into()]);
@@ -131,7 +131,7 @@ fn conv_2d_pointwise(input: &Tensor, kernel: &Tensor, bias: Option<&Tensor>) -> 
         let in_mat = input
             .slice(&[n.into()])
             .reshaped(&[in_c, in_h * in_w])
-            .as_matrix();
+            .to_nd_view();
 
         gemm(
             out_item.data_mut(),
@@ -324,7 +324,7 @@ pub fn conv(
             let kernel_mat = kernel
                 .slice(&[(out_chan_start..out_chan_start + out_channels_per_group).into()])
                 .reshaped(&[out_channels_per_group, in_channels_per_group * k_h * k_w])
-                .as_matrix();
+                .to_nd_view();
 
             let mut out_item = output.slice_mut(&[
                 n.into(),
@@ -337,7 +337,7 @@ pub fn conv(
                 out_mat.data_mut(),
                 out_row_stride,
                 kernel_mat,
-                im2col_mat.view().as_matrix(),
+                im2col_mat.nd_view(),
                 1.,                                   // alpha
                 if bias.is_some() { 1. } else { 0. }, // beta
             );
@@ -454,8 +454,8 @@ pub fn conv_transpose(
         gemm(
             col2im_mat.data_mut(),
             col2im_row_stride,
-            input_mat.as_matrix(),
-            kernel_mat.as_matrix(),
+            input_mat.nd_view(),
+            kernel_mat.nd_view(),
             1., /* alpha */
             1., /* beta */
         );

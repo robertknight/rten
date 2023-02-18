@@ -5,7 +5,7 @@ use crate::linalg::gemm;
 use crate::ndtensor::Matrix;
 use crate::ops::unary_elementwise::UnaryFloatOp;
 use crate::ops::{InputList, IntoOpResult, OpError, Operator, Output, Sigmoid, Tanh};
-use crate::tensor::{AsMatrix, Tensor, TensorLayout, TensorView};
+use crate::tensor::{Tensor, TensorLayout, TensorView};
 
 #[derive(Copy, Clone, Debug)]
 pub enum LSTMDirection {
@@ -60,7 +60,7 @@ fn update_lstm_gate(
     gemm(
         output,
         output.len(),
-        input.as_matrix(),
+        input.nd_view(),
         input_weight,
         1., /* alpha */
         0., /* beta */
@@ -69,7 +69,7 @@ fn update_lstm_gate(
     gemm(
         output,
         output.len(),
-        hidden.as_matrix(),
+        hidden.nd_view(),
         hidden_weight,
         1., /* alpha */
         1., /* beta */
@@ -158,7 +158,7 @@ pub fn lstm(
                 dir.into(),
                 (index * hidden_size..(index + 1) * hidden_size).into(),
             ])
-            .as_matrix()
+            .to_nd_view()
     }
 
     // Specifies which gate's weight or bias to extract.
