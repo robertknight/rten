@@ -179,11 +179,12 @@ impl<'a, T, S: AsRef<[T]> + ?Sized, const N: usize> NdTensorBase<T, &'a S, N> {
 
     /// Return a view of this tensor which uses unchecked indexing.
     pub fn unchecked(&self) -> UncheckedNdTensor<T, &'a [T], N> {
-        UncheckedNdTensor {
+        let base = NdTensorBase {
             data: self.data.as_ref(),
             layout: self.layout,
             element_type: PhantomData,
-        }
+        };
+        UncheckedNdTensor { base }
     }
 }
 
@@ -194,11 +195,12 @@ impl<T, S: AsRef<[T]> + AsMut<[T]>, const N: usize> NdTensorBase<T, S, N> {
 
     /// Return a mutable view of this tensor which uses unchecked indexing.
     pub fn unchecked_mut(&mut self) -> UncheckedNdTensor<T, &mut [T], N> {
-        UncheckedNdTensor {
+        let base = NdTensorBase {
             data: self.data.as_mut(),
             layout: self.layout,
             element_type: PhantomData,
-        }
+        };
+        UncheckedNdTensor { base }
     }
 }
 
@@ -257,17 +259,13 @@ pub type MatrixMut<'a, T = f32> = NdTensorBase<T, &'a mut [T], 2>;
 /// Using unchecked indexing is faster, at the cost of not catching errors
 /// in specific indices.
 pub struct UncheckedNdTensor<T, S: AsRef<[T]>, const N: usize> {
-    data: S,
-    layout: NdLayout<N>,
-
-    /// Avoids compiler complaining `T` is unused.
-    element_type: PhantomData<T>,
+    base: NdTensorBase<T, S, N>,
 }
 
 impl<T, S: AsRef<[T]>, const N: usize> Index<[usize; N]> for UncheckedNdTensor<T, S, N> {
     type Output = T;
     fn index(&self, index: [usize; N]) -> &Self::Output {
-        &self.data.as_ref()[self.layout.offset_unchecked(index)]
+        &self.base.data.as_ref()[self.base.layout.offset_unchecked(index)]
     }
 }
 
@@ -275,7 +273,7 @@ impl<T, S: AsRef<[T]> + AsMut<[T]>, const N: usize> IndexMut<[usize; N]>
     for UncheckedNdTensor<T, S, N>
 {
     fn index_mut(&mut self, index: [usize; N]) -> &mut Self::Output {
-        let offset = self.layout.offset_unchecked(index);
-        &mut self.data.as_mut()[offset]
+        let offset = self.base.layout.offset_unchecked(index);
+        &mut self.base.data.as_mut()[offset]
     }
 }
