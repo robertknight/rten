@@ -753,10 +753,10 @@ impl<T: Copy + PartialEq, S: AsRef<[T]>> PartialEq for TensorBase<T, S> {
     }
 }
 
-impl<T: Copy> Clone for Tensor<T> {
-    fn clone(&self) -> Tensor<T> {
+impl<T: Copy, S: AsRef<[T]> + Clone> Clone for TensorBase<T, S> {
+    fn clone(&self) -> TensorBase<T, S> {
         let data = self.data.clone();
-        Tensor {
+        TensorBase {
             data,
             layout: self.layout.clone(),
             element_type: PhantomData,
