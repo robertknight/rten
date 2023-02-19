@@ -172,7 +172,7 @@ fn conv_2d_depthwise(
         Tensor::zeros(&[batch, out_c, out_h, out_w])
     };
 
-    // Use of `last_dim_slice` requires contiguous last dimension.
+    // Use of input rows below assumes contiguous last dimension.
     let input: Cow<_> = if input.stride(input.ndim() - 1) == 1 {
         Cow::Borrowed(input)
     } else {
