@@ -195,7 +195,7 @@ pub fn lstm(
         .cloned()
         .unwrap_or_else(|| Tensor::zeros(&[num_directions, batch, hidden_size]));
     let mut hidden = initial_hidden
-        .map(|t| t.as_contiguous().into_owned()) // Needed due to `last_dim_slice` usage
+        .cloned()
         .unwrap_or_else(|| Tensor::zeros(&[num_directions, batch, hidden_size]));
 
     let mut hidden_seq = Tensor::<f32>::zeros(&[seq_len, num_directions, batch, hidden_size]);
@@ -316,9 +316,9 @@ pub fn lstm(
 
                 // Copy latest value of hidden seq to output tensor
                 let mut hidden_seq_item = hidden_seq.slice_mut(&[seq.into(), dir.into(), b.into()]);
-                hidden_seq_item
-                    .data_mut()
-                    .clone_from_slice(hidden_item.data_mut());
+                for (seq, hidden) in zip(hidden_seq_item.iter_mut(), hidden_item.iter()) {
+                    *seq = hidden;
+                }
             }
         }
     }
