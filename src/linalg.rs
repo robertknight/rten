@@ -5,7 +5,7 @@
 ///! and vector-scalar products.
 use std::ops::Range;
 
-use crate::ndtensor::{Matrix, MatrixLayout};
+use crate::ndtensor::{Matrix, MatrixLayout, MatrixMut};
 
 pub fn div_ceil(a: usize, b: usize) -> usize {
     if b == 1 {
@@ -528,8 +528,10 @@ fn gemm_impl<K: Kernel, const MR_NR: usize>(
         a.cols() == b.rows(),
         "Columns of matrix `a` must match rows of matrix `b`"
     );
+
     // Construct a Matrix from the implied dimensions, to validate the slice length.
-    Matrix::<f32>::from_slice(out_data, [a.rows(), b.cols()], Some([out_row_stride, 1]));
+    MatrixMut::<f32>::from_data(out_data, [a.rows(), b.cols()], Some([out_row_stride, 1]))
+        .expect("Output buffer should be large enough");
 
     // The constant values for block sizes below were taken from the
     // matrixmultiply crate. See https://dl.acm.org/doi/pdf/10.1145/2925987 for
@@ -649,7 +651,6 @@ fn gemm_impl<K: Kernel, const MR_NR: usize>(
 #[cfg(test)]
 mod tests {
     use crate::linalg::{add_scaled_vector, gemm, gemm_base_kernel};
-    use crate::ndtensor::{Matrix, MatrixLayout};
     use crate::rng::XorShiftRng;
     use crate::tensor::{rand, zeros, Tensor, TensorLayout};
     use crate::test_util::expect_equal;
@@ -758,24 +759,6 @@ mod tests {
         add_scaled_vector(&mut dest, &src, 2, 1, 1.0);
     }
 
-    #[test]
-    fn test_matrix_from_slice() {
-        let data = vec![1., 2., 3., 4.];
-        let mat = Matrix::<f32>::from_slice(&data, [2, 2], None);
-        assert_eq!(mat.data(), data);
-        assert_eq!(mat.rows(), 2);
-        assert_eq!(mat.cols(), 2);
-        assert_eq!(mat.row_stride(), 2);
-        assert_eq!(mat.col_stride(), 1);
-    }
-
-    #[test]
-    #[should_panic(expected = "Slice is too short")]
-    fn test_matrix_from_slice_panics_if_too_short() {
-        let data = vec![1., 2., 3., 4.];
-        Matrix::<f32>::from_slice(&data, [3, 3], Some([2, 1]));
-    }
-
     // Simplest possible test case for easy debugging.
     #[test]
     fn test_simple_gemm() -> Result<(), String> {
@@ -795,7 +778,7 @@ mod tests {
     }
 
     #[test]
-    #[should_panic(expected = "Slice is too short")]
+    #[should_panic(expected = "Output buffer should be large enough")]
     fn test_gemm_panics_if_output_is_too_short() {
         let a = Tensor::from_data(&[2, 2], vec![1., 2., 3., 4.]);
         let b = Tensor::from_data(&[2, 2], vec![5., 6., 7., 8.]);

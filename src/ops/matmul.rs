@@ -140,12 +140,14 @@ pub fn matmul(a: &Tensor, b: &Tensor) -> Result<Tensor, OpError> {
                 &a.data()[a_offset..],
                 [a_rows, a_cols],
                 Some([a.stride(a.ndim() - 2), a.stride(a.ndim() - 1)]),
-            ),
+            )
+            .unwrap(),
             Matrix::from_slice(
                 &b.data()[b_offset..],
                 [b_rows, b_cols],
                 Some([b.stride(b.ndim() - 2), b.stride(b.ndim() - 1)]),
-            ),
+            )
+            .unwrap(),
             1., // alpha
             0., // beta
         );

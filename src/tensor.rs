@@ -353,7 +353,7 @@ impl<T: Copy, S: AsRef<[T]>> TensorBase<T, S> {
         let data = &self.data()[offset..];
         let strides = self.layout.strides()[self.ndim() - N..].try_into().unwrap();
         let shape = self.layout.shape()[self.ndim() - N..].try_into().unwrap();
-        NdTensorView::from_slice(data, shape, Some(strides))
+        NdTensorView::from_slice(data, shape, Some(strides)).unwrap()
     }
 }
 
@@ -374,7 +374,7 @@ impl<'a, T: Copy> TensorBase<T, &'a [T]> {
         assert!(self.layout.ndim() == N, "Incorrect number of dims");
         let shape = self.shape().try_into().unwrap();
         let strides = self.layout.strides().try_into().unwrap();
-        NdTensorView::from_slice(self.data, shape, Some(strides))
+        NdTensorView::from_slice(self.data, shape, Some(strides)).unwrap()
     }
 
     /// Change the layout of this view to have the given shape.
@@ -490,7 +490,7 @@ impl<T: Copy, S: AsRef<[T]> + AsMut<[T]>> TensorBase<T, S> {
         let strides = self.layout.strides()[self.ndim() - N..].try_into().unwrap();
         let shape = self.layout.shape()[self.ndim() - N..].try_into().unwrap();
         let data = &mut self.data_mut()[offset..];
-        NdTensorViewMut::from_slice(data, shape, Some(strides))
+        NdTensorViewMut::from_data(data, shape, Some(strides)).unwrap()
     }
 
     /// Return a mutable N-dimensional view of this tensor.
