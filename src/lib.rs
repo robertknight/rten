@@ -1,7 +1,6 @@
 mod graph;
 mod linalg;
 mod model;
-mod ndtensor;
 mod number;
 mod tensor;
 mod timer;

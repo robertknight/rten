@@ -1,8 +1,8 @@
 use std::iter::zip;
 
 use crate::check_dims;
-use crate::ndtensor::{Matrix, MatrixLayout, MatrixMut};
 use crate::ops::{Input, InputList, IntoOpResult, OpError, Operator, Output};
+use crate::tensor::{Matrix, MatrixLayout, MatrixMut};
 use crate::tensor::{Tensor, TensorLayout};
 
 /// Specifies an output size for a resize operation.

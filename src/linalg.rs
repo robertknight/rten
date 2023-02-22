@@ -5,7 +5,7 @@
 ///! and vector-scalar products.
 use std::ops::Range;
 
-use crate::ndtensor::{Matrix, MatrixLayout, MatrixMut};
+use crate::tensor::{Matrix, MatrixLayout, MatrixMut};
 
 pub fn div_ceil(a: usize, b: usize) -> usize {
     if b == 1 {

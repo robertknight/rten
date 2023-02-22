@@ -4,8 +4,6 @@ use std::io;
 use std::marker::PhantomData;
 use std::ops::{Index, IndexMut, Range};
 
-use crate::ndtensor::{NdTensorView, NdTensorViewMut};
-
 #[cfg(test)]
 use crate::rng::XorShiftRng;
 
@@ -13,12 +11,16 @@ mod index_iterator;
 mod iterators;
 mod layout;
 mod macros;
+mod ndtensor;
 mod range;
 mod vec_with_offset;
 
 pub use self::index_iterator::IndexIterator;
 pub use self::iterators::{BroadcastElements, Elements, ElementsMut, Offsets};
 pub(crate) use self::layout::Layout;
+pub use self::ndtensor::{
+    Matrix, MatrixLayout, MatrixMut, NdTensorBase, NdTensorLayout, NdTensorView, NdTensorViewMut,
+};
 pub use self::range::{SliceItem, SliceRange};
 pub use layout::is_valid_permutation;
 use vec_with_offset::VecWithOffset;

@@ -432,7 +432,7 @@ impl<T, S: AsRef<[T]> + AsMut<[T]>, const N: usize> IndexMut<[usize; N]>
 
 #[cfg(test)]
 mod tests {
-    use crate::ndtensor::{FromDataError, MatrixLayout, NdTensorLayout, NdTensorView};
+    use super::{FromDataError, MatrixLayout, NdTensorLayout, NdTensorView};
 
     /// Return elements of `matrix` in their logical order.
     ///
