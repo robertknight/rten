@@ -300,6 +300,27 @@ impl<T, S: AsRef<[T]>, const N: usize> NdTensorBase<T, S, N> {
     }
 }
 
+impl<T: Clone, S: AsRef<[T]>, const N: usize> NdTensorBase<T, S, N> {
+    /// Return the underlying elements, in the order they are stored.
+    ///
+    /// See [NdTensorBase::to_data] for a variant for [NdTensorView] where
+    /// the returned lifetime matches the underlying slice.
+    pub fn data(&self) -> &[T] {
+        self.data.as_ref()
+    }
+
+    /// Return a copy of this view that owns its data. For [NdTensorView] this
+    /// is different than cloning the view, as that returns a view which has
+    /// its own layout, but the same underlying data buffer.
+    pub fn to_owned(&self) -> NdTensor<T, N> {
+        NdTensor {
+            data: self.data.as_ref().to_vec(),
+            layout: self.layout,
+            element_type: PhantomData,
+        }
+    }
+}
+
 impl<'a, T, const N: usize> NdTensorBase<T, &'a [T], N> {
     /// Constructs a view from a slice.
     pub fn from_slice(
@@ -326,7 +347,11 @@ impl<'a, T, const N: usize> NdTensorBase<T, &'a [T], N> {
 // Note: `S` refers to `[T]` here rather than `&[T]` so we can preserve
 // liftimes on the result.
 impl<'a, T, S: AsRef<[T]> + ?Sized, const N: usize> NdTensorBase<T, &'a S, N> {
-    pub fn data(&self) -> &'a [T] {
+    /// Return the underlying elements of the view.
+    ///
+    /// This method differs from [NdTensorBase::data] in that the lifetime of the
+    /// result is that of the underlying data, rather than the view.
+    pub fn to_data(&self) -> &'a [T] {
         self.data.as_ref()
     }
 
@@ -388,6 +413,9 @@ impl<T, S: AsRef<[T]>> NdTensorBase<T, S, 2> {
         }
     }
 }
+
+/// N-dimensional tensor.
+pub type NdTensor<T, const N: usize> = NdTensorBase<T, Vec<T>, N>;
 
 /// N-dimensional view of a slice of data.
 ///
@@ -554,6 +582,16 @@ mod tests {
         let data = vec![1., 2., 3., 4.];
         let result = NdTensorView::<f32, 3>::from_slice(&data, [10, 2, 2], Some([0, 2, 1]));
         assert!(result.is_ok());
+    }
+
+    #[test]
+    fn test_ndtensor_to_owned() {
+        let data = vec![1., 2., 3., 4.];
+        let view = NdTensorView::<f32, 2>::from_slice(&data, [2, 2], None).unwrap();
+        let owned = view.to_owned();
+        assert_eq!(owned.shape(), view.shape());
+        assert_eq!(owned.strides(), view.strides());
+        assert_eq!(owned.data(), view.data());
     }
 
     #[test]

@@ -196,7 +196,7 @@ fn conv_2d_depthwise(
                         continue;
                     }
 
-                    let in_row = input.nd_slice::<3, 1>([n, c, in_y - pad_top]).data();
+                    let in_row = input.nd_slice::<3, 1>([n, c, in_y - pad_top]).to_data();
 
                     for k_x in 0..k_w {
                         let kernel_val = kernel_view[[k_y, k_x]];
