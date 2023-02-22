@@ -24,6 +24,7 @@ enum OverlapPolicy {
 
 impl<const N: usize> NdLayout<N> {
     /// Return the number of elements in the array.
+    #[allow(dead_code)] // Remove when this is used outside of tests
     fn len(&self) -> usize {
         self.shape.iter().product()
     }
