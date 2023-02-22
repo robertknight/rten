@@ -23,6 +23,11 @@ enum OverlapPolicy {
 }
 
 impl<const N: usize> NdLayout<N> {
+    /// Return the number of elements in the array.
+    fn len(&self) -> usize {
+        self.shape.iter().product()
+    }
+
     /// Return true if all components of `index` are in-bounds.
     fn index_valid(&self, index: [usize; N]) -> bool {
         let mut valid = true;
@@ -172,6 +177,11 @@ impl NdLayout<2> {
 pub trait NdTensorLayout<const N: usize> {
     #[doc(hidden)]
     fn layout(&self) -> &NdLayout<N>;
+
+    /// Returns the number of elements in the array.
+    fn len(&self) -> usize {
+        self.layout().len()
+    }
 
     /// Returns an array of the sizes of each dimension.
     fn shape(&self) -> [usize; N] {
@@ -424,6 +434,19 @@ impl<T, S: AsRef<[T]> + AsMut<[T]>, const N: usize> IndexMut<[usize; N]>
 mod tests {
     use crate::ndtensor::{FromDataError, MatrixLayout, NdTensorLayout, NdTensorView};
 
+    /// Return elements of `matrix` in their logical order.
+    ///
+    /// TODO - Replace this once generic iteration is implemented for NdTensorBase.
+    fn matrix_elements<T: Copy>(matrix: NdTensorView<T, 2>) -> Vec<T> {
+        let mut result = Vec::with_capacity(matrix.len());
+        for row in 0..matrix.size(0) {
+            for col in 0..matrix.size(1) {
+                result.push(matrix[[row, col]]);
+            }
+        }
+        result
+    }
+
     #[test]
     fn test_ndtensor_from_data() {
         let data = vec![1., 2., 3., 4.];
@@ -530,6 +553,15 @@ mod tests {
         let data = vec![1., 2., 3., 4.];
         let result = NdTensorView::<f32, 3>::from_slice(&data, [10, 2, 2], Some([0, 2, 1]));
         assert!(result.is_ok());
+    }
+
+    #[test]
+    fn test_ndtensor_transposed() {
+        let data = vec![1, 2, 3, 4];
+        let view = NdTensorView::<i32, 2>::from_slice(&data, [2, 2], None).unwrap();
+        assert_eq!(matrix_elements(view), &[1, 2, 3, 4]);
+        let view = view.transposed();
+        assert_eq!(matrix_elements(view), &[1, 3, 2, 4]);
     }
 
     #[test]
