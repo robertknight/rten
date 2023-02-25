@@ -132,6 +132,14 @@ impl<const N: usize> NdLayout<N> {
         false
     }
 
+    /// Create a layout with a given shape and a contiguous layout.
+    fn from_shape(shape: [usize; N]) -> Self {
+        Self {
+            shape,
+            strides: Self::contiguous_strides(shape),
+        }
+    }
+
     /// Create a layout with given shape and strides, intended for use with
     /// data storage of length `data_len`.
     ///
@@ -309,6 +317,15 @@ impl<T: Clone, S: AsRef<[T]>, const N: usize> NdTensorBase<T, S, N> {
         self.data.as_ref()
     }
 
+    /// Return an immutable view of this tensor.
+    pub fn view(&self) -> NdTensorView<T, N> {
+        NdTensorView {
+            data: self.data.as_ref(),
+            layout: self.layout,
+            element_type: PhantomData,
+        }
+    }
+
     /// Return a copy of this view that owns its data. For [NdTensorView] this
     /// is different than cloning the view, as that returns a view which has
     /// its own layout, but the same underlying data buffer.
@@ -371,6 +388,15 @@ impl<T, S: AsRef<[T]> + AsMut<[T]>, const N: usize> NdTensorBase<T, S, N> {
         self.data.as_mut()
     }
 
+    /// Return a mutable view of this tensor.
+    pub fn view_mut(&mut self) -> NdTensorViewMut<T, N> {
+        NdTensorViewMut {
+            data: self.data.as_mut(),
+            layout: self.layout,
+            element_type: PhantomData,
+        }
+    }
+
     /// Return a mutable view of this tensor which uses unchecked indexing.
     pub fn unchecked_mut(&mut self) -> UncheckedNdTensor<T, &mut [T], N> {
         let base = NdTensorBase {
@@ -379,6 +405,25 @@ impl<T, S: AsRef<[T]> + AsMut<[T]>, const N: usize> NdTensorBase<T, S, N> {
             element_type: PhantomData,
         };
         UncheckedNdTensor { base }
+    }
+}
+
+impl<T: Clone + Default, const N: usize> NdTensorBase<T, Vec<T>, N> {
+    /// Create a new tensor with a given shape, contigous layout and all
+    /// elements set to zero (or whatever `T::default()` returns).
+    pub fn zeros(shape: [usize; N]) -> Self {
+        Self::from_element(shape, T::default())
+    }
+
+    /// Create a new tensor with a given shape, contiguous layout and all
+    /// elements initialized to `element`.
+    pub fn from_element(shape: [usize; N], element: T) -> Self {
+        let layout = NdLayout::from_shape(shape);
+        NdTensorBase {
+            data: vec![element; layout.len()],
+            layout,
+            element_type: PhantomData,
+        }
     }
 }
 
