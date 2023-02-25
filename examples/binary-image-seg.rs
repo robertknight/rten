@@ -6,6 +6,7 @@ use std::fs;
 use std::io::BufWriter;
 use std::iter::zip;
 
+use wasnn::geometry::{bounding_box, find_contours, stroke_rect, Rect, RetrievalMode};
 use wasnn::ops::{resize, CoordTransformMode, NearestMode, ResizeMode, ResizeTarget};
 use wasnn::{tensor, Dimension, Model, RunOptions, Tensor, TensorLayout};
 
@@ -144,6 +145,9 @@ fn main() -> Result<(), Box<dyn Error>> {
     let text_mask = &outputs[0].as_float_ref().unwrap();
     let text_mask = bilinear_resize(text_mask, img_height as i32, img_width as i32)?;
 
+    let threshold = 0.2;
+
+    // Highlight object pixels in image.
     let mut combined_img_mask = Tensor::<f32>::zeros(text_mask.shape());
     for (out, (img, prob)) in zip(
         combined_img_mask.iter_mut(),
@@ -151,15 +155,39 @@ fn main() -> Result<(), Box<dyn Error>> {
     ) {
         // Convert normalized image pixel back to greyscale value in [0, 1]
         let in_grey = img + 0.5;
-        let threshold = 0.2;
         let mask_pixel = if prob > threshold { 1. } else { 0. };
-        *out = composite_pixel(mask_pixel, 0.5, in_grey, 1.);
+        *out = composite_pixel(mask_pixel, 0.2, in_grey, 1.);
     }
-    let out_img = image_from_tensor(&combined_img_mask);
 
+    // Distance to expand bounding boxes by. This is useful when the model is
+    // trained to assign a positive label to pixels in a smaller area than the
+    // ground truth, which may be done to create separation between adjacent
+    // objects.
+    let expand_dist = 3;
+
+    // Find bounding boxes of objects in image.
+    let binary_mask = text_mask.map(|prob| if prob > threshold { 1i32 } else { 0 });
+    let object_boxes: Vec<_> = find_contours(binary_mask.nd_slice([0, 0]), RetrievalMode::External)
+        .iter()
+        .map(|poly| {
+            bounding_box(poly)
+                .adjust_tlbr(-expand_dist, -expand_dist, expand_dist, expand_dist)
+                .clamp(Rect::from_hw(img_height as i32, img_width as i32))
+        })
+        .collect();
+
+    // Draw bounding boxes around objects in image.
+    let mut mask_view = combined_img_mask.nd_slice_mut([0, 0]);
+    for word_box in object_boxes.iter() {
+        stroke_rect(mask_view.view_mut(), *word_box, 1., 2);
+    }
+
+    println!("Found {} objects in image", object_boxes.len());
+
+    // Write out the segmentation mask.
+    let out_img = image_from_tensor(&combined_img_mask);
     let file = fs::File::create(output_path)?;
     let writer = BufWriter::new(file);
-
     let encoder = png::Encoder::new(writer, img_width as u32, img_height as u32);
     let mut writer = encoder.write_header()?;
     writer.write_image_data(&out_img)?;
