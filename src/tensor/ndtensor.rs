@@ -60,7 +60,12 @@ impl<const N: usize> NdLayout<N> {
 
     /// Return the offset in the slice that an index maps to.
     fn offset(&self, index: [usize; N]) -> usize {
-        assert!(self.index_valid(index), "Index is out of bounds");
+        assert!(
+            self.index_valid(index),
+            "Index {:?} out of bounds for shape {:?}",
+            index,
+            self.shape
+        );
         let mut offset = 0;
         for i in 0..N {
             offset += index[i] * self.strides[i];
