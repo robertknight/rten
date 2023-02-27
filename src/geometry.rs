@@ -120,12 +120,23 @@ impl Polygons {
         self.polygons.len()
     }
 
+    /// Return true if this collection has no polygons.
+    pub fn is_empty(&self) -> bool {
+        self.polygons.is_empty()
+    }
+
     /// Return an iterator over individual polygons in the sequence.
     pub fn iter(&self) -> PolygonsIter {
         PolygonsIter {
             points: &self.points,
             polygons: self.polygons.iter(),
         }
+    }
+}
+
+impl Default for Polygons {
+    fn default() -> Self {
+        Self::new()
     }
 }
 
