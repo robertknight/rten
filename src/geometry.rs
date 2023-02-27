@@ -4,7 +4,7 @@
 use std::ops::Range;
 use std::slice::Iter;
 
-use crate::tensor::{MatrixLayout, NdTensor, NdTensorView};
+use crate::tensor::{MatrixLayout, NdTensor, NdTensorView, NdTensorViewMut};
 
 pub type Coord = i32;
 
@@ -354,69 +354,72 @@ pub fn bounding_box(points: &[Point]) -> Rect {
     Rect::from_tlbr(top, left, bottom, right)
 }
 
+// Draw the outline of a rectangle `rect` with border width `width`.
+//
+// The outline is drawn such that the bounding box of the outermost pixels
+// will be `rect`.
+pub fn stroke_rect<T: Copy>(mut mask: NdTensorViewMut<T, 2>, rect: Rect, value: T, width: u32) {
+    let width = width as i32;
+
+    // Left edge
+    fill_rect(
+        mask.view_mut(),
+        Rect::from_tlbr(rect.top(), rect.left(), rect.bottom(), rect.left() + width),
+        value,
+    );
+
+    // Top edge (minus ends)
+    fill_rect(
+        mask.view_mut(),
+        Rect::from_tlbr(
+            rect.top(),
+            rect.left() + width,
+            rect.top() + width,
+            rect.right() - width,
+        ),
+        value,
+    );
+
+    // Right edge
+    fill_rect(
+        mask.view_mut(),
+        Rect::from_tlbr(
+            rect.top(),
+            rect.right() - width,
+            rect.bottom(),
+            rect.right(),
+        ),
+        value,
+    );
+
+    // Bottom edge (minus ends)
+    fill_rect(
+        mask.view_mut(),
+        Rect::from_tlbr(
+            rect.bottom() - width,
+            rect.left() + width,
+            rect.bottom(),
+            rect.right() - width,
+        ),
+        value,
+    );
+}
+
+/// Fill all points inside `rect` with the value `value`.
+pub fn fill_rect<T: Copy>(mut mask: NdTensorViewMut<T, 2>, rect: Rect, value: T) {
+    for y in rect.top()..rect.bottom() {
+        for x in rect.left()..rect.right() {
+            mask[[y as usize, x as usize]] = value;
+        }
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use std::iter::zip;
 
-    use super::{bounding_box, find_contours, Point, Rect};
-    use crate::tensor::{NdTensor, NdTensorViewMut};
-
-    /// Fill all points inside `rect` with the value `value`.
-    fn fill_rect(mut mask: NdTensorViewMut<i32, 2>, rect: Rect, value: i32) {
-        for y in rect.top()..rect.bottom() {
-            for x in rect.left()..rect.right() {
-                mask[[y as usize, x as usize]] = value;
-            }
-        }
-    }
-
-    // Draw the outline of a rectangle `rect` with border width `width`.
-    fn stroke_rect(mut mask: NdTensorViewMut<i32, 2>, rect: Rect, value: i32, width: u32) {
-        let width = width as i32;
-
-        // Left edge
-        fill_rect(
-            mask.view_mut(),
-            Rect::from_tlbr(rect.top(), rect.left(), rect.bottom(), rect.left() + width),
-            value,
-        );
-
-        // Top edge (minus ends)
-        fill_rect(
-            mask.view_mut(),
-            Rect::from_tlbr(
-                rect.top(),
-                rect.left() + width,
-                rect.top() + width,
-                rect.right() - width,
-            ),
-            value,
-        );
-
-        // Right edge
-        fill_rect(
-            mask.view_mut(),
-            Rect::from_tlbr(
-                rect.top(),
-                rect.right() - width,
-                rect.bottom(),
-                rect.right(),
-            ),
-            value,
-        );
-
-        // Bottom edge (minus ends)
-        fill_rect(
-            mask.view_mut(),
-            Rect::from_tlbr(
-                rect.bottom() - width,
-                rect.left() + width,
-                rect.bottom(),
-                rect.right() - width,
-            ),
-            value,
-        );
-    }
+    use super::{bounding_box, fill_rect, find_contours, stroke_rect, Point, Rect};
+    use crate::tensor::NdTensor;
 
     /// Return a list of the points on the border of `rect`, in clockwise
     /// order starting from the top-left corner.
