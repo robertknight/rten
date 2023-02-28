@@ -227,6 +227,15 @@ fn find_nonzero_neighbor(
     None
 }
 
+/// Specifies which contours to extract from a mask in [find_contours].
+pub enum RetrievalMode {
+    /// Get only the outer-most contours.
+    External,
+
+    /// Retrieve all contours as a flat list without hierarchy information.
+    List,
+}
+
 /// Find the contours of connected components in the binary image `mask`.
 ///
 /// Returns a collection of the polygons of each component. The algorithm follows
@@ -240,7 +249,7 @@ fn find_nonzero_neighbor(
 /// [1] Suzuki, Satoshi and Keiichi Abe. “Topological structural analysis of digitized binary
 ///     images by border following.” Comput. Vis. Graph. Image Process. 30 (1985): 32-46.
 /// [2] https://docs.opencv.org/4.7.0/d3/dc0/group__imgproc__shape.html#gadf1ad6a0b82947fa1fe3c3d497f260e0
-pub fn find_contours(mask: NdTensorView<i32, 2>) -> Polygons {
+pub fn find_contours(mask: NdTensorView<i32, 2>, mode: RetrievalMode) -> Polygons {
     // Create a copy of the mask with zero-padding around the border. The
     // padding enables the algorithm to handle objects that touch the edge of
     // the mask.
@@ -264,8 +273,17 @@ pub fn find_contours(mask: NdTensorView<i32, 2>) -> Polygons {
     // Sequential number of next border. Called `NBD` in the paper.
     let mut border_num = 1;
 
+    // Value of last non-zero pixel visited on current row. See Algorithm 2 in
+    // paper. This value is zero if we've not passed through any borders on the
+    // current row yet, +ve if we're inside an outer border and -ve after
+    // exiting the outer border.
+    let mut last_nonzero_pixel;
+
+    let outer_only = matches!(mode, RetrievalMode::External);
+
     for y in padding..mask.rows() - padding {
         let y = y as i32;
+        last_nonzero_pixel = 0;
 
         for x in padding..mask.cols() - padding {
             let x = x as i32;
@@ -280,19 +298,25 @@ pub fn find_contours(mask: NdTensorView<i32, 2>) -> Polygons {
             // along the border that begins at the current point.
             let mut start_neighbor = None;
 
+            let prev_point = start_point.translate(0, -1);
+            let next_point = start_point.translate(0, 1);
+
             // Test whether we are at the starting point of an unvisited border.
-            if mask[start_point.translate(0, -1).coord()] == 0 && current == 1 {
+            if outer_only {
+                if last_nonzero_pixel <= 0 && mask[prev_point.coord()] == 0 && current == 1 {
+                    start_neighbor = Some(prev_point);
+                }
+            } else if mask[prev_point.coord()] == 0 && current == 1 {
                 // This is a new outer border.
-                border_num += 1;
-                start_neighbor = Some(Point { y, x: x - 1 });
-            } else if current >= 1 && mask[start_point.translate(0, 1).coord()] == 0 {
+                start_neighbor = Some(prev_point);
+            } else if current >= 1 && mask[next_point.coord()] == 0 {
                 // This is a new hole border.
-                border_num += 1;
-                start_neighbor = Some(Point { y, x: x + 1 });
+                start_neighbor = Some(next_point);
             }
 
             // Follow the border if we found a start point.
             if let Some(start_neighbor) = start_neighbor {
+                border_num += 1;
                 border.clear();
 
                 let nonzero_start_neighbor = find_nonzero_neighbor(
@@ -349,6 +373,8 @@ pub fn find_contours(mask: NdTensorView<i32, 2>) -> Polygons {
                 }
                 contours.push(&border);
             }
+
+            last_nonzero_pixel = mask[start_point.coord()];
         }
     }
 
@@ -452,7 +478,7 @@ pub fn fill_rect<T: Copy>(mut mask: NdTensorViewMut<T, 2>, rect: Rect, value: T)
 mod tests {
     use std::iter::zip;
 
-    use super::{bounding_box, fill_rect, find_contours, stroke_rect, Point, Rect};
+    use super::{bounding_box, fill_rect, find_contours, stroke_rect, Point, Rect, RetrievalMode};
     use crate::tensor::{NdTensor, NdTensorViewMut};
 
     /// Return a list of the points on the border of `rect`, in counter-clockwise
@@ -537,7 +563,7 @@ mod tests {
 
         for case in cases {
             let mask = NdTensor::zeros(case.size);
-            let contours = find_contours(mask.view());
+            let contours = find_contours(mask.view(), RetrievalMode::List);
             assert_eq!(contours.len(), 0);
         }
     }
@@ -589,7 +615,7 @@ mod tests {
         let rect = Rect::from_tlbr(0, 0, 5, 5);
         fill_rect(mask.view_mut(), rect, 1);
 
-        let contours = find_contours(mask.view());
+        let contours = find_contours(mask.view(), RetrievalMode::List);
         assert_eq!(contours.len(), 1);
 
         let border = contours.iter().next().unwrap();
@@ -602,7 +628,7 @@ mod tests {
         let rect = Rect::from_tlbr(5, 5, 12, 12);
         stroke_rect(mask.view_mut(), rect, 1, 2);
 
-        let contours = find_contours(mask.view());
+        let contours = find_contours(mask.view(), RetrievalMode::List);
 
         // There should be two contours: one for the outer border of the rect
         // and one for the inner "hole" border.
@@ -628,11 +654,25 @@ mod tests {
     }
 
     #[test]
+    fn test_find_contours_external() {
+        let mut mask = NdTensor::zeros([20, 20]);
+        let rect = Rect::from_tlbr(5, 5, 12, 12);
+        stroke_rect(mask.view_mut(), rect, 1, 2);
+
+        let contours = find_contours(mask.view(), RetrievalMode::External);
+
+        // There should only be one, outermost contour.
+        assert_eq!(contours.len(), 1);
+        let outer_border = contours.iter().next().unwrap();
+        assert_eq!(outer_border, border_points(rect, false /* omit_corners */));
+    }
+
+    #[test]
     fn test_find_contours_single_point() {
         let mut mask = NdTensor::zeros([20, 20]);
         mask[[5, 5]] = 1;
 
-        let contours = find_contours(mask.view());
+        let contours = find_contours(mask.view(), RetrievalMode::List);
         assert_eq!(contours.len(), 1);
 
         let border = contours.iter().next().unwrap();
@@ -651,7 +691,7 @@ mod tests {
             fill_rect(mask.view_mut(), rect, 1);
         }
 
-        let contours = find_contours(mask.view());
+        let contours = find_contours(mask.view(), RetrievalMode::List);
         assert_eq!(contours.len(), rects.len());
 
         for (border, rect) in zip(contours.iter(), rects.iter()) {
@@ -668,7 +708,7 @@ mod tests {
             stroke_rect(mask.view_mut(), rect, 1, 1);
         }
 
-        let contours = find_contours(mask.view());
+        let contours = find_contours(mask.view(), RetrievalMode::List);
         assert_eq!(contours.len(), rects.len());
 
         for (border, rect) in zip(contours.iter(), rects.iter()) {
