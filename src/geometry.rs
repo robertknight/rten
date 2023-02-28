@@ -1,6 +1,7 @@
 ///! Geometry functions for pre and post-processing images.
 ///!
 ///! TODO: Move these out of Wasnn and into a separate crate.
+use std::fmt::Display;
 use std::ops::Range;
 use std::slice::Iter;
 
@@ -84,6 +85,13 @@ impl Rect {
 
     pub fn bottom(&self) -> Coord {
         self.bottom_right.y
+    }
+
+    pub fn adjust_tlbr(&self, top: Coord, left: Coord, bottom: Coord, right: Coord) -> Rect {
+        Rect {
+            top_left: self.top_left.translate(top, left),
+            bottom_right: self.bottom_right.translate(bottom, right),
+        }
     }
 }
 
@@ -344,6 +352,18 @@ pub fn find_contours(mask: NdTensorView<i32, 2>) -> Polygons {
     contours
 }
 
+/// Print out elements of a 2D grid for debugging.
+#[allow(dead_code)]
+fn print_grid<T: Display>(grid: NdTensorView<T, 2>) {
+    for y in 0..grid.rows() {
+        for x in 0..grid.cols() {
+            print!("{:2} ", grid[[y, x]]);
+        }
+        println!();
+    }
+    println!();
+}
+
 /// Return the bounding box containing a set of points.
 ///
 /// Panics if the point list is empty.
@@ -430,25 +450,34 @@ mod tests {
     use std::iter::zip;
 
     use super::{bounding_box, fill_rect, find_contours, stroke_rect, Point, Rect};
-    use crate::tensor::NdTensor;
+    use crate::tensor::{NdTensor, NdTensorViewMut};
 
-    /// Return a list of the points on the border of `rect`, in clockwise
+    /// Return a list of the points on the border of `rect`, in counter-clockwise
     /// order starting from the top-left corner.
-    fn border_points(rect: Rect) -> Vec<Point> {
+    ///
+    /// If `omit_corners` is true, the corner points of the rect are not
+    /// included.
+    fn border_points(rect: Rect, omit_corners: bool) -> Vec<Point> {
         let mut points = Vec::new();
 
+        let left_range = if omit_corners {
+            rect.top() + 1..rect.bottom() - 1
+        } else {
+            rect.top()..rect.bottom()
+        };
+
         // Left edge
-        for y in rect.top()..rect.bottom() {
+        for y in left_range.clone() {
             points.push(Point::from_yx(y, rect.left()));
         }
 
         // Bottom edge
-        for x in rect.left() + 1..rect.right() {
+        for x in rect.left() + 1..rect.right() - 1 {
             points.push(Point::from_yx(rect.bottom() - 1, x));
         }
 
         // Right edge
-        for y in (rect.top()..rect.bottom() - 1).rev() {
+        for y in left_range.rev() {
             points.push(Point::from_yx(y, rect.right() - 1));
         }
 
@@ -460,10 +489,34 @@ mod tests {
         points
     }
 
+    /// Set the elements of a grid listed in `points` to `value`.
+    #[allow(dead_code)]
+    fn plot_points<T: Copy>(mut grid: NdTensorViewMut<T, 2>, points: &[Point], value: T) {
+        for point in points {
+            grid[point.coord()] = value;
+        }
+    }
+
+    /// Plot the 1-based indices of points in `points` on a grid. `step` is the
+    /// increment value for each plotted point.
+    #[allow(dead_code)]
+    fn plot_point_indices<T: std::ops::AddAssign + Copy + Default>(
+        mut grid: NdTensorViewMut<T, 2>,
+        points: &[Point],
+        step: T,
+    ) {
+        let mut value = T::default();
+        value += step;
+        for point in points {
+            grid[point.coord()] = value;
+            value += step;
+        }
+    }
+
     #[test]
     fn test_bounding_box() {
         let rect = Rect::from_tlbr(5, 5, 10, 10);
-        let border = border_points(rect);
+        let border = border_points(rect, false /* omit_corners */);
         assert_eq!(bounding_box(&border), rect);
     }
 
@@ -496,7 +549,7 @@ mod tests {
         assert_eq!(contours.len(), 1);
 
         let border = contours.iter().next().unwrap();
-        assert_eq!(border, border_points(rect));
+        assert_eq!(border, border_points(rect, false /* omit_corners */));
     }
 
     #[test]
@@ -509,20 +562,38 @@ mod tests {
         assert_eq!(contours.len(), 1);
 
         let border = contours.iter().next().unwrap();
-        assert_eq!(border, border_points(rect));
+        assert_eq!(border, border_points(rect, false /* omit_corners */));
     }
 
     #[test]
     fn test_find_contours_hollow_rect() {
         let mut mask = NdTensor::zeros([20, 20]);
-        let rect = Rect::from_tlbr(5, 5, 10, 10);
-        stroke_rect(mask.view_mut(), rect, 1, 3);
+        let rect = Rect::from_tlbr(5, 5, 12, 12);
+        stroke_rect(mask.view_mut(), rect, 1, 2);
 
         let contours = find_contours(mask.view());
-        assert_eq!(contours.len(), 1);
 
-        let border = contours.iter().next().unwrap();
-        assert_eq!(border, border_points(rect));
+        // There should be two contours: one for the outer border of the rect
+        // and one for the inner "hole" border.
+        assert_eq!(contours.len(), 2);
+
+        // Check outer border.
+        let mut contours_iter = contours.iter();
+        let outer_border = contours_iter.next().unwrap();
+        let inner_border = contours_iter.next().unwrap();
+        assert_eq!(outer_border, border_points(rect, false /* omit_corners */));
+
+        // Check hole border.
+        let inner_rect = rect.adjust_tlbr(1, 1, -1, -1);
+        let mut expected_inner_border = border_points(inner_rect, true /* omit_corners */);
+
+        // Due to the way the algorithm works, hole border points are returned
+        // in the opposite order (clockwise instead of counter-clockwise) to
+        // outer border points, and the start position is shifted by one.
+        expected_inner_border.reverse(); // CCW => CW
+        expected_inner_border.rotate_right(1);
+
+        assert_eq!(inner_border, expected_inner_border);
     }
 
     #[test]
@@ -553,7 +624,7 @@ mod tests {
         assert_eq!(contours.len(), rects.len());
 
         for (border, rect) in zip(contours.iter(), rects.iter()) {
-            assert_eq!(border, border_points(*rect));
+            assert_eq!(border, border_points(*rect, false /* omit_corners */));
         }
     }
 
@@ -570,7 +641,7 @@ mod tests {
         assert_eq!(contours.len(), rects.len());
 
         for (border, rect) in zip(contours.iter(), rects.iter()) {
-            assert_eq!(border, border_points(*rect));
+            assert_eq!(border, border_points(*rect, false /* omit_corners */));
         }
     }
 }
