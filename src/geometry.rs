@@ -248,7 +248,10 @@ pub fn find_contours(mask: NdTensorView<i32, 2>) -> Polygons {
     let mut padded_mask = NdTensor::zeros([mask.rows() + 2 * padding, mask.cols() + 2 * padding]);
     for y in 0..mask.rows() {
         for x in 0..mask.cols() {
-            padded_mask[[y + padding, x + padding]] = mask[[y, x]];
+            // Clamp values in the copied mask to { 0, 1 } so the algorithm
+            // below can use other values as part of its working.
+            let value = mask[[y, x]].clamp(0, 1);
+            padded_mask[[y + padding, x + padding]] = value;
         }
     }
     let mut mask = padded_mask;
@@ -541,15 +544,43 @@ mod tests {
 
     #[test]
     fn test_find_contours_single_rect() {
-        let mut mask = NdTensor::zeros([20, 20]);
-        let rect = Rect::from_tlbr(5, 5, 10, 10);
-        fill_rect(mask.view_mut(), rect, 1);
+        struct Case {
+            rect: Rect,
+            value: i32,
+        }
 
-        let contours = find_contours(mask.view());
-        assert_eq!(contours.len(), 1);
+        let cases = [
+            Case {
+                rect: Rect::from_tlbr(5, 5, 10, 10),
+                value: 1,
+            },
+            // Values > 1 in the mask are clamped to 1, so they don't affect
+            // the contours found.
+            Case {
+                rect: Rect::from_tlbr(5, 5, 10, 10),
+                value: 2,
+            },
+            // Values < 0 are clamped to 0 and ignored.
+            Case {
+                rect: Rect::from_tlbr(5, 5, 10, 10),
+                value: -2,
+            },
+        ];
 
-        let border = contours.iter().next().unwrap();
-        assert_eq!(border, border_points(rect, false /* omit_corners */));
+        for case in cases {
+            let mut mask = NdTensor::zeros([20, 20]);
+            fill_rect(mask.view_mut(), case.rect, case.value);
+
+            let contours = find_contours(mask.view(), RetrievalMode::List);
+
+            if case.value > 0 {
+                assert_eq!(contours.len(), 1);
+                let border = contours.iter().next().unwrap();
+                assert_eq!(border, border_points(case.rect, false /* omit_corners */));
+            } else {
+                assert!(contours.is_empty());
+            }
+        }
     }
 
     #[test]
