@@ -493,7 +493,7 @@ mod tests {
     use std::iter::zip;
 
     use super::{bounding_box, fill_rect, find_contours, stroke_rect, Point, Rect, RetrievalMode};
-    use crate::tensor::{NdTensor, NdTensorViewMut};
+    use crate::tensor::{MatrixLayout, NdTensor, NdTensorView, NdTensorViewMut};
 
     /// Return a list of the points on the border of `rect`, in counter-clockwise
     /// order starting from the top-left corner.
@@ -554,6 +554,19 @@ mod tests {
             grid[point.coord()] = value;
             value += step;
         }
+    }
+
+    /// Return coordinates of all points in `grid` with a non-zero value.
+    fn nonzero_points<T: Default + PartialEq>(grid: NdTensorView<T, 2>) -> Vec<Point> {
+        let mut points = Vec::new();
+        for y in 0..grid.rows() {
+            for x in 0..grid.cols() {
+                if grid[[y, x]] != T::default() {
+                    points.push(Point::from_yx(y as i32, x as i32))
+                }
+            }
+        }
+        points
     }
 
     #[test]
@@ -754,5 +767,16 @@ mod tests {
         for case in cases {
             assert_eq!(case.rect.clamp(case.boundary), case.expected);
         }
+    }
+
+    #[test]
+    fn test_stroke_rect() {
+        let mut mask = NdTensor::zeros([10, 10]);
+        let rect = Rect::from_tlbr(4, 4, 9, 9);
+
+        stroke_rect(mask.view_mut(), rect, 1, 1);
+        let points = nonzero_points(mask.view());
+
+        assert_eq!(bounding_box(&points), rect);
     }
 }
