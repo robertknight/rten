@@ -87,10 +87,24 @@ impl Rect {
         self.bottom_right.y
     }
 
+    /// Return a new Rect with each coordinate adjusted by an offset.
     pub fn adjust_tlbr(&self, top: Coord, left: Coord, bottom: Coord, right: Coord) -> Rect {
         Rect {
             top_left: self.top_left.translate(top, left),
             bottom_right: self.bottom_right.translate(bottom, right),
+        }
+    }
+
+    /// Return a new with each side adjusted so that the result lies inside
+    /// `rect`.
+    pub fn clamp(&self, rect: Rect) -> Rect {
+        let top = self.top().max(rect.top());
+        let left = self.left().max(rect.left());
+        let bottom = self.bottom().min(rect.bottom());
+        let right = self.right().min(rect.right());
+        Rect {
+            top_left: Point::from_yx(top, left),
+            bottom_right: Point::from_yx(bottom, right),
         }
     }
 }
@@ -713,6 +727,32 @@ mod tests {
 
         for (border, rect) in zip(contours.iter(), rects.iter()) {
             assert_eq!(border, border_points(*rect, false /* omit_corners */));
+        }
+    }
+
+    #[test]
+    fn test_rect_clamp() {
+        struct Case {
+            rect: Rect,
+            boundary: Rect,
+            expected: Rect,
+        }
+
+        let cases = [
+            Case {
+                rect: Rect::from_tlbr(-5, -10, 100, 200),
+                boundary: Rect::from_tlbr(0, 0, 50, 100),
+                expected: Rect::from_tlbr(0, 0, 50, 100),
+            },
+            Case {
+                rect: Rect::from_tlbr(5, 10, 40, 80),
+                boundary: Rect::from_tlbr(0, 0, 50, 100),
+                expected: Rect::from_tlbr(5, 10, 40, 80),
+            },
+        ];
+
+        for case in cases {
+            assert_eq!(case.rect.clamp(case.boundary), case.expected);
         }
     }
 }
