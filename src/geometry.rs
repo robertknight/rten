@@ -10,7 +10,7 @@ use crate::tensor::{MatrixLayout, NdTensor, NdTensorView, NdTensorViewMut};
 pub type Coord = i32;
 
 /// A point defined by integer X and Y coordinates.
-#[derive(Copy, Clone, Debug, PartialEq)]
+#[derive(Copy, Clone, Debug, Default, PartialEq)]
 pub struct Point {
     pub x: Coord,
     pub y: Coord,
@@ -60,6 +60,12 @@ pub struct Rect {
 }
 
 impl Rect {
+    /// Return a rect with top-left corner at 0, 0 and the given height/width.
+    pub fn from_hw(height: Coord, width: Coord) -> Rect {
+        Self::new(Point::default(), Point::from_yx(height, width))
+    }
+
+    /// Return a rect with the given top, left, bottom and right coordinates.
     pub fn from_tlbr(top: Coord, left: Coord, bottom: Coord, right: Coord) -> Rect {
         Self::new(Point::from_yx(top, left), Point::from_yx(bottom, right))
     }
@@ -85,6 +91,16 @@ impl Rect {
 
     pub fn bottom(&self) -> Coord {
         self.bottom_right.y
+    }
+
+    /// Return the top, left, bottom and right coordinates as an array.
+    pub fn tlbr(&self) -> [Coord; 4] {
+        [
+            self.top_left.y,
+            self.top_left.x,
+            self.bottom_right.y,
+            self.bottom_right.x,
+        ]
     }
 
     /// Return a new Rect with each coordinate adjusted by an offset.
