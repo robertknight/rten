@@ -1,3 +1,4 @@
+use std::fmt;
 ///! Geometry functions for pre and post-processing images.
 ///!
 ///! TODO: Move these out of Wasnn and into a separate crate.
@@ -10,7 +11,7 @@ use crate::tensor::{MatrixLayout, NdTensor, NdTensorView, NdTensorViewMut};
 pub type Coord = i32;
 
 /// A point defined by integer X and Y coordinates.
-#[derive(Copy, Clone, Debug, Default, PartialEq)]
+#[derive(Copy, Clone, Default, PartialEq)]
 pub struct Point {
     pub x: Coord,
     pub y: Coord,
@@ -46,6 +47,101 @@ impl Point {
             self.translate(0, -1),  // W
             self.translate(-1, -1), // NW
         ]
+    }
+
+    /// Return the euclidean distance between this point and another point.
+    pub fn distance(self, other: Point) -> f32 {
+        Vec2::from_points(self, other).length()
+    }
+}
+
+impl fmt::Debug for Point {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        write!(f, "({}, {})", self.y, self.x)
+    }
+}
+
+#[derive(Copy, Clone, Debug)]
+pub struct Vec2 {
+    pub x: f32,
+    pub y: f32,
+}
+
+impl Vec2 {
+    pub fn from_yx(y: f32, x: f32) -> Vec2 {
+        Vec2 { y, x }
+    }
+
+    /// Return the vector from `start` to `end`.
+    pub fn from_points(start: Point, end: Point) -> Vec2 {
+        let dx = end.x - start.x;
+        let dy = end.y - start.y;
+        Vec2::from_yx(dy as f32, dx as f32)
+    }
+
+    pub fn length(&self) -> f32 {
+        (self.x * self.x + self.y * self.y).sqrt()
+    }
+
+    /// Return the magnitude of the cross product of this vector with `other`.
+    pub fn cross_product_norm(&self, other: Vec2) -> f32 {
+        self.x * other.y - self.y * other.x
+    }
+
+    /// Return the dot product of this vector with `other`.
+    pub fn dot(&self, other: Vec2) -> f32 {
+        self.x * other.x + self.y * other.y
+    }
+}
+
+/// A bounded line segment defined by a start and end point.
+#[derive(Copy, Clone, Debug, PartialEq)]
+pub struct Line {
+    pub start: Point,
+    pub end: Point,
+}
+
+impl Line {
+    pub fn from_endpoints(start: Point, end: Point) -> Line {
+        Line { start, end }
+    }
+
+    /// Return true if this line has zero length.
+    pub fn is_empty(&self) -> bool {
+        self.start == self.end
+    }
+
+    /// Return the euclidean distance between a point and the closest coordinate
+    /// that lies on the line.
+    pub fn distance(&self, p: Point) -> f32 {
+        if self.is_empty() {
+            return self.start.distance(p);
+        }
+
+        // Method taken from http://www.faqs.org/faqs/graphics/algorithms-faq/,
+        // "Subject 1.02: How do I find the distance from a point to a line?".
+
+        // Compute normalized scalar projection of line from `start` to `p` onto
+        // self. This indicates how far along the `self` line the nearest point
+        // to `p` is.
+        let ab = Vec2::from_points(self.start, self.end);
+        let ac = Vec2::from_points(self.start, p);
+        let scalar_proj = ac.dot(ab) / (ab.length() * ab.length());
+
+        if scalar_proj <= 0. {
+            // Nearest point is start of line.
+            self.start.distance(p)
+        } else if scalar_proj >= 1. {
+            // Nearest point is end of line.
+            self.end.distance(p)
+        } else {
+            let start_x = self.start.x as f32;
+            let start_y = self.start.y as f32;
+            let intercept_x = start_x + ab.x * scalar_proj;
+            let intercept_y = start_y + ab.y * scalar_proj;
+            let proj_line = Vec2::from_yx(intercept_y - p.y as f32, intercept_x - p.x as f32);
+            proj_line.length()
+        }
     }
 }
 
@@ -411,6 +507,89 @@ pub fn find_contours(mask: NdTensorView<i32, 2>, mode: RetrievalMode) -> Polygon
     contours
 }
 
+fn simplify_polyline_internal(
+    points: &[Point],
+    epsilon: f32,
+    out_points: &mut Vec<Point>,
+    keep_last: bool,
+) {
+    if points.len() <= 1 {
+        if let Some(&point) = points.first() {
+            out_points.push(point);
+        }
+        return;
+    }
+
+    // Find point furthest from the line segment through the first and last
+    // points.
+    let line_segment = Line::from_endpoints(*points.first().unwrap(), *points.last().unwrap());
+    let inner_points = &points[1..points.len() - 1];
+    let (max_index, max_dist) =
+        inner_points
+            .iter()
+            .enumerate()
+            .fold((0, 0.), |(max_i, max_dist), (i, &point)| {
+                let dist = line_segment.distance(point);
+                if dist >= max_dist {
+                    (i + 1, dist)
+                } else {
+                    (max_i, max_dist)
+                }
+            });
+
+    if max_dist > epsilon {
+        // Recursively simplify polyline segments before and after pivot.
+        simplify_polyline_internal(
+            &points[..max_index + 1],
+            epsilon,
+            out_points,
+            false, /* keep_last */
+        );
+        simplify_polyline_internal(&points[max_index..], epsilon, out_points, keep_last);
+    } else {
+        // Simplify current polyline to start and end points.
+        out_points.push(line_segment.start);
+        if keep_last {
+            out_points.push(line_segment.end);
+        }
+    }
+}
+
+/// Return a simplified version of the polyline defined by `points`.
+///
+/// The result will be a subset of points from the input, which always includes
+/// the first and last points.
+///
+/// `epsilon` specifies the maximum distance that any removed point may be from
+/// the closest point on the simplified polygon.
+///
+/// This uses the Douglas-Peucker algorithm [1].
+///
+/// [1] https://en.wikipedia.org/wiki/Ramer–Douglas–Peucker_algorithm
+pub fn simplify_polyline(points: &[Point], epsilon: f32) -> Vec<Point> {
+    assert!(epsilon >= 0.);
+    let mut result = Vec::new();
+    simplify_polyline_internal(points, epsilon, &mut result, true /* keep_last */);
+    result
+}
+
+/// Return a simplified version of the polygon defined by `points`.
+///
+/// This is very similar to [simplify_polyline] except that the input is
+/// treated as a polygon where the last point implicitly connects to the first
+/// point to close the shape.
+pub fn simplify_polygon(points: &[Point], epsilon: f32) -> Vec<Point> {
+    // Convert polygon to polyline.
+    let mut polyline = points.to_vec();
+    polyline.push(points[0]);
+
+    // Simplify and convert polyline back to polygon.
+    let mut simplified = simplify_polyline(&polyline, epsilon);
+    simplified.truncate(simplified.len() - 1);
+
+    simplified
+}
+
 /// Print out elements of a 2D grid for debugging.
 #[allow(dead_code)]
 fn print_grid<T: Display>(grid: NdTensorView<T, 2>) {
@@ -508,8 +687,12 @@ pub fn fill_rect<T: Copy>(mut mask: NdTensorViewMut<T, 2>, rect: Rect, value: T)
 mod tests {
     use std::iter::zip;
 
-    use super::{bounding_box, fill_rect, find_contours, stroke_rect, Point, Rect, RetrievalMode};
+    use super::{
+        bounding_box, fill_rect, find_contours, simplify_polygon, simplify_polyline, stroke_rect,
+        Line, Point, Rect, RetrievalMode,
+    };
     use crate::tensor::{MatrixLayout, NdTensor, NdTensorView, NdTensorViewMut};
+    use crate::test_util::ApproxEq;
 
     /// Return a list of the points on the border of `rect`, in counter-clockwise
     /// order starting from the top-left corner.
@@ -760,6 +943,83 @@ mod tests {
     }
 
     #[test]
+    fn test_line_distance() {
+        struct Case {
+            start: Point,
+            end: Point,
+            point: Point,
+            dist: f32,
+        }
+
+        // TODO - Test cases where intercept is beyond start/end of line.
+        let cases = [
+            // Single point
+            Case {
+                start: Point::default(),
+                end: Point::default(),
+                point: Point::from_yx(3, 4),
+                dist: 5.,
+            },
+            // Horizontal line
+            Case {
+                start: Point::from_yx(5, 2),
+                end: Point::from_yx(5, 10),
+                point: Point::from_yx(8, 5),
+                dist: 3.,
+            },
+            // Vertical line
+            Case {
+                start: Point::from_yx(5, 3),
+                end: Point::from_yx(10, 3),
+                point: Point::from_yx(8, 5),
+                dist: 2.,
+            },
+            // Line with +ve gradient
+            Case {
+                start: Point::default(),
+                end: Point::from_yx(5, 5),
+                point: Point::from_yx(4, 0),
+                dist: (8f32).sqrt(), // Closest point is at (2, 2)
+            },
+            // Line with -ve gradient
+            Case {
+                start: Point::default(),
+                end: Point::from_yx(5, -5),
+                point: Point::from_yx(4, 0),
+                dist: (8f32).sqrt(), // Closest point is at (2, -2)
+            },
+            // Point below line
+            Case {
+                start: Point::default(),
+                end: Point::from_yx(5, 5),
+                point: Point::from_yx(0, 4),
+                dist: (8f32).sqrt(), // Closest point is at (2, 2)
+            },
+            // Point beyond end of horizontal line
+            Case {
+                start: Point::from_yx(5, 2),
+                end: Point::from_yx(5, 5),
+                point: Point::from_yx(5, 10),
+                dist: 5.,
+            },
+        ];
+
+        for case in cases {
+            let line = Line::from_endpoints(case.start, case.end);
+            let dist = line.distance(case.point);
+            assert!(
+                dist.approx_eq(case.dist),
+                "line {:?}, {:?} point {:?} actual {} expected {}",
+                line.start,
+                line.end,
+                case.point,
+                dist,
+                case.dist
+            );
+        }
+    }
+
+    #[test]
     fn test_rect_clamp() {
         struct Case {
             rect: Rect,
@@ -794,5 +1054,92 @@ mod tests {
         let points = nonzero_points(mask.view());
 
         assert_eq!(bounding_box(&points), rect);
+    }
+
+    // TODO - Additional test cases for simplifying polygon:
+    //
+    // - Circle with varying epsilon values
+    #[test]
+    fn test_simplify_polyline() {
+        struct Case {
+            poly: Vec<Point>,
+            epsilon: f32,
+            simplified: Vec<Point>,
+        }
+
+        let cases = [
+            // Single point
+            Case {
+                poly: vec![Point::from_yx(0, 0)],
+                epsilon: 0.1,
+                simplified: vec![Point::from_yx(0, 0)],
+            },
+            // Line of 2 points
+            Case {
+                poly: vec![Point::from_yx(5, 2), Point::from_yx(3, 5)],
+                epsilon: 0.1,
+                simplified: vec![Point::from_yx(5, 2), Point::from_yx(3, 5)],
+            },
+            // Line of 3 points
+            Case {
+                poly: vec![
+                    Point::from_yx(5, 2),
+                    Point::from_yx(5, 3),
+                    Point::from_yx(5, 4),
+                ],
+                epsilon: 0.1,
+                simplified: vec![Point::from_yx(5, 2), Point::from_yx(5, 4)],
+            },
+            // Line of 4 points
+            Case {
+                poly: vec![
+                    Point::from_yx(5, 2),
+                    Point::from_yx(5, 3),
+                    Point::from_yx(5, 4),
+                    Point::from_yx(5, 5),
+                ],
+                epsilon: 0.1,
+                simplified: vec![Point::from_yx(5, 2), Point::from_yx(5, 5)],
+            },
+            // Boundary points of rect
+            Case {
+                poly: border_points(Rect::from_tlbr(4, 4, 9, 9), false /* omit_corners */),
+                epsilon: 0.1,
+                simplified: [[4, 4], [8, 4], [8, 8], [4, 8], [4, 5]]
+                    .map(|[y, x]| Point::from_yx(y, x))
+                    .into_iter()
+                    .collect(),
+            },
+        ];
+
+        for case in cases {
+            let simplified = simplify_polyline(&case.poly, case.epsilon);
+            assert_eq!(&simplified, &case.simplified);
+        }
+    }
+
+    #[test]
+    fn test_simplify_polygon() {
+        struct Case {
+            poly: Vec<Point>,
+            epsilon: f32,
+            simplified: Vec<Point>,
+        }
+
+        // Since `simplify_polygon` is a thin wrapper around `simplify_polyline`,
+        // so we only have a few cases to cover the differences here.
+        let cases = [Case {
+            poly: border_points(Rect::from_tlbr(4, 4, 9, 9), false /* omit_corners */),
+            epsilon: 0.1,
+            simplified: [[4, 4], [8, 4], [8, 8], [4, 8]]
+                .map(|[y, x]| Point::from_yx(y, x))
+                .into_iter()
+                .collect(),
+        }];
+
+        for case in cases {
+            let simplified = simplify_polygon(&case.poly, case.epsilon);
+            assert_eq!(&simplified, &case.simplified);
+        }
     }
 }
