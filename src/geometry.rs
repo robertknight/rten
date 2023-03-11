@@ -695,9 +695,10 @@ fn clamp_to_bounds(p: Point, height: i32, width: i32) -> Point {
 }
 
 /// Draw a non-antialiased line in an image.
-///
-/// This uses Breshan's line algorithm.
 pub fn draw_line<T: Copy>(mut image: NdTensorViewMut<T, 2>, line: Line, value: T) {
+    // This function uses Breshan's line algorithm, with the implementation
+    // in Pillow (https://pillow.readthedocs.io/en/stable/) used as a reference.
+
     let height: i32 = image.rows().try_into().unwrap();
     let width: i32 = image.cols().try_into().unwrap();
 
