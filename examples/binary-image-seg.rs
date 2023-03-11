@@ -6,7 +6,7 @@ use std::fs;
 use std::io::BufWriter;
 use std::iter::zip;
 
-use wasnn::geometry::{bounding_box, find_contours, stroke_rect, Rect, RetrievalMode};
+use wasnn::geometry::{draw_polygon, find_contours, simplify_polygon, RetrievalMode};
 use wasnn::ops::{resize, CoordTransformMode, NearestMode, ResizeMode, ResizeTarget};
 use wasnn::{tensor, Dimension, Model, RunOptions, Tensor, TensorLayout};
 
@@ -163,26 +163,22 @@ fn main() -> Result<(), Box<dyn Error>> {
     // trained to assign a positive label to pixels in a smaller area than the
     // ground truth, which may be done to create separation between adjacent
     // objects.
-    let expand_dist = 3;
+    // let expand_dist = 3;
 
     // Find bounding boxes of objects in image.
     let binary_mask = text_mask.map(|prob| if prob > threshold { 1i32 } else { 0 });
-    let object_boxes: Vec<_> = find_contours(binary_mask.nd_slice([0, 0]), RetrievalMode::External)
+    let object_polys: Vec<_> = find_contours(binary_mask.nd_slice([0, 0]), RetrievalMode::External)
         .iter()
-        .map(|poly| {
-            bounding_box(poly)
-                .adjust_tlbr(-expand_dist, -expand_dist, expand_dist, expand_dist)
-                .clamp(Rect::from_hw(img_height as i32, img_width as i32))
-        })
+        .map(|poly| simplify_polygon(poly, 2. /* epsilon */))
         .collect();
 
     // Draw bounding boxes around objects in image.
     let mut mask_view = combined_img_mask.nd_slice_mut([0, 0]);
-    for word_box in object_boxes.iter() {
-        stroke_rect(mask_view.view_mut(), *word_box, 1., 2);
+    for poly in object_polys.iter() {
+        draw_polygon(mask_view.view_mut(), poly, 1.);
     }
 
-    println!("Found {} objects in image", object_boxes.len());
+    println!("Found {} objects in image", object_polys.len());
 
     // Write out the segmentation mask.
     let out_img = image_from_tensor(&combined_img_mask);
