@@ -94,6 +94,12 @@ impl Vec2 {
     pub fn dot(&self, other: Vec2) -> f32 {
         self.x * other.x + self.y * other.y
     }
+
+    /// Return a copy of this vector scaled such that the length is 1.
+    pub fn normalized(&self) -> Vec2 {
+        let inv_len = 1. / self.length();
+        Vec2::from_yx(self.y * inv_len, self.x * inv_len)
+    }
 }
 
 /// A bounded line segment defined by a start and end point.
@@ -777,13 +783,66 @@ pub fn draw_polygon<T: Copy>(mut image: NdTensorViewMut<T, 2>, poly: &[Point], v
     );
 }
 
+/// Return the sorted subset of points from `poly` that form a convex hull
+/// containing `poly`.
+pub fn convex_hull(poly: &[Point]) -> Vec<Point> {
+    // See https://en.wikipedia.org/wiki/Graham_scan
+
+    let mut hull = Vec::new();
+
+    // Find lowest and left-most point.
+    let min_point = match poly.iter().min_by_key(|p| (-p.y, p.x)) {
+        Some(p) => p,
+        None => {
+            return hull;
+        }
+    };
+
+    // FIXME - Should `min_point` be removed from the list? It leads to NaN
+    // outputs from `angle` when angle is called with `p == min_point`.
+    //
+    // TODO - Break ties if multiple points form the same angle, by preferring
+    // the furthest point.
+
+    // Compute cosine of angle between the vector `p - min_point` and the X axis.
+    let angle = |p: Point| {
+        let dy = p.y - min_point.y;
+        let dx = p.x - min_point.x;
+        let x_axis = Vec2::from_yx(0., 1.);
+        Vec2::from_yx(dy as f32, dx as f32).normalized().dot(x_axis)
+    };
+
+    // Sort points by angle between `point - min_point` and X axis.
+    let mut sorted_points = poly.to_vec();
+    sorted_points.sort_by(|&a, &b| f32::total_cmp(&angle(a), &angle(b)));
+
+    // Visit sorted points and keep the sequence that can be followed without
+    // making any clockwise turns.
+    for &p in sorted_points.iter() {
+        while hull.len() >= 2 {
+            let [prev2, prev] = [hull[hull.len() - 2], hull[hull.len() - 1]];
+            let ac = Vec2::from_points(prev2, p);
+            let bc = Vec2::from_points(prev, p);
+            let turn_dir = ac.cross_product_norm(bc);
+            if turn_dir > 0. {
+                // Last three points form a counter-clockwise turn.
+                break;
+            }
+            hull.pop();
+        }
+        hull.push(p);
+    }
+
+    hull
+}
+
 #[cfg(test)]
 mod tests {
     use std::iter::zip;
 
     use super::{
-        bounding_box, draw_polygon, fill_rect, find_contours, print_grid, simplify_polygon,
-        simplify_polyline, stroke_rect, Line, Point, Rect, RetrievalMode,
+        bounding_box, convex_hull, draw_polygon, fill_rect, find_contours, print_grid,
+        simplify_polygon, simplify_polyline, stroke_rect, Line, Point, Rect, RetrievalMode,
     };
     use crate::tensor::{MatrixLayout, NdTensor, NdTensorLayout, NdTensorView, NdTensorViewMut};
     use crate::test_util::ApproxEq;
@@ -888,11 +947,62 @@ mod tests {
         }
     }
 
+    /// Convert a vector of points from a slice of `[y, x]` coordinates.
+    fn points_from_coords(coords: &[[i32; 2]]) -> Vec<Point> {
+        coords.iter().map(|[y, x]| Point::from_yx(*y, *x)).collect()
+    }
+
     #[test]
     fn test_bounding_box() {
         let rect = Rect::from_tlbr(5, 5, 10, 10);
         let border = border_points(rect, false /* omit_corners */);
         assert_eq!(bounding_box(&border), rect);
+    }
+
+    #[test]
+    fn test_convex_hull() {
+        struct Case {
+            points: &'static [[i32; 2]],
+            hull: &'static [[i32; 2]],
+        }
+
+        let cases = [
+            // Simple square. The hull is a re-ordering of the input.
+            Case {
+                points: &[[0, 0], [0, 4], [4, 4], [4, 0]],
+                hull: &[[4, 0], [0, 0], [0, 4], [4, 4]],
+            },
+            // Square with an indent on each edge. The hull is just a rect.
+            Case {
+                points: &[
+                    // Top
+                    [0, 0],
+                    [1, 2],
+                    [0, 4],
+                    // Right
+                    [2, 3],
+                    [4, 4],
+                    // Bottom
+                    [3, 2],
+                    [4, 0],
+                    // Left
+                    [2, 1],
+                ],
+
+                // Hull starts with lowest, left-most corner then proceeds
+                // clockwise.
+                hull: &[[4, 0], [0, 0], [0, 4], [4, 4]],
+            },
+        ];
+
+        for case in cases {
+            let points = points_from_coords(case.points);
+            let expected_hull = points_from_coords(case.hull);
+
+            let hull = convex_hull(&points);
+
+            assert_eq!(hull, expected_hull);
+        }
     }
 
     #[test]
