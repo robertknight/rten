@@ -3,6 +3,7 @@ use std::fmt;
 ///!
 ///! TODO: Move these out of Wasnn and into a separate crate.
 use std::fmt::Display;
+use std::iter::zip;
 use std::ops::Range;
 use std::slice::Iter;
 
@@ -24,6 +25,7 @@ impl Point {
 
     /// Return self as a [y, x] index.
     pub fn coord(self) -> [usize; 2] {
+        // FIXME - Handle case where these coords are out-of-bounds.
         [self.y as usize, self.x as usize]
     }
 
@@ -683,15 +685,106 @@ pub fn fill_rect<T: Copy>(mut mask: NdTensorViewMut<T, 2>, rect: Rect, value: T)
     }
 }
 
+/// Return a copy of `p` with X and Y coordinates clamped to `[0, width)` and
+/// `[0, height)` respectively.
+fn clamp_to_bounds(p: Point, height: i32, width: i32) -> Point {
+    Point::from_yx(
+        p.y.clamp(0, height.saturating_sub(1).max(0)),
+        p.x.clamp(0, width.saturating_sub(1).max(0)),
+    )
+}
+
+/// Draw a non-antialiased line in an image.
+///
+/// This uses Breshan's line algorithm.
+pub fn draw_line<T: Copy>(mut image: NdTensorViewMut<T, 2>, line: Line, value: T) {
+    let height: i32 = image.rows().try_into().unwrap();
+    let width: i32 = image.cols().try_into().unwrap();
+
+    let start = clamp_to_bounds(line.start, height, width);
+    let end = clamp_to_bounds(line.end, height, width);
+
+    let dx = (end.x - start.x).abs();
+    let dy = (end.y - start.y).abs();
+
+    let x_step = (end.x - start.x).signum();
+    let y_step = (end.y - start.y).signum();
+
+    let steps = dx.max(dy);
+    let mut current = start;
+
+    if x_step == 0 {
+        // Vertical line
+        let mut y = start.y;
+        for _ in 0..steps {
+            image[[y as usize, start.x as usize]] = value;
+            y += y_step;
+        }
+    } else if y_step == 0 {
+        // Horizontal line
+        let mut x = start.x;
+        for _ in 0..steps {
+            image[[start.y as usize, x as usize]] = value;
+            x += x_step;
+        }
+    } else if dx >= dy {
+        // Horizontal slope
+        let dy = dy * 2;
+        let mut error = dy - dx;
+        let dx = dx * 2;
+
+        for _ in 0..steps {
+            image[current.coord()] = value;
+            if error >= 0 {
+                current.y += y_step;
+                error -= dx;
+            }
+            error += dy;
+            current.x += x_step;
+        }
+    } else {
+        // Vertical slope
+        let dx = dx * 2;
+        let mut error = dx - dy;
+        let dy = dy * 2;
+
+        for _ in 0..steps {
+            image[current.coord()] = value;
+            if error >= 0 {
+                current.x += x_step;
+                error -= dy;
+            }
+            error += dx;
+            current.y += y_step;
+        }
+    }
+}
+
+/// Draw the outline of a non anti-aliased polygon in an image.
+pub fn draw_polygon<T: Copy>(mut image: NdTensorViewMut<T, 2>, poly: &[Point], value: T) {
+    if poly.is_empty() {
+        return;
+    }
+
+    for (&start, &end) in zip(poly.iter(), poly.iter().skip(1)) {
+        draw_line(image.view_mut(), Line::from_endpoints(start, end), value);
+    }
+    draw_line(
+        image,
+        Line::from_endpoints(*poly.last().unwrap(), *poly.first().unwrap()),
+        value,
+    );
+}
+
 #[cfg(test)]
 mod tests {
     use std::iter::zip;
 
     use super::{
-        bounding_box, fill_rect, find_contours, simplify_polygon, simplify_polyline, stroke_rect,
-        Line, Point, Rect, RetrievalMode,
+        bounding_box, draw_polygon, fill_rect, find_contours, print_grid, simplify_polygon,
+        simplify_polyline, stroke_rect, Line, Point, Rect, RetrievalMode,
     };
-    use crate::tensor::{MatrixLayout, NdTensor, NdTensorView, NdTensorViewMut};
+    use crate::tensor::{MatrixLayout, NdTensor, NdTensorLayout, NdTensorView, NdTensorViewMut};
     use crate::test_util::ApproxEq;
 
     /// Return a list of the points on the border of `rect`, in counter-clockwise
@@ -768,11 +861,93 @@ mod tests {
         points
     }
 
+    /// Create a 2D NdTensor from an MxN nested array.
+    fn image_from_2d_array<const M: usize, const N: usize>(xs: [[i32; N]; M]) -> NdTensor<i32, 2> {
+        let mut image = NdTensor::zeros([M, N]);
+        for y in 0..M {
+            for x in 0..N {
+                image[[y, x]] = xs[y][x];
+            }
+        }
+        image
+    }
+
+    /// Compare two single-channel images with i32 pixel values.
+    fn compare_images(a: NdTensorView<i32, 2>, b: NdTensorView<i32, 2>) {
+        assert_eq!(a.rows(), b.rows());
+        assert_eq!(a.cols(), b.cols());
+
+        for y in 0..a.rows() {
+            for x in 0..a.cols() {
+                if a[[y, x]] != b[[y, x]] {
+                    print_grid(a);
+                    panic!("mismatch at coord [{}, {}]", y, x);
+                }
+            }
+        }
+    }
+
     #[test]
     fn test_bounding_box() {
         let rect = Rect::from_tlbr(5, 5, 10, 10);
         let border = border_points(rect, false /* omit_corners */);
         assert_eq!(bounding_box(&border), rect);
+    }
+
+    #[test]
+    fn test_draw_polygon() {
+        struct Case {
+            points: &'static [[i32; 2]],
+            expected: NdTensor<i32, 2>,
+        }
+
+        let cases = [
+            // A simple rect: Straight lines in each direction
+            Case {
+                points: &[[0, 0], [0, 4], [4, 4], [4, 0]],
+                expected: image_from_2d_array([
+                    [1, 1, 1, 1, 1],
+                    [1, 0, 0, 0, 1],
+                    [1, 0, 0, 0, 1],
+                    [1, 0, 0, 0, 1],
+                    [1, 1, 1, 1, 1],
+                ]),
+            },
+            // Slopes in each direction.
+            Case {
+                points: &[[0, 2], [2, 0], [4, 2], [2, 4]],
+                expected: image_from_2d_array([
+                    [0, 0, 1, 0, 0],
+                    [0, 1, 0, 1, 0],
+                    [1, 0, 0, 0, 1],
+                    [0, 1, 0, 1, 0],
+                    [0, 0, 1, 0, 0],
+                ]),
+            },
+            // Steep slopes in each direction.
+            Case {
+                points: &[[0, 2], [2, 1], [4, 2], [2, 3]],
+                expected: image_from_2d_array([
+                    [0, 0, 1, 0, 0],
+                    [0, 1, 1, 0, 0],
+                    [0, 1, 0, 1, 0],
+                    [0, 0, 1, 1, 0],
+                    [0, 0, 1, 0, 0],
+                ]),
+            },
+        ];
+
+        for case in cases {
+            let points: Vec<_> = case
+                .points
+                .iter()
+                .map(|[y, x]| Point::from_yx(*y, *x))
+                .collect();
+
+            let mut image = NdTensor::zeros(case.expected.shape());
+            draw_polygon(image.view_mut(), &points, 1);
+            compare_images(image.view(), case.expected.view());
+        }
     }
 
     #[test]
