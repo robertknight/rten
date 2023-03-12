@@ -6,7 +6,7 @@ use std::fs;
 use std::io::BufWriter;
 use std::iter::zip;
 
-use wasnn::geometry::{draw_polygon, find_contours, simplify_polygon, RetrievalMode};
+use wasnn::geometry::{convex_hull, draw_polygon, find_contours, simplify_polygon, RetrievalMode};
 use wasnn::ops::{resize, CoordTransformMode, NearestMode, ResizeMode, ResizeTarget};
 use wasnn::{tensor, Dimension, Model, RunOptions, Tensor, TensorLayout};
 
@@ -169,7 +169,7 @@ fn main() -> Result<(), Box<dyn Error>> {
     let binary_mask = text_mask.map(|prob| if prob > threshold { 1i32 } else { 0 });
     let object_polys: Vec<_> = find_contours(binary_mask.nd_slice([0, 0]), RetrievalMode::External)
         .iter()
-        .map(|poly| simplify_polygon(poly, 2. /* epsilon */))
+        .map(|poly| convex_hull(&simplify_polygon(poly, 2. /* epsilon */)))
         .collect();
 
     // Draw bounding boxes around objects in image.
