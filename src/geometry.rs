@@ -100,6 +100,69 @@ impl Vec2 {
         let inv_len = 1. / self.length();
         Vec2::from_yx(self.y * inv_len, self.x * inv_len)
     }
+
+    /// Return a vector perpendicular to this vector.
+    pub fn perpendicular(&self) -> Vec2 {
+        Vec2 {
+            y: -self.x,
+            x: self.y,
+        }
+    }
+}
+
+impl std::ops::Add<Vec2> for Vec2 {
+    type Output = Vec2;
+
+    fn add(self, rhs: Vec2) -> Vec2 {
+        Vec2 {
+            y: self.y + rhs.y,
+            x: self.x + rhs.x,
+        }
+    }
+}
+
+impl std::ops::Neg for Vec2 {
+    type Output = Vec2;
+
+    fn neg(self) -> Vec2 {
+        Vec2 {
+            y: -self.y,
+            x: -self.x,
+        }
+    }
+}
+
+impl std::ops::Mul<f32> for Vec2 {
+    type Output = Vec2;
+
+    fn mul(self, rhs: f32) -> Vec2 {
+        Vec2 {
+            y: self.y * rhs,
+            x: self.x * rhs,
+        }
+    }
+}
+
+impl std::ops::Sub<f32> for Vec2 {
+    type Output = Vec2;
+
+    fn sub(self, rhs: f32) -> Vec2 {
+        Vec2 {
+            y: self.y - rhs,
+            x: self.x - rhs,
+        }
+    }
+}
+
+impl std::ops::Sub<Vec2> for Vec2 {
+    type Output = Vec2;
+
+    fn sub(self, rhs: Vec2) -> Vec2 {
+        Vec2 {
+            y: self.y - rhs.y,
+            x: self.x - rhs.x,
+        }
+    }
 }
 
 /// A bounded line segment defined by a start and end point.
@@ -836,13 +899,110 @@ pub fn convex_hull(poly: &[Point]) -> Vec<Point> {
     hull
 }
 
+/// An oriented rectangle.
+#[derive(Copy, Clone, Debug)]
+pub struct RotatedRect {
+    center: Vec2,
+
+    // Orthogonal unit-length vectors to which the rect's edges are aligned.
+    axes: [Vec2; 2],
+
+    // Extent of the rect along the first axis.
+    width: f32,
+
+    // Extent of the rect along the second axis.
+    height: f32,
+}
+
+impl RotatedRect {
+    /// Return the coordinates of the rect's corners.
+    ///
+    /// The corners are returned in top-left, top-right, bottom-right,
+    /// bottom-left order for rotated rects with no rotation.
+    pub fn corners(&self) -> [Point; 4] {
+        let par_offset = self.axes[0] * (self.width / 2.);
+        let perp_offset = self.axes[1] * (self.height / 2.);
+
+        let coords: [Vec2; 4] = [
+            self.center - perp_offset - par_offset,
+            self.center - perp_offset + par_offset,
+            self.center + perp_offset + par_offset,
+            self.center + perp_offset - par_offset,
+        ];
+
+        coords.map(|v| Point::from_yx(v.y as i32, v.x as i32))
+    }
+
+    pub fn area(&self) -> f32 {
+        self.height * self.width
+    }
+}
+
+/// Return the rotated rectangle with minimum area which contains `points`.
+///
+/// Returns `None` if
+pub fn min_area_rect(points: &[Point]) -> Option<RotatedRect> {
+    // See "Exhaustive Search Algorithm" in
+    // https://www.geometrictools.com/Documentation/MinimumAreaRectangle.pdf.
+
+    let hull = convex_hull(points);
+
+    // Iterate over each edge of the polygon and find the smallest bounding
+    // rect where one of the rect's edges aligns with the polygon edge. Keep
+    // the rect that has the smallest area over all edges.
+    let mut min_rect: Option<RotatedRect> = None;
+    for (&edge_start, &edge_end) in zip(hull.iter(), hull.iter().cycle().skip(1)) {
+        // Project polygon points onto axes that are parallel and perpendicular
+        // to the current edge. The maximum distance between the projected
+        // points gives the width and height of the bounding rect.
+
+        let par_axis = Vec2::from_points(edge_start, edge_end).normalized();
+
+        // nb. Perpendicular axis points into the hull.
+        let perp_axis = -par_axis.perpendicular();
+
+        let (min_par, max_par, max_perp): (f32, f32, f32) = hull.iter().fold(
+            (f32::MAX, f32::MIN, f32::MIN),
+            |(min_par, max_par, max_perp), point| {
+                let d = Vec2::from_points(edge_start, *point);
+                let par_proj = par_axis.dot(d);
+                let perp_proj = perp_axis.dot(d);
+                (
+                    min_par.min(par_proj),
+                    max_par.max(par_proj),
+                    max_perp.max(perp_proj),
+                )
+            },
+        );
+
+        let height = max_perp;
+        let width = max_par - min_par;
+        let area = height * width;
+
+        if area < min_rect.map(|r| r.area()).unwrap_or(f32::MAX) {
+            let center = Vec2::from_yx(edge_start.y as f32, edge_start.x as f32)
+                + (par_axis * ((min_par + max_par) / 2.))
+                + (perp_axis * (height / 2.));
+            min_rect = Some(RotatedRect {
+                center,
+                axes: [par_axis, perp_axis],
+                width,
+                height,
+            })
+        }
+    }
+
+    min_rect
+}
+
 #[cfg(test)]
 mod tests {
     use std::iter::zip;
 
     use super::{
-        bounding_box, convex_hull, draw_polygon, fill_rect, find_contours, print_grid,
-        simplify_polygon, simplify_polyline, stroke_rect, Line, Point, Rect, RetrievalMode,
+        bounding_box, convex_hull, draw_polygon, fill_rect, find_contours, min_area_rect,
+        print_grid, simplify_polygon, simplify_polyline, stroke_rect, Line, Point, Rect,
+        RetrievalMode,
     };
     use crate::tensor::{MatrixLayout, NdTensor, NdTensorLayout, NdTensorView, NdTensorViewMut};
     use crate::test_util::ApproxEq;
@@ -947,9 +1107,14 @@ mod tests {
         }
     }
 
-    /// Convert a vector of points from a slice of `[y, x]` coordinates.
+    /// Convert a slice of `[y, x]` coordinates to `Point`s
     fn points_from_coords(coords: &[[i32; 2]]) -> Vec<Point> {
         coords.iter().map(|[y, x]| Point::from_yx(*y, *x)).collect()
+    }
+
+    /// Convery an array of `[y, x]` coordinates to `Point`s
+    fn points_from_n_coords<const N: usize>(coords: [[i32; 2]; N]) -> [Point; N] {
+        coords.map(|[y, x]| Point::from_yx(y, x))
     }
 
     #[test]
@@ -1302,6 +1467,27 @@ mod tests {
                 dist,
                 case.dist
             );
+        }
+    }
+
+    #[test]
+    fn test_min_area_rect() {
+        struct Case {
+            points: Vec<Point>,
+            expected: [Point; 4],
+        }
+
+        let cases = [
+            // Axis-aligned rect
+            Case {
+                points: points_from_coords(&[[0, 0], [0, 4], [4, 4], [4, 0]]),
+                expected: points_from_n_coords([[4, 0], [0, 0], [0, 4], [4, 4]]),
+            },
+        ];
+
+        for case in cases {
+            let min_rect = min_area_rect(&case.points).unwrap();
+            assert_eq!(min_rect.corners(), case.expected);
         }
     }
 
