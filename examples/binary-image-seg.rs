@@ -6,7 +6,9 @@ use std::fs;
 use std::io::BufWriter;
 use std::iter::zip;
 
-use wasnn::geometry::{convex_hull, draw_polygon, find_contours, simplify_polygon, RetrievalMode};
+use wasnn::geometry::{
+    convex_hull, draw_polygon, find_contours, min_area_rect, simplify_polygon, RetrievalMode,
+};
 use wasnn::ops::{resize, CoordTransformMode, NearestMode, ResizeMode, ResizeTarget};
 use wasnn::{tensor, Dimension, Model, RunOptions, Tensor, TensorLayout};
 
@@ -167,18 +169,24 @@ fn main() -> Result<(), Box<dyn Error>> {
 
     // Find bounding boxes of objects in image.
     let binary_mask = text_mask.map(|prob| if prob > threshold { 1i32 } else { 0 });
-    let object_polys: Vec<_> = find_contours(binary_mask.nd_slice([0, 0]), RetrievalMode::External)
+    let object_rects: Vec<_> = find_contours(binary_mask.nd_slice([0, 0]), RetrievalMode::External)
         .iter()
-        .map(|poly| convex_hull(&simplify_polygon(poly, 2. /* epsilon */)))
+        .map(|poly| {
+            let simplified = simplify_polygon(poly, 2. /* epsilon */);
+            (convex_hull(&simplified), min_area_rect(&simplified))
+        })
         .collect();
 
     // Draw bounding boxes around objects in image.
     let mut mask_view = combined_img_mask.nd_slice_mut([0, 0]);
-    for poly in object_polys.iter() {
-        draw_polygon(mask_view.view_mut(), poly, 1.);
+    for (hull, rect) in object_rects.iter() {
+        draw_polygon(mask_view.view_mut(), &hull, 0.8);
+        if let Some(rect) = rect {
+            draw_polygon(mask_view.view_mut(), &rect.corners(), 1.);
+        }
     }
 
-    println!("Found {} objects in image", object_polys.len());
+    println!("Found {} objects in image", object_rects.len());
 
     // Write out the segmentation mask.
     let out_img = image_from_tensor(&combined_img_mask);
