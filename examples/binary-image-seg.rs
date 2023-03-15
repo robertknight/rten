@@ -165,7 +165,7 @@ fn main() -> Result<(), Box<dyn Error>> {
     // trained to assign a positive label to pixels in a smaller area than the
     // ground truth, which may be done to create separation between adjacent
     // objects.
-    // let expand_dist = 3;
+    let expand_dist = 3.;
 
     // Find bounding boxes of objects in image.
     let binary_mask = text_mask.map(|prob| if prob > threshold { 1i32 } else { 0 });
@@ -173,7 +173,16 @@ fn main() -> Result<(), Box<dyn Error>> {
         .iter()
         .map(|poly| {
             let simplified = simplify_polygon(poly, 2. /* epsilon */);
-            (convex_hull(&simplified), min_area_rect(&simplified))
+
+            let rect = min_area_rect(&simplified).map(|mut rect| {
+                rect.resize(
+                    rect.width() + 2. * expand_dist,
+                    rect.height() + 2. * expand_dist,
+                );
+                rect
+            });
+
+            (convex_hull(&simplified), rect)
         })
         .collect();
 
