@@ -902,26 +902,41 @@ pub fn convex_hull(poly: &[Point]) -> Vec<Point> {
 /// An oriented rectangle.
 #[derive(Copy, Clone, Debug)]
 pub struct RotatedRect {
+    // Centroid of the rect.
     center: Vec2,
 
-    // Orthogonal unit-length vectors to which the rect's edges are aligned.
-    axes: [Vec2; 2],
+    // Unit-length vector indicating the "up" direction for this rect.
+    up_axis: Vec2,
 
-    // Extent of the rect along the first axis.
+    // Extent of the rect along the axis perpendicular to `up`.
     width: f32,
 
-    // Extent of the rect along the second axis.
+    // Extent of the rect along the `up` axis.
     height: f32,
 }
 
 impl RotatedRect {
+    /// Construct a new RotatedRect with a given `center`, up direction and
+    /// dimensions.
+    ///
+    /// `up_axis` must be a normalized (unit-length) vector.
+    pub fn new(center: Vec2, up_axis: Vec2, width: f32, height: f32) -> RotatedRect {
+        RotatedRect {
+            center,
+            up_axis,
+            width,
+            height,
+        }
+    }
+
     /// Return the coordinates of the rect's corners.
     ///
-    /// The corners are returned in top-left, top-right, bottom-right,
-    /// bottom-left order for rotated rects with no rotation.
+    /// The corners are returned in clockwise order starting from the corner
+    /// that is the top-left when the rect has no rotation (ie. the "up" axis
+    /// has XY coordinates [0, 1]).
     pub fn corners(&self) -> [Point; 4] {
-        let par_offset = self.axes[0] * (self.width / 2.);
-        let perp_offset = self.axes[1] * (self.height / 2.);
+        let par_offset = self.up_axis.perpendicular() * (self.width / 2.);
+        let perp_offset = self.up_axis * (self.height / 2.);
 
         let coords: [Vec2; 4] = [
             self.center - perp_offset - par_offset,
@@ -933,14 +948,42 @@ impl RotatedRect {
         coords.map(|v| Point::from_yx(v.y as i32, v.x as i32))
     }
 
+    /// Return the centroid of the rect.
+    pub fn center(&self) -> Vec2 {
+        self.center
+    }
+
+    /// Return the normalized vector that indicates the "up" direction for
+    /// this rect.
+    pub fn up_axis(&self) -> Vec2 {
+        self.up_axis
+    }
+
+    /// Return the extent of the rect along the axis perpendicular to `self.up_axis()`.
+    pub fn width(&self) -> f32 {
+        self.width
+    }
+
+    /// Return the extent of the rect along `self.up_axis()`.
+    pub fn height(&self) -> f32 {
+        self.height
+    }
+
     pub fn area(&self) -> f32 {
         self.height * self.width
+    }
+
+    /// Set the extents of this rect. `width` and `height` must be >= 0.
+    pub fn resize(&mut self, width: f32, height: f32) {
+        assert!(width >= 0. && height >= 0.);
+        self.width = width;
+        self.height = height;
     }
 }
 
 /// Return the rotated rectangle with minimum area which contains `points`.
 ///
-/// Returns `None` if
+/// Returns `None` if `points` contains fewer than 2 points.
 pub fn min_area_rect(points: &[Point]) -> Option<RotatedRect> {
     // See "Exhaustive Search Algorithm" in
     // https://www.geometrictools.com/Documentation/MinimumAreaRectangle.pdf.
@@ -983,12 +1026,9 @@ pub fn min_area_rect(points: &[Point]) -> Option<RotatedRect> {
             let center = Vec2::from_yx(edge_start.y as f32, edge_start.x as f32)
                 + (par_axis * ((min_par + max_par) / 2.))
                 + (perp_axis * (height / 2.));
-            min_rect = Some(RotatedRect {
-                center,
-                axes: [par_axis, perp_axis],
-                width,
-                height,
-            })
+            min_rect = Some(RotatedRect::new(
+                center, /* up_axis */ perp_axis, width, height,
+            ))
         }
     }
 
@@ -1002,7 +1042,7 @@ mod tests {
     use super::{
         bounding_box, convex_hull, draw_polygon, fill_rect, find_contours, min_area_rect,
         print_grid, simplify_polygon, simplify_polyline, stroke_rect, Line, Point, Rect,
-        RetrievalMode,
+        RetrievalMode, RotatedRect, Vec2,
     };
     use crate::tensor::{MatrixLayout, NdTensor, NdTensorLayout, NdTensorView, NdTensorViewMut};
     use crate::test_util::ApproxEq;
@@ -1515,6 +1555,25 @@ mod tests {
         for case in cases {
             assert_eq!(case.rect.clamp(case.boundary), case.expected);
         }
+    }
+
+    #[test]
+    fn test_rotated_rect_corners() {
+        let r = RotatedRect::new(Vec2::from_yx(5., 5.), Vec2::from_yx(1., 0.), 5., 5.);
+        let expected = points_from_n_coords([[2, 2], [2, 7], [7, 7], [7, 2]]);
+        assert_eq!(r.corners(), expected);
+    }
+
+    #[test]
+    fn test_rotated_rect_resize() {
+        let mut r = RotatedRect::new(Vec2::from_yx(5., 5.), Vec2::from_yx(1., 0.), 5., 5.);
+        assert_eq!(r.area(), 25.);
+
+        r.resize(3., 7.);
+
+        assert_eq!(r.width(), 3.);
+        assert_eq!(r.height(), 7.);
+        assert_eq!(r.area(), 21.);
     }
 
     #[test]
