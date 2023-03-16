@@ -9,6 +9,7 @@ mod wasm_api;
 // Temporarily included in this crate. These functions should be moved into
 // a separate crate in future.
 pub mod geometry;
+pub mod page_layout;
 
 pub mod ops;
 
