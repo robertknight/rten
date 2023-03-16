@@ -1,7 +1,7 @@
-use std::fmt;
 ///! Geometry functions for pre and post-processing images.
 ///!
 ///! TODO: Move these out of Wasnn and into a separate crate.
+use std::fmt;
 use std::fmt::Display;
 use std::iter::zip;
 use std::ops::Range;
@@ -12,7 +12,7 @@ use crate::tensor::{MatrixLayout, NdTensor, NdTensorView, NdTensorViewMut};
 pub type Coord = i32;
 
 /// A point defined by integer X and Y coordinates.
-#[derive(Copy, Clone, Default, PartialEq)]
+#[derive(Copy, Clone, Default, Eq, PartialEq)]
 pub struct Point {
     pub x: Coord,
     pub y: Coord,
@@ -220,7 +220,7 @@ impl Line {
 ///
 /// The left and top coordinates are inclusive. The right and bottom coordinates
 /// are exclusive.
-#[derive(Copy, Clone, Debug, PartialEq)]
+#[derive(Copy, Clone, Debug, PartialEq, Eq)]
 pub struct Rect {
     top_left: Point,
     bottom_right: Point,
@@ -242,6 +242,20 @@ impl Rect {
             top_left,
             bottom_right,
         }
+    }
+
+    pub fn area(&self) -> Coord {
+        self.width() * self.height()
+    }
+
+    pub fn width(&self) -> Coord {
+        // TODO - Handle inverted rects here
+        self.bottom_right.x - self.top_left.x
+    }
+
+    pub fn height(&self) -> Coord {
+        // TODO - Handle inverted rects here
+        self.bottom_right.y - self.top_left.y
     }
 
     pub fn top(&self) -> Coord {
