@@ -1063,6 +1063,19 @@ impl RotatedRect {
         coords.map(|v| Point::from_yx(v.y as i32, v.x as i32))
     }
 
+    /// Return the axis-aligned bounding rect which contains this rotated rect.
+    pub fn bounding_rect(&self) -> Rect {
+        let corners = self.corners();
+
+        let mut xs = corners.map(|p| p.x);
+        xs.sort();
+
+        let mut ys = corners.map(|p| p.y);
+        ys.sort();
+
+        Rect::from_tlbr(ys[0], xs[0], ys[3], xs[3])
+    }
+
     /// Return the centroid of the rect.
     pub fn center(&self) -> Vec2 {
         self.center
