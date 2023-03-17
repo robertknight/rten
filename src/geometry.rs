@@ -303,6 +303,11 @@ impl Rect {
         self.bottom_right.y
     }
 
+    /// Return true if the width or height of this rect are <= 0.
+    pub fn is_empty(&self) -> bool {
+        self.right() <= self.left() || self.bottom() <= self.top()
+    }
+
     /// Return the center point of the rect.
     pub fn center(&self) -> Point {
         let y = (self.top_left.y + self.bottom_right.y) / 2;
