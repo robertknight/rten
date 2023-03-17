@@ -303,6 +303,13 @@ impl Rect {
         self.bottom_right.y
     }
 
+    /// Return the center point of the rect.
+    pub fn center(&self) -> Point {
+        let y = (self.top_left.y + self.bottom_right.y) / 2;
+        let x = (self.top_left.x + self.bottom_right.x) / 2;
+        Point::from_yx(y, x)
+    }
+
     /// Return the coordinate of the top-left corner of the rect.
     pub fn top_left(&self) -> Point {
         self.top_left
@@ -378,6 +385,20 @@ impl Rect {
     pub fn intersects(&self, other: Rect) -> bool {
         self.left_edge().vertical_overlap(other.left_edge()) > 0
             && self.top_edge().horizontal_overlap(other.top_edge()) > 0
+    }
+
+    /// Return the smallest rect that contains both this rect and `other`.
+    pub fn union(&self, other: Rect) -> Rect {
+        let t = self.top().min(other.top());
+        let l = self.left().min(other.left());
+        let b = self.bottom().max(other.bottom());
+        let r = self.right().max(other.right());
+        Rect::from_tlbr(t, l, b, r)
+    }
+
+    /// Return true if `other` lies entirely within this rect.
+    pub fn contains(&self, other: Rect) -> bool {
+        self.union(other) == *self
     }
 }
 
