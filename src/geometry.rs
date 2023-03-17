@@ -165,6 +165,23 @@ impl std::ops::Sub<Vec2> for Vec2 {
     }
 }
 
+fn sort_pair<T: Ord>(pair: (T, T)) -> (T, T) {
+    if pair.0 <= pair.1 {
+        pair
+    } else {
+        (pair.1, pair.0)
+    }
+}
+
+/// Compute the overlap between two 1D lines `a` and `b`, where each line is
+/// given as (start, end) coords.
+fn overlap(a: (i32, i32), b: (i32, i32)) -> i32 {
+    let a = sort_pair(a);
+    let b = sort_pair(b);
+    let ((a_start, a_end), (b_start, b_end)) = sort_pair((a, b));
+    (a_end - b_start).clamp(0, b_end - b_start)
+}
+
 /// A bounded line segment defined by a start and end point.
 #[derive(Copy, Clone, Debug, PartialEq)]
 pub struct Line {
@@ -213,6 +230,18 @@ impl Line {
             let proj_line = Vec2::from_yx(intercept_y - p.y as f32, intercept_x - p.x as f32);
             proj_line.length()
         }
+    }
+
+    /// Return the number of pixels by which this line overlaps `other` in the
+    /// vertical direction.
+    pub fn vertical_overlap(&self, other: Line) -> i32 {
+        overlap((self.start.y, self.end.y), (other.start.y, other.end.y))
+    }
+
+    /// Return the number of pixels by which this line overlaps `other` in the
+    /// horizontal direction.
+    pub fn horizontal_overlap(&self, other: Line) -> i32 {
+        overlap((self.start.x, self.end.x), (other.start.x, other.end.x))
     }
 }
 
@@ -274,6 +303,46 @@ impl Rect {
         self.bottom_right.y
     }
 
+    /// Return the coordinate of the top-left corner of the rect.
+    pub fn top_left(&self) -> Point {
+        self.top_left
+    }
+
+    /// Return the coordinate of the top-right corner of the rect.
+    pub fn top_right(&self) -> Point {
+        Point::from_yx(self.top_left.y, self.bottom_right.x)
+    }
+
+    /// Return the coordinate of the bottom-left corner of the rect.
+    pub fn bottom_left(&self) -> Point {
+        Point::from_yx(self.bottom_right.y, self.top_left.x)
+    }
+
+    /// Return the coordinate of the bottom-right corner of the rect.
+    pub fn bottom_right(&self) -> Point {
+        self.bottom_right
+    }
+
+    /// Return the line segment of the left edge of the rect.
+    pub fn left_edge(&self) -> Line {
+        Line::from_endpoints(self.top_left(), self.bottom_left())
+    }
+
+    /// Return the line segment of the top edge of the rect.
+    pub fn top_edge(&self) -> Line {
+        Line::from_endpoints(self.top_left(), self.top_right())
+    }
+
+    /// Return the line segment of the right edge of the rect.
+    pub fn right_edge(&self) -> Line {
+        Line::from_endpoints(self.top_right(), self.bottom_right())
+    }
+
+    /// Return the line segment of the bottom edge of the rect.
+    pub fn bottom_edge(&self) -> Line {
+        Line::from_endpoints(self.bottom_left(), self.bottom_right())
+    }
+
     /// Return the top, left, bottom and right coordinates as an array.
     pub fn tlbr(&self) -> [Coord; 4] {
         [
@@ -303,6 +372,12 @@ impl Rect {
             top_left: Point::from_yx(top, left),
             bottom_right: Point::from_yx(bottom, right),
         }
+    }
+
+    /// Return true if the intersection of this rect and `other` is non-empty.
+    pub fn intersects(&self, other: Rect) -> bool {
+        self.left_edge().vertical_overlap(other.left_edge()) > 0
+            && self.top_edge().horizontal_overlap(other.top_edge()) > 0
     }
 }
 
