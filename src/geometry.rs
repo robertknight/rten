@@ -315,6 +315,17 @@ impl Rect {
         Point::from_yx(y, x)
     }
 
+    /// Return the corners of the rect in clockwise order, starting from the
+    /// top left.
+    pub fn corners(&self) -> [Point; 4] {
+        [
+            self.top_left(),
+            self.top_right(),
+            self.bottom_right(),
+            self.bottom_left(),
+        ]
+    }
+
     /// Return the coordinate of the top-left corner of the rect.
     pub fn top_left(&self) -> Point {
         self.top_left
