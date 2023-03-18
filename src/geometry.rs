@@ -1639,6 +1639,56 @@ mod tests {
     }
 
     #[test]
+    fn test_line_overlap() {
+        struct Case {
+            a: (i32, i32),
+            b: (i32, i32),
+            overlap: i32,
+        }
+
+        let cases = [
+            // No overlap
+            Case {
+                a: (0, 10),
+                b: (15, 20),
+                overlap: 0,
+            },
+            // End of `a` overlaps start of `b`
+            Case {
+                a: (0, 10),
+                b: (5, 15),
+                overlap: 5,
+            },
+            // `a` overlaps all of `b`
+            Case {
+                a: (0, 10),
+                b: (2, 8),
+                overlap: 6,
+            },
+            // `a` and `b` start together, but `a` is shorter
+            Case {
+                a: (0, 5),
+                b: (0, 10),
+                overlap: 5,
+            },
+        ];
+
+        for case in cases {
+            // Horizontal lines
+            let a = Line::from_endpoints(Point::from_yx(0, case.a.0), Point::from_yx(0, case.a.1));
+            let b = Line::from_endpoints(Point::from_yx(0, case.b.0), Point::from_yx(0, case.b.1));
+            assert_eq!(a.horizontal_overlap(b), case.overlap);
+            assert_eq!(b.horizontal_overlap(a), case.overlap);
+
+            // Vertical lines
+            let a = Line::from_endpoints(Point::from_yx(case.a.0, 0), Point::from_yx(case.a.1, 0));
+            let b = Line::from_endpoints(Point::from_yx(case.b.0, 0), Point::from_yx(case.b.1, 0));
+            assert_eq!(a.vertical_overlap(b), case.overlap);
+            assert_eq!(b.vertical_overlap(a), case.overlap);
+        }
+    }
+
+    #[test]
     fn test_min_area_rect() {
         struct Case {
             points: Vec<Point>,
