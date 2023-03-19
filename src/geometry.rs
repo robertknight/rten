@@ -412,6 +412,22 @@ impl Rect {
         Rect::from_tlbr(t, l, b, r)
     }
 
+    /// Return the largest rect that is contained within this rect and `other`.
+    pub fn intersection(&self, other: Rect) -> Rect {
+        let t = self.top().max(other.top());
+        let l = self.left().max(other.left());
+        let b = self.bottom().min(other.bottom());
+        let r = self.right().min(other.right());
+        Rect::from_tlbr(t, l, b, r)
+    }
+
+    /// Return the Intersection over Union ratio for this rect and `other`.
+    ///
+    /// See https://en.wikipedia.org/wiki/Jaccard_index.
+    pub fn iou(&self, other: Rect) -> f32 {
+        self.intersection(other).area() as f32 / self.union(other).area() as f32
+    }
+
     /// Return true if `other` lies entirely within this rect.
     pub fn contains(&self, other: Rect) -> bool {
         self.union(other) == *self
