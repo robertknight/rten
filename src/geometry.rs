@@ -178,7 +178,7 @@ fn sort_pair<T: Ord>(pair: (T, T)) -> (T, T) {
 fn overlap(a: (i32, i32), b: (i32, i32)) -> i32 {
     let a = sort_pair(a);
     let b = sort_pair(b);
-    let ((a_start, a_end), (b_start, b_end)) = sort_pair((a, b));
+    let ((_a_start, a_end), (b_start, b_end)) = sort_pair((a, b));
     (a_end - b_start).clamp(0, b_end - b_start)
 }
 
