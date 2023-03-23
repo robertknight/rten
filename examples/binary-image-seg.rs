@@ -7,9 +7,11 @@ use std::io::BufWriter;
 use std::iter::zip;
 
 use wasnn::geometry::{
-    convex_hull, draw_polygon, find_contours, min_area_rect, simplify_polygon, RetrievalMode,
+    convex_hull, draw_polygon, fill_rect, find_contours, min_area_rect, simplify_polygon, Line,
+    Point, Rect, RetrievalMode,
 };
 use wasnn::ops::{resize, CoordTransformMode, NearestMode, ResizeMode, ResizeTarget};
+use wasnn::page_layout::{group_into_lines, max_empty_rects};
 use wasnn::{tensor, Dimension, Model, RunOptions, Tensor, TensorLayout};
 
 /// Read a PNG image from `path` into an NCHW tensor with one channel.
@@ -171,31 +173,121 @@ fn main() -> Result<(), Box<dyn Error>> {
     let binary_mask = text_mask.map(|prob| if prob > threshold { 1i32 } else { 0 });
     let object_rects: Vec<_> = find_contours(binary_mask.nd_slice([0, 0]), RetrievalMode::External)
         .iter()
-        .map(|poly| {
+        .filter_map(|poly| {
             let simplified = simplify_polygon(poly, 2. /* epsilon */);
 
-            let rect = min_area_rect(&simplified).map(|mut rect| {
+            min_area_rect(&simplified).map(|mut rect| {
                 rect.resize(
                     rect.width() + 2. * expand_dist,
                     rect.height() + 2. * expand_dist,
                 );
                 rect
-            });
-
-            (convex_hull(&simplified), rect)
+            })
         })
         .collect();
 
-    // Draw bounding boxes around objects in image.
     let mut mask_view = combined_img_mask.nd_slice_mut([0, 0]);
-    for (hull, rect) in object_rects.iter() {
-        draw_polygon(mask_view.view_mut(), &hull, 0.8);
-        if let Some(rect) = rect {
-            draw_polygon(mask_view.view_mut(), &rect.corners(), 1.);
+
+    // Estimate spacing statistics
+    let mut lines = group_into_lines(&object_rects, &[]);
+    lines.sort_by_key(|l| l.first().unwrap().bounding_rect().top());
+
+    let mut all_word_spacings = Vec::new();
+    for line in lines.iter() {
+        if line.len() > 1 {
+            let mut spacings: Vec<_> = zip(line.iter(), line.iter().skip(1))
+                .map(|(cur, next)| next.bounding_rect().left() - cur.bounding_rect().right())
+                .collect();
+            spacings.sort();
+            all_word_spacings.extend_from_slice(&spacings);
+        }
+    }
+    all_word_spacings.sort();
+
+    let median_word_spacing = all_word_spacings
+        .get(all_word_spacings.len() / 2)
+        .copied()
+        .unwrap_or(10);
+    let median_height = object_rects
+        .get(object_rects.len() / 2)
+        .map(|r| r.height())
+        .unwrap_or(10.)
+        .round() as i32;
+    println!(
+        "Median word spacing {}, median height {}",
+        median_word_spacing, median_height
+    );
+
+    // Scoring function for empty rectangles. Taken from Section 3.D in [1].
+    // This favors tall rectangles.
+    //
+    // [1] F. Shafait, D. Keysers and T. Breuel, "Performance Evaluation and
+    //     Benchmarking of Six-Page Segmentation Algorithms".
+    //     10.1109/TPAMI.2007.70837.
+    let score = |r: Rect| {
+        let aspect_ratio = (r.height() as f32) / (r.width() as f32);
+        let aspect_ratio_weight = match aspect_ratio.log2().abs() {
+            r if r < 3. => 0.5,
+            r if r < 5. => 1.5,
+            r => r,
+        };
+        ((r.area() as f32) * aspect_ratio_weight).sqrt()
+    };
+
+    // Find separators between columns and articles.
+    let object_bboxes: Vec<_> = object_rects.iter().map(|r| r.bounding_rect()).collect();
+    let min_width = (median_word_spacing * 3) / 2;
+    let min_height = (3 * median_height.max(0)) as u32;
+    let mut separator_rects = Vec::new();
+    for er in max_empty_rects(
+        &object_bboxes,
+        Rect::from_hw(img_height as i32, img_width as i32),
+        score,
+        min_width.try_into().unwrap(),
+        min_height,
+    )
+    .take(100)
+    {
+        separator_rects.push(er);
+        fill_rect(mask_view.view_mut(), er, 0.1);
+    }
+
+    // Find lines that do not cross separators
+    let separator_lines: Vec<_> = separator_rects
+        .iter()
+        .map(|r| {
+            let center = r.center();
+            if r.height() > r.width() {
+                Line::from_endpoints(
+                    Point::from_yx(r.top(), center.x),
+                    Point::from_yx(r.bottom(), center.x),
+                )
+            } else {
+                Line::from_endpoints(
+                    Point::from_yx(center.y, r.left()),
+                    Point::from_yx(center.y, r.right()),
+                )
+            }
+        })
+        .collect();
+    let line_rects = group_into_lines(&object_rects, &separator_lines);
+
+    for lr in line_rects {
+        let line_points = lr.iter().fold(Vec::new(), |mut points, word_rect| {
+            points.extend_from_slice(&word_rect.corners());
+            points
+        });
+        if let Some(bounding_rect) = min_area_rect(&line_points) {
+            draw_polygon(mask_view.view_mut(), &bounding_rect.corners(), 0.9);
         }
     }
 
-    println!("Found {} objects in image", object_rects.len());
+    println!(
+        "Found {} objects in image of size {}x{}",
+        object_rects.len(),
+        img_width,
+        img_height
+    );
 
     // Write out the segmentation mask.
     let out_img = image_from_tensor(&combined_img_mask);
