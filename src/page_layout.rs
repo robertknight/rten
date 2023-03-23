@@ -1,7 +1,7 @@
 use std::cmp::Ordering;
 use std::collections::BinaryHeap;
 
-use crate::geometry::Rect;
+use crate::geometry::{Line, Point, Rect, RotatedRect, Vec2};
 
 struct Partition {
     score: f32,
@@ -163,6 +163,78 @@ where
     S: Fn(Rect) -> f32,
 {
     MaxEmptyRects::new(obstacles, boundary, score, min_width, min_height)
+}
+
+fn vec_to_point(v: Vec2) -> Point {
+    Point::from_yx(v.y as i32, v.x as i32)
+}
+
+fn rects_separated_by_line(a: &RotatedRect, b: &RotatedRect, l: Line) -> bool {
+    let a_to_b = Line::from_endpoints(vec_to_point(a.center()), vec_to_point(b.center()));
+    a_to_b.intersects(l)
+}
+
+fn rightmost_edge(r: &RotatedRect) -> Line {
+    let mut corners = r.corners();
+    corners.sort_by_key(|p| p.x);
+    Line::from_endpoints(corners[2], corners[3])
+}
+
+fn leftmost_edge(r: &RotatedRect) -> Line {
+    let mut corners = r.corners();
+    corners.sort_by_key(|p| p.x);
+    Line::from_endpoints(corners[0], corners[1])
+}
+
+/// Group rects into lines. Each line is a chain of oriented rects ordered
+/// left-to-right.
+///
+/// `separators` is a list of line segments that prevent the formation of
+/// lines which cross them. They can be used to specify column boundaries
+/// for example.
+pub fn group_into_lines(rects: &[RotatedRect], separators: &[Line]) -> Vec<Vec<RotatedRect>> {
+    let mut sorted_rects: Vec<_> = rects.to_vec();
+    sorted_rects.sort_by_key(|r| r.bounding_rect().left());
+
+    let mut lines: Vec<Vec<_>> = Vec::new();
+
+    // Minimum amount by which two words must overlap vertically to be
+    // considered part of the same line.
+    let overlap_threshold = 5;
+
+    while !sorted_rects.is_empty() {
+        let mut line = Vec::new();
+        line.push(sorted_rects.remove(0));
+
+        // Keep extending the line with the leftmost item whose left edge overlaps
+        // the right edge of the last item in the line.
+        loop {
+            let last = line.last().unwrap();
+            let last_edge = rightmost_edge(last);
+
+            if let Some((i, next_item)) = sorted_rects
+                .iter()
+                .enumerate()
+                .filter(|(_, r)| {
+                    let edge = leftmost_edge(r);
+                    edge.center().x > last_edge.center().x
+                        && last_edge.vertical_overlap(edge) >= overlap_threshold
+                        && !separators
+                            .iter()
+                            .any(|&s| rects_separated_by_line(last, r, s))
+                })
+                .min_by_key(|(_, r)| r.center().x as i32)
+            {
+                line.push(*next_item);
+                sorted_rects.remove(i);
+            } else {
+                break;
+            }
+        }
+        lines.push(line);
+    }
+
+    lines
 }
 
 #[cfg(test)]
