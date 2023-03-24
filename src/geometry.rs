@@ -257,6 +257,58 @@ impl Line {
     pub fn horizontal_overlap(&self, other: Line) -> i32 {
         overlap((self.start.x, self.end.x), (other.start.x, other.end.x))
     }
+
+    /// Test whether this line segment intersects `other` at a single point.
+    ///
+    /// Returns false if the line segments do not intersect, or are coincident
+    /// (ie. overlap for part of their lengths).
+    pub fn intersects(&self, other: Line) -> bool {
+        // See https://en.wikipedia.org/wiki/Intersection_(geometry)#Two_line_segments
+
+        let (x1, x2) = (self.start.x, self.end.x);
+        let (y1, y2) = (self.start.y, self.end.y);
+        let (x3, x4) = (other.start.x, other.end.x);
+        let (y3, y4) = (other.start.y, other.end.y);
+
+        // To find the intersection, we first represent the lines as functions
+        // parametrized by `s` and `t`:
+        //
+        // x(s), y(s) = x1 + s(x2 - x1), y1 + s(y2 - y1)
+        // x(t), y(t) = x3 + t(x4 - x3), y3 + t(y4 - y3)
+        //
+        // Then the coordinates of the intersection s0 and t0 are the solutions
+        // of:
+        //
+        // s(x2 - x1) - t(x4 - x3) = x3 - x1
+        // s(y2 - y1) - t(y4 - y3) = y3 - y1
+        //
+        // These equations are solved using Cramer's rule. The lines intersect
+        // if s0 and t0 are in [0, 1].
+
+        let a = x2 - x1;
+        let b = -(x4 - x3);
+        let c = y2 - y1;
+        let d = -(y4 - y3);
+
+        let b0 = x3 - x1;
+        let b1 = y3 - y1;
+
+        let det_a = a * d - b * c;
+        if det_a == 0 {
+            // Lines are either parallel or coincident.
+            return false;
+        }
+        let det_a0 = b0 * d - b * b1;
+        let det_a1 = a * b1 - b0 * c;
+
+        // We could calculate `s0` as `det_a0 / det_a` and `t0` as `det_a1 / det_a`
+        // (using float division). We only need to test whether s0 and t0 are
+        // in [0, 1] though, so this can be done without division.
+        let s_ok = (det_a0 >= 0) == (det_a > 0) && det_a0.abs() <= det_a.abs();
+        let t_ok = (det_a1 >= 0) == (det_a > 0) && det_a1.abs() <= det_a.abs();
+
+        s_ok && t_ok
+    }
 }
 
 /// Rectangle defined by left, top, right and bottom integer coordinates.
@@ -1676,6 +1728,80 @@ mod tests {
                 dist,
                 case.dist
             );
+        }
+    }
+
+    /// Create a line from [y1, x1, y2, x2] coordinates.
+    fn line_from_coords(coords: [i32; 4]) -> Line {
+        Line::from_endpoints(
+            Point::from_yx(coords[0], coords[1]),
+            Point::from_yx(coords[2], coords[3]),
+        )
+    }
+
+    #[test]
+    fn test_line_intersects() {
+        struct Case {
+            a: Line,
+            b: Line,
+            expected: bool,
+        }
+
+        let cases = [
+            // Horizontal and vertical lines that intersect
+            Case {
+                a: line_from_coords([0, 5, 10, 5]),
+                b: line_from_coords([5, 0, 5, 10]),
+                expected: true,
+            },
+            // Diagonal lines that intersect
+            Case {
+                a: line_from_coords([0, 0, 10, 10]),
+                b: line_from_coords([10, 0, 0, 10]),
+                expected: true,
+            },
+            // Horizontal and vertical lines that do not intersect
+            Case {
+                a: line_from_coords([0, 5, 10, 5]),
+                b: line_from_coords([5, 6, 5, 10]),
+                expected: false,
+            },
+            Case {
+                a: line_from_coords([0, 5, 10, 5]),
+                b: line_from_coords([5, 10, 5, 6]),
+                expected: false,
+            },
+            // Horizontal and vertical lines that touch
+            Case {
+                a: line_from_coords([0, 5, 5, 5]),
+                b: line_from_coords([5, 0, 5, 10]),
+                expected: true,
+            },
+            // Test case from https://en.wikipedia.org/wiki/Intersection_(geometry)#Two_line_segments
+            Case {
+                a: line_from_coords([1, 1, 2, 3]),
+                b: line_from_coords([4, 1, -1, 2]),
+                expected: true,
+            },
+            // Parallel lines that do not touch
+            Case {
+                a: line_from_coords([0, 5, 0, 10]),
+                b: line_from_coords([2, 5, 2, 10]),
+                expected: false,
+            },
+            // Coincident lines
+            Case {
+                a: line_from_coords([0, 5, 0, 10]),
+                b: line_from_coords([0, 5, 0, 10]),
+                expected: false,
+            },
+        ];
+
+        for case in cases {
+            assert_eq!(case.a.intersects(case.b), case.expected);
+
+            // `intersects` should be commutative.
+            assert_eq!(case.b.intersects(case.a), case.expected);
         }
     }
 
