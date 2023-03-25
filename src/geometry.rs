@@ -199,6 +199,20 @@ impl Line {
         self.start == self.end
     }
 
+    pub fn width(&self) -> Coord {
+        self.end.x - self.start.x
+    }
+
+    pub fn height(&self) -> Coord {
+        self.end.y - self.start.y
+    }
+
+    pub fn center(&self) -> Point {
+        let cy = (self.start.y + self.end.y) / 2;
+        let cx = (self.start.x + self.end.x) / 2;
+        Point::from_yx(cy, cx)
+    }
+
     /// Return the euclidean distance between a point and the closest coordinate
     /// that lies on the line.
     pub fn distance(&self, p: Point) -> f32 {
