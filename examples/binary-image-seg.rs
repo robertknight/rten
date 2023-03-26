@@ -7,8 +7,7 @@ use std::io::BufWriter;
 use std::iter::zip;
 
 use wasnn::geometry::{
-    convex_hull, draw_polygon, fill_rect, find_contours, min_area_rect, simplify_polygon, Line,
-    Point, Rect, RetrievalMode,
+    draw_polygon, find_contours, min_area_rect, simplify_polygon, Line, Point, Rect, RetrievalMode,
 };
 use wasnn::ops::{resize, CoordTransformMode, NearestMode, ResizeMode, ResizeTarget};
 use wasnn::page_layout::{group_into_lines, max_empty_rects, FilterOverlapping};
@@ -250,7 +249,6 @@ fn main() -> Result<(), Box<dyn Error>> {
     .take(80)
     {
         separator_rects.push(er);
-        fill_rect(mask_view.view_mut(), er, 0.1);
     }
 
     // Find lines that do not cross separators
