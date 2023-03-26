@@ -11,7 +11,7 @@ use wasnn::geometry::{
     Point, Rect, RetrievalMode,
 };
 use wasnn::ops::{resize, CoordTransformMode, NearestMode, ResizeMode, ResizeTarget};
-use wasnn::page_layout::{group_into_lines, max_empty_rects};
+use wasnn::page_layout::{group_into_lines, max_empty_rects, FilterOverlapping};
 use wasnn::{tensor, Dimension, Model, RunOptions, Tensor, TensorLayout};
 
 /// Read a PNG image from `path` into an NCHW tensor with one channel.
@@ -246,7 +246,8 @@ fn main() -> Result<(), Box<dyn Error>> {
         min_width.try_into().unwrap(),
         min_height,
     )
-    .take(100)
+    .filter_overlapping(0.5)
+    .take(80)
     {
         separator_rects.push(er);
         fill_rect(mask_view.view_mut(), er, 0.1);
