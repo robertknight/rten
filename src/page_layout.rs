@@ -165,6 +165,69 @@ where
     MaxEmptyRects::new(obstacles, boundary, score, min_width, min_height)
 }
 
+/// Iterator adapter which filters rectangles that overlap rectangles already
+/// returned by more than a certain amount.
+pub trait FilterOverlapping {
+    type Output: Iterator<Item = Rect>;
+
+    /// Create an iterator which filters out rectangles that overlap those
+    /// already returned by more than `factor`.
+    ///
+    /// `factor` is the minimum Intersection-over-Union ratio or Jaccard index [1].
+    /// See also [Rect::iou].
+    ///
+    /// [1] https://en.wikipedia.org/wiki/Jaccard_index
+    fn filter_overlapping(self, factor: f32) -> Self::Output;
+}
+
+/// Implementation of [FilterOverlapping].
+pub struct FilterRectIter<I: Iterator<Item = Rect>> {
+    source: I,
+
+    /// Rectangles already found.
+    found: Vec<Rect>,
+
+    /// Intersection-over-Union threshold.
+    overlap_threshold: f32,
+}
+
+impl<I: Iterator<Item = Rect>> FilterRectIter<I> {
+    fn new(source: I, overlap_threshold: f32) -> FilterRectIter<I> {
+        FilterRectIter {
+            source,
+            found: Vec::new(),
+            overlap_threshold,
+        }
+    }
+}
+
+impl<I: Iterator<Item = Rect>> Iterator for FilterRectIter<I> {
+    type Item = Rect;
+
+    fn next(&mut self) -> Option<Rect> {
+        while let Some(r) = self.source.next() {
+            if self
+                .found
+                .iter()
+                .any(|f| f.iou(r) >= self.overlap_threshold)
+            {
+                continue;
+            }
+            self.found.push(r);
+            return Some(r);
+        }
+        None
+    }
+}
+
+impl<I: Iterator<Item = Rect>> FilterOverlapping for I {
+    type Output = FilterRectIter<I>;
+
+    fn filter_overlapping(self, factor: f32) -> Self::Output {
+        FilterRectIter::new(self, factor)
+    }
+}
+
 fn vec_to_point(v: Vec2) -> Point {
     Point::from_yx(v.y as i32, v.x as i32)
 }
