@@ -1162,6 +1162,18 @@ impl RotatedRect {
         coords.map(|v| Point::from_yx(v.y as i32, v.x as i32))
     }
 
+    /// Return the edges of this rect, in clockwise order starting from the
+    /// edge that is the top edge if the rect has no rotation.
+    pub fn edges(&self) -> [Line; 4] {
+        let corners = self.corners();
+        [
+            Line::from_endpoints(corners[0], corners[1]),
+            Line::from_endpoints(corners[1], corners[2]),
+            Line::from_endpoints(corners[2], corners[3]),
+            Line::from_endpoints(corners[3], corners[0]),
+        ]
+    }
+
     /// Return the axis-aligned bounding rect which contains this rotated rect.
     pub fn bounding_rect(&self) -> Rect {
         let corners = self.corners();
@@ -1205,6 +1217,17 @@ impl RotatedRect {
         assert!(width >= 0. && height >= 0.);
         self.width = width;
         self.height = height;
+    }
+
+    /// Return true if the intersection of this rect and `other` is non-empty.
+    pub fn intersects(&self, other: &RotatedRect) -> bool {
+        if !self.bounding_rect().intersects(other.bounding_rect()) {
+            return false;
+        }
+        let other_edges = other.edges();
+        self.edges()
+            .iter()
+            .any(|e| other_edges.iter().any(|oe| e.intersects(*oe)))
     }
 }
 
@@ -1913,6 +1936,54 @@ mod tests {
         let r = RotatedRect::new(Vec2::from_yx(5., 5.), Vec2::from_yx(1., 0.), 5., 5.);
         let expected = points_from_n_coords([[2, 2], [2, 7], [7, 7], [7, 2]]);
         assert_eq!(r.corners(), expected);
+    }
+
+    #[test]
+    fn test_rotated_rect_intersects() {
+        struct Case {
+            a: RotatedRect,
+            b: RotatedRect,
+            bounding_rect_intersects: bool,
+            intersects: bool,
+        }
+
+        let up_vec = Vec2::from_yx(-1., 0.);
+        let up_left_vec = Vec2::from_yx(-1., -1.);
+
+        let cases = [
+            // Identical rects
+            Case {
+                a: RotatedRect::new(Vec2::from_yx(5., 5.), up_vec, 5., 5.),
+                b: RotatedRect::new(Vec2::from_yx(5., 5.), up_vec, 5., 5.),
+                bounding_rect_intersects: true,
+                intersects: true,
+            },
+            // Separated rects
+            Case {
+                a: RotatedRect::new(Vec2::from_yx(5., 5.), up_vec, 5., 5.),
+                b: RotatedRect::new(Vec2::from_yx(5., 11.), up_vec, 5., 5.),
+                bounding_rect_intersects: false,
+                intersects: false,
+            },
+            // Case where bounding rectangles intersect but rotated rects do
+            // not.
+            Case {
+                a: RotatedRect::new(Vec2::from_yx(5., 5.), up_left_vec, 12., 1.),
+                b: RotatedRect::new(Vec2::from_yx(9., 9.), up_vec, 1., 1.),
+                bounding_rect_intersects: true,
+                intersects: false,
+            },
+        ];
+
+        for case in cases {
+            assert_eq!(
+                case.a.bounding_rect().intersects(case.b.bounding_rect()),
+                case.bounding_rect_intersects
+            );
+            assert_eq!(case.a.intersects(&case.b), case.intersects);
+            // `intersects` should be transitive
+            assert_eq!(case.b.intersects(&case.a), case.intersects);
+        }
     }
 
     #[test]
