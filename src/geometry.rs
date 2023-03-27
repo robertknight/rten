@@ -498,6 +498,14 @@ impl Rect {
     pub fn contains(&self, other: Rect) -> bool {
         self.union(other) == *self
     }
+
+    /// Return true if `other` lies on the boundary or interior of this rect.
+    pub fn contains_point(&self, other: Point) -> bool {
+        self.top() <= other.y
+            && self.bottom() >= other.y
+            && self.left() <= other.x
+            && self.right() >= other.x
+    }
 }
 
 /// A collection of polygons, where each polygon is defined by a slice of points.
