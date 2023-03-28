@@ -1134,12 +1134,10 @@ pub struct RotatedRect {
 impl RotatedRect {
     /// Construct a new RotatedRect with a given `center`, up direction and
     /// dimensions.
-    ///
-    /// `up_axis` must be a normalized (unit-length) vector.
     pub fn new(center: Vec2, up_axis: Vec2, width: f32, height: f32) -> RotatedRect {
         RotatedRect {
             center,
-            up_axis,
+            up_axis: up_axis.normalized(),
             width,
             height,
         }
@@ -1915,6 +1913,15 @@ mod tests {
         let r = RotatedRect::new(Vec2::from_yx(5., 5.), Vec2::from_yx(1., 0.), 5., 5.);
         let expected = points_from_n_coords([[2, 2], [2, 7], [7, 7], [7, 2]]);
         assert_eq!(r.corners(), expected);
+    }
+
+    #[test]
+    fn test_rotated_rect_normalizes_up_vector() {
+        // Create rotated rect with non-normalized "up" vector.
+        let up_axis = Vec2::from_yx(1., 2.);
+        let center = Vec2::from_yx(0., 0.);
+        let rect = RotatedRect::new(center, up_axis, 2., 3.);
+        assert!(rect.up_axis().length().approx_eq(1.));
     }
 
     #[test]
