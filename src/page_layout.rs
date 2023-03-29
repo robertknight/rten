@@ -1,7 +1,11 @@
 use std::cmp::Ordering;
 use std::collections::BinaryHeap;
 
-use crate::geometry::{Line, Point, Rect, RotatedRect, Vec2};
+use crate::geometry::{
+    find_contours, min_area_rect, simplify_polygon, Line, Point, Rect, RetrievalMode, RotatedRect,
+    Vec2,
+};
+use crate::tensor::NdTensorView;
 
 struct Partition {
     score: f32,
@@ -298,6 +302,28 @@ pub fn group_into_lines(rects: &[RotatedRect], separators: &[Line]) -> Vec<Vec<R
     }
 
     lines
+}
+
+/// Find the minimum-area oriented rectangles containing each connected
+/// component in the binary mask `mask`.
+pub fn find_connected_component_rects(
+    mask: NdTensorView<i32, 2>,
+    expand_dist: f32,
+) -> Vec<RotatedRect> {
+    find_contours(mask, RetrievalMode::External)
+        .iter()
+        .filter_map(|poly| {
+            let simplified = simplify_polygon(poly, 2. /* epsilon */);
+
+            min_area_rect(&simplified).map(|mut rect| {
+                rect.resize(
+                    rect.width() + 2. * expand_dist,
+                    rect.height() + 2. * expand_dist,
+                );
+                rect
+            })
+        })
+        .collect()
 }
 
 #[cfg(test)]
