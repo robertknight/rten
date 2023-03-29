@@ -270,12 +270,20 @@ pub fn group_into_lines(rects: &[RotatedRect], separators: &[Line]) -> Vec<Vec<R
     // considered part of the same line.
     let overlap_threshold = 5;
 
+    // Maximum amount by which a candidate word to extend a line from
+    // left-to-right may horizontally overlap the current last word in the line.
+    //
+    // This is necessary when the code that produces the input rects can create
+    // overlapping rects. `find_connected_component_rects` pads the rects it
+    // produces for example.
+    let max_h_overlap = 5;
+
     while !sorted_rects.is_empty() {
         let mut line = Vec::new();
         line.push(sorted_rects.remove(0));
 
-        // Keep extending the line with the leftmost item whose left edge overlaps
-        // the right edge of the last item in the line.
+        // Find the best candidate to extend the current line by one word to the
+        // right, and keep going as long as we can find such a candidate.
         loop {
             let last = line.last().unwrap();
             let last_edge = rightmost_edge(last);
@@ -285,7 +293,8 @@ pub fn group_into_lines(rects: &[RotatedRect], separators: &[Line]) -> Vec<Vec<R
                 .enumerate()
                 .filter(|(_, r)| {
                     let edge = leftmost_edge(r);
-                    edge.center().x > last_edge.center().x
+                    r.center().x > last.center().x
+                        && edge.center().x - last_edge.center().x >= -max_h_overlap
                         && last_edge.vertical_overlap(edge) >= overlap_threshold
                         && !separators
                             .iter()
