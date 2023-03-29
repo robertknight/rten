@@ -6,11 +6,11 @@ use std::fs;
 use std::io::BufWriter;
 use std::iter::zip;
 
-use wasnn::geometry::{
-    draw_polygon, find_contours, min_area_rect, simplify_polygon, Line, Point, Rect, RetrievalMode,
-};
+use wasnn::geometry::{draw_polygon, min_area_rect, Line, Point, Rect};
 use wasnn::ops::{resize, CoordTransformMode, NearestMode, ResizeMode, ResizeTarget};
-use wasnn::page_layout::{group_into_lines, max_empty_rects, FilterOverlapping};
+use wasnn::page_layout::{
+    find_connected_component_rects, group_into_lines, max_empty_rects, FilterOverlapping,
+};
 use wasnn::{tensor, Dimension, Model, RunOptions, Tensor, TensorLayout};
 
 /// Read a PNG image from `path` into an NCHW tensor with one channel.
@@ -170,20 +170,7 @@ fn main() -> Result<(), Box<dyn Error>> {
 
     // Find bounding boxes of objects in image.
     let binary_mask = text_mask.map(|prob| if prob > threshold { 1i32 } else { 0 });
-    let object_rects: Vec<_> = find_contours(binary_mask.nd_slice([0, 0]), RetrievalMode::External)
-        .iter()
-        .filter_map(|poly| {
-            let simplified = simplify_polygon(poly, 2. /* epsilon */);
-
-            min_area_rect(&simplified).map(|mut rect| {
-                rect.resize(
-                    rect.width() + 2. * expand_dist,
-                    rect.height() + 2. * expand_dist,
-                );
-                rect
-            })
-        })
-        .collect();
+    let object_rects = find_connected_component_rects(binary_mask.nd_slice([0, 0]), expand_dist);
 
     let mut mask_view = combined_img_mask.nd_slice_mut([0, 0]);
 
