@@ -6,11 +6,9 @@ use std::fs;
 use std::io::BufWriter;
 use std::iter::zip;
 
-use wasnn::geometry::{draw_polygon, min_area_rect, Line, Point, Rect};
+use wasnn::geometry::{draw_polygon, min_area_rect, Rect};
 use wasnn::ops::{resize, CoordTransformMode, NearestMode, ResizeMode, ResizeTarget};
-use wasnn::page_layout::{
-    find_connected_component_rects, group_into_lines, max_empty_rects, FilterOverlapping,
-};
+use wasnn::page_layout::{find_connected_component_rects, find_text_lines};
 use wasnn::{tensor, Dimension, Model, RunOptions, Tensor, TensorLayout};
 
 /// Read a PNG image from `path` into an NCHW tensor with one channel.
@@ -168,97 +166,13 @@ fn main() -> Result<(), Box<dyn Error>> {
     // objects.
     let expand_dist = 3.;
 
-    // Find bounding boxes of objects in image.
     let binary_mask = text_mask.map(|prob| if prob > threshold { 1i32 } else { 0 });
-    let object_rects = find_connected_component_rects(binary_mask.nd_slice([0, 0]), expand_dist);
+    let word_rects = find_connected_component_rects(binary_mask.nd_slice([0, 0]), expand_dist);
+    let page_rect = Rect::from_hw(img_height as i32, img_width as i32);
+    let line_rects = find_text_lines(&word_rects, page_rect);
 
     let mut mask_view = combined_img_mask.nd_slice_mut([0, 0]);
-
-    // Estimate spacing statistics
-    let mut lines = group_into_lines(&object_rects, &[]);
-    lines.sort_by_key(|l| l.first().unwrap().bounding_rect().top());
-
-    let mut all_word_spacings = Vec::new();
-    for line in lines.iter() {
-        if line.len() > 1 {
-            let mut spacings: Vec<_> = zip(line.iter(), line.iter().skip(1))
-                .map(|(cur, next)| next.bounding_rect().left() - cur.bounding_rect().right())
-                .collect();
-            spacings.sort();
-            all_word_spacings.extend_from_slice(&spacings);
-        }
-    }
-    all_word_spacings.sort();
-
-    let median_word_spacing = all_word_spacings
-        .get(all_word_spacings.len() / 2)
-        .copied()
-        .unwrap_or(10);
-    let median_height = object_rects
-        .get(object_rects.len() / 2)
-        .map(|r| r.height())
-        .unwrap_or(10.)
-        .round() as i32;
-    println!(
-        "Median word spacing {}, median height {}",
-        median_word_spacing, median_height
-    );
-
-    // Scoring function for empty rectangles. Taken from Section 3.D in [1].
-    // This favors tall rectangles.
-    //
-    // [1] F. Shafait, D. Keysers and T. Breuel, "Performance Evaluation and
-    //     Benchmarking of Six-Page Segmentation Algorithms".
-    //     10.1109/TPAMI.2007.70837.
-    let score = |r: Rect| {
-        let aspect_ratio = (r.height() as f32) / (r.width() as f32);
-        let aspect_ratio_weight = match aspect_ratio.log2().abs() {
-            r if r < 3. => 0.5,
-            r if r < 5. => 1.5,
-            r => r,
-        };
-        ((r.area() as f32) * aspect_ratio_weight).sqrt()
-    };
-
-    // Find separators between columns and articles.
-    let object_bboxes: Vec<_> = object_rects.iter().map(|r| r.bounding_rect()).collect();
-    let min_width = (median_word_spacing * 3) / 2;
-    let min_height = (3 * median_height.max(0)) as u32;
-    let mut separator_rects = Vec::new();
-    for er in max_empty_rects(
-        &object_bboxes,
-        Rect::from_hw(img_height as i32, img_width as i32),
-        score,
-        min_width.try_into().unwrap(),
-        min_height,
-    )
-    .filter_overlapping(0.5)
-    .take(80)
-    {
-        separator_rects.push(er);
-    }
-
-    // Find lines that do not cross separators
-    let separator_lines: Vec<_> = separator_rects
-        .iter()
-        .map(|r| {
-            let center = r.center();
-            if r.height() > r.width() {
-                Line::from_endpoints(
-                    Point::from_yx(r.top(), center.x),
-                    Point::from_yx(r.bottom(), center.x),
-                )
-            } else {
-                Line::from_endpoints(
-                    Point::from_yx(center.y, r.left()),
-                    Point::from_yx(center.y, r.right()),
-                )
-            }
-        })
-        .collect();
-    let line_rects = group_into_lines(&object_rects, &separator_lines);
-
-    for lr in line_rects {
+    for lr in line_rects.iter() {
         let line_points = lr.iter().fold(Vec::new(), |mut points, word_rect| {
             points.extend_from_slice(&word_rect.corners());
             points
@@ -269,8 +183,9 @@ fn main() -> Result<(), Box<dyn Error>> {
     }
 
     println!(
-        "Found {} objects in image of size {}x{}",
-        object_rects.len(),
+        "Found {} words, {} lines in image of size {}x{}",
+        word_rects.len(),
+        line_rects.len(),
         img_width,
         img_height
     );
