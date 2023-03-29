@@ -410,6 +410,59 @@ pub fn find_text_lines(words: &[RotatedRect], page: Rect) -> Vec<Vec<RotatedRect
     group_into_lines(&words, &separator_lines)
 }
 
+/// Normalize a line so that it's endpoints are sorted from left to right.
+fn normalize_line(l: Line) -> Line {
+    if l.start.x <= l.end.x {
+        l
+    } else {
+        Line::from_endpoints(l.end, l.start)
+    }
+}
+
+/// Return a polygon which contains all the rects in `words`.
+///
+/// `words` is assumed to be a series of disjoint rectangles ordered from left
+/// to right. The returned points are arranged in clockwise order starting from
+/// the top-left point.
+///
+/// There are several ways to compute a polygon for a line. The simplest is
+/// to use [min_area_rect] on the union of the line's points. However the result
+/// will not tightly fit curved lines. This function returns a polygon which
+/// closely follows the edges of individual words.
+pub fn line_polygon(words: &[RotatedRect]) -> Vec<Point> {
+    let mut line_points = Vec::new();
+
+    // Add points from top edges, in left-to-right order.
+    for word_rect in words.iter() {
+        let top_edge = normalize_line(
+            word_rect
+                .edges()
+                .iter()
+                .copied()
+                .min_by_key(|e| e.center().y)
+                .unwrap(),
+        );
+        line_points.push(top_edge.start);
+        line_points.push(top_edge.end);
+    }
+
+    // Add points from bottom edges, in right-to-left order.
+    for word_rect in words.iter().rev() {
+        let bottom_edge = normalize_line(
+            word_rect
+                .edges()
+                .iter()
+                .copied()
+                .max_by_key(|e| e.center().y)
+                .unwrap(),
+        );
+        line_points.push(bottom_edge.end);
+        line_points.push(bottom_edge.start);
+    }
+
+    line_points
+}
+
 #[cfg(test)]
 mod tests {
     use super::max_empty_rects;
