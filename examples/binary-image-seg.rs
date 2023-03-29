@@ -6,9 +6,9 @@ use std::fs;
 use std::io::BufWriter;
 use std::iter::zip;
 
-use wasnn::geometry::{draw_polygon, min_area_rect, Rect};
+use wasnn::geometry::{draw_polygon, Rect};
 use wasnn::ops::{resize, CoordTransformMode, NearestMode, ResizeMode, ResizeTarget};
-use wasnn::page_layout::{find_connected_component_rects, find_text_lines};
+use wasnn::page_layout::{find_connected_component_rects, find_text_lines, line_polygon};
 use wasnn::{tensor, Dimension, Model, RunOptions, Tensor, TensorLayout};
 
 /// Read a PNG image from `path` into an NCHW tensor with one channel.
@@ -172,14 +172,8 @@ fn main() -> Result<(), Box<dyn Error>> {
     let line_rects = find_text_lines(&word_rects, page_rect);
 
     let mut mask_view = combined_img_mask.nd_slice_mut([0, 0]);
-    for lr in line_rects.iter() {
-        let line_points = lr.iter().fold(Vec::new(), |mut points, word_rect| {
-            points.extend_from_slice(&word_rect.corners());
-            points
-        });
-        if let Some(bounding_rect) = min_area_rect(&line_points) {
-            draw_polygon(mask_view.view_mut(), &bounding_rect.corners(), 0.9);
-        }
+    for word_rects in line_rects.iter() {
+        draw_polygon(mask_view.view_mut(), &line_polygon(word_rects), 0.9);
     }
 
     println!(
