@@ -1,5 +1,6 @@
 use std::cmp::Ordering;
 use std::collections::BinaryHeap;
+use std::iter::zip;
 
 use crate::geometry::{
     find_contours, min_area_rect, simplify_polygon, Line, Point, Rect, RetrievalMode, RotatedRect,
@@ -324,6 +325,89 @@ pub fn find_connected_component_rects(
             })
         })
         .collect()
+}
+
+/// Group text words into lines.
+pub fn find_text_lines(words: &[RotatedRect], page: Rect) -> Vec<Vec<RotatedRect>> {
+    // Estimate spacing statistics
+    let mut lines = group_into_lines(&words, &[]);
+    lines.sort_by_key(|l| l.first().unwrap().bounding_rect().top());
+
+    let mut all_word_spacings = Vec::new();
+    for line in lines.iter() {
+        if line.len() > 1 {
+            let mut spacings: Vec<_> = zip(line.iter(), line.iter().skip(1))
+                .map(|(cur, next)| next.bounding_rect().left() - cur.bounding_rect().right())
+                .collect();
+            spacings.sort();
+            all_word_spacings.extend_from_slice(&spacings);
+        }
+    }
+    all_word_spacings.sort();
+
+    let median_word_spacing = all_word_spacings
+        .get(all_word_spacings.len() / 2)
+        .copied()
+        .unwrap_or(10);
+    let median_height = words
+        .get(words.len() / 2)
+        .map(|r| r.height())
+        .unwrap_or(10.)
+        .round() as i32;
+
+    // Scoring function for empty rectangles. Taken from Section 3.D in [1].
+    // This favors tall rectangles.
+    //
+    // [1] F. Shafait, D. Keysers and T. Breuel, "Performance Evaluation and
+    //     Benchmarking of Six-Page Segmentation Algorithms".
+    //     10.1109/TPAMI.2007.70837.
+    let score = |r: Rect| {
+        let aspect_ratio = (r.height() as f32) / (r.width() as f32);
+        let aspect_ratio_weight = match aspect_ratio.log2().abs() {
+            r if r < 3. => 0.5,
+            r if r < 5. => 1.5,
+            r => r,
+        };
+        ((r.area() as f32) * aspect_ratio_weight).sqrt()
+    };
+
+    // Find separators between columns and articles.
+    let object_bboxes: Vec<_> = words.iter().map(|r| r.bounding_rect()).collect();
+    let min_width = (median_word_spacing * 3) / 2;
+    let min_height = (3 * median_height.max(0)) as u32;
+    let mut separator_rects = Vec::new();
+    for er in max_empty_rects(
+        &object_bboxes,
+        page,
+        score,
+        min_width.try_into().unwrap(),
+        min_height,
+    )
+    .filter_overlapping(0.5)
+    .take(80)
+    {
+        separator_rects.push(er);
+    }
+
+    // Find lines that do not cross separators
+    let separator_lines: Vec<_> = separator_rects
+        .iter()
+        .map(|r| {
+            let center = r.center();
+            if r.height() > r.width() {
+                Line::from_endpoints(
+                    Point::from_yx(r.top(), center.x),
+                    Point::from_yx(r.bottom(), center.x),
+                )
+            } else {
+                Line::from_endpoints(
+                    Point::from_yx(center.y, r.left()),
+                    Point::from_yx(center.y, r.right()),
+                )
+            }
+        })
+        .collect();
+    group_into_lines(&words, &separator_lines)
 }
 
 #[cfg(test)]
