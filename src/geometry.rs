@@ -55,6 +55,16 @@ impl Point {
     pub fn distance(self, other: Point) -> f32 {
         Vec2::from_points(self, other).length()
     }
+
+    pub fn move_by(&mut self, y: Coord, x: Coord) {
+        *self = self.translate(y, x);
+    }
+
+    /// Set the coordinates of this point.
+    pub fn move_to(&mut self, y: Coord, x: Coord) {
+        self.y = y;
+        self.x = x;
+    }
 }
 
 impl fmt::Debug for Point {
@@ -1285,13 +1295,243 @@ pub fn min_area_rect(points: &[Point]) -> Option<RotatedRect> {
     min_rect
 }
 
+/// Tracks data about an edge in a polygon being traversed by [PolygonPoints].
+#[derive(Clone, Copy, Debug)]
+struct Edge {
+    /// Y coordinate where this edge starts
+    start_y: i32,
+
+    /// Number of scanlines remaining for this edge
+    y_steps: u32,
+
+    /// X coordinate where this edge intersects the current scanline
+    x: i32,
+
+    /// Error term indicating difference between true X coordinate for current
+    /// scanline and `x`.
+    error: i32,
+
+    /// Amount to increment `error` for every scanline.
+    error_incr: i32,
+
+    /// Amount to decrement `error` when it becomes positive.
+    error_decr: i32,
+
+    /// Amount to increment `x` for every scanline.
+    x_step: i32,
+
+    /// Amount to increment `x` when `error` becomes positive.
+    extra_x_step: i32,
+}
+
+/// Iterator over points that fill a polygon.
+///
+/// The implementation follows https://www.jagregory.com/abrash-black-book/#filling-arbitrary-polygons.
+pub struct PolygonPoints {
+    /// Edges in the polygon, sorted by Y coordinate.
+    edges: Vec<Edge>,
+
+    /// Edges in the polygon which intersect the horizontal line at `cursor.y`.
+    ///
+    /// Sorted by X coordinate.
+    active_edges: Vec<Edge>,
+
+    /// Bounding rect that contains the polygon.
+    bounds: Rect,
+
+    /// Coordinates of next point to return.
+    cursor: Point,
+}
+
+impl PolygonPoints {
+    fn new(poly: Polygon<&[Point]>) -> PolygonPoints {
+        let mut edges: Vec<_> = poly
+            .edges()
+            // Ignore horizontal edges
+            .filter(|e| e.start.y != e.end.y)
+            .map(|e| {
+                // Normalize edge so that `delta_y` is +ve
+                let (start, end) = if e.start.y <= e.end.y {
+                    (e.start, e.end)
+                } else {
+                    (e.end, e.start)
+                };
+
+                let delta_x = end.x - start.x;
+                let delta_y = end.y - start.y;
+
+                Edge {
+                    start_y: start.y,
+                    y_steps: delta_y as u32,
+
+                    x: start.x,
+
+                    // `x_step` is the integer part of `1/slope`.
+                    x_step: delta_x / delta_y,
+
+                    // The error term tracks when `x` needs an adjustment due
+                    // to accumulation of the fractional part of `1/slope`.
+                    error: if delta_x >= 0 {
+                        0
+                    } else {
+                        // TODO - Clarify where this comes from.
+                        -delta_y + 1
+                    },
+                    error_incr: delta_x.abs() % delta_y,
+                    error_decr: delta_y,
+                    extra_x_step: delta_x.signum(),
+                }
+            })
+            .collect();
+        edges.sort_by_key(|e| -e.start_y);
+
+        let active_edges = Vec::with_capacity(edges.len());
+
+        let bounds = poly.bounding_rect();
+        let mut iter = PolygonPoints {
+            edges,
+            active_edges,
+            bounds,
+            cursor: if bounds.is_empty() {
+                // If the polygon is empty, the cursor starts at the bottom right
+                // so that the iterator immediately yields `None`, rather than
+                // having to loop over all the empty rows.
+                bounds.bottom_right()
+            } else {
+                bounds.top_left()
+            },
+        };
+        iter.update_active_edges();
+        iter
+    }
+
+    /// Update the `active_edges` list after moving to a new line.
+    fn update_active_edges(&mut self) {
+        // Remove entries that end at this line and update X coord of other entries.
+        self.active_edges.retain_mut(|mut e| {
+            e.y_steps -= 1;
+            if e.y_steps > 0 {
+                // Advance X coordinate for current line and error term that
+                // tracks difference between `e.x` and true X coord.
+                e.x += e.x_step;
+                e.error += e.error_incr;
+
+                // TODO - Should this use `>= 0` instead? Error term comparison
+                // uses >= 0 in Bresham line drawing.
+                if e.error > 0 {
+                    e.error -= e.error_decr;
+                    e.x += e.extra_x_step;
+                }
+                true
+            } else {
+                false
+            }
+        });
+
+        // Add edges that begin at this line.
+        while let Some(edge) = self.edges.last().copied() {
+            if edge.start_y > self.cursor.y {
+                break;
+            }
+            self.edges.pop();
+            self.active_edges.push(edge);
+        }
+
+        self.active_edges.sort_by_key(|e| e.x);
+    }
+}
+
+impl Iterator for PolygonPoints {
+    type Item = Point;
+
+    fn next(&mut self) -> Option<Point> {
+        while !self.active_edges.is_empty() {
+            let current = self.cursor;
+            let intersections =
+                self.active_edges
+                    .iter()
+                    .fold(0, |i, e| if e.x <= current.x { i + 1 } else { i });
+
+            self.cursor.move_by(0, 1);
+            if self.cursor.x == self.bounds.right() {
+                self.cursor.move_to(current.y + 1, self.bounds.left());
+                self.update_active_edges();
+            }
+
+            if intersections % 2 == 1 {
+                return Some(current);
+            }
+        }
+        None
+    }
+}
+
+/// Polygon with a dynamically-determined number of vertices.
+///
+/// Depending on the storage type `S`, a Polygon can own its points
+/// (eg. `Vec<Point>`) or they can borrowed (eg. `&[Point]`).
+#[derive(Copy, Clone, Debug)]
+pub struct Polygon<S: AsRef<[Point]> = Vec<Point>> {
+    points: S,
+}
+
+impl<S: AsRef<[Point]>> Polygon<S> {
+    /// Create a view of a set of points as a polygon.
+    pub fn new(points: S) -> Polygon<S> {
+        Polygon { points }
+    }
+
+    /// Return the smallest axis-aligned rectangle that contains all points
+    /// in this polygon.
+    pub fn bounding_rect(&self) -> Rect {
+        let mut min_x = i32::MAX;
+        let mut max_x = i32::MIN;
+        let mut min_y = i32::MAX;
+        let mut max_y = i32::MIN;
+
+        for p in self.points.as_ref() {
+            min_x = min_x.min(p.x);
+            max_x = max_x.max(p.x);
+            min_y = min_y.min(p.y);
+            max_y = max_y.max(p.y);
+        }
+
+        Rect::from_tlbr(min_y, min_x, max_y, max_x)
+    }
+
+    /// Return an iterator over points that lie inside or on the boundary of
+    /// the polygon.
+    pub fn iter_points(&self) -> PolygonPoints {
+        PolygonPoints::new(self.borrow())
+    }
+
+    /// Return a polygon which borrows its points from this polygon.
+    pub fn borrow(&self) -> Polygon<&[Point]> {
+        Polygon::new(self.points.as_ref())
+    }
+
+    /// Return an iterator over the edges of this polygon.
+    pub fn edges(&self) -> impl Iterator<Item = Line> + '_ {
+        zip(
+            self.points.as_ref().iter(),
+            self.points.as_ref().iter().cycle().skip(1),
+        )
+        .map(|(p0, p1)| Line::from_endpoints(*p0, *p1))
+    }
+
+    /// Return a slice of the endpoints of the polygon's edges.
+    pub fn vertices(&self) -> &[Point] {
+        self.points.as_ref()
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use std::iter::zip;
 
     use super::{
         bounding_box, convex_hull, draw_polygon, fill_rect, find_contours, min_area_rect,
-        print_grid, simplify_polygon, simplify_polyline, stroke_rect, Line, Point, Rect,
+        print_grid, simplify_polygon, simplify_polyline, stroke_rect, Line, Point, Polygon, Rect,
         RetrievalMode, RotatedRect, Vec2,
     };
     use crate::tensor::{MatrixLayout, NdTensor, NdTensorLayout, NdTensorView, NdTensorViewMut};
@@ -1902,6 +2142,28 @@ mod tests {
         for case in cases {
             let min_rect = min_area_rect(&case.points).unwrap();
             assert_eq!(min_rect.corners(), case.expected);
+        }
+    }
+
+    #[test]
+    fn test_polygon_iter_points() {
+        struct Case {
+            vertices: Vec<Point>,
+            filled: Vec<Point>,
+        }
+
+        // TODO - Simple triangle
+        // TODO - Rect
+        // TODO - Polygon with >2 edges intersecting a scanline
+        let cases = [Case {
+            vertices: points_from_coords(&[[0, 0], [0, 4], [3, 4]]),
+            filled: points_from_coords(&[[0, 0], [0, 1], [0, 2], [0, 3], [1, 2], [1, 3], [2, 3]]),
+        }];
+
+        for case in cases {
+            let poly = Polygon::new(&case.vertices);
+            let filled: Vec<_> = poly.iter_points().collect();
+            assert_eq!(filled, case.filled);
         }
     }
 
