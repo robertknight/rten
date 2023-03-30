@@ -58,7 +58,7 @@ fn binary_op<T: Copy + Debug, R: Copy, F: Fn(T, T) -> R>(
 
     let a_elts = a.broadcast_iter(&out_shape);
     let b_elts = b.broadcast_iter(&out_shape);
-    let out_data = zip(a_elts, b_elts).map(|(a, b)| op(a, b)).collect();
+    let out_data: Vec<_> = zip(a_elts, b_elts).map(|(a, b)| op(a, b)).collect();
     Ok(Tensor::from_data(&out_shape, out_data))
 }
 
@@ -495,7 +495,7 @@ pub fn where_op<T: Copy>(
     let result_shape = broadcast_shapes(cond.shape(), &broadcast_xy_shape)
         .ok_or(OpError::IncompatibleInputShapes("Cannot broadcast inputs"))?;
 
-    let result_elts = zip(
+    let result_elts: Vec<_> = zip(
         cond.broadcast_iter(&result_shape),
         zip(
             x.broadcast_iter(&result_shape),

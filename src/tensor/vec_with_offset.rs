@@ -23,6 +23,12 @@ impl<T> VecWithOffset<T> {
     }
 }
 
+impl<T> From<Vec<T>> for VecWithOffset<T> {
+    fn from(value: Vec<T>) -> Self {
+        VecWithOffset::new(value)
+    }
+}
+
 impl<T> Deref for VecWithOffset<T> {
     type Target = [T];
 

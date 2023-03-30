@@ -52,7 +52,7 @@ pub fn gemm_op(
                     "Cannot broadcast c to output shape",
                 ));
             }
-            let out_data = c.broadcast_iter(out_shape).collect();
+            let out_data: Vec<_> = c.broadcast_iter(out_shape).collect();
             Tensor::from_data(out_shape, out_data)
         }
         _ => Tensor::zeros(out_shape),

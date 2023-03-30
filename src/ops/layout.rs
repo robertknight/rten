@@ -17,7 +17,7 @@ pub fn expand<T: Copy>(input: &Tensor<T>, shape: &Tensor<i32>) -> Result<Tensor<
         OpError::IncompatibleInputShapes("Cannot broadcast input with target shape"),
     )?;
 
-    let out_elts = input.broadcast_iter(&out_shape).collect();
+    let out_elts: Vec<_> = input.broadcast_iter(&out_shape).collect();
     Ok(Tensor::from_data(&out_shape, out_elts))
 }
 
@@ -238,7 +238,11 @@ impl Operator for Shape {
         let input = inputs.require(0)?;
         let shape = Tensor::from_data(
             &[input.shape().len()],
-            input.shape().iter().map(|&el| el as i32).collect(),
+            input
+                .shape()
+                .iter()
+                .map(|&el| el as i32)
+                .collect::<Vec<_>>(),
         );
         shape.into_op_result()
     }

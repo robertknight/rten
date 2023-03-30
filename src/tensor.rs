@@ -212,6 +212,23 @@ impl<T: Copy, S: AsRef<[T]>> TensorBase<T, S> {
         }
     }
 
+    /// Create a new tensor from a given shape and set of elements. No copying
+    /// is required.
+    pub fn from_data<D: Into<S>>(shape: &[usize], data: D) -> Self {
+        let data = data.into();
+        assert!(
+            shape[..].iter().product::<usize>() == data.as_ref().len(),
+            "Number of elements given by shape {:?} does not match data length {}",
+            shape,
+            data.as_ref().len()
+        );
+        TensorBase {
+            data,
+            layout: Layout::new(shape),
+            element_type: PhantomData,
+        }
+    }
+
     /// Return the element buffer for this tensor as a slice.
     ///
     /// If the tensor is contiguous, the buffer will contain the same elements
@@ -243,7 +260,7 @@ impl<T: Copy, S: AsRef<[T]>> TensorBase<T, S> {
     /// Return a new contiguous tensor with the same shape and elements as this
     /// view.
     pub fn to_tensor(&self) -> Tensor<T> {
-        Tensor::from_data(self.shape(), self.iter().collect())
+        Tensor::from_data(self.shape(), self.iter().collect::<Vec<_>>())
     }
 
     /// Return a copy of the elements of this tensor as a contiguous vector
@@ -587,22 +604,6 @@ impl<T: Copy> TensorBase<T, VecWithOffset<T>> {
         }
     }
 
-    /// Create a new tensor from a given shape and set of elements. No copying
-    /// is required.
-    pub fn from_data(shape: &[usize], data: Vec<T>) -> Tensor<T> {
-        assert!(
-            shape[..].iter().product::<usize>() == data.len(),
-            "Number of elements given by shape {:?} does not match data length {}",
-            shape,
-            data.len()
-        );
-        Tensor {
-            data: VecWithOffset::new(data),
-            layout: Layout::new(shape),
-            element_type: PhantomData,
-        }
-    }
-
     /// Create a new 0-dimensional (scalar) tensor from a single value.
     pub fn from_scalar(value: T) -> Tensor<T> {
         Self::from_data(&[], vec![value])
@@ -619,7 +620,7 @@ impl<T: Copy> TensorBase<T, VecWithOffset<T>> {
         let data = if self.is_contiguous() {
             self.data().into()
         } else {
-            self.iter().collect()
+            self.iter().collect::<Vec<_>>()
         };
         Self::from_data(shape, data)
     }
@@ -803,7 +804,7 @@ mod tests {
     use crate::tensor;
     use crate::tensor::{
         from_2d_slice, from_data, from_scalar, from_vec, rand, zeros, SliceRange, Tensor,
-        TensorLayout,
+        TensorLayout, TensorView, TensorViewMut,
     };
 
     /// Create a tensor where the value of each element is its logical index
@@ -1371,6 +1372,22 @@ mod tests {
         let matrix = from_data(&[2, 2], vec![1, 2, 3, 4]);
         assert_eq!(matrix.shape(), &[2, 2]);
         assert_eq!(matrix.data(), &[1, 2, 3, 4]);
+    }
+
+    #[test]
+    fn test_from_data_with_slice() {
+        let matrix = TensorView::from_data(&[2, 2], [1, 2, 3, 4].as_slice());
+        assert_eq!(matrix.shape(), &[2, 2]);
+        assert_eq!(matrix.data(), &[1, 2, 3, 4]);
+    }
+
+    #[test]
+    fn test_from_data_with_mut_slice() {
+        let mut data = vec![1, 2, 3, 4];
+        let mut matrix = TensorViewMut::from_data(&[2, 2], &mut data[..]);
+        matrix[[0, 1]] = 5;
+        matrix[[1, 0]] = 6;
+        assert_eq!(data, &[1, 5, 6, 4]);
     }
 
     #[test]
