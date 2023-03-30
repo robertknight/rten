@@ -419,9 +419,9 @@ pub fn find_text_lines(words: &[RotatedRect], page: Rect) -> Vec<Vec<RotatedRect
     group_into_lines(&words, &separator_lines)
 }
 
-/// Normalize a line so that it's endpoints are sorted from left to right.
-fn normalize_line(l: Line) -> Line {
-    if l.start.x <= l.end.x {
+/// Normalize a line so that it's endpoints are sorted from top to bottom.
+fn downwards_line(l: Line) -> Line {
+    if l.start.y <= l.end.y {
         l
     } else {
         Line::from_endpoints(l.end, l.start)
@@ -439,37 +439,29 @@ fn normalize_line(l: Line) -> Line {
 /// will not tightly fit curved lines. This function returns a polygon which
 /// closely follows the edges of individual words.
 pub fn line_polygon(words: &[RotatedRect]) -> Vec<Point> {
-    let mut line_points = Vec::new();
+    let mut polygon = Vec::new();
 
     // Add points from top edges, in left-to-right order.
     for word_rect in words.iter() {
-        let top_edge = normalize_line(
-            word_rect
-                .edges()
-                .iter()
-                .copied()
-                .min_by_key(|e| e.center().y)
-                .unwrap(),
+        let (left, right) = (
+            downwards_line(leftmost_edge(word_rect)),
+            downwards_line(rightmost_edge(word_rect)),
         );
-        line_points.push(top_edge.start);
-        line_points.push(top_edge.end);
+        polygon.push(left.start);
+        polygon.push(right.start);
     }
 
     // Add points from bottom edges, in right-to-left order.
     for word_rect in words.iter().rev() {
-        let bottom_edge = normalize_line(
-            word_rect
-                .edges()
-                .iter()
-                .copied()
-                .max_by_key(|e| e.center().y)
-                .unwrap(),
+        let (left, right) = (
+            downwards_line(leftmost_edge(word_rect)),
+            downwards_line(rightmost_edge(word_rect)),
         );
-        line_points.push(bottom_edge.end);
-        line_points.push(bottom_edge.start);
+        polygon.push(right.end);
+        polygon.push(left.end);
     }
 
-    line_points
+    polygon
 }
 
 #[cfg(test)]
