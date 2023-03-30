@@ -320,6 +320,13 @@ pub fn find_connected_component_rects(
     mask: NdTensorView<i32, 2>,
     expand_dist: f32,
 ) -> Vec<RotatedRect> {
+    // Threshold for the minimum area of returned rectangles.
+    //
+    // This can be used to filter out rects created by small false positives in
+    // the mask, at the risk of filtering out true positives. The more accurate
+    // the model producing the mask is, the less this is needed.
+    let min_area_threshold = 100.;
+
     find_contours(mask, RetrievalMode::External)
         .iter()
         .filter_map(|poly| {
@@ -333,6 +340,7 @@ pub fn find_connected_component_rects(
                 rect
             })
         })
+        .filter(|r| r.area() >= min_area_threshold)
         .collect()
 }
 
