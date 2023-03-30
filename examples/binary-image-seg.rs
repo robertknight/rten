@@ -6,24 +6,21 @@ use std::fs;
 use std::io::BufWriter;
 use std::iter::zip;
 
-use wasnn::geometry::{draw_polygon, Rect};
+use wasnn::geometry::{draw_polygon, min_area_rect, Point, Polygon, Rect};
 use wasnn::ops::{resize, CoordTransformMode, NearestMode, ResizeMode, ResizeTarget};
 use wasnn::page_layout::{find_connected_component_rects, find_text_lines, line_polygon};
-use wasnn::{tensor, Dimension, Model, RunOptions, Tensor, TensorLayout};
+use wasnn::{tensor, Dimension, Model, RunOptions, Tensor, TensorLayout, TensorView};
 
-/// Read a PNG image from `path` into an NCHW tensor with one channel.
-fn read_greyscale_image<N: Fn(f32) -> f32>(
-    path: &str,
-    normalize_pixel: N,
-) -> Result<Tensor<f32>, Box<dyn Error>> {
+/// Read a PNG image from `path` into a CHW tensor.
+fn read_image(path: &str) -> Result<Tensor<f32>, Box<dyn Error>> {
     let input_img = fs::File::open(path)?;
     let decoder = png::Decoder::new(input_img);
     let mut reader = decoder.read_info()?;
 
-    let (in_chans, in_color_chans) = match reader.output_color_type() {
-        (png::ColorType::Rgb, png::BitDepth::Eight) => (3, 3),
-        (png::ColorType::Rgba, png::BitDepth::Eight) => (4, 3),
-        (png::ColorType::Grayscale, png::BitDepth::Eight) => (1, 1),
+    let in_chans = match reader.output_color_type() {
+        (png::ColorType::Rgb, png::BitDepth::Eight) => 3,
+        (png::ColorType::Rgba, png::BitDepth::Eight) => 4,
+        (png::ColorType::Grayscale, png::BitDepth::Eight) => 1,
         _ => return Err("Unsupported input image format".into()),
     };
 
@@ -35,28 +32,69 @@ fn read_greyscale_image<N: Fn(f32) -> f32>(
     let frame_info = reader.next_frame(&mut img_data).unwrap();
     img_data.truncate(frame_info.buffer_size());
 
-    let img = Tensor::from_data(&[height, width, in_chans], img_data);
-    let mut output = Tensor::zeros(&[1, 1, height, width]);
-    for y in 0..height {
-        for x in 0..width {
-            let mut pixel: u32 = 0;
-            for c in 0..in_color_chans {
-                let component: u32 = img[[y, x, c]].into();
-                pixel += component;
+    let img = TensorView::from_data(&[height, width, in_chans], img_data.as_slice());
+    let mut float_img = Tensor::zeros(&[in_chans, height, width]);
+    for c in 0..in_chans {
+        for y in 0..height {
+            for x in 0..width {
+                float_img[[c, y, x]] = img[[y, x, c]] as f32 / 255.0
             }
-            // TODO: Correct RGB => Greyscale conversion.
-            pixel /= in_color_chans as u32;
-            let in_val = normalize_pixel(pixel as f32 / 255.0);
-            output[[0, 0, y, x]] = in_val;
         }
     }
-
-    Ok(output)
+    Ok(float_img)
 }
 
-/// Convert an NCHW float tensor with values in the range [0, 1] to an
-/// 8-bit grayscale image.
-fn image_from_tensor(tensor: &Tensor) -> Vec<u8> {
+/// Convert a CHW image into a greyscale image.
+///
+/// `normalize_pixel` is a function applied to each greyscale pixel value before
+/// it is written into the output tensor.
+fn greyscale_image<F: Fn(f32) -> f32>(img: TensorView<f32>, normalize_pixel: F) -> Tensor<f32> {
+    let [chans, height, width]: [usize; 3] = img.shape().try_into().expect("expected 3 dim input");
+    let mut output = Tensor::zeros(&[1, height, width]);
+    for y in 0..height {
+        for x in 0..width {
+            let mut pixel = 0.;
+            for c in 0..chans {
+                pixel += img[[c, y, x]];
+            }
+            output[[0, y, x]] = normalize_pixel(pixel / chans as f32);
+        }
+    }
+    output
+}
+
+/// Write a CHW image to a PNG file in `path`.
+fn write_image(path: &str, img: TensorView<f32>) -> Result<(), Box<dyn Error>> {
+    if img.ndim() != 3 {
+        return Err("Expected CHW input".into());
+    }
+
+    let img_width = img.shape()[img.ndim() - 1];
+    let img_height = img.shape()[img.ndim() - 2];
+    let color_type = match img.shape()[img.ndim() - 3] {
+        1 => png::ColorType::Grayscale,
+        3 => png::ColorType::Rgb,
+        4 => png::ColorType::Rgba,
+        _ => return Err("Unsupported channel count".into()),
+    };
+
+    let mut hwc_img = img.to_owned();
+    hwc_img.permute(&[1, 2, 0]); // CHW => HWC
+
+    let out_img = image_from_tensor(hwc_img);
+    let file = fs::File::create(path)?;
+    let writer = BufWriter::new(file);
+    let mut encoder = png::Encoder::new(writer, img_width as u32, img_height as u32);
+    encoder.set_color(color_type);
+    let mut writer = encoder.write_header()?;
+    writer.write_image_data(&out_img)?;
+
+    Ok(())
+}
+
+/// Convert an NCHW float tensor with values in the range [0, 1] to Vec<u8>
+/// with values scaled to [0, 255].
+fn image_from_tensor(tensor: TensorView<f32>) -> Vec<u8> {
     tensor
         .iter()
         .map(|x| (x.clamp(0., 1.) * 255.0) as u8)
@@ -111,10 +149,14 @@ fn main() -> Result<(), Box<dyn Error>> {
         .copied()
         .expect("model has no outputs");
 
+    // Read image into CHW tensor.
+    let mut color_img = read_image(image_path).expect("failed to read input image");
     let normalize_pixel = |pixel| pixel - 0.5;
-    let img =
-        read_greyscale_image(image_path, normalize_pixel).expect("failed to read input image");
-    let [_, _, img_height, img_width] = img.dims();
+
+    // Convert color CHW tensor to fixed-size greyscale NCHW input expected by model.
+    let mut grey_img = greyscale_image(color_img.view(), normalize_pixel);
+    let [_, img_height, img_width] = grey_img.dims();
+    grey_img.insert_dim(0); // Add batch dimension
 
     let bilinear_resize = |img, height, width| {
         resize(
@@ -133,32 +175,37 @@ fn main() -> Result<(), Box<dyn Error>> {
         }
     };
 
-    let resized_img = bilinear_resize(&img, in_height as i32, in_width as i32)?;
+    let resized_grey_img = bilinear_resize(&grey_img, in_height as i32, in_width as i32)?;
 
+    // Run text detection model to compute a probability mask indicating whether
+    // each pixel is part of a text word or not.
     let outputs = model.run(
-        &[(input_id, (&resized_img).into())],
+        &[(input_id, (&resized_grey_img).into())],
         &[output_id],
         Some(RunOptions {
             timing: true,
             verbose: false,
         }),
     )?;
+
+    // Resize probability mask to original input size and apply threshold to get a
+    // binary text/not-text mask.
     let text_mask = &outputs[0].as_float_ref().unwrap();
     let text_mask = bilinear_resize(text_mask, img_height as i32, img_width as i32)?;
-
     let threshold = 0.2;
+    let binary_mask = text_mask.map(|prob| if prob > threshold { 1i32 } else { 0 });
 
     // Highlight object pixels in image.
-    let mut combined_img_mask = Tensor::<f32>::zeros(text_mask.shape());
-    for (out, (img, prob)) in zip(
-        combined_img_mask.iter_mut(),
-        zip(img.iter(), text_mask.iter()),
-    ) {
-        // Convert normalized image pixel back to greyscale value in [0, 1]
-        let in_grey = img + 0.5;
-        let mask_pixel = if prob > threshold { 1. } else { 0. };
-        *out = composite_pixel(mask_pixel, 0.2, in_grey, 1.);
-    }
+    // let mut combined_img_mask = Tensor::<f32>::zeros(text_mask.shape());
+    // for (out, (img, prob)) in zip(
+    //     combined_img_mask.iter_mut(),
+    //     zip(img.iter(), text_mask.iter()),
+    // ) {
+    //     // Convert normalized image pixel back to greyscale value in [0, 1]
+    //     let in_grey = img + 0.5;
+    //     let mask_pixel = if prob > threshold { 1. } else { 0. };
+    //     *out = composite_pixel(mask_pixel, 0.2, in_grey, 1.);
+    // }
 
     // Distance to expand bounding boxes by. This is useful when the model is
     // trained to assign a positive label to pixels in a smaller area than the
@@ -166,14 +213,36 @@ fn main() -> Result<(), Box<dyn Error>> {
     // objects.
     let expand_dist = 3.;
 
-    let binary_mask = text_mask.map(|prob| if prob > threshold { 1i32 } else { 0 });
+    // Perform layout analysis to group words into lines.
     let word_rects = find_connected_component_rects(binary_mask.nd_slice([0, 0]), expand_dist);
     let page_rect = Rect::from_hw(img_height as i32, img_width as i32);
     let line_rects = find_text_lines(&word_rects, page_rect);
 
-    let mut mask_view = combined_img_mask.nd_slice_mut([0, 0]);
+    // Annotate input image with detected line outlines.
     for word_rects in line_rects.iter() {
-        draw_polygon(mask_view.view_mut(), &line_polygon(word_rects), 0.9);
+        let line_poly = line_polygon(word_rects);
+        // let line_poly = min_area_rect(&line_poly).unwrap().corners();
+
+        draw_polygon(color_img.nd_slice_mut([0]), &line_poly, 0.9); // Red
+        draw_polygon(color_img.nd_slice_mut([1]), &line_poly, 0.); // Green
+        draw_polygon(color_img.nd_slice_mut([2]), &line_poly, 0.); // Blue
+
+        // Extract line image
+        // let line_poly = Polygon::new(line_polygon(word_rects));
+        // let line_rect = line_poly.bounding_rect();
+        // let mut out_img =
+        //     Tensor::zeros(&[1, line_rect.height() as usize, line_rect.width() as usize]);
+        // for in_p in line_poly.iter_points() {
+        //     let out_p = Point::from_yx(in_p.y - line_rect.top(), in_p.x - line_rect.left());
+
+        //     if in_p.x >= img_width as i32 || in_p.y >= img_height as i32 {
+        //         continue;
+        //     }
+
+        //     out_img[out_p.coord()] = img[[0, 0, in_p.y as usize, in_p.x as usize]];
+        // }
+        // let line_img_path = format!("line_{}.png", line_index);
+        // write_image(&line_img_path, out_img.view())?;
     }
 
     println!(
@@ -184,13 +253,8 @@ fn main() -> Result<(), Box<dyn Error>> {
         img_height
     );
 
-    // Write out the segmentation mask.
-    let out_img = image_from_tensor(&combined_img_mask);
-    let file = fs::File::create(output_path)?;
-    let writer = BufWriter::new(file);
-    let encoder = png::Encoder::new(writer, img_width as u32, img_height as u32);
-    let mut writer = encoder.write_header()?;
-    writer.write_image_data(&out_img)?;
+    // Write out the annotated input image.
+    write_image(output_path, color_img.view())?;
 
     Ok(())
 }
