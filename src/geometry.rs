@@ -989,70 +989,109 @@ fn clamp_to_bounds(p: Point, height: i32, width: i32) -> Point {
     )
 }
 
+/// Iterator over points that lie on a line, as determined by the Bresham
+/// algorithm.
+///
+/// The implementation in Pillow (https://pillow.readthedocs.io/en/stable/) was
+/// used as a reference.
+struct BreshamPoints {
+    /// Next point to return
+    current: Point,
+
+    /// Remaining points to return
+    remaining_steps: u32,
+
+    /// Twice total change in X along line
+    dx: i32,
+
+    /// Twice total change in Y along line
+    dy: i32,
+
+    /// Tracks error between integer points yielded by this iterator and the
+    /// "true" coordinate.
+    error: i32,
+
+    /// Increment to X coordinate of `current`.
+    x_step: i32,
+
+    /// Increment to Y coordinate of `current`.
+    y_step: i32,
+}
+
+impl BreshamPoints {
+    fn new(l: Line) -> BreshamPoints {
+        let dx = (l.end.x - l.start.x).abs();
+        let dy = (l.end.y - l.start.y).abs();
+
+        BreshamPoints {
+            current: l.start,
+            remaining_steps: dx.max(dy) as u32,
+
+            // dx and dy are doubled here as it makes stepping simpler.
+            dx: dx * 2,
+            dy: dy * 2,
+
+            error: if dx >= dy { dy * 2 - dx } else { dx * 2 - dy },
+            x_step: (l.end.x - l.start.x).signum(),
+            y_step: (l.end.y - l.start.y).signum(),
+        }
+    }
+}
+
+impl Iterator for BreshamPoints {
+    type Item = Point;
+
+    fn next(&mut self) -> Option<Point> {
+        if self.remaining_steps == 0 {
+            return None;
+        }
+
+        let current = self.current;
+        self.remaining_steps -= 1;
+
+        if self.x_step == 0 {
+            // Vertical line
+            self.current.y += self.y_step;
+        } else if self.y_step == 0 {
+            // Horizontal line
+            self.current.x += self.x_step;
+        } else if self.dx >= self.dy {
+            // X-major line (width >= height). Advances X on each step and
+            // advances Y on some steps.
+            if self.error >= 0 {
+                self.current.y += self.y_step;
+                self.error -= self.dx;
+            }
+            self.error += self.dy;
+            self.current.x += self.x_step;
+        } else {
+            // Y-major line (height > width). Advances Y on each step and
+            // advances X on some steps.
+            if self.error >= 0 {
+                self.current.x += self.x_step;
+                self.error -= self.dy
+            }
+            self.error += self.dx;
+            self.current.y += self.y_step;
+        }
+
+        Some(current)
+    }
+}
+
 /// Draw a non-antialiased line in an image.
 pub fn draw_line<T: Copy>(mut image: NdTensorViewMut<T, 2>, line: Line, value: T) {
-    // This function uses Breshan's line algorithm, with the implementation
+    // This function uses Bresham's line algorithm, with the implementation
     // in Pillow (https://pillow.readthedocs.io/en/stable/) used as a reference.
-
     let height: i32 = image.rows().try_into().unwrap();
     let width: i32 = image.cols().try_into().unwrap();
 
     let start = clamp_to_bounds(line.start, height, width);
     let end = clamp_to_bounds(line.end, height, width);
+    let clamped = Line::from_endpoints(start, end);
 
-    let dx = (end.x - start.x).abs();
-    let dy = (end.y - start.y).abs();
-
-    let x_step = (end.x - start.x).signum();
-    let y_step = (end.y - start.y).signum();
-
-    let steps = dx.max(dy);
-    let mut current = start;
-
-    if x_step == 0 {
-        // Vertical line
-        let mut y = start.y;
-        for _ in 0..steps {
-            image[[y as usize, start.x as usize]] = value;
-            y += y_step;
-        }
-    } else if y_step == 0 {
-        // Horizontal line
-        let mut x = start.x;
-        for _ in 0..steps {
-            image[[start.y as usize, x as usize]] = value;
-            x += x_step;
-        }
-    } else if dx >= dy {
-        // Horizontal slope
-        let dy = dy * 2;
-        let mut error = dy - dx;
-        let dx = dx * 2;
-
-        for _ in 0..steps {
-            image[current.coord()] = value;
-            if error >= 0 {
-                current.y += y_step;
-                error -= dx;
-            }
-            error += dy;
-            current.x += x_step;
-        }
-    } else {
-        // Vertical slope
-        let dx = dx * 2;
-        let mut error = dx - dy;
-        let dy = dy * 2;
-
-        for _ in 0..steps {
-            image[current.coord()] = value;
-            if error >= 0 {
-                current.x += x_step;
-                error -= dy;
-            }
-            error += dx;
-            current.y += y_step;
-        }
+    for p in BreshamPoints::new(clamped) {
+        image[p.coord()] = value;
     }
 }
 
