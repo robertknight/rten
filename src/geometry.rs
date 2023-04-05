@@ -1058,18 +1058,9 @@ pub fn draw_line<T: Copy>(mut image: NdTensorViewMut<T, 2>, line: Line, value: T
 
 /// Draw the outline of a non anti-aliased polygon in an image.
 pub fn draw_polygon<T: Copy>(mut image: NdTensorViewMut<T, 2>, poly: &[Point], value: T) {
-    if poly.is_empty() {
-        return;
+    for edge in Polygon::new(poly).edges() {
+        draw_line(image.view_mut(), edge, value);
     }
-
-    for (&start, &end) in zip(poly.iter(), poly.iter().skip(1)) {
-        draw_line(image.view_mut(), Line::from_endpoints(start, end), value);
-    }
-    draw_line(
-        image,
-        Line::from_endpoints(*poly.last().unwrap(), *poly.first().unwrap()),
-        value,
-    );
 }
 
 /// Return the sorted subset of points from `poly` that form a convex hull
