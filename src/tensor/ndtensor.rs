@@ -4,6 +4,10 @@ use std::iter::zip;
 use std::marker::PhantomData;
 use std::ops::{Index, IndexMut};
 
+use super::layout::Layout;
+use super::overlap::may_have_internal_overlap;
+use super::range::SliceItem;
+
 /// Describes how to view a linear buffer as an `N`-dimensional array.
 #[derive(Clone, Copy)]
 pub struct NdLayout<const N: usize> {
@@ -27,6 +31,22 @@ impl<const N: usize> NdLayout<N> {
     #[allow(dead_code)] // Remove when this is used outside of tests
     fn len(&self) -> usize {
         self.shape.iter().product()
+    }
+
+    /// Convert a layout with dynamic rank to a layout with a static rank.
+    ///
+    /// Panics if `l` does not have N dimensions.
+    fn from_dyn(l: Layout) -> Self {
+        assert!(l.ndim() == N, "Dynamic layout dims != {}", N);
+        NdLayout {
+            shape: l.shape().try_into().unwrap(),
+            strides: l.strides().try_into().unwrap(),
+        }
+    }
+
+    /// Convert this layout to one with a dynamic rank.
+    fn as_dyn(&self) -> Layout {
+        Layout::new_with_strides(&self.shape, &self.strides)
     }
 
     /// Return true if all components of `index` are in-bounds.
@@ -82,56 +102,6 @@ impl<const N: usize> NdLayout<N> {
         strides
     }
 
-    /// Returns true if a tensor with this layout would have no elements.
-    fn is_empty(&self) -> bool {
-        self.shape.iter().any(|&size| size == 0)
-    }
-
-    /// Return true if multiple indices may map to the same offset.
-    ///
-    /// Determining whether arbitrary shapes and strides will overlap is
-    /// difficult [1][2] so this method is conservative. It verifies that, after
-    /// sorting dimensions in order of increasing stride, each dimension's
-    /// stride is larger than the maximum offset that is reachable by indexing
-    /// the previous dimensions. This correctly reports that there is no overlap
-    /// for layouts that are contiguous or produced by slicing other
-    /// non-overlapping layouts. However it is possible to construct
-    /// combinations of shapes and strides for which no two indicies map to the
-    /// same offset, but for which this method returns true. For example when
-    /// `shape == [4, 4]` and `strides == [3, 4]` the offsets are `[0, 3, 4, 6,
-    /// 7, 8, 9, 10, 11, 12, 13, 14, 15, 17, 18, 21]`. The maximum offset for
-    /// the dimension with the smallest stride is `(4-1)*3 == 9`, which is
-    /// greater than the next-smallest stride. Hence this method will report
-    /// there may be overlap, even though there is not.
-    ///
-    /// [1] See https://github.com/numpy/numpy/blob/main/numpy/core/src/common/mem_overlap.c
-    ///     and in particular references to internal overlap.
-    /// [2] See also references to "memory overlap" in PyTorch source and
-    ///     issues.
-    fn may_have_internal_overlap(&self) -> bool {
-        if self.is_empty() {
-            return false;
-        }
-
-        // Sort dimensions in order of increasing stride.
-        let mut stride_shape = [(0, 0); N];
-        for i in 0..N {
-            stride_shape[i] = (self.strides[i], self.shape[i])
-        }
-        stride_shape.sort_unstable();
-
-        // Verify that the stride for each dimension fully "steps over" the
-        // previous dimension.
-        let mut max_offset = 0;
-        for (stride, shape) in stride_shape {
-            if stride <= max_offset {
-                return true;
-            }
-            max_offset += (shape - 1) * stride;
-        }
-        false
-    }
-
     /// Create a layout with a given shape and a contiguous layout.
     fn from_shape(shape: [usize; N]) -> Self {
         Self {
@@ -162,7 +132,7 @@ impl<const N: usize> NdLayout<N> {
 
         match overlap {
             OverlapPolicy::DisallowOverlap => {
-                if layout.may_have_internal_overlap() {
+                if may_have_internal_overlap(&layout.shape, &layout.strides) {
                     return Err(FromDataError::MayOverlap);
                 }
             }
@@ -326,6 +296,21 @@ impl<T: Clone, S: AsRef<[T]>, const N: usize> NdTensorBase<T, S, N> {
         }
     }
 
+    /// Return an immutable view of part of this tensor.
+    ///
+    /// `M` specifies the number of dimensions that the layout must have after
+    /// slicing with `range`. Panics if the sliced layout has a different number
+    /// of dims.
+    pub fn slice<const M: usize>(&self, range: &[SliceItem]) -> NdTensorView<T, M> {
+        let (offset, sliced_layout) = self.layout.as_dyn().slice(range);
+        assert!(sliced_layout.ndim() == M, "sliced dims != {}", M);
+        NdTensorView {
+            data: &self.data.as_ref()[offset..],
+            layout: NdLayout::from_dyn(sliced_layout),
+            element_type: PhantomData,
+        }
+    }
+
     /// Return a copy of this view that owns its data. For [NdTensorView] this
     /// is different than cloning the view, as that returns a view which has
     /// its own layout, but the same underlying data buffer.
@@ -393,6 +378,21 @@ impl<T, S: AsRef<[T]> + AsMut<[T]>, const N: usize> NdTensorBase<T, S, N> {
         NdTensorViewMut {
             data: self.data.as_mut(),
             layout: self.layout,
+            element_type: PhantomData,
+        }
+    }
+
+    /// Return a mutable view of part of this tensor.
+    ///
+    /// `M` specifies the number of dimensions that the layout must have after
+    /// slicing with `range`. Panics if the sliced layout has a different number
+    /// of dims.
+    pub fn slice_mut<const M: usize>(&mut self, range: &[SliceItem]) -> NdTensorViewMut<T, M> {
+        let (offset, sliced_layout) = self.layout.as_dyn().slice(range);
+        assert!(sliced_layout.ndim() == M, "sliced dims != {}", M);
+        NdTensorViewMut {
+            data: &mut self.data.as_mut()[offset..],
+            layout: NdLayout::from_dyn(sliced_layout),
             element_type: PhantomData,
         }
     }
@@ -506,7 +506,7 @@ impl<T, S: AsRef<[T]> + AsMut<[T]>, const N: usize> IndexMut<[usize; N]>
 
 #[cfg(test)]
 mod tests {
-    use super::{FromDataError, MatrixLayout, NdTensorLayout, NdTensorView};
+    use super::{FromDataError, MatrixLayout, NdTensorLayout, NdTensorView, NdTensorViewMut};
 
     /// Return elements of `matrix` in their logical order.
     ///
@@ -646,6 +646,45 @@ mod tests {
         assert_eq!(matrix_elements(view), &[1, 2, 3, 4]);
         let view = view.transposed();
         assert_eq!(matrix_elements(view), &[1, 3, 2, 4]);
+    }
+
+    #[test]
+    fn test_ndtensor_slice() {
+        let data = vec![1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16];
+        let view = NdTensorView::<i32, 2>::from_slice(&data, [4, 4], None).unwrap();
+        let slice = view.slice::<2>(&[(1..3).into(), (1..3).into()]);
+        assert_eq!(matrix_elements(slice), &[6, 7, 10, 11]);
+    }
+
+    #[test]
+    #[should_panic(expected = "sliced dims != 3")]
+    fn test_ndtensor_slice_wrong_dims() {
+        let data = vec![1, 2, 3, 4];
+        let view = NdTensorView::<i32, 2>::from_slice(&data, [2, 2], None).unwrap();
+        view.slice::<3>(&[(0..2).into(), (0..2).into()]);
+    }
+
+    #[test]
+    fn test_ndtensor_slice_mut() {
+        let mut data = vec![1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16];
+        let mut view = NdTensorViewMut::<i32, 2>::from_data(&mut data, [4, 4], None).unwrap();
+        let mut slice = view.slice_mut::<2>(&[(1..3).into(), (1..3).into()]);
+        slice[[0, 0]] = -1;
+        slice[[0, 1]] = -2;
+        slice[[1, 0]] = -3;
+        slice[[1, 1]] = -4;
+        assert_eq!(
+            matrix_elements(view.view()),
+            &[1, 2, 3, 4, 5, -1, -2, 8, 9, -3, -4, 12, 13, 14, 15, 16]
+        );
+    }
+
+    #[test]
+    #[should_panic(expected = "sliced dims != 3")]
+    fn test_ndtensor_slice_mut_wrong_dims() {
+        let mut data = vec![1, 2, 3, 4];
+        let mut view = NdTensorViewMut::<i32, 2>::from_data(&mut data, [2, 2], None).unwrap();
+        view.slice_mut::<3>(&[(0..2).into(), (0..2).into()]);
     }
 
     #[test]

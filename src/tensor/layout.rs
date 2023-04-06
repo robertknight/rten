@@ -2,6 +2,7 @@ use std::iter::{repeat, zip};
 
 use smallvec::SmallVec;
 
+use super::overlap::may_have_internal_overlap;
 use super::range::SliceItem;
 use super::TensorIndex;
 
@@ -33,9 +34,6 @@ pub fn is_valid_permutation(ndim: usize, permutation: &[usize]) -> bool {
 ///
 /// Zero-strides are used for broadcasting, which is widely used and easy to
 /// check for.
-///
-/// This means that there is no safe function to construct a layout from
-/// arbitrary strides for example (ala. `stride_tricks.as_strided` in NumPy).
 #[derive(Clone, Debug)]
 pub struct Layout {
     /// Array of dimension sizes followed by the corresponding dimension strides.
@@ -53,6 +51,23 @@ impl Layout {
         Layout {
             shape_and_strides: Self::contiguous_shape_and_strides(shape),
         }
+    }
+
+    /// Construct a layout with dimension sizes given by `shape` and given
+    /// strides.
+    ///
+    /// Panics if `strides` may lead to internal overlap (multiple indices
+    /// map to the same data offset), unless strides contains a `0`. See
+    /// struct notes.
+    pub fn new_with_strides(shape: &[usize], strides: &[usize]) -> Layout {
+        assert!(
+            strides.iter().any(|s| *s == 0) || !may_have_internal_overlap(shape, strides),
+            "Layout may have internal overlap"
+        );
+        let mut shape_and_strides = SmallVec::with_capacity(shape.len() + strides.len());
+        shape_and_strides.extend_from_slice(shape);
+        shape_and_strides.extend_from_slice(strides);
+        Layout { shape_and_strides }
     }
 
     /// Compute the new layout and offset of the first element for a slice into
@@ -324,6 +339,39 @@ impl Layout {
 #[cfg(test)]
 mod tests {
     use crate::tensor::layout::Layout;
+
+    #[test]
+    fn test_new_with_strides() {
+        struct Case {
+            shape: &'static [usize],
+            strides: &'static [usize],
+        }
+
+        let cases = [
+            // Contiguous layout
+            Case {
+                shape: &[10, 10],
+                strides: &[10, 1],
+            },
+            // Broadcasting layout
+            Case {
+                shape: &[10, 10],
+                strides: &[10, 0],
+            },
+        ];
+
+        for case in cases {
+            let layout = Layout::new_with_strides(case.shape, case.strides);
+            assert_eq!(layout.shape(), case.shape);
+            assert_eq!(layout.strides(), case.strides);
+        }
+    }
+
+    #[test]
+    #[should_panic(expected = "Layout may have internal overlap")]
+    fn test_new_with_strides_overlap() {
+        Layout::new_with_strides(&[10, 10], &[1, 2]);
+    }
 
     #[test]
     #[should_panic(expected = "Permutation is invalid")]

@@ -12,6 +12,7 @@ mod iterators;
 mod layout;
 mod macros;
 mod ndtensor;
+mod overlap;
 mod range;
 mod vec_with_offset;
 
