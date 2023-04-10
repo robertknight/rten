@@ -239,30 +239,31 @@ fn main() -> Result<(), Box<dyn Error>> {
     let line_rects = find_text_lines(&word_rects, page_rect);
 
     // Annotate input image with detected line outlines.
-    for word_rects in line_rects.iter() {
-        let line_poly = line_polygon(word_rects);
-        // let line_poly = min_area_rect(&line_poly).unwrap().corners();
+    for (line_index, word_rects) in line_rects.iter().enumerate() {
+        let line_poly = Polygon::new(line_polygon(word_rects));
+        let grey_chan = grey_img.slice(&[0.into(), 0.into()]);
 
-        draw_polygon(color_img.nd_slice_mut([0]), &line_poly, 0.9); // Red
-        draw_polygon(color_img.nd_slice_mut([1]), &line_poly, 0.); // Green
-        draw_polygon(color_img.nd_slice_mut([2]), &line_poly, 0.); // Blue
+        draw_polygon(color_img.nd_slice_mut([0]), line_poly.vertices(), 0.9); // Red
+        draw_polygon(color_img.nd_slice_mut([1]), line_poly.vertices(), 0.); // Green
+        draw_polygon(color_img.nd_slice_mut([2]), line_poly.vertices(), 0.); // Blue
 
         // Extract line image
-        // let line_poly = Polygon::new(line_polygon(word_rects));
-        // let line_rect = line_poly.bounding_rect();
-        // let mut out_img =
-        //     Tensor::zeros(&[1, line_rect.height() as usize, line_rect.width() as usize]);
-        // for in_p in line_poly.iter_points() {
-        //     let out_p = Point::from_yx(in_p.y - line_rect.top(), in_p.x - line_rect.left());
+        let line_rect = line_poly.bounding_rect();
+        let mut out_img =
+            Tensor::zeros(&[1, line_rect.height() as usize, line_rect.width() as usize]);
+        for in_p in line_poly.iter_points() {
+            let out_p = Point::from_yx(in_p.y - line_rect.top(), in_p.x - line_rect.left());
 
-        //     if in_p.x >= img_width as i32 || in_p.y >= img_height as i32 {
-        //         continue;
-        //     }
+            if in_p.x >= img_width as i32 || in_p.y >= img_height as i32 {
+                continue;
+            }
 
-        //     out_img[out_p.coord()] = img[[0, 0, in_p.y as usize, in_p.x as usize]];
-        // }
-        // let line_img_path = format!("line_{}.png", line_index);
-        // write_image(&line_img_path, out_img.view())?;
+            let normalized_pixel = grey_chan[[in_p.y as usize, in_p.x as usize]];
+            let pixel = normalized_pixel + 0.5;
+            out_img[[0, out_p.y as usize, out_p.x as usize]] = pixel;
+        }
+        let line_img_path = format!("line_{}.png", line_index);
+        write_image(&line_img_path, out_img.view())?;
     }
 
     println!(
