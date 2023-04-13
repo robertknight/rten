@@ -1199,7 +1199,7 @@ impl RotatedRect {
             self.center + perp_offset - par_offset,
         ];
 
-        coords.map(|v| Point::from_yx(v.y as i32, v.x as i32))
+        coords.map(|v| Point::from_yx(v.y.round() as i32, v.x.round() as i32))
     }
 
     /// Return the edges of this rect, in clockwise order starting from the
@@ -1268,6 +1268,18 @@ impl RotatedRect {
         self.edges()
             .iter()
             .any(|e| other_edges.iter().any(|oe| e.intersects(*oe)))
+    }
+
+    /// Return a new axis-aligned RotatedRect whose bounding rectangle matches
+    /// `r`.
+    pub fn from_rect(r: Rect) -> RotatedRect {
+        let center = Vec2::from_yx(r.center().y as f32, r.center().x as f32);
+        RotatedRect::new(
+            center,
+            Vec2::from_yx(1., 0.),
+            r.width() as f32,
+            r.height() as f32,
+        )
     }
 }
 
@@ -2226,8 +2238,17 @@ mod tests {
     #[test]
     fn test_rotated_rect_corners() {
         let r = RotatedRect::new(Vec2::from_yx(5., 5.), Vec2::from_yx(1., 0.), 5., 5.);
-        let expected = points_from_n_coords([[2, 2], [2, 7], [7, 7], [7, 2]]);
+        let expected = points_from_n_coords([[3, 3], [3, 8], [8, 8], [8, 3]]);
         assert_eq!(r.corners(), expected);
+    }
+
+    #[test]
+    fn test_rotated_rect_from_rect() {
+        let r = Rect::from_tlbr(5, 10, 50, 40);
+        let rr = RotatedRect::from_rect(r);
+        assert_eq!(rr.width() as i32, r.width());
+        assert_eq!(rr.height() as i32, r.height());
+        assert_eq!(rr.bounding_rect(), r);
     }
 
     #[test]
