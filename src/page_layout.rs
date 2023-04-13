@@ -475,7 +475,9 @@ pub fn line_polygon(words: &[RotatedRect]) -> Vec<Point> {
 #[cfg(test)]
 mod tests {
     use super::max_empty_rects;
-    use crate::geometry::{Point, Rect};
+    use crate::geometry::{fill_rect, Point, Rect, RotatedRect};
+    use crate::page_layout::{find_connected_component_rects, find_text_lines};
+    use crate::tensor::NdTensor;
 
     /// Generate a grid of uniformly sized and spaced rects.
     ///
@@ -567,5 +569,98 @@ mod tests {
             max_empty_rects(&[], boundary, |r| r.area() as f32, 0, 0).next(),
             None
         );
+    }
+
+    #[test]
+    fn test_find_connected_component_rects() {
+        let mut mask = NdTensor::zeros([400, 400]);
+        let (grid_h, grid_w) = (5, 5);
+        let (rect_h, rect_w) = (10, 50);
+        let rects = gen_rect_grid(
+            Point::from_yx(10, 10),
+            (grid_h, grid_w), /* grid_shape */
+            (rect_h, rect_w), /* rect_size */
+            (10, 5),          /* gap_size */
+        );
+        for r in rects.iter() {
+            // Expand `r` because `fill_rect` does not set points along the
+            // right/bottom boundary.
+            let expanded = r.adjust_tlbr(0, 0, 1, 1);
+            fill_rect(mask.view_mut(), expanded, 1);
+        }
+
+        let components = find_connected_component_rects(mask.view(), 0.);
+        assert_eq!(components.len() as i32, grid_h * grid_w);
+        for c in components.iter() {
+            let mut shape = [c.height().round() as i32, c.width().round() as i32];
+            shape.sort();
+
+            // We sort the dimensions before comparison here to be invariant to
+            // different rotations of the connected component that cover the
+            // same pixels.
+            let mut expected_shape = [rect_h, rect_w];
+            expected_shape.sort();
+
+            assert_eq!(shape, expected_shape);
+        }
+    }
+
+    #[test]
+    fn test_find_text_lines() {
+        // Create a collection of obstacles that are laid out roughly like
+        // words in a two-column document.
+        let page = Rect::from_tlbr(0, 0, 80, 90);
+        let col_rows = 10;
+        let col_words = 5;
+        let (line_gap, word_gap) = (3, 2);
+        let (word_h, word_w) = (5, 5);
+
+        let left_col = gen_rect_grid(
+            Point::from_yx(0, 0),
+            /* grid_shape */ (col_rows, col_words),
+            /* rect_size */ (word_h, word_w),
+            /* gap_size */ (line_gap, word_gap),
+        );
+        let left_col_boundary = union_rects(&left_col).unwrap();
+        assert!(page.contains(left_col_boundary));
+
+        let right_col = gen_rect_grid(
+            Point::from_yx(0, left_col_boundary.right() + 20),
+            /* grid_shape */ (col_rows, col_words),
+            /* rect_size */ (word_h, word_w),
+            /* gap_size */ (line_gap, word_gap),
+        );
+        let right_col_boundary = union_rects(&right_col).unwrap();
+        assert!(page.contains(right_col_boundary));
+
+        let mut words: Vec<_> = left_col
+            .iter()
+            .chain(right_col.iter())
+            .copied()
+            .map(RotatedRect::from_rect)
+            .collect();
+
+        let rng = fastrand::Rng::with_seed(1234);
+        rng.shuffle(&mut words);
+        let lines = find_text_lines(&words, page);
+
+        assert_eq!(lines.len() as i32, col_rows * 2);
+        for line in lines {
+            assert_eq!(line.len() as i32, col_words);
+
+            let bounding_rect: Option<Rect> = line.iter().fold(None, |br, r| match br {
+                Some(br) => Some(br.union(r.bounding_rect())),
+                None => Some(r.bounding_rect()),
+            });
+            let (line_height, line_width) = bounding_rect
+                .map(|br| (br.height(), br.width()))
+                .unwrap_or((0, 0));
+
+            // FIXME - The actual width/heights vary by one pixel and hence not
+            // all match the expected size. Investigate why this happens.
+            assert!((line_height - word_h).abs() <= 1);
+            let expected_width = col_words * (word_w + word_gap) - word_gap;
+            assert!((line_width - expected_width).abs() <= 1);
+        }
     }
 }
