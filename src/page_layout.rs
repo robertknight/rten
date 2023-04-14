@@ -475,8 +475,8 @@ pub fn line_polygon(words: &[RotatedRect]) -> Vec<Point> {
 #[cfg(test)]
 mod tests {
     use super::max_empty_rects;
-    use crate::geometry::{fill_rect, Point, Rect, RotatedRect};
-    use crate::page_layout::{find_connected_component_rects, find_text_lines};
+    use crate::geometry::{fill_rect, Point, Polygon, Rect, RotatedRect, Vec2};
+    use crate::page_layout::{find_connected_component_rects, find_text_lines, line_polygon};
     use crate::tensor::NdTensor;
 
     /// Generate a grid of uniformly sized and spaced rects.
@@ -661,6 +661,33 @@ mod tests {
             assert!((line_height - word_h).abs() <= 1);
             let expected_width = col_words * (word_w + word_gap) - word_gap;
             assert!((line_width - expected_width).abs() <= 1);
+        }
+    }
+
+    #[test]
+    fn test_line_polygon() {
+        let words: Vec<RotatedRect> = (0..5)
+            .map(|i| {
+                let center = Vec2::from_yx(10., i as f32 * 20.);
+                let width = 10.;
+                let height = 5.;
+
+                // Vary the orientation of words. The output of `line_polygon`
+                // should be invariant to different orientations of a RotatedRect
+                // that cover the same pixels.
+                let up = if i % 2 == 0 {
+                    Vec2::from_yx(-1., 0.)
+                } else {
+                    Vec2::from_yx(1., 0.)
+                };
+                RotatedRect::new(center, up, width, height)
+            })
+            .collect();
+        let poly = Polygon::new(line_polygon(&words));
+
+        assert!(poly.is_simple());
+        for word in words {
+            assert!(poly.contains_pixel(word.bounding_rect().center()));
         }
     }
 }
