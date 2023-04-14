@@ -321,6 +321,35 @@ impl Line {
 
         s_ok && t_ok
     }
+
+    pub fn is_horizontal(&self) -> bool {
+        self.start.y == self.end.y
+    }
+
+    /// Return a copy of this line with the start and end points swapped.
+    pub fn reverse(&self) -> Line {
+        Line::from_endpoints(self.end, self.start)
+    }
+
+    /// Return a copy of this line with the same endpoints but swapped if
+    /// needed so that `end.y >= start.y`.
+    pub fn downwards(&self) -> Line {
+        if self.start.y <= self.end.y {
+            *self
+        } else {
+            self.reverse()
+        }
+    }
+
+    /// Return a copy of this line with the same endpoints but swapped if
+    /// needed so that `end.x >= start.x`.
+    pub fn rightwards(&self) -> Line {
+        if self.start.x <= self.end.x {
+            *self
+        } else {
+            self.reverse()
+        }
+    }
 }
 
 /// Rectangle defined by left, top, right and bottom integer coordinates.
@@ -517,6 +546,10 @@ impl Rect {
             && self.bottom() >= other.y
             && self.left() <= other.x
             && self.right() >= other.x
+    }
+
+    pub fn to_polygon(&self) -> Polygon<[Point; 4]> {
+        Polygon::new(self.corners())
     }
 }
 
@@ -1339,7 +1372,7 @@ pub fn min_area_rect(points: &[Point]) -> Option<RotatedRect> {
     min_rect
 }
 
-/// Tracks data about an edge in a polygon being traversed by [PolygonPoints].
+/// Tracks data about an edge in a polygon being traversed by [FillIter].
 #[derive(Clone, Copy, Debug)]
 struct Edge {
     /// Y coordinate where this edge starts
@@ -1368,10 +1401,12 @@ struct Edge {
     extra_x_step: i32,
 }
 
-/// Iterator over points that fill a polygon.
+/// Iterator over coordinates of pixels that fill a polygon. See
+/// [Polygon::fill_iter] for notes on how this iterator determines which
+/// pixels are inside the polygon.
 ///
 /// The implementation follows https://www.jagregory.com/abrash-black-book/#filling-arbitrary-polygons.
-pub struct PolygonPoints {
+pub struct FillIter {
     /// Edges in the polygon, sorted by Y coordinate.
     edges: Vec<Edge>,
 
@@ -1383,12 +1418,12 @@ pub struct PolygonPoints {
     /// Bounding rect that contains the polygon.
     bounds: Rect,
 
-    /// Coordinates of next point to return.
+    /// Coordinates of next pixel to return.
     cursor: Point,
 }
 
-impl PolygonPoints {
-    fn new(poly: Polygon<&[Point]>) -> PolygonPoints {
+impl FillIter {
+    fn new(poly: Polygon<&[Point]>) -> FillIter {
         let mut edges: Vec<_> = poly
             .edges()
             // Ignore horizontal edges
@@ -1432,7 +1467,7 @@ impl PolygonPoints {
         let active_edges = Vec::with_capacity(edges.len());
 
         let bounds = poly.bounding_rect();
-        let mut iter = PolygonPoints {
+        let mut iter = FillIter {
             edges,
             active_edges,
             bounds,
@@ -1446,6 +1481,7 @@ impl PolygonPoints {
             },
         };
         iter.update_active_edges();
+
         iter
     }
 
@@ -1459,9 +1495,6 @@ impl PolygonPoints {
                 // tracks difference between `e.x` and true X coord.
                 e.x += e.x_step;
                 e.error += e.error_incr;
-
-                // TODO - Should this use `>= 0` instead? Error term comparison
-                // uses >= 0 in Bresham line drawing.
                 if e.error > 0 {
                     e.error -= e.error_decr;
                     e.x += e.extra_x_step;
@@ -1475,17 +1508,23 @@ impl PolygonPoints {
         // Add edges that begin at this line.
         while let Some(edge) = self.edges.last().copied() {
             if edge.start_y > self.cursor.y {
+                // `self.edges` is sorted on Y coordinate, so remaining entries
+                // start on lines with higher Y coordinate than cursor.
                 break;
             }
             self.edges.pop();
             self.active_edges.push(edge);
         }
 
-        self.active_edges.sort_by_key(|e| e.x);
+        // Sort edges by X coordinate of intersection with scanline. We only
+        // need to sort by `e.x`, but including other elements in the sort key
+        // provides more predictable ordering for debugging.
+        self.active_edges
+            .sort_by_key(|e| (e.x, e.x_step, e.extra_x_step));
     }
 }
 
-impl Iterator for PolygonPoints {
+impl Iterator for FillIter {
     type Item = Point;
 
     fn next(&mut self) -> Option<Point> {
@@ -1510,9 +1549,9 @@ impl Iterator for PolygonPoints {
     }
 }
 
-/// Polygon with a dynamically-determined number of vertices.
+/// Polygon shape defined by a list of vertices.
 ///
-/// Depending on the storage type `S`, a Polygon can own its points
+/// Depending on the storage type `S`, a Polygon can own its vertices
 /// (eg. `Vec<Point>`) or they can borrowed (eg. `&[Point]`).
 #[derive(Copy, Clone, Debug)]
 pub struct Polygon<S: AsRef<[Point]> = Vec<Point>> {
@@ -1543,10 +1582,26 @@ impl<S: AsRef<[Point]>> Polygon<S> {
         Rect::from_tlbr(min_y, min_x, max_y, max_x)
     }
 
-    /// Return an iterator over points that lie inside or on the boundary of
-    /// the polygon.
-    pub fn iter_points(&self) -> PolygonPoints {
-        PolygonPoints::new(self.borrow())
+    /// Return an iterator over coordinates of pixels that fill the polygon.
+    ///
+    /// Polygon filling treats the polygon's vertices as being located at the
+    /// center of pixels with the corresponding coordinates. Pixels are deemed
+    /// inside the polygon if a ray from -infinity to the pixel's center crosses
+    /// an odd number of polygon edges, aka. the even-odd rule [1]. Pixel
+    /// centers which lie exactly on a polygon edge are treated as inside
+    /// the polygon for top/left edges and outside the polygon for bottom/right
+    /// edges. This follows conventions in various graphics libraries (eg. [2]).
+    ///
+    /// This treatment of polygon vertices differs from graphics libraries like
+    /// Skia or Qt which use float coordinates for paths. In those libraries
+    /// polygon filling is still based on the relationship between polygon edges
+    /// and pixel centers, but integer polygon vertex coordinates refer to the
+    /// corners of pixels.
+    ///
+    /// [1] https://en.wikipedia.org/wiki/Even–odd_rule
+    /// [2] https://learn.microsoft.com/en-us/windows/win32/direct3d11/d3d10-graphics-programming-guide-rasterizer-stage-rules#triangle-rasterization-rules-without-multisampling
+    pub fn fill_iter(&self) -> FillIter {
+        FillIter::new(self.borrow())
     }
 
     /// Return a polygon which borrows its points from this polygon.
@@ -1566,6 +1621,75 @@ impl<S: AsRef<[Point]>> Polygon<S> {
     /// Return a slice of the endpoints of the polygon's edges.
     pub fn vertices(&self) -> &[Point] {
         self.points.as_ref()
+    }
+
+    /// Return true if the pixel with coordinates `p` lies inside the polygon.
+    ///
+    /// The intent of this function is to align with [Polygon::fill_iter] such
+    /// that `polygon.contains_pixel(p)` is equivalent to
+    /// `polygon.fill_iter().any(|fp| fp == p)` but faster because it doesn't
+    /// iterate over every pixel inside the polygon. See [Polygon::fill_iter]
+    /// for notes on how the inside/outisde status of a pixel is determined.
+    pub fn contains_pixel(&self, p: Point) -> bool {
+        let mut edge_crossings = 0;
+
+        for edge in self.edges() {
+            let (min_y, max_y) = sort_pair((edge.start.y, edge.end.y));
+
+            // Ignore horizontal edges.
+            if min_y == max_y {
+                continue;
+            }
+
+            // Skip edges that don't overlap this point vertically.
+            if p.y < min_y || p.y >= max_y {
+                continue;
+            }
+
+            // Check which side of the edge this point is on.
+            let edge_down = edge.downwards();
+            let start_to_end = Vec2::from_yx(
+                (edge_down.end.y - edge_down.start.y) as f32,
+                (edge_down.end.x - edge_down.start.x) as f32,
+            );
+            let start_to_point = Vec2::from_yx(
+                (p.y - edge_down.start.y) as f32,
+                (p.x - edge_down.start.x) as f32,
+            );
+
+            let cross = start_to_end.cross_product_norm(start_to_point);
+            if cross > 0. {
+                // Edge lies to the left of the pixel.
+                edge_crossings += 1;
+            }
+        }
+
+        edge_crossings % 2 == 1
+    }
+
+    /// Return true if this polygon has no self-intersections and no holes.
+    pub fn is_simple(&self) -> bool {
+        // Test for self intersections. We don't need to test for holes
+        // because this struct can't model a polygon with holes.
+        for (i, e1) in self.edges().enumerate() {
+            for (j, e2) in self.edges().enumerate() {
+                if i != j && e1.intersects(e2) {
+                    let intersection_at_endpoints = e1.start == e2.start
+                        || e1.start == e2.end
+                        || e1.end == e2.start
+                        || e1.end == e2.end;
+                    if !intersection_at_endpoints {
+                        return false;
+                    }
+                }
+            }
+        }
+        true
+    }
+
+    /// Return a clone of this polygon which owns its vertices.
+    pub fn to_owned(&self) -> Polygon {
+        Polygon::new(self.vertices().to_vec())
     }
 }
 
@@ -2190,7 +2314,92 @@ mod tests {
     }
 
     #[test]
-    fn test_polygon_iter_points() {
+    fn test_polygon_contains_pixel() {
+        struct Case {
+            poly: Polygon,
+        }
+
+        let cases = [
+            // Rect polygons
+            Case {
+                poly: Rect::from_tlbr(2, 2, 5, 5).to_polygon().to_owned(),
+            },
+            Case {
+                poly: Rect::from_tlbr(0, 0, 1, 1).to_polygon().to_owned(),
+            },
+            // Triangles
+            Case {
+                poly: Polygon::new(points_from_coords(&[[0, 2], [3, 0], [3, 4]])),
+            },
+            Case {
+                poly: Polygon::new(points_from_coords(&[[1, 1], [4, 3], [6, 9]])),
+            },
+        ];
+
+        for case in cases {
+            // Create two grids that are slightly larger than the max X + Y
+            // coordinates.
+            let grid_size = case
+                .poly
+                .vertices()
+                .iter()
+                .fold([0, 0], |[h, w], point| {
+                    [h.max(point.y) + 2, w.max(point.x) + 2]
+                })
+                .map(|x| x as usize);
+
+            let mut fill_grid = NdTensor::zeros(grid_size);
+            let mut contains_pixel_grid = NdTensor::zeros(grid_size);
+
+            // Fill one grid using `fill_iter` and the other using
+            // `contains_pixel` tests, then verify that the same pixels get
+            // filled.
+            for p in case.poly.fill_iter() {
+                fill_grid[p.coord()] = 1;
+            }
+            for y in 0..contains_pixel_grid.rows() {
+                for x in 0..contains_pixel_grid.cols() {
+                    if case.poly.contains_pixel(Point::from_yx(y as i32, x as i32)) {
+                        contains_pixel_grid[[y, x]] = 1;
+                    }
+                }
+            }
+
+            for y in 0..fill_grid.rows() {
+                for x in 0..fill_grid.cols() {
+                    assert_eq!(fill_grid[[y, x]], contains_pixel_grid[[y, x]]);
+                }
+            }
+        }
+    }
+
+    #[test]
+    fn test_polygon_is_simple() {
+        struct Case {
+            poly: Polygon,
+            simple: bool,
+        }
+
+        let cases = [
+            // Simple rect
+            Case {
+                poly: Rect::from_tlbr(0, 0, 10, 10).to_polygon().to_owned(),
+                simple: true,
+            },
+            // 4-vertex poly with intersection
+            Case {
+                poly: Polygon::new(points_from_coords(&[[0, 0], [0, 10], [10, 10], [-2, 2]])),
+                simple: false,
+            },
+        ];
+
+        for case in cases {
+            assert_eq!(case.poly.is_simple(), case.simple)
+        }
+    }
+
+    #[test]
+    fn test_polygon_fill_iter() {
         struct Case {
             vertices: Vec<Point>,
             filled: Vec<Point>,
@@ -2206,7 +2415,7 @@ mod tests {
 
         for case in cases {
             let poly = Polygon::new(&case.vertices);
-            let filled: Vec<_> = poly.iter_points().collect();
+            let filled: Vec<_> = poly.fill_iter().collect();
             assert_eq!(filled, case.filled);
         }
     }
