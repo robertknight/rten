@@ -251,7 +251,7 @@ fn main() -> Result<(), Box<dyn Error>> {
         let line_rect = line_poly.bounding_rect();
         let mut out_img =
             Tensor::zeros(&[1, line_rect.height() as usize, line_rect.width() as usize]);
-        for in_p in line_poly.iter_points() {
+        for in_p in line_poly.fill_iter() {
             let out_p = Point::from_yx(in_p.y - line_rect.top(), in_p.x - line_rect.left());
 
             if in_p.x >= img_width as i32 || in_p.y >= img_height as i32 {
