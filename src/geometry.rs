@@ -350,6 +350,47 @@ impl Line {
             self.reverse()
         }
     }
+
+    /// Return `(slope, intercept)` tuple for line or None if the line is
+    /// vertical.
+    fn slope_intercept(&self) -> Option<(f32, f32)> {
+        let dx = self.end.x - self.start.x;
+        if dx == 0 {
+            return None;
+        }
+        let slope = (self.end.y - self.start.y) as f32 / dx as f32;
+        let intercept = self.start.y as f32 - slope * self.start.x as f32;
+        Some((slope, intercept))
+    }
+
+    /// Return the X coordinate that corresponds to a given Y coordinate on
+    /// the line.
+    ///
+    /// Returns `None` if the Y coordinate is not on the line or the line is
+    /// horizontal.
+    pub fn x_for_y(&self, y: f32) -> Option<f32> {
+        let (min_y, max_y) = sort_pair((self.start.y, self.end.y));
+        if y < min_y as f32 || y > max_y as f32 || min_y == max_y {
+            return None;
+        }
+        self.slope_intercept()
+            .map(|(slope, intercept)| (y - intercept) / slope)
+            .or(Some(self.start.x as f32))
+    }
+
+    /// Return the Y coordinate that corresponds to a given X coordinate on
+    /// the line.
+    ///
+    /// Returns `None` if the X coordinate is not on the line or the line
+    /// is vertical.
+    pub fn y_for_x(&self, x: f32) -> Option<f32> {
+        let (min_x, max_x) = sort_pair((self.start.x, self.end.x));
+        if x < min_x as f32 || x > max_x as f32 {
+            return None;
+        }
+        self.slope_intercept()
+            .map(|(slope, intercept)| slope * x + intercept)
+    }
 }
 
 /// Rectangle defined by left, top, right and bottom integer coordinates.
@@ -2289,6 +2330,50 @@ mod tests {
             let b = Line::from_endpoints(Point::from_yx(case.b.0, 0), Point::from_yx(case.b.1, 0));
             assert_eq!(a.vertical_overlap(b), case.overlap);
             assert_eq!(b.vertical_overlap(a), case.overlap);
+        }
+    }
+
+    #[test]
+    fn test_line_y_for_x_and_x_for_y() {
+        struct Case {
+            line: Line,
+
+            // (X, expected Y) coordinate pairs.
+            points: Vec<(f32, Option<f32>)>,
+        }
+
+        let cases = [
+            // Slope 1, intercept 0
+            Case {
+                line: Line::from_endpoints(Point::from_yx(0, 0), Point::from_yx(1, 1)),
+                points: vec![
+                    (-1., None),
+                    (0., Some(0.)),
+                    (0.5, Some(0.5)),
+                    (1., Some(1.)),
+                    (1.2, None),
+                ],
+            },
+            // Slope 1, intercept -1
+            Case {
+                line: Line::from_endpoints(Point::from_yx(0, 1), Point::from_yx(1, 2)),
+                points: vec![
+                    (-1., None),
+                    (1., Some(0.)),
+                    (1.5, Some(0.5)),
+                    (2., Some(1.)),
+                    (2.2, None),
+                ],
+            },
+        ];
+
+        for case in cases {
+            for (x, expected_y) in case.points {
+                assert_eq!(case.line.y_for_x(x), expected_y);
+                if let Some(y) = expected_y {
+                    assert_eq!(case.line.x_for_y(y), Some(x));
+                }
+            }
         }
     }
 
