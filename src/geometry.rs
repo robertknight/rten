@@ -175,11 +175,13 @@ impl std::ops::Sub<Vec2> for Vec2 {
     }
 }
 
-fn sort_pair<T: Ord>(pair: (T, T)) -> (T, T) {
-    if pair.0 <= pair.1 {
-        pair
-    } else {
+/// Sort the elements of a tuple. If the ordering of the elements is undefined,
+/// return the input unchanged.
+fn sort_pair<T: PartialOrd>(pair: (T, T)) -> (T, T) {
+    if pair.0 > pair.1 {
         (pair.1, pair.0)
+    } else {
+        pair
     }
 }
 
