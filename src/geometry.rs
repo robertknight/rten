@@ -2405,12 +2405,24 @@ mod tests {
         }
 
         let cases = [
-            // Rect polygons
+            // Empty polygon
+            Case {
+                poly: Polygon::new(Vec::new()),
+            },
+            // Zero-height polygon
+            Case {
+                poly: Rect::from_tlbr(0, 0, 0, 5).to_polygon().to_owned(),
+            },
+            // Rects
             Case {
                 poly: Rect::from_tlbr(2, 2, 5, 5).to_polygon().to_owned(),
             },
             Case {
                 poly: Rect::from_tlbr(0, 0, 1, 1).to_polygon().to_owned(),
+            },
+            // Inverted rect
+            Case {
+                poly: Rect::from_tlbr(5, 5, 2, 2).to_polygon().to_owned(),
             },
             // Triangles
             Case {
@@ -2490,13 +2502,46 @@ mod tests {
             filled: Vec<Point>,
         }
 
-        // TODO - Simple triangle
-        // TODO - Rect
-        // TODO - Polygon with >2 edges intersecting a scanline
-        let cases = [Case {
-            vertices: points_from_coords(&[[0, 0], [0, 4], [3, 4]]),
-            filled: points_from_coords(&[[0, 0], [0, 1], [0, 2], [0, 3], [1, 2], [1, 3], [2, 3]]),
-        }];
+        let cases = [
+            // Empty polygon
+            Case {
+                vertices: Vec::new(),
+                filled: Vec::new(),
+            },
+            // Single line
+            Case {
+                vertices: points_from_coords(&[[0, 0], [5, 5]]),
+                filled: Vec::new(),
+            },
+            // Rect
+            Case {
+                vertices: Rect::from_tlbr(0, 0, 3, 3).to_polygon().vertices().to_vec(),
+                filled: points_from_coords(&[
+                    [0, 0],
+                    [0, 1],
+                    [0, 2],
+                    [1, 0],
+                    [1, 1],
+                    [1, 2],
+                    [2, 0],
+                    [2, 1],
+                    [2, 2],
+                ]),
+            },
+            // Triangle
+            Case {
+                vertices: points_from_coords(&[[0, 0], [0, 4], [3, 4]]),
+                filled: points_from_coords(&[
+                    [0, 0],
+                    [0, 1],
+                    [0, 2],
+                    [0, 3],
+                    [1, 2],
+                    [1, 3],
+                    [2, 3],
+                ]),
+            },
+        ];
 
         for case in cases {
             let poly = Polygon::new(&case.vertices);
