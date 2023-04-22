@@ -23,9 +23,12 @@ impl Point {
         Point { y, x }
     }
 
-    /// Return self as a [y, x] index.
+    /// Return self as a [y, x] array. This is useful for indexing into an
+    /// image or matrix.
+    ///
+    /// Panics if the X or Y coordinates of the point are negative.
     pub fn coord(self) -> [usize; 2] {
-        // FIXME - Handle case where these coords are out-of-bounds.
+        assert!(self.y >= 0 && self.x >= 0, "Coordinates are negative");
         [self.y as usize, self.x as usize]
     }
 
@@ -2499,6 +2502,17 @@ mod tests {
             let min_rect = min_area_rect(&case.points).unwrap();
             assert_eq!(min_rect.corners(), case.expected);
         }
+    }
+
+    #[test]
+    fn test_point_coord() {
+        assert_eq!(Point::from_yx(3, 5).coord(), [3, 5]);
+    }
+
+    #[test]
+    #[should_panic(expected = "Coordinates are negative")]
+    fn test_point_coord_negative() {
+        Point::from_yx(-1, -1).coord();
     }
 
     #[test]
