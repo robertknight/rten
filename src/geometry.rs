@@ -2811,9 +2811,6 @@ mod tests {
         assert_eq!(bounding_box(&points), rect);
     }
 
-    // TODO - Additional test cases for simplifying polygon:
-    //
-    // - Circle with varying epsilon values
     #[test]
     fn test_simplify_polyline() {
         struct Case {
