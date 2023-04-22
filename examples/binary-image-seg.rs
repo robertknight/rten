@@ -251,10 +251,15 @@ fn main() -> Result<(), Box<dyn Error>> {
         let line_rect = line_poly.bounding_rect();
         let mut out_img =
             Tensor::zeros(&[1, line_rect.height() as usize, line_rect.width() as usize]);
+
+        // Page rect adjusted to only contain coordinates that are valid for
+        // indexing into the input image.
+        let page_index_rect = page_rect.adjust_tlbr(0, 0, -1, -1);
+
         for in_p in line_poly.fill_iter() {
             let out_p = Point::from_yx(in_p.y - line_rect.top(), in_p.x - line_rect.left());
 
-            if in_p.x >= img_width as i32 || in_p.y >= img_height as i32 {
+            if !page_index_rect.contains_point(in_p) || !page_index_rect.contains_point(out_p) {
                 continue;
             }
 
