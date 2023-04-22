@@ -347,7 +347,7 @@ pub fn find_connected_component_rects(
 /// Group text words into lines.
 pub fn find_text_lines(words: &[RotatedRect], page: Rect) -> Vec<Vec<RotatedRect>> {
     // Estimate spacing statistics
-    let mut lines = group_into_lines(&words, &[]);
+    let mut lines = group_into_lines(words, &[]);
     lines.sort_by_key(|l| l.first().unwrap().bounding_rect().top());
 
     let mut all_word_spacings = Vec::new();
@@ -424,7 +424,7 @@ pub fn find_text_lines(words: &[RotatedRect], page: Rect) -> Vec<Vec<RotatedRect
             }
         })
         .collect();
-    group_into_lines(&words, &separator_lines)
+    group_into_lines(words, &separator_lines)
 }
 
 /// Normalize a line so that it's endpoints are sorted from top to bottom.
