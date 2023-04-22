@@ -4,9 +4,8 @@ extern crate wasnn;
 use std::error::Error;
 use std::fs;
 use std::io::BufWriter;
-use std::iter::zip;
 
-use wasnn::geometry::{draw_polygon, min_area_rect, Point, Polygon, Rect};
+use wasnn::geometry::{draw_polygon, Point, Polygon, Rect};
 use wasnn::ops::{resize, CoordTransformMode, NearestMode, ResizeMode, ResizeTarget};
 use wasnn::page_layout::{find_connected_component_rects, find_text_lines, line_polygon};
 use wasnn::{tensor, Dimension, Model, RunOptions, Tensor, TensorLayout, TensorView};
