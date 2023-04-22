@@ -1871,6 +1871,11 @@ mod tests {
         }
 
         let cases = [
+            // Empty polygon
+            Case {
+                points: &[],
+                hull: &[],
+            },
             // Simple square. The hull is a re-ordering of the input.
             Case {
                 points: &[[0, 0], [0, 4], [4, 4], [4, 0]],
@@ -2209,6 +2214,48 @@ mod tests {
         }
     }
 
+    #[test]
+    fn test_line_downwards() {
+        struct Case {
+            input: Line,
+            down: Line,
+        }
+        let cases = [
+            Case {
+                input: Line::from_endpoints(Point::from_yx(0, 0), Point::from_yx(5, 5)),
+                down: Line::from_endpoints(Point::from_yx(0, 0), Point::from_yx(5, 5)),
+            },
+            Case {
+                input: Line::from_endpoints(Point::from_yx(5, 5), Point::from_yx(0, 0)),
+                down: Line::from_endpoints(Point::from_yx(0, 0), Point::from_yx(5, 5)),
+            },
+        ];
+        for case in cases {
+            assert_eq!(case.input.downwards(), case.down);
+        }
+    }
+
+    #[test]
+    fn test_line_rightwards() {
+        struct Case {
+            input: Line,
+            right: Line,
+        }
+        let cases = [
+            Case {
+                input: Line::from_endpoints(Point::from_yx(0, 0), Point::from_yx(5, 5)),
+                right: Line::from_endpoints(Point::from_yx(0, 0), Point::from_yx(5, 5)),
+            },
+            Case {
+                input: Line::from_endpoints(Point::from_yx(5, 5), Point::from_yx(0, 0)),
+                right: Line::from_endpoints(Point::from_yx(0, 0), Point::from_yx(5, 5)),
+            },
+        ];
+        for case in cases {
+            assert_eq!(case.input.rightwards(), case.right);
+        }
+    }
+
     /// Create a line from [y1, x1, y2, x2] coordinates.
     fn line_from_coords(coords: [i32; 4]) -> Line {
         Line::from_endpoints(
@@ -2284,6 +2331,18 @@ mod tests {
     }
 
     #[test]
+    fn test_line_is_horizontal() {
+        assert_eq!(
+            Line::from_endpoints(Point::from_yx(5, 0), Point::from_yx(5, 10)).is_horizontal(),
+            true
+        );
+        assert_eq!(
+            Line::from_endpoints(Point::from_yx(5, 0), Point::from_yx(6, 10)).is_horizontal(),
+            false
+        );
+    }
+
+    #[test]
     fn test_line_overlap() {
         struct Case {
             a: (i32, i32),
@@ -2334,6 +2393,33 @@ mod tests {
     }
 
     #[test]
+    fn test_line_width_height() {
+        struct Case {
+            line: Line,
+            width: i32,
+            height: i32,
+        }
+
+        let cases = [
+            Case {
+                line: Line::from_endpoints(Point::from_yx(0, 0), Point::from_yx(5, 3)),
+                width: 3,
+                height: 5,
+            },
+            Case {
+                line: Line::from_endpoints(Point::from_yx(5, 3), Point::from_yx(0, 0)),
+                width: -3,
+                height: -5,
+            },
+        ];
+
+        for case in cases {
+            assert_eq!(case.line.width(), case.width);
+            assert_eq!(case.line.height(), case.height);
+        }
+    }
+
+    #[test]
     fn test_line_y_for_x_and_x_for_y() {
         struct Case {
             line: Line,
@@ -2365,13 +2451,30 @@ mod tests {
                     (2.2, None),
                 ],
             },
+            // Horizontal line
+            Case {
+                line: Line::from_endpoints(Point::from_yx(0, 1), Point::from_yx(0, 2)),
+                points: vec![(-1., None), (1., Some(0.)), (2., Some(0.)), (3., None)],
+            },
+            // Vertical line
+            Case {
+                line: Line::from_endpoints(Point::from_yx(0, 0), Point::from_yx(2, 0)),
+                points: vec![(-1., None), (0., None), (1., None)],
+            },
         ];
 
         for case in cases {
             for (x, expected_y) in case.points {
                 assert_eq!(case.line.y_for_x(x), expected_y);
                 if let Some(y) = expected_y {
-                    assert_eq!(case.line.x_for_y(y), Some(x));
+                    assert_eq!(
+                        case.line.x_for_y(y),
+                        if case.line.is_horizontal() {
+                            None
+                        } else {
+                            Some(x)
+                        }
+                    );
                 }
             }
         }
@@ -2574,6 +2677,28 @@ mod tests {
         for case in cases {
             assert_eq!(case.rect.clamp(case.boundary), case.expected);
         }
+    }
+
+    #[test]
+    fn test_rect_contains_point() {
+        let r = Rect::from_tlbr(5, 5, 10, 10);
+
+        // Points outside rect
+        assert_eq!(r.contains_point(Point::from_yx(0, 0)), false);
+        assert_eq!(r.contains_point(Point::from_yx(12, 12)), false);
+
+        // Points inside rect
+        assert_eq!(r.contains_point(Point::from_yx(8, 8)), true);
+
+        // Points on boundary
+        assert_eq!(r.contains_point(Point::from_yx(5, 5)), true);
+        assert_eq!(r.contains_point(Point::from_yx(10, 10)), true);
+    }
+
+    #[test]
+    fn test_rect_tlbr() {
+        let r = Rect::from_tlbr(0, 1, 2, 3);
+        assert_eq!(r.tlbr(), [0, 1, 2, 3]);
     }
 
     #[test]
