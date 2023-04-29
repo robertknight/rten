@@ -765,7 +765,9 @@ impl<S: AsRef<[f32]>> TensorBase<f32, S> {
     ///
     /// The serialized data is in little-endian order and has the structure:
     ///
-    /// `[rank: u32][dim: u32 * rank][element: T * product(dims)]`
+    /// ```text
+    /// [ndim: u32][dims: u32 * rank][elements: T * product(dims)]
+    /// ```
     ///
     /// Where `T` is the tensor's element type.
     pub fn write<W: io::Write>(&self, writer: &mut W) -> io::Result<()> {
