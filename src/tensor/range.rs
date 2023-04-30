@@ -36,6 +36,50 @@ impl From<RangeFull> for SliceItem {
     }
 }
 
+/// Trait for types that can be converted into a fixed-sized sequence of
+/// items (ranges or indices) for slicing a tensor.
+///
+/// This trait is implemented for arrays of indices and ranges (types satisfying
+/// `Into<SliceItem>`) as well as tuples of heterogenous types satisfying
+/// `Into<SliceItem>`.
+pub trait IntoSliceItems<const N: usize> {
+    fn into_slice_items(self) -> [SliceItem; N];
+}
+
+impl<const N: usize, T: Into<SliceItem>> IntoSliceItems<N> for [T; N] {
+    fn into_slice_items(self) -> [SliceItem; N] {
+        self.map(|x| x.into())
+    }
+}
+
+impl<T1: Into<SliceItem>> IntoSliceItems<1> for (T1,) {
+    fn into_slice_items(self) -> [SliceItem; 1] {
+        [self.0.into()]
+    }
+}
+
+impl<T1: Into<SliceItem>, T2: Into<SliceItem>> IntoSliceItems<2> for (T1, T2) {
+    fn into_slice_items(self) -> [SliceItem; 2] {
+        [self.0.into(), self.1.into()]
+    }
+}
+
+impl<T1: Into<SliceItem>, T2: Into<SliceItem>, T3: Into<SliceItem>> IntoSliceItems<3>
+    for (T1, T2, T3)
+{
+    fn into_slice_items(self) -> [SliceItem; 3] {
+        [self.0.into(), self.1.into(), self.2.into()]
+    }
+}
+
+impl<T1: Into<SliceItem>, T2: Into<SliceItem>, T3: Into<SliceItem>, T4: Into<SliceItem>>
+    IntoSliceItems<4> for (T1, T2, T3, T4)
+{
+    fn into_slice_items(self) -> [SliceItem; 4] {
+        [self.0.into(), self.1.into(), self.2.into(), self.3.into()]
+    }
+}
+
 /// A range for slicing a Tensor.
 ///
 /// This has two main differences from [Range].

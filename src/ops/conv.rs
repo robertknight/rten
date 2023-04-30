@@ -66,7 +66,7 @@ fn im2col(
                 let img_y = py * stride_h + k_y;
                 let out_row_top = c * patch_h * patch_w + k_y * patch_w;
 
-                let in_row = input.slice(&[c.into(), (img_y - pad_top).into()]);
+                let in_row = input.slice([c, img_y - pad_top]);
 
                 for k_x in 0..patch_w {
                     let out_row = out_row_top + k_x;
@@ -124,13 +124,10 @@ fn conv_2d_pointwise(input: &Tensor, kernel: &Tensor, bias: Option<&Tensor>) -> 
     let kernel_mat = kernel.view().reshaped(&[out_c, in_c]).to_nd_view();
 
     for n in 0..batch {
-        let mut out_item = output.slice_mut(&[n.into()]);
+        let mut out_item = output.slice_mut([n]);
         let out_row_stride = out_item.stride(0);
 
-        let in_mat = input
-            .slice(&[n.into()])
-            .reshaped(&[in_c, in_h * in_w])
-            .to_nd_view();
+        let in_mat = input.slice([n]).reshaped(&[in_c, in_h * in_w]).to_nd_view();
 
         gemm(
             out_item.data_mut(),
@@ -305,7 +302,7 @@ pub fn conv(
             let in_chan_end = in_chan_start + in_channels_per_group;
             let out_chan_start = group * out_channels_per_group;
 
-            let in_group = input.slice(&[n.into(), (in_chan_start..in_chan_end).into()]);
+            let in_group = input.slice((n, (in_chan_start..in_chan_end)));
 
             // Perform convolution for group. This uses an indirect method,
             // where image patches and the kernel are first packed into
@@ -322,14 +319,12 @@ pub fn conv(
             );
 
             let kernel_mat = kernel
-                .slice(&[(out_chan_start..out_chan_start + out_channels_per_group).into()])
+                .slice([out_chan_start..out_chan_start + out_channels_per_group])
                 .reshaped(&[out_channels_per_group, in_channels_per_group * k_h * k_w])
                 .to_nd_view();
 
-            let mut out_item = output.slice_mut(&[
-                n.into(),
-                (out_chan_start..out_chan_start + out_channels_per_group).into(),
-            ]);
+            let mut out_item =
+                output.slice_mut((n, out_chan_start..out_chan_start + out_channels_per_group));
             let mut out_mat = out_item.reshaped(&[out_channels_per_group, out_h * out_w]);
             let out_row_stride = out_mat.stride(0);
 
@@ -445,10 +440,7 @@ pub fn conv_transpose(
 
     // The implementation here is the inverse of the im2col-based convolution.
     for n in 0..batch {
-        let input_mat = input
-            .slice(&[n.into()])
-            .reshaped(&[in_c, in_h * in_w])
-            .transposed();
+        let input_mat = input.slice([n]).reshaped(&[in_c, in_h * in_w]).transposed();
 
         let col2im_row_stride = col2im_mat.stride(0);
         gemm(
@@ -461,7 +453,7 @@ pub fn conv_transpose(
         );
 
         col2im(
-            &mut output.slice_mut(&[n.into()]),
+            &mut output.slice_mut([n]),
             &col2im_mat.view().reshaped(&[in_h, in_w, out_c, k_h, k_w]),
             strides,
         );

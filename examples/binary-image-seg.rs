@@ -240,7 +240,7 @@ fn main() -> Result<(), Box<dyn Error>> {
     // Annotate input image with detected line outlines.
     for (line_index, word_rects) in line_rects.iter().enumerate() {
         let line_poly = Polygon::new(line_polygon(word_rects));
-        let grey_chan = grey_img.slice(&[0.into(), 0.into()]);
+        let grey_chan = grey_img.slice([0, 0]);
 
         draw_polygon(color_img.nd_slice_mut([0]), line_poly.vertices(), 0.9); // Red
         draw_polygon(color_img.nd_slice_mut([1]), line_poly.vertices(), 0.); // Green

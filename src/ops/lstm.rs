@@ -154,10 +154,7 @@ pub fn lstm(
         let hidden_size = hidden_total / num_gates;
 
         tensor
-            .slice(&[
-                dir.into(),
-                (index * hidden_size..(index + 1) * hidden_size).into(),
-            ])
+            .slice((dir, (index * hidden_size..(index + 1) * hidden_size)))
             .to_nd_view()
     }
 
@@ -174,12 +171,8 @@ pub fn lstm(
             let nth_gate =
                 |gate_index| (gate_index * hidden_size)..((gate_index + 1) * hidden_size);
 
-            let input_bias = bias
-                .slice(&[dir.into(), nth_gate(gate_index).into()])
-                .to_data();
-            let hidden_bias = bias
-                .slice(&[dir.into(), nth_gate(gate_index + 4).into()])
-                .to_data();
+            let input_bias = bias.slice((dir, nth_gate(gate_index))).to_data();
+            let hidden_bias = bias.slice((dir, nth_gate(gate_index + 4))).to_data();
 
             (input_bias, hidden_bias)
         });
@@ -247,12 +240,8 @@ pub fn lstm(
                 //  - `P{i,o,f,c}` are peephole weights. These are not currently
                 //    supported.
 
-                let in_item = input
-                    .slice(&[seq.into(), b.into()])
-                    .reshaped(&[1, input_size]);
-                let hidden_item = hidden
-                    .slice(&[dir.into(), b.into()])
-                    .reshaped(&[1, hidden_size]);
+                let in_item = input.slice([seq, b]).reshaped(&[1, input_size]);
+                let hidden_item = hidden.slice([dir, b]).reshaped(&[1, hidden_size]);
 
                 // Compute outputs for input, forget, cell and output gates.
                 update_lstm_gate(
@@ -296,7 +285,7 @@ pub fn lstm(
                 );
 
                 // Compute new values of cell and hidden state
-                let mut cell_item = cell.slice_mut(&[dir.into(), b.into()]);
+                let mut cell_item = cell.slice_mut([dir, b]);
 
                 for (cell, (forget_gate, (input_gate, cell_gate))) in zip(
                     cell_item.iter_mut(),
@@ -305,7 +294,7 @@ pub fn lstm(
                     *cell = forget_gate * *cell + input_gate * cell_gate;
                 }
 
-                let mut hidden_item = hidden.slice_mut(&[dir.into(), b.into()]);
+                let mut hidden_item = hidden.slice_mut([dir, b]);
                 let tanh_op = Tanh {};
                 for (hidden, (out_gate, cell)) in zip(
                     hidden_item.iter_mut(),
@@ -315,7 +304,7 @@ pub fn lstm(
                 }
 
                 // Copy latest value of hidden seq to output tensor
-                let mut hidden_seq_item = hidden_seq.slice_mut(&[seq.into(), dir.into(), b.into()]);
+                let mut hidden_seq_item = hidden_seq.slice_mut([seq, dir, b]);
                 for (seq, hidden) in zip(hidden_seq_item.iter_mut(), hidden_item.iter()) {
                     *seq = hidden;
                 }

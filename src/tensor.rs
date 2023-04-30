@@ -23,7 +23,7 @@ pub use self::ndtensor::{
     Matrix, MatrixLayout, MatrixMut, NdTensor, NdTensorBase, NdTensorLayout, NdTensorView,
     NdTensorViewMut,
 };
-pub use self::range::{SliceItem, SliceRange};
+pub use self::range::{IntoSliceItems, SliceItem, SliceRange};
 pub use layout::is_valid_permutation;
 use vec_with_offset::VecWithOffset;
 
@@ -301,7 +301,20 @@ impl<T: Copy, S: AsRef<[T]>> TensorBase<T, S> {
     }
 
     /// Return a view of part of this tensor.
-    pub fn slice(&self, range: &[SliceItem]) -> TensorView<T> {
+    ///
+    /// `range` specifies the indices or ranges of this tensor to include in the
+    /// returned view. If `N` is less than the number of dimensions in this
+    /// tensor, `range` refers to the leading dimensions, and is padded to
+    /// include the full range of the remaining dimensions.
+    pub fn slice<const N: usize, R: IntoSliceItems<N>>(&self, range: R) -> TensorView<T> {
+        self.slice_dyn(&range.into_slice_items())
+    }
+
+    /// Return a view of part of this tensor.
+    ///
+    /// This is like [TensorBase::slice] but supports a dynamic number of
+    /// slice items.
+    pub fn slice_dyn(&self, range: &[SliceItem]) -> TensorView<T> {
         let (offset, layout) = self.layout.slice(range);
         TensorBase {
             data: &self.data.as_ref()[offset..offset + layout.end_offset()],
@@ -477,8 +490,18 @@ impl<T: Copy, S: AsRef<[T]> + AsMut<[T]>> TensorBase<T, S> {
 
     /// Return a new mutable slice of this tensor.
     ///
-    /// Slices are specified in the same way as for [TensorView::slice].
-    pub fn slice_mut(&mut self, range: &[SliceItem]) -> TensorViewMut<T> {
+    /// Slices are specified in the same way as for [TensorBase::slice].
+    pub fn slice_mut<const N: usize, R: IntoSliceItems<N>>(
+        &mut self,
+        range: R,
+    ) -> TensorViewMut<T> {
+        self.slice_mut_dyn(&range.into_slice_items())
+    }
+
+    /// Return a new mutable slice of this tensor.
+    ///
+    /// Slices are specified in the same way as for [TensorBase::slice_dyn].
+    pub fn slice_mut_dyn(&mut self, range: &[SliceItem]) -> TensorViewMut<T> {
         let (offset, layout) = self.layout.slice(range);
         let data = &mut self.data.as_mut()[offset..offset + layout.end_offset()];
 

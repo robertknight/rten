@@ -7,6 +7,7 @@ use std::ops::{Index, IndexMut};
 use super::layout::Layout;
 use super::overlap::may_have_internal_overlap;
 use super::range::SliceItem;
+use super::IntoSliceItems;
 
 /// Describes how to view a linear buffer as an `N`-dimensional array.
 #[derive(Clone, Copy)]
@@ -306,7 +307,23 @@ impl<T: Clone, S: AsRef<[T]>, const N: usize> NdTensorBase<T, S, N> {
     /// `M` specifies the number of dimensions that the layout must have after
     /// slicing with `range`. Panics if the sliced layout has a different number
     /// of dims.
-    pub fn slice<const M: usize>(&self, range: &[SliceItem]) -> NdTensorView<T, M> {
+    ///
+    /// `K` is the number of items in the array or tuple being used to slice
+    /// the tensor. If it must be <= N. If it is less than N, it refers to the
+    /// leading dimensions of the tensor and is padded to extract the full
+    /// range of the remaining dimensions.
+    pub fn slice<const M: usize, const K: usize, R: IntoSliceItems<K>>(
+        &self,
+        range: R,
+    ) -> NdTensorView<T, M> {
+        self.slice_dyn::<M>(&range.into_slice_items())
+    }
+
+    /// Return an immutable view of part of this tensor.
+    ///
+    /// This is like [NdTensorBase::slice] but supports a dynamic number of slice
+    /// items.
+    pub fn slice_dyn<const M: usize>(&self, range: &[SliceItem]) -> NdTensorView<T, M> {
         let (offset, sliced_layout) = self.layout.as_dyn().slice(range);
         assert!(sliced_layout.ndim() == M, "sliced dims != {}", M);
         NdTensorView {
@@ -392,7 +409,19 @@ impl<T, S: AsRef<[T]> + AsMut<[T]>, const N: usize> NdTensorBase<T, S, N> {
     /// `M` specifies the number of dimensions that the layout must have after
     /// slicing with `range`. Panics if the sliced layout has a different number
     /// of dims.
-    pub fn slice_mut<const M: usize>(&mut self, range: &[SliceItem]) -> NdTensorViewMut<T, M> {
+    pub fn slice_mut<const M: usize, const K: usize, R: IntoSliceItems<K>>(
+        &mut self,
+        range: R,
+    ) -> NdTensorViewMut<T, M> {
+        self.slice_mut_dyn(&range.into_slice_items())
+    }
+
+    /// Return a mutable view of part of this tensor.
+    ///
+    /// `M` specifies the number of dimensions that the layout must have after
+    /// slicing with `range`. Panics if the sliced layout has a different number
+    /// of dims.
+    pub fn slice_mut_dyn<const M: usize>(&mut self, range: &[SliceItem]) -> NdTensorViewMut<T, M> {
         let (offset, sliced_layout) = self.layout.as_dyn().slice(range);
         assert!(sliced_layout.ndim() == M, "sliced dims != {}", M);
         NdTensorViewMut {
@@ -657,7 +686,7 @@ mod tests {
     fn test_ndtensor_slice() {
         let data = vec![1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16];
         let view = NdTensorView::<i32, 2>::from_slice(&data, [4, 4], None).unwrap();
-        let slice = view.slice::<2>(&[(1..3).into(), (1..3).into()]);
+        let slice = view.slice([1..3, 1..3]);
         assert_eq!(matrix_elements(slice), &[6, 7, 10, 11]);
     }
 
@@ -666,14 +695,14 @@ mod tests {
     fn test_ndtensor_slice_wrong_dims() {
         let data = vec![1, 2, 3, 4];
         let view = NdTensorView::<i32, 2>::from_slice(&data, [2, 2], None).unwrap();
-        view.slice::<3>(&[(0..2).into(), (0..2).into()]);
+        view.slice::<3, 2, _>([0..2, 0..2]);
     }
 
     #[test]
     fn test_ndtensor_slice_mut() {
         let mut data = vec![1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16];
         let mut view = NdTensorViewMut::<i32, 2>::from_data(&mut data, [4, 4], None).unwrap();
-        let mut slice = view.slice_mut::<2>(&[(1..3).into(), (1..3).into()]);
+        let mut slice = view.slice_mut([1..3, 1..3]);
         slice[[0, 0]] = -1;
         slice[[0, 1]] = -2;
         slice[[1, 0]] = -3;
@@ -689,7 +718,7 @@ mod tests {
     fn test_ndtensor_slice_mut_wrong_dims() {
         let mut data = vec![1, 2, 3, 4];
         let mut view = NdTensorViewMut::<i32, 2>::from_data(&mut data, [2, 2], None).unwrap();
-        view.slice_mut::<3>(&[(0..2).into(), (0..2).into()]);
+        view.slice_mut::<3, 2, _>([0..2, 0..2]);
     }
 
     #[test]
