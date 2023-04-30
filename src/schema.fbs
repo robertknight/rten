@@ -35,6 +35,7 @@ enum OperatorType: byte {
   Less,
   LessOrEqual,
   Log,
+  LogSoftmax,
   LSTM,
   MatMul,
   MaxPool,
@@ -118,7 +119,7 @@ union OperatorAttrs {
   ReshapeAttrs,
   ResizeAttrs,
   SplitAttrs,
-  SoftmaxAttrs,
+  SoftmaxAttrs, // Also used for LogSoftmax
   TransposeAttrs,
 }
 

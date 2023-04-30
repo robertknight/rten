@@ -96,6 +96,80 @@ impl Operator for BatchNormalization {
     }
 }
 
+pub fn log_softmax(input: &Tensor, axis: isize) -> Result<Tensor, OpError> {
+    let mut output = input.clone();
+    log_softmax_in_place(&mut output, axis)?;
+    Ok(output)
+}
+
+pub fn log_softmax_in_place(output: &mut Tensor, axis: isize) -> Result<(), OpError> {
+    let resolved_axis = resolve_axis(output.ndim(), axis)?;
+
+    output.make_contiguous();
+
+    let outer_stride = if resolved_axis == 0 {
+        output.len()
+    } else {
+        output.stride(resolved_axis - 1)
+    };
+
+    // This operator computes:
+    //
+    //   log(exp(xi) / sum(exp(x)))
+    //
+    // Improve numerical stability by first subtracting max value, as we do
+    // for the softmax op:
+    //
+    //   log(exp(xi - xmax) / sum(exp(x - xmax)))
+    //
+    // Then using log identities to simplify:
+    //
+    //   = log(exp(xi - xmax)) - log(sum(exp(x - xmax)))
+    //   = xi - xmax - log(sum(exp(x - xmax)))
+
+    for els in output.data_mut().chunks_mut(outer_stride) {
+        let max_val = els
+            .iter()
+            .copied()
+            .fold(f32::MIN, |max_val, x| max_val.max(x));
+        let log_exp_sum = els
+            .iter()
+            .fold(0., |exp_sum, x| exp_sum + (x - max_val).exp())
+            .ln();
+        for el in els.iter_mut() {
+            *el = (*el - max_val) - log_exp_sum
+        }
+    }
+
+    Ok(())
+}
+
+#[derive(Debug)]
+pub struct LogSoftmax {
+    pub axis: isize,
+}
+
+impl Operator for LogSoftmax {
+    fn name(&self) -> &str {
+        "LogSoftmax"
+    }
+
+    fn run(&self, inputs: InputList) -> Result<Vec<Output>, OpError> {
+        let input = inputs.require_as(0)?;
+        log_softmax(input, self.axis).into_op_result()
+    }
+
+    fn can_run_in_place(&self) -> bool {
+        true
+    }
+
+    fn run_in_place(&self, input: Output, _other: InputList) -> Result<Output, OpError> {
+        let mut output = input.into_float().ok_or(OpError::IncorrectInputType)?;
+        log_softmax_in_place(&mut output, self.axis)?;
+        Ok(output.into())
+    }
+}
+
 pub fn softmax(input: &Tensor, axis: isize) -> Result<Tensor, OpError> {
     let mut output = input.clone();
     softmax_in_place(&mut output, axis)?;
@@ -162,7 +236,7 @@ impl Operator for Softmax {
 
 #[cfg(test)]
 mod tests {
-    use crate::ops::{batch_norm, batch_norm_in_place, softmax};
+    use crate::ops::{batch_norm, batch_norm_in_place, log_softmax, softmax};
     use crate::rng::XorShiftRng;
     use crate::tensor;
     use crate::tensor::{from_data, rand, TensorLayout};
@@ -207,6 +281,45 @@ mod tests {
         batch_norm_in_place(&mut input, &scale, &bias, &mean, &var, epsilon).unwrap();
 
         expect_equal(&input, &expected)
+    }
+
+    #[test]
+    fn test_log_softmax() -> Result<(), String> {
+        // 1D input
+        let mut input = tensor!([0.1634, 0.8647, 0.6401, 0.8265, 0.0560]);
+        let mut expected = tensor!([-2.0104, -1.3091, -1.5337, -1.3473, -2.1178]);
+        let result = log_softmax(&input, 0).unwrap();
+        expect_equal(&result, &expected)?;
+
+        // Second dimension of 2D input
+        input.reshape(&[1, 5]);
+        expected.reshape(&[1, 5]);
+        let result = log_softmax(&input, 1).unwrap();
+        expect_equal(&result, &expected)?;
+
+        // First dimension of 2D input
+        input.reshape(&[5, 1]);
+        expected.reshape(&[5, 1]);
+        let result = log_softmax(&input, 0).unwrap();
+        expect_equal(&result, &expected)?;
+
+        // Second dimension of 2D input with multiple entries in first dim
+        let matrix_input = from_data(
+            &[2, 5],
+            vec![
+                0.1634, 0.8647, 0.6401, 0.8265, 0.0560, // First row
+                0.1634, 0.8647, 0.6401, 0.8265, 0.0560, // Second row
+            ],
+        );
+        let matrix_expected = from_data(
+            &[2, 5],
+            vec![
+                -2.0104, -1.3091, -1.5337, -1.3473, -2.1178, // First row
+                -2.0104, -1.3091, -1.5337, -1.3473, -2.1178, // Second row
+            ],
+        );
+        let result = log_softmax(&matrix_input, 1).unwrap();
+        expect_equal(&result, &matrix_expected)
     }
 
     #[test]

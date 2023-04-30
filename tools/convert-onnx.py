@@ -476,7 +476,7 @@ def op_node_from_onnx_operator(
 
     # Check / convert operator attributes and operator name, if different than
     # ONNX.
-    match onnx_op.op_type:
+    match op_type:
         case "ArgMax" | "ArgMin":
             attrs = sg.ArgMaxAttrsT()
             attrs.axes = op_reader.get_attr("axis", "int", None)
@@ -609,6 +609,10 @@ def op_node_from_onnx_operator(
         case "LeakyRelu":
             attrs = sg.LeakyReluAttrsT()
             attrs.alpha = op_reader.get_attr("alpha", "float", 0.01)
+
+        case "LogSoftmax":
+            attrs = sg.SoftmaxAttrsT()
+            attrs.axis = op_reader.get_attr("axis", "int", 0)
 
         case "LSTM":
             attrs = sg.LSTMAttrsT()

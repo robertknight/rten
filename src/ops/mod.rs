@@ -40,7 +40,9 @@ pub use layout::{
     Transpose, Unsqueeze,
 };
 pub use matmul::{gemm_op, matmul, Gemm, MatMul};
-pub use norm::{batch_norm, batch_norm_in_place, softmax, BatchNormalization, Softmax};
+pub use norm::{
+    batch_norm, batch_norm_in_place, log_softmax, softmax, BatchNormalization, LogSoftmax, Softmax,
+};
 pub use pad::{pad, Pad};
 pub use pooling::{average_pool, global_average_pool, max_pool};
 pub use pooling::{AveragePool, GlobalAveragePool, MaxPool};

@@ -5,8 +5,8 @@ use flatbuffers::{FlatBufferBuilder, UnionWIPOffset, Vector, WIPOffset};
 use crate::graph::Dimension;
 use crate::ops::{
     ArgMax, ArgMin, AveragePool, BatchNormalization, Cast, Concat, ConstantOfShape, Conv,
-    ConvTranspose, CoordTransformMode, DataType, Flatten, Gather, Gemm, LeakyRelu, MaxPool,
-    NearestMode, Padding, ReduceMean, Reshape, Resize, ResizeMode, Scalar, Softmax, Split,
+    ConvTranspose, CoordTransformMode, DataType, Flatten, Gather, Gemm, LeakyRelu, LogSoftmax,
+    MaxPool, NearestMode, Padding, ReduceMean, Reshape, Resize, ResizeMode, Scalar, Softmax, Split,
     Transpose,
 };
 use crate::schema_generated as sg;
@@ -40,6 +40,7 @@ pub enum OpType {
     Less,
     LessOrEqual,
     Log,
+    LogSoftmax(LogSoftmax),
     MatMul,
     MaxPool(MaxPool),
     Mul,
@@ -394,6 +395,13 @@ impl<'a> ModelBuilder<'a> {
             OpType::Less => op!(Less),
             OpType::LessOrEqual => op!(LessOrEqual),
             OpType::Log => op!(Log),
+            OpType::LogSoftmax(args) => op_with_attrs!(
+                LogSoftmax,
+                SoftmaxAttrs,
+                sg::SoftmaxAttrsArgs {
+                    axis: args.axis as i32,
+                }
+            ),
             OpType::MatMul => op!(MatMul),
             OpType::MaxPool(args) => op_with_attrs!(MaxPool, MaxPoolAttrs, {
                 let pad_args = pad_args_from_padding(args.padding);

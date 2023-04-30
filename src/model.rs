@@ -270,6 +270,15 @@ fn read_leaky_relu_op(node: &OperatorNode) -> ReadOpResult {
     }))
 }
 
+fn read_log_softmax_op(node: &OperatorNode) -> ReadOpResult {
+    let attrs = node
+        .attrs_as_softmax_attrs()
+        .ok_or(ReadOpError::AttrError)?;
+    Ok(Box::new(ops::LogSoftmax {
+        axis: attrs.axis() as isize,
+    }))
+}
+
 fn read_lstm_op(node: &OperatorNode) -> ReadOpResult {
     let attrs = node.attrs_as_lstmattrs().ok_or(ReadOpError::AttrError)?;
 
@@ -422,6 +431,7 @@ fn read_operator(node: &OperatorNode) -> ReadOpResult {
         OperatorType::Less => op!(Less),
         OperatorType::LessOrEqual => op!(LessOrEqual),
         OperatorType::Log => op!(Log),
+        OperatorType::LogSoftmax => read_log_softmax_op(node),
         OperatorType::LSTM => read_lstm_op(node),
         OperatorType::MatMul => op!(MatMul),
         OperatorType::MaxPool => read_max_pool_op(node),
@@ -807,6 +817,7 @@ mod tests {
         add_operator!(Less, [input_node, input_node]);
         add_operator!(LessOrEqual, [input_node, input_node]);
         add_operator!(Log, [input_node]);
+        add_operator!(LogSoftmax, [input_node], { axis: 1 });
 
         // TODO - Add LSTM operator
 
