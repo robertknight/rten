@@ -1,5 +1,5 @@
 use std::fmt::Debug;
-use std::ops::{Range, RangeTo};
+use std::ops::{Range, RangeFull, RangeTo};
 
 /// Specifies a subset of a dimension to include when slicing a tensor or view.
 ///
@@ -27,6 +27,12 @@ impl From<usize> for SliceItem {
 impl From<Range<usize>> for SliceItem {
     fn from(value: Range<usize>) -> Self {
         SliceItem::Range(value)
+    }
+}
+
+impl From<RangeFull> for SliceItem {
+    fn from(_: RangeFull) -> Self {
+        SliceItem::RangeFull
     }
 }
 
