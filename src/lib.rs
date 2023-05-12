@@ -22,6 +22,7 @@ pub use tensor::{
     NdTensorViewMut, SliceItem, SliceRange, Tensor, TensorBase, TensorLayout, TensorView,
     TensorViewMut,
 };
+pub use timer::Timer;
 
 #[allow(clippy::extra_unused_lifetimes, dead_code, unused_imports)]
 mod schema_generated;
