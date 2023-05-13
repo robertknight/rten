@@ -5,7 +5,7 @@ use crate::linalg::gemm;
 use crate::ops::unary_elementwise::UnaryFloatOp;
 use crate::ops::{InputList, IntoOpResult, OpError, Operator, Output, Sigmoid, Tanh};
 use crate::tensor::Matrix;
-use crate::tensor::{Tensor, TensorLayout, TensorView};
+use crate::tensor::{Tensor, TensorLayout, TensorView, TensorViewMut};
 
 #[derive(Copy, Clone, Debug)]
 pub enum LSTMDirection {
@@ -42,11 +42,14 @@ enum Activation {
 ///
 /// `output = act(dot(input, input_weight) + dot(hidden, hidden_weight) + input_bias + hidden_bias)`.
 ///
+/// `output` has shape (batch, hidden_size)
+/// `input` has shape (batch, input_size)
 /// `input_weight` has shape (input_size, hidden_size)
+/// `hidden` has shape (batch, hidden_size)
 /// `hidden_weight` has shape (hidden_size, hidden_size)
-/// `bias` is a tuple of `(input_bias, hidden_bias)`.
+/// `bias` is a tuple of `(input_bias, hidden_bias)` where each bias has length `hidden_size`
 fn update_lstm_gate(
-    output: &mut [f32],
+    mut output: TensorViewMut,
     act: Activation,
     input: &TensorView,
     input_weight: Matrix,
@@ -54,12 +57,11 @@ fn update_lstm_gate(
     hidden_weight: Matrix,
     bias: Option<(&[f32], &[f32])>,
 ) {
-    let sigmoid_op = Sigmoid {};
-    let tanh_op = Tanh {};
+    let out_row_stride = output.stride(0);
 
     gemm(
-        output,
-        output.len(),
+        output.data_mut(),
+        out_row_stride,
         input.nd_view(),
         input_weight,
         1., /* alpha */
@@ -67,21 +69,29 @@ fn update_lstm_gate(
     );
 
     gemm(
-        output,
-        output.len(),
+        output.data_mut(),
+        out_row_stride,
         hidden.nd_view(),
         hidden_weight,
         1., /* alpha */
         1., /* beta */
     );
 
+    let sigmoid_op = Sigmoid {};
+    let tanh_op = Tanh {};
     let apply_act = |el: f32| match act {
         Activation::Sigmoid => sigmoid_op.map_element(el),
         Activation::Tanh => tanh_op.map_element(el),
     };
 
     if let Some((in_bias, hidden_bias)) = bias {
-        let combined_bias = zip(in_bias.iter(), hidden_bias.iter()).map(|(ib, hb)| ib + hb);
+        let hidden_size = output.shape()[1];
+        assert!(in_bias.len() == hidden_size);
+        assert!(hidden_bias.len() == hidden_size);
+
+        let combined_bias = zip(in_bias.iter(), hidden_bias.iter())
+            .map(|(ib, hb)| ib + hb)
+            .cycle(); // Cycle to repeat for each item in batch
         for (el, bias) in zip(output.iter_mut(), combined_bias) {
             *el = apply_act(*el + bias);
         }
@@ -120,7 +130,7 @@ pub fn lstm(
     initial_cell: Option<&Tensor>,
 ) -> Result<Vec<Tensor>, OpError> {
     // TODO - Add validation of the sizes of individual dimensions in the inputs.
-    let [seq_len, batch, input_size] = check_dims!(input, 3, "seq, batch, input");
+    let [seq_len, batch, _input_size] = check_dims!(input, 3, "seq, batch, input");
     let [_directions, hidden_x4, _input_size] = check_dims!(weights, 3, "dir, hidden x 4, input");
     check_dims!(recurrent_weights, 3);
 
@@ -179,10 +189,10 @@ pub fn lstm(
         (weight, rec_weight, bias)
     };
 
-    let mut input_gate = Tensor::zeros(&[hidden_size]);
-    let mut out_gate = Tensor::zeros(&[hidden_size]);
-    let mut forget_gate = Tensor::zeros(&[hidden_size]);
-    let mut cell_gate = Tensor::zeros(&[hidden_size]);
+    let mut input_gate = Tensor::zeros(&[batch, hidden_size]);
+    let mut out_gate = Tensor::zeros(&[batch, hidden_size]);
+    let mut forget_gate = Tensor::zeros(&[batch, hidden_size]);
+    let mut cell_gate = Tensor::zeros(&[batch, hidden_size]);
 
     let mut cell = initial_cell
         .cloned()
@@ -215,99 +225,97 @@ pub fn lstm(
         };
 
         for seq in seq_iter {
-            for b in 0..batch {
-                // From the ONNX spec, the intermediate values are computed as:
-                //
-                // - it = f(Xt*(Wi^T) + Ht-1*(Ri^T) + Pi (.) Ct-1 + Wbi + Rbi)
-                // - ft = f(Xt*(Wf^T) + Ht-1*(Rf^T) + Pf (.) Ct-1 + Wbf + Rbf)
-                // - ct = g(Xt*(Wc^T) + Ht-1*(Rc^T) + Wbc + Rbc)
-                // - Ct = ft (.) Ct-1 + it (.) ct
-                // - ot = f(Xt*(Wo^T) + Ht-1*(Ro^T) + Po (.) Ct + Wbo + Rbo)
-                // - Ht = ot (.) h(Ct)
-                //
-                // Where:
-                //
-                //  - `it`, `ft`, `ct` and `ot` are the input, forget, cell and output gates
-                //  - `Xt`, `Ht` and `Ct` are the input, hidden state and cell state at time `t`
-                //  - `f`, `g` and `h` are activation functions. `f`=sigmoid, `g` and `h`
-                //    are tanh.
-                //
-                //  - `W{i,o,f,c}` are the gate weights
-                //  - `Wb{i,o,f,c}` are the gate biases
-                //  - `R{i,o,f,c}` are the hidden/recurrent gate weights
-                //  - `Rb{i,o,f,c}` are the hidden/recurrent gate biases
-                //
-                //  - `P{i,o,f,c}` are peephole weights. These are not currently
-                //    supported.
+            // From the ONNX spec, the intermediate values are computed as:
+            //
+            // - it = f(Xt*(Wi^T) + Ht-1*(Ri^T) + Pi (.) Ct-1 + Wbi + Rbi)
+            // - ft = f(Xt*(Wf^T) + Ht-1*(Rf^T) + Pf (.) Ct-1 + Wbf + Rbf)
+            // - ct = g(Xt*(Wc^T) + Ht-1*(Rc^T) + Wbc + Rbc)
+            // - Ct = ft (.) Ct-1 + it (.) ct
+            // - ot = f(Xt*(Wo^T) + Ht-1*(Ro^T) + Po (.) Ct + Wbo + Rbo)
+            // - Ht = ot (.) h(Ct)
+            //
+            // Where:
+            //
+            //  - `it`, `ft`, `ct` and `ot` are the input, forget, cell and output gates
+            //  - `Xt`, `Ht` and `Ct` are the input, hidden state and cell state at time `t`
+            //  - `f`, `g` and `h` are activation functions. `f`=sigmoid, `g` and `h`
+            //    are tanh.
+            //
+            //  - `W{i,o,f,c}` are the gate weights
+            //  - `Wb{i,o,f,c}` are the gate biases
+            //  - `R{i,o,f,c}` are the hidden/recurrent gate weights
+            //  - `Rb{i,o,f,c}` are the hidden/recurrent gate biases
+            //
+            //  - `P{i,o,f,c}` are peephole weights. These are not currently
+            //    supported.
 
-                let in_item = input.slice([seq, b]).reshaped(&[1, input_size]);
-                let hidden_item = hidden.slice([dir, b]).reshaped(&[1, hidden_size]);
+            let in_item = input.slice([seq]);
+            let hidden_item = hidden.slice([dir]);
 
-                // Compute outputs for input, forget, cell and output gates.
-                update_lstm_gate(
-                    input_gate.data_mut(),
-                    Activation::Sigmoid,
-                    &in_item,
-                    weight_input,
-                    &hidden_item,
-                    rec_weight_input,
-                    bias_input,
-                );
+            // Compute outputs for input, forget, cell and output gates.
+            update_lstm_gate(
+                input_gate.view_mut(),
+                Activation::Sigmoid,
+                &in_item,
+                weight_input,
+                &hidden_item,
+                rec_weight_input,
+                bias_input,
+            );
 
-                update_lstm_gate(
-                    forget_gate.data_mut(),
-                    Activation::Sigmoid,
-                    &in_item,
-                    weight_forget,
-                    &hidden_item,
-                    rec_weight_forget,
-                    bias_forget,
-                );
+            update_lstm_gate(
+                forget_gate.view_mut(),
+                Activation::Sigmoid,
+                &in_item,
+                weight_forget,
+                &hidden_item,
+                rec_weight_forget,
+                bias_forget,
+            );
 
-                update_lstm_gate(
-                    cell_gate.data_mut(),
-                    Activation::Tanh,
-                    &in_item,
-                    weight_cell,
-                    &hidden_item,
-                    rec_weight_cell,
-                    bias_cell,
-                );
+            update_lstm_gate(
+                cell_gate.view_mut(),
+                Activation::Tanh,
+                &in_item,
+                weight_cell,
+                &hidden_item,
+                rec_weight_cell,
+                bias_cell,
+            );
 
-                update_lstm_gate(
-                    out_gate.data_mut(),
-                    Activation::Sigmoid,
-                    &in_item,
-                    weight_out,
-                    &hidden_item,
-                    rec_weight_out,
-                    bias_out,
-                );
+            update_lstm_gate(
+                out_gate.view_mut(),
+                Activation::Sigmoid,
+                &in_item,
+                weight_out,
+                &hidden_item,
+                rec_weight_out,
+                bias_out,
+            );
 
-                // Compute new values of cell and hidden state
-                let mut cell_item = cell.slice_mut([dir, b]);
+            // Compute new values of cell and hidden state
+            let mut cell_item = cell.slice_mut([dir]);
 
-                for (cell, (forget_gate, (input_gate, cell_gate))) in zip(
-                    cell_item.iter_mut(),
-                    zip(forget_gate.iter(), zip(input_gate.iter(), cell_gate.iter())),
-                ) {
-                    *cell = forget_gate * *cell + input_gate * cell_gate;
-                }
+            for (cell, (forget_gate, (input_gate, cell_gate))) in zip(
+                cell_item.iter_mut(),
+                zip(forget_gate.iter(), zip(input_gate.iter(), cell_gate.iter())),
+            ) {
+                *cell = forget_gate * *cell + input_gate * cell_gate;
+            }
 
-                let mut hidden_item = hidden.slice_mut([dir, b]);
-                let tanh_op = Tanh {};
-                for (hidden, (out_gate, cell)) in zip(
-                    hidden_item.iter_mut(),
-                    zip(out_gate.iter(), cell_item.iter()),
-                ) {
-                    *hidden = out_gate * tanh_op.map_element(cell)
-                }
+            let mut hidden_item = hidden.slice_mut([dir]);
+            let tanh_op = Tanh {};
+            for (hidden, (out_gate, cell)) in zip(
+                hidden_item.iter_mut(),
+                zip(out_gate.iter(), cell_item.iter()),
+            ) {
+                *hidden = out_gate * tanh_op.map_element(cell)
+            }
 
-                // Copy latest value of hidden seq to output tensor
-                let mut hidden_seq_item = hidden_seq.slice_mut([seq, dir, b]);
-                for (seq, hidden) in zip(hidden_seq_item.iter_mut(), hidden_item.iter()) {
-                    *seq = hidden;
-                }
+            // Copy latest value of hidden seq to output tensor
+            let mut hidden_seq_item = hidden_seq.slice_mut([seq, dir]);
+            for (seq, hidden) in zip(hidden_seq_item.iter_mut(), hidden_item.iter()) {
+                *seq = hidden;
             }
         }
     }
