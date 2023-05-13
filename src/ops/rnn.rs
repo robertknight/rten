@@ -1,4 +1,5 @@
-use std::iter::zip;
+use std::iter::{zip, Rev};
+use std::ops::Range;
 
 use crate::check_dims;
 use crate::linalg::gemm;
@@ -17,8 +18,6 @@ pub enum Direction {
 
 impl Direction {
     /// Number of directions that an RNN operator will traverse the sequence in.
-    ///
-    /// The sizes of various inputs and outputs depend on this.
     pub fn num_directions(self) -> usize {
         match self {
             Self::Forwards | Self::Reverse => 1,
@@ -27,10 +26,67 @@ impl Direction {
     }
 }
 
-#[derive(Debug)]
-pub struct LSTM {
-    pub direction: Direction,
-    pub hidden_size: usize,
+/// Forwards or backwards iterator over values in a range.
+enum Sequence {
+    Forwards(Range<usize>),
+    Backwards(Rev<Range<usize>>),
+}
+
+impl Iterator for Sequence {
+    type Item = usize;
+
+    fn next(&mut self) -> Option<usize> {
+        match self {
+            Sequence::Forwards(range) => range.next(),
+            Sequence::Backwards(rev_range) => rev_range.next(),
+        }
+    }
+}
+
+/// Return an iterator over sequence indices for an RNN operator.
+///
+/// `op_dirs` is the direction mode of the operator, `dir` is the direction
+/// index (0 or 1) and `seq_len` is the input sequence length.
+fn sequence_for_dir(op_dirs: Direction, dir: usize, seq_len: usize) -> Sequence {
+    let reversed = matches!(
+        (dir, op_dirs),
+        (0, Direction::Reverse) | (1, Direction::Bidirectional)
+    );
+    if reversed {
+        Sequence::Backwards((0..seq_len).rev())
+    } else {
+        Sequence::Forwards(0..seq_len)
+    }
+}
+
+/// Like [std::iter::zip], but combines 3 iterators.
+fn zip3<T1, T2, T3>(
+    a: impl Iterator<Item = T1>,
+    b: impl Iterator<Item = T2>,
+    c: impl Iterator<Item = T3>,
+) -> impl Iterator<Item = (T1, T2, T3)> {
+    zip(a, zip(b, c)).map(|(a, (b, c))| (a, b, c))
+}
+
+/// Like [std::iter::zip], but combines 4 iterators.
+fn zip4<T1, T2, T3, T4>(
+    a: impl Iterator<Item = T1>,
+    b: impl Iterator<Item = T2>,
+    c: impl Iterator<Item = T3>,
+    d: impl Iterator<Item = T4>,
+) -> impl Iterator<Item = (T1, T2, T3, T4)> {
+    zip3(a, b, zip(c, d)).map(|(a, b, (c, d))| (a, b, c, d))
+}
+
+/// Like [std::iter::zip], but combines 5 iterators.
+fn zip5<T1, T2, T3, T4, T5>(
+    a: impl Iterator<Item = T1>,
+    b: impl Iterator<Item = T2>,
+    c: impl Iterator<Item = T3>,
+    d: impl Iterator<Item = T4>,
+    e: impl Iterator<Item = T5>,
+) -> impl Iterator<Item = (T1, T2, T3, T4, T5)> {
+    zip4(a, b, c, zip(d, e)).map(|(a, b, c, (d, e))| (a, b, c, d, e))
 }
 
 #[derive(Copy, Clone)]
@@ -39,7 +95,33 @@ enum Activation {
     Tanh,
 }
 
-/// Compute output of an LSTM gate, according to the formula:
+/// Compute `output = dot(a, b)`
+fn matmul(mut output: TensorViewMut, a: Matrix, b: Matrix) {
+    let row_stride = output.stride(output.ndim() - 2);
+    gemm(
+        output.data_mut(),
+        row_stride,
+        a,
+        b,
+        1., /* alpha */
+        0., /* beta */
+    );
+}
+
+/// Compute `output += dot(a, b)`
+fn add_matmul(mut output: TensorViewMut, a: Matrix, b: Matrix) {
+    let row_stride = output.stride(output.ndim() - 2);
+    gemm(
+        output.data_mut(),
+        row_stride,
+        a,
+        b,
+        1., /* alpha */
+        1., /* beta */
+    );
+}
+
+/// Compute output of an RNN gate as:
 ///
 /// `output = act(dot(input, input_weight) + dot(hidden, hidden_weight) + input_bias + hidden_bias)`.
 ///
@@ -49,7 +131,7 @@ enum Activation {
 /// `hidden` has shape (batch, hidden_size)
 /// `hidden_weight` has shape (hidden_size, hidden_size)
 /// `bias` is a tuple of `(input_bias, hidden_bias)` where each bias has length `hidden_size`
-fn update_lstm_gate(
+fn compute_rnn_gate(
     mut output: TensorViewMut,
     act: Activation,
     input: &TensorView,
@@ -58,25 +140,8 @@ fn update_lstm_gate(
     hidden_weight: Matrix,
     bias: Option<(&[f32], &[f32])>,
 ) {
-    let out_row_stride = output.stride(0);
-
-    gemm(
-        output.data_mut(),
-        out_row_stride,
-        input.nd_view(),
-        input_weight,
-        1., /* alpha */
-        0., /* beta */
-    );
-
-    gemm(
-        output.data_mut(),
-        out_row_stride,
-        hidden.nd_view(),
-        hidden_weight,
-        1., /* alpha */
-        1., /* beta */
-    );
+    matmul(output.view_mut(), input.nd_view(), input_weight);
+    add_matmul(output.view_mut(), hidden.nd_view(), hidden_weight);
 
     let sigmoid_op = Sigmoid {};
     let tanh_op = Tanh {};
@@ -101,6 +166,283 @@ fn update_lstm_gate(
             *el = apply_act(*el);
         }
     }
+}
+
+/// Extract a gate weight matrix from a tensor. The tensor has dims
+/// `[direction, num_gates * hidden_size, x]`. The result has shape
+/// `[x, hidden_size]`.
+fn extract_matrix(tensor: &Tensor, dir: usize, num_gates: usize, gate_index: usize) -> Matrix {
+    let hidden_total = tensor.shape()[1];
+    assert!(hidden_total % num_gates == 0);
+    let hidden_size = hidden_total / num_gates;
+    tensor
+        .slice((
+            dir,
+            (gate_index * hidden_size..(gate_index + 1) * hidden_size),
+        ))
+        .to_nd_view()
+}
+
+/// Extract weights and biases for a specific RNN gate/output from a tensor that
+/// contains concatenated weights/biases for different gates.
+///
+/// `weights` has shape `[num_directions, num_gates * hidden_size, input_size]`
+/// `recurrent_weights` has shape `[num_directions, num_gates * hidden_size, hidden_size]`
+/// `bias` has shape `[num_directions, 2 * num_gates * hidden_size]`.
+///
+/// Returns `(gate_weights, hidden_weights, bias)` where `gate_weights` has
+/// shape `[input_size, hidden_size]`, `hidden_weights` has shape `[hidden_size,
+/// hidden_size]` and each element of `bias` has size `hidden_size`.
+///
+#[allow(clippy::type_complexity)] // Ignore warning about return type
+fn extract_weights_and_bias<'a>(
+    weights: &'a Tensor,
+    recurrent_weights: &'a Tensor,
+    bias: Option<&'a std::borrow::Cow<'a, Tensor>>,
+    dir: usize,
+    num_gates: usize,
+    gate_index: usize,
+) -> (Matrix<'a>, Matrix<'a>, Option<(&'a [f32], &'a [f32])>) {
+    let hidden_size = weights.shape()[1] / num_gates;
+    let weight = extract_matrix(weights, dir, num_gates, gate_index).transposed();
+    let rec_weight = extract_matrix(recurrent_weights, dir, num_gates, gate_index).transposed();
+    let bias = bias.map(|bias| {
+        let nth_gate = |gate_index| (gate_index * hidden_size)..((gate_index + 1) * hidden_size);
+
+        let input_bias = bias.slice((dir, nth_gate(gate_index))).to_data();
+        let hidden_bias = bias
+            .slice((dir, nth_gate(gate_index + num_gates)))
+            .to_data();
+
+        (input_bias, hidden_bias)
+    });
+    (weight, rec_weight, bias)
+}
+
+/// Gated Recurrent Unit operator.
+#[derive(Debug)]
+pub struct GRU {
+    pub direction: Direction,
+    pub hidden_size: usize,
+
+    /// When computing the output of the hidden gate, apply the linear
+    /// transformation before multiplying by the output of the reset gate.
+    pub linear_before_reset: bool,
+}
+
+/// Compute the output for a single GRU layer.
+///
+/// `input` has shape [sequence_length, batch, input_size].
+///
+/// `weights` has shape `[directions, 3 * hidden_size, input_size]`. The middle
+/// dimension is a concatenation of weights for the update, reset and hidden
+/// gates.
+///
+/// `recurrent_weights` has shape `[directions, 3 * hidden_size, hidden_size]`.
+/// The middle dimension is a concatenation of weights for the update, reset and
+/// hidden gates.
+///
+/// `bias` has shape `[directions, 6 * hidden_size]`. The last dimension is a
+/// concatenation of input biases for the update, reset and hidden gates
+/// followed by hidden biases for the same gates.
+///
+/// `initial_hidden` has shape `[directions, batch, hidden_size]`.
+pub fn gru(
+    direction: Direction,
+    input: &Tensor,
+    weights: &Tensor,
+    recurrent_weights: &Tensor,
+    bias: Option<&Tensor>,
+    initial_hidden: Option<&Tensor>,
+    linear_before_reset: bool,
+) -> Result<Vec<Tensor>, OpError> {
+    let [seq_len, batch, _input_size] = check_dims!(input, 3, "seq, batch, input");
+    let [_directions, hidden_x3, _input_size] = check_dims!(weights, 3, "dir, hidden x 3, input");
+    check_dims!(recurrent_weights, 3);
+    check_dims!(initial_hidden?, 3);
+
+    let num_directions = direction.num_directions();
+    let hidden_size = hidden_x3 / 3;
+
+    let mut hidden = initial_hidden
+        .cloned()
+        .unwrap_or_else(|| Tensor::zeros(&[num_directions, batch, hidden_size]));
+    let mut hidden_seq = Tensor::zeros(&[seq_len, num_directions, batch, hidden_size]);
+    let new_gate = || Tensor::zeros(&[batch, hidden_size]);
+
+    let mut update_gate = new_gate();
+    let mut reset_gate = new_gate();
+    let mut hidden_gate = new_gate();
+
+    // `extract_weights_and_bias` requires a contiguous tensor.
+    let bias = bias.map(|t| t.as_contiguous());
+
+    let extract_gru_weights_and_bias = |dir, gate_index| {
+        extract_weights_and_bias(
+            weights,
+            recurrent_weights,
+            bias.as_ref(),
+            dir,
+            3,
+            gate_index,
+        )
+    };
+
+    // Indices of gates in the concatenated weight and bias tensors.
+    const UPDATE_GATE: usize = 0;
+    const RESET_GATE: usize = 1;
+    const HIDDEN_GATE: usize = 2;
+
+    // Scratch buffer for computing new hidden state.
+    let mut hidden_tmp = new_gate();
+
+    for dir in 0..num_directions {
+        let (weight_update, rec_weight_update, bias_update) =
+            extract_gru_weights_and_bias(dir, UPDATE_GATE);
+        let (weight_reset, rec_weight_reset, bias_reset) =
+            extract_gru_weights_and_bias(dir, RESET_GATE);
+        let (weight_hidden, rec_weight_hidden, bias_hidden) =
+            extract_gru_weights_and_bias(dir, HIDDEN_GATE);
+
+        for seq in sequence_for_dir(direction, dir, seq_len) {
+            let in_item = input.slice([seq]);
+            let hidden_item = hidden.slice([dir]);
+
+            // From the ONNX spec, the intermediate values are computed as:
+            //
+            //   zt = f(Xt*(Wz^T) + Ht-1*(Rz^T) + Wbz + Rbz)
+            //   rt = f(Xt*(Wr^T) + Ht-1*(Rr^T) + Wbr + Rbr)
+            //
+            //   If `linear_before_reset` is false:
+            //     ht = tanh(dot(input, hidden_w) + reset * (dot(hidden, rec_hidden_w) + rec_hidden_bias) + hidden_bias)
+            //   Else:
+            //     ht = tanh(dot(input, hidden_w) + dot((reset * hidden), rec_hidden_w) + rec_hidden_bias + hidden_bias)
+            //
+            //   Ht = (1 - zt) (.) ht + zt (.) (Ht-1)
+            //
+            // Where:
+            //
+            //  - `zt`, `rt` and `ht` are the update, reset and hidden gates
+            //  - `Xt`, `Ht` are the input and hidden states at time `t`
+            //  - `W{z,r,h}` and `R{z,r,h}` are the input and recurrent weights
+            //  - `Wb{z,r,h}` and `Rb{z,r,h}` are the input and recurrent biases
+            //  - `f` and `g` are activations. f=sigmoid, g=tanh
+
+            // Compute update gate.
+            compute_rnn_gate(
+                update_gate.view_mut(),
+                Activation::Sigmoid,
+                &in_item,
+                weight_update,
+                &hidden_item,
+                rec_weight_update,
+                bias_update,
+            );
+
+            // Compute reset gate.
+            compute_rnn_gate(
+                reset_gate.view_mut(),
+                Activation::Sigmoid,
+                &in_item,
+                weight_reset,
+                &hidden_item,
+                rec_weight_reset,
+                bias_reset,
+            );
+
+            // Compute hidden gate.
+            matmul(hidden_gate.view_mut(), in_item.nd_view(), weight_hidden);
+            if linear_before_reset {
+                matmul(
+                    hidden_tmp.view_mut(),
+                    hidden_item.nd_view(),
+                    rec_weight_hidden,
+                );
+
+                // Compute `hidden_gate = tanh(hidden_gate + hidden_bias + reset * (dot(update_tmp) + rec_hidden_bias))`
+                if let Some((hidden_bias, rec_hidden_bias)) = bias_hidden {
+                    for (hidden_gate, update_tmp, reset, rec_hidden_bias, hidden_bias) in zip5(
+                        hidden_gate.iter_mut(),
+                        hidden_tmp.iter(),
+                        reset_gate.iter(),
+                        // Cycle to repeat for each item in batch.
+                        rec_hidden_bias.iter().cycle(),
+                        hidden_bias.iter().cycle(),
+                    ) {
+                        let update = reset * (update_tmp + rec_hidden_bias);
+                        *hidden_gate = (*hidden_gate + update + hidden_bias).tanh();
+                    }
+                } else {
+                    for (hidden_gate, update_tmp, reset) in
+                        zip3(hidden_gate.iter_mut(), hidden_tmp.iter(), reset_gate.iter())
+                    {
+                        let update = reset * update_tmp;
+                        *hidden_gate = (*hidden_gate + update).tanh();
+                    }
+                }
+            } else {
+                // TODO - Support alternate GRU variant where hidden gate is
+                // computed as:
+                //
+                //   `hidden_gate = tanh(dot(input, hidden_w) + dot((reset * hidden), rec_hidden_w) + rec_hidden_bias + hidden_bias)
+                //
+                // Note that cuDNN and PyTorch use the semantics of
+                // `linear_before_reset = true`.
+                unimplemented!("`linear_before_reset == false` is not supported");
+            }
+
+            // Compute next hidden state
+            let mut hidden_item = hidden.slice_mut([dir]);
+            for (hidden, update, hidden_gate) in zip3(
+                hidden_item.iter_mut(),
+                update_gate.iter(),
+                hidden_gate.iter(),
+            ) {
+                *hidden = (1. - update) * hidden_gate + update * (*hidden);
+            }
+
+            // Copy last hidden state to output sequence.
+            let mut hidden_seq_item = hidden_seq.slice_mut([seq, dir]);
+            for (seq, hidden) in zip(hidden_seq_item.iter_mut(), hidden_item.iter()) {
+                *seq = hidden;
+            }
+        }
+    }
+
+    Ok([hidden_seq, hidden].into())
+}
+
+impl Operator for GRU {
+    fn name(&self) -> &str {
+        "GRU"
+    }
+
+    fn run(&self, inputs: InputList) -> Result<Vec<Output>, OpError> {
+        let input = inputs.require_as(0)?;
+        let weights = inputs.require_as(1)?;
+        let recurrent_weights = inputs.require_as(2)?;
+        let bias = inputs.get_as(3)?;
+        let _seq_len = inputs.get_as::<i32>(4)?;
+        let initial_hidden = inputs.get_as(5)?;
+
+        gru(
+            self.direction,
+            input,
+            weights,
+            recurrent_weights,
+            bias,
+            initial_hidden,
+            self.linear_before_reset,
+        )
+        .into_op_result()
+    }
+}
+
+/// Long Short-Term Memory operator.
+#[derive(Debug)]
+pub struct LSTM {
+    pub direction: Direction,
+    pub hidden_size: usize,
 }
 
 /// Compute the output for a single LSTM layer.
@@ -156,44 +498,17 @@ pub fn lstm(
     let input = input.as_contiguous();
     let bias = bias.map(|t| t.as_contiguous());
 
-    // Extract an LSTM gate weight matrix from a tensor. The tensor has dims
-    // [direction, 4 * hidden_size, *].
-    fn extract_matrix(tensor: &Tensor, dir: usize, index: usize) -> Matrix {
-        let num_gates = 4;
-        let hidden_total = tensor.shape()[1];
-        assert!(hidden_total % num_gates == 0);
-        let hidden_size = hidden_total / num_gates;
-
-        tensor
-            .slice((dir, (index * hidden_size..(index + 1) * hidden_size)))
-            .to_nd_view()
-    }
-
-    // Specifies which gate's weight or bias to extract.
+    // Indices of gates in the concatenated weight and bias tensors.
     const INPUT_GATE: usize = 0;
     const OUTPUT_GATE: usize = 1;
     const FORGET_GATE: usize = 2;
     const CELL_GATE: usize = 3;
 
-    let extract_weights_and_bias = |dir, gate_index| {
-        let weight = extract_matrix(weights, dir, gate_index).transposed();
-        let rec_weight = extract_matrix(recurrent_weights, dir, gate_index).transposed();
-        let bias = bias.as_ref().map(|bias| {
-            let nth_gate =
-                |gate_index| (gate_index * hidden_size)..((gate_index + 1) * hidden_size);
-
-            let input_bias = bias.slice((dir, nth_gate(gate_index))).to_data();
-            let hidden_bias = bias.slice((dir, nth_gate(gate_index + 4))).to_data();
-
-            (input_bias, hidden_bias)
-        });
-        (weight, rec_weight, bias)
-    };
-
-    let mut input_gate = Tensor::zeros(&[batch, hidden_size]);
-    let mut out_gate = Tensor::zeros(&[batch, hidden_size]);
-    let mut forget_gate = Tensor::zeros(&[batch, hidden_size]);
-    let mut cell_gate = Tensor::zeros(&[batch, hidden_size]);
+    let new_gate = || Tensor::zeros(&[batch, hidden_size]);
+    let mut input_gate = new_gate();
+    let mut out_gate = new_gate();
+    let mut forget_gate = new_gate();
+    let mut cell_gate = new_gate();
 
     let mut cell = initial_cell
         .cloned()
@@ -204,28 +519,28 @@ pub fn lstm(
 
     let mut hidden_seq = Tensor::<f32>::zeros(&[seq_len, num_directions, batch, hidden_size]);
 
+    let extract_lstm_weights_and_bias = |dir, gate_index| {
+        extract_weights_and_bias(
+            weights,
+            recurrent_weights,
+            bias.as_ref(),
+            dir,
+            4,
+            gate_index,
+        )
+    };
+
     for dir in 0..num_directions {
         let (weight_input, rec_weight_input, bias_input) =
-            extract_weights_and_bias(dir, INPUT_GATE);
-        let (weight_out, rec_weight_out, bias_out) = extract_weights_and_bias(dir, OUTPUT_GATE);
+            extract_lstm_weights_and_bias(dir, INPUT_GATE);
+        let (weight_out, rec_weight_out, bias_out) =
+            extract_lstm_weights_and_bias(dir, OUTPUT_GATE);
         let (weight_forget, rec_weight_forget, bias_forget) =
-            extract_weights_and_bias(dir, FORGET_GATE);
-        let (weight_cell, rec_weight_cell, bias_cell) = extract_weights_and_bias(dir, CELL_GATE);
+            extract_lstm_weights_and_bias(dir, FORGET_GATE);
+        let (weight_cell, rec_weight_cell, bias_cell) =
+            extract_lstm_weights_and_bias(dir, CELL_GATE);
 
-        let reversed = matches!(
-            (dir, direction),
-            (0, Direction::Reverse) | (1, Direction::Bidirectional)
-        );
-
-        let mut forward_seq = 0..seq_len;
-        let mut rev_seq = (0..seq_len).rev();
-        let seq_iter: &mut dyn Iterator<Item = _> = if reversed {
-            &mut rev_seq
-        } else {
-            &mut forward_seq
-        };
-
-        for seq in seq_iter {
+        for seq in sequence_for_dir(direction, dir, seq_len) {
             // From the ONNX spec, the intermediate values are computed as:
             //
             // - it = f(Xt*(Wi^T) + Ht-1*(Ri^T) + Pi (.) Ct-1 + Wbi + Rbi)
@@ -239,22 +554,18 @@ pub fn lstm(
             //
             //  - `it`, `ft`, `ct` and `ot` are the input, forget, cell and output gates
             //  - `Xt`, `Ht` and `Ct` are the input, hidden state and cell state at time `t`
-            //  - `f`, `g` and `h` are activation functions. `f`=sigmoid, `g` and `h`
-            //    are tanh.
-            //
-            //  - `W{i,o,f,c}` are the gate weights
-            //  - `Wb{i,o,f,c}` are the gate biases
-            //  - `R{i,o,f,c}` are the hidden/recurrent gate weights
-            //  - `Rb{i,o,f,c}` are the hidden/recurrent gate biases
-            //
+            //  - `W{i,o,f,c}` and `R{i,o,f,c}` are the input and recurrent gate weights
+            //  - `Wb{i,o,f,c}` and `Rb{i,o,f,c}` are the input and recurrent gate biases
             //  - `P{i,o,f,c}` are peephole weights. These are not currently
             //    supported.
+            //  - `f`, `g` and `h` are activations. `f`=sigmoid, `g` and `h`
+            //    are tanh.
 
             let in_item = input.slice([seq]);
             let hidden_item = hidden.slice([dir]);
 
             // Compute outputs for input, forget, cell and output gates.
-            update_lstm_gate(
+            compute_rnn_gate(
                 input_gate.view_mut(),
                 Activation::Sigmoid,
                 &in_item,
@@ -264,7 +575,7 @@ pub fn lstm(
                 bias_input,
             );
 
-            update_lstm_gate(
+            compute_rnn_gate(
                 forget_gate.view_mut(),
                 Activation::Sigmoid,
                 &in_item,
@@ -274,7 +585,7 @@ pub fn lstm(
                 bias_forget,
             );
 
-            update_lstm_gate(
+            compute_rnn_gate(
                 cell_gate.view_mut(),
                 Activation::Tanh,
                 &in_item,
@@ -284,7 +595,7 @@ pub fn lstm(
                 bias_cell,
             );
 
-            update_lstm_gate(
+            compute_rnn_gate(
                 out_gate.view_mut(),
                 Activation::Sigmoid,
                 &in_item,
@@ -297,19 +608,20 @@ pub fn lstm(
             // Compute new values of cell and hidden state
             let mut cell_item = cell.slice_mut([dir]);
 
-            for (cell, (forget_gate, (input_gate, cell_gate))) in zip(
+            for (cell, forget_gate, input_gate, cell_gate) in zip4(
                 cell_item.iter_mut(),
-                zip(forget_gate.iter(), zip(input_gate.iter(), cell_gate.iter())),
+                forget_gate.iter(),
+                input_gate.iter(),
+                cell_gate.iter(),
             ) {
                 *cell = forget_gate * *cell + input_gate * cell_gate;
             }
 
             let mut hidden_item = hidden.slice_mut([dir]);
             let tanh_op = Tanh {};
-            for (hidden, (out_gate, cell)) in zip(
-                hidden_item.iter_mut(),
-                zip(out_gate.iter(), cell_item.iter()),
-            ) {
+            for (hidden, out_gate, cell) in
+                zip3(hidden_item.iter_mut(), out_gate.iter(), cell_item.iter())
+            {
                 *hidden = out_gate * tanh_op.map_element(cell)
             }
 
@@ -355,16 +667,22 @@ impl Operator for LSTM {
 mod tests {
     use serde_json::Value;
 
-    use crate::ops::{concat, lstm, split, Direction};
+    use crate::ops::{concat, gru, lstm, split, Direction};
     use crate::rng::XorShiftRng;
     use crate::tensor::{rand, Tensor, TensorLayout};
     use crate::test_util::{expect_equal, read_json_file, read_tensor};
 
-    // Basic test that runs a bidirectional LSTM with random inputs and checks
-    // that the operator doesn't crash, produces outputs of the right shape
-    // and that the last hidden / hidden seq outputs are consistent.
+    #[derive(Clone, Copy, PartialEq)]
+    enum Op {
+        Gru,
+        Lstm,
+    }
+
+    // Basic test that runs bidirectional RNN operators with random inputs and
+    // checks that the operator doesn't crash, produces outputs of the right
+    // shape and that the last hidden / hidden seq outputs are consistent.
     #[test]
-    fn test_lstm_with_random_input() {
+    fn test_rnn_ops_with_random_input() {
         let mut rng = XorShiftRng::new(1234);
         let batch = 2;
         let seq_len = 5;
@@ -372,19 +690,9 @@ mod tests {
 
         let hidden_size = 3;
         let features = 2;
-        let input = rand(&[seq_len, batch, features], &mut rng).map(|x| x - 0.5);
-        let weights =
-            rand(&[dir.num_directions(), 4 * hidden_size, features], &mut rng).map(|x| x - 0.5);
-        let recurrent_weights = rand(
-            &[dir.num_directions(), 4 * hidden_size, hidden_size],
-            &mut rng,
-        )
-        .map(|x| x - 0.5);
-        let bias = rand(&[dir.num_directions(), 8 * hidden_size], &mut rng);
-        let initial_hidden = rand(&[dir.num_directions(), batch, hidden_size], &mut rng);
-        let initial_cell = rand(&[dir.num_directions(), batch, hidden_size], &mut rng);
 
         struct Case {
+            op: Op,
             with_bias: bool,
             with_hidden_init: bool,
             with_initial_cell: bool,
@@ -392,11 +700,25 @@ mod tests {
 
         let cases = [
             Case {
+                op: Op::Lstm,
                 with_bias: true,
                 with_hidden_init: true,
                 with_initial_cell: true,
             },
             Case {
+                op: Op::Lstm,
+                with_bias: false,
+                with_hidden_init: false,
+                with_initial_cell: false,
+            },
+            Case {
+                op: Op::Gru,
+                with_bias: true,
+                with_hidden_init: true,
+                with_initial_cell: false,
+            },
+            Case {
+                op: Op::Gru,
                 with_bias: false,
                 with_hidden_init: false,
                 with_initial_cell: false,
@@ -404,19 +726,60 @@ mod tests {
         ];
 
         for case in cases {
-            let result = lstm(
-                dir,
-                &input,
-                &weights,
-                &recurrent_weights,
-                case.with_bias.then_some(&bias),
-                case.with_hidden_init.then_some(&initial_hidden),
-                case.with_initial_cell.then_some(&initial_cell),
+            let num_gates = match case.op {
+                Op::Gru => 3,
+                Op::Lstm => 4,
+            };
+
+            let input = rand(&[seq_len, batch, features], &mut rng).map(|x| x - 0.5);
+            let weights = rand(
+                &[dir.num_directions(), num_gates * hidden_size, features],
+                &mut rng,
             )
-            .expect("lstm op failed");
+            .map(|x| x - 0.5);
+            let recurrent_weights = rand(
+                &[dir.num_directions(), num_gates * hidden_size, hidden_size],
+                &mut rng,
+            )
+            .map(|x| x - 0.5);
+            let bias = rand(
+                &[dir.num_directions(), 2 * num_gates * hidden_size],
+                &mut rng,
+            );
+            let initial_hidden = rand(&[dir.num_directions(), batch, hidden_size], &mut rng);
+            let initial_cell = rand(&[dir.num_directions(), batch, hidden_size], &mut rng);
+
+            let result = match case.op {
+                Op::Lstm => lstm(
+                    dir,
+                    &input,
+                    &weights,
+                    &recurrent_weights,
+                    case.with_bias.then_some(&bias),
+                    case.with_hidden_init.then_some(&initial_hidden),
+                    case.with_initial_cell.then_some(&initial_cell),
+                )
+                .expect("lstm op failed"),
+                Op::Gru => gru(
+                    dir,
+                    &input,
+                    &weights,
+                    &recurrent_weights,
+                    case.with_bias.then_some(&bias),
+                    case.with_hidden_init.then_some(&initial_hidden),
+                    true, /* linear_before_reset */
+                )
+                .expect("gru op failed"),
+            };
 
             // Check that outputs have the right shapes.
-            assert_eq!(result.len(), 3);
+            assert_eq!(
+                result.len(),
+                match case.op {
+                    Op::Gru => 2,
+                    Op::Lstm => 3,
+                }
+            );
             let hidden_seq = &result[0];
             assert_eq!(
                 hidden_seq.shape(),
@@ -429,11 +792,13 @@ mod tests {
                 &[dir.num_directions(), batch, hidden_size]
             );
 
-            let last_cell = &result[2];
-            assert_eq!(
-                last_cell.shape(),
-                &[dir.num_directions(), batch, hidden_size]
-            );
+            if case.op == Op::Lstm {
+                let last_cell = &result[2];
+                assert_eq!(
+                    last_cell.shape(),
+                    &[dir.num_directions(), batch, hidden_size]
+                );
+            }
 
             // The last hidden state should match the end of the hidden sequence
             // for the forwards direction, and the start of the hidden sequence
@@ -485,31 +850,46 @@ mod tests {
         concat(&[&ifco[0], &ifco[3], &ifco[1], &ifco[2]], dim).expect("concat failed")
     }
 
-    struct LSTMRefTest {
+    /// Re-order a weight or bias tensor for GRU gates from (reset, update,
+    /// hidden) as used by PyTorch to (update, reset, hidden) as used by ONNX.
+    fn reorder_ruh_to_urh(x: &Tensor, dim: usize) -> Tensor {
+        let size = x.shape()[dim] / 3;
+        let splits = Tensor::from_vec(vec![size as i32; 3]);
+
+        // Split input into seperate tensor for each of the gates.
+        let ruh = split(x, dim as isize, &splits).expect("split failed");
+
+        // Recombine in a new gate order.
+        concat(&[&ruh[1], &ruh[0], &ruh[2]], dim).expect("concat failed")
+    }
+
+    struct RNNRefTest {
         /// Input as [seq, batch, feature]
         input: Tensor,
 
         /// Expected output as [seq, direction, batch, hidden]
         expected: Tensor,
 
-        /// Input-hidden weights as [direction, 4 * hidden, feature]
+        /// Input-hidden weights as [direction, num_gates * hidden, feature]
         weights: Tensor,
 
-        /// Hidden-hidden weights as [direction, 4 * hidden, 4 * hidden]
+        /// Hidden-hidden weights as [direction, num_gates * hidden, num_gates * hidden]
         hidden_weights: Tensor,
 
-        /// Bias as [direction, 8 * hidden]
+        /// Bias as [direction, 2 * num_gates * hidden]
         bias: Option<Tensor>,
 
         /// Initial value of the hidden state as [direction, batch, hidden]
         initial_hidden: Option<Tensor>,
 
-        /// Initial value of the cell state as [direction, batch, hidden]
+        /// Initial value of the cell state as [direction, batch, hidden].
+        ///
+        /// Only applicable for LSTM operator.
         initial_cell: Option<Tensor>,
     }
 
-    /// Read inputs for a PyTorch reference test for LSTM ops from a JSON value.
-    fn read_pytorch_ref_test(case: &Value) -> LSTMRefTest {
+    /// Read inputs for a PyTorch reference test for RNN ops from a JSON value.
+    fn read_pytorch_ref_test(op: Op, case: &Value) -> RNNRefTest {
         let params = &case["params"];
 
         let is_bidirectional = params.get("weight_ih_l0_reverse").is_some();
@@ -528,11 +908,15 @@ mod tests {
         }
         expected.insert_dim(2); // Add batch dim
 
-        let read_param = |name| {
-            reorder_ifco_to_iofc(
+        let read_param = |name| match op {
+            Op::Lstm => reorder_ifco_to_iofc(
                 &read_tensor(&params[name]).expect("failed to read weight"),
                 0,
-            )
+            ),
+            Op::Gru => reorder_ruh_to_urh(
+                &read_tensor(&params[name]).expect("failed to read weight"),
+                0,
+            ),
         };
 
         let mut weights = read_param("weight_ih_l0");
@@ -546,7 +930,7 @@ mod tests {
         let mut bias = concat(&[&input_bias, &hidden_bias], 0).unwrap();
         bias.insert_dim(0); // Add directions dim
 
-        // If this is a bidirectional LSTM, there will be `_reverse`-suffixed
+        // If this is a bidirectional RNN, there will be `_reverse`-suffixed
         // versions of the bias and weight params. Extract these and concatenate
         // with the forwards direction values.
         if is_bidirectional {
@@ -577,7 +961,7 @@ mod tests {
             init
         });
 
-        LSTMRefTest {
+        RNNRefTest {
             input,
             weights,
             hidden_weights,
@@ -589,8 +973,8 @@ mod tests {
     }
 
     #[test]
-    fn test_lstm_pytorch() -> Result<(), String> {
-        let dict = read_json_file("pytorch-ref-tests/lstm.json");
+    fn test_rnn_pytorch() -> Result<(), String> {
+        let dict = read_json_file("pytorch-ref-tests/rnn.json");
 
         struct Case {
             name: &'static str,
@@ -610,20 +994,49 @@ mod tests {
                 name: "lstm_bidirectional",
                 dir: Direction::Bidirectional,
             },
+            Case {
+                name: "gru_forwards",
+                dir: Direction::Forwards,
+            },
+            Case {
+                name: "gru_initial",
+                dir: Direction::Forwards,
+            },
+            Case {
+                name: "gru_bidirectional",
+                dir: Direction::Bidirectional,
+            },
         ];
 
         for case in cases {
-            let data = read_pytorch_ref_test(&dict[case.name]);
-            let result = lstm(
-                case.dir,
-                &data.input,
-                &data.weights,
-                &data.hidden_weights,
-                data.bias.as_ref(),
-                data.initial_hidden.as_ref(),
-                data.initial_cell.as_ref(),
-            )
-            .expect("LSTM op failed");
+            let op = if case.name.starts_with("lstm") {
+                Op::Lstm
+            } else {
+                Op::Gru
+            };
+            let data = read_pytorch_ref_test(op, &dict[case.name]);
+            let result = match op {
+                Op::Lstm => lstm(
+                    case.dir,
+                    &data.input,
+                    &data.weights,
+                    &data.hidden_weights,
+                    data.bias.as_ref(),
+                    data.initial_hidden.as_ref(),
+                    data.initial_cell.as_ref(),
+                )
+                .expect("LSTM op failed"),
+                Op::Gru => gru(
+                    case.dir,
+                    &data.input,
+                    &data.weights,
+                    &data.hidden_weights,
+                    data.bias.as_ref(),
+                    data.initial_hidden.as_ref(),
+                    true, /* linear_before_reset */
+                )
+                .expect("GRU op failed"),
+            };
             let output = &result[0];
 
             expect_equal(&output, &data.expected)?;

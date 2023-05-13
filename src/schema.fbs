@@ -29,6 +29,7 @@ enum OperatorType: byte {
   Gemm,
   GlobalAveragePool,
   Greater,
+  GRU,
   Identity,
   LeakyRelu,
   Less,
@@ -61,7 +62,7 @@ enum OperatorType: byte {
   Where
 }
 
-enum LSTMDirection: byte {
+enum RNNDirection: byte {
   Forwards,
   Reverse,
   Bidirectional
@@ -109,6 +110,7 @@ union OperatorAttrs {
   FlattenAttrs,
   GatherAttrs,
   GemmAttrs,
+  GRUAttrs,
   LeakyReluAttrs,
   LSTMAttrs,
   MaxPoolAttrs,
@@ -193,12 +195,18 @@ table GemmAttrs {
   transpose_b:bool;
 }
 
+table GRUAttrs {
+  direction:RNNDirection;
+  hidden_size:uint;
+  linear_before_reset:bool;
+}
+
 table LeakyReluAttrs {
   alpha:float;
 }
 
 table LSTMAttrs {
-  direction:LSTMDirection;
+  direction:RNNDirection;
   hidden_size:uint;
 }
 

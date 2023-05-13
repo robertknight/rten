@@ -48,7 +48,7 @@ pub use reduce::{
     arg_max, arg_min, cum_sum, reduce_l2, reduce_mean, ArgMax, ArgMin, CumSum, ReduceL2, ReduceMean,
 };
 pub use resize::{resize, CoordTransformMode, NearestMode, Resize, ResizeMode, ResizeTarget};
-pub use rnn::{lstm, Direction, LSTM};
+pub use rnn::{gru, lstm, Direction, GRU, LSTM};
 pub use slice::{slice, slice_in_place, Slice};
 pub use split::{split, Split};
 pub use unary_elementwise::{

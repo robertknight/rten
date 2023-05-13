@@ -83,7 +83,7 @@ class ValueNode(Node):
     export time) sizes.
     """
 
-    def __init__(self, name: str, shape: list[int|str] | None):
+    def __init__(self, name: str, shape: list[int | str] | None):
         super().__init__(name)
 
         self.shape = shape
@@ -596,6 +596,16 @@ def op_node_from_onnx_operator(
             attrs.transposeA = bool(op_reader.get_attr("transA", "int", 0))
             attrs.transposeB = bool(op_reader.get_attr("transB", "int", 0))
 
+        case "GRU":
+            attrs = sg.GRUAttrsT()
+            attrs.direction = op_reader.get_enum_attr(
+                "direction", sg.RNNDirection, "forward"
+            )
+            attrs.hiddenSize = op_reader.require_attr("hidden_size", "int")
+            attrs.linearBeforeReset = bool(
+                op_reader.get_attr("linear_before_reset", "int", 0)
+            )
+
         case "LeakyRelu":
             attrs = sg.LeakyReluAttrsT()
             attrs.alpha = op_reader.get_attr("alpha", "float", 0.01)
@@ -603,7 +613,7 @@ def op_node_from_onnx_operator(
         case "LSTM":
             attrs = sg.LSTMAttrsT()
             attrs.direction = op_reader.get_enum_attr(
-                "direction", sg.LSTMDirection, "forward"
+                "direction", sg.RNNDirection, "forward"
             )
             attrs.hiddenSize = op_reader.require_attr("hidden_size", "int")
 
@@ -874,7 +884,7 @@ def build_value_node(builder: flatbuffers.Builder, value: ValueNode):
     Serialize a placeholder for an input/output value into a FlatBuffers model.
     """
 
-    def write_dim(builder, dim: str|int) -> int:
+    def write_dim(builder, dim: str | int) -> int:
         if isinstance(dim, str):
             name = builder.CreateString(dim)
             sg.DimStart(builder)

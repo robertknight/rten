@@ -29,39 +29,40 @@ class OperatorType(object):
     Gemm = 19
     GlobalAveragePool = 20
     Greater = 21
-    Identity = 22
-    LeakyRelu = 23
-    Less = 24
-    LessOrEqual = 25
-    Log = 26
-    LSTM = 27
-    MatMul = 28
-    MaxPool = 29
-    Mul = 30
-    Pad = 31
-    Pow = 32
-    Range = 33
-    ReduceMean = 34
-    ReduceL2 = 35
-    Relu = 36
-    Reshape = 37
-    Resize = 38
-    Shape = 39
-    Sigmoid = 40
-    Sin = 41
-    Slice = 42
-    Split = 43
-    Sqrt = 44
-    Squeeze = 45
-    Softmax = 46
-    Sub = 47
-    Tanh = 48
-    Transpose = 49
-    Unsqueeze = 50
-    Where = 51
+    GRU = 22
+    Identity = 23
+    LeakyRelu = 24
+    Less = 25
+    LessOrEqual = 26
+    Log = 27
+    LSTM = 28
+    MatMul = 29
+    MaxPool = 30
+    Mul = 31
+    Pad = 32
+    Pow = 33
+    Range = 34
+    ReduceMean = 35
+    ReduceL2 = 36
+    Relu = 37
+    Reshape = 38
+    Resize = 39
+    Shape = 40
+    Sigmoid = 41
+    Sin = 42
+    Slice = 43
+    Split = 44
+    Sqrt = 45
+    Squeeze = 46
+    Softmax = 47
+    Sub = 48
+    Tanh = 49
+    Transpose = 50
+    Unsqueeze = 51
+    Where = 52
 
 
-class LSTMDirection(object):
+class RNNDirection(object):
     Forwards = 0
     Reverse = 1
     Bidirectional = 2
@@ -107,15 +108,16 @@ class OperatorAttrs(object):
     FlattenAttrs = 9
     GatherAttrs = 10
     GemmAttrs = 11
-    LeakyReluAttrs = 12
-    LSTMAttrs = 13
-    MaxPoolAttrs = 14
-    ReduceMeanAttrs = 15
-    ReshapeAttrs = 16
-    ResizeAttrs = 17
-    SplitAttrs = 18
-    SoftmaxAttrs = 19
-    TransposeAttrs = 20
+    GRUAttrs = 12
+    LeakyReluAttrs = 13
+    LSTMAttrs = 14
+    MaxPoolAttrs = 15
+    ReduceMeanAttrs = 16
+    ReshapeAttrs = 17
+    ResizeAttrs = 18
+    SplitAttrs = 19
+    SoftmaxAttrs = 20
+    TransposeAttrs = 21
 
 def OperatorAttrsCreator(unionType, table):
     from flatbuffers.table import Table
@@ -143,6 +145,8 @@ def OperatorAttrsCreator(unionType, table):
         return GatherAttrsT.InitFromBuf(table.Bytes, table.Pos)
     if unionType == OperatorAttrs().GemmAttrs:
         return GemmAttrsT.InitFromBuf(table.Bytes, table.Pos)
+    if unionType == OperatorAttrs().GRUAttrs:
+        return GRUAttrsT.InitFromBuf(table.Bytes, table.Pos)
     if unionType == OperatorAttrs().LeakyReluAttrs:
         return LeakyReluAttrsT.InitFromBuf(table.Bytes, table.Pos)
     if unionType == OperatorAttrs().LSTMAttrs:
@@ -1497,6 +1501,99 @@ class GemmAttrsT(object):
         return gemmAttrs
 
 
+class GRUAttrs(object):
+    __slots__ = ['_tab']
+
+    @classmethod
+    def GetRootAs(cls, buf, offset=0):
+        n = flatbuffers.encode.Get(flatbuffers.packer.uoffset, buf, offset)
+        x = GRUAttrs()
+        x.Init(buf, n + offset)
+        return x
+
+    @classmethod
+    def GetRootAsGRUAttrs(cls, buf, offset=0):
+        """This method is deprecated. Please switch to GetRootAs."""
+        return cls.GetRootAs(buf, offset)
+    @classmethod
+    def GRUAttrsBufferHasIdentifier(cls, buf, offset, size_prefixed=False):
+        return flatbuffers.util.BufferHasIdentifier(buf, offset, b"\x4D\x4F\x44\x4C", size_prefixed=size_prefixed)
+
+    # GRUAttrs
+    def Init(self, buf, pos):
+        self._tab = flatbuffers.table.Table(buf, pos)
+
+    # GRUAttrs
+    def Direction(self):
+        o = flatbuffers.number_types.UOffsetTFlags.py_type(self._tab.Offset(4))
+        if o != 0:
+            return self._tab.Get(flatbuffers.number_types.Int8Flags, o + self._tab.Pos)
+        return 0
+
+    # GRUAttrs
+    def HiddenSize(self):
+        o = flatbuffers.number_types.UOffsetTFlags.py_type(self._tab.Offset(6))
+        if o != 0:
+            return self._tab.Get(flatbuffers.number_types.Uint32Flags, o + self._tab.Pos)
+        return 0
+
+    # GRUAttrs
+    def LinearBeforeReset(self):
+        o = flatbuffers.number_types.UOffsetTFlags.py_type(self._tab.Offset(8))
+        if o != 0:
+            return bool(self._tab.Get(flatbuffers.number_types.BoolFlags, o + self._tab.Pos))
+        return False
+
+def GRUAttrsStart(builder): builder.StartObject(3)
+def GRUAttrsAddDirection(builder, direction): builder.PrependInt8Slot(0, direction, 0)
+def GRUAttrsAddHiddenSize(builder, hiddenSize): builder.PrependUint32Slot(1, hiddenSize, 0)
+def GRUAttrsAddLinearBeforeReset(builder, linearBeforeReset): builder.PrependBoolSlot(2, linearBeforeReset, 0)
+def GRUAttrsEnd(builder): return builder.EndObject()
+
+
+class GRUAttrsT(object):
+
+    # GRUAttrsT
+    def __init__(self):
+        self.direction = 0  # type: int
+        self.hiddenSize = 0  # type: int
+        self.linearBeforeReset = False  # type: bool
+
+    @classmethod
+    def InitFromBuf(cls, buf, pos):
+        gruattrs = GRUAttrs()
+        gruattrs.Init(buf, pos)
+        return cls.InitFromObj(gruattrs)
+
+    @classmethod
+    def InitFromPackedBuf(cls, buf, pos=0):
+        n = flatbuffers.encode.Get(flatbuffers.packer.uoffset, buf, pos)
+        return cls.InitFromBuf(buf, pos+n)
+
+    @classmethod
+    def InitFromObj(cls, gruattrs):
+        x = GRUAttrsT()
+        x._UnPack(gruattrs)
+        return x
+
+    # GRUAttrsT
+    def _UnPack(self, gruattrs):
+        if gruattrs is None:
+            return
+        self.direction = gruattrs.Direction()
+        self.hiddenSize = gruattrs.HiddenSize()
+        self.linearBeforeReset = gruattrs.LinearBeforeReset()
+
+    # GRUAttrsT
+    def Pack(self, builder):
+        GRUAttrsStart(builder)
+        GRUAttrsAddDirection(builder, self.direction)
+        GRUAttrsAddHiddenSize(builder, self.hiddenSize)
+        GRUAttrsAddLinearBeforeReset(builder, self.linearBeforeReset)
+        gruattrs = GRUAttrsEnd(builder)
+        return gruattrs
+
+
 class LeakyReluAttrs(object):
     __slots__ = ['_tab']
 
@@ -2526,7 +2623,7 @@ class OperatorNodeT(object):
     def __init__(self):
         self.type = 0  # type: int
         self.attrsType = 0  # type: int
-        self.attrs = None  # type: Union[None, ArgMaxAttrsT, AveragePoolAttrsT, BatchNormalizationAttrsT, CastAttrsT, ConcatAttrsT, ConstantOfShapeAttrsT, ConvAttrsT, ConvTransposeAttrsT, FlattenAttrsT, GatherAttrsT, GemmAttrsT, LeakyReluAttrsT, LSTMAttrsT, MaxPoolAttrsT, ReduceMeanAttrsT, ReshapeAttrsT, ResizeAttrsT, SplitAttrsT, SoftmaxAttrsT, TransposeAttrsT]
+        self.attrs = None  # type: Union[None, ArgMaxAttrsT, AveragePoolAttrsT, BatchNormalizationAttrsT, CastAttrsT, ConcatAttrsT, ConstantOfShapeAttrsT, ConvAttrsT, ConvTransposeAttrsT, FlattenAttrsT, GatherAttrsT, GemmAttrsT, GRUAttrsT, LeakyReluAttrsT, LSTMAttrsT, MaxPoolAttrsT, ReduceMeanAttrsT, ReshapeAttrsT, ResizeAttrsT, SplitAttrsT, SoftmaxAttrsT, TransposeAttrsT]
         self.inputs = None  # type: List[int]
         self.outputs = None  # type: List[int]
 

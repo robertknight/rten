@@ -18,13 +18,13 @@ pub const ENUM_MIN_OPERATOR_TYPE: i8 = 0;
     since = "2.0.0",
     note = "Use associated constants instead. This will no longer be generated in 2021."
 )]
-pub const ENUM_MAX_OPERATOR_TYPE: i8 = 51;
+pub const ENUM_MAX_OPERATOR_TYPE: i8 = 52;
 #[deprecated(
     since = "2.0.0",
     note = "Use associated constants instead. This will no longer be generated in 2021."
 )]
 #[allow(non_camel_case_types)]
-pub const ENUM_VALUES_OPERATOR_TYPE: [OperatorType; 52] = [
+pub const ENUM_VALUES_OPERATOR_TYPE: [OperatorType; 53] = [
     OperatorType::Add,
     OperatorType::ArgMin,
     OperatorType::ArgMax,
@@ -47,6 +47,7 @@ pub const ENUM_VALUES_OPERATOR_TYPE: [OperatorType; 52] = [
     OperatorType::Gemm,
     OperatorType::GlobalAveragePool,
     OperatorType::Greater,
+    OperatorType::GRU,
     OperatorType::Identity,
     OperatorType::LeakyRelu,
     OperatorType::Less,
@@ -106,39 +107,40 @@ impl OperatorType {
     pub const Gemm: Self = Self(19);
     pub const GlobalAveragePool: Self = Self(20);
     pub const Greater: Self = Self(21);
-    pub const Identity: Self = Self(22);
-    pub const LeakyRelu: Self = Self(23);
-    pub const Less: Self = Self(24);
-    pub const LessOrEqual: Self = Self(25);
-    pub const Log: Self = Self(26);
-    pub const LSTM: Self = Self(27);
-    pub const MatMul: Self = Self(28);
-    pub const MaxPool: Self = Self(29);
-    pub const Mul: Self = Self(30);
-    pub const Pad: Self = Self(31);
-    pub const Pow: Self = Self(32);
-    pub const Range: Self = Self(33);
-    pub const ReduceMean: Self = Self(34);
-    pub const ReduceL2: Self = Self(35);
-    pub const Relu: Self = Self(36);
-    pub const Reshape: Self = Self(37);
-    pub const Resize: Self = Self(38);
-    pub const Shape: Self = Self(39);
-    pub const Sigmoid: Self = Self(40);
-    pub const Sin: Self = Self(41);
-    pub const Slice: Self = Self(42);
-    pub const Split: Self = Self(43);
-    pub const Sqrt: Self = Self(44);
-    pub const Squeeze: Self = Self(45);
-    pub const Softmax: Self = Self(46);
-    pub const Sub: Self = Self(47);
-    pub const Tanh: Self = Self(48);
-    pub const Transpose: Self = Self(49);
-    pub const Unsqueeze: Self = Self(50);
-    pub const Where: Self = Self(51);
+    pub const GRU: Self = Self(22);
+    pub const Identity: Self = Self(23);
+    pub const LeakyRelu: Self = Self(24);
+    pub const Less: Self = Self(25);
+    pub const LessOrEqual: Self = Self(26);
+    pub const Log: Self = Self(27);
+    pub const LSTM: Self = Self(28);
+    pub const MatMul: Self = Self(29);
+    pub const MaxPool: Self = Self(30);
+    pub const Mul: Self = Self(31);
+    pub const Pad: Self = Self(32);
+    pub const Pow: Self = Self(33);
+    pub const Range: Self = Self(34);
+    pub const ReduceMean: Self = Self(35);
+    pub const ReduceL2: Self = Self(36);
+    pub const Relu: Self = Self(37);
+    pub const Reshape: Self = Self(38);
+    pub const Resize: Self = Self(39);
+    pub const Shape: Self = Self(40);
+    pub const Sigmoid: Self = Self(41);
+    pub const Sin: Self = Self(42);
+    pub const Slice: Self = Self(43);
+    pub const Split: Self = Self(44);
+    pub const Sqrt: Self = Self(45);
+    pub const Squeeze: Self = Self(46);
+    pub const Softmax: Self = Self(47);
+    pub const Sub: Self = Self(48);
+    pub const Tanh: Self = Self(49);
+    pub const Transpose: Self = Self(50);
+    pub const Unsqueeze: Self = Self(51);
+    pub const Where: Self = Self(52);
 
     pub const ENUM_MIN: i8 = 0;
-    pub const ENUM_MAX: i8 = 51;
+    pub const ENUM_MAX: i8 = 52;
     pub const ENUM_VALUES: &'static [Self] = &[
         Self::Add,
         Self::ArgMin,
@@ -162,6 +164,7 @@ impl OperatorType {
         Self::Gemm,
         Self::GlobalAveragePool,
         Self::Greater,
+        Self::GRU,
         Self::Identity,
         Self::LeakyRelu,
         Self::Less,
@@ -218,6 +221,7 @@ impl OperatorType {
             Self::Gemm => Some("Gemm"),
             Self::GlobalAveragePool => Some("GlobalAveragePool"),
             Self::Greater => Some("Greater"),
+            Self::GRU => Some("GRU"),
             Self::Identity => Some("Identity"),
             Self::LeakyRelu => Some("LeakyRelu"),
             Self::Less => Some("Less"),
@@ -308,28 +312,28 @@ impl flatbuffers::SimpleToVerifyInSlice for OperatorType {}
     since = "2.0.0",
     note = "Use associated constants instead. This will no longer be generated in 2021."
 )]
-pub const ENUM_MIN_LSTMDIRECTION: i8 = 0;
+pub const ENUM_MIN_RNNDIRECTION: i8 = 0;
 #[deprecated(
     since = "2.0.0",
     note = "Use associated constants instead. This will no longer be generated in 2021."
 )]
-pub const ENUM_MAX_LSTMDIRECTION: i8 = 2;
+pub const ENUM_MAX_RNNDIRECTION: i8 = 2;
 #[deprecated(
     since = "2.0.0",
     note = "Use associated constants instead. This will no longer be generated in 2021."
 )]
 #[allow(non_camel_case_types)]
-pub const ENUM_VALUES_LSTMDIRECTION: [LSTMDirection; 3] = [
-    LSTMDirection::Forwards,
-    LSTMDirection::Reverse,
-    LSTMDirection::Bidirectional,
+pub const ENUM_VALUES_RNNDIRECTION: [RNNDirection; 3] = [
+    RNNDirection::Forwards,
+    RNNDirection::Reverse,
+    RNNDirection::Bidirectional,
 ];
 
 #[derive(Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash, Default)]
 #[repr(transparent)]
-pub struct LSTMDirection(pub i8);
+pub struct RNNDirection(pub i8);
 #[allow(non_upper_case_globals)]
-impl LSTMDirection {
+impl RNNDirection {
     pub const Forwards: Self = Self(0);
     pub const Reverse: Self = Self(1);
     pub const Bidirectional: Self = Self(2);
@@ -347,7 +351,7 @@ impl LSTMDirection {
         }
     }
 }
-impl core::fmt::Debug for LSTMDirection {
+impl core::fmt::Debug for RNNDirection {
     fn fmt(&self, f: &mut core::fmt::Formatter) -> core::fmt::Result {
         if let Some(name) = self.variant_name() {
             f.write_str(name)
@@ -356,7 +360,7 @@ impl core::fmt::Debug for LSTMDirection {
         }
     }
 }
-impl<'a> flatbuffers::Follow<'a> for LSTMDirection {
+impl<'a> flatbuffers::Follow<'a> for RNNDirection {
     type Inner = Self;
     #[inline]
     unsafe fn follow(buf: &'a [u8], loc: usize) -> Self::Inner {
@@ -365,15 +369,15 @@ impl<'a> flatbuffers::Follow<'a> for LSTMDirection {
     }
 }
 
-impl flatbuffers::Push for LSTMDirection {
-    type Output = LSTMDirection;
+impl flatbuffers::Push for RNNDirection {
+    type Output = RNNDirection;
     #[inline]
     unsafe fn push(&self, dst: &mut [u8], _written_len: usize) {
         flatbuffers::emplace_scalar::<i8>(dst, self.0);
     }
 }
 
-impl flatbuffers::EndianScalar for LSTMDirection {
+impl flatbuffers::EndianScalar for RNNDirection {
     type Scalar = i8;
     #[inline]
     fn to_little_endian(self) -> i8 {
@@ -387,7 +391,7 @@ impl flatbuffers::EndianScalar for LSTMDirection {
     }
 }
 
-impl<'a> flatbuffers::Verifiable for LSTMDirection {
+impl<'a> flatbuffers::Verifiable for RNNDirection {
     #[inline]
     fn run_verifier(
         v: &mut flatbuffers::Verifier,
@@ -398,7 +402,7 @@ impl<'a> flatbuffers::Verifiable for LSTMDirection {
     }
 }
 
-impl flatbuffers::SimpleToVerifyInSlice for LSTMDirection {}
+impl flatbuffers::SimpleToVerifyInSlice for RNNDirection {}
 #[deprecated(
     since = "2.0.0",
     note = "Use associated constants instead. This will no longer be generated in 2021."
@@ -870,13 +874,13 @@ pub const ENUM_MIN_OPERATOR_ATTRS: u8 = 0;
     since = "2.0.0",
     note = "Use associated constants instead. This will no longer be generated in 2021."
 )]
-pub const ENUM_MAX_OPERATOR_ATTRS: u8 = 20;
+pub const ENUM_MAX_OPERATOR_ATTRS: u8 = 21;
 #[deprecated(
     since = "2.0.0",
     note = "Use associated constants instead. This will no longer be generated in 2021."
 )]
 #[allow(non_camel_case_types)]
-pub const ENUM_VALUES_OPERATOR_ATTRS: [OperatorAttrs; 21] = [
+pub const ENUM_VALUES_OPERATOR_ATTRS: [OperatorAttrs; 22] = [
     OperatorAttrs::NONE,
     OperatorAttrs::ArgMaxAttrs,
     OperatorAttrs::AveragePoolAttrs,
@@ -889,6 +893,7 @@ pub const ENUM_VALUES_OPERATOR_ATTRS: [OperatorAttrs; 21] = [
     OperatorAttrs::FlattenAttrs,
     OperatorAttrs::GatherAttrs,
     OperatorAttrs::GemmAttrs,
+    OperatorAttrs::GRUAttrs,
     OperatorAttrs::LeakyReluAttrs,
     OperatorAttrs::LSTMAttrs,
     OperatorAttrs::MaxPoolAttrs,
@@ -917,18 +922,19 @@ impl OperatorAttrs {
     pub const FlattenAttrs: Self = Self(9);
     pub const GatherAttrs: Self = Self(10);
     pub const GemmAttrs: Self = Self(11);
-    pub const LeakyReluAttrs: Self = Self(12);
-    pub const LSTMAttrs: Self = Self(13);
-    pub const MaxPoolAttrs: Self = Self(14);
-    pub const ReduceMeanAttrs: Self = Self(15);
-    pub const ReshapeAttrs: Self = Self(16);
-    pub const ResizeAttrs: Self = Self(17);
-    pub const SplitAttrs: Self = Self(18);
-    pub const SoftmaxAttrs: Self = Self(19);
-    pub const TransposeAttrs: Self = Self(20);
+    pub const GRUAttrs: Self = Self(12);
+    pub const LeakyReluAttrs: Self = Self(13);
+    pub const LSTMAttrs: Self = Self(14);
+    pub const MaxPoolAttrs: Self = Self(15);
+    pub const ReduceMeanAttrs: Self = Self(16);
+    pub const ReshapeAttrs: Self = Self(17);
+    pub const ResizeAttrs: Self = Self(18);
+    pub const SplitAttrs: Self = Self(19);
+    pub const SoftmaxAttrs: Self = Self(20);
+    pub const TransposeAttrs: Self = Self(21);
 
     pub const ENUM_MIN: u8 = 0;
-    pub const ENUM_MAX: u8 = 20;
+    pub const ENUM_MAX: u8 = 21;
     pub const ENUM_VALUES: &'static [Self] = &[
         Self::NONE,
         Self::ArgMaxAttrs,
@@ -942,6 +948,7 @@ impl OperatorAttrs {
         Self::FlattenAttrs,
         Self::GatherAttrs,
         Self::GemmAttrs,
+        Self::GRUAttrs,
         Self::LeakyReluAttrs,
         Self::LSTMAttrs,
         Self::MaxPoolAttrs,
@@ -967,6 +974,7 @@ impl OperatorAttrs {
             Self::FlattenAttrs => Some("FlattenAttrs"),
             Self::GatherAttrs => Some("GatherAttrs"),
             Self::GemmAttrs => Some("GemmAttrs"),
+            Self::GRUAttrs => Some("GRUAttrs"),
             Self::LeakyReluAttrs => Some("LeakyReluAttrs"),
             Self::LSTMAttrs => Some("LSTMAttrs"),
             Self::MaxPoolAttrs => Some("MaxPoolAttrs"),
@@ -3021,6 +3029,157 @@ impl core::fmt::Debug for GemmAttrs<'_> {
         ds.finish()
     }
 }
+pub enum GRUAttrsOffset {}
+#[derive(Copy, Clone, PartialEq)]
+
+pub struct GRUAttrs<'a> {
+    pub _tab: flatbuffers::Table<'a>,
+}
+
+impl<'a> flatbuffers::Follow<'a> for GRUAttrs<'a> {
+    type Inner = GRUAttrs<'a>;
+    #[inline]
+    unsafe fn follow(buf: &'a [u8], loc: usize) -> Self::Inner {
+        Self {
+            _tab: flatbuffers::Table::new(buf, loc),
+        }
+    }
+}
+
+impl<'a> GRUAttrs<'a> {
+    pub const VT_DIRECTION: flatbuffers::VOffsetT = 4;
+    pub const VT_HIDDEN_SIZE: flatbuffers::VOffsetT = 6;
+    pub const VT_LINEAR_BEFORE_RESET: flatbuffers::VOffsetT = 8;
+
+    #[inline]
+    pub unsafe fn init_from_table(table: flatbuffers::Table<'a>) -> Self {
+        GRUAttrs { _tab: table }
+    }
+    #[allow(unused_mut)]
+    pub fn create<'bldr: 'args, 'args: 'mut_bldr, 'mut_bldr>(
+        _fbb: &'mut_bldr mut flatbuffers::FlatBufferBuilder<'bldr>,
+        args: &'args GRUAttrsArgs,
+    ) -> flatbuffers::WIPOffset<GRUAttrs<'bldr>> {
+        let mut builder = GRUAttrsBuilder::new(_fbb);
+        builder.add_hidden_size(args.hidden_size);
+        builder.add_linear_before_reset(args.linear_before_reset);
+        builder.add_direction(args.direction);
+        builder.finish()
+    }
+
+    #[inline]
+    pub fn direction(&self) -> RNNDirection {
+        // Safety:
+        // Created from valid Table for this object
+        // which contains a valid value in this slot
+        unsafe {
+            self._tab
+                .get::<RNNDirection>(GRUAttrs::VT_DIRECTION, Some(RNNDirection::Forwards))
+                .unwrap()
+        }
+    }
+    #[inline]
+    pub fn hidden_size(&self) -> u32 {
+        // Safety:
+        // Created from valid Table for this object
+        // which contains a valid value in this slot
+        unsafe {
+            self._tab
+                .get::<u32>(GRUAttrs::VT_HIDDEN_SIZE, Some(0))
+                .unwrap()
+        }
+    }
+    #[inline]
+    pub fn linear_before_reset(&self) -> bool {
+        // Safety:
+        // Created from valid Table for this object
+        // which contains a valid value in this slot
+        unsafe {
+            self._tab
+                .get::<bool>(GRUAttrs::VT_LINEAR_BEFORE_RESET, Some(false))
+                .unwrap()
+        }
+    }
+}
+
+impl flatbuffers::Verifiable for GRUAttrs<'_> {
+    #[inline]
+    fn run_verifier(
+        v: &mut flatbuffers::Verifier,
+        pos: usize,
+    ) -> Result<(), flatbuffers::InvalidFlatbuffer> {
+        use self::flatbuffers::Verifiable;
+        v.visit_table(pos)?
+            .visit_field::<RNNDirection>("direction", Self::VT_DIRECTION, false)?
+            .visit_field::<u32>("hidden_size", Self::VT_HIDDEN_SIZE, false)?
+            .visit_field::<bool>("linear_before_reset", Self::VT_LINEAR_BEFORE_RESET, false)?
+            .finish();
+        Ok(())
+    }
+}
+pub struct GRUAttrsArgs {
+    pub direction: RNNDirection,
+    pub hidden_size: u32,
+    pub linear_before_reset: bool,
+}
+impl<'a> Default for GRUAttrsArgs {
+    #[inline]
+    fn default() -> Self {
+        GRUAttrsArgs {
+            direction: RNNDirection::Forwards,
+            hidden_size: 0,
+            linear_before_reset: false,
+        }
+    }
+}
+
+pub struct GRUAttrsBuilder<'a: 'b, 'b> {
+    fbb_: &'b mut flatbuffers::FlatBufferBuilder<'a>,
+    start_: flatbuffers::WIPOffset<flatbuffers::TableUnfinishedWIPOffset>,
+}
+impl<'a: 'b, 'b> GRUAttrsBuilder<'a, 'b> {
+    #[inline]
+    pub fn add_direction(&mut self, direction: RNNDirection) {
+        self.fbb_.push_slot::<RNNDirection>(
+            GRUAttrs::VT_DIRECTION,
+            direction,
+            RNNDirection::Forwards,
+        );
+    }
+    #[inline]
+    pub fn add_hidden_size(&mut self, hidden_size: u32) {
+        self.fbb_
+            .push_slot::<u32>(GRUAttrs::VT_HIDDEN_SIZE, hidden_size, 0);
+    }
+    #[inline]
+    pub fn add_linear_before_reset(&mut self, linear_before_reset: bool) {
+        self.fbb_
+            .push_slot::<bool>(GRUAttrs::VT_LINEAR_BEFORE_RESET, linear_before_reset, false);
+    }
+    #[inline]
+    pub fn new(_fbb: &'b mut flatbuffers::FlatBufferBuilder<'a>) -> GRUAttrsBuilder<'a, 'b> {
+        let start = _fbb.start_table();
+        GRUAttrsBuilder {
+            fbb_: _fbb,
+            start_: start,
+        }
+    }
+    #[inline]
+    pub fn finish(self) -> flatbuffers::WIPOffset<GRUAttrs<'a>> {
+        let o = self.fbb_.end_table(self.start_);
+        flatbuffers::WIPOffset::new(o.value())
+    }
+}
+
+impl core::fmt::Debug for GRUAttrs<'_> {
+    fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
+        let mut ds = f.debug_struct("GRUAttrs");
+        ds.field("direction", &self.direction());
+        ds.field("hidden_size", &self.hidden_size());
+        ds.field("linear_before_reset", &self.linear_before_reset());
+        ds.finish()
+    }
+}
 pub enum LeakyReluAttrsOffset {}
 #[derive(Copy, Clone, PartialEq)]
 
@@ -3160,13 +3319,13 @@ impl<'a> LSTMAttrs<'a> {
     }
 
     #[inline]
-    pub fn direction(&self) -> LSTMDirection {
+    pub fn direction(&self) -> RNNDirection {
         // Safety:
         // Created from valid Table for this object
         // which contains a valid value in this slot
         unsafe {
             self._tab
-                .get::<LSTMDirection>(LSTMAttrs::VT_DIRECTION, Some(LSTMDirection::Forwards))
+                .get::<RNNDirection>(LSTMAttrs::VT_DIRECTION, Some(RNNDirection::Forwards))
                 .unwrap()
         }
     }
@@ -3191,21 +3350,21 @@ impl flatbuffers::Verifiable for LSTMAttrs<'_> {
     ) -> Result<(), flatbuffers::InvalidFlatbuffer> {
         use self::flatbuffers::Verifiable;
         v.visit_table(pos)?
-            .visit_field::<LSTMDirection>("direction", Self::VT_DIRECTION, false)?
+            .visit_field::<RNNDirection>("direction", Self::VT_DIRECTION, false)?
             .visit_field::<u32>("hidden_size", Self::VT_HIDDEN_SIZE, false)?
             .finish();
         Ok(())
     }
 }
 pub struct LSTMAttrsArgs {
-    pub direction: LSTMDirection,
+    pub direction: RNNDirection,
     pub hidden_size: u32,
 }
 impl<'a> Default for LSTMAttrsArgs {
     #[inline]
     fn default() -> Self {
         LSTMAttrsArgs {
-            direction: LSTMDirection::Forwards,
+            direction: RNNDirection::Forwards,
             hidden_size: 0,
         }
     }
@@ -3217,11 +3376,11 @@ pub struct LSTMAttrsBuilder<'a: 'b, 'b> {
 }
 impl<'a: 'b, 'b> LSTMAttrsBuilder<'a, 'b> {
     #[inline]
-    pub fn add_direction(&mut self, direction: LSTMDirection) {
-        self.fbb_.push_slot::<LSTMDirection>(
+    pub fn add_direction(&mut self, direction: RNNDirection) {
+        self.fbb_.push_slot::<RNNDirection>(
             LSTMAttrs::VT_DIRECTION,
             direction,
-            LSTMDirection::Forwards,
+            RNNDirection::Forwards,
         );
     }
     #[inline]
@@ -4431,6 +4590,21 @@ impl<'a> OperatorNode<'a> {
 
     #[inline]
     #[allow(non_snake_case)]
+    pub fn attrs_as_gruattrs(&self) -> Option<GRUAttrs<'a>> {
+        if self.attrs_type() == OperatorAttrs::GRUAttrs {
+            self.attrs().map(|t| {
+                // Safety:
+                // Created from a valid Table for this object
+                // Which contains a valid union in this slot
+                unsafe { GRUAttrs::init_from_table(t) }
+            })
+        } else {
+            None
+        }
+    }
+
+    #[inline]
+    #[allow(non_snake_case)]
     pub fn attrs_as_leaky_relu_attrs(&self) -> Option<LeakyReluAttrs<'a>> {
         if self.attrs_type() == OperatorAttrs::LeakyReluAttrs {
             self.attrs().map(|t| {
@@ -4587,6 +4761,7 @@ impl flatbuffers::Verifiable for OperatorNode<'_> {
           OperatorAttrs::FlattenAttrs => v.verify_union_variant::<flatbuffers::ForwardsUOffset<FlattenAttrs>>("OperatorAttrs::FlattenAttrs", pos),
           OperatorAttrs::GatherAttrs => v.verify_union_variant::<flatbuffers::ForwardsUOffset<GatherAttrs>>("OperatorAttrs::GatherAttrs", pos),
           OperatorAttrs::GemmAttrs => v.verify_union_variant::<flatbuffers::ForwardsUOffset<GemmAttrs>>("OperatorAttrs::GemmAttrs", pos),
+          OperatorAttrs::GRUAttrs => v.verify_union_variant::<flatbuffers::ForwardsUOffset<GRUAttrs>>("OperatorAttrs::GRUAttrs", pos),
           OperatorAttrs::LeakyReluAttrs => v.verify_union_variant::<flatbuffers::ForwardsUOffset<LeakyReluAttrs>>("OperatorAttrs::LeakyReluAttrs", pos),
           OperatorAttrs::LSTMAttrs => v.verify_union_variant::<flatbuffers::ForwardsUOffset<LSTMAttrs>>("OperatorAttrs::LSTMAttrs", pos),
           OperatorAttrs::MaxPoolAttrs => v.verify_union_variant::<flatbuffers::ForwardsUOffset<MaxPoolAttrs>>("OperatorAttrs::MaxPoolAttrs", pos),
@@ -4781,6 +4956,16 @@ impl core::fmt::Debug for OperatorNode<'_> {
             }
             OperatorAttrs::GemmAttrs => {
                 if let Some(x) = self.attrs_as_gemm_attrs() {
+                    ds.field("attrs", &x)
+                } else {
+                    ds.field(
+                        "attrs",
+                        &"InvalidFlatbuffer: Union discriminant does not match value.",
+                    )
+                }
+            }
+            OperatorAttrs::GRUAttrs => {
+                if let Some(x) = self.attrs_as_gruattrs() {
                     ds.field("attrs", &x)
                 } else {
                     ds.field(

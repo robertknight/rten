@@ -42,4 +42,4 @@ tools/schema_generated.py: src/schema.fbs
 
 .PHONY: gen-pytorch-references
 gen-pytorch-references:
-	python -m pytorch-ref-tests.lstm
+	python -m pytorch-ref-tests.rnn

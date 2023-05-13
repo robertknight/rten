@@ -243,6 +243,24 @@ fn read_gemm_op(node: &OperatorNode) -> ReadOpResult {
     }))
 }
 
+fn read_gru_op(node: &OperatorNode) -> ReadOpResult {
+    let attrs = node.attrs_as_gruattrs().ok_or(ReadOpError::AttrError)?;
+
+    let hidden_size = attrs.hidden_size() as usize;
+    let direction = match attrs.direction() {
+        sg::RNNDirection::Forwards => Direction::Forwards,
+        sg::RNNDirection::Reverse => Direction::Reverse,
+        sg::RNNDirection::Bidirectional => Direction::Bidirectional,
+        _ => Direction::Forwards,
+    };
+
+    Ok(Box::new(ops::GRU {
+        direction,
+        hidden_size,
+        linear_before_reset: attrs.linear_before_reset(),
+    }))
+}
+
 fn read_leaky_relu_op(node: &OperatorNode) -> ReadOpResult {
     let attrs = node
         .attrs_as_leaky_relu_attrs()
@@ -257,9 +275,9 @@ fn read_lstm_op(node: &OperatorNode) -> ReadOpResult {
 
     let hidden_size = attrs.hidden_size() as usize;
     let direction = match attrs.direction() {
-        sg::LSTMDirection::Forwards => Direction::Forwards,
-        sg::LSTMDirection::Reverse => Direction::Reverse,
-        sg::LSTMDirection::Bidirectional => Direction::Bidirectional,
+        sg::RNNDirection::Forwards => Direction::Forwards,
+        sg::RNNDirection::Reverse => Direction::Reverse,
+        sg::RNNDirection::Bidirectional => Direction::Bidirectional,
         _ => Direction::Forwards,
     };
 
@@ -398,6 +416,7 @@ fn read_operator(node: &OperatorNode) -> ReadOpResult {
         OperatorType::Gemm => read_gemm_op(node),
         OperatorType::GlobalAveragePool => op!(GlobalAveragePool),
         OperatorType::Greater => op!(Greater),
+        OperatorType::GRU => read_gru_op(node),
         OperatorType::Identity => op!(Identity),
         OperatorType::LeakyRelu => read_leaky_relu_op(node),
         OperatorType::Less => op!(Less),
@@ -780,11 +799,17 @@ mod tests {
         });
         add_operator!(GlobalAveragePool, [input_node]);
         add_operator!(Greater, [input_node, input_node]);
+
+        // TODO - Add GRU operator
+
         add_operator!(Identity, [input_node]);
         add_operator!(LeakyRelu, [input_node], { alpha: 0.01 });
         add_operator!(Less, [input_node, input_node]);
         add_operator!(LessOrEqual, [input_node, input_node]);
         add_operator!(Log, [input_node]);
+
+        // TODO - Add LSTM operator
+
         add_operator!(MatMul, [input_2d, input_2d]);
         add_operator!(MaxPool, [input_node], {
             kernel_size: [2, 2],
