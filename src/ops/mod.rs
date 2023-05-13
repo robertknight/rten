@@ -12,13 +12,13 @@ mod gather;
 mod generate;
 mod identity;
 mod layout;
-mod lstm;
 mod matmul;
 mod norm;
 mod pad;
 mod pooling;
 mod reduce;
 mod resize;
+mod rnn;
 mod slice;
 mod split;
 mod unary_elementwise;
@@ -39,7 +39,6 @@ pub use layout::{
     expand, flatten, reshape, squeeze, squeeze_in_place, Expand, Flatten, Reshape, Shape, Squeeze,
     Transpose, Unsqueeze,
 };
-pub use lstm::{lstm, LSTMDirection, LSTM};
 pub use matmul::{gemm_op, matmul, Gemm, MatMul};
 pub use norm::{batch_norm, batch_norm_in_place, softmax, BatchNormalization, Softmax};
 pub use pad::{pad, Pad};
@@ -49,6 +48,7 @@ pub use reduce::{
     arg_max, arg_min, cum_sum, reduce_l2, reduce_mean, ArgMax, ArgMin, CumSum, ReduceL2, ReduceMean,
 };
 pub use resize::{resize, CoordTransformMode, NearestMode, Resize, ResizeMode, ResizeTarget};
+pub use rnn::{lstm, Direction, LSTM};
 pub use slice::{slice, slice_in_place, Slice};
 pub use split::{split, Split};
 pub use unary_elementwise::{

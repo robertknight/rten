@@ -5,7 +5,7 @@ use std::collections::HashMap;
 use crate::graph::{Dimension, Graph, Node, NodeId, RunError, RunOptions};
 use crate::ops;
 use crate::ops::{
-    CoordTransformMode, DataType, Input, LSTMDirection, NearestMode, Operator, Output, Padding,
+    CoordTransformMode, DataType, Direction, Input, NearestMode, Operator, Output, Padding,
     ResizeMode, Scalar,
 };
 use crate::schema_generated as sg;
@@ -257,10 +257,10 @@ fn read_lstm_op(node: &OperatorNode) -> ReadOpResult {
 
     let hidden_size = attrs.hidden_size() as usize;
     let direction = match attrs.direction() {
-        sg::LSTMDirection::Forwards => LSTMDirection::Forwards,
-        sg::LSTMDirection::Reverse => LSTMDirection::Reverse,
-        sg::LSTMDirection::Bidirectional => LSTMDirection::Bidirectional,
-        _ => LSTMDirection::Forwards,
+        sg::LSTMDirection::Forwards => Direction::Forwards,
+        sg::LSTMDirection::Reverse => Direction::Reverse,
+        sg::LSTMDirection::Bidirectional => Direction::Bidirectional,
+        _ => Direction::Forwards,
     };
 
     Ok(Box::new(ops::LSTM {

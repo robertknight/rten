@@ -7,15 +7,16 @@ use crate::ops::{InputList, IntoOpResult, OpError, Operator, Output, Sigmoid, Ta
 use crate::tensor::Matrix;
 use crate::tensor::{Tensor, TensorLayout, TensorView, TensorViewMut};
 
+/// Direction that an RNN operator will traverse the input sequence in.
 #[derive(Copy, Clone, Debug)]
-pub enum LSTMDirection {
+pub enum Direction {
     Forwards,
     Reverse,
     Bidirectional,
 }
 
-impl LSTMDirection {
-    /// Number of directions that an LSTM operator will traverse the sequence in.
+impl Direction {
+    /// Number of directions that an RNN operator will traverse the sequence in.
     ///
     /// The sizes of various inputs and outputs depend on this.
     pub fn num_directions(self) -> usize {
@@ -28,7 +29,7 @@ impl LSTMDirection {
 
 #[derive(Debug)]
 pub struct LSTM {
-    pub direction: LSTMDirection,
+    pub direction: Direction,
     pub hidden_size: usize,
 }
 
@@ -121,7 +122,7 @@ fn update_lstm_gate(
 /// `initial_hidden` has shape `[directions, batch, hidden_size]`.
 /// `initial_cell` has shape `[directions, batch, hidden_size]`.
 pub fn lstm(
-    direction: LSTMDirection,
+    direction: Direction,
     input: &Tensor,
     weights: &Tensor,
     recurrent_weights: &Tensor,
@@ -213,7 +214,7 @@ pub fn lstm(
 
         let reversed = matches!(
             (dir, direction),
-            (0, LSTMDirection::Reverse) | (1, LSTMDirection::Bidirectional)
+            (0, Direction::Reverse) | (1, Direction::Bidirectional)
         );
 
         let mut forward_seq = 0..seq_len;
@@ -354,7 +355,7 @@ impl Operator for LSTM {
 mod tests {
     use serde_json::Value;
 
-    use crate::ops::{concat, lstm, split, LSTMDirection};
+    use crate::ops::{concat, lstm, split, Direction};
     use crate::rng::XorShiftRng;
     use crate::tensor::{rand, Tensor, TensorLayout};
     use crate::test_util::{expect_equal, read_json_file, read_tensor};
@@ -367,7 +368,7 @@ mod tests {
         let mut rng = XorShiftRng::new(1234);
         let batch = 2;
         let seq_len = 5;
-        let dir = LSTMDirection::Bidirectional;
+        let dir = Direction::Bidirectional;
 
         let hidden_size = 3;
         let features = 2;
@@ -593,21 +594,21 @@ mod tests {
 
         struct Case {
             name: &'static str,
-            dir: LSTMDirection,
+            dir: Direction,
         }
 
         let cases = &[
             Case {
                 name: "lstm_forwards",
-                dir: LSTMDirection::Forwards,
+                dir: Direction::Forwards,
             },
             Case {
                 name: "lstm_initial",
-                dir: LSTMDirection::Forwards,
+                dir: Direction::Forwards,
             },
             Case {
                 name: "lstm_bidirectional",
-                dir: LSTMDirection::Bidirectional,
+                dir: Direction::Bidirectional,
             },
         ];
 
