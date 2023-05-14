@@ -32,3 +32,9 @@ impl Timer {
         (self.elapsed as f32) / 1000.0
     }
 }
+
+impl Default for Timer {
+    fn default() -> Self {
+        Self::new()
+    }
+}
