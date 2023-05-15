@@ -314,6 +314,16 @@ impl Layout {
         offset
     }
 
+    /// Return a copy of this layout with dimensions of size 1 removed.
+    pub fn squeezed(&self) -> Layout {
+        let shape = self.shape().iter().copied().filter(|&size| size != 1);
+        let strides = zip(self.shape().iter().copied(), self.strides().iter().copied())
+            .filter_map(|(size, stride)| if size != 1 { Some(stride) } else { None });
+        Layout {
+            shape_and_strides: shape.chain(strides).collect(),
+        }
+    }
+
     pub fn dims<const N: usize>(&self) -> [usize; N] {
         assert!(
             self.ndim() == N,
@@ -392,5 +402,13 @@ mod tests {
     fn test_permute_repeated_dims() {
         let mut layout = Layout::new(&[5, 5]);
         layout.permute(&[1, 1]);
+    }
+
+    #[test]
+    fn test_squeezed() {
+        let layout = Layout::new(&[1, 1, 10, 20]);
+        let squeezed = layout.squeezed();
+        assert_eq!(squeezed.shape(), &[10, 20]);
+        assert_eq!(squeezed.strides(), &[20, 1]);
     }
 }

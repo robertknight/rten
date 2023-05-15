@@ -347,6 +347,15 @@ impl<T: Copy, S: AsRef<[T]>> TensorBase<T, S> {
         Elements::slice(self, ranges)
     }
 
+    /// Return a view of this tensor with all dimensions of size 1 removed.
+    pub fn squeezed(&self) -> TensorView<T> {
+        TensorBase {
+            data: self.data.as_ref(),
+            layout: self.layout.squeezed(),
+            element_type: PhantomData,
+        }
+    }
+
     /// Change the layout to put dimensions in the order specified by `dims`.
     ///
     /// This does not modify the order of elements in the data buffer, it just
@@ -1750,6 +1759,17 @@ mod tests {
             .collect();
 
         assert_eq!(&result, &expected);
+    }
+
+    #[test]
+    fn test_squeezed() {
+        let mut rng = XorShiftRng::new(1234);
+        let x = rand(&[1, 1, 10, 20], &mut rng);
+        let y = x.squeezed();
+        assert_eq!(y.data(), x.data());
+        assert_eq!(y.shape(), &[10, 20]);
+        assert_eq!(y.stride(0), 20);
+        assert_eq!(y.stride(1), 1);
     }
 
     #[test]
