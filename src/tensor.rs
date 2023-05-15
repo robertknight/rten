@@ -1,6 +1,7 @@
 use std::borrow::Cow;
 use std::fmt::Debug;
 use std::io;
+use std::iter::zip;
 use std::marker::PhantomData;
 use std::ops::{Index, IndexMut, Range};
 
@@ -462,6 +463,16 @@ impl<I: TensorIndex, T: Copy, S: AsRef<[T]>> Index<I> for TensorBase<T, S> {
 }
 
 impl<T: Copy, S: AsRef<[T]> + AsMut<[T]>> TensorBase<T, S> {
+    /// Copy elements from another tensor into this tensor.
+    ///
+    /// This tensor and `other` must have the same shape.
+    pub fn copy_from<OS: AsRef<[T]>>(&mut self, other: &TensorBase<T, OS>) {
+        assert!(self.shape() == other.shape());
+        for (out, x) in zip(self.iter_mut(), other.iter()) {
+            *out = x;
+        }
+    }
+
     /// Return the element buffer for this tensor as a mutable slice.
     ///
     /// WARNING: See notes about ordering in [TensorBase::data].
@@ -877,6 +888,16 @@ mod tests {
         // `data_mut`.
         assert_eq!(x.offsets().collect::<Vec<usize>>(), &[0, 1, 2, 3, 4, 5]);
         assert_eq!(x.offset([0, 0]), 0);
+    }
+
+    #[test]
+    fn test_copy_from() {
+        let x = steps(&[3, 3]);
+        let mut y = Tensor::zeros(x.shape());
+
+        y.copy_from(&x);
+
+        assert_eq!(y, x);
     }
 
     #[test]
