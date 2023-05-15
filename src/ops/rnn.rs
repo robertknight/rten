@@ -401,11 +401,7 @@ pub fn gru(
                 *hidden = (1. - update) * hidden_gate + update * (*hidden);
             }
 
-            // Copy last hidden state to output sequence.
-            let mut hidden_seq_item = hidden_seq.slice_mut([seq, dir]);
-            for (seq, hidden) in zip(hidden_seq_item.iter_mut(), hidden_item.iter()) {
-                *seq = hidden;
-            }
+            hidden_seq.slice_mut([seq, dir]).copy_from(&hidden_item);
         }
     }
 
@@ -625,11 +621,7 @@ pub fn lstm(
                 *hidden = out_gate * tanh_op.map_element(cell)
             }
 
-            // Copy latest value of hidden seq to output tensor
-            let mut hidden_seq_item = hidden_seq.slice_mut([seq, dir]);
-            for (seq, hidden) in zip(hidden_seq_item.iter_mut(), hidden_item.iter()) {
-                *seq = hidden;
-            }
+            hidden_seq.slice_mut([seq, dir]).copy_from(&hidden_item);
         }
     }
 
