@@ -24,7 +24,7 @@ pub struct OperatorNode {
     name: Option<String>,
     inputs: Vec<Option<NodeId>>,
     outputs: Vec<Option<NodeId>>,
-    operator: Box<dyn Operator>,
+    operator: Box<dyn Operator + Sync>,
 }
 
 pub struct ValueNode {
@@ -174,7 +174,7 @@ impl Graph {
     pub fn add_op(
         &mut self,
         name: Option<&str>,
-        op: Box<dyn Operator>,
+        op: Box<dyn Operator + Sync>,
         inputs: &[Option<NodeId>],
         outputs: &[Option<NodeId>],
     ) -> NodeId {
@@ -585,8 +585,7 @@ impl Graph {
 
 #[cfg(test)]
 mod tests {
-    use std::cell::Cell;
-    use std::rc::Rc;
+    use std::sync::{Arc, Mutex};
 
     use crate::graph::{Dimension, Graph, RunError};
     use crate::ops::{
@@ -999,13 +998,13 @@ mod tests {
     /// Test operator that produces multiple outputs
     #[derive(Debug)]
     struct Split {
-        run_count: Rc<Cell<u32>>,
+        run_count: Arc<Mutex<u32>>,
     }
 
     impl Split {
         fn new() -> Split {
             Split {
-                run_count: Rc::new(Cell::new(0)),
+                run_count: Arc::new(Mutex::new(0)),
             }
         }
     }
@@ -1016,7 +1015,10 @@ mod tests {
         }
 
         fn run(&self, inputs: InputList) -> Result<Vec<Output>, OpError> {
-            self.run_count.set(self.run_count.get() + 1);
+            {
+                let mut rc = self.run_count.lock().unwrap();
+                *rc += 1;
+            }
 
             let input: &Tensor<f32> = inputs.require_as(0)?;
             let left_split_len = input.len() / 2;
@@ -1052,7 +1054,7 @@ mod tests {
             )
             .unwrap();
 
-        assert_eq!(run_count.get(), 1);
+        assert_eq!(*run_count.lock().unwrap(), 1);
 
         assert_eq!(results.len(), 2);
         let left_split = results.remove(0).into_float().unwrap();

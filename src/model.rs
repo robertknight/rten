@@ -108,7 +108,7 @@ enum ReadOpError {
     UnsupportedOperator,
 }
 
-type ReadOpResult = Result<Box<dyn Operator>, ReadOpError>;
+type ReadOpResult = Result<Box<dyn Operator + Sync>, ReadOpError>;
 
 fn read_arg_max_op(node: &OperatorNode) -> ReadOpResult {
     let attrs = node
