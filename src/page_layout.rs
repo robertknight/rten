@@ -344,7 +344,13 @@ pub fn find_connected_component_rects(
         .collect()
 }
 
-/// Group text words into lines.
+/// A text line is a sequence of RotatedRects for words, organized from left to
+/// right.
+type TextLine = Vec<RotatedRect>;
+
+type TextParagraph = Vec<TextLine>;
+
+/// Group words into lines and sort them into reading order.
 pub fn find_text_lines(words: &[RotatedRect], page: Rect) -> Vec<Vec<RotatedRect>> {
     // Estimate spacing statistics
     let mut lines = group_into_lines(words, &[]);
@@ -424,7 +430,54 @@ pub fn find_text_lines(words: &[RotatedRect], page: Rect) -> Vec<Vec<RotatedRect
             }
         })
         .collect();
-    group_into_lines(words, &separator_lines)
+    let mut lines = group_into_lines(words, &separator_lines);
+
+    // Approximate a text line by the 1D line from the center of the left
+    // edge of the first word, to the center of the right edge of the last word.
+    let midpoint_line = |words: &[RotatedRect]| -> Line {
+        assert!(!words.is_empty());
+        Line::from_endpoints(
+            words.first().unwrap().bounding_rect().left_edge().center(),
+            words.last().unwrap().bounding_rect().right_edge().center(),
+        )
+    };
+
+    // Sort lines by vertical position.
+    lines.sort_by_key(|words| midpoint_line(words).center().y);
+
+    let is_separated_by =
+        |line_a: &[RotatedRect], line_b: &[RotatedRect], separators: &[Line]| -> bool {
+            let mid_a = midpoint_line(line_a);
+            let mid_b = midpoint_line(line_b);
+            let a_to_b = Line::from_endpoints(mid_a.center(), mid_b.center());
+            separators.iter().any(|sep| sep.intersects(a_to_b))
+        };
+
+    // Group lines into paragraphs. We repeatedly take the first un-assigned
+    // line as the seed for a new paragraph, and then add to that para all
+    // remaining un-assigned lines which are not separated from the seed.
+    let mut paragraphs: Vec<TextParagraph> = Vec::new();
+    while !lines.is_empty() {
+        let seed = lines.remove(0);
+        let mut para = Vec::new();
+        para.push(seed.clone());
+
+        let mut index = 0;
+        while index < lines.len() {
+            if !is_separated_by(&seed, &lines[index], &separator_lines) {
+                para.push(lines.remove(index));
+            } else {
+                index += 1;
+            }
+        }
+        paragraphs.push(para);
+    }
+
+    // Flatten paragraphs into a list of lines.
+    paragraphs
+        .into_iter()
+        .flat_map(|para| para.into_iter())
+        .collect()
 }
 
 /// Normalize a line so that it's endpoints are sorted from top to bottom.
