@@ -18,6 +18,18 @@ pub enum SliceItem {
     RangeFull,
 }
 
+impl SliceItem {
+    /// Return true if this item can be used to slice a dimension of size
+    /// `dim_size`.
+    pub fn valid_for(&self, dim_size: usize) -> bool {
+        match self {
+            SliceItem::Index(idx) => *idx < dim_size,
+            SliceItem::Range(range) => range.end <= dim_size,
+            SliceItem::RangeFull => true,
+        }
+    }
+}
+
 impl From<usize> for SliceItem {
     fn from(value: usize) -> Self {
         SliceItem::Index(value)

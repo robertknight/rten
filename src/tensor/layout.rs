@@ -79,6 +79,11 @@ impl Layout {
             self.ndim() >= range.len(),
             "Slice dims must be <= current dims"
         );
+        assert!(
+            zip(self.shape().iter(), range.iter())
+                .all(|(dim_size, slice_item)| slice_item.valid_for(*dim_size)),
+            "Slice range is invalid for tensor shape"
+        );
 
         let padded_range = range
             .iter()
@@ -349,6 +354,7 @@ impl Layout {
 #[cfg(test)]
 mod tests {
     use crate::tensor::layout::Layout;
+    use crate::tensor::SliceItem;
 
     #[test]
     fn test_new_with_strides() {
@@ -410,5 +416,19 @@ mod tests {
         let squeezed = layout.squeezed();
         assert_eq!(squeezed.shape(), &[10, 20]);
         assert_eq!(squeezed.strides(), &[20, 1]);
+    }
+
+    #[test]
+    #[should_panic(expected = "Slice range is invalid for tensor shape")]
+    fn test_slice_invalid_index() {
+        let layout = Layout::new(&[3, 5]);
+        layout.slice(&[SliceItem::Index(4), SliceItem::Index(0)]);
+    }
+
+    #[test]
+    #[should_panic(expected = "Slice range is invalid for tensor shape")]
+    fn test_slice_invalid_range() {
+        let layout = Layout::new(&[3, 5]);
+        layout.slice(&[SliceItem::Range(1..4), SliceItem::Index(0)]);
     }
 }
