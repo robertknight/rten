@@ -5,7 +5,7 @@ use std::marker::PhantomData;
 use std::ops::{Index, IndexMut};
 
 use super::index_iterator::NdIndexIterator;
-use super::iterators::Elements;
+use super::iterators::{Elements, ElementsMut};
 use super::layout::Layout;
 use super::overlap::may_have_internal_overlap;
 use super::range::SliceItem;
@@ -298,8 +298,7 @@ impl<T, S: AsRef<[T]>, const N: usize> NdTensorBase<T, S, N> {
 }
 
 impl<T: Copy, S: AsRef<[T]>, const N: usize> NdTensorBase<T, S, N> {
-    /// Convert this tensor with a static dimension count to one with a dynamic
-    /// dimension count.
+    /// Return a view of this tensor with a dynamic dimension count.
     pub fn as_dyn(&self) -> TensorBase<T, &[T]> {
         TensorBase::new(self.data.as_ref(), &self.layout.as_dyn())
     }
@@ -468,6 +467,18 @@ impl<T, S: AsRef<[T]> + AsMut<[T]>, const N: usize> NdTensorBase<T, S, N> {
     }
 }
 
+impl<T: Copy, S: AsRef<[T]> + AsMut<[T]>, const N: usize> NdTensorBase<T, S, N> {
+    /// Return a view of this tensor with a dynamic dimension count.
+    pub fn as_dyn_mut(&mut self) -> TensorBase<T, &mut [T]> {
+        TensorBase::new(self.data.as_mut(), &self.layout.as_dyn())
+    }
+
+    /// Return a mutable iterator over elements of this tensor.
+    pub fn iter_mut(&mut self) -> ElementsMut<T> {
+        ElementsMut::new(self.data.as_mut(), &self.layout.as_dyn())
+    }
+}
+
 impl<T: Clone + Default, const N: usize> NdTensorBase<T, Vec<T>, N> {
     /// Create a new tensor with a given shape, contigous layout and all
     /// elements set to zero (or whatever `T::default()` returns).
@@ -594,6 +605,14 @@ mod tests {
         assert_eq!(tensor.data(), dyn_tensor.data());
     }
 
+    #[test]
+    fn test_ndtensor_as_dyn_mut() {
+        let mut tensor = NdTensor::from_data(vec![1, 2, 3, 4], [2, 2], None).unwrap();
+        let mut dyn_tensor = tensor.as_dyn_mut();
+        assert_eq!(dyn_tensor.shape(), [2, 2]);
+        assert_eq!(dyn_tensor.data_mut(), &[1, 2, 3, 4]);
+    }
+
     // Test conversion of a static-dim tensor with broadcasting strides (ie.
     // some strides are 0), to a dynamic dim tensor.
     #[test]
@@ -718,6 +737,17 @@ mod tests {
         let tensor = NdTensor::<i32, 2>::from_data(vec![1, 2, 3, 4], [2, 2], None).unwrap();
         let elements: Vec<_> = tensor.iter().collect();
         assert_eq!(elements, &[1, 2, 3, 4]);
+    }
+
+    #[test]
+    fn test_ndtensor_iter_mut() {
+        let mut tensor = NdTensor::<i32, 2>::zeros([2, 2]);
+        tensor
+            .iter_mut()
+            .enumerate()
+            .for_each(|(i, el)| *el = i as i32);
+        let elements: Vec<_> = tensor.iter().collect();
+        assert_eq!(elements, &[0, 1, 2, 3]);
     }
 
     #[test]
