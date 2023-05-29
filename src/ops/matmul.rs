@@ -5,7 +5,7 @@ use crate::linalg::gemm;
 use crate::ops::binary_elementwise::broadcast_shapes;
 use crate::ops::{InputList, IntoOpResult, OpError, Operator, Output};
 use crate::tensor::Matrix;
-use crate::tensor::{Tensor, TensorLayout};
+use crate::tensor::{Tensor, TensorLayout, TensorView};
 
 #[derive(Debug)]
 pub struct Gemm {
@@ -22,9 +22,9 @@ pub struct Gemm {
 ///
 /// nb. This is named `gemm_op` to avoid confusion with `linalg::gemm`.
 pub fn gemm_op(
-    a: &Tensor,
-    b: &Tensor,
-    c: Option<&Tensor>,
+    a: TensorView,
+    b: TensorView,
+    c: Option<TensorView>,
     alpha: f32,
     beta: f32,
     transpose_a: bool,
@@ -33,18 +33,10 @@ pub fn gemm_op(
     check_dims!(a, 2);
     check_dims!(b, 2);
 
-    let a_view = if transpose_a {
-        a.view().transposed()
-    } else {
-        a.view()
-    };
-    let b_view = if transpose_b {
-        b.view().transposed()
-    } else {
-        b.view()
-    };
+    let a = if transpose_a { a.transposed() } else { a };
+    let b = if transpose_b { b.transposed() } else { b };
 
-    let out_shape = &[a_view.shape()[0], b_view.shape()[1]][..];
+    let out_shape = &[a.shape()[0], b.shape()[1]][..];
     let mut output = match c {
         Some(c) if beta != 0. => {
             if !c.can_broadcast_to(out_shape) {
@@ -63,8 +55,8 @@ pub fn gemm_op(
     gemm(
         output.data_mut(),
         out_row_stride,
-        a_view.nd_view(),
-        b_view.nd_view(),
+        a.nd_view(),
+        b.nd_view(),
         alpha,
         beta,
     );
@@ -82,9 +74,9 @@ impl Operator for Gemm {
         let b = inputs.require_as(1)?;
         let c = inputs.get_as(2)?;
         gemm_op(
-            a,
-            b,
-            c,
+            a.view(),
+            b.view(),
+            c.map(|c| c.view()),
             self.alpha,
             self.beta,
             self.transpose_a,
@@ -94,7 +86,7 @@ impl Operator for Gemm {
     }
 }
 
-pub fn matmul(a: &Tensor, b: &Tensor) -> Result<Tensor, OpError> {
+pub fn matmul(a: TensorView, b: TensorView) -> Result<Tensor, OpError> {
     if a.ndim() < 2 || b.ndim() < 2 {
         return Err(OpError::InvalidValue("Inputs must have >= 2 dimensions"));
     }
@@ -167,7 +159,7 @@ impl Operator for MatMul {
     fn run(&self, inputs: InputList) -> Result<Vec<Output>, OpError> {
         let a = inputs.require_as(0)?;
         let b = inputs.require_as(1)?;
-        matmul(a, b).into_op_result()
+        matmul(a.view(), b.view()).into_op_result()
     }
 }
 
@@ -200,7 +192,7 @@ mod tests {
         let mut expected = zeros(&[3, 8]);
         gemm_tensors(&mut expected, &a, &b, 1., 1.);
 
-        let result = gemm_op(&a, &b, None, 1.0, 1.0, false, false).unwrap();
+        let result = gemm_op(a.view(), b.view(), None, 1.0, 1.0, false, false).unwrap();
 
         expect_equal(&result, &expected)
     }
@@ -218,7 +210,7 @@ mod tests {
         let mut expected = zeros(&[3, 8]);
         gemm_tensors(&mut expected, &a_transposed, &b_transposed, 1., 1.);
 
-        let result = gemm_op(&a, &b, None, 1.0, 1.0, true, true).unwrap();
+        let result = gemm_op(a.view(), b.view(), None, 1.0, 1.0, true, true).unwrap();
 
         expect_equal(&result, &expected)
     }
@@ -233,7 +225,7 @@ mod tests {
         let mut expected = c.clone();
         gemm_tensors(&mut expected, &a, &b, 1., 1.);
 
-        let result = gemm_op(&a, &b, Some(&c), 1.0, 1.0, false, false).unwrap();
+        let result = gemm_op(a.view(), b.view(), Some(c.view()), 1.0, 1.0, false, false).unwrap();
 
         expect_equal(&result, &expected)
     }
@@ -245,7 +237,7 @@ mod tests {
         let b = rand(&[10, 8], &mut rng);
         let c = rand(&[3, 5], &mut rng);
 
-        let result = gemm_op(&a, &b, Some(&c), 1.0, 1.0, false, false);
+        let result = gemm_op(a.view(), b.view(), Some(c.view()), 1.0, 1.0, false, false);
 
         assert_eq!(
             result.err(),
@@ -264,7 +256,7 @@ mod tests {
         let mut expected = zeros(&[3, 8]);
         gemm_tensors(&mut expected, &a, &b, 1., 1.);
 
-        let result = matmul(&a, &b).unwrap();
+        let result = matmul(a.view(), b.view()).unwrap();
         expect_equal(&result, &expected)
     }
 
@@ -280,13 +272,13 @@ mod tests {
 
         // LHS input has excess 1 dims
         a.reshape(&[1, 1, 3, 10]);
-        let result = matmul(&a, &b).unwrap();
+        let result = matmul(a.view(), b.view()).unwrap();
         expect_equal(&result, &expected)?;
 
         // RHS input has excess 1 dims
         a.reshape(&[3, 10]);
         b.reshape(&[1, 1, 10, 8]);
-        let result = matmul(&a, &b).unwrap();
+        let result = matmul(a.view(), b.view()).unwrap();
         expect_equal(&result, &expected)?;
 
         // RHS input requires broadcasting
@@ -300,7 +292,7 @@ mod tests {
             broadcast_expected_shape.into(),
             expected.broadcast_iter(broadcast_expected_shape).collect(),
         );
-        let result = matmul(&broadcast_a, &b).unwrap();
+        let result = matmul(broadcast_a.view(), b.view()).unwrap();
         expect_equal(&result, &broadcast_expected)?;
 
         // LHS input requires broadcasting
@@ -314,7 +306,7 @@ mod tests {
             broadcast_expected_shape.into(),
             expected.broadcast_iter(broadcast_expected_shape).collect(),
         );
-        let result = matmul(&a, &broadcast_b).unwrap();
+        let result = matmul(a.view(), broadcast_b.view()).unwrap();
         expect_equal(&result, &expected)?;
 
         Ok(())
