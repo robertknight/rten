@@ -231,6 +231,21 @@ impl<T: Copy> Elements<'_, T> {
         }
     }
 
+    /// Create a new iterator for elements of a given view. Unlike
+    /// [Elements::new], the lifetime is that of the element storage rather than
+    /// the view.
+    pub(super) fn from_view<'a>(view: &TensorBase<T, &'a [T]>) -> Elements<'a, T> {
+        if view.layout.is_contiguous() {
+            Elements {
+                iter: ElementsIter::Direct(view.data.as_ref().iter()),
+            }
+        } else {
+            Elements {
+                iter: ElementsIter::Indexing(IndexingIter::from_view(view)),
+            }
+        }
+    }
+
     pub(super) fn slice<'a, S: AsRef<[T]>>(
         view: &'a TensorBase<T, S>,
         ranges: &[SliceRange],
@@ -288,6 +303,13 @@ impl<'a, T: Copy> IndexingIter<'a, T> {
         IndexingIter {
             base: IndexingIterBase::new(&view.layout),
             data: view.data.as_ref(),
+        }
+    }
+
+    fn from_view(view: &TensorBase<T, &'a [T]>) -> IndexingIter<'a, T> {
+        IndexingIter {
+            base: IndexingIterBase::new(&view.layout),
+            data: view.data,
         }
     }
 

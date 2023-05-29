@@ -4,10 +4,12 @@ use std::iter::zip;
 use std::marker::PhantomData;
 use std::ops::{Index, IndexMut};
 
+use super::iterators::Elements;
 use super::layout::Layout;
 use super::overlap::may_have_internal_overlap;
 use super::range::SliceItem;
 use super::IntoSliceItems;
+use super::TensorBase;
 
 /// Describes how to view a linear buffer as an `N`-dimensional array.
 #[derive(Clone, Copy)]
@@ -284,6 +286,19 @@ impl<T, S: AsRef<[T]>, const N: usize> NdTensorBase<T, S, N> {
     }
 }
 
+impl<T: Copy, S: AsRef<[T]>, const N: usize> NdTensorBase<T, S, N> {
+    /// Convert this tensor with a static dimension count to one with a dynamic
+    /// dimension count.
+    pub fn as_dyn(&self) -> TensorBase<T, &[T]> {
+        TensorBase::new(self.data.as_ref(), &self.layout.as_dyn())
+    }
+
+    /// Return an iterator over elements of this tensor.
+    pub fn iter(&self) -> Elements<T> {
+        Elements::from_view(&self.as_dyn())
+    }
+}
+
 impl<T: Clone, S: AsRef<[T]>, const N: usize> NdTensorBase<T, S, N> {
     /// Return the underlying elements, in the order they are stored.
     ///
@@ -540,7 +555,10 @@ impl<T, S: AsRef<[T]> + AsMut<[T]>, const N: usize> IndexMut<[usize; N]>
 
 #[cfg(test)]
 mod tests {
-    use super::{FromDataError, MatrixLayout, NdTensorLayout, NdTensorView, NdTensorViewMut};
+    use super::{
+        FromDataError, MatrixLayout, NdTensor, NdTensorLayout, NdTensorView, NdTensorViewMut,
+    };
+    use crate::tensor::TensorLayout;
 
     /// Return elements of `matrix` in their logical order.
     ///
@@ -553,6 +571,27 @@ mod tests {
             }
         }
         result
+    }
+
+    // Test conversion of a static-dim tensor with default strides, to a
+    // dynamic dim tensor.
+    #[test]
+    fn test_ndtensor_as_dyn() {
+        let tensor = NdTensor::from_data(vec![1, 2, 3, 4], [2, 2], None).unwrap();
+        let dyn_tensor = tensor.as_dyn();
+        assert_eq!(tensor.shape(), dyn_tensor.shape());
+        assert_eq!(tensor.data(), dyn_tensor.data());
+    }
+
+    // Test conversion of a static-dim tensor with broadcasting strides (ie.
+    // some strides are 0), to a dynamic dim tensor.
+    #[test]
+    fn test_ndtensor_as_dyn_broadcast() {
+        let data = [1, 2, 3, 4];
+        let view = NdTensorView::from_slice(&data, [4, 4], Some([0, 1])).unwrap();
+        let dyn_view = view.as_dyn();
+        let elements: Vec<_> = dyn_view.iter().collect();
+        assert_eq!(elements, &[1, 2, 3, 4, 1, 2, 3, 4, 1, 2, 3, 4, 1, 2, 3, 4]);
     }
 
     #[test]
@@ -661,6 +700,13 @@ mod tests {
         let data = vec![1., 2., 3., 4.];
         let result = NdTensorView::<f32, 3>::from_slice(&data, [10, 2, 2], Some([0, 2, 1]));
         assert!(result.is_ok());
+    }
+
+    #[test]
+    fn test_ndtensor_iter() {
+        let tensor = NdTensor::<i32, 2>::from_data(vec![1, 2, 3, 4], [2, 2], None).unwrap();
+        let elements: Vec<_> = tensor.iter().collect();
+        assert_eq!(elements, &[1, 2, 3, 4]);
     }
 
     #[test]

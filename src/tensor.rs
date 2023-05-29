@@ -206,7 +206,8 @@ pub type TensorView<'a, T = f32> = TensorBase<T, &'a [T]>;
 pub type TensorViewMut<'a, T = f32> = TensorBase<T, &'a mut [T]>;
 
 impl<T: Copy, S: AsRef<[T]>> TensorBase<T, S> {
-    fn new(data: S, layout: &Layout) -> Self {
+    /// Create a new tensor with a given layout and storage.
+    pub(self) fn new(data: S, layout: &Layout) -> Self {
         TensorBase {
             data,
             layout: layout.clone(),
