@@ -1,9 +1,9 @@
 use crate::check_dims;
 use crate::ops::{Input, InputList, IntoOpResult, OpError, Operator, Output};
-use crate::tensor::{Tensor, TensorLayout};
+use crate::tensor::{Tensor, TensorLayout, TensorView};
 
 pub fn pad<T: Copy>(
-    input: &Tensor<T>,
+    input: TensorView<T>,
     padding: &Tensor<i32>,
     const_val: T,
 ) -> Result<Tensor<T>, OpError> {
@@ -67,11 +67,11 @@ impl Operator for Pad {
         match input {
             Input::IntTensor(t) => {
                 let const_val = inputs.get_as_scalar::<i32>(2)?;
-                pad(t, pads, const_val.unwrap_or(0)).into_op_result()
+                pad(t.view(), pads, const_val.unwrap_or(0)).into_op_result()
             }
             Input::FloatTensor(t) => {
                 let const_val = inputs.get_as_scalar::<f32>(2)?;
-                pad(t, pads, const_val.unwrap_or(0.0)).into_op_result()
+                pad(t.view(), pads, const_val.unwrap_or(0.0)).into_op_result()
             }
         }
     }
@@ -98,18 +98,18 @@ mod tests {
             ],
         );
         let const_pads = from_slice(&[1, 1, 1, 1]);
-        let result = pad(&input, &const_pads, 0.0).unwrap();
+        let result = pad(input.view(), &const_pads, 0.0).unwrap();
         expect_equal(&result, &expected)?;
 
         // Zero padding (no-op)
         let zero_pads = from_slice(&[0, 0, 0, 0]);
-        let result = pad(&input, &zero_pads, 0.0).unwrap();
+        let result = pad(input.view(), &zero_pads, 0.0).unwrap();
         expect_equal(&result, &input)?;
 
         // Un-even padding
         let input = from_data(&[1, 2, 2], vec![1, 2, 3, 4]);
         let pads = from_slice(&[0, 0, 0, 0, 1, 0]);
-        let result = pad(&input, &pads, 0).unwrap();
+        let result = pad(input.view(), &pads, 0).unwrap();
         assert_eq!(result.shape(), &[1, 3, 2]);
         assert_eq!(result.data(), &[1, 2, 3, 4, 0, 0]);
 
@@ -126,7 +126,7 @@ mod tests {
             ],
         );
         let const_pads = from_slice(&[1, 1, 1, 1]);
-        let result = pad(&input, &const_pads, 9.).unwrap();
+        let result = pad(input.view(), &const_pads, 9.).unwrap();
         expect_equal(&result, &expected)
     }
 
