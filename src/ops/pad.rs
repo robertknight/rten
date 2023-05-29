@@ -1,6 +1,8 @@
+use std::iter::zip;
+
 use crate::check_dims;
 use crate::ops::{Input, InputList, IntoOpResult, OpError, Operator, Output};
-use crate::tensor::{Tensor, TensorLayout, TensorView};
+use crate::tensor::{SliceItem, Tensor, TensorLayout, TensorView};
 
 pub fn pad<T: Copy>(
     input: TensorView<T>,
@@ -30,16 +32,22 @@ pub fn pad<T: Copy>(
         .collect();
     let out_len = out_shape.iter().product();
 
-    let mut output = Tensor::from_data(&out_shape, vec![const_val; out_len]);
-    let mut in_iter = input.indices();
-    let mut out_index = vec![0; output.shape().len()];
+    let non_pad_region: Vec<SliceItem> = input
+        .shape()
+        .iter()
+        .enumerate()
+        .map(|(i, size)| {
+            let start_pad = padding[[i]] as usize;
+            (start_pad..start_pad + size).into()
+        })
+        .collect();
 
-    while let Some(in_index) = in_iter.next() {
-        out_index.copy_from_slice(in_index);
-        for i in 0..out_index.len() {
-            out_index[i] += padding[[i]] as usize;
-        }
-        output[&out_index[..]] = input[in_index];
+    let mut output = Tensor::from_data(&out_shape, vec![const_val; out_len]);
+    for (out, in_) in zip(
+        output.slice_mut_dyn(&non_pad_region).iter_mut(),
+        input.iter(),
+    ) {
+        *out = in_;
     }
 
     Ok(output)
