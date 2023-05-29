@@ -596,12 +596,12 @@ mod tests {
     use crate::ops;
     use crate::ops::{CoordTransformMode, NearestMode, OpError, Padding, ResizeMode, Scalar};
     use crate::tensor;
-    use crate::tensor::{from_data, Tensor, TensorLayout};
+    use crate::tensor::{Tensor, TensorLayout};
 
     fn generate_model_buffer() -> Vec<u8> {
         let mut builder = ModelBuilder::new();
 
-        let const_val = from_data(&[1, 2, 2], vec![0.5, -0.5, 0.1, -0.1]);
+        let const_val = Tensor::from_data(&[1, 2, 2], vec![0.5, -0.5, 0.1, -0.1]);
         let const_node = builder.add_float_constant(&const_val);
 
         let input_shape: Vec<Dimension> = const_val
@@ -661,7 +661,7 @@ mod tests {
         let input_id = model.input_ids()[0];
         let output_id = model.output_ids()[0];
 
-        let input = from_data(&[1, 2, 2], vec![1., 2., -1., -2.]);
+        let input = Tensor::from_data(&[1, 2, 2], vec![1., 2., -1., -2.]);
         let result = model
             .run(&[(input_id, (&input).into())], &[output_id], None)
             .unwrap();
@@ -706,7 +706,7 @@ mod tests {
         let input_node = builder.add_value("input", None);
         let input_2d = builder.add_value("input.2d", None);
 
-        let kernel_val = from_data(&[1, 1, 1, 1], vec![0.5]);
+        let kernel_val = Tensor::from_data(&[1, 1, 1, 1], vec![0.5]);
         let kernel = builder.add_float_constant(&kernel_val);
 
         // Names of all operator output nodes.
@@ -776,7 +776,7 @@ mod tests {
         add_operator!(Clip, [input_node, clip_min, clip_max]);
         add_operator!(Concat, [input_node, input_node], { dim: 0 });
 
-        let shape = builder.add_int_constant(&from_data(&[3], vec![1, 5, 10]));
+        let shape = builder.add_int_constant(&Tensor::from_data(&[3], vec![1, 5, 10]));
         add_operator!(ConstantOfShape, [shape], { value: Scalar::Int(42) });
 
         add_operator!(Conv, [input_node, kernel], {
@@ -797,7 +797,7 @@ mod tests {
 
         add_operator!(Flatten, [input_node], { axis: 1 });
 
-        let gather_indices_val = from_data(&[1], vec![0]);
+        let gather_indices_val = Tensor::from_data(&[1], vec![0]);
         let gather_indices = builder.add_int_constant(&gather_indices_val);
         add_operator!(Gather, [input_node, gather_indices], { axis: 0 });
 
@@ -829,7 +829,7 @@ mod tests {
         });
         add_operator!(Mul, [input_node, input_node]);
 
-        let pads = builder.add_int_constant(&from_data(&[8], vec![0, 0, 1, 1, 0, 0, 1, 1]));
+        let pads = builder.add_int_constant(&Tensor::from_data(&[8], vec![0, 0, 1, 1, 0, 0, 1, 1]));
         add_operator!(Pad, [input_node, pads]);
         add_operator!(Pow, [input_node, input_node]);
 
@@ -847,7 +847,7 @@ mod tests {
         });
         add_operator!(Relu, [input_node]);
 
-        let new_shape = builder.add_int_constant(&from_data(&[1], vec![9]));
+        let new_shape = builder.add_int_constant(&Tensor::from_data(&[1], vec![9]));
         add_operator!(Reshape, [input_node, new_shape], {
             allow_zero: false,
         });
@@ -866,8 +866,8 @@ mod tests {
         add_operator!(Sigmoid, [input_node]);
         add_operator!(Sin, [input_node]);
 
-        let const_0 = builder.add_int_constant(&from_data(&[1], vec![0]));
-        let const_1 = builder.add_int_constant(&from_data(&[1], vec![1]));
+        let const_0 = builder.add_int_constant(&Tensor::from_data(&[1], vec![0]));
+        let const_1 = builder.add_int_constant(&Tensor::from_data(&[1], vec![1]));
         add_operator!(Slice, [input_node, const_0, const_1, const_0]);
 
         add_operator!(Softmax, [input_node], { axis: 1 });
@@ -902,7 +902,7 @@ mod tests {
 
         // Most ops are tested with a 4D input (eg. NCHW image). A few require
         // different shapes are tested separately.
-        let input = from_data(&[1, 1, 3, 3], vec![1., 2., 3., 4., 5., 6., 7., 8., 9.]);
+        let input = Tensor::from_data(&[1, 1, 3, 3], vec![1., 2., 3., 4., 5., 6., 7., 8., 9.]);
         for output in op_outputs {
             if [
                 "Gemm_out",
@@ -931,7 +931,7 @@ mod tests {
 
         // Outputs of ops tested with a 2D input.
         let outputs = vec!["Gemm_out", "MatMul_out", "Split_out_1", "Split_out_2"];
-        let input = from_data(&[3, 3], vec![1., 2., 3., 4., 5., 6., 7., 8., 9.]);
+        let input = Tensor::from_data(&[3, 3], vec![1., 2., 3., 4., 5., 6., 7., 8., 9.]);
 
         for output in outputs {
             let output_id = model.find_node(output).unwrap();

@@ -82,7 +82,7 @@ impl Operator for Gather {
 mod tests {
     use crate::ops::{gather, OpError};
     use crate::rng::XorShiftRng;
-    use crate::tensor::{from_data, Tensor, TensorLayout};
+    use crate::tensor::{Tensor, TensorLayout};
     use crate::test_util::expect_equal;
 
     #[test]
@@ -101,21 +101,21 @@ mod tests {
         // to lookup up embeddings.
         let mut rng = XorShiftRng::new(1234);
         let input = Tensor::rand(&[128, 10], &mut rng);
-        let indices = from_data(&[2, 2], vec![2, 5, 8, 50]);
+        let indices = Tensor::from_data(&[2, 2], vec![2, 5, 8, 50]);
         let result = gather(input.view(), 0, indices.view()).unwrap();
         assert_eq!(result.shape(), &[2, 2, 10]);
 
         // Test case #1 from ONNX spec.
-        let input = from_data(&[3, 2], vec![1.0, 1.2, 2.3, 3.4, 4.5, 5.7]);
-        let indices = from_data(&[2, 2], vec![0, 1, 1, 2]);
-        let expected = from_data(&[2, 2, 2], vec![1.0, 1.2, 2.3, 3.4, 2.3, 3.4, 4.5, 5.7]);
+        let input = Tensor::from_data(&[3, 2], vec![1.0, 1.2, 2.3, 3.4, 4.5, 5.7]);
+        let indices = Tensor::from_data(&[2, 2], vec![0, 1, 1, 2]);
+        let expected = Tensor::from_data(&[2, 2, 2], vec![1.0, 1.2, 2.3, 3.4, 2.3, 3.4, 4.5, 5.7]);
         let result = gather(input.view(), 0, indices.view()).unwrap();
         expect_equal(&result, &expected)?;
 
         // Test case #2 from ONNX spec.
-        let input = from_data(&[3, 3], vec![1.0, 1.2, 1.9, 2.3, 3.4, 3.9, 4.5, 5.7, 5.9]);
-        let indices = from_data(&[1, 2], vec![0, 2]);
-        let expected = from_data(&[3, 1, 2], vec![1.0, 1.9, 2.3, 3.9, 4.5, 5.9]);
+        let input = Tensor::from_data(&[3, 3], vec![1.0, 1.2, 1.9, 2.3, 3.4, 3.9, 4.5, 5.7, 5.9]);
+        let indices = Tensor::from_data(&[1, 2], vec![0, 2]);
+        let expected = Tensor::from_data(&[3, 1, 2], vec![1.0, 1.9, 2.3, 3.9, 4.5, 5.9]);
         let result = gather(input.view(), 1, indices.view()).unwrap();
         expect_equal(&result, &expected)
     }
@@ -124,14 +124,14 @@ mod tests {
     fn test_gather_invalid_inputs() {
         let mut rng = XorShiftRng::new(1234);
         let input = Tensor::rand(&[128, 10], &mut rng);
-        let indices = from_data(&[2, 2], vec![2, 5, 8, 50]);
+        let indices = Tensor::from_data(&[2, 2], vec![2, 5, 8, 50]);
         let result = gather(input.view(), 5, indices.view());
         assert_eq!(
             result.err(),
             Some(OpError::InvalidValue("`axis` is out of range"))
         );
 
-        let indices = from_data(&[2, 2], vec![2, 5, 8, 130]);
+        let indices = Tensor::from_data(&[2, 2], vec![2, 5, 8, 130]);
         let result = gather(input.view(), 0, indices.view());
         assert_eq!(
             result.err(),

@@ -125,25 +125,25 @@ impl Operator for Concat {
 #[cfg(test)]
 mod tests {
     use crate::ops::{concat, OpError};
-    use crate::tensor::{from_data, Tensor, TensorLayout};
+    use crate::tensor::{Tensor, TensorLayout};
     use crate::test_util::expect_equal;
 
     fn from_slice<T: Copy>(data: &[T]) -> Tensor<T> {
-        from_data(&[data.len()], data.into())
+        Tensor::from_data(&[data.len()], data.to_vec())
     }
 
     #[test]
     fn test_concat() -> Result<(), String> {
-        let a = from_data(&[2, 2, 1], vec![0.1, 0.2, 0.3, 0.4]);
-        let b = from_data(&[2, 2, 1], vec![1.0, 2.0, 3.0, 4.0]);
+        let a = Tensor::from_data(&[2, 2, 1], vec![0.1, 0.2, 0.3, 0.4]);
+        let b = Tensor::from_data(&[2, 2, 1], vec![1.0, 2.0, 3.0, 4.0]);
 
         // Concatenation along the first dimension
-        let expected = from_data(&[4, 2, 1], vec![0.1, 0.2, 0.3, 0.4, 1.0, 2.0, 3.0, 4.0]);
+        let expected = Tensor::from_data(&[4, 2, 1], vec![0.1, 0.2, 0.3, 0.4, 1.0, 2.0, 3.0, 4.0]);
         let result = concat(&[a.view(), b.view()], 0).unwrap();
         expect_equal(&result, &expected)?;
 
         // Concatenation along a non-first dimension
-        let expected = from_data(&[2, 2, 2], vec![0.1, 1.0, 0.2, 2.0, 0.3, 3.0, 0.4, 4.0]);
+        let expected = Tensor::from_data(&[2, 2, 2], vec![0.1, 1.0, 0.2, 2.0, 0.3, 3.0, 0.4, 4.0]);
         let result = concat(&[a.view(), b.view()], 2).unwrap();
         expect_equal(&result, &expected)?;
 

@@ -485,7 +485,7 @@ mod tests {
     use crate::ops::pooling::calc_output_size_and_padding;
     use crate::ops::{conv, conv_transpose, Conv, InputList, OpError, Operator, Padding};
     use crate::rng::XorShiftRng;
-    use crate::tensor::{from_data, Tensor, TensorLayout};
+    use crate::tensor::{Tensor, TensorLayout};
     use crate::test_util::expect_equal;
 
     /// Un-optimized reference implementation of convolution.
@@ -564,21 +564,21 @@ mod tests {
     /// computed from PyTorch as well as the reference implementation.
     #[test]
     fn test_conv() -> Result<(), String> {
-        let kernel = from_data(
+        let kernel = Tensor::from_data(
             &[1, 1, 3, 3],
             vec![
                 0.3230, 0.7632, 0.4616, 0.8837, 0.5898, 0.3424, 0.2101, 0.7821, 0.6861,
             ],
         );
 
-        let input = from_data(
+        let input = Tensor::from_data(
             &[1, 1, 3, 3],
             vec![
                 0.5946, 0.8249, 0.0448, 0.9552, 0.2041, 0.2501, 0.2693, 0.1007, 0.8862,
             ],
         );
 
-        let expected_with_same_padding = from_data(
+        let expected_with_same_padding = Tensor::from_data(
             &[1, 1, 3, 3],
             vec![
                 1.5202, 1.5592, 0.9939, 1.7475, 2.6358, 1.3428, 1.0165, 1.1806, 0.8685,
@@ -605,7 +605,7 @@ mod tests {
         expect_equal(&result, &expected_with_same_padding)?;
         expect_equal(&result, &reference_result)?;
 
-        let expected_with_no_padding = from_data(&[1, 1, 1, 1], vec![2.6358]);
+        let expected_with_no_padding = Tensor::from_data(&[1, 1, 1, 1], vec![2.6358]);
 
         let result = conv(
             &input,
@@ -627,8 +627,8 @@ mod tests {
         expect_equal(&result, &expected_with_no_padding)?;
         expect_equal(&result, &reference_result)?;
 
-        let expected_with_bias = from_data(&[1, 1, 1, 1], vec![3.6358]);
-        let bias = from_data(&[1], vec![1.0]);
+        let expected_with_bias = Tensor::from_data(&[1, 1, 1, 1], vec![3.6358]);
+        let bias = Tensor::from_data(&[1], vec![1.0]);
         let result = conv(
             &input,
             &kernel,
@@ -652,14 +652,14 @@ mod tests {
 
     #[test]
     fn test_conv_same_padding() -> Result<(), String> {
-        let kernel = &from_data(
+        let kernel = &Tensor::from_data(
             &[1, 1, 3, 3],
             vec![
                 0.3230, 0.7632, 0.4616, 0.8837, 0.5898, 0.3424, 0.2101, 0.7821, 0.6861,
             ],
         );
 
-        let input = &from_data(
+        let input = &Tensor::from_data(
             &[1, 1, 3, 3],
             vec![
                 0.5946, 0.8249, 0.0448, 0.9552, 0.2041, 0.2501, 0.2693, 0.1007, 0.8862,
@@ -829,22 +829,22 @@ mod tests {
     // one input channel at a time.
     #[test]
     fn test_conv_depthwise() -> Result<(), String> {
-        let input = from_data(
+        let input = Tensor::from_data(
             &[1, 3, 2, 2],
             vec![
                 0.5946, 0.8249, 0.0448, 0.9552, 0.2041, 0.2501, 0.2693, 0.1007, 1.5202, 1.5592,
                 0.9939, 1.7475,
             ],
         );
-        let kernel = from_data(
+        let kernel = Tensor::from_data(
             &[3, 1, 2, 2],
             vec![
                 -0.0862, -0.4111, 0.0813, 0.4993, -0.4641, 0.1715, -0.0532, -0.2429, -0.4325,
                 0.4273, 0.4180, 0.4338,
             ],
         );
-        let bias = from_data(&[3], vec![0.1, 0.2, 0.3]);
-        let expected = from_data(
+        let bias = Tensor::from_data(&[3], vec![0.1, 0.2, 0.3]);
+        let expected = Tensor::from_data(
             &[1, 3, 1, 1],
             vec![
                 0.09020272 + bias[[0]],
@@ -1017,9 +1017,9 @@ mod tests {
 
     #[test]
     fn test_conv_transpose() -> Result<(), String> {
-        let input = from_data(&[1, 1, 2, 2], vec![1.0, 2.0, 3.0, 4.0]);
-        let kernel = from_data(&[1, 1, 2, 2], vec![0.1, 0.2, 0.3, 0.4]);
-        let expected = from_data(
+        let input = Tensor::from_data(&[1, 1, 2, 2], vec![1.0, 2.0, 3.0, 4.0]);
+        let kernel = Tensor::from_data(&[1, 1, 2, 2], vec![0.1, 0.2, 0.3, 0.4]);
+        let expected = Tensor::from_data(
             &[1, 1, 4, 4],
             vec![
                 0.1000, 0.2000, 0.2000, 0.4000, 0.3000, 0.4000, 0.6000, 0.8000, 0.3000, 0.6000,
@@ -1030,11 +1030,12 @@ mod tests {
         let result = conv_transpose(&input, &kernel, None, [2, 2]).unwrap();
         expect_equal(&result, &expected)?;
 
-        let mut expected_with_bias = from_data(expected.shape().into(), expected.data().into());
+        let mut expected_with_bias =
+            Tensor::from_data(expected.shape().into(), expected.data().to_vec());
         for i in 0..expected_with_bias.len() {
             expected_with_bias.data_mut()[i] += 1.234;
         }
-        let bias = from_data(&[1], vec![1.234]);
+        let bias = Tensor::from_data(&[1], vec![1.234]);
         let result = conv_transpose(&input, &kernel, Some(&bias), [2, 2]).unwrap();
         expect_equal(&result, &expected_with_bias)
     }

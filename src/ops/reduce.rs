@@ -390,7 +390,7 @@ impl Operator for ReduceL2 {
 mod tests {
     use crate::ops::{arg_max, arg_min, cum_sum, reduce_l2, reduce_mean, OpError};
     use crate::tensor;
-    use crate::tensor::{from_data, Tensor, TensorLayout};
+    use crate::tensor::{Tensor, TensorLayout};
     use crate::test_util::expect_equal;
 
     #[test]
@@ -408,7 +408,7 @@ mod tests {
         // Common use case of a tensor of (batch, item, prob) where
         // `item` is eg. a token index in a sequence or box ID for object
         // detection.
-        let seq_probs = from_data(
+        let seq_probs = Tensor::from_data(
             &[1, 4, 3],
             vec![
                 0.1, 0.2, 0.9, // First item
@@ -427,13 +427,13 @@ mod tests {
         assert_eq!(seq_classes.to_vec(), &[2, 0, 1, 2]);
 
         // Empty tensor, axis is a non-zero-sized dim
-        let empty = from_data::<i32>(&[10, 0, 5], vec![]);
+        let empty = Tensor::<i32>::from_data(&[10, 0, 5], vec![]);
         let result = arg_max(empty.view(), 0, false /* keep_dims */).unwrap();
         assert_eq!(result.shape(), &[0, 5]);
         assert_eq!(result.to_vec(), &[] as &[i32]);
 
         // Empty tensor, axis is a zero-sized dim
-        let empty = from_data::<i32>(&[10, 0, 5], vec![]);
+        let empty = Tensor::<i32>::from_data(&[10, 0, 5], vec![]);
         let result = arg_max(empty.view(), 1, false /* keep_dims */);
         assert_eq!(
             result.err(),
@@ -459,7 +459,7 @@ mod tests {
         assert_eq!(sums.shape(), &[6]);
         assert_eq!(sums.to_vec(), &[0, 1, 3, 6, 10, 15]);
 
-        let elements = from_data(&[2, 4], (0..4).chain(0..4).collect());
+        let elements = Tensor::from_data(&[2, 4], (0..4).chain(0..4).collect::<Vec<_>>());
         let sums = cum_sum(elements.view(), 1).unwrap();
         assert_eq!(sums.shape(), &[2, 4]);
         assert_eq!(sums.to_vec(), &[0, 1, 3, 6, 0, 1, 3, 6]);
@@ -476,8 +476,8 @@ mod tests {
 
     #[test]
     fn test_reduce_l2() -> Result<(), String> {
-        let input = from_data(&[3, 2, 2], (1..=12).map(|i| i as f32).collect());
-        let expected = from_data(
+        let input = Tensor::from_data(&[3, 2, 2], (1..=12).map(|i| i as f32).collect::<Vec<_>>());
+        let expected = Tensor::from_data(
             &[3, 2],
             vec![
                 2.23606798,
@@ -501,7 +501,7 @@ mod tests {
 
     #[test]
     fn test_reduce_mean() -> Result<(), String> {
-        let input = from_data(&[3, 3], vec![1., 2., 3., 4., 5., 6., 7., 8., 9.]);
+        let input = Tensor::from_data(&[3, 3], vec![1., 2., 3., 4., 5., 6., 7., 8., 9.]);
 
         // Test with `keep_dims` off
         let result = reduce_mean(input.view(), Some(&[-1]), false /* keep_dims */).unwrap();
@@ -510,7 +510,7 @@ mod tests {
 
         // Test with `keep_dims` on
         let result = reduce_mean(input.view(), Some(&[-1]), true /* keep_dims */).unwrap();
-        let expected = from_data(&[3, 1], vec![2., 5., 8.]);
+        let expected = Tensor::from_data(&[3, 1], vec![2., 5., 8.]);
         expect_equal(&result, &expected)?;
 
         // Reduce first dim
@@ -529,11 +529,11 @@ mod tests {
         expect_equal(&result, &expected)?;
 
         // Test case from ONNX spec
-        let input = from_data(
+        let input = Tensor::from_data(
             &[3, 2, 2],
             vec![5., 1., 20., 2., 30., 1., 40., 2., 55., 1., 60., 2.],
         );
-        let expected = from_data(&[3, 2], vec![12.5, 1.5, 35., 1.5, 57.5, 1.5]);
+        let expected = Tensor::from_data(&[3, 2], vec![12.5, 1.5, 35., 1.5, 57.5, 1.5]);
         let result = reduce_mean(input.view(), Some(&[1]), false /* keep_dims */).unwrap();
         expect_equal(&result, &expected)?;
 
@@ -560,7 +560,7 @@ mod tests {
 
     #[test]
     fn test_reduce_mean_invalid_inputs() {
-        let input = from_data(&[3, 3], vec![1., 2., 3., 4., 5., 6., 7., 8., 9.]);
+        let input = Tensor::from_data(&[3, 3], vec![1., 2., 3., 4., 5., 6., 7., 8., 9.]);
 
         let result = reduce_mean(input.view(), Some(&[3]), false /* keep_dims */);
         assert_eq!(result.err(), Some(OpError::InvalidValue("Axis is invalid")));

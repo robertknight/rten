@@ -168,7 +168,7 @@ mod tests {
     use crate::linalg::gemm;
     use crate::ops::matmul::{gemm_op, matmul, OpError};
     use crate::rng::XorShiftRng;
-    use crate::tensor::{from_data, Tensor, TensorLayout};
+    use crate::tensor::{Tensor, TensorLayout};
     use crate::test_util::expect_equal;
 
     fn gemm_tensors(c: &mut Tensor, a: &Tensor, b: &Tensor, alpha: f32, beta: f32) {
@@ -284,13 +284,15 @@ mod tests {
         // RHS input requires broadcasting
         let broadcast_a_shape = &[1, 4, 3, 10][..];
         let broadcast_expected_shape = &[1, 4, 3, 8][..];
-        let broadcast_a = from_data(
+        let broadcast_a = Tensor::from_data(
             broadcast_a_shape.into(),
-            a.broadcast_iter(broadcast_a_shape).collect(),
+            a.broadcast_iter(broadcast_a_shape).collect::<Vec<_>>(),
         );
-        let broadcast_expected = from_data(
+        let broadcast_expected = Tensor::from_data(
             broadcast_expected_shape.into(),
-            expected.broadcast_iter(broadcast_expected_shape).collect(),
+            expected
+                .broadcast_iter(broadcast_expected_shape)
+                .collect::<Vec<_>>(),
         );
         let result = matmul(broadcast_a.view(), b.view()).unwrap();
         expect_equal(&result, &broadcast_expected)?;
@@ -298,13 +300,15 @@ mod tests {
         // LHS input requires broadcasting
         let broadcast_b_shape = &[1, 3, 10, 8][..];
         let broadcast_expected_shape = &[1, 3, 3, 8][..];
-        let broadcast_b = from_data(
+        let broadcast_b = Tensor::from_data(
             broadcast_b_shape.into(),
-            b.broadcast_iter(broadcast_b_shape).collect(),
+            b.broadcast_iter(broadcast_b_shape).collect::<Vec<_>>(),
         );
-        let expected = from_data(
+        let expected = Tensor::from_data(
             broadcast_expected_shape.into(),
-            expected.broadcast_iter(broadcast_expected_shape).collect(),
+            expected
+                .broadcast_iter(broadcast_expected_shape)
+                .collect::<Vec<_>>(),
         );
         let result = matmul(a.view(), broadcast_b.view()).unwrap();
         expect_equal(&result, &expected)?;

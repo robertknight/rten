@@ -815,12 +815,6 @@ impl RandomSource<f32> for XorShiftRng {
     }
 }
 
-/// Create a new tensor with a given shape and values
-#[cfg(test)]
-pub fn from_data<T: Copy>(shape: &[usize], data: Vec<T>) -> Tensor<T> {
-    Tensor::from_data(shape, data)
-}
-
 #[cfg(test)]
 mod tests {
     use std::borrow::Cow;
@@ -828,7 +822,7 @@ mod tests {
 
     use crate::rng::XorShiftRng;
     use crate::tensor;
-    use crate::tensor::{from_data, SliceRange, Tensor, TensorLayout, TensorView, TensorViewMut};
+    use crate::tensor::{SliceRange, Tensor, TensorLayout, TensorView, TensorViewMut};
 
     /// Create a tensor where the value of each element is its logical index
     /// plus one.
@@ -844,7 +838,7 @@ mod tests {
     fn test_apply() {
         let mut x = steps(&[3, 3]);
         x.apply(|el| el * el);
-        let expected = from_data(&[3, 3], vec![1, 4, 9, 16, 25, 36, 49, 64, 81]);
+        let expected = Tensor::from_data(&[3, 3], vec![1, 4, 9, 16, 25, 36, 49, 64, 81]);
         assert_eq!(x, expected);
     }
 
@@ -1003,7 +997,7 @@ mod tests {
         let vec_many_items = tensor!([1.0, 2.0]);
         assert_eq!(vec_many_items.item(), None);
 
-        let matrix_one_item = from_data(&[1, 1], vec![5.0]);
+        let matrix_one_item = Tensor::from_data(&[1, 1], vec![5.0]);
         assert_eq!(matrix_one_item.item(), Some(5.0));
     }
 
@@ -1011,7 +1005,7 @@ mod tests {
     fn test_ndim() {
         let scalar = Tensor::from_scalar(5.0);
         let vec = tensor!([5.0]);
-        let matrix = from_data(&[1, 1], vec![5.0]);
+        let matrix = Tensor::from_data(&[1, 1], vec![5.0]);
 
         assert_eq!(scalar.ndim(), 0);
         assert_eq!(vec.ndim(), 1);
@@ -1051,7 +1045,7 @@ mod tests {
     fn test_len() {
         let scalar = Tensor::from_scalar(5);
         let vec = tensor!([1, 2, 3]);
-        let matrix = from_data(&[2, 2], vec![1, 2, 3, 4]);
+        let matrix = Tensor::from_data(&[2, 2], vec![1, 2, 3, 4]);
 
         assert_eq!(scalar.len(), 1);
         assert_eq!(vec.len(), 3);
@@ -1392,10 +1386,10 @@ mod tests {
 
     #[test]
     fn test_from_data() {
-        let scalar = from_data(&[], vec![1.0]);
+        let scalar = Tensor::from_data(&[], vec![1.0]);
         assert_eq!(scalar.len(), 1);
 
-        let matrix = from_data(&[2, 2], vec![1, 2, 3, 4]);
+        let matrix = Tensor::from_data(&[2, 2], vec![1, 2, 3, 4]);
         assert_eq!(matrix.shape(), &[2, 2]);
         assert_eq!(matrix.data(), &[1, 2, 3, 4]);
     }
@@ -1419,19 +1413,19 @@ mod tests {
     #[test]
     #[should_panic]
     fn test_from_data_panics_with_wrong_len() {
-        from_data(&[1], vec![1, 2, 3]);
+        Tensor::from_data(&[1], vec![1, 2, 3]);
     }
 
     #[test]
     #[should_panic]
     fn test_from_data_panics_if_scalar_data_empty() {
-        from_data::<i32>(&[], vec![]);
+        Tensor::<i32>::from_data(&[], vec![]);
     }
 
     #[test]
     #[should_panic]
     fn test_from_data_panics_if_scalar_data_has_many_elements() {
-        from_data(&[], vec![1, 2, 3]);
+        Tensor::from_data(&[], vec![1, 2, 3]);
     }
 
     #[test]
@@ -1747,7 +1741,7 @@ mod tests {
     #[test]
     fn test_write() -> std::io::Result<()> {
         use std::io::{Cursor, Read};
-        let x = from_data(&[2, 3], vec![1., 2., 3., 4., 5., 6.]);
+        let x = Tensor::from_data(&[2, 3], vec![1., 2., 3., 4., 5., 6.]);
         let mut buf: Vec<u8> = Vec::new();
 
         x.write(&mut buf)?;

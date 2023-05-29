@@ -146,11 +146,11 @@ impl Operator for Slice {
 mod tests {
     use crate::ops::{slice, slice_in_place};
     use crate::rng::XorShiftRng;
-    use crate::tensor::{from_data, Tensor, TensorLayout};
+    use crate::tensor::{Tensor, TensorLayout};
     use crate::test_util::expect_equal;
 
     fn from_slice<T: Copy>(data: &[T]) -> Tensor<T> {
-        from_data(&[data.len()], data.into())
+        Tensor::from_data(&[data.len()], data.to_vec())
     }
 
     #[test]
@@ -276,7 +276,7 @@ mod tests {
 
     #[test]
     fn test_slice_negative_axes() {
-        let input = from_data(&[3, 3], vec![1, 2, 3, 4, 5, 6, 7, 8, 9]);
+        let input = Tensor::from_data(&[3, 3], vec![1, 2, 3, 4, 5, 6, 7, 8, 9]);
         let starts = from_slice(&[0]);
         let ends = from_slice(&[2]);
 
@@ -291,7 +291,7 @@ mod tests {
 
     #[test]
     fn test_slice_negative_starts() {
-        let input = from_data(&[3, 3], vec![1, 2, 3, 4, 5, 6, 7, 8, 9]);
+        let input = Tensor::from_data(&[3, 3], vec![1, 2, 3, 4, 5, 6, 7, 8, 9]);
         let axes = from_slice(&[-1]);
         let ends = from_slice(&[2]);
 
@@ -306,7 +306,7 @@ mod tests {
 
     #[test]
     fn test_slice_negative_ends() {
-        let input = from_data(&[3, 3], vec![1, 2, 3, 4, 5, 6, 7, 8, 9]);
+        let input = Tensor::from_data(&[3, 3], vec![1, 2, 3, 4, 5, 6, 7, 8, 9]);
         let axes = from_slice(&[-1]);
         let starts = from_slice(&[0]);
 

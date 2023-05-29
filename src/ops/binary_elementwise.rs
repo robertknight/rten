@@ -553,22 +553,22 @@ mod tests {
         Operator, Output,
     };
     use crate::tensor;
-    use crate::tensor::{from_data, Tensor, TensorLayout};
+    use crate::tensor::{Tensor, TensorLayout};
     use crate::test_util::expect_equal;
 
     #[test]
     fn test_add() -> Result<(), String> {
         // Float tensor
-        let a = from_data(&[2, 2], vec![1., 2., 3., 4.]);
-        let b = from_data(&[2, 2], vec![10., 20., 30., 40.]);
-        let expected = from_data(&[2, 2], vec![11., 22., 33., 44.]);
+        let a = Tensor::from_data(&[2, 2], vec![1., 2., 3., 4.]);
+        let b = Tensor::from_data(&[2, 2], vec![10., 20., 30., 40.]);
+        let expected = Tensor::from_data(&[2, 2], vec![11., 22., 33., 44.]);
         let result = add(a.view(), b.view()).unwrap();
         expect_equal(&result, &expected)?;
 
         // Int tensor
-        let a = from_data(&[2, 2], vec![1, 2, 3, 4]);
-        let b = from_data(&[2, 2], vec![10, 20, 30, 40]);
-        let expected = from_data(&[2, 2], vec![11, 22, 33, 44]);
+        let a = Tensor::from_data(&[2, 2], vec![1, 2, 3, 4]);
+        let b = Tensor::from_data(&[2, 2], vec![10, 20, 30, 40]);
+        let expected = Tensor::from_data(&[2, 2], vec![11, 22, 33, 44]);
         let result = add(a.view(), b.view()).unwrap();
         assert_eq!(result, expected);
 
@@ -579,9 +579,9 @@ mod tests {
     fn test_add_broadcasted() -> Result<(), String> {
         // Simple case where comparing ordering of tensor shapes tells us
         // target shape.
-        let a = from_data(&[2, 2], vec![1., 2., 3., 4.]);
-        let b = from_data(&[1], vec![10.]);
-        let expected = from_data(&[2, 2], vec![11., 12., 13., 14.]);
+        let a = Tensor::from_data(&[2, 2], vec![1., 2., 3., 4.]);
+        let b = Tensor::from_data(&[1], vec![10.]);
+        let expected = Tensor::from_data(&[2, 2], vec![11., 12., 13., 14.]);
         let result = add(a.view(), b.view()).unwrap();
         expect_equal(&result, &expected)?;
 
@@ -591,23 +591,23 @@ mod tests {
 
         // Case where the length of tensor shapes needs to be compared before
         // the ordering, since ([5] > [1,5]).
-        let a = from_data(&[5], vec![1., 2., 3., 4., 5.]);
-        let b = from_data(&[1, 5], vec![1., 2., 3., 4., 5.]);
-        let expected = from_data(&[1, 5], vec![2., 4., 6., 8., 10.]);
+        let a = Tensor::from_data(&[5], vec![1., 2., 3., 4., 5.]);
+        let b = Tensor::from_data(&[1, 5], vec![1., 2., 3., 4., 5.]);
+        let expected = Tensor::from_data(&[1, 5], vec![2., 4., 6., 8., 10.]);
 
         let result = add(a.view(), b.view()).unwrap();
         expect_equal(&result, &expected)?;
 
         // Case where one of the inputs is a scalar.
         let a = Tensor::from_scalar(3.0);
-        let b = from_data(&[2, 2], vec![1.0, 2.0, 3.0, 4.0]);
+        let b = Tensor::from_data(&[2, 2], vec![1.0, 2.0, 3.0, 4.0]);
         let result = add(a.view(), b.view()).unwrap();
-        let expected = from_data(&[2, 2], vec![4.0, 5.0, 6.0, 7.0]);
+        let expected = Tensor::from_data(&[2, 2], vec![4.0, 5.0, 6.0, 7.0]);
         expect_equal(&result, &expected)?;
 
         // Case where broadcast shape uses dimensions from both inputs.
-        let a = from_data(&[2, 1], vec![1, 2]);
-        let b = from_data(&[1, 2], vec![3, 4]);
+        let a = Tensor::from_data(&[2, 1], vec![1, 2]);
+        let b = Tensor::from_data(&[1, 2], vec![3, 4]);
         let result = add(a.view(), b.view()).unwrap();
         assert_eq!(result.shape(), &[2, 2]);
         assert_eq!(result.to_vec(), &[4, 5, 5, 6]);
@@ -626,17 +626,17 @@ mod tests {
     #[test]
     fn test_add_in_place() -> Result<(), String> {
         // In-place addition with float inputs that have the same shape.
-        let mut a = from_data(&[2, 2], vec![1., 2., 3., 4.]);
+        let mut a = Tensor::from_data(&[2, 2], vec![1., 2., 3., 4.]);
         let a_copy = a.clone();
-        let b = from_data(&[2, 2], vec![10., 20., 30., 40.]);
-        let expected = from_data(&[2, 2], vec![11., 22., 33., 44.]);
+        let b = Tensor::from_data(&[2, 2], vec![10., 20., 30., 40.]);
+        let expected = Tensor::from_data(&[2, 2], vec![11., 22., 33., 44.]);
         add_in_place(&mut a, b.view());
         expect_equal(&a, &expected)?;
 
         // In-place addition with int inputs that have the same shape.
-        let mut a_ints = from_data(&[2, 2], vec![1, 2, 3, 4]);
-        let b_ints = from_data(&[2, 2], vec![10, 20, 30, 40]);
-        let expected_ints = from_data(&[2, 2], vec![11, 22, 33, 44]);
+        let mut a_ints = Tensor::from_data(&[2, 2], vec![1, 2, 3, 4]);
+        let b_ints = Tensor::from_data(&[2, 2], vec![10, 20, 30, 40]);
+        let expected_ints = Tensor::from_data(&[2, 2], vec![11, 22, 33, 44]);
         add_in_place(&mut a_ints, b_ints.view());
         assert_eq!(&a_ints, &expected_ints);
 
@@ -650,7 +650,7 @@ mod tests {
         // Run `Add` operator in-place with inputs that don't support in-place
         // addition. The operator should fall back to creating a new output tensor.
         let scalar = Tensor::from_scalar(1.0);
-        let expected = from_data(&[2, 2], vec![11., 21., 31., 41.]);
+        let expected = Tensor::from_data(&[2, 2], vec![11., 21., 31., 41.]);
         let result = op
             .run_in_place(Output::FloatTensor(scalar), InputList::from(&[(&b).into()]))
             .unwrap();
@@ -658,20 +658,20 @@ mod tests {
 
         // In-place addition where the second input must be broadcast to the
         // shape of the first.
-        let mut a = from_data(&[2, 2], vec![1., 2., 3., 4.]);
+        let mut a = Tensor::from_data(&[2, 2], vec![1., 2., 3., 4.]);
         let b = tensor!([1., 2.]);
-        let expected = from_data(&[2, 2], vec![2., 4., 4., 6.]);
+        let expected = Tensor::from_data(&[2, 2], vec![2., 4., 4., 6.]);
 
         add_in_place(&mut a, b.view());
         expect_equal(&a, &expected)?;
 
         // In-place addition where the second input must be broadcast to the
         // shape of the first, and the first has a non-contiguous layout.
-        let mut a = from_data(&[2, 3], vec![1., 2., 0., 3., 4., 0.]);
+        let mut a = Tensor::from_data(&[2, 3], vec![1., 2., 0., 3., 4., 0.]);
         a.clip_dim(1, 0..2);
         assert!(!a.is_contiguous());
         let b = tensor!([1., 2.]);
-        let expected = from_data(&[2, 2], vec![2., 4., 4., 6.]);
+        let expected = Tensor::from_data(&[2, 2], vec![2., 4., 4., 6.]);
 
         add_in_place(&mut a, b.view());
         expect_equal(&a, &expected)
@@ -679,8 +679,8 @@ mod tests {
 
     #[test]
     fn test_add_invalid_broadcast() {
-        let a = from_data(&[2, 2], vec![1., 2., 3., 4.]);
-        let b = from_data(&[2, 3], vec![1., 2., 3., 4., 5., 6.]);
+        let a = Tensor::from_data(&[2, 2], vec![1., 2., 3., 4.]);
+        let b = Tensor::from_data(&[2, 3], vec![1., 2., 3., 4., 5., 6.]);
 
         let op = Add {};
         let result = op.run(InputList::from(&[(&a).into(), (&b).into()]));
@@ -694,16 +694,16 @@ mod tests {
     #[test]
     fn test_div() -> Result<(), String> {
         // Non-scalar a and b
-        let a = from_data(&[2, 2], vec![10., 20., 30., 40.]);
-        let b = from_data(&[2, 2], vec![1., 2., 3., 4.]);
-        let expected = from_data(&[2, 2], vec![10., 10., 10., 10.]);
+        let a = Tensor::from_data(&[2, 2], vec![10., 20., 30., 40.]);
+        let b = Tensor::from_data(&[2, 2], vec![1., 2., 3., 4.]);
+        let expected = Tensor::from_data(&[2, 2], vec![10., 10., 10., 10.]);
         let result = div(a.view(), b.view()).unwrap();
         expect_equal(&result, &expected)?;
 
         // Scalar b
-        let a = from_data(&[2, 2], vec![10., 20., 30., 40.]);
+        let a = Tensor::from_data(&[2, 2], vec![10., 20., 30., 40.]);
         let b = Tensor::from_scalar(10.);
-        let expected = from_data(&[2, 2], vec![1., 2., 3., 4.]);
+        let expected = Tensor::from_data(&[2, 2], vec![1., 2., 3., 4.]);
         let result = div(a.view(), b.view()).unwrap();
         expect_equal(&result, &expected)?;
 
@@ -727,16 +727,16 @@ mod tests {
     #[test]
     fn test_div_in_place() -> Result<(), String> {
         // Non-scalar a and b
-        let mut a = from_data(&[2, 2], vec![10., 20., 30., 40.]);
-        let b = from_data(&[2, 2], vec![1., 2., 3., 4.]);
-        let expected = from_data(&[2, 2], vec![10., 10., 10., 10.]);
+        let mut a = Tensor::from_data(&[2, 2], vec![10., 20., 30., 40.]);
+        let b = Tensor::from_data(&[2, 2], vec![1., 2., 3., 4.]);
+        let expected = Tensor::from_data(&[2, 2], vec![10., 10., 10., 10.]);
         div_in_place(&mut a, b.view());
         expect_equal(&a, &expected)?;
 
         // Scalar b
-        let mut a = from_data(&[2, 2], vec![10., 20., 30., 40.]);
+        let mut a = Tensor::from_data(&[2, 2], vec![10., 20., 30., 40.]);
         let b = Tensor::from_scalar(10.);
-        let expected = from_data(&[2, 2], vec![1., 2., 3., 4.]);
+        let expected = Tensor::from_data(&[2, 2], vec![1., 2., 3., 4.]);
         div_in_place(&mut a, b.view());
         expect_equal(&a, &expected)?;
 
@@ -828,16 +828,16 @@ mod tests {
     #[test]
     fn test_mul() -> Result<(), String> {
         // Float tensor
-        let a = from_data(&[2, 2], vec![1., 2., 3., 4.]);
-        let b = from_data(&[2, 2], vec![10., 20., 30., 40.]);
-        let expected = from_data(&[2, 2], vec![10., 40., 90., 160.]);
+        let a = Tensor::from_data(&[2, 2], vec![1., 2., 3., 4.]);
+        let b = Tensor::from_data(&[2, 2], vec![10., 20., 30., 40.]);
+        let expected = Tensor::from_data(&[2, 2], vec![10., 40., 90., 160.]);
         let result = mul(a.view(), b.view()).unwrap();
         expect_equal(&result, &expected)?;
 
         // Int tensor
-        let a = from_data(&[2, 2], vec![1, 2, 3, 4]);
-        let b = from_data(&[2, 2], vec![10, 20, 30, 40]);
-        let expected = from_data(&[2, 2], vec![10, 40, 90, 160]);
+        let a = Tensor::from_data(&[2, 2], vec![1, 2, 3, 4]);
+        let b = Tensor::from_data(&[2, 2], vec![10, 20, 30, 40]);
+        let expected = Tensor::from_data(&[2, 2], vec![10, 40, 90, 160]);
         let result = mul(a.view(), b.view()).unwrap();
         assert_eq!(&result, &expected);
 
@@ -847,16 +847,16 @@ mod tests {
     #[test]
     fn test_mul_in_place() -> Result<(), String> {
         // Float tensor
-        let mut a = from_data(&[2, 2], vec![1., 2., 3., 4.]);
-        let b = from_data(&[2, 2], vec![10., 20., 30., 40.]);
-        let expected = from_data(&[2, 2], vec![10., 40., 90., 160.]);
+        let mut a = Tensor::from_data(&[2, 2], vec![1., 2., 3., 4.]);
+        let b = Tensor::from_data(&[2, 2], vec![10., 20., 30., 40.]);
+        let expected = Tensor::from_data(&[2, 2], vec![10., 40., 90., 160.]);
         mul_in_place(&mut a, b.view());
         expect_equal(&a, &expected)?;
 
         // Int tensor
-        let mut a = from_data(&[2, 2], vec![1, 2, 3, 4]);
-        let b = from_data(&[2, 2], vec![10, 20, 30, 40]);
-        let expected = from_data(&[2, 2], vec![10, 40, 90, 160]);
+        let mut a = Tensor::from_data(&[2, 2], vec![1, 2, 3, 4]);
+        let b = Tensor::from_data(&[2, 2], vec![10, 20, 30, 40]);
+        let expected = Tensor::from_data(&[2, 2], vec![10, 40, 90, 160]);
         mul_in_place(&mut a, b.view());
         assert_eq!(&a, &expected);
 
@@ -909,16 +909,16 @@ mod tests {
     #[test]
     fn test_sub() -> Result<(), String> {
         // Float tensor
-        let a = from_data(&[2, 2], vec![10., 20., 30., 40.]);
-        let b = from_data(&[2, 2], vec![1., 2., 3., 4.]);
-        let expected = from_data(&[2, 2], vec![9., 18., 27., 36.]);
+        let a = Tensor::from_data(&[2, 2], vec![10., 20., 30., 40.]);
+        let b = Tensor::from_data(&[2, 2], vec![1., 2., 3., 4.]);
+        let expected = Tensor::from_data(&[2, 2], vec![9., 18., 27., 36.]);
         let result = sub(a.view(), b.view()).unwrap();
         expect_equal(&result, &expected)?;
 
         // Int tensor
-        let a = from_data(&[2, 2], vec![10, 20, 30, 40]);
-        let b = from_data(&[2, 2], vec![1, 2, 3, 4]);
-        let expected = from_data(&[2, 2], vec![9, 18, 27, 36]);
+        let a = Tensor::from_data(&[2, 2], vec![10, 20, 30, 40]);
+        let b = Tensor::from_data(&[2, 2], vec![1, 2, 3, 4]);
+        let expected = Tensor::from_data(&[2, 2], vec![9, 18, 27, 36]);
         let result = sub(a.view(), b.view()).unwrap();
         assert_eq!(&result, &expected);
 
@@ -928,16 +928,16 @@ mod tests {
     #[test]
     fn test_sub_in_place() -> Result<(), String> {
         // Float tensor
-        let mut a = from_data(&[2, 2], vec![10., 20., 30., 40.]);
-        let b = from_data(&[2, 2], vec![1., 2., 3., 4.]);
-        let expected = from_data(&[2, 2], vec![9., 18., 27., 36.]);
+        let mut a = Tensor::from_data(&[2, 2], vec![10., 20., 30., 40.]);
+        let b = Tensor::from_data(&[2, 2], vec![1., 2., 3., 4.]);
+        let expected = Tensor::from_data(&[2, 2], vec![9., 18., 27., 36.]);
         sub_in_place(&mut a, b.view());
         expect_equal(&a, &expected)?;
 
         // Int tensor
-        let mut a = from_data(&[2, 2], vec![10, 20, 30, 40]);
-        let b = from_data(&[2, 2], vec![1, 2, 3, 4]);
-        let expected = from_data(&[2, 2], vec![9, 18, 27, 36]);
+        let mut a = Tensor::from_data(&[2, 2], vec![10, 20, 30, 40]);
+        let b = Tensor::from_data(&[2, 2], vec![1, 2, 3, 4]);
+        let expected = Tensor::from_data(&[2, 2], vec![9, 18, 27, 36]);
         sub_in_place(&mut a, b.view());
         assert_eq!(&a, &expected);
 
@@ -947,11 +947,11 @@ mod tests {
     #[test]
     fn test_where() {
         // Float tensor with exact matching shapes
-        let cond = from_data(&[2, 2], vec![1, 0, 0, 1]);
-        let x = from_data(&[2, 2], vec![1., 2., 3., 4.]);
-        let y = from_data(&[2, 2], vec![10., 20., 30., 40.]);
+        let cond = Tensor::from_data(&[2, 2], vec![1, 0, 0, 1]);
+        let x = Tensor::from_data(&[2, 2], vec![1., 2., 3., 4.]);
+        let y = Tensor::from_data(&[2, 2], vec![10., 20., 30., 40.]);
         let result = where_op(cond.view(), x.view(), y.view()).unwrap();
-        let expected = from_data(&[2, 2], vec![1., 20., 30., 4.]);
+        let expected = Tensor::from_data(&[2, 2], vec![1., 20., 30., 4.]);
         assert_eq!(&result, &expected);
 
         // Float tensor broadcasting `x` and `y`
