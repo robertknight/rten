@@ -553,7 +553,7 @@ mod tests {
         Operator, Output,
     };
     use crate::tensor;
-    use crate::tensor::{from_data, from_scalar, Tensor, TensorLayout};
+    use crate::tensor::{from_data, Tensor, TensorLayout};
     use crate::test_util::expect_equal;
 
     #[test]
@@ -599,7 +599,7 @@ mod tests {
         expect_equal(&result, &expected)?;
 
         // Case where one of the inputs is a scalar.
-        let a = from_scalar(3.0);
+        let a = Tensor::from_scalar(3.0);
         let b = from_data(&[2, 2], vec![1.0, 2.0, 3.0, 4.0]);
         let result = add(a.view(), b.view()).unwrap();
         let expected = from_data(&[2, 2], vec![4.0, 5.0, 6.0, 7.0]);
@@ -649,7 +649,7 @@ mod tests {
 
         // Run `Add` operator in-place with inputs that don't support in-place
         // addition. The operator should fall back to creating a new output tensor.
-        let scalar = from_scalar(1.0);
+        let scalar = Tensor::from_scalar(1.0);
         let expected = from_data(&[2, 2], vec![11., 21., 31., 41.]);
         let result = op
             .run_in_place(Output::FloatTensor(scalar), InputList::from(&[(&b).into()]))
@@ -702,7 +702,7 @@ mod tests {
 
         // Scalar b
         let a = from_data(&[2, 2], vec![10., 20., 30., 40.]);
-        let b = from_scalar(10.);
+        let b = Tensor::from_scalar(10.);
         let expected = from_data(&[2, 2], vec![1., 2., 3., 4.]);
         let result = div(a.view(), b.view()).unwrap();
         expect_equal(&result, &expected)?;
@@ -716,7 +716,7 @@ mod tests {
 
         // Scalar b int
         let a = tensor!([1, 2, 3, 4]);
-        let b = from_scalar(2);
+        let b = Tensor::from_scalar(2);
         let expected = tensor!([0, 1, 1, 2]);
         let result = div(a.view(), b.view()).unwrap();
         assert_eq!(&result, &expected);
@@ -735,7 +735,7 @@ mod tests {
 
         // Scalar b
         let mut a = from_data(&[2, 2], vec![10., 20., 30., 40.]);
-        let b = from_scalar(10.);
+        let b = Tensor::from_scalar(10.);
         let expected = from_data(&[2, 2], vec![1., 2., 3., 4.]);
         div_in_place(&mut a, b.view());
         expect_equal(&a, &expected)?;
@@ -749,7 +749,7 @@ mod tests {
 
         // Scalar b int
         let mut a = tensor!([1, 2, 3, 4]);
-        let b = from_scalar(2);
+        let b = Tensor::from_scalar(2);
         let expected = tensor!([0, 1, 1, 2]);
         div_in_place(&mut a, b.view());
         assert_eq!(&a, &expected);
@@ -875,13 +875,13 @@ mod tests {
             // Square input
             Case {
                 a: tensor!([2., 3., 4.]),
-                b: from_scalar(2.),
+                b: Tensor::from_scalar(2.),
                 expected: tensor!([4., 9., 16.]),
             },
             // Raise all inputs to scalar
             Case {
                 a: tensor!([2., 3., 4.]),
-                b: from_scalar(3.),
+                b: Tensor::from_scalar(3.),
                 expected: tensor!([8., 27., 64.]),
             },
             // Raise each input to different powers
@@ -956,14 +956,14 @@ mod tests {
 
         // Float tensor broadcasting `x` and `y`
         let cond = tensor!([1, 1, 0, 0]);
-        let x = from_scalar(1.);
-        let y = from_scalar(2.);
+        let x = Tensor::from_scalar(1.);
+        let y = Tensor::from_scalar(2.);
         let result = where_op(cond.view(), x.view(), y.view()).unwrap();
         let expected = tensor!([1., 1., 2., 2.]);
         assert_eq!(&result, &expected);
 
         // Float tensor broadcasting `cond`
-        let cond = from_scalar(1);
+        let cond = Tensor::from_scalar(1);
         let x = tensor!([1., 2.]);
         let y = tensor!([3., 4.]);
         let result = where_op(cond.view(), x.view(), y.view()).unwrap();
@@ -972,8 +972,8 @@ mod tests {
 
         // Int tensor broadcasting `x` and `y`
         let cond = tensor!([1, 1, 0, 0]);
-        let x = from_scalar(3);
-        let y = from_scalar(4);
+        let x = Tensor::from_scalar(3);
+        let y = Tensor::from_scalar(4);
         let result = where_op(cond.view(), x.view(), y.view()).unwrap();
         let expected = tensor!([3, 3, 4, 4]);
         assert_eq!(&result, &expected);

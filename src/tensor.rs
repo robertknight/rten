@@ -813,12 +813,6 @@ pub fn from_data<T: Copy>(shape: &[usize], data: Vec<T>) -> Tensor<T> {
     Tensor::from_data(shape, data)
 }
 
-/// Create a new 0-dimensional (scalar) tensor from a single value.
-#[cfg(test)]
-pub fn from_scalar<T: Copy>(value: T) -> Tensor<T> {
-    Tensor::from_scalar(value)
-}
-
 /// Create a new 1-dimensional tensor from a vector
 #[cfg(test)]
 pub fn from_vec<T: Copy>(data: Vec<T>) -> Tensor<T> {
@@ -848,8 +842,8 @@ mod tests {
     use crate::rng::XorShiftRng;
     use crate::tensor;
     use crate::tensor::{
-        from_2d_slice, from_data, from_scalar, from_vec, rand, zeros, SliceRange, Tensor,
-        TensorLayout, TensorView, TensorViewMut,
+        from_2d_slice, from_data, from_vec, rand, zeros, SliceRange, Tensor, TensorLayout,
+        TensorView, TensorViewMut,
     };
 
     /// Create a tensor where the value of each element is its logical index
@@ -919,7 +913,7 @@ mod tests {
 
     #[test]
     fn test_from_scalar() {
-        let x = from_scalar(5);
+        let x = Tensor::from_scalar(5);
         assert_eq!(x.shape().len(), 0);
         assert_eq!(x.data(), &[5]);
     }
@@ -971,7 +965,7 @@ mod tests {
 
     #[test]
     fn test_index_scalar() {
-        let x = from_scalar(5.0);
+        let x = Tensor::from_scalar(5.0);
         assert_eq!(x[[]], 5.0);
     }
 
@@ -1023,7 +1017,7 @@ mod tests {
 
     #[test]
     fn test_item() {
-        let scalar = from_scalar(5.0);
+        let scalar = Tensor::from_scalar(5.0);
         assert_eq!(scalar.item(), Some(5.0));
 
         let vec_one_item = tensor!([5.0]);
@@ -1038,7 +1032,7 @@ mod tests {
 
     #[test]
     fn test_ndim() {
-        let scalar = from_scalar(5.0);
+        let scalar = Tensor::from_scalar(5.0);
         let vec = tensor!([5.0]);
         let matrix = from_data(&[1, 1], vec![5.0]);
 
@@ -1078,7 +1072,7 @@ mod tests {
 
     #[test]
     fn test_len() {
-        let scalar = from_scalar(5);
+        let scalar = Tensor::from_scalar(5);
         let vec = tensor!([1, 2, 3]);
         let matrix = from_data(&[2, 2], vec![1, 2, 3, 4]);
 
@@ -1091,7 +1085,7 @@ mod tests {
     fn test_is_empty() {
         assert!(from_vec::<f32>(vec![]).is_empty());
         assert!(!tensor!([1]).is_empty());
-        assert!(!from_scalar(5.0).is_empty());
+        assert!(!Tensor::from_scalar(5.0).is_empty());
     }
 
     #[test]
@@ -1335,7 +1329,7 @@ mod tests {
     // and `len` returns 1 for a scalar.
     #[test]
     fn test_iter_for_scalar() {
-        let x = from_scalar(5.0);
+        let x = Tensor::from_scalar(5.0);
         let elements = x.iter().collect::<Vec<_>>();
         assert_eq!(&elements, &[5.0]);
     }
@@ -1557,7 +1551,7 @@ mod tests {
 
     #[test]
     fn test_broadcast_iter_with_scalar() {
-        let scalar = from_scalar(7);
+        let scalar = Tensor::from_scalar(7);
         let bx = scalar.broadcast_iter(&[3, 3]);
         assert_eq!(bx.collect::<Vec<i32>>(), &[7, 7, 7, 7, 7, 7, 7, 7, 7]);
     }

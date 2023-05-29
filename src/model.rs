@@ -596,7 +596,7 @@ mod tests {
     use crate::ops;
     use crate::ops::{CoordTransformMode, NearestMode, OpError, Padding, ResizeMode, Scalar};
     use crate::tensor;
-    use crate::tensor::{from_data, from_scalar, TensorLayout};
+    use crate::tensor::{from_data, Tensor, TensorLayout};
 
     fn generate_model_buffer() -> Vec<u8> {
         let mut builder = ModelBuilder::new();
@@ -942,9 +942,9 @@ mod tests {
         }
 
         // Range op
-        let start = from_scalar(0.);
-        let limit = from_scalar(5.);
-        let delta = from_scalar(1.);
+        let start = Tensor::from_scalar(0.);
+        let limit = Tensor::from_scalar(5.);
+        let delta = Tensor::from_scalar(1.);
         let result = model
             .run(
                 &[
@@ -959,7 +959,7 @@ mod tests {
         assert_eq!(result.len(), 1);
 
         // Where op
-        let cond = from_scalar(1);
+        let cond = Tensor::from_scalar(1);
         let x = tensor!([1, 2, 3]);
         let y = tensor!([4, 5, 6]);
         let result = model

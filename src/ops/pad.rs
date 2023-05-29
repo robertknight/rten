@@ -88,7 +88,7 @@ impl Operator for Pad {
 #[cfg(test)]
 mod tests {
     use crate::ops::{pad, InputList, OpError, Operator, Pad};
-    use crate::tensor::{from_data, from_scalar, Tensor, TensorLayout};
+    use crate::tensor::{from_data, Tensor, TensorLayout};
     use crate::test_util::expect_equal;
 
     fn from_slice<T: Copy>(data: &[T]) -> Tensor<T> {
@@ -186,7 +186,7 @@ mod tests {
 
         // Wrong constant value type.
         let invalid_pads = from_slice(&[1, 1, 1, -1]);
-        let const_int = from_scalar(1);
+        let const_int = Tensor::from_scalar(1);
         let result = op.run(InputList::from(&[
             (&input).into(),
             (&invalid_pads).into(),

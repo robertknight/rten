@@ -390,7 +390,7 @@ impl Operator for ReduceL2 {
 mod tests {
     use crate::ops::{arg_max, arg_min, cum_sum, reduce_l2, reduce_mean, OpError};
     use crate::tensor;
-    use crate::tensor::{from_data, from_scalar, from_vec, Tensor, TensorLayout};
+    use crate::tensor::{from_data, from_vec, Tensor, TensorLayout};
     use crate::test_util::expect_equal;
 
     #[test]
@@ -520,12 +520,12 @@ mod tests {
 
         // Reduce all axes
         let result = reduce_mean(input.view(), None, false /* keep_dims */).unwrap();
-        let expected = from_scalar(5.);
+        let expected = Tensor::from_scalar(5.);
         expect_equal(&result, &expected)?;
 
         // Reduce all axes (specified via empty array)
         let result = reduce_mean(input.view(), Some(&[]), false /* keep_dims */).unwrap();
-        let expected = from_scalar(5.);
+        let expected = Tensor::from_scalar(5.);
         expect_equal(&result, &expected)?;
 
         // Test case from ONNX spec
@@ -539,7 +539,7 @@ mod tests {
 
         // Reduce a scalar value
         let result = reduce_mean(
-            from_scalar(5.0).view(),
+            Tensor::from_scalar(5.0).view(),
             Some(&[]),
             false, /* keep_dims */
         )
