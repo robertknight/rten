@@ -652,13 +652,13 @@ fn gemm_impl<K: Kernel, const MR_NR: usize>(
 mod tests {
     use crate::linalg::{add_scaled_vector, gemm, gemm_base_kernel};
     use crate::rng::XorShiftRng;
-    use crate::tensor::{rand, zeros, Tensor, TensorLayout};
+    use crate::tensor::{rand, Tensor, TensorLayout};
     use crate::test_util::expect_equal;
 
     fn reference_matmul(a: &Tensor, b: &Tensor) -> Tensor {
         let [a_rows, _a_cols] = a.dims();
         let [_b_rows, b_cols] = b.dims();
-        let mut output = zeros(&[a_rows, b_cols]);
+        let mut output = Tensor::zeros(&[a_rows, b_cols]);
 
         reference_gemm(&mut output, a, b, 1.0, 0.0);
 
@@ -766,11 +766,11 @@ mod tests {
         let b = Tensor::from_data(&[2, 2], vec![5., 6., 7., 8.]);
         let expected = reference_matmul(&a, &b);
 
-        let mut result = zeros::<f32>(&[a.shape()[0], b.shape()[1]]);
+        let mut result = Tensor::zeros(&[a.shape()[0], b.shape()[1]]);
         run_gemm(&mut result, &a, &b, 1., 1., Kernel::Auto);
         expect_equal(&result, &expected)?;
 
-        let mut result = zeros::<f32>(&[a.shape()[0], b.shape()[1]]);
+        let mut result = Tensor::zeros(&[a.shape()[0], b.shape()[1]]);
         run_gemm(&mut result, &a, &b, 1., 1., Kernel::Base);
         expect_equal(&result, &expected)?;
 
@@ -832,7 +832,7 @@ mod tests {
             let mut rng = XorShiftRng::new(1234);
             let a = rand(&lhs_size, &mut rng);
             let b = rand(&rhs_size, &mut rng);
-            let mut result = zeros::<f32>(&[lhs_size[0], rhs_size[1]]);
+            let mut result = Tensor::zeros(&[lhs_size[0], rhs_size[1]]);
 
             run_gemm(&mut result, &a, &b, 1., 0., kernel);
 
@@ -874,7 +874,7 @@ mod tests {
         let [a_rows, _] = a.dims();
         let [_, b_cols] = b.dims();
 
-        let mut result = zeros(&[a_rows, b_cols]);
+        let mut result = Tensor::zeros(&[a_rows, b_cols]);
         run_gemm(&mut result, &a, &b, 1., 1., Kernel::Auto);
 
         let expected = reference_matmul(&a, &b);

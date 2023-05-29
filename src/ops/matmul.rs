@@ -168,7 +168,7 @@ mod tests {
     use crate::linalg::gemm;
     use crate::ops::matmul::{gemm_op, matmul, OpError};
     use crate::rng::XorShiftRng;
-    use crate::tensor::{from_data, rand, zeros, Tensor, TensorLayout};
+    use crate::tensor::{from_data, rand, Tensor, TensorLayout};
     use crate::test_util::expect_equal;
 
     fn gemm_tensors(c: &mut Tensor, a: &Tensor, b: &Tensor, alpha: f32, beta: f32) {
@@ -189,7 +189,7 @@ mod tests {
         let a = rand(&[3, 10], &mut rng);
         let b = rand(&[10, 8], &mut rng);
 
-        let mut expected = zeros(&[3, 8]);
+        let mut expected = Tensor::zeros(&[3, 8]);
         gemm_tensors(&mut expected, &a, &b, 1., 1.);
 
         let result = gemm_op(a.view(), b.view(), None, 1.0, 1.0, false, false).unwrap();
@@ -207,7 +207,7 @@ mod tests {
         a_transposed.permute(&[1, 0]);
         let mut b_transposed = b.clone();
         b_transposed.permute(&[1, 0]);
-        let mut expected = zeros(&[3, 8]);
+        let mut expected = Tensor::zeros(&[3, 8]);
         gemm_tensors(&mut expected, &a_transposed, &b_transposed, 1., 1.);
 
         let result = gemm_op(a.view(), b.view(), None, 1.0, 1.0, true, true).unwrap();
@@ -253,7 +253,7 @@ mod tests {
         let a = rand(&[3, 10], &mut rng);
         let b = rand(&[10, 8], &mut rng);
 
-        let mut expected = zeros(&[3, 8]);
+        let mut expected = Tensor::zeros(&[3, 8]);
         gemm_tensors(&mut expected, &a, &b, 1., 1.);
 
         let result = matmul(a.view(), b.view()).unwrap();
@@ -266,7 +266,7 @@ mod tests {
         let mut a = rand(&[3, 10], &mut rng);
         let mut b = rand(&[10, 8], &mut rng);
 
-        let mut expected = zeros(&[3, 8]);
+        let mut expected = Tensor::zeros(&[3, 8]);
         gemm_tensors(&mut expected, &a, &b, 1., 1.);
         expected.reshape(&[1, 1, 3, 8]);
 

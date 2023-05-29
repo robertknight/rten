@@ -793,16 +793,10 @@ impl<T: Copy> FromIterator<T> for Tensor<T> {
     }
 }
 
-/// Create a new tensor with all values set to 0.
-#[cfg(test)]
-pub fn zeros<T: Copy + Default>(shape: &[usize]) -> Tensor<T> {
-    Tensor::zeros(shape)
-}
-
 /// Create a new tensor filled with random values supplied by `rng`.
 #[cfg(test)]
 pub fn rand(shape: &[usize], rng: &mut XorShiftRng) -> Tensor {
-    let mut t = zeros(shape);
+    let mut t = Tensor::zeros(shape);
     t.data_mut().fill_with(|| rng.next_f32());
     t
 }
@@ -836,14 +830,13 @@ mod tests {
     use crate::rng::XorShiftRng;
     use crate::tensor;
     use crate::tensor::{
-        from_2d_slice, from_data, rand, zeros, SliceRange, Tensor, TensorLayout, TensorView,
-        TensorViewMut,
+        from_2d_slice, from_data, rand, SliceRange, Tensor, TensorLayout, TensorView, TensorViewMut,
     };
 
     /// Create a tensor where the value of each element is its logical index
     /// plus one.
     fn steps(shape: &[usize]) -> Tensor<i32> {
-        let mut x = zeros(shape);
+        let mut x = Tensor::zeros(shape);
         for (index, elt) in x.data_mut().iter_mut().enumerate() {
             *elt = (index + 1) as i32;
         }
@@ -928,7 +921,7 @@ mod tests {
 
     #[test]
     fn test_stride() {
-        let x = zeros::<f32>(&[2, 5, 7, 3]);
+        let x = Tensor::<f32>::zeros(&[2, 5, 7, 3]);
         assert_eq!(x.stride(3), 1);
         assert_eq!(x.stride(2), 3);
         assert_eq!(x.stride(1), 7 * 3);
@@ -937,7 +930,7 @@ mod tests {
 
     #[test]
     fn test_index() {
-        let mut x = zeros::<f32>(&[2, 2]);
+        let mut x = Tensor::<f32>::zeros(&[2, 2]);
 
         x.data[0] = 1.0;
         x.data[1] = 2.0;
@@ -965,7 +958,7 @@ mod tests {
 
     #[test]
     fn test_index_mut() {
-        let mut x = zeros::<f32>(&[2, 2]);
+        let mut x = Tensor::<f32>::zeros(&[2, 2]);
 
         x[[0, 0]] = 1.0;
         x[[0, 1]] = 2.0;
@@ -981,20 +974,20 @@ mod tests {
     #[test]
     #[should_panic]
     fn test_index_panics_if_invalid() {
-        let x = zeros::<f32>(&[2, 2]);
+        let x = Tensor::<f32>::zeros(&[2, 2]);
         x[[2, 0]];
     }
 
     #[test]
     #[should_panic]
     fn test_index_panics_if_wrong_dim_count() {
-        let x = zeros::<f32>(&[2, 2]);
+        let x = Tensor::<f32>::zeros(&[2, 2]);
         x[[0, 0, 0]];
     }
 
     #[test]
     fn test_indices() {
-        let x = zeros::<f32>(&[2, 2]);
+        let x = Tensor::<f32>::zeros(&[2, 2]);
         let x_indices = {
             let mut indices = Vec::new();
             let mut iter = x.indices();
@@ -1048,7 +1041,7 @@ mod tests {
 
     #[test]
     fn test_dims() {
-        let x = zeros::<f32>(&[10, 5, 3, 7]);
+        let x = Tensor::<f32>::zeros(&[10, 5, 3, 7]);
         let [i, j, k, l] = x.dims();
 
         assert_eq!(i, 10);
@@ -1060,7 +1053,7 @@ mod tests {
     #[test]
     #[should_panic]
     fn test_dims_panics_if_wrong_array_length() {
-        let x = zeros::<f32>(&[10, 5, 3, 7]);
+        let x = Tensor::<f32>::zeros(&[10, 5, 3, 7]);
         let [_i, _j, _k] = x.dims();
     }
 
@@ -1284,13 +1277,13 @@ mod tests {
 
     #[test]
     fn test_iter_for_empty_array() {
-        let empty = zeros::<f32>(&[3, 0, 5]);
+        let empty = Tensor::<f32>::zeros(&[3, 0, 5]);
         assert!(empty.iter().next().is_none());
     }
 
     #[test]
     fn test_iter_for_non_contiguous_array() {
-        let mut x = zeros(&[3, 3]);
+        let mut x = Tensor::zeros(&[3, 3]);
         for (index, elt) in x.data_mut().iter_mut().enumerate() {
             *elt = index + 1;
         }
@@ -1350,7 +1343,7 @@ mod tests {
 
     #[test]
     fn test_iter_mut_for_non_contiguous_array() {
-        let mut x = zeros(&[3, 3]);
+        let mut x = Tensor::zeros(&[3, 3]);
         for (index, elt) in x.data_mut().iter_mut().enumerate() {
             *elt = index + 1;
         }
@@ -1453,7 +1446,7 @@ mod tests {
 
     #[test]
     fn test_is_contiguous() {
-        let mut x = zeros(&[3, 3]);
+        let mut x = Tensor::zeros(&[3, 3]);
         for (index, elt) in x.data_mut().iter_mut().enumerate() {
             *elt = index + 1;
         }
@@ -1486,7 +1479,7 @@ mod tests {
 
     #[test]
     fn test_is_contiguous_1d() {
-        let mut x = zeros(&[10]);
+        let mut x = Tensor::zeros(&[10]);
         for (index, elt) in x.data_mut().iter_mut().enumerate() {
             *elt = index + 1;
         }

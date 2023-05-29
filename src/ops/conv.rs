@@ -485,7 +485,7 @@ mod tests {
     use crate::ops::pooling::calc_output_size_and_padding;
     use crate::ops::{conv, conv_transpose, Conv, InputList, OpError, Operator, Padding};
     use crate::rng::XorShiftRng;
-    use crate::tensor::{from_data, rand, zeros, Tensor, TensorLayout};
+    use crate::tensor::{from_data, rand, Tensor, TensorLayout};
     use crate::test_util::expect_equal;
 
     /// Un-optimized reference implementation of convolution.
@@ -513,7 +513,7 @@ mod tests {
         let out_channels_per_group = out_chans / groups;
         assert_eq!(in_channels_per_group, k_in_chans);
 
-        let mut output = zeros(&[batch, out_chans, out_h, out_w]);
+        let mut output = Tensor::zeros(&[batch, out_chans, out_h, out_w]);
 
         for n in 0..batch {
             for group in 0..groups {

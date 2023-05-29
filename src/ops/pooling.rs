@@ -246,7 +246,7 @@ impl Operator for MaxPool {
 #[cfg(test)]
 mod tests {
     use crate::ops::{average_pool, global_average_pool, max_pool, Padding};
-    use crate::tensor::{from_2d_slice, from_data, zeros, Tensor, TensorLayout};
+    use crate::tensor::{from_2d_slice, from_data, Tensor, TensorLayout};
     use crate::test_util::expect_equal;
 
     #[test]
@@ -447,7 +447,7 @@ mod tests {
 
     #[test]
     fn test_max_pool_padding() {
-        let input = zeros(&[1, 1, 9, 9]);
+        let input = Tensor::zeros(&[1, 1, 9, 9]);
 
         let result = max_pool(&input, [2, 2], [2, 2], Padding::Fixed([0, 0, 0, 0])).unwrap();
         assert_eq!(result.shape(), &[1, 1, 4, 4]);
