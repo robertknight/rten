@@ -246,8 +246,21 @@ impl Operator for MaxPool {
 #[cfg(test)]
 mod tests {
     use crate::ops::{average_pool, global_average_pool, max_pool, Padding};
-    use crate::tensor::{from_2d_slice, from_data, Tensor, TensorLayout};
+    use crate::tensor::{from_data, Tensor, TensorLayout};
     use crate::test_util::expect_equal;
+
+    fn from_2d_slice<T: Copy>(data: &[&[T]]) -> Tensor<T> {
+        let rows = data.len();
+        let cols = data.get(0).map(|first_row| first_row.len()).unwrap_or(0);
+
+        let mut result = Vec::new();
+        for row in data {
+            assert!(cols == row.len(), "All row slices must have same length");
+            result.extend_from_slice(row);
+        }
+
+        from_data(&[rows, cols], result)
+    }
 
     #[test]
     fn test_average_pool() -> Result<(), String> {

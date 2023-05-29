@@ -807,21 +807,6 @@ pub fn from_data<T: Copy>(shape: &[usize], data: Vec<T>) -> Tensor<T> {
     Tensor::from_data(shape, data)
 }
 
-/// Create a new 2D tensor from a nested array of slices.
-#[cfg(test)]
-pub fn from_2d_slice<T: Copy>(data: &[&[T]]) -> Tensor<T> {
-    let rows = data.len();
-    let cols = data.get(0).map(|first_row| first_row.len()).unwrap_or(0);
-
-    let mut result = Vec::new();
-    for row in data {
-        assert!(cols == row.len(), "All row slices must have same length");
-        result.extend_from_slice(row);
-    }
-
-    from_data(&[rows, cols], result)
-}
-
 #[cfg(test)]
 mod tests {
     use std::borrow::Cow;
@@ -830,7 +815,7 @@ mod tests {
     use crate::rng::XorShiftRng;
     use crate::tensor;
     use crate::tensor::{
-        from_2d_slice, from_data, rand, SliceRange, Tensor, TensorLayout, TensorView, TensorViewMut,
+        from_data, rand, SliceRange, Tensor, TensorLayout, TensorView, TensorViewMut,
     };
 
     /// Create a tensor where the value of each element is its logical index
@@ -889,13 +874,6 @@ mod tests {
         y.copy_from(&x);
 
         assert_eq!(y, x);
-    }
-
-    #[test]
-    fn test_from_2d_slice() {
-        let x = from_2d_slice(&[&[1, 2, 3], &[4, 5, 6], &[7, 8, 9]]);
-        assert_eq!(x.shape(), &[3, 3]);
-        assert_eq!(x.data(), &[1, 2, 3, 4, 5, 6, 7, 8, 9]);
     }
 
     #[test]
