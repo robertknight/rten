@@ -3,7 +3,7 @@ extern crate libm;
 use std::fmt::Debug;
 
 use crate::ops::{InputList, IntoOpResult, OpError, Operator, Output};
-use crate::tensor::Tensor;
+use crate::tensor::{Tensor, TensorView};
 
 /// Trait for operators which take a single float tensor and apply a function
 /// to each element.
@@ -14,7 +14,7 @@ pub trait UnaryFloatOp {
     fn map_element(&self, val: f32) -> f32;
 
     /// Apply the operator to all elements in `input`.
-    fn map(&self, input: &Tensor) -> Tensor {
+    fn map(&self, input: TensorView) -> Tensor {
         input.map(|val| self.map_element(val))
     }
 
@@ -31,7 +31,7 @@ impl<Op: UnaryFloatOp + Debug> Operator for Op {
 
     fn run(&self, inputs: InputList) -> Result<Vec<Output>, OpError> {
         let input = inputs.require_as(0)?;
-        self.map(input).into_op_result()
+        self.map(input.view()).into_op_result()
     }
 
     fn can_run_in_place(&self) -> bool {
@@ -45,7 +45,7 @@ impl<Op: UnaryFloatOp + Debug> Operator for Op {
     }
 }
 
-pub fn clip(input: &Tensor, min: Option<f32>, max: Option<f32>) -> Tensor {
+pub fn clip(input: TensorView, min: Option<f32>, max: Option<f32>) -> Tensor {
     let min = min.unwrap_or(f32::MIN);
     let max = max.unwrap_or(f32::MAX);
     input.map(|x| x.clamp(min, max))
@@ -72,7 +72,7 @@ impl Operator for Clip {
         let input = inputs.require_as(0)?;
         let min = inputs.get_as_scalar(1)?;
         let max = inputs.get_as_scalar(2)?;
-        clip(input, min, max).into_op_result()
+        clip(input.view(), min, max).into_op_result()
     }
 
     fn can_run_in_place(&self) -> bool {
@@ -88,7 +88,7 @@ impl Operator for Clip {
     }
 }
 
-pub fn cos(input: &Tensor) -> Tensor {
+pub fn cos(input: TensorView) -> Tensor {
     Cos {}.map(input)
 }
 
@@ -109,7 +109,7 @@ impl UnaryFloatOp for Cos {
     }
 }
 
-pub fn erf(input: &Tensor) -> Tensor {
+pub fn erf(input: TensorView) -> Tensor {
     Erf {}.map(input)
 }
 
@@ -130,7 +130,7 @@ impl UnaryFloatOp for Erf {
     }
 }
 
-pub fn leaky_relu(input: &Tensor, alpha: f32) -> Tensor {
+pub fn leaky_relu(input: TensorView, alpha: f32) -> Tensor {
     LeakyRelu { alpha }.map(input)
 }
 
@@ -157,7 +157,7 @@ impl UnaryFloatOp for LeakyRelu {
     }
 }
 
-pub fn log(input: &Tensor) -> Tensor {
+pub fn log(input: TensorView) -> Tensor {
     Log {}.map(input)
 }
 
@@ -182,7 +182,7 @@ pub fn relu_in_place(x: &mut Tensor) {
     Relu {}.apply(x)
 }
 
-pub fn relu(x: &Tensor) -> Tensor {
+pub fn relu(x: TensorView) -> Tensor {
     Relu {}.map(x)
 }
 
@@ -198,7 +198,7 @@ impl UnaryFloatOp for Relu {
     }
 }
 
-pub fn sigmoid(x: &Tensor) -> Tensor {
+pub fn sigmoid(x: TensorView) -> Tensor {
     Sigmoid {}.map(x)
 }
 
@@ -218,7 +218,7 @@ impl UnaryFloatOp for Sigmoid {
     }
 }
 
-pub fn sin(input: &Tensor) -> Tensor {
+pub fn sin(input: TensorView) -> Tensor {
     Sin {}.map(input)
 }
 
@@ -239,7 +239,7 @@ impl UnaryFloatOp for Sin {
     }
 }
 
-pub fn sqrt(input: &Tensor) -> Tensor {
+pub fn sqrt(input: TensorView) -> Tensor {
     Sqrt {}.map(input)
 }
 
@@ -260,7 +260,7 @@ impl UnaryFloatOp for Sqrt {
     }
 }
 
-pub fn tanh(input: &Tensor) -> Tensor {
+pub fn tanh(input: TensorView) -> Tensor {
     Tanh {}.map(input)
 }
 
@@ -323,7 +323,7 @@ mod tests {
         ];
 
         for case in cases {
-            let result = clip(&case.input, case.min, case.max);
+            let result = clip(case.input.view(), case.min, case.max);
             expect_equal(&result, &case.expected)?;
 
             let mut input = case.input.clone();
@@ -341,7 +341,7 @@ mod tests {
     fn test_cos() -> Result<(), String> {
         let input = tensor!([0.1, 3.14, -5.]);
         let expected = input.map(|x: f32| x.cos());
-        let result = cos(&input);
+        let result = cos(input.view());
         expect_equal(&result, &expected)
     }
 
@@ -362,7 +362,7 @@ mod tests {
             0.5204998778130465,
             0.9953222650189527,
         ]);
-        let result = erf(&input);
+        let result = erf(input.view());
         expect_equal(&result, &expected)
     }
 
@@ -384,7 +384,7 @@ mod tests {
         let input = from_data(&[2, 2], vec![-5., -2., 3., 20.]);
         let alpha = 0.1;
         let expected = from_data(&[2, 2], vec![-5. * alpha, -2. * alpha, 3., 20.]);
-        let result = leaky_relu(&input, alpha);
+        let result = leaky_relu(input.view(), alpha);
         expect_equal(&result, &expected)
     }
 
@@ -406,7 +406,7 @@ mod tests {
             0.,
             2.302585092994046
         ]);
-        let result = log(&input);
+        let result = log(input.view());
         expect_equal(&result, &expected)
     }
 
@@ -428,7 +428,7 @@ mod tests {
         let input = from_data(&[2, 2, 1], vec![-0.5, 0.5, 3.0, -5.5]);
         let expected = from_data(&[2, 2, 1], vec![0.0, 0.5, 3.0, 0.0]);
 
-        let result = relu(&input);
+        let result = relu(input.view());
         expect_equal(&result, &expected)?;
 
         let mut result = input.clone();
@@ -449,7 +449,7 @@ mod tests {
             ],
         );
 
-        let result = sigmoid(&input);
+        let result = sigmoid(input.view());
         expect_equal(&result, &expected)?;
 
         let mut result = input.clone();
@@ -461,7 +461,7 @@ mod tests {
     fn test_sin() -> Result<(), String> {
         let input = tensor!([0.1, 3.14, -5.]);
         let expected = input.map(|x: f32| x.sin());
-        let result = sin(&input);
+        let result = sin(input.view());
         expect_equal(&result, &expected)
     }
 
@@ -477,7 +477,7 @@ mod tests {
     fn test_sqrt() -> Result<(), String> {
         let input = tensor!([4., 9., 16.]);
         let expected = tensor!([2., 3., 4.]);
-        let result = sqrt(&input);
+        let result = sqrt(input.view());
         expect_equal(&result, &expected)
     }
 
@@ -493,7 +493,7 @@ mod tests {
     fn test_tanh() -> Result<(), String> {
         let input = tensor!([0.1, 3.14, -5.]);
         let expected = input.map(|x: f32| x.tanh());
-        let result = tanh(&input);
+        let result = tanh(input.view());
         expect_equal(&result, &expected)
     }
 
