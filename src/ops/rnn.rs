@@ -836,7 +836,7 @@ mod tests {
         let splits = Tensor::from_vec(vec![size as i32; 4]);
 
         // Split input into seperate tensor for each of the gates.
-        let ifco = split(x, dim as isize, &splits).expect("split failed");
+        let ifco = split(x.view(), dim as isize, &splits).expect("split failed");
 
         // Recombine in a new gate order.
         concat(
@@ -858,7 +858,7 @@ mod tests {
         let splits = Tensor::from_vec(vec![size as i32; 3]);
 
         // Split input into seperate tensor for each of the gates.
-        let ruh = split(x, dim as isize, &splits).expect("split failed");
+        let ruh = split(x.view(), dim as isize, &splits).expect("split failed");
 
         // Recombine in a new gate order.
         concat(&[ruh[1].view(), ruh[0].view(), ruh[2].view()], dim).expect("concat failed")
