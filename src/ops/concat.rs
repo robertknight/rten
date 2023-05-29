@@ -1,5 +1,5 @@
 use crate::ops::{Input, InputList, IntoOpResult, OpError, Operator, Output};
-use crate::tensor::{Elements, Tensor, TensorLayout};
+use crate::tensor::{Elements, Tensor, TensorLayout, TensorView};
 
 enum ChunkSource<'a, T: Copy> {
     Slice(&'a [T]),
@@ -14,10 +14,10 @@ struct TensorChunks<'a, T: Copy> {
 }
 
 impl<'a, T: Copy> TensorChunks<'a, T> {
-    fn new(tensor: &'a Tensor<T>, from_dim: usize) -> TensorChunks<'a, T> {
+    fn new(tensor: &'a TensorView<'a, T>, from_dim: usize) -> TensorChunks<'a, T> {
         TensorChunks {
             source: if tensor.is_contiguous() {
-                ChunkSource::Slice(tensor.data())
+                ChunkSource::Slice(tensor.to_data())
             } else {
                 ChunkSource::Iter(tensor.iter())
             },
@@ -47,7 +47,7 @@ impl<'a, T: Copy> TensorChunks<'a, T> {
     }
 }
 
-pub fn concat<T: Copy>(inputs: &[&Tensor<T>], dim: usize) -> Result<Tensor<T>, OpError> {
+pub fn concat<T: Copy>(inputs: &[TensorView<T>], dim: usize) -> Result<Tensor<T>, OpError> {
     let first_shape = inputs[0].shape();
     if dim >= first_shape.len() {
         return Err(OpError::InvalidValue("dim is larger than input rank"));
@@ -103,18 +103,18 @@ impl Operator for Concat {
         let first = inputs.require(0)?;
         match first {
             Input::FloatTensor(_) => {
-                let mut typed_inputs: Vec<_> = Vec::new();
+                let mut typed_inputs: Vec<TensorView> = Vec::new();
                 for input in inputs.iter() {
                     let tensor: &Tensor<f32> = input.try_into()?;
-                    typed_inputs.push(tensor);
+                    typed_inputs.push(tensor.view());
                 }
                 concat(&typed_inputs, self.dim).into_op_result()
             }
             Input::IntTensor(_) => {
-                let mut typed_inputs: Vec<_> = Vec::new();
+                let mut typed_inputs: Vec<TensorView<i32>> = Vec::new();
                 for input in inputs.iter() {
                     let tensor: &Tensor<i32> = input.try_into()?;
-                    typed_inputs.push(tensor);
+                    typed_inputs.push(tensor.view());
                 }
                 concat(&typed_inputs, self.dim).into_op_result()
             }
@@ -139,27 +139,27 @@ mod tests {
 
         // Concatenation along the first dimension
         let expected = from_data(&[4, 2, 1], vec![0.1, 0.2, 0.3, 0.4, 1.0, 2.0, 3.0, 4.0]);
-        let result = concat(&[&a, &b], 0).unwrap();
+        let result = concat(&[a.view(), b.view()], 0).unwrap();
         expect_equal(&result, &expected)?;
 
         // Concatenation along a non-first dimension
         let expected = from_data(&[2, 2, 2], vec![0.1, 1.0, 0.2, 2.0, 0.3, 3.0, 0.4, 4.0]);
-        let result = concat(&[&a, &b], 2).unwrap();
+        let result = concat(&[a.view(), b.view()], 2).unwrap();
         expect_equal(&result, &expected)?;
 
         // Concatenation with one input
-        let result = concat(&[&a], 0).unwrap();
+        let result = concat(&[a.view()], 0).unwrap();
         expect_equal(&result, &a)?;
 
         // Concatenation with more than two inputs
-        let result = concat(&[&a, &b, &a], 0).unwrap();
+        let result = concat(&[a.view(), b.view(), a.view()], 0).unwrap();
         assert_eq!(result.shape(), &[6, 2, 1]);
 
         // Concatentation with some empty inputs
         let a = from_slice(&[1, 2, 3]);
         let b = from_slice(&[]);
         let c = from_slice(&[4, 5, 6]);
-        let result = concat(&[&a, &b, &c], 0).unwrap();
+        let result = concat(&[a.view(), b.view(), c.view()], 0).unwrap();
         assert_eq!(result.shape(), &[6]);
         assert_eq!(result.data(), &[1, 2, 3, 4, 5, 6]);
 
@@ -170,7 +170,7 @@ mod tests {
     fn test_concat_invalid_inputs() {
         // Invalid `dim` attribute
         let input = from_slice(&[1, 2, 3]);
-        let result = concat(&[&input, &input], 1);
+        let result = concat(&[input.view(), input.view()], 1);
         assert_eq!(
             result.err(),
             Some(OpError::InvalidValue("dim is larger than input rank"))
@@ -179,7 +179,7 @@ mod tests {
         // Shape mismatch
         let a = zeros::<f32>(&[1]);
         let b = zeros::<f32>(&[1, 2]);
-        let result = concat(&[&a, &b], 0);
+        let result = concat(&[a.view(), b.view()], 0);
         assert_eq!(
             result.err(),
             Some(OpError::IncompatibleInputShapes(
@@ -190,7 +190,7 @@ mod tests {
         // Shape mismatch in non-`dim` dimension
         let a = zeros::<f32>(&[5, 10]);
         let b = zeros::<f32>(&[5, 11]);
-        let result = concat(&[&a, &b], 0);
+        let result = concat(&[a.view(), b.view()], 0);
         assert_eq!(
             result.err(),
             Some(OpError::IncompatibleInputShapes(

@@ -839,7 +839,16 @@ mod tests {
         let ifco = split(x, dim as isize, &splits).expect("split failed");
 
         // Recombine in a new gate order.
-        concat(&[&ifco[0], &ifco[3], &ifco[1], &ifco[2]], dim).expect("concat failed")
+        concat(
+            &[
+                ifco[0].view(),
+                ifco[3].view(),
+                ifco[1].view(),
+                ifco[2].view(),
+            ],
+            dim,
+        )
+        .expect("concat failed")
     }
 
     /// Re-order a weight or bias tensor for GRU gates from (reset, update,
@@ -852,7 +861,7 @@ mod tests {
         let ruh = split(x, dim as isize, &splits).expect("split failed");
 
         // Recombine in a new gate order.
-        concat(&[&ruh[1], &ruh[0], &ruh[2]], dim).expect("concat failed")
+        concat(&[ruh[1].view(), ruh[0].view(), ruh[2].view()], dim).expect("concat failed")
     }
 
     struct RNNRefTest {
@@ -919,7 +928,7 @@ mod tests {
 
         let input_bias = read_param("bias_ih_l0");
         let hidden_bias = read_param("bias_hh_l0");
-        let mut bias = concat(&[&input_bias, &hidden_bias], 0).unwrap();
+        let mut bias = concat(&[input_bias.view(), hidden_bias.view()], 0).unwrap();
         bias.insert_dim(0); // Add directions dim
 
         // If this is a bidirectional RNN, there will be `_reverse`-suffixed
@@ -928,17 +937,18 @@ mod tests {
         if is_bidirectional {
             let mut rev_weights = read_param("weight_ih_l0_reverse");
             rev_weights.insert_dim(0); // Add directions dim
-            weights = concat(&[&weights, &rev_weights], 0).unwrap();
+            weights = concat(&[weights.view(), rev_weights.view()], 0).unwrap();
 
             let mut rev_hidden_weights = read_param("weight_hh_l0_reverse");
             rev_hidden_weights.insert_dim(0); // Add directions dim
-            hidden_weights = concat(&[&hidden_weights, &rev_hidden_weights], 0).unwrap();
+            hidden_weights =
+                concat(&[hidden_weights.view(), rev_hidden_weights.view()], 0).unwrap();
 
             let rev_input_bias = read_param("bias_ih_l0_reverse");
             let rev_hidden_bias = read_param("bias_hh_l0_reverse");
-            let mut rev_bias = concat(&[&rev_input_bias, &rev_hidden_bias], 0).unwrap();
+            let mut rev_bias = concat(&[rev_input_bias.view(), rev_hidden_bias.view()], 0).unwrap();
             rev_bias.insert_dim(0); // Add directions dim
-            bias = concat(&[&bias, &rev_bias], 0).unwrap();
+            bias = concat(&[bias.view(), rev_bias.view()], 0).unwrap();
         }
 
         let initial_hidden = case.get("initial_hidden").map(|param| {
