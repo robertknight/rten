@@ -661,7 +661,7 @@ mod tests {
 
     use crate::ops::{concat, gru, lstm, split, Direction};
     use crate::rng::XorShiftRng;
-    use crate::tensor::{rand, Tensor, TensorLayout};
+    use crate::tensor::{Tensor, TensorLayout};
     use crate::test_util::{expect_equal, read_json_file, read_tensor};
 
     #[derive(Clone, Copy, PartialEq)]
@@ -723,23 +723,24 @@ mod tests {
                 Op::Lstm => 4,
             };
 
-            let input = rand(&[seq_len, batch, features], &mut rng).map(|x| x - 0.5);
-            let weights = rand(
+            let input = Tensor::rand(&[seq_len, batch, features], &mut rng).map(|x| x - 0.5);
+            let weights = Tensor::rand(
                 &[dir.num_directions(), num_gates * hidden_size, features],
                 &mut rng,
             )
             .map(|x| x - 0.5);
-            let recurrent_weights = rand(
+            let recurrent_weights = Tensor::rand(
                 &[dir.num_directions(), num_gates * hidden_size, hidden_size],
                 &mut rng,
             )
             .map(|x| x - 0.5);
-            let bias = rand(
+            let bias = Tensor::rand(
                 &[dir.num_directions(), 2 * num_gates * hidden_size],
                 &mut rng,
             );
-            let initial_hidden = rand(&[dir.num_directions(), batch, hidden_size], &mut rng);
-            let initial_cell = rand(&[dir.num_directions(), batch, hidden_size], &mut rng);
+            let initial_hidden =
+                Tensor::rand(&[dir.num_directions(), batch, hidden_size], &mut rng);
+            let initial_cell = Tensor::rand(&[dir.num_directions(), batch, hidden_size], &mut rng);
 
             let result = match case.op {
                 Op::Lstm => lstm(

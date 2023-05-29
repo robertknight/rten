@@ -82,7 +82,7 @@ impl Operator for Gather {
 mod tests {
     use crate::ops::{gather, OpError};
     use crate::rng::XorShiftRng;
-    use crate::tensor::{from_data, rand, Tensor, TensorLayout};
+    use crate::tensor::{from_data, Tensor, TensorLayout};
     use crate::test_util::expect_equal;
 
     #[test]
@@ -100,7 +100,7 @@ mod tests {
         // Test case shrunk down from a small BERT model where `gather` is used
         // to lookup up embeddings.
         let mut rng = XorShiftRng::new(1234);
-        let input = rand(&[128, 10], &mut rng);
+        let input = Tensor::rand(&[128, 10], &mut rng);
         let indices = from_data(&[2, 2], vec![2, 5, 8, 50]);
         let result = gather(input.view(), 0, indices.view()).unwrap();
         assert_eq!(result.shape(), &[2, 2, 10]);
@@ -123,7 +123,7 @@ mod tests {
     #[test]
     fn test_gather_invalid_inputs() {
         let mut rng = XorShiftRng::new(1234);
-        let input = rand(&[128, 10], &mut rng);
+        let input = Tensor::rand(&[128, 10], &mut rng);
         let indices = from_data(&[2, 2], vec![2, 5, 8, 50]);
         let result = gather(input.view(), 5, indices.view());
         assert_eq!(

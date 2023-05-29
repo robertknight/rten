@@ -485,7 +485,7 @@ mod tests {
     use crate::ops::pooling::calc_output_size_and_padding;
     use crate::ops::{conv, conv_transpose, Conv, InputList, OpError, Operator, Padding};
     use crate::rng::XorShiftRng;
-    use crate::tensor::{from_data, rand, Tensor, TensorLayout};
+    use crate::tensor::{from_data, Tensor, TensorLayout};
     use crate::test_util::expect_equal;
 
     /// Un-optimized reference implementation of convolution.
@@ -692,9 +692,9 @@ mod tests {
     #[test]
     fn test_conv_uneven_padding() -> Result<(), String> {
         let mut rng = XorShiftRng::new(1234);
-        let kernel = rand(&[10, 5, 3, 3], &mut rng);
-        let input = rand(&[1, 5, 10, 10], &mut rng);
-        let bias = rand(&[10], &mut rng);
+        let kernel = Tensor::rand(&[10, 5, 3, 3], &mut rng);
+        let input = Tensor::rand(&[1, 5, 10, 10], &mut rng);
+        let bias = Tensor::rand(&[10], &mut rng);
 
         let result = conv(
             &input,
@@ -720,9 +720,9 @@ mod tests {
     #[test]
     fn test_conv_depthwise_uneven_padding() -> Result<(), String> {
         let mut rng = XorShiftRng::new(1234);
-        let kernel = rand(&[10, 1, 3, 3], &mut rng);
-        let input = rand(&[1, 10, 10, 10], &mut rng);
-        let bias = rand(&[10], &mut rng);
+        let kernel = Tensor::rand(&[10, 1, 3, 3], &mut rng);
+        let input = Tensor::rand(&[1, 10, 10, 10], &mut rng);
+        let bias = Tensor::rand(&[10], &mut rng);
 
         let result = conv(
             &input,
@@ -749,9 +749,9 @@ mod tests {
     #[test]
     fn test_conv_pointwise() -> Result<(), String> {
         let mut rng = XorShiftRng::new(1234);
-        let kernel = rand(&[10, 5, 1, 1], &mut rng);
-        let input = rand(&[1, 5, 20, 20], &mut rng);
-        let bias = rand(&[10], &mut rng);
+        let kernel = Tensor::rand(&[10, 5, 1, 1], &mut rng);
+        let input = Tensor::rand(&[1, 5, 20, 20], &mut rng);
+        let bias = Tensor::rand(&[10], &mut rng);
 
         // Contiguous inputs
         let result = conv(
@@ -801,7 +801,7 @@ mod tests {
         expect_equal(&result, &reference_result)?;
 
         // Batch size > 1
-        let input = rand(&[2, 5, 20, 20], &mut rng);
+        let input = Tensor::rand(&[2, 5, 20, 20], &mut rng);
         let result = conv(
             &input,
             &kernel,
@@ -880,9 +880,9 @@ mod tests {
     #[test]
     fn test_conv_not_depthwise_or_pointwise() -> Result<(), String> {
         let mut rng = XorShiftRng::new(1234);
-        let kernel = rand(&[4, 2, 3, 3], &mut rng);
-        let input = rand(&[2, 4, 20, 20], &mut rng);
-        let bias = rand(&[4], &mut rng);
+        let kernel = Tensor::rand(&[4, 2, 3, 3], &mut rng);
+        let input = Tensor::rand(&[2, 4, 20, 20], &mut rng);
+        let bias = Tensor::rand(&[4], &mut rng);
 
         let result = conv(
             &input,
@@ -908,12 +908,12 @@ mod tests {
     #[test]
     fn test_conv_strided() -> Result<(), String> {
         let mut rng = XorShiftRng::new(1234);
-        let kernel = rand(&[4, 3, 3, 3], &mut rng);
+        let kernel = Tensor::rand(&[4, 3, 3, 3], &mut rng);
 
         for strides in [[2, 2], [3, 3], [1, 3]] {
             for pad in [0, 1] {
                 for input_size in [3, 4, 5, 10, 20] {
-                    let input = rand(&[2, 3, input_size, input_size], &mut rng);
+                    let input = Tensor::rand(&[2, 3, input_size, input_size], &mut rng);
                     let result = conv(
                         &input,
                         &kernel,
@@ -942,12 +942,12 @@ mod tests {
     #[test]
     fn test_conv_strided_depthwise() -> Result<(), String> {
         let mut rng = XorShiftRng::new(1234);
-        let kernel = rand(&[3, 1, 3, 3], &mut rng);
+        let kernel = Tensor::rand(&[3, 1, 3, 3], &mut rng);
 
         for strides in [[2, 2], [3, 3], [1, 3]] {
             for pad in [0, 1] {
                 for input_size in [3, 4, 5, 10, 20] {
-                    let input = rand(&[1, 3, input_size, input_size], &mut rng);
+                    let input = Tensor::rand(&[1, 3, input_size, input_size], &mut rng);
                     let result = conv(
                         &input,
                         &kernel,
@@ -976,8 +976,8 @@ mod tests {
     #[test]
     fn test_conv_input_too_small() {
         let mut rng = XorShiftRng::new(1234);
-        let input = rand(&[1, 1, 2, 2], &mut rng);
-        let kernel = rand(&[1, 1, 3, 3], &mut rng);
+        let input = Tensor::rand(&[1, 1, 2, 2], &mut rng);
+        let kernel = Tensor::rand(&[1, 1, 3, 3], &mut rng);
 
         let result = conv(
             &input,
@@ -997,8 +997,8 @@ mod tests {
     #[test]
     fn test_conv_zero_stride() {
         let mut rng = XorShiftRng::new(1234);
-        let input = rand(&[1, 1, 2, 2], &mut rng);
-        let kernel = rand(&[1, 1, 2, 2], &mut rng);
+        let input = Tensor::rand(&[1, 1, 2, 2], &mut rng);
+        let kernel = Tensor::rand(&[1, 1, 2, 2], &mut rng);
 
         let result = conv(
             &input,

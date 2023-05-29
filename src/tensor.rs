@@ -205,6 +205,11 @@ pub type TensorView<'a, T = f32> = TensorBase<T, &'a [T]>;
 /// Tensor can be modified through it.
 pub type TensorViewMut<'a, T = f32> = TensorBase<T, &'a mut [T]>;
 
+/// Trait for sources of random data for tensors.
+pub trait RandomSource<T> {
+    fn next(&mut self) -> T;
+}
+
 impl<T: Copy, S: AsRef<[T]>> TensorBase<T, S> {
     /// Create a new tensor with a given layout and storage.
     pub(self) fn new(data: S, layout: &Layout) -> Self {
@@ -649,6 +654,16 @@ impl<T: Copy> TensorBase<T, VecWithOffset<T>> {
         }
     }
 
+    /// Create a new tensor filled with random numbers from a given source.
+    pub fn rand<R: RandomSource<T>>(shape: &[usize], rand_src: &mut R) -> Tensor<T>
+    where
+        T: Default,
+    {
+        let mut tensor = Tensor::zeros(shape);
+        tensor.data_mut().fill_with(|| rand_src.next());
+        tensor
+    }
+
     /// Create a new 0-dimensional (scalar) tensor from a single value.
     pub fn from_scalar(value: T) -> Tensor<T> {
         Self::from_data(&[], vec![value])
@@ -793,12 +808,11 @@ impl<T: Copy> FromIterator<T> for Tensor<T> {
     }
 }
 
-/// Create a new tensor filled with random values supplied by `rng`.
 #[cfg(test)]
-pub fn rand(shape: &[usize], rng: &mut XorShiftRng) -> Tensor {
-    let mut t = Tensor::zeros(shape);
-    t.data_mut().fill_with(|| rng.next_f32());
-    t
+impl RandomSource<f32> for XorShiftRng {
+    fn next(&mut self) -> f32 {
+        self.next_f32()
+    }
 }
 
 /// Create a new tensor with a given shape and values
@@ -814,9 +828,7 @@ mod tests {
 
     use crate::rng::XorShiftRng;
     use crate::tensor;
-    use crate::tensor::{
-        from_data, rand, SliceRange, Tensor, TensorLayout, TensorView, TensorViewMut,
-    };
+    use crate::tensor::{from_data, SliceRange, Tensor, TensorLayout, TensorView, TensorViewMut};
 
     /// Create a tensor where the value of each element is its logical index
     /// plus one.
@@ -1056,7 +1068,7 @@ mod tests {
     #[test]
     fn test_reshape() {
         let mut rng = XorShiftRng::new(1234);
-        let mut x = rand(&[10, 5, 3, 7], &mut rng);
+        let mut x = Tensor::rand(&[10, 5, 3, 7], &mut rng);
         let x_data: Vec<f32> = x.data().into();
 
         assert_eq!(x.shape(), &[10, 5, 3, 7]);
@@ -1070,7 +1082,7 @@ mod tests {
     #[test]
     fn test_reshape_non_contiguous() {
         let mut rng = XorShiftRng::new(1234);
-        let mut x = rand(&[10, 10], &mut rng);
+        let mut x = Tensor::rand(&[10, 10], &mut rng);
 
         // Set the input up so that it is non-contiguous and has a non-zero
         // `base` offset.
@@ -1101,7 +1113,7 @@ mod tests {
     #[test]
     fn test_reshape_copies_with_custom_strides() {
         let mut rng = XorShiftRng::new(1234);
-        let mut x = rand(&[10, 10], &mut rng);
+        let mut x = Tensor::rand(&[10, 10], &mut rng);
 
         // Give the tensor a non-default stride
         x.clip_dim(1, 0..8);
@@ -1121,7 +1133,7 @@ mod tests {
     #[should_panic(expected = "New shape must have same total elements as current shape")]
     fn test_reshape_with_wrong_size() {
         let mut rng = XorShiftRng::new(1234);
-        let mut x = rand(&[10, 5, 3, 7], &mut rng);
+        let mut x = Tensor::rand(&[10, 5, 3, 7], &mut rng);
         x.reshape(&[10, 5]);
     }
 
@@ -1196,7 +1208,7 @@ mod tests {
     #[test]
     fn test_clone_with_shape() {
         let mut rng = XorShiftRng::new(1234);
-        let x = rand(&[10, 5, 3, 7], &mut rng);
+        let x = Tensor::rand(&[10, 5, 3, 7], &mut rng);
         let y = x.clone_with_shape(&[10, 5, 3 * 7]);
 
         assert_eq!(y.shape(), &[10, 5, 3 * 7]);
@@ -1206,7 +1218,7 @@ mod tests {
     #[test]
     fn test_nd_slice() {
         let mut rng = XorShiftRng::new(1234);
-        let x = rand(&[10, 5, 3, 7], &mut rng);
+        let x = Tensor::rand(&[10, 5, 3, 7], &mut rng);
         let x_view = x.nd_slice([5, 3]);
 
         for a in 0..x.shape()[2] {
@@ -1219,7 +1231,7 @@ mod tests {
     #[test]
     fn test_nd_slice_mut() {
         let mut rng = XorShiftRng::new(1234);
-        let mut x = rand(&[10, 5, 3, 7], &mut rng);
+        let mut x = Tensor::rand(&[10, 5, 3, 7], &mut rng);
 
         let [_, _, a_size, b_size] = x.dims();
         let mut x_view = x.nd_slice_mut([5, 3]);
@@ -1245,7 +1257,7 @@ mod tests {
                 shape.push(d + 1);
             }
             let mut rng = XorShiftRng::new(1234);
-            let x = rand(&shape, &mut rng);
+            let x = Tensor::rand(&shape, &mut rng);
 
             let elts: Vec<f32> = x.iter().collect();
 
@@ -1307,7 +1319,7 @@ mod tests {
                 shape.push(d + 1);
             }
             let mut rng = XorShiftRng::new(1234);
-            let mut x = rand(&shape, &mut rng);
+            let mut x = Tensor::rand(&shape, &mut rng);
 
             let elts: Vec<f32> = x.iter().map(|x| x * 2.).collect();
 
@@ -1350,7 +1362,7 @@ mod tests {
     #[test]
     fn test_offsets() {
         let mut rng = XorShiftRng::new(1234);
-        let mut x = rand(&[10, 10], &mut rng);
+        let mut x = Tensor::rand(&[10, 10], &mut rng);
 
         let x_elts: Vec<_> = x.iter().collect();
 
@@ -1724,7 +1736,7 @@ mod tests {
     #[test]
     fn test_squeezed() {
         let mut rng = XorShiftRng::new(1234);
-        let x = rand(&[1, 1, 10, 20], &mut rng);
+        let x = Tensor::rand(&[1, 1, 10, 20], &mut rng);
         let y = x.squeezed();
         assert_eq!(y.data(), x.data());
         assert_eq!(y.shape(), &[10, 20]);

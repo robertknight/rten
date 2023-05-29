@@ -168,7 +168,7 @@ mod tests {
     use crate::linalg::gemm;
     use crate::ops::matmul::{gemm_op, matmul, OpError};
     use crate::rng::XorShiftRng;
-    use crate::tensor::{from_data, rand, Tensor, TensorLayout};
+    use crate::tensor::{from_data, Tensor, TensorLayout};
     use crate::test_util::expect_equal;
 
     fn gemm_tensors(c: &mut Tensor, a: &Tensor, b: &Tensor, alpha: f32, beta: f32) {
@@ -186,8 +186,8 @@ mod tests {
     #[test]
     fn test_gemm_op() -> Result<(), String> {
         let mut rng = XorShiftRng::new(1234);
-        let a = rand(&[3, 10], &mut rng);
-        let b = rand(&[10, 8], &mut rng);
+        let a = Tensor::rand(&[3, 10], &mut rng);
+        let b = Tensor::rand(&[10, 8], &mut rng);
 
         let mut expected = Tensor::zeros(&[3, 8]);
         gemm_tensors(&mut expected, &a, &b, 1., 1.);
@@ -200,8 +200,8 @@ mod tests {
     #[test]
     fn test_gemm_op_transposed() -> Result<(), String> {
         let mut rng = XorShiftRng::new(1234);
-        let a = rand(&[10, 3], &mut rng);
-        let b = rand(&[8, 10], &mut rng);
+        let a = Tensor::rand(&[10, 3], &mut rng);
+        let b = Tensor::rand(&[8, 10], &mut rng);
 
         let mut a_transposed = a.clone();
         a_transposed.permute(&[1, 0]);
@@ -218,9 +218,9 @@ mod tests {
     #[test]
     fn test_gemm_op_adds_c() -> Result<(), String> {
         let mut rng = XorShiftRng::new(1234);
-        let a = rand(&[3, 10], &mut rng);
-        let b = rand(&[10, 8], &mut rng);
-        let c = rand(&[3, 8], &mut rng);
+        let a = Tensor::rand(&[3, 10], &mut rng);
+        let b = Tensor::rand(&[10, 8], &mut rng);
+        let c = Tensor::rand(&[3, 8], &mut rng);
 
         let mut expected = c.clone();
         gemm_tensors(&mut expected, &a, &b, 1., 1.);
@@ -233,9 +233,9 @@ mod tests {
     #[test]
     fn test_gemm_op_invalid_inputs() {
         let mut rng = XorShiftRng::new(1234);
-        let a = rand(&[3, 10], &mut rng);
-        let b = rand(&[10, 8], &mut rng);
-        let c = rand(&[3, 5], &mut rng);
+        let a = Tensor::rand(&[3, 10], &mut rng);
+        let b = Tensor::rand(&[10, 8], &mut rng);
+        let c = Tensor::rand(&[3, 5], &mut rng);
 
         let result = gemm_op(a.view(), b.view(), Some(c.view()), 1.0, 1.0, false, false);
 
@@ -250,8 +250,8 @@ mod tests {
     #[test]
     fn test_matmul() -> Result<(), String> {
         let mut rng = XorShiftRng::new(1234);
-        let a = rand(&[3, 10], &mut rng);
-        let b = rand(&[10, 8], &mut rng);
+        let a = Tensor::rand(&[3, 10], &mut rng);
+        let b = Tensor::rand(&[10, 8], &mut rng);
 
         let mut expected = Tensor::zeros(&[3, 8]);
         gemm_tensors(&mut expected, &a, &b, 1., 1.);
@@ -263,8 +263,8 @@ mod tests {
     #[test]
     fn test_matmul_broadcast() -> Result<(), String> {
         let mut rng = XorShiftRng::new(1234);
-        let mut a = rand(&[3, 10], &mut rng);
-        let mut b = rand(&[10, 8], &mut rng);
+        let mut a = Tensor::rand(&[3, 10], &mut rng);
+        let mut b = Tensor::rand(&[10, 8], &mut rng);
 
         let mut expected = Tensor::zeros(&[3, 8]);
         gemm_tensors(&mut expected, &a, &b, 1., 1.);

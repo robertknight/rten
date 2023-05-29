@@ -239,7 +239,7 @@ mod tests {
     use crate::ops::{batch_norm, batch_norm_in_place, log_softmax, softmax};
     use crate::rng::XorShiftRng;
     use crate::tensor;
-    use crate::tensor::{from_data, rand, TensorLayout};
+    use crate::tensor::{from_data, Tensor, TensorLayout};
     use crate::test_util::expect_equal;
 
     #[test]
@@ -392,7 +392,7 @@ mod tests {
     #[test]
     fn test_softmax_sizes() {
         let mut rng = XorShiftRng::new(1234);
-        let input = rand(&[1, 1, 3, 3], &mut rng);
+        let input = Tensor::rand(&[1, 1, 3, 3], &mut rng);
         let result = softmax(input.view(), 1).unwrap();
         assert_eq!(result.shape(), input.shape());
         assert!((result.iter().sum::<f32>() - 1.0).abs() < 0.001);

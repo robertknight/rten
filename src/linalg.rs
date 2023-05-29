@@ -652,7 +652,7 @@ fn gemm_impl<K: Kernel, const MR_NR: usize>(
 mod tests {
     use crate::linalg::{add_scaled_vector, gemm, gemm_base_kernel};
     use crate::rng::XorShiftRng;
-    use crate::tensor::{rand, Tensor, TensorLayout};
+    use crate::tensor::{Tensor, TensorLayout};
     use crate::test_util::expect_equal;
 
     fn reference_matmul(a: &Tensor, b: &Tensor) -> Tensor {
@@ -830,8 +830,8 @@ mod tests {
 
         for (lhs_size, rhs_size) in cases {
             let mut rng = XorShiftRng::new(1234);
-            let a = rand(&lhs_size, &mut rng);
-            let b = rand(&rhs_size, &mut rng);
+            let a = Tensor::rand(&lhs_size, &mut rng);
+            let b = Tensor::rand(&rhs_size, &mut rng);
             let mut result = Tensor::zeros(&[lhs_size[0], rhs_size[1]]);
 
             run_gemm(&mut result, &a, &b, 1., 0., kernel);
@@ -863,8 +863,8 @@ mod tests {
     #[test]
     fn test_gemm_transposed() -> Result<(), String> {
         let mut rng = XorShiftRng::new(1234);
-        let mut a = rand(&[20, 30], &mut rng);
-        let mut b = rand(&[10, 20], &mut rng);
+        let mut a = Tensor::rand(&[20, 30], &mut rng);
+        let mut b = Tensor::rand(&[10, 20], &mut rng);
 
         // Transpose the input matrices. This will alter their row and column
         // strides and shapes, but not re-order the data.
@@ -885,12 +885,12 @@ mod tests {
     fn test_gemm_alpha() -> Result<(), String> {
         let mut rng = XorShiftRng::new(1234);
 
-        let a = rand(&[10, 5], &mut rng);
-        let b = rand(&[5, 15], &mut rng);
+        let a = Tensor::rand(&[10, 5], &mut rng);
+        let b = Tensor::rand(&[5, 15], &mut rng);
 
         for kernel in [Kernel::Auto, Kernel::Base] {
             for alpha in [0.0, 0.5, 1.0, 2.0] {
-                let mut result = rand(&[10, 15], &mut rng);
+                let mut result = Tensor::rand(&[10, 15], &mut rng);
                 let mut expected = result.clone();
 
                 run_gemm(&mut result, &a, &b, alpha, 0.0, kernel);
@@ -907,12 +907,12 @@ mod tests {
     fn test_gemm_beta() -> Result<(), String> {
         let mut rng = XorShiftRng::new(1234);
 
-        let a = rand(&[10, 5], &mut rng);
-        let b = rand(&[5, 15], &mut rng);
+        let a = Tensor::rand(&[10, 5], &mut rng);
+        let b = Tensor::rand(&[5, 15], &mut rng);
 
         for kernel in [Kernel::Auto, Kernel::Base] {
             for beta in [0.0, 0.5, 1.0, 2.0] {
-                let mut result = rand(&[10, 15], &mut rng);
+                let mut result = Tensor::rand(&[10, 15], &mut rng);
                 let mut expected = result.clone();
 
                 run_gemm(&mut result, &a, &b, 1., beta, kernel);
