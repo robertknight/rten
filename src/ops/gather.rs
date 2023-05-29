@@ -1,5 +1,5 @@
 use crate::ops::{Input, InputList, IntoOpResult, OpError, Operator, Output};
-use crate::tensor::{Tensor, TensorLayout};
+use crate::tensor::{Tensor, TensorLayout, TensorView};
 
 /// Gather elements from `input` specified by `indices`.
 ///
@@ -8,9 +8,9 @@ use crate::tensor::{Tensor, TensorLayout};
 /// https://numpy.org/doc/stable/reference/generated/numpy.take.html for
 /// additional explanation.
 pub fn gather<T: Copy + Default>(
-    input: &Tensor<T>,
+    input: TensorView<T>,
     axis: usize,
-    indices: &Tensor<i32>,
+    indices: TensorView<i32>,
 ) -> Result<Tensor<T>, OpError> {
     if axis >= input.ndim() {
         return Err(OpError::InvalidValue("`axis` is out of range"));
@@ -68,8 +68,12 @@ impl Operator for Gather {
         let input = inputs.require(0)?;
         let indices = inputs.require_as::<i32>(1)?;
         match input {
-            Input::IntTensor(input) => gather(input, self.axis, indices).into_op_result(),
-            Input::FloatTensor(input) => gather(input, self.axis, indices).into_op_result(),
+            Input::IntTensor(input) => {
+                gather(input.view(), self.axis, indices.view()).into_op_result()
+            }
+            Input::FloatTensor(input) => {
+                gather(input.view(), self.axis, indices.view()).into_op_result()
+            }
         }
     }
 }
@@ -86,7 +90,7 @@ mod tests {
         let input = from_vec(vec![1, 20, 30]);
         for i in 0..input.len() {
             let indices = from_scalar(i as i32);
-            let result = gather(&input, 0, &indices).unwrap();
+            let result = gather(input.view(), 0, indices.view()).unwrap();
             assert_eq!(result.item(), Some(input[[i]]))
         }
     }
@@ -98,21 +102,21 @@ mod tests {
         let mut rng = XorShiftRng::new(1234);
         let input = rand(&[128, 10], &mut rng);
         let indices = from_data(&[2, 2], vec![2, 5, 8, 50]);
-        let result = gather(&input, 0, &indices).unwrap();
+        let result = gather(input.view(), 0, indices.view()).unwrap();
         assert_eq!(result.shape(), &[2, 2, 10]);
 
         // Test case #1 from ONNX spec.
         let input = from_data(&[3, 2], vec![1.0, 1.2, 2.3, 3.4, 4.5, 5.7]);
         let indices = from_data(&[2, 2], vec![0, 1, 1, 2]);
         let expected = from_data(&[2, 2, 2], vec![1.0, 1.2, 2.3, 3.4, 2.3, 3.4, 4.5, 5.7]);
-        let result = gather(&input, 0, &indices).unwrap();
+        let result = gather(input.view(), 0, indices.view()).unwrap();
         expect_equal(&result, &expected)?;
 
         // Test case #2 from ONNX spec.
         let input = from_data(&[3, 3], vec![1.0, 1.2, 1.9, 2.3, 3.4, 3.9, 4.5, 5.7, 5.9]);
         let indices = from_data(&[1, 2], vec![0, 2]);
         let expected = from_data(&[3, 1, 2], vec![1.0, 1.9, 2.3, 3.9, 4.5, 5.9]);
-        let result = gather(&input, 1, &indices).unwrap();
+        let result = gather(input.view(), 1, indices.view()).unwrap();
         expect_equal(&result, &expected)
     }
 
@@ -121,14 +125,14 @@ mod tests {
         let mut rng = XorShiftRng::new(1234);
         let input = rand(&[128, 10], &mut rng);
         let indices = from_data(&[2, 2], vec![2, 5, 8, 50]);
-        let result = gather(&input, 5, &indices);
+        let result = gather(input.view(), 5, indices.view());
         assert_eq!(
             result.err(),
             Some(OpError::InvalidValue("`axis` is out of range"))
         );
 
         let indices = from_data(&[2, 2], vec![2, 5, 8, 130]);
-        let result = gather(&input, 0, &indices);
+        let result = gather(input.view(), 0, indices.view());
         assert_eq!(
             result.err(),
             Some(OpError::InvalidValue("Entry in `indices` is out of range"))
