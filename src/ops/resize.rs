@@ -2,8 +2,7 @@ use std::iter::zip;
 
 use crate::check_dims;
 use crate::ops::{Input, InputList, IntoOpResult, OpError, Operator, Output};
-use crate::tensor::{Matrix, MatrixLayout, MatrixMut};
-use crate::tensor::{Tensor, TensorLayout};
+use crate::tensor::{Matrix, MatrixLayout, MatrixMut, Tensor, TensorLayout, TensorView};
 
 /// Specifies an output size for a resize operation.
 pub enum ResizeTarget<'a> {
@@ -134,7 +133,7 @@ fn bilinear_resize(input: &Matrix, output: &mut MatrixMut, coord_mode: CoordTran
 }
 
 pub fn resize(
-    input: &Tensor,
+    input: TensorView,
     target: ResizeTarget,
     mode: ResizeMode,
     coord_mode: CoordTransformMode,
@@ -260,7 +259,14 @@ impl Operator for Resize {
         let sizes = get_optional_input(&inputs, 3)?.map(ResizeTarget::Sizes);
         let target = scales.or(sizes).ok_or(OpError::MissingInputs)?;
 
-        resize(input, target, self.mode, self.coord_mode, self.nearest_mode).into_op_result()
+        resize(
+            input.view(),
+            target,
+            self.mode,
+            self.coord_mode,
+            self.nearest_mode,
+        )
+        .into_op_result()
     }
 }
 
@@ -351,7 +357,7 @@ mod tests {
         for case in cases {
             let scales = Tensor::from_vec(case.scales);
             let result = resize(
-                &case.image,
+                case.image.view(),
                 ResizeTarget::Scales(&scales),
                 ResizeMode::Nearest,
                 CoordTransformMode::HalfPixel,
@@ -416,7 +422,7 @@ mod tests {
 
         for case in cases {
             let result = resize(
-                &image,
+                image.view(),
                 ResizeTarget::Scales(&scales),
                 ResizeMode::Nearest,
                 CoordTransformMode::Asymmetric,
@@ -511,7 +517,7 @@ mod tests {
             let scales = Tensor::from_vec(case.scales);
 
             let result = resize(
-                &case.image,
+                case.image.view(),
                 ResizeTarget::Scales(&scales),
                 ResizeMode::Linear,
                 CoordTransformMode::HalfPixel,

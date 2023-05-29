@@ -194,7 +194,7 @@ fn main() -> Result<(), Box<dyn Error>> {
         }
     };
 
-    let resized_grey_img = bilinear_resize(&grey_img, in_height as i32, in_width as i32)?;
+    let resized_grey_img = bilinear_resize(grey_img.view(), in_height as i32, in_width as i32)?;
 
     // Run text detection model to compute a probability mask indicating whether
     // each pixel is part of a text word or not.
@@ -210,7 +210,7 @@ fn main() -> Result<(), Box<dyn Error>> {
     // Resize probability mask to original input size and apply threshold to get a
     // binary text/not-text mask.
     let text_mask = &outputs[0].as_float_ref().unwrap();
-    let text_mask = bilinear_resize(text_mask, img_height as i32, img_width as i32)?;
+    let text_mask = bilinear_resize(text_mask.view(), img_height as i32, img_width as i32)?;
     let threshold = 0.2;
     let binary_mask = text_mask.map(|prob| if prob > threshold { 1i32 } else { 0 });
 

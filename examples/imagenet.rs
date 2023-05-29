@@ -190,7 +190,7 @@ fn main() -> Result<(), Box<dyn Error>> {
 
     let img_tensor = if height != in_height as usize || width != in_width as usize {
         resize(
-            &img_tensor,
+            img_tensor.view(),
             ResizeTarget::Sizes(&Tensor::from_vec(vec![
                 1,
                 img_tensor.shape()[1] as i32,
