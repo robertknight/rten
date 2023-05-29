@@ -2,7 +2,7 @@ use std::iter::zip;
 
 use crate::check_dims;
 use crate::ops::{resolve_axis, Input, InputList, IntoOpResult, OpError, Operator, Output};
-use crate::tensor::{SliceRange, Tensor, TensorLayout};
+use crate::tensor::{SliceRange, Tensor, TensorLayout, TensorView};
 
 /// Compute the effective starts, ends and steps for each input dimension in
 /// a Slice operation.
@@ -50,7 +50,7 @@ fn slice_ranges(
 
 /// Return a copy of a tensor which only retains a subset of a given dimension.
 pub fn slice<T: Copy>(
-    input: &Tensor<T>,
+    input: TensorView<T>,
     starts: &Tensor<i32>,
     ends: &Tensor<i32>,
     axes: Option<&Tensor<i32>>,
@@ -98,8 +98,12 @@ impl Operator for Slice {
         let steps = inputs.get_as::<i32>(4)?;
 
         let result: Result<Output, OpError> = match input {
-            Input::FloatTensor(input) => slice(input, starts, ends, axes, steps).map(|t| t.into()),
-            Input::IntTensor(input) => slice(input, starts, ends, axes, steps).map(|t| t.into()),
+            Input::FloatTensor(input) => {
+                slice(input.view(), starts, ends, axes, steps).map(|t| t.into())
+            }
+            Input::IntTensor(input) => {
+                slice(input.view(), starts, ends, axes, steps).map(|t| t.into())
+            }
         };
         result.into_op_result()
     }
@@ -197,7 +201,7 @@ mod tests {
         let ends = from_slice(&[4]);
         let axes = from_slice(&[0]);
 
-        let sliced = slice(&input, &starts, &ends, Some(&axes), None).unwrap();
+        let sliced = slice(input.view(), &starts, &ends, Some(&axes), None).unwrap();
         let shape = sliced.shape();
 
         assert_eq!(
@@ -229,7 +233,7 @@ mod tests {
         let ends = from_slice(&[4]);
         let axes = from_slice(&[2]);
 
-        let sliced = slice(&input, &starts, &ends, Some(&axes), None).unwrap();
+        let sliced = slice(input.view(), &starts, &ends, Some(&axes), None).unwrap();
         let shape = sliced.shape();
 
         assert_eq!(
@@ -264,7 +268,7 @@ mod tests {
             let ends = from_slice(&[dim_size]);
             let axes = from_slice(&[dim as i32]);
 
-            let sliced = slice(&input, &starts, &ends, Some(&axes), None).unwrap();
+            let sliced = slice(input.view(), &starts, &ends, Some(&axes), None).unwrap();
             assert_eq!(sliced.shape(), input.shape());
             assert_eq!(sliced.data(), input.data());
         }
@@ -277,11 +281,11 @@ mod tests {
         let ends = from_slice(&[2]);
 
         let axes = from_slice(&[-1]);
-        let sliced = slice(&input, &starts, &ends, Some(&axes), None).unwrap();
+        let sliced = slice(input.view(), &starts, &ends, Some(&axes), None).unwrap();
         assert_eq!(sliced.iter().collect::<Vec<_>>(), &[1, 2, 4, 5, 7, 8]);
 
         let axes = from_slice(&[-2]);
-        let sliced = slice(&input, &starts, &ends, Some(&axes), None).unwrap();
+        let sliced = slice(input.view(), &starts, &ends, Some(&axes), None).unwrap();
         assert_eq!(sliced.iter().collect::<Vec<_>>(), &[1, 2, 3, 4, 5, 6]);
     }
 
@@ -292,11 +296,11 @@ mod tests {
         let ends = from_slice(&[2]);
 
         let starts = from_slice(&[-3]);
-        let sliced = slice(&input, &starts, &ends, Some(&axes), None).unwrap();
+        let sliced = slice(input.view(), &starts, &ends, Some(&axes), None).unwrap();
         assert_eq!(sliced.iter().collect::<Vec<_>>(), &[1, 2, 4, 5, 7, 8]);
 
         let starts = from_slice(&[-2]);
-        let sliced = slice(&input, &starts, &ends, Some(&axes), None).unwrap();
+        let sliced = slice(input.view(), &starts, &ends, Some(&axes), None).unwrap();
         assert_eq!(sliced.iter().collect::<Vec<_>>(), &[2, 5, 8]);
     }
 
@@ -307,11 +311,11 @@ mod tests {
         let starts = from_slice(&[0]);
 
         let ends = from_slice(&[-1]);
-        let sliced = slice(&input, &starts, &ends, Some(&axes), None).unwrap();
+        let sliced = slice(input.view(), &starts, &ends, Some(&axes), None).unwrap();
         assert_eq!(sliced.iter().collect::<Vec<_>>(), &[1, 2, 4, 5, 7, 8]);
 
         let ends = from_slice(&[-2]);
-        let sliced = slice(&input, &starts, &ends, Some(&axes), None).unwrap();
+        let sliced = slice(input.view(), &starts, &ends, Some(&axes), None).unwrap();
         assert_eq!(sliced.iter().collect::<Vec<_>>(), &[1, 4, 7]);
     }
 
@@ -328,7 +332,7 @@ mod tests {
         let starts = from_slice(&[-i32::MAX, -100]);
         let ends = from_slice(&[i32::MAX, 100]);
 
-        let sliced = slice(&input, &starts, &ends, None, None).unwrap();
+        let sliced = slice(input.view(), &starts, &ends, None, None).unwrap();
 
         expect_equal(&sliced, &input)
     }
@@ -386,7 +390,7 @@ mod tests {
             let axes = from_slice(&[0]);
             let steps = from_slice(&[case.step]);
 
-            let sliced = slice(&input, &starts, &ends, Some(&axes), Some(&steps)).unwrap();
+            let sliced = slice(input.view(), &starts, &ends, Some(&axes), Some(&steps)).unwrap();
 
             assert_eq!(sliced.shape(), case.expected_shape);
             assert_eq!(sliced.data(), case.expected_elements);
