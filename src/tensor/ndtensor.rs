@@ -171,6 +171,11 @@ pub trait NdTensorLayout<const N: usize> {
         self.layout().len()
     }
 
+    /// Returns true if the array has no elements.
+    fn is_empty(&self) -> bool {
+        self.layout().len() == 0
+    }
+
     /// Returns an array of the sizes of each dimension.
     fn shape(&self) -> [usize; N] {
         self.layout().shape
