@@ -4,6 +4,7 @@ use std::iter::zip;
 use std::marker::PhantomData;
 use std::ops::{Index, IndexMut};
 
+use super::index_iterator::NdIndexIterator;
 use super::iterators::Elements;
 use super::layout::Layout;
 use super::overlap::may_have_internal_overlap;
@@ -188,6 +189,11 @@ pub trait NdTensorLayout<const N: usize> {
     /// Returns the offset between adjacent indices along dimension `dim`.
     fn stride(&self, dim: usize) -> usize {
         self.layout().strides[dim]
+    }
+
+    /// Return an iterator over all valid indices in this tensor.
+    fn indices(&self) -> NdIndexIterator<N> {
+        NdIndexIterator::from_shape(self.shape())
     }
 }
 
