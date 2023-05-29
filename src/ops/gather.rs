@@ -82,12 +82,12 @@ impl Operator for Gather {
 mod tests {
     use crate::ops::{gather, OpError};
     use crate::rng::XorShiftRng;
-    use crate::tensor::{from_data, from_vec, rand, Tensor, TensorLayout};
+    use crate::tensor::{from_data, rand, Tensor, TensorLayout};
     use crate::test_util::expect_equal;
 
     #[test]
     fn test_gather_scalar() {
-        let input = from_vec(vec![1, 20, 30]);
+        let input = Tensor::from_vec(vec![1, 20, 30]);
         for i in 0..input.len() {
             let indices = Tensor::from_scalar(i as i32);
             let result = gather(input.view(), 0, indices.view()).unwrap();

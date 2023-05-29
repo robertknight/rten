@@ -591,7 +591,7 @@ mod tests {
     use crate::ops::{
         Concat, Conv, InputList, IntoOpResult, OpError, Operator, Output, Padding, Relu, Shape,
     };
-    use crate::tensor::{from_data, from_vec, zeros, Tensor, TensorLayout};
+    use crate::tensor::{from_data, zeros, Tensor, TensorLayout};
     use crate::test_util::expect_equal;
 
     // Test of a very simple graph with a typical structure (one input, one
@@ -1022,8 +1022,8 @@ mod tests {
 
             let input: &Tensor<f32> = inputs.require_as(0)?;
             let left_split_len = input.len() / 2;
-            let left_split = from_vec(input.iter().take(left_split_len).collect());
-            let right_split = from_vec(input.iter().skip(left_split_len).collect());
+            let left_split = Tensor::from_vec(input.iter().take(left_split_len).collect());
+            let right_split = Tensor::from_vec(input.iter().skip(left_split_len).collect());
             Ok([left_split.into(), right_split.into()].into())
         }
     }
@@ -1045,7 +1045,7 @@ mod tests {
             &[left_split_out, right_split_out].map(Some),
         );
 
-        let input = from_vec(vec![1.0, 2.0, 3.0, 4.0, 5.0]);
+        let input = Tensor::from_vec(vec![1.0, 2.0, 3.0, 4.0, 5.0]);
         let mut results = g
             .run(
                 &[(input_id, (&input).into())],

@@ -813,12 +813,6 @@ pub fn from_data<T: Copy>(shape: &[usize], data: Vec<T>) -> Tensor<T> {
     Tensor::from_data(shape, data)
 }
 
-/// Create a new 1-dimensional tensor from a vector
-#[cfg(test)]
-pub fn from_vec<T: Copy>(data: Vec<T>) -> Tensor<T> {
-    Tensor::from_vec(data)
-}
-
 /// Create a new 2D tensor from a nested array of slices.
 #[cfg(test)]
 pub fn from_2d_slice<T: Copy>(data: &[&[T]]) -> Tensor<T> {
@@ -842,8 +836,8 @@ mod tests {
     use crate::rng::XorShiftRng;
     use crate::tensor;
     use crate::tensor::{
-        from_2d_slice, from_data, from_vec, rand, zeros, SliceRange, Tensor, TensorLayout,
-        TensorView, TensorViewMut,
+        from_2d_slice, from_data, rand, zeros, SliceRange, Tensor, TensorLayout, TensorView,
+        TensorViewMut,
     };
 
     /// Create a tensor where the value of each element is its logical index
@@ -1083,7 +1077,7 @@ mod tests {
 
     #[test]
     fn test_is_empty() {
-        assert!(from_vec::<f32>(vec![]).is_empty());
+        assert!(Tensor::<f32>::from_vec(vec![]).is_empty());
         assert!(!tensor!([1]).is_empty());
         assert!(!Tensor::from_scalar(5.0).is_empty());
     }

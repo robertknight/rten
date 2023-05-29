@@ -390,7 +390,7 @@ impl Operator for ReduceL2 {
 mod tests {
     use crate::ops::{arg_max, arg_min, cum_sum, reduce_l2, reduce_mean, OpError};
     use crate::tensor;
-    use crate::tensor::{from_data, from_vec, Tensor, TensorLayout};
+    use crate::tensor::{from_data, Tensor, TensorLayout};
     use crate::test_util::expect_equal;
 
     #[test]
@@ -454,7 +454,7 @@ mod tests {
 
     #[test]
     fn test_cum_sum() {
-        let elements = from_vec((0..=5).collect());
+        let elements = Tensor::from_vec((0..=5).collect());
         let sums = cum_sum(elements.view(), 0).unwrap();
         assert_eq!(sums.shape(), &[6]);
         assert_eq!(sums.to_vec(), &[0, 1, 3, 6, 10, 15]);

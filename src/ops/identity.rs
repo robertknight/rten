@@ -29,14 +29,14 @@ impl Operator for Identity {
 #[cfg(test)]
 mod tests {
     use crate::ops::{Identity, Input, InputList, Operator};
-    use crate::tensor::from_vec;
+    use crate::tensor::Tensor;
     use crate::test_util::expect_equal;
 
     #[test]
     fn test_identity() -> Result<(), String> {
         let id_op = Identity {};
 
-        let int_input = from_vec(vec![1, 2, 3]);
+        let int_input = Tensor::from_vec(vec![1, 2, 3]);
         let result = id_op
             .run(InputList::from(&[Input::IntTensor(&int_input)]))
             .unwrap()
@@ -45,7 +45,7 @@ mod tests {
             .unwrap();
         assert_eq!(result, int_input);
 
-        let float_input = from_vec(vec![1.0, 2.0, 3.0]);
+        let float_input = Tensor::from_vec(vec![1.0, 2.0, 3.0]);
         let result = id_op
             .run(InputList::from(&[Input::FloatTensor(&float_input)]))
             .unwrap()
