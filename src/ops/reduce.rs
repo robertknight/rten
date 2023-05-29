@@ -4,14 +4,14 @@ use crate::ops::{
     resolve_axes, resolve_axis, Input, InputList, IntoOpResult, OpError, Operator, Output,
 };
 use crate::tensor;
-use crate::tensor::{IndexIterator, Offsets, SliceRange, Tensor, TensorLayout};
+use crate::tensor::{IndexIterator, Offsets, SliceRange, Tensor, TensorLayout, TensorView};
 
 /// Iterator over slices of a tensor along a target dimension of size N.
 ///
 /// Conceptually this iterator steps through every distinct slice of a tensor
 /// where a target dim is varied from 0..N and other indices are held fixed.
 struct DimSlices<'a, T: Copy> {
-    tensor: &'a Tensor<T>,
+    tensor: TensorView<'a, T>,
     slice_start_offsets: Offsets,
     dim_size: usize,
     dim_stride: usize,
@@ -20,7 +20,7 @@ struct DimSlices<'a, T: Copy> {
 impl<'a, T: Copy> DimSlices<'a, T> {
     /// Create a DimSlices iterator which yields all possible slices over
     /// the `dim` dimension of `tensor`.
-    fn new(tensor: &'a Tensor<T>, dim: usize) -> DimSlices<'a, T> {
+    fn new(tensor: TensorView<'a, T>, dim: usize) -> DimSlices<'a, T> {
         let slice_starts: Vec<SliceRange> = (0..tensor.ndim())
             .map(|i| {
                 if i == dim {
@@ -31,7 +31,7 @@ impl<'a, T: Copy> DimSlices<'a, T> {
             })
             .collect();
         DimSlices {
-            tensor,
+            tensor: tensor.clone(),
             slice_start_offsets: tensor.slice_offsets(&slice_starts),
             dim_size: tensor.shape()[dim],
             dim_stride: tensor.stride(dim),
@@ -42,7 +42,7 @@ impl<'a, T: Copy> DimSlices<'a, T> {
     fn next(&mut self) -> Option<impl ExactSizeIterator<Item = T> + 'a> {
         self.slice_start_offsets.next().map(|offset| {
             self.tensor
-                .data()
+                .to_data()
                 .iter()
                 .copied()
                 .skip(offset)
@@ -55,7 +55,7 @@ impl<'a, T: Copy> DimSlices<'a, T> {
 /// Compute the indices of the max elements along an axis, according to a
 /// comparison function `compare`.
 fn index_select<T: Copy, Cmp: Fn(T, T) -> bool>(
-    input: &Tensor<T>,
+    input: TensorView<T>,
     axis: isize,
     keep_dims: bool,
     compare: Cmp,
@@ -106,7 +106,7 @@ fn index_select<T: Copy, Cmp: Fn(T, T) -> bool>(
 }
 
 pub fn arg_max<T: Copy + PartialOrd>(
-    input: &Tensor<T>,
+    input: TensorView<T>,
     axis: isize,
     keep_dims: bool,
 ) -> Result<Tensor<i32>, OpError> {
@@ -126,12 +126,12 @@ impl Operator for ArgMax {
 
     fn run(&self, inputs: InputList) -> Result<Vec<Output>, OpError> {
         let input = inputs.require_as::<f32>(0)?;
-        arg_max(input, self.axis, self.keep_dims).into_op_result()
+        arg_max(input.view(), self.axis, self.keep_dims).into_op_result()
     }
 }
 
 pub fn arg_min<T: Copy + PartialOrd>(
-    input: &Tensor<T>,
+    input: TensorView<T>,
     axis: isize,
     keep_dims: bool,
 ) -> Result<Tensor<i32>, OpError> {
@@ -151,19 +151,19 @@ impl Operator for ArgMin {
 
     fn run(&self, inputs: InputList) -> Result<Vec<Output>, OpError> {
         let input = inputs.require_as::<f32>(0)?;
-        arg_min(input, self.axis, self.keep_dims).into_op_result()
+        arg_min(input.view(), self.axis, self.keep_dims).into_op_result()
     }
 }
 
 pub fn cum_sum<T: Copy + Identities + std::ops::AddAssign>(
-    input: &Tensor<T>,
+    input: TensorView<T>,
     axis: isize,
 ) -> Result<Tensor<T>, OpError> {
     let resolved_axis = resolve_axis(input.ndim(), axis)?;
     let mut out_data = Vec::with_capacity(input.len());
 
     if !input.is_empty() {
-        let mut slice_iter = DimSlices::new(input, resolved_axis);
+        let mut slice_iter = DimSlices::new(input.clone(), resolved_axis);
         while let Some(slice) = slice_iter.next() {
             let mut cum_sum = T::zero();
             out_data.extend(slice.map(|val| {
@@ -188,8 +188,8 @@ impl Operator for CumSum {
         let input = inputs.require(0)?;
         let axis: i32 = inputs.require_as_scalar(1)?;
         match input {
-            Input::IntTensor(input) => cum_sum(input, axis as isize).into_op_result(),
-            Input::FloatTensor(input) => cum_sum(input, axis as isize).into_op_result(),
+            Input::IntTensor(input) => cum_sum(input.view(), axis as isize).into_op_result(),
+            Input::FloatTensor(input) => cum_sum(input.view(), axis as isize).into_op_result(),
         }
     }
 }
@@ -203,7 +203,7 @@ trait Reducer<T: Copy> {
 }
 
 fn reduce<T: Copy + Default, R: Reducer<T>>(
-    input: &Tensor<T>,
+    input: TensorView<T>,
     axes: Option<&[i32]>,
     keep_dims: bool,
     reducer: R,
@@ -311,7 +311,7 @@ fn reduce<T: Copy + Default, R: Reducer<T>>(
 }
 
 pub fn reduce_mean(
-    input: &Tensor,
+    input: TensorView,
     axes: Option<&[i32]>,
     keep_dims: bool,
 ) -> Result<Tensor, OpError> {
@@ -340,7 +340,7 @@ impl Operator for ReduceMean {
     fn run(&self, inputs: InputList) -> Result<Vec<Output>, OpError> {
         let input = inputs.require_as(0)?;
         reduce_mean(
-            input,
+            input.view(),
             self.axes.as_ref().map(|axis| &axis[..]),
             self.keep_dims,
         )
@@ -348,7 +348,11 @@ impl Operator for ReduceMean {
     }
 }
 
-pub fn reduce_l2(input: &Tensor, axes: Option<&[i32]>, keep_dims: bool) -> Result<Tensor, OpError> {
+pub fn reduce_l2(
+    input: TensorView,
+    axes: Option<&[i32]>,
+    keep_dims: bool,
+) -> Result<Tensor, OpError> {
     struct L2Reducer {}
     impl Reducer<f32> for L2Reducer {
         fn reduce<I: ExactSizeIterator<Item = f32>>(&self, iter: I) -> f32 {
@@ -374,7 +378,7 @@ impl Operator for ReduceL2 {
     fn run(&self, inputs: InputList) -> Result<Vec<Output>, OpError> {
         let input = inputs.require_as(0)?;
         reduce_l2(
-            input,
+            input.view(),
             self.axes.as_ref().map(|axis| &axis[..]),
             self.keep_dims,
         )
@@ -393,11 +397,11 @@ mod tests {
     fn test_arg_max() {
         // Reduce a simple vector.
         let probs = tensor!([0.1, 0.5, 0.2, 0.9, 0.01, 0.6]);
-        let class = arg_max(&probs, 0, false /* keep_dims */).unwrap();
+        let class = arg_max(probs.view(), 0, false /* keep_dims */).unwrap();
         assert_eq!(class.item(), Some(3));
 
         // Same, but keep dims
-        let class = arg_max(&probs, 0, true /* keep_dims */).unwrap();
+        let class = arg_max(probs.view(), 0, true /* keep_dims */).unwrap();
         assert_eq!(class.shape(), &[1]);
         assert_eq!(class.to_vec(), &[3]);
 
@@ -413,24 +417,24 @@ mod tests {
                 0.1, 0.01, 0.2, // Fourth item
             ],
         );
-        let seq_classes = arg_max(&seq_probs, 2, false /* keep_dims */).unwrap();
+        let seq_classes = arg_max(seq_probs.view(), 2, false /* keep_dims */).unwrap();
         assert_eq!(seq_classes.shape(), &[1, 4]);
         assert_eq!(seq_classes.to_vec(), &[2, 0, 1, 2]);
 
         // Same, but keep dims
-        let seq_classes = arg_max(&seq_probs, 2, true /* keep_dims */).unwrap();
+        let seq_classes = arg_max(seq_probs.view(), 2, true /* keep_dims */).unwrap();
         assert_eq!(seq_classes.shape(), &[1, 4, 1]);
         assert_eq!(seq_classes.to_vec(), &[2, 0, 1, 2]);
 
         // Empty tensor, axis is a non-zero-sized dim
         let empty = from_data::<i32>(&[10, 0, 5], vec![]);
-        let result = arg_max(&empty, 0, false /* keep_dims */).unwrap();
+        let result = arg_max(empty.view(), 0, false /* keep_dims */).unwrap();
         assert_eq!(result.shape(), &[0, 5]);
         assert_eq!(result.to_vec(), &[] as &[i32]);
 
         // Empty tensor, axis is a zero-sized dim
         let empty = from_data::<i32>(&[10, 0, 5], vec![]);
-        let result = arg_max(&empty, 1, false /* keep_dims */);
+        let result = arg_max(empty.view(), 1, false /* keep_dims */);
         assert_eq!(
             result.err(),
             Some(OpError::InvalidValue(
@@ -444,28 +448,28 @@ mod tests {
     #[test]
     fn test_arg_min() {
         let probs = tensor!([0.1, 0.5, 0.2, 0.9, 0.01, 0.6]);
-        let class = arg_min(&probs, 0, false /* keep_dims */).unwrap();
+        let class = arg_min(probs.view(), 0, false /* keep_dims */).unwrap();
         assert_eq!(class.item(), Some(4));
     }
 
     #[test]
     fn test_cum_sum() {
         let elements = from_vec((0..=5).collect());
-        let sums = cum_sum(&elements, 0).unwrap();
+        let sums = cum_sum(elements.view(), 0).unwrap();
         assert_eq!(sums.shape(), &[6]);
         assert_eq!(sums.to_vec(), &[0, 1, 3, 6, 10, 15]);
 
         let elements = from_data(&[2, 4], (0..4).chain(0..4).collect());
-        let sums = cum_sum(&elements, 1).unwrap();
+        let sums = cum_sum(elements.view(), 1).unwrap();
         assert_eq!(sums.shape(), &[2, 4]);
         assert_eq!(sums.to_vec(), &[0, 1, 3, 6, 0, 1, 3, 6]);
 
-        let sums = cum_sum(&elements, 0).unwrap();
+        let sums = cum_sum(elements.view(), 0).unwrap();
         assert_eq!(sums.shape(), &[2, 4]);
         assert_eq!(sums.to_vec(), &[0, 0, 1, 2, 2, 4, 3, 6]);
 
         let elements: Tensor<f32> = tensor!([]);
-        let sums = cum_sum(&elements, 0).unwrap();
+        let sums = cum_sum(elements.view(), 0).unwrap();
         assert_eq!(sums.shape(), &[0]);
         assert_eq!(sums.to_vec(), &[] as &[f32]);
     }
@@ -485,10 +489,10 @@ mod tests {
             ],
         );
 
-        let result = reduce_l2(&input, Some(&[2]), false /* keep_dims */).unwrap();
+        let result = reduce_l2(input.view(), Some(&[2]), false /* keep_dims */).unwrap();
         expect_equal(&result, &expected)?;
 
-        let result = reduce_l2(&input, Some(&[2]), true /* keep_dims */).unwrap();
+        let result = reduce_l2(input.view(), Some(&[2]), true /* keep_dims */).unwrap();
         let expected = expected.clone_with_shape(&[3, 2, 1]);
         expect_equal(&result, &expected)?;
 
@@ -500,27 +504,27 @@ mod tests {
         let input = from_data(&[3, 3], vec![1., 2., 3., 4., 5., 6., 7., 8., 9.]);
 
         // Test with `keep_dims` off
-        let result = reduce_mean(&input, Some(&[-1]), false /* keep_dims */).unwrap();
+        let result = reduce_mean(input.view(), Some(&[-1]), false /* keep_dims */).unwrap();
         let expected = tensor!([2., 5., 8.]);
         expect_equal(&result, &expected)?;
 
         // Test with `keep_dims` on
-        let result = reduce_mean(&input, Some(&[-1]), true /* keep_dims */).unwrap();
+        let result = reduce_mean(input.view(), Some(&[-1]), true /* keep_dims */).unwrap();
         let expected = from_data(&[3, 1], vec![2., 5., 8.]);
         expect_equal(&result, &expected)?;
 
         // Reduce first dim
-        let result = reduce_mean(&input, Some(&[0]), false /* keep_dims */).unwrap();
+        let result = reduce_mean(input.view(), Some(&[0]), false /* keep_dims */).unwrap();
         let expected = tensor!([4., 5., 6.]);
         expect_equal(&result, &expected)?;
 
         // Reduce all axes
-        let result = reduce_mean(&input, None, false /* keep_dims */).unwrap();
+        let result = reduce_mean(input.view(), None, false /* keep_dims */).unwrap();
         let expected = from_scalar(5.);
         expect_equal(&result, &expected)?;
 
         // Reduce all axes (specified via empty array)
-        let result = reduce_mean(&input, Some(&[]), false /* keep_dims */).unwrap();
+        let result = reduce_mean(input.view(), Some(&[]), false /* keep_dims */).unwrap();
         let expected = from_scalar(5.);
         expect_equal(&result, &expected)?;
 
@@ -530,15 +534,25 @@ mod tests {
             vec![5., 1., 20., 2., 30., 1., 40., 2., 55., 1., 60., 2.],
         );
         let expected = from_data(&[3, 2], vec![12.5, 1.5, 35., 1.5, 57.5, 1.5]);
-        let result = reduce_mean(&input, Some(&[1]), false /* keep_dims */).unwrap();
+        let result = reduce_mean(input.view(), Some(&[1]), false /* keep_dims */).unwrap();
         expect_equal(&result, &expected)?;
 
         // Reduce a scalar value
-        let result = reduce_mean(&from_scalar(5.0), Some(&[]), false /* keep_dims */).unwrap();
+        let result = reduce_mean(
+            from_scalar(5.0).view(),
+            Some(&[]),
+            false, /* keep_dims */
+        )
+        .unwrap();
         assert_eq!(result.item(), Some(5.0));
 
         // Reduce a vector
-        let result = reduce_mean(&tensor!([0., 10.]), Some(&[0]), false /* keep_dims */).unwrap();
+        let result = reduce_mean(
+            tensor!([0., 10.]).view(),
+            Some(&[0]),
+            false, /* keep_dims */
+        )
+        .unwrap();
         assert_eq!(result.to_vec(), &[5.0]);
 
         Ok(())
@@ -548,14 +562,14 @@ mod tests {
     fn test_reduce_mean_invalid_inputs() {
         let input = from_data(&[3, 3], vec![1., 2., 3., 4., 5., 6., 7., 8., 9.]);
 
-        let result = reduce_mean(&input, Some(&[3]), false /* keep_dims */);
+        let result = reduce_mean(input.view(), Some(&[3]), false /* keep_dims */);
         assert_eq!(result.err(), Some(OpError::InvalidValue("Axis is invalid")));
 
-        let result = reduce_mean(&input, Some(&[-3]), false /* keep_dims */);
+        let result = reduce_mean(input.view(), Some(&[-3]), false /* keep_dims */);
         assert_eq!(result.err(), Some(OpError::InvalidValue("Axis is invalid")));
 
         // Empty tensor
-        let result = reduce_mean(&tensor!([]), Some(&[0]), false /* keep_dims */);
+        let result = reduce_mean(tensor!([]).view(), Some(&[0]), false /* keep_dims */);
         assert_eq!(
             result.err(),
             Some(OpError::InvalidValue("Cannot reduce empty tensor"))
