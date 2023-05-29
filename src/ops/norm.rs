@@ -1,6 +1,6 @@
 use crate::check_dims;
 use crate::ops::{resolve_axis, InputList, IntoOpResult, OpError, Operator, Output};
-use crate::tensor::{Tensor, TensorLayout};
+use crate::tensor::{Tensor, TensorLayout, TensorView};
 
 /// Perform in-place batch normalization on the NCHW tensor `out`.
 ///
@@ -96,8 +96,8 @@ impl Operator for BatchNormalization {
     }
 }
 
-pub fn log_softmax(input: &Tensor, axis: isize) -> Result<Tensor, OpError> {
-    let mut output = input.clone();
+pub fn log_softmax(input: TensorView, axis: isize) -> Result<Tensor, OpError> {
+    let mut output = input.to_tensor();
     log_softmax_in_place(&mut output, axis)?;
     Ok(output)
 }
@@ -156,7 +156,7 @@ impl Operator for LogSoftmax {
 
     fn run(&self, inputs: InputList) -> Result<Vec<Output>, OpError> {
         let input = inputs.require_as(0)?;
-        log_softmax(input, self.axis).into_op_result()
+        log_softmax(input.view(), self.axis).into_op_result()
     }
 
     fn can_run_in_place(&self) -> bool {
@@ -170,8 +170,8 @@ impl Operator for LogSoftmax {
     }
 }
 
-pub fn softmax(input: &Tensor, axis: isize) -> Result<Tensor, OpError> {
-    let mut output = input.clone();
+pub fn softmax(input: TensorView, axis: isize) -> Result<Tensor, OpError> {
+    let mut output = input.to_tensor();
     softmax_in_place(&mut output, axis)?;
     Ok(output)
 }
@@ -220,7 +220,7 @@ impl Operator for Softmax {
 
     fn run(&self, inputs: InputList) -> Result<Vec<Output>, OpError> {
         let input = inputs.require_as(0)?;
-        softmax(input, self.axis).into_op_result()
+        softmax(input.view(), self.axis).into_op_result()
     }
 
     fn can_run_in_place(&self) -> bool {
@@ -288,19 +288,19 @@ mod tests {
         // 1D input
         let mut input = tensor!([0.1634, 0.8647, 0.6401, 0.8265, 0.0560]);
         let mut expected = tensor!([-2.0104, -1.3091, -1.5337, -1.3473, -2.1178]);
-        let result = log_softmax(&input, 0).unwrap();
+        let result = log_softmax(input.view(), 0).unwrap();
         expect_equal(&result, &expected)?;
 
         // Second dimension of 2D input
         input.reshape(&[1, 5]);
         expected.reshape(&[1, 5]);
-        let result = log_softmax(&input, 1).unwrap();
+        let result = log_softmax(input.view(), 1).unwrap();
         expect_equal(&result, &expected)?;
 
         // First dimension of 2D input
         input.reshape(&[5, 1]);
         expected.reshape(&[5, 1]);
-        let result = log_softmax(&input, 0).unwrap();
+        let result = log_softmax(input.view(), 0).unwrap();
         expect_equal(&result, &expected)?;
 
         // Second dimension of 2D input with multiple entries in first dim
@@ -318,7 +318,7 @@ mod tests {
                 -2.0104, -1.3091, -1.5337, -1.3473, -2.1178, // Second row
             ],
         );
-        let result = log_softmax(&matrix_input, 1).unwrap();
+        let result = log_softmax(matrix_input.view(), 1).unwrap();
         expect_equal(&result, &matrix_expected)
     }
 
@@ -327,19 +327,19 @@ mod tests {
         // Softmax on a 1D input
         let mut input = tensor!([0.1634, 0.8647, 0.6401, 0.8265, 0.0560]);
         let mut expected = tensor!([0.1339, 0.2701, 0.2157, 0.2599, 0.1203]);
-        let result = softmax(&input, 0).unwrap();
+        let result = softmax(input.view(), 0).unwrap();
         expect_equal(&result, &expected)?;
 
         // Softmax on final dimension of 2D input
         input.reshape(&[1, 5]);
         expected.reshape(&[1, 5]);
-        let result = softmax(&input, 1).unwrap();
+        let result = softmax(input.view(), 1).unwrap();
         expect_equal(&result, &expected)?;
 
         // Softmax on first dimension of 2D input
         input.reshape(&[5, 1]);
         expected.reshape(&[5, 1]);
-        let result = softmax(&input, 0).unwrap();
+        let result = softmax(input.view(), 0).unwrap();
         expect_equal(&result, &expected)?;
 
         // Softmax on second dimension of 2D input with multiple entries in
@@ -358,7 +358,7 @@ mod tests {
                 0.1339, 0.2701, 0.2157, 0.2599, 0.1203, // Second row
             ],
         );
-        let result = softmax(&matrix_input, 1).unwrap();
+        let result = softmax(matrix_input.view(), 1).unwrap();
         expect_equal(&result, &matrix_expected)
     }
 
@@ -381,7 +381,7 @@ mod tests {
         );
 
         input.permute(&[1, 0]);
-        let result = softmax(&input, 1).unwrap();
+        let result = softmax(input.view(), 1).unwrap();
 
         expect_equal(&result, &expected)
     }
@@ -393,7 +393,7 @@ mod tests {
     fn test_softmax_sizes() {
         let mut rng = XorShiftRng::new(1234);
         let input = rand(&[1, 1, 3, 3], &mut rng);
-        let result = softmax(&input, 1).unwrap();
+        let result = softmax(input.view(), 1).unwrap();
         assert_eq!(result.shape(), input.shape());
         assert!((result.iter().sum::<f32>() - 1.0).abs() < 0.001);
     }
