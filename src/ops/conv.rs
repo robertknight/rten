@@ -4,7 +4,10 @@ use crate::check_dims;
 use crate::linalg::{add_scaled_vector, div_ceil, gemm};
 use crate::ops::pooling::calc_output_size_and_padding;
 use crate::ops::{InputList, IntoOpResult, OpError, Operator, Output, Padding};
-use crate::tensor::{Tensor, TensorLayout, TensorView, TensorViewMut};
+use crate::tensor::{
+    NdTensor, NdTensorLayout, NdTensorView, NdTensorViewMut, Tensor, TensorLayout, TensorView,
+    TensorViewMut,
+};
 
 // Calculate the min and max output X coordinates that are valid when updating
 // a row of convolution output using a loop:
@@ -35,15 +38,15 @@ fn min_max_out_x_coords(
 /// Kh/Kw are the patch sizes and Oh/Ow are the number of patches in the Y and
 /// X directions.
 fn im2col(
-    output: &mut Tensor,
-    input: &TensorView,
+    output: &mut NdTensorViewMut<f32, 2>,
+    input: &NdTensorView<f32, 3>,
     patch_h: usize,
     patch_w: usize,
     padding: [usize; 4],
     strides: [usize; 2],
     out_hw: [usize; 2],
 ) {
-    let [in_chans, in_h, in_w] = input.dims();
+    let [in_chans, in_h, in_w] = input.shape();
     let [pad_top, pad_left, _pad_bottom, _pad_right] = padding;
     let [stride_h, stride_w] = strides;
     let [y_patches, x_patches] = out_hw;
@@ -72,7 +75,7 @@ fn im2col(
                     let out_row = out_row_top + k_x;
                     let (min_px, max_px) =
                         min_max_out_x_coords(k_x, in_w, pad_left, stride_w, x_patches);
-                    let mut out_row_view = output.nd_slice_mut::<1, 1>([out_row]);
+                    let mut out_row_view = output.slice_mut::<1, 1, _>([out_row]);
                     let out_row_data = &mut out_row_view.data_mut()[out_col_left..];
 
                     for px in min_px..max_px {
@@ -294,7 +297,7 @@ pub fn conv(
     } else {
         Tensor::zeros(&[batch, out_c, n_patches])
     };
-    let mut im2col_mat = Tensor::zeros(&[in_channels_per_group * k_h * k_w, n_patches]);
+    let mut im2col_mat = NdTensor::zeros([in_channels_per_group * k_h * k_w, n_patches]);
 
     for n in 0..batch {
         for group in 0..groups {
@@ -309,8 +312,8 @@ pub fn conv(
             // matrices. The matrices are then multiplied with the results
             // written into the output tensor.
             im2col(
-                &mut im2col_mat,
-                &in_group,
+                &mut im2col_mat.view_mut(),
+                &in_group.nd_view(),
                 k_h,
                 k_w,
                 fixed_padding,
@@ -332,7 +335,7 @@ pub fn conv(
                 out_mat.data_mut(),
                 out_row_stride,
                 kernel_mat,
-                im2col_mat.nd_view(),
+                im2col_mat.view(),
                 1.,                                   // alpha
                 if bias.is_some() { 1. } else { 0. }, // beta
             );
