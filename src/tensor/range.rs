@@ -4,7 +4,7 @@ use std::ops::{Range, RangeFull, RangeTo};
 /// Specifies a subset of a dimension to include when slicing a tensor or view.
 ///
 /// Can be constructed from an index or range using `index_or_range.into()`.
-#[derive(Clone)]
+#[derive(Clone, Debug, PartialEq)]
 pub enum SliceItem {
     /// View a specific index from a dimension. The number of dimensions in the
     /// sliced view will be one minus the number of dimensions sliced with an
@@ -48,12 +48,14 @@ impl From<RangeFull> for SliceItem {
     }
 }
 
-/// Trait for types that can be converted into a fixed-sized sequence of
-/// items (ranges or indices) for slicing a tensor.
+/// Used to convert sequences of indices and/or ranges into a uniform
+/// `[SliceItem; N]` array that can be used to slice a tensor.
 ///
-/// This trait is implemented for arrays of indices and ranges (types satisfying
-/// `Into<SliceItem>`) as well as tuples of heterogenous types satisfying
-/// `Into<SliceItem>`.
+/// This trait is implemented for:
+///
+///  - Individual indices and ranges (types satisfying `Into<SliceItem>`)
+///  - Arrays of indices or ranges
+///  - Tuples of indices and/or ranges
 pub trait IntoSliceItems<const N: usize> {
     fn into_slice_items(self) -> [SliceItem; N];
 }
@@ -61,6 +63,12 @@ pub trait IntoSliceItems<const N: usize> {
 impl<const N: usize, T: Into<SliceItem>> IntoSliceItems<N> for [T; N] {
     fn into_slice_items(self) -> [SliceItem; N] {
         self.map(|x| x.into())
+    }
+}
+
+impl<T: Into<SliceItem>> IntoSliceItems<1> for T {
+    fn into_slice_items(self) -> [SliceItem; 1] {
+        [self.into()]
     }
 }
 
@@ -245,7 +253,31 @@ where
 
 #[cfg(test)]
 mod tests {
-    use super::SliceRange;
+    use super::{IntoSliceItems, SliceItem, SliceRange};
+
+    #[test]
+    fn test_into_slice_items() {
+        let x = (42).into_slice_items();
+        assert_eq!(x, [SliceItem::Index(42)]);
+
+        let x = (2..5).into_slice_items();
+        assert_eq!(x, [SliceItem::Range(2..5)]);
+
+        let x = [1].into_slice_items();
+        assert_eq!(x, [SliceItem::Index(1)]);
+        let x = [1, 2].into_slice_items();
+        assert_eq!(x, [SliceItem::Index(1), SliceItem::Index(2)]);
+
+        let x = (0, 1..2, ..).into_slice_items();
+        assert_eq!(
+            x,
+            [
+                SliceItem::Index(0),
+                SliceItem::Range(1..2),
+                SliceItem::RangeFull
+            ]
+        );
+    }
 
     #[test]
     fn test_slice_range_resolve() {
