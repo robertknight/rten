@@ -3,9 +3,9 @@ use crate::tensor::{Tensor, TensorLayout, TensorView};
 
 /// Gather elements from `input` specified by `indices`.
 ///
-/// See https://onnx.ai/onnx/operators/onnx__Gather.html. Per the ONNX spec this
+/// See <https://onnx.ai/onnx/operators/onnx__Gather.html>. Per the ONNX spec this
 /// is very similar to `numpy.take`. See
-/// https://numpy.org/doc/stable/reference/generated/numpy.take.html for
+/// <https://numpy.org/doc/stable/reference/generated/numpy.take.html> for
 /// additional explanation.
 pub fn gather<T: Copy + Default>(
     input: TensorView<T>,

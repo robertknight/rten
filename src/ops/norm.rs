@@ -4,7 +4,7 @@ use crate::tensor::{Tensor, TensorLayout, TensorView};
 
 /// Perform in-place batch normalization on the NCHW tensor `out`.
 ///
-/// See https://github.com/onnx/onnx/blob/main/docs/Operators.md#batchnormalization
+/// See <https://github.com/onnx/onnx/blob/main/docs/Operators.md#batchnormalization>.
 pub fn batch_norm_in_place(
     input: &mut Tensor,
     scale: &Tensor,
@@ -45,7 +45,7 @@ pub fn batch_norm_in_place(
 
 /// Perform batch normalization on the NCHW tensor `input`.
 ///
-/// See https://github.com/onnx/onnx/blob/main/docs/Operators.md#batchnormalization
+/// See <https://github.com/onnx/onnx/blob/main/docs/Operators.md#batchnormalization>.
 pub fn batch_norm(
     input: &Tensor,
     scale: &Tensor,

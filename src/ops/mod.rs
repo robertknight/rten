@@ -376,7 +376,7 @@ macro_rules! check_dims {
 /// attributes and produce one or more output values.
 ///
 /// Operators are usually named after the ONNX operator that they implement.
-/// See https://onnx.ai/onnx/operators/.
+/// See <https://onnx.ai/onnx/operators/>.
 pub trait Operator: Debug {
     /// Return a display name for the operator.
     fn name(&self) -> &str;
