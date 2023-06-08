@@ -153,10 +153,10 @@ where
 /// `min_width` and `min_height` specify thresholds on the size of rectangles
 /// yielded by the iterator.
 ///
-/// The implementation is based on algorithms from [1].
+/// The implementation is based on algorithms from [^1].
 ///
-/// [1] Breuel, Thomas M. “Two Geometric Algorithms for Layout Analysis.”
-///     International Workshop on Document Analysis Systems (2002).
+/// [^1]: Breuel, Thomas M. “Two Geometric Algorithms for Layout Analysis.”
+///       International Workshop on Document Analysis Systems (2002).
 pub fn max_empty_rects<S>(
     obstacles: &[Rect],
     boundary: Rect,
@@ -178,10 +178,10 @@ pub trait FilterOverlapping {
     /// Create an iterator which filters out rectangles that overlap those
     /// already returned by more than `factor`.
     ///
-    /// `factor` is the minimum Intersection-over-Union ratio or Jaccard index [1].
+    /// `factor` is the minimum Intersection-over-Union ratio or Jaccard index [^1].
     /// See also [Rect::iou].
     ///
-    /// [1] https://en.wikipedia.org/wiki/Jaccard_index
+    /// [^1]: <https://en.wikipedia.org/wiki/Jaccard_index>
     fn filter_overlapping(self, factor: f32) -> Self::Output;
 }
 

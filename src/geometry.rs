@@ -574,7 +574,7 @@ impl Rect {
 
     /// Return the Intersection over Union ratio for this rect and `other`.
     ///
-    /// See https://en.wikipedia.org/wiki/Jaccard_index.
+    /// See <https://en.wikipedia.org/wiki/Jaccard_index>.
     pub fn iou(&self, other: Rect) -> f32 {
         self.intersection(other).area() as f32 / self.union(other).area() as f32
     }
@@ -743,14 +743,14 @@ pub enum RetrievalMode {
 /// Returns a collection of the polygons of each component. The algorithm follows
 /// the border of each component in counter-clockwise order.
 ///
-/// This uses the algorithm from [1] (see Appendix 1), which is also the same
-/// algorithm used in OpenCV's `findContours` function [2]. This function does
+/// This uses the algorithm from [^1] (see Appendix 1), which is also the same
+/// algorithm used in OpenCV's `findContours` function [^2]. This function does
 /// not currently implement the parts of the algorithm that discover the
 /// hierarchical relationships between contours.
 ///
-/// [1] Suzuki, Satoshi and Keiichi Abe. “Topological structural analysis of digitized binary
-///     images by border following.” Comput. Vis. Graph. Image Process. 30 (1985): 32-46.
-/// [2] https://docs.opencv.org/4.7.0/d3/dc0/group__imgproc__shape.html#gadf1ad6a0b82947fa1fe3c3d497f260e0
+/// [^1]: Suzuki, Satoshi and Keiichi Abe. “Topological structural analysis of digitized binary
+///       images by border following.” Comput. Vis. Graph. Image Process. 30 (1985): 32-46.
+/// [^2]: <https://docs.opencv.org/4.7.0/d3/dc0/group__imgproc__shape.html#gadf1ad6a0b82947fa1fe3c3d497f260e0>
 pub fn find_contours(mask: NdTensorView<i32, 2>, mode: RetrievalMode) -> Polygons {
     // Create a copy of the mask with zero-padding around the border. The
     // padding enables the algorithm to handle objects that touch the edge of
@@ -939,9 +939,9 @@ fn simplify_polyline_internal(
 /// `epsilon` specifies the maximum distance that any removed point may be from
 /// the closest point on the simplified polygon.
 ///
-/// This uses the Douglas-Peucker algorithm [1].
+/// This uses the Douglas-Peucker algorithm [^1].
 ///
-/// [1] https://en.wikipedia.org/wiki/Ramer–Douglas–Peucker_algorithm
+/// [^1]: <https://en.wikipedia.org/wiki/Ramer–Douglas–Peucker_algorithm>
 pub fn simplify_polyline(points: &[Point], epsilon: f32) -> Vec<Point> {
     assert!(epsilon >= 0.);
     let mut result = Vec::new();
@@ -1071,7 +1071,7 @@ fn clamp_to_bounds(p: Point, height: i32, width: i32) -> Point {
 /// Iterator over points that lie on a line, as determined by the Bresham
 /// algorithm.
 ///
-/// The implementation in Pillow (https://pillow.readthedocs.io/en/stable/) was
+/// The implementation in [Pillow](https://pillow.readthedocs.io/en/stable/) was
 /// used as a reference.
 struct BreshamPoints {
     /// Next point to return
@@ -1449,7 +1449,7 @@ struct Edge {
 /// [Polygon::fill_iter] for notes on how this iterator determines which
 /// pixels are inside the polygon.
 ///
-/// The implementation follows https://www.jagregory.com/abrash-black-book/#filling-arbitrary-polygons.
+/// The implementation follows <https://www.jagregory.com/abrash-black-book/#filling-arbitrary-polygons>.
 pub struct FillIter {
     /// Edges in the polygon, sorted by Y coordinate.
     edges: Vec<Edge>,
@@ -1631,10 +1631,10 @@ impl<S: AsRef<[Point]>> Polygon<S> {
     /// Polygon filling treats the polygon's vertices as being located at the
     /// center of pixels with the corresponding coordinates. Pixels are deemed
     /// inside the polygon if a ray from -infinity to the pixel's center crosses
-    /// an odd number of polygon edges, aka. the even-odd rule [1]. Pixel
+    /// an odd number of polygon edges, aka. the even-odd rule [^1]. Pixel
     /// centers which lie exactly on a polygon edge are treated as inside
     /// the polygon for top/left edges and outside the polygon for bottom/right
-    /// edges. This follows conventions in various graphics libraries (eg. [2]).
+    /// edges. This follows conventions in various graphics libraries (eg. [^2]).
     ///
     /// This treatment of polygon vertices differs from graphics libraries like
     /// Skia or Qt which use float coordinates for paths. In those libraries
@@ -1642,8 +1642,8 @@ impl<S: AsRef<[Point]>> Polygon<S> {
     /// and pixel centers, but integer polygon vertex coordinates refer to the
     /// corners of pixels.
     ///
-    /// [1] https://en.wikipedia.org/wiki/Even–odd_rule
-    /// [2] https://learn.microsoft.com/en-us/windows/win32/direct3d11/d3d10-graphics-programming-guide-rasterizer-stage-rules#triangle-rasterization-rules-without-multisampling
+    /// [^1]: <https://en.wikipedia.org/wiki/Even–odd_rule>
+    /// [^2]: <https://learn.microsoft.com/en-us/windows/win32/direct3d11/d3d10-graphics-programming-guide-rasterizer-stage-rules#triangle-rasterization-rules-without-multisampling>
     pub fn fill_iter(&self) -> FillIter {
         FillIter::new(self.borrow())
     }
