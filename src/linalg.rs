@@ -455,11 +455,6 @@ fn round_up(val: usize, factor: usize) -> usize {
 ///
 /// This computes `output = alpha * (a @ b) + beta * output` where `@` is
 /// matrix multiplication.
-///
-/// The implementation uses the general approach of BLIS
-/// (https://github.com/flame/blis), and was informed by the matrixmultiply
-/// crate (https://github.com/bluss/matrixmultiply). See Pages 3-5 of
-/// https://dl.acm.org/doi/pdf/10.1145/2925987 for an outline of the algorithm.
 pub fn gemm(
     out_data: &mut [f32],
     out_row_stride: usize,
@@ -515,6 +510,32 @@ pub fn gemm_base_kernel(
 /// `MR_NR` should be computed as `K::MR * K::NR`. This function can't compute
 /// that itself due to Rust limitations on using generic parameters in const
 /// expressions.
+///
+/// # Implementation notes
+///
+/// The implementation uses the general approach of
+/// [BLIS](https://github.com/flame/blis), and was informed by the
+/// [matrixmultiply crate](https://github.com/bluss/matrixmultiply). See [^1]
+/// for an overview.
+///
+/// The main ideas of the implementation are 1) to minimize the overhead of
+/// transferring data between memory and compute by effectively exploiting the
+/// cache hierarchy and 2) to take advantage of available parallelism. The
+/// operation is split into three levels, each comprised of several nested
+/// loops. See pages 3-5 of [^1] for additional details.
+///
+///  1. The outer level divides the M/N/K dimensions of the problem into blocks,
+///     sized to fit into different cache levels, and packs the corresponding
+///     elements of the input matrices into a layout that is efficient for the
+///     kernel to operate on.
+///  2. The mid level ("macrokernel") divides the M / N dimensions into tiles
+///     that are sized to fit into CPU registers.
+///  3. The innermost level ("microkernel", or just "kernel" in this
+///     implementation) updates a single output tile within the current block.
+///
+/// [^1]: Low, Tze Meng, et al. "Analytical modeling is enough for
+///       high-performance BLIS." ACM Transactions on Mathematical Software (TOMS)
+///       43.2 (2016): 1-18. https://dl.acm.org/doi/pdf/10.1145/2925987
 fn gemm_impl<K: Kernel, const MR_NR: usize>(
     out_data: &mut [f32],
     out_row_stride: usize,
@@ -577,69 +598,97 @@ fn gemm_impl<K: Kernel, const MR_NR: usize>(
                 let packed_b = &packed[..packed_b_size];
                 let packed_a = &packed[packed_b_size..];
 
-                let b_panel_size = panel_length * K::NR;
-                let a_panel_size = K::MR * panel_length;
+                // Only use provided `beta` on the first write to this output
+                // tile. For subsequent updates accumulate.
+                let effective_beta = if depth_start == 0 { beta } else { 1.0 };
 
-                for (tile_col_start, tile_col_end) in blocks(col_start, col_end, K::NR) {
-                    let b_panel_idx = (tile_col_start - col_start) / K::NR;
-                    let b_panel_offset = b_panel_idx * b_panel_size;
-                    let b_panel = &packed_b[b_panel_offset..b_panel_offset + b_panel_size];
+                gemm_block::<K, MR_NR>(
+                    out_data,
+                    out_row_stride,
+                    col_start,
+                    col_end,
+                    row_start,
+                    row_end,
+                    packed_a,
+                    packed_b,
+                    panel_length,
+                    alpha,
+                    effective_beta,
+                );
+            }
+        }
+    }
+}
 
-                    for (tile_row_start, tile_row_end) in blocks(row_start, row_end, K::MR) {
-                        let a_panel_idx = (tile_row_start - row_start) / K::MR;
-                        let a_panel_offset = a_panel_idx * a_panel_size;
-                        let a_panel = &packed_a[a_panel_offset..a_panel_offset + a_panel_size];
+/// Process a single block (ie. a slice along each of the M/N/K dimensions) of a
+/// matrix multiplication.
+fn gemm_block<K: Kernel, const MR_NR: usize>(
+    out_data: &mut [f32],
+    out_row_stride: usize,
+    col_start: usize,
+    col_end: usize,
+    row_start: usize,
+    row_end: usize,
+    packed_a: &[f32],
+    packed_b: &[f32],
+    panel_length: usize,
+    alpha: f32,
+    beta: f32,
+) {
+    let b_panel_size = panel_length * K::NR;
+    let a_panel_size = K::MR * panel_length;
 
-                        let out_offset = tile_row_start * out_row_stride + tile_col_start;
-                        let out_tile = &mut out_data[out_offset..];
+    for (tile_col_start, tile_col_end) in blocks(col_start, col_end, K::NR) {
+        let b_panel_idx = (tile_col_start - col_start) / K::NR;
+        let b_panel_offset = b_panel_idx * b_panel_size;
+        let b_panel = &packed_b[b_panel_offset..b_panel_offset + b_panel_size];
 
-                        let used_rows = tile_row_end - tile_row_start;
-                        let used_cols = tile_col_end - tile_col_start;
+        for (tile_row_start, tile_row_end) in blocks(row_start, row_end, K::MR) {
+            let a_panel_idx = (tile_row_start - row_start) / K::MR;
+            let a_panel_offset = a_panel_idx * a_panel_size;
+            let a_panel = &packed_a[a_panel_offset..a_panel_offset + a_panel_size];
 
-                        // Only use provided `beta` on the first write to this output tile. For
-                        // subsequent updates accumulate.
-                        let effective_beta = if depth_start == 0 { beta } else { 1.0 };
+            let out_offset = tile_row_start * out_row_stride + tile_col_start;
+            let out_tile = &mut out_data[out_offset..];
 
-                        if used_rows == K::MR && used_cols == K::NR {
-                            K::kernel(
-                                out_tile,
-                                out_row_stride,
-                                a_panel,
-                                b_panel,
-                                panel_length,
-                                alpha,
-                                effective_beta,
-                            );
-                        } else {
-                            // If this is not a full size tile, run the kernel on a temporary
-                            // buffer that is the size of a full tile, then copy the results back
-                            // to the output. This allows the same kernel implementation to be used
-                            // whether the tile is full-sized or not.
-                            let mut tmp_out_tile = [0.; MR_NR];
+            let used_rows = tile_row_end - tile_row_start;
+            let used_cols = tile_col_end - tile_col_start;
 
-                            K::kernel(
-                                &mut tmp_out_tile,
-                                K::NR,
-                                a_panel,
-                                b_panel,
-                                panel_length,
-                                alpha,
-                                0., // Multiplication with `effective_beta` is handled below.
-                            );
+            if used_rows == K::MR && used_cols == K::NR {
+                K::kernel(
+                    out_tile,
+                    out_row_stride,
+                    a_panel,
+                    b_panel,
+                    panel_length,
+                    alpha,
+                    beta,
+                );
+            } else {
+                // If this is not a full size tile, run the kernel on a temporary
+                // buffer that is the size of a full tile, then copy the results back
+                // to the output. This allows the same kernel implementation to be used
+                // whether the tile is full-sized or not.
+                let mut tmp_out_tile = [0.; MR_NR];
 
-                            assert!(out_tile.len() >= (used_rows - 1) * out_row_stride + used_cols);
-                            assert!(tmp_out_tile.len() >= (used_rows - 1) * K::NR + used_cols);
-                            for i in 0..used_rows {
-                                for j in 0..used_cols {
-                                    // Safety: Index is less than length asserted above.
-                                    unsafe {
-                                        let out_el =
-                                            out_tile.get_unchecked_mut(out_row_stride * i + j);
-                                        *out_el =
-                                            effective_beta * *out_el + tmp_out_tile[i * K::NR + j];
-                                    }
-                                }
-                            }
+                K::kernel(
+                    &mut tmp_out_tile,
+                    K::NR,
+                    a_panel,
+                    b_panel,
+                    panel_length,
+                    alpha,
+                    0., // Multiplication with `effective_beta` is handled below.
+                );
+
+                assert!(out_tile.len() >= (used_rows - 1) * out_row_stride + used_cols);
+                assert!(tmp_out_tile.len() >= (used_rows - 1) * K::NR + used_cols);
+                for i in 0..used_rows {
+                    for j in 0..used_cols {
+                        // Safety: Index is less than length asserted above.
+                        unsafe {
+                            let out_el = out_tile.get_unchecked_mut(out_row_stride * i + j);
+                            *out_el = beta * *out_el + tmp_out_tile[i * K::NR + j];
                         }
                     }
                 }
