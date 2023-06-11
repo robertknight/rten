@@ -587,6 +587,10 @@ fn gemm_impl<K: Kernel, const MR_NR: usize>(
                 col_start..col_end,
             );
 
+            // Only use provided `beta` on the first write to this output
+            // tile. For subsequent updates accumulate.
+            let effective_beta = if depth_start == 0 { beta } else { 1.0 };
+
             for (row_start, row_end) in blocks(0, a.rows(), mc) {
                 pack_a_block::<K>(
                     &mut packed[packed_b_size..],
@@ -597,10 +601,6 @@ fn gemm_impl<K: Kernel, const MR_NR: usize>(
 
                 let packed_b = &packed[..packed_b_size];
                 let packed_a = &packed[packed_b_size..];
-
-                // Only use provided `beta` on the first write to this output
-                // tile. For subsequent updates accumulate.
-                let effective_beta = if depth_start == 0 { beta } else { 1.0 };
 
                 gemm_block::<K, MR_NR>(
                     out_data,
