@@ -70,11 +70,16 @@ impl<const N: usize> NdLayout<N> {
             index,
             self.shape
         );
-        let mut offset = 0;
-        for i in 0..N {
-            offset += index[i] * self.strides[i];
+        self.offset_unchecked(index)
+    }
+
+    /// Return the offset in the slice that an index maps to, or `None` if it
+    /// is out of bounds.
+    fn try_offset(&self, index: [usize; N]) -> Option<usize> {
+        if !self.index_valid(index) {
+            return None;
         }
-        offset
+        Some(self.offset_unchecked(index))
     }
 
     /// Return the offset in the slice that an index maps to.
@@ -317,6 +322,14 @@ impl<T: Clone, S: AsRef<[T]>, const N: usize> NdTensorBase<T, S, N> {
     /// the returned lifetime matches the underlying slice.
     pub fn data(&self) -> &[T] {
         self.data.as_ref()
+    }
+
+    /// Return the element at a given index, or `None` if the index is out of
+    /// bounds in any dimension.
+    pub fn get(&self, index: [usize; N]) -> Option<&T> {
+        self.layout
+            .try_offset(index)
+            .and_then(|offset| self.data().get(offset))
     }
 
     /// Return an immutable view of this tensor.
@@ -731,6 +744,17 @@ mod tests {
         let data = vec![1., 2., 3., 4.];
         let result = NdTensorView::<f32, 3>::from_slice(&data, [10, 2, 2], Some([0, 2, 1]));
         assert!(result.is_ok());
+    }
+
+    #[test]
+    fn test_ndtensor_get() {
+        let tensor = NdTensor::<i32, 3>::zeros([5, 10, 15]);
+
+        assert_eq!(tensor.get([0, 0, 0]), Some(&0));
+        assert_eq!(tensor.get([4, 9, 14]), Some(&0));
+        assert_eq!(tensor.get([5, 9, 14]), None);
+        assert_eq!(tensor.get([4, 10, 14]), None);
+        assert_eq!(tensor.get([4, 9, 15]), None);
     }
 
     #[test]
