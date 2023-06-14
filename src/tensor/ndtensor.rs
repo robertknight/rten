@@ -596,17 +596,9 @@ mod tests {
     };
     use crate::tensor::TensorLayout;
 
-    /// Return elements of `matrix` in their logical order.
-    ///
-    /// TODO - Replace this once generic iteration is implemented for NdTensorBase.
-    fn matrix_elements<T: Copy>(matrix: NdTensorView<T, 2>) -> Vec<T> {
-        let mut result = Vec::with_capacity(matrix.len());
-        for row in 0..matrix.size(0) {
-            for col in 0..matrix.size(1) {
-                result.push(matrix[[row, col]]);
-            }
-        }
-        result
+    /// Return elements of `tensor` in their logical order.
+    fn tensor_elements<T: Copy, const N: usize>(tensor: NdTensorView<T, N>) -> Vec<T> {
+        tensor.iter().collect()
     }
 
     // Test conversion of a static-dim tensor with default strides, to a
@@ -789,17 +781,17 @@ mod tests {
     fn test_ndtensor_transposed() {
         let data = vec![1, 2, 3, 4];
         let view = NdTensorView::<i32, 2>::from_slice(&data, [2, 2], None).unwrap();
-        assert_eq!(matrix_elements(view), &[1, 2, 3, 4]);
+        assert_eq!(tensor_elements(view), &[1, 2, 3, 4]);
         let view = view.transposed();
-        assert_eq!(matrix_elements(view), &[1, 3, 2, 4]);
+        assert_eq!(tensor_elements(view), &[1, 3, 2, 4]);
     }
 
     #[test]
     fn test_ndtensor_slice() {
         let data = vec![1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16];
         let view = NdTensorView::<i32, 2>::from_slice(&data, [4, 4], None).unwrap();
-        let slice = view.slice([1..3, 1..3]);
-        assert_eq!(matrix_elements(slice), &[6, 7, 10, 11]);
+        let slice: NdTensorView<_, 2> = view.slice([1..3, 1..3]);
+        assert_eq!(tensor_elements(slice), &[6, 7, 10, 11]);
     }
 
     #[test]
@@ -820,7 +812,7 @@ mod tests {
         slice[[1, 0]] = -3;
         slice[[1, 1]] = -4;
         assert_eq!(
-            matrix_elements(view.view()),
+            tensor_elements(view.view()),
             &[1, 2, 3, 4, 5, -1, -2, 8, 9, -3, -4, 12, 13, 14, 15, 16]
         );
     }
