@@ -1,6 +1,6 @@
-///! Geometry functions for pre and post-processing images.
-///!
-///! TODO: Move these out of Wasnn and into a separate crate.
+//! Geometry functions for pre and post-processing images.
+//!
+//! TODO: Move these out of Wasnn and into a separate crate.
 use std::fmt;
 use std::fmt::Display;
 use std::iter::zip;

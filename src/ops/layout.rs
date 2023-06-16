@@ -1,5 +1,5 @@
-///! Operators which query or change the shape of a tensor, or copy/move/reorder
-///! elements.
+//! Operators which query or change the shape of a tensor, or copy/move/reorder
+//! elements.
 use std::iter::zip;
 
 use crate::check_dims;

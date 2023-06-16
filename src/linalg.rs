@@ -1,8 +1,8 @@
-///! Optimized linear algebra functions.
-///!
-///! This module provides a subset of BLAS-like functions that are used by
-///! neural network operators. This includes general matrix multiplication ("gemm"),
-///! and vector-scalar products.
+//! Optimized linear algebra functions.
+//!
+//! This module provides a subset of BLAS-like functions that are used by
+//! neural network operators. This includes general matrix multiplication ("gemm"),
+//! and vector-scalar products.
 use std::ops::Range;
 
 use crate::tensor::{Matrix, MatrixLayout, MatrixMut};
