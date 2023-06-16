@@ -1134,6 +1134,10 @@ mod tests {
         );
     }
 
+    /// Very slow but simple reference implementation. This should produce the
+    /// same results as the optimized GEMM, but small numerical differences will
+    /// appear in problems with a large K dimension, due to the different
+    /// ordering of floating-point operations.
     fn reference_gemm(output: &mut Tensor, a: &Tensor, b: &Tensor, alpha: f32, beta: f32) {
         let [a_rows, a_cols] = a.dims();
         let [_b_rows, b_cols] = b.dims();
