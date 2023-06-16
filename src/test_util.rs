@@ -1,3 +1,4 @@
+use std::fmt::Debug;
 use std::fs::File;
 use std::io::BufReader;
 use std::iter::zip;
@@ -27,9 +28,34 @@ impl ApproxEq for i32 {
     }
 }
 
+/// Return the N-dimensional index in a tensor with a given `shape` that
+/// corresponds to a linear index (ie. the index if the tensor was flattened to
+/// 1D).
+fn index_from_linear_index(shape: &[usize], lin_index: usize) -> Vec<usize> {
+    assert!(
+        lin_index < shape.iter().product(),
+        "Linear index {} is out of bounds for shape {:?}",
+        lin_index,
+        shape,
+    );
+    (0..shape.len())
+        .map(|dim| {
+            let elts_per_index: usize = shape[dim + 1..].iter().product();
+            let lin_index_for_dim = lin_index % (shape[dim] * elts_per_index);
+            lin_index_for_dim / elts_per_index
+        })
+        .collect()
+}
+
 /// Check that the shapes of two tensors are equal and that their contents
 /// are approximately equal.
-pub fn expect_equal<T: ApproxEq + Copy>(x: &Tensor<T>, y: &Tensor<T>) -> Result<(), String> {
+///
+/// If there are mismatches, this returns an `Err` with a message indicating
+/// the count of mismatches and details of the first N cases.
+pub fn expect_equal<T: ApproxEq + Copy + Debug>(
+    x: &Tensor<T>,
+    y: &Tensor<T>,
+) -> Result<(), String> {
     if x.shape() != y.shape() {
         return Err(format!(
             "Tensors have different shapes. {:?} vs. {:?}",
@@ -38,18 +64,29 @@ pub fn expect_equal<T: ApproxEq + Copy>(x: &Tensor<T>, y: &Tensor<T>) -> Result<
         ));
     }
 
-    let mut mismatches = 0;
-    for (xi, yi) in zip(x.iter(), y.iter()) {
-        if !xi.approx_eq(yi) {
-            mismatches += 1;
-        }
-    }
+    let mismatches: Vec<_> = zip(x.iter(), y.iter())
+        .enumerate()
+        .filter_map(|(i, (xi, yi))| {
+            if !xi.approx_eq(yi) {
+                Some((index_from_linear_index(x.shape(), i), xi, yi))
+            } else {
+                None
+            }
+        })
+        .collect();
 
-    if mismatches > 0 {
+    if mismatches.len() > 0 {
+        let max_examples = 16;
         Err(format!(
-            "Tensor values differ at {} of {} indexes",
-            mismatches,
-            x.len()
+            "Tensor values differ at {} of {} indexes: {:?}{}",
+            mismatches.len(),
+            x.len(),
+            &mismatches[..mismatches.len().min(max_examples)],
+            if mismatches.len() > max_examples {
+                "..."
+            } else {
+                ""
+            }
         ))
     } else {
         Ok(())
