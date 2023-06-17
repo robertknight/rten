@@ -255,7 +255,7 @@ pub fn gru(
     initial_hidden: Option<&Tensor>,
     linear_before_reset: bool,
 ) -> Result<Vec<Tensor>, OpError> {
-    let [seq_len, batch, _input_size] = check_dims!(input, 3, "seq, batch, input");
+    let [seq_len, batch, input_size] = check_dims!(input, 3, "seq, batch, input");
     let [_directions, hidden_x3, _input_size] = check_dims!(weights, 3, "dir, hidden x 3, input");
     check_dims!(recurrent_weights, 3);
     check_dims!(initial_hidden?, 3);
@@ -276,15 +276,21 @@ pub fn gru(
     // `extract_weights_and_bias` requires a contiguous tensor.
     let bias = bias.map(|t| t.as_contiguous());
 
+    let gemm = GemmExecutor::new();
+
+    // Extract and prepack weights for a gate.
     let extract_gru_weights_and_bias = |dir, gate_index| {
-        extract_weights_and_bias(
+        let (gate_weights, rec_gate_weights, gate_bias) = extract_weights_and_bias(
             weights,
             recurrent_weights,
             bias.as_ref(),
             dir,
             3,
             gate_index,
-        )
+        );
+        let gate_weights = gemm.prepack_b(gate_weights, input_size);
+        let rec_gate_weights = gemm.prepack_b(rec_gate_weights, hidden_size);
+        (gate_weights, rec_gate_weights, gate_bias)
     };
 
     // Indices of gates in the concatenated weight and bias tensors.
@@ -295,13 +301,16 @@ pub fn gru(
     // Scratch buffer for computing new hidden state.
     let mut hidden_tmp = new_gate();
 
-    let gemm = GemmExecutor::new();
-
     for dir in 0..num_directions {
+        // Extract and prepack update gate weights.
         let (weight_update, rec_weight_update, bias_update) =
             extract_gru_weights_and_bias(dir, UPDATE_GATE);
+
+        // Extract and prepack reset gate weights.
         let (weight_reset, rec_weight_reset, bias_reset) =
             extract_gru_weights_and_bias(dir, RESET_GATE);
+
+        // Extract and prepack hidden gate weights.
         let (weight_hidden, rec_weight_hidden, bias_hidden) =
             extract_gru_weights_and_bias(dir, HIDDEN_GATE);
 
@@ -335,9 +344,9 @@ pub fn gru(
                 update_gate.view_mut(),
                 Activation::Sigmoid,
                 &in_item,
-                GemmInputB::Unpacked(weight_update),
+                GemmInputB::Packed(&weight_update),
                 &hidden_item,
-                GemmInputB::Unpacked(rec_weight_update),
+                GemmInputB::Packed(&rec_weight_update),
                 bias_update,
             );
 
@@ -347,9 +356,9 @@ pub fn gru(
                 reset_gate.view_mut(),
                 Activation::Sigmoid,
                 &in_item,
-                GemmInputB::Unpacked(weight_reset),
+                GemmInputB::Packed(&weight_reset),
                 &hidden_item,
-                GemmInputB::Unpacked(rec_weight_reset),
+                GemmInputB::Packed(&rec_weight_reset),
                 bias_reset,
             );
 
@@ -358,14 +367,14 @@ pub fn gru(
                 &gemm,
                 hidden_gate.view_mut(),
                 in_item.nd_view(),
-                GemmInputB::Unpacked(weight_hidden),
+                GemmInputB::Packed(&weight_hidden),
             );
             if linear_before_reset {
                 matmul(
                     &gemm,
                     hidden_tmp.view_mut(),
                     hidden_item.nd_view(),
-                    GemmInputB::Unpacked(rec_weight_hidden),
+                    GemmInputB::Packed(&rec_weight_hidden),
                 );
 
                 // Compute `hidden_gate = tanh(hidden_gate + hidden_bias + reset * (dot(update_tmp) + rec_hidden_bias))`
@@ -478,7 +487,7 @@ pub fn lstm(
     initial_cell: Option<&Tensor>,
 ) -> Result<Vec<Tensor>, OpError> {
     // TODO - Add validation of the sizes of individual dimensions in the inputs.
-    let [seq_len, batch, _input_size] = check_dims!(input, 3, "seq, batch, input");
+    let [seq_len, batch, input_size] = check_dims!(input, 3, "seq, batch, input");
     let [_directions, hidden_x4, _input_size] = check_dims!(weights, 3, "dir, hidden x 4, input");
     check_dims!(recurrent_weights, 3);
 
@@ -524,18 +533,21 @@ pub fn lstm(
 
     let mut hidden_seq = Tensor::<f32>::zeros(&[seq_len, num_directions, batch, hidden_size]);
 
+    let gemm = GemmExecutor::new();
+
     let extract_lstm_weights_and_bias = |dir, gate_index| {
-        extract_weights_and_bias(
+        let (gate_weights, rec_gate_weights, gate_bias) = extract_weights_and_bias(
             weights,
             recurrent_weights,
             bias.as_ref(),
             dir,
             4,
             gate_index,
-        )
+        );
+        let gate_weights = gemm.prepack_b(gate_weights, input_size);
+        let rec_gate_weights = gemm.prepack_b(rec_gate_weights, hidden_size);
+        (gate_weights, rec_gate_weights, gate_bias)
     };
-
-    let gemm = GemmExecutor::new();
 
     for dir in 0..num_directions {
         let (weight_input, rec_weight_input, bias_input) =
@@ -577,9 +589,9 @@ pub fn lstm(
                 input_gate.view_mut(),
                 Activation::Sigmoid,
                 &in_item,
-                GemmInputB::Unpacked(weight_input),
+                GemmInputB::Packed(&weight_input),
                 &hidden_item,
-                GemmInputB::Unpacked(rec_weight_input),
+                GemmInputB::Packed(&rec_weight_input),
                 bias_input,
             );
 
@@ -588,9 +600,9 @@ pub fn lstm(
                 forget_gate.view_mut(),
                 Activation::Sigmoid,
                 &in_item,
-                GemmInputB::Unpacked(weight_forget),
+                GemmInputB::Packed(&weight_forget),
                 &hidden_item,
-                GemmInputB::Unpacked(rec_weight_forget),
+                GemmInputB::Packed(&rec_weight_forget),
                 bias_forget,
             );
 
@@ -599,9 +611,9 @@ pub fn lstm(
                 cell_gate.view_mut(),
                 Activation::Tanh,
                 &in_item,
-                GemmInputB::Unpacked(weight_cell),
+                GemmInputB::Packed(&weight_cell),
                 &hidden_item,
-                GemmInputB::Unpacked(rec_weight_cell),
+                GemmInputB::Packed(&rec_weight_cell),
                 bias_cell,
             );
 
@@ -610,9 +622,9 @@ pub fn lstm(
                 out_gate.view_mut(),
                 Activation::Sigmoid,
                 &in_item,
-                GemmInputB::Unpacked(weight_out),
+                GemmInputB::Packed(&weight_out),
                 &hidden_item,
-                GemmInputB::Unpacked(rec_weight_out),
+                GemmInputB::Packed(&rec_weight_out),
                 bias_out,
             );
 
