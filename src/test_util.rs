@@ -5,7 +5,7 @@ use std::iter::zip;
 
 use serde_json::Value;
 
-use crate::tensor::{Tensor, TensorLayout};
+use crate::tensor::{Tensor, TensorBase, TensorLayout};
 
 /// Trait that tests whether two values are approximately equal.
 ///
@@ -52,9 +52,9 @@ fn index_from_linear_index(shape: &[usize], lin_index: usize) -> Vec<usize> {
 ///
 /// If there are mismatches, this returns an `Err` with a message indicating
 /// the count of mismatches and details of the first N cases.
-pub fn expect_equal<T: ApproxEq + Copy + Debug>(
-    x: &Tensor<T>,
-    y: &Tensor<T>,
+pub fn expect_equal<T: ApproxEq + Copy + Debug, S: AsRef<[T]>>(
+    x: &TensorBase<T, S>,
+    y: &TensorBase<T, S>,
 ) -> Result<(), String> {
     if x.shape() != y.shape() {
         return Err(format!(
