@@ -2,7 +2,7 @@ use std::iter::{zip, Rev};
 use std::ops::Range;
 
 use crate::check_dims;
-use crate::linalg::gemm;
+use crate::linalg::{GemmExecutor, GemmInputA, GemmInputB};
 use crate::ops::unary_elementwise::UnaryFloatOp;
 use crate::ops::{InputList, IntoOpResult, OpError, Operator, Output, Sigmoid, Tanh};
 use crate::tensor::Matrix;
@@ -96,12 +96,12 @@ enum Activation {
 }
 
 /// Compute `output = dot(a, b)`
-fn matmul(mut output: TensorViewMut, a: Matrix, b: Matrix) {
+fn matmul(gemm: &GemmExecutor, mut output: TensorViewMut, a: Matrix, b: GemmInputB) {
     let row_stride = output.stride(output.ndim() - 2);
-    gemm(
+    gemm.gemm(
         output.data_mut(),
         row_stride,
-        a,
+        GemmInputA::Unpacked(a),
         b,
         1., /* alpha */
         0., /* beta */
@@ -109,12 +109,12 @@ fn matmul(mut output: TensorViewMut, a: Matrix, b: Matrix) {
 }
 
 /// Compute `output += dot(a, b)`
-fn add_matmul(mut output: TensorViewMut, a: Matrix, b: Matrix) {
+fn add_matmul(gemm: &GemmExecutor, mut output: TensorViewMut, a: Matrix, b: GemmInputB) {
     let row_stride = output.stride(output.ndim() - 2);
-    gemm(
+    gemm.gemm(
         output.data_mut(),
         row_stride,
-        a,
+        GemmInputA::Unpacked(a),
         b,
         1., /* alpha */
         1., /* beta */
@@ -132,16 +132,17 @@ fn add_matmul(mut output: TensorViewMut, a: Matrix, b: Matrix) {
 /// `hidden_weight` has shape (hidden_size, hidden_size)
 /// `bias` is a tuple of `(input_bias, hidden_bias)` where each bias has length `hidden_size`
 fn compute_rnn_gate(
+    gemm: &GemmExecutor,
     mut output: TensorViewMut,
     act: Activation,
     input: &TensorView,
-    input_weight: Matrix,
+    input_weight: GemmInputB,
     hidden: &TensorView,
-    hidden_weight: Matrix,
+    hidden_weight: GemmInputB,
     bias: Option<(&[f32], &[f32])>,
 ) {
-    matmul(output.view_mut(), input.nd_view(), input_weight);
-    add_matmul(output.view_mut(), hidden.nd_view(), hidden_weight);
+    matmul(gemm, output.view_mut(), input.nd_view(), input_weight);
+    add_matmul(gemm, output.view_mut(), hidden.nd_view(), hidden_weight);
 
     let sigmoid_op = Sigmoid {};
     let tanh_op = Tanh {};
@@ -294,6 +295,8 @@ pub fn gru(
     // Scratch buffer for computing new hidden state.
     let mut hidden_tmp = new_gate();
 
+    let gemm = GemmExecutor::new();
+
     for dir in 0..num_directions {
         let (weight_update, rec_weight_update, bias_update) =
             extract_gru_weights_and_bias(dir, UPDATE_GATE);
@@ -328,33 +331,41 @@ pub fn gru(
 
             // Compute update gate.
             compute_rnn_gate(
+                &gemm,
                 update_gate.view_mut(),
                 Activation::Sigmoid,
                 &in_item,
-                weight_update,
+                GemmInputB::Unpacked(weight_update),
                 &hidden_item,
-                rec_weight_update,
+                GemmInputB::Unpacked(rec_weight_update),
                 bias_update,
             );
 
             // Compute reset gate.
             compute_rnn_gate(
+                &gemm,
                 reset_gate.view_mut(),
                 Activation::Sigmoid,
                 &in_item,
-                weight_reset,
+                GemmInputB::Unpacked(weight_reset),
                 &hidden_item,
-                rec_weight_reset,
+                GemmInputB::Unpacked(rec_weight_reset),
                 bias_reset,
             );
 
             // Compute hidden gate.
-            matmul(hidden_gate.view_mut(), in_item.nd_view(), weight_hidden);
+            matmul(
+                &gemm,
+                hidden_gate.view_mut(),
+                in_item.nd_view(),
+                GemmInputB::Unpacked(weight_hidden),
+            );
             if linear_before_reset {
                 matmul(
+                    &gemm,
                     hidden_tmp.view_mut(),
                     hidden_item.nd_view(),
-                    rec_weight_hidden,
+                    GemmInputB::Unpacked(rec_weight_hidden),
                 );
 
                 // Compute `hidden_gate = tanh(hidden_gate + hidden_bias + reset * (dot(update_tmp) + rec_hidden_bias))`
@@ -524,6 +535,8 @@ pub fn lstm(
         )
     };
 
+    let gemm = GemmExecutor::new();
+
     for dir in 0..num_directions {
         let (weight_input, rec_weight_input, bias_input) =
             extract_lstm_weights_and_bias(dir, INPUT_GATE);
@@ -560,42 +573,46 @@ pub fn lstm(
 
             // Compute outputs for input, forget, cell and output gates.
             compute_rnn_gate(
+                &gemm,
                 input_gate.view_mut(),
                 Activation::Sigmoid,
                 &in_item,
-                weight_input,
+                GemmInputB::Unpacked(weight_input),
                 &hidden_item,
-                rec_weight_input,
+                GemmInputB::Unpacked(rec_weight_input),
                 bias_input,
             );
 
             compute_rnn_gate(
+                &gemm,
                 forget_gate.view_mut(),
                 Activation::Sigmoid,
                 &in_item,
-                weight_forget,
+                GemmInputB::Unpacked(weight_forget),
                 &hidden_item,
-                rec_weight_forget,
+                GemmInputB::Unpacked(rec_weight_forget),
                 bias_forget,
             );
 
             compute_rnn_gate(
+                &gemm,
                 cell_gate.view_mut(),
                 Activation::Tanh,
                 &in_item,
-                weight_cell,
+                GemmInputB::Unpacked(weight_cell),
                 &hidden_item,
-                rec_weight_cell,
+                GemmInputB::Unpacked(rec_weight_cell),
                 bias_cell,
             );
 
             compute_rnn_gate(
+                &gemm,
                 out_gate.view_mut(),
                 Activation::Sigmoid,
                 &in_item,
-                weight_out,
+                GemmInputB::Unpacked(weight_out),
                 &hidden_item,
-                rec_weight_out,
+                GemmInputB::Unpacked(rec_weight_out),
                 bias_out,
             );
 
