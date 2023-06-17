@@ -162,9 +162,7 @@ fn compute_rnn_gate(
             *el = apply_act(*el + bias);
         }
     } else {
-        for el in output.iter_mut() {
-            *el = apply_act(*el);
-        }
+        output.apply(apply_act);
     }
 }
 
