@@ -4,7 +4,8 @@ use std::ops::Range;
 
 use crate::check_dims;
 use crate::linalg::{
-    add_scaled_vector, div_ceil, gemm, round_up, GemmExecutor, GemmInputB, VirtualMatrix,
+    add_scaled_vector, div_ceil, gemm, round_up, GemmExecutor, GemmInputA, GemmInputB,
+    VirtualMatrix,
 };
 use crate::ops::pooling::calc_output_size_and_padding;
 use crate::ops::{InputList, IntoOpResult, OpError, Operator, Output, Padding};
@@ -356,9 +357,6 @@ pub fn conv(
     };
     let gemm = GemmExecutor::new();
 
-    let mut prepacked_kernel_buf =
-        vec![0.; gemm.prepacked_a_len(out_channels_per_group, in_channels_per_group * k_h * k_w)];
-
     for group in 0..groups {
         let in_chan_start = group * in_channels_per_group;
         let in_chan_end = in_chan_start + in_channels_per_group;
@@ -368,7 +366,7 @@ pub fn conv(
             .slice([out_chan_start..out_chan_start + out_channels_per_group])
             .reshaped(&[out_channels_per_group, in_channels_per_group * k_h * k_w])
             .to_nd_view();
-        let prepacked_kernel = gemm.prepack_a(&mut prepacked_kernel_buf, kernel_mat);
+        let prepacked_kernel = gemm.prepack_a(kernel_mat);
 
         for n in 0..batch {
             let in_group = input.slice((n, (in_chan_start..in_chan_end)));
@@ -383,7 +381,7 @@ pub fn conv(
             gemm.gemm(
                 out_mat.data_mut(),
                 out_row_stride,
-                prepacked_kernel,
+                GemmInputA::Packed(&prepacked_kernel),
                 GemmInputB::Virtual(&im2col),
                 1.,                                   // alpha
                 if bias.is_some() { 1. } else { 0. }, // beta

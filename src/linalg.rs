@@ -452,10 +452,10 @@ pub fn round_up(val: usize, factor: usize) -> usize {
 }
 
 /// Metadata for a left-hand or "A" GEMM input that has been pre-packed.
-#[derive(Clone, Copy)]
-pub struct PackedAMatrix<'a> {
+#[derive(Clone)]
+pub struct PackedAMatrix {
     /// Sequence of packed row panels.
-    data: &'a [f32],
+    data: Vec<f32>,
 
     /// Number of elements in each row panel.
     panel_len: usize,
@@ -470,7 +470,7 @@ pub struct PackedAMatrix<'a> {
     cols: usize,
 }
 
-impl<'a> PackedAMatrix<'a> {
+impl PackedAMatrix {
     fn block(&self, row_block_idx: usize, depth_block_idx: usize) -> &[f32] {
         let panel_idx = depth_block_idx * self.row_blocks + row_block_idx;
         let offset = panel_idx * self.panel_len;
@@ -479,10 +479,10 @@ impl<'a> PackedAMatrix<'a> {
 }
 
 /// Metadata for a right-hand or "B" GEMM input that has been pre-packed.
-#[derive(Clone, Copy)]
-pub struct PackedBMatrix<'a> {
+#[derive(Clone)]
+pub struct PackedBMatrix {
     /// Sequence of packed column panels.
-    data: &'a [f32],
+    data: Vec<f32>,
 
     /// Number of elements in each column panel.
     panel_len: usize,
@@ -497,7 +497,7 @@ pub struct PackedBMatrix<'a> {
     cols: usize,
 }
 
-impl<'a> PackedBMatrix<'a> {
+impl PackedBMatrix {
     fn block(&self, col_block_idx: usize, depth_block_idx: usize) -> &[f32] {
         let panel_idx = col_block_idx * self.depth_blocks + depth_block_idx;
         let offset = panel_idx * self.panel_len;
@@ -512,7 +512,7 @@ pub enum GemmInputA<'a> {
     Unpacked(Matrix<'a>),
 
     /// A matrix which has been pre-packed by [GemmExecutor::prepack_a].
-    Packed(PackedAMatrix<'a>),
+    Packed(&'a PackedAMatrix),
     // TODO - Support virtual "A" inputs, like `GemmInputB::Virtual`.
 }
 
@@ -570,7 +570,7 @@ pub enum GemmInputB<'a> {
     Unpacked(Matrix<'a>),
 
     /// A matrix which has been pre-packed by [GemmExecutor::prepack_b].
-    Packed(PackedBMatrix<'a>),
+    Packed(&'a PackedBMatrix),
 
     /// A virtual matrix, blocks of which will be materialized on-demand
     /// during GEMM execution. See [VirtualMatrix].
@@ -755,22 +755,15 @@ impl GemmExecutor {
         }
     }
 
-    /// Return the output buffer size for [GemmExecutor::prepack_a].
-    pub fn prepacked_a_len(&self, a_rows: usize, a_cols: usize) -> usize {
-        let kc = depth_block_size(a_cols);
-        let mc = row_block_size(a_rows, self.mr);
-        let panel_len = kc * mc;
-        let row_blocks = div_ceil(a_rows, self.mr);
-        let depth_blocks = div_ceil(a_cols, kc);
-        depth_blocks * row_blocks * panel_len
-    }
-
     /// Prepack a matrix for use as the left-hand or "A" input.
-    pub fn prepack_a<'out>(&self, out: &'out mut [f32], a: Matrix) -> GemmInputA<'out> {
+    pub fn prepack_a(&self, a: Matrix) -> PackedAMatrix {
         let kc = depth_block_size(a.cols());
         let mc = row_block_size(a.rows(), self.mr);
         let panel_len = kc * mc;
         let row_blocks = div_ceil(a.rows(), mc);
+        let depth_blocks = div_ceil(a.cols(), kc);
+
+        let mut out = vec![0.; depth_blocks * row_blocks * panel_len];
 
         // Pack blocks in the order they will be accessed by the GEMM
         // implementation.
@@ -783,38 +776,25 @@ impl GemmExecutor {
             }
         }
 
-        GemmInputA::Packed(PackedAMatrix {
+        PackedAMatrix {
             data: out,
             rows: a.rows(),
             cols: a.cols(),
             panel_len,
             row_blocks,
-        })
-    }
-
-    /// Return the output buffer size for [GemmExecutor::prepack_b].
-    #[allow(dead_code)] // Currently only used in tests
-    pub fn prepacked_b_len(&self, b_cols: usize, a_cols: usize) -> usize {
-        let kc = depth_block_size(a_cols);
-        let nc = col_block_size(b_cols, self.nr);
-        let panel_len = nc * kc;
-        let col_blocks = div_ceil(b_cols, self.nr);
-        let depth_blocks = div_ceil(a_cols, kc);
-        col_blocks * depth_blocks * panel_len
+        }
     }
 
     /// Prepack a matrix for use as the right-hand or "B" matrix input.
     #[allow(dead_code)] // Currently only used in tests
-    pub fn prepack_b<'out>(
-        &self,
-        out: &'out mut [f32],
-        b: Matrix,
-        a_cols: usize,
-    ) -> GemmInputB<'out> {
+    pub fn prepack_b(&self, b: Matrix, a_cols: usize) -> PackedBMatrix {
         let nc = col_block_size(b.cols(), self.nr);
         let kc = depth_block_size(a_cols);
         let panel_len = nc * kc;
         let depth_blocks = div_ceil(a_cols, kc);
+        let col_blocks = div_ceil(b.cols(), nc);
+
+        let mut out = vec![0.; col_blocks * depth_blocks * panel_len];
 
         // Pack blocks in the order they will be accessed by the GEMM
         // implementation.
@@ -827,13 +807,13 @@ impl GemmExecutor {
             }
         }
 
-        GemmInputB::Packed(PackedBMatrix {
+        PackedBMatrix {
             data: out,
             rows: b.rows(),
             cols: b.cols(),
             depth_blocks,
             panel_len,
-        })
+        }
     }
 
     /// Perform a General Matrix Multiplication ("gemm").
@@ -952,7 +932,7 @@ fn gemm_impl<K: Kernel, const MR_NR: usize>(
                     pack_b_block::<K>(&mut packed_b, b, depth_start..depth_end, col_start..col_end);
                     &packed_b
                 }
-                GemmInputB::Packed(ref pm) => pm.block(col_idx, depth_idx),
+                GemmInputB::Packed(pm) => pm.block(col_idx, depth_idx),
                 GemmInputB::Virtual(vm) => {
                     packed_b.resize(packed_b_size, 0.);
                     vm.pack_b(
@@ -981,7 +961,7 @@ fn gemm_impl<K: Kernel, const MR_NR: usize>(
                         );
                         &packed_a
                     }
-                    GemmInputA::Packed(ref pm) => pm.block(row_idx, depth_idx),
+                    GemmInputA::Packed(pm) => pm.block(row_idx, depth_idx),
                 };
 
                 gemm_block::<K, MR_NR>(
@@ -1404,11 +1384,8 @@ mod tests {
             let b_mat: Matrix = b.nd_view();
             let gemm = GemmExecutor::new();
 
-            let mut packed_a_buf = vec![0.; gemm.prepacked_a_len(a_mat.rows(), a_mat.cols())];
-            let packed_a = gemm.prepack_a(&mut packed_a_buf, a_mat);
-
-            let mut packed_b_buf = vec![0.; gemm.prepacked_b_len(b_mat.cols(), a_mat.cols())];
-            let packed_b = gemm.prepack_b(&mut packed_b_buf, b.nd_view(), a.shape()[1]);
+            let packed_a = gemm.prepack_a(a_mat);
+            let packed_b = gemm.prepack_b(b.nd_view(), a.shape()[1]);
 
             let mut result = Tensor::zeros(&[m, n]);
             let result_row_stride = result.stride(0);
@@ -1416,8 +1393,8 @@ mod tests {
             gemm.gemm(
                 result.data_mut(),
                 result_row_stride,
-                packed_a,
-                packed_b,
+                GemmInputA::Packed(&packed_a),
+                GemmInputB::Packed(&packed_b),
                 1.,
                 1.,
             );
