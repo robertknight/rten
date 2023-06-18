@@ -840,11 +840,15 @@ fn depth_block_size(a_cols: usize) -> usize {
 }
 
 /// Return the block size for the N / column dimension of a GEMM operation.
+///
+/// The result is always a multiple of `nr`.
 fn col_block_size(b_cols: usize, nr: usize) -> usize {
     round_up(1024.min(b_cols), nr)
 }
 
 /// Return the block size for the M / row dimension of a GEMM operation.
+///
+/// The result is always a multiple of `mr`.
 fn row_block_size(a_rows: usize, mr: usize) -> usize {
     round_up(64.min(a_rows), mr)
 }
