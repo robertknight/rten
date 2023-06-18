@@ -3,9 +3,12 @@
 //! This module provides a subset of BLAS-like functions that are used by
 //! neural network operators. This includes general matrix multiplication ("gemm"),
 //! and vector-scalar products.
+use std::cell::RefCell;
 use std::ops::Range;
 
-use crate::tensor::{Matrix, MatrixLayout, MatrixMut};
+use rayon::prelude::*;
+
+use crate::tensor::{Matrix, MatrixLayout, MatrixMut, NdTensorLayout};
 
 pub fn div_ceil(a: usize, b: usize) -> usize {
     if b == 1 {
@@ -122,10 +125,15 @@ trait Kernel {
     /// It is unsafe to call `kernel` if this is false.
     fn supported() -> bool;
 
-    /// Compute an `MR * NR`-sized tile of the output matrix.
-    fn kernel(
-        out: &mut [f32],
-        out_row_stride: usize,
+    /// Compute a tile of the output matrix. The output is stored in row-major
+    /// order with `MR` rows and `NR` columns, a row stride of `tile_row_stride`
+    /// and column stride of 1.
+    ///
+    /// The caller must ensure that the kernel is supported on the current
+    /// system, and `tile_ptr` points to a buffer of the correct size.
+    unsafe fn kernel(
+        tile_ptr: *mut f32,
+        tile_row_stride: usize,
         a: &[f32],
         b: &[f32],
         depth: usize,
@@ -150,16 +158,16 @@ impl Kernel for FMAKernel {
         is_x86_feature_detected!("fma")
     }
 
-    fn kernel(
-        out: &mut [f32],
-        out_row_stride: usize,
+    unsafe fn kernel(
+        tile_ptr: *mut f32,
+        tile_row_stride: usize,
         a: &[f32],
         b: &[f32],
         depth: usize,
         alpha: f32,
         beta: f32,
     ) {
-        unsafe { Self::kernel_fma(out, out_row_stride, a, b, depth, alpha, beta) }
+        Self::kernel_fma(tile_ptr, tile_row_stride, a, b, depth, alpha, beta)
     }
 }
 
@@ -167,8 +175,8 @@ impl Kernel for FMAKernel {
 impl FMAKernel {
     #[target_feature(enable = "fma")]
     unsafe fn kernel_fma(
-        out: &mut [f32],
-        out_row_stride: usize,
+        tile_ptr: *mut f32,
+        tile_row_stride: usize,
         a: &[f32],
         b: &[f32],
         depth: usize,
@@ -191,7 +199,6 @@ impl FMAKernel {
         // Check that buffer accesses below are going to be valid.
         assert!(a.len() >= depth * MR);
         assert!(b.len() >= depth * NR);
-        assert!(out.len() >= (MR - 1) * out_row_stride + NR);
 
         let a_ptr = a.as_ptr();
         let b_ptr = b.as_ptr();
@@ -220,14 +227,14 @@ impl FMAKernel {
         if beta == 0. && alpha == 1. {
             for i in 0..MR {
                 for j in 0..NR_REGS {
-                    let out_ptr = out.as_mut_ptr().add(out_row_stride * i + j * REG_SIZE);
+                    let out_ptr = tile_ptr.add(tile_row_stride * i + j * REG_SIZE);
                     _mm256_storeu_ps(out_ptr, tmp[i][j]);
                 }
             }
         } else if beta == 1. && alpha == 1. {
             for i in 0..MR {
                 for j in 0..NR_REGS {
-                    let out_ptr = out.as_mut_ptr().add(out_row_stride * i + j * REG_SIZE);
+                    let out_ptr = tile_ptr.add(tile_row_stride * i + j * REG_SIZE);
                     let out_val = _mm256_add_ps(_mm256_loadu_ps(out_ptr), tmp[i][j]);
                     _mm256_storeu_ps(out_ptr, out_val);
                 }
@@ -237,7 +244,7 @@ impl FMAKernel {
             let beta_broadcast = _mm256_set1_ps(beta);
             for i in 0..MR {
                 for j in 0..NR_REGS {
-                    let out_ptr = out.as_mut_ptr().add(out_row_stride * i + j * REG_SIZE);
+                    let out_ptr = tile_ptr.add(tile_row_stride * i + j * REG_SIZE);
                     let out_val = _mm256_mul_ps(_mm256_loadu_ps(out_ptr), beta_broadcast);
                     let out_val = _mm256_fmadd_ps(tmp[i][j], alpha_broadcast, out_val);
                     _mm256_storeu_ps(out_ptr, out_val);
@@ -263,9 +270,9 @@ impl Kernel for BaseKernel {
         true
     }
 
-    fn kernel(
-        out: &mut [f32],
-        out_row_stride: usize,
+    unsafe fn kernel(
+        tile_ptr: *mut f32,
+        tile_row_stride: usize,
         a: &[f32],
         b: &[f32],
         depth: usize,
@@ -277,7 +284,6 @@ impl Kernel for BaseKernel {
 
         assert!(a.len() >= depth * MR);
         assert!(b.len() >= depth * NR);
-        assert!(out.len() >= (MR - 1) * out_row_stride + NR);
 
         // Accumulate into a fixed-sized array to allow the compiler to generate
         // more efficient code for the loop over `depth`.
@@ -288,10 +294,7 @@ impl Kernel for BaseKernel {
 
             for i in 0..MR {
                 for j in 0..NR {
-                    // Safety: Indexes are less than lengths asserted above.
-                    unsafe {
-                        tmp[i][j] += a.get_unchecked(a_off + i) * b.get_unchecked(b_off + j);
-                    }
+                    tmp[i][j] += a.get_unchecked(a_off + i) * b.get_unchecked(b_off + j);
                 }
             }
         }
@@ -299,31 +302,22 @@ impl Kernel for BaseKernel {
         if beta == 0. && alpha == 1. {
             for i in 0..MR {
                 for j in 0..NR {
-                    // Safety: Index is less than length asserted above.
-                    unsafe {
-                        let out_el = out.get_unchecked_mut(out_row_stride * i + j);
-                        *out_el = tmp[i][j];
-                    }
+                    let out_el = tile_ptr.add(tile_row_stride * i + j);
+                    *out_el = tmp[i][j];
                 }
             }
         } else if beta == 1. && alpha == 1. {
             for i in 0..MR {
                 for j in 0..NR {
-                    // Safety: Index is less than length asserted above.
-                    unsafe {
-                        let out_el = out.get_unchecked_mut(out_row_stride * i + j);
-                        *out_el += tmp[i][j];
-                    }
+                    let out_el = tile_ptr.add(tile_row_stride * i + j);
+                    *out_el += tmp[i][j];
                 }
             }
         } else {
             for i in 0..MR {
                 for j in 0..NR {
-                    // Safety: Index is less than length asserted above.
-                    unsafe {
-                        let out_el = out.get_unchecked_mut(out_row_stride * i + j);
-                        *out_el = beta * *out_el + alpha * tmp[i][j];
-                    }
+                    let out_el = tile_ptr.add(tile_row_stride * i + j);
+                    *out_el = beta * *out_el + alpha * tmp[i][j];
                 }
             }
         }
@@ -853,6 +847,81 @@ fn row_block_size(a_rows: usize, mr: usize) -> usize {
     round_up(64.min(a_rows), mr)
 }
 
+/// A single tile of the output matrix.
+struct OutputTile {
+    /// Pointer to first element in this tile.
+    ptr: *mut f32,
+
+    /// Stride between rows of this tile. Note the column stride is always 1.
+    row_stride: usize,
+
+    /// Number of rows in this tile. Will be <= the [Kernel]'s `MR` constant.
+    used_rows: usize,
+
+    /// Number of columns in this tile. Will be <= the [Kernel]'s `NR` constant.
+    used_cols: usize,
+}
+
+/// Wrapper around the GEMM output matrix which divides it into a grid of tiles.
+/// This can be shared across threads, but each individual tile must only be
+/// operated on by one thread at a time.
+struct OutputTiles {
+    data: *mut f32,
+
+    // Size and stride of the output matrix.
+    rows: usize,
+    cols: usize,
+    row_stride: usize,
+
+    // Maximum size of each tile.
+    tile_rows: usize,
+    tile_cols: usize,
+
+    // Precomputed number of tiles along each axis.
+    n_row_tiles: usize,
+    n_col_tiles: usize,
+}
+
+/// Safety: Caller must ensure they do not operate on overlapping tiles
+/// concurrently.
+unsafe impl Sync for OutputTiles {}
+
+impl OutputTiles {
+    /// Expose `data` as a grid of tiles, each with a maximum size of
+    /// `tile_rows` * `tile_cols`.
+    fn new(mut data: MatrixMut, tile_rows: usize, tile_cols: usize) -> OutputTiles {
+        OutputTiles {
+            data: data.data_mut().as_mut_ptr(),
+            rows: data.rows(),
+            cols: data.cols(),
+            row_stride: data.stride(0),
+            tile_rows,
+            tile_cols,
+            n_row_tiles: div_ceil(data.rows(), tile_rows),
+            n_col_tiles: div_ceil(data.cols(), tile_cols),
+        }
+    }
+
+    /// Return the output tile with the given coordinates in the grid of
+    /// output tiles.
+    ///
+    /// Safety: The caller must guarantee that every tile is operated on by
+    /// only a single thread at a time.
+    unsafe fn tile(&self, row: usize, col: usize) -> OutputTile {
+        assert!(row < self.n_row_tiles && col < self.n_col_tiles);
+
+        let start_row = row * self.tile_rows;
+        let start_col = col * self.tile_cols;
+
+        OutputTile {
+            ptr: self.data.add(start_row * self.row_stride + start_col),
+            row_stride: self.row_stride,
+            used_rows: (self.rows - start_row).min(self.tile_rows),
+            used_cols: (self.cols - start_col).min(self.tile_cols),
+        }
+    }
+}
+
 /// Perform matrix multiplication with a given kernel.
 ///
 /// `MR_NR` should be computed as `K::MR * K::NR`. This function can't compute
@@ -898,9 +967,16 @@ fn gemm_impl<K: Kernel, const MR_NR: usize>(
         "Columns of matrix `a` must match rows of matrix `b`"
     );
 
+    if a.rows() == 0 || b.cols() == 0 {
+        // Output is empty.
+        return;
+    }
+
     // Construct a Matrix from the implied dimensions, to validate the slice length.
-    MatrixMut::<f32>::from_data(out_data, [a.rows(), b.cols()], Some([out_row_stride, 1]))
-        .expect("Output buffer should be large enough");
+    let output_mat =
+        MatrixMut::<f32>::from_data(out_data, [a.rows(), b.cols()], Some([out_row_stride, 1]))
+            .expect("Output buffer should be large enough");
+    let output_tiles = OutputTiles::new(output_mat, K::MR, K::NR);
 
     // The constant values for block sizes below were taken from the
     // matrixmultiply crate. See https://dl.acm.org/doi/pdf/10.1145/2925987 for
@@ -915,29 +991,44 @@ fn gemm_impl<K: Kernel, const MR_NR: usize>(
     let mc = row_block_size(a.rows(), K::MR);
     let kc = depth_block_size(a.cols());
 
-    // Buffer for packed blocks of the matrix. Conceptually there are two
-    // buffers, but we coalesce them into one allocation.
+    let packed_b_size = kc * nc;
+    let packed_a_size = mc * kc;
+
+    // Buffers for packed blocks of the matrix.
     //
     // These currently have no alignment specified. The paper mentioned above
     // suggests that aligning to cache-line (ie. 64-byte) boundaries may help
     // performance.
-    let packed_b_size = kc * nc;
-    let packed_a_size = mc * kc;
-    let mut packed_a = Vec::new();
-    let mut packed_b = Vec::new();
+    thread_local!(static PACKED_A: RefCell<Vec<f32>> = RefCell::new(Vec::new()));
+    thread_local!(static PACKED_B: RefCell<Vec<f32>> = RefCell::new(Vec::new()));
 
-    for (col_idx, (col_start, col_end)) in blocks(0, b.cols(), nc).enumerate() {
+    let n_col_blocks = div_ceil(b.cols(), nc);
+    let n_row_blocks = div_ceil(a.rows(), mc);
+
+    // Loop over column blocks.
+    (0..n_col_blocks).into_par_iter().for_each(|col_idx| {
+        let col_start = col_idx * nc;
+        let col_end = (col_start + nc).min(b.cols());
+
+        // Loop over depth blocks. This is not parallelized because output
+        // tiles are shared across iterations.
         for (depth_idx, (depth_start, depth_end)) in blocks(0, a.cols(), kc).enumerate() {
+            // Borrowed packing buffer for current thread. Returned after
+            // the GEMM block is computed.
+            let mut thread_local_packed_b: Option<Vec<f32>> = None;
             let panel_length = depth_end - depth_start;
 
             let packed_b = match b {
-                GemmInputB::Unpacked(b) => {
+                GemmInputB::Unpacked(b) => PACKED_B.with(|cell| {
+                    let mut packed_b = cell.take();
                     packed_b.resize(packed_b_size, 0.);
                     pack_b_block::<K>(&mut packed_b, b, depth_start..depth_end, col_start..col_end);
-                    &packed_b
-                }
+                    thread_local_packed_b = Some(packed_b);
+                    thread_local_packed_b.as_deref().unwrap()
+                }),
                 GemmInputB::Packed(pm) => pm.block(col_idx, depth_idx),
-                GemmInputB::Virtual(vm) => {
+                GemmInputB::Virtual(vm) => PACKED_B.with(|cell| {
+                    let mut packed_b = cell.take();
                     packed_b.resize(packed_b_size, 0.);
                     vm.pack_b(
                         &mut packed_b,
@@ -945,17 +1036,30 @@ fn gemm_impl<K: Kernel, const MR_NR: usize>(
                         depth_start..depth_end,
                         col_start..col_end,
                     );
-                    &packed_b
-                }
+                    thread_local_packed_b = Some(packed_b);
+                    thread_local_packed_b.as_deref().unwrap()
+                }),
             };
 
             // Only use provided `beta` on the first write to this output
             // tile. For subsequent updates accumulate.
             let effective_beta = if depth_start == 0 { beta } else { 1.0 };
 
-            for (row_idx, (row_start, row_end)) in blocks(0, a.rows(), mc).enumerate() {
+            // Loop over row blocks.
+            //
+            // TODO - This should be parallel, but overhead in single-threaded
+            // environments (ie. `RAYON_NUM_THREADS=1`) needs to be reduced.
+            (0..n_row_blocks).for_each(|row_idx| {
+                let row_start = row_idx * mc;
+                let row_end = (row_start + mc).min(a.rows());
+
+                // Borrowed packing buffer for current thread. Returned after
+                // the GEMM block is computed.
+                let mut thread_local_packed_a: Option<Vec<f32>> = None;
+
                 let packed_a = match a {
-                    GemmInputA::Unpacked(a) => {
+                    GemmInputA::Unpacked(a) => PACKED_A.with(|cell| {
+                        let mut packed_a = cell.take();
                         packed_a.resize(packed_a_size, 0.);
                         pack_a_block::<K>(
                             &mut packed_a,
@@ -963,38 +1067,45 @@ fn gemm_impl<K: Kernel, const MR_NR: usize>(
                             row_start..row_end,
                             depth_start..depth_end,
                         );
-                        &packed_a
-                    }
+                        thread_local_packed_a = Some(packed_a);
+                        thread_local_packed_a.as_deref().unwrap()
+                    }),
                     GemmInputA::Packed(pm) => pm.block(row_idx, depth_idx),
                 };
 
                 gemm_block::<K, MR_NR>(
-                    out_data,
-                    out_row_stride,
-                    col_start,
-                    col_end,
-                    row_start,
-                    row_end,
+                    &output_tiles,
+                    col_start / K::NR..div_ceil(col_end, K::NR),
+                    row_start / K::MR..div_ceil(row_end, K::MR),
                     packed_a,
                     packed_b,
                     panel_length,
                     alpha,
                     effective_beta,
                 );
+
+                if let Some(packed_a) = thread_local_packed_a {
+                    PACKED_A.with(|cell| cell.replace(packed_a));
+                }
+            });
+
+            if let Some(packed_b) = thread_local_packed_b {
+                PACKED_B.with(|cell| cell.replace(packed_b));
             }
         }
-    }
+    });
 }
 
 /// Process a single block (ie. a slice along each of the M/N/K dimensions) of a
 /// matrix multiplication.
+///
+/// `col_tiles` and `row_tiles` specifies the range of output tiles to update,
+/// `packed_a` and `packed_b` are the corresponding packed inputs. `panel_length`
+/// is the size of panels along the depth/K dimension.
 fn gemm_block<K: Kernel, const MR_NR: usize>(
-    out_data: &mut [f32],
-    out_row_stride: usize,
-    col_start: usize,
-    col_end: usize,
-    row_start: usize,
-    row_end: usize,
+    output: &OutputTiles,
+    col_tiles: Range<usize>,
+    row_tiles: Range<usize>,
     packed_a: &[f32],
     packed_b: &[f32],
     panel_length: usize,
@@ -1004,63 +1115,77 @@ fn gemm_block<K: Kernel, const MR_NR: usize>(
     let b_panel_size = panel_length * K::NR;
     let a_panel_size = K::MR * panel_length;
 
-    for (tile_col_start, tile_col_end) in blocks(col_start, col_end, K::NR) {
-        let b_panel_idx = (tile_col_start - col_start) / K::NR;
-        let b_panel_offset = b_panel_idx * b_panel_size;
-        let b_panel = &packed_b[b_panel_offset..b_panel_offset + b_panel_size];
+    // Loop over column tiles.
+    //
+    // TODO - This should be parallel, but threading overhead needs to be reduced.
+    col_tiles
+        .enumerate()
+        .for_each(|(block_col_tile, col_tile)| {
+            let b_panel_offset = block_col_tile * b_panel_size;
+            let b_panel = &packed_b[b_panel_offset..b_panel_offset + b_panel_size];
 
-        for (tile_row_start, tile_row_end) in blocks(row_start, row_end, K::MR) {
-            let a_panel_idx = (tile_row_start - row_start) / K::MR;
-            let a_panel_offset = a_panel_idx * a_panel_size;
-            let a_panel = &packed_a[a_panel_offset..a_panel_offset + a_panel_size];
+            // Loop over row tiles.
+            for (block_row_tile, row_tile) in row_tiles.clone().enumerate() {
+                let a_panel_offset = block_row_tile * a_panel_size;
+                let a_panel = &packed_a[a_panel_offset..a_panel_offset + a_panel_size];
 
-            let out_offset = tile_row_start * out_row_stride + tile_col_start;
-            let out_tile = &mut out_data[out_offset..];
+                // Safety:
+                //  - The loops in this function and its caller are set up so that
+                //    every output tile is processed by one thread at a time.
+                let out_tile = unsafe { output.tile(row_tile, col_tile) };
 
-            let used_rows = tile_row_end - tile_row_start;
-            let used_cols = tile_col_end - tile_col_start;
+                if out_tile.used_rows == K::MR && out_tile.used_cols == K::NR {
+                    // Safety:
+                    //  - Tile size is MR * NR
+                    //  - We checked this kernel is supported
+                    unsafe {
+                        K::kernel(
+                            out_tile.ptr,
+                            out_tile.row_stride,
+                            a_panel,
+                            b_panel,
+                            panel_length,
+                            alpha,
+                            beta,
+                        );
+                    }
+                } else {
+                    // If this is not a full size tile, run the kernel on a
+                    // temporary buffer that is the size of a full tile, then
+                    // copy the results back to the output. This allows the same
+                    // kernel implementation to be used whether the tile is
+                    // full-sized or not.
+                    let mut tmp_out_tile = [0.; MR_NR];
 
-            if used_rows == K::MR && used_cols == K::NR {
-                K::kernel(
-                    out_tile,
-                    out_row_stride,
-                    a_panel,
-                    b_panel,
-                    panel_length,
-                    alpha,
-                    beta,
-                );
-            } else {
-                // If this is not a full size tile, run the kernel on a temporary
-                // buffer that is the size of a full tile, then copy the results back
-                // to the output. This allows the same kernel implementation to be used
-                // whether the tile is full-sized or not.
-                let mut tmp_out_tile = [0.; MR_NR];
+                    // Safety:
+                    //  - Tile size is MR * NR
+                    //  - We checked this kernel is supported
+                    unsafe {
+                        K::kernel(
+                            tmp_out_tile.as_mut_ptr(),
+                            K::NR,
+                            a_panel,
+                            b_panel,
+                            panel_length,
+                            alpha,
+                            0., // Multiplication with `beta` is handled below.
+                        );
+                    }
 
-                K::kernel(
-                    &mut tmp_out_tile,
-                    K::NR,
-                    a_panel,
-                    b_panel,
-                    panel_length,
-                    alpha,
-                    0., // Multiplication with `effective_beta` is handled below.
-                );
-
-                assert!(out_tile.len() >= (used_rows - 1) * out_row_stride + used_cols);
-                assert!(tmp_out_tile.len() >= (used_rows - 1) * K::NR + used_cols);
-                for i in 0..used_rows {
-                    for j in 0..used_cols {
-                        // Safety: Index is less than length asserted above.
-                        unsafe {
-                            let out_el = out_tile.get_unchecked_mut(out_row_stride * i + j);
-                            *out_el = beta * *out_el + tmp_out_tile[i * K::NR + j];
+                    for i in 0..out_tile.used_rows {
+                        for j in 0..out_tile.used_cols {
+                            // Safety: Row and column indices are < used rows /
+                            // cols in this tile.
+                            unsafe {
+                                let out_el = out_tile.ptr.add(out_tile.row_stride * i + j);
+                                *out_el =
+                                    beta * *out_el + tmp_out_tile.get_unchecked(i * K::NR + j);
+                            }
                         }
                     }
                 }
             }
-        }
-    }
+        });
 }
 
 #[cfg(test)]
@@ -1521,4 +1646,7 @@ mod tests {
 
         Ok(())
     }
+
+    // TODO - Add a set of tests for use with Miri. These should exercise all
+    // unsafe code, but be adjusted to run quickly.
 }
