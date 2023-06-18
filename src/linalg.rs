@@ -539,7 +539,7 @@ impl<'a> GemmInputA<'a> {
 ///
 /// This is useful for operations such as im2col-based convolution, which
 /// involve creating potentially large temporary matrices.
-pub trait VirtualMatrix {
+pub trait VirtualMatrix: Sync {
     /// Return the number of rows in the virtual matrix.
     fn rows(&self) -> usize;
 
