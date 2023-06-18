@@ -8,6 +8,7 @@ edition = "2021"
 [dependencies]
 flatbuffers = "22.10.26"
 libm = "0.2.6"
+rayon = "1.7.0"
 smallvec = { version = "1.10.0", features = ["union", "const_generics", "const_new"] }
 wasm-bindgen = "0.2.83"
 
