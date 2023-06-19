@@ -332,6 +332,13 @@ impl<T: Clone, S: AsRef<[T]>, const N: usize> NdTensorBase<T, S, N> {
             .and_then(|offset| self.data().get(offset))
     }
 
+    /// Return the element at a given index, without performing any bounds-
+    /// checking.
+    pub unsafe fn get_unchecked(&self, index: [usize; N]) -> &T {
+        self.data()
+            .get_unchecked(self.layout.offset_unchecked(index))
+    }
+
     /// Return an immutable view of this tensor.
     pub fn view(&self) -> NdTensorView<T, N> {
         NdTensorView {
@@ -432,6 +439,13 @@ impl<'a, T, S: AsRef<[T]> + ?Sized, const N: usize> NdTensorBase<T, &'a S, N> {
 impl<T, S: AsRef<[T]> + AsMut<[T]>, const N: usize> NdTensorBase<T, S, N> {
     pub fn data_mut(&mut self) -> &mut [T] {
         self.data.as_mut()
+    }
+
+    /// Return the element at a given index, without performing any bounds-
+    /// checking.
+    pub unsafe fn get_unchecked_mut(&mut self, index: [usize; N]) -> &mut T {
+        let offset = self.layout.offset_unchecked(index);
+        self.data_mut().get_unchecked_mut(offset)
     }
 
     /// Return a mutable view of this tensor.
@@ -747,6 +761,24 @@ mod tests {
         assert_eq!(tensor.get([5, 9, 14]), None);
         assert_eq!(tensor.get([4, 10, 14]), None);
         assert_eq!(tensor.get([4, 9, 15]), None);
+    }
+
+    #[test]
+    fn test_ndtensor_get_unchecked() {
+        let tensor = NdTensor::<i32, 3>::zeros([5, 10, 15]);
+        unsafe {
+            assert_eq!(tensor.get_unchecked([0, 0, 0]), &0);
+            assert_eq!(tensor.get_unchecked([4, 9, 14]), &0);
+        }
+    }
+
+    #[test]
+    fn test_ndtensor_get_unchecked_mut() {
+        let mut tensor = NdTensor::<i32, 3>::zeros([5, 10, 15]);
+        unsafe {
+            assert_eq!(tensor.get_unchecked_mut([0, 0, 0]), &0);
+            assert_eq!(tensor.get_unchecked_mut([4, 9, 14]), &0);
+        }
     }
 
     #[test]
