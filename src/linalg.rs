@@ -780,7 +780,6 @@ impl GemmExecutor {
     }
 
     /// Prepack a matrix for use as the right-hand or "B" matrix input.
-    #[allow(dead_code)] // Currently only used in tests
     pub fn prepack_b(&self, b: Matrix, a_cols: usize) -> PackedBMatrix {
         let nc = col_block_size(b.cols(), self.nr);
         let kc = depth_block_size(a_cols);
