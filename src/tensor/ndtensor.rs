@@ -334,6 +334,10 @@ impl<T: Clone, S: AsRef<[T]>, const N: usize> NdTensorBase<T, S, N> {
 
     /// Return the element at a given index, without performing any bounds-
     /// checking.
+    ///
+    /// # Safety
+    ///
+    /// The caller must ensure that the index is valid for the tensor's shape.
     pub unsafe fn get_unchecked(&self, index: [usize; N]) -> &T {
         self.data()
             .get_unchecked(self.layout.offset_unchecked(index))
@@ -443,6 +447,10 @@ impl<T, S: AsRef<[T]> + AsMut<[T]>, const N: usize> NdTensorBase<T, S, N> {
 
     /// Return the element at a given index, without performing any bounds-
     /// checking.
+    ///
+    /// # Safety
+    ///
+    /// The caller must ensure that the index is valid for the tensor's shape.
     pub unsafe fn get_unchecked_mut(&mut self, index: [usize; N]) -> &mut T {
         let offset = self.layout.offset_unchecked(index);
         self.data_mut().get_unchecked_mut(offset)
