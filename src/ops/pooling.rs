@@ -1,7 +1,7 @@
 use crate::check_dims;
 use crate::linalg::div_ceil;
 use crate::ops::{InputList, IntoOpResult, OpError, Operator, Output, Padding};
-use crate::tensor::{Tensor, TensorLayout};
+use crate::tensor::{NdTensorLayout, NdTensorView, NdTensorViewMut, Tensor, TensorLayout};
 
 /// Calculate the output size and padding for a convolution or pooling operation.
 ///
@@ -188,37 +188,89 @@ pub fn max_pool(
         padding,
     )?;
     let [pad_top, pad_left, _pad_bottom, _pad_right] = fixed_padding;
-    let [kernel_h, kernel_w] = kernel_size;
-    let [stride_h, stride_w] = strides;
-
     let mut output = Tensor::zeros(&[batch, in_c, out_h, out_w]);
 
-    for n in 0..batch {
-        for chan in 0..in_c {
-            let mut out_view = output.nd_slice_mut([n, chan]);
-            let mut out_view = out_view.unchecked_mut();
-            let in_view = input.nd_slice([n, chan]).unchecked();
+    // Apply max-pooling to the channel indexes specified by `chans`.
+    // Assuming `N` is chosen appropriately the inner loop should get unrolled /
+    // autovectorized.
+    fn max_pool_chans<const N: usize>(
+        mut out: NdTensorViewMut<f32, 3>,
+        in_view: NdTensorView<f32, 3>,
+        chans: [usize; N],
+        [kernel_h, kernel_w]: [usize; 2],
+        [stride_h, stride_w]: [usize; 2],
+        [pad_top, pad_left]: [usize; 2],
+    ) {
+        let [out_chans, out_h, out_w] = out.shape();
+        let [in_chans, in_h, in_w] = in_view.shape();
+        assert!(chans.into_iter().all(|c| c < out_chans && c < in_chans));
 
-            for out_y in 0..out_h {
-                for out_x in 0..out_w {
-                    let mut accumulator = f32::NEG_INFINITY;
-                    for k_y in 0..kernel_h {
-                        for k_x in 0..kernel_w {
-                            let in_y = out_y * stride_h + k_y;
-                            let in_x = out_x * stride_w + k_x;
-                            if in_y >= pad_top
-                                && in_y < in_h + pad_top
-                                && in_x >= pad_left
-                                && in_x < in_w + pad_left
-                            {
-                                let val = in_view[[in_y - pad_top, in_x - pad_left]];
-                                accumulator = accumulator.max(val);
+        for out_y in 0..out_h {
+            for out_x in 0..out_w {
+                let mut accumulator = [f32::NEG_INFINITY; N];
+                for k_y in 0..kernel_h {
+                    for k_x in 0..kernel_w {
+                        let in_y = out_y * stride_h + k_y;
+                        let in_x = out_x * stride_w + k_x;
+                        if in_y >= pad_top
+                            && in_y < in_h + pad_top
+                            && in_x >= pad_left
+                            && in_x < in_w + pad_left
+                        {
+                            for (i, chan) in chans.into_iter().enumerate() {
+                                // Safety:
+                                //  - We checked all `chans` are in-bounds
+                                //  - `in_y` and `in_x` are >= pad_top and pad_left
+                                let val = unsafe {
+                                    *in_view.get_unchecked([chan, in_y - pad_top, in_x - pad_left])
+                                };
+                                accumulator[i] = accumulator[i].max(val);
                             }
                         }
                     }
-                    out_view[[out_y, out_x]] = accumulator;
+                }
+                for (i, chan) in chans.into_iter().enumerate() {
+                    // Safety:
+                    //  - We checked all `chans` are in-bounds
+                    //  - `out_y` and `out_x` are in 0..out_h, 0..out_w
+                    unsafe {
+                        *out.get_unchecked_mut([chan, out_y, out_x]) = accumulator[i];
+                    }
                 }
             }
+        }
+    }
+
+    for n in 0..batch {
+        let mut out_view = output.nd_slice_mut([n]);
+        let in_view = input.nd_slice([n]);
+
+        // Loop over channel groups.
+        const N: usize = 4;
+        for chan in (0..in_c).step_by(N) {
+            if in_c - chan < N {
+                break;
+            }
+            max_pool_chans(
+                out_view.view_mut(),
+                in_view,
+                [chan, chan + 1, chan + 2, chan + 3],
+                kernel_size,
+                strides,
+                [pad_top, pad_left],
+            );
+        }
+
+        // Loop over remaining channels.
+        for chan in (in_c - in_c % N)..in_c {
+            max_pool_chans(
+                out_view.view_mut(),
+                in_view,
+                [chan],
+                kernel_size,
+                strides,
+                [pad_top, pad_left],
+            );
         }
     }
 
