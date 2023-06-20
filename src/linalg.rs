@@ -611,6 +611,7 @@ pub fn gemm(
                 GemmInputB::Unpacked(b),
                 alpha,
                 beta,
+                None, // bias
             );
         }
     }
@@ -622,6 +623,7 @@ pub fn gemm(
         GemmInputB::Unpacked(b),
         alpha,
         beta,
+        None, // bias
     )
 }
 
@@ -637,6 +639,7 @@ trait GemmOps {
         b: GemmInputB,
         alpha: f32,
         beta: f32,
+        bias: Option<&[f32]>,
     );
 }
 
@@ -657,8 +660,17 @@ impl GemmOps for BaseKernel {
         b: GemmInputB,
         alpha: f32,
         beta: f32,
+        bias: Option<&[f32]>,
     ) {
-        gemm_impl::<Self, { Self::MR * Self::NR }>(out_data, out_row_stride, a, b, alpha, beta)
+        gemm_impl::<Self, { Self::MR * Self::NR }>(
+            out_data,
+            out_row_stride,
+            a,
+            b,
+            alpha,
+            beta,
+            bias,
+        )
     }
 }
 
@@ -679,8 +691,17 @@ impl GemmOps for FMAKernel {
         b: GemmInputB,
         alpha: f32,
         beta: f32,
+        bias: Option<&[f32]>,
     ) {
-        gemm_impl::<Self, { Self::MR * Self::NR }>(out_data, out_row_stride, a, b, alpha, beta)
+        gemm_impl::<Self, { Self::MR * Self::NR }>(
+            out_data,
+            out_row_stride,
+            a,
+            b,
+            alpha,
+            beta,
+            bias,
+        )
     }
 }
 
@@ -823,7 +844,28 @@ impl GemmExecutor {
         beta: f32,
     ) {
         self.kernel
-            .gemm(out_data, out_row_stride, a, b, alpha, beta)
+            .gemm(out_data, out_row_stride, a, b, alpha, beta, None)
+    }
+
+    /// Perform a matrix multiplication with fused bias vector addition.
+    ///
+    /// This computes `output = alpha * (a @ b) + beta * output + bias` where
+    /// `@` is matrix multiplication.
+    ///
+    /// If `bias` is present, it is treated as a column vector whose length
+    /// must match the rows of `a`.
+    pub fn gemm_bias(
+        &self,
+        out_data: &mut [f32],
+        out_row_stride: usize,
+        a: GemmInputA,
+        b: GemmInputB,
+        alpha: f32,
+        beta: f32,
+        bias: Option<&[f32]>,
+    ) {
+        self.kernel
+            .gemm(out_data, out_row_stride, a, b, alpha, beta, bias)
     }
 }
 
@@ -959,11 +1001,16 @@ fn gemm_impl<K: Kernel, const MR_NR: usize>(
     b: GemmInputB,
     alpha: f32,
     beta: f32,
+    bias: Option<&[f32]>,
 ) {
     assert!(K::supported());
     assert!(
         a.cols() == b.rows(),
         "Columns of matrix `a` must match rows of matrix `b`"
+    );
+    assert!(
+        bias.map(|b| b.len()).unwrap_or(a.rows()) == a.rows(),
+        "Bias vector length must match rows of matrix `a`"
     );
 
     if a.rows() == 0 || b.cols() == 0 {
@@ -1076,11 +1123,13 @@ fn gemm_impl<K: Kernel, const MR_NR: usize>(
                     &output_tiles,
                     col_start / K::NR..div_ceil(col_end, K::NR),
                     row_start / K::MR..div_ceil(row_end, K::MR),
+                    depth_start == 0,
                     packed_a,
                     packed_b,
                     panel_length,
                     alpha,
                     effective_beta,
+                    bias,
                 );
 
                 if let Some(packed_a) = thread_local_packed_a {
@@ -1101,15 +1150,20 @@ fn gemm_impl<K: Kernel, const MR_NR: usize>(
 /// `col_tiles` and `row_tiles` specifies the range of output tiles to update,
 /// `packed_a` and `packed_b` are the corresponding packed inputs. `panel_length`
 /// is the size of panels along the depth/K dimension.
+///
+/// `is_first` indicates whether this is the first write to the output tiles
+/// in this block during the current GEMM operation.
 fn gemm_block<K: Kernel, const MR_NR: usize>(
     output: &OutputTiles,
     col_tiles: Range<usize>,
     row_tiles: Range<usize>,
+    first_update: bool,
     packed_a: &[f32],
     packed_b: &[f32],
     panel_length: usize,
     alpha: f32,
     beta: f32,
+    bias: Option<&[f32]>,
 ) {
     let b_panel_size = panel_length * K::NR;
     let a_panel_size = K::MR * panel_length;
@@ -1183,6 +1237,21 @@ fn gemm_block<K: Kernel, const MR_NR: usize>(
                         }
                     }
                 }
+
+                // Add bias vector on first write to an output tile.
+                if let (Some(bias), true) = (bias, first_update) {
+                    for row in 0..out_tile.used_rows {
+                        for col in 0..out_tile.used_cols {
+                            // Safety:
+                            //  - Row and column indices are valid for current tile
+                            //  - Bias length was checked at start of `gemm_impl`
+                            unsafe {
+                                *out_tile.ptr.add(row * out_tile.row_stride + col) +=
+                                    *bias.get_unchecked(row_tile * K::MR + row);
+                            }
+                        }
+                    }
+                }
             }
         });
 }
@@ -1204,7 +1273,7 @@ mod tests {
         let [_b_rows, b_cols] = b.dims();
         let mut output = Tensor::zeros(&[a_rows, b_cols]);
 
-        reference_gemm(&mut output, a, b, 1.0, 0.0);
+        reference_gemm(&mut output, a, b, 1.0, 0.0, None);
 
         output
     }
@@ -1227,18 +1296,20 @@ mod tests {
         b: &Tensor,
         alpha: f32,
         beta: f32,
+        bias: Option<&[f32]>,
         kernel: KernelHint,
     ) {
         let out_row_stride = output.stride(0);
         let gemm = GemmExecutor::new_with_kernel(kernel);
 
-        gemm.gemm(
+        gemm.gemm_bias(
             output.data_mut(),
             out_row_stride,
             GemmInputA::Unpacked(a.nd_view()),
             GemmInputB::Unpacked(b.nd_view()),
             alpha,
             beta,
+            bias,
         );
     }
 
@@ -1246,7 +1317,14 @@ mod tests {
     /// same results as the optimized GEMM, but small numerical differences will
     /// appear in problems with a large K dimension, due to the different
     /// ordering of floating-point operations.
-    fn reference_gemm(output: &mut Tensor, a: &Tensor, b: &Tensor, alpha: f32, beta: f32) {
+    fn reference_gemm(
+        output: &mut Tensor,
+        a: &Tensor,
+        b: &Tensor,
+        alpha: f32,
+        beta: f32,
+        bias: Option<&[f32]>,
+    ) {
         let [a_rows, a_cols] = a.dims();
         let [_b_rows, b_cols] = b.dims();
 
@@ -1256,7 +1334,8 @@ mod tests {
                 for k in 0..a_cols {
                     accum += a[[r, k]] * b[[k, c]];
                 }
-                output[[r, c]] = alpha * accum + beta * output[[r, c]];
+                output[[r, c]] =
+                    alpha * accum + beta * output[[r, c]] + bias.map(|b| b[r]).unwrap_or(0.);
             }
         }
     }
@@ -1315,11 +1394,11 @@ mod tests {
         let expected = reference_matmul(&a, &b);
 
         let mut result = Tensor::zeros(&[a.shape()[0], b.shape()[1]]);
-        run_gemm(&mut result, &a, &b, 1., 1., KernelHint::Auto);
+        run_gemm(&mut result, &a, &b, 1., 1., None, KernelHint::Auto);
         expect_equal(&result, &expected)?;
 
         let mut result = Tensor::zeros(&[a.shape()[0], b.shape()[1]]);
-        run_gemm(&mut result, &a, &b, 1., 1., KernelHint::Base);
+        run_gemm(&mut result, &a, &b, 1., 1., None, KernelHint::Base);
         expect_equal(&result, &expected)?;
 
         Ok(())
@@ -1382,7 +1461,7 @@ mod tests {
             let b = Tensor::rand(&rhs_size, &mut rng);
             let mut result = Tensor::zeros(&[lhs_size[0], rhs_size[1]]);
 
-            run_gemm(&mut result, &a, &b, 1., 0., kernel);
+            run_gemm(&mut result, &a, &b, 1., 0., None, kernel);
 
             let expected = reference_matmul(&a, &b);
 
@@ -1423,7 +1502,7 @@ mod tests {
         let [_, b_cols] = b.dims();
 
         let mut result = Tensor::zeros(&[a_rows, b_cols]);
-        run_gemm(&mut result, &a, &b, 1., 1., KernelHint::Auto);
+        run_gemm(&mut result, &a, &b, 1., 1., None, KernelHint::Auto);
 
         let expected = reference_matmul(&a, &b);
         expect_equal(&result, &expected)
@@ -1441,8 +1520,8 @@ mod tests {
                 let mut result = Tensor::rand(&[10, 15], &mut rng);
                 let mut expected = result.clone();
 
-                run_gemm(&mut result, &a, &b, alpha, 0.0, kernel);
-                reference_gemm(&mut expected, &a, &b, alpha, 0.0);
+                run_gemm(&mut result, &a, &b, alpha, 0.0, None, kernel);
+                reference_gemm(&mut expected, &a, &b, alpha, 0.0, None);
 
                 expect_equal(&result, &expected)?;
             }
@@ -1463,12 +1542,33 @@ mod tests {
                 let mut result = Tensor::rand(&[10, 15], &mut rng);
                 let mut expected = result.clone();
 
-                run_gemm(&mut result, &a, &b, 1., beta, kernel);
-                reference_gemm(&mut expected, &a, &b, 1., beta);
+                run_gemm(&mut result, &a, &b, 1., beta, None, kernel);
+                reference_gemm(&mut expected, &a, &b, 1., beta, None);
 
                 expect_equal(&result, &expected)?;
             }
         }
+
+        Ok(())
+    }
+
+    #[test]
+    fn test_gemm_bias() -> Result<(), String> {
+        let mut rng = XorShiftRng::new(1234);
+
+        let a = Tensor::rand(&[10, 5], &mut rng);
+        let b = Tensor::rand(&[5, 15], &mut rng);
+        let bias: Vec<f32> = (0..a.shape()[0]).map(|b| b as f32).collect();
+
+        let mut result = Tensor::zeros(&[10, 15]);
+        let mut expected = result.clone();
+
+        for kernel in [KernelHint::Auto, KernelHint::Base] {
+            run_gemm(&mut result, &a, &b, 1., 0., Some(&bias), kernel);
+            reference_gemm(&mut expected, &a, &b, 1., 0., Some(&bias));
+        }
+
+        expect_equal(&result, &expected)?;
 
         Ok(())
     }
@@ -1638,7 +1738,7 @@ mod tests {
                 1.,
                 1.,
             );
-            reference_gemm(&mut expected, &a, &b, 1., 1.);
+            reference_gemm(&mut expected, &a, &b, 1., 1., None);
 
             expect_equal(&result, &expected)?;
         }
