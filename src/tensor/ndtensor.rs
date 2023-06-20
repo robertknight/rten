@@ -301,21 +301,7 @@ impl<T, S: AsRef<[T]>, const N: usize> NdTensorBase<T, S, N> {
             element_type: PhantomData,
         })
     }
-}
 
-impl<T: Copy, S: AsRef<[T]>, const N: usize> NdTensorBase<T, S, N> {
-    /// Return a view of this tensor with a dynamic dimension count.
-    pub fn as_dyn(&self) -> TensorBase<T, &[T]> {
-        TensorBase::new(self.data.as_ref(), &self.layout.as_dyn())
-    }
-
-    /// Return an iterator over elements of this tensor.
-    pub fn iter(&self) -> Elements<T> {
-        Elements::from_view(&self.as_dyn())
-    }
-}
-
-impl<T: Clone, S: AsRef<[T]>, const N: usize> NdTensorBase<T, S, N> {
     /// Return the underlying elements, in the order they are stored.
     ///
     /// See [NdTensorBase::to_data] for a variant for [NdTensorView] where
@@ -383,10 +369,29 @@ impl<T: Clone, S: AsRef<[T]>, const N: usize> NdTensorBase<T, S, N> {
         }
     }
 
+    /// Return a view of this tensor with a dynamic dimension count.
+    pub fn as_dyn(&self) -> TensorBase<T, &[T]>
+    where
+        T: Copy,
+    {
+        TensorBase::new(self.data.as_ref(), &self.layout.as_dyn())
+    }
+
+    /// Return an iterator over elements of this tensor.
+    pub fn iter(&self) -> Elements<T>
+    where
+        T: Copy,
+    {
+        Elements::from_view(&self.as_dyn())
+    }
+
     /// Return a copy of this view that owns its data. For [NdTensorView] this
     /// is different than cloning the view, as that returns a view which has
     /// its own layout, but the same underlying data buffer.
-    pub fn to_owned(&self) -> NdTensor<T, N> {
+    pub fn to_owned(&self) -> NdTensor<T, N>
+    where
+        T: Clone,
+    {
         NdTensor {
             data: self.data.as_ref().to_vec(),
             layout: self.layout,
@@ -501,16 +506,20 @@ impl<T, S: AsRef<[T]> + AsMut<[T]>, const N: usize> NdTensorBase<T, S, N> {
         };
         UncheckedNdTensor { base }
     }
-}
 
-impl<T: Copy, S: AsRef<[T]> + AsMut<[T]>, const N: usize> NdTensorBase<T, S, N> {
     /// Return a view of this tensor with a dynamic dimension count.
-    pub fn as_dyn_mut(&mut self) -> TensorBase<T, &mut [T]> {
+    pub fn as_dyn_mut(&mut self) -> TensorBase<T, &mut [T]>
+    where
+        T: Copy,
+    {
         TensorBase::new(self.data.as_mut(), &self.layout.as_dyn())
     }
 
     /// Return a mutable iterator over elements of this tensor.
-    pub fn iter_mut(&mut self) -> ElementsMut<T> {
+    pub fn iter_mut(&mut self) -> ElementsMut<T>
+    where
+        T: Copy,
+    {
         ElementsMut::new(self.data.as_mut(), &self.layout.as_dyn())
     }
 }
