@@ -171,12 +171,7 @@ fn init_tensor_with_channel_bias(shape: &[usize], chan_dim: usize, bias: &Tensor
 fn conv_2d_pointwise(input: &Tensor, kernel: &Tensor, bias: Option<&Tensor>) -> Tensor {
     let [batch, _, in_h, in_w] = input.dims();
     let [out_c, in_c, _, _] = kernel.dims();
-
-    let mut output = if let Some(bias) = bias {
-        init_tensor_with_channel_bias(&[batch, out_c, in_h * in_w], 1, bias)
-    } else {
-        Tensor::zeros(&[batch, out_c, in_h * in_w])
-    };
+    let mut output = Tensor::zeros(&[batch, out_c, in_h * in_w]);
 
     // Get input and kernel as contiguous tensors so we can create reshaped
     // views.
@@ -184,19 +179,25 @@ fn conv_2d_pointwise(input: &Tensor, kernel: &Tensor, bias: Option<&Tensor>) -> 
     let kernel = kernel.as_contiguous();
     let kernel_mat = kernel.view().reshaped(&[out_c, in_c]).to_nd_view();
 
+    // Bias must be contiguous for use with `gemm_bias`.
+    let bias = bias.map(|b| b.as_contiguous());
+
+    let gemm = GemmExecutor::new();
+
     for n in 0..batch {
         let mut out_item = output.slice_mut([n]);
         let out_row_stride = out_item.stride(0);
 
         let in_mat = input.slice([n]).reshaped(&[in_c, in_h * in_w]).to_nd_view();
 
-        gemm(
+        gemm.gemm_bias(
             out_item.data_mut(),
             out_row_stride,
-            kernel_mat,
-            in_mat,
-            1.,                                   // alpha
-            if bias.is_some() { 1. } else { 0. }, // beta
+            GemmInputA::Unpacked(kernel_mat),
+            GemmInputB::Unpacked(in_mat),
+            1., // alpha
+            0., // beta
+            bias.as_ref().map(|b| b.data()),
         );
     }
 
@@ -350,20 +351,20 @@ pub fn conv(
     }
 
     let n_patches = out_h * out_w;
-    let mut output = if let Some(bias) = bias {
-        init_tensor_with_channel_bias(&[batch, out_c, n_patches], 1, bias)
-    } else {
-        Tensor::zeros(&[batch, out_c, n_patches])
-    };
+    let mut output = Tensor::zeros(&[batch, out_c, n_patches]);
     let gemm = GemmExecutor::new();
+
+    // Bias must be contiguous for use with `gemm_bias`.
+    let bias = bias.map(|b| b.as_contiguous());
 
     for group in 0..groups {
         let in_chan_start = group * in_channels_per_group;
         let in_chan_end = in_chan_start + in_channels_per_group;
         let out_chan_start = group * out_channels_per_group;
+        let out_chans = out_chan_start..out_chan_start + out_channels_per_group;
 
         let kernel_mat = kernel
-            .slice([out_chan_start..out_chan_start + out_channels_per_group])
+            .slice([out_chans.clone()])
             .reshaped(&[out_channels_per_group, in_channels_per_group * k_h * k_w])
             .to_nd_view();
         let prepacked_kernel = gemm.prepack_a(kernel_mat);
@@ -371,20 +372,20 @@ pub fn conv(
         for n in 0..batch {
             let in_group = input.slice((n, (in_chan_start..in_chan_end)));
 
-            let mut out_item =
-                output.slice_mut((n, out_chan_start..out_chan_start + out_channels_per_group));
+            let mut out_item = output.slice_mut((n, out_chans.clone()));
             let mut out_mat = out_item.reshaped(&[out_channels_per_group, out_h * out_w]);
             let out_row_stride = out_mat.stride(0);
 
             let im2col = VirtualIm2Col::new(in_group.nd_view(), [k_h, k_w], fixed_padding, strides);
 
-            gemm.gemm(
+            gemm.gemm_bias(
                 out_mat.data_mut(),
                 out_row_stride,
                 GemmInputA::Packed(&prepacked_kernel),
                 GemmInputB::Virtual(&im2col),
-                1.,                                   // alpha
-                if bias.is_some() { 1. } else { 0. }, // beta
+                1., // alpha
+                0., // beta
+                bias.as_ref().map(|b| &b.data()[out_chans.clone()]),
             );
         }
     }
