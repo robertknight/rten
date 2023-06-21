@@ -1,7 +1,7 @@
 /// Construct a tensor.
 ///
 /// ```
-/// use wasnn::tensor;
+/// use wasnn_tensor::tensor;
 ///
 /// // Create a scalar (0D tensor)
 /// tensor!(2.);

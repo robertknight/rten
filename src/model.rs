@@ -2,6 +2,8 @@ extern crate flatbuffers;
 
 use std::collections::HashMap;
 
+use wasnn_tensor::Tensor;
+
 use crate::graph::{Dimension, Graph, Node, NodeId, RunError, RunOptions};
 use crate::ops;
 use crate::ops::{
@@ -10,7 +12,6 @@ use crate::ops::{
 };
 use crate::schema_generated as sg;
 use crate::schema_generated::{root_as_model, OperatorNode, OperatorType, PadMode};
-use crate::tensor::Tensor;
 
 pub struct Model {
     node_ids: HashMap<String, NodeId>,
@@ -590,13 +591,13 @@ fn load_model(data: &[u8]) -> Result<Model, String> {
 mod tests {
     extern crate flatbuffers;
 
+    use wasnn_tensor::{tensor, Tensor, TensorLayout};
+
     use crate::graph::{Dimension, RunError};
     use crate::model::Model;
     use crate::model_builder::{ModelBuilder, OpType};
     use crate::ops;
     use crate::ops::{CoordTransformMode, NearestMode, OpError, Padding, ResizeMode, Scalar};
-    use crate::tensor;
-    use crate::tensor::{Tensor, TensorLayout};
 
     fn generate_model_buffer() -> Vec<u8> {
         let mut builder = ModelBuilder::new();

@@ -1,7 +1,8 @@
+use wasnn_tensor::{NdTensorLayout, NdTensorView, NdTensorViewMut, Tensor, TensorLayout};
+
 use crate::check_dims;
 use crate::linalg::div_ceil;
 use crate::ops::{InputList, IntoOpResult, OpError, Operator, Output, Padding};
-use crate::tensor::{NdTensorLayout, NdTensorView, NdTensorViewMut, Tensor, TensorLayout};
 
 /// Calculate the output size and padding for a convolution or pooling operation.
 ///
@@ -297,9 +298,10 @@ impl Operator for MaxPool {
 
 #[cfg(test)]
 mod tests {
+    use wasnn_tensor::test_util::expect_equal;
+    use wasnn_tensor::{Tensor, TensorLayout};
+
     use crate::ops::{average_pool, global_average_pool, max_pool, Padding};
-    use crate::tensor::{Tensor, TensorLayout};
-    use crate::test_util::expect_equal;
 
     fn from_2d_slice<T: Copy>(data: &[&[T]]) -> Tensor<T> {
         let rows = data.len();

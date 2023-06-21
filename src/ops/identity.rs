@@ -28,9 +28,10 @@ impl Operator for Identity {
 
 #[cfg(test)]
 mod tests {
+    use wasnn_tensor::test_util::expect_equal;
+    use wasnn_tensor::Tensor;
+
     use crate::ops::{Identity, Input, InputList, Operator};
-    use crate::tensor::Tensor;
-    use crate::test_util::expect_equal;
 
     #[test]
     fn test_identity() -> Result<(), String> {

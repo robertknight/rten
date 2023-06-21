@@ -11,7 +11,7 @@ impl XorShiftRng {
     }
 
     /// Return a random value in the range [0, 2^64]
-    pub fn next(&mut self) -> u64 {
+    pub fn next_u64(&mut self) -> u64 {
         let mut tmp = self.state;
         tmp ^= tmp << 13;
         tmp ^= tmp >> 7;
@@ -25,7 +25,7 @@ impl XorShiftRng {
         // Number of most significant bits to use
         let n_bits = 40;
         let scale = 1.0 / (1u64 << n_bits) as f32;
-        let val = self.next() >> (64 - n_bits);
+        let val = self.next_u64() >> (64 - n_bits);
         (val as f32) * scale
     }
 }

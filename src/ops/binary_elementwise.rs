@@ -1,9 +1,10 @@
 use std::fmt::Debug;
 use std::iter::{repeat, zip};
 
+use wasnn_tensor::{Tensor, TensorLayout, TensorView};
+
 use crate::number::{Identities, IsInt};
 use crate::ops::{Input, InputList, IntoOpResult, OpError, Operator, Output};
-use crate::tensor::{Tensor, TensorLayout, TensorView};
 
 /// Given the shapes of two inputs to a binary operation, return the shape
 /// that will result from broadcasting them following NumPy rules or `None`
@@ -547,14 +548,14 @@ impl Operator for Where {
 
 #[cfg(test)]
 mod tests {
+    use wasnn_tensor::test_util::expect_equal;
+    use wasnn_tensor::{tensor, Tensor, TensorLayout};
+
     use crate::ops::{
         add, add_in_place, div, div_in_place, equal, greater, less, less_or_equal, mul,
         mul_in_place, pow, pow_in_place, sub, sub_in_place, where_op, Add, InputList, OpError,
         Operator, Output,
     };
-    use crate::tensor;
-    use crate::tensor::{Tensor, TensorLayout};
-    use crate::test_util::expect_equal;
 
     #[test]
     fn test_add() -> Result<(), String> {

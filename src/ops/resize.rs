@@ -1,8 +1,9 @@
 use std::iter::zip;
 
+use wasnn_tensor::{Matrix, MatrixLayout, MatrixMut, Tensor, TensorLayout, TensorView};
+
 use crate::check_dims;
 use crate::ops::{Input, InputList, IntoOpResult, OpError, Operator, Output};
-use crate::tensor::{Matrix, MatrixLayout, MatrixMut, Tensor, TensorLayout, TensorView};
 
 /// Specifies an output size for a resize operation.
 pub enum ResizeTarget<'a> {
@@ -272,12 +273,13 @@ impl Operator for Resize {
 
 #[cfg(test)]
 mod tests {
+    use wasnn_tensor::test_util::expect_equal;
+    use wasnn_tensor::{Tensor, TensorLayout};
+
     use crate::ops::{
         resize, CoordTransformMode, InputList, NearestMode, OpError, Operator, Resize, ResizeMode,
         ResizeTarget,
     };
-    use crate::tensor::{Tensor, TensorLayout};
-    use crate::test_util::expect_equal;
 
     // Reference values for these tests can be computed with either OpenCV
     // (`cv2.resize`) or PyTorch (`torch.nn.functional.interpolate`).

@@ -7,8 +7,7 @@ use std::cell::RefCell;
 use std::ops::Range;
 
 use rayon::prelude::*;
-
-use crate::tensor::{Matrix, MatrixLayout, MatrixMut, NdTensorLayout};
+use wasnn_tensor::{Matrix, MatrixLayout, MatrixMut, NdTensorLayout};
 
 pub fn div_ceil(a: usize, b: usize) -> usize {
     if b == 1 {
@@ -1260,13 +1259,14 @@ fn gemm_block<K: Kernel, const MR_NR: usize>(
 mod tests {
     use std::ops::Range;
 
+    use wasnn_tensor::rng::XorShiftRng;
+    use wasnn_tensor::test_util::expect_equal;
+    use wasnn_tensor::{Matrix, MatrixLayout, Tensor, TensorLayout};
+
     use crate::linalg::{
         add_scaled_vector, gemm, round_up, GemmExecutor, GemmInputA, GemmInputB, KernelHint,
         VirtualMatrix,
     };
-    use crate::rng::XorShiftRng;
-    use crate::tensor::{Matrix, MatrixLayout, Tensor, TensorLayout};
-    use crate::test_util::expect_equal;
 
     fn reference_matmul(a: &Tensor, b: &Tensor) -> Tensor {
         let [a_rows, _a_cols] = a.dims();

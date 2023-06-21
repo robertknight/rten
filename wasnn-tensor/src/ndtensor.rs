@@ -625,7 +625,7 @@ mod tests {
     use super::{
         FromDataError, MatrixLayout, NdTensor, NdTensorLayout, NdTensorView, NdTensorViewMut,
     };
-    use crate::tensor::TensorLayout;
+    use crate::TensorLayout;
 
     /// Return elements of `tensor` in their logical order.
     fn tensor_elements<T: Copy, const N: usize>(tensor: NdTensorView<T, N>) -> Vec<T> {

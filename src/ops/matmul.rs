@@ -1,11 +1,12 @@
 use std::iter::zip;
 
+use wasnn_tensor::Matrix;
+use wasnn_tensor::{Tensor, TensorLayout, TensorView};
+
 use crate::check_dims;
 use crate::linalg::gemm;
 use crate::ops::binary_elementwise::broadcast_shapes;
 use crate::ops::{InputList, IntoOpResult, OpError, Operator, Output};
-use crate::tensor::Matrix;
-use crate::tensor::{Tensor, TensorLayout, TensorView};
 
 #[derive(Debug)]
 pub struct Gemm {
@@ -165,11 +166,12 @@ impl Operator for MatMul {
 
 #[cfg(test)]
 mod tests {
+    use wasnn_tensor::rng::XorShiftRng;
+    use wasnn_tensor::test_util::expect_equal;
+    use wasnn_tensor::{Tensor, TensorLayout};
+
     use crate::linalg::gemm;
     use crate::ops::matmul::{gemm_op, matmul, OpError};
-    use crate::rng::XorShiftRng;
-    use crate::tensor::{Tensor, TensorLayout};
-    use crate::test_util::expect_equal;
 
     fn gemm_tensors(c: &mut Tensor, a: &Tensor, b: &Tensor, alpha: f32, beta: f32) {
         let c_row_stride = c.stride(c.ndim() - 2);

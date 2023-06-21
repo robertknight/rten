@@ -2,11 +2,12 @@ use std::cmp::Ordering;
 use std::collections::BinaryHeap;
 use std::iter::zip;
 
+use wasnn_tensor::NdTensorView;
+
 use crate::geometry::{
     find_contours, min_area_rect, simplify_polygon, Line, Point, Rect, RetrievalMode, RotatedRect,
     Vec2,
 };
-use crate::tensor::NdTensorView;
 
 struct Partition {
     score: f32,
@@ -530,7 +531,7 @@ mod tests {
     use super::max_empty_rects;
     use crate::geometry::{fill_rect, Point, Polygon, Rect, RotatedRect, Vec2};
     use crate::page_layout::{find_connected_component_rects, find_text_lines, line_polygon};
-    use crate::tensor::NdTensor;
+    use wasnn_tensor::NdTensor;
 
     /// Generate a grid of uniformly sized and spaced rects.
     ///

@@ -3,11 +3,11 @@ use wasm_bindgen::prelude::*;
 use std::iter::zip;
 use std::rc::Rc;
 
+use wasnn_tensor::TensorLayout;
+
 use crate::graph::Dimension;
 use crate::model;
 use crate::ops::{Input, Output};
-use crate::tensor;
-use crate::tensor::TensorLayout;
 
 #[wasm_bindgen]
 pub struct Model {
@@ -129,7 +129,7 @@ impl Tensor {
     /// Construct a float tensor from the given shape and data.
     #[wasm_bindgen(js_name = floatTensor)]
     pub fn float_tensor(shape: &[usize], data: &[f32]) -> Tensor {
-        let data: Output = tensor::Tensor::from_data(shape, data.to_vec()).into();
+        let data: Output = wasnn_tensor::Tensor::from_data(shape, data.to_vec()).into();
         Tensor {
             data: Rc::new(data),
         }
@@ -138,7 +138,7 @@ impl Tensor {
     /// Construct an int tensor from the given shape and data.
     #[wasm_bindgen(js_name = intTensor)]
     pub fn int_tensor(shape: &[usize], data: &[i32]) -> Tensor {
-        let data: Output = tensor::Tensor::from_data(shape, data.to_vec()).into();
+        let data: Output = wasnn_tensor::Tensor::from_data(shape, data.to_vec()).into();
         Tensor {
             data: Rc::new(data),
         }

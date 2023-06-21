@@ -462,4 +462,12 @@ dependencies = [
  "serde_json",
  "smallvec",
  "wasm-bindgen",
+ "wasnn-tensor",
+]
+
+[[package]]
+name = "wasnn-tensor"
+version = "0.1.0"
+dependencies = [
+ "smallvec",
 ]

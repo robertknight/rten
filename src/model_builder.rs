@@ -1,6 +1,7 @@
 extern crate flatbuffers;
 
 use flatbuffers::{FlatBufferBuilder, UnionWIPOffset, Vector, WIPOffset};
+use wasnn_tensor::{Tensor, TensorLayout};
 
 use crate::graph::Dimension;
 use crate::ops::{
@@ -10,7 +11,6 @@ use crate::ops::{
     Transpose,
 };
 use crate::schema_generated as sg;
-use crate::tensor::{Tensor, TensorLayout};
 
 /// Enum of all the built-in operators
 pub enum OpType {
