@@ -29,27 +29,30 @@ pub fn gather<T: Copy + Default>(
     ]
     .concat();
     let mut output = Tensor::<T>::zeros(&out_shape);
-    let mut out_index_iter = output.indices();
     let mut in_index = vec![0; input.ndim()];
 
-    while let Some(out_index) = out_index_iter.next() {
-        if out_index.is_empty() {
+    match output.ndim() {
+        0 => {
             // If the output index is empty, this means we are indexing a
             // 1D vector with a scalar.
             in_index[axis] = indices.item().unwrap_or(0) as usize;
-        } else {
-            for dim in 0..out_index.len() {
-                if dim < axis {
-                    in_index[dim] = out_index[dim];
-                } else if dim == axis {
-                    let idx = &out_index[dim..dim + indices.ndim()];
-                    in_index[dim] = indices[idx] as usize;
-                } else if dim >= axis + indices.ndim() {
-                    in_index[dim + 1 - indices.ndim()] = out_index[dim];
+            output[[]] = input[&in_index[..]];
+        }
+        _ => {
+            for (out_index, out_item) in output.indices().zip(output.iter_mut()) {
+                for dim in 0..out_index.len() {
+                    if dim < axis {
+                        in_index[dim] = out_index[dim];
+                    } else if dim == axis {
+                        let idx = &out_index[dim..dim + indices.ndim()];
+                        in_index[dim] = indices[idx] as usize;
+                    } else if dim >= axis + indices.ndim() {
+                        in_index[dim + 1 - indices.ndim()] = out_index[dim];
+                    }
                 }
+                *out_item = input[&in_index[..]];
             }
         }
-        output[out_index] = input[&in_index[..]];
     }
 
     Ok(output)
