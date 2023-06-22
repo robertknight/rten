@@ -171,23 +171,13 @@ pub trait TensorIndex {
     fn index(&self, dim: usize) -> usize;
 }
 
-impl<const N: usize> TensorIndex for [usize; N] {
+impl<Array: AsRef<[usize]>> TensorIndex for Array {
     fn len(&self) -> usize {
-        N
+        self.as_ref().len()
     }
 
     fn index(&self, dim: usize) -> usize {
-        self[dim]
-    }
-}
-
-impl TensorIndex for &[usize] {
-    fn len(&self) -> usize {
-        (self as &[usize]).len()
-    }
-
-    fn index(&self, dim: usize) -> usize {
-        self[dim]
+        self.as_ref()[dim]
     }
 }
 
