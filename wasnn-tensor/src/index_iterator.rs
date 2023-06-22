@@ -1,5 +1,7 @@
 use std::ops::Range;
 
+use smallvec::SmallVec;
+
 /// An iterator over indices within a given range.
 ///
 /// This struct is for indices with a statically known dimension count. See
@@ -66,9 +68,6 @@ impl<const N: usize> Iterator for NdIndexIterator<N> {
 }
 
 /// An iterator over indices within a given range.
-///
-/// This struct does not implement the `Iterator` trait because such iterators
-/// cannot return references to data they contain. Use a `while` loop instead.
 pub struct IndexIterator {
     first: bool,
     current: Vec<usize>,
@@ -101,23 +100,18 @@ impl IndexIterator {
             ranges,
         }
     }
+}
 
-    /// Reset the iterator back to the first index.
-    pub fn reset(&mut self) {
-        self.first = true;
-        for i in 0..self.ranges.len() {
-            self.current[i] = self.ranges[i].start;
-        }
-    }
+impl Iterator for IndexIterator {
+    type Item = SmallVec<[usize; 5]>;
 
     /// Return the index index in the sequence, or `None` after all indices
     /// have been returned.
-    #[allow(clippy::should_implement_trait)]
-    pub fn next(&mut self) -> Option<&[usize]> {
+    fn next(&mut self) -> Option<Self::Item> {
         if self.current.is_empty() {
             if self.first {
                 self.first = false;
-                return Some(&self.current[..]);
+                return Some(SmallVec::from_slice(&self.current[..]));
             } else {
                 return None;
             }
@@ -140,7 +134,7 @@ impl IndexIterator {
             return None;
         }
 
-        Some(&self.current[..])
+        Some(SmallVec::from_slice(&self.current[..]))
     }
 }
 
@@ -173,6 +167,8 @@ mod tests {
 
     #[test]
     fn test_index_iterator() {
+        type Index = <IndexIterator as Iterator>::Item;
+
         // Empty iterator
         let mut iter = IndexIterator::from_ranges(&[0..0]);
         assert_eq!(iter.next(), None);
@@ -180,24 +176,17 @@ mod tests {
 
         // Scalar index iterator
         let mut iter = IndexIterator::from_ranges(&[]);
-        assert_eq!(iter.next(), Some(&[] as &[usize]));
+        assert_eq!(iter.next(), Some(Index::new()));
         assert_eq!(iter.next(), None);
 
         // 1D index iterator
-        let mut iter = IndexIterator::from_ranges(&[0..5]);
-        let mut visited: Vec<Vec<usize>> = Vec::new();
-        while let Some(index) = iter.next() {
-            visited.push(index.into());
-        }
+        let iter = IndexIterator::from_ranges(&[0..5]);
+        let visited: Vec<Vec<usize>> = iter.map(|ix| ix.into_iter().collect()).collect();
         assert_eq!(visited, vec![vec![0], vec![1], vec![2], vec![3], vec![4]]);
 
         // 2D index iterator
-        let mut iter = IndexIterator::from_ranges(&[2..4, 2..4]);
-        let mut visited: Vec<Vec<usize>> = Vec::new();
-        while let Some(index) = iter.next() {
-            visited.push(index.into());
-        }
-
+        let iter = IndexIterator::from_ranges(&[2..4, 2..4]);
+        let visited: Vec<Vec<usize>> = iter.map(|ix| ix.into_iter().collect()).collect();
         assert_eq!(
             visited,
             vec![vec![2, 2], vec![2, 3], vec![3, 2], vec![3, 3],]
