@@ -673,6 +673,7 @@ impl GemmOps for BaseKernel {
     }
 }
 
+#[cfg(target_arch = "x86_64")]
 impl GemmOps for FMAKernel {
     fn pack_a_block(&self, out: &mut [f32], a: Matrix, rows: Range<usize>, cols: Range<usize>) {
         pack_a_block::<Self>(out, a, rows, cols);
