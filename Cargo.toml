@@ -1,5 +1,7 @@
 [workspace]
 members = [
+  "wasnn-imageproc",
+  "wasnn-ocr",
   "wasnn-tensor"
 ]
 
@@ -19,10 +21,11 @@ wasm-bindgen = "0.2.83"
 wasnn-tensor = { path = "./wasnn-tensor" }
 
 [dev-dependencies]
-fastrand = "1.9.0"
 image = { version = "0.24.6", default-features = false, features = ["png", "jpeg", "webp"] }
 png = "0.17.6"
 serde_json = "1.0.91"
+wasnn-imageproc = { path = "./wasnn-imageproc" }
+wasnn-ocr = { path = "./wasnn-ocr" }
 
 [lib]
 crate-type = ["lib", "cdylib"]

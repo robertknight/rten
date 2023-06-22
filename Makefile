@@ -15,7 +15,7 @@ checkformatting:
 
 .PHONY: lint
 lint:
-	cargo clippy -- -Aclippy::needless_range_loop -Aclippy::too_many_arguments -Aclippy::derivable_impls -Aclippy::manual_memcpy -Aclippy::assertions_on_constants -Aclippy::uninlined_format_args
+	cargo clippy --workspace -- -Aclippy::needless_range_loop -Aclippy::too_many_arguments -Aclippy::derivable_impls -Aclippy::manual_memcpy -Aclippy::assertions_on_constants -Aclippy::uninlined_format_args
 
 .PHONY: test
 test:

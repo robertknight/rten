@@ -7,11 +7,11 @@ use std::fs;
 use std::io::BufWriter;
 
 use wasnn::ctc::{CtcDecoder, CtcHypothesis};
-use wasnn::geometry::{draw_polygon, Point, Polygon, Rect, RotatedRect};
 use wasnn::ops::{pad, resize, CoordTransformMode, NearestMode, ResizeMode, ResizeTarget};
-use wasnn::page_layout::{find_connected_component_rects, find_text_lines, line_polygon};
 use wasnn::Timer;
 use wasnn::{Dimension, Model, RunOptions};
+use wasnn_imageproc::{draw_polygon, Point, Polygon, Rect, RotatedRect};
+use wasnn_ocr::page_layout::{find_connected_component_rects, find_text_lines, line_polygon};
 use wasnn_tensor::{tensor, Tensor, TensorLayout, TensorView};
 
 /// Read an image from `path` into a CHW tensor.
