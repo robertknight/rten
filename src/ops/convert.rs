@@ -42,9 +42,10 @@ impl Operator for Cast {
 
 #[cfg(test)]
 mod tests {
+    use wasnn_tensor::tensor;
+    use wasnn_tensor::test_util::expect_equal;
+
     use crate::ops::{Cast, DataType, Input, InputList, Operator};
-    use crate::tensor;
-    use crate::test_util::expect_equal;
 
     #[test]
     fn test_cast() -> Result<(), String> {

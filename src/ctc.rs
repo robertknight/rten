@@ -1,8 +1,9 @@
 use std::collections::HashMap;
 use std::num::NonZeroU32;
 
+use wasnn_tensor::{NdTensor, TensorLayout, TensorView};
+
 use crate::ops::arg_max;
-use crate::tensor::{NdTensor, TensorLayout, TensorView};
 
 /// Connectionist Temporal Classification (CTC) [^1][^2] sequence decoder.
 ///
@@ -387,8 +388,9 @@ impl Default for CtcDecoder {
 
 #[cfg(test)]
 mod tests {
+    use wasnn_tensor::Tensor;
+
     use super::{log_sum_exp, CtcDecoder, CtcHypothesis};
-    use crate::tensor::Tensor;
 
     const ALPHABET: &str = " abcdefghijklmnopqrstuvwxyz";
 

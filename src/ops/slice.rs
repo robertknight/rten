@@ -1,8 +1,9 @@
 use std::iter::zip;
 
+use wasnn_tensor::{SliceRange, Tensor, TensorLayout, TensorView};
+
 use crate::check_dims;
 use crate::ops::{resolve_axis, Input, InputList, IntoOpResult, OpError, Operator, Output};
-use crate::tensor::{SliceRange, Tensor, TensorLayout, TensorView};
 
 /// Compute the effective starts, ends and steps for each input dimension in
 /// a Slice operation.
@@ -144,10 +145,11 @@ impl Operator for Slice {
 
 #[cfg(test)]
 mod tests {
+    use wasnn_tensor::rng::XorShiftRng;
+    use wasnn_tensor::test_util::expect_equal;
+    use wasnn_tensor::{Tensor, TensorLayout};
+
     use crate::ops::{slice, slice_in_place};
-    use crate::rng::XorShiftRng;
-    use crate::tensor::{Tensor, TensorLayout};
-    use crate::test_util::expect_equal;
 
     fn from_slice<T: Copy>(data: &[T]) -> Tensor<T> {
         Tensor::from_data(&[data.len()], data.to_vec())

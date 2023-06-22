@@ -5,9 +5,6 @@ use std::iter::zip;
 use std::marker::PhantomData;
 use std::ops::{Index, IndexMut, Range};
 
-#[cfg(test)]
-use crate::rng::XorShiftRng;
-
 mod index_iterator;
 mod iterators;
 mod layout;
@@ -17,15 +14,23 @@ mod overlap;
 mod range;
 mod vec_with_offset;
 
+// These modules are public for use by other crates in this repo, but
+// currently considered internal to the project.
+#[doc(hidden)]
+pub mod rng;
+#[doc(hidden)]
+pub mod test_util;
+
 pub use self::index_iterator::IndexIterator;
 pub use self::iterators::{BroadcastElements, Elements, ElementsMut, Offsets};
-pub(crate) use self::layout::Layout;
+pub use self::layout::Layout;
 pub use self::ndtensor::{
     Matrix, MatrixLayout, MatrixMut, NdTensor, NdTensorBase, NdTensorLayout, NdTensorView,
     NdTensorViewMut,
 };
 pub use self::range::{IntoSliceItems, SliceItem, SliceRange};
 pub use layout::is_valid_permutation;
+use rng::XorShiftRng;
 use vec_with_offset::VecWithOffset;
 
 /// Provides methods for querying the shape and data layout of a [Tensor]
@@ -156,6 +161,11 @@ pub trait TensorLayout {
 pub trait TensorIndex {
     /// Return the number of dimensions in the index.
     fn len(&self) -> usize;
+
+    /// Return true if this index has zero dimensions (ie. is a scalar).
+    fn is_empty(&self) -> bool {
+        self.len() == 0
+    }
 
     /// Return the index for dimension `dim`
     fn index(&self, dim: usize) -> usize;
@@ -617,8 +627,8 @@ impl<I: TensorIndex, T: Copy, S: AsRef<[T]> + AsMut<[T]>> IndexMut<I> for Tensor
     }
 }
 
-/// Tensor is the core n-dimensional array type used for inputs, outputs and
-/// intermediate values when executing a [crate::Model].
+/// Tensor is an n-dimensional array type, with the number of dimensions
+/// determined at runtime.
 ///
 /// Tensor and its associated types [TensorView] and [TensorViewMut] are
 /// conceptually a pair of a dynamically sized array (either owned or a
@@ -810,7 +820,6 @@ impl<T: Copy> FromIterator<T> for Tensor<T> {
     }
 }
 
-#[cfg(test)]
 impl RandomSource<f32> for XorShiftRng {
     fn next(&mut self) -> f32 {
         self.next_f32()
@@ -824,7 +833,7 @@ mod tests {
 
     use crate::rng::XorShiftRng;
     use crate::tensor;
-    use crate::tensor::{SliceRange, Tensor, TensorLayout, TensorView, TensorViewMut};
+    use crate::{SliceRange, Tensor, TensorLayout, TensorView, TensorViewMut};
 
     /// Create a tensor where the value of each element is its logical index
     /// plus one.

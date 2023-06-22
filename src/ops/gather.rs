@@ -1,5 +1,6 @@
+use wasnn_tensor::{Tensor, TensorLayout, TensorView};
+
 use crate::ops::{Input, InputList, IntoOpResult, OpError, Operator, Output};
-use crate::tensor::{Tensor, TensorLayout, TensorView};
 
 /// Gather elements from `input` specified by `indices`.
 ///
@@ -80,10 +81,11 @@ impl Operator for Gather {
 
 #[cfg(test)]
 mod tests {
+    use wasnn_tensor::rng::XorShiftRng;
+    use wasnn_tensor::test_util::expect_equal;
+    use wasnn_tensor::{Tensor, TensorLayout};
+
     use crate::ops::{gather, OpError};
-    use crate::rng::XorShiftRng;
-    use crate::tensor::{Tensor, TensorLayout};
-    use crate::test_util::expect_equal;
 
     #[test]
     fn test_gather_scalar() {

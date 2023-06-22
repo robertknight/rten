@@ -353,8 +353,8 @@ impl Layout {
 
 #[cfg(test)]
 mod tests {
-    use crate::tensor::layout::Layout;
-    use crate::tensor::SliceItem;
+    use crate::layout::Layout;
+    use crate::SliceItem;
 
     #[test]
     fn test_new_with_strides() {

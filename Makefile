@@ -7,13 +7,19 @@ clean:
 	rm -rf target/
 
 .PHONY: check
-check:
+check: checkformatting test lint
+
+.PHONY: checkformatting
+checkformatting:
 	cargo fmt --check
-	cargo test
 
 .PHONY: lint
 lint:
 	cargo clippy -- -Aclippy::needless_range_loop -Aclippy::too_many_arguments -Aclippy::derivable_impls -Aclippy::manual_memcpy -Aclippy::assertions_on_constants -Aclippy::uninlined_format_args
+
+.PHONY: test
+test:
+	cargo test --workspace
 
 .PHONY: wasm
 wasm:

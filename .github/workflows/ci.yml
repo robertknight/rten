@@ -26,6 +26,8 @@ jobs:
     - name: WASM build
       run: make wasm
     - name: Test
-      run: cargo test
+      run: make test
     - name: Lint
-      run: make lint
+      run: |
+        make checkformatting
+        make lint

@@ -1,6 +1,7 @@
+use wasnn_tensor::{Tensor, TensorLayout, TensorView};
+
 use crate::check_dims;
 use crate::ops::{resolve_axis, InputList, IntoOpResult, OpError, Operator, Output};
-use crate::tensor::{Tensor, TensorLayout, TensorView};
 
 /// Perform in-place batch normalization on the NCHW tensor `out`.
 ///
@@ -236,11 +237,11 @@ impl Operator for Softmax {
 
 #[cfg(test)]
 mod tests {
+    use wasnn_tensor::rng::XorShiftRng;
+    use wasnn_tensor::test_util::expect_equal;
+    use wasnn_tensor::{tensor, Tensor, TensorLayout};
+
     use crate::ops::{batch_norm, batch_norm_in_place, log_softmax, softmax};
-    use crate::rng::XorShiftRng;
-    use crate::tensor;
-    use crate::tensor::{Tensor, TensorLayout};
-    use crate::test_util::expect_equal;
 
     #[test]
     fn test_batch_norm() -> Result<(), String> {

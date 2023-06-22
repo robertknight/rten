@@ -2,8 +2,9 @@ extern crate libm;
 
 use std::fmt::Debug;
 
+use wasnn_tensor::{Tensor, TensorView};
+
 use crate::ops::{InputList, IntoOpResult, OpError, Operator, Output};
-use crate::tensor::{Tensor, TensorView};
 
 /// Trait for operators which take a single float tensor and apply a function
 /// to each element.
@@ -283,14 +284,14 @@ impl UnaryFloatOp for Tanh {
 
 #[cfg(test)]
 mod tests {
+    use wasnn_tensor::test_util::expect_equal;
+    use wasnn_tensor::{tensor, Tensor};
+
     use crate::ops::{
         clip, clip_in_place, cos, cos_in_place, erf, erf_in_place, leaky_relu, leaky_relu_in_place,
         log, log_in_place, relu, relu_in_place, sigmoid, sigmoid_in_place, sin, sin_in_place, sqrt,
         sqrt_in_place, tanh, tanh_in_place,
     };
-    use crate::tensor;
-    use crate::tensor::Tensor;
-    use crate::test_util::expect_equal;
 
     #[test]
     fn test_clip() -> Result<(), String> {

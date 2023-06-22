@@ -3,8 +3,9 @@ use std::error::Error;
 use std::fmt;
 use std::iter::zip;
 
+use wasnn_tensor::{Tensor, TensorLayout};
+
 use crate::ops::{Input, InputList, OpError, Operator, Output};
-use crate::tensor::{Tensor, TensorLayout};
 use crate::timer::Timer;
 
 /// Represents the size of a dimension of a runtime-provided value, such as
@@ -587,12 +588,13 @@ impl Graph {
 mod tests {
     use std::sync::{Arc, Mutex};
 
+    use wasnn_tensor::test_util::expect_equal;
+    use wasnn_tensor::{Tensor, TensorLayout};
+
     use crate::graph::{Dimension, Graph, RunError};
     use crate::ops::{
         Concat, Conv, InputList, IntoOpResult, OpError, Operator, Output, Padding, Relu, Shape,
     };
-    use crate::tensor::{Tensor, TensorLayout};
-    use crate::test_util::expect_equal;
 
     // Test of a very simple graph with a typical structure (one input, one
     // output, Conv + Relu operation).

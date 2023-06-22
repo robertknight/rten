@@ -1,6 +1,7 @@
+use wasnn_tensor::{SliceItem, Tensor, TensorLayout, TensorView};
+
 use crate::check_dims;
 use crate::ops::{resolve_axis, InputList, OpError, Operator, Output};
-use crate::tensor::{SliceItem, Tensor, TensorLayout, TensorView};
 
 pub fn split<T: Copy>(
     input: TensorView<T>,
@@ -65,8 +66,9 @@ impl Operator for Split {
 
 #[cfg(test)]
 mod tests {
+    use wasnn_tensor::tensor;
+
     use crate::ops::{split, OpError};
-    use crate::tensor;
 
     #[test]
     fn test_split() {

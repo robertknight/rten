@@ -1,5 +1,6 @@
+use wasnn_tensor::{Elements, Tensor, TensorLayout, TensorView};
+
 use crate::ops::{Input, InputList, IntoOpResult, OpError, Operator, Output};
-use crate::tensor::{Elements, Tensor, TensorLayout, TensorView};
 
 enum ChunkSource<'a, T: Copy> {
     Slice(&'a [T]),
@@ -124,9 +125,10 @@ impl Operator for Concat {
 
 #[cfg(test)]
 mod tests {
+    use wasnn_tensor::test_util::expect_equal;
+    use wasnn_tensor::{Tensor, TensorLayout};
+
     use crate::ops::{concat, OpError};
-    use crate::tensor::{Tensor, TensorLayout};
-    use crate::test_util::expect_equal;
 
     fn from_slice<T: Copy>(data: &[T]) -> Tensor<T> {
         Tensor::from_data(&[data.len()], data.to_vec())

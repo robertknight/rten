@@ -1,8 +1,9 @@
 use std::iter::zip;
 
+use wasnn_tensor::{SliceItem, Tensor, TensorLayout, TensorView};
+
 use crate::check_dims;
 use crate::ops::{Input, InputList, IntoOpResult, OpError, Operator, Output};
-use crate::tensor::{SliceItem, Tensor, TensorLayout, TensorView};
 
 pub fn pad<T: Copy>(
     input: TensorView<T>,
@@ -87,9 +88,10 @@ impl Operator for Pad {
 
 #[cfg(test)]
 mod tests {
+    use wasnn_tensor::test_util::expect_equal;
+    use wasnn_tensor::{Tensor, TensorLayout};
+
     use crate::ops::{pad, InputList, OpError, Operator, Pad};
-    use crate::tensor::{Tensor, TensorLayout};
-    use crate::test_util::expect_equal;
 
     fn from_slice<T: Copy>(data: &[T]) -> Tensor<T> {
         Tensor::from_data(&[data.len()], data.to_vec())

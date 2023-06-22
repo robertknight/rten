@@ -112,6 +112,7 @@ impl IndexIterator {
 
     /// Return the index index in the sequence, or `None` after all indices
     /// have been returned.
+    #[allow(clippy::should_implement_trait)]
     pub fn next(&mut self) -> Option<&[usize]> {
         if self.current.is_empty() {
             if self.first {

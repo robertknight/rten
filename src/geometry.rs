@@ -7,7 +7,7 @@ use std::iter::zip;
 use std::ops::Range;
 use std::slice::Iter;
 
-use crate::tensor::{MatrixLayout, NdTensor, NdTensorView, NdTensorViewMut};
+use wasnn_tensor::{MatrixLayout, NdTensor, NdTensorView, NdTensorViewMut};
 
 pub type Coord = i32;
 
@@ -1741,13 +1741,14 @@ impl<S: AsRef<[Point]>> Polygon<S> {
 mod tests {
     use std::iter::zip;
 
+    use wasnn_tensor::test_util::ApproxEq;
+    use wasnn_tensor::{MatrixLayout, NdTensor, NdTensorLayout, NdTensorView, NdTensorViewMut};
+
     use super::{
         bounding_box, convex_hull, draw_polygon, fill_rect, find_contours, min_area_rect,
         print_grid, simplify_polygon, simplify_polyline, stroke_rect, Line, Point, Polygon, Rect,
         RetrievalMode, RotatedRect, Vec2,
     };
-    use crate::tensor::{MatrixLayout, NdTensor, NdTensorLayout, NdTensorView, NdTensorViewMut};
-    use crate::test_util::ApproxEq;
 
     /// Return a list of the points on the border of `rect`, in counter-clockwise
     /// order starting from the top-left corner.

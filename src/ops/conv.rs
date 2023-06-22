@@ -2,6 +2,8 @@ use std::borrow::Cow;
 use std::iter::zip;
 use std::ops::Range;
 
+use wasnn_tensor::{NdTensorLayout, NdTensorView, Tensor, TensorLayout, TensorView, TensorViewMut};
+
 use crate::check_dims;
 use crate::linalg::{
     add_scaled_vector, div_ceil, gemm, round_up, GemmExecutor, GemmInputA, GemmInputB,
@@ -9,9 +11,6 @@ use crate::linalg::{
 };
 use crate::ops::pooling::calc_output_size_and_padding;
 use crate::ops::{InputList, IntoOpResult, OpError, Operator, Output, Padding};
-use crate::tensor::{
-    NdTensorLayout, NdTensorView, Tensor, TensorLayout, TensorView, TensorViewMut,
-};
 
 // Calculate the min and max output X coordinates that are valid when updating
 // a row of convolution output using a loop:
@@ -533,11 +532,12 @@ impl Operator for ConvTranspose {
 
 #[cfg(test)]
 mod tests {
+    use wasnn_tensor::rng::XorShiftRng;
+    use wasnn_tensor::test_util::expect_equal;
+    use wasnn_tensor::{Tensor, TensorLayout};
+
     use crate::ops::pooling::calc_output_size_and_padding;
     use crate::ops::{conv, conv_transpose, Conv, InputList, OpError, Operator, Padding};
-    use crate::rng::XorShiftRng;
-    use crate::tensor::{Tensor, TensorLayout};
-    use crate::test_util::expect_equal;
 
     /// Un-optimized reference implementation of convolution.
     fn reference_conv(

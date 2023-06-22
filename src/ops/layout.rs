@@ -2,12 +2,13 @@
 //! elements.
 use std::iter::zip;
 
+use wasnn_tensor::{is_valid_permutation, Tensor, TensorLayout};
+
 use crate::check_dims;
 use crate::ops::binary_elementwise::broadcast_shapes;
 use crate::ops::{
     resolve_axes, resolve_axis, Input, InputList, IntoOpResult, OpError, Operator, Output,
 };
-use crate::tensor::{is_valid_permutation, Tensor, TensorLayout};
 
 pub fn expand<T: Copy>(input: &Tensor<T>, shape: &Tensor<i32>) -> Result<Tensor<T>, OpError> {
     check_dims!(shape, 1);
@@ -414,15 +415,15 @@ impl Operator for Unsqueeze {
 
 #[cfg(test)]
 mod tests {
+    use wasnn_tensor::rng::XorShiftRng;
+    use wasnn_tensor::test_util::expect_equal;
+    use wasnn_tensor::{tensor, Tensor, TensorLayout};
+
     use crate::ops::layout::{
         expand, flatten, reshape, reshape_in_place, squeeze, squeeze_in_place, transpose,
         unsqueeze, InputList, Reshape, Shape,
     };
     use crate::ops::{OpError, Operator};
-    use crate::rng::XorShiftRng;
-    use crate::tensor;
-    use crate::tensor::{Tensor, TensorLayout};
-    use crate::test_util::expect_equal;
 
     #[test]
     fn test_expand() {

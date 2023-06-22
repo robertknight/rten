@@ -1,12 +1,13 @@
 use std::iter::{zip, Rev};
 use std::ops::Range;
 
+use wasnn_tensor::Matrix;
+use wasnn_tensor::{Tensor, TensorLayout, TensorView, TensorViewMut};
+
 use crate::check_dims;
 use crate::linalg::{GemmExecutor, GemmInputA, GemmInputB};
 use crate::ops::unary_elementwise::UnaryFloatOp;
 use crate::ops::{InputList, IntoOpResult, OpError, Operator, Output, Sigmoid, Tanh};
-use crate::tensor::Matrix;
-use crate::tensor::{Tensor, TensorLayout, TensorView, TensorViewMut};
 
 /// Direction that an RNN operator will traverse the input sequence in.
 #[derive(Copy, Clone, Debug)]
@@ -684,12 +685,49 @@ impl Operator for LSTM {
 
 #[cfg(test)]
 mod tests {
+    use std::fs::File;
+    use std::io::BufReader;
+
     use serde_json::Value;
+    use wasnn_tensor::rng::XorShiftRng;
+    use wasnn_tensor::test_util::expect_equal;
+    use wasnn_tensor::{Tensor, TensorLayout};
 
     use crate::ops::{concat, gru, lstm, split, Direction};
-    use crate::rng::XorShiftRng;
-    use crate::tensor::{Tensor, TensorLayout};
-    use crate::test_util::{expect_equal, read_json_file, read_tensor};
+
+    /// Read a float tensor from a JSON value.
+    ///
+    /// The JSON value is expected to be of the form `[shape, data]` where
+    /// `shape` is an int array and `data` is a float array.
+    pub fn read_tensor(val: &Value) -> Result<Tensor<f32>, &'static str> {
+        let vec = match val {
+            Value::Array(vec) => vec,
+            _ => return Err("Expected array"),
+        };
+
+        let (shape, data) = match vec.as_slice() {
+            [Value::Array(shape), Value::Array(data)] => (shape, data),
+            _ => return Err("Expected [shape, data] array"),
+        };
+
+        let shape = shape
+            .iter()
+            .map(|v| v.as_i64().map(|v| v as usize).ok_or("Expected int array"))
+            .collect::<Result<Vec<usize>, _>>()?;
+
+        let data = data
+            .iter()
+            .map(|v| v.as_f64().map(|v| v as f32).ok_or("Expected float array"))
+            .collect::<Result<Vec<f32>, _>>()?;
+
+        Ok(Tensor::from_data(&shape, data))
+    }
+
+    pub fn read_json_file(path: &str) -> Value {
+        let file = File::open(path).unwrap();
+        let reader = BufReader::new(file);
+        serde_json::from_reader(reader).unwrap()
+    }
 
     #[derive(Clone, Copy, PartialEq)]
     enum Op {

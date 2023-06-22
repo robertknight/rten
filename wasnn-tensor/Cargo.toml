@@ -1,0 +1,10 @@
+[package]
+name = "wasnn-tensor"
+version = "0.1.0"
+edition = "2021"
+
+[dependencies]
+smallvec = { version = "1.10.0", features=["union", "const_generics", "const_new"] }
+
+[lib]
+crate-type = ["lib"]
