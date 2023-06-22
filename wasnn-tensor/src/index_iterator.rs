@@ -1,146 +1,125 @@
 use std::ops::Range;
 
-use smallvec::SmallVec;
+use smallvec::{smallvec, SmallVec};
 
-/// An iterator over indices within a given range.
+pub trait IndexArray: AsMut<[usize]> + AsRef<[usize]> + Clone {}
+impl<const N: usize> IndexArray for SmallVec<[usize; N]> {}
+impl<const N: usize> IndexArray for [usize; N] {}
+
+/// Iterator over a range of N-dimensional indices, where N may be known at
+/// compile time (see [NdIndexIterator]) or only at runtime
+/// ([DynIndexIterator]).
 ///
-/// This struct is for indices with a statically known dimension count. See
-/// [IndexIterator] for dynamic dimension counts.
-pub struct NdIndexIterator<const N: usize> {
-    first: bool,
-    current: [usize; N],
-    ranges: [Range<usize>; N],
+/// The number of dimensions may be zero, in which case the iterator will yield
+/// a single empty index. This is consistent with eg. `ndindex` in NumPy.
+pub struct IndexIterator<Index: IndexArray>
+where
+    Index: IndexArray,
+{
+    /// Start index along each dimension.
+    start: Index,
+
+    /// End index (exclusive) along each dimension.
+    end: Index,
+
+    next: Option<Index>,
 }
 
-impl<const N: usize> NdIndexIterator<N> {
+/// Iterator over a range of N-dimensional indices, where N is not known at
+/// compile time.
+pub type DynIndexIterator = IndexIterator<SmallVec<[usize; 5]>>;
+
+/// Iterator over a range of N-dimensional indices, where N is known at compile
+/// time.
+pub type NdIndexIterator<const N: usize> = IndexIterator<[usize; N]>;
+
+impl<Index: IndexArray> IndexIterator<Index> {
+    fn from_start_and_end(start: Index, end: Index) -> IndexIterator<Index> {
+        IndexIterator {
+            // Note that if the index is empty, `start == end` but the iterator
+            // should yield a single empty element in that case.
+            next: if start.as_ref() != end.as_ref() || start.as_ref().is_empty() {
+                Some(start.clone())
+            } else {
+                None
+            },
+            start,
+            end,
+        }
+    }
+}
+
+impl<const N: usize> IndexIterator<SmallVec<[usize; N]>> {
     /// Return an iterator over all the indices where each dimension lies
     /// within the corresponding range in `ranges`.
-    ///
-    /// If `ranges` is empty, the iterator yields a single empty index. This
-    /// is consistent with `ndindex` in eg. numpy.
-    pub fn from_ranges(ranges: [Range<usize>; N]) -> NdIndexIterator<N> {
-        NdIndexIterator {
-            first: true,
-            current: ranges.clone().map(|r| r.start),
-            ranges,
-        }
+    pub fn from_ranges(ranges: &[Range<usize>]) -> IndexIterator<SmallVec<[usize; N]>> {
+        let start: SmallVec<[usize; N]> = ranges.iter().map(|r| r.start).collect();
+        let end = ranges.iter().map(|r| r.end).collect();
+        Self::from_start_and_end(start, end)
     }
 
     /// Return an iterator over all the indices where each dimension is between
     /// `0` and `shape[dim]`.
-    pub fn from_shape(shape: [usize; N]) -> NdIndexIterator<N> {
+    pub fn from_shape(shape: &[usize]) -> IndexIterator<SmallVec<[usize; N]>> {
+        let start = smallvec![0; shape.len()];
+        let end = shape.iter().copied().collect();
+        Self::from_start_and_end(start, end)
+    }
+}
+
+impl<const N: usize> IndexIterator<[usize; N]> {
+    /// Return an iterator over all the indices where each dimension lies
+    /// within the corresponding range in `ranges`.
+    pub fn from_ranges(ranges: [Range<usize>; N]) -> IndexIterator<[usize; N]> {
+        let start = ranges.clone().map(|r| r.start);
+        let end = ranges.map(|r| r.end);
+        Self::from_start_and_end(start, end)
+    }
+
+    /// Return an iterator over all the indices where each dimension is between
+    /// `0` and `shape[dim]`.
+    pub fn from_shape(shape: [usize; N]) -> IndexIterator<[usize; N]> {
         Self::from_ranges(shape.map(|size| 0..size))
     }
 }
 
-impl<const N: usize> Iterator for NdIndexIterator<N> {
-    type Item = [usize; N];
+impl<Index: IndexArray> Iterator for IndexIterator<Index> {
+    type Item = Index;
 
-    fn next(&mut self) -> Option<Self::Item> {
-        if self.current.is_empty() {
-            if self.first {
-                self.first = false;
-                return Some(self.current);
-            } else {
-                return None;
-            }
-        }
-
-        // Find dimension where the last element has not been reached.
-        let mut dim = self.current.len() - 1;
-        while dim > 0 && self.current[dim] >= self.ranges[dim].end - 1 {
-            self.current[dim] = self.ranges[dim].start;
-            dim -= 1;
-        }
-
-        if self.first {
-            self.first = false;
-        } else {
-            self.current[dim] += 1;
-        }
-
-        if self.current[dim] >= self.ranges[dim].end {
-            return None;
-        }
-
-        Some(self.current)
-    }
-}
-
-/// An iterator over indices within a given range.
-pub struct IndexIterator {
-    first: bool,
-    current: Vec<usize>,
-    ranges: Vec<Range<usize>>,
-}
-
-impl IndexIterator {
-    /// Return an iterator over all the indices where each dimension lies
-    /// within the corresponding range in `ranges`.
-    ///
-    /// If `ranges` is empty, the iterator yields a single empty index. This
-    /// is consistent with `ndindex` in eg. numpy.
-    pub fn from_ranges(ranges: &[Range<usize>]) -> IndexIterator {
-        let current = ranges.iter().map(|r| r.start).collect();
-        IndexIterator {
-            first: true,
-            current,
-            ranges: ranges.into(),
-        }
-    }
-
-    /// Return an iterator over all the indices where each dimension is between
-    /// `0` and `shape[dim]`.
-    pub fn from_shape(shape: &[usize]) -> IndexIterator {
-        let ranges = shape.iter().map(|&size| 0..size).collect();
-        let current = vec![0; shape.len()];
-        IndexIterator {
-            first: true,
-            current,
-            ranges,
-        }
-    }
-}
-
-impl Iterator for IndexIterator {
-    type Item = SmallVec<[usize; 5]>;
-
-    /// Return the index index in the sequence, or `None` after all indices
+    /// Return the next index in the sequence, or `None` after all indices
     /// have been returned.
     fn next(&mut self) -> Option<Self::Item> {
-        if self.current.is_empty() {
-            if self.first {
-                self.first = false;
-                return Some(SmallVec::from_slice(&self.current[..]));
-            } else {
-                return None;
+        if let Some(current) = self.next.clone() {
+            if current.as_ref().is_empty() {
+                self.next = None;
+                return Some(current);
             }
-        }
 
-        // Find dimension where the last element has not been reached.
-        let mut dim = self.current.len() - 1;
-        while dim > 0 && self.current[dim] >= self.ranges[dim].end - 1 {
-            self.current[dim] = self.ranges[dim].start;
-            dim -= 1;
-        }
+            // Find dimension where the last element has not been reached.
+            let mut next = current.clone();
+            let mut dim = next.as_ref().len() - 1;
+            while dim > 0 && next.as_ref()[dim] >= self.end.as_ref()[dim] - 1 {
+                next.as_mut()[dim] = self.start.as_ref()[dim];
+                dim -= 1;
+            }
+            next.as_mut()[dim] += 1;
 
-        if self.first {
-            self.first = false;
+            if next.as_ref()[dim] < self.end.as_ref()[dim] {
+                self.next = Some(next);
+            } else {
+                self.next = None;
+            }
+
+            Some(current)
         } else {
-            self.current[dim] += 1;
+            None
         }
-
-        if self.current[dim] >= self.ranges[dim].end {
-            return None;
-        }
-
-        Some(SmallVec::from_slice(&self.current[..]))
     }
 }
 
 #[cfg(test)]
 mod tests {
-    use super::{IndexIterator, NdIndexIterator};
+    use super::{DynIndexIterator, NdIndexIterator};
 
     #[test]
     fn test_nd_index_iterator() {
@@ -166,26 +145,26 @@ mod tests {
     }
 
     #[test]
-    fn test_index_iterator() {
-        type Index = <IndexIterator as Iterator>::Item;
+    fn test_dyn_index_iterator() {
+        type Index = <DynIndexIterator as Iterator>::Item;
 
         // Empty iterator
-        let mut iter = IndexIterator::from_ranges(&[0..0]);
+        let mut iter = DynIndexIterator::from_ranges(&[0..0]);
         assert_eq!(iter.next(), None);
         assert_eq!(iter.next(), None);
 
         // Scalar index iterator
-        let mut iter = IndexIterator::from_ranges(&[]);
+        let mut iter = DynIndexIterator::from_ranges(&[]);
         assert_eq!(iter.next(), Some(Index::new()));
         assert_eq!(iter.next(), None);
 
         // 1D index iterator
-        let iter = IndexIterator::from_ranges(&[0..5]);
+        let iter = DynIndexIterator::from_ranges(&[0..5]);
         let visited: Vec<Vec<usize>> = iter.map(|ix| ix.into_iter().collect()).collect();
         assert_eq!(visited, vec![vec![0], vec![1], vec![2], vec![3], vec![4]]);
 
         // 2D index iterator
-        let iter = IndexIterator::from_ranges(&[2..4, 2..4]);
+        let iter = DynIndexIterator::from_ranges(&[2..4, 2..4]);
         let visited: Vec<Vec<usize>> = iter.map(|ix| ix.into_iter().collect()).collect();
         assert_eq!(
             visited,

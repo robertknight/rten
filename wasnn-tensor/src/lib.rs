@@ -21,7 +21,7 @@ pub mod rng;
 #[doc(hidden)]
 pub mod test_util;
 
-pub use self::index_iterator::IndexIterator;
+pub use self::index_iterator::DynIndexIterator;
 pub use self::iterators::{BroadcastElements, Elements, ElementsMut, Offsets};
 pub use self::layout::Layout;
 pub use self::ndtensor::{
@@ -71,8 +71,8 @@ pub trait TensorLayout {
     ///
     /// The returned iterator does not implement the `Iterator` trait but has
     /// a similar API. See `IndexIterator` docs.
-    fn indices(&self) -> IndexIterator {
-        IndexIterator::from_shape(self.shape())
+    fn indices(&self) -> DynIndexIterator {
+        DynIndexIterator::from_shape(self.shape())
     }
 
     /// Return true if the logical order of elements in this tensor matches the
