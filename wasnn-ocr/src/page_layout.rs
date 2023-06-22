@@ -2,12 +2,11 @@ use std::cmp::Ordering;
 use std::collections::BinaryHeap;
 use std::iter::zip;
 
-use wasnn_tensor::NdTensorView;
-
-use crate::geometry::{
+use wasnn_imageproc::{
     find_contours, min_area_rect, simplify_polygon, Line, Point, Rect, RetrievalMode, RotatedRect,
     Vec2,
 };
+use wasnn_tensor::NdTensorView;
 
 struct Partition {
     score: f32,
@@ -528,10 +527,11 @@ pub fn line_polygon(words: &[RotatedRect]) -> Vec<Point> {
 
 #[cfg(test)]
 mod tests {
-    use super::max_empty_rects;
-    use crate::geometry::{fill_rect, Point, Polygon, Rect, RotatedRect, Vec2};
-    use crate::page_layout::{find_connected_component_rects, find_text_lines, line_polygon};
+    use wasnn_imageproc::{fill_rect, Point, Polygon, Rect, RotatedRect, Vec2};
     use wasnn_tensor::NdTensor;
+
+    use super::max_empty_rects;
+    use crate::page_layout::{find_connected_component_rects, find_text_lines, line_polygon};
 
     /// Generate a grid of uniformly sized and spaced rects.
     ///
