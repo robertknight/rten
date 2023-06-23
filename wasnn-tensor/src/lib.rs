@@ -781,8 +781,10 @@ impl<S: AsRef<[f32]>> TensorBase<f32, S> {
     }
 }
 
-impl<T: Copy + PartialEq, S: AsRef<[T]>> PartialEq for TensorBase<T, S> {
-    fn eq(&self, other: &Self) -> bool {
+impl<T: Copy + PartialEq, S1: AsRef<[T]>, S2: AsRef<[T]>> PartialEq<TensorBase<T, S2>>
+    for TensorBase<T, S1>
+{
+    fn eq(&self, other: &TensorBase<T, S2>) -> bool {
         self.shape() == other.shape() && self.iter().eq(other.iter())
     }
 }
