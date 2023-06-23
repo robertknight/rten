@@ -977,27 +977,6 @@ fn print_grid<T: Display>(grid: NdTensorView<T, 2>) {
     println!();
 }
 
-/// Return the bounding box containing a set of points.
-///
-/// Panics if the point list is empty.
-pub fn bounding_box(points: &[Point]) -> Rect {
-    assert!(!points.is_empty(), "Point list must be non-empty");
-
-    let mut left = points[0].x;
-    let mut top = points[0].y;
-    let mut right = left + 1;
-    let mut bottom = top + 1;
-
-    for point in points {
-        left = left.min(point.x);
-        right = right.max(point.x + 1);
-        top = top.min(point.y);
-        bottom = bottom.max(point.y + 1);
-    }
-
-    Rect::from_tlbr(top, left, bottom, right)
-}
-
 // Draw the outline of a rectangle `rect` with border width `width`.
 //
 // The outline is drawn such that the bounding box of the outermost pixels
@@ -1292,19 +1271,6 @@ impl RotatedRect {
         ]
     }
 
-    /// Return the axis-aligned bounding rect which contains this rotated rect.
-    pub fn bounding_rect(&self) -> Rect {
-        let corners = self.corners();
-
-        let mut xs = corners.map(|p| p.x);
-        xs.sort();
-
-        let mut ys = corners.map(|p| p.y);
-        ys.sort();
-
-        Rect::from_tlbr(ys[0], xs[0], ys[3], xs[3])
-    }
-
     /// Return the centroid of the rect.
     pub fn center(&self) -> Vec2 {
         self.center
@@ -1358,6 +1324,60 @@ impl RotatedRect {
             r.width() as f32,
             r.height() as f32,
         )
+    }
+}
+
+/// Trait for shapes which have a well-defined bounding rectangle.
+pub trait BoundingRect {
+    /// Return the smallest axis-aligned bounding rect which contains this
+    /// shape.
+    fn bounding_rect(&self) -> Rect;
+}
+
+impl BoundingRect for Rect {
+    fn bounding_rect(&self) -> Rect {
+        *self
+    }
+}
+
+impl BoundingRect for RotatedRect {
+    fn bounding_rect(&self) -> Rect {
+        let corners = self.corners();
+
+        let mut xs = corners.map(|p| p.x);
+        xs.sort();
+
+        let mut ys = corners.map(|p| p.y);
+        ys.sort();
+
+        Rect::from_tlbr(ys[0], xs[0], ys[3], xs[3])
+    }
+}
+
+/// Return the bounding rectangle of a collection of shapes.
+///
+/// Returns `None` if the collection is empty.
+pub fn bounding_rect<Shape: BoundingRect>(objects: &[Shape]) -> Option<Rect> {
+    if let Some((min_x, max_x, min_y, max_y)) =
+        objects
+            .iter()
+            .fold(None as Option<(i32, i32, i32, i32)>, |min_max, shape| {
+                let br = shape.bounding_rect();
+                min_max
+                    .map(|(min_x, max_x, min_y, max_y)| {
+                        (
+                            min_x.min(br.left()),
+                            max_x.max(br.right()),
+                            min_y.min(br.top()),
+                            max_y.max(br.bottom()),
+                        )
+                    })
+                    .or(Some((br.left(), br.right(), br.top(), br.bottom())))
+            })
+    {
+        Some(Rect::from_tlbr(min_y, min_x, max_y, max_x))
+    } else {
+        None
     }
 }
 
@@ -1607,24 +1627,6 @@ impl<S: AsRef<[Point]>> Polygon<S> {
         Polygon { points }
     }
 
-    /// Return the smallest axis-aligned rectangle that contains all points
-    /// in this polygon.
-    pub fn bounding_rect(&self) -> Rect {
-        let mut min_x = i32::MAX;
-        let mut max_x = i32::MIN;
-        let mut min_y = i32::MAX;
-        let mut max_y = i32::MIN;
-
-        for p in self.points.as_ref() {
-            min_x = min_x.min(p.x);
-            max_x = max_x.max(p.x);
-            min_y = min_y.min(p.y);
-            max_y = max_y.max(p.y);
-        }
-
-        Rect::from_tlbr(min_y, min_x, max_y, max_x)
-    }
-
     /// Return an iterator over coordinates of pixels that fill the polygon.
     ///
     /// Polygon filling treats the polygon's vertices as being located at the
@@ -1736,6 +1738,24 @@ impl<S: AsRef<[Point]>> Polygon<S> {
     }
 }
 
+impl<S: AsRef<[Point]>> BoundingRect for Polygon<S> {
+    fn bounding_rect(&self) -> Rect {
+        let mut min_x = i32::MAX;
+        let mut max_x = i32::MIN;
+        let mut min_y = i32::MAX;
+        let mut max_y = i32::MIN;
+
+        for p in self.points.as_ref() {
+            min_x = min_x.min(p.x);
+            max_x = max_x.max(p.x);
+            min_y = min_y.min(p.y);
+            max_y = max_y.max(p.y);
+        }
+
+        Rect::from_tlbr(min_y, min_x, max_y, max_x)
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use std::iter::zip;
@@ -1744,9 +1764,9 @@ mod tests {
     use wasnn_tensor::{MatrixLayout, NdTensor, NdTensorLayout, NdTensorView, NdTensorViewMut};
 
     use super::{
-        bounding_box, convex_hull, draw_polygon, fill_rect, find_contours, min_area_rect,
-        print_grid, simplify_polygon, simplify_polyline, stroke_rect, Line, Point, Polygon, Rect,
-        RetrievalMode, RotatedRect, Vec2,
+        bounding_rect, convex_hull, draw_polygon, fill_rect, find_contours, min_area_rect,
+        print_grid, simplify_polygon, simplify_polyline, stroke_rect, BoundingRect, Line, Point,
+        Polygon, Rect, RetrievalMode, RotatedRect, Vec2,
     };
 
     /// Return a list of the points on the border of `rect`, in counter-clockwise
@@ -1860,10 +1880,12 @@ mod tests {
     }
 
     #[test]
-    fn test_bounding_box() {
-        let rect = Rect::from_tlbr(5, 5, 10, 10);
-        let border = border_points(rect, false /* omit_corners */);
-        assert_eq!(bounding_box(&border), rect);
+    fn test_bounding_rect() {
+        let rects = [Rect::from_tlbr(0, 0, 5, 5), Rect::from_tlbr(10, 10, 15, 18)];
+        assert_eq!(bounding_rect(&rects), Some(Rect::from_tlbr(0, 0, 15, 18)));
+
+        let rects: &[Rect] = &[];
+        assert_eq!(bounding_rect(rects), None);
     }
 
     #[test]
@@ -2808,7 +2830,10 @@ mod tests {
         stroke_rect(mask.view_mut(), rect, 1, 1);
         let points = nonzero_points(mask.view());
 
-        assert_eq!(bounding_box(&points), rect);
+        assert_eq!(
+            Polygon::new(&points).bounding_rect(),
+            rect.adjust_tlbr(0, 0, -1, -1)
+        );
     }
 
     #[test]
