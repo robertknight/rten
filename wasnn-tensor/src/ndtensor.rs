@@ -360,10 +360,10 @@ impl<T, S: AsRef<[T]>, const N: usize> NdTensorBase<T, S, N> {
     /// This is like [NdTensorBase::slice] but supports a dynamic number of slice
     /// items.
     pub fn slice_dyn<const M: usize>(&self, range: &[SliceItem]) -> NdTensorView<T, M> {
-        let (offset, sliced_layout) = self.layout.as_dyn().slice(range);
+        let (offset_range, sliced_layout) = self.layout.as_dyn().slice(range);
         assert!(sliced_layout.ndim() == M, "sliced dims != {}", M);
         NdTensorView {
-            data: &self.data.as_ref()[offset..],
+            data: &self.data.as_ref()[offset_range],
             layout: NdLayout::from_dyn(sliced_layout),
             element_type: PhantomData,
         }
@@ -488,10 +488,10 @@ impl<T, S: AsRef<[T]> + AsMut<[T]>, const N: usize> NdTensorBase<T, S, N> {
     /// slicing with `range`. Panics if the sliced layout has a different number
     /// of dims.
     pub fn slice_mut_dyn<const M: usize>(&mut self, range: &[SliceItem]) -> NdTensorViewMut<T, M> {
-        let (offset, sliced_layout) = self.layout.as_dyn().slice(range);
+        let (offset_range, sliced_layout) = self.layout.as_dyn().slice(range);
         assert!(sliced_layout.ndim() == M, "sliced dims != {}", M);
         NdTensorViewMut {
-            data: &mut self.data.as_mut()[offset..],
+            data: &mut self.data.as_mut()[offset_range],
             layout: NdLayout::from_dyn(sliced_layout),
             element_type: PhantomData,
         }

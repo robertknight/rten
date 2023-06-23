@@ -16,6 +16,7 @@ pub enum SliceItem {
 
     /// Include the full range of the dimension.
     RangeFull,
+    // TODO - Support `RangeFrom` and `RangeTo` here.
 }
 
 impl SliceItem {

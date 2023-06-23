@@ -1,4 +1,5 @@
 use std::iter::{repeat, zip};
+use std::ops::Range;
 
 use smallvec::SmallVec;
 
@@ -70,11 +71,23 @@ impl Layout {
         Layout { shape_and_strides }
     }
 
+    /// Move the index at axis `from` to `to`, keeping the relative order of
+    /// other dimensions the same. This is like NumPy's `moveaxis` function.
+    pub fn move_axis(&mut self, from: usize, to: usize) {
+        let ndim = self.ndim();
+        assert!(from < ndim && to < ndim);
+
+        let size = self.shape_and_strides.remove(from);
+        let stride = self.shape_and_strides.remove(ndim - 1 + from);
+        self.shape_and_strides.insert(to, size);
+        self.shape_and_strides.insert(ndim + to, stride);
+    }
+
     /// Compute the new layout and offset of the first element for a slice into
     /// an existing tensor view.
     ///
-    /// Returns a tuple of (offset, layout) for the sliced view.
-    pub fn slice(&self, range: &[SliceItem]) -> (usize, Layout) {
+    /// Returns a tuple of (offset_range, layout) for the sliced view.
+    pub fn slice(&self, range: &[SliceItem]) -> (Range<usize>, Layout) {
         assert!(
             self.ndim() >= range.len(),
             "Slice dims must be <= current dims"
@@ -115,7 +128,8 @@ impl Layout {
             .chain(retained_dims.map(|(dim, _)| self.stride(dim)))
             .collect();
 
-        (offset, Self { shape_and_strides })
+        let layout = Self { shape_and_strides };
+        (offset..offset + layout.end_offset(), layout)
     }
 
     /// Return the number of elements in the tensor shape described by this layout.
@@ -394,6 +408,38 @@ mod tests {
     #[should_panic(expected = "Layout may have internal overlap")]
     fn test_new_with_strides_overlap() {
         Layout::new_with_strides(&[10, 10], &[1, 2]);
+    }
+
+    #[test]
+    fn test_move_axis() {
+        let mut layout = Layout::new(&[2, 4, 8]);
+        assert_eq!(layout.strides(), [32, 8, 1]);
+
+        layout.move_axis(1, 0);
+        assert_eq!(layout.shape(), [4, 2, 8]);
+        assert_eq!(layout.strides(), [8, 32, 1]);
+
+        layout.move_axis(0, 1);
+        assert_eq!(layout.shape(), [2, 4, 8]);
+        assert_eq!(layout.strides(), [32, 8, 1]);
+
+        layout.move_axis(2, 1);
+        assert_eq!(layout.shape(), [2, 8, 4]);
+        assert_eq!(layout.strides(), [32, 1, 8]);
+    }
+
+    #[test]
+    #[should_panic]
+    fn test_move_axis_invalid_from() {
+        let mut layout = Layout::new(&[2, 4, 8]);
+        layout.move_axis(3, 0);
+    }
+
+    #[test]
+    #[should_panic]
+    fn test_move_axis_invalid_to() {
+        let mut layout = Layout::new(&[2, 4, 8]);
+        layout.move_axis(0, 3);
     }
 
     #[test]

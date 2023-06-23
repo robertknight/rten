@@ -3,7 +3,7 @@ use std::slice::{Iter, IterMut};
 
 use super::layout::Layout;
 use super::range::SliceRange;
-use super::TensorBase;
+use super::{TensorBase, TensorLayout, TensorView, TensorViewMut};
 
 /// IterPos tracks the position within a single dimension of an IndexingIter.
 #[derive(Debug)]
@@ -589,3 +589,69 @@ impl<'a, T: Copy> Iterator for BroadcastElements<'a, T> {
 }
 
 impl<'a, T: Copy> ExactSizeIterator for BroadcastElements<'a, T> {}
+
+/// Iterator over slices of a tensor along an axis. See [TensorBase::axis_iter].
+pub struct AxisIter<'a, T: Copy> {
+    view: TensorView<'a, T>,
+    index: usize,
+}
+
+impl<'a, T: Copy> AxisIter<'a, T> {
+    pub fn new(mut view: TensorView<'a, T>, dim: usize) -> AxisIter<'a, T> {
+        view.move_axis(dim, 0);
+        AxisIter { view, index: 0 }
+    }
+}
+
+impl<'a, T: Copy> Iterator for AxisIter<'a, T> {
+    type Item = TensorView<'a, T>;
+
+    fn next(&mut self) -> Option<Self::Item> {
+        if self.index >= self.view.shape()[0] {
+            None
+        } else {
+            let view = self.view.to_slice([self.index]);
+            self.index += 1;
+            Some(view)
+        }
+    }
+}
+
+/// Iterator over mutable slices of a tensor along an axis. See [TensorBase::axis_iter_mut].
+pub struct AxisIterMut<'a, T: Copy> {
+    view: TensorViewMut<'a, T>,
+    index: usize,
+}
+
+impl<'a, T: Copy> AxisIterMut<'a, T> {
+    pub fn new(mut view: TensorViewMut<'a, T>, dim: usize) -> AxisIterMut<'a, T> {
+        // See notes in `Layout` about internal overlap.
+        assert!(
+            !view.layout.is_broadcast(),
+            "Cannot mutably iterate over broadcasting view"
+        );
+        view.move_axis(dim, 0);
+        AxisIterMut { view, index: 0 }
+    }
+}
+
+impl<'a, T: Copy> Iterator for AxisIterMut<'a, T> {
+    type Item = TensorViewMut<'a, T>;
+
+    fn next(&mut self) -> Option<Self::Item> {
+        if self.index >= self.view.shape()[0] {
+            None
+        } else {
+            let index = self.index;
+            self.index += 1;
+
+            // Safety: This is non-broadcasting view, and we increment the index
+            // each time, so returned views will not overlap.
+            let view = unsafe {
+                let view = self.view.slice_mut([index]);
+                std::mem::transmute::<TensorViewMut<'_, T>, TensorViewMut<'a, T>>(view)
+            };
+            Some(view)
+        }
+    }
+}

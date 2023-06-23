@@ -22,7 +22,9 @@ pub mod rng;
 pub mod test_util;
 
 pub use self::index_iterator::DynIndexIterator;
-pub use self::iterators::{BroadcastElements, Elements, ElementsMut, Offsets};
+pub use self::iterators::{
+    AxisIter, AxisIterMut, BroadcastElements, Elements, ElementsMut, Offsets,
+};
 pub use self::layout::Layout;
 pub use self::ndtensor::{
     Matrix, MatrixLayout, MatrixMut, NdTensor, NdTensorBase, NdTensorLayout, NdTensorView,
@@ -307,6 +309,11 @@ impl<T: Copy, S: AsRef<[T]>> TensorBase<T, S> {
         Elements::new(self)
     }
 
+    /// Return an iterator over slices of this tensor along a given axis.
+    pub fn axis_iter(&self, dim: usize) -> AxisIter<T> {
+        AxisIter::new(self.view(), dim)
+    }
+
     /// Return a view of part of this tensor.
     ///
     /// `range` specifies the indices or ranges of this tensor to include in the
@@ -322,9 +329,9 @@ impl<T: Copy, S: AsRef<[T]>> TensorBase<T, S> {
     /// This is like [TensorBase::slice] but supports a dynamic number of
     /// slice items.
     pub fn slice_dyn(&self, range: &[SliceItem]) -> TensorView<T> {
-        let (offset, layout) = self.layout.slice(range);
+        let (offset_range, layout) = self.layout.slice(range);
         TensorBase {
-            data: &self.data.as_ref()[offset..offset + layout.end_offset()],
+            data: &self.data.as_ref()[offset_range],
             layout,
             element_type: PhantomData,
         }
@@ -368,6 +375,14 @@ impl<T: Copy, S: AsRef<[T]>> TensorBase<T, S> {
     /// updates the strides used by indexing.
     pub fn permute(&mut self, dims: &[usize]) {
         self.layout.permute(dims);
+    }
+
+    /// Move the index at axis `from` to `to`, keeping the relative order of
+    /// other dimensions the same. This is like NumPy's `moveaxis` function.
+    ///
+    /// Panics if the `from` or `to` axes are >= `self.ndim()`.
+    pub fn move_axis(&mut self, from: usize, to: usize) {
+        self.layout.move_axis(from, to);
     }
 
     /// Reverse the order of dimensions.
@@ -419,6 +434,27 @@ impl<'a, T: Copy> TensorBase<T, &'a [T]> {
     /// underlying storage rather than the view.
     pub fn to_data(&self) -> &'a [T] {
         self.data
+    }
+
+    /// Return a view of part of this tensor.
+    ///
+    /// This is like [TensorBase::slice] but the lifetime is that of the
+    /// underlying storage rather than the view.
+    pub fn to_slice<const N: usize, R: IntoSliceItems<N>>(&self, range: R) -> TensorView<'a, T> {
+        self.to_slice_dyn(&range.into_slice_items())
+    }
+
+    /// Return a view of part of this tensor.
+    ///
+    /// This is like [TensorBase::slice_dyn] but the lifetime is that of the
+    /// underlying storage rather than the view.
+    pub fn to_slice_dyn(&self, range: &[SliceItem]) -> TensorView<'a, T> {
+        let (offset_range, layout) = self.layout.slice(range);
+        TensorBase {
+            data: &self.data[offset_range],
+            layout,
+            element_type: PhantomData,
+        }
     }
 
     /// Return an N-dimensional view of this tensor.
@@ -506,6 +542,12 @@ impl<T: Copy, S: AsRef<[T]> + AsMut<[T]>> TensorBase<T, S> {
         ElementsMut::new(self.data.as_mut(), layout)
     }
 
+    /// Return an iterator over mutable slices of this tensor along a given
+    /// axis.
+    pub fn axis_iter_mut(&mut self, dim: usize) -> AxisIterMut<T> {
+        AxisIterMut::new(self.view_mut(), dim)
+    }
+
     /// Replace elements of this tensor with `f(element)`.
     ///
     /// This is the in-place version of `map`.
@@ -533,9 +575,8 @@ impl<T: Copy, S: AsRef<[T]> + AsMut<[T]>> TensorBase<T, S> {
     ///
     /// Slices are specified in the same way as for [TensorBase::slice_dyn].
     pub fn slice_mut_dyn(&mut self, range: &[SliceItem]) -> TensorViewMut<T> {
-        let (offset, layout) = self.layout.slice(range);
-        let data = &mut self.data.as_mut()[offset..offset + layout.end_offset()];
-
+        let (offset_range, layout) = self.layout.slice(range);
+        let data = &mut self.data.as_mut()[offset_range];
         TensorViewMut {
             data,
             layout,
@@ -844,6 +885,48 @@ mod tests {
     }
 
     #[test]
+    fn test_axis_iter() {
+        let x = steps(&[2, 3, 4]);
+
+        // First dimension.
+        let views: Vec<_> = x.axis_iter(0).collect();
+        assert_eq!(views.len(), 2);
+        assert_eq!(views[0], x.slice([0]));
+        assert_eq!(views[1], x.slice([1]));
+
+        // Second dimension.
+        let views: Vec<_> = x.axis_iter(1).collect();
+        assert_eq!(views.len(), 3);
+        assert_eq!(views[0], x.slice((.., 0)));
+        assert_eq!(views[1], x.slice((.., 1)));
+    }
+
+    #[test]
+    fn test_axis_iter_mut() {
+        let mut x = steps(&[2, 3]);
+        let y0 = x.slice([0]).to_tensor();
+        let y1 = x.slice([1]).to_tensor();
+
+        // First dimension.
+        let mut views: Vec<_> = x.axis_iter_mut(0).collect();
+        assert_eq!(views.len(), 2);
+        assert_eq!(views[0], y0);
+        assert_eq!(views[1], y1);
+        views[0].iter_mut().for_each(|x| *x += 1);
+        views[1].iter_mut().for_each(|x| *x += 2);
+        assert_eq!(x.to_vec(), &[2, 3, 4, 6, 7, 8]);
+
+        let z0 = x.slice((.., 0)).to_tensor();
+        let z1 = x.slice((.., 1)).to_tensor();
+
+        // Second dimension.
+        let views: Vec<_> = x.axis_iter_mut(1).collect();
+        assert_eq!(views.len(), 3);
+        assert_eq!(views[0], z0);
+        assert_eq!(views[1], z1);
+    }
+
+    #[test]
     fn test_clip_dim() {
         let mut x = steps(&[3, 3]);
         x.clip_dim(0, 1..2);
@@ -1000,6 +1083,13 @@ mod tests {
 
         let matrix_one_item = Tensor::from_data(&[1, 1], vec![5.0]);
         assert_eq!(matrix_one_item.item(), Some(5.0));
+    }
+
+    #[test]
+    fn test_move_axis() {
+        let mut x = steps(&[2, 3]);
+        x.move_axis(1, 0);
+        assert_eq!(x.shape(), [3, 2]);
     }
 
     #[test]
@@ -1577,6 +1667,60 @@ mod tests {
         assert!(x.can_broadcast_with(&[2, 5, 10]));
         assert!(x.can_broadcast_with(&[1, 5, 10]));
         assert!(x.can_broadcast_with(&[1, 1, 10]));
+    }
+
+    // Common slice tests for all slicing functions.
+    macro_rules! slice_tests {
+        ($x:ident, $method:ident) => {
+            assert_eq!($x.shape(), &[2, 3, 4]);
+
+            // 1D index
+            let y = $x.$method([0]);
+            assert_eq!(y.shape(), [3, 4]);
+            assert_eq!(y.to_vec(), (1..=(3 * 4)).into_iter().collect::<Vec<i32>>());
+
+            // 2D index
+            let y = $x.$method([0, 1]);
+            assert_eq!(y.shape(), [4]);
+            assert_eq!(y.to_vec(), (5..=8).into_iter().collect::<Vec<i32>>());
+
+            // 3D index
+            let y = $x.$method([0, 1, 2]);
+            assert_eq!(y.shape(), []);
+            assert_eq!(y.item(), Some(7));
+
+            // Full range
+            let y = $x.$method([..]);
+            assert_eq!(y.shape(), [2, 3, 4]);
+            assert_eq!(y.to_vec(), $x.to_vec());
+
+            // Mixed indices and ranges
+            let y = $x.$method((.., 0, ..));
+            assert_eq!(y.shape(), [2, 4]);
+
+            let y = $x.$method((.., .., 0));
+            assert_eq!(y.shape(), [2, 3]);
+            assert_eq!(y.to_vec(), &[1, 5, 9, 13, 17, 21]);
+        };
+    }
+
+    #[test]
+    fn test_slice() {
+        let x = steps(&[2, 3, 4]);
+        slice_tests!(x, slice);
+    }
+
+    #[test]
+    fn test_to_slice() {
+        let x = steps(&[2, 3, 4]);
+        let x = x.view();
+        slice_tests!(x, to_slice);
+    }
+
+    #[test]
+    fn test_slice_mut() {
+        let mut x = steps(&[2, 3, 4]);
+        slice_tests!(x, slice_mut);
     }
 
     #[test]
