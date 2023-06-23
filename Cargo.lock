@@ -488,6 +488,7 @@ version = "0.1.0"
 dependencies = [
  "image",
  "png",
+ "rayon",
  "wasnn",
  "wasnn-imageproc",
  "wasnn-ocr",
