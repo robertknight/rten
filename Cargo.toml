@@ -2,6 +2,7 @@
 members = [
   "wasnn-imageproc",
   "wasnn-ocr",
+  "wasnn-ocr-cli",
   "wasnn-tensor"
 ]
 

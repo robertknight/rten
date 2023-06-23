@@ -483,6 +483,18 @@ dependencies = [
 ]
 
 [[package]]
+name = "wasnn-ocr-cli"
+version = "0.1.0"
+dependencies = [
+ "image",
+ "png",
+ "wasnn",
+ "wasnn-imageproc",
+ "wasnn-ocr",
+ "wasnn-tensor",
+]
+
+[[package]]
 name = "wasnn-tensor"
 version = "0.1.0"
 dependencies = [

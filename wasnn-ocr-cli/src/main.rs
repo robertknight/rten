@@ -1,6 +1,3 @@
-extern crate image;
-extern crate wasnn;
-
 use std::collections::HashMap;
 use std::error::Error;
 use std::fs;
@@ -431,6 +428,7 @@ fn main() -> Result<(), Box<dyn Error>> {
 
             // Extract sequence as [seq, batch, class]
             let mut rec_sequence = rec_output[0].as_float_ref().unwrap().to_tensor();
+
             // Transpose to [batch, seq, class]
             rec_sequence.permute(&[1, 0, 2]);
 
