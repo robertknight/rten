@@ -478,6 +478,8 @@ name = "wasnn-ocr"
 version = "0.1.0"
 dependencies = [
  "fastrand",
+ "rayon",
+ "wasnn",
  "wasnn-imageproc",
  "wasnn-tensor",
 ]
@@ -488,7 +490,6 @@ version = "0.1.0"
 dependencies = [
  "image",
  "png",
- "rayon",
  "wasnn",
  "wasnn-imageproc",
  "wasnn-ocr",
