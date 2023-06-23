@@ -627,7 +627,7 @@ pub fn gemm(
 }
 
 /// Trait for kernel-specific GEMM operations.
-trait GemmOps {
+trait GemmOps: Sync {
     fn pack_a_block(&self, out: &mut [f32], a: Matrix, rows: Range<usize>, cols: Range<usize>);
     fn pack_b_block(&self, out: &mut [f32], a: Matrix, rows: Range<usize>, cols: Range<usize>);
     fn gemm(

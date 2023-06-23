@@ -1,3 +1,6 @@
+use std::iter::zip;
+
+use rayon::prelude::*;
 use wasnn_tensor::{NdTensorLayout, NdTensorView, NdTensorViewMut, Tensor, TensorLayout};
 
 use crate::check_dims;
@@ -242,9 +245,10 @@ pub fn max_pool(
         }
     }
 
-    for n in 0..batch {
-        let mut out_view = output.nd_slice_mut([n]);
-        let in_view = input.nd_slice([n]);
+    let items: Vec<_> = zip(output.axis_iter_mut(0), input.axis_iter(0)).collect();
+    items.into_par_iter().for_each(|(mut out_item, in_item)| {
+        let mut out_item = out_item.nd_view_mut();
+        let in_item = in_item.nd_view();
 
         // Loop over channel groups.
         const N: usize = 4;
@@ -253,8 +257,8 @@ pub fn max_pool(
                 break;
             }
             max_pool_chans(
-                out_view.view_mut(),
-                in_view,
+                out_item.view_mut(),
+                in_item,
                 [chan, chan + 1, chan + 2, chan + 3],
                 kernel_size,
                 strides,
@@ -265,15 +269,15 @@ pub fn max_pool(
         // Loop over remaining channels.
         for chan in (in_c - in_c % N)..in_c {
             max_pool_chans(
-                out_view.view_mut(),
-                in_view,
+                out_item.view_mut(),
+                in_item,
                 [chan],
                 kernel_size,
                 strides,
                 [pad_top, pad_left],
             );
         }
-    }
+    });
 
     Ok(output)
 }

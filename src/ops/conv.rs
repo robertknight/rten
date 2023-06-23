@@ -2,6 +2,8 @@ use std::borrow::Cow;
 use std::iter::zip;
 use std::ops::Range;
 
+use rayon::prelude::*;
+
 use wasnn_tensor::{NdTensorLayout, NdTensorView, Tensor, TensorLayout, TensorView, TensorViewMut};
 
 use crate::check_dims;
@@ -368,14 +370,15 @@ pub fn conv(
             .to_nd_view();
         let prepacked_kernel = gemm.prepack_a(kernel_mat);
 
-        for n in 0..batch {
-            let in_group = input.slice((n, (in_chan_start..in_chan_end)));
+        let in_group = input.slice((.., in_chan_start..in_chan_end));
+        let mut out_group = output.slice_mut((.., out_chans.clone()));
 
-            let mut out_item = output.slice_mut((n, out_chans.clone()));
+        let items: Vec<_> = zip(out_group.axis_iter_mut(0), in_group.axis_iter(0)).collect();
+        items.into_par_iter().for_each(|(mut out_item, in_item)| {
             let mut out_mat = out_item.reshaped(&[out_channels_per_group, out_h * out_w]);
             let out_row_stride = out_mat.stride(0);
 
-            let im2col = VirtualIm2Col::new(in_group.nd_view(), [k_h, k_w], fixed_padding, strides);
+            let im2col = VirtualIm2Col::new(in_item.nd_view(), [k_h, k_w], fixed_padding, strides);
 
             gemm.gemm_bias(
                 out_mat.data_mut(),
@@ -386,7 +389,7 @@ pub fn conv(
                 0., // beta
                 bias.as_ref().map(|b| &b.data()[out_chans.clone()]),
             );
-        }
+        });
     }
 
     output.reshape(&[batch, out_c, out_h, out_w]);
