@@ -269,6 +269,13 @@ impl Layout {
         transposed
     }
 
+    /// Insert a dimension of size one at index `dim`.
+    pub fn insert_dim(&mut self, dim: usize) {
+        let mut new_shape: SmallVec<[usize; 4]> = self.shape().into();
+        new_shape.insert(dim, 1);
+        self.reshape(&new_shape);
+    }
+
     /// Change the shape of this layout to `shape`.
     ///
     /// `shape` must have the same product as the current shape (ie. must

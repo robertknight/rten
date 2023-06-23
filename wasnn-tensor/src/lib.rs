@@ -378,6 +378,11 @@ impl<T: Copy, S: AsRef<[T]>> TensorBase<T, S> {
         self.layout.transpose();
     }
 
+    /// Insert a dimension of size one at index `dim`.
+    pub fn insert_dim(&mut self, dim: usize) {
+        self.layout.insert_dim(dim);
+    }
+
     /// Return an `NdTensor` version of this view.
     ///
     /// The lifetime of the result is that of the current tensor. See also
@@ -750,13 +755,6 @@ impl<T: Copy> TensorBase<T, VecWithOffset<T>> {
         // avoided. See https://pytorch.org/docs/stable/generated/torch.Tensor.view.html.
         self.make_contiguous();
         self.layout = Layout::new(shape);
-    }
-
-    /// Insert a dimension of size one at index `dim`.
-    pub fn insert_dim(&mut self, dim: usize) {
-        let mut new_shape: Vec<usize> = self.shape().into();
-        new_shape.insert(dim, 1);
-        self.reshape(&new_shape);
     }
 }
 
