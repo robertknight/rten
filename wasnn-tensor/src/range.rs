@@ -1,5 +1,5 @@
 use std::fmt::Debug;
-use std::ops::{Range, RangeFull, RangeTo};
+use std::ops::{Range, RangeFrom, RangeFull, RangeTo};
 
 /// Specifies a subset of a dimension to include when slicing a tensor or view.
 ///
@@ -14,9 +14,13 @@ pub enum SliceItem {
     /// Include a subset of the range of the dimension.
     Range(Range<usize>),
 
+    /// Include the range of the dimension starting from a given index.
+    /// Note there is no equivalent for [RangeTo] because that is handled by
+    /// [Range].
+    RangeFrom(RangeFrom<usize>),
+
     /// Include the full range of the dimension.
     RangeFull,
-    // TODO - Support `RangeFrom` and `RangeTo` here.
 }
 
 impl SliceItem {
@@ -26,6 +30,7 @@ impl SliceItem {
         match self {
             SliceItem::Index(idx) => *idx < dim_size,
             SliceItem::Range(range) => range.end <= dim_size,
+            SliceItem::RangeFrom(range) => range.start <= dim_size,
             SliceItem::RangeFull => true,
         }
     }
@@ -40,6 +45,18 @@ impl From<usize> for SliceItem {
 impl From<Range<usize>> for SliceItem {
     fn from(value: Range<usize>) -> Self {
         SliceItem::Range(value)
+    }
+}
+
+impl From<RangeFrom<usize>> for SliceItem {
+    fn from(value: RangeFrom<usize>) -> Self {
+        SliceItem::RangeFrom(value)
+    }
+}
+
+impl From<RangeTo<usize>> for SliceItem {
+    fn from(value: RangeTo<usize>) -> Self {
+        SliceItem::Range(0..value.end)
     }
 }
 
@@ -263,6 +280,12 @@ mod tests {
 
         let x = (2..5).into_slice_items();
         assert_eq!(x, [SliceItem::Range(2..5)]);
+
+        let x = (..5).into_slice_items();
+        assert_eq!(x, [SliceItem::Range(0..5)]);
+
+        let x = (3..).into_slice_items();
+        assert_eq!(x, [SliceItem::RangeFrom(3..)]);
 
         let x = [1].into_slice_items();
         assert_eq!(x, [SliceItem::Index(1)]);

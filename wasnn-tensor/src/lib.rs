@@ -1694,6 +1694,10 @@ mod tests {
             assert_eq!(y.shape(), [2, 3, 4]);
             assert_eq!(y.to_vec(), $x.to_vec());
 
+            // Partial ranges
+            let y = $x.$method((.., ..2, 1..));
+            assert_eq!(y.shape(), [2, 2, 3]);
+
             // Mixed indices and ranges
             let y = $x.$method((.., 0, ..));
             assert_eq!(y.shape(), [2, 4]);

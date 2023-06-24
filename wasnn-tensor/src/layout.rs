@@ -110,6 +110,7 @@ impl Layout {
                 let start = match item {
                     SliceItem::Index(idx) => *idx,
                     SliceItem::Range(r) => r.start,
+                    SliceItem::RangeFrom(r) => r.start,
                     SliceItem::RangeFull => 0,
                 };
                 self.stride(dim) * start
@@ -119,6 +120,7 @@ impl Layout {
         let retained_dims = padded_range.clone().filter_map(|(dim, item)| match item {
             SliceItem::Index(_) => None,
             SliceItem::Range(range) => Some((dim, range.clone())),
+            SliceItem::RangeFrom(range) => Some((dim, range.start..self.shape()[dim])),
             SliceItem::RangeFull => Some((dim, 0..self.shape()[dim])),
         });
 
@@ -483,5 +485,12 @@ mod tests {
     fn test_slice_invalid_range() {
         let layout = Layout::new(&[3, 5]);
         layout.slice(&[SliceItem::Range(1..4), SliceItem::Index(0)]);
+    }
+
+    #[test]
+    #[should_panic(expected = "Slice range is invalid for tensor shape")]
+    fn test_slice_invalid_from_range() {
+        let layout = Layout::new(&[3, 5]);
+        layout.slice(&[SliceItem::RangeFrom(4..), SliceItem::Index(0)]);
     }
 }
