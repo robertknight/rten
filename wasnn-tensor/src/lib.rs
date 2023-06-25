@@ -47,6 +47,11 @@ pub trait TensorLayout {
         self.layout().shape()
     }
 
+    /// Return a slice of the strides of each dimension.
+    fn strides(&self) -> &[usize] {
+        self.layout().strides()
+    }
+
     /// Return the number of elements between successive entries in the `dim`
     /// dimension.
     fn stride(&self, dim: usize) -> usize {
@@ -994,6 +999,12 @@ mod tests {
         assert_eq!(x.stride(2), 3);
         assert_eq!(x.stride(1), 7 * 3);
         assert_eq!(x.stride(0), 5 * 7 * 3);
+    }
+
+    #[test]
+    fn test_strides() {
+        let x = Tensor::<f32>::zeros(&[2, 5, 7, 3]);
+        assert_eq!(x.strides(), [5 * 7 * 3, 7 * 3, 3, 1]);
     }
 
     #[test]
