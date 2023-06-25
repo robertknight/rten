@@ -267,7 +267,7 @@ impl<T: Copy, S: AsRef<[T]>> TensorBase<T, S> {
         let data = self.iter().map(f).collect();
         Tensor {
             data: VecWithOffset::new(data),
-            layout: self.layout.clone(),
+            layout: Layout::new(self.shape()),
             element_type: PhantomData,
         }
     }
@@ -1094,6 +1094,21 @@ mod tests {
 
         let matrix_one_item = Tensor::from_data(&[1, 1], vec![5.0]);
         assert_eq!(matrix_one_item.item(), Some(5.0));
+    }
+
+    #[test]
+    fn test_map() {
+        // Contiguous tensor.
+        let x = steps(&[2, 3]).map(|val| val * 2);
+        assert_eq!(x.to_vec(), &[2, 4, 6, 8, 10, 12]);
+
+        // Non-contiguous view.
+        let x = steps(&[2, 3]);
+        let x = x.view().transposed();
+        assert!(!x.is_contiguous());
+        assert_eq!(x.to_vec(), &[1, 4, 2, 5, 3, 6]);
+        let x = x.map(|val| val * 2);
+        assert_eq!(x.to_vec(), &[2, 8, 4, 10, 6, 12]);
     }
 
     #[test]
