@@ -373,23 +373,25 @@ pub fn conv(
         let in_group = input.slice((.., in_chan_start..in_chan_end));
         let mut out_group = output.slice_mut((.., out_chans.clone()));
 
-        let items: Vec<_> = zip(out_group.axis_iter_mut(0), in_group.axis_iter(0)).collect();
-        items.into_par_iter().for_each(|(mut out_item, in_item)| {
-            let mut out_mat = out_item.reshaped(&[out_channels_per_group, out_h * out_w]);
-            let out_row_stride = out_mat.stride(0);
+        zip(out_group.axis_iter_mut(0), in_group.axis_iter(0))
+            .par_bridge()
+            .for_each(|(mut out_item, in_item)| {
+                let mut out_mat = out_item.reshaped(&[out_channels_per_group, out_h * out_w]);
+                let out_row_stride = out_mat.stride(0);
 
-            let im2col = VirtualIm2Col::new(in_item.nd_view(), [k_h, k_w], fixed_padding, strides);
+                let im2col =
+                    VirtualIm2Col::new(in_item.nd_view(), [k_h, k_w], fixed_padding, strides);
 
-            gemm.gemm_bias(
-                out_mat.data_mut(),
-                out_row_stride,
-                GemmInputA::Packed(&prepacked_kernel),
-                GemmInputB::Virtual(&im2col),
-                1., // alpha
-                0., // beta
-                bias.as_ref().map(|b| &b.data()[out_chans.clone()]),
-            );
-        });
+                gemm.gemm_bias(
+                    out_mat.data_mut(),
+                    out_row_stride,
+                    GemmInputA::Packed(&prepacked_kernel),
+                    GemmInputB::Virtual(&im2col),
+                    1., // alpha
+                    0., // beta
+                    bias.as_ref().map(|b| &b.data()[out_chans.clone()]),
+                );
+            });
     }
 
     output.reshape(&[batch, out_c, out_h, out_w]);

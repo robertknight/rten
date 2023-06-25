@@ -245,39 +245,40 @@ pub fn max_pool(
         }
     }
 
-    let items: Vec<_> = zip(output.axis_iter_mut(0), input.axis_iter(0)).collect();
-    items.into_par_iter().for_each(|(mut out_item, in_item)| {
-        let mut out_item = out_item.nd_view_mut();
-        let in_item = in_item.nd_view();
+    zip(output.axis_iter_mut(0), input.axis_iter(0))
+        .par_bridge()
+        .for_each(|(mut out_item, in_item)| {
+            let mut out_item = out_item.nd_view_mut();
+            let in_item = in_item.nd_view();
 
-        // Loop over channel groups.
-        const N: usize = 4;
-        for chan in (0..in_c).step_by(N) {
-            if in_c - chan < N {
-                break;
+            // Loop over channel groups.
+            const N: usize = 4;
+            for chan in (0..in_c).step_by(N) {
+                if in_c - chan < N {
+                    break;
+                }
+                max_pool_chans(
+                    out_item.view_mut(),
+                    in_item,
+                    [chan, chan + 1, chan + 2, chan + 3],
+                    kernel_size,
+                    strides,
+                    [pad_top, pad_left],
+                );
             }
-            max_pool_chans(
-                out_item.view_mut(),
-                in_item,
-                [chan, chan + 1, chan + 2, chan + 3],
-                kernel_size,
-                strides,
-                [pad_top, pad_left],
-            );
-        }
 
-        // Loop over remaining channels.
-        for chan in (in_c - in_c % N)..in_c {
-            max_pool_chans(
-                out_item.view_mut(),
-                in_item,
-                [chan],
-                kernel_size,
-                strides,
-                [pad_top, pad_left],
-            );
-        }
-    });
+            // Loop over remaining channels.
+            for chan in (in_c - in_c % N)..in_c {
+                max_pool_chans(
+                    out_item.view_mut(),
+                    in_item,
+                    [chan],
+                    kernel_size,
+                    strides,
+                    [pad_top, pad_left],
+                );
+            }
+        });
 
     Ok(output)
 }
