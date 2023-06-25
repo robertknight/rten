@@ -490,6 +490,7 @@ version = "0.1.0"
 dependencies = [
  "fastrand",
  "rayon",
+ "wasm-bindgen",
  "wasnn",
  "wasnn-imageproc",
  "wasnn-tensor",

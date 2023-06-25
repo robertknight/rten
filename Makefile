@@ -27,6 +27,12 @@ wasm:
 	wasm-bindgen target/wasm32-unknown-unknown/release/wasnn.wasm --out-dir dist/ --target web --weak-refs
 	tools/optimize-wasm.sh dist/wasnn_bg.wasm
 
+.PHONY: wasm-ocr
+wasm-ocr:
+	RUSTFLAGS="-C target-feature=+simd128" cargo build --release --target wasm32-unknown-unknown --package wasnn-ocr
+	wasm-bindgen target/wasm32-unknown-unknown/release/wasnn_ocr.wasm --out-dir dist/ --target web --weak-refs
+	tools/optimize-wasm.sh dist/wasnn_ocr_bg.wasm
+
 .PHONY: wasm-nosimd
 wasm-nosimd:
 	cargo build --release --target wasm32-unknown-unknown
