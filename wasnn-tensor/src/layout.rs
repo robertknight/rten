@@ -153,6 +153,11 @@ impl Layout {
         &self.shape_and_strides[0..self.ndim()]
     }
 
+    /// Returns the size of the dimension `dim`.
+    pub fn size(&self, dim: usize) -> usize {
+        self.shape_and_strides[dim]
+    }
+
     /// Return the stride (offset between elements) in the tensor's element array.
     pub fn strides(&self) -> &[usize] {
         &self.shape_and_strides[self.ndim()..]
@@ -376,6 +381,8 @@ impl Layout {
 
 #[cfg(test)]
 mod tests {
+    use std::iter::zip;
+
     use crate::layout::Layout;
     use crate::SliceItem;
 
@@ -492,5 +499,16 @@ mod tests {
     fn test_slice_invalid_from_range() {
         let layout = Layout::new(&[3, 5]);
         layout.slice(&[SliceItem::RangeFrom(4..), SliceItem::Index(0)]);
+    }
+
+    #[test]
+    fn test_size_stride() {
+        let layout = Layout::new(&[10, 20, 30]);
+        for (dim, (&size, &stride)) in
+            zip(layout.shape().iter(), layout.strides().iter()).enumerate()
+        {
+            assert_eq!(layout.size(dim), size);
+            assert_eq!(layout.stride(dim), stride);
+        }
     }
 }

@@ -47,6 +47,11 @@ pub trait TensorLayout {
         self.layout().shape()
     }
 
+    /// Return the size for a specific dimension.
+    fn size(&self, dim: usize) -> usize {
+        self.layout().size(dim)
+    }
+
     /// Return a slice of the strides of each dimension.
     fn strides(&self) -> &[usize] {
         self.layout().strides()
