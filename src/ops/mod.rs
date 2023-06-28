@@ -243,7 +243,7 @@ impl IntoOpResult for Output {
     }
 }
 
-impl<T: Copy> IntoOpResult for Tensor<T>
+impl<T> IntoOpResult for Tensor<T>
 where
     Output: From<Tensor<T>>,
 {
@@ -253,7 +253,7 @@ where
     }
 }
 
-impl<T: Copy> IntoOpResult for Result<Tensor<T>, OpError>
+impl<T> IntoOpResult for Result<Tensor<T>, OpError>
 where
     Output: From<Tensor<T>>,
 {
@@ -262,7 +262,7 @@ where
     }
 }
 
-impl<T: Copy> IntoOpResult for Result<Vec<Tensor<T>>, OpError>
+impl<T> IntoOpResult for Result<Vec<Tensor<T>>, OpError>
 where
     Output: From<Tensor<T>>,
 {
@@ -435,7 +435,7 @@ impl<'a> InputList<'a> {
     }
 
     /// Get an optional input as a tensor.
-    pub fn get_as<T: Copy>(&self, index: usize) -> Result<Option<&'a Tensor<T>>, OpError>
+    pub fn get_as<T>(&self, index: usize) -> Result<Option<&'a Tensor<T>>, OpError>
     where
         &'a Tensor<T>: TryFrom<Input<'a>, Error = OpError>,
     {
@@ -463,7 +463,7 @@ impl<'a> InputList<'a> {
     }
 
     /// Get a required operator input as a tensor.
-    pub fn require_as<T: Copy>(&self, index: usize) -> Result<&'a Tensor<T>, OpError>
+    pub fn require_as<T>(&self, index: usize) -> Result<&'a Tensor<T>, OpError>
     where
         &'a Tensor<T>: TryFrom<Input<'a>, Error = OpError>,
     {

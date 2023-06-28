@@ -308,7 +308,7 @@ mod tests {
 
     use crate::ops::{average_pool, global_average_pool, max_pool, Padding};
 
-    fn from_2d_slice<T: Copy>(data: &[&[T]]) -> Tensor<T> {
+    fn from_2d_slice<T: Clone>(data: &[&[T]]) -> Tensor<T> {
         let rows = data.len();
         let cols = data.get(0).map(|first_row| first_row.len()).unwrap_or(0);
 

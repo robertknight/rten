@@ -93,7 +93,7 @@ mod tests {
 
     use crate::ops::{pad, InputList, OpError, Operator, Pad};
 
-    fn from_slice<T: Copy>(data: &[T]) -> Tensor<T> {
+    fn from_slice<T: Clone>(data: &[T]) -> Tensor<T> {
         Tensor::from_data(&[data.len()], data.to_vec())
     }
 

@@ -33,7 +33,7 @@ pub struct ValueNode {
     shape: Option<Vec<Dimension>>,
 }
 
-pub struct ConstantNode<T: Copy> {
+pub struct ConstantNode<T> {
     name: Option<String>,
     data: Tensor<T>,
 }
@@ -193,7 +193,7 @@ impl Graph {
     /// `name` is an identifier for this node that is used in debug messages etc.
     ///
     /// Returns the ID of the added node.
-    pub fn add_constant<T: Copy>(&mut self, name: Option<&str>, value: Tensor<T>) -> NodeId
+    pub fn add_constant<T>(&mut self, name: Option<&str>, value: Tensor<T>) -> NodeId
     where
         ConstantNode<T>: Into<Constant>,
     {

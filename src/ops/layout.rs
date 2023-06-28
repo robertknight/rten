@@ -48,12 +48,12 @@ fn flattened_shape(shape: &[usize], axis: isize) -> Result<[usize; 2], OpError> 
     Ok([outer_size, inner_size])
 }
 
-pub fn flatten<T: Copy>(input: &Tensor<T>, axis: isize) -> Result<Tensor<T>, OpError> {
+pub fn flatten<T: Clone>(input: &Tensor<T>, axis: isize) -> Result<Tensor<T>, OpError> {
     let shape = flattened_shape(input.shape(), axis)?;
     Ok(input.clone_with_shape(&shape))
 }
 
-pub fn flatten_in_place<T: Copy>(input: &mut Tensor<T>, axis: isize) -> Result<(), OpError> {
+pub fn flatten_in_place<T: Clone>(input: &mut Tensor<T>, axis: isize) -> Result<(), OpError> {
     let shape = flattened_shape(input.shape(), axis)?;
     input.reshape(&shape);
     Ok(())
@@ -170,7 +170,7 @@ fn resolve_shape(
         .collect())
 }
 
-pub fn reshape<T: Copy>(
+pub fn reshape<T: Clone>(
     input: &Tensor<T>,
     shape: &Tensor<i32>,
     allow_zero: bool,
@@ -179,7 +179,7 @@ pub fn reshape<T: Copy>(
     Ok(input.clone_with_shape(&out_shape))
 }
 
-pub fn reshape_in_place<T: Copy>(
+pub fn reshape_in_place<T: Clone>(
     input: &mut Tensor<T>,
     shape: &Tensor<i32>,
     allow_zero: bool,
@@ -249,7 +249,7 @@ impl Operator for Shape {
     }
 }
 
-pub fn squeeze_in_place<T: Copy>(
+pub fn squeeze_in_place<T: Clone>(
     input: &mut Tensor<T>,
     axes: Option<&Tensor<i32>>,
 ) -> Result<(), OpError> {
@@ -290,7 +290,7 @@ pub fn squeeze_in_place<T: Copy>(
     Ok(())
 }
 
-pub fn squeeze<T: Copy>(
+pub fn squeeze<T: Clone>(
     input: &Tensor<T>,
     axes: Option<&Tensor<i32>>,
 ) -> Result<Tensor<T>, OpError> {
@@ -336,7 +336,7 @@ impl Operator for Squeeze {
     }
 }
 
-pub fn transpose<T: Copy>(
+pub fn transpose<T: Clone>(
     input: &Tensor<T>,
     permutation: Option<&[usize]>,
 ) -> Result<Tensor<T>, OpError> {
@@ -377,7 +377,7 @@ impl Operator for Transpose {
     }
 }
 
-pub fn unsqueeze<T: Copy>(input: &Tensor<T>, axes: &Tensor<i32>) -> Result<Tensor<T>, OpError> {
+pub fn unsqueeze<T: Clone>(input: &Tensor<T>, axes: &Tensor<i32>) -> Result<Tensor<T>, OpError> {
     check_dims!(axes, 1);
     let mut new_shape: Vec<_> = input.shape().to_vec();
     let mut sorted_axes: Vec<_> = resolve_axes(input.ndim() + axes.len(), axes.iter())?;

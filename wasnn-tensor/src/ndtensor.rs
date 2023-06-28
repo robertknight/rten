@@ -370,18 +370,12 @@ impl<T, S: AsRef<[T]>, const N: usize> NdTensorBase<T, S, N> {
     }
 
     /// Return a view of this tensor with a dynamic dimension count.
-    pub fn as_dyn(&self) -> TensorBase<T, &[T]>
-    where
-        T: Copy,
-    {
+    pub fn as_dyn(&self) -> TensorBase<T, &[T]> {
         TensorBase::new(self.data.as_ref(), &self.layout.as_dyn())
     }
 
     /// Return an iterator over elements of this tensor.
-    pub fn iter(&self) -> Elements<T>
-    where
-        T: Copy,
-    {
+    pub fn iter(&self) -> Elements<T> {
         Elements::from_view(&self.as_dyn())
     }
 
@@ -508,18 +502,12 @@ impl<T, S: AsRef<[T]> + AsMut<[T]>, const N: usize> NdTensorBase<T, S, N> {
     }
 
     /// Return a view of this tensor with a dynamic dimension count.
-    pub fn as_dyn_mut(&mut self) -> TensorBase<T, &mut [T]>
-    where
-        T: Copy,
-    {
+    pub fn as_dyn_mut(&mut self) -> TensorBase<T, &mut [T]> {
         TensorBase::new(self.data.as_mut(), &self.layout.as_dyn())
     }
 
     /// Return a mutable iterator over elements of this tensor.
-    pub fn iter_mut(&mut self) -> ElementsMut<T>
-    where
-        T: Copy,
-    {
+    pub fn iter_mut(&mut self) -> ElementsMut<T> {
         ElementsMut::new(self.data.as_mut(), &self.layout.as_dyn())
     }
 }
@@ -628,8 +616,8 @@ mod tests {
     use crate::TensorLayout;
 
     /// Return elements of `tensor` in their logical order.
-    fn tensor_elements<T: Copy, const N: usize>(tensor: NdTensorView<T, N>) -> Vec<T> {
-        tensor.iter().copied().collect()
+    fn tensor_elements<T: Clone, const N: usize>(tensor: NdTensorView<T, N>) -> Vec<T> {
+        tensor.iter().cloned().collect()
     }
 
     // Test conversion of a static-dim tensor with default strides, to a
