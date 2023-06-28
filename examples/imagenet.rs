@@ -169,8 +169,8 @@ fn main() -> Result<(), Box<dyn Error>> {
     )?;
 
     let (height, width) = match in_config.dim_order {
-        DimOrder::Nchw => (img_tensor.shape()[2], img_tensor.shape()[3]),
-        DimOrder::Nhwc => (img_tensor.shape()[1], img_tensor.shape()[2]),
+        DimOrder::Nchw => (img_tensor.size(2), img_tensor.size(3)),
+        DimOrder::Nhwc => (img_tensor.size(1), img_tensor.size(2)),
     };
 
     let input_id = model
@@ -194,7 +194,7 @@ fn main() -> Result<(), Box<dyn Error>> {
             img_tensor.view(),
             ResizeTarget::Sizes(&Tensor::from_vec(vec![
                 1,
-                img_tensor.shape()[1] as i32,
+                img_tensor.size(1) as i32,
                 in_height as i32,
                 in_width as i32,
             ])),

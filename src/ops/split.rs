@@ -16,7 +16,7 @@ pub fn split<T: Copy>(
         return Err(OpError::InvalidValue("Split sizes must be >= 0"));
     }
     let split_sum = split.iter().sum::<i32>() as usize;
-    if split_sum != input.shape()[axis] {
+    if split_sum != input.size(axis) {
         return Err(OpError::InvalidValue(
             "Split sizes do not sum to dimension size",
         ));

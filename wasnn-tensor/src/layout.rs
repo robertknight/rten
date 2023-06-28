@@ -120,8 +120,8 @@ impl Layout {
         let retained_dims = padded_range.clone().filter_map(|(dim, item)| match item {
             SliceItem::Index(_) => None,
             SliceItem::Range(range) => Some((dim, range.clone())),
-            SliceItem::RangeFrom(range) => Some((dim, range.start..self.shape()[dim])),
-            SliceItem::RangeFull => Some((dim, 0..self.shape()[dim])),
+            SliceItem::RangeFrom(range) => Some((dim, range.start..self.size(dim))),
+            SliceItem::RangeFull => Some((dim, 0..self.size(dim))),
         });
 
         let shape_and_strides = retained_dims

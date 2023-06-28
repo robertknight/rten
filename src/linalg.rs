@@ -1394,11 +1394,11 @@ mod tests {
         let b = Tensor::from_data(&[2, 2], vec![5., 6., 7., 8.]);
         let expected = reference_matmul(&a, &b);
 
-        let mut result = Tensor::zeros(&[a.shape()[0], b.shape()[1]]);
+        let mut result = Tensor::zeros(&[a.size(0), b.size(1)]);
         run_gemm(&mut result, &a, &b, 1., 1., None, KernelHint::Auto);
         expect_equal(&result, &expected)?;
 
-        let mut result = Tensor::zeros(&[a.shape()[0], b.shape()[1]]);
+        let mut result = Tensor::zeros(&[a.size(0), b.size(1)]);
         run_gemm(&mut result, &a, &b, 1., 1., None, KernelHint::Base);
         expect_equal(&result, &expected)?;
 
@@ -1614,7 +1614,7 @@ mod tests {
             let gemm = GemmExecutor::new();
 
             let packed_a = gemm.prepack_a(a_mat);
-            let packed_b = gemm.prepack_b(b.nd_view(), a.shape()[1]);
+            let packed_b = gemm.prepack_b(b.nd_view(), a.size(1));
 
             let mut result = Tensor::zeros(&[m, n]);
             let result_row_stride = result.stride(0);

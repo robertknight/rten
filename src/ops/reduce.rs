@@ -36,7 +36,7 @@ impl<'a, T: Copy> DimSlices<'a, T> {
         DimSlices {
             tensor: tensor.clone(),
             slice_start_offsets: tensor.slice_offsets(&slice_starts),
-            dim_size: tensor.shape()[dim],
+            dim_size: tensor.size(dim),
             dim_stride: tensor.stride(dim),
         }
     }
@@ -64,7 +64,7 @@ fn index_select<T: Copy, Cmp: Fn(T, T) -> bool>(
     compare: Cmp,
 ) -> Result<Tensor<i32>, OpError> {
     let resolved_axis = resolve_axis(input.ndim(), axis)?;
-    if input.shape()[resolved_axis] == 0 {
+    if input.size(resolved_axis) == 0 {
         return Err(OpError::InvalidValue(
             "Cannot select index from empty sequence",
         ));
@@ -280,7 +280,7 @@ fn reduce<T: Copy + Default, R: Reducer<T>>(
                         if resolved_axes.contains(&dim) {
                             1
                         } else {
-                            input.shape()[dim]
+                            input.size(dim)
                         }
                     })
                     .collect();
@@ -289,7 +289,7 @@ fn reduce<T: Copy + Default, R: Reducer<T>>(
                     inner_range.clear();
                     inner_range.extend(index.iter().enumerate().map(|(dim, &idx)| {
                         if resolved_axes.contains(&dim) {
-                            SliceRange::new(0, input.shape()[dim] as isize, 1)
+                            SliceRange::new(0, input.size(dim) as isize, 1)
                         } else {
                             SliceRange::new(idx as isize, idx as isize + 1, 1)
                         }

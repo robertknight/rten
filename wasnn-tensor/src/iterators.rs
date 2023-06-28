@@ -117,7 +117,7 @@ impl IndexingIterBase {
             .iter()
             .enumerate()
             .map(|(dim, range)| {
-                let len = layout.shape()[dim];
+                let len = layout.size(dim);
                 let range = range.clamp(len);
                 let stride = layout.stride(dim);
 
@@ -607,7 +607,7 @@ impl<'a, T: Copy> Iterator for AxisIter<'a, T> {
     type Item = TensorView<'a, T>;
 
     fn next(&mut self) -> Option<Self::Item> {
-        if self.index >= self.view.shape()[0] {
+        if self.index >= self.view.size(0) {
             None
         } else {
             let view = self.view.to_slice([self.index]);
@@ -639,7 +639,7 @@ impl<'a, T: Copy> Iterator for AxisIterMut<'a, T> {
     type Item = TensorViewMut<'a, T>;
 
     fn next(&mut self) -> Option<Self::Item> {
-        if self.index >= self.view.shape()[0] {
+        if self.index >= self.view.size(0) {
             None
         } else {
             let index = self.index;

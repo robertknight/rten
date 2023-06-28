@@ -153,7 +153,7 @@ fn compute_rnn_gate(
     };
 
     if let Some((in_bias, hidden_bias)) = bias {
-        let hidden_size = output.shape()[1];
+        let hidden_size = output.size(1);
         assert!(in_bias.len() == hidden_size);
         assert!(hidden_bias.len() == hidden_size);
 
@@ -172,7 +172,7 @@ fn compute_rnn_gate(
 /// `[direction, num_gates * hidden_size, x]`. The result has shape
 /// `[x, hidden_size]`.
 fn extract_matrix(tensor: &Tensor, dir: usize, num_gates: usize, gate_index: usize) -> Matrix {
-    let hidden_total = tensor.shape()[1];
+    let hidden_total = tensor.size(1);
     assert!(hidden_total % num_gates == 0);
     let hidden_size = hidden_total / num_gates;
     tensor
@@ -203,7 +203,7 @@ fn extract_weights_and_bias<'a>(
     num_gates: usize,
     gate_index: usize,
 ) -> (Matrix<'a>, Matrix<'a>, Option<(&'a [f32], &'a [f32])>) {
-    let hidden_size = weights.shape()[1] / num_gates;
+    let hidden_size = weights.size(1) / num_gates;
     let weight = extract_matrix(weights, dir, num_gates, gate_index).transposed();
     let rec_weight = extract_matrix(recurrent_weights, dir, num_gates, gate_index).transposed();
     let bias = bias.map(|bias| {
@@ -495,14 +495,14 @@ pub fn lstm(
     let num_directions = direction.num_directions();
     let hidden_size = hidden_x4 / 4;
 
-    if weights.shape()[1] % 4 != 0 {
+    if weights.size(1) % 4 != 0 {
         return Err(OpError::InvalidValue(
             "weights dim 1 must be 4 * hidden_size",
         ));
     }
     if let Some(bias) = bias {
         check_dims!(bias, 2);
-        if bias.shape()[1] % 8 != 0 {
+        if bias.size(1) % 8 != 0 {
             return Err(OpError::InvalidValue("bias dim 1 must be 8 * hidden_size"));
         }
     }
@@ -898,7 +898,7 @@ mod tests {
     /// cell, output) as used by PyTorch to (input, output, forget, cell) as
     /// used by ONNX.
     fn reorder_ifco_to_iofc(x: &Tensor, dim: usize) -> Tensor {
-        let size = x.shape()[dim] / 4;
+        let size = x.size(dim) / 4;
         let splits = Tensor::from_vec(vec![size as i32; 4]);
 
         // Split input into seperate tensor for each of the gates.
@@ -920,7 +920,7 @@ mod tests {
     /// Re-order a weight or bias tensor for GRU gates from (reset, update,
     /// hidden) as used by PyTorch to (update, reset, hidden) as used by ONNX.
     fn reorder_ruh_to_urh(x: &Tensor, dim: usize) -> Tensor {
-        let size = x.shape()[dim] / 3;
+        let size = x.size(dim) / 3;
         let splits = Tensor::from_vec(vec![size as i32; 3]);
 
         // Split input into seperate tensor for each of the gates.

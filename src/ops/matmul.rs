@@ -37,7 +37,7 @@ pub fn gemm_op(
     let a = if transpose_a { a.transposed() } else { a };
     let b = if transpose_b { b.transposed() } else { b };
 
-    let out_shape = &[a.shape()[0], b.shape()[1]][..];
+    let out_shape = &[a.size(0), b.size(1)][..];
     let mut output = match c {
         Some(c) if beta != 0. => {
             if !c.can_broadcast_to(out_shape) {
@@ -92,11 +92,11 @@ pub fn matmul(a: TensorView, b: TensorView) -> Result<Tensor, OpError> {
         return Err(OpError::InvalidValue("Inputs must have >= 2 dimensions"));
     }
 
-    let a_rows = a.shape()[a.ndim() - 2];
-    let a_cols = a.shape()[a.ndim() - 1];
+    let a_rows = a.size(a.ndim() - 2);
+    let a_cols = a.size(a.ndim() - 1);
 
-    let b_rows = b.shape()[b.ndim() - 2];
-    let b_cols = b.shape()[b.ndim() - 1];
+    let b_rows = b.size(b.ndim() - 2);
+    let b_cols = b.size(b.ndim() - 1);
 
     if a_cols != b_rows {
         return Err(OpError::IncompatibleInputShapes(

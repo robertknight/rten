@@ -72,7 +72,7 @@ pub fn concat<T: Copy>(inputs: &[TensorView<T>], dim: usize) -> Result<Tensor<T>
 
     let mut out_shape: Vec<_> = first_shape.into();
     for other in &inputs[1..] {
-        out_shape[dim] += other.shape()[dim];
+        out_shape[dim] += other.size(dim);
     }
     let mut out_data = Vec::with_capacity(out_shape.iter().product());
 

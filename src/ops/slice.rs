@@ -62,7 +62,7 @@ pub fn slice<T: Copy>(
     let sliced_shape: Vec<_> = ranges
         .iter()
         .enumerate()
-        .map(|(dim, range)| range.steps(input.shape()[dim]))
+        .map(|(dim, range)| range.steps(input.size(dim)))
         .collect();
     Ok(Tensor::from_data(&sliced_shape, sliced_data))
 }
@@ -77,7 +77,7 @@ pub fn slice_in_place<T: Copy>(
 ) -> Result<(), OpError> {
     let ranges = slice_ranges(input.shape(), starts, ends, axes, None)?;
     for (dim, range) in ranges.iter().enumerate() {
-        let dim_size = input.shape()[dim];
+        let dim_size = input.size(dim);
         input.clip_dim(dim, range.resolve(dim_size));
     }
     Ok(())
@@ -264,7 +264,7 @@ mod tests {
         let input = Tensor::rand(&[5, 2, 5, 3], &mut rng);
 
         for dim in 0..input.shape().len() {
-            let dim_size = input.shape()[dim] as i32;
+            let dim_size = input.size(dim) as i32;
 
             let starts = from_slice(&[0]);
             let ends = from_slice(&[dim_size]);

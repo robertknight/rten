@@ -17,7 +17,7 @@ pub fn gather<T: Copy + Default>(
         return Err(OpError::InvalidValue("`axis` is out of range"));
     }
     for index in indices.iter() {
-        if index < 0 || index >= input.shape()[axis] as i32 {
+        if index < 0 || index >= input.size(axis) as i32 {
             return Err(OpError::InvalidValue("Entry in `indices` is out of range"));
         }
     }

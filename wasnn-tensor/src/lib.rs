@@ -750,7 +750,7 @@ impl<T: Copy> TensorBase<T, VecWithOffset<T>> {
         let (start, end) = (range.start, range.end);
 
         assert!(start <= end, "start must be <= end");
-        assert!(end <= self.shape()[dim], "end must be <= dim size");
+        assert!(end <= self.size(dim), "end must be <= dim size");
 
         let start_offset = self.layout.stride(dim) * start;
         self.layout.resize_dim(dim, end - start);
@@ -1337,8 +1337,8 @@ mod tests {
         let x = Tensor::rand(&[10, 5, 3, 7], &mut rng);
         let x_view = x.nd_slice([5, 3]);
 
-        for a in 0..x.shape()[2] {
-            for b in 0..x.shape()[3] {
+        for a in 0..x.size(2) {
+            for b in 0..x.size(3) {
                 assert_eq!(x[[5, 3, a, b]], x_view[[a, b]]);
             }
         }
@@ -1358,8 +1358,8 @@ mod tests {
             }
         }
 
-        for a in 0..x.shape()[2] {
-            for b in 0..x.shape()[3] {
+        for a in 0..x.size(2) {
+            for b in 0..x.size(3) {
                 assert_eq!(x[[5, 3, a, b]], (a + b) as f32);
             }
         }

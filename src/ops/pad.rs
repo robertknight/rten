@@ -12,7 +12,7 @@ pub fn pad<T: Copy>(
 ) -> Result<Tensor<T>, OpError> {
     check_dims!(padding, 1);
 
-    if padding.shape()[0] != input.ndim() * 2 {
+    if padding.size(0) != input.ndim() * 2 {
         return Err(OpError::InvalidValue(
             "padding length should be 2 * input dims",
         ));

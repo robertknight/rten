@@ -265,7 +265,7 @@ pub fn squeeze_in_place<T: Copy>(
             if axis >= input.ndim() {
                 return Err(OpError::InvalidValue("Axis is invalid"));
             }
-            if input.shape()[axis] != 1 {
+            if input.size(axis) != 1 {
                 return Err(OpError::InvalidValue(
                     "Can only remove dimensions of size 1",
                 ));
