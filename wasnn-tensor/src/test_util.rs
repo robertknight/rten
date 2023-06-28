@@ -8,19 +8,19 @@ use crate::{TensorBase, TensorLayout};
 /// Here "approximately" means "a value that is reasonable for this crate's
 /// tests".
 pub trait ApproxEq {
-    fn approx_eq(self, other: Self) -> bool;
+    fn approx_eq(&self, other: &Self) -> bool;
 }
 
 impl ApproxEq for f32 {
-    fn approx_eq(self, other: f32) -> bool {
+    fn approx_eq(&self, other: &f32) -> bool {
         let eps = 1e-4;
         (self - other).abs() < eps
     }
 }
 
 impl ApproxEq for i32 {
-    fn approx_eq(self, other: i32) -> bool {
-        self == other
+    fn approx_eq(&self, other: &i32) -> bool {
+        *self == *other
     }
 }
 
@@ -48,7 +48,7 @@ fn index_from_linear_index(shape: &[usize], lin_index: usize) -> Vec<usize> {
 ///
 /// If there are mismatches, this returns an `Err` with a message indicating
 /// the count of mismatches and details of the first N cases.
-pub fn expect_equal<T: ApproxEq + Copy + Debug, S: AsRef<[T]>>(
+pub fn expect_equal<T: ApproxEq + Debug, S: AsRef<[T]>>(
     x: &TensorBase<T, S>,
     y: &TensorBase<T, S>,
 ) -> Result<(), String> {

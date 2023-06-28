@@ -205,7 +205,7 @@ impl IndexingIterBase {
 }
 
 /// Iterator over elements of a tensor, in their logical order.
-pub struct Elements<'a, T: Copy> {
+pub struct Elements<'a, T> {
     iter: ElementsIter<'a, T>,
 }
 
@@ -213,12 +213,12 @@ pub struct Elements<'a, T: Copy> {
 ///
 /// When the tensor has a contiguous layout, this iterator is just a thin
 /// wrapper around a slice iterator.
-enum ElementsIter<'a, T: Copy> {
+enum ElementsIter<'a, T> {
     Direct(Iter<'a, T>),
     Indexing(IndexingIter<'a, T>),
 }
 
-impl<T: Copy> Elements<'_, T> {
+impl<T> Elements<'_, T> {
     pub(super) fn new<S: AsRef<[T]>>(view: &TensorBase<T, S>) -> Elements<T> {
         if view.layout.is_contiguous() {
             Elements {
@@ -260,13 +260,13 @@ impl<T: Copy> Elements<'_, T> {
     }
 }
 
-impl<'a, T: Copy> Iterator for Elements<'a, T> {
-    type Item = T;
+impl<'a, T> Iterator for Elements<'a, T> {
+    type Item = &'a T;
 
     #[inline(always)]
-    fn next(&mut self) -> Option<T> {
+    fn next(&mut self) -> Option<Self::Item> {
         match self.iter {
-            ElementsIter::Direct(ref mut iter) => iter.next().copied(),
+            ElementsIter::Direct(ref mut iter) => iter.next(),
             ElementsIter::Indexing(ref mut iter) => iter.next(),
         }
     }
@@ -280,7 +280,7 @@ impl<'a, T: Copy> Iterator for Elements<'a, T> {
 
     fn nth(&mut self, n: usize) -> Option<Self::Item> {
         match self.iter {
-            ElementsIter::Direct(ref mut iter) => iter.nth(n).copied(),
+            ElementsIter::Direct(ref mut iter) => iter.nth(n),
             ElementsIter::Indexing(ref mut iter) => {
                 iter.base.step_by(n);
                 iter.next()
@@ -289,16 +289,16 @@ impl<'a, T: Copy> Iterator for Elements<'a, T> {
     }
 }
 
-impl<'a, T: Copy> ExactSizeIterator for Elements<'a, T> {}
+impl<'a, T> ExactSizeIterator for Elements<'a, T> {}
 
-struct IndexingIter<'a, T: Copy> {
+struct IndexingIter<'a, T> {
     base: IndexingIterBase,
 
     /// Data buffer of the tensor
     data: &'a [T],
 }
 
-impl<'a, T: Copy> IndexingIter<'a, T> {
+impl<'a, T> IndexingIter<'a, T> {
     fn new<S: AsRef<[T]>>(view: &TensorBase<T, S>) -> IndexingIter<T> {
         IndexingIter {
             base: IndexingIterBase::new(&view.layout),
@@ -324,15 +324,15 @@ impl<'a, T: Copy> IndexingIter<'a, T> {
     }
 }
 
-impl<'a, T: Copy> Iterator for IndexingIter<'a, T> {
-    type Item = T;
+impl<'a, T> Iterator for IndexingIter<'a, T> {
+    type Item = &'a T;
 
     #[inline(always)]
     fn next(&mut self) -> Option<Self::Item> {
         if self.base.len == 0 {
             return None;
         }
-        let element = self.data[self.base.offset as usize];
+        let element = &self.data[self.base.offset as usize];
         self.base.step();
         Some(element)
     }
@@ -342,10 +342,10 @@ impl<'a, T: Copy> Iterator for IndexingIter<'a, T> {
     }
 }
 
-impl<'a, T: Copy> ExactSizeIterator for IndexingIter<'a, T> {}
+impl<'a, T> ExactSizeIterator for IndexingIter<'a, T> {}
 
 /// Mutable iterator over elements of a tensor.
-pub struct ElementsMut<'a, T: Copy> {
+pub struct ElementsMut<'a, T> {
     iter: ElementsIterMut<'a, T>,
 }
 
@@ -353,12 +353,12 @@ pub struct ElementsMut<'a, T: Copy> {
 ///
 /// When the tensor has a contiguous layout, this iterator is just a thin
 /// wrapper around a slice iterator.
-enum ElementsIterMut<'a, T: Copy> {
+enum ElementsIterMut<'a, T> {
     Direct(IterMut<'a, T>),
     Indexing(IndexingIterMut<'a, T>),
 }
 
-impl<'a, T: Copy> ElementsMut<'a, T> {
+impl<'a, T> ElementsMut<'a, T> {
     pub(super) fn new(data: &'a mut [T], layout: &Layout) -> ElementsMut<'a, T> {
         if layout.is_contiguous() {
             ElementsMut {
@@ -372,7 +372,7 @@ impl<'a, T: Copy> ElementsMut<'a, T> {
     }
 }
 
-impl<'a, T: Copy> Iterator for ElementsMut<'a, T> {
+impl<'a, T> Iterator for ElementsMut<'a, T> {
     type Item = &'a mut T;
 
     fn next(&mut self) -> Option<Self::Item> {
@@ -400,16 +400,16 @@ impl<'a, T: Copy> Iterator for ElementsMut<'a, T> {
     }
 }
 
-impl<'a, T: Copy> ExactSizeIterator for ElementsMut<'a, T> {}
+impl<'a, T> ExactSizeIterator for ElementsMut<'a, T> {}
 
-struct IndexingIterMut<'a, T: Copy> {
+struct IndexingIterMut<'a, T> {
     base: IndexingIterBase,
 
     /// Data buffer of the tensor
     data: &'a mut [T],
 }
 
-impl<'a, T: Copy> IndexingIterMut<'a, T> {
+impl<'a, T> IndexingIterMut<'a, T> {
     fn new(data: &'a mut [T], layout: &Layout) -> IndexingIterMut<'a, T> {
         // See notes in `Layout` about internal overlap.
         assert!(
@@ -423,7 +423,7 @@ impl<'a, T: Copy> IndexingIterMut<'a, T> {
     }
 }
 
-impl<'a, T: Copy> Iterator for IndexingIterMut<'a, T> {
+impl<'a, T> Iterator for IndexingIterMut<'a, T> {
     type Item = &'a mut T;
 
     fn next(&mut self) -> Option<Self::Item> {
@@ -447,7 +447,7 @@ impl<'a, T: Copy> Iterator for IndexingIterMut<'a, T> {
     }
 }
 
-impl<'a, T: Copy> ExactSizeIterator for IndexingIterMut<'a, T> {}
+impl<'a, T> ExactSizeIterator for IndexingIterMut<'a, T> {}
 
 /// Iterator over element offsets of a tensor.
 ///
@@ -507,13 +507,13 @@ impl ExactSizeIterator for Offsets {}
 ///
 /// This iterator will repeat elements of the underlying tensor until the total
 /// number yielded matches the product of the shape being broadcast to.
-pub struct BroadcastElements<'a, T: Copy> {
+pub struct BroadcastElements<'a, T> {
     iter: BroadcastElementsIter<'a, T>,
 }
 
 /// Alternate implementations for broadcasting. See notes in
 /// `BroadcastElements::can_broadcast_by_cycling`.
-enum BroadcastElementsIter<'a, T: Copy> {
+enum BroadcastElementsIter<'a, T> {
     Direct(Take<Cycle<Iter<'a, T>>>),
     Indexing(IndexingIter<'a, T>),
 }
@@ -553,7 +553,7 @@ fn can_broadcast_by_cycling(from_shape: &[usize], to_shape: &[usize]) -> bool {
     true
 }
 
-impl<'a, T: Copy> BroadcastElements<'a, T> {
+impl<'a, T> BroadcastElements<'a, T> {
     pub fn new<S: AsRef<[T]>>(
         view: &'a TensorBase<T, S>,
         to_shape: &[usize],
@@ -570,12 +570,12 @@ impl<'a, T: Copy> BroadcastElements<'a, T> {
     }
 }
 
-impl<'a, T: Copy> Iterator for BroadcastElements<'a, T> {
-    type Item = T;
+impl<'a, T> Iterator for BroadcastElements<'a, T> {
+    type Item = &'a T;
 
-    fn next(&mut self) -> Option<T> {
+    fn next(&mut self) -> Option<Self::Item> {
         match self.iter {
-            BroadcastElementsIter::Direct(ref mut iter) => iter.next().copied(),
+            BroadcastElementsIter::Direct(ref mut iter) => iter.next(),
             BroadcastElementsIter::Indexing(ref mut iter) => iter.next(),
         }
     }
@@ -588,22 +588,22 @@ impl<'a, T: Copy> Iterator for BroadcastElements<'a, T> {
     }
 }
 
-impl<'a, T: Copy> ExactSizeIterator for BroadcastElements<'a, T> {}
+impl<'a, T> ExactSizeIterator for BroadcastElements<'a, T> {}
 
 /// Iterator over slices of a tensor along an axis. See [TensorBase::axis_iter].
-pub struct AxisIter<'a, T: Copy> {
+pub struct AxisIter<'a, T> {
     view: TensorView<'a, T>,
     index: usize,
 }
 
-impl<'a, T: Copy> AxisIter<'a, T> {
+impl<'a, T> AxisIter<'a, T> {
     pub fn new(mut view: TensorView<'a, T>, dim: usize) -> AxisIter<'a, T> {
         view.move_axis(dim, 0);
         AxisIter { view, index: 0 }
     }
 }
 
-impl<'a, T: Copy> Iterator for AxisIter<'a, T> {
+impl<'a, T> Iterator for AxisIter<'a, T> {
     type Item = TensorView<'a, T>;
 
     fn next(&mut self) -> Option<Self::Item> {
@@ -618,12 +618,12 @@ impl<'a, T: Copy> Iterator for AxisIter<'a, T> {
 }
 
 /// Iterator over mutable slices of a tensor along an axis. See [TensorBase::axis_iter_mut].
-pub struct AxisIterMut<'a, T: Copy> {
+pub struct AxisIterMut<'a, T> {
     view: TensorViewMut<'a, T>,
     index: usize,
 }
 
-impl<'a, T: Copy> AxisIterMut<'a, T> {
+impl<'a, T> AxisIterMut<'a, T> {
     pub fn new(mut view: TensorViewMut<'a, T>, dim: usize) -> AxisIterMut<'a, T> {
         // See notes in `Layout` about internal overlap.
         assert!(
@@ -635,7 +635,7 @@ impl<'a, T: Copy> AxisIterMut<'a, T> {
     }
 }
 
-impl<'a, T: Copy> Iterator for AxisIterMut<'a, T> {
+impl<'a, T> Iterator for AxisIterMut<'a, T> {
     type Item = TensorViewMut<'a, T>;
 
     fn next(&mut self) -> Option<Self::Item> {

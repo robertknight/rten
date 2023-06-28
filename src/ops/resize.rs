@@ -158,7 +158,7 @@ pub fn resize(
             "scales/sizes length should equal input rank",
         ));
     }
-    if sizes.iter().any(|size| size < 0) {
+    if sizes.iter().any(|size| *size < 0) {
         return Err(OpError::InvalidValue("scales/sizes must be positive"));
     }
 
@@ -174,7 +174,7 @@ pub fn resize(
         ));
     }
 
-    let sizes_usize: Vec<_> = sizes.iter().map(|size| size as usize).collect();
+    let sizes_usize: Vec<_> = sizes.iter().map(|size| *size as usize).collect();
     let mut output = Tensor::zeros(&sizes_usize);
 
     if output.is_empty() {

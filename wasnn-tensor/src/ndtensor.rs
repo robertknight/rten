@@ -629,7 +629,7 @@ mod tests {
 
     /// Return elements of `tensor` in their logical order.
     fn tensor_elements<T: Copy, const N: usize>(tensor: NdTensorView<T, N>) -> Vec<T> {
-        tensor.iter().collect()
+        tensor.iter().copied().collect()
     }
 
     // Test conversion of a static-dim tensor with default strides, to a
@@ -657,7 +657,7 @@ mod tests {
         let data = [1, 2, 3, 4];
         let view = NdTensorView::from_slice(&data, [4, 4], Some([0, 1])).unwrap();
         let dyn_view = view.as_dyn();
-        let elements: Vec<_> = dyn_view.iter().collect();
+        let elements: Vec<_> = dyn_view.iter().copied().collect();
         assert_eq!(elements, &[1, 2, 3, 4, 1, 2, 3, 4, 1, 2, 3, 4, 1, 2, 3, 4]);
     }
 
@@ -801,7 +801,7 @@ mod tests {
     #[test]
     fn test_ndtensor_iter() {
         let tensor = NdTensor::<i32, 2>::from_data(vec![1, 2, 3, 4], [2, 2], None).unwrap();
-        let elements: Vec<_> = tensor.iter().collect();
+        let elements: Vec<_> = tensor.iter().copied().collect();
         assert_eq!(elements, &[1, 2, 3, 4]);
     }
 
@@ -812,7 +812,7 @@ mod tests {
             .iter_mut()
             .enumerate()
             .for_each(|(i, el)| *el = i as i32);
-        let elements: Vec<_> = tensor.iter().collect();
+        let elements: Vec<_> = tensor.iter().copied().collect();
         assert_eq!(elements, &[0, 1, 2, 3]);
     }
 

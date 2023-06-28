@@ -164,7 +164,7 @@ fn compute_rnn_gate(
             *el = apply_act(*el + bias);
         }
     } else {
-        output.apply(apply_act);
+        output.apply(|x| apply_act(*x));
     }
 }
 
@@ -646,7 +646,7 @@ pub fn lstm(
             for (hidden, out_gate, cell) in
                 zip3(hidden_item.iter_mut(), out_gate.iter(), cell_item.iter())
             {
-                *hidden = out_gate * tanh_op.map_element(cell)
+                *hidden = out_gate * tanh_op.map_element(*cell)
             }
 
             hidden_seq.slice_mut([seq, dir]).copy_from(&hidden_item);

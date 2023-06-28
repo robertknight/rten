@@ -17,7 +17,7 @@ pub fn pad<T: Copy>(
             "padding length should be 2 * input dims",
         ));
     }
-    if !padding.iter().all(|x| x >= 0) {
+    if !padding.iter().all(|x| *x >= 0) {
         return Err(OpError::InvalidValue("Pad only supports positive pads"));
     }
 
@@ -48,7 +48,7 @@ pub fn pad<T: Copy>(
         output.slice_mut_dyn(&non_pad_region).iter_mut(),
         input.iter(),
     ) {
-        *out = in_;
+        *out = *in_;
     }
 
     Ok(output)

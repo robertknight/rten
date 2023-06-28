@@ -16,7 +16,7 @@ pub fn gather<T: Copy + Default>(
     if axis >= input.ndim() {
         return Err(OpError::InvalidValue("`axis` is out of range"));
     }
-    for index in indices.iter() {
+    for index in indices.iter().copied() {
         if index < 0 || index >= input.size(axis) as i32 {
             return Err(OpError::InvalidValue("Entry in `indices` is out of range"));
         }
@@ -35,7 +35,7 @@ pub fn gather<T: Copy + Default>(
         0 => {
             // If the output index is empty, this means we are indexing a
             // 1D vector with a scalar.
-            in_index[axis] = indices.item().unwrap_or(0) as usize;
+            in_index[axis] = indices.item().copied().unwrap_or(0) as usize;
             output[[]] = input[&in_index[..]];
         }
         _ => {
@@ -96,7 +96,7 @@ mod tests {
         for i in 0..input.len() {
             let indices = Tensor::from_scalar(i as i32);
             let result = gather(input.view(), 0, indices.view()).unwrap();
-            assert_eq!(result.item(), Some(input[[i]]))
+            assert_eq!(result.item(), Some(&input[[i]]))
         }
     }
 

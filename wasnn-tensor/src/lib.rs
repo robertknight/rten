@@ -198,7 +198,7 @@ impl<Array: AsRef<[usize]>> TensorIndex for Array {
 ///
 /// It is parametrized by an element type T and the data storage type S.
 #[derive(Debug)]
-pub struct TensorBase<T: Copy, S: AsRef<[T]>> {
+pub struct TensorBase<T, S: AsRef<[T]>> {
     data: S,
     layout: Layout,
     element_type: PhantomData<T>,
@@ -222,7 +222,7 @@ pub trait RandomSource<T> {
     fn next(&mut self) -> T;
 }
 
-impl<T: Copy, S: AsRef<[T]>> TensorBase<T, S> {
+impl<T, S: AsRef<[T]>> TensorBase<T, S> {
     /// Create a new tensor with a given layout and storage.
     pub(self) fn new(data: S, layout: &Layout) -> Self {
         TensorBase {
@@ -267,7 +267,7 @@ impl<T: Copy, S: AsRef<[T]>> TensorBase<T, S> {
     /// correspond to the logical order.
     pub fn map<F, U: Copy>(&self, f: F) -> Tensor<U>
     where
-        F: Fn(T) -> U,
+        F: Fn(&T) -> U,
     {
         let data = self.iter().map(f).collect();
         Tensor {
@@ -279,8 +279,11 @@ impl<T: Copy, S: AsRef<[T]>> TensorBase<T, S> {
 
     /// Return a new contiguous tensor with the same shape and elements as this
     /// view.
-    pub fn to_tensor(&self) -> Tensor<T> {
-        Tensor::from_data(self.shape(), self.iter().collect::<Vec<_>>())
+    pub fn to_tensor(&self) -> Tensor<T>
+    where
+        T: Clone,
+    {
+        Tensor::from_data(self.shape(), self.iter().cloned().collect::<Vec<_>>())
     }
 
     /// Return a copy of the elements of this tensor as a contiguous vector
@@ -288,19 +291,22 @@ impl<T: Copy, S: AsRef<[T]>> TensorBase<T, S> {
     ///
     /// This is slightly more efficient than `iter().collect()` in the case
     /// where the tensor is already contiguous.
-    pub fn to_vec(&self) -> Vec<T> {
+    pub fn to_vec(&self) -> Vec<T>
+    where
+        T: Clone,
+    {
         if self.is_contiguous() {
             self.data().to_vec()
         } else {
-            self.iter().collect()
+            self.iter().cloned().collect()
         }
     }
 
     /// Returns the single item if this tensor is a 0-dimensional tensor
     /// (ie. a scalar)
-    pub fn item(&self) -> Option<T> {
+    pub fn item(&self) -> Option<&T> {
         match self.ndim() {
-            0 => Some(self.data.as_ref()[0]),
+            0 => Some(&self.data.as_ref()[0]),
             _ if self.len() == 1 => self.iter().next(),
             _ => None,
         }
@@ -437,7 +443,7 @@ impl<T: Copy, S: AsRef<[T]>> TensorBase<T, S> {
     }
 }
 
-impl<'a, T: Copy> TensorBase<T, &'a [T]> {
+impl<'a, T> TensorBase<T, &'a [T]> {
     /// Return the slice underlying this view.
     ///
     /// This is similar to [TensorBase::data], but the lifetime is that of the
@@ -515,27 +521,30 @@ impl<'a, T: Copy> TensorBase<T, &'a [T]> {
     }
 }
 
-impl<T: Copy, S: AsRef<[T]>> TensorLayout for TensorBase<T, S> {
+impl<T, S: AsRef<[T]>> TensorLayout for TensorBase<T, S> {
     fn layout(&self) -> &Layout {
         &self.layout
     }
 }
 
-impl<I: TensorIndex, T: Copy, S: AsRef<[T]>> Index<I> for TensorBase<T, S> {
+impl<I: TensorIndex, T, S: AsRef<[T]>> Index<I> for TensorBase<T, S> {
     type Output = T;
     fn index(&self, index: I) -> &Self::Output {
         &self.data.as_ref()[self.offset(index)]
     }
 }
 
-impl<T: Copy, S: AsRef<[T]> + AsMut<[T]>> TensorBase<T, S> {
+impl<T, S: AsRef<[T]> + AsMut<[T]>> TensorBase<T, S> {
     /// Copy elements from another tensor into this tensor.
     ///
     /// This tensor and `other` must have the same shape.
-    pub fn copy_from<OS: AsRef<[T]>>(&mut self, other: &TensorBase<T, OS>) {
+    pub fn copy_from<OS: AsRef<[T]>>(&mut self, other: &TensorBase<T, OS>)
+    where
+        T: Clone,
+    {
         assert!(self.shape() == other.shape());
         for (out, x) in zip(self.iter_mut(), other.iter()) {
-            *out = x;
+            *out = x.clone();
         }
     }
 
@@ -564,10 +573,10 @@ impl<T: Copy, S: AsRef<[T]> + AsMut<[T]>> TensorBase<T, S> {
     ///
     /// The order in which elements are visited is unspecified and may not
     /// correspond to the logical order.
-    pub fn apply<F: Fn(T) -> T>(&mut self, f: F) {
+    pub fn apply<F: Fn(&T) -> T>(&mut self, f: F) {
         // TODO: Skip unused elements when tensor is not contiguous.
         for val in self.data.as_mut().iter_mut() {
-            *val = f(*val);
+            *val = f(val);
         }
     }
 
@@ -628,7 +637,7 @@ impl<T: Copy, S: AsRef<[T]> + AsMut<[T]>> TensorBase<T, S> {
     }
 }
 
-impl<'a, T: Copy> TensorBase<T, &'a mut [T]> {
+impl<'a, T> TensorBase<T, &'a mut [T]> {
     /// Consume this view and return the underlying data slice.
     ///
     /// This differs from [Self::data_mut] as the lifetime of the returned slice
@@ -666,7 +675,7 @@ impl<'a, T: Copy> TensorBase<T, &'a mut [T]> {
     }
 }
 
-impl<I: TensorIndex, T: Copy, S: AsRef<[T]> + AsMut<[T]>> IndexMut<I> for TensorBase<T, S> {
+impl<I: TensorIndex, T, S: AsRef<[T]> + AsMut<[T]>> IndexMut<I> for TensorBase<T, S> {
     fn index_mut(&mut self, index: I) -> &mut Self::Output {
         let offset = self.offset(index);
         &mut self.data.as_mut()[offset]
@@ -695,11 +704,11 @@ impl<I: TensorIndex, T: Copy, S: AsRef<[T]> + AsMut<[T]>> IndexMut<I> for Tensor
 /// accessing the underlying element buffer directly.
 pub type Tensor<T = f32> = TensorBase<T, VecWithOffset<T>>;
 
-impl<T: Copy> TensorBase<T, VecWithOffset<T>> {
+impl<T> TensorBase<T, VecWithOffset<T>> {
     /// Create a new zero-filled tensor with a given shape.
     pub fn zeros(shape: &[usize]) -> Tensor<T>
     where
-        T: Default,
+        T: Clone + Default,
     {
         let n_elts = shape.iter().product();
         let data = vec![T::default(); n_elts];
@@ -713,7 +722,7 @@ impl<T: Copy> TensorBase<T, VecWithOffset<T>> {
     /// Create a new tensor filled with random numbers from a given source.
     pub fn rand<R: RandomSource<T>>(shape: &[usize], rand_src: &mut R) -> Tensor<T>
     where
-        T: Default,
+        T: Clone + Default,
     {
         let mut tensor = Tensor::zeros(shape);
         tensor.data_mut().fill_with(|| rand_src.next());
@@ -732,11 +741,14 @@ impl<T: Copy> TensorBase<T, VecWithOffset<T>> {
 
     /// Clone this tensor with a new shape. The new shape must have the same
     /// total number of elements as the existing shape. See `reshape`.
-    pub fn clone_with_shape(&self, shape: &[usize]) -> Tensor<T> {
+    pub fn clone_with_shape(&self, shape: &[usize]) -> Tensor<T>
+    where
+        T: Clone,
+    {
         let data = if self.is_contiguous() {
-            self.data().into()
+            self.data().to_vec()
         } else {
-            self.iter().collect::<Vec<_>>()
+            self.iter().cloned().collect::<Vec<_>>()
         };
         Self::from_data(shape, data)
     }
@@ -762,24 +774,30 @@ impl<T: Copy> TensorBase<T, VecWithOffset<T>> {
     /// by `is_contiguous`.
     ///
     /// This is a no-op if the tensor is already contiguous.
-    pub fn make_contiguous(&mut self) {
+    pub fn make_contiguous(&mut self)
+    where
+        T: Clone,
+    {
         if self.is_contiguous() {
             return;
         }
-        self.data = VecWithOffset::new(self.iter().collect());
+        self.data = VecWithOffset::new(self.iter().cloned().collect());
         self.layout.make_contiguous();
     }
 
     /// Return a contiguous version of this tensor, either as a reference if
     /// the tensor is already contiguous, or a copy if not.
-    pub fn as_contiguous(&self) -> Cow<Tensor<T>> {
+    pub fn as_contiguous(&self) -> Cow<Tensor<T>>
+    where
+        T: Clone,
+    {
         if self.is_contiguous() {
             Cow::Borrowed(self)
         } else {
             let mut contiguous_layout = self.layout.clone();
             contiguous_layout.make_contiguous();
             Cow::Owned(Tensor {
-                data: VecWithOffset::new(self.iter().collect()),
+                data: VecWithOffset::new(self.iter().cloned().collect()),
                 layout: contiguous_layout,
                 element_type: PhantomData,
             })
@@ -793,7 +811,10 @@ impl<T: Copy> TensorBase<T, VecWithOffset<T>> {
     ///
     /// This is a cheap operation if the tensor is contiguous, but requires
     /// copying data if the tensor has a non-contiguous layout.
-    pub fn reshape(&mut self, shape: &[usize]) {
+    pub fn reshape(&mut self, shape: &[usize])
+    where
+        T: Clone,
+    {
         let len: usize = shape.iter().product();
         let current_len = self.len();
         assert!(
@@ -832,7 +853,7 @@ impl<S: AsRef<[f32]>> TensorBase<f32, S> {
     }
 }
 
-impl<T: Copy + PartialEq, S1: AsRef<[T]>, S2: AsRef<[T]>> PartialEq<TensorBase<T, S2>>
+impl<T: PartialEq, S1: AsRef<[T]>, S2: AsRef<[T]>> PartialEq<TensorBase<T, S2>>
     for TensorBase<T, S1>
 {
     fn eq(&self, other: &TensorBase<T, S2>) -> bool {
@@ -840,7 +861,7 @@ impl<T: Copy + PartialEq, S1: AsRef<[T]>, S2: AsRef<[T]>> PartialEq<TensorBase<T
     }
 }
 
-impl<T: Copy, S: AsRef<[T]> + Clone> Clone for TensorBase<T, S> {
+impl<T, S: AsRef<[T]> + Clone> Clone for TensorBase<T, S> {
     fn clone(&self) -> TensorBase<T, S> {
         let data = self.data.clone();
         TensorBase {
@@ -851,7 +872,7 @@ impl<T: Copy, S: AsRef<[T]> + Clone> Clone for TensorBase<T, S> {
     }
 }
 
-impl<T: Copy> FromIterator<T> for Tensor<T> {
+impl<T> FromIterator<T> for Tensor<T> {
     fn from_iter<I>(iter: I) -> Self
     where
         I: IntoIterator<Item = T>,
@@ -941,7 +962,7 @@ mod tests {
         let mut x = steps(&[3, 3]);
         x.clip_dim(0, 1..2);
         x.clip_dim(1, 1..2);
-        assert_eq!(x.iter().collect::<Vec<i32>>(), vec![5]);
+        assert_eq!(x.to_vec(), vec![5]);
     }
 
     #[test]
@@ -952,7 +973,7 @@ mod tests {
         x.clip_dim(0, 1..3);
 
         // Indexing should reflect the slice.
-        assert_eq!(x.iter().collect::<Vec<i32>>(), &[4, 5, 6, 7, 8, 9]);
+        assert_eq!(x.to_vec(), &[4, 5, 6, 7, 8, 9]);
         assert_eq!(x[[0, 0]], 4);
         assert_eq!(*x.index_mut([0, 0]), 4);
 
@@ -1089,16 +1110,16 @@ mod tests {
     #[test]
     fn test_item() {
         let scalar = Tensor::from_scalar(5.0);
-        assert_eq!(scalar.item(), Some(5.0));
+        assert_eq!(scalar.item(), Some(&5.0));
 
         let vec_one_item = tensor!([5.0]);
-        assert_eq!(vec_one_item.item(), Some(5.0));
+        assert_eq!(vec_one_item.item(), Some(&5.0));
 
         let vec_many_items = tensor!([1.0, 2.0]);
         assert_eq!(vec_many_items.item(), None);
 
         let matrix_one_item = Tensor::from_data(&[1, 1], vec![5.0]);
-        assert_eq!(matrix_one_item.item(), Some(5.0));
+        assert_eq!(matrix_one_item.item(), Some(&5.0));
     }
 
     #[test]
@@ -1223,7 +1244,7 @@ mod tests {
         x.reshape(&[4]);
 
         // Check that the correct elements were read.
-        assert_eq!(x.iter().collect::<Vec<i32>>(), &[5, 6, 8, 9]);
+        assert_eq!(x.to_vec(), &[5, 6, 8, 9]);
     }
 
     #[test]
@@ -1234,7 +1255,7 @@ mod tests {
         // Give the tensor a non-default stride
         x.clip_dim(1, 0..8);
         assert!(!x.is_contiguous());
-        let x_elements: Vec<f32> = x.iter().collect();
+        let x_elements = x.to_vec();
 
         x.reshape(&[80]);
 
@@ -1257,16 +1278,16 @@ mod tests {
     fn test_permute() {
         // Test with a vector (this is a no-op)
         let mut input = steps(&[5]);
-        assert!(input.iter().eq([1, 2, 3, 4, 5].iter().copied()));
+        assert!(input.iter().eq([1, 2, 3, 4, 5].iter()));
         input.permute(&[0]);
-        assert!(input.iter().eq([1, 2, 3, 4, 5].iter().copied()));
+        assert!(input.iter().eq([1, 2, 3, 4, 5].iter()));
 
         // Test with a matrix (ie. transpose the matrix)
         let mut input = steps(&[2, 3]);
-        assert!(input.iter().eq([1, 2, 3, 4, 5, 6].iter().copied()));
+        assert!(input.iter().eq([1, 2, 3, 4, 5, 6].iter()));
         input.permute(&[1, 0]);
         assert_eq!(input.shape(), &[3, 2]);
-        assert!(input.iter().eq([1, 4, 2, 5, 3, 6].iter().copied()));
+        assert!(input.iter().eq([1, 4, 2, 5, 3, 6].iter()));
 
         // Test with a higher-rank tensor. For this test we don't list out the
         // full permuted element sequence, but just check the shape and strides
@@ -1297,10 +1318,10 @@ mod tests {
 
         // Test with a matrix
         let mut input = steps(&[2, 3]);
-        assert!(input.iter().eq([1, 2, 3, 4, 5, 6].iter().copied()));
+        assert!(input.iter().eq([1, 2, 3, 4, 5, 6].iter()));
         input.transpose();
         assert_eq!(input.shape(), &[3, 2]);
-        assert!(input.iter().eq([1, 4, 2, 5, 3, 6].iter().copied()));
+        assert!(input.iter().eq([1, 4, 2, 5, 3, 6].iter()));
 
         // Test with a higher-rank tensor
         let mut input = steps(&[1, 3, 7]);
@@ -1375,7 +1396,7 @@ mod tests {
             let mut rng = XorShiftRng::new(1234);
             let x = Tensor::rand(&shape, &mut rng);
 
-            let elts: Vec<f32> = x.iter().collect();
+            let elts: Vec<f32> = x.iter().copied().collect();
 
             assert_eq!(x.data(), elts);
         }
@@ -1396,25 +1417,25 @@ mod tests {
 
         // Initially tensor is contiguous, so data buffer and element sequence
         // match.
-        assert_eq!(x.data(), x.iter().collect::<Vec<_>>());
+        assert_eq!(x.data(), x.iter().copied().collect::<Vec<_>>());
 
         // Slice the tensor along an outer dimension. This will leave the tensor
         // contiguous, and hence `data` and `elements` should return the same
         // elements.
         x.clip_dim(0, 0..2);
         assert_eq!(x.data(), &[1, 2, 3, 4, 5, 6]);
-        assert_eq!(x.iter().collect::<Vec<_>>(), &[1, 2, 3, 4, 5, 6]);
+        assert_eq!(x.iter().copied().collect::<Vec<_>>(), &[1, 2, 3, 4, 5, 6]);
         // Test with step > 1 to exercise `Elements::nth`.
-        assert_eq!(x.iter().step_by(2).collect::<Vec<_>>(), &[1, 3, 5]);
+        assert_eq!(x.iter().step_by(2).copied().collect::<Vec<_>>(), &[1, 3, 5]);
 
         // Slice the tensor along an inner dimension. The tensor will no longer
         // be contiguous and hence `elements` will return different results than
         // `data`.
         x.clip_dim(1, 0..2);
         assert_eq!(x.data(), &[1, 2, 3, 4, 5]);
-        assert_eq!(x.iter().collect::<Vec<_>>(), &[1, 2, 4, 5]);
+        assert_eq!(x.iter().copied().collect::<Vec<_>>(), &[1, 2, 4, 5]);
         // Test with step > 1 to exercise `Elements::nth`.
-        assert_eq!(x.iter().step_by(2).collect::<Vec<_>>(), &[1, 4]);
+        assert_eq!(x.iter().step_by(2).copied().collect::<Vec<_>>(), &[1, 4]);
     }
 
     // PyTorch and numpy do not allow iteration over a scalar, but it seems
@@ -1423,7 +1444,7 @@ mod tests {
     #[test]
     fn test_iter_for_scalar() {
         let x = Tensor::from_scalar(5.0);
-        let elements = x.iter().collect::<Vec<_>>();
+        let elements = x.iter().copied().collect::<Vec<_>>();
         assert_eq!(&elements, &[5.0]);
     }
 
@@ -1467,12 +1488,12 @@ mod tests {
         let mut x = steps(&[3, 3]);
 
         // Contiguous case. This should use the fast-path.
-        assert_eq!(x.to_vec(), x.iter().collect::<Vec<_>>());
+        assert_eq!(x.to_vec(), x.iter().copied().collect::<Vec<_>>());
 
         // Non-contiguous case.
         x.clip_dim(1, 0..2);
         assert!(!x.is_contiguous());
-        assert_eq!(x.to_vec(), x.iter().collect::<Vec<_>>());
+        assert_eq!(x.to_vec(), x.iter().copied().collect::<Vec<_>>());
     }
 
     #[test]
@@ -1480,7 +1501,7 @@ mod tests {
         let mut rng = XorShiftRng::new(1234);
         let mut x = Tensor::rand(&[10, 10], &mut rng);
 
-        let x_elts: Vec<_> = x.iter().collect();
+        let x_elts: Vec<_> = x.to_vec();
 
         let x_offsets = x.offsets();
         let x_data = x.data_mut();
@@ -1609,7 +1630,7 @@ mod tests {
 
         x.make_contiguous();
         assert!(x.is_contiguous());
-        assert_eq!(x.iter().collect::<Vec<i32>>(), &[5, 6, 8, 9]);
+        assert_eq!(x.to_vec(), &[5, 6, 8, 9]);
     }
 
     #[test]
@@ -1626,27 +1647,30 @@ mod tests {
     #[test]
     fn test_broadcast_iter() {
         let x = steps(&[1, 2, 1, 2]);
-        assert_eq!(x.iter().collect::<Vec<i32>>(), &[1, 2, 3, 4]);
+        assert_eq!(x.to_vec(), &[1, 2, 3, 4]);
 
         // Broadcast a 1-size dimension to size 2
         let bx = x.broadcast_iter(&[2, 2, 1, 2]);
-        assert_eq!(bx.collect::<Vec<i32>>(), &[1, 2, 3, 4, 1, 2, 3, 4]);
+        assert_eq!(bx.copied().collect::<Vec<i32>>(), &[1, 2, 3, 4, 1, 2, 3, 4]);
 
         // Broadcast a different 1-size dimension to size 2
         let bx = x.broadcast_iter(&[1, 2, 2, 2]);
-        assert_eq!(bx.collect::<Vec<i32>>(), &[1, 2, 1, 2, 3, 4, 3, 4]);
+        assert_eq!(bx.copied().collect::<Vec<i32>>(), &[1, 2, 1, 2, 3, 4, 3, 4]);
 
         // Broadcast to a larger number of dimensions
         let x = steps(&[5]);
         let bx = x.broadcast_iter(&[1, 5]);
-        assert_eq!(bx.collect::<Vec<i32>>(), &[1, 2, 3, 4, 5]);
+        assert_eq!(bx.copied().collect::<Vec<i32>>(), &[1, 2, 3, 4, 5]);
     }
 
     #[test]
     fn test_broadcast_iter_with_scalar() {
         let scalar = Tensor::from_scalar(7);
         let bx = scalar.broadcast_iter(&[3, 3]);
-        assert_eq!(bx.collect::<Vec<i32>>(), &[7, 7, 7, 7, 7, 7, 7, 7, 7]);
+        assert_eq!(
+            bx.copied().collect::<Vec<i32>>(),
+            &[7, 7, 7, 7, 7, 7, 7, 7, 7]
+        );
     }
 
     #[test]
@@ -1668,7 +1692,7 @@ mod tests {
         let x = steps(&[2, 1, 4]);
         let to_shape = &[2, 2, 1, 4];
 
-        let expected: Vec<i32> = x.broadcast_iter(to_shape).collect();
+        let expected: Vec<i32> = x.broadcast_iter(to_shape).copied().collect();
         let actual: Vec<i32> = x
             .broadcast_offsets(to_shape)
             .map(|off| x.data()[off])
@@ -1718,7 +1742,7 @@ mod tests {
             // 3D index
             let y = $x.$method([0, 1, 2]);
             assert_eq!(y.shape(), []);
-            assert_eq!(y.item(), Some(7));
+            assert_eq!(y.item(), Some(&7));
 
             // Full range
             let y = $x.$method([..]);
@@ -1764,19 +1788,19 @@ mod tests {
         let x = steps(&[3, 3]);
 
         // Slice that removes start of each dimension
-        let slice: Vec<_> = x.slice_iter(&[sr(1, 3), sr(1, 3)]).collect();
+        let slice: Vec<_> = x.slice_iter(&[sr(1, 3), sr(1, 3)]).copied().collect();
         assert_eq!(slice, &[5, 6, 8, 9]);
 
         // Slice that removes end of each dimension
-        let slice: Vec<_> = x.slice_iter(&[sr(0, 2), sr(0, 2)]).collect();
+        let slice: Vec<_> = x.slice_iter(&[sr(0, 2), sr(0, 2)]).copied().collect();
         assert_eq!(slice, &[1, 2, 4, 5]);
 
         // Slice that removes start and end of first dimension
-        let slice: Vec<_> = x.slice_iter(&[sr(1, 2), sr(0, 3)]).collect();
+        let slice: Vec<_> = x.slice_iter(&[sr(1, 2), sr(0, 3)]).copied().collect();
         assert_eq!(slice, &[4, 5, 6]);
 
         // Slice that removes start and end of second dimension
-        let slice: Vec<_> = x.slice_iter(&[sr(0, 3), sr(1, 2)]).collect();
+        let slice: Vec<_> = x.slice_iter(&[sr(0, 3), sr(1, 2)]).copied().collect();
         assert_eq!(slice, &[2, 5, 8]);
     }
 
@@ -1786,26 +1810,26 @@ mod tests {
         let x = steps(&[10]);
 
         // Positive steps > 1.
-        let slice: Vec<_> = x.slice_iter(&[sr(0, 10, 2)]).collect();
+        let slice: Vec<_> = x.slice_iter(&[sr(0, 10, 2)]).copied().collect();
         assert_eq!(slice, &[1, 3, 5, 7, 9]);
 
-        let slice: Vec<_> = x.slice_iter(&[sr(0, 10, 3)]).collect();
+        let slice: Vec<_> = x.slice_iter(&[sr(0, 10, 3)]).copied().collect();
         assert_eq!(slice, &[1, 4, 7, 10]);
 
-        let slice: Vec<_> = x.slice_iter(&[sr(0, 10, 10)]).collect();
+        let slice: Vec<_> = x.slice_iter(&[sr(0, 10, 10)]).copied().collect();
         assert_eq!(slice, &[1]);
 
         // Negative steps.
-        let slice: Vec<_> = x.slice_iter(&[sr(10, -11, -1)]).collect();
+        let slice: Vec<_> = x.slice_iter(&[sr(10, -11, -1)]).copied().collect();
         assert_eq!(slice, &[10, 9, 8, 7, 6, 5, 4, 3, 2, 1]);
 
-        let slice: Vec<_> = x.slice_iter(&[sr(8, 0, -1)]).collect();
+        let slice: Vec<_> = x.slice_iter(&[sr(8, 0, -1)]).copied().collect();
         assert_eq!(slice, &[9, 8, 7, 6, 5, 4, 3, 2]);
 
-        let slice: Vec<_> = x.slice_iter(&[sr(10, 0, -2)]).collect();
+        let slice: Vec<_> = x.slice_iter(&[sr(10, 0, -2)]).copied().collect();
         assert_eq!(slice, &[10, 8, 6, 4, 2]);
 
-        let slice: Vec<_> = x.slice_iter(&[sr(10, 0, -10)]).collect();
+        let slice: Vec<_> = x.slice_iter(&[sr(10, 0, -10)]).copied().collect();
         assert_eq!(slice, &[10]);
     }
 
@@ -1815,15 +1839,15 @@ mod tests {
         let x = steps(&[10]);
 
         // Negative start
-        let slice: Vec<_> = x.slice_iter(&[sr(-2, 10)]).collect();
+        let slice: Vec<_> = x.slice_iter(&[sr(-2, 10)]).copied().collect();
         assert_eq!(slice, &[9, 10]);
 
         // Negative end
-        let slice: Vec<_> = x.slice_iter(&[sr(7, -1)]).collect();
+        let slice: Vec<_> = x.slice_iter(&[sr(7, -1)]).copied().collect();
         assert_eq!(slice, &[8, 9]);
 
         // Negative start and end
-        let slice: Vec<_> = x.slice_iter(&[sr(-3, -1)]).collect();
+        let slice: Vec<_> = x.slice_iter(&[sr(-3, -1)]).copied().collect();
         assert_eq!(slice, &[8, 9]);
     }
 
@@ -1839,11 +1863,11 @@ mod tests {
         assert_eq!(slice.len(), 0);
 
         // Positive end out of bounds
-        let slice: Vec<_> = x.slice_iter(&[sr(0, 10, 1)]).collect();
+        let slice: Vec<_> = x.slice_iter(&[sr(0, 10, 1)]).copied().collect();
         assert_eq!(slice, &[1, 2, 3, 4, 5]);
 
         // Negative start out of bounds
-        let slice: Vec<_> = x.slice_iter(&[sr(-10, 5, 1)]).collect();
+        let slice: Vec<_> = x.slice_iter(&[sr(-10, 5, 1)]).copied().collect();
         assert_eq!(slice, &[1, 2, 3, 4, 5]);
 
         // Negative end out of bounds
@@ -1853,7 +1877,7 @@ mod tests {
         // Test cases for negative steps (ie. traversing backwards).
 
         // Positive start out of bounds
-        let slice: Vec<_> = x.slice_iter(&[sr(10, -6, -1)]).collect();
+        let slice: Vec<_> = x.slice_iter(&[sr(10, -6, -1)]).copied().collect();
         assert_eq!(slice, &[5, 4, 3, 2, 1]);
 
         // Positive end out of bounds
@@ -1865,7 +1889,7 @@ mod tests {
         assert_eq!(slice.len(), 0);
 
         // Negative end out of bounds
-        let slice: Vec<_> = x.slice_iter(&[sr(-1, -10, -1)]).collect();
+        let slice: Vec<_> = x.slice_iter(&[sr(-1, -10, -1)]).copied().collect();
         assert_eq!(slice, &[5, 4, 3, 2, 1]);
     }
 
@@ -1898,7 +1922,7 @@ mod tests {
 
         // Range that removes the start and end of each dimension.
         let range = &[SliceRange::new(1, 4, 1), SliceRange::new(1, 4, 1)];
-        let expected: Vec<_> = x.slice_iter(range).collect();
+        let expected: Vec<_> = x.slice_iter(range).copied().collect();
         let result: Vec<_> = x
             .slice_offsets(range)
             .map(|offset| x.data()[offset])
@@ -1941,7 +1965,7 @@ mod tests {
             assert_eq!(written_size, size as u32);
         }
 
-        for el in x.iter() {
+        for el in x.iter().copied() {
             cursor.read(&mut tmp)?;
             let written_el = f32::from_le_bytes(tmp);
             assert_eq!(written_el, el);

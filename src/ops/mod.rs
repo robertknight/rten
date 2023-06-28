@@ -126,6 +126,7 @@ impl<'a> TryFrom<Input<'a>> for f32 {
         let tensor: &Tensor<_> = input.try_into()?;
         tensor
             .item()
+            .copied()
             .ok_or(OpError::InvalidValue("Expected scalar value"))
     }
 }
@@ -137,6 +138,7 @@ impl<'a> TryFrom<Input<'a>> for i32 {
         let tensor: &Tensor<_> = input.try_into()?;
         tensor
             .item()
+            .copied()
             .ok_or(OpError::InvalidValue("Expected scalar value"))
     }
 }
@@ -449,6 +451,7 @@ impl<'a> InputList<'a> {
         tensor
             .map(|t| {
                 t.item()
+                    .copied()
                     .ok_or(OpError::InvalidValue("Expected scalar value"))
             })
             .transpose()
@@ -511,13 +514,13 @@ fn resolve_axis(ndim: usize, axis: isize) -> Result<usize, OpError> {
 /// indexes in a tensor with `ndim` dimensions.
 ///
 /// Negative axis values count backwards from the last dimension.
-pub fn resolve_axes<I: ExactSizeIterator<Item = i32>>(
+pub fn resolve_axes<'a, I: ExactSizeIterator<Item = &'a i32>>(
     ndim: usize,
     axes: I,
 ) -> Result<Vec<usize>, OpError> {
     let mut resolved_axes = Vec::with_capacity(axes.len());
     for axis in axes {
-        let resolved = resolve_axis(ndim, axis as isize)?;
+        let resolved = resolve_axis(ndim, *axis as isize)?;
         resolved_axes.push(resolved);
     }
     Ok(resolved_axes)

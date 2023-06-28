@@ -45,7 +45,7 @@ pub fn gemm_op(
                     "Cannot broadcast c to output shape",
                 ));
             }
-            let out_data: Vec<_> = c.broadcast_iter(out_shape).collect();
+            let out_data: Vec<_> = c.broadcast_iter(out_shape).copied().collect();
             Tensor::from_data(out_shape, out_data)
         }
         _ => Tensor::zeros(out_shape),
@@ -288,12 +288,15 @@ mod tests {
         let broadcast_expected_shape = &[1, 4, 3, 8][..];
         let broadcast_a = Tensor::from_data(
             broadcast_a_shape.into(),
-            a.broadcast_iter(broadcast_a_shape).collect::<Vec<_>>(),
+            a.broadcast_iter(broadcast_a_shape)
+                .copied()
+                .collect::<Vec<_>>(),
         );
         let broadcast_expected = Tensor::from_data(
             broadcast_expected_shape.into(),
             expected
                 .broadcast_iter(broadcast_expected_shape)
+                .copied()
                 .collect::<Vec<_>>(),
         );
         let result = matmul(broadcast_a.view(), b.view()).unwrap();
@@ -304,12 +307,15 @@ mod tests {
         let broadcast_expected_shape = &[1, 3, 3, 8][..];
         let broadcast_b = Tensor::from_data(
             broadcast_b_shape.into(),
-            b.broadcast_iter(broadcast_b_shape).collect::<Vec<_>>(),
+            b.broadcast_iter(broadcast_b_shape)
+                .copied()
+                .collect::<Vec<_>>(),
         );
         let expected = Tensor::from_data(
             broadcast_expected_shape.into(),
             expected
                 .broadcast_iter(broadcast_expected_shape)
+                .copied()
                 .collect::<Vec<_>>(),
         );
         let result = matmul(a.view(), broadcast_b.view()).unwrap();

@@ -12,7 +12,7 @@ pub fn split<T: Copy>(
 
     let axis = resolve_axis(input.ndim(), axis)?;
 
-    if split.iter().any(|size| size < 0) {
+    if split.iter().any(|size| *size < 0) {
         return Err(OpError::InvalidValue("Split sizes must be >= 0"));
     }
     let split_sum = split.iter().sum::<i32>() as usize;
@@ -25,7 +25,7 @@ pub fn split<T: Copy>(
     let mut split_start = 0;
     let outputs = split
         .iter()
-        .map(|split_size| {
+        .map(|&split_size| {
             let split_size = split_size as usize;
             let slice_range: Vec<SliceItem> = (0..input.ndim())
                 .map(|dim| {

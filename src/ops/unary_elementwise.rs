@@ -16,12 +16,12 @@ pub trait UnaryFloatOp {
 
     /// Apply the operator to all elements in `input`.
     fn map(&self, input: TensorView) -> Tensor {
-        input.map(|val| self.map_element(val))
+        input.map(|val| self.map_element(*val))
     }
 
     /// Apply the operator to all elements in `input`.
     fn apply(&self, input: &mut Tensor) {
-        input.apply(|val| self.map_element(val))
+        input.apply(|val| self.map_element(*val))
     }
 }
 
@@ -341,7 +341,7 @@ mod tests {
     #[test]
     fn test_cos() -> Result<(), String> {
         let input = tensor!([0.1, 3.14, -5.]);
-        let expected = input.map(|x: f32| x.cos());
+        let expected = input.map(|x: &f32| x.cos());
         let result = cos(input.view());
         expect_equal(&result, &expected)
     }
@@ -349,7 +349,7 @@ mod tests {
     #[test]
     fn test_cos_in_place() -> Result<(), String> {
         let mut input = tensor!([0.1, 3.14, -5.]);
-        let expected = input.map(|x: f32| x.cos());
+        let expected = input.map(|x: &f32| x.cos());
         cos_in_place(&mut input);
         expect_equal(&input, &expected)
     }
@@ -461,7 +461,7 @@ mod tests {
     #[test]
     fn test_sin() -> Result<(), String> {
         let input = tensor!([0.1, 3.14, -5.]);
-        let expected = input.map(|x: f32| x.sin());
+        let expected = input.map(|x: &f32| x.sin());
         let result = sin(input.view());
         expect_equal(&result, &expected)
     }
@@ -469,7 +469,7 @@ mod tests {
     #[test]
     fn test_sin_in_place() -> Result<(), String> {
         let mut input = tensor!([0.1, 3.14, -5.]);
-        let expected = input.map(|x: f32| x.sin());
+        let expected = input.map(|x: &f32| x.sin());
         sin_in_place(&mut input);
         expect_equal(&input, &expected)
     }
@@ -493,7 +493,7 @@ mod tests {
     #[test]
     fn test_tanh() -> Result<(), String> {
         let input = tensor!([0.1, 3.14, -5.]);
-        let expected = input.map(|x: f32| x.tanh());
+        let expected = input.map(|x: &f32| x.tanh());
         let result = tanh(input.view());
         expect_equal(&result, &expected)
     }
@@ -501,7 +501,7 @@ mod tests {
     #[test]
     fn test_tanh_in_place() -> Result<(), String> {
         let mut input = tensor!([0.1, 3.14, -5.]);
-        let expected = input.map(|x: f32| x.tanh());
+        let expected = input.map(|x: &f32| x.tanh());
         tanh_in_place(&mut input);
         expect_equal(&input, &expected)
     }

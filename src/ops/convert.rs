@@ -15,10 +15,10 @@ impl Operator for Cast {
         let result: Output = match input {
             Input::IntTensor(t) => match self.to {
                 DataType::Int32 => (*t).clone().into(),
-                DataType::Float => t.map(|x| x as f32).into(),
+                DataType::Float => t.map(|x| *x as f32).into(),
             },
             Input::FloatTensor(t) => match self.to {
-                DataType::Int32 => t.map(|x| x as i32).into(),
+                DataType::Int32 => t.map(|x| *x as i32).into(),
                 DataType::Float => (*t).clone().into(),
             },
         };

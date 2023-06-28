@@ -201,7 +201,7 @@ impl Operator for CumSum {
 ///
 /// This is a trait rather than a closure to support being invoked with
 /// dynamically chosen iterator types.
-trait Reducer<T: Copy> {
+trait Reducer<T> {
     fn reduce<I: ExactSizeIterator<Item = T>>(&self, iter: I) -> T;
 }
 
@@ -212,13 +212,13 @@ fn reduce<T: Copy + Default, R: Reducer<T>>(
     reducer: R,
 ) -> Result<Tensor<T>, OpError> {
     let mut resolved_axes = match axes {
-        Some(axes) if !axes.is_empty() => resolve_axes(input.ndim(), axes.iter().copied())?,
+        Some(axes) if !axes.is_empty() => resolve_axes(input.ndim(), axes.iter())?,
         _ => (0..input.ndim()).collect(),
     };
     resolved_axes.sort();
 
     if input.ndim() == 0 {
-        return Ok(Tensor::from_scalar(reducer.reduce(input.iter())));
+        return Ok(Tensor::from_scalar(reducer.reduce(input.iter().copied())));
     }
 
     // nb. Some reduce operations cannot produce a meaningful result with
@@ -294,7 +294,7 @@ fn reduce<T: Copy + Default, R: Reducer<T>>(
                             SliceRange::new(idx as isize, idx as isize + 1, 1)
                         }
                     }));
-                    let reduced = reducer.reduce(input.slice_iter(&inner_range));
+                    let reduced = reducer.reduce(input.slice_iter(&inner_range).copied());
                     reduced_data.push(reduced);
                 }
             }
@@ -400,7 +400,7 @@ mod tests {
         // Reduce a simple vector.
         let probs = tensor!([0.1, 0.5, 0.2, 0.9, 0.01, 0.6]);
         let class = arg_max(probs.view(), 0, false /* keep_dims */).unwrap();
-        assert_eq!(class.item(), Some(3));
+        assert_eq!(class.item(), Some(&3));
 
         // Same, but keep dims
         let class = arg_max(probs.view(), 0, true /* keep_dims */).unwrap();
@@ -451,7 +451,7 @@ mod tests {
     fn test_arg_min() {
         let probs = tensor!([0.1, 0.5, 0.2, 0.9, 0.01, 0.6]);
         let class = arg_min(probs.view(), 0, false /* keep_dims */).unwrap();
-        assert_eq!(class.item(), Some(4));
+        assert_eq!(class.item(), Some(&4));
     }
 
     #[test]
@@ -546,7 +546,7 @@ mod tests {
             false, /* keep_dims */
         )
         .unwrap();
-        assert_eq!(result.item(), Some(5.0));
+        assert_eq!(result.item(), Some(&5.0));
 
         // Reduce a vector
         let result = reduce_mean(

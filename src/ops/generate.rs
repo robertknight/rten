@@ -5,7 +5,7 @@ use wasnn_tensor::Tensor;
 use crate::ops::{Input, InputList, IntoOpResult, OpError, Operator, Output, Scalar};
 
 pub fn constant_of_shape<T: Copy>(value: T, shape: &Tensor<i32>) -> Tensor<T> {
-    let shape: Vec<_> = shape.iter().map(|el| el as usize).collect();
+    let shape: Vec<_> = shape.iter().map(|el| *el as usize).collect();
     let len = shape.iter().product();
     Tensor::from_data(&shape, vec![value; len])
 }
@@ -101,10 +101,7 @@ mod tests {
             .unwrap();
 
         assert_eq!(result.shape(), &[1, 5, 10]);
-        assert_eq!(
-            result.iter().collect::<Vec<_>>(),
-            vec![42; result.shape().iter().product()]
-        );
+        assert_eq!(result.to_vec(), vec![42; result.shape().iter().product()]);
     }
 
     #[test]

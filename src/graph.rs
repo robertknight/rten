@@ -1024,8 +1024,9 @@ mod tests {
 
             let input: &Tensor<f32> = inputs.require_as(0)?;
             let left_split_len = input.len() / 2;
-            let left_split = Tensor::from_vec(input.iter().take(left_split_len).collect());
-            let right_split = Tensor::from_vec(input.iter().skip(left_split_len).collect());
+            let left_split = Tensor::from_vec(input.iter().take(left_split_len).copied().collect());
+            let right_split =
+                Tensor::from_vec(input.iter().skip(left_split_len).copied().collect());
             Ok([left_split.into(), right_split.into()].into())
         }
     }
@@ -1061,7 +1062,7 @@ mod tests {
         assert_eq!(results.len(), 2);
         let left_split = results.remove(0).into_float().unwrap();
         let right_split = results.remove(0).into_float().unwrap();
-        assert_eq!(left_split.iter().collect::<Vec<_>>(), &[1.0, 2.0]);
-        assert_eq!(right_split.iter().collect::<Vec<_>>(), &[3.0, 4.0, 5.0]);
+        assert_eq!(left_split.to_vec(), &[1.0, 2.0]);
+        assert_eq!(right_split.to_vec(), &[3.0, 4.0, 5.0]);
     }
 }

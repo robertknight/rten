@@ -159,7 +159,7 @@ impl CtcDecoder {
         let mut steps = Vec::new();
         let mut score = 0.;
 
-        for (pos, label) in label_seq.iter().enumerate() {
+        for (pos, label) in label_seq.iter().copied().enumerate() {
             score += prob_seq[[pos, label as usize]];
 
             if label == last_label {
@@ -492,7 +492,7 @@ mod tests {
         // Example taken from https://towardsdatascience.com/beam-search-decoding-in-ctc-trained-neural-networks-5a889a3d85a7.
         let blank_label = 0;
         let a_label = ALPHABET.chars().position(|c| c == 'a').unwrap() + 1;
-        let mut input = Tensor::zeros(&[2, a_label + 1]);
+        let mut input = Tensor::<f32>::zeros(&[2, a_label + 1]);
 
         input[[0, blank_label]] = 0.8;
         input[[0, a_label]] = 0.2;
@@ -500,7 +500,7 @@ mod tests {
         input[[1, blank_label]] = 0.6;
 
         // Convert to log probabilities.
-        input.apply(f32::ln);
+        input.apply(|x| x.ln());
 
         let beam_output = decoder.decode_beam(input.view(), 10);
         let beam_str = beam_output.to_string(ALPHABET);

@@ -51,7 +51,7 @@ fn binary_op<T: Copy + Debug, R: Copy, F: Fn(T, T) -> R>(
     op: F,
 ) -> Result<Tensor<R>, OpError> {
     if let Some(scalar) = b.item() {
-        return Ok(a.map(|x| op(x, scalar)));
+        return Ok(a.map(|x| op(*x, *scalar)));
     }
 
     let out_shape = broadcast_shapes(a.shape(), b.shape())
@@ -59,7 +59,7 @@ fn binary_op<T: Copy + Debug, R: Copy, F: Fn(T, T) -> R>(
 
     let a_elts = a.broadcast_iter(&out_shape);
     let b_elts = b.broadcast_iter(&out_shape);
-    let out_data: Vec<_> = zip(a_elts, b_elts).map(|(a, b)| op(a, b)).collect();
+    let out_data: Vec<_> = zip(a_elts, b_elts).map(|(a, b)| op(*a, *b)).collect();
     Ok(Tensor::from_data(&out_shape, out_data))
 }
 
@@ -82,7 +82,7 @@ fn binary_op_in_place<T: Copy + Debug, F: Fn(T, T) -> T>(
         if let Some(scalar) = b.item() {
             // When RHS is a scalar, we don't need to iterate over it at all.
             for a_elt in a.data_mut().iter_mut() {
-                *a_elt = op(*a_elt, scalar);
+                *a_elt = op(*a_elt, *scalar);
             }
         } else if a.shape() == b.shape() && b.is_contiguous() {
             // When RHS is contiguous and same shape as LHS we can use a simple iterator.
@@ -99,7 +99,7 @@ fn binary_op_in_place<T: Copy + Debug, F: Fn(T, T) -> T>(
             // Otherwise a more complex RHS iterator is required.
             let b_elts = b.broadcast_iter(a.shape());
             for (a_elt, b_elt) in zip(a.data_mut().iter_mut(), b_elts) {
-                *a_elt = op(*a_elt, b_elt);
+                *a_elt = op(*a_elt, *b_elt);
             }
         }
         return;
@@ -107,7 +107,7 @@ fn binary_op_in_place<T: Copy + Debug, F: Fn(T, T) -> T>(
 
     let b_elts = b.broadcast_iter(a.shape());
     for (a_elt, b_elt) in zip(a.iter_mut(), b_elts) {
-        *a_elt = op(*a_elt, b_elt);
+        *a_elt = op(*a_elt, *b_elt);
     }
 }
 
@@ -235,7 +235,7 @@ pub fn div<
         // Optimize division as multiplication-by-reciprocal.
         //
         // This loses some precision, so we might want to revisit this in future.
-        (false, Some(scalar)) => mul(a, Tensor::from_scalar(T::one() / scalar).view()),
+        (false, Some(scalar)) => mul(a, Tensor::from_scalar(T::one() / *scalar).view()),
         _ => binary_op(a, b, |x, y| x / y),
     }
 }
@@ -248,7 +248,7 @@ pub fn div_in_place<
     b: TensorView<T>,
 ) {
     match (T::is_int(), b.item()) {
-        (false, Some(scalar)) => mul_in_place(a, Tensor::from_scalar(T::one() / scalar).view()),
+        (false, Some(scalar)) => mul_in_place(a, Tensor::from_scalar(T::one() / *scalar).view()),
         _ => binary_op_in_place(a, b, |x, y| x / y),
     }
 }
@@ -415,7 +415,7 @@ impl Operator for Mul {
 
 /// Raise elements of `a` to powers of corresponding elements in `b`.
 pub fn pow(a: TensorView, b: TensorView) -> Result<Tensor, OpError> {
-    if b.item() == Some(2.0) {
+    if b.item() == Some(&2.0) {
         Ok(a.map(|x| x * x))
     } else {
         binary_op(a, b, |x, y| x.powf(y))
@@ -424,7 +424,7 @@ pub fn pow(a: TensorView, b: TensorView) -> Result<Tensor, OpError> {
 
 /// Perform in-place raise of elements of `a` to power of corresponding elements in `b`.
 pub fn pow_in_place(a: &mut Tensor, b: TensorView) {
-    if b.item() == Some(2.0) {
+    if b.item() == Some(&2.0) {
         a.apply(|x| x * x);
     } else {
         binary_op_in_place(a, b, |a_elt, b_elt| a_elt.powf(b_elt));
@@ -516,7 +516,7 @@ pub fn where_op<T: Copy>(
             y.broadcast_iter(&result_shape),
         ),
     )
-    .map(|(cond, (x, y))| if cond != 0 { x } else { y })
+    .map(|(&cond, (&x, &y))| if cond != 0 { x } else { y })
     .collect();
     Ok(Tensor::from_data(&result_shape, result_elts))
 }

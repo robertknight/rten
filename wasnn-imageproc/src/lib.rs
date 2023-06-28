@@ -2228,7 +2228,7 @@ mod tests {
             let line = Line::from_endpoints(case.start, case.end);
             let dist = line.distance(case.point);
             assert!(
-                dist.approx_eq(case.dist),
+                dist.approx_eq(&case.dist),
                 "line {:?}, {:?} point {:?} actual {} expected {}",
                 line.start,
                 line.end,
@@ -2807,7 +2807,7 @@ mod tests {
         let up_axis = Vec2::from_yx(1., 2.);
         let center = Vec2::from_yx(0., 0.);
         let rect = RotatedRect::new(center, up_axis, 2., 3.);
-        assert!(rect.up_axis().length().approx_eq(1.));
+        assert!(rect.up_axis().length().approx_eq(&1.));
     }
 
     #[test]
