@@ -470,7 +470,7 @@ impl<'a> InputList<'a> {
         self.require(index).and_then(|input| input.try_into())
     }
 
-    #[allow(dead_code)] // Not currently used, but exists for consistency with `get_as_scalar`
+    /// Get a required input as a scalar value.
     pub fn require_as_scalar<T: Copy + 'a>(&self, index: usize) -> Result<T, OpError>
     where
         T: TryFrom<Input<'a>, Error = OpError>,
