@@ -23,7 +23,7 @@ pub fn gather<T: Copy + Default>(
     }
 
     let out_shape = [
-        &input.shape()[0..axis],
+        &input.shape()[..axis],
         indices.shape(),
         &input.shape()[axis + 1..],
     ]

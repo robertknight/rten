@@ -104,8 +104,8 @@ pub fn matmul(a: TensorView, b: TensorView) -> Result<Tensor, OpError> {
         ));
     }
 
-    let a_prefix = &a.shape()[0..a.ndim() - 2];
-    let b_prefix = &b.shape()[0..b.ndim() - 2];
+    let a_prefix = &a.shape()[..a.ndim() - 2];
+    let b_prefix = &b.shape()[..b.ndim() - 2];
     let out_prefix = broadcast_shapes(a_prefix, b_prefix)
         .ok_or(OpError::IncompatibleInputShapes("Cannot broadcast shapes"))?;
 
