@@ -1357,23 +1357,23 @@ impl BoundingRect for RotatedRect {
 /// Return the bounding rectangle of a collection of shapes.
 ///
 /// Returns `None` if the collection is empty.
-pub fn bounding_rect<Shape: BoundingRect>(objects: &[Shape]) -> Option<Rect> {
+pub fn bounding_rect<'a, Shape: 'a + BoundingRect, I: Iterator<Item = &'a Shape>>(
+    objects: I,
+) -> Option<Rect> {
     if let Some((min_x, max_x, min_y, max_y)) =
-        objects
-            .iter()
-            .fold(None as Option<(i32, i32, i32, i32)>, |min_max, shape| {
-                let br = shape.bounding_rect();
-                min_max
-                    .map(|(min_x, max_x, min_y, max_y)| {
-                        (
-                            min_x.min(br.left()),
-                            max_x.max(br.right()),
-                            min_y.min(br.top()),
-                            max_y.max(br.bottom()),
-                        )
-                    })
-                    .or(Some((br.left(), br.right(), br.top(), br.bottom())))
-            })
+        objects.fold(None as Option<(i32, i32, i32, i32)>, |min_max, shape| {
+            let br = shape.bounding_rect();
+            min_max
+                .map(|(min_x, max_x, min_y, max_y)| {
+                    (
+                        min_x.min(br.left()),
+                        max_x.max(br.right()),
+                        min_y.min(br.top()),
+                        max_y.max(br.bottom()),
+                    )
+                })
+                .or(Some((br.left(), br.right(), br.top(), br.bottom())))
+        })
     {
         Some(Rect::from_tlbr(min_y, min_x, max_y, max_x))
     } else {
@@ -1882,10 +1882,13 @@ mod tests {
     #[test]
     fn test_bounding_rect() {
         let rects = [Rect::from_tlbr(0, 0, 5, 5), Rect::from_tlbr(10, 10, 15, 18)];
-        assert_eq!(bounding_rect(&rects), Some(Rect::from_tlbr(0, 0, 15, 18)));
+        assert_eq!(
+            bounding_rect(rects.iter()),
+            Some(Rect::from_tlbr(0, 0, 15, 18))
+        );
 
         let rects: &[Rect] = &[];
-        assert_eq!(bounding_rect(rects), None);
+        assert_eq!(bounding_rect(rects.iter()), None);
     }
 
     #[test]
