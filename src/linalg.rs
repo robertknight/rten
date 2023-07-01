@@ -1748,6 +1748,88 @@ mod tests {
         Ok(())
     }
 
+    use crate::timer::Timer;
+
+    // Run with `cargo test --release bench_gemm -- --nocapture --ignored`
+    #[test]
+    #[ignore]
+    fn bench_gemm() {
+        struct Case {
+            m: usize,
+            n: usize,
+            k: usize,
+        }
+
+        let cases = [
+            // Square matrix
+            Case {
+                m: 512,
+                n: 512,
+                k: 512,
+            },
+            // Short matrix
+            Case {
+                m: 128,
+                n: 2048,
+                k: 512,
+            },
+            // Tall matrix
+            Case {
+                m: 2048,
+                n: 128,
+                k: 512,
+            },
+        ];
+
+        for case in cases {
+            let Case { m, n, k } = case;
+            let iters = 100;
+
+            let mut rng = XorShiftRng::new(1234);
+            let mut result = Tensor::zeros(&[m, n]);
+            let a = Tensor::rand(&[m, k], &mut rng);
+            let b = Tensor::rand(&[k, n], &mut rng);
+
+            let mut t = Timer::new();
+            t.start();
+            for _i in 0..iters {
+                run_gemm(&mut result, &a, &b, 1., 0., None, KernelHint::Auto);
+            }
+            t.end();
+
+            // Calculate throughput. For comparison, the theoretical maximum
+            // GFLOPS for a single core (`RAYON_NUM_THREADS=1`) can be computed
+            // as:
+            //
+            //     frequency * simd_width * fma_throughput * fma_units
+            //
+            // Where:
+            //  - `frequency` is the max frequency in Ghz
+            //  - `simd_width` is the # of f32 values in a vector register
+            //  - `fma_throughput` is the number of ops/cycle
+            //  - `fma_units` is the number of execution units
+            //
+            // On an Intel Skylake CPU for example, `simd_width` will be
+            // 8 (256-bit AVX 2 / 32-bit float), `fma_throughput` is 2,
+            //   `fma_units` is 2. For a 3.4Ghz CPU this would give a max
+            //   theoretical peak of 3.4 * 8 * 2 * 2 = 108.8 GFLOPS.
+
+            let flops = (2 * m * n * k * iters) as f32 / t.elapsed_secs();
+            let gflops = flops / (10f32).powi(9);
+
+            println!(
+                "m {} n {} k {} iters {}. Duration {}ms ({}ms/iter). GFLOPS {}",
+                m,
+                n,
+                k,
+                iters,
+                t.elapsed_ms(),
+                t.elapsed_ms() / iters as f32,
+                gflops,
+            );
+        }
+    }
+
     // TODO - Add a set of tests for use with Miri. These should exercise all
     // unsafe code, but be adjusted to run quickly.
 }

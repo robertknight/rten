@@ -355,9 +355,9 @@ impl Graph {
                 op_timer.end();
 
                 if let Some(elapsed) = op_elapsed.get_mut(op_node.operator.name()) {
-                    *elapsed += op_timer.elapsed();
+                    *elapsed += op_timer.elapsed_ms();
                 } else {
-                    op_elapsed.insert(op_node.operator.name(), op_timer.elapsed());
+                    op_elapsed.insert(op_node.operator.name(), op_timer.elapsed_ms());
                 }
 
                 if opts.verbose {
@@ -372,7 +372,7 @@ impl Graph {
                         step,
                         op_node.operator,
                         input_shapes,
-                        op_timer.elapsed()
+                        op_timer.elapsed_ms()
                     );
                 }
             }
@@ -416,9 +416,9 @@ impl Graph {
             println!(
                 "Graph run of {} ops finished in {}ms",
                 plan.len(),
-                run_timer.elapsed()
+                run_timer.elapsed_ms()
             );
-            self.print_timings(&op_elapsed, run_timer.elapsed());
+            self.print_timings(&op_elapsed, run_timer.elapsed_ms());
         }
 
         // Return the requested outputs
