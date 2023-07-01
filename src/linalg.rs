@@ -106,12 +106,12 @@ fn blocks(start: usize, end: usize, step: usize) -> BlockIter {
 
 /// Kernel that computes a small tile of a matrix multiplication output.
 ///
-/// The tile size depends upon the kernel and is specified by the `MR` and `NR`
-/// associated constants. The MR and NR values are chosen such that an `MR * NR`
-/// tile can fit in registers.
+/// The kernel corresponds to Loop 6 (the "microkernel") in Page 4 of [^1]. The
+/// tile size depends upon the kernel and is specified by the `MR` and `NR`
+/// associated constants. See Section 3.2 [^1] for theory behind choosing the
+/// `MR` and `NR` values.
 ///
-/// The kernel corresponds to Loop 6 (the "microkernel") in Page 4 of
-/// https://dl.acm.org/doi/pdf/10.1145/2925987.
+/// [^1]: https://dl.acm.org/doi/pdf/10.1145/2925987
 trait Kernel {
     /// Height of output tiles computed by the kernel.
     const MR: usize;
@@ -262,7 +262,8 @@ impl Kernel for BaseKernel {
     const MR: usize = 8;
 
     // The base kernel will most likely be compiled to SSE or equivalent. SSE
-    // registers are 128 bits wide = 4 x f32.
+    // registers are 128 bits wide = 4 x f32, so this should be a multiple of
+    // that.
     const NR: usize = 4;
 
     fn supported() -> bool {
