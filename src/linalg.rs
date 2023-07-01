@@ -1761,19 +1761,19 @@ mod tests {
         }
 
         let cases = [
-            // Square matrix
+            // Square output matrix
             Case {
                 m: 512,
                 n: 512,
                 k: 512,
             },
-            // Short matrix
+            // Wide output matrix
             Case {
                 m: 128,
                 n: 2048,
                 k: 512,
             },
-            // Tall matrix
+            // Tall output matrix
             Case {
                 m: 2048,
                 n: 128,
