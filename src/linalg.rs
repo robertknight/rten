@@ -324,6 +324,97 @@ impl Kernel for BaseKernel {
     }
 }
 
+#[cfg(target_arch = "wasm32")]
+struct WasmSimdKernel {}
+
+#[cfg(target_arch = "wasm32")]
+impl Kernel for WasmSimdKernel {
+    const MR: usize = 4;
+
+    // The base kernel will most likely be compiled to SSE or equivalent. SSE
+    // registers are 128 bits wide = 4 x f32.
+    const NR: usize = 8;
+
+    fn supported() -> bool {
+        true
+    }
+
+    unsafe fn kernel(
+        tile_ptr: *mut f32,
+        tile_row_stride: usize,
+        a: &[f32],
+        b: &[f32],
+        depth: usize,
+        alpha: f32,
+        beta: f32,
+    ) {
+        use core::arch::wasm32::{
+            f32x4, f32x4_add, f32x4_mul, v128, v128_load, v128_load32_splat, v128_store,
+        };
+        use std::mem::size_of;
+
+        const MR: usize = WasmSimdKernel::MR;
+        const NR: usize = WasmSimdKernel::NR;
+
+        const REG_SIZE: usize = size_of::<v128>() / size_of::<f32>();
+        const NR_REGS: usize = NR / REG_SIZE;
+
+        assert!(a.len() >= depth * MR);
+        assert!(b.len() >= depth * NR);
+
+        // Accumulate into a fixed-sized array to allow the compiler to generate
+        // more efficient code for the loop over `depth`.
+        let mut tmp = [[f32x4(0., 0., 0., 0.); NR_REGS]; MR];
+        let mut b_rows = [f32x4(0., 0., 0., 0.); NR_REGS];
+
+        let mut a_ptr = a.as_ptr();
+        let mut b_ptr = b.as_ptr();
+
+        for k in 0..depth {
+            for i in 0..NR_REGS {
+                b_rows[i] = v128_load(b_ptr.add(i * REG_SIZE) as *const v128);
+            }
+
+            for i in 0..MR {
+                let a_val = v128_load32_splat(a_ptr.add(i) as *const u32);
+                for j in 0..NR_REGS {
+                    tmp[i][j] = f32x4_add(tmp[i][j], f32x4_mul(a_val, b_rows[j]));
+                }
+            }
+            a_ptr = a_ptr.add(MR);
+            b_ptr = b_ptr.add(NR);
+        }
+
+        if beta == 0. && alpha == 1. {
+            let mut tile_ptr = tile_ptr;
+            for i in 0..MR {
+                for j in 0..NR_REGS {
+                    v128_store(tile_ptr.add(j * REG_SIZE) as *mut v128, tmp[i][j]);
+                }
+                tile_ptr = tile_ptr.add(tile_row_stride);
+            }
+        } else if beta == 1. && alpha == 1. {
+            let mut tile_ptr = tile_ptr;
+            for i in 0..MR {
+                for j in 0..NR_REGS {
+                    let out = v128_load(tile_ptr.add(j * REG_SIZE) as *mut v128);
+                    let out = f32x4_add(out, tmp[i][j]);
+                    v128_store(tile_ptr.add(j * REG_SIZE) as *mut v128, out);
+                }
+                tile_ptr = tile_ptr.add(tile_row_stride);
+            }
+        } else {
+            todo!("Not yet implemented");
+            // for i in 0..MR {
+            //     for j in 0..NR {
+            //         let out_el = tile_ptr.add(tile_row_stride * i + j);
+            //         *out_el = beta * *out_el + alpha * tmp[i][j];
+            //     }
+            // }
+        }
+    }
+}
+
 /// Pack a block of the "A" matrix for use by kernel K.
 ///
 /// The packed buffer is laid out as a sequence of `ceil(rows.len() / K::MR)`
@@ -699,6 +790,38 @@ impl_gemmops!(BaseKernel);
 #[cfg(target_arch = "x86_64")]
 impl_gemmops!(FMAKernel);
 
+#[cfg(target_arch = "wasm32")]
+impl GemmOps for WasmSimdKernel {
+    fn pack_a_block(&self, out: &mut [f32], a: Matrix, rows: Range<usize>, cols: Range<usize>) {
+        pack_a_block::<Self>(out, a, rows, cols);
+    }
+
+    fn pack_b_block(&self, out: &mut [f32], a: Matrix, rows: Range<usize>, cols: Range<usize>) {
+        pack_b_block::<Self>(out, a, rows, cols);
+    }
+
+    fn gemm(
+        &self,
+        out_data: &mut [f32],
+        out_row_stride: usize,
+        a: GemmInputA,
+        b: GemmInputB,
+        alpha: f32,
+        beta: f32,
+        bias: Option<&[f32]>,
+    ) {
+        gemm_impl::<Self, { Self::MR * Self::NR }>(
+            out_data,
+            out_row_stride,
+            a,
+            b,
+            alpha,
+            beta,
+            bias,
+        )
+    }
+}
+
 /// Executes matrix multiplication operations.
 ///
 /// For simple use cases, the standalone [gemm] function can be used.
@@ -741,6 +864,16 @@ impl GemmExecutor {
                     kernel: Box::new(FMAKernel {}),
                     nr: FMAKernel::NR,
                     mr: FMAKernel::MR,
+                };
+            }
+        }
+        #[cfg(target_arch = "wasm32")]
+        {
+            if WasmSimdKernel::supported() {
+                return GemmExecutor {
+                    kernel: Box::new(WasmSimdKernel {}),
+                    nr: WasmSimdKernel::NR,
+                    mr: WasmSimdKernel::MR,
                 };
             }
         }
