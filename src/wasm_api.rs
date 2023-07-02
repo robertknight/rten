@@ -1,13 +1,14 @@
-use wasm_bindgen::prelude::*;
-
+use std::borrow::Borrow;
 use std::iter::zip;
 use std::rc::Rc;
 
+use wasm_bindgen::prelude::*;
+use wasnn_tensor::rng::XorShiftRng;
 use wasnn_tensor::TensorLayout;
 
 use crate::graph::Dimension;
 use crate::model;
-use crate::ops::{Input, Output};
+use crate::ops::{matmul, Input, Output};
 
 #[wasm_bindgen]
 pub struct Model {
@@ -124,6 +125,7 @@ pub struct Tensor {
     data: Rc<Output>,
 }
 
+/// Core tensor APIs needed for constructing model inputs and outputs.
 #[wasm_bindgen]
 impl Tensor {
     /// Construct a float tensor from the given shape and data.
@@ -168,6 +170,39 @@ impl Tensor {
 
     fn from_output(out: Output) -> Tensor {
         Tensor { data: Rc::new(out) }
+    }
+}
+
+/// Additional constructors and ONNX operators exposed as JS methods.
+#[wasm_bindgen]
+impl Tensor {
+    fn as_float(&self) -> Result<wasnn_tensor::TensorView<f32>, String> {
+        let Output::FloatTensor(ref a) = self.data.borrow() else {
+            return Err("Expected a float tensor".to_string());
+        };
+        Ok(a.view())
+    }
+
+    /// Create a tensor filled with non-secure random numbers.
+    ///
+    /// `seed` specifies the seed for the random number generator. This method
+    /// will always return the same output for a given seed.
+    pub fn rand(shape: &[usize], seed: u64) -> Tensor {
+        let mut rng = XorShiftRng::new(seed);
+        let tensor = wasnn_tensor::Tensor::rand(shape, &mut rng);
+        Tensor::from_output(tensor.into())
+    }
+
+    /// Return the matrix product of this tensor and `other`.
+    ///
+    /// Only float tensors are currently supported.
+    ///
+    /// See https://onnx.ai/onnx/operators/onnx__MatMul.html.
+    pub fn matmul(&self, other: &Tensor) -> Result<Tensor, String> {
+        let a = self.as_float()?;
+        let b = other.as_float()?;
+        let out = matmul(a, b).map_err(|e| e.to_string())?;
+        Ok(Tensor::from_output(out.into()))
     }
 }
 
