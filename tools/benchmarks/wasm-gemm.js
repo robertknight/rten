@@ -17,7 +17,8 @@ import { Tensor, initSync } from "../../index.js";
 // Init ML libs
 await tf.setBackend("wasm");
 
-const wasmBin = readFileSync("dist/wasnn_bg.wasm");
+const wasmPath = new URL("../../dist/wasnn_bg.wasm", import.meta.url);
+const wasmBin = readFileSync(wasmPath);
 initSync(wasmBin);
 
 // Run tests
