@@ -627,7 +627,8 @@ pub fn gemm(
     )
 }
 
-/// Trait for kernel-specific GEMM operations.
+/// Object-safe trait for performing matrix multiplications and packing inputs
+/// with a specific kernel.
 trait GemmOps: Sync {
     fn pack_a_block(&self, out: &mut [f32], a: Matrix, rows: Range<usize>, cols: Range<usize>);
     fn pack_b_block(&self, out: &mut [f32], a: Matrix, rows: Range<usize>, cols: Range<usize>);
@@ -643,68 +644,60 @@ trait GemmOps: Sync {
     );
 }
 
-impl GemmOps for BaseKernel {
-    fn pack_a_block(&self, out: &mut [f32], a: Matrix, rows: Range<usize>, cols: Range<usize>) {
-        pack_a_block::<Self>(out, a, rows, cols);
-    }
+/// Implement `GemmOps` for a specific kernel. A macro is used instead of
+/// `impl<K: Kernel> GemmOps for K` to work around const generics limitations in
+/// stable Rust.
+macro_rules! impl_gemmops {
+    ($kernel:ident) => {
+        impl GemmOps for $kernel {
+            fn pack_a_block(
+                &self,
+                out: &mut [f32],
+                a: Matrix,
+                rows: Range<usize>,
+                cols: Range<usize>,
+            ) {
+                pack_a_block::<Self>(out, a, rows, cols);
+            }
 
-    fn pack_b_block(&self, out: &mut [f32], a: Matrix, rows: Range<usize>, cols: Range<usize>) {
-        pack_b_block::<Self>(out, a, rows, cols);
-    }
+            fn pack_b_block(
+                &self,
+                out: &mut [f32],
+                a: Matrix,
+                rows: Range<usize>,
+                cols: Range<usize>,
+            ) {
+                pack_b_block::<Self>(out, a, rows, cols);
+            }
 
-    fn gemm(
-        &self,
-        out_data: &mut [f32],
-        out_row_stride: usize,
-        a: GemmInputA,
-        b: GemmInputB,
-        alpha: f32,
-        beta: f32,
-        bias: Option<&[f32]>,
-    ) {
-        gemm_impl::<Self, { Self::MR * Self::NR }>(
-            out_data,
-            out_row_stride,
-            a,
-            b,
-            alpha,
-            beta,
-            bias,
-        )
-    }
+            fn gemm(
+                &self,
+                out_data: &mut [f32],
+                out_row_stride: usize,
+                a: GemmInputA,
+                b: GemmInputB,
+                alpha: f32,
+                beta: f32,
+                bias: Option<&[f32]>,
+            ) {
+                gemm_impl::<Self, { Self::MR * Self::NR }>(
+                    out_data,
+                    out_row_stride,
+                    a,
+                    b,
+                    alpha,
+                    beta,
+                    bias,
+                )
+            }
+        }
+    };
 }
+
+impl_gemmops!(BaseKernel);
 
 #[cfg(target_arch = "x86_64")]
-impl GemmOps for FMAKernel {
-    fn pack_a_block(&self, out: &mut [f32], a: Matrix, rows: Range<usize>, cols: Range<usize>) {
-        pack_a_block::<Self>(out, a, rows, cols);
-    }
-
-    fn pack_b_block(&self, out: &mut [f32], a: Matrix, rows: Range<usize>, cols: Range<usize>) {
-        pack_b_block::<Self>(out, a, rows, cols);
-    }
-
-    fn gemm(
-        &self,
-        out_data: &mut [f32],
-        out_row_stride: usize,
-        a: GemmInputA,
-        b: GemmInputB,
-        alpha: f32,
-        beta: f32,
-        bias: Option<&[f32]>,
-    ) {
-        gemm_impl::<Self, { Self::MR * Self::NR }>(
-            out_data,
-            out_row_stride,
-            a,
-            b,
-            alpha,
-            beta,
-            bias,
-        )
-    }
-}
+impl_gemmops!(FMAKernel);
 
 /// Executes matrix multiplication operations.
 ///
