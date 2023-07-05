@@ -1,8 +1,13 @@
-import { readFileSync } from "fs";
+import { readFile } from "fs/promises";
 
+import { program } from "commander";
 import sharp from "sharp";
 
-import { OcrEngine, OcrEngineInit, initSync } from "../../dist/wasnn_ocr.js";
+import {
+  OcrEngine,
+  OcrEngineInit,
+  default as initOcrLib,
+} from "../../dist/wasnn_ocr.js";
 
 /**
  * Load a JPEG or PNG image from `path` and return the RGB image data as an
@@ -19,38 +24,77 @@ async function loadImage(path) {
   };
 }
 
-async function saveImage(
-  path,
-  width,
-  height,
-  data,
-  channels = data.length / (width * height)
-) {
-  const image = await sharp(data, {
-    raw: { width, height, channels },
-  });
-  await image.toFile(path);
+/**
+ * Convert a list-like object returned by the OCR library into an iterator
+ * that can be used with `for ... of` or `Array.from`.
+ */
+function* listItems(list) {
+  for (let i = 0; i < list.length; i++) {
+    yield list.item(i);
+  }
 }
 
-const detectionModelPath = process.argv[2];
-const recognitionModelPath = process.argv[3];
-const imagePath = process.argv[4];
+/**
+ * Perform OCR on an image and return the result as a JSON-serialiable object.
+ *
+ * @param {OcrEngine} ocrEngine
+ * @param {OcrInput} ocrInput
+ */
+function generateJSON(ocrEngine, ocrInput) {
+  const textLines = ocrEngine.getTextLines(ocrInput);
+  const lines = Array.from(listItems(textLines)).map((line) => {
+    const words = Array.from(listItems(line.words())).map((word) => {
+      return {
+        text: word.text(),
+        rect: Array.from(word.rotatedRect().boundingRect()),
+      };
+    });
 
-const ocrBin = readFileSync("dist/wasnn_ocr_bg.wasm");
-initSync(ocrBin);
+    return {
+      text: line.text(),
+      words,
+    };
+  });
+  return {
+    lines,
+  };
+}
 
-const detectionModel = new Uint8Array(readFileSync(detectionModelPath));
-const recognitionModel = new Uint8Array(readFileSync(recognitionModelPath));
+program
+  .name("ocr")
+  .argument("<detection_model>", "Text detection model path")
+  .argument("<recognition_model>", "Text recognition model path")
+  .argument("<image>", "Input image path")
+  .option("-j, --json", "Output JSON")
+  .action(
+    async (detectionModelPath, recognitionModelPath, imagePath, options) => {
+      // Concurrently load the OCR library, text detection and recognition models,
+      // and input image.
+      const [_, detectionModel, recognitionModel, image] = await Promise.all([
+        readFile("dist/wasnn_ocr_bg.wasm").then(initOcrLib),
+        readFile(detectionModelPath).then((data) => new Uint8Array(data)),
+        readFile(recognitionModelPath).then((data) => new Uint8Array(data)),
+        loadImage(imagePath),
+      ]);
 
-const image = await loadImage(imagePath);
+      const ocrInit = new OcrEngineInit();
+      ocrInit.setDetectionModel(detectionModel);
+      ocrInit.setRecognitionModel(recognitionModel);
 
-const ocrInit = new OcrEngineInit();
-ocrInit.setDetectionModel(detectionModel);
-ocrInit.setRecognitionModel(recognitionModel);
+      const ocrEngine = new OcrEngine(ocrInit);
+      const ocrInput = ocrEngine.loadImage(
+        image.width,
+        image.height,
+        image.data
+      );
 
-const ocrEngine = new OcrEngine(ocrInit);
-const ocrInput = ocrEngine.loadImage(image.width, image.height, image.data);
-
-const text = ocrEngine.getText(ocrInput);
-
-console.log(text);
+      if (options.json) {
+        const json = generateJSON(ocrEngine, ocrInput);
+        console.log(JSON.stringify(json, null, 2));
+      } else {
+        const text = ocrEngine.getText(ocrInput);
+        console.log(text);
+      }
+    }
+  )
+  .parse();
