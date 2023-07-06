@@ -20,5 +20,5 @@ if [ -n "${SKIP_WASM_OPT:-}" ]; then
   exit
 fi
 
-wasm-opt --enable-simd -O2 "$BIN_PATH" -o "$BIN_PATH".optimized
+wasm-opt --enable-simd --enable-reference-types -O2 "$BIN_PATH" -o "$BIN_PATH".optimized
 mv "$BIN_PATH.optimized" "$BIN_PATH"
