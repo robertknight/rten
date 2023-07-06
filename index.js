@@ -40,11 +40,32 @@ function simdSupported() {
   //     i8x16.popcnt
   //   )
   // )
-  const simdTest = Uint8Array.from([
+  const wasmBytes = Uint8Array.from([
     0, 97, 115, 109, 1, 0, 0, 0, 1, 5, 1, 96, 0, 1, 123, 3, 2, 1, 0, 10, 10, 1,
     8, 0, 65, 0, 253, 15, 253, 98, 11,
   ]);
-  return WebAssembly.validate(simdTest);
+  return WebAssembly.validate(wasmBytes);
+}
+
+/**
+ * Return true if the current JS environment supports the Relaxed SIMD extension
+ * for WebAssembly.
+ *
+ * NOTE: Not currently used, but added here for early testing (eg. with
+ * `node --experimental-wasm-relaxed-simd`).
+ */
+function relaxedSIMDSupported() {
+  // Tiny WebAssembly file generated from the following source using `wat2wasm`:
+  //
+  // (module
+  //   (func (param v128 v128 v128) (result v128)
+  //     (f32x4.relaxed_madd (local.get 0) (local.get 1) (local.get 2))))
+  const wasmBytes = Uint8Array.from([
+    0, 97, 115, 109, 1, 0, 0, 0, 1, 8, 1, 96, 3, 123, 123, 123, 1, 123, 3, 2, 1,
+    0, 10, 13, 1, 11, 0, 32, 0, 32, 1, 32, 2, 253, 133, 2, 11, 0, 10, 4, 110,
+    97, 109, 101, 2, 3, 1, 0, 0,
+  ]);
+  return WebAssembly.validate(wasmBytes);
 }
 
 /**
