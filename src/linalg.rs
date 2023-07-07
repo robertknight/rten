@@ -349,7 +349,8 @@ impl Kernel for WasmSimdKernel {
         beta: f32,
     ) {
         use core::arch::wasm32::{
-            f32x4, f32x4_add, f32x4_mul, v128, v128_load, v128_load32_splat, v128_store,
+            f32x4, f32x4_add, f32x4_relaxed_madd, v128, v128_load, v128_load32_splat,
+            v128_store,
         };
         use std::mem::size_of;
 
@@ -378,7 +379,7 @@ impl Kernel for WasmSimdKernel {
             for i in 0..MR {
                 let a_val = v128_load32_splat(a_ptr.add(i) as *const u32);
                 for j in 0..NR_REGS {
-                    tmp[i][j] = f32x4_add(tmp[i][j], f32x4_mul(a_val, b_rows[j]));
+                    tmp[i][j] = f32x4_relaxed_madd(a_val, b_rows[j], tmp[i][j]);
                 }
             }
             a_ptr = a_ptr.add(MR);

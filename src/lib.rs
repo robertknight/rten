@@ -1,3 +1,5 @@
+#![feature(stdsimd)] // For WASM Relaxed SIMD
+
 mod graph;
 mod linalg;
 mod model;
