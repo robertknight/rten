@@ -416,6 +416,11 @@ impl Rect {
         Self::new(Point::from_yx(top, left), Point::from_yx(bottom, right))
     }
 
+    /// Return a rect with the given top, left, height and width.
+    pub fn from_tlhw(top: Coord, left: Coord, height: Coord, width: Coord) -> Rect {
+        Self::from_tlbr(top, left, top + height, left + width)
+    }
+
     pub fn new(top_left: Point, bottom_right: Point) -> Rect {
         Rect {
             top_left,
