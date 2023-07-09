@@ -50,7 +50,7 @@ impl<const N: usize> NdLayout<N> {
 
     /// Convert this layout to one with a dynamic rank.
     fn as_dyn(&self) -> Layout {
-        Layout::new_with_strides(&self.shape, &self.strides)
+        Layout::with_strides(&self.shape, &self.strides)
     }
 
     /// Return true if all components of `index` are in-bounds.

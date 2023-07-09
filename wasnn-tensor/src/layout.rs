@@ -60,7 +60,7 @@ impl Layout {
     /// Panics if `strides` may lead to internal overlap (multiple indices
     /// map to the same data offset), unless strides contains a `0`. See
     /// struct notes.
-    pub fn new_with_strides(shape: &[usize], strides: &[usize]) -> Layout {
+    pub fn with_strides(shape: &[usize], strides: &[usize]) -> Layout {
         assert!(
             strides.iter().any(|s| *s == 0) || !may_have_internal_overlap(shape, strides),
             "Layout may have internal overlap"
@@ -387,7 +387,7 @@ mod tests {
     use crate::SliceItem;
 
     #[test]
-    fn test_new_with_strides() {
+    fn test_with_strides() {
         struct Case {
             shape: &'static [usize],
             strides: &'static [usize],
@@ -407,7 +407,7 @@ mod tests {
         ];
 
         for case in cases {
-            let layout = Layout::new_with_strides(case.shape, case.strides);
+            let layout = Layout::with_strides(case.shape, case.strides);
             assert_eq!(layout.shape(), case.shape);
             assert_eq!(layout.strides(), case.strides);
         }
@@ -415,8 +415,8 @@ mod tests {
 
     #[test]
     #[should_panic(expected = "Layout may have internal overlap")]
-    fn test_new_with_strides_overlap() {
-        Layout::new_with_strides(&[10, 10], &[1, 2]);
+    fn test_with_strides_overlap() {
+        Layout::with_strides(&[10, 10], &[1, 2]);
     }
 
     #[test]

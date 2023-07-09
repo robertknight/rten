@@ -744,19 +744,19 @@ impl GemmExecutor {
                 };
             }
         }
-        Self::new_with_base_kernel()
+        Self::with_base_kernel()
     }
 
     /// Create a [GemmExecutor] using the given kernel.
     #[allow(dead_code)] // Currently only used in tests
-    pub fn new_with_kernel(kernel: KernelHint) -> GemmExecutor {
+    pub fn with_kernel(kernel: KernelHint) -> GemmExecutor {
         match kernel {
             KernelHint::Auto => Self::new(),
-            KernelHint::Base => Self::new_with_base_kernel(),
+            KernelHint::Base => Self::with_base_kernel(),
         }
     }
 
-    fn new_with_base_kernel() -> GemmExecutor {
+    fn with_base_kernel() -> GemmExecutor {
         GemmExecutor {
             kernel: Box::new(BaseKernel {}),
             nr: BaseKernel::NR,
@@ -1295,7 +1295,7 @@ mod tests {
         kernel: KernelHint,
     ) {
         let out_row_stride = output.stride(0);
-        let gemm = GemmExecutor::new_with_kernel(kernel);
+        let gemm = GemmExecutor::with_kernel(kernel);
 
         gemm.gemm_bias(
             output.data_mut(),
