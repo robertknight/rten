@@ -1,7 +1,5 @@
 use wasnn_tensor;
-use wasnn_tensor::{
-    tensor, DynIndexIterator, Offsets, SliceRange, Tensor, TensorLayout, TensorView,
-};
+use wasnn_tensor::{tensor, DynIndices, Offsets, SliceRange, Tensor, TensorLayout, TensorView};
 
 use crate::number::Identities;
 use crate::ops::layout::squeeze_in_place;
@@ -285,7 +283,7 @@ fn reduce<T: Copy + Default, R: Reducer<T>>(
                     })
                     .collect();
                 let mut inner_range = Vec::with_capacity(input.ndim());
-                for index in DynIndexIterator::from_shape(&outer_range) {
+                for index in DynIndices::from_shape(&outer_range) {
                     inner_range.clear();
                     inner_range.extend(index.iter().enumerate().map(|(dim, &idx)| {
                         if resolved_axes.contains(&dim) {

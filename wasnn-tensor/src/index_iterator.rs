@@ -12,7 +12,7 @@ impl<const N: usize> IndexArray for [usize; N] {}
 ///
 /// The number of dimensions may be zero, in which case the iterator will yield
 /// a single empty index. This is consistent with eg. `ndindex` in NumPy.
-pub struct IndexIterator<Index: IndexArray>
+pub struct Indices<Index: IndexArray>
 where
     Index: IndexArray,
 {
@@ -27,15 +27,15 @@ where
 
 /// Iterator over a range of N-dimensional indices, where N is not known at
 /// compile time.
-pub type DynIndexIterator = IndexIterator<SmallVec<[usize; 5]>>;
+pub type DynIndices = Indices<SmallVec<[usize; 5]>>;
 
 /// Iterator over a range of N-dimensional indices, where N is known at compile
 /// time.
-pub type NdIndexIterator<const N: usize> = IndexIterator<[usize; N]>;
+pub type NdIndices<const N: usize> = Indices<[usize; N]>;
 
-impl<Index: IndexArray> IndexIterator<Index> {
-    fn from_start_and_end(start: Index, end: Index) -> IndexIterator<Index> {
-        IndexIterator {
+impl<Index: IndexArray> Indices<Index> {
+    fn from_start_and_end(start: Index, end: Index) -> Indices<Index> {
+        Indices {
             // Note that if the index is empty, `start == end` but the iterator
             // should yield a single empty element in that case.
             next: if start.as_ref() != end.as_ref() || start.as_ref().is_empty() {
@@ -49,10 +49,10 @@ impl<Index: IndexArray> IndexIterator<Index> {
     }
 }
 
-impl<const N: usize> IndexIterator<SmallVec<[usize; N]>> {
+impl<const N: usize> Indices<SmallVec<[usize; N]>> {
     /// Return an iterator over all the indices where each dimension lies
     /// within the corresponding range in `ranges`.
-    pub fn from_ranges(ranges: &[Range<usize>]) -> IndexIterator<SmallVec<[usize; N]>> {
+    pub fn from_ranges(ranges: &[Range<usize>]) -> Indices<SmallVec<[usize; N]>> {
         let start: SmallVec<[usize; N]> = ranges.iter().map(|r| r.start).collect();
         let end = ranges.iter().map(|r| r.end).collect();
         Self::from_start_and_end(start, end)
@@ -60,17 +60,17 @@ impl<const N: usize> IndexIterator<SmallVec<[usize; N]>> {
 
     /// Return an iterator over all the indices where each dimension is between
     /// `0` and `shape[dim]`.
-    pub fn from_shape(shape: &[usize]) -> IndexIterator<SmallVec<[usize; N]>> {
+    pub fn from_shape(shape: &[usize]) -> Indices<SmallVec<[usize; N]>> {
         let start = smallvec![0; shape.len()];
         let end = shape.iter().copied().collect();
         Self::from_start_and_end(start, end)
     }
 }
 
-impl<const N: usize> IndexIterator<[usize; N]> {
+impl<const N: usize> Indices<[usize; N]> {
     /// Return an iterator over all the indices where each dimension lies
     /// within the corresponding range in `ranges`.
-    pub fn from_ranges(ranges: [Range<usize>; N]) -> IndexIterator<[usize; N]> {
+    pub fn from_ranges(ranges: [Range<usize>; N]) -> Indices<[usize; N]> {
         let start = ranges.clone().map(|r| r.start);
         let end = ranges.map(|r| r.end);
         Self::from_start_and_end(start, end)
@@ -78,12 +78,12 @@ impl<const N: usize> IndexIterator<[usize; N]> {
 
     /// Return an iterator over all the indices where each dimension is between
     /// `0` and `shape[dim]`.
-    pub fn from_shape(shape: [usize; N]) -> IndexIterator<[usize; N]> {
+    pub fn from_shape(shape: [usize; N]) -> Indices<[usize; N]> {
         Self::from_ranges(shape.map(|size| 0..size))
     }
 }
 
-impl<Index: IndexArray> Iterator for IndexIterator<Index> {
+impl<Index: IndexArray> Iterator for Indices<Index> {
     type Item = Index;
 
     /// Return the next index in the sequence, or `None` after all indices
@@ -119,52 +119,52 @@ impl<Index: IndexArray> Iterator for IndexIterator<Index> {
 
 #[cfg(test)]
 mod tests {
-    use super::{DynIndexIterator, NdIndexIterator};
+    use super::{DynIndices, NdIndices};
 
     #[test]
-    fn test_nd_index_iterator() {
+    fn test_nd_indices() {
         // Empty iterator
-        let mut iter = NdIndexIterator::from_ranges([0..0]);
+        let mut iter = NdIndices::from_ranges([0..0]);
         assert_eq!(iter.next(), None);
         assert_eq!(iter.next(), None);
 
         // Scalar index iterator
-        let mut iter = NdIndexIterator::from_ranges([]);
+        let mut iter = NdIndices::from_ranges([]);
         assert_eq!(iter.next(), Some([]));
         assert_eq!(iter.next(), None);
 
         // 1D index iterator
-        let iter = NdIndexIterator::from_ranges([0..5]);
+        let iter = NdIndices::from_ranges([0..5]);
         let visited: Vec<_> = iter.collect();
         assert_eq!(visited, &[[0], [1], [2], [3], [4]]);
 
         // 2D index iterator
-        let iter = NdIndexIterator::from_ranges([2..4, 2..4]);
+        let iter = NdIndices::from_ranges([2..4, 2..4]);
         let visited: Vec<_> = iter.collect();
         assert_eq!(visited, &[[2, 2], [2, 3], [3, 2], [3, 3]]);
     }
 
     #[test]
-    fn test_dyn_index_iterator() {
-        type Index = <DynIndexIterator as Iterator>::Item;
+    fn test_dyn_indices() {
+        type Index = <DynIndices as Iterator>::Item;
 
         // Empty iterator
-        let mut iter = DynIndexIterator::from_ranges(&[0..0]);
+        let mut iter = DynIndices::from_ranges(&[0..0]);
         assert_eq!(iter.next(), None);
         assert_eq!(iter.next(), None);
 
         // Scalar index iterator
-        let mut iter = DynIndexIterator::from_ranges(&[]);
+        let mut iter = DynIndices::from_ranges(&[]);
         assert_eq!(iter.next(), Some(Index::new()));
         assert_eq!(iter.next(), None);
 
         // 1D index iterator
-        let iter = DynIndexIterator::from_ranges(&[0..5]);
+        let iter = DynIndices::from_ranges(&[0..5]);
         let visited: Vec<Vec<usize>> = iter.map(|ix| ix.into_iter().collect()).collect();
         assert_eq!(visited, vec![vec![0], vec![1], vec![2], vec![3], vec![4]]);
 
         // 2D index iterator
-        let iter = DynIndexIterator::from_ranges(&[2..4, 2..4]);
+        let iter = DynIndices::from_ranges(&[2..4, 2..4]);
         let visited: Vec<Vec<usize>> = iter.map(|ix| ix.into_iter().collect()).collect();
         assert_eq!(
             visited,
