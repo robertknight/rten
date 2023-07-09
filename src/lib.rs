@@ -19,5 +19,5 @@ pub use timer::Timer;
 #[allow(clippy::extra_unused_lifetimes, dead_code, unused_imports)]
 mod schema_generated;
 
-#[cfg(test)]
 mod model_builder;
+pub use model_builder::{ModelBuilder, OpType};
