@@ -393,6 +393,15 @@ impl<T, S: AsRef<[T]>, const N: usize> NdTensorBase<T, S, N> {
         Elements::from_view(&self.as_dyn())
     }
 
+    /// Return a new tensor by applying `f` to each element of this tensor.
+    pub fn map<F, U>(&self, f: F) -> NdTensor<U, N>
+    where
+        F: Fn(&T) -> U,
+    {
+        let data = self.iter().map(f).collect();
+        NdTensor::from_data(data, self.shape(), None).unwrap()
+    }
+
     /// Return a copy of this view that owns its data. For [NdTensorView] this
     /// is different than cloning the view, as that returns a view which has
     /// its own layout, but the same underlying data buffer.
@@ -836,6 +845,13 @@ mod tests {
             .for_each(|(i, el)| *el = i as i32);
         let elements: Vec<_> = tensor.iter().copied().collect();
         assert_eq!(elements, &[0, 1, 2, 3]);
+    }
+
+    #[test]
+    fn test_ndtensor_map() {
+        let tensor = NdTensor::<i32, 2>::from_data(vec![1, 2, 3, 4], [2, 2], None).unwrap();
+        let doubled = tensor.map(|x| x * 2);
+        assert_eq!(tensor_elements(doubled.view()), &[2, 4, 6, 8]);
     }
 
     #[test]

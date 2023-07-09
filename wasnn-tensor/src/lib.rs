@@ -265,7 +265,7 @@ impl<T, S: AsRef<[T]>> TensorBase<T, S> {
     ///
     /// The order in which elements are visited is unspecified and may not
     /// correspond to the logical order.
-    pub fn map<F, U: Copy>(&self, f: F) -> Tensor<U>
+    pub fn map<F, U>(&self, f: F) -> Tensor<U>
     where
         F: Fn(&T) -> U,
     {
