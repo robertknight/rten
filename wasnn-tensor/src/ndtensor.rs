@@ -155,6 +155,20 @@ impl<const N: usize> NdLayout<N> {
 
         Ok(layout)
     }
+
+    /// Swap strides of this layout to put axes in the given order.
+    ///
+    /// Values in `dims` must be < N.
+    pub fn permuted(&self, dims: [usize; N]) -> Self {
+        Self::from_dyn(self.as_dyn().permuted(&dims))
+    }
+
+    /// Return a layout with the same number of elements but a given shape.
+    ///
+    /// Panics if the layout is not contiguous.
+    pub fn reshaped<const M: usize>(&self, shape: [usize; M]) -> NdLayout<M> {
+        NdLayout::from_dyn(self.as_dyn().reshaped(&shape))
+    }
 }
 
 impl NdLayout<2> {
@@ -414,6 +428,26 @@ impl<'a, T, const N: usize> NdTensorBase<T, &'a [T], N> {
             layout,
             element_type: PhantomData,
         })
+    }
+
+    /// Return a new view with a given shape. This has the same requirements
+    /// as `reshape`.
+    pub fn permuted(&self, shape: [usize; N]) -> Self {
+        NdTensorBase {
+            data: self.data,
+            layout: self.layout.permuted(shape),
+            element_type: PhantomData,
+        }
+    }
+
+    /// Return a new view with a given shape. This has the same requirements
+    /// as `reshape`.
+    pub fn reshaped<const M: usize>(&self, shape: [usize; M]) -> NdTensorBase<T, &'a [T], M> {
+        NdTensorBase {
+            data: self.data,
+            layout: self.layout.reshaped(shape),
+            element_type: PhantomData,
+        }
     }
 }
 
@@ -812,6 +846,51 @@ mod tests {
         assert_eq!(owned.shape(), view.shape());
         assert_eq!(owned.strides(), view.strides());
         assert_eq!(owned.data(), view.data());
+    }
+
+    #[test]
+    fn test_ndtensor_permuted() {
+        let data = vec![1, 2, 3, 4];
+        let view = NdTensorView::<i32, 2>::from_slice(&data, [2, 2], None).unwrap();
+        let transposed = view.permuted([1, 0]);
+        assert_eq!(tensor_elements(transposed), &[1, 3, 2, 4]);
+
+        let transposed = transposed.permuted([1, 0]);
+        assert_eq!(tensor_elements(transposed), &[1, 2, 3, 4]);
+    }
+
+    #[test]
+    #[should_panic(expected = "permutation is invalid")]
+    fn test_ndtensor_permuted_panics_if_dims_invalid() {
+        let data = vec![1, 2, 3, 4];
+        let view = NdTensorView::<i32, 2>::from_slice(&data, [2, 2], None).unwrap();
+        view.permuted([2, 0]);
+    }
+
+    #[test]
+    fn test_ndtensor_reshaped() {
+        let data = vec![1, 2, 3, 4];
+        let view = NdTensorView::<i32, 1>::from_slice(&data, [4], None).unwrap();
+        let matrix = view.reshaped([2, 2]);
+        assert_eq!(matrix.shape(), [2, 2]);
+        assert_eq!(tensor_elements(matrix), &[1, 2, 3, 4]);
+    }
+
+    #[test]
+    #[should_panic(expected = "new shape must have same number of elements as current shape")]
+    fn test_ndtensor_reshaped_panics_if_product_not_equal() {
+        let data = vec![1, 2, 3, 4];
+        let view = NdTensorView::<i32, 1>::from_slice(&data, [4], None).unwrap();
+        view.reshaped([2, 3]);
+    }
+
+    #[test]
+    #[should_panic(expected = "can only reshape a contiguous tensor")]
+    fn test_ndtensor_reshaped_panics_if_not_contiguous() {
+        let data = vec![1, 2, 3, 4];
+        let view = NdTensorView::<i32, 2>::from_slice(&data, [2, 2], None).unwrap();
+        let transposed = view.transposed();
+        transposed.reshaped([4]);
     }
 
     #[test]

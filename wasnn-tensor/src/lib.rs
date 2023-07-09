@@ -1303,7 +1303,7 @@ mod tests {
     }
 
     #[test]
-    #[should_panic(expected = "Permutation is invalid")]
+    #[should_panic(expected = "permutation is invalid")]
     fn test_permute_wrong_dim_count() {
         let mut input = steps(&[2, 3]);
         input.permute(&[1, 2, 3]);

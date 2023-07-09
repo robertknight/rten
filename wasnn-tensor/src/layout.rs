@@ -265,7 +265,7 @@ impl Layout {
     pub fn permute(&mut self, dims: &[usize]) {
         assert!(
             is_valid_permutation(self.ndim(), dims),
-            "Permutation is invalid"
+            "permutation is invalid"
         );
         self.permute_iter(dims.iter().copied());
     }
@@ -304,11 +304,11 @@ impl Layout {
     pub fn reshape(&mut self, shape: &[usize]) {
         assert!(
             shape.iter().product::<usize>() == self.len(),
-            "New shape must have same number of elements as current shape"
+            "new shape must have same number of elements as current shape"
         );
         assert!(
             self.is_contiguous(),
-            "Can only reshape a contiguous tensor/view"
+            "can only reshape a contiguous tensor/view"
         );
         *self = Layout::new(shape);
     }
@@ -452,21 +452,21 @@ mod tests {
     }
 
     #[test]
-    #[should_panic(expected = "Permutation is invalid")]
+    #[should_panic(expected = "permutation is invalid")]
     fn test_permute_invalid_len() {
         let mut layout = Layout::new(&[5, 5]);
         layout.permute(&[1, 0, 3]);
     }
 
     #[test]
-    #[should_panic(expected = "Permutation is invalid")]
+    #[should_panic(expected = "permutation is invalid")]
     fn test_permute_too_few_dims() {
         let mut layout = Layout::new(&[5, 5]);
         layout.permute(&[1]);
     }
 
     #[test]
-    #[should_panic(expected = "Permutation is invalid")]
+    #[should_panic(expected = "permutation is invalid")]
     fn test_permute_repeated_dims() {
         let mut layout = Layout::new(&[5, 5]);
         layout.permute(&[1, 1]);
