@@ -201,7 +201,7 @@ impl<'a> ModelBuilder<'a> {
                         },
                     ),
                     Dimension::Symbolic(name) => {
-                        let name_offset = self.builder.create_string(&name);
+                        let name_offset = self.builder.create_string(name);
                         sg::Dim::create(
                             &mut self.builder,
                             &sg::DimArgs {
@@ -219,7 +219,7 @@ impl<'a> ModelBuilder<'a> {
     }
 
     /// Convert a `Vec<T>` of elements to a `Vec<U>` and add them to the model buffer
-    fn create_vec<'fbb, T: Copy, U: flatbuffers::Push + Copy, F: Fn(T) -> U>(
+    fn create_vec<T: Copy, U: flatbuffers::Push + Copy, F: Fn(T) -> U>(
         &mut self,
         data: Option<Vec<T>>,
         map: F,
@@ -420,7 +420,7 @@ impl<'a> ModelBuilder<'a> {
             OpType::Pow => op!(Pow),
             OpType::Range => op!(Range),
             OpType::ReduceMean(args) => op_with_attrs!(ReduceMean, ReduceMeanAttrs, {
-                let axes = self.create_vec(args.axes, |axis| axis as i32);
+                let axes = self.create_vec(args.axes, |axis| axis);
                 sg::ReduceMeanAttrsArgs {
                     axes,
                     keep_dims: args.keep_dims,
@@ -540,5 +540,11 @@ impl<'a> ModelBuilder<'a> {
 
         self.builder.finish(model, None);
         self.builder.finished_data().to_vec()
+    }
+}
+
+impl<'a> Default for ModelBuilder<'a> {
+    fn default() -> Self {
+        Self::new()
     }
 }
