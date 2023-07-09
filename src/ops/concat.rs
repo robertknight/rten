@@ -1,10 +1,10 @@
-use wasnn_tensor::{Elements, Tensor, TensorLayout, TensorView};
+use wasnn_tensor::{Iter, Tensor, TensorLayout, TensorView};
 
 use crate::ops::{Input, InputList, IntoOpResult, OpError, Operator, Output};
 
 enum ChunkSource<'a, T: Copy> {
     Slice(&'a [T]),
-    Iter(Elements<'a, T>),
+    Iter(Iter<'a, T>),
 }
 
 /// Reads chunks of a tensor, where each chunk consists of one iteration over

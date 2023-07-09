@@ -5,7 +5,7 @@ use std::marker::PhantomData;
 use std::ops::{Index, IndexMut};
 
 use super::index_iterator::NdIndices;
-use super::iterators::{Elements, ElementsMut};
+use super::iterators::{Iter, IterMut};
 use super::layout::Layout;
 use super::overlap::may_have_internal_overlap;
 use super::range::SliceItem;
@@ -389,8 +389,8 @@ impl<T, S: AsRef<[T]>, const N: usize> NdTensorBase<T, S, N> {
     }
 
     /// Return an iterator over elements of this tensor.
-    pub fn iter(&self) -> Elements<T> {
-        Elements::from_view(&self.as_dyn())
+    pub fn iter(&self) -> Iter<T> {
+        Iter::from_view(&self.as_dyn())
     }
 
     /// Return a new tensor by applying `f` to each element of this tensor.
@@ -550,8 +550,8 @@ impl<T, S: AsRef<[T]> + AsMut<[T]>, const N: usize> NdTensorBase<T, S, N> {
     }
 
     /// Return a mutable iterator over elements of this tensor.
-    pub fn iter_mut(&mut self) -> ElementsMut<T> {
-        ElementsMut::new(self.data.as_mut(), &self.layout.as_dyn())
+    pub fn iter_mut(&mut self) -> IterMut<T> {
+        IterMut::new(self.data.as_mut(), &self.layout.as_dyn())
     }
 }
 

@@ -22,9 +22,7 @@ pub mod rng;
 pub mod test_util;
 
 pub use self::index_iterator::DynIndices;
-pub use self::iterators::{
-    AxisIter, AxisIterMut, BroadcastElements, Elements, ElementsMut, Offsets,
-};
+pub use self::iterators::{AxisIter, AxisIterMut, BroadcastIter, Iter, IterMut, Offsets};
 pub use self::layout::Layout;
 pub use self::ndtensor::{
     Matrix, MatrixLayout, MatrixMut, NdTensor, NdTensorBase, NdTensorLayout, NdTensorView,
@@ -321,8 +319,8 @@ impl<T, S: AsRef<[T]>> TensorBase<T, S> {
     }
 
     /// Return an iterator over elements of this tensor, in their logical order.
-    pub fn iter(&self) -> Elements<T> {
-        Elements::new(self)
+    pub fn iter(&self) -> Iter<T> {
+        Iter::new(self)
     }
 
     /// Return an iterator over slices of this tensor along a given axis.
@@ -363,17 +361,17 @@ impl<T, S: AsRef<[T]>> TensorBase<T, S> {
     ///
     /// See also <https://numpy.org/doc/stable/user/basics.broadcasting.html#general-broadcasting-rules>
     /// for worked examples of how broadcasting works.
-    pub fn broadcast_iter(&self, shape: &[usize]) -> BroadcastElements<T> {
+    pub fn broadcast_iter(&self, shape: &[usize]) -> BroadcastIter<T> {
         assert!(
             self.can_broadcast_to(shape),
             "Cannot broadcast to specified shape"
         );
-        BroadcastElements::new(self, shape)
+        BroadcastIter::new(self, shape)
     }
 
     /// Return an iterator over a slice of this tensor.
-    pub fn slice_iter(&self, ranges: &[SliceRange]) -> Elements<T> {
-        Elements::slice(self, ranges)
+    pub fn slice_iter(&self, ranges: &[SliceRange]) -> Iter<T> {
+        Iter::slice(self, ranges)
     }
 
     /// Return a view of this tensor with all dimensions of size 1 removed.
@@ -556,9 +554,9 @@ impl<T, S: AsRef<[T]> + AsMut<[T]>> TensorBase<T, S> {
     }
 
     /// Return a mutable iterator over elements of this view.
-    pub fn iter_mut(&mut self) -> ElementsMut<T> {
+    pub fn iter_mut(&mut self) -> IterMut<T> {
         let layout = &self.layout;
-        ElementsMut::new(self.data.as_mut(), layout)
+        IterMut::new(self.data.as_mut(), layout)
     }
 
     /// Return an iterator over mutable slices of this tensor along a given

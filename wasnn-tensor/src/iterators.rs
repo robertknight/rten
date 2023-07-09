@@ -1,5 +1,5 @@
 use std::iter::{repeat, zip, Cycle, Take};
-use std::slice::{Iter, IterMut};
+use std::slice;
 
 use super::layout::Layout;
 use super::range::SliceRange;
@@ -205,28 +205,28 @@ impl IndexingIterBase {
 }
 
 /// Iterator over elements of a tensor, in their logical order.
-pub struct Elements<'a, T> {
-    iter: ElementsIter<'a, T>,
+pub struct Iter<'a, T> {
+    iter: IterKind<'a, T>,
 }
 
 /// Alternate implementations of `Elements`.
 ///
 /// When the tensor has a contiguous layout, this iterator is just a thin
 /// wrapper around a slice iterator.
-enum ElementsIter<'a, T> {
-    Direct(Iter<'a, T>),
+enum IterKind<'a, T> {
+    Direct(slice::Iter<'a, T>),
     Indexing(IndexingIter<'a, T>),
 }
 
-impl<T> Elements<'_, T> {
-    pub(super) fn new<S: AsRef<[T]>>(view: &TensorBase<T, S>) -> Elements<T> {
+impl<T> Iter<'_, T> {
+    pub(super) fn new<S: AsRef<[T]>>(view: &TensorBase<T, S>) -> Iter<T> {
         if view.layout.is_contiguous() {
-            Elements {
-                iter: ElementsIter::Direct(view.data.as_ref().iter()),
+            Iter {
+                iter: IterKind::Direct(view.data.as_ref().iter()),
             }
         } else {
-            Elements {
-                iter: ElementsIter::Indexing(IndexingIter::new(view)),
+            Iter {
+                iter: IterKind::Indexing(IndexingIter::new(view)),
             }
         }
     }
@@ -234,14 +234,14 @@ impl<T> Elements<'_, T> {
     /// Create a new iterator for elements of a given view. Unlike
     /// [Elements::new], the lifetime is that of the element storage rather than
     /// the view.
-    pub(super) fn from_view<'a>(view: &TensorBase<T, &'a [T]>) -> Elements<'a, T> {
+    pub(super) fn from_view<'a>(view: &TensorBase<T, &'a [T]>) -> Iter<'a, T> {
         if view.layout.is_contiguous() {
-            Elements {
-                iter: ElementsIter::Direct(view.data.as_ref().iter()),
+            Iter {
+                iter: IterKind::Direct(view.data.as_ref().iter()),
             }
         } else {
-            Elements {
-                iter: ElementsIter::Indexing(IndexingIter::from_view(view)),
+            Iter {
+                iter: IterKind::Indexing(IndexingIter::from_view(view)),
             }
         }
     }
@@ -249,39 +249,39 @@ impl<T> Elements<'_, T> {
     pub(super) fn slice<'a, S: AsRef<[T]>>(
         view: &'a TensorBase<T, S>,
         ranges: &[SliceRange],
-    ) -> Elements<'a, T> {
+    ) -> Iter<'a, T> {
         let iter = IndexingIter {
             base: IndexingIterBase::slice(&view.layout, ranges),
             data: view.data.as_ref(),
         };
-        Elements {
-            iter: ElementsIter::Indexing(iter),
+        Iter {
+            iter: IterKind::Indexing(iter),
         }
     }
 }
 
-impl<'a, T> Iterator for Elements<'a, T> {
+impl<'a, T> Iterator for Iter<'a, T> {
     type Item = &'a T;
 
     #[inline(always)]
     fn next(&mut self) -> Option<Self::Item> {
         match self.iter {
-            ElementsIter::Direct(ref mut iter) => iter.next(),
-            ElementsIter::Indexing(ref mut iter) => iter.next(),
+            IterKind::Direct(ref mut iter) => iter.next(),
+            IterKind::Indexing(ref mut iter) => iter.next(),
         }
     }
 
     fn size_hint(&self) -> (usize, Option<usize>) {
         match &self.iter {
-            ElementsIter::Direct(iter) => iter.size_hint(),
-            ElementsIter::Indexing(iter) => iter.size_hint(),
+            IterKind::Direct(iter) => iter.size_hint(),
+            IterKind::Indexing(iter) => iter.size_hint(),
         }
     }
 
     fn nth(&mut self, n: usize) -> Option<Self::Item> {
         match self.iter {
-            ElementsIter::Direct(ref mut iter) => iter.nth(n),
-            ElementsIter::Indexing(ref mut iter) => {
+            IterKind::Direct(ref mut iter) => iter.nth(n),
+            IterKind::Indexing(ref mut iter) => {
                 iter.base.step_by(n);
                 iter.next()
             }
@@ -289,7 +289,7 @@ impl<'a, T> Iterator for Elements<'a, T> {
     }
 }
 
-impl<'a, T> ExactSizeIterator for Elements<'a, T> {}
+impl<'a, T> ExactSizeIterator for Iter<'a, T> {}
 
 struct IndexingIter<'a, T> {
     base: IndexingIterBase,
@@ -345,54 +345,54 @@ impl<'a, T> Iterator for IndexingIter<'a, T> {
 impl<'a, T> ExactSizeIterator for IndexingIter<'a, T> {}
 
 /// Mutable iterator over elements of a tensor.
-pub struct ElementsMut<'a, T> {
-    iter: ElementsIterMut<'a, T>,
+pub struct IterMut<'a, T> {
+    iter: IterMutKind<'a, T>,
 }
 
 /// Alternate implementations of `ElementsMut`.
 ///
 /// When the tensor has a contiguous layout, this iterator is just a thin
 /// wrapper around a slice iterator.
-enum ElementsIterMut<'a, T> {
-    Direct(IterMut<'a, T>),
+enum IterMutKind<'a, T> {
+    Direct(slice::IterMut<'a, T>),
     Indexing(IndexingIterMut<'a, T>),
 }
 
-impl<'a, T> ElementsMut<'a, T> {
-    pub(super) fn new(data: &'a mut [T], layout: &Layout) -> ElementsMut<'a, T> {
+impl<'a, T> IterMut<'a, T> {
+    pub(super) fn new(data: &'a mut [T], layout: &Layout) -> IterMut<'a, T> {
         if layout.is_contiguous() {
-            ElementsMut {
-                iter: ElementsIterMut::Direct(data.iter_mut()),
+            IterMut {
+                iter: IterMutKind::Direct(data.iter_mut()),
             }
         } else {
-            ElementsMut {
-                iter: ElementsIterMut::Indexing(IndexingIterMut::new(data, layout)),
+            IterMut {
+                iter: IterMutKind::Indexing(IndexingIterMut::new(data, layout)),
             }
         }
     }
 }
 
-impl<'a, T> Iterator for ElementsMut<'a, T> {
+impl<'a, T> Iterator for IterMut<'a, T> {
     type Item = &'a mut T;
 
     fn next(&mut self) -> Option<Self::Item> {
         match self.iter {
-            ElementsIterMut::Direct(ref mut iter) => iter.next(),
-            ElementsIterMut::Indexing(ref mut iter) => iter.next(),
+            IterMutKind::Direct(ref mut iter) => iter.next(),
+            IterMutKind::Indexing(ref mut iter) => iter.next(),
         }
     }
 
     fn size_hint(&self) -> (usize, Option<usize>) {
         match &self.iter {
-            ElementsIterMut::Direct(iter) => iter.size_hint(),
-            ElementsIterMut::Indexing(iter) => iter.size_hint(),
+            IterMutKind::Direct(iter) => iter.size_hint(),
+            IterMutKind::Indexing(iter) => iter.size_hint(),
         }
     }
 
     fn nth(&mut self, n: usize) -> Option<Self::Item> {
         match self.iter {
-            ElementsIterMut::Direct(ref mut iter) => iter.nth(n),
-            ElementsIterMut::Indexing(ref mut iter) => {
+            IterMutKind::Direct(ref mut iter) => iter.nth(n),
+            IterMutKind::Indexing(ref mut iter) => {
                 iter.base.step_by(n);
                 iter.next()
             }
@@ -400,7 +400,7 @@ impl<'a, T> Iterator for ElementsMut<'a, T> {
     }
 }
 
-impl<'a, T> ExactSizeIterator for ElementsMut<'a, T> {}
+impl<'a, T> ExactSizeIterator for IterMut<'a, T> {}
 
 struct IndexingIterMut<'a, T> {
     base: IndexingIterBase,
@@ -507,14 +507,14 @@ impl ExactSizeIterator for Offsets {}
 ///
 /// This iterator will repeat elements of the underlying tensor until the total
 /// number yielded matches the product of the shape being broadcast to.
-pub struct BroadcastElements<'a, T> {
-    iter: BroadcastElementsIter<'a, T>,
+pub struct BroadcastIter<'a, T> {
+    iter: BroadcastIterKind<'a, T>,
 }
 
 /// Alternate implementations for broadcasting. See notes in
 /// `BroadcastElements::can_broadcast_by_cycling`.
-enum BroadcastElementsIter<'a, T> {
-    Direct(Take<Cycle<Iter<'a, T>>>),
+enum BroadcastIterKind<'a, T> {
+    Direct(Take<Cycle<slice::Iter<'a, T>>>),
     Indexing(IndexingIter<'a, T>),
 }
 
@@ -553,42 +553,42 @@ fn can_broadcast_by_cycling(from_shape: &[usize], to_shape: &[usize]) -> bool {
     true
 }
 
-impl<'a, T> BroadcastElements<'a, T> {
+impl<'a, T> BroadcastIter<'a, T> {
     pub fn new<S: AsRef<[T]>>(
         view: &'a TensorBase<T, S>,
         to_shape: &[usize],
-    ) -> BroadcastElements<'a, T> {
+    ) -> BroadcastIter<'a, T> {
         let iter = if view.layout.is_contiguous()
             && can_broadcast_by_cycling(view.layout.shape(), to_shape)
         {
             let iter_len = to_shape.iter().product();
-            BroadcastElementsIter::Direct(view.data.as_ref().iter().cycle().take(iter_len))
+            BroadcastIterKind::Direct(view.data.as_ref().iter().cycle().take(iter_len))
         } else {
-            BroadcastElementsIter::Indexing(IndexingIter::broadcast(view, to_shape))
+            BroadcastIterKind::Indexing(IndexingIter::broadcast(view, to_shape))
         };
-        BroadcastElements { iter }
+        BroadcastIter { iter }
     }
 }
 
-impl<'a, T> Iterator for BroadcastElements<'a, T> {
+impl<'a, T> Iterator for BroadcastIter<'a, T> {
     type Item = &'a T;
 
     fn next(&mut self) -> Option<Self::Item> {
         match self.iter {
-            BroadcastElementsIter::Direct(ref mut iter) => iter.next(),
-            BroadcastElementsIter::Indexing(ref mut iter) => iter.next(),
+            BroadcastIterKind::Direct(ref mut iter) => iter.next(),
+            BroadcastIterKind::Indexing(ref mut iter) => iter.next(),
         }
     }
 
     fn size_hint(&self) -> (usize, Option<usize>) {
         match &self.iter {
-            BroadcastElementsIter::Direct(iter) => iter.size_hint(),
-            BroadcastElementsIter::Indexing(iter) => iter.size_hint(),
+            BroadcastIterKind::Direct(iter) => iter.size_hint(),
+            BroadcastIterKind::Indexing(iter) => iter.size_hint(),
         }
     }
 }
 
-impl<'a, T> ExactSizeIterator for BroadcastElements<'a, T> {}
+impl<'a, T> ExactSizeIterator for BroadcastIter<'a, T> {}
 
 /// Iterator over slices of a tensor along an axis. See [TensorBase::axis_iter].
 pub struct AxisIter<'a, T> {
