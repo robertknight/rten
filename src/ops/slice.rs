@@ -1,9 +1,9 @@
 use std::iter::zip;
 
-use wasnn_tensor::{SliceRange, Tensor, TensorLayout, TensorView};
+use wasnn_tensor::{NdTensorView, SliceRange, Tensor, TensorLayout, TensorView};
 
-use crate::check_dims;
 use crate::ops::{resolve_axis, Input, InputList, IntoOpResult, OpError, Operator, Output};
+use crate::static_dims;
 
 /// Compute the effective starts, ends and steps for each input dimension in
 /// a Slice operation.
@@ -11,18 +11,13 @@ use crate::ops::{resolve_axis, Input, InputList, IntoOpResult, OpError, Operator
 /// See https://onnx.ai/onnx/operators/onnx__Slice.html.
 fn slice_ranges(
     input_shape: &[usize],
-    starts: &Tensor<i32>,
-    ends: &Tensor<i32>,
-    axes: Option<&Tensor<i32>>,
-    steps: Option<&Tensor<i32>>,
+    starts: &NdTensorView<i32, 1>,
+    ends: &NdTensorView<i32, 1>,
+    axes: Option<&NdTensorView<i32, 1>>,
+    steps: Option<&NdTensorView<i32, 1>>,
 ) -> Result<Vec<SliceRange>, OpError> {
     // FIXME: Verify that `starts`, `ends`, `axes` and `steps` have compatible
     // lengths.
-
-    check_dims!(starts, 1);
-    check_dims!(ends, 1);
-    check_dims!(axes?, 1);
-    check_dims!(steps?, 1);
 
     if let Some(steps) = steps {
         for &step in steps.iter() {
@@ -52,10 +47,10 @@ fn slice_ranges(
 /// Return a copy of a tensor which only retains a subset of a given dimension.
 pub fn slice<T: Copy>(
     input: TensorView<T>,
-    starts: &Tensor<i32>,
-    ends: &Tensor<i32>,
-    axes: Option<&Tensor<i32>>,
-    steps: Option<&Tensor<i32>>,
+    starts: &NdTensorView<i32, 1>,
+    ends: &NdTensorView<i32, 1>,
+    axes: Option<&NdTensorView<i32, 1>>,
+    steps: Option<&NdTensorView<i32, 1>>,
 ) -> Result<Tensor<T>, OpError> {
     let ranges = slice_ranges(input.shape(), starts, ends, axes, steps)?;
     let sliced_data: Vec<_> = input.slice_iter(&ranges).copied().collect();
@@ -72,9 +67,9 @@ pub fn slice<T: Copy>(
 /// given by `starts` and `ends`.
 pub fn slice_in_place<T: Copy>(
     input: &mut Tensor<T>,
-    starts: &Tensor<i32>,
-    ends: &Tensor<i32>,
-    axes: Option<&Tensor<i32>>,
+    starts: &NdTensorView<i32, 1>,
+    ends: &NdTensorView<i32, 1>,
+    axes: Option<&NdTensorView<i32, 1>>,
 ) -> Result<(), OpError> {
     let ranges = slice_ranges(input.shape(), starts, ends, axes, None)?;
     for (dim, range) in ranges.iter().enumerate() {
@@ -94,17 +89,29 @@ impl Operator for Slice {
 
     fn run(&self, inputs: InputList) -> Result<Vec<Output>, OpError> {
         let input = inputs.require(0)?;
+
         let starts = inputs.require_as::<i32>(1)?;
+        let starts = static_dims!(starts, 1)?;
+
         let ends = inputs.require_as::<i32>(2)?;
-        let axes = inputs.get_as::<i32>(3)?;
-        let steps = inputs.get_as::<i32>(4)?;
+        let ends = static_dims!(ends, 1)?;
+
+        let axes = inputs
+            .get_as::<i32>(3)?
+            .map(|axes| static_dims!(axes, 1))
+            .transpose()?;
+
+        let steps = inputs
+            .get_as::<i32>(4)?
+            .map(|steps| static_dims!(steps, 1))
+            .transpose()?;
 
         let result: Result<Output, OpError> = match input {
             Input::FloatTensor(input) => {
-                slice(input.view(), starts, ends, axes, steps).map(|t| t.into())
+                slice(input.view(), &starts, &ends, axes.as_ref(), steps.as_ref()).map(|t| t.into())
             }
             Input::IntTensor(input) => {
-                slice(input.view(), starts, ends, axes, steps).map(|t| t.into())
+                slice(input.view(), &starts, &ends, axes.as_ref(), steps.as_ref()).map(|t| t.into())
             }
         };
         result.into_op_result()
@@ -116,9 +123,19 @@ impl Operator for Slice {
 
     fn run_in_place(&self, input: Output, other: InputList) -> Result<Output, OpError> {
         let starts = other.require_as::<i32>(0)?;
+        let starts = static_dims!(starts, 1)?;
+
         let ends = other.require_as::<i32>(1)?;
-        let axes = other.get_as::<i32>(2)?;
-        let steps = other.get_as::<i32>(3)?;
+        let ends = static_dims!(ends, 1)?;
+
+        let axes = other
+            .get_as::<i32>(2)?
+            .map(|axes| static_dims!(axes, 1))
+            .transpose()?;
+        let steps = other
+            .get_as::<i32>(3)?
+            .map(|steps| static_dims!(steps, 1))
+            .transpose()?;
 
         // Fall back to copying if non-default steps are given.
         if let Some(steps) = steps {
@@ -133,11 +150,11 @@ impl Operator for Slice {
 
         match input {
             Output::IntTensor(mut output) => {
-                slice_in_place(&mut output, starts, ends, axes)?;
+                slice_in_place(&mut output, &starts, &ends, axes.as_ref())?;
                 Ok(output.into())
             }
             Output::FloatTensor(mut output) => {
-                slice_in_place(&mut output, starts, ends, axes)?;
+                slice_in_place(&mut output, &starts, &ends, axes.as_ref())?;
                 Ok(output.into())
             }
         }
@@ -162,36 +179,36 @@ mod tests {
         let mut rng = XorShiftRng::new(5678);
         let mut input = Tensor::rand(&[2, 2, 5, 3], &mut rng);
 
-        let starts = from_slice(&[2]);
-        let ends = from_slice(&[4]);
-        let axes = from_slice(&[2]);
+        let starts = &[2];
+        let ends = &[4];
+        let axes = &[2];
 
-        slice_in_place(&mut input, &starts, &ends, Some(&axes)).unwrap();
+        slice_in_place(&mut input, &starts.into(), &ends.into(), Some(&axes.into())).unwrap();
 
         assert_eq!(
             input.shape(),
-            vec![2, 2, ends[[0]] as usize - starts[[0]] as usize, 3]
+            vec![2, 2, ends[0] as usize - starts[0] as usize, 3]
         );
 
         // Slice with -ve endpoints.
         let mut input = Tensor::from_vec((0..10).collect());
-        let starts = from_slice(&[-9]);
-        let ends = from_slice(&[-6]);
-        slice_in_place(&mut input, &starts, &ends, None).unwrap();
+        let starts = &[-9];
+        let ends = &[-6];
+        slice_in_place(&mut input, &starts.into(), &ends.into(), None).unwrap();
         assert_eq!(input.to_vec(), &[1, 2, 3]);
 
         // Slice with out-of-bounds end.
         let mut input = Tensor::from_vec((0..10).collect());
-        let starts = from_slice(&[5]);
-        let ends = from_slice(&[20]);
-        slice_in_place(&mut input, &starts, &ends, None).unwrap();
+        let starts = &[5];
+        let ends = &[20];
+        slice_in_place(&mut input, &starts.into(), &ends.into(), None).unwrap();
         assert_eq!(input.to_vec(), &[5, 6, 7, 8, 9]);
 
         // Slice with out-of-bounds start.
         let mut input = Tensor::from_vec((0..10).collect());
-        let starts = from_slice(&[-20]);
-        let ends = from_slice(&[5]);
-        slice_in_place(&mut input, &starts, &ends, None).unwrap();
+        let starts = &[-20];
+        let ends = &[5];
+        slice_in_place(&mut input, &starts.into(), &ends.into(), None).unwrap();
         assert_eq!(input.to_vec(), &[0, 1, 2, 3, 4]);
     }
 
@@ -200,17 +217,21 @@ mod tests {
         let mut rng = XorShiftRng::new(5678);
         let input = Tensor::rand(&[5, 2, 5, 3], &mut rng);
 
-        let starts = from_slice(&[2]);
-        let ends = from_slice(&[4]);
-        let axes = from_slice(&[0]);
+        let starts = &[2];
+        let ends = &[4];
+        let axes = &[0];
 
-        let sliced = slice(input.view(), &starts, &ends, Some(&axes), None).unwrap();
+        let sliced = slice(
+            input.view(),
+            &starts.into(),
+            &ends.into(),
+            Some(&axes.into()),
+            None,
+        )
+        .unwrap();
         let shape = sliced.shape();
 
-        assert_eq!(
-            shape,
-            vec![ends[[0]] as usize - starts[[0]] as usize, 2, 5, 3]
-        );
+        assert_eq!(shape, vec![ends[0] as usize - starts[0] as usize, 2, 5, 3]);
         assert_eq!(sliced.len(), shape.iter().fold(1, |len, x| len * x));
 
         for w in 0..shape[0] {
@@ -219,7 +240,7 @@ mod tests {
                     for z in 0..shape[3] {
                         assert_eq!(
                             sliced[[w, x, y, z]],
-                            input[[w + starts[[0]] as usize, x, y, z]]
+                            input[[w + starts[0] as usize, x, y, z]]
                         );
                     }
                 }
@@ -232,16 +253,23 @@ mod tests {
         let mut rng = XorShiftRng::new(5678);
         let input = Tensor::rand(&[2, 2, 5, 3], &mut rng);
 
-        let starts = from_slice(&[2]);
-        let ends = from_slice(&[4]);
-        let axes = from_slice(&[2]);
+        let starts = &[2];
+        let ends = &[4];
+        let axes = &[2];
 
-        let sliced = slice(input.view(), &starts, &ends, Some(&axes), None).unwrap();
+        let sliced = slice(
+            input.view(),
+            &starts.into(),
+            &ends.into(),
+            Some(&axes.into()),
+            None,
+        )
+        .unwrap();
         let shape = sliced.shape();
 
         assert_eq!(
             sliced.shape(),
-            vec![2, 2, ends[[0]] as usize - starts[[0]] as usize, 3]
+            vec![2, 2, ends[0] as usize - starts[0] as usize, 3]
         );
         assert_eq!(sliced.len(), shape.iter().fold(1, |len, x| len * x));
 
@@ -251,7 +279,7 @@ mod tests {
                     for z in 0..shape[3] {
                         assert_eq!(
                             sliced[[w, x, y, z]],
-                            input[[w, x, y + starts[[0]] as usize, z]]
+                            input[[w, x, y + starts[0] as usize, z]]
                         );
                     }
                 }
@@ -267,11 +295,18 @@ mod tests {
         for dim in 0..input.shape().len() {
             let dim_size = input.size(dim) as i32;
 
-            let starts = from_slice(&[0]);
-            let ends = from_slice(&[dim_size]);
-            let axes = from_slice(&[dim as i32]);
+            let starts = &[0];
+            let ends = &[dim_size];
+            let axes = &[dim as i32];
 
-            let sliced = slice(input.view(), &starts, &ends, Some(&axes), None).unwrap();
+            let sliced = slice(
+                input.view(),
+                &starts.into(),
+                &ends.into(),
+                Some(&axes.into()),
+                None,
+            )
+            .unwrap();
             assert_eq!(sliced.shape(), input.shape());
             assert_eq!(sliced.data(), input.data());
         }
@@ -280,45 +315,87 @@ mod tests {
     #[test]
     fn test_slice_negative_axes() {
         let input = Tensor::from_data(&[3, 3], vec![1, 2, 3, 4, 5, 6, 7, 8, 9]);
-        let starts = from_slice(&[0]);
-        let ends = from_slice(&[2]);
+        let starts = &[0];
+        let ends = &[2];
 
-        let axes = from_slice(&[-1]);
-        let sliced = slice(input.view(), &starts, &ends, Some(&axes), None).unwrap();
+        let axes = &[-1];
+        let sliced = slice(
+            input.view(),
+            &starts.into(),
+            &ends.into(),
+            Some(&axes.into()),
+            None,
+        )
+        .unwrap();
         assert_eq!(sliced.to_vec(), &[1, 2, 4, 5, 7, 8]);
 
-        let axes = from_slice(&[-2]);
-        let sliced = slice(input.view(), &starts, &ends, Some(&axes), None).unwrap();
+        let axes = &[-2];
+        let sliced = slice(
+            input.view(),
+            &starts.into(),
+            &ends.into(),
+            Some(&axes.into()),
+            None,
+        )
+        .unwrap();
         assert_eq!(sliced.to_vec(), &[1, 2, 3, 4, 5, 6]);
     }
 
     #[test]
     fn test_slice_negative_starts() {
         let input = Tensor::from_data(&[3, 3], vec![1, 2, 3, 4, 5, 6, 7, 8, 9]);
-        let axes = from_slice(&[-1]);
-        let ends = from_slice(&[2]);
+        let axes = &[-1];
+        let ends = &[2];
 
-        let starts = from_slice(&[-3]);
-        let sliced = slice(input.view(), &starts, &ends, Some(&axes), None).unwrap();
+        let starts = &[-3];
+        let sliced = slice(
+            input.view(),
+            &starts.into(),
+            &ends.into(),
+            Some(&axes.into()),
+            None,
+        )
+        .unwrap();
         assert_eq!(sliced.to_vec(), &[1, 2, 4, 5, 7, 8]);
 
-        let starts = from_slice(&[-2]);
-        let sliced = slice(input.view(), &starts, &ends, Some(&axes), None).unwrap();
+        let starts = &[-2];
+        let sliced = slice(
+            input.view(),
+            &starts.into(),
+            &ends.into(),
+            Some(&axes.into()),
+            None,
+        )
+        .unwrap();
         assert_eq!(sliced.to_vec(), &[2, 5, 8]);
     }
 
     #[test]
     fn test_slice_negative_ends() {
         let input = Tensor::from_data(&[3, 3], vec![1, 2, 3, 4, 5, 6, 7, 8, 9]);
-        let axes = from_slice(&[-1]);
-        let starts = from_slice(&[0]);
+        let axes = &[-1];
+        let starts = &[0];
 
-        let ends = from_slice(&[-1]);
-        let sliced = slice(input.view(), &starts, &ends, Some(&axes), None).unwrap();
+        let ends = &[-1];
+        let sliced = slice(
+            input.view(),
+            &starts.into(),
+            &ends.into(),
+            Some(&axes.into()),
+            None,
+        )
+        .unwrap();
         assert_eq!(sliced.to_vec(), &[1, 2, 4, 5, 7, 8]);
 
-        let ends = from_slice(&[-2]);
-        let sliced = slice(input.view(), &starts, &ends, Some(&axes), None).unwrap();
+        let ends = &[-2];
+        let sliced = slice(
+            input.view(),
+            &starts.into(),
+            &ends.into(),
+            Some(&axes.into()),
+            None,
+        )
+        .unwrap();
         assert_eq!(sliced.to_vec(), &[1, 4, 7]);
     }
 
@@ -332,10 +409,10 @@ mod tests {
         // The ONNX Slice spec does not support unbounded ranges (like
         // `array[start:]` in numpy) but instead recommends the use of INT_MAX /
         // -INT_MAX together with clamping to achieve the same result.
-        let starts = from_slice(&[-i32::MAX, -100]);
-        let ends = from_slice(&[i32::MAX, 100]);
+        let starts = &[-i32::MAX, -100];
+        let ends = &[i32::MAX, 100];
 
-        let sliced = slice(input.view(), &starts, &ends, None, None).unwrap();
+        let sliced = slice(input.view(), &starts.into(), &ends.into(), None, None).unwrap();
 
         expect_equal(&sliced, &input)
     }
@@ -388,12 +465,19 @@ mod tests {
         ];
 
         for case in cases {
-            let starts = from_slice(&[case.start]);
-            let ends = from_slice(&[case.end]);
-            let axes = from_slice(&[0]);
-            let steps = from_slice(&[case.step]);
+            let starts = &[case.start];
+            let ends = &[case.end];
+            let axes = &[0];
+            let steps = &[case.step];
 
-            let sliced = slice(input.view(), &starts, &ends, Some(&axes), Some(&steps)).unwrap();
+            let sliced = slice(
+                input.view(),
+                &starts.into(),
+                &ends.into(),
+                Some(&axes.into()),
+                Some(&steps.into()),
+            )
+            .unwrap();
 
             assert_eq!(sliced.shape(), case.expected_shape);
             assert_eq!(sliced.data(), case.expected_elements);
