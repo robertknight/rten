@@ -372,6 +372,43 @@ macro_rules! check_dims {
     };
 }
 
+/// Convert a tensor with dynamic dimension count to an `NdTensorView`, or
+/// return an `OpError::InvalidValue` if the dimension count is incorrect.
+#[macro_export]
+macro_rules! static_dims {
+    ($tensor:ident, $ndim:literal, $dim_names:literal) => {{
+        use wasnn_tensor::TensorLayout;
+
+        if $tensor.ndim() != $ndim {
+            Err(OpError::InvalidValue(concat!(
+                stringify!($tensor),
+                " must have ",
+                stringify!($ndim),
+                " dims (",
+                $dim_names,
+                ")"
+            )))
+        } else {
+            Ok($tensor.nd_view::<$ndim>())
+        }
+    }};
+
+    ($tensor:ident, $ndim:literal) => {{
+        use wasnn_tensor::TensorLayout;
+
+        if $tensor.ndim() != $ndim {
+            Err(OpError::InvalidValue(concat!(
+                stringify!($tensor),
+                " must have ",
+                stringify!($ndim),
+                " dims"
+            )))
+        } else {
+            Ok($tensor.nd_view::<$ndim>())
+        }
+    }};
+}
+
 /// An Operator performs a computation step when executing a data flow graph.
 ///
 /// Operators take zero or more dynamic input values, plus a set of static

@@ -1,5 +1,7 @@
 use wasnn_tensor;
-use wasnn_tensor::{tensor, DynIndices, Offsets, SliceRange, Tensor, TensorLayout, TensorView};
+use wasnn_tensor::{
+    DynIndices, NdTensor, NdTensorView, Offsets, SliceRange, Tensor, TensorLayout, TensorView,
+};
 
 use crate::number::Identities;
 use crate::ops::layout::squeeze_in_place;
@@ -99,8 +101,9 @@ fn index_select<T: Copy, Cmp: Fn(T, T) -> bool>(
     let mut reduced = Tensor::<i32>::from_data(&reduced_shape, reduced_data);
 
     if !keep_dims {
-        squeeze_in_place(&mut reduced, Some(&tensor!([resolved_axis as i32])))
-            .expect("Invalid axis");
+        let axes = [resolved_axis as i32];
+        let axes = NdTensorView::from_slice(&axes, [1], None).unwrap();
+        squeeze_in_place(&mut reduced, Some(axes)).expect("Invalid axis");
     }
 
     Ok(reduced)
@@ -302,9 +305,9 @@ fn reduce<T: Copy + Default, R: Reducer<T>>(
     let mut reduced = Tensor::<T>::from_data(&reduced_shape, reduced_data);
 
     if !keep_dims {
-        let resolved_axes_i32 = resolved_axes.iter().map(|&axis| axis as i32).collect();
-        squeeze_in_place(&mut reduced, Some(&Tensor::from_vec(resolved_axes_i32)))
-            .expect("Invalid axis");
+        let resolved_axes_i32: NdTensor<i32, 1> =
+            resolved_axes.iter().map(|&axis| axis as i32).collect();
+        squeeze_in_place(&mut reduced, Some(resolved_axes_i32.view())).expect("Invalid axis");
     }
 
     Ok(reduced)
