@@ -1,6 +1,6 @@
 /// Simple, non-cryptographically secure random number generator.
 ///
-/// See https://en.wikipedia.org/wiki/Xorshift.
+/// See <https://en.wikipedia.org/wiki/Xorshift>.
 pub struct XorShiftRng {
     state: u64,
 }
