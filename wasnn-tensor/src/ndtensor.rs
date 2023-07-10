@@ -651,6 +651,17 @@ impl<T, S: AsRef<[T]> + AsMut<[T]>, const N: usize> IndexMut<[usize; N]>
     }
 }
 
+impl<T> FromIterator<T> for NdTensor<T, 1> {
+    fn from_iter<I>(iter: I) -> Self
+    where
+        I: IntoIterator<Item = T>,
+    {
+        let data: Vec<_> = FromIterator::from_iter(iter);
+        let len = data.len();
+        NdTensor::from_data(data, [len], None).unwrap()
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::{
@@ -744,6 +755,12 @@ mod tests {
             assert_eq!(result.shape(), case.shape);
             assert_eq!(result.strides(), case.strides);
         }
+    }
+
+    #[test]
+    fn test_ndtensor_from_iterator() {
+        let tensor: NdTensor<f32, 1> = [1., 2., 3., 4.].into_iter().collect();
+        assert_eq!(tensor_elements(tensor.view()), [1., 2., 3., 4.]);
     }
 
     #[test]
