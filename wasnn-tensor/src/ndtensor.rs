@@ -291,10 +291,14 @@ impl Display for FromDataError {
 impl Error for FromDataError {}
 
 impl<T, S: AsRef<[T]>, const N: usize> NdTensorBase<T, S, N> {
-    /// Constructs a tensor from the associated storage type.
+    /// Constructs a tensor from the associated storage type and optional
+    /// strides.
     ///
-    /// For creating views, prefer [NdTensorBase::from_slice] instead, as it
-    /// supports more flexible strides.
+    /// If creating an immutable view with strides, prefer
+    /// [NdTensorBase::from_slice]. This method enforces that every index in the
+    /// tensor maps to a unique element in the data. This upholds Rust's rules
+    /// for mutable aliasing. [NdTensorBase::from_slice] does not have this
+    /// restriction.
     pub fn from_data(
         data: S,
         shape: [usize; N],
@@ -304,9 +308,6 @@ impl<T, S: AsRef<[T]>, const N: usize> NdTensorBase<T, S, N> {
             shape,
             strides,
             data.as_ref().len(),
-            // Since this tensor may be mutable, having multiple indices yield
-            // the same element reference would lead to violations of Rust's
-            // mutable aliasing rules.
             OverlapPolicy::DisallowOverlap,
         )
         .map(|layout| NdTensorBase {
@@ -417,8 +418,20 @@ impl<T, S: AsRef<[T]>, const N: usize> NdTensorBase<T, S, N> {
     }
 }
 
+/// Convert a slice into a contiguous 1D tensor view.
+impl<'a, T, S: AsRef<[T]>> From<&'a S> for NdTensorBase<T, &'a [T], 1> {
+    fn from(data: &'a S) -> Self {
+        Self::from_slice(data.as_ref(), [data.as_ref().len()], None).unwrap()
+    }
+}
+
 impl<'a, T, const N: usize> NdTensorBase<T, &'a [T], N> {
-    /// Constructs a view from a slice.
+    /// Constructs a view from a slice and optional strides.
+    ///
+    /// Unlike [NdTensorBase::from_data], combinations of strides which cause
+    /// multiple indices in the tensor to refer to the same data element are
+    /// allowed. Since the returned view is immutable, this will not enable
+    /// violation of Rust's aliasing rules.
     pub fn from_slice(
         data: &'a [T],
         shape: [usize; N],
@@ -428,8 +441,6 @@ impl<'a, T, const N: usize> NdTensorBase<T, &'a [T], N> {
             shape,
             strides,
             data.as_ref().len(),
-            // Since this view is immutable, having multiple indices yield the
-            // same element reference won't violate Rust's aliasing rules.
             OverlapPolicy::AllowOverlap,
         )
         .map(|layout| NdTensorBase {
@@ -769,6 +780,15 @@ mod tests {
     fn test_ndtensor_from_iterator() {
         let tensor: NdTensor<f32, 1> = [1., 2., 3., 4.].into_iter().collect();
         assert_eq!(tensor_elements(tensor.view()), [1., 2., 3., 4.]);
+    }
+
+    #[test]
+    fn test_slice_into_1d_ndtensor() {
+        let data = &[1., 2., 3., 4.];
+        let view: NdTensorView<f32, 1> = data.into();
+        assert_eq!(view.data(), data);
+        assert_eq!(view.shape(), [4]);
+        assert_eq!(view.strides(), [1]);
     }
 
     #[test]
