@@ -1,15 +1,13 @@
-use wasnn_tensor::{SliceItem, Tensor, TensorLayout, TensorView};
+use wasnn_tensor::{NdTensorView, SliceItem, Tensor, TensorLayout, TensorView};
 
-use crate::check_dims;
 use crate::ops::{resolve_axis, InputList, OpError, Operator, Output};
+use crate::static_dims;
 
 pub fn split<T: Copy>(
     input: TensorView<T>,
     axis: isize,
-    split: &Tensor<i32>,
+    split: &NdTensorView<i32, 1>,
 ) -> Result<Vec<Tensor<T>>, OpError> {
-    check_dims!(split, 1);
-
     let axis = resolve_axis(input.ndim(), axis)?;
 
     if split.iter().any(|size| *size < 0) {
@@ -59,7 +57,9 @@ impl Operator for Split {
     fn run(&self, inputs: InputList) -> Result<Vec<Output>, OpError> {
         let input = inputs.require_as::<f32>(0)?;
         let splits = inputs.require_as::<i32>(1)?;
-        split(input.view(), self.axis, splits)
+        let splits = static_dims!(splits, 1)?;
+
+        split(input.view(), self.axis, &splits)
             .map(|tensors| tensors.into_iter().map(|t| t.into()).collect())
     }
 }
@@ -75,14 +75,16 @@ mod tests {
         let input = tensor!((5, 2); [0., 1., 2., 3., 4., 5., 6., 7., 8., 9.]);
 
         // Split with positive axis
-        let results = split(input.view(), 1, &tensor!([1, 1])).unwrap();
+        let splits = &[1, 1];
+        let results = split(input.view(), 1, &splits.into()).unwrap();
 
         assert_eq!(results.len(), 2);
         assert_eq!(results[0].data(), &[0., 2., 4., 6., 8.]);
         assert_eq!(results[1].data(), &[1., 3., 5., 7., 9.]);
 
         // Split with negative axis
-        let results = split(input.view(), -1, &tensor!([1, 1])).unwrap();
+        let splits = &[1, 1];
+        let results = split(input.view(), -1, &splits.into()).unwrap();
 
         assert_eq!(results.len(), 2);
         assert_eq!(results[0].data(), &[0., 2., 4., 6., 8.]);
@@ -93,13 +95,15 @@ mod tests {
     fn test_split_invalid_inputs() {
         let input = tensor!((5, 2); [0., 1., 2., 3., 4., 5., 6., 7., 8., 9.]);
 
-        let result = split(input.view(), 2, &tensor!([1, 1]));
+        let splits = &[1, 1];
+        let result = split(input.view(), 2, &splits.into());
         assert_eq!(result.err(), Some(OpError::InvalidValue("Axis is invalid")));
 
-        let result = split(input.view(), -3, &tensor!([1, 1]));
+        let result = split(input.view(), -3, &splits.into());
         assert_eq!(result.err(), Some(OpError::InvalidValue("Axis is invalid")));
 
-        let result = split(input.view(), 1, &tensor!([1, 2]));
+        let splits = &[1, 2];
+        let result = split(input.view(), 1, &splits.into());
         assert_eq!(
             result.err(),
             Some(OpError::InvalidValue(
@@ -107,7 +111,8 @@ mod tests {
             ))
         );
 
-        let result = split(input.view(), 1, &tensor!([1, -2]));
+        let splits = &[1, -2];
+        let result = split(input.view(), 1, &splits.into());
         assert_eq!(
             result.err(),
             Some(OpError::InvalidValue("Split sizes must be >= 0"))

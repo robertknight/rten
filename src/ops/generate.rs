@@ -1,10 +1,11 @@
 use std::ops;
 
-use wasnn_tensor::Tensor;
+use wasnn_tensor::{NdTensorView, Tensor};
 
 use crate::ops::{Input, InputList, IntoOpResult, OpError, Operator, Output, Scalar};
+use crate::static_dims;
 
-pub fn constant_of_shape<T: Clone>(value: T, shape: &Tensor<i32>) -> Tensor<T> {
+pub fn constant_of_shape<T: Clone>(value: T, shape: &NdTensorView<i32, 1>) -> Tensor<T> {
     let shape: Vec<_> = shape.iter().map(|el| *el as usize).collect();
     let len = shape.iter().product();
     Tensor::from_data(&shape, vec![value; len])
@@ -22,9 +23,11 @@ impl Operator for ConstantOfShape {
 
     fn run(&self, inputs: InputList) -> Result<Vec<Output>, OpError> {
         let shape = inputs.require_as::<i32>(0)?;
+        let shape = static_dims!(shape, 1)?;
+
         match self.value {
-            Scalar::Int(value) => constant_of_shape(value, shape).into_op_result(),
-            Scalar::Float(value) => constant_of_shape(value, shape).into_op_result(),
+            Scalar::Int(value) => constant_of_shape(value, &shape).into_op_result(),
+            Scalar::Float(value) => constant_of_shape(value, &shape).into_op_result(),
         }
     }
 }

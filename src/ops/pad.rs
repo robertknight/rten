@@ -1,17 +1,15 @@
 use std::iter::zip;
 
-use wasnn_tensor::{SliceItem, Tensor, TensorLayout, TensorView};
+use wasnn_tensor::{NdTensorLayout, NdTensorView, SliceItem, Tensor, TensorLayout, TensorView};
 
-use crate::check_dims;
 use crate::ops::{Input, InputList, IntoOpResult, OpError, Operator, Output};
+use crate::static_dims;
 
 pub fn pad<T: Copy>(
     input: TensorView<T>,
-    padding: &Tensor<i32>,
+    padding: &NdTensorView<i32, 1>,
     const_val: T,
 ) -> Result<Tensor<T>, OpError> {
-    check_dims!(padding, 1);
-
     if padding.size(0) != input.ndim() * 2 {
         return Err(OpError::InvalidValue(
             "padding length should be 2 * input dims",
@@ -65,6 +63,7 @@ impl Operator for Pad {
     fn run(&self, inputs: InputList) -> Result<Vec<Output>, OpError> {
         let input = inputs.require(0)?;
         let pads = inputs.require_as::<i32>(1)?;
+        let pads = static_dims!(pads, 1)?;
         let axes = inputs.get_as::<i32>(3)?;
 
         if axes.is_some() {
@@ -76,11 +75,11 @@ impl Operator for Pad {
         match input {
             Input::IntTensor(t) => {
                 let const_val = inputs.get_as_scalar::<i32>(2)?;
-                pad(t.view(), pads, const_val.unwrap_or(0)).into_op_result()
+                pad(t.view(), &pads, const_val.unwrap_or(0)).into_op_result()
             }
             Input::FloatTensor(t) => {
                 let const_val = inputs.get_as_scalar::<f32>(2)?;
-                pad(t.view(), pads, const_val.unwrap_or(0.0)).into_op_result()
+                pad(t.view(), &pads, const_val.unwrap_or(0.0)).into_op_result()
             }
         }
     }
@@ -107,19 +106,19 @@ mod tests {
                 0.0, 0.0, 0.0, 0.0, 0.0, 1.0, 2.0, 0.0, 0.0, 3.0, 4.0, 0.0, 0.0, 0.0, 0.0, 0.0,
             ],
         );
-        let const_pads = from_slice(&[1, 1, 1, 1]);
-        let result = pad(input.view(), &const_pads, 0.0).unwrap();
+        let const_pads = &[1, 1, 1, 1];
+        let result = pad(input.view(), &const_pads.into(), 0.0).unwrap();
         expect_equal(&result, &expected)?;
 
         // Zero padding (no-op)
-        let zero_pads = from_slice(&[0, 0, 0, 0]);
-        let result = pad(input.view(), &zero_pads, 0.0).unwrap();
+        let zero_pads = &[0, 0, 0, 0];
+        let result = pad(input.view(), &zero_pads.into(), 0.0).unwrap();
         expect_equal(&result, &input)?;
 
         // Un-even padding
         let input = Tensor::from_data(&[1, 2, 2], vec![1, 2, 3, 4]);
-        let pads = from_slice(&[0, 0, 0, 0, 1, 0]);
-        let result = pad(input.view(), &pads, 0).unwrap();
+        let pads = &[0, 0, 0, 0, 1, 0];
+        let result = pad(input.view(), &pads.into(), 0).unwrap();
         assert_eq!(result.shape(), &[1, 3, 2]);
         assert_eq!(result.data(), &[1, 2, 3, 4, 0, 0]);
 
@@ -135,8 +134,8 @@ mod tests {
                 9., 9., 9., 9., 9., 1., 2., 9., 9., 3., 4., 9., 9., 9., 9., 9.,
             ],
         );
-        let const_pads = from_slice(&[1, 1, 1, 1]);
-        let result = pad(input.view(), &const_pads, 9.).unwrap();
+        let const_pads = &[1, 1, 1, 1];
+        let result = pad(input.view(), &const_pads.into(), 9.).unwrap();
         expect_equal(&result, &expected)
     }
 

@@ -899,10 +899,10 @@ mod tests {
     /// used by ONNX.
     fn reorder_ifco_to_iofc(x: &Tensor, dim: usize) -> Tensor {
         let size = x.size(dim) / 4;
-        let splits = Tensor::from_vec(vec![size as i32; 4]);
+        let splits = &[size as i32; 4];
 
         // Split input into seperate tensor for each of the gates.
-        let ifco = split(x.view(), dim as isize, &splits).expect("split failed");
+        let ifco = split(x.view(), dim as isize, &splits.into()).expect("split failed");
 
         // Recombine in a new gate order.
         concat(
@@ -921,10 +921,10 @@ mod tests {
     /// hidden) as used by PyTorch to (update, reset, hidden) as used by ONNX.
     fn reorder_ruh_to_urh(x: &Tensor, dim: usize) -> Tensor {
         let size = x.size(dim) / 3;
-        let splits = Tensor::from_vec(vec![size as i32; 3]);
+        let splits = &[size as i32; 3];
 
         // Split input into seperate tensor for each of the gates.
-        let ruh = split(x.view(), dim as isize, &splits).expect("split failed");
+        let ruh = split(x.view(), dim as isize, &splits.into()).expect("split failed");
 
         // Recombine in a new gate order.
         concat(&[ruh[1].view(), ruh[0].view(), ruh[2].view()], dim).expect("concat failed")

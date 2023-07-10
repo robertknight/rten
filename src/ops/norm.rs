@@ -1,17 +1,17 @@
-use wasnn_tensor::{Tensor, TensorLayout, TensorView};
+use wasnn_tensor::{NdTensorView, Tensor, TensorLayout, TensorView};
 
-use crate::check_dims;
 use crate::ops::{resolve_axis, InputList, IntoOpResult, OpError, Operator, Output};
+use crate::{check_dims, static_dims};
 
 /// Perform in-place batch normalization on the NCHW tensor `out`.
 ///
 /// See <https://github.com/onnx/onnx/blob/main/docs/Operators.md#batchnormalization>.
 pub fn batch_norm_in_place(
     input: &mut Tensor,
-    scale: &Tensor,
-    bias: &Tensor,
-    mean: &Tensor,
-    var: &Tensor,
+    scale: &NdTensorView<f32, 1>,
+    bias: &NdTensorView<f32, 1>,
+    mean: &NdTensorView<f32, 1>,
+    var: &NdTensorView<f32, 1>,
     epsilon: f32,
 ) -> Result<(), OpError> {
     let [batch, chans, in_h, in_w] = check_dims!(input, 4, "NCHW");
@@ -49,10 +49,10 @@ pub fn batch_norm_in_place(
 /// See <https://github.com/onnx/onnx/blob/main/docs/Operators.md#batchnormalization>.
 pub fn batch_norm(
     input: &Tensor,
-    scale: &Tensor,
-    bias: &Tensor,
-    mean: &Tensor,
-    var: &Tensor,
+    scale: &NdTensorView<f32, 1>,
+    bias: &NdTensorView<f32, 1>,
+    mean: &NdTensorView<f32, 1>,
+    var: &NdTensorView<f32, 1>,
     epsilon: f32,
 ) -> Result<Tensor, OpError> {
     let mut output = input.clone();
@@ -72,12 +72,20 @@ impl Operator for BatchNormalization {
 
     fn run(&self, inputs: InputList) -> Result<Vec<Output>, OpError> {
         let input = inputs.require_as(0)?;
-        let scale = inputs.require_as(1)?;
-        let bias = inputs.require_as(2)?;
-        let mean = inputs.require_as(3)?;
-        let var = inputs.require_as(4)?;
 
-        batch_norm(input, scale, bias, mean, var, self.epsilon).into_op_result()
+        let scale = inputs.require_as(1)?;
+        let scale = static_dims!(scale, 1)?;
+
+        let bias = inputs.require_as(2)?;
+        let bias = static_dims!(bias, 1)?;
+
+        let mean = inputs.require_as(3)?;
+        let mean = static_dims!(mean, 1)?;
+
+        let var = inputs.require_as(4)?;
+        let var = static_dims!(var, 1)?;
+
+        batch_norm(input, &scale, &bias, &mean, &var, self.epsilon).into_op_result()
     }
 
     fn can_run_in_place(&self) -> bool {
@@ -87,11 +95,18 @@ impl Operator for BatchNormalization {
     fn run_in_place(&self, input: Output, other: InputList) -> Result<Output, OpError> {
         let mut output = input.into_float().ok_or(OpError::IncorrectInputType)?;
         let scale = other.require_as(0)?;
-        let bias = other.require_as(1)?;
-        let mean = other.require_as(2)?;
-        let var = other.require_as(3)?;
+        let scale = static_dims!(scale, 1)?;
 
-        batch_norm_in_place(&mut output, scale, bias, mean, var, self.epsilon)?;
+        let bias = other.require_as(1)?;
+        let bias = static_dims!(bias, 1)?;
+
+        let mean = other.require_as(2)?;
+        let mean = static_dims!(mean, 1)?;
+
+        let var = other.require_as(3)?;
+        let var = static_dims!(var, 1)?;
+
+        batch_norm_in_place(&mut output, &scale, &bias, &mean, &var, self.epsilon)?;
 
         Ok(output.into())
     }
@@ -246,19 +261,25 @@ mod tests {
     #[test]
     fn test_batch_norm() -> Result<(), String> {
         let input = Tensor::from_data(&[1, 2, 1, 1], vec![1.0, 2.0]);
-        let scale = Tensor::from_data(&[2], vec![3.0, 3.0]);
-        let bias = Tensor::from_data(&[2], vec![0.1, 0.2]);
-        let mean = Tensor::from_data(&[2], vec![0.5, -0.5]);
-        let var = Tensor::from_data(&[2], vec![1.0, 2.0]);
+        let scale = &[3.0, 3.0];
+        let bias = &[0.1, 0.2];
+        let mean = &[0.5, -0.5];
+        let var = &[1.0, 2.0];
 
         let epsilon = 1e-5 as f32;
 
-        let y1 = (input[[0, 0, 0, 0]] - mean[[0]]) / (var[[0]] + epsilon).sqrt() * scale[[0]]
-            + bias[[0]];
-        let y2 = (input[[0, 1, 0, 0]] - mean[[1]]) / (var[[1]] + epsilon).sqrt() * scale[[1]]
-            + bias[[1]];
+        let y1 = (input[[0, 0, 0, 0]] - mean[0]) / (var[0] + epsilon).sqrt() * scale[0] + bias[0];
+        let y2 = (input[[0, 1, 0, 0]] - mean[1]) / (var[1] + epsilon).sqrt() * scale[1] + bias[1];
         let expected = Tensor::from_data(&[1, 2, 1, 1], vec![y1, y2]);
-        let result = batch_norm(&input, &scale, &bias, &mean, &var, epsilon).unwrap();
+        let result = batch_norm(
+            &input,
+            &scale.into(),
+            &bias.into(),
+            &mean.into(),
+            &var.into(),
+            epsilon,
+        )
+        .unwrap();
 
         expect_equal(&result, &expected)
     }
@@ -266,20 +287,26 @@ mod tests {
     #[test]
     fn test_batch_norm_in_place() -> Result<(), String> {
         let mut input = Tensor::from_data(&[1, 2, 1, 1], vec![1.0, 2.0]);
-        let scale = Tensor::from_data(&[2], vec![3.0, 3.0]);
-        let bias = Tensor::from_data(&[2], vec![0.1, 0.2]);
-        let mean = Tensor::from_data(&[2], vec![0.5, -0.5]);
-        let var = Tensor::from_data(&[2], vec![1.0, 2.0]);
+        let scale = &[3.0, 3.0];
+        let bias = &[0.1, 0.2];
+        let mean = &[0.5, -0.5];
+        let var = &[1.0, 2.0];
 
         let epsilon = 1e-5 as f32;
 
-        let y1 = (input[[0, 0, 0, 0]] - mean[[0]]) / (var[[0]] + epsilon).sqrt() * scale[[0]]
-            + bias[[0]];
-        let y2 = (input[[0, 1, 0, 0]] - mean[[1]]) / (var[[1]] + epsilon).sqrt() * scale[[1]]
-            + bias[[1]];
+        let y1 = (input[[0, 0, 0, 0]] - mean[0]) / (var[0] + epsilon).sqrt() * scale[0] + bias[0];
+        let y2 = (input[[0, 1, 0, 0]] - mean[1]) / (var[1] + epsilon).sqrt() * scale[1] + bias[1];
         let expected = Tensor::from_data(&[1, 2, 1, 1], vec![y1, y2]);
 
-        batch_norm_in_place(&mut input, &scale, &bias, &mean, &var, epsilon).unwrap();
+        batch_norm_in_place(
+            &mut input,
+            &scale.into(),
+            &bias.into(),
+            &mean.into(),
+            &var.into(),
+            epsilon,
+        )
+        .unwrap();
 
         expect_equal(&input, &expected)
     }
