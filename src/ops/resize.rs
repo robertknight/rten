@@ -1,19 +1,20 @@
 use std::iter::zip;
 
-use wasnn_tensor::{Matrix, MatrixLayout, MatrixMut, Tensor, TensorLayout, TensorView};
+use wasnn_tensor::{
+    Matrix, MatrixLayout, MatrixMut, NdTensor, NdTensorLayout, NdTensorView, Tensor, TensorLayout,
+    TensorView,
+};
 
-use crate::check_dims;
 use crate::ops::{Input, InputList, IntoOpResult, OpError, Operator, Output};
+use crate::{check_dims, static_dims};
 
 /// Specifies an output size for a resize operation.
 pub enum ResizeTarget<'a> {
-    /// Vector of scale factors for each dimension. The length should match the
-    /// input rank.
-    Scales(&'a Tensor),
+    /// Scale factors for each dimension. The length should match the input rank.
+    Scales(NdTensorView<'a, f32, 1>),
 
-    /// Vector of output sizes for each dimension. The length should match the
-    /// input rank.
-    Sizes(&'a Tensor<i32>),
+    /// Output sizes for each dimension. The length should match the input rank.
+    Sizes(NdTensorView<'a, i32, 1>),
 }
 
 /// Compute the input image coordinate that corresponds to an output coordinate,
@@ -140,17 +141,11 @@ pub fn resize(
     coord_mode: CoordTransformMode,
     nearest_mode: NearestMode,
 ) -> Result<Tensor, OpError> {
-    let sizes = match target {
-        ResizeTarget::Scales(scales) => {
-            check_dims!(scales, 1);
-            zip(input.shape().iter(), scales.iter())
-                .map(|(&in_size, scale)| ((in_size as f32) * scale).floor() as i32)
-                .collect()
-        }
-        ResizeTarget::Sizes(sizes) => {
-            check_dims!(sizes, 1);
-            sizes.clone()
-        }
+    let sizes: NdTensor<i32, 1> = match target {
+        ResizeTarget::Scales(scales) => zip(input.shape().iter(), scales.iter())
+            .map(|(&in_size, scale)| ((in_size as f32) * scale).floor() as i32)
+            .collect(),
+        ResizeTarget::Sizes(sizes) => sizes.to_owned(),
     };
 
     if sizes.len() != input.ndim() {
@@ -256,8 +251,14 @@ impl Operator for Resize {
         // ONNX attr is `tf_crop_and_resize`, which is not currently supported.
         let _roi = get_optional_input::<f32>(&inputs, 1)?;
 
-        let scales = get_optional_input(&inputs, 2)?.map(ResizeTarget::Scales);
-        let sizes = get_optional_input(&inputs, 3)?.map(ResizeTarget::Sizes);
+        let scales = get_optional_input(&inputs, 2)?
+            .map(|scales| static_dims!(scales, 1))
+            .transpose()?
+            .map(ResizeTarget::Scales);
+        let sizes = get_optional_input(&inputs, 3)?
+            .map(|sizes| static_dims!(sizes, 1))
+            .transpose()?
+            .map(ResizeTarget::Sizes);
         let target = scales.or(sizes).ok_or(OpError::MissingInputs)?;
 
         resize(
@@ -357,10 +358,9 @@ mod tests {
         ];
 
         for case in cases {
-            let scales = Tensor::from_vec(case.scales);
             let result = resize(
                 case.image.view(),
-                ResizeTarget::Scales(&scales),
+                ResizeTarget::Scales((&case.scales).into()),
                 ResizeMode::Nearest,
                 CoordTransformMode::HalfPixel,
                 NearestMode::RoundPreferFloor,
@@ -380,7 +380,7 @@ mod tests {
         // Use a scale factor of 4 so that we have output pixels that map
         // to input coordinates with fractional values of 0, 0.25, 0.5 and 0.75.
         // This allows the same input to exercise all the rounding modes.
-        let scales = Tensor::from_vec(vec![1., 1., 1., 4.]);
+        let scales = &[1., 1., 1., 4.];
 
         struct Case {
             mode: NearestMode,
@@ -425,7 +425,7 @@ mod tests {
         for case in cases {
             let result = resize(
                 image.view(),
-                ResizeTarget::Scales(&scales),
+                ResizeTarget::Scales(scales.into()),
                 ResizeMode::Nearest,
                 CoordTransformMode::Asymmetric,
                 case.mode,
@@ -516,11 +516,9 @@ mod tests {
         ];
 
         for case in cases {
-            let scales = Tensor::from_vec(case.scales);
-
             let result = resize(
                 case.image.view(),
-                ResizeTarget::Scales(&scales),
+                ResizeTarget::Scales((&case.scales).into()),
                 ResizeMode::Linear,
                 CoordTransformMode::HalfPixel,
                 NearestMode::Floor,

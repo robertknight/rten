@@ -190,14 +190,15 @@ fn main() -> Result<(), Box<dyn Error>> {
     };
 
     let img_tensor = if height != in_height as usize || width != in_width as usize {
+        let sizes = &[
+            1,
+            img_tensor.size(1) as i32,
+            in_height as i32,
+            in_width as i32,
+        ];
         resize(
             img_tensor.view(),
-            ResizeTarget::Sizes(&Tensor::from_vec(vec![
-                1,
-                img_tensor.size(1) as i32,
-                in_height as i32,
-                in_width as i32,
-            ])),
+            ResizeTarget::Sizes(sizes.into()),
             ResizeMode::Linear,
             CoordTransformMode::default(),
             NearestMode::default(),
