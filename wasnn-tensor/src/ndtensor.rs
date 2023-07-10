@@ -13,7 +13,7 @@ use super::IntoSliceItems;
 use super::TensorBase;
 
 /// Describes how to view a linear buffer as an `N`-dimensional array.
-#[derive(Clone, Copy)]
+#[derive(Clone, Copy, Debug)]
 pub struct NdLayout<const N: usize> {
     shape: [usize; N],
     strides: [usize; N],
@@ -257,7 +257,7 @@ impl<NTL: NdTensorLayout<2>> MatrixLayout for NTL {
 /// This struct uses patterns from
 /// <https://lab.whitequark.org/notes/2016-12-13/abstracting-over-mutability-in-rust/>
 /// to support owned, borrowed, mutable and immutable element storage.
-#[derive(Clone, Copy)]
+#[derive(Clone, Copy, Debug)]
 pub struct NdTensorBase<T, S: AsRef<[T]>, const N: usize> {
     data: S,
     layout: NdLayout<N>,
@@ -662,6 +662,14 @@ impl<T> FromIterator<T> for NdTensor<T, 1> {
     }
 }
 
+impl<T: PartialEq, S1: AsRef<[T]>, S2: AsRef<[T]>, const N: usize> PartialEq<NdTensorBase<T, S2, N>>
+    for NdTensorBase<T, S1, N>
+{
+    fn eq(&self, other: &NdTensorBase<T, S2, N>) -> bool {
+        self.shape() == other.shape() && self.iter().eq(other.iter())
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::{
@@ -879,6 +887,18 @@ mod tests {
         assert_eq!(owned.shape(), view.shape());
         assert_eq!(owned.strides(), view.strides());
         assert_eq!(owned.data(), view.data());
+    }
+
+    #[test]
+    fn test_ndtensor_partial_eq() {
+        let a = NdTensor::from_data(vec![1, 2, 3, 4], [2, 2], None).unwrap();
+        let b = NdTensor::from_data(vec![1, 2, 3, 4], [2, 2], None).unwrap();
+        let c = NdTensor::from_data(vec![1, 2, 3, 4], [1, 4], None).unwrap();
+        let d = NdTensor::from_data(vec![1, 2, 3, 5], [2, 2], None).unwrap();
+
+        assert_eq!(a, b);
+        assert_ne!(a, c);
+        assert_ne!(a, d);
     }
 
     #[test]
