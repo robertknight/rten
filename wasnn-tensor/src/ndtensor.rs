@@ -564,6 +564,19 @@ impl<T, S: AsRef<[T]> + AsMut<[T]>, const N: usize> NdTensorBase<T, S, N> {
     pub fn iter_mut(&mut self) -> IterMut<T> {
         IterMut::new(self.data.as_mut(), &self.layout.as_dyn())
     }
+
+    /// Replace elements of this tensor with `f(element)`.
+    ///
+    /// This is the in-place version of `map`.
+    ///
+    /// The order in which elements are visited is unspecified and may not
+    /// correspond to the logical order.
+    pub fn apply<F: Fn(&T) -> T>(&mut self, f: F) {
+        // TODO: Skip unused elements when tensor is not contiguous.
+        for val in self.data.as_mut().iter_mut() {
+            *val = f(val);
+        }
+    }
 }
 
 impl<T: Clone + Default, const N: usize> NdTensorBase<T, Vec<T>, N> {
@@ -691,6 +704,13 @@ mod tests {
     /// Return elements of `tensor` in their logical order.
     fn tensor_elements<T: Clone, const N: usize>(tensor: NdTensorView<T, N>) -> Vec<T> {
         tensor.iter().cloned().collect()
+    }
+
+    #[test]
+    fn test_ndtensor_apply() {
+        let mut tensor = NdTensor::from_data(vec![1, 2, 3, 4], [2, 2], None).unwrap();
+        tensor.apply(|x| x * 2);
+        assert_eq!(tensor_elements(tensor.view()), &[2, 4, 6, 8]);
     }
 
     // Test conversion of a static-dim tensor with default strides, to a
