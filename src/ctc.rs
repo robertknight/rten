@@ -1,7 +1,7 @@
 use std::collections::HashMap;
 use std::num::NonZeroU32;
 
-use wasnn_tensor::{NdTensor, TensorLayout, TensorView};
+use wasnn_tensor::{NdTensor, NdTensorLayout, NdTensorView};
 
 use crate::ops::arg_max;
 
@@ -146,14 +146,13 @@ impl CtcDecoder {
     /// `prob_seq` is a `[sequence, n_labels]` matrix of log probabilities of
     /// labels at each time step, where the label value 0 is reserved for the
     /// CTC blank label.
-    pub fn decode_greedy(&self, prob_seq: TensorView<f32>) -> CtcHypothesis {
+    pub fn decode_greedy(&self, prob_seq: NdTensorView<f32, 2>) -> CtcHypothesis {
         let label_seq = arg_max(
-            prob_seq.clone(),
+            prob_seq.as_dyn(),
             /* axis */ 1,
             /* keep_dims */ false,
         )
         .expect("argmax failed");
-        let prob_seq = prob_seq.nd_view::<2>(); // Static dims for faster indexing
 
         let mut last_label = 0;
         let mut steps = Vec::new();
@@ -183,7 +182,7 @@ impl CtcDecoder {
     /// See also [CtcDecoder::decode_beam].
     pub fn decode_beam_nbest(
         &self,
-        prob_seq: TensorView<f32>,
+        prob_seq: NdTensorView<f32, 2>,
         beam_size: u32,
         n_best: u32,
     ) -> Vec<CtcHypothesis> {
@@ -209,13 +208,12 @@ impl CtcDecoder {
     /// <https://gist.github.com/awni/56369a90d03953e370f3964c826ed4b0>. See also
     /// "Inference" section of <https://distill.pub/2017/ctc/> for an explanation
     /// of the algorithm.
-    pub fn decode_beam(&self, prob_seq: TensorView<f32>, beam_size: u32) -> CtcHypothesis {
+    pub fn decode_beam(&self, prob_seq: NdTensorView<f32, 2>, beam_size: u32) -> CtcHypothesis {
         CtcHypothesis::from_beam_state(self.decode_beam_impl(prob_seq, beam_size).remove(0))
     }
 
-    fn decode_beam_impl(&self, prob_seq: TensorView<f32>, beam_size: u32) -> Vec<BeamState> {
-        let [seq, n_labels] = prob_seq.dims();
-        let prob_seq = prob_seq.nd_view();
+    fn decode_beam_impl(&self, prob_seq: NdTensorView<f32, 2>, beam_size: u32) -> Vec<BeamState> {
+        let [seq, n_labels] = prob_seq.shape();
 
         // Current beam states and their log probabilities, sorted by descending
         // total probability.
@@ -388,7 +386,7 @@ impl Default for CtcDecoder {
 
 #[cfg(test)]
 mod tests {
-    use wasnn_tensor::Tensor;
+    use wasnn_tensor::NdTensor;
 
     use super::{log_sum_exp, CtcDecoder, CtcHypothesis};
 
@@ -418,8 +416,8 @@ mod tests {
 
     /// Create a `[seq, class]` matrix of log probabilities from a sequence of
     /// class labels.
-    fn onehot_tensor(seq: &[u32]) -> Tensor<f32> {
-        let mut x = Tensor::zeros(&[seq.len(), ALPHABET.len()]);
+    fn onehot_tensor(seq: &[u32]) -> NdTensor<f32, 2> {
+        let mut x = NdTensor::zeros([seq.len(), ALPHABET.len()]);
         x.iter_mut().for_each(|el| *el = f32::NEG_INFINITY);
         for (t, class) in seq.iter().copied().enumerate() {
             x[[t, class as usize]] = 0.
@@ -492,7 +490,7 @@ mod tests {
         // Example taken from https://towardsdatascience.com/beam-search-decoding-in-ctc-trained-neural-networks-5a889a3d85a7.
         let blank_label = 0;
         let a_label = ALPHABET.chars().position(|c| c == 'a').unwrap() + 1;
-        let mut input = Tensor::<f32>::zeros(&[2, a_label + 1]);
+        let mut input = NdTensor::<f32, 2>::zeros([2, a_label + 1]);
 
         input[[0, blank_label]] = 0.8;
         input[[0, a_label]] = 0.2;
