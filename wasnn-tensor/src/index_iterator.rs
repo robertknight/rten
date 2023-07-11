@@ -7,8 +7,7 @@ impl<const N: usize> IndexArray for SmallVec<[usize; N]> {}
 impl<const N: usize> IndexArray for [usize; N] {}
 
 /// Iterator over a range of N-dimensional indices, where N may be known at
-/// compile time (see [NdIndexIterator]) or only at runtime
-/// ([DynIndexIterator]).
+/// compile time (see [NdIndices]) or only at runtime ([DynIndices]).
 ///
 /// The number of dimensions may be zero, in which case the iterator will yield
 /// a single empty index. This is consistent with eg. `ndindex` in NumPy.

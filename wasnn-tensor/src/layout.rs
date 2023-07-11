@@ -3,9 +3,9 @@ use std::ops::Range;
 
 use smallvec::SmallVec;
 
-use super::overlap::may_have_internal_overlap;
-use super::range::SliceItem;
-use super::TensorIndex;
+use crate::overlap::may_have_internal_overlap;
+use crate::range::SliceItem;
+use crate::tensor::TensorIndex;
 
 /// Return true if `permutation` is a valid permutation of dimensions for
 /// a tensor of rank `ndim`.

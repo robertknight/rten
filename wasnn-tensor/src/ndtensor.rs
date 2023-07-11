@@ -4,13 +4,13 @@ use std::iter::zip;
 use std::marker::PhantomData;
 use std::ops::{Index, IndexMut};
 
-use super::index_iterator::NdIndices;
-use super::iterators::{Iter, IterMut};
-use super::layout::Layout;
-use super::overlap::may_have_internal_overlap;
-use super::range::SliceItem;
-use super::IntoSliceItems;
-use super::TensorBase;
+use crate::index_iterator::NdIndices;
+use crate::iterators::{Iter, IterMut};
+use crate::layout::Layout;
+use crate::overlap::may_have_internal_overlap;
+use crate::range::SliceItem;
+use crate::IntoSliceItems;
+use crate::TensorBase;
 
 /// Describes how to view a linear buffer as an `N`-dimensional array.
 #[derive(Clone, Copy, Debug)]

@@ -220,9 +220,9 @@ enum IterKind<'a, T> {
 
 impl<T> Iter<'_, T> {
     pub(super) fn new<S: AsRef<[T]>>(view: &TensorBase<T, S>) -> Iter<T> {
-        if view.layout.is_contiguous() {
+        if view.layout().is_contiguous() {
             Iter {
-                iter: IterKind::Direct(view.data.as_ref().iter()),
+                iter: IterKind::Direct(view.data().as_ref().iter()),
             }
         } else {
             Iter {
@@ -235,9 +235,9 @@ impl<T> Iter<'_, T> {
     /// [Elements::new], the lifetime is that of the element storage rather than
     /// the view.
     pub(super) fn from_view<'a>(view: &TensorBase<T, &'a [T]>) -> Iter<'a, T> {
-        if view.layout.is_contiguous() {
+        if view.layout().is_contiguous() {
             Iter {
-                iter: IterKind::Direct(view.data.as_ref().iter()),
+                iter: IterKind::Direct(view.to_data().iter()),
             }
         } else {
             Iter {
@@ -251,8 +251,8 @@ impl<T> Iter<'_, T> {
         ranges: &[SliceRange],
     ) -> Iter<'a, T> {
         let iter = IndexingIter {
-            base: IndexingIterBase::slice(&view.layout, ranges),
-            data: view.data.as_ref(),
+            base: IndexingIterBase::slice(view.layout(), ranges),
+            data: view.data(),
         };
         Iter {
             iter: IterKind::Indexing(iter),
@@ -301,15 +301,15 @@ struct IndexingIter<'a, T> {
 impl<'a, T> IndexingIter<'a, T> {
     fn new<S: AsRef<[T]>>(view: &TensorBase<T, S>) -> IndexingIter<T> {
         IndexingIter {
-            base: IndexingIterBase::new(&view.layout),
-            data: view.data.as_ref(),
+            base: IndexingIterBase::new(view.layout()),
+            data: view.data(),
         }
     }
 
     fn from_view(view: &TensorBase<T, &'a [T]>) -> IndexingIter<'a, T> {
         IndexingIter {
-            base: IndexingIterBase::new(&view.layout),
-            data: view.data,
+            base: IndexingIterBase::new(view.layout()),
+            data: view.to_data(),
         }
     }
 
@@ -318,8 +318,8 @@ impl<'a, T> IndexingIter<'a, T> {
         shape: &[usize],
     ) -> IndexingIter<'a, T> {
         IndexingIter {
-            base: IndexingIterBase::broadcast(&view.layout, shape),
-            data: view.data.as_ref(),
+            base: IndexingIterBase::broadcast(view.layout(), shape),
+            data: view.data(),
         }
     }
 }
@@ -558,11 +558,9 @@ impl<'a, T> BroadcastIter<'a, T> {
         view: &'a TensorBase<T, S>,
         to_shape: &[usize],
     ) -> BroadcastIter<'a, T> {
-        let iter = if view.layout.is_contiguous()
-            && can_broadcast_by_cycling(view.layout.shape(), to_shape)
-        {
+        let iter = if view.is_contiguous() && can_broadcast_by_cycling(view.shape(), to_shape) {
             let iter_len = to_shape.iter().product();
-            BroadcastIterKind::Direct(view.data.as_ref().iter().cycle().take(iter_len))
+            BroadcastIterKind::Direct(view.data().iter().cycle().take(iter_len))
         } else {
             BroadcastIterKind::Indexing(IndexingIter::broadcast(view, to_shape))
         };
@@ -627,7 +625,7 @@ impl<'a, T> AxisIterMut<'a, T> {
     pub fn new(mut view: TensorViewMut<'a, T>, dim: usize) -> AxisIterMut<'a, T> {
         // See notes in `Layout` about internal overlap.
         assert!(
-            !view.layout.is_broadcast(),
+            !view.layout().is_broadcast(),
             "Cannot mutably iterate over broadcasting view"
         );
         view.move_axis(dim, 0);
