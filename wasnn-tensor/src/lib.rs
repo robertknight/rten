@@ -12,14 +12,17 @@
 //! # Static rank tensors
 //!
 //! [NdTensorBase] is the base type for tensors with a static dimension count.
-//! [NdTensor] owns its elements, [NdTensorView] is an immutable view of an
-//! `&[T]` and [NdTensorViewMut] is a mutable view of an `&mut [T]`.
+//! It is normally used via one of the type aliases [NdTensor], [NdTensorView]
+//! or [NdTensorViewMut]. [NdTensor] owns its elements, [NdTensorView] is an
+//! immutable view of an `&[T]` and [NdTensorViewMut] is a mutable view of an
+//! `&mut [T]`.
 //!
 //! # Dynamic rank tensors
 //!
 //! [TensorBase] is the base type for tensors with a dynamic dimension count.
-//! [Tensor] owns its elements, [TensorView] is an immutable view of an `&[T]`
-//! and [TensorViewMut] is a mutable view of an `&mut [T]`.
+//! It is normally used via one of the type aliases [Tensor], [TensorView] or
+//! [TensorViewMut]. [Tensor] owns its elements, [TensorView] is an immutable
+//! view of an `&[T]` and [TensorViewMut] is a mutable view of an `&mut [T]`.
 
 mod errors;
 mod index_iterator;

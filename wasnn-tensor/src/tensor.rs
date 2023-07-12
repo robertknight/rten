@@ -36,10 +36,17 @@ impl<Array: AsRef<[usize]>> TensorIndex for Array {
     }
 }
 
-/// TensorBase is the base tensor type used by [Tensor], [TensorView]
-/// and [TensorViewMut].
+/// N-dimensional array, where `N` is determined at runtime based on the shape
+/// that is specified when the tensor is constructed.
 ///
-/// It is parametrized by an element type T and the data storage type S.
+/// `T` is the element type and `S` is the element storage.
+///
+/// Most callers will not use `TensorBase` directly but instead use the type
+/// aliases [Tensor], [TensorView] and [TensorViewMut]. [Tensor] owns
+/// its elements, and the other two types are views of slices.
+///
+/// [TensorBase] implements the [Layout] trait which provides information about
+/// the shape and strides of the tensor.
 #[derive(Debug)]
 pub struct TensorBase<T, S: AsRef<[T]>> {
     data: S,

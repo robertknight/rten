@@ -9,16 +9,17 @@ use crate::range::SliceItem;
 use crate::IntoSliceItems;
 use crate::TensorBase;
 
-/// Provides a view of an array of elements as an N-dimensional tensor.
+/// N-dimensional array, where `N` is specified as generic argument.
 ///
-/// `T` is the element type, `S` is the storage and `N` is the number of
-/// dimensions. The storage may be owned (eg. a Vec) or a slice.
+/// `T` is the element type, `S` is the element storage and `N` is the number
+/// of dimensions.
 ///
-/// ## Notes
+/// Most callers will not use `NdTensorBase` directly but instead use the type
+/// aliases [NdTensor], [NdTensorView] and [NdTensorViewMut]. [NdTensor] owns
+/// its elements (in a `Vec<T>`), and the other two types are views of slices.
 ///
-/// This struct uses patterns from
-/// <https://lab.whitequark.org/notes/2016-12-13/abstracting-over-mutability-in-rust/>
-/// to support owned, borrowed, mutable and immutable element storage.
+/// [NdTensorBase] implements the [Layout] trait which provides information
+/// about the shape and strides of the tensor.
 #[derive(Clone, Copy, Debug)]
 pub struct NdTensorBase<T, S: AsRef<[T]>, const N: usize> {
     data: S,
@@ -354,42 +355,34 @@ impl<T, S: AsRef<[T]>, const N: usize> Layout for NdTensorBase<T, S, N> {
     type Index<'a> = [usize; N] where S: 'a, T: 'a;
     type Indices = NdIndices<N>;
 
-    /// Return the number of dimensions.
     fn ndim(&self) -> usize {
         N
     }
 
-    /// Returns the number of elements in the array.
     fn len(&self) -> usize {
         self.layout.len()
     }
 
-    /// Returns true if the array has no elements.
     fn is_empty(&self) -> bool {
         self.layout.is_empty()
     }
 
-    /// Returns an array of the sizes of each dimension.
     fn shape(&self) -> Self::Index<'_> {
         self.layout.shape()
     }
 
-    /// Returns the size of the dimension `dim`.
     fn size(&self, dim: usize) -> usize {
         self.layout.size(dim)
     }
 
-    /// Returns an array of the strides of each dimension.
     fn strides(&self) -> Self::Index<'_> {
         self.layout.strides()
     }
 
-    /// Returns the offset between adjacent indices along dimension `dim`.
     fn stride(&self, dim: usize) -> usize {
         self.layout.stride(dim)
     }
 
-    /// Return an iterator over all valid indices in this tensor.
     fn indices(&self) -> Self::Indices {
         self.layout.indices()
     }
