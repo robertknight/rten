@@ -1,7 +1,5 @@
 use wasnn_tensor;
-use wasnn_tensor::{
-    DynIndices, Layout, NdTensor, Offsets, SliceRange, Tensor, TensorLayout, TensorView,
-};
+use wasnn_tensor::{DynIndices, Layout, NdTensor, Offsets, SliceRange, Tensor, TensorView};
 
 use crate::number::Identities;
 use crate::ops::layout::squeeze_in_place;

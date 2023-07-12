@@ -5,8 +5,8 @@ use std::iter::zip;
 use std::marker::PhantomData;
 use std::ops::{Index, IndexMut, Range};
 
-use crate::iterators::{AxisIter, AxisIterMut, BroadcastIter, Iter, IterMut};
-use crate::layout::{DynLayout, Layout, TensorLayout};
+use crate::iterators::{AxisIter, AxisIterMut, BroadcastIter, Iter, IterMut, Offsets};
+use crate::layout::{DynLayout, Layout};
 use crate::ndtensor::{NdTensorView, NdTensorViewMut};
 use crate::range::{IntoSliceItems, SliceItem, SliceRange};
 use crate::rng::XorShiftRng;
@@ -278,11 +278,45 @@ impl<T, S: AsRef<[T]>> TensorBase<T, S> {
     #[doc(hidden)]
     pub fn nd_slice<const B: usize, const N: usize>(&self, base: [usize; B]) -> NdTensorView<T, N> {
         assert!(B + N == self.ndim());
-        let offset = self.slice_offset(base);
+        let offset = self.layout.slice_offset(base);
         let data = &self.data()[offset..];
         let strides = self.layout.strides()[self.ndim() - N..].try_into().unwrap();
         let shape = self.layout.shape()[self.ndim() - N..].try_into().unwrap();
         NdTensorView::from_slice(data, shape, Some(strides)).unwrap()
+    }
+
+    /// Return the layout which maps indices to offsets in the data.
+    pub fn layout(&self) -> &DynLayout {
+        &self.layout
+    }
+
+    /// Return an iterator over offsets of elements in this tensor, in their
+    /// logical order.
+    ///
+    /// See also the notes for `slice_offsets`.
+    #[cfg(test)]
+    fn offsets(&self) -> Offsets {
+        Offsets::new(self.layout())
+    }
+
+    /// Return an iterator over offsets of this tensor, broadcasted to `shape`.
+    ///
+    /// This is very similar to `broadcast_iter`, except that the iterator
+    /// yields offsets into rather than elements of the data buffer.
+    pub fn broadcast_offsets(&self, shape: &[usize]) -> Offsets {
+        assert!(
+            self.can_broadcast_to(shape),
+            "Cannot broadcast to specified shape"
+        );
+        Offsets::broadcast(self.layout(), shape)
+    }
+
+    /// Return an iterator over offsets of elements in this tensor.
+    ///
+    /// Note that the offset order of the returned iterator will become incorrect
+    /// if the tensor's layout is modified during iteration.
+    pub fn slice_offsets(&self, ranges: &[SliceRange]) -> Offsets {
+        Offsets::slice(self.layout(), ranges)
     }
 }
 
@@ -409,16 +443,10 @@ impl<T, S: AsRef<[T]>> Layout for TensorBase<T, S> {
     }
 }
 
-impl<T, S: AsRef<[T]>> TensorLayout for TensorBase<T, S> {
-    fn layout(&self) -> &DynLayout {
-        &self.layout
-    }
-}
-
 impl<I: TensorIndex, T, S: AsRef<[T]>> Index<I> for TensorBase<T, S> {
     type Output = T;
     fn index(&self, index: I) -> &Self::Output {
-        &self.data.as_ref()[self.offset(index)]
+        &self.data.as_ref()[self.layout.offset(index)]
     }
 }
 
@@ -509,7 +537,7 @@ impl<T, S: AsRef<[T]> + AsMut<[T]>> TensorBase<T, S> {
         base: [usize; B],
     ) -> NdTensorViewMut<T, N> {
         assert!(B + N == self.ndim());
-        let offset = self.slice_offset(base);
+        let offset = self.layout.slice_offset(base);
         let strides = self.layout.strides()[self.ndim() - N..].try_into().unwrap();
         let shape = self.layout.shape()[self.ndim() - N..].try_into().unwrap();
         let data = &mut self.data_mut()[offset..];
@@ -565,7 +593,7 @@ impl<'a, T> TensorBase<T, &'a mut [T]> {
 
 impl<I: TensorIndex, T, S: AsRef<[T]> + AsMut<[T]>> IndexMut<I> for TensorBase<T, S> {
     fn index_mut(&mut self, index: I) -> &mut Self::Output {
-        let offset = self.offset(index);
+        let offset = self.layout.offset(index);
         &mut self.data.as_mut()[offset]
     }
 }
@@ -581,7 +609,7 @@ impl<I: TensorIndex, T, S: AsRef<[T]> + AsMut<[T]>> IndexMut<I> for TensorBase<T
 /// between elements in the underlying array).
 ///
 /// Information about a tensor or view's layout is available via the
-/// [TensorLayout] trait.
+/// [Layout] trait.
 ///
 /// By default, new tensors have a _contiguous_ layout, in which the stride of
 /// the innermost (fastest-changing) dimension `Dn` is 1, the stride of
@@ -783,7 +811,7 @@ mod tests {
 
     use crate::rng::XorShiftRng;
     use crate::tensor;
-    use crate::{Layout, SliceRange, Tensor, TensorLayout, TensorView, TensorViewMut};
+    use crate::{Layout, SliceRange, Tensor, TensorView, TensorViewMut};
 
     /// Create a tensor where the value of each element is its logical index
     /// plus one.
@@ -872,7 +900,7 @@ mod tests {
         // Offsets should be relative to the sliced returned by `data`,
         // `data_mut`.
         assert_eq!(x.offsets().collect::<Vec<usize>>(), &[0, 1, 2, 3, 4, 5]);
-        assert_eq!(x.offset([0, 0]), 0);
+        assert_eq!(x.layout().offset([0, 0]), 0);
     }
 
     #[test]

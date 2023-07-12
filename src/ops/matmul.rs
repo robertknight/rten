@@ -1,7 +1,7 @@
 use std::iter::zip;
 
 use wasnn_tensor::Matrix;
-use wasnn_tensor::{Layout, Tensor, TensorLayout, TensorView};
+use wasnn_tensor::{Layout, Tensor, TensorView};
 
 use crate::check_dims;
 use crate::linalg::gemm;

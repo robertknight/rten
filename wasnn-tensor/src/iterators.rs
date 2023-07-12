@@ -3,7 +3,7 @@ use std::slice;
 
 use super::layout::DynLayout;
 use super::range::SliceRange;
-use crate::{Layout, TensorBase, TensorLayout, TensorView, TensorViewMut};
+use crate::{Layout, TensorBase, TensorView, TensorViewMut};
 
 /// IterPos tracks the position within a single dimension of an IndexingIter.
 #[derive(Debug)]

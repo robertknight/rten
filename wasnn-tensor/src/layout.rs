@@ -5,9 +5,8 @@ use smallvec::SmallVec;
 
 use crate::errors::FromDataError;
 use crate::index_iterator::{DynIndices, NdIndices};
-use crate::iterators::Offsets;
 use crate::overlap::may_have_internal_overlap;
-use crate::range::{SliceItem, SliceRange};
+use crate::range::SliceItem;
 use crate::tensor::TensorIndex;
 
 /// Return true if `permutation` is a valid permutation of dimensions for
@@ -125,61 +124,6 @@ pub trait Layout {
         let b_iter = b.iter().copied().rev().chain(repeat(1).take(b_pad));
 
         zip(a_iter, b_iter).all(|(a, b)| a == b || a == 1 || b == 1)
-    }
-}
-
-/// Provides methods for querying the shape and data layout of a [Tensor]
-/// or [TensorView].
-pub trait TensorLayout: Layout {
-    /// Returns the internal struct that contains layout information for the tensor.
-    #[doc(hidden)]
-    fn layout(&self) -> &DynLayout;
-
-    /// Return the offset of an element in the array.
-    ///
-    /// The length of `index` must match the tensor's dimension count.
-    ///
-    /// Panics if the index length is incorrect or the value of an index
-    /// exceeds the size of the corresponding dimension.
-    fn offset<Idx: TensorIndex>(&self, index: Idx) -> usize {
-        self.layout().offset(index)
-    }
-
-    /// Return the offset of the first element in a slice of the array.
-    ///
-    /// This is the same as `slice`, except that `index` can have fewer
-    /// dimensions than the tensor, in which case the index is implicitly
-    /// zero-padded on the right.
-    fn slice_offset<Idx: TensorIndex>(&self, index: Idx) -> usize {
-        self.layout().slice_offset(index)
-    }
-
-    /// Return an iterator over offsets of elements in this tensor, in their
-    /// logical order.
-    ///
-    /// See also the notes for `slice_offsets`.
-    fn offsets(&self) -> Offsets {
-        Offsets::new(self.layout())
-    }
-
-    /// Return an iterator over offsets of this tensor, broadcasted to `shape`.
-    ///
-    /// This is very similar to `broadcast_iter`, except that the iterator
-    /// yields offsets into rather than elements of the data buffer.
-    fn broadcast_offsets(&self, shape: &[usize]) -> Offsets {
-        assert!(
-            self.can_broadcast_to(shape),
-            "Cannot broadcast to specified shape"
-        );
-        Offsets::broadcast(self.layout(), shape)
-    }
-
-    /// Return an iterator over offsets of elements in this tensor.
-    ///
-    /// Note that the offset order of the returned iterator will become incorrect
-    /// if the tensor's layout is modified during iteration.
-    fn slice_offsets(&self, ranges: &[SliceRange]) -> Offsets {
-        Offsets::slice(self.layout(), ranges)
     }
 }
 

@@ -7,8 +7,7 @@
 //! borrowed or mutably borrowed. This is analagous to `Vec<T>`, `&[T]` and
 //! `&mut [T]` for 1D arrays. The layout determines the range of valid indices
 //! for each array and how indices are mapped to elements in the data.
-//! Information about the layout of a tensor is provided via the [TensorLayout]
-//! and [Layout] traits.
+//! Information about the layout of a tensor is provided via the [Layout] trait.
 //!
 //! # Static rank tensors
 //!
@@ -35,7 +34,7 @@ mod vec_with_offset;
 
 pub use index_iterator::{DynIndices, Indices, NdIndices};
 pub use iterators::{AxisIter, AxisIterMut, BroadcastIter, Iter, IterMut, Offsets};
-pub use layout::{is_valid_permutation, DynLayout, Layout, MatrixLayout, TensorLayout};
+pub use layout::{is_valid_permutation, DynLayout, Layout, MatrixLayout};
 pub use ndtensor::{Matrix, MatrixMut, NdTensor, NdTensorBase, NdTensorView, NdTensorViewMut};
 pub use range::{IntoSliceItems, SliceItem, SliceRange};
 pub use tensor::{Tensor, TensorBase, TensorView, TensorViewMut};

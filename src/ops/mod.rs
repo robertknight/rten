@@ -2,7 +2,7 @@ use std::error::Error;
 use std::fmt;
 use std::fmt::{Debug, Display};
 
-use wasnn_tensor::{DynLayout, Layout, Tensor, TensorLayout};
+use wasnn_tensor::{DynLayout, Layout, Tensor};
 
 mod binary_elementwise;
 mod concat;
