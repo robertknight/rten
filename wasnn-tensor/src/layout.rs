@@ -3,8 +3,11 @@ use std::ops::Range;
 
 use smallvec::SmallVec;
 
+use crate::errors::FromDataError;
+use crate::index_iterator::{DynIndices, NdIndices};
+use crate::iterators::Offsets;
 use crate::overlap::may_have_internal_overlap;
-use crate::range::SliceItem;
+use crate::range::{SliceItem, SliceRange};
 use crate::tensor::TensorIndex;
 
 /// Return true if `permutation` is a valid permutation of dimensions for
@@ -14,8 +17,376 @@ pub fn is_valid_permutation(ndim: usize, permutation: &[usize]) -> bool {
         && (0..ndim).all(|dim| permutation.iter().filter(|d| **d == dim).count() == 1)
 }
 
-/// Describes how to map coordinates in an N-dimensional array / tensor to
-/// offsets in the underlying array of elements.
+/// Provides methods for querying the shape and data layout of an [NdTensorView].
+pub trait NdTensorLayout<const N: usize> {
+    #[doc(hidden)]
+    fn layout(&self) -> &NdLayout<N>;
+
+    /// Returns the number of elements in the array.
+    fn len(&self) -> usize {
+        self.layout().len()
+    }
+
+    /// Returns true if the array has no elements.
+    fn is_empty(&self) -> bool {
+        self.layout().len() == 0
+    }
+
+    /// Returns an array of the sizes of each dimension.
+    fn shape(&self) -> [usize; N] {
+        self.layout().shape
+    }
+
+    /// Returns the size of the dimension `dim`.
+    fn size(&self, dim: usize) -> usize {
+        self.layout().shape[dim]
+    }
+
+    /// Returns an array of the strides of each dimension.
+    fn strides(&self) -> [usize; N] {
+        self.layout().strides
+    }
+
+    /// Returns the offset between adjacent indices along dimension `dim`.
+    fn stride(&self, dim: usize) -> usize {
+        self.layout().strides[dim]
+    }
+
+    /// Return an iterator over all valid indices in this tensor.
+    fn indices(&self) -> NdIndices<N> {
+        NdIndices::from_shape(self.shape())
+    }
+}
+
+/// Provides methods for querying the shape and data layout of a [Tensor]
+/// or [TensorView].
+pub trait TensorLayout {
+    /// Returns the internal struct that contains layout information for the tensor.
+    #[doc(hidden)]
+    fn layout(&self) -> &DynLayout;
+
+    /// Return a slice of the sizes of each dimension.
+    fn shape(&self) -> &[usize] {
+        self.layout().shape()
+    }
+
+    /// Return the size for a specific dimension.
+    fn size(&self, dim: usize) -> usize {
+        self.layout().size(dim)
+    }
+
+    /// Return a slice of the strides of each dimension.
+    fn strides(&self) -> &[usize] {
+        self.layout().strides()
+    }
+
+    /// Return the number of elements between successive entries in the `dim`
+    /// dimension.
+    fn stride(&self, dim: usize) -> usize {
+        self.layout().stride(dim)
+    }
+
+    /// Return the total number of elements in this tensor.
+    fn len(&self) -> usize {
+        self.layout().len()
+    }
+
+    /// Return true if this tensor has no elements.
+    fn is_empty(&self) -> bool {
+        self.layout().is_empty()
+    }
+
+    /// Return the number of dimensions the tensor has, aka. the rank of the
+    /// tensor.
+    fn ndim(&self) -> usize {
+        self.layout().ndim()
+    }
+
+    /// Return an iterator over all valid indices in this tensor.
+    ///
+    /// The returned iterator does not implement the `Iterator` trait but has
+    /// a similar API. See `IndexIterator` docs.
+    fn indices(&self) -> DynIndices {
+        DynIndices::from_shape(self.shape())
+    }
+
+    /// Return true if the logical order of elements in this tensor matches the
+    /// order in which elements are stored in the underlying array.
+    fn is_contiguous(&self) -> bool {
+        self.layout().is_contiguous()
+    }
+
+    /// Return the offset of an element in the array.
+    ///
+    /// The length of `index` must match the tensor's dimension count.
+    ///
+    /// Panics if the index length is incorrect or the value of an index
+    /// exceeds the size of the corresponding dimension.
+    fn offset<Idx: TensorIndex>(&self, index: Idx) -> usize {
+        self.layout().offset(index)
+    }
+
+    /// Return the offset of the first element in a slice of the array.
+    ///
+    /// This is the same as `slice`, except that `index` can have fewer
+    /// dimensions than the tensor, in which case the index is implicitly
+    /// zero-padded on the right.
+    fn slice_offset<Idx: TensorIndex>(&self, index: Idx) -> usize {
+        self.layout().slice_offset(index)
+    }
+
+    /// Return an iterator over offsets of elements in this tensor, in their
+    /// logical order.
+    ///
+    /// See also the notes for `slice_offsets`.
+    fn offsets(&self) -> Offsets {
+        Offsets::new(self.layout())
+    }
+
+    /// Return an iterator over offsets of this tensor, broadcasted to `shape`.
+    ///
+    /// This is very similar to `broadcast_iter`, except that the iterator
+    /// yields offsets into rather than elements of the data buffer.
+    fn broadcast_offsets(&self, shape: &[usize]) -> Offsets {
+        assert!(
+            self.can_broadcast_to(shape),
+            "Cannot broadcast to specified shape"
+        );
+        Offsets::broadcast(self.layout(), shape)
+    }
+
+    /// Return an iterator over offsets of elements in this tensor.
+    ///
+    /// Note that the offset order of the returned iterator will become incorrect
+    /// if the tensor's layout is modified during iteration.
+    fn slice_offsets(&self, ranges: &[SliceRange]) -> Offsets {
+        Offsets::slice(self.layout(), ranges)
+    }
+
+    /// Return true if the tensor/view can be broadcast with another tensor or
+    /// view with a given `shape` as part of a binary operation.
+    ///
+    /// The shape of the result may be larger than either the current shape
+    /// or `shape`. eg. If a tensor of shape `[1, 5]` is broadcast with one
+    /// of size `[2, 1, 1]` the result has shape `[2, 1, 5]`.
+    ///
+    /// See <https://github.com/onnx/onnx/blob/main/docs/Broadcasting.md> for
+    /// conditions in which broadcasting is allowed.
+    fn can_broadcast_with(&self, shape: &[usize]) -> bool {
+        self.layout().can_broadcast_with(shape)
+    }
+
+    /// Return true if the tensor/view can be broadcast to a given `shape`.
+    ///
+    /// See <https://github.com/onnx/onnx/blob/main/docs/Broadcasting.md> for
+    /// conditions in which broadcasting is allowed.
+    fn can_broadcast_to(&self, shape: &[usize]) -> bool {
+        self.layout().can_broadcast_to(shape)
+    }
+
+    /// Return the shape of this tensor/view as a fixed-sized array.
+    ///
+    /// Panics if the tensor's dimension count does not match `N`.
+    fn dims<const N: usize>(&self) -> [usize; N] {
+        self.layout().dims()
+    }
+}
+
+/// Provides convenience methods for querying the shape and strides of a matrix.
+pub trait MatrixLayout {
+    fn rows(&self) -> usize;
+    fn cols(&self) -> usize;
+    fn row_stride(&self) -> usize;
+    fn col_stride(&self) -> usize;
+}
+
+impl<NTL: NdTensorLayout<2>> MatrixLayout for NTL {
+    fn rows(&self) -> usize {
+        self.size(0)
+    }
+
+    fn cols(&self) -> usize {
+        self.size(1)
+    }
+
+    fn row_stride(&self) -> usize {
+        self.stride(0)
+    }
+
+    fn col_stride(&self) -> usize {
+        self.stride(1)
+    }
+}
+
+/// Defines the valid indices for an N-dimensional array and how to map them
+/// to offsets in a linear buffer, where N is known at compile time.
+#[derive(Clone, Copy, Debug)]
+pub struct NdLayout<const N: usize> {
+    shape: [usize; N],
+    strides: [usize; N],
+}
+
+/// Specifies whether a tensor or view may have an overlapping layout.
+///
+/// An overlapping layout is one in which multiple valid indices map to the same
+/// offset in storage. To comply with Rust's rules for mutable aliases, mutable
+/// tensors/views must disallow overlap.
+pub enum OverlapPolicy {
+    AllowOverlap,
+    DisallowOverlap,
+}
+
+impl<const N: usize> NdLayout<N> {
+    /// Return the number of elements in the array.
+    pub fn len(&self) -> usize {
+        self.shape.iter().product()
+    }
+
+    /// Convert a layout with dynamic rank to a layout with a static rank.
+    ///
+    /// Panics if `l` does not have N dimensions.
+    pub fn from_dyn(l: DynLayout) -> Self {
+        assert!(l.ndim() == N, "Dynamic layout dims != {}", N);
+        NdLayout {
+            shape: l.shape().try_into().unwrap(),
+            strides: l.strides().try_into().unwrap(),
+        }
+    }
+
+    /// Convert this layout to one with a dynamic rank.
+    pub fn as_dyn(&self) -> DynLayout {
+        DynLayout::with_strides(&self.shape, &self.strides)
+    }
+
+    /// Return true if all components of `index` are in-bounds.
+    pub fn index_valid(&self, index: [usize; N]) -> bool {
+        let mut valid = true;
+        for i in 0..N {
+            valid = valid && index[i] < self.shape[i]
+        }
+        valid
+    }
+
+    /// Return the offset in the slice that an index maps to.
+    pub fn offset(&self, index: [usize; N]) -> usize {
+        assert!(
+            self.index_valid(index),
+            "Index {:?} out of bounds for shape {:?}",
+            index,
+            self.shape
+        );
+        self.offset_unchecked(index)
+    }
+
+    /// Return the offset in the slice that an index maps to, or `None` if it
+    /// is out of bounds.
+    pub fn try_offset(&self, index: [usize; N]) -> Option<usize> {
+        if !self.index_valid(index) {
+            return None;
+        }
+        Some(self.offset_unchecked(index))
+    }
+
+    /// Return the offset in the slice that an index maps to.
+    ///
+    /// Unlike `offset`, this does not bounds-check elements of `index` against
+    /// the corresponding shape. Hence the returned offset may be out of bounds.
+    pub fn offset_unchecked(&self, index: [usize; N]) -> usize {
+        let mut offset = 0;
+        for i in 0..N {
+            offset += index[i] * self.strides[i];
+        }
+        offset
+    }
+
+    /// Return the minimum length required for the element data buffer used
+    /// with this layout.
+    pub fn min_data_len(&self) -> usize {
+        if self.shape.iter().any(|&size| size == 0) {
+            return 0;
+        }
+        let max_offset: usize = zip(self.shape.iter(), self.strides.iter())
+            .map(|(size, stride)| (size - 1) * stride)
+            .sum();
+        max_offset + 1
+    }
+
+    /// Return the strides that a contiguous layout with a given shape would
+    /// have.
+    pub fn contiguous_strides(shape: [usize; N]) -> [usize; N] {
+        let mut strides = [0; N];
+        for i in 0..N {
+            strides[i] = shape[i + 1..].iter().product();
+        }
+        strides
+    }
+
+    /// Create a layout with a given shape and a contiguous layout.
+    pub fn from_shape(shape: [usize; N]) -> Self {
+        Self {
+            shape,
+            strides: Self::contiguous_strides(shape),
+        }
+    }
+
+    /// Create a layout with given shape and strides, intended for use with
+    /// data storage of length `data_len`.
+    ///
+    /// `overlap` determines whether this method will fail if the layout
+    /// may have internal overlap.
+    pub fn try_from_shape_and_strides(
+        shape: [usize; N],
+        strides: Option<[usize; N]>,
+        data_len: usize,
+        overlap: OverlapPolicy,
+    ) -> Result<NdLayout<N>, FromDataError> {
+        let layout = NdLayout {
+            shape,
+            strides: strides.unwrap_or(NdLayout::contiguous_strides(shape)),
+        };
+
+        if data_len < layout.min_data_len() {
+            return Err(FromDataError::StorageTooShort);
+        }
+
+        match overlap {
+            OverlapPolicy::DisallowOverlap => {
+                if may_have_internal_overlap(&layout.shape, &layout.strides) {
+                    return Err(FromDataError::MayOverlap);
+                }
+            }
+            OverlapPolicy::AllowOverlap => {}
+        }
+
+        Ok(layout)
+    }
+
+    /// Swap strides of this layout to put axes in the given order.
+    ///
+    /// Values in `dims` must be < N.
+    pub fn permuted(&self, dims: [usize; N]) -> Self {
+        Self::from_dyn(self.as_dyn().permuted(&dims))
+    }
+
+    /// Return a layout with the same number of elements but a given shape.
+    ///
+    /// Panics if the layout is not contiguous.
+    pub fn reshaped<const M: usize>(&self, shape: [usize; M]) -> NdLayout<M> {
+        NdLayout::from_dyn(self.as_dyn().reshaped(&shape))
+    }
+}
+
+impl NdLayout<2> {
+    pub fn transposed(self) -> NdLayout<2> {
+        NdLayout {
+            shape: [self.shape[1], self.shape[0]],
+            strides: [self.strides[1], self.strides[0]],
+        }
+    }
+}
+
+/// Defines the valid indices for an N-dimensional array and how to map them
+/// to offsets in a linear buffer, where N can be varied at runtime.
 ///
 /// The layout specifies the size of each dimension of the tensor (the _shape_)
 /// and the stride (gap) between offsets in each dimension.
@@ -36,7 +407,7 @@ pub fn is_valid_permutation(ndim: usize, permutation: &[usize]) -> bool {
 /// Zero-strides are used for broadcasting, which is widely used and easy to
 /// check for.
 #[derive(Clone, Debug)]
-pub struct Layout {
+pub struct DynLayout {
     /// Array of dimension sizes followed by the corresponding dimension strides.
     ///
     /// Since we always have the same number of stride and shape dims, these
@@ -45,11 +416,11 @@ pub struct Layout {
     shape_and_strides: SmallVec<[usize; 8]>,
 }
 
-impl Layout {
+impl DynLayout {
     /// Construct a layout with dimension sizes given by `shape` and default
     /// (contiguous) strides.
-    pub fn new(shape: &[usize]) -> Layout {
-        Layout {
+    pub fn new(shape: &[usize]) -> DynLayout {
+        DynLayout {
             shape_and_strides: Self::contiguous_shape_and_strides(shape),
         }
     }
@@ -60,7 +431,7 @@ impl Layout {
     /// Panics if `strides` may lead to internal overlap (multiple indices
     /// map to the same data offset), unless strides contains a `0`. See
     /// struct notes.
-    pub fn with_strides(shape: &[usize], strides: &[usize]) -> Layout {
+    pub fn with_strides(shape: &[usize], strides: &[usize]) -> DynLayout {
         assert!(
             strides.iter().any(|s| *s == 0) || !may_have_internal_overlap(shape, strides),
             "Layout may have internal overlap"
@@ -68,7 +439,7 @@ impl Layout {
         let mut shape_and_strides = SmallVec::with_capacity(shape.len() + strides.len());
         shape_and_strides.extend_from_slice(shape);
         shape_and_strides.extend_from_slice(strides);
-        Layout { shape_and_strides }
+        DynLayout { shape_and_strides }
     }
 
     /// Move the index at axis `from` to `to`, keeping the relative order of
@@ -87,7 +458,7 @@ impl Layout {
     /// an existing tensor view.
     ///
     /// Returns a tuple of (offset_range, layout) for the sliced view.
-    pub fn slice(&self, range: &[SliceItem]) -> (Range<usize>, Layout) {
+    pub fn slice(&self, range: &[SliceItem]) -> (Range<usize>, DynLayout) {
         assert!(
             self.ndim() >= range.len(),
             "Slice dims must be <= current dims"
@@ -272,7 +643,7 @@ impl Layout {
 
     /// Return a copy of this layout with dimensions re-ordered according to
     /// `dims`.
-    pub fn permuted(&self, dims: &[usize]) -> Layout {
+    pub fn permuted(&self, dims: &[usize]) -> DynLayout {
         let mut permuted = self.clone();
         permuted.permute(dims);
         permuted
@@ -284,7 +655,7 @@ impl Layout {
     }
 
     /// Return a copy of this layout with the order of dimensions reversed.
-    pub fn transposed(&self) -> Layout {
+    pub fn transposed(&self) -> DynLayout {
         let mut transposed = self.clone();
         transposed.transpose();
         transposed
@@ -310,10 +681,10 @@ impl Layout {
             self.is_contiguous(),
             "can only reshape a contiguous tensor/view"
         );
-        *self = Layout::new(shape);
+        *self = DynLayout::new(shape);
     }
 
-    pub fn reshaped(&self, shape: &[usize]) -> Layout {
+    pub fn reshaped(&self, shape: &[usize]) -> DynLayout {
         let mut reshaped = self.clone();
         reshaped.reshape(shape);
         reshaped
@@ -348,11 +719,11 @@ impl Layout {
     }
 
     /// Return a copy of this layout with dimensions of size 1 removed.
-    pub fn squeezed(&self) -> Layout {
+    pub fn squeezed(&self) -> DynLayout {
         let shape = self.shape().iter().copied().filter(|&size| size != 1);
         let strides = zip(self.shape().iter().copied(), self.strides().iter().copied())
             .filter_map(|(size, stride)| if size != 1 { Some(stride) } else { None });
-        Layout {
+        DynLayout {
             shape_and_strides: shape.chain(strides).collect(),
         }
     }
@@ -383,7 +754,7 @@ impl Layout {
 mod tests {
     use std::iter::zip;
 
-    use crate::layout::Layout;
+    use crate::layout::DynLayout;
     use crate::SliceItem;
 
     #[test]
@@ -407,7 +778,7 @@ mod tests {
         ];
 
         for case in cases {
-            let layout = Layout::with_strides(case.shape, case.strides);
+            let layout = DynLayout::with_strides(case.shape, case.strides);
             assert_eq!(layout.shape(), case.shape);
             assert_eq!(layout.strides(), case.strides);
         }
@@ -416,12 +787,12 @@ mod tests {
     #[test]
     #[should_panic(expected = "Layout may have internal overlap")]
     fn test_with_strides_overlap() {
-        Layout::with_strides(&[10, 10], &[1, 2]);
+        DynLayout::with_strides(&[10, 10], &[1, 2]);
     }
 
     #[test]
     fn test_move_axis() {
-        let mut layout = Layout::new(&[2, 4, 8]);
+        let mut layout = DynLayout::new(&[2, 4, 8]);
         assert_eq!(layout.strides(), [32, 8, 1]);
 
         layout.move_axis(1, 0);
@@ -440,41 +811,41 @@ mod tests {
     #[test]
     #[should_panic]
     fn test_move_axis_invalid_from() {
-        let mut layout = Layout::new(&[2, 4, 8]);
+        let mut layout = DynLayout::new(&[2, 4, 8]);
         layout.move_axis(3, 0);
     }
 
     #[test]
     #[should_panic]
     fn test_move_axis_invalid_to() {
-        let mut layout = Layout::new(&[2, 4, 8]);
+        let mut layout = DynLayout::new(&[2, 4, 8]);
         layout.move_axis(0, 3);
     }
 
     #[test]
     #[should_panic(expected = "permutation is invalid")]
     fn test_permute_invalid_len() {
-        let mut layout = Layout::new(&[5, 5]);
+        let mut layout = DynLayout::new(&[5, 5]);
         layout.permute(&[1, 0, 3]);
     }
 
     #[test]
     #[should_panic(expected = "permutation is invalid")]
     fn test_permute_too_few_dims() {
-        let mut layout = Layout::new(&[5, 5]);
+        let mut layout = DynLayout::new(&[5, 5]);
         layout.permute(&[1]);
     }
 
     #[test]
     #[should_panic(expected = "permutation is invalid")]
     fn test_permute_repeated_dims() {
-        let mut layout = Layout::new(&[5, 5]);
+        let mut layout = DynLayout::new(&[5, 5]);
         layout.permute(&[1, 1]);
     }
 
     #[test]
     fn test_squeezed() {
-        let layout = Layout::new(&[1, 1, 10, 20]);
+        let layout = DynLayout::new(&[1, 1, 10, 20]);
         let squeezed = layout.squeezed();
         assert_eq!(squeezed.shape(), &[10, 20]);
         assert_eq!(squeezed.strides(), &[20, 1]);
@@ -483,27 +854,27 @@ mod tests {
     #[test]
     #[should_panic(expected = "Slice range is invalid for tensor shape")]
     fn test_slice_invalid_index() {
-        let layout = Layout::new(&[3, 5]);
+        let layout = DynLayout::new(&[3, 5]);
         layout.slice(&[SliceItem::Index(4), SliceItem::Index(0)]);
     }
 
     #[test]
     #[should_panic(expected = "Slice range is invalid for tensor shape")]
     fn test_slice_invalid_range() {
-        let layout = Layout::new(&[3, 5]);
+        let layout = DynLayout::new(&[3, 5]);
         layout.slice(&[SliceItem::Range(1..4), SliceItem::Index(0)]);
     }
 
     #[test]
     #[should_panic(expected = "Slice range is invalid for tensor shape")]
     fn test_slice_invalid_from_range() {
-        let layout = Layout::new(&[3, 5]);
+        let layout = DynLayout::new(&[3, 5]);
         layout.slice(&[SliceItem::RangeFrom(4..), SliceItem::Index(0)]);
     }
 
     #[test]
     fn test_size_stride() {
-        let layout = Layout::new(&[10, 20, 30]);
+        let layout = DynLayout::new(&[10, 20, 30]);
         for (dim, (&size, &stride)) in
             zip(layout.shape().iter(), layout.strides().iter()).enumerate()
         {

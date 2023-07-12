@@ -1,7 +1,7 @@
 use std::iter::{repeat, zip, Cycle, Take};
 use std::slice;
 
-use super::layout::Layout;
+use super::layout::DynLayout;
 use super::range::SliceRange;
 use super::{TensorBase, TensorLayout, TensorView, TensorViewMut};
 
@@ -59,7 +59,7 @@ struct IndexingIterBase {
 
 impl IndexingIterBase {
     /// Create an iterator over element offsets in `tensor`.
-    fn new(layout: &Layout) -> IndexingIterBase {
+    fn new(layout: &DynLayout) -> IndexingIterBase {
         let dims = layout
             .shape()
             .iter()
@@ -76,7 +76,7 @@ impl IndexingIterBase {
 
     /// Create an iterator over offsets of elements in `tensor`, as if it had
     /// a given `shape`. This will repeat offsets as necessary.
-    fn broadcast(layout: &Layout, shape: &[usize]) -> IndexingIterBase {
+    fn broadcast(layout: &DynLayout, shape: &[usize]) -> IndexingIterBase {
         // nb. We require that the broadcast shape has a length >= the actual
         // shape.
         let added_dims = shape.len() - layout.shape().len();
@@ -105,7 +105,7 @@ impl IndexingIterBase {
     }
 
     /// Create an iterator over offsets of a subset of elements in `tensor`.
-    fn slice(layout: &Layout, ranges: &[SliceRange]) -> IndexingIterBase {
+    fn slice(layout: &DynLayout, ranges: &[SliceRange]) -> IndexingIterBase {
         assert!(
             ranges.len() == layout.ndim(),
             "slice dimensions {} do not match tensor dimensions {}",
@@ -359,7 +359,7 @@ enum IterMutKind<'a, T> {
 }
 
 impl<'a, T> IterMut<'a, T> {
-    pub(super) fn new(data: &'a mut [T], layout: &Layout) -> IterMut<'a, T> {
+    pub(super) fn new(data: &'a mut [T], layout: &DynLayout) -> IterMut<'a, T> {
         if layout.is_contiguous() {
             IterMut {
                 iter: IterMutKind::Direct(data.iter_mut()),
@@ -410,7 +410,7 @@ struct IndexingIterMut<'a, T> {
 }
 
 impl<'a, T> IndexingIterMut<'a, T> {
-    fn new(data: &'a mut [T], layout: &Layout) -> IndexingIterMut<'a, T> {
+    fn new(data: &'a mut [T], layout: &DynLayout) -> IndexingIterMut<'a, T> {
         // See notes in `Layout` about internal overlap.
         assert!(
             !layout.is_broadcast(),
@@ -460,19 +460,19 @@ pub struct Offsets {
 }
 
 impl Offsets {
-    pub fn new(layout: &Layout) -> Offsets {
+    pub fn new(layout: &DynLayout) -> Offsets {
         Offsets {
             base: IndexingIterBase::new(layout),
         }
     }
 
-    pub fn broadcast(layout: &Layout, shape: &[usize]) -> Offsets {
+    pub fn broadcast(layout: &DynLayout, shape: &[usize]) -> Offsets {
         Offsets {
             base: IndexingIterBase::broadcast(layout, shape),
         }
     }
 
-    pub fn slice(layout: &Layout, ranges: &[SliceRange]) -> Offsets {
+    pub fn slice(layout: &DynLayout, ranges: &[SliceRange]) -> Offsets {
         Offsets {
             base: IndexingIterBase::slice(layout, ranges),
         }

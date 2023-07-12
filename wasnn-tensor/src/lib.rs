@@ -22,6 +22,7 @@
 //! [Tensor] owns its elements, [TensorView] is an immutable view of an `&[T]`
 //! and [TensorViewMut] is a mutable view of an `&mut [T]`.
 
+mod errors;
 mod index_iterator;
 mod iterators;
 mod layout;
@@ -34,13 +35,10 @@ mod vec_with_offset;
 
 pub use index_iterator::{DynIndices, Indices, NdIndices};
 pub use iterators::{AxisIter, AxisIterMut, BroadcastIter, Iter, IterMut, Offsets};
-pub use layout::{is_valid_permutation, Layout};
-pub use ndtensor::{
-    Matrix, MatrixLayout, MatrixMut, NdTensor, NdTensorBase, NdTensorLayout, NdTensorView,
-    NdTensorViewMut,
-};
+pub use layout::{is_valid_permutation, DynLayout, MatrixLayout, NdTensorLayout, TensorLayout};
+pub use ndtensor::{Matrix, MatrixMut, NdTensor, NdTensorBase, NdTensorView, NdTensorViewMut};
 pub use range::{IntoSliceItems, SliceItem, SliceRange};
-pub use tensor::{Tensor, TensorBase, TensorLayout, TensorView, TensorViewMut};
+pub use tensor::{Tensor, TensorBase, TensorView, TensorViewMut};
 
 // These modules are public for use by other crates in this repo, but
 // currently considered internal to the project.

@@ -2,7 +2,7 @@ use std::error::Error;
 use std::fmt;
 use std::fmt::{Debug, Display};
 
-use wasnn_tensor::{Layout, Tensor, TensorLayout};
+use wasnn_tensor::{DynLayout, Tensor, TensorLayout};
 
 mod binary_elementwise;
 mod concat;
@@ -89,7 +89,7 @@ pub enum Input<'a> {
 }
 
 impl<'a> TensorLayout for Input<'a> {
-    fn layout(&self) -> &'a Layout {
+    fn layout(&self) -> &'a DynLayout {
         match self {
             Input::FloatTensor(t) => t.layout(),
             Input::IntTensor(t) => t.layout(),
@@ -205,7 +205,7 @@ impl Output {
 }
 
 impl TensorLayout for Output {
-    fn layout(&self) -> &Layout {
+    fn layout(&self) -> &DynLayout {
         match self {
             Output::FloatTensor(ref t) => t.layout(),
             Output::IntTensor(ref t) => t.layout(),

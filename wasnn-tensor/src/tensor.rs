@@ -5,147 +5,12 @@ use std::iter::zip;
 use std::marker::PhantomData;
 use std::ops::{Index, IndexMut, Range};
 
-use crate::index_iterator::DynIndices;
-use crate::iterators::{AxisIter, AxisIterMut, BroadcastIter, Iter, IterMut, Offsets};
-use crate::layout::Layout;
+use crate::iterators::{AxisIter, AxisIterMut, BroadcastIter, Iter, IterMut};
+use crate::layout::{DynLayout, TensorLayout};
 use crate::ndtensor::{NdTensorView, NdTensorViewMut};
 use crate::range::{IntoSliceItems, SliceItem, SliceRange};
 use crate::rng::XorShiftRng;
 use crate::vec_with_offset::VecWithOffset;
-
-/// Provides methods for querying the shape and data layout of a [Tensor]
-/// or [TensorView].
-pub trait TensorLayout {
-    /// Returns the internal struct that contains layout information for the tensor.
-    #[doc(hidden)]
-    fn layout(&self) -> &Layout;
-
-    /// Return a slice of the sizes of each dimension.
-    fn shape(&self) -> &[usize] {
-        self.layout().shape()
-    }
-
-    /// Return the size for a specific dimension.
-    fn size(&self, dim: usize) -> usize {
-        self.layout().size(dim)
-    }
-
-    /// Return a slice of the strides of each dimension.
-    fn strides(&self) -> &[usize] {
-        self.layout().strides()
-    }
-
-    /// Return the number of elements between successive entries in the `dim`
-    /// dimension.
-    fn stride(&self, dim: usize) -> usize {
-        self.layout().stride(dim)
-    }
-
-    /// Return the total number of elements in this tensor.
-    fn len(&self) -> usize {
-        self.layout().len()
-    }
-
-    /// Return true if this tensor has no elements.
-    fn is_empty(&self) -> bool {
-        self.layout().is_empty()
-    }
-
-    /// Return the number of dimensions the tensor has, aka. the rank of the
-    /// tensor.
-    fn ndim(&self) -> usize {
-        self.layout().ndim()
-    }
-
-    /// Return an iterator over all valid indices in this tensor.
-    ///
-    /// The returned iterator does not implement the `Iterator` trait but has
-    /// a similar API. See `IndexIterator` docs.
-    fn indices(&self) -> DynIndices {
-        DynIndices::from_shape(self.shape())
-    }
-
-    /// Return true if the logical order of elements in this tensor matches the
-    /// order in which elements are stored in the underlying array.
-    fn is_contiguous(&self) -> bool {
-        self.layout().is_contiguous()
-    }
-
-    /// Return the offset of an element in the array.
-    ///
-    /// The length of `index` must match the tensor's dimension count.
-    ///
-    /// Panics if the index length is incorrect or the value of an index
-    /// exceeds the size of the corresponding dimension.
-    fn offset<Idx: TensorIndex>(&self, index: Idx) -> usize {
-        self.layout().offset(index)
-    }
-
-    /// Return the offset of the first element in a slice of the array.
-    ///
-    /// This is the same as `slice`, except that `index` can have fewer
-    /// dimensions than the tensor, in which case the index is implicitly
-    /// zero-padded on the right.
-    fn slice_offset<Idx: TensorIndex>(&self, index: Idx) -> usize {
-        self.layout().slice_offset(index)
-    }
-
-    /// Return an iterator over offsets of elements in this tensor, in their
-    /// logical order.
-    ///
-    /// See also the notes for `slice_offsets`.
-    fn offsets(&self) -> Offsets {
-        Offsets::new(self.layout())
-    }
-
-    /// Return an iterator over offsets of this tensor, broadcasted to `shape`.
-    ///
-    /// This is very similar to `broadcast_iter`, except that the iterator
-    /// yields offsets into rather than elements of the data buffer.
-    fn broadcast_offsets(&self, shape: &[usize]) -> Offsets {
-        assert!(
-            self.can_broadcast_to(shape),
-            "Cannot broadcast to specified shape"
-        );
-        Offsets::broadcast(self.layout(), shape)
-    }
-
-    /// Return an iterator over offsets of elements in this tensor.
-    ///
-    /// Note that the offset order of the returned iterator will become incorrect
-    /// if the tensor's layout is modified during iteration.
-    fn slice_offsets(&self, ranges: &[SliceRange]) -> Offsets {
-        Offsets::slice(self.layout(), ranges)
-    }
-
-    /// Return true if the tensor/view can be broadcast with another tensor or
-    /// view with a given `shape` as part of a binary operation.
-    ///
-    /// The shape of the result may be larger than either the current shape
-    /// or `shape`. eg. If a tensor of shape `[1, 5]` is broadcast with one
-    /// of size `[2, 1, 1]` the result has shape `[2, 1, 5]`.
-    ///
-    /// See <https://github.com/onnx/onnx/blob/main/docs/Broadcasting.md> for
-    /// conditions in which broadcasting is allowed.
-    fn can_broadcast_with(&self, shape: &[usize]) -> bool {
-        self.layout().can_broadcast_with(shape)
-    }
-
-    /// Return true if the tensor/view can be broadcast to a given `shape`.
-    ///
-    /// See <https://github.com/onnx/onnx/blob/main/docs/Broadcasting.md> for
-    /// conditions in which broadcasting is allowed.
-    fn can_broadcast_to(&self, shape: &[usize]) -> bool {
-        self.layout().can_broadcast_to(shape)
-    }
-
-    /// Return the shape of this tensor/view as a fixed-sized array.
-    ///
-    /// Panics if the tensor's dimension count does not match `N`.
-    fn dims<const N: usize>(&self) -> [usize; N] {
-        self.layout().dims()
-    }
-}
 
 /// Trait for indexing a `Tensor`
 pub trait TensorIndex {
@@ -178,7 +43,7 @@ impl<Array: AsRef<[usize]>> TensorIndex for Array {
 #[derive(Debug)]
 pub struct TensorBase<T, S: AsRef<[T]>> {
     data: S,
-    layout: Layout,
+    layout: DynLayout,
     element_type: PhantomData<T>,
 }
 
@@ -202,7 +67,7 @@ pub trait RandomSource<T> {
 
 impl<T, S: AsRef<[T]>> TensorBase<T, S> {
     /// Create a new tensor with a given layout and storage.
-    pub(crate) fn new(data: S, layout: &Layout) -> Self {
+    pub(crate) fn new(data: S, layout: &DynLayout) -> Self {
         TensorBase {
             data,
             layout: layout.clone(),
@@ -222,7 +87,7 @@ impl<T, S: AsRef<[T]>> TensorBase<T, S> {
         );
         TensorBase {
             data,
-            layout: Layout::new(shape),
+            layout: DynLayout::new(shape),
             element_type: PhantomData,
         }
     }
@@ -250,7 +115,7 @@ impl<T, S: AsRef<[T]>> TensorBase<T, S> {
         let data = self.iter().map(f).collect();
         Tensor {
             data: VecWithOffset::new(data),
-            layout: Layout::new(self.shape()),
+            layout: DynLayout::new(self.shape()),
             element_type: PhantomData,
         }
     }
@@ -500,7 +365,7 @@ impl<'a, T> TensorBase<T, &'a [T]> {
 }
 
 impl<T, S: AsRef<[T]>> TensorLayout for TensorBase<T, S> {
-    fn layout(&self) -> &Layout {
+    fn layout(&self) -> &DynLayout {
         &self.layout
     }
 }
@@ -692,7 +557,7 @@ impl<T> TensorBase<T, VecWithOffset<T>> {
         let data = vec![T::default(); n_elts];
         Tensor {
             data: VecWithOffset::new(data),
-            layout: Layout::new(shape),
+            layout: DynLayout::new(shape),
             element_type: PhantomData,
         }
     }
@@ -804,7 +669,7 @@ impl<T> TensorBase<T, VecWithOffset<T>> {
         // However there are cases of custom strides where copies could be
         // avoided. See https://pytorch.org/docs/stable/generated/torch.Tensor.view.html.
         self.make_contiguous();
-        self.layout = Layout::new(shape);
+        self.layout = DynLayout::new(shape);
     }
 }
 

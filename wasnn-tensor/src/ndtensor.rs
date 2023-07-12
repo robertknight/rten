@@ -1,251 +1,12 @@
-use std::error::Error;
-use std::fmt::{Display, Formatter};
-use std::iter::zip;
 use std::marker::PhantomData;
 use std::ops::{Index, IndexMut};
 
-use crate::index_iterator::NdIndices;
+use crate::errors::FromDataError;
 use crate::iterators::{Iter, IterMut};
-use crate::layout::Layout;
-use crate::overlap::may_have_internal_overlap;
+use crate::layout::{NdLayout, NdTensorLayout, OverlapPolicy};
 use crate::range::SliceItem;
 use crate::IntoSliceItems;
 use crate::TensorBase;
-
-/// Describes how to view a linear buffer as an `N`-dimensional array.
-#[derive(Clone, Copy, Debug)]
-pub struct NdLayout<const N: usize> {
-    shape: [usize; N],
-    strides: [usize; N],
-}
-
-/// Specifies whether a tensor or view may have an overlapping layout.
-///
-/// An overlapping layout is one in which multiple valid indices map to the same
-/// offset in storage. To comply with Rust's rules for mutable aliases, views
-/// must disallow overlap in tensors/views which can yield mutable element
-/// references. They may allow overlap in immutable views.
-enum OverlapPolicy {
-    AllowOverlap,
-    DisallowOverlap,
-}
-
-impl<const N: usize> NdLayout<N> {
-    /// Return the number of elements in the array.
-    #[allow(dead_code)] // Remove when this is used outside of tests
-    fn len(&self) -> usize {
-        self.shape.iter().product()
-    }
-
-    /// Convert a layout with dynamic rank to a layout with a static rank.
-    ///
-    /// Panics if `l` does not have N dimensions.
-    fn from_dyn(l: Layout) -> Self {
-        assert!(l.ndim() == N, "Dynamic layout dims != {}", N);
-        NdLayout {
-            shape: l.shape().try_into().unwrap(),
-            strides: l.strides().try_into().unwrap(),
-        }
-    }
-
-    /// Convert this layout to one with a dynamic rank.
-    fn as_dyn(&self) -> Layout {
-        Layout::with_strides(&self.shape, &self.strides)
-    }
-
-    /// Return true if all components of `index` are in-bounds.
-    fn index_valid(&self, index: [usize; N]) -> bool {
-        let mut valid = true;
-        for i in 0..N {
-            valid = valid && index[i] < self.shape[i]
-        }
-        valid
-    }
-
-    /// Return the offset in the slice that an index maps to.
-    fn offset(&self, index: [usize; N]) -> usize {
-        assert!(
-            self.index_valid(index),
-            "Index {:?} out of bounds for shape {:?}",
-            index,
-            self.shape
-        );
-        self.offset_unchecked(index)
-    }
-
-    /// Return the offset in the slice that an index maps to, or `None` if it
-    /// is out of bounds.
-    fn try_offset(&self, index: [usize; N]) -> Option<usize> {
-        if !self.index_valid(index) {
-            return None;
-        }
-        Some(self.offset_unchecked(index))
-    }
-
-    /// Return the offset in the slice that an index maps to.
-    ///
-    /// Unlike `offset`, this does not bounds-check elements of `index` against
-    /// the corresponding shape. Hence the returned offset may be out of bounds.
-    fn offset_unchecked(&self, index: [usize; N]) -> usize {
-        let mut offset = 0;
-        for i in 0..N {
-            offset += index[i] * self.strides[i];
-        }
-        offset
-    }
-
-    /// Return the minimum length required for the element data buffer used
-    /// with this layout.
-    fn min_data_len(&self) -> usize {
-        if self.shape.iter().any(|&size| size == 0) {
-            return 0;
-        }
-        let max_offset: usize = zip(self.shape.iter(), self.strides.iter())
-            .map(|(size, stride)| (size - 1) * stride)
-            .sum();
-        max_offset + 1
-    }
-
-    /// Return the strides that a contiguous layout with a given shape would
-    /// have.
-    fn contiguous_strides(shape: [usize; N]) -> [usize; N] {
-        let mut strides = [0; N];
-        for i in 0..N {
-            strides[i] = shape[i + 1..].iter().product();
-        }
-        strides
-    }
-
-    /// Create a layout with a given shape and a contiguous layout.
-    fn from_shape(shape: [usize; N]) -> Self {
-        Self {
-            shape,
-            strides: Self::contiguous_strides(shape),
-        }
-    }
-
-    /// Create a layout with given shape and strides, intended for use with
-    /// data storage of length `data_len`.
-    ///
-    /// `overlap` determines whether this method will fail if the layout
-    /// may have internal overlap.
-    fn try_from_shape_and_strides(
-        shape: [usize; N],
-        strides: Option<[usize; N]>,
-        data_len: usize,
-        overlap: OverlapPolicy,
-    ) -> Result<NdLayout<N>, FromDataError> {
-        let layout = NdLayout {
-            shape,
-            strides: strides.unwrap_or(NdLayout::contiguous_strides(shape)),
-        };
-
-        if data_len < layout.min_data_len() {
-            return Err(FromDataError::StorageTooShort);
-        }
-
-        match overlap {
-            OverlapPolicy::DisallowOverlap => {
-                if may_have_internal_overlap(&layout.shape, &layout.strides) {
-                    return Err(FromDataError::MayOverlap);
-                }
-            }
-            OverlapPolicy::AllowOverlap => {}
-        }
-
-        Ok(layout)
-    }
-
-    /// Swap strides of this layout to put axes in the given order.
-    ///
-    /// Values in `dims` must be < N.
-    pub fn permuted(&self, dims: [usize; N]) -> Self {
-        Self::from_dyn(self.as_dyn().permuted(&dims))
-    }
-
-    /// Return a layout with the same number of elements but a given shape.
-    ///
-    /// Panics if the layout is not contiguous.
-    pub fn reshaped<const M: usize>(&self, shape: [usize; M]) -> NdLayout<M> {
-        NdLayout::from_dyn(self.as_dyn().reshaped(&shape))
-    }
-}
-
-impl NdLayout<2> {
-    fn transposed(self) -> NdLayout<2> {
-        NdLayout {
-            shape: [self.shape[1], self.shape[0]],
-            strides: [self.strides[1], self.strides[0]],
-        }
-    }
-}
-
-/// Provides methods for querying the shape and data layout of an [NdTensorView].
-pub trait NdTensorLayout<const N: usize> {
-    #[doc(hidden)]
-    fn layout(&self) -> &NdLayout<N>;
-
-    /// Returns the number of elements in the array.
-    fn len(&self) -> usize {
-        self.layout().len()
-    }
-
-    /// Returns true if the array has no elements.
-    fn is_empty(&self) -> bool {
-        self.layout().len() == 0
-    }
-
-    /// Returns an array of the sizes of each dimension.
-    fn shape(&self) -> [usize; N] {
-        self.layout().shape
-    }
-
-    /// Returns the size of the dimension `dim`.
-    fn size(&self, dim: usize) -> usize {
-        self.layout().shape[dim]
-    }
-
-    /// Returns an array of the strides of each dimension.
-    fn strides(&self) -> [usize; N] {
-        self.layout().strides
-    }
-
-    /// Returns the offset between adjacent indices along dimension `dim`.
-    fn stride(&self, dim: usize) -> usize {
-        self.layout().strides[dim]
-    }
-
-    /// Return an iterator over all valid indices in this tensor.
-    fn indices(&self) -> NdIndices<N> {
-        NdIndices::from_shape(self.shape())
-    }
-}
-
-/// Provides convenience methods for querying the shape and strides of a matrix.
-pub trait MatrixLayout {
-    fn rows(&self) -> usize;
-    fn cols(&self) -> usize;
-    fn row_stride(&self) -> usize;
-    fn col_stride(&self) -> usize;
-}
-
-impl<NTL: NdTensorLayout<2>> MatrixLayout for NTL {
-    fn rows(&self) -> usize {
-        self.size(0)
-    }
-
-    fn cols(&self) -> usize {
-        self.size(1)
-    }
-
-    fn row_stride(&self) -> usize {
-        self.stride(0)
-    }
-
-    fn col_stride(&self) -> usize {
-        self.stride(1)
-    }
-}
 
 /// Provides a view of an array of elements as an N-dimensional tensor.
 ///
@@ -265,30 +26,6 @@ pub struct NdTensorBase<T, S: AsRef<[T]>, const N: usize> {
     /// Avoids compiler complaining `T` is unused.
     element_type: PhantomData<T>,
 }
-
-/// Errors that can occur when constructing an [NdTensorBase] from existing
-/// data.
-#[derive(PartialEq, Debug)]
-pub enum FromDataError {
-    /// Some indices will map to offsets that are beyond the end of the storage.
-    StorageTooShort,
-
-    /// Some indices will map to the same offset within the storage.
-    ///
-    /// This error can only occur when the storage is mutable.
-    MayOverlap,
-}
-
-impl Display for FromDataError {
-    fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
-        match self {
-            FromDataError::StorageTooShort => write!(f, "Data too short"),
-            FromDataError::MayOverlap => write!(f, "May have internal overlap"),
-        }
-    }
-}
-
-impl Error for FromDataError {}
 
 impl<T, S: AsRef<[T]>, const N: usize> NdTensorBase<T, S, N> {
     /// Constructs a tensor from the associated storage type and optional
@@ -696,10 +433,10 @@ impl<T: PartialEq, S1: AsRef<[T]>, S2: AsRef<[T]>, const N: usize> PartialEq<NdT
 
 #[cfg(test)]
 mod tests {
-    use super::{
-        FromDataError, MatrixLayout, NdTensor, NdTensorLayout, NdTensorView, NdTensorViewMut,
+    use crate::errors::FromDataError;
+    use crate::{
+        MatrixLayout, NdTensor, NdTensorLayout, NdTensorView, NdTensorViewMut, TensorLayout,
     };
-    use crate::TensorLayout;
 
     /// Return elements of `tensor` in their logical order.
     fn tensor_elements<T: Clone, const N: usize>(tensor: NdTensorView<T, N>) -> Vec<T> {
