@@ -23,7 +23,7 @@ pub trait Layout {
     ///
     /// It is assumed that this type can also represent the shape and strides
     /// of the tensor.
-    type Index<'a>: std::ops::Index<usize, Output = usize>
+    type Index<'a>: AsRef<[usize]>
     where
         Self: 'a;
 
@@ -46,7 +46,7 @@ pub trait Layout {
 
     /// Returns the size of the dimension `dim`.
     fn size(&self, dim: usize) -> usize {
-        self.shape()[dim]
+        self.shape().as_ref()[dim]
     }
 
     /// Returns an array of the strides of each dimension.
@@ -54,7 +54,7 @@ pub trait Layout {
 
     /// Returns the offset between adjacent indices along dimension `dim`.
     fn stride(&self, dim: usize) -> usize {
-        self.strides()[dim]
+        self.strides().as_ref()[dim]
     }
 
     /// Return an iterator over all valid indices in this tensor.
@@ -67,51 +67,6 @@ pub trait TensorLayout {
     /// Returns the internal struct that contains layout information for the tensor.
     #[doc(hidden)]
     fn layout(&self) -> &DynLayout;
-
-    /// Return a slice of the sizes of each dimension.
-    fn shape(&self) -> &[usize] {
-        self.layout().shape()
-    }
-
-    /// Return the size for a specific dimension.
-    fn size(&self, dim: usize) -> usize {
-        self.layout().size(dim)
-    }
-
-    /// Return a slice of the strides of each dimension.
-    fn strides(&self) -> &[usize] {
-        self.layout().strides()
-    }
-
-    /// Return the number of elements between successive entries in the `dim`
-    /// dimension.
-    fn stride(&self, dim: usize) -> usize {
-        self.layout().stride(dim)
-    }
-
-    /// Return the total number of elements in this tensor.
-    fn len(&self) -> usize {
-        self.layout().len()
-    }
-
-    /// Return true if this tensor has no elements.
-    fn is_empty(&self) -> bool {
-        self.layout().is_empty()
-    }
-
-    /// Return the number of dimensions the tensor has, aka. the rank of the
-    /// tensor.
-    fn ndim(&self) -> usize {
-        self.layout().ndim()
-    }
-
-    /// Return an iterator over all valid indices in this tensor.
-    ///
-    /// The returned iterator does not implement the `Iterator` trait but has
-    /// a similar API. See `IndexIterator` docs.
-    fn indices(&self) -> DynIndices {
-        DynIndices::from_shape(self.shape())
-    }
 
     /// Return true if the logical order of elements in this tensor matches the
     /// order in which elements are stored in the underlying array.
@@ -439,6 +394,49 @@ pub struct DynLayout {
     shape_and_strides: SmallVec<[usize; 8]>,
 }
 
+impl Layout for DynLayout {
+    type Index<'a> = &'a [usize];
+    type Indices = DynIndices;
+
+    /// Return the number of elements in the tensor shape described by this layout.
+    fn len(&self) -> usize {
+        self.shape().iter().product()
+    }
+
+    fn is_empty(&self) -> bool {
+        self.len() == 0
+    }
+
+    /// Return the number of dimensions.
+    fn ndim(&self) -> usize {
+        self.shape_and_strides.len() / 2
+    }
+
+    /// Return the sizes of each dimension.
+    fn shape(&self) -> &[usize] {
+        &self.shape_and_strides[0..self.ndim()]
+    }
+
+    /// Returns the size of the dimension `dim`.
+    fn size(&self, dim: usize) -> usize {
+        self.shape_and_strides[dim]
+    }
+
+    /// Return the stride (offset between elements) in the tensor's element array.
+    fn strides(&self) -> &[usize] {
+        &self.shape_and_strides[self.ndim()..]
+    }
+
+    /// Return the stride for a specific dimension.
+    fn stride(&self, dim: usize) -> usize {
+        self.shape_and_strides[self.ndim() + dim]
+    }
+
+    fn indices(&self) -> DynIndices {
+        DynIndices::from_shape(self.shape())
+    }
+}
+
 impl DynLayout {
     /// Construct a layout with dimension sizes given by `shape` and default
     /// (contiguous) strides.
@@ -526,40 +524,6 @@ impl DynLayout {
 
         let layout = Self { shape_and_strides };
         (offset..offset + layout.end_offset(), layout)
-    }
-
-    /// Return the number of elements in the tensor shape described by this layout.
-    pub fn len(&self) -> usize {
-        self.shape().iter().product()
-    }
-
-    pub fn is_empty(&self) -> bool {
-        self.len() == 0
-    }
-
-    /// Return the number of dimensions.
-    pub fn ndim(&self) -> usize {
-        self.shape_and_strides.len() / 2
-    }
-
-    /// Return the sizes of each dimension.
-    pub fn shape(&self) -> &[usize] {
-        &self.shape_and_strides[0..self.ndim()]
-    }
-
-    /// Returns the size of the dimension `dim`.
-    pub fn size(&self, dim: usize) -> usize {
-        self.shape_and_strides[dim]
-    }
-
-    /// Return the stride (offset between elements) in the tensor's element array.
-    pub fn strides(&self) -> &[usize] {
-        &self.shape_and_strides[self.ndim()..]
-    }
-
-    /// Return the stride for a specific dimension.
-    pub fn stride(&self, dim: usize) -> usize {
-        self.shape_and_strides[self.ndim() + dim]
     }
 
     /// Return one past the maximum offset into the tensor/view's data buffer
@@ -778,7 +742,7 @@ mod tests {
     use std::iter::zip;
 
     use crate::layout::DynLayout;
-    use crate::SliceItem;
+    use crate::{Layout, SliceItem};
 
     #[test]
     fn test_with_strides() {

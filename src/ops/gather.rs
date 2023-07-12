@@ -1,4 +1,4 @@
-use wasnn_tensor::{Tensor, TensorLayout, TensorView};
+use wasnn_tensor::{Layout, Tensor, TensorView};
 
 use crate::ops::{Input, InputList, IntoOpResult, OpError, Operator, Output};
 
@@ -86,7 +86,7 @@ impl Operator for Gather {
 mod tests {
     use wasnn_tensor::rng::XorShiftRng;
     use wasnn_tensor::test_util::expect_equal;
-    use wasnn_tensor::{Tensor, TensorLayout};
+    use wasnn_tensor::{Layout, Tensor};
 
     use crate::ops::{gather, OpError};
 

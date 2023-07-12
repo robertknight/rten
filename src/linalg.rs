@@ -1256,7 +1256,7 @@ mod tests {
 
     use wasnn_tensor::rng::XorShiftRng;
     use wasnn_tensor::test_util::expect_equal;
-    use wasnn_tensor::{Matrix, MatrixLayout, Tensor, TensorLayout};
+    use wasnn_tensor::{Layout, Matrix, MatrixLayout, Tensor, TensorLayout};
 
     use crate::linalg::{
         add_scaled_vector, gemm, round_up, GemmExecutor, GemmInputA, GemmInputB, KernelHint,

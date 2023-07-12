@@ -1,6 +1,6 @@
 use std::iter::zip;
 
-use wasnn_tensor::{NdTensorView, SliceRange, Tensor, TensorLayout, TensorView};
+use wasnn_tensor::{Layout, NdTensorView, SliceRange, Tensor, TensorView};
 
 use crate::ops::{resolve_axis, Input, InputList, IntoOpResult, OpError, Operator, Output};
 use crate::static_dims;
@@ -165,7 +165,7 @@ impl Operator for Slice {
 mod tests {
     use wasnn_tensor::rng::XorShiftRng;
     use wasnn_tensor::test_util::expect_equal;
-    use wasnn_tensor::{Tensor, TensorLayout};
+    use wasnn_tensor::{Layout, Tensor};
 
     use crate::ops::{slice, slice_in_place};
 

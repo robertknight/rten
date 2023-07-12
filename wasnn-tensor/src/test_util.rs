@@ -1,7 +1,7 @@
 use std::fmt::Debug;
 use std::iter::zip;
 
-use crate::{TensorBase, TensorLayout};
+use crate::{Layout, TensorBase};
 
 /// Trait that tests whether two values are approximately equal.
 ///

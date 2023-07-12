@@ -492,7 +492,7 @@ impl<T: PartialEq, S1: AsRef<[T]>, S2: AsRef<[T]>, const N: usize> PartialEq<NdT
 #[cfg(test)]
 mod tests {
     use crate::errors::FromDataError;
-    use crate::{Layout, MatrixLayout, NdTensor, NdTensorView, NdTensorViewMut, TensorLayout};
+    use crate::{Layout, MatrixLayout, NdTensor, NdTensorView, NdTensorViewMut};
 
     /// Return elements of `tensor` in their logical order.
     fn tensor_elements<T: Clone, const N: usize>(tensor: NdTensorView<T, N>) -> Vec<T> {

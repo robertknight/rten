@@ -6,7 +6,7 @@ use std::marker::PhantomData;
 use std::ops::{Index, IndexMut, Range};
 
 use crate::iterators::{AxisIter, AxisIterMut, BroadcastIter, Iter, IterMut};
-use crate::layout::{DynLayout, TensorLayout};
+use crate::layout::{DynLayout, Layout, TensorLayout};
 use crate::ndtensor::{NdTensorView, NdTensorViewMut};
 use crate::range::{IntoSliceItems, SliceItem, SliceRange};
 use crate::rng::XorShiftRng;
@@ -361,6 +361,51 @@ impl<'a, T> TensorBase<T, &'a [T]> {
             layout: self.layout.reshaped(shape),
             element_type: PhantomData,
         }
+    }
+}
+
+impl<T, S: AsRef<[T]>> Layout for TensorBase<T, S> {
+    type Index<'a> = <DynLayout as Layout>::Index<'a> where S: 'a, T: 'a;
+    type Indices = <DynLayout as Layout>::Indices;
+
+    /// Return the number of dimensions.
+    fn ndim(&self) -> usize {
+        self.layout.ndim()
+    }
+
+    /// Returns the number of elements in the array.
+    fn len(&self) -> usize {
+        self.layout.len()
+    }
+
+    /// Returns true if the array has no elements.
+    fn is_empty(&self) -> bool {
+        self.layout.is_empty()
+    }
+
+    /// Returns an array of the sizes of each dimension.
+    fn shape(&self) -> Self::Index<'_> {
+        self.layout.shape()
+    }
+
+    /// Returns the size of the dimension `dim`.
+    fn size(&self, dim: usize) -> usize {
+        self.layout.size(dim)
+    }
+
+    /// Returns an array of the strides of each dimension.
+    fn strides(&self) -> Self::Index<'_> {
+        self.layout.strides()
+    }
+
+    /// Returns the offset between adjacent indices along dimension `dim`.
+    fn stride(&self, dim: usize) -> usize {
+        self.layout.stride(dim)
+    }
+
+    /// Return an iterator over all valid indices in this tensor.
+    fn indices(&self) -> Self::Indices {
+        self.layout.indices()
     }
 }
 
@@ -738,7 +783,7 @@ mod tests {
 
     use crate::rng::XorShiftRng;
     use crate::tensor;
-    use crate::{SliceRange, Tensor, TensorLayout, TensorView, TensorViewMut};
+    use crate::{Layout, SliceRange, Tensor, TensorLayout, TensorView, TensorViewMut};
 
     /// Create a tensor where the value of each element is its logical index
     /// plus one.

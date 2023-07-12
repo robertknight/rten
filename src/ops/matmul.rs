@@ -1,7 +1,7 @@
 use std::iter::zip;
 
 use wasnn_tensor::Matrix;
-use wasnn_tensor::{Tensor, TensorLayout, TensorView};
+use wasnn_tensor::{Layout, Tensor, TensorLayout, TensorView};
 
 use crate::check_dims;
 use crate::linalg::gemm;
@@ -168,7 +168,7 @@ impl Operator for MatMul {
 mod tests {
     use wasnn_tensor::rng::XorShiftRng;
     use wasnn_tensor::test_util::expect_equal;
-    use wasnn_tensor::{Tensor, TensorLayout};
+    use wasnn_tensor::{Layout, Tensor};
 
     use crate::linalg::gemm;
     use crate::ops::matmul::{gemm_op, matmul, OpError};

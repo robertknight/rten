@@ -1,6 +1,6 @@
 use std::iter::zip;
 
-use wasnn_tensor::{Layout, NdTensorView, SliceItem, Tensor, TensorLayout, TensorView};
+use wasnn_tensor::{Layout, NdTensorView, SliceItem, Tensor, TensorView};
 
 use crate::ops::{Input, InputList, IntoOpResult, OpError, Operator, Output};
 use crate::static_dims;
@@ -88,7 +88,7 @@ impl Operator for Pad {
 #[cfg(test)]
 mod tests {
     use wasnn_tensor::test_util::expect_equal;
-    use wasnn_tensor::{Tensor, TensorLayout};
+    use wasnn_tensor::{Layout, Tensor};
 
     use crate::ops::{pad, InputList, OpError, Operator, Pad};
 

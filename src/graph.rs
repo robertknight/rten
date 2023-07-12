@@ -3,7 +3,7 @@ use std::error::Error;
 use std::fmt;
 use std::iter::zip;
 
-use wasnn_tensor::{Tensor, TensorLayout};
+use wasnn_tensor::{Layout, Tensor};
 
 use crate::ops::{Input, InputList, OpError, Operator, Output};
 use crate::timer::Timer;
@@ -589,7 +589,7 @@ mod tests {
     use std::sync::{Arc, Mutex};
 
     use wasnn_tensor::test_util::expect_equal;
-    use wasnn_tensor::{Tensor, TensorLayout};
+    use wasnn_tensor::{Layout, Tensor};
 
     use crate::graph::{Dimension, Graph, RunError};
     use crate::ops::{

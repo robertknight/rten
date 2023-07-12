@@ -1,4 +1,4 @@
-use wasnn_tensor::{Iter, Tensor, TensorLayout, TensorView};
+use wasnn_tensor::{Iter, Layout, Tensor, TensorLayout, TensorView};
 
 use crate::ops::{Input, InputList, IntoOpResult, OpError, Operator, Output};
 
@@ -126,7 +126,7 @@ impl Operator for Concat {
 #[cfg(test)]
 mod tests {
     use wasnn_tensor::test_util::expect_equal;
-    use wasnn_tensor::{Tensor, TensorLayout};
+    use wasnn_tensor::{Layout, Tensor};
 
     use crate::ops::{concat, OpError};
 

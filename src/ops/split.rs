@@ -1,4 +1,4 @@
-use wasnn_tensor::{NdTensorView, SliceItem, Tensor, TensorLayout, TensorView};
+use wasnn_tensor::{Layout, NdTensorView, SliceItem, Tensor, TensorView};
 
 use crate::ops::{resolve_axis, InputList, OpError, Operator, Output};
 use crate::static_dims;

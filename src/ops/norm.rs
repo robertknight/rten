@@ -1,4 +1,4 @@
-use wasnn_tensor::{NdTensorView, Tensor, TensorLayout, TensorView};
+use wasnn_tensor::{Layout, NdTensorView, Tensor, TensorLayout, TensorView};
 
 use crate::ops::{resolve_axis, InputList, IntoOpResult, OpError, Operator, Output};
 use crate::{check_dims, static_dims};
@@ -254,7 +254,7 @@ impl Operator for Softmax {
 mod tests {
     use wasnn_tensor::rng::XorShiftRng;
     use wasnn_tensor::test_util::expect_equal;
-    use wasnn_tensor::{tensor, Tensor, TensorLayout};
+    use wasnn_tensor::{tensor, Layout, Tensor};
 
     use crate::ops::{batch_norm, batch_norm_in_place, log_softmax, softmax};
 

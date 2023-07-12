@@ -1,5 +1,7 @@
 use wasnn_tensor;
-use wasnn_tensor::{DynIndices, NdTensor, Offsets, SliceRange, Tensor, TensorLayout, TensorView};
+use wasnn_tensor::{
+    DynIndices, Layout, NdTensor, Offsets, SliceRange, Tensor, TensorLayout, TensorView,
+};
 
 use crate::number::Identities;
 use crate::ops::layout::squeeze_in_place;
@@ -389,7 +391,7 @@ impl Operator for ReduceL2 {
 #[cfg(test)]
 mod tests {
     use wasnn_tensor::test_util::expect_equal;
-    use wasnn_tensor::{tensor, Tensor, TensorLayout};
+    use wasnn_tensor::{tensor, Layout, Tensor};
 
     use crate::ops::{arg_max, arg_min, cum_sum, reduce_l2, reduce_mean, OpError};
 

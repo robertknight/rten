@@ -275,7 +275,7 @@ impl Operator for Resize {
 #[cfg(test)]
 mod tests {
     use wasnn_tensor::test_util::expect_equal;
-    use wasnn_tensor::{Tensor, TensorLayout};
+    use wasnn_tensor::{Layout, Tensor};
 
     use crate::ops::{
         resize, CoordTransformMode, InputList, NearestMode, OpError, Operator, Resize, ResizeMode,

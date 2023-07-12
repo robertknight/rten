@@ -2,7 +2,7 @@ use std::error::Error;
 use std::fmt;
 use std::fmt::{Debug, Display};
 
-use wasnn_tensor::{DynLayout, Tensor, TensorLayout};
+use wasnn_tensor::{DynLayout, Layout, Tensor, TensorLayout};
 
 mod binary_elementwise;
 mod concat;
@@ -88,12 +88,49 @@ pub enum Input<'a> {
     IntTensor(&'a Tensor<i32>),
 }
 
-impl<'a> TensorLayout for Input<'a> {
+impl<'a> Input<'a> {
     fn layout(&self) -> &'a DynLayout {
         match self {
             Input::FloatTensor(t) => t.layout(),
             Input::IntTensor(t) => t.layout(),
         }
+    }
+}
+
+impl<'a> Layout for Input<'a> {
+    type Index<'b> = <DynLayout as Layout>::Index<'b> where Self: 'b;
+    type Indices = <DynLayout as Layout>::Indices;
+
+    fn ndim(&self) -> usize {
+        self.layout().ndim()
+    }
+
+    fn len(&self) -> usize {
+        self.layout().len()
+    }
+
+    fn is_empty(&self) -> bool {
+        self.layout().is_empty()
+    }
+
+    fn shape(&self) -> Self::Index<'_> {
+        self.layout().shape()
+    }
+
+    fn size(&self, dim: usize) -> usize {
+        self.layout().size(dim)
+    }
+
+    fn strides(&self) -> Self::Index<'_> {
+        self.layout().strides()
+    }
+
+    fn stride(&self, dim: usize) -> usize {
+        self.layout().stride(dim)
+    }
+
+    fn indices(&self) -> Self::Indices {
+        self.layout().indices()
     }
 }
 
@@ -202,14 +239,49 @@ impl Output {
             None
         }
     }
-}
 
-impl TensorLayout for Output {
     fn layout(&self) -> &DynLayout {
         match self {
-            Output::FloatTensor(ref t) => t.layout(),
-            Output::IntTensor(ref t) => t.layout(),
+            Output::IntTensor(t) => t.layout(),
+            Output::FloatTensor(t) => t.layout(),
         }
+    }
+}
+
+impl Layout for Output {
+    type Index<'a> = <DynLayout as Layout>::Index<'a>;
+    type Indices = <DynLayout as Layout>::Indices;
+
+    fn ndim(&self) -> usize {
+        self.layout().ndim()
+    }
+
+    fn len(&self) -> usize {
+        self.layout().len()
+    }
+
+    fn is_empty(&self) -> bool {
+        self.layout().is_empty()
+    }
+
+    fn shape(&self) -> Self::Index<'_> {
+        self.layout().shape()
+    }
+
+    fn size(&self, dim: usize) -> usize {
+        self.layout().size(dim)
+    }
+
+    fn strides(&self) -> Self::Index<'_> {
+        self.layout().strides()
+    }
+
+    fn stride(&self, dim: usize) -> usize {
+        self.layout().stride(dim)
+    }
+
+    fn indices(&self) -> Self::Indices {
+        self.layout().indices()
     }
 }
 
@@ -377,7 +449,7 @@ macro_rules! check_dims {
 #[macro_export]
 macro_rules! static_dims {
     ($tensor:ident, $ndim:literal, $dim_names:literal) => {{
-        use wasnn_tensor::TensorLayout;
+        use wasnn_tensor::Layout;
 
         if $tensor.ndim() != $ndim {
             Err(OpError::InvalidValue(concat!(
@@ -394,7 +466,7 @@ macro_rules! static_dims {
     }};
 
     ($tensor:ident, $ndim:literal) => {{
-        use wasnn_tensor::TensorLayout;
+        use wasnn_tensor::Layout;
 
         if $tensor.ndim() != $ndim {
             Err(OpError::InvalidValue(concat!(
