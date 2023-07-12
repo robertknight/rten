@@ -1,4 +1,4 @@
-use wasnn_tensor::{Iter, Layout, Tensor, TensorLayout, TensorView};
+use wasnn_tensor::{Iter, Layout, Tensor, TensorView};
 
 use crate::ops::{Input, InputList, IntoOpResult, OpError, Operator, Output};
 

@@ -36,6 +36,20 @@ pub trait Layout {
     /// Returns the number of elements in the array.
     fn len(&self) -> usize;
 
+    /// Return true if this layout describes a contiguous tensor, where the
+    /// logical order of elements matches the order in which they are stored.
+    fn is_contiguous(&self) -> bool {
+        let (shape, strides) = (self.shape(), self.strides());
+        let mut product = 1;
+        for (dim, len) in shape.as_ref().iter().enumerate().rev() {
+            if strides.as_ref()[dim] != product {
+                return false;
+            }
+            product *= len;
+        }
+        true
+    }
+
     /// Returns true if the array has no elements.
     fn is_empty(&self) -> bool {
         self.len() == 0
@@ -59,20 +73,67 @@ pub trait Layout {
 
     /// Return an iterator over all valid indices in this tensor.
     fn indices(&self) -> Self::Indices;
+
+    /// Return true if this layout's shape can be broadcast to the given shape.
+    fn can_broadcast_to(&self, target_shape: &[usize]) -> bool {
+        if self.shape().as_ref() == target_shape {
+            return true;
+        } else if self.ndim() > target_shape.len() {
+            return false;
+        }
+
+        // For two shapes to be compatible for broadcasting, each dimension must
+        // either be the same or be 1.
+        //
+        // If the tensor has fewer dimensions, pretend that it was prefixed with
+        // 1-length dimensions to make the dimension counts equal.
+        let target_dims = target_shape[target_shape.len() - self.shape().len()..]
+            .iter()
+            .copied();
+
+        zip(self.shape().as_ref().iter().copied(), target_dims).all(|(a, b)| a == b || a == 1)
+    }
+
+    /// Return true if the tensor/view can be broadcast with another tensor or
+    /// view with a given `shape` as part of a binary operation.
+    ///
+    /// The shape of the result may be larger than either the current shape
+    /// or `shape`. eg. If a tensor of shape `[1, 5]` is broadcast with one
+    /// of size `[2, 1, 1]` the result has shape `[2, 1, 5]`.
+    ///
+    /// See <https://github.com/onnx/onnx/blob/main/docs/Broadcasting.md> for
+    /// conditions in which broadcasting is allowed.
+    fn can_broadcast_with(&self, shape: &[usize]) -> bool {
+        if self.shape().as_ref() == shape {
+            return true;
+        }
+
+        // For two shapes to be compatible for broadcasting, each dimension must
+        // either be the same or be 1.
+        //
+        // If the tensor has fewer dimensions, pretend that it was prefixed with
+        // 1-length dimensions to make the dimension counts equal.
+
+        let current_shape = self.shape();
+        let a = current_shape.as_ref();
+        let b = shape;
+
+        let a_pad = b.len().saturating_sub(a.len());
+        let b_pad = a.len().saturating_sub(b.len());
+
+        let a_iter = a.iter().copied().rev().chain(repeat(1).take(a_pad));
+        let b_iter = b.iter().copied().rev().chain(repeat(1).take(b_pad));
+
+        zip(a_iter, b_iter).all(|(a, b)| a == b || a == 1 || b == 1)
+    }
 }
 
 /// Provides methods for querying the shape and data layout of a [Tensor]
 /// or [TensorView].
-pub trait TensorLayout {
+pub trait TensorLayout: Layout {
     /// Returns the internal struct that contains layout information for the tensor.
     #[doc(hidden)]
     fn layout(&self) -> &DynLayout;
-
-    /// Return true if the logical order of elements in this tensor matches the
-    /// order in which elements are stored in the underlying array.
-    fn is_contiguous(&self) -> bool {
-        self.layout().is_contiguous()
-    }
 
     /// Return the offset of an element in the array.
     ///
@@ -119,27 +180,6 @@ pub trait TensorLayout {
     /// if the tensor's layout is modified during iteration.
     fn slice_offsets(&self, ranges: &[SliceRange]) -> Offsets {
         Offsets::slice(self.layout(), ranges)
-    }
-
-    /// Return true if the tensor/view can be broadcast with another tensor or
-    /// view with a given `shape` as part of a binary operation.
-    ///
-    /// The shape of the result may be larger than either the current shape
-    /// or `shape`. eg. If a tensor of shape `[1, 5]` is broadcast with one
-    /// of size `[2, 1, 1]` the result has shape `[2, 1, 5]`.
-    ///
-    /// See <https://github.com/onnx/onnx/blob/main/docs/Broadcasting.md> for
-    /// conditions in which broadcasting is allowed.
-    fn can_broadcast_with(&self, shape: &[usize]) -> bool {
-        self.layout().can_broadcast_with(shape)
-    }
-
-    /// Return true if the tensor/view can be broadcast to a given `shape`.
-    ///
-    /// See <https://github.com/onnx/onnx/blob/main/docs/Broadcasting.md> for
-    /// conditions in which broadcasting is allowed.
-    fn can_broadcast_to(&self, shape: &[usize]) -> bool {
-        self.layout().can_broadcast_to(shape)
     }
 }
 
@@ -542,65 +582,8 @@ impl DynLayout {
         self.strides().iter().any(|&stride| stride == 0)
     }
 
-    /// Return true if this layout describes a contiguous tensor, where the
-    /// logical order of elements matches the order in which they are stored.
-    pub fn is_contiguous(&self) -> bool {
-        let mut product = 1;
-        for (dim, len) in self.shape().iter().enumerate().rev() {
-            if self.stride(dim) != product {
-                return false;
-            }
-            product *= len;
-        }
-        true
-    }
-
     pub fn make_contiguous(&mut self) {
         self.shape_and_strides = Self::contiguous_shape_and_strides(self.shape());
-    }
-
-    /// Return true if this layout's shape can be broadcast to the given shape.
-    pub fn can_broadcast_to(&self, shape: &[usize]) -> bool {
-        if self.shape() == shape {
-            return true;
-        } else if self.ndim() > shape.len() {
-            return false;
-        }
-
-        // For two shapes to be compatible for broadcasting, each dimension must
-        // either be the same or be 1.
-        //
-        // If the tensor has fewer dimensions, pretend that it was prefixed with
-        // 1-length dimensions to make the dimension counts equal.
-        let self_dims = self.shape().iter().copied();
-        let target_dims = shape[shape.len() - self.shape().len()..].iter().copied();
-
-        zip(self_dims, target_dims).all(|(a, b)| a == b || a == 1)
-    }
-
-    /// Return true if this layout's shape can be broadcast with another layout
-    /// that has shape `shape`.
-    pub fn can_broadcast_with(&self, shape: &[usize]) -> bool {
-        if self.shape() == shape {
-            return true;
-        }
-
-        // For two shapes to be compatible for broadcasting, each dimension must
-        // either be the same or be 1.
-        //
-        // If the tensor has fewer dimensions, pretend that it was prefixed with
-        // 1-length dimensions to make the dimension counts equal.
-
-        let a = self.shape();
-        let b = shape;
-
-        let a_pad = b.len().saturating_sub(a.len());
-        let b_pad = a.len().saturating_sub(b.len());
-
-        let a_iter = a.iter().copied().rev().chain(repeat(1).take(a_pad));
-        let b_iter = b.iter().copied().rev().chain(repeat(1).take(b_pad));
-
-        zip(a_iter, b_iter).all(|(a, b)| a == b || a == 1 || b == 1)
     }
 
     fn permute_iter<I: Clone + Iterator<Item = usize>>(&mut self, dims: I) {
