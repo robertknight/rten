@@ -1,4 +1,4 @@
-use wasnn_tensor::{Layout, NdTensorView, Tensor, TensorLayout, TensorView};
+use wasnn_tensor::{Layout, NdTensorView, Tensor, TensorView};
 
 use crate::ops::{resolve_axis, InputList, IntoOpResult, OpError, Operator, Output};
 use crate::{check_dims, static_dims};

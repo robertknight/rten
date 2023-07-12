@@ -1256,7 +1256,7 @@ mod tests {
 
     use wasnn_tensor::rng::XorShiftRng;
     use wasnn_tensor::test_util::expect_equal;
-    use wasnn_tensor::{Layout, Matrix, MatrixLayout, Tensor, TensorLayout};
+    use wasnn_tensor::{Layout, Matrix, MatrixLayout, Tensor};
 
     use crate::linalg::{
         add_scaled_vector, gemm, round_up, GemmExecutor, GemmInputA, GemmInputB, KernelHint,
@@ -1264,8 +1264,8 @@ mod tests {
     };
 
     fn reference_matmul(a: &Tensor, b: &Tensor) -> Tensor {
-        let [a_rows, _a_cols] = a.dims();
-        let [_b_rows, b_cols] = b.dims();
+        let [a_rows, _a_cols]: [usize; 2] = a.shape().try_into().expect("input should be a matrix");
+        let [_b_rows, b_cols]: [usize; 2] = b.shape().try_into().expect("input should be a matrix");
         let mut output = Tensor::zeros(&[a_rows, b_cols]);
 
         reference_gemm(&mut output, a, b, 1.0, 0.0, None);
@@ -1320,8 +1320,8 @@ mod tests {
         beta: f32,
         bias: Option<&[f32]>,
     ) {
-        let [a_rows, a_cols] = a.dims();
-        let [_b_rows, b_cols] = b.dims();
+        let [a_rows, a_cols]: [usize; 2] = a.shape().try_into().expect("input should be a matrix");
+        let [_b_rows, b_cols]: [usize; 2] = b.shape().try_into().expect("input should be a matrix");
 
         for r in 0..a_rows {
             for c in 0..b_cols {
@@ -1493,8 +1493,8 @@ mod tests {
         a.permute(&[1, 0]);
         b.permute(&[1, 0]);
 
-        let [a_rows, _] = a.dims();
-        let [_, b_cols] = b.dims();
+        let [a_rows, _]: [usize; 2] = a.shape().try_into().unwrap();
+        let [_, b_cols]: [usize; 2] = b.shape().try_into().unwrap();
 
         let mut result = Tensor::zeros(&[a_rows, b_cols]);
         run_gemm(&mut result, &a, &b, 1., 1., None, KernelHint::Auto);

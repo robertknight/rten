@@ -401,29 +401,29 @@ impl Error for OpError {}
 #[macro_export]
 macro_rules! check_dims {
     ($tensor:ident, $ndim:literal, $dim_names:literal) => {{
-        if $tensor.ndim() != $ndim {
-            return Err(OpError::InvalidValue(concat!(
+        let shape: [usize; $ndim] = $tensor.shape().try_into().map_err(|_| {
+            OpError::InvalidValue(concat!(
                 stringify!($tensor),
                 " must have ",
                 stringify!($ndim),
                 " dims (",
                 $dim_names,
                 ")"
-            )));
-        }
-        $tensor.dims::<$ndim>()
+            ))
+        })?;
+        shape
     }};
 
     ($tensor:ident, $ndim:literal) => {{
-        if $tensor.ndim() != $ndim {
-            return Err(OpError::InvalidValue(concat!(
+        let shape: [usize; $ndim] = $tensor.shape().try_into().map_err(|_| {
+            OpError::InvalidValue(concat!(
                 stringify!($tensor),
                 " must have ",
                 stringify!($ndim),
                 " dims"
-            )));
-        }
-        $tensor.dims::<$ndim>()
+            ))
+        })?;
+        shape
     }};
 
     ($tensor:ident, $ndim:expr) => {

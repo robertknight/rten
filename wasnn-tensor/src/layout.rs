@@ -141,13 +141,6 @@ pub trait TensorLayout {
     fn can_broadcast_to(&self, shape: &[usize]) -> bool {
         self.layout().can_broadcast_to(shape)
     }
-
-    /// Return the shape of this tensor/view as a fixed-sized array.
-    ///
-    /// Panics if the tensor's dimension count does not match `N`.
-    fn dims<const N: usize>(&self) -> [usize; N] {
-        self.layout().dims()
-    }
 }
 
 /// Provides convenience methods for querying the shape and strides of a matrix.

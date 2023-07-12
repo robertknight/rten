@@ -1,7 +1,7 @@
 use std::iter::zip;
 
 use rayon::prelude::*;
-use wasnn_tensor::{Layout, NdTensorView, NdTensorViewMut, Tensor, TensorLayout};
+use wasnn_tensor::{Layout, NdTensorView, NdTensorViewMut, Tensor};
 
 use crate::check_dims;
 use crate::linalg::div_ceil;
@@ -304,7 +304,7 @@ impl Operator for MaxPool {
 #[cfg(test)]
 mod tests {
     use wasnn_tensor::test_util::expect_equal;
-    use wasnn_tensor::{Layout, Tensor, TensorLayout};
+    use wasnn_tensor::{Layout, Tensor};
 
     use crate::ops::{average_pool, global_average_pool, max_pool, Padding};
 
@@ -408,7 +408,7 @@ mod tests {
             &[0.9750, 0.5160, 0.6419, 0.3670],
             &[0.4101, 0.3762, 0.9689, 0.4389],
         ]);
-        let [rows, cols] = input.dims();
+        let [rows, cols]: [usize; 2] = input.shape().try_into().unwrap();
         input.reshape(&[1, 1, rows, cols]);
 
         // Computed with `torch.nn.functional.avg_pool2d` in PyTorch with
@@ -418,7 +418,7 @@ mod tests {
             &[0.7224, 0.7312, 0.4271],
             &[0.4101, 0.6725, 0.4389],
         ]);
-        let [rows, cols] = expected.dims();
+        let [rows, cols]: [usize; 2] = expected.shape().try_into().unwrap();
         expected.reshape(&[1, 1, rows, cols]);
 
         let result = average_pool(

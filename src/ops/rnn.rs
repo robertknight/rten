@@ -2,7 +2,7 @@ use std::iter::{zip, Rev};
 use std::ops::Range;
 
 use wasnn_tensor::Matrix;
-use wasnn_tensor::{Layout, Tensor, TensorLayout, TensorView, TensorViewMut};
+use wasnn_tensor::{Layout, Tensor, TensorView, TensorViewMut};
 
 use crate::check_dims;
 use crate::linalg::{GemmExecutor, GemmInputA, GemmInputB};

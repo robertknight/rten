@@ -4,7 +4,7 @@ use std::ops::Range;
 
 use rayon::prelude::*;
 
-use wasnn_tensor::{Layout, NdTensorView, Tensor, TensorLayout, TensorView, TensorViewMut};
+use wasnn_tensor::{Layout, NdTensorView, NdTensorViewMut, Tensor};
 
 use crate::check_dims;
 use crate::linalg::{
@@ -170,8 +170,8 @@ fn init_tensor_with_channel_bias(shape: &[usize], chan_dim: usize, bias: &Tensor
 /// Specialization of conv_2d for pointwise convolutions over one image. This
 /// can be reduced to tensor reshaping and matrix multiplication.
 fn conv_2d_pointwise(input: &Tensor, kernel: &Tensor, bias: Option<&Tensor>) -> Tensor {
-    let [batch, _, in_h, in_w] = input.dims();
-    let [out_c, in_c, _, _] = kernel.dims();
+    let [batch, _, in_h, in_w]: [usize; 4] = input.shape().try_into().expect("expected NCHW input");
+    let [out_c, in_c, _, _]: [usize; 4] = kernel.shape().try_into().expect("expected OCHW kernel");
     let mut output = Tensor::zeros(&[batch, out_c, in_h * in_w]);
 
     // Get input and kernel as contiguous tensors so we can create reshaped
@@ -220,8 +220,9 @@ fn conv_2d_depthwise(
     strides: [usize; 2],
     out_hw: [usize; 2],
 ) -> Tensor {
-    let [batch, in_c, in_h, in_w] = input.dims();
-    let [out_c, _, k_h, k_w] = kernel.dims();
+    let [batch, in_c, in_h, in_w]: [usize; 4] =
+        input.shape().try_into().expect("expected NCHW input");
+    let [out_c, _, k_h, k_w]: [usize; 4] = kernel.shape().try_into().expect("expected OCHW kernel");
     let [pad_top, pad_left, _pad_bottom, _pad_right] = padding;
     let [stride_h, stride_w] = strides;
     let [out_h, out_w] = out_hw;
@@ -432,14 +433,17 @@ impl Operator for Conv {
 ///
 /// The unpacked columns are added to the existing output values to preserve
 /// any bias stored in the output.
-fn col2im(output: &mut TensorViewMut, columns: &TensorView, strides: [usize; 2]) {
-    let [in_h, in_w, _out_chans, k_h, k_w] = columns.dims();
-    let [out_chans, _, _] = output.dims();
+fn col2im(
+    output: &mut NdTensorViewMut<f32, 3>,
+    columns: &NdTensorView<f32, 5>,
+    strides: [usize; 2],
+) {
+    let [in_h, in_w, _out_chans, k_h, k_w] = columns.shape();
+    let [out_chans, _, _] = output.shape();
     let [stride_h, stride_w] = strides;
 
-    let col_view = columns.nd_view().unchecked();
-    let mut out_view = output.nd_view_mut();
-    let mut out_view = out_view.unchecked_mut();
+    let col_view = columns.unchecked();
+    let mut out_view = output.unchecked_mut();
 
     for y in 0..in_h {
         for x in 0..in_w {
@@ -508,8 +512,10 @@ pub fn conv_transpose(
         );
 
         col2im(
-            &mut output.slice_mut([n]),
-            &col2im_mat.view().reshaped(&[in_h, in_w, out_c, k_h, k_w]),
+            &mut output.nd_slice_mut([n]),
+            &col2im_mat
+                .nd_view::<2>()
+                .reshaped([in_h, in_w, out_c, k_h, k_w]),
             strides,
         );
     }
@@ -553,8 +559,10 @@ mod tests {
         groups: usize,
         strides: [usize; 2],
     ) -> Tensor {
-        let [batch, in_chans, in_h, in_w] = input.dims();
-        let [out_chans, k_in_chans, k_h, k_w] = kernel.dims();
+        let [batch, in_chans, in_h, in_w]: [usize; 4] =
+            input.shape().try_into().expect("expected NCHW input");
+        let [out_chans, k_in_chans, k_h, k_w]: [usize; 4] =
+            kernel.shape().try_into().expect("expected OCHW input");
         let [stride_h, stride_w] = strides;
         let (out_h, out_w, _) = calc_output_size_and_padding(
             (in_h, in_w),

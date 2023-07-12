@@ -1,8 +1,7 @@
 use std::iter::zip;
 
 use wasnn_tensor::{
-    Layout, Matrix, MatrixLayout, MatrixMut, NdTensor, NdTensorView, Tensor, TensorLayout,
-    TensorView,
+    Layout, Matrix, MatrixLayout, MatrixMut, NdTensor, NdTensorView, Tensor, TensorView,
 };
 
 use crate::ops::{Input, InputList, IntoOpResult, OpError, Operator, Output};

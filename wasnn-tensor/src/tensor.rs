@@ -1055,24 +1055,6 @@ mod tests {
     }
 
     #[test]
-    fn test_dims() {
-        let x = Tensor::<f32>::zeros(&[10, 5, 3, 7]);
-        let [i, j, k, l] = x.dims();
-
-        assert_eq!(i, 10);
-        assert_eq!(j, 5);
-        assert_eq!(k, 3);
-        assert_eq!(l, 7);
-    }
-
-    #[test]
-    #[should_panic]
-    fn test_dims_panics_if_wrong_array_length() {
-        let x = Tensor::<f32>::zeros(&[10, 5, 3, 7]);
-        let [_i, _j, _k] = x.dims();
-    }
-
-    #[test]
     fn test_len() {
         let scalar = Tensor::from_scalar(5);
         let vec = tensor!([1, 2, 3]);
@@ -1258,7 +1240,7 @@ mod tests {
         let mut rng = XorShiftRng::new(1234);
         let mut x = Tensor::rand(&[10, 5, 3, 7], &mut rng);
 
-        let [_, _, a_size, b_size] = x.dims();
+        let [_, _, a_size, b_size]: [usize; 4] = x.shape().try_into().unwrap();
         let mut x_view = x.nd_slice_mut([5, 3]);
 
         for a in 0..a_size {
