@@ -1766,7 +1766,7 @@ mod tests {
     use std::iter::zip;
 
     use wasnn_tensor::test_util::ApproxEq;
-    use wasnn_tensor::{MatrixLayout, NdTensor, NdTensorLayout, NdTensorView, NdTensorViewMut};
+    use wasnn_tensor::{Layout, MatrixLayout, NdTensor, NdTensorView, NdTensorViewMut};
 
     use super::{
         bounding_rect, convex_hull, draw_polygon, fill_rect, find_contours, min_area_rect,

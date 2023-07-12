@@ -1,6 +1,6 @@
 use std::iter::zip;
 
-use wasnn_tensor::{NdTensorLayout, NdTensorView, SliceItem, Tensor, TensorLayout, TensorView};
+use wasnn_tensor::{Layout, NdTensorView, SliceItem, Tensor, TensorLayout, TensorView};
 
 use crate::ops::{Input, InputList, IntoOpResult, OpError, Operator, Output};
 use crate::static_dims;

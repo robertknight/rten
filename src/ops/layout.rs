@@ -2,7 +2,7 @@
 //! elements.
 use std::iter::zip;
 
-use wasnn_tensor::{is_valid_permutation, NdTensorLayout, NdTensorView, Tensor, TensorLayout};
+use wasnn_tensor::{is_valid_permutation, Layout, NdTensorView, Tensor, TensorLayout};
 
 use crate::ops::binary_elementwise::broadcast_shapes;
 use crate::ops::{

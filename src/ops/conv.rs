@@ -4,7 +4,7 @@ use std::ops::Range;
 
 use rayon::prelude::*;
 
-use wasnn_tensor::{NdTensorLayout, NdTensorView, Tensor, TensorLayout, TensorView, TensorViewMut};
+use wasnn_tensor::{Layout, NdTensorView, Tensor, TensorLayout, TensorView, TensorViewMut};
 
 use crate::check_dims;
 use crate::linalg::{

@@ -17,45 +17,48 @@ pub fn is_valid_permutation(ndim: usize, permutation: &[usize]) -> bool {
         && (0..ndim).all(|dim| permutation.iter().filter(|d| **d == dim).count() == 1)
 }
 
-/// Provides methods for querying the shape and data layout of an [NdTensorView].
-pub trait NdTensorLayout<const N: usize> {
-    #[doc(hidden)]
-    fn layout(&self) -> &NdLayout<N>;
+/// Provides methods for querying the shape and strides of a tensor.
+pub trait Layout {
+    /// Type used to represent indices.
+    ///
+    /// It is assumed that this type can also represent the shape and strides
+    /// of the tensor.
+    type Index<'a>: std::ops::Index<usize, Output = usize>
+    where
+        Self: 'a;
+
+    /// Iterator over indices in this tensor.
+    type Indices;
+
+    /// Return the number of dimensions.
+    fn ndim(&self) -> usize;
 
     /// Returns the number of elements in the array.
-    fn len(&self) -> usize {
-        self.layout().len()
-    }
+    fn len(&self) -> usize;
 
     /// Returns true if the array has no elements.
     fn is_empty(&self) -> bool {
-        self.layout().len() == 0
+        self.len() == 0
     }
 
     /// Returns an array of the sizes of each dimension.
-    fn shape(&self) -> [usize; N] {
-        self.layout().shape
-    }
+    fn shape(&self) -> Self::Index<'_>;
 
     /// Returns the size of the dimension `dim`.
     fn size(&self, dim: usize) -> usize {
-        self.layout().shape[dim]
+        self.shape()[dim]
     }
 
     /// Returns an array of the strides of each dimension.
-    fn strides(&self) -> [usize; N] {
-        self.layout().strides
-    }
+    fn strides(&self) -> Self::Index<'_>;
 
     /// Returns the offset between adjacent indices along dimension `dim`.
     fn stride(&self, dim: usize) -> usize {
-        self.layout().strides[dim]
+        self.strides()[dim]
     }
 
     /// Return an iterator over all valid indices in this tensor.
-    fn indices(&self) -> NdIndices<N> {
-        NdIndices::from_shape(self.shape())
-    }
+    fn indices(&self) -> Self::Indices;
 }
 
 /// Provides methods for querying the shape and data layout of a [Tensor]
@@ -200,7 +203,50 @@ pub trait MatrixLayout {
     fn col_stride(&self) -> usize;
 }
 
-impl<NTL: NdTensorLayout<2>> MatrixLayout for NTL {
+/// Specifies whether a tensor or view may have an overlapping layout.
+///
+/// An overlapping layout is one in which multiple valid indices map to the same
+/// offset in storage. To comply with Rust's rules for mutable aliases, mutable
+/// tensors/views must disallow overlap.
+pub enum OverlapPolicy {
+    AllowOverlap,
+    DisallowOverlap,
+}
+
+/// Defines the valid indices for an N-dimensional array and how to map them
+/// to offsets in a linear buffer, where N is known at compile time.
+#[derive(Clone, Copy, Debug)]
+pub struct NdLayout<const N: usize> {
+    shape: [usize; N],
+    strides: [usize; N],
+}
+
+impl<const N: usize> Layout for NdLayout<N> {
+    type Index<'a> = [usize; N];
+    type Indices = NdIndices<N>;
+
+    fn ndim(&self) -> usize {
+        N
+    }
+
+    fn len(&self) -> usize {
+        self.shape.iter().product()
+    }
+
+    fn shape(&self) -> Self::Index<'_> {
+        self.shape
+    }
+
+    fn strides(&self) -> Self::Index<'_> {
+        self.strides
+    }
+
+    fn indices(&self) -> Self::Indices {
+        NdIndices::from_shape(self.shape)
+    }
+}
+
+impl MatrixLayout for NdLayout<2> {
     fn rows(&self) -> usize {
         self.size(0)
     }
@@ -218,30 +264,7 @@ impl<NTL: NdTensorLayout<2>> MatrixLayout for NTL {
     }
 }
 
-/// Defines the valid indices for an N-dimensional array and how to map them
-/// to offsets in a linear buffer, where N is known at compile time.
-#[derive(Clone, Copy, Debug)]
-pub struct NdLayout<const N: usize> {
-    shape: [usize; N],
-    strides: [usize; N],
-}
-
-/// Specifies whether a tensor or view may have an overlapping layout.
-///
-/// An overlapping layout is one in which multiple valid indices map to the same
-/// offset in storage. To comply with Rust's rules for mutable aliases, mutable
-/// tensors/views must disallow overlap.
-pub enum OverlapPolicy {
-    AllowOverlap,
-    DisallowOverlap,
-}
-
 impl<const N: usize> NdLayout<N> {
-    /// Return the number of elements in the array.
-    pub fn len(&self) -> usize {
-        self.shape.iter().product()
-    }
-
     /// Convert a layout with dynamic rank to a layout with a static rank.
     ///
     /// Panics if `l` does not have N dimensions.

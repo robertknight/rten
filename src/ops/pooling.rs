@@ -1,7 +1,7 @@
 use std::iter::zip;
 
 use rayon::prelude::*;
-use wasnn_tensor::{NdTensorLayout, NdTensorView, NdTensorViewMut, Tensor, TensorLayout};
+use wasnn_tensor::{Layout, NdTensorView, NdTensorViewMut, Tensor, TensorLayout};
 
 use crate::check_dims;
 use crate::linalg::div_ceil;

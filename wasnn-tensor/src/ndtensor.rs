@@ -2,8 +2,9 @@ use std::marker::PhantomData;
 use std::ops::{Index, IndexMut};
 
 use crate::errors::FromDataError;
+use crate::index_iterator::NdIndices;
 use crate::iterators::{Iter, IterMut};
-use crate::layout::{NdLayout, NdTensorLayout, OverlapPolicy};
+use crate::layout::{Layout, MatrixLayout, NdLayout, OverlapPolicy};
 use crate::range::SliceItem;
 use crate::IntoSliceItems;
 use crate::TensorBase;
@@ -349,9 +350,66 @@ impl<T, S: AsRef<[T]> + AsMut<[T]>, const N: usize> IndexMut<[usize; N]> for NdT
     }
 }
 
-impl<T, S: AsRef<[T]>, const N: usize> NdTensorLayout<N> for NdTensorBase<T, S, N> {
-    fn layout(&self) -> &NdLayout<N> {
-        &self.layout
+impl<T, S: AsRef<[T]>, const N: usize> Layout for NdTensorBase<T, S, N> {
+    type Index<'a> = [usize; N] where S: 'a, T: 'a;
+    type Indices = NdIndices<N>;
+
+    /// Return the number of dimensions.
+    fn ndim(&self) -> usize {
+        N
+    }
+
+    /// Returns the number of elements in the array.
+    fn len(&self) -> usize {
+        self.layout.len()
+    }
+
+    /// Returns true if the array has no elements.
+    fn is_empty(&self) -> bool {
+        self.layout.is_empty()
+    }
+
+    /// Returns an array of the sizes of each dimension.
+    fn shape(&self) -> Self::Index<'_> {
+        self.layout.shape()
+    }
+
+    /// Returns the size of the dimension `dim`.
+    fn size(&self, dim: usize) -> usize {
+        self.layout.size(dim)
+    }
+
+    /// Returns an array of the strides of each dimension.
+    fn strides(&self) -> Self::Index<'_> {
+        self.layout.strides()
+    }
+
+    /// Returns the offset between adjacent indices along dimension `dim`.
+    fn stride(&self, dim: usize) -> usize {
+        self.layout.stride(dim)
+    }
+
+    /// Return an iterator over all valid indices in this tensor.
+    fn indices(&self) -> Self::Indices {
+        self.layout.indices()
+    }
+}
+
+impl<T, S: AsRef<[T]>> MatrixLayout for NdTensorBase<T, S, 2> {
+    fn rows(&self) -> usize {
+        self.layout.rows()
+    }
+
+    fn cols(&self) -> usize {
+        self.layout.cols()
+    }
+
+    fn row_stride(&self) -> usize {
+        self.layout.row_stride()
+    }
+
+    fn col_stride(&self) -> usize {
+        self.layout.col_stride()
     }
 }
 
@@ -434,9 +492,7 @@ impl<T: PartialEq, S1: AsRef<[T]>, S2: AsRef<[T]>, const N: usize> PartialEq<NdT
 #[cfg(test)]
 mod tests {
     use crate::errors::FromDataError;
-    use crate::{
-        MatrixLayout, NdTensor, NdTensorLayout, NdTensorView, NdTensorViewMut, TensorLayout,
-    };
+    use crate::{Layout, MatrixLayout, NdTensor, NdTensorView, NdTensorViewMut, TensorLayout};
 
     /// Return elements of `tensor` in their logical order.
     fn tensor_elements<T: Clone, const N: usize>(tensor: NdTensorView<T, N>) -> Vec<T> {

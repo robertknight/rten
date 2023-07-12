@@ -7,7 +7,7 @@ use std::cell::RefCell;
 use std::ops::Range;
 
 use rayon::prelude::*;
-use wasnn_tensor::{Matrix, MatrixLayout, MatrixMut, NdTensorLayout};
+use wasnn_tensor::{Layout, Matrix, MatrixLayout, MatrixMut};
 
 pub fn div_ceil(a: usize, b: usize) -> usize {
     if b == 1 {

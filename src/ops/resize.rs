@@ -1,7 +1,7 @@
 use std::iter::zip;
 
 use wasnn_tensor::{
-    Matrix, MatrixLayout, MatrixMut, NdTensor, NdTensorLayout, NdTensorView, Tensor, TensorLayout,
+    Layout, Matrix, MatrixLayout, MatrixMut, NdTensor, NdTensorView, Tensor, TensorLayout,
     TensorView,
 };
 
