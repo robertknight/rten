@@ -198,7 +198,7 @@ fn extract_matrix(tensor: &Tensor, dir: usize, num_gates: usize, gate_index: usi
 fn extract_weights_and_bias<'a>(
     weights: &'a Tensor,
     recurrent_weights: &'a Tensor,
-    bias: Option<&'a std::borrow::Cow<'a, Tensor>>,
+    bias: Option<TensorView<'a>>,
     dir: usize,
     num_gates: usize,
     gate_index: usize,
@@ -209,9 +209,9 @@ fn extract_weights_and_bias<'a>(
     let bias = bias.map(|bias| {
         let nth_gate = |gate_index| (gate_index * hidden_size)..((gate_index + 1) * hidden_size);
 
-        let input_bias = bias.slice((dir, nth_gate(gate_index))).to_data();
+        let input_bias = bias.to_slice((dir, nth_gate(gate_index))).to_data();
         let hidden_bias = bias
-            .slice((dir, nth_gate(gate_index + num_gates)))
+            .to_slice((dir, nth_gate(gate_index + num_gates)))
             .to_data();
 
         (input_bias, hidden_bias)
@@ -275,7 +275,7 @@ pub fn gru(
     let mut hidden_gate = new_gate();
 
     // `extract_weights_and_bias` requires a contiguous tensor.
-    let bias = bias.map(|t| t.as_contiguous());
+    let bias = bias.map(|t| t.to_contiguous());
 
     let gemm = GemmExecutor::new();
 
@@ -284,7 +284,7 @@ pub fn gru(
         let (gate_weights, rec_gate_weights, gate_bias) = extract_weights_and_bias(
             weights,
             recurrent_weights,
-            bias.as_ref(),
+            bias.as_ref().map(|b| b.view()),
             dir,
             3,
             gate_index,
@@ -510,8 +510,8 @@ pub fn lstm(
     check_dims!(initial_cell?, 3);
 
     // Contiguous input and bias needed to allow reshaping below.
-    let input = input.as_contiguous();
-    let bias = bias.map(|t| t.as_contiguous());
+    let input = input.to_contiguous();
+    let bias = bias.map(|t| t.to_contiguous());
 
     // Indices of gates in the concatenated weight and bias tensors.
     const INPUT_GATE: usize = 0;
@@ -540,7 +540,7 @@ pub fn lstm(
         let (gate_weights, rec_gate_weights, gate_bias) = extract_weights_and_bias(
             weights,
             recurrent_weights,
-            bias.as_ref(),
+            bias.as_ref().map(|b| b.view()),
             dir,
             4,
             gate_index,

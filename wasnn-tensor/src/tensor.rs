@@ -134,6 +134,28 @@ impl<T, S: AsRef<[T]>> TensorBase<T, S> {
         }
     }
 
+    /// Return a tensor with data laid out in contiguous order. This will
+    /// be a view if the data is already contiguous, or a copy otherwise.
+    pub fn to_contiguous(&self) -> TensorBase<T, Cow<'_, [T]>>
+    where
+        T: Clone,
+    {
+        if self.is_contiguous() {
+            TensorBase {
+                data: Cow::Borrowed(self.data.as_ref()),
+                layout: self.layout.clone(),
+                element_type: PhantomData,
+            }
+        } else {
+            let data: Vec<T> = self.iter().cloned().collect();
+            TensorBase {
+                data: Cow::Owned(data),
+                layout: DynLayout::new(self.layout().shape()),
+                element_type: PhantomData,
+            }
+        }
+    }
+
     /// Return a new contiguous tensor with the same shape and elements as this
     /// view.
     pub fn to_tensor(&self) -> Tensor<T>
@@ -720,25 +742,6 @@ impl<T> TensorBase<T, Vec<T>> {
         self.layout.make_contiguous();
     }
 
-    /// Return a contiguous version of this tensor, either as a reference if
-    /// the tensor is already contiguous, or a copy if not.
-    pub fn as_contiguous(&self) -> Cow<Tensor<T>>
-    where
-        T: Clone,
-    {
-        if self.is_contiguous() {
-            Cow::Borrowed(self)
-        } else {
-            let mut contiguous_layout = self.layout.clone();
-            contiguous_layout.make_contiguous();
-            Cow::Owned(Tensor {
-                data: self.iter().cloned().collect(),
-                layout: contiguous_layout,
-                element_type: PhantomData,
-            })
-        }
-    }
-
     /// Update the shape of the tensor.
     ///
     /// The total number of elements for the new shape must be the same as the
@@ -840,7 +843,6 @@ impl RandomSource<f32> for XorShiftRng {
 
 #[cfg(test)]
 mod tests {
-    use std::borrow::Cow;
     use std::ops::IndexMut;
 
     use crate::rng::XorShiftRng;
@@ -1586,14 +1588,17 @@ mod tests {
     }
 
     #[test]
-    fn test_as_contiguous() {
+    fn test_to_contiguous() {
         let mut x = steps(&[3, 3]);
-        let y = x.as_contiguous();
-        assert!(matches!(y, Cow::Borrowed(_)));
+        let y = x.to_contiguous();
+        assert!(y.is_contiguous());
+        assert_eq!(y.data().as_ptr(), x.data().as_ptr());
 
         x.permute(&[1, 0]);
-        let y = x.as_contiguous();
-        assert!(matches!(y, Cow::Owned(_)));
+        let y = x.to_contiguous();
+        assert!(y.is_contiguous());
+        assert_ne!(y.data().as_ptr(), x.data().as_ptr());
+        assert_eq!(y.data(), x.to_vec());
     }
 
     #[test]

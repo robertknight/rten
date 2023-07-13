@@ -1,3 +1,4 @@
+use std::borrow::Cow;
 use std::iter::zip;
 use std::marker::PhantomData;
 use std::ops::{Index, IndexMut};
@@ -150,6 +151,28 @@ impl<T, S: AsRef<[T]>, const N: usize> NdTensorBase<T, S, N> {
     {
         let data = self.iter().map(f).collect();
         NdTensor::from_data(data, self.shape(), None).unwrap()
+    }
+
+    /// Return a tensor with data laid out in contiguous order. This will
+    /// be a view if the data is already contiguous, or a copy otherwise.
+    pub fn to_contiguous(&self) -> NdTensorBase<T, Cow<'_, [T]>, N>
+    where
+        T: Clone,
+    {
+        if self.is_contiguous() {
+            NdTensorBase {
+                data: Cow::Borrowed(self.data.as_ref()),
+                layout: self.layout,
+                element_type: PhantomData,
+            }
+        } else {
+            let data: Vec<T> = self.iter().cloned().collect();
+            NdTensorBase {
+                data: Cow::Owned(data),
+                layout: NdLayout::from_shape(self.layout.shape()),
+                element_type: PhantomData,
+            }
+        }
     }
 
     /// Return a copy of this view that owns its data. For [NdTensorView] this
@@ -848,6 +871,22 @@ mod tests {
         let view = NdTensorView::<i32, 2>::from_slice(&data, [2, 2], None).unwrap();
         let transposed = view.transposed();
         transposed.reshaped([4]);
+    }
+
+    #[test]
+    fn test_ndtensor_to_contiguous() {
+        let x = NdTensor::from_data(vec![1, 2, 3, 4, 5, 6, 7, 8, 9], [3, 3], None).unwrap();
+        let y = x.to_contiguous();
+        assert!(y.is_contiguous());
+        assert_eq!(y.data().as_ptr(), x.data().as_ptr());
+
+        let x = x.view().permuted([1, 0]);
+        assert!(!x.is_contiguous());
+
+        let y = x.to_contiguous();
+        assert!(y.is_contiguous());
+        assert_ne!(y.data().as_ptr(), x.data().as_ptr());
+        assert_eq!(y.data(), x.iter().copied().collect::<Vec<_>>());
     }
 
     #[test]

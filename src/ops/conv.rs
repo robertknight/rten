@@ -1,4 +1,3 @@
-use std::borrow::Cow;
 use std::iter::zip;
 use std::ops::Range;
 
@@ -176,12 +175,12 @@ fn conv_2d_pointwise(input: &Tensor, kernel: &Tensor, bias: Option<&Tensor>) -> 
 
     // Get input and kernel as contiguous tensors so we can create reshaped
     // views.
-    let input = input.as_contiguous();
-    let kernel = kernel.as_contiguous();
+    let input = input.to_contiguous();
+    let kernel = kernel.to_contiguous();
     let kernel_mat = kernel.view().reshaped(&[out_c, in_c]).to_nd_view();
 
     // Bias must be contiguous for use with `gemm_bias`.
-    let bias = bias.map(|b| b.as_contiguous());
+    let bias = bias.map(|b| b.to_contiguous());
 
     let gemm = GemmExecutor::new();
 
@@ -234,11 +233,7 @@ fn conv_2d_depthwise(
     };
 
     // Use of input rows below assumes contiguous last dimension.
-    let input: Cow<_> = if input.stride(input.ndim() - 1) == 1 {
-        Cow::Borrowed(input)
-    } else {
-        input.as_contiguous()
-    };
+    let input = input.to_contiguous();
 
     for n in 0..batch {
         for c in 0..in_c {
@@ -357,7 +352,7 @@ pub fn conv(
     let gemm = GemmExecutor::new();
 
     // Bias must be contiguous for use with `gemm_bias`.
-    let bias = bias.map(|b| b.as_contiguous());
+    let bias = bias.map(|b| b.to_contiguous());
 
     for group in 0..groups {
         let in_chan_start = group * in_channels_per_group;
@@ -491,8 +486,8 @@ pub fn conv_transpose(
     };
 
     // Ensure input and kernel are contiguous to support reshaping.
-    let input = input.as_contiguous();
-    let kernel = kernel.as_contiguous();
+    let input = input.to_contiguous();
+    let kernel = kernel.to_contiguous();
 
     let mut col2im_mat = Tensor::zeros(&[in_h * in_w, out_c * k_h * k_w]);
     let kernel_mat = kernel.view().reshaped(&[k_in_c, out_c * k_h * k_w]);
