@@ -29,6 +29,12 @@ impl<T> From<Vec<T>> for VecWithOffset<T> {
     }
 }
 
+impl<T> From<VecWithOffset<T>> for Vec<T> {
+    fn from(value: VecWithOffset<T>) -> Vec<T> {
+        value.data
+    }
+}
+
 impl<T> Deref for VecWithOffset<T> {
     type Target = [T];
 

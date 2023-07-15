@@ -111,6 +111,14 @@ impl<T, S: AsRef<[T]>> TensorBase<T, S> {
         self.data.as_ref()
     }
 
+    /// Consume self and return the underlying element buffer.
+    ///
+    /// As with [TensorBase::data], there is no guarantee about the ordering of
+    /// elements.
+    pub fn into_data(self) -> S {
+        self.data
+    }
+
     /// Return a copy of this tensor with each element replaced by `f(element)`.
     ///
     /// The order in which elements are visited is unspecified and may not

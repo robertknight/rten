@@ -1,8 +1,20 @@
 use std::error::Error;
 use std::fmt::{Display, Formatter};
 
+/// Error in a tensor operation if the dimension count is incorrect.
+#[derive(Debug, PartialEq)]
+pub struct DimensionError {}
+
+impl Display for DimensionError {
+    fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
+        write!(f, "dim count is incorrect")
+    }
+}
+
+impl Error for DimensionError {}
+
 /// Errors that can occur when constructing a tensor from existing data.
-#[derive(PartialEq, Debug)]
+#[derive(Debug, PartialEq)]
 pub enum FromDataError {
     /// Some indices will map to offsets that are beyond the end of the storage.
     StorageTooShort,

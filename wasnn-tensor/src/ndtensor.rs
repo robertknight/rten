@@ -1,11 +1,12 @@
 use std::marker::PhantomData;
 use std::ops::{Index, IndexMut};
 
-use crate::errors::FromDataError;
+use crate::errors::{DimensionError, FromDataError};
 use crate::index_iterator::NdIndices;
 use crate::iterators::{Iter, IterMut};
 use crate::layout::{Layout, MatrixLayout, NdLayout, OverlapPolicy};
 use crate::range::SliceItem;
+use crate::tensor::Tensor;
 use crate::IntoSliceItems;
 use crate::TensorBase;
 
@@ -337,6 +338,22 @@ impl<T: Clone + Default, const N: usize> NdTensorBase<T, Vec<T>, N> {
     }
 }
 
+impl<T, const N: usize> TryFrom<Tensor<T>> for NdTensorBase<T, Vec<T>, N> {
+    type Error = DimensionError;
+
+    /// Convert a dynamic-dimensional tensor into a static-dimensional one.
+    ///
+    /// Fails if `value` does not have `N` dimensions.
+    fn try_from(value: Tensor<T>) -> Result<Self, Self::Error> {
+        let layout: NdLayout<N> = value.layout().try_into()?;
+        Ok(NdTensorBase {
+            data: value.into_data().into(),
+            layout,
+            element_type: PhantomData,
+        })
+    }
+}
+
 impl<T, S: AsRef<[T]>, const N: usize> Index<[usize; N]> for NdTensorBase<T, S, N> {
     type Output = T;
     fn index(&self, index: [usize; N]) -> &Self::Output {
@@ -484,8 +501,8 @@ impl<T: PartialEq, S1: AsRef<[T]>, S2: AsRef<[T]>, const N: usize> PartialEq<NdT
 
 #[cfg(test)]
 mod tests {
-    use crate::errors::FromDataError;
-    use crate::{Layout, MatrixLayout, NdTensor, NdTensorView, NdTensorViewMut};
+    use crate::errors::{DimensionError, FromDataError};
+    use crate::{Layout, MatrixLayout, NdTensor, NdTensorView, NdTensorViewMut, Tensor};
 
     /// Return elements of `tensor` in their logical order.
     fn tensor_elements<T: Clone, const N: usize>(tensor: NdTensorView<T, N>) -> Vec<T> {
@@ -649,6 +666,18 @@ mod tests {
         let data = vec![1., 2., 3., 4.];
         let result = NdTensorView::<f32, 3>::from_slice(&data, [10, 2, 2], Some([0, 2, 1]));
         assert!(result.is_ok());
+    }
+
+    #[test]
+    fn test_ndtensor_try_from_tensor() {
+        let tensor = Tensor::zeros(&[1, 10, 20]);
+        let ndtensor: NdTensor<i32, 3> = tensor.clone().try_into().unwrap();
+        assert_eq!(ndtensor.data(), tensor.data());
+        assert_eq!(ndtensor.shape(), tensor.shape());
+        assert_eq!(ndtensor.strides(), tensor.strides());
+
+        let matrix: Result<NdTensor<i32, 2>, _> = tensor.try_into();
+        assert_eq!(matrix, Err(DimensionError {}));
     }
 
     #[test]

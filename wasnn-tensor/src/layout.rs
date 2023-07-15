@@ -3,7 +3,7 @@ use std::ops::Range;
 
 use smallvec::SmallVec;
 
-use crate::errors::FromDataError;
+use crate::errors::{DimensionError, FromDataError};
 use crate::index_iterator::{DynIndices, NdIndices};
 use crate::overlap::may_have_internal_overlap;
 use crate::range::SliceItem;
@@ -337,6 +337,18 @@ impl NdLayout<2> {
             shape: [self.shape[1], self.shape[0]],
             strides: [self.strides[1], self.strides[0]],
         }
+    }
+}
+
+impl<'a, const N: usize> TryFrom<&'a DynLayout> for NdLayout<N> {
+    type Error = DimensionError;
+
+    /// Convert a dynamic layout into a static layout with N dims. Fails if
+    /// `value.ndim() != N`.
+    fn try_from(value: &'a DynLayout) -> Result<NdLayout<N>, DimensionError> {
+        let shape: [usize; N] = value.shape().try_into().map_err(|_| DimensionError {})?;
+        let strides: [usize; N] = value.strides().try_into().map_err(|_| DimensionError {})?;
+        Ok(NdLayout { shape, strides })
     }
 }
 
