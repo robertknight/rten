@@ -1,3 +1,4 @@
+use std::iter::zip;
 use std::marker::PhantomData;
 use std::ops::{Index, IndexMut};
 
@@ -327,6 +328,19 @@ impl<T, S: AsRef<[T]> + AsMut<[T]>, const N: usize> NdTensorBase<T, S, N> {
             *val = f(val);
         }
     }
+
+    /// Copy elements from another tensor into this tensor.
+    ///
+    /// This tensor and `other` must have the same shape.
+    pub fn copy_from<OS: AsRef<[T]>>(&mut self, other: &NdTensorBase<T, OS, N>)
+    where
+        T: Clone,
+    {
+        assert!(self.shape() == other.shape());
+        for (out, x) in zip(self.iter_mut(), other.iter()) {
+            *out = x.clone();
+        }
+    }
 }
 
 impl<T: Clone + Default, const N: usize> NdTensorBase<T, Vec<T>, N> {
@@ -553,6 +567,16 @@ mod tests {
         let dyn_view = view.as_dyn();
         let elements: Vec<_> = dyn_view.iter().copied().collect();
         assert_eq!(elements, &[1, 2, 3, 4, 1, 2, 3, 4, 1, 2, 3, 4, 1, 2, 3, 4]);
+    }
+
+    #[test]
+    fn test_ndtensor_copy_from() {
+        let x = NdTensor::from_data(vec![1, 2, 3, 4], [2, 2], None).unwrap();
+        let mut y = NdTensor::zeros(x.shape());
+
+        y.copy_from(&x);
+
+        assert_eq!(y, x);
     }
 
     #[test]
