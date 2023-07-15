@@ -7,7 +7,7 @@ use std::ops::{Index, IndexMut, Range};
 
 use crate::iterators::{AxisIter, AxisIterMut, BroadcastIter, Iter, IterMut, Offsets};
 use crate::layout::{DynLayout, Layout};
-use crate::ndtensor::{NdTensor, NdTensorView, NdTensorViewMut};
+use crate::ndtensor::{NdTensorBase, NdTensorView, NdTensorViewMut};
 use crate::range::{IntoSliceItems, SliceItem, SliceRange};
 use crate::rng::XorShiftRng;
 use crate::vec_with_offset::VecWithOffset;
@@ -803,11 +803,15 @@ impl<T, S: AsRef<[T]> + Clone> Clone for TensorBase<T, S> {
     }
 }
 
-impl<T, const N: usize> From<NdTensor<T, N>> for Tensor<T> {
-    fn from(value: NdTensor<T, N>) -> Tensor<T> {
+impl<T, S1: AsRef<[T]>, S2: AsRef<[T]>, const N: usize> From<NdTensorBase<T, S1, N>>
+    for TensorBase<T, S2>
+where
+    S1: Into<S2>,
+{
+    fn from(value: NdTensorBase<T, S1, N>) -> TensorBase<T, S2> {
         let layout: DynLayout = value.layout().into();
         TensorBase {
-            data: VecWithOffset::new(value.into_data()),
+            data: value.into_data().into(),
             layout,
             element_type: PhantomData,
         }
@@ -1497,11 +1501,22 @@ mod tests {
 
     #[test]
     fn test_from_ndtensor() {
+        // NdTensor -> Tensor
         let ndtensor = NdTensor::zeros([1, 10, 20]);
         let tensor: Tensor<i32> = ndtensor.clone().into();
         assert_eq!(tensor.data(), ndtensor.data());
         assert_eq!(tensor.shape(), ndtensor.shape());
         assert_eq!(tensor.strides(), ndtensor.strides());
+
+        // NdTensorView -> TensorView
+        let view: TensorView<i32> = ndtensor.view().into();
+        assert_eq!(view.shape(), ndtensor.shape());
+
+        // NdTensorViewMut -> TensorViewMut
+        let mut ndtensor = NdTensor::zeros([1, 10, 20]);
+        let mut view: TensorViewMut<i32> = ndtensor.view_mut().into();
+        view[[0, 0, 0]] = 1;
+        assert_eq!(ndtensor[[0, 0, 0]], 1);
     }
 
     #[test]
