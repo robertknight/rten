@@ -7,7 +7,6 @@ use crate::index_iterator::NdIndices;
 use crate::iterators::{Iter, IterMut};
 use crate::layout::{Layout, MatrixLayout, NdLayout, OverlapPolicy};
 use crate::range::SliceItem;
-use crate::tensor::Tensor;
 use crate::IntoSliceItems;
 use crate::TensorBase;
 
@@ -362,13 +361,17 @@ impl<T: Clone + Default, const N: usize> NdTensorBase<T, Vec<T>, N> {
     }
 }
 
-impl<T, const N: usize> TryFrom<Tensor<T>> for NdTensorBase<T, Vec<T>, N> {
+impl<T, S1: AsRef<[T]>, S2: AsRef<[T]>, const N: usize> TryFrom<TensorBase<T, S1>>
+    for NdTensorBase<T, S2, N>
+where
+    S1: Into<S2>,
+{
     type Error = DimensionError;
 
-    /// Convert a dynamic-dimensional tensor into a static-dimensional one.
+    /// Convert a dynamic-dimensional tensor or view into a static-dimensional one.
     ///
     /// Fails if `value` does not have `N` dimensions.
-    fn try_from(value: Tensor<T>) -> Result<Self, Self::Error> {
+    fn try_from(value: TensorBase<T, S1>) -> Result<Self, Self::Error> {
         let layout: NdLayout<N> = value.layout().try_into()?;
         Ok(NdTensorBase {
             data: value.into_data().into(),
@@ -704,14 +707,28 @@ mod tests {
 
     #[test]
     fn test_ndtensor_try_from_tensor() {
+        // Tensor -> NdTensor
         let tensor = Tensor::zeros(&[1, 10, 20]);
         let ndtensor: NdTensor<i32, 3> = tensor.clone().try_into().unwrap();
         assert_eq!(ndtensor.data(), tensor.data());
         assert_eq!(ndtensor.shape(), tensor.shape());
         assert_eq!(ndtensor.strides(), tensor.strides());
 
-        let matrix: Result<NdTensor<i32, 2>, _> = tensor.try_into();
+        // Failed Tensor -> NdTensor
+        let matrix: Result<NdTensor<i32, 2>, _> = tensor.clone().try_into();
         assert_eq!(matrix, Err(DimensionError {}));
+
+        // TensorView -> NdTensorView
+        let ndview: NdTensorView<i32, 3> = tensor.view().try_into().unwrap();
+        assert_eq!(ndview.data(), tensor.data());
+        assert_eq!(ndview.shape(), tensor.shape());
+        assert_eq!(ndview.strides(), tensor.strides());
+
+        // TensorViewMut -> NdTensorViewMut
+        let mut tensor = Tensor::zeros(&[1, 10, 20]);
+        let mut ndview: NdTensorViewMut<i32, 3> = tensor.view_mut().try_into().unwrap();
+        ndview[[0, 0, 0]] = 1;
+        assert_eq!(tensor[[0, 0, 0]], 1);
     }
 
     #[test]
