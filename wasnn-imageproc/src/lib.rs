@@ -1262,8 +1262,8 @@ impl RotatedRect {
     /// Return the coordinates of the rect's corners.
     ///
     /// The corners are returned in clockwise order starting from the corner
-    /// that is the top-left when the rect has no rotation (ie. the "up" axis
-    /// has XY coordinates [0, 1]).
+    /// that is the top-left when the "up" axis has XY coordinates [0, 1], or
+    /// equivalently, bottom-right when the "up" axis has XY coords [0, -1].
     pub fn corners(&self) -> [Point; 4] {
         let par_offset = self.up.perpendicular() * (self.width / 2.);
         let perp_offset = self.up * (self.height / 2.);
