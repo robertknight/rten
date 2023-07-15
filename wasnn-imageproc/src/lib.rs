@@ -75,7 +75,7 @@ impl fmt::Debug for Point {
     }
 }
 
-#[derive(Copy, Clone, Debug)]
+#[derive(Copy, Clone, Debug, PartialEq)]
 pub struct Vec2 {
     pub x: f32,
     pub y: f32,
@@ -84,6 +84,10 @@ pub struct Vec2 {
 impl Vec2 {
     pub fn from_yx(y: f32, x: f32) -> Vec2 {
         Vec2 { y, x }
+    }
+
+    pub fn from_xy(x: f32, y: f32) -> Vec2 {
+        Vec2 { x, y }
     }
 
     /// Return the vector from `start` to `end`.
@@ -528,6 +532,16 @@ impl Rect {
             self.top_left.x,
             self.bottom_right.y,
             self.bottom_right.x,
+        ]
+    }
+
+    /// Return the top, left, height and width as an array.
+    pub fn tlhw(&self) -> [Coord; 4] {
+        [
+            self.top_left.y,
+            self.top_left.x,
+            self.height(),
+            self.width(),
         ]
     }
 
@@ -1224,7 +1238,7 @@ pub struct RotatedRect {
     center: Vec2,
 
     // Unit-length vector indicating the "up" direction for this rect.
-    up_axis: Vec2,
+    up: Vec2,
 
     // Extent of the rect along the axis perpendicular to `up`.
     width: f32,
@@ -1239,7 +1253,7 @@ impl RotatedRect {
     pub fn new(center: Vec2, up_axis: Vec2, width: f32, height: f32) -> RotatedRect {
         RotatedRect {
             center,
-            up_axis: up_axis.normalized(),
+            up: up_axis.normalized(),
             width,
             height,
         }
@@ -1251,8 +1265,8 @@ impl RotatedRect {
     /// that is the top-left when the rect has no rotation (ie. the "up" axis
     /// has XY coordinates [0, 1]).
     pub fn corners(&self) -> [Point; 4] {
-        let par_offset = self.up_axis.perpendicular() * (self.width / 2.);
-        let perp_offset = self.up_axis * (self.height / 2.);
+        let par_offset = self.up.perpendicular() * (self.width / 2.);
+        let perp_offset = self.up * (self.height / 2.);
 
         let coords: [Vec2; 4] = [
             self.center - perp_offset - par_offset,
@@ -1284,7 +1298,7 @@ impl RotatedRect {
     /// Return the normalized vector that indicates the "up" direction for
     /// this rect.
     pub fn up_axis(&self) -> Vec2 {
-        self.up_axis
+        self.up
     }
 
     /// Return the extent of the rect along the axis perpendicular to `self.up_axis()`.
@@ -1329,6 +1343,31 @@ impl RotatedRect {
             r.width() as f32,
             r.height() as f32,
         )
+    }
+
+    /// Return the rectangle with the same corner points as `self`, but with
+    /// an up axis that has a direction as close to `up` as possible.
+    pub fn orient_towards(&self, up: Vec2) -> RotatedRect {
+        let target_up = up.normalized();
+
+        let rot_90 = Vec2::from_xy(self.up.y, -self.up.x);
+        let rot_180 = Vec2::from_xy(-self.up.x, -self.up.y);
+        let rot_270 = Vec2::from_xy(-self.up.y, self.up.x);
+
+        let (rotation, _dotp) = [self.up, rot_90, rot_180, rot_270]
+            .map(|new_up| new_up.dot(target_up))
+            .into_iter()
+            .enumerate()
+            .max_by(|(_, a), (_, b)| a.total_cmp(b))
+            .unwrap_or((0, 0.));
+
+        match rotation {
+            0 => *self,
+            1 => RotatedRect::new(self.center, rot_90, self.height, self.width),
+            2 => RotatedRect::new(self.center, rot_180, self.width, self.height),
+            3 => RotatedRect::new(self.center, rot_270, self.height, self.width),
+            _ => unreachable!(),
+        }
     }
 }
 
@@ -2824,6 +2863,34 @@ mod tests {
         let center = Vec2::from_yx(0., 0.);
         let rect = RotatedRect::new(center, up_axis, 2., 3.);
         assert!(rect.up_axis().length().approx_eq(&1.));
+    }
+
+    #[test]
+    fn test_rotated_rect_orient_towards() {
+        let up_axis = Vec2::from_yx(-1., 0.);
+        let center = Vec2::from_yx(0., 0.);
+        let rect = RotatedRect::new(center, up_axis, 2., 3.);
+
+        let sorted_corners = |rect: RotatedRect| {
+            let mut corners = rect.corners();
+            corners.sort_by_key(|p| (p.y, p.x));
+            corners
+        };
+
+        let targets = [
+            Vec2::from_yx(-1., 0.),
+            Vec2::from_yx(0., 1.),
+            Vec2::from_yx(1., 0.),
+            Vec2::from_yx(0., -1.),
+        ];
+        for target in targets {
+            let oriented = rect.orient_towards(target);
+            assert_eq!(sorted_corners(oriented), sorted_corners(rect));
+            if target != up_axis {
+                assert_ne!(oriented.corners(), rect.corners());
+            }
+            assert_eq!(oriented.up_axis(), target);
+        }
     }
 
     #[test]
