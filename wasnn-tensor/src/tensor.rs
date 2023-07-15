@@ -7,7 +7,7 @@ use std::ops::{Index, IndexMut, Range};
 
 use crate::iterators::{AxisIter, AxisIterMut, BroadcastIter, Iter, IterMut, Offsets};
 use crate::layout::{DynLayout, Layout};
-use crate::ndtensor::{NdTensorView, NdTensorViewMut};
+use crate::ndtensor::{NdTensor, NdTensorView, NdTensorViewMut};
 use crate::range::{IntoSliceItems, SliceItem, SliceRange};
 use crate::rng::XorShiftRng;
 use crate::vec_with_offset::VecWithOffset;
@@ -803,6 +803,17 @@ impl<T, S: AsRef<[T]> + Clone> Clone for TensorBase<T, S> {
     }
 }
 
+impl<T, const N: usize> From<NdTensor<T, N>> for Tensor<T> {
+    fn from(value: NdTensor<T, N>) -> Tensor<T> {
+        let layout: DynLayout = value.layout().into();
+        TensorBase {
+            data: VecWithOffset::new(value.into_data()),
+            layout,
+            element_type: PhantomData,
+        }
+    }
+}
+
 impl<T> FromIterator<T> for Tensor<T> {
     fn from_iter<I>(iter: I) -> Self
     where
@@ -826,7 +837,7 @@ mod tests {
 
     use crate::rng::XorShiftRng;
     use crate::tensor;
-    use crate::{Layout, SliceRange, Tensor, TensorView, TensorViewMut};
+    use crate::{Layout, NdTensor, SliceRange, Tensor, TensorView, TensorViewMut};
 
     /// Create a tensor where the value of each element is its logical index
     /// plus one.
@@ -1482,6 +1493,15 @@ mod tests {
     #[should_panic]
     fn test_from_data_panics_if_scalar_data_has_many_elements() {
         Tensor::from_data(&[], vec![1, 2, 3]);
+    }
+
+    #[test]
+    fn test_from_ndtensor() {
+        let ndtensor = NdTensor::zeros([1, 10, 20]);
+        let tensor: Tensor<i32> = ndtensor.clone().into();
+        assert_eq!(tensor.data(), ndtensor.data());
+        assert_eq!(tensor.shape(), ndtensor.shape());
+        assert_eq!(tensor.strides(), ndtensor.strides());
     }
 
     #[test]

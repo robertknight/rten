@@ -669,6 +669,12 @@ impl DynLayout {
     }
 }
 
+impl<const N: usize> From<&NdLayout<N>> for DynLayout {
+    fn from(value: &NdLayout<N>) -> DynLayout {
+        DynLayout::with_strides(&value.shape(), &value.strides())
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use std::iter::zip;

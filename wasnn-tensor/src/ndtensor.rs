@@ -65,6 +65,16 @@ impl<T, S: AsRef<[T]>, const N: usize> NdTensorBase<T, S, N> {
         self.data.as_ref()
     }
 
+    /// Consume self and return the underlying element storage.
+    pub fn into_data(self) -> S {
+        self.data
+    }
+
+    /// Return the layout which maps indices to offsets in the data.
+    pub fn layout(&self) -> &NdLayout<N> {
+        &self.layout
+    }
+
     /// Return the element at a given index, or `None` if the index is out of
     /// bounds in any dimension.
     pub fn get(&self, index: [usize; N]) -> Option<&T> {
