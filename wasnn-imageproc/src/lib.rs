@@ -1339,6 +1339,14 @@ pub trait BoundingRect {
     fn bounding_rect(&self) -> Rect;
 }
 
+impl BoundingRect for Line {
+    fn bounding_rect(&self) -> Rect {
+        let d = self.downwards();
+        let r = self.rightwards();
+        Rect::from_tlbr(d.start.y, r.start.x, d.end.y, r.end.x)
+    }
+}
+
 impl BoundingRect for Rect {
     fn bounding_rect(&self) -> Rect {
         *self
