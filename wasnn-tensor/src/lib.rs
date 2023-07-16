@@ -33,7 +33,6 @@ mod ndtensor;
 mod overlap;
 mod range;
 mod tensor;
-mod vec_with_offset;
 
 pub use index_iterator::{DynIndices, Indices, NdIndices};
 pub use iterators::{AxisIter, AxisIterMut, BroadcastIter, Iter, IterMut, Offsets};

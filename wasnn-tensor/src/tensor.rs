@@ -10,7 +10,6 @@ use crate::layout::{DynLayout, Layout};
 use crate::ndtensor::{NdTensorBase, NdTensorView, NdTensorViewMut};
 use crate::range::{IntoSliceItems, SliceItem, SliceRange};
 use crate::rng::XorShiftRng;
-use crate::vec_with_offset::VecWithOffset;
 
 /// Trait for indexing a `Tensor`
 pub trait TensorIndex {
@@ -129,7 +128,7 @@ impl<T, S: AsRef<[T]>> TensorBase<T, S> {
     {
         let data = self.iter().map(f).collect();
         Tensor {
-            data: VecWithOffset::new(data),
+            data,
             layout: DynLayout::new(self.shape()),
             element_type: PhantomData,
         }
@@ -633,9 +632,9 @@ impl<I: TensorIndex, T, S: AsRef<[T]> + AsMut<[T]>> IndexMut<I> for TensorBase<T
 /// tensor is sliced in-place. Whether the tensor is contiguous does not matter
 /// if accessing elements via indexing, slicing or iterators. It does matter if
 /// accessing the underlying element buffer directly.
-pub type Tensor<T = f32> = TensorBase<T, VecWithOffset<T>>;
+pub type Tensor<T = f32> = TensorBase<T, Vec<T>>;
 
-impl<T> TensorBase<T, VecWithOffset<T>> {
+impl<T> TensorBase<T, Vec<T>> {
     /// Create a new zero-filled tensor with a given shape.
     pub fn zeros(shape: &[usize]) -> Tensor<T>
     where
@@ -644,7 +643,7 @@ impl<T> TensorBase<T, VecWithOffset<T>> {
         let n_elts = shape.iter().product();
         let data = vec![T::default(); n_elts];
         Tensor {
-            data: VecWithOffset::new(data),
+            data,
             layout: DynLayout::new(shape),
             element_type: PhantomData,
         }
@@ -687,9 +686,12 @@ impl<T> TensorBase<T, VecWithOffset<T>> {
     /// Clip dimension `dim` to `[range.start, range.end)`. The new size for
     /// the dimension must be <= the old size.
     ///
-    /// This is a fast operation since it just alters the start offset within
-    /// the tensor's element buffer and length of the specified dimension.
-    pub fn clip_dim(&mut self, dim: usize, range: Range<usize>) {
+    /// This currently requires `T: Copy` to support efficiently moving data
+    /// from the new start offset to the beginning of the element buffer.
+    pub fn clip_dim(&mut self, dim: usize, range: Range<usize>)
+    where
+        T: Copy,
+    {
         let (start, end) = (range.start, range.end);
 
         assert!(start <= end, "start must be <= end");
@@ -697,8 +699,10 @@ impl<T> TensorBase<T, VecWithOffset<T>> {
 
         let start_offset = self.layout.stride(dim) * start;
         self.layout.resize_dim(dim, end - start);
-        self.data
-            .set_used_range(start_offset..start_offset + self.layout.end_offset());
+
+        let range = start_offset..start_offset + self.layout.end_offset();
+        self.data.copy_within(range.clone(), 0);
+        self.data.truncate(range.end - range.start);
     }
 
     /// Convert the internal layout of elements to be contiguous, as reported
@@ -712,7 +716,7 @@ impl<T> TensorBase<T, VecWithOffset<T>> {
         if self.is_contiguous() {
             return;
         }
-        self.data = VecWithOffset::new(self.iter().cloned().collect());
+        self.data = self.iter().cloned().collect();
         self.layout.make_contiguous();
     }
 
@@ -728,7 +732,7 @@ impl<T> TensorBase<T, VecWithOffset<T>> {
             let mut contiguous_layout = self.layout.clone();
             contiguous_layout.make_contiguous();
             Cow::Owned(Tensor {
-                data: VecWithOffset::new(self.iter().cloned().collect()),
+                data: self.iter().cloned().collect(),
                 layout: contiguous_layout,
                 element_type: PhantomData,
             })
