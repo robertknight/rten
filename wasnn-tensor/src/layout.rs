@@ -1,7 +1,7 @@
 use std::iter::{repeat, zip};
 use std::ops::Range;
 
-use smallvec::SmallVec;
+use smallvec::{smallvec, SmallVec};
 
 use crate::errors::{DimensionError, FromDataError};
 use crate::index_iterator::{DynIndices, NdIndices};
@@ -196,6 +196,49 @@ impl MatrixLayout for NdLayout<2> {
     }
 }
 
+/// Compute the shape and strides of a layout after slicing with `range`.
+///
+/// Returns an `(ndim, offset)` tuple for the number of dimensions in the
+/// slice and the offset of the first element in the parent view's data.
+fn slice_layout(
+    in_shape: &[usize],
+    in_strides: &[usize],
+    out_shape: &mut [usize],
+    out_strides: &mut [usize],
+    range: &[SliceItem],
+) -> (usize, usize) {
+    let mut ndim = 0;
+    let mut offset = 0;
+
+    for (in_dim, (&size, &stride)) in zip(in_shape.iter(), in_strides.iter()).enumerate() {
+        let item = if let Some(item) = range.get(in_dim) {
+            assert!(
+                item.valid_for(size),
+                "Slice range is invalid for tensor shape"
+            );
+            item.clone()
+        } else {
+            SliceItem::RangeFull
+        };
+
+        let (offset_adjust, out_size) = match item {
+            SliceItem::Index(idx) => (stride * idx, None),
+            SliceItem::Range(r) => (stride * r.start, Some(r.end - r.start)),
+            SliceItem::RangeFrom(r) => (stride * r.start, Some(size - r.start)),
+            SliceItem::RangeFull => (0, Some(size)),
+        };
+
+        offset += offset_adjust;
+        if let Some(out_size) = out_size {
+            out_shape[ndim] = out_size;
+            out_strides[ndim] = stride;
+            ndim += 1;
+        }
+    }
+
+    (ndim, offset)
+}
+
 impl<const N: usize> NdLayout<N> {
     /// Convert a layout with dynamic rank to a layout with a static rank.
     ///
@@ -328,6 +371,28 @@ impl<const N: usize> NdLayout<N> {
     /// Panics if the layout is not contiguous.
     pub fn reshaped<const M: usize>(&self, shape: [usize; M]) -> NdLayout<M> {
         NdLayout::from_dyn(self.as_dyn().reshaped(&shape))
+    }
+
+    /// Compute the new layout and offset of the first element for a slice into
+    /// an existing tensor view.
+    ///
+    /// Returns a tuple of (offset_range, layout) for the sliced view.
+    pub fn slice<const M: usize>(&self, range: &[SliceItem]) -> (Range<usize>, NdLayout<M>) {
+        assert!(
+            self.ndim() >= range.len(),
+            "Slice dims must be <= current dims"
+        );
+
+        let mut shape: [usize; M] = [0; M];
+        let mut strides: [usize; M] = [0; M];
+
+        let (ndim, offset) =
+            slice_layout(&self.shape, &self.strides, &mut shape, &mut strides, range);
+
+        assert!(ndim == M, "sliced dims != {}", M);
+
+        let layout = NdLayout { shape, strides };
+        (offset..offset + layout.min_data_len(), layout)
     }
 }
 
@@ -473,43 +538,17 @@ impl DynLayout {
             self.ndim() >= range.len(),
             "Slice dims must be <= current dims"
         );
-        assert!(
-            zip(self.shape().iter(), range.iter())
-                .all(|(dim_size, slice_item)| slice_item.valid_for(*dim_size)),
-            "Slice range is invalid for tensor shape"
-        );
 
-        let padded_range = range
-            .iter()
-            .chain(repeat(&SliceItem::RangeFull))
-            .take(self.ndim())
-            .enumerate();
+        let out_dims = self.ndim()
+            - range
+                .iter()
+                .filter(|item| matches!(item, SliceItem::Index(_)))
+                .count();
+        let mut shape_and_strides = smallvec![0; out_dims * 2];
+        let (out_shape, out_strides) = shape_and_strides.as_mut_slice().split_at_mut(out_dims);
 
-        let offset = padded_range
-            .clone()
-            .map(|(dim, item)| {
-                let start = match item {
-                    SliceItem::Index(idx) => *idx,
-                    SliceItem::Range(r) => r.start,
-                    SliceItem::RangeFrom(r) => r.start,
-                    SliceItem::RangeFull => 0,
-                };
-                self.stride(dim) * start
-            })
-            .sum();
-
-        let retained_dims = padded_range.clone().filter_map(|(dim, item)| match item {
-            SliceItem::Index(_) => None,
-            SliceItem::Range(range) => Some((dim, range.clone())),
-            SliceItem::RangeFrom(range) => Some((dim, range.start..self.size(dim))),
-            SliceItem::RangeFull => Some((dim, 0..self.size(dim))),
-        });
-
-        let shape_and_strides = retained_dims
-            .clone()
-            .map(|(_, item)| item.end - item.start)
-            .chain(retained_dims.map(|(dim, _)| self.stride(dim)))
-            .collect();
+        let (_ndim, offset) =
+            slice_layout(self.shape(), self.strides(), out_shape, out_strides, range);
 
         let layout = Self { shape_and_strides };
         (offset..offset + layout.end_offset(), layout)
