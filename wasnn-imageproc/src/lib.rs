@@ -1,4 +1,15 @@
-//! Functions for pre and post-processing images.
+//! Provides 2D geometry and image processing functions.
+//!
+//! This includes:
+//!
+//! - 2D vectors and related math
+//! - 2D shapes and associated algorithms: [Point], [Line], [Rect],
+//!   [RotatedRect], [Polygon]
+//! - Rudimentary drawing functions
+//! - Algorithms for finding the contours of connected components in an image
+//!   ([find_contours])
+//! - Algorithms for simplifying polygons and finding various kinds of shape
+//!   that contain a polygon: [simplify_polygon], [min_area_rect], [convex_hull]
 
 mod contours;
 mod drawing;
