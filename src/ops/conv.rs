@@ -150,7 +150,11 @@ impl<'a> VirtualMatrix for VirtualIm2Col<'a> {
 ///
 /// This is slightly more efficient than creating a zero-filled tensor and then
 /// adding the appropriate bias to each element.
-fn init_tensor_with_channel_bias(shape: &[usize], chan_dim: usize, bias: &Tensor) -> Tensor {
+fn init_tensor_with_channel_bias(
+    shape: &[usize],
+    chan_dim: usize,
+    bias: &NdTensorView<f32, 1>,
+) -> Tensor {
     let mut out_data = Vec::with_capacity(shape.iter().product());
 
     let chan_elts: usize = shape[chan_dim + 1..].iter().product();
@@ -168,19 +172,23 @@ fn init_tensor_with_channel_bias(shape: &[usize], chan_dim: usize, bias: &Tensor
 
 /// Specialization of conv_2d for pointwise convolutions over one image. This
 /// can be reduced to tensor reshaping and matrix multiplication.
-fn conv_2d_pointwise(input: &Tensor, kernel: &Tensor, bias: Option<&Tensor>) -> Tensor {
-    let [batch, _, in_h, in_w]: [usize; 4] = input.shape().try_into().expect("expected NCHW input");
-    let [out_c, in_c, _, _]: [usize; 4] = kernel.shape().try_into().expect("expected OCHW kernel");
+fn conv_2d_pointwise(
+    input: &NdTensorView<f32, 4>,
+    kernel: &NdTensorView<f32, 4>,
+    bias: Option<NdTensorView<f32, 1>>,
+) -> Tensor {
+    let [batch, _, in_h, in_w]: [usize; 4] = input.shape();
+    let [out_c, in_c, _, _]: [usize; 4] = kernel.shape();
     let mut output = Tensor::zeros(&[batch, out_c, in_h * in_w]);
 
     // Get input and kernel as contiguous tensors so we can create reshaped
     // views.
     let input = input.to_contiguous();
     let kernel = kernel.to_contiguous();
-    let kernel_mat = kernel.view().reshaped(&[out_c, in_c]).to_nd_view();
+    let kernel_mat = kernel.view().reshaped([out_c, in_c]);
 
     // Bias must be contiguous for use with `gemm_bias`.
-    let bias = bias.map(|b| b.to_contiguous());
+    let bias = bias.as_ref().map(|b| b.to_contiguous());
 
     let gemm = GemmExecutor::new();
 
@@ -188,7 +196,7 @@ fn conv_2d_pointwise(input: &Tensor, kernel: &Tensor, bias: Option<&Tensor>) -> 
         let mut out_item = output.slice_mut([n]);
         let out_row_stride = out_item.stride(0);
 
-        let in_mat = input.slice([n]).reshaped(&[in_c, in_h * in_w]).to_nd_view();
+        let in_mat = input.slice::<3, 1, _>([n]).reshaped([in_c, in_h * in_w]);
 
         gemm.gemm_bias(
             out_item.data_mut(),
@@ -212,22 +220,21 @@ fn conv_2d_pointwise(input: &Tensor, kernel: &Tensor, bias: Option<&Tensor>) -> 
 /// a time and hence the transformation of convolution to matrix multiplication
 /// doesn't pay off. An optimized direct method works better.
 fn conv_2d_depthwise(
-    input: &Tensor,
-    kernel: &Tensor,
-    bias: Option<&Tensor>,
+    input: &NdTensorView<f32, 4>,
+    kernel: &NdTensorView<f32, 4>,
+    bias: Option<NdTensorView<f32, 1>>,
     padding: [usize; 4],
     strides: [usize; 2],
     out_hw: [usize; 2],
 ) -> Tensor {
-    let [batch, in_c, in_h, in_w]: [usize; 4] =
-        input.shape().try_into().expect("expected NCHW input");
-    let [out_c, _, k_h, k_w]: [usize; 4] = kernel.shape().try_into().expect("expected OCHW kernel");
+    let [batch, in_c, in_h, in_w]: [usize; 4] = input.shape();
+    let [out_c, _, k_h, k_w]: [usize; 4] = kernel.shape();
     let [pad_top, pad_left, _pad_bottom, _pad_right] = padding;
     let [stride_h, stride_w] = strides;
     let [out_h, out_w] = out_hw;
 
     let mut output = if let Some(bias) = bias {
-        init_tensor_with_channel_bias(&[batch, out_c, out_h, out_w], 1, bias)
+        init_tensor_with_channel_bias(&[batch, out_c, out_h, out_w], 1, &bias)
     } else {
         Tensor::zeros(&[batch, out_c, out_h, out_w])
     };
@@ -237,7 +244,7 @@ fn conv_2d_depthwise(
 
     for n in 0..batch {
         for c in 0..in_c {
-            let kernel_view = kernel.nd_slice([c, 0]).unchecked();
+            let kernel_view = kernel.slice([c, 0]).unchecked();
 
             // The loops here are ordered so that the inner-most loop is as
             // efficient as possible and runs for as long as possible over a
@@ -252,7 +259,7 @@ fn conv_2d_depthwise(
                         continue;
                     }
 
-                    let in_row = input.nd_slice::<3, 1>([n, c, in_y - pad_top]).to_data();
+                    let in_row = input.slice::<1, 3, _>([n, c, in_y - pad_top]).to_data();
 
                     for k_x in 0..k_w {
                         let kernel_val = kernel_view[[k_y, k_x]];
@@ -318,7 +325,11 @@ pub fn conv(
     let has_padding = pad_top > 0 || pad_left > 0 || pad_bottom > 0 || pad_right > 0;
 
     if k_h == 1 && k_w == 1 && !has_padding && groups == 1 {
-        return Ok(conv_2d_pointwise(input, kernel, bias));
+        return Ok(conv_2d_pointwise(
+            &input.nd_view(),
+            &kernel.nd_view(),
+            bias.map(|b| b.nd_view()),
+        ));
     }
 
     let out_channels_per_group = out_c / groups;
@@ -338,9 +349,9 @@ pub fn conv(
 
     if in_c == out_c && groups == in_c {
         return Ok(conv_2d_depthwise(
-            input,
-            kernel,
-            bias,
+            &input.nd_view(),
+            &kernel.nd_view(),
+            bias.map(|b| b.nd_view()),
             fixed_padding,
             strides,
             [out_h, out_w],
@@ -480,7 +491,7 @@ pub fn conv_transpose(
     let out_w = (in_w - 1) * stride_w + k_w;
 
     let mut output = if let Some(bias) = bias {
-        init_tensor_with_channel_bias(&[batch, out_c, out_h, out_w], 1, bias)
+        init_tensor_with_channel_bias(&[batch, out_c, out_h, out_w], 1, &bias.nd_view())
     } else {
         Tensor::zeros(&[batch, out_c, out_h, out_w])
     };
