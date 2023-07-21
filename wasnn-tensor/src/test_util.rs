@@ -60,7 +60,7 @@ pub fn expect_equal<T: ApproxEq + Debug, S: AsRef<[T]>>(
         ));
     }
 
-    let mismatches: Vec<_> = zip(x.iter(), y.iter())
+    let mismatches: Vec<_> = zip(x.view().iter(), y.view().iter())
         .enumerate()
         .filter_map(|(i, (xi, yi))| {
             if !xi.approx_eq(yi) {

@@ -423,6 +423,6 @@ mod tests {
         let input = Tensor::rand(&[1, 1, 3, 3], &mut rng);
         let result = softmax(input.view(), 1).unwrap();
         assert_eq!(result.shape(), input.shape());
-        assert!((result.iter().sum::<f32>() - 1.0).abs() < 0.001);
+        assert!((result.view().iter().sum::<f32>() - 1.0).abs() < 0.001);
     }
 }

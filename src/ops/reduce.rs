@@ -43,7 +43,7 @@ impl<'a, T: Copy> DimSlices<'a, T> {
     fn next(&mut self) -> Option<impl ExactSizeIterator<Item = T> + 'a> {
         self.slice_start_offsets.next().map(|offset| {
             self.tensor
-                .to_data()
+                .data()
                 .iter()
                 .copied()
                 .skip(offset)
@@ -398,7 +398,7 @@ mod tests {
         // Reduce a simple vector.
         let probs = tensor!([0.1, 0.5, 0.2, 0.9, 0.01, 0.6]);
         let class = arg_max(probs.view(), 0, false /* keep_dims */).unwrap();
-        assert_eq!(class.item(), Some(&3));
+        assert_eq!(class.view().item(), Some(&3));
 
         // Same, but keep dims
         let class = arg_max(probs.view(), 0, true /* keep_dims */).unwrap();
@@ -449,7 +449,7 @@ mod tests {
     fn test_arg_min() {
         let probs = tensor!([0.1, 0.5, 0.2, 0.9, 0.01, 0.6]);
         let class = arg_min(probs.view(), 0, false /* keep_dims */).unwrap();
-        assert_eq!(class.item(), Some(&4));
+        assert_eq!(class.view().item(), Some(&4));
     }
 
     #[test]
@@ -544,7 +544,7 @@ mod tests {
             false, /* keep_dims */
         )
         .unwrap();
-        assert_eq!(result.item(), Some(&5.0));
+        assert_eq!(result.view().item(), Some(&5.0));
 
         // Reduce a vector
         let result = reduce_mean(

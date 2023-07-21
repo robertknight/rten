@@ -154,7 +154,7 @@ impl Tensor {
     #[wasm_bindgen(js_name = floatData)]
     pub fn float_data(&self) -> Option<Vec<f32>> {
         match *self.data {
-            Output::FloatTensor(ref t) => Some(t.to_vec()),
+            Output::FloatTensor(ref t) => Some(t.view().to_vec()),
             _ => None,
         }
     }
@@ -163,7 +163,7 @@ impl Tensor {
     #[wasm_bindgen(js_name = intData)]
     pub fn int_data(&self) -> Option<Vec<i32>> {
         match *self.data {
-            Output::IntTensor(ref t) => Some(t.to_vec()),
+            Output::IntTensor(ref t) => Some(t.view().to_vec()),
             _ => None,
         }
     }

@@ -178,8 +178,8 @@ mod tests {
         gemm(
             c.data_mut(),
             c_row_stride,
-            a.nd_view(),
-            b.nd_view(),
+            a.view().nd_view(),
+            b.view().nd_view(),
             alpha,
             beta,
         )
@@ -288,13 +288,15 @@ mod tests {
         let broadcast_expected_shape = &[1, 4, 3, 8][..];
         let broadcast_a = Tensor::from_data(
             broadcast_a_shape.into(),
-            a.broadcast_iter(broadcast_a_shape)
+            a.view()
+                .broadcast_iter(broadcast_a_shape)
                 .copied()
                 .collect::<Vec<_>>(),
         );
         let broadcast_expected = Tensor::from_data(
             broadcast_expected_shape.into(),
             expected
+                .view()
                 .broadcast_iter(broadcast_expected_shape)
                 .copied()
                 .collect::<Vec<_>>(),
@@ -307,13 +309,15 @@ mod tests {
         let broadcast_expected_shape = &[1, 3, 3, 8][..];
         let broadcast_b = Tensor::from_data(
             broadcast_b_shape.into(),
-            b.broadcast_iter(broadcast_b_shape)
+            b.view()
+                .broadcast_iter(broadcast_b_shape)
                 .copied()
                 .collect::<Vec<_>>(),
         );
         let expected = Tensor::from_data(
             broadcast_expected_shape.into(),
             expected
+                .view()
                 .broadcast_iter(broadcast_expected_shape)
                 .copied()
                 .collect::<Vec<_>>(),

@@ -86,6 +86,7 @@ pub fn average_pool(
     let [stride_h, stride_w] = strides;
 
     let mut output = Tensor::zeros(&[batch, in_c, out_h, out_w]);
+    let input = input.view();
 
     for n in 0..batch {
         for chan in 0..in_c {
@@ -143,6 +144,7 @@ impl Operator for AveragePool {
 
 pub fn global_average_pool(input: &Tensor) -> Result<Tensor, OpError> {
     let [batch, chans, in_h, in_w] = check_dims!(input, 4, "NCHW");
+    let input = input.view();
 
     let mut output = Tensor::zeros(&[batch, chans, 1, 1]);
 
@@ -245,7 +247,7 @@ pub fn max_pool(
         }
     }
 
-    zip(output.axis_iter_mut(0), input.axis_iter(0))
+    zip(output.axis_iter_mut(0), input.view().axis_iter(0))
         .par_bridge()
         .for_each(|(mut out_item, in_item)| {
             let mut out_item = out_item.nd_view_mut();

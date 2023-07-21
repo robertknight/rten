@@ -162,6 +162,7 @@ impl<'a> TryFrom<Input<'a>> for f32 {
     fn try_from(input: Input<'a>) -> Result<f32, Self::Error> {
         let tensor: &Tensor<_> = input.try_into()?;
         tensor
+            .view()
             .item()
             .copied()
             .ok_or(OpError::InvalidValue("Expected scalar value"))
@@ -174,6 +175,7 @@ impl<'a> TryFrom<Input<'a>> for i32 {
     fn try_from(input: Input<'a>) -> Result<i32, Self::Error> {
         let tensor: &Tensor<_> = input.try_into()?;
         tensor
+            .view()
             .item()
             .copied()
             .ok_or(OpError::InvalidValue("Expected scalar value"))
@@ -461,7 +463,7 @@ macro_rules! static_dims {
                 ")"
             )))
         } else {
-            Ok($tensor.nd_view::<$ndim>())
+            Ok($tensor.view().nd_view::<$ndim>())
         }
     }};
 
@@ -476,7 +478,7 @@ macro_rules! static_dims {
                 " dims"
             )))
         } else {
-            Ok($tensor.nd_view::<$ndim>())
+            Ok($tensor.view().nd_view::<$ndim>())
         }
     }};
 }
@@ -559,7 +561,8 @@ impl<'a> InputList<'a> {
         let tensor = self.get_as::<T>(index)?;
         tensor
             .map(|t| {
-                t.item()
+                t.view()
+                    .item()
                     .copied()
                     .ok_or(OpError::InvalidValue("Expected scalar value"))
             })

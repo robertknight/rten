@@ -19,7 +19,7 @@ pub fn expand<T: Copy>(
         OpError::IncompatibleInputShapes("Cannot broadcast input with target shape"),
     )?;
 
-    let out_elts: Vec<_> = input.broadcast_iter(&out_shape).copied().collect();
+    let out_elts: Vec<_> = input.view().broadcast_iter(&out_shape).copied().collect();
     Ok(Tensor::from_data(&out_shape, out_elts))
 }
 
@@ -622,7 +622,7 @@ mod tests {
             .into_int()
             .unwrap();
         assert_eq!(result.shape(), &[4]);
-        assert_eq!(result.data(), &[1, 1, 2, 2]);
+        assert_eq!(result.view().data(), &[1, 1, 2, 2]);
 
         // Int input
         let input = Tensor::from_data(&[1, 1, 2, 2], vec![1, 2, 3, 4]);
@@ -633,7 +633,7 @@ mod tests {
             .into_int()
             .unwrap();
         assert_eq!(result.shape(), &[4]);
-        assert_eq!(result.data(), &[1, 1, 2, 2]);
+        assert_eq!(result.view().data(), &[1, 1, 2, 2]);
     }
 
     #[test]
@@ -758,7 +758,7 @@ mod tests {
         let scalar = tensor!(2.0);
         let output = unsqueeze(&scalar, &ndtensor!([0]).view()).unwrap();
         assert_eq!(output.shape(), &[1]);
-        assert_eq!(output.data(), &[2.0]);
+        assert_eq!(output.view().data(), &[2.0]);
     }
 
     #[test]

@@ -3,7 +3,7 @@ use std::slice;
 
 use super::layout::DynLayout;
 use super::range::SliceRange;
-use crate::{Layout, TensorBase, TensorView, TensorViewMut};
+use crate::{Layout, TensorView, TensorViewMut};
 
 /// IterPos tracks the position within a single dimension of an IndexingIter.
 #[derive(Debug)]
@@ -218,8 +218,8 @@ enum IterKind<'a, T> {
     Indexing(IndexingIter<'a, T>),
 }
 
-impl<T> Iter<'_, T> {
-    pub(super) fn new<S: AsRef<[T]>>(view: &TensorBase<T, S>) -> Iter<T> {
+impl<'a, T> Iter<'a, T> {
+    pub(super) fn new(view: &TensorView<'a, T>) -> Iter<'a, T> {
         if view.layout().is_contiguous() {
             Iter {
                 iter: IterKind::Direct(view.data().as_ref().iter()),
@@ -231,25 +231,7 @@ impl<T> Iter<'_, T> {
         }
     }
 
-    /// Create a new iterator for elements of a given view. Unlike
-    /// [Elements::new], the lifetime is that of the element storage rather than
-    /// the view.
-    pub(super) fn from_view<'a>(view: &TensorBase<T, &'a [T]>) -> Iter<'a, T> {
-        if view.layout().is_contiguous() {
-            Iter {
-                iter: IterKind::Direct(view.to_data().iter()),
-            }
-        } else {
-            Iter {
-                iter: IterKind::Indexing(IndexingIter::from_view(view)),
-            }
-        }
-    }
-
-    pub(super) fn slice<'a, S: AsRef<[T]>>(
-        view: &'a TensorBase<T, S>,
-        ranges: &[SliceRange],
-    ) -> Iter<'a, T> {
+    pub(super) fn slice(view: &TensorView<'a, T>, ranges: &[SliceRange]) -> Iter<'a, T> {
         let iter = IndexingIter {
             base: IndexingIterBase::slice(view.layout(), ranges),
             data: view.data(),
@@ -299,24 +281,14 @@ struct IndexingIter<'a, T> {
 }
 
 impl<'a, T> IndexingIter<'a, T> {
-    fn new<S: AsRef<[T]>>(view: &TensorBase<T, S>) -> IndexingIter<T> {
+    fn new(view: &TensorView<'a, T>) -> IndexingIter<'a, T> {
         IndexingIter {
             base: IndexingIterBase::new(view.layout()),
             data: view.data(),
         }
     }
 
-    fn from_view(view: &TensorBase<T, &'a [T]>) -> IndexingIter<'a, T> {
-        IndexingIter {
-            base: IndexingIterBase::new(view.layout()),
-            data: view.to_data(),
-        }
-    }
-
-    fn broadcast<S: AsRef<[T]>>(
-        view: &'a TensorBase<T, S>,
-        shape: &[usize],
-    ) -> IndexingIter<'a, T> {
+    fn broadcast(view: &TensorView<'a, T>, shape: &[usize]) -> IndexingIter<'a, T> {
         IndexingIter {
             base: IndexingIterBase::broadcast(view.layout(), shape),
             data: view.data(),
@@ -554,10 +526,7 @@ fn can_broadcast_by_cycling(from_shape: &[usize], to_shape: &[usize]) -> bool {
 }
 
 impl<'a, T> BroadcastIter<'a, T> {
-    pub fn new<S: AsRef<[T]>>(
-        view: &'a TensorBase<T, S>,
-        to_shape: &[usize],
-    ) -> BroadcastIter<'a, T> {
+    pub fn new(view: &TensorView<'a, T>, to_shape: &[usize]) -> BroadcastIter<'a, T> {
         let iter = if view.is_contiguous() && can_broadcast_by_cycling(view.shape(), to_shape) {
             let iter_len = to_shape.iter().product();
             BroadcastIterKind::Direct(view.data().iter().cycle().take(iter_len))
@@ -588,16 +557,20 @@ impl<'a, T> Iterator for BroadcastIter<'a, T> {
 
 impl<'a, T> ExactSizeIterator for BroadcastIter<'a, T> {}
 
-/// Iterator over slices of a tensor along an axis. See [TensorBase::axis_iter].
+/// Iterator over slices of a tensor along an axis. See [TensorView::axis_iter].
 pub struct AxisIter<'a, T> {
     view: TensorView<'a, T>,
     index: usize,
 }
 
 impl<'a, T> AxisIter<'a, T> {
-    pub fn new(mut view: TensorView<'a, T>, dim: usize) -> AxisIter<'a, T> {
-        view.move_axis(dim, 0);
-        AxisIter { view, index: 0 }
+    pub fn new(view: &TensorView<'a, T>, dim: usize) -> AxisIter<'a, T> {
+        let mut permuted = view.clone();
+        permuted.move_axis(dim, 0);
+        AxisIter {
+            view: permuted,
+            index: 0,
+        }
     }
 }
 
@@ -608,14 +581,14 @@ impl<'a, T> Iterator for AxisIter<'a, T> {
         if self.index >= self.view.size(0) {
             None
         } else {
-            let view = self.view.to_slice([self.index]);
+            let view = self.view.slice([self.index]);
             self.index += 1;
             Some(view)
         }
     }
 }
 
-/// Iterator over mutable slices of a tensor along an axis. See [TensorBase::axis_iter_mut].
+/// Iterator over mutable slices of a tensor along an axis. See [TensorViewMut::axis_iter_mut].
 pub struct AxisIterMut<'a, T> {
     view: TensorViewMut<'a, T>,
     index: usize,

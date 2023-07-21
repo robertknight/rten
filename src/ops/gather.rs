@@ -96,7 +96,7 @@ mod tests {
         for i in 0..input.len() {
             let indices = Tensor::from_scalar(i as i32);
             let result = gather(input.view(), 0, indices.view()).unwrap();
-            assert_eq!(result.item(), Some(&input[[i]]))
+            assert_eq!(result.view().item(), Some(&input[[i]]))
         }
     }
 

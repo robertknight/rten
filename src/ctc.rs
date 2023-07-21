@@ -158,7 +158,7 @@ impl CtcDecoder {
         let mut steps = Vec::new();
         let mut score = 0.;
 
-        for (pos, label) in label_seq.iter().copied().enumerate() {
+        for (pos, label) in label_seq.view().iter().copied().enumerate() {
             score += prob_seq[[pos, label as usize]];
 
             if label == last_label {

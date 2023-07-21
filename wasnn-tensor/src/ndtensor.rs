@@ -163,7 +163,7 @@ impl<'a, T, const N: usize> NdTensorBase<T, &'a [T], N> {
 
     /// Return an iterator over elements of this tensor.
     pub fn iter(&self) -> Iter<'a, T> {
-        Iter::from_view(&self.as_dyn())
+        Iter::new(&self.as_dyn())
     }
 
     /// Return a new view with a given shape. This has the same requirements
@@ -715,7 +715,7 @@ mod tests {
         // Tensor -> NdTensor
         let tensor = Tensor::zeros(&[1, 10, 20]);
         let ndtensor: NdTensor<i32, 3> = tensor.clone().try_into().unwrap();
-        assert_eq!(ndtensor.view().data(), tensor.data());
+        assert_eq!(ndtensor.view().data(), tensor.view().data());
         assert_eq!(ndtensor.shape(), tensor.shape());
         assert_eq!(ndtensor.strides(), tensor.strides());
 
@@ -725,7 +725,7 @@ mod tests {
 
         // TensorView -> NdTensorView
         let ndview: NdTensorView<i32, 3> = tensor.view().try_into().unwrap();
-        assert_eq!(ndview.data(), tensor.data());
+        assert_eq!(ndview.data(), tensor.view().data());
         assert_eq!(ndview.shape(), tensor.shape());
         assert_eq!(ndview.strides(), tensor.strides());
 

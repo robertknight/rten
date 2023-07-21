@@ -319,6 +319,10 @@ pub fn conv(
     let [out_c, k_in_c, k_h, k_w] = check_dims!(kernel, 4, "OCHW");
     check_dims!(bias?, 1);
 
+    let input = input.view();
+    let kernel = kernel.view();
+    let bias = bias.map(|b| b.view());
+
     let [stride_h, stride_w] = strides;
     let (out_h, out_w, fixed_padding) =
         calc_output_size_and_padding((in_h, in_w), (k_h, k_w), (stride_h, stride_w), padding)?;
@@ -367,6 +371,7 @@ pub fn conv(
 
     // Bias must be contiguous for use with `gemm_bias`.
     let bias = bias.map(|b| b.to_contiguous());
+    let bias = bias.as_ref().map(|b| b.view());
 
     for group in 0..groups {
         let in_chan_start = group * in_channels_per_group;
@@ -377,10 +382,10 @@ pub fn conv(
         let kernel_mat = kernel
             .slice([out_chans.clone()])
             .reshaped(&[out_channels_per_group, in_channels_per_group * k_h * k_w])
-            .to_nd_view();
+            .nd_view();
         let prepacked_kernel = gemm.prepack_a(kernel_mat);
 
-        let in_group = input.slice((.., in_chan_start..in_chan_end));
+        let in_group = input.view().slice((.., in_chan_start..in_chan_end));
         let mut out_group = output.slice_mut((.., out_chans.clone()));
 
         zip(out_group.axis_iter_mut(0), in_group.axis_iter(0))
@@ -483,6 +488,8 @@ pub fn conv_transpose(
     let [k_in_c, out_c, k_h, k_w] = check_dims!(kernel, 4, "OCHW");
     check_dims!(bias?, 1);
 
+    let bias = bias.map(|b| b.view().nd_view());
+
     if in_c != k_in_c {
         return Err(OpError::IncompatibleInputShapes(
             "Input channels does not match kernel input channels",
@@ -494,21 +501,25 @@ pub fn conv_transpose(
     let out_w = (in_w - 1) * stride_w + k_w;
 
     let mut output = if let Some(bias) = bias {
-        init_tensor_with_channel_bias(&[batch, out_c, out_h, out_w], 1, &bias.nd_view())
+        init_tensor_with_channel_bias(&[batch, out_c, out_h, out_w], 1, &bias)
     } else {
         Tensor::zeros(&[batch, out_c, out_h, out_w])
     };
 
     // Ensure input and kernel are contiguous to support reshaping.
-    let input = input.to_contiguous();
-    let kernel = kernel.to_contiguous();
+    let input = input.view().to_contiguous();
+    let kernel = kernel.view().to_contiguous();
 
     let mut col2im_mat = Tensor::zeros(&[in_h * in_w, out_c * k_h * k_w]);
     let kernel_mat = kernel.view().reshaped(&[k_in_c, out_c * k_h * k_w]);
 
     // The implementation here is the inverse of the im2col-based convolution.
     for n in 0..batch {
-        let input_mat = input.slice([n]).reshaped(&[in_c, in_h * in_w]).transposed();
+        let input_mat = input
+            .view()
+            .slice([n])
+            .reshaped(&[in_c, in_h * in_w])
+            .transposed();
 
         let col2im_row_stride = col2im_mat.stride(0);
         gemm(
@@ -523,6 +534,7 @@ pub fn conv_transpose(
         col2im(
             &mut output.nd_slice_mut([n]),
             &col2im_mat
+                .view()
                 .nd_view::<2>()
                 .reshaped([in_h, in_w, out_c, k_h, k_w]),
             strides,
@@ -1104,7 +1116,7 @@ mod tests {
         expect_equal(&result, &expected)?;
 
         let mut expected_with_bias =
-            Tensor::from_data(expected.shape().into(), expected.data().to_vec());
+            Tensor::from_data(expected.shape().into(), expected.view().data().to_vec());
         for i in 0..expected_with_bias.len() {
             expected_with_bias.data_mut()[i] += 1.234;
         }

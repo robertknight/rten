@@ -171,7 +171,12 @@ fn compute_rnn_gate(
 /// Extract a gate weight matrix from a tensor. The tensor has dims
 /// `[direction, num_gates * hidden_size, x]`. The result has shape
 /// `[x, hidden_size]`.
-fn extract_matrix(tensor: &Tensor, dir: usize, num_gates: usize, gate_index: usize) -> Matrix {
+fn extract_matrix(
+    tensor: TensorView<'_>,
+    dir: usize,
+    num_gates: usize,
+    gate_index: usize,
+) -> Matrix {
     let hidden_total = tensor.size(1);
     assert!(hidden_total % num_gates == 0);
     let hidden_size = hidden_total / num_gates;
@@ -180,7 +185,7 @@ fn extract_matrix(tensor: &Tensor, dir: usize, num_gates: usize, gate_index: usi
             dir,
             (gate_index * hidden_size..(gate_index + 1) * hidden_size),
         ))
-        .to_nd_view()
+        .nd_view()
 }
 
 /// Extract weights and biases for a specific RNN gate/output from a tensor that
@@ -204,15 +209,14 @@ fn extract_weights_and_bias<'a>(
     gate_index: usize,
 ) -> (Matrix<'a>, Matrix<'a>, Option<(&'a [f32], &'a [f32])>) {
     let hidden_size = weights.size(1) / num_gates;
-    let weight = extract_matrix(weights, dir, num_gates, gate_index).transposed();
-    let rec_weight = extract_matrix(recurrent_weights, dir, num_gates, gate_index).transposed();
+    let weight = extract_matrix(weights.view(), dir, num_gates, gate_index).transposed();
+    let rec_weight =
+        extract_matrix(recurrent_weights.view(), dir, num_gates, gate_index).transposed();
     let bias = bias.map(|bias| {
         let nth_gate = |gate_index| (gate_index * hidden_size)..((gate_index + 1) * hidden_size);
 
-        let input_bias = bias.to_slice((dir, nth_gate(gate_index))).to_data();
-        let hidden_bias = bias
-            .to_slice((dir, nth_gate(gate_index + num_gates)))
-            .to_data();
+        let input_bias = bias.slice((dir, nth_gate(gate_index))).data();
+        let hidden_bias = bias.slice((dir, nth_gate(gate_index + num_gates))).data();
 
         (input_bias, hidden_bias)
     });
@@ -261,6 +265,8 @@ pub fn gru(
     check_dims!(recurrent_weights, 3);
     check_dims!(initial_hidden?, 3);
 
+    let input = input.view();
+
     let num_directions = direction.num_directions();
     let hidden_size = hidden_x3 / 3;
 
@@ -275,7 +281,7 @@ pub fn gru(
     let mut hidden_gate = new_gate();
 
     // `extract_weights_and_bias` requires a contiguous tensor.
-    let bias = bias.map(|t| t.to_contiguous());
+    let bias = bias.map(|t| t.view().to_contiguous());
 
     let gemm = GemmExecutor::new();
 
@@ -317,7 +323,7 @@ pub fn gru(
 
         for seq in sequence_for_dir(direction, dir, seq_len) {
             let in_item = input.slice([seq]);
-            let hidden_item = hidden.slice([dir]);
+            let hidden_item = hidden.view().slice([dir]);
 
             // From the ONNX spec, the intermediate values are computed as:
             //
@@ -382,8 +388,8 @@ pub fn gru(
                 if let Some((hidden_bias, rec_hidden_bias)) = bias_hidden {
                     for (hidden_gate, update_tmp, reset, rec_hidden_bias, hidden_bias) in zip5(
                         hidden_gate.iter_mut(),
-                        hidden_tmp.iter(),
-                        reset_gate.iter(),
+                        hidden_tmp.view().iter(),
+                        reset_gate.view().iter(),
                         // Cycle to repeat for each item in batch.
                         rec_hidden_bias.iter().cycle(),
                         hidden_bias.iter().cycle(),
@@ -392,9 +398,11 @@ pub fn gru(
                         *hidden_gate = (*hidden_gate + update + hidden_bias).tanh();
                     }
                 } else {
-                    for (hidden_gate, update_tmp, reset) in
-                        zip3(hidden_gate.iter_mut(), hidden_tmp.iter(), reset_gate.iter())
-                    {
+                    for (hidden_gate, update_tmp, reset) in zip3(
+                        hidden_gate.iter_mut(),
+                        hidden_tmp.view().iter(),
+                        reset_gate.view().iter(),
+                    ) {
                         let update = reset * update_tmp;
                         *hidden_gate = (*hidden_gate + update).tanh();
                     }
@@ -414,13 +422,15 @@ pub fn gru(
             let mut hidden_item = hidden.slice_mut([dir]);
             for (hidden, update, hidden_gate) in zip3(
                 hidden_item.iter_mut(),
-                update_gate.iter(),
-                hidden_gate.iter(),
+                update_gate.view().iter(),
+                hidden_gate.view().iter(),
             ) {
                 *hidden = (1. - update) * hidden_gate + update * (*hidden);
             }
 
-            hidden_seq.slice_mut([seq, dir]).copy_from(&hidden_item);
+            hidden_seq
+                .slice_mut([seq, dir])
+                .copy_from(&hidden_item.view());
         }
     }
 
@@ -510,8 +520,8 @@ pub fn lstm(
     check_dims!(initial_cell?, 3);
 
     // Contiguous input and bias needed to allow reshaping below.
-    let input = input.to_contiguous();
-    let bias = bias.map(|t| t.to_contiguous());
+    let input = input.view().to_contiguous();
+    let bias = bias.map(|t| t.view().to_contiguous());
 
     // Indices of gates in the concatenated weight and bias tensors.
     const INPUT_GATE: usize = 0;
@@ -580,9 +590,8 @@ pub fn lstm(
             //    supported.
             //  - `f`, `g` and `h` are activations. `f`=sigmoid, `g` and `h`
             //    are tanh.
-
-            let in_item = input.slice([seq]);
-            let hidden_item = hidden.slice([dir]);
+            let in_item = input.view().slice([seq]);
+            let hidden_item = hidden.view().slice([dir]);
 
             // Compute outputs for input, forget, cell and output gates.
             compute_rnn_gate(
@@ -634,22 +643,26 @@ pub fn lstm(
 
             for (cell, forget_gate, input_gate, cell_gate) in zip4(
                 cell_item.iter_mut(),
-                forget_gate.iter(),
-                input_gate.iter(),
-                cell_gate.iter(),
+                forget_gate.view().iter(),
+                input_gate.view().iter(),
+                cell_gate.view().iter(),
             ) {
                 *cell = forget_gate * *cell + input_gate * cell_gate;
             }
 
             let mut hidden_item = hidden.slice_mut([dir]);
             let tanh_op = Tanh {};
-            for (hidden, out_gate, cell) in
-                zip3(hidden_item.iter_mut(), out_gate.iter(), cell_item.iter())
-            {
+            for (hidden, out_gate, cell) in zip3(
+                hidden_item.iter_mut(),
+                out_gate.view().iter(),
+                cell_item.view().iter(),
+            ) {
                 *hidden = out_gate * tanh_op.map_element(*cell)
             }
 
-            hidden_seq.slice_mut([seq, dir]).copy_from(&hidden_item);
+            hidden_seq
+                .slice_mut([seq, dir])
+                .copy_from(&hidden_item.view());
         }
     }
 
@@ -863,6 +876,7 @@ mod tests {
             // for the reverse direction.
             let hss = hidden_seq.shape();
             let hidden_seq_fwd = hidden_seq
+                .view()
                 .slice_iter(&[
                     (..hss[0]).into(), // seq
                     (0..1).into(),     // direction
@@ -871,6 +885,7 @@ mod tests {
                 ])
                 .collect::<Vec<_>>();
             let last_hidden_fwd = last_hidden
+                .view()
                 .slice_iter(&[(0..1).into(), (..batch).into(), (..hidden_size).into()])
                 .collect::<Vec<_>>();
 
@@ -880,6 +895,7 @@ mod tests {
             );
 
             let hidden_seq_rev = hidden_seq
+                .view()
                 .slice_iter(&[
                     (..hss[0]).into(), // seq
                     (1..2).into(),     // direction
@@ -888,6 +904,7 @@ mod tests {
                 ])
                 .collect::<Vec<_>>();
             let last_hidden_rev = last_hidden
+                .view()
                 .slice_iter(&[(1..2).into(), (..batch).into(), (..hidden_size).into()])
                 .collect::<Vec<_>>();
             assert_eq!(hidden_seq_rev[0..batch * hidden_size], last_hidden_rev);

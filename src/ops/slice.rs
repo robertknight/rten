@@ -308,7 +308,7 @@ mod tests {
             )
             .unwrap();
             assert_eq!(sliced.shape(), input.shape());
-            assert_eq!(sliced.data(), input.data());
+            assert_eq!(sliced.view().data(), input.view().data());
         }
     }
 
@@ -480,7 +480,7 @@ mod tests {
             .unwrap();
 
             assert_eq!(sliced.shape(), case.expected_shape);
-            assert_eq!(sliced.data(), case.expected_elements);
+            assert_eq!(sliced.view().data(), case.expected_elements);
         }
     }
 }
