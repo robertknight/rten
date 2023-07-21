@@ -146,6 +146,7 @@ pub fn resize(
             .collect(),
         ResizeTarget::Sizes(sizes) => sizes.to_owned(),
     };
+    let sizes = sizes.view();
 
     if sizes.len() != input.ndim() {
         return Err(OpError::IncompatibleInputShapes(

@@ -196,7 +196,10 @@ fn conv_2d_pointwise(
         let mut out_item = output.slice_mut([n]);
         let out_row_stride = out_item.stride(0);
 
-        let in_mat = input.slice::<3, 1, _>([n]).reshaped([in_c, in_h * in_w]);
+        let in_mat = input
+            .view()
+            .slice::<3, 1, _>([n])
+            .reshaped([in_c, in_h * in_w]);
 
         gemm.gemm_bias(
             out_item.data_mut(),
@@ -205,7 +208,7 @@ fn conv_2d_pointwise(
             GemmInputB::Unpacked(in_mat),
             1., // alpha
             0., // beta
-            bias.as_ref().map(|b| b.data()),
+            bias.as_ref().map(|b| b.view().data()),
         );
     }
 
@@ -259,7 +262,7 @@ fn conv_2d_depthwise(
                         continue;
                     }
 
-                    let in_row = input.slice::<1, 3, _>([n, c, in_y - pad_top]).to_data();
+                    let in_row = input.view().slice::<1, 3, _>([n, c, in_y - pad_top]).data();
 
                     for k_x in 0..k_w {
                         let kernel_val = kernel_view[[k_y, k_x]];

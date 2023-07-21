@@ -58,14 +58,6 @@ impl<T, S: AsRef<[T]>, const N: usize> NdTensorBase<T, S, N> {
         })
     }
 
-    /// Return the underlying elements, in the order they are stored.
-    ///
-    /// See [NdTensorBase::to_data] for a variant for [NdTensorView] where
-    /// the returned lifetime matches the underlying slice.
-    pub fn data(&self) -> &[T] {
-        self.data.as_ref()
-    }
-
     /// Consume self and return the underlying element storage.
     pub fn into_data(self) -> S {
         self.data
@@ -76,103 +68,13 @@ impl<T, S: AsRef<[T]>, const N: usize> NdTensorBase<T, S, N> {
         &self.layout
     }
 
-    /// Return the element at a given index, or `None` if the index is out of
-    /// bounds in any dimension.
-    pub fn get(&self, index: [usize; N]) -> Option<&T> {
-        self.layout
-            .try_offset(index)
-            .and_then(|offset| self.data().get(offset))
-    }
-
-    /// Return the element at a given index, without performing any bounds-
-    /// checking.
-    ///
-    /// # Safety
-    ///
-    /// The caller must ensure that the index is valid for the tensor's shape.
-    pub unsafe fn get_unchecked(&self, index: [usize; N]) -> &T {
-        self.data()
-            .get_unchecked(self.layout.offset_unchecked(index))
-    }
-
-    /// Return an immutable view of this tensor.
-    pub fn view(&self) -> NdTensorView<T, N> {
-        NdTensorView {
-            data: self.data.as_ref(),
-            layout: self.layout,
-            element_type: PhantomData,
-        }
-    }
-
-    /// Return an immutable view of part of this tensor.
-    ///
-    /// `M` specifies the number of dimensions that the layout must have after
-    /// slicing with `range`. Panics if the sliced layout has a different number
-    /// of dims.
-    ///
-    /// `K` is the number of items in the array or tuple being used to slice
-    /// the tensor. If it must be <= N. If it is less than N, it refers to the
-    /// leading dimensions of the tensor and is padded to extract the full
-    /// range of the remaining dimensions.
-    pub fn slice<const M: usize, const K: usize, R: IntoSliceItems<K>>(
-        &self,
-        range: R,
-    ) -> NdTensorView<T, M> {
-        self.slice_dyn::<M>(&range.into_slice_items())
-    }
-
-    /// Return an immutable view of part of this tensor.
-    ///
-    /// This is like [NdTensorBase::slice] but supports a dynamic number of slice
-    /// items.
-    pub fn slice_dyn<const M: usize>(&self, range: &[SliceItem]) -> NdTensorView<T, M> {
-        let (offset_range, sliced_layout) = self.layout.slice(range);
-        NdTensorView {
-            data: &self.data.as_ref()[offset_range],
-            layout: sliced_layout,
-            element_type: PhantomData,
-        }
-    }
-
-    /// Return a view of this tensor with a dynamic dimension count.
-    pub fn as_dyn(&self) -> TensorBase<T, &[T]> {
-        TensorBase::new(self.data.as_ref(), &self.layout.as_dyn())
-    }
-
-    /// Return an iterator over elements of this tensor.
-    pub fn iter(&self) -> Iter<T> {
-        Iter::from_view(&self.as_dyn())
-    }
-
     /// Return a new tensor by applying `f` to each element of this tensor.
     pub fn map<F, U>(&self, f: F) -> NdTensor<U, N>
     where
         F: Fn(&T) -> U,
     {
-        let data = self.iter().map(f).collect();
+        let data = self.view().iter().map(f).collect();
         NdTensor::from_data(data, self.shape(), None).unwrap()
-    }
-
-    /// Return a tensor with data laid out in contiguous order. This will
-    /// be a view if the data is already contiguous, or a copy otherwise.
-    pub fn to_contiguous(&self) -> NdTensorBase<T, Cow<'_, [T]>, N>
-    where
-        T: Clone,
-    {
-        if self.is_contiguous() {
-            NdTensorBase {
-                data: Cow::Borrowed(self.data.as_ref()),
-                layout: self.layout,
-                element_type: PhantomData,
-            }
-        } else {
-            let data: Vec<T> = self.iter().cloned().collect();
-            NdTensorBase {
-                data: Cow::Owned(data),
-                layout: NdLayout::from_shape(self.layout.shape()),
-                element_type: PhantomData,
-            }
-        }
     }
 
     /// Return a copy of this view that owns its data. For [NdTensorView] this
@@ -184,6 +86,15 @@ impl<T, S: AsRef<[T]>, const N: usize> NdTensorBase<T, S, N> {
     {
         NdTensor {
             data: self.data.as_ref().to_vec(),
+            layout: self.layout,
+            element_type: PhantomData,
+        }
+    }
+
+    /// Return an immutable view of this tensor.
+    pub fn view(&self) -> NdTensorView<T, N> {
+        NdTensorView {
+            data: self.data.as_ref(),
             layout: self.layout,
             element_type: PhantomData,
         }
@@ -212,7 +123,7 @@ impl<'a, T, const N: usize> NdTensorBase<T, &'a [T], N> {
         NdLayout::try_from_shape_and_strides(
             shape,
             strides,
-            data.as_ref().len(),
+            data.len(),
             OverlapPolicy::AllowOverlap,
         )
         .map(|layout| NdTensorBase {
@@ -222,9 +133,42 @@ impl<'a, T, const N: usize> NdTensorBase<T, &'a [T], N> {
         })
     }
 
+    /// Return a view of this tensor with a dynamic dimension count.
+    pub fn as_dyn(&self) -> TensorBase<T, &'a [T]> {
+        TensorBase::new(self.data, &self.layout.as_dyn())
+    }
+
+    /// Return the underlying elements, in the order they are stored.
+    pub fn data(&self) -> &'a [T] {
+        self.data
+    }
+
+    /// Return the element at a given index, or `None` if the index is out of
+    /// bounds in any dimension.
+    pub fn get(&self, index: [usize; N]) -> Option<&'a T> {
+        self.layout
+            .try_offset(index)
+            .and_then(|offset| self.data.get(offset))
+    }
+
+    /// Return the element at a given index, without performing any bounds-
+    /// checking.
+    ///
+    /// # Safety
+    ///
+    /// The caller must ensure that the index is valid for the tensor's shape.
+    pub unsafe fn get_unchecked(&self, index: [usize; N]) -> &'a T {
+        self.data.get_unchecked(self.layout.offset_unchecked(index))
+    }
+
+    /// Return an iterator over elements of this tensor.
+    pub fn iter(&self) -> Iter<'a, T> {
+        Iter::from_view(&self.as_dyn())
+    }
+
     /// Return a new view with a given shape. This has the same requirements
     /// as `reshape`.
-    pub fn permuted(&self, shape: [usize; N]) -> Self {
+    pub fn permuted(&self, shape: [usize; N]) -> NdTensorView<'a, T, N> {
         NdTensorBase {
             data: self.data,
             layout: self.layout.permuted(shape),
@@ -234,30 +178,70 @@ impl<'a, T, const N: usize> NdTensorBase<T, &'a [T], N> {
 
     /// Return a new view with a given shape. This has the same requirements
     /// as `reshape`.
-    pub fn reshaped<const M: usize>(&self, shape: [usize; M]) -> NdTensorBase<T, &'a [T], M> {
+    pub fn reshaped<const M: usize>(&self, shape: [usize; M]) -> NdTensorView<'a, T, M> {
         NdTensorBase {
             data: self.data,
             layout: self.layout.reshaped(shape),
             element_type: PhantomData,
         }
     }
-}
 
-// Note: `S` refers to `[T]` here rather than `&[T]` so we can preserve
-// liftimes on the result.
-impl<'a, T, S: AsRef<[T]> + ?Sized, const N: usize> NdTensorBase<T, &'a S, N> {
-    /// Return the underlying elements of the view.
+    /// Return a tensor with data laid out in contiguous order. This will
+    /// be a view if the data is already contiguous, or a copy otherwise.
+    pub fn to_contiguous(&self) -> NdTensorBase<T, Cow<'a, [T]>, N>
+    where
+        T: Clone,
+    {
+        if self.is_contiguous() {
+            NdTensorBase {
+                data: Cow::Borrowed(self.data),
+                layout: self.layout,
+                element_type: PhantomData,
+            }
+        } else {
+            let data: Vec<T> = self.iter().cloned().collect();
+            NdTensorBase {
+                data: Cow::Owned(data),
+                layout: NdLayout::from_shape(self.layout.shape()),
+                element_type: PhantomData,
+            }
+        }
+    }
+
+    /// Return an immutable view of part of this tensor.
     ///
-    /// This method differs from [NdTensorBase::data] in that the lifetime of the
-    /// result is that of the underlying data, rather than the view.
-    pub fn to_data(&self) -> &'a [T] {
-        self.data.as_ref()
+    /// `M` specifies the number of dimensions that the layout must have after
+    /// slicing with `range`. Panics if the sliced layout has a different number
+    /// of dims.
+    ///
+    /// `K` is the number of items in the array or tuple being used to slice
+    /// the tensor. If it must be <= N. If it is less than N, it refers to the
+    /// leading dimensions of the tensor and is padded to extract the full
+    /// range of the remaining dimensions.
+    pub fn slice<const M: usize, const K: usize, R: IntoSliceItems<K>>(
+        &self,
+        range: R,
+    ) -> NdTensorView<'a, T, M> {
+        self.slice_dyn::<M>(&range.into_slice_items())
+    }
+
+    /// Return an immutable view of part of this tensor.
+    ///
+    /// This is like [NdTensorBase::slice] but supports a dynamic number of slice
+    /// items.
+    pub fn slice_dyn<const M: usize>(&self, range: &[SliceItem]) -> NdTensorView<'a, T, M> {
+        let (offset_range, sliced_layout) = self.layout.slice(range);
+        NdTensorView {
+            data: &self.data[offset_range],
+            layout: sliced_layout,
+            element_type: PhantomData,
+        }
     }
 
     /// Return a view of this tensor which uses unchecked indexing.
     pub fn unchecked(&self) -> UncheckedNdTensor<T, &'a [T], N> {
         let base = NdTensorBase {
-            data: self.data.as_ref(),
+            data: self.data,
             layout: self.layout,
             element_type: PhantomData,
         };
@@ -352,7 +336,7 @@ impl<T, S: AsRef<[T]> + AsMut<[T]>, const N: usize> NdTensorBase<T, S, N> {
     /// Copy elements from another tensor into this tensor.
     ///
     /// This tensor and `other` must have the same shape.
-    pub fn copy_from<OS: AsRef<[T]>>(&mut self, other: &NdTensorBase<T, OS, N>)
+    pub fn copy_from(&mut self, other: &NdTensorView<T, N>)
     where
         T: Clone,
     {
@@ -543,7 +527,7 @@ impl<T: PartialEq, S1: AsRef<[T]>, S2: AsRef<[T]>, const N: usize> PartialEq<NdT
     for NdTensorBase<T, S1, N>
 {
     fn eq(&self, other: &NdTensorBase<T, S2, N>) -> bool {
-        self.shape() == other.shape() && self.iter().eq(other.iter())
+        self.shape() == other.shape() && self.view().iter().eq(other.view().iter())
     }
 }
 
@@ -569,9 +553,9 @@ mod tests {
     #[test]
     fn test_ndtensor_as_dyn() {
         let tensor = NdTensor::from_data(vec![1, 2, 3, 4], [2, 2], None).unwrap();
-        let dyn_tensor = tensor.as_dyn();
+        let dyn_tensor = tensor.view().as_dyn();
         assert_eq!(tensor.shape(), dyn_tensor.shape());
-        assert_eq!(tensor.data(), dyn_tensor.data());
+        assert_eq!(tensor.view().data(), dyn_tensor.data());
     }
 
     #[test]
@@ -598,7 +582,7 @@ mod tests {
         let x = NdTensor::from_data(vec![1, 2, 3, 4], [2, 2], None).unwrap();
         let mut y = NdTensor::zeros(x.shape());
 
-        y.copy_from(&x);
+        y.copy_from(&x.view());
 
         assert_eq!(y, x);
     }
@@ -731,7 +715,7 @@ mod tests {
         // Tensor -> NdTensor
         let tensor = Tensor::zeros(&[1, 10, 20]);
         let ndtensor: NdTensor<i32, 3> = tensor.clone().try_into().unwrap();
-        assert_eq!(ndtensor.data(), tensor.data());
+        assert_eq!(ndtensor.view().data(), tensor.data());
         assert_eq!(ndtensor.shape(), tensor.shape());
         assert_eq!(ndtensor.strides(), tensor.strides());
 
@@ -755,6 +739,7 @@ mod tests {
     #[test]
     fn test_ndtensor_get() {
         let tensor = NdTensor::<i32, 3>::zeros([5, 10, 15]);
+        let tensor = tensor.view();
 
         assert_eq!(tensor.get([0, 0, 0]), Some(&0));
         assert_eq!(tensor.get([4, 9, 14]), Some(&0));
@@ -766,6 +751,7 @@ mod tests {
     #[test]
     fn test_ndtensor_get_unchecked() {
         let tensor = NdTensor::<i32, 3>::zeros([5, 10, 15]);
+        let tensor = tensor.view();
         unsafe {
             assert_eq!(tensor.get_unchecked([0, 0, 0]), &0);
             assert_eq!(tensor.get_unchecked([4, 9, 14]), &0);
@@ -784,7 +770,7 @@ mod tests {
     #[test]
     fn test_ndtensor_iter() {
         let tensor = NdTensor::<i32, 2>::from_data(vec![1, 2, 3, 4], [2, 2], None).unwrap();
-        let elements: Vec<_> = tensor.iter().copied().collect();
+        let elements: Vec<_> = tensor.view().iter().copied().collect();
         assert_eq!(elements, &[1, 2, 3, 4]);
     }
 
@@ -795,14 +781,14 @@ mod tests {
             .iter_mut()
             .enumerate()
             .for_each(|(i, el)| *el = i as i32);
-        let elements: Vec<_> = tensor.iter().copied().collect();
+        let elements: Vec<_> = tensor.view().iter().copied().collect();
         assert_eq!(elements, &[0, 1, 2, 3]);
     }
 
     #[test]
     fn test_ndtensor_map() {
         let tensor = NdTensor::<i32, 2>::from_data(vec![1, 2, 3, 4], [2, 2], None).unwrap();
-        let doubled = tensor.map(|x| x * 2);
+        let doubled = tensor.view().map(|x| x * 2);
         assert_eq!(tensor_elements(doubled.view()), &[2, 4, 6, 8]);
     }
 
@@ -813,7 +799,7 @@ mod tests {
         let owned = view.to_owned();
         assert_eq!(owned.shape(), view.shape());
         assert_eq!(owned.strides(), view.strides());
-        assert_eq!(owned.data(), view.data());
+        assert_eq!(owned.view().data(), view.data());
     }
 
     #[test]
@@ -876,17 +862,18 @@ mod tests {
     #[test]
     fn test_ndtensor_to_contiguous() {
         let x = NdTensor::from_data(vec![1, 2, 3, 4, 5, 6, 7, 8, 9], [3, 3], None).unwrap();
+        let x = x.view();
         let y = x.to_contiguous();
         assert!(y.is_contiguous());
-        assert_eq!(y.data().as_ptr(), x.data().as_ptr());
+        assert_eq!(y.view().data().as_ptr(), x.data().as_ptr());
 
-        let x = x.view().permuted([1, 0]);
+        let x = x.permuted([1, 0]);
         assert!(!x.is_contiguous());
 
         let y = x.to_contiguous();
         assert!(y.is_contiguous());
-        assert_ne!(y.data().as_ptr(), x.data().as_ptr());
-        assert_eq!(y.data(), x.iter().copied().collect::<Vec<_>>());
+        assert_ne!(y.view().data().as_ptr(), x.data().as_ptr());
+        assert_eq!(y.view().data(), x.iter().copied().collect::<Vec<_>>());
     }
 
     #[test]

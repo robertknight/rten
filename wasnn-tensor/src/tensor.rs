@@ -1510,7 +1510,7 @@ mod tests {
         // NdTensor -> Tensor
         let ndtensor = NdTensor::zeros([1, 10, 20]);
         let tensor: Tensor<i32> = ndtensor.clone().into();
-        assert_eq!(tensor.data(), ndtensor.data());
+        assert_eq!(tensor.data(), ndtensor.view().data());
         assert_eq!(tensor.shape(), ndtensor.shape());
         assert_eq!(tensor.strides(), ndtensor.strides());
 
