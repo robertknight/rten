@@ -113,7 +113,7 @@ impl Operator for BatchNormalization {
 }
 
 pub fn log_softmax(input: TensorView, axis: isize) -> Result<Tensor, OpError> {
-    let mut output = input.to_tensor();
+    let mut output = input.to_owned();
     log_softmax_in_place(&mut output, axis)?;
     Ok(output)
 }
@@ -187,7 +187,7 @@ impl Operator for LogSoftmax {
 }
 
 pub fn softmax(input: TensorView, axis: isize) -> Result<Tensor, OpError> {
-    let mut output = input.to_tensor();
+    let mut output = input.to_owned();
     softmax_in_place(&mut output, axis)?;
     Ok(output)
 }

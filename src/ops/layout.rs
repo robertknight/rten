@@ -358,7 +358,7 @@ pub fn transpose<T: Clone>(
             transposed.transpose();
         }
     };
-    Ok(transposed.to_tensor())
+    Ok(transposed.to_owned())
 }
 
 #[derive(Debug)]

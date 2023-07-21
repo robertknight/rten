@@ -158,7 +158,7 @@ impl<T, S: AsRef<[T]>> TensorBase<T, S> {
 
     /// Return a new contiguous tensor with the same shape and elements as this
     /// view.
-    pub fn to_tensor(&self) -> Tensor<T>
+    pub fn to_owned(&self) -> Tensor<T>
     where
         T: Clone,
     {
@@ -887,8 +887,8 @@ mod tests {
     #[test]
     fn test_axis_iter_mut() {
         let mut x = steps(&[2, 3]);
-        let y0 = x.slice([0]).to_tensor();
-        let y1 = x.slice([1]).to_tensor();
+        let y0 = x.slice([0]).to_owned();
+        let y1 = x.slice([1]).to_owned();
 
         // First dimension.
         let mut views: Vec<_> = x.axis_iter_mut(0).collect();
@@ -899,8 +899,8 @@ mod tests {
         views[1].iter_mut().for_each(|x| *x += 2);
         assert_eq!(x.to_vec(), &[2, 3, 4, 6, 7, 8]);
 
-        let z0 = x.slice((.., 0)).to_tensor();
-        let z1 = x.slice((.., 1)).to_tensor();
+        let z0 = x.slice((.., 0)).to_owned();
+        let z1 = x.slice((.., 1)).to_owned();
 
         // Second dimension.
         let views: Vec<_> = x.axis_iter_mut(1).collect();

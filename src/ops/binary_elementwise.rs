@@ -129,10 +129,10 @@ fn binary_commutative_op<T: Copy + Debug, F: Fn(T, T) -> T>(
     let mut out;
     let other;
     if b.can_broadcast_to(a.shape()) {
-        out = a.to_tensor();
+        out = a.to_owned();
         other = b;
     } else if a.can_broadcast_to(b.shape()) {
-        out = b.to_tensor();
+        out = b.to_owned();
         other = a;
     } else {
         return binary_op(a, b, op);
