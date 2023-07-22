@@ -166,12 +166,11 @@ impl<'a, T, const N: usize> NdTensorBase<T, &'a [T], N> {
         Iter::new(&self.as_dyn())
     }
 
-    /// Return a new view with a given shape. This has the same requirements
-    /// as `reshape`.
-    pub fn permuted(&self, shape: [usize; N]) -> NdTensorView<'a, T, N> {
+    /// Return a new view with the dimensions re-ordered according to `dims`.
+    pub fn permuted(&self, dims: [usize; N]) -> NdTensorView<'a, T, N> {
         NdTensorBase {
             data: self.data,
-            layout: self.layout.permuted(shape),
+            layout: self.layout.permuted(dims),
             element_type: PhantomData,
         }
     }
