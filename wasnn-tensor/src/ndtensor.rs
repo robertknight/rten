@@ -788,7 +788,7 @@ mod tests {
     #[test]
     fn test_ndtensor_map() {
         let tensor = NdTensor::<i32, 2>::from_data(vec![1, 2, 3, 4], [2, 2], None).unwrap();
-        let doubled = tensor.view().map(|x| x * 2);
+        let doubled = tensor.map(|x| x * 2);
         assert_eq!(tensor_elements(doubled.view()), &[2, 4, 6, 8]);
     }
 

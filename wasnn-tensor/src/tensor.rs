@@ -855,7 +855,7 @@ mod tests {
         assert_eq!(views[1], y1);
         views[0].iter_mut().for_each(|x| *x += 1);
         views[1].iter_mut().for_each(|x| *x += 2);
-        assert_eq!(x.view().to_vec(), &[2, 3, 4, 6, 7, 8]);
+        assert_eq!(x.to_vec(), &[2, 3, 4, 6, 7, 8]);
 
         let z0 = x.view().slice((.., 0)).to_owned();
         let z1 = x.view().slice((.., 1)).to_owned();
@@ -872,7 +872,7 @@ mod tests {
         let mut x = steps(&[3, 3]);
         x.clip_dim(0, 1..2);
         x.clip_dim(1, 1..2);
-        assert_eq!(x.view().to_vec(), vec![5]);
+        assert_eq!(x.to_vec(), vec![5]);
     }
 
     #[test]
@@ -883,7 +883,7 @@ mod tests {
         x.clip_dim(0, 1..3);
 
         // Indexing should reflect the slice.
-        assert_eq!(x.view().to_vec(), &[4, 5, 6, 7, 8, 9]);
+        assert_eq!(x.to_vec(), &[4, 5, 6, 7, 8, 9]);
         assert_eq!(x[[0, 0]], 4);
         assert_eq!(*x.index_mut([0, 0]), 4);
 
@@ -1035,8 +1035,8 @@ mod tests {
     #[test]
     fn test_map() {
         // Contiguous tensor.
-        let x = steps(&[2, 3]).view().map(|val| val * 2);
-        assert_eq!(x.view().to_vec(), &[2, 4, 6, 8, 10, 12]);
+        let x = steps(&[2, 3]).map(|val| val * 2);
+        assert_eq!(x.to_vec(), &[2, 4, 6, 8, 10, 12]);
 
         // Non-contiguous view.
         let x = steps(&[2, 3]);
@@ -1044,7 +1044,7 @@ mod tests {
         assert!(!x.is_contiguous());
         assert_eq!(x.to_vec(), &[1, 4, 2, 5, 3, 6]);
         let x = x.map(|val| val * 2);
-        assert_eq!(x.view().to_vec(), &[2, 8, 4, 10, 6, 12]);
+        assert_eq!(x.to_vec(), &[2, 8, 4, 10, 6, 12]);
     }
 
     #[test]
@@ -1136,7 +1136,7 @@ mod tests {
         x.reshape(&[4]);
 
         // Check that the correct elements were read.
-        assert_eq!(x.view().to_vec(), &[5, 6, 8, 9]);
+        assert_eq!(x.to_vec(), &[5, 6, 8, 9]);
     }
 
     #[test]
@@ -1147,7 +1147,7 @@ mod tests {
         // Give the tensor a non-default stride
         x.clip_dim(1, 0..8);
         assert!(!x.is_contiguous());
-        let x_elements = x.view().to_vec();
+        let x_elements = x.to_vec();
 
         x.reshape(&[80]);
 
@@ -1379,7 +1379,7 @@ mod tests {
         for elt in x.iter_mut() {
             *elt *= 2;
         }
-        assert_eq!(x.view().to_vec(), x_doubled);
+        assert_eq!(x.to_vec(), x_doubled);
     }
 
     #[test]
@@ -1387,18 +1387,12 @@ mod tests {
         let mut x = steps(&[3, 3]);
 
         // Contiguous case. This should use the fast-path.
-        assert_eq!(
-            x.view().to_vec(),
-            x.view().iter().copied().collect::<Vec<_>>()
-        );
+        assert_eq!(x.to_vec(), x.view().iter().copied().collect::<Vec<_>>());
 
         // Non-contiguous case.
         x.clip_dim(1, 0..2);
         assert!(!x.is_contiguous());
-        assert_eq!(
-            x.view().to_vec(),
-            x.view().iter().copied().collect::<Vec<_>>()
-        );
+        assert_eq!(x.to_vec(), x.view().iter().copied().collect::<Vec<_>>());
     }
 
     #[test]
@@ -1406,7 +1400,7 @@ mod tests {
         let mut rng = XorShiftRng::new(1234);
         let mut x = Tensor::rand(&[10, 10], &mut rng);
 
-        let x_elts: Vec<_> = x.view().to_vec();
+        let x_elts: Vec<_> = x.to_vec();
 
         let x_offsets = x.offsets();
         let x_data = x.data_mut();
@@ -1555,7 +1549,7 @@ mod tests {
 
         x.make_contiguous();
         assert!(x.is_contiguous());
-        assert_eq!(x.view().to_vec(), &[5, 6, 8, 9]);
+        assert_eq!(x.to_vec(), &[5, 6, 8, 9]);
     }
 
     #[test]
@@ -1665,15 +1659,12 @@ mod tests {
             // 1D index
             let y = $x.$method([0]);
             assert_eq!(y.shape(), [3, 4]);
-            assert_eq!(
-                y.view().to_vec(),
-                (1..=(3 * 4)).into_iter().collect::<Vec<i32>>()
-            );
+            assert_eq!(y.to_vec(), (1..=(3 * 4)).into_iter().collect::<Vec<i32>>());
 
             // 2D index
             let y = $x.$method([0, 1]);
             assert_eq!(y.shape(), [4]);
-            assert_eq!(y.view().to_vec(), (5..=8).into_iter().collect::<Vec<i32>>());
+            assert_eq!(y.to_vec(), (5..=8).into_iter().collect::<Vec<i32>>());
 
             // 3D index
             let y = $x.$method([0, 1, 2]);
@@ -1683,7 +1674,7 @@ mod tests {
             // Full range
             let y = $x.$method([..]);
             assert_eq!(y.shape(), [2, 3, 4]);
-            assert_eq!(y.view().to_vec(), $x.view().to_vec());
+            assert_eq!(y.to_vec(), $x.to_vec());
 
             // Partial ranges
             let y = $x.$method((.., ..2, 1..));
@@ -1695,7 +1686,7 @@ mod tests {
 
             let y = $x.$method((.., .., 0));
             assert_eq!(y.shape(), [2, 3]);
-            assert_eq!(y.view().to_vec(), &[1, 5, 9, 13, 17, 21]);
+            assert_eq!(y.to_vec(), &[1, 5, 9, 13, 17, 21]);
         };
     }
 
