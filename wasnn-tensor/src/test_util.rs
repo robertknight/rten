@@ -1,7 +1,7 @@
 use std::fmt::Debug;
 use std::iter::zip;
 
-use crate::{Layout, TensorBase};
+use crate::TensorCommon;
 
 /// Trait that tests whether two values are approximately equal.
 ///
@@ -48,10 +48,13 @@ fn index_from_linear_index(shape: &[usize], lin_index: usize) -> Vec<usize> {
 ///
 /// If there are mismatches, this returns an `Err` with a message indicating
 /// the count of mismatches and details of the first N cases.
-pub fn expect_equal<T: ApproxEq + Debug, S: AsRef<[T]>>(
-    x: &TensorBase<T, S>,
-    y: &TensorBase<T, S>,
-) -> Result<(), String> {
+pub fn expect_equal<'a, TC: TensorCommon<Index<'a> = &'a [usize]> + 'a>(
+    x: &'a TC,
+    y: &'a TC,
+) -> Result<(), String>
+where
+    TC::Elem: ApproxEq + Debug,
+{
     if x.shape() != y.shape() {
         return Err(format!(
             "Tensors have different shapes. {:?} vs. {:?}",
@@ -60,7 +63,7 @@ pub fn expect_equal<T: ApproxEq + Debug, S: AsRef<[T]>>(
         ));
     }
 
-    let mismatches: Vec<_> = zip(x.view().iter(), y.view().iter())
+    let mismatches: Vec<_> = zip(x.iter(), y.iter())
         .enumerate()
         .filter_map(|(i, (xi, yi))| {
             if !xi.approx_eq(yi) {

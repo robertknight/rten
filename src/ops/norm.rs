@@ -1,4 +1,4 @@
-use wasnn_tensor::{Layout, NdTensorView, Tensor, TensorView};
+use wasnn_tensor::{Layout, NdTensorView, Tensor, TensorCommon, TensorView};
 
 use crate::ops::{resolve_axis, InputList, IntoOpResult, OpError, Operator, Output};
 use crate::{check_dims, static_dims};
@@ -113,7 +113,7 @@ impl Operator for BatchNormalization {
 }
 
 pub fn log_softmax(input: TensorView, axis: isize) -> Result<Tensor, OpError> {
-    let mut output = input.to_owned();
+    let mut output = input.to_tensor();
     log_softmax_in_place(&mut output, axis)?;
     Ok(output)
 }
@@ -187,7 +187,7 @@ impl Operator for LogSoftmax {
 }
 
 pub fn softmax(input: TensorView, axis: isize) -> Result<Tensor, OpError> {
-    let mut output = input.to_owned();
+    let mut output = input.to_tensor();
     softmax_in_place(&mut output, axis)?;
     Ok(output)
 }
@@ -254,7 +254,7 @@ impl Operator for Softmax {
 mod tests {
     use wasnn_tensor::rng::XorShiftRng;
     use wasnn_tensor::test_util::expect_equal;
-    use wasnn_tensor::{tensor, Layout, Tensor};
+    use wasnn_tensor::{tensor, Layout, Tensor, TensorCommon};
 
     use crate::ops::{batch_norm, batch_norm_in_place, log_softmax, softmax};
 
@@ -423,6 +423,6 @@ mod tests {
         let input = Tensor::rand(&[1, 1, 3, 3], &mut rng);
         let result = softmax(input.view(), 1).unwrap();
         assert_eq!(result.shape(), input.shape());
-        assert!((result.view().iter().sum::<f32>() - 1.0).abs() < 0.001);
+        assert!((result.iter().sum::<f32>() - 1.0).abs() < 0.001);
     }
 }

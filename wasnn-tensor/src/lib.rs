@@ -39,7 +39,7 @@ pub use iterators::{AxisIter, AxisIterMut, BroadcastIter, Iter, IterMut, Offsets
 pub use layout::{is_valid_permutation, DynLayout, Layout, MatrixLayout};
 pub use ndtensor::{Matrix, MatrixMut, NdTensor, NdTensorBase, NdTensorView, NdTensorViewMut};
 pub use range::{IntoSliceItems, SliceItem, SliceRange};
-pub use tensor::{Tensor, TensorBase, TensorView, TensorViewMut};
+pub use tensor::{Tensor, TensorBase, TensorCommon, TensorView, TensorViewMut};
 
 // These modules are public for use by other crates in this repo, but
 // currently considered internal to the project.

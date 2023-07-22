@@ -168,7 +168,7 @@ impl Operator for MatMul {
 mod tests {
     use wasnn_tensor::rng::XorShiftRng;
     use wasnn_tensor::test_util::expect_equal;
-    use wasnn_tensor::{Layout, Tensor};
+    use wasnn_tensor::{Layout, Tensor, TensorCommon};
 
     use crate::linalg::gemm;
     use crate::ops::matmul::{gemm_op, matmul, OpError};
@@ -178,8 +178,8 @@ mod tests {
         gemm(
             c.data_mut(),
             c_row_stride,
-            a.view().nd_view(),
-            b.view().nd_view(),
+            a.nd_view(),
+            b.nd_view(),
             alpha,
             beta,
         )
@@ -288,15 +288,13 @@ mod tests {
         let broadcast_expected_shape = &[1, 4, 3, 8][..];
         let broadcast_a = Tensor::from_data(
             broadcast_a_shape.into(),
-            a.view()
-                .broadcast_iter(broadcast_a_shape)
+            a.broadcast_iter(broadcast_a_shape)
                 .copied()
                 .collect::<Vec<_>>(),
         );
         let broadcast_expected = Tensor::from_data(
             broadcast_expected_shape.into(),
             expected
-                .view()
                 .broadcast_iter(broadcast_expected_shape)
                 .copied()
                 .collect::<Vec<_>>(),
@@ -309,15 +307,13 @@ mod tests {
         let broadcast_expected_shape = &[1, 3, 3, 8][..];
         let broadcast_b = Tensor::from_data(
             broadcast_b_shape.into(),
-            b.view()
-                .broadcast_iter(broadcast_b_shape)
+            b.broadcast_iter(broadcast_b_shape)
                 .copied()
                 .collect::<Vec<_>>(),
         );
         let expected = Tensor::from_data(
             broadcast_expected_shape.into(),
             expected
-                .view()
                 .broadcast_iter(broadcast_expected_shape)
                 .copied()
                 .collect::<Vec<_>>(),

@@ -85,7 +85,7 @@ impl Operator for Range {
 
 #[cfg(test)]
 mod tests {
-    use wasnn_tensor::{Layout, Tensor};
+    use wasnn_tensor::{Layout, Tensor, TensorCommon};
 
     use crate::ops::{range, ConstantOfShape, Input, InputList, OpError, Operator, Scalar};
 

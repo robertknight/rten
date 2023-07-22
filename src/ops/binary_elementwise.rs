@@ -1,7 +1,7 @@
 use std::fmt::Debug;
 use std::iter::{repeat, zip};
 
-use wasnn_tensor::{Layout, Tensor, TensorView};
+use wasnn_tensor::{Layout, Tensor, TensorCommon, TensorView};
 
 use crate::number::{Identities, IsInt};
 use crate::ops::{Input, InputList, IntoOpResult, OpError, Operator, Output};
@@ -129,10 +129,10 @@ fn binary_commutative_op<T: Copy + Debug, F: Fn(T, T) -> T>(
     let mut out;
     let other;
     if b.can_broadcast_to(a.shape()) {
-        out = a.to_owned();
+        out = a.to_tensor();
         other = b;
     } else if a.can_broadcast_to(b.shape()) {
-        out = b.to_owned();
+        out = b.to_tensor();
         other = a;
     } else {
         return binary_op(a, b, op);
@@ -549,7 +549,7 @@ impl Operator for Where {
 #[cfg(test)]
 mod tests {
     use wasnn_tensor::test_util::expect_equal;
-    use wasnn_tensor::{tensor, Layout, Tensor};
+    use wasnn_tensor::{tensor, Layout, Tensor, TensorCommon};
 
     use crate::ops::{
         add, add_in_place, div, div_in_place, equal, greater, less, less_or_equal, mul,

@@ -3,7 +3,7 @@ use std::ops::Range;
 
 use rayon::prelude::*;
 
-use wasnn_tensor::{Layout, NdTensorView, NdTensorViewMut, Tensor};
+use wasnn_tensor::{Layout, NdTensorView, NdTensorViewMut, Tensor, TensorCommon};
 
 use crate::check_dims;
 use crate::linalg::{
@@ -385,7 +385,7 @@ pub fn conv(
             .nd_view();
         let prepacked_kernel = gemm.prepack_a(kernel_mat);
 
-        let in_group = input.view().slice((.., in_chan_start..in_chan_end));
+        let in_group = input.slice((.., in_chan_start..in_chan_end));
         let mut out_group = output.slice_mut((.., out_chans.clone()));
 
         zip(out_group.axis_iter_mut(0), in_group.axis_iter(0))
@@ -488,7 +488,7 @@ pub fn conv_transpose(
     let [k_in_c, out_c, k_h, k_w] = check_dims!(kernel, 4, "OCHW");
     check_dims!(bias?, 1);
 
-    let bias = bias.map(|b| b.view().nd_view());
+    let bias = bias.map(|b| b.nd_view());
 
     if in_c != k_in_c {
         return Err(OpError::IncompatibleInputShapes(
@@ -507,19 +507,15 @@ pub fn conv_transpose(
     };
 
     // Ensure input and kernel are contiguous to support reshaping.
-    let input = input.view().to_contiguous();
-    let kernel = kernel.view().to_contiguous();
+    let input = input.to_contiguous();
+    let kernel = kernel.to_contiguous();
 
     let mut col2im_mat = Tensor::zeros(&[in_h * in_w, out_c * k_h * k_w]);
     let kernel_mat = kernel.view().reshaped(&[k_in_c, out_c * k_h * k_w]);
 
     // The implementation here is the inverse of the im2col-based convolution.
     for n in 0..batch {
-        let input_mat = input
-            .view()
-            .slice([n])
-            .reshaped(&[in_c, in_h * in_w])
-            .transposed();
+        let input_mat = input.slice([n]).reshaped(&[in_c, in_h * in_w]).transposed();
 
         let col2im_row_stride = col2im_mat.stride(0);
         gemm(
@@ -534,7 +530,6 @@ pub fn conv_transpose(
         col2im(
             &mut output.nd_slice_mut([n]),
             &col2im_mat
-                .view()
                 .nd_view::<2>()
                 .reshaped([in_h, in_w, out_c, k_h, k_w]),
             strides,
@@ -566,7 +561,7 @@ impl Operator for ConvTranspose {
 mod tests {
     use wasnn_tensor::rng::XorShiftRng;
     use wasnn_tensor::test_util::expect_equal;
-    use wasnn_tensor::{Layout, Tensor};
+    use wasnn_tensor::{Layout, Tensor, TensorCommon};
 
     use crate::ops::pooling::calc_output_size_and_padding;
     use crate::ops::{conv, conv_transpose, Conv, InputList, OpError, Operator, Padding};
@@ -1116,7 +1111,7 @@ mod tests {
         expect_equal(&result, &expected)?;
 
         let mut expected_with_bias =
-            Tensor::from_data(expected.shape().into(), expected.view().data().to_vec());
+            Tensor::from_data(expected.shape().into(), expected.data().to_vec());
         for i in 0..expected_with_bias.len() {
             expected_with_bias.data_mut()[i] += 1.234;
         }

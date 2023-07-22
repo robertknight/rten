@@ -2,7 +2,7 @@
 //! elements.
 use std::iter::zip;
 
-use wasnn_tensor::{is_valid_permutation, Layout, NdTensorView, Tensor};
+use wasnn_tensor::{is_valid_permutation, Layout, NdTensorView, Tensor, TensorCommon};
 
 use crate::ops::binary_elementwise::broadcast_shapes;
 use crate::ops::{
@@ -19,7 +19,7 @@ pub fn expand<T: Copy>(
         OpError::IncompatibleInputShapes("Cannot broadcast input with target shape"),
     )?;
 
-    let out_elts: Vec<_> = input.view().broadcast_iter(&out_shape).copied().collect();
+    let out_elts: Vec<_> = input.broadcast_iter(&out_shape).copied().collect();
     Ok(Tensor::from_data(&out_shape, out_elts))
 }
 
@@ -358,7 +358,7 @@ pub fn transpose<T: Clone>(
             transposed.transpose();
         }
     };
-    Ok(transposed.to_owned())
+    Ok(transposed.to_tensor())
 }
 
 #[derive(Debug)]
@@ -427,7 +427,7 @@ impl Operator for Unsqueeze {
 mod tests {
     use wasnn_tensor::rng::XorShiftRng;
     use wasnn_tensor::test_util::expect_equal;
-    use wasnn_tensor::{ndtensor, tensor, Layout, Tensor};
+    use wasnn_tensor::{ndtensor, tensor, Layout, Tensor, TensorCommon};
 
     use crate::ops::layout::{
         expand, flatten, reshape, reshape_in_place, squeeze, squeeze_in_place, transpose,
@@ -622,7 +622,7 @@ mod tests {
             .into_int()
             .unwrap();
         assert_eq!(result.shape(), &[4]);
-        assert_eq!(result.view().data(), &[1, 1, 2, 2]);
+        assert_eq!(result.data(), &[1, 1, 2, 2]);
 
         // Int input
         let input = Tensor::from_data(&[1, 1, 2, 2], vec![1, 2, 3, 4]);
@@ -633,7 +633,7 @@ mod tests {
             .into_int()
             .unwrap();
         assert_eq!(result.shape(), &[4]);
-        assert_eq!(result.view().data(), &[1, 1, 2, 2]);
+        assert_eq!(result.data(), &[1, 1, 2, 2]);
     }
 
     #[test]
@@ -758,7 +758,7 @@ mod tests {
         let scalar = tensor!(2.0);
         let output = unsqueeze(&scalar, &ndtensor!([0]).view()).unwrap();
         assert_eq!(output.shape(), &[1]);
-        assert_eq!(output.view().data(), &[2.0]);
+        assert_eq!(output.data(), &[2.0]);
     }
 
     #[test]

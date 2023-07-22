@@ -2,7 +2,7 @@ extern crate libm;
 
 use std::fmt::Debug;
 
-use wasnn_tensor::{Tensor, TensorView};
+use wasnn_tensor::{Tensor, TensorCommon, TensorView};
 
 use crate::ops::{InputList, IntoOpResult, OpError, Operator, Output};
 
@@ -285,7 +285,7 @@ impl UnaryFloatOp for Tanh {
 #[cfg(test)]
 mod tests {
     use wasnn_tensor::test_util::expect_equal;
-    use wasnn_tensor::{tensor, Tensor};
+    use wasnn_tensor::{tensor, Tensor, TensorCommon};
 
     use crate::ops::{
         clip, clip_in_place, cos, cos_in_place, erf, erf_in_place, leaky_relu, leaky_relu_in_place,

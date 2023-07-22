@@ -1256,7 +1256,7 @@ mod tests {
 
     use wasnn_tensor::rng::XorShiftRng;
     use wasnn_tensor::test_util::expect_equal;
-    use wasnn_tensor::{Layout, Matrix, MatrixLayout, Tensor};
+    use wasnn_tensor::{Layout, Matrix, MatrixLayout, Tensor, TensorCommon};
 
     use crate::linalg::{
         add_scaled_vector, gemm, round_up, GemmExecutor, GemmInputA, GemmInputB, KernelHint,
@@ -1300,8 +1300,8 @@ mod tests {
         gemm.gemm_bias(
             output.data_mut(),
             out_row_stride,
-            GemmInputA::Unpacked(a.view().nd_view()),
-            GemmInputB::Unpacked(b.view().nd_view()),
+            GemmInputA::Unpacked(a.nd_view()),
+            GemmInputB::Unpacked(b.nd_view()),
             alpha,
             beta,
             bias,
@@ -1410,8 +1410,8 @@ mod tests {
         gemm(
             &mut output,
             2,
-            a.view().nd_view(),
-            b.view().nd_view(),
+            a.nd_view(),
+            b.nd_view(),
             1., /* alpha */
             1., /* beta */
         );
@@ -1603,12 +1603,12 @@ mod tests {
             let a = Tensor::rand(&[m, k], &mut rng);
             let b = Tensor::rand(&[k, n], &mut rng);
 
-            let a_mat: Matrix = a.view().nd_view();
-            let b_mat: Matrix = b.view().nd_view();
+            let a_mat: Matrix = a.nd_view();
+            let b_mat: Matrix = b.nd_view();
             let gemm = GemmExecutor::new();
 
             let packed_a = gemm.prepack_a(a_mat);
-            let packed_b = gemm.prepack_b(b.view().nd_view(), a.size(1));
+            let packed_b = gemm.prepack_b(b.nd_view(), a.size(1));
 
             let mut result = Tensor::zeros(&[m, n]);
             let result_row_stride = result.stride(0);
@@ -1722,13 +1722,13 @@ mod tests {
             let gemm = GemmExecutor::new();
 
             let packer = Packer {
-                tensor: b.view().nd_view(),
+                tensor: b.nd_view(),
             };
 
             gemm.gemm(
                 result.data_mut(),
                 result_row_stride,
-                GemmInputA::Unpacked(a.view().nd_view()),
+                GemmInputA::Unpacked(a.nd_view()),
                 GemmInputB::Virtual(&packer),
                 1.,
                 1.,

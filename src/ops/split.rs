@@ -1,4 +1,4 @@
-use wasnn_tensor::{Layout, NdTensorView, SliceItem, Tensor, TensorView};
+use wasnn_tensor::{Layout, NdTensorView, SliceItem, Tensor, TensorCommon, TensorView};
 
 use crate::ops::{resolve_axis, InputList, OpError, Operator, Output};
 use crate::static_dims;
@@ -37,7 +37,7 @@ pub fn split<T: Copy>(
 
             split_start += split_size;
 
-            input.view().slice_dyn(&slice_range).to_owned()
+            input.view().slice_dyn(&slice_range).to_tensor()
         })
         .collect();
 
@@ -66,7 +66,7 @@ impl Operator for Split {
 
 #[cfg(test)]
 mod tests {
-    use wasnn_tensor::tensor;
+    use wasnn_tensor::{tensor, TensorCommon};
 
     use crate::ops::{split, OpError};
 
@@ -79,16 +79,16 @@ mod tests {
         let results = split(input.view(), 1, &splits.into()).unwrap();
 
         assert_eq!(results.len(), 2);
-        assert_eq!(results[0].view().data(), &[0., 2., 4., 6., 8.]);
-        assert_eq!(results[1].view().data(), &[1., 3., 5., 7., 9.]);
+        assert_eq!(results[0].data(), &[0., 2., 4., 6., 8.]);
+        assert_eq!(results[1].data(), &[1., 3., 5., 7., 9.]);
 
         // Split with negative axis
         let splits = &[1, 1];
         let results = split(input.view(), -1, &splits.into()).unwrap();
 
         assert_eq!(results.len(), 2);
-        assert_eq!(results[0].view().data(), &[0., 2., 4., 6., 8.]);
-        assert_eq!(results[1].view().data(), &[1., 3., 5., 7., 9.]);
+        assert_eq!(results[0].data(), &[0., 2., 4., 6., 8.]);
+        assert_eq!(results[1].data(), &[1., 3., 5., 7., 9.]);
     }
 
     #[test]

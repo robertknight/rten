@@ -6,7 +6,7 @@ use std::fs;
 
 use wasnn::ops::{resize, CoordTransformMode, NearestMode, ResizeMode, ResizeTarget};
 use wasnn::{Dimension, Model, RunOptions};
-use wasnn_tensor::{Layout, Tensor};
+use wasnn_tensor::{Layout, Tensor, TensorCommon};
 
 #[derive(Clone, Copy, PartialEq)]
 enum PixelNorm {
@@ -227,7 +227,7 @@ fn main() -> Result<(), Box<dyn Error>> {
     // Get top K ImageNet classes by score. The scores are the raw logits output
     // by the model, which may or may not be normalized. This could be improved
     // by exposing the softmax operator and applying that to the output.
-    let mut class_scores: Vec<_> = output.view().iter().enumerate().collect();
+    let mut class_scores: Vec<_> = output.iter().enumerate().collect();
     class_scores.sort_by(|(_, score_a), (_, score_b)| score_b.partial_cmp(score_a).unwrap());
     class_scores.truncate(5);
 

@@ -165,7 +165,7 @@ impl Operator for Slice {
 mod tests {
     use wasnn_tensor::rng::XorShiftRng;
     use wasnn_tensor::test_util::expect_equal;
-    use wasnn_tensor::{Layout, Tensor};
+    use wasnn_tensor::{Layout, Tensor, TensorCommon};
 
     use crate::ops::{slice, slice_in_place};
 
@@ -308,7 +308,7 @@ mod tests {
             )
             .unwrap();
             assert_eq!(sliced.shape(), input.shape());
-            assert_eq!(sliced.view().data(), input.view().data());
+            assert_eq!(sliced.data(), input.data());
         }
     }
 
@@ -480,7 +480,7 @@ mod tests {
             .unwrap();
 
             assert_eq!(sliced.shape(), case.expected_shape);
-            assert_eq!(sliced.view().data(), case.expected_elements);
+            assert_eq!(sliced.data(), case.expected_elements);
         }
     }
 }

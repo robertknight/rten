@@ -589,7 +589,7 @@ mod tests {
     use std::sync::{Arc, Mutex};
 
     use wasnn_tensor::test_util::expect_equal;
-    use wasnn_tensor::{Layout, Tensor};
+    use wasnn_tensor::{Layout, Tensor, TensorCommon};
 
     use crate::graph::{Dimension, Graph, RunError};
     use crate::ops::{
@@ -648,7 +648,7 @@ mod tests {
             ],
         );
         assert_eq!(results.len(), 1);
-        expect_equal(&results[0].as_float_ref().unwrap(), &expected)
+        expect_equal(results[0].as_float_ref().unwrap(), &expected)
     }
 
     #[test]
@@ -745,7 +745,7 @@ mod tests {
 
         fn run(&self, inputs: InputList) -> Result<Vec<Output>, OpError> {
             let input: &Tensor<f32> = inputs.require_as(0)?;
-            let output_data: Vec<f32> = input.view().iter().map(|x| x + 1.0).collect();
+            let output_data: Vec<f32> = input.iter().map(|x| x + 1.0).collect();
             Tensor::<f32>::from_data(input.shape().into(), output_data).into_op_result()
         }
     }
@@ -796,13 +796,13 @@ mod tests {
             .run(&[(input_id, (&input).into())], &[op_c_out], None)
             .unwrap();
         let expected = Tensor::from_data(&[2], vec![2., 3.]);
-        expect_equal(&results[0].as_float_ref().unwrap(), &expected)?;
+        expect_equal(results[0].as_float_ref().unwrap(), &expected)?;
 
         let results = g
             .run(&[(input_id, (&input).into())], &[op_d_out], None)
             .unwrap();
         let expected = Tensor::from_data(&[2], vec![3., 2.]);
-        expect_equal(&results[0].as_float_ref().unwrap(), &expected)
+        expect_equal(results[0].as_float_ref().unwrap(), &expected)
     }
 
     #[test]
@@ -829,7 +829,7 @@ mod tests {
             .unwrap();
 
         let expected = Tensor::from_data(&[5], vec![101., 102., 103., 104., 105.]);
-        expect_equal(&results[0].as_float_ref().unwrap(), &expected)
+        expect_equal(results[0].as_float_ref().unwrap(), &expected)
     }
 
     #[test]
@@ -843,7 +843,7 @@ mod tests {
             .run(&[(input_id, (&input).into())], &[input_id], None)
             .unwrap();
 
-        expect_equal(&results[0].as_float_ref().unwrap(), &input)
+        expect_equal(results[0].as_float_ref().unwrap(), &input)
     }
 
     #[test]
@@ -855,7 +855,7 @@ mod tests {
 
         let results = g.run(&[], &[const_id], None).unwrap();
 
-        expect_equal(&results[0].as_float_ref().unwrap(), &value)
+        expect_equal(results[0].as_float_ref().unwrap(), &value)
     }
 
     #[test]
@@ -1023,7 +1023,6 @@ mod tests {
             }
 
             let input: &Tensor<f32> = inputs.require_as(0)?;
-            let input = input.view();
             let left_split_len = input.len() / 2;
             let left_split = Tensor::from_vec(input.iter().take(left_split_len).copied().collect());
             let right_split =

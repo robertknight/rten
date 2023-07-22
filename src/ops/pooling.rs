@@ -1,7 +1,7 @@
 use std::iter::zip;
 
 use rayon::prelude::*;
-use wasnn_tensor::{Layout, NdTensorView, NdTensorViewMut, Tensor};
+use wasnn_tensor::{Layout, NdTensorView, NdTensorViewMut, Tensor, TensorCommon};
 
 use crate::check_dims;
 use crate::linalg::div_ceil;
@@ -247,7 +247,7 @@ pub fn max_pool(
         }
     }
 
-    zip(output.axis_iter_mut(0), input.view().axis_iter(0))
+    zip(output.axis_iter_mut(0), input.axis_iter(0))
         .par_bridge()
         .for_each(|(mut out_item, in_item)| {
             let mut out_item = out_item.nd_view_mut();

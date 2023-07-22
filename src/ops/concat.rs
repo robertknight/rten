@@ -126,7 +126,7 @@ impl Operator for Concat {
 #[cfg(test)]
 mod tests {
     use wasnn_tensor::test_util::expect_equal;
-    use wasnn_tensor::{Layout, Tensor};
+    use wasnn_tensor::{Layout, Tensor, TensorCommon};
 
     use crate::ops::{concat, OpError};
 
@@ -163,7 +163,7 @@ mod tests {
         let c = from_slice(&[4, 5, 6]);
         let result = concat(&[a.view(), b.view(), c.view()], 0).unwrap();
         assert_eq!(result.shape(), &[6]);
-        assert_eq!(result.view().data(), &[1, 2, 3, 4, 5, 6]);
+        assert_eq!(result.data(), &[1, 2, 3, 4, 5, 6]);
 
         Ok(())
     }

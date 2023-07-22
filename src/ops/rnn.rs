@@ -2,7 +2,7 @@ use std::iter::{zip, Rev};
 use std::ops::Range;
 
 use wasnn_tensor::Matrix;
-use wasnn_tensor::{Layout, Tensor, TensorView, TensorViewMut};
+use wasnn_tensor::{Layout, Tensor, TensorCommon, TensorView, TensorViewMut};
 
 use crate::check_dims;
 use crate::linalg::{GemmExecutor, GemmInputA, GemmInputB};
@@ -281,7 +281,7 @@ pub fn gru(
     let mut hidden_gate = new_gate();
 
     // `extract_weights_and_bias` requires a contiguous tensor.
-    let bias = bias.map(|t| t.view().to_contiguous());
+    let bias = bias.map(|t| t.to_contiguous());
 
     let gemm = GemmExecutor::new();
 
@@ -323,7 +323,7 @@ pub fn gru(
 
         for seq in sequence_for_dir(direction, dir, seq_len) {
             let in_item = input.slice([seq]);
-            let hidden_item = hidden.view().slice([dir]);
+            let hidden_item = hidden.slice([dir]);
 
             // From the ONNX spec, the intermediate values are computed as:
             //
@@ -388,8 +388,8 @@ pub fn gru(
                 if let Some((hidden_bias, rec_hidden_bias)) = bias_hidden {
                     for (hidden_gate, update_tmp, reset, rec_hidden_bias, hidden_bias) in zip5(
                         hidden_gate.iter_mut(),
-                        hidden_tmp.view().iter(),
-                        reset_gate.view().iter(),
+                        hidden_tmp.iter(),
+                        reset_gate.iter(),
                         // Cycle to repeat for each item in batch.
                         rec_hidden_bias.iter().cycle(),
                         hidden_bias.iter().cycle(),
@@ -398,11 +398,9 @@ pub fn gru(
                         *hidden_gate = (*hidden_gate + update + hidden_bias).tanh();
                     }
                 } else {
-                    for (hidden_gate, update_tmp, reset) in zip3(
-                        hidden_gate.iter_mut(),
-                        hidden_tmp.view().iter(),
-                        reset_gate.view().iter(),
-                    ) {
+                    for (hidden_gate, update_tmp, reset) in
+                        zip3(hidden_gate.iter_mut(), hidden_tmp.iter(), reset_gate.iter())
+                    {
                         let update = reset * update_tmp;
                         *hidden_gate = (*hidden_gate + update).tanh();
                     }
@@ -422,8 +420,8 @@ pub fn gru(
             let mut hidden_item = hidden.slice_mut([dir]);
             for (hidden, update, hidden_gate) in zip3(
                 hidden_item.iter_mut(),
-                update_gate.view().iter(),
-                hidden_gate.view().iter(),
+                update_gate.iter(),
+                hidden_gate.iter(),
             ) {
                 *hidden = (1. - update) * hidden_gate + update * (*hidden);
             }
@@ -520,8 +518,8 @@ pub fn lstm(
     check_dims!(initial_cell?, 3);
 
     // Contiguous input and bias needed to allow reshaping below.
-    let input = input.view().to_contiguous();
-    let bias = bias.map(|t| t.view().to_contiguous());
+    let input = input.to_contiguous();
+    let bias = bias.map(|t| t.to_contiguous());
 
     // Indices of gates in the concatenated weight and bias tensors.
     const INPUT_GATE: usize = 0;
@@ -590,8 +588,8 @@ pub fn lstm(
             //    supported.
             //  - `f`, `g` and `h` are activations. `f`=sigmoid, `g` and `h`
             //    are tanh.
-            let in_item = input.view().slice([seq]);
-            let hidden_item = hidden.view().slice([dir]);
+            let in_item = input.slice([seq]);
+            let hidden_item = hidden.slice([dir]);
 
             // Compute outputs for input, forget, cell and output gates.
             compute_rnn_gate(
@@ -643,20 +641,18 @@ pub fn lstm(
 
             for (cell, forget_gate, input_gate, cell_gate) in zip4(
                 cell_item.iter_mut(),
-                forget_gate.view().iter(),
-                input_gate.view().iter(),
-                cell_gate.view().iter(),
+                forget_gate.iter(),
+                input_gate.iter(),
+                cell_gate.iter(),
             ) {
                 *cell = forget_gate * *cell + input_gate * cell_gate;
             }
 
             let mut hidden_item = hidden.slice_mut([dir]);
             let tanh_op = Tanh {};
-            for (hidden, out_gate, cell) in zip3(
-                hidden_item.iter_mut(),
-                out_gate.view().iter(),
-                cell_item.view().iter(),
-            ) {
+            for (hidden, out_gate, cell) in
+                zip3(hidden_item.iter_mut(), out_gate.iter(), cell_item.iter())
+            {
                 *hidden = out_gate * tanh_op.map_element(*cell)
             }
 
@@ -704,7 +700,7 @@ mod tests {
     use serde_json::Value;
     use wasnn_tensor::rng::XorShiftRng;
     use wasnn_tensor::test_util::expect_equal;
-    use wasnn_tensor::{Layout, Tensor};
+    use wasnn_tensor::{Layout, Tensor, TensorCommon};
 
     use crate::ops::{concat, gru, lstm, split, Direction};
 
@@ -876,7 +872,6 @@ mod tests {
             // for the reverse direction.
             let hss = hidden_seq.shape();
             let hidden_seq_fwd = hidden_seq
-                .view()
                 .slice_iter(&[
                     (..hss[0]).into(), // seq
                     (0..1).into(),     // direction
@@ -885,7 +880,6 @@ mod tests {
                 ])
                 .collect::<Vec<_>>();
             let last_hidden_fwd = last_hidden
-                .view()
                 .slice_iter(&[(0..1).into(), (..batch).into(), (..hidden_size).into()])
                 .collect::<Vec<_>>();
 
@@ -895,7 +889,6 @@ mod tests {
             );
 
             let hidden_seq_rev = hidden_seq
-                .view()
                 .slice_iter(&[
                     (..hss[0]).into(), // seq
                     (1..2).into(),     // direction
@@ -904,7 +897,6 @@ mod tests {
                 ])
                 .collect::<Vec<_>>();
             let last_hidden_rev = last_hidden
-                .view()
                 .slice_iter(&[(1..2).into(), (..batch).into(), (..hidden_size).into()])
                 .collect::<Vec<_>>();
             assert_eq!(hidden_seq_rev[0..batch * hidden_size], last_hidden_rev);
@@ -1124,7 +1116,7 @@ mod tests {
             };
             let output = &result[0];
 
-            expect_equal(&output, &data.expected)?;
+            expect_equal(output, &data.expected)?;
         }
 
         Ok(())

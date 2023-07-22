@@ -1,3 +1,5 @@
+use wasnn_tensor::TensorCommon;
+
 use crate::ops::{DataType, Input, InputList, IntoOpResult, OpError, Operator, Output};
 
 #[derive(Debug)]

@@ -591,7 +591,7 @@ fn load_model(data: &[u8]) -> Result<Model, String> {
 mod tests {
     extern crate flatbuffers;
 
-    use wasnn_tensor::{tensor, Layout, Tensor};
+    use wasnn_tensor::{tensor, Layout, Tensor, TensorCommon};
 
     use crate::graph::{Dimension, RunError};
     use crate::model::Model;
@@ -672,10 +672,7 @@ mod tests {
         let result_tensor = result[0].as_float_ref().unwrap();
 
         assert_eq!(result_tensor.shape(), vec![2, 2, 2]);
-        assert_eq!(
-            result_tensor.view().data(),
-            vec![0.5, 0., 0.1, 0., 1., 2., 0., 0.]
-        );
+        assert_eq!(result_tensor.data(), vec![0.5, 0., 0.1, 0., 1., 2., 0., 0.]);
     }
 
     #[test]

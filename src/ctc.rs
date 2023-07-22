@@ -1,7 +1,7 @@
 use std::collections::HashMap;
 use std::num::NonZeroU32;
 
-use wasnn_tensor::{Layout, NdTensor, NdTensorView};
+use wasnn_tensor::{Layout, NdTensor, NdTensorView, TensorCommon};
 
 use crate::ops::arg_max;
 
@@ -158,7 +158,7 @@ impl CtcDecoder {
         let mut steps = Vec::new();
         let mut score = 0.;
 
-        for (pos, label) in label_seq.view().iter().copied().enumerate() {
+        for (pos, label) in label_seq.iter().copied().enumerate() {
             score += prob_seq[[pos, label as usize]];
 
             if label == last_label {

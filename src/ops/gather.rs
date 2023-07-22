@@ -86,7 +86,7 @@ impl Operator for Gather {
 mod tests {
     use wasnn_tensor::rng::XorShiftRng;
     use wasnn_tensor::test_util::expect_equal;
-    use wasnn_tensor::{Layout, Tensor};
+    use wasnn_tensor::{Layout, Tensor, TensorCommon};
 
     use crate::ops::{gather, OpError};
 
@@ -96,7 +96,7 @@ mod tests {
         for i in 0..input.len() {
             let indices = Tensor::from_scalar(i as i32);
             let result = gather(input.view(), 0, indices.view()).unwrap();
-            assert_eq!(result.view().item(), Some(&input[[i]]))
+            assert_eq!(result.item(), Some(&input[[i]]))
         }
     }
 

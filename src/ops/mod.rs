@@ -2,7 +2,7 @@ use std::error::Error;
 use std::fmt;
 use std::fmt::{Debug, Display};
 
-use wasnn_tensor::{DynLayout, Layout, Tensor};
+use wasnn_tensor::{DynLayout, Layout, Tensor, TensorCommon};
 
 mod binary_elementwise;
 mod concat;
@@ -162,7 +162,6 @@ impl<'a> TryFrom<Input<'a>> for f32 {
     fn try_from(input: Input<'a>) -> Result<f32, Self::Error> {
         let tensor: &Tensor<_> = input.try_into()?;
         tensor
-            .view()
             .item()
             .copied()
             .ok_or(OpError::InvalidValue("Expected scalar value"))
@@ -175,7 +174,6 @@ impl<'a> TryFrom<Input<'a>> for i32 {
     fn try_from(input: Input<'a>) -> Result<i32, Self::Error> {
         let tensor: &Tensor<_> = input.try_into()?;
         tensor
-            .view()
             .item()
             .copied()
             .ok_or(OpError::InvalidValue("Expected scalar value"))
@@ -451,7 +449,7 @@ macro_rules! check_dims {
 #[macro_export]
 macro_rules! static_dims {
     ($tensor:ident, $ndim:literal, $dim_names:literal) => {{
-        use wasnn_tensor::Layout;
+        use wasnn_tensor::{Layout, TensorCommon};
 
         if $tensor.ndim() != $ndim {
             Err(OpError::InvalidValue(concat!(
@@ -463,12 +461,12 @@ macro_rules! static_dims {
                 ")"
             )))
         } else {
-            Ok($tensor.view().nd_view::<$ndim>())
+            Ok($tensor.nd_view::<$ndim>())
         }
     }};
 
     ($tensor:ident, $ndim:literal) => {{
-        use wasnn_tensor::Layout;
+        use wasnn_tensor::{Layout, TensorCommon};
 
         if $tensor.ndim() != $ndim {
             Err(OpError::InvalidValue(concat!(
@@ -478,7 +476,7 @@ macro_rules! static_dims {
                 " dims"
             )))
         } else {
-            Ok($tensor.view().nd_view::<$ndim>())
+            Ok($tensor.nd_view::<$ndim>())
         }
     }};
 }
@@ -561,8 +559,7 @@ impl<'a> InputList<'a> {
         let tensor = self.get_as::<T>(index)?;
         tensor
             .map(|t| {
-                t.view()
-                    .item()
+                t.item()
                     .copied()
                     .ok_or(OpError::InvalidValue("Expected scalar value"))
             })
