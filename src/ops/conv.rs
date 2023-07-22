@@ -391,7 +391,7 @@ pub fn conv(
         zip(out_group.axis_iter_mut(0), in_group.axis_iter(0))
             .par_bridge()
             .for_each(|(mut out_item, in_item)| {
-                let mut out_mat = out_item.reshaped(&[out_channels_per_group, out_h * out_w]);
+                let mut out_mat = out_item.reshaped_mut(&[out_channels_per_group, out_h * out_w]);
                 let out_row_stride = out_mat.stride(0);
 
                 let im2col =

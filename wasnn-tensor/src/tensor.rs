@@ -556,7 +556,7 @@ impl<'a, T> TensorBase<T, &'a mut [T]> {
     }
 
     /// Return a new view with the dimensions re-ordered according to `dims`.
-    pub fn permuted(&mut self, dims: &[usize]) -> TensorBase<T, &mut [T]> {
+    pub fn permuted_mut(&mut self, dims: &[usize]) -> TensorViewMut<T> {
         TensorBase {
             data: self.data,
             layout: self.layout.permuted(dims),
@@ -565,7 +565,7 @@ impl<'a, T> TensorBase<T, &'a mut [T]> {
     }
 
     /// Return a new view with the order of dimensions reversed.
-    pub fn transposed(&mut self) -> TensorBase<T, &mut [T]> {
+    pub fn transposed_mut(&mut self) -> TensorViewMut<T> {
         TensorBase {
             data: self.data,
             layout: self.layout.transposed(),
@@ -575,7 +575,7 @@ impl<'a, T> TensorBase<T, &'a mut [T]> {
 
     /// Return a new view with a given shape. This has the same requirements
     /// as `reshape`.
-    pub fn reshaped(&mut self, shape: &[usize]) -> TensorBase<T, &mut [T]> {
+    pub fn reshaped_mut(&mut self, shape: &[usize]) -> TensorViewMut<T> {
         TensorBase {
             data: self.data,
             layout: self.layout.reshaped(shape),
