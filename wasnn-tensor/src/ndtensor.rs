@@ -237,7 +237,9 @@ impl<'a, T, const N: usize> NdTensorBase<T, &'a [T], N> {
         }
     }
 
-    /// Return a view of this tensor which uses unchecked indexing.
+    /// Return a view of this tensor where indexing checks the bounds of offsets
+    /// into the data buffer, but not individual dimensions. This is faster, but
+    /// can hide errors.
     pub fn unchecked(&self) -> UncheckedNdTensor<T, &'a [T], N> {
         let base = NdTensorBase {
             data: self.data,
@@ -300,6 +302,8 @@ impl<T, S: AsRef<[T]> + AsMut<[T]>, const N: usize> NdTensorBase<T, S, N> {
     }
 
     /// Return a mutable view of this tensor which uses unchecked indexing.
+    ///
+    /// See [NdTensorView::unchecked] for more details.
     pub fn unchecked_mut(&mut self) -> UncheckedNdTensor<T, &mut [T], N> {
         let base = NdTensorBase {
             data: self.data.as_mut(),
