@@ -489,6 +489,25 @@ impl<T, S: AsRef<[T]> + AsMut<[T]>> TensorBase<T, S> {
         }
     }
 
+    /// Return a new view with the dimensions re-ordered according to `dims`.
+    pub fn permuted_mut(&mut self, dims: &[usize]) -> TensorViewMut<T> {
+        TensorBase {
+            data: self.data.as_mut(),
+            layout: self.layout.permuted(dims),
+            element_type: PhantomData,
+        }
+    }
+
+    /// Return a new view with a given shape. This has the same requirements
+    /// as `reshape`.
+    pub fn reshaped_mut(&mut self, shape: &[usize]) -> TensorViewMut<T> {
+        TensorBase {
+            data: self.data.as_mut(),
+            layout: self.layout.reshaped(shape),
+            element_type: PhantomData,
+        }
+    }
+
     /// Return a new mutable slice of this tensor.
     ///
     /// Slices are specified in the same way as for [TensorBase::slice].
@@ -508,6 +527,15 @@ impl<T, S: AsRef<[T]> + AsMut<[T]>> TensorBase<T, S> {
         TensorViewMut {
             data,
             layout,
+            element_type: PhantomData,
+        }
+    }
+
+    /// Return a new view with the order of dimensions reversed.
+    pub fn transposed_mut(&mut self) -> TensorViewMut<T> {
+        TensorBase {
+            data: self.data.as_mut(),
+            layout: self.layout.transposed(),
             element_type: PhantomData,
         }
     }
@@ -553,34 +581,6 @@ impl<'a, T> TensorBase<T, &'a mut [T]> {
     /// is tied to the underlying tensor, rather than the view.
     pub fn into_data_mut(self) -> &'a mut [T] {
         self.data
-    }
-
-    /// Return a new view with the dimensions re-ordered according to `dims`.
-    pub fn permuted_mut(&mut self, dims: &[usize]) -> TensorViewMut<T> {
-        TensorBase {
-            data: self.data,
-            layout: self.layout.permuted(dims),
-            element_type: PhantomData,
-        }
-    }
-
-    /// Return a new view with the order of dimensions reversed.
-    pub fn transposed_mut(&mut self) -> TensorViewMut<T> {
-        TensorBase {
-            data: self.data,
-            layout: self.layout.transposed(),
-            element_type: PhantomData,
-        }
-    }
-
-    /// Return a new view with a given shape. This has the same requirements
-    /// as `reshape`.
-    pub fn reshaped_mut(&mut self, shape: &[usize]) -> TensorViewMut<T> {
-        TensorBase {
-            data: self.data,
-            layout: self.layout.reshaped(shape),
-            element_type: PhantomData,
-        }
     }
 }
 
