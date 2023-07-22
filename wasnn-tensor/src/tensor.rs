@@ -552,7 +552,6 @@ impl<T, S: AsRef<[T]> + AsMut<[T]>> TensorBase<T, S> {
     ///
     /// This is the same as [TensorBase::nd_slice] except that the
     /// returned view can be used to modify elements.
-    #[doc(hidden)]
     pub fn nd_slice_mut<const B: usize, const N: usize>(
         &mut self,
         base: [usize; B],
@@ -568,7 +567,6 @@ impl<T, S: AsRef<[T]> + AsMut<[T]>> TensorBase<T, S> {
     /// Return a mutable N-dimensional view of this tensor.
     ///
     /// See notes in `[TensorBase::nd_view]`.
-    #[doc(hidden)]
     pub fn nd_view_mut<const N: usize>(&mut self) -> NdTensorViewMut<T, N> {
         self.nd_slice_mut([])
     }
