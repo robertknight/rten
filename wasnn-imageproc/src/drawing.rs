@@ -300,7 +300,7 @@ impl FillIter {
     /// Update the `active_edges` list after moving to a new line.
     fn update_active_edges(&mut self) {
         // Remove entries that end at this line and update X coord of other entries.
-        self.active_edges.retain_mut(|mut e| {
+        self.active_edges.retain_mut(|e| {
             e.y_steps -= 1;
             if e.y_steps > 0 {
                 // Advance X coordinate for current line and error term that
