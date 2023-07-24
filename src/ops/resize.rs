@@ -144,7 +144,7 @@ pub fn resize(
         ResizeTarget::Scales(scales) => zip(input.shape().iter(), scales.iter())
             .map(|(&in_size, scale)| ((in_size as f32) * scale).floor() as i32)
             .collect(),
-        ResizeTarget::Sizes(sizes) => sizes.to_owned(),
+        ResizeTarget::Sizes(sizes) => sizes.to_tensor(),
     };
     let sizes = sizes.view();
 

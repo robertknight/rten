@@ -11,6 +11,69 @@ use crate::range::SliceItem;
 use crate::IntoSliceItems;
 use crate::TensorBase;
 
+/// Common operations that are applicable to owned, borrowed and mutably
+/// borrowed tensors.
+pub trait NdTensorCommon<const N: usize>: Layout {
+    type Elem;
+
+    fn as_dyn(&self) -> TensorBase<Self::Elem, &[Self::Elem]> {
+        self.view().as_dyn()
+    }
+
+    /// Return a reference to the underlying data of this tensor.
+    fn data(&self) -> &[Self::Elem];
+
+    /// Return an iterator over elements of this tensor, in their logical order.
+    fn iter(&self) -> Iter<Self::Elem> {
+        self.view().iter()
+    }
+
+    /// Return a copy of this tensor with each element replaced by `f(element)`.
+    ///
+    /// The order in which elements are visited is unspecified and may not
+    /// correspond to the logical order.
+    fn map<F, U>(&self, f: F) -> NdTensor<U, N>
+    where
+        F: Fn(&Self::Elem) -> U,
+    {
+        self.view().map(f)
+    }
+
+    fn reshaped<const M: usize>(&self, shape: [usize; M]) -> NdTensorView<Self::Elem, M> {
+        self.view().reshaped(shape)
+    }
+
+    fn permuted(&self, dims: [usize; N]) -> NdTensorView<Self::Elem, N> {
+        self.view().permuted(dims)
+    }
+
+    fn slice<const M: usize, const K: usize, R: IntoSliceItems<K>>(
+        &self,
+        range: R,
+    ) -> NdTensorView<Self::Elem, M> {
+        self.view().slice(range)
+    }
+
+    fn to_contiguous(&self) -> NdTensorBase<Self::Elem, Cow<[Self::Elem]>, N>
+    where
+        Self::Elem: Clone,
+    {
+        self.view().to_contiguous()
+    }
+
+    /// Return a new contiguous tensor with the same shape and elements as this
+    /// view.
+    fn to_tensor(&self) -> NdTensor<Self::Elem, N>
+    where
+        Self::Elem: Clone,
+    {
+        self.view().to_tensor()
+    }
+
+    /// Return an immutable view of this tensor.
+    fn view(&self) -> NdTensorView<Self::Elem, N>;
+}
+
 /// N-dimensional array, where `N` is specified as generic argument.
 ///
 /// `T` is the element type, `S` is the element storage and `N` is the number
@@ -73,14 +136,14 @@ impl<T, S: AsRef<[T]>, const N: usize> NdTensorBase<T, S, N> {
     where
         F: Fn(&T) -> U,
     {
-        let data = self.view().iter().map(f).collect();
+        let data = self.iter().map(f).collect();
         NdTensor::from_data(data, self.shape(), None).unwrap()
     }
 
     /// Return a copy of this view that owns its data. For [NdTensorView] this
     /// is different than cloning the view, as that returns a view which has
     /// its own layout, but the same underlying data buffer.
-    pub fn to_owned(&self) -> NdTensor<T, N>
+    pub fn to_tensor(&self) -> NdTensor<T, N>
     where
         T: Clone,
     {
@@ -94,6 +157,22 @@ impl<T, S: AsRef<[T]>, const N: usize> NdTensorBase<T, S, N> {
     /// Return an immutable view of this tensor.
     pub fn view(&self) -> NdTensorView<T, N> {
         NdTensorView {
+            data: self.data.as_ref(),
+            layout: self.layout,
+            element_type: PhantomData,
+        }
+    }
+}
+
+impl<T, S: AsRef<[T]>, const N: usize> NdTensorCommon<N> for NdTensorBase<T, S, N> {
+    type Elem = T;
+
+    fn data(&self) -> &[T] {
+        self.data.as_ref()
+    }
+
+    fn view(&self) -> NdTensorView<T, N> {
+        NdTensorBase {
             data: self.data.as_ref(),
             layout: self.layout,
             element_type: PhantomData,
@@ -530,14 +609,17 @@ impl<T: PartialEq, S1: AsRef<[T]>, S2: AsRef<[T]>, const N: usize> PartialEq<NdT
     for NdTensorBase<T, S1, N>
 {
     fn eq(&self, other: &NdTensorBase<T, S2, N>) -> bool {
-        self.shape() == other.shape() && self.view().iter().eq(other.view().iter())
+        self.shape() == other.shape() && self.iter().eq(other.iter())
     }
 }
 
 #[cfg(test)]
 mod tests {
     use crate::errors::{DimensionError, FromDataError};
-    use crate::{Layout, MatrixLayout, NdTensor, NdTensorView, NdTensorViewMut, Tensor};
+    use crate::{
+        Layout, MatrixLayout, NdTensor, NdTensorCommon, NdTensorView, NdTensorViewMut, Tensor,
+        TensorCommon,
+    };
 
     /// Return elements of `tensor` in their logical order.
     fn tensor_elements<T: Clone, const N: usize>(tensor: NdTensorView<T, N>) -> Vec<T> {
@@ -556,9 +638,9 @@ mod tests {
     #[test]
     fn test_ndtensor_as_dyn() {
         let tensor = NdTensor::from_data(vec![1, 2, 3, 4], [2, 2], None).unwrap();
-        let dyn_tensor = tensor.view().as_dyn();
+        let dyn_tensor = tensor.as_dyn();
         assert_eq!(tensor.shape(), dyn_tensor.shape());
-        assert_eq!(tensor.view().data(), dyn_tensor.data());
+        assert_eq!(tensor.data(), dyn_tensor.data());
     }
 
     #[test]
@@ -718,7 +800,7 @@ mod tests {
         // Tensor -> NdTensor
         let tensor = Tensor::zeros(&[1, 10, 20]);
         let ndtensor: NdTensor<i32, 3> = tensor.clone().try_into().unwrap();
-        assert_eq!(ndtensor.view().data(), tensor.view().data());
+        assert_eq!(ndtensor.data(), tensor.data());
         assert_eq!(ndtensor.shape(), tensor.shape());
         assert_eq!(ndtensor.strides(), tensor.strides());
 
@@ -728,7 +810,7 @@ mod tests {
 
         // TensorView -> NdTensorView
         let ndview: NdTensorView<i32, 3> = tensor.view().try_into().unwrap();
-        assert_eq!(ndview.data(), tensor.view().data());
+        assert_eq!(ndview.data(), tensor.data());
         assert_eq!(ndview.shape(), tensor.shape());
         assert_eq!(ndview.strides(), tensor.strides());
 
@@ -773,7 +855,7 @@ mod tests {
     #[test]
     fn test_ndtensor_iter() {
         let tensor = NdTensor::<i32, 2>::from_data(vec![1, 2, 3, 4], [2, 2], None).unwrap();
-        let elements: Vec<_> = tensor.view().iter().copied().collect();
+        let elements: Vec<_> = tensor.iter().copied().collect();
         assert_eq!(elements, &[1, 2, 3, 4]);
     }
 
@@ -784,7 +866,7 @@ mod tests {
             .iter_mut()
             .enumerate()
             .for_each(|(i, el)| *el = i as i32);
-        let elements: Vec<_> = tensor.view().iter().copied().collect();
+        let elements: Vec<_> = tensor.iter().copied().collect();
         assert_eq!(elements, &[0, 1, 2, 3]);
     }
 
@@ -799,10 +881,10 @@ mod tests {
     fn test_ndtensor_to_owned() {
         let data = vec![1., 2., 3., 4.];
         let view = NdTensorView::<f32, 2>::from_slice(&data, [2, 2], None).unwrap();
-        let owned = view.to_owned();
+        let owned = view.to_tensor();
         assert_eq!(owned.shape(), view.shape());
         assert_eq!(owned.strides(), view.strides());
-        assert_eq!(owned.view().data(), view.data());
+        assert_eq!(owned.data(), view.data());
     }
 
     #[test]
@@ -868,15 +950,15 @@ mod tests {
         let x = x.view();
         let y = x.to_contiguous();
         assert!(y.is_contiguous());
-        assert_eq!(y.view().data().as_ptr(), x.data().as_ptr());
+        assert_eq!(y.data().as_ptr(), x.data().as_ptr());
 
         let x = x.permuted([1, 0]);
         assert!(!x.is_contiguous());
 
         let y = x.to_contiguous();
         assert!(y.is_contiguous());
-        assert_ne!(y.view().data().as_ptr(), x.data().as_ptr());
-        assert_eq!(y.view().data(), x.iter().copied().collect::<Vec<_>>());
+        assert_ne!(y.data().as_ptr(), x.data().as_ptr());
+        assert_eq!(y.data(), x.iter().copied().collect::<Vec<_>>());
     }
 
     #[test]
