@@ -22,7 +22,7 @@ pub trait Layout {
     ///
     /// It is assumed that this type can also represent the shape and strides
     /// of the tensor.
-    type Index<'a>: AsRef<[usize]>
+    type Index<'a>: AsRef<[usize]> + std::fmt::Debug + PartialEq<Self::Index<'a>>
     where
         Self: 'a;
 

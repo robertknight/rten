@@ -48,10 +48,7 @@ fn index_from_linear_index(shape: &[usize], lin_index: usize) -> Vec<usize> {
 ///
 /// If there are mismatches, this returns an `Err` with a message indicating
 /// the count of mismatches and details of the first N cases.
-pub fn expect_equal<'a, TC: TensorCommon<Index<'a> = &'a [usize]> + 'a>(
-    x: &'a TC,
-    y: &'a TC,
-) -> Result<(), String>
+pub fn expect_equal<TC: TensorCommon>(x: &TC, y: &TC) -> Result<(), String>
 where
     TC::Elem: ApproxEq + Debug,
 {
@@ -67,7 +64,7 @@ where
         .enumerate()
         .filter_map(|(i, (xi, yi))| {
             if !xi.approx_eq(yi) {
-                Some((index_from_linear_index(x.shape(), i), xi, yi))
+                Some((index_from_linear_index(x.shape().as_ref(), i), xi, yi))
             } else {
                 None
             }
