@@ -8,8 +8,7 @@ use crate::index_iterator::NdIndices;
 use crate::iterators::{Iter, IterMut};
 use crate::layout::{Layout, MatrixLayout, NdLayout, OverlapPolicy};
 use crate::range::SliceItem;
-use crate::IntoSliceItems;
-use crate::TensorBase;
+use crate::{IntoSliceItems, TensorBase, TensorView, TensorViewMut};
 
 /// Common operations that are applicable to owned ([NdTensor]), borrowed
 /// ([NdTensorView]) and mutably borrowed ([NdTensorViewMut]) tensors.
@@ -23,7 +22,7 @@ pub trait NdTensorCommon<const N: usize>: Layout {
     type Elem;
 
     /// Return a view of this tensor with a dynamic dimension count.
-    fn as_dyn(&self) -> TensorBase<Self::Elem, &[Self::Elem]> {
+    fn as_dyn(&self) -> TensorView<Self::Elem> {
         self.view().as_dyn()
     }
 
@@ -52,8 +51,10 @@ pub trait NdTensorCommon<const N: usize>: Layout {
         self.view().map(f)
     }
 
-    /// Return a new view with a given shape. This has the same requirements
-    /// as `reshape`.
+    /// Return a new view with a given shape.
+    ///
+    /// The current view must be contiguous and the new shape must have the
+    /// same product as the current shape.
     fn reshaped<const M: usize>(&self, shape: [usize; M]) -> NdTensorView<Self::Elem, M> {
         self.view().reshaped(shape)
     }
@@ -269,8 +270,8 @@ impl<'a, T, const N: usize> NdTensorView<'a, T, N> {
 /// These preserve the underlying lifetime of the view in results, allowing for
 /// method calls to be chained.
 impl<'a, T, const N: usize> NdTensorView<'a, T, N> {
-    pub fn as_dyn(&self) -> TensorBase<T, &'a [T]> {
-        TensorBase::new(self.data, &self.layout.as_dyn())
+    pub fn as_dyn(&self) -> TensorView<'a, T> {
+        TensorView::new(self.data, &self.layout.as_dyn())
     }
 
     pub fn data(&self) -> &'a [T] {
@@ -401,8 +402,8 @@ impl<T, S: AsRef<[T]> + AsMut<[T]>, const N: usize> NdTensorBase<T, S, N> {
     }
 
     /// Return a view of this tensor with a dynamic dimension count.
-    pub fn as_dyn_mut(&mut self) -> TensorBase<T, &mut [T]> {
-        TensorBase::new(self.data.as_mut(), &self.layout.as_dyn())
+    pub fn as_dyn_mut(&mut self) -> TensorViewMut<T> {
+        TensorViewMut::new(self.data.as_mut(), &self.layout.as_dyn())
     }
 
     /// Return a mutable iterator over elements of this tensor.
@@ -837,7 +838,6 @@ mod tests {
     #[test]
     fn test_ndtensor_get() {
         let tensor = NdTensor::<i32, 3>::zeros([5, 10, 15]);
-        let tensor = tensor.view();
 
         assert_eq!(tensor.get([0, 0, 0]), Some(&0));
         assert_eq!(tensor.get([4, 9, 14]), Some(&0));
