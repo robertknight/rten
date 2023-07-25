@@ -205,10 +205,7 @@ impl IndexingIterBase {
 }
 
 /// Iterator over elements of a tensor, in their logical order.
-pub struct Iter<'a, T>
-where
-    T: 'a,
-{
+pub struct Iter<'a, T> {
     iter: IterKind<'a, T>,
 }
 

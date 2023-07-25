@@ -960,7 +960,6 @@ mod tests {
     #[test]
     fn test_ndtensor_to_contiguous() {
         let x = NdTensor::from_data(vec![1, 2, 3, 4, 5, 6, 7, 8, 9], [3, 3], None).unwrap();
-        let x = x.view();
         let y = x.to_contiguous();
         assert!(y.is_contiguous());
         assert_eq!(y.data().as_ptr(), x.data().as_ptr());

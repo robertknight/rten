@@ -882,7 +882,10 @@ mod tests {
 
     use crate::rng::XorShiftRng;
     use crate::tensor;
-    use crate::{Layout, NdTensor, SliceRange, Tensor, TensorCommon, TensorView, TensorViewMut};
+    use crate::{
+        Layout, NdTensor, NdTensorCommon, SliceRange, Tensor, TensorCommon, TensorView,
+        TensorViewMut,
+    };
 
     /// Create a tensor where the value of each element is its logical index
     /// plus one.
@@ -1386,31 +1389,25 @@ mod tests {
 
         // Initially tensor is contiguous, so data buffer and element sequence
         // match.
-        let xv = x.view();
-        assert_eq!(xv.data(), xv.iter().copied().collect::<Vec<_>>());
+        assert_eq!(x.data(), x.iter().copied().collect::<Vec<_>>());
 
         // Slice the tensor along an outer dimension. This will leave the tensor
         // contiguous, and hence `data` and `elements` should return the same
         // elements.
         x.clip_dim(0, 0..2);
-        let xv = x.view();
-        assert_eq!(xv.data(), &[1, 2, 3, 4, 5, 6]);
-        assert_eq!(xv.iter().copied().collect::<Vec<_>>(), &[1, 2, 3, 4, 5, 6]);
+        assert_eq!(x.data(), &[1, 2, 3, 4, 5, 6]);
+        assert_eq!(x.iter().copied().collect::<Vec<_>>(), &[1, 2, 3, 4, 5, 6]);
         // Test with step > 1 to exercise `Elements::nth`.
-        assert_eq!(
-            xv.iter().step_by(2).copied().collect::<Vec<_>>(),
-            &[1, 3, 5]
-        );
+        assert_eq!(x.iter().step_by(2).copied().collect::<Vec<_>>(), &[1, 3, 5]);
 
         // Slice the tensor along an inner dimension. The tensor will no longer
         // be contiguous and hence `elements` will return different results than
         // `data`.
         x.clip_dim(1, 0..2);
-        let xv = x.view();
-        assert_eq!(xv.data(), &[1, 2, 3, 4, 5]);
-        assert_eq!(xv.iter().copied().collect::<Vec<_>>(), &[1, 2, 4, 5]);
+        assert_eq!(x.data(), &[1, 2, 3, 4, 5]);
+        assert_eq!(x.iter().copied().collect::<Vec<_>>(), &[1, 2, 4, 5]);
         // Test with step > 1 to exercise `Elements::nth`.
-        assert_eq!(xv.iter().step_by(2).copied().collect::<Vec<_>>(), &[1, 4]);
+        assert_eq!(x.iter().step_by(2).copied().collect::<Vec<_>>(), &[1, 4]);
     }
 
     // PyTorch and numpy do not allow iteration over a scalar, but it seems
@@ -1551,7 +1548,7 @@ mod tests {
         // NdTensor -> Tensor
         let ndtensor = NdTensor::zeros([1, 10, 20]);
         let tensor: Tensor<i32> = ndtensor.clone().into();
-        assert_eq!(tensor.data(), ndtensor.view().data());
+        assert_eq!(tensor.data(), ndtensor.data());
         assert_eq!(tensor.shape(), ndtensor.shape());
         assert_eq!(tensor.strides(), ndtensor.strides());
 
