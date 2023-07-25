@@ -11,17 +11,30 @@ use crate::range::SliceItem;
 use crate::IntoSliceItems;
 use crate::TensorBase;
 
-/// Common operations that are applicable to owned, borrowed and mutably
-/// borrowed tensors.
+/// Common operations that are applicable to owned ([NdTensor]), borrowed
+/// ([NdTensorView]) and mutably borrowed ([NdTensorViewMut]) tensors.
+///
+/// `N` is the static rank of this tensor.
+///
+/// [NdTensorView] implements specialized versions of these methods as inherent
+/// methods, which preserve lifetiems on the result.
 pub trait NdTensorCommon<const N: usize>: Layout {
+    /// The data type of elements in this tensor.
     type Elem;
 
+    /// Return a view of this tensor with a dynamic dimension count.
     fn as_dyn(&self) -> TensorBase<Self::Elem, &[Self::Elem]> {
         self.view().as_dyn()
     }
 
     /// Return a reference to the underlying data of this tensor.
     fn data(&self) -> &[Self::Elem];
+
+    /// Return the element at a given index, or `None` if the index is out of
+    /// bounds in any dimension.
+    fn get(&self, index: [usize; N]) -> Option<&Self::Elem> {
+        self.view().get(index)
+    }
 
     /// Return an iterator over elements of this tensor, in their logical order.
     fn iter(&self) -> Iter<Self::Elem> {
@@ -39,14 +52,27 @@ pub trait NdTensorCommon<const N: usize>: Layout {
         self.view().map(f)
     }
 
+    /// Return a new view with a given shape. This has the same requirements
+    /// as `reshape`.
     fn reshaped<const M: usize>(&self, shape: [usize; M]) -> NdTensorView<Self::Elem, M> {
         self.view().reshaped(shape)
     }
 
+    /// Return a new view with the dimensions re-ordered according to `dims`.
     fn permuted(&self, dims: [usize; N]) -> NdTensorView<Self::Elem, N> {
         self.view().permuted(dims)
     }
 
+    /// Return an immutable view of part of this tensor.
+    ///
+    /// `M` specifies the number of dimensions that the layout must have after
+    /// slicing with `range`. Panics if the sliced layout has a different number
+    /// of dims.
+    ///
+    /// `K` is the number of items in the array or tuple being used to slice
+    /// the tensor. If it must be <= N. If it is less than N, it refers to the
+    /// leading dimensions of the tensor and is padded to extract the full
+    /// range of the remaining dimensions.
     fn slice<const M: usize, const K: usize, R: IntoSliceItems<K>>(
         &self,
         range: R,
@@ -54,6 +80,8 @@ pub trait NdTensorCommon<const N: usize>: Layout {
         self.view().slice(range)
     }
 
+    /// Return a tensor with data laid out in contiguous order. This will
+    /// be a view if the data is already contiguous, or a copy otherwise.
     fn to_contiguous(&self) -> NdTensorBase<Self::Elem, Cow<[Self::Elem]>, N>
     where
         Self::Elem: Clone,
@@ -79,12 +107,14 @@ pub trait NdTensorCommon<const N: usize>: Layout {
 /// `T` is the element type, `S` is the element storage and `N` is the number
 /// of dimensions.
 ///
-/// Most callers will not use `NdTensorBase` directly but instead use the type
+/// Most code will not use `NdTensorBase` directly but instead use the type
 /// aliases [NdTensor], [NdTensorView] and [NdTensorViewMut]. [NdTensor] owns
-/// its elements (in a `Vec<T>`), and the other two types are views of slices.
+/// its elements, and the other two types are views of slices.
 ///
-/// [NdTensorBase] implements the [Layout] trait which provides information
-/// about the shape and strides of the tensor.
+/// All [NdTensorBase] variants implement the [Layout] trait which provide
+/// operations related to the shape and strides of the tensor, and the
+/// [NdTensorCommon] trait which provides common methods applicable to all
+/// variants.
 #[derive(Clone, Copy, Debug)]
 pub struct NdTensorBase<T, S: AsRef<[T]>, const N: usize> {
     data: S,
@@ -187,7 +217,7 @@ impl<'a, T, S: AsRef<[T]>> From<&'a S> for NdTensorBase<T, &'a [T], 1> {
     }
 }
 
-impl<'a, T, const N: usize> NdTensorBase<T, &'a [T], N> {
+impl<'a, T, const N: usize> NdTensorView<'a, T, N> {
     /// Constructs a view from a slice and optional strides.
     ///
     /// Unlike [NdTensorBase::from_data], combinations of strides which cause
@@ -212,24 +242,6 @@ impl<'a, T, const N: usize> NdTensorBase<T, &'a [T], N> {
         })
     }
 
-    /// Return a view of this tensor with a dynamic dimension count.
-    pub fn as_dyn(&self) -> TensorBase<T, &'a [T]> {
-        TensorBase::new(self.data, &self.layout.as_dyn())
-    }
-
-    /// Return the underlying elements, in the order they are stored.
-    pub fn data(&self) -> &'a [T] {
-        self.data
-    }
-
-    /// Return the element at a given index, or `None` if the index is out of
-    /// bounds in any dimension.
-    pub fn get(&self, index: [usize; N]) -> Option<&'a T> {
-        self.layout
-            .try_offset(index)
-            .and_then(|offset| self.data.get(offset))
-    }
-
     /// Return the element at a given index, without performing any bounds-
     /// checking.
     ///
@@ -240,12 +252,41 @@ impl<'a, T, const N: usize> NdTensorBase<T, &'a [T], N> {
         self.data.get_unchecked(self.layout.offset_unchecked(index))
     }
 
-    /// Return an iterator over elements of this tensor.
+    /// Return a view of this tensor where indexing checks the bounds of offsets
+    /// into the data buffer, but not individual dimensions. This is faster, but
+    /// can hide errors.
+    pub fn unchecked(&self) -> UncheckedNdTensor<T, &'a [T], N> {
+        let base = NdTensorBase {
+            data: self.data,
+            layout: self.layout,
+            element_type: PhantomData,
+        };
+        UncheckedNdTensor { base }
+    }
+}
+
+/// Specialized versions of the [NdTensorCommon] methods for immutable views.
+/// These preserve the underlying lifetime of the view in results, allowing for
+/// method calls to be chained.
+impl<'a, T, const N: usize> NdTensorView<'a, T, N> {
+    pub fn as_dyn(&self) -> TensorBase<T, &'a [T]> {
+        TensorBase::new(self.data, &self.layout.as_dyn())
+    }
+
+    pub fn data(&self) -> &'a [T] {
+        self.data
+    }
+
+    pub fn get(&self, index: [usize; N]) -> Option<&'a T> {
+        self.layout
+            .try_offset(index)
+            .and_then(|offset| self.data.get(offset))
+    }
+
     pub fn iter(&self) -> Iter<'a, T> {
         Iter::new(&self.as_dyn())
     }
 
-    /// Return a new view with the dimensions re-ordered according to `dims`.
     pub fn permuted(&self, dims: [usize; N]) -> NdTensorView<'a, T, N> {
         NdTensorBase {
             data: self.data,
@@ -254,8 +295,6 @@ impl<'a, T, const N: usize> NdTensorBase<T, &'a [T], N> {
         }
     }
 
-    /// Return a new view with a given shape. This has the same requirements
-    /// as `reshape`.
     pub fn reshaped<const M: usize>(&self, shape: [usize; M]) -> NdTensorView<'a, T, M> {
         NdTensorBase {
             data: self.data,
@@ -264,8 +303,6 @@ impl<'a, T, const N: usize> NdTensorBase<T, &'a [T], N> {
         }
     }
 
-    /// Return a tensor with data laid out in contiguous order. This will
-    /// be a view if the data is already contiguous, or a copy otherwise.
     pub fn to_contiguous(&self) -> NdTensorBase<T, Cow<'a, [T]>, N>
     where
         T: Clone,
@@ -286,46 +323,17 @@ impl<'a, T, const N: usize> NdTensorBase<T, &'a [T], N> {
         }
     }
 
-    /// Return an immutable view of part of this tensor.
-    ///
-    /// `M` specifies the number of dimensions that the layout must have after
-    /// slicing with `range`. Panics if the sliced layout has a different number
-    /// of dims.
-    ///
-    /// `K` is the number of items in the array or tuple being used to slice
-    /// the tensor. If it must be <= N. If it is less than N, it refers to the
-    /// leading dimensions of the tensor and is padded to extract the full
-    /// range of the remaining dimensions.
     pub fn slice<const M: usize, const K: usize, R: IntoSliceItems<K>>(
         &self,
         range: R,
     ) -> NdTensorView<'a, T, M> {
-        self.slice_dyn::<M>(&range.into_slice_items())
-    }
-
-    /// Return an immutable view of part of this tensor.
-    ///
-    /// This is like [NdTensorBase::slice] but supports a dynamic number of slice
-    /// items.
-    pub fn slice_dyn<const M: usize>(&self, range: &[SliceItem]) -> NdTensorView<'a, T, M> {
-        let (offset_range, sliced_layout) = self.layout.slice(range);
+        let range = range.into_slice_items();
+        let (offset_range, sliced_layout) = self.layout.slice(&range);
         NdTensorView {
             data: &self.data[offset_range],
             layout: sliced_layout,
             element_type: PhantomData,
         }
-    }
-
-    /// Return a view of this tensor where indexing checks the bounds of offsets
-    /// into the data buffer, but not individual dimensions. This is faster, but
-    /// can hide errors.
-    pub fn unchecked(&self) -> UncheckedNdTensor<T, &'a [T], N> {
-        let base = NdTensorBase {
-            data: self.data,
-            layout: self.layout,
-            element_type: PhantomData,
-        };
-        UncheckedNdTensor { base }
     }
 }
 
@@ -549,17 +557,22 @@ impl<T, S: AsRef<[T]>> NdTensorBase<T, S, 2> {
     }
 }
 
-/// N-dimensional tensor.
+/// Variant of [NdTensorBase] which owns its elements, using a `Vec<T>` as
+/// the backing storage.
 pub type NdTensor<T, const N: usize> = NdTensorBase<T, Vec<T>, N>;
 
-/// N-dimensional view of a slice of data.
+/// Variant of [NdTensorBase] which borrows its elements from an [NdTensor].
 ///
-/// See [NdTensorBase] for available methods.
+/// Conceptually the relationship between [NdTensorView] and [NdTensor] is
+/// similar to that between `[T]` and `Vec<T>`. They share the same element
+/// buffer, but views can have distinct layouts, with some limitations.
 pub type NdTensorView<'a, T, const N: usize> = NdTensorBase<T, &'a [T], N>;
 
-/// Mutable N-dimensional view of a slice of data.
+/// Variant of [NdTensorBase] which mutably borrows its elements from an
+/// [NdTensor].
 ///
-/// See [NdTensorBase] for available methods.
+/// This is similar to [NdTensorView], except elements in the underyling
+/// Tensor can be modified through it.
 pub type NdTensorViewMut<'a, T, const N: usize> = NdTensorBase<T, &'a mut [T], N>;
 
 /// Alias for viewing a slice as a 2D matrix.

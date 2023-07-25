@@ -35,9 +35,13 @@ impl<Array: AsRef<[usize]>> TensorIndex for Array {
     }
 }
 
-/// Common operations that are applicable to owned, borrowed and mutably
-/// borrowed tensors.
+/// Common operations that are applicable to owned ([Tensor]), borrowed
+/// ([TensorView]) and mutably borrowed ([TensorViewMut]) tensors.
+///
+/// [TensorView] implements specialized versions of these methods as
+/// inherent methods, which preserve lifetimes on the result.
 pub trait TensorCommon: Layout {
+    /// The data type of elements in this tensor.
     type Elem;
 
     /// Return an iterator over slices of this tensor along a given axis.
@@ -45,13 +49,29 @@ pub trait TensorCommon: Layout {
         self.view().axis_iter(dim)
     }
 
+    /// Return an iterator over elements of this tensor, broadcasted to `shape`.
+    ///
+    /// A broadcasted iterator behaves as if the tensor had the broadcasted
+    /// shape, repeating elements as necessary to fill the given dimensions.
+    /// Broadcasting is only possible if the actual and broadcast shapes are
+    /// compatible according to ONNX's rules. See
+    /// <https://github.com/onnx/onnx/blob/main/docs/Operators.md>.
+    ///
+    /// See also <https://numpy.org/doc/stable/user/basics.broadcasting.html#general-broadcasting-rules>
+    /// for worked examples of how broadcasting works.
     fn broadcast_iter(&self, shape: &[usize]) -> BroadcastIter<Self::Elem> {
         self.view().broadcast_iter(shape)
     }
 
-    /// Return a reference to the underlying data of this tensor.
+    /// Return the element buffer for this tensor as a slice.
+    ///
+    /// If the tensor is contiguous, the buffer will contain the same elements
+    /// in the same order as yielded by [TensorCommon::iter]. In other cases the
+    /// buffer may have unused indexes or a different ordering.
     fn data(&self) -> &[Self::Elem];
 
+    /// Returns the single item if this tensor is a 0-dimensional tensor
+    /// (ie. a scalar)
     fn item(&self) -> Option<&Self::Elem> {
         self.view().item()
     }
@@ -77,30 +97,56 @@ pub trait TensorCommon: Layout {
         }
     }
 
+    /// Return an `NdTensor` version of this view.
+    ///
+    /// Panics if the rank of this tensor is not `N`.
     fn nd_view<const N: usize>(&self) -> NdTensorView<Self::Elem, N> {
         self.view().nd_view()
     }
 
+    /// Return a new view with the given shape.
+    ///
+    /// The current view must be contiguous and the new shape must have the
+    /// same product as the current shape.
     fn reshaped(&self, shape: &[usize]) -> TensorView<Self::Elem> {
         self.view().reshaped(shape)
     }
 
+    /// Return a new view with the dimensions re-ordered according to `dims`.
     fn permuted(&self, dims: &[usize]) -> TensorView<Self::Elem> {
         self.view().permuted(dims)
     }
 
+    /// Return a view of part of this tensor.
+    ///
+    /// `range` specifies the indices or ranges of this tensor to include in the
+    /// returned view. If `N` is less than the number of dimensions in this
+    /// tensor, `range` refers to the leading dimensions, and is padded to
+    /// include the full range of the remaining dimensions.
     fn slice<const N: usize, R: IntoSliceItems<N>>(&self, range: R) -> TensorView<Self::Elem> {
         self.view().slice(range)
     }
 
+    /// Return a view of part of this tensor.
+    ///
+    /// This is like [TensorBase::slice] but supports a dynamic number of
+    /// slice items.
+    fn slice_dyn(&self, range: &[SliceItem]) -> TensorView<Self::Elem> {
+        self.view().slice_dyn(range)
+    }
+
+    /// Return an iterator over a slice of this tensor.
     fn slice_iter(&self, ranges: &[SliceRange]) -> Iter<Self::Elem> {
         self.view().slice_iter(ranges)
     }
 
+    /// Return a view of this tensor with all dimensions of size 1 removed.
     fn squeezed(&self) -> TensorView<Self::Elem> {
         self.view().squeezed()
     }
 
+    /// Return a tensor with data laid out in contiguous order. This will
+    /// be a view if the data is already contiguous, or a copy otherwise.
     fn to_contiguous(&self) -> TensorBase<Self::Elem, Cow<[Self::Elem]>>
     where
         Self::Elem: Clone,
@@ -129,6 +175,7 @@ pub trait TensorCommon: Layout {
         self.view().to_vec()
     }
 
+    /// Return a new view with the order of dimensions reversed.
     fn transposed(&self) -> TensorView<Self::Elem> {
         self.view().transposed()
     }
@@ -142,12 +189,14 @@ pub trait TensorCommon: Layout {
 ///
 /// `T` is the element type and `S` is the element storage.
 ///
-/// Most callers will not use `TensorBase` directly but instead use the type
+/// Most code will not use `TensorBase` directly but instead use the type
 /// aliases [Tensor], [TensorView] and [TensorViewMut]. [Tensor] owns
 /// its elements, and the other two types are views of slices.
 ///
-/// [TensorBase] implements the [Layout] trait which provides information about
-/// the shape and strides of the tensor.
+/// All [TensorBase] variants implement the [Layout] trait which provide
+/// operations related to the shape and strides of the tensor, and the
+/// [TensorCommon] trait which provides common methods applicable to all
+/// variants.
 #[derive(Debug)]
 pub struct TensorBase<T, S: AsRef<[T]>> {
     data: S,
@@ -155,14 +204,14 @@ pub struct TensorBase<T, S: AsRef<[T]>> {
     element_type: PhantomData<T>,
 }
 
-/// TensorView provides a view onto data owned by a [Tensor].
+/// Variant of [TensorBase] which borrows its elements from a [Tensor].
 ///
-/// Conceptually the relationship between TensorView and Tensor is similar to
-/// that between slice and Vec. They share the same element buffer, but views
-/// can have distinct layouts, with some limitations.
+/// Conceptually the relationship between [TensorView] and [Tensor] is similar
+/// to that between `[T]` and `Vec<T>`. They share the same element buffer, but
+/// views can have distinct layouts, with some limitations.
 pub type TensorView<'a, T = f32> = TensorBase<T, &'a [T]>;
 
-/// TensorViewMut provides a mutable view onto data owned by a [Tensor].
+/// Variant of [TensorBase] which mutably borrows its elements from a [Tensor].
 ///
 /// This is similar to [TensorView], except elements in the underyling
 /// Tensor can be modified through it.
@@ -280,21 +329,14 @@ impl<T, S: AsRef<[T]>> TensorBase<T, S> {
     }
 }
 
-impl<'a, T> TensorBase<T, &'a [T]> {
+/// Specialized versions of the [TensorCommon] methods for immutable views.
+/// These preserve the underlying lifetime of the view in results, allowing for
+/// method calls to be chained.
+impl<'a, T> TensorView<'a, T> {
     pub fn axis_iter(&self, dim: usize) -> AxisIter<'a, T> {
         AxisIter::new(self, dim)
     }
 
-    /// Return an iterator over elements of this tensor, broadcasted to `shape`.
-    ///
-    /// A broadcasted iterator behaves as if the tensor had the broadcasted
-    /// shape, repeating elements as necessary to fill the given dimensions.
-    /// Broadcasting is only possible if the actual and broadcast shapes are
-    /// compatible according to ONNX's rules. See
-    /// <https://github.com/onnx/onnx/blob/main/docs/Operators.md>.
-    ///
-    /// See also <https://numpy.org/doc/stable/user/basics.broadcasting.html#general-broadcasting-rules>
-    /// for worked examples of how broadcasting works.
     pub fn broadcast_iter(&self, shape: &[usize]) -> BroadcastIter<'a, T> {
         assert!(
             self.can_broadcast_to(shape),
@@ -303,11 +345,6 @@ impl<'a, T> TensorBase<T, &'a [T]> {
         BroadcastIter::new(self, shape)
     }
 
-    /// Return the element buffer for this tensor as a slice.
-    ///
-    /// If the tensor is contiguous, the buffer will contain the same elements
-    /// in the same order as yielded by [Tensor::iter]. In other cases the buffer
-    /// may have unused indexes or a different ordering.
     pub fn data(&self) -> &'a [T] {
         self.data
     }
@@ -316,8 +353,6 @@ impl<'a, T> TensorBase<T, &'a [T]> {
         Iter::new(self)
     }
 
-    /// Returns the single item if this tensor is a 0-dimensional tensor
-    /// (ie. a scalar)
     pub fn item(&self) -> Option<&'a T> {
         match self.ndim() {
             0 => Some(&self.data[0]),
@@ -326,9 +361,6 @@ impl<'a, T> TensorBase<T, &'a [T]> {
         }
     }
 
-    /// Return an `NdTensor` version of this view.
-    ///
-    /// Panics if the rank of this tensor is not `N`.
     pub fn nd_view<const N: usize>(&self) -> NdTensorView<'a, T, N> {
         self.nd_slice([])
     }
@@ -351,7 +383,6 @@ impl<'a, T> TensorBase<T, &'a [T]> {
         NdTensorView::from_slice(data, shape, Some(strides)).unwrap()
     }
 
-    /// Return a new view with the dimensions re-ordered according to `dims`.
     pub fn permuted(&self, dims: &[usize]) -> TensorView<'a, T> {
         Self {
             data: self.data,
@@ -360,8 +391,6 @@ impl<'a, T> TensorBase<T, &'a [T]> {
         }
     }
 
-    /// Return a new view with a given shape. This has the same requirements
-    /// as `reshape`.
     pub fn reshaped(&self, shape: &[usize]) -> TensorView<'a, T> {
         Self {
             data: self.data,
@@ -378,20 +407,10 @@ impl<'a, T> TensorBase<T, &'a [T]> {
         self.layout.reshape(shape);
     }
 
-    /// Return a view of part of this tensor.
-    ///
-    /// `range` specifies the indices or ranges of this tensor to include in the
-    /// returned view. If `N` is less than the number of dimensions in this
-    /// tensor, `range` refers to the leading dimensions, and is padded to
-    /// include the full range of the remaining dimensions.
     pub fn slice<const N: usize, R: IntoSliceItems<N>>(&self, range: R) -> TensorView<'a, T> {
         self.slice_dyn(&range.into_slice_items())
     }
 
-    /// Return a view of part of this tensor.
-    ///
-    /// This is like [TensorBase::slice] but supports a dynamic number of
-    /// slice items.
     pub fn slice_dyn(&self, range: &[SliceItem]) -> TensorView<'a, T> {
         let (offset_range, layout) = self.layout.slice(range);
         TensorBase {
@@ -401,12 +420,10 @@ impl<'a, T> TensorBase<T, &'a [T]> {
         }
     }
 
-    /// Return an iterator over a slice of this tensor.
     pub fn slice_iter(&self, ranges: &[SliceRange]) -> Iter<'a, T> {
         Iter::slice(self, ranges)
     }
 
-    /// Return a view of this tensor with all dimensions of size 1 removed.
     pub fn squeezed(&self) -> TensorView<'a, T> {
         TensorBase {
             data: self.data,
@@ -415,8 +432,6 @@ impl<'a, T> TensorBase<T, &'a [T]> {
         }
     }
 
-    /// Return a tensor with data laid out in contiguous order. This will
-    /// be a view if the data is already contiguous, or a copy otherwise.
     pub fn to_contiguous(&self) -> TensorBase<T, Cow<'a, [T]>>
     where
         T: Clone,
@@ -437,7 +452,6 @@ impl<'a, T> TensorBase<T, &'a [T]> {
         }
     }
 
-    /// Return a new view with the order of dimensions reversed.
     pub fn transposed(&self) -> TensorView<'a, T> {
         Self {
             data: self.data,
@@ -658,7 +672,7 @@ impl<T, S: AsRef<[T]> + AsMut<[T]>> TensorBase<T, S> {
     }
 }
 
-impl<'a, T> TensorBase<T, &'a mut [T]> {
+impl<'a, T> TensorViewMut<'a, T> {
     /// Consume this view and return the underlying data slice.
     ///
     /// This differs from [Self::data_mut] as the lifetime of the returned slice
@@ -675,29 +689,11 @@ impl<I: TensorIndex, T, S: AsRef<[T]> + AsMut<[T]>> IndexMut<I> for TensorBase<T
     }
 }
 
-/// Tensor is an n-dimensional array type, with the number of dimensions
-/// determined at runtime.
-///
-/// Tensor and its associated types [TensorView] and [TensorViewMut] are
-/// conceptually a pair of a dynamically sized array (either owned or a
-/// reference) and a _layout_ which specifies how to view the contents of that
-/// array as an N-dimensional tensor. The layout specifies the number of
-/// dimensions, size of each dimension and stride of each dimension (offset
-/// between elements in the underlying array).
-///
-/// Information about a tensor or view's layout is available via the
-/// [Layout] trait.
-///
-/// By default, new tensors have a _contiguous_ layout, in which the stride of
-/// the innermost (fastest-changing) dimension `Dn` is 1, the stride of
-/// dimension `Di+1` is the size of dimension `Di` and so on. The layout will
-/// become non-contiguous if the dimensions are permuted/transposed or if the
-/// tensor is sliced in-place. Whether the tensor is contiguous does not matter
-/// if accessing elements via indexing, slicing or iterators. It does matter if
-/// accessing the underlying element buffer directly.
+/// Variant of [TensorBase] which owns its elements, using a `Vec<T>` as
+/// the backing storage.
 pub type Tensor<T = f32> = TensorBase<T, Vec<T>>;
 
-impl<T> TensorBase<T, Vec<T>> {
+impl<T> Tensor<T> {
     /// Create a new zero-filled tensor with a given shape.
     pub fn zeros(shape: &[usize]) -> Tensor<T>
     where

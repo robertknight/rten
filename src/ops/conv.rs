@@ -196,9 +196,7 @@ fn conv_2d_pointwise(
         let mut out_item = output.slice_mut([n]);
         let out_row_stride = out_item.stride(0);
 
-        let in_mat = input
-            .slice::<3, 1, _>([n])
-            .reshaped([in_c, in_h * in_w]);
+        let in_mat = input.slice::<3, 1, _>([n]).reshaped([in_c, in_h * in_w]);
 
         gemm.gemm_bias(
             out_item.data_mut(),
