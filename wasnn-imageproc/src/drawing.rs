@@ -363,24 +363,12 @@ impl Iterator for FillIter {
 
 #[cfg(test)]
 mod tests {
-    use std::fmt::Display;
-
     use wasnn_tensor::{Layout, MatrixLayout, NdTensor, NdTensorView};
 
+    use crate::tests::print_grid;
     use crate::{BoundingRect, Point, Polygon, Rect};
 
     use super::{draw_polygon, stroke_rect};
-
-    /// Print out elements of a 2D grid for debugging.
-    fn print_grid<T: Display>(grid: NdTensorView<T, 2>) {
-        for y in 0..grid.rows() {
-            for x in 0..grid.cols() {
-                print!("{:2} ", grid[[y, x]]);
-            }
-            println!();
-        }
-        println!();
-    }
 
     /// Return coordinates of all points in `grid` with a non-zero value.
     fn nonzero_points<T: Default + PartialEq>(grid: NdTensorView<T, 2>) -> Vec<Point> {

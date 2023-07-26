@@ -528,6 +528,10 @@ impl BoundingRect for Rect {
 }
 
 /// An oriented rectangle.
+///
+/// This is characterized by a center point, an "up" direction indicating the
+/// orientation, width (extent along axis perpendicular to the up axis) and
+/// height (extent along up axis).
 #[derive(Copy, Clone, Debug)]
 pub struct RotatedRect {
     // Centroid of the rect.
@@ -555,12 +559,51 @@ impl RotatedRect {
         }
     }
 
+    /// Return true if a point lies within this rotated rect.
+    pub fn contains(&self, point: Vec2) -> bool {
+        // Treat zero width/height rectangles as being very thin rectangles
+        // rather than lines.
+        let height = self.height.max(1e-6);
+        let width = self.width.max(1e-6);
+
+        // Project line from center to `p` onto the up and cross axis. The
+        // results will be in the range [-1, 1] if the point is within the
+        // rect.
+        //
+        // See notes in `Line::distance` about distance from point to a line.
+        let ac = point - self.center;
+        let ab = self.up * (height / 2.);
+        let up_proj = ac.dot(ab) / (height / 2.).powi(2);
+
+        let ad = self.up.perpendicular() * (width / 2.);
+        let cross_proj = ac.dot(ad) / (width / 2.).powi(2);
+
+        up_proj.abs() <= 1. && cross_proj.abs() <= 1.
+    }
+
+    /// Return a copy of this rect with width increased by `dw` and height
+    /// increased by `dh`.
+    pub fn expanded(&self, dw: f32, dh: f32) -> RotatedRect {
+        RotatedRect {
+            width: self.width + dw,
+            height: self.height + dh,
+            ..*self
+        }
+    }
+
     /// Return the coordinates of the rect's corners.
     ///
     /// The corners are returned in clockwise order starting from the corner
     /// that is the top-left when the "up" axis has XY coordinates [0, 1], or
     /// equivalently, bottom-right when the "up" axis has XY coords [0, -1].
     pub fn corners(&self) -> [Point; 4] {
+        self.corners_f32()
+            .map(|v| Point::from_yx(v.y.round() as i32, v.x.round() as i32))
+    }
+
+    /// Same as [RotatedRect::corners] but returns results with sub-pixel
+    /// precision.
+    pub fn corners_f32(&self) -> [Vec2; 4] {
         let par_offset = self.up.perpendicular() * (self.width / 2.);
         let perp_offset = self.up * (self.height / 2.);
 
@@ -571,7 +614,7 @@ impl RotatedRect {
             self.center + perp_offset - par_offset,
         ];
 
-        coords.map(|v| Point::from_yx(v.y.round() as i32, v.x.round() as i32))
+        coords
     }
 
     /// Return the edges of this rect, in clockwise order starting from the
@@ -632,7 +675,10 @@ impl RotatedRect {
     /// Return a new axis-aligned RotatedRect whose bounding rectangle matches
     /// `r`.
     pub fn from_rect(r: Rect) -> RotatedRect {
-        let center = Vec2::from_yx(r.center().y as f32, r.center().x as f32);
+        let center = Vec2::from_yx(
+            (r.top() + r.bottom()) as f32 / 2.,
+            (r.left() + r.right()) as f32 / 2.,
+        );
         RotatedRect::new(
             center,
             Vec2::from_yx(1., 0.),
@@ -1506,10 +1552,54 @@ mod tests {
     }
 
     #[test]
+    fn test_rotated_rect_contains() {
+        struct Case {
+            rrect: RotatedRect,
+        }
+
+        let cases = [
+            // Axis-aligned
+            Case {
+                rrect: RotatedRect::new(Vec2::from_yx(0., 0.), Vec2::from_yx(1., 0.), 10., 5.),
+            },
+            // Axis-aligned, inverted.
+            Case {
+                rrect: RotatedRect::new(Vec2::from_yx(0., 0.), Vec2::from_yx(-1., 0.), 10., 5.),
+            },
+            // Rotated
+            Case {
+                rrect: RotatedRect::new(Vec2::from_yx(0., 0.), Vec2::from_yx(0.5, 0.5), 10., 5.),
+            },
+        ];
+
+        for Case { rrect: r } in cases {
+            assert!(r.contains(r.center()));
+
+            // Test points slightly inside.
+            for c in r.expanded(-1e-5, -1e-5).corners_f32() {
+                assert!(r.contains(c));
+            }
+
+            // Test points slightly outside.
+            for c in r.expanded(1e-5, 1e-5).corners_f32() {
+                assert!(!r.contains(c));
+            }
+        }
+    }
+
+    #[test]
     fn test_rotated_rect_corners() {
         let r = RotatedRect::new(Vec2::from_yx(5., 5.), Vec2::from_yx(1., 0.), 5., 5.);
         let expected = points_from_n_coords([[3, 3], [3, 8], [8, 8], [8, 3]]);
         assert_eq!(r.corners(), expected);
+    }
+
+    #[test]
+    fn test_rotated_rect_expanded() {
+        let r = RotatedRect::new(Vec2::from_yx(0., 0.), Vec2::from_yx(1., 0.), 10., 5.);
+        let r = r.expanded(2., 3.);
+        assert_eq!(r.width(), 12.);
+        assert_eq!(r.height(), 8.);
     }
 
     #[test]

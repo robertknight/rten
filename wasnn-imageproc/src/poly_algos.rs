@@ -1,6 +1,7 @@
 use std::iter::zip;
+use std::ops::Sub;
 
-use crate::{Line, Point, RotatedRect, Vec2};
+use crate::{BoundingRect, Line, Point, Polygon, RotatedRect, Vec2};
 
 /// Return the sorted subset of points from `poly` that form a convex hull
 /// containing `poly`.
@@ -8,36 +9,47 @@ pub fn convex_hull(poly: &[Point]) -> Vec<Point> {
     // See https://en.wikipedia.org/wiki/Graham_scan
 
     let mut hull = Vec::new();
+    let vec_from_point = |p: Point| Vec2::from_yx(p.y as f32, p.x as f32);
 
-    // Find lowest and left-most point.
+    // Find lowest and left-most point, assuming a coordinate system where Y
+    // increases going down.
     let min_point = match poly.iter().min_by_key(|p| (-p.y, p.x)) {
-        Some(p) => p,
+        Some(p) => vec_from_point(*p),
         None => {
             return hull;
         }
     };
 
-    // FIXME - Should `min_point` be removed from the list? It leads to NaN
-    // outputs from `angle` when angle is called with `p == min_point`.
-    //
-    // TODO - Break ties if multiple points form the same angle, by preferring
-    // the furthest point.
-
     // Compute cosine of angle between the vector `p - min_point` and the X axis.
     let angle = |p: Point| {
-        let dy = p.y - min_point.y;
-        let dx = p.x - min_point.x;
-        let x_axis = Vec2::from_yx(0., 1.);
-        Vec2::from_yx(dy as f32, dx as f32).normalized().dot(x_axis)
+        let vp = vec_from_point(p);
+        if vp == min_point {
+            // Ensure `min_point` appears first in the `sorted_points` list.
+            f32::MIN
+        } else {
+            let x_axis = Vec2::from_yx(0., 1.);
+            (vp - min_point).normalized().dot(x_axis)
+        }
     };
 
-    // Sort points by angle between `point - min_point` and X axis.
-    let mut sorted_points = poly.to_vec();
-    sorted_points.sort_by(|&a, &b| f32::total_cmp(&angle(a), &angle(b)));
+    // Sort points by angle between `point - min_point` and X axis. When
+    // multiple points form the same angle, keep only one furthest from
+    // `min_point`.
+    let mut sorted_points: Vec<(Point, f32)> = poly.iter().map(|&p| (p, angle(p))).collect();
+    sorted_points.sort_by(|(a_pt, a_angle), (b_pt, b_angle)| {
+        if a_angle == b_angle {
+            let a_dist = vec_from_point(*a_pt).sub(min_point).length();
+            let b_dist = vec_from_point(*b_pt).sub(min_point).length();
+            a_dist.total_cmp(&b_dist)
+        } else {
+            a_angle.total_cmp(b_angle)
+        }
+    });
+    sorted_points.dedup_by_key(|(a_point, _)| *a_point);
 
     // Visit sorted points and keep the sequence that can be followed without
     // making any clockwise turns.
-    for &p in sorted_points.iter() {
+    for &(p, _) in sorted_points.iter() {
         while hull.len() >= 2 {
             let [prev2, prev] = [hull[hull.len() - 2], hull[hull.len() - 1]];
             let ac = Vec2::from_points(prev2, p);
@@ -140,22 +152,35 @@ pub fn simplify_polygon(points: &[Point], epsilon: f32) -> Vec<Point> {
 
 /// Return the rotated rectangle with minimum area which contains `points`.
 ///
-/// Returns `None` if `points` contains fewer than 2 points.
+/// Returns `None` if `points` is empty.
 pub fn min_area_rect(points: &[Point]) -> Option<RotatedRect> {
     // See "Exhaustive Search Algorithm" in
     // https://www.geometrictools.com/Documentation/MinimumAreaRectangle.pdf.
 
     let hull = convex_hull(points);
+    if hull.is_empty() {
+        return None;
+    }
+
+    let mut min_rect = RotatedRect::from_rect(Polygon::new(&hull).bounding_rect());
+
+    // A hull with one vertex has no edges.
+    if hull.len() == 1 {
+        return Some(min_rect);
+    }
 
     // Iterate over each edge of the polygon and find the smallest bounding
     // rect where one of the rect's edges aligns with the polygon edge. Keep
     // the rect that has the smallest area over all edges.
-    let mut min_rect: Option<RotatedRect> = None;
     for (&edge_start, &edge_end) in zip(hull.iter(), hull.iter().cycle().skip(1)) {
+        debug_assert!(
+            edge_start != edge_end,
+            "hull edges should have non-zero length"
+        );
+
         // Project polygon points onto axes that are parallel and perpendicular
         // to the current edge. The maximum distance between the projected
         // points gives the width and height of the bounding rect.
-
         let par_axis = Vec2::from_points(edge_start, edge_end).normalized();
 
         // nb. Perpendicular axis points into the hull.
@@ -179,26 +204,22 @@ pub fn min_area_rect(points: &[Point]) -> Option<RotatedRect> {
         let width = max_par - min_par;
         let area = height * width;
 
-        if area < min_rect.map(|r| r.area()).unwrap_or(f32::MAX) {
+        if area < min_rect.area() {
             let center = Vec2::from_yx(edge_start.y as f32, edge_start.x as f32)
                 + (par_axis * ((min_par + max_par) / 2.))
                 + (perp_axis * (height / 2.));
-            min_rect = Some(RotatedRect::new(
-                center, /* up_axis */ perp_axis, width, height,
-            ))
+            min_rect = RotatedRect::new(center, /* up_axis */ perp_axis, width, height);
         }
     }
 
-    min_rect
+    Some(min_rect)
 }
 
 #[cfg(test)]
 mod tests {
-    use crate::{Point, Rect};
-
-    use crate::tests::{border_points, points_from_coords, points_from_n_coords};
-
     use super::{convex_hull, min_area_rect, simplify_polygon, simplify_polyline};
+    use crate::tests::{border_points, points_from_coords};
+    use crate::{BoundingRect, Point, Polygon, Rect, Vec2};
 
     #[test]
     fn test_convex_hull() {
@@ -212,6 +233,16 @@ mod tests {
             Case {
                 points: &[],
                 hull: &[],
+            },
+            // Single point
+            Case {
+                points: &[[1, 1]],
+                hull: &[[1, 1]],
+            },
+            // Single line
+            Case {
+                points: &[[1, 1], [2, 2]],
+                hull: &[[2, 2], [1, 1]],
             },
             // Simple square. The hull is a re-ordering of the input.
             Case {
@@ -239,6 +270,16 @@ mod tests {
                 // clockwise.
                 hull: &[[4, 0], [0, 0], [0, 4], [4, 4]],
             },
+            // Set of equal points
+            Case {
+                points: &[[0, 0], [0, 0], [0, 0], [0, 0]],
+                hull: &[[0, 0]],
+            },
+            // Three points in a line
+            Case {
+                points: &[[0, 0], [1, 1], [2, 2]],
+                hull: &[[2, 2], [0, 0]],
+            },
         ];
 
         for case in cases {
@@ -255,20 +296,68 @@ mod tests {
     fn test_min_area_rect() {
         struct Case {
             points: Vec<Point>,
-            expected: [Point; 4],
         }
 
         let cases = [
             // Axis-aligned rect
             Case {
                 points: points_from_coords(&[[0, 0], [0, 4], [4, 4], [4, 0]]),
-                expected: points_from_n_coords([[4, 0], [0, 0], [0, 4], [4, 4]]),
             },
+            // Rotated rect
+            Case {
+                points: points_from_coords(&[[0, 2], [2, 4], [4, 2], [2, 0]]),
+            },
+            // Polygon with all points the same
+            Case {
+                points: points_from_coords(&[[0, 0], [0, 0], [0, 0], [0, 0]]),
+            },
+            // Polygon with an empty edge
+            Case {
+                points: points_from_coords(&[[0, 0], [0, 0], [1, 1], [2, 2]]),
+            },
+            // Single point
+            Case {
+                points: points_from_coords(&[[5, 5]]),
+            },
+            // Empty input
+            Case { points: Vec::new() },
         ];
 
         for case in cases {
-            let min_rect = min_area_rect(&case.points).unwrap();
-            assert_eq!(min_rect.corners(), case.expected);
+            let Some(min_rect) = min_area_rect(&case.points) else {
+                assert!(case.points.is_empty());
+                continue;
+            };
+
+            // Rotated rect should never be larger than axis-aligned bounding rect.
+            let bounding_rect = Polygon::new(&case.points).bounding_rect();
+            assert!(min_rect.area() <= bounding_rect.area() as f32);
+
+            // Every input point should lie within the rotated rect, otherwise
+            // it is too small. Test with a slightly expanded rect to avoid
+            // numerical issues with points exactly on the edge.
+            let expanded_min_rect = min_rect.expanded(1e-3, 1e-3);
+            assert!(case
+                .points
+                .iter()
+                .all(|p| expanded_min_rect.contains(Vec2::from_xy(p.x as f32, p.y as f32))));
+
+            // Every edge should touch (within a threshold) an input point,
+            // otherwise it is too large.
+            let max_dist = min_rect.edges().into_iter().fold(f32::MIN, |dist, edge| {
+                let min_dist = case
+                    .points
+                    .iter()
+                    .fold(f32::MAX, |dist, p| edge.distance(*p).min(dist));
+                min_dist.max(dist)
+            });
+            let threshold = 1.;
+            assert!(
+                max_dist <= threshold,
+                "max_dist {} > {}",
+                max_dist,
+                threshold
+            );
         }
     }
 

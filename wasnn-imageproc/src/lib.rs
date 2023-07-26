@@ -25,7 +25,9 @@ pub use shapes::{bounding_rect, BoundingRect, Line, Point, Polygon, Polygons, Re
 
 #[cfg(test)]
 mod tests {
-    use wasnn_tensor::NdTensorViewMut;
+    use std::fmt::Display;
+
+    use wasnn_tensor::{MatrixLayout, NdTensorView, NdTensorViewMut};
 
     use super::{Point, Rect};
 
@@ -68,7 +70,7 @@ mod tests {
 
     /// Set the elements of a grid listed in `points` to `value`.
     #[allow(dead_code)]
-    fn plot_points<T: Copy>(mut grid: NdTensorViewMut<T, 2>, points: &[Point], value: T) {
+    pub fn plot_points<T: Copy>(mut grid: NdTensorViewMut<T, 2>, points: &[Point], value: T) {
         for point in points {
             grid[point.coord()] = value;
         }
@@ -98,5 +100,17 @@ mod tests {
     /// Convery an array of `[y, x]` coordinates to `Point`s
     pub fn points_from_n_coords<const N: usize>(coords: [[i32; 2]; N]) -> [Point; N] {
         coords.map(|[y, x]| Point::from_yx(y, x))
+    }
+
+    /// Print out elements of a 2D grid for debugging.
+    #[allow(dead_code)]
+    pub fn print_grid<T: Display>(grid: NdTensorView<T, 2>) {
+        for y in 0..grid.rows() {
+            for x in 0..grid.cols() {
+                print!("{:2} ", grid[[y, x]]);
+            }
+            println!();
+        }
+        println!();
     }
 }
