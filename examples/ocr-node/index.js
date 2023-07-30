@@ -35,12 +35,37 @@ function* listItems(list) {
 }
 
 /**
- * Perform OCR on an image and return the result as a JSON-serialiable object.
+ * Detect text in an image and return the result as a JSON-serialiable object.
  *
  * @param {OcrEngine} ocrEngine
  * @param {OcrInput} ocrInput
  */
-function generateJSON(ocrEngine, ocrInput) {
+function detectText(ocrEngine, ocrInput) {
+  const detectedLines = ocrEngine.detectText(ocrInput);
+  const lines = Array.from(listItems(detectedLines)).map((line) => {
+    const words = Array.from(listItems(line.words())).map((rect) => {
+      return {
+        rect: Array.from(rect.boundingRect()),
+      };
+    });
+
+    return {
+      words,
+    };
+  });
+  return {
+    lines,
+  };
+}
+
+/**
+ * Detect and recognize text in an image and return the result as a
+ * JSON-serialiable object.
+ *
+ * @param {OcrEngine} ocrEngine
+ * @param {OcrInput} ocrInput
+ */
+function detectAndRecognizeText(ocrEngine, ocrInput) {
   const textLines = ocrEngine.getTextLines(ocrInput);
   const lines = Array.from(listItems(textLines)).map((line) => {
     const words = Array.from(listItems(line.words())).map((word) => {
@@ -65,6 +90,7 @@ program
   .argument("<detection_model>", "Text detection model path")
   .argument("<recognition_model>", "Text recognition model path")
   .argument("<image>", "Input image path")
+  .option("-d, --detect-only", "Detect text, but don't recognize it")
   .option("-j, --json", "Output JSON")
   .action(
     async (detectionModelPath, recognitionModelPath, imagePath, options) => {
@@ -79,6 +105,8 @@ program
 
       const ocrInit = new OcrEngineInit();
       ocrInit.setDetectionModel(detectionModel);
+
+      // TODO - Don't require the recognition model when doing only detection.
       ocrInit.setRecognitionModel(recognitionModel);
 
       const ocrEngine = new OcrEngine(ocrInit);
@@ -88,8 +116,11 @@ program
         image.data
       );
 
-      if (options.json) {
-        const json = generateJSON(ocrEngine, ocrInput);
+      if (options.detectOnly) {
+        const json = detectText(ocrEngine, ocrInput);
+        console.log(JSON.stringify(json, null, 2));
+      } else if (options.json) {
+        const json = detectAndRecognizeText(ocrEngine, ocrInput);
         console.log(JSON.stringify(json, null, 2));
       } else {
         const text = ocrEngine.getText(ocrInput);
