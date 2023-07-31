@@ -185,7 +185,7 @@ fn conv_2d_pointwise(
     // views.
     let input = input.to_contiguous();
     let kernel = kernel.to_contiguous();
-    let kernel_mat = kernel.view().reshaped([out_c, in_c]);
+    let kernel_mat = kernel.reshaped([out_c, in_c]);
 
     // Bias must be contiguous for use with `gemm_bias`.
     let bias = bias.as_ref().map(|b| b.to_contiguous());
@@ -508,7 +508,7 @@ pub fn conv_transpose(
     let kernel = kernel.to_contiguous();
 
     let mut col2im_mat = Tensor::zeros(&[in_h * in_w, out_c * k_h * k_w]);
-    let kernel_mat = kernel.view().reshaped(&[k_in_c, out_c * k_h * k_w]);
+    let kernel_mat = kernel.reshaped(&[k_in_c, out_c * k_h * k_w]);
 
     // The implementation here is the inverse of the im2col-based convolution.
     for n in 0..batch {
