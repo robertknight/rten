@@ -1,4 +1,4 @@
-use crate::{BoundingRect, Line, Point, Polygon, Rect};
+use crate::{BoundingRect, Line, Point, Polygon, Rect, RotatedRect, Vec2};
 
 use wasnn_tensor::{MatrixLayout, NdTensorViewMut};
 
@@ -162,25 +162,48 @@ impl Iterator for BreshamPoints {
 }
 
 /// Draw a non-antialiased line in an image.
-pub fn draw_line<T: Copy>(mut image: NdTensorViewMut<T, 2>, line: Line, value: T) {
-    // This function uses Bresham's line algorithm, with the implementation
-    // in Pillow (https://pillow.readthedocs.io/en/stable/) used as a reference.
-    let height: i32 = image.rows().try_into().unwrap();
-    let width: i32 = image.cols().try_into().unwrap();
+pub fn draw_line<T: Copy>(mut image: NdTensorViewMut<T, 2>, line: Line, value: T, width: u32) {
+    if width == 0 {
+        return;
+    }
 
-    let start = clamp_to_bounds(line.start, height, width);
-    let end = clamp_to_bounds(line.end, height, width);
-    let clamped = Line::from_endpoints(start, end);
+    if width == 1 {
+        // This function uses Bresham's line algorithm, with the implementation
+        // in Pillow (https://pillow.readthedocs.io/en/stable/) used as a reference.
+        let img_height: i32 = image.rows().try_into().unwrap();
+        let img_width: i32 = image.cols().try_into().unwrap();
 
-    for p in BreshamPoints::new(clamped) {
-        image[p.coord()] = value;
+        let start = clamp_to_bounds(line.start, img_height, img_width);
+        let end = clamp_to_bounds(line.end, img_height, img_width);
+        let clamped = Line::from_endpoints(start, end);
+        for p in BreshamPoints::new(clamped) {
+            image[p.coord()] = value;
+        }
+    } else {
+        let center = Vec2::from_xy(
+            (line.start.x + line.end.x) as f32 / 2.,
+            (line.start.y + line.end.y) as f32 / 2.,
+        );
+        let line_vec = Vec2::from_xy(line.width() as f32, line.height() as f32);
+        let up = line_vec.perpendicular();
+        let rrect = RotatedRect::new(center, up, line_vec.length(), width as f32);
+        for p in Polygon::new(rrect.corners()).fill_iter() {
+            if let Some(img_val) = image.get_mut(p.coord()) {
+                *img_val = value;
+            }
+        }
     }
 }
 
 /// Draw the outline of a non anti-aliased polygon in an image.
-pub fn draw_polygon<T: Copy>(mut image: NdTensorViewMut<T, 2>, poly: &[Point], value: T) {
+pub fn draw_polygon<T: Copy>(
+    mut image: NdTensorViewMut<T, 2>,
+    poly: &[Point],
+    value: T,
+    width: u32,
+) {
     for edge in Polygon::new(poly).edges() {
-        draw_line(image.view_mut(), edge, value);
+        draw_line(image.view_mut(), edge, value, width);
     }
 }
 
@@ -361,6 +384,78 @@ impl Iterator for FillIter {
     }
 }
 
+pub type Rgb<T = u8> = [T; 3];
+
+/// Drawing style properties.
+#[derive(Copy, Clone)]
+struct PainterState<T> {
+    stroke: Rgb<T>,
+    stroke_width: u32,
+}
+
+/// Painter is a context for drawing into an image tensor.
+///
+/// Painter uses a mutable tensor with `[channel, height, width]` dimensions as
+/// the drawing surface. It has a current drawing state with properties such as
+/// stroke color and width and allows states to be saved to and restored from
+/// a stack.
+///
+/// Drawing currently operates in the first 3 channels of the surface, which are
+/// assumed to represent red, green and blue colors.
+pub struct Painter<'a, T> {
+    /// CHW image tensor.
+    surface: NdTensorViewMut<'a, T, 3>,
+    saved_states: Vec<PainterState<T>>,
+    state: PainterState<T>,
+}
+
+impl<'a, T: Copy + Default> Painter<'a, T> {
+    /// Create a Painter which draws into the CHW tensor `surface`.
+    pub fn new(surface: NdTensorViewMut<'a, T, 3>) -> Painter<'a, T> {
+        Painter {
+            surface,
+            state: PainterState {
+                stroke: [T::default(); 3],
+                stroke_width: 1,
+            },
+            saved_states: Vec::new(),
+        }
+    }
+
+    /// Save the current drawing style on a stack.
+    pub fn save(&mut self) {
+        self.saved_states.push(self.state);
+    }
+
+    /// Pop and apply a drawing style from the stack created with [Painter::save].
+    pub fn restore(&mut self) {
+        if let Some(state) = self.saved_states.pop() {
+            self.state = state;
+        }
+    }
+
+    /// Set the RGB color values used by the `draw_*` methods.
+    pub fn set_stroke(&mut self, stroke: Rgb<T>) {
+        self.state.stroke = stroke;
+    }
+
+    pub fn set_stroke_width(&mut self, width: u32) {
+        self.state.stroke_width = width;
+    }
+
+    /// Draw a polygon into the surface.
+    pub fn draw_polygon(&mut self, points: &[Point]) {
+        for i in 0..3 {
+            draw_polygon(
+                self.surface.slice_mut([i]),
+                points,
+                self.state.stroke[i],
+                self.state.stroke_width,
+            );
+        }
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use wasnn_tensor::{Layout, MatrixLayout, NdTensor, NdTensorView};
@@ -408,6 +503,7 @@ mod tests {
             }
         }
     }
+
     #[test]
     fn test_draw_polygon() {
         struct Case {
@@ -459,7 +555,7 @@ mod tests {
                 .collect();
 
             let mut image = NdTensor::zeros(case.expected.shape());
-            draw_polygon(image.view_mut(), &points, 1);
+            draw_polygon(image.view_mut(), &points, 1, 1 /* width */);
             compare_images(image.view(), case.expected.view());
         }
     }
