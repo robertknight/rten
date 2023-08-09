@@ -434,6 +434,17 @@ impl<'a, T: Copy + Default> Painter<'a, T> {
         }
     }
 
+    /// Save the current drawing style, run `f(self)` and then restore the saved
+    /// style.
+    ///
+    /// This avoids the need to manually save and restore state with
+    /// [Painter::save] and [Painter::restore].
+    pub fn with_save<F: Fn(&mut Self)>(&mut self, f: F) {
+        self.save();
+        f(self);
+        self.restore();
+    }
+
     /// Set the RGB color values used by the `draw_*` methods.
     pub fn set_stroke(&mut self, stroke: Rgb<T>) {
         self.state.stroke = stroke;
@@ -458,10 +469,10 @@ impl<'a, T: Copy + Default> Painter<'a, T> {
 
 #[cfg(test)]
 mod tests {
-    use wasnn_tensor::{Layout, MatrixLayout, NdTensor, NdTensorView};
+    use wasnn_tensor::{Layout, MatrixLayout, NdTensor, NdTensorCommon, NdTensorView};
 
     use crate::tests::print_grid;
-    use crate::{BoundingRect, Point, Polygon, Rect};
+    use crate::{BoundingRect, Painter, Point, Polygon, Rect};
 
     use super::{draw_polygon, stroke_rect};
 
@@ -558,6 +569,63 @@ mod tests {
             draw_polygon(image.view_mut(), &points, 1, 1 /* width */);
             compare_images(image.view(), case.expected.view());
         }
+    }
+
+    #[test]
+    fn test_painter_draw_polygon() {
+        let [width, height] = [6, 6];
+        let mut img = NdTensor::zeros([3, height, width]);
+        let mut painter = Painter::new(img.view_mut());
+        let [r, g, b] = [255, 100, 50];
+        painter.set_stroke([r, g, b]);
+
+        painter.draw_polygon(&Rect::from_tlbr(2, 2, 5, 5).corners());
+
+        let expected_r = image_from_2d_array([
+            [0, 0, 0, 0, 0, 0],
+            [0, 0, 0, 0, 0, 0],
+            [0, 0, r, r, r, r],
+            [0, 0, r, 0, 0, r],
+            [0, 0, r, 0, 0, r],
+            [0, 0, r, r, r, r],
+        ]);
+        let expected_g = expected_r.map(|&x| if x == r { g } else { 0 });
+        let expected_b = expected_r.map(|&x| if x == r { b } else { 0 });
+
+        compare_images(img.slice([0]), expected_r.view());
+        compare_images(img.slice([1]), expected_g.view());
+        compare_images(img.slice([2]), expected_b.view());
+    }
+
+    #[test]
+    fn test_painter_save_restore() {
+        let [width, height] = [6, 6];
+        let mut img = NdTensor::zeros([3, height, width]);
+        let mut painter = Painter::new(img.view_mut());
+
+        let r1 = 255;
+        let r2 = 50;
+
+        // Set custom state to save.
+        painter.set_stroke([r1, 0, 0]);
+
+        painter.with_save(|painter| {
+            painter.set_stroke([r2, 0, 0]);
+            painter.draw_polygon(&Rect::from_tlbr(3, 3, 4, 4).corners());
+        });
+
+        // Draw outer rect with earlier saved state.
+        painter.draw_polygon(&Rect::from_tlbr(2, 2, 5, 5).corners());
+
+        let expected = image_from_2d_array([
+            [0, 0, 0, 0, 0, 0],
+            [0, 0, 0, 0, 0, 0],
+            [0, 0, r1, r1, r1, r1],
+            [0, 0, r1, r2, r2, r1],
+            [0, 0, r1, r2, r2, r1],
+            [0, 0, r1, r1, r1, r1],
+        ]);
+        compare_images(img.slice([0]), expected.view());
     }
 
     #[test]
