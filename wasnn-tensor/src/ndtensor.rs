@@ -343,6 +343,13 @@ impl<T, S: AsRef<[T]> + AsMut<[T]>, const N: usize> NdTensorBase<T, S, N> {
         self.data.as_mut()
     }
 
+    /// Return a mutable reference to the element at a given index.
+    pub fn get_mut(&mut self, index: [usize; N]) -> Option<&mut T> {
+        self.layout
+            .try_offset(index)
+            .and_then(|offset| self.data_mut().get_mut(offset))
+    }
+
     /// Return the element at a given index, without performing any bounds-
     /// checking.
     ///
@@ -844,6 +851,17 @@ mod tests {
         assert_eq!(tensor.get([5, 9, 14]), None);
         assert_eq!(tensor.get([4, 10, 14]), None);
         assert_eq!(tensor.get([4, 9, 15]), None);
+    }
+
+    #[test]
+    fn test_ndtensor_get_mut() {
+        let mut tensor = NdTensor::<i32, 3>::zeros([5, 10, 15]);
+
+        assert_eq!(tensor.get_mut([0, 0, 0]), Some(&mut 0));
+        assert_eq!(tensor.get_mut([4, 9, 14]), Some(&mut 0));
+        assert_eq!(tensor.get_mut([5, 9, 14]), None);
+        assert_eq!(tensor.get_mut([4, 10, 14]), None);
+        assert_eq!(tensor.get_mut([4, 9, 15]), None);
     }
 
     #[test]
