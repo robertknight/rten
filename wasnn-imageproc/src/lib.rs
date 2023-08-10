@@ -21,7 +21,10 @@ pub use contours::{find_contours, RetrievalMode};
 pub use drawing::{draw_line, draw_polygon, fill_rect, stroke_rect, FillIter, Painter, Rgb};
 pub use math::Vec2;
 pub use poly_algos::{convex_hull, min_area_rect, simplify_polygon, simplify_polyline};
-pub use shapes::{bounding_rect, BoundingRect, Line, Point, Polygon, Polygons, Rect, RotatedRect};
+pub use shapes::{
+    bounding_rect, BoundingRect, Coord, Line, LineF, Point, PointF, Polygon, PolygonF, Polygons,
+    Rect, RectF, RotatedRect,
+};
 
 #[cfg(test)]
 mod tests {
@@ -29,7 +32,7 @@ mod tests {
 
     use wasnn_tensor::{MatrixLayout, NdTensorView, NdTensorViewMut};
 
-    use super::{Point, Rect};
+    use super::{Coord, Point, Rect};
 
     /// Return a list of the points on the border of `rect`, in counter-clockwise
     /// order starting from the top-left corner.
@@ -93,12 +96,12 @@ mod tests {
     }
 
     /// Convert a slice of `[y, x]` coordinates to `Point`s
-    pub fn points_from_coords(coords: &[[i32; 2]]) -> Vec<Point> {
+    pub fn points_from_coords<T: Coord>(coords: &[[T; 2]]) -> Vec<Point<T>> {
         coords.iter().map(|[y, x]| Point::from_yx(*y, *x)).collect()
     }
 
     /// Convery an array of `[y, x]` coordinates to `Point`s
-    pub fn points_from_n_coords<const N: usize>(coords: [[i32; 2]; N]) -> [Point; N] {
+    pub fn points_from_n_coords<T: Coord, const N: usize>(coords: [[T; 2]; N]) -> [Point<T>; N] {
         coords.map(|[y, x]| Point::from_yx(y, x))
     }
 

@@ -180,14 +180,21 @@ pub fn draw_line<T: Copy>(mut image: NdTensorViewMut<T, 2>, line: Line, value: T
             image[p.coord()] = value;
         }
     } else {
-        let center = Vec2::from_xy(
-            (line.start.x + line.end.x) as f32 / 2.,
-            (line.start.y + line.end.y) as f32 / 2.,
+        // Convert this wide line into a polygon and fill it.
+        let line = line.to_f32();
+        let line_vec = Vec2::from_xy(line.width(), line.height());
+        let rrect = RotatedRect::new(
+            line.center(),
+            line_vec.perpendicular(),
+            line_vec.length(),
+            width as f32,
         );
-        let line_vec = Vec2::from_xy(line.width() as f32, line.height() as f32);
-        let up = line_vec.perpendicular();
-        let rrect = RotatedRect::new(center, up, line_vec.length(), width as f32);
-        for p in Polygon::new(rrect.corners()).fill_iter() {
+
+        let corners: [Point<i32>; 4] = rrect
+            .corners()
+            .map(|c| Point::from_yx(c.y as i32, c.x as i32));
+
+        for p in Polygon::new(corners).fill_iter() {
             if let Some(img_val) = image.get_mut(p.coord()) {
                 *img_val = value;
             }
@@ -258,7 +265,7 @@ pub struct FillIter {
 }
 
 impl FillIter {
-    pub(crate) fn new(poly: Polygon<&[Point]>) -> FillIter {
+    pub(crate) fn new(poly: Polygon<i32, &[Point]>) -> FillIter {
         let mut edges: Vec<_> = poly
             .edges()
             // Ignore horizontal edges

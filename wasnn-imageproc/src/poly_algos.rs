@@ -1,45 +1,48 @@
 use std::iter::zip;
-use std::ops::Sub;
 
-use crate::{BoundingRect, Line, Point, Polygon, RotatedRect, Vec2};
+use crate::{BoundingRect, Line, PointF, Polygon, RotatedRect, Vec2};
 
 /// Return the sorted subset of points from `poly` that form a convex hull
 /// containing `poly`.
-pub fn convex_hull(poly: &[Point]) -> Vec<Point> {
+pub fn convex_hull(poly: &[PointF]) -> Vec<PointF> {
     // See https://en.wikipedia.org/wiki/Graham_scan
 
     let mut hull = Vec::new();
-    let vec_from_point = |p: Point| Vec2::from_yx(p.y as f32, p.x as f32);
 
     // Find lowest and left-most point, assuming a coordinate system where Y
     // increases going down.
-    let min_point = match poly.iter().min_by_key(|p| (-p.y, p.x)) {
-        Some(p) => vec_from_point(*p),
+    let min_point = match poly.iter().min_by(|a, b| {
+        if a.y != b.y {
+            (-a.y).total_cmp(&-b.y)
+        } else {
+            a.x.total_cmp(&b.x)
+        }
+    }) {
+        Some(p) => *p,
         None => {
             return hull;
         }
     };
 
     // Compute cosine of angle between the vector `p - min_point` and the X axis.
-    let angle = |p: Point| {
-        let vp = vec_from_point(p);
-        if vp == min_point {
+    let angle = |p: PointF| {
+        if p == min_point {
             // Ensure `min_point` appears first in the `sorted_points` list.
             f32::MIN
         } else {
             let x_axis = Vec2::from_yx(0., 1.);
-            (vp - min_point).normalized().dot(x_axis)
+            min_point.vec_to(p).normalized().dot(x_axis)
         }
     };
 
     // Sort points by angle between `point - min_point` and X axis. When
     // multiple points form the same angle, keep only one furthest from
     // `min_point`.
-    let mut sorted_points: Vec<(Point, f32)> = poly.iter().map(|&p| (p, angle(p))).collect();
+    let mut sorted_points: Vec<(PointF, f32)> = poly.iter().map(|&p| (p, angle(p))).collect();
     sorted_points.sort_by(|(a_pt, a_angle), (b_pt, b_angle)| {
         if a_angle == b_angle {
-            let a_dist = vec_from_point(*a_pt).sub(min_point).length();
-            let b_dist = vec_from_point(*b_pt).sub(min_point).length();
+            let a_dist = min_point.vec_to(*a_pt).length();
+            let b_dist = min_point.vec_to(*b_pt).length();
             a_dist.total_cmp(&b_dist)
         } else {
             a_angle.total_cmp(b_angle)
@@ -52,8 +55,8 @@ pub fn convex_hull(poly: &[Point]) -> Vec<Point> {
     for &(p, _) in sorted_points.iter() {
         while hull.len() >= 2 {
             let [prev2, prev] = [hull[hull.len() - 2], hull[hull.len() - 1]];
-            let ac = Vec2::from_points(prev2, p);
-            let bc = Vec2::from_points(prev, p);
+            let ac = prev2.vec_to(p);
+            let bc = prev.vec_to(p);
             let turn_dir = ac.cross_product_norm(bc);
             if turn_dir > 0. {
                 // Last three points form a counter-clockwise turn.
@@ -68,9 +71,9 @@ pub fn convex_hull(poly: &[Point]) -> Vec<Point> {
 }
 
 fn simplify_polyline_internal(
-    points: &[Point],
+    points: &[PointF],
     epsilon: f32,
-    out_points: &mut Vec<Point>,
+    out_points: &mut Vec<PointF>,
     keep_last: bool,
 ) {
     if points.len() <= 1 {
@@ -126,7 +129,7 @@ fn simplify_polyline_internal(
 /// This uses the Douglas-Peucker algorithm [^1].
 ///
 /// [^1]: <https://en.wikipedia.org/wiki/Ramer–Douglas–Peucker_algorithm>
-pub fn simplify_polyline(points: &[Point], epsilon: f32) -> Vec<Point> {
+pub fn simplify_polyline(points: &[PointF], epsilon: f32) -> Vec<PointF> {
     assert!(epsilon >= 0.);
     let mut result = Vec::new();
     simplify_polyline_internal(points, epsilon, &mut result, true /* keep_last */);
@@ -138,7 +141,7 @@ pub fn simplify_polyline(points: &[Point], epsilon: f32) -> Vec<Point> {
 /// This is very similar to [simplify_polyline] except that the input is
 /// treated as a polygon where the last point implicitly connects to the first
 /// point to close the shape.
-pub fn simplify_polygon(points: &[Point], epsilon: f32) -> Vec<Point> {
+pub fn simplify_polygon(points: &[PointF], epsilon: f32) -> Vec<PointF> {
     // Convert polygon to polyline.
     let mut polyline = points.to_vec();
     polyline.push(points[0]);
@@ -153,7 +156,7 @@ pub fn simplify_polygon(points: &[Point], epsilon: f32) -> Vec<Point> {
 /// Return the rotated rectangle with minimum area which contains `points`.
 ///
 /// Returns `None` if `points` is empty.
-pub fn min_area_rect(points: &[Point]) -> Option<RotatedRect> {
+pub fn min_area_rect(points: &[PointF]) -> Option<RotatedRect> {
     // See "Exhaustive Search Algorithm" in
     // https://www.geometrictools.com/Documentation/MinimumAreaRectangle.pdf.
 
@@ -181,7 +184,7 @@ pub fn min_area_rect(points: &[Point]) -> Option<RotatedRect> {
         // Project polygon points onto axes that are parallel and perpendicular
         // to the current edge. The maximum distance between the projected
         // points gives the width and height of the bounding rect.
-        let par_axis = Vec2::from_points(edge_start, edge_end).normalized();
+        let par_axis = edge_start.vec_to(edge_end).normalized();
 
         // nb. Perpendicular axis points into the hull.
         let perp_axis = -par_axis.perpendicular();
@@ -189,7 +192,7 @@ pub fn min_area_rect(points: &[Point]) -> Option<RotatedRect> {
         let (min_par, max_par, max_perp): (f32, f32, f32) = hull.iter().fold(
             (f32::MAX, f32::MIN, f32::MIN),
             |(min_par, max_par, max_perp), point| {
-                let d = Vec2::from_points(edge_start, *point);
+                let d = edge_start.vec_to(*point);
                 let par_proj = par_axis.dot(d);
                 let perp_proj = perp_axis.dot(d);
                 (
@@ -205,10 +208,15 @@ pub fn min_area_rect(points: &[Point]) -> Option<RotatedRect> {
         let area = height * width;
 
         if area < min_rect.area() {
-            let center = Vec2::from_yx(edge_start.y as f32, edge_start.x as f32)
+            let center = Vec2::from_yx(edge_start.y, edge_start.x)
                 + (par_axis * ((min_par + max_par) / 2.))
                 + (perp_axis * (height / 2.));
-            min_rect = RotatedRect::new(center, /* up_axis */ perp_axis, width, height);
+            min_rect = RotatedRect::new(
+                PointF::from_yx(center.y, center.x),
+                /* up_axis */ perp_axis,
+                width,
+                height,
+            );
         }
     }
 
@@ -219,13 +227,13 @@ pub fn min_area_rect(points: &[Point]) -> Option<RotatedRect> {
 mod tests {
     use super::{convex_hull, min_area_rect, simplify_polygon, simplify_polyline};
     use crate::tests::{border_points, points_from_coords};
-    use crate::{BoundingRect, Point, Polygon, Rect, Vec2};
+    use crate::{BoundingRect, Point, PointF, Polygon, Rect};
 
     #[test]
     fn test_convex_hull() {
         struct Case {
-            points: &'static [[i32; 2]],
-            hull: &'static [[i32; 2]],
+            points: &'static [[f32; 2]],
+            hull: &'static [[f32; 2]],
         }
 
         let cases = [
@@ -236,49 +244,49 @@ mod tests {
             },
             // Single point
             Case {
-                points: &[[1, 1]],
-                hull: &[[1, 1]],
+                points: &[[1., 1.]],
+                hull: &[[1., 1.]],
             },
             // Single line
             Case {
-                points: &[[1, 1], [2, 2]],
-                hull: &[[2, 2], [1, 1]],
+                points: &[[1., 1.], [2., 2.]],
+                hull: &[[2., 2.], [1., 1.]],
             },
             // Simple square. The hull is a re-ordering of the input.
             Case {
-                points: &[[0, 0], [0, 4], [4, 4], [4, 0]],
-                hull: &[[4, 0], [0, 0], [0, 4], [4, 4]],
+                points: &[[0., 0.], [0., 4.], [4., 4.], [4., 0.]],
+                hull: &[[4., 0.], [0., 0.], [0., 4.], [4., 4.]],
             },
             // Square with an indent on each edge. The hull is just a rect.
             Case {
                 points: &[
                     // Top
-                    [0, 0],
-                    [1, 2],
-                    [0, 4],
+                    [0., 0.],
+                    [1., 2.],
+                    [0., 4.],
                     // Right
-                    [2, 3],
-                    [4, 4],
+                    [2., 3.],
+                    [4., 4.],
                     // Bottom
-                    [3, 2],
-                    [4, 0],
+                    [3., 2.],
+                    [4., 0.],
                     // Left
-                    [2, 1],
+                    [2., 1.],
                 ],
 
                 // Hull starts with lowest, left-most corner then proceeds
                 // clockwise.
-                hull: &[[4, 0], [0, 0], [0, 4], [4, 4]],
+                hull: &[[4., 0.], [0., 0.], [0., 4.], [4., 4.]],
             },
             // Set of equal points
             Case {
-                points: &[[0, 0], [0, 0], [0, 0], [0, 0]],
-                hull: &[[0, 0]],
+                points: &[[0., 0.], [0., 0.], [0., 0.], [0., 0.]],
+                hull: &[[0., 0.]],
             },
             // Three points in a line
             Case {
-                points: &[[0, 0], [1, 1], [2, 2]],
-                hull: &[[2, 2], [0, 0]],
+                points: &[[0., 0.], [1., 1.], [2., 2.]],
+                hull: &[[2., 2.], [0., 0.]],
             },
         ];
 
@@ -295,29 +303,29 @@ mod tests {
     #[test]
     fn test_min_area_rect() {
         struct Case {
-            points: Vec<Point>,
+            points: Vec<PointF>,
         }
 
         let cases = [
             // Axis-aligned rect
             Case {
-                points: points_from_coords(&[[0, 0], [0, 4], [4, 4], [4, 0]]),
+                points: points_from_coords(&[[0., 0.], [0., 4.], [4., 4.], [4., 0.]]),
             },
             // Rotated rect
             Case {
-                points: points_from_coords(&[[0, 2], [2, 4], [4, 2], [2, 0]]),
+                points: points_from_coords(&[[0., 2.], [2., 4.], [4., 2.], [2., 0.]]),
             },
             // Polygon with all points the same
             Case {
-                points: points_from_coords(&[[0, 0], [0, 0], [0, 0], [0, 0]]),
+                points: points_from_coords(&[[0., 0.], [0., 0.], [0., 0.], [0., 0.]]),
             },
             // Polygon with an empty edge
             Case {
-                points: points_from_coords(&[[0, 0], [0, 0], [1, 1], [2, 2]]),
+                points: points_from_coords(&[[0., 0.], [0., 0.], [1., 1.], [2., 2.]]),
             },
             // Single point
             Case {
-                points: points_from_coords(&[[5, 5]]),
+                points: points_from_coords(&[[5., 5.]]),
             },
             // Empty input
             Case { points: Vec::new() },
@@ -340,7 +348,7 @@ mod tests {
             assert!(case
                 .points
                 .iter()
-                .all(|p| expanded_min_rect.contains(Vec2::from_xy(p.x as f32, p.y as f32))));
+                .all(|p| expanded_min_rect.contains(PointF::from_yx(p.y as f32, p.x as f32))));
 
             // Every edge should touch (within a threshold) an input point,
             // otherwise it is too large.
@@ -364,50 +372,53 @@ mod tests {
     #[test]
     fn test_simplify_polyline() {
         struct Case {
-            poly: Vec<Point>,
+            poly: Vec<PointF>,
             epsilon: f32,
-            simplified: Vec<Point>,
+            simplified: Vec<PointF>,
         }
 
         let cases = [
             // Single point
             Case {
-                poly: vec![Point::from_yx(0, 0)],
+                poly: vec![Point::from_yx(0., 0.)],
                 epsilon: 0.1,
-                simplified: vec![Point::from_yx(0, 0)],
+                simplified: vec![Point::from_yx(0., 0.)],
             },
             // Line of 2 points
             Case {
-                poly: vec![Point::from_yx(5, 2), Point::from_yx(3, 5)],
+                poly: vec![Point::from_yx(5., 2.), Point::from_yx(3., 5.)],
                 epsilon: 0.1,
-                simplified: vec![Point::from_yx(5, 2), Point::from_yx(3, 5)],
+                simplified: vec![Point::from_yx(5., 2.), Point::from_yx(3., 5.)],
             },
             // Line of 3 points
             Case {
                 poly: vec![
-                    Point::from_yx(5, 2),
-                    Point::from_yx(5, 3),
-                    Point::from_yx(5, 4),
+                    Point::from_yx(5., 2.),
+                    Point::from_yx(5., 3.),
+                    Point::from_yx(5., 4.),
                 ],
                 epsilon: 0.1,
-                simplified: vec![Point::from_yx(5, 2), Point::from_yx(5, 4)],
+                simplified: vec![Point::from_yx(5., 2.), Point::from_yx(5., 4.)],
             },
             // Line of 4 points
             Case {
                 poly: vec![
-                    Point::from_yx(5, 2),
-                    Point::from_yx(5, 3),
-                    Point::from_yx(5, 4),
-                    Point::from_yx(5, 5),
+                    Point::from_yx(5., 2.),
+                    Point::from_yx(5., 3.),
+                    Point::from_yx(5., 4.),
+                    Point::from_yx(5., 5.),
                 ],
                 epsilon: 0.1,
-                simplified: vec![Point::from_yx(5, 2), Point::from_yx(5, 5)],
+                simplified: vec![Point::from_yx(5., 2.), Point::from_yx(5., 5.)],
             },
             // Boundary points of rect
             Case {
-                poly: border_points(Rect::from_tlbr(4, 4, 9, 9), false /* omit_corners */),
+                poly: border_points(Rect::from_tlbr(4, 4, 9, 9), false /* omit_corners */)
+                    .into_iter()
+                    .map(|p| Point::from_yx(p.y as f32, p.x as f32))
+                    .collect(),
                 epsilon: 0.1,
-                simplified: [[4, 4], [8, 4], [8, 8], [4, 8], [4, 5]]
+                simplified: [[4., 4.], [8., 4.], [8., 8.], [4., 8.], [4., 5.]]
                     .map(|[y, x]| Point::from_yx(y, x))
                     .into_iter()
                     .collect(),
@@ -423,17 +434,20 @@ mod tests {
     #[test]
     fn test_simplify_polygon() {
         struct Case {
-            poly: Vec<Point>,
+            poly: Vec<PointF>,
             epsilon: f32,
-            simplified: Vec<Point>,
+            simplified: Vec<PointF>,
         }
 
         // Since `simplify_polygon` is a thin wrapper around `simplify_polyline`,
         // so we only have a few cases to cover the differences here.
         let cases = [Case {
-            poly: border_points(Rect::from_tlbr(4, 4, 9, 9), false /* omit_corners */),
+            poly: border_points(Rect::from_tlbr(4, 4, 9, 9), false /* omit_corners */)
+                .into_iter()
+                .map(|p| Point::from_yx(p.y as f32, p.x as f32))
+                .collect(),
             epsilon: 0.1,
-            simplified: [[4, 4], [8, 4], [8, 8], [4, 8]]
+            simplified: [[4., 4.], [8., 4.], [8., 8.], [4., 8.]]
                 .map(|[y, x]| Point::from_yx(y, x))
                 .into_iter()
                 .collect(),

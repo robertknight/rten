@@ -1,31 +1,120 @@
 use std::fmt;
 use std::iter::zip;
+use std::marker::PhantomData;
 use std::ops::Range;
 use std::slice::Iter;
 
 use crate::{FillIter, Vec2};
 
-pub type Coord = i32;
-
 /// Trait for shapes which have a well-defined bounding rectangle.
 pub trait BoundingRect {
+    /// Coordinate type of bounding rect.
+    type Coord: Coord;
+
     /// Return the smallest axis-aligned bounding rect which contains this
     /// shape.
-    fn bounding_rect(&self) -> Rect;
+    fn bounding_rect(&self) -> Rect<Self::Coord>;
 }
 
-/// A point defined by integer X and Y coordinates.
+/// Trait for types which can be used as coordinates of shapes.
+///
+/// This trait captures the most common requirements of integral and float
+/// coordinate types for various shape methods.
+pub trait Coord:
+    Copy
+    + Default
+    + PartialEq
+    + PartialOrd
+    + std::fmt::Display
+    + std::ops::Add<Output = Self>
+    + std::ops::Sub<Output = Self>
+{
+    /// Return true if this coordinate is a float NaN value.
+    fn is_nan(self) -> bool;
+}
+
+impl Coord for f32 {
+    fn is_nan(self) -> bool {
+        self.is_nan()
+    }
+}
+
+impl Coord for i32 {
+    fn is_nan(self) -> bool {
+        false
+    }
+}
+
+/// Return the minimum of `a` and `b`, or `a` if `a` and `b` are unordered.
+fn min_or_lhs<T: PartialOrd>(a: T, b: T) -> T {
+    if b < a {
+        b
+    } else {
+        a
+    }
+}
+
+/// Return the maximum of `a` and `b`, or `a` if `a` and `b` are unordered.
+fn max_or_lhs<T: PartialOrd>(a: T, b: T) -> T {
+    if b > a {
+        b
+    } else {
+        a
+    }
+}
+
+/// A point defined by X and Y coordinates.
 #[derive(Copy, Clone, Default, Eq, PartialEq)]
-pub struct Point {
-    pub x: Coord,
-    pub y: Coord,
+pub struct Point<T: Coord = i32> {
+    pub x: T,
+    pub y: T,
 }
 
-impl Point {
-    pub fn from_yx(y: Coord, x: Coord) -> Point {
+pub type PointF = Point<f32>;
+
+impl<T: Coord> Point<T> {
+    /// Construct a point from X and Y coordinates.
+    pub fn from_yx(y: T, x: T) -> Self {
         Point { y, x }
     }
 
+    /// Set the coordinates of this point.
+    pub fn move_to(&mut self, y: T, x: T) {
+        self.y = y;
+        self.x = x;
+    }
+
+    pub fn translate(self, y: T, x: T) -> Self {
+        Point {
+            y: self.y + y,
+            x: self.x + x,
+        }
+    }
+
+    pub fn move_by(&mut self, y: T, x: T) {
+        *self = self.translate(y, x);
+    }
+}
+
+impl Point<f32> {
+    pub fn distance(self, other: Self) -> f32 {
+        self.vec_to(other).length()
+    }
+
+    /// Return the vector from this point to another point.
+    pub fn vec_to(self, other: Self) -> Vec2 {
+        let dx = other.x - self.x;
+        let dy = other.y - self.y;
+        Vec2::from_xy(dx, dy)
+    }
+
+    /// Return the vector from the origin to this point.
+    pub fn to_vec(self) -> Vec2 {
+        Vec2::from_xy(self.x, self.y)
+    }
+}
+
+impl Point<i32> {
     /// Return self as a [y, x] array. This is useful for indexing into an
     /// image or matrix.
     ///
@@ -33,13 +122,6 @@ impl Point {
     pub fn coord(self) -> [usize; 2] {
         assert!(self.y >= 0 && self.x >= 0, "Coordinates are negative");
         [self.y as usize, self.x as usize]
-    }
-
-    pub fn translate(self, y: Coord, x: Coord) -> Point {
-        Point {
-            y: self.y + y,
-            x: self.x + x,
-        }
     }
 
     /// Return the neighbors of the current point in clockwise order, starting
@@ -57,23 +139,19 @@ impl Point {
         ]
     }
 
-    /// Return the euclidean distance between this point and another point.
-    pub fn distance(self, other: Point) -> f32 {
-        Vec2::from_points(self, other).length()
+    pub fn to_f32(self) -> Point<f32> {
+        Point {
+            x: self.x as f32,
+            y: self.y as f32,
+        }
     }
 
-    pub fn move_by(&mut self, y: Coord, x: Coord) {
-        *self = self.translate(y, x);
-    }
-
-    /// Set the coordinates of this point.
-    pub fn move_to(&mut self, y: Coord, x: Coord) {
-        self.y = y;
-        self.x = x;
+    pub fn distance(self, other: Point<i32>) -> f32 {
+        self.to_f32().distance(other.to_f32())
     }
 }
 
-impl fmt::Debug for Point {
+impl<T: Coord> fmt::Debug for Point<T> {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         write!(f, "({}, {})", self.y, self.x)
     }
@@ -81,11 +159,30 @@ impl fmt::Debug for Point {
 
 /// Compute the overlap between two 1D lines `a` and `b`, where each line is
 /// given as (start, end) coords.
-fn overlap(a: (i32, i32), b: (i32, i32)) -> i32 {
+///
+/// Returns NaN if any input coordinate is NaN.
+fn overlap<T: Coord>(a: (T, T), b: (T, T)) -> T {
     let a = sort_pair(a);
     let b = sort_pair(b);
     let ((_a_start, a_end), (b_start, b_end)) = sort_pair((a, b));
-    (a_end - b_start).clamp(0, b_end - b_start)
+
+    let min_overlap = T::default();
+    let max_overlap = b_end - b_start;
+    let overlap = a_end - b_start;
+
+    // This check handles NaN for two of the inputs. The checks below will
+    // return NaN if `overlap` is NaN, which handles the other two inputs.
+    if max_overlap.is_nan() {
+        return max_overlap;
+    }
+
+    if overlap < min_overlap {
+        min_overlap
+    } else if overlap > max_overlap {
+        max_overlap
+    } else {
+        overlap
+    }
 }
 
 /// Sort the elements of a tuple. If the ordering of the elements is undefined,
@@ -99,14 +196,22 @@ fn sort_pair<T: PartialOrd>(pair: (T, T)) -> (T, T) {
 }
 
 /// A bounded line segment defined by a start and end point.
-#[derive(Copy, Clone, Debug, PartialEq)]
-pub struct Line {
-    pub start: Point,
-    pub end: Point,
+#[derive(Copy, Clone, PartialEq)]
+pub struct Line<T: Coord = i32> {
+    pub start: Point<T>,
+    pub end: Point<T>,
 }
 
-impl Line {
-    pub fn from_endpoints(start: Point, end: Point) -> Line {
+pub type LineF = Line<f32>;
+
+impl<T: Coord> fmt::Debug for Line<T> {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        write!(f, "{:?} -> {:?}", self.start, self.end)
+    }
+}
+
+impl<T: Coord> Line<T> {
+    pub fn from_endpoints(start: Point<T>, end: Point<T>) -> Line<T> {
         Line { start, end }
     }
 
@@ -115,23 +220,66 @@ impl Line {
         self.start == self.end
     }
 
-    pub fn width(&self) -> Coord {
+    /// Return the difference between the starting and ending X coordinates of
+    /// the line.
+    pub fn width(&self) -> T {
         self.end.x - self.start.x
     }
 
-    pub fn height(&self) -> Coord {
+    /// Return the difference between the starting and ending Y coordinates of
+    /// the line.
+    pub fn height(&self) -> T {
         self.end.y - self.start.y
     }
 
-    pub fn center(&self) -> Point {
-        let cy = (self.start.y + self.end.y) / 2;
-        let cx = (self.start.x + self.end.x) / 2;
-        Point::from_yx(cy, cx)
+    /// Return true if the Y coordinate of the line's start and end points are
+    /// the same.
+    pub fn is_horizontal(&self) -> bool {
+        self.start.y == self.end.y
     }
 
+    /// Return a copy of this line with the start and end points swapped.
+    pub fn reverse(&self) -> Line<T> {
+        Line::from_endpoints(self.end, self.start)
+    }
+
+    /// Return a copy of this line with the same endpoints but swapped if
+    /// needed so that `end.y >= start.y`.
+    pub fn downwards(&self) -> Line<T> {
+        if self.start.y <= self.end.y {
+            *self
+        } else {
+            self.reverse()
+        }
+    }
+
+    /// Return a copy of this line with the same endpoints but swapped if
+    /// needed so that `end.x >= start.x`.
+    pub fn rightwards(&self) -> Line<T> {
+        if self.start.x <= self.end.x {
+            *self
+        } else {
+            self.reverse()
+        }
+    }
+
+    /// Return the number of pixels by which this line overlaps `other` in the
+    /// vertical direction.
+    pub fn vertical_overlap(&self, other: Line<T>) -> T {
+        overlap((self.start.y, self.end.y), (other.start.y, other.end.y))
+    }
+
+    /// Return the number of pixels by which this line overlaps `other` in the
+    /// horizontal direction.
+    pub fn horizontal_overlap(&self, other: Line<T>) -> T {
+        overlap((self.start.x, self.end.x), (other.start.x, other.end.x))
+    }
+}
+
+impl Line<f32> {
     /// Return the euclidean distance between a point and the closest coordinate
     /// that lies on the line.
-    pub fn distance(&self, p: Point) -> f32 {
+    pub fn distance(&self, p: PointF) -> f32 {
         if self.is_empty() {
             return self.start.distance(p);
         }
@@ -142,8 +290,8 @@ impl Line {
         // Compute normalized scalar projection of line from `start` to `p` onto
         // self. This indicates how far along the `self` line the nearest point
         // to `p` is.
-        let ab = Vec2::from_points(self.start, self.end);
-        let ac = Vec2::from_points(self.start, p);
+        let ab = self.start.vec_to(self.end);
+        let ac = self.start.vec_to(p);
         let scalar_proj = ac.dot(ab) / (ab.length() * ab.length());
 
         if scalar_proj <= 0. {
@@ -153,32 +301,18 @@ impl Line {
             // Nearest point is end of line.
             self.end.distance(p)
         } else {
-            let start_x = self.start.x as f32;
-            let start_y = self.start.y as f32;
-            let intercept_x = start_x + ab.x * scalar_proj;
-            let intercept_y = start_y + ab.y * scalar_proj;
-            let proj_line = Vec2::from_yx(intercept_y - p.y as f32, intercept_x - p.x as f32);
+            let intercept_x = self.start.x + ab.x * scalar_proj;
+            let intercept_y = self.start.y + ab.y * scalar_proj;
+            let proj_line = Vec2::from_yx(intercept_y - p.y, intercept_x - p.x);
             proj_line.length()
         }
-    }
-
-    /// Return the number of pixels by which this line overlaps `other` in the
-    /// vertical direction.
-    pub fn vertical_overlap(&self, other: Line) -> i32 {
-        overlap((self.start.y, self.end.y), (other.start.y, other.end.y))
-    }
-
-    /// Return the number of pixels by which this line overlaps `other` in the
-    /// horizontal direction.
-    pub fn horizontal_overlap(&self, other: Line) -> i32 {
-        overlap((self.start.x, self.end.x), (other.start.x, other.end.x))
     }
 
     /// Test whether this line segment intersects `other` at a single point.
     ///
     /// Returns false if the line segments do not intersect, or are coincident
     /// (ie. overlap for part of their lengths).
-    pub fn intersects(&self, other: Line) -> bool {
+    pub fn intersects(&self, other: Line<f32>) -> bool {
         // See https://en.wikipedia.org/wiki/Intersection_(geometry)#Two_line_segments
 
         let (x1, x2) = (self.start.x, self.end.x);
@@ -210,7 +344,7 @@ impl Line {
         let b1 = y3 - y1;
 
         let det_a = a * d - b * c;
-        if det_a == 0 {
+        if det_a == 0. {
             // Lines are either parallel or coincident.
             return false;
         }
@@ -220,50 +354,30 @@ impl Line {
         // We could calculate `s0` as `det_a0 / det_a` and `t0` as `det_a1 / det_a`
         // (using float division). We only need to test whether s0 and t0 are
         // in [0, 1] though, so this can be done without division.
-        let s_ok = (det_a0 >= 0) == (det_a > 0) && det_a0.abs() <= det_a.abs();
-        let t_ok = (det_a1 >= 0) == (det_a > 0) && det_a1.abs() <= det_a.abs();
+        let s_ok = (det_a0 >= 0.) == (det_a > 0.) && det_a0.abs() <= det_a.abs();
+        let t_ok = (det_a1 >= 0.) == (det_a > 0.) && det_a1.abs() <= det_a.abs();
 
         s_ok && t_ok
     }
+}
 
-    pub fn is_horizontal(&self) -> bool {
-        self.start.y == self.end.y
-    }
-
-    /// Return a copy of this line with the start and end points swapped.
-    pub fn reverse(&self) -> Line {
-        Line::from_endpoints(self.end, self.start)
-    }
-
-    /// Return a copy of this line with the same endpoints but swapped if
-    /// needed so that `end.y >= start.y`.
-    pub fn downwards(&self) -> Line {
-        if self.start.y <= self.end.y {
-            *self
-        } else {
-            self.reverse()
-        }
-    }
-
-    /// Return a copy of this line with the same endpoints but swapped if
-    /// needed so that `end.x >= start.x`.
-    pub fn rightwards(&self) -> Line {
-        if self.start.x <= self.end.x {
-            *self
-        } else {
-            self.reverse()
-        }
+impl Line<f32> {
+    /// Return the midpoint between the start and end points of the line.
+    pub fn center(&self) -> PointF {
+        let cy = (self.start.y + self.end.y) / 2.;
+        let cx = (self.start.x + self.end.x) / 2.;
+        Point::from_yx(cy, cx)
     }
 
     /// Return `(slope, intercept)` tuple for line or None if the line is
     /// vertical.
     fn slope_intercept(&self) -> Option<(f32, f32)> {
         let dx = self.end.x - self.start.x;
-        if dx == 0 {
+        if dx == 0. {
             return None;
         }
-        let slope = (self.end.y - self.start.y) as f32 / dx as f32;
-        let intercept = self.start.y as f32 - slope * self.start.x as f32;
+        let slope = (self.end.y - self.start.y) / dx;
+        let intercept = self.start.y - slope * self.start.x;
         Some((slope, intercept))
     }
 
@@ -274,12 +388,12 @@ impl Line {
     /// horizontal.
     pub fn x_for_y(&self, y: f32) -> Option<f32> {
         let (min_y, max_y) = sort_pair((self.start.y, self.end.y));
-        if y < min_y as f32 || y > max_y as f32 || min_y == max_y {
+        if y < min_y || y > max_y || min_y == max_y {
             return None;
         }
         self.slope_intercept()
             .map(|(slope, intercept)| (y - intercept) / slope)
-            .or(Some(self.start.x as f32))
+            .or(Some(self.start.x))
     }
 
     /// Return the Y coordinate that corresponds to a given X coordinate on
@@ -289,7 +403,7 @@ impl Line {
     /// is vertical.
     pub fn y_for_x(&self, x: f32) -> Option<f32> {
         let (min_x, max_x) = sort_pair((self.start.x, self.end.x));
-        if x < min_x as f32 || x > max_x as f32 {
+        if x < min_x || x > max_x {
             return None;
         }
         self.slope_intercept()
@@ -297,92 +411,85 @@ impl Line {
     }
 }
 
-impl BoundingRect for Line {
-    fn bounding_rect(&self) -> Rect {
+impl Line<i32> {
+    pub fn to_f32(&self) -> LineF {
+        Line::from_endpoints(self.start.to_f32(), self.end.to_f32())
+    }
+
+    /// Return the euclidean distance between a point and the closest coordinate
+    /// that lies on the line.
+    pub fn distance(&self, p: Point) -> f32 {
+        self.to_f32().distance(p.to_f32())
+    }
+
+    /// Test whether this line segment intersects `other` at a single point.
+    ///
+    /// Returns false if the line segments do not intersect, or are coincident
+    /// (ie. overlap for part of their lengths).
+    pub fn intersects(&self, other: Line) -> bool {
+        self.to_f32().intersects(other.to_f32())
+    }
+}
+
+impl<T: Coord> BoundingRect for Line<T> {
+    type Coord = T;
+
+    fn bounding_rect(&self) -> Rect<T> {
         let d = self.downwards();
         let r = self.rightwards();
         Rect::from_tlbr(d.start.y, r.start.x, d.end.y, r.end.x)
     }
 }
 
-/// Rectangle defined by left, top, right and bottom integer coordinates.
+/// Rectangle defined by left, top, right and bottom coordinates.
 ///
 /// The left and top coordinates are inclusive. The right and bottom coordinates
 /// are exclusive.
 #[derive(Copy, Clone, Debug, PartialEq, Eq)]
-pub struct Rect {
-    top_left: Point,
-    bottom_right: Point,
+pub struct Rect<T: Coord = i32> {
+    top_left: Point<T>,
+    bottom_right: Point<T>,
 }
 
-impl Rect {
-    /// Return a rect with top-left corner at 0, 0 and the given height/width.
-    pub fn from_hw(height: Coord, width: Coord) -> Rect {
-        Self::new(Point::default(), Point::from_yx(height, width))
-    }
+pub type RectF = Rect<f32>;
 
-    /// Return a rect with the given top, left, bottom and right coordinates.
-    pub fn from_tlbr(top: Coord, left: Coord, bottom: Coord, right: Coord) -> Rect {
-        Self::new(Point::from_yx(top, left), Point::from_yx(bottom, right))
-    }
-
-    /// Return a rect with the given top, left, height and width.
-    pub fn from_tlhw(top: Coord, left: Coord, height: Coord, width: Coord) -> Rect {
-        Self::from_tlbr(top, left, top + height, left + width)
-    }
-
-    pub fn new(top_left: Point, bottom_right: Point) -> Rect {
+impl<T: Coord> Rect<T> {
+    pub fn new(top_left: Point<T>, bottom_right: Point<T>) -> Rect<T> {
         Rect {
             top_left,
             bottom_right,
         }
     }
 
-    pub fn area(&self) -> Coord {
-        self.width() * self.height()
-    }
-
-    pub fn width(&self) -> Coord {
+    pub fn width(&self) -> T {
         // TODO - Handle inverted rects here
         self.bottom_right.x - self.top_left.x
     }
 
-    pub fn height(&self) -> Coord {
+    pub fn height(&self) -> T {
         // TODO - Handle inverted rects here
         self.bottom_right.y - self.top_left.y
     }
 
-    pub fn top(&self) -> Coord {
+    pub fn top(&self) -> T {
         self.top_left.y
     }
 
-    pub fn left(&self) -> Coord {
+    pub fn left(&self) -> T {
         self.top_left.x
     }
 
-    pub fn right(&self) -> Coord {
+    pub fn right(&self) -> T {
         self.bottom_right.x
     }
 
-    pub fn bottom(&self) -> Coord {
+    pub fn bottom(&self) -> T {
         self.bottom_right.y
-    }
-
-    /// Return true if the width or height of this rect are <= 0.
-    pub fn is_empty(&self) -> bool {
-        self.right() <= self.left() || self.bottom() <= self.top()
-    }
-
-    /// Return the center point of the rect.
-    pub fn center(&self) -> Point {
-        let y = (self.top_left.y + self.bottom_right.y) / 2;
-        let x = (self.top_left.x + self.bottom_right.x) / 2;
-        Point::from_yx(y, x)
     }
 
     /// Return the corners of the rect in clockwise order, starting from the
     /// top left.
-    pub fn corners(&self) -> [Point; 4] {
+    pub fn corners(&self) -> [Point<T>; 4] {
         [
             self.top_left(),
             self.top_right(),
@@ -392,47 +499,47 @@ impl Rect {
     }
 
     /// Return the coordinate of the top-left corner of the rect.
-    pub fn top_left(&self) -> Point {
+    pub fn top_left(&self) -> Point<T> {
         self.top_left
     }
 
     /// Return the coordinate of the top-right corner of the rect.
-    pub fn top_right(&self) -> Point {
+    pub fn top_right(&self) -> Point<T> {
         Point::from_yx(self.top_left.y, self.bottom_right.x)
     }
 
     /// Return the coordinate of the bottom-left corner of the rect.
-    pub fn bottom_left(&self) -> Point {
+    pub fn bottom_left(&self) -> Point<T> {
         Point::from_yx(self.bottom_right.y, self.top_left.x)
     }
 
     /// Return the coordinate of the bottom-right corner of the rect.
-    pub fn bottom_right(&self) -> Point {
+    pub fn bottom_right(&self) -> Point<T> {
         self.bottom_right
     }
 
     /// Return the line segment of the left edge of the rect.
-    pub fn left_edge(&self) -> Line {
+    pub fn left_edge(&self) -> Line<T> {
         Line::from_endpoints(self.top_left(), self.bottom_left())
     }
 
     /// Return the line segment of the top edge of the rect.
-    pub fn top_edge(&self) -> Line {
+    pub fn top_edge(&self) -> Line<T> {
         Line::from_endpoints(self.top_left(), self.top_right())
     }
 
     /// Return the line segment of the right edge of the rect.
-    pub fn right_edge(&self) -> Line {
+    pub fn right_edge(&self) -> Line<T> {
         Line::from_endpoints(self.top_right(), self.bottom_right())
     }
 
     /// Return the line segment of the bottom edge of the rect.
-    pub fn bottom_edge(&self) -> Line {
+    pub fn bottom_edge(&self) -> Line<T> {
         Line::from_endpoints(self.bottom_left(), self.bottom_right())
     }
 
     /// Return the top, left, bottom and right coordinates as an array.
-    pub fn tlbr(&self) -> [Coord; 4] {
+    pub fn tlbr(&self) -> [T; 4] {
         [
             self.top_left.y,
             self.top_left.x,
@@ -441,8 +548,31 @@ impl Rect {
         ]
     }
 
+    /// Return a rect with top-left corner at 0, 0 and the given height/width.
+    pub fn from_hw(height: T, width: T) -> Rect<T> {
+        Self::new(Point::default(), Point::from_yx(height, width))
+    }
+
+    /// Return a rect with the given top, left, bottom and right coordinates.
+    pub fn from_tlbr(top: T, left: T, bottom: T, right: T) -> Rect<T> {
+        Self::new(Point::from_yx(top, left), Point::from_yx(bottom, right))
+    }
+
+    /// Return a rect with the given top, left, height and width.
+    pub fn from_tlhw(top: T, left: T, height: T, width: T) -> Rect<T> {
+        Self::from_tlbr(top, left, top + height, left + width)
+    }
+
+    /// Return the signed area of this rect.
+    pub fn area(&self) -> T
+    where
+        T: std::ops::Mul<Output = T>,
+    {
+        self.width() * self.height()
+    }
+
     /// Return the top, left, height and width as an array.
-    pub fn tlhw(&self) -> [Coord; 4] {
+    pub fn tlhw(&self) -> [T; 4] {
         [
             self.top_left.y,
             self.top_left.x,
@@ -451,49 +581,73 @@ impl Rect {
         ]
     }
 
+    /// Return true if `other` lies on the boundary or interior of this rect.
+    pub fn contains_point(&self, other: Point<T>) -> bool {
+        self.top() <= other.y
+            && self.bottom() >= other.y
+            && self.left() <= other.x
+            && self.right() >= other.x
+    }
+
+    /// Return true if the width or height of this rect are <= 0.
+    pub fn is_empty(&self) -> bool {
+        self.right() <= self.left() || self.bottom() <= self.top()
+    }
+
     /// Return a new Rect with each coordinate adjusted by an offset.
-    pub fn adjust_tlbr(&self, top: Coord, left: Coord, bottom: Coord, right: Coord) -> Rect {
+    pub fn adjust_tlbr(&self, top: T, left: T, bottom: T, right: T) -> Rect<T> {
         Rect {
             top_left: self.top_left.translate(top, left),
             bottom_right: self.bottom_right.translate(bottom, right),
         }
     }
 
-    /// Return a new with each side adjusted so that the result lies inside
-    /// `rect`.
-    pub fn clamp(&self, rect: Rect) -> Rect {
-        let top = self.top().max(rect.top());
-        let left = self.left().max(rect.left());
-        let bottom = self.bottom().min(rect.bottom());
-        let right = self.right().min(rect.right());
-        Rect {
-            top_left: Point::from_yx(top, left),
-            bottom_right: Point::from_yx(bottom, right),
-        }
-    }
-
     /// Return true if the intersection of this rect and `other` is non-empty.
-    pub fn intersects(&self, other: Rect) -> bool {
-        self.left_edge().vertical_overlap(other.left_edge()) > 0
-            && self.top_edge().horizontal_overlap(other.top_edge()) > 0
+    pub fn intersects(&self, other: Rect<T>) -> bool {
+        self.left_edge().vertical_overlap(other.left_edge()) > T::default()
+            && self.top_edge().horizontal_overlap(other.top_edge()) > T::default()
     }
 
     /// Return the smallest rect that contains both this rect and `other`.
-    pub fn union(&self, other: Rect) -> Rect {
-        let t = self.top().min(other.top());
-        let l = self.left().min(other.left());
-        let b = self.bottom().max(other.bottom());
-        let r = self.right().max(other.right());
+    pub fn union(&self, other: Rect<T>) -> Rect<T> {
+        let t = min_or_lhs(self.top(), other.top());
+        let l = min_or_lhs(self.left(), other.left());
+        let b = max_or_lhs(self.bottom(), other.bottom());
+        let r = max_or_lhs(self.right(), other.right());
         Rect::from_tlbr(t, l, b, r)
     }
 
     /// Return the largest rect that is contained within this rect and `other`.
-    pub fn intersection(&self, other: Rect) -> Rect {
-        let t = self.top().max(other.top());
-        let l = self.left().max(other.left());
-        let b = self.bottom().min(other.bottom());
-        let r = self.right().min(other.right());
+    pub fn intersection(&self, other: Rect<T>) -> Rect<T> {
+        let t = max_or_lhs(self.top(), other.top());
+        let l = max_or_lhs(self.left(), other.left());
+        let b = min_or_lhs(self.bottom(), other.bottom());
+        let r = min_or_lhs(self.right(), other.right());
         Rect::from_tlbr(t, l, b, r)
+    }
+
+    /// Return true if `other` lies entirely within this rect.
+    pub fn contains(&self, other: Rect<T>) -> bool {
+        self.union(other) == *self
+    }
+
+    /// Return a new with each side adjusted so that the result lies inside
+    /// `rect`.
+    pub fn clamp(&self, rect: Rect<T>) -> Rect<T> {
+        self.intersection(rect)
+    }
+
+    pub fn to_polygon(&self) -> Polygon<T, [Point<T>; 4]> {
+        Polygon::new(self.corners())
+    }
+}
+
+impl Rect<i32> {
+    /// Return the center point of the rect.
+    pub fn center(&self) -> Point {
+        let y = (self.top_left.y + self.bottom_right.y) / 2;
+        let x = (self.top_left.x + self.bottom_right.x) / 2;
+        Point::from_yx(y, x)
     }
 
     /// Return the Intersection over Union ratio for this rect and `other`.
@@ -503,26 +657,47 @@ impl Rect {
         self.intersection(other).area() as f32 / self.union(other).area() as f32
     }
 
-    /// Return true if `other` lies entirely within this rect.
-    pub fn contains(&self, other: Rect) -> bool {
-        self.union(other) == *self
-    }
-
-    /// Return true if `other` lies on the boundary or interior of this rect.
-    pub fn contains_point(&self, other: Point) -> bool {
-        self.top() <= other.y
-            && self.bottom() >= other.y
-            && self.left() <= other.x
-            && self.right() >= other.x
-    }
-
-    pub fn to_polygon(&self) -> Polygon<[Point; 4]> {
-        Polygon::new(self.corners())
+    pub fn to_f32(&self) -> RectF {
+        Rect::from_tlbr(
+            self.top_left.y as f32,
+            self.top_left.x as f32,
+            self.bottom_right.y as f32,
+            self.bottom_right.x as f32,
+        )
     }
 }
 
-impl BoundingRect for Rect {
-    fn bounding_rect(&self) -> Rect {
+impl Rect<f32> {
+    /// Return the center point of the rect.
+    pub fn center(&self) -> PointF {
+        let y = (self.top_left.y + self.bottom_right.y) / 2.;
+        let x = (self.top_left.x + self.bottom_right.x) / 2.;
+        Point::from_yx(y, x)
+    }
+
+    /// Return the Intersection over Union ratio for this rect and `other`.
+    ///
+    /// See <https://en.wikipedia.org/wiki/Jaccard_index>.
+    pub fn iou(&self, other: RectF) -> f32 {
+        self.intersection(other).area() / self.union(other).area()
+    }
+
+    /// Return the smallest rect with integral coordinates that contains this
+    /// rect.
+    pub fn integral_bounding_rect(&self) -> Rect<i32> {
+        Rect::from_tlbr(
+            self.top() as i32,
+            self.left() as i32,
+            self.bottom().ceil() as i32,
+            self.right().ceil() as i32,
+        )
+    }
+}
+
+impl<T: Coord> BoundingRect for Rect<T> {
+    type Coord = T;
+
+    fn bounding_rect(&self) -> Rect<T> {
         *self
     }
 }
@@ -535,7 +710,7 @@ impl BoundingRect for Rect {
 #[derive(Copy, Clone, Debug)]
 pub struct RotatedRect {
     // Centroid of the rect.
-    center: Vec2,
+    center: PointF,
 
     // Unit-length vector indicating the "up" direction for this rect.
     up: Vec2,
@@ -550,7 +725,7 @@ pub struct RotatedRect {
 impl RotatedRect {
     /// Construct a new RotatedRect with a given `center`, up direction and
     /// dimensions.
-    pub fn new(center: Vec2, up_axis: Vec2, width: f32, height: f32) -> RotatedRect {
+    pub fn new(center: PointF, up_axis: Vec2, width: f32, height: f32) -> RotatedRect {
         RotatedRect {
             center,
             up: up_axis.normalized(),
@@ -560,7 +735,7 @@ impl RotatedRect {
     }
 
     /// Return true if a point lies within this rotated rect.
-    pub fn contains(&self, point: Vec2) -> bool {
+    pub fn contains(&self, point: PointF) -> bool {
         // Treat zero width/height rectangles as being very thin rectangles
         // rather than lines.
         let height = self.height.max(1e-6);
@@ -571,7 +746,7 @@ impl RotatedRect {
         // rect.
         //
         // See notes in `Line::distance` about distance from point to a line.
-        let ac = point - self.center;
+        let ac = point.to_vec() - self.center.to_vec();
         let ab = self.up * (height / 2.);
         let up_proj = ac.dot(ab) / (height / 2.).powi(2);
 
@@ -596,30 +771,24 @@ impl RotatedRect {
     /// The corners are returned in clockwise order starting from the corner
     /// that is the top-left when the "up" axis has XY coordinates [0, 1], or
     /// equivalently, bottom-right when the "up" axis has XY coords [0, -1].
-    pub fn corners(&self) -> [Point; 4] {
-        self.corners_f32()
-            .map(|v| Point::from_yx(v.y.round() as i32, v.x.round() as i32))
-    }
-
-    /// Same as [RotatedRect::corners] but returns results with sub-pixel
-    /// precision.
-    pub fn corners_f32(&self) -> [Vec2; 4] {
+    pub fn corners(&self) -> [PointF; 4] {
         let par_offset = self.up.perpendicular() * (self.width / 2.);
         let perp_offset = self.up * (self.height / 2.);
 
+        let center = self.center.to_vec();
         let coords: [Vec2; 4] = [
-            self.center - perp_offset - par_offset,
-            self.center - perp_offset + par_offset,
-            self.center + perp_offset + par_offset,
-            self.center + perp_offset - par_offset,
+            center - perp_offset - par_offset,
+            center - perp_offset + par_offset,
+            center + perp_offset + par_offset,
+            center + perp_offset - par_offset,
         ];
 
-        coords
+        coords.map(|c| Point::from_yx(c.y, c.x))
     }
 
     /// Return the edges of this rect, in clockwise order starting from the
     /// edge that is the top edge if the rect has no rotation.
-    pub fn edges(&self) -> [Line; 4] {
+    pub fn edges(&self) -> [LineF; 4] {
         let corners = self.corners();
         [
             Line::from_endpoints(corners[0], corners[1]),
@@ -630,7 +799,7 @@ impl RotatedRect {
     }
 
     /// Return the centroid of the rect.
-    pub fn center(&self) -> Vec2 {
+    pub fn center(&self) -> PointF {
         self.center
     }
 
@@ -650,6 +819,7 @@ impl RotatedRect {
         self.height
     }
 
+    /// Return the signed area of this rect.
     pub fn area(&self) -> f32 {
         self.height * self.width
     }
@@ -674,17 +844,8 @@ impl RotatedRect {
 
     /// Return a new axis-aligned RotatedRect whose bounding rectangle matches
     /// `r`.
-    pub fn from_rect(r: Rect) -> RotatedRect {
-        let center = Vec2::from_yx(
-            (r.top() + r.bottom()) as f32 / 2.,
-            (r.left() + r.right()) as f32 / 2.,
-        );
-        RotatedRect::new(
-            center,
-            Vec2::from_yx(1., 0.),
-            r.width() as f32,
-            r.height() as f32,
-        )
+    pub fn from_rect(r: RectF) -> RotatedRect {
+        RotatedRect::new(r.center(), Vec2::from_yx(1., 0.), r.width(), r.height())
     }
 
     /// Return the rectangle with the same corner points as `self`, but with
@@ -714,14 +875,16 @@ impl RotatedRect {
 }
 
 impl BoundingRect for RotatedRect {
-    fn bounding_rect(&self) -> Rect {
+    type Coord = f32;
+
+    fn bounding_rect(&self) -> RectF {
         let corners = self.corners();
 
         let mut xs = corners.map(|p| p.x);
-        xs.sort();
+        xs.sort_unstable_by(f32::total_cmp);
 
         let mut ys = corners.map(|p| p.y);
-        ys.sort();
+        ys.sort_unstable_by(f32::total_cmp);
 
         Rect::from_tlbr(ys[0], xs[0], ys[3], xs[3])
     }
@@ -732,26 +895,14 @@ impl BoundingRect for RotatedRect {
 /// Returns `None` if the collection is empty.
 pub fn bounding_rect<'a, Shape: 'a + BoundingRect, I: Iterator<Item = &'a Shape>>(
     objects: I,
-) -> Option<Rect> {
-    if let Some((min_x, max_x, min_y, max_y)) =
-        objects.fold(None as Option<(i32, i32, i32, i32)>, |min_max, shape| {
-            let br = shape.bounding_rect();
-            min_max
-                .map(|(min_x, max_x, min_y, max_y)| {
-                    (
-                        min_x.min(br.left()),
-                        max_x.max(br.right()),
-                        min_y.min(br.top()),
-                        max_y.max(br.bottom()),
-                    )
-                })
-                .or(Some((br.left(), br.right(), br.top(), br.bottom())))
-        })
-    {
-        Some(Rect::from_tlbr(min_y, min_x, max_y, max_x))
-    } else {
-        None
-    }
+) -> Option<Rect<Shape::Coord>>
+where
+    Shape::Coord: Coord,
+{
+    objects.fold(None, |bounding_rect, shape| {
+        let sbr = shape.bounding_rect();
+        bounding_rect.map(|br| br.union(sbr)).or(Some(sbr))
+    })
 }
 
 /// Polygon shape defined by a list of vertices.
@@ -759,16 +910,50 @@ pub fn bounding_rect<'a, Shape: 'a + BoundingRect, I: Iterator<Item = &'a Shape>
 /// Depending on the storage type `S`, a Polygon can own its vertices
 /// (eg. `Vec<Point>`) or they can borrowed (eg. `&[Point]`).
 #[derive(Copy, Clone, Debug)]
-pub struct Polygon<S: AsRef<[Point]> = Vec<Point>> {
+pub struct Polygon<T: Coord = i32, S: AsRef<[Point<T>]> = Vec<Point<T>>> {
     points: S,
+
+    /// Avoids compiler complaining `T` is unused.
+    element_type: PhantomData<T>,
 }
 
-impl<S: AsRef<[Point]>> Polygon<S> {
+pub type PolygonF<S = Vec<PointF>> = Polygon<f32, S>;
+
+impl<T: Coord, S: AsRef<[Point<T>]>> Polygon<T, S> {
     /// Create a view of a set of points as a polygon.
-    pub fn new(points: S) -> Polygon<S> {
-        Polygon { points }
+    pub fn new(points: S) -> Polygon<T, S> {
+        Polygon {
+            points,
+            element_type: PhantomData,
+        }
     }
 
+    /// Return a polygon which borrows its points from this polygon.
+    pub fn borrow(&self) -> Polygon<T, &[Point<T>]> {
+        Polygon::new(self.points.as_ref())
+    }
+
+    /// Return an iterator over the edges of this polygon.
+    pub fn edges(&self) -> impl Iterator<Item = Line<T>> + '_ {
+        zip(
+            self.points.as_ref().iter(),
+            self.points.as_ref().iter().cycle().skip(1),
+        )
+        .map(|(p0, p1)| Line::from_endpoints(*p0, *p1))
+    }
+
+    /// Return a slice of the endpoints of the polygon's edges.
+    pub fn vertices(&self) -> &[Point<T>] {
+        self.points.as_ref()
+    }
+
+    /// Return a clone of this polygon which owns its vertices.
+    pub fn to_owned(&self) -> Polygon<T> {
+        Polygon::new(self.vertices().to_vec())
+    }
+}
+
+impl<S: AsRef<[Point]>> Polygon<i32, S> {
     /// Return an iterator over coordinates of pixels that fill the polygon.
     ///
     /// Polygon filling treats the polygon's vertices as being located at the
@@ -789,25 +974,6 @@ impl<S: AsRef<[Point]>> Polygon<S> {
     /// [^2]: <https://learn.microsoft.com/en-us/windows/win32/direct3d11/d3d10-graphics-programming-guide-rasterizer-stage-rules#triangle-rasterization-rules-without-multisampling>
     pub fn fill_iter(&self) -> FillIter {
         FillIter::new(self.borrow())
-    }
-
-    /// Return a polygon which borrows its points from this polygon.
-    pub fn borrow(&self) -> Polygon<&[Point]> {
-        Polygon::new(self.points.as_ref())
-    }
-
-    /// Return an iterator over the edges of this polygon.
-    pub fn edges(&self) -> impl Iterator<Item = Line> + '_ {
-        zip(
-            self.points.as_ref().iter(),
-            self.points.as_ref().iter().cycle().skip(1),
-        )
-        .map(|(p0, p1)| Line::from_endpoints(*p0, *p1))
-    }
-
-    /// Return a slice of the endpoints of the polygon's edges.
-    pub fn vertices(&self) -> &[Point] {
-        self.points.as_ref()
     }
 
     /// Return true if the pixel with coordinates `p` lies inside the polygon.
@@ -873,30 +1039,34 @@ impl<S: AsRef<[Point]>> Polygon<S> {
         }
         true
     }
-
-    /// Return a clone of this polygon which owns its vertices.
-    pub fn to_owned(&self) -> Polygon {
-        Polygon::new(self.vertices().to_vec())
-    }
 }
 
-impl<S: AsRef<[Point]>> BoundingRect for Polygon<S> {
-    fn bounding_rect(&self) -> Rect {
-        let mut min_x = i32::MAX;
-        let mut max_x = i32::MIN;
-        let mut min_y = i32::MAX;
-        let mut max_y = i32::MIN;
+macro_rules! impl_bounding_rect_for_polygon {
+    ($coord:ty) => {
+        impl<S: AsRef<[Point<$coord>]>> BoundingRect for Polygon<$coord, S> {
+            type Coord = $coord;
 
-        for p in self.points.as_ref() {
-            min_x = min_x.min(p.x);
-            max_x = max_x.max(p.x);
-            min_y = min_y.min(p.y);
-            max_y = max_y.max(p.y);
+            fn bounding_rect(&self) -> Rect<$coord> {
+                let mut min_x = <$coord>::MAX;
+                let mut max_x = <$coord>::MIN;
+                let mut min_y = <$coord>::MAX;
+                let mut max_y = <$coord>::MIN;
+
+                for p in self.points.as_ref() {
+                    min_x = min_x.min(p.x);
+                    max_x = max_x.max(p.x);
+                    min_y = min_y.min(p.y);
+                    max_y = max_y.max(p.y);
+                }
+
+                Rect::from_tlbr(min_y, min_x, max_y, max_x)
+            }
         }
-
-        Rect::from_tlbr(min_y, min_x, max_y, max_x)
-    }
+    };
 }
+
+impl_bounding_rect_for_polygon!(i32);
+impl_bounding_rect_for_polygon!(f32);
 
 /// A collection of polygons, where each polygon is defined by a slice of points.
 ///
@@ -983,7 +1153,7 @@ mod tests {
     use crate::tests::{points_from_coords, points_from_n_coords};
     use crate::Vec2;
 
-    use super::{bounding_rect, BoundingRect, Line, Point, Polygon, Rect, RotatedRect};
+    use super::{bounding_rect, BoundingRect, Line, Point, PointF, Polygon, Rect, RotatedRect};
 
     #[test]
     fn test_bounding_rect() {
@@ -1325,10 +1495,10 @@ mod tests {
 
         for case in cases {
             for (x, expected_y) in case.points {
-                assert_eq!(case.line.y_for_x(x), expected_y);
+                assert_eq!(case.line.to_f32().y_for_x(x), expected_y);
                 if let Some(y) = expected_y {
                     assert_eq!(
-                        case.line.x_for_y(y),
+                        case.line.to_f32().x_for_y(y),
                         if case.line.is_horizontal() {
                             None
                         } else {
@@ -1560,15 +1730,15 @@ mod tests {
         let cases = [
             // Axis-aligned
             Case {
-                rrect: RotatedRect::new(Vec2::from_yx(0., 0.), Vec2::from_yx(1., 0.), 10., 5.),
+                rrect: RotatedRect::new(PointF::from_yx(0., 0.), Vec2::from_yx(1., 0.), 10., 5.),
             },
             // Axis-aligned, inverted.
             Case {
-                rrect: RotatedRect::new(Vec2::from_yx(0., 0.), Vec2::from_yx(-1., 0.), 10., 5.),
+                rrect: RotatedRect::new(PointF::from_yx(0., 0.), Vec2::from_yx(-1., 0.), 10., 5.),
             },
             // Rotated
             Case {
-                rrect: RotatedRect::new(Vec2::from_yx(0., 0.), Vec2::from_yx(0.5, 0.5), 10., 5.),
+                rrect: RotatedRect::new(PointF::from_yx(0., 0.), Vec2::from_yx(0.5, 0.5), 10., 5.),
             },
         ];
 
@@ -1576,12 +1746,12 @@ mod tests {
             assert!(r.contains(r.center()));
 
             // Test points slightly inside.
-            for c in r.expanded(-1e-5, -1e-5).corners_f32() {
+            for c in r.expanded(-1e-5, -1e-5).corners() {
                 assert!(r.contains(c));
             }
 
             // Test points slightly outside.
-            for c in r.expanded(1e-5, 1e-5).corners_f32() {
+            for c in r.expanded(1e-5, 1e-5).corners() {
                 assert!(!r.contains(c));
             }
         }
@@ -1589,14 +1759,14 @@ mod tests {
 
     #[test]
     fn test_rotated_rect_corners() {
-        let r = RotatedRect::new(Vec2::from_yx(5., 5.), Vec2::from_yx(1., 0.), 5., 5.);
-        let expected = points_from_n_coords([[3, 3], [3, 8], [8, 8], [8, 3]]);
+        let r = RotatedRect::new(PointF::from_yx(5., 5.), Vec2::from_yx(1., 0.), 5., 5.);
+        let expected = points_from_n_coords([[2.5, 2.5], [2.5, 7.5], [7.5, 7.5], [7.5, 2.5]]);
         assert_eq!(r.corners(), expected);
     }
 
     #[test]
     fn test_rotated_rect_expanded() {
-        let r = RotatedRect::new(Vec2::from_yx(0., 0.), Vec2::from_yx(1., 0.), 10., 5.);
+        let r = RotatedRect::new(PointF::from_yx(0., 0.), Vec2::from_yx(1., 0.), 10., 5.);
         let r = r.expanded(2., 3.);
         assert_eq!(r.width(), 12.);
         assert_eq!(r.height(), 8.);
@@ -1604,10 +1774,10 @@ mod tests {
 
     #[test]
     fn test_rotated_rect_from_rect() {
-        let r = Rect::from_tlbr(5, 10, 50, 40);
+        let r = Rect::from_tlbr(5., 10., 50., 40.);
         let rr = RotatedRect::from_rect(r);
-        assert_eq!(rr.width() as i32, r.width());
-        assert_eq!(rr.height() as i32, r.height());
+        assert_eq!(rr.width(), r.width());
+        assert_eq!(rr.height(), r.height());
         assert_eq!(rr.bounding_rect(), r);
     }
 
@@ -1626,23 +1796,23 @@ mod tests {
         let cases = [
             // Identical rects
             Case {
-                a: RotatedRect::new(Vec2::from_yx(5., 5.), up_vec, 5., 5.),
-                b: RotatedRect::new(Vec2::from_yx(5., 5.), up_vec, 5., 5.),
+                a: RotatedRect::new(PointF::from_yx(5., 5.), up_vec, 5., 5.),
+                b: RotatedRect::new(PointF::from_yx(5., 5.), up_vec, 5., 5.),
                 bounding_rect_intersects: true,
                 intersects: true,
             },
             // Separated rects
             Case {
-                a: RotatedRect::new(Vec2::from_yx(5., 5.), up_vec, 5., 5.),
-                b: RotatedRect::new(Vec2::from_yx(5., 11.), up_vec, 5., 5.),
+                a: RotatedRect::new(PointF::from_yx(5., 5.), up_vec, 5., 5.),
+                b: RotatedRect::new(PointF::from_yx(5., 11.), up_vec, 5., 5.),
                 bounding_rect_intersects: false,
                 intersects: false,
             },
             // Case where bounding rectangles intersect but rotated rects do
             // not.
             Case {
-                a: RotatedRect::new(Vec2::from_yx(5., 5.), up_left_vec, 12., 1.),
-                b: RotatedRect::new(Vec2::from_yx(9., 9.), up_vec, 1., 1.),
+                a: RotatedRect::new(PointF::from_yx(5., 5.), up_left_vec, 12., 1.),
+                b: RotatedRect::new(PointF::from_yx(9., 9.), up_vec, 1., 1.),
                 bounding_rect_intersects: true,
                 intersects: false,
             },
@@ -1663,7 +1833,7 @@ mod tests {
     fn test_rotated_rect_normalizes_up_vector() {
         // Create rotated rect with non-normalized "up" vector.
         let up_axis = Vec2::from_yx(1., 2.);
-        let center = Vec2::from_yx(0., 0.);
+        let center = PointF::from_yx(0., 0.);
         let rect = RotatedRect::new(center, up_axis, 2., 3.);
         assert!(rect.up_axis().length().approx_eq(&1.));
     }
@@ -1671,11 +1841,13 @@ mod tests {
     #[test]
     fn test_rotated_rect_orient_towards() {
         let up_axis = Vec2::from_yx(-1., 0.);
-        let center = Vec2::from_yx(0., 0.);
+        let center = PointF::from_yx(0., 0.);
         let rect = RotatedRect::new(center, up_axis, 2., 3.);
 
         let sorted_corners = |rect: RotatedRect| {
-            let mut corners = rect.corners();
+            let mut corners = rect
+                .corners()
+                .map(|c| Point::from_yx(c.y.round() as i32, c.x.round() as i32));
             corners.sort_by_key(|p| (p.y, p.x));
             corners
         };
@@ -1698,7 +1870,7 @@ mod tests {
 
     #[test]
     fn test_rotated_rect_resize() {
-        let mut r = RotatedRect::new(Vec2::from_yx(5., 5.), Vec2::from_yx(1., 0.), 5., 5.);
+        let mut r = RotatedRect::new(PointF::from_yx(5., 5.), Vec2::from_yx(1., 0.), 5., 5.);
         assert_eq!(r.area(), 25.);
 
         r.resize(3., 7.);
