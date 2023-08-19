@@ -96,7 +96,7 @@ function* chunks<T>(items: T[], chunkSize: number) {
 }
 
 /** Return an array of numbers in the range `[start, end)` */
-function range(start: number, end: number) {
+function range(start: number, end: number): number[] {
   return Array(end - start)
     .fill(start)
     .map((x, i) => x + i);
@@ -447,12 +447,16 @@ chrome.action.onClicked.addListener(async (tab) => {
       const [left, top, right, bottom] = dl.rotatedRect().boundingRect();
       return right - left;
     };
-    const sortedLines = [...listItems(lines)];
-    sortedLines.sort((a, b) => lineWidth(a) - lineWidth(b));
+
+    const linesArray = [...listItems(lines)];
+    const sortedLineIndices = range(0, lines.length);
+    sortedLineIndices.sort(
+      (a, b) => lineWidth(linesArray[a]) - lineWidth(linesArray[b]),
+    );
 
     // Recognize lines in batches.
     const chunkSize = 4;
-    for (let indices of chunks(range(0, sortedLines.length), chunkSize)) {
+    for (let indices of chunks(sortedLineIndices, chunkSize)) {
       if (cancelCtrl.signal.aborted) {
         break;
       }
