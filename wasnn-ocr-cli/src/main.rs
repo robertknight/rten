@@ -101,6 +101,13 @@ fn word_boxes_json(
     })
 }
 
+#[derive(Copy, Clone, Debug, PartialEq)]
+enum DebugLayer {
+    Words,
+    Lines,
+    Paragraphs,
+}
+
 struct Args {
     /// Path to a text detection model.
     detection_model: Option<String>,
@@ -117,6 +124,9 @@ struct Args {
     /// Export word boxes from text detection to a JSON file.
     export_boxes: Option<String>,
 
+    /// Layers to include in debug output.
+    debug_layers: Vec<DebugLayer>,
+
     /// Use beam search for sequence decoding.
     beam_search: bool,
 }
@@ -127,6 +137,7 @@ fn parse_args() -> Result<Args, lexopt::Error> {
     let mut values = VecDeque::new();
     let mut beam_search = false;
     let mut debug = false;
+    let mut debug_layers = Vec::new();
     let mut detection_model = None;
     let mut export_boxes = None;
     let mut recognition_model = None;
@@ -140,6 +151,17 @@ fn parse_args() -> Result<Args, lexopt::Error> {
             }
             Long("debug") => {
                 debug = true;
+            }
+            Long("debug-layers") => {
+                for token in parser.value()?.string()?.split(',') {
+                    let layer = match token {
+                        "words" => DebugLayer::Words,
+                        "lines" => DebugLayer::Lines,
+                        "paras" | "paragraphs" => DebugLayer::Paragraphs,
+                        _ => return Err(format!("unknown debug layer {}", token).into()),
+                    };
+                    debug_layers.push(layer);
+                }
             }
             Long("detect-model") => {
                 detection_model = Some(parser.value()?.string()?);
@@ -166,6 +188,10 @@ Options:
 
     Enable debug output.
 
+  --debug-layers <layers>
+
+    Comma-separated list of layers to include in debug output.
+
   --detect-model <path>
 
     Use a custom text detection model.
@@ -186,9 +212,15 @@ Options:
         }
     }
 
+    if debug && debug_layers.is_empty() {
+        debug_layers
+            .extend([DebugLayer::Words, DebugLayer::Lines, DebugLayer::Paragraphs].into_iter());
+    }
+
     Ok(Args {
         beam_search,
         debug,
+        debug_layers,
         detection_model,
         export_boxes,
         image: values.pop_front().ok_or("missing `<image>` arg")?,
@@ -290,45 +322,58 @@ fn main() -> Result<(), Box<dyn Error>> {
         const CRIMSON: Rgb = [220, 20, 60];
         const DARKGREEN: Rgb = [0, 100, 0];
         const DARKBLUE: Rgb = [0, 0, 139];
+        const PURPLE: Rgb = [128, 0, 128];
 
         const LIGHT_GRAY: Rgb = [200, 200, 200];
 
         let u8_to_f32 = |x: u8| x as f32 / 255.;
         let floor_point = |p: PointF| Point::from_yx(p.y as i32, p.x as i32);
 
-        // Draw line bounding rects from layout analysis step.
-        for line in line_rects.iter() {
-            let line_points: Vec<_> = line
-                .iter()
-                .flat_map(|word_rect| word_rect.corners().into_iter())
-                .collect();
-            if let Some(line_rect) = min_area_rect(&line_points) {
-                painter.set_stroke(LIGHT_GRAY.map(u8_to_f32));
-                painter.draw_polygon(&line_rect.corners().map(floor_point));
-            };
-        }
-
-        // Draw word bounding rects from text detection step, grouped by line.
-        let colors = [CORAL, DARKSEAGREEN, CORNFLOWERBLUE];
-        for (line, color) in zip(line_rects.iter(), colors.into_iter().cycle()) {
-            for word_rect in line {
-                painter.set_stroke(color.map(u8_to_f32));
-                painter.draw_polygon(&word_rect.corners().map(floor_point));
+        // Draw paragraph bounding rects from layout analysis.
+        if args.debug_layers.contains(&DebugLayer::Paragraphs) {
+            for para in layout.paragraphs() {
+                painter.set_stroke(PURPLE.map(u8_to_f32));
+                painter.draw_polygon(&para.bounding_rect().integral_bounding_rect().corners());
             }
         }
 
-        // Draw word bounding rects from text recognition step. These may be
-        // different as they are computed from the bounding boxes of recognized
-        // characters.
-        let colors = [CRIMSON, DARKGREEN, DARKBLUE];
-        for (line, color) in zip(line_texts.into_iter(), colors.into_iter().cycle()) {
-            let Some(line) = line else {
+        if args.debug_layers.contains(&DebugLayer::Lines) {
+            // Draw line bounding rects from layout analysis.
+            for line in line_rects.iter() {
+                let line_points: Vec<_> = line
+                    .iter()
+                    .flat_map(|word_rect| word_rect.corners().into_iter())
+                    .collect();
+                if let Some(line_rect) = min_area_rect(&line_points) {
+                    painter.set_stroke(LIGHT_GRAY.map(u8_to_f32));
+                    painter.draw_polygon(&line_rect.corners().map(floor_point));
+                };
+            }
+        }
+
+        if args.debug_layers.contains(&DebugLayer::Words) {
+            // Draw word bounding rects from text detection step, grouped by line.
+            let colors = [CORAL, DARKSEAGREEN, CORNFLOWERBLUE];
+            for (line, color) in zip(line_rects.iter(), colors.into_iter().cycle()) {
+                for word_rect in line {
+                    painter.set_stroke(color.map(u8_to_f32));
+                    painter.draw_polygon(&word_rect.corners().map(floor_point));
+                }
+            }
+
+            // Draw word bounding rects from text recognition step. These may be
+            // different as they are computed from the bounding boxes of recognized
+            // characters.
+            let colors = [CRIMSON, DARKGREEN, DARKBLUE];
+            for (line, color) in zip(line_texts.into_iter(), colors.into_iter().cycle()) {
+                let Some(line) = line else {
                 // Skip lines where recognition produced no output.
                 continue;
             };
-            for text_word in line.words() {
-                painter.set_stroke(color.map(u8_to_f32));
-                painter.draw_polygon(&text_word.rotated_rect().corners().map(floor_point));
+                for text_word in line.words() {
+                    painter.set_stroke(color.map(u8_to_f32));
+                    painter.draw_polygon(&text_word.rotated_rect().corners().map(floor_point));
+                }
             }
         }
 

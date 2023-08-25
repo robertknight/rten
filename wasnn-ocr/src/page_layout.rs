@@ -4,7 +4,7 @@ use std::iter::zip;
 
 use wasnn_imageproc::{
     bounding_rect, find_contours, min_area_rect, simplify_polygon, BoundingRect, Coord, Line,
-    LineF, Point, PointF, Rect, RetrievalMode, RotatedRect,
+    LineF, Point, PointF, Rect, RectF, RetrievalMode, RotatedRect,
 };
 use wasnn_tensor::NdTensorView;
 
@@ -416,6 +416,14 @@ pub fn find_block_separators(words: &[RotatedRect]) -> Vec<Rect> {
 
 pub struct Paragraph {
     lines: Vec<Vec<RotatedRect>>,
+}
+
+impl BoundingRect for Paragraph {
+    type Coord = f32;
+
+    fn bounding_rect(&self) -> RectF {
+        bounding_rect(self.words()).expect("paragraph should be non-empty")
+    }
 }
 
 impl Paragraph {
