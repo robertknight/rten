@@ -341,12 +341,6 @@ pub fn find_connected_component_rects(
         .collect()
 }
 
-/// A text line is a sequence of RotatedRects for words, organized from left to
-/// right.
-type TextLine = Vec<RotatedRect>;
-
-type TextParagraph = Vec<TextLine>;
-
 /// Find separators between text blocks.
 ///
 /// This includes separators between columns, as well as between sections (eg.
@@ -420,8 +414,39 @@ pub fn find_block_separators(words: &[RotatedRect]) -> Vec<Rect> {
     .collect()
 }
 
-/// Group words into lines and sort them into reading order.
-pub fn find_text_lines(words: &[RotatedRect]) -> Vec<Vec<RotatedRect>> {
+pub struct Paragraph {
+    lines: Vec<Vec<RotatedRect>>,
+}
+
+impl Paragraph {
+    pub fn lines(&self) -> impl Iterator<Item = &[RotatedRect]> {
+        self.lines.iter().map(|line| line.as_slice())
+    }
+
+    pub fn words(&self) -> impl Iterator<Item = &RotatedRect> {
+        self.lines().flatten()
+    }
+}
+
+pub struct PageLayout {
+    paragraphs: Vec<Paragraph>,
+}
+
+impl PageLayout {
+    pub fn paragraphs(&self) -> impl Iterator<Item = &Paragraph> {
+        self.paragraphs.iter()
+    }
+
+    pub fn lines(&self) -> impl Iterator<Item = &[RotatedRect]> {
+        self.paragraphs.iter().flat_map(|p| p.lines())
+    }
+
+    pub fn words(&self) -> impl Iterator<Item = &RotatedRect> {
+        self.lines().flatten()
+    }
+}
+
+pub fn analyze_layout(words: &[RotatedRect]) -> PageLayout {
     let separators = find_block_separators(words);
     let vertical_separators: Vec<_> = separators
         .iter()
@@ -468,11 +493,11 @@ pub fn find_text_lines(words: &[RotatedRect]) -> Vec<Vec<RotatedRect>> {
     // Group lines into paragraphs. We repeatedly take the first un-assigned
     // line as the seed for a new paragraph, and then add to that para all
     // remaining un-assigned lines which are not separated from the seed.
-    let mut paragraphs: Vec<TextParagraph> = Vec::new();
+    let mut paragraphs: Vec<Paragraph> = Vec::new();
     while !lines.is_empty() {
         let seed = lines.remove(0);
-        let mut para = Vec::new();
-        para.push(seed.clone());
+        let mut para_lines = Vec::new();
+        para_lines.push(seed.clone());
 
         let mut prev_line = midpoint_line(&seed);
 
@@ -482,20 +507,16 @@ pub fn find_text_lines(words: &[RotatedRect]) -> Vec<Vec<RotatedRect>> {
             if prev_line.horizontal_overlap(candidate_line) > 0.
                 && !is_separated_by(prev_line, candidate_line, &horizontal_separators)
             {
-                para.push(lines.remove(index));
+                para_lines.push(lines.remove(index));
                 prev_line = candidate_line;
             } else {
                 index += 1;
             }
         }
-        paragraphs.push(para);
+        paragraphs.push(Paragraph { lines: para_lines })
     }
 
-    // Flatten paragraphs into a list of lines.
-    paragraphs
-        .into_iter()
-        .flat_map(|para| para.into_iter())
-        .collect()
+    PageLayout { paragraphs }
 }
 
 /// Normalize a line so that it's endpoints are sorted from top to bottom.
@@ -553,7 +574,7 @@ mod tests {
     use wasnn_tensor::NdTensor;
 
     use super::max_empty_rects;
-    use crate::page_layout::{find_connected_component_rects, find_text_lines, line_polygon};
+    use crate::page_layout::{analyze_layout, find_connected_component_rects, line_polygon};
 
     /// Generate a grid of uniformly sized and spaced rects.
     ///
@@ -682,7 +703,7 @@ mod tests {
     }
 
     #[test]
-    fn test_find_text_lines() {
+    fn test_analyze_layout() {
         // Create a collection of obstacles that are laid out roughly like
         // words in a two-column document.
         let page = Rect::from_tlbr(0, 0, 80, 90);
@@ -718,10 +739,10 @@ mod tests {
 
         let rng = fastrand::Rng::with_seed(1234);
         rng.shuffle(&mut words);
-        let lines = find_text_lines(&words);
+        let layout = analyze_layout(&words);
 
-        assert_eq!(lines.len() as i32, col_rows * 2);
-        for line in lines {
+        assert_eq!(layout.lines().count() as i32, col_rows * 2);
+        for line in layout.lines() {
             assert_eq!(line.len() as i32, col_words);
 
             let bounding_rect: Option<RectF> = line.iter().fold(None, |br, r| match br {

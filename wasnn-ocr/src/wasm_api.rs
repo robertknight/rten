@@ -219,13 +219,13 @@ impl OcrEngine {
             .map_err(|e| e.to_string())?;
         let lines: Vec<_> = self
             .engine
-            .find_text_lines(&image.input, &words)
-            .into_iter()
+            .analyze_layout(&image.input, &words)
+            .lines()
             .map(|words| {
                 DetectedLine::new(
                     words
-                        .into_iter()
-                        .map(|word| RotatedRect { rect: word })
+                        .iter()
+                        .map(|word| RotatedRect { rect: *word })
                         .collect(),
                 )
             })
@@ -282,7 +282,12 @@ impl OcrEngine {
             .engine
             .detect_words(&image.input)
             .map_err(|e| e.to_string())?;
-        let lines = self.engine.find_text_lines(&image.input, &words);
+        let lines: Vec<Vec<wasnn_imageproc::RotatedRect>> = self
+            .engine
+            .analyze_layout(&image.input, &words)
+            .lines()
+            .map(|l| l.to_vec())
+            .collect();
         let text_lines = self
             .engine
             .recognize_text(&image.input, &lines)

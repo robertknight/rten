@@ -254,7 +254,8 @@ fn main() -> Result<(), Box<dyn Error>> {
 
     let ocr_input = engine.prepare_input(color_img.view())?;
     let word_rects = engine.detect_words(&ocr_input)?;
-    let line_rects = engine.find_text_lines(&ocr_input, &word_rects);
+    let layout = engine.analyze_layout(&ocr_input, &word_rects);
+    let line_rects: Vec<_> = layout.lines().map(|l| l.to_vec()).collect();
     let line_texts = engine.recognize_text(&ocr_input, &line_rects)?;
     for line in line_texts.iter().flatten() {
         println!("{}", line);

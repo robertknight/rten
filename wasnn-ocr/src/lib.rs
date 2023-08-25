@@ -14,7 +14,7 @@ pub mod page_layout;
 mod text_items;
 mod wasm_api;
 
-use page_layout::{find_connected_component_rects, find_text_lines, line_polygon};
+use page_layout::{analyze_layout, find_connected_component_rects, line_polygon, PageLayout};
 pub use text_items::{TextChar, TextItem, TextLine, TextWord};
 
 /// Return the smallest multiple of `factor` that is >= `val`.
@@ -683,18 +683,14 @@ impl OcrEngine {
     /// [OcrEngine::detect_words]. The result is a list of lines, in reading
     /// order. Each line is a sequence of word bounding rectangles, in reading
     /// order.
-    pub fn find_text_lines(
-        &self,
-        _input: &OcrInput,
-        words: &[RotatedRect],
-    ) -> Vec<Vec<RotatedRect>> {
-        find_text_lines(words)
+    pub fn analyze_layout(&self, _input: &OcrInput, words: &[RotatedRect]) -> PageLayout {
+        analyze_layout(words)
     }
 
     /// Recognize lines of text in an image.
     ///
     /// `lines` is an ordered list of the text line boxes in an image,
-    /// produced by [OcrEngine::find_text_lines].
+    /// produced by [OcrEngine::analyze_layout].
     ///
     /// The output is a list of [TextLine]s corresponding to the input image
     /// regions. Entries can be `None` if no text was found in a given line.
@@ -720,7 +716,11 @@ impl OcrEngine {
     /// Convenience API that extracts all text from an image as a single string.
     pub fn get_text(&self, input: &OcrInput) -> Result<String, Box<dyn Error>> {
         let word_rects = self.detect_words(input)?;
-        let line_rects = self.find_text_lines(input, &word_rects);
+        let line_rects: Vec<Vec<RotatedRect>> = self
+            .analyze_layout(input, &word_rects)
+            .lines()
+            .map(|line| line.to_vec())
+            .collect();
         let text = self
             .recognize_text(input, &line_rects)?
             .into_iter()
