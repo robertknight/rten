@@ -13,6 +13,7 @@ mod log;
 pub mod page_layout;
 mod text_items;
 mod wasm_api;
+mod xy_tree;
 
 use page_layout::{analyze_layout, find_connected_component_rects, line_polygon, PageLayout};
 pub use text_items::{TextChar, TextItem, TextLine, TextWord};

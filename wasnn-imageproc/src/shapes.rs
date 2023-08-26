@@ -707,7 +707,7 @@ impl<T: Coord> BoundingRect for Rect<T> {
 /// This is characterized by a center point, an "up" direction indicating the
 /// orientation, width (extent along axis perpendicular to the up axis) and
 /// height (extent along up axis).
-#[derive(Copy, Clone, Debug)]
+#[derive(Copy, Clone, Debug, PartialEq)]
 pub struct RotatedRect {
     // Centroid of the rect.
     center: PointF,

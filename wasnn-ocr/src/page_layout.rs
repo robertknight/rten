@@ -2,6 +2,7 @@ use std::cmp::Ordering;
 use std::collections::BinaryHeap;
 use std::iter::zip;
 
+use crate::xy_tree::{PartitionOpts, XyNode};
 use wasnn_imageproc::{
     bounding_rect, find_contours, min_area_rect, simplify_polygon, BoundingRect, Coord, Line,
     LineF, Point, PointF, Rect, RectF, RetrievalMode, RotatedRect,
@@ -414,6 +415,7 @@ pub fn find_block_separators(words: &[RotatedRect]) -> Vec<Rect> {
     .collect()
 }
 
+#[derive(Clone, Debug)]
 pub struct Paragraph {
     lines: Vec<Vec<RotatedRect>>,
 }
@@ -467,17 +469,6 @@ pub fn analyze_layout(words: &[RotatedRect]) -> PageLayout {
         })
         .collect();
 
-    let horizontal_separators: Vec<_> = separators
-        .iter()
-        .map(|r| {
-            let center = r.center();
-            Line::from_endpoints(
-                Point::from_yx(center.y, r.left()).to_f32(),
-                Point::from_yx(center.y, r.right()).to_f32(),
-            )
-        })
-        .collect();
-
     let mut lines = group_into_lines(words, &vertical_separators);
 
     // Approximate a text line by the 1D line from the center of the left
@@ -493,36 +484,54 @@ pub fn analyze_layout(words: &[RotatedRect]) -> PageLayout {
     // Sort lines by vertical position.
     lines.sort_by_key(|words| midpoint_line(words).center().y as i32);
 
-    let is_separated_by = |line_a: LineF, line_b: LineF, separators: &[LineF]| -> bool {
-        let a_to_b = Line::from_endpoints(line_a.center(), line_b.center());
-        separators.iter().any(|sep| sep.intersects(a_to_b))
-    };
-
-    // Group lines into paragraphs. We repeatedly take the first un-assigned
-    // line as the seed for a new paragraph, and then add to that para all
-    // remaining un-assigned lines which are not separated from the seed.
-    let mut paragraphs: Vec<Paragraph> = Vec::new();
-    while !lines.is_empty() {
-        let seed = lines.remove(0);
-        let mut para_lines = Vec::new();
-        para_lines.push(seed.clone());
-
-        let mut prev_line = midpoint_line(&seed);
-
-        let mut index = 0;
-        while index < lines.len() {
-            let candidate_line = midpoint_line(&lines[index]);
-            if prev_line.horizontal_overlap(candidate_line) > 0.
-                && !is_separated_by(prev_line, candidate_line, &horizontal_separators)
-            {
-                para_lines.push(lines.remove(index));
-                prev_line = candidate_line;
-            } else {
-                index += 1;
-            }
-        }
-        paragraphs.push(Paragraph { lines: para_lines })
+    #[derive(Clone)]
+    struct LineIndex<'a> {
+        lines: &'a [Vec<RotatedRect>],
+        index: u32,
     }
+
+    impl<'a> LineIndex<'a> {
+        fn line(&self) -> &Vec<RotatedRect> {
+            &self.lines[self.index as usize]
+        }
+    }
+
+    impl<'a> BoundingRect for LineIndex<'a> {
+        type Coord = f32;
+
+        fn bounding_rect(&self) -> RectF {
+            bounding_rect(self.lines[self.index as usize].iter()).unwrap()
+        }
+    }
+
+    let line_indices: Vec<_> = lines
+        .iter()
+        .enumerate()
+        .map(|(idx, _)| LineIndex {
+            lines: &lines,
+            index: idx as u32,
+        })
+        .collect();
+
+    let mut paragraphs: Vec<Paragraph> = Vec::new();
+    let xy_tree = XyNode::partition(
+        &line_indices,
+        &PartitionOpts {
+            min_horizontal_gap: 5.,
+            min_vertical_gap: 10.,
+        },
+    );
+
+    xy_tree.visit_leaves(&mut |line_indices| {
+        let lines: Vec<Vec<RotatedRect>> = line_indices
+            .iter()
+            .map(|li| {
+                let words = li.line().to_vec();
+                words
+            })
+            .collect();
+        paragraphs.push(Paragraph { lines });
+    });
 
     PageLayout { paragraphs }
 }
