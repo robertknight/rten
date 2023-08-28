@@ -190,6 +190,7 @@ pub fn find_block_separators(words: &[RotatedRect]) -> Vec<Rect> {
     .collect()
 }
 
+/// A collection of text lines.
 #[derive(Clone, Debug)]
 pub struct Paragraph {
     lines: Vec<Vec<RotatedRect>>,
@@ -204,33 +205,43 @@ impl BoundingRect for Paragraph {
 }
 
 impl Paragraph {
+    /// Return an iterator over all text lines in the paragraph.
     pub fn lines(&self) -> impl Iterator<Item = &[RotatedRect]> {
         self.lines.iter().map(|line| line.as_slice())
     }
 
+    /// Return an iterator over all text words in the paragraph.
     pub fn words(&self) -> impl Iterator<Item = &RotatedRect> {
         self.lines().flatten()
     }
 }
 
+/// Describes the hierarhical layout of text in an image in terms of
+/// paragraphs, lines and words, arranged in reading order.
 pub struct PageLayout {
     paragraphs: Vec<Paragraph>,
 }
 
 impl PageLayout {
+    /// Return an iterator over all paragraphs in the page, in reading order.
     pub fn paragraphs(&self) -> impl Iterator<Item = &Paragraph> {
         self.paragraphs.iter()
     }
 
+    /// Return an iterator over all lines in the page, in reading order.
     pub fn lines(&self) -> impl Iterator<Item = &[RotatedRect]> {
         self.paragraphs.iter().flat_map(|p| p.lines())
     }
 
+    /// Return an iterator over all words in the page, in reading order.
     pub fn words(&self) -> impl Iterator<Item = &RotatedRect> {
         self.lines().flatten()
     }
 }
 
+/// Perform layout analysis of the unordered set of words on a page to organize
+/// them into a collection of higher-level structures (lines and paragraphs),
+/// sorted into reading order.
 pub fn analyze_layout(words: &[RotatedRect]) -> PageLayout {
     let separators = find_block_separators(words);
     let vertical_separators: Vec<_> = separators
