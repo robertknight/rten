@@ -1,6 +1,6 @@
 use std::iter::zip;
 
-use wasnn_imageproc::{BoundingRect, Coord, RectF, RotatedRect};
+use wasnn_imageproc::{BoundingRect, Coord};
 
 /// A one-dimensional line or interval.
 #[derive(Copy, Clone, Debug, PartialEq)]
@@ -40,11 +40,6 @@ impl<T: Coord> Line1d<T> {
         self.end - self.start
     }
 
-    /// Return true if this line has zero length.
-    fn is_empty(&self) -> bool {
-        self.start == self.end
-    }
-
     /// Return the intersection of this line with `other`, or `None` if the
     /// lines do not intersect.
     fn intersection(&self, other: Line1d<T>) -> Option<Line1d<T>> {
@@ -64,21 +59,6 @@ impl<T: Coord> Line1d<T> {
         } else {
             None
         }
-    }
-
-    /// Return an interval which includes this line and `other`.
-    fn union(&self, other: Line1d<T>) -> Line1d<T> {
-        let min_start = if self.start <= other.start {
-            self.start
-        } else {
-            other.start
-        };
-        let max_end = if self.end >= other.end {
-            self.end
-        } else {
-            other.end
-        };
-        Self::new(min_start, max_end)
     }
 }
 
@@ -218,16 +198,6 @@ impl<T: BoundingRect<Coord = f32> + Clone> XyNode<T> {
             }
         }
     }
-
-    /// Traverse the tree in logical order and return a concatenation of items
-    /// from leaf nodes.
-    pub fn items(&self) -> Vec<T> {
-        let mut items = Vec::new();
-        self.visit_leaves(&mut |leaf_items| {
-            items.extend(leaf_items.iter().cloned());
-        });
-        items
-    }
 }
 
 #[cfg(test)]
@@ -263,6 +233,14 @@ mod tests {
             top: top.into(),
             bottom: bottom.into(),
         }
+    }
+
+    fn xy_items(root: &XyNode<RotatedRect>) -> Vec<RotatedRect> {
+        let mut items = Vec::new();
+        root.visit_leaves(&mut |leaf_items| {
+            items.extend(leaf_items.iter().cloned());
+        });
+        items
     }
 
     #[test]
@@ -315,11 +293,11 @@ mod tests {
     }
 
     #[test]
-    fn test_xynode_to_ordered() {
+    fn test_xynode_visit_leaves() {
         // Single leaf node
         let rect = rr_tlhw(0., 0., 5., 10.);
         let xy = XyNode::partition(&[rect], &part_opts());
-        assert_eq!(xy.items(), vec![rect]);
+        assert_eq!(xy_items(&xy), vec![rect]);
 
         // Nested split
         let top_left = rr_tlhw(0., 0., 5., 5.);
@@ -331,7 +309,7 @@ mod tests {
             &part_opts(),
         );
         assert_eq!(
-            xy.items(),
+            xy_items(&xy),
             vec![top_left, bottom_left, top_right, bottom_right]
         )
     }
