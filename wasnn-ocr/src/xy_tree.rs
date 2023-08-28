@@ -1,6 +1,4 @@
-use std::iter::zip;
-
-use wasnn_imageproc::{BoundingRect, Coord};
+use wasnn_imageproc::{bounding_rect, BoundingRect, Coord, RectF};
 
 /// A one-dimensional line or interval.
 #[derive(Copy, Clone, Debug, PartialEq)]
@@ -26,12 +24,14 @@ impl<T: Coord> Line1d<T> {
     /// Return a new 1D line that spans the X range of a shape.
     fn x_range<BR: BoundingRect<Coord = T>>(shape: &BR) -> Line1d<T> {
         let rect = shape.bounding_rect();
+        assert!(rect.left() <= rect.right());
         Line1d::new(rect.left(), rect.right())
     }
 
     /// Return a new 1D line that spans the Y range of a shape.
     fn y_range<BR: BoundingRect<Coord = T>>(shape: &BR) -> Line1d<T> {
         let rect = shape.bounding_rect();
+        assert!(rect.top() <= rect.bottom());
         Line1d::new(rect.top(), rect.bottom())
     }
 
@@ -63,14 +63,22 @@ impl<T: Coord> Line1d<T> {
 }
 
 /// Find gaps between items in a slice of sorted intervals. `intervals` must
-/// be sorted by their `start` field.
+/// be sorted in ascending order by `start` field.
 fn find_gaps(intervals: &[Line1dF]) -> Vec<Line1dF> {
     let mut gaps = Vec::new();
-    for (curr, next) in zip(intervals.iter(), intervals.iter().skip(1)) {
-        if curr.intersection(*next).is_none() {
-            gaps.push(Line1d::new(curr.end, next.start));
+    let Some(mut max_end) = intervals.first().map(|l| l.end) else {
+        return gaps;
+    };
+
+    for curr in intervals.iter().skip(1) {
+        if curr.start > max_end {
+            gaps.push(Line1d::new(max_end, curr.start));
+        }
+        if curr.end > max_end {
+            max_end = curr.end;
         }
     }
+
     gaps
 }
 
@@ -124,6 +132,18 @@ pub enum XyNode<T: BoundingRect<Coord = f32> + Clone> {
     },
 }
 
+impl<T: BoundingRect<Coord = f32> + Clone> BoundingRect for XyNode<T> {
+    type Coord = f32;
+
+    fn bounding_rect(&self) -> RectF {
+        match self {
+            XyNode::Leaf(items) => bounding_rect(items.iter()).expect("XyNode::Leaf is empty"),
+            XyNode::Vertical { left, right } => left.bounding_rect().union(right.bounding_rect()),
+            XyNode::Horizontal { top, bottom } => top.bounding_rect().union(bottom.bounding_rect()),
+        }
+    }
+}
+
 impl<T: BoundingRect<Coord = f32> + Clone> XyNode<T> {
     /// Create an XY tree which partitions items with 2D bounding boxes.
     ///
@@ -147,11 +167,15 @@ impl<T: BoundingRect<Coord = f32> + Clone> XyNode<T> {
         let max_h_gap_len = max_h_gap.map(|v| v.len()).unwrap_or(0.);
         let max_v_gap_len = max_v_gap.map(|v| v.len()).unwrap_or(0.);
 
-        if max_h_gap_len >= opts.min_horizontal_gap && max_h_gap_len >= max_v_gap_len {
+        let have_h_gap = max_h_gap_len >= opts.min_horizontal_gap;
+        let have_v_gap = max_v_gap_len >= opts.min_vertical_gap;
+
+        if have_h_gap && (!have_v_gap || max_h_gap_len >= max_v_gap_len) {
             let (left, right): (Vec<_>, Vec<_>) = items
                 .iter()
                 .cloned()
                 .partition(|r| r.bounding_rect().left() < max_h_gap.unwrap().start);
+
             let (left_node, right_node) = (
                 XyNode::partition(&left, opts),
                 XyNode::partition(&right, opts),
@@ -161,7 +185,7 @@ impl<T: BoundingRect<Coord = f32> + Clone> XyNode<T> {
                 left: Box::new(left_node),
                 right: Box::new(right_node),
             }
-        } else if max_v_gap_len >= opts.min_vertical_gap {
+        } else if have_v_gap {
             let (top, bottom): (Vec<_>, Vec<_>) = items
                 .iter()
                 .cloned()
