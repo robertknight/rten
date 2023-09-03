@@ -33,9 +33,21 @@ fn leftmost_edge(r: &RotatedRect) -> LineF {
 /// `separators` is a list of line segments that prevent the formation of
 /// lines which cross them. They can be used to specify column boundaries
 /// for example.
-pub fn group_into_lines(rects: &[RotatedRect], separators: &[LineF]) -> Vec<Vec<RotatedRect>> {
-    let mut sorted_rects: Vec<_> = rects.to_vec();
-    sorted_rects.sort_by_key(|r| r.bounding_rect().left() as i32);
+pub fn group_into_lines(
+    rects: &[RotatedRect],
+    separators: &[LineF],
+    is_line_end: Option<&[bool]>,
+) -> Vec<Vec<RotatedRect>> {
+    let mut sorted_rects: Vec<(RotatedRect, bool)> = if let Some(is_line_end) = is_line_end {
+        rects
+            .iter()
+            .copied()
+            .zip(is_line_end.iter().copied())
+            .collect()
+    } else {
+        rects.iter().map(|r| (*r, false)).collect()
+    };
+    sorted_rects.sort_by_key(|(r, _)| r.bounding_rect().left() as i32);
 
     let mut lines: Vec<Vec<_>> = Vec::new();
 
@@ -53,34 +65,44 @@ pub fn group_into_lines(rects: &[RotatedRect], separators: &[LineF]) -> Vec<Vec<
 
     while !sorted_rects.is_empty() {
         let mut line = Vec::new();
-        line.push(sorted_rects.remove(0));
+        let (first_word_rect, first_word_is_line_end) = sorted_rects.remove(0);
+        line.push(first_word_rect);
 
-        // Find the best candidate to extend the current line by one word to the
-        // right, and keep going as long as we can find such a candidate.
-        loop {
-            let last = line.last().unwrap();
-            let last_edge = rightmost_edge(last);
+        if !first_word_is_line_end {
+            // Find the best candidate to extend the current line by one word to the
+            // right, and keep going as long as we can find such a candidate.
+            loop {
+                let last = line.last().unwrap();
+                let last_edge = rightmost_edge(last);
 
-            if let Some((i, next_item)) = sorted_rects
-                .iter()
-                .enumerate()
-                .filter(|(_, r)| {
-                    let edge = leftmost_edge(r);
-                    r.center().x > last.center().x
-                        && edge.center().x - last_edge.center().x >= -max_h_overlap as f32
-                        && last_edge.vertical_overlap(edge) >= overlap_threshold as f32
-                        && !separators
-                            .iter()
-                            .any(|&s| rects_separated_by_line(last, r, s))
-                })
-                .min_by_key(|(_, r)| r.center().x as i32)
-            {
-                line.push(*next_item);
-                sorted_rects.remove(i);
-            } else {
-                break;
+                if let Some((i, (next_item_rect, next_item_is_line_end))) = sorted_rects
+                    .iter()
+                    .enumerate()
+                    .filter(|(_, (r, _is_line_end))| {
+                        let edge = leftmost_edge(r);
+                        r.center().x > last.center().x
+                            && edge.center().x - last_edge.center().x >= -max_h_overlap as f32
+                            && last_edge.vertical_overlap(edge) >= overlap_threshold as f32
+                            && !separators
+                                .iter()
+                                .any(|&s| rects_separated_by_line(last, r, s))
+                    })
+                    .min_by_key(|(_, (r, _))| r.center().x as i32)
+                {
+                    let next_item_is_line_end = *next_item_is_line_end;
+
+                    line.push(*next_item_rect);
+                    sorted_rects.remove(i);
+
+                    if next_item_is_line_end {
+                        break;
+                    }
+                } else {
+                    break;
+                }
             }
         }
+
         lines.push(line);
     }
 
@@ -128,7 +150,7 @@ pub fn find_block_separators(words: &[RotatedRect]) -> Vec<Rect> {
     };
 
     // Estimate spacing statistics
-    let mut lines = group_into_lines(words, &[]);
+    let mut lines = group_into_lines(words, &[], None);
     lines.sort_by_key(|l| l.first().unwrap().bounding_rect().top().round() as i32);
 
     let mut all_word_spacings = Vec::new();
@@ -244,10 +266,7 @@ impl PageLayout {
 /// them into a collection of higher-level structures (lines and paragraphs),
 /// sorted into reading order.
 pub fn analyze_layout(words: &[RotatedRect], layout_model: Option<&Model>) -> PageLayout {
-    if let Some(model) = layout_model {
-        // TESTING - Run words through model
-        println!("n_words {}", words.len());
-
+    let lines = if let Some(model) = layout_model {
         let n_features = 6;
 
         // FIXME - Make the word count dynamic in the model.
@@ -277,64 +296,67 @@ pub fn analyze_layout(words: &[RotatedRect], layout_model: Option<&Model>) -> Pa
             .expect("model has no outputs");
         let word_features_dyn: Tensor<f32> = word_features.into();
 
-        let outputs = model
-            .run(
-                &[(input_id, (&word_features_dyn).into())],
-                &[output_id],
-                None,
-            )
+        let output = model
+            .run_one(input_id, &word_features_dyn, output_id, None)
             .expect("model run failed");
 
-        let word_labels: NdTensorView<f32, 3> = outputs[0].as_float_ref().unwrap().nd_view();
+        let word_labels: NdTensorView<f32, 3> = output.as_float_ref().unwrap().nd_view();
         println!("Output shape {:?}", word_labels.shape());
 
-        let line_start_probs: NdTensorView<_, 1> = word_labels.slice((0, .., 0));
+        // let line_start_probs: NdTensorView<_, 1> = word_labels.slice((0, .., 0));
         let line_end_probs: NdTensorView<_, 1> = word_labels.slice((0, .., 1));
 
         let threshold = 0.5;
         let prob_to_class = |prob: &f32| if *prob > threshold { 1i32 } else { 0 };
-        let line_starts = line_start_probs.map(prob_to_class);
+        // let line_starts = line_start_probs.map(prob_to_class);
         let line_ends = line_end_probs.map(prob_to_class);
-        let n_line_starts: i32 = line_starts.iter().sum();
-        let n_line_ends: i32 = line_ends.iter().sum();
+        // let n_line_starts: i32 = line_starts.iter().sum();
+        // let n_line_ends: i32 = line_ends.iter().sum();
 
-        for (word_idx, word_rect) in words.iter().enumerate() {
-            let is_line_start = line_starts[[word_idx]] > 0;
-            let is_line_end = line_ends[[word_idx]] > 0;
-            let word_br = word_rect.bounding_rect();
-            let coords = [
-                word_br.left(),
-                word_br.top(),
-                word_br.right(),
-                word_br.bottom(),
-            ];
-            println!(
-                "Word {} bbox {:?} line start? {} line end {}",
-                word_idx, coords, is_line_start, is_line_end
-            );
-        }
+        // for (word_idx, word_rect) in words.iter().enumerate() {
+        //     let is_line_start = line_starts[[word_idx]] > 0;
+        //     let is_line_end = line_ends[[word_idx]] > 0;
+        //     let word_br = word_rect.bounding_rect();
+        //     let coords = [
+        //         word_br.left(),
+        //         word_br.top(),
+        //         word_br.right(),
+        //         word_br.bottom(),
+        //     ];
+        //     println!(
+        //         "Word {} bbox {:?} line start? {} line end {}",
+        //         word_idx, coords, is_line_start, is_line_end
+        //     );
+        // }
 
-        println!(
-            "Total words {} line starts {} line ends {}",
-            words.len(),
-            n_line_starts,
-            n_line_ends
-        );
-    }
+        // println!(
+        //     "Total words {} line starts {} line ends {}",
+        //     words.len(),
+        //     n_line_starts,
+        //     n_line_ends
+        // );
+        let line_ends: Vec<bool> = line_ends.iter().map(|cls| *cls > 0).collect();
+        group_into_lines(words, &[], Some(&line_ends))
+    } else {
+        let separators = find_block_separators(words);
+        let vertical_separators: Vec<_> = separators
+            .iter()
+            .map(|r| {
+                let center = r.center();
+                Line::from_endpoints(
+                    Point::from_yx(r.top(), center.x).to_f32(),
+                    Point::from_yx(r.bottom(), center.x).to_f32(),
+                )
+            })
+            .collect();
 
-    let separators = find_block_separators(words);
-    let vertical_separators: Vec<_> = separators
-        .iter()
-        .map(|r| {
-            let center = r.center();
-            Line::from_endpoints(
-                Point::from_yx(r.top(), center.x).to_f32(),
-                Point::from_yx(r.bottom(), center.x).to_f32(),
-            )
-        })
-        .collect();
+        group_into_lines(words, &vertical_separators, None)
+    };
 
-    let mut lines = group_into_lines(words, &vertical_separators);
+    // TESTING
+    return PageLayout {
+        paragraphs: vec![Paragraph { lines }],
+    };
 
     // Approximate a text line by the 1D line from the center of the left
     // edge of the first word, to the center of the right edge of the last word.
