@@ -293,8 +293,26 @@ pub fn analyze_layout(words: &[RotatedRect], layout_model: Option<&Model>) -> Pa
 
         let threshold = 0.5;
         let prob_to_class = |prob: &f32| if *prob > threshold { 1i32 } else { 0 };
-        let n_line_starts: i32 = line_start_probs.map(prob_to_class).iter().sum();
-        let n_line_ends: i32 = line_end_probs.map(prob_to_class).iter().sum();
+        let line_starts = line_start_probs.map(prob_to_class);
+        let line_ends = line_end_probs.map(prob_to_class);
+        let n_line_starts: i32 = line_starts.iter().sum();
+        let n_line_ends: i32 = line_ends.iter().sum();
+
+        for (word_idx, word_rect) in words.iter().enumerate() {
+            let is_line_start = line_starts[[word_idx]] > 0;
+            let is_line_end = line_ends[[word_idx]] > 0;
+            let word_br = word_rect.bounding_rect();
+            let coords = [
+                word_br.left(),
+                word_br.top(),
+                word_br.right(),
+                word_br.bottom(),
+            ];
+            println!(
+                "Word {} bbox {:?} line start? {} line end {}",
+                word_idx, coords, is_line_start, is_line_end
+            );
+        }
 
         println!(
             "Total words {} line starts {} line ends {}",
