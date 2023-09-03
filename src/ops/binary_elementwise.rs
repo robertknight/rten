@@ -376,6 +376,55 @@ impl Operator for LessOrEqual {
     }
 }
 
+/// Calculate the remainder of `x / y` using floored division.
+///
+/// In the case where one of `x` or `y` is negative, this produces the same
+/// result as `x % y` in Python, which is different than `x % y` in Rust, which
+/// uses truncated division (same as C).
+fn rem_floor<
+    T: Copy + Default + PartialOrd + std::ops::Add<Output = T> + std::ops::Rem<Output = T>,
+>(
+    x: T,
+    y: T,
+) -> T {
+    // See https://en.wikipedia.org/wiki/Modulo#Implementing_other_modulo_definitions_using_truncation
+    let zero = T::default();
+    let mut rem = x % y;
+    if rem > zero && y < zero || rem < zero && y > zero {
+        rem = rem + y;
+    }
+    rem
+}
+
+/// Return the elementwise remainder of dividing `a / b`.
+///
+/// This uses floored division, like Python's `%` operator and unlike Rust's
+/// `%` operator, which uses truncated division. This is significant when one
+/// of `a` or `b` is negative.
+pub fn mod_op<
+    T: Copy + Debug + Default + PartialOrd + std::ops::Add<Output = T> + std::ops::Rem<Output = T>,
+>(
+    a: TensorView<T>,
+    b: TensorView<T>,
+) -> Result<Tensor<T>, OpError> {
+    binary_op(a, b, |x, y| rem_floor(x, y))
+}
+
+#[derive(Debug)]
+pub struct Mod {}
+
+impl Operator for Mod {
+    fn name(&self) -> &str {
+        "Mod"
+    }
+
+    fn run(&self, inputs: InputList) -> Result<Vec<Output>, OpError> {
+        run_typed_op!(inputs, mod_op)
+    }
+
+    // TODO - In-place mod
+}
+
 /// Multiply two tensors elementwise.
 pub fn mul<T: Copy + Debug + std::ops::Mul<Output = T>>(
     a: TensorView<T>,
@@ -552,7 +601,7 @@ mod tests {
     use wasnn_tensor::{tensor, Layout, Tensor, TensorCommon};
 
     use crate::ops::{
-        add, add_in_place, div, div_in_place, equal, greater, less, less_or_equal, mul,
+        add, add_in_place, div, div_in_place, equal, greater, less, less_or_equal, mod_op, mul,
         mul_in_place, pow, pow_in_place, sub, sub_in_place, where_op, Add, InputList, OpError,
         Operator, Output,
     };
@@ -823,6 +872,17 @@ mod tests {
         let b = tensor!([1., 3., 4.]);
         let expected = tensor!([1, 1, 0]);
         let result = less_or_equal(a.view(), b.view()).unwrap();
+        assert_eq!(&result, &expected);
+    }
+
+    // nb. Results here should match Python's `%` operator.
+    #[test]
+    fn test_mod_op() {
+        // Int tensor
+        let a = tensor!([10, -10, 10]);
+        let b = tensor!([3, 3, -3]);
+        let expected = tensor!([1, 2, -2]);
+        let result = mod_op(a.view(), b.view()).unwrap();
         assert_eq!(&result, &expected);
     }
 

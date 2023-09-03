@@ -39,28 +39,29 @@ class OperatorType(object):
     LSTM = 29
     MatMul = 30
     MaxPool = 31
-    Mul = 32
-    Pad = 33
-    Pow = 34
-    Range = 35
-    ReduceMean = 36
-    ReduceL2 = 37
-    Relu = 38
-    Reshape = 39
-    Resize = 40
-    Shape = 41
-    Sigmoid = 42
-    Sin = 43
-    Slice = 44
-    Split = 45
-    Sqrt = 46
-    Squeeze = 47
-    Softmax = 48
-    Sub = 49
-    Tanh = 50
-    Transpose = 51
-    Unsqueeze = 52
-    Where = 53
+    Mod = 32
+    Mul = 33
+    Pad = 34
+    Pow = 35
+    Range = 36
+    ReduceMean = 37
+    ReduceL2 = 38
+    Relu = 39
+    Reshape = 40
+    Resize = 41
+    Shape = 42
+    Sigmoid = 43
+    Sin = 44
+    Slice = 45
+    Split = 46
+    Sqrt = 47
+    Squeeze = 48
+    Softmax = 49
+    Sub = 50
+    Tanh = 51
+    Transpose = 52
+    Unsqueeze = 53
+    Where = 54
 
 
 class RNNDirection(object):
@@ -256,10 +257,18 @@ class ArgMaxAttrs(object):
             return bool(self._tab.Get(flatbuffers.number_types.BoolFlags, o + self._tab.Pos))
         return False
 
-def ArgMaxAttrsStart(builder): builder.StartObject(2)
-def ArgMaxAttrsAddAxis(builder, axis): builder.PrependInt32Slot(0, axis, 0)
-def ArgMaxAttrsAddKeepDims(builder, keepDims): builder.PrependBoolSlot(1, keepDims, 0)
-def ArgMaxAttrsEnd(builder): return builder.EndObject()
+def ArgMaxAttrsStart(builder):
+    builder.StartObject(2)
+
+def ArgMaxAttrsAddAxis(builder, axis):
+    builder.PrependInt32Slot(0, axis, 0)
+
+def ArgMaxAttrsAddKeepDims(builder, keepDims):
+    builder.PrependBoolSlot(1, keepDims, 0)
+
+def ArgMaxAttrsEnd(builder):
+    return builder.EndObject()
+
 
 
 class ArgMaxAttrsT(object):
@@ -412,15 +421,33 @@ class AveragePoolAttrs(object):
         o = flatbuffers.number_types.UOffsetTFlags.py_type(self._tab.Offset(10))
         return o == 0
 
-def AveragePoolAttrsStart(builder): builder.StartObject(4)
-def AveragePoolAttrsAddKernelSize(builder, kernelSize): builder.PrependUOffsetTRelativeSlot(0, flatbuffers.number_types.UOffsetTFlags.py_type(kernelSize), 0)
-def AveragePoolAttrsStartKernelSizeVector(builder, numElems): return builder.StartVector(4, numElems, 4)
-def AveragePoolAttrsAddPadMode(builder, padMode): builder.PrependInt8Slot(1, padMode, 0)
-def AveragePoolAttrsAddPads(builder, pads): builder.PrependUOffsetTRelativeSlot(2, flatbuffers.number_types.UOffsetTFlags.py_type(pads), 0)
-def AveragePoolAttrsStartPadsVector(builder, numElems): return builder.StartVector(4, numElems, 4)
-def AveragePoolAttrsAddStrides(builder, strides): builder.PrependUOffsetTRelativeSlot(3, flatbuffers.number_types.UOffsetTFlags.py_type(strides), 0)
-def AveragePoolAttrsStartStridesVector(builder, numElems): return builder.StartVector(4, numElems, 4)
-def AveragePoolAttrsEnd(builder): return builder.EndObject()
+def AveragePoolAttrsStart(builder):
+    builder.StartObject(4)
+
+def AveragePoolAttrsAddKernelSize(builder, kernelSize):
+    builder.PrependUOffsetTRelativeSlot(0, flatbuffers.number_types.UOffsetTFlags.py_type(kernelSize), 0)
+
+def AveragePoolAttrsStartKernelSizeVector(builder, numElems):
+    return builder.StartVector(4, numElems, 4)
+
+def AveragePoolAttrsAddPadMode(builder, padMode):
+    builder.PrependInt8Slot(1, padMode, 0)
+
+def AveragePoolAttrsAddPads(builder, pads):
+    builder.PrependUOffsetTRelativeSlot(2, flatbuffers.number_types.UOffsetTFlags.py_type(pads), 0)
+
+def AveragePoolAttrsStartPadsVector(builder, numElems):
+    return builder.StartVector(4, numElems, 4)
+
+def AveragePoolAttrsAddStrides(builder, strides):
+    builder.PrependUOffsetTRelativeSlot(3, flatbuffers.number_types.UOffsetTFlags.py_type(strides), 0)
+
+def AveragePoolAttrsStartStridesVector(builder, numElems):
+    return builder.StartVector(4, numElems, 4)
+
+def AveragePoolAttrsEnd(builder):
+    return builder.EndObject()
+
 
 try:
     from typing import List
@@ -547,9 +574,15 @@ class BatchNormalizationAttrs(object):
             return self._tab.Get(flatbuffers.number_types.Float32Flags, o + self._tab.Pos)
         return 0.0
 
-def BatchNormalizationAttrsStart(builder): builder.StartObject(1)
-def BatchNormalizationAttrsAddEpsilon(builder, epsilon): builder.PrependFloat32Slot(0, epsilon, 0.0)
-def BatchNormalizationAttrsEnd(builder): return builder.EndObject()
+def BatchNormalizationAttrsStart(builder):
+    builder.StartObject(1)
+
+def BatchNormalizationAttrsAddEpsilon(builder, epsilon):
+    builder.PrependFloat32Slot(0, epsilon, 0.0)
+
+def BatchNormalizationAttrsEnd(builder):
+    return builder.EndObject()
+
 
 
 class BatchNormalizationAttrsT(object):
@@ -618,9 +651,15 @@ class CastAttrs(object):
             return self._tab.Get(flatbuffers.number_types.Int8Flags, o + self._tab.Pos)
         return 0
 
-def CastAttrsStart(builder): builder.StartObject(1)
-def CastAttrsAddTo(builder, to): builder.PrependInt8Slot(0, to, 0)
-def CastAttrsEnd(builder): return builder.EndObject()
+def CastAttrsStart(builder):
+    builder.StartObject(1)
+
+def CastAttrsAddTo(builder, to):
+    builder.PrependInt8Slot(0, to, 0)
+
+def CastAttrsEnd(builder):
+    return builder.EndObject()
+
 
 
 class CastAttrsT(object):
@@ -689,9 +728,15 @@ class ConcatAttrs(object):
             return self._tab.Get(flatbuffers.number_types.Uint32Flags, o + self._tab.Pos)
         return 0
 
-def ConcatAttrsStart(builder): builder.StartObject(1)
-def ConcatAttrsAddDim(builder, dim): builder.PrependUint32Slot(0, dim, 0)
-def ConcatAttrsEnd(builder): return builder.EndObject()
+def ConcatAttrsStart(builder):
+    builder.StartObject(1)
+
+def ConcatAttrsAddDim(builder, dim):
+    builder.PrependUint32Slot(0, dim, 0)
+
+def ConcatAttrsEnd(builder):
+    return builder.EndObject()
+
 
 
 class ConcatAttrsT(object):
@@ -760,9 +805,15 @@ class IntScalar(object):
             return self._tab.Get(flatbuffers.number_types.Int32Flags, o + self._tab.Pos)
         return 0
 
-def IntScalarStart(builder): builder.StartObject(1)
-def IntScalarAddValue(builder, value): builder.PrependInt32Slot(0, value, 0)
-def IntScalarEnd(builder): return builder.EndObject()
+def IntScalarStart(builder):
+    builder.StartObject(1)
+
+def IntScalarAddValue(builder, value):
+    builder.PrependInt32Slot(0, value, 0)
+
+def IntScalarEnd(builder):
+    return builder.EndObject()
+
 
 
 class IntScalarT(object):
@@ -831,9 +882,15 @@ class FloatScalar(object):
             return self._tab.Get(flatbuffers.number_types.Float32Flags, o + self._tab.Pos)
         return 0.0
 
-def FloatScalarStart(builder): builder.StartObject(1)
-def FloatScalarAddValue(builder, value): builder.PrependFloat32Slot(0, value, 0.0)
-def FloatScalarEnd(builder): return builder.EndObject()
+def FloatScalarStart(builder):
+    builder.StartObject(1)
+
+def FloatScalarAddValue(builder, value):
+    builder.PrependFloat32Slot(0, value, 0.0)
+
+def FloatScalarEnd(builder):
+    return builder.EndObject()
+
 
 
 class FloatScalarT(object):
@@ -912,10 +969,18 @@ class ConstantOfShapeAttrs(object):
             return obj
         return None
 
-def ConstantOfShapeAttrsStart(builder): builder.StartObject(2)
-def ConstantOfShapeAttrsAddValueType(builder, valueType): builder.PrependUint8Slot(0, valueType, 0)
-def ConstantOfShapeAttrsAddValue(builder, value): builder.PrependUOffsetTRelativeSlot(1, flatbuffers.number_types.UOffsetTFlags.py_type(value), 0)
-def ConstantOfShapeAttrsEnd(builder): return builder.EndObject()
+def ConstantOfShapeAttrsStart(builder):
+    builder.StartObject(2)
+
+def ConstantOfShapeAttrsAddValueType(builder, valueType):
+    builder.PrependUint8Slot(0, valueType, 0)
+
+def ConstantOfShapeAttrsAddValue(builder, value):
+    builder.PrependUOffsetTRelativeSlot(1, flatbuffers.number_types.UOffsetTFlags.py_type(value), 0)
+
+def ConstantOfShapeAttrsEnd(builder):
+    return builder.EndObject()
+
 
 try:
     from typing import Union
@@ -1055,14 +1120,30 @@ class ConvAttrs(object):
         o = flatbuffers.number_types.UOffsetTFlags.py_type(self._tab.Offset(10))
         return o == 0
 
-def ConvAttrsStart(builder): builder.StartObject(4)
-def ConvAttrsAddPadMode(builder, padMode): builder.PrependInt8Slot(0, padMode, 0)
-def ConvAttrsAddPads(builder, pads): builder.PrependUOffsetTRelativeSlot(1, flatbuffers.number_types.UOffsetTFlags.py_type(pads), 0)
-def ConvAttrsStartPadsVector(builder, numElems): return builder.StartVector(4, numElems, 4)
-def ConvAttrsAddGroups(builder, groups): builder.PrependUint32Slot(2, groups, 0)
-def ConvAttrsAddStrides(builder, strides): builder.PrependUOffsetTRelativeSlot(3, flatbuffers.number_types.UOffsetTFlags.py_type(strides), 0)
-def ConvAttrsStartStridesVector(builder, numElems): return builder.StartVector(4, numElems, 4)
-def ConvAttrsEnd(builder): return builder.EndObject()
+def ConvAttrsStart(builder):
+    builder.StartObject(4)
+
+def ConvAttrsAddPadMode(builder, padMode):
+    builder.PrependInt8Slot(0, padMode, 0)
+
+def ConvAttrsAddPads(builder, pads):
+    builder.PrependUOffsetTRelativeSlot(1, flatbuffers.number_types.UOffsetTFlags.py_type(pads), 0)
+
+def ConvAttrsStartPadsVector(builder, numElems):
+    return builder.StartVector(4, numElems, 4)
+
+def ConvAttrsAddGroups(builder, groups):
+    builder.PrependUint32Slot(2, groups, 0)
+
+def ConvAttrsAddStrides(builder, strides):
+    builder.PrependUOffsetTRelativeSlot(3, flatbuffers.number_types.UOffsetTFlags.py_type(strides), 0)
+
+def ConvAttrsStartStridesVector(builder, numElems):
+    return builder.StartVector(4, numElems, 4)
+
+def ConvAttrsEnd(builder):
+    return builder.EndObject()
+
 
 try:
     from typing import List
@@ -1194,10 +1275,18 @@ class ConvTransposeAttrs(object):
         o = flatbuffers.number_types.UOffsetTFlags.py_type(self._tab.Offset(4))
         return o == 0
 
-def ConvTransposeAttrsStart(builder): builder.StartObject(1)
-def ConvTransposeAttrsAddStrides(builder, strides): builder.PrependUOffsetTRelativeSlot(0, flatbuffers.number_types.UOffsetTFlags.py_type(strides), 0)
-def ConvTransposeAttrsStartStridesVector(builder, numElems): return builder.StartVector(4, numElems, 4)
-def ConvTransposeAttrsEnd(builder): return builder.EndObject()
+def ConvTransposeAttrsStart(builder):
+    builder.StartObject(1)
+
+def ConvTransposeAttrsAddStrides(builder, strides):
+    builder.PrependUOffsetTRelativeSlot(0, flatbuffers.number_types.UOffsetTFlags.py_type(strides), 0)
+
+def ConvTransposeAttrsStartStridesVector(builder, numElems):
+    return builder.StartVector(4, numElems, 4)
+
+def ConvTransposeAttrsEnd(builder):
+    return builder.EndObject()
+
 
 try:
     from typing import List
@@ -1285,9 +1374,15 @@ class FlattenAttrs(object):
             return self._tab.Get(flatbuffers.number_types.Int32Flags, o + self._tab.Pos)
         return 0
 
-def FlattenAttrsStart(builder): builder.StartObject(1)
-def FlattenAttrsAddAxis(builder, axis): builder.PrependInt32Slot(0, axis, 0)
-def FlattenAttrsEnd(builder): return builder.EndObject()
+def FlattenAttrsStart(builder):
+    builder.StartObject(1)
+
+def FlattenAttrsAddAxis(builder, axis):
+    builder.PrependInt32Slot(0, axis, 0)
+
+def FlattenAttrsEnd(builder):
+    return builder.EndObject()
+
 
 
 class FlattenAttrsT(object):
@@ -1356,9 +1451,15 @@ class GatherAttrs(object):
             return self._tab.Get(flatbuffers.number_types.Uint32Flags, o + self._tab.Pos)
         return 0
 
-def GatherAttrsStart(builder): builder.StartObject(1)
-def GatherAttrsAddAxis(builder, axis): builder.PrependUint32Slot(0, axis, 0)
-def GatherAttrsEnd(builder): return builder.EndObject()
+def GatherAttrsStart(builder):
+    builder.StartObject(1)
+
+def GatherAttrsAddAxis(builder, axis):
+    builder.PrependUint32Slot(0, axis, 0)
+
+def GatherAttrsEnd(builder):
+    return builder.EndObject()
+
 
 
 class GatherAttrsT(object):
@@ -1448,12 +1549,24 @@ class GemmAttrs(object):
             return bool(self._tab.Get(flatbuffers.number_types.BoolFlags, o + self._tab.Pos))
         return False
 
-def GemmAttrsStart(builder): builder.StartObject(4)
-def GemmAttrsAddAlpha(builder, alpha): builder.PrependFloat32Slot(0, alpha, 0.0)
-def GemmAttrsAddBeta(builder, beta): builder.PrependFloat32Slot(1, beta, 0.0)
-def GemmAttrsAddTransposeA(builder, transposeA): builder.PrependBoolSlot(2, transposeA, 0)
-def GemmAttrsAddTransposeB(builder, transposeB): builder.PrependBoolSlot(3, transposeB, 0)
-def GemmAttrsEnd(builder): return builder.EndObject()
+def GemmAttrsStart(builder):
+    builder.StartObject(4)
+
+def GemmAttrsAddAlpha(builder, alpha):
+    builder.PrependFloat32Slot(0, alpha, 0.0)
+
+def GemmAttrsAddBeta(builder, beta):
+    builder.PrependFloat32Slot(1, beta, 0.0)
+
+def GemmAttrsAddTransposeA(builder, transposeA):
+    builder.PrependBoolSlot(2, transposeA, 0)
+
+def GemmAttrsAddTransposeB(builder, transposeB):
+    builder.PrependBoolSlot(3, transposeB, 0)
+
+def GemmAttrsEnd(builder):
+    return builder.EndObject()
+
 
 
 class GemmAttrsT(object):
@@ -1545,11 +1658,21 @@ class GRUAttrs(object):
             return bool(self._tab.Get(flatbuffers.number_types.BoolFlags, o + self._tab.Pos))
         return False
 
-def GRUAttrsStart(builder): builder.StartObject(3)
-def GRUAttrsAddDirection(builder, direction): builder.PrependInt8Slot(0, direction, 0)
-def GRUAttrsAddHiddenSize(builder, hiddenSize): builder.PrependUint32Slot(1, hiddenSize, 0)
-def GRUAttrsAddLinearBeforeReset(builder, linearBeforeReset): builder.PrependBoolSlot(2, linearBeforeReset, 0)
-def GRUAttrsEnd(builder): return builder.EndObject()
+def GRUAttrsStart(builder):
+    builder.StartObject(3)
+
+def GRUAttrsAddDirection(builder, direction):
+    builder.PrependInt8Slot(0, direction, 0)
+
+def GRUAttrsAddHiddenSize(builder, hiddenSize):
+    builder.PrependUint32Slot(1, hiddenSize, 0)
+
+def GRUAttrsAddLinearBeforeReset(builder, linearBeforeReset):
+    builder.PrependBoolSlot(2, linearBeforeReset, 0)
+
+def GRUAttrsEnd(builder):
+    return builder.EndObject()
+
 
 
 class GRUAttrsT(object):
@@ -1624,9 +1747,15 @@ class LeakyReluAttrs(object):
             return self._tab.Get(flatbuffers.number_types.Float32Flags, o + self._tab.Pos)
         return 0.0
 
-def LeakyReluAttrsStart(builder): builder.StartObject(1)
-def LeakyReluAttrsAddAlpha(builder, alpha): builder.PrependFloat32Slot(0, alpha, 0.0)
-def LeakyReluAttrsEnd(builder): return builder.EndObject()
+def LeakyReluAttrsStart(builder):
+    builder.StartObject(1)
+
+def LeakyReluAttrsAddAlpha(builder, alpha):
+    builder.PrependFloat32Slot(0, alpha, 0.0)
+
+def LeakyReluAttrsEnd(builder):
+    return builder.EndObject()
+
 
 
 class LeakyReluAttrsT(object):
@@ -1702,10 +1831,18 @@ class LSTMAttrs(object):
             return self._tab.Get(flatbuffers.number_types.Uint32Flags, o + self._tab.Pos)
         return 0
 
-def LSTMAttrsStart(builder): builder.StartObject(2)
-def LSTMAttrsAddDirection(builder, direction): builder.PrependInt8Slot(0, direction, 0)
-def LSTMAttrsAddHiddenSize(builder, hiddenSize): builder.PrependUint32Slot(1, hiddenSize, 0)
-def LSTMAttrsEnd(builder): return builder.EndObject()
+def LSTMAttrsStart(builder):
+    builder.StartObject(2)
+
+def LSTMAttrsAddDirection(builder, direction):
+    builder.PrependInt8Slot(0, direction, 0)
+
+def LSTMAttrsAddHiddenSize(builder, hiddenSize):
+    builder.PrependUint32Slot(1, hiddenSize, 0)
+
+def LSTMAttrsEnd(builder):
+    return builder.EndObject()
+
 
 
 class LSTMAttrsT(object):
@@ -1858,15 +1995,33 @@ class MaxPoolAttrs(object):
         o = flatbuffers.number_types.UOffsetTFlags.py_type(self._tab.Offset(10))
         return o == 0
 
-def MaxPoolAttrsStart(builder): builder.StartObject(4)
-def MaxPoolAttrsAddKernelSize(builder, kernelSize): builder.PrependUOffsetTRelativeSlot(0, flatbuffers.number_types.UOffsetTFlags.py_type(kernelSize), 0)
-def MaxPoolAttrsStartKernelSizeVector(builder, numElems): return builder.StartVector(4, numElems, 4)
-def MaxPoolAttrsAddPadMode(builder, padMode): builder.PrependInt8Slot(1, padMode, 0)
-def MaxPoolAttrsAddPads(builder, pads): builder.PrependUOffsetTRelativeSlot(2, flatbuffers.number_types.UOffsetTFlags.py_type(pads), 0)
-def MaxPoolAttrsStartPadsVector(builder, numElems): return builder.StartVector(4, numElems, 4)
-def MaxPoolAttrsAddStrides(builder, strides): builder.PrependUOffsetTRelativeSlot(3, flatbuffers.number_types.UOffsetTFlags.py_type(strides), 0)
-def MaxPoolAttrsStartStridesVector(builder, numElems): return builder.StartVector(4, numElems, 4)
-def MaxPoolAttrsEnd(builder): return builder.EndObject()
+def MaxPoolAttrsStart(builder):
+    builder.StartObject(4)
+
+def MaxPoolAttrsAddKernelSize(builder, kernelSize):
+    builder.PrependUOffsetTRelativeSlot(0, flatbuffers.number_types.UOffsetTFlags.py_type(kernelSize), 0)
+
+def MaxPoolAttrsStartKernelSizeVector(builder, numElems):
+    return builder.StartVector(4, numElems, 4)
+
+def MaxPoolAttrsAddPadMode(builder, padMode):
+    builder.PrependInt8Slot(1, padMode, 0)
+
+def MaxPoolAttrsAddPads(builder, pads):
+    builder.PrependUOffsetTRelativeSlot(2, flatbuffers.number_types.UOffsetTFlags.py_type(pads), 0)
+
+def MaxPoolAttrsStartPadsVector(builder, numElems):
+    return builder.StartVector(4, numElems, 4)
+
+def MaxPoolAttrsAddStrides(builder, strides):
+    builder.PrependUOffsetTRelativeSlot(3, flatbuffers.number_types.UOffsetTFlags.py_type(strides), 0)
+
+def MaxPoolAttrsStartStridesVector(builder, numElems):
+    return builder.StartVector(4, numElems, 4)
+
+def MaxPoolAttrsEnd(builder):
+    return builder.EndObject()
+
 
 try:
     from typing import List
@@ -2020,11 +2175,21 @@ class ReduceMeanAttrs(object):
             return bool(self._tab.Get(flatbuffers.number_types.BoolFlags, o + self._tab.Pos))
         return False
 
-def ReduceMeanAttrsStart(builder): builder.StartObject(2)
-def ReduceMeanAttrsAddAxes(builder, axes): builder.PrependUOffsetTRelativeSlot(0, flatbuffers.number_types.UOffsetTFlags.py_type(axes), 0)
-def ReduceMeanAttrsStartAxesVector(builder, numElems): return builder.StartVector(4, numElems, 4)
-def ReduceMeanAttrsAddKeepDims(builder, keepDims): builder.PrependBoolSlot(1, keepDims, 0)
-def ReduceMeanAttrsEnd(builder): return builder.EndObject()
+def ReduceMeanAttrsStart(builder):
+    builder.StartObject(2)
+
+def ReduceMeanAttrsAddAxes(builder, axes):
+    builder.PrependUOffsetTRelativeSlot(0, flatbuffers.number_types.UOffsetTFlags.py_type(axes), 0)
+
+def ReduceMeanAttrsStartAxesVector(builder, numElems):
+    return builder.StartVector(4, numElems, 4)
+
+def ReduceMeanAttrsAddKeepDims(builder, keepDims):
+    builder.PrependBoolSlot(1, keepDims, 0)
+
+def ReduceMeanAttrsEnd(builder):
+    return builder.EndObject()
+
 
 try:
     from typing import List
@@ -2115,9 +2280,15 @@ class ReshapeAttrs(object):
             return bool(self._tab.Get(flatbuffers.number_types.BoolFlags, o + self._tab.Pos))
         return False
 
-def ReshapeAttrsStart(builder): builder.StartObject(1)
-def ReshapeAttrsAddAllowZero(builder, allowZero): builder.PrependBoolSlot(0, allowZero, 0)
-def ReshapeAttrsEnd(builder): return builder.EndObject()
+def ReshapeAttrsStart(builder):
+    builder.StartObject(1)
+
+def ReshapeAttrsAddAllowZero(builder, allowZero):
+    builder.PrependBoolSlot(0, allowZero, 0)
+
+def ReshapeAttrsEnd(builder):
+    return builder.EndObject()
+
 
 
 class ReshapeAttrsT(object):
@@ -2200,11 +2371,21 @@ class ResizeAttrs(object):
             return self._tab.Get(flatbuffers.number_types.Int8Flags, o + self._tab.Pos)
         return 0
 
-def ResizeAttrsStart(builder): builder.StartObject(3)
-def ResizeAttrsAddMode(builder, mode): builder.PrependInt8Slot(0, mode, 0)
-def ResizeAttrsAddCoordMode(builder, coordMode): builder.PrependInt8Slot(1, coordMode, 0)
-def ResizeAttrsAddNearestMode(builder, nearestMode): builder.PrependInt8Slot(2, nearestMode, 0)
-def ResizeAttrsEnd(builder): return builder.EndObject()
+def ResizeAttrsStart(builder):
+    builder.StartObject(3)
+
+def ResizeAttrsAddMode(builder, mode):
+    builder.PrependInt8Slot(0, mode, 0)
+
+def ResizeAttrsAddCoordMode(builder, coordMode):
+    builder.PrependInt8Slot(1, coordMode, 0)
+
+def ResizeAttrsAddNearestMode(builder, nearestMode):
+    builder.PrependInt8Slot(2, nearestMode, 0)
+
+def ResizeAttrsEnd(builder):
+    return builder.EndObject()
+
 
 
 class ResizeAttrsT(object):
@@ -2279,9 +2460,15 @@ class SoftmaxAttrs(object):
             return self._tab.Get(flatbuffers.number_types.Int32Flags, o + self._tab.Pos)
         return 0
 
-def SoftmaxAttrsStart(builder): builder.StartObject(1)
-def SoftmaxAttrsAddAxis(builder, axis): builder.PrependInt32Slot(0, axis, 0)
-def SoftmaxAttrsEnd(builder): return builder.EndObject()
+def SoftmaxAttrsStart(builder):
+    builder.StartObject(1)
+
+def SoftmaxAttrsAddAxis(builder, axis):
+    builder.PrependInt32Slot(0, axis, 0)
+
+def SoftmaxAttrsEnd(builder):
+    return builder.EndObject()
+
 
 
 class SoftmaxAttrsT(object):
@@ -2350,9 +2537,15 @@ class SplitAttrs(object):
             return self._tab.Get(flatbuffers.number_types.Int32Flags, o + self._tab.Pos)
         return 0
 
-def SplitAttrsStart(builder): builder.StartObject(1)
-def SplitAttrsAddAxis(builder, axis): builder.PrependInt32Slot(0, axis, 0)
-def SplitAttrsEnd(builder): return builder.EndObject()
+def SplitAttrsStart(builder):
+    builder.StartObject(1)
+
+def SplitAttrsAddAxis(builder, axis):
+    builder.PrependInt32Slot(0, axis, 0)
+
+def SplitAttrsEnd(builder):
+    return builder.EndObject()
+
 
 
 class SplitAttrsT(object):
@@ -2441,10 +2634,18 @@ class TransposeAttrs(object):
         o = flatbuffers.number_types.UOffsetTFlags.py_type(self._tab.Offset(4))
         return o == 0
 
-def TransposeAttrsStart(builder): builder.StartObject(1)
-def TransposeAttrsAddPerm(builder, perm): builder.PrependUOffsetTRelativeSlot(0, flatbuffers.number_types.UOffsetTFlags.py_type(perm), 0)
-def TransposeAttrsStartPermVector(builder, numElems): return builder.StartVector(4, numElems, 4)
-def TransposeAttrsEnd(builder): return builder.EndObject()
+def TransposeAttrsStart(builder):
+    builder.StartObject(1)
+
+def TransposeAttrsAddPerm(builder, perm):
+    builder.PrependUOffsetTRelativeSlot(0, flatbuffers.number_types.UOffsetTFlags.py_type(perm), 0)
+
+def TransposeAttrsStartPermVector(builder, numElems):
+    return builder.StartVector(4, numElems, 4)
+
+def TransposeAttrsEnd(builder):
+    return builder.EndObject()
+
 
 try:
     from typing import List
@@ -2603,15 +2804,33 @@ class OperatorNode(object):
         o = flatbuffers.number_types.UOffsetTFlags.py_type(self._tab.Offset(12))
         return o == 0
 
-def OperatorNodeStart(builder): builder.StartObject(5)
-def OperatorNodeAddType(builder, type): builder.PrependInt8Slot(0, type, 0)
-def OperatorNodeAddAttrsType(builder, attrsType): builder.PrependUint8Slot(1, attrsType, 0)
-def OperatorNodeAddAttrs(builder, attrs): builder.PrependUOffsetTRelativeSlot(2, flatbuffers.number_types.UOffsetTFlags.py_type(attrs), 0)
-def OperatorNodeAddInputs(builder, inputs): builder.PrependUOffsetTRelativeSlot(3, flatbuffers.number_types.UOffsetTFlags.py_type(inputs), 0)
-def OperatorNodeStartInputsVector(builder, numElems): return builder.StartVector(4, numElems, 4)
-def OperatorNodeAddOutputs(builder, outputs): builder.PrependUOffsetTRelativeSlot(4, flatbuffers.number_types.UOffsetTFlags.py_type(outputs), 0)
-def OperatorNodeStartOutputsVector(builder, numElems): return builder.StartVector(4, numElems, 4)
-def OperatorNodeEnd(builder): return builder.EndObject()
+def OperatorNodeStart(builder):
+    builder.StartObject(5)
+
+def OperatorNodeAddType(builder, type):
+    builder.PrependInt8Slot(0, type, 0)
+
+def OperatorNodeAddAttrsType(builder, attrsType):
+    builder.PrependUint8Slot(1, attrsType, 0)
+
+def OperatorNodeAddAttrs(builder, attrs):
+    builder.PrependUOffsetTRelativeSlot(2, flatbuffers.number_types.UOffsetTFlags.py_type(attrs), 0)
+
+def OperatorNodeAddInputs(builder, inputs):
+    builder.PrependUOffsetTRelativeSlot(3, flatbuffers.number_types.UOffsetTFlags.py_type(inputs), 0)
+
+def OperatorNodeStartInputsVector(builder, numElems):
+    return builder.StartVector(4, numElems, 4)
+
+def OperatorNodeAddOutputs(builder, outputs):
+    builder.PrependUOffsetTRelativeSlot(4, flatbuffers.number_types.UOffsetTFlags.py_type(outputs), 0)
+
+def OperatorNodeStartOutputsVector(builder, numElems):
+    return builder.StartVector(4, numElems, 4)
+
+def OperatorNodeEnd(builder):
+    return builder.EndObject()
+
 
 try:
     from typing import List, Union
@@ -2749,10 +2968,18 @@ class FloatData(object):
         o = flatbuffers.number_types.UOffsetTFlags.py_type(self._tab.Offset(4))
         return o == 0
 
-def FloatDataStart(builder): builder.StartObject(1)
-def FloatDataAddData(builder, data): builder.PrependUOffsetTRelativeSlot(0, flatbuffers.number_types.UOffsetTFlags.py_type(data), 0)
-def FloatDataStartDataVector(builder, numElems): return builder.StartVector(4, numElems, 4)
-def FloatDataEnd(builder): return builder.EndObject()
+def FloatDataStart(builder):
+    builder.StartObject(1)
+
+def FloatDataAddData(builder, data):
+    builder.PrependUOffsetTRelativeSlot(0, flatbuffers.number_types.UOffsetTFlags.py_type(data), 0)
+
+def FloatDataStartDataVector(builder, numElems):
+    return builder.StartVector(4, numElems, 4)
+
+def FloatDataEnd(builder):
+    return builder.EndObject()
+
 
 try:
     from typing import List
@@ -2860,10 +3087,18 @@ class IntData(object):
         o = flatbuffers.number_types.UOffsetTFlags.py_type(self._tab.Offset(4))
         return o == 0
 
-def IntDataStart(builder): builder.StartObject(1)
-def IntDataAddData(builder, data): builder.PrependUOffsetTRelativeSlot(0, flatbuffers.number_types.UOffsetTFlags.py_type(data), 0)
-def IntDataStartDataVector(builder, numElems): return builder.StartVector(4, numElems, 4)
-def IntDataEnd(builder): return builder.EndObject()
+def IntDataStart(builder):
+    builder.StartObject(1)
+
+def IntDataAddData(builder, data):
+    builder.PrependUOffsetTRelativeSlot(0, flatbuffers.number_types.UOffsetTFlags.py_type(data), 0)
+
+def IntDataStartDataVector(builder, numElems):
+    return builder.StartVector(4, numElems, 4)
+
+def IntDataEnd(builder):
+    return builder.EndObject()
+
 
 try:
     from typing import List
@@ -2988,12 +3223,24 @@ class ConstantNode(object):
             return obj
         return None
 
-def ConstantNodeStart(builder): builder.StartObject(3)
-def ConstantNodeAddShape(builder, shape): builder.PrependUOffsetTRelativeSlot(0, flatbuffers.number_types.UOffsetTFlags.py_type(shape), 0)
-def ConstantNodeStartShapeVector(builder, numElems): return builder.StartVector(4, numElems, 4)
-def ConstantNodeAddDataType(builder, dataType): builder.PrependUint8Slot(1, dataType, 0)
-def ConstantNodeAddData(builder, data): builder.PrependUOffsetTRelativeSlot(2, flatbuffers.number_types.UOffsetTFlags.py_type(data), 0)
-def ConstantNodeEnd(builder): return builder.EndObject()
+def ConstantNodeStart(builder):
+    builder.StartObject(3)
+
+def ConstantNodeAddShape(builder, shape):
+    builder.PrependUOffsetTRelativeSlot(0, flatbuffers.number_types.UOffsetTFlags.py_type(shape), 0)
+
+def ConstantNodeStartShapeVector(builder, numElems):
+    return builder.StartVector(4, numElems, 4)
+
+def ConstantNodeAddDataType(builder, dataType):
+    builder.PrependUint8Slot(1, dataType, 0)
+
+def ConstantNodeAddData(builder, data):
+    builder.PrependUOffsetTRelativeSlot(2, flatbuffers.number_types.UOffsetTFlags.py_type(data), 0)
+
+def ConstantNodeEnd(builder):
+    return builder.EndObject()
+
 
 try:
     from typing import List, Union
@@ -3097,10 +3344,18 @@ class Dim(object):
             return self._tab.String(o + self._tab.Pos)
         return None
 
-def DimStart(builder): builder.StartObject(2)
-def DimAddValue(builder, value): builder.PrependUint32Slot(0, value, 0)
-def DimAddName(builder, name): builder.PrependUOffsetTRelativeSlot(1, flatbuffers.number_types.UOffsetTFlags.py_type(name), 0)
-def DimEnd(builder): return builder.EndObject()
+def DimStart(builder):
+    builder.StartObject(2)
+
+def DimAddValue(builder, value):
+    builder.PrependUint32Slot(0, value, 0)
+
+def DimAddName(builder, name):
+    builder.PrependUOffsetTRelativeSlot(1, flatbuffers.number_types.UOffsetTFlags.py_type(name), 0)
+
+def DimEnd(builder):
+    return builder.EndObject()
+
 
 
 class DimT(object):
@@ -3192,10 +3447,18 @@ class ValueNode(object):
         o = flatbuffers.number_types.UOffsetTFlags.py_type(self._tab.Offset(4))
         return o == 0
 
-def ValueNodeStart(builder): builder.StartObject(1)
-def ValueNodeAddShape(builder, shape): builder.PrependUOffsetTRelativeSlot(0, flatbuffers.number_types.UOffsetTFlags.py_type(shape), 0)
-def ValueNodeStartShapeVector(builder, numElems): return builder.StartVector(4, numElems, 4)
-def ValueNodeEnd(builder): return builder.EndObject()
+def ValueNodeStart(builder):
+    builder.StartObject(1)
+
+def ValueNodeAddShape(builder, shape):
+    builder.PrependUOffsetTRelativeSlot(0, flatbuffers.number_types.UOffsetTFlags.py_type(shape), 0)
+
+def ValueNodeStartShapeVector(builder, numElems):
+    return builder.StartVector(4, numElems, 4)
+
+def ValueNodeEnd(builder):
+    return builder.EndObject()
+
 
 try:
     from typing import List
@@ -3301,11 +3564,21 @@ class Node(object):
             return obj
         return None
 
-def NodeStart(builder): builder.StartObject(3)
-def NodeAddName(builder, name): builder.PrependUOffsetTRelativeSlot(0, flatbuffers.number_types.UOffsetTFlags.py_type(name), 0)
-def NodeAddDataType(builder, dataType): builder.PrependUint8Slot(1, dataType, 0)
-def NodeAddData(builder, data): builder.PrependUOffsetTRelativeSlot(2, flatbuffers.number_types.UOffsetTFlags.py_type(data), 0)
-def NodeEnd(builder): return builder.EndObject()
+def NodeStart(builder):
+    builder.StartObject(3)
+
+def NodeAddName(builder, name):
+    builder.PrependUOffsetTRelativeSlot(0, flatbuffers.number_types.UOffsetTFlags.py_type(name), 0)
+
+def NodeAddDataType(builder, dataType):
+    builder.PrependUint8Slot(1, dataType, 0)
+
+def NodeAddData(builder, data):
+    builder.PrependUOffsetTRelativeSlot(2, flatbuffers.number_types.UOffsetTFlags.py_type(data), 0)
+
+def NodeEnd(builder):
+    return builder.EndObject()
+
 
 try:
     from typing import Union
@@ -3461,14 +3734,30 @@ class Graph(object):
         o = flatbuffers.number_types.UOffsetTFlags.py_type(self._tab.Offset(8))
         return o == 0
 
-def GraphStart(builder): builder.StartObject(3)
-def GraphAddNodes(builder, nodes): builder.PrependUOffsetTRelativeSlot(0, flatbuffers.number_types.UOffsetTFlags.py_type(nodes), 0)
-def GraphStartNodesVector(builder, numElems): return builder.StartVector(4, numElems, 4)
-def GraphAddInputs(builder, inputs): builder.PrependUOffsetTRelativeSlot(1, flatbuffers.number_types.UOffsetTFlags.py_type(inputs), 0)
-def GraphStartInputsVector(builder, numElems): return builder.StartVector(4, numElems, 4)
-def GraphAddOutputs(builder, outputs): builder.PrependUOffsetTRelativeSlot(2, flatbuffers.number_types.UOffsetTFlags.py_type(outputs), 0)
-def GraphStartOutputsVector(builder, numElems): return builder.StartVector(4, numElems, 4)
-def GraphEnd(builder): return builder.EndObject()
+def GraphStart(builder):
+    builder.StartObject(3)
+
+def GraphAddNodes(builder, nodes):
+    builder.PrependUOffsetTRelativeSlot(0, flatbuffers.number_types.UOffsetTFlags.py_type(nodes), 0)
+
+def GraphStartNodesVector(builder, numElems):
+    return builder.StartVector(4, numElems, 4)
+
+def GraphAddInputs(builder, inputs):
+    builder.PrependUOffsetTRelativeSlot(1, flatbuffers.number_types.UOffsetTFlags.py_type(inputs), 0)
+
+def GraphStartInputsVector(builder, numElems):
+    return builder.StartVector(4, numElems, 4)
+
+def GraphAddOutputs(builder, outputs):
+    builder.PrependUOffsetTRelativeSlot(2, flatbuffers.number_types.UOffsetTFlags.py_type(outputs), 0)
+
+def GraphStartOutputsVector(builder, numElems):
+    return builder.StartVector(4, numElems, 4)
+
+def GraphEnd(builder):
+    return builder.EndObject()
+
 
 try:
     from typing import List
@@ -3603,10 +3892,18 @@ class Model(object):
             return obj
         return None
 
-def ModelStart(builder): builder.StartObject(2)
-def ModelAddSchemaVersion(builder, schemaVersion): builder.PrependInt32Slot(0, schemaVersion, 0)
-def ModelAddGraph(builder, graph): builder.PrependUOffsetTRelativeSlot(1, flatbuffers.number_types.UOffsetTFlags.py_type(graph), 0)
-def ModelEnd(builder): return builder.EndObject()
+def ModelStart(builder):
+    builder.StartObject(2)
+
+def ModelAddSchemaVersion(builder, schemaVersion):
+    builder.PrependInt32Slot(0, schemaVersion, 0)
+
+def ModelAddGraph(builder, graph):
+    builder.PrependUOffsetTRelativeSlot(1, flatbuffers.number_types.UOffsetTFlags.py_type(graph), 0)
+
+def ModelEnd(builder):
+    return builder.EndObject()
+
 
 try:
     from typing import Optional

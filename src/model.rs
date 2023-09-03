@@ -436,6 +436,7 @@ fn read_operator(node: &OperatorNode) -> ReadOpResult {
         OperatorType::LSTM => read_lstm_op(node),
         OperatorType::MatMul => op!(MatMul),
         OperatorType::MaxPool => read_max_pool_op(node),
+        OperatorType::Mod => op!(Mod),
         OperatorType::Mul => op!(Mul),
         OperatorType::Pad => op!(Pad),
         OperatorType::Pow => op!(Pow),
@@ -828,6 +829,7 @@ mod tests {
             strides: [2, 2],
             padding: Padding::Fixed([0, 0, 0, 0]),
         });
+        add_operator!(Mod, [input_node, input_node]);
         add_operator!(Mul, [input_node, input_node]);
 
         let pads = builder.add_int_constant(&Tensor::from_data(&[8], vec![0, 0, 1, 1, 0, 0, 1, 1]));

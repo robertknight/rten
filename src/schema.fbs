@@ -39,6 +39,7 @@ enum OperatorType: byte {
   LSTM,
   MatMul,
   MaxPool,
+  Mod,
   Mul,
   Pad,
   Pow,

@@ -43,6 +43,7 @@ pub enum OpType {
     LogSoftmax(LogSoftmax),
     MatMul,
     MaxPool(MaxPool),
+    Mod,
     Mul,
     Pad,
     Pow,
@@ -415,6 +416,7 @@ impl<'a> ModelBuilder<'a> {
                     strides,
                 }
             }),
+            OpType::Mod => op!(Mod),
             OpType::Mul => op!(Mul),
             OpType::Pad => op!(Pad),
             OpType::Pow => op!(Pow),
