@@ -615,6 +615,9 @@ pub struct OcrEngineParams {
     /// Model used to detect text words in the image.
     pub detection_model: Option<Model>,
 
+    /// Model used to determine how to group words into lines and paragraphs.
+    pub layout_model: Option<Model>,
+
     /// Model used to recognize lines of text in the image.
     pub recognition_model: Option<Model>,
 
@@ -630,6 +633,7 @@ pub struct OcrEngineParams {
 /// and recognize text in an image.
 pub struct OcrEngine {
     detection_model: Option<Model>,
+    layout_model: Option<Model>,
     recognition_model: Option<RecognitionModel>,
     debug: bool,
     decode_method: DecodeMethod,
@@ -651,6 +655,7 @@ impl OcrEngine {
             .transpose()?;
         Ok(OcrEngine {
             detection_model: params.detection_model,
+            layout_model: params.layout_model,
             recognition_model,
             debug: params.debug,
             decode_method: params.decode_method,
@@ -686,7 +691,7 @@ impl OcrEngine {
     /// order. Each line is a sequence of word bounding rectangles, in reading
     /// order.
     pub fn analyze_layout(&self, _input: &OcrInput, words: &[RotatedRect]) -> PageLayout {
-        analyze_layout(words)
+        analyze_layout(words, self.layout_model.as_ref())
     }
 
     /// Recognize lines of text in an image.

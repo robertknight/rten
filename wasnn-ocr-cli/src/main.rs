@@ -108,11 +108,15 @@ enum DebugLayer {
     Paragraphs,
 }
 
+#[derive(Debug)]
 struct Args {
-    /// Path to a text detection model.
+    /// Path to text detection model.
     detection_model: Option<String>,
 
-    /// Path to a text recognition model.
+    /// Path to text layout model.
+    layout_model: Option<String>,
+
+    /// Path to text recognition model.
     recognition_model: Option<String>,
 
     /// Path to image to process.
@@ -140,6 +144,7 @@ fn parse_args() -> Result<Args, lexopt::Error> {
     let mut debug_layers = Vec::new();
     let mut detection_model = None;
     let mut export_boxes = None;
+    let mut layout_model = None;
     let mut recognition_model = None;
 
     let mut parser = lexopt::Parser::from_env();
@@ -169,6 +174,9 @@ fn parse_args() -> Result<Args, lexopt::Error> {
             Long("export-boxes") => {
                 export_boxes = Some(parser.value()?.string()?);
             }
+            Long("layout-model") => {
+                layout_model = Some(parser.value()?.string()?);
+            }
             Long("rec-model") => {
                 recognition_model = Some(parser.value()?.string()?);
             }
@@ -195,6 +203,10 @@ Options:
   --detect-model <path>
 
     Use a custom text detection model.
+
+  --layout-model <path>
+
+    Use a custom text layout model.
 
   --rec-model <path>
 
@@ -223,6 +235,7 @@ Options:
         debug_layers,
         detection_model,
         export_boxes,
+        layout_model,
         image: values.pop_front().ok_or("missing `<image>` arg")?,
         recognition_model,
     })
@@ -244,6 +257,9 @@ impl<T, E: std::fmt::Display> FileErrorContext<T> for Result<T, E> {
 /// Default text detection model.
 const DETECTION_MODEL: &str = "http://localhost:2000/text-detection.model";
 
+/// Default text layout model.
+const LAYOUT_MODEL: &str = "http://localhost:2000/text-layout.model";
+
 /// Default text recognition model.
 const RECOGNITION_MODEL: &str = "http://localhost:2000/text-recognition.model";
 
@@ -258,6 +274,14 @@ fn main() -> Result<(), Box<dyn Error>> {
         .unwrap_or(ModelSource::Url(DETECTION_MODEL));
     let detection_model = load_model(detection_model_src)
         .file_error_context("Failed to load text detection model", detection_model_src)?;
+
+    let layout_model_src = args
+        .layout_model
+        .as_ref()
+        .map(|path| ModelSource::Path(path))
+        .unwrap_or(ModelSource::Url(LAYOUT_MODEL));
+    let layout_model = load_model(layout_model_src)
+        .file_error_context("Failed to load text layout model", layout_model_src)?;
 
     let recognition_model_src = args
         .recognition_model
@@ -275,6 +299,7 @@ fn main() -> Result<(), Box<dyn Error>> {
 
     let engine = OcrEngine::new(OcrEngineParams {
         detection_model: Some(detection_model),
+        layout_model: Some(layout_model),
         recognition_model: Some(recognition_model),
         debug: args.debug,
         decode_method: if args.beam_search {

@@ -1,10 +1,11 @@
 use std::iter::zip;
 
+use wasnn::Model;
 use wasnn_imageproc::{
     bounding_rect, find_contours, min_area_rect, simplify_polygon, BoundingRect, Coord, Line,
     LineF, Point, PointF, Rect, RectF, RetrievalMode, RotatedRect,
 };
-use wasnn_tensor::NdTensorView;
+use wasnn_tensor::{Layout, NdTensor, NdTensorCommon, NdTensorView, Tensor, TensorCommon};
 
 use crate::empty_rects::{max_empty_rects, FilterOverlapping};
 use crate::xy_tree::{PartitionOpts, XyNode};
@@ -242,7 +243,67 @@ impl PageLayout {
 /// Perform layout analysis of the unordered set of words on a page to organize
 /// them into a collection of higher-level structures (lines and paragraphs),
 /// sorted into reading order.
-pub fn analyze_layout(words: &[RotatedRect]) -> PageLayout {
+pub fn analyze_layout(words: &[RotatedRect], layout_model: Option<&Model>) -> PageLayout {
+    if let Some(model) = layout_model {
+        // TESTING - Run words through model
+        println!("n_words {}", words.len());
+
+        let n_features = 6;
+
+        // FIXME - Make the word count dynamic in the model.
+        let n_words = 378;
+
+        let mut word_features = NdTensor::zeros([1, n_words, n_features]);
+        for (word_idx, word_rect) in words.iter().enumerate().take(n_words) {
+            let word_br = word_rect.bounding_rect();
+            let mut word_features = word_features.slice_mut([0, word_idx]);
+            word_features[[0]] = word_br.left();
+            word_features[[1]] = word_br.top();
+            word_features[[2]] = word_br.right();
+            word_features[[3]] = word_br.bottom();
+            word_features[[4]] = word_br.width();
+            word_features[[5]] = word_br.height();
+        }
+
+        let input_id = model
+            .input_ids()
+            .first()
+            .copied()
+            .expect("model has no inputs");
+        let output_id = model
+            .output_ids()
+            .first()
+            .copied()
+            .expect("model has no outputs");
+        let word_features_dyn: Tensor<f32> = word_features.into();
+
+        let outputs = model
+            .run(
+                &[(input_id, (&word_features_dyn).into())],
+                &[output_id],
+                None,
+            )
+            .expect("model run failed");
+
+        let word_labels: NdTensorView<f32, 3> = outputs[0].as_float_ref().unwrap().nd_view();
+        println!("Output shape {:?}", word_labels.shape());
+
+        let line_start_probs: NdTensorView<_, 1> = word_labels.slice((0, .., 0));
+        let line_end_probs: NdTensorView<_, 1> = word_labels.slice((0, .., 1));
+
+        let threshold = 0.5;
+        let prob_to_class = |prob: &f32| if *prob > threshold { 1i32 } else { 0 };
+        let n_line_starts: i32 = line_start_probs.map(prob_to_class).iter().sum();
+        let n_line_ends: i32 = line_end_probs.map(prob_to_class).iter().sum();
+
+        println!(
+            "Total words {} line starts {} line ends {}",
+            words.len(),
+            n_line_starts,
+            n_line_ends
+        );
+    }
+
     let separators = find_block_separators(words);
     let vertical_separators: Vec<_> = separators
         .iter()
