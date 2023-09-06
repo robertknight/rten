@@ -386,12 +386,56 @@ impl Operator for ReduceL2 {
     }
 }
 
+pub fn reduce_prod<T: Copy + Default + std::iter::Product>(
+    input: TensorView<T>,
+    axes: Option<&[i32]>,
+    keep_dims: bool,
+) -> Result<Tensor<T>, OpError> {
+    struct ProdReducer {}
+    impl<T: std::iter::Product> Reducer<T> for ProdReducer {
+        fn reduce<I: ExactSizeIterator<Item = T>>(&self, iter: I) -> T {
+            iter.product()
+        }
+    }
+    reduce(input, axes, keep_dims, ProdReducer {})
+}
+
+#[derive(Debug)]
+pub struct ReduceProd {
+    pub axes: Option<Vec<i32>>,
+    pub keep_dims: bool,
+}
+
+impl Operator for ReduceProd {
+    fn name(&self) -> &str {
+        "ReduceProd"
+    }
+
+    fn run(&self, inputs: InputList) -> Result<Vec<Output>, OpError> {
+        let input = inputs.require(0)?;
+        match input {
+            Input::FloatTensor(input) => reduce_prod(
+                input.view(),
+                self.axes.as_ref().map(|axis| &axis[..]),
+                self.keep_dims,
+            )
+            .into_op_result(),
+            Input::IntTensor(input) => reduce_prod(
+                input.view(),
+                self.axes.as_ref().map(|axis| &axis[..]),
+                self.keep_dims,
+            )
+            .into_op_result(),
+        }
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use wasnn_tensor::test_util::expect_equal;
     use wasnn_tensor::{tensor, Layout, Tensor, TensorCommon};
 
-    use crate::ops::{arg_max, arg_min, cum_sum, reduce_l2, reduce_mean, OpError};
+    use crate::ops::{arg_max, arg_min, cum_sum, reduce_l2, reduce_mean, reduce_prod, OpError};
 
     #[test]
     fn test_arg_max() {
@@ -574,5 +618,20 @@ mod tests {
             result.err(),
             Some(OpError::InvalidValue("Cannot reduce empty tensor"))
         );
+    }
+
+    #[test]
+    fn test_reduce_prod() {
+        // Int tensor
+        let input: Tensor<i32> = tensor!([1, 2, 3, 4, 5]);
+        let result = reduce_prod(input.view(), Some(&[0]), false /* keep_dims */).unwrap();
+        let value: i32 = *result.item().unwrap();
+        assert_eq!(value, input.iter().product::<i32>());
+
+        // Float tensor
+        let input: Tensor<f32> = tensor!([1.5, 2.5, 3.5, 4.5, 5.5]);
+        let result = reduce_prod(input.view(), Some(&[0]), false /* keep_dims */).unwrap();
+        let value: f32 = *result.item().unwrap();
+        assert_eq!(value, input.iter().product::<f32>());
     }
 }

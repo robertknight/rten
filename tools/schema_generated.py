@@ -62,6 +62,7 @@ class OperatorType(object):
     Transpose = 52
     Unsqueeze = 53
     Where = 54
+    ReduceProd = 55
 
 
 class RNNDirection(object):

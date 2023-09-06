@@ -61,7 +61,10 @@ enum OperatorType: byte {
   Tanh,
   Transpose,
   Unsqueeze,
-  Where
+  Where,
+
+  // TODO - Insert in order
+  ReduceProd
 }
 
 enum RNNDirection: byte {
@@ -116,7 +119,7 @@ union OperatorAttrs {
   LeakyReluAttrs,
   LSTMAttrs,
   MaxPoolAttrs,
-  ReduceMeanAttrs,
+  ReduceMeanAttrs, // Also used for Reduce* ops
   ReshapeAttrs,
   ResizeAttrs,
   SplitAttrs,

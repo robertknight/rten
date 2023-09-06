@@ -646,7 +646,7 @@ def op_node_from_onnx_operator(
             op_reader.check_attr("dilations", "ints", [1, 1])
             op_reader.check_attr("storage_order", "int", 0)
 
-        case "ReduceL2" | "ReduceMean":
+        case "ReduceL2" | "ReduceMean" | "ReduceProd":
             attrs = sg.ReduceMeanAttrsT()
             attrs.axes = op_reader.get_attr("axes", "ints", None)
             attrs.keepDims = bool(op_reader.get_attr("keepdims", "int", 1))

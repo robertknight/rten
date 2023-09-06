@@ -334,6 +334,15 @@ fn read_reduce_l2_op(node: &OperatorNode) -> ReadOpResult {
     Ok(Box::new(ops::ReduceL2 { axes, keep_dims }))
 }
 
+fn read_reduce_prod_op(node: &OperatorNode) -> ReadOpResult {
+    let attrs = node
+        .attrs_as_reduce_mean_attrs()
+        .ok_or(ReadOpError::AttrError)?;
+    let axes = attrs.axes().map(|axes| axes.iter().collect());
+    let keep_dims = attrs.keep_dims();
+    Ok(Box::new(ops::ReduceProd { axes, keep_dims }))
+}
+
 fn read_reshape_op(node: &OperatorNode) -> ReadOpResult {
     let attrs = node
         .attrs_as_reshape_attrs()
@@ -443,6 +452,7 @@ fn read_operator(node: &OperatorNode) -> ReadOpResult {
         OperatorType::Range => op!(Range),
         OperatorType::ReduceL2 => read_reduce_l2_op(node),
         OperatorType::ReduceMean => read_reduce_mean_op(node),
+        OperatorType::ReduceProd => read_reduce_prod_op(node),
         OperatorType::Relu => op!(Relu),
         OperatorType::Reshape => read_reshape_op(node),
         OperatorType::Resize => read_resize_op(node),
@@ -845,6 +855,10 @@ mod tests {
         );
 
         add_operator!(ReduceMean, [input_node], {
+            axes: None,
+            keep_dims: false,
+        });
+        add_operator!(ReduceProd, [input_node], {
             axes: None,
             keep_dims: false,
         });
