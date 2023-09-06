@@ -267,21 +267,24 @@ impl PageLayout {
 /// sorted into reading order.
 pub fn analyze_layout(words: &[RotatedRect], layout_model: Option<&Model>) -> PageLayout {
     let lines = if let Some(model) = layout_model {
-        let n_features = 6;
+        let n_features = 4;
 
-        // FIXME - Make the word count dynamic in the model.
-        let n_words = 378;
-
-        let mut word_features = NdTensor::zeros([1, n_words, n_features]);
-        for (word_idx, word_rect) in words.iter().enumerate().take(n_words) {
+        let mut word_features = NdTensor::zeros([1, words.len(), n_features]);
+        for (word_idx, word_rect) in words.iter().enumerate() {
             let word_br = word_rect.bounding_rect();
             let mut word_features = word_features.slice_mut([0, word_idx]);
-            word_features[[0]] = word_br.left();
-            word_features[[1]] = word_br.top();
-            word_features[[2]] = word_br.right();
-            word_features[[3]] = word_br.bottom();
-            word_features[[4]] = word_br.width();
-            word_features[[5]] = word_br.height();
+
+            // let norm_x = |x| (x / 1024.) - 0.5;
+            // let norm_y = |y| (y / 768.) - 0.5;
+            let norm_x = |x| x;
+            let norm_y = |y| y;
+
+            word_features[[0]] = norm_x(word_br.left());
+            word_features[[1]] = norm_y(word_br.top());
+            word_features[[2]] = norm_x(word_br.right());
+            word_features[[3]] = norm_y(word_br.bottom());
+            // word_features[[4]] = norm_x(word_br.right()) - norm_x(word_br.left());
+            // word_features[[5]] = norm_y(word_br.bottom()) - norm_y(word_br.top());
         }
 
         let input_id = model
