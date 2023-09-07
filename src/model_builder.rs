@@ -7,8 +7,8 @@ use crate::graph::Dimension;
 use crate::ops::{
     ArgMax, ArgMin, AveragePool, BatchNormalization, Cast, Concat, ConstantOfShape, Conv,
     ConvTranspose, CoordTransformMode, DataType, Flatten, Gather, Gemm, LeakyRelu, LogSoftmax,
-    MaxPool, NearestMode, Padding, ReduceMean, ReduceProd, ReduceSum, Reshape, Resize, ResizeMode,
-    Scalar, Softmax, Split, Transpose,
+    MaxPool, NearestMode, Padding, ReduceMax, ReduceMean, ReduceMin, ReduceProd, ReduceSum,
+    Reshape, Resize, ResizeMode, Scalar, Softmax, Split, Transpose,
 };
 use crate::schema_generated as sg;
 
@@ -48,7 +48,9 @@ pub enum OpType {
     Pad,
     Pow,
     Range,
+    ReduceMax(ReduceMax),
     ReduceMean(ReduceMean),
+    ReduceMin(ReduceMin),
     ReduceProd(ReduceProd),
     ReduceSum(ReduceSum),
     Relu,
@@ -263,6 +265,16 @@ impl<'a> ModelBuilder<'a> {
             }};
         }
 
+        macro_rules! reduce_attrs {
+            ($args:expr) => {{
+                let axes = self.create_vec($args.axes, |axis| axis);
+                sg::ReduceMeanAttrsArgs {
+                    axes,
+                    keep_dims: $args.keep_dims,
+                }
+            }};
+        }
+
         // Convert internal operator and attribute types to corresponding
         // FlatBuffers types, and write attribute data into buffer.
         let (op_type, attrs_type, attrs) = match op_info {
@@ -423,27 +435,21 @@ impl<'a> ModelBuilder<'a> {
             OpType::Pad => op!(Pad),
             OpType::Pow => op!(Pow),
             OpType::Range => op!(Range),
-            OpType::ReduceMean(args) => op_with_attrs!(ReduceMean, ReduceMeanAttrs, {
-                let axes = self.create_vec(args.axes, |axis| axis);
-                sg::ReduceMeanAttrsArgs {
-                    axes,
-                    keep_dims: args.keep_dims,
-                }
-            }),
-            OpType::ReduceProd(args) => op_with_attrs!(ReduceProd, ReduceMeanAttrs, {
-                let axes = self.create_vec(args.axes, |axis| axis);
-                sg::ReduceMeanAttrsArgs {
-                    axes,
-                    keep_dims: args.keep_dims,
-                }
-            }),
-            OpType::ReduceSum(args) => op_with_attrs!(ReduceSum, ReduceMeanAttrs, {
-                let axes = self.create_vec(args.axes, |axis| axis);
-                sg::ReduceMeanAttrsArgs {
-                    axes,
-                    keep_dims: args.keep_dims,
-                }
-            }),
+            OpType::ReduceMax(args) => {
+                op_with_attrs!(ReduceMax, ReduceMeanAttrs, reduce_attrs!(args))
+            }
+            OpType::ReduceMean(args) => {
+                op_with_attrs!(ReduceMean, ReduceMeanAttrs, reduce_attrs!(args))
+            }
+            OpType::ReduceMin(args) => {
+                op_with_attrs!(ReduceMin, ReduceMeanAttrs, reduce_attrs!(args))
+            }
+            OpType::ReduceProd(args) => {
+                op_with_attrs!(ReduceProd, ReduceMeanAttrs, reduce_attrs!(args))
+            }
+            OpType::ReduceSum(args) => {
+                op_with_attrs!(ReduceSum, ReduceMeanAttrs, reduce_attrs!(args))
+            }
             OpType::Relu => op!(Relu),
             OpType::Reshape(args) => op_with_attrs!(Reshape, ReshapeAttrs, {
                 sg::ReshapeAttrsArgs {

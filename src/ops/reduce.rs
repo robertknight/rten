@@ -405,6 +405,110 @@ macro_rules! dispatch_reduce_op {
     };
 }
 
+fn is_nan<T: PartialOrd>(a: &T) -> bool {
+    a.partial_cmp(a).is_none()
+}
+
+/// Compare `a` and `b`, treating all NaN values as greater than non-NaN values.
+fn cmp_nan_greater<T: PartialOrd>(a: T, b: T) -> std::cmp::Ordering {
+    match a.partial_cmp(&b) {
+        Some(ordering) => ordering,
+        None => {
+            if is_nan(&a) {
+                std::cmp::Ordering::Greater
+            } else {
+                std::cmp::Ordering::Less
+            }
+        }
+    }
+}
+
+/// Compare `a` and `b`, treating all NaN values as less than non-NaN values.
+fn cmp_nan_less<T: PartialOrd>(a: T, b: T) -> std::cmp::Ordering {
+    match a.partial_cmp(&b) {
+        Some(ordering) => ordering,
+        None => {
+            if is_nan(&a) {
+                std::cmp::Ordering::Less
+            } else {
+                std::cmp::Ordering::Greater
+            }
+        }
+    }
+}
+
+fn reduce_min_max<T: Copy + Default + PartialOrd>(
+    input: TensorView<T>,
+    axes: Option<&[i32]>,
+    keep_dims: bool,
+    max: bool,
+) -> Result<Tensor<T>, OpError> {
+    struct MinMaxReducer {
+        max: bool,
+    }
+    impl<T: Copy + PartialOrd> Reducer<T> for MinMaxReducer {
+        fn reduce<I: ExactSizeIterator<Item = T>>(&self, iter: I) -> T {
+            let reduced = if self.max {
+                iter.max_by(|a, b| cmp_nan_greater(*a, *b))
+            } else {
+                iter.min_by(|a, b| cmp_nan_less(*a, *b))
+            };
+            reduced.expect("attempted to get min/max of empty axis")
+        }
+    }
+    reduce(input, axes, keep_dims, MinMaxReducer { max })
+}
+
+pub fn reduce_min<T: Copy + Default + PartialOrd>(
+    input: TensorView<T>,
+    axes: Option<&[i32]>,
+    keep_dims: bool,
+) -> Result<Tensor<T>, OpError> {
+    reduce_min_max(input, axes, keep_dims, false /* max */)
+}
+
+#[derive(Debug)]
+pub struct ReduceMin {
+    pub axes: Option<Vec<i32>>,
+    pub keep_dims: bool,
+}
+
+impl Operator for ReduceMin {
+    fn name(&self) -> &str {
+        "ReduceMin"
+    }
+
+    fn run(&self, inputs: InputList) -> Result<Vec<Output>, OpError> {
+        let input = inputs.require(0)?;
+        dispatch_reduce_op!(input, reduce_min, self.axes, self.keep_dims)
+    }
+}
+
+pub fn reduce_max<T: Copy + Default + PartialOrd>(
+    input: TensorView<T>,
+    axes: Option<&[i32]>,
+    keep_dims: bool,
+) -> Result<Tensor<T>, OpError> {
+    reduce_min_max(input, axes, keep_dims, true /* max */)
+}
+
+#[derive(Debug)]
+pub struct ReduceMax {
+    pub axes: Option<Vec<i32>>,
+    pub keep_dims: bool,
+}
+
+impl Operator for ReduceMax {
+    fn name(&self) -> &str {
+        "ReduceMax"
+    }
+
+    fn run(&self, inputs: InputList) -> Result<Vec<Output>, OpError> {
+        let input = inputs.require(0)?;
+        dispatch_reduce_op!(input, reduce_max, self.axes, self.keep_dims)
+    }
+}
+
 pub fn reduce_prod<T: Copy + Default + std::iter::Product>(
     input: TensorView<T>,
     axes: Option<&[i32]>,
@@ -473,7 +577,8 @@ mod tests {
     use wasnn_tensor::{tensor, Layout, Tensor, TensorCommon};
 
     use crate::ops::{
-        arg_max, arg_min, cum_sum, reduce_l2, reduce_mean, reduce_prod, reduce_sum, OpError,
+        arg_max, arg_min, cum_sum, reduce_l2, reduce_max, reduce_mean, reduce_min, reduce_prod,
+        reduce_sum, OpError,
     };
 
     #[test]
@@ -659,33 +764,88 @@ mod tests {
         );
     }
 
+    fn result_item<T: Copy>(result: Result<Tensor<T>, OpError>) -> T {
+        *result.unwrap().item().unwrap()
+    }
+
+    #[test]
+    fn test_reduce_min_max() {
+        let input: Tensor<f32> = tensor!([1.5, 2.5, 3.5, 4.5, 5.5]);
+        let min = result_item(reduce_min(
+            input.view(),
+            Some(&[0]),
+            false, /* keep_dims */
+        ));
+        let max = result_item(reduce_max(
+            input.view(),
+            Some(&[0]),
+            false, /* keep_dims */
+        ));
+        assert_eq!(min, 1.5);
+        assert_eq!(max, 5.5);
+    }
+
+    // ONNX docs do not specify expected handling of NaNs by several operators,
+    // but the corresponding numpy functions (eg. `np.min`) propagate NaNs and
+    // that seems like the more sensible default behavior.
+    //
+    // See https://github.com/onnx/onnx/issues/4716.
+    #[test]
+    fn test_reduce_min_max_propagates_nan() {
+        let input: Tensor<f32> = tensor!([1.5, 2.5, 3.5, f32::NAN, 5.5]);
+        let min = result_item(reduce_min(
+            input.view(),
+            Some(&[0]),
+            false, /* keep_dims */
+        ));
+        let max = result_item(reduce_max(
+            input.view(),
+            Some(&[0]),
+            false, /* keep_dims */
+        ));
+        assert!(min.is_nan());
+        assert!(max.is_nan());
+    }
+
     #[test]
     fn test_reduce_prod() {
         // Int tensor
         let input: Tensor<i32> = tensor!([1, 2, 3, 4, 5]);
-        let result = reduce_prod(input.view(), Some(&[0]), false /* keep_dims */).unwrap();
-        let value: i32 = *result.item().unwrap();
-        assert_eq!(value, input.iter().product::<i32>());
+        let result = result_item(reduce_prod(
+            input.view(),
+            Some(&[0]),
+            false, /* keep_dims */
+        ));
+        assert_eq!(result, input.iter().product::<i32>());
 
         // Float tensor
         let input: Tensor<f32> = tensor!([1.5, 2.5, 3.5, 4.5, 5.5]);
-        let result = reduce_prod(input.view(), Some(&[0]), false /* keep_dims */).unwrap();
-        let value: f32 = *result.item().unwrap();
-        assert_eq!(value, input.iter().product::<f32>());
+        let result = result_item(reduce_prod(
+            input.view(),
+            Some(&[0]),
+            false, /* keep_dims */
+        ));
+        assert_eq!(result, input.iter().product::<f32>());
     }
 
     #[test]
     fn test_reduce_sum() {
         // Int tensor
         let input: Tensor<i32> = tensor!([1, 2, 3, 4, 5]);
-        let result = reduce_sum(input.view(), Some(&[0]), false /* keep_dims */).unwrap();
-        let value: i32 = *result.item().unwrap();
-        assert_eq!(value, input.iter().sum::<i32>());
+        let result = result_item(reduce_sum(
+            input.view(),
+            Some(&[0]),
+            false, /* keep_dims */
+        ));
+        assert_eq!(result, input.iter().sum::<i32>());
 
         // Float tensor
         let input: Tensor<f32> = tensor!([1.5, 2.5, 3.5, 4.5, 5.5]);
-        let result = reduce_sum(input.view(), Some(&[0]), false /* keep_dims */).unwrap();
-        let value: f32 = *result.item().unwrap();
-        assert_eq!(value, input.iter().sum::<f32>());
+        let result = result_item(reduce_sum(
+            input.view(),
+            Some(&[0]),
+            false, /* keep_dims */
+        ));
+        assert_eq!(result, input.iter().sum::<f32>());
     }
 }

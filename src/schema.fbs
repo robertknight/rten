@@ -65,7 +65,9 @@ enum OperatorType: byte {
 
   // TODO - Insert in order
   ReduceProd,
-  ReduceSum
+  ReduceSum,
+  ReduceMin,
+  ReduceMax
 }
 
 enum RNNDirection: byte {

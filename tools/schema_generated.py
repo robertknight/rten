@@ -64,6 +64,8 @@ class OperatorType(object):
     Where = 54
     ReduceProd = 55
     ReduceSum = 56
+    ReduceMin = 57
+    ReduceMax = 58
 
 
 class RNNDirection(object):

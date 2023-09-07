@@ -325,14 +325,24 @@ fn read_reduce_attrs(node: &OperatorNode) -> Result<(Option<Vec<i32>>, bool), Re
     Ok((axes, keep_dims))
 }
 
+fn read_reduce_l2_op(node: &OperatorNode) -> ReadOpResult {
+    let (axes, keep_dims) = read_reduce_attrs(node)?;
+    Ok(Box::new(ops::ReduceL2 { axes, keep_dims }))
+}
+
+fn read_reduce_max_op(node: &OperatorNode) -> ReadOpResult {
+    let (axes, keep_dims) = read_reduce_attrs(node)?;
+    Ok(Box::new(ops::ReduceMax { axes, keep_dims }))
+}
+
 fn read_reduce_mean_op(node: &OperatorNode) -> ReadOpResult {
     let (axes, keep_dims) = read_reduce_attrs(node)?;
     Ok(Box::new(ops::ReduceMean { axes, keep_dims }))
 }
 
-fn read_reduce_l2_op(node: &OperatorNode) -> ReadOpResult {
+fn read_reduce_min_op(node: &OperatorNode) -> ReadOpResult {
     let (axes, keep_dims) = read_reduce_attrs(node)?;
-    Ok(Box::new(ops::ReduceL2 { axes, keep_dims }))
+    Ok(Box::new(ops::ReduceMin { axes, keep_dims }))
 }
 
 fn read_reduce_prod_op(node: &OperatorNode) -> ReadOpResult {
@@ -453,7 +463,9 @@ fn read_operator(node: &OperatorNode) -> ReadOpResult {
         OperatorType::Pow => op!(Pow),
         OperatorType::Range => op!(Range),
         OperatorType::ReduceL2 => read_reduce_l2_op(node),
+        OperatorType::ReduceMax => read_reduce_max_op(node),
         OperatorType::ReduceMean => read_reduce_mean_op(node),
+        OperatorType::ReduceMin => read_reduce_min_op(node),
         OperatorType::ReduceProd => read_reduce_prod_op(node),
         OperatorType::ReduceSum => read_reduce_sum_op(node),
         OperatorType::Relu => op!(Relu),
@@ -858,6 +870,14 @@ mod tests {
         );
 
         add_operator!(ReduceMean, [input_node], {
+            axes: None,
+            keep_dims: false,
+        });
+        add_operator!(ReduceMax, [input_node], {
+            axes: None,
+            keep_dims: false,
+        });
+        add_operator!(ReduceMin, [input_node], {
             axes: None,
             keep_dims: false,
         });
