@@ -55,7 +55,7 @@ impl<'a, T: Copy> DimSlices<'a, T> {
 
 /// Compute the indices of the max elements along an axis, according to a
 /// comparison function `compare`.
-fn index_select<T: Copy, Cmp: Fn(T, T) -> bool>(
+fn select_max_index<T: Copy, Cmp: Fn(T, T) -> std::cmp::Ordering>(
     input: TensorView<T>,
     axis: isize,
     keep_dims: bool,
@@ -79,19 +79,7 @@ fn index_select<T: Copy, Cmp: Fn(T, T) -> bool>(
     if !input.is_empty() {
         let mut slice_iter = DimSlices::new(input, resolved_axis);
         while let Some(slice) = slice_iter.next() {
-            let (index, _) = slice
-                .enumerate()
-                .fold(None, |acc, (i, val)| match acc {
-                    Some((_index, max_val)) => {
-                        if compare(val, max_val) {
-                            Some((i, val))
-                        } else {
-                            acc
-                        }
-                    }
-                    None => Some((i, val)),
-                })
-                .unwrap(); // Ok because we checked tensor is not empty.
+            let (index, _) = slice.enumerate().max_by(|a, b| compare(a.1, b.1)).unwrap(); // Ok because we checked tensor is not empty.
             reduced_data.push(index as i32);
         }
     }
@@ -106,12 +94,15 @@ fn index_select<T: Copy, Cmp: Fn(T, T) -> bool>(
     Ok(reduced)
 }
 
+/// Return the index of the maximum value along a given axis.
+///
+/// NaN values are propagated by treating NaNs as greater than other values.
 pub fn arg_max<T: Copy + PartialOrd>(
     input: TensorView<T>,
     axis: isize,
     keep_dims: bool,
 ) -> Result<Tensor<i32>, OpError> {
-    index_select(input, axis, keep_dims, |a, b| a > b)
+    select_max_index(input, axis, keep_dims, cmp_nan_greater)
 }
 
 #[derive(Debug)]
@@ -131,12 +122,18 @@ impl Operator for ArgMax {
     }
 }
 
+/// Return the index of the minimum value along a given axis.
+///
+/// NaN values are propagated by treating NaNs as smaller than other values.
 pub fn arg_min<T: Copy + PartialOrd>(
     input: TensorView<T>,
     axis: isize,
     keep_dims: bool,
 ) -> Result<Tensor<i32>, OpError> {
-    index_select(input, axis, keep_dims, |a, b| a < b)
+    select_max_index(input, axis, keep_dims, |a, b| match a.partial_cmp(&b) {
+        Some(ordering) => ordering.reverse(),
+        None => cmp_nan_greater(a, b),
+    })
 }
 
 #[derive(Debug)]
@@ -631,13 +628,26 @@ mod tests {
         );
     }
 
-    // We only have base tests for ArgMin since most of the implementation is
+    // We only have basic tests for ArgMin since most of the implementation is
     // shared with ArgMax.
     #[test]
     fn test_arg_min() {
         let probs = tensor!([0.1, 0.5, 0.2, 0.9, 0.01, 0.6]);
         let class = arg_min(probs.view(), 0, false /* keep_dims */).unwrap();
         assert_eq!(class.item(), Some(&4));
+    }
+
+    // ONNX does not specify how ArgMin and ArgMax should handle NaNs. We opt to
+    // be consistent with ReduceMin and ReduceMax by "propagating" NaNs, which
+    // for these operators means returning the index of a NaN value over other
+    // indices. This is consistent with numpy's `argmin` and `argmax`.
+    #[test]
+    fn test_arg_min_max_nan() {
+        let probs = tensor!([0.1, 0.5, f32::NAN, 0.9, 0.01, 0.6]);
+        let min_idx = arg_min(probs.view(), 0, false /* keep_dims */).unwrap();
+        let max_idx = arg_max(probs.view(), 0, false /* keep_dims */).unwrap();
+        assert_eq!(min_idx.item(), Some(&2));
+        assert_eq!(max_idx.item(), Some(&2));
     }
 
     #[test]
