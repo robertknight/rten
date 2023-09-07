@@ -386,6 +386,25 @@ impl Operator for ReduceL2 {
     }
 }
 
+macro_rules! dispatch_reduce_op {
+    ($input:expr, $reduce_op:ident, $axes:expr, $keep_dims:expr) => {
+        match $input {
+            Input::FloatTensor(input) => $reduce_op(
+                input.view(),
+                $axes.as_ref().map(|axis| &axis[..]),
+                $keep_dims,
+            )
+            .into_op_result(),
+            Input::IntTensor(input) => $reduce_op(
+                input.view(),
+                $axes.as_ref().map(|axis| &axis[..]),
+                $keep_dims,
+            )
+            .into_op_result(),
+        }
+    };
+}
+
 pub fn reduce_prod<T: Copy + Default + std::iter::Product>(
     input: TensorView<T>,
     axes: Option<&[i32]>,
@@ -413,20 +432,38 @@ impl Operator for ReduceProd {
 
     fn run(&self, inputs: InputList) -> Result<Vec<Output>, OpError> {
         let input = inputs.require(0)?;
-        match input {
-            Input::FloatTensor(input) => reduce_prod(
-                input.view(),
-                self.axes.as_ref().map(|axis| &axis[..]),
-                self.keep_dims,
-            )
-            .into_op_result(),
-            Input::IntTensor(input) => reduce_prod(
-                input.view(),
-                self.axes.as_ref().map(|axis| &axis[..]),
-                self.keep_dims,
-            )
-            .into_op_result(),
+        dispatch_reduce_op!(input, reduce_prod, self.axes, self.keep_dims)
+    }
+}
+
+pub fn reduce_sum<T: Copy + Default + std::iter::Sum>(
+    input: TensorView<T>,
+    axes: Option<&[i32]>,
+    keep_dims: bool,
+) -> Result<Tensor<T>, OpError> {
+    struct SumReducer {}
+    impl<T: std::iter::Sum> Reducer<T> for SumReducer {
+        fn reduce<I: ExactSizeIterator<Item = T>>(&self, iter: I) -> T {
+            iter.sum()
         }
+    }
+    reduce(input, axes, keep_dims, SumReducer {})
+}
+
+#[derive(Debug)]
+pub struct ReduceSum {
+    pub axes: Option<Vec<i32>>,
+    pub keep_dims: bool,
+}
+
+impl Operator for ReduceSum {
+    fn name(&self) -> &str {
+        "ReduceSum"
+    }
+
+    fn run(&self, inputs: InputList) -> Result<Vec<Output>, OpError> {
+        let input = inputs.require(0)?;
+        dispatch_reduce_op!(input, reduce_sum, self.axes, self.keep_dims)
     }
 }
 
@@ -435,7 +472,9 @@ mod tests {
     use wasnn_tensor::test_util::expect_equal;
     use wasnn_tensor::{tensor, Layout, Tensor, TensorCommon};
 
-    use crate::ops::{arg_max, arg_min, cum_sum, reduce_l2, reduce_mean, reduce_prod, OpError};
+    use crate::ops::{
+        arg_max, arg_min, cum_sum, reduce_l2, reduce_mean, reduce_prod, reduce_sum, OpError,
+    };
 
     #[test]
     fn test_arg_max() {
@@ -633,5 +672,20 @@ mod tests {
         let result = reduce_prod(input.view(), Some(&[0]), false /* keep_dims */).unwrap();
         let value: f32 = *result.item().unwrap();
         assert_eq!(value, input.iter().product::<f32>());
+    }
+
+    #[test]
+    fn test_reduce_sum() {
+        // Int tensor
+        let input: Tensor<i32> = tensor!([1, 2, 3, 4, 5]);
+        let result = reduce_sum(input.view(), Some(&[0]), false /* keep_dims */).unwrap();
+        let value: i32 = *result.item().unwrap();
+        assert_eq!(value, input.iter().sum::<i32>());
+
+        // Float tensor
+        let input: Tensor<f32> = tensor!([1.5, 2.5, 3.5, 4.5, 5.5]);
+        let result = reduce_sum(input.view(), Some(&[0]), false /* keep_dims */).unwrap();
+        let value: f32 = *result.item().unwrap();
+        assert_eq!(value, input.iter().sum::<f32>());
     }
 }

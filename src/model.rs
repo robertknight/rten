@@ -316,31 +316,33 @@ fn read_max_pool_op(node: &OperatorNode) -> ReadOpResult {
     }))
 }
 
-fn read_reduce_mean_op(node: &OperatorNode) -> ReadOpResult {
+fn read_reduce_attrs(node: &OperatorNode) -> Result<(Option<Vec<i32>>, bool), ReadOpError> {
     let attrs = node
         .attrs_as_reduce_mean_attrs()
         .ok_or(ReadOpError::AttrError)?;
     let axes = attrs.axes().map(|axes| axes.iter().collect());
     let keep_dims = attrs.keep_dims();
+    Ok((axes, keep_dims))
+}
+
+fn read_reduce_mean_op(node: &OperatorNode) -> ReadOpResult {
+    let (axes, keep_dims) = read_reduce_attrs(node)?;
     Ok(Box::new(ops::ReduceMean { axes, keep_dims }))
 }
 
 fn read_reduce_l2_op(node: &OperatorNode) -> ReadOpResult {
-    let attrs = node
-        .attrs_as_reduce_mean_attrs()
-        .ok_or(ReadOpError::AttrError)?;
-    let axes = attrs.axes().map(|axes| axes.iter().collect());
-    let keep_dims = attrs.keep_dims();
+    let (axes, keep_dims) = read_reduce_attrs(node)?;
     Ok(Box::new(ops::ReduceL2 { axes, keep_dims }))
 }
 
 fn read_reduce_prod_op(node: &OperatorNode) -> ReadOpResult {
-    let attrs = node
-        .attrs_as_reduce_mean_attrs()
-        .ok_or(ReadOpError::AttrError)?;
-    let axes = attrs.axes().map(|axes| axes.iter().collect());
-    let keep_dims = attrs.keep_dims();
+    let (axes, keep_dims) = read_reduce_attrs(node)?;
     Ok(Box::new(ops::ReduceProd { axes, keep_dims }))
+}
+
+fn read_reduce_sum_op(node: &OperatorNode) -> ReadOpResult {
+    let (axes, keep_dims) = read_reduce_attrs(node)?;
+    Ok(Box::new(ops::ReduceSum { axes, keep_dims }))
 }
 
 fn read_reshape_op(node: &OperatorNode) -> ReadOpResult {
@@ -453,6 +455,7 @@ fn read_operator(node: &OperatorNode) -> ReadOpResult {
         OperatorType::ReduceL2 => read_reduce_l2_op(node),
         OperatorType::ReduceMean => read_reduce_mean_op(node),
         OperatorType::ReduceProd => read_reduce_prod_op(node),
+        OperatorType::ReduceSum => read_reduce_sum_op(node),
         OperatorType::Relu => op!(Relu),
         OperatorType::Reshape => read_reshape_op(node),
         OperatorType::Resize => read_resize_op(node),
@@ -859,6 +862,10 @@ mod tests {
             keep_dims: false,
         });
         add_operator!(ReduceProd, [input_node], {
+            axes: None,
+            keep_dims: false,
+        });
+        add_operator!(ReduceSum, [input_node], {
             axes: None,
             keep_dims: false,
         });

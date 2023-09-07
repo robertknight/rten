@@ -7,8 +7,8 @@ use crate::graph::Dimension;
 use crate::ops::{
     ArgMax, ArgMin, AveragePool, BatchNormalization, Cast, Concat, ConstantOfShape, Conv,
     ConvTranspose, CoordTransformMode, DataType, Flatten, Gather, Gemm, LeakyRelu, LogSoftmax,
-    MaxPool, NearestMode, Padding, ReduceMean, ReduceProd, Reshape, Resize, ResizeMode, Scalar,
-    Softmax, Split, Transpose,
+    MaxPool, NearestMode, Padding, ReduceMean, ReduceProd, ReduceSum, Reshape, Resize, ResizeMode,
+    Scalar, Softmax, Split, Transpose,
 };
 use crate::schema_generated as sg;
 
@@ -50,6 +50,7 @@ pub enum OpType {
     Range,
     ReduceMean(ReduceMean),
     ReduceProd(ReduceProd),
+    ReduceSum(ReduceSum),
     Relu,
     Reshape(Reshape),
     Resize(Resize),
@@ -430,6 +431,13 @@ impl<'a> ModelBuilder<'a> {
                 }
             }),
             OpType::ReduceProd(args) => op_with_attrs!(ReduceProd, ReduceMeanAttrs, {
+                let axes = self.create_vec(args.axes, |axis| axis);
+                sg::ReduceMeanAttrsArgs {
+                    axes,
+                    keep_dims: args.keep_dims,
+                }
+            }),
+            OpType::ReduceSum(args) => op_with_attrs!(ReduceSum, ReduceMeanAttrs, {
                 let axes = self.create_vec(args.axes, |axis| axis);
                 sg::ReduceMeanAttrsArgs {
                     axes,

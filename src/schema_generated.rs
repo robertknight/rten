@@ -18,13 +18,13 @@ pub const ENUM_MIN_OPERATOR_TYPE: i8 = 0;
     since = "2.0.0",
     note = "Use associated constants instead. This will no longer be generated in 2021."
 )]
-pub const ENUM_MAX_OPERATOR_TYPE: i8 = 55;
+pub const ENUM_MAX_OPERATOR_TYPE: i8 = 56;
 #[deprecated(
     since = "2.0.0",
     note = "Use associated constants instead. This will no longer be generated in 2021."
 )]
 #[allow(non_camel_case_types)]
-pub const ENUM_VALUES_OPERATOR_TYPE: [OperatorType; 56] = [
+pub const ENUM_VALUES_OPERATOR_TYPE: [OperatorType; 57] = [
     OperatorType::Add,
     OperatorType::ArgMin,
     OperatorType::ArgMax,
@@ -81,6 +81,7 @@ pub const ENUM_VALUES_OPERATOR_TYPE: [OperatorType; 56] = [
     OperatorType::Unsqueeze,
     OperatorType::Where,
     OperatorType::ReduceProd,
+    OperatorType::ReduceSum,
 ];
 
 #[derive(Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash, Default)]
@@ -144,9 +145,10 @@ impl OperatorType {
     pub const Unsqueeze: Self = Self(53);
     pub const Where: Self = Self(54);
     pub const ReduceProd: Self = Self(55);
+    pub const ReduceSum: Self = Self(56);
 
     pub const ENUM_MIN: i8 = 0;
-    pub const ENUM_MAX: i8 = 55;
+    pub const ENUM_MAX: i8 = 56;
     pub const ENUM_VALUES: &'static [Self] = &[
         Self::Add,
         Self::ArgMin,
@@ -204,6 +206,7 @@ impl OperatorType {
         Self::Unsqueeze,
         Self::Where,
         Self::ReduceProd,
+        Self::ReduceSum,
     ];
     /// Returns the variant's name or "" if unknown.
     pub fn variant_name(self) -> Option<&'static str> {
@@ -264,6 +267,7 @@ impl OperatorType {
             Self::Unsqueeze => Some("Unsqueeze"),
             Self::Where => Some("Where"),
             Self::ReduceProd => Some("ReduceProd"),
+            Self::ReduceSum => Some("ReduceSum"),
             _ => None,
         }
     }
