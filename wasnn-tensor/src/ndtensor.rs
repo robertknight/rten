@@ -374,7 +374,7 @@ impl<T, S: AsRef<[T]> + AsMut<[T]>, const N: usize> NdTensorBase<T, S, N> {
     ///
     /// `M` specifies the number of dimensions that the layout must have after
     /// slicing with `range`. Panics if the sliced layout has a different number
-    /// of dims.
+    /// of dims. `K` is the number of elements in the slice range. Must be <= N.
     pub fn slice_mut<const M: usize, const K: usize, R: IntoSliceItems<K>>(
         &mut self,
         range: R,
