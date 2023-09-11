@@ -63,7 +63,8 @@ enum OperatorType: byte {
   Unsqueeze,
   Where,
 
-  // TODO - Insert in order
+  // New operators. These are appended here to preserve binary compatibility
+  // of existing model files.
   ReduceProd,
   ReduceSum,
   ReduceMin,
