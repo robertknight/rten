@@ -274,10 +274,10 @@ pub fn analyze_layout(words: &[RotatedRect], layout_model: Option<&Model>) -> Pa
             let word_br = word_rect.bounding_rect();
             let mut word_features = word_features.slice_mut([0, word_idx]);
 
-            // let norm_x = |x| (x / 1024.) - 0.5;
-            // let norm_y = |y| (y / 768.) - 0.5;
-            let norm_x = |x| x;
-            let norm_y = |y| y;
+            let norm_x = |x| (x / 1024.) - 0.5;
+            let norm_y = |y| (y / 768.) - 0.5;
+            // let norm_x = |x| x;
+            // let norm_y = |y| y;
 
             word_features[[0]] = norm_x(word_br.left());
             word_features[[1]] = norm_y(word_br.top());
