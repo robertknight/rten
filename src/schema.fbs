@@ -68,7 +68,8 @@ enum OperatorType: byte {
   ReduceProd,
   ReduceSum,
   ReduceMin,
-  ReduceMax
+  ReduceMax,
+  NonZero
 }
 
 enum RNNDirection: byte {

@@ -45,6 +45,7 @@ pub enum OpType {
     MaxPool(MaxPool),
     Mod(Mod),
     Mul,
+    NonZero,
     Pad,
     Pow,
     Range,
@@ -434,6 +435,7 @@ impl<'a> ModelBuilder<'a> {
                 op_with_attrs!(Mod, ModAttrs, sg::ModAttrsArgs { fmod: args.fmod })
             }
             OpType::Mul => op!(Mul),
+            OpType::NonZero => op!(NonZero),
             OpType::Pad => op!(Pad),
             OpType::Pow => op!(Pow),
             OpType::Range => op!(Range),

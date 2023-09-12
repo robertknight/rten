@@ -1,5 +1,9 @@
+use std::iter::zip;
+
 use wasnn_tensor;
-use wasnn_tensor::{DynIndices, Layout, NdTensor, Offsets, SliceRange, Tensor, TensorView};
+use wasnn_tensor::{
+    DynIndices, Layout, NdTensor, Offsets, SliceRange, Tensor, TensorCommon, TensorView,
+};
 
 use crate::number::Identities;
 use crate::ops::layout::squeeze_in_place;
@@ -188,6 +192,47 @@ impl Operator for CumSum {
         match input {
             Input::IntTensor(input) => cum_sum(input.view(), axis as isize).into_op_result(),
             Input::FloatTensor(input) => cum_sum(input.view(), axis as isize).into_op_result(),
+        }
+    }
+}
+
+/// Return the indices of nonzero elements in `input` as a `(dim, index)` tensor.
+pub fn nonzero<T: Default + PartialEq>(input: TensorView<T>) -> Tensor<i32> {
+    // Special case for scalar inputs.
+    if let (Some(item), 0) = (input.item(), input.ndim()) {
+        return Tensor::zeros(&[0, if *item != T::default() { 1 } else { 0 }]);
+    }
+
+    // Build up concatenated sequence of indices of non-zero entries.
+    let nonzeros: Vec<i32> = zip(input.indices(), input.iter())
+        .filter(|(_index, value)| **value != T::default())
+        .flat_map(|(index, _value)| {
+            index.into_iter().map(|dim_idx| {
+                assert!(dim_idx <= i32::MAX as usize);
+                dim_idx as i32
+            })
+        })
+        .collect();
+
+    // Transpose from `(index, dim)` to `(dim, index)`.
+    Tensor::from_data(&[nonzeros.len() / input.ndim(), input.ndim()], nonzeros)
+        .transposed()
+        .to_tensor()
+}
+
+#[derive(Debug)]
+pub struct NonZero {}
+
+impl Operator for NonZero {
+    fn name(&self) -> &str {
+        "NonZero"
+    }
+
+    fn run(&self, inputs: InputList) -> Result<Vec<Output>, OpError> {
+        let input = inputs.require(0)?;
+        match input {
+            Input::IntTensor(input) => nonzero(input.view()).into_op_result(),
+            Input::FloatTensor(input) => nonzero(input.view()).into_op_result(),
         }
     }
 }
@@ -574,8 +619,8 @@ mod tests {
     use wasnn_tensor::{tensor, Layout, Tensor, TensorCommon};
 
     use crate::ops::{
-        arg_max, arg_min, cum_sum, reduce_l2, reduce_max, reduce_mean, reduce_min, reduce_prod,
-        reduce_sum, OpError,
+        arg_max, arg_min, cum_sum, nonzero, reduce_l2, reduce_max, reduce_mean, reduce_min,
+        reduce_prod, reduce_sum, OpError,
     };
 
     #[test]
@@ -670,6 +715,37 @@ mod tests {
         let sums = cum_sum(elements.view(), 0).unwrap();
         assert_eq!(sums.shape(), &[0]);
         assert_eq!(sums.to_vec(), &[] as &[f32]);
+    }
+
+    #[test]
+    fn test_nonzero() {
+        let input = tensor!((2, 2); [0., 1., 1., 1.]);
+        let result = nonzero(input.view());
+        assert_eq!(result.shape(), &[2, 3]);
+
+        // (dim, index) => (index, dim)
+        let result = result.transposed();
+
+        let indices: Vec<_> = result.iter().copied().collect();
+        assert_eq!(
+            indices,
+            [
+                0, 1, // 1st
+                1, 0, // 2nd
+                1, 1, // 3rd
+            ]
+        );
+    }
+
+    #[test]
+    fn test_nonzero_scalar() {
+        let input = tensor!(3.);
+        let result = nonzero(input.view());
+        assert_eq!(result.shape(), &[0, 1]);
+
+        let input = tensor!(0.);
+        let result = nonzero(input.view());
+        assert_eq!(result.shape(), &[0, 0]);
     }
 
     #[test]

@@ -464,6 +464,7 @@ fn read_operator(node: &OperatorNode) -> ReadOpResult {
         OperatorType::MaxPool => read_max_pool_op(node),
         OperatorType::Mod => read_mod_op(node),
         OperatorType::Mul => op!(Mul),
+        OperatorType::NonZero => op!(NonZero),
         OperatorType::Pad => op!(Pad),
         OperatorType::Pow => op!(Pow),
         OperatorType::Range => op!(Range),
@@ -863,6 +864,7 @@ mod tests {
             fmod: false,
         });
         add_operator!(Mul, [input_node, input_node]);
+        add_operator!(NonZero, [input_node]);
 
         let pads = builder.add_int_constant(&Tensor::from_data(&[8], vec![0, 0, 1, 1, 0, 0, 1, 1]));
         add_operator!(Pad, [input_node, pads]);

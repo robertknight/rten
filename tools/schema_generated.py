@@ -66,6 +66,7 @@ class OperatorType(object):
     ReduceSum = 56
     ReduceMin = 57
     ReduceMax = 58
+    NonZero = 59
 
 
 class RNNDirection(object):
