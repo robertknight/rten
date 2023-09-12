@@ -25,14 +25,11 @@ mod unary_elementwise;
 
 pub use binary_elementwise::{
     add, add_in_place, div, div_in_place, equal, greater, less, less_or_equal, mod_op, mul,
-    mul_in_place, pow, pow_in_place, sub, sub_in_place, where_op,
-};
-pub use binary_elementwise::{
-    Add, Div, Equal, Greater, Less, LessOrEqual, Mod, Mul, Pow, Sub, Where,
+    mul_in_place, pow, pow_in_place, sub, sub_in_place, where_op, Add, Div, Equal, Greater, Less,
+    LessOrEqual, Mod, Mul, Pow, Sub, Where,
 };
 pub use concat::{concat, Concat};
-pub use conv::{conv, conv_transpose};
-pub use conv::{Conv, ConvTranspose};
+pub use conv::{conv, conv_transpose, Conv, ConvTranspose};
 pub use convert::Cast;
 pub use gather::{gather, Gather};
 pub use generate::{constant_of_shape, range, ConstantOfShape, Range};
@@ -46,8 +43,9 @@ pub use norm::{
     batch_norm, batch_norm_in_place, log_softmax, softmax, BatchNormalization, LogSoftmax, Softmax,
 };
 pub use pad::{pad, Pad};
-pub use pooling::{average_pool, global_average_pool, max_pool};
-pub use pooling::{AveragePool, GlobalAveragePool, MaxPool};
+pub use pooling::{
+    average_pool, global_average_pool, max_pool, AveragePool, GlobalAveragePool, MaxPool,
+};
 pub use reduce::{
     arg_max, arg_min, cum_sum, reduce_l2, reduce_mean, ArgMax, ArgMin, CumSum, ReduceL2, ReduceMean,
 };
@@ -58,9 +56,9 @@ pub use split::{split, Split};
 pub use unary_elementwise::{
     clip, clip_in_place, cos, cos_in_place, erf, erf_in_place, leaky_relu, leaky_relu_in_place,
     log, log_in_place, relu, relu_in_place, sigmoid, sigmoid_in_place, sin, sin_in_place, sqrt,
-    sqrt_in_place, tanh, tanh_in_place,
+    sqrt_in_place, tanh, tanh_in_place, Clip, Cos, Erf, LeakyRelu, Log, Relu, Sigmoid, Sin, Sqrt,
+    Tanh,
 };
-pub use unary_elementwise::{Clip, Cos, Erf, LeakyRelu, Log, Relu, Sigmoid, Sin, Sqrt, Tanh};
 
 #[derive(Copy, Clone, Debug)]
 pub enum Padding {
