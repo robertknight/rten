@@ -316,6 +316,11 @@ fn read_max_pool_op(node: &OperatorNode) -> ReadOpResult {
     }))
 }
 
+fn read_mod_op(node: &OperatorNode) -> ReadOpResult {
+    let attrs = node.attrs_as_mod_attrs().ok_or(ReadOpError::AttrError)?;
+    Ok(Box::new(ops::Mod { fmod: attrs.fmod() }))
+}
+
 fn read_reduce_attrs(node: &OperatorNode) -> Result<(Option<Vec<i32>>, bool), ReadOpError> {
     let attrs = node
         .attrs_as_reduce_mean_attrs()
@@ -457,7 +462,7 @@ fn read_operator(node: &OperatorNode) -> ReadOpResult {
         OperatorType::LSTM => read_lstm_op(node),
         OperatorType::MatMul => op!(MatMul),
         OperatorType::MaxPool => read_max_pool_op(node),
-        OperatorType::Mod => op!(Mod),
+        OperatorType::Mod => read_mod_op(node),
         OperatorType::Mul => op!(Mul),
         OperatorType::Pad => op!(Pad),
         OperatorType::Pow => op!(Pow),
@@ -854,7 +859,9 @@ mod tests {
             strides: [2, 2],
             padding: Padding::Fixed([0, 0, 0, 0]),
         });
-        add_operator!(Mod, [input_node, input_node]);
+        add_operator!(Mod, [input_node, input_node], {
+            fmod: false,
+        });
         add_operator!(Mul, [input_node, input_node]);
 
         let pads = builder.add_int_constant(&Tensor::from_data(&[8], vec![0, 0, 1, 1, 0, 0, 1, 1]));

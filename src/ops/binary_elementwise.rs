@@ -376,11 +376,8 @@ impl Operator for LessOrEqual {
     }
 }
 
-/// Calculate the remainder of `x / y` using floored division.
-///
-/// In the case where one of `x` or `y` is negative, this produces the same
-/// result as `x % y` in Python, which is different than `x % y` in Rust, which
-/// uses truncated division (same as C).
+/// Calculate the remainder of `x / y` using floored division. See
+/// [DivMode] for an explanation.
 fn rem_floor<
     T: Copy + Default + PartialOrd + std::ops::Add<Output = T> + std::ops::Rem<Output = T>,
 >(
@@ -396,22 +393,45 @@ fn rem_floor<
     rem
 }
 
-/// Return the elementwise remainder of dividing `a / b`.
+/// Division method to use. When both operators to a division or modulus
+/// operator are positive, the different methods produce the same results.
 ///
-/// This uses floored division, like Python's `%` operator and unlike Rust's
-/// `%` operator, which uses truncated division. This is significant when one
-/// of `a` or `b` is negative.
+/// When one or both of the operands is negative however, the different methods
+/// produce different results.
+///
+/// See https://en.wikipedia.org/wiki/Modulo#Variants_of_the_definition
+pub enum DivMode {
+    /// Use flooring division, like Python's `%` operator and `numpy.mod`.
+    FloorDiv,
+
+    /// Use truncated division, like C and Rust's `%` operator and `numpy.fmod`.
+    TruncDiv,
+}
+
+/// Return the elementwise remainder of dividing `a / b`.
 pub fn mod_op<
     T: Copy + Debug + Default + PartialOrd + std::ops::Add<Output = T> + std::ops::Rem<Output = T>,
 >(
     a: TensorView<T>,
     b: TensorView<T>,
+    mode: DivMode,
 ) -> Result<Tensor<T>, OpError> {
-    binary_op(a, b, |x, y| rem_floor(x, y))
+    binary_op(
+        a,
+        b,
+        match mode {
+            DivMode::FloorDiv => |x, y| rem_floor(x, y),
+            DivMode::TruncDiv => |x, y| x % y,
+        },
+    )
 }
 
 #[derive(Debug)]
-pub struct Mod {}
+pub struct Mod {
+    /// If true, use truncated division (see [DivMode::TruncDiv], otherwise
+    /// use flooring division (see [DivMode::FloorDiv]).
+    pub fmod: bool,
+}
 
 impl Operator for Mod {
     fn name(&self) -> &str {
@@ -419,10 +439,24 @@ impl Operator for Mod {
     }
 
     fn run(&self, inputs: InputList) -> Result<Vec<Output>, OpError> {
-        run_typed_op!(inputs, mod_op)
-    }
+        let a = inputs.require(0)?;
+        let mode = if self.fmod {
+            DivMode::TruncDiv
+        } else {
+            DivMode::FloorDiv
+        };
 
-    // TODO - In-place mod
+        match a {
+            Input::FloatTensor(a) => {
+                let b = inputs.require_as::<f32>(1)?;
+                mod_op(a.view(), b.view(), mode).into_op_result()
+            }
+            Input::IntTensor(a) => {
+                let b = inputs.require_as::<i32>(1)?;
+                mod_op(a.view(), b.view(), mode).into_op_result()
+            }
+        }
+    }
 }
 
 /// Multiply two tensors elementwise.
@@ -602,8 +636,8 @@ mod tests {
 
     use crate::ops::{
         add, add_in_place, div, div_in_place, equal, greater, less, less_or_equal, mod_op, mul,
-        mul_in_place, pow, pow_in_place, sub, sub_in_place, where_op, Add, InputList, OpError,
-        Operator, Output,
+        mul_in_place, pow, pow_in_place, sub, sub_in_place, where_op, Add, DivMode, InputList,
+        OpError, Operator, Output,
     };
 
     #[test]
@@ -875,14 +909,30 @@ mod tests {
         assert_eq!(&result, &expected);
     }
 
-    // nb. Results here should match Python's `%` operator.
     #[test]
     fn test_mod_op() {
-        // Int tensor
-        let a = tensor!([10, -10, 10]);
-        let b = tensor!([3, 3, -3]);
-        let expected = tensor!([1, 2, -2]);
-        let result = mod_op(a.view(), b.view()).unwrap();
+        // Int tensor, floor division (like Python's `%`, `numpy.mod`).
+        let a = tensor!([10, -10, 10, -10]);
+        let b = tensor!([3, 3, -3, -3]);
+        let expected = tensor!([1, 2, -2, -1]);
+        let result = mod_op(a.view(), b.view(), DivMode::FloorDiv).unwrap();
+        assert_eq!(&result, &expected);
+
+        // Int tensor, truncated division (like Rust's `%`, `numpy.fmod`).
+        let expected = tensor!([1, -1, 1, -1]);
+        let result = mod_op(a.view(), b.view(), DivMode::TruncDiv).unwrap();
+        assert_eq!(&result, &expected);
+
+        // Float tensor, floor division.
+        let af = tensor!([3.5, -3.5, 3.5, -3.5]);
+        let bf = tensor!([2.5, 2.5, -2.5, -2.5]);
+        let expected = tensor!([1., 1.5, -1.5, -1.]);
+        let result = mod_op(af.view(), bf.view(), DivMode::FloorDiv).unwrap();
+        assert_eq!(&result, &expected);
+
+        // Float tensor, truncated division.
+        let expected = tensor!([1., -1., 1., -1.]);
+        let result = mod_op(af.view(), bf.view(), DivMode::TruncDiv).unwrap();
         assert_eq!(&result, &expected);
     }
 

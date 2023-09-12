@@ -124,6 +124,7 @@ class OperatorAttrs(object):
     SplitAttrs = 19
     SoftmaxAttrs = 20
     TransposeAttrs = 21
+    ModAttrs = 22
 
 def OperatorAttrsCreator(unionType, table):
     from flatbuffers.table import Table
@@ -171,6 +172,8 @@ def OperatorAttrsCreator(unionType, table):
         return SoftmaxAttrsT.InitFromBuf(table.Bytes, table.Pos)
     if unionType == OperatorAttrs().TransposeAttrs:
         return TransposeAttrsT.InitFromBuf(table.Bytes, table.Pos)
+    if unionType == OperatorAttrs().ModAttrs:
+        return ModAttrsT.InitFromBuf(table.Bytes, table.Pos)
     return None
 
 
@@ -2123,6 +2126,83 @@ class MaxPoolAttrsT(object):
         return maxPoolAttrs
 
 
+class ModAttrs(object):
+    __slots__ = ['_tab']
+
+    @classmethod
+    def GetRootAs(cls, buf, offset=0):
+        n = flatbuffers.encode.Get(flatbuffers.packer.uoffset, buf, offset)
+        x = ModAttrs()
+        x.Init(buf, n + offset)
+        return x
+
+    @classmethod
+    def GetRootAsModAttrs(cls, buf, offset=0):
+        """This method is deprecated. Please switch to GetRootAs."""
+        return cls.GetRootAs(buf, offset)
+    @classmethod
+    def ModAttrsBufferHasIdentifier(cls, buf, offset, size_prefixed=False):
+        return flatbuffers.util.BufferHasIdentifier(buf, offset, b"\x4D\x4F\x44\x4C", size_prefixed=size_prefixed)
+
+    # ModAttrs
+    def Init(self, buf, pos):
+        self._tab = flatbuffers.table.Table(buf, pos)
+
+    # ModAttrs
+    def Fmod(self):
+        o = flatbuffers.number_types.UOffsetTFlags.py_type(self._tab.Offset(4))
+        if o != 0:
+            return bool(self._tab.Get(flatbuffers.number_types.BoolFlags, o + self._tab.Pos))
+        return False
+
+def ModAttrsStart(builder):
+    builder.StartObject(1)
+
+def ModAttrsAddFmod(builder, fmod):
+    builder.PrependBoolSlot(0, fmod, 0)
+
+def ModAttrsEnd(builder):
+    return builder.EndObject()
+
+
+
+class ModAttrsT(object):
+
+    # ModAttrsT
+    def __init__(self):
+        self.fmod = False  # type: bool
+
+    @classmethod
+    def InitFromBuf(cls, buf, pos):
+        modAttrs = ModAttrs()
+        modAttrs.Init(buf, pos)
+        return cls.InitFromObj(modAttrs)
+
+    @classmethod
+    def InitFromPackedBuf(cls, buf, pos=0):
+        n = flatbuffers.encode.Get(flatbuffers.packer.uoffset, buf, pos)
+        return cls.InitFromBuf(buf, pos+n)
+
+    @classmethod
+    def InitFromObj(cls, modAttrs):
+        x = ModAttrsT()
+        x._UnPack(modAttrs)
+        return x
+
+    # ModAttrsT
+    def _UnPack(self, modAttrs):
+        if modAttrs is None:
+            return
+        self.fmod = modAttrs.Fmod()
+
+    # ModAttrsT
+    def Pack(self, builder):
+        ModAttrsStart(builder)
+        ModAttrsAddFmod(builder, self.fmod)
+        modAttrs = ModAttrsEnd(builder)
+        return modAttrs
+
+
 class ReduceMeanAttrs(object):
     __slots__ = ['_tab']
 
@@ -2847,7 +2927,7 @@ class OperatorNodeT(object):
     def __init__(self):
         self.type = 0  # type: int
         self.attrsType = 0  # type: int
-        self.attrs = None  # type: Union[None, ArgMaxAttrsT, AveragePoolAttrsT, BatchNormalizationAttrsT, CastAttrsT, ConcatAttrsT, ConstantOfShapeAttrsT, ConvAttrsT, ConvTransposeAttrsT, FlattenAttrsT, GatherAttrsT, GemmAttrsT, GRUAttrsT, LeakyReluAttrsT, LSTMAttrsT, MaxPoolAttrsT, ReduceMeanAttrsT, ReshapeAttrsT, ResizeAttrsT, SplitAttrsT, SoftmaxAttrsT, TransposeAttrsT]
+        self.attrs = None  # type: Union[None, ArgMaxAttrsT, AveragePoolAttrsT, BatchNormalizationAttrsT, CastAttrsT, ConcatAttrsT, ConstantOfShapeAttrsT, ConvAttrsT, ConvTransposeAttrsT, FlattenAttrsT, GatherAttrsT, GemmAttrsT, GRUAttrsT, LeakyReluAttrsT, LSTMAttrsT, MaxPoolAttrsT, ReduceMeanAttrsT, ReshapeAttrsT, ResizeAttrsT, SplitAttrsT, SoftmaxAttrsT, TransposeAttrsT, ModAttrsT]
         self.inputs = None  # type: List[int]
         self.outputs = None  # type: List[int]
 

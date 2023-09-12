@@ -7,7 +7,7 @@ use crate::graph::Dimension;
 use crate::ops::{
     ArgMax, ArgMin, AveragePool, BatchNormalization, Cast, Concat, ConstantOfShape, Conv,
     ConvTranspose, CoordTransformMode, DataType, Flatten, Gather, Gemm, LeakyRelu, LogSoftmax,
-    MaxPool, NearestMode, Padding, ReduceMax, ReduceMean, ReduceMin, ReduceProd, ReduceSum,
+    MaxPool, Mod, NearestMode, Padding, ReduceMax, ReduceMean, ReduceMin, ReduceProd, ReduceSum,
     Reshape, Resize, ResizeMode, Scalar, Softmax, Split, Transpose,
 };
 use crate::schema_generated as sg;
@@ -43,7 +43,7 @@ pub enum OpType {
     LogSoftmax(LogSoftmax),
     MatMul,
     MaxPool(MaxPool),
-    Mod,
+    Mod(Mod),
     Mul,
     Pad,
     Pow,
@@ -430,7 +430,9 @@ impl<'a> ModelBuilder<'a> {
                     strides,
                 }
             }),
-            OpType::Mod => op!(Mod),
+            OpType::Mod(args) => {
+                op_with_attrs!(Mod, ModAttrs, sg::ModAttrsArgs { fmod: args.fmod })
+            }
             OpType::Mul => op!(Mul),
             OpType::Pad => op!(Pad),
             OpType::Pow => op!(Pow),

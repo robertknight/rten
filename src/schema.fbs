@@ -129,6 +129,10 @@ union OperatorAttrs {
   SplitAttrs,
   SoftmaxAttrs, // Also used for LogSoftmax
   TransposeAttrs,
+
+  // New operator attrs. These are appended here to preserve binary compatibility
+  // of existing model files.
+  ModAttrs,
 }
 
 table ArgMaxAttrs {
@@ -227,6 +231,10 @@ table MaxPoolAttrs {
   pads:[uint];
 
   strides:[uint];
+}
+
+table ModAttrs {
+  fmod:bool;
 }
 
 table ReduceMeanAttrs {

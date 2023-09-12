@@ -898,13 +898,13 @@ pub const ENUM_MIN_OPERATOR_ATTRS: u8 = 0;
     since = "2.0.0",
     note = "Use associated constants instead. This will no longer be generated in 2021."
 )]
-pub const ENUM_MAX_OPERATOR_ATTRS: u8 = 21;
+pub const ENUM_MAX_OPERATOR_ATTRS: u8 = 22;
 #[deprecated(
     since = "2.0.0",
     note = "Use associated constants instead. This will no longer be generated in 2021."
 )]
 #[allow(non_camel_case_types)]
-pub const ENUM_VALUES_OPERATOR_ATTRS: [OperatorAttrs; 22] = [
+pub const ENUM_VALUES_OPERATOR_ATTRS: [OperatorAttrs; 23] = [
     OperatorAttrs::NONE,
     OperatorAttrs::ArgMaxAttrs,
     OperatorAttrs::AveragePoolAttrs,
@@ -927,6 +927,7 @@ pub const ENUM_VALUES_OPERATOR_ATTRS: [OperatorAttrs; 22] = [
     OperatorAttrs::SplitAttrs,
     OperatorAttrs::SoftmaxAttrs,
     OperatorAttrs::TransposeAttrs,
+    OperatorAttrs::ModAttrs,
 ];
 
 #[derive(Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash, Default)]
@@ -956,9 +957,10 @@ impl OperatorAttrs {
     pub const SplitAttrs: Self = Self(19);
     pub const SoftmaxAttrs: Self = Self(20);
     pub const TransposeAttrs: Self = Self(21);
+    pub const ModAttrs: Self = Self(22);
 
     pub const ENUM_MIN: u8 = 0;
-    pub const ENUM_MAX: u8 = 21;
+    pub const ENUM_MAX: u8 = 22;
     pub const ENUM_VALUES: &'static [Self] = &[
         Self::NONE,
         Self::ArgMaxAttrs,
@@ -982,6 +984,7 @@ impl OperatorAttrs {
         Self::SplitAttrs,
         Self::SoftmaxAttrs,
         Self::TransposeAttrs,
+        Self::ModAttrs,
     ];
     /// Returns the variant's name or "" if unknown.
     pub fn variant_name(self) -> Option<&'static str> {
@@ -1008,6 +1011,7 @@ impl OperatorAttrs {
             Self::SplitAttrs => Some("SplitAttrs"),
             Self::SoftmaxAttrs => Some("SoftmaxAttrs"),
             Self::TransposeAttrs => Some("TransposeAttrs"),
+            Self::ModAttrs => Some("ModAttrs"),
             _ => None,
         }
     }
@@ -3637,6 +3641,107 @@ impl core::fmt::Debug for MaxPoolAttrs<'_> {
         ds.finish()
     }
 }
+pub enum ModAttrsOffset {}
+#[derive(Copy, Clone, PartialEq)]
+
+pub struct ModAttrs<'a> {
+    pub _tab: flatbuffers::Table<'a>,
+}
+
+impl<'a> flatbuffers::Follow<'a> for ModAttrs<'a> {
+    type Inner = ModAttrs<'a>;
+    #[inline]
+    unsafe fn follow(buf: &'a [u8], loc: usize) -> Self::Inner {
+        Self {
+            _tab: flatbuffers::Table::new(buf, loc),
+        }
+    }
+}
+
+impl<'a> ModAttrs<'a> {
+    pub const VT_FMOD: flatbuffers::VOffsetT = 4;
+
+    #[inline]
+    pub unsafe fn init_from_table(table: flatbuffers::Table<'a>) -> Self {
+        ModAttrs { _tab: table }
+    }
+    #[allow(unused_mut)]
+    pub fn create<'bldr: 'args, 'args: 'mut_bldr, 'mut_bldr>(
+        _fbb: &'mut_bldr mut flatbuffers::FlatBufferBuilder<'bldr>,
+        args: &'args ModAttrsArgs,
+    ) -> flatbuffers::WIPOffset<ModAttrs<'bldr>> {
+        let mut builder = ModAttrsBuilder::new(_fbb);
+        builder.add_fmod(args.fmod);
+        builder.finish()
+    }
+
+    #[inline]
+    pub fn fmod(&self) -> bool {
+        // Safety:
+        // Created from valid Table for this object
+        // which contains a valid value in this slot
+        unsafe {
+            self._tab
+                .get::<bool>(ModAttrs::VT_FMOD, Some(false))
+                .unwrap()
+        }
+    }
+}
+
+impl flatbuffers::Verifiable for ModAttrs<'_> {
+    #[inline]
+    fn run_verifier(
+        v: &mut flatbuffers::Verifier,
+        pos: usize,
+    ) -> Result<(), flatbuffers::InvalidFlatbuffer> {
+        use self::flatbuffers::Verifiable;
+        v.visit_table(pos)?
+            .visit_field::<bool>("fmod", Self::VT_FMOD, false)?
+            .finish();
+        Ok(())
+    }
+}
+pub struct ModAttrsArgs {
+    pub fmod: bool,
+}
+impl<'a> Default for ModAttrsArgs {
+    #[inline]
+    fn default() -> Self {
+        ModAttrsArgs { fmod: false }
+    }
+}
+
+pub struct ModAttrsBuilder<'a: 'b, 'b> {
+    fbb_: &'b mut flatbuffers::FlatBufferBuilder<'a>,
+    start_: flatbuffers::WIPOffset<flatbuffers::TableUnfinishedWIPOffset>,
+}
+impl<'a: 'b, 'b> ModAttrsBuilder<'a, 'b> {
+    #[inline]
+    pub fn add_fmod(&mut self, fmod: bool) {
+        self.fbb_.push_slot::<bool>(ModAttrs::VT_FMOD, fmod, false);
+    }
+    #[inline]
+    pub fn new(_fbb: &'b mut flatbuffers::FlatBufferBuilder<'a>) -> ModAttrsBuilder<'a, 'b> {
+        let start = _fbb.start_table();
+        ModAttrsBuilder {
+            fbb_: _fbb,
+            start_: start,
+        }
+    }
+    #[inline]
+    pub fn finish(self) -> flatbuffers::WIPOffset<ModAttrs<'a>> {
+        let o = self.fbb_.end_table(self.start_);
+        flatbuffers::WIPOffset::new(o.value())
+    }
+}
+
+impl core::fmt::Debug for ModAttrs<'_> {
+    fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
+        let mut ds = f.debug_struct("ModAttrs");
+        ds.field("fmod", &self.fmod());
+        ds.finish()
+    }
+}
 pub enum ReduceMeanAttrsOffset {}
 #[derive(Copy, Clone, PartialEq)]
 
@@ -4761,6 +4866,21 @@ impl<'a> OperatorNode<'a> {
             None
         }
     }
+
+    #[inline]
+    #[allow(non_snake_case)]
+    pub fn attrs_as_mod_attrs(&self) -> Option<ModAttrs<'a>> {
+        if self.attrs_type() == OperatorAttrs::ModAttrs {
+            self.attrs().map(|t| {
+                // Safety:
+                // Created from a valid Table for this object
+                // Which contains a valid union in this slot
+                unsafe { ModAttrs::init_from_table(t) }
+            })
+        } else {
+            None
+        }
+    }
 }
 
 impl flatbuffers::Verifiable for OperatorNode<'_> {
@@ -4795,6 +4915,7 @@ impl flatbuffers::Verifiable for OperatorNode<'_> {
           OperatorAttrs::SplitAttrs => v.verify_union_variant::<flatbuffers::ForwardsUOffset<SplitAttrs>>("OperatorAttrs::SplitAttrs", pos),
           OperatorAttrs::SoftmaxAttrs => v.verify_union_variant::<flatbuffers::ForwardsUOffset<SoftmaxAttrs>>("OperatorAttrs::SoftmaxAttrs", pos),
           OperatorAttrs::TransposeAttrs => v.verify_union_variant::<flatbuffers::ForwardsUOffset<TransposeAttrs>>("OperatorAttrs::TransposeAttrs", pos),
+          OperatorAttrs::ModAttrs => v.verify_union_variant::<flatbuffers::ForwardsUOffset<ModAttrs>>("OperatorAttrs::ModAttrs", pos),
           _ => Ok(()),
         }
      })?
@@ -5080,6 +5201,16 @@ impl core::fmt::Debug for OperatorNode<'_> {
             }
             OperatorAttrs::TransposeAttrs => {
                 if let Some(x) = self.attrs_as_transpose_attrs() {
+                    ds.field("attrs", &x)
+                } else {
+                    ds.field(
+                        "attrs",
+                        &"InvalidFlatbuffer: Union discriminant does not match value.",
+                    )
+                }
+            }
+            OperatorAttrs::ModAttrs => {
+                if let Some(x) = self.attrs_as_mod_attrs() {
                     ds.field("attrs", &x)
                 } else {
                     ds.field(
