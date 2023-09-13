@@ -452,7 +452,7 @@ fn is_nan<T: PartialOrd>(a: &T) -> bool {
 }
 
 /// Compare `a` and `b`, treating all NaN values as greater than non-NaN values.
-fn cmp_nan_greater<T: PartialOrd>(a: T, b: T) -> std::cmp::Ordering {
+pub fn cmp_nan_greater<T: PartialOrd>(a: T, b: T) -> std::cmp::Ordering {
     match a.partial_cmp(&b) {
         Some(ordering) => ordering,
         None => {
@@ -466,7 +466,7 @@ fn cmp_nan_greater<T: PartialOrd>(a: T, b: T) -> std::cmp::Ordering {
 }
 
 /// Compare `a` and `b`, treating all NaN values as less than non-NaN values.
-fn cmp_nan_less<T: PartialOrd>(a: T, b: T) -> std::cmp::Ordering {
+pub fn cmp_nan_less<T: PartialOrd>(a: T, b: T) -> std::cmp::Ordering {
     match a.partial_cmp(&b) {
         Some(ordering) => ordering,
         None => {

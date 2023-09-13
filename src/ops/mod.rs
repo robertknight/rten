@@ -31,7 +31,7 @@ pub use binary_elementwise::{
 pub use concat::{concat, tile, Concat, Tile};
 pub use conv::{conv, conv_transpose, Conv, ConvTranspose};
 pub use convert::Cast;
-pub use gather::{gather, scatter_elements, Gather, ScatterElements};
+pub use gather::{gather, scatter_elements, Gather, ScatterElements, ScatterReduction};
 pub use generate::{constant_of_shape, range, ConstantOfShape, Range};
 pub use identity::Identity;
 pub use layout::{

@@ -200,6 +200,14 @@ def ScalarCreator(unionType, table):
     return None
 
 
+class ScatterReduction(object):
+    None_ = 0
+    Add = 1
+    Mul = 2
+    Min = 3
+    Max = 4
+
+
 class NodeKind(object):
     NONE = 0
     OperatorNode = 1
@@ -2551,11 +2559,21 @@ class ScatterElementsAttrs(object):
             return self._tab.Get(flatbuffers.number_types.Int32Flags, o + self._tab.Pos)
         return 0
 
+    # ScatterElementsAttrs
+    def Reduction(self):
+        o = flatbuffers.number_types.UOffsetTFlags.py_type(self._tab.Offset(6))
+        if o != 0:
+            return self._tab.Get(flatbuffers.number_types.Int8Flags, o + self._tab.Pos)
+        return 0
+
 def ScatterElementsAttrsStart(builder):
-    builder.StartObject(1)
+    builder.StartObject(2)
 
 def ScatterElementsAttrsAddAxis(builder, axis):
     builder.PrependInt32Slot(0, axis, 0)
+
+def ScatterElementsAttrsAddReduction(builder, reduction):
+    builder.PrependInt8Slot(1, reduction, 0)
 
 def ScatterElementsAttrsEnd(builder):
     return builder.EndObject()
@@ -2567,6 +2585,7 @@ class ScatterElementsAttrsT(object):
     # ScatterElementsAttrsT
     def __init__(self):
         self.axis = 0  # type: int
+        self.reduction = 0  # type: int
 
     @classmethod
     def InitFromBuf(cls, buf, pos):
@@ -2590,11 +2609,13 @@ class ScatterElementsAttrsT(object):
         if scatterElementsAttrs is None:
             return
         self.axis = scatterElementsAttrs.Axis()
+        self.reduction = scatterElementsAttrs.Reduction()
 
     # ScatterElementsAttrsT
     def Pack(self, builder):
         ScatterElementsAttrsStart(builder)
         ScatterElementsAttrsAddAxis(builder, self.axis)
+        ScatterElementsAttrsAddReduction(builder, self.reduction)
         scatterElementsAttrs = ScatterElementsAttrsEnd(builder)
         return scatterElementsAttrs
 

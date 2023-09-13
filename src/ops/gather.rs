@@ -3,6 +3,7 @@ use std::iter::zip;
 use smallvec::SmallVec;
 use wasnn_tensor::{Layout, Tensor, TensorCommon, TensorView};
 
+use crate::ops::reduce::{cmp_nan_greater, cmp_nan_less};
 use crate::ops::{
     resolve_axis, resolve_index, Input, InputList, IntoOpResult, OpError, Operator, Output,
 };
@@ -87,18 +88,60 @@ impl Operator for Gather {
     }
 }
 
-pub fn scatter_elements<T: Copy + Default>(
+// Specifies how to combine an existing element value with an update in a
+// scatter operation.
+#[derive(Copy, Clone, Debug)]
+pub enum ScatterReduction {
+    /// Add the existing value and update.
+    Add,
+
+    /// Multiply the existing value with the update.
+    Mul,
+
+    /// Take the minimum of the existing value and the update, propagating NaNs.
+    Min,
+
+    /// Take the maximum of the existing value and the update, propagating NaNs.
+    Max,
+}
+
+pub fn scatter_elements<
+    T: Copy + Default + PartialOrd + std::ops::Add<Output = T> + std::ops::Mul<Output = T>,
+>(
     data: TensorView<T>,
     indices: TensorView<i32>,
     updates: TensorView<T>,
     axis: isize,
+    reduction: Option<ScatterReduction>,
 ) -> Result<Tensor<T>, OpError> {
-    if data.ndim() != indices.ndim() || data.ndim() != updates.ndim() {
+    if indices.ndim() != data.ndim() {
         return Err(OpError::InvalidValue(
-            "`data`, `indices` and `updates` must have same rank",
+            "`data` and `indices` must have same rank",
+        ));
+    }
+    if indices.shape() != updates.shape() {
+        return Err(OpError::InvalidValue(
+            "`indices` and `updates` must have same shape",
         ));
     }
     let axis = resolve_axis(data.ndim(), axis)?;
+
+    let reduce = |current, update| match reduction {
+        Some(ScatterReduction::Add) => current + update,
+        Some(ScatterReduction::Mul) => current * update,
+
+        // nb. In the operations below, we prefer to keep the current value
+        // unless the update is definitely less or NaN.
+        Some(ScatterReduction::Min) => match cmp_nan_less(update, current) {
+            std::cmp::Ordering::Less => update,
+            _ => current,
+        },
+        Some(ScatterReduction::Max) => match cmp_nan_greater(update, current) {
+            std::cmp::Ordering::Greater => update,
+            _ => current,
+        },
+        None => update,
+    };
 
     let mut output = data.to_tensor();
     for (index, update) in zip(updates.indices(), updates.iter()) {
@@ -116,7 +159,9 @@ pub fn scatter_elements<T: Copy + Default>(
         if target_index.len() < data.ndim() {
             return Err(OpError::InvalidValue("Index is invalid"));
         }
-        output[target_index] = *update;
+
+        let out_el = &mut output[target_index];
+        *out_el = reduce(*out_el, *update);
     }
     Ok(output)
 }
@@ -124,6 +169,7 @@ pub fn scatter_elements<T: Copy + Default>(
 #[derive(Debug)]
 pub struct ScatterElements {
     pub axis: isize,
+    pub reduction: Option<ScatterReduction>,
 }
 
 impl Operator for ScatterElements {
@@ -137,14 +183,22 @@ impl Operator for ScatterElements {
         let updates = inputs.require(2)?;
 
         match (data, updates) {
-            (Input::IntTensor(data), Input::IntTensor(updates)) => {
-                scatter_elements(data.view(), indices.view(), updates.view(), self.axis)
-                    .into_op_result()
-            }
-            (Input::FloatTensor(data), Input::FloatTensor(updates)) => {
-                scatter_elements(data.view(), indices.view(), updates.view(), self.axis)
-                    .into_op_result()
-            }
+            (Input::IntTensor(data), Input::IntTensor(updates)) => scatter_elements(
+                data.view(),
+                indices.view(),
+                updates.view(),
+                self.axis,
+                self.reduction,
+            )
+            .into_op_result(),
+            (Input::FloatTensor(data), Input::FloatTensor(updates)) => scatter_elements(
+                data.view(),
+                indices.view(),
+                updates.view(),
+                self.axis,
+                self.reduction,
+            )
+            .into_op_result(),
             _ => Err(OpError::IncorrectInputType),
         }
     }
@@ -156,7 +210,7 @@ mod tests {
     use wasnn_tensor::test_util::expect_equal;
     use wasnn_tensor::{tensor, Layout, Tensor, TensorCommon};
 
-    use crate::ops::{gather, scatter_elements, OpError};
+    use crate::ops::{gather, scatter_elements, OpError, ScatterReduction};
 
     #[test]
     fn test_gather_scalar() {
@@ -234,6 +288,7 @@ mod tests {
             indices.view(),
             updates.view(),
             0, /* axis */
+            None,
         )
         .unwrap();
         assert_eq!(result, expected);
@@ -250,8 +305,39 @@ mod tests {
             indices.view(),
             updates.view(),
             1, /* axis */
+            None,
         )
         .unwrap();
         assert_eq!(result, expected);
+    }
+
+    #[test]
+    fn test_scatter_elements_reduction() {
+        let data = tensor!([1, 2, 3, 4]);
+        let indices = tensor!([1, 3]);
+        let updates = tensor!([2, 2]);
+
+        let scatter = |reduction: Option<ScatterReduction>| {
+            scatter_elements(
+                data.view(),
+                indices.view(),
+                updates.view(),
+                0, /* axis */
+                reduction,
+            )
+            .unwrap()
+        };
+
+        let result = scatter(Some(ScatterReduction::Add));
+        assert_eq!(result, tensor!([1, 4, 3, 6]));
+
+        let result = scatter(Some(ScatterReduction::Mul));
+        assert_eq!(result, tensor!([1, 4, 3, 8]));
+
+        let result = scatter(Some(ScatterReduction::Min));
+        assert_eq!(result, tensor!([1, 2, 3, 2]));
+
+        let result = scatter(Some(ScatterReduction::Max));
+        assert_eq!(result, tensor!([1, 2, 3, 4]));
     }
 }

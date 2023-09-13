@@ -257,8 +257,17 @@ table ResizeAttrs {
   nearest_mode:NearestMode;
 }
 
+enum ScatterReduction: byte {
+  None,
+  Add,
+  Mul,
+  Min,
+  Max,
+}
+
 table ScatterElementsAttrs {
   axis:int;
+  reduction:ScatterReduction;
 }
 
 table SoftmaxAttrs {

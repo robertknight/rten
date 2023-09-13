@@ -1187,6 +1187,108 @@ pub struct ScalarUnionTableOffset {}
     since = "2.0.0",
     note = "Use associated constants instead. This will no longer be generated in 2021."
 )]
+pub const ENUM_MIN_SCATTER_REDUCTION: i8 = 0;
+#[deprecated(
+    since = "2.0.0",
+    note = "Use associated constants instead. This will no longer be generated in 2021."
+)]
+pub const ENUM_MAX_SCATTER_REDUCTION: i8 = 4;
+#[deprecated(
+    since = "2.0.0",
+    note = "Use associated constants instead. This will no longer be generated in 2021."
+)]
+#[allow(non_camel_case_types)]
+pub const ENUM_VALUES_SCATTER_REDUCTION: [ScatterReduction; 5] = [
+    ScatterReduction::None,
+    ScatterReduction::Add,
+    ScatterReduction::Mul,
+    ScatterReduction::Min,
+    ScatterReduction::Max,
+];
+
+#[derive(Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash, Default)]
+#[repr(transparent)]
+pub struct ScatterReduction(pub i8);
+#[allow(non_upper_case_globals)]
+impl ScatterReduction {
+    pub const None: Self = Self(0);
+    pub const Add: Self = Self(1);
+    pub const Mul: Self = Self(2);
+    pub const Min: Self = Self(3);
+    pub const Max: Self = Self(4);
+
+    pub const ENUM_MIN: i8 = 0;
+    pub const ENUM_MAX: i8 = 4;
+    pub const ENUM_VALUES: &'static [Self] =
+        &[Self::None, Self::Add, Self::Mul, Self::Min, Self::Max];
+    /// Returns the variant's name or "" if unknown.
+    pub fn variant_name(self) -> Option<&'static str> {
+        match self {
+            Self::None => Some("None"),
+            Self::Add => Some("Add"),
+            Self::Mul => Some("Mul"),
+            Self::Min => Some("Min"),
+            Self::Max => Some("Max"),
+            _ => None,
+        }
+    }
+}
+impl core::fmt::Debug for ScatterReduction {
+    fn fmt(&self, f: &mut core::fmt::Formatter) -> core::fmt::Result {
+        if let Some(name) = self.variant_name() {
+            f.write_str(name)
+        } else {
+            f.write_fmt(format_args!("<UNKNOWN {:?}>", self.0))
+        }
+    }
+}
+impl<'a> flatbuffers::Follow<'a> for ScatterReduction {
+    type Inner = Self;
+    #[inline]
+    unsafe fn follow(buf: &'a [u8], loc: usize) -> Self::Inner {
+        let b = flatbuffers::read_scalar_at::<i8>(buf, loc);
+        Self(b)
+    }
+}
+
+impl flatbuffers::Push for ScatterReduction {
+    type Output = ScatterReduction;
+    #[inline]
+    unsafe fn push(&self, dst: &mut [u8], _written_len: usize) {
+        flatbuffers::emplace_scalar::<i8>(dst, self.0);
+    }
+}
+
+impl flatbuffers::EndianScalar for ScatterReduction {
+    type Scalar = i8;
+    #[inline]
+    fn to_little_endian(self) -> i8 {
+        self.0.to_le()
+    }
+    #[inline]
+    #[allow(clippy::wrong_self_convention)]
+    fn from_little_endian(v: i8) -> Self {
+        let b = i8::from_le(v);
+        Self(b)
+    }
+}
+
+impl<'a> flatbuffers::Verifiable for ScatterReduction {
+    #[inline]
+    fn run_verifier(
+        v: &mut flatbuffers::Verifier,
+        pos: usize,
+    ) -> Result<(), flatbuffers::InvalidFlatbuffer> {
+        use self::flatbuffers::Verifiable;
+        i8::run_verifier(v, pos)
+    }
+}
+
+impl flatbuffers::SimpleToVerifyInSlice for ScatterReduction {}
+#[deprecated(
+    since = "2.0.0",
+    note = "Use associated constants instead. This will no longer be generated in 2021."
+)]
 pub const ENUM_MIN_NODE_KIND: u8 = 0;
 #[deprecated(
     since = "2.0.0",
@@ -4174,6 +4276,7 @@ impl<'a> flatbuffers::Follow<'a> for ScatterElementsAttrs<'a> {
 
 impl<'a> ScatterElementsAttrs<'a> {
     pub const VT_AXIS: flatbuffers::VOffsetT = 4;
+    pub const VT_REDUCTION: flatbuffers::VOffsetT = 6;
 
     #[inline]
     pub unsafe fn init_from_table(table: flatbuffers::Table<'a>) -> Self {
@@ -4186,6 +4289,7 @@ impl<'a> ScatterElementsAttrs<'a> {
     ) -> flatbuffers::WIPOffset<ScatterElementsAttrs<'bldr>> {
         let mut builder = ScatterElementsAttrsBuilder::new(_fbb);
         builder.add_axis(args.axis);
+        builder.add_reduction(args.reduction);
         builder.finish()
     }
 
@@ -4200,6 +4304,20 @@ impl<'a> ScatterElementsAttrs<'a> {
                 .unwrap()
         }
     }
+    #[inline]
+    pub fn reduction(&self) -> ScatterReduction {
+        // Safety:
+        // Created from valid Table for this object
+        // which contains a valid value in this slot
+        unsafe {
+            self._tab
+                .get::<ScatterReduction>(
+                    ScatterElementsAttrs::VT_REDUCTION,
+                    Some(ScatterReduction::None),
+                )
+                .unwrap()
+        }
+    }
 }
 
 impl flatbuffers::Verifiable for ScatterElementsAttrs<'_> {
@@ -4211,17 +4329,22 @@ impl flatbuffers::Verifiable for ScatterElementsAttrs<'_> {
         use self::flatbuffers::Verifiable;
         v.visit_table(pos)?
             .visit_field::<i32>("axis", Self::VT_AXIS, false)?
+            .visit_field::<ScatterReduction>("reduction", Self::VT_REDUCTION, false)?
             .finish();
         Ok(())
     }
 }
 pub struct ScatterElementsAttrsArgs {
     pub axis: i32,
+    pub reduction: ScatterReduction,
 }
 impl<'a> Default for ScatterElementsAttrsArgs {
     #[inline]
     fn default() -> Self {
-        ScatterElementsAttrsArgs { axis: 0 }
+        ScatterElementsAttrsArgs {
+            axis: 0,
+            reduction: ScatterReduction::None,
+        }
     }
 }
 
@@ -4234,6 +4357,14 @@ impl<'a: 'b, 'b> ScatterElementsAttrsBuilder<'a, 'b> {
     pub fn add_axis(&mut self, axis: i32) {
         self.fbb_
             .push_slot::<i32>(ScatterElementsAttrs::VT_AXIS, axis, 0);
+    }
+    #[inline]
+    pub fn add_reduction(&mut self, reduction: ScatterReduction) {
+        self.fbb_.push_slot::<ScatterReduction>(
+            ScatterElementsAttrs::VT_REDUCTION,
+            reduction,
+            ScatterReduction::None,
+        );
     }
     #[inline]
     pub fn new(
@@ -4256,6 +4387,7 @@ impl core::fmt::Debug for ScatterElementsAttrs<'_> {
     fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
         let mut ds = f.debug_struct("ScatterElementsAttrs");
         ds.field("axis", &self.axis());
+        ds.field("reduction", &self.reduction());
         ds.finish()
     }
 }

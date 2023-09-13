@@ -8,7 +8,7 @@ use crate::graph::{Dimension, Graph, Node, NodeId, RunError, RunOptions};
 use crate::ops;
 use crate::ops::{
     CoordTransformMode, DataType, Direction, Input, NearestMode, Operator, Output, Padding,
-    ResizeMode, Scalar,
+    ResizeMode, Scalar, ScatterReduction,
 };
 use crate::schema_generated as sg;
 use crate::schema_generated::{root_as_model, OperatorNode, OperatorType, PadMode};
@@ -400,8 +400,21 @@ fn read_scatter_elements_op(node: &OperatorNode) -> ReadOpResult {
     let attrs = node
         .attrs_as_scatter_elements_attrs()
         .ok_or(ReadOpError::AttrError)?;
+
+    let reduction = match attrs.reduction() {
+        sg::ScatterReduction::None => None,
+        sg::ScatterReduction::Add => Some(ScatterReduction::Add),
+        sg::ScatterReduction::Mul => Some(ScatterReduction::Mul),
+        sg::ScatterReduction::Min => Some(ScatterReduction::Min),
+        sg::ScatterReduction::Max => Some(ScatterReduction::Max),
+        _ => {
+            return Err(ReadOpError::AttrError);
+        }
+    };
+
     Ok(Box::new(ops::ScatterElements {
         axis: attrs.axis() as isize,
+        reduction,
     }))
 }
 
@@ -944,7 +957,7 @@ mod tests {
         add_operator!(
             ScatterElements,
             [input_node, scatter_elem_indices, scatter_elem_updates],
-            { axis: 0 }
+            { axis: 0, reduction: None }
         );
 
         let const_0 = builder.add_int_constant(&Tensor::from_data(&[1], vec![0]));
