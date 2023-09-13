@@ -203,7 +203,7 @@ table FlattenAttrs {
 }
 
 table GatherAttrs {
-  axis:uint;
+  axis:int;
 }
 
 table GemmAttrs {

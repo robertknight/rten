@@ -2953,11 +2953,11 @@ impl<'a> GatherAttrs<'a> {
     }
 
     #[inline]
-    pub fn axis(&self) -> u32 {
+    pub fn axis(&self) -> i32 {
         // Safety:
         // Created from valid Table for this object
         // which contains a valid value in this slot
-        unsafe { self._tab.get::<u32>(GatherAttrs::VT_AXIS, Some(0)).unwrap() }
+        unsafe { self._tab.get::<i32>(GatherAttrs::VT_AXIS, Some(0)).unwrap() }
     }
 }
 
@@ -2969,13 +2969,13 @@ impl flatbuffers::Verifiable for GatherAttrs<'_> {
     ) -> Result<(), flatbuffers::InvalidFlatbuffer> {
         use self::flatbuffers::Verifiable;
         v.visit_table(pos)?
-            .visit_field::<u32>("axis", Self::VT_AXIS, false)?
+            .visit_field::<i32>("axis", Self::VT_AXIS, false)?
             .finish();
         Ok(())
     }
 }
 pub struct GatherAttrsArgs {
-    pub axis: u32,
+    pub axis: i32,
 }
 impl<'a> Default for GatherAttrsArgs {
     #[inline]
@@ -2990,8 +2990,8 @@ pub struct GatherAttrsBuilder<'a: 'b, 'b> {
 }
 impl<'a: 'b, 'b> GatherAttrsBuilder<'a, 'b> {
     #[inline]
-    pub fn add_axis(&mut self, axis: u32) {
-        self.fbb_.push_slot::<u32>(GatherAttrs::VT_AXIS, axis, 0);
+    pub fn add_axis(&mut self, axis: i32) {
+        self.fbb_.push_slot::<i32>(GatherAttrs::VT_AXIS, axis, 0);
     }
     #[inline]
     pub fn new(_fbb: &'b mut flatbuffers::FlatBufferBuilder<'a>) -> GatherAttrsBuilder<'a, 'b> {

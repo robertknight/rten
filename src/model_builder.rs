@@ -391,7 +391,7 @@ impl<'a> ModelBuilder<'a> {
                 Gather,
                 GatherAttrs,
                 sg::GatherAttrsArgs {
-                    axis: args.axis as u32,
+                    axis: args.axis as i32,
                 }
             ),
             OpType::Gemm(args) => op_with_attrs!(

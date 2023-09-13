@@ -16,12 +16,11 @@ use crate::ops::{
 /// additional explanation.
 pub fn gather<T: Copy + Default>(
     input: TensorView<T>,
-    axis: usize,
+    axis: isize,
     indices: TensorView<i32>,
 ) -> Result<Tensor<T>, OpError> {
-    if axis >= input.ndim() {
-        return Err(OpError::InvalidValue("`axis` is out of range"));
-    }
+    let axis = resolve_axis(input.ndim(), axis)?;
+
     for index in indices.iter().copied() {
         if index < 0 || index >= input.size(axis) as i32 {
             return Err(OpError::InvalidValue("Entry in `indices` is out of range"));
@@ -66,7 +65,7 @@ pub fn gather<T: Copy + Default>(
 
 #[derive(Debug)]
 pub struct Gather {
-    pub axis: usize,
+    pub axis: isize,
 }
 
 impl Operator for Gather {
@@ -253,10 +252,7 @@ mod tests {
         let input = Tensor::rand(&[128, 10], &mut rng);
         let indices = Tensor::from_data(&[2, 2], vec![2, 5, 8, 50]);
         let result = gather(input.view(), 5, indices.view());
-        assert_eq!(
-            result.err(),
-            Some(OpError::InvalidValue("`axis` is out of range"))
-        );
+        assert_eq!(result.err(), Some(OpError::InvalidValue("Axis is invalid")));
 
         let indices = Tensor::from_data(&[2, 2], vec![2, 5, 8, 130]);
         let result = gather(input.view(), 0, indices.view());

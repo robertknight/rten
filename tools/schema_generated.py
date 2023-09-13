@@ -1470,14 +1470,14 @@ class GatherAttrs(object):
     def Axis(self):
         o = flatbuffers.number_types.UOffsetTFlags.py_type(self._tab.Offset(4))
         if o != 0:
-            return self._tab.Get(flatbuffers.number_types.Uint32Flags, o + self._tab.Pos)
+            return self._tab.Get(flatbuffers.number_types.Int32Flags, o + self._tab.Pos)
         return 0
 
 def GatherAttrsStart(builder):
     builder.StartObject(1)
 
 def GatherAttrsAddAxis(builder, axis):
-    builder.PrependUint32Slot(0, axis, 0)
+    builder.PrependInt32Slot(0, axis, 0)
 
 def GatherAttrsEnd(builder):
     return builder.EndObject()

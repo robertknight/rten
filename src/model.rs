@@ -230,7 +230,7 @@ fn read_flatten_op(node: &OperatorNode) -> ReadOpResult {
 fn read_gather_op(node: &OperatorNode) -> ReadOpResult {
     let attrs = node.attrs_as_gather_attrs().ok_or(ReadOpError::AttrError)?;
     Ok(Box::new(ops::Gather {
-        axis: attrs.axis() as usize,
+        axis: attrs.axis() as isize,
     }))
 }
 
