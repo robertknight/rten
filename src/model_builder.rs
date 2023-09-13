@@ -46,6 +46,7 @@ pub enum OpType {
     Mod(Mod),
     Mul,
     NonZero,
+    Not,
     Pad,
     Pow,
     Range,
@@ -438,6 +439,7 @@ impl<'a> ModelBuilder<'a> {
             }
             OpType::Mul => op!(Mul),
             OpType::NonZero => op!(NonZero),
+            OpType::Not => op!(Not),
             OpType::Pad => op!(Pad),
             OpType::Pow => op!(Pow),
             OpType::Range => op!(Range),

@@ -2,7 +2,7 @@ extern crate libm;
 
 use std::fmt::Debug;
 
-use wasnn_tensor::{Tensor, TensorCommon, TensorView};
+use wasnn_tensor::{Tensor, TensorCommon, TensorView, TensorViewMut};
 
 use crate::ops::{InputList, IntoOpResult, OpError, Operator, Output};
 
@@ -187,6 +187,38 @@ pub fn relu(x: TensorView) -> Tensor {
     Relu {}.map(x)
 }
 
+pub fn not<T: Default + PartialEq>(input: TensorView<T>) -> Tensor<i32> {
+    input.map(|x| if *x == T::default() { 1 } else { 0 })
+}
+
+pub fn not_in_place(mut input: TensorViewMut<i32>) {
+    input.apply(|&x| if x == 0 { 1 } else { 0 });
+}
+
+#[derive(Debug)]
+pub struct Not {}
+
+impl Operator for Not {
+    fn name(&self) -> &str {
+        "Not"
+    }
+
+    fn run(&self, inputs: InputList) -> Result<Vec<Output>, OpError> {
+        let input = inputs.require_as::<i32>(0)?;
+        not(input.view()).into_op_result()
+    }
+
+    fn can_run_in_place(&self) -> bool {
+        true
+    }
+
+    fn run_in_place(&self, input: Output, _: InputList) -> Result<Output, OpError> {
+        let mut output = input.into_int().ok_or(OpError::IncorrectInputType)?;
+        not_in_place(output.view_mut());
+        Ok(output.into())
+    }
+}
+
 #[derive(Debug)]
 pub struct Relu {}
 impl UnaryFloatOp for Relu {
@@ -289,8 +321,8 @@ mod tests {
 
     use crate::ops::{
         clip, clip_in_place, cos, cos_in_place, erf, erf_in_place, leaky_relu, leaky_relu_in_place,
-        log, log_in_place, relu, relu_in_place, sigmoid, sigmoid_in_place, sin, sin_in_place, sqrt,
-        sqrt_in_place, tanh, tanh_in_place,
+        log, log_in_place, not, not_in_place, relu, relu_in_place, sigmoid, sigmoid_in_place, sin,
+        sin_in_place, sqrt, sqrt_in_place, tanh, tanh_in_place,
     };
 
     #[test]
@@ -422,6 +454,22 @@ mod tests {
         ]);
         log_in_place(&mut input);
         expect_equal(&input, &expected)
+    }
+
+    #[test]
+    fn test_not() {
+        let input = tensor!([0, 1, 1, 0]);
+        let expected = tensor!([1, 0, 0, 1]);
+        let result = not(input.view());
+        assert_eq!(result, expected);
+    }
+
+    #[test]
+    fn test_not_in_place() {
+        let mut input = tensor!([0, 1, 1, 0]);
+        let expected = tensor!([1, 0, 0, 1]);
+        not_in_place(input.view_mut());
+        assert_eq!(input, expected);
     }
 
     #[test]

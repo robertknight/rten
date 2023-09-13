@@ -474,6 +474,7 @@ fn read_operator(node: &OperatorNode) -> ReadOpResult {
         OperatorType::Mod => read_mod_op(node),
         OperatorType::Mul => op!(Mul),
         OperatorType::NonZero => op!(NonZero),
+        OperatorType::Not => op!(Not),
         OperatorType::Pad => op!(Pad),
         OperatorType::Pow => op!(Pow),
         OperatorType::Range => op!(Range),
@@ -749,6 +750,7 @@ mod tests {
 
         let input_node = builder.add_value("input", None);
         let input_2d = builder.add_value("input.2d", None);
+        let input_bool = builder.add_value("input.bool", None);
 
         // 4D shape used as the primary input to test most operators (eg. NCHW image). A few
         // require a different shape.
@@ -880,6 +882,7 @@ mod tests {
         });
         add_operator!(Mul, [input_node, input_node]);
         add_operator!(NonZero, [input_node]);
+        add_operator!(Not, [input_bool]);
 
         let pads = builder.add_int_constant(&Tensor::from_data(&[8], vec![0, 0, 1, 1, 0, 0, 1, 1]));
         add_operator!(Pad, [input_node, pads]);
@@ -982,9 +985,14 @@ mod tests {
 
         let model = Model::load(&buffer).unwrap();
 
-        // Most ops are tested with a 4D input (eg. NCHW image). A few require
-        // different shapes are tested separately.
+        // Most ops are tested with one of several standard inputs:
+        //
+        //  - 4D float tensor (like an NCHW image)
+        //  - Bool-ish int tensor
+        //
+        // A few require different shapes are tested separately.
         let input = Tensor::from_data(&input_shape, vec![1., 2., 3., 4., 5., 6., 7., 8., 9.]);
+        let input_bool_data: Tensor<i32> = tensor!([0, 1, 1]);
         for output in op_outputs {
             if [
                 "Gemm_out",
@@ -1003,7 +1011,10 @@ mod tests {
             let output_id = model.find_node(&output).unwrap();
             let result = model
                 .run(
-                    &[(input_node as usize, (&input).into())],
+                    &[
+                        (input_node as usize, (&input).into()),
+                        (input_bool as usize, (&input_bool_data).into()),
+                    ],
                     &[output_id],
                     None,
                 )

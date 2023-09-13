@@ -72,6 +72,7 @@ enum OperatorType: byte {
   NonZero,
   ScatterElements,
   Tile,
+  Not,
 }
 
 enum RNNDirection: byte {
