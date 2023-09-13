@@ -68,6 +68,7 @@ class OperatorType(object):
     ReduceMax = 58
     NonZero = 59
     ScatterElements = 60
+    Tile = 61
 
 
 class RNNDirection(object):

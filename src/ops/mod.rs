@@ -28,7 +28,7 @@ pub use binary_elementwise::{
     mul_in_place, pow, pow_in_place, sub, sub_in_place, where_op, Add, Div, DivMode, Equal,
     Greater, Less, LessOrEqual, Mod, Mul, Pow, Sub, Where,
 };
-pub use concat::{concat, Concat};
+pub use concat::{concat, tile, Concat, Tile};
 pub use conv::{conv, conv_transpose, Conv, ConvTranspose};
 pub use convert::Cast;
 pub use gather::{gather, scatter_elements, Gather, ScatterElements};

@@ -497,6 +497,7 @@ fn read_operator(node: &OperatorNode) -> ReadOpResult {
         OperatorType::Squeeze => op!(Squeeze),
         OperatorType::Sub => op!(Sub),
         OperatorType::Tanh => op!(Tanh),
+        OperatorType::Tile => op!(Tile),
         OperatorType::Transpose => read_transpose_op(node),
         OperatorType::Unsqueeze => op!(Unsqueeze),
         OperatorType::Where => op!(Where),
@@ -749,6 +750,10 @@ mod tests {
         let input_node = builder.add_value("input", None);
         let input_2d = builder.add_value("input.2d", None);
 
+        // 4D shape used as the primary input to test most operators (eg. NCHW image). A few
+        // require a different shape.
+        let input_shape = [1, 1, 3, 3];
+
         let kernel_val = Tensor::from_data(&[1, 1, 1, 1], vec![0.5]);
         let kernel = builder.add_float_constant(&kernel_val);
 
@@ -929,9 +934,9 @@ mod tests {
         add_operator!(Sigmoid, [input_node]);
         add_operator!(Sin, [input_node]);
 
-        let scatter_elem_indices_val = Tensor::zeros(&[1, 1, 3, 3]);
+        let scatter_elem_indices_val = Tensor::zeros(&input_shape);
         let scatter_elem_indices = builder.add_int_constant(&scatter_elem_indices_val);
-        let scatter_elem_updates_val = Tensor::zeros(&[1, 1, 3, 3]);
+        let scatter_elem_updates_val = Tensor::zeros(&input_shape);
         let scatter_elem_updates = builder.add_float_constant(&scatter_elem_updates_val);
         add_operator!(
             ScatterElements,
@@ -959,6 +964,10 @@ mod tests {
 
         add_operator!(Sub, [input_node, input_node]);
         add_operator!(Tanh, [input_node]);
+
+        let tile_repeats = builder.add_int_constant(&tensor!([1, 2, 3, 4]));
+        add_operator!(Tile, [input_node, tile_repeats]);
+
         add_operator!(Transpose, [input_node], { perm: None });
 
         let unsqueeze_axes = builder.add_int_constant(&tensor!([0, 4]));
@@ -975,7 +984,7 @@ mod tests {
 
         // Most ops are tested with a 4D input (eg. NCHW image). A few require
         // different shapes are tested separately.
-        let input = Tensor::from_data(&[1, 1, 3, 3], vec![1., 2., 3., 4., 5., 6., 7., 8., 9.]);
+        let input = Tensor::from_data(&input_shape, vec![1., 2., 3., 4., 5., 6., 7., 8., 9.]);
         for output in op_outputs {
             if [
                 "Gemm_out",

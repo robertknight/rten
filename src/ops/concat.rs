@@ -1,6 +1,9 @@
-use wasnn_tensor::{Iter, Layout, Tensor, TensorView};
+use std::iter::zip;
+
+use wasnn_tensor::{Iter, Layout, NdTensorView, Tensor, TensorView};
 
 use crate::ops::{Input, InputList, IntoOpResult, OpError, Operator, Output};
+use crate::static_dims;
 
 enum ChunkSource<'a, T: Copy> {
     Slice(&'a [T]),
@@ -123,12 +126,63 @@ impl Operator for Concat {
     }
 }
 
+pub fn tile<T: Copy + Default>(
+    input: TensorView<T>,
+    repeats: NdTensorView<i32, 1>,
+) -> Result<Tensor<T>, OpError> {
+    if repeats.size(0) != input.ndim() || repeats.iter().any(|n| *n < 0) {
+        return Err(OpError::InvalidValue("invalid repeats"));
+    }
+
+    let out_shape: Vec<_> = input
+        .shape()
+        .iter()
+        .enumerate()
+        .map(|(axis, size)| size * repeats[[axis]] as usize)
+        .collect();
+    let mut output = Tensor::zeros(&out_shape);
+
+    if output.is_empty() {
+        return Ok(output);
+    }
+
+    for (out_index, out_val) in zip(output.indices(), output.iter_mut()) {
+        let mut in_index = out_index.clone();
+        for (axis, (out_idx, in_idx)) in zip(out_index.iter(), in_index.iter_mut()).enumerate() {
+            *in_idx = out_idx % input.size(axis)
+        }
+        *out_val = input[&in_index];
+    }
+
+    Ok(output)
+}
+
+#[derive(Debug)]
+pub struct Tile {}
+
+impl Operator for Tile {
+    fn name(&self) -> &str {
+        "Tile"
+    }
+
+    fn run(&self, inputs: InputList) -> Result<Vec<Output>, OpError> {
+        let input = inputs.require(0)?;
+        let repeats = inputs.require_as::<i32>(1)?;
+        let repeats = static_dims!(repeats, 1)?;
+
+        match input {
+            Input::IntTensor(input) => tile(input.view(), repeats.view()).into_op_result(),
+            Input::FloatTensor(input) => tile(input.view(), repeats.view()).into_op_result(),
+        }
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use wasnn_tensor::test_util::expect_equal;
-    use wasnn_tensor::{Layout, Tensor, TensorCommon};
+    use wasnn_tensor::{tensor, Layout, Tensor, TensorCommon};
 
-    use crate::ops::{concat, OpError};
+    use crate::ops::{concat, tile, OpError};
 
     fn from_slice<T: Clone>(data: &[T]) -> Tensor<T> {
         Tensor::from_data(&[data.len()], data.to_vec())
@@ -199,5 +253,58 @@ mod tests {
                 "Dimensions must be the same except for concat dim"
             ))
         );
+    }
+
+    #[test]
+    fn test_tile() {
+        // Empty
+        let input = Tensor::<f32>::zeros(&[3, 4, 5]);
+        let repeats = tensor!([4, 0, 1]);
+        let result = tile(input.view(), repeats.nd_view()).unwrap();
+        assert_eq!(result.shape(), &[12, 0, 5]);
+        assert!(result.is_empty());
+
+        // Scalar
+        let input = tensor!(5.);
+        let repeats = tensor!([]);
+        let result = tile(input.view(), repeats.nd_view()).unwrap();
+        assert_eq!(result, tensor!(5.));
+
+        // 1D tile
+        let input = tensor!([1, 2, 3, 4]);
+        let repeats = tensor!([3]);
+        let result = tile(input.view(), repeats.nd_view()).unwrap();
+        assert_eq!(result, tensor!([1, 2, 3, 4, 1, 2, 3, 4, 1, 2, 3, 4]));
+
+        // 2D tile
+        let input = tensor!((1, 1); [3.]);
+        let repeats = tensor!([3, 2]);
+        let result = tile(input.view(), repeats.nd_view()).unwrap();
+        assert_eq!(
+            result,
+            tensor!(
+                (3, 2);
+                [
+                    3., 3., //
+                    3., 3., //
+                    3., 3. //
+                ]
+            )
+        );
+    }
+
+    #[test]
+    fn test_tile_invalid_repeats() {
+        // Repeats length does not match input ndim.
+        let input = tensor!([1, 2, 3]);
+        let repeats = tensor!([1, 2]);
+        let result = tile(input.view(), repeats.nd_view());
+        assert_eq!(result, Err(OpError::InvalidValue("invalid repeats")));
+
+        // Negative repeats
+        let input = tensor!([1, 2, 3]);
+        let repeats = tensor!([-1]);
+        let result = tile(input.view(), repeats.nd_view());
+        assert_eq!(result, Err(OpError::InvalidValue("invalid repeats")));
     }
 }

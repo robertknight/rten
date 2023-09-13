@@ -18,13 +18,13 @@ pub const ENUM_MIN_OPERATOR_TYPE: i8 = 0;
     since = "2.0.0",
     note = "Use associated constants instead. This will no longer be generated in 2021."
 )]
-pub const ENUM_MAX_OPERATOR_TYPE: i8 = 60;
+pub const ENUM_MAX_OPERATOR_TYPE: i8 = 61;
 #[deprecated(
     since = "2.0.0",
     note = "Use associated constants instead. This will no longer be generated in 2021."
 )]
 #[allow(non_camel_case_types)]
-pub const ENUM_VALUES_OPERATOR_TYPE: [OperatorType; 61] = [
+pub const ENUM_VALUES_OPERATOR_TYPE: [OperatorType; 62] = [
     OperatorType::Add,
     OperatorType::ArgMin,
     OperatorType::ArgMax,
@@ -86,6 +86,7 @@ pub const ENUM_VALUES_OPERATOR_TYPE: [OperatorType; 61] = [
     OperatorType::ReduceMax,
     OperatorType::NonZero,
     OperatorType::ScatterElements,
+    OperatorType::Tile,
 ];
 
 #[derive(Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash, Default)]
@@ -154,9 +155,10 @@ impl OperatorType {
     pub const ReduceMax: Self = Self(58);
     pub const NonZero: Self = Self(59);
     pub const ScatterElements: Self = Self(60);
+    pub const Tile: Self = Self(61);
 
     pub const ENUM_MIN: i8 = 0;
-    pub const ENUM_MAX: i8 = 60;
+    pub const ENUM_MAX: i8 = 61;
     pub const ENUM_VALUES: &'static [Self] = &[
         Self::Add,
         Self::ArgMin,
@@ -219,6 +221,7 @@ impl OperatorType {
         Self::ReduceMax,
         Self::NonZero,
         Self::ScatterElements,
+        Self::Tile,
     ];
     /// Returns the variant's name or "" if unknown.
     pub fn variant_name(self) -> Option<&'static str> {
@@ -284,6 +287,7 @@ impl OperatorType {
             Self::ReduceMax => Some("ReduceMax"),
             Self::NonZero => Some("NonZero"),
             Self::ScatterElements => Some("ScatterElements"),
+            Self::Tile => Some("Tile"),
             _ => None,
         }
     }

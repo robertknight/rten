@@ -68,6 +68,7 @@ pub enum OpType {
     Squeeze,
     Sub,
     Tanh,
+    Tile,
     Transpose(Transpose),
     Unsqueeze,
     Where,
@@ -509,6 +510,7 @@ impl<'a> ModelBuilder<'a> {
             OpType::Squeeze => op!(Squeeze),
             OpType::Sub => op!(Sub),
             OpType::Tanh => op!(Tanh),
+            OpType::Tile => op!(Tile),
             OpType::Transpose(args) => op_with_attrs!(Transpose, TransposeAttrs, {
                 let perm = self.create_vec(args.perm, |dim| dim as u32);
                 sg::TransposeAttrsArgs { perm }
