@@ -69,7 +69,8 @@ enum OperatorType: byte {
   ReduceSum,
   ReduceMin,
   ReduceMax,
-  NonZero
+  NonZero,
+  ScatterElements,
 }
 
 enum RNNDirection: byte {
@@ -134,6 +135,7 @@ union OperatorAttrs {
   // New operator attrs. These are appended here to preserve binary compatibility
   // of existing model files.
   ModAttrs,
+  ScatterElementsAttrs,
 }
 
 table ArgMaxAttrs {
@@ -251,6 +253,10 @@ table ResizeAttrs {
   mode:ResizeMode;
   coord_mode:CoordTransformMode;
   nearest_mode:NearestMode;
+}
+
+table ScatterElementsAttrs {
+  axis:int;
 }
 
 table SoftmaxAttrs {

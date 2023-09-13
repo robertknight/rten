@@ -67,6 +67,7 @@ class OperatorType(object):
     ReduceMin = 57
     ReduceMax = 58
     NonZero = 59
+    ScatterElements = 60
 
 
 class RNNDirection(object):
@@ -126,6 +127,7 @@ class OperatorAttrs(object):
     SoftmaxAttrs = 20
     TransposeAttrs = 21
     ModAttrs = 22
+    ScatterElementsAttrs = 23
 
 def OperatorAttrsCreator(unionType, table):
     from flatbuffers.table import Table
@@ -175,6 +177,8 @@ def OperatorAttrsCreator(unionType, table):
         return TransposeAttrsT.InitFromBuf(table.Bytes, table.Pos)
     if unionType == OperatorAttrs().ModAttrs:
         return ModAttrsT.InitFromBuf(table.Bytes, table.Pos)
+    if unionType == OperatorAttrs().ScatterElementsAttrs:
+        return ScatterElementsAttrsT.InitFromBuf(table.Bytes, table.Pos)
     return None
 
 
@@ -2516,6 +2520,83 @@ class ResizeAttrsT(object):
         return resizeAttrs
 
 
+class ScatterElementsAttrs(object):
+    __slots__ = ['_tab']
+
+    @classmethod
+    def GetRootAs(cls, buf, offset=0):
+        n = flatbuffers.encode.Get(flatbuffers.packer.uoffset, buf, offset)
+        x = ScatterElementsAttrs()
+        x.Init(buf, n + offset)
+        return x
+
+    @classmethod
+    def GetRootAsScatterElementsAttrs(cls, buf, offset=0):
+        """This method is deprecated. Please switch to GetRootAs."""
+        return cls.GetRootAs(buf, offset)
+    @classmethod
+    def ScatterElementsAttrsBufferHasIdentifier(cls, buf, offset, size_prefixed=False):
+        return flatbuffers.util.BufferHasIdentifier(buf, offset, b"\x4D\x4F\x44\x4C", size_prefixed=size_prefixed)
+
+    # ScatterElementsAttrs
+    def Init(self, buf, pos):
+        self._tab = flatbuffers.table.Table(buf, pos)
+
+    # ScatterElementsAttrs
+    def Axis(self):
+        o = flatbuffers.number_types.UOffsetTFlags.py_type(self._tab.Offset(4))
+        if o != 0:
+            return self._tab.Get(flatbuffers.number_types.Int32Flags, o + self._tab.Pos)
+        return 0
+
+def ScatterElementsAttrsStart(builder):
+    builder.StartObject(1)
+
+def ScatterElementsAttrsAddAxis(builder, axis):
+    builder.PrependInt32Slot(0, axis, 0)
+
+def ScatterElementsAttrsEnd(builder):
+    return builder.EndObject()
+
+
+
+class ScatterElementsAttrsT(object):
+
+    # ScatterElementsAttrsT
+    def __init__(self):
+        self.axis = 0  # type: int
+
+    @classmethod
+    def InitFromBuf(cls, buf, pos):
+        scatterElementsAttrs = ScatterElementsAttrs()
+        scatterElementsAttrs.Init(buf, pos)
+        return cls.InitFromObj(scatterElementsAttrs)
+
+    @classmethod
+    def InitFromPackedBuf(cls, buf, pos=0):
+        n = flatbuffers.encode.Get(flatbuffers.packer.uoffset, buf, pos)
+        return cls.InitFromBuf(buf, pos+n)
+
+    @classmethod
+    def InitFromObj(cls, scatterElementsAttrs):
+        x = ScatterElementsAttrsT()
+        x._UnPack(scatterElementsAttrs)
+        return x
+
+    # ScatterElementsAttrsT
+    def _UnPack(self, scatterElementsAttrs):
+        if scatterElementsAttrs is None:
+            return
+        self.axis = scatterElementsAttrs.Axis()
+
+    # ScatterElementsAttrsT
+    def Pack(self, builder):
+        ScatterElementsAttrsStart(builder)
+        ScatterElementsAttrsAddAxis(builder, self.axis)
+        scatterElementsAttrs = ScatterElementsAttrsEnd(builder)
+        return scatterElementsAttrs
+
+
 class SoftmaxAttrs(object):
     __slots__ = ['_tab']
 
@@ -2928,7 +3009,7 @@ class OperatorNodeT(object):
     def __init__(self):
         self.type = 0  # type: int
         self.attrsType = 0  # type: int
-        self.attrs = None  # type: Union[None, ArgMaxAttrsT, AveragePoolAttrsT, BatchNormalizationAttrsT, CastAttrsT, ConcatAttrsT, ConstantOfShapeAttrsT, ConvAttrsT, ConvTransposeAttrsT, FlattenAttrsT, GatherAttrsT, GemmAttrsT, GRUAttrsT, LeakyReluAttrsT, LSTMAttrsT, MaxPoolAttrsT, ReduceMeanAttrsT, ReshapeAttrsT, ResizeAttrsT, SplitAttrsT, SoftmaxAttrsT, TransposeAttrsT, ModAttrsT]
+        self.attrs = None  # type: Union[None, ArgMaxAttrsT, AveragePoolAttrsT, BatchNormalizationAttrsT, CastAttrsT, ConcatAttrsT, ConstantOfShapeAttrsT, ConvAttrsT, ConvTransposeAttrsT, FlattenAttrsT, GatherAttrsT, GemmAttrsT, GRUAttrsT, LeakyReluAttrsT, LSTMAttrsT, MaxPoolAttrsT, ReduceMeanAttrsT, ReshapeAttrsT, ResizeAttrsT, SplitAttrsT, SoftmaxAttrsT, TransposeAttrsT, ModAttrsT, ScatterElementsAttrsT]
         self.inputs = None  # type: List[int]
         self.outputs = None  # type: List[int]
 

@@ -1,6 +1,11 @@
-use wasnn_tensor::{Layout, Tensor, TensorView};
+use std::iter::zip;
 
-use crate::ops::{Input, InputList, IntoOpResult, OpError, Operator, Output};
+use smallvec::SmallVec;
+use wasnn_tensor::{Layout, Tensor, TensorCommon, TensorView};
+
+use crate::ops::{
+    resolve_axis, resolve_index, Input, InputList, IntoOpResult, OpError, Operator, Output,
+};
 
 /// Gather elements from `input` specified by `indices`.
 ///
@@ -82,13 +87,76 @@ impl Operator for Gather {
     }
 }
 
+pub fn scatter_elements<T: Copy + Default>(
+    data: TensorView<T>,
+    indices: TensorView<i32>,
+    updates: TensorView<T>,
+    axis: isize,
+) -> Result<Tensor<T>, OpError> {
+    if data.ndim() != indices.ndim() || data.ndim() != updates.ndim() {
+        return Err(OpError::InvalidValue(
+            "`data`, `indices` and `updates` must have same rank",
+        ));
+    }
+    let axis = resolve_axis(data.ndim(), axis)?;
+
+    let mut output = data.to_tensor();
+    for (index, update) in zip(updates.indices(), updates.iter()) {
+        let target_index: SmallVec<[usize; 5]> = index
+            .iter()
+            .enumerate()
+            .filter_map(|(dim, idx)| {
+                if dim == axis {
+                    resolve_index(data.size(dim), indices[&index] as isize)
+                } else {
+                    Some(*idx)
+                }
+            })
+            .collect();
+        if target_index.len() < data.ndim() {
+            return Err(OpError::InvalidValue("Index is invalid"));
+        }
+        output[target_index] = *update;
+    }
+    Ok(output)
+}
+
+#[derive(Debug)]
+pub struct ScatterElements {
+    pub axis: isize,
+}
+
+impl Operator for ScatterElements {
+    fn name(&self) -> &str {
+        "ScatterElements"
+    }
+
+    fn run(&self, inputs: InputList) -> Result<Vec<Output>, OpError> {
+        let data = inputs.require(0)?;
+        let indices = inputs.require_as::<i32>(1)?;
+        let updates = inputs.require(2)?;
+
+        match (data, updates) {
+            (Input::IntTensor(data), Input::IntTensor(updates)) => {
+                scatter_elements(data.view(), indices.view(), updates.view(), self.axis)
+                    .into_op_result()
+            }
+            (Input::FloatTensor(data), Input::FloatTensor(updates)) => {
+                scatter_elements(data.view(), indices.view(), updates.view(), self.axis)
+                    .into_op_result()
+            }
+            _ => Err(OpError::IncorrectInputType),
+        }
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use wasnn_tensor::rng::XorShiftRng;
     use wasnn_tensor::test_util::expect_equal;
-    use wasnn_tensor::{Layout, Tensor, TensorCommon};
+    use wasnn_tensor::{tensor, Layout, Tensor, TensorCommon};
 
-    use crate::ops::{gather, OpError};
+    use crate::ops::{gather, scatter_elements, OpError};
 
     #[test]
     fn test_gather_scalar() {
@@ -142,5 +210,48 @@ mod tests {
             result.err(),
             Some(OpError::InvalidValue("Entry in `indices` is out of range"))
         );
+    }
+
+    #[test]
+    fn test_scatter_elements() {
+        // Example #1 from ONNX spec
+        let data = Tensor::zeros(&[3, 3]);
+        let indices = tensor!((2, 3); [
+            1, 0, 2, //
+            0, 2, 1 //
+        ]);
+        let updates = tensor!((2, 3); [
+            1., 1.1, 1.2, //
+            2., 2.1, 2.2 //
+        ]);
+        let expected = tensor!((3, 3); [
+            2., 1.1, 0., //
+            1., 0., 2.2, //
+            0., 2.1, 1.2 //
+        ]);
+        let result = scatter_elements(
+            data.view(),
+            indices.view(),
+            updates.view(),
+            0, /* axis */
+        )
+        .unwrap();
+        assert_eq!(result, expected);
+
+        // Example #2 from ONNX spec
+        let data = tensor!((1, 5); [1., 2., 3., 4., 5.]);
+        let indices = tensor!((1, 2); [1, 3]);
+        let updates = tensor!((1, 2); [1.1, 2.1]);
+        let expected = tensor!((1, 5); [
+            1., 1.1, 3., 2.1, 5.
+        ]);
+        let result = scatter_elements(
+            data.view(),
+            indices.view(),
+            updates.view(),
+            1, /* axis */
+        )
+        .unwrap();
+        assert_eq!(result, expected);
     }
 }

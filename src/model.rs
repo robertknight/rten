@@ -396,6 +396,15 @@ fn read_resize_op(node: &OperatorNode) -> ReadOpResult {
     }))
 }
 
+fn read_scatter_elements_op(node: &OperatorNode) -> ReadOpResult {
+    let attrs = node
+        .attrs_as_scatter_elements_attrs()
+        .ok_or(ReadOpError::AttrError)?;
+    Ok(Box::new(ops::ScatterElements {
+        axis: attrs.axis() as isize,
+    }))
+}
+
 fn read_softmax_op(node: &OperatorNode) -> ReadOpResult {
     let attrs = node
         .attrs_as_softmax_attrs()
@@ -477,6 +486,7 @@ fn read_operator(node: &OperatorNode) -> ReadOpResult {
         OperatorType::Relu => op!(Relu),
         OperatorType::Reshape => read_reshape_op(node),
         OperatorType::Resize => read_resize_op(node),
+        OperatorType::ScatterElements => read_scatter_elements_op(node),
         OperatorType::Shape => op!(Shape),
         OperatorType::Sigmoid => op!(Sigmoid),
         OperatorType::Sin => op!(Sin),
@@ -918,6 +928,16 @@ mod tests {
         add_operator!(Shape, [input_node]);
         add_operator!(Sigmoid, [input_node]);
         add_operator!(Sin, [input_node]);
+
+        let scatter_elem_indices_val = Tensor::zeros(&[1, 1, 3, 3]);
+        let scatter_elem_indices = builder.add_int_constant(&scatter_elem_indices_val);
+        let scatter_elem_updates_val = Tensor::zeros(&[1, 1, 3, 3]);
+        let scatter_elem_updates = builder.add_float_constant(&scatter_elem_updates_val);
+        add_operator!(
+            ScatterElements,
+            [input_node, scatter_elem_indices, scatter_elem_updates],
+            { axis: 0 }
+        );
 
         let const_0 = builder.add_int_constant(&Tensor::from_data(&[1], vec![0]));
         let const_1 = builder.add_int_constant(&Tensor::from_data(&[1], vec![1]));

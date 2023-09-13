@@ -31,7 +31,7 @@ pub use binary_elementwise::{
 pub use concat::{concat, Concat};
 pub use conv::{conv, conv_transpose, Conv, ConvTranspose};
 pub use convert::Cast;
-pub use gather::{gather, Gather};
+pub use gather::{gather, scatter_elements, Gather, ScatterElements};
 pub use generate::{constant_of_shape, range, ConstantOfShape, Range};
 pub use identity::Identity;
 pub use layout::{
@@ -604,21 +604,27 @@ pub enum Scalar {
     Float(f32),
 }
 
+/// Resolve an index given as a value in `[-len, len-1]` to a positive index in
+/// `[0, len)`, or return None if the index is out of bounds.
+fn resolve_index(len: usize, index: isize) -> Option<usize> {
+    let len = len as isize;
+    if index < -len || index >= len {
+        return None;
+    }
+
+    if index >= 0 {
+        Some(index as usize)
+    } else {
+        Some((len + index) as usize)
+    }
+}
+
 /// Resolve an axis given as a value in `[-ndim, ndim-1]` to the zero-based
 /// dimension of a tensor with `ndim` dimensions.
 ///
 /// Negative axis values count backwards from the last dimension.
 fn resolve_axis(ndim: usize, axis: isize) -> Result<usize, OpError> {
-    let rank = ndim as isize;
-    if axis < -rank || axis >= rank {
-        return Err(OpError::InvalidValue("Axis is invalid"));
-    }
-
-    if axis >= 0 {
-        Ok(axis as usize)
-    } else {
-        Ok((rank + axis) as usize)
-    }
+    resolve_index(ndim, axis).ok_or(OpError::InvalidValue("Axis is invalid"))
 }
 
 /// Resolve a sequence of axes values in `[-ndim, ndim-1]` to zero-based dimension

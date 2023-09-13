@@ -686,6 +686,11 @@ def op_node_from_onnx_operator(
         case "Pad":
             op_reader.check_attr("mode", "string", "constant")
 
+        case "ScatterElements":
+            attrs = sg.ScatterElementsAttrsT()
+            attrs.axis = op_reader.get_attr("axis", "int", 0)
+            op_reader.check_attr("reduction", "string", "none")
+
         case "Shape":
             op_reader.check_attr("end", "int", 0)
             op_reader.check_attr("start", "int", 0)

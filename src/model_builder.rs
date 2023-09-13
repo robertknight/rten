@@ -8,7 +8,7 @@ use crate::ops::{
     ArgMax, ArgMin, AveragePool, BatchNormalization, Cast, Concat, ConstantOfShape, Conv,
     ConvTranspose, CoordTransformMode, DataType, Flatten, Gather, Gemm, LeakyRelu, LogSoftmax,
     MaxPool, Mod, NearestMode, Padding, ReduceMax, ReduceMean, ReduceMin, ReduceProd, ReduceSum,
-    Reshape, Resize, ResizeMode, Scalar, Softmax, Split, Transpose,
+    Reshape, Resize, ResizeMode, Scalar, ScatterElements, Softmax, Split, Transpose,
 };
 use crate::schema_generated as sg;
 
@@ -57,6 +57,7 @@ pub enum OpType {
     Relu,
     Reshape(Reshape),
     Resize(Resize),
+    ScatterElements(ScatterElements),
     Shape,
     Sigmoid,
     Sin,
@@ -481,6 +482,13 @@ impl<'a> ModelBuilder<'a> {
                     nearest_mode,
                 }
             }),
+            OpType::ScatterElements(args) => {
+                op_with_attrs!(ScatterElements, ScatterElementsAttrs, {
+                    sg::ScatterElementsAttrsArgs {
+                        axis: args.axis as i32,
+                    }
+                })
+            }
             OpType::Shape => op!(Shape),
             OpType::Sigmoid => op!(Sigmoid),
             OpType::Slice => op!(Slice),
