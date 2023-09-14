@@ -56,10 +56,10 @@ pub use rnn::{gru, lstm, Direction, GRU, LSTM};
 pub use slice::{slice, slice_in_place, Slice};
 pub use split::{split, Split};
 pub use unary_elementwise::{
-    clip, clip_in_place, cos, cos_in_place, erf, erf_in_place, leaky_relu, leaky_relu_in_place,
-    log, log_in_place, not, not_in_place, relu, relu_in_place, sigmoid, sigmoid_in_place, sin,
-    sin_in_place, sqrt, sqrt_in_place, tanh, tanh_in_place, Clip, Cos, Erf, LeakyRelu, Log, Not,
-    Relu, Sigmoid, Sin, Sqrt, Tanh,
+    abs, clip, clip_in_place, cos, cos_in_place, erf, erf_in_place, leaky_relu,
+    leaky_relu_in_place, log, log_in_place, not, not_in_place, relu, relu_in_place, sigmoid,
+    sigmoid_in_place, sin, sin_in_place, sqrt, sqrt_in_place, tanh, tanh_in_place, Abs, Clip, Cos,
+    Erf, LeakyRelu, Log, Not, Relu, Sigmoid, Sin, Sqrt, Tanh,
 };
 
 #[derive(Copy, Clone, Debug)]

@@ -70,6 +70,7 @@ class OperatorType(object):
     ScatterElements = 60
     Tile = 61
     Not = 62
+    Abs = 63
 
 
 class RNNDirection(object):

@@ -4,7 +4,7 @@ use std::fmt::Debug;
 
 use wasnn_tensor::{Tensor, TensorCommon, TensorView, TensorViewMut};
 
-use crate::ops::{InputList, IntoOpResult, OpError, Operator, Output};
+use crate::ops::{Input, InputList, IntoOpResult, OpError, Operator, Output};
 
 /// Trait for operators which take a single float tensor and apply a function
 /// to each element.
@@ -43,6 +43,60 @@ impl<Op: UnaryFloatOp + Debug> Operator for Op {
         let mut output = input.into_float().ok_or(OpError::IncorrectInputType)?;
         self.apply(&mut output);
         Ok(output.into())
+    }
+}
+
+pub trait AbsValue {
+    fn abs(&self) -> Self;
+}
+
+impl AbsValue for f32 {
+    fn abs(&self) -> f32 {
+        (*self).abs()
+    }
+}
+
+impl AbsValue for i32 {
+    fn abs(&self) -> i32 {
+        (*self).abs()
+    }
+}
+
+pub fn abs<T: AbsValue>(input: TensorView<T>) -> Tensor<T> {
+    input.map(|x| x.abs())
+}
+
+#[derive(Debug)]
+pub struct Abs {}
+
+impl Operator for Abs {
+    fn name(&self) -> &str {
+        "abs"
+    }
+
+    fn run(&self, inputs: InputList) -> Result<Vec<Output>, OpError> {
+        let input = inputs.require(0)?;
+        match input {
+            Input::IntTensor(input) => abs(input.view()).into_op_result(),
+            Input::FloatTensor(input) => abs(input.view()).into_op_result(),
+        }
+    }
+
+    fn can_run_in_place(&self) -> bool {
+        true
+    }
+
+    fn run_in_place(&self, input: Output, _: InputList) -> Result<Output, OpError> {
+        match input {
+            Output::FloatTensor(mut input) => {
+                input.apply(|x| x.abs());
+                Ok(input.into())
+            }
+            Output::IntTensor(mut input) => {
+                input.apply(|x| x.abs());
+                Ok(input.into())
+            }
+        }
     }
 }
 
@@ -320,10 +374,23 @@ mod tests {
     use wasnn_tensor::{tensor, Tensor, TensorCommon};
 
     use crate::ops::{
-        clip, clip_in_place, cos, cos_in_place, erf, erf_in_place, leaky_relu, leaky_relu_in_place,
-        log, log_in_place, not, not_in_place, relu, relu_in_place, sigmoid, sigmoid_in_place, sin,
-        sin_in_place, sqrt, sqrt_in_place, tanh, tanh_in_place,
+        abs, clip, clip_in_place, cos, cos_in_place, erf, erf_in_place, leaky_relu,
+        leaky_relu_in_place, log, log_in_place, not, not_in_place, relu, relu_in_place, sigmoid,
+        sigmoid_in_place, sin, sin_in_place, sqrt, sqrt_in_place, tanh, tanh_in_place,
     };
+
+    #[test]
+    fn test_abs() {
+        // Float tensor
+        let x: Tensor<f32> = tensor!([1., -1., 0.]);
+        let result = abs(x.view());
+        assert_eq!(result, tensor!([1., 1., 0.]));
+
+        // Int tensor
+        let x: Tensor<i32> = tensor!([1, -1, 0]);
+        let result = abs(x.view());
+        assert_eq!(result, tensor!([1, 1, 0]));
+    }
 
     #[test]
     fn test_clip() -> Result<(), String> {

@@ -15,6 +15,7 @@ use crate::schema_generated as sg;
 
 /// Enum of all the built-in operators
 pub enum OpType {
+    Abs,
     Add,
     ArgMax(ArgMax),
     ArgMin(ArgMin),
@@ -283,6 +284,7 @@ impl<'a> ModelBuilder<'a> {
         // Convert internal operator and attribute types to corresponding
         // FlatBuffers types, and write attribute data into buffer.
         let (op_type, attrs_type, attrs) = match op_info {
+            OpType::Abs => op!(Abs),
             OpType::Add => op!(Add),
             OpType::ArgMax(args) => op_with_attrs!(ArgMax, ArgMaxAttrs, {
                 sg::ArgMaxAttrsArgs {

@@ -452,6 +452,7 @@ macro_rules! op {
 
 fn read_operator(node: &OperatorNode) -> ReadOpResult {
     match node.type_() {
+        OperatorType::Abs => op!(Abs),
         OperatorType::Add => op!(Add),
         OperatorType::ArgMax => read_arg_max_op(node),
         OperatorType::ArgMin => read_arg_min_op(node),
@@ -807,6 +808,7 @@ mod tests {
             };
         }
 
+        add_operator!(Abs, [input_node]);
         add_operator!(Add, [input_node, input_node]);
         add_operator!(ArgMax, [input_node], { axis: 3, keep_dims: false });
         add_operator!(ArgMin, [input_node], { axis: 3, keep_dims: false });
