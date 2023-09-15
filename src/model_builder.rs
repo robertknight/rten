@@ -44,7 +44,10 @@ pub enum OpType {
     Log,
     LogSoftmax(LogSoftmax),
     MatMul,
+    Max,
     MaxPool(MaxPool),
+    Mean,
+    Min,
     Mod(Mod),
     Mul,
     NonZero,
@@ -70,6 +73,7 @@ pub enum OpType {
     Sqrt,
     Squeeze,
     Sub,
+    Sum,
     Tanh,
     Tile,
     Transpose(Transpose),
@@ -425,6 +429,7 @@ impl<'a> ModelBuilder<'a> {
                 }
             ),
             OpType::MatMul => op!(MatMul),
+            OpType::Max => op!(Max),
             OpType::MaxPool(args) => op_with_attrs!(MaxPool, MaxPoolAttrs, {
                 let pad_args = pad_args_from_padding(args.padding);
                 let pads = self.create_vec(pad_args.pads, |pad| pad as u32);
@@ -437,6 +442,8 @@ impl<'a> ModelBuilder<'a> {
                     strides,
                 }
             }),
+            OpType::Mean => op!(Mean),
+            OpType::Min => op!(Min),
             OpType::Mod(args) => {
                 op_with_attrs!(Mod, ModAttrs, sg::ModAttrsArgs { fmod: args.fmod })
             }
@@ -522,6 +529,7 @@ impl<'a> ModelBuilder<'a> {
             OpType::Sqrt => op!(Sqrt),
             OpType::Squeeze => op!(Squeeze),
             OpType::Sub => op!(Sub),
+            OpType::Sum => op!(Sum),
             OpType::Tanh => op!(Tanh),
             OpType::Tile => op!(Tile),
             OpType::Transpose(args) => op_with_attrs!(Transpose, TransposeAttrs, {

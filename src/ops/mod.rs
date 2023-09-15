@@ -22,6 +22,7 @@ mod rnn;
 mod slice;
 mod split;
 mod unary_elementwise;
+mod variadic_elementwise;
 
 pub use binary_elementwise::{
     add, add_in_place, div, div_in_place, equal, greater, less, less_or_equal, mod_op, mul,
@@ -61,6 +62,7 @@ pub use unary_elementwise::{
     sigmoid_in_place, sin, sin_in_place, sqrt, sqrt_in_place, tanh, tanh_in_place, Abs, Clip, Cos,
     Erf, LeakyRelu, Log, Not, Relu, Sigmoid, Sin, Sqrt, Tanh,
 };
+pub use variadic_elementwise::{max, mean, min, sum, Max, Mean, Min, Sum};
 
 #[derive(Copy, Clone, Debug)]
 pub enum Padding {

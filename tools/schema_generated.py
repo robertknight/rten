@@ -71,6 +71,10 @@ class OperatorType(object):
     Tile = 61
     Not = 62
     Abs = 63
+    Max = 64
+    Mean = 65
+    Min = 66
+    Sum = 67
 
 
 class RNNDirection(object):

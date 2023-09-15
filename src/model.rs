@@ -484,7 +484,10 @@ fn read_operator(node: &OperatorNode) -> ReadOpResult {
         OperatorType::LogSoftmax => read_log_softmax_op(node),
         OperatorType::LSTM => read_lstm_op(node),
         OperatorType::MatMul => op!(MatMul),
+        OperatorType::Max => op!(Max),
         OperatorType::MaxPool => read_max_pool_op(node),
+        OperatorType::Mean => op!(Mean),
+        OperatorType::Min => op!(Min),
         OperatorType::Mod => read_mod_op(node),
         OperatorType::Mul => op!(Mul),
         OperatorType::NonZero => op!(NonZero),
@@ -511,6 +514,7 @@ fn read_operator(node: &OperatorNode) -> ReadOpResult {
         OperatorType::Sqrt => op!(Sqrt),
         OperatorType::Squeeze => op!(Squeeze),
         OperatorType::Sub => op!(Sub),
+        OperatorType::Sum => op!(Sum),
         OperatorType::Tanh => op!(Tanh),
         OperatorType::Tile => op!(Tile),
         OperatorType::Transpose => read_transpose_op(node),
@@ -887,11 +891,14 @@ mod tests {
         // TODO - Add LSTM operator
 
         add_operator!(MatMul, [input_2d, input_2d]);
+        add_operator!(Max, [input_node, input_node]);
         add_operator!(MaxPool, [input_node], {
             kernel_size: [2, 2],
             strides: [2, 2],
             padding: Padding::Fixed([0, 0, 0, 0]),
         });
+        add_operator!(Mean, [input_node, input_node]);
+        add_operator!(Min, [input_node, input_node]);
         add_operator!(Mod, [input_node, input_node], {
             fmod: false,
         });
@@ -981,6 +988,7 @@ mod tests {
         );
 
         add_operator!(Sub, [input_node, input_node]);
+        add_operator!(Sum, [input_node, input_node]);
         add_operator!(Tanh, [input_node]);
 
         let tile_repeats = builder.add_int_constant(&tensor!([1, 2, 3, 4]));

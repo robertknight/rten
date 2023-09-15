@@ -18,13 +18,13 @@ pub const ENUM_MIN_OPERATOR_TYPE: i8 = 0;
     since = "2.0.0",
     note = "Use associated constants instead. This will no longer be generated in 2021."
 )]
-pub const ENUM_MAX_OPERATOR_TYPE: i8 = 63;
+pub const ENUM_MAX_OPERATOR_TYPE: i8 = 67;
 #[deprecated(
     since = "2.0.0",
     note = "Use associated constants instead. This will no longer be generated in 2021."
 )]
 #[allow(non_camel_case_types)]
-pub const ENUM_VALUES_OPERATOR_TYPE: [OperatorType; 64] = [
+pub const ENUM_VALUES_OPERATOR_TYPE: [OperatorType; 68] = [
     OperatorType::Add,
     OperatorType::ArgMin,
     OperatorType::ArgMax,
@@ -89,6 +89,10 @@ pub const ENUM_VALUES_OPERATOR_TYPE: [OperatorType; 64] = [
     OperatorType::Tile,
     OperatorType::Not,
     OperatorType::Abs,
+    OperatorType::Max,
+    OperatorType::Mean,
+    OperatorType::Min,
+    OperatorType::Sum,
 ];
 
 #[derive(Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash, Default)]
@@ -160,9 +164,13 @@ impl OperatorType {
     pub const Tile: Self = Self(61);
     pub const Not: Self = Self(62);
     pub const Abs: Self = Self(63);
+    pub const Max: Self = Self(64);
+    pub const Mean: Self = Self(65);
+    pub const Min: Self = Self(66);
+    pub const Sum: Self = Self(67);
 
     pub const ENUM_MIN: i8 = 0;
-    pub const ENUM_MAX: i8 = 63;
+    pub const ENUM_MAX: i8 = 67;
     pub const ENUM_VALUES: &'static [Self] = &[
         Self::Add,
         Self::ArgMin,
@@ -228,6 +236,10 @@ impl OperatorType {
         Self::Tile,
         Self::Not,
         Self::Abs,
+        Self::Max,
+        Self::Mean,
+        Self::Min,
+        Self::Sum,
     ];
     /// Returns the variant's name or "" if unknown.
     pub fn variant_name(self) -> Option<&'static str> {
@@ -296,6 +308,10 @@ impl OperatorType {
             Self::Tile => Some("Tile"),
             Self::Not => Some("Not"),
             Self::Abs => Some("Abs"),
+            Self::Max => Some("Max"),
+            Self::Mean => Some("Mean"),
+            Self::Min => Some("Min"),
+            Self::Sum => Some("Sum"),
             _ => None,
         }
     }

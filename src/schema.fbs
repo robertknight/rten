@@ -73,7 +73,11 @@ enum OperatorType: byte {
   ScatterElements,
   Tile,
   Not,
-  Abs
+  Abs,
+  Max,
+  Mean,
+  Min,
+  Sum
 }
 
 enum RNNDirection: byte {
