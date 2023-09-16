@@ -753,17 +753,17 @@ class ConcatAttrs(object):
         self._tab = flatbuffers.table.Table(buf, pos)
 
     # ConcatAttrs
-    def Dim(self):
+    def Axis(self):
         o = flatbuffers.number_types.UOffsetTFlags.py_type(self._tab.Offset(4))
         if o != 0:
-            return self._tab.Get(flatbuffers.number_types.Uint32Flags, o + self._tab.Pos)
+            return self._tab.Get(flatbuffers.number_types.Int32Flags, o + self._tab.Pos)
         return 0
 
 def ConcatAttrsStart(builder):
     builder.StartObject(1)
 
-def ConcatAttrsAddDim(builder, dim):
-    builder.PrependUint32Slot(0, dim, 0)
+def ConcatAttrsAddAxis(builder, axis):
+    builder.PrependInt32Slot(0, axis, 0)
 
 def ConcatAttrsEnd(builder):
     return builder.EndObject()
@@ -774,7 +774,7 @@ class ConcatAttrsT(object):
 
     # ConcatAttrsT
     def __init__(self):
-        self.dim = 0  # type: int
+        self.axis = 0  # type: int
 
     @classmethod
     def InitFromBuf(cls, buf, pos):
@@ -797,12 +797,12 @@ class ConcatAttrsT(object):
     def _UnPack(self, concatAttrs):
         if concatAttrs is None:
             return
-        self.dim = concatAttrs.Dim()
+        self.axis = concatAttrs.Axis()
 
     # ConcatAttrsT
     def Pack(self, builder):
         ConcatAttrsStart(builder)
-        ConcatAttrsAddDim(builder, self.dim)
+        ConcatAttrsAddAxis(builder, self.axis)
         concatAttrs = ConcatAttrsEnd(builder)
         return concatAttrs
 

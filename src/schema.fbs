@@ -171,7 +171,7 @@ table CastAttrs {
 }
 
 table ConcatAttrs {
-  dim:uint;
+  axis:int;
 }
 
 union Scalar {

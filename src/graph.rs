@@ -776,7 +776,7 @@ mod tests {
         let op_c_out = g.add_value(Some("op_c_out"), None);
         g.add_op(
             Some("op_c"),
-            Box::new(Concat { dim: 0 }),
+            Box::new(Concat { axis: 0 }),
             &[op_a_out, op_b_out].map(Some),
             &[Some(op_c_out)],
         );
@@ -785,7 +785,7 @@ mod tests {
         let op_d_out = g.add_value(Some("op_d_out"), None);
         g.add_op(
             Some("op_d"),
-            Box::new(Concat { dim: 0 }),
+            Box::new(Concat { axis: 0 }),
             &[op_b_out, op_a_out].map(Some),
             &[Some(op_d_out)],
         );

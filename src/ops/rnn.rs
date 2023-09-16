@@ -906,12 +906,12 @@ mod tests {
     /// Re-order a weight or bias tensor for LSTM gates from (input, forget,
     /// cell, output) as used by PyTorch to (input, output, forget, cell) as
     /// used by ONNX.
-    fn reorder_ifco_to_iofc(x: &Tensor, dim: usize) -> Tensor {
-        let size = x.size(dim) / 4;
+    fn reorder_ifco_to_iofc(x: &Tensor, axis: isize) -> Tensor {
+        let size = x.size(axis as usize) / 4;
         let splits = &[size as i32; 4];
 
         // Split input into seperate tensor for each of the gates.
-        let ifco = split(x.view(), dim as isize, &splits.into()).expect("split failed");
+        let ifco = split(x.view(), axis, &splits.into()).expect("split failed");
 
         // Recombine in a new gate order.
         concat(
@@ -921,22 +921,22 @@ mod tests {
                 ifco[1].view(),
                 ifco[2].view(),
             ],
-            dim,
+            axis,
         )
         .expect("concat failed")
     }
 
     /// Re-order a weight or bias tensor for GRU gates from (reset, update,
     /// hidden) as used by PyTorch to (update, reset, hidden) as used by ONNX.
-    fn reorder_ruh_to_urh(x: &Tensor, dim: usize) -> Tensor {
-        let size = x.size(dim) / 3;
+    fn reorder_ruh_to_urh(x: &Tensor, axis: isize) -> Tensor {
+        let size = x.size(axis as usize) / 3;
         let splits = &[size as i32; 3];
 
         // Split input into seperate tensor for each of the gates.
-        let ruh = split(x.view(), dim as isize, &splits.into()).expect("split failed");
+        let ruh = split(x.view(), axis, &splits.into()).expect("split failed");
 
         // Recombine in a new gate order.
-        concat(&[ruh[1].view(), ruh[0].view(), ruh[2].view()], dim).expect("concat failed")
+        concat(&[ruh[1].view(), ruh[0].view(), ruh[2].view()], axis).expect("concat failed")
     }
 
     struct RNNRefTest {

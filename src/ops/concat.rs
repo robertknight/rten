@@ -2,7 +2,7 @@ use std::iter::zip;
 
 use wasnn_tensor::{Iter, Layout, NdTensorView, Tensor, TensorView};
 
-use crate::ops::{Input, InputList, IntoOpResult, OpError, Operator, Output};
+use crate::ops::{resolve_axis, Input, InputList, IntoOpResult, OpError, Operator, Output};
 use crate::static_dims;
 
 enum ChunkSource<'a, T: Copy> {
@@ -51,11 +51,9 @@ impl<'a, T: Copy> TensorChunks<'a, T> {
     }
 }
 
-pub fn concat<T: Copy>(inputs: &[TensorView<T>], dim: usize) -> Result<Tensor<T>, OpError> {
+pub fn concat<T: Copy>(inputs: &[TensorView<T>], axis: isize) -> Result<Tensor<T>, OpError> {
     let first_shape = inputs[0].shape();
-    if dim >= first_shape.len() {
-        return Err(OpError::InvalidValue("dim is larger than input rank"));
-    }
+    let axis = resolve_axis(first_shape.len(), axis)?;
 
     for other in &inputs[1..] {
         let other_shape = other.shape();
@@ -65,9 +63,9 @@ pub fn concat<T: Copy>(inputs: &[TensorView<T>], dim: usize) -> Result<Tensor<T>
             ));
         }
         for d in 0..first_shape.len() {
-            if d != dim && first_shape[d] != other_shape[d] {
+            if d != axis && first_shape[d] != other_shape[d] {
                 return Err(OpError::IncompatibleInputShapes(
-                    "Dimensions must be the same except for concat dim",
+                    "Dimensions must be the same except for concat axis",
                 ));
             }
         }
@@ -75,13 +73,13 @@ pub fn concat<T: Copy>(inputs: &[TensorView<T>], dim: usize) -> Result<Tensor<T>
 
     let mut out_shape: Vec<_> = first_shape.into();
     for other in &inputs[1..] {
-        out_shape[dim] += other.size(dim);
+        out_shape[axis] += other.size(axis);
     }
     let mut out_data = Vec::with_capacity(out_shape.iter().product());
 
     let mut input_iters: Vec<TensorChunks<'_, T>> = inputs
         .iter()
-        .map(|tensor| TensorChunks::new(tensor, dim))
+        .map(|tensor| TensorChunks::new(tensor, axis))
         .collect();
 
     while input_iters.iter().any(|it| it.remaining_len() > 0) {
@@ -95,7 +93,7 @@ pub fn concat<T: Copy>(inputs: &[TensorView<T>], dim: usize) -> Result<Tensor<T>
 
 #[derive(Debug)]
 pub struct Concat {
-    pub dim: usize,
+    pub axis: isize,
 }
 
 impl Operator for Concat {
@@ -112,7 +110,7 @@ impl Operator for Concat {
                     let tensor: &Tensor<f32> = input.try_into()?;
                     typed_inputs.push(tensor.view());
                 }
-                concat(&typed_inputs, self.dim).into_op_result()
+                concat(&typed_inputs, self.axis).into_op_result()
             }
             Input::IntTensor(_) => {
                 let mut typed_inputs: Vec<TensorView<i32>> = Vec::new();
@@ -120,7 +118,7 @@ impl Operator for Concat {
                     let tensor: &Tensor<i32> = input.try_into()?;
                     typed_inputs.push(tensor.view());
                 }
-                concat(&typed_inputs, self.dim).into_op_result()
+                concat(&typed_inputs, self.axis).into_op_result()
             }
         }
     }
@@ -227,10 +225,7 @@ mod tests {
         // Invalid `dim` attribute
         let input = from_slice(&[1, 2, 3]);
         let result = concat(&[input.view(), input.view()], 1);
-        assert_eq!(
-            result.err(),
-            Some(OpError::InvalidValue("dim is larger than input rank"))
-        );
+        assert_eq!(result.err(), Some(OpError::InvalidValue("Axis is invalid")));
 
         // Shape mismatch
         let a = Tensor::<f32>::zeros(&[1]);
@@ -250,7 +245,7 @@ mod tests {
         assert_eq!(
             result.err(),
             Some(OpError::IncompatibleInputShapes(
-                "Dimensions must be the same except for concat dim"
+                "Dimensions must be the same except for concat axis"
             ))
         );
     }

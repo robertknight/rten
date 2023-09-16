@@ -172,7 +172,7 @@ fn read_cast_op(node: &OperatorNode) -> ReadOpResult {
 fn read_concat_op(node: &OperatorNode) -> ReadOpResult {
     let attrs = node.attrs_as_concat_attrs().ok_or(ReadOpError::AttrError)?;
     Ok(Box::new(ops::Concat {
-        dim: attrs.dim() as usize,
+        axis: attrs.axis() as isize,
     }))
 }
 
@@ -692,7 +692,7 @@ mod tests {
         let concat_out = builder.add_value("concat_out", None);
         builder.add_operator(
             "concat",
-            OpType::Concat(ops::Concat { dim: 0 }),
+            OpType::Concat(ops::Concat { axis: 0 }),
             &[const_node, input_node].map(Some),
             &[concat_out],
         );
@@ -851,9 +851,9 @@ mod tests {
         add_operator!(Cast, [input_node], { to: ops::DataType::Float });
 
         let clip_min = builder.add_float_constant(&tensor!(1.));
-        let clip_max = builder.add_float_constant(&tensor!(5.));
+        let clip_max = builder.add_float_constant(&tensor!(6.));
         add_operator!(Clip, [input_node, clip_min, clip_max]);
-        add_operator!(Concat, [input_node, input_node], { dim: 0 });
+        add_operator!(Concat, [input_node, input_node], { axis: 0 });
 
         let shape = builder.add_int_constant(&Tensor::from_data(&[3], vec![1, 5, 10]));
         add_operator!(ConstantOfShape, [shape], { value: Scalar::Int(42) });

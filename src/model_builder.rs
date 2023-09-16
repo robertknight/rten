@@ -337,7 +337,7 @@ impl<'a> ModelBuilder<'a> {
                 Concat,
                 ConcatAttrs,
                 sg::ConcatAttrsArgs {
-                    dim: args.dim as u32,
+                    axis: args.axis as i32,
                 }
             ),
             OpType::ConstantOfShape(args) => {

@@ -521,7 +521,7 @@ def op_node_from_onnx_operator(
 
         case "Concat":
             attrs = sg.ConcatAttrsT()
-            attrs.dim = op_reader.require_attr("axis", "int")
+            attrs.axis = op_reader.require_attr("axis", "int")
 
         case "ConstantOfShape":
             tensor = op_reader.require_attr("value", "tensor")

@@ -2066,7 +2066,7 @@ impl<'a> flatbuffers::Follow<'a> for ConcatAttrs<'a> {
 }
 
 impl<'a> ConcatAttrs<'a> {
-    pub const VT_DIM: flatbuffers::VOffsetT = 4;
+    pub const VT_AXIS: flatbuffers::VOffsetT = 4;
 
     #[inline]
     pub unsafe fn init_from_table(table: flatbuffers::Table<'a>) -> Self {
@@ -2078,16 +2078,16 @@ impl<'a> ConcatAttrs<'a> {
         args: &'args ConcatAttrsArgs,
     ) -> flatbuffers::WIPOffset<ConcatAttrs<'bldr>> {
         let mut builder = ConcatAttrsBuilder::new(_fbb);
-        builder.add_dim(args.dim);
+        builder.add_axis(args.axis);
         builder.finish()
     }
 
     #[inline]
-    pub fn dim(&self) -> u32 {
+    pub fn axis(&self) -> i32 {
         // Safety:
         // Created from valid Table for this object
         // which contains a valid value in this slot
-        unsafe { self._tab.get::<u32>(ConcatAttrs::VT_DIM, Some(0)).unwrap() }
+        unsafe { self._tab.get::<i32>(ConcatAttrs::VT_AXIS, Some(0)).unwrap() }
     }
 }
 
@@ -2099,18 +2099,18 @@ impl flatbuffers::Verifiable for ConcatAttrs<'_> {
     ) -> Result<(), flatbuffers::InvalidFlatbuffer> {
         use self::flatbuffers::Verifiable;
         v.visit_table(pos)?
-            .visit_field::<u32>("dim", Self::VT_DIM, false)?
+            .visit_field::<i32>("axis", Self::VT_AXIS, false)?
             .finish();
         Ok(())
     }
 }
 pub struct ConcatAttrsArgs {
-    pub dim: u32,
+    pub axis: i32,
 }
 impl<'a> Default for ConcatAttrsArgs {
     #[inline]
     fn default() -> Self {
-        ConcatAttrsArgs { dim: 0 }
+        ConcatAttrsArgs { axis: 0 }
     }
 }
 
@@ -2120,8 +2120,8 @@ pub struct ConcatAttrsBuilder<'a: 'b, 'b> {
 }
 impl<'a: 'b, 'b> ConcatAttrsBuilder<'a, 'b> {
     #[inline]
-    pub fn add_dim(&mut self, dim: u32) {
-        self.fbb_.push_slot::<u32>(ConcatAttrs::VT_DIM, dim, 0);
+    pub fn add_axis(&mut self, axis: i32) {
+        self.fbb_.push_slot::<i32>(ConcatAttrs::VT_AXIS, axis, 0);
     }
     #[inline]
     pub fn new(_fbb: &'b mut flatbuffers::FlatBufferBuilder<'a>) -> ConcatAttrsBuilder<'a, 'b> {
@@ -2141,7 +2141,7 @@ impl<'a: 'b, 'b> ConcatAttrsBuilder<'a, 'b> {
 impl core::fmt::Debug for ConcatAttrs<'_> {
     fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
         let mut ds = f.debug_struct("ConcatAttrs");
-        ds.field("dim", &self.dim());
+        ds.field("axis", &self.axis());
         ds.finish()
     }
 }
