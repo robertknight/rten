@@ -650,6 +650,10 @@ def op_node_from_onnx_operator(
             attrs = sg.ModAttrsT()
             attrs.fmod = bool(op_reader.get_attr("fmod", "int", 0))
 
+        case "OneHot":
+            attrs = sg.OneHotAttrsT()
+            attrs.axis = op_reader.get_attr("axis", "int", -1)
+
         case "ReduceL2" | "ReduceMax" | "ReduceMean" | "ReduceMin" | "ReduceProd" | "ReduceSum":
             attrs = sg.ReduceMeanAttrsT()
             attrs.axes = op_reader.get_attr("axes", "ints", None)

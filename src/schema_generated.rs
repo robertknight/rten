@@ -18,13 +18,13 @@ pub const ENUM_MIN_OPERATOR_TYPE: i8 = 0;
     since = "2.0.0",
     note = "Use associated constants instead. This will no longer be generated in 2021."
 )]
-pub const ENUM_MAX_OPERATOR_TYPE: i8 = 67;
+pub const ENUM_MAX_OPERATOR_TYPE: i8 = 68;
 #[deprecated(
     since = "2.0.0",
     note = "Use associated constants instead. This will no longer be generated in 2021."
 )]
 #[allow(non_camel_case_types)]
-pub const ENUM_VALUES_OPERATOR_TYPE: [OperatorType; 68] = [
+pub const ENUM_VALUES_OPERATOR_TYPE: [OperatorType; 69] = [
     OperatorType::Add,
     OperatorType::ArgMin,
     OperatorType::ArgMax,
@@ -93,6 +93,7 @@ pub const ENUM_VALUES_OPERATOR_TYPE: [OperatorType; 68] = [
     OperatorType::Mean,
     OperatorType::Min,
     OperatorType::Sum,
+    OperatorType::OneHot,
 ];
 
 #[derive(Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash, Default)]
@@ -168,9 +169,10 @@ impl OperatorType {
     pub const Mean: Self = Self(65);
     pub const Min: Self = Self(66);
     pub const Sum: Self = Self(67);
+    pub const OneHot: Self = Self(68);
 
     pub const ENUM_MIN: i8 = 0;
-    pub const ENUM_MAX: i8 = 67;
+    pub const ENUM_MAX: i8 = 68;
     pub const ENUM_VALUES: &'static [Self] = &[
         Self::Add,
         Self::ArgMin,
@@ -240,6 +242,7 @@ impl OperatorType {
         Self::Mean,
         Self::Min,
         Self::Sum,
+        Self::OneHot,
     ];
     /// Returns the variant's name or "" if unknown.
     pub fn variant_name(self) -> Option<&'static str> {
@@ -312,6 +315,7 @@ impl OperatorType {
             Self::Mean => Some("Mean"),
             Self::Min => Some("Min"),
             Self::Sum => Some("Sum"),
+            Self::OneHot => Some("OneHot"),
             _ => None,
         }
     }
@@ -934,13 +938,13 @@ pub const ENUM_MIN_OPERATOR_ATTRS: u8 = 0;
     since = "2.0.0",
     note = "Use associated constants instead. This will no longer be generated in 2021."
 )]
-pub const ENUM_MAX_OPERATOR_ATTRS: u8 = 23;
+pub const ENUM_MAX_OPERATOR_ATTRS: u8 = 24;
 #[deprecated(
     since = "2.0.0",
     note = "Use associated constants instead. This will no longer be generated in 2021."
 )]
 #[allow(non_camel_case_types)]
-pub const ENUM_VALUES_OPERATOR_ATTRS: [OperatorAttrs; 24] = [
+pub const ENUM_VALUES_OPERATOR_ATTRS: [OperatorAttrs; 25] = [
     OperatorAttrs::NONE,
     OperatorAttrs::ArgMaxAttrs,
     OperatorAttrs::AveragePoolAttrs,
@@ -965,6 +969,7 @@ pub const ENUM_VALUES_OPERATOR_ATTRS: [OperatorAttrs; 24] = [
     OperatorAttrs::TransposeAttrs,
     OperatorAttrs::ModAttrs,
     OperatorAttrs::ScatterElementsAttrs,
+    OperatorAttrs::OneHotAttrs,
 ];
 
 #[derive(Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash, Default)]
@@ -996,9 +1001,10 @@ impl OperatorAttrs {
     pub const TransposeAttrs: Self = Self(21);
     pub const ModAttrs: Self = Self(22);
     pub const ScatterElementsAttrs: Self = Self(23);
+    pub const OneHotAttrs: Self = Self(24);
 
     pub const ENUM_MIN: u8 = 0;
-    pub const ENUM_MAX: u8 = 23;
+    pub const ENUM_MAX: u8 = 24;
     pub const ENUM_VALUES: &'static [Self] = &[
         Self::NONE,
         Self::ArgMaxAttrs,
@@ -1024,6 +1030,7 @@ impl OperatorAttrs {
         Self::TransposeAttrs,
         Self::ModAttrs,
         Self::ScatterElementsAttrs,
+        Self::OneHotAttrs,
     ];
     /// Returns the variant's name or "" if unknown.
     pub fn variant_name(self) -> Option<&'static str> {
@@ -1052,6 +1059,7 @@ impl OperatorAttrs {
             Self::TransposeAttrs => Some("TransposeAttrs"),
             Self::ModAttrs => Some("ModAttrs"),
             Self::ScatterElementsAttrs => Some("ScatterElementsAttrs"),
+            Self::OneHotAttrs => Some("OneHotAttrs"),
             _ => None,
         }
     }
@@ -3884,6 +3892,103 @@ impl core::fmt::Debug for ModAttrs<'_> {
         ds.finish()
     }
 }
+pub enum OneHotAttrsOffset {}
+#[derive(Copy, Clone, PartialEq)]
+
+pub struct OneHotAttrs<'a> {
+    pub _tab: flatbuffers::Table<'a>,
+}
+
+impl<'a> flatbuffers::Follow<'a> for OneHotAttrs<'a> {
+    type Inner = OneHotAttrs<'a>;
+    #[inline]
+    unsafe fn follow(buf: &'a [u8], loc: usize) -> Self::Inner {
+        Self {
+            _tab: flatbuffers::Table::new(buf, loc),
+        }
+    }
+}
+
+impl<'a> OneHotAttrs<'a> {
+    pub const VT_AXIS: flatbuffers::VOffsetT = 4;
+
+    #[inline]
+    pub unsafe fn init_from_table(table: flatbuffers::Table<'a>) -> Self {
+        OneHotAttrs { _tab: table }
+    }
+    #[allow(unused_mut)]
+    pub fn create<'bldr: 'args, 'args: 'mut_bldr, 'mut_bldr>(
+        _fbb: &'mut_bldr mut flatbuffers::FlatBufferBuilder<'bldr>,
+        args: &'args OneHotAttrsArgs,
+    ) -> flatbuffers::WIPOffset<OneHotAttrs<'bldr>> {
+        let mut builder = OneHotAttrsBuilder::new(_fbb);
+        builder.add_axis(args.axis);
+        builder.finish()
+    }
+
+    #[inline]
+    pub fn axis(&self) -> i32 {
+        // Safety:
+        // Created from valid Table for this object
+        // which contains a valid value in this slot
+        unsafe { self._tab.get::<i32>(OneHotAttrs::VT_AXIS, Some(0)).unwrap() }
+    }
+}
+
+impl flatbuffers::Verifiable for OneHotAttrs<'_> {
+    #[inline]
+    fn run_verifier(
+        v: &mut flatbuffers::Verifier,
+        pos: usize,
+    ) -> Result<(), flatbuffers::InvalidFlatbuffer> {
+        use self::flatbuffers::Verifiable;
+        v.visit_table(pos)?
+            .visit_field::<i32>("axis", Self::VT_AXIS, false)?
+            .finish();
+        Ok(())
+    }
+}
+pub struct OneHotAttrsArgs {
+    pub axis: i32,
+}
+impl<'a> Default for OneHotAttrsArgs {
+    #[inline]
+    fn default() -> Self {
+        OneHotAttrsArgs { axis: 0 }
+    }
+}
+
+pub struct OneHotAttrsBuilder<'a: 'b, 'b> {
+    fbb_: &'b mut flatbuffers::FlatBufferBuilder<'a>,
+    start_: flatbuffers::WIPOffset<flatbuffers::TableUnfinishedWIPOffset>,
+}
+impl<'a: 'b, 'b> OneHotAttrsBuilder<'a, 'b> {
+    #[inline]
+    pub fn add_axis(&mut self, axis: i32) {
+        self.fbb_.push_slot::<i32>(OneHotAttrs::VT_AXIS, axis, 0);
+    }
+    #[inline]
+    pub fn new(_fbb: &'b mut flatbuffers::FlatBufferBuilder<'a>) -> OneHotAttrsBuilder<'a, 'b> {
+        let start = _fbb.start_table();
+        OneHotAttrsBuilder {
+            fbb_: _fbb,
+            start_: start,
+        }
+    }
+    #[inline]
+    pub fn finish(self) -> flatbuffers::WIPOffset<OneHotAttrs<'a>> {
+        let o = self.fbb_.end_table(self.start_);
+        flatbuffers::WIPOffset::new(o.value())
+    }
+}
+
+impl core::fmt::Debug for OneHotAttrs<'_> {
+    fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
+        let mut ds = f.debug_struct("OneHotAttrs");
+        ds.field("axis", &self.axis());
+        ds.finish()
+    }
+}
 pub enum ReduceMeanAttrsOffset {}
 #[derive(Copy, Clone, PartialEq)]
 
@@ -5172,6 +5277,21 @@ impl<'a> OperatorNode<'a> {
             None
         }
     }
+
+    #[inline]
+    #[allow(non_snake_case)]
+    pub fn attrs_as_one_hot_attrs(&self) -> Option<OneHotAttrs<'a>> {
+        if self.attrs_type() == OperatorAttrs::OneHotAttrs {
+            self.attrs().map(|t| {
+                // Safety:
+                // Created from a valid Table for this object
+                // Which contains a valid union in this slot
+                unsafe { OneHotAttrs::init_from_table(t) }
+            })
+        } else {
+            None
+        }
+    }
 }
 
 impl flatbuffers::Verifiable for OperatorNode<'_> {
@@ -5208,6 +5328,7 @@ impl flatbuffers::Verifiable for OperatorNode<'_> {
           OperatorAttrs::TransposeAttrs => v.verify_union_variant::<flatbuffers::ForwardsUOffset<TransposeAttrs>>("OperatorAttrs::TransposeAttrs", pos),
           OperatorAttrs::ModAttrs => v.verify_union_variant::<flatbuffers::ForwardsUOffset<ModAttrs>>("OperatorAttrs::ModAttrs", pos),
           OperatorAttrs::ScatterElementsAttrs => v.verify_union_variant::<flatbuffers::ForwardsUOffset<ScatterElementsAttrs>>("OperatorAttrs::ScatterElementsAttrs", pos),
+          OperatorAttrs::OneHotAttrs => v.verify_union_variant::<flatbuffers::ForwardsUOffset<OneHotAttrs>>("OperatorAttrs::OneHotAttrs", pos),
           _ => Ok(()),
         }
      })?
@@ -5513,6 +5634,16 @@ impl core::fmt::Debug for OperatorNode<'_> {
             }
             OperatorAttrs::ScatterElementsAttrs => {
                 if let Some(x) = self.attrs_as_scatter_elements_attrs() {
+                    ds.field("attrs", &x)
+                } else {
+                    ds.field(
+                        "attrs",
+                        &"InvalidFlatbuffer: Union discriminant does not match value.",
+                    )
+                }
+            }
+            OperatorAttrs::OneHotAttrs => {
+                if let Some(x) = self.attrs_as_one_hot_attrs() {
                     ds.field("attrs", &x)
                 } else {
                     ds.field(

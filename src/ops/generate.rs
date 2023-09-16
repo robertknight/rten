@@ -1,8 +1,11 @@
+use std::iter::zip;
 use std::ops;
 
-use wasnn_tensor::{NdTensorView, Tensor};
+use wasnn_tensor::{Layout, NdTensorView, Tensor, TensorCommon, TensorView};
 
-use crate::ops::{Input, InputList, IntoOpResult, OpError, Operator, Output, Scalar};
+use crate::ops::{
+    resolve_axis, resolve_index, Input, InputList, IntoOpResult, OpError, Operator, Output, Scalar,
+};
 use crate::static_dims;
 
 pub fn constant_of_shape<T: Clone>(value: T, shape: &NdTensorView<i32, 1>) -> Tensor<T> {
@@ -28,6 +31,77 @@ impl Operator for ConstantOfShape {
         match self.value {
             Scalar::Int(value) => constant_of_shape(value, &shape).into_op_result(),
             Scalar::Float(value) => constant_of_shape(value, &shape).into_op_result(),
+        }
+    }
+}
+
+pub fn onehot<T: Copy + Default + PartialEq>(
+    indices: TensorView<i32>,
+    onehot_axis: isize,
+    depth: usize,
+    on_value: T,
+    off_value: T,
+) -> Result<Tensor<T>, OpError> {
+    let mut out_shape = Vec::with_capacity(indices.ndim() + 1);
+    out_shape.extend_from_slice(indices.shape());
+    out_shape.push(depth);
+
+    let onehot_axis = resolve_axis(out_shape.len(), onehot_axis)?;
+
+    let mut output = Tensor::zeros(&out_shape);
+    if off_value != T::default() {
+        output.apply(|_| off_value);
+    }
+
+    for (mut index, class) in zip(indices.indices(), indices.iter()) {
+        let Some(class) = resolve_index(depth, *class as isize) else {
+            return Err(OpError::InvalidValue("Invalid index in `indices`"));
+        };
+        index.insert(onehot_axis, class);
+        output[&index] = on_value;
+    }
+
+    Ok(output)
+}
+
+fn extract_on_off_values<T: Copy>(values: NdTensorView<T, 1>) -> Result<(T, T), OpError> {
+    if values.len() == 2 {
+        Ok((values[[0]], values[[1]]))
+    } else {
+        Err(OpError::InvalidValue("Expected size-2 vector"))
+    }
+}
+
+#[derive(Debug)]
+pub struct OneHot {
+    pub axis: isize,
+}
+
+impl Operator for OneHot {
+    fn name(&self) -> &str {
+        "OneHot"
+    }
+
+    fn run(&self, inputs: InputList) -> Result<Vec<Output>, OpError> {
+        let indices = inputs.require_as::<i32>(0)?;
+        let depth = inputs.require_as::<i32>(1)?;
+        let depth = depth
+            .item()
+            .and_then(|&val| if val > 0 { Some(val as usize) } else { None })
+            .ok_or(OpError::InvalidValue("`depth` must be a positive scalar"))?;
+        let values = inputs.require(2)?;
+
+        match values {
+            Input::IntTensor(values) => {
+                let values = static_dims!(values, 1)?;
+                let (on_value, off_value) = extract_on_off_values(values)?;
+                onehot(indices.view(), self.axis, depth, on_value, off_value).into_op_result()
+            }
+            Input::FloatTensor(values) => {
+                let values = static_dims!(values, 1)?;
+                let (on_value, off_value) = extract_on_off_values(values)?;
+                onehot(indices.view(), self.axis, depth, on_value, off_value).into_op_result()
+            }
         }
     }
 }
@@ -85,9 +159,9 @@ impl Operator for Range {
 
 #[cfg(test)]
 mod tests {
-    use wasnn_tensor::{Layout, Tensor, TensorCommon};
+    use wasnn_tensor::{tensor, Layout, Tensor, TensorCommon};
 
-    use crate::ops::{range, ConstantOfShape, Input, InputList, OpError, Operator, Scalar};
+    use crate::ops::{onehot, range, ConstantOfShape, Input, InputList, OpError, Operator, Scalar};
 
     #[test]
     fn test_constant_of_shape() {
@@ -105,6 +179,94 @@ mod tests {
 
         assert_eq!(result.shape(), &[1, 5, 10]);
         assert_eq!(result.to_vec(), vec![42; result.shape().iter().product()]);
+    }
+
+    #[test]
+    fn test_onehot() {
+        struct Case {
+            classes: Tensor<i32>,
+            axis: isize,
+            depth: usize,
+            on_value: f32,
+            off_value: f32,
+            expected: Result<Tensor<f32>, OpError>,
+        }
+
+        let cases = [
+            // Common case of converting class labels to a float one-hot tensor
+            // with values of 0/1.
+            Case {
+                classes: tensor!([0, 1, 2, 3, 4]),
+                axis: -1,
+                depth: 5,
+                on_value: 1.,
+                off_value: 0.,
+                expected: Ok(tensor!((5, 5); [
+                    1., 0., 0., 0., 0., // 1
+                    0., 1., 0., 0., 0., // 2
+                    0., 0., 1., 0., 0., // 3
+                    0., 0., 0., 1., 0., // 4
+                    0., 0., 0., 0., 1. // 5
+                ])),
+            },
+            // Non-standard on/off values.
+            Case {
+                classes: tensor!([0, 1]),
+                axis: -1,
+                depth: 2,
+                on_value: 2.,
+                off_value: -3.,
+                expected: Ok(tensor!((2, 2); [
+                    2., -3., // 1
+                    -3., 2. // 2
+                ])),
+            },
+            // Add classes as first axis.
+            Case {
+                classes: tensor!([0, 1]),
+                axis: 0,
+                depth: 2,
+                on_value: 1.,
+                off_value: 0.,
+                expected: Ok(tensor!((2, 2); [
+                    1., 0., // 1
+                    0., 1. // 2
+                ])
+                .transposed()
+                .to_tensor()),
+            },
+            // Invalid class index for depth.
+            Case {
+                classes: tensor!([0, 1]),
+                axis: -1,
+                depth: 1,
+                on_value: 1.,
+                off_value: 0.,
+                expected: Err(OpError::InvalidValue("Invalid index in `indices`")),
+            },
+            // Invalid axis
+            Case {
+                classes: tensor!([0, 1]),
+                axis: 2,
+                depth: 2,
+                on_value: 1.,
+                off_value: 0.,
+                expected: Err(OpError::InvalidValue("Axis is invalid")),
+            },
+        ];
+
+        for Case {
+            classes,
+            axis,
+            depth,
+            on_value,
+            off_value,
+            expected,
+        } in cases
+        {
+            let result = onehot(classes.view(), axis, depth, on_value, off_value);
+            assert_eq!(result, expected);
+        }
     }
 
     #[test]

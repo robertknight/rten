@@ -321,6 +321,15 @@ fn read_mod_op(node: &OperatorNode) -> ReadOpResult {
     Ok(Box::new(ops::Mod { fmod: attrs.fmod() }))
 }
 
+fn read_onehot_op(node: &OperatorNode) -> ReadOpResult {
+    let attrs = node
+        .attrs_as_one_hot_attrs()
+        .ok_or(ReadOpError::AttrError)?;
+    Ok(Box::new(ops::OneHot {
+        axis: attrs.axis() as isize,
+    }))
+}
+
 fn read_reduce_attrs(node: &OperatorNode) -> Result<(Option<Vec<i32>>, bool), ReadOpError> {
     let attrs = node
         .attrs_as_reduce_mean_attrs()
@@ -492,6 +501,7 @@ fn read_operator(node: &OperatorNode) -> ReadOpResult {
         OperatorType::Mul => op!(Mul),
         OperatorType::NonZero => op!(NonZero),
         OperatorType::Not => op!(Not),
+        OperatorType::OneHot => read_onehot_op(node),
         OperatorType::Pad => op!(Pad),
         OperatorType::Pow => op!(Pow),
         OperatorType::Range => op!(Range),
@@ -905,6 +915,13 @@ mod tests {
         add_operator!(Mul, [input_node, input_node]);
         add_operator!(NonZero, [input_node]);
         add_operator!(Not, [input_bool]);
+
+        let onehot_indices = builder.add_int_constant(&tensor!([0, 1, 2]));
+        let onehot_depth = builder.add_int_constant(&tensor!(5));
+        let onehot_values = builder.add_float_constant(&tensor!([1., 0.]));
+        add_operator!(OneHot, [onehot_indices, onehot_depth, onehot_values], {
+            axis: -1,
+        });
 
         let pads = builder.add_int_constant(&Tensor::from_data(&[8], vec![0, 0, 1, 1, 0, 0, 1, 1]));
         add_operator!(Pad, [input_node, pads]);

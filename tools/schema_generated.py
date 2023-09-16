@@ -75,6 +75,7 @@ class OperatorType(object):
     Mean = 65
     Min = 66
     Sum = 67
+    OneHot = 68
 
 
 class RNNDirection(object):
@@ -135,6 +136,7 @@ class OperatorAttrs(object):
     TransposeAttrs = 21
     ModAttrs = 22
     ScatterElementsAttrs = 23
+    OneHotAttrs = 24
 
 def OperatorAttrsCreator(unionType, table):
     from flatbuffers.table import Table
@@ -186,6 +188,8 @@ def OperatorAttrsCreator(unionType, table):
         return ModAttrsT.InitFromBuf(table.Bytes, table.Pos)
     if unionType == OperatorAttrs().ScatterElementsAttrs:
         return ScatterElementsAttrsT.InitFromBuf(table.Bytes, table.Pos)
+    if unionType == OperatorAttrs().OneHotAttrs:
+        return OneHotAttrsT.InitFromBuf(table.Bytes, table.Pos)
     return None
 
 
@@ -2223,6 +2227,83 @@ class ModAttrsT(object):
         return modAttrs
 
 
+class OneHotAttrs(object):
+    __slots__ = ['_tab']
+
+    @classmethod
+    def GetRootAs(cls, buf, offset=0):
+        n = flatbuffers.encode.Get(flatbuffers.packer.uoffset, buf, offset)
+        x = OneHotAttrs()
+        x.Init(buf, n + offset)
+        return x
+
+    @classmethod
+    def GetRootAsOneHotAttrs(cls, buf, offset=0):
+        """This method is deprecated. Please switch to GetRootAs."""
+        return cls.GetRootAs(buf, offset)
+    @classmethod
+    def OneHotAttrsBufferHasIdentifier(cls, buf, offset, size_prefixed=False):
+        return flatbuffers.util.BufferHasIdentifier(buf, offset, b"\x4D\x4F\x44\x4C", size_prefixed=size_prefixed)
+
+    # OneHotAttrs
+    def Init(self, buf, pos):
+        self._tab = flatbuffers.table.Table(buf, pos)
+
+    # OneHotAttrs
+    def Axis(self):
+        o = flatbuffers.number_types.UOffsetTFlags.py_type(self._tab.Offset(4))
+        if o != 0:
+            return self._tab.Get(flatbuffers.number_types.Int32Flags, o + self._tab.Pos)
+        return 0
+
+def OneHotAttrsStart(builder):
+    builder.StartObject(1)
+
+def OneHotAttrsAddAxis(builder, axis):
+    builder.PrependInt32Slot(0, axis, 0)
+
+def OneHotAttrsEnd(builder):
+    return builder.EndObject()
+
+
+
+class OneHotAttrsT(object):
+
+    # OneHotAttrsT
+    def __init__(self):
+        self.axis = 0  # type: int
+
+    @classmethod
+    def InitFromBuf(cls, buf, pos):
+        oneHotAttrs = OneHotAttrs()
+        oneHotAttrs.Init(buf, pos)
+        return cls.InitFromObj(oneHotAttrs)
+
+    @classmethod
+    def InitFromPackedBuf(cls, buf, pos=0):
+        n = flatbuffers.encode.Get(flatbuffers.packer.uoffset, buf, pos)
+        return cls.InitFromBuf(buf, pos+n)
+
+    @classmethod
+    def InitFromObj(cls, oneHotAttrs):
+        x = OneHotAttrsT()
+        x._UnPack(oneHotAttrs)
+        return x
+
+    # OneHotAttrsT
+    def _UnPack(self, oneHotAttrs):
+        if oneHotAttrs is None:
+            return
+        self.axis = oneHotAttrs.Axis()
+
+    # OneHotAttrsT
+    def Pack(self, builder):
+        OneHotAttrsStart(builder)
+        OneHotAttrsAddAxis(builder, self.axis)
+        oneHotAttrs = OneHotAttrsEnd(builder)
+        return oneHotAttrs
+
+
 class ReduceMeanAttrs(object):
     __slots__ = ['_tab']
 
@@ -3037,7 +3118,7 @@ class OperatorNodeT(object):
     def __init__(self):
         self.type = 0  # type: int
         self.attrsType = 0  # type: int
-        self.attrs = None  # type: Union[None, ArgMaxAttrsT, AveragePoolAttrsT, BatchNormalizationAttrsT, CastAttrsT, ConcatAttrsT, ConstantOfShapeAttrsT, ConvAttrsT, ConvTransposeAttrsT, FlattenAttrsT, GatherAttrsT, GemmAttrsT, GRUAttrsT, LeakyReluAttrsT, LSTMAttrsT, MaxPoolAttrsT, ReduceMeanAttrsT, ReshapeAttrsT, ResizeAttrsT, SplitAttrsT, SoftmaxAttrsT, TransposeAttrsT, ModAttrsT, ScatterElementsAttrsT]
+        self.attrs = None  # type: Union[None, ArgMaxAttrsT, AveragePoolAttrsT, BatchNormalizationAttrsT, CastAttrsT, ConcatAttrsT, ConstantOfShapeAttrsT, ConvAttrsT, ConvTransposeAttrsT, FlattenAttrsT, GatherAttrsT, GemmAttrsT, GRUAttrsT, LeakyReluAttrsT, LSTMAttrsT, MaxPoolAttrsT, ReduceMeanAttrsT, ReshapeAttrsT, ResizeAttrsT, SplitAttrsT, SoftmaxAttrsT, TransposeAttrsT, ModAttrsT, ScatterElementsAttrsT, OneHotAttrsT]
         self.inputs = None  # type: List[int]
         self.outputs = None  # type: List[int]
 

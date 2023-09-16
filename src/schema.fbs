@@ -77,7 +77,8 @@ enum OperatorType: byte {
   Max,
   Mean,
   Min,
-  Sum
+  Sum,
+  OneHot
 }
 
 enum RNNDirection: byte {
@@ -143,6 +144,7 @@ union OperatorAttrs {
   // of existing model files.
   ModAttrs,
   ScatterElementsAttrs,
+  OneHotAttrs,
 }
 
 table ArgMaxAttrs {
@@ -245,6 +247,10 @@ table MaxPoolAttrs {
 
 table ModAttrs {
   fmod:bool;
+}
+
+table OneHotAttrs {
+  axis:int;
 }
 
 table ReduceMeanAttrs {

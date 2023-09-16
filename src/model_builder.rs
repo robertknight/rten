@@ -7,9 +7,9 @@ use crate::graph::Dimension;
 use crate::ops::{
     ArgMax, ArgMin, AveragePool, BatchNormalization, Cast, Concat, ConstantOfShape, Conv,
     ConvTranspose, CoordTransformMode, DataType, Flatten, Gather, Gemm, LeakyRelu, LogSoftmax,
-    MaxPool, Mod, NearestMode, Padding, ReduceMax, ReduceMean, ReduceMin, ReduceProd, ReduceSum,
-    Reshape, Resize, ResizeMode, Scalar, ScatterElements, ScatterReduction, Softmax, Split,
-    Transpose,
+    MaxPool, Mod, NearestMode, OneHot, Padding, ReduceMax, ReduceMean, ReduceMin, ReduceProd,
+    ReduceSum, Reshape, Resize, ResizeMode, Scalar, ScatterElements, ScatterReduction, Softmax,
+    Split, Transpose,
 };
 use crate::schema_generated as sg;
 
@@ -52,6 +52,7 @@ pub enum OpType {
     Mul,
     NonZero,
     Not,
+    OneHot(OneHot),
     Pad,
     Pow,
     Range,
@@ -450,6 +451,15 @@ impl<'a> ModelBuilder<'a> {
             OpType::Mul => op!(Mul),
             OpType::NonZero => op!(NonZero),
             OpType::Not => op!(Not),
+            OpType::OneHot(args) => {
+                op_with_attrs!(
+                    OneHot,
+                    OneHotAttrs,
+                    sg::OneHotAttrsArgs {
+                        axis: args.axis as i32
+                    }
+                )
+            }
             OpType::Pad => op!(Pad),
             OpType::Pow => op!(Pow),
             OpType::Range => op!(Range),
