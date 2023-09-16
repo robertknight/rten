@@ -42,11 +42,11 @@ pub fn onehot<T: Copy + Default + PartialEq>(
     on_value: T,
     off_value: T,
 ) -> Result<Tensor<T>, OpError> {
+    let onehot_axis = resolve_axis(indices.ndim() + 1, onehot_axis)?;
+
     let mut out_shape = Vec::with_capacity(indices.ndim() + 1);
     out_shape.extend_from_slice(indices.shape());
-    out_shape.push(depth);
-
-    let onehot_axis = resolve_axis(out_shape.len(), onehot_axis)?;
+    out_shape.insert(onehot_axis, depth);
 
     let mut output = Tensor::zeros(&out_shape);
     if off_value != T::default() {
@@ -54,11 +54,10 @@ pub fn onehot<T: Copy + Default + PartialEq>(
     }
 
     for (mut index, class) in zip(indices.indices(), indices.iter()) {
-        let Some(class) = resolve_index(depth, *class as isize) else {
-            return Err(OpError::InvalidValue("Invalid index in `indices`"));
+        if let Some(class) = resolve_index(depth, *class as isize) {
+            index.insert(onehot_axis, class);
+            output[&index] = on_value;
         };
-        index.insert(onehot_axis, class);
-        output[&index] = on_value;
     }
 
     Ok(output)
@@ -237,12 +236,15 @@ mod tests {
             },
             // Invalid class index for depth.
             Case {
-                classes: tensor!([0, 1]),
+                classes: tensor!([0, 2]),
                 axis: -1,
-                depth: 1,
+                depth: 2,
                 on_value: 1.,
                 off_value: 0.,
-                expected: Err(OpError::InvalidValue("Invalid index in `indices`")),
+                expected: Ok(tensor!((2, 2); [
+                    1., 0., // 1
+                    0., 0. // 2. All "off" because class is out of range.
+                ])),
             },
             // Invalid axis
             Case {
