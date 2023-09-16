@@ -71,7 +71,7 @@ pub struct Abs {}
 
 impl Operator for Abs {
     fn name(&self) -> &str {
-        "abs"
+        "Abs"
     }
 
     fn run(&self, inputs: InputList) -> Result<Vec<Output>, OpError> {
