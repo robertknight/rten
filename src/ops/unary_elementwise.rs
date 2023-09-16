@@ -100,15 +100,68 @@ impl Operator for Abs {
     }
 }
 
-pub fn clip(input: TensorView, min: Option<f32>, max: Option<f32>) -> Tensor {
-    let min = min.unwrap_or(f32::MIN);
-    let max = max.unwrap_or(f32::MAX);
+/// Numeric value with a finite minimum and maximum and operations to clamp
+/// values.
+pub trait Clamp: Copy + PartialOrd {
+    /// Return the minimum possible finite value for this type.
+    fn min_val() -> Self;
+
+    /// Return the maximum possible finite value for this type.
+    fn max_val() -> Self;
+
+    /// Return the minimum of `self` and `val`.
+    fn min(&self, val: Self) -> Self {
+        if *self < val {
+            *self
+        } else {
+            val
+        }
+    }
+
+    /// Return the maximum of `self` and `val`.
+    fn max(&self, val: Self) -> Self {
+        if *self > val {
+            *self
+        } else {
+            val
+        }
+    }
+
+    /// Return self constrained to the range `[min, max]`.
+    fn clamp(&self, min: Self, max: Self) -> Self {
+        self.max(min).min(max)
+    }
+}
+
+impl Clamp for i32 {
+    fn min_val() -> Self {
+        i32::MIN
+    }
+
+    fn max_val() -> Self {
+        i32::MAX
+    }
+}
+
+impl Clamp for f32 {
+    fn min_val() -> Self {
+        f32::MIN
+    }
+
+    fn max_val() -> Self {
+        f32::MAX
+    }
+}
+
+pub fn clip<T: Copy + Clamp>(input: TensorView<T>, min: Option<T>, max: Option<T>) -> Tensor<T> {
+    let min = min.unwrap_or(T::min_val());
+    let max = max.unwrap_or(T::max_val());
     input.map(|x| x.clamp(min, max))
 }
 
-pub fn clip_in_place(input: &mut Tensor, min: Option<f32>, max: Option<f32>) {
-    let min = min.unwrap_or(f32::MIN);
-    let max = max.unwrap_or(f32::MAX);
+pub fn clip_in_place<T: Copy + Clamp>(input: &mut Tensor<T>, min: Option<T>, max: Option<T>) {
+    let min = min.unwrap_or(T::min_val());
+    let max = max.unwrap_or(T::max_val());
     input.apply(|x| x.clamp(min, max))
 }
 
@@ -124,10 +177,19 @@ impl Operator for Clip {
     }
 
     fn run(&self, inputs: InputList) -> Result<Vec<Output>, OpError> {
-        let input = inputs.require_as(0)?;
-        let min = inputs.get_as_scalar(1)?;
-        let max = inputs.get_as_scalar(2)?;
-        clip(input.view(), min, max).into_op_result()
+        let input = inputs.require(0)?;
+        match input {
+            Input::FloatTensor(input) => {
+                let min = inputs.get_as_scalar(1)?;
+                let max = inputs.get_as_scalar(2)?;
+                clip(input.view(), min, max).into_op_result()
+            }
+            Input::IntTensor(input) => {
+                let min = inputs.get_as_scalar(1)?;
+                let max = inputs.get_as_scalar(2)?;
+                clip(input.view(), min, max).into_op_result()
+            }
+        }
     }
 
     fn can_run_in_place(&self) -> bool {
@@ -135,11 +197,20 @@ impl Operator for Clip {
     }
 
     fn run_in_place(&self, input: Output, other: InputList) -> Result<Output, OpError> {
-        let mut input = input.into_float().ok_or(OpError::IncorrectInputType)?;
-        let min = other.get_as_scalar(0)?;
-        let max = other.get_as_scalar(1)?;
-        clip_in_place(&mut input, min, max);
-        Ok(input.into())
+        match input {
+            Output::FloatTensor(mut input) => {
+                let min = other.get_as_scalar(0)?;
+                let max = other.get_as_scalar(1)?;
+                clip_in_place(&mut input, min, max);
+                Ok(input.into())
+            }
+            Output::IntTensor(mut input) => {
+                let min = other.get_as_scalar(0)?;
+                let max = other.get_as_scalar(1)?;
+                clip_in_place(&mut input, min, max);
+                Ok(input.into())
+            }
+        }
     }
 }
 
