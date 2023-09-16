@@ -650,7 +650,7 @@ def op_node_from_onnx_operator(
             attrs = sg.ModAttrsT()
             attrs.fmod = bool(op_reader.get_attr("fmod", "int", 0))
 
-        case "ReduceL2" | "ReduceMean" | "ReduceProd" | "ReduceSum":
+        case "ReduceL2" | "ReduceMax" | "ReduceMean" | "ReduceMin" | "ReduceProd" | "ReduceSum":
             attrs = sg.ReduceMeanAttrsT()
             attrs.axes = op_reader.get_attr("axes", "ints", None)
             attrs.keepDims = bool(op_reader.get_attr("keepdims", "int", 1))
