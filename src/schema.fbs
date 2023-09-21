@@ -82,6 +82,7 @@ enum OperatorType: byte {
   Round,
   Floor,
   Ceil,
+  Reciprocal
 }
 
 enum RNNDirection: byte {

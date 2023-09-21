@@ -507,6 +507,7 @@ fn read_operator(node: &OperatorNode) -> ReadOpResult {
         OperatorType::Pad => op!(Pad),
         OperatorType::Pow => op!(Pow),
         OperatorType::Range => op!(Range),
+        OperatorType::Reciprocal => op!(Reciprocal),
         OperatorType::ReduceL2 => read_reduce_l2_op(node),
         OperatorType::ReduceMax => read_reduce_max_op(node),
         OperatorType::ReduceMean => read_reduce_mean_op(node),
@@ -940,6 +941,7 @@ mod tests {
             [range_start_node, range_limit_node, range_delta_node]
         );
 
+        add_operator!(Reciprocal, [input_node]);
         add_operator!(ReduceMean, [input_node], {
             axes: None,
             keep_dims: false,

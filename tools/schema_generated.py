@@ -79,6 +79,7 @@ class OperatorType(object):
     Round = 69
     Floor = 70
     Ceil = 71
+    Reciprocal = 72
 
 
 class RNNDirection(object):

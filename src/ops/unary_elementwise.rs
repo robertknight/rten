@@ -387,6 +387,27 @@ impl Operator for Not {
 }
 
 #[derive(Debug)]
+pub struct Reciprocal {}
+
+impl UnaryFloatOp for Reciprocal {
+    fn name(&self) -> &str {
+        "Reciprocal"
+    }
+
+    fn map_element(&self, val: f32) -> f32 {
+        1. / val
+    }
+}
+
+pub fn reciprocal(input: TensorView) -> Tensor {
+    Reciprocal {}.map(input)
+}
+
+pub fn reciprocal_in_place(input: &mut Tensor) {
+    Reciprocal {}.apply(input)
+}
+
+#[derive(Debug)]
 pub struct Relu {}
 impl UnaryFloatOp for Relu {
     fn name(&self) -> &str {
@@ -512,9 +533,9 @@ mod tests {
 
     use crate::ops::{
         abs, ceil, clip, clip_in_place, cos, cos_in_place, erf, erf_in_place, floor, leaky_relu,
-        leaky_relu_in_place, log, log_in_place, not, not_in_place, relu, relu_in_place, round,
-        round_in_place, sigmoid, sigmoid_in_place, sin, sin_in_place, sqrt, sqrt_in_place, tanh,
-        tanh_in_place,
+        leaky_relu_in_place, log, log_in_place, not, not_in_place, reciprocal, relu, relu_in_place,
+        round, round_in_place, sigmoid, sigmoid_in_place, sin, sin_in_place, sqrt, sqrt_in_place,
+        tanh, tanh_in_place,
     };
 
     #[test]
@@ -727,6 +748,14 @@ mod tests {
         let expected = tensor!([1, 0, 0, 1]);
         not_in_place(input.view_mut());
         assert_eq!(input, expected);
+    }
+
+    #[test]
+    fn test_reciprocal() {
+        let input = tensor!([1., 2., 0.5, 0.]);
+        let expected = input.map(|x| 1. / x);
+        let result = reciprocal(input.view());
+        assert_eq!(result, expected);
     }
 
     #[test]

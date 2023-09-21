@@ -58,6 +58,7 @@ pub enum OpType {
     Pad,
     Pow,
     Range,
+    Reciprocal,
     ReduceMax(ReduceMax),
     ReduceMean(ReduceMean),
     ReduceMin(ReduceMin),
@@ -468,6 +469,7 @@ impl<'a> ModelBuilder<'a> {
             OpType::Pad => op!(Pad),
             OpType::Pow => op!(Pow),
             OpType::Range => op!(Range),
+            OpType::Reciprocal => op!(Reciprocal),
             OpType::ReduceMax(args) => {
                 op_with_attrs!(ReduceMax, ReduceMeanAttrs, reduce_attrs!(args))
             }
