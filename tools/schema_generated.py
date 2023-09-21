@@ -76,6 +76,7 @@ class OperatorType(object):
     Min = 66
     Sum = 67
     OneHot = 68
+    Round = 69
 
 
 class RNNDirection(object):

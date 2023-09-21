@@ -170,21 +170,10 @@ impl Operator for Sum {
 
 #[cfg(test)]
 mod tests {
-    use std::iter::zip;
-
-    use wasnn_tensor::{tensor, Layout, Tensor, TensorView};
+    use wasnn_tensor::test_util::eq_with_nans;
+    use wasnn_tensor::{tensor, Tensor};
 
     use crate::ops::{max, mean, min, sum, OpError};
-
-    // Return true if `a` and `b` have the same shape and data, treating NaN
-    // values as equal.
-    fn eq_with_nans(a: TensorView, b: TensorView) -> bool {
-        if a.shape() != b.shape() {
-            false
-        } else {
-            zip(a.iter(), b.iter()).all(|(a, b)| (a.is_nan() && b.is_nan()) || a == b)
-        }
-    }
 
     // nb. Most of the tests are written for the `max` operator only, as the
     // other elementwise reductions share most of the implementation.

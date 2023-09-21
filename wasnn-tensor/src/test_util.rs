@@ -1,7 +1,7 @@
 use std::fmt::Debug;
 use std::iter::zip;
 
-use crate::TensorCommon;
+use crate::{Layout, TensorCommon, TensorView};
 
 /// Trait that tests whether two values are approximately equal.
 ///
@@ -86,5 +86,15 @@ where
         ))
     } else {
         Ok(())
+    }
+}
+
+// Return true if `a` and `b` have the same shape and data, treating NaN
+// values as equal.
+pub fn eq_with_nans(a: TensorView, b: TensorView) -> bool {
+    if a.shape() != b.shape() {
+        false
+    } else {
+        zip(a.iter(), b.iter()).all(|(a, b)| (a.is_nan() && b.is_nan()) || a == b)
     }
 }

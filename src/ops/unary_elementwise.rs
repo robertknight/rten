@@ -364,6 +364,30 @@ pub fn sigmoid_in_place(x: &mut Tensor) {
     Sigmoid {}.apply(x)
 }
 
+/// Round float values to the nearest integer. Values with a fractional part
+/// of 0.5 are rounded to the nearest even number, like `round` in Python and
+/// unlike `f32::round` in Rust.
+#[derive(Debug)]
+pub struct Round {}
+impl UnaryFloatOp for Round {
+    fn name(&self) -> &str {
+        "Round"
+    }
+
+    fn map_element(&self, val: f32) -> f32 {
+        // Replace this with `f32::round_ties_even` when that is stabilized.
+        libm::rintf(val)
+    }
+}
+
+pub fn round(x: TensorView) -> Tensor {
+    Round {}.map(x)
+}
+
+pub fn round_in_place(x: &mut Tensor) {
+    Round {}.apply(x)
+}
+
 #[derive(Debug)]
 pub struct Sigmoid {}
 impl UnaryFloatOp for Sigmoid {
@@ -441,13 +465,14 @@ impl UnaryFloatOp for Tanh {
 
 #[cfg(test)]
 mod tests {
-    use wasnn_tensor::test_util::expect_equal;
+    use wasnn_tensor::test_util::{eq_with_nans, expect_equal};
     use wasnn_tensor::{tensor, Tensor, TensorCommon};
 
     use crate::ops::{
         abs, clip, clip_in_place, cos, cos_in_place, erf, erf_in_place, leaky_relu,
-        leaky_relu_in_place, log, log_in_place, not, not_in_place, relu, relu_in_place, sigmoid,
-        sigmoid_in_place, sin, sin_in_place, sqrt, sqrt_in_place, tanh, tanh_in_place,
+        leaky_relu_in_place, log, log_in_place, not, not_in_place, relu, relu_in_place, round,
+        round_in_place, sigmoid, sigmoid_in_place, sin, sin_in_place, sqrt, sqrt_in_place, tanh,
+        tanh_in_place,
     };
 
     #[test]
@@ -621,6 +646,26 @@ mod tests {
         let mut result = input.clone();
         relu_in_place(&mut result);
         expect_equal(&result, &expected)
+    }
+
+    #[test]
+    fn test_round() -> Result<(), String> {
+        // Example from ONNX spec.
+        let input = tensor!([0.9, 2.5, 2.3, 1.5, -4.5]);
+        let expected = tensor!([1., 2., 2., 2., -4.]);
+        let result = round(input.view());
+        expect_equal(&result, &expected)?;
+
+        let mut input = input.clone();
+        round_in_place(&mut input);
+        expect_equal(&input, &expected)?;
+
+        // Per spec, integral, zero, NaN and infinities are unchanged.
+        let input = tensor!([1., 0., -0., f32::NAN, f32::INFINITY, f32::NEG_INFINITY]);
+        let result = round(input.view());
+        assert!(eq_with_nans(input.view(), result.view()));
+
+        Ok(())
     }
 
     #[test]

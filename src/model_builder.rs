@@ -64,6 +64,7 @@ pub enum OpType {
     Relu,
     Reshape(Reshape),
     Resize(Resize),
+    Round,
     ScatterElements(ScatterElements),
     Shape,
     Sigmoid,
@@ -505,6 +506,7 @@ impl<'a> ModelBuilder<'a> {
                     nearest_mode,
                 }
             }),
+            OpType::Round => op!(Round),
             OpType::ScatterElements(args) => {
                 op_with_attrs!(ScatterElements, ScatterElementsAttrs, {
                     let reduction = match args.reduction {

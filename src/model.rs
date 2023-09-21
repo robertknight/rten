@@ -514,6 +514,7 @@ fn read_operator(node: &OperatorNode) -> ReadOpResult {
         OperatorType::Relu => op!(Relu),
         OperatorType::Reshape => read_reshape_op(node),
         OperatorType::Resize => read_resize_op(node),
+        OperatorType::Round => op!(Round),
         OperatorType::ScatterElements => read_scatter_elements_op(node),
         OperatorType::Shape => op!(Shape),
         OperatorType::Sigmoid => op!(Sigmoid),
@@ -971,6 +972,8 @@ mod tests {
             nearest_mode: NearestMode::default(),
             coord_mode: CoordTransformMode::default()
         });
+
+        add_operator!(Round, [input_node]);
 
         add_operator!(Shape, [input_node]);
         add_operator!(Sigmoid, [input_node]);

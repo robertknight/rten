@@ -78,7 +78,8 @@ enum OperatorType: byte {
   Mean,
   Min,
   Sum,
-  OneHot
+  OneHot,
+  Round,
 }
 
 enum RNNDirection: byte {
