@@ -77,6 +77,8 @@ class OperatorType(object):
     Sum = 67
     OneHot = 68
     Round = 69
+    Floor = 70
+    Ceil = 71
 
 
 class RNNDirection(object):

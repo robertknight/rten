@@ -18,13 +18,13 @@ pub const ENUM_MIN_OPERATOR_TYPE: i8 = 0;
     since = "2.0.0",
     note = "Use associated constants instead. This will no longer be generated in 2021."
 )]
-pub const ENUM_MAX_OPERATOR_TYPE: i8 = 69;
+pub const ENUM_MAX_OPERATOR_TYPE: i8 = 71;
 #[deprecated(
     since = "2.0.0",
     note = "Use associated constants instead. This will no longer be generated in 2021."
 )]
 #[allow(non_camel_case_types)]
-pub const ENUM_VALUES_OPERATOR_TYPE: [OperatorType; 70] = [
+pub const ENUM_VALUES_OPERATOR_TYPE: [OperatorType; 72] = [
     OperatorType::Add,
     OperatorType::ArgMin,
     OperatorType::ArgMax,
@@ -95,6 +95,8 @@ pub const ENUM_VALUES_OPERATOR_TYPE: [OperatorType; 70] = [
     OperatorType::Sum,
     OperatorType::OneHot,
     OperatorType::Round,
+    OperatorType::Floor,
+    OperatorType::Ceil,
 ];
 
 #[derive(Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash, Default)]
@@ -172,9 +174,11 @@ impl OperatorType {
     pub const Sum: Self = Self(67);
     pub const OneHot: Self = Self(68);
     pub const Round: Self = Self(69);
+    pub const Floor: Self = Self(70);
+    pub const Ceil: Self = Self(71);
 
     pub const ENUM_MIN: i8 = 0;
-    pub const ENUM_MAX: i8 = 69;
+    pub const ENUM_MAX: i8 = 71;
     pub const ENUM_VALUES: &'static [Self] = &[
         Self::Add,
         Self::ArgMin,
@@ -246,6 +250,8 @@ impl OperatorType {
         Self::Sum,
         Self::OneHot,
         Self::Round,
+        Self::Floor,
+        Self::Ceil,
     ];
     /// Returns the variant's name or "" if unknown.
     pub fn variant_name(self) -> Option<&'static str> {
@@ -320,6 +326,8 @@ impl OperatorType {
             Self::Sum => Some("Sum"),
             Self::OneHot => Some("OneHot"),
             Self::Round => Some("Round"),
+            Self::Floor => Some("Floor"),
+            Self::Ceil => Some("Ceil"),
             _ => None,
         }
     }

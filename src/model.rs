@@ -468,6 +468,7 @@ fn read_operator(node: &OperatorNode) -> ReadOpResult {
         OperatorType::AveragePool => read_average_pool_op(node),
         OperatorType::BatchNormalization => read_batch_normalization_op(node),
         OperatorType::Cast => read_cast_op(node),
+        OperatorType::Ceil => op!(Ceil),
         OperatorType::Clip => op!(Clip),
         OperatorType::Concat => read_concat_op(node),
         OperatorType::Conv => read_conv_op(node),
@@ -480,6 +481,7 @@ fn read_operator(node: &OperatorNode) -> ReadOpResult {
         OperatorType::Erf => op!(Erf),
         OperatorType::Expand => op!(Expand),
         OperatorType::Flatten => read_flatten_op(node),
+        OperatorType::Floor => op!(Floor),
         OperatorType::Gather => read_gather_op(node),
         OperatorType::Gemm => read_gemm_op(node),
         OperatorType::GlobalAveragePool => op!(GlobalAveragePool),
@@ -850,6 +852,7 @@ mod tests {
         );
 
         add_operator!(Cast, [input_node], { to: ops::DataType::Float });
+        add_operator!(Ceil, [input_node]);
 
         let clip_min = builder.add_float_constant(&tensor!(1.));
         let clip_max = builder.add_float_constant(&tensor!(6.));
@@ -876,6 +879,7 @@ mod tests {
         add_operator!(Expand, [input_node, expand_shape]);
 
         add_operator!(Flatten, [input_node], { axis: 1 });
+        add_operator!(Floor, [input_node]);
 
         let gather_indices_val = Tensor::from_data(&[1], vec![0]);
         let gather_indices = builder.add_int_constant(&gather_indices_val);

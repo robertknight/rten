@@ -80,6 +80,8 @@ enum OperatorType: byte {
   Sum,
   OneHot,
   Round,
+  Floor,
+  Ceil,
 }
 
 enum RNNDirection: byte {

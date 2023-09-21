@@ -100,6 +100,27 @@ impl Operator for Abs {
     }
 }
 
+#[derive(Debug)]
+pub struct Ceil {}
+
+impl UnaryFloatOp for Ceil {
+    fn name(&self) -> &str {
+        "Ceil"
+    }
+
+    fn map_element(&self, val: f32) -> f32 {
+        val.ceil()
+    }
+}
+
+pub fn ceil(input: TensorView) -> Tensor {
+    Ceil {}.map(input)
+}
+
+pub fn ceil_in_place(input: &mut Tensor) {
+    Ceil {}.apply(input)
+}
+
 /// Numeric value with a finite minimum and maximum and operations to clamp
 /// values.
 pub trait Clamp: Copy + PartialOrd {
@@ -262,6 +283,27 @@ pub fn leaky_relu(input: TensorView, alpha: f32) -> Tensor {
 
 pub fn leaky_relu_in_place(input: &mut Tensor, alpha: f32) {
     LeakyRelu { alpha }.apply(input)
+}
+
+#[derive(Debug)]
+pub struct Floor {}
+
+impl UnaryFloatOp for Floor {
+    fn name(&self) -> &str {
+        "Floor"
+    }
+
+    fn map_element(&self, val: f32) -> f32 {
+        val.floor()
+    }
+}
+
+pub fn floor(input: TensorView) -> Tensor {
+    Floor {}.map(input)
+}
+
+pub fn floor_in_place(input: &mut Tensor) {
+    Floor {}.apply(input)
 }
 
 #[derive(Debug)]
@@ -469,7 +511,7 @@ mod tests {
     use wasnn_tensor::{tensor, Tensor, TensorCommon};
 
     use crate::ops::{
-        abs, clip, clip_in_place, cos, cos_in_place, erf, erf_in_place, leaky_relu,
+        abs, ceil, clip, clip_in_place, cos, cos_in_place, erf, erf_in_place, floor, leaky_relu,
         leaky_relu_in_place, log, log_in_place, not, not_in_place, relu, relu_in_place, round,
         round_in_place, sigmoid, sigmoid_in_place, sin, sin_in_place, sqrt, sqrt_in_place, tanh,
         tanh_in_place,
@@ -486,6 +528,32 @@ mod tests {
         let x: Tensor<i32> = tensor!([1, -1, 0]);
         let result = abs(x.view());
         assert_eq!(result, tensor!([1, 1, 0]));
+    }
+
+    #[test]
+    fn test_ceil() {
+        let input = tensor!([
+            1.,
+            1.2,
+            1.5,
+            1.8,
+            0.,
+            f32::NAN,
+            f32::NEG_INFINITY,
+            f32::INFINITY
+        ]);
+        let expected = tensor!([
+            1.,
+            2.,
+            2.,
+            2.,
+            0.,
+            f32::NAN,
+            f32::NEG_INFINITY,
+            f32::INFINITY
+        ]);
+        let result = ceil(input.view());
+        assert!(eq_with_nans(result.view(), expected.view()));
     }
 
     #[test]
@@ -573,6 +641,32 @@ mod tests {
         ]);
         erf_in_place(&mut input);
         expect_equal(&input, &expected)
+    }
+
+    #[test]
+    fn test_floor() {
+        let input = tensor!([
+            1.,
+            1.2,
+            1.5,
+            1.8,
+            0.,
+            f32::NAN,
+            f32::NEG_INFINITY,
+            f32::INFINITY
+        ]);
+        let expected = tensor!([
+            1.,
+            1.,
+            1.,
+            1.,
+            0.,
+            f32::NAN,
+            f32::NEG_INFINITY,
+            f32::INFINITY
+        ]);
+        let result = floor(input.view());
+        assert!(eq_with_nans(result.view(), expected.view()));
     }
 
     #[test]

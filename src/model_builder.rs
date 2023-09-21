@@ -22,6 +22,7 @@ pub enum OpType {
     AveragePool(AveragePool),
     BatchNormalization(BatchNormalization),
     Cast(Cast),
+    Ceil,
     Clip,
     Concat(Concat),
     ConstantOfShape(ConstantOfShape),
@@ -33,6 +34,7 @@ pub enum OpType {
     Erf,
     Expand,
     Flatten(Flatten),
+    Floor,
     Gather(Gather),
     Gemm(Gemm),
     GlobalAveragePool,
@@ -333,6 +335,7 @@ impl<'a> ModelBuilder<'a> {
                     },
                 }
             ),
+            OpType::Ceil => op!(Ceil),
             OpType::Clip => op!(Clip),
             OpType::Concat(args) => op_with_attrs!(
                 Concat,
@@ -395,6 +398,7 @@ impl<'a> ModelBuilder<'a> {
                     axis: args.axis as i32,
                 }
             ),
+            OpType::Floor => op!(Floor),
             OpType::Gather(args) => op_with_attrs!(
                 Gather,
                 GatherAttrs,
