@@ -2,7 +2,7 @@
 
 import array
 from argparse import ArgumentParser
-from typing import Any, Callable, Literal, cast
+from typing import Any, Callable, Literal, Optional, cast
 
 import flatbuffers
 import numpy as np
@@ -15,14 +15,31 @@ import schema_generated as sg
 AttributeValue = int | float | str | list[int]
 
 
+EMITTED_WARNINGS: set[str] = set()
+
+
+def warn_once(msg: str):
+    """
+    Emit a warning if not already emitted.
+
+    This is used to reduce output noise if the same problem arises many times
+    when converting a model.
+    """
+    if msg in EMITTED_WARNINGS:
+        return
+    EMITTED_WARNINGS.add(msg)
+    print(msg, file=sys.stderr)
+
+
 class Node:
+    """Base class for all graph nodes (constants, values, operators)."""
     def __init__(self, name: str):
         self.name = name
 
 
 class ConstantNode(Node):
     """
-    Data for a constant value graph node.
+    Data for a constant graph node.
 
     These are used for model weights, biases etc.
     """
@@ -314,17 +331,18 @@ def convert_array(src_type: str, data: bytes, dest_type: str):
 
         for x in converted:
             if x > MAX_INT:
-                print(f"Clamping out-of-range tensor value {x} to {MAX_INT}")
+                warn_once(f"Clamping out-of-range tensor value {x} to {MAX_INT}")
                 x = MAX_INT
             elif x < MIN_INT:
-                print(f"Clamping out-of-range tensor value {x} to {MIN_INT}")
+                warn_once(f"Clamping out-of-range tensor value {x} to {MIN_INT}")
                 x = MIN_INT
             saturated.append(x)
 
         return array.array(dest_type, saturated)
 
 
-def constant_node_from_onnx_initializer(tensor) -> ConstantNode:
+def constant_node_from_onnx_initializer(tensor, op_name: Optional[str]) -> ConstantNode:
+
     dims = list(tensor.dims)
 
     # Tensors can either store data in a type-appropriate field, or the `raw_data`
@@ -352,7 +370,9 @@ def constant_node_from_onnx_initializer(tensor) -> ConstantNode:
         case onnx.TensorProto.INT64:
             data = convert_array("q", tensor_data, "i")
         case _:
-            raise ValueError(f"Unsupported tensor data type {tensor.data_type}")
+            raise ValueError(
+                f"Unsupported tensor data type {tensor.data_type} for operator {op_name}"
+            )
 
     return ConstantNode(name=tensor.name, shape=dims, data=data)
 
@@ -361,14 +381,16 @@ def constant_node_from_onnx_constant_op(onnx_op: onnx.OperatorProto) -> Constant
     def noop_add_node(node: Node) -> int:
         raise ValueError("Not implemented")
 
+    if not len(onnx_op.output):
+        raise Exception(f'Operator "{onnx_op.name}" has no outputs')
+
+    output_name = onnx_op.output[0]
+
     tensor = ONNXOperatorReader(
         onnx_op, input_indexes=[], add_node=noop_add_node
     ).require_attr("value", "tensor")
-    const_node = constant_node_from_onnx_initializer(tensor)
-
-    if not len(onnx_op.output):
-        raise Exception(f'Operator "{onnx_op.name}" has no outputs')
-    const_node.name = onnx_op.output[0]
+    const_node = constant_node_from_onnx_initializer(tensor, output_name)
+    const_node.name = output_name
 
     return const_node
 
@@ -525,7 +547,7 @@ def op_node_from_onnx_operator(
 
         case "ConstantOfShape":
             tensor = op_reader.require_attr("value", "tensor")
-            const_node = constant_node_from_onnx_initializer(tensor)
+            const_node = constant_node_from_onnx_initializer(tensor, onnx_op.name)
 
             if len(const_node.data) != 1:
                 raise Exception(
@@ -726,9 +748,8 @@ def op_node_from_onnx_operator(
 
     # Display a warning for any attributes that were not handled above.
     for attr in op_reader.unhandled_attrs():
-        print(
-            f"WARNING: Unsupported attribute {attr.name} for operator {onnx_op.op_type}",
-            file=sys.stderr,
+        warn_once(
+            f"WARNING: Unsupported attribute {attr.name} for operator {onnx_op.op_type}"
         )
 
     return OperatorNode(
@@ -763,14 +784,32 @@ def graph_from_onnx_graph(onnx_graph: onnx.GraphProto) -> Graph:
         tensor_map[node.name] = node_index
         return node_index
 
+    conversion_errors = 0
+
     for tensor in onnx_graph.initializer:
-        const_node = constant_node_from_onnx_initializer(tensor)
-        add_node(const_node)
+        try:
+            const_node = constant_node_from_onnx_initializer(tensor, None)
+            add_node(const_node)
+        except Exception as ex:
+            warn_once(f"Error converting initializer: {ex}")
+            conversion_errors += 1
+
     for operator in onnx_graph.node:
         if operator.op_type != "Constant":
             continue
-        const_node = constant_node_from_onnx_constant_op(operator)
-        add_node(const_node)
+        try:
+            const_node = constant_node_from_onnx_constant_op(operator)
+            add_node(const_node)
+        except Exception as ex:
+            warn_once(f'Error converting "Constant" operator: {ex}')
+            conversion_errors += 1
+
+    # If conversion of any tensors failed, then conversion of any operators
+    # which use those tensors will also fail, so we bail early.
+    if conversion_errors > 0:
+        raise ValueError(
+            f"Errors occurred when converting {conversion_errors} constants"
+        )
 
     for value in onnx_graph.input:
         # If the same node is referenced in the ONNX model's `initializer` and
@@ -779,8 +818,6 @@ def graph_from_onnx_graph(onnx_graph: onnx.GraphProto) -> Graph:
             continue
         value_node = value_node_from_onnx_value(value)
         add_node(value_node)
-
-    ops_with_errors = 0
 
     for operator in onnx_graph.node:
         if operator.op_type == "Constant":
@@ -801,10 +838,12 @@ def graph_from_onnx_graph(onnx_graph: onnx.GraphProto) -> Graph:
                 f"Error converting {operator.op_type} operator {operator.name}: {ex}",
                 file=sys.stderr,
             )
-            ops_with_errors += 1
+            conversion_errors += 1
 
-    if ops_with_errors > 0:
-        raise ValueError(f"Errors occurred when converting {ops_with_errors} operators")
+    if conversion_errors > 0:
+        raise ValueError(
+            f"Errors occurred when converting {conversion_errors} operators"
+        )
 
     inputs = [tensor_map[info.name] for info in onnx_graph.input]
     outputs = [tensor_map[info.name] for info in onnx_graph.output]
