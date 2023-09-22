@@ -1,14 +1,14 @@
 #!/usr/bin/env python
 
-import array
 from argparse import ArgumentParser
+import sys
 from typing import Any, Callable, Literal, Optional, cast
 
 import flatbuffers
 import numpy as np
 import onnx
+import onnx.numpy_helper as numpy_helper
 from onnx import TensorProto
-import sys
 
 import schema_generated as sg
 
@@ -33,6 +33,7 @@ def warn_once(msg: str):
 
 class Node:
     """Base class for all graph nodes (constants, values, operators)."""
+
     def __init__(self, name: str):
         self.name = name
 
@@ -44,7 +45,10 @@ class ConstantNode(Node):
     These are used for model weights, biases etc.
     """
 
-    def __init__(self, name: str, shape: list[int], data: array.array):
+    shape: list[int]
+    data: np.ndarray
+
+    def __init__(self, name: str, shape: list[int], data: np.ndarray):
         super().__init__(name)
         self.shape = shape
         self.data = data
@@ -258,15 +262,15 @@ class ONNXOperatorReader:
         match attr_type:
             case "int":
                 shape = []
-                data = array.array("i", [attr_val])
+                data = np.ndarray(attr_val)
 
             case "float":
                 shape = []
-                data = array.array("f", [attr_val])
+                data = np.ndarray(attr_val)
 
             case "ints":
                 shape = [len(attr_val)]
-                data = array.array("i", attr_val)
+                data = np.ndarray(attr_val)
             case _:
                 raise ValueError(
                     f'Unable to generate input from "{attr_name}" attribute of type "{attr_type}"'
@@ -309,69 +313,45 @@ def check_ints_length(name: str, ints: list[int], allowed_length: int):
         raise Exception(f'Attribute "{name}" must have {allowed_length} values')
 
 
-def convert_array(src_type: str, data: bytes, dest_type: str):
-    converted = [x for x in array.array(src_type, data)]
-    try:
-        return array.array(dest_type, converted)
-    except OverflowError:
-        # Some ONNX exporters use `INT_MIN` and `INT_MAX` to represent infinity
-        # in certain cases, for example slicing to the end of a dimension with
-        # unknown size (see
-        # https://github.com/onnx/onnx/blob/main/docs/Operators.md#slice and
-        # https://github.com/pytorch/pytorch/issues/17606).
-        #
-        # In the case where the value is an `int64` and we are converting this
-        # to an `int32` in the model, this will cause an overflow. To resolve
-        # this, clamp the value to the min/max values for the smaller integer
-        # type we are using.
-        MAX_INT = 2**31 - 1
-        MIN_INT = -(2**31) + 1
-
-        saturated = []
-
-        for x in converted:
-            if x > MAX_INT:
-                warn_once(f"Clamping out-of-range tensor value {x} to {MAX_INT}")
-                x = MAX_INT
-            elif x < MIN_INT:
-                warn_once(f"Clamping out-of-range tensor value {x} to {MIN_INT}")
-                x = MIN_INT
-            saturated.append(x)
-
-        return array.array(dest_type, saturated)
-
-
-def constant_node_from_onnx_initializer(tensor, op_name: Optional[str]) -> ConstantNode:
+def constant_node_from_onnx_initializer(
+    tensor: onnx.TensorProto, op_name: Optional[str]
+) -> ConstantNode:
 
     dims = list(tensor.dims)
+    data = numpy_helper.to_array(tensor)
 
-    # Tensors can either store data in a type-appropriate field, or the `raw_data`
-    # field. Only one of these should be set.
-    tensor_data = (
-        tensor.float_data or tensor.int64_data or tensor.int32_data or tensor.raw_data
-    )
+    match data.dtype.name:
+        # Types that don't need to change
+        case "float32" | "int32":
+            pass
 
-    # Convert the tensor data to a format supported by this library. For int64
-    # tensors, we convert them to int32 and just ignore any issues with
-    # overflows.
-    match tensor.data_type:
-        case onnx.TensorProto.FLOAT:
-            data = array.array("f", tensor_data)
-        case onnx.TensorProto.UINT8:
-            data = convert_array("B", tensor_data, "i")
-        case onnx.TensorProto.INT8:
-            data = convert_array("b", tensor_data, "i")
-        case onnx.TensorProto.UINT16:
-            data = convert_array("H", tensor_data, "i")
-        case onnx.TensorProto.INT16:
-            data = convert_array("h", tensor_data, "i")
-        case onnx.TensorProto.INT32:
-            data = array.array("i", tensor_data)
-        case onnx.TensorProto.INT64:
-            data = convert_array("q", tensor_data, "i")
+        # Int types that can be widened to int32
+        case "bool" | "int8" | "int16":
+            data = data.astype(np.int32)
+
+        # Types that need to be narrowed
+        case "int64":
+            # Some ONNX exporters use `INT_MIN` and `INT_MAX` to represent
+            # infinity in certain cases, for example slicing to the end of a
+            # dimension with unknown size (see
+            # https://github.com/onnx/onnx/blob/main/docs/Operators.md#slice and
+            # https://github.com/pytorch/pytorch/issues/17606).
+            #
+            # In the case where the value is an `int64` and we are converting
+            # this to an `int32` in the model, this will cause an overflow. To
+            # resolve this, clamp the value to the min/max values for the
+            # smaller integer type we are using.
+            i32 = np.iinfo(np.int32)
+            out_of_range_mask = np.logical_or(data > i32.max, data < i32.min)
+            for val in data[out_of_range_mask]:
+                warn_once(
+                    f"Clamping out-of-range tensor value {val} to [{i32.min}, {i32.max}]"
+                )
+            data = data.clip(i32.min, i32.max).astype(np.int32)
+
         case _:
             raise ValueError(
-                f"Unsupported tensor data type {tensor.data_type} for operator {op_name}"
+                f"Unsupported tensor data type {data.dtype.name} for operator {op_name}"
             )
 
     return ConstantNode(name=tensor.name, shape=dims, data=data)
@@ -554,18 +534,17 @@ def op_node_from_onnx_operator(
                     "Expected ConstantOfShape value to be a 1-element tensor"
                 )
 
-            value = const_node.data[0]
-            if isinstance(value, float):
+            if const_node.data.dtype == np.float32:
                 scalar_type = sg.Scalar.FloatScalar
                 scalar = sg.FloatScalarT()
-                scalar.value = value
-            elif isinstance(value, int):
+                scalar.value = const_node.data.item()
+            elif const_node.data.dtype == np.int32:
                 scalar_type = sg.Scalar.IntScalar
                 scalar = sg.IntScalarT()
-                scalar.value = value
+                scalar.value = const_node.data.item()
             else:
                 raise ValueError(
-                    f"Unsupported value type {type(value)} for ConstantOfShape"
+                    f"Unsupported value type {const_node.data.dtype.name} for ConstantOfShape"
                 )
 
             attrs = sg.ConstantOfShapeAttrsT()
@@ -860,21 +839,21 @@ def build_constant_node(builder: flatbuffers.Builder, constant: ConstantNode):
 
     # Convert data to NumPy array then serialize. This is much faster than
     # serializing a Python array element by element.
-    data_vec = builder.CreateNumpyVector(np.array(constant.data))
+    data_vec = builder.CreateNumpyVector(constant.data.flatten())
 
-    match constant.data.typecode:
-        case "f":
+    match constant.data.dtype:
+        case np.float32:
             sg.FloatDataStart(builder)
             sg.FloatDataAddData(builder, data_vec)
             const_data = sg.FloatDataEnd(builder)
             const_data_type = sg.ConstantData.FloatData
-        case "i":
+        case np.int32:
             sg.IntDataStart(builder)
             sg.IntDataAddData(builder, data_vec)
             const_data = sg.IntDataEnd(builder)
             const_data_type = sg.ConstantData.IntData
         case _:
-            raise ValueError(f"Unsupported data array type {constant.data.typecode}")
+            raise ValueError(f"Unsupported data array type {constant.data.dtype.name}")
 
     sg.ConstantNodeStart(builder)
     sg.ConstantNodeAddShape(builder, shape_vec)
