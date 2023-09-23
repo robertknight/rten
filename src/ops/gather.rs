@@ -1,7 +1,7 @@
 use std::iter::zip;
 
 use smallvec::SmallVec;
-use wasnn_tensor::{Layout, Tensor, TensorCommon, TensorView};
+use wasnn_tensor::{Layout, SliceItem, Tensor, TensorCommon, TensorView};
 
 use crate::ops::reduce::{cmp_nan_greater, cmp_nan_less};
 use crate::ops::{
@@ -27,6 +27,18 @@ pub fn gather<T: Copy + Default>(
         }
     }
 
+    let full_range =
+        |ndim: usize| -> Vec<SliceItem> { (0..ndim).map(|_| SliceItem::RangeFull).collect() };
+
+    // Fast path for scalar `indices`. This amounts to indexing `input` along
+    // `axis`.
+    if let (0, Some(index)) = (indices.ndim(), indices.item()) {
+        let mut slice_range = full_range(input.ndim());
+        slice_range[axis] = SliceItem::Index(*index as usize);
+        let output = input.slice_dyn(&slice_range).to_tensor();
+        return Ok(output);
+    }
+
     let out_shape = [
         &input.shape()[..axis],
         indices.shape(),
@@ -34,30 +46,19 @@ pub fn gather<T: Copy + Default>(
     ]
     .concat();
     let mut output = Tensor::<T>::zeros(&out_shape);
-    let mut in_index = vec![0; input.ndim()];
 
-    match output.ndim() {
-        0 => {
-            // If the output index is empty, this means we are indexing a
-            // 1D vector with a scalar.
-            in_index[axis] = indices.item().copied().unwrap_or(0) as usize;
-            output[[]] = input[&in_index[..]];
+    let mut in_range = full_range(input.ndim());
+    let mut out_range = full_range(output.ndim());
+
+    for (index_idx, index) in zip(indices.indices(), indices.iter()) {
+        in_range[axis] = SliceItem::Index(*index as usize);
+        for (i, index_val) in index_idx.into_iter().enumerate() {
+            out_range[axis + i] = SliceItem::Index(index_val);
         }
-        _ => {
-            for (out_index, out_item) in output.indices().zip(output.iter_mut()) {
-                for dim in 0..out_index.len() {
-                    if dim < axis {
-                        in_index[dim] = out_index[dim];
-                    } else if dim == axis {
-                        let idx = &out_index[dim..dim + indices.ndim()];
-                        in_index[dim] = indices[idx] as usize;
-                    } else if dim >= axis + indices.ndim() {
-                        in_index[dim + 1 - indices.ndim()] = out_index[dim];
-                    }
-                }
-                *out_item = input[&in_index[..]];
-            }
-        }
+
+        let in_slice = input.slice_dyn(&in_range);
+        let mut out_slice = output.slice_mut_dyn(&out_range);
+        out_slice.copy_from(&in_slice);
     }
 
     Ok(output)
@@ -212,19 +213,27 @@ mod tests {
     use crate::ops::{gather, scatter_elements, OpError, ScatterReduction};
 
     #[test]
-    fn test_gather_scalar() {
-        let input = Tensor::from_vec(vec![1, 20, 30]);
+    fn test_gather_scalar_index() {
+        // 1D input
+        let input = tensor!([1, 20, 30]);
         for i in 0..input.len() {
-            let indices = Tensor::from_scalar(i as i32);
+            let indices = tensor!(i as i32);
             let result = gather(input.view(), 0, indices.view()).unwrap();
             assert_eq!(result.item(), Some(&input[[i]]))
         }
+
+        // 2D input
+        let input = tensor!((2, 2); [1, 2, 3, 4]);
+        let result = gather(input.view(), 0, tensor!(0).view()).unwrap();
+        assert_eq!(result, tensor!([1, 2]));
+        let result = gather(input.view(), 0, tensor!(1).view()).unwrap();
+        assert_eq!(result, tensor!([3, 4]));
     }
 
     #[test]
     fn test_gather() -> Result<(), String> {
         // Test case shrunk down from a small BERT model where `gather` is used
-        // to lookup up embeddings.
+        // to lookup embeddings.
         let mut rng = XorShiftRng::new(1234);
         let input = Tensor::rand(&[128, 10], &mut rng);
         let indices = Tensor::from_data(&[2, 2], vec![2, 5, 8, 50]);
