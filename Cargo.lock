@@ -665,6 +665,7 @@ dependencies = [
  "image",
  "lexopt",
  "png",
+ "serde_json",
  "ureq",
  "url",
  "wasnn",
