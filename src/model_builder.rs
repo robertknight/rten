@@ -9,7 +9,7 @@ use crate::ops::{
     ConvTranspose, CoordTransformMode, DataType, Flatten, Gather, Gemm, LeakyRelu, LogSoftmax,
     MaxPool, Mod, NearestMode, OneHot, Padding, ReduceMax, ReduceMean, ReduceMin, ReduceProd,
     ReduceSum, Reshape, Resize, ResizeMode, Scalar, ScatterElements, ScatterReduction, Softmax,
-    Split, Transpose,
+    Split, TopK, Transpose,
 };
 use crate::schema_generated as sg;
 
@@ -81,6 +81,7 @@ pub enum OpType {
     Sum,
     Tanh,
     Tile,
+    TopK(TopK),
     Transpose(Transpose),
     Unsqueeze,
     Where,
@@ -550,6 +551,13 @@ impl<'a> ModelBuilder<'a> {
             OpType::Sum => op!(Sum),
             OpType::Tanh => op!(Tanh),
             OpType::Tile => op!(Tile),
+            OpType::TopK(args) => op_with_attrs!(TopK, TopKAttrs, {
+                sg::TopKAttrsArgs {
+                    axis: args.axis.unwrap_or(-1) as i32,
+                    largest: args.largest,
+                    sorted: args.sorted,
+                }
+            }),
             OpType::Transpose(args) => op_with_attrs!(Transpose, TransposeAttrs, {
                 let perm = self.create_vec(args.perm, |dim| dim as u32);
                 sg::TransposeAttrsArgs { perm }

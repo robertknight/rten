@@ -1,8 +1,10 @@
+use std::cmp::Ordering;
 use std::iter::zip;
 
 use wasnn_tensor;
 use wasnn_tensor::{
     DynIndices, Layout, NdTensor, Offsets, SliceRange, Tensor, TensorCommon, TensorView,
+    TensorViewMut,
 };
 
 use crate::number::Identities;
@@ -50,6 +52,49 @@ impl<'a, T: Copy> DimSlices<'a, T> {
                 .data()
                 .iter()
                 .copied()
+                .skip(offset)
+                .step_by(self.dim_stride)
+                .take(self.dim_size)
+        })
+    }
+}
+
+/// Mutable version of [DimSlices].
+struct DimSlicesMut<'a, T> {
+    tensor: TensorViewMut<'a, T>,
+    slice_start_offsets: Offsets,
+    dim_size: usize,
+    dim_stride: usize,
+}
+
+impl<'a, T> DimSlicesMut<'a, T> {
+    /// Create a DimSlicesMut iterator which yields all possible slices over
+    /// the `dim` dimension of `tensor`.
+    fn new(tensor: TensorViewMut<'a, T>, dim: usize) -> DimSlicesMut<'a, T> {
+        let slice_starts: Vec<SliceRange> = (0..tensor.ndim())
+            .map(|i| {
+                if i == dim {
+                    (0..1).into()
+                } else {
+                    (0..(tensor.shape()[i] as isize)).into()
+                }
+            })
+            .collect();
+
+        DimSlicesMut {
+            slice_start_offsets: tensor.slice_offsets(&slice_starts),
+            dim_size: tensor.size(dim),
+            dim_stride: tensor.stride(dim),
+            tensor,
+        }
+    }
+
+    /// Yield the next slice over the target dimension.
+    fn next(&mut self) -> Option<impl ExactSizeIterator<Item = &mut T>> {
+        self.slice_start_offsets.next().map(|offset| {
+            self.tensor
+                .data_mut()
+                .iter_mut()
                 .skip(offset)
                 .step_by(self.dim_stride)
                 .take(self.dim_size)
@@ -613,14 +658,127 @@ impl Operator for ReduceSum {
     }
 }
 
+pub fn topk<T: Copy + Default + PartialOrd>(
+    values: TensorView<T>,
+    k: usize,
+    axis: Option<isize>,
+    largest: bool,
+    sorted: bool,
+) -> Result<(Tensor<T>, Tensor<i32>), OpError> {
+    let axis = resolve_axis(values.ndim(), axis.unwrap_or(-1))?;
+    let out_shape: Vec<usize> = values
+        .shape()
+        .iter()
+        .enumerate()
+        .map(|(dim, size)| if dim == axis { k } else { *size })
+        .collect();
+    let mut out_values = Tensor::<T>::zeros(&out_shape);
+    let mut indices = Tensor::<i32>::zeros(&out_shape);
+
+    // Handle edge case early to simplify main loop.
+    if k == 0 {
+        return Ok((out_values, indices));
+    }
+
+    let axis_size = values.size(axis);
+    if k > axis_size {
+        return Err(OpError::InvalidValue("k > dimension size"));
+    }
+
+    let mut values_slices = DimSlices::new(values, axis);
+    let mut out_values_slices = DimSlicesMut::new(out_values.view_mut(), axis);
+    let mut indices_slices = DimSlicesMut::new(indices.view_mut(), axis);
+
+    // Temporary array of (value, index).
+    let mut tmp: Vec<(T, usize)> = Vec::with_capacity(axis_size);
+
+    let topk_cmp = |(a_val, a_idx): &(T, usize), (b_val, b_idx): &(T, usize)| -> Ordering {
+        // NaN values are treated as greater than other values, for consistency
+        // with PyTorch (`torch.topk`) and numpy (`np.partition`). See
+        // https://github.com/onnx/onnx/issues/4716. This applies regardless
+        // of sort order.
+        match cmp_nan_greater(*a_val, *b_val) {
+            // Per spec, if values are equal, the index is used as a tie
+            // breaker. Smaller indices win, regardless of value sort order.
+            Ordering::Equal => a_idx.cmp(b_idx),
+            order => {
+                if largest {
+                    order.reverse()
+                } else {
+                    order
+                }
+            }
+        }
+    };
+
+    while let (Some(values), Some(out_values), Some(indices)) = (
+        values_slices.next(),
+        out_values_slices.next(),
+        indices_slices.next(),
+    ) {
+        tmp.clear();
+        tmp.extend(zip(values, 0..axis_size));
+        tmp.select_nth_unstable_by(k - 1, |a, b| topk_cmp(a, b));
+        tmp.truncate(k);
+
+        if sorted {
+            tmp.sort_unstable_by(|a, b| topk_cmp(a, b));
+        }
+
+        for ((out_val, out_idx), (val, idx)) in zip(zip(out_values, indices), tmp.iter()) {
+            *out_val = *val;
+            *out_idx = *idx as i32;
+        }
+    }
+
+    Ok((out_values, indices))
+}
+
+#[derive(Debug)]
+pub struct TopK {
+    pub axis: Option<isize>,
+    pub largest: bool,
+    pub sorted: bool,
+}
+
+impl Operator for TopK {
+    fn name(&self) -> &str {
+        "TopK"
+    }
+
+    fn run(&self, inputs: InputList) -> Result<Vec<Output>, OpError> {
+        let values = inputs.require(0)?;
+        let k = inputs.require_as_scalar::<i32>(1).and_then(|k| {
+            if k < 0 {
+                Err(OpError::InvalidValue("k must be positive"))
+            } else {
+                Ok(k as usize)
+            }
+        })?;
+
+        match values {
+            Input::FloatTensor(values) => {
+                let (values, indices) =
+                    topk(values.view(), k, self.axis, self.largest, self.sorted)?;
+                Ok([values.into(), indices.into()].into_iter().collect())
+            }
+            Input::IntTensor(values) => {
+                let (values, indices) =
+                    topk(values.view(), k, self.axis, self.largest, self.sorted)?;
+                Ok([values.into(), indices.into()].into_iter().collect())
+            }
+        }
+    }
+}
+
 #[cfg(test)]
 mod tests {
-    use wasnn_tensor::test_util::expect_equal;
+    use wasnn_tensor::test_util::{eq_with_nans, expect_equal};
     use wasnn_tensor::{tensor, Layout, Tensor, TensorCommon};
 
     use crate::ops::{
         arg_max, arg_min, cum_sum, nonzero, reduce_l2, reduce_max, reduce_mean, reduce_min,
-        reduce_prod, reduce_sum, OpError,
+        reduce_prod, reduce_sum, topk, OpError,
     };
 
     #[test]
@@ -933,5 +1091,167 @@ mod tests {
             false, /* keep_dims */
         ));
         assert_eq!(result, input.iter().sum::<f32>());
+    }
+
+    #[test]
+    fn test_topk() {
+        struct Case {
+            input: Tensor<f32>,
+            k: usize,
+            axis: Option<isize>,
+            largest: bool,
+            expected: Result<(Tensor<f32>, Tensor<i32>), OpError>,
+        }
+
+        impl Default for Case {
+            fn default() -> Self {
+                Case {
+                    input: Tensor::zeros(&[]),
+                    expected: Ok((Tensor::zeros(&[]), Tensor::zeros(&[]))),
+                    k: 0,
+                    axis: None,
+                    largest: true,
+                }
+            }
+        }
+
+        let cases = [
+            // Simple case, largest=true
+            Case {
+                input: tensor!([0., 1., 2.]),
+                k: 2,
+                expected: Ok((tensor!([2., 1.]), tensor!([2, 1]))),
+                ..Default::default()
+            },
+            // Simple case, largest=false
+            Case {
+                input: tensor!([0., 1., 2.]),
+                k: 2,
+                largest: false,
+                expected: Ok((tensor!([0., 1.]), tensor!([0, 1]))),
+                ..Default::default()
+            },
+            // Special case where k=0
+            Case {
+                input: tensor!([0., 1., 2.]),
+                k: 0,
+                expected: Ok((tensor!([]), tensor!([]))),
+                ..Default::default()
+            },
+            // Tie break by index when input values are equal.
+            Case {
+                input: tensor!([1., 0., 2., 3., 1.]),
+                k: 5,
+                expected: Ok((tensor!([3., 2., 1., 1., 0.]), tensor!([3, 2, 0, 4, 1]))),
+                ..Default::default()
+            },
+            // Tie break by index when input values are equal, largest=false
+            Case {
+                input: tensor!([1., 0., 2., 3., 1.]),
+                k: 5,
+                largest: false,
+                expected: Ok((tensor!([0., 1., 1., 2., 3.]), tensor!([1, 0, 4, 2, 3]))),
+                ..Default::default()
+            },
+            // NaN values
+            Case {
+                input: tensor!([0., f32::NAN, 2.]),
+                k: 2,
+                expected: Ok((tensor!([f32::NAN, 2.]), tensor!([1, 2]))),
+                ..Default::default()
+            },
+            // NaN values, with largest=false
+            Case {
+                input: tensor!([0., f32::NAN, 2.]),
+                k: 3,
+                expected: Ok((tensor!([0., 2., f32::NAN]), tensor!([0, 2, 1]))),
+                largest: false,
+                ..Default::default()
+            },
+            // Invalid k value
+            Case {
+                input: tensor!([0., 1., 2.]),
+                k: 4,
+                expected: Err(OpError::InvalidValue("k > dimension size")),
+                ..Default::default()
+            },
+            // Scalar input
+            Case {
+                input: tensor!(0.),
+                k: 2,
+                expected: Err(OpError::InvalidValue("Axis is invalid")),
+                ..Default::default()
+            },
+            // 2D input, take top-K over axis 1
+            Case {
+                input: tensor!((3, 3); [
+                    0., 1., 2., //
+                    0., 1., 3., //
+                    0., 1., 4. //
+                ]),
+                k: 2,
+                expected: Ok((
+                    tensor!((3, 2); [
+                        2., 1., //
+                        3., 1., //
+                        4., 1. //
+                    ]),
+                    tensor!((3, 2); [
+                        2, 1, //
+                        2, 1, //
+                        2, 1 //
+                    ]),
+                )),
+                ..Default::default()
+            },
+            // 2D input, take top-K over axis 0
+            Case {
+                input: tensor!((3, 3); [
+                    0., 1., 2., //
+                    3., 4., 5., //
+                    6., 7., 8. //
+                ]),
+                k: 2,
+                axis: Some(0),
+                expected: Ok((
+                    tensor!((2, 3); [
+                        6., 7., 8., //
+                        3., 4., 5. //
+                    ]),
+                    tensor!((2, 3); [
+                        2, 2, 2, //
+                        1, 1, 1 //
+                    ]),
+                )),
+                ..Default::default()
+            },
+        ];
+
+        for (
+            i,
+            Case {
+                input,
+                expected,
+                k,
+                axis,
+                largest,
+            },
+        ) in cases.into_iter().enumerate()
+        {
+            // nb. We always sort here so first result order is predictable.
+            let result = topk(input.view(), k, axis, largest, true /* sorted */);
+
+            match (result, expected) {
+                (Ok((values, indices)), Ok((expected_values, expected_indices))) => {
+                    assert!(
+                        eq_with_nans(values.view(), expected_values.view()),
+                        "values differ in case {}",
+                        i
+                    );
+                    assert_eq!(indices, expected_indices, "indices differ in case {}", i);
+                }
+                (result, expected) => assert_eq!(result, expected),
+            }
+        }
     }
 }

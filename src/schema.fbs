@@ -82,7 +82,8 @@ enum OperatorType: byte {
   Round,
   Floor,
   Ceil,
-  Reciprocal
+  Reciprocal,
+  TopK
 }
 
 enum RNNDirection: byte {
@@ -149,6 +150,7 @@ union OperatorAttrs {
   ModAttrs,
   ScatterElementsAttrs,
   OneHotAttrs,
+  TopKAttrs,
 }
 
 table ArgMaxAttrs {
@@ -291,6 +293,12 @@ table SoftmaxAttrs {
 
 table SplitAttrs {
   axis:int;
+}
+
+table TopKAttrs {
+  axis:int;
+  largest:bool;
+  sorted:bool;
 }
 
 table TransposeAttrs {

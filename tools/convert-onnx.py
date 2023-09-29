@@ -715,6 +715,12 @@ def op_node_from_onnx_operator(
         case "Squeeze":
             op_reader.generate_input_from_attr(1, "axes", "ints")
 
+        case "TopK":
+            attrs = sg.TopKAttrsT()
+            attrs.axis = op_reader.get_attr("axis", "int", -1)
+            attrs.largest = bool(op_reader.get_attr("largest", "int", 1))
+            attrs.sorted = bool(op_reader.get_attr("sorted", "int", 1))
+
         case "Transpose":
             attrs = sg.TransposeAttrsT()
             attrs.perm = op_reader.get_attr("perm", "ints", [])

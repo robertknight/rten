@@ -442,6 +442,18 @@ fn read_split_op(node: &OperatorNode) -> ReadOpResult {
     Ok(Box::new(ops::Split { axis }))
 }
 
+fn read_topk_op(node: &OperatorNode) -> ReadOpResult {
+    let attrs = node.attrs_as_top_kattrs().ok_or(ReadOpError::AttrError)?;
+    let largest = attrs.largest();
+    let sorted = attrs.sorted();
+    let axis = attrs.axis();
+    Ok(Box::new(ops::TopK {
+        axis: Some(axis as isize),
+        largest,
+        sorted,
+    }))
+}
+
 fn read_transpose_op(node: &OperatorNode) -> ReadOpResult {
     let attrs = node
         .attrs_as_transpose_attrs()
@@ -531,6 +543,7 @@ fn read_operator(node: &OperatorNode) -> ReadOpResult {
         OperatorType::Sum => op!(Sum),
         OperatorType::Tanh => op!(Tanh),
         OperatorType::Tile => op!(Tile),
+        OperatorType::TopK => read_topk_op(node),
         OperatorType::Transpose => read_transpose_op(node),
         OperatorType::Unsqueeze => op!(Unsqueeze),
         OperatorType::Where => op!(Where),
@@ -1020,6 +1033,20 @@ mod tests {
         let tile_repeats = builder.add_int_constant(&tensor!([1, 2, 3, 4]));
         add_operator!(Tile, [input_node, tile_repeats]);
 
+        let topk_k = builder.add_int_constant(&tensor!(3));
+        let topk_out_values = builder.add_value("TopK_out_values", None);
+        let topk_out_indices = builder.add_value("TopK_out_indices", None);
+        builder.add_operator(
+            "TopK",
+            OpType::TopK(ops::TopK {
+                largest: true,
+                sorted: true,
+                axis: Some(-1),
+            }),
+            &[input_2d, topk_k].map(Some),
+            &[topk_out_values, topk_out_indices],
+        );
+
         add_operator!(Transpose, [input_node], { perm: None });
 
         let unsqueeze_axes = builder.add_int_constant(&tensor!([0, 4]));
@@ -1046,9 +1073,11 @@ mod tests {
             if [
                 "Gemm_out",
                 "MatMul_out",
+                "Range_out",
                 "Split_out_1",
                 "Split_out_2",
-                "Range_out",
+                "TopK_out_indices",
+                "TopK_out_values",
                 "Where_out",
             ]
             .contains(&output.as_str())
@@ -1072,7 +1101,14 @@ mod tests {
         }
 
         // Outputs of ops tested with a 2D input.
-        let outputs = vec!["Gemm_out", "MatMul_out", "Split_out_1", "Split_out_2"];
+        let outputs = vec![
+            "Gemm_out",
+            "MatMul_out",
+            "Split_out_1",
+            "Split_out_2",
+            "TopK_out_indices",
+            "TopK_out_values",
+        ];
         let input = Tensor::from_data(&[3, 3], vec![1., 2., 3., 4., 5., 6., 7., 8., 9.]);
 
         for output in outputs {

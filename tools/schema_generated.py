@@ -80,6 +80,7 @@ class OperatorType(object):
     Floor = 70
     Ceil = 71
     Reciprocal = 72
+    TopK = 73
 
 
 class RNNDirection(object):
@@ -141,6 +142,7 @@ class OperatorAttrs(object):
     ModAttrs = 22
     ScatterElementsAttrs = 23
     OneHotAttrs = 24
+    TopKAttrs = 25
 
 def OperatorAttrsCreator(unionType, table):
     from flatbuffers.table import Table
@@ -194,6 +196,8 @@ def OperatorAttrsCreator(unionType, table):
         return ScatterElementsAttrsT.InitFromBuf(table.Bytes, table.Pos)
     if unionType == OperatorAttrs().OneHotAttrs:
         return OneHotAttrsT.InitFromBuf(table.Bytes, table.Pos)
+    if unionType == OperatorAttrs().TopKAttrs:
+        return TopKAttrsT.InitFromBuf(table.Bytes, table.Pos)
     return None
 
 
@@ -2864,6 +2868,109 @@ class SplitAttrsT(object):
         return splitAttrs
 
 
+class TopKAttrs(object):
+    __slots__ = ['_tab']
+
+    @classmethod
+    def GetRootAs(cls, buf, offset=0):
+        n = flatbuffers.encode.Get(flatbuffers.packer.uoffset, buf, offset)
+        x = TopKAttrs()
+        x.Init(buf, n + offset)
+        return x
+
+    @classmethod
+    def GetRootAsTopKAttrs(cls, buf, offset=0):
+        """This method is deprecated. Please switch to GetRootAs."""
+        return cls.GetRootAs(buf, offset)
+    @classmethod
+    def TopKAttrsBufferHasIdentifier(cls, buf, offset, size_prefixed=False):
+        return flatbuffers.util.BufferHasIdentifier(buf, offset, b"\x4D\x4F\x44\x4C", size_prefixed=size_prefixed)
+
+    # TopKAttrs
+    def Init(self, buf, pos):
+        self._tab = flatbuffers.table.Table(buf, pos)
+
+    # TopKAttrs
+    def Axis(self):
+        o = flatbuffers.number_types.UOffsetTFlags.py_type(self._tab.Offset(4))
+        if o != 0:
+            return self._tab.Get(flatbuffers.number_types.Int32Flags, o + self._tab.Pos)
+        return 0
+
+    # TopKAttrs
+    def Largest(self):
+        o = flatbuffers.number_types.UOffsetTFlags.py_type(self._tab.Offset(6))
+        if o != 0:
+            return bool(self._tab.Get(flatbuffers.number_types.BoolFlags, o + self._tab.Pos))
+        return False
+
+    # TopKAttrs
+    def Sorted(self):
+        o = flatbuffers.number_types.UOffsetTFlags.py_type(self._tab.Offset(8))
+        if o != 0:
+            return bool(self._tab.Get(flatbuffers.number_types.BoolFlags, o + self._tab.Pos))
+        return False
+
+def TopKAttrsStart(builder):
+    builder.StartObject(3)
+
+def TopKAttrsAddAxis(builder, axis):
+    builder.PrependInt32Slot(0, axis, 0)
+
+def TopKAttrsAddLargest(builder, largest):
+    builder.PrependBoolSlot(1, largest, 0)
+
+def TopKAttrsAddSorted(builder, sorted):
+    builder.PrependBoolSlot(2, sorted, 0)
+
+def TopKAttrsEnd(builder):
+    return builder.EndObject()
+
+
+
+class TopKAttrsT(object):
+
+    # TopKAttrsT
+    def __init__(self):
+        self.axis = 0  # type: int
+        self.largest = False  # type: bool
+        self.sorted = False  # type: bool
+
+    @classmethod
+    def InitFromBuf(cls, buf, pos):
+        topKattrs = TopKAttrs()
+        topKattrs.Init(buf, pos)
+        return cls.InitFromObj(topKattrs)
+
+    @classmethod
+    def InitFromPackedBuf(cls, buf, pos=0):
+        n = flatbuffers.encode.Get(flatbuffers.packer.uoffset, buf, pos)
+        return cls.InitFromBuf(buf, pos+n)
+
+    @classmethod
+    def InitFromObj(cls, topKattrs):
+        x = TopKAttrsT()
+        x._UnPack(topKattrs)
+        return x
+
+    # TopKAttrsT
+    def _UnPack(self, topKattrs):
+        if topKattrs is None:
+            return
+        self.axis = topKattrs.Axis()
+        self.largest = topKattrs.Largest()
+        self.sorted = topKattrs.Sorted()
+
+    # TopKAttrsT
+    def Pack(self, builder):
+        TopKAttrsStart(builder)
+        TopKAttrsAddAxis(builder, self.axis)
+        TopKAttrsAddLargest(builder, self.largest)
+        TopKAttrsAddSorted(builder, self.sorted)
+        topKattrs = TopKAttrsEnd(builder)
+        return topKattrs
+
+
 class TransposeAttrs(object):
     __slots__ = ['_tab']
 
@@ -3122,7 +3229,7 @@ class OperatorNodeT(object):
     def __init__(self):
         self.type = 0  # type: int
         self.attrsType = 0  # type: int
-        self.attrs = None  # type: Union[None, ArgMaxAttrsT, AveragePoolAttrsT, BatchNormalizationAttrsT, CastAttrsT, ConcatAttrsT, ConstantOfShapeAttrsT, ConvAttrsT, ConvTransposeAttrsT, FlattenAttrsT, GatherAttrsT, GemmAttrsT, GRUAttrsT, LeakyReluAttrsT, LSTMAttrsT, MaxPoolAttrsT, ReduceMeanAttrsT, ReshapeAttrsT, ResizeAttrsT, SplitAttrsT, SoftmaxAttrsT, TransposeAttrsT, ModAttrsT, ScatterElementsAttrsT, OneHotAttrsT]
+        self.attrs = None  # type: Union[None, ArgMaxAttrsT, AveragePoolAttrsT, BatchNormalizationAttrsT, CastAttrsT, ConcatAttrsT, ConstantOfShapeAttrsT, ConvAttrsT, ConvTransposeAttrsT, FlattenAttrsT, GatherAttrsT, GemmAttrsT, GRUAttrsT, LeakyReluAttrsT, LSTMAttrsT, MaxPoolAttrsT, ReduceMeanAttrsT, ReshapeAttrsT, ResizeAttrsT, SplitAttrsT, SoftmaxAttrsT, TransposeAttrsT, ModAttrsT, ScatterElementsAttrsT, OneHotAttrsT, TopKAttrsT]
         self.inputs = None  # type: List[int]
         self.outputs = None  # type: List[int]
 

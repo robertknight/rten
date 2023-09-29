@@ -49,8 +49,8 @@ pub use pooling::{
 };
 pub use reduce::{
     arg_max, arg_min, cum_sum, nonzero, reduce_l2, reduce_max, reduce_mean, reduce_min,
-    reduce_prod, reduce_sum, ArgMax, ArgMin, CumSum, NonZero, ReduceL2, ReduceMax, ReduceMean,
-    ReduceMin, ReduceProd, ReduceSum,
+    reduce_prod, reduce_sum, topk, ArgMax, ArgMin, CumSum, NonZero, ReduceL2, ReduceMax,
+    ReduceMean, ReduceMin, ReduceProd, ReduceSum, TopK,
 };
 pub use resize::{resize, CoordTransformMode, NearestMode, Resize, ResizeMode, ResizeTarget};
 pub use rnn::{gru, lstm, Direction, GRU, LSTM};
