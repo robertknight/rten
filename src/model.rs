@@ -513,6 +513,7 @@ fn read_operator(node: &OperatorNode) -> ReadOpResult {
         OperatorType::Min => op!(Min),
         OperatorType::Mod => read_mod_op(node),
         OperatorType::Mul => op!(Mul),
+        OperatorType::Neg => op!(Neg),
         OperatorType::NonZero => op!(NonZero),
         OperatorType::Not => op!(Not),
         OperatorType::OneHot => read_onehot_op(node),
@@ -932,6 +933,7 @@ mod tests {
             fmod: false,
         });
         add_operator!(Mul, [input_node, input_node]);
+        add_operator!(Neg, [input_node]);
         add_operator!(NonZero, [input_node]);
         add_operator!(Not, [input_bool]);
 

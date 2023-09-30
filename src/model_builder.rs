@@ -52,6 +52,7 @@ pub enum OpType {
     Min,
     Mod(Mod),
     Mul,
+    Neg,
     NonZero,
     Not,
     OneHot(OneHot),
@@ -456,6 +457,7 @@ impl<'a> ModelBuilder<'a> {
                 op_with_attrs!(Mod, ModAttrs, sg::ModAttrsArgs { fmod: args.fmod })
             }
             OpType::Mul => op!(Mul),
+            OpType::Neg => op!(Neg),
             OpType::NonZero => op!(NonZero),
             OpType::Not => op!(Not),
             OpType::OneHot(args) => {

@@ -346,12 +346,46 @@ impl UnaryFloatOp for Log {
     }
 }
 
-pub fn relu_in_place(x: &mut Tensor) {
-    Relu {}.apply(x)
+pub fn neg<T: Copy + std::ops::Neg<Output = T>>(input: TensorView<T>) -> Tensor<T> {
+    input.map(|x| x.neg())
 }
 
-pub fn relu(x: TensorView) -> Tensor {
-    Relu {}.map(x)
+pub fn neg_in_place<T: Copy + std::ops::Neg<Output = T>>(input: &mut Tensor<T>) {
+    input.apply(|x| x.neg())
+}
+
+#[derive(Debug)]
+pub struct Neg {}
+
+impl Operator for Neg {
+    fn name(&self) -> &str {
+        "Neg"
+    }
+
+    fn run(&self, inputs: InputList) -> Result<Vec<Output>, OpError> {
+        let input = inputs.require(0)?;
+        match input {
+            Input::IntTensor(input) => neg(input.view()).into_op_result(),
+            Input::FloatTensor(input) => neg(input.view()).into_op_result(),
+        }
+    }
+
+    fn can_run_in_place(&self) -> bool {
+        true
+    }
+
+    fn run_in_place(&self, input: Output, _: InputList) -> Result<Output, OpError> {
+        match input {
+            Output::FloatTensor(mut input) => {
+                neg_in_place(&mut input);
+                Ok(input.into())
+            }
+            Output::IntTensor(mut input) => {
+                neg_in_place(&mut input);
+                Ok(input.into())
+            }
+        }
+    }
 }
 
 pub fn not<T: Default + PartialEq>(input: TensorView<T>) -> Tensor<i32> {
@@ -386,6 +420,14 @@ impl Operator for Not {
     }
 }
 
+pub fn reciprocal(input: TensorView) -> Tensor {
+    Reciprocal {}.map(input)
+}
+
+pub fn reciprocal_in_place(input: &mut Tensor) {
+    Reciprocal {}.apply(input)
+}
+
 #[derive(Debug)]
 pub struct Reciprocal {}
 
@@ -399,12 +441,12 @@ impl UnaryFloatOp for Reciprocal {
     }
 }
 
-pub fn reciprocal(input: TensorView) -> Tensor {
-    Reciprocal {}.map(input)
+pub fn relu_in_place(x: &mut Tensor) {
+    Relu {}.apply(x)
 }
 
-pub fn reciprocal_in_place(input: &mut Tensor) {
-    Reciprocal {}.apply(input)
+pub fn relu(x: TensorView) -> Tensor {
+    Relu {}.map(x)
 }
 
 #[derive(Debug)]
@@ -533,9 +575,9 @@ mod tests {
 
     use crate::ops::{
         abs, ceil, clip, clip_in_place, cos, cos_in_place, erf, erf_in_place, floor, leaky_relu,
-        leaky_relu_in_place, log, log_in_place, not, not_in_place, reciprocal, relu, relu_in_place,
-        round, round_in_place, sigmoid, sigmoid_in_place, sin, sin_in_place, sqrt, sqrt_in_place,
-        tanh, tanh_in_place,
+        leaky_relu_in_place, log, log_in_place, neg, neg_in_place, not, not_in_place, reciprocal,
+        relu, relu_in_place, round, round_in_place, sigmoid, sigmoid_in_place, sin, sin_in_place,
+        sqrt, sqrt_in_place, tanh, tanh_in_place,
     };
 
     #[test]
@@ -732,6 +774,22 @@ mod tests {
         ]);
         log_in_place(&mut input);
         expect_equal(&input, &expected)
+    }
+
+    #[test]
+    fn test_neg() {
+        let input = tensor!([0, 1, -1, 2]);
+        let expected = tensor!([0, -1, 1, -2]);
+        let result = neg(input.view());
+        assert_eq!(result, expected);
+    }
+
+    #[test]
+    fn test_neg_in_place() {
+        let mut input = tensor!([0, 1, -1, 2]);
+        let expected = tensor!([0, -1, 1, -2]);
+        neg_in_place(&mut input);
+        assert_eq!(input, expected);
     }
 
     #[test]

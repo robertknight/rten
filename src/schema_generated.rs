@@ -18,13 +18,13 @@ pub const ENUM_MIN_OPERATOR_TYPE: i8 = 0;
     since = "2.0.0",
     note = "Use associated constants instead. This will no longer be generated in 2021."
 )]
-pub const ENUM_MAX_OPERATOR_TYPE: i8 = 73;
+pub const ENUM_MAX_OPERATOR_TYPE: i8 = 74;
 #[deprecated(
     since = "2.0.0",
     note = "Use associated constants instead. This will no longer be generated in 2021."
 )]
 #[allow(non_camel_case_types)]
-pub const ENUM_VALUES_OPERATOR_TYPE: [OperatorType; 74] = [
+pub const ENUM_VALUES_OPERATOR_TYPE: [OperatorType; 75] = [
     OperatorType::Add,
     OperatorType::ArgMin,
     OperatorType::ArgMax,
@@ -99,6 +99,7 @@ pub const ENUM_VALUES_OPERATOR_TYPE: [OperatorType; 74] = [
     OperatorType::Ceil,
     OperatorType::Reciprocal,
     OperatorType::TopK,
+    OperatorType::Neg,
 ];
 
 #[derive(Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash, Default)]
@@ -180,9 +181,10 @@ impl OperatorType {
     pub const Ceil: Self = Self(71);
     pub const Reciprocal: Self = Self(72);
     pub const TopK: Self = Self(73);
+    pub const Neg: Self = Self(74);
 
     pub const ENUM_MIN: i8 = 0;
-    pub const ENUM_MAX: i8 = 73;
+    pub const ENUM_MAX: i8 = 74;
     pub const ENUM_VALUES: &'static [Self] = &[
         Self::Add,
         Self::ArgMin,
@@ -258,6 +260,7 @@ impl OperatorType {
         Self::Ceil,
         Self::Reciprocal,
         Self::TopK,
+        Self::Neg,
     ];
     /// Returns the variant's name or "" if unknown.
     pub fn variant_name(self) -> Option<&'static str> {
@@ -336,6 +339,7 @@ impl OperatorType {
             Self::Ceil => Some("Ceil"),
             Self::Reciprocal => Some("Reciprocal"),
             Self::TopK => Some("TopK"),
+            Self::Neg => Some("Neg"),
             _ => None,
         }
     }
