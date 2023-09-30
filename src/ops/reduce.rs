@@ -17,14 +17,14 @@ use crate::ops::{
 ///
 /// Conceptually this iterator steps through every distinct slice of a tensor
 /// where a target dim is varied from 0..N and other indices are held fixed.
-struct DimSlices<'a, T: Copy> {
+struct DimSlices<'a, T> {
     tensor: TensorView<'a, T>,
     slice_start_offsets: Offsets,
     dim_size: usize,
     dim_stride: usize,
 }
 
-impl<'a, T: Copy> DimSlices<'a, T> {
+impl<'a, T> DimSlices<'a, T> {
     /// Create a DimSlices iterator which yields all possible slices over
     /// the `dim` dimension of `tensor`.
     fn new(tensor: TensorView<'a, T>, dim: usize) -> DimSlices<'a, T> {
@@ -46,12 +46,11 @@ impl<'a, T: Copy> DimSlices<'a, T> {
     }
 
     /// Yield the next slice over the target dimension.
-    fn next(&mut self) -> Option<impl ExactSizeIterator<Item = T> + 'a> {
+    fn next(&mut self) -> Option<impl ExactSizeIterator<Item = &'a T> + 'a> {
         self.slice_start_offsets.next().map(|offset| {
             self.tensor
                 .data()
                 .iter()
-                .copied()
                 .skip(offset)
                 .step_by(self.dim_stride)
                 .take(self.dim_size)
@@ -104,7 +103,7 @@ impl<'a, T> DimSlicesMut<'a, T> {
 
 /// Compute the indices of the max elements along an axis, according to a
 /// comparison function `compare`.
-fn select_max_index<T: Copy, Cmp: Fn(T, T) -> std::cmp::Ordering>(
+fn select_max_index<T, Cmp: Fn(&T, &T) -> std::cmp::Ordering>(
     input: TensorView<T>,
     axis: isize,
     keep_dims: bool,
@@ -151,7 +150,7 @@ pub fn arg_max<T: Copy + PartialOrd>(
     axis: isize,
     keep_dims: bool,
 ) -> Result<Tensor<i32>, OpError> {
-    select_max_index(input, axis, keep_dims, cmp_nan_greater)
+    select_max_index(input, axis, keep_dims, |a, b| cmp_nan_greater(*a, *b))
 }
 
 #[derive(Debug)]
@@ -179,7 +178,7 @@ pub fn arg_min<T: Copy + PartialOrd>(
     axis: isize,
     keep_dims: bool,
 ) -> Result<Tensor<i32>, OpError> {
-    select_max_index(input, axis, keep_dims, |a, b| match a.partial_cmp(&b) {
+    select_max_index(input, axis, keep_dims, |a, b| match a.partial_cmp(b) {
         Some(ordering) => ordering.reverse(),
         None => cmp_nan_greater(a, b),
     })
@@ -214,7 +213,7 @@ pub fn cum_sum<T: Copy + Identities + std::ops::AddAssign>(
         while let Some(slice) = slice_iter.next() {
             let mut cum_sum = T::zero();
             out_data.extend(slice.map(|val| {
-                cum_sum += val;
+                cum_sum += *val;
                 cum_sum
             }));
         }
@@ -356,7 +355,7 @@ fn reduce<T: Copy + Default, R: Reducer<T>>(
                 let resolved_axis = resolved_axes[0];
                 let mut slice_iter = DimSlices::new(input, resolved_axis);
                 while let Some(slice) = slice_iter.next() {
-                    reduced_data.push(reducer.reduce(slice));
+                    reduced_data.push(reducer.reduce(slice.copied()));
                 }
             } else {
                 // Slow case when we have to step through each index
@@ -717,7 +716,7 @@ pub fn topk<T: Copy + Default + PartialOrd>(
         indices_slices.next(),
     ) {
         tmp.clear();
-        tmp.extend(zip(values, 0..axis_size));
+        tmp.extend(zip(values.copied(), 0..axis_size));
         tmp.select_nth_unstable_by(k - 1, |a, b| topk_cmp(a, b));
         tmp.truncate(k);
 
