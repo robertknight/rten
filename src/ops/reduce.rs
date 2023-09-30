@@ -13,6 +13,19 @@ use crate::ops::{
     resolve_axes, resolve_axis, Input, InputList, IntoOpResult, OpError, Operator, Output,
 };
 
+fn dim_slices_offsets<T>(tensor: &TensorView<T>, dim: usize) -> Offsets {
+    let slice_starts: Vec<SliceRange> = (0..tensor.ndim())
+        .map(|i| {
+            if i == dim {
+                (0..1).into()
+            } else {
+                (0..(tensor.shape()[i] as isize)).into()
+            }
+        })
+        .collect();
+    tensor.slice_offsets(&slice_starts)
+}
+
 /// Iterator over slices of a tensor along a target dimension of size N.
 ///
 /// Conceptually this iterator steps through every distinct slice of a tensor
@@ -28,18 +41,9 @@ impl<'a, T> DimSlices<'a, T> {
     /// Create a DimSlices iterator which yields all possible slices over
     /// the `dim` dimension of `tensor`.
     fn new(tensor: TensorView<'a, T>, dim: usize) -> DimSlices<'a, T> {
-        let slice_starts: Vec<SliceRange> = (0..tensor.ndim())
-            .map(|i| {
-                if i == dim {
-                    (0..1).into()
-                } else {
-                    (0..(tensor.shape()[i] as isize)).into()
-                }
-            })
-            .collect();
         DimSlices {
             tensor: tensor.clone(),
-            slice_start_offsets: tensor.slice_offsets(&slice_starts),
+            slice_start_offsets: dim_slices_offsets(&tensor, dim),
             dim_size: tensor.size(dim),
             dim_stride: tensor.stride(dim),
         }
@@ -70,18 +74,8 @@ impl<'a, T> DimSlicesMut<'a, T> {
     /// Create a DimSlicesMut iterator which yields all possible slices over
     /// the `dim` dimension of `tensor`.
     fn new(tensor: TensorViewMut<'a, T>, dim: usize) -> DimSlicesMut<'a, T> {
-        let slice_starts: Vec<SliceRange> = (0..tensor.ndim())
-            .map(|i| {
-                if i == dim {
-                    (0..1).into()
-                } else {
-                    (0..(tensor.shape()[i] as isize)).into()
-                }
-            })
-            .collect();
-
         DimSlicesMut {
-            slice_start_offsets: tensor.slice_offsets(&slice_starts),
+            slice_start_offsets: dim_slices_offsets(&tensor.view(), dim),
             dim_size: tensor.size(dim),
             dim_stride: tensor.stride(dim),
             tensor,
