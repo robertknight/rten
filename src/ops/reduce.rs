@@ -1,5 +1,5 @@
 use std::cmp::Ordering;
-use std::iter::zip;
+use std::iter::{zip, Skip, StepBy, Take};
 
 use wasnn_tensor;
 use wasnn_tensor::{
@@ -26,7 +26,7 @@ fn dim_slices_offsets<T>(tensor: &TensorView<T>, dim: usize) -> Offsets {
     tensor.slice_offsets(&slice_starts)
 }
 
-/// Iterator over slices of a tensor along a target dimension of size N.
+/// Iterator over 1D slices of a tensor along a target dimension of size N.
 ///
 /// Conceptually this iterator steps through every distinct slice of a tensor
 /// where a target dim is varied from 0..N and other indices are held fixed.
@@ -36,6 +36,9 @@ struct DimSlices<'a, T> {
     dim_size: usize,
     dim_stride: usize,
 }
+
+/// Iterator over items in a 1D slice of a tensor.
+type DimSlice<'a, T> = Take<StepBy<Skip<std::slice::Iter<'a, T>>>>;
 
 impl<'a, T> DimSlices<'a, T> {
     /// Create a DimSlices iterator which yields all possible slices over
@@ -48,9 +51,13 @@ impl<'a, T> DimSlices<'a, T> {
             dim_stride: tensor.stride(dim),
         }
     }
+}
+
+impl<'a, T> Iterator for DimSlices<'a, T> {
+    type Item = DimSlice<'a, T>;
 
     /// Yield the next slice over the target dimension.
-    fn next(&mut self) -> Option<impl ExactSizeIterator<Item = &'a T> + 'a> {
+    fn next(&mut self) -> Option<Self::Item> {
         self.slice_start_offsets.next().map(|offset| {
             self.tensor
                 .data()
@@ -63,6 +70,10 @@ impl<'a, T> DimSlices<'a, T> {
 }
 
 /// Mutable version of [DimSlices].
+///
+/// Unlike [DimSlices], this does not implement [Iterator] due to complications
+/// in implementing this for an iterator that returns mutable references, but
+/// it has a similar interface.
 struct DimSlicesMut<'a, T> {
     tensor: TensorViewMut<'a, T>,
     slice_start_offsets: Offsets,
@@ -119,8 +130,7 @@ fn select_max_index<T, Cmp: Fn(&T, &T) -> std::cmp::Ordering>(
     let mut reduced_data = Vec::with_capacity(reduced_shape.iter().product());
 
     if !input.is_empty() {
-        let mut slice_iter = DimSlices::new(input, resolved_axis);
-        while let Some(slice) = slice_iter.next() {
+        for slice in DimSlices::new(input, resolved_axis) {
             let (index, _) = slice.enumerate().max_by(|a, b| compare(a.1, b.1)).unwrap(); // Ok because we checked tensor is not empty.
             reduced_data.push(index as i32);
         }
@@ -203,8 +213,7 @@ pub fn cum_sum<T: Copy + Identities + std::ops::AddAssign>(
     let mut out_data = Vec::with_capacity(input.len());
 
     if !input.is_empty() {
-        let mut slice_iter = DimSlices::new(input.clone(), resolved_axis);
-        while let Some(slice) = slice_iter.next() {
+        for slice in DimSlices::new(input.clone(), resolved_axis) {
             let mut cum_sum = T::zero();
             out_data.extend(slice.map(|val| {
                 cum_sum += *val;
@@ -347,8 +356,7 @@ fn reduce<T: Copy + Default, R: Reducer<T>>(
             if resolved_axes.len() == 1 {
                 // Fast path for reducing a single axis.
                 let resolved_axis = resolved_axes[0];
-                let mut slice_iter = DimSlices::new(input, resolved_axis);
-                while let Some(slice) = slice_iter.next() {
+                for slice in DimSlices::new(input, resolved_axis) {
                     reduced_data.push(reducer.reduce(slice.copied()));
                 }
             } else {
