@@ -46,6 +46,48 @@ impl<Op: UnaryFloatOp + Debug> Operator for Op {
     }
 }
 
+/// Define a unary numeric operator which supports all numeric tensor types.
+///
+/// The operator is defined by a name and generic functions which apply this
+/// operator to 1) an immutable view and 2) a mutable tensor.
+macro_rules! unary_numeric_op {
+    ($name:ident, $view_impl:ident, $mut_impl:ident) => {
+        #[derive(Debug)]
+        pub struct $name {}
+
+        impl Operator for $name {
+            fn name(&self) -> &str {
+                stringify!($name)
+            }
+
+            fn run(&self, inputs: InputList) -> Result<Vec<Output>, OpError> {
+                let input = inputs.require(0)?;
+                match input {
+                    Input::FloatTensor(input) => $view_impl(input.view()).into_op_result(),
+                    Input::IntTensor(input) => $view_impl(input.view()).into_op_result(),
+                }
+            }
+
+            fn can_run_in_place(&self) -> bool {
+                true
+            }
+
+            fn run_in_place(&self, input: Output, _: InputList) -> Result<Output, OpError> {
+                match input {
+                    Output::FloatTensor(mut input) => {
+                        $mut_impl(&mut input);
+                        Ok(input.into())
+                    }
+                    Output::IntTensor(mut input) => {
+                        $mut_impl(&mut input);
+                        Ok(input.into())
+                    }
+                }
+            }
+        }
+    };
+}
+
 pub trait AbsValue {
     fn abs(&self) -> Self;
 }
@@ -66,39 +108,11 @@ pub fn abs<T: AbsValue>(input: TensorView<T>) -> Tensor<T> {
     input.map(|x| x.abs())
 }
 
-#[derive(Debug)]
-pub struct Abs {}
-
-impl Operator for Abs {
-    fn name(&self) -> &str {
-        "Abs"
-    }
-
-    fn run(&self, inputs: InputList) -> Result<Vec<Output>, OpError> {
-        let input = inputs.require(0)?;
-        match input {
-            Input::IntTensor(input) => abs(input.view()).into_op_result(),
-            Input::FloatTensor(input) => abs(input.view()).into_op_result(),
-        }
-    }
-
-    fn can_run_in_place(&self) -> bool {
-        true
-    }
-
-    fn run_in_place(&self, input: Output, _: InputList) -> Result<Output, OpError> {
-        match input {
-            Output::FloatTensor(mut input) => {
-                input.apply(|x| x.abs());
-                Ok(input.into())
-            }
-            Output::IntTensor(mut input) => {
-                input.apply(|x| x.abs());
-                Ok(input.into())
-            }
-        }
-    }
+pub fn abs_in_place<T: AbsValue>(input: &mut Tensor<T>) {
+    input.apply(|x| x.abs())
 }
+
+unary_numeric_op!(Abs, abs, abs_in_place);
 
 #[derive(Debug)]
 pub struct Ceil {}
@@ -354,39 +368,7 @@ pub fn neg_in_place<T: Copy + std::ops::Neg<Output = T>>(input: &mut Tensor<T>) 
     input.apply(|x| x.neg())
 }
 
-#[derive(Debug)]
-pub struct Neg {}
-
-impl Operator for Neg {
-    fn name(&self) -> &str {
-        "Neg"
-    }
-
-    fn run(&self, inputs: InputList) -> Result<Vec<Output>, OpError> {
-        let input = inputs.require(0)?;
-        match input {
-            Input::IntTensor(input) => neg(input.view()).into_op_result(),
-            Input::FloatTensor(input) => neg(input.view()).into_op_result(),
-        }
-    }
-
-    fn can_run_in_place(&self) -> bool {
-        true
-    }
-
-    fn run_in_place(&self, input: Output, _: InputList) -> Result<Output, OpError> {
-        match input {
-            Output::FloatTensor(mut input) => {
-                neg_in_place(&mut input);
-                Ok(input.into())
-            }
-            Output::IntTensor(mut input) => {
-                neg_in_place(&mut input);
-                Ok(input.into())
-            }
-        }
-    }
-}
+unary_numeric_op!(Neg, neg, neg_in_place);
 
 pub fn not<T: Default + PartialEq>(input: TensorView<T>) -> Tensor<i32> {
     input.map(|x| if *x == T::default() { 1 } else { 0 })
