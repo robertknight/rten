@@ -292,17 +292,41 @@ impl Layout for Output {
     }
 }
 
-impl From<Tensor<f32>> for Output {
-    fn from(t: Tensor<f32>) -> Output {
-        Output::FloatTensor(t)
-    }
+/// Declare conversions between `Output` and `Tensor<T>`.
+macro_rules! impl_output_conversions {
+    ($variant:ident, $type:ty) => {
+        impl From<$type> for Output {
+            fn from(t: $type) -> Output {
+                Output::$variant(t)
+            }
+        }
+
+        impl TryFrom<Output> for $type {
+            type Error = OpError;
+
+            fn try_from(o: Output) -> Result<$type, OpError> {
+                match o {
+                    Output::$variant(t) => Ok(t),
+                    _ => Err(OpError::IncorrectOutputType),
+                }
+            }
+        }
+
+        impl<'a> TryFrom<&'a Output> for &'a $type {
+            type Error = OpError;
+
+            fn try_from(o: &'a Output) -> Result<&'a $type, OpError> {
+                match o {
+                    Output::$variant(t) => Ok(t),
+                    _ => Err(OpError::IncorrectOutputType),
+                }
+            }
+        }
+    };
 }
 
-impl From<Tensor<i32>> for Output {
-    fn from(t: Tensor<i32>) -> Output {
-        Output::IntTensor(t)
-    }
-}
+impl_output_conversions!(FloatTensor, Tensor<f32>);
+impl_output_conversions!(IntTensor, Tensor<i32>);
 
 /// Trait for values that can be converted into the result type used by
 /// `Operator::run`.
@@ -357,6 +381,9 @@ pub enum OpError {
     /// with other inputs.
     IncorrectInputType,
 
+    /// Could not convert operator output to the expected type.
+    IncorrectOutputType,
+
     /// Input tensor shapes are not compatible with each other or operator
     /// attributes.
     IncompatibleInputShapes(&'static str),
@@ -375,6 +402,7 @@ impl Display for OpError {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
             OpError::IncorrectInputType => write!(f, "incorrect or unsupported input type"),
+            OpError::IncorrectOutputType => write!(f, "output type mismatch"),
             OpError::IncompatibleInputShapes(details) => {
                 write!(f, "incompatible input shapes: {}", details)
             }
