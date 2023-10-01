@@ -83,6 +83,7 @@ class OperatorType(object):
     TopK = 73
     Neg = 74
     Exp = 75
+    GreaterOrEqual = 76
 
 
 class RNNDirection(object):

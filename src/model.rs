@@ -499,6 +499,7 @@ fn read_operator(node: &OperatorNode) -> ReadOpResult {
         OperatorType::Gemm => read_gemm_op(node),
         OperatorType::GlobalAveragePool => op!(GlobalAveragePool),
         OperatorType::Greater => op!(Greater),
+        OperatorType::GreaterOrEqual => op!(GreaterOrEqual),
         OperatorType::GRU => read_gru_op(node),
         OperatorType::Identity => op!(Identity),
         OperatorType::LeakyRelu => read_leaky_relu_op(node),
@@ -910,6 +911,7 @@ mod tests {
         });
         add_operator!(GlobalAveragePool, [input_node]);
         add_operator!(Greater, [input_node, input_node]);
+        add_operator!(GreaterOrEqual, [input_node, input_node]);
 
         // TODO - Add GRU operator
 

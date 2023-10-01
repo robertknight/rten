@@ -25,9 +25,9 @@ mod unary_elementwise;
 mod variadic_elementwise;
 
 pub use binary_elementwise::{
-    add, add_in_place, div, div_in_place, equal, greater, less, less_or_equal, mod_op, mul,
-    mul_in_place, pow, pow_in_place, sub, sub_in_place, where_op, Add, Div, DivMode, Equal,
-    Greater, Less, LessOrEqual, Mod, Mul, Pow, Sub, Where,
+    add, add_in_place, div, div_in_place, equal, greater, greater_or_equal, less, less_or_equal,
+    mod_op, mul, mul_in_place, pow, pow_in_place, sub, sub_in_place, where_op, Add, Div, DivMode,
+    Equal, Greater, GreaterOrEqual, Less, LessOrEqual, Mod, Mul, Pow, Sub, Where,
 };
 pub use concat::{concat, tile, Concat, Tile};
 pub use conv::{conv, conv_transpose, Conv, ConvTranspose};

@@ -85,7 +85,8 @@ enum OperatorType: byte {
   Reciprocal,
   TopK,
   Neg,
-  Exp
+  Exp,
+  GreaterOrEqual
 }
 
 enum RNNDirection: byte {

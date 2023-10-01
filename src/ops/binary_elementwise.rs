@@ -279,6 +279,7 @@ enum BooleanOp {
     Less,
     LessOrEqual,
     Greater,
+    GreaterOrEqual,
 }
 
 fn boolean_op<T: Copy + Debug + PartialEq + PartialOrd>(
@@ -292,89 +293,42 @@ fn boolean_op<T: Copy + Debug + PartialEq + PartialOrd>(
             BooleanOp::Less => x < y,
             BooleanOp::LessOrEqual => x <= y,
             BooleanOp::Greater => x > y,
+            BooleanOp::GreaterOrEqual => x >= y,
         })
     })
 }
 
-pub fn equal<T: Copy + Debug + PartialEq + PartialOrd>(
-    a: TensorView<T>,
-    b: TensorView<T>,
-) -> Result<Tensor<i32>, OpError> {
-    boolean_op(a, b, BooleanOp::Equal)
+/// Define a boolean comparison operator which supports all numeric tensor
+/// types.
+macro_rules! boolean_cmp_op {
+    ($name:ident, $func:ident) => {
+        pub fn $func<T: Copy + Debug + PartialEq + PartialOrd>(
+            a: TensorView<T>,
+            b: TensorView<T>,
+        ) -> Result<Tensor<i32>, OpError> {
+            boolean_op(a, b, BooleanOp::$name)
+        }
+
+        #[derive(Debug)]
+        pub struct $name {}
+
+        impl Operator for $name {
+            fn name(&self) -> &str {
+                stringify!($name)
+            }
+
+            fn run(&self, inputs: InputList) -> Result<Vec<Output>, OpError> {
+                run_typed_op!(inputs, $func)
+            }
+        }
+    };
 }
 
-#[derive(Debug)]
-pub struct Equal {}
-
-impl Operator for Equal {
-    fn name(&self) -> &str {
-        "Equal"
-    }
-
-    fn run(&self, inputs: InputList) -> Result<Vec<Output>, OpError> {
-        run_typed_op!(inputs, equal)
-    }
-}
-
-pub fn greater<T: Copy + Debug + PartialOrd>(
-    a: TensorView<T>,
-    b: TensorView<T>,
-) -> Result<Tensor<i32>, OpError> {
-    boolean_op(a, b, BooleanOp::Greater)
-}
-
-#[derive(Debug)]
-pub struct Greater {}
-
-impl Operator for Greater {
-    fn name(&self) -> &str {
-        "Greater"
-    }
-
-    fn run(&self, inputs: InputList) -> Result<Vec<Output>, OpError> {
-        run_typed_op!(inputs, greater)
-    }
-}
-
-pub fn less<T: Copy + Debug + PartialOrd>(
-    a: TensorView<T>,
-    b: TensorView<T>,
-) -> Result<Tensor<i32>, OpError> {
-    boolean_op(a, b, BooleanOp::Less)
-}
-
-#[derive(Debug)]
-pub struct Less {}
-
-impl Operator for Less {
-    fn name(&self) -> &str {
-        "Less"
-    }
-
-    fn run(&self, inputs: InputList) -> Result<Vec<Output>, OpError> {
-        run_typed_op!(inputs, less)
-    }
-}
-
-pub fn less_or_equal<T: Copy + Debug + PartialOrd>(
-    a: TensorView<T>,
-    b: TensorView<T>,
-) -> Result<Tensor<i32>, OpError> {
-    boolean_op(a, b, BooleanOp::LessOrEqual)
-}
-
-#[derive(Debug)]
-pub struct LessOrEqual {}
-
-impl Operator for LessOrEqual {
-    fn name(&self) -> &str {
-        "LessOrEqual"
-    }
-
-    fn run(&self, inputs: InputList) -> Result<Vec<Output>, OpError> {
-        run_typed_op!(inputs, less_or_equal)
-    }
-}
+boolean_cmp_op!(Equal, equal);
+boolean_cmp_op!(Greater, greater);
+boolean_cmp_op!(GreaterOrEqual, greater_or_equal);
+boolean_cmp_op!(Less, less);
+boolean_cmp_op!(LessOrEqual, less_or_equal);
 
 /// Calculate the remainder of `x / y` using floored division. See
 /// [DivMode] for an explanation.
@@ -635,9 +589,9 @@ mod tests {
     use wasnn_tensor::{tensor, Layout, Tensor, TensorCommon};
 
     use crate::ops::{
-        add, add_in_place, div, div_in_place, equal, greater, less, less_or_equal, mod_op, mul,
-        mul_in_place, pow, pow_in_place, sub, sub_in_place, where_op, Add, DivMode, InputList,
-        OpError, Operator, Output,
+        add, add_in_place, div, div_in_place, equal, greater, greater_or_equal, less,
+        less_or_equal, mod_op, mul, mul_in_place, pow, pow_in_place, sub, sub_in_place, where_op,
+        Add, DivMode, InputList, OpError, Operator, Output,
     };
 
     #[test]
@@ -872,6 +826,23 @@ mod tests {
         let b = tensor!([1., 3., 4.]);
         let expected = tensor!([0, 0, 1]);
         let result = greater(a.view(), b.view()).unwrap();
+        assert_eq!(&result, &expected);
+    }
+
+    #[test]
+    fn test_greater_or_equal() {
+        // Int tensor
+        let a = tensor!([1, 2, 5]);
+        let b = tensor!([1, 3, 4]);
+        let expected = tensor!([1, 0, 1]);
+        let result = greater_or_equal(a.view(), b.view()).unwrap();
+        assert_eq!(&result, &expected);
+
+        // Float tensor
+        let a = tensor!([1., 2., 5.]);
+        let b = tensor!([1., 3., 4.]);
+        let expected = tensor!([1, 0, 1]);
+        let result = greater_or_equal(a.view(), b.view()).unwrap();
         assert_eq!(&result, &expected);
     }
 

@@ -40,6 +40,7 @@ pub enum OpType {
     Gemm(Gemm),
     GlobalAveragePool,
     Greater,
+    GreaterOrEqual,
     Identity,
     LeakyRelu(LeakyRelu),
     Less,
@@ -423,6 +424,7 @@ impl<'a> ModelBuilder<'a> {
             ),
             OpType::GlobalAveragePool => op!(GlobalAveragePool),
             OpType::Greater => op!(Greater),
+            OpType::GreaterOrEqual => op!(GreaterOrEqual),
             OpType::Identity => op!(Identity),
             OpType::LeakyRelu(args) => op_with_attrs!(
                 LeakyRelu,
