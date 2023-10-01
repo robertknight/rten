@@ -291,12 +291,25 @@ impl UnaryFloatOp for Erf {
     }
 }
 
-pub fn leaky_relu(input: TensorView, alpha: f32) -> Tensor {
-    LeakyRelu { alpha }.map(input)
+pub fn exp(input: TensorView) -> Tensor {
+    Exp {}.map(input)
 }
 
-pub fn leaky_relu_in_place(input: &mut Tensor, alpha: f32) {
-    LeakyRelu { alpha }.apply(input)
+pub fn exp_in_place(input: &mut Tensor) {
+    Exp {}.apply(input)
+}
+
+#[derive(Debug)]
+pub struct Exp {}
+
+impl UnaryFloatOp for Exp {
+    fn name(&self) -> &str {
+        "Exp"
+    }
+
+    fn map_element(&self, val: f32) -> f32 {
+        val.exp()
+    }
 }
 
 #[derive(Debug)]
@@ -318,6 +331,14 @@ pub fn floor(input: TensorView) -> Tensor {
 
 pub fn floor_in_place(input: &mut Tensor) {
     Floor {}.apply(input)
+}
+
+pub fn leaky_relu(input: TensorView, alpha: f32) -> Tensor {
+    LeakyRelu { alpha }.map(input)
+}
+
+pub fn leaky_relu_in_place(input: &mut Tensor, alpha: f32) {
+    LeakyRelu { alpha }.apply(input)
 }
 
 #[derive(Debug)]
@@ -556,10 +577,10 @@ mod tests {
     use wasnn_tensor::{tensor, Tensor, TensorCommon};
 
     use crate::ops::{
-        abs, ceil, clip, clip_in_place, cos, cos_in_place, erf, erf_in_place, floor, leaky_relu,
-        leaky_relu_in_place, log, log_in_place, neg, neg_in_place, not, not_in_place, reciprocal,
-        relu, relu_in_place, round, round_in_place, sigmoid, sigmoid_in_place, sin, sin_in_place,
-        sqrt, sqrt_in_place, tanh, tanh_in_place,
+        abs, ceil, clip, clip_in_place, cos, cos_in_place, erf, erf_in_place, exp, exp_in_place,
+        floor, leaky_relu, leaky_relu_in_place, log, log_in_place, neg, neg_in_place, not,
+        not_in_place, reciprocal, relu, relu_in_place, round, round_in_place, sigmoid,
+        sigmoid_in_place, sin, sin_in_place, sqrt, sqrt_in_place, tanh, tanh_in_place,
     };
 
     #[test]
@@ -685,6 +706,32 @@ mod tests {
             0.9953222650189527,
         ]);
         erf_in_place(&mut input);
+        expect_equal(&input, &expected)
+    }
+
+    #[test]
+    fn test_exp() -> Result<(), String> {
+        let input = tensor!([-2.0, -0.5, 0.5, 2.0]);
+        let expected = tensor!([
+            0.1353352832366127,
+            0.6065306597126334,
+            1.6487212707001282,
+            7.38905609893065
+        ]);
+        let result = exp(input.view());
+        expect_equal(&result, &expected)
+    }
+
+    #[test]
+    fn test_exp_in_place() -> Result<(), String> {
+        let mut input = tensor!([-2.0, -0.5, 0.5, 2.0]);
+        let expected = tensor!([
+            0.1353352832366127,
+            0.6065306597126334,
+            1.6487212707001282,
+            7.38905609893065
+        ]);
+        exp_in_place(&mut input);
         expect_equal(&input, &expected)
     }
 

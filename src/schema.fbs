@@ -84,7 +84,8 @@ enum OperatorType: byte {
   Ceil,
   Reciprocal,
   TopK,
-  Neg
+  Neg,
+  Exp
 }
 
 enum RNNDirection: byte {

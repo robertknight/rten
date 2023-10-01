@@ -491,6 +491,7 @@ fn read_operator(node: &OperatorNode) -> ReadOpResult {
         OperatorType::Div => op!(Div),
         OperatorType::Equal => op!(Equal),
         OperatorType::Erf => op!(Erf),
+        OperatorType::Exp => op!(Exp),
         OperatorType::Expand => op!(Expand),
         OperatorType::Flatten => read_flatten_op(node),
         OperatorType::Floor => op!(Floor),
@@ -888,6 +889,7 @@ mod tests {
         add_operator!(Div, [input_node, input_node]);
         add_operator!(Equal, [input_node, input_node]);
         add_operator!(Erf, [input_node]);
+        add_operator!(Exp, [input_node]);
 
         let expand_shape_val = tensor!([2, 2, 3, 3]);
         let expand_shape = builder.add_int_constant(&expand_shape_val);

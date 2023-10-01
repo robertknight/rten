@@ -32,6 +32,7 @@ pub enum OpType {
     Div,
     Equal,
     Erf,
+    Exp,
     Expand,
     Flatten(Flatten),
     Floor,
@@ -393,6 +394,7 @@ impl<'a> ModelBuilder<'a> {
             OpType::Div => op!(Div),
             OpType::Equal => op!(Equal),
             OpType::Erf => op!(Erf),
+            OpType::Exp => op!(Exp),
             OpType::Expand => op!(Expand),
             OpType::Flatten(args) => op_with_attrs!(
                 Flatten,

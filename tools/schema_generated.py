@@ -82,6 +82,7 @@ class OperatorType(object):
     Reciprocal = 72
     TopK = 73
     Neg = 74
+    Exp = 75
 
 
 class RNNDirection(object):
