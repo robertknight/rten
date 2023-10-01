@@ -126,7 +126,7 @@ fn pad_args_from_padding(padding: Padding) -> PadArgs {
         },
         Padding::Fixed(pads) => PadArgs {
             pad_mode: sg::PadMode::Fixed,
-            pads: Some(pads.into()),
+            pads: Some(pads.iter().copied().collect()),
         },
     }
 }
@@ -386,7 +386,7 @@ impl<'a> ModelBuilder<'a> {
             OpType::Conv(args) => op_with_attrs!(Conv, ConvAttrs, {
                 let pad_args = pad_args_from_padding(args.padding);
                 let pads = self.create_vec(pad_args.pads, |pad| pad as u32);
-                let strides = self.create_vec(Some(args.strides.into()), |s| s as u32);
+                let strides = self.create_vec(Some(args.strides), |s| s as u32);
 
                 sg::ConvAttrsArgs {
                     groups: args.groups as u32,

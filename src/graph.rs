@@ -593,7 +593,7 @@ mod tests {
 
     use crate::graph::{Dimension, Graph, RunError};
     use crate::ops::{
-        Concat, Conv, InputList, IntoOpResult, OpError, Operator, Output, Padding, Relu, Shape,
+        Concat, Conv, InputList, IntoOpResult, OpError, Operator, Output, Relu, Shape,
     };
 
     // Test of a very simple graph with a typical structure (one input, one
@@ -615,9 +615,9 @@ mod tests {
         g.add_op(
             Some("conv"),
             Box::new(Conv {
-                padding: Padding::Fixed([1, 1, 1, 1]),
+                padding: [1, 1, 1, 1].into(),
                 groups: 1,
-                strides: [1, 1],
+                strides: vec![1, 1],
             }),
             &[input_id, weights_id].map(Some),
             &[conv_out].map(Some),

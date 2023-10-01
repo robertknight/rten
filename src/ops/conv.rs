@@ -68,7 +68,7 @@ impl<'a> VirtualIm2Col<'a> {
             (h, w),
             (k_h, k_w),
             (stride_h, stride_w),
-            Padding::Fixed(padding),
+            Padding::Fixed(padding.into()),
         )
         .unwrap();
 
@@ -310,7 +310,7 @@ pub fn conv(
     bias: Option<&Tensor>,
     padding: Padding,
     groups: usize,
-    strides: [usize; 2],
+    strides: &[usize],
 ) -> Result<Tensor, OpError> {
     let [batch, in_c, in_h, in_w] = check_dims!(input, 4, "NCHW");
     let [out_c, k_in_c, k_h, k_w] = check_dims!(kernel, 4, "OCHW");
@@ -320,7 +320,9 @@ pub fn conv(
     let kernel = kernel.view();
     let bias = bias.map(|b| b.view());
 
-    let [stride_h, stride_w] = strides;
+    let [stride_h, stride_w]: [usize; 2] = strides
+        .try_into()
+        .map_err(|_| OpError::InvalidValue("expected 2 stride values"))?;
     let (out_h, out_w, fixed_padding) =
         calc_output_size_and_padding((in_h, in_w), (k_h, k_w), (stride_h, stride_w), padding)?;
 
@@ -357,7 +359,7 @@ pub fn conv(
             &kernel.nd_view(),
             bias.map(|b| b.nd_view()),
             fixed_padding,
-            strides,
+            [stride_h, stride_w],
             [out_h, out_w],
         ));
     }
@@ -391,8 +393,12 @@ pub fn conv(
                 let mut out_mat = out_item.reshaped_mut(&[out_channels_per_group, out_h * out_w]);
                 let out_row_stride = out_mat.stride(0);
 
-                let im2col =
-                    VirtualIm2Col::new(in_item.nd_view(), [k_h, k_w], fixed_padding, strides);
+                let im2col = VirtualIm2Col::new(
+                    in_item.nd_view(),
+                    [k_h, k_w],
+                    fixed_padding,
+                    [stride_h, stride_w],
+                );
 
                 gemm.gemm_bias(
                     out_mat.data_mut(),
@@ -415,7 +421,7 @@ pub fn conv(
 pub struct Conv {
     pub padding: Padding,
     pub groups: usize,
-    pub strides: [usize; 2],
+    pub strides: Vec<usize>,
 }
 
 impl Operator for Conv {
@@ -427,7 +433,15 @@ impl Operator for Conv {
         let input = inputs.require_as(0)?;
         let weight = inputs.require_as(1)?;
         let bias = inputs.get_as(2)?;
-        conv(input, weight, bias, self.padding, self.groups, self.strides).into_op_result()
+        conv(
+            input,
+            weight,
+            bias,
+            self.padding.clone(),
+            self.groups,
+            &self.strides,
+        )
+        .into_op_result()
     }
 }
 
@@ -581,7 +595,7 @@ mod tests {
             (in_h, in_w),
             (k_h, k_w),
             (stride_h, stride_w),
-            Padding::Fixed(padding),
+            padding.into(),
         )
         .expect("Input too small");
         let [pad_top, pad_left, _pad_bottom, _pad_right] = padding;
@@ -666,9 +680,9 @@ mod tests {
             &input,
             &kernel,
             None,
-            Padding::Fixed([1, 1, 1, 1]),
-            1,      /* groups */
-            [1, 1], /* stride */
+            [1, 1, 1, 1].into(),
+            1,       /* groups */
+            &[1, 1], /* stride */
         )
         .unwrap();
         let reference_result = reference_conv(
@@ -688,9 +702,9 @@ mod tests {
             &input,
             &kernel,
             None,
-            Padding::Fixed([0, 0, 0, 0]),
-            1,      /* groups */
-            [1, 1], /* stride */
+            [0, 0, 0, 0].into(),
+            1,       /* groups */
+            &[1, 1], /* stride */
         )
         .unwrap();
         let reference_result = reference_conv(
@@ -710,9 +724,9 @@ mod tests {
             &input,
             &kernel,
             Some(&bias),
-            Padding::Fixed([0, 0, 0, 0]),
-            1,      /* groups */
-            [1, 1], /* stride */
+            [0, 0, 0, 0].into(),
+            1,       /* groups */
+            &[1, 1], /* stride */
         )
         .unwrap();
         let reference_result = reference_conv(
@@ -746,7 +760,7 @@ mod tests {
         let op = Conv {
             padding: Padding::Same,
             groups: 1,
-            strides: [1, 1],
+            strides: vec![1, 1],
         };
         let result = op
             .run((&input, &kernel).into())
@@ -777,9 +791,9 @@ mod tests {
             &input,
             &kernel,
             Some(&bias),
-            Padding::Fixed([0, 0, 1, 1]),
-            1,      /* groups */
-            [1, 1], /* stride */
+            [0, 0, 1, 1].into(),
+            1,       /* groups */
+            &[1, 1], /* stride */
         )
         .unwrap();
         let reference_result = reference_conv(
@@ -805,9 +819,9 @@ mod tests {
             &input,
             &kernel,
             Some(&bias),
-            Padding::Fixed([0, 0, 1, 1]),
-            10,     /* groups */
-            [1, 1], /* stride */
+            [0, 0, 1, 1].into(),
+            10,      /* groups */
+            &[1, 1], /* stride */
         )
         .unwrap();
         let reference_result = reference_conv(
@@ -835,9 +849,9 @@ mod tests {
             &input,
             &kernel,
             Some(&bias),
-            Padding::Fixed([0, 0, 0, 0]),
-            1,      /* groups */
-            [1, 1], /* stride */
+            [0, 0, 0, 0].into(),
+            1,       /* groups */
+            &[1, 1], /* stride */
         )
         .unwrap();
         let reference_result = reference_conv(
@@ -861,9 +875,9 @@ mod tests {
             &input_transposed,
             &kernel,
             Some(&bias),
-            Padding::Fixed([0, 0, 0, 0]),
-            1,      /* groups */
-            [1, 1], /* stride */
+            [0, 0, 0, 0].into(),
+            1,       /* groups */
+            &[1, 1], /* stride */
         )
         .unwrap();
         let reference_result = reference_conv(
@@ -883,9 +897,9 @@ mod tests {
             &input,
             &kernel,
             Some(&bias),
-            Padding::Fixed([0, 0, 0, 0]),
-            1,      /* groups */
-            [1, 1], /* stride */
+            [0, 0, 0, 0].into(),
+            1,       /* groups */
+            &[1, 1], /* stride */
         )
         .unwrap();
         let reference_result = reference_conv(
@@ -942,9 +956,9 @@ mod tests {
             &input,
             &kernel,
             Some(&bias),
-            Padding::Fixed([0, 0, 0, 0]),
-            3,      /* groups */
-            [1, 1], /* stride */
+            [0, 0, 0, 0].into(),
+            3,       /* groups */
+            &[1, 1], /* stride */
         )
         .unwrap();
 
@@ -965,9 +979,9 @@ mod tests {
             &input,
             &kernel,
             Some(&bias),
-            Padding::Fixed([1, 1, 1, 1]),
-            2,      /* groups */
-            [1, 1], /* stride */
+            [1, 1, 1, 1].into(),
+            2,       /* groups */
+            &[1, 1], /* stride */
         )
         .unwrap();
         let reference_result = reference_conv(
@@ -995,9 +1009,9 @@ mod tests {
                         &input,
                         &kernel,
                         None,
-                        Padding::Fixed([pad, pad, pad, pad]),
+                        [pad, pad, pad, pad].into(),
                         1, /* groups */
-                        strides,
+                        &strides,
                     )
                     .unwrap();
                     let reference_result = reference_conv(
@@ -1029,9 +1043,9 @@ mod tests {
                         &input,
                         &kernel,
                         None,
-                        Padding::Fixed([pad, pad, pad, pad]),
+                        [pad, pad, pad, pad].into(),
                         3, /* groups */
-                        strides,
+                        &strides,
                     )
                     .unwrap();
                     let reference_result = reference_conv(
@@ -1060,9 +1074,9 @@ mod tests {
             &input,
             &kernel,
             None,
-            Padding::Fixed([0; 4]),
-            1,      /* groups */
-            [1, 1], /* stride */
+            [0; 4].into(),
+            1,       /* groups */
+            &[1, 1], /* stride */
         );
 
         assert_eq!(
@@ -1081,9 +1095,9 @@ mod tests {
             &input,
             &kernel,
             None,
-            Padding::Fixed([0; 4]),
-            1,      /* groups */
-            [0, 0], /* stride */
+            [0; 4].into(),
+            1,       /* groups */
+            &[0, 0], /* stride */
         );
 
         assert_eq!(

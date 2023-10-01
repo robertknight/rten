@@ -2,6 +2,8 @@ use std::error::Error;
 use std::fmt;
 use std::fmt::{Debug, Display};
 
+use smallvec::SmallVec;
+
 use wasnn_tensor::{DynLayout, Layout, Tensor, TensorCommon};
 
 mod binary_elementwise;
@@ -67,7 +69,7 @@ pub use unary_elementwise::{
 };
 pub use variadic_elementwise::{max, mean, min, sum, Max, Mean, Min, Sum};
 
-#[derive(Copy, Clone, Debug)]
+#[derive(Clone, Debug)]
 pub enum Padding {
     /// Apply enough padding such that the output and input have the same size.
     ///
@@ -77,9 +79,17 @@ pub enum Padding {
     /// for the "SAME_UPPER" value for the `auto_pad` attribute.
     Same,
 
-    /// Apply a given amount of padding to the top, left, bottom and right of
-    /// the input.
-    Fixed([usize; 4]),
+    /// Apply a given amount of padding to each side of the input. Paddings
+    /// are specified in the order `[start, end]` for 1D padding,
+    /// `[top, left, bottom, right]` for 2D and so on.
+    Fixed(SmallVec<[usize; 4]>),
+}
+
+/// Construct a [Padding::Fixed] from a slice of paddings for each size.
+impl<S: AsRef<[usize]>> From<S> for Padding {
+    fn from(val: S) -> Padding {
+        Padding::Fixed(val.as_ref().into())
+    }
 }
 
 #[derive(Copy, Clone, Debug)]

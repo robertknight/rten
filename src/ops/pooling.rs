@@ -54,7 +54,11 @@ pub fn calc_output_size_and_padding(
 
             (out_h, out_w, [pad_top, pad_left, pad_bottom, pad_right])
         }
-        Padding::Fixed([pad_top, pad_left, pad_bottom, pad_right]) => {
+        Padding::Fixed(pads) => {
+            let [pad_top, pad_left, pad_bottom, pad_right]: [usize; 4] = pads
+                .as_slice()
+                .try_into()
+                .map_err(|_| OpError::InvalidValue("expected 4 padding values"))?;
             let padded_in_h = in_h + pad_top + pad_bottom;
             let padded_in_w = in_w + pad_left + pad_right;
             if padded_in_h < k_h || padded_in_w < k_w {
@@ -138,7 +142,7 @@ impl Operator for AveragePool {
 
     fn run(&self, inputs: InputList) -> Result<Vec<Output>, OpError> {
         let input = inputs.require_as(0)?;
-        average_pool(input, self.kernel_size, self.strides, self.padding).into_op_result()
+        average_pool(input, self.kernel_size, self.strides, self.padding.clone()).into_op_result()
     }
 }
 
@@ -299,7 +303,7 @@ impl Operator for MaxPool {
 
     fn run(&self, inputs: InputList) -> Result<Vec<Output>, OpError> {
         let input = inputs.require_as(0)?;
-        max_pool(input, self.kernel_size, self.strides, self.padding).into_op_result()
+        max_pool(input, self.kernel_size, self.strides, self.padding.clone()).into_op_result()
     }
 }
 
@@ -389,13 +393,8 @@ mod tests {
         ];
 
         for case in cases {
-            let result = average_pool(
-                &input,
-                case.kernel_size,
-                case.strides,
-                Padding::Fixed([0, 0, 0, 0]),
-            )
-            .unwrap();
+            let result =
+                average_pool(&input, case.kernel_size, case.strides, [0, 0, 0, 0].into()).unwrap();
             expect_equal(&result, &case.expected)?;
         }
 
@@ -427,7 +426,7 @@ mod tests {
             &input,
             [2, 2],
             [2, 2], /* stride */
-            Padding::Fixed([1, 1, 1, 1]),
+            [1, 1, 1, 1].into(),
         )
         .unwrap();
         expect_equal(&result, &expected)
@@ -506,13 +505,8 @@ mod tests {
         ];
 
         for case in cases {
-            let result = max_pool(
-                &input,
-                case.kernel_size,
-                case.strides,
-                Padding::Fixed([0, 0, 0, 0]),
-            )
-            .unwrap();
+            let result =
+                max_pool(&input, case.kernel_size, case.strides, [0, 0, 0, 0].into()).unwrap();
             expect_equal(&result, &case.expected)?;
         }
 
@@ -523,13 +517,13 @@ mod tests {
     fn test_max_pool_padding() {
         let input = Tensor::zeros(&[1, 1, 9, 9]);
 
-        let result = max_pool(&input, [2, 2], [2, 2], Padding::Fixed([0, 0, 0, 0])).unwrap();
+        let result = max_pool(&input, [2, 2], [2, 2], [0, 0, 0, 0].into()).unwrap();
         assert_eq!(result.shape(), &[1, 1, 4, 4]);
 
-        let result = max_pool(&input, [2, 2], [2, 2], Padding::Fixed([1, 1, 1, 1])).unwrap();
+        let result = max_pool(&input, [2, 2], [2, 2], [1, 1, 1, 1].into()).unwrap();
         assert_eq!(result.shape(), &[1, 1, 5, 5]);
 
-        let result = max_pool(&input, [2, 2], [2, 2], Padding::Fixed([2, 2, 2, 2])).unwrap();
+        let result = max_pool(&input, [2, 2], [2, 2], [2, 2, 2, 2].into()).unwrap();
         assert_eq!(result.shape(), &[1, 1, 6, 6]);
 
         let result = max_pool(&input, [2, 2], [2, 2], Padding::Same).unwrap();

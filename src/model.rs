@@ -2,6 +2,7 @@ extern crate flatbuffers;
 
 use std::collections::HashMap;
 
+use smallvec::smallvec;
 use wasnn_tensor::Tensor;
 
 use crate::graph::{Dimension, Graph, Node, NodeId, RunError, RunOptions};
@@ -78,13 +79,8 @@ impl Model {
 fn padding_from_attrs(mode: PadMode, pads: Option<flatbuffers::Vector<'_, u32>>) -> Padding {
     match (mode, pads) {
         (PadMode::Same, _) => Padding::Same,
-        (PadMode::Fixed, Some(pads)) => Padding::Fixed([
-            pads.get(0) as usize,
-            pads.get(1) as usize,
-            pads.get(2) as usize,
-            pads.get(3) as usize,
-        ]),
-        _ => Padding::Fixed([0, 0, 0, 0]),
+        (PadMode::Fixed, Some(pads)) => Padding::Fixed(pads.iter().map(|p| p as usize).collect()),
+        _ => Padding::Fixed(smallvec!(0; 4)),
     }
 }
 
@@ -181,10 +177,10 @@ fn read_conv_op(node: &OperatorNode) -> ReadOpResult {
 
     let groups = attrs.groups() as usize;
     let padding = padding_from_attrs(attrs.pad_mode(), attrs.pads());
-    let strides = attrs
+    let strides: Vec<usize> = attrs
         .strides()
-        .map(|stride| array_from_iter(stride.iter().map(|x| x as usize)))
-        .unwrap_or([1, 1]);
+        .map(|stride| stride.iter().map(|x| x as usize).collect())
+        .unwrap_or(vec![1, 1]);
 
     Ok(Box::new(ops::Conv {
         groups,
@@ -694,7 +690,7 @@ mod tests {
     use crate::model::Model;
     use crate::model_builder::{ModelBuilder, OpType};
     use crate::ops;
-    use crate::ops::{CoordTransformMode, NearestMode, OpError, Padding, ResizeMode, Scalar};
+    use crate::ops::{CoordTransformMode, NearestMode, OpError, ResizeMode, Scalar};
 
     fn generate_model_buffer() -> Vec<u8> {
         let mut builder = ModelBuilder::new();
@@ -857,7 +853,7 @@ mod tests {
         add_operator!(AveragePool, [input_node], {
             kernel_size: [2, 2],
             strides: [2, 2],
-            padding: Padding::Fixed([0, 0, 0, 0]),
+            padding: [0, 0, 0, 0].into(),
         });
 
         // Dummy value for BatchNormalization inputs which are vectors with
@@ -888,9 +884,9 @@ mod tests {
         add_operator!(ConstantOfShape, [shape], { value: Scalar::Int(42) });
 
         add_operator!(Conv, [input_node, kernel], {
-            padding: Padding::Fixed([1, 1, 1, 1]),
+            padding: [1, 1, 1, 1].into(),
             groups: 1,
-            strides: [1, 1],
+            strides: vec![1, 1],
         });
 
         add_operator!(ConvTranspose, [input_node, kernel], { strides: [2, 2] });
@@ -937,7 +933,7 @@ mod tests {
         add_operator!(MaxPool, [input_node], {
             kernel_size: [2, 2],
             strides: [2, 2],
-            padding: Padding::Fixed([0, 0, 0, 0]),
+            padding: [0, 0, 0, 0].into(),
         });
         add_operator!(Mean, [input_node, input_node]);
         add_operator!(Min, [input_node, input_node]);
