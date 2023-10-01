@@ -46,7 +46,8 @@ impl<Op: UnaryFloatOp + Debug> Operator for Op {
     }
 }
 
-/// Define a unary numeric operator which supports all numeric tensor types.
+/// Define a unary operator, with no arguments, which supports all numeric
+/// tensor types.
 ///
 /// The operator is defined by a name and generic functions which apply this
 /// operator to 1) an immutable view and 2) a mutable tensor.
@@ -88,6 +89,36 @@ macro_rules! unary_numeric_op {
     };
 }
 
+/// Define a unary operator, with no arguments, which supports all float tensor
+/// types.
+///
+/// The operator is defined by the names for the operator struct and associated
+/// functions, and a closure which evaluates the operator for a single function.
+macro_rules! unary_float_op {
+    ($name:ident, $func_name:ident, $in_place_func_name:ident, $expr:expr) => {
+        pub fn $func_name(input: TensorView) -> Tensor {
+            $name {}.map(input)
+        }
+
+        pub fn $in_place_func_name(input: &mut Tensor) {
+            $name {}.apply(input)
+        }
+
+        #[derive(Debug)]
+        pub struct $name {}
+
+        impl UnaryFloatOp for $name {
+            fn name(&self) -> &str {
+                stringify!($name)
+            }
+
+            fn map_element(&self, val: f32) -> f32 {
+                $expr(val)
+            }
+        }
+    };
+}
+
 pub trait AbsValue {
     fn abs(&self) -> Self;
 }
@@ -114,26 +145,7 @@ pub fn abs_in_place<T: AbsValue>(input: &mut Tensor<T>) {
 
 unary_numeric_op!(Abs, abs, abs_in_place);
 
-#[derive(Debug)]
-pub struct Ceil {}
-
-impl UnaryFloatOp for Ceil {
-    fn name(&self) -> &str {
-        "Ceil"
-    }
-
-    fn map_element(&self, val: f32) -> f32 {
-        val.ceil()
-    }
-}
-
-pub fn ceil(input: TensorView) -> Tensor {
-    Ceil {}.map(input)
-}
-
-pub fn ceil_in_place(input: &mut Tensor) {
-    Ceil {}.apply(input)
-}
+unary_float_op!(Ceil, ceil, ceil_in_place, |val: f32| val.ceil());
 
 /// Numeric value with a finite minimum and maximum and operations to clamp
 /// values.
@@ -249,89 +261,10 @@ impl Operator for Clip {
     }
 }
 
-pub fn cos(input: TensorView) -> Tensor {
-    Cos {}.map(input)
-}
-
-pub fn cos_in_place(input: &mut Tensor) {
-    Cos {}.apply(input)
-}
-
-#[derive(Debug)]
-pub struct Cos {}
-
-impl UnaryFloatOp for Cos {
-    fn name(&self) -> &str {
-        "Cos"
-    }
-
-    fn map_element(&self, val: f32) -> f32 {
-        val.cos()
-    }
-}
-
-pub fn erf(input: TensorView) -> Tensor {
-    Erf {}.map(input)
-}
-
-pub fn erf_in_place(input: &mut Tensor) {
-    Erf {}.apply(input)
-}
-
-#[derive(Debug)]
-pub struct Erf {}
-
-impl UnaryFloatOp for Erf {
-    fn name(&self) -> &str {
-        "Erf"
-    }
-
-    fn map_element(&self, val: f32) -> f32 {
-        libm::erff(val)
-    }
-}
-
-pub fn exp(input: TensorView) -> Tensor {
-    Exp {}.map(input)
-}
-
-pub fn exp_in_place(input: &mut Tensor) {
-    Exp {}.apply(input)
-}
-
-#[derive(Debug)]
-pub struct Exp {}
-
-impl UnaryFloatOp for Exp {
-    fn name(&self) -> &str {
-        "Exp"
-    }
-
-    fn map_element(&self, val: f32) -> f32 {
-        val.exp()
-    }
-}
-
-#[derive(Debug)]
-pub struct Floor {}
-
-impl UnaryFloatOp for Floor {
-    fn name(&self) -> &str {
-        "Floor"
-    }
-
-    fn map_element(&self, val: f32) -> f32 {
-        val.floor()
-    }
-}
-
-pub fn floor(input: TensorView) -> Tensor {
-    Floor {}.map(input)
-}
-
-pub fn floor_in_place(input: &mut Tensor) {
-    Floor {}.apply(input)
-}
+unary_float_op!(Cos, cos, cos_in_place, |val: f32| val.cos());
+unary_float_op!(Erf, erf, erf_in_place, libm::erff);
+unary_float_op!(Exp, exp, exp_in_place, |val: f32| val.exp());
+unary_float_op!(Floor, floor, floor_in_place, |val: f32| val.floor());
 
 pub fn leaky_relu(input: TensorView, alpha: f32) -> Tensor {
     LeakyRelu { alpha }.map(input)
@@ -360,26 +293,7 @@ impl UnaryFloatOp for LeakyRelu {
     }
 }
 
-pub fn log(input: TensorView) -> Tensor {
-    Log {}.map(input)
-}
-
-pub fn log_in_place(input: &mut Tensor) {
-    Log {}.apply(input)
-}
-
-#[derive(Debug)]
-pub struct Log {}
-
-impl UnaryFloatOp for Log {
-    fn name(&self) -> &str {
-        "Log"
-    }
-
-    fn map_element(&self, val: f32) -> f32 {
-        val.ln()
-    }
-}
+unary_float_op!(Log, log, log_in_place, |val: f32| val.ln());
 
 pub fn neg<T: Copy + std::ops::Neg<Output = T>>(input: TensorView<T>) -> Tensor<T> {
     input.map(|x| x.neg())
@@ -423,54 +337,9 @@ impl Operator for Not {
     }
 }
 
-pub fn reciprocal(input: TensorView) -> Tensor {
-    Reciprocal {}.map(input)
-}
-
-pub fn reciprocal_in_place(input: &mut Tensor) {
-    Reciprocal {}.apply(input)
-}
-
-#[derive(Debug)]
-pub struct Reciprocal {}
-
-impl UnaryFloatOp for Reciprocal {
-    fn name(&self) -> &str {
-        "Reciprocal"
-    }
-
-    fn map_element(&self, val: f32) -> f32 {
-        1. / val
-    }
-}
-
-pub fn relu_in_place(x: &mut Tensor) {
-    Relu {}.apply(x)
-}
-
-pub fn relu(x: TensorView) -> Tensor {
-    Relu {}.map(x)
-}
-
-#[derive(Debug)]
-pub struct Relu {}
-impl UnaryFloatOp for Relu {
-    fn name(&self) -> &str {
-        "Relu"
-    }
-
-    fn map_element(&self, val: f32) -> f32 {
-        val.max(0.)
-    }
-}
-
-pub fn sigmoid(x: TensorView) -> Tensor {
-    Sigmoid {}.map(x)
-}
-
-pub fn sigmoid_in_place(x: &mut Tensor) {
-    Sigmoid {}.apply(x)
-}
+unary_float_op!(Reciprocal, reciprocal, reciprocal_in_place, |val: f32| 1.
+    / val);
+unary_float_op!(Relu, relu, relu_in_place, |val: f32| val.max(0.));
 
 /// Round float values to the nearest integer. Values with a fractional part
 /// of 0.5 are rounded to the nearest even number, like `round` in Python and
@@ -496,80 +365,11 @@ pub fn round_in_place(x: &mut Tensor) {
     Round {}.apply(x)
 }
 
-#[derive(Debug)]
-pub struct Sigmoid {}
-impl UnaryFloatOp for Sigmoid {
-    fn name(&self) -> &str {
-        "Sigmoid"
-    }
-
-    fn map_element(&self, val: f32) -> f32 {
-        1. / (1. + (-val).exp())
-    }
-}
-
-pub fn sin(input: TensorView) -> Tensor {
-    Sin {}.map(input)
-}
-
-pub fn sin_in_place(input: &mut Tensor) {
-    Sin {}.apply(input)
-}
-
-#[derive(Debug)]
-pub struct Sin {}
-
-impl UnaryFloatOp for Sin {
-    fn name(&self) -> &str {
-        "Sin"
-    }
-
-    fn map_element(&self, val: f32) -> f32 {
-        val.sin()
-    }
-}
-
-pub fn sqrt(input: TensorView) -> Tensor {
-    Sqrt {}.map(input)
-}
-
-pub fn sqrt_in_place(input: &mut Tensor) {
-    Sqrt {}.apply(input)
-}
-
-#[derive(Debug)]
-pub struct Sqrt {}
-
-impl UnaryFloatOp for Sqrt {
-    fn name(&self) -> &str {
-        "Sqrt"
-    }
-
-    fn map_element(&self, val: f32) -> f32 {
-        val.sqrt()
-    }
-}
-
-pub fn tanh(input: TensorView) -> Tensor {
-    Tanh {}.map(input)
-}
-
-pub fn tanh_in_place(input: &mut Tensor) {
-    Tanh {}.apply(input)
-}
-
-#[derive(Debug)]
-pub struct Tanh {}
-
-impl UnaryFloatOp for Tanh {
-    fn name(&self) -> &str {
-        "Tanh"
-    }
-
-    fn map_element(&self, val: f32) -> f32 {
-        val.tanh()
-    }
-}
+unary_float_op!(Sigmoid, sigmoid, sigmoid_in_place, |val: f32| 1.
+    / (1. + (-val).exp()));
+unary_float_op!(Sin, sin, sin_in_place, |val: f32| val.sin());
+unary_float_op!(Sqrt, sqrt, sqrt_in_place, |val: f32| val.sqrt());
+unary_float_op!(Tanh, tanh, tanh_in_place, |val: f32| val.tanh());
 
 #[cfg(test)]
 mod tests {
