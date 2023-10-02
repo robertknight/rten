@@ -537,6 +537,7 @@ fn read_operator(node: &OperatorNode) -> ReadOpResult {
         OperatorType::Shape => op!(Shape),
         OperatorType::Sigmoid => op!(Sigmoid),
         OperatorType::Sin => op!(Sin),
+        OperatorType::Size => op!(Size),
         OperatorType::Slice => op!(Slice),
         OperatorType::Softmax => read_softmax_op(node),
         OperatorType::Split => read_split_op(node),
@@ -1003,6 +1004,7 @@ mod tests {
         add_operator!(Shape, [input_node]);
         add_operator!(Sigmoid, [input_node]);
         add_operator!(Sin, [input_node]);
+        add_operator!(Size, [input_node]);
 
         let scatter_elem_indices_val = Tensor::zeros(&input_shape);
         let scatter_elem_indices = builder.add_int_constant(&scatter_elem_indices_val);

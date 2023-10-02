@@ -36,8 +36,8 @@ pub use gather::{gather, scatter_elements, Gather, ScatterElements, ScatterReduc
 pub use generate::{constant_of_shape, onehot, range, ConstantOfShape, OneHot, Range};
 pub use identity::Identity;
 pub use layout::{
-    expand, flatten, reshape, squeeze, squeeze_in_place, Expand, Flatten, Reshape, Shape, Squeeze,
-    Transpose, Unsqueeze,
+    expand, flatten, reshape, squeeze, squeeze_in_place, Expand, Flatten, Reshape, Shape, Size,
+    Squeeze, Transpose, Unsqueeze,
 };
 pub use matmul::{gemm_op, matmul, Gemm, MatMul};
 pub use norm::{

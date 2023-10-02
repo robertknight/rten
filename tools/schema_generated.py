@@ -84,6 +84,7 @@ class OperatorType(object):
     Neg = 74
     Exp = 75
     GreaterOrEqual = 76
+    Size = 77
 
 
 class RNNDirection(object):

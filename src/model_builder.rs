@@ -75,6 +75,7 @@ pub enum OpType {
     Shape,
     Sigmoid,
     Sin,
+    Size,
     Slice,
     Softmax(Softmax),
     Split(Split),
@@ -539,6 +540,7 @@ impl<'a> ModelBuilder<'a> {
             OpType::Sigmoid => op!(Sigmoid),
             OpType::Slice => op!(Slice),
             OpType::Sin => op!(Sin),
+            OpType::Size => op!(Size),
             OpType::Softmax(args) => op_with_attrs!(
                 Softmax,
                 SoftmaxAttrs,

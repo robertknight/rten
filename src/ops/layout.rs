@@ -2,7 +2,7 @@
 //! elements.
 use std::iter::zip;
 
-use wasnn_tensor::{is_valid_permutation, Layout, NdTensorView, Tensor, TensorCommon};
+use wasnn_tensor::{is_valid_permutation, tensor, Layout, NdTensorView, Tensor, TensorCommon};
 
 use crate::ops::binary_elementwise::broadcast_shapes;
 use crate::ops::{
@@ -255,6 +255,21 @@ impl Operator for Shape {
     }
 }
 
+#[derive(Debug)]
+pub struct Size {}
+
+impl Operator for Size {
+    fn name(&self) -> &str {
+        "Size"
+    }
+
+    fn run(&self, inputs: InputList) -> Result<Vec<Output>, OpError> {
+        let input = inputs.require(0)?;
+        let len = input.len() as i32;
+        tensor!(len).into_op_result()
+    }
+}
+
 pub fn squeeze_in_place<T: Clone>(
     input: &mut Tensor<T>,
     axes: Option<NdTensorView<i32, 1>>,
@@ -431,7 +446,7 @@ mod tests {
 
     use crate::ops::layout::{
         expand, flatten, reshape, reshape_in_place, squeeze, squeeze_in_place, transpose,
-        unsqueeze, InputList, Reshape, Shape,
+        unsqueeze, InputList, Reshape, Shape, Size,
     };
     use crate::ops::{OpError, Operator};
 
@@ -634,6 +649,20 @@ mod tests {
             .unwrap();
         assert_eq!(result.shape(), &[4]);
         assert_eq!(result.data(), &[1, 1, 2, 2]);
+    }
+
+    #[test]
+    fn test_size() {
+        let op = Size {};
+        let input = tensor!((2, 2); [1, 2, 3, 4]);
+        let result = op
+            .run(InputList::from(&[(&input).into()]))
+            .unwrap()
+            .remove(0)
+            .into_int()
+            .unwrap();
+        assert_eq!(result.ndim(), 0);
+        assert_eq!(result.item(), Some(&4));
     }
 
     #[test]
