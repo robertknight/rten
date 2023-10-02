@@ -144,6 +144,9 @@ pub fn abs_in_place<T: AbsValue>(input: &mut Tensor<T>) {
 }
 
 unary_numeric_op!(Abs, abs, abs_in_place);
+unary_float_op!(Acos, acos, acos_in_place, |val: f32| val.acos());
+unary_float_op!(Asin, asin, asin_in_place, |val: f32| val.asin());
+unary_float_op!(Atan, atan, atan_in_place, |val: f32| val.atan());
 
 unary_float_op!(Ceil, ceil, ceil_in_place, |val: f32| val.ceil());
 
@@ -369,6 +372,7 @@ unary_float_op!(Sigmoid, sigmoid, sigmoid_in_place, |val: f32| 1.
     / (1. + (-val).exp()));
 unary_float_op!(Sin, sin, sin_in_place, |val: f32| val.sin());
 unary_float_op!(Sqrt, sqrt, sqrt_in_place, |val: f32| val.sqrt());
+unary_float_op!(Tan, tan, tan_in_place, |val: f32| val.tan());
 unary_float_op!(Tanh, tanh, tanh_in_place, |val: f32| val.tanh());
 
 #[cfg(test)]
@@ -377,11 +381,34 @@ mod tests {
     use wasnn_tensor::{tensor, Tensor, TensorCommon};
 
     use crate::ops::{
-        abs, ceil, clip, clip_in_place, cos, cos_in_place, erf, erf_in_place, exp, exp_in_place,
-        floor, leaky_relu, leaky_relu_in_place, log, log_in_place, neg, neg_in_place, not,
-        not_in_place, reciprocal, relu, relu_in_place, round, round_in_place, sigmoid,
-        sigmoid_in_place, sin, sin_in_place, sqrt, sqrt_in_place, tanh, tanh_in_place,
+        abs, acos, acos_in_place, asin, asin_in_place, atan, atan_in_place, ceil, clip,
+        clip_in_place, cos, cos_in_place, erf, erf_in_place, exp, exp_in_place, floor, leaky_relu,
+        leaky_relu_in_place, log, log_in_place, neg, neg_in_place, not, not_in_place, reciprocal,
+        relu, relu_in_place, round, round_in_place, sigmoid, sigmoid_in_place, sin, sin_in_place,
+        sqrt, sqrt_in_place, tan, tan_in_place, tanh, tanh_in_place,
     };
+
+    /// Define a test for a simple unary operator which applies the function
+    /// `$gen_expected` to each input element.
+    macro_rules! test_unary_op {
+        ($test_name:ident, $op:ident, $in_place_op:ident, $gen_expected:expr) => {
+            #[test]
+            fn $test_name() -> Result<(), String> {
+                // Test inputs here chosen to be in the domain of inverse trig
+                // operators (ie. (-1, 1)).
+                let input = tensor!([0., 0.1, -0.1, 0.9, -0.9]);
+                let expected = input.map($gen_expected);
+                let result = $op(input.view());
+                expect_equal(&result, &expected)?;
+
+                let mut input = input.clone();
+                $in_place_op(&mut input);
+                expect_equal(&input, &expected)?;
+
+                Ok(())
+            }
+        };
+    }
 
     #[test]
     fn test_abs() {
@@ -395,6 +422,10 @@ mod tests {
         let result = abs(x.view());
         assert_eq!(result, tensor!([1, 1, 0]));
     }
+
+    test_unary_op!(test_acos, acos, acos_in_place, |x: &f32| x.acos());
+    test_unary_op!(test_asin, asin, asin_in_place, |x: &f32| x.asin());
+    test_unary_op!(test_atan, atan, atan_in_place, |x: &f32| x.atan());
 
     #[test]
     fn test_ceil() {
@@ -467,21 +498,7 @@ mod tests {
     // TODO: Eliminate the duplication for tests that apply the operator
     // in-place vs returning a new tensor.
 
-    #[test]
-    fn test_cos() -> Result<(), String> {
-        let input = tensor!([0.1, 3.14, -5.]);
-        let expected = input.map(|x: &f32| x.cos());
-        let result = cos(input.view());
-        expect_equal(&result, &expected)
-    }
-
-    #[test]
-    fn test_cos_in_place() -> Result<(), String> {
-        let mut input = tensor!([0.1, 3.14, -5.]);
-        let expected = input.map(|x: &f32| x.cos());
-        cos_in_place(&mut input);
-        expect_equal(&input, &expected)
-    }
+    test_unary_op!(test_cos, cos, cos_in_place, |x: &f32| x.cos());
 
     #[test]
     fn test_erf() -> Result<(), String> {
@@ -699,21 +716,7 @@ mod tests {
         expect_equal(&result, &expected)
     }
 
-    #[test]
-    fn test_sin() -> Result<(), String> {
-        let input = tensor!([0.1, 3.14, -5.]);
-        let expected = input.map(|x: &f32| x.sin());
-        let result = sin(input.view());
-        expect_equal(&result, &expected)
-    }
-
-    #[test]
-    fn test_sin_in_place() -> Result<(), String> {
-        let mut input = tensor!([0.1, 3.14, -5.]);
-        let expected = input.map(|x: &f32| x.sin());
-        sin_in_place(&mut input);
-        expect_equal(&input, &expected)
-    }
+    test_unary_op!(test_sin, sin, sin_in_place, |x: &f32| x.sin());
 
     #[test]
     fn test_sqrt() -> Result<(), String> {
@@ -731,19 +734,6 @@ mod tests {
         expect_equal(&input, &expected)
     }
 
-    #[test]
-    fn test_tanh() -> Result<(), String> {
-        let input = tensor!([0.1, 3.14, -5.]);
-        let expected = input.map(|x: &f32| x.tanh());
-        let result = tanh(input.view());
-        expect_equal(&result, &expected)
-    }
-
-    #[test]
-    fn test_tanh_in_place() -> Result<(), String> {
-        let mut input = tensor!([0.1, 3.14, -5.]);
-        let expected = input.map(|x: &f32| x.tanh());
-        tanh_in_place(&mut input);
-        expect_equal(&input, &expected)
-    }
+    test_unary_op!(test_tan, tan, tan_in_place, |x: &f32| x.tan());
+    test_unary_op!(test_tanh, tanh, tanh_in_place, |x: &f32| x.tanh());
 }

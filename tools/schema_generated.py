@@ -85,6 +85,10 @@ class OperatorType(object):
     Exp = 75
     GreaterOrEqual = 76
     Size = 77
+    Tan = 78
+    Acos = 79
+    Asin = 80
+    Atan = 81
 
 
 class RNNDirection(object):

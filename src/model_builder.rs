@@ -16,9 +16,12 @@ use crate::schema_generated as sg;
 /// Enum of all the built-in operators
 pub enum OpType {
     Abs,
+    Acos,
     Add,
     ArgMax(ArgMax),
     ArgMin(ArgMin),
+    Asin,
+    Atan,
     AveragePool(AveragePool),
     BatchNormalization(BatchNormalization),
     Cast(Cast),
@@ -83,6 +86,7 @@ pub enum OpType {
     Squeeze,
     Sub,
     Sum,
+    Tan,
     Tanh,
     Tile,
     TopK(TopK),
@@ -299,6 +303,7 @@ impl<'a> ModelBuilder<'a> {
         // FlatBuffers types, and write attribute data into buffer.
         let (op_type, attrs_type, attrs) = match op_info {
             OpType::Abs => op!(Abs),
+            OpType::Acos => op!(Acos),
             OpType::Add => op!(Add),
             OpType::ArgMax(args) => op_with_attrs!(ArgMax, ArgMaxAttrs, {
                 sg::ArgMaxAttrsArgs {
@@ -312,6 +317,8 @@ impl<'a> ModelBuilder<'a> {
                     keep_dims: args.keep_dims,
                 }
             }),
+            OpType::Asin => op!(Asin),
+            OpType::Atan => op!(Atan),
             OpType::AveragePool(args) => op_with_attrs!(AveragePool, AveragePoolAttrs, {
                 let pad_args = pad_args_from_padding(args.padding);
                 let pads = self.create_vec(pad_args.pads, |pad| pad as u32);
@@ -557,6 +564,7 @@ impl<'a> ModelBuilder<'a> {
             OpType::Squeeze => op!(Squeeze),
             OpType::Sub => op!(Sub),
             OpType::Sum => op!(Sum),
+            OpType::Tan => op!(Tan),
             OpType::Tanh => op!(Tanh),
             OpType::Tile => op!(Tile),
             OpType::TopK(args) => op_with_attrs!(TopK, TopKAttrs, {

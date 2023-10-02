@@ -87,7 +87,11 @@ enum OperatorType: byte {
   Neg,
   Exp,
   GreaterOrEqual,
-  Size
+  Size,
+  Tan,
+  Acos,
+  Asin,
+  Atan,
 }
 
 enum RNNDirection: byte {

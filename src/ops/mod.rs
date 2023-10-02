@@ -57,12 +57,13 @@ pub use rnn::{gru, lstm, Direction, GRU, LSTM};
 pub use slice::{slice, slice_in_place, Slice};
 pub use split::{split, Split};
 pub use unary_elementwise::{
-    abs, abs_in_place, ceil, ceil_in_place, clip, clip_in_place, cos, cos_in_place, erf,
-    erf_in_place, exp, exp_in_place, floor, floor_in_place, leaky_relu, leaky_relu_in_place, log,
-    log_in_place, neg, neg_in_place, not, not_in_place, reciprocal, reciprocal_in_place, relu,
-    relu_in_place, round, round_in_place, sigmoid, sigmoid_in_place, sin, sin_in_place, sqrt,
-    sqrt_in_place, tanh, tanh_in_place, Abs, Ceil, Clip, Cos, Erf, Exp, Floor, LeakyRelu, Log, Neg,
-    Not, Reciprocal, Relu, Round, Sigmoid, Sin, Sqrt, Tanh,
+    abs, abs_in_place, acos, acos_in_place, asin, asin_in_place, atan, atan_in_place, ceil,
+    ceil_in_place, clip, clip_in_place, cos, cos_in_place, erf, erf_in_place, exp, exp_in_place,
+    floor, floor_in_place, leaky_relu, leaky_relu_in_place, log, log_in_place, neg, neg_in_place,
+    not, not_in_place, reciprocal, reciprocal_in_place, relu, relu_in_place, round, round_in_place,
+    sigmoid, sigmoid_in_place, sin, sin_in_place, sqrt, sqrt_in_place, tan, tan_in_place, tanh,
+    tanh_in_place, Abs, Acos, Asin, Atan, Ceil, Clip, Cos, Erf, Exp, Floor, LeakyRelu, Log, Neg,
+    Not, Reciprocal, Relu, Round, Sigmoid, Sin, Sqrt, Tan, Tanh,
 };
 pub use variadic_elementwise::{max, mean, min, sum, Max, Mean, Min, Sum};
 

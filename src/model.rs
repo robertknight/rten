@@ -474,9 +474,12 @@ macro_rules! op {
 fn read_operator(node: &OperatorNode) -> ReadOpResult {
     match node.type_() {
         OperatorType::Abs => op!(Abs),
+        OperatorType::Acos => op!(Acos),
         OperatorType::Add => op!(Add),
         OperatorType::ArgMax => read_arg_max_op(node),
         OperatorType::ArgMin => read_arg_min_op(node),
+        OperatorType::Asin => op!(Asin),
+        OperatorType::Atan => op!(Atan),
         OperatorType::AveragePool => read_average_pool_op(node),
         OperatorType::BatchNormalization => read_batch_normalization_op(node),
         OperatorType::Cast => read_cast_op(node),
@@ -545,6 +548,7 @@ fn read_operator(node: &OperatorNode) -> ReadOpResult {
         OperatorType::Squeeze => op!(Squeeze),
         OperatorType::Sub => op!(Sub),
         OperatorType::Sum => op!(Sum),
+        OperatorType::Tan => op!(Tan),
         OperatorType::Tanh => op!(Tanh),
         OperatorType::Tile => op!(Tile),
         OperatorType::TopK => read_topk_op(node),
@@ -844,9 +848,12 @@ mod tests {
         }
 
         add_operator!(Abs, [input_node]);
+        add_operator!(Acos, [input_node]);
         add_operator!(Add, [input_node, input_node]);
         add_operator!(ArgMax, [input_node], { axis: 3, keep_dims: false });
         add_operator!(ArgMin, [input_node], { axis: 3, keep_dims: false });
+        add_operator!(Asin, [input_node]);
+        add_operator!(Atan, [input_node]);
         add_operator!(AveragePool, [input_node], {
             kernel_size: [2, 2],
             strides: [2, 2],
@@ -1036,6 +1043,7 @@ mod tests {
 
         add_operator!(Sub, [input_node, input_node]);
         add_operator!(Sum, [input_node, input_node]);
+        add_operator!(Tan, [input_node]);
         add_operator!(Tanh, [input_node]);
 
         let tile_repeats = builder.add_int_constant(&tensor!([1, 2, 3, 4]));
