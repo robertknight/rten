@@ -160,7 +160,7 @@ impl Operator for Range {
 mod tests {
     use wasnn_tensor::{tensor, Layout, Tensor, TensorCommon};
 
-    use crate::ops::{onehot, range, ConstantOfShape, Input, InputList, OpError, Operator, Scalar};
+    use crate::ops::{onehot, range, ConstantOfShape, OpError, Operator, Scalar};
 
     #[test]
     fn test_constant_of_shape() {
@@ -170,7 +170,7 @@ mod tests {
         let shape = Tensor::from_vec(vec![1, 5, 10]);
 
         let result = op
-            .run(InputList::from(&[Input::IntTensor(&shape)]))
+            .run((&shape).into())
             .unwrap()
             .remove(0)
             .into_int()

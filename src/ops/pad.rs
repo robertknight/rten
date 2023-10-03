@@ -90,7 +90,7 @@ mod tests {
     use wasnn_tensor::test_util::expect_equal;
     use wasnn_tensor::{Layout, Tensor, TensorCommon};
 
-    use crate::ops::{pad, InputList, OpError, Operator, Pad};
+    use crate::ops::{pad, OpError, Operator, Pad};
 
     fn from_slice<T: Clone>(data: &[T]) -> Tensor<T> {
         Tensor::from_data(&[data.len()], data.to_vec())
@@ -152,7 +152,7 @@ mod tests {
 
         let op = Pad {};
         let result = op
-            .run(InputList::from(&[(&input).into(), (&pads).into()]))
+            .run((&input, &pads).into())
             .unwrap()
             .remove(0)
             .into_float()
@@ -169,7 +169,7 @@ mod tests {
 
         // Wrong padding vector length.
         let invalid_pads = from_slice(&[1]);
-        let result = op.run(InputList::from(&[(&input).into(), (&invalid_pads).into()]));
+        let result = op.run((&input, &invalid_pads).into());
         assert_eq!(
             result.err(),
             Some(OpError::InvalidValue(
@@ -179,7 +179,7 @@ mod tests {
 
         // Unsupported padding amounts.
         let invalid_pads = from_slice(&[1, 1, 1, -1]);
-        let result = op.run(InputList::from(&[(&input).into(), (&invalid_pads).into()]));
+        let result = op.run((&input, &invalid_pads).into());
         assert_eq!(
             result.err(),
             Some(OpError::InvalidValue("Pad only supports positive pads"))
@@ -188,21 +188,13 @@ mod tests {
         // Wrong constant value type.
         let invalid_pads = from_slice(&[1, 1, 1, -1]);
         let const_int = Tensor::from_scalar(1);
-        let result = op.run(InputList::from(&[
-            (&input).into(),
-            (&invalid_pads).into(),
-            (&const_int).into(),
-        ]));
+        let result = op.run((&input, &invalid_pads, &const_int).into());
         assert_eq!(result.err(), Some(OpError::IncorrectInputType));
 
         // Constant value not a scalar.
         let invalid_pads = from_slice(&[1, 1, 1, -1]);
         let int_vec = from_slice(&[1.0, 2.0]);
-        let result = op.run(InputList::from(&[
-            (&input).into(),
-            (&invalid_pads).into(),
-            (&int_vec).into(),
-        ]));
+        let result = op.run((&input, &invalid_pads, &int_vec).into());
         assert_eq!(
             result.err(),
             Some(OpError::InvalidValue("Expected scalar value"))

@@ -31,7 +31,7 @@ mod tests {
     use wasnn_tensor::test_util::expect_equal;
     use wasnn_tensor::Tensor;
 
-    use crate::ops::{Identity, Input, InputList, Operator};
+    use crate::ops::{Identity, Operator};
 
     #[test]
     fn test_identity() -> Result<(), String> {
@@ -39,7 +39,7 @@ mod tests {
 
         let int_input = Tensor::from_vec(vec![1, 2, 3]);
         let result = id_op
-            .run(InputList::from(&[Input::IntTensor(&int_input)]))
+            .run((&int_input).into())
             .unwrap()
             .remove(0)
             .into_int()
@@ -48,7 +48,7 @@ mod tests {
 
         let float_input = Tensor::from_vec(vec![1.0, 2.0, 3.0]);
         let result = id_op
-            .run(InputList::from(&[Input::FloatTensor(&float_input)]))
+            .run((&float_input).into())
             .unwrap()
             .remove(0)
             .into_float()

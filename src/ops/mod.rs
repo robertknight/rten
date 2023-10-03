@@ -557,12 +557,15 @@ pub trait Operator: Debug {
 /// Conceptually this is like a `&[Option<Input>]` with methods to conveniently
 /// extract inputs and produce appropriate errors if inputs are missing or of
 /// the wrong type.
+///
+/// An InputList can be constructed from a tensor reference or tuple of tensor
+/// references using `into`.
 pub struct InputList<'a> {
     inputs: Vec<Option<Input<'a>>>,
 }
 
 impl<'a> InputList<'a> {
-    pub fn from<'b>(inputs: &'b [Input<'b>]) -> InputList<'b> {
+    pub fn from<'b>(inputs: &[Input<'b>]) -> InputList<'b> {
         InputList {
             inputs: inputs.iter().copied().map(Some).collect(),
         }
@@ -629,6 +632,26 @@ impl<'a> InputList<'a> {
     /// over any missing inputs.
     pub fn iter(&'a self) -> impl Iterator<Item = Input<'a>> + 'a {
         self.inputs.iter().filter_map(|inp| *inp)
+    }
+}
+
+impl<'a, I: Into<Input<'a>>> From<I> for InputList<'a> {
+    fn from(val: I) -> InputList<'a> {
+        InputList::from(&[val.into()])
+    }
+}
+
+impl<'a, I1: Into<Input<'a>>, I2: Into<Input<'a>>> From<(I1, I2)> for InputList<'a> {
+    fn from((a, b): (I1, I2)) -> InputList<'a> {
+        InputList::from(&[a.into(), b.into()])
+    }
+}
+
+impl<'a, I1: Into<Input<'a>>, I2: Into<Input<'a>>, I3: Into<Input<'a>>> From<(I1, I2, I3)>
+    for InputList<'a>
+{
+    fn from((a, b, c): (I1, I2, I3)) -> InputList<'a> {
+        InputList::from(&[a.into(), b.into(), c.into()])
     }
 }
 

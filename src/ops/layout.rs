@@ -446,7 +446,7 @@ mod tests {
 
     use crate::ops::layout::{
         expand, flatten, reshape, reshape_in_place, squeeze, squeeze_in_place, transpose,
-        unsqueeze, InputList, Reshape, Shape, Size,
+        unsqueeze, Reshape, Shape, Size,
     };
     use crate::ops::{OpError, Operator};
 
@@ -615,7 +615,7 @@ mod tests {
 
         let op = Reshape { allow_zero: false };
         let result = op
-            .run(InputList::from(&[(&input).into(), (&shape).into()]))
+            .run((&input, &shape).into())
             .unwrap()
             .remove(0)
             .into_float()
@@ -631,7 +631,7 @@ mod tests {
         // Float input
         let input = Tensor::from_data(&[1, 1, 2, 2], vec![1.0, 2.0, 3.0, 4.0]);
         let result = op
-            .run(InputList::from(&[(&input).into()]))
+            .run((&input).into())
             .unwrap()
             .remove(0)
             .into_int()
@@ -642,7 +642,7 @@ mod tests {
         // Int input
         let input = Tensor::from_data(&[1, 1, 2, 2], vec![1, 2, 3, 4]);
         let result = op
-            .run(InputList::from(&[(&input).into()]))
+            .run((&input).into())
             .unwrap()
             .remove(0)
             .into_int()
@@ -656,7 +656,7 @@ mod tests {
         let op = Size {};
         let input = tensor!((2, 2); [1, 2, 3, 4]);
         let result = op
-            .run(InputList::from(&[(&input).into()]))
+            .run((&input).into())
             .unwrap()
             .remove(0)
             .into_int()

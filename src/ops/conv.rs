@@ -561,7 +561,7 @@ mod tests {
     use wasnn_tensor::{Layout, Tensor, TensorCommon};
 
     use crate::ops::pooling::calc_output_size_and_padding;
-    use crate::ops::{conv, conv_transpose, Conv, InputList, OpError, Operator, Padding};
+    use crate::ops::{conv, conv_transpose, Conv, OpError, Operator, Padding};
 
     /// Un-optimized reference implementation of convolution.
     fn reference_conv(
@@ -729,14 +729,14 @@ mod tests {
 
     #[test]
     fn test_conv_same_padding() -> Result<(), String> {
-        let kernel = &Tensor::from_data(
+        let kernel = Tensor::from_data(
             &[1, 1, 3, 3],
             vec![
                 0.3230, 0.7632, 0.4616, 0.8837, 0.5898, 0.3424, 0.2101, 0.7821, 0.6861,
             ],
         );
 
-        let input = &Tensor::from_data(
+        let input = Tensor::from_data(
             &[1, 1, 3, 3],
             vec![
                 0.5946, 0.8249, 0.0448, 0.9552, 0.2041, 0.2501, 0.2693, 0.1007, 0.8862,
@@ -749,14 +749,14 @@ mod tests {
             strides: [1, 1],
         };
         let result = op
-            .run(InputList::from(&[input.into(), kernel.into()]))
+            .run((&input, &kernel).into())
             .unwrap()
             .remove(0)
             .into_float()
             .unwrap();
         let reference_result = reference_conv(
-            input,
-            kernel,
+            &input,
+            &kernel,
             None,
             [1, 1, 1, 1],
             1,      /* groups */

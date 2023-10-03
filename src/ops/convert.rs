@@ -47,7 +47,7 @@ mod tests {
     use wasnn_tensor::tensor;
     use wasnn_tensor::test_util::expect_equal;
 
-    use crate::ops::{Cast, DataType, Input, InputList, Operator};
+    use crate::ops::{Cast, DataType, Operator};
 
     #[test]
     fn test_cast() -> Result<(), String> {
@@ -59,7 +59,7 @@ mod tests {
             to: DataType::Int32,
         };
         let result = cast_to_int
-            .run(InputList::from(&[Input::IntTensor(&int_input)]))
+            .run((&int_input).into())
             .unwrap()
             .remove(0)
             .into_int()
@@ -68,7 +68,7 @@ mod tests {
         // Flooring cast from float => int32
         assert_eq!(result, int_input);
         let result = cast_to_int
-            .run(InputList::from(&[Input::FloatTensor(&float_input)]))
+            .run((&float_input).into())
             .unwrap()
             .remove(0)
             .into_int()
@@ -80,7 +80,7 @@ mod tests {
             to: DataType::Float,
         };
         let result = cast_to_float
-            .run(InputList::from(&[Input::FloatTensor(&float_input)]))
+            .run((&float_input).into())
             .unwrap()
             .remove(0)
             .into_float()
@@ -89,7 +89,7 @@ mod tests {
 
         // Cast from int32 => float
         let result = cast_to_float
-            .run(InputList::from(&[Input::IntTensor(&int_input)]))
+            .run((&int_input).into())
             .unwrap()
             .remove(0)
             .into_float()
@@ -107,7 +107,7 @@ mod tests {
             to: DataType::Float,
         };
         let result = cast_to_float
-            .run(InputList::from(&[(&int_input).into()]))
+            .run((&int_input).into())
             .unwrap()
             .remove(0)
             .into_float()
@@ -120,7 +120,7 @@ mod tests {
             to: DataType::Int32,
         };
         let result = cast_to_int
-            .run(InputList::from(&[(&float_input).into()]))
+            .run((&float_input).into())
             .unwrap()
             .remove(0)
             .into_int()

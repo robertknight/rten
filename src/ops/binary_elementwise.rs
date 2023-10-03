@@ -591,7 +591,7 @@ mod tests {
     use crate::ops::{
         add, add_in_place, div, div_in_place, equal, greater, greater_or_equal, less,
         less_or_equal, mod_op, mul, mul_in_place, pow, pow_in_place, sub, sub_in_place, where_op,
-        Add, DivMode, InputList, OpError, Operator, Output,
+        Add, DivMode, OpError, Operator, Output,
     };
 
     #[test]
@@ -681,7 +681,7 @@ mod tests {
         // Run `Add` operator in place with inputs that support in-place addition.
         let op = Add {};
         let result = op
-            .run_in_place(Output::FloatTensor(a_copy), InputList::from(&[(&b).into()]))
+            .run_in_place(Output::FloatTensor(a_copy), (&b).into())
             .unwrap();
         expect_equal(result.as_float_ref().unwrap(), &expected)?;
 
@@ -690,7 +690,7 @@ mod tests {
         let scalar = Tensor::from_scalar(1.0);
         let expected = Tensor::from_data(&[2, 2], vec![11., 21., 31., 41.]);
         let result = op
-            .run_in_place(Output::FloatTensor(scalar), InputList::from(&[(&b).into()]))
+            .run_in_place(Output::FloatTensor(scalar), (&b).into())
             .unwrap();
         expect_equal(result.as_float_ref().unwrap(), &expected)?;
 
@@ -721,7 +721,7 @@ mod tests {
         let b = Tensor::from_data(&[2, 3], vec![1., 2., 3., 4., 5., 6.]);
 
         let op = Add {};
-        let result = op.run(InputList::from(&[(&a).into(), (&b).into()]));
+        let result = op.run((&a, &b).into());
 
         assert_eq!(
             result.err(),
