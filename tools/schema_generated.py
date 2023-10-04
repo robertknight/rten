@@ -89,6 +89,7 @@ class OperatorType(object):
     Acos = 79
     Asin = 80
     Atan = 81
+    InstanceNormalization = 82
 
 
 class RNNDirection(object):

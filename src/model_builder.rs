@@ -6,10 +6,10 @@ use wasnn_tensor::{Layout, Tensor, TensorCommon};
 use crate::graph::Dimension;
 use crate::ops::{
     ArgMax, ArgMin, AveragePool, BatchNormalization, Cast, Concat, ConstantOfShape, Conv,
-    ConvTranspose, CoordTransformMode, DataType, Flatten, Gather, Gemm, LeakyRelu, LogSoftmax,
-    MaxPool, Mod, NearestMode, OneHot, Padding, ReduceMax, ReduceMean, ReduceMin, ReduceProd,
-    ReduceSum, Reshape, Resize, ResizeMode, Scalar, ScatterElements, ScatterReduction, Softmax,
-    Split, TopK, Transpose,
+    ConvTranspose, CoordTransformMode, DataType, Flatten, Gather, Gemm, InstanceNormalization,
+    LeakyRelu, LogSoftmax, MaxPool, Mod, NearestMode, OneHot, Padding, ReduceMax, ReduceMean,
+    ReduceMin, ReduceProd, ReduceSum, Reshape, Resize, ResizeMode, Scalar, ScatterElements,
+    ScatterReduction, Softmax, Split, TopK, Transpose,
 };
 use crate::schema_generated as sg;
 
@@ -45,6 +45,7 @@ pub enum OpType {
     Greater,
     GreaterOrEqual,
     Identity,
+    InstanceNormalization(InstanceNormalization),
     LeakyRelu(LeakyRelu),
     Less,
     LessOrEqual,
@@ -434,6 +435,13 @@ impl<'a> ModelBuilder<'a> {
             OpType::Greater => op!(Greater),
             OpType::GreaterOrEqual => op!(GreaterOrEqual),
             OpType::Identity => op!(Identity),
+            OpType::InstanceNormalization(args) => op_with_attrs!(
+                InstanceNormalization,
+                BatchNormalizationAttrs,
+                sg::BatchNormalizationAttrsArgs {
+                    epsilon: args.epsilon.unwrap_or(1e-5)
+                }
+            ),
             OpType::LeakyRelu(args) => op_with_attrs!(
                 LeakyRelu,
                 LeakyReluAttrs,

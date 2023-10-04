@@ -520,7 +520,7 @@ def op_node_from_onnx_operator(
                 attrs.padMode = sg.PadMode.Fixed
             attrs.strides = read_strides(op_reader)
 
-        case "BatchNormalization":
+        case "BatchNormalization" | "InstanceNormalization":
             attrs = sg.BatchNormalizationAttrsT()
             attrs.epsilon = op_reader.get_attr("epsilon", "float", 1e-5)
 

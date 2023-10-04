@@ -92,6 +92,7 @@ enum OperatorType: byte {
   Acos,
   Asin,
   Atan,
+  InstanceNormalization
 }
 
 enum RNNDirection: byte {
@@ -133,7 +134,7 @@ enum ResizeMode: byte {
 union OperatorAttrs {
   ArgMaxAttrs, // Also used for ArgMin
   AveragePoolAttrs,
-  BatchNormalizationAttrs,
+  BatchNormalizationAttrs, // Also used for InstanceNormalization
   CastAttrs,
   ConcatAttrs,
   ConstantOfShapeAttrs,

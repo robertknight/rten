@@ -112,6 +112,112 @@ impl Operator for BatchNormalization {
     }
 }
 
+pub fn instance_normalization(
+    input: TensorView,
+    scale: NdTensorView<f32, 1>,
+    bias: NdTensorView<f32, 1>,
+    epsilon: Option<f32>,
+) -> Result<Tensor, OpError> {
+    let mut output = input.to_tensor();
+    instance_normalization_in_place(&mut output, scale, bias, epsilon)?;
+    Ok(output)
+}
+
+pub fn instance_normalization_in_place(
+    input: &mut Tensor,
+    scale: NdTensorView<f32, 1>,
+    bias: NdTensorView<f32, 1>,
+    epsilon: Option<f32>,
+) -> Result<(), OpError> {
+    let &[batch, chans, ..] = input.shape() else {
+        return Err(OpError::InvalidValue("expected input with >= 2 dims"));
+    };
+
+    // If epsilon is None, use default from ONNX spec.
+    let epsilon = epsilon.unwrap_or(1e-5);
+
+    if scale.size(0) != chans {
+        return Err(OpError::InvalidValue(
+            "scale length should match channel count",
+        ));
+    }
+
+    if bias.size(0) != chans {
+        return Err(OpError::InvalidValue(
+            "bias length should match channel count",
+        ));
+    }
+
+    for n in 0..batch {
+        for c in 0..chans {
+            let mut slice = input.slice_mut([n, c]);
+            let chan_scale = scale[[c]];
+            let chan_bias = bias[[c]];
+            let chan_mean = slice.iter().sum::<f32>() / slice.len() as f32;
+            let chan_variance = slice
+                .iter()
+                .map(|x| {
+                    let diff = *x - chan_mean;
+                    diff * diff
+                })
+                .sum::<f32>()
+                / slice.len() as f32;
+
+            // The instance norm formula, from the ONNX spec, is:
+            //
+            // Y = (X - input_mean) / sqrt(input_var + epsilon) * scale + bias
+            //
+            // It has been rewritten here to optimize the inner loop.
+            let scaled_std_dev_reciprocal = chan_scale / (chan_variance + epsilon).sqrt();
+
+            slice.apply(|x| (*x - chan_mean) * scaled_std_dev_reciprocal + chan_bias)
+        }
+    }
+
+    Ok(())
+}
+
+#[derive(Debug)]
+pub struct InstanceNormalization {
+    pub epsilon: Option<f32>,
+}
+
+impl Operator for InstanceNormalization {
+    fn name(&self) -> &str {
+        "InstanceNormalization"
+    }
+
+    fn run(&self, inputs: InputList) -> Result<Vec<Output>, OpError> {
+        let input = inputs.require_as(0)?;
+
+        let scale = inputs.require_as(1)?;
+        let scale = static_dims!(scale, 1)?;
+
+        let bias = inputs.require_as(2)?;
+        let bias = static_dims!(bias, 1)?;
+
+        instance_normalization(input.view(), scale, bias, self.epsilon).into_op_result()
+    }
+
+    fn can_run_in_place(&self) -> bool {
+        true
+    }
+
+    fn run_in_place(&self, output: Output, inputs: InputList) -> Result<Output, OpError> {
+        let mut output = output.into_float().ok_or(OpError::IncorrectInputType)?;
+
+        let scale = inputs.require_as(0)?;
+        let scale = static_dims!(scale, 1)?;
+
+        let bias = inputs.require_as(1)?;
+        let bias = static_dims!(bias, 1)?;
+
+        instance_normalization_in_place(&mut output, scale, bias, self.epsilon)?;
+
+        Ok(output.into())
+    }
+}
+
 pub fn log_softmax(input: TensorView, axis: isize) -> Result<Tensor, OpError> {
     let mut output = input.to_tensor();
     log_softmax_in_place(&mut output, axis)?;
@@ -256,7 +362,9 @@ mod tests {
     use wasnn_tensor::test_util::expect_equal;
     use wasnn_tensor::{tensor, Layout, Tensor, TensorCommon};
 
-    use crate::ops::{batch_norm, batch_norm_in_place, log_softmax, softmax};
+    use crate::ops::{
+        batch_norm, batch_norm_in_place, instance_normalization, log_softmax, softmax,
+    };
 
     #[test]
     fn test_batch_norm() -> Result<(), String> {
@@ -309,6 +417,29 @@ mod tests {
         .unwrap();
 
         expect_equal(&input, &expected)
+    }
+
+    #[test]
+    fn test_instance_normalization() -> Result<(), String> {
+        // Sample values generated using `torch.rand`.
+        let input = tensor!((1, 5, 2); [
+            0.9562, 0.0572, 0.4366, 0.5655, 0.2017,
+            0.0230, 0.7941, 0.1554, 0.3226, 0.120
+        ]);
+        let scale = tensor!([0.0751, 0.6952, 0.5800, 0.6791, 0.9884]);
+        let bias = tensor!([0.9993, 0.7632, 0.7679, 0.2427, 0.0728]);
+
+        // Expected result computed with `torch.nn.functional.instance_norm`.
+        // The `scale` parameter in ONNX is called `weight` in PyTorch.
+        let expected = tensor!((1, 5, 2); [
+            1.0744,  0.9242,  0.0688,  1.4576,  1.3476,
+            0.1883,  0.9217, -0.4364, 1.0608, -0.9152
+        ]);
+
+        let result =
+            instance_normalization(input.view(), scale.nd_view(), bias.nd_view(), None).unwrap();
+
+        expect_equal(&result, &expected)
     }
 
     #[test]

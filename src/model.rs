@@ -258,6 +258,15 @@ fn read_gru_op(node: &OperatorNode) -> ReadOpResult {
     }))
 }
 
+fn read_instance_normalization_op(node: &OperatorNode) -> ReadOpResult {
+    let attrs = node
+        .attrs_as_batch_normalization_attrs()
+        .ok_or(ReadOpError::AttrError)?;
+    Ok(Box::new(ops::InstanceNormalization {
+        epsilon: Some(attrs.epsilon()),
+    }))
+}
+
 fn read_leaky_relu_op(node: &OperatorNode) -> ReadOpResult {
     let attrs = node
         .attrs_as_leaky_relu_attrs()
@@ -501,6 +510,7 @@ fn read_operator(node: &OperatorNode) -> ReadOpResult {
         OperatorType::GreaterOrEqual => op!(GreaterOrEqual),
         OperatorType::GRU => read_gru_op(node),
         OperatorType::Identity => op!(Identity),
+        OperatorType::InstanceNormalization => read_instance_normalization_op(node),
         OperatorType::LeakyRelu => read_leaky_relu_op(node),
         OperatorType::Less => op!(Less),
         OperatorType::LessOrEqual => op!(LessOrEqual),
@@ -920,6 +930,15 @@ mod tests {
         // TODO - Add GRU operator
 
         add_operator!(Identity, [input_node]);
+
+        let instance_norm_scale_val = tensor!([1.0]);
+        let instance_norm_scale = builder.add_float_constant(&instance_norm_scale_val);
+        let instance_norm_bias_val = tensor!([1.0]);
+        let instance_norm_bias = builder.add_float_constant(&instance_norm_bias_val);
+        add_operator!(InstanceNormalization, [
+            input_node, instance_norm_scale, instance_norm_bias
+        ], { epsilon: Some(1e-5) });
+
         add_operator!(LeakyRelu, [input_node], { alpha: 0.01 });
         add_operator!(Less, [input_node, input_node]);
         add_operator!(LessOrEqual, [input_node, input_node]);
