@@ -295,9 +295,15 @@ class ONNXOperatorReader:
         self.input_indexes[input_index] = input_id
 
     def check_attr(self, name: str, expected_type, default):
-        """Check if an operator has an unsupported non-default value for an attribute."""
+        """
+        Check if an operator has an unsupported non-default value for an attribute.
+
+        If `default` is a tuple, it specified a set of acceptable defaults.
+        """
         val = self.get_attr(name, expected_type, default)
-        if val != default:
+        if not isinstance(default, tuple):
+            default = (default,)
+        if val not in default:
             raise Exception(
                 f"Unsupported value {val} for attribute {name}. Default is {default}"
             )
@@ -406,13 +412,10 @@ def read_pads(op_reader: ONNXOperatorReader) -> tuple[str, list[int] | None]:
             pad_mode = "same"
             pads = []
         case "NOTSET":
-            padding = op_reader.get_attr("pads", "ints", [0, 0, 0, 0])
-            if len(padding) != 4:
-                raise Exception('"padding" attribute must have 4 values')
-            pad_top, pad_left, pad_right, pad_bottom = iter(padding)
-
             pad_mode = "fixed"
-            pads = [pad_top, pad_left, pad_bottom, pad_right]
+            pads = op_reader.get_attr("pads", "ints", [0, 0, 0, 0])
+            if len(pads) not in [2, 4]:
+                raise Exception('"padding" attribute must have 2 or 4 values')
         case other:
             raise Exception(f"Unsupported auto_pad value {other}")
 
@@ -426,10 +429,9 @@ def read_strides(
     Read a stride specification from an ONNX operator.
     """
     strides = op_reader.get_attr("strides", "ints", [1, 1])
-    if len(strides) != 2:
-        raise Exception('"strides" attribute must have 2 values')
-    stride_width, stride_height = iter(strides)
-    return [stride_width, stride_height]
+    if len(strides) not in [1, 2]:
+        raise Exception('"strides" attribute must have 1 or 2 values')
+    return strides
 
 
 def op_node_from_onnx_operator(
@@ -573,7 +575,7 @@ def op_node_from_onnx_operator(
                 attrs.pads = pads
             attrs.strides = read_strides(op_reader)
 
-            op_reader.check_attr("dilations", "ints", [1, 1])
+            op_reader.check_attr("dilations", "ints", ([1], [1, 1]))
 
             # The kernel shape is inferred at runtime from the input weight tensor.
             op_reader.ignore_attr("kernel_shape")
@@ -583,7 +585,7 @@ def op_node_from_onnx_operator(
             attrs.strides = read_strides(op_reader)
 
             op_reader.check_attr("auto_pad", "string", "NOTSET")
-            op_reader.check_attr("dilations", "ints", [1, 1])
+            op_reader.check_attr("dilations", "ints", ([1], [1, 1]))
             op_reader.check_attr("group", "int", 1)
 
             # The kernel shape is inferred at runtime from the input weight tensor.
@@ -654,7 +656,7 @@ def op_node_from_onnx_operator(
             attrs.strides = read_strides(op_reader)
 
             op_reader.check_attr("ceil_mode", "int", 0)
-            op_reader.check_attr("dilations", "ints", [1, 1])
+            op_reader.check_attr("dilations", "ints", ([1], [1, 1]))
             op_reader.check_attr("storage_order", "int", 0)
 
         case "Mod":
