@@ -1,9 +1,12 @@
 use std::iter::zip;
+
 use std::ops::Range;
 
 use rayon::prelude::*;
 
-use wasnn_tensor::{Layout, NdTensorCommon, NdTensorView, NdTensorViewMut, Tensor, TensorCommon};
+use wasnn_tensor::{
+    Layout, NdTensorCommon, NdTensorView, NdTensorViewMut, Tensor, TensorCommon, TensorView,
+};
 
 use crate::check_dims;
 use crate::linalg::{
@@ -290,9 +293,11 @@ fn conv_2d_depthwise(
     output
 }
 
-/// Perform a 2D convolution of `input` with `kernel`.
+/// Perform a convolution of `input` with `kernel`.
 ///
-/// `input` has dimensions NCHW while `kernel` has OGHW where `G` is `C / groups`.
+/// For a 2D convolution `input` has dimensions NCHW while `kernel` has OGHW
+/// where `G` is `C / groups`. 1D convolutions are similar except the "H"
+/// dimension is omitted.
 ///
 /// - `padding` specifies the amount of horizontal and vertical padding respectively
 ///   that is added to each side.
@@ -305,20 +310,57 @@ fn conv_2d_depthwise(
 ///   separately with `output_channels / groups` outputs. This is known as
 ///   depthwise convolution.
 pub fn conv(
-    input: &Tensor,
-    kernel: &Tensor,
-    bias: Option<&Tensor>,
+    input: TensorView,
+    kernel: TensorView,
+    bias: Option<TensorView>,
     padding: Padding,
     groups: usize,
     strides: &[usize],
 ) -> Result<Tensor, OpError> {
+    // Handle 1D convolution by expanding to 2D and then removing the extra
+    // dimension from the result.
+    if input.ndim() == 3 {
+        let [n, c, w] = check_dims!(input, 3, "NCW");
+        let [out_c, k_in_c, k_w] = check_dims!(kernel, 3, "OCW");
+
+        let mut input_2d = input.clone();
+        input_2d.reshape(&[n, c, 1, w]);
+
+        let mut kernel_2d = kernel.clone();
+        kernel_2d.reshape(&[out_c, k_in_c, 1, k_w]);
+
+        let padding_2d: Padding = match padding {
+            Padding::Same => Padding::Same,
+            Padding::Fixed(pads) => match pads.as_slice() {
+                &[pad_start, pad_end] => [0, pad_start, 0, pad_end].into(),
+                _ => {
+                    return Err(OpError::InvalidValue("expected 2 pad values"));
+                }
+            },
+        };
+
+        let strides_2d = match strides {
+            &[stride] => [1, stride],
+            _ => {
+                return Err(OpError::InvalidValue("expected 1 stride value"));
+            }
+        };
+
+        let result_2d = conv(input_2d, kernel_2d, bias, padding_2d, groups, &strides_2d);
+
+        return result_2d.map(|mut t| {
+            let [n, c, _h, w]: [usize; 4] = t.shape().try_into().expect("expected 4D output");
+            t.reshape(&[n, c, w]);
+            t
+        });
+    }
+
     let [batch, in_c, in_h, in_w] = check_dims!(input, 4, "NCHW");
     let [out_c, k_in_c, k_h, k_w] = check_dims!(kernel, 4, "OCHW");
     check_dims!(bias?, 1);
 
     let input = input.view();
     let kernel = kernel.view();
-    let bias = bias.map(|b| b.view());
 
     let [stride_h, stride_w]: [usize; 2] = strides
         .try_into()
@@ -334,7 +376,7 @@ pub fn conv(
         return Ok(conv_2d_pointwise(
             &input.nd_view(),
             &kernel.nd_view(),
-            bias.map(|b| b.nd_view()),
+            bias.as_ref().map(|b| b.nd_view()),
         ));
     }
 
@@ -434,9 +476,9 @@ impl Operator for Conv {
         let weight = inputs.require_as(1)?;
         let bias = inputs.get_as(2)?;
         conv(
-            input,
-            weight,
-            bias,
+            input.view(),
+            weight.view(),
+            bias.map(|b| b.view()),
             self.padding.clone(),
             self.groups,
             &self.strides,
@@ -677,8 +719,8 @@ mod tests {
         );
 
         let result = conv(
-            &input,
-            &kernel,
+            input.view(),
+            kernel.view(),
             None,
             [1, 1, 1, 1].into(),
             1,       /* groups */
@@ -699,8 +741,8 @@ mod tests {
         let expected_with_no_padding = Tensor::from_data(&[1, 1, 1, 1], vec![2.6358]);
 
         let result = conv(
-            &input,
-            &kernel,
+            input.view(),
+            kernel.view(),
             None,
             [0, 0, 0, 0].into(),
             1,       /* groups */
@@ -721,9 +763,9 @@ mod tests {
         let expected_with_bias = Tensor::from_data(&[1, 1, 1, 1], vec![3.6358]);
         let bias = Tensor::from_data(&[1], vec![1.0]);
         let result = conv(
-            &input,
-            &kernel,
-            Some(&bias),
+            input.view(),
+            kernel.view(),
+            Some(bias.view()),
             [0, 0, 0, 0].into(),
             1,       /* groups */
             &[1, 1], /* stride */
@@ -788,9 +830,9 @@ mod tests {
         let bias = Tensor::rand(&[10], &mut rng);
 
         let result = conv(
-            &input,
-            &kernel,
-            Some(&bias),
+            input.view(),
+            kernel.view(),
+            Some(bias.view()),
             [0, 0, 1, 1].into(),
             1,       /* groups */
             &[1, 1], /* stride */
@@ -816,9 +858,9 @@ mod tests {
         let bias = Tensor::rand(&[10], &mut rng);
 
         let result = conv(
-            &input,
-            &kernel,
-            Some(&bias),
+            input.view(),
+            kernel.view(),
+            Some(bias.view()),
             [0, 0, 1, 1].into(),
             10,      /* groups */
             &[1, 1], /* stride */
@@ -846,9 +888,9 @@ mod tests {
 
         // Contiguous inputs
         let result = conv(
-            &input,
-            &kernel,
-            Some(&bias),
+            input.view(),
+            kernel.view(),
+            Some(bias.view()),
             [0, 0, 0, 0].into(),
             1,       /* groups */
             &[1, 1], /* stride */
@@ -872,9 +914,9 @@ mod tests {
         assert!(!input_transposed.is_contiguous());
 
         let result = conv(
-            &input_transposed,
-            &kernel,
-            Some(&bias),
+            input_transposed.view(),
+            kernel.view(),
+            Some(bias.view()),
             [0, 0, 0, 0].into(),
             1,       /* groups */
             &[1, 1], /* stride */
@@ -894,9 +936,9 @@ mod tests {
         // Batch size > 1
         let input = Tensor::rand(&[2, 5, 20, 20], &mut rng);
         let result = conv(
-            &input,
-            &kernel,
-            Some(&bias),
+            input.view(),
+            kernel.view(),
+            Some(bias.view()),
             [0, 0, 0, 0].into(),
             1,       /* groups */
             &[1, 1], /* stride */
@@ -953,9 +995,9 @@ mod tests {
         );
 
         let result = conv(
-            &input,
-            &kernel,
-            Some(&bias),
+            input.view(),
+            kernel.view(),
+            Some(bias.view()),
             [0, 0, 0, 0].into(),
             3,       /* groups */
             &[1, 1], /* stride */
@@ -976,9 +1018,9 @@ mod tests {
         let bias = Tensor::rand(&[4], &mut rng);
 
         let result = conv(
-            &input,
-            &kernel,
-            Some(&bias),
+            input.view(),
+            kernel.view(),
+            Some(bias.view()),
             [1, 1, 1, 1].into(),
             2,       /* groups */
             &[1, 1], /* stride */
@@ -1006,8 +1048,8 @@ mod tests {
                 for input_size in [3, 4, 5, 10, 20] {
                     let input = Tensor::rand(&[2, 3, input_size, input_size], &mut rng);
                     let result = conv(
-                        &input,
-                        &kernel,
+                        input.view(),
+                        kernel.view(),
                         None,
                         [pad, pad, pad, pad].into(),
                         1, /* groups */
@@ -1040,8 +1082,8 @@ mod tests {
                 for input_size in [3, 4, 5, 10, 20] {
                     let input = Tensor::rand(&[1, 3, input_size, input_size], &mut rng);
                     let result = conv(
-                        &input,
-                        &kernel,
+                        input.view(),
+                        kernel.view(),
                         None,
                         [pad, pad, pad, pad].into(),
                         3, /* groups */
@@ -1071,8 +1113,8 @@ mod tests {
         let kernel = Tensor::rand(&[1, 1, 3, 3], &mut rng);
 
         let result = conv(
-            &input,
-            &kernel,
+            input.view(),
+            kernel.view(),
             None,
             [0; 4].into(),
             1,       /* groups */
@@ -1092,8 +1134,8 @@ mod tests {
         let kernel = Tensor::rand(&[1, 1, 2, 2], &mut rng);
 
         let result = conv(
-            &input,
-            &kernel,
+            input.view(),
+            kernel.view(),
             None,
             [0; 4].into(),
             1,       /* groups */
@@ -1104,6 +1146,26 @@ mod tests {
             result.err(),
             Some(OpError::InvalidValue("Stride must be > 0"))
         );
+    }
+
+    #[test]
+    fn test_conv_1d() {
+        let mut rng = XorShiftRng::new(1234);
+        let [n, in_c, out_c, in_w, k_w] = [1, 5, 10, 20, 3];
+        let input = Tensor::rand(&[n, in_c, in_w], &mut rng);
+        let kernel = Tensor::rand(&[out_c, in_c, k_w], &mut rng);
+
+        let result = conv(
+            input.view(),
+            kernel.view(),
+            None,
+            Padding::Same,
+            1,    /* groups */
+            &[1], /* stride */
+        )
+        .unwrap();
+
+        assert_eq!(result.shape(), &[n, out_c, in_w]);
     }
 
     #[test]
