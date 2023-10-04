@@ -40,8 +40,14 @@ pub fn calc_output_size_and_padding(
             let out_h = div_ceil(in_h, stride_h);
             let out_w = div_ceil(in_w, stride_w);
 
-            let pad_total_h = (out_h - 1) * stride_h + k_h.saturating_sub(in_h);
-            let pad_total_w = (out_w - 1) * stride_w + k_w.saturating_sub(in_w);
+            // We don't yet support dilations, these are just the defaults.
+            let dilation_h = 1;
+            let dilation_w = 1;
+
+            let pad_total_h =
+                ((out_h - 1) * stride_h + (k_h - 1) * dilation_h + 1).saturating_sub(in_h);
+            let pad_total_w =
+                ((out_w - 1) * stride_w + (k_w - 1) * dilation_w + 1).saturating_sub(in_w);
 
             let pad_top = pad_total_h / 2;
             let pad_left = pad_total_w / 2;
@@ -312,7 +318,8 @@ mod tests {
     use wasnn_tensor::test_util::expect_equal;
     use wasnn_tensor::{Layout, Tensor};
 
-    use crate::ops::{average_pool, global_average_pool, max_pool, Padding};
+    use super::calc_output_size_and_padding;
+    use crate::ops::{average_pool, global_average_pool, max_pool, OpError, Padding};
 
     fn from_2d_slice<T: Clone>(data: &[&[T]]) -> Tensor<T> {
         let rows = data.len();
@@ -531,5 +538,49 @@ mod tests {
 
         let result = max_pool(&input, [2, 2], [3, 3], Padding::Same).unwrap();
         assert_eq!(result.shape(), &[1, 1, 3, 3]);
+    }
+
+    #[test]
+    fn test_calc_output_size_and_padding() {
+        struct Case {
+            in_size: (usize, usize),
+            kernel_size: (usize, usize),
+            strides: (usize, usize),
+            padding: Padding,
+            expected: Result<(usize, usize, [usize; 4]), OpError>,
+        }
+
+        let cases = [
+            Case {
+                in_size: (1, 20),
+                kernel_size: (1, 3),
+                strides: (1, 1),
+                padding: Padding::Same,
+                expected: Ok((1, 20, [0, 1, 0, 1])),
+            },
+            // Strides > kernel size. This would cause underflow if the
+            // clamping the padding to be >= 0.
+            Case {
+                in_size: (9, 9),
+                strides: (3, 3),
+                kernel_size: (2, 2),
+                padding: Padding::Same,
+                expected: Ok((3, 3, [0, 0, 0, 0])),
+            },
+        ];
+
+        for Case {
+            in_size,
+            kernel_size,
+            strides,
+            padding,
+            expected,
+        } in cases
+        {
+            assert_eq!(
+                calc_output_size_and_padding(in_size, kernel_size, strides, padding),
+                expected
+            );
+        }
     }
 }
