@@ -484,7 +484,7 @@ macro_rules! check_dims {
     };
 
     ($tensor:ident?, $ndim: expr) => {
-        if let Some($tensor) = $tensor {
+        if let Some($tensor) = $tensor.as_ref() {
             check_dims!($tensor, $ndim);
         }
     };
