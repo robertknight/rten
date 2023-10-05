@@ -53,14 +53,20 @@ class ConstantNode(Node):
         self.shape = shape
         self.data = data
 
+        shape_numel = np.product(shape)
+        if shape_numel != data.size:
+            raise ValueError(
+                f'Shape {shape} product {shape_numel} does not match data length {data.size} in node "{name}"'
+            )
+
         # Verify that this is a data type that we'll be able to serialize later.
         match data.dtype:
             case np.float32 | np.int32:
                 pass
             case _:
-                name = data.dtype.name
+                dtype_name = data.dtype.name
                 raise ValueError(
-                    f"Tried to construct ConstantNode with unsupported data type {name}"
+                    f'Tried to construct ConstantNode "{name}" with unsupported data type {dtype_name}'
                 )
 
     def get_scalar(self):
@@ -272,15 +278,15 @@ class ONNXOperatorReader:
         match attr_type:
             case "int":
                 shape = []
-                data = np.ndarray(attr_val).astype(np.int32)
+                data = np.array(attr_val).astype(np.int32)
 
             case "float":
                 shape = []
-                data = np.ndarray(attr_val).astype(np.float32)
+                data = np.array(attr_val).astype(np.float32)
 
             case "ints":
                 shape = [len(attr_val)]
-                data = np.ndarray(attr_val).astype(np.int32)
+                data = np.array([attr_val]).astype(np.int32)
             case _:
                 raise ValueError(
                     f'Unable to generate input from "{attr_name}" attribute of type "{attr_type}"'
