@@ -53,7 +53,7 @@ class ConstantNode(Node):
         self.shape = shape
         self.data = data
 
-        shape_numel = np.product(shape)
+        shape_numel = np.prod(shape)
         if shape_numel != data.size:
             raise ValueError(
                 f'Shape {shape} product {shape_numel} does not match data length {data.size} in node "{name}"'
@@ -306,7 +306,11 @@ class ONNXOperatorReader:
 
         If `default` is a tuple, it specified a set of acceptable defaults.
         """
-        val = self.get_attr(name, expected_type, default)
+
+        val = self.get_attr(name, expected_type, None)
+        if val is None:
+            return
+
         if not isinstance(default, tuple):
             default = (default,)
         if val not in default:
