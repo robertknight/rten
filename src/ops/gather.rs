@@ -1,7 +1,7 @@
 use std::iter::zip;
 
 use smallvec::SmallVec;
-use wasnn_tensor::{Layout, SliceItem, Tensor, TensorCommon, TensorView};
+use wasnn_tensor::{Layout, SliceItem, Tensor, TensorView, View};
 
 use crate::ops::reduce::{cmp_nan_greater, cmp_nan_less};
 use crate::ops::{
@@ -208,7 +208,7 @@ impl Operator for ScatterElements {
 mod tests {
     use wasnn_tensor::rng::XorShiftRng;
     use wasnn_tensor::test_util::expect_equal;
-    use wasnn_tensor::{tensor, Layout, Tensor, TensorCommon};
+    use wasnn_tensor::{tensor, Layout, Tensor, View};
 
     use crate::ops::{gather, scatter_elements, OpError, ScatterReduction};
 

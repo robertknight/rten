@@ -2,7 +2,7 @@ use std::iter::{zip, Rev};
 use std::ops::Range;
 
 use wasnn_tensor::Matrix;
-use wasnn_tensor::{Layout, Tensor, TensorCommon, TensorView, TensorViewMut};
+use wasnn_tensor::{Layout, Tensor, TensorView, TensorViewMut, View};
 
 use crate::check_dims;
 use crate::linalg::{GemmExecutor, GemmInputA, GemmInputB};
@@ -700,7 +700,7 @@ mod tests {
     use serde_json::Value;
     use wasnn_tensor::rng::XorShiftRng;
     use wasnn_tensor::test_util::expect_equal;
-    use wasnn_tensor::{Layout, Tensor, TensorCommon};
+    use wasnn_tensor::{Layout, Tensor, View};
 
     use crate::ops::{concat, gru, lstm, split, Direction};
 

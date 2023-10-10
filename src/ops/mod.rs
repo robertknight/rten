@@ -4,7 +4,7 @@ use std::fmt::{Debug, Display};
 
 use smallvec::SmallVec;
 
-use wasnn_tensor::{DynLayout, Layout, Tensor, TensorCommon};
+use wasnn_tensor::{DynLayout, Layout, Tensor, View};
 
 mod binary_elementwise;
 mod concat;
@@ -496,7 +496,7 @@ macro_rules! check_dims {
 #[macro_export]
 macro_rules! static_dims {
     ($tensor:ident, $ndim:literal, $dim_names:literal) => {{
-        use wasnn_tensor::{Layout, TensorCommon};
+        use wasnn_tensor::{Layout, View};
 
         if $tensor.ndim() != $ndim {
             Err(OpError::InvalidValue(concat!(
@@ -513,7 +513,7 @@ macro_rules! static_dims {
     }};
 
     ($tensor:ident, $ndim:literal) => {{
-        use wasnn_tensor::{Layout, TensorCommon};
+        use wasnn_tensor::{Layout, View};
 
         if $tensor.ndim() != $ndim {
             Err(OpError::InvalidValue(concat!(

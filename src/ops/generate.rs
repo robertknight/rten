@@ -1,7 +1,7 @@
 use std::iter::zip;
 use std::ops;
 
-use wasnn_tensor::{Layout, NdTensorView, Tensor, TensorCommon, TensorView};
+use wasnn_tensor::{Layout, NdTensorView, Tensor, TensorView, View};
 
 use crate::ops::{
     resolve_axis, resolve_index, Input, InputList, IntoOpResult, OpError, Operator, Output, Scalar,
@@ -158,7 +158,7 @@ impl Operator for Range {
 
 #[cfg(test)]
 mod tests {
-    use wasnn_tensor::{tensor, Layout, Tensor, TensorCommon};
+    use wasnn_tensor::{tensor, Layout, Tensor, View};
 
     use crate::ops::{onehot, range, ConstantOfShape, OpError, Operator, Scalar};
 

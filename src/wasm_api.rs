@@ -4,7 +4,7 @@ use std::rc::Rc;
 
 use wasm_bindgen::prelude::*;
 use wasnn_tensor::rng::XorShiftRng;
-use wasnn_tensor::{Layout, TensorCommon};
+use wasnn_tensor::{Layout, View};
 
 use crate::graph::Dimension;
 use crate::model;

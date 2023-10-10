@@ -178,7 +178,7 @@ impl Operator for Tile {
 #[cfg(test)]
 mod tests {
     use wasnn_tensor::test_util::expect_equal;
-    use wasnn_tensor::{tensor, Layout, Tensor, TensorCommon};
+    use wasnn_tensor::{tensor, Layout, Tensor, View};
 
     use crate::ops::{concat, tile, OpError};
 

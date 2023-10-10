@@ -2,7 +2,7 @@ extern crate libm;
 
 use std::fmt::Debug;
 
-use wasnn_tensor::{Tensor, TensorCommon, TensorView, TensorViewMut};
+use wasnn_tensor::{Tensor, TensorView, TensorViewMut, View};
 
 use crate::ops::{Input, InputList, IntoOpResult, OpError, Operator, Output};
 
@@ -378,7 +378,7 @@ unary_float_op!(Tanh, tanh, tanh_in_place, |val: f32| val.tanh());
 #[cfg(test)]
 mod tests {
     use wasnn_tensor::test_util::{eq_with_nans, expect_equal};
-    use wasnn_tensor::{tensor, Tensor, TensorCommon};
+    use wasnn_tensor::{tensor, Tensor, View};
 
     use crate::ops::{
         abs, acos, acos_in_place, asin, asin_in_place, atan, atan_in_place, ceil, clip,

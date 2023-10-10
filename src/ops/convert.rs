@@ -1,4 +1,4 @@
-use wasnn_tensor::TensorCommon;
+use wasnn_tensor::View;
 
 use crate::ops::{DataType, Input, InputList, IntoOpResult, OpError, Operator, Output};
 

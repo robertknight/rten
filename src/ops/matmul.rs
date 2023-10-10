@@ -168,7 +168,7 @@ impl Operator for MatMul {
 mod tests {
     use wasnn_tensor::rng::XorShiftRng;
     use wasnn_tensor::test_util::expect_equal;
-    use wasnn_tensor::{Layout, Tensor, TensorCommon};
+    use wasnn_tensor::{Layout, Tensor, View};
 
     use crate::linalg::gemm;
     use crate::ops::matmul::{gemm_op, matmul, OpError};

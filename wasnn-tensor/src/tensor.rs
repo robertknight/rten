@@ -35,12 +35,13 @@ impl<Array: AsRef<[usize]>> TensorIndex for Array {
     }
 }
 
-/// Common operations that are applicable to owned ([Tensor]), borrowed
-/// ([TensorView]) and mutably borrowed ([TensorViewMut]) tensors.
+/// Multi-dimensional array view with a dynamic dimension count. This trait
+/// includes operations that are available on tensors that own their data
+/// ([Tensor]) as well as views ([TensorView], [TensorViewMut]).
 ///
 /// [TensorView] implements specialized versions of these methods as
 /// inherent methods, which preserve lifetimes on the result.
-pub trait TensorCommon: Layout {
+pub trait View: Layout {
     /// The data type of elements in this tensor.
     type Elem;
 
@@ -66,7 +67,7 @@ pub trait TensorCommon: Layout {
     /// Return the element buffer for this tensor as a slice.
     ///
     /// If the tensor is contiguous, the buffer will contain the same elements
-    /// in the same order as yielded by [TensorCommon::iter]. In other cases the
+    /// in the same order as yielded by [View::iter]. In other cases the
     /// buffer may have unused indexes or a different ordering.
     fn data(&self) -> &[Self::Elem];
 
@@ -195,8 +196,7 @@ pub trait TensorCommon: Layout {
 ///
 /// All [TensorBase] variants implement the [Layout] trait which provide
 /// operations related to the shape and strides of the tensor, and the
-/// [TensorCommon] trait which provides common methods applicable to all
-/// variants.
+/// [View] trait which provides common methods applicable to all variants.
 #[derive(Debug)]
 pub struct TensorBase<T, S: AsRef<[T]>> {
     data: S,
@@ -329,7 +329,7 @@ impl<T, S: AsRef<[T]>> TensorBase<T, S> {
     }
 }
 
-/// Specialized versions of the [TensorCommon] methods for immutable views.
+/// Specialized versions of the [View] methods for immutable views.
 /// These preserve the underlying lifetime of the view in results, allowing for
 /// method calls to be chained.
 impl<'a, T> TensorView<'a, T> {
@@ -506,7 +506,7 @@ impl<T, S: AsRef<[T]>> Layout for TensorBase<T, S> {
     }
 }
 
-impl<T, S: AsRef<[T]>> TensorCommon for TensorBase<T, S> {
+impl<T, S: AsRef<[T]>> View for TensorBase<T, S> {
     type Elem = T;
 
     fn data(&self) -> &[T] {
@@ -828,8 +828,8 @@ impl<S: AsRef<[f32]>> TensorBase<f32, S> {
     }
 }
 
-impl<T: PartialEq, S: AsRef<[T]>, TC: TensorCommon<Elem = T>> PartialEq<TC> for TensorBase<T, S> {
-    fn eq(&self, other: &TC) -> bool {
+impl<T: PartialEq, S: AsRef<[T]>, V: View<Elem = T>> PartialEq<V> for TensorBase<T, S> {
+    fn eq(&self, other: &V) -> bool {
         self.shape() == other.shape().as_ref() && self.iter().eq(other.iter())
     }
 }
@@ -882,10 +882,7 @@ mod tests {
 
     use crate::rng::XorShiftRng;
     use crate::tensor;
-    use crate::{
-        Layout, NdTensor, NdTensorCommon, SliceRange, Tensor, TensorCommon, TensorView,
-        TensorViewMut,
-    };
+    use crate::{Layout, NdTensor, NdView, SliceRange, Tensor, TensorView, TensorViewMut, View};
 
     /// Create a tensor where the value of each element is its logical index
     /// plus one.

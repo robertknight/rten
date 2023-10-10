@@ -1,4 +1,4 @@
-use wasnn_tensor::{Layout, NdTensorView, SliceItem, Tensor, TensorCommon, TensorView};
+use wasnn_tensor::{Layout, NdTensorView, SliceItem, Tensor, TensorView, View};
 
 use crate::ops::{resolve_axis, InputList, OpError, Operator, Output};
 use crate::static_dims;
@@ -66,7 +66,7 @@ impl Operator for Split {
 
 #[cfg(test)]
 mod tests {
-    use wasnn_tensor::{tensor, TensorCommon};
+    use wasnn_tensor::{tensor, View};
 
     use crate::ops::{split, OpError};
 

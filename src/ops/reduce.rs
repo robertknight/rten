@@ -3,8 +3,7 @@ use std::iter::{zip, Skip, StepBy, Take};
 
 use wasnn_tensor;
 use wasnn_tensor::{
-    DynIndices, Layout, NdTensor, Offsets, SliceRange, Tensor, TensorCommon, TensorView,
-    TensorViewMut,
+    DynIndices, Layout, NdTensor, Offsets, SliceRange, Tensor, TensorView, TensorViewMut, View,
 };
 
 use crate::number::Identities;
@@ -775,7 +774,7 @@ impl Operator for TopK {
 #[cfg(test)]
 mod tests {
     use wasnn_tensor::test_util::{eq_with_nans, expect_equal};
-    use wasnn_tensor::{tensor, Layout, Tensor, TensorCommon};
+    use wasnn_tensor::{tensor, Layout, Tensor, View};
 
     use crate::ops::{
         arg_max, arg_min, cum_sum, nonzero, reduce_l2, reduce_max, reduce_mean, reduce_min,

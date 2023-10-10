@@ -10,14 +10,15 @@ use crate::layout::{Layout, MatrixLayout, NdLayout, OverlapPolicy};
 use crate::range::SliceItem;
 use crate::{IntoSliceItems, TensorBase, TensorView, TensorViewMut};
 
-/// Common operations that are applicable to owned ([NdTensor]), borrowed
-/// ([NdTensorView]) and mutably borrowed ([NdTensorViewMut]) tensors.
+/// Multi-dimensional array view with a static dimension count. This trait
+/// includes operations that are available on tensors that own their data
+/// ([NdTensor]), as well as views ([NdTensorView], [NdTensorViewMut]).
 ///
 /// `N` is the static rank of this tensor.
 ///
 /// [NdTensorView] implements specialized versions of these methods as inherent
 /// methods, which preserve lifetiems on the result.
-pub trait NdTensorCommon<const N: usize>: Layout {
+pub trait NdView<const N: usize>: Layout {
     /// The data type of elements in this tensor.
     type Elem;
 
@@ -114,8 +115,7 @@ pub trait NdTensorCommon<const N: usize>: Layout {
 ///
 /// All [NdTensorBase] variants implement the [Layout] trait which provide
 /// operations related to the shape and strides of the tensor, and the
-/// [NdTensorCommon] trait which provides common methods applicable to all
-/// variants.
+/// [NdView] trait which provides common methods applicable to all variants.
 #[derive(Clone, Copy, Debug)]
 pub struct NdTensorBase<T, S: AsRef<[T]>, const N: usize> {
     data: S,
@@ -195,7 +195,7 @@ impl<T, S: AsRef<[T]>, const N: usize> NdTensorBase<T, S, N> {
     }
 }
 
-impl<T, S: AsRef<[T]>, const N: usize> NdTensorCommon<N> for NdTensorBase<T, S, N> {
+impl<T, S: AsRef<[T]>, const N: usize> NdView<N> for NdTensorBase<T, S, N> {
     type Elem = T;
 
     fn data(&self) -> &[T] {
@@ -266,7 +266,7 @@ impl<'a, T, const N: usize> NdTensorView<'a, T, N> {
     }
 }
 
-/// Specialized versions of the [NdTensorCommon] methods for immutable views.
+/// Specialized versions of the [NdView] methods for immutable views.
 /// These preserve the underlying lifetime of the view in results, allowing for
 /// method calls to be chained.
 impl<'a, T, const N: usize> NdTensorView<'a, T, N> {
@@ -638,8 +638,7 @@ impl<T: PartialEq, S1: AsRef<[T]>, S2: AsRef<[T]>, const N: usize> PartialEq<NdT
 mod tests {
     use crate::errors::{DimensionError, FromDataError};
     use crate::{
-        Layout, MatrixLayout, NdTensor, NdTensorCommon, NdTensorView, NdTensorViewMut, Tensor,
-        TensorCommon,
+        Layout, MatrixLayout, NdTensor, NdTensorView, NdTensorViewMut, NdView, Tensor, View,
     };
 
     /// Return elements of `tensor` in their logical order.

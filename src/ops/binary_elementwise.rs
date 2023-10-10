@@ -1,7 +1,7 @@
 use std::fmt::Debug;
 use std::iter::{repeat, zip};
 
-use wasnn_tensor::{Layout, Tensor, TensorCommon, TensorView};
+use wasnn_tensor::{Layout, Tensor, TensorView, View};
 
 use crate::number::{Identities, IsInt};
 use crate::ops::{Input, InputList, IntoOpResult, OpError, Operator, Output};
@@ -586,7 +586,7 @@ impl Operator for Where {
 #[cfg(test)]
 mod tests {
     use wasnn_tensor::test_util::expect_equal;
-    use wasnn_tensor::{tensor, Layout, Tensor, TensorCommon};
+    use wasnn_tensor::{tensor, Layout, Tensor, View};
 
     use crate::ops::{
         add, add_in_place, div, div_in_place, equal, greater, greater_or_equal, less,

@@ -88,7 +88,7 @@ impl Operator for Pad {
 #[cfg(test)]
 mod tests {
     use wasnn_tensor::test_util::expect_equal;
-    use wasnn_tensor::{Layout, Tensor, TensorCommon};
+    use wasnn_tensor::{Layout, Tensor, View};
 
     use crate::ops::{pad, OpError, Operator, Pad};
 

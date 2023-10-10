@@ -476,7 +476,7 @@ impl<'a, T: Copy + Default> Painter<'a, T> {
 
 #[cfg(test)]
 mod tests {
-    use wasnn_tensor::{Layout, MatrixLayout, NdTensor, NdTensorCommon, NdTensorView};
+    use wasnn_tensor::{Layout, MatrixLayout, NdTensor, NdTensorView, NdView};
 
     use crate::tests::print_grid;
     use crate::{BoundingRect, Painter, Point, Polygon, Rect};

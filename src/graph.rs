@@ -589,7 +589,7 @@ mod tests {
     use std::sync::{Arc, Mutex};
 
     use wasnn_tensor::test_util::expect_equal;
-    use wasnn_tensor::{Layout, Tensor, TensorCommon};
+    use wasnn_tensor::{Layout, Tensor, View};
 
     use crate::graph::{Dimension, Graph, RunError};
     use crate::ops::{

@@ -6,7 +6,7 @@ use hound;
 
 use wasnn::ctc::CtcDecoder;
 use wasnn::Model;
-use wasnn_tensor::{Tensor, TensorCommon};
+use wasnn_tensor::{Tensor, View};
 
 struct Args {
     model: String,

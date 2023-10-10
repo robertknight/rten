@@ -4,9 +4,7 @@ use std::ops::Range;
 
 use rayon::prelude::*;
 
-use wasnn_tensor::{
-    Layout, NdTensorCommon, NdTensorView, NdTensorViewMut, Tensor, TensorCommon, TensorView,
-};
+use wasnn_tensor::{Layout, NdTensorView, NdTensorViewMut, NdView, Tensor, TensorView, View};
 
 use crate::check_dims;
 use crate::linalg::{
@@ -614,7 +612,7 @@ impl Operator for ConvTranspose {
 mod tests {
     use wasnn_tensor::rng::XorShiftRng;
     use wasnn_tensor::test_util::expect_equal;
-    use wasnn_tensor::{Layout, Tensor, TensorCommon};
+    use wasnn_tensor::{Layout, Tensor, View};
 
     use crate::ops::pooling::calc_output_size_and_padding;
     use crate::ops::{conv, conv_transpose, Conv, OpError, Operator, Padding};

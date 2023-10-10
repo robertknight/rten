@@ -726,7 +726,7 @@ fn load_model(data: &[u8]) -> Result<Model, String> {
 mod tests {
     extern crate flatbuffers;
 
-    use wasnn_tensor::{tensor, Layout, Tensor, TensorCommon};
+    use wasnn_tensor::{tensor, Layout, Tensor, View};
 
     use crate::graph::{Dimension, RunError};
     use crate::model::Model;
