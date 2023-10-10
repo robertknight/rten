@@ -5,7 +5,7 @@ use wasnn_imageproc::{
     bounding_rect, find_contours, min_area_rect, simplify_polygon, BoundingRect, Coord, Line,
     LineF, Point, PointF, Rect, RectF, RetrievalMode, RotatedRect,
 };
-use wasnn_tensor::{Layout, NdTensor, NdTensorCommon, NdTensorView, Tensor, TensorCommon};
+use wasnn_tensor::{Layout, NdTensor, NdTensorView, NdView, Tensor, View};
 
 use crate::empty_rects::{max_empty_rects, FilterOverlapping};
 use crate::xy_tree::{PartitionOpts, XyNode};
@@ -287,23 +287,13 @@ pub fn analyze_layout(words: &[RotatedRect], layout_model: Option<&Model>) -> Pa
             // word_features[[5]] = norm_y(word_br.bottom()) - norm_y(word_br.top());
         }
 
-        let input_id = model
-            .input_ids()
-            .first()
-            .copied()
-            .expect("model has no inputs");
-        let output_id = model
-            .output_ids()
-            .first()
-            .copied()
-            .expect("model has no outputs");
         let word_features_dyn: Tensor<f32> = word_features.into();
 
-        let output = model
-            .run_one(input_id, &word_features_dyn, output_id, None)
+        let word_labels = model
+            .run_simple(&word_features_dyn, None)
             .expect("model run failed");
 
-        let word_labels: NdTensorView<f32, 3> = output.as_float_ref().unwrap().nd_view();
+        let word_labels: NdTensorView<f32, 3> = word_labels.nd_view();
         println!("Output shape {:?}", word_labels.shape());
 
         // let line_start_probs: NdTensorView<_, 1> = word_labels.slice((0, .., 0));
