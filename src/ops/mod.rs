@@ -4,7 +4,7 @@ use std::fmt::{Debug, Display};
 
 use smallvec::SmallVec;
 
-use wasnn_tensor::{DynLayout, Layout, Tensor, View};
+use wasnn_tensor::{DynLayout, Layout, NdTensor, NdTensorView, Tensor, TensorView, View};
 
 mod binary_elementwise;
 mod concat;
@@ -304,19 +304,21 @@ impl Layout for Output {
     }
 }
 
-/// Declare conversions between `Output` and `Tensor<T>`.
+/// Declare conversions between `Output` and `Tensor<T>` / `NdTensor<T, N>`.
 macro_rules! impl_output_conversions {
-    ($variant:ident, $type:ty) => {
-        impl From<$type> for Output {
-            fn from(t: $type) -> Output {
+    ($variant:ident, $element_type:ty) => {
+        // Tensor<T> => Output
+        impl From<Tensor<$element_type>> for Output {
+            fn from(t: Tensor<$element_type>) -> Output {
                 Output::$variant(t)
             }
         }
 
-        impl TryFrom<Output> for $type {
+        // Output => Tensor<T>
+        impl TryFrom<Output> for Tensor<$element_type> {
             type Error = OpError;
 
-            fn try_from(o: Output) -> Result<$type, OpError> {
+            fn try_from(o: Output) -> Result<Tensor<$element_type>, OpError> {
                 match o {
                     Output::$variant(t) => Ok(t),
                     _ => Err(OpError::IncorrectOutputType),
@@ -324,21 +326,42 @@ macro_rules! impl_output_conversions {
             }
         }
 
-        impl<'a> TryFrom<&'a Output> for &'a $type {
+        // Output => NdTensor<T, N>
+        impl<const N: usize> TryFrom<Output> for NdTensor<$element_type, N> {
             type Error = OpError;
 
-            fn try_from(o: &'a Output) -> Result<&'a $type, OpError> {
+            fn try_from(o: Output) -> Result<NdTensor<$element_type, N>, OpError> {
+                let tensor: Tensor<_> = o.try_into()?;
+                tensor.try_into().map_err(|_| OpError::IncorrectOutputType)
+            }
+        }
+
+        // Output => TensorView<T>
+        impl<'a> TryFrom<&'a Output> for TensorView<'a, $element_type> {
+            type Error = OpError;
+
+            fn try_from(o: &'a Output) -> Result<TensorView<'a, $element_type>, OpError> {
                 match o {
-                    Output::$variant(t) => Ok(t),
+                    Output::$variant(t) => Ok(t.view()),
                     _ => Err(OpError::IncorrectOutputType),
                 }
+            }
+        }
+
+        // Output => NdTensorView<T, N>
+        impl<'a, const N: usize> TryFrom<&'a Output> for NdTensorView<'a, $element_type, N> {
+            type Error = OpError;
+
+            fn try_from(o: &'a Output) -> Result<NdTensorView<'a, $element_type, N>, OpError> {
+                let view: TensorView<'a, _> = o.try_into()?;
+                view.try_into().map_err(|_| OpError::IncorrectOutputType)
             }
         }
     };
 }
 
-impl_output_conversions!(FloatTensor, Tensor<f32>);
-impl_output_conversions!(IntTensor, Tensor<i32>);
+impl_output_conversions!(FloatTensor, f32);
+impl_output_conversions!(IntTensor, i32);
 
 /// Trait for values that can be converted into the result type used by
 /// `Operator::run`.
