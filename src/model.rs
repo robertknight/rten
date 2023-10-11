@@ -65,10 +65,10 @@ impl Model {
 
     /// Execute the model and return the outputs specified by `outputs`.
     ///
-    /// This method allows for running a model with multiple inputs of different
-    /// types and receiving multiple results of different types. For the common
-    /// case of running a model with a single input and returning a single
-    /// output, [Model::run_simple] provides an API that is easier to use.
+    /// This method allows for running a model with a variable number of inputs
+    /// and outputs of different types. See [Model::run_one] or [Model::run_n]
+    /// for the common case of running a model with a single or statically
+    /// known number of inputs and outputs.
     ///
     /// The input and output nodes are specified via IDs looked up via `find_node`.
     pub fn run(
@@ -80,31 +80,29 @@ impl Model {
         self.graph.run(inputs, outputs, opts)
     }
 
+    /// Run a model and retrieve `N` outputs.
+    ///
+    /// This is a simplified version of [Model::run] for the common case of
+    /// executing a model with a statically known number of outputs.
+    pub fn run_n<const N: usize>(
+        &self,
+        inputs: &[(NodeId, Input)],
+        outputs: [NodeId; N],
+        opts: Option<RunOptions>,
+    ) -> Result<[Output; N], RunError> {
+        let result = self.run(inputs, &outputs, opts)?;
+        Ok(result.try_into().expect("wrong output count"))
+    }
+
     /// Run a model with a single input and output.
     ///
-    /// This method is a simplified version of [Model::run] for the common case
-    /// of executing a model with a single input and output float tensor.
-    pub fn run_simple(&self, input: &Tensor, opts: Option<RunOptions>) -> Result<Tensor, RunError> {
-        let input_id = self
-            .input_ids()
-            .first()
-            .copied()
-            .ok_or(RunError::InvalidNodeId)?;
-        let output_id = self
-            .output_ids()
-            .first()
-            .copied()
-            .ok_or(RunError::InvalidNodeId)?;
-        let input: Input = input.into();
-
-        let mut result = self.run(&[(input_id, input)], &[output_id], opts)?;
-
-        let output = result
-            .remove(0)
-            .into_float()
-            .ok_or(RunError::OutputMismatch("Unexpected output tensor type"))?;
-
-        Ok(output)
+    /// This is a simplified version of [Model::run] for the common case of
+    /// executing a model with a single input and output.
+    pub fn run_one(&self, input: Input, opts: Option<RunOptions>) -> Result<Output, RunError> {
+        let &input_id = self.input_ids().first().ok_or(RunError::InvalidNodeId)?;
+        let &output_id = self.output_ids().first().ok_or(RunError::InvalidNodeId)?;
+        self.run_n(&[(input_id, input)], [output_id], opts)
+            .map(|[result]| result)
     }
 }
 
@@ -811,12 +809,16 @@ mod tests {
     }
 
     #[test]
-    fn test_run_simple() {
+    fn test_run_one() {
         let buffer = generate_model_buffer();
         let model = Model::load(&buffer).unwrap();
 
         let input = tensor!((1, 2, 2); [1., 2., -1., -2.]);
-        let result = model.run_simple(&input, None).unwrap();
+        let result: Tensor<f32> = model
+            .run_one((&input).into(), None)
+            .unwrap()
+            .try_into()
+            .unwrap();
 
         assert_eq!(result.shape(), &[2, 2, 2]);
         assert_eq!(result.data(), &[0.5, 0., 0.1, 0., 1., 2., 0., 0.]);

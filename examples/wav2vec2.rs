@@ -6,7 +6,7 @@ use hound;
 
 use wasnn::ctc::CtcDecoder;
 use wasnn::Model;
-use wasnn_tensor::{Tensor, View};
+use wasnn_tensor::{NdTensor, NdView, Tensor};
 
 struct Args {
     model: String,
@@ -120,10 +120,10 @@ fn main() -> Result<(), Box<dyn Error>> {
     let mut sample_batch = Tensor::from_vec(samples);
     sample_batch.insert_dim(0);
 
-    let result = model.run_simple(&sample_batch, None)?;
+    let result: NdTensor<f32, 3> = model.run_one((&sample_batch).into(), None)?.try_into()?;
 
     let decoder = CtcDecoder::new();
-    let hypothesis = decoder.decode_beam(result.slice([0]).nd_view(), 10 /* beam_size */);
+    let hypothesis = decoder.decode_beam(result.slice([0]), 10 /* beam_size */);
     let text = hypothesis.to_string(&vocab);
 
     println!("{}", text);
