@@ -207,22 +207,15 @@ fn main() -> Result<(), Box<dyn Error>> {
         img_tensor
     };
 
-    let output_id = model
-        .output_ids()
-        .get(0)
-        .copied()
-        .ok_or("model has no outputs")?;
-    let outputs = model.run(
-        &[(input_id, (&img_tensor).into())],
-        &[output_id],
-        Some(RunOptions {
-            timing: true,
-            verbose: false,
-        }),
-    )?;
-    let output = outputs[0]
-        .as_float_ref()
-        .ok_or("model output was not a float tensor")?;
+    let output: Tensor<f32> = model
+        .run_one(
+            (&img_tensor).into(),
+            Some(RunOptions {
+                timing: true,
+                verbose: false,
+            }),
+        )?
+        .try_into()?;
 
     // Get top K ImageNet classes by score. The scores are the raw logits output
     // by the model, which may or may not be normalized. This could be improved
