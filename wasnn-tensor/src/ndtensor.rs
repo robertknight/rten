@@ -171,6 +171,14 @@ impl<T, S: AsRef<[T]>, const N: usize> NdTensorBase<T, S, N> {
         NdTensor::from_data(data, self.shape(), None).unwrap()
     }
 
+    /// Change the layout to put dimensions in the order specified by `dims`.
+    ///
+    /// This does not modify the order of elements in the data buffer, it just
+    /// updates the strides used by indexing.
+    pub fn permute(&mut self, dims: [usize; N]) {
+        self.layout = self.layout.permuted(dims);
+    }
+
     /// Return a copy of this view that owns its data. For [NdTensorView] this
     /// is different than cloning the view, as that returns a view which has
     /// its own layout, but the same underlying data buffer.
@@ -938,6 +946,16 @@ mod tests {
 
         let transposed = transposed.permuted([1, 0]);
         assert_eq!(tensor_elements(transposed), &[1, 2, 3, 4]);
+    }
+
+    #[test]
+    fn test_ndtensor_permute() {
+        let data = vec![1, 2, 3, 4];
+        let mut view = NdTensorView::from(&data).reshaped([2, 2]);
+        view.permute([1, 0]);
+        assert_eq!(tensor_elements(view), &[1, 3, 2, 4]);
+        view.permute([1, 0]);
+        assert_eq!(tensor_elements(view), &[1, 2, 3, 4]);
     }
 
     #[test]
