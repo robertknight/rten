@@ -33,7 +33,6 @@ pub fn broadcast_shapes(a: &[usize], b: &[usize]) -> Option<Vec<usize>> {
         } else if b == 1 {
             result.push(a);
         } else {
-            println!("cannot match {} and {}", a, b);
             return None;
         }
     }
