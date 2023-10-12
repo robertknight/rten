@@ -387,13 +387,16 @@ impl Graph {
                     input_shapes.insert(0, Some(first_input_shape));
                 }
 
-                println!(
-                    "#{} {:?} with {:?} in {}ms",
-                    step,
-                    op_node.operator,
-                    input_shapes,
-                    op_timer.elapsed_ms()
-                );
+                println!("#{} {} ({:?})", step, op_node.operator.name(), op_node.name);
+                for (index, (id, shape)) in
+                    zip(op_node.inputs.iter(), input_shapes.iter()).enumerate()
+                {
+                    if let (Some(id), Some(shape)) = (id, shape) {
+                        let name = self.node_name(*id);
+                        println!("  input {}: {} ({:?})", index, name, shape);
+                    }
+                }
+                println!("  time: {}ms", op_timer.elapsed_ms());
             }
 
             let outputs = match op_result {
