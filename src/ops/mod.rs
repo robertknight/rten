@@ -198,17 +198,18 @@ impl<'a> TryFrom<Input<'a>> for i32 {
     }
 }
 
-impl<'a> From<&'a Tensor<f32>> for Input<'a> {
-    fn from(t: &'a Tensor<f32>) -> Input {
-        Input::FloatTensor(t)
-    }
+macro_rules! impl_input_conversions {
+    ($variant:ident, $element_type:ty) => {
+        impl<'a> From<&'a Tensor<$element_type>> for Input<'a> {
+            fn from(t: &'a Tensor<$element_type>) -> Input {
+                Input::$variant(t)
+            }
+        }
+    };
 }
 
-impl<'a> From<&'a Tensor<i32>> for Input<'a> {
-    fn from(t: &'a Tensor<i32>) -> Input {
-        Input::IntTensor(t)
-    }
-}
+impl_input_conversions!(FloatTensor, f32);
+impl_input_conversions!(IntTensor, i32);
 
 impl<'a> From<&'a Output> for Input<'a> {
     fn from(output: &'a Output) -> Input {
