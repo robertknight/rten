@@ -288,10 +288,11 @@ impl Graph {
         // Execute the plan
         let mut temp_values: HashMap<NodeId, Output> = HashMap::new();
         let mut op_elapsed: HashMap<&str, f32> = HashMap::new();
+        let record_timing = opts.timing || opts.verbose;
 
         for (step, (op_node_id, op_node)) in plan.iter().enumerate() {
             let mut op_timer = Timer::new();
-            if opts.timing {
+            if record_timing {
                 op_timer.start();
             }
 
@@ -315,6 +316,13 @@ impl Graph {
                     None
                 }
             });
+
+            // If logging is enabled, save the shape at the start of execution
+            // so we can report it later.
+            let in_place_input_shape = match (opts.verbose, &in_place_input) {
+                (true, Some(output)) => Some(output.shape().to_vec()),
+                _ => None,
+            };
 
             // Collect all or remaining inputs for the operator
             let mut op_inputs: Vec<Option<Input>> = Vec::new();
@@ -357,10 +365,7 @@ impl Graph {
                     .run(InputList::from_optional(&op_inputs[..]))
             };
 
-            // Log verbose info if enabled. This is done before we check the
-            // result so that in the event of an error, the verbose log includes
-            // the failing operator's inputs.
-            if opts.timing {
+            if record_timing {
                 op_timer.end();
 
                 if let Some(elapsed) = op_elapsed.get_mut(op_node.operator.name()) {
@@ -368,22 +373,27 @@ impl Graph {
                 } else {
                     op_elapsed.insert(op_node.operator.name(), op_timer.elapsed_ms());
                 }
+            }
 
-                if opts.verbose {
-                    // FIXME: If the operator ran in-place, the shape of the
-                    // first input is not included.
-                    let input_shapes: Vec<_> = op_inputs
-                        .iter()
-                        .map(|x| x.as_ref().map(|input| input.shape()))
-                        .collect();
-                    println!(
-                        "#{} {:?} with {:?} in {}ms",
-                        step,
-                        op_node.operator,
-                        input_shapes,
-                        op_timer.elapsed_ms()
-                    );
+            // Log verbose info if enabled. This is done before we check the
+            // result so that in the event of an error, the verbose log includes
+            // the failing operator's inputs.
+            if opts.verbose {
+                let mut input_shapes: Vec<_> = op_inputs
+                    .iter()
+                    .map(|x| x.as_ref().map(|input| input.shape()))
+                    .collect();
+                if let Some(first_input_shape) = in_place_input_shape.as_ref() {
+                    input_shapes.insert(0, Some(first_input_shape));
                 }
+
+                println!(
+                    "#{} {:?} with {:?} in {}ms",
+                    step,
+                    op_node.operator,
+                    input_shapes,
+                    op_timer.elapsed_ms()
+                );
             }
 
             let outputs = match op_result {
