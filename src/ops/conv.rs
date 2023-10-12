@@ -370,7 +370,7 @@ pub fn conv(
 
     let has_padding = pad_top > 0 || pad_left > 0 || pad_bottom > 0 || pad_right > 0;
 
-    if k_h == 1 && k_w == 1 && !has_padding && groups == 1 {
+    if k_h == 1 && k_w == 1 && !has_padding && groups == 1 && stride_h == 1 && stride_w == 1 {
         return Ok(conv_2d_pointwise(
             &input.nd_view(),
             &kernel.nd_view(),
@@ -951,6 +951,28 @@ mod tests {
             [1, 1], /* stride */
         );
         assert_eq!(result.shape(), [2, 10, 20, 20]);
+        expect_equal(&result, &reference_result)?;
+
+        // Stride > 1
+        let input = Tensor::rand(&[1, 5, 20, 20], &mut rng);
+        let result = conv(
+            input.view(),
+            kernel.view(),
+            Some(bias.view()),
+            [0, 0, 0, 0].into(),
+            1,       /* groups */
+            &[2, 2], /* stride */
+        )
+        .unwrap();
+        let reference_result = reference_conv(
+            &input,
+            &kernel,
+            Some(&bias),
+            [0, 0, 0, 0],
+            1,      /* groups */
+            [2, 2], /* stride */
+        );
+        assert_eq!(result.shape(), [1, 10, 10, 10]);
         expect_equal(&result, &reference_result)?;
 
         Ok(())
