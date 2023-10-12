@@ -220,7 +220,7 @@ impl<'a> From<&'a Output> for Input<'a> {
 }
 
 /// Enum of the different types of output tensor that an operator can produce.
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, PartialEq)]
 pub enum Output {
     FloatTensor(Tensor<f32>),
     IntTensor(Tensor<i32>),

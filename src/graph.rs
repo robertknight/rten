@@ -140,6 +140,15 @@ impl fmt::Display for RunError {
     }
 }
 
+/// Return true if all elements in `xs` are unique according to the comparison
+/// function `eq`.
+///
+/// `xs` is assumed to be small enough that comparing all pairs is still fast.
+fn all_unique<T, F: Fn(&T, &T) -> bool>(xs: &[T], eq: F) -> bool {
+    xs.iter()
+        .all(|x| xs.iter().filter(|y| eq(x, y)).count() == 1)
+}
+
 impl Error for RunError {}
 
 #[derive(Default)]
@@ -430,10 +439,10 @@ impl Graph {
                         Input::IntTensor(t) => Output::IntTensor(t.clone()),
                         Input::FloatTensor(t) => Output::FloatTensor(t.clone()),
                     }
-                } else if let Some(value) = temp_values.remove(output_id) {
-                    value
                 } else {
-                    unreachable!()
+                    // During execution planning we verified that each output
+                    // ID is valid and unique, so this should always succeed.
+                    temp_values.remove(output_id).expect("missing output value")
                 }
             })
             .collect();
@@ -480,6 +489,8 @@ impl Graph {
     /// Create an execution plan for a sequence of computation steps that begin
     /// with `inputs` and eventually produces `outputs`.
     ///
+    /// The set of input and output node IDs must be unique.
+    ///
     /// Any node IDs in `outputs` which reference constant or input values are
     /// omitted from the plan.
     fn create_plan(
@@ -487,6 +498,14 @@ impl Graph {
         inputs: &[(NodeId, Input)],
         outputs: &[NodeId],
     ) -> Result<Vec<(NodeId, &OperatorNode)>, RunError> {
+        if !all_unique(outputs, |x, y| x == y) {
+            return Err(RunError::PlanningError("output IDs are not unique".into()));
+        }
+
+        if !all_unique(inputs, |(x_id, _), (y_id, _)| x_id == y_id) {
+            return Err(RunError::PlanningError("input IDs are not unique".into()));
+        }
+
         // Map of output node to source operator
         let mut operator_nodes = HashMap::new();
         for (node_id, node) in self.nodes.iter().enumerate() {
@@ -589,7 +608,7 @@ mod tests {
     use std::sync::{Arc, Mutex};
 
     use wasnn_tensor::test_util::expect_equal;
-    use wasnn_tensor::{Layout, Tensor, View};
+    use wasnn_tensor::{tensor, Layout, Tensor, View};
 
     use crate::graph::{Dimension, Graph, RunError};
     use crate::ops::{
@@ -863,6 +882,45 @@ mod tests {
         let g = Graph::new();
         let results = g.run(&[], &[], None).unwrap();
         assert_eq!(results.len(), 0);
+    }
+
+    #[test]
+    fn test_duplicate_inputs() {
+        let mut g = Graph::new();
+        let input_id = g.add_value(Some("input"), None);
+        let input = tensor!([1.]);
+        let result = g.run(
+            &[(input_id, (&input).into()), (input_id, (&input).into())],
+            &[input_id],
+            None,
+        );
+        assert_eq!(
+            result,
+            Err(RunError::PlanningError("input IDs are not unique".into()))
+        );
+    }
+
+    #[test]
+    fn test_duplicate_outputs() {
+        let mut g = Graph::new();
+
+        let input_id = g.add_value(Some("input"), None);
+        let op_a_out = g.add_value(Some("op_a_out"), None);
+        g.add_op(
+            Some("op_a"),
+            Box::new(AddOne {}),
+            &[Some(input_id)],
+            &[Some(op_a_out)],
+        );
+
+        let input = tensor!([1.]);
+
+        let result = g.run(&[(input_id, (&input).into())], &[op_a_out, op_a_out], None);
+
+        assert_eq!(
+            result,
+            Err(RunError::PlanningError("output IDs are not unique".into()))
+        );
     }
 
     #[test]
