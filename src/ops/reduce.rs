@@ -374,9 +374,9 @@ fn reduce<T: Copy + Default, R: Reducer<T>>(
                     inner_range.clear();
                     inner_range.extend(index.iter().enumerate().map(|(dim, &idx)| {
                         if resolved_axes.contains(&dim) {
-                            SliceRange::new(0, input.size(dim) as isize, 1)
+                            SliceRange::new(0, Some(input.size(dim) as isize), 1)
                         } else {
-                            SliceRange::new(idx as isize, idx as isize + 1, 1)
+                            SliceRange::new(idx as isize, Some(idx as isize + 1), 1)
                         }
                     }));
                     let reduced = reducer.reduce(input.slice_iter(&inner_range).copied());

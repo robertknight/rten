@@ -29,7 +29,7 @@ fn slice_ranges(
 
     let mut ranges: Vec<SliceRange> = input_shape
         .iter()
-        .map(|dim_size| SliceRange::new(0, *dim_size as isize, 1))
+        .map(|dim_size| SliceRange::new(0, Some(*dim_size as isize), 1))
         .collect();
     for (i, (start, end)) in zip(starts.iter(), ends.iter()).enumerate() {
         let axis = if let Some(axes) = axes {
@@ -39,7 +39,7 @@ fn slice_ranges(
         };
 
         let step = steps.map(|s| s[[i]]).unwrap_or(1);
-        ranges[axis] = SliceRange::new(*start as isize, *end as isize, step as isize);
+        ranges[axis] = SliceRange::new(*start as isize, Some(*end as isize), step as isize);
     }
     Ok(ranges)
 }
@@ -74,7 +74,7 @@ pub fn slice_in_place<T: Copy>(
     let ranges = slice_ranges(input.shape(), starts, ends, axes, None)?;
     for (dim, range) in ranges.iter().enumerate() {
         let dim_size = input.size(dim);
-        input.clip_dim(dim, range.resolve(dim_size));
+        input.clip_dim(dim, range.resolve_clamped(dim_size));
     }
     Ok(())
 }

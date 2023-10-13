@@ -6,33 +6,24 @@ use std::ops::{Range, RangeFrom, RangeFull, RangeTo};
 /// Can be constructed from an index or range using `index_or_range.into()`.
 #[derive(Clone, Debug, PartialEq)]
 pub enum SliceItem {
-    /// View a specific index from a dimension. The number of dimensions in the
-    /// sliced view will be one minus the number of dimensions sliced with an
-    /// index.
+    /// Extract a specific index from a dimension. The number of dimensions in
+    /// the sliced view will be one minus the number of dimensions sliced with
+    /// an index.
     Index(usize),
 
     /// Include a subset of the range of the dimension.
-    Range(Range<usize>),
-
-    /// Include the range of the dimension starting from a given index.
-    /// Note there is no equivalent for [RangeTo] because that is handled by
-    /// [Range].
-    RangeFrom(RangeFrom<usize>),
-
-    /// Include the full range of the dimension.
-    RangeFull,
+    Range(SliceRange),
 }
 
 impl SliceItem {
-    /// Return true if this item can be used to slice a dimension of size
-    /// `dim_size`.
-    pub fn valid_for(&self, dim_size: usize) -> bool {
-        match self {
-            SliceItem::Index(idx) => *idx < dim_size,
-            SliceItem::Range(range) => range.end <= dim_size,
-            SliceItem::RangeFrom(range) => range.start <= dim_size,
-            SliceItem::RangeFull => true,
-        }
+    /// Return a SliceItem that extracts the full range of a dimension.
+    pub fn full_range() -> Self {
+        (..).into()
+    }
+
+    /// Return a SliceItem that extracts part of an axis.
+    pub fn range(start: isize, end: Option<isize>, step: isize) -> SliceItem {
+        SliceItem::Range(SliceRange::new(start, end, step))
     }
 }
 
@@ -42,27 +33,12 @@ impl From<usize> for SliceItem {
     }
 }
 
-impl From<Range<usize>> for SliceItem {
-    fn from(value: Range<usize>) -> Self {
-        SliceItem::Range(value)
-    }
-}
-
-impl From<RangeFrom<usize>> for SliceItem {
-    fn from(value: RangeFrom<usize>) -> Self {
-        SliceItem::RangeFrom(value)
-    }
-}
-
-impl From<RangeTo<usize>> for SliceItem {
-    fn from(value: RangeTo<usize>) -> Self {
-        SliceItem::Range(0..value.end)
-    }
-}
-
-impl From<RangeFull> for SliceItem {
-    fn from(_: RangeFull) -> Self {
-        SliceItem::RangeFull
+impl<R> From<R> for SliceItem
+where
+    R: Into<SliceRange>,
+{
+    fn from(value: R) -> Self {
+        SliceItem::Range(value.into())
     }
 }
 
@@ -118,7 +94,7 @@ impl<T1: Into<SliceItem>, T2: Into<SliceItem>, T3: Into<SliceItem>, T4: Into<Sli
     }
 }
 
-/// A range for slicing a Tensor.
+/// A range for slicing a [Tensor] or [NdTensor].
 ///
 /// This has two main differences from [Range].
 ///
@@ -129,10 +105,10 @@ impl<T1: Into<SliceItem>, T2: Into<SliceItem>, T3: Into<SliceItem>, T4: Into<Sli
 ///
 /// This system for specifying slicing and indexing follows NumPy, which in
 /// turn strongly influenced slicing in ONNX.
-#[derive(Clone, Copy, Debug)]
+#[derive(Clone, Copy, Debug, PartialEq)]
 pub struct SliceRange {
     pub start: isize,
-    pub end: isize,
+    pub end: Option<isize>,
 
     /// The steps between adjacent elements selected by this range. This
     /// is private so this module can enforce the invariant that it is non-zero.
@@ -141,10 +117,11 @@ pub struct SliceRange {
 
 impl SliceRange {
     /// Create a new range from `start` to `end`. The `start` index is inclusive
-    /// and the `end` value is exclusive.
+    /// and the `end` value is exclusive. If `end` is None, the range spans
+    /// to the end of the dimension.
     ///
     /// Panics if the `step` size is 0.
-    pub fn new(start: isize, end: isize, step: isize) -> SliceRange {
+    pub fn new(start: isize, end: Option<isize>, step: isize) -> SliceRange {
         assert!(step != 0, "Slice step cannot be 0");
         SliceRange { start, end, step }
     }
@@ -155,7 +132,10 @@ impl SliceRange {
         let clamped = self.clamp(dim_size);
 
         let start_idx = Self::offset_from_start(clamped.start, dim_size);
-        let end_idx = Self::offset_from_start(clamped.end, dim_size);
+        let end_idx = clamped
+            .end
+            .map(|index| Self::offset_from_start(index, dim_size))
+            .unwrap_or(dim_size as isize);
 
         if (clamped.step > 0 && end_idx <= start_idx) || (clamped.step < 0 && end_idx >= start_idx)
         {
@@ -198,7 +178,7 @@ impl SliceRange {
 
         SliceRange::new(
             self.start.clamp(min_idx, max_idx),
-            self.end.clamp(min_idx, max_idx),
+            self.end.map(|e| e.clamp(min_idx, max_idx)),
             self.step,
         )
     }
@@ -207,24 +187,40 @@ impl SliceRange {
         self.step
     }
 
-    /// Resolve the range endpoints to positive indices in `[0, dim_size)`.
+    /// Clamp this range so that it is valid for a dimension of size `dim_size`
+    /// and resolve it to a positive range.
+    ///
+    /// This method is useful for implementing Python/NumPy-style slicing where
+    /// range endpoints can be out of bounds.
+    pub fn resolve_clamped(&self, dim_size: usize) -> Range<usize> {
+        self.clamp(dim_size).resolve(dim_size).unwrap()
+    }
+
+    /// Resolve the range endpoints to a positive range in `[0, dim_size)`.
+    ///
+    /// Returns the range if resolved or None if out of bounds.
     ///
     /// If `self.step` is positive, the returned range counts forwards from
     /// the first index of the dimension, otherwise it counts backwards from
     /// the last index.
-    pub fn resolve(&self, dim_size: usize) -> Range<usize> {
-        let clamped = self.clamp(dim_size);
-
+    pub fn resolve(&self, dim_size: usize) -> Option<Range<usize>> {
         let offset_fn = if self.step > 0 {
             Self::offset_from_start
         } else {
             Self::offset_from_end
         };
 
-        let start = offset_fn(clamped.start, dim_size) as usize;
-        let end = offset_fn(clamped.end, dim_size) as usize;
+        let start = offset_fn(self.start, dim_size);
+        let end = self
+            .end
+            .map(|end| offset_fn(end, dim_size))
+            .unwrap_or(dim_size as isize);
 
-        start..end
+        if start >= 0 && end <= dim_size as isize && start <= end {
+            Some(start as usize..end as usize)
+        } else {
+            None
+        }
     }
 
     /// Resolve an index to an offset from the first index of the dimension.
@@ -254,7 +250,7 @@ where
     fn from(r: Range<T>) -> SliceRange {
         let start = r.start.try_into().unwrap();
         let end = r.end.try_into().unwrap();
-        SliceRange::new(start, end, 1)
+        SliceRange::new(start, Some(end), 1)
     }
 }
 
@@ -265,7 +261,24 @@ where
 {
     fn from(r: RangeTo<T>) -> SliceRange {
         let end = r.end.try_into().unwrap();
-        SliceRange::new(0, end, 1)
+        SliceRange::new(0, Some(end), 1)
+    }
+}
+
+impl<T> From<RangeFrom<T>> for SliceRange
+where
+    T: TryInto<isize>,
+    <T as TryInto<isize>>::Error: Debug,
+{
+    fn from(r: RangeFrom<T>) -> SliceRange {
+        let start = r.start.try_into().unwrap();
+        SliceRange::new(start, None, 1)
+    }
+}
+
+impl From<RangeFull> for SliceRange {
+    fn from(_: RangeFull) -> SliceRange {
+        SliceRange::new(0, None, 1)
     }
 }
 
@@ -279,13 +292,13 @@ mod tests {
         assert_eq!(x, [SliceItem::Index(42)]);
 
         let x = (2..5).into_slice_items();
-        assert_eq!(x, [SliceItem::Range(2..5)]);
+        assert_eq!(x, [SliceItem::Range((2..5).into())]);
 
         let x = (..5).into_slice_items();
-        assert_eq!(x, [SliceItem::Range(0..5)]);
+        assert_eq!(x, [SliceItem::Range((0..5).into())]);
 
         let x = (3..).into_slice_items();
-        assert_eq!(x, [SliceItem::RangeFrom(3..)]);
+        assert_eq!(x, [SliceItem::Range((3..).into())]);
 
         let x = [1].into_slice_items();
         assert_eq!(x, [SliceItem::Index(1)]);
@@ -297,8 +310,8 @@ mod tests {
             x,
             [
                 SliceItem::Index(0),
-                SliceItem::Range(1..2),
-                SliceItem::RangeFull
+                SliceItem::Range((1..2).into()),
+                SliceItem::full_range()
             ]
         );
     }
@@ -306,14 +319,23 @@ mod tests {
     #[test]
     fn test_slice_range_resolve() {
         // +ve endpoints, +ve step
-        assert_eq!(SliceRange::new(0, 5, 1).resolve(10), 0..5);
-        assert_eq!(SliceRange::new(15, 20, 1).resolve(10), 10..10);
+        assert_eq!(SliceRange::new(0, Some(5), 1).resolve_clamped(10), 0..5);
+        assert_eq!(SliceRange::new(0, None, 1).resolve_clamped(10), 0..10);
+        assert_eq!(SliceRange::new(15, Some(20), 1).resolve_clamped(10), 10..10);
+        assert_eq!(SliceRange::new(15, Some(20), 1).resolve(10), None);
 
         // -ve endpoints, +ve step
-        assert_eq!(SliceRange::new(-5, -1, 1).resolve(10), 5..9);
-        assert_eq!(SliceRange::new(-20, -1, 1).resolve(10), 0..9);
+        assert_eq!(SliceRange::new(-5, Some(-1), 1).resolve_clamped(10), 5..9);
+        assert_eq!(SliceRange::new(-20, Some(-1), 1).resolve_clamped(10), 0..9);
+        assert_eq!(SliceRange::new(-20, Some(-1), 1).resolve(10), None);
+        assert_eq!(SliceRange::new(-5, None, 1).resolve_clamped(10), 5..10);
 
-        // +ve endpoints, -ve step
-        assert_eq!(SliceRange::new(5, 0, -1).resolve(10), 4..9);
+        // +ve endpoints, -ve step.
+        //
+        // Note the returned ranges count backwards from the end of the
+        // dimension.
+        assert_eq!(SliceRange::new(5, Some(0), -1).resolve_clamped(10), 4..9);
+        assert_eq!(SliceRange::new(5, None, -1).resolve_clamped(10), 4..10);
+        assert_eq!(SliceRange::new(9, None, -1).resolve_clamped(10), 0..10);
     }
 }

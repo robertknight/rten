@@ -882,7 +882,9 @@ mod tests {
 
     use crate::rng::XorShiftRng;
     use crate::tensor;
-    use crate::{Layout, NdTensor, NdView, SliceRange, Tensor, TensorView, TensorViewMut, View};
+    use crate::{
+        Layout, NdTensor, NdView, SliceItem, SliceRange, Tensor, TensorView, TensorViewMut, View,
+    };
 
     /// Create a tensor where the value of each element is its logical index
     /// plus one.
@@ -1745,6 +1747,17 @@ mod tests {
             let y = $x.$method((.., ..2, 1..));
             assert_eq!(y.shape(), [2, 2, 3]);
 
+            // Stepped range
+            let y = $x.$method((.., .., SliceItem::range(0, None, 2)));
+            assert_eq!(
+                y.to_vec(),
+                $x.iter()
+                    .copied()
+                    .enumerate()
+                    .filter_map(|(i, x)| (i % 2 == 0).then_some(x))
+                    .collect::<Vec<_>>()
+            );
+
             // Mixed indices and ranges
             let y = $x.$method((.., 0, ..));
             assert_eq!(y.shape(), [2, 4]);
@@ -1769,7 +1782,7 @@ mod tests {
 
     #[test]
     fn test_slice_iter() {
-        let sr = |start, end| SliceRange::new(start, end, 1);
+        let sr = |start, end| SliceRange::new(start, Some(end), 1);
         let x = steps(&[3, 3]);
 
         // Slice that removes start of each dimension
@@ -1791,7 +1804,7 @@ mod tests {
 
     #[test]
     fn test_slice_iter_with_step() {
-        let sr = SliceRange::new;
+        let sr = |start, end, step| SliceRange::new(start, Some(end), step);
         let x = steps(&[10]);
 
         // Positive steps > 1.
@@ -1820,7 +1833,7 @@ mod tests {
 
     #[test]
     fn test_slice_iter_negative_indices() {
-        let sr = |start, end| SliceRange::new(start, end, 1);
+        let sr = |start, end| SliceRange::new(start, Some(end), 1);
         let x = steps(&[10]);
 
         // Negative start
@@ -1838,7 +1851,7 @@ mod tests {
 
     #[test]
     fn test_slice_iter_clamps_indices() {
-        let sr = SliceRange::new;
+        let sr = |start, end, step| SliceRange::new(start, Some(end), step);
         let x = steps(&[5]);
 
         // Test cases for positive steps (ie. traversing forwards).
@@ -1880,7 +1893,7 @@ mod tests {
 
     #[test]
     fn test_slice_iter_start_end_step_combinations() {
-        let sr = SliceRange::new;
+        let sr = |start, end, step| SliceRange::new(start, Some(end), step);
         let x = steps(&[3]);
 
         // Test various combinations of slice starts, ends and steps that are
@@ -1906,7 +1919,10 @@ mod tests {
         let x = steps(&[5, 5]);
 
         // Range that removes the start and end of each dimension.
-        let range = &[SliceRange::new(1, 4, 1), SliceRange::new(1, 4, 1)];
+        let range = &[
+            SliceRange::new(1, Some(4), 1),
+            SliceRange::new(1, Some(4), 1),
+        ];
         let expected: Vec<_> = x.slice_iter(range).copied().collect();
         let result: Vec<_> = x
             .slice_offsets(range)

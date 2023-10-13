@@ -211,27 +211,33 @@ fn slice_layout(
     let mut offset = 0;
 
     for (in_dim, (&size, &stride)) in zip(in_shape.iter(), in_strides.iter()).enumerate() {
-        let item = if let Some(item) = range.get(in_dim) {
-            assert!(
-                item.valid_for(size),
-                "Slice range is invalid for tensor shape"
-            );
-            item.clone()
-        } else {
-            SliceItem::RangeFull
-        };
-
-        let (offset_adjust, out_size) = match item {
-            SliceItem::Index(idx) => (stride * idx, None),
-            SliceItem::Range(r) => (stride * r.start, Some(r.end - r.start)),
-            SliceItem::RangeFrom(r) => (stride * r.start, Some(size - r.start)),
-            SliceItem::RangeFull => (0, Some(size)),
+        let item = range
+            .get(in_dim)
+            .cloned()
+            .unwrap_or(SliceItem::full_range());
+        let (offset_adjust, new_size_stride) = match item {
+            SliceItem::Index(idx) => {
+                assert!(idx < size, "Slice index is invalid for tensor shape");
+                (stride * idx, None)
+            }
+            SliceItem::Range(range) => {
+                let resolved = range
+                    .resolve(size)
+                    .expect("Slice range is invalid for tensor shape");
+                let new_size = range.steps(size);
+                let step: usize = range
+                    .step()
+                    .try_into()
+                    .expect("Cannot slice with negative step");
+                let new_stride = stride * step;
+                (stride * resolved.start, Some((new_size, new_stride)))
+            }
         };
 
         offset += offset_adjust;
-        if let Some(out_size) = out_size {
-            out_shape[ndim] = out_size;
-            out_strides[ndim] = stride;
+        if let Some((new_size, new_stride)) = new_size_stride {
+            out_shape[ndim] = new_size;
+            out_strides[ndim] = new_stride;
             ndim += 1;
         }
     }
@@ -816,7 +822,7 @@ mod tests {
     }
 
     #[test]
-    #[should_panic(expected = "Slice range is invalid for tensor shape")]
+    #[should_panic(expected = "Slice index is invalid for tensor shape")]
     fn test_slice_invalid_index() {
         let layout = DynLayout::new(&[3, 5]);
         layout.slice(&[SliceItem::Index(4), SliceItem::Index(0)]);
@@ -826,14 +832,21 @@ mod tests {
     #[should_panic(expected = "Slice range is invalid for tensor shape")]
     fn test_slice_invalid_range() {
         let layout = DynLayout::new(&[3, 5]);
-        layout.slice(&[SliceItem::Range(1..4), SliceItem::Index(0)]);
+        layout.slice(&[SliceItem::Range((1..4).into()), SliceItem::Index(0)]);
     }
 
     #[test]
     #[should_panic(expected = "Slice range is invalid for tensor shape")]
     fn test_slice_invalid_from_range() {
         let layout = DynLayout::new(&[3, 5]);
-        layout.slice(&[SliceItem::RangeFrom(4..), SliceItem::Index(0)]);
+        layout.slice(&[SliceItem::Range((4..).into()), SliceItem::Index(0)]);
+    }
+
+    #[test]
+    #[should_panic(expected = "Cannot slice with negative step")]
+    fn test_slice_negative_step() {
+        let layout = DynLayout::new(&[3, 5]);
+        layout.slice(&[SliceItem::full_range(), SliceItem::range(0, None, -1)]);
     }
 
     #[test]

@@ -30,7 +30,7 @@ pub fn split<T: Copy>(
                     if dim == axis {
                         (split_start..split_start + split_size).into()
                     } else {
-                        SliceItem::RangeFull
+                        SliceItem::full_range()
                     }
                 })
                 .collect();

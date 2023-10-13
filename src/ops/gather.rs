@@ -28,7 +28,7 @@ pub fn gather<T: Copy + Default>(
     }
 
     let full_range =
-        |ndim: usize| -> Vec<SliceItem> { (0..ndim).map(|_| SliceItem::RangeFull).collect() };
+        |ndim: usize| -> Vec<SliceItem> { (0..ndim).map(|_| SliceItem::full_range()).collect() };
 
     // Fast path for scalar `indices`. This amounts to indexing `input` along
     // `axis`.

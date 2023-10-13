@@ -646,7 +646,8 @@ impl<T: PartialEq, S1: AsRef<[T]>, S2: AsRef<[T]>, const N: usize> PartialEq<NdT
 mod tests {
     use crate::errors::{DimensionError, FromDataError};
     use crate::{
-        Layout, MatrixLayout, NdTensor, NdTensorView, NdTensorViewMut, NdView, Tensor, View,
+        Layout, MatrixLayout, NdTensor, NdTensorView, NdTensorViewMut, NdView, SliceItem, Tensor,
+        View,
     };
 
     /// Return elements of `tensor` in their logical order.
@@ -1023,6 +1024,19 @@ mod tests {
         let view = NdTensorView::<i32, 2>::from_slice(&data, [4, 4], None).unwrap();
         let slice: NdTensorView<_, 2> = view.slice([1..3, 1..3]);
         assert_eq!(tensor_elements(slice), &[6, 7, 10, 11]);
+    }
+
+    #[test]
+    fn test_ndtensor_slice_step() {
+        let data: Vec<i32> = (0..25).collect();
+        let view = NdTensorView::from(&data).reshaped([5, 5]);
+        let slice: NdTensorView<_, 2> =
+            view.slice((SliceItem::range(0, None, 2), SliceItem::range(0, None, 2)));
+        assert_eq!(slice.shape(), [3, 3]);
+        assert_eq!(
+            slice.iter().copied().collect::<Vec<_>>(),
+            [0, 2, 4, 10, 12, 14, 20, 22, 24]
+        );
     }
 
     #[test]
