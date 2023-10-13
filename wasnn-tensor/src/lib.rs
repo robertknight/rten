@@ -54,6 +54,12 @@ pub use ndtensor::{
 pub use range::{IntoSliceItems, SliceItem, SliceRange};
 pub use tensor::{Tensor, TensorBase, TensorView, TensorViewMut, View};
 
+/// This module provides a convenient way to import the most common traits
+/// from this library via a glob import.
+pub mod prelude {
+    pub use super::{Layout, NdView, View};
+}
+
 // These modules are public for use by other crates in this repo, but
 // currently considered internal to the project.
 #[doc(hidden)]
