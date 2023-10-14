@@ -941,7 +941,7 @@ mod tests {
     #[test]
     fn test_ndtensor_permuted() {
         let data = vec![1, 2, 3, 4];
-        let view = NdTensorView::<i32, 2>::from_slice(&data, [2, 2], None).unwrap();
+        let view = NdTensorView::from(&data).reshaped([2, 2]);
         let transposed = view.permuted([1, 0]);
         assert_eq!(tensor_elements(transposed), &[1, 3, 2, 4]);
 
@@ -963,14 +963,14 @@ mod tests {
     #[should_panic(expected = "permutation is invalid")]
     fn test_ndtensor_permuted_panics_if_dims_invalid() {
         let data = vec![1, 2, 3, 4];
-        let view = NdTensorView::<i32, 2>::from_slice(&data, [2, 2], None).unwrap();
+        let view = NdTensorView::from(&data).reshaped([2, 2]);
         view.permuted([2, 0]);
     }
 
     #[test]
     fn test_ndtensor_reshaped() {
         let data = vec![1, 2, 3, 4];
-        let view = NdTensorView::<i32, 1>::from_slice(&data, [4], None).unwrap();
+        let view = NdTensorView::from(&data);
         let matrix = view.reshaped([2, 2]);
         assert_eq!(matrix.shape(), [2, 2]);
         assert_eq!(tensor_elements(matrix), &[1, 2, 3, 4]);
@@ -980,7 +980,7 @@ mod tests {
     #[should_panic(expected = "new shape must have same number of elements as current shape")]
     fn test_ndtensor_reshaped_panics_if_product_not_equal() {
         let data = vec![1, 2, 3, 4];
-        let view = NdTensorView::<i32, 1>::from_slice(&data, [4], None).unwrap();
+        let view = NdTensorView::from(&data);
         view.reshaped([2, 3]);
     }
 
@@ -988,7 +988,7 @@ mod tests {
     #[should_panic(expected = "can only reshape a contiguous tensor")]
     fn test_ndtensor_reshaped_panics_if_not_contiguous() {
         let data = vec![1, 2, 3, 4];
-        let view = NdTensorView::<i32, 2>::from_slice(&data, [2, 2], None).unwrap();
+        let view = NdTensorView::from(&data).reshaped([2, 2]);
         let transposed = view.transposed();
         transposed.reshaped([4]);
     }
@@ -1012,7 +1012,7 @@ mod tests {
     #[test]
     fn test_ndtensor_transposed() {
         let data = vec![1, 2, 3, 4];
-        let view = NdTensorView::<i32, 2>::from_slice(&data, [2, 2], None).unwrap();
+        let view = NdTensorView::from(&data).reshaped([2, 2]);
         assert_eq!(tensor_elements(view), &[1, 2, 3, 4]);
         let view = view.transposed();
         assert_eq!(tensor_elements(view), &[1, 3, 2, 4]);
@@ -1021,7 +1021,7 @@ mod tests {
     #[test]
     fn test_ndtensor_slice() {
         let data = vec![1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16];
-        let view = NdTensorView::<i32, 2>::from_slice(&data, [4, 4], None).unwrap();
+        let view = NdTensorView::from(&data).reshaped([4, 4]);
         let slice: NdTensorView<_, 2> = view.slice([1..3, 1..3]);
         assert_eq!(tensor_elements(slice), &[6, 7, 10, 11]);
     }
@@ -1043,7 +1043,7 @@ mod tests {
     #[should_panic(expected = "sliced dims != 3")]
     fn test_ndtensor_slice_wrong_dims() {
         let data = vec![1, 2, 3, 4];
-        let view = NdTensorView::<i32, 2>::from_slice(&data, [2, 2], None).unwrap();
+        let view = NdTensorView::from(&data).reshaped([2, 2]);
         view.slice::<3, 2, _>([0..2, 0..2]);
     }
 
@@ -1073,7 +1073,7 @@ mod tests {
     #[test]
     fn test_matrix_layout() {
         let data = vec![1., 2., 3., 4.];
-        let mat = NdTensorView::<f32, 2>::from_slice(&data, [2, 2], None).unwrap();
+        let mat = NdTensorView::from(&data).reshaped([2, 2]);
         assert_eq!(mat.data(), data);
         assert_eq!(mat.rows(), 2);
         assert_eq!(mat.cols(), 2);
