@@ -1,6 +1,7 @@
 use std::borrow::Cow;
 use std::fmt::Debug;
 use std::io;
+use std::io::Write;
 use std::iter::zip;
 use std::marker::PhantomData;
 use std::ops::{Index, IndexMut, Range};
@@ -825,14 +826,16 @@ impl<S: AsRef<[f32]>> TensorBase<f32, S> {
     ///
     /// Where `T` is the tensor's element type.
     pub fn write<W: io::Write>(&self, writer: &mut W) -> io::Result<()> {
+        let mut buf_writer = io::BufWriter::new(writer);
         let ndim: u32 = self.ndim() as u32;
-        writer.write_all(&ndim.to_le_bytes())?;
+        buf_writer.write_all(&ndim.to_le_bytes())?;
         for &dim in self.shape() {
-            writer.write_all(&(dim as u32).to_le_bytes())?;
+            buf_writer.write_all(&(dim as u32).to_le_bytes())?;
         }
         for el in self.iter() {
-            writer.write_all(&el.to_le_bytes())?;
+            buf_writer.write_all(&el.to_le_bytes())?;
         }
+        buf_writer.flush()?;
         Ok(())
     }
 }
