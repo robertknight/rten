@@ -99,7 +99,7 @@ impl<T1: Into<SliceItem>, T2: Into<SliceItem>, T3: Into<SliceItem>, T4: Into<Sli
     }
 }
 
-/// A range for slicing a [Tensor] or [NdTensor].
+/// A range for slicing a [Tensor](crate::Tensor) or [NdTensor](crate::NdTensor).
 ///
 /// This has two main differences from [Range].
 ///

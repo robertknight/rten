@@ -352,7 +352,7 @@ fn rem_floor<
 /// When one or both of the operands is negative however, the different methods
 /// produce different results.
 ///
-/// See https://en.wikipedia.org/wiki/Modulo#Variants_of_the_definition
+/// See <https://en.wikipedia.org/wiki/Modulo#Variants_of_the_definition>.
 pub enum DivMode {
     /// Use flooring division, like Python's `%` operator and `numpy.mod`.
     FloorDiv,
