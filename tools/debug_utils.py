@@ -17,7 +17,7 @@ def read_tensor(path: str) -> np.ndarray:
         dims = struct.unpack('<' + 'I'*ndim, file.read(4 * ndim))
         nelts = math.prod(dims)
         data = struct.unpack('<' + 'f'*nelts, file.read(4 * nelts))
-        return np.array(data).reshape(dims)
+        return np.array(data, dtype=np.float32).reshape(dims)
 
 
 def write_tensor(tensor: np.ndarray, path: str):
