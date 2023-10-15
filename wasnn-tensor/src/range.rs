@@ -50,6 +50,11 @@ where
 ///  - Individual indices and ranges (types satisfying `Into<SliceItem>`)
 ///  - Arrays of indices or ranges
 ///  - Tuples of indices and/or ranges
+///
+/// Ranges can be specified using regular Rust ranges (eg. `start..end`,
+/// `start..`, `..end`, `..`) or a [SliceRange], which extends regular Rust
+/// ranges with support for steps and specifying endpoints using negative
+/// values, which behaves similarly to using negative values in NumPy.
 pub trait IntoSliceItems<const N: usize> {
     fn into_slice_items(self) -> [SliceItem; N];
 }
@@ -107,7 +112,11 @@ impl<T1: Into<SliceItem>, T2: Into<SliceItem>, T3: Into<SliceItem>, T4: Into<Sli
 /// turn strongly influenced slicing in ONNX.
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub struct SliceRange {
+    /// First index in range.
     pub start: isize,
+
+    /// Last index (exclusive) in range, or None if the range extends to the
+    /// end of a dimension.
     pub end: Option<isize>,
 
     /// The steps between adjacent elements selected by this range. This

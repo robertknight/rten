@@ -75,6 +75,10 @@ pub trait NdView<const N: usize>: Layout {
     /// the tensor. If it must be <= N. If it is less than N, it refers to the
     /// leading dimensions of the tensor and is padded to extract the full
     /// range of the remaining dimensions.
+    ///
+    /// See [IntoSliceItems] for a description of how slices can be specified.
+    /// Slice ranges are currently restricted to use positive steps. In other
+    /// words, NumPy-style slicing with negative steps is not supported.
     fn slice<const M: usize, const K: usize, R: IntoSliceItems<K>>(
         &self,
         range: R,

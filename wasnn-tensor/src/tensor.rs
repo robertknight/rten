@@ -124,6 +124,10 @@ pub trait View: Layout {
     /// returned view. If `N` is less than the number of dimensions in this
     /// tensor, `range` refers to the leading dimensions, and is padded to
     /// include the full range of the remaining dimensions.
+    ///
+    /// See [IntoSliceItems] for a description of how slices can be specified.
+    /// Slice ranges are currently restricted to use positive steps. In other
+    /// words, NumPy-style slicing with negative steps is not supported.
     fn slice<const N: usize, R: IntoSliceItems<N>>(&self, range: R) -> TensorView<Self::Elem> {
         self.view().slice(range)
     }
@@ -137,6 +141,11 @@ pub trait View: Layout {
     }
 
     /// Return an iterator over a slice of this tensor.
+    ///
+    /// This is similar to `self.slice_dyn(range).iter()` except that it
+    /// returns an iterator directly instead of creating an intermediate view.
+    /// Also slicing with this method is more flexible as negative steps are
+    /// supported for items in `range`.
     fn slice_iter(&self, range: &[SliceItem]) -> Iter<Self::Elem> {
         self.view().slice_iter(range)
     }
