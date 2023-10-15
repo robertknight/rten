@@ -2,7 +2,7 @@ use std::iter::{repeat, zip, Cycle, Take};
 use std::slice;
 
 use super::layout::DynLayout;
-use super::range::SliceRange;
+use super::range::{SliceItem, SliceRange};
 use crate::{Layout, TensorView, TensorViewMut};
 
 /// IterPos tracks the position within a single dimension of an IndexingIter.
@@ -105,20 +105,26 @@ impl IndexingIterBase {
     }
 
     /// Create an iterator over offsets of a subset of elements in `tensor`.
-    fn slice(layout: &DynLayout, ranges: &[SliceRange]) -> IndexingIterBase {
+    fn slice(layout: &DynLayout, range: &[SliceItem]) -> IndexingIterBase {
         assert!(
-            ranges.len() == layout.ndim(),
+            range.len() == layout.ndim(),
             "slice dimensions {} do not match tensor dimensions {}",
-            ranges.len(),
+            range.len(),
             layout.ndim()
         );
         let mut offset = 0;
-        let dims: Vec<_> = ranges
+        let dims: Vec<_> = range
             .iter()
             .enumerate()
             .map(|(dim, range)| {
                 let len = layout.size(dim);
-                let range = range.clamp(len);
+                let range = match range {
+                    SliceItem::Index(idx) => {
+                        assert!(*idx < len, "slice index is invalid");
+                        SliceRange::new(*idx as isize, Some(*idx as isize + 1), 1)
+                    }
+                    SliceItem::Range(range) => range.clamp(len),
+                };
                 let stride = layout.stride(dim);
 
                 let start_index = if range.start >= 0 {
@@ -231,9 +237,9 @@ impl<'a, T> Iter<'a, T> {
         }
     }
 
-    pub(super) fn slice(view: &TensorView<'a, T>, ranges: &[SliceRange]) -> Iter<'a, T> {
+    pub(super) fn slice(view: &TensorView<'a, T>, range: &[SliceItem]) -> Iter<'a, T> {
         let iter = IndexingIter {
-            base: IndexingIterBase::slice(view.layout(), ranges),
+            base: IndexingIterBase::slice(view.layout(), range),
             data: view.data(),
         };
         Iter {
@@ -444,9 +450,9 @@ impl Offsets {
         }
     }
 
-    pub fn slice(layout: &DynLayout, ranges: &[SliceRange]) -> Offsets {
+    pub fn slice(layout: &DynLayout, range: &[SliceItem]) -> Offsets {
         Offsets {
-            base: IndexingIterBase::slice(layout, ranges),
+            base: IndexingIterBase::slice(layout, range),
         }
     }
 }

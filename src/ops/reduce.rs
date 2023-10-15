@@ -3,7 +3,7 @@ use std::iter::{zip, Skip, StepBy, Take};
 
 use wasnn_tensor;
 use wasnn_tensor::{
-    DynIndices, Layout, NdTensor, Offsets, SliceRange, Tensor, TensorView, TensorViewMut, View,
+    DynIndices, Layout, NdTensor, Offsets, SliceItem, Tensor, TensorView, TensorViewMut, View,
 };
 
 use crate::number::Identities;
@@ -13,7 +13,7 @@ use crate::ops::{
 };
 
 fn dim_slices_offsets<T>(tensor: &TensorView<T>, dim: usize) -> Offsets {
-    let slice_starts: Vec<SliceRange> = (0..tensor.ndim())
+    let slice_starts: Vec<SliceItem> = (0..tensor.ndim())
         .map(|i| {
             if i == dim {
                 (0..1).into()
@@ -374,9 +374,9 @@ fn reduce<T: Copy + Default, R: Reducer<T>>(
                     inner_range.clear();
                     inner_range.extend(index.iter().enumerate().map(|(dim, &idx)| {
                         if resolved_axes.contains(&dim) {
-                            SliceRange::new(0, Some(input.size(dim) as isize), 1)
+                            SliceItem::range(0, Some(input.size(dim) as isize), 1)
                         } else {
-                            SliceRange::new(idx as isize, Some(idx as isize + 1), 1)
+                            SliceItem::Index(idx)
                         }
                     }));
                     let reduced = reducer.reduce(input.slice_iter(&inner_range).copied());

@@ -8,7 +8,7 @@ use std::ops::{Index, IndexMut, Range};
 use crate::iterators::{AxisIter, AxisIterMut, BroadcastIter, Iter, IterMut, Offsets};
 use crate::layout::{DynLayout, Layout};
 use crate::ndtensor::{NdTensorBase, NdTensorView, NdTensorViewMut};
-use crate::range::{IntoSliceItems, SliceItem, SliceRange};
+use crate::range::{IntoSliceItems, SliceItem};
 use crate::rng::XorShiftRng;
 
 /// Trait for indexing a `Tensor`
@@ -137,8 +137,8 @@ pub trait View: Layout {
     }
 
     /// Return an iterator over a slice of this tensor.
-    fn slice_iter(&self, ranges: &[SliceRange]) -> Iter<Self::Elem> {
-        self.view().slice_iter(ranges)
+    fn slice_iter(&self, range: &[SliceItem]) -> Iter<Self::Elem> {
+        self.view().slice_iter(range)
     }
 
     /// Return a view of this tensor with all dimensions of size 1 removed.
@@ -324,8 +324,8 @@ impl<T, S: AsRef<[T]>> TensorBase<T, S> {
     ///
     /// Note that the offset order of the returned iterator will become incorrect
     /// if the tensor's layout is modified during iteration.
-    pub fn slice_offsets(&self, ranges: &[SliceRange]) -> Offsets {
-        Offsets::slice(self.layout(), ranges)
+    pub fn slice_offsets(&self, range: &[SliceItem]) -> Offsets {
+        Offsets::slice(self.layout(), range)
     }
 }
 
@@ -420,8 +420,8 @@ impl<'a, T> TensorView<'a, T> {
         }
     }
 
-    pub fn slice_iter(&self, ranges: &[SliceRange]) -> Iter<'a, T> {
-        Iter::slice(self, ranges)
+    pub fn slice_iter(&self, range: &[SliceItem]) -> Iter<'a, T> {
+        Iter::slice(self, range)
     }
 
     pub fn squeezed(&self) -> TensorView<'a, T> {
@@ -882,9 +882,7 @@ mod tests {
 
     use crate::rng::XorShiftRng;
     use crate::tensor;
-    use crate::{
-        Layout, NdTensor, NdView, SliceItem, SliceRange, Tensor, TensorView, TensorViewMut, View,
-    };
+    use crate::{Layout, NdTensor, NdView, SliceItem, Tensor, TensorView, TensorViewMut, View};
 
     /// Create a tensor where the value of each element is its logical index
     /// plus one.
@@ -1782,8 +1780,15 @@ mod tests {
 
     #[test]
     fn test_slice_iter() {
-        let sr = |start, end| SliceRange::new(start, Some(end), 1);
+        let sr = |start, end| SliceItem::range(start, Some(end), 1);
         let x = steps(&[3, 3]);
+
+        // Slice that extracts a specific index
+        let slice: Vec<_> = x
+            .slice_iter(&[SliceItem::Index(0), SliceItem::full_range()])
+            .copied()
+            .collect();
+        assert_eq!(slice, &[1, 2, 3]);
 
         // Slice that removes start of each dimension
         let slice: Vec<_> = x.slice_iter(&[sr(1, 3), sr(1, 3)]).copied().collect();
@@ -1804,7 +1809,7 @@ mod tests {
 
     #[test]
     fn test_slice_iter_with_step() {
-        let sr = |start, end, step| SliceRange::new(start, Some(end), step);
+        let sr = |start, end, step| SliceItem::range(start, Some(end), step);
         let x = steps(&[10]);
 
         // Positive steps > 1.
@@ -1833,7 +1838,7 @@ mod tests {
 
     #[test]
     fn test_slice_iter_negative_indices() {
-        let sr = |start, end| SliceRange::new(start, Some(end), 1);
+        let sr = |start, end| SliceItem::range(start, Some(end), 1);
         let x = steps(&[10]);
 
         // Negative start
@@ -1851,7 +1856,7 @@ mod tests {
 
     #[test]
     fn test_slice_iter_clamps_indices() {
-        let sr = |start, end, step| SliceRange::new(start, Some(end), step);
+        let sr = |start, end, step| SliceItem::range(start, Some(end), step);
         let x = steps(&[5]);
 
         // Test cases for positive steps (ie. traversing forwards).
@@ -1893,7 +1898,7 @@ mod tests {
 
     #[test]
     fn test_slice_iter_start_end_step_combinations() {
-        let sr = |start, end, step| SliceRange::new(start, Some(end), step);
+        let sr = |start, end, step| SliceItem::range(start, Some(end), step);
         let x = steps(&[3]);
 
         // Test various combinations of slice starts, ends and steps that are
@@ -1920,8 +1925,8 @@ mod tests {
 
         // Range that removes the start and end of each dimension.
         let range = &[
-            SliceRange::new(1, Some(4), 1),
-            SliceRange::new(1, Some(4), 1),
+            SliceItem::range(1, Some(4), 1),
+            SliceItem::range(1, Some(4), 1),
         ];
         let expected: Vec<_> = x.slice_iter(range).copied().collect();
         let result: Vec<_> = x

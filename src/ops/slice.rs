@@ -1,6 +1,6 @@
 use std::iter::zip;
 
-use wasnn_tensor::{Layout, NdTensorView, SliceRange, Tensor, TensorView};
+use wasnn_tensor::{Layout, NdTensorView, SliceItem, SliceRange, Tensor, TensorView};
 
 use crate::ops::{resolve_axis, Input, InputList, IntoOpResult, OpError, Operator, Output};
 use crate::static_dims;
@@ -53,7 +53,8 @@ pub fn slice<T: Copy>(
     steps: Option<&NdTensorView<i32, 1>>,
 ) -> Result<Tensor<T>, OpError> {
     let ranges = slice_ranges(input.shape(), starts, ends, axes, steps)?;
-    let sliced_data: Vec<_> = input.slice_iter(&ranges).copied().collect();
+    let items: Vec<_> = ranges.iter().map(|r| SliceItem::Range(*r)).collect();
+    let sliced_data: Vec<_> = input.slice_iter(&items).copied().collect();
     let sliced_shape: Vec<_> = ranges
         .iter()
         .copied()
