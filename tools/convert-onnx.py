@@ -304,7 +304,7 @@ class ONNXOperatorReader:
         """
         Check if an operator has an unsupported non-default value for an attribute.
 
-        If `default` is a tuple, it specified a set of acceptable defaults.
+        If `default` is a tuple, it specifies a set of acceptable defaults.
         """
 
         val = self.get_attr(name, expected_type, None)
@@ -603,6 +603,10 @@ def op_node_from_onnx_operator(
 
             op_reader.check_attr("output_padding", "ints", [0, 0, 0, 0])
             op_reader.check_attr("pads", "ints", [0, 0, 0, 0])
+
+        case "CumSum":
+            op_reader.check_attr("exclusive", "int", 0)
+            op_reader.check_attr("reverse", "int", 0)
 
         case "Flatten":
             attrs = sg.FlattenAttrsT()
