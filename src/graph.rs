@@ -149,6 +149,46 @@ fn all_unique<T, F: Fn(&T, &T) -> bool>(xs: &[T], eq: F) -> bool {
         .all(|x| xs.iter().filter(|y| eq(x, y)).count() == 1)
 }
 
+/// Counter that tracks the remaining usage count of a graph node value.
+///
+/// This is used to keep intermediate graph outputs alive until they are no
+/// longer needed.
+struct NodeRefCount {
+    rc: HashMap<NodeId, usize>,
+}
+
+impl NodeRefCount {
+    fn new() -> NodeRefCount {
+        NodeRefCount { rc: HashMap::new() }
+    }
+
+    /// Increment ref count of node
+    fn inc(&mut self, id: NodeId) {
+        self.rc
+            .entry(id)
+            .and_modify(|count| *count += 1)
+            .or_insert(1);
+    }
+
+    /// Decrement ref count of node and return new count
+    fn dec(&mut self, id: NodeId) -> usize {
+        let Some(rc) = self.rc.get_mut(&id) else {
+            return 0;
+        };
+        *rc = rc.saturating_sub(1);
+        if *rc == 0 {
+            self.rc.remove(&id);
+            0
+        } else {
+            *rc
+        }
+    }
+
+    fn count(&self, id: NodeId) -> usize {
+        *self.rc.get(&id).unwrap_or(&0)
+    }
+}
+
 impl Error for RunError {}
 
 #[derive(Default)]
@@ -273,16 +313,19 @@ impl Graph {
             }
         }
 
-        // Count how often each temporary input is used, so we can free them
+        // Count how often each temporary output is used, so we can free them
         // when no longer needed.
-        let mut usage_counts: HashMap<NodeId, usize> = HashMap::new();
+        let mut temp_value_refcount = NodeRefCount::new();
         for (_, op_node) in plan.iter() {
             for node_id in op_node.inputs.iter().filter_map(|node| *node) {
-                usage_counts
-                    .entry(node_id)
-                    .and_modify(|count| *count += 1)
-                    .or_insert(1);
+                temp_value_refcount.inc(node_id);
             }
+        }
+
+        // Increment usage count of all output nodes, so we retain them after
+        // the operator has run.
+        for node_id in outputs {
+            temp_value_refcount.inc(*node_id);
         }
 
         // Execute the plan
@@ -309,8 +352,9 @@ impl Graph {
             let in_place_input = first_input.and_then(|first_input| {
                 if op_node.operator.can_run_in_place()
                     && temp_values.contains_key(&first_input)
-                    && usage_counts.get(&first_input) == Some(&1)
+                    && temp_value_refcount.count(first_input) == 1
                 {
+                    temp_value_refcount.dec(first_input);
                     Some(temp_values.remove(&first_input).unwrap())
                 } else {
                     None
@@ -439,11 +483,9 @@ impl Graph {
 
             // Remove temporary values that are no longer needed
             for node_id in op_node.inputs.iter().filter_map(|node| *node) {
-                let usage = *usage_counts.get(&node_id).unwrap();
-                if usage == 1 {
+                let rc = temp_value_refcount.dec(node_id);
+                if rc == 0 {
                     temp_values.remove(&node_id);
-                } else {
-                    usage_counts.insert(node_id, usage - 1);
                 }
             }
         }
@@ -850,6 +892,36 @@ mod tests {
             .unwrap();
         let expected = Tensor::from_data(&[2], vec![3., 2.]);
         expect_equal(results[0].as_float_ref().unwrap(), &expected)
+    }
+
+    // Perform a graph run where one of the outputs is also an input for other
+    // steps of the run.
+    #[test]
+    fn test_graph_intermediate_output() {
+        let mut g = Graph::new();
+
+        let input_id = g.add_value(Some("input"), None);
+        let op_a_out = g.add_value(Some("op_a_out"), None);
+        g.add_op(
+            Some("op_a"),
+            Box::new(AddOne {}),
+            &[Some(input_id)],
+            &[Some(op_a_out)],
+        );
+        let op_b_out = g.add_value(Some("op_b_out"), None);
+        g.add_op(
+            Some("op_b"),
+            Box::new(AddOne {}),
+            &[Some(op_a_out)],
+            &[Some(op_b_out)],
+        );
+
+        let input = tensor!(0.);
+        let results = g
+            .run(&[(input_id, (&input).into())], &[op_a_out, op_b_out], None)
+            .unwrap();
+        assert_eq!(results[0].as_float_ref().unwrap(), &tensor!(1.));
+        assert_eq!(results[1].as_float_ref().unwrap(), &tensor!(2.));
     }
 
     #[test]
