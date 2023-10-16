@@ -387,7 +387,12 @@ impl Graph {
                     input_shapes.insert(0, Some(first_input_shape));
                 }
 
-                println!("#{} {} ({:?})", step, op_node.operator.name(), op_node.name);
+                println!(
+                    "#{} {} ({})",
+                    step,
+                    op_node.operator.name(),
+                    op_node.name.as_ref().unwrap_or(&String::new())
+                );
                 for (index, (id, shape)) in
                     zip(op_node.inputs.iter(), input_shapes.iter()).enumerate()
                 {
@@ -396,6 +401,16 @@ impl Graph {
                         println!("  input {}: {} ({:?})", index, name, shape);
                     }
                 }
+
+                if let Ok(outputs) = op_result.as_ref() {
+                    for (index, (id, output)) in
+                        zip(op_node.outputs.iter(), outputs.iter()).enumerate()
+                    {
+                        let name = id.map(|id| self.node_name(id)).unwrap_or(String::new());
+                        println!("  output {}: {} ({:?})", index, name, output.shape());
+                    }
+                }
+
                 println!("  time: {}ms", op_timer.elapsed_ms());
             }
 
