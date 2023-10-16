@@ -204,24 +204,27 @@ impl Operator for ArgMin {
     }
 }
 
-pub fn cum_sum<T: Copy + Identities + std::ops::AddAssign>(
+pub fn cum_sum<T: Copy + Default + Identities + std::ops::AddAssign>(
     input: TensorView<T>,
     axis: isize,
 ) -> Result<Tensor<T>, OpError> {
     let resolved_axis = resolve_axis(input.ndim(), axis)?;
-    let mut out_data = Vec::with_capacity(input.len());
+    let mut output: Tensor<T> = Tensor::zeros(input.shape());
 
     if !input.is_empty() {
-        for slice in DimSlices::new(input.clone(), resolved_axis) {
+        let mut in_slices = DimSlices::new(input, resolved_axis);
+        let mut out_slices = DimSlicesMut::new(output.view_mut(), resolved_axis);
+
+        while let (Some(in_slice), Some(out_slice)) = (in_slices.next(), out_slices.next()) {
             let mut cum_sum = T::zero();
-            out_data.extend(slice.map(|val| {
-                cum_sum += *val;
-                cum_sum
-            }));
+            for (x, y) in zip(in_slice, out_slice) {
+                cum_sum += *x;
+                *y = cum_sum;
+            }
         }
     }
 
-    Ok(Tensor::from_data(input.shape(), out_data))
+    Ok(output)
 }
 
 #[derive(Debug)]
@@ -860,14 +863,20 @@ mod tests {
         assert_eq!(sums.shape(), &[6]);
         assert_eq!(sums.to_vec(), &[0, 1, 3, 6, 10, 15]);
 
-        let elements = Tensor::from_data(&[2, 4], (0..4).chain(0..4).collect::<Vec<_>>());
+        let elements = Tensor::from_data(&[1, 4, 4], vec![1; 16]);
         let sums = cum_sum(elements.view(), 1).unwrap();
-        assert_eq!(sums.shape(), &[2, 4]);
-        assert_eq!(sums.to_vec(), &[0, 1, 3, 6, 0, 1, 3, 6]);
+        assert_eq!(sums.shape(), &[1, 4, 4]);
+        assert_eq!(
+            sums.to_vec(),
+            &[1, 1, 1, 1, 2, 2, 2, 2, 3, 3, 3, 3, 4, 4, 4, 4]
+        );
 
-        let sums = cum_sum(elements.view(), 0).unwrap();
-        assert_eq!(sums.shape(), &[2, 4]);
-        assert_eq!(sums.to_vec(), &[0, 0, 1, 2, 2, 4, 3, 6]);
+        let sums = cum_sum(elements.view(), -1).unwrap();
+        assert_eq!(sums.shape(), &[1, 4, 4]);
+        assert_eq!(
+            sums.to_vec(),
+            &[1, 2, 3, 4, 1, 2, 3, 4, 1, 2, 3, 4, 1, 2, 3, 4]
+        );
 
         let elements: Tensor<f32> = tensor!([]);
         let sums = cum_sum(elements.view(), 0).unwrap();
