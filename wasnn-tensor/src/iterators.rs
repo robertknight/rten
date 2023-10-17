@@ -1,4 +1,5 @@
-use std::iter::{repeat, zip, Cycle, Take};
+use std::iter::{repeat, zip, Cycle, StepBy, Take};
+use std::ops::Range;
 use std::slice;
 
 use super::layout::DynLayout;
@@ -630,5 +631,166 @@ impl<'a, T> Iterator for AxisIterMut<'a, T> {
             };
             Some(view)
         }
+    }
+}
+
+/// Helper for [Lanes] and [LanesMut] that iterates over ranges of a tensor's
+/// data buffer spanning a single lane.
+struct LaneRanges {
+    /// Start offsets of each lane.
+    offsets: Offsets,
+
+    // Number of elements in each lane and gap between them.
+    dim_size: usize,
+    dim_stride: usize,
+}
+
+impl LaneRanges {
+    fn new<T>(tensor: &TensorView<T>, dim: usize) -> LaneRanges {
+        let slice_starts: Vec<SliceItem> = (0..tensor.ndim())
+            .map(|i| {
+                if i == dim {
+                    (0..1).into()
+                } else {
+                    (0..(tensor.shape()[i] as isize)).into()
+                }
+            })
+            .collect();
+        let offsets = tensor.slice_offsets(&slice_starts);
+        LaneRanges {
+            offsets,
+            dim_size: tensor.size(dim),
+            dim_stride: tensor.stride(dim),
+        }
+    }
+}
+
+impl Iterator for LaneRanges {
+    type Item = Range<usize>;
+
+    fn next(&mut self) -> Option<Range<usize>> {
+        self.offsets.next().map(|offset| {
+            // nb. `dim_size` should be >= 1 here as otherwise the tensor
+            // has no elements and `self.offsets` should therefore yield no
+            // items.
+            offset..offset + (self.dim_size - 1) * self.dim_stride + 1
+        })
+    }
+}
+
+/// Iterator over 1D slices of a tensor along a target dimension of size N.
+///
+/// Conceptually this iterator steps through every distinct slice of a tensor
+/// where a target dim is varied from 0..N and other indices are held fixed.
+pub struct Lanes<'a, T> {
+    data: &'a [T],
+    ranges: LaneRanges,
+}
+
+/// Iterator over items in a 1D slice of a tensor.
+pub struct Lane<'a, T> {
+    inner: StepBy<std::slice::Iter<'a, T>>,
+}
+
+impl<'a, T> Iterator for Lane<'a, T> {
+    type Item = &'a T;
+
+    #[inline]
+    fn next(&mut self) -> Option<Self::Item> {
+        self.inner.next()
+    }
+
+    fn size_hint(&self) -> (usize, Option<usize>) {
+        self.inner.size_hint()
+    }
+}
+
+impl<'a, T> ExactSizeIterator for Lane<'a, T> {}
+
+impl<'a, T> Lanes<'a, T> {
+    /// Create an iterator which yields all possible slices over the `dim`
+    /// dimension of `tensor`.
+    pub(crate) fn new(tensor: TensorView<'a, T>, dim: usize) -> Lanes<'a, T> {
+        Lanes {
+            data: tensor.data(),
+            ranges: LaneRanges::new(&tensor, dim),
+        }
+    }
+}
+
+impl<'a, T> Iterator for Lanes<'a, T> {
+    type Item = Lane<'a, T>;
+
+    /// Yield the next slice over the target dimension.
+    fn next(&mut self) -> Option<Self::Item> {
+        self.ranges.next().map(|range| {
+            let slice = &self.data[range];
+            Lane {
+                inner: slice.iter().step_by(self.ranges.dim_stride),
+            }
+        })
+    }
+}
+
+/// Mutable version of [Lanes].
+///
+/// Unlike [Lanes], this does not implement [Iterator] due to complications
+/// in implementing this for an iterator that returns mutable references, but
+/// it has a similar interface.
+pub struct LanesMut<'a, T> {
+    tensor: TensorViewMut<'a, T>,
+    ranges: LaneRanges,
+}
+
+impl<'a, T> LanesMut<'a, T> {
+    /// Create an iterator which yields all possible slices over the `dim`
+    /// dimension of `tensor`.
+    pub(crate) fn new(tensor: TensorViewMut<'a, T>, dim: usize) -> LanesMut<'a, T> {
+        // See notes in `Layout` about internal overlap.
+        assert!(
+            !tensor.layout().is_broadcast(),
+            "Cannot mutably iterate over broadcasting view"
+        );
+        LanesMut {
+            ranges: LaneRanges::new(&tensor.view(), dim),
+            tensor,
+        }
+    }
+}
+
+/// Iterator over items in a 1D slice of a tensor.
+pub struct LaneMut<'a, T> {
+    inner: StepBy<std::slice::IterMut<'a, T>>,
+}
+
+impl<'a, T> Iterator for LaneMut<'a, T> {
+    type Item = &'a mut T;
+
+    #[inline]
+    fn next(&mut self) -> Option<Self::Item> {
+        self.inner.next()
+    }
+
+    fn size_hint(&self) -> (usize, Option<usize>) {
+        self.inner.size_hint()
+    }
+}
+
+impl<'a, T> ExactSizeIterator for LaneMut<'a, T> {}
+
+impl<'a, T> Iterator for LanesMut<'a, T> {
+    type Item = LaneMut<'a, T>;
+
+    fn next(&mut self) -> Option<LaneMut<'a, T>> {
+        self.ranges.next().map(|range| {
+            let slice = &mut self.tensor.data_mut()[range];
+
+            // Safety: This is non-broadcasting view, so lanes do not overlap.
+            let slice = unsafe { std::mem::transmute::<&mut [T], &'a mut [T]>(slice) };
+
+            LaneMut {
+                inner: slice.iter_mut().step_by(self.ranges.dim_stride),
+            }
+        })
     }
 }

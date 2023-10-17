@@ -6,7 +6,9 @@ use std::iter::zip;
 use std::marker::PhantomData;
 use std::ops::{Index, IndexMut, Range};
 
-use crate::iterators::{AxisIter, AxisIterMut, BroadcastIter, Iter, IterMut, Offsets};
+use crate::iterators::{
+    AxisIter, AxisIterMut, BroadcastIter, Iter, IterMut, Lanes, LanesMut, Offsets,
+};
 use crate::layout::{DynLayout, Layout};
 use crate::ndtensor::{NdTensorBase, NdTensorView, NdTensorViewMut};
 use crate::range::{IntoSliceItems, SliceItem};
@@ -81,6 +83,13 @@ pub trait View: Layout {
     /// Return an iterator over elements of this tensor, in their logical order.
     fn iter(&self) -> Iter<Self::Elem> {
         Iter::new(&self.view())
+    }
+
+    /// Return an iterator over all 1D slices ("lanes") along a given axis.
+    ///
+    /// Each slice is an iterator over the elements in that lane.
+    fn lanes(&self, dim: usize) -> Lanes<Self::Elem> {
+        Lanes::new(self.view(), dim)
     }
 
     /// Return a copy of this tensor with each element replaced by `f(element)`.
@@ -371,6 +380,10 @@ impl<'a, T> TensorView<'a, T> {
         }
     }
 
+    pub fn lanes(&self, dim: usize) -> Lanes<'a, T> {
+        Lanes::new(self.clone(), dim)
+    }
+
     pub fn nd_view<const N: usize>(&self) -> NdTensorView<'a, T, N> {
         self.nd_slice([])
     }
@@ -584,6 +597,12 @@ impl<T, S: AsRef<[T]> + AsMut<[T]>> TensorBase<T, S> {
     /// axis.
     pub fn axis_iter_mut(&mut self, dim: usize) -> AxisIterMut<T> {
         AxisIterMut::new(self.view_mut(), dim)
+    }
+
+    /// Return a mutable iterator over all 1D slices of this tensor along a
+    /// given axis.
+    pub fn lanes_mut(&mut self, dim: usize) -> LanesMut<T> {
+        LanesMut::new(self.view_mut(), dim)
     }
 
     /// Replace elements of this tensor with `f(element)`.
@@ -894,7 +913,10 @@ mod tests {
 
     use crate::rng::XorShiftRng;
     use crate::tensor;
-    use crate::{Layout, NdTensor, NdView, SliceItem, Tensor, TensorView, TensorViewMut, View};
+    use crate::{
+        Lanes, LanesMut, Layout, NdTensor, NdView, SliceItem, Tensor, TensorView, TensorViewMut,
+        View,
+    };
 
     /// Create a tensor where the value of each element is its logical index
     /// plus one.
@@ -1462,6 +1484,47 @@ mod tests {
             *elt *= 2;
         }
         assert_eq!(x.to_vec(), x_doubled);
+    }
+
+    #[test]
+    fn test_lanes() {
+        let x = steps(&[3, 3]);
+
+        let collect_lane =
+            |lanes: &mut Lanes<'_, i32>| lanes.next().map(|lane| lane.copied().collect::<Vec<_>>());
+
+        let mut rows = x.lanes(1);
+        assert_eq!(collect_lane(&mut rows), Some([1, 2, 3].to_vec()));
+        assert_eq!(collect_lane(&mut rows), Some([4, 5, 6].to_vec()));
+        assert_eq!(collect_lane(&mut rows), Some([7, 8, 9].to_vec()));
+
+        let mut cols = x.lanes(0);
+        assert_eq!(collect_lane(&mut cols), Some([1, 4, 7].to_vec()));
+        assert_eq!(collect_lane(&mut cols), Some([2, 5, 8].to_vec()));
+        assert_eq!(collect_lane(&mut cols), Some([3, 6, 9].to_vec()));
+    }
+
+    #[test]
+    fn test_lanes_mut() {
+        let update_lanes = |lanes: LanesMut<'_, i32>| {
+            let mut lane_idx = 0;
+            for lane in lanes {
+                for el in lane {
+                    *el = lane_idx;
+                }
+                lane_idx += 1;
+            }
+        };
+
+        let mut x = Tensor::zeros(&[3, 3]);
+        let rows = x.lanes_mut(1);
+        update_lanes(rows);
+        assert_eq!(x.to_vec(), &[0, 0, 0, 1, 1, 1, 2, 2, 2]);
+
+        let mut x = Tensor::zeros(&[3, 3]);
+        let cols = x.lanes_mut(0);
+        update_lanes(cols);
+        assert_eq!(x.to_vec(), &[0, 1, 2, 0, 1, 2, 0, 1, 2]);
     }
 
     #[test]
