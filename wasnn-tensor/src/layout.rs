@@ -578,9 +578,10 @@ impl DynLayout {
         self.shape_and_strides[dim] = new_size;
     }
 
-    /// Return true if this is a broadcasting layout which repeats dimensions.
+    /// Return true if iterating over elements in this layout will visit
+    /// elements multiple times.
     pub fn is_broadcast(&self) -> bool {
-        self.strides().iter().any(|&stride| stride == 0)
+        !self.is_empty() && self.strides().iter().any(|&stride| stride == 0)
     }
 
     pub fn make_contiguous(&mut self) {
@@ -726,6 +727,21 @@ mod tests {
 
     use crate::layout::DynLayout;
     use crate::{Layout, SliceItem};
+
+    #[test]
+    fn test_is_broadcast() {
+        // Non-empty, contiguous layout
+        let layout = DynLayout::new(&[5, 5]);
+        assert!(!layout.is_broadcast());
+
+        // Empty layout
+        let layout = DynLayout::new(&[5, 0]);
+        assert!(!layout.is_broadcast());
+
+        // Broadcasting layout
+        let layout = DynLayout::with_strides(&[5, 5], &[0, 0]);
+        assert!(layout.is_broadcast());
+    }
 
     #[test]
     fn test_with_strides() {

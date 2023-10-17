@@ -634,8 +634,8 @@ impl<'a, T> Iterator for AxisIterMut<'a, T> {
     }
 }
 
-/// Helper for [Lanes] and [LanesMut] that iterates over ranges of a tensor's
-/// data buffer spanning a single lane.
+/// Iterator over the ranges of a tensor's data that correspond to 1D lanes
+/// along a particular dimension.
 struct LaneRanges {
     /// Start offsets of each lane.
     offsets: Offsets,
@@ -792,5 +792,26 @@ impl<'a, T> Iterator for LanesMut<'a, T> {
                 inner: slice.iter_mut().step_by(self.ranges.dim_stride),
             }
         })
+    }
+}
+
+// Tests for iterator internals. Most tests of iterators are currently done via
+// tests on tensor methods.
+#[cfg(test)]
+mod tests {
+    use crate::{Lanes, LanesMut, Tensor};
+
+    #[test]
+    fn test_lanes_empty() {
+        let x = Tensor::<i32>::zeros(&[5, 0]);
+        assert!(Lanes::new(x.view(), 0).next().is_none());
+        assert!(Lanes::new(x.view(), 1).next().is_none());
+    }
+
+    #[test]
+    fn test_lanes_mut_empty() {
+        let mut x = Tensor::<i32>::zeros(&[5, 0]);
+        assert!(LanesMut::new(x.view_mut(), 0).next().is_none());
+        assert!(LanesMut::new(x.view_mut(), 1).next().is_none());
     }
 }
