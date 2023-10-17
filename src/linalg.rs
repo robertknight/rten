@@ -445,7 +445,7 @@ pub fn round_up(val: usize, factor: usize) -> usize {
     }
 }
 
-/// Metadata for a left-hand or "A" GEMM input that has been pre-packed.
+/// Left-hand or "A" GEMM input that has been pre-packed.
 #[derive(Clone)]
 pub struct PackedAMatrix {
     /// Sequence of packed row panels.
@@ -472,7 +472,7 @@ impl PackedAMatrix {
     }
 }
 
-/// Metadata for a right-hand or "B" GEMM input that has been pre-packed.
+/// Right-hand or "B" GEMM input that has been pre-packed.
 #[derive(Clone)]
 pub struct PackedBMatrix {
     /// Sequence of packed column panels.
