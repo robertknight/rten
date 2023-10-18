@@ -18,13 +18,13 @@ pub const ENUM_MIN_OPERATOR_TYPE: i8 = 0;
     since = "2.0.0",
     note = "Use associated constants instead. This will no longer be generated in 2021."
 )]
-pub const ENUM_MAX_OPERATOR_TYPE: i8 = 82;
+pub const ENUM_MAX_OPERATOR_TYPE: i8 = 84;
 #[deprecated(
     since = "2.0.0",
     note = "Use associated constants instead. This will no longer be generated in 2021."
 )]
 #[allow(non_camel_case_types)]
-pub const ENUM_VALUES_OPERATOR_TYPE: [OperatorType; 83] = [
+pub const ENUM_VALUES_OPERATOR_TYPE: [OperatorType; 85] = [
     OperatorType::Add,
     OperatorType::ArgMin,
     OperatorType::ArgMax,
@@ -108,6 +108,8 @@ pub const ENUM_VALUES_OPERATOR_TYPE: [OperatorType; 83] = [
     OperatorType::Asin,
     OperatorType::Atan,
     OperatorType::InstanceNormalization,
+    OperatorType::HardSigmoid,
+    OperatorType::HardSwish,
 ];
 
 #[derive(Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash, Default)]
@@ -198,9 +200,11 @@ impl OperatorType {
     pub const Asin: Self = Self(80);
     pub const Atan: Self = Self(81);
     pub const InstanceNormalization: Self = Self(82);
+    pub const HardSigmoid: Self = Self(83);
+    pub const HardSwish: Self = Self(84);
 
     pub const ENUM_MIN: i8 = 0;
-    pub const ENUM_MAX: i8 = 82;
+    pub const ENUM_MAX: i8 = 84;
     pub const ENUM_VALUES: &'static [Self] = &[
         Self::Add,
         Self::ArgMin,
@@ -285,6 +289,8 @@ impl OperatorType {
         Self::Asin,
         Self::Atan,
         Self::InstanceNormalization,
+        Self::HardSigmoid,
+        Self::HardSwish,
     ];
     /// Returns the variant's name or "" if unknown.
     pub fn variant_name(self) -> Option<&'static str> {
@@ -372,6 +378,8 @@ impl OperatorType {
             Self::Asin => Some("Asin"),
             Self::Atan => Some("Atan"),
             Self::InstanceNormalization => Some("InstanceNormalization"),
+            Self::HardSigmoid => Some("HardSigmoid"),
+            Self::HardSwish => Some("HardSwish"),
             _ => None,
         }
     }
@@ -994,13 +1002,13 @@ pub const ENUM_MIN_OPERATOR_ATTRS: u8 = 0;
     since = "2.0.0",
     note = "Use associated constants instead. This will no longer be generated in 2021."
 )]
-pub const ENUM_MAX_OPERATOR_ATTRS: u8 = 25;
+pub const ENUM_MAX_OPERATOR_ATTRS: u8 = 26;
 #[deprecated(
     since = "2.0.0",
     note = "Use associated constants instead. This will no longer be generated in 2021."
 )]
 #[allow(non_camel_case_types)]
-pub const ENUM_VALUES_OPERATOR_ATTRS: [OperatorAttrs; 26] = [
+pub const ENUM_VALUES_OPERATOR_ATTRS: [OperatorAttrs; 27] = [
     OperatorAttrs::NONE,
     OperatorAttrs::ArgMaxAttrs,
     OperatorAttrs::AveragePoolAttrs,
@@ -1027,6 +1035,7 @@ pub const ENUM_VALUES_OPERATOR_ATTRS: [OperatorAttrs; 26] = [
     OperatorAttrs::ScatterElementsAttrs,
     OperatorAttrs::OneHotAttrs,
     OperatorAttrs::TopKAttrs,
+    OperatorAttrs::HardSigmoidAttrs,
 ];
 
 #[derive(Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash, Default)]
@@ -1060,9 +1069,10 @@ impl OperatorAttrs {
     pub const ScatterElementsAttrs: Self = Self(23);
     pub const OneHotAttrs: Self = Self(24);
     pub const TopKAttrs: Self = Self(25);
+    pub const HardSigmoidAttrs: Self = Self(26);
 
     pub const ENUM_MIN: u8 = 0;
-    pub const ENUM_MAX: u8 = 25;
+    pub const ENUM_MAX: u8 = 26;
     pub const ENUM_VALUES: &'static [Self] = &[
         Self::NONE,
         Self::ArgMaxAttrs,
@@ -1090,6 +1100,7 @@ impl OperatorAttrs {
         Self::ScatterElementsAttrs,
         Self::OneHotAttrs,
         Self::TopKAttrs,
+        Self::HardSigmoidAttrs,
     ];
     /// Returns the variant's name or "" if unknown.
     pub fn variant_name(self) -> Option<&'static str> {
@@ -1120,6 +1131,7 @@ impl OperatorAttrs {
             Self::ScatterElementsAttrs => Some("ScatterElementsAttrs"),
             Self::OneHotAttrs => Some("OneHotAttrs"),
             Self::TopKAttrs => Some("TopKAttrs"),
+            Self::HardSigmoidAttrs => Some("HardSigmoidAttrs"),
             _ => None,
         }
     }
@@ -3418,6 +3430,134 @@ impl core::fmt::Debug for GRUAttrs<'_> {
         ds.finish()
     }
 }
+pub enum HardSigmoidAttrsOffset {}
+#[derive(Copy, Clone, PartialEq)]
+
+pub struct HardSigmoidAttrs<'a> {
+    pub _tab: flatbuffers::Table<'a>,
+}
+
+impl<'a> flatbuffers::Follow<'a> for HardSigmoidAttrs<'a> {
+    type Inner = HardSigmoidAttrs<'a>;
+    #[inline]
+    unsafe fn follow(buf: &'a [u8], loc: usize) -> Self::Inner {
+        Self {
+            _tab: flatbuffers::Table::new(buf, loc),
+        }
+    }
+}
+
+impl<'a> HardSigmoidAttrs<'a> {
+    pub const VT_ALPHA: flatbuffers::VOffsetT = 4;
+    pub const VT_BETA: flatbuffers::VOffsetT = 6;
+
+    #[inline]
+    pub unsafe fn init_from_table(table: flatbuffers::Table<'a>) -> Self {
+        HardSigmoidAttrs { _tab: table }
+    }
+    #[allow(unused_mut)]
+    pub fn create<'bldr: 'args, 'args: 'mut_bldr, 'mut_bldr>(
+        _fbb: &'mut_bldr mut flatbuffers::FlatBufferBuilder<'bldr>,
+        args: &'args HardSigmoidAttrsArgs,
+    ) -> flatbuffers::WIPOffset<HardSigmoidAttrs<'bldr>> {
+        let mut builder = HardSigmoidAttrsBuilder::new(_fbb);
+        builder.add_beta(args.beta);
+        builder.add_alpha(args.alpha);
+        builder.finish()
+    }
+
+    #[inline]
+    pub fn alpha(&self) -> f32 {
+        // Safety:
+        // Created from valid Table for this object
+        // which contains a valid value in this slot
+        unsafe {
+            self._tab
+                .get::<f32>(HardSigmoidAttrs::VT_ALPHA, Some(0.0))
+                .unwrap()
+        }
+    }
+    #[inline]
+    pub fn beta(&self) -> f32 {
+        // Safety:
+        // Created from valid Table for this object
+        // which contains a valid value in this slot
+        unsafe {
+            self._tab
+                .get::<f32>(HardSigmoidAttrs::VT_BETA, Some(0.0))
+                .unwrap()
+        }
+    }
+}
+
+impl flatbuffers::Verifiable for HardSigmoidAttrs<'_> {
+    #[inline]
+    fn run_verifier(
+        v: &mut flatbuffers::Verifier,
+        pos: usize,
+    ) -> Result<(), flatbuffers::InvalidFlatbuffer> {
+        use self::flatbuffers::Verifiable;
+        v.visit_table(pos)?
+            .visit_field::<f32>("alpha", Self::VT_ALPHA, false)?
+            .visit_field::<f32>("beta", Self::VT_BETA, false)?
+            .finish();
+        Ok(())
+    }
+}
+pub struct HardSigmoidAttrsArgs {
+    pub alpha: f32,
+    pub beta: f32,
+}
+impl<'a> Default for HardSigmoidAttrsArgs {
+    #[inline]
+    fn default() -> Self {
+        HardSigmoidAttrsArgs {
+            alpha: 0.0,
+            beta: 0.0,
+        }
+    }
+}
+
+pub struct HardSigmoidAttrsBuilder<'a: 'b, 'b> {
+    fbb_: &'b mut flatbuffers::FlatBufferBuilder<'a>,
+    start_: flatbuffers::WIPOffset<flatbuffers::TableUnfinishedWIPOffset>,
+}
+impl<'a: 'b, 'b> HardSigmoidAttrsBuilder<'a, 'b> {
+    #[inline]
+    pub fn add_alpha(&mut self, alpha: f32) {
+        self.fbb_
+            .push_slot::<f32>(HardSigmoidAttrs::VT_ALPHA, alpha, 0.0);
+    }
+    #[inline]
+    pub fn add_beta(&mut self, beta: f32) {
+        self.fbb_
+            .push_slot::<f32>(HardSigmoidAttrs::VT_BETA, beta, 0.0);
+    }
+    #[inline]
+    pub fn new(
+        _fbb: &'b mut flatbuffers::FlatBufferBuilder<'a>,
+    ) -> HardSigmoidAttrsBuilder<'a, 'b> {
+        let start = _fbb.start_table();
+        HardSigmoidAttrsBuilder {
+            fbb_: _fbb,
+            start_: start,
+        }
+    }
+    #[inline]
+    pub fn finish(self) -> flatbuffers::WIPOffset<HardSigmoidAttrs<'a>> {
+        let o = self.fbb_.end_table(self.start_);
+        flatbuffers::WIPOffset::new(o.value())
+    }
+}
+
+impl core::fmt::Debug for HardSigmoidAttrs<'_> {
+    fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
+        let mut ds = f.debug_struct("HardSigmoidAttrs");
+        ds.field("alpha", &self.alpha());
+        ds.field("beta", &self.beta());
+        ds.finish()
+    }
+}
 pub enum LeakyReluAttrsOffset {}
 #[derive(Copy, Clone, PartialEq)]
 
@@ -5510,6 +5650,21 @@ impl<'a> OperatorNode<'a> {
             None
         }
     }
+
+    #[inline]
+    #[allow(non_snake_case)]
+    pub fn attrs_as_hard_sigmoid_attrs(&self) -> Option<HardSigmoidAttrs<'a>> {
+        if self.attrs_type() == OperatorAttrs::HardSigmoidAttrs {
+            self.attrs().map(|t| {
+                // Safety:
+                // Created from a valid Table for this object
+                // Which contains a valid union in this slot
+                unsafe { HardSigmoidAttrs::init_from_table(t) }
+            })
+        } else {
+            None
+        }
+    }
 }
 
 impl flatbuffers::Verifiable for OperatorNode<'_> {
@@ -5548,6 +5703,7 @@ impl flatbuffers::Verifiable for OperatorNode<'_> {
           OperatorAttrs::ScatterElementsAttrs => v.verify_union_variant::<flatbuffers::ForwardsUOffset<ScatterElementsAttrs>>("OperatorAttrs::ScatterElementsAttrs", pos),
           OperatorAttrs::OneHotAttrs => v.verify_union_variant::<flatbuffers::ForwardsUOffset<OneHotAttrs>>("OperatorAttrs::OneHotAttrs", pos),
           OperatorAttrs::TopKAttrs => v.verify_union_variant::<flatbuffers::ForwardsUOffset<TopKAttrs>>("OperatorAttrs::TopKAttrs", pos),
+          OperatorAttrs::HardSigmoidAttrs => v.verify_union_variant::<flatbuffers::ForwardsUOffset<HardSigmoidAttrs>>("OperatorAttrs::HardSigmoidAttrs", pos),
           _ => Ok(()),
         }
      })?
@@ -5873,6 +6029,16 @@ impl core::fmt::Debug for OperatorNode<'_> {
             }
             OperatorAttrs::TopKAttrs => {
                 if let Some(x) = self.attrs_as_top_kattrs() {
+                    ds.field("attrs", &x)
+                } else {
+                    ds.field(
+                        "attrs",
+                        &"InvalidFlatbuffer: Union discriminant does not match value.",
+                    )
+                }
+            }
+            OperatorAttrs::HardSigmoidAttrs => {
+                if let Some(x) = self.attrs_as_hard_sigmoid_attrs() {
                     ds.field("attrs", &x)
                 } else {
                     ds.field(

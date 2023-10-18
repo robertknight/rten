@@ -288,6 +288,16 @@ fn read_gru_op(node: &OperatorNode) -> ReadOpResult {
     }))
 }
 
+fn read_hard_sigmoid_op(node: &OperatorNode) -> ReadOpResult {
+    let attrs = node
+        .attrs_as_hard_sigmoid_attrs()
+        .ok_or(ReadOpError::AttrError)?;
+    Ok(Box::new(ops::HardSigmoid {
+        alpha: attrs.alpha(),
+        beta: attrs.beta(),
+    }))
+}
+
 fn read_instance_normalization_op(node: &OperatorNode) -> ReadOpResult {
     let attrs = node
         .attrs_as_batch_normalization_attrs()
@@ -539,6 +549,8 @@ fn read_operator(node: &OperatorNode) -> ReadOpResult {
         OperatorType::Greater => op!(Greater),
         OperatorType::GreaterOrEqual => op!(GreaterOrEqual),
         OperatorType::GRU => read_gru_op(node),
+        OperatorType::HardSigmoid => read_hard_sigmoid_op(node),
+        OperatorType::HardSwish => op!(HardSwish),
         OperatorType::Identity => op!(Identity),
         OperatorType::InstanceNormalization => read_instance_normalization_op(node),
         OperatorType::LeakyRelu => read_leaky_relu_op(node),
@@ -972,6 +984,11 @@ mod tests {
         add_operator!(GlobalAveragePool, [input_node]);
         add_operator!(Greater, [input_node, input_node]);
         add_operator!(GreaterOrEqual, [input_node, input_node]);
+        add_operator!(HardSigmoid, [input_node], {
+            alpha: 0.2,
+            beta: 0.5,
+        });
+        add_operator!(HardSwish, [input_node]);
 
         // TODO - Add GRU operator
 

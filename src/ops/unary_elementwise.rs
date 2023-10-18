@@ -89,13 +89,8 @@ macro_rules! unary_numeric_op {
     };
 }
 
-/// Define a unary operator, with no arguments, which supports all float tensor
-/// types.
-///
-/// The operator is defined by the names for the operator struct and associated
-/// functions, and a closure which evaluates the operator for a single function.
-macro_rules! unary_float_op {
-    ($name:ident, $func_name:ident, $in_place_func_name:ident, $expr:expr) => {
+macro_rules! unary_float_funcs {
+    ($name:ident, $func_name:ident, $in_place_func_name:ident) => {
         pub fn $func_name(input: TensorView) -> Tensor {
             $name {}.map(input)
         }
@@ -103,6 +98,17 @@ macro_rules! unary_float_op {
         pub fn $in_place_func_name(input: &mut Tensor) {
             $name {}.apply(input)
         }
+    };
+}
+
+/// Define a unary operator, with no arguments, which supports all float tensor
+/// types.
+///
+/// The operator is defined by the names for the operator struct and associated
+/// functions, and a closure which evaluates the operator for a single function.
+macro_rules! unary_float_op {
+    ($name:ident, $func_name:ident, $in_place_func_name:ident, $expr:expr) => {
+        unary_float_funcs!($name, $func_name, $in_place_func_name);
 
         #[derive(Debug)]
         pub struct $name {}
@@ -269,6 +275,47 @@ unary_float_op!(Erf, erf, erf_in_place, libm::erff);
 unary_float_op!(Exp, exp, exp_in_place, |val: f32| val.exp());
 unary_float_op!(Floor, floor, floor_in_place, |val: f32| val.floor());
 
+#[derive(Debug)]
+pub struct HardSigmoid {
+    pub alpha: f32,
+    pub beta: f32,
+}
+
+impl UnaryFloatOp for HardSigmoid {
+    fn name(&self) -> &str {
+        "HardSigmoid"
+    }
+
+    fn map_element(&self, val: f32) -> f32 {
+        (self.alpha * val + self.beta).clamp(0., 1.)
+    }
+}
+
+pub fn hard_sigmoid(input: TensorView, alpha: f32, beta: f32) -> Tensor {
+    HardSigmoid { alpha, beta }.map(input)
+}
+
+pub fn hard_sigmoid_in_place(input: &mut Tensor, alpha: f32, beta: f32) {
+    HardSigmoid { alpha, beta }.apply(input)
+}
+
+#[derive(Debug)]
+pub struct HardSwish {}
+
+impl UnaryFloatOp for HardSwish {
+    fn name(&self) -> &str {
+        "HardSwish"
+    }
+
+    fn map_element(&self, val: f32) -> f32 {
+        let alpha = 1. / 6.;
+        let beta = 0.5;
+        val * HardSigmoid { alpha, beta }.map_element(val)
+    }
+}
+
+unary_float_funcs!(HardSwish, hard_swish, hard_swish_in_place);
+
 pub fn leaky_relu(input: TensorView, alpha: f32) -> Tensor {
     LeakyRelu { alpha }.map(input)
 }
@@ -382,10 +429,11 @@ mod tests {
 
     use crate::ops::{
         abs, acos, acos_in_place, asin, asin_in_place, atan, atan_in_place, ceil, clip,
-        clip_in_place, cos, cos_in_place, erf, erf_in_place, exp, exp_in_place, floor, leaky_relu,
-        leaky_relu_in_place, log, log_in_place, neg, neg_in_place, not, not_in_place, reciprocal,
-        relu, relu_in_place, round, round_in_place, sigmoid, sigmoid_in_place, sin, sin_in_place,
-        sqrt, sqrt_in_place, tan, tan_in_place, tanh, tanh_in_place,
+        clip_in_place, cos, cos_in_place, erf, erf_in_place, exp, exp_in_place, floor,
+        hard_sigmoid, hard_swish, leaky_relu, leaky_relu_in_place, log, log_in_place, neg,
+        neg_in_place, not, not_in_place, reciprocal, relu, relu_in_place, round, round_in_place,
+        sigmoid, sigmoid_in_place, sin, sin_in_place, sqrt, sqrt_in_place, tan, tan_in_place, tanh,
+        tanh_in_place,
     };
 
     /// Define a test for a simple unary operator which applies the function
@@ -576,6 +624,24 @@ mod tests {
         ]);
         let result = floor(input.view());
         assert!(eq_with_nans(result.view(), expected.view()));
+    }
+
+    #[test]
+    fn test_hard_sigmoid() -> Result<(), String> {
+        let input = tensor!([-4., -3., -1., 0., 1., 3., 4.]);
+        let alpha = 0.2;
+        let beta = 0.5;
+        let result = hard_sigmoid(input.view(), alpha, beta);
+        let expected = tensor!([0., 0., -1. / 5. + 0.5, 0.5, 1. / 5. + 0.5, 1., 1.]);
+        expect_equal(&result, &expected)
+    }
+
+    #[test]
+    fn test_hard_swish() -> Result<(), String> {
+        let input = tensor!([-4., -3., -1., 0., 1., 3., 4.]);
+        let result = hard_swish(input.view());
+        let expected = tensor!([0., 0., -1. / 3., 0., 2. / 3., 3., 4.]);
+        expect_equal(&result, &expected)
     }
 
     #[test]

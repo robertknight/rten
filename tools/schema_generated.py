@@ -90,6 +90,8 @@ class OperatorType(object):
     Asin = 80
     Atan = 81
     InstanceNormalization = 82
+    HardSigmoid = 83
+    HardSwish = 84
 
 
 class RNNDirection(object):
@@ -152,6 +154,7 @@ class OperatorAttrs(object):
     ScatterElementsAttrs = 23
     OneHotAttrs = 24
     TopKAttrs = 25
+    HardSigmoidAttrs = 26
 
 def OperatorAttrsCreator(unionType, table):
     from flatbuffers.table import Table
@@ -207,6 +210,8 @@ def OperatorAttrsCreator(unionType, table):
         return OneHotAttrsT.InitFromBuf(table.Bytes, table.Pos)
     if unionType == OperatorAttrs().TopKAttrs:
         return TopKAttrsT.InitFromBuf(table.Bytes, table.Pos)
+    if unionType == OperatorAttrs().HardSigmoidAttrs:
+        return HardSigmoidAttrsT.InitFromBuf(table.Bytes, table.Pos)
     return None
 
 
@@ -1766,6 +1771,96 @@ class GRUAttrsT(object):
         return gruattrs
 
 
+class HardSigmoidAttrs(object):
+    __slots__ = ['_tab']
+
+    @classmethod
+    def GetRootAs(cls, buf, offset=0):
+        n = flatbuffers.encode.Get(flatbuffers.packer.uoffset, buf, offset)
+        x = HardSigmoidAttrs()
+        x.Init(buf, n + offset)
+        return x
+
+    @classmethod
+    def GetRootAsHardSigmoidAttrs(cls, buf, offset=0):
+        """This method is deprecated. Please switch to GetRootAs."""
+        return cls.GetRootAs(buf, offset)
+    @classmethod
+    def HardSigmoidAttrsBufferHasIdentifier(cls, buf, offset, size_prefixed=False):
+        return flatbuffers.util.BufferHasIdentifier(buf, offset, b"\x4D\x4F\x44\x4C", size_prefixed=size_prefixed)
+
+    # HardSigmoidAttrs
+    def Init(self, buf, pos):
+        self._tab = flatbuffers.table.Table(buf, pos)
+
+    # HardSigmoidAttrs
+    def Alpha(self):
+        o = flatbuffers.number_types.UOffsetTFlags.py_type(self._tab.Offset(4))
+        if o != 0:
+            return self._tab.Get(flatbuffers.number_types.Float32Flags, o + self._tab.Pos)
+        return 0.0
+
+    # HardSigmoidAttrs
+    def Beta(self):
+        o = flatbuffers.number_types.UOffsetTFlags.py_type(self._tab.Offset(6))
+        if o != 0:
+            return self._tab.Get(flatbuffers.number_types.Float32Flags, o + self._tab.Pos)
+        return 0.0
+
+def HardSigmoidAttrsStart(builder):
+    builder.StartObject(2)
+
+def HardSigmoidAttrsAddAlpha(builder, alpha):
+    builder.PrependFloat32Slot(0, alpha, 0.0)
+
+def HardSigmoidAttrsAddBeta(builder, beta):
+    builder.PrependFloat32Slot(1, beta, 0.0)
+
+def HardSigmoidAttrsEnd(builder):
+    return builder.EndObject()
+
+
+
+class HardSigmoidAttrsT(object):
+
+    # HardSigmoidAttrsT
+    def __init__(self):
+        self.alpha = 0.0  # type: float
+        self.beta = 0.0  # type: float
+
+    @classmethod
+    def InitFromBuf(cls, buf, pos):
+        hardSigmoidAttrs = HardSigmoidAttrs()
+        hardSigmoidAttrs.Init(buf, pos)
+        return cls.InitFromObj(hardSigmoidAttrs)
+
+    @classmethod
+    def InitFromPackedBuf(cls, buf, pos=0):
+        n = flatbuffers.encode.Get(flatbuffers.packer.uoffset, buf, pos)
+        return cls.InitFromBuf(buf, pos+n)
+
+    @classmethod
+    def InitFromObj(cls, hardSigmoidAttrs):
+        x = HardSigmoidAttrsT()
+        x._UnPack(hardSigmoidAttrs)
+        return x
+
+    # HardSigmoidAttrsT
+    def _UnPack(self, hardSigmoidAttrs):
+        if hardSigmoidAttrs is None:
+            return
+        self.alpha = hardSigmoidAttrs.Alpha()
+        self.beta = hardSigmoidAttrs.Beta()
+
+    # HardSigmoidAttrsT
+    def Pack(self, builder):
+        HardSigmoidAttrsStart(builder)
+        HardSigmoidAttrsAddAlpha(builder, self.alpha)
+        HardSigmoidAttrsAddBeta(builder, self.beta)
+        hardSigmoidAttrs = HardSigmoidAttrsEnd(builder)
+        return hardSigmoidAttrs
+
+
 class LeakyReluAttrs(object):
     __slots__ = ['_tab']
 
@@ -3238,7 +3333,7 @@ class OperatorNodeT(object):
     def __init__(self):
         self.type = 0  # type: int
         self.attrsType = 0  # type: int
-        self.attrs = None  # type: Union[None, ArgMaxAttrsT, AveragePoolAttrsT, BatchNormalizationAttrsT, CastAttrsT, ConcatAttrsT, ConstantOfShapeAttrsT, ConvAttrsT, ConvTransposeAttrsT, FlattenAttrsT, GatherAttrsT, GemmAttrsT, GRUAttrsT, LeakyReluAttrsT, LSTMAttrsT, MaxPoolAttrsT, ReduceMeanAttrsT, ReshapeAttrsT, ResizeAttrsT, SplitAttrsT, SoftmaxAttrsT, TransposeAttrsT, ModAttrsT, ScatterElementsAttrsT, OneHotAttrsT, TopKAttrsT]
+        self.attrs = None  # type: Union[None, ArgMaxAttrsT, AveragePoolAttrsT, BatchNormalizationAttrsT, CastAttrsT, ConcatAttrsT, ConstantOfShapeAttrsT, ConvAttrsT, ConvTransposeAttrsT, FlattenAttrsT, GatherAttrsT, GemmAttrsT, GRUAttrsT, LeakyReluAttrsT, LSTMAttrsT, MaxPoolAttrsT, ReduceMeanAttrsT, ReshapeAttrsT, ResizeAttrsT, SplitAttrsT, SoftmaxAttrsT, TransposeAttrsT, ModAttrsT, ScatterElementsAttrsT, OneHotAttrsT, TopKAttrsT, HardSigmoidAttrsT]
         self.inputs = None  # type: List[int]
         self.outputs = None  # type: List[int]
 

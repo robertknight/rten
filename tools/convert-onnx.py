@@ -633,6 +633,11 @@ def op_node_from_onnx_operator(
                 op_reader.get_attr("linear_before_reset", "int", 0)
             )
 
+        case "HardSigmoid":
+            attrs = sg.HardSigmoidAttrsT()
+            attrs.alpha = op_reader.get_attr("alpha", "float", 0.2)
+            attrs.beta = op_reader.get_attr("beta", "float", 0.5)
+
         case "LeakyRelu":
             attrs = sg.LeakyReluAttrsT()
             attrs.alpha = op_reader.get_attr("alpha", "float", 0.01)

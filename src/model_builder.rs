@@ -6,10 +6,10 @@ use wasnn_tensor::{Layout, Tensor, View};
 use crate::graph::Dimension;
 use crate::ops::{
     ArgMax, ArgMin, AveragePool, BatchNormalization, Cast, Concat, ConstantOfShape, Conv,
-    ConvTranspose, CoordTransformMode, DataType, Flatten, Gather, Gemm, InstanceNormalization,
-    LeakyRelu, LogSoftmax, MaxPool, Mod, NearestMode, OneHot, Padding, ReduceMax, ReduceMean,
-    ReduceMin, ReduceProd, ReduceSum, Reshape, Resize, ResizeMode, Scalar, ScatterElements,
-    ScatterReduction, Softmax, Split, TopK, Transpose,
+    ConvTranspose, CoordTransformMode, DataType, Flatten, Gather, Gemm, HardSigmoid,
+    InstanceNormalization, LeakyRelu, LogSoftmax, MaxPool, Mod, NearestMode, OneHot, Padding,
+    ReduceMax, ReduceMean, ReduceMin, ReduceProd, ReduceSum, Reshape, Resize, ResizeMode, Scalar,
+    ScatterElements, ScatterReduction, Softmax, Split, TopK, Transpose,
 };
 use crate::schema_generated as sg;
 
@@ -44,6 +44,8 @@ pub enum OpType {
     GlobalAveragePool,
     Greater,
     GreaterOrEqual,
+    HardSigmoid(HardSigmoid),
+    HardSwish,
     Identity,
     InstanceNormalization(InstanceNormalization),
     LeakyRelu(LeakyRelu),
@@ -434,6 +436,15 @@ impl<'a> ModelBuilder<'a> {
             OpType::GlobalAveragePool => op!(GlobalAveragePool),
             OpType::Greater => op!(Greater),
             OpType::GreaterOrEqual => op!(GreaterOrEqual),
+            OpType::HardSigmoid(args) => op_with_attrs!(
+                HardSigmoid,
+                HardSigmoidAttrs,
+                sg::HardSigmoidAttrsArgs {
+                    alpha: args.alpha,
+                    beta: args.beta
+                }
+            ),
+            OpType::HardSwish => op!(HardSwish),
             OpType::Identity => op!(Identity),
             OpType::InstanceNormalization(args) => op_with_attrs!(
                 InstanceNormalization,

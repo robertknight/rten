@@ -92,7 +92,9 @@ enum OperatorType: byte {
   Acos,
   Asin,
   Atan,
-  InstanceNormalization
+  InstanceNormalization,
+  HardSigmoid,
+  HardSwish
 }
 
 enum RNNDirection: byte {
@@ -160,6 +162,7 @@ union OperatorAttrs {
   ScatterElementsAttrs,
   OneHotAttrs,
   TopKAttrs,
+  HardSigmoidAttrs,
 }
 
 table ArgMaxAttrs {
@@ -239,6 +242,11 @@ table GRUAttrs {
   direction:RNNDirection;
   hidden_size:uint;
   linear_before_reset:bool;
+}
+
+table HardSigmoidAttrs {
+  alpha:float;
+  beta:float;
 }
 
 table LeakyReluAttrs {
