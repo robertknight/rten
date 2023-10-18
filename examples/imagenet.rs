@@ -2,9 +2,12 @@ use std::collections::VecDeque;
 use std::error::Error;
 use std::fs;
 
-use wasnn::ops::{resize, CoordTransformMode, NearestMode, ResizeMode, ResizeTarget};
+use wasnn::ops::{
+    resize, softmax, topk, CoordTransformMode, NearestMode, ResizeMode, ResizeTarget,
+};
 use wasnn::{Dimension, Model, RunOptions};
-use wasnn_tensor::{Layout, Tensor, View};
+use wasnn_tensor::prelude::*;
+use wasnn_tensor::{NdTensor, Tensor};
 
 #[derive(Clone, Copy, PartialEq)]
 enum PixelNorm {
@@ -230,7 +233,7 @@ fn main() -> Result<(), Box<dyn Error>> {
         img_tensor
     };
 
-    let output: Tensor<f32> = model
+    let logits: NdTensor<f32, 2> = model
         .run_one(
             (&img_tensor).into(),
             Some(RunOptions {
@@ -240,16 +243,19 @@ fn main() -> Result<(), Box<dyn Error>> {
         )?
         .try_into()?;
 
-    // Get top K ImageNet classes by score. The scores are the raw logits output
-    // by the model, which may or may not be normalized. This could be improved
-    // by exposing the softmax operator and applying that to the output.
-    let mut class_scores: Vec<_> = output.iter().enumerate().collect();
-    class_scores.sort_by(|(_, score_a), (_, score_b)| score_b.partial_cmp(score_a).unwrap());
-    class_scores.truncate(5);
+    let probs = softmax(logits.as_dyn(), -1)?;
+
+    let (top_probs, top_classes) = topk(
+        probs.view(),
+        5,
+        None,
+        true, /* largest */
+        true, /* sorted */
+    )?;
 
     println!("Top classes:");
-    for (cls, score) in class_scores {
-        println!("  {} ({}) ({})", IMAGENET_CLASSES[cls], cls, score);
+    for (&cls, &score) in top_classes.iter().zip(top_probs.iter()) {
+        println!("  {} ({}) ({})", IMAGENET_CLASSES[cls as usize], cls, score);
     }
 
     Ok(())
