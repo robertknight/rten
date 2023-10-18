@@ -1,6 +1,7 @@
 extern crate png;
 extern crate wasnn;
 
+use std::collections::VecDeque;
 use std::error::Error;
 use std::fs;
 
@@ -45,22 +46,17 @@ struct InputConfig {
     dim_order: DimOrder,
 }
 
-/// Read a PNG image from `path` into a tensor.
+/// Read an image from `path` into an NCHW or NHWC tensor, depending on
+/// `out_dim_order`.
 fn read_image<N: Fn(usize, f32) -> f32>(
     path: &str,
     normalize_pixel: N,
     out_chan_order: ChannelOrder,
     out_dim_order: DimOrder,
 ) -> Result<Tensor<f32>, Box<dyn Error>> {
-    let input_img = fs::File::open(path)?;
-    let decoder = png::Decoder::new(input_img);
-    let mut reader = decoder.read_info()?;
-
-    let in_chans = match reader.output_color_type() {
-        (png::ColorType::Rgb, png::BitDepth::Eight) => 3,
-        (png::ColorType::Rgba, png::BitDepth::Eight) => 4,
-        _ => return Err("Unsupported input image format".into()),
-    };
+    let input_img = image::open(path)?;
+    let input_img = input_img.into_rgb8();
+    let (width, height) = input_img.dimensions();
 
     // Map input channel index, in RGB order, to output channel index
     let out_chans = match out_chan_order {
@@ -68,21 +64,13 @@ fn read_image<N: Fn(usize, f32) -> f32>(
         ChannelOrder::Bgr => [2, 1, 0],
     };
 
-    let info = reader.info();
-    let width = info.width as usize;
-    let height = info.height as usize;
-
-    let mut buf = vec![0; reader.output_buffer_size()];
-    let frame_info = reader.next_frame(&mut buf).unwrap();
-    buf.truncate(frame_info.buffer_size());
-
-    let mut img_tensor = Tensor::zeros(&[1, 3, height, width]);
+    let mut img_tensor = Tensor::zeros(&[1, 3, height as usize, width as usize]);
     for y in 0..height {
         for x in 0..width {
             for c in 0..3 {
-                let b = y * (width * in_chans) + x * in_chans + c;
-                let in_val = normalize_pixel(c, buf[b] as f32 / 255.0);
-                img_tensor[[0, out_chans[c], y, x]] = in_val;
+                let pixel_value = input_img.get_pixel(x, y)[c] as f32 / 255.0;
+                let in_val = normalize_pixel(c, pixel_value);
+                img_tensor[[0, out_chans[c], y as usize, x as usize]] = in_val;
             }
         }
     }
@@ -113,12 +101,71 @@ const EFFICIENTNET_CONFIG: InputConfig = InputConfig {
 
 // Config for MobileNet model from ONNX Model Zoo.
 //
+// This also works with MobileNet v3 exported from torchvision.
+//
 // See https://github.com/onnx/models/tree/main/vision/classification/mobilenet
 const MOBILENET_CONFIG: InputConfig = InputConfig {
     chan_order: ChannelOrder::Rgb,
     norm: PixelNorm::ImageNetNorm,
     dim_order: DimOrder::Nchw,
 };
+
+struct Args {
+    config: InputConfig,
+    model: String,
+    image: String,
+}
+
+fn parse_args() -> Result<Args, lexopt::Error> {
+    use lexopt::prelude::*;
+
+    let mut values = VecDeque::new();
+    let mut parser = lexopt::Parser::from_env();
+
+    while let Some(arg) = parser.next()? {
+        match arg {
+            Value(val) => values.push_back(val.string()?),
+            Long("help") => {
+                println!(
+                    "Classify images.
+
+Usage: {bin_name} <config> <model> <image>
+
+Where config is one of:
+
+  - efficientnet
+  - mobilenet
+  - mobilevit
+",
+                    bin_name = parser.bin_name().unwrap_or("imagenet")
+                );
+                std::process::exit(0);
+            }
+            _ => return Err(arg.unexpected()),
+        }
+    }
+
+    let config = values.pop_front().ok_or("missing `config` arg")?;
+    let config = match config.as_str() {
+        "efficientnet" => EFFICIENTNET_CONFIG,
+        "mobilenet" => MOBILENET_CONFIG,
+        "mobilevit" => MOBILEVIT_CONFIG,
+        _ => {
+            return Err(format!("Unknown config {config}").into());
+        }
+    };
+
+    let model = values.pop_front().ok_or("missing `model` arg")?;
+    let image = values.pop_front().ok_or("missing `image` arg")?;
+
+    let args = Args {
+        config,
+        image,
+        model,
+    };
+
+    Ok(args)
+}
 
 /// This example loads a PNG image (RGB or RGBA format, 224x224 size for most
 /// models) and uses an image classification model such as MobileNet to
@@ -127,32 +174,11 @@ const MOBILENET_CONFIG: InputConfig = InputConfig {
 /// See the `_CONFIG` constants in this module for details of where to obtain
 /// the models.
 fn main() -> Result<(), Box<dyn Error>> {
-    let args: Vec<_> = std::env::args().collect();
-    if args.len() <= 1 {
-        println!(
-            "Usage: {} <model> <image> <config name>",
-            args.get(0).map(|s| s.as_str()).unwrap_or("")
-        );
-        // Exit with non-zero status, but also don't show an error.
-        std::process::exit(1);
-    }
-
-    let model_name = args.get(1).ok_or("model name not specified")?;
-    let image_path = args.get(2).ok_or("image path not specified")?;
-    let model_config = args.get(3).ok_or("model config name not specified")?;
-
-    let model_bytes = fs::read(model_name)?;
+    let args = parse_args()?;
+    let model_bytes = fs::read(args.model)?;
     let model = Model::load(&model_bytes)?;
 
-    // Config values specifying preprocessing for the current model.
-    let in_config = match model_config.as_str() {
-        "mobilenet" => MOBILENET_CONFIG,
-        "efficientnet" => EFFICIENTNET_CONFIG,
-        "mobilevit" => MOBILEVIT_CONFIG,
-        _ => return Err("Unknown model config name.".into()),
-    };
-
-    let normalize_pixel = match in_config.norm {
+    let normalize_pixel = match args.config.norm {
         PixelNorm::NoNorm => |_, value| value,
         PixelNorm::ImageNetNorm => |chan, value| {
             let imagenet_mean = &[0.485, 0.456, 0.406];
@@ -162,13 +188,13 @@ fn main() -> Result<(), Box<dyn Error>> {
     };
 
     let img_tensor = read_image(
-        &image_path,
+        &args.image,
         normalize_pixel,
-        in_config.chan_order,
-        in_config.dim_order,
+        args.config.chan_order,
+        args.config.dim_order,
     )?;
 
-    let (height, width) = match in_config.dim_order {
+    let (height, width) = match args.config.dim_order {
         DimOrder::Nchw => (img_tensor.size(2), img_tensor.size(3)),
         DimOrder::Nhwc => (img_tensor.size(1), img_tensor.size(2)),
     };
