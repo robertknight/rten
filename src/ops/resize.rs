@@ -1,5 +1,6 @@
 use std::iter::zip;
 
+use rayon::prelude::*;
 use wasnn_tensor::{
     Layout, Matrix, MatrixLayout, MatrixMut, NdTensor, NdTensorView, Tensor, TensorView,
 };
@@ -159,7 +160,7 @@ pub fn resize(
 
     // The current implementation only supports NCHW tensors with scale factors
     // other than 1.0 for the H and W dims.
-    let [batch, chans, _height, _width] = check_dims!(input, 4, "NCHW");
+    let [batch, _chans, _height, _width] = check_dims!(input, 4, "NCHW");
     let sizes_valid = zip(0..input.ndim(), input.shape().iter()).all(|(dim, &in_size)| {
         dim == input.ndim() - 1 || dim == input.ndim() - 2 || sizes[[dim]] == in_size as i32
     });
@@ -177,23 +178,32 @@ pub fn resize(
     }
 
     for n in 0..batch {
-        for c in 0..chans {
-            let in_image = input.slice([n, c]).nd_view();
-            let mut out_image = output.slice_mut([n, c]);
-            match mode {
-                ResizeMode::Nearest => {
-                    nearest_resize(
-                        &in_image,
-                        &mut out_image.nd_view_mut(),
-                        nearest_mode,
-                        coord_mode,
-                    );
-                }
-                ResizeMode::Linear => {
-                    bilinear_resize(&in_image, &mut out_image.nd_view_mut(), coord_mode);
-                }
-            };
-        }
+        let in_image = input.slice([n]);
+        let mut out_image = output.slice_mut([n]);
+
+        out_image
+            .axis_iter_mut(0)
+            .zip(in_image.axis_iter(0))
+            .par_bridge()
+            .for_each(|(mut out_chan, in_chan)| {
+                match mode {
+                    ResizeMode::Nearest => {
+                        nearest_resize(
+                            &in_chan.nd_view(),
+                            &mut out_chan.nd_view_mut(),
+                            nearest_mode,
+                            coord_mode,
+                        );
+                    }
+                    ResizeMode::Linear => {
+                        bilinear_resize(
+                            &in_chan.nd_view(),
+                            &mut out_chan.nd_view_mut(),
+                            coord_mode,
+                        );
+                    }
+                };
+            });
     }
 
     Ok(output)
