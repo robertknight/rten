@@ -389,9 +389,11 @@ impl<'a> ModelBuilder<'a> {
             OpType::Conv(args) => op_with_attrs!(Conv, ConvAttrs, {
                 let pad_args = pad_args_from_padding(args.padding);
                 let pads = self.create_vec(pad_args.pads, |pad| pad as u32);
+                let dilations = self.create_vec(Some(args.dilations), |d| d as u32);
                 let strides = self.create_vec(Some(args.strides), |s| s as u32);
 
                 sg::ConvAttrsArgs {
+                    dilations,
                     groups: args.groups as u32,
                     pad_mode: pad_args.pad_mode,
                     pads,

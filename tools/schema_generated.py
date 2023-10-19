@@ -1173,8 +1173,35 @@ class ConvAttrs(object):
         o = flatbuffers.number_types.UOffsetTFlags.py_type(self._tab.Offset(10))
         return o == 0
 
+    # ConvAttrs
+    def Dilations(self, j):
+        o = flatbuffers.number_types.UOffsetTFlags.py_type(self._tab.Offset(12))
+        if o != 0:
+            a = self._tab.Vector(o)
+            return self._tab.Get(flatbuffers.number_types.Uint32Flags, a + flatbuffers.number_types.UOffsetTFlags.py_type(j * 4))
+        return 0
+
+    # ConvAttrs
+    def DilationsAsNumpy(self):
+        o = flatbuffers.number_types.UOffsetTFlags.py_type(self._tab.Offset(12))
+        if o != 0:
+            return self._tab.GetVectorAsNumpy(flatbuffers.number_types.Uint32Flags, o)
+        return 0
+
+    # ConvAttrs
+    def DilationsLength(self):
+        o = flatbuffers.number_types.UOffsetTFlags.py_type(self._tab.Offset(12))
+        if o != 0:
+            return self._tab.VectorLen(o)
+        return 0
+
+    # ConvAttrs
+    def DilationsIsNone(self):
+        o = flatbuffers.number_types.UOffsetTFlags.py_type(self._tab.Offset(12))
+        return o == 0
+
 def ConvAttrsStart(builder):
-    builder.StartObject(4)
+    builder.StartObject(5)
 
 def ConvAttrsAddPadMode(builder, padMode):
     builder.PrependInt8Slot(0, padMode, 0)
@@ -1194,6 +1221,12 @@ def ConvAttrsAddStrides(builder, strides):
 def ConvAttrsStartStridesVector(builder, numElems):
     return builder.StartVector(4, numElems, 4)
 
+def ConvAttrsAddDilations(builder, dilations):
+    builder.PrependUOffsetTRelativeSlot(4, flatbuffers.number_types.UOffsetTFlags.py_type(dilations), 0)
+
+def ConvAttrsStartDilationsVector(builder, numElems):
+    return builder.StartVector(4, numElems, 4)
+
 def ConvAttrsEnd(builder):
     return builder.EndObject()
 
@@ -1211,6 +1244,7 @@ class ConvAttrsT(object):
         self.pads = None  # type: List[int]
         self.groups = 0  # type: int
         self.strides = None  # type: List[int]
+        self.dilations = None  # type: List[int]
 
     @classmethod
     def InitFromBuf(cls, buf, pos):
@@ -1249,6 +1283,13 @@ class ConvAttrsT(object):
                     self.strides.append(convAttrs.Strides(i))
             else:
                 self.strides = convAttrs.StridesAsNumpy()
+        if not convAttrs.DilationsIsNone():
+            if np is None:
+                self.dilations = []
+                for i in range(convAttrs.DilationsLength()):
+                    self.dilations.append(convAttrs.Dilations(i))
+            else:
+                self.dilations = convAttrs.DilationsAsNumpy()
 
     # ConvAttrsT
     def Pack(self, builder):
@@ -1268,6 +1309,14 @@ class ConvAttrsT(object):
                 for i in reversed(range(len(self.strides))):
                     builder.PrependUint32(self.strides[i])
                 strides = builder.EndVector()
+        if self.dilations is not None:
+            if np is not None and type(self.dilations) is np.ndarray:
+                dilations = builder.CreateNumpyVector(self.dilations)
+            else:
+                ConvAttrsStartDilationsVector(builder, len(self.dilations))
+                for i in reversed(range(len(self.dilations))):
+                    builder.PrependUint32(self.dilations[i])
+                dilations = builder.EndVector()
         ConvAttrsStart(builder)
         ConvAttrsAddPadMode(builder, self.padMode)
         if self.pads is not None:
@@ -1275,6 +1324,8 @@ class ConvAttrsT(object):
         ConvAttrsAddGroups(builder, self.groups)
         if self.strides is not None:
             ConvAttrsAddStrides(builder, strides)
+        if self.dilations is not None:
+            ConvAttrsAddDilations(builder, dilations)
         convAttrs = ConvAttrsEnd(builder)
         return convAttrs
 

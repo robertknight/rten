@@ -26,13 +26,19 @@ pub fn calc_output_size_and_padding(
     kernel_size: (usize, usize),
     strides: (usize, usize),
     padding: Padding,
+    dilations: Option<(usize, usize)>,
 ) -> Result<(usize, usize, [usize; 4]), OpError> {
     let (in_h, in_w) = in_size;
     let (k_h, k_w) = kernel_size;
     let (stride_h, stride_w) = strides;
+    let (dilation_y, dilation_x) = dilations.unwrap_or((1, 1));
+
+    if dilation_y == 0 || dilation_x == 0 {
+        return Err(OpError::InvalidValue("Dilations must be > 0"));
+    }
 
     if stride_h == 0 || stride_w == 0 {
-        return Err(OpError::InvalidValue("Stride must be > 0"));
+        return Err(OpError::InvalidValue("Strides must be > 0"));
     }
 
     let (out_h, out_w, padding) = match padding {
@@ -40,14 +46,10 @@ pub fn calc_output_size_and_padding(
             let out_h = div_ceil(in_h, stride_h);
             let out_w = div_ceil(in_w, stride_w);
 
-            // We don't yet support dilations, these are just the defaults.
-            let dilation_h = 1;
-            let dilation_w = 1;
-
             let pad_total_h =
-                ((out_h - 1) * stride_h + (k_h - 1) * dilation_h + 1).saturating_sub(in_h);
+                ((out_h - 1) * stride_h + (k_h - 1) * dilation_y + 1).saturating_sub(in_h);
             let pad_total_w =
-                ((out_w - 1) * stride_w + (k_w - 1) * dilation_w + 1).saturating_sub(in_w);
+                ((out_w - 1) * stride_w + (k_w - 1) * dilation_x + 1).saturating_sub(in_w);
 
             let pad_top = pad_total_h / 2;
             let pad_left = pad_total_w / 2;
@@ -64,14 +66,19 @@ pub fn calc_output_size_and_padding(
             let [pad_top, pad_left, pad_bottom, pad_right]: [usize; 4] = pads
                 .as_slice()
                 .try_into()
-                .map_err(|_| OpError::InvalidValue("expected 4 padding values"))?;
+                .map_err(|_| OpError::InvalidValue("Expected 4 padding values"))?;
             let padded_in_h = in_h + pad_top + pad_bottom;
             let padded_in_w = in_w + pad_left + pad_right;
-            if padded_in_h < k_h || padded_in_w < k_w {
+
+            let dilated_k_h = k_h + (k_h - 1) * (dilation_y - 1);
+            let dilated_k_w = k_w + (k_w - 1) * (dilation_x - 1);
+
+            if padded_in_h < dilated_k_h || padded_in_w < dilated_k_w {
                 return Err(OpError::InvalidValue("Input too small for kernel size"));
             }
-            let out_h = (padded_in_h - k_h) / stride_h + 1;
-            let out_w = (padded_in_w - k_w) / stride_w + 1;
+
+            let out_h = (padded_in_h - dilation_y * (k_h - 1) - 1) / stride_h + 1;
+            let out_w = (padded_in_w - dilation_x * (k_w - 1) - 1) / stride_w + 1;
             (out_h, out_w, [pad_top, pad_left, pad_bottom, pad_right])
         }
     };
@@ -90,6 +97,7 @@ pub fn average_pool(
         (kernel_size[0], kernel_size[1]),
         (strides[0], strides[1]),
         padding,
+        None,
     )?;
     let [pad_top, pad_left, _pad_bottom, _pad_right] = fixed_padding;
     let [kernel_h, kernel_w] = kernel_size;
@@ -194,6 +202,7 @@ pub fn max_pool(
         (kernel_size[0], kernel_size[1]),
         (strides[0], strides[1]),
         padding,
+        None, /* dilations */
     )?;
     let [pad_top, pad_left, _pad_bottom, _pad_right] = fixed_padding;
     let mut output = Tensor::zeros(&[batch, in_c, out_h, out_w]);
@@ -537,15 +546,56 @@ mod tests {
         struct Case {
             in_size: (usize, usize),
             kernel_size: (usize, usize),
+            dilations: (usize, usize),
             strides: (usize, usize),
             padding: Padding,
             expected: Result<(usize, usize, [usize; 4]), OpError>,
         }
 
+        let zero_padding: Padding = [0, 0, 0, 0].into();
+
         let cases = [
+            // Simple case with no padding
+            Case {
+                in_size: (5, 5),
+                kernel_size: (3, 3),
+                dilations: (1, 1),
+                strides: (1, 1),
+                padding: zero_padding.clone(),
+                expected: Ok((3, 3, [0, 0, 0, 0])),
+            },
+            // Fixed padding
+            Case {
+                in_size: (5, 5),
+                kernel_size: (3, 3),
+                dilations: (1, 1),
+                strides: (1, 1),
+                padding: [1, 1, 1, 1].into(),
+                expected: Ok((5, 5, [1, 1, 1, 1])),
+            },
+            // Strides > 1
+            Case {
+                in_size: (5, 5),
+                kernel_size: (3, 3),
+                dilations: (1, 1),
+                strides: (2, 2),
+                padding: zero_padding.clone(),
+                expected: Ok((2, 2, [0, 0, 0, 0])),
+            },
+            // Dilations > 1
+            Case {
+                in_size: (5, 5),
+                kernel_size: (3, 3),
+                dilations: (2, 2),
+                strides: (1, 1),
+                padding: zero_padding.clone(),
+                expected: Ok((1, 1, [0, 0, 0, 0])),
+            },
+            // `Same` padding, uneven
             Case {
                 in_size: (1, 20),
                 kernel_size: (1, 3),
+                dilations: (1, 1),
                 strides: (1, 1),
                 padding: Padding::Same,
                 expected: Ok((1, 20, [0, 1, 0, 1])),
@@ -554,23 +604,67 @@ mod tests {
             // clamping the padding to be >= 0.
             Case {
                 in_size: (9, 9),
+                dilations: (1, 1),
                 strides: (3, 3),
                 kernel_size: (2, 2),
                 padding: Padding::Same,
                 expected: Ok((3, 3, [0, 0, 0, 0])),
+            },
+            // Zero stride
+            Case {
+                in_size: (5, 5),
+                dilations: (1, 1),
+                strides: (0, 0),
+                kernel_size: (3, 3),
+                padding: Padding::Same,
+                expected: Err(OpError::InvalidValue("Strides must be > 0")),
+            },
+            // Zero dilation
+            Case {
+                in_size: (5, 5),
+                dilations: (0, 0),
+                strides: (1, 1),
+                kernel_size: (3, 3),
+                padding: Padding::Same,
+                expected: Err(OpError::InvalidValue("Dilations must be > 0")),
+            },
+            // Incorrect padding length
+            Case {
+                in_size: (5, 5),
+                kernel_size: (3, 3),
+                dilations: (1, 1),
+                strides: (1, 1),
+                padding: [0, 0].into(),
+                expected: Err(OpError::InvalidValue("Expected 4 padding values")),
+            },
+            // Dilated kernel size > input size
+            Case {
+                in_size: (4, 4),
+                kernel_size: (3, 3),
+                dilations: (2, 2),
+                strides: (1, 1),
+                padding: zero_padding.clone(),
+                expected: Err(OpError::InvalidValue("Input too small for kernel size")),
             },
         ];
 
         for Case {
             in_size,
             kernel_size,
+            dilations,
             strides,
             padding,
             expected,
         } in cases
         {
             assert_eq!(
-                calc_output_size_and_padding(in_size, kernel_size, strides, padding),
+                calc_output_size_and_padding(
+                    in_size,
+                    kernel_size,
+                    strides,
+                    padding,
+                    Some(dilations),
+                ),
                 expected
             );
         }

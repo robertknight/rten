@@ -2646,6 +2646,7 @@ impl<'a> ConvAttrs<'a> {
     pub const VT_PADS: flatbuffers::VOffsetT = 6;
     pub const VT_GROUPS: flatbuffers::VOffsetT = 8;
     pub const VT_STRIDES: flatbuffers::VOffsetT = 10;
+    pub const VT_DILATIONS: flatbuffers::VOffsetT = 12;
 
     #[inline]
     pub unsafe fn init_from_table(table: flatbuffers::Table<'a>) -> Self {
@@ -2657,6 +2658,9 @@ impl<'a> ConvAttrs<'a> {
         args: &'args ConvAttrsArgs<'args>,
     ) -> flatbuffers::WIPOffset<ConvAttrs<'bldr>> {
         let mut builder = ConvAttrsBuilder::new(_fbb);
+        if let Some(x) = args.dilations {
+            builder.add_dilations(x);
+        }
         if let Some(x) = args.strides {
             builder.add_strides(x);
         }
@@ -2712,6 +2716,19 @@ impl<'a> ConvAttrs<'a> {
                 )
         }
     }
+    #[inline]
+    pub fn dilations(&self) -> Option<flatbuffers::Vector<'a, u32>> {
+        // Safety:
+        // Created from valid Table for this object
+        // which contains a valid value in this slot
+        unsafe {
+            self._tab
+                .get::<flatbuffers::ForwardsUOffset<flatbuffers::Vector<'a, u32>>>(
+                    ConvAttrs::VT_DILATIONS,
+                    None,
+                )
+        }
+    }
 }
 
 impl flatbuffers::Verifiable for ConvAttrs<'_> {
@@ -2734,6 +2751,11 @@ impl flatbuffers::Verifiable for ConvAttrs<'_> {
                 Self::VT_STRIDES,
                 false,
             )?
+            .visit_field::<flatbuffers::ForwardsUOffset<flatbuffers::Vector<'_, u32>>>(
+                "dilations",
+                Self::VT_DILATIONS,
+                false,
+            )?
             .finish();
         Ok(())
     }
@@ -2743,6 +2765,7 @@ pub struct ConvAttrsArgs<'a> {
     pub pads: Option<flatbuffers::WIPOffset<flatbuffers::Vector<'a, u32>>>,
     pub groups: u32,
     pub strides: Option<flatbuffers::WIPOffset<flatbuffers::Vector<'a, u32>>>,
+    pub dilations: Option<flatbuffers::WIPOffset<flatbuffers::Vector<'a, u32>>>,
 }
 impl<'a> Default for ConvAttrsArgs<'a> {
     #[inline]
@@ -2752,6 +2775,7 @@ impl<'a> Default for ConvAttrsArgs<'a> {
             pads: None,
             groups: 0,
             strides: None,
+            dilations: None,
         }
     }
 }
@@ -2781,6 +2805,14 @@ impl<'a: 'b, 'b> ConvAttrsBuilder<'a, 'b> {
             .push_slot_always::<flatbuffers::WIPOffset<_>>(ConvAttrs::VT_STRIDES, strides);
     }
     #[inline]
+    pub fn add_dilations(
+        &mut self,
+        dilations: flatbuffers::WIPOffset<flatbuffers::Vector<'b, u32>>,
+    ) {
+        self.fbb_
+            .push_slot_always::<flatbuffers::WIPOffset<_>>(ConvAttrs::VT_DILATIONS, dilations);
+    }
+    #[inline]
     pub fn new(_fbb: &'b mut flatbuffers::FlatBufferBuilder<'a>) -> ConvAttrsBuilder<'a, 'b> {
         let start = _fbb.start_table();
         ConvAttrsBuilder {
@@ -2802,6 +2834,7 @@ impl core::fmt::Debug for ConvAttrs<'_> {
         ds.field("pads", &self.pads());
         ds.field("groups", &self.groups());
         ds.field("strides", &self.strides());
+        ds.field("dilations", &self.dilations());
         ds.finish()
     }
 }

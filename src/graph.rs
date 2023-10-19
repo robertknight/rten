@@ -704,8 +704,9 @@ mod tests {
         g.add_op(
             Some("conv"),
             Box::new(Conv {
-                padding: [1, 1, 1, 1].into(),
+                dilations: vec![1, 1],
                 groups: 1,
+                padding: [1, 1, 1, 1].into(),
                 strides: vec![1, 1],
             }),
             &[input_id, weights_id].map(Some),

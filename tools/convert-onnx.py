@@ -444,6 +444,18 @@ def read_strides(
     return strides
 
 
+def read_dilations(
+    op_reader: ONNXOperatorReader,
+):
+    """
+    Read a dilation specification from an ONNX operator.
+    """
+    dilations = op_reader.get_attr("dilations", "ints", [1, 1])
+    if len(dilations) not in [1, 2]:
+        raise Exception('"dilations" attribute must have 1 or 2 values')
+    return dilations
+
+
 def op_node_from_onnx_operator(
     onnx_op: onnx.OperatorProto,
     node_index_from_name: dict[str, int],
@@ -575,6 +587,7 @@ def op_node_from_onnx_operator(
 
         case "Conv":
             attrs = sg.ConvAttrsT()
+            attrs.dilations = read_dilations(op_reader)
             attrs.groups = op_reader.get_attr("group", "int", 1)
 
             pad_mode, pads = read_pads(op_reader)
@@ -584,8 +597,6 @@ def op_node_from_onnx_operator(
                 attrs.padMode = sg.PadMode.Fixed
                 attrs.pads = pads
             attrs.strides = read_strides(op_reader)
-
-            op_reader.check_attr("dilations", "ints", ([1], [1, 1]))
 
             # The kernel shape is inferred at runtime from the input weight tensor.
             op_reader.ignore_attr("kernel_shape")

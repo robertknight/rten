@@ -217,6 +217,7 @@ table ConvAttrs {
 
   groups:uint;
   strides:[uint];
+  dilations:[uint];
 }
 
 table ConvTransposeAttrs {

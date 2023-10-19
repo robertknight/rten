@@ -51,6 +51,7 @@ struct VirtualIm2Col<'a> {
     kernel: [usize; 2],
     padding: [usize; 4],
     strides: [usize; 2],
+    dilations: [usize; 2],
     y_patches: usize,
     x_patches: usize,
 }
@@ -61,15 +62,18 @@ impl<'a> VirtualIm2Col<'a> {
         kernel: [usize; 2],
         padding: [usize; 4],
         strides: [usize; 2],
+        dilations: [usize; 2],
     ) -> VirtualIm2Col {
         let [_, h, w] = image.shape();
         let [k_h, k_w] = kernel;
         let [stride_h, stride_w] = strides;
+        let [dilation_y, dilation_x] = dilations;
         let (y_patches, x_patches, _) = calc_output_size_and_padding(
             (h, w),
             (k_h, k_w),
             (stride_h, stride_w),
             Padding::Fixed(padding.into()),
+            Some((dilation_y, dilation_x)),
         )
         .unwrap();
 
@@ -78,6 +82,7 @@ impl<'a> VirtualIm2Col<'a> {
             kernel,
             padding,
             strides,
+            dilations,
             y_patches,
             x_patches,
         }
@@ -97,7 +102,8 @@ impl<'a> VirtualMatrix for VirtualIm2Col<'a> {
 
     fn pack_b(&self, out: &mut [f32], panel_width: usize, rows: Range<usize>, cols: Range<usize>) {
         let [k_h, k_w] = self.kernel;
-        let [stride_h, stride_w] = self.strides;
+        let [stride_y, stride_x] = self.strides;
+        let [dilation_y, dilation_x] = self.dilations;
         let [pad_top, pad_left, _pad_bottom, _pad_right] = self.padding;
 
         // Build lookup table of column index in the virtual im2col matrix to
@@ -106,8 +112,8 @@ impl<'a> VirtualMatrix for VirtualIm2Col<'a> {
             .map(|col| {
                 let patch_y = col as i32 / self.x_patches as i32;
                 let patch_x = col as i32 % self.x_patches as i32;
-                let img_x = (patch_x * stride_w as i32) - pad_left as i32;
-                let img_y = (patch_y * stride_h as i32) - pad_top as i32;
+                let img_x = (patch_x * stride_x as i32) - pad_left as i32;
+                let img_y = (patch_y * stride_y as i32) - pad_top as i32;
                 [img_y, img_x]
             })
             .collect();
@@ -130,8 +136,8 @@ impl<'a> VirtualMatrix for VirtualIm2Col<'a> {
             for [in_chan, k_y, k_x] in kernel_coords.iter().copied() {
                 let out_row = out_rows.next().unwrap();
                 for ([img_y, img_x], out_el) in zip(panel_patch_coords.iter(), out_row.iter_mut()) {
-                    let in_y = img_y + k_y;
-                    let in_x = img_x + k_x;
+                    let in_y = img_y + k_y * dilation_y as i32;
+                    let in_x = img_x + k_x * dilation_x as i32;
 
                     // `in_y` or `in_x` may be negative here, in which case it will
                     // wrap around and `image.get` will still return None.
@@ -314,6 +320,7 @@ pub fn conv(
     padding: Padding,
     groups: usize,
     strides: &[usize],
+    dilations: &[usize],
 ) -> Result<Tensor, OpError> {
     // Handle 1D convolution by expanding to 2D and then removing the extra
     // dimension from the result.
@@ -344,7 +351,22 @@ pub fn conv(
             }
         };
 
-        let result_2d = conv(input_2d, kernel_2d, bias, padding_2d, groups, &strides_2d);
+        let dilations_2d = match dilations {
+            &[dilation] => [1, dilation],
+            _ => {
+                return Err(OpError::InvalidValue("expected 1 dilation value"));
+            }
+        };
+
+        let result_2d = conv(
+            input_2d,
+            kernel_2d,
+            bias,
+            padding_2d,
+            groups,
+            &strides_2d,
+            &dilations_2d,
+        );
 
         return result_2d.map(|mut t| {
             let [n, c, _h, w]: [usize; 4] = t.shape().try_into().expect("expected 4D output");
@@ -360,17 +382,34 @@ pub fn conv(
     let input = input.view();
     let kernel = kernel.view();
 
-    let [stride_h, stride_w]: [usize; 2] = strides
+    let [stride_y, stride_x]: [usize; 2] = strides
         .try_into()
         .map_err(|_| OpError::InvalidValue("expected 2 stride values"))?;
-    let (out_h, out_w, fixed_padding) =
-        calc_output_size_and_padding((in_h, in_w), (k_h, k_w), (stride_h, stride_w), padding)?;
+    let [dilation_y, dilation_x]: [usize; 2] = dilations
+        .try_into()
+        .map_err(|_| OpError::InvalidValue("expected 2 dilation values"))?;
+
+    let (out_h, out_w, fixed_padding) = calc_output_size_and_padding(
+        (in_h, in_w),
+        (k_h, k_w),
+        (stride_y, stride_x),
+        padding,
+        Some((dilation_y, dilation_x)),
+    )?;
 
     let [pad_top, pad_left, pad_bottom, pad_right] = fixed_padding;
 
     let has_padding = pad_top > 0 || pad_left > 0 || pad_bottom > 0 || pad_right > 0;
 
-    if k_h == 1 && k_w == 1 && !has_padding && groups == 1 && stride_h == 1 && stride_w == 1 {
+    if k_h == 1
+        && k_w == 1
+        && !has_padding
+        && groups == 1
+        && stride_y == 1
+        && stride_x == 1
+        && dilation_y == 1
+        && dilation_x == 1
+    {
         return Ok(conv_2d_pointwise(
             &input.nd_view(),
             &kernel.nd_view(),
@@ -393,13 +432,13 @@ pub fn conv(
         ));
     }
 
-    if in_c == out_c && groups == in_c {
+    if in_c == out_c && groups == in_c && dilation_y == 1 && dilation_x == 1 {
         return Ok(conv_2d_depthwise(
             &input.nd_view(),
             &kernel.nd_view(),
             bias.map(|b| b.nd_view()),
             fixed_padding,
-            [stride_h, stride_w],
+            [stride_y, stride_x],
             [out_h, out_w],
         ));
     }
@@ -437,7 +476,8 @@ pub fn conv(
                     in_item.nd_view(),
                     [k_h, k_w],
                     fixed_padding,
-                    [stride_h, stride_w],
+                    [stride_y, stride_x],
+                    [dilation_y, dilation_x],
                 );
 
                 gemm.gemm_bias(
@@ -459,8 +499,9 @@ pub fn conv(
 
 #[derive(Debug)]
 pub struct Conv {
-    pub padding: Padding,
     pub groups: usize,
+    pub dilations: Vec<usize>,
+    pub padding: Padding,
     pub strides: Vec<usize>,
 }
 
@@ -480,6 +521,7 @@ impl Operator for Conv {
             self.padding.clone(),
             self.groups,
             &self.strides,
+            &self.dilations,
         )
         .into_op_result()
     }
@@ -625,17 +667,20 @@ mod tests {
         padding: [usize; 4],
         groups: usize,
         strides: [usize; 2],
+        dilations: [usize; 2],
     ) -> Tensor {
         let [batch, in_chans, in_h, in_w]: [usize; 4] =
             input.shape().try_into().expect("expected NCHW input");
         let [out_chans, k_in_chans, k_h, k_w]: [usize; 4] =
             kernel.shape().try_into().expect("expected OCHW input");
-        let [stride_h, stride_w] = strides;
+        let [stride_y, stride_x] = strides;
+        let [dilation_y, dilation_x] = dilations;
         let (out_h, out_w, _) = calc_output_size_and_padding(
             (in_h, in_w),
             (k_h, k_w),
-            (stride_h, stride_w),
+            (stride_y, stride_x),
             padding.into(),
+            Some((dilation_y, dilation_x)),
         )
         .expect("Input too small");
         let [pad_top, pad_left, _pad_bottom, _pad_right] = padding;
@@ -665,8 +710,8 @@ mod tests {
                             for in_chan in in_chan_start..in_chan_end {
                                 for k_y in 0..k_h {
                                     for k_x in 0..k_w {
-                                        let in_y = out_y * stride_h + k_y;
-                                        let in_x = out_x * stride_w + k_x;
+                                        let in_y = out_y * stride_y + k_y * dilation_y;
+                                        let in_x = out_x * stride_x + k_x * dilation_x;
 
                                         if in_y >= pad_top
                                             && in_y < in_h + pad_top
@@ -723,6 +768,7 @@ mod tests {
             [1, 1, 1, 1].into(),
             1,       /* groups */
             &[1, 1], /* stride */
+            &[1, 1], /* dilations */
         )
         .unwrap();
         let reference_result = reference_conv(
@@ -732,6 +778,7 @@ mod tests {
             [1, 1, 1, 1],
             1,      /* groups */
             [1, 1], /* stride */
+            [1, 1], /* dilations */
         );
         expect_equal(&result, &expected_with_same_padding)?;
         expect_equal(&result, &reference_result)?;
@@ -745,6 +792,7 @@ mod tests {
             [0, 0, 0, 0].into(),
             1,       /* groups */
             &[1, 1], /* stride */
+            &[1, 1], /* dilations */
         )
         .unwrap();
         let reference_result = reference_conv(
@@ -754,6 +802,7 @@ mod tests {
             [0, 0, 0, 0],
             1,      /* groups */
             [1, 1], /* stride */
+            [1, 1], /* dilations */
         );
         expect_equal(&result, &expected_with_no_padding)?;
         expect_equal(&result, &reference_result)?;
@@ -767,6 +816,7 @@ mod tests {
             [0, 0, 0, 0].into(),
             1,       /* groups */
             &[1, 1], /* stride */
+            &[1, 1], /* dilations */
         )
         .unwrap();
         let reference_result = reference_conv(
@@ -776,6 +826,7 @@ mod tests {
             [0, 0, 0, 0],
             1,      /* groups */
             [1, 1], /* stride */
+            [1, 1], /* dilations */
         );
         expect_equal(&result, &expected_with_bias)?;
         expect_equal(&result, &reference_result)
@@ -801,6 +852,7 @@ mod tests {
             padding: Padding::Same,
             groups: 1,
             strides: vec![1, 1],
+            dilations: vec![1, 1],
         };
         let result = op
             .run((&input, &kernel).into())
@@ -815,6 +867,7 @@ mod tests {
             [1, 1, 1, 1],
             1,      /* groups */
             [1, 1], /* stride */
+            [1, 1], /* dilations */
         );
 
         expect_equal(&result, &reference_result)
@@ -834,6 +887,7 @@ mod tests {
             [0, 0, 1, 1].into(),
             1,       /* groups */
             &[1, 1], /* stride */
+            &[1, 1], /* dilations */
         )
         .unwrap();
         let reference_result = reference_conv(
@@ -843,6 +897,7 @@ mod tests {
             [0, 0, 1, 1],
             1,      /* groups */
             [1, 1], /* stride */
+            [1, 1], /* dilations */
         );
 
         expect_equal(&result, &reference_result)
@@ -862,6 +917,7 @@ mod tests {
             [0, 0, 1, 1].into(),
             10,      /* groups */
             &[1, 1], /* stride */
+            &[1, 1], /* dilations */
         )
         .unwrap();
         let reference_result = reference_conv(
@@ -871,6 +927,7 @@ mod tests {
             [0, 0, 1, 1],
             10,     /* groups */
             [1, 1], /* stride */
+            [1, 1], /* dilations */
         );
 
         expect_equal(&result, &reference_result)
@@ -892,6 +949,7 @@ mod tests {
             [0, 0, 0, 0].into(),
             1,       /* groups */
             &[1, 1], /* stride */
+            &[1, 1], /* dilations */
         )
         .unwrap();
         let reference_result = reference_conv(
@@ -901,6 +959,7 @@ mod tests {
             [0, 0, 0, 0],
             1,      /* groups */
             [1, 1], /* stride */
+            [1, 1], /* dilations */
         );
 
         assert_eq!(result.shape(), [1, 10, 20, 20]);
@@ -918,6 +977,7 @@ mod tests {
             [0, 0, 0, 0].into(),
             1,       /* groups */
             &[1, 1], /* stride */
+            &[1, 1], /* dilations */
         )
         .unwrap();
         let reference_result = reference_conv(
@@ -927,6 +987,7 @@ mod tests {
             [0, 0, 0, 0],
             1,      /* groups */
             [1, 1], /* stride */
+            [1, 1], /* dilations */
         );
         assert_eq!(result.shape(), [1, 10, 20, 20]);
         expect_equal(&result, &reference_result)?;
@@ -940,6 +1001,7 @@ mod tests {
             [0, 0, 0, 0].into(),
             1,       /* groups */
             &[1, 1], /* stride */
+            &[1, 1], /* dilations */
         )
         .unwrap();
         let reference_result = reference_conv(
@@ -949,6 +1011,7 @@ mod tests {
             [0, 0, 0, 0],
             1,      /* groups */
             [1, 1], /* stride */
+            [1, 1], /* dilations */
         );
         assert_eq!(result.shape(), [2, 10, 20, 20]);
         expect_equal(&result, &reference_result)?;
@@ -962,6 +1025,7 @@ mod tests {
             [0, 0, 0, 0].into(),
             1,       /* groups */
             &[2, 2], /* stride */
+            &[1, 1], /* dilations */
         )
         .unwrap();
         let reference_result = reference_conv(
@@ -971,6 +1035,7 @@ mod tests {
             [0, 0, 0, 0],
             1,      /* groups */
             [2, 2], /* stride */
+            [1, 1], /* dilation */
         );
         assert_eq!(result.shape(), [1, 10, 10, 10]);
         expect_equal(&result, &reference_result)?;
@@ -1012,6 +1077,7 @@ mod tests {
             [0, 0, 0, 0],
             3,      /* groups */
             [1, 1], /* stride */
+            [1, 1], /* dilations */
         );
 
         let result = conv(
@@ -1021,6 +1087,7 @@ mod tests {
             [0, 0, 0, 0].into(),
             3,       /* groups */
             &[1, 1], /* stride */
+            &[1, 1], /* dilations */
         )
         .unwrap();
 
@@ -1044,6 +1111,7 @@ mod tests {
             [1, 1, 1, 1].into(),
             2,       /* groups */
             &[1, 1], /* stride */
+            &[1, 1], /* dilations */
         )
         .unwrap();
         let reference_result = reference_conv(
@@ -1053,6 +1121,7 @@ mod tests {
             [1, 1, 1, 1],
             2,      /* groups */
             [1, 1], /* stride */
+            [1, 1], /* dilations */
         );
 
         expect_equal(&result, &reference_result)
@@ -1074,6 +1143,7 @@ mod tests {
                         [pad, pad, pad, pad].into(),
                         1, /* groups */
                         &strides,
+                        &[1, 1], /* dilations */
                     )
                     .unwrap();
                     let reference_result = reference_conv(
@@ -1083,6 +1153,7 @@ mod tests {
                         [pad, pad, pad, pad],
                         1, /* groups */
                         strides,
+                        [1, 1], /* dilations */
                     );
                     expect_equal(&result, &reference_result)?;
                 }
@@ -1108,6 +1179,7 @@ mod tests {
                         [pad, pad, pad, pad].into(),
                         3, /* groups */
                         &strides,
+                        &[1, 1], /* dilations */
                     )
                     .unwrap();
                     let reference_result = reference_conv(
@@ -1117,6 +1189,7 @@ mod tests {
                         [pad, pad, pad, pad],
                         3, /* groups */
                         strides,
+                        [1, 1], /* dilations */
                     );
                     expect_equal(&result, &reference_result)?;
                 }
@@ -1139,6 +1212,7 @@ mod tests {
             [0; 4].into(),
             1,       /* groups */
             &[1, 1], /* stride */
+            &[1, 1], /* dilations */
         );
 
         assert_eq!(
@@ -1160,12 +1234,49 @@ mod tests {
             [0; 4].into(),
             1,       /* groups */
             &[0, 0], /* stride */
+            &[1, 1], /* dilations */
         );
 
         assert_eq!(
             result.err(),
-            Some(OpError::InvalidValue("Stride must be > 0"))
+            Some(OpError::InvalidValue("Strides must be > 0"))
         );
+    }
+
+    #[test]
+    fn test_conv_dilations() -> Result<(), String> {
+        let mut rng = XorShiftRng::new(1234);
+        let kernel = Tensor::rand(&[4, 3, 3, 3], &mut rng);
+
+        for dilations in [[2, 2], [3, 3], [1, 3]] {
+            for pad in [0, 1] {
+                for input_size in [7, 10, 20] {
+                    let input = Tensor::rand(&[2, 3, input_size, input_size], &mut rng);
+                    let result = conv(
+                        input.view(),
+                        kernel.view(),
+                        None,
+                        [pad, pad, pad, pad].into(),
+                        1, /* groups */
+                        &[1, 1],
+                        &dilations,
+                    )
+                    .unwrap();
+                    let reference_result = reference_conv(
+                        &input,
+                        &kernel,
+                        None,
+                        [pad, pad, pad, pad],
+                        1,      /* groups */
+                        [1, 1], /* strides */
+                        dilations,
+                    );
+                    expect_equal(&result, &reference_result)?;
+                }
+            }
+        }
+
+        Ok(())
     }
 
     #[test]
@@ -1182,6 +1293,7 @@ mod tests {
             Padding::Same,
             1,    /* groups */
             &[1], /* stride */
+            &[1], /* dilation */
         )
         .unwrap();
 

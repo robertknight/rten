@@ -211,11 +211,16 @@ fn read_conv_op(node: &OperatorNode) -> ReadOpResult {
         .strides()
         .map(|stride| stride.iter().map(|x| x as usize).collect())
         .unwrap_or(vec![1, 1]);
+    let dilations: Vec<usize> = attrs
+        .dilations()
+        .map(|dilation| dilation.iter().map(|x| x as usize).collect())
+        .unwrap_or(vec![1, 1]);
 
     Ok(Box::new(ops::Conv {
         groups,
         padding,
         strides,
+        dilations,
     }))
 }
 
@@ -952,8 +957,9 @@ mod tests {
         add_operator!(ConstantOfShape, [shape], { value: Scalar::Int(42) });
 
         add_operator!(Conv, [input_node, kernel], {
-            padding: [1, 1, 1, 1].into(),
+            dilations: vec![1, 1],
             groups: 1,
+            padding: [1, 1, 1, 1].into(),
             strides: vec![1, 1],
         });
 
