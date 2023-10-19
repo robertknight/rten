@@ -158,18 +158,10 @@ pub fn global_average_pool(input: &Tensor) -> Result<Tensor, OpError> {
 
     let mut output = Tensor::zeros(&[batch, chans, 1, 1]);
 
-    let hw_float = (in_h * in_w) as f32;
-
     for n in 0..batch {
         for c in 0..chans {
-            let in_view = input.nd_slice([n, c]).unchecked();
-            let mut sum = 0.0;
-            for y in 0..in_h {
-                for x in 0..in_w {
-                    sum += in_view[[y, x]];
-                }
-            }
-            output[[n, c, 0, 0]] = sum / hw_float;
+            let sum: f32 = input.slice([n, c]).iter().sum();
+            output[[n, c, 0, 0]] = sum / (in_h * in_w) as f32;
         }
     }
 
