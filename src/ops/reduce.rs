@@ -620,11 +620,11 @@ pub fn topk<T: Copy + Default + PartialOrd>(
     ) {
         tmp.clear();
         tmp.extend(zip(values.copied(), 0..axis_size));
-        tmp.select_nth_unstable_by(k - 1, |a, b| topk_cmp(a, b));
+        tmp.select_nth_unstable_by(k - 1, topk_cmp);
         tmp.truncate(k);
 
         if sorted {
-            tmp.sort_unstable_by(|a, b| topk_cmp(a, b));
+            tmp.sort_unstable_by(topk_cmp);
         }
 
         for ((out_val, out_idx), (val, idx)) in zip(zip(out_values, indices), tmp.iter()) {

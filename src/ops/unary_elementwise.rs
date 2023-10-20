@@ -119,6 +119,7 @@ macro_rules! unary_float_op {
             }
 
             fn map_element(&self, val: f32) -> f32 {
+                #[allow(clippy::redundant_closure_call)]
                 $expr(val)
             }
         }
