@@ -63,6 +63,15 @@ impl Model {
         &self.output_ids
     }
 
+    /// Convenience method that returns the expected input shape for the index'th input.
+    ///
+    /// The shape may contain a mix of fixed and symbolic dimensions.
+    pub fn input_shape(&self, index: usize) -> Option<Vec<Dimension>> {
+        let input_id = self.input_ids.get(index)?;
+        let node_info = self.node_info(*input_id)?;
+        node_info.shape()
+    }
+
     /// Execute the model and return the outputs specified by `outputs`.
     ///
     /// This method allows for running a model with a variable number of inputs
@@ -802,6 +811,20 @@ mod tests {
             .and_then(|ni| ni.shape())
             .expect("input shape missing");
         assert_eq!(shape, &[1, 2, 2].map(Dimension::Fixed));
+    }
+
+    #[test]
+    fn test_input_shape() {
+        let buffer = generate_model_buffer();
+        let model = Model::load(&buffer).unwrap();
+        assert_eq!(
+            model.input_shape(0),
+            Some(vec![
+                Dimension::Fixed(1),
+                Dimension::Fixed(2),
+                Dimension::Fixed(2),
+            ])
+        );
     }
 
     #[test]
