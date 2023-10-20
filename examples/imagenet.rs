@@ -167,9 +167,8 @@ Where config is one of:
     Ok(args)
 }
 
-/// This example loads a PNG image (RGB or RGBA format, 224x224 size for most
-/// models) and uses an image classification model such as MobileNet to
-/// classify it into one of the 1000 ImageNet classes.
+/// This example loads an image and uses a classification model such as
+/// MobileNet to classify it into one of the 1000 ImageNet classes.
 ///
 /// See the `_CONFIG` constants in this module for details of where to obtain
 /// the models.
