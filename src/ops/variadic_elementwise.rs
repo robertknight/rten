@@ -20,7 +20,7 @@ fn reduce_elementwise<T: Copy + Default, R: Fn(&[T]) -> T>(
             let Some(out_shape) = broadcast_shapes(a.shape(), b.shape()) else {
                 return Err(OpError::IncompatibleInputShapes(
                     "Cannot broadcast inputs to same shape",
-                ))
+                ));
             };
 
             let mut result = Tensor::zeros(&out_shape);
@@ -33,10 +33,15 @@ fn reduce_elementwise<T: Copy + Default, R: Fn(&[T]) -> T>(
             Ok(result)
         }
         _ => {
-            let Some(out_shape) = inputs.iter().try_fold(inputs[0].shape().to_vec(), |out_shape, input| {
-                broadcast_shapes(&out_shape, input.shape())
-            }) else {
-                return Err(OpError::IncompatibleInputShapes("Cannot broadcast inputs to same shape"));
+            let Some(out_shape) = inputs
+                .iter()
+                .try_fold(inputs[0].shape().to_vec(), |out_shape, input| {
+                    broadcast_shapes(&out_shape, input.shape())
+                })
+            else {
+                return Err(OpError::IncompatibleInputShapes(
+                    "Cannot broadcast inputs to same shape",
+                ));
             };
 
             let mut iters: Vec<_> = inputs
