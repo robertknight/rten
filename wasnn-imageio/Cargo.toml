@@ -1,0 +1,9 @@
+[package]
+name = "wasnn-imageio"
+version = "0.1.0"
+edition = "2021"
+
+[dependencies]
+image = { version = "0.24.6", default-features = false, features = ["png", "jpeg", "webp"] }
+png = "0.17.6"
+wasnn-tensor = { path = "../wasnn-tensor" }

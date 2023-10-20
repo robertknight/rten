@@ -1,5 +1,6 @@
 [workspace]
 members = [
+  "wasnn-imageio",
   "wasnn-imageproc",
   "wasnn-ocr",
   "wasnn-ocr-cli",
@@ -27,6 +28,7 @@ image = { version = "0.24.6", default-features = false, features = ["png", "jpeg
 lexopt = "0.3.0"
 png = "0.17.6"
 serde_json = "1.0.91"
+wasnn-imageio = { path = "./wasnn-imageio" }
 wasnn-imageproc = { path = "./wasnn-imageproc" }
 wasnn-ocr = { path = "./wasnn-ocr" }
 

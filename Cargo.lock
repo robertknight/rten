@@ -642,8 +642,18 @@ dependencies = [
  "serde_json",
  "smallvec",
  "wasm-bindgen",
+ "wasnn-imageio",
  "wasnn-imageproc",
  "wasnn-ocr",
+ "wasnn-tensor",
+]
+
+[[package]]
+name = "wasnn-imageio"
+version = "0.1.0"
+dependencies = [
+ "image",
+ "png",
  "wasnn-tensor",
 ]
 
