@@ -55,7 +55,9 @@ pub use reduce::{
     reduce_prod, reduce_sum, topk, ArgMax, ArgMin, CumSum, NonZero, ReduceL2, ReduceMax,
     ReduceMean, ReduceMin, ReduceProd, ReduceSum, TopK,
 };
-pub use resize::{resize, CoordTransformMode, NearestMode, Resize, ResizeMode, ResizeTarget};
+pub use resize::{
+    resize, resize_image, CoordTransformMode, NearestMode, Resize, ResizeMode, ResizeTarget,
+};
 pub use rnn::{gru, lstm, Direction, GRU, LSTM};
 pub use slice::{slice, slice_in_place, Slice};
 pub use split::{split, Split};

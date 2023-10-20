@@ -2,14 +2,12 @@ use std::collections::VecDeque;
 use std::error::Error;
 use std::fs;
 
-use wasnn::ops::{
-    arg_max, resize, softmax, CoordTransformMode, NearestMode, ResizeMode, ResizeTarget,
-};
+use wasnn::ops::{arg_max, resize_image, softmax};
 use wasnn::{Model, NodeId, RunOptions};
 use wasnn_imageio::{normalize_image, read_image, write_image};
 use wasnn_imageproc::{Painter, Rect};
 use wasnn_tensor::prelude::*;
-use wasnn_tensor::{ndtensor, NdTensor, NdTensorView};
+use wasnn_tensor::{NdTensor, NdTensorView};
 
 struct Args {
     model: String,
@@ -259,15 +257,7 @@ fn main() -> Result<(), Box<dyn Error>> {
     let (rescaled_width, rescaled_height) =
         rescaled_size((image_width, image_height), min_size, max_size);
     if rescaled_width != image_width || rescaled_height != image_height {
-        image = resize(
-            image.view(),
-            ResizeTarget::Sizes(
-                ndtensor!([1, 3, rescaled_height as i32, rescaled_width as i32]).view(),
-            ),
-            ResizeMode::Linear,
-            CoordTransformMode::default(),
-            NearestMode::default(),
-        )?;
+        image = resize_image(image.view(), [rescaled_height, rescaled_width])?;
     }
 
     let pixel_input_id = get_node(&model, "pixel_values")?;

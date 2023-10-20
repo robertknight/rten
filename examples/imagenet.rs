@@ -2,9 +2,7 @@ use std::collections::VecDeque;
 use std::error::Error;
 use std::fs;
 
-use wasnn::ops::{
-    resize, softmax, topk, CoordTransformMode, NearestMode, ResizeMode, ResizeTarget,
-};
+use wasnn::ops::{resize_image, softmax, topk};
 use wasnn::{Dimension, Model, RunOptions};
 use wasnn_tensor::prelude::*;
 use wasnn_tensor::{NdTensor, Tensor};
@@ -215,19 +213,7 @@ fn main() -> Result<(), Box<dyn Error>> {
     };
 
     let img_tensor = if height != in_height as usize || width != in_width as usize {
-        let sizes = &[
-            1,
-            img_tensor.size(1) as i32,
-            in_height as i32,
-            in_width as i32,
-        ];
-        resize(
-            img_tensor.view(),
-            ResizeTarget::Sizes(sizes.into()),
-            ResizeMode::Linear,
-            CoordTransformMode::default(),
-            NearestMode::default(),
-        )?
+        resize_image(img_tensor.view(), [in_height, in_width])?
     } else {
         img_tensor
     };

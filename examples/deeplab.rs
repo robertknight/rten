@@ -2,11 +2,11 @@ use std::collections::{HashSet, VecDeque};
 use std::error::Error;
 use std::fs;
 
-use wasnn::ops::{arg_max, resize, CoordTransformMode, NearestMode, ResizeMode, ResizeTarget};
+use wasnn::ops::{arg_max, resize_image};
 use wasnn::{Dimension, Model};
 use wasnn_imageio::{normalize_image, read_image, write_image};
 use wasnn_tensor::prelude::*;
-use wasnn_tensor::{ndtensor, NdTensor, Tensor};
+use wasnn_tensor::{NdTensor, Tensor};
 
 struct Args {
     model: String,
@@ -126,13 +126,7 @@ fn main() -> Result<(), Box<dyn Error>> {
         // example was created.
         _ => (520, 780),
     };
-    let image = resize(
-        image.view(),
-        ResizeTarget::Sizes(ndtensor!([1, 3, input_h as i32, input_w as i32]).view()),
-        ResizeMode::Linear,
-        CoordTransformMode::default(),
-        NearestMode::default(),
-    )?;
+    let image = resize_image(image.view(), [input_h, input_w])?;
 
     // Run model to classify each pixel
     let mut output: Tensor = model.run_one((&image).into(), None)?.try_into()?;

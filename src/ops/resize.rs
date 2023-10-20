@@ -134,6 +134,22 @@ fn bilinear_resize(input: &Matrix, output: &mut MatrixMut, coord_mode: CoordTran
     }
 }
 
+/// Resize an NCHW image tensor to a given `[height, width]`.
+///
+/// This is a simplified API for [resize].
+pub fn resize_image(input: TensorView, size: [usize; 2]) -> Result<Tensor, OpError> {
+    let [batch, chans, _height, _width] = check_dims!(input, 4);
+    let [out_height, out_width] = size;
+    let out_shape = [batch, chans, out_height, out_width].map(|x| x as i32);
+    resize(
+        input,
+        ResizeTarget::Sizes(NdTensorView::from(&out_shape)),
+        ResizeMode::Linear,
+        CoordTransformMode::default(),
+        NearestMode::default(),
+    )
+}
+
 pub fn resize(
     input: TensorView,
     target: ResizeTarget,
