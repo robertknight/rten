@@ -167,9 +167,33 @@ pub fn global_average_pool(input: &Tensor) -> Result<Tensor, OpError> {
     let mut output = Tensor::zeros(&[batch, chans, 1, 1]);
 
     for n in 0..batch {
-        for c in 0..chans {
-            let sum: f32 = input.slice([n, c]).iter().sum();
-            output[[n, c, 0, 0]] = sum / (in_h * in_w) as f32;
+        const N: usize = 4;
+        for c in (0..chans).step_by(N) {
+            if chans - c >= N {
+                // Compute average over batch of N channels in parallel.
+                let chan_group: NdTensorView<f32, 3> = input.slice((n, c..c + N)).nd_view();
+                let chan_group = chan_group.unchecked();
+                let [_, cg_h, cg_w] = chan_group.shape();
+
+                let mut sums = [0.; N];
+                for y in 0..cg_h {
+                    for x in 0..cg_w {
+                        for i in 0..N {
+                            sums[i] += chan_group[[i, y, x]];
+                        }
+                    }
+                }
+
+                for i in 0..N {
+                    output[[n, c + i, 0, 0]] = sums[i] / (in_h * in_w) as f32;
+                }
+            } else {
+                // Compute average over remaining channels.
+                for c in c..chans {
+                    let sum: f32 = input.slice([n, c]).iter().sum();
+                    output[[n, c, 0, 0]] = sum / (in_h * in_w) as f32;
+                }
+            }
         }
     }
 
