@@ -1,7 +1,8 @@
 use std::iter::zip;
 
 use rayon::prelude::*;
-use wasnn_tensor::{Layout, NdTensorView, NdTensorViewMut, Tensor, View};
+use wasnn_tensor::prelude::*;
+use wasnn_tensor::{NdTensorView, NdTensorViewMut, Tensor, TensorView};
 
 use crate::check_dims;
 use crate::linalg::div_ceil;
@@ -86,7 +87,7 @@ pub fn calc_output_size_and_padding(
 }
 
 pub fn average_pool(
-    input: &Tensor,
+    input: TensorView,
     kernel_size: [usize; 2],
     strides: [usize; 2],
     padding: Padding,
@@ -156,11 +157,17 @@ impl Operator for AveragePool {
 
     fn run(&self, inputs: InputList) -> Result<Vec<Output>, OpError> {
         let input = inputs.require_as(0)?;
-        average_pool(input, self.kernel_size, self.strides, self.padding.clone()).into_op_result()
+        average_pool(
+            input.view(),
+            self.kernel_size,
+            self.strides,
+            self.padding.clone(),
+        )
+        .into_op_result()
     }
 }
 
-pub fn global_average_pool(input: &Tensor) -> Result<Tensor, OpError> {
+pub fn global_average_pool(input: TensorView) -> Result<Tensor, OpError> {
     let [batch, chans, in_h, in_w] = check_dims!(input, 4, "NCHW");
     let input = input.view();
 
@@ -210,12 +217,12 @@ impl Operator for GlobalAveragePool {
 
     fn run(&self, inputs: InputList) -> Result<Vec<Output>, OpError> {
         let input = inputs.require_as(0)?;
-        global_average_pool(input).into_op_result()
+        global_average_pool(input.view()).into_op_result()
     }
 }
 
 pub fn max_pool(
-    input: &Tensor,
+    input: TensorView,
     kernel_size: [usize; 2],
     strides: [usize; 2],
     padding: Padding,
@@ -334,7 +341,13 @@ impl Operator for MaxPool {
 
     fn run(&self, inputs: InputList) -> Result<Vec<Output>, OpError> {
         let input = inputs.require_as(0)?;
-        max_pool(input, self.kernel_size, self.strides, self.padding.clone()).into_op_result()
+        max_pool(
+            input.view(),
+            self.kernel_size,
+            self.strides,
+            self.padding.clone(),
+        )
+        .into_op_result()
     }
 }
 
@@ -425,8 +438,13 @@ mod tests {
         ];
 
         for case in cases {
-            let result =
-                average_pool(&input, case.kernel_size, case.strides, [0, 0, 0, 0].into()).unwrap();
+            let result = average_pool(
+                input.view(),
+                case.kernel_size,
+                case.strides,
+                [0, 0, 0, 0].into(),
+            )
+            .unwrap();
             expect_equal(&result, &case.expected)?;
         }
 
@@ -455,7 +473,7 @@ mod tests {
         expected.reshape(&[1, 1, rows, cols]);
 
         let result = average_pool(
-            &input,
+            input.view(),
             [2, 2],
             [2, 2], /* stride */
             [1, 1, 1, 1].into(),
@@ -468,7 +486,7 @@ mod tests {
     fn test_global_average_pool() -> Result<(), String> {
         let input = Tensor::from_data(&[1, 2, 2, 2], vec![1., 2., 3., 4., 10., 20., 30., 40.]);
         let expected = Tensor::from_data(&[1, 2, 1, 1], vec![2.5, 25.]);
-        let result = global_average_pool(&input).unwrap();
+        let result = global_average_pool(input.view()).unwrap();
         expect_equal(&result, &expected)
     }
 
@@ -537,8 +555,13 @@ mod tests {
         ];
 
         for case in cases {
-            let result =
-                max_pool(&input, case.kernel_size, case.strides, [0, 0, 0, 0].into()).unwrap();
+            let result = max_pool(
+                input.view(),
+                case.kernel_size,
+                case.strides,
+                [0, 0, 0, 0].into(),
+            )
+            .unwrap();
             expect_equal(&result, &case.expected)?;
         }
 
@@ -549,19 +572,19 @@ mod tests {
     fn test_max_pool_padding() {
         let input = Tensor::zeros(&[1, 1, 9, 9]);
 
-        let result = max_pool(&input, [2, 2], [2, 2], [0, 0, 0, 0].into()).unwrap();
+        let result = max_pool(input.view(), [2, 2], [2, 2], [0, 0, 0, 0].into()).unwrap();
         assert_eq!(result.shape(), &[1, 1, 4, 4]);
 
-        let result = max_pool(&input, [2, 2], [2, 2], [1, 1, 1, 1].into()).unwrap();
+        let result = max_pool(input.view(), [2, 2], [2, 2], [1, 1, 1, 1].into()).unwrap();
         assert_eq!(result.shape(), &[1, 1, 5, 5]);
 
-        let result = max_pool(&input, [2, 2], [2, 2], [2, 2, 2, 2].into()).unwrap();
+        let result = max_pool(input.view(), [2, 2], [2, 2], [2, 2, 2, 2].into()).unwrap();
         assert_eq!(result.shape(), &[1, 1, 6, 6]);
 
-        let result = max_pool(&input, [2, 2], [2, 2], Padding::Same).unwrap();
+        let result = max_pool(input.view(), [2, 2], [2, 2], Padding::Same).unwrap();
         assert_eq!(result.shape(), &[1, 1, 5, 5]);
 
-        let result = max_pool(&input, [2, 2], [3, 3], Padding::Same).unwrap();
+        let result = max_pool(input.view(), [2, 2], [3, 3], Padding::Same).unwrap();
         assert_eq!(result.shape(), &[1, 1, 3, 3]);
     }
 
