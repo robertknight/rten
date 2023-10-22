@@ -30,10 +30,11 @@ fn min_max_out_x_coords(
     in_w: usize,
     pad_left: usize,
     stride: usize,
+    dilation: usize,
     out_w: usize,
 ) -> (usize, usize) {
-    let min_out_x = pad_left.saturating_sub(k_x);
-    let max_out_x = div_ceil((in_w + pad_left).saturating_sub(k_x), stride).min(out_w);
+    let min_out_x = pad_left.saturating_sub(k_x * dilation);
+    let max_out_x = div_ceil((in_w + pad_left).saturating_sub(k_x * dilation), stride).min(out_w);
     (min_out_x, max_out_x)
 }
 
@@ -232,12 +233,14 @@ fn conv_2d_depthwise(
     bias: Option<NdTensorView<f32, 1>>,
     padding: [usize; 4],
     strides: [usize; 2],
+    dilations: [usize; 2],
     out_hw: [usize; 2],
 ) -> Tensor {
     let [batch, in_c, in_h, in_w]: [usize; 4] = input.shape();
     let [out_c, _, k_h, k_w]: [usize; 4] = kernel.shape();
     let [pad_top, pad_left, _pad_bottom, _pad_right] = padding;
     let [stride_h, stride_w] = strides;
+    let [dilation_y, dilation_x] = dilations;
     let [out_h, out_w] = out_hw;
 
     let mut output = if let Some(bias) = bias {
@@ -261,7 +264,7 @@ fn conv_2d_depthwise(
                 let out_row = out_row.data_mut();
 
                 for k_y in 0..k_h {
-                    let in_y = out_y * stride_h + k_y;
+                    let in_y = out_y * stride_h + k_y * dilation_y;
                     if in_y < pad_top || in_y >= in_h + pad_top {
                         continue;
                     }
@@ -271,15 +274,16 @@ fn conv_2d_depthwise(
                     for k_x in 0..k_w {
                         let kernel_val = kernel_view[[k_y, k_x]];
                         let (min_out_x, max_out_x) =
-                            min_max_out_x_coords(k_x, in_w, pad_left, stride_w, out_w);
+                            min_max_out_x_coords(k_x, in_w, pad_left, stride_w, dilation_x, out_w);
 
                         if min_out_x == max_out_x {
                             continue;
                         }
 
                         let out_row_slice = &mut out_row[min_out_x..max_out_x];
-                        let in_row_slice = &in_row[min_out_x * stride_w + k_x - pad_left
-                            ..(max_out_x - 1) * stride_w + k_x - pad_left + 1];
+                        let in_row_slice = &in_row[min_out_x * stride_w + k_x * dilation_x
+                            - pad_left
+                            ..(max_out_x - 1) * stride_w + k_x * dilation_x - pad_left + 1];
 
                         add_scaled_vector(
                             out_row_slice,
@@ -432,13 +436,14 @@ pub fn conv(
         ));
     }
 
-    if in_c == out_c && groups == in_c && dilation_y == 1 && dilation_x == 1 {
+    if in_c == out_c && groups == in_c {
         return Ok(conv_2d_depthwise(
             &input.nd_view(),
             &kernel.nd_view(),
             bias.map(|b| b.nd_view()),
             fixed_padding,
             [stride_y, stride_x],
+            [dilation_y, dilation_x],
             [out_h, out_w],
         ));
     }
@@ -1244,7 +1249,7 @@ mod tests {
     }
 
     #[test]
-    fn test_conv_dilations() -> Result<(), String> {
+    fn test_conv_dilated() -> Result<(), String> {
         let mut rng = XorShiftRng::new(1234);
         let kernel = Tensor::rand(&[4, 3, 3, 3], &mut rng);
 
@@ -1268,6 +1273,43 @@ mod tests {
                         None,
                         [pad, pad, pad, pad],
                         1,      /* groups */
+                        [1, 1], /* strides */
+                        dilations,
+                    );
+                    expect_equal(&result, &reference_result)?;
+                }
+            }
+        }
+
+        Ok(())
+    }
+
+    #[test]
+    fn test_conv_dilated_depthwise() -> Result<(), String> {
+        let mut rng = XorShiftRng::new(1234);
+        let chans = 3;
+        let kernel = Tensor::rand(&[chans, 1, 3, 3], &mut rng);
+
+        for dilations in [[2, 2], [3, 3], [1, 3]] {
+            for pad in [0, 1] {
+                for input_size in [7, 10, 20] {
+                    let input = Tensor::rand(&[2, chans, input_size, input_size], &mut rng);
+                    let result = conv(
+                        input.view(),
+                        kernel.view(),
+                        None,
+                        [pad, pad, pad, pad].into(),
+                        chans, /* groups */
+                        &[1, 1],
+                        &dilations,
+                    )
+                    .unwrap();
+                    let reference_result = reference_conv(
+                        &input,
+                        &kernel,
+                        None,
+                        [pad, pad, pad, pad],
+                        chans,  /* groups */
                         [1, 1], /* strides */
                         dilations,
                     );
