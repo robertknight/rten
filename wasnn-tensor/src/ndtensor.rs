@@ -602,13 +602,40 @@ pub type Matrix<'a, T = f32> = NdTensorBase<T, &'a [T], 2>;
 pub type MatrixMut<'a, T = f32> = NdTensorBase<T, &'a mut [T], 2>;
 
 /// A variant of NdTensor which does not bounds-check individual dimensions
-/// when indexing, although the computed offset into the underlying storage
-/// is still bounds-checked.
+/// when indexing, but does still bounds-check the offset into the underlying
+/// storage, and hence is not unsafe.
 ///
-/// Using unchecked indexing is faster, at the cost of not catching errors
-/// in specific indices.
+/// Indexing using `UncheckedNdTensor` is faster than normal indexing into
+/// NdTensorBase, but not as fast as the unsafe [NdTensorBase::get_unchecked]
+/// method, which doesn't bounds-check individual dimensions or the final
+/// offset into the data.
 pub struct UncheckedNdTensor<T, S: AsRef<[T]>, const N: usize> {
     base: NdTensorBase<T, S, N>,
+}
+
+impl<T, S: AsRef<[T]>, const N: usize> Layout for UncheckedNdTensor<T, S, N> {
+    type Index<'a> = [usize; N] where S: 'a, T: 'a;
+    type Indices = NdIndices<N>;
+
+    fn ndim(&self) -> usize {
+        N
+    }
+
+    fn len(&self) -> usize {
+        self.base.len()
+    }
+
+    fn shape(&self) -> Self::Index<'_> {
+        self.base.shape()
+    }
+
+    fn strides(&self) -> Self::Index<'_> {
+        self.base.strides()
+    }
+
+    fn indices(&self) -> Self::Indices {
+        self.base.indices()
+    }
 }
 
 impl<T, S: AsRef<[T]>, const N: usize> Index<[usize; N]> for UncheckedNdTensor<T, S, N> {
