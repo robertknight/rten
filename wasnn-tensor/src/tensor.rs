@@ -7,7 +7,8 @@ use std::marker::PhantomData;
 use std::ops::{Index, IndexMut, Range};
 
 use crate::iterators::{
-    AxisIter, AxisIterMut, BroadcastIter, Iter, IterMut, Lanes, LanesMut, Offsets,
+    AxisChunks, AxisChunksMut, AxisIter, AxisIterMut, BroadcastIter, Iter, IterMut, Lanes,
+    LanesMut, Offsets,
 };
 use crate::layout::{DynLayout, Layout};
 use crate::ndtensor::{NdTensorBase, NdTensorView, NdTensorViewMut};
@@ -51,6 +52,11 @@ pub trait View: Layout {
     /// Return an iterator over slices of this tensor along a given axis.
     fn axis_iter(&self, dim: usize) -> AxisIter<Self::Elem> {
         self.view().axis_iter(dim)
+    }
+
+    /// Return an iterator over slices of this tensor along a given axis.
+    fn axis_chunks(&self, dim: usize, chunk_size: usize) -> AxisChunks<Self::Elem> {
+        self.view().axis_chunks(dim, chunk_size)
     }
 
     /// Return an iterator over elements of this tensor, broadcasted to `shape`.
@@ -356,6 +362,10 @@ impl<'a, T> TensorView<'a, T> {
         AxisIter::new(self, dim)
     }
 
+    pub fn axis_chunks(&self, dim: usize, chunk_size: usize) -> AxisChunks<'a, T> {
+        AxisChunks::new(self, dim, chunk_size)
+    }
+
     pub fn broadcast_iter(&self, shape: &[usize]) -> BroadcastIter<'a, T> {
         assert!(
             self.can_broadcast_to(shape),
@@ -597,6 +607,10 @@ impl<T, S: AsRef<[T]> + AsMut<[T]>> TensorBase<T, S> {
     /// axis.
     pub fn axis_iter_mut(&mut self, dim: usize) -> AxisIterMut<T> {
         AxisIterMut::new(self.view_mut(), dim)
+    }
+
+    pub fn axis_chunks_mut(&mut self, dim: usize, chunk_size: usize) -> AxisChunksMut<T> {
+        AxisChunksMut::new(self.view_mut(), dim, chunk_size)
     }
 
     /// Return a mutable iterator over all 1D slices of this tensor along a
@@ -976,6 +990,54 @@ mod tests {
         assert_eq!(views.len(), 3);
         assert_eq!(views[0], z0);
         assert_eq!(views[1], z1);
+    }
+
+    #[test]
+    fn test_axis_chunks() {
+        let x = steps(&[4, 2, 2]);
+
+        let mut chunks = x.axis_chunks(0, 2);
+
+        let chunk = chunks.next().expect("expected chunk");
+        assert_eq!(chunk.shape(), &[2, 2, 2]);
+        assert_eq!(
+            chunk.iter().copied().collect::<Vec<_>>(),
+            &[1, 2, 3, 4, 5, 6, 7, 8]
+        );
+
+        let chunk = chunks.next().expect("expected chunk");
+        assert_eq!(chunk.shape(), &[2, 2, 2]);
+        assert_eq!(
+            chunk.iter().copied().collect::<Vec<_>>(),
+            &[9, 10, 11, 12, 13, 14, 15, 16]
+        );
+
+        assert!(chunks.next().is_none());
+    }
+
+    #[test]
+    fn test_axis_chunks_mut() {
+        let mut x = steps(&[4, 2, 2]);
+
+        let mut chunks = x.axis_chunks_mut(0, 2);
+
+        let mut chunk = chunks.next().expect("expected chunk");
+        assert_eq!(chunk.shape(), &[2, 2, 2]);
+        chunk.iter_mut().for_each(|x| *x *= 10);
+        assert_eq!(
+            chunk.iter().copied().collect::<Vec<_>>(),
+            &[10, 20, 30, 40, 50, 60, 70, 80]
+        );
+
+        let mut chunk = chunks.next().expect("expected chunk");
+        assert_eq!(chunk.shape(), &[2, 2, 2]);
+        chunk.iter_mut().for_each(|x| *x *= 10);
+        assert_eq!(
+            chunk.iter().copied().collect::<Vec<_>>(),
+            &[90, 100, 110, 120, 130, 140, 150, 160]
+        );
+
+        assert!(chunks.next().is_none());
     }
 
     #[test]

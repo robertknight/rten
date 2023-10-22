@@ -47,7 +47,8 @@ mod tensor;
 
 pub use index_iterator::{DynIndices, Indices, NdIndices};
 pub use iterators::{
-    AxisIter, AxisIterMut, BroadcastIter, Iter, IterMut, Lanes, LanesMut, Offsets,
+    AxisChunks, AxisChunksMut, AxisIter, AxisIterMut, BroadcastIter, Iter, IterMut, Lanes,
+    LanesMut, Offsets,
 };
 pub use layout::{is_valid_permutation, DynLayout, Layout, MatrixLayout};
 pub use ndtensor::{
