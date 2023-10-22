@@ -19,7 +19,7 @@ use crate::ops::{InputList, IntoOpResult, OpError, Operator, Output, Padding};
 //
 // ```
 // for out_x in min_out_x..max_out_x {
-//   out_row[out_x] += in_row[out_x * stride + k_x - pad_w] * kernel_element
+//   out_row[out_x] += in_row[out_x * stride + k_x * dilation - pad_w] * kernel_element
 // }
 // ```
 //
@@ -657,30 +657,33 @@ impl Operator for ConvTranspose {
 
 #[cfg(test)]
 mod tests {
+    use wasnn_tensor::prelude::*;
     use wasnn_tensor::rng::XorShiftRng;
     use wasnn_tensor::test_util::expect_equal;
-    use wasnn_tensor::{Layout, Tensor, View};
+    use wasnn_tensor::{Tensor, TensorView};
 
     use crate::ops::pooling::calc_output_size_and_padding;
     use crate::ops::{conv, conv_transpose, Conv, OpError, Operator, Padding};
 
     /// Un-optimized reference implementation of convolution.
+    ///
+    /// This has the same interface as [conv].
     fn reference_conv(
-        input: &Tensor,
-        kernel: &Tensor,
-        bias: Option<&Tensor>,
-        padding: [usize; 4],
+        input: TensorView,
+        kernel: TensorView,
+        bias: Option<TensorView>,
+        padding: Padding,
         groups: usize,
-        strides: [usize; 2],
-        dilations: [usize; 2],
+        strides: &[usize],
+        dilations: &[usize],
     ) -> Tensor {
         let [batch, in_chans, in_h, in_w]: [usize; 4] =
             input.shape().try_into().expect("expected NCHW input");
         let [out_chans, k_in_chans, k_h, k_w]: [usize; 4] =
             kernel.shape().try_into().expect("expected OCHW input");
-        let [stride_y, stride_x] = strides;
-        let [dilation_y, dilation_x] = dilations;
-        let (out_h, out_w, _) = calc_output_size_and_padding(
+        let [stride_y, stride_x] = strides.try_into().expect("expected 2 stride values");
+        let [dilation_y, dilation_x] = dilations.try_into().expect("expected 2 stride values");
+        let (out_h, out_w, fixed_pads) = calc_output_size_and_padding(
             (in_h, in_w),
             (k_h, k_w),
             (stride_y, stride_x),
@@ -688,7 +691,7 @@ mod tests {
             Some((dilation_y, dilation_x)),
         )
         .expect("Input too small");
-        let [pad_top, pad_left, _pad_bottom, _pad_right] = padding;
+        let [pad_top, pad_left, _pad_bottom, _pad_right] = fixed_pads;
 
         let in_channels_per_group = in_chans / groups;
         let out_channels_per_group = out_chans / groups;
@@ -704,7 +707,7 @@ mod tests {
                 let out_chan_end = out_chan_start + out_channels_per_group;
 
                 for out_chan in out_chan_start..out_chan_end {
-                    let chan_bias = if let Some(bias) = bias {
+                    let chan_bias = if let Some(ref bias) = bias {
                         bias[[out_chan]]
                     } else {
                         0.0
@@ -741,6 +744,33 @@ mod tests {
         output
     }
 
+    /// Perform a convolution using the optimized and reference implementations
+    /// and check that the results are approximately equal.
+    fn check_conv(
+        input: TensorView,
+        kernel: TensorView,
+        bias: Option<TensorView>,
+        pads: Padding,
+        groups: usize,
+        strides: &[usize],
+        dilations: &[usize],
+    ) -> Result<Tensor, String> {
+        let result = conv(
+            input.view(),
+            kernel.view(),
+            bias.clone(),
+            pads.clone(),
+            groups,
+            &strides,
+            &dilations,
+        )
+        .expect("conv operation failed");
+        let reference_result =
+            reference_conv(input, kernel, bias, pads, groups, strides, dilations);
+        expect_equal(&result, &reference_result)?;
+        Ok(result)
+    }
+
     /// Basic tests for conv. These compare the results against values
     /// computed from PyTorch as well as the reference implementation.
     #[test]
@@ -766,7 +796,7 @@ mod tests {
             ],
         );
 
-        let result = conv(
+        let result = check_conv(
             input.view(),
             kernel.view(),
             None,
@@ -774,23 +804,12 @@ mod tests {
             1,       /* groups */
             &[1, 1], /* stride */
             &[1, 1], /* dilations */
-        )
-        .unwrap();
-        let reference_result = reference_conv(
-            &input,
-            &kernel,
-            None,
-            [1, 1, 1, 1],
-            1,      /* groups */
-            [1, 1], /* stride */
-            [1, 1], /* dilations */
-        );
+        )?;
         expect_equal(&result, &expected_with_same_padding)?;
-        expect_equal(&result, &reference_result)?;
 
         let expected_with_no_padding = Tensor::from_data(&[1, 1, 1, 1], vec![2.6358]);
 
-        let result = conv(
+        let result = check_conv(
             input.view(),
             kernel.view(),
             None,
@@ -798,23 +817,12 @@ mod tests {
             1,       /* groups */
             &[1, 1], /* stride */
             &[1, 1], /* dilations */
-        )
-        .unwrap();
-        let reference_result = reference_conv(
-            &input,
-            &kernel,
-            None,
-            [0, 0, 0, 0],
-            1,      /* groups */
-            [1, 1], /* stride */
-            [1, 1], /* dilations */
-        );
+        )?;
         expect_equal(&result, &expected_with_no_padding)?;
-        expect_equal(&result, &reference_result)?;
 
         let expected_with_bias = Tensor::from_data(&[1, 1, 1, 1], vec![3.6358]);
         let bias = Tensor::from_data(&[1], vec![1.0]);
-        let result = conv(
+        let result = check_conv(
             input.view(),
             kernel.view(),
             Some(bias.view()),
@@ -822,19 +830,10 @@ mod tests {
             1,       /* groups */
             &[1, 1], /* stride */
             &[1, 1], /* dilations */
-        )
-        .unwrap();
-        let reference_result = reference_conv(
-            &input,
-            &kernel,
-            Some(&bias),
-            [0, 0, 0, 0],
-            1,      /* groups */
-            [1, 1], /* stride */
-            [1, 1], /* dilations */
-        );
+        )?;
         expect_equal(&result, &expected_with_bias)?;
-        expect_equal(&result, &reference_result)
+
+        Ok(())
     }
 
     #[test]
@@ -866,13 +865,13 @@ mod tests {
             .into_float()
             .unwrap();
         let reference_result = reference_conv(
-            &input,
-            &kernel,
+            input.view(),
+            kernel.view(),
             None,
-            [1, 1, 1, 1],
-            1,      /* groups */
-            [1, 1], /* stride */
-            [1, 1], /* dilations */
+            [1, 1, 1, 1].into(),
+            1,       /* groups */
+            &[1, 1], /* stride */
+            &[1, 1], /* dilations */
         );
 
         expect_equal(&result, &reference_result)
@@ -885,7 +884,7 @@ mod tests {
         let input = Tensor::rand(&[1, 5, 10, 10], &mut rng);
         let bias = Tensor::rand(&[10], &mut rng);
 
-        let result = conv(
+        check_conv(
             input.view(),
             kernel.view(),
             Some(bias.view()),
@@ -893,19 +892,9 @@ mod tests {
             1,       /* groups */
             &[1, 1], /* stride */
             &[1, 1], /* dilations */
-        )
-        .unwrap();
-        let reference_result = reference_conv(
-            &input,
-            &kernel,
-            Some(&bias),
-            [0, 0, 1, 1],
-            1,      /* groups */
-            [1, 1], /* stride */
-            [1, 1], /* dilations */
-        );
+        )?;
 
-        expect_equal(&result, &reference_result)
+        Ok(())
     }
 
     #[test]
@@ -915,7 +904,7 @@ mod tests {
         let input = Tensor::rand(&[1, 10, 10, 10], &mut rng);
         let bias = Tensor::rand(&[10], &mut rng);
 
-        let result = conv(
+        check_conv(
             input.view(),
             kernel.view(),
             Some(bias.view()),
@@ -923,19 +912,9 @@ mod tests {
             10,      /* groups */
             &[1, 1], /* stride */
             &[1, 1], /* dilations */
-        )
-        .unwrap();
-        let reference_result = reference_conv(
-            &input,
-            &kernel,
-            Some(&bias),
-            [0, 0, 1, 1],
-            10,     /* groups */
-            [1, 1], /* stride */
-            [1, 1], /* dilations */
-        );
+        )?;
 
-        expect_equal(&result, &reference_result)
+        Ok(())
     }
 
     // Specific tests for convolutions with a 1x1 kernel.
@@ -947,7 +926,7 @@ mod tests {
         let bias = Tensor::rand(&[10], &mut rng);
 
         // Contiguous inputs
-        let result = conv(
+        let result = check_conv(
             input.view(),
             kernel.view(),
             Some(bias.view()),
@@ -955,27 +934,15 @@ mod tests {
             1,       /* groups */
             &[1, 1], /* stride */
             &[1, 1], /* dilations */
-        )
-        .unwrap();
-        let reference_result = reference_conv(
-            &input,
-            &kernel,
-            Some(&bias),
-            [0, 0, 0, 0],
-            1,      /* groups */
-            [1, 1], /* stride */
-            [1, 1], /* dilations */
-        );
-
+        )?;
         assert_eq!(result.shape(), [1, 10, 20, 20]);
-        expect_equal(&result, &reference_result)?;
 
         // Non-contiguous inputs
         let mut input_transposed = input.clone();
         input_transposed.permute(&[0, 1, 3, 2]);
         assert!(!input_transposed.is_contiguous());
 
-        let result = conv(
+        let result = check_conv(
             input_transposed.view(),
             kernel.view(),
             Some(bias.view()),
@@ -983,23 +950,12 @@ mod tests {
             1,       /* groups */
             &[1, 1], /* stride */
             &[1, 1], /* dilations */
-        )
-        .unwrap();
-        let reference_result = reference_conv(
-            &input_transposed,
-            &kernel,
-            Some(&bias),
-            [0, 0, 0, 0],
-            1,      /* groups */
-            [1, 1], /* stride */
-            [1, 1], /* dilations */
-        );
+        )?;
         assert_eq!(result.shape(), [1, 10, 20, 20]);
-        expect_equal(&result, &reference_result)?;
 
         // Batch size > 1
         let input = Tensor::rand(&[2, 5, 20, 20], &mut rng);
-        let result = conv(
+        let result = check_conv(
             input.view(),
             kernel.view(),
             Some(bias.view()),
@@ -1007,23 +963,12 @@ mod tests {
             1,       /* groups */
             &[1, 1], /* stride */
             &[1, 1], /* dilations */
-        )
-        .unwrap();
-        let reference_result = reference_conv(
-            &input,
-            &kernel,
-            Some(&bias),
-            [0, 0, 0, 0],
-            1,      /* groups */
-            [1, 1], /* stride */
-            [1, 1], /* dilations */
-        );
+        )?;
         assert_eq!(result.shape(), [2, 10, 20, 20]);
-        expect_equal(&result, &reference_result)?;
 
         // Stride > 1
         let input = Tensor::rand(&[1, 5, 20, 20], &mut rng);
-        let result = conv(
+        let result = check_conv(
             input.view(),
             kernel.view(),
             Some(bias.view()),
@@ -1031,19 +976,8 @@ mod tests {
             1,       /* groups */
             &[2, 2], /* stride */
             &[1, 1], /* dilations */
-        )
-        .unwrap();
-        let reference_result = reference_conv(
-            &input,
-            &kernel,
-            Some(&bias),
-            [0, 0, 0, 0],
-            1,      /* groups */
-            [2, 2], /* stride */
-            [1, 1], /* dilation */
-        );
+        )?;
         assert_eq!(result.shape(), [1, 10, 10, 10]);
-        expect_equal(&result, &reference_result)?;
 
         Ok(())
     }
@@ -1075,17 +1009,8 @@ mod tests {
                 1.1822754 + bias[[2]],
             ],
         );
-        let reference_result = reference_conv(
-            &input,
-            &kernel,
-            Some(&bias),
-            [0, 0, 0, 0],
-            3,      /* groups */
-            [1, 1], /* stride */
-            [1, 1], /* dilations */
-        );
 
-        let result = conv(
+        let result = check_conv(
             input.view(),
             kernel.view(),
             Some(bias.view()),
@@ -1093,11 +1018,11 @@ mod tests {
             3,       /* groups */
             &[1, 1], /* stride */
             &[1, 1], /* dilations */
-        )
-        .unwrap();
+        )?;
 
         expect_equal(&result, &expected)?;
-        expect_equal(&result, &reference_result)
+
+        Ok(())
     }
 
     // Tests for convolutions that are neither pointwise nor depthwise. In
@@ -1109,7 +1034,7 @@ mod tests {
         let input = Tensor::rand(&[2, 4, 20, 20], &mut rng);
         let bias = Tensor::rand(&[4], &mut rng);
 
-        let result = conv(
+        check_conv(
             input.view(),
             kernel.view(),
             Some(bias.view()),
@@ -1117,19 +1042,9 @@ mod tests {
             2,       /* groups */
             &[1, 1], /* stride */
             &[1, 1], /* dilations */
-        )
-        .unwrap();
-        let reference_result = reference_conv(
-            &input,
-            &kernel,
-            Some(&bias),
-            [1, 1, 1, 1],
-            2,      /* groups */
-            [1, 1], /* stride */
-            [1, 1], /* dilations */
-        );
+        )?;
 
-        expect_equal(&result, &reference_result)
+        Ok(())
     }
 
     #[test]
@@ -1141,7 +1056,7 @@ mod tests {
             for pad in [0, 1] {
                 for input_size in [3, 4, 5, 10, 20] {
                     let input = Tensor::rand(&[2, 3, input_size, input_size], &mut rng);
-                    let result = conv(
+                    check_conv(
                         input.view(),
                         kernel.view(),
                         None,
@@ -1149,18 +1064,7 @@ mod tests {
                         1, /* groups */
                         &strides,
                         &[1, 1], /* dilations */
-                    )
-                    .unwrap();
-                    let reference_result = reference_conv(
-                        &input,
-                        &kernel,
-                        None,
-                        [pad, pad, pad, pad],
-                        1, /* groups */
-                        strides,
-                        [1, 1], /* dilations */
-                    );
-                    expect_equal(&result, &reference_result)?;
+                    )?;
                 }
             }
         }
@@ -1177,7 +1081,7 @@ mod tests {
             for pad in [0, 1] {
                 for input_size in [3, 4, 5, 10, 20] {
                     let input = Tensor::rand(&[1, 3, input_size, input_size], &mut rng);
-                    let result = conv(
+                    check_conv(
                         input.view(),
                         kernel.view(),
                         None,
@@ -1185,18 +1089,7 @@ mod tests {
                         3, /* groups */
                         &strides,
                         &[1, 1], /* dilations */
-                    )
-                    .unwrap();
-                    let reference_result = reference_conv(
-                        &input,
-                        &kernel,
-                        None,
-                        [pad, pad, pad, pad],
-                        3, /* groups */
-                        strides,
-                        [1, 1], /* dilations */
-                    );
-                    expect_equal(&result, &reference_result)?;
+                    )?;
                 }
             }
         }
@@ -1257,7 +1150,7 @@ mod tests {
             for pad in [0, 1] {
                 for input_size in [7, 10, 20] {
                     let input = Tensor::rand(&[2, 3, input_size, input_size], &mut rng);
-                    let result = conv(
+                    check_conv(
                         input.view(),
                         kernel.view(),
                         None,
@@ -1265,18 +1158,7 @@ mod tests {
                         1, /* groups */
                         &[1, 1],
                         &dilations,
-                    )
-                    .unwrap();
-                    let reference_result = reference_conv(
-                        &input,
-                        &kernel,
-                        None,
-                        [pad, pad, pad, pad],
-                        1,      /* groups */
-                        [1, 1], /* strides */
-                        dilations,
-                    );
-                    expect_equal(&result, &reference_result)?;
+                    )?;
                 }
             }
         }
@@ -1294,7 +1176,7 @@ mod tests {
             for pad in [0, 1] {
                 for input_size in [7, 10, 20] {
                     let input = Tensor::rand(&[2, chans, input_size, input_size], &mut rng);
-                    let result = conv(
+                    check_conv(
                         input.view(),
                         kernel.view(),
                         None,
@@ -1302,18 +1184,7 @@ mod tests {
                         chans, /* groups */
                         &[1, 1],
                         &dilations,
-                    )
-                    .unwrap();
-                    let reference_result = reference_conv(
-                        &input,
-                        &kernel,
-                        None,
-                        [pad, pad, pad, pad],
-                        chans,  /* groups */
-                        [1, 1], /* strides */
-                        dilations,
-                    );
-                    expect_equal(&result, &reference_result)?;
+                    )?;
                 }
             }
         }
