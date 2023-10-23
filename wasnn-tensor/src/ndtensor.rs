@@ -129,6 +129,29 @@ pub struct NdTensorBase<T, S: AsRef<[T]>, const N: usize> {
     element_type: PhantomData<T>,
 }
 
+/// Return the offsets of `M` successive elements along the `dim` axis, starting
+/// at index `base`.
+///
+/// Panics if any of the M element indices are out of bounds.
+fn array_offsets<const N: usize, const M: usize>(
+    layout: &NdLayout<N>,
+    base: [usize; N],
+    dim: usize,
+) -> [usize; M] {
+    assert!(
+        base[dim] < usize::MAX - M && layout.size(dim) >= base[dim] + M,
+        "array indices invalid"
+    );
+
+    let offset = layout.offset(base);
+    let stride = layout.stride(dim);
+    let mut offsets = [0; M];
+    for i in 0..M {
+        offsets[i] = offset + i * stride;
+    }
+    offsets
+}
+
 impl<T, S: AsRef<[T]>, const N: usize> NdTensorBase<T, S, N> {
     /// Constructs a tensor from the associated storage type and optional
     /// strides.
@@ -204,6 +227,28 @@ impl<T, S: AsRef<[T]>, const N: usize> NdTensorBase<T, S, N> {
             layout: self.layout,
             element_type: PhantomData,
         }
+    }
+
+    /// Load an array of `M` elements from successive entries of a tensor along
+    /// the `dim` axis.
+    ///
+    /// eg. If `base` is `[0, 1, 2]`, dim=0 and `M` = 4 this will return an
+    /// array with values from indices `[0, 1, 2]`, `[1, 1, 2]` ... `[3, 1, 2]`.
+    ///
+    /// Panics if any of the array indices are out of bounds.
+    #[inline]
+    pub fn get_array<const M: usize>(&self, base: [usize; N], dim: usize) -> [T; M]
+    where
+        T: Copy + Default,
+    {
+        let offsets: [usize; M] = array_offsets(&self.layout, base, dim);
+        let data = self.data.as_ref();
+        let mut result = [T::default(); M];
+        for i in 0..M {
+            // Safety: `array_offsets` returns valid offsets
+            result[i] = unsafe { *data.get_unchecked(offsets[i]) };
+        }
+        result
     }
 }
 
@@ -455,6 +500,24 @@ impl<T, S: AsRef<[T]> + AsMut<[T]>, const N: usize> NdTensorBase<T, S, N> {
             *out = x.clone();
         }
     }
+
+    /// Store an array of `M` elements into successive entries of a tensor along
+    /// the `dim` axis.
+    ///
+    /// See [NdTensorBase::get_array] for more details.
+    #[inline]
+    pub fn set_array<const M: usize>(&mut self, base: [usize; N], dim: usize, values: [T; M])
+    where
+        T: Copy,
+    {
+        let offsets: [usize; M] = array_offsets(&self.layout, base, dim);
+        let data = self.data.as_mut();
+
+        for i in 0..M {
+            // Safety: `array_offsets` returns valid offsets.
+            unsafe { *data.get_unchecked_mut(offsets[i]) = values[i] };
+        }
+    }
 }
 
 impl<T: Clone + Default, const N: usize> NdTensorBase<T, Vec<T>, N> {
@@ -686,6 +749,16 @@ mod tests {
         tensor.iter().cloned().collect()
     }
 
+    /// Create a tensor where the value of each element is its logical index
+    /// plus one.
+    fn steps<const N: usize>(shape: [usize; N]) -> NdTensor<i32, N> {
+        let mut x = NdTensor::zeros(shape);
+        for (index, elt) in x.iter_mut().enumerate() {
+            *elt = (index + 1) as i32;
+        }
+        x
+    }
+
     #[test]
     fn test_ndtensor_apply() {
         let mut tensor = NdTensor::from_data(vec![1, 2, 3, 4], [2, 2], None).unwrap();
@@ -890,6 +963,47 @@ mod tests {
         assert_eq!(tensor.get([5, 9, 14]), None);
         assert_eq!(tensor.get([4, 10, 14]), None);
         assert_eq!(tensor.get([4, 9, 15]), None);
+    }
+
+    #[test]
+    fn test_ndtensor_get_array() {
+        let tensor = steps([4, 2, 2]);
+
+        // First dim, zero base.
+        let values: [i32; 4] = tensor.get_array([0, 0, 0], 0);
+        assert_eq!(values, [1, 5, 9, 13]);
+
+        // First dim, different base.
+        let values: [i32; 4] = tensor.get_array([0, 1, 1], 0);
+        assert_eq!(values, [4, 8, 12, 16]);
+
+        // Last dim, zero base.
+        let values: [i32; 2] = tensor.get_array([0, 0, 0], 2);
+        assert_eq!(values, [1, 2]);
+    }
+
+    #[test]
+    fn test_ndtensor_set_array() {
+        let mut tensor = steps([4, 2, 2]);
+        tensor.set_array([0, 0, 0], 0, [-1, -2, -3, -4]);
+        assert_eq!(
+            tensor.iter().copied().collect::<Vec<_>>(),
+            &[-1, 2, 3, 4, -2, 6, 7, 8, -3, 10, 11, 12, -4, 14, 15, 16]
+        );
+    }
+
+    #[test]
+    #[should_panic(expected = "array indices invalid")]
+    fn test_ndtensor_get_array_invalid_index() {
+        let tensor = steps([4, 2, 2]);
+        tensor.get_array::<5>([0, 0, 0], 0);
+    }
+
+    #[test]
+    #[should_panic(expected = "array indices invalid")]
+    fn test_ndtensor_get_array_invalid_index_2() {
+        let tensor = steps([4, 2, 2]);
+        tensor.get_array::<4>([1, 0, 0], 0);
     }
 
     #[test]
