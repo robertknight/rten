@@ -1,9 +1,8 @@
 use std::iter::zip;
 
 use rayon::prelude::*;
-use wasnn_tensor::{
-    Layout, Matrix, MatrixLayout, MatrixMut, NdTensor, NdTensorView, Tensor, TensorView,
-};
+use wasnn_tensor::prelude::*;
+use wasnn_tensor::{NdTensor, NdTensorView, NdTensorViewMut, Tensor, TensorView};
 
 use crate::ops::{Input, InputList, IntoOpResult, OpError, Operator, Output};
 use crate::{check_dims, static_dims};
@@ -54,15 +53,26 @@ pub enum CoordTransformMode {
     Asymmetric,
 }
 
+const CHAN_GROUP_SIZE: usize = 4;
+
+/// Interpolate between `a` and `b` according to `weight`.
+fn lerp(a: f32, b: f32, weight: f32) -> f32 {
+    (1. - weight) * a + weight * b
+}
+
+/// Resize a group of channels in a CHW tensor using nearest neighbor resizing.
 fn nearest_resize(
-    input: &Matrix,
-    output: &mut MatrixMut,
+    input: NdTensorView<f32, 3>,
+    mut output: NdTensorViewMut<f32, 3>,
     mode: NearestMode,
     coord_mode: CoordTransformMode,
 ) {
+    let [chans, rows, cols] = output.shape();
+    let [_, in_rows, in_cols] = input.shape();
+
     // Scale factors to map output coords to input coords.
-    let inv_scale_y = input.rows() as f32 / output.rows() as f32;
-    let inv_scale_x = input.cols() as f32 / output.cols() as f32;
+    let inv_scale_y = in_rows as f32 / rows as f32;
+    let inv_scale_x = in_cols as f32 / cols as f32;
 
     let round_coord = |coord: f32| match mode {
         NearestMode::Ceil => coord.ceil() as usize,
@@ -86,50 +96,78 @@ fn nearest_resize(
         }
     };
 
-    for y in 0..output.rows() {
-        let in_y = round_coord(
-            input_coord(y, inv_scale_y, coord_mode).clamp(0., input.rows() as f32 - 1.),
-        );
-        for x in 0..output.cols() {
-            let in_x = round_coord(
-                input_coord(x, inv_scale_x, coord_mode).clamp(0., input.cols() as f32 - 1.),
-            );
-            let out = input[[in_y, in_x]];
-            output[[y, x]] = out;
+    for y in 0..rows {
+        let in_y =
+            round_coord(input_coord(y, inv_scale_y, coord_mode).clamp(0., in_rows as f32 - 1.));
+        for x in 0..cols {
+            let in_x =
+                round_coord(input_coord(x, inv_scale_x, coord_mode).clamp(0., in_cols as f32 - 1.));
+
+            for c in 0..chans {
+                output[[c, y, x]] = input[[c, in_y, in_x]];
+            }
         }
     }
 }
 
-fn bilinear_resize(input: &Matrix, output: &mut MatrixMut, coord_mode: CoordTransformMode) {
-    // Scale factors to map output coords to input coords.
-    let inv_scale_y = input.rows() as f32 / output.rows() as f32;
-    let inv_scale_x = input.cols() as f32 / output.cols() as f32;
+/// Resize a group of channels in a CHW tensor using bilinear resizing.
+fn bilinear_resize(
+    input: NdTensorView<f32, 3>,
+    mut output: NdTensorViewMut<f32, 3>,
+    coord_mode: CoordTransformMode,
+) {
+    let [chans, rows, cols] = output.shape();
+    let [_, in_rows, in_cols] = input.shape();
 
-    for y in 0..output.rows() {
-        let in_y = input_coord(y, inv_scale_y, coord_mode).clamp(0., input.rows() as f32 - 1.);
+    // Scale factors to map output coords to input coords.
+    let inv_scale_y = in_rows as f32 / rows as f32;
+    let inv_scale_x = in_cols as f32 / cols as f32;
+
+    for y in 0..rows {
+        let in_y = input_coord(y, inv_scale_y, coord_mode).clamp(0., in_rows as f32 - 1.);
         let in_y1 = in_y as usize;
-        let in_y2 = (in_y1 + 1).min(input.rows() - 1);
+        let in_y2 = (in_y1 + 1).min(in_rows - 1);
         let weight_y = in_y - (in_y1 as f32);
 
-        for x in 0..output.cols() {
-            let in_x = input_coord(x, inv_scale_x, coord_mode).clamp(0., input.cols() as f32 - 1.);
+        for x in 0..cols {
+            let in_x = input_coord(x, inv_scale_x, coord_mode).clamp(0., in_cols as f32 - 1.);
             let in_x1 = in_x as usize;
-            let in_x2 = (in_x1 + 1).min(input.cols() - 1);
+            let in_x2 = (in_x1 + 1).min(in_cols - 1);
             let weight_x = in_x - (in_x1 as f32);
 
-            let in_tl = input[[in_y1, in_x1]];
-            let in_tr = input[[in_y1, in_x2]];
-            let in_bl = input[[in_y2, in_x1]];
-            let in_br = input[[in_y2, in_x2]];
+            const N: usize = CHAN_GROUP_SIZE;
+            if chans == N {
+                let in_tl = input.get_array::<N>([0, in_y1, in_x1], 0);
+                let in_tr = input.get_array::<N>([0, in_y1, in_x2], 0);
+                let in_bl = input.get_array::<N>([0, in_y2, in_x1], 0);
+                let in_br = input.get_array::<N>([0, in_y2, in_x2], 0);
 
-            // Interpolate in X direction
-            let out_top = (1. - weight_x) * in_tl + weight_x * in_tr;
-            let out_bottom = (1. - weight_x) * in_bl + weight_x * in_br;
+                let mut out = [0.; N];
+                for c in 0..chans {
+                    // Interpolate in X direction
+                    let out_top = lerp(in_tl[c], in_tr[c], weight_x);
+                    let out_bottom = lerp(in_bl[c], in_br[c], weight_x);
 
-            // Interpolate in Y direction
-            let out = (1. - weight_y) * out_top + weight_y * out_bottom;
+                    // Interpolate in Y direction
+                    out[c] = lerp(out_top, out_bottom, weight_y);
+                }
 
-            output[[y, x]] = out;
+                output.set_array([0, y, x], 0, out);
+            } else {
+                for c in 0..chans {
+                    let in_tl = input[[c, in_y1, in_x1]];
+                    let in_tr = input[[c, in_y1, in_x2]];
+                    let in_bl = input[[c, in_y2, in_x1]];
+                    let in_br = input[[c, in_y2, in_x2]];
+
+                    // Interpolate in X direction
+                    let out_top = lerp(in_tl, in_tr, weight_x);
+                    let out_bottom = lerp(in_bl, in_br, weight_x);
+
+                    // Interpolate in Y direction
+                    output[[c, y, x]] = lerp(out_top, out_bottom, weight_y);
+                }
+            }
         }
     }
 }
@@ -198,25 +236,21 @@ pub fn resize(
         let mut out_image = output.slice_mut([n]);
 
         out_image
-            .axis_iter_mut(0)
-            .zip(in_image.axis_iter(0))
+            .axis_chunks_mut(0, CHAN_GROUP_SIZE)
+            .zip(in_image.axis_chunks(0, CHAN_GROUP_SIZE))
             .par_bridge()
-            .for_each(|(mut out_chan, in_chan)| {
+            .for_each(|(mut out_chans, in_chans)| {
                 match mode {
                     ResizeMode::Nearest => {
                         nearest_resize(
-                            &in_chan.nd_view(),
-                            &mut out_chan.nd_view_mut(),
+                            in_chans.nd_view(),
+                            out_chans.nd_view_mut(),
                             nearest_mode,
                             coord_mode,
                         );
                     }
                     ResizeMode::Linear => {
-                        bilinear_resize(
-                            &in_chan.nd_view(),
-                            &mut out_chan.nd_view_mut(),
-                            coord_mode,
-                        );
+                        bilinear_resize(in_chans.nd_view(), out_chans.nd_view_mut(), coord_mode);
                     }
                 };
             });
