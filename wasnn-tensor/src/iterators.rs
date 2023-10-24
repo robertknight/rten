@@ -634,6 +634,7 @@ impl<'a, T> Iterator for AxisIterMut<'a, T> {
     }
 }
 
+/// Iterator over slices of a tensor along an axis. See [TensorView::axis_chunks].
 pub struct AxisChunks<'a, T> {
     view: TensorView<'a, T>,
     index: usize,

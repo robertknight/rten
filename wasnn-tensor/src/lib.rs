@@ -13,27 +13,26 @@
 //! [NdTensorBase] is the base type for tensors with a static dimension count.
 //! It is normally used via one of the type aliases [NdTensor], [NdTensorView]
 //! or [NdTensorViewMut]. [NdTensor] owns its elements, [NdTensorView] is an
-//! immutable view of an `&[T]` and [NdTensorViewMut] is a mutable view of an
-//! `&mut [T]`.
+//! immutable view and [NdTensorViewMut] is a mutable view.
 //!
-//! All static-rank tensor variants implement the [Layout] trait which allows
-//! querying the layout and the [NdView] trait which allows read-only operations
-//! on all variants. Read-only views ([NdTensorView]) provides specialized
-//! versions of [View] methods which preserves lifetimes of the underlying
-//! buffer.
+//! [NdTensorBase] implements the [Layout] and [NdView] traits. The [Layout]
+//! trait provides information about the shape, rank and strides of the tensor.
+//! The [NdView] trait provides methods for reading and slicing the tensor.
+//! Read-only views ([NdTensorView]) provide specialized versions of [NdView]
+//! methods which preserve lifetimes of the data.
 //!
 //! # Dynamic rank tensors
 //!
 //! [TensorBase] is the base type for tensors with a dynamic dimension count.
 //! It is normally used via one of the type aliases [Tensor], [TensorView] or
 //! [TensorViewMut]. [Tensor] owns its elements, [TensorView] is an immutable
-//! view of an `&[T]` and [TensorViewMut] is a mutable view of an `&mut [T]`.
+//! view and [TensorViewMut] is a mutable view.
 //!
-//! All dynamic-rank tensor variants implement the [Layout] trait which allows
-//! querying the layout and the [View] trait which allows read-only operations
-//! on all variants. Read-only views ([TensorView]) provides specialized
-//! versions of [View] methods which preserves lifetimes of the underlying
-//! buffer.
+//! [TensorBase] implements the [Layout] and [View] traits. The [Layout]
+//! trait provides information about the shape, rank and strides of the tensor.
+//! The [View] trait provides methods for reading and slicing the tensor.
+//! Read-only views ([TensorView]) provide specialized versions of [View]
+//! methods which preserve lifetimes of the data.
 
 mod errors;
 mod index_iterator;
