@@ -550,7 +550,7 @@ impl<T, S: AsRef<[T]>> View for TensorBase<T, S> {
     where
         T: Clone,
     {
-        Tensor::from_data(self.shape(), self.iter().cloned().collect::<Vec<_>>())
+        Tensor::from_data(self.shape(), self.to_vec())
     }
 
     fn to_vec(&self) -> Vec<T>
