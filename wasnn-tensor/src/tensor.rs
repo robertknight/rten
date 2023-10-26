@@ -783,11 +783,17 @@ impl<T> Tensor<T> {
     {
         let n_elts = shape.iter().product();
         let data = vec![T::default(); n_elts];
-        Tensor {
-            data,
-            layout: DynLayout::new(shape),
-            element_type: PhantomData,
-        }
+        Tensor::from_data(shape, data)
+    }
+
+    /// Create a new tensor with a given shape, with all elements set to `fill_value`.
+    pub fn full(shape: &[usize], fill_value: T) -> Tensor<T>
+    where
+        T: Clone,
+    {
+        let n_elts = shape.iter().product();
+        let data = vec![fill_value; n_elts];
+        Tensor::from_data(shape, data)
     }
 
     /// Create a new tensor filled with random numbers from a given source.
