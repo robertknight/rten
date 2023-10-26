@@ -74,6 +74,9 @@ pub use unary_elementwise::{
 };
 pub use variadic_elementwise::{max, mean, min, sum, Max, Mean, Min, Sum};
 
+mod operators;
+pub use operators::{FloatOperators, Operators};
+
 #[derive(Clone, Debug)]
 pub enum Padding {
     /// Apply enough padding such that the output and input have the same size.

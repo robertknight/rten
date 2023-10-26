@@ -13,7 +13,7 @@ pub mod ops;
 
 pub use graph::{Dimension, NodeId, RunOptions};
 pub use model::Model;
-pub use ops::{Input, Output};
+pub use ops::{FloatOperators, Input, Operators, Output};
 pub use timer::Timer;
 
 #[allow(dead_code, unused_imports)]
