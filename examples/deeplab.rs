@@ -2,8 +2,7 @@ use std::collections::{HashSet, VecDeque};
 use std::error::Error;
 use std::fs;
 
-use wasnn::ops::{arg_max, resize_image};
-use wasnn::{Dimension, Model};
+use wasnn::{Dimension, FloatOperators, Model, Operators};
 use wasnn_imageio::{normalize_image, read_image, write_image};
 use wasnn_tensor::prelude::*;
 use wasnn_tensor::{NdTensor, Tensor};
@@ -126,14 +125,16 @@ fn main() -> Result<(), Box<dyn Error>> {
         // example was created.
         _ => (520, 780),
     };
-    let image = resize_image(image.view(), [input_h, input_w])?;
+    let image = image.resize_image([input_h, input_w])?;
 
     // Run model to classify each pixel
     let mut output: Tensor = model.run_one((&image).into(), None)?.try_into()?;
     output.permute(&[0, 2, 3, 1]); // (N,class,H,W) => (N,H,W,class)
 
-    let seg_classes: NdTensor<i32, 2> =
-        arg_max(output.slice(0), -1, false /* keep_dims */)?.try_into()?;
+    let seg_classes: NdTensor<i32, 2> = output
+        .slice(0)
+        .arg_max(-1, false /* keep_dims */)?
+        .try_into()?;
     let [out_height, out_width] = seg_classes.shape();
 
     // Generate image with pixels colored according to class label.

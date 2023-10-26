@@ -2,8 +2,7 @@ use std::collections::VecDeque;
 use std::error::Error;
 use std::fs;
 
-use wasnn::ops::{resize_image, softmax, topk};
-use wasnn::{Dimension, Model, RunOptions};
+use wasnn::{Dimension, FloatOperators, Model, Operators, RunOptions};
 use wasnn_tensor::prelude::*;
 use wasnn_tensor::{NdTensor, Tensor};
 
@@ -213,7 +212,7 @@ fn main() -> Result<(), Box<dyn Error>> {
     };
 
     let img_tensor = if height != in_height as usize || width != in_width as usize {
-        resize_image(img_tensor.view(), [in_height, in_width])?
+        img_tensor.resize_image([in_height, in_width])?
     } else {
         img_tensor
     };
@@ -228,15 +227,9 @@ fn main() -> Result<(), Box<dyn Error>> {
         )?
         .try_into()?;
 
-    let probs = softmax(logits.as_dyn(), -1)?;
-
-    let (top_probs, top_classes) = topk(
-        probs.view(),
-        5,
-        None,
-        true, /* largest */
-        true, /* sorted */
-    )?;
+    let (top_probs, top_classes) = logits
+        .softmax(-1)?
+        .topk(5, None, true /* largest */, true /* sorted */)?;
 
     println!("Top classes:");
     for (&cls, &score) in top_classes.iter().zip(top_probs.iter()) {

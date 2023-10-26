@@ -2,8 +2,7 @@ use std::collections::VecDeque;
 use std::error::Error;
 use std::fs;
 
-use wasnn::ops::{arg_max, resize_image, softmax};
-use wasnn::{Model, NodeId, RunOptions};
+use wasnn::{FloatOperators, Model, NodeId, Operators, RunOptions};
 use wasnn_imageio::{normalize_image, read_image, write_image};
 use wasnn_imageproc::{Painter, Rect};
 use wasnn_tensor::prelude::*;
@@ -257,7 +256,7 @@ fn main() -> Result<(), Box<dyn Error>> {
     let (rescaled_width, rescaled_height) =
         rescaled_size((image_width, image_height), min_size, max_size);
     if rescaled_width != image_width || rescaled_height != image_height {
-        image = resize_image(image.view(), [rescaled_height, rescaled_width])?;
+        image = image.resize_image([rescaled_height, rescaled_width])?;
     }
 
     let pixel_input_id = get_node(&model, "pixel_values")?;
@@ -272,17 +271,13 @@ fn main() -> Result<(), Box<dyn Error>> {
             timing: false,
         }),
     )?;
-
     let logits: NdTensor<f32, 3> = logits.try_into()?;
     let boxes: NdTensor<f32, 3> = boxes.try_into()?;
 
-    let probs: NdTensor<f32, 3> = softmax(logits.as_dyn(), -1 /* axis */)?.try_into()?;
-    let classes: NdTensor<i32, 2> = arg_max(
-        logits.as_dyn(),
-        -1,    /* axis */
-        false, /* keep_dims */
-    )?
-    .try_into()?;
+    let probs: NdTensor<f32, 3> = logits.softmax(-1 /* axis */)?.try_into()?;
+    let classes: NdTensor<i32, 2> = logits
+        .arg_max(-1 /* axis */, false /* keep_dims */)?
+        .try_into()?;
 
     let [cls_batch, n_objects] = classes.shape();
     let [boxes_batch, n_boxes, n_coords] = boxes.shape();
