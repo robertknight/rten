@@ -6,7 +6,8 @@ use hound;
 
 use wasnn::ctc::CtcDecoder;
 use wasnn::Model;
-use wasnn_tensor::{NdTensor, NdView, Tensor};
+use wasnn_tensor::prelude::*;
+use wasnn_tensor::{NdTensor, Tensor};
 
 struct Args {
     model: String,

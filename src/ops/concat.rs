@@ -1,6 +1,7 @@
 use std::iter::zip;
 
-use wasnn_tensor::{Iter, Layout, NdTensorView, Tensor, TensorView};
+use wasnn_tensor::prelude::*;
+use wasnn_tensor::{Iter, NdTensorView, Tensor, TensorView};
 
 use crate::ops::{resolve_axis, Input, InputList, IntoOpResult, OpError, Operator, Output};
 use crate::static_dims;
@@ -177,8 +178,9 @@ impl Operator for Tile {
 
 #[cfg(test)]
 mod tests {
+    use wasnn_tensor::prelude::*;
     use wasnn_tensor::test_util::expect_equal;
-    use wasnn_tensor::{tensor, Layout, Tensor, View};
+    use wasnn_tensor::{tensor, Tensor};
 
     use crate::ops::{concat, tile, OpError};
 

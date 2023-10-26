@@ -1,7 +1,8 @@
 use std::collections::HashMap;
 use std::num::NonZeroU32;
 
-use wasnn_tensor::{Layout, NdTensor, NdTensorView, View};
+use wasnn_tensor::prelude::*;
+use wasnn_tensor::{NdTensor, NdTensorView};
 
 use crate::ops::arg_max;
 

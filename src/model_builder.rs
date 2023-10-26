@@ -1,7 +1,8 @@
 extern crate flatbuffers;
 
 use flatbuffers::{FlatBufferBuilder, UnionWIPOffset, Vector, WIPOffset};
-use wasnn_tensor::{Layout, Tensor, View};
+use wasnn_tensor::prelude::*;
+use wasnn_tensor::Tensor;
 
 use crate::graph::Dimension;
 use crate::ops::{

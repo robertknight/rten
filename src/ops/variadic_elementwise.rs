@@ -1,6 +1,7 @@
 use std::iter::zip;
 
-use wasnn_tensor::{Layout, Tensor, TensorView};
+use wasnn_tensor::prelude::*;
+use wasnn_tensor::{Tensor, TensorView};
 
 use crate::ops::binary_elementwise::broadcast_shapes;
 use crate::ops::reduce::{cmp_nan_greater, cmp_nan_less};

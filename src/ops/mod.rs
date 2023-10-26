@@ -4,7 +4,8 @@ use std::fmt::{Debug, Display};
 
 use smallvec::SmallVec;
 
-use wasnn_tensor::{DynLayout, Layout, NdTensor, NdTensorView, Tensor, TensorView, View};
+use wasnn_tensor::prelude::*;
+use wasnn_tensor::{DynLayout, NdTensor, NdTensorView, Tensor, TensorView};
 
 mod binary_elementwise;
 mod concat;

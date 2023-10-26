@@ -356,8 +356,9 @@ impl Operator for MaxPool {
 
 #[cfg(test)]
 mod tests {
+    use wasnn_tensor::prelude::*;
     use wasnn_tensor::test_util::expect_equal;
-    use wasnn_tensor::{Layout, Tensor};
+    use wasnn_tensor::Tensor;
 
     use super::calc_output_size_and_padding;
     use crate::ops::{average_pool, global_average_pool, max_pool, OpError, Padding};

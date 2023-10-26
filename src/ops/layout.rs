@@ -2,7 +2,8 @@
 //! elements.
 use std::iter::zip;
 
-use wasnn_tensor::{is_valid_permutation, tensor, Layout, NdTensorView, Tensor, View};
+use wasnn_tensor::prelude::*;
+use wasnn_tensor::{is_valid_permutation, tensor, NdTensorView, Tensor};
 
 use crate::ops::binary_elementwise::broadcast_shapes;
 use crate::ops::{
@@ -440,9 +441,10 @@ impl Operator for Unsqueeze {
 
 #[cfg(test)]
 mod tests {
+    use wasnn_tensor::prelude::*;
     use wasnn_tensor::rng::XorShiftRng;
     use wasnn_tensor::test_util::expect_equal;
-    use wasnn_tensor::{ndtensor, tensor, Layout, Tensor, View};
+    use wasnn_tensor::{ndtensor, tensor, Tensor};
 
     use crate::ops::layout::{
         expand, flatten, reshape, reshape_in_place, squeeze, squeeze_in_place, transpose,
