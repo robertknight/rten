@@ -761,6 +761,23 @@ impl<T> Tensor<T> {
         tensor
     }
 
+    /// Create a new 1D tensor filled with an arithmetic sequence of values
+    /// in the range `[start, end)` separated by `step`. If `step` is omitted,
+    /// it defaults to 1.
+    pub fn arange(start: T, end: T, step: Option<T>) -> Tensor<T>
+    where
+        T: Copy + PartialOrd + From<bool> + std::ops::Add<Output = T>,
+    {
+        let step = step.unwrap_or((true).into());
+        let mut data = Vec::new();
+        let mut curr = start;
+        while curr < end {
+            data.push(curr);
+            curr = curr + step;
+        }
+        Tensor::from_vec(data)
+    }
+
     /// Create a new 0-dimensional (scalar) tensor from a single value.
     pub fn from_scalar(value: T) -> Tensor<T> {
         Self::from_data(&[], vec![value])
@@ -845,6 +862,15 @@ impl<T> Tensor<T> {
         // avoided. See https://pytorch.org/docs/stable/generated/torch.Tensor.view.html.
         self.make_contiguous();
         self.layout = DynLayout::new(shape);
+    }
+
+    /// Like [Tensor::reshape] but consumes self.
+    pub fn into_reshaped(mut self, new_shape: &[usize]) -> Tensor<T>
+    where
+        T: Clone,
+    {
+        self.reshape(new_shape);
+        self
     }
 }
 
@@ -935,11 +961,8 @@ mod tests {
     /// Create a tensor where the value of each element is its logical index
     /// plus one.
     fn steps(shape: &[usize]) -> Tensor<i32> {
-        let mut x = Tensor::zeros(shape);
-        for (index, elt) in x.data_mut().iter_mut().enumerate() {
-            *elt = (index + 1) as i32;
-        }
-        x
+        let steps: usize = shape.iter().product();
+        Tensor::arange(1, steps as i32 + 1, None).into_reshaped(shape)
     }
 
     #[test]
@@ -948,6 +971,21 @@ mod tests {
         x.apply(|el| el * el);
         let expected = Tensor::from_data(&[3, 3], vec![1, 4, 9, 16, 25, 36, 49, 64, 81]);
         assert_eq!(x, expected);
+    }
+
+    #[test]
+    fn test_arange() {
+        let x = Tensor::arange(1, 5, None);
+        assert_eq!(x.to_vec(), [1, 2, 3, 4]);
+
+        let x = Tensor::arange(1, 10, Some(2));
+        assert_eq!(x.to_vec(), [1, 3, 5, 7, 9]);
+
+        let x = Tensor::arange(1., 5., None);
+        assert_eq!(x.to_vec(), [1., 2., 3., 4.]);
+
+        let x = Tensor::arange(1., 5., Some(0.5));
+        assert_eq!(x.to_vec(), [1., 1.5, 2., 2.5, 3., 3.5, 4., 4.5]);
     }
 
     #[test]
