@@ -523,6 +523,13 @@ fn read_transpose_op(node: &OperatorNode) -> ReadOpResult {
     Ok(Box::new(ops::Transpose { perm }))
 }
 
+fn read_trilu_op(node: &OperatorNode) -> ReadOpResult {
+    let attrs = node.attrs_as_trilu_attrs().ok_or(ReadOpError::AttrError)?;
+    Ok(Box::new(ops::Trilu {
+        upper: attrs.upper(),
+    }))
+}
+
 /// Create a `Box<dyn Operator>` for an operator that has no attributes.
 macro_rules! op {
     ($op_name:ident) => {
@@ -617,6 +624,7 @@ fn read_operator(node: &OperatorNode) -> ReadOpResult {
         OperatorType::Tile => op!(Tile),
         OperatorType::TopK => read_topk_op(node),
         OperatorType::Transpose => read_transpose_op(node),
+        OperatorType::Trilu => read_trilu_op(node),
         OperatorType::Unsqueeze => op!(Unsqueeze),
         OperatorType::Where => op!(Where),
         OperatorType::Xor => op!(Xor),
@@ -1178,6 +1186,8 @@ mod tests {
         );
 
         add_operator!(Transpose, [input_node], { perm: None });
+
+        add_operator!(Trilu, [input_node], { upper: true });
 
         let unsqueeze_axes = builder.add_int_constant(&tensor!([0, 4]));
         add_operator!(Unsqueeze, [input_node, unsqueeze_axes]);

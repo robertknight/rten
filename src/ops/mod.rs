@@ -24,6 +24,7 @@ mod resize;
 mod rnn;
 mod slice;
 mod split;
+mod trilu;
 mod unary_elementwise;
 mod variadic_elementwise;
 
@@ -63,6 +64,7 @@ pub use resize::{
 pub use rnn::{gru, lstm, Direction, GRU, LSTM};
 pub use slice::{slice, slice_in_place, Slice};
 pub use split::{split, Split};
+pub use trilu::{trilu, Trilu};
 pub use unary_elementwise::{
     abs, abs_in_place, acos, acos_in_place, asin, asin_in_place, atan, atan_in_place, ceil,
     ceil_in_place, clip, clip_in_place, cos, cos_in_place, erf, erf_in_place, exp, exp_in_place,

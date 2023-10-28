@@ -95,6 +95,7 @@ class OperatorType(object):
     And = 85
     Or = 86
     Xor = 87
+    Trilu = 88
 
 
 class RNNDirection(object):
@@ -158,6 +159,7 @@ class OperatorAttrs(object):
     OneHotAttrs = 24
     TopKAttrs = 25
     HardSigmoidAttrs = 26
+    TriluAttrs = 27
 
 def OperatorAttrsCreator(unionType, table):
     from flatbuffers.table import Table
@@ -215,6 +217,8 @@ def OperatorAttrsCreator(unionType, table):
         return TopKAttrsT.InitFromBuf(table.Bytes, table.Pos)
     if unionType == OperatorAttrs().HardSigmoidAttrs:
         return HardSigmoidAttrsT.InitFromBuf(table.Bytes, table.Pos)
+    if unionType == OperatorAttrs().TriluAttrs:
+        return TriluAttrsT.InitFromBuf(table.Bytes, table.Pos)
     return None
 
 
@@ -3248,6 +3252,83 @@ class TransposeAttrsT(object):
         return transposeAttrs
 
 
+class TriluAttrs(object):
+    __slots__ = ['_tab']
+
+    @classmethod
+    def GetRootAs(cls, buf, offset=0):
+        n = flatbuffers.encode.Get(flatbuffers.packer.uoffset, buf, offset)
+        x = TriluAttrs()
+        x.Init(buf, n + offset)
+        return x
+
+    @classmethod
+    def GetRootAsTriluAttrs(cls, buf, offset=0):
+        """This method is deprecated. Please switch to GetRootAs."""
+        return cls.GetRootAs(buf, offset)
+    @classmethod
+    def TriluAttrsBufferHasIdentifier(cls, buf, offset, size_prefixed=False):
+        return flatbuffers.util.BufferHasIdentifier(buf, offset, b"\x4D\x4F\x44\x4C", size_prefixed=size_prefixed)
+
+    # TriluAttrs
+    def Init(self, buf, pos):
+        self._tab = flatbuffers.table.Table(buf, pos)
+
+    # TriluAttrs
+    def Upper(self):
+        o = flatbuffers.number_types.UOffsetTFlags.py_type(self._tab.Offset(4))
+        if o != 0:
+            return bool(self._tab.Get(flatbuffers.number_types.BoolFlags, o + self._tab.Pos))
+        return False
+
+def TriluAttrsStart(builder):
+    builder.StartObject(1)
+
+def TriluAttrsAddUpper(builder, upper):
+    builder.PrependBoolSlot(0, upper, 0)
+
+def TriluAttrsEnd(builder):
+    return builder.EndObject()
+
+
+
+class TriluAttrsT(object):
+
+    # TriluAttrsT
+    def __init__(self):
+        self.upper = False  # type: bool
+
+    @classmethod
+    def InitFromBuf(cls, buf, pos):
+        triluAttrs = TriluAttrs()
+        triluAttrs.Init(buf, pos)
+        return cls.InitFromObj(triluAttrs)
+
+    @classmethod
+    def InitFromPackedBuf(cls, buf, pos=0):
+        n = flatbuffers.encode.Get(flatbuffers.packer.uoffset, buf, pos)
+        return cls.InitFromBuf(buf, pos+n)
+
+    @classmethod
+    def InitFromObj(cls, triluAttrs):
+        x = TriluAttrsT()
+        x._UnPack(triluAttrs)
+        return x
+
+    # TriluAttrsT
+    def _UnPack(self, triluAttrs):
+        if triluAttrs is None:
+            return
+        self.upper = triluAttrs.Upper()
+
+    # TriluAttrsT
+    def Pack(self, builder):
+        TriluAttrsStart(builder)
+        TriluAttrsAddUpper(builder, self.upper)
+        triluAttrs = TriluAttrsEnd(builder)
+        return triluAttrs
+
+
 class OperatorNode(object):
     __slots__ = ['_tab']
 
@@ -3387,7 +3468,7 @@ class OperatorNodeT(object):
     def __init__(self):
         self.type = 0  # type: int
         self.attrsType = 0  # type: int
-        self.attrs = None  # type: Union[None, ArgMaxAttrsT, AveragePoolAttrsT, BatchNormalizationAttrsT, CastAttrsT, ConcatAttrsT, ConstantOfShapeAttrsT, ConvAttrsT, ConvTransposeAttrsT, FlattenAttrsT, GatherAttrsT, GemmAttrsT, GRUAttrsT, LeakyReluAttrsT, LSTMAttrsT, MaxPoolAttrsT, ReduceMeanAttrsT, ReshapeAttrsT, ResizeAttrsT, SplitAttrsT, SoftmaxAttrsT, TransposeAttrsT, ModAttrsT, ScatterElementsAttrsT, OneHotAttrsT, TopKAttrsT, HardSigmoidAttrsT]
+        self.attrs = None  # type: Union[None, ArgMaxAttrsT, AveragePoolAttrsT, BatchNormalizationAttrsT, CastAttrsT, ConcatAttrsT, ConstantOfShapeAttrsT, ConvAttrsT, ConvTransposeAttrsT, FlattenAttrsT, GatherAttrsT, GemmAttrsT, GRUAttrsT, LeakyReluAttrsT, LSTMAttrsT, MaxPoolAttrsT, ReduceMeanAttrsT, ReshapeAttrsT, ResizeAttrsT, SplitAttrsT, SoftmaxAttrsT, TransposeAttrsT, ModAttrsT, ScatterElementsAttrsT, OneHotAttrsT, TopKAttrsT, HardSigmoidAttrsT, TriluAttrsT]
         self.inputs = None  # type: List[int]
         self.outputs = None  # type: List[int]
 

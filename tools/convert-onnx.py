@@ -767,6 +767,10 @@ def op_node_from_onnx_operator(
             attrs = sg.TransposeAttrsT()
             attrs.perm = op_reader.get_attr("perm", "ints", [])
 
+        case "Trilu":
+            attrs = sg.TriluAttrsT()
+            attrs.upper = bool(op_reader.get_attr("upper", "int", 1))
+
         case "Unsqueeze":
             op_reader.generate_input_from_attr(1, "axes", "ints")
 

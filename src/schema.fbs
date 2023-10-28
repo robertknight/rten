@@ -97,7 +97,8 @@ enum OperatorType: byte {
   HardSwish,
   And,
   Or,
-  Xor
+  Xor,
+  Trilu
 }
 
 enum RNNDirection: byte {
@@ -166,6 +167,7 @@ union OperatorAttrs {
   OneHotAttrs,
   TopKAttrs,
   HardSigmoidAttrs,
+  TriluAttrs,
 }
 
 table ArgMaxAttrs {
@@ -324,6 +326,10 @@ table TopKAttrs {
 
 table TransposeAttrs {
   perm:[uint];
+}
+
+table TriluAttrs {
+  upper:bool;
 }
 
 // Node in the dataflow graph
