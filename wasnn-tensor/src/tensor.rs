@@ -963,6 +963,48 @@ impl RandomSource<f32> for XorShiftRng {
     }
 }
 
+// Trait for scalar (ie. non-array) values.
+//
+// This is used as a bound in contexts where we don't want a generic type
+// `T` to be inferred as an array type.
+pub trait Scalar {}
+
+impl Scalar for i32 {}
+impl Scalar for f32 {}
+
+// The `T: Scalar` bound avoids ambiguity when choosing a `Tensor::from`
+// impl for a nested array literal, as it prevents `T` from matching an array
+// type.
+
+impl<const N: usize, T: Clone + Scalar> From<[T; N]> for Tensor<T> {
+    /// Construct a 1D tensor from a 1D array.
+    fn from(value: [T; N]) -> Tensor<T> {
+        Tensor::from_vec(value.iter().cloned().collect())
+    }
+}
+
+impl<const N: usize, const M: usize, T: Clone + Scalar> From<[[T; N]; M]> for Tensor<T> {
+    /// Construct a 2D tensor from a nested array.
+    fn from(value: [[T; N]; M]) -> Tensor<T> {
+        let data: Vec<_> = value.iter().flat_map(|y| y.iter()).cloned().collect();
+        Tensor::from_data(&[M, N], data)
+    }
+}
+
+impl<const N: usize, const M: usize, const K: usize, T: Clone + Scalar> From<[[[T; K]; N]; M]>
+    for Tensor<T>
+{
+    /// Construct a 3D tensor from a nested array.
+    fn from(value: [[[T; K]; N]; M]) -> Tensor<T> {
+        let data: Vec<_> = value
+            .iter()
+            .flat_map(|y| y.iter().flat_map(|z| z.iter()))
+            .cloned()
+            .collect();
+        Tensor::from_data(&[M, N, K], data)
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use std::ops::IndexMut;
@@ -1132,6 +1174,19 @@ mod tests {
         y.copy_from(&x.view());
 
         assert_eq!(y, x);
+    }
+
+    #[test]
+    fn test_from_arrays() {
+        // 2D
+        let x = Tensor::from([[2, 3], [4, 5], [6, 7]]);
+        assert_eq!(x.shape(), &[3, 2]);
+        assert_eq!(x.data(), &[2, 3, 4, 5, 6, 7]);
+
+        // 3D
+        let x = Tensor::from([[[2, 3], [4, 5], [6, 7]]]);
+        assert_eq!(x.shape(), &[1, 3, 2]);
+        assert_eq!(x.data(), &[2, 3, 4, 5, 6, 7]);
     }
 
     #[test]
