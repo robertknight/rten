@@ -1,3 +1,23 @@
+/// Trait for int -> bool conversions.
+///
+/// The conversion matches how these conversions work in most popular languages
+/// where zero is treated as false and other values coerce to true.
+pub trait AsBool {
+    fn as_bool(&self) -> bool;
+}
+
+impl AsBool for bool {
+    fn as_bool(&self) -> bool {
+        *self
+    }
+}
+
+impl AsBool for i32 {
+    fn as_bool(&self) -> bool {
+        *self != 0
+    }
+}
+
 /// Trait indicating whether type is an integer or float.
 pub trait IsInt {
     fn is_int() -> bool;

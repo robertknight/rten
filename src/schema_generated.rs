@@ -18,13 +18,13 @@ pub const ENUM_MIN_OPERATOR_TYPE: i8 = 0;
     since = "2.0.0",
     note = "Use associated constants instead. This will no longer be generated in 2021."
 )]
-pub const ENUM_MAX_OPERATOR_TYPE: i8 = 84;
+pub const ENUM_MAX_OPERATOR_TYPE: i8 = 87;
 #[deprecated(
     since = "2.0.0",
     note = "Use associated constants instead. This will no longer be generated in 2021."
 )]
 #[allow(non_camel_case_types)]
-pub const ENUM_VALUES_OPERATOR_TYPE: [OperatorType; 85] = [
+pub const ENUM_VALUES_OPERATOR_TYPE: [OperatorType; 88] = [
     OperatorType::Add,
     OperatorType::ArgMin,
     OperatorType::ArgMax,
@@ -110,6 +110,9 @@ pub const ENUM_VALUES_OPERATOR_TYPE: [OperatorType; 85] = [
     OperatorType::InstanceNormalization,
     OperatorType::HardSigmoid,
     OperatorType::HardSwish,
+    OperatorType::And,
+    OperatorType::Or,
+    OperatorType::Xor,
 ];
 
 #[derive(Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash, Default)]
@@ -202,9 +205,12 @@ impl OperatorType {
     pub const InstanceNormalization: Self = Self(82);
     pub const HardSigmoid: Self = Self(83);
     pub const HardSwish: Self = Self(84);
+    pub const And: Self = Self(85);
+    pub const Or: Self = Self(86);
+    pub const Xor: Self = Self(87);
 
     pub const ENUM_MIN: i8 = 0;
-    pub const ENUM_MAX: i8 = 84;
+    pub const ENUM_MAX: i8 = 87;
     pub const ENUM_VALUES: &'static [Self] = &[
         Self::Add,
         Self::ArgMin,
@@ -291,6 +297,9 @@ impl OperatorType {
         Self::InstanceNormalization,
         Self::HardSigmoid,
         Self::HardSwish,
+        Self::And,
+        Self::Or,
+        Self::Xor,
     ];
     /// Returns the variant's name or "" if unknown.
     pub fn variant_name(self) -> Option<&'static str> {
@@ -380,6 +389,9 @@ impl OperatorType {
             Self::InstanceNormalization => Some("InstanceNormalization"),
             Self::HardSigmoid => Some("HardSigmoid"),
             Self::HardSwish => Some("HardSwish"),
+            Self::And => Some("And"),
+            Self::Or => Some("Or"),
+            Self::Xor => Some("Xor"),
             _ => None,
         }
     }

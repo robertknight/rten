@@ -94,7 +94,10 @@ enum OperatorType: byte {
   Atan,
   InstanceNormalization,
   HardSigmoid,
-  HardSwish
+  HardSwish,
+  And,
+  Or,
+  Xor
 }
 
 enum RNNDirection: byte {

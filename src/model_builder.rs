@@ -19,6 +19,7 @@ pub enum OpType {
     Abs,
     Acos,
     Add,
+    And,
     ArgMax(ArgMax),
     ArgMin(ArgMin),
     Asin,
@@ -65,6 +66,7 @@ pub enum OpType {
     NonZero,
     Not,
     OneHot(OneHot),
+    Or,
     Pad,
     Pow,
     Range,
@@ -97,6 +99,7 @@ pub enum OpType {
     Transpose(Transpose),
     Unsqueeze,
     Where,
+    Xor,
 }
 
 /// Builds a serialized FlatBuffers representation of a model using the schema
@@ -309,6 +312,7 @@ impl<'a> ModelBuilder<'a> {
             OpType::Abs => op!(Abs),
             OpType::Acos => op!(Acos),
             OpType::Add => op!(Add),
+            OpType::And => op!(And),
             OpType::ArgMax(args) => op_with_attrs!(ArgMax, ArgMaxAttrs, {
                 sg::ArgMaxAttrsArgs {
                     axis: args.axis as i32,
@@ -494,6 +498,7 @@ impl<'a> ModelBuilder<'a> {
             OpType::Neg => op!(Neg),
             OpType::NonZero => op!(NonZero),
             OpType::Not => op!(Not),
+            OpType::Or => op!(Or),
             OpType::OneHot(args) => {
                 op_with_attrs!(
                     OneHot,
@@ -602,6 +607,7 @@ impl<'a> ModelBuilder<'a> {
             }),
             OpType::Unsqueeze => op!(Unsqueeze),
             OpType::Where => op!(Where),
+            OpType::Xor => op!(Xor),
         };
 
         let input_ids: Vec<i32> = inputs

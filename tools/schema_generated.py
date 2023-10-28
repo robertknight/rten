@@ -92,6 +92,9 @@ class OperatorType(object):
     InstanceNormalization = 82
     HardSigmoid = 83
     HardSwish = 84
+    And = 85
+    Or = 86
+    Xor = 87
 
 
 class RNNDirection(object):

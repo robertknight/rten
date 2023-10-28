@@ -4,7 +4,7 @@ use std::iter::{repeat, zip};
 use wasnn_tensor::prelude::*;
 use wasnn_tensor::{Tensor, TensorView};
 
-use crate::number::{Identities, IsInt};
+use crate::number::{AsBool, Identities, IsInt};
 use crate::ops::{Input, InputList, IntoOpResult, OpError, Operator, Output};
 
 /// Given the shapes of two inputs to a binary operation, return the shape
@@ -223,6 +223,40 @@ impl Operator for Add {
         run_typed_op_in_place!(input, other, add_in_place, add)
     }
 }
+
+/// Define a logical boolean operator.
+///
+/// These accept two i32 tensors and produce an i32 result.
+macro_rules! logical_boolean_op {
+    ($op:ident, $op_fn:ident, $expr:expr) => {
+        pub fn $op_fn<T: AsBool + Copy + Debug>(
+            a: TensorView<T>,
+            b: TensorView<T>,
+        ) -> Result<Tensor<i32>, OpError> {
+            #[allow(clippy::redundant_closure_call)]
+            binary_op(a, b, |x, y| $expr(x.as_bool(), y.as_bool()).into())
+        }
+
+        #[derive(Debug)]
+        pub struct $op {}
+
+        impl Operator for $op {
+            fn name(&self) -> &str {
+                stringify!($op)
+            }
+
+            fn run(&self, inputs: InputList) -> Result<Vec<Output>, OpError> {
+                let a: &Tensor<i32> = inputs.require_as(0)?;
+                let b: &Tensor<i32> = inputs.require_as(1)?;
+                $op_fn(a.view(), b.view()).into_op_result()
+            }
+        }
+    };
+}
+
+logical_boolean_op!(And, and, |x, y| x && y);
+logical_boolean_op!(Or, or, |x, y| x || y);
+logical_boolean_op!(Xor, xor, |x, y| x ^ y);
 
 /// Perform elementwise division of two tensors.
 pub fn div<
@@ -590,9 +624,9 @@ mod tests {
     use wasnn_tensor::{tensor, Tensor};
 
     use crate::ops::{
-        add, add_in_place, div, div_in_place, equal, greater, greater_or_equal, less,
-        less_or_equal, mod_op, mul, mul_in_place, pow, pow_in_place, sub, sub_in_place, where_op,
-        Add, DivMode, OpError, Operator, Output,
+        add, add_in_place, and, div, div_in_place, equal, greater, greater_or_equal, less,
+        less_or_equal, mod_op, mul, mul_in_place, or, pow, pow_in_place, sub, sub_in_place,
+        where_op, xor, Add, DivMode, OpError, Operator, Output,
     };
 
     #[test]
@@ -728,6 +762,15 @@ mod tests {
             result.err(),
             Some(OpError::IncompatibleInputShapes("Cannot broadcast inputs"))
         );
+    }
+
+    #[test]
+    fn test_and() {
+        let a = tensor!([0, 1, 0, 1]);
+        let b = tensor!([0, 0, 1, 1]);
+        let expected = tensor!([0, 0, 0, 1]);
+        let result = and(a.view(), b.view()).unwrap();
+        assert_eq!(&result, &expected);
     }
 
     #[test]
@@ -947,6 +990,15 @@ mod tests {
     }
 
     #[test]
+    fn test_or() {
+        let a = tensor!([0, 1, 0, 1]);
+        let b = tensor!([0, 0, 1, 1]);
+        let expected = tensor!([0, 1, 1, 1]);
+        let result = or(a.view(), b.view()).unwrap();
+        assert_eq!(&result, &expected);
+    }
+
+    #[test]
     fn test_pow() -> Result<(), String> {
         struct Case {
             a: Tensor<f32>,
@@ -1081,5 +1133,14 @@ mod tests {
             result.err(),
             Some(OpError::IncompatibleInputShapes("Cannot broadcast inputs"))
         );
+    }
+
+    #[test]
+    fn test_xor() {
+        let a = tensor!([0, 1, 0, 1]);
+        let b = tensor!([0, 0, 1, 1]);
+        let expected = tensor!([0, 1, 1, 0]);
+        let result = xor(a.view(), b.view()).unwrap();
+        assert_eq!(&result, &expected);
     }
 }

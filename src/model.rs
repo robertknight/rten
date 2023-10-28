@@ -535,6 +535,7 @@ fn read_operator(node: &OperatorNode) -> ReadOpResult {
         OperatorType::Abs => op!(Abs),
         OperatorType::Acos => op!(Acos),
         OperatorType::Add => op!(Add),
+        OperatorType::And => op!(And),
         OperatorType::ArgMax => read_arg_max_op(node),
         OperatorType::ArgMin => read_arg_min_op(node),
         OperatorType::Asin => op!(Asin),
@@ -584,6 +585,7 @@ fn read_operator(node: &OperatorNode) -> ReadOpResult {
         OperatorType::NonZero => op!(NonZero),
         OperatorType::Not => op!(Not),
         OperatorType::OneHot => read_onehot_op(node),
+        OperatorType::Or => op!(Or),
         OperatorType::Pad => op!(Pad),
         OperatorType::Pow => op!(Pow),
         OperatorType::Range => op!(Range),
@@ -617,6 +619,7 @@ fn read_operator(node: &OperatorNode) -> ReadOpResult {
         OperatorType::Transpose => read_transpose_op(node),
         OperatorType::Unsqueeze => op!(Unsqueeze),
         OperatorType::Where => op!(Where),
+        OperatorType::Xor => op!(Xor),
         _ => Err(ReadOpError::UnsupportedOperator),
     }
 }
@@ -943,6 +946,7 @@ mod tests {
         add_operator!(Abs, [input_node]);
         add_operator!(Acos, [input_node]);
         add_operator!(Add, [input_node, input_node]);
+        add_operator!(And, [input_bool, input_bool]);
         add_operator!(ArgMax, [input_node], { axis: 3, keep_dims: false });
         add_operator!(ArgMin, [input_node], { axis: 3, keep_dims: false });
         add_operator!(Asin, [input_node]);
@@ -1064,6 +1068,8 @@ mod tests {
             axis: -1,
         });
 
+        add_operator!(Or, [input_bool, input_bool]);
+
         let pads = builder.add_int_constant(&Tensor::from_data(&[8], vec![0, 0, 1, 1, 0, 0, 1, 1]));
         add_operator!(Pad, [input_node, pads]);
         add_operator!(Pow, [input_node, input_node]);
@@ -1180,6 +1186,8 @@ mod tests {
         let where_x = builder.add_value("where_x", None);
         let where_y = builder.add_value("where_y", None);
         let where_out = add_operator!(Where, [where_cond, where_x, where_y]);
+
+        add_operator!(Xor, [input_bool, input_bool]);
 
         let buffer = builder.finish();
 
