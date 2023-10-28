@@ -33,6 +33,14 @@ macro_rules! tensor {
         }
     };
 
+    // As above, but with trailing comma.
+    (($($dim:expr),+); [$($elem:expr),*,]) => {
+        {
+            use $crate::Tensor;
+            Tensor::from_data(&[$($dim),+], vec![$($elem),*])
+        }
+    };
+
     ($elem:expr) => {
         {
             use $crate::Tensor;
@@ -79,6 +87,15 @@ macro_rules! ndtensor {
         }
     };
 
+    // As above, but with trailing comma.
+    (($($dim:expr),+); [$($elem:expr),*,]) => {
+        {
+            use $crate::NdTensor;
+            let data = vec![$($elem),*];
+            NdTensor::from_data(data, [$($dim),+], None)
+        }
+    };
+
     ($elem:expr) => {
         {
             use $crate::NdTensor;
@@ -107,6 +124,10 @@ mod tests {
     fn test_tensor_nd() {
         let x = tensor!((1, 2, 2); [1, 2, 3, 4]);
         assert_eq!(x, Tensor::from_data(&[1, 2, 2], vec![1, 2, 3, 4]));
+
+        // As above, but with trailing comma in data
+        let x = tensor!((1, 2, 2); [1, 2, 3, 4,]);
+        assert_eq!(x, Tensor::from_data(&[1, 2, 2], vec![1, 2, 3, 4]));
     }
 
     #[test]
@@ -124,6 +145,11 @@ mod tests {
     #[test]
     fn test_ndtensor_nd() {
         let x = ndtensor!((1, 2, 2); [1, 2, 3, 4]);
+        assert!(x.is_ok());
+        assert_eq!(x, NdTensor::from_data(vec![1, 2, 3, 4], [1, 2, 2], None));
+
+        // As above, but with trailing comma in data
+        let x = ndtensor!((1, 2, 2); [1, 2, 3, 4,]);
         assert!(x.is_ok());
         assert_eq!(x, NdTensor::from_data(vec![1, 2, 3, 4], [1, 2, 2], None));
     }
