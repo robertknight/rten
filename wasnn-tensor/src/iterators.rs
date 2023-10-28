@@ -2,9 +2,11 @@ use std::iter::{repeat, zip, Cycle, StepBy, Take};
 use std::ops::{Add, Range};
 use std::slice;
 
+use smallvec::SmallVec;
+
 use super::layout::DynLayout;
 use super::range::{SliceItem, SliceRange};
-use crate::{Layout, TensorView, TensorViewMut};
+use crate::{DynIndices, Layout, NdTensorView, NdTensorViewMut, TensorView, TensorViewMut};
 
 /// IterPos tracks the position within a single dimension of an IndexingIter.
 #[derive(Debug)]
@@ -878,6 +880,71 @@ impl<'a, T> Iterator for LanesMut<'a, T> {
 
             LaneMut {
                 inner: slice.iter_mut().step_by(self.ranges.dim_stride),
+            }
+        })
+    }
+}
+
+/// Iterator over views of the N innermost dimensions of a tensor.
+pub struct InnerIter<'a, T, const N: usize> {
+    outer_indices: DynIndices,
+    view: TensorView<'a, T>,
+}
+
+impl<'a, T, const N: usize> InnerIter<'a, T, N> {
+    pub fn new(view: TensorView<'a, T>) -> Self {
+        assert!(view.ndim() >= N);
+        let outer_dims = view.ndim() - N;
+        InnerIter {
+            outer_indices: DynIndices::from_shape(&view.shape()[..outer_dims]),
+            view,
+        }
+    }
+}
+
+impl<'a, T, const N: usize> Iterator for InnerIter<'a, T, N> {
+    type Item = NdTensorView<'a, T, N>;
+
+    fn next(&mut self) -> Option<Self::Item> {
+        self.outer_indices.next().map(|idx| {
+            let slice_items: SmallVec<[SliceItem; 5]> =
+                idx.into_iter().map(SliceItem::Index).collect();
+            self.view.slice_dyn(&slice_items).try_into().unwrap()
+        })
+    }
+}
+
+/// Iterator over mutable views of the N innermost dimensions of a tensor.
+pub struct InnerIterMut<'a, T, const N: usize> {
+    outer_indices: DynIndices,
+    view: TensorViewMut<'a, T>,
+}
+
+impl<'a, T, const N: usize> InnerIterMut<'a, T, N> {
+    pub fn new(view: TensorViewMut<'a, T>) -> Self {
+        assert!(view.ndim() >= N);
+        let outer_dims = view.ndim() - N;
+        InnerIterMut {
+            outer_indices: DynIndices::from_shape(&view.shape()[..outer_dims]),
+            view,
+        }
+    }
+}
+
+impl<'a, T, const N: usize> Iterator for InnerIterMut<'a, T, N> {
+    type Item = NdTensorViewMut<'a, T, N>;
+
+    fn next(&mut self) -> Option<Self::Item> {
+        self.outer_indices.next().map(|idx| {
+            let slice_items: SmallVec<[SliceItem; 5]> =
+                idx.into_iter().map(SliceItem::Index).collect();
+            let view: NdTensorViewMut<'_, T, N> =
+                self.view.slice_mut_dyn(&slice_items).try_into().unwrap();
+
+            unsafe {
+                // Safety: Outer view is non-broadcasting, and we increment the
+                // outer index each time, so returned views will not overlap.
+                std::mem::transmute::<NdTensorViewMut<'_, T, N>, NdTensorViewMut<'a, T, N>>(view)
             }
         })
     }

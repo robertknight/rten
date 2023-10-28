@@ -7,8 +7,8 @@ use std::marker::PhantomData;
 use std::ops::{Index, IndexMut, Range};
 
 use crate::iterators::{
-    AxisChunks, AxisChunksMut, AxisIter, AxisIterMut, BroadcastIter, Iter, IterMut, Lanes,
-    LanesMut, Offsets,
+    AxisChunks, AxisChunksMut, AxisIter, AxisIterMut, BroadcastIter, InnerIter, InnerIterMut, Iter,
+    IterMut, Lanes, LanesMut, Offsets,
 };
 use crate::layout::{DynLayout, Layout};
 use crate::ndtensor::{NdTensorBase, NdTensorView, NdTensorViewMut};
@@ -79,6 +79,12 @@ pub trait View: Layout {
     /// in the same order as yielded by [View::iter]. In other cases the
     /// buffer may have unused indexes or a different ordering.
     fn data(&self) -> &[Self::Elem];
+
+    /// Return an iterator over views of the innermost N dimensions of this
+    /// tensor.
+    fn inner_iter<const N: usize>(&self) -> InnerIter<Self::Elem, N> {
+        self.view().inner_iter()
+    }
 
     /// Returns the single item if this tensor is a 0-dimensional tensor
     /// (ie. a scalar)
@@ -378,6 +384,10 @@ impl<'a, T> TensorView<'a, T> {
         self.data
     }
 
+    pub fn inner_iter<const N: usize>(&self) -> InnerIter<'a, T, N> {
+        InnerIter::new(self.clone())
+    }
+
     pub fn iter(&self) -> Iter<'a, T> {
         Iter::new(self)
     }
@@ -611,6 +621,12 @@ impl<T, S: AsRef<[T]> + AsMut<[T]>> TensorBase<T, S> {
 
     pub fn axis_chunks_mut(&mut self, dim: usize, chunk_size: usize) -> AxisChunksMut<T> {
         AxisChunksMut::new(self.view_mut(), dim, chunk_size)
+    }
+
+    /// Return an iterator over views of the innermost N dimensions of this
+    /// tensor.
+    pub fn inner_iter_mut<const N: usize>(&mut self) -> InnerIterMut<T, N> {
+        InnerIterMut::new(self.view_mut())
     }
 
     /// Return a mutable iterator over all 1D slices of this tensor along a
@@ -1889,6 +1905,38 @@ mod tests {
         assert!(x.can_broadcast_with(&[2, 5, 10]));
         assert!(x.can_broadcast_with(&[1, 5, 10]));
         assert!(x.can_broadcast_with(&[1, 1, 10]));
+    }
+
+    #[test]
+    fn test_inner_iter() {
+        let x = steps(&[2, 2, 2]);
+        let mut iter = x.inner_iter::<2>();
+
+        let mat = iter.next().unwrap();
+        assert_eq!(mat.shape(), [2, 2]);
+        assert_eq!(mat.iter().copied().collect::<Vec<_>>(), [1, 2, 3, 4]);
+
+        let mat = iter.next().unwrap();
+        assert_eq!(mat.shape(), [2, 2]);
+        assert_eq!(mat.iter().copied().collect::<Vec<_>>(), [5, 6, 7, 8]);
+
+        assert_eq!(iter.next(), None);
+    }
+
+    #[test]
+    fn test_inner_iter_mut() {
+        let mut x = steps(&[2, 2, 2]);
+        let mut iter = x.inner_iter_mut::<2>();
+
+        let mat = iter.next().unwrap();
+        assert_eq!(mat.shape(), [2, 2]);
+        assert_eq!(mat.iter().copied().collect::<Vec<_>>(), [1, 2, 3, 4]);
+
+        let mat = iter.next().unwrap();
+        assert_eq!(mat.shape(), [2, 2]);
+        assert_eq!(mat.iter().copied().collect::<Vec<_>>(), [5, 6, 7, 8]);
+
+        assert_eq!(iter.next(), None);
     }
 
     // Common slice tests for all slicing functions.
