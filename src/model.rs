@@ -464,12 +464,8 @@ fn read_resize_op(node: &OperatorNode) -> ReadOpResult {
     }))
 }
 
-fn read_scatter_elements_op(node: &OperatorNode) -> ReadOpResult {
-    let attrs = node
-        .attrs_as_scatter_elements_attrs()
-        .ok_or(ReadOpError::AttrError)?;
-
-    let reduction = match attrs.reduction() {
+fn convert_reduction(r: sg::ScatterReduction) -> Result<Option<ScatterReduction>, ReadOpError> {
+    let reduction = match r {
         sg::ScatterReduction::None => None,
         sg::ScatterReduction::Add => Some(ScatterReduction::Add),
         sg::ScatterReduction::Mul => Some(ScatterReduction::Mul),
@@ -479,10 +475,27 @@ fn read_scatter_elements_op(node: &OperatorNode) -> ReadOpResult {
             return Err(ReadOpError::AttrError);
         }
     };
+    Ok(reduction)
+}
+
+fn read_scatter_elements_op(node: &OperatorNode) -> ReadOpResult {
+    let attrs = node
+        .attrs_as_scatter_elements_attrs()
+        .ok_or(ReadOpError::AttrError)?;
 
     Ok(Box::new(ops::ScatterElements {
         axis: attrs.axis() as isize,
-        reduction,
+        reduction: convert_reduction(attrs.reduction())?,
+    }))
+}
+
+fn read_scatter_nd_op(node: &OperatorNode) -> ReadOpResult {
+    let attrs = node
+        .attrs_as_scatter_ndattrs()
+        .ok_or(ReadOpError::AttrError)?;
+
+    Ok(Box::new(ops::ScatterND {
+        reduction: convert_reduction(attrs.reduction())?,
     }))
 }
 
@@ -608,6 +621,7 @@ fn read_operator(node: &OperatorNode) -> ReadOpResult {
         OperatorType::Resize => read_resize_op(node),
         OperatorType::Round => op!(Round),
         OperatorType::ScatterElements => read_scatter_elements_op(node),
+        OperatorType::ScatterND => read_scatter_nd_op(node),
         OperatorType::Shape => op!(Shape),
         OperatorType::Sigmoid => op!(Sigmoid),
         OperatorType::Sin => op!(Sin),

@@ -740,6 +740,12 @@ def op_node_from_onnx_operator(
                 "reduction", sg.ScatterReduction, "none"
             )
 
+        case "ScatterND":
+            attrs = sg.ScatterNDAttrsT()
+            attrs.reduction = op_reader.get_enum_attr(
+                "reduction", sg.ScatterReduction, "none"
+            )
+
         case "Shape":
             op_reader.check_attr("end", "int", 0)
             op_reader.check_attr("start", "int", 0)

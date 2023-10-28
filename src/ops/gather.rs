@@ -2,7 +2,7 @@ use std::iter::zip;
 
 use smallvec::SmallVec;
 use wasnn_tensor::prelude::*;
-use wasnn_tensor::{SliceItem, Tensor, TensorView};
+use wasnn_tensor::{DynIndices, SliceItem, Tensor, TensorView};
 
 use crate::ops::reduce::{cmp_nan_greater, cmp_nan_less};
 use crate::ops::{
@@ -106,6 +106,29 @@ pub enum ScatterReduction {
     Max,
 }
 
+fn scatter_reduce<T: Copy + PartialOrd + std::ops::Add<Output = T> + std::ops::Mul<Output = T>>(
+    current: T,
+    update: T,
+    reduction: Option<ScatterReduction>,
+) -> T {
+    match reduction {
+        Some(ScatterReduction::Add) => current + update,
+        Some(ScatterReduction::Mul) => current * update,
+
+        // nb. In the operations below, we prefer to keep the current value
+        // unless the update is definitely less or NaN.
+        Some(ScatterReduction::Min) => match cmp_nan_less(update, current) {
+            std::cmp::Ordering::Less => update,
+            _ => current,
+        },
+        Some(ScatterReduction::Max) => match cmp_nan_greater(update, current) {
+            std::cmp::Ordering::Greater => update,
+            _ => current,
+        },
+        None => update,
+    }
+}
+
 pub fn scatter_elements<
     T: Copy + Default + PartialOrd + std::ops::Add<Output = T> + std::ops::Mul<Output = T>,
 >(
@@ -127,23 +150,6 @@ pub fn scatter_elements<
     }
     let axis = resolve_axis(data.ndim(), axis)?;
 
-    let reduce = |current, update| match reduction {
-        Some(ScatterReduction::Add) => current + update,
-        Some(ScatterReduction::Mul) => current * update,
-
-        // nb. In the operations below, we prefer to keep the current value
-        // unless the update is definitely less or NaN.
-        Some(ScatterReduction::Min) => match cmp_nan_less(update, current) {
-            std::cmp::Ordering::Less => update,
-            _ => current,
-        },
-        Some(ScatterReduction::Max) => match cmp_nan_greater(update, current) {
-            std::cmp::Ordering::Greater => update,
-            _ => current,
-        },
-        None => update,
-    };
-
     let mut output = data.to_tensor();
     for (index, update) in zip(updates.indices(), updates.iter()) {
         let target_index: SmallVec<[usize; 5]> = index
@@ -162,7 +168,7 @@ pub fn scatter_elements<
         }
 
         let out_el = &mut output[target_index];
-        *out_el = reduce(*out_el, *update);
+        *out_el = scatter_reduce(*out_el, *update, reduction);
     }
     Ok(output)
 }
@@ -205,6 +211,88 @@ impl Operator for ScatterElements {
     }
 }
 
+type IndexArray = SmallVec<[SliceItem; 5]>;
+
+fn to_slice_items(index: &[usize]) -> IndexArray {
+    index
+        .iter()
+        .map(|x| SliceItem::Index(*x as isize))
+        .collect()
+}
+
+pub fn scatter_nd<
+    T: Copy + Default + PartialOrd + std::ops::Add<Output = T> + std::ops::Mul<Output = T>,
+>(
+    data: TensorView<T>,
+    indices: TensorView<i32>,
+    updates: TensorView<T>,
+    reduction: Option<ScatterReduction>,
+) -> Result<Tensor<T>, OpError> {
+    if data.ndim() == 0 || indices.ndim() == 0 {
+        return Err(OpError::InvalidValue(
+            "`data` and `indices` must have rank >= 1",
+        ));
+    }
+
+    let expected_update_dim = data.ndim() + indices.ndim() - indices.size(indices.ndim() - 1) - 1;
+    if updates.ndim() != expected_update_dim {
+        return Err(OpError::InvalidValue(
+            "`updates` does not have expected rank",
+        ));
+    }
+
+    let update_indices = &indices.shape()[..indices.ndim() - 1];
+
+    let mut output = data.to_tensor();
+    for index in DynIndices::from_shape(update_indices) {
+        let update_idx = to_slice_items(&index);
+        let update_slice = updates.slice_dyn(&update_idx);
+
+        // TODO - Since the indices here come from user input, this should
+        // return an error rather than panicking if the indices are invalid.
+        let output_idx: IndexArray = indices
+            .slice_dyn(&update_idx)
+            .iter()
+            .map(|x| SliceItem::Index(*x as isize))
+            .collect();
+        let mut out_slice = output.slice_mut_dyn(&output_idx);
+
+        for (out_el, update) in out_slice.iter_mut().zip(update_slice.iter()) {
+            *out_el = scatter_reduce(*out_el, *update, reduction);
+        }
+    }
+    Ok(output)
+}
+
+#[derive(Debug)]
+pub struct ScatterND {
+    pub reduction: Option<ScatterReduction>,
+}
+
+impl Operator for ScatterND {
+    fn name(&self) -> &str {
+        "ScatterND"
+    }
+
+    fn run(&self, inputs: InputList) -> Result<Vec<Output>, OpError> {
+        let data = inputs.require(0)?;
+        let indices = inputs.require_as::<i32>(1)?;
+        let updates = inputs.require(2)?;
+
+        match (data, updates) {
+            (Input::IntTensor(data), Input::IntTensor(updates)) => {
+                scatter_nd(data.view(), indices.view(), updates.view(), self.reduction)
+                    .into_op_result()
+            }
+            (Input::FloatTensor(data), Input::FloatTensor(updates)) => {
+                scatter_nd(data.view(), indices.view(), updates.view(), self.reduction)
+                    .into_op_result()
+            }
+            _ => Err(OpError::IncorrectInputType),
+        }
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use wasnn_tensor::prelude::*;
@@ -212,7 +300,7 @@ mod tests {
     use wasnn_tensor::test_util::expect_equal;
     use wasnn_tensor::{tensor, Tensor};
 
-    use crate::ops::{gather, scatter_elements, OpError, ScatterReduction};
+    use crate::ops::{gather, scatter_elements, scatter_nd, OpError, ScatterReduction};
 
     #[test]
     fn test_gather_scalar_index() {
@@ -346,5 +434,135 @@ mod tests {
 
         let result = scatter(Some(ScatterReduction::Max));
         assert_eq!(result, tensor!([1, 2, 3, 4]));
+    }
+
+    #[test]
+    fn test_scatter_nd() {
+        // Example 1 from ONNX spec.
+        let data = tensor!([1, 2, 3, 4, 5, 6, 7, 8]);
+        let indices = tensor!((4, 1); [4, 3, 1, 7]);
+        let updates = tensor!([9, 10, 11, 12]);
+        let expected = tensor!([1, 11, 3, 10, 9, 6, 7, 12]);
+
+        let result = scatter_nd(data.view(), indices.view(), updates.view(), None).unwrap();
+        assert_eq!(result, expected);
+
+        // Example 2 from ONNX spec.
+        let data = Tensor::from([
+            [[1, 2, 3, 4], [5, 6, 7, 8], [8, 7, 6, 5], [4, 3, 2, 1]],
+            [[1, 2, 3, 4], [5, 6, 7, 8], [8, 7, 6, 5], [4, 3, 2, 1]],
+            [[8, 7, 6, 5], [4, 3, 2, 1], [1, 2, 3, 4], [5, 6, 7, 8]],
+            [[8, 7, 6, 5], [4, 3, 2, 1], [1, 2, 3, 4], [5, 6, 7, 8]],
+        ]);
+        let indices = tensor!((2, 1); [0, 2]);
+        let updates = Tensor::from([
+            [[5, 5, 5, 5], [6, 6, 6, 6], [7, 7, 7, 7], [8, 8, 8, 8]],
+            [[1, 1, 1, 1], [2, 2, 2, 2], [3, 3, 3, 3], [4, 4, 4, 4]],
+        ]);
+        let expected = Tensor::from([
+            [[5, 5, 5, 5], [6, 6, 6, 6], [7, 7, 7, 7], [8, 8, 8, 8]],
+            [[1, 2, 3, 4], [5, 6, 7, 8], [8, 7, 6, 5], [4, 3, 2, 1]],
+            [[1, 1, 1, 1], [2, 2, 2, 2], [3, 3, 3, 3], [4, 4, 4, 4]],
+            [[8, 7, 6, 5], [4, 3, 2, 1], [1, 2, 3, 4], [5, 6, 7, 8]],
+        ]);
+        let result = scatter_nd(data.view(), indices.view(), updates.view(), None).unwrap();
+        assert_eq!(result, expected);
+    }
+
+    #[test]
+    fn test_scatter_nd_reduce() {
+        struct Case {
+            data: Tensor<f32>,
+            indices: Tensor<i32>,
+            updates: Tensor<f32>,
+            expected: Tensor<f32>,
+            reduction: ScatterReduction,
+        }
+
+        let cases = [
+            Case {
+                data: Tensor::arange(1., 5., None),
+                indices: tensor!((4, 1); [0, 1, 2, 3]),
+                updates: tensor!([1., 2., 3., 4.]),
+                expected: tensor!([2., 4., 6., 8.]),
+                reduction: ScatterReduction::Add,
+            },
+            Case {
+                data: Tensor::arange(1., 5., None),
+                indices: tensor!((4, 1); [0, 1, 2, 3]),
+                updates: tensor!([1., 2., 3., 4.]),
+                expected: tensor!([1., 4., 9., 16.]),
+                reduction: ScatterReduction::Mul,
+            },
+            Case {
+                data: Tensor::arange(1., 5., None),
+                indices: tensor!((4, 1); [0, 1, 2, 3]),
+                updates: tensor!([1., -2., 3., -4.]),
+                expected: tensor!([1., -2., 3., -4.]),
+                reduction: ScatterReduction::Min,
+            },
+            Case {
+                data: Tensor::arange(1., 5., None),
+                indices: tensor!((4, 1); [0, 1, 2, 3]),
+                updates: tensor!([1., -2., 3., -4.]),
+                expected: tensor!([1., 2., 3., 4.]),
+                reduction: ScatterReduction::Max,
+            },
+        ];
+
+        for Case {
+            data,
+            indices,
+            updates,
+            expected,
+            reduction,
+        } in cases
+        {
+            let result =
+                scatter_nd(data.view(), indices.view(), updates.view(), Some(reduction)).unwrap();
+            assert_eq!(result, expected);
+        }
+    }
+
+    #[test]
+    fn test_scatter_nd_invalid() {
+        struct Case {
+            data: Tensor<f32>,
+            indices: Tensor<i32>,
+            updates: Tensor<f32>,
+            expected: OpError,
+        }
+
+        let cases = [
+            Case {
+                data: tensor!(5.),
+                indices: tensor!([0]),
+                updates: tensor!([0.]),
+                expected: OpError::InvalidValue("`data` and `indices` must have rank >= 1"),
+            },
+            Case {
+                data: tensor!([0.]),
+                indices: tensor!(0),
+                updates: tensor!([0.]),
+                expected: OpError::InvalidValue("`data` and `indices` must have rank >= 1"),
+            },
+            Case {
+                data: Tensor::arange(1., 5., None),
+                indices: tensor!((4, 1); [0, 1, 2, 3]),
+                updates: Tensor::from([[1., 2., 3., 4.]]),
+                expected: OpError::InvalidValue("`updates` does not have expected rank"),
+            },
+        ];
+
+        for Case {
+            data,
+            indices,
+            updates,
+            expected,
+        } in cases
+        {
+            let result = scatter_nd(data.view(), indices.view(), updates.view(), None);
+            assert_eq!(result, Err(expected));
+        }
     }
 }

@@ -18,13 +18,13 @@ pub const ENUM_MIN_OPERATOR_TYPE: i8 = 0;
     since = "2.0.0",
     note = "Use associated constants instead. This will no longer be generated in 2021."
 )]
-pub const ENUM_MAX_OPERATOR_TYPE: i8 = 88;
+pub const ENUM_MAX_OPERATOR_TYPE: i8 = 89;
 #[deprecated(
     since = "2.0.0",
     note = "Use associated constants instead. This will no longer be generated in 2021."
 )]
 #[allow(non_camel_case_types)]
-pub const ENUM_VALUES_OPERATOR_TYPE: [OperatorType; 89] = [
+pub const ENUM_VALUES_OPERATOR_TYPE: [OperatorType; 90] = [
     OperatorType::Add,
     OperatorType::ArgMin,
     OperatorType::ArgMax,
@@ -114,6 +114,7 @@ pub const ENUM_VALUES_OPERATOR_TYPE: [OperatorType; 89] = [
     OperatorType::Or,
     OperatorType::Xor,
     OperatorType::Trilu,
+    OperatorType::ScatterND,
 ];
 
 #[derive(Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash, Default)]
@@ -210,9 +211,10 @@ impl OperatorType {
     pub const Or: Self = Self(86);
     pub const Xor: Self = Self(87);
     pub const Trilu: Self = Self(88);
+    pub const ScatterND: Self = Self(89);
 
     pub const ENUM_MIN: i8 = 0;
-    pub const ENUM_MAX: i8 = 88;
+    pub const ENUM_MAX: i8 = 89;
     pub const ENUM_VALUES: &'static [Self] = &[
         Self::Add,
         Self::ArgMin,
@@ -303,6 +305,7 @@ impl OperatorType {
         Self::Or,
         Self::Xor,
         Self::Trilu,
+        Self::ScatterND,
     ];
     /// Returns the variant's name or "" if unknown.
     pub fn variant_name(self) -> Option<&'static str> {
@@ -396,6 +399,7 @@ impl OperatorType {
             Self::Or => Some("Or"),
             Self::Xor => Some("Xor"),
             Self::Trilu => Some("Trilu"),
+            Self::ScatterND => Some("ScatterND"),
             _ => None,
         }
     }
@@ -1018,13 +1022,13 @@ pub const ENUM_MIN_OPERATOR_ATTRS: u8 = 0;
     since = "2.0.0",
     note = "Use associated constants instead. This will no longer be generated in 2021."
 )]
-pub const ENUM_MAX_OPERATOR_ATTRS: u8 = 27;
+pub const ENUM_MAX_OPERATOR_ATTRS: u8 = 28;
 #[deprecated(
     since = "2.0.0",
     note = "Use associated constants instead. This will no longer be generated in 2021."
 )]
 #[allow(non_camel_case_types)]
-pub const ENUM_VALUES_OPERATOR_ATTRS: [OperatorAttrs; 28] = [
+pub const ENUM_VALUES_OPERATOR_ATTRS: [OperatorAttrs; 29] = [
     OperatorAttrs::NONE,
     OperatorAttrs::ArgMaxAttrs,
     OperatorAttrs::AveragePoolAttrs,
@@ -1053,6 +1057,7 @@ pub const ENUM_VALUES_OPERATOR_ATTRS: [OperatorAttrs; 28] = [
     OperatorAttrs::TopKAttrs,
     OperatorAttrs::HardSigmoidAttrs,
     OperatorAttrs::TriluAttrs,
+    OperatorAttrs::ScatterNDAttrs,
 ];
 
 #[derive(Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash, Default)]
@@ -1088,9 +1093,10 @@ impl OperatorAttrs {
     pub const TopKAttrs: Self = Self(25);
     pub const HardSigmoidAttrs: Self = Self(26);
     pub const TriluAttrs: Self = Self(27);
+    pub const ScatterNDAttrs: Self = Self(28);
 
     pub const ENUM_MIN: u8 = 0;
-    pub const ENUM_MAX: u8 = 27;
+    pub const ENUM_MAX: u8 = 28;
     pub const ENUM_VALUES: &'static [Self] = &[
         Self::NONE,
         Self::ArgMaxAttrs,
@@ -1120,6 +1126,7 @@ impl OperatorAttrs {
         Self::TopKAttrs,
         Self::HardSigmoidAttrs,
         Self::TriluAttrs,
+        Self::ScatterNDAttrs,
     ];
     /// Returns the variant's name or "" if unknown.
     pub fn variant_name(self) -> Option<&'static str> {
@@ -1152,6 +1159,7 @@ impl OperatorAttrs {
             Self::TopKAttrs => Some("TopKAttrs"),
             Self::HardSigmoidAttrs => Some("HardSigmoidAttrs"),
             Self::TriluAttrs => Some("TriluAttrs"),
+            Self::ScatterNDAttrs => Some("ScatterNDAttrs"),
             _ => None,
         }
     }
@@ -4769,6 +4777,113 @@ impl core::fmt::Debug for ScatterElementsAttrs<'_> {
         ds.finish()
     }
 }
+pub enum ScatterNDAttrsOffset {}
+#[derive(Copy, Clone, PartialEq)]
+
+pub struct ScatterNDAttrs<'a> {
+    pub _tab: flatbuffers::Table<'a>,
+}
+
+impl<'a> flatbuffers::Follow<'a> for ScatterNDAttrs<'a> {
+    type Inner = ScatterNDAttrs<'a>;
+    #[inline]
+    unsafe fn follow(buf: &'a [u8], loc: usize) -> Self::Inner {
+        Self {
+            _tab: flatbuffers::Table::new(buf, loc),
+        }
+    }
+}
+
+impl<'a> ScatterNDAttrs<'a> {
+    pub const VT_REDUCTION: flatbuffers::VOffsetT = 4;
+
+    #[inline]
+    pub unsafe fn init_from_table(table: flatbuffers::Table<'a>) -> Self {
+        ScatterNDAttrs { _tab: table }
+    }
+    #[allow(unused_mut)]
+    pub fn create<'bldr: 'args, 'args: 'mut_bldr, 'mut_bldr>(
+        _fbb: &'mut_bldr mut flatbuffers::FlatBufferBuilder<'bldr>,
+        args: &'args ScatterNDAttrsArgs,
+    ) -> flatbuffers::WIPOffset<ScatterNDAttrs<'bldr>> {
+        let mut builder = ScatterNDAttrsBuilder::new(_fbb);
+        builder.add_reduction(args.reduction);
+        builder.finish()
+    }
+
+    #[inline]
+    pub fn reduction(&self) -> ScatterReduction {
+        // Safety:
+        // Created from valid Table for this object
+        // which contains a valid value in this slot
+        unsafe {
+            self._tab
+                .get::<ScatterReduction>(ScatterNDAttrs::VT_REDUCTION, Some(ScatterReduction::None))
+                .unwrap()
+        }
+    }
+}
+
+impl flatbuffers::Verifiable for ScatterNDAttrs<'_> {
+    #[inline]
+    fn run_verifier(
+        v: &mut flatbuffers::Verifier,
+        pos: usize,
+    ) -> Result<(), flatbuffers::InvalidFlatbuffer> {
+        use self::flatbuffers::Verifiable;
+        v.visit_table(pos)?
+            .visit_field::<ScatterReduction>("reduction", Self::VT_REDUCTION, false)?
+            .finish();
+        Ok(())
+    }
+}
+pub struct ScatterNDAttrsArgs {
+    pub reduction: ScatterReduction,
+}
+impl<'a> Default for ScatterNDAttrsArgs {
+    #[inline]
+    fn default() -> Self {
+        ScatterNDAttrsArgs {
+            reduction: ScatterReduction::None,
+        }
+    }
+}
+
+pub struct ScatterNDAttrsBuilder<'a: 'b, 'b> {
+    fbb_: &'b mut flatbuffers::FlatBufferBuilder<'a>,
+    start_: flatbuffers::WIPOffset<flatbuffers::TableUnfinishedWIPOffset>,
+}
+impl<'a: 'b, 'b> ScatterNDAttrsBuilder<'a, 'b> {
+    #[inline]
+    pub fn add_reduction(&mut self, reduction: ScatterReduction) {
+        self.fbb_.push_slot::<ScatterReduction>(
+            ScatterNDAttrs::VT_REDUCTION,
+            reduction,
+            ScatterReduction::None,
+        );
+    }
+    #[inline]
+    pub fn new(_fbb: &'b mut flatbuffers::FlatBufferBuilder<'a>) -> ScatterNDAttrsBuilder<'a, 'b> {
+        let start = _fbb.start_table();
+        ScatterNDAttrsBuilder {
+            fbb_: _fbb,
+            start_: start,
+        }
+    }
+    #[inline]
+    pub fn finish(self) -> flatbuffers::WIPOffset<ScatterNDAttrs<'a>> {
+        let o = self.fbb_.end_table(self.start_);
+        flatbuffers::WIPOffset::new(o.value())
+    }
+}
+
+impl core::fmt::Debug for ScatterNDAttrs<'_> {
+    fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
+        let mut ds = f.debug_struct("ScatterNDAttrs");
+        ds.field("reduction", &self.reduction());
+        ds.finish()
+    }
+}
 pub enum SoftmaxAttrsOffset {}
 #[derive(Copy, Clone, PartialEq)]
 
@@ -5835,6 +5950,21 @@ impl<'a> OperatorNode<'a> {
             None
         }
     }
+
+    #[inline]
+    #[allow(non_snake_case)]
+    pub fn attrs_as_scatter_ndattrs(&self) -> Option<ScatterNDAttrs<'a>> {
+        if self.attrs_type() == OperatorAttrs::ScatterNDAttrs {
+            self.attrs().map(|t| {
+                // Safety:
+                // Created from a valid Table for this object
+                // Which contains a valid union in this slot
+                unsafe { ScatterNDAttrs::init_from_table(t) }
+            })
+        } else {
+            None
+        }
+    }
 }
 
 impl flatbuffers::Verifiable for OperatorNode<'_> {
@@ -5875,6 +6005,7 @@ impl flatbuffers::Verifiable for OperatorNode<'_> {
           OperatorAttrs::TopKAttrs => v.verify_union_variant::<flatbuffers::ForwardsUOffset<TopKAttrs>>("OperatorAttrs::TopKAttrs", pos),
           OperatorAttrs::HardSigmoidAttrs => v.verify_union_variant::<flatbuffers::ForwardsUOffset<HardSigmoidAttrs>>("OperatorAttrs::HardSigmoidAttrs", pos),
           OperatorAttrs::TriluAttrs => v.verify_union_variant::<flatbuffers::ForwardsUOffset<TriluAttrs>>("OperatorAttrs::TriluAttrs", pos),
+          OperatorAttrs::ScatterNDAttrs => v.verify_union_variant::<flatbuffers::ForwardsUOffset<ScatterNDAttrs>>("OperatorAttrs::ScatterNDAttrs", pos),
           _ => Ok(()),
         }
      })?
@@ -6220,6 +6351,16 @@ impl core::fmt::Debug for OperatorNode<'_> {
             }
             OperatorAttrs::TriluAttrs => {
                 if let Some(x) = self.attrs_as_trilu_attrs() {
+                    ds.field("attrs", &x)
+                } else {
+                    ds.field(
+                        "attrs",
+                        &"InvalidFlatbuffer: Union discriminant does not match value.",
+                    )
+                }
+            }
+            OperatorAttrs::ScatterNDAttrs => {
+                if let Some(x) = self.attrs_as_scatter_ndattrs() {
                     ds.field("attrs", &x)
                 } else {
                     ds.field(

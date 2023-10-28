@@ -98,7 +98,8 @@ enum OperatorType: byte {
   And,
   Or,
   Xor,
-  Trilu
+  Trilu,
+  ScatterND
 }
 
 enum RNNDirection: byte {
@@ -168,6 +169,7 @@ union OperatorAttrs {
   TopKAttrs,
   HardSigmoidAttrs,
   TriluAttrs,
+  ScatterNDAttrs,
 }
 
 table ArgMaxAttrs {
@@ -307,6 +309,10 @@ enum ScatterReduction: byte {
 
 table ScatterElementsAttrs {
   axis:int;
+  reduction:ScatterReduction;
+}
+
+table ScatterNDAttrs {
   reduction:ScatterReduction;
 }
 
