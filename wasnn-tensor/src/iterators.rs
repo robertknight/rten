@@ -60,6 +60,22 @@ struct IndexingIterBase {
     pos: Vec<IterPos>,
 }
 
+/// Append a new position to `dims`.
+///
+/// This will attempt to combine adjacent dimensions if both can be traversed
+/// with a constant stride. This allows for more efficient iteration.
+fn append_dim(mut dims: Vec<IterPos>, next_dim: IterPos) -> Vec<IterPos> {
+    if let Some(prev_dim) = dims.last_mut() {
+        if prev_dim.offset_step == next_dim.offset_step {
+            prev_dim.steps *= next_dim.steps;
+            prev_dim.steps_remaining = prev_dim.steps - 1;
+            return dims;
+        }
+    }
+    dims.push(next_dim);
+    dims
+}
+
 impl IndexingIterBase {
     /// Create an iterator over element offsets in `tensor`.
     fn new(layout: &DynLayout) -> IndexingIterBase {
@@ -68,7 +84,7 @@ impl IndexingIterBase {
             .iter()
             .enumerate()
             .map(|(dim, &len)| IterPos::new(len, layout.stride(dim) as isize))
-            .collect();
+            .fold(Vec::<IterPos>::new(), append_dim);
 
         IndexingIterBase {
             len: layout.len(),
@@ -98,7 +114,7 @@ impl IndexingIterBase {
 
                 IterPos::new(broadcast_len, offset_step)
             })
-            .collect();
+            .fold(Vec::<IterPos>::new(), append_dim);
 
         IndexingIterBase {
             len: shape.iter().product(),
@@ -568,6 +584,7 @@ impl<'a, T> BroadcastIter<'a, T> {
 impl<'a, T> Iterator for BroadcastIter<'a, T> {
     type Item = &'a T;
 
+    #[inline]
     fn next(&mut self) -> Option<Self::Item> {
         match self.iter {
             BroadcastIterKind::Direct(ref mut iter) => iter.next(),
@@ -575,6 +592,7 @@ impl<'a, T> Iterator for BroadcastIter<'a, T> {
         }
     }
 
+    #[inline]
     fn size_hint(&self) -> (usize, Option<usize>) {
         match &self.iter {
             BroadcastIterKind::Direct(iter) => iter.size_hint(),
