@@ -284,7 +284,7 @@ fn reduce<T: Copy + Default, R: Reducer<T>>(
                         if resolved_axes.contains(&dim) {
                             SliceItem::range(0, Some(input.size(dim) as isize), 1)
                         } else {
-                            SliceItem::Index(idx)
+                            SliceItem::Index(idx as isize)
                         }
                     }));
                     let reduced = reducer.reduce(input.slice_iter(&inner_range).copied());

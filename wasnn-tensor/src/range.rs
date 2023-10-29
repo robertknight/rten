@@ -6,10 +6,12 @@ use std::ops::{Range, RangeFrom, RangeFull, RangeTo};
 /// Can be constructed from an index or range using `index_or_range.into()`.
 #[derive(Clone, Debug, PartialEq)]
 pub enum SliceItem {
-    /// Extract a specific index from a dimension. The number of dimensions in
-    /// the sliced view will be one minus the number of dimensions sliced with
-    /// an index.
-    Index(usize),
+    /// Extract a specific index from a dimension.
+    ///
+    /// The number of dimensions in the sliced view will be one minus the number
+    /// of dimensions sliced with an index. If the index is negative, it counts
+    /// back from the end of the dimension.
+    Index(isize),
 
     /// Include a subset of the range of the dimension.
     Range(SliceRange),
@@ -27,9 +29,25 @@ impl SliceItem {
     }
 }
 
+// This conversion exists to avoid ambiguity when slicing a tensor with a
+// numeric literal of unspecified type (eg. `tensor.slice((0, 0))`). In this
+// case it is ambiguous which `SliceItem::from` should be used, but the i32
+// case is used if it exists.
+impl From<i32> for SliceItem {
+    fn from(value: i32) -> Self {
+        SliceItem::Index(value as isize)
+    }
+}
+
+impl From<isize> for SliceItem {
+    fn from(value: isize) -> Self {
+        SliceItem::Index(value)
+    }
+}
+
 impl From<usize> for SliceItem {
     fn from(value: usize) -> Self {
-        SliceItem::Index(value)
+        SliceItem::Index(value as isize)
     }
 }
 

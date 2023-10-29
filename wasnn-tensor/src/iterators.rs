@@ -123,8 +123,9 @@ impl IndexingIterBase {
                 let len = layout.size(dim);
                 let range = match range {
                     SliceItem::Index(idx) => {
-                        assert!(*idx < len, "slice index is invalid");
-                        SliceRange::new(*idx as isize, Some(*idx as isize + 1), 1)
+                        let len = len as isize;
+                        assert!(*idx >= -len && *idx < len, "slice index is invalid");
+                        SliceRange::new(*idx, Some(*idx + 1), 1)
                     }
                     SliceItem::Range(range) => range.clamp(len),
                 };
@@ -907,8 +908,10 @@ impl<'a, T, const N: usize> Iterator for InnerIter<'a, T, N> {
 
     fn next(&mut self) -> Option<Self::Item> {
         self.outer_indices.next().map(|idx| {
-            let slice_items: SmallVec<[SliceItem; 5]> =
-                idx.into_iter().map(SliceItem::Index).collect();
+            let slice_items: SmallVec<[SliceItem; 5]> = idx
+                .into_iter()
+                .map(|i| SliceItem::Index(i as isize))
+                .collect();
             self.view.slice_dyn(&slice_items).try_into().unwrap()
         })
     }
@@ -936,8 +939,10 @@ impl<'a, T, const N: usize> Iterator for InnerIterMut<'a, T, N> {
 
     fn next(&mut self) -> Option<Self::Item> {
         self.outer_indices.next().map(|idx| {
-            let slice_items: SmallVec<[SliceItem; 5]> =
-                idx.into_iter().map(SliceItem::Index).collect();
+            let slice_items: SmallVec<[SliceItem; 5]> = idx
+                .into_iter()
+                .map(|i| SliceItem::Index(i as isize))
+                .collect();
             let view: NdTensorViewMut<'_, T, N> =
                 self.view.slice_mut_dyn(&slice_items).try_into().unwrap();
 

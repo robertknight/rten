@@ -217,8 +217,13 @@ fn slice_layout(
             .unwrap_or(SliceItem::full_range());
         let (offset_adjust, new_size_stride) = match item {
             SliceItem::Index(idx) => {
-                assert!(idx < size, "Slice index is invalid for tensor shape");
-                (stride * idx, None)
+                let size = size as isize;
+                let pos_idx = if idx >= 0 { idx } else { idx + size };
+                assert!(
+                    pos_idx >= 0 && pos_idx < size,
+                    "Slice index is invalid for tensor shape"
+                );
+                (stride * pos_idx as usize, None)
             }
             SliceItem::Range(range) => {
                 let resolved = range

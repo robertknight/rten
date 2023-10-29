@@ -2004,6 +2004,16 @@ mod tests {
             assert_eq!(y.shape(), [3, 4]);
             assert_eq!(y.to_vec(), (1..=(3 * 4)).into_iter().collect::<Vec<i32>>());
 
+            // Negative 1D index
+            let y = $x.$method([-1]);
+            assert_eq!(y.shape(), [3, 4]);
+            assert_eq!(
+                y.to_vec(),
+                ((3 * 4 + 1)..=(2 * 3 * 4))
+                    .into_iter()
+                    .collect::<Vec<i32>>()
+            );
+
             // 2D index
             let y = $x.$method([0, 1]);
             assert_eq!(y.shape(), [4]);

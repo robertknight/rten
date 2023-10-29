@@ -35,7 +35,7 @@ pub fn gather<T: Copy + Default>(
     // `axis`.
     if let (0, Some(index)) = (indices.ndim(), indices.item()) {
         let mut slice_range = full_range(input.ndim());
-        slice_range[axis] = SliceItem::Index(*index as usize);
+        slice_range[axis] = SliceItem::Index(*index as isize);
         let output = input.slice_dyn(&slice_range).to_tensor();
         return Ok(output);
     }
@@ -52,9 +52,9 @@ pub fn gather<T: Copy + Default>(
     let mut out_range = full_range(output.ndim());
 
     for (index_idx, index) in zip(indices.indices(), indices.iter()) {
-        in_range[axis] = SliceItem::Index(*index as usize);
+        in_range[axis] = SliceItem::Index(*index as isize);
         for (i, index_val) in index_idx.into_iter().enumerate() {
-            out_range[axis + i] = SliceItem::Index(index_val);
+            out_range[axis + i] = SliceItem::Index(index_val as isize);
         }
 
         let in_slice = input.slice_dyn(&in_range);
