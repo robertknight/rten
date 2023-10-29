@@ -53,7 +53,7 @@ pub use layout::{is_valid_permutation, DynLayout, Layout, MatrixLayout};
 pub use ndtensor::{
     Matrix, MatrixMut, NdTensor, NdTensorBase, NdTensorView, NdTensorViewMut, NdView,
 };
-pub use range::{IntoSliceItems, SliceItem, SliceRange};
+pub use range::{to_slice_items, DynSliceItems, IntoSliceItems, SliceItem, SliceRange};
 pub use tensor::{Tensor, TensorBase, TensorView, TensorViewMut, View};
 
 /// This module provides a convenient way to import the most common traits

@@ -2,7 +2,7 @@ use std::iter::zip;
 
 use smallvec::SmallVec;
 use wasnn_tensor::prelude::*;
-use wasnn_tensor::{DynIndices, SliceItem, Tensor, TensorView};
+use wasnn_tensor::{to_slice_items, DynIndices, DynSliceItems, SliceItem, Tensor, TensorView};
 
 use crate::ops::reduce::{cmp_nan_greater, cmp_nan_less};
 use crate::ops::{
@@ -211,15 +211,6 @@ impl Operator for ScatterElements {
     }
 }
 
-type IndexArray = SmallVec<[SliceItem; 5]>;
-
-fn to_slice_items(index: &[usize]) -> IndexArray {
-    index
-        .iter()
-        .map(|x| SliceItem::Index(*x as isize))
-        .collect()
-}
-
 pub fn scatter_nd<
     T: Copy + Default + PartialOrd + std::ops::Add<Output = T> + std::ops::Mul<Output = T>,
 >(
@@ -250,7 +241,7 @@ pub fn scatter_nd<
 
         // TODO - Since the indices here come from user input, this should
         // return an error rather than panicking if the indices are invalid.
-        let output_idx: IndexArray = indices
+        let output_idx: DynSliceItems = indices
             .slice_dyn(&update_idx)
             .iter()
             .map(|x| SliceItem::Index(*x as isize))

@@ -1,3 +1,5 @@
+use smallvec::SmallVec;
+
 use std::fmt::Debug;
 use std::ops::{Range, RangeFrom, RangeFull, RangeTo};
 
@@ -115,6 +117,19 @@ impl<T1: Into<SliceItem>, T2: Into<SliceItem>, T3: Into<SliceItem>, T4: Into<Sli
     fn into_slice_items(self) -> [SliceItem; 4] {
         [self.0.into(), self.1.into(), self.2.into(), self.3.into()]
     }
+}
+
+/// Dynamically sized array of [SliceItem]s, which avoids allocating in the
+/// common case where the length is small.
+pub type DynSliceItems = SmallVec<[SliceItem; 5]>;
+
+/// Convert a slice of indices into [SliceItem]s.
+///
+/// To convert indices of a statically known length to [SliceItem]s, use
+/// [IntoSliceItems] instead. This function is for the case when the length
+/// is not statically known, but is assumed to likely be small.
+pub fn to_slice_items<T: Clone + Into<SliceItem>>(index: &[T]) -> DynSliceItems {
+    index.iter().map(|x| x.clone().into()).collect()
 }
 
 /// A range for slicing a [Tensor](crate::Tensor) or [NdTensor](crate::NdTensor).

@@ -2,11 +2,11 @@ use std::iter::{repeat, zip, Cycle, StepBy, Take};
 use std::ops::{Add, Range};
 use std::slice;
 
-use smallvec::SmallVec;
-
 use super::layout::DynLayout;
 use super::range::{SliceItem, SliceRange};
-use crate::{DynIndices, Layout, NdTensorView, NdTensorViewMut, TensorView, TensorViewMut};
+use crate::{
+    to_slice_items, DynIndices, Layout, NdTensorView, NdTensorViewMut, TensorView, TensorViewMut,
+};
 
 /// IterPos tracks the position within a single dimension of an IndexingIter.
 #[derive(Debug)]
@@ -908,10 +908,7 @@ impl<'a, T, const N: usize> Iterator for InnerIter<'a, T, N> {
 
     fn next(&mut self) -> Option<Self::Item> {
         self.outer_indices.next().map(|idx| {
-            let slice_items: SmallVec<[SliceItem; 5]> = idx
-                .into_iter()
-                .map(|i| SliceItem::Index(i as isize))
-                .collect();
+            let slice_items = to_slice_items(&idx);
             self.view.slice_dyn(&slice_items).try_into().unwrap()
         })
     }
@@ -939,10 +936,7 @@ impl<'a, T, const N: usize> Iterator for InnerIterMut<'a, T, N> {
 
     fn next(&mut self) -> Option<Self::Item> {
         self.outer_indices.next().map(|idx| {
-            let slice_items: SmallVec<[SliceItem; 5]> = idx
-                .into_iter()
-                .map(|i| SliceItem::Index(i as isize))
-                .collect();
+            let slice_items = to_slice_items(&idx);
             let view: NdTensorViewMut<'_, T, N> =
                 self.view.slice_mut_dyn(&slice_items).try_into().unwrap();
 
