@@ -850,6 +850,13 @@ mod tests {
     }
 
     #[test]
+    #[should_panic(expected = "Slice index is invalid for tensor shape")]
+    fn test_slice_invalid_negative_index() {
+        let layout = DynLayout::new(&[3, 5]);
+        layout.slice(&[SliceItem::Index(-4)]);
+    }
+
+    #[test]
     #[should_panic(expected = "Slice range is invalid for tensor shape")]
     fn test_slice_invalid_range() {
         let layout = DynLayout::new(&[3, 5]);
