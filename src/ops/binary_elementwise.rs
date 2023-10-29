@@ -300,6 +300,10 @@ impl Operator for Add {
         true
     }
 
+    fn is_commutative(&self) -> bool {
+        true
+    }
+
     fn run_in_place(&self, input: Output, other: InputList) -> Result<Output, OpError> {
         run_typed_op_in_place!(input, other, add_in_place, add)
     }
@@ -324,6 +328,13 @@ macro_rules! logical_boolean_op {
         impl Operator for $op {
             fn name(&self) -> &str {
                 stringify!($op)
+            }
+
+            fn is_commutative(&self) -> bool {
+                // These ops are marked as commutative because that is
+                // technically true, but this will have no effect until
+                // `run_in_place` is implemented.
+                true
             }
 
             fn run(&self, inputs: InputList) -> Result<Vec<Output>, OpError> {
@@ -430,6 +441,13 @@ macro_rules! boolean_cmp_op {
         impl Operator for $name {
             fn name(&self) -> &str {
                 stringify!($name)
+            }
+
+            fn is_commutative(&self) -> bool {
+                // `Equal` is marked as commutative, but this will have no
+                // effect until an in-place version of the operator is
+                // implemented for bool inputs.
+                stringify!($name) == "Equal"
             }
 
             fn run(&self, inputs: InputList) -> Result<Vec<Output>, OpError> {
@@ -557,6 +575,10 @@ impl Operator for Mul {
     }
 
     fn can_run_in_place(&self) -> bool {
+        true
+    }
+
+    fn is_commutative(&self) -> bool {
         true
     }
 

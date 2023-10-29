@@ -340,19 +340,43 @@ impl Graph {
                 op_timer.start();
             }
 
-            let first_input = op_node.inputs.get(0).copied().flatten();
+            // Choose the input that we'll try to modify in-place to avoid
+            // allocating a new buffer for the output. This will be passed as
+            // the first input to `Operator::run_in_place`.
+            //
+            // For non-commutative ops we have to use the first input. For
+            // commutative ops we can swap inputs around if that enables us to
+            // run an op in place.
+            let in_place_input_id = if op_node.operator.can_run_in_place() {
+                if op_node.operator.is_commutative() {
+                    // Pick the largest input by number of elements. This
+                    // assumes that commutative op outputs will have a shape
+                    // that matches their largest input (eg. consider a
+                    // binary op that broadcasts inputs to a common shape).
+                    op_node
+                        .inputs
+                        .iter()
+                        .max_by_key(|input_id| {
+                            input_id
+                                .and_then(|id| temp_values.get(&id))
+                                .map(|val| val.len())
+                                .unwrap_or(0)
+                        })
+                        .copied()
+                        .flatten()
+                } else {
+                    op_node.inputs.get(0).copied().flatten()
+                }
+            } else {
+                None
+            };
 
-            // Test if the operator can be run in-place to save allocations.
-            //
-            // This requires that the first input is a temporary value produced
-            // by earlier ops, and this value is not going to be needed by other
-            // ops in future.
-            //
-            // If we can run in-place, extract the first input to re-use as the
-            // output.
-            let in_place_input = first_input.and_then(|first_input| {
-                if op_node.operator.can_run_in_place()
-                    && temp_values.contains_key(&first_input)
+            // If the operator can run in place, check if we have a tensor
+            // that can be used as the output. This requires that the tensor
+            // is not a constant (eg. weights) and is not going to be used by
+            // other ops in future.
+            let in_place_input = in_place_input_id.and_then(|first_input| {
+                if temp_values.contains_key(&first_input)
                     && temp_value_refcount.count(first_input) == 1
                 {
                     temp_value_refcount.dec(first_input);
@@ -371,12 +395,11 @@ impl Graph {
 
             // Collect all or remaining inputs for the operator
             let mut op_inputs: Vec<Option<Input>> = Vec::new();
-            let immutable_inputs = if in_place_input.is_some() {
-                &op_node.inputs[1..]
-            } else {
-                &op_node.inputs[..]
-            };
-            for node_id in immutable_inputs.iter() {
+            for node_id in op_node.inputs.iter() {
+                if in_place_input.is_some() && *node_id == in_place_input_id {
+                    continue;
+                }
+
                 if let Some(node_id) = node_id {
                     if let Some(&value) = values.get(node_id) {
                         op_inputs.push(Some(value));
@@ -686,6 +709,65 @@ mod tests {
     use crate::ops::{
         Concat, Conv, InputList, IntoOpResult, OpError, Operator, Output, Relu, Shape,
     };
+
+    #[derive(Clone, Debug, Default)]
+    struct Metrics {
+        run_count: u32,
+        run_in_place_count: u32,
+    }
+
+    /// Operator adapter that wraps an underlying operator in order to track
+    /// uses of it.
+    #[derive(Debug)]
+    struct TrackUsage<Op: Operator> {
+        inner: Op,
+        metrics: Arc<Mutex<Metrics>>,
+    }
+
+    impl<Op: Operator> TrackUsage<Op> {
+        /// Construct a new adapter that wraps `inner`.
+        fn new(inner: Op) -> Self {
+            TrackUsage {
+                inner,
+                metrics: Default::default(),
+            }
+        }
+
+        /// Return a shared reference to the operator's usage counters.
+        fn metrics(&self) -> Arc<Mutex<Metrics>> {
+            self.metrics.clone()
+        }
+    }
+
+    impl<Op: Operator> Operator for TrackUsage<Op> {
+        fn name(&self) -> &str {
+            self.inner.name()
+        }
+
+        fn can_run_in_place(&self) -> bool {
+            self.inner.can_run_in_place()
+        }
+
+        fn is_commutative(&self) -> bool {
+            self.inner.is_commutative()
+        }
+
+        fn run(&self, inputs: InputList) -> Result<Vec<Output>, OpError> {
+            {
+                let mut m = self.metrics.lock().unwrap();
+                m.run_count += 1;
+            }
+            self.inner.run(inputs)
+        }
+
+        fn run_in_place(&self, output: Output, inputs: InputList) -> Result<Output, OpError> {
+            {
+                let mut m = self.metrics.lock().unwrap();
+                m.run_in_place_count += 1;
+            }
+            self.inner.run_in_place(output, inputs)
+        }
+    }
 
     // Test of a very simple graph with a typical structure (one input, one
     // output, Conv + Relu operation).
@@ -1156,6 +1238,72 @@ mod tests {
             .unwrap();
         assert_eq!(results[0].as_float_ref().unwrap()[[0, 0]], 1.0);
         assert_eq!(results[1].as_float_ref().unwrap()[[0, 0]], 2.0);
+    }
+
+    // Test that the graph executor will swap inputs to commutative ops if
+    // necessary to enable running in-place.
+    #[test]
+    fn test_runs_commutative_op_in_place() {
+        use crate::ops::Add; // A commutative operator
+
+        let mut g = Graph::new();
+        let input_id = g.add_value(Some("input"), None);
+        let bias_id = g.add_value(Some("bias"), None);
+
+        let op1 = TrackUsage::new(Add {});
+        let op1_metrics = op1.metrics();
+
+        let op2 = TrackUsage::new(Add {});
+        let op2_metrics = op2.metrics();
+
+        let op1_out = g.add_value(Some("op1_out"), None);
+        g.add_op(
+            Some("op1"),
+            Box::new(op1),
+            &[Some(input_id), Some(bias_id)],
+            &[Some(op1_out)],
+        );
+        let op2_out = g.add_value(Some("op2_out"), None);
+        g.add_op(
+            Some("op2"),
+            Box::new(op2),
+            // Note here the input ordering. The bias value is smaller, but
+            // is the first argument. This operator can run in place, but only
+            // if the inputs are swapped.
+            &[Some(bias_id), Some(op1_out)],
+            &[Some(op2_out)],
+        );
+        let input = Tensor::<f32>::zeros(&[2, 2]);
+        let bias = tensor!(1.5);
+
+        let results = g
+            .run(
+                &[(input_id, (&input).into()), (bias_id, (&bias).into())],
+                &[op2_out],
+                None,
+            )
+            .unwrap();
+
+        // Bias value should be added twice to every input.
+        assert_eq!(
+            results[0]
+                .as_float_ref()
+                .unwrap()
+                .iter()
+                .copied()
+                .collect::<Vec<_>>(),
+            &[3., 3., 3., 3.]
+        );
+
+        // The first operator in a graph run must always copy its input.
+        let op1_metrics = op1_metrics.lock().unwrap();
+        assert_eq!(op1_metrics.run_count, 1);
+        assert_eq!(op1_metrics.run_in_place_count, 0);
+
+        // The second operator should run in-place.
+        let op2_metrics = op2_metrics.lock().unwrap();
+        assert_eq!(op2_metrics.run_count, 0);
+        assert_eq!(op2_metrics.run_in_place_count, 1);
     }
 
     /// Test operator that produces multiple outputs

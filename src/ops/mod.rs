@@ -588,6 +588,15 @@ pub trait Operator: Debug {
         false
     }
 
+    /// Return true if this operator is commutative, meaning that its inputs
+    /// can be re-ordered without affecting the result.
+    ///
+    /// If true, the graph executor may swap inputs before calling the
+    /// [Operator::run_in_place] implementation.
+    fn is_commutative(&self) -> bool {
+        false
+    }
+
     /// Execute this operator in-place on an existing tensor.
     ///
     /// This may only be called if `can_run_in_place` returns true.
