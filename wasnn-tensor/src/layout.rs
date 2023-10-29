@@ -3,7 +3,7 @@ use std::ops::Range;
 
 use smallvec::{smallvec, SmallVec};
 
-use crate::errors::{DimensionError, FromDataError};
+use crate::errors::{DimensionError, FromDataError, SliceError};
 use crate::index_iterator::{DynIndices, NdIndices};
 use crate::overlap::may_have_internal_overlap;
 use crate::range::SliceItem;
@@ -206,7 +206,7 @@ fn slice_layout(
     out_shape: &mut [usize],
     out_strides: &mut [usize],
     range: &[SliceItem],
-) -> (usize, usize) {
+) -> Result<(usize, usize), SliceError> {
     let mut ndim = 0;
     let mut offset = 0;
 
@@ -219,21 +219,18 @@ fn slice_layout(
             SliceItem::Index(idx) => {
                 let size = size as isize;
                 let pos_idx = if idx >= 0 { idx } else { idx + size };
-                assert!(
-                    pos_idx >= 0 && pos_idx < size,
-                    "Slice index is invalid for tensor shape"
-                );
+                if pos_idx < 0 || pos_idx >= size {
+                    return Err(SliceError::InvalidIndex);
+                }
                 (stride * pos_idx as usize, None)
             }
             SliceItem::Range(range) => {
-                let resolved = range
-                    .resolve(size)
-                    .expect("Slice range is invalid for tensor shape");
+                let resolved = range.resolve(size).ok_or(SliceError::InvalidRange)?;
                 let new_size = range.steps(size);
                 let step: usize = range
                     .step()
                     .try_into()
-                    .expect("Cannot slice with negative step");
+                    .map_err(|_| SliceError::InvalidStep)?;
                 let new_stride = stride * step;
                 (stride * resolved.start, Some((new_size, new_stride)))
             }
@@ -247,7 +244,7 @@ fn slice_layout(
         }
     }
 
-    (ndim, offset)
+    Ok((ndim, offset))
 }
 
 impl<const N: usize> NdLayout<N> {
@@ -398,7 +395,7 @@ impl<const N: usize> NdLayout<N> {
         let mut strides: [usize; M] = [0; M];
 
         let (ndim, offset) =
-            slice_layout(&self.shape, &self.strides, &mut shape, &mut strides, range);
+            slice_layout(&self.shape, &self.strides, &mut shape, &mut strides, range).unwrap();
 
         assert!(ndim == M, "sliced dims != {}", M);
 
@@ -544,11 +541,30 @@ impl DynLayout {
     /// an existing tensor view.
     ///
     /// Returns a tuple of (offset_range, layout) for the sliced view.
+    ///
+    /// Panics if the range is invalid for the current layout.
     pub fn slice(&self, range: &[SliceItem]) -> (Range<usize>, DynLayout) {
-        assert!(
-            self.ndim() >= range.len(),
-            "Slice dims must be <= current dims"
-        );
+        match self.try_slice(range) {
+            Ok(result) => result,
+
+            // These error conversions preserve existing error messages in
+            // various tests.
+            Err(SliceError::InvalidRange) => panic!("Slice range is invalid for tensor shape"),
+            Err(SliceError::InvalidIndex) => panic!("Slice index is invalid for tensor shape"),
+            Err(SliceError::InvalidStep) => panic!("Cannot slice with negative step"),
+            Err(err) => panic!("{:?}", err),
+        }
+    }
+
+    /// Compute the new layout and offset of the first element for a slice into
+    /// an existing tensor view.
+    ///
+    /// Returns a tuple of (offset_range, layout) for the sliced view, or an
+    /// error if the range is invalid.
+    pub fn try_slice(&self, range: &[SliceItem]) -> Result<(Range<usize>, DynLayout), SliceError> {
+        if self.ndim() < range.len() {
+            return Err(SliceError::TooManyDims);
+        }
 
         let out_dims = self.ndim()
             - range
@@ -559,10 +575,10 @@ impl DynLayout {
         let (out_shape, out_strides) = shape_and_strides.as_mut_slice().split_at_mut(out_dims);
 
         let (_ndim, offset) =
-            slice_layout(self.shape(), self.strides(), out_shape, out_strides, range);
+            slice_layout(self.shape(), self.strides(), out_shape, out_strides, range)?;
 
         let layout = Self { shape_and_strides };
-        (offset..offset + layout.end_offset(), layout)
+        Ok((offset..offset + layout.end_offset(), layout))
     }
 
     /// Return one past the maximum offset into the tensor/view's data buffer

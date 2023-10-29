@@ -6,6 +6,7 @@ use std::iter::zip;
 use std::marker::PhantomData;
 use std::ops::{Index, IndexMut, Range};
 
+use crate::errors::SliceError;
 use crate::iterators::{
     AxisChunks, AxisChunksMut, AxisIter, AxisIterMut, BroadcastIter, InnerIter, InnerIterMut, Iter,
     IterMut, Lanes, LanesMut, Offsets,
@@ -158,8 +159,17 @@ pub trait View: Layout {
     ///
     /// This is like [TensorBase::slice] but supports a dynamic number of
     /// slice items.
+    ///
+    /// Panics if the range is invalid for the current tensor shape. Use
+    /// [View::try_slice_dyn] for a variant that returns an error instead.
     fn slice_dyn(&self, range: &[SliceItem]) -> TensorView<Self::Elem> {
         self.view().slice_dyn(range)
+    }
+
+    /// Variant of [View::slice_dyn] which returns an error if the slice spec
+    /// is invalid, instead of panicking.
+    fn try_slice_dyn(&self, range: &[SliceItem]) -> Result<TensorView<Self::Elem>, SliceError> {
+        self.view().try_slice_dyn(range)
     }
 
     /// Return an iterator over a slice of this tensor.
@@ -455,12 +465,16 @@ impl<'a, T> TensorView<'a, T> {
     }
 
     pub fn slice_dyn(&self, range: &[SliceItem]) -> TensorView<'a, T> {
-        let (offset_range, layout) = self.layout.slice(range);
-        TensorBase {
+        self.try_slice_dyn(range).unwrap()
+    }
+
+    pub fn try_slice_dyn(&self, range: &[SliceItem]) -> Result<TensorView<'a, T>, SliceError> {
+        let (offset_range, layout) = self.layout.try_slice(range)?;
+        Ok(TensorBase {
             data: &self.data[offset_range],
             layout,
             element_type: PhantomData,
-        }
+        })
     }
 
     pub fn slice_iter(&self, range: &[SliceItem]) -> Iter<'a, T> {
@@ -681,13 +695,22 @@ impl<T, S: AsRef<[T]> + AsMut<[T]>> TensorBase<T, S> {
     ///
     /// Slices are specified in the same way as for [TensorBase::slice_dyn].
     pub fn slice_mut_dyn(&mut self, range: &[SliceItem]) -> TensorViewMut<T> {
-        let (offset_range, layout) = self.layout.slice(range);
+        self.try_slice_mut_dyn(range).unwrap()
+    }
+
+    /// Variant of [TensorViewMut::slice_mut_dyn] which returns an error instead
+    /// of panicking if the slice range is invalid.
+    pub fn try_slice_mut_dyn(
+        &mut self,
+        range: &[SliceItem],
+    ) -> Result<TensorViewMut<T>, SliceError> {
+        let (offset_range, layout) = self.layout.try_slice(range)?;
         let data = &mut self.data.as_mut()[offset_range];
-        TensorViewMut {
+        Ok(TensorViewMut {
             data,
             layout,
             element_type: PhantomData,
-        }
+        })
     }
 
     /// Return a new view with the order of dimensions reversed.
