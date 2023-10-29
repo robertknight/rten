@@ -239,14 +239,15 @@ pub fn scatter_nd<
         let update_idx = to_slice_items(&index);
         let update_slice = updates.slice_dyn(&update_idx);
 
-        // TODO - Since the indices here come from user input, this should
-        // return an error rather than panicking if the indices are invalid.
         let output_idx: DynSliceItems = indices
-            .slice_dyn(&update_idx)
+            .try_slice_dyn(&update_idx)
+            .map_err(|_| OpError::InvalidValue("invalid scatter index"))?
             .iter()
             .map(|x| SliceItem::Index(*x as isize))
             .collect();
-        let mut out_slice = output.slice_mut_dyn(&output_idx);
+        let mut out_slice = output
+            .try_slice_mut_dyn(&output_idx)
+            .map_err(|_| OpError::InvalidValue("invalid scatter index"))?;
 
         for (out_el, update) in out_slice.iter_mut().zip(update_slice.iter()) {
             *out_el = scatter_reduce(*out_el, *update, reduction);
@@ -542,6 +543,12 @@ mod tests {
                 indices: tensor!((4, 1); [0, 1, 2, 3]),
                 updates: Tensor::from([[1., 2., 3., 4.]]),
                 expected: OpError::InvalidValue("`updates` does not have expected rank"),
+            },
+            Case {
+                data: Tensor::arange(1., 5., None),
+                indices: tensor!((4, 1); [0, 1, 2, 4]),
+                updates: tensor!([1., 2., 3., 4.]),
+                expected: OpError::InvalidValue("invalid scatter index"),
             },
         ];
 
