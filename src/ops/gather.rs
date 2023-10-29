@@ -225,10 +225,23 @@ pub fn scatter_nd<
         ));
     }
 
-    let expected_update_dim = data.ndim() + indices.ndim() - indices.size(indices.ndim() - 1) - 1;
+    // Per spec, the `indices` tensor is treated as a set of K-tuples where
+    // `k <= data.ndim()`, specifying the indices of slices to update.
+    let k = indices.size(indices.ndim() - 1);
+
+    let expected_update_dim = data.ndim() + indices.ndim() - k - 1;
     if updates.ndim() != expected_update_dim {
         return Err(OpError::InvalidValue(
             "`updates` does not have expected rank",
+        ));
+    }
+
+    let mut expected_update_shape: SmallVec<[usize; 5]> = SmallVec::new();
+    expected_update_shape.extend_from_slice(&indices.shape()[..indices.ndim() - 1]);
+    expected_update_shape.extend_from_slice(&data.shape()[k..data.ndim()]);
+    if updates.shape() != expected_update_shape.as_slice() {
+        return Err(OpError::InvalidValue(
+            "`updates` does not have expected shape",
         ));
     }
 
@@ -543,6 +556,12 @@ mod tests {
                 indices: tensor!((4, 1); [0, 1, 2, 3]),
                 updates: Tensor::from([[1., 2., 3., 4.]]),
                 expected: OpError::InvalidValue("`updates` does not have expected rank"),
+            },
+            Case {
+                data: Tensor::arange(1., 5., None),
+                indices: tensor!((4, 1); [0, 1, 2, 3]),
+                updates: tensor!([1., 2., 3., 4., 5.]),
+                expected: OpError::InvalidValue("`updates` does not have expected shape"),
             },
             Case {
                 data: Tensor::arange(1., 5., None),
