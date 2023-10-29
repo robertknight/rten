@@ -72,10 +72,10 @@ mod tests {
             // k = 0, upper = true
             Case {
                 input: in_3x3.clone(),
-                expected: tensor!((3, 3); [
-                    1, 2, 3, //
-                    0, 5, 6, //
-                    0, 0, 9
+                expected: Tensor::from([
+                    [1, 2, 3], //
+                    [0, 5, 6], //
+                    [0, 0, 9],
                 ]),
                 k: 0,
                 upper: true,
@@ -83,10 +83,10 @@ mod tests {
             // +ve k, upper = true
             Case {
                 input: in_3x3.clone(),
-                expected: tensor!((3, 3); [
-                    0, 2, 3, //
-                    0, 0, 6, //
-                    0, 0, 0
+                expected: Tensor::from([
+                    [0, 2, 3], //
+                    [0, 0, 6], //
+                    [0, 0, 0],
                 ]),
                 k: 1,
                 upper: true,
@@ -94,10 +94,10 @@ mod tests {
             // -ve k, upper = true
             Case {
                 input: in_3x3.clone(),
-                expected: tensor!((3, 3); [
-                    1, 2, 3, //
-                    4, 5, 6, //
-                    0, 8, 9
+                expected: Tensor::from([
+                    [1, 2, 3], //
+                    [4, 5, 6], //
+                    [0, 8, 9],
                 ]),
                 k: -1,
                 upper: true,
@@ -105,10 +105,10 @@ mod tests {
             // k = 0, upper = false
             Case {
                 input: in_3x3.clone(),
-                expected: tensor!((3, 3); [
-                    1, 0, 0, //
-                    4, 5, 0, //
-                    7, 8, 9
+                expected: Tensor::from([
+                    [1, 0, 0], //
+                    [4, 5, 0], //
+                    [7, 8, 9],
                 ]),
                 k: 0,
                 upper: false,
@@ -116,10 +116,10 @@ mod tests {
             // +ve k, upper = false
             Case {
                 input: in_3x3.clone(),
-                expected: tensor!((3, 3); [
-                    1, 2, 0, //
-                    4, 5, 6, //
-                    7, 8, 9
+                expected: Tensor::from([
+                    [1, 2, 0], //
+                    [4, 5, 6], //
+                    [7, 8, 9],
                 ]),
                 k: 1,
                 upper: false,
@@ -127,33 +127,39 @@ mod tests {
             // -ve k, upper = false
             Case {
                 input: in_3x3.clone(),
-                expected: tensor!((3, 3); [
-                    0, 0, 0, //
-                    4, 0, 0, //
-                    7, 8, 0
+                expected: Tensor::from([
+                    [0, 0, 0], //
+                    [4, 0, 0], //
+                    [7, 8, 0],
                 ]),
                 k: -1,
                 upper: false,
             },
             // Batch of matrices
             Case {
-                input: tensor!((2, 3, 3); [
-                    1, 2, 3, //
-                    4, 5, 6, //
-                    7, 8, 9,
-                    //
-                    9, 8, 7, //
-                    6, 5, 4, //
-                    3, 2, 1
+                input: Tensor::from([
+                    [
+                        [1, 2, 3], //
+                        [4, 5, 6], //
+                        [7, 8, 9],
+                    ],
+                    [
+                        [9, 8, 7], //
+                        [6, 5, 4], //
+                        [3, 2, 1],
+                    ],
                 ]),
-                expected: tensor!((2, 3, 3); [
-                    1, 2, 3, //
-                    0, 5, 6, //
-                    0, 0, 9,
-                    //
-                    9, 8, 7, //
-                    0, 5, 4, //
-                    0, 0, 1
+                expected: Tensor::from([
+                    [
+                        [1, 2, 3], //
+                        [0, 5, 6], //
+                        [0, 0, 9],
+                    ],
+                    [
+                        [9, 8, 7], //
+                        [0, 5, 4], //
+                        [0, 0, 1],
+                    ],
                 ]),
                 k: 0,
                 upper: true,
@@ -161,10 +167,10 @@ mod tests {
             // Non-square (wide) matrix
             Case {
                 input: Tensor::arange(1, 16, None).into_reshaped(&[3, 5]),
-                expected: tensor!((3, 5); [
-                    1, 2, 3, 4, 5, //
-                    0, 7, 8, 9, 10, //
-                    0, 0, 13, 14, 15,
+                expected: Tensor::from([
+                    [1, 2, 3, 4, 5],  //
+                    [0, 7, 8, 9, 10], //
+                    [0, 0, 13, 14, 15],
                 ]),
                 k: 0,
                 upper: true,
@@ -172,12 +178,12 @@ mod tests {
             // Non-square (tall) matrix
             Case {
                 input: Tensor::arange(1, 16, None).into_reshaped(&[5, 3]),
-                expected: tensor!((5, 3); [
-                    1, 2, 3, //
-                    0, 5, 6, //
-                    0, 0, 9, //
-                    0, 0, 0, //
-                    0, 0, 0,
+                expected: Tensor::from([
+                    [1, 2, 3], //
+                    [0, 5, 6], //
+                    [0, 0, 9], //
+                    [0, 0, 0], //
+                    [0, 0, 0],
                 ]),
                 k: 0,
                 upper: true,
