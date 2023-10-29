@@ -227,12 +227,21 @@ class ONNXOperatorReader:
         Get an optional attribute whose value is an enum variant.
 
         The variant name is Pascal-Cased and looked up on the enum object.
-        eg. `round_prefer_floor` => `RoundPreferFloor`.
+        eg. `round_prefer_floor` => `RoundPreferFloor`. If the Pascal-Cased
+        name matches a Python keyword, it is expected to be escaped, eg.
+        `none` => `None_`.
         """
         val = self.get_attr(name, "string", default)
         pascal_case = snake_case_to_pascal_case(val)
+
+        # Enum values that match Python keywords have a trailing underscore appended.
+        escaped_pascal_case = pascal_case + "_"
+
         try:
-            return getattr(enum, pascal_case)
+            try:
+                return getattr(enum, pascal_case)
+            except AttributeError:
+                return getattr(enum, escaped_pascal_case)
         except AttributeError:
             raise ValueError(f"Unsupported value {val} for {name} attr")
 
