@@ -4,6 +4,7 @@ use std::fmt::Debug;
 
 use wasnn_tensor::{Tensor, TensorView, TensorViewMut, View};
 
+use crate::number::AsBool;
 use crate::ops::{Input, InputList, IntoOpResult, OpError, Operator, Output};
 
 /// Trait for operators which take a single float tensor and apply a function
@@ -356,12 +357,12 @@ pub fn neg_in_place<T: Copy + std::ops::Neg<Output = T>>(input: &mut Tensor<T>) 
 
 unary_numeric_op!(Neg, neg, neg_in_place);
 
-pub fn not<T: Default + PartialEq>(input: TensorView<T>) -> Tensor<i32> {
-    input.map(|x| if *x == T::default() { 1 } else { 0 })
+pub fn not<T: AsBool + PartialEq>(input: TensorView<T>) -> Tensor<i32> {
+    input.map(|x| i32::from(!x.as_bool()))
 }
 
 pub fn not_in_place(mut input: TensorViewMut<i32>) {
-    input.apply(|&x| if x == 0 { 1 } else { 0 });
+    input.apply(|x| i32::from(!x.as_bool()));
 }
 
 #[derive(Debug)]
