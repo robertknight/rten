@@ -266,6 +266,7 @@ impl SliceRange {
     }
 
     /// Resolve an index to an offset from the first index of the dimension.
+    #[inline]
     fn offset_from_start(index: isize, dim_size: usize) -> isize {
         if index >= 0 {
             index
