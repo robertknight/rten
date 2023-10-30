@@ -21,11 +21,13 @@ pub enum SliceItem {
 
 impl SliceItem {
     /// Return a SliceItem that extracts the full range of a dimension.
+    #[inline]
     pub fn full_range() -> Self {
         (..).into()
     }
 
     /// Return a SliceItem that extracts part of an axis.
+    #[inline]
     pub fn range(start: isize, end: Option<isize>, step: isize) -> SliceItem {
         SliceItem::Range(SliceRange::new(start, end, step))
     }
@@ -36,18 +38,21 @@ impl SliceItem {
 // case it is ambiguous which `SliceItem::from` should be used, but the i32
 // case is used if it exists.
 impl From<i32> for SliceItem {
+    #[inline]
     fn from(value: i32) -> Self {
         SliceItem::Index(value as isize)
     }
 }
 
 impl From<isize> for SliceItem {
+    #[inline]
     fn from(value: isize) -> Self {
         SliceItem::Index(value)
     }
 }
 
 impl From<usize> for SliceItem {
+    #[inline]
     fn from(value: usize) -> Self {
         SliceItem::Index(value as isize)
     }
