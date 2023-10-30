@@ -1,3 +1,5 @@
+#![cfg_attr(feature = "avx512", feature(stdsimd), feature(avx512_target_feature))]
+
 mod gemm;
 mod graph;
 mod iter_util;

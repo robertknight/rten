@@ -256,6 +256,24 @@ pub fn gemm(
     alpha: f32,
     beta: f32,
 ) {
+    #[cfg(feature = "avx512")]
+    #[cfg(target_arch = "x86_64")]
+    {
+        use kernels::x64::Avx512Kernel;
+
+        if Avx512Kernel::supported() {
+            return Avx512Kernel {}.gemm(
+                out_data,
+                out_row_stride,
+                GemmInputA::Unpacked(a),
+                GemmInputB::Unpacked(b),
+                alpha,
+                beta,
+                None, // bias
+            );
+        }
+    }
+
     #[cfg(target_arch = "x86_64")]
     {
         if FMAKernel::supported() {
@@ -317,6 +335,19 @@ pub enum KernelHint {
 impl GemmExecutor {
     /// Create a [GemmExecutor] using the preferred kernel for the current system.
     pub fn new() -> GemmExecutor {
+        #[cfg(feature = "avx512")]
+        #[cfg(target_arch = "x86_64")]
+        {
+            use kernels::x64::Avx512Kernel;
+
+            if Avx512Kernel::supported() {
+                return GemmExecutor {
+                    kernel: Box::new(Avx512Kernel {}),
+                    nr: Avx512Kernel::NR,
+                    mr: Avx512Kernel::MR,
+                };
+            }
+        }
         #[cfg(target_arch = "x86_64")]
         {
             if FMAKernel::supported() {
@@ -328,6 +359,12 @@ impl GemmExecutor {
             }
         }
         Self::with_base_kernel()
+    }
+
+    /// Return the name of the kernel that this executor is using.
+    #[allow(dead_code)]
+    pub fn kernel_name(&self) -> &str {
+        self.kernel.name()
     }
 
     /// Create a [GemmExecutor] using the given kernel.
@@ -1401,6 +1438,8 @@ mod tests {
                 k: 512,
             },
         ];
+
+        println!("Testing kernel {}", GemmExecutor::new().kernel_name());
 
         for case in cases {
             let Case { m, n, k } = case;
