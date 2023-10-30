@@ -165,10 +165,12 @@ impl<const N: usize> Layout for NdLayout<N> {
         self.shape.iter().product()
     }
 
+    #[inline]
     fn shape(&self) -> Self::Index<'_> {
         self.shape
     }
 
+    #[inline]
     fn strides(&self) -> Self::Index<'_> {
         self.strides
     }
@@ -470,26 +472,31 @@ impl Layout for DynLayout {
     }
 
     /// Return the number of dimensions.
+    #[inline]
     fn ndim(&self) -> usize {
         self.shape_and_strides.len() / 2
     }
 
     /// Return the sizes of each dimension.
+    #[inline]
     fn shape(&self) -> &[usize] {
         &self.shape_and_strides[0..self.ndim()]
     }
 
     /// Returns the size of the dimension `dim`.
+    #[inline]
     fn size(&self, dim: usize) -> usize {
         self.shape_and_strides[dim]
     }
 
     /// Return the stride (offset between elements) in the tensor's element array.
+    #[inline]
     fn strides(&self) -> &[usize] {
         &self.shape_and_strides[self.ndim()..]
     }
 
     /// Return the stride for a specific dimension.
+    #[inline]
     fn stride(&self, dim: usize) -> usize {
         self.shape_and_strides[self.ndim() + dim]
     }

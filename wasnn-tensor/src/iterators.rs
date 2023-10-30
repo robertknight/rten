@@ -357,6 +357,7 @@ impl<'a, T> IterMut<'a, T> {
 impl<'a, T> Iterator for IterMut<'a, T> {
     type Item = &'a mut T;
 
+    #[inline]
     fn next(&mut self) -> Option<Self::Item> {
         match self.iter {
             IterMutKind::Direct(ref mut iter) => iter.next(),
@@ -364,6 +365,7 @@ impl<'a, T> Iterator for IterMut<'a, T> {
         }
     }
 
+    #[inline]
     fn size_hint(&self) -> (usize, Option<usize>) {
         match &self.iter {
             IterMutKind::Direct(iter) => iter.size_hint(),
