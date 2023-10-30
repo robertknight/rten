@@ -168,6 +168,7 @@ impl SliceRange {
     /// to the end of the dimension.
     ///
     /// Panics if the `step` size is 0.
+    #[inline]
     pub fn new(start: isize, end: Option<isize>, step: isize) -> SliceRange {
         assert!(step != 0, "Slice step cannot be 0");
         SliceRange { start, end, step }
@@ -250,18 +251,23 @@ impl SliceRange {
     /// If `self.step` is positive, the returned range counts forwards from
     /// the first index of the dimension, otherwise it counts backwards from
     /// the last index.
+    #[inline]
     pub fn resolve(&self, dim_size: usize) -> Option<Range<usize>> {
-        let offset_fn = if self.step > 0 {
-            Self::offset_from_start
+        let (start, end) = if self.step > 0 {
+            let start = Self::offset_from_start(self.start, dim_size);
+            let end = self
+                .end
+                .map(|end| Self::offset_from_start(end, dim_size))
+                .unwrap_or(dim_size as isize);
+            (start, end)
         } else {
-            Self::offset_from_end
+            let start = Self::offset_from_end(self.start, dim_size);
+            let end = self
+                .end
+                .map(|end| Self::offset_from_end(end, dim_size))
+                .unwrap_or(dim_size as isize);
+            (start, end)
         };
-
-        let start = offset_fn(self.start, dim_size);
-        let end = self
-            .end
-            .map(|end| offset_fn(end, dim_size))
-            .unwrap_or(dim_size as isize);
 
         if start >= 0 && end <= dim_size as isize && start <= end {
             Some(start as usize..end as usize)
@@ -281,6 +287,7 @@ impl SliceRange {
     }
 
     /// Resolve an index to an offset from the last index of the dimension.
+    #[inline]
     fn offset_from_end(index: isize, dim_size: usize) -> isize {
         if index >= 0 {
             dim_size as isize - 1 - index
@@ -325,6 +332,7 @@ where
 }
 
 impl From<RangeFull> for SliceRange {
+    #[inline]
     fn from(_: RangeFull) -> SliceRange {
         SliceRange::new(0, None, 1)
     }
