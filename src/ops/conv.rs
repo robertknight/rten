@@ -252,16 +252,19 @@ fn conv_2d_depthwise(
 
     // Use of input rows below assumes contiguous last dimension.
     let input = input.to_contiguous();
+    let mut out_view: NdTensorViewMut<f32, 4> = output.nd_view_mut();
 
     for n in 0..batch {
         for c in 0..in_c {
             let kernel_view = kernel.slice([c, 0]).unchecked();
+            let in_chan = input.slice::<2, 2, _>([n, c]);
+            let mut out_chan = out_view.slice_mut::<2, 2, _>([n, c]);
 
             // The loops here are ordered so that the inner-most loop is as
             // efficient as possible and runs for as long as possible over a
             // contiguous slice of memory.
             for out_y in 0..out_h {
-                let mut out_row = output.nd_slice_mut::<3, 1>([n, c, out_y]);
+                let mut out_row = out_chan.slice_mut::<1, 1, _>([out_y]);
                 let out_row = out_row.data_mut();
 
                 for k_y in 0..k_h {
@@ -270,7 +273,7 @@ fn conv_2d_depthwise(
                         continue;
                     }
 
-                    let in_row = input.slice::<1, 3, _>([n, c, in_y - pad_top]).data();
+                    let in_row = in_chan.slice::<1, 1, _>([in_y - pad_top]).data();
 
                     for k_x in 0..k_w {
                         let kernel_val = kernel_view[[k_y, k_x]];
