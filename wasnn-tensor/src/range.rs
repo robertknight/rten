@@ -6,7 +6,7 @@ use std::ops::{Range, RangeFrom, RangeFull, RangeTo};
 /// Specifies a subset of a dimension to include when slicing a tensor or view.
 ///
 /// Can be constructed from an index or range using `index_or_range.into()`.
-#[derive(Clone, Debug, PartialEq)]
+#[derive(Clone, Copy, Debug, PartialEq)]
 pub enum SliceItem {
     /// Extract a specific index from a dimension.
     ///

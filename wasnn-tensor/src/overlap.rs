@@ -2,6 +2,19 @@ use std::iter::zip;
 
 use smallvec::SmallVec;
 
+/// Return true if a given shape and strides describe a contiguous layout in
+/// "C" order.
+pub fn is_contiguous(shape: &[usize], strides: &[usize]) -> bool {
+    let mut product = 1;
+    for (dim, len) in shape.iter().enumerate().rev() {
+        if strides[dim] != product {
+            return false;
+        }
+        product *= len;
+    }
+    true
+}
+
 /// Return true if multiple indices may map to the same offset.
 ///
 /// Determining whether arbitrary shapes and strides will overlap is
@@ -27,6 +40,11 @@ pub fn may_have_internal_overlap(shape: &[usize], strides: &[usize]) -> bool {
     // If the tensor is empty (ie. there are no valid indices), there can't be
     // any overlap.
     if shape.iter().any(|&size| size == 0) {
+        return false;
+    }
+
+    // Fast path for common case of contiguous tensor.
+    if is_contiguous(shape, strides) {
         return false;
     }
 

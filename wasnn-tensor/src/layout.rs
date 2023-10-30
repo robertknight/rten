@@ -5,7 +5,7 @@ use smallvec::{smallvec, SmallVec};
 
 use crate::errors::{DimensionError, FromDataError, SliceError};
 use crate::index_iterator::{DynIndices, NdIndices};
-use crate::overlap::may_have_internal_overlap;
+use crate::overlap::{is_contiguous, may_have_internal_overlap};
 use crate::range::SliceItem;
 use crate::tensor::TensorIndex;
 
@@ -38,15 +38,7 @@ pub trait Layout {
     /// Return true if this layout describes a contiguous tensor, where the
     /// logical order of elements matches the order in which they are stored.
     fn is_contiguous(&self) -> bool {
-        let (shape, strides) = (self.shape(), self.strides());
-        let mut product = 1;
-        for (dim, len) in shape.as_ref().iter().enumerate().rev() {
-            if strides.as_ref()[dim] != product {
-                return false;
-            }
-            product *= len;
-        }
-        true
+        is_contiguous(self.shape().as_ref(), self.strides().as_ref())
     }
 
     /// Returns true if the array has no elements.
@@ -228,11 +220,16 @@ fn slice_layout(
             }
             SliceItem::Range(range) => {
                 let resolved = range.resolve(size).ok_or(SliceError::InvalidRange)?;
-                let new_size = range.steps(size);
                 let step: usize = range
                     .step()
                     .try_into()
                     .map_err(|_| SliceError::InvalidStep)?;
+                let new_size = if step == 1 {
+                    // Fast path when no custom step is used.
+                    resolved.end - resolved.start
+                } else {
+                    range.steps(size)
+                };
                 let new_stride = stride * step;
                 (stride * resolved.start, Some((new_size, new_stride)))
             }
