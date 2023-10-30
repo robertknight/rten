@@ -335,6 +335,9 @@ fn pack_a_block<K: Kernel>(out: &mut [f32], a: Matrix, rows: Range<usize>, cols:
     let a_rows = rows.len();
     let a_cols = cols.len();
 
+    let row_stride = a.row_stride();
+    let col_stride = a.col_stride();
+
     let n_panels = round_up(a_rows, K::MR) / K::MR;
     for panel in 0..n_panels {
         let panel_offset = panel * a_cols * K::MR;
@@ -342,13 +345,11 @@ fn pack_a_block<K: Kernel>(out: &mut [f32], a: Matrix, rows: Range<usize>, cols:
 
         if a_rows - panel_start_row >= K::MR {
             // Optimized loop for panels that don't need any padding
-            let a_offset =
-                (rows.start + panel_start_row) * a.row_stride() + cols.start * a.col_stride();
+            let a_offset = (rows.start + panel_start_row) * row_stride + cols.start * col_stride;
 
             assert!(out.len() > panel_offset + (a_cols - 1) * K::MR + K::MR - 1);
             assert!(
-                a.data().len()
-                    > a_offset + (K::MR - 1) * a.row_stride() + (a_cols - 1) * a.col_stride()
+                a.data().len() > a_offset + (K::MR - 1) * row_stride + (a_cols - 1) * col_stride
             );
 
             for col in 0..a_cols {
@@ -357,7 +358,7 @@ fn pack_a_block<K: Kernel>(out: &mut [f32], a: Matrix, rows: Range<usize>, cols:
                     unsafe {
                         *out.get_unchecked_mut(panel_offset + col * K::MR + row) = *a
                             .data()
-                            .get_unchecked(a_offset + row * a.row_stride() + col * a.col_stride());
+                            .get_unchecked(a_offset + row * row_stride + col * col_stride);
                     }
                 }
             }
@@ -368,7 +369,7 @@ fn pack_a_block<K: Kernel>(out: &mut [f32], a: Matrix, rows: Range<usize>, cols:
                 for row in 0..K::MR {
                     let a_row = rows.start + panel_start_row + row;
                     out[out_col_offset + row] = if a_row < rows.end {
-                        a.data()[a_row * a.row_stride() + (cols.start + col) * a.col_stride()]
+                        a.data()[a_row * row_stride + (cols.start + col) * col_stride]
                     } else {
                         0.0
                     };
