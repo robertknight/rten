@@ -1,6 +1,7 @@
 extern crate flatbuffers;
 
 use std::collections::HashMap;
+use std::env;
 
 use smallvec::smallvec;
 use wasnn_tensor::Tensor;
@@ -86,7 +87,11 @@ impl Model {
         outputs: &[NodeId],
         opts: Option<RunOptions>,
     ) -> Result<Vec<Output>, RunError> {
-        self.graph.run(inputs, outputs, opts)
+        let mut opts = opts.unwrap_or_default();
+        if env::var_os("WASNN_TIMING").is_some() {
+            opts.timing = true;
+        }
+        self.graph.run(inputs, outputs, Some(opts))
     }
 
     /// Run a model and retrieve `N` outputs.
