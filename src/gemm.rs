@@ -17,8 +17,6 @@ use crate::iter_util::{range_chunks, MaybeParIter};
 mod kernels;
 mod packing;
 
-#[cfg(target_arch = "x86_64")]
-use kernels::x64::FMAKernel;
 use kernels::{BaseKernel, GemmOps, Kernel};
 use packing::{pack_a_block, pack_b_block};
 
@@ -256,30 +254,17 @@ pub fn gemm(
     alpha: f32,
     beta: f32,
 ) {
-    #[cfg(target_arch = "x86_64")]
-    {
-        if FMAKernel::supported() {
-            return FMAKernel {}.gemm(
-                out_data,
-                out_row_stride,
-                GemmInputA::Unpacked(a),
-                GemmInputB::Unpacked(b),
-                alpha,
-                beta,
-                None, // bias
-            );
-        }
-    }
-
-    BaseKernel {}.gemm(
+    // This heap-allocates a new kernel on each call. That's OK because this
+    // is very cheap relative to the large matmuls we expect to be doing, but
+    // would be good to avoid for small inputs.
+    GemmExecutor::new().gemm(
         out_data,
         out_row_stride,
         GemmInputA::Unpacked(a),
         GemmInputB::Unpacked(b),
         alpha,
         beta,
-        None, // bias
-    )
+    );
 }
 
 /// Executes matrix multiplication operations.
@@ -317,8 +302,23 @@ pub enum KernelHint {
 impl GemmExecutor {
     /// Create a [GemmExecutor] using the preferred kernel for the current system.
     pub fn new() -> GemmExecutor {
+        #[cfg(feature = "avx512")]
         #[cfg(target_arch = "x86_64")]
         {
+            use kernels::x64::Avx512Kernel;
+
+            if Avx512Kernel::supported() {
+                return GemmExecutor {
+                    kernel: Box::new(Avx512Kernel {}),
+                    nr: Avx512Kernel::NR,
+                    mr: Avx512Kernel::MR,
+                };
+            }
+        }
+        #[cfg(target_arch = "x86_64")]
+        {
+            use kernels::x64::FMAKernel;
+
             if FMAKernel::supported() {
                 return GemmExecutor {
                     kernel: Box::new(FMAKernel {}),
@@ -330,6 +330,12 @@ impl GemmExecutor {
         Self::with_base_kernel()
     }
 
+    /// Return the name of the kernel that this executor is using.
+    #[allow(dead_code)]
+    pub fn kernel_name(&self) -> &str {
+        self.kernel.name()
+    }
+
     /// Create a [GemmExecutor] using the given kernel.
     #[allow(dead_code)] // Currently only used in tests
     pub fn with_kernel(kernel: KernelHint) -> GemmExecutor {
@@ -339,6 +345,7 @@ impl GemmExecutor {
         }
     }
 
+    /// Construct a GemmExecutor that uses the generic kernel.
     fn with_base_kernel() -> GemmExecutor {
         GemmExecutor {
             kernel: Box::new(BaseKernel {}),
@@ -1401,6 +1408,8 @@ mod tests {
                 k: 512,
             },
         ];
+
+        println!("Testing kernel {}", GemmExecutor::new().kernel_name());
 
         for case in cases {
             let Case { m, n, k } = case;

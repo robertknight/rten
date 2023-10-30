@@ -1,5 +1,8 @@
-use super::gemm_impl;
-use super::packing::{pack_a_block, pack_b_block};
+use std::ops::Range;
+
+use wasnn_tensor::Matrix;
+
+use super::{GemmInputA, GemmInputB};
 
 #[cfg(target_arch = "x86_64")]
 pub mod x64;
@@ -18,6 +21,9 @@ pub trait Kernel {
 
     /// Width of output tiles computed by the kernel.
     const NR: usize;
+
+    /// Return a name for this kernel for use in logging etc.
+    fn name() -> &'static str;
 
     /// Return true if this kernel is usable on the current system.
     ///
@@ -44,6 +50,7 @@ pub trait Kernel {
 /// Object-safe trait for performing matrix multiplications and packing inputs
 /// with a specific kernel.
 pub trait GemmOps: Sync {
+    fn name(&self) -> &str;
     fn pack_a_block(&self, out: &mut [f32], a: Matrix, rows: Range<usize>, cols: Range<usize>);
     fn pack_b_block(&self, out: &mut [f32], a: Matrix, rows: Range<usize>, cols: Range<usize>);
     fn gemm(
@@ -63,44 +70,42 @@ pub trait GemmOps: Sync {
 /// stable Rust.
 macro_rules! impl_gemmops {
     ($kernel:ident) => {
-        use std::ops::Range;
-        use wasnn_tensor::Matrix;
+        impl crate::gemm::kernels::GemmOps for $kernel {
+            fn name(&self) -> &str {
+                <$kernel as crate::gemm::kernels::Kernel>::name()
+            }
 
-        use super::GemmInputA;
-        use super::GemmInputB;
-
-        impl GemmOps for $kernel {
             fn pack_a_block(
                 &self,
                 out: &mut [f32],
-                a: Matrix,
-                rows: Range<usize>,
-                cols: Range<usize>,
+                a: wasnn_tensor::Matrix,
+                rows: std::ops::Range<usize>,
+                cols: std::ops::Range<usize>,
             ) {
-                pack_a_block::<Self>(out, a, rows, cols);
+                crate::gemm::packing::pack_a_block::<Self>(out, a, rows, cols);
             }
 
             fn pack_b_block(
                 &self,
                 out: &mut [f32],
-                a: Matrix,
-                rows: Range<usize>,
-                cols: Range<usize>,
+                a: wasnn_tensor::Matrix,
+                rows: std::ops::Range<usize>,
+                cols: std::ops::Range<usize>,
             ) {
-                pack_b_block::<Self>(out, a, rows, cols);
+                crate::gemm::packing::pack_b_block::<Self>(out, a, rows, cols);
             }
 
             fn gemm(
                 &self,
                 out_data: &mut [f32],
                 out_row_stride: usize,
-                a: GemmInputA,
-                b: GemmInputB,
+                a: crate::gemm::GemmInputA,
+                b: crate::gemm::GemmInputB,
                 alpha: f32,
                 beta: f32,
                 bias: Option<&[f32]>,
             ) {
-                gemm_impl::<Self, { Self::MR * Self::NR }>(
+                crate::gemm::gemm_impl::<Self, { Self::MR * Self::NR }>(
                     out_data,
                     out_row_stride,
                     a,
@@ -119,6 +124,7 @@ use impl_gemmops;
 /// This is the base kernel that does not use architecture-specific intrinsics
 /// but is autovectorization-friendly. It is expected to perform the same as
 /// a kernel using SSE intrinsics (or equivalent).
+#[derive(Default)]
 pub struct BaseKernel {}
 
 impl Kernel for BaseKernel {
@@ -128,6 +134,10 @@ impl Kernel for BaseKernel {
     // registers are 128 bits wide = 4 x f32, so this should be a multiple of
     // that.
     const NR: usize = 4;
+
+    fn name() -> &'static str {
+        "base"
+    }
 
     fn supported() -> bool {
         true
