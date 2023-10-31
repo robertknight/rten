@@ -69,6 +69,85 @@ fn can_run_binary_op_in_place<T: Copy>(a: &Tensor<T>, b: &Tensor<T>) -> bool {
     b.can_broadcast_to(a.shape())
 }
 
+/// Check whether a tensor of shape `from_shape` can be broadcast to `to_shape`
+/// using fast broadcasting. Fast broadcasting is possible when:
+///
+///  - The view being broadcast has a contiguous layout (checked outside this function)
+///  - All the dimensions being broadcast are leading and/or trailing.
+///
+/// In this case broadcasting can be done by repeating and cycling through
+/// elements. Each element is repeated to broadcast trailing dims, and the
+/// whole sequence is cycled to broadcast leading dims.
+///
+/// Returns a tuple of `(cycles, repeats)` indicating the number of element
+/// repeats and sequence cycles needed.
+fn fast_broadcast_params(from_shape: &[usize], to_shape: &[usize]) -> Option<(usize, usize)> {
+    if from_shape == to_shape {
+        return Some((1, 1));
+    }
+
+    // When there is only one item, we have a choice of whether to return
+    // `Some(cycles, 1)` or `Some(1, repeats)`. The calling code is optimized
+    // to prefer the latter.
+    if from_shape.iter().product::<usize>() == 1 {
+        return Some((1, to_shape.iter().product()));
+    }
+
+    assert!(to_shape.len() >= from_shape.len());
+
+    // Implicitly left-pad `from_shape` with 1s to match length of `to_shape`.
+    let from_pad = to_shape.len() - from_shape.len();
+    let from_size = |dim| {
+        if dim < from_pad {
+            1
+        } else {
+            from_shape[dim - from_pad]
+        }
+    };
+
+    let mut leading_1s = 0; // Common leading 1s in both shapes
+    let mut leading_bcast = 0; // Leading dims to broadcast
+    let mut cycles = 1;
+    for (i, to) in to_shape.iter().copied().enumerate() {
+        let from = from_size(i);
+        if from == 1 && to == 1 {
+            leading_1s += 1;
+        } else if from == 1 && to > 1 {
+            leading_bcast += 1;
+            cycles *= to;
+        } else {
+            break;
+        }
+    }
+
+    let mut trailing_1s = 0; // Common trailing 1s in both shapes
+    let mut trailing_bcast = 0; // Trailing dims to broadcast
+    let mut repeats = 1;
+    for (i, to) in to_shape.iter().copied().enumerate().rev() {
+        let from = from_size(i);
+        if from == 1 && to == 1 {
+            trailing_1s += 1;
+        } else if from == 1 && to > 1 {
+            trailing_bcast += 1;
+            repeats *= to;
+        } else {
+            break;
+        }
+    }
+
+    for i in (leading_1s + leading_bcast)..(to_shape.len() - trailing_1s - trailing_bcast) {
+        let from = from_size(i);
+        let to = to_shape[i];
+        if from != to {
+            // A middle dimension that is sandwiched between non-broadcasted
+            // dims needs to be broadcast. We can't use fast broadcasting :(
+            return None;
+        }
+    }
+
+    Some((cycles, repeats))
+}
+
 /// Perform an elementwise binary operation in-place.
 ///
 /// This requires that `b` can be broadcast to the shape of `a`.
@@ -77,32 +156,34 @@ fn binary_op_in_place<T: Copy + Debug, F: Fn(T, T) -> T>(
     b: TensorView<T>,
     op: F,
 ) {
-    // Fast paths for contiguous LHS
-    if a.is_contiguous() {
-        if let Some(scalar) = b.item() {
-            // When RHS is a scalar, we don't need to iterate over it at all.
-            for a_elt in a.data_mut().iter_mut() {
-                *a_elt = op(*a_elt, *scalar);
+    // Fast paths for contiguous LHS and RHS and where RHS has same shape as
+    // LHS, or fast broadcasting is possible.
+    if a.is_contiguous() && b.is_contiguous() {
+        if let Some((cycles, repeats)) = fast_broadcast_params(b.shape(), a.shape()) {
+            assert!(cycles * b.data().len() * repeats == a.len());
+            let mut i = 0;
+            let a_data = a.data_mut();
+            for _ in 0..cycles {
+                if repeats == 1 {
+                    for b_elt in b.data() {
+                        // Safety: We checked the total loop count is in `[0, a.len())` above.
+                        let a_elt = unsafe { a_data.get_unchecked_mut(i) };
+                        *a_elt = op(*a_elt, *b_elt);
+                        i += 1;
+                    }
+                } else {
+                    for b_elt in b.data() {
+                        for _ in 0..repeats {
+                            // Safety: We checked the total loop count is in `[0, a.len())` above.
+                            let a_elt = unsafe { a_data.get_unchecked_mut(i) };
+                            *a_elt = op(*a_elt, *b_elt);
+                            i += 1;
+                        }
+                    }
+                }
             }
-        } else if a.shape() == b.shape() && b.is_contiguous() {
-            // When RHS is contiguous and same shape as LHS we can use a simple iterator.
-            for (a_elt, b_elt) in zip(a.data_mut().iter_mut(), b.data().iter()) {
-                *a_elt = op(*a_elt, *b_elt);
-            }
-        } else if &a.shape()[a.ndim() - b.ndim()..] == b.shape() && b.is_contiguous() {
-            // Variation of the above for when broadcasting just involves cycling
-            // the RHS.
-            for (a_elt, b_elt) in zip(a.data_mut().iter_mut(), b.data().iter().cycle()) {
-                *a_elt = op(*a_elt, *b_elt);
-            }
-        } else {
-            // Otherwise a more complex RHS iterator is required.
-            let b_elts = b.broadcast_iter(a.shape());
-            for (a_elt, b_elt) in zip(a.data_mut().iter_mut(), b_elts) {
-                *a_elt = op(*a_elt, *b_elt);
-            }
+            return;
         }
-        return;
     }
 
     let b_elts = b.broadcast_iter(a.shape());
@@ -623,11 +704,56 @@ mod tests {
     use wasnn_tensor::test_util::expect_equal;
     use wasnn_tensor::{tensor, Tensor};
 
+    use super::fast_broadcast_params;
     use crate::ops::{
         add, add_in_place, and, div, div_in_place, equal, greater, greater_or_equal, less,
         less_or_equal, mod_op, mul, mul_in_place, or, pow, pow_in_place, sub, sub_in_place,
         where_op, xor, Add, DivMode, OpError, Operator, Output,
     };
+
+    #[test]
+    fn test_fast_broadcast_params() {
+        // Scalar
+        let params = fast_broadcast_params(&[], &[1, 2, 3]);
+        assert_eq!(params, Some((1, 6)));
+
+        // All dims broadcast
+        let params = fast_broadcast_params(&[1, 1, 1], &[5, 6, 2]);
+        assert_eq!(params, Some((1, 60)));
+
+        // Same from/to shapes.
+        let params = fast_broadcast_params(&[3, 4, 5], &[3, 4, 5]);
+        assert_eq!(params, Some((1, 1)));
+
+        // Cycle only
+        let params = fast_broadcast_params(&[1, 1, 10], &[5, 2, 10]);
+        assert_eq!(params, Some((10, 1)));
+
+        // Repeat only
+        let params = fast_broadcast_params(&[10, 1, 1], &[10, 5, 6]);
+        assert_eq!(params, Some((1, 30)));
+
+        // Cycle + repeat
+        let params = fast_broadcast_params(&[1, 10, 1], &[5, 10, 6]);
+        assert_eq!(params, Some((5, 6)));
+
+        // Non-fast broadcast
+        let params = fast_broadcast_params(&[5, 1, 5], &[5, 6, 5]);
+        assert_eq!(params, None);
+
+        let params = fast_broadcast_params(&[1, 5, 1, 5, 1], &[2, 5, 6, 5, 2]);
+        assert_eq!(params, None);
+
+        // Implicit padding
+        let params = fast_broadcast_params(&[10], &[5, 3, 10]);
+        assert_eq!(params, Some((15, 1)));
+    }
+
+    #[test]
+    #[should_panic]
+    fn test_fast_broadcast_params_invalid() {
+        fast_broadcast_params(&[1, 2, 3], &[1, 2]);
+    }
 
     #[test]
     fn test_add() -> Result<(), String> {
