@@ -204,8 +204,12 @@ fn main() -> Result<(), Box<dyn Error>> {
         .node_info(input_id)
         .and_then(|info| info.shape())
         .ok_or("model does not specify expected input shape")?;
-    let (in_height, in_width) = match input_shape[..] {
-        [_, _, Dimension::Fixed(h), Dimension::Fixed(w)] => (h, w),
+    let (in_height, in_width) = match &input_shape[..] {
+        [_, _, h, w] => {
+            let h = if let Dimension::Fixed(h) = h { *h } else { 224 };
+            let w = if let Dimension::Fixed(w) = w { *w } else { 224 };
+            (h, w)
+        }
         _ => {
             return Err("failed to get model dims".into());
         }
@@ -221,7 +225,7 @@ fn main() -> Result<(), Box<dyn Error>> {
         .run_one(
             (&img_tensor).into(),
             Some(RunOptions {
-                timing: true,
+                timing: false,
                 verbose: false,
             }),
         )?
@@ -230,10 +234,21 @@ fn main() -> Result<(), Box<dyn Error>> {
     let (top_probs, top_classes) = logits
         .softmax(-1)?
         .topk(5, None, true /* largest */, true /* sorted */)?;
+    let is_imagenet_1k = logits.size(1) == 1000;
+
+    if !is_imagenet_1k {
+        println!("This doesn't look like an ImageNet-1K model. Real labels are unknown.");
+    }
 
     println!("Top classes:");
     for (&cls, &score) in top_classes.iter().zip(top_probs.iter()) {
-        println!("  {} ({}) ({})", IMAGENET_CLASSES[cls as usize], cls, score);
+        let label = if is_imagenet_1k {
+            IMAGENET_CLASSES[cls as usize]
+        } else {
+            "unknown"
+        };
+
+        println!("  {} ({}) ({})", label, cls, score);
     }
 
     Ok(())
