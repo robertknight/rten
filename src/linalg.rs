@@ -388,6 +388,8 @@ fn pack_a_block<K: Kernel>(out: &mut [f32], a: Matrix, rows: Range<usize>, cols:
 fn pack_b_block<K: Kernel>(out: &mut [f32], b: Matrix, rows: Range<usize>, cols: Range<usize>) {
     let b_cols = cols.len();
     let b_rows = rows.len();
+    let b_row_stride = b.row_stride();
+    let b_col_stride = b.col_stride();
 
     let n_panels = round_up(b_cols, K::NR) / K::NR;
     for panel in 0..n_panels {
@@ -397,12 +399,12 @@ fn pack_b_block<K: Kernel>(out: &mut [f32], b: Matrix, rows: Range<usize>, cols:
         if b_cols - panel_start_col >= K::NR {
             // Optimized loop for panels that don't need any padding
             let b_offset =
-                rows.start * b.row_stride() + (cols.start + panel_start_col) * b.col_stride();
+                rows.start * b_row_stride + (cols.start + panel_start_col) * b_col_stride;
 
             assert!(out.len() >= panel_offset + (b_rows - 1) * K::NR + K::NR);
             assert!(
                 b.data().len()
-                    > b_offset + (b_rows - 1) * b.row_stride() + (K::NR - 1) * b.col_stride()
+                    > b_offset + (b_rows - 1) * b_row_stride + (K::NR - 1) * b_col_stride
             );
 
             for row in 0..b_rows {
@@ -411,7 +413,7 @@ fn pack_b_block<K: Kernel>(out: &mut [f32], b: Matrix, rows: Range<usize>, cols:
                     unsafe {
                         *out.get_unchecked_mut(panel_offset + row * K::NR + col) = *b
                             .data()
-                            .get_unchecked(b_offset + row * b.row_stride() + col * b.col_stride());
+                            .get_unchecked(b_offset + row * b_row_stride + col * b_col_stride);
                     }
                 }
             }
@@ -419,12 +421,12 @@ fn pack_b_block<K: Kernel>(out: &mut [f32], b: Matrix, rows: Range<usize>, cols:
             // Fallback for final panel if padding is required
             for row in 0..b_rows {
                 let out_row_offset = panel_offset + row * K::NR;
-                let b_row_offset = (rows.start + row) * b.row_stride();
+                let b_row_offset = (rows.start + row) * b_row_stride;
 
                 for col in 0..K::NR {
                     let out_col = panel_start_col + col;
                     let b_offset =
-                        b_row_offset + (cols.start + panel_start_col + col) * b.col_stride();
+                        b_row_offset + (cols.start + panel_start_col + col) * b_col_stride;
 
                     out[out_row_offset + col] = if out_col < b_cols {
                         b.data()[b_offset]
