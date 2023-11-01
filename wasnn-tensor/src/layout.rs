@@ -173,18 +173,22 @@ impl<const N: usize> Layout for NdLayout<N> {
 }
 
 impl MatrixLayout for NdLayout<2> {
+    #[inline]
     fn rows(&self) -> usize {
         self.size(0)
     }
 
+    #[inline]
     fn cols(&self) -> usize {
         self.size(1)
     }
 
+    #[inline]
     fn row_stride(&self) -> usize {
         self.stride(0)
     }
 
+    #[inline]
     fn col_stride(&self) -> usize {
         self.stride(1)
     }
