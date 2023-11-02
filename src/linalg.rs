@@ -352,13 +352,27 @@ fn pack_a_block<K: Kernel>(out: &mut [f32], a: Matrix, rows: Range<usize>, cols:
                 a.data().len() > a_offset + (K::MR - 1) * row_stride + (a_cols - 1) * col_stride
             );
 
-            for col in 0..a_cols {
-                for row in 0..K::MR {
-                    // Safety: Indexes are less than lengths asserted above.
-                    unsafe {
-                        *out.get_unchecked_mut(panel_offset + col * K::MR + row) = *a
-                            .data()
-                            .get_unchecked(a_offset + row * row_stride + col * col_stride);
+            // Optimize for common case of unit stride as this generates better
+            // code.
+            if col_stride == 1 {
+                for col in 0..a_cols {
+                    for row in 0..K::MR {
+                        // Safety: Indexes are less than lengths asserted above.
+                        unsafe {
+                            *out.get_unchecked_mut(panel_offset + col * K::MR + row) =
+                                *a.data().get_unchecked(a_offset + row * row_stride + col);
+                        }
+                    }
+                }
+            } else {
+                for col in 0..a_cols {
+                    for row in 0..K::MR {
+                        // Safety: Indexes are less than lengths asserted above.
+                        unsafe {
+                            *out.get_unchecked_mut(panel_offset + col * K::MR + row) = *a
+                                .data()
+                                .get_unchecked(a_offset + row * row_stride + col * col_stride);
+                        }
                     }
                 }
             }
@@ -390,6 +404,7 @@ fn pack_b_block<K: Kernel>(out: &mut [f32], b: Matrix, rows: Range<usize>, cols:
     let b_rows = rows.len();
     let b_row_stride = b.row_stride();
     let b_col_stride = b.col_stride();
+    let b_data = b.data();
 
     let n_panels = round_up(b_cols, K::NR) / K::NR;
     for panel in 0..n_panels {
@@ -407,13 +422,31 @@ fn pack_b_block<K: Kernel>(out: &mut [f32], b: Matrix, rows: Range<usize>, cols:
                     > b_offset + (b_rows - 1) * b_row_stride + (K::NR - 1) * b_col_stride
             );
 
-            for row in 0..b_rows {
-                for col in 0..K::NR {
-                    // Safety: Indexes are less than lengths asserted above.
-                    unsafe {
-                        *out.get_unchecked_mut(panel_offset + row * K::NR + col) = *b
-                            .data()
-                            .get_unchecked(b_offset + row * b_row_stride + col * b_col_stride);
+            // Optimize for common case of unit stride, as this makes the inner
+            // loop a simple memcpy for which the compiler generates much better
+            // code.
+            if b_col_stride == 1 {
+                for row in 0..b_rows {
+                    let out_offset = panel_offset + row * K::NR;
+                    let in_offset = b_offset + row * b_row_stride;
+                    for col in 0..K::NR {
+                        // Safety: Indexes are less than lengths asserted above.
+                        unsafe {
+                            *out.get_unchecked_mut(out_offset + col) =
+                                *b_data.get_unchecked(in_offset + col);
+                        }
+                    }
+                }
+            } else {
+                for row in 0..b_rows {
+                    let out_offset = panel_offset + row * K::NR;
+                    let in_offset = b_offset + row * b_row_stride;
+                    for col in 0..K::NR {
+                        // Safety: Indexes are less than lengths asserted above.
+                        unsafe {
+                            *out.get_unchecked_mut(out_offset + col) =
+                                *b_data.get_unchecked(in_offset + col * b_col_stride);
+                        }
                     }
                 }
             }
@@ -429,7 +462,7 @@ fn pack_b_block<K: Kernel>(out: &mut [f32], b: Matrix, rows: Range<usize>, cols:
                         b_row_offset + (cols.start + panel_start_col + col) * b_col_stride;
 
                     out[out_row_offset + col] = if out_col < b_cols {
-                        b.data()[b_offset]
+                        b_data[b_offset]
                     } else {
                         0.0
                     };
