@@ -41,6 +41,12 @@ struct InputConfig {
 
     /// Expected order of dimensions in the input tensor.
     dim_order: DimOrder,
+
+    /// Default input width if the model does not specify a fixed width.
+    default_width: u16,
+
+    /// Default input height if the model does not specify a fixed height.
+    default_height: u16,
 }
 
 /// Read an image from `path` into an NCHW or NHWC tensor, depending on
@@ -85,6 +91,8 @@ const MOBILEVIT_CONFIG: InputConfig = InputConfig {
     chan_order: ChannelOrder::Bgr,
     norm: PixelNorm::NoNorm,
     dim_order: DimOrder::Nchw,
+    default_width: 256,
+    default_height: 256,
 };
 
 // Config for EfficientNet model from ONNX Model Zoo.
@@ -94,6 +102,8 @@ const EFFICIENTNET_CONFIG: InputConfig = InputConfig {
     chan_order: ChannelOrder::Rgb,
     norm: PixelNorm::ImageNetNorm,
     dim_order: DimOrder::Nhwc,
+    default_width: 224,
+    default_height: 224,
 };
 
 // Config for MobileNet model from ONNX Model Zoo.
@@ -105,6 +115,8 @@ const MOBILENET_CONFIG: InputConfig = InputConfig {
     chan_order: ChannelOrder::Rgb,
     norm: PixelNorm::ImageNetNorm,
     dim_order: DimOrder::Nchw,
+    default_width: 224,
+    default_height: 224,
 };
 
 struct Args {
@@ -206,8 +218,16 @@ fn main() -> Result<(), Box<dyn Error>> {
         .ok_or("model does not specify expected input shape")?;
     let (in_height, in_width) = match &input_shape[..] {
         [_, _, h, w] => {
-            let h = if let Dimension::Fixed(h) = h { *h } else { 224 };
-            let w = if let Dimension::Fixed(w) = w { *w } else { 224 };
+            let h = if let Dimension::Fixed(h) = h {
+                *h
+            } else {
+                args.config.default_height as usize
+            };
+            let w = if let Dimension::Fixed(w) = w {
+                *w
+            } else {
+                args.config.default_width as usize
+            };
             (h, w)
         }
         _ => {
