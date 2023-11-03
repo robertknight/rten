@@ -71,9 +71,10 @@ fn main() -> Result<(), Box<dyn Error>> {
     // ];
 
     let mut output_tokens: Vec<i32> = vec![0];
+    let max_tokens = 20;
 
     let eos_token = 1;
-    while output_tokens.last() != Some(&eos_token) {
+    while output_tokens.last() != Some(&eos_token) && output_tokens.len() < max_tokens {
         let mut decoder_tokens: Tensor<i32> = Tensor::from_vec(output_tokens.clone());
         decoder_tokens.insert_dim(0);
 
