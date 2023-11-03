@@ -5,7 +5,7 @@ use wasnn_tensor::Matrix;
 use wasnn_tensor::{Tensor, TensorView};
 
 use crate::check_dims;
-use crate::linalg::gemm;
+use crate::linalg::{gemm, GemmExecutor, GemmInputA, GemmInputB};
 use crate::ops::binary_elementwise::broadcast_shapes;
 use crate::ops::{InputList, IntoOpResult, OpError, Operator, Output};
 
@@ -126,22 +126,52 @@ pub fn matmul(a: TensorView, b: TensorView) -> Result<Tensor, OpError> {
     let out_row_stride = output.stride(output.ndim() - 2);
     let out_batches = output.data_mut().chunks_mut(out_row_stride * a_rows);
 
+    let a_repeats: usize = a_prefix.iter().product();
+    let b_repeats: usize = b_prefix.iter().product();
+
+    let gemm = GemmExecutor::new();
+
+    // Prepack re-used inputs to amortize packing cost.
+    let prepacked_a = (a_repeats == 1 && b_repeats > 1).then(|| {
+        let a_matrix = a.inner_iter::<2>().next().unwrap();
+        gemm.prepack_a(a_matrix)
+    });
+    let prepacked_b = (a_repeats > 1 && b_repeats == 1).then(|| {
+        let b_matrix = b.inner_iter::<2>().next().unwrap();
+        gemm.prepack_b(b_matrix, a_cols)
+    });
+
     for (out_batch, (a_offset, b_offset)) in zip(out_batches, zip(a_offsets, b_offsets)) {
-        gemm(
-            out_batch,
-            out_row_stride,
-            Matrix::from_slice(
-                &a.data()[a_offset..],
-                [a_rows, a_cols],
-                Some([a.stride(a.ndim() - 2), a.stride(a.ndim() - 1)]),
+        let a_input = if let Some(prepacked_a) = prepacked_a.as_ref() {
+            GemmInputA::Packed(prepacked_a)
+        } else {
+            GemmInputA::Unpacked(
+                Matrix::from_slice(
+                    &a.data()[a_offset..],
+                    [a_rows, a_cols],
+                    Some([a.stride(a.ndim() - 2), a.stride(a.ndim() - 1)]),
+                )
+                .unwrap(),
             )
-            .unwrap(),
-            Matrix::from_slice(
+        };
+
+        let b_input = if let Some(prepacked_b) = prepacked_b.as_ref() {
+            GemmInputB::Packed(prepacked_b)
+        } else {
+            let mat = Matrix::from_slice(
                 &b.data()[b_offset..],
                 [b_rows, b_cols],
                 Some([b.stride(b.ndim() - 2), b.stride(b.ndim() - 1)]),
             )
-            .unwrap(),
+            .unwrap();
+            GemmInputB::Unpacked(mat)
+        };
+
+        gemm.gemm(
+            out_batch,
+            out_row_stride,
+            a_input,
+            b_input,
             1., // alpha
             0., // beta
         );
