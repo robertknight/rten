@@ -1,5 +1,7 @@
 use std::iter::zip;
 
+use rayon::prelude::*;
+
 use wasnn_tensor::prelude::*;
 use wasnn_tensor::Matrix;
 use wasnn_tensor::{Tensor, TensorView};
@@ -141,41 +143,43 @@ pub fn matmul(a: TensorView, b: TensorView) -> Result<Tensor, OpError> {
         gemm.prepack_b(b_matrix, a_cols)
     });
 
-    for (out_batch, (a_offset, b_offset)) in zip(out_batches, zip(a_offsets, b_offsets)) {
-        let a_input = if let Some(prepacked_a) = prepacked_a.as_ref() {
-            GemmInputA::Packed(prepacked_a)
-        } else {
-            GemmInputA::Unpacked(
-                Matrix::from_slice(
-                    &a.data()[a_offset..],
-                    [a_rows, a_cols],
-                    Some([a.stride(a.ndim() - 2), a.stride(a.ndim() - 1)]),
+    zip(out_batches, zip(a_offsets, b_offsets))
+        .par_bridge()
+        .for_each(|(out_batch, (a_offset, b_offset))| {
+            let a_input = if let Some(prepacked_a) = prepacked_a.as_ref() {
+                GemmInputA::Packed(prepacked_a)
+            } else {
+                GemmInputA::Unpacked(
+                    Matrix::from_slice(
+                        &a.data()[a_offset..],
+                        [a_rows, a_cols],
+                        Some([a.stride(a.ndim() - 2), a.stride(a.ndim() - 1)]),
+                    )
+                    .unwrap(),
                 )
-                .unwrap(),
-            )
-        };
+            };
 
-        let b_input = if let Some(prepacked_b) = prepacked_b.as_ref() {
-            GemmInputB::Packed(prepacked_b)
-        } else {
-            let mat = Matrix::from_slice(
-                &b.data()[b_offset..],
-                [b_rows, b_cols],
-                Some([b.stride(b.ndim() - 2), b.stride(b.ndim() - 1)]),
-            )
-            .unwrap();
-            GemmInputB::Unpacked(mat)
-        };
+            let b_input = if let Some(prepacked_b) = prepacked_b.as_ref() {
+                GemmInputB::Packed(prepacked_b)
+            } else {
+                let mat = Matrix::from_slice(
+                    &b.data()[b_offset..],
+                    [b_rows, b_cols],
+                    Some([b.stride(b.ndim() - 2), b.stride(b.ndim() - 1)]),
+                )
+                .unwrap();
+                GemmInputB::Unpacked(mat)
+            };
 
-        gemm.gemm(
-            out_batch,
-            out_row_stride,
-            a_input,
-            b_input,
-            1., // alpha
-            0., // beta
-        );
-    }
+            gemm.gemm(
+                out_batch,
+                out_row_stride,
+                a_input,
+                b_input,
+                1., // alpha
+                0., // beta
+            );
+        });
 
     Ok(output)
 }
