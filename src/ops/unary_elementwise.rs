@@ -273,7 +273,55 @@ impl Operator for Clip {
 }
 
 unary_float_op!(Cos, cos, cos_in_place, |val: f32| val.cos());
-unary_float_op!(Erf, erf, erf_in_place, libm::erff);
+
+/// Evaluate a polynomial using Horner's method.
+///
+/// Computes `x * coeffs[0] + x^2 * coeffs[1] ... x^n * coeffs[N]`.
+fn poly_eval(x: f32, coeffs: &[f32]) -> f32 {
+    let mut y = coeffs[coeffs.len() - 1];
+    for i in (0..coeffs.len() - 1).rev() {
+        y = y * x + coeffs[i];
+    }
+    y * x
+}
+
+/// Fast implementation of error function (erf).
+///
+/// The implementation uses an approximation from Abramowitz and Stegun,
+/// see https://en.wikipedia.org/wiki/Error_function#Approximation_with_elementary_functions.
+fn fast_erf(x: f32) -> f32 {
+    let orig_x = x;
+    let x = x.abs();
+
+    let p = 0.3275911;
+
+    // Values are more precise than f32 allows, but they match the constants
+    // from the source.
+    #[allow(clippy::excessive_precision)]
+    let a = [
+        0.254829592,
+        -0.284496736,
+        1.421413741,
+        -1.453152027,
+        1.061405429,
+    ];
+    let t = 1. / (1. + p * x);
+    let at = poly_eval(t, &a);
+    let x_m2 = -(x * x);
+    let exp_mx2 = x_m2.exp();
+
+    let y = 1. - at * exp_mx2;
+
+    // Approximation is valid only for x >= 0. For negative values approximation
+    // can be computed as -erf(-x).
+    if orig_x < 0. {
+        -y
+    } else {
+        y
+    }
+}
+
+unary_float_op!(Erf, erf, erf_in_place, fast_erf);
 unary_float_op!(Exp, exp, exp_in_place, |val: f32| val.exp());
 unary_float_op!(Floor, floor, floor_in_place, |val: f32| val.floor());
 
@@ -426,8 +474,9 @@ unary_float_op!(Tanh, tanh, tanh_in_place, |val: f32| val.tanh());
 
 #[cfg(test)]
 mod tests {
-    use wasnn_tensor::test_util::{eq_with_nans, expect_equal};
-    use wasnn_tensor::{tensor, Tensor, View};
+    use wasnn_tensor::rng::XorShiftRng;
+    use wasnn_tensor::test_util::{eq_with_nans, expect_equal, expect_equal_with_tolerance};
+    use wasnn_tensor::{tensor, RandomSource, Tensor, View};
 
     use crate::ops::tests::expect_eq_1e4;
     use crate::ops::{
@@ -459,6 +508,40 @@ mod tests {
                 Ok(())
             }
         };
+    }
+
+    /// Source for `Tensor::rand` that generates values in a given range.
+    struct RandomFloat {
+        rng: XorShiftRng,
+        min: f32,
+        max: f32,
+    }
+
+    impl RandomFloat {
+        /// Create a new generator with a default range of `[0, 1)`.
+        fn new(seed: u64) -> RandomFloat {
+            RandomFloat {
+                rng: XorShiftRng::new(seed),
+                min: 0.,
+                max: 1.,
+            }
+        }
+
+        /// Convert `self` into a generator of values in `[min, max)`.
+        fn with_range(self, min: f32, max: f32) -> RandomFloat {
+            RandomFloat {
+                rng: self.rng,
+                min,
+                max,
+            }
+        }
+    }
+
+    impl RandomSource<f32> for RandomFloat {
+        fn next(&mut self) -> f32 {
+            let x = self.rng.next();
+            self.min + (self.max - self.min) * x
+        }
     }
 
     #[test]
@@ -561,7 +644,31 @@ mod tests {
             0.9953222650189527,
         ]);
         let result = erf(input.view());
-        expect_equal(&result, &expected)
+        expect_equal(&result, &expected)?;
+
+        // Since we use a custom implementation of erf, do a test against the
+        // standard library version with a lower tolerance than `expect_equal`s
+        // default.
+        //
+        // `libm::erff` agrees with the higher precision `libm::erf` to a a
+        // tolerance of ~1e-7. This implementation however agrees only to a
+        // higher tolerance of ~1e-6. You should increase `samples` to a much
+        // larger value if testing accuracy changes.
+        let mut rng = RandomFloat::new(3456).with_range(-5., 5.);
+        let samples = 1000;
+        let input = Tensor::rand(&[samples], &mut rng);
+
+        let expected = input.map(|x| libm::erff(*x));
+        let result = erf(input.view());
+        expect_equal_with_tolerance(&result, &expected, 1e-6)?;
+
+        // Special values.
+        let input = tensor!([f32::NAN, 0., f32::INFINITY, -f32::INFINITY]);
+        let expected = tensor!([f32::NAN, 0., 1., -1.]);
+        let result = erf(input.view());
+        assert!(eq_with_nans(result.view(), expected.view()));
+
+        Ok(())
     }
 
     #[test]
