@@ -667,6 +667,7 @@ mod tests {
     use wasnn_tensor::{Tensor, TensorView};
 
     use crate::ops::pooling::calc_output_size_and_padding;
+    use crate::ops::tests::expect_eq_1e4;
     use crate::ops::{conv, conv_transpose, Conv, OpError, Operator, Padding};
 
     /// Un-optimized reference implementation of convolution.
@@ -809,7 +810,7 @@ mod tests {
             &[1, 1], /* stride */
             &[1, 1], /* dilations */
         )?;
-        expect_equal(&result, &expected_with_same_padding)?;
+        expect_eq_1e4(&result, &expected_with_same_padding)?;
 
         let expected_with_no_padding = Tensor::from_data(&[1, 1, 1, 1], vec![2.6358]);
 
@@ -822,7 +823,7 @@ mod tests {
             &[1, 1], /* stride */
             &[1, 1], /* dilations */
         )?;
-        expect_equal(&result, &expected_with_no_padding)?;
+        expect_eq_1e4(&result, &expected_with_no_padding)?;
 
         let expected_with_bias = Tensor::from_data(&[1, 1, 1, 1], vec![3.6358]);
         let bias = Tensor::from_data(&[1], vec![1.0]);
@@ -835,7 +836,7 @@ mod tests {
             &[1, 1], /* stride */
             &[1, 1], /* dilations */
         )?;
-        expect_equal(&result, &expected_with_bias)?;
+        expect_eq_1e4(&result, &expected_with_bias)?;
 
         Ok(())
     }

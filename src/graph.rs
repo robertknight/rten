@@ -702,7 +702,7 @@ mod tests {
     use std::sync::{Arc, Mutex};
 
     use wasnn_tensor::prelude::*;
-    use wasnn_tensor::test_util::expect_equal;
+    use wasnn_tensor::test_util::{expect_equal, expect_equal_with_tolerance};
     use wasnn_tensor::{tensor, Tensor};
 
     use crate::graph::{Dimension, Graph, RunError};
@@ -822,7 +822,7 @@ mod tests {
             ],
         );
         assert_eq!(results.len(), 1);
-        expect_equal(results[0].as_float_ref().unwrap(), &expected)
+        expect_equal_with_tolerance(results[0].as_float_ref().unwrap(), &expected, 1e-4)
     }
 
     #[test]

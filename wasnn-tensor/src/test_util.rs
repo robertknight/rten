@@ -7,20 +7,38 @@ use crate::{Layout, TensorView, View};
 ///
 /// Here "approximately" means "a value that is reasonable for this crate's
 /// tests".
-pub trait ApproxEq {
-    fn approx_eq(&self, other: &Self) -> bool;
+pub trait ApproxEq: Sized {
+    /// Return the default absolute tolerance value.
+    fn default_tolerance() -> Self;
+
+    /// Test if `other` is approximately equal to `self` with a maximum
+    /// absolute difference of `epsilon`.
+    fn approx_eq_with_tolerance(&self, other: &Self, epsilon: Self) -> bool;
+
+    /// Test if `other` is approximately equal to `self` with the maximum
+    /// absolute difference specified by `Self::default_tolerance`.
+    fn approx_eq(&self, other: &Self) -> bool {
+        self.approx_eq_with_tolerance(other, Self::default_tolerance())
+    }
 }
 
 impl ApproxEq for f32 {
-    fn approx_eq(&self, other: &f32) -> bool {
-        let eps = 1e-4;
-        (self - other).abs() < eps
+    fn default_tolerance() -> f32 {
+        1e-5
+    }
+
+    fn approx_eq_with_tolerance(&self, other: &f32, epsilon: f32) -> bool {
+        (self - other).abs() < epsilon
     }
 }
 
 impl ApproxEq for i32 {
-    fn approx_eq(&self, other: &i32) -> bool {
-        *self == *other
+    fn default_tolerance() -> i32 {
+        0
+    }
+
+    fn approx_eq_with_tolerance(&self, other: &i32, eps: i32) -> bool {
+        (self - other).abs() < eps
     }
 }
 
@@ -50,7 +68,18 @@ fn index_from_linear_index(shape: &[usize], lin_index: usize) -> Vec<usize> {
 /// the count of mismatches and details of the first N cases.
 pub fn expect_equal<V: View>(x: &V, y: &V) -> Result<(), String>
 where
-    V::Elem: ApproxEq + Debug,
+    V::Elem: Clone + Debug + ApproxEq,
+{
+    expect_equal_with_tolerance(x, y, V::Elem::default_tolerance())
+}
+
+/// Check that the shapes of two tensors are equal and that their contents
+/// are approximately equal.
+///
+/// This is like [expect_equal] but allows a custom absolute tolerance value.
+pub fn expect_equal_with_tolerance<V: View>(x: &V, y: &V, epsilon: V::Elem) -> Result<(), String>
+where
+    V::Elem: Clone + Debug + ApproxEq,
 {
     if x.shape() != y.shape() {
         return Err(format!(
@@ -63,7 +92,7 @@ where
     let mismatches: Vec<_> = zip(x.iter(), y.iter())
         .enumerate()
         .filter_map(|(i, (xi, yi))| {
-            if !xi.approx_eq(yi) {
+            if !xi.approx_eq_with_tolerance(yi, epsilon.clone()) {
                 Some((index_from_linear_index(x.shape().as_ref(), i), xi, yi))
             } else {
                 None

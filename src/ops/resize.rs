@@ -338,6 +338,7 @@ mod tests {
     use wasnn_tensor::test_util::expect_equal;
     use wasnn_tensor::Tensor;
 
+    use crate::ops::tests::expect_eq_1e4;
     use crate::ops::{
         resize, CoordTransformMode, InputList, NearestMode, OpError, Operator, Resize, ResizeMode,
         ResizeTarget,
@@ -586,7 +587,7 @@ mod tests {
             )
             .unwrap();
 
-            expect_equal(&result, &case.expected)?;
+            expect_eq_1e4(&result, &case.expected)?;
         }
 
         Ok(())

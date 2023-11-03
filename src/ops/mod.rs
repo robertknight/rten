@@ -755,3 +755,18 @@ pub fn resolve_axes<'a, I: ExactSizeIterator<Item = &'a i32>>(
     }
     Ok(resolved_axes)
 }
+
+#[cfg(test)]
+mod tests {
+    use wasnn_tensor::prelude::*;
+    use wasnn_tensor::test_util::expect_equal_with_tolerance;
+
+    /// Compare two f32 tensors with a higher tolerance (1e-4) than the default
+    /// (1e-5).
+    ///
+    /// Tests that use this generally ought to use a lower tolerance, but
+    /// their test expectations will often need updating to a higher precision.
+    pub fn expect_eq_1e4<V: View<Elem = f32>>(result: &V, expected: &V) -> Result<(), String> {
+        expect_equal_with_tolerance(result, expected, 1e-4)
+    }
+}

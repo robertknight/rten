@@ -364,6 +364,7 @@ mod tests {
     use wasnn_tensor::test_util::expect_equal;
     use wasnn_tensor::{tensor, Tensor};
 
+    use crate::ops::tests::expect_eq_1e4;
     use crate::ops::{
         batch_norm, batch_norm_in_place, instance_normalization, log_softmax, softmax,
     };
@@ -441,7 +442,7 @@ mod tests {
         let result =
             instance_normalization(input.view(), scale.nd_view(), bias.nd_view(), None).unwrap();
 
-        expect_equal(&result, &expected)
+        expect_eq_1e4(&result, &expected)
     }
 
     #[test]
@@ -450,19 +451,19 @@ mod tests {
         let mut input = tensor!([0.1634, 0.8647, 0.6401, 0.8265, 0.0560]);
         let mut expected = tensor!([-2.0104, -1.3091, -1.5337, -1.3473, -2.1178]);
         let result = log_softmax(input.view(), 0).unwrap();
-        expect_equal(&result, &expected)?;
+        expect_eq_1e4(&result, &expected)?;
 
         // Second dimension of 2D input
         input.reshape(&[1, 5]);
         expected.reshape(&[1, 5]);
         let result = log_softmax(input.view(), 1).unwrap();
-        expect_equal(&result, &expected)?;
+        expect_eq_1e4(&result, &expected)?;
 
         // First dimension of 2D input
         input.reshape(&[5, 1]);
         expected.reshape(&[5, 1]);
         let result = log_softmax(input.view(), 0).unwrap();
-        expect_equal(&result, &expected)?;
+        expect_eq_1e4(&result, &expected)?;
 
         // Second dimension of 2D input with multiple entries in first dim
         let matrix_input = Tensor::from_data(
@@ -480,7 +481,7 @@ mod tests {
             ],
         );
         let result = log_softmax(matrix_input.view(), 1).unwrap();
-        expect_equal(&result, &matrix_expected)
+        expect_eq_1e4(&result, &matrix_expected)
     }
 
     #[test]
@@ -489,19 +490,19 @@ mod tests {
         let mut input = tensor!([0.1634, 0.8647, 0.6401, 0.8265, 0.0560]);
         let mut expected = tensor!([0.1339, 0.2701, 0.2157, 0.2599, 0.1203]);
         let result = softmax(input.view(), 0).unwrap();
-        expect_equal(&result, &expected)?;
+        expect_eq_1e4(&result, &expected)?;
 
         // Softmax on final dimension of 2D input
         input.reshape(&[1, 5]);
         expected.reshape(&[1, 5]);
         let result = softmax(input.view(), 1).unwrap();
-        expect_equal(&result, &expected)?;
+        expect_eq_1e4(&result, &expected)?;
 
         // Softmax on first dimension of 2D input
         input.reshape(&[5, 1]);
         expected.reshape(&[5, 1]);
         let result = softmax(input.view(), 0).unwrap();
-        expect_equal(&result, &expected)?;
+        expect_eq_1e4(&result, &expected)?;
 
         // Softmax on second dimension of 2D input with multiple entries in
         // first dim
@@ -520,7 +521,7 @@ mod tests {
             ],
         );
         let result = softmax(matrix_input.view(), 1).unwrap();
-        expect_equal(&result, &matrix_expected)
+        expect_eq_1e4(&result, &matrix_expected)
     }
 
     // Test softmax with non-contiguous input.
@@ -544,7 +545,7 @@ mod tests {
         input.permute(&[1, 0]);
         let result = softmax(input.view(), 1).unwrap();
 
-        expect_equal(&result, &expected)
+        expect_eq_1e4(&result, &expected)
     }
 
     // Test softmax with some additional input sizes and axis dimensions.

@@ -1293,7 +1293,7 @@ mod tests {
 
     use wasnn_tensor::prelude::*;
     use wasnn_tensor::rng::XorShiftRng;
-    use wasnn_tensor::test_util::expect_equal;
+    use wasnn_tensor::test_util::{expect_equal, expect_equal_with_tolerance};
     use wasnn_tensor::{Matrix, MatrixLayout, Tensor};
 
     use crate::linalg::{
@@ -1773,7 +1773,7 @@ mod tests {
             );
             reference_gemm(&mut expected, &a, &b, 1., 1., None);
 
-            expect_equal(&result, &expected)?;
+            expect_equal_with_tolerance(&result, &expected, 1e-4)?;
         }
 
         Ok(())

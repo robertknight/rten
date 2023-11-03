@@ -429,6 +429,7 @@ mod tests {
     use wasnn_tensor::test_util::{eq_with_nans, expect_equal};
     use wasnn_tensor::{tensor, Tensor, View};
 
+    use crate::ops::tests::expect_eq_1e4;
     use crate::ops::{
         abs, acos, acos_in_place, asin, asin_in_place, atan, atan_in_place, ceil, clip,
         clip_in_place, cos, cos_in_place, erf, erf_in_place, exp, exp_in_place, floor,
@@ -777,11 +778,11 @@ mod tests {
         );
 
         let result = sigmoid(input.view());
-        expect_equal(&result, &expected)?;
+        expect_eq_1e4(&result, &expected)?;
 
         let mut result = input.clone();
         sigmoid_in_place(&mut result);
-        expect_equal(&result, &expected)
+        expect_eq_1e4(&result, &expected)
     }
 
     test_unary_op!(test_sin, sin, sin_in_place, |x: &f32| x.sin());

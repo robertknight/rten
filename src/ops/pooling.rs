@@ -361,6 +361,7 @@ mod tests {
     use wasnn_tensor::Tensor;
 
     use super::calc_output_size_and_padding;
+    use crate::ops::tests::expect_eq_1e4;
     use crate::ops::{average_pool, global_average_pool, max_pool, OpError, Padding};
 
     fn from_2d_slice<T: Clone>(data: &[&[T]]) -> Tensor<T> {
@@ -483,7 +484,7 @@ mod tests {
             [1, 1, 1, 1].into(),
         )
         .unwrap();
-        expect_equal(&result, &expected)
+        expect_eq_1e4(&result, &expected)
     }
 
     #[test]
