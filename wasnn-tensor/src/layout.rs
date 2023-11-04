@@ -198,23 +198,27 @@ impl MatrixLayout for NdLayout<2> {
 ///
 /// Returns an `(ndim, offset)` tuple for the number of dimensions in the
 /// slice and the offset of the first element in the parent view's data.
-fn slice_layout(
-    in_shape: &[usize],
-    in_strides: &[usize],
-    out_shape: &mut [usize],
-    out_strides: &mut [usize],
+///
+/// This function is generic to allow for specialized variants to be generated
+/// when slicing with statically known input or output shape sizes.
+fn slice_layout<I: AsRef<[usize]>, O: AsMut<[usize]>>(
+    in_shape: I,
+    in_strides: I,
+    mut out_shape: O,
+    mut out_strides: O,
     range: &[SliceItem],
 ) -> Result<(usize, usize), SliceError> {
+    let in_shape = in_shape.as_ref();
+    let in_strides = in_strides.as_ref();
+    let out_shape = out_shape.as_mut();
+    let out_strides = out_strides.as_mut();
+
     let mut ndim = 0;
     let mut offset = 0;
 
     for (in_dim, (&size, &stride)) in zip(in_shape.iter(), in_strides.iter()).enumerate() {
-        let item = range
-            .get(in_dim)
-            .cloned()
-            .unwrap_or(SliceItem::full_range());
-        let (offset_adjust, new_size_stride) = match item {
-            SliceItem::Index(idx) => {
+        let (offset_adjust, new_size_stride) = match range.get(in_dim) {
+            Some(&SliceItem::Index(idx)) => {
                 let size = size as isize;
                 let pos_idx = if idx >= 0 { idx } else { idx + size };
                 if pos_idx < 0 || pos_idx >= size {
@@ -222,7 +226,7 @@ fn slice_layout(
                 }
                 (stride * pos_idx as usize, None)
             }
-            SliceItem::Range(range) => {
+            Some(SliceItem::Range(range)) => {
                 let resolved = range.resolve(size).ok_or(SliceError::InvalidRange)?;
                 let step: usize = range
                     .step()
@@ -237,6 +241,7 @@ fn slice_layout(
                 let new_stride = stride * step;
                 (stride * resolved.start, Some((new_size, new_stride)))
             }
+            None => (0, Some((size, stride))),
         };
 
         offset += offset_adjust;
