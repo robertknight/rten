@@ -856,6 +856,19 @@ def op_node_from_onnx_operator(
     )
 
 
+def duplicate_node_names(nodes: list[onnx.ValueInfoProto]) -> list[str]:
+    """
+    Check for node names which are duplicated in `nodes` and return the
+    duplicates.
+    """
+    dupes = []
+    names = list(n.name for n in nodes)
+    for name in set(names):
+        if names.count(name) > 1:
+            dupes.append(name)
+    return dupes
+
+
 def graph_from_onnx_graph(onnx_graph: onnx.GraphProto) -> Graph:
     """
     Parse an ONNX model into a graph representation compatible with this library.
@@ -938,6 +951,18 @@ def graph_from_onnx_graph(onnx_graph: onnx.GraphProto) -> Graph:
     if conversion_errors > 0:
         raise ValueError(
             f"Errors occurred when converting {conversion_errors} operators"
+        )
+
+    dup_inputs = duplicate_node_names(list(onnx_graph.input))
+    if dup_inputs:
+        raise ValueError(
+            f"ONNX graph contains duplicate input names: {', '.join(dup_inputs)}"
+        )
+
+    dup_outputs = duplicate_node_names(list(onnx_graph.output))
+    if dup_outputs:
+        raise ValueError(
+            f"ONNX graph contains duplicate output names: {', '.join(dup_outputs)}"
         )
 
     inputs = [tensor_map[info.name] for info in onnx_graph.input]
