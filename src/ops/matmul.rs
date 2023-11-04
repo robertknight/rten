@@ -128,17 +128,17 @@ pub fn matmul(a: TensorView, b: TensorView) -> Result<Tensor, OpError> {
     let out_row_stride = output.stride(output.ndim() - 2);
     let out_batches = output.data_mut().chunks_mut(out_row_stride * a_rows);
 
-    let a_repeats: usize = a_prefix.iter().product();
-    let b_repeats: usize = b_prefix.iter().product();
+    let num_a_matrices: usize = a_prefix.iter().product();
+    let num_b_matrices: usize = b_prefix.iter().product();
 
     let gemm = GemmExecutor::new();
 
     // Prepack re-used inputs to amortize packing cost.
-    let prepacked_a = (a_repeats == 1 && b_repeats > 1).then(|| {
+    let prepacked_a = (num_a_matrices == 1 && num_b_matrices > 1).then(|| {
         let a_matrix = a.inner_iter::<2>().next().unwrap();
         gemm.prepack_a(a_matrix)
     });
-    let prepacked_b = (a_repeats > 1 && b_repeats == 1).then(|| {
+    let prepacked_b = (num_a_matrices > 1 && num_b_matrices == 1).then(|| {
         let b_matrix = b.inner_iter::<2>().next().unwrap();
         gemm.prepack_b(b_matrix, a_cols)
     });
