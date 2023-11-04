@@ -676,6 +676,8 @@ impl Operator for TopK {
 
 #[cfg(test)]
 mod tests {
+    use std::error::Error;
+
     use wasnn_tensor::prelude::*;
     use wasnn_tensor::test_util::{eq_with_nans, expect_equal};
     use wasnn_tensor::{tensor, Tensor};
@@ -817,7 +819,7 @@ mod tests {
     }
 
     #[test]
-    fn test_reduce_l2() -> Result<(), String> {
+    fn test_reduce_l2() -> Result<(), Box<dyn Error>> {
         let input = Tensor::from_data(&[3, 2, 2], (1..=12).map(|i| i as f32).collect::<Vec<_>>());
         let expected = Tensor::from_data(
             &[3, 2],
@@ -842,7 +844,7 @@ mod tests {
     }
 
     #[test]
-    fn test_reduce_mean() -> Result<(), String> {
+    fn test_reduce_mean() -> Result<(), Box<dyn Error>> {
         let input = Tensor::from_data(&[3, 3], vec![1., 2., 3., 4., 5., 6., 7., 8., 9.]);
 
         // Test with `keep_dims` off

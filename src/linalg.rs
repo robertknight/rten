@@ -1289,6 +1289,7 @@ fn gemm_block<K: Kernel, const MR_NR: usize>(
 
 #[cfg(test)]
 mod tests {
+    use std::error::Error;
     use std::ops::Range;
 
     use wasnn_tensor::prelude::*;
@@ -1421,7 +1422,7 @@ mod tests {
 
     // Simplest possible test case for easy debugging.
     #[test]
-    fn test_simple_gemm() -> Result<(), String> {
+    fn test_simple_gemm() -> Result<(), Box<dyn Error>> {
         let a = Tensor::from_data(&[2, 2], vec![1., 2., 3., 4.]);
         let b = Tensor::from_data(&[2, 2], vec![5., 6., 7., 8.]);
         let expected = reference_matmul(&a, &b);
@@ -1455,7 +1456,7 @@ mod tests {
         );
     }
 
-    fn test_gemm_with_kernel(kernel: KernelHint) -> Result<(), String> {
+    fn test_gemm_with_kernel(kernel: KernelHint) -> Result<(), Box<dyn Error>> {
         // "Interesting" sizes for the row, column and depth dimensions of the
         // computation. These are chosen to cover cases that are less than,
         // equal to and above the tile/block sizes which the algorithm divides
@@ -1503,7 +1504,7 @@ mod tests {
                     "GEMM output for {}x{}x{} did not match reference",
                     lhs_size[0], rhs_size[1], lhs_size[1]
                 );
-                return Err(err);
+                return Err(err.into());
             }
         }
 
@@ -1511,17 +1512,17 @@ mod tests {
     }
 
     #[test]
-    fn test_gemm_with_fastest_kernel() -> Result<(), String> {
+    fn test_gemm_with_fastest_kernel() -> Result<(), Box<dyn Error>> {
         test_gemm_with_kernel(KernelHint::Auto)
     }
 
     #[test]
-    fn test_gemm_with_base_kernel() -> Result<(), String> {
+    fn test_gemm_with_base_kernel() -> Result<(), Box<dyn Error>> {
         test_gemm_with_kernel(KernelHint::Base)
     }
 
     #[test]
-    fn test_gemm_transposed() -> Result<(), String> {
+    fn test_gemm_transposed() -> Result<(), Box<dyn Error>> {
         let mut rng = XorShiftRng::new(1234);
         let mut a = Tensor::rand(&[20, 30], &mut rng);
         let mut b = Tensor::rand(&[10, 20], &mut rng);
@@ -1538,11 +1539,13 @@ mod tests {
         run_gemm(&mut result, &a, &b, 1., 1., None, KernelHint::Auto);
 
         let expected = reference_matmul(&a, &b);
-        expect_equal(&result, &expected)
+        expect_equal(&result, &expected)?;
+
+        Ok(())
     }
 
     #[test]
-    fn test_gemm_alpha() -> Result<(), String> {
+    fn test_gemm_alpha() -> Result<(), Box<dyn Error>> {
         let mut rng = XorShiftRng::new(1234);
 
         let a = Tensor::rand(&[10, 5], &mut rng);
@@ -1564,7 +1567,7 @@ mod tests {
     }
 
     #[test]
-    fn test_gemm_beta() -> Result<(), String> {
+    fn test_gemm_beta() -> Result<(), Box<dyn Error>> {
         let mut rng = XorShiftRng::new(1234);
 
         let a = Tensor::rand(&[10, 5], &mut rng);
@@ -1586,7 +1589,7 @@ mod tests {
     }
 
     #[test]
-    fn test_gemm_bias() -> Result<(), String> {
+    fn test_gemm_bias() -> Result<(), Box<dyn Error>> {
         let mut rng = XorShiftRng::new(1234);
 
         let a = Tensor::rand(&[10, 5], &mut rng);
@@ -1607,7 +1610,7 @@ mod tests {
     }
 
     #[test]
-    fn test_gemm_prepack() -> Result<(), String> {
+    fn test_gemm_prepack() -> Result<(), Box<dyn Error>> {
         let mut rng = XorShiftRng::new(1234);
 
         struct Case {
@@ -1682,7 +1685,7 @@ mod tests {
     }
 
     #[test]
-    fn test_gemm_virtual() -> Result<(), String> {
+    fn test_gemm_virtual() -> Result<(), Box<dyn Error>> {
         let mut rng = XorShiftRng::new(1234);
 
         struct Packer<'a> {

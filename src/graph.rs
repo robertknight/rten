@@ -699,6 +699,7 @@ impl Graph {
 
 #[cfg(test)]
 mod tests {
+    use std::error::Error;
     use std::sync::{Arc, Mutex};
 
     use wasnn_tensor::prelude::*;
@@ -772,7 +773,7 @@ mod tests {
     // Test of a very simple graph with a typical structure (one input, one
     // output, Conv + Relu operation).
     #[test]
-    fn test_graph_run() -> Result<(), String> {
+    fn test_graph_run() -> Result<(), Box<dyn Error>> {
         let mut g = Graph::new();
 
         let weights = Tensor::from_data(
@@ -822,7 +823,9 @@ mod tests {
             ],
         );
         assert_eq!(results.len(), 1);
-        expect_equal_with_tolerance(results[0].as_float_ref().unwrap(), &expected, 1e-4)
+        expect_equal_with_tolerance(results[0].as_float_ref().unwrap(), &expected, 1e-4)?;
+
+        Ok(())
     }
 
     #[test]
@@ -925,7 +928,7 @@ mod tests {
     }
 
     #[test]
-    fn test_graph_planning_order() -> Result<(), String> {
+    fn test_graph_planning_order() -> Result<(), Box<dyn Error>> {
         let mut g = Graph::new();
 
         let input_id = g.add_value(Some("input"), None);
@@ -976,7 +979,9 @@ mod tests {
             .run(&[(input_id, (&input).into())], &[op_d_out], None)
             .unwrap();
         let expected = Tensor::from_data(&[2], vec![3., 2.]);
-        expect_equal(results[0].as_float_ref().unwrap(), &expected)
+        expect_equal(results[0].as_float_ref().unwrap(), &expected)?;
+
+        Ok(())
     }
 
     // Perform a graph run where one of the outputs is also an input for other
@@ -1010,7 +1015,7 @@ mod tests {
     }
 
     #[test]
-    fn test_graph_many_steps() -> Result<(), String> {
+    fn test_graph_many_steps() -> Result<(), Box<dyn Error>> {
         let mut g = Graph::new();
 
         let input = Tensor::from_data(&[5], vec![1., 2., 3., 4., 5.]);
@@ -1033,11 +1038,13 @@ mod tests {
             .unwrap();
 
         let expected = Tensor::from_data(&[5], vec![101., 102., 103., 104., 105.]);
-        expect_equal(results[0].as_float_ref().unwrap(), &expected)
+        expect_equal(results[0].as_float_ref().unwrap(), &expected)?;
+
+        Ok(())
     }
 
     #[test]
-    fn test_noop_graph() -> Result<(), String> {
+    fn test_noop_graph() -> Result<(), Box<dyn Error>> {
         let mut g = Graph::new();
 
         let input = Tensor::from_data(&[5], vec![1., 2., 3., 4., 5.]);
@@ -1047,11 +1054,13 @@ mod tests {
             .run(&[(input_id, (&input).into())], &[input_id], None)
             .unwrap();
 
-        expect_equal(results[0].as_float_ref().unwrap(), &input)
+        expect_equal(results[0].as_float_ref().unwrap(), &input)?;
+
+        Ok(())
     }
 
     #[test]
-    fn test_constant_graph() -> Result<(), String> {
+    fn test_constant_graph() -> Result<(), Box<dyn Error>> {
         let mut g = Graph::new();
 
         let value = Tensor::from_data(&[5], vec![1., 2., 3., 4., 5.]);
@@ -1059,7 +1068,9 @@ mod tests {
 
         let results = g.run(&[], &[const_id], None).unwrap();
 
-        expect_equal(results[0].as_float_ref().unwrap(), &value)
+        expect_equal(results[0].as_float_ref().unwrap(), &value)?;
+
+        Ok(())
     }
 
     #[test]

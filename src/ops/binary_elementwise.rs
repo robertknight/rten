@@ -722,6 +722,8 @@ impl Operator for Where {
 
 #[cfg(test)]
 mod tests {
+    use std::error::Error;
+
     use wasnn_tensor::prelude::*;
     use wasnn_tensor::test_util::expect_equal;
     use wasnn_tensor::{tensor, Tensor};
@@ -778,7 +780,7 @@ mod tests {
     }
 
     #[test]
-    fn test_add() -> Result<(), String> {
+    fn test_add() -> Result<(), Box<dyn Error>> {
         // Float tensor
         let a = Tensor::from_data(&[2, 2], vec![1., 2., 3., 4.]);
         let b = Tensor::from_data(&[2, 2], vec![10., 20., 30., 40.]);
@@ -797,7 +799,7 @@ mod tests {
     }
 
     #[test]
-    fn test_add_broadcasted() -> Result<(), String> {
+    fn test_add_broadcasted() -> Result<(), Box<dyn Error>> {
         // Simple case where comparing ordering of tensor shapes tells us
         // target shape.
         let a = Tensor::from_data(&[2, 2], vec![1., 2., 3., 4.]);
@@ -845,7 +847,7 @@ mod tests {
     }
 
     #[test]
-    fn test_add_in_place() -> Result<(), String> {
+    fn test_add_in_place() -> Result<(), Box<dyn Error>> {
         // In-place addition with float inputs that have the same shape.
         let mut a = Tensor::from_data(&[2, 2], vec![1., 2., 3., 4.]);
         let a_copy = a.clone();
@@ -895,7 +897,9 @@ mod tests {
         let expected = Tensor::from_data(&[2, 2], vec![2., 4., 4., 6.]);
 
         add_in_place(&mut a, b.view());
-        expect_equal(&a, &expected)
+        expect_equal(&a, &expected)?;
+
+        Ok(())
     }
 
     #[test]
@@ -922,7 +926,7 @@ mod tests {
     }
 
     #[test]
-    fn test_div() -> Result<(), String> {
+    fn test_div() -> Result<(), Box<dyn Error>> {
         // Non-scalar a and b
         let a = Tensor::from_data(&[2, 2], vec![10., 20., 30., 40.]);
         let b = Tensor::from_data(&[2, 2], vec![1., 2., 3., 4.]);
@@ -955,7 +959,7 @@ mod tests {
     }
 
     #[test]
-    fn test_div_in_place() -> Result<(), String> {
+    fn test_div_in_place() -> Result<(), Box<dyn Error>> {
         // Non-scalar a and b
         let mut a = Tensor::from_data(&[2, 2], vec![10., 20., 30., 40.]);
         let b = Tensor::from_data(&[2, 2], vec![1., 2., 3., 4.]);
@@ -1100,7 +1104,7 @@ mod tests {
     }
 
     #[test]
-    fn test_mul() -> Result<(), String> {
+    fn test_mul() -> Result<(), Box<dyn Error>> {
         // Float tensor
         let a = Tensor::from_data(&[2, 2], vec![1., 2., 3., 4.]);
         let b = Tensor::from_data(&[2, 2], vec![10., 20., 30., 40.]);
@@ -1119,7 +1123,7 @@ mod tests {
     }
 
     #[test]
-    fn test_mul_in_place() -> Result<(), String> {
+    fn test_mul_in_place() -> Result<(), Box<dyn Error>> {
         // Float tensor
         let mut a = Tensor::from_data(&[2, 2], vec![1., 2., 3., 4.]);
         let b = Tensor::from_data(&[2, 2], vec![10., 20., 30., 40.]);
@@ -1147,7 +1151,7 @@ mod tests {
     }
 
     #[test]
-    fn test_pow() -> Result<(), String> {
+    fn test_pow() -> Result<(), Box<dyn Error>> {
         struct Case {
             a: Tensor<f32>,
             b: Tensor<f32>,
@@ -1190,7 +1194,7 @@ mod tests {
     }
 
     #[test]
-    fn test_sub() -> Result<(), String> {
+    fn test_sub() -> Result<(), Box<dyn Error>> {
         // Float tensor
         let a = Tensor::from_data(&[2, 2], vec![10., 20., 30., 40.]);
         let b = Tensor::from_data(&[2, 2], vec![1., 2., 3., 4.]);
@@ -1209,7 +1213,7 @@ mod tests {
     }
 
     #[test]
-    fn test_sub_in_place() -> Result<(), String> {
+    fn test_sub_in_place() -> Result<(), Box<dyn Error>> {
         // Float tensor
         let mut a = Tensor::from_data(&[2, 2], vec![10., 20., 30., 40.]);
         let b = Tensor::from_data(&[2, 2], vec![1., 2., 3., 4.]);

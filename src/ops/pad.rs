@@ -88,6 +88,8 @@ impl Operator for Pad {
 
 #[cfg(test)]
 mod tests {
+    use std::error::Error;
+
     use wasnn_tensor::prelude::*;
     use wasnn_tensor::test_util::expect_equal;
     use wasnn_tensor::Tensor;
@@ -99,7 +101,7 @@ mod tests {
     }
 
     #[test]
-    fn test_pad() -> Result<(), String> {
+    fn test_pad() -> Result<(), Box<dyn Error>> {
         // Same padding around each edge.
         let input = Tensor::from_data(&[2, 2], vec![1.0, 2.0, 3.0, 4.0]);
         let expected = Tensor::from_data(
@@ -128,7 +130,7 @@ mod tests {
     }
 
     #[test]
-    fn test_pad_constant_val() -> Result<(), String> {
+    fn test_pad_constant_val() -> Result<(), Box<dyn Error>> {
         let input = Tensor::from_data(&[2, 2], vec![1.0, 2.0, 3.0, 4.0]);
         let expected = Tensor::from_data(
             &[4, 4],
@@ -138,11 +140,12 @@ mod tests {
         );
         let const_pads = &[1, 1, 1, 1];
         let result = pad(input.view(), &const_pads.into(), 9.).unwrap();
-        expect_equal(&result, &expected)
+        expect_equal(&result, &expected)?;
+        Ok(())
     }
 
     #[test]
-    fn test_pad_op() -> Result<(), String> {
+    fn test_pad_op() -> Result<(), Box<dyn Error>> {
         let input = Tensor::from_data(&[2, 2], vec![1.0, 2.0, 3.0, 4.0]);
         let pads = from_slice(&[1, 1, 1, 1]);
         let expected = Tensor::from_data(

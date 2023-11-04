@@ -661,9 +661,11 @@ impl Operator for ConvTranspose {
 
 #[cfg(test)]
 mod tests {
+    use std::error::Error;
+
     use wasnn_tensor::prelude::*;
     use wasnn_tensor::rng::XorShiftRng;
-    use wasnn_tensor::test_util::expect_equal;
+    use wasnn_tensor::test_util::{expect_equal, ExpectEqualError};
     use wasnn_tensor::{Tensor, TensorView};
 
     use crate::ops::pooling::calc_output_size_and_padding;
@@ -759,7 +761,7 @@ mod tests {
         groups: usize,
         strides: &[usize],
         dilations: &[usize],
-    ) -> Result<Tensor, String> {
+    ) -> Result<Tensor, ExpectEqualError> {
         let result = conv(
             input.view(),
             kernel.view(),
@@ -779,7 +781,7 @@ mod tests {
     /// Basic tests for conv. These compare the results against values
     /// computed from PyTorch as well as the reference implementation.
     #[test]
-    fn test_conv() -> Result<(), String> {
+    fn test_conv() -> Result<(), Box<dyn Error>> {
         let kernel = Tensor::from_data(
             &[1, 1, 3, 3],
             vec![
@@ -842,7 +844,7 @@ mod tests {
     }
 
     #[test]
-    fn test_conv_same_padding() -> Result<(), String> {
+    fn test_conv_same_padding() -> Result<(), Box<dyn Error>> {
         let kernel = Tensor::from_data(
             &[1, 1, 3, 3],
             vec![
@@ -879,11 +881,13 @@ mod tests {
             &[1, 1], /* dilations */
         );
 
-        expect_equal(&result, &reference_result)
+        expect_equal(&result, &reference_result)?;
+
+        Ok(())
     }
 
     #[test]
-    fn test_conv_uneven_padding() -> Result<(), String> {
+    fn test_conv_uneven_padding() -> Result<(), Box<dyn Error>> {
         let mut rng = XorShiftRng::new(1234);
         let kernel = Tensor::rand(&[10, 5, 3, 3], &mut rng);
         let input = Tensor::rand(&[1, 5, 10, 10], &mut rng);
@@ -903,7 +907,7 @@ mod tests {
     }
 
     #[test]
-    fn test_conv_depthwise_uneven_padding() -> Result<(), String> {
+    fn test_conv_depthwise_uneven_padding() -> Result<(), Box<dyn Error>> {
         let mut rng = XorShiftRng::new(1234);
         let kernel = Tensor::rand(&[10, 1, 3, 3], &mut rng);
         let input = Tensor::rand(&[1, 10, 10, 10], &mut rng);
@@ -924,7 +928,7 @@ mod tests {
 
     // Specific tests for convolutions with a 1x1 kernel.
     #[test]
-    fn test_conv_pointwise() -> Result<(), String> {
+    fn test_conv_pointwise() -> Result<(), Box<dyn Error>> {
         let mut rng = XorShiftRng::new(1234);
         let kernel = Tensor::rand(&[10, 5, 1, 1], &mut rng);
         let input = Tensor::rand(&[1, 5, 20, 20], &mut rng);
@@ -990,7 +994,7 @@ mod tests {
     // Specific tests for convolutions that operate over one output channel and
     // one input channel at a time.
     #[test]
-    fn test_conv_depthwise() -> Result<(), String> {
+    fn test_conv_depthwise() -> Result<(), Box<dyn Error>> {
         let input = Tensor::from_data(
             &[1, 3, 2, 2],
             vec![
@@ -1033,7 +1037,7 @@ mod tests {
     // Tests for convolutions that are neither pointwise nor depthwise. In
     // other words, the kernel has a spatial size > 1x1 and a channel depth > 1.
     #[test]
-    fn test_conv_not_depthwise_or_pointwise() -> Result<(), String> {
+    fn test_conv_not_depthwise_or_pointwise() -> Result<(), Box<dyn Error>> {
         let mut rng = XorShiftRng::new(1234);
         let kernel = Tensor::rand(&[4, 2, 3, 3], &mut rng);
         let input = Tensor::rand(&[2, 4, 20, 20], &mut rng);
@@ -1053,7 +1057,7 @@ mod tests {
     }
 
     #[test]
-    fn test_conv_strided() -> Result<(), String> {
+    fn test_conv_strided() -> Result<(), Box<dyn Error>> {
         let mut rng = XorShiftRng::new(1234);
         let kernel = Tensor::rand(&[4, 3, 3, 3], &mut rng);
 
@@ -1078,7 +1082,7 @@ mod tests {
     }
 
     #[test]
-    fn test_conv_strided_depthwise() -> Result<(), String> {
+    fn test_conv_strided_depthwise() -> Result<(), Box<dyn Error>> {
         let mut rng = XorShiftRng::new(1234);
         let kernel = Tensor::rand(&[3, 1, 3, 3], &mut rng);
 
@@ -1147,7 +1151,7 @@ mod tests {
     }
 
     #[test]
-    fn test_conv_dilated() -> Result<(), String> {
+    fn test_conv_dilated() -> Result<(), Box<dyn Error>> {
         let mut rng = XorShiftRng::new(1234);
         let kernel = Tensor::rand(&[4, 3, 3, 3], &mut rng);
 
@@ -1172,7 +1176,7 @@ mod tests {
     }
 
     #[test]
-    fn test_conv_dilated_depthwise() -> Result<(), String> {
+    fn test_conv_dilated_depthwise() -> Result<(), Box<dyn Error>> {
         let mut rng = XorShiftRng::new(1234);
         let chans = 3;
         let kernel = Tensor::rand(&[chans, 1, 3, 3], &mut rng);
@@ -1219,7 +1223,7 @@ mod tests {
     }
 
     #[test]
-    fn test_conv_transpose() -> Result<(), String> {
+    fn test_conv_transpose() -> Result<(), Box<dyn Error>> {
         let input = Tensor::from_data(&[1, 1, 2, 2], vec![1.0, 2.0, 3.0, 4.0]);
         let kernel = Tensor::from_data(&[1, 1, 2, 2], vec![0.1, 0.2, 0.3, 0.4]);
         let expected = Tensor::from_data(
@@ -1240,6 +1244,8 @@ mod tests {
         }
         let bias = Tensor::from_data(&[1], vec![1.234]);
         let result = conv_transpose(&input, &kernel, Some(&bias), [2, 2]).unwrap();
-        expect_equal(&result, &expected_with_bias)
+        expect_equal(&result, &expected_with_bias)?;
+
+        Ok(())
     }
 }

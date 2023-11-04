@@ -201,6 +201,8 @@ impl Operator for MatMul {
 
 #[cfg(test)]
 mod tests {
+    use std::error::Error;
+
     use wasnn_tensor::prelude::*;
     use wasnn_tensor::rng::XorShiftRng;
     use wasnn_tensor::test_util::expect_equal;
@@ -222,7 +224,7 @@ mod tests {
     }
 
     #[test]
-    fn test_gemm_op() -> Result<(), String> {
+    fn test_gemm_op() -> Result<(), Box<dyn Error>> {
         let mut rng = XorShiftRng::new(1234);
         let a = Tensor::rand(&[3, 10], &mut rng);
         let b = Tensor::rand(&[10, 8], &mut rng);
@@ -232,11 +234,13 @@ mod tests {
 
         let result = gemm_op(a.view(), b.view(), None, 1.0, 1.0, false, false).unwrap();
 
-        expect_equal(&result, &expected)
+        expect_equal(&result, &expected)?;
+
+        Ok(())
     }
 
     #[test]
-    fn test_gemm_op_transposed() -> Result<(), String> {
+    fn test_gemm_op_transposed() -> Result<(), Box<dyn Error>> {
         let mut rng = XorShiftRng::new(1234);
         let a = Tensor::rand(&[10, 3], &mut rng);
         let b = Tensor::rand(&[8, 10], &mut rng);
@@ -250,11 +254,13 @@ mod tests {
 
         let result = gemm_op(a.view(), b.view(), None, 1.0, 1.0, true, true).unwrap();
 
-        expect_equal(&result, &expected)
+        expect_equal(&result, &expected)?;
+
+        Ok(())
     }
 
     #[test]
-    fn test_gemm_op_adds_c() -> Result<(), String> {
+    fn test_gemm_op_adds_c() -> Result<(), Box<dyn Error>> {
         let mut rng = XorShiftRng::new(1234);
         let a = Tensor::rand(&[3, 10], &mut rng);
         let b = Tensor::rand(&[10, 8], &mut rng);
@@ -265,7 +271,9 @@ mod tests {
 
         let result = gemm_op(a.view(), b.view(), Some(c.view()), 1.0, 1.0, false, false).unwrap();
 
-        expect_equal(&result, &expected)
+        expect_equal(&result, &expected)?;
+
+        Ok(())
     }
 
     #[test]
@@ -286,7 +294,7 @@ mod tests {
     }
 
     #[test]
-    fn test_matmul() -> Result<(), String> {
+    fn test_matmul() -> Result<(), Box<dyn Error>> {
         let mut rng = XorShiftRng::new(1234);
         let a = Tensor::rand(&[3, 10], &mut rng);
         let b = Tensor::rand(&[10, 8], &mut rng);
@@ -295,11 +303,13 @@ mod tests {
         gemm_tensors(&mut expected, &a, &b, 1., 1.);
 
         let result = matmul(a.view(), b.view()).unwrap();
-        expect_equal(&result, &expected)
+        expect_equal(&result, &expected)?;
+
+        Ok(())
     }
 
     #[test]
-    fn test_matmul_broadcast() -> Result<(), String> {
+    fn test_matmul_broadcast() -> Result<(), Box<dyn Error>> {
         let mut rng = XorShiftRng::new(1234);
         let mut a = Tensor::rand(&[3, 10], &mut rng);
         let mut b = Tensor::rand(&[10, 8], &mut rng);

@@ -356,6 +356,8 @@ impl Operator for MaxPool {
 
 #[cfg(test)]
 mod tests {
+    use std::error::Error;
+
     use wasnn_tensor::prelude::*;
     use wasnn_tensor::test_util::expect_equal;
     use wasnn_tensor::Tensor;
@@ -378,7 +380,7 @@ mod tests {
     }
 
     #[test]
-    fn test_average_pool() -> Result<(), String> {
+    fn test_average_pool() -> Result<(), Box<dyn Error>> {
         let input = Tensor::from_data(
             &[1, 1, 4, 4],
             vec![
@@ -457,7 +459,7 @@ mod tests {
     }
 
     #[test]
-    fn test_average_pool_padding() -> Result<(), String> {
+    fn test_average_pool_padding() -> Result<(), Box<dyn Error>> {
         let mut input = from_2d_slice(&[
             &[0.0809, 0.5529, 0.1534, 0.7507],
             &[0.4698, 0.7771, 0.9896, 0.4873],
@@ -484,19 +486,22 @@ mod tests {
             [1, 1, 1, 1].into(),
         )
         .unwrap();
-        expect_eq_1e4(&result, &expected)
+        expect_eq_1e4(&result, &expected)?;
+
+        Ok(())
     }
 
     #[test]
-    fn test_global_average_pool() -> Result<(), String> {
+    fn test_global_average_pool() -> Result<(), Box<dyn Error>> {
         let input = Tensor::from_data(&[1, 2, 2, 2], vec![1., 2., 3., 4., 10., 20., 30., 40.]);
         let expected = Tensor::from_data(&[1, 2, 1, 1], vec![2.5, 25.]);
         let result = global_average_pool(input.view()).unwrap();
-        expect_equal(&result, &expected)
+        expect_equal(&result, &expected)?;
+        Ok(())
     }
 
     #[test]
-    fn test_max_pool() -> Result<(), String> {
+    fn test_max_pool() -> Result<(), Box<dyn Error>> {
         let input = Tensor::from_data(
             &[1, 1, 4, 4],
             vec![

@@ -44,13 +44,15 @@ impl Operator for Cast {
 
 #[cfg(test)]
 mod tests {
+    use std::error::Error;
+
     use wasnn_tensor::tensor;
     use wasnn_tensor::test_util::expect_equal;
 
     use crate::ops::{Cast, DataType, Operator};
 
     #[test]
-    fn test_cast() -> Result<(), String> {
+    fn test_cast() -> Result<(), Box<dyn Error>> {
         let int_input = tensor!([1, 2, 3]);
         let float_input = tensor!([1.0, 2.0, 3.0]);
 
@@ -94,11 +96,13 @@ mod tests {
             .remove(0)
             .into_float()
             .unwrap();
-        expect_equal(&result, &float_input)
+        expect_equal(&result, &float_input)?;
+
+        Ok(())
     }
 
     #[test]
-    fn test_cast_out_of_range() -> Result<(), String> {
+    fn test_cast_out_of_range() -> Result<(), Box<dyn Error>> {
         let int_input = tensor!([i32::MIN, i32::MAX]);
 
         // Out-of-range cast from int => float. This will simply lose some

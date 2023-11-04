@@ -178,6 +178,8 @@ impl Operator for Tile {
 
 #[cfg(test)]
 mod tests {
+    use std::error::Error;
+
     use wasnn_tensor::prelude::*;
     use wasnn_tensor::test_util::expect_equal;
     use wasnn_tensor::{tensor, Tensor};
@@ -189,7 +191,7 @@ mod tests {
     }
 
     #[test]
-    fn test_concat() -> Result<(), String> {
+    fn test_concat() -> Result<(), Box<dyn Error>> {
         let a = Tensor::from_data(&[2, 2, 1], vec![0.1, 0.2, 0.3, 0.4]);
         let b = Tensor::from_data(&[2, 2, 1], vec![1.0, 2.0, 3.0, 4.0]);
 

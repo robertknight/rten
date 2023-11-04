@@ -300,6 +300,8 @@ impl Operator for ScatterND {
 
 #[cfg(test)]
 mod tests {
+    use std::error::Error;
+
     use wasnn_tensor::prelude::*;
     use wasnn_tensor::rng::XorShiftRng;
     use wasnn_tensor::test_util::expect_equal;
@@ -326,7 +328,7 @@ mod tests {
     }
 
     #[test]
-    fn test_gather() -> Result<(), String> {
+    fn test_gather() -> Result<(), Box<dyn Error>> {
         // Test case shrunk down from a small BERT model where `gather` is used
         // to lookup embeddings.
         let mut rng = XorShiftRng::new(1234);
@@ -347,7 +349,9 @@ mod tests {
         let indices = Tensor::from_data(&[1, 2], vec![0, 2]);
         let expected = Tensor::from_data(&[3, 1, 2], vec![1.0, 1.9, 2.3, 3.9, 4.5, 5.9]);
         let result = gather(input.view(), 1, indices.view()).unwrap();
-        expect_equal(&result, &expected)
+        expect_equal(&result, &expected)?;
+
+        Ok(())
     }
 
     #[test]

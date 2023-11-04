@@ -695,6 +695,7 @@ impl Operator for LSTM {
 
 #[cfg(test)]
 mod tests {
+    use std::error::Error;
     use std::fs::File;
     use std::io::BufReader;
 
@@ -1052,7 +1053,7 @@ mod tests {
     }
 
     #[test]
-    fn test_rnn_pytorch() -> Result<(), String> {
+    fn test_rnn_pytorch() -> Result<(), Box<dyn Error>> {
         let dict = read_json_file("pytorch-ref-tests/rnn.json");
 
         struct Case {

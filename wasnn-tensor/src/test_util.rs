@@ -1,4 +1,5 @@
-use std::fmt::Debug;
+use std::error::Error;
+use std::fmt::{Debug, Display, Formatter};
 use std::iter::zip;
 
 use crate::{Layout, TensorView, View};
@@ -61,12 +62,29 @@ fn index_from_linear_index(shape: &[usize], lin_index: usize) -> Vec<usize> {
         .collect()
 }
 
+#[derive(Debug)]
+pub enum ExpectEqualError {
+    ShapeMismatch(String),
+    ValueMismatch(String),
+}
+
+impl Display for ExpectEqualError {
+    fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
+        match self {
+            ExpectEqualError::ShapeMismatch(details) => write!(f, "{}", details),
+            ExpectEqualError::ValueMismatch(details) => write!(f, "{}", details),
+        }
+    }
+}
+
+impl Error for ExpectEqualError {}
+
 /// Check that the shapes of two tensors are equal and that their contents
 /// are approximately equal.
 ///
 /// If there are mismatches, this returns an `Err` with a message indicating
 /// the count of mismatches and details of the first N cases.
-pub fn expect_equal<V: View>(x: &V, y: &V) -> Result<(), String>
+pub fn expect_equal<V: View>(x: &V, y: &V) -> Result<(), ExpectEqualError>
 where
     V::Elem: Clone + Debug + ApproxEq,
 {
@@ -77,16 +95,20 @@ where
 /// are approximately equal.
 ///
 /// This is like [expect_equal] but allows a custom absolute tolerance value.
-pub fn expect_equal_with_tolerance<V: View>(x: &V, y: &V, epsilon: V::Elem) -> Result<(), String>
+pub fn expect_equal_with_tolerance<V: View>(
+    x: &V,
+    y: &V,
+    epsilon: V::Elem,
+) -> Result<(), ExpectEqualError>
 where
     V::Elem: Clone + Debug + ApproxEq,
 {
     if x.shape() != y.shape() {
-        return Err(format!(
+        return Err(ExpectEqualError::ShapeMismatch(format!(
             "Tensors have different shapes. {:?} vs. {:?}",
             x.shape(),
             y.shape()
-        ));
+        )));
     }
 
     let mismatches: Vec<_> = zip(x.iter(), y.iter())
@@ -102,7 +124,7 @@ where
 
     if !mismatches.is_empty() {
         let max_examples = 16;
-        Err(format!(
+        Err(ExpectEqualError::ValueMismatch(format!(
             "Tensor values differ at {} of {} indexes: {:?}{}",
             mismatches.len(),
             x.len(),
@@ -112,7 +134,7 @@ where
             } else {
                 ""
             }
-        ))
+        )))
     } else {
         Ok(())
     }

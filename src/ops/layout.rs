@@ -441,6 +441,8 @@ impl Operator for Unsqueeze {
 
 #[cfg(test)]
 mod tests {
+    use std::error::Error;
+
     use wasnn_tensor::prelude::*;
     use wasnn_tensor::rng::XorShiftRng;
     use wasnn_tensor::test_util::expect_equal;
@@ -511,7 +513,7 @@ mod tests {
     }
 
     #[test]
-    fn test_reshape_with_unspecified_dim() -> Result<(), String> {
+    fn test_reshape_with_unspecified_dim() -> Result<(), Box<dyn Error>> {
         // Reshape with an unspecified (-1) dim and nonzero-length input
         let input = Tensor::from_data(&[2, 2], vec![-0.5, 0.5, 3.0, -5.5]);
         let shape = ndtensor!([1, -1, 2]);
@@ -529,11 +531,13 @@ mod tests {
         )
         .unwrap();
         let expected = zero_sized_input.clone_with_shape(&[100, 0]);
-        expect_equal(&result, &expected)
+        expect_equal(&result, &expected)?;
+
+        Ok(())
     }
 
     #[test]
-    fn test_reshape_with_zero_dim() -> Result<(), String> {
+    fn test_reshape_with_zero_dim() -> Result<(), Box<dyn Error>> {
         // When the target shape has a zero dim, the corresponding input dim
         // size should be copied.
         let input = Tensor::from_data(&[1, 1, 4], vec![-0.5, 0.5, 3.0, -5.5]);
@@ -610,7 +614,7 @@ mod tests {
     }
 
     #[test]
-    fn test_reshape_op() -> Result<(), String> {
+    fn test_reshape_op() -> Result<(), Box<dyn Error>> {
         let input = Tensor::from_data(&[2, 2], vec![-0.5, 0.5, 3.0, -5.5]);
         let shape = Tensor::from_data(&[1], vec![4]);
         let expected = input.clone_with_shape(&[4]);
@@ -623,7 +627,9 @@ mod tests {
             .into_float()
             .unwrap();
 
-        expect_equal(&result, &expected)
+        expect_equal(&result, &expected)?;
+
+        Ok(())
     }
 
     #[test]
@@ -668,7 +674,7 @@ mod tests {
     }
 
     #[test]
-    fn test_squeeze() -> Result<(), String> {
+    fn test_squeeze() -> Result<(), Box<dyn Error>> {
         let mut rng = XorShiftRng::new(5678);
         let input = Tensor::rand(&[1, 5, 5, 1], &mut rng);
         let mut expected = input.clone();
@@ -686,11 +692,13 @@ mod tests {
         // Remove first 1-size axis.
         expected.reshape(&[5, 5, 1]);
         let result = squeeze(&input, Some(ndtensor!([0]).view())).unwrap();
-        expect_equal(&result, &expected)
+        expect_equal(&result, &expected)?;
+
+        Ok(())
     }
 
     #[test]
-    fn test_squeeze_in_place() -> Result<(), String> {
+    fn test_squeeze_in_place() -> Result<(), Box<dyn Error>> {
         let mut rng = XorShiftRng::new(5678);
         let mut input = Tensor::rand(&[1, 1, 5, 5], &mut rng);
 
@@ -699,7 +707,9 @@ mod tests {
 
         squeeze_in_place(&mut input, None).unwrap();
 
-        expect_equal(&input, &expected)
+        expect_equal(&input, &expected)?;
+
+        Ok(())
     }
 
     #[test]
@@ -718,7 +728,7 @@ mod tests {
     }
 
     #[test]
-    fn test_transpose() -> Result<(), String> {
+    fn test_transpose() -> Result<(), Box<dyn Error>> {
         let mut rng = XorShiftRng::new(5678);
         let input = Tensor::rand(&[10, 20], &mut rng);
 
@@ -735,7 +745,9 @@ mod tests {
 
         // With a transposed permutation given, the axes should be reversed.
         let result = transpose(&input, Some(&[1, 0])).unwrap();
-        expect_equal(&result, &reversed)
+        expect_equal(&result, &reversed)?;
+
+        Ok(())
     }
 
     #[test]

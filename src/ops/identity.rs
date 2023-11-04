@@ -28,13 +28,15 @@ impl Operator for Identity {
 
 #[cfg(test)]
 mod tests {
+    use std::error::Error;
+
     use wasnn_tensor::test_util::expect_equal;
     use wasnn_tensor::Tensor;
 
     use crate::ops::{Identity, Operator};
 
     #[test]
-    fn test_identity() -> Result<(), String> {
+    fn test_identity() -> Result<(), Box<dyn Error>> {
         let id_op = Identity {};
 
         let int_input = Tensor::from_vec(vec![1, 2, 3]);
@@ -53,6 +55,8 @@ mod tests {
             .remove(0)
             .into_float()
             .unwrap();
-        expect_equal(&result, &float_input)
+        expect_equal(&result, &float_input)?;
+
+        Ok(())
     }
 }

@@ -165,6 +165,8 @@ impl Operator for Slice {
 
 #[cfg(test)]
 mod tests {
+    use std::error::Error;
+
     use wasnn_tensor::prelude::*;
     use wasnn_tensor::rng::XorShiftRng;
     use wasnn_tensor::test_util::expect_equal;
@@ -403,7 +405,7 @@ mod tests {
     }
 
     #[test]
-    fn test_slice_clamps_starts_and_ends() -> Result<(), String> {
+    fn test_slice_clamps_starts_and_ends() -> Result<(), Box<dyn Error>> {
         let mut rng = XorShiftRng::new(5678);
         let input = Tensor::rand(&[20, 20], &mut rng);
 
@@ -417,7 +419,9 @@ mod tests {
 
         let sliced = slice(input.view(), &starts.into(), &ends.into(), None, None).unwrap();
 
-        expect_equal(&sliced, &input)
+        expect_equal(&sliced, &input)?;
+
+        Ok(())
     }
 
     #[test]

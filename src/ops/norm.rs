@@ -359,6 +359,8 @@ impl Operator for Softmax {
 
 #[cfg(test)]
 mod tests {
+    use std::error::Error;
+
     use wasnn_tensor::prelude::*;
     use wasnn_tensor::rng::XorShiftRng;
     use wasnn_tensor::test_util::expect_equal;
@@ -370,7 +372,7 @@ mod tests {
     };
 
     #[test]
-    fn test_batch_norm() -> Result<(), String> {
+    fn test_batch_norm() -> Result<(), Box<dyn Error>> {
         let input = Tensor::from_data(&[1, 2, 1, 1], vec![1.0, 2.0]);
         let scale = &[3.0, 3.0];
         let bias = &[0.1, 0.2];
@@ -392,11 +394,13 @@ mod tests {
         )
         .unwrap();
 
-        expect_equal(&result, &expected)
+        expect_equal(&result, &expected)?;
+
+        Ok(())
     }
 
     #[test]
-    fn test_batch_norm_in_place() -> Result<(), String> {
+    fn test_batch_norm_in_place() -> Result<(), Box<dyn Error>> {
         let mut input = Tensor::from_data(&[1, 2, 1, 1], vec![1.0, 2.0]);
         let scale = &[3.0, 3.0];
         let bias = &[0.1, 0.2];
@@ -419,11 +423,13 @@ mod tests {
         )
         .unwrap();
 
-        expect_equal(&input, &expected)
+        expect_equal(&input, &expected)?;
+
+        Ok(())
     }
 
     #[test]
-    fn test_instance_normalization() -> Result<(), String> {
+    fn test_instance_normalization() -> Result<(), Box<dyn Error>> {
         // Sample values generated using `torch.rand`.
         let input = tensor!((1, 5, 2); [
             0.9562, 0.0572, 0.4366, 0.5655, 0.2017,
@@ -442,11 +448,13 @@ mod tests {
         let result =
             instance_normalization(input.view(), scale.nd_view(), bias.nd_view(), None).unwrap();
 
-        expect_eq_1e4(&result, &expected)
+        expect_eq_1e4(&result, &expected)?;
+
+        Ok(())
     }
 
     #[test]
-    fn test_log_softmax() -> Result<(), String> {
+    fn test_log_softmax() -> Result<(), Box<dyn Error>> {
         // 1D input
         let mut input = tensor!([0.1634, 0.8647, 0.6401, 0.8265, 0.0560]);
         let mut expected = tensor!([-2.0104, -1.3091, -1.5337, -1.3473, -2.1178]);
@@ -481,11 +489,13 @@ mod tests {
             ],
         );
         let result = log_softmax(matrix_input.view(), 1).unwrap();
-        expect_eq_1e4(&result, &matrix_expected)
+        expect_eq_1e4(&result, &matrix_expected)?;
+
+        Ok(())
     }
 
     #[test]
-    fn test_softmax() -> Result<(), String> {
+    fn test_softmax() -> Result<(), Box<dyn Error>> {
         // Softmax on a 1D input
         let mut input = tensor!([0.1634, 0.8647, 0.6401, 0.8265, 0.0560]);
         let mut expected = tensor!([0.1339, 0.2701, 0.2157, 0.2599, 0.1203]);
@@ -521,12 +531,14 @@ mod tests {
             ],
         );
         let result = softmax(matrix_input.view(), 1).unwrap();
-        expect_eq_1e4(&result, &matrix_expected)
+        expect_eq_1e4(&result, &matrix_expected)?;
+
+        Ok(())
     }
 
     // Test softmax with non-contiguous input.
     #[test]
-    fn test_softmax_transposed() -> Result<(), String> {
+    fn test_softmax_transposed() -> Result<(), Box<dyn Error>> {
         let mut input = Tensor::from_data(
             &[4, 4],
             vec![
@@ -545,7 +557,9 @@ mod tests {
         input.permute(&[1, 0]);
         let result = softmax(input.view(), 1).unwrap();
 
-        expect_eq_1e4(&result, &expected)
+        expect_eq_1e4(&result, &expected)?;
+
+        Ok(())
     }
 
     // Test softmax with some additional input sizes and axis dimensions.

@@ -474,6 +474,8 @@ unary_float_op!(Tanh, tanh, tanh_in_place, |val: f32| val.tanh());
 
 #[cfg(test)]
 mod tests {
+    use std::error::Error;
+
     use wasnn_tensor::rng::XorShiftRng;
     use wasnn_tensor::test_util::{eq_with_nans, expect_equal, expect_equal_with_tolerance};
     use wasnn_tensor::{tensor, RandomSource, Tensor, View};
@@ -493,7 +495,7 @@ mod tests {
     macro_rules! test_unary_op {
         ($test_name:ident, $op:ident, $in_place_op:ident, $gen_expected:expr) => {
             #[test]
-            fn $test_name() -> Result<(), String> {
+            fn $test_name() -> Result<(), Box<dyn Error>> {
                 // Test inputs here chosen to be in the domain of inverse trig
                 // operators (ie. (-1, 1)).
                 let input = tensor!([0., 0.1, -0.1, 0.9, -0.9]);
@@ -588,7 +590,7 @@ mod tests {
     }
 
     #[test]
-    fn test_clip() -> Result<(), String> {
+    fn test_clip() -> Result<(), Box<dyn Error>> {
         struct Case {
             input: Tensor,
             min: Option<f32>,
@@ -635,7 +637,7 @@ mod tests {
     test_unary_op!(test_cos, cos, cos_in_place, |x: &f32| x.cos());
 
     #[test]
-    fn test_erf() -> Result<(), String> {
+    fn test_erf() -> Result<(), Box<dyn Error>> {
         let input = tensor!([-2.0, -0.5, 0.5, 2.0]);
         let expected = tensor!([
             -0.9953222650189527,
@@ -672,7 +674,7 @@ mod tests {
     }
 
     #[test]
-    fn test_erf_in_place() -> Result<(), String> {
+    fn test_erf_in_place() -> Result<(), Box<dyn Error>> {
         let mut input = tensor!([-2.0, -0.5, 0.5, 2.0]);
         let expected = tensor!([
             -0.9953222650189527,
@@ -681,11 +683,12 @@ mod tests {
             0.9953222650189527,
         ]);
         erf_in_place(&mut input);
-        expect_equal(&input, &expected)
+        expect_equal(&input, &expected)?;
+        Ok(())
     }
 
     #[test]
-    fn test_exp() -> Result<(), String> {
+    fn test_exp() -> Result<(), Box<dyn Error>> {
         let input = tensor!([-2.0, -0.5, 0.5, 2.0]);
         let expected = tensor!([
             0.1353352832366127,
@@ -694,11 +697,12 @@ mod tests {
             7.38905609893065
         ]);
         let result = exp(input.view());
-        expect_equal(&result, &expected)
+        expect_equal(&result, &expected)?;
+        Ok(())
     }
 
     #[test]
-    fn test_exp_in_place() -> Result<(), String> {
+    fn test_exp_in_place() -> Result<(), Box<dyn Error>> {
         let mut input = tensor!([-2.0, -0.5, 0.5, 2.0]);
         let expected = tensor!([
             0.1353352832366127,
@@ -707,7 +711,8 @@ mod tests {
             7.38905609893065
         ]);
         exp_in_place(&mut input);
-        expect_equal(&input, &expected)
+        expect_equal(&input, &expected)?;
+        Ok(())
     }
 
     #[test]
@@ -737,43 +742,47 @@ mod tests {
     }
 
     #[test]
-    fn test_hard_sigmoid() -> Result<(), String> {
+    fn test_hard_sigmoid() -> Result<(), Box<dyn Error>> {
         let input = tensor!([-4., -3., -1., 0., 1., 3., 4.]);
         let alpha = 0.2;
         let beta = 0.5;
         let result = hard_sigmoid(input.view(), alpha, beta);
         let expected = tensor!([0., 0., -1. / 5. + 0.5, 0.5, 1. / 5. + 0.5, 1., 1.]);
-        expect_equal(&result, &expected)
+        expect_equal(&result, &expected)?;
+        Ok(())
     }
 
     #[test]
-    fn test_hard_swish() -> Result<(), String> {
+    fn test_hard_swish() -> Result<(), Box<dyn Error>> {
         let input = tensor!([-4., -3., -1., 0., 1., 3., 4.]);
         let result = hard_swish(input.view());
         let expected = tensor!([0., 0., -1. / 3., 0., 2. / 3., 3., 4.]);
-        expect_equal(&result, &expected)
+        expect_equal(&result, &expected)?;
+        Ok(())
     }
 
     #[test]
-    fn test_leaky_relu() -> Result<(), String> {
+    fn test_leaky_relu() -> Result<(), Box<dyn Error>> {
         let input = Tensor::from_data(&[2, 2], vec![-5., -2., 3., 20.]);
         let alpha = 0.1;
         let expected = Tensor::from_data(&[2, 2], vec![-5. * alpha, -2. * alpha, 3., 20.]);
         let result = leaky_relu(input.view(), alpha);
-        expect_equal(&result, &expected)
+        expect_equal(&result, &expected)?;
+        Ok(())
     }
 
     #[test]
-    fn test_leaky_relu_in_place() -> Result<(), String> {
+    fn test_leaky_relu_in_place() -> Result<(), Box<dyn Error>> {
         let mut input = Tensor::from_data(&[2, 2], vec![-5., -2., 3., 20.]);
         let alpha = 0.1;
         let expected = Tensor::from_data(&[2, 2], vec![-5. * alpha, -2. * alpha, 3., 20.]);
         leaky_relu_in_place(&mut input, alpha);
-        expect_equal(&input, &expected)
+        expect_equal(&input, &expected)?;
+        Ok(())
     }
 
     #[test]
-    fn test_log() -> Result<(), String> {
+    fn test_log() -> Result<(), Box<dyn Error>> {
         let input = tensor!([0.1, 0.5, 1., 10.]);
         let expected = tensor!([
             -2.3025850929940455,
@@ -782,11 +791,12 @@ mod tests {
             2.302585092994046
         ]);
         let result = log(input.view());
-        expect_equal(&result, &expected)
+        expect_equal(&result, &expected)?;
+        Ok(())
     }
 
     #[test]
-    fn test_log_in_place() -> Result<(), String> {
+    fn test_log_in_place() -> Result<(), Box<dyn Error>> {
         let mut input = tensor!([0.1, 0.5, 1., 10.]);
         let expected = tensor!([
             -2.3025850929940455,
@@ -795,7 +805,8 @@ mod tests {
             2.302585092994046
         ]);
         log_in_place(&mut input);
-        expect_equal(&input, &expected)
+        expect_equal(&input, &expected)?;
+        Ok(())
     }
 
     #[test]
@@ -839,7 +850,7 @@ mod tests {
     }
 
     #[test]
-    fn test_relu() -> Result<(), String> {
+    fn test_relu() -> Result<(), Box<dyn Error>> {
         let input = Tensor::from_data(&[2, 2, 1], vec![-0.5, 0.5, 3.0, -5.5]);
         let expected = Tensor::from_data(&[2, 2, 1], vec![0.0, 0.5, 3.0, 0.0]);
 
@@ -848,11 +859,12 @@ mod tests {
 
         let mut result = input.clone();
         relu_in_place(&mut result);
-        expect_equal(&result, &expected)
+        expect_equal(&result, &expected)?;
+        Ok(())
     }
 
     #[test]
-    fn test_round() -> Result<(), String> {
+    fn test_round() -> Result<(), Box<dyn Error>> {
         // Example from ONNX spec.
         let input = tensor!([0.9, 2.5, 2.3, 1.5, -4.5]);
         let expected = tensor!([1., 2., 2., 2., -4.]);
@@ -872,7 +884,7 @@ mod tests {
     }
 
     #[test]
-    fn test_sigmoid() -> Result<(), String> {
+    fn test_sigmoid() -> Result<(), Box<dyn Error>> {
         let input = Tensor::from_data(
             &[9],
             vec![-500.0, -3.0, -1.0, -0.5, 0.0, 0.5, 1.0, 3.0, 500.0],
@@ -889,25 +901,29 @@ mod tests {
 
         let mut result = input.clone();
         sigmoid_in_place(&mut result);
-        expect_eq_1e4(&result, &expected)
+        expect_eq_1e4(&result, &expected)?;
+
+        Ok(())
     }
 
     test_unary_op!(test_sin, sin, sin_in_place, |x: &f32| x.sin());
 
     #[test]
-    fn test_sqrt() -> Result<(), String> {
+    fn test_sqrt() -> Result<(), Box<dyn Error>> {
         let input = tensor!([4., 9., 16.]);
         let expected = tensor!([2., 3., 4.]);
         let result = sqrt(input.view());
-        expect_equal(&result, &expected)
+        expect_equal(&result, &expected)?;
+        Ok(())
     }
 
     #[test]
-    fn test_sqrt_in_place() -> Result<(), String> {
+    fn test_sqrt_in_place() -> Result<(), Box<dyn Error>> {
         let mut input = tensor!([4., 9., 16.]);
         let expected = tensor!([2., 3., 4.]);
         sqrt_in_place(&mut input);
-        expect_equal(&input, &expected)
+        expect_equal(&input, &expected)?;
+        Ok(())
     }
 
     test_unary_op!(test_tan, tan, tan_in_place, |x: &f32| x.tan());

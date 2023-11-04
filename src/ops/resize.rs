@@ -334,6 +334,8 @@ impl Operator for Resize {
 
 #[cfg(test)]
 mod tests {
+    use std::error::Error;
+
     use wasnn_tensor::prelude::*;
     use wasnn_tensor::test_util::expect_equal;
     use wasnn_tensor::Tensor;
@@ -348,7 +350,7 @@ mod tests {
     // (`cv2.resize`) or PyTorch (`torch.nn.functional.interpolate`).
 
     #[test]
-    fn test_resize_nearest() -> Result<(), String> {
+    fn test_resize_nearest() -> Result<(), Box<dyn Error>> {
         struct Case {
             image: Tensor,
             scales: Vec<f32>,
@@ -436,7 +438,7 @@ mod tests {
     }
 
     #[test]
-    fn test_resize_nearest_mode() -> Result<(), String> {
+    fn test_resize_nearest_mode() -> Result<(), Box<dyn Error>> {
         let image = Tensor::from_data(&[1, 1, 1, 2], vec![0.1, 0.2]);
 
         // Use a scale factor of 4 so that we have output pixels that map
@@ -501,7 +503,7 @@ mod tests {
     }
 
     #[test]
-    fn test_resize_bilinear() -> Result<(), String> {
+    fn test_resize_bilinear() -> Result<(), Box<dyn Error>> {
         struct Case {
             image: Tensor,
             scales: Vec<f32>,
