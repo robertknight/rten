@@ -34,3 +34,6 @@ wasnn-ocr = { path = "./wasnn-ocr" }
 
 [lib]
 crate-type = ["lib", "cdylib"]
+
+[features]
+wasm_api = []

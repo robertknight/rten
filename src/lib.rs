@@ -4,6 +4,8 @@ mod model;
 mod number;
 mod slice_reductions;
 mod timer;
+
+#[cfg(feature = "wasm_api")]
 mod wasm_api;
 
 // Temporarily included in this crate. These functions should be moved into
