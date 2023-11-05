@@ -237,7 +237,7 @@ fn conv_2d_depthwise(
     dilations: [usize; 2],
     out_hw: [usize; 2],
 ) -> Tensor {
-    let [batch, in_c, in_h, in_w]: [usize; 4] = input.shape();
+    let [batch, _in_c, in_h, in_w]: [usize; 4] = input.shape();
     let [out_c, _, k_h, k_w]: [usize; 4] = kernel.shape();
     let [pad_top, pad_left, _pad_bottom, _pad_right] = padding;
     let [stride_h, stride_w] = strides;
@@ -250,60 +250,76 @@ fn conv_2d_depthwise(
         Tensor::zeros(&[batch, out_c, out_h, out_w])
     };
 
-    // Use of input rows below assumes contiguous last dimension.
+    // Use of `.data()` in inner loops below requires contiguous input.
     let input = input.to_contiguous();
-    let mut out_view: NdTensorViewMut<f32, 4> = output.nd_view_mut();
 
     for n in 0..batch {
-        for c in 0..in_c {
-            let kernel_view = kernel.slice([c, 0]).unchecked();
-            let in_chan = input.slice::<2, _>([n, c]);
-            let mut out_chan = out_view.slice_mut::<2, _>([n, c]);
+        // Convert to dynamic-rank views because `axis_chunks` is not
+        // implemented for `NdTensorView` yet.
+        let kernel = kernel.as_dyn();
+        let input = input.as_dyn().slice(n);
+        let mut output = output.slice_mut(n);
 
-            // The loops here are ordered so that the inner-most loop is as
-            // efficient as possible and runs for as long as possible over a
-            // contiguous slice of memory.
-            for out_y in 0..out_h {
-                let mut out_row = out_chan.slice_mut::<1, _>([out_y]);
-                let out_row = out_row.data_mut().unwrap();
+        const CHAN_GROUP_SIZE: usize = 8;
 
-                for k_y in 0..k_h {
-                    let in_y = out_y * stride_h + k_y * dilation_y;
-                    if in_y < pad_top || in_y >= in_h + pad_top {
-                        continue;
-                    }
+        input
+            .axis_chunks(0, CHAN_GROUP_SIZE)
+            .zip(kernel.slice((.., 0)).axis_chunks(0, CHAN_GROUP_SIZE))
+            .zip(output.axis_chunks_mut(0, CHAN_GROUP_SIZE))
+            .par_bridge()
+            .for_each(|((in_chans, kernel_chans), mut out_chans)| {
+                // Convert to static rank views for faster slicing below.
+                let in_chans = in_chans.nd_view::<3>();
+                let kernel_chans = kernel_chans.nd_view::<3>();
+                let mut out_chans = out_chans.nd_view_mut::<3>();
 
-                    let in_row = in_chan.slice::<1, _>([in_y - pad_top]);
+                for c in 0..in_chans.size(0) {
+                    let kernel_view = kernel_chans.slice::<2, _>(c).unchecked();
+                    let in_chan = in_chans.slice::<2, _>(c);
+                    let mut out_chan = out_chans.slice_mut::<2, _>(c);
 
-                    // Safety: We ensured input is contiguous before these
-                    // loops.
-                    let in_row = unsafe { in_row.data_unchecked() };
+                    // The loops here are ordered so that the inner-most loop is as
+                    // efficient as possible and runs for as long as possible over a
+                    // contiguous slice of memory.
+                    for out_y in 0..out_h {
+                        let mut out_row = out_chan.slice_mut::<1, _>([out_y]);
+                        let out_row = out_row.data_mut().unwrap();
 
-                    for k_x in 0..k_w {
-                        let kernel_val = kernel_view[[k_y, k_x]];
-                        let (min_out_x, max_out_x) =
-                            min_max_out_x_coords(k_x, in_w, pad_left, stride_w, dilation_x, out_w);
+                        for k_y in 0..k_h {
+                            let in_y = out_y * stride_h + k_y * dilation_y;
+                            if in_y < pad_top || in_y >= in_h + pad_top {
+                                continue;
+                            }
 
-                        if min_out_x == max_out_x {
-                            continue;
+                            let in_row = in_chan.slice::<1, _>([in_y - pad_top]).data().unwrap();
+
+                            for k_x in 0..k_w {
+                                let kernel_val = kernel_view[[k_y, k_x]];
+                                let (min_out_x, max_out_x) = min_max_out_x_coords(
+                                    k_x, in_w, pad_left, stride_w, dilation_x, out_w,
+                                );
+
+                                if min_out_x == max_out_x {
+                                    continue;
+                                }
+
+                                let out_row_slice = &mut out_row[min_out_x..max_out_x];
+                                let in_row_slice = &in_row[min_out_x * stride_w + k_x * dilation_x
+                                    - pad_left
+                                    ..(max_out_x - 1) * stride_w + k_x * dilation_x - pad_left + 1];
+
+                                add_scaled_vector(
+                                    out_row_slice,
+                                    in_row_slice,
+                                    1,        /* dest_stride */
+                                    stride_w, /* src_stride */
+                                    kernel_val,
+                                );
+                            }
                         }
-
-                        let out_row_slice = &mut out_row[min_out_x..max_out_x];
-                        let in_row_slice = &in_row[min_out_x * stride_w + k_x * dilation_x
-                            - pad_left
-                            ..(max_out_x - 1) * stride_w + k_x * dilation_x - pad_left + 1];
-
-                        add_scaled_vector(
-                            out_row_slice,
-                            in_row_slice,
-                            1,        /* dest_stride */
-                            stride_w, /* src_stride */
-                            kernel_val,
-                        );
                     }
                 }
-            }
-        }
+            });
     }
 
     output
