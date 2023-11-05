@@ -151,6 +151,18 @@ enum ReadOpError {
 
 type ReadOpResult = Result<Box<dyn Operator + Sync>, ReadOpError>;
 
+/// Define a function that reads an operator with one attribute, `axis`.
+macro_rules! read_axis_op {
+    ($func_name:ident, $attr_method:ident, $op:ident) => {
+        fn $func_name(node: &OperatorNode) -> ReadOpResult {
+            let attrs = node.$attr_method().ok_or(ReadOpError::AttrError)?;
+            Ok(Box::new(ops::$op {
+                axis: attrs.axis() as isize,
+            }))
+        }
+    };
+}
+
 fn read_arg_max_op(node: &OperatorNode) -> ReadOpResult {
     let attrs = node
         .attrs_as_arg_max_attrs()
@@ -209,12 +221,7 @@ fn read_cast_op(node: &OperatorNode) -> ReadOpResult {
     Ok(Box::new(ops::Cast { to }))
 }
 
-fn read_concat_op(node: &OperatorNode) -> ReadOpResult {
-    let attrs = node.attrs_as_concat_attrs().ok_or(ReadOpError::AttrError)?;
-    Ok(Box::new(ops::Concat {
-        axis: attrs.axis() as isize,
-    }))
-}
+read_axis_op!(read_concat_op, attrs_as_concat_attrs, Concat);
 
 fn read_conv_op(node: &OperatorNode) -> ReadOpResult {
     let attrs = node.attrs_as_conv_attrs().ok_or(ReadOpError::AttrError)?;
@@ -263,21 +270,8 @@ fn read_conv_transpose_op(node: &OperatorNode) -> ReadOpResult {
     Ok(Box::new(ops::ConvTranspose { strides }))
 }
 
-fn read_flatten_op(node: &OperatorNode) -> ReadOpResult {
-    let attrs = node
-        .attrs_as_flatten_attrs()
-        .ok_or(ReadOpError::AttrError)?;
-    Ok(Box::new(ops::Flatten {
-        axis: attrs.axis() as isize,
-    }))
-}
-
-fn read_gather_op(node: &OperatorNode) -> ReadOpResult {
-    let attrs = node.attrs_as_gather_attrs().ok_or(ReadOpError::AttrError)?;
-    Ok(Box::new(ops::Gather {
-        axis: attrs.axis() as isize,
-    }))
-}
+read_axis_op!(read_flatten_op, attrs_as_flatten_attrs, Flatten);
+read_axis_op!(read_gather_op, attrs_as_gather_attrs, Gather);
 
 fn read_gemm_op(node: &OperatorNode) -> ReadOpResult {
     let attrs = node.attrs_as_gemm_attrs().ok_or(ReadOpError::AttrError)?;
@@ -335,14 +329,7 @@ fn read_leaky_relu_op(node: &OperatorNode) -> ReadOpResult {
     }))
 }
 
-fn read_log_softmax_op(node: &OperatorNode) -> ReadOpResult {
-    let attrs = node
-        .attrs_as_softmax_attrs()
-        .ok_or(ReadOpError::AttrError)?;
-    Ok(Box::new(ops::LogSoftmax {
-        axis: attrs.axis() as isize,
-    }))
-}
+read_axis_op!(read_log_softmax_op, attrs_as_softmax_attrs, LogSoftmax);
 
 fn read_lstm_op(node: &OperatorNode) -> ReadOpResult {
     let attrs = node.attrs_as_lstmattrs().ok_or(ReadOpError::AttrError)?;
@@ -385,14 +372,7 @@ fn read_mod_op(node: &OperatorNode) -> ReadOpResult {
     Ok(Box::new(ops::Mod { fmod: attrs.fmod() }))
 }
 
-fn read_onehot_op(node: &OperatorNode) -> ReadOpResult {
-    let attrs = node
-        .attrs_as_one_hot_attrs()
-        .ok_or(ReadOpError::AttrError)?;
-    Ok(Box::new(ops::OneHot {
-        axis: attrs.axis() as isize,
-    }))
-}
+read_axis_op!(read_onehot_op, attrs_as_one_hot_attrs, OneHot);
 
 fn read_reduce_attrs(node: &OperatorNode) -> Result<(Option<Vec<i32>>, bool), ReadOpError> {
     let attrs = node
@@ -403,35 +383,22 @@ fn read_reduce_attrs(node: &OperatorNode) -> Result<(Option<Vec<i32>>, bool), Re
     Ok((axes, keep_dims))
 }
 
-fn read_reduce_l2_op(node: &OperatorNode) -> ReadOpResult {
-    let (axes, keep_dims) = read_reduce_attrs(node)?;
-    Ok(Box::new(ops::ReduceL2 { axes, keep_dims }))
+/// Define a function that reads `Reduce*` operators.
+macro_rules! read_reduce_op {
+    ($func_name:ident, $op:ident) => {
+        fn $func_name(node: &OperatorNode) -> ReadOpResult {
+            let (axes, keep_dims) = read_reduce_attrs(node)?;
+            Ok(Box::new(ops::$op { axes, keep_dims }))
+        }
+    };
 }
 
-fn read_reduce_max_op(node: &OperatorNode) -> ReadOpResult {
-    let (axes, keep_dims) = read_reduce_attrs(node)?;
-    Ok(Box::new(ops::ReduceMax { axes, keep_dims }))
-}
-
-fn read_reduce_mean_op(node: &OperatorNode) -> ReadOpResult {
-    let (axes, keep_dims) = read_reduce_attrs(node)?;
-    Ok(Box::new(ops::ReduceMean { axes, keep_dims }))
-}
-
-fn read_reduce_min_op(node: &OperatorNode) -> ReadOpResult {
-    let (axes, keep_dims) = read_reduce_attrs(node)?;
-    Ok(Box::new(ops::ReduceMin { axes, keep_dims }))
-}
-
-fn read_reduce_prod_op(node: &OperatorNode) -> ReadOpResult {
-    let (axes, keep_dims) = read_reduce_attrs(node)?;
-    Ok(Box::new(ops::ReduceProd { axes, keep_dims }))
-}
-
-fn read_reduce_sum_op(node: &OperatorNode) -> ReadOpResult {
-    let (axes, keep_dims) = read_reduce_attrs(node)?;
-    Ok(Box::new(ops::ReduceSum { axes, keep_dims }))
-}
+read_reduce_op!(read_reduce_l2_op, ReduceL2);
+read_reduce_op!(read_reduce_max_op, ReduceMax);
+read_reduce_op!(read_reduce_mean_op, ReduceMean);
+read_reduce_op!(read_reduce_min_op, ReduceMin);
+read_reduce_op!(read_reduce_prod_op, ReduceProd);
+read_reduce_op!(read_reduce_sum_op, ReduceSum);
 
 fn read_reshape_op(node: &OperatorNode) -> ReadOpResult {
     let attrs = node
@@ -504,20 +471,8 @@ fn read_scatter_nd_op(node: &OperatorNode) -> ReadOpResult {
     }))
 }
 
-fn read_softmax_op(node: &OperatorNode) -> ReadOpResult {
-    let attrs = node
-        .attrs_as_softmax_attrs()
-        .ok_or(ReadOpError::AttrError)?;
-    Ok(Box::new(ops::Softmax {
-        axis: attrs.axis() as isize,
-    }))
-}
-
-fn read_split_op(node: &OperatorNode) -> ReadOpResult {
-    let attrs = node.attrs_as_split_attrs().ok_or(ReadOpError::AttrError)?;
-    let axis = attrs.axis() as isize;
-    Ok(Box::new(ops::Split { axis }))
-}
+read_axis_op!(read_softmax_op, attrs_as_softmax_attrs, Softmax);
+read_axis_op!(read_split_op, attrs_as_split_attrs, Split);
 
 fn read_topk_op(node: &OperatorNode) -> ReadOpResult {
     let attrs = node.attrs_as_top_kattrs().ok_or(ReadOpError::AttrError)?;
