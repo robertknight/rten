@@ -1,6 +1,31 @@
 //! Optimized reductions of slices of numbers.
 
-/// Return the sum of a slice of primitive types.
+use crate::number::MinMax;
+
+/// Return the sum of a slice of numbers.
+pub fn slice_max<T: Copy + MinMax>(xs: &[T]) -> T {
+    const CHUNK_SIZE: usize = 8;
+    xs.chunks(CHUNK_SIZE)
+        .map(|chunk| {
+            if chunk.len() == CHUNK_SIZE {
+                // Writing the code this way encourages better autovectorization.
+                let a0 = chunk[0].max(chunk[1]);
+                let a1 = chunk[2].max(chunk[3]);
+                let a2 = chunk[4].max(chunk[5]);
+                let a3 = chunk[6].max(chunk[7]);
+
+                let b0 = a0.max(a1);
+                let b1 = a2.max(a3);
+
+                b0.max(b1)
+            } else {
+                chunk.iter().copied().fold(T::min_val(), |x, y| x.max(y))
+            }
+        })
+        .fold(T::min_val(), |x, y| x.max(y))
+}
+
+/// Return the sum of a slice of numbers.
 pub fn slice_sum<T: Copy + Default + std::ops::Add<Output = T>>(xs: &[T]) -> T {
     const CHUNK_SIZE: usize = 8;
     xs.chunks(CHUNK_SIZE)
@@ -23,7 +48,18 @@ mod tests {
     use wasnn_tensor::rng::XorShiftRng;
     use wasnn_tensor::test_util::ApproxEq;
 
-    use super::slice_sum;
+    use super::{slice_max, slice_sum};
+
+    #[test]
+    fn test_slice_max() {
+        let mut rng = XorShiftRng::new(1234);
+        let xs: Vec<_> = std::iter::from_fn(|| Some(rng.next_f32()))
+            .take(256)
+            .collect();
+        let expected = xs.iter().fold(f32::NEG_INFINITY, |x, y| x.max(*y));
+        let actual = slice_max(&xs);
+        assert_eq!(actual, expected);
+    }
 
     #[test]
     fn test_slice_sum() {

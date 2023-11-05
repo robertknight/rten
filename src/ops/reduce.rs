@@ -199,6 +199,7 @@ impl Operator for NonZero {
 trait Reducer<T> {
     fn reduce<I: ExactSizeIterator<Item = T>>(&self, iter: I) -> T;
 
+    /// Reduce a contiguous slice of values to a single value.
     fn reduce_slice(&self, slice: &[T]) -> T
     where
         T: Copy,

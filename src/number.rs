@@ -59,3 +59,35 @@ impl Identities for i32 {
         0
     }
 }
+
+pub trait MinMax {
+    /// Return the maximum value for this type.
+    fn max_val() -> Self;
+
+    /// Return the minimum value for this type.
+    fn min_val() -> Self;
+
+    /// Return the minimum of `self` and `other`.
+    fn min(self, other: Self) -> Self;
+
+    /// Return the maximum of `self` and `other`.
+    fn max(self, other: Self) -> Self;
+}
+
+impl MinMax for f32 {
+    fn max_val() -> Self {
+        f32::INFINITY
+    }
+
+    fn min_val() -> Self {
+        f32::NEG_INFINITY
+    }
+
+    fn max(self, other: f32) -> f32 {
+        self.max(other)
+    }
+
+    fn min(self, other: f32) -> f32 {
+        self.min(other)
+    }
+}

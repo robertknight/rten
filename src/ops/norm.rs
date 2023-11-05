@@ -2,6 +2,7 @@ use wasnn_tensor::prelude::*;
 use wasnn_tensor::{NdTensorView, Tensor, TensorView};
 
 use crate::ops::{resolve_axis, InputList, IntoOpResult, OpError, Operator, Output};
+use crate::slice_reductions::slice_max;
 use crate::{check_dims, static_dims};
 
 /// Perform in-place batch normalization on the NCHW tensor `out`.
@@ -251,10 +252,7 @@ pub fn log_softmax_in_place(output: &mut Tensor, axis: isize) -> Result<(), OpEr
     //   = xi - xmax - log(sum(exp(x - xmax)))
 
     for els in output.data_mut().chunks_mut(outer_stride) {
-        let max_val = els
-            .iter()
-            .copied()
-            .fold(f32::MIN, |max_val, x| max_val.max(x));
+        let max_val = slice_max(els);
         let log_exp_sum = els
             .iter()
             .fold(0., |exp_sum, x| exp_sum + (x - max_val).exp())
@@ -313,10 +311,8 @@ pub fn softmax_in_place(output: &mut Tensor, axis: isize) -> Result<(), OpError>
     for els in output.data_mut().chunks_mut(outer_stride) {
         // Numerically stable softmax. See
         // https://ogunlao.github.io/2020/04/26/you_dont_really_know_softmax.html.
-        let max_val = els
-            .iter()
-            .copied()
-            .fold(f32::MIN, |max_val, x| max_val.max(x));
+        let max_val = slice_max(els);
+
         let mut exp_sum = 0.0;
         for el in els.iter_mut() {
             *el = (*el - max_val).exp();
