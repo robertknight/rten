@@ -40,8 +40,17 @@ impl<'a> NodeInfo<'a> {
 
 impl Model {
     /// Load a serialized model.
+    ///
+    /// The model will have all of the built-in operators available to it (see
+    /// [OpRegistry::with_all_ops]).
     pub fn load(data: &[u8]) -> Result<Model, String> {
-        load_model(data)
+        let registry = OpRegistry::with_all_ops();
+        load_model(data, &registry)
+    }
+
+    /// Load a serialized model with a custom operator registry.
+    pub fn load_with_ops(data: &[u8], registry: &OpRegistry) -> Result<Model, String> {
+        load_model(data, registry)
     }
 
     /// Find a node in the model's graph given its string ID.
@@ -141,15 +150,298 @@ fn array_from_iter<const N: usize, T: Default + Copy, I: Iterator<Item = T>>(
     result
 }
 
+/// Result of deserializing an operator node from a model file.
+pub type ReadOpResult = Result<Box<dyn Operator + Sync>, ReadOpError>;
+
+/// A function that deserializes an operator node.
+pub type ReadOpFunction = dyn Fn(&OperatorNode) -> ReadOpResult;
+
+/// Trait that that creates the default/built-in implementation of an operator,
+/// for use with [OpRegistry::register_op].
+pub trait DefaultOperatorFactory {
+    /// Return the type enum value for this operator.
+    fn op_type() -> sg::OperatorType;
+
+    /// Function which reads an [OperatorNode] struct from a model file and
+    /// creates an instance of the operator as a `Box<dyn Operator>`.
+    fn factory() -> Box<ReadOpFunction>;
+}
+
+/// Implement `DefaultOperatorFactory` for a built-in operator factory.
+macro_rules! impl_default_factory {
+    ($op:ident) => {
+        impl DefaultOperatorFactory for ops::$op {
+            fn op_type() -> OperatorType {
+                OperatorType::$op
+            }
+
+            fn factory() -> Box<ReadOpFunction> {
+                Box::new(move |_| Ok(Box::new(ops::$op {})))
+            }
+        }
+    };
+
+    ($op:ident, $factory:ident) => {
+        impl DefaultOperatorFactory for ops::$op {
+            fn op_type() -> OperatorType {
+                OperatorType::$op
+            }
+
+            fn factory() -> Box<ReadOpFunction> {
+                Box::new($factory)
+            }
+        }
+    };
+}
+
+impl_default_factory!(Abs);
+impl_default_factory!(Acos);
+impl_default_factory!(Add);
+impl_default_factory!(And);
+impl_default_factory!(ArgMax, read_arg_max_op);
+impl_default_factory!(ArgMin, read_arg_min_op);
+impl_default_factory!(Asin);
+impl_default_factory!(Atan);
+impl_default_factory!(AveragePool, read_average_pool_op);
+impl_default_factory!(BatchNormalization, read_batch_normalization_op);
+impl_default_factory!(Cast, read_cast_op);
+impl_default_factory!(Ceil);
+impl_default_factory!(Clip);
+impl_default_factory!(Concat, read_concat_op);
+impl_default_factory!(Conv, read_conv_op);
+impl_default_factory!(ConstantOfShape, read_constant_of_shape_op);
+impl_default_factory!(ConvTranspose, read_conv_transpose_op);
+impl_default_factory!(Cos);
+impl_default_factory!(CumSum);
+impl_default_factory!(Div);
+impl_default_factory!(Equal);
+impl_default_factory!(Erf);
+impl_default_factory!(Exp);
+impl_default_factory!(Expand);
+impl_default_factory!(Flatten, read_flatten_op);
+impl_default_factory!(Floor);
+impl_default_factory!(Gather, read_gather_op);
+impl_default_factory!(Gemm, read_gemm_op);
+impl_default_factory!(GlobalAveragePool);
+impl_default_factory!(Greater);
+impl_default_factory!(GreaterOrEqual);
+impl_default_factory!(GRU, read_gru_op);
+impl_default_factory!(HardSigmoid, read_hard_sigmoid_op);
+impl_default_factory!(HardSwish);
+impl_default_factory!(Identity);
+impl_default_factory!(InstanceNormalization, read_instance_normalization_op);
+impl_default_factory!(LeakyRelu, read_leaky_relu_op);
+impl_default_factory!(Less);
+impl_default_factory!(LessOrEqual);
+impl_default_factory!(Log);
+impl_default_factory!(LogSoftmax, read_log_softmax_op);
+impl_default_factory!(LSTM, read_lstm_op);
+impl_default_factory!(MatMul);
+impl_default_factory!(Max);
+impl_default_factory!(MaxPool, read_max_pool_op);
+impl_default_factory!(Mean);
+impl_default_factory!(Min);
+impl_default_factory!(Mod, read_mod_op);
+impl_default_factory!(Mul);
+impl_default_factory!(Neg);
+impl_default_factory!(NonZero);
+impl_default_factory!(Not);
+impl_default_factory!(OneHot, read_onehot_op);
+impl_default_factory!(Or);
+impl_default_factory!(Pad);
+impl_default_factory!(Pow);
+impl_default_factory!(Range);
+impl_default_factory!(Reciprocal);
+impl_default_factory!(ReduceL2, read_reduce_l2_op);
+impl_default_factory!(ReduceMax, read_reduce_max_op);
+impl_default_factory!(ReduceMean, read_reduce_mean_op);
+impl_default_factory!(ReduceMin, read_reduce_min_op);
+impl_default_factory!(ReduceProd, read_reduce_prod_op);
+impl_default_factory!(ReduceSum, read_reduce_sum_op);
+impl_default_factory!(Relu);
+impl_default_factory!(Reshape, read_reshape_op);
+impl_default_factory!(Resize, read_resize_op);
+impl_default_factory!(Round);
+impl_default_factory!(ScatterElements, read_scatter_elements_op);
+impl_default_factory!(ScatterND, read_scatter_nd_op);
+impl_default_factory!(Shape);
+impl_default_factory!(Sigmoid);
+impl_default_factory!(Sin);
+impl_default_factory!(Size);
+impl_default_factory!(Slice);
+impl_default_factory!(Softmax, read_softmax_op);
+impl_default_factory!(Split, read_split_op);
+impl_default_factory!(Sqrt);
+impl_default_factory!(Squeeze);
+impl_default_factory!(Sub);
+impl_default_factory!(Sum);
+impl_default_factory!(Tan);
+impl_default_factory!(Tanh);
+impl_default_factory!(Tile);
+impl_default_factory!(TopK, read_topk_op);
+impl_default_factory!(Transpose, read_transpose_op);
+impl_default_factory!(Trilu, read_trilu_op);
+impl_default_factory!(Unsqueeze);
+impl_default_factory!(Where);
+impl_default_factory!(Xor);
+
+/// Registry used to instantiate operators when loading a model file.
+///
+/// New registries have no operators registered by default. If you want to get
+/// one that has all the built-in operators pre-registered, use
+/// [OpRegistry::with_all_ops]. Alternatively you can create a new registry and
+/// just selectively register the operators you need using
+/// [OpRegistry::register_op]. This can be useful to reduce binary sizes or
+/// customize the implementation of an operator.
+#[derive(Default)]
+pub struct OpRegistry {
+    ops: HashMap<sg::OperatorType, Box<ReadOpFunction>>,
+}
+
+impl OpRegistry {
+    /// Create a new empty registry.
+    pub fn new() -> OpRegistry {
+        OpRegistry {
+            ops: HashMap::new(),
+        }
+    }
+
+    /// Register the default/built-in implementation of an operator.
+    pub fn register_op<Op: DefaultOperatorFactory>(&mut self) {
+        self.register_op_with_factory(Op::op_type(), Op::factory());
+    }
+
+    /// Deserialize an operator from a model file using the operators in the
+    /// registry.
+    fn read_op(&self, op: &OperatorNode) -> ReadOpResult {
+        self.ops
+            .get(&op.type_())
+            .ok_or(ReadOpError::UnsupportedOperator)
+            .and_then(|read_fn| read_fn(op))
+    }
+
+    /// Register an operator with a custom factory to deserialize it from a
+    /// model file.
+    fn register_op_with_factory(
+        &mut self,
+        op_type: sg::OperatorType,
+        factory: Box<ReadOpFunction>,
+    ) {
+        self.ops.insert(op_type, factory);
+    }
+
+    /// Create a new registry with all built-in operators registered.
+    pub fn with_all_ops() -> OpRegistry {
+        let mut reg = OpRegistry::new();
+
+        macro_rules! register_op {
+            ($op:ident) => {
+                reg.register_op::<ops::$op>()
+            };
+        }
+
+        register_op!(Abs);
+        register_op!(Acos);
+        register_op!(Add);
+        register_op!(And);
+        register_op!(ArgMax);
+        register_op!(ArgMin);
+        register_op!(Asin);
+        register_op!(Atan);
+        register_op!(AveragePool);
+        register_op!(BatchNormalization);
+        register_op!(Cast);
+        register_op!(Ceil);
+        register_op!(Clip);
+        register_op!(Concat);
+        register_op!(Conv);
+        register_op!(ConstantOfShape);
+        register_op!(ConvTranspose);
+        register_op!(Cos);
+        register_op!(CumSum);
+        register_op!(Div);
+        register_op!(Equal);
+        register_op!(Erf);
+        register_op!(Exp);
+        register_op!(Expand);
+        register_op!(Flatten);
+        register_op!(Floor);
+        register_op!(Gather);
+        register_op!(Gemm);
+        register_op!(GlobalAveragePool);
+        register_op!(Greater);
+        register_op!(GreaterOrEqual);
+        register_op!(GRU);
+        register_op!(HardSigmoid);
+        register_op!(HardSwish);
+        register_op!(Identity);
+        register_op!(InstanceNormalization);
+        register_op!(LeakyRelu);
+        register_op!(Less);
+        register_op!(LessOrEqual);
+        register_op!(Log);
+        register_op!(LogSoftmax);
+        register_op!(LSTM);
+        register_op!(MatMul);
+        register_op!(Max);
+        register_op!(MaxPool);
+        register_op!(Mean);
+        register_op!(Min);
+        register_op!(Mod);
+        register_op!(Mul);
+        register_op!(Neg);
+        register_op!(NonZero);
+        register_op!(Not);
+        register_op!(OneHot);
+        register_op!(Or);
+        register_op!(Pad);
+        register_op!(Pow);
+        register_op!(Range);
+        register_op!(Reciprocal);
+        register_op!(ReduceL2);
+        register_op!(ReduceMax);
+        register_op!(ReduceMean);
+        register_op!(ReduceMin);
+        register_op!(ReduceProd);
+        register_op!(ReduceSum);
+        register_op!(Relu);
+        register_op!(Reshape);
+        register_op!(Resize);
+        register_op!(Round);
+        register_op!(ScatterElements);
+        register_op!(ScatterND);
+        register_op!(Shape);
+        register_op!(Sigmoid);
+        register_op!(Sin);
+        register_op!(Size);
+        register_op!(Slice);
+        register_op!(Softmax);
+        register_op!(Split);
+        register_op!(Sqrt);
+        register_op!(Squeeze);
+        register_op!(Sub);
+        register_op!(Sum);
+        register_op!(Tan);
+        register_op!(Tanh);
+        register_op!(Tile);
+        register_op!(TopK);
+        register_op!(Transpose);
+        register_op!(Trilu);
+        register_op!(Unsqueeze);
+        register_op!(Where);
+        register_op!(Xor);
+
+        reg
+    }
+}
+
 /// Error type for errors that occur when de-serializing an operator.
-enum ReadOpError {
+pub enum ReadOpError {
     /// The operator attributes were missing or of the wrong type.
     AttrError,
     /// The operator type is incorrect or unsupported.
     UnsupportedOperator,
 }
-
-type ReadOpResult = Result<Box<dyn Operator + Sync>, ReadOpError>;
 
 /// Define a function that reads an operator with one attribute, `axis`.
 macro_rules! read_axis_op {
@@ -503,110 +795,7 @@ fn read_trilu_op(node: &OperatorNode) -> ReadOpResult {
     }))
 }
 
-/// Create a `Box<dyn Operator>` for an operator that has no attributes.
-macro_rules! op {
-    ($op_name:ident) => {
-        Ok(Box::new(ops::$op_name {}))
-    };
-}
-
-fn read_operator(node: &OperatorNode) -> ReadOpResult {
-    match node.type_() {
-        OperatorType::Abs => op!(Abs),
-        OperatorType::Acos => op!(Acos),
-        OperatorType::Add => op!(Add),
-        OperatorType::And => op!(And),
-        OperatorType::ArgMax => read_arg_max_op(node),
-        OperatorType::ArgMin => read_arg_min_op(node),
-        OperatorType::Asin => op!(Asin),
-        OperatorType::Atan => op!(Atan),
-        OperatorType::AveragePool => read_average_pool_op(node),
-        OperatorType::BatchNormalization => read_batch_normalization_op(node),
-        OperatorType::Cast => read_cast_op(node),
-        OperatorType::Ceil => op!(Ceil),
-        OperatorType::Clip => op!(Clip),
-        OperatorType::Concat => read_concat_op(node),
-        OperatorType::Conv => read_conv_op(node),
-        OperatorType::ConstantOfShape => read_constant_of_shape_op(node),
-        OperatorType::ConvTranspose => read_conv_transpose_op(node),
-        OperatorType::Cos => op!(Cos),
-        OperatorType::CumSum => op!(CumSum),
-        OperatorType::Div => op!(Div),
-        OperatorType::Equal => op!(Equal),
-        OperatorType::Erf => op!(Erf),
-        OperatorType::Exp => op!(Exp),
-        OperatorType::Expand => op!(Expand),
-        OperatorType::Flatten => read_flatten_op(node),
-        OperatorType::Floor => op!(Floor),
-        OperatorType::Gather => read_gather_op(node),
-        OperatorType::Gemm => read_gemm_op(node),
-        OperatorType::GlobalAveragePool => op!(GlobalAveragePool),
-        OperatorType::Greater => op!(Greater),
-        OperatorType::GreaterOrEqual => op!(GreaterOrEqual),
-        OperatorType::GRU => read_gru_op(node),
-        OperatorType::HardSigmoid => read_hard_sigmoid_op(node),
-        OperatorType::HardSwish => op!(HardSwish),
-        OperatorType::Identity => op!(Identity),
-        OperatorType::InstanceNormalization => read_instance_normalization_op(node),
-        OperatorType::LeakyRelu => read_leaky_relu_op(node),
-        OperatorType::Less => op!(Less),
-        OperatorType::LessOrEqual => op!(LessOrEqual),
-        OperatorType::Log => op!(Log),
-        OperatorType::LogSoftmax => read_log_softmax_op(node),
-        OperatorType::LSTM => read_lstm_op(node),
-        OperatorType::MatMul => op!(MatMul),
-        OperatorType::Max => op!(Max),
-        OperatorType::MaxPool => read_max_pool_op(node),
-        OperatorType::Mean => op!(Mean),
-        OperatorType::Min => op!(Min),
-        OperatorType::Mod => read_mod_op(node),
-        OperatorType::Mul => op!(Mul),
-        OperatorType::Neg => op!(Neg),
-        OperatorType::NonZero => op!(NonZero),
-        OperatorType::Not => op!(Not),
-        OperatorType::OneHot => read_onehot_op(node),
-        OperatorType::Or => op!(Or),
-        OperatorType::Pad => op!(Pad),
-        OperatorType::Pow => op!(Pow),
-        OperatorType::Range => op!(Range),
-        OperatorType::Reciprocal => op!(Reciprocal),
-        OperatorType::ReduceL2 => read_reduce_l2_op(node),
-        OperatorType::ReduceMax => read_reduce_max_op(node),
-        OperatorType::ReduceMean => read_reduce_mean_op(node),
-        OperatorType::ReduceMin => read_reduce_min_op(node),
-        OperatorType::ReduceProd => read_reduce_prod_op(node),
-        OperatorType::ReduceSum => read_reduce_sum_op(node),
-        OperatorType::Relu => op!(Relu),
-        OperatorType::Reshape => read_reshape_op(node),
-        OperatorType::Resize => read_resize_op(node),
-        OperatorType::Round => op!(Round),
-        OperatorType::ScatterElements => read_scatter_elements_op(node),
-        OperatorType::ScatterND => read_scatter_nd_op(node),
-        OperatorType::Shape => op!(Shape),
-        OperatorType::Sigmoid => op!(Sigmoid),
-        OperatorType::Sin => op!(Sin),
-        OperatorType::Size => op!(Size),
-        OperatorType::Slice => op!(Slice),
-        OperatorType::Softmax => read_softmax_op(node),
-        OperatorType::Split => read_split_op(node),
-        OperatorType::Sqrt => op!(Sqrt),
-        OperatorType::Squeeze => op!(Squeeze),
-        OperatorType::Sub => op!(Sub),
-        OperatorType::Sum => op!(Sum),
-        OperatorType::Tan => op!(Tan),
-        OperatorType::Tanh => op!(Tanh),
-        OperatorType::Tile => op!(Tile),
-        OperatorType::TopK => read_topk_op(node),
-        OperatorType::Transpose => read_transpose_op(node),
-        OperatorType::Trilu => read_trilu_op(node),
-        OperatorType::Unsqueeze => op!(Unsqueeze),
-        OperatorType::Where => op!(Where),
-        OperatorType::Xor => op!(Xor),
-        _ => Err(ReadOpError::UnsupportedOperator),
-    }
-}
-
-fn load_model(data: &[u8]) -> Result<Model, String> {
+fn load_model(data: &[u8], registry: &OpRegistry) -> Result<Model, String> {
     let model = root_as_model(data).map_err(|e| format!("Error parsing flatbuffer {:?}", e))?;
 
     if model.schema_version() != 1 {
@@ -642,7 +831,7 @@ fn load_model(data: &[u8]) -> Result<Model, String> {
     if let Some(nodes) = model.graph().nodes() {
         for (node_index, node) in nodes.iter().enumerate() {
             if let Some(operator) = node.data_as_operator_node() {
-                let op = read_operator(&operator).map_err(|err| match err {
+                let op = registry.read_op(&operator).map_err(|err| match err {
                     ReadOpError::UnsupportedOperator => "unsupported operator".to_string(),
                     ReadOpError::AttrError => "incorrect or missing attributes".to_string(),
                 })?;
