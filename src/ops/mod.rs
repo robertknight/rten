@@ -761,8 +761,8 @@ mod tests {
     use wasnn_tensor::prelude::*;
     use wasnn_tensor::test_util::{expect_equal_with_tolerance, ExpectEqualError};
 
-    /// Compare two f32 tensors with a higher tolerance (1e-4) than the default
-    /// (1e-5).
+    /// Compare two f32 tensors with a higher absolute tolerance (1e-4) than
+    /// the default (1e-5).
     ///
     /// Tests that use this generally ought to use a lower tolerance, but
     /// their test expectations will often need updating to a higher precision.
@@ -770,6 +770,6 @@ mod tests {
         result: &V,
         expected: &V,
     ) -> Result<(), ExpectEqualError> {
-        expect_equal_with_tolerance(result, expected, 1e-4)
+        expect_equal_with_tolerance(result, expected, 1e-4, 0.)
     }
 }

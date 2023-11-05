@@ -6,40 +6,75 @@ use crate::{Layout, TensorView, View};
 
 /// Trait that tests whether two values are approximately equal.
 ///
-/// Here "approximately" means "a value that is reasonable for this crate's
-/// tests".
+/// The comparison takes into account both the absolute difference of the values
+/// and the relative difference.
+///
+/// The behavior of this trait is designed to match PyTorch's `torch.allclose`
+/// and NumPy's `np.allclose`.
 pub trait ApproxEq: Sized {
     /// Return the default absolute tolerance value.
-    fn default_tolerance() -> Self;
+    fn default_abs_tolerance() -> Self;
+
+    /// Return the default relative tolerance value.
+    fn default_rel_tolerance() -> Self;
+
+    /// Test whether `self` is "close" to `other` according to the formula:
+    ///
+    /// ```text
+    /// (self - other).abs() <= atol + rtol * other.abs()
+    /// ```
+    fn approx_eq_with_atol_rtol(&self, other: &Self, atol: Self, rtol: Self) -> bool;
 
     /// Test if `other` is approximately equal to `self` with a maximum
     /// absolute difference of `epsilon`.
-    fn approx_eq_with_tolerance(&self, other: &Self, epsilon: Self) -> bool;
+    fn approx_eq_with_tolerance(&self, other: &Self, epsilon: Self) -> bool {
+        self.approx_eq_with_atol_rtol(other, epsilon, Self::default_rel_tolerance())
+    }
 
-    /// Test if `other` is approximately equal to `self` with the maximum
-    /// absolute difference specified by `Self::default_tolerance`.
+    /// Test if `other` is approximately equal to `self` with the default
+    /// tolerances for this type.
     fn approx_eq(&self, other: &Self) -> bool {
-        self.approx_eq_with_tolerance(other, Self::default_tolerance())
+        self.approx_eq_with_atol_rtol(
+            other,
+            Self::default_abs_tolerance(),
+            Self::default_rel_tolerance(),
+        )
     }
 }
 
 impl ApproxEq for f32 {
-    fn default_tolerance() -> f32 {
+    /// Default that matches `allclose` in PyTorch, NumPy.
+    #[inline]
+    fn default_abs_tolerance() -> f32 {
+        1e-8
+    }
+
+    /// Default that matches `allclose` in PyTorch, NumPy.
+    #[inline]
+    fn default_rel_tolerance() -> f32 {
         1e-5
     }
 
-    fn approx_eq_with_tolerance(&self, other: &f32, epsilon: f32) -> bool {
-        (self - other).abs() < epsilon
+    #[inline]
+    fn approx_eq_with_atol_rtol(&self, other: &f32, atol: f32, rtol: f32) -> bool {
+        (self - other).abs() <= atol + rtol * other.abs()
     }
 }
 
 impl ApproxEq for i32 {
-    fn default_tolerance() -> i32 {
+    #[inline]
+    fn default_abs_tolerance() -> i32 {
         0
     }
 
-    fn approx_eq_with_tolerance(&self, other: &i32, eps: i32) -> bool {
-        (self - other).abs() < eps
+    #[inline]
+    fn default_rel_tolerance() -> i32 {
+        0
+    }
+
+    #[inline]
+    fn approx_eq_with_atol_rtol(&self, other: &i32, atol: i32, rtol: i32) -> bool {
+        (self - other).abs() <= atol + rtol * other.abs()
     }
 }
 
@@ -88,7 +123,12 @@ pub fn expect_equal<V: View>(x: &V, y: &V) -> Result<(), ExpectEqualError>
 where
     V::Elem: Clone + Debug + ApproxEq,
 {
-    expect_equal_with_tolerance(x, y, V::Elem::default_tolerance())
+    expect_equal_with_tolerance(
+        x,
+        y,
+        V::Elem::default_abs_tolerance(),
+        V::Elem::default_rel_tolerance(),
+    )
 }
 
 /// Check that the shapes of two tensors are equal and that their contents
@@ -98,7 +138,8 @@ where
 pub fn expect_equal_with_tolerance<V: View>(
     x: &V,
     y: &V,
-    epsilon: V::Elem,
+    atol: V::Elem,
+    rtol: V::Elem,
 ) -> Result<(), ExpectEqualError>
 where
     V::Elem: Clone + Debug + ApproxEq,
@@ -114,7 +155,7 @@ where
     let mismatches: Vec<_> = zip(x.iter(), y.iter())
         .enumerate()
         .filter_map(|(i, (xi, yi))| {
-            if !xi.approx_eq_with_tolerance(yi, epsilon.clone()) {
+            if !xi.approx_eq_with_atol_rtol(yi, atol.clone(), rtol.clone()) {
                 Some((index_from_linear_index(x.shape().as_ref(), i), xi, yi))
             } else {
                 None
@@ -147,5 +188,44 @@ pub fn eq_with_nans(a: TensorView, b: TensorView) -> bool {
         false
     } else {
         zip(a.iter(), b.iter()).all(|(a, b)| (a.is_nan() && b.is_nan()) || a == b)
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::ApproxEq;
+
+    #[test]
+    fn test_approx_eq_i32() {
+        let vals = [-5, -1, 0, 1, 5];
+        for val in vals {
+            assert!(val.approx_eq(&val));
+            assert!(!val.approx_eq(&(val + 1)));
+        }
+    }
+
+    #[test]
+    fn test_approx_eq_f32() {
+        // Same values.
+        let vals = [-1000., -5., -0.5, 0., 0.5, 5., 1000.];
+        for val in vals {
+            assert!(val.approx_eq(&val));
+        }
+
+        // Close values
+        for val in vals {
+            // 9e-9 and 9e-6 are slightly smaller than the default tolerances.
+            let close = val + 9e-9 + val * 9e-6;
+            assert_ne!(val, close);
+            assert!(val.approx_eq(&close));
+        }
+
+        // Different values
+        for val in vals {
+            // 2e-8 and 2e-5 are larger than the default tolerances.
+            let not_close = val + 2e-8 + val * 2e-5;
+            assert_ne!(val, not_close);
+            assert!(!val.approx_eq(&not_close));
+        }
     }
 }

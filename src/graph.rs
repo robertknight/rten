@@ -823,7 +823,7 @@ mod tests {
             ],
         );
         assert_eq!(results.len(), 1);
-        expect_equal_with_tolerance(results[0].as_float_ref().unwrap(), &expected, 1e-4)?;
+        expect_equal_with_tolerance(results[0].as_float_ref().unwrap(), &expected, 1e-4, 0.)?;
 
         Ok(())
     }

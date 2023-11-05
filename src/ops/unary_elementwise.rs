@@ -662,7 +662,7 @@ mod tests {
 
         let expected = input.map(|x| libm::erff(*x));
         let result = erf(input.view());
-        expect_equal_with_tolerance(&result, &expected, 1e-6)?;
+        expect_equal_with_tolerance(&result, &expected, 1e-6, 0.)?;
 
         // Special values.
         let input = tensor!([f32::NAN, 0., f32::INFINITY, -f32::INFINITY]);
