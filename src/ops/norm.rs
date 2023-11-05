@@ -2,7 +2,7 @@ use wasnn_tensor::prelude::*;
 use wasnn_tensor::{NdTensorView, Tensor, TensorView};
 
 use crate::ops::{resolve_axis, InputList, IntoOpResult, OpError, Operator, Output};
-use crate::slice_reductions::slice_max;
+use crate::slice_reductions::{slice_max, slice_sum};
 use crate::{check_dims, static_dims};
 
 /// Perform in-place batch normalization on the NCHW tensor `out`.
@@ -150,12 +150,15 @@ pub fn instance_normalization_in_place(
         ));
     }
 
+    // Needed for `slice_sum` below.
+    input.make_contiguous();
+
     for n in 0..batch {
         for c in 0..chans {
             let mut slice = input.slice_mut([n, c]);
             let chan_scale = scale[[c]];
             let chan_bias = bias[[c]];
-            let chan_mean = slice.iter().sum::<f32>() / slice.len() as f32;
+            let chan_mean = slice_sum(slice.data()) / slice.len() as f32;
             let chan_variance = slice
                 .iter()
                 .map(|x| {
