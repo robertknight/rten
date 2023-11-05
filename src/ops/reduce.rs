@@ -10,6 +10,7 @@ use crate::ops::layout::squeeze_in_place;
 use crate::ops::{
     resolve_axes, resolve_axis, Input, InputList, IntoOpResult, OpError, Operator, Output,
 };
+use crate::slice_reductions::slice_sum;
 
 /// Compute the indices of the max elements along an axis, according to a
 /// comparison function `compare`.
@@ -197,6 +198,13 @@ impl Operator for NonZero {
 /// dynamically chosen iterator types.
 trait Reducer<T> {
     fn reduce<I: ExactSizeIterator<Item = T>>(&self, iter: I) -> T;
+
+    fn reduce_slice(&self, slice: &[T]) -> T
+    where
+        T: Copy,
+    {
+        self.reduce(slice.iter().copied())
+    }
 }
 
 fn reduce<T: Copy + Default, R: Reducer<T>>(
@@ -256,7 +264,7 @@ fn reduce<T: Copy + Default, R: Reducer<T>>(
                 input
                     .data()
                     .chunks(slice_len)
-                    .map(|chunk| reducer.reduce(chunk.iter().copied())),
+                    .map(|chunk| reducer.reduce_slice(chunk)),
             );
         }
         _ => {
@@ -315,6 +323,10 @@ pub fn reduce_mean(
         fn reduce<I: ExactSizeIterator<Item = f32>>(&self, iter: I) -> f32 {
             let len = iter.len() as f32;
             iter.sum::<f32>() / len
+        }
+
+        fn reduce_slice(&self, slice: &[f32]) -> f32 {
+            slice_sum(slice) / slice.len() as f32
         }
     }
 

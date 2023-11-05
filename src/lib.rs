@@ -2,6 +2,7 @@ mod graph;
 mod linalg;
 mod model;
 mod number;
+mod slice_reductions;
 mod timer;
 mod wasm_api;
 
