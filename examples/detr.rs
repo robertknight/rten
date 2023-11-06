@@ -12,6 +12,8 @@ struct Args {
     model: String,
     image: String,
     annotated_image: Option<String>,
+    min_size: Option<u32>,
+    max_size: Option<u32>,
 }
 
 fn parse_args() -> Result<Args, lexopt::Error> {
@@ -20,6 +22,8 @@ fn parse_args() -> Result<Args, lexopt::Error> {
     let mut values = VecDeque::new();
     let mut parser = lexopt::Parser::from_env();
     let mut annotated_image = None;
+    let mut min_size = None;
+    let mut max_size = None;
 
     while let Some(arg) = parser.next()? {
         match arg {
@@ -34,7 +38,20 @@ Options:
 
   --annotate <path>
 
-  Annotate image with bounding boxes and save to <path>
+    Annotate image with bounding boxes and save to <path>
+
+  --max <length>
+
+    Set the maximum length of the longest side of the model's input. Defaults to
+    `1333 / 800` * `<shortest side or 800>`.
+
+    Models may support smaller sizes, allowing a trade-off between inference
+    time and accuracy.
+
+  --min <length>
+
+    Set the minimum length of the shortest side of the model's input. Defaults to
+    `800 / 1333` * `<longest side or 1333>`.
 ",
                     bin_name = parser.bin_name().unwrap_or("detr")
                 );
@@ -42,6 +59,12 @@ Options:
             }
             Long("annotate") => {
                 annotated_image = Some(parser.value()?.string()?);
+            }
+            Long("max") => {
+                max_size = Some(parser.value()?.parse()?);
+            }
+            Long("min") => {
+                min_size = Some(parser.value()?.parse()?);
             }
             _ => return Err(arg.unexpected()),
         }
@@ -54,9 +77,33 @@ Options:
         model,
         image,
         annotated_image,
+        min_size,
+        max_size,
     };
 
     Ok(args)
+}
+
+/// Resolve the min/max size to use as inputs for [rescaled_size] based on
+/// the min/max CLI args and defaults for the model configuration.
+fn resolve_min_max_size(
+    min: Option<u32>,
+    max: Option<u32>,
+    default_min: u32,
+    default_max: u32,
+) -> (u32, u32) {
+    let default_ratio = default_max as f32 / default_min as f32;
+    let min = min.map(|x| x as f32);
+    let max = max.map(|x| x as f32);
+
+    let (min, max) = match (min, max) {
+        (Some(min), None) => (min, min * default_ratio),
+        (None, Some(max)) => (max / default_ratio, max),
+        (Some(min), Some(max)) => (min, max),
+        (None, None) => (default_min as f32, default_max as f32),
+    };
+
+    (min.round() as u32, max.round() as u32)
 }
 
 /// Calculate rescaled size for an image which currently has dimensions `(width,
@@ -250,11 +297,19 @@ fn main() -> Result<(), Box<dyn Error>> {
     let mut image = image.as_dyn().to_tensor();
     image.insert_dim(0); // Add batch dim
 
-    // Resize image if it is not in the range of supported sizes.
-    let min_size = 800;
-    let max_size = 1333;
-    let (rescaled_width, rescaled_height) =
-        rescaled_size((image_width, image_height), min_size, max_size);
+    // Resize input image according to min/max side length constraints.
+    //
+    // The DETR defaults are (800, 1333) for the shortest/longest sides, but
+    // models may work with smaller sizes at lower accuracy but faster inference.
+    let (min_size, max_size) = resolve_min_max_size(args.min_size, args.max_size, 800, 1333);
+    let (rescaled_width, rescaled_height) = rescaled_size(
+        (image_width, image_height),
+        min_size as usize,
+        max_size as usize,
+    );
+
+    println!("Input image size: {} x {}", rescaled_width, rescaled_height);
+
     if rescaled_width != image_width || rescaled_height != image_height {
         image = image.resize_image([rescaled_height, rescaled_width])?;
     }
