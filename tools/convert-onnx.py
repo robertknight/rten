@@ -28,7 +28,7 @@ def warn_once(msg: str):
     if msg in EMITTED_WARNINGS:
         return
     EMITTED_WARNINGS.add(msg)
-    print(msg, file=sys.stderr)
+    print(f"WARNING: {msg}", file=sys.stderr)
 
 
 class Node:
@@ -222,7 +222,7 @@ class ONNXOperatorReader:
                 return val
         return default
 
-    def get_enum_attr(self, name: str, enum: Any, default: str):
+    def get_enum_attr(self, name: str, enum: Any, default: str, fallback: Any = None):
         """
         Get an optional attribute whose value is an enum variant.
 
@@ -230,19 +230,35 @@ class ONNXOperatorReader:
         eg. `round_prefer_floor` => `RoundPreferFloor`. If the Pascal-Cased
         name matches a Python keyword, it is expected to be escaped, eg.
         `none` => `None_`.
+
+        If the attribute value does not match any enum value, this will raise if
+        `fallback` is not specified, or emit a warning and use the value
+        `fallback` otherwise. Use of `fallback` is appropriate if the
+        substitution is unlikely to affect the resulting model's ability to run,
+        but might impact accuracy modestly.
         """
-        val = self.get_attr(name, "string", default)
-        pascal_case = snake_case_to_pascal_case(val)
 
-        # Enum values that match Python keywords have a trailing underscore appended.
-        escaped_pascal_case = pascal_case + "_"
+        def convert_attr(val: str):
+            pascal_case = snake_case_to_pascal_case(val)
 
-        try:
+            # Enum values that match Python keywords have a trailing underscore appended.
+            escaped_pascal_case = pascal_case + "_"
+
             try:
                 return getattr(enum, pascal_case)
             except AttributeError:
                 return getattr(enum, escaped_pascal_case)
+
+        val = self.get_attr(name, "string", default)
+        try:
+            return convert_attr(val)
         except AttributeError:
+            if fallback:
+                op = self.onnx_op.op_type
+                warn_once(
+                    f'Replacing unsupported value "{val}" for "{name}" attr in {op} op with "{fallback}"'
+                )
+                return convert_attr(fallback)
             raise ValueError(f"Unsupported value {val} for {name} attr")
 
     def ignore_attr(self, name: str):
@@ -309,11 +325,23 @@ class ONNXOperatorReader:
             self.input_indexes.append(None)
         self.input_indexes[input_index] = input_id
 
-    def check_attr(self, name: str, expected_type, default):
+    def check_attr(
+        self,
+        name: str,
+        expected_type,
+        default,
+        on_mismatch: Literal["raise", "warn"] = "raise",
+    ):
         """
         Check if an operator has an unsupported non-default value for an attribute.
 
         If `default` is a tuple, it specifies a set of acceptable defaults.
+
+        :param name: The name of the operator attribute
+        :param default: The value which is equivalent to the default behavior
+        :param on_mismatch:
+            Whether a mismatch should be treated as a fatal error in model
+            conversion or merely warn that this might cause a problem.
         """
 
         val = self.get_attr(name, expected_type, None)
@@ -323,9 +351,11 @@ class ONNXOperatorReader:
         if not isinstance(default, tuple):
             default = (default,)
         if val not in default:
-            raise Exception(
-                f"Unsupported value {val} for attribute {name}. Default is {default}"
-            )
+            msg = f"Unsupported value {val} for attribute {name}. Default is {default}"
+            if on_mismatch == "raise":
+                raise Exception(msg)
+            else:
+                warn_once(msg)
 
     def unhandled_attrs(self) -> list[onnx.AttributeProto]:
         """Return a list of attributes which have not been read."""
@@ -719,7 +749,9 @@ def op_node_from_onnx_operator(
 
         case "Resize":
             attrs = sg.ResizeAttrsT()
-            attrs.mode = op_reader.get_enum_attr("mode", sg.ResizeMode, "nearest")
+            attrs.mode = op_reader.get_enum_attr(
+                "mode", sg.ResizeMode, "nearest", fallback="linear"
+            )
 
             op_reader.check_attr("antialias", "int", 0)
 
@@ -730,7 +762,7 @@ def op_node_from_onnx_operator(
                 "coordinate_transformation_mode", sg.CoordTransformMode, "half_pixel"
             )
 
-            op_reader.check_attr("cubic_coeff_a", "float", -0.75)
+            op_reader.check_attr("cubic_coeff_a", "float", -0.75, on_mismatch="warn")
             op_reader.check_attr("exclude_outside", "int", 0)
             op_reader.check_attr("extrapolation_value", "float", 0.0)
             op_reader.check_attr("keep_aspect_ratio_policy", "string", "stretch")
