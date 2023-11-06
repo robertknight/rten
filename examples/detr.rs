@@ -270,6 +270,9 @@ const LABELS: &[&str] = &[
 /// tools/convert-onnx.py detr/model.onnx detr.model
 /// ```
 ///
+/// This model also works with YOLOS. Use `hustvl/yolos-tiny` or
+/// `hustvl/yolos-small` as the `--model` argument in the command above.
+///
 /// Run this program on an image:
 ///
 /// ```
