@@ -6,11 +6,11 @@ use wasnn_tensor::Tensor;
 
 use crate::graph::Dimension;
 use crate::ops::{
-    ArgMax, ArgMin, AveragePool, BatchNormalization, Cast, Concat, ConstantOfShape, Conv,
+    ArgMax, ArgMin, AveragePool, BatchNormalization, BoxOrder, Cast, Concat, ConstantOfShape, Conv,
     ConvTranspose, CoordTransformMode, DataType, Flatten, Gather, Gemm, HardSigmoid,
-    InstanceNormalization, LeakyRelu, LogSoftmax, MaxPool, Mod, NearestMode, OneHot, Padding,
-    ReduceMax, ReduceMean, ReduceMin, ReduceProd, ReduceSum, Reshape, Resize, ResizeMode, Scalar,
-    ScatterElements, ScatterReduction, Softmax, Split, TopK, Transpose, Trilu,
+    InstanceNormalization, LeakyRelu, LogSoftmax, MaxPool, Mod, NearestMode, NonMaxSuppression,
+    OneHot, Padding, ReduceMax, ReduceMean, ReduceMin, ReduceProd, ReduceSum, Reshape, Resize,
+    ResizeMode, Scalar, ScatterElements, ScatterReduction, Softmax, Split, TopK, Transpose, Trilu,
 };
 use crate::schema_generated as sg;
 
@@ -63,6 +63,7 @@ pub enum OpType {
     Mod(Mod),
     Mul,
     Neg,
+    NonMaxSuppression(NonMaxSuppression),
     NonZero,
     Not,
     OneHot(OneHot),
@@ -497,6 +498,18 @@ impl<'a> ModelBuilder<'a> {
             }
             OpType::Mul => op!(Mul),
             OpType::Neg => op!(Neg),
+            OpType::NonMaxSuppression(args) => {
+                op_with_attrs!(
+                    NonMaxSuppression,
+                    NonMaxSuppressionAttrs,
+                    sg::NonMaxSuppressionAttrsArgs {
+                        box_order: match args.box_order {
+                            BoxOrder::TopLeftBottomRight => sg::NMSBoxOrder::TopLeftBottomRight,
+                            BoxOrder::CenterWidthHeight => sg::NMSBoxOrder::CenterWidthHeight,
+                        }
+                    }
+                )
+            }
             OpType::NonZero => op!(NonZero),
             OpType::Not => op!(Not),
             OpType::Or => op!(Or),

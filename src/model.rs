@@ -11,8 +11,8 @@ use wasnn_tensor::Tensor;
 use crate::graph::{Dimension, Graph, Node, NodeId, RunError, RunOptions};
 use crate::ops;
 use crate::ops::{
-    CoordTransformMode, DataType, Direction, Input, NearestMode, Operator, Output, Padding,
-    ResizeMode, Scalar, ScatterReduction,
+    BoxOrder, CoordTransformMode, DataType, Direction, Input, NearestMode, Operator, Output,
+    Padding, ResizeMode, Scalar, ScatterReduction,
 };
 use crate::schema_generated as sg;
 use crate::schema_generated::{root_as_model, OperatorNode, OperatorType, PadMode};
@@ -246,6 +246,7 @@ impl_default_factory!(Min);
 impl_default_factory!(Mod, read_mod_op);
 impl_default_factory!(Mul);
 impl_default_factory!(Neg);
+impl_default_factory!(NonMaxSuppression, read_non_max_suppression_op);
 impl_default_factory!(NonZero);
 impl_default_factory!(Not);
 impl_default_factory!(OneHot, read_onehot_op);
@@ -392,6 +393,7 @@ impl OpRegistry {
         register_op!(Mod);
         register_op!(Mul);
         register_op!(Neg);
+        register_op!(NonMaxSuppression);
         register_op!(NonZero);
         register_op!(Not);
         register_op!(OneHot);
@@ -676,6 +678,18 @@ fn read_max_pool_op(node: &OperatorNode) -> ReadOpResult {
 fn read_mod_op(node: &OperatorNode) -> ReadOpResult {
     let attrs = node.attrs_as_mod_attrs().ok_or(ReadOpError::AttrError)?;
     Ok(Box::new(ops::Mod { fmod: attrs.fmod() }))
+}
+
+fn read_non_max_suppression_op(node: &OperatorNode) -> ReadOpResult {
+    let attrs = node
+        .attrs_as_non_max_suppression_attrs()
+        .ok_or(ReadOpError::AttrError)?;
+    let box_order = match attrs.box_order() {
+        sg::NMSBoxOrder::CenterWidthHeight => BoxOrder::CenterWidthHeight,
+        sg::NMSBoxOrder::TopLeftBottomRight => BoxOrder::TopLeftBottomRight,
+        _ => BoxOrder::TopLeftBottomRight,
+    };
+    Ok(Box::new(ops::NonMaxSuppression { box_order }))
 }
 
 read_axis_op!(read_onehot_op, attrs_as_one_hot_attrs, OneHot);
@@ -978,7 +992,7 @@ mod tests {
     use crate::model::Model;
     use crate::model_builder::{ModelBuilder, OpType};
     use crate::ops;
-    use crate::ops::{CoordTransformMode, NearestMode, OpError, ResizeMode, Scalar};
+    use crate::ops::{BoxOrder, CoordTransformMode, NearestMode, OpError, ResizeMode, Scalar};
 
     fn generate_model_buffer() -> Vec<u8> {
         let mut builder = ModelBuilder::new();
@@ -1276,6 +1290,20 @@ mod tests {
         });
         add_operator!(Mul, [input_node, input_node]);
         add_operator!(Neg, [input_node]);
+
+        let nms_n_boxes = 10;
+        let nms_n_classes = 20;
+        let nms_boxes = builder.add_float_constant(&Tensor::zeros(&[1, nms_n_boxes, 4]));
+        let nms_scores =
+            builder.add_float_constant(&Tensor::zeros(&[1, nms_n_classes, nms_n_boxes]));
+        let nms_max_outputs_per_class = builder.add_int_constant(&tensor!(10));
+        let nms_iou_threshold = builder.add_float_constant(&tensor!(0.45));
+        let nms_score_threshold = builder.add_float_constant(&tensor!(0.2));
+
+        add_operator!(NonMaxSuppression, [nms_boxes, nms_scores, nms_max_outputs_per_class, nms_iou_threshold, nms_score_threshold], {
+            box_order: BoxOrder::CenterWidthHeight,
+        });
+
         add_operator!(NonZero, [input_node]);
         add_operator!(Not, [input_bool]);
 

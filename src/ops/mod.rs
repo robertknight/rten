@@ -16,6 +16,7 @@ mod generate;
 mod identity;
 mod layout;
 mod matmul;
+mod non_max_suppression;
 mod norm;
 mod pad;
 mod pooling;
@@ -47,6 +48,7 @@ pub use layout::{
     Squeeze, Transpose, Unsqueeze,
 };
 pub use matmul::{gemm_op, matmul, Gemm, MatMul};
+pub use non_max_suppression::{non_max_suppression, BoxOrder, NonMaxSuppression};
 pub use norm::{
     batch_norm, batch_norm_in_place, instance_normalization, log_softmax, softmax,
     BatchNormalization, InstanceNormalization, LogSoftmax, Softmax,
