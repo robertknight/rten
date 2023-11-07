@@ -99,7 +99,8 @@ enum OperatorType: byte {
   Or,
   Xor,
   Trilu,
-  ScatterND
+  ScatterND,
+  NonMaxSuppression
 }
 
 enum RNNDirection: byte {
@@ -170,6 +171,7 @@ union OperatorAttrs {
   HardSigmoidAttrs,
   TriluAttrs,
   ScatterNDAttrs,
+  NonMaxSuppressionAttrs,
 }
 
 table ArgMaxAttrs {
@@ -278,6 +280,15 @@ table MaxPoolAttrs {
 
 table ModAttrs {
   fmod:bool;
+}
+
+enum NMSBoxOrder: byte {
+  TopLeftBottomRight,
+  CenterWidthHeight,
+}
+
+table NonMaxSuppressionAttrs {
+  box_order:NMSBoxOrder;
 }
 
 table OneHotAttrs {

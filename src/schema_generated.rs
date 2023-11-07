@@ -18,13 +18,13 @@ pub const ENUM_MIN_OPERATOR_TYPE: i8 = 0;
     since = "2.0.0",
     note = "Use associated constants instead. This will no longer be generated in 2021."
 )]
-pub const ENUM_MAX_OPERATOR_TYPE: i8 = 89;
+pub const ENUM_MAX_OPERATOR_TYPE: i8 = 90;
 #[deprecated(
     since = "2.0.0",
     note = "Use associated constants instead. This will no longer be generated in 2021."
 )]
 #[allow(non_camel_case_types)]
-pub const ENUM_VALUES_OPERATOR_TYPE: [OperatorType; 90] = [
+pub const ENUM_VALUES_OPERATOR_TYPE: [OperatorType; 91] = [
     OperatorType::Add,
     OperatorType::ArgMin,
     OperatorType::ArgMax,
@@ -115,6 +115,7 @@ pub const ENUM_VALUES_OPERATOR_TYPE: [OperatorType; 90] = [
     OperatorType::Xor,
     OperatorType::Trilu,
     OperatorType::ScatterND,
+    OperatorType::NonMaxSuppression,
 ];
 
 #[derive(Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash, Default)]
@@ -212,9 +213,10 @@ impl OperatorType {
     pub const Xor: Self = Self(87);
     pub const Trilu: Self = Self(88);
     pub const ScatterND: Self = Self(89);
+    pub const NonMaxSuppression: Self = Self(90);
 
     pub const ENUM_MIN: i8 = 0;
-    pub const ENUM_MAX: i8 = 89;
+    pub const ENUM_MAX: i8 = 90;
     pub const ENUM_VALUES: &'static [Self] = &[
         Self::Add,
         Self::ArgMin,
@@ -306,6 +308,7 @@ impl OperatorType {
         Self::Xor,
         Self::Trilu,
         Self::ScatterND,
+        Self::NonMaxSuppression,
     ];
     /// Returns the variant's name or "" if unknown.
     pub fn variant_name(self) -> Option<&'static str> {
@@ -400,6 +403,7 @@ impl OperatorType {
             Self::Xor => Some("Xor"),
             Self::Trilu => Some("Trilu"),
             Self::ScatterND => Some("ScatterND"),
+            Self::NonMaxSuppression => Some("NonMaxSuppression"),
             _ => None,
         }
     }
@@ -1022,13 +1026,13 @@ pub const ENUM_MIN_OPERATOR_ATTRS: u8 = 0;
     since = "2.0.0",
     note = "Use associated constants instead. This will no longer be generated in 2021."
 )]
-pub const ENUM_MAX_OPERATOR_ATTRS: u8 = 28;
+pub const ENUM_MAX_OPERATOR_ATTRS: u8 = 29;
 #[deprecated(
     since = "2.0.0",
     note = "Use associated constants instead. This will no longer be generated in 2021."
 )]
 #[allow(non_camel_case_types)]
-pub const ENUM_VALUES_OPERATOR_ATTRS: [OperatorAttrs; 29] = [
+pub const ENUM_VALUES_OPERATOR_ATTRS: [OperatorAttrs; 30] = [
     OperatorAttrs::NONE,
     OperatorAttrs::ArgMaxAttrs,
     OperatorAttrs::AveragePoolAttrs,
@@ -1058,6 +1062,7 @@ pub const ENUM_VALUES_OPERATOR_ATTRS: [OperatorAttrs; 29] = [
     OperatorAttrs::HardSigmoidAttrs,
     OperatorAttrs::TriluAttrs,
     OperatorAttrs::ScatterNDAttrs,
+    OperatorAttrs::NonMaxSuppressionAttrs,
 ];
 
 #[derive(Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash, Default)]
@@ -1094,9 +1099,10 @@ impl OperatorAttrs {
     pub const HardSigmoidAttrs: Self = Self(26);
     pub const TriluAttrs: Self = Self(27);
     pub const ScatterNDAttrs: Self = Self(28);
+    pub const NonMaxSuppressionAttrs: Self = Self(29);
 
     pub const ENUM_MIN: u8 = 0;
-    pub const ENUM_MAX: u8 = 28;
+    pub const ENUM_MAX: u8 = 29;
     pub const ENUM_VALUES: &'static [Self] = &[
         Self::NONE,
         Self::ArgMaxAttrs,
@@ -1127,6 +1133,7 @@ impl OperatorAttrs {
         Self::HardSigmoidAttrs,
         Self::TriluAttrs,
         Self::ScatterNDAttrs,
+        Self::NonMaxSuppressionAttrs,
     ];
     /// Returns the variant's name or "" if unknown.
     pub fn variant_name(self) -> Option<&'static str> {
@@ -1160,6 +1167,7 @@ impl OperatorAttrs {
             Self::HardSigmoidAttrs => Some("HardSigmoidAttrs"),
             Self::TriluAttrs => Some("TriluAttrs"),
             Self::ScatterNDAttrs => Some("ScatterNDAttrs"),
+            Self::NonMaxSuppressionAttrs => Some("NonMaxSuppressionAttrs"),
             _ => None,
         }
     }
@@ -1311,6 +1319,98 @@ impl<'a> flatbuffers::Verifiable for Scalar {
 impl flatbuffers::SimpleToVerifyInSlice for Scalar {}
 pub struct ScalarUnionTableOffset {}
 
+#[deprecated(
+    since = "2.0.0",
+    note = "Use associated constants instead. This will no longer be generated in 2021."
+)]
+pub const ENUM_MIN_NMSBOX_ORDER: i8 = 0;
+#[deprecated(
+    since = "2.0.0",
+    note = "Use associated constants instead. This will no longer be generated in 2021."
+)]
+pub const ENUM_MAX_NMSBOX_ORDER: i8 = 1;
+#[deprecated(
+    since = "2.0.0",
+    note = "Use associated constants instead. This will no longer be generated in 2021."
+)]
+#[allow(non_camel_case_types)]
+pub const ENUM_VALUES_NMSBOX_ORDER: [NMSBoxOrder; 2] = [
+    NMSBoxOrder::TopLeftBottomRight,
+    NMSBoxOrder::CenterWidthHeight,
+];
+
+#[derive(Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash, Default)]
+#[repr(transparent)]
+pub struct NMSBoxOrder(pub i8);
+#[allow(non_upper_case_globals)]
+impl NMSBoxOrder {
+    pub const TopLeftBottomRight: Self = Self(0);
+    pub const CenterWidthHeight: Self = Self(1);
+
+    pub const ENUM_MIN: i8 = 0;
+    pub const ENUM_MAX: i8 = 1;
+    pub const ENUM_VALUES: &'static [Self] = &[Self::TopLeftBottomRight, Self::CenterWidthHeight];
+    /// Returns the variant's name or "" if unknown.
+    pub fn variant_name(self) -> Option<&'static str> {
+        match self {
+            Self::TopLeftBottomRight => Some("TopLeftBottomRight"),
+            Self::CenterWidthHeight => Some("CenterWidthHeight"),
+            _ => None,
+        }
+    }
+}
+impl core::fmt::Debug for NMSBoxOrder {
+    fn fmt(&self, f: &mut core::fmt::Formatter) -> core::fmt::Result {
+        if let Some(name) = self.variant_name() {
+            f.write_str(name)
+        } else {
+            f.write_fmt(format_args!("<UNKNOWN {:?}>", self.0))
+        }
+    }
+}
+impl<'a> flatbuffers::Follow<'a> for NMSBoxOrder {
+    type Inner = Self;
+    #[inline]
+    unsafe fn follow(buf: &'a [u8], loc: usize) -> Self::Inner {
+        let b = flatbuffers::read_scalar_at::<i8>(buf, loc);
+        Self(b)
+    }
+}
+
+impl flatbuffers::Push for NMSBoxOrder {
+    type Output = NMSBoxOrder;
+    #[inline]
+    unsafe fn push(&self, dst: &mut [u8], _written_len: usize) {
+        flatbuffers::emplace_scalar::<i8>(dst, self.0);
+    }
+}
+
+impl flatbuffers::EndianScalar for NMSBoxOrder {
+    type Scalar = i8;
+    #[inline]
+    fn to_little_endian(self) -> i8 {
+        self.0.to_le()
+    }
+    #[inline]
+    #[allow(clippy::wrong_self_convention)]
+    fn from_little_endian(v: i8) -> Self {
+        let b = i8::from_le(v);
+        Self(b)
+    }
+}
+
+impl<'a> flatbuffers::Verifiable for NMSBoxOrder {
+    #[inline]
+    fn run_verifier(
+        v: &mut flatbuffers::Verifier,
+        pos: usize,
+    ) -> Result<(), flatbuffers::InvalidFlatbuffer> {
+        use self::flatbuffers::Verifiable;
+        i8::run_verifier(v, pos)
+    }
+}
+
+impl flatbuffers::SimpleToVerifyInSlice for NMSBoxOrder {}
 #[deprecated(
     since = "2.0.0",
     note = "Use associated constants instead. This will no longer be generated in 2021."
@@ -4153,6 +4253,118 @@ impl core::fmt::Debug for ModAttrs<'_> {
         ds.finish()
     }
 }
+pub enum NonMaxSuppressionAttrsOffset {}
+#[derive(Copy, Clone, PartialEq)]
+
+pub struct NonMaxSuppressionAttrs<'a> {
+    pub _tab: flatbuffers::Table<'a>,
+}
+
+impl<'a> flatbuffers::Follow<'a> for NonMaxSuppressionAttrs<'a> {
+    type Inner = NonMaxSuppressionAttrs<'a>;
+    #[inline]
+    unsafe fn follow(buf: &'a [u8], loc: usize) -> Self::Inner {
+        Self {
+            _tab: flatbuffers::Table::new(buf, loc),
+        }
+    }
+}
+
+impl<'a> NonMaxSuppressionAttrs<'a> {
+    pub const VT_BOX_ORDER: flatbuffers::VOffsetT = 4;
+
+    #[inline]
+    pub unsafe fn init_from_table(table: flatbuffers::Table<'a>) -> Self {
+        NonMaxSuppressionAttrs { _tab: table }
+    }
+    #[allow(unused_mut)]
+    pub fn create<'bldr: 'args, 'args: 'mut_bldr, 'mut_bldr>(
+        _fbb: &'mut_bldr mut flatbuffers::FlatBufferBuilder<'bldr>,
+        args: &'args NonMaxSuppressionAttrsArgs,
+    ) -> flatbuffers::WIPOffset<NonMaxSuppressionAttrs<'bldr>> {
+        let mut builder = NonMaxSuppressionAttrsBuilder::new(_fbb);
+        builder.add_box_order(args.box_order);
+        builder.finish()
+    }
+
+    #[inline]
+    pub fn box_order(&self) -> NMSBoxOrder {
+        // Safety:
+        // Created from valid Table for this object
+        // which contains a valid value in this slot
+        unsafe {
+            self._tab
+                .get::<NMSBoxOrder>(
+                    NonMaxSuppressionAttrs::VT_BOX_ORDER,
+                    Some(NMSBoxOrder::TopLeftBottomRight),
+                )
+                .unwrap()
+        }
+    }
+}
+
+impl flatbuffers::Verifiable for NonMaxSuppressionAttrs<'_> {
+    #[inline]
+    fn run_verifier(
+        v: &mut flatbuffers::Verifier,
+        pos: usize,
+    ) -> Result<(), flatbuffers::InvalidFlatbuffer> {
+        use self::flatbuffers::Verifiable;
+        v.visit_table(pos)?
+            .visit_field::<NMSBoxOrder>("box_order", Self::VT_BOX_ORDER, false)?
+            .finish();
+        Ok(())
+    }
+}
+pub struct NonMaxSuppressionAttrsArgs {
+    pub box_order: NMSBoxOrder,
+}
+impl<'a> Default for NonMaxSuppressionAttrsArgs {
+    #[inline]
+    fn default() -> Self {
+        NonMaxSuppressionAttrsArgs {
+            box_order: NMSBoxOrder::TopLeftBottomRight,
+        }
+    }
+}
+
+pub struct NonMaxSuppressionAttrsBuilder<'a: 'b, 'b> {
+    fbb_: &'b mut flatbuffers::FlatBufferBuilder<'a>,
+    start_: flatbuffers::WIPOffset<flatbuffers::TableUnfinishedWIPOffset>,
+}
+impl<'a: 'b, 'b> NonMaxSuppressionAttrsBuilder<'a, 'b> {
+    #[inline]
+    pub fn add_box_order(&mut self, box_order: NMSBoxOrder) {
+        self.fbb_.push_slot::<NMSBoxOrder>(
+            NonMaxSuppressionAttrs::VT_BOX_ORDER,
+            box_order,
+            NMSBoxOrder::TopLeftBottomRight,
+        );
+    }
+    #[inline]
+    pub fn new(
+        _fbb: &'b mut flatbuffers::FlatBufferBuilder<'a>,
+    ) -> NonMaxSuppressionAttrsBuilder<'a, 'b> {
+        let start = _fbb.start_table();
+        NonMaxSuppressionAttrsBuilder {
+            fbb_: _fbb,
+            start_: start,
+        }
+    }
+    #[inline]
+    pub fn finish(self) -> flatbuffers::WIPOffset<NonMaxSuppressionAttrs<'a>> {
+        let o = self.fbb_.end_table(self.start_);
+        flatbuffers::WIPOffset::new(o.value())
+    }
+}
+
+impl core::fmt::Debug for NonMaxSuppressionAttrs<'_> {
+    fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
+        let mut ds = f.debug_struct("NonMaxSuppressionAttrs");
+        ds.field("box_order", &self.box_order());
+        ds.finish()
+    }
+}
 pub enum OneHotAttrsOffset {}
 #[derive(Copy, Clone, PartialEq)]
 
@@ -5965,6 +6177,21 @@ impl<'a> OperatorNode<'a> {
             None
         }
     }
+
+    #[inline]
+    #[allow(non_snake_case)]
+    pub fn attrs_as_non_max_suppression_attrs(&self) -> Option<NonMaxSuppressionAttrs<'a>> {
+        if self.attrs_type() == OperatorAttrs::NonMaxSuppressionAttrs {
+            self.attrs().map(|t| {
+                // Safety:
+                // Created from a valid Table for this object
+                // Which contains a valid union in this slot
+                unsafe { NonMaxSuppressionAttrs::init_from_table(t) }
+            })
+        } else {
+            None
+        }
+    }
 }
 
 impl flatbuffers::Verifiable for OperatorNode<'_> {
@@ -6006,6 +6233,7 @@ impl flatbuffers::Verifiable for OperatorNode<'_> {
           OperatorAttrs::HardSigmoidAttrs => v.verify_union_variant::<flatbuffers::ForwardsUOffset<HardSigmoidAttrs>>("OperatorAttrs::HardSigmoidAttrs", pos),
           OperatorAttrs::TriluAttrs => v.verify_union_variant::<flatbuffers::ForwardsUOffset<TriluAttrs>>("OperatorAttrs::TriluAttrs", pos),
           OperatorAttrs::ScatterNDAttrs => v.verify_union_variant::<flatbuffers::ForwardsUOffset<ScatterNDAttrs>>("OperatorAttrs::ScatterNDAttrs", pos),
+          OperatorAttrs::NonMaxSuppressionAttrs => v.verify_union_variant::<flatbuffers::ForwardsUOffset<NonMaxSuppressionAttrs>>("OperatorAttrs::NonMaxSuppressionAttrs", pos),
           _ => Ok(()),
         }
      })?
@@ -6361,6 +6589,16 @@ impl core::fmt::Debug for OperatorNode<'_> {
             }
             OperatorAttrs::ScatterNDAttrs => {
                 if let Some(x) = self.attrs_as_scatter_ndattrs() {
+                    ds.field("attrs", &x)
+                } else {
+                    ds.field(
+                        "attrs",
+                        &"InvalidFlatbuffer: Union discriminant does not match value.",
+                    )
+                }
+            }
+            OperatorAttrs::NonMaxSuppressionAttrs => {
+                if let Some(x) = self.attrs_as_non_max_suppression_attrs() {
                     ds.field("attrs", &x)
                 } else {
                     ds.field(

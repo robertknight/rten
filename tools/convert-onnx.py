@@ -732,6 +732,14 @@ def op_node_from_onnx_operator(
             attrs = sg.ModAttrsT()
             attrs.fmod = bool(op_reader.get_attr("fmod", "int", 0))
 
+        case "NonMaxSuppression":
+            attrs = sg.NonMaxSuppressionAttrsT()
+            center_point_box = op_reader.get_attr("center_point_box", "int", 0)
+            attrs.boxOrder = {
+                0: sg.NMSBoxOrder.TopLeftBottomRight,
+                1: sg.NMSBoxOrder.CenterWidthHeight,
+            }[center_point_box]
+
         case "OneHot":
             attrs = sg.OneHotAttrsT()
             attrs.axis = op_reader.get_attr("axis", "int", -1)

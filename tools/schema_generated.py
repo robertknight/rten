@@ -97,6 +97,7 @@ class OperatorType(object):
     Xor = 87
     Trilu = 88
     ScatterND = 89
+    NonMaxSuppression = 90
 
 
 class RNNDirection(object):
@@ -162,6 +163,7 @@ class OperatorAttrs(object):
     HardSigmoidAttrs = 26
     TriluAttrs = 27
     ScatterNDAttrs = 28
+    NonMaxSuppressionAttrs = 29
 
 def OperatorAttrsCreator(unionType, table):
     from flatbuffers.table import Table
@@ -223,6 +225,8 @@ def OperatorAttrsCreator(unionType, table):
         return TriluAttrsT.InitFromBuf(table.Bytes, table.Pos)
     if unionType == OperatorAttrs().ScatterNDAttrs:
         return ScatterNDAttrsT.InitFromBuf(table.Bytes, table.Pos)
+    if unionType == OperatorAttrs().NonMaxSuppressionAttrs:
+        return NonMaxSuppressionAttrsT.InitFromBuf(table.Bytes, table.Pos)
     return None
 
 
@@ -240,6 +244,11 @@ def ScalarCreator(unionType, table):
     if unionType == Scalar().FloatScalar:
         return FloatScalarT.InitFromBuf(table.Bytes, table.Pos)
     return None
+
+
+class NMSBoxOrder(object):
+    TopLeftBottomRight = 0
+    CenterWidthHeight = 1
 
 
 class ScatterReduction(object):
@@ -2401,6 +2410,83 @@ class ModAttrsT(object):
         return modAttrs
 
 
+class NonMaxSuppressionAttrs(object):
+    __slots__ = ['_tab']
+
+    @classmethod
+    def GetRootAs(cls, buf, offset=0):
+        n = flatbuffers.encode.Get(flatbuffers.packer.uoffset, buf, offset)
+        x = NonMaxSuppressionAttrs()
+        x.Init(buf, n + offset)
+        return x
+
+    @classmethod
+    def GetRootAsNonMaxSuppressionAttrs(cls, buf, offset=0):
+        """This method is deprecated. Please switch to GetRootAs."""
+        return cls.GetRootAs(buf, offset)
+    @classmethod
+    def NonMaxSuppressionAttrsBufferHasIdentifier(cls, buf, offset, size_prefixed=False):
+        return flatbuffers.util.BufferHasIdentifier(buf, offset, b"\x4D\x4F\x44\x4C", size_prefixed=size_prefixed)
+
+    # NonMaxSuppressionAttrs
+    def Init(self, buf, pos):
+        self._tab = flatbuffers.table.Table(buf, pos)
+
+    # NonMaxSuppressionAttrs
+    def BoxOrder(self):
+        o = flatbuffers.number_types.UOffsetTFlags.py_type(self._tab.Offset(4))
+        if o != 0:
+            return self._tab.Get(flatbuffers.number_types.Int8Flags, o + self._tab.Pos)
+        return 0
+
+def NonMaxSuppressionAttrsStart(builder):
+    builder.StartObject(1)
+
+def NonMaxSuppressionAttrsAddBoxOrder(builder, boxOrder):
+    builder.PrependInt8Slot(0, boxOrder, 0)
+
+def NonMaxSuppressionAttrsEnd(builder):
+    return builder.EndObject()
+
+
+
+class NonMaxSuppressionAttrsT(object):
+
+    # NonMaxSuppressionAttrsT
+    def __init__(self):
+        self.boxOrder = 0  # type: int
+
+    @classmethod
+    def InitFromBuf(cls, buf, pos):
+        nonMaxSuppressionAttrs = NonMaxSuppressionAttrs()
+        nonMaxSuppressionAttrs.Init(buf, pos)
+        return cls.InitFromObj(nonMaxSuppressionAttrs)
+
+    @classmethod
+    def InitFromPackedBuf(cls, buf, pos=0):
+        n = flatbuffers.encode.Get(flatbuffers.packer.uoffset, buf, pos)
+        return cls.InitFromBuf(buf, pos+n)
+
+    @classmethod
+    def InitFromObj(cls, nonMaxSuppressionAttrs):
+        x = NonMaxSuppressionAttrsT()
+        x._UnPack(nonMaxSuppressionAttrs)
+        return x
+
+    # NonMaxSuppressionAttrsT
+    def _UnPack(self, nonMaxSuppressionAttrs):
+        if nonMaxSuppressionAttrs is None:
+            return
+        self.boxOrder = nonMaxSuppressionAttrs.BoxOrder()
+
+    # NonMaxSuppressionAttrsT
+    def Pack(self, builder):
+        NonMaxSuppressionAttrsStart(builder)
+        NonMaxSuppressionAttrsAddBoxOrder(builder, self.boxOrder)
+        nonMaxSuppressionAttrs = NonMaxSuppressionAttrsEnd(builder)
+        return nonMaxSuppressionAttrs
+
+
 class OneHotAttrs(object):
     __slots__ = ['_tab']
 
@@ -3549,7 +3635,7 @@ class OperatorNodeT(object):
     def __init__(self):
         self.type = 0  # type: int
         self.attrsType = 0  # type: int
-        self.attrs = None  # type: Union[None, ArgMaxAttrsT, AveragePoolAttrsT, BatchNormalizationAttrsT, CastAttrsT, ConcatAttrsT, ConstantOfShapeAttrsT, ConvAttrsT, ConvTransposeAttrsT, FlattenAttrsT, GatherAttrsT, GemmAttrsT, GRUAttrsT, LeakyReluAttrsT, LSTMAttrsT, MaxPoolAttrsT, ReduceMeanAttrsT, ReshapeAttrsT, ResizeAttrsT, SplitAttrsT, SoftmaxAttrsT, TransposeAttrsT, ModAttrsT, ScatterElementsAttrsT, OneHotAttrsT, TopKAttrsT, HardSigmoidAttrsT, TriluAttrsT, ScatterNDAttrsT]
+        self.attrs = None  # type: Union[None, ArgMaxAttrsT, AveragePoolAttrsT, BatchNormalizationAttrsT, CastAttrsT, ConcatAttrsT, ConstantOfShapeAttrsT, ConvAttrsT, ConvTransposeAttrsT, FlattenAttrsT, GatherAttrsT, GemmAttrsT, GRUAttrsT, LeakyReluAttrsT, LSTMAttrsT, MaxPoolAttrsT, ReduceMeanAttrsT, ReshapeAttrsT, ResizeAttrsT, SplitAttrsT, SoftmaxAttrsT, TransposeAttrsT, ModAttrsT, ScatterElementsAttrsT, OneHotAttrsT, TopKAttrsT, HardSigmoidAttrsT, TriluAttrsT, ScatterNDAttrsT, NonMaxSuppressionAttrsT]
         self.inputs = None  # type: List[int]
         self.outputs = None  # type: List[int]
 
