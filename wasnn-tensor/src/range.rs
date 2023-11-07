@@ -68,13 +68,14 @@ where
 }
 
 /// Used to convert sequences of indices and/or ranges into a uniform
-/// `[SliceItem; N]` array that can be used to slice a tensor.
+/// `[SliceItem]` array that can be used to slice a tensor.
 ///
 /// This trait is implemented for:
 ///
 ///  - Individual indices and ranges (types satisfying `Into<SliceItem>`)
 ///  - Arrays of indices or ranges
 ///  - Tuples of indices and/or ranges
+///  - `[SliceItem]` slices
 ///
 /// Ranges can be specified using regular Rust ranges (eg. `start..end`,
 /// `start..`, `..end`, `..`) or a [SliceRange], which extends regular Rust
@@ -84,6 +85,14 @@ pub trait IntoSliceItems {
     type Array: AsRef<[SliceItem]>;
 
     fn into_slice_items(self) -> Self::Array;
+}
+
+impl<'a> IntoSliceItems for &'a [SliceItem] {
+    type Array = &'a [SliceItem];
+
+    fn into_slice_items(self) -> &'a [SliceItem] {
+        self
+    }
 }
 
 impl<const N: usize, T: Into<SliceItem>> IntoSliceItems for [T; N] {

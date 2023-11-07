@@ -38,7 +38,7 @@ pub fn split<T: Copy>(
 
             split_start += split_size;
 
-            input.view().slice_dyn(&slice_range).to_tensor()
+            input.view().slice(slice_range.as_slice()).to_tensor()
         })
         .collect();
 

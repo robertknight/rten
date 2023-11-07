@@ -36,7 +36,7 @@ pub fn gather<T: Copy + Default>(
     if let (0, Some(index)) = (indices.ndim(), indices.item()) {
         let mut slice_range = full_range(input.ndim());
         slice_range[axis] = SliceItem::Index(*index as isize);
-        let output = input.slice_dyn(&slice_range).to_tensor();
+        let output = input.slice(slice_range.as_slice()).to_tensor();
         return Ok(output);
     }
 
@@ -57,8 +57,8 @@ pub fn gather<T: Copy + Default>(
             out_range[axis + i] = SliceItem::Index(index_val as isize);
         }
 
-        let in_slice = input.slice_dyn(&in_range);
-        let mut out_slice = output.slice_mut_dyn(&out_range);
+        let in_slice = input.slice(in_range.as_slice());
+        let mut out_slice = output.slice_mut(out_range.as_slice());
         out_slice.copy_from(&in_slice);
     }
 
@@ -250,16 +250,16 @@ pub fn scatter_nd<
     let mut output = data.to_tensor();
     for index in DynIndices::from_shape(update_indices) {
         let update_idx = to_slice_items(&index);
-        let update_slice = updates.slice_dyn(&update_idx);
+        let update_slice = updates.slice(update_idx.as_slice());
 
         let output_idx: DynSliceItems = indices
-            .try_slice_dyn(&update_idx)
+            .try_slice(update_idx.as_slice())
             .map_err(|_| OpError::InvalidValue("invalid scatter index"))?
             .iter()
             .map(|x| SliceItem::Index(*x as isize))
             .collect();
         let mut out_slice = output
-            .try_slice_mut_dyn(&output_idx)
+            .try_slice_mut(output_idx.as_slice())
             .map_err(|_| OpError::InvalidValue("invalid scatter index"))?;
 
         for (out_el, update) in out_slice.iter_mut().zip(update_slice.iter()) {

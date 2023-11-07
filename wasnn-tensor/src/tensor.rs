@@ -154,26 +154,15 @@ pub trait View: Layout {
         self.view().slice(range)
     }
 
-    /// Return a view of part of this tensor.
-    ///
-    /// This is like [TensorBase::slice] but supports a dynamic number of
-    /// slice items.
-    ///
-    /// Panics if the range is invalid for the current tensor shape. Use
-    /// [View::try_slice_dyn] for a variant that returns an error instead.
-    fn slice_dyn(&self, range: &[SliceItem]) -> TensorView<Self::Elem> {
-        self.view().slice_dyn(range)
-    }
-
-    /// Variant of [View::slice_dyn] which returns an error if the slice spec
+    /// Variant of [View::slice] which returns an error if the slice spec
     /// is invalid, instead of panicking.
-    fn try_slice_dyn(&self, range: &[SliceItem]) -> Result<TensorView<Self::Elem>, SliceError> {
-        self.view().try_slice_dyn(range)
+    fn try_slice<R: IntoSliceItems>(&self, range: R) -> Result<TensorView<Self::Elem>, SliceError> {
+        self.view().try_slice(range)
     }
 
     /// Return an iterator over a slice of this tensor.
     ///
-    /// This is similar to `self.slice_dyn(range).iter()` except that it
+    /// This is similar to `self.slice(range).iter()` except that it
     /// returns an iterator directly instead of creating an intermediate view.
     /// Also slicing with this method is more flexible as negative steps are
     /// supported for items in `range`.
@@ -460,15 +449,11 @@ impl<'a, T> TensorView<'a, T> {
     }
 
     pub fn slice<R: IntoSliceItems>(&self, range: R) -> TensorView<'a, T> {
-        self.slice_dyn(range.into_slice_items().as_ref())
+        self.try_slice(range.into_slice_items().as_ref()).unwrap()
     }
 
-    pub fn slice_dyn(&self, range: &[SliceItem]) -> TensorView<'a, T> {
-        self.try_slice_dyn(range).unwrap()
-    }
-
-    pub fn try_slice_dyn(&self, range: &[SliceItem]) -> Result<TensorView<'a, T>, SliceError> {
-        let (offset_range, layout) = self.layout.try_slice(range)?;
+    pub fn try_slice<R: IntoSliceItems>(&self, range: R) -> Result<TensorView<'a, T>, SliceError> {
+        let (offset_range, layout) = self.layout.try_slice(range.into_slice_items().as_ref())?;
         Ok(TensorBase {
             data: &self.data[offset_range],
             layout,
@@ -684,23 +669,17 @@ impl<T, S: AsRef<[T]> + AsMut<[T]>> TensorBase<T, S> {
     ///
     /// Slices are specified in the same way as for [TensorBase::slice].
     pub fn slice_mut<R: IntoSliceItems>(&mut self, range: R) -> TensorViewMut<T> {
-        self.slice_mut_dyn(range.into_slice_items().as_ref())
-    }
-
-    /// Return a new mutable slice of this tensor.
-    ///
-    /// Slices are specified in the same way as for [TensorBase::slice_dyn].
-    pub fn slice_mut_dyn(&mut self, range: &[SliceItem]) -> TensorViewMut<T> {
-        self.try_slice_mut_dyn(range).unwrap()
+        self.try_slice_mut(range.into_slice_items().as_ref())
+            .unwrap()
     }
 
     /// Variant of [TensorViewMut::slice_mut_dyn] which returns an error instead
     /// of panicking if the slice range is invalid.
-    pub fn try_slice_mut_dyn(
+    pub fn try_slice_mut<R: IntoSliceItems>(
         &mut self,
-        range: &[SliceItem],
+        range: R,
     ) -> Result<TensorViewMut<T>, SliceError> {
-        let (offset_range, layout) = self.layout.try_slice(range)?;
+        let (offset_range, layout) = self.layout.try_slice(range.into_slice_items().as_ref())?;
         let data = &mut self.data.as_mut()[offset_range];
         Ok(TensorViewMut {
             data,

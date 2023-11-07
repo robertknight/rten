@@ -911,7 +911,7 @@ impl<'a, T, const N: usize> Iterator for InnerIter<'a, T, N> {
     fn next(&mut self) -> Option<Self::Item> {
         self.outer_indices.next().map(|idx| {
             let slice_items = to_slice_items(&idx);
-            self.view.slice_dyn(&slice_items).try_into().unwrap()
+            self.view.slice(slice_items.as_slice()).try_into().unwrap()
         })
     }
 }
@@ -939,8 +939,11 @@ impl<'a, T, const N: usize> Iterator for InnerIterMut<'a, T, N> {
     fn next(&mut self) -> Option<Self::Item> {
         self.outer_indices.next().map(|idx| {
             let slice_items = to_slice_items(&idx);
-            let view: NdTensorViewMut<'_, T, N> =
-                self.view.slice_mut_dyn(&slice_items).try_into().unwrap();
+            let view: NdTensorViewMut<'_, T, N> = self
+                .view
+                .slice_mut(slice_items.as_slice())
+                .try_into()
+                .unwrap();
 
             unsafe {
                 // Safety: Outer view is non-broadcasting, and we increment the
