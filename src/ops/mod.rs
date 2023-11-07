@@ -404,6 +404,16 @@ where
     }
 }
 
+impl<T, const N: usize> IntoOpResult for NdTensor<T, N>
+where
+    Output: From<Tensor<T>>,
+{
+    fn into_op_result(self) -> Result<Vec<Output>, OpError> {
+        let output: Output = self.into_dyn().into();
+        Ok([output].into())
+    }
+}
+
 impl<T> IntoOpResult for Result<Tensor<T>, OpError>
 where
     Output: From<Tensor<T>>,
