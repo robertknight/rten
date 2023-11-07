@@ -179,6 +179,12 @@ impl<T, S: AsRef<[T]>, const N: usize> NdTensorBase<T, S, N> {
         self.data
     }
 
+    /// Consume self and return a dynamic-rank tensor.
+    pub fn into_dyn(self) -> TensorBase<T, S> {
+        let layout = self.layout.as_dyn();
+        TensorBase::new(self.data, &layout)
+    }
+
     /// Return the layout which maps indices to offsets in the data.
     pub fn layout(&self) -> &NdLayout<N> {
         &self.layout
@@ -244,6 +250,32 @@ impl<T, S: AsRef<[T]>, const N: usize> NdTensorBase<T, S, N> {
             result[i] = unsafe { *data.get_unchecked(offsets[i]) };
         }
         result
+    }
+}
+
+impl<T, S: AsRef<[T]>> NdTensorBase<T, S, 1> {
+    /// Convert this vector to a static array of length `M`.
+    ///
+    /// Panics if the length of this vector is not M.
+    #[inline]
+    pub fn to_array<const M: usize>(&self) -> [T; M]
+    where
+        T: Copy + Default,
+    {
+        self.get_array([0], 0)
+    }
+}
+
+impl<T, S: AsRef<[T]> + AsMut<[T]>> NdTensorBase<T, S, 1> {
+    /// Fill this vector with values from a static array of length `M`.
+    ///
+    /// Panics if the length of this vector is not M.
+    #[inline]
+    pub fn assign_array<const M: usize>(&mut self, values: [T; M])
+    where
+        T: Copy + Default,
+    {
+        self.set_array([0], 0, values)
     }
 }
 
@@ -621,9 +653,9 @@ impl<T, S: AsRef<[T]>> MatrixLayout for NdTensorBase<T, S, 2> {
 }
 
 /// Provides methods specific to 2D tensors (matrices).
-impl<T, S: AsRef<[T]>> NdTensorBase<T, S, 2> {
+impl<'a, T> NdTensorView<'a, T, 2> {
     /// Return a new view which transposes the columns and rows.
-    pub fn transposed(self) -> Self {
+    pub fn transposed(&self) -> Self {
         NdTensorBase {
             data: self.data,
             layout: self.layout.transposed(),
@@ -732,8 +764,8 @@ impl<T: PartialEq, S1: AsRef<[T]>, S2: AsRef<[T]>, const N: usize> PartialEq<NdT
 mod tests {
     use crate::errors::{DimensionError, FromDataError};
     use crate::{
-        Layout, MatrixLayout, NdTensor, NdTensorView, NdTensorViewMut, NdView, SliceItem, Tensor,
-        View,
+        ndtensor, Layout, MatrixLayout, NdTensor, NdTensorView, NdTensorViewMut, NdView, SliceItem,
+        Tensor, View,
     };
 
     /// Return elements of `tensor` in their logical order.
@@ -985,6 +1017,18 @@ mod tests {
     }
 
     #[test]
+    fn test_ndtensor_assign_array() {
+        let mut tensor = NdTensor::zeros([2, 2]);
+        let mut transposed = tensor.view_mut();
+
+        transposed.permute([1, 0]);
+        transposed.slice_mut(0).assign_array([1, 2]);
+        transposed.slice_mut(1).assign_array([3, 4]);
+
+        assert_eq!(tensor.iter().copied().collect::<Vec<_>>(), [1, 3, 2, 4]);
+    }
+
+    #[test]
     #[should_panic(expected = "array indices invalid")]
     fn test_ndtensor_get_array_invalid_index() {
         let tensor = steps([4, 2, 2]);
@@ -1029,6 +1073,17 @@ mod tests {
     }
 
     #[test]
+    fn test_ndtensor_into_dyn() {
+        let nd_tensor = ndtensor!((2, 3); [0., 1., 2., 3., 4., 5., 6.]).unwrap();
+        let tensor = nd_tensor.into_dyn();
+        assert_eq!(tensor.shape(), [2, 3]);
+        assert_eq!(
+            tensor.iter().copied().collect::<Vec<_>>(),
+            [0., 1., 2., 3., 4., 5., 6.]
+        );
+    }
+
+    #[test]
     fn test_ndtensor_iter() {
         let tensor = NdTensor::<i32, 2>::from_data(vec![1, 2, 3, 4], [2, 2], None).unwrap();
         let elements: Vec<_> = tensor.iter().copied().collect();
@@ -1051,6 +1106,15 @@ mod tests {
         let tensor = NdTensor::<i32, 2>::from_data(vec![1, 2, 3, 4], [2, 2], None).unwrap();
         let doubled = tensor.map(|x| x * 2);
         assert_eq!(tensor_elements(doubled.view()), &[2, 4, 6, 8]);
+    }
+
+    #[test]
+    fn test_ndtensor_to_array() {
+        let tensor = ndtensor!((2, 2); [1., 2., 3., 4.]).unwrap();
+        let col0: [f32; 2] = tensor.view().transposed().slice::<1, _>(0).to_array();
+        let col1: [f32; 2] = tensor.view().transposed().slice::<1, _>(1).to_array();
+        assert_eq!(col0, [1., 3.]);
+        assert_eq!(col1, [2., 4.]);
     }
 
     #[test]
