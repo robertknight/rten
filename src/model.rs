@@ -2,6 +2,8 @@ extern crate flatbuffers;
 
 use std::collections::HashMap;
 use std::env;
+use std::error::Error;
+use std::fmt::{Display, Formatter};
 
 use smallvec::smallvec;
 use wasnn_tensor::Tensor;
@@ -43,13 +45,13 @@ impl Model {
     ///
     /// The model will have all of the built-in operators available to it (see
     /// [OpRegistry::with_all_ops]).
-    pub fn load(data: &[u8]) -> Result<Model, String> {
+    pub fn load(data: &[u8]) -> Result<Model, ModelLoadError> {
         let registry = OpRegistry::with_all_ops();
         load_model(data, &registry)
     }
 
     /// Load a serialized model with a custom operator registry.
-    pub fn load_with_ops(data: &[u8], registry: &OpRegistry) -> Result<Model, String> {
+    pub fn load_with_ops(data: &[u8], registry: &OpRegistry) -> Result<Model, ModelLoadError> {
         load_model(data, registry)
     }
 
@@ -436,12 +438,24 @@ impl OpRegistry {
 }
 
 /// Error type for errors that occur when de-serializing an operator.
+#[derive(Debug)]
 pub enum ReadOpError {
     /// The operator attributes were missing or of the wrong type.
     AttrError,
     /// The operator type is incorrect or unsupported.
     UnsupportedOperator,
 }
+
+impl Display for ReadOpError {
+    fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
+        match self {
+            ReadOpError::AttrError => write!(f, "invalid attributes for operator"),
+            ReadOpError::UnsupportedOperator => write!(f, "unsupported operator"),
+        }
+    }
+}
+
+impl Error for ReadOpError {}
 
 /// Define a function that reads an operator with one attribute, `axis`.
 macro_rules! read_axis_op {
@@ -795,11 +809,39 @@ fn read_trilu_op(node: &OperatorNode) -> ReadOpResult {
     }))
 }
 
-fn load_model(data: &[u8], registry: &OpRegistry) -> Result<Model, String> {
-    let model = root_as_model(data).map_err(|e| format!("Error parsing flatbuffer {:?}", e))?;
+#[derive(Debug)]
+pub enum ModelLoadError {
+    SchemaVersionUnsupported,
+
+    /// An error occurred parsing the FlatBuffers file.
+    ParseFailed(flatbuffers::InvalidFlatbuffer),
+
+    /// An error occurred deserializing an operator.
+    OperatorInvalid(ReadOpError),
+
+    /// An error occurred while traversing the model's graph to instantiate
+    /// nodes and connections.
+    GraphError(String),
+}
+
+impl Display for ModelLoadError {
+    fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
+        match self {
+            ModelLoadError::SchemaVersionUnsupported => write!(f, "unsupported schema version"),
+            ModelLoadError::ParseFailed(e) => write!(f, "parse error: {e}"),
+            ModelLoadError::OperatorInvalid(e) => write!(f, "operator error: {e}"),
+            ModelLoadError::GraphError(e) => write!(f, "graph error: {e}"),
+        }
+    }
+}
+
+impl Error for ModelLoadError {}
+
+fn load_model(data: &[u8], registry: &OpRegistry) -> Result<Model, ModelLoadError> {
+    let model = root_as_model(data).map_err(ModelLoadError::ParseFailed)?;
 
     if model.schema_version() != 1 {
-        return Err("Unsupported schema version".to_string());
+        return Err(ModelLoadError::SchemaVersionUnsupported);
     }
 
     let mut graph = Graph::new();
@@ -831,10 +873,9 @@ fn load_model(data: &[u8], registry: &OpRegistry) -> Result<Model, String> {
     if let Some(nodes) = model.graph().nodes() {
         for (node_index, node) in nodes.iter().enumerate() {
             if let Some(operator) = node.data_as_operator_node() {
-                let op = registry.read_op(&operator).map_err(|err| match err {
-                    ReadOpError::UnsupportedOperator => "unsupported operator".to_string(),
-                    ReadOpError::AttrError => "incorrect or missing attributes".to_string(),
-                })?;
+                let op = registry
+                    .read_op(&operator)
+                    .map_err(ModelLoadError::OperatorInvalid)?;
 
                 let mut inputs: Vec<Option<NodeId>> = Vec::new();
                 if let Some(op_input_ids) = operator.inputs() {
@@ -847,7 +888,9 @@ fn load_model(data: &[u8], registry: &OpRegistry) -> Result<Model, String> {
                         if let Some(node_id) = node_id_from_index.get(&index_usize) {
                             inputs.push(Some(*node_id))
                         } else {
-                            return Err("Operator input is invalid".to_string());
+                            return Err(ModelLoadError::GraphError(
+                                "operator input is invalid".to_string(),
+                            ));
                         }
                     }
                 }
@@ -863,7 +906,9 @@ fn load_model(data: &[u8], registry: &OpRegistry) -> Result<Model, String> {
                         if let Some(node_id) = node_id_from_index.get(&index_usize) {
                             outputs.push(Some(*node_id))
                         } else {
-                            return Err("Operator output is invalid".to_string());
+                            return Err(ModelLoadError::GraphError(
+                                "operator output is invalid".to_string(),
+                            ));
                         }
                     }
                 }
@@ -900,13 +945,15 @@ fn load_model(data: &[u8], registry: &OpRegistry) -> Result<Model, String> {
                     let tensor = Tensor::from_data(&shape, data);
                     graph.add_constant(node.name(), tensor)
                 } else {
-                    panic!("Unsupported constant data type");
+                    return Err(ModelLoadError::GraphError(
+                        "unsupported constant data type".to_string(),
+                    ));
                 };
 
                 add_node_id(node.name(), graph_node);
                 node_id_from_index.insert(node_index, graph_node);
             } else {
-                return Err("Unknown node type".to_string());
+                return Err(ModelLoadError::GraphError("unknown node type".to_string()));
             }
         }
     }
