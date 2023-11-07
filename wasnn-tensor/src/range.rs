@@ -80,45 +80,59 @@ where
 /// `start..`, `..end`, `..`) or a [SliceRange], which extends regular Rust
 /// ranges with support for steps and specifying endpoints using negative
 /// values, which behaves similarly to using negative values in NumPy.
-pub trait IntoSliceItems<const N: usize> {
-    fn into_slice_items(self) -> [SliceItem; N];
+pub trait IntoSliceItems {
+    type Array: AsRef<[SliceItem]>;
+
+    fn into_slice_items(self) -> Self::Array;
 }
 
-impl<const N: usize, T: Into<SliceItem>> IntoSliceItems<N> for [T; N] {
+impl<const N: usize, T: Into<SliceItem>> IntoSliceItems for [T; N] {
+    type Array = [SliceItem; N];
+
     fn into_slice_items(self) -> [SliceItem; N] {
         self.map(|x| x.into())
     }
 }
 
-impl<T: Into<SliceItem>> IntoSliceItems<1> for T {
+impl<T: Into<SliceItem>> IntoSliceItems for T {
+    type Array = [SliceItem; 1];
+
     fn into_slice_items(self) -> [SliceItem; 1] {
         [self.into()]
     }
 }
 
-impl<T1: Into<SliceItem>> IntoSliceItems<1> for (T1,) {
+impl<T1: Into<SliceItem>> IntoSliceItems for (T1,) {
+    type Array = [SliceItem; 1];
+
     fn into_slice_items(self) -> [SliceItem; 1] {
         [self.0.into()]
     }
 }
 
-impl<T1: Into<SliceItem>, T2: Into<SliceItem>> IntoSliceItems<2> for (T1, T2) {
+impl<T1: Into<SliceItem>, T2: Into<SliceItem>> IntoSliceItems for (T1, T2) {
+    type Array = [SliceItem; 2];
+
     fn into_slice_items(self) -> [SliceItem; 2] {
         [self.0.into(), self.1.into()]
     }
 }
 
-impl<T1: Into<SliceItem>, T2: Into<SliceItem>, T3: Into<SliceItem>> IntoSliceItems<3>
+impl<T1: Into<SliceItem>, T2: Into<SliceItem>, T3: Into<SliceItem>> IntoSliceItems
     for (T1, T2, T3)
 {
+    type Array = [SliceItem; 3];
+
     fn into_slice_items(self) -> [SliceItem; 3] {
         [self.0.into(), self.1.into(), self.2.into()]
     }
 }
 
 impl<T1: Into<SliceItem>, T2: Into<SliceItem>, T3: Into<SliceItem>, T4: Into<SliceItem>>
-    IntoSliceItems<4> for (T1, T2, T3, T4)
+    IntoSliceItems for (T1, T2, T3, T4)
 {
+    type Array = [SliceItem; 4];
+
     fn into_slice_items(self) -> [SliceItem; 4] {
         [self.0.into(), self.1.into(), self.2.into(), self.3.into()]
     }

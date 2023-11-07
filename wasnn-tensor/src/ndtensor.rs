@@ -71,18 +71,13 @@ pub trait NdView<const N: usize>: Layout {
     /// slicing with `range`. Panics if the sliced layout has a different number
     /// of dims.
     ///
-    /// `K` is the number of items in the array or tuple being used to slice
-    /// the tensor. If it must be <= N. If it is less than N, it refers to the
-    /// leading dimensions of the tensor and is padded to extract the full
-    /// range of the remaining dimensions.
+    /// If the range has fewer dimensions than the tensor, they refer to the
+    /// leading dimensions.
     ///
     /// See [IntoSliceItems] for a description of how slices can be specified.
     /// Slice ranges are currently restricted to use positive steps. In other
     /// words, NumPy-style slicing with negative steps is not supported.
-    fn slice<const M: usize, const K: usize, R: IntoSliceItems<K>>(
-        &self,
-        range: R,
-    ) -> NdTensorView<Self::Elem, M> {
+    fn slice<const M: usize, R: IntoSliceItems>(&self, range: R) -> NdTensorView<Self::Elem, M> {
         self.view().slice(range)
     }
 
@@ -381,12 +376,9 @@ impl<'a, T, const N: usize> NdTensorView<'a, T, N> {
         }
     }
 
-    pub fn slice<const M: usize, const K: usize, R: IntoSliceItems<K>>(
-        &self,
-        range: R,
-    ) -> NdTensorView<'a, T, M> {
+    pub fn slice<const M: usize, R: IntoSliceItems>(&self, range: R) -> NdTensorView<'a, T, M> {
         let range = range.into_slice_items();
-        let (offset_range, sliced_layout) = self.layout.slice(&range);
+        let (offset_range, sliced_layout) = self.layout.slice(range.as_ref());
         NdTensorView {
             data: &self.data[offset_range],
             layout: sliced_layout,
@@ -431,12 +423,12 @@ impl<T, S: AsRef<[T]> + AsMut<[T]>, const N: usize> NdTensorBase<T, S, N> {
     ///
     /// `M` specifies the number of dimensions that the layout must have after
     /// slicing with `range`. Panics if the sliced layout has a different number
-    /// of dims. `K` is the number of elements in the slice range. Must be <= N.
-    pub fn slice_mut<const M: usize, const K: usize, R: IntoSliceItems<K>>(
+    /// of dims.
+    pub fn slice_mut<const M: usize, R: IntoSliceItems>(
         &mut self,
         range: R,
     ) -> NdTensorViewMut<T, M> {
-        self.slice_mut_dyn(&range.into_slice_items())
+        self.slice_mut_dyn(range.into_slice_items().as_ref())
     }
 
     /// Return a mutable view of part of this tensor.
@@ -1189,7 +1181,7 @@ mod tests {
     fn test_ndtensor_slice_wrong_dims() {
         let data = vec![1, 2, 3, 4];
         let view = NdTensorView::from(&data).reshaped([2, 2]);
-        view.slice::<3, 2, _>([0..2, 0..2]);
+        view.slice::<3, _>([0..2, 0..2]);
     }
 
     #[test]
@@ -1212,7 +1204,7 @@ mod tests {
     fn test_ndtensor_slice_mut_wrong_dims() {
         let mut data = vec![1, 2, 3, 4];
         let mut view = NdTensorViewMut::<i32, 2>::from_data(&mut data, [2, 2], None).unwrap();
-        view.slice_mut::<3, 2, _>([0..2, 0..2]);
+        view.slice_mut::<3, _>([0..2, 0..2]);
     }
 
     #[test]

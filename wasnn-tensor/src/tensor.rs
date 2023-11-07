@@ -144,14 +144,13 @@ pub trait View: Layout {
     /// Return a view of part of this tensor.
     ///
     /// `range` specifies the indices or ranges of this tensor to include in the
-    /// returned view. If `N` is less than the number of dimensions in this
-    /// tensor, `range` refers to the leading dimensions, and is padded to
-    /// include the full range of the remaining dimensions.
+    /// returned view. If the range has fewer dimensions than the tensor, they
+    /// refer to the leading dimensions.
     ///
     /// See [IntoSliceItems] for a description of how slices can be specified.
     /// Slice ranges are currently restricted to use positive steps. In other
     /// words, NumPy-style slicing with negative steps is not supported.
-    fn slice<const N: usize, R: IntoSliceItems<N>>(&self, range: R) -> TensorView<Self::Elem> {
+    fn slice<R: IntoSliceItems>(&self, range: R) -> TensorView<Self::Elem> {
         self.view().slice(range)
     }
 
@@ -460,8 +459,8 @@ impl<'a, T> TensorView<'a, T> {
         self.layout.reshape(shape);
     }
 
-    pub fn slice<const N: usize, R: IntoSliceItems<N>>(&self, range: R) -> TensorView<'a, T> {
-        self.slice_dyn(&range.into_slice_items())
+    pub fn slice<R: IntoSliceItems>(&self, range: R) -> TensorView<'a, T> {
+        self.slice_dyn(range.into_slice_items().as_ref())
     }
 
     pub fn slice_dyn(&self, range: &[SliceItem]) -> TensorView<'a, T> {
@@ -684,11 +683,8 @@ impl<T, S: AsRef<[T]> + AsMut<[T]>> TensorBase<T, S> {
     /// Return a new mutable slice of this tensor.
     ///
     /// Slices are specified in the same way as for [TensorBase::slice].
-    pub fn slice_mut<const N: usize, R: IntoSliceItems<N>>(
-        &mut self,
-        range: R,
-    ) -> TensorViewMut<T> {
-        self.slice_mut_dyn(&range.into_slice_items())
+    pub fn slice_mut<R: IntoSliceItems>(&mut self, range: R) -> TensorViewMut<T> {
+        self.slice_mut_dyn(range.into_slice_items().as_ref())
     }
 
     /// Return a new mutable slice of this tensor.

@@ -205,7 +205,7 @@ fn conv_2d_pointwise(
         let mut out_item = output.slice_mut([n]);
         let out_row_stride = out_item.stride(0);
 
-        let in_mat = input.slice::<3, 1, _>([n]).reshaped([in_c, in_h * in_w]);
+        let in_mat = input.slice::<3, _>([n]).reshaped([in_c, in_h * in_w]);
 
         gemm.gemm_bias(
             out_item.data_mut(),
@@ -257,14 +257,14 @@ fn conv_2d_depthwise(
     for n in 0..batch {
         for c in 0..in_c {
             let kernel_view = kernel.slice([c, 0]).unchecked();
-            let in_chan = input.slice::<2, 2, _>([n, c]);
-            let mut out_chan = out_view.slice_mut::<2, 2, _>([n, c]);
+            let in_chan = input.slice::<2, _>([n, c]);
+            let mut out_chan = out_view.slice_mut::<2, _>([n, c]);
 
             // The loops here are ordered so that the inner-most loop is as
             // efficient as possible and runs for as long as possible over a
             // contiguous slice of memory.
             for out_y in 0..out_h {
-                let mut out_row = out_chan.slice_mut::<1, 1, _>([out_y]);
+                let mut out_row = out_chan.slice_mut::<1, _>([out_y]);
                 let out_row = out_row.data_mut();
 
                 for k_y in 0..k_h {
@@ -273,7 +273,7 @@ fn conv_2d_depthwise(
                         continue;
                     }
 
-                    let in_row = in_chan.slice::<1, 1, _>([in_y - pad_top]).data();
+                    let in_row = in_chan.slice::<1, _>([in_y - pad_top]).data();
 
                     for k_x in 0..k_w {
                         let kernel_val = kernel_view[[k_y, k_x]];
