@@ -229,43 +229,69 @@ pub fn log_softmax(input: TensorView, axis: isize) -> Result<Tensor, OpError> {
     Ok(output)
 }
 
-pub fn log_softmax_in_place(output: &mut Tensor, axis: isize) -> Result<(), OpError> {
+/// Apply an operation `op` to all 1D lanes of the tensor along a given axis.
+fn softmax_lanes<F: Fn(&mut [f32])>(
+    output: &mut Tensor,
+    axis: isize,
+    apply_op: F,
+) -> Result<(), OpError> {
     let resolved_axis = resolve_axis(output.ndim(), axis)?;
 
+    // Make the lanes over which the operation is applied contiguous. This
+    // allows the `apply_op` function to use optimized code that works with
+    // contiguous slices.
+    //
+    // In the common case where softmax is applied over the last dimension of
+    // an already-contiguous tensor, the data is already laid out in the
+    // ideal order.
+    if resolved_axis != output.ndim() - 1 {
+        output.move_axis(resolved_axis, output.ndim() - 1);
+    }
     output.make_contiguous();
 
-    let outer_stride = if resolved_axis == 0 {
+    let lane_size = if output.ndim() == 1 {
         output.len()
     } else {
-        output.stride(resolved_axis - 1)
+        output.size(output.ndim() - 1)
     };
 
-    // This operator computes:
-    //
-    //   log(exp(xi) / sum(exp(x)))
-    //
-    // Improve numerical stability by first subtracting max value, as we do
-    // for the softmax op:
-    //
-    //   log(exp(xi - xmax) / sum(exp(x - xmax)))
-    //
-    // Then using log identities to simplify:
-    //
-    //   = log(exp(xi - xmax)) - log(sum(exp(x - xmax)))
-    //   = xi - xmax - log(sum(exp(x - xmax)))
+    for els in output.data_mut().chunks_mut(lane_size) {
+        apply_op(els);
+    }
 
-    for els in output.data_mut().chunks_mut(outer_stride) {
-        let max_val = slice_max(els);
-        let log_exp_sum = els
-            .iter()
-            .fold(0., |exp_sum, x| exp_sum + (x - max_val).exp())
-            .ln();
-        for el in els.iter_mut() {
-            *el = (*el - max_val) - log_exp_sum
-        }
+    if resolved_axis != output.ndim() - 1 {
+        output.move_axis(output.ndim() - 1, resolved_axis);
+        output.make_contiguous();
     }
 
     Ok(())
+}
+
+pub fn log_softmax_in_place(output: &mut Tensor, axis: isize) -> Result<(), OpError> {
+    softmax_lanes(output, axis, |lane| {
+        // This operator computes:
+        //
+        //   log(exp(xi) / sum(exp(x)))
+        //
+        // Improve numerical stability by first subtracting max value, as we do
+        // for the softmax op:
+        //
+        //   log(exp(xi - xmax) / sum(exp(x - xmax)))
+        //
+        // Then using log identities to simplify:
+        //
+        //   = log(exp(xi - xmax)) - log(sum(exp(x - xmax)))
+        //   = xi - xmax - log(sum(exp(x - xmax)))
+
+        let max_val = slice_max(lane);
+        let log_exp_sum = lane
+            .iter()
+            .fold(0., |exp_sum, x| exp_sum + (x - max_val).exp())
+            .ln();
+        for el in lane.iter_mut() {
+            *el = (*el - max_val) - log_exp_sum
+        }
+    })
 }
 
 #[derive(Debug)]
@@ -301,33 +327,21 @@ pub fn softmax(input: TensorView, axis: isize) -> Result<Tensor, OpError> {
 }
 
 pub fn softmax_in_place(output: &mut Tensor, axis: isize) -> Result<(), OpError> {
-    let resolved_axis = resolve_axis(output.ndim(), axis)?;
-
-    output.make_contiguous();
-
-    let outer_stride = if resolved_axis == 0 {
-        output.len()
-    } else {
-        output.stride(resolved_axis - 1)
-    };
-
-    for els in output.data_mut().chunks_mut(outer_stride) {
+    softmax_lanes(output, axis, |lane| {
         // Numerically stable softmax. See
         // https://ogunlao.github.io/2020/04/26/you_dont_really_know_softmax.html.
-        let max_val = slice_max(els);
+        let max_val = slice_max(lane);
 
         let mut exp_sum = 0.0;
-        for el in els.iter_mut() {
+        for el in lane.iter_mut() {
             *el = (*el - max_val).exp();
             exp_sum += *el;
         }
 
-        for el in els.iter_mut() {
+        for el in lane.iter_mut() {
             *el /= exp_sum
         }
-    }
-
-    Ok(())
+    })
 }
 
 #[derive(Debug)]
@@ -455,38 +469,31 @@ mod tests {
     #[test]
     fn test_log_softmax() -> Result<(), Box<dyn Error>> {
         // 1D input
-        let mut input = tensor!([0.1634, 0.8647, 0.6401, 0.8265, 0.0560]);
-        let mut expected = tensor!([-2.0104, -1.3091, -1.5337, -1.3473, -2.1178]);
+        let mut input = tensor!([0.1634, 0.8647, 0.6401, 0.8265, 0.0560, 0.2345]);
+        let expected = tensor!([-2.1447, -1.4434, -1.6680, -1.4816, -2.2521, -2.0736]);
         let result = log_softmax(input.view(), 0).unwrap();
         expect_eq_1e4(&result, &expected)?;
 
         // Second dimension of 2D input
-        input.reshape(&[1, 5]);
-        expected.reshape(&[1, 5]);
+        input.reshape(&[2, 3]);
+        let expected = Tensor::from([[-1.5319, -0.8306, -1.0552], [-0.7011, -1.4716, -1.2931]]);
         let result = log_softmax(input.view(), 1).unwrap();
         expect_eq_1e4(&result, &expected)?;
 
         // First dimension of 2D input
-        input.reshape(&[5, 1]);
-        expected.reshape(&[5, 1]);
+        let expected = Tensor::from([[-1.0787, -0.3684, -0.5108], [-0.4156, -1.1771, -0.9164]]);
         let result = log_softmax(input.view(), 0).unwrap();
         expect_eq_1e4(&result, &expected)?;
 
         // Second dimension of 2D input with multiple entries in first dim
-        let matrix_input = Tensor::from_data(
-            &[2, 5],
-            vec![
-                0.1634, 0.8647, 0.6401, 0.8265, 0.0560, // First row
-                0.1634, 0.8647, 0.6401, 0.8265, 0.0560, // Second row
-            ],
-        );
-        let matrix_expected = Tensor::from_data(
-            &[2, 5],
-            vec![
-                -2.0104, -1.3091, -1.5337, -1.3473, -2.1178, // First row
-                -2.0104, -1.3091, -1.5337, -1.3473, -2.1178, // Second row
-            ],
-        );
+        let matrix_input = Tensor::from([
+            [0.1634, 0.8647, 0.6401, 0.8265, 0.0560],
+            [0.1634, 0.8647, 0.6401, 0.8265, 0.0560],
+        ]);
+        let matrix_expected = Tensor::from([
+            [-2.0104, -1.3091, -1.5337, -1.3473, -2.1178],
+            [-2.0104, -1.3091, -1.5337, -1.3473, -2.1178],
+        ]);
         let result = log_softmax(matrix_input.view(), 1).unwrap();
         expect_eq_1e4(&result, &matrix_expected)?;
 
@@ -496,39 +503,32 @@ mod tests {
     #[test]
     fn test_softmax() -> Result<(), Box<dyn Error>> {
         // Softmax on a 1D input
-        let mut input = tensor!([0.1634, 0.8647, 0.6401, 0.8265, 0.0560]);
-        let mut expected = tensor!([0.1339, 0.2701, 0.2157, 0.2599, 0.1203]);
+        let mut input = tensor!([0.1634, 0.8647, 0.6401, 0.8265, 0.0560, 0.2304]);
+        let expected = tensor!([0.1172, 0.2362, 0.1887, 0.2274, 0.1052, 0.1253]);
         let result = softmax(input.view(), 0).unwrap();
         expect_eq_1e4(&result, &expected)?;
 
         // Softmax on final dimension of 2D input
-        input.reshape(&[1, 5]);
-        expected.reshape(&[1, 5]);
+        input.reshape(&[2, 3]);
+        let expected = Tensor::from([[0.2161, 0.4358, 0.3481], [0.4966, 0.2298, 0.2736]]);
         let result = softmax(input.view(), 1).unwrap();
         expect_eq_1e4(&result, &expected)?;
 
         // Softmax on first dimension of 2D input
-        input.reshape(&[5, 1]);
-        expected.reshape(&[5, 1]);
+        let expected = Tensor::from([[0.3400, 0.6918, 0.6010], [0.6600, 0.3082, 0.3990]]);
         let result = softmax(input.view(), 0).unwrap();
         expect_eq_1e4(&result, &expected)?;
 
         // Softmax on second dimension of 2D input with multiple entries in
         // first dim
-        let matrix_input = Tensor::from_data(
-            &[2, 5],
-            vec![
-                0.1634, 0.8647, 0.6401, 0.8265, 0.0560, // First row
-                0.1634, 0.8647, 0.6401, 0.8265, 0.0560, // Second row
-            ],
-        );
-        let matrix_expected = Tensor::from_data(
-            &[2, 5],
-            vec![
-                0.1339, 0.2701, 0.2157, 0.2599, 0.1203, // First row
-                0.1339, 0.2701, 0.2157, 0.2599, 0.1203, // Second row
-            ],
-        );
+        let matrix_input = Tensor::from([
+            [0.1634, 0.8647, 0.6401, 0.8265, 0.0560],
+            [0.1634, 0.8647, 0.6401, 0.8265, 0.0560],
+        ]);
+        let matrix_expected = Tensor::from([
+            [0.1339, 0.2701, 0.2157, 0.2599, 0.1203],
+            [0.1339, 0.2701, 0.2157, 0.2599, 0.1203],
+        ]);
         let result = softmax(matrix_input.view(), 1).unwrap();
         expect_eq_1e4(&result, &matrix_expected)?;
 
@@ -563,13 +563,15 @@ mod tests {
 
     // Test softmax with some additional input sizes and axis dimensions.
     // These tests don't check the individual output values in detail, but they
-    // do check the shape and that the values sum to 1.
+    // do check the shape and that each lane sums to 1.
     #[test]
     fn test_softmax_sizes() {
         let mut rng = XorShiftRng::new(1234);
         let input = Tensor::rand(&[1, 1, 3, 3], &mut rng);
         let result = softmax(input.view(), 1).unwrap();
-        assert_eq!(result.shape(), input.shape());
-        assert!((result.iter().sum::<f32>() - 1.0).abs() < 0.001);
+
+        for lane in result.lanes(1) {
+            assert!((lane.sum::<f32>() - 1.0).abs() < 0.001);
+        }
     }
 }
