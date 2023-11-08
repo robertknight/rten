@@ -113,7 +113,11 @@ pub trait View: Layout {
     where
         F: Fn(&Self::Elem) -> U,
     {
-        let data = self.iter().map(f).collect();
+        let data = if self.is_contiguous() {
+            self.data().iter().map(f).collect()
+        } else {
+            self.iter().map(f).collect()
+        };
         Tensor {
             data,
             layout: DynLayout::new(self.shape().as_ref()),
@@ -640,9 +644,10 @@ impl<T, S: AsRef<[T]> + AsMut<[T]>> TensorBase<T, S> {
     /// The order in which elements are visited is unspecified and may not
     /// correspond to the logical order.
     pub fn apply<F: Fn(&T) -> T>(&mut self, f: F) {
-        // TODO: Skip unused elements when tensor is not contiguous.
-        for val in self.data.as_mut().iter_mut() {
-            *val = f(val);
+        if self.is_contiguous() {
+            self.data.as_mut().iter_mut().for_each(|x| *x = f(x));
+        } else {
+            self.iter_mut().for_each(|x| *x = f(x));
         }
     }
 
