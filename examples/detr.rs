@@ -6,7 +6,7 @@ use wasnn::{FloatOperators, Model, NodeId, Operators, RunOptions};
 use wasnn_imageio::{normalize_image, read_image, write_image};
 use wasnn_imageproc::{Painter, Rect};
 use wasnn_tensor::prelude::*;
-use wasnn_tensor::{NdTensor, NdTensorView};
+use wasnn_tensor::NdTensor;
 
 struct Args {
     model: String,
@@ -362,12 +362,7 @@ fn main() -> Result<(), Box<dyn Error>> {
             continue;
         };
 
-        let coords: NdTensorView<f32, 1> = boxes.slice([0, obj]);
-
-        let center_x = coords[[0]];
-        let center_y = coords[[1]];
-        let width = coords[[2]];
-        let height = coords[[3]];
+        let [center_x, center_y, width, height] = boxes.slice([0, obj]).to_array();
 
         let rect = Rect::from_tlhw(
             (center_y - 0.5 * height) * image_height as f32,
@@ -389,7 +384,7 @@ fn main() -> Result<(), Box<dyn Error>> {
 
         println!(
             "object: {obj} class: {cls} ({label}) prob: {prob:.2} coords: [{:?}]",
-            coords.iter().collect::<Vec<_>>()
+            [center_x, center_y, width, height]
         );
     }
 

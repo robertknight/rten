@@ -152,9 +152,9 @@ fn main() -> Result<(), Box<dyn Error>> {
                     .copied()
                     .unwrap_or((1., 1., 1.));
 
-                annotated_image[[0, y, x]] = r;
-                annotated_image[[1, y, x]] = g;
-                annotated_image[[2, y, x]] = b;
+                annotated_image
+                    .slice_mut((.., y, x))
+                    .assign_array([r, g, b]);
             }
         }
     }
