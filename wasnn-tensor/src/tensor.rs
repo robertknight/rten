@@ -197,11 +197,12 @@ pub trait View: Layout {
         self.view().to_tensor()
     }
 
-    /// Return a copy of the elements of this tensor as a contiguous vector
-    /// in row-major order.
+    /// Return a copy of the elements of this tensor in their logical order
+    /// as a vector.
     ///
-    /// This is slightly more efficient than `iter().collect()` in the case
-    /// where the tensor is already contiguous.
+    /// This is equivalent to `self.iter().cloned().collect()` but faster
+    /// when the tensor is already contiguous or has a small number (<= 4)
+    /// dimensions.
     fn to_vec(&self) -> Vec<Self::Elem>
     where
         Self::Elem: Clone,
@@ -572,7 +573,25 @@ impl<T, S: AsRef<[T]>> View for TensorBase<T, S> {
         if self.is_contiguous() {
             self.data.as_ref().to_vec()
         } else {
-            self.iter().cloned().collect()
+            // This branch is equivalent to
+            // `x.iter().cloned().collect::<Vec<_>>()` but uses a faster
+            // iteration method that is optimized for tensors with few (<= 4)
+            // dimensions.
+            let mut data = Vec::with_capacity(self.len());
+            let ptr: *mut T = data.as_mut_ptr();
+
+            let mut offset = 0;
+            fast_for_each_element(self.view(), |elt| {
+                // Safety: `fast_for_each_element` calls fn `self.len()` times,
+                // matching the buffer capacity.
+                unsafe { *ptr.add(offset) = elt.clone() };
+                offset += 1;
+            });
+
+            // Safety: Length here matches capacity passed to `Vec::with_capacity`.
+            unsafe { data.set_len(self.len()) }
+
+            data
         }
     }
 
@@ -854,7 +873,7 @@ impl<T> Tensor<T> {
         if self.is_contiguous() {
             return;
         }
-        self.data = self.iter().cloned().collect();
+        self.data = self.to_vec();
         self.layout.make_contiguous();
     }
 
@@ -1005,6 +1024,44 @@ impl<const N: usize, const M: usize, const K: usize, T: Clone + Scalar> From<[[[
             .cloned()
             .collect();
         Tensor::from_data(&[M, N, K], data)
+    }
+}
+
+/// Call `f` with every element in `x` in logical order.
+///
+/// This is equivalent to `x.iter().for_each(f)` but is faster that Rust's
+/// standard iteration protocol when `x` is non-contiguous and has <= 4
+/// dimensions.
+fn fast_for_each_element<T, F: FnMut(&T)>(mut x: TensorView<T>, mut f: F) {
+    if x.ndim() > 4 {
+        x.iter().for_each(f)
+    } else {
+        while x.ndim() < 4 {
+            x.insert_dim(0);
+        }
+
+        let x: NdTensorView<T, 4> = x.nd_view();
+        let x_data = x.data();
+        let shape = x.shape();
+        let strides = x.strides();
+
+        assert!(x_data.len() >= x.layout().min_data_len());
+
+        for i0 in 0..shape[0] {
+            for i1 in 0..shape[1] {
+                for i2 in 0..shape[2] {
+                    for i3 in 0..shape[3] {
+                        let offset =
+                            i0 * strides[0] + i1 * strides[1] + i2 * strides[2] + i3 * strides[3];
+
+                        // Safety: We checked data length > max offset produced
+                        // by layout.
+                        let elt = unsafe { x_data.get_unchecked(offset) };
+                        f(elt)
+                    }
+                }
+            }
+        }
     }
 }
 
