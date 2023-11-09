@@ -122,7 +122,7 @@ fn main() -> Result<(), Box<dyn Error>> {
     let output_id = get_node(&model, "output0")?;
 
     let [output] = model.run_n(
-        &[(input_id, (&image).into())],
+        &[(input_id, image.view().into())],
         [output_id],
         Some(RunOptions {
             verbose: false,

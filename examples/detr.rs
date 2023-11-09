@@ -322,7 +322,7 @@ fn main() -> Result<(), Box<dyn Error>> {
     let boxes_output_id = get_node(&model, "pred_boxes")?;
 
     let [logits, boxes] = model.run_n(
-        &[(pixel_input_id, (&image).into())],
+        &[(pixel_input_id, image.view().into())],
         [logits_output_id, boxes_output_id],
         Some(RunOptions {
             verbose: false,

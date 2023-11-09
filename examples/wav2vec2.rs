@@ -121,7 +121,9 @@ fn main() -> Result<(), Box<dyn Error>> {
     let mut sample_batch = Tensor::from_vec(samples);
     sample_batch.insert_dim(0);
 
-    let result: NdTensor<f32, 3> = model.run_one((&sample_batch).into(), None)?.try_into()?;
+    let result: NdTensor<f32, 3> = model
+        .run_one(sample_batch.view().into(), None)?
+        .try_into()?;
 
     let decoder = CtcDecoder::new();
     let hypothesis = decoder.decode_beam(result.slice([0]), 10 /* beam_size */);

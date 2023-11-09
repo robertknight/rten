@@ -128,7 +128,7 @@ fn main() -> Result<(), Box<dyn Error>> {
     let image = image.resize_image([input_h, input_w])?;
 
     // Run model to classify each pixel
-    let mut output: Tensor = model.run_one((&image).into(), None)?.try_into()?;
+    let mut output: Tensor = model.run_one(image.view().into(), None)?.try_into()?;
     output.permute(&[0, 2, 3, 1]); // (N,class,H,W) => (N,H,W,class)
 
     let seg_classes: NdTensor<i32, 2> = output

@@ -219,6 +219,12 @@ macro_rules! impl_input_conversions {
                 Input::$variant(t.view())
             }
         }
+
+        impl<'a> From<TensorView<'a, $element_type>> for Input<'a> {
+            fn from(t: TensorView<'a, $element_type>) -> Input {
+                Input::$variant(t)
+            }
+        }
     };
 }
 

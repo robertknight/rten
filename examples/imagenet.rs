@@ -245,7 +245,7 @@ fn main() -> Result<(), Box<dyn Error>> {
 
     let logits: NdTensor<f32, 2> = model
         .run_one(
-            (&img_tensor).into(),
+            img_tensor.view().into(),
             Some(RunOptions {
                 timing: false,
                 verbose: false,
