@@ -50,14 +50,14 @@ pub fn batch_norm_in_place(
 ///
 /// See <https://github.com/onnx/onnx/blob/main/docs/Operators.md#batchnormalization>.
 pub fn batch_norm(
-    input: &Tensor,
+    input: TensorView,
     scale: &NdTensorView<f32, 1>,
     bias: &NdTensorView<f32, 1>,
     mean: &NdTensorView<f32, 1>,
     var: &NdTensorView<f32, 1>,
     epsilon: f32,
 ) -> Result<Tensor, OpError> {
-    let mut output = input.clone();
+    let mut output = input.to_tensor();
     batch_norm_in_place(&mut output, scale, bias, mean, var, epsilon)?;
     Ok(output)
 }
@@ -398,7 +398,7 @@ mod tests {
         let y2 = (input[[0, 1, 0, 0]] - mean[1]) / (var[1] + epsilon).sqrt() * scale[1] + bias[1];
         let expected = Tensor::from_data(&[1, 2, 1, 1], vec![y1, y2]);
         let result = batch_norm(
-            &input,
+            input.view(),
             &scale.into(),
             &bias.into(),
             &mean.into(),

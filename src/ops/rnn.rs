@@ -172,12 +172,7 @@ fn compute_rnn_gate(
 /// Extract a gate weight matrix from a tensor. The tensor has dims
 /// `[direction, num_gates * hidden_size, x]`. The result has shape
 /// `[x, hidden_size]`.
-fn extract_matrix(
-    tensor: TensorView<'_>,
-    dir: usize,
-    num_gates: usize,
-    gate_index: usize,
-) -> Matrix {
+fn extract_matrix(tensor: TensorView, dir: usize, num_gates: usize, gate_index: usize) -> Matrix {
     let hidden_total = tensor.size(1);
     assert!(hidden_total % num_gates == 0);
     let hidden_size = hidden_total / num_gates;
@@ -202,17 +197,16 @@ fn extract_matrix(
 ///
 #[allow(clippy::type_complexity)] // Ignore warning about return type
 fn extract_weights_and_bias<'a>(
-    weights: &'a Tensor,
-    recurrent_weights: &'a Tensor,
+    weights: TensorView<'a>,
+    recurrent_weights: TensorView<'a>,
     bias: Option<TensorView<'a>>,
     dir: usize,
     num_gates: usize,
     gate_index: usize,
 ) -> (Matrix<'a>, Matrix<'a>, Option<(&'a [f32], &'a [f32])>) {
     let hidden_size = weights.size(1) / num_gates;
-    let weight = extract_matrix(weights.view(), dir, num_gates, gate_index).transposed();
-    let rec_weight =
-        extract_matrix(recurrent_weights.view(), dir, num_gates, gate_index).transposed();
+    let weight = extract_matrix(weights, dir, num_gates, gate_index).transposed();
+    let rec_weight = extract_matrix(recurrent_weights, dir, num_gates, gate_index).transposed();
     let bias = bias.map(|bias| {
         let nth_gate = |gate_index| (gate_index * hidden_size)..((gate_index + 1) * hidden_size);
 
@@ -254,11 +248,11 @@ pub struct GRU {
 /// `initial_hidden` has shape `[directions, batch, hidden_size]`.
 pub fn gru(
     direction: Direction,
-    input: &Tensor,
-    weights: &Tensor,
-    recurrent_weights: &Tensor,
-    bias: Option<&Tensor>,
-    initial_hidden: Option<&Tensor>,
+    input: TensorView,
+    weights: TensorView,
+    recurrent_weights: TensorView,
+    bias: Option<TensorView>,
+    initial_hidden: Option<TensorView>,
     linear_before_reset: bool,
 ) -> Result<Vec<Tensor>, OpError> {
     let [seq_len, batch, input_size] = check_dims!(input, 3, "seq, batch, input");
@@ -272,7 +266,7 @@ pub fn gru(
     let hidden_size = hidden_x3 / 3;
 
     let mut hidden = initial_hidden
-        .cloned()
+        .map(|t| t.to_tensor())
         .unwrap_or_else(|| Tensor::zeros(&[num_directions, batch, hidden_size]));
     let mut hidden_seq = Tensor::zeros(&[seq_len, num_directions, batch, hidden_size]);
     let new_gate = || Tensor::zeros(&[batch, hidden_size]);
@@ -289,8 +283,8 @@ pub fn gru(
     // Extract and prepack weights for a gate.
     let extract_gru_weights_and_bias = |dir, gate_index| {
         let (gate_weights, rec_gate_weights, gate_bias) = extract_weights_and_bias(
-            weights,
-            recurrent_weights,
+            weights.view(),
+            recurrent_weights.view(),
             bias.as_ref().map(|b| b.view()),
             dir,
             3,
@@ -489,12 +483,12 @@ pub struct LSTM {
 /// `initial_cell` has shape `[directions, batch, hidden_size]`.
 pub fn lstm(
     direction: Direction,
-    input: &Tensor,
-    weights: &Tensor,
-    recurrent_weights: &Tensor,
-    bias: Option<&Tensor>,
-    initial_hidden: Option<&Tensor>,
-    initial_cell: Option<&Tensor>,
+    input: TensorView,
+    weights: TensorView,
+    recurrent_weights: TensorView,
+    bias: Option<TensorView>,
+    initial_hidden: Option<TensorView>,
+    initial_cell: Option<TensorView>,
 ) -> Result<Vec<Tensor>, OpError> {
     // TODO - Add validation of the sizes of individual dimensions in the inputs.
     let [seq_len, batch, input_size] = check_dims!(input, 3, "seq, batch, input");
@@ -509,7 +503,7 @@ pub fn lstm(
             "weights dim 1 must be 4 * hidden_size",
         ));
     }
-    if let Some(bias) = bias {
+    if let Some(bias) = bias.as_ref() {
         check_dims!(bias, 2);
         if bias.size(1) % 8 != 0 {
             return Err(OpError::InvalidValue("bias dim 1 must be 8 * hidden_size"));
@@ -535,10 +529,10 @@ pub fn lstm(
     let mut cell_gate = new_gate();
 
     let mut cell = initial_cell
-        .cloned()
+        .map(|t| t.to_tensor())
         .unwrap_or_else(|| Tensor::zeros(&[num_directions, batch, hidden_size]));
     let mut hidden = initial_hidden
-        .cloned()
+        .map(|t| t.to_tensor())
         .unwrap_or_else(|| Tensor::zeros(&[num_directions, batch, hidden_size]));
 
     let mut hidden_seq = Tensor::<f32>::zeros(&[seq_len, num_directions, batch, hidden_size]);
@@ -547,8 +541,8 @@ pub fn lstm(
 
     let extract_lstm_weights_and_bias = |dir, gate_index| {
         let (gate_weights, rec_gate_weights, gate_bias) = extract_weights_and_bias(
-            weights,
-            recurrent_weights,
+            weights.view(),
+            recurrent_weights.view(),
             bias.as_ref().map(|b| b.view()),
             dir,
             4,
@@ -822,21 +816,21 @@ mod tests {
             let result = match case.op {
                 Op::Lstm => lstm(
                     dir,
-                    &input,
-                    &weights,
-                    &recurrent_weights,
-                    case.with_bias.then_some(&bias),
-                    case.with_hidden_init.then_some(&initial_hidden),
-                    case.with_initial_cell.then_some(&initial_cell),
+                    input.view(),
+                    weights.view(),
+                    recurrent_weights.view(),
+                    case.with_bias.then_some(bias.view()),
+                    case.with_hidden_init.then_some(initial_hidden.view()),
+                    case.with_initial_cell.then_some(initial_cell.view()),
                 )
                 .expect("lstm op failed"),
                 Op::Gru => gru(
                     dir,
-                    &input,
-                    &weights,
-                    &recurrent_weights,
-                    case.with_bias.then_some(&bias),
-                    case.with_hidden_init.then_some(&initial_hidden),
+                    input.view(),
+                    weights.view(),
+                    recurrent_weights.view(),
+                    case.with_bias.then_some(bias.view()),
+                    case.with_hidden_init.then_some(initial_hidden.view()),
                     true, /* linear_before_reset */
                 )
                 .expect("gru op failed"),
@@ -1098,21 +1092,21 @@ mod tests {
             let result = match op {
                 Op::Lstm => lstm(
                     case.dir,
-                    &data.input,
-                    &data.weights,
-                    &data.hidden_weights,
-                    data.bias.as_ref(),
-                    data.initial_hidden.as_ref(),
-                    data.initial_cell.as_ref(),
+                    data.input.view(),
+                    data.weights.view(),
+                    data.hidden_weights.view(),
+                    data.bias.as_ref().map(|b| b.view()),
+                    data.initial_hidden.as_ref().map(|ih| ih.view()),
+                    data.initial_cell.as_ref().map(|ic| ic.view()),
                 )
                 .expect("LSTM op failed"),
                 Op::Gru => gru(
                     case.dir,
-                    &data.input,
-                    &data.weights,
-                    &data.hidden_weights,
-                    data.bias.as_ref(),
-                    data.initial_hidden.as_ref(),
+                    data.input.view(),
+                    data.weights.view(),
+                    data.hidden_weights.view(),
+                    data.bias.as_ref().map(|b| b.view()),
+                    data.initial_hidden.as_ref().map(|ih| ih.view()),
                     true, /* linear_before_reset */
                 )
                 .expect("GRU op failed"),

@@ -108,16 +108,14 @@ impl Operator for Concat {
             Input::FloatTensor(_) => {
                 let mut typed_inputs: Vec<TensorView> = Vec::new();
                 for input in inputs.iter() {
-                    let tensor: &Tensor<f32> = input.try_into()?;
-                    typed_inputs.push(tensor.view());
+                    typed_inputs.push(input.try_into()?);
                 }
                 concat(&typed_inputs, self.axis).into_op_result()
             }
             Input::IntTensor(_) => {
                 let mut typed_inputs: Vec<TensorView<i32>> = Vec::new();
                 for input in inputs.iter() {
-                    let tensor: &Tensor<i32> = input.try_into()?;
-                    typed_inputs.push(tensor.view());
+                    typed_inputs.push(input.try_into()?);
                 }
                 concat(&typed_inputs, self.axis).into_op_result()
             }

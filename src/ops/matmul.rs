@@ -78,9 +78,9 @@ impl Operator for Gemm {
         let b = inputs.require_as(1)?;
         let c = inputs.get_as(2)?;
         gemm_op(
-            a.view(),
-            b.view(),
-            c.map(|c| c.view()),
+            a,
+            b,
+            c,
             self.alpha,
             self.beta,
             self.transpose_a,

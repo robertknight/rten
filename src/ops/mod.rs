@@ -114,14 +114,14 @@ pub enum DataType {
 }
 
 /// Enum of the different types of input tensor that an operator can accept.
-#[derive(Clone, Copy)]
+#[derive(Clone)]
 pub enum Input<'a> {
-    FloatTensor(&'a Tensor<f32>),
-    IntTensor(&'a Tensor<i32>),
+    FloatTensor(TensorView<'a, f32>),
+    IntTensor(TensorView<'a, i32>),
 }
 
 impl<'a> Input<'a> {
-    fn layout(&self) -> &'a DynLayout {
+    fn layout(&self) -> &DynLayout {
         match self {
             Input::FloatTensor(t) => t.layout(),
             Input::IntTensor(t) => t.layout(),
@@ -166,10 +166,10 @@ impl<'a> Layout for Input<'a> {
     }
 }
 
-impl<'a> TryFrom<Input<'a>> for &'a Tensor<f32> {
+impl<'a> TryFrom<Input<'a>> for TensorView<'a, f32> {
     type Error = OpError;
 
-    fn try_from(input: Input<'a>) -> Result<&'a Tensor<f32>, Self::Error> {
+    fn try_from(input: Input<'a>) -> Result<TensorView<'a, f32>, Self::Error> {
         match input {
             Input::FloatTensor(t) => Ok(t),
             _ => Err(OpError::IncorrectInputType),
@@ -177,10 +177,10 @@ impl<'a> TryFrom<Input<'a>> for &'a Tensor<f32> {
     }
 }
 
-impl<'a> TryFrom<Input<'a>> for &'a Tensor<i32> {
+impl<'a> TryFrom<Input<'a>> for TensorView<'a, i32> {
     type Error = OpError;
 
-    fn try_from(input: Input<'a>) -> Result<&'a Tensor<i32>, Self::Error> {
+    fn try_from(input: Input<'a>) -> Result<TensorView<'a, i32>, Self::Error> {
         match input {
             Input::IntTensor(t) => Ok(t),
             _ => Err(OpError::IncorrectInputType),
@@ -192,7 +192,7 @@ impl<'a> TryFrom<Input<'a>> for f32 {
     type Error = OpError;
 
     fn try_from(input: Input<'a>) -> Result<f32, Self::Error> {
-        let tensor: &Tensor<_> = input.try_into()?;
+        let tensor: TensorView<'a, _> = input.try_into()?;
         tensor
             .item()
             .copied()
@@ -204,7 +204,7 @@ impl<'a> TryFrom<Input<'a>> for i32 {
     type Error = OpError;
 
     fn try_from(input: Input<'a>) -> Result<i32, Self::Error> {
-        let tensor: &Tensor<_> = input.try_into()?;
+        let tensor: TensorView<'a, _> = input.try_into()?;
         tensor
             .item()
             .copied()
@@ -216,7 +216,7 @@ macro_rules! impl_input_conversions {
     ($variant:ident, $element_type:ty) => {
         impl<'a> From<&'a Tensor<$element_type>> for Input<'a> {
             fn from(t: &'a Tensor<$element_type>) -> Input {
-                Input::$variant(t)
+                Input::$variant(t.view())
             }
         }
     };
@@ -228,8 +228,8 @@ impl_input_conversions!(IntTensor, i32);
 impl<'a> From<&'a Output> for Input<'a> {
     fn from(output: &'a Output) -> Input {
         match output {
-            Output::FloatTensor(ref t) => Input::FloatTensor(t),
-            Output::IntTensor(ref t) => Input::IntTensor(t),
+            Output::FloatTensor(t) => Input::FloatTensor(t.view()),
+            Output::IntTensor(t) => Input::IntTensor(t.view()),
         }
     }
 }
@@ -544,7 +544,7 @@ macro_rules! check_dims {
 #[macro_export]
 macro_rules! static_dims {
     ($tensor:ident, $ndim:literal, $dim_names:literal) => {{
-        use wasnn_tensor::{Layout, View};
+        use wasnn_tensor::prelude::*;
 
         if $tensor.ndim() != $ndim {
             Err(OpError::InvalidValue(concat!(
@@ -561,7 +561,7 @@ macro_rules! static_dims {
     }};
 
     ($tensor:ident, $ndim:literal) => {{
-        use wasnn_tensor::{Layout, View};
+        use wasnn_tensor::prelude::*;
 
         if $tensor.ndim() != $ndim {
             Err(OpError::InvalidValue(concat!(
@@ -635,7 +635,7 @@ pub struct InputList<'a> {
 impl<'a> InputList<'a> {
     pub fn from<'b>(inputs: &[Input<'b>]) -> InputList<'b> {
         InputList {
-            inputs: inputs.iter().copied().map(Some).collect(),
+            inputs: inputs.iter().cloned().map(Some).collect(),
         }
     }
 
@@ -647,13 +647,13 @@ impl<'a> InputList<'a> {
 
     /// Get an optional input.
     pub fn get(&self, index: usize) -> Option<Input<'a>> {
-        self.inputs.get(index).copied().flatten()
+        self.inputs.get(index).cloned().flatten()
     }
 
     /// Get an optional input as a tensor.
-    pub fn get_as<T>(&self, index: usize) -> Result<Option<&'a Tensor<T>>, OpError>
+    pub fn get_as<T>(&self, index: usize) -> Result<Option<TensorView<'a, T>>, OpError>
     where
-        &'a Tensor<T>: TryFrom<Input<'a>, Error = OpError>,
+        TensorView<'a, T>: TryFrom<Input<'a>, Error = OpError>,
     {
         self.get(index).map(|input| input.try_into()).transpose()
     }
@@ -661,7 +661,7 @@ impl<'a> InputList<'a> {
     /// Get an optional input as a scalar value.
     pub fn get_as_scalar<T: Copy + 'a>(&self, index: usize) -> Result<Option<T>, OpError>
     where
-        &'a Tensor<T>: TryFrom<Input<'a>, Error = OpError>,
+        TensorView<'a, T>: TryFrom<Input<'a>, Error = OpError>,
     {
         let tensor = self.get_as::<T>(index)?;
         tensor
@@ -679,9 +679,9 @@ impl<'a> InputList<'a> {
     }
 
     /// Get a required operator input as a tensor.
-    pub fn require_as<T>(&self, index: usize) -> Result<&'a Tensor<T>, OpError>
+    pub fn require_as<T>(&self, index: usize) -> Result<TensorView<'a, T>, OpError>
     where
-        &'a Tensor<T>: TryFrom<Input<'a>, Error = OpError>,
+        TensorView<'a, T>: TryFrom<Input<'a>, Error = OpError>,
     {
         self.require(index).and_then(|input| input.try_into())
     }
@@ -699,7 +699,7 @@ impl<'a> InputList<'a> {
     /// If the InputList was constructed with `from_optional`, this will skip
     /// over any missing inputs.
     pub fn iter(&'a self) -> impl Iterator<Item = Input<'a>> + 'a {
-        self.inputs.iter().filter_map(|inp| *inp)
+        self.inputs.iter().filter_map(|inp| inp.clone())
     }
 }
 

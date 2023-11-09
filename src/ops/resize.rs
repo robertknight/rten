@@ -291,9 +291,9 @@ impl Default for Resize {
 fn get_optional_input<'a, T>(
     inputs: &InputList<'a>,
     index: usize,
-) -> Result<Option<&'a Tensor<T>>, OpError>
+) -> Result<Option<TensorView<'a, T>>, OpError>
 where
-    &'a Tensor<T>: TryFrom<Input<'a>, Error = OpError>,
+    TensorView<'a, T>: TryFrom<Input<'a>, Error = OpError>,
 {
     let tensor = inputs.get_as(index)?.filter(|t| !t.is_empty());
     Ok(tensor)

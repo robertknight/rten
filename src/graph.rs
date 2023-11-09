@@ -303,12 +303,12 @@ impl Graph {
         }
 
         // Collect operator inputs
-        let mut values: HashMap<NodeId, Input> = inputs.iter().copied().collect();
+        let mut values: HashMap<NodeId, Input> = inputs.iter().cloned().collect();
         for (node_id, node) in self.nodes.iter().enumerate() {
             if let Node::Constant(constant) = node {
                 let input = match constant {
-                    Constant::Float(node) => Input::FloatTensor(&node.data),
-                    Constant::Int(node) => Input::IntTensor(&node.data),
+                    Constant::Float(node) => Input::FloatTensor(node.data.view()),
+                    Constant::Int(node) => Input::IntTensor(node.data.view()),
                 };
                 values.insert(node_id, input);
             }
@@ -401,12 +401,12 @@ impl Graph {
                 }
 
                 if let Some(node_id) = node_id {
-                    if let Some(&value) = values.get(node_id) {
-                        op_inputs.push(Some(value));
+                    if let Some(value) = values.get(node_id) {
+                        op_inputs.push(Some(value.clone()));
                     } else if let Some(value) = temp_values.get(node_id) {
                         let input = match value {
-                            Output::IntTensor(t) => Input::IntTensor(t),
-                            Output::FloatTensor(t) => Input::FloatTensor(t),
+                            Output::IntTensor(t) => Input::IntTensor(t.view()),
+                            Output::FloatTensor(t) => Input::FloatTensor(t.view()),
                         };
                         op_inputs.push(Some(input));
                     } else {
@@ -528,10 +528,10 @@ impl Graph {
         let result = outputs
             .iter()
             .map(|output_id| {
-                if let Some(&value) = values.get(output_id) {
+                if let Some(value) = values.get(output_id) {
                     match value {
-                        Input::IntTensor(t) => Output::IntTensor(t.clone()),
-                        Input::FloatTensor(t) => Output::FloatTensor(t.clone()),
+                        Input::IntTensor(t) => Output::IntTensor(t.to_tensor()),
+                        Input::FloatTensor(t) => Output::FloatTensor(t.to_tensor()),
                     }
                 } else {
                     // During execution planning we verified that each output
@@ -704,7 +704,7 @@ mod tests {
 
     use wasnn_tensor::prelude::*;
     use wasnn_tensor::test_util::{expect_equal, expect_equal_with_tolerance};
-    use wasnn_tensor::{tensor, Tensor};
+    use wasnn_tensor::{tensor, Tensor, TensorView};
 
     use crate::graph::{Dimension, Graph, RunError};
     use crate::ops::{
@@ -921,7 +921,7 @@ mod tests {
         }
 
         fn run(&self, inputs: InputList) -> Result<Vec<Output>, OpError> {
-            let input: &Tensor<f32> = inputs.require_as(0)?;
+            let input: TensorView<f32> = inputs.require_as(0)?;
             let output_data: Vec<f32> = input.iter().map(|x| x + 1.0).collect();
             Tensor::<f32>::from_data(input.shape().into(), output_data).into_op_result()
         }
@@ -1179,8 +1179,8 @@ mod tests {
             // An operator should normally have the same behavior in `run`
             // and `run_in_place`. Here we use different behavior to make it
             // possible to distinguish which path was used.
-            let input: &Tensor<f32> = inputs.require_as(0)?;
-            input.clone().into_op_result()
+            let input: TensorView<f32> = inputs.require_as(0)?;
+            input.to_tensor().into_op_result()
         }
 
         fn run_in_place(&self, input: Output, _other: InputList) -> Result<Output, OpError> {
@@ -1342,7 +1342,7 @@ mod tests {
                 *rc += 1;
             }
 
-            let input: &Tensor<f32> = inputs.require_as(0)?;
+            let input: TensorView<f32> = inputs.require_as(0)?;
             let left_split_len = input.len() / 2;
             let left_split = Tensor::from_vec(input.iter().take(left_split_len).copied().collect());
             let right_split =

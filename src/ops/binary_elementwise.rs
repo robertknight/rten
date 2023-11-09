@@ -65,8 +65,8 @@ fn binary_op<T: Copy + Debug, R: Copy, F: Fn(T, T) -> R>(
 
 /// Return true if an elementwise binary operation can be performed in-place
 /// on `a` given `b` as the other argument.
-fn can_run_binary_op_in_place<T: Copy>(a: &Tensor<T>, b: &Tensor<T>) -> bool {
-    b.can_broadcast_to(a.shape())
+fn can_run_binary_op_in_place<L1: Layout, L2: Layout>(a: &L1, b: &L2) -> bool {
+    b.can_broadcast_to(a.shape().as_ref())
 }
 
 /// Check whether a tensor of shape `from_shape` can be broadcast to `to_shape`
@@ -248,7 +248,7 @@ macro_rules! run_typed_op_in_place {
         match $input {
             Output::FloatTensor(mut a) => {
                 let b = $other.require_as::<f32>(0)?;
-                if can_run_binary_op_in_place(&a, b) {
+                if can_run_binary_op_in_place(&a, &b) {
                     $in_place_op_func(&mut a, b.view());
                     Ok(a.into())
                 } else {
@@ -257,7 +257,7 @@ macro_rules! run_typed_op_in_place {
             }
             Output::IntTensor(mut a) => {
                 let b = $other.require_as::<i32>(0)?;
-                if can_run_binary_op_in_place(&a, b) {
+                if can_run_binary_op_in_place(&a, &b) {
                     $in_place_op_func(&mut a, b.view());
                     Ok(a.into())
                 } else {
@@ -338,9 +338,9 @@ macro_rules! logical_boolean_op {
             }
 
             fn run(&self, inputs: InputList) -> Result<Vec<Output>, OpError> {
-                let a: &Tensor<i32> = inputs.require_as(0)?;
-                let b: &Tensor<i32> = inputs.require_as(1)?;
-                $op_fn(a.view(), b.view()).into_op_result()
+                let a: TensorView<i32> = inputs.require_as(0)?;
+                let b: TensorView<i32> = inputs.require_as(1)?;
+                $op_fn(a, b).into_op_result()
             }
         }
     };
@@ -627,7 +627,7 @@ impl Operator for Pow {
         let mut a = input.into_float().ok_or(OpError::IncorrectInputType)?;
         let b = other.require_as(0)?;
 
-        if can_run_binary_op_in_place(&a, b) {
+        if can_run_binary_op_in_place(&a, &b) {
             pow_in_place(&mut a, b.view());
             Ok(a.into())
         } else {
@@ -709,12 +709,12 @@ impl Operator for Where {
         let y = inputs.require(2)?;
         match x {
             Input::FloatTensor(x) => {
-                let y: &Tensor = y.try_into()?;
-                where_op(condition.view(), x.view(), y.view()).into_op_result()
+                let y: TensorView = y.try_into()?;
+                where_op(condition.view(), x.view(), y).into_op_result()
             }
             Input::IntTensor(x) => {
-                let y: &Tensor<i32> = y.try_into()?;
-                where_op(condition.view(), x.view(), y.view()).into_op_result()
+                let y: TensorView<i32> = y.try_into()?;
+                where_op(condition.view(), x.view(), y).into_op_result()
             }
         }
     }

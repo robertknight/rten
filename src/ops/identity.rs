@@ -1,3 +1,5 @@
+use wasnn_tensor::prelude::*;
+
 use crate::ops::{Input, InputList, IntoOpResult, OpError, Operator, Output};
 
 #[derive(Debug)]
@@ -11,8 +13,8 @@ impl Operator for Identity {
     fn run(&self, inputs: InputList) -> Result<Vec<Output>, OpError> {
         let input = inputs.require(0)?;
         let result: Output = match input {
-            Input::IntTensor(t) => (*t).clone().into(),
-            Input::FloatTensor(t) => (*t).clone().into(),
+            Input::IntTensor(t) => t.to_tensor().into(),
+            Input::FloatTensor(t) => t.to_tensor().into(),
         };
         result.into_op_result()
     }

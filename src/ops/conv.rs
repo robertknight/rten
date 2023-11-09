@@ -524,9 +524,9 @@ impl Operator for Conv {
         let weight = inputs.require_as(1)?;
         let bias = inputs.get_as(2)?;
         conv(
-            input.view(),
-            weight.view(),
-            bias.map(|b| b.view()),
+            input,
+            weight,
+            bias,
             self.padding.clone(),
             self.groups,
             &self.strides,
@@ -581,9 +581,9 @@ fn col2im(
 /// `input` has dimensions NCHW and `kernel` has dimensions COHW where `O` is
 /// the number of output channels.
 pub fn conv_transpose(
-    input: &Tensor,
-    kernel: &Tensor,
-    bias: Option<&Tensor>,
+    input: TensorView,
+    kernel: TensorView,
+    bias: Option<TensorView>,
     strides: [usize; 2],
 ) -> Result<Tensor, OpError> {
     let [batch, in_c, in_h, in_w] = check_dims!(input, 4, "NCHW");
@@ -1234,7 +1234,7 @@ mod tests {
             ],
         );
 
-        let result = conv_transpose(&input, &kernel, None, [2, 2]).unwrap();
+        let result = conv_transpose(input.view(), kernel.view(), None, [2, 2]).unwrap();
         expect_equal(&result, &expected)?;
 
         let mut expected_with_bias =
@@ -1243,7 +1243,8 @@ mod tests {
             expected_with_bias.data_mut()[i] += 1.234;
         }
         let bias = Tensor::from_data(&[1], vec![1.234]);
-        let result = conv_transpose(&input, &kernel, Some(&bias), [2, 2]).unwrap();
+        let result =
+            conv_transpose(input.view(), kernel.view(), Some(bias.view()), [2, 2]).unwrap();
         expect_equal(&result, &expected_with_bias)?;
 
         Ok(())

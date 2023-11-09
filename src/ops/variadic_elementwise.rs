@@ -66,11 +66,10 @@ fn reduce_elementwise<T: Copy + Default, R: Fn(&[T]) -> T>(
 /// Extract operator inputs as a vec of tensor views of the same type.
 fn typed_views<'a, T>(inputs: &'a InputList) -> Result<Vec<TensorView<'a, T>>, OpError>
 where
-    Input<'a>: TryInto<&'a Tensor<T>, Error = OpError>,
+    Input<'a>: TryInto<TensorView<'a, T>, Error = OpError>,
 {
     inputs.iter().try_fold(Vec::new(), |mut acc, input| {
-        let tensor: &Tensor<T> = input.try_into()?;
-        acc.push(tensor.view());
+        acc.push(input.try_into()?);
         Ok(acc)
     })
 }
