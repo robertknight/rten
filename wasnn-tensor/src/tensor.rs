@@ -1015,8 +1015,8 @@ mod tests {
     use crate::rng::XorShiftRng;
     use crate::tensor;
     use crate::{
-        Lanes, LanesMut, Layout, NdTensor, NdView, SliceItem, Tensor, TensorView, TensorViewMut,
-        View,
+        Lanes, LanesMut, Layout, NdTensor, NdView, SliceItem, SliceRange, Tensor, TensorView,
+        TensorViewMut, View,
     };
 
     /// Create a tensor where the value of each element is its logical index
@@ -1508,15 +1508,41 @@ mod tests {
 
     #[test]
     fn test_insert_dim() {
+        // Insert dims in contiguous tensor.
         let mut input = steps(&[2, 3]);
         input.insert_dim(1);
         assert_eq!(input.shape(), &[2, 1, 3]);
+        assert_eq!(input.strides(), &[3, 6, 1]);
 
         input.insert_dim(1);
         assert_eq!(input.shape(), &[2, 1, 1, 3]);
+        assert_eq!(input.strides(), &[3, 6, 6, 1]);
 
         input.insert_dim(0);
         assert_eq!(input.shape(), &[1, 2, 1, 1, 3]);
+        assert_eq!(input.strides(), &[6, 3, 6, 6, 1]);
+
+        // Insert dims in non-contiguous tensor.
+        let mut input = steps(&[2, 3]);
+        input.transpose();
+        input.insert_dim(0);
+        assert_eq!(input.shape(), &[1, 3, 2]);
+        assert_eq!(input.strides(), &[6, 1, 3]);
+
+        input.insert_dim(3);
+        assert_eq!(input.shape(), &[1, 3, 2, 1]);
+        assert_eq!(input.strides(), &[6, 1, 3, 6]);
+
+        // Insert dims in a tensor where the smallest stride is > 1.
+        let input = steps(&[2, 4]);
+        let mut view = input.slice((.., SliceRange::new(0, None, 2)));
+        assert_eq!(view.shape(), &[2, 2]);
+        assert_eq!(view.strides(), &[4, 2]);
+
+        view.insert_dim(0);
+
+        assert_eq!(view.shape(), &[1, 2, 2]);
+        assert_eq!(view.strides(), &[8, 4, 2]);
     }
 
     #[test]

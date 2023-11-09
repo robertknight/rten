@@ -662,9 +662,23 @@ impl DynLayout {
 
     /// Insert a dimension of size one at index `dim`.
     pub fn insert_dim(&mut self, dim: usize) {
-        let mut new_shape: SmallVec<[usize; 4]> = self.shape().into();
-        new_shape.insert(dim, 1);
-        self.reshape(&new_shape);
+        let ndim = self.ndim();
+        let new_size = 1;
+
+        // Choose stride for new dimension as if we were inserting it at the
+        // beginning. If `dim != 0` then the result is as if we inserted the
+        // dim at the start and then permuted the layout.
+        let (max_stride, size_for_max_stride) = self
+            .strides()
+            .iter()
+            .copied()
+            .zip(self.shape().iter().copied())
+            .max_by_key(|(stride, _size)| *stride)
+            .unwrap_or((1, 1));
+        let new_stride = max_stride * size_for_max_stride;
+
+        self.shape_and_strides.insert(dim, new_size);
+        self.shape_and_strides.insert(ndim + 1 + dim, new_stride);
     }
 
     /// Change the shape of this layout to `shape`.
