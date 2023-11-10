@@ -489,7 +489,7 @@ impl<'a, T> TensorView<'a, T> {
                 element_type: PhantomData,
             }
         } else {
-            let data: Vec<T> = self.iter().cloned().collect();
+            let data = self.to_vec();
             TensorBase {
                 data: Cow::Owned(data),
                 layout: DynLayout::new(self.layout().shape()),
@@ -832,12 +832,7 @@ impl<T> Tensor<T> {
     where
         T: Clone,
     {
-        let data = if self.is_contiguous() {
-            self.data.clone()
-        } else {
-            self.iter().cloned().collect::<Vec<_>>()
-        };
-        Self::from_data(shape, data)
+        Self::from_data(shape, self.to_vec())
     }
 
     /// Clip dimension `dim` to `[range.start, range.end)`. The new size for
