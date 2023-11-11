@@ -716,8 +716,8 @@ impl<T, S: AsRef<[T]> + AsMut<[T]>> TensorBase<T, S> {
             .unwrap()
     }
 
-    /// Variant of [TensorViewMut::slice_mut_dyn] which returns an error instead
-    /// of panicking if the slice range is invalid.
+    /// Variant of [TensorViewMut::slice_mut] which returns an error instead of
+    /// panicking if the slice range is invalid.
     pub fn try_slice_mut<R: IntoSliceItems>(
         &mut self,
         range: R,
