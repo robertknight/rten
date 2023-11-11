@@ -251,8 +251,8 @@ impl CtcDecoder {
 
         for pos in 0..seq {
             // Initialize extension probs to zero (-inf in log space).
-            next_prob_blank.data_mut().fill(f32::NEG_INFINITY);
-            next_prob_no_blank.data_mut().fill(f32::NEG_INFINITY);
+            next_prob_blank.apply(|_| f32::NEG_INFINITY);
+            next_prob_no_blank.apply(|_| f32::NEG_INFINITY);
 
             // Compute all cases where extending a state's prefix (s1) will
             // produce the same prefix as another state (s2).

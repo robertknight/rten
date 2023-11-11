@@ -158,7 +158,7 @@ pub fn instance_normalization_in_place(
             let mut slice = input.slice_mut([n, c]);
             let chan_scale = scale[[c]];
             let chan_bias = bias[[c]];
-            let chan_mean = slice_sum(slice.data()) / slice.len() as f32;
+            let chan_mean = slice_sum(slice.data().unwrap()) / slice.len() as f32;
             let chan_variance = slice
                 .iter()
                 .map(|x| {
@@ -255,7 +255,7 @@ fn softmax_lanes<F: Fn(&mut [f32])>(
         output.size(output.ndim() - 1)
     };
 
-    for els in output.data_mut().chunks_mut(lane_size) {
+    for els in output.data_mut().unwrap().chunks_mut(lane_size) {
         apply_op(els);
     }
 

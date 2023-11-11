@@ -27,8 +27,8 @@ pub trait NdView<const N: usize>: Layout {
         self.view().as_dyn()
     }
 
-    /// Return a reference to the underlying data of this tensor.
-    fn data(&self) -> &[Self::Elem];
+    /// Return the underlying data of the tensor as a slice, if it is contiguous.
+    fn data(&self) -> Option<&[Self::Elem]>;
 
     /// Return the element at a given index, or `None` if the index is out of
     /// bounds in any dimension.
@@ -282,8 +282,8 @@ impl<T, S: AsRef<[T]> + AsMut<[T]>> NdTensorBase<T, S, 1> {
 impl<T, S: AsRef<[T]>, const N: usize> NdView<N> for NdTensorBase<T, S, N> {
     type Elem = T;
 
-    fn data(&self) -> &[T] {
-        self.data.as_ref()
+    fn data(&self) -> Option<&[T]> {
+        self.is_contiguous().then_some(self.data.as_ref())
     }
 
     fn view(&self) -> NdTensorView<T, N> {
@@ -358,7 +358,18 @@ impl<'a, T, const N: usize> NdTensorView<'a, T, N> {
         TensorView::new(self.data, &self.layout.as_dyn())
     }
 
-    pub fn data(&self) -> &'a [T] {
+    pub fn data(&self) -> Option<&'a [T]> {
+        self.is_contiguous().then_some(self.data)
+    }
+
+    /// Return the view's underlying data as a slice, without checking whether
+    /// it is contiguous.
+    ///
+    /// # Safety
+    ///
+    /// It is the caller's responsibility not to access elements in the slice
+    /// which are not part of this view.
+    pub unsafe fn data_unchecked(&self) -> &'a [T] {
         self.data
     }
 
@@ -420,15 +431,17 @@ impl<'a, T, const N: usize> NdTensorView<'a, T, N> {
 }
 
 impl<T, S: AsRef<[T]> + AsMut<[T]>, const N: usize> NdTensorBase<T, S, N> {
-    pub fn data_mut(&mut self) -> &mut [T] {
-        self.data.as_mut()
+    /// Return the underlying data of the tensor as a mutable slice, if it is
+    /// contiguous.
+    pub fn data_mut(&mut self) -> Option<&mut [T]> {
+        self.is_contiguous().then_some(self.data.as_mut())
     }
 
     /// Return a mutable reference to the element at a given index.
     pub fn get_mut(&mut self, index: [usize; N]) -> Option<&mut T> {
         self.layout
             .try_offset(index)
-            .and_then(|offset| self.data_mut().get_mut(offset))
+            .and_then(|offset| self.data.as_mut().get_mut(offset))
     }
 
     /// Return the element at a given index, without performing any bounds-
@@ -439,7 +452,7 @@ impl<T, S: AsRef<[T]> + AsMut<[T]>, const N: usize> NdTensorBase<T, S, N> {
     /// The caller must ensure that the index is valid for the tensor's shape.
     pub unsafe fn get_unchecked_mut(&mut self, index: [usize; N]) -> &mut T {
         let offset = self.layout.offset_unchecked(index);
-        self.data_mut().get_unchecked_mut(offset)
+        self.data.as_mut().get_unchecked_mut(offset)
     }
 
     /// Return a mutable view of this tensor.
@@ -805,7 +818,7 @@ mod tests {
         let mut tensor = NdTensor::from_data(vec![1, 2, 3, 4], [2, 2], None).unwrap();
         let mut dyn_tensor = tensor.as_dyn_mut();
         assert_eq!(dyn_tensor.shape(), [2, 2]);
-        assert_eq!(dyn_tensor.data_mut(), &[1, 2, 3, 4]);
+        assert_eq!(dyn_tensor.data_mut().unwrap(), &[1, 2, 3, 4]);
     }
 
     // Test conversion of a static-dim tensor with broadcasting strides (ie.
@@ -833,7 +846,7 @@ mod tests {
     fn test_ndtensor_from_data() {
         let data = vec![1., 2., 3., 4.];
         let view = NdTensorView::<f32, 2>::from_data(&data, [2, 2], None).unwrap();
-        assert_eq!(view.data(), data);
+        assert_eq!(view.data(), Some(data.as_slice()));
         assert_eq!(view.shape(), [2, 2]);
         assert_eq!(view.strides(), [2, 1]);
     }
@@ -877,9 +890,12 @@ mod tests {
             let result =
                 NdTensorView::<f32, 2>::from_data(&case.data, case.shape, Some(case.strides))
                     .unwrap();
-            assert_eq!(result.data(), case.data);
             assert_eq!(result.shape(), case.shape);
             assert_eq!(result.strides(), case.strides);
+            assert_eq!(
+                result.data(),
+                result.is_contiguous().then_some(case.data.as_slice())
+            );
         }
     }
 
@@ -893,7 +909,7 @@ mod tests {
     fn test_slice_into_1d_ndtensor() {
         let data = &[1., 2., 3., 4.];
         let view: NdTensorView<f32, 1> = data.into();
-        assert_eq!(view.data(), data);
+        assert_eq!(view.data(), Some(data.as_slice()));
         assert_eq!(view.shape(), [4]);
         assert_eq!(view.strides(), [1]);
     }
@@ -902,7 +918,7 @@ mod tests {
     fn test_ndtensor_from_slice() {
         let data = vec![1., 2., 3., 4.];
         let view = NdTensorView::<f32, 2>::from_slice(&data, [2, 2], None).unwrap();
-        assert_eq!(view.data(), data);
+        assert_eq!(view.data(), Some(data.as_slice()));
         assert_eq!(view.shape(), [2, 2]);
         assert_eq!(view.strides(), [2, 1]);
     }
@@ -1199,15 +1215,17 @@ mod tests {
         let x = NdTensor::from_data(vec![1, 2, 3, 4, 5, 6, 7, 8, 9], [3, 3], None).unwrap();
         let y = x.to_contiguous();
         assert!(y.is_contiguous());
-        assert_eq!(y.data().as_ptr(), x.data().as_ptr());
+        assert_eq!(y.data().unwrap().as_ptr(), x.data().unwrap().as_ptr());
 
         let x = x.permuted([1, 0]);
         assert!(!x.is_contiguous());
 
         let y = x.to_contiguous();
         assert!(y.is_contiguous());
-        assert_ne!(y.data().as_ptr(), x.data().as_ptr());
-        assert_eq!(y.data(), x.iter().copied().collect::<Vec<_>>());
+        assert_eq!(
+            y.data(),
+            Some(x.iter().copied().collect::<Vec<_>>().as_slice())
+        );
     }
 
     #[test]
@@ -1275,7 +1293,7 @@ mod tests {
     fn test_matrix_layout() {
         let data = vec![1., 2., 3., 4.];
         let mat = NdTensorView::from(&data).reshaped([2, 2]);
-        assert_eq!(mat.data(), data);
+        assert_eq!(mat.data(), Some(data.as_slice()));
         assert_eq!(mat.rows(), 2);
         assert_eq!(mat.cols(), 2);
         assert_eq!(mat.row_stride(), 2);

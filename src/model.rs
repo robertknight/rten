@@ -1080,8 +1080,8 @@ mod tests {
 
         let result_tensor = result[0].as_float_ref().unwrap();
 
-        assert_eq!(result_tensor.shape(), vec![2, 2, 2]);
-        assert_eq!(result_tensor.data(), vec![0.5, 0., 0.1, 0., 1., 2., 0., 0.]);
+        assert_eq!(result_tensor.shape(), &[2, 2, 2]);
+        assert_eq!(result_tensor.to_vec(), &[0.5, 0., 0.1, 0., 1., 2., 0., 0.]);
     }
 
     #[test]
@@ -1097,7 +1097,7 @@ mod tests {
             .unwrap();
 
         assert_eq!(result.shape(), &[2, 2, 2]);
-        assert_eq!(result.data(), &[0.5, 0., 0.1, 0., 1., 2., 0., 0.]);
+        assert_eq!(result.to_vec(), &[0.5, 0., 0.1, 0., 1., 2., 0., 0.]);
     }
 
     #[test]

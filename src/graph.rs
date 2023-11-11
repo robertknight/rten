@@ -1185,7 +1185,7 @@ mod tests {
 
         fn run_in_place(&self, input: Output, _other: InputList) -> Result<Output, OpError> {
             let mut output = input.into_float().unwrap();
-            for x in output.data_mut().iter_mut() {
+            for x in output.iter_mut() {
                 *x = *x + 1.0;
             }
             Ok(output.into())

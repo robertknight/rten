@@ -124,7 +124,7 @@ mod tests {
         let pads = &[0, 0, 0, 0, 1, 0];
         let result = pad(input.view(), &pads.into(), 0).unwrap();
         assert_eq!(result.shape(), &[1, 3, 2]);
-        assert_eq!(result.data(), &[1, 2, 3, 4, 0, 0]);
+        assert_eq!(result.data().unwrap(), &[1, 2, 3, 4, 0, 0]);
 
         Ok(())
     }

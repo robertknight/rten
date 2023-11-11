@@ -230,9 +230,9 @@ enum IterKind<'a, T> {
 
 impl<'a, T> Iter<'a, T> {
     pub(super) fn new(view: &TensorView<'a, T>) -> Iter<'a, T> {
-        if view.layout().is_contiguous() {
+        if let Some(data) = view.data() {
             Iter {
-                iter: IterKind::Direct(view.data().as_ref().iter()),
+                iter: IterKind::Direct(data.iter()),
             }
         } else {
             Iter {
@@ -244,7 +244,11 @@ impl<'a, T> Iter<'a, T> {
     pub(super) fn slice(view: &TensorView<'a, T>, range: &[SliceItem]) -> Iter<'a, T> {
         let iter = IndexingIter {
             base: IndexingIterBase::slice(view.layout(), range),
-            data: view.data(),
+
+            // Safety: The `Iterator::next` impl must only yield offsets from
+            // this slice that belong to the tensor slice. This is true of
+            // the offsets yielded by `IndexingIterBase`.
+            data: unsafe { view.data_unchecked() },
         };
         Iter {
             iter: IterKind::Indexing(iter),
@@ -294,14 +298,22 @@ impl<'a, T> IndexingIter<'a, T> {
     fn new(view: &TensorView<'a, T>) -> IndexingIter<'a, T> {
         IndexingIter {
             base: IndexingIterBase::new(view.layout()),
-            data: view.data(),
+
+            // Safety: The `Iterator::next` impl must only yield offsets from
+            // this slice that belong to the tensor view. This is true of
+            // the offsets yielded by `IndexingIterBase`.
+            data: unsafe { view.data_unchecked() },
         }
     }
 
     fn broadcast(view: &TensorView<'a, T>, shape: &[usize]) -> IndexingIter<'a, T> {
         IndexingIter {
             base: IndexingIterBase::broadcast(view.layout(), shape),
-            data: view.data(),
+
+            // Safety: The `Iterator::next` impl must only yield offsets from
+            // this slice that belong to the broadcasted tensor view. This is
+            // true of the offsets yielded by `IndexingIterBase`.
+            data: unsafe { view.data_unchecked() },
         }
     }
 }
@@ -539,11 +551,15 @@ fn can_broadcast_by_cycling(from_shape: &[usize], to_shape: &[usize]) -> bool {
 
 impl<'a, T> BroadcastIter<'a, T> {
     pub fn new(view: &TensorView<'a, T>, to_shape: &[usize]) -> BroadcastIter<'a, T> {
-        let iter = if view.is_contiguous() && can_broadcast_by_cycling(view.shape(), to_shape) {
-            let iter_len = to_shape.iter().product();
-            BroadcastIterKind::Direct(view.data().iter().cycle().take(iter_len))
-        } else {
-            BroadcastIterKind::Indexing(IndexingIter::broadcast(view, to_shape))
+        let iter = match (
+            view.data(),
+            can_broadcast_by_cycling(view.shape(), to_shape),
+        ) {
+            (Some(data), true) => {
+                let iter_len = to_shape.iter().product();
+                BroadcastIterKind::Direct(data.iter().cycle().take(iter_len))
+            }
+            _ => BroadcastIterKind::Indexing(IndexingIter::broadcast(view, to_shape)),
         };
         BroadcastIter { iter }
     }
@@ -805,7 +821,9 @@ impl<'a, T> Lanes<'a, T> {
     /// dimension of `tensor`.
     pub(crate) fn new(tensor: TensorView<'a, T>, dim: usize) -> Lanes<'a, T> {
         Lanes {
-            data: tensor.data(),
+            // Safety: `Lane`s yielded by this iterator will only yield elements
+            // that belong to this lane.
+            data: unsafe { tensor.data_unchecked() },
             ranges: LaneRanges::new(&tensor, dim),
         }
     }
@@ -876,10 +894,12 @@ impl<'a, T> Iterator for LanesMut<'a, T> {
 
     fn next(&mut self) -> Option<LaneMut<'a, T>> {
         self.ranges.next().map(|range| {
-            let slice = &mut self.tensor.data_mut()[range];
-
-            // Safety: This is non-broadcasting view, so lanes do not overlap.
-            let slice = unsafe { std::mem::transmute::<&mut [T], &'a mut [T]>(slice) };
+            // Safety: This is a non-broadcasting view, so each `LaneMut`
+            // yielded by this iterator will yield a distinct set of elements.
+            let slice = unsafe {
+                let slice = &mut self.tensor.data_mut_unchecked()[range];
+                std::mem::transmute::<&mut [T], &'a mut [T]>(slice)
+            };
 
             LaneMut {
                 inner: slice.iter_mut().step_by(self.ranges.dim_stride),

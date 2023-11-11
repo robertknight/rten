@@ -158,21 +158,21 @@ fn binary_op_in_place<T: Copy + Debug, F: Fn(T, T) -> T>(
 ) {
     // Fast paths for contiguous LHS and RHS and where RHS has same shape as
     // LHS, or fast broadcasting is possible.
-    if a.is_contiguous() && b.is_contiguous() {
+    if let (true, Some(b_data)) = (a.is_contiguous(), b.data()) {
         if let Some((cycles, repeats)) = fast_broadcast_params(b.shape(), a.shape()) {
-            assert!(cycles * b.data().len() * repeats == a.len());
+            assert!(cycles * b_data.len() * repeats == a.len());
+            let a_data = a.data_mut().unwrap();
             let mut i = 0;
-            let a_data = a.data_mut();
             for _ in 0..cycles {
                 if repeats == 1 {
-                    for b_elt in b.data() {
+                    for b_elt in b_data {
                         // Safety: We checked the total loop count is in `[0, a.len())` above.
                         let a_elt = unsafe { a_data.get_unchecked_mut(i) };
                         *a_elt = op(*a_elt, *b_elt);
                         i += 1;
                     }
                 } else {
-                    for b_elt in b.data() {
+                    for b_elt in b_data {
                         for _ in 0..repeats {
                             // Safety: We checked the total loop count is in `[0, a.len())` above.
                             let a_elt = unsafe { a_data.get_unchecked_mut(i) };

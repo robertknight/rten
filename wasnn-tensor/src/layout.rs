@@ -38,7 +38,7 @@ pub trait Layout {
     /// Return true if this layout describes a contiguous tensor, where the
     /// logical order of elements matches the order in which they are stored.
     fn is_contiguous(&self) -> bool {
-        is_contiguous(self.shape().as_ref(), self.strides().as_ref())
+        is_contiguous(self.shape(), self.strides())
     }
 
     /// Returns true if the array has no elements.

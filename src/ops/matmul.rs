@@ -57,7 +57,7 @@ pub fn gemm_op(
     let out_row_stride = output.stride(0);
 
     gemm(
-        output.data_mut(),
+        output.data_mut().unwrap(),
         out_row_stride,
         a.nd_view(),
         b.nd_view(),
@@ -126,7 +126,10 @@ pub fn matmul(a: TensorView, b: TensorView) -> Result<Tensor, OpError> {
         .step_by(b_rows * b_cols);
 
     let out_row_stride = output.stride(output.ndim() - 2);
-    let out_batches = output.data_mut().chunks_mut(out_row_stride * a_rows);
+    let out_batches = output
+        .data_mut()
+        .unwrap()
+        .chunks_mut(out_row_stride * a_rows);
 
     let num_a_matrices: usize = a_prefix.iter().product();
     let num_b_matrices: usize = b_prefix.iter().product();
@@ -151,7 +154,13 @@ pub fn matmul(a: TensorView, b: TensorView) -> Result<Tensor, OpError> {
             } else {
                 GemmInputA::Unpacked(
                     Matrix::from_slice(
-                        &a.data()[a_offset..],
+                        // Safety: We are using the correct offset and strides
+                        // for a sub-matrix in the batch.
+                        //
+                        // TODO: It should be possible to add TensorView APIs
+                        // that would allow broadcasting and slicing the inputs
+                        // without this unsafe call.
+                        unsafe { &a.data_unchecked()[a_offset..] },
                         [a_rows, a_cols],
                         Some([a.stride(a.ndim() - 2), a.stride(a.ndim() - 1)]),
                     )
@@ -163,7 +172,13 @@ pub fn matmul(a: TensorView, b: TensorView) -> Result<Tensor, OpError> {
                 GemmInputB::Packed(prepacked_b)
             } else {
                 let mat = Matrix::from_slice(
-                    &b.data()[b_offset..],
+                    // Safety: We are using the correct offset and strides
+                    // for a sub-matrix in the batch.
+                    //
+                    // TODO: It should be possible to add TensorView APIs that
+                    // would allow broadcasting and slicing the inputs without
+                    // this unsafe call.
+                    unsafe { &b.data_unchecked()[b_offset..] },
                     [b_rows, b_cols],
                     Some([b.stride(b.ndim() - 2), b.stride(b.ndim() - 1)]),
                 )
@@ -212,9 +227,10 @@ mod tests {
     use crate::ops::matmul::{gemm_op, matmul, OpError};
 
     fn gemm_tensors(c: &mut Tensor, a: &Tensor, b: &Tensor, alpha: f32, beta: f32) {
+        c.make_contiguous();
         let c_row_stride = c.stride(c.ndim() - 2);
         gemm(
-            c.data_mut(),
+            c.data_mut().unwrap(),
             c_row_stride,
             a.nd_view(),
             b.nd_view(),

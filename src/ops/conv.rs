@@ -208,13 +208,13 @@ fn conv_2d_pointwise(
         let in_mat = input.slice::<3, _>([n]).reshaped([in_c, in_h * in_w]);
 
         gemm.gemm_bias(
-            out_item.data_mut(),
+            out_item.data_mut().unwrap(),
             out_row_stride,
             GemmInputA::Unpacked(kernel_mat),
             GemmInputB::Unpacked(in_mat),
             1., // alpha
             0., // beta
-            bias.as_ref().map(|b| b.data()),
+            bias.as_ref().map(|b| b.data().unwrap()),
         );
     }
 
@@ -265,7 +265,7 @@ fn conv_2d_depthwise(
             // contiguous slice of memory.
             for out_y in 0..out_h {
                 let mut out_row = out_chan.slice_mut::<1, _>([out_y]);
-                let out_row = out_row.data_mut();
+                let out_row = out_row.data_mut().unwrap();
 
                 for k_y in 0..k_h {
                     let in_y = out_y * stride_h + k_y * dilation_y;
@@ -273,7 +273,11 @@ fn conv_2d_depthwise(
                         continue;
                     }
 
-                    let in_row = in_chan.slice::<1, _>([in_y - pad_top]).data();
+                    let in_row = in_chan.slice::<1, _>([in_y - pad_top]);
+
+                    // Safety: We ensured input is contiguous before these
+                    // loops.
+                    let in_row = unsafe { in_row.data_unchecked() };
 
                     for k_x in 0..k_w {
                         let kernel_val = kernel_view[[k_y, k_x]];
@@ -490,13 +494,13 @@ pub fn conv(
                 );
 
                 gemm.gemm_bias(
-                    out_mat.data_mut(),
+                    out_mat.data_mut().unwrap(),
                     out_row_stride,
                     GemmInputA::Packed(&prepacked_kernel),
                     GemmInputB::Virtual(&im2col),
                     1., // alpha
                     0., // beta
-                    bias.as_ref().map(|b| &b.data()[out_chans.clone()]),
+                    bias.as_ref().map(|b| &b.data().unwrap()[out_chans.clone()]),
                 );
             });
     }
@@ -621,7 +625,7 @@ pub fn conv_transpose(
 
         let col2im_row_stride = col2im_mat.stride(0);
         gemm(
-            col2im_mat.data_mut(),
+            col2im_mat.data_mut().unwrap(),
             col2im_row_stride,
             input_mat.nd_view(),
             kernel_mat.nd_view(),
@@ -1237,10 +1241,9 @@ mod tests {
         let result = conv_transpose(input.view(), kernel.view(), None, [2, 2]).unwrap();
         expect_equal(&result, &expected)?;
 
-        let mut expected_with_bias =
-            Tensor::from_data(expected.shape().into(), expected.data().to_vec());
-        for i in 0..expected_with_bias.len() {
-            expected_with_bias.data_mut()[i] += 1.234;
+        let mut expected_with_bias = Tensor::from_data(expected.shape().into(), expected.to_vec());
+        for eb in expected_with_bias.iter_mut() {
+            *eb += 1.234;
         }
         let bias = Tensor::from_data(&[1], vec![1.234]);
         let result =

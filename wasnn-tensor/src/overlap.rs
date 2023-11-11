@@ -4,7 +4,7 @@ use smallvec::SmallVec;
 
 /// Return true if a given shape and strides describe a contiguous layout in
 /// "C" order.
-pub fn is_contiguous(shape: &[usize], strides: &[usize]) -> bool {
+pub fn is_contiguous<S: AsRef<[usize]>>(shape: S, strides: S) -> bool {
     // Trim leading 1s from the shape. These dimensions can have a larger
     // stride than the product of inner dimensions without affecting whether
     // the tensor is contiguous.
@@ -14,10 +14,16 @@ pub fn is_contiguous(shape: &[usize], strides: &[usize]) -> bool {
     // dimension will be `C * H * W` instead of `C/2 * H * W`. This would not be
     // true if the original shape was `[2, C, H, W]` and sliced into two `[2,
     // C/2, H, W]` views however.
-    let outer_dims = shape.iter().take_while(|size| **size == 1).count();
+    let outer_dims = shape.as_ref().iter().take_while(|size| **size == 1).count();
 
     let mut product = 1;
-    for (&size, &stride) in shape.iter().zip(strides.iter()).skip(outer_dims).rev() {
+    for (&size, &stride) in shape
+        .as_ref()
+        .iter()
+        .zip(strides.as_ref().iter())
+        .skip(outer_dims)
+        .rev()
+    {
         if stride != product {
             return false;
         }

@@ -74,12 +74,8 @@ pub trait View: Layout {
         self.view().broadcast_iter(shape)
     }
 
-    /// Return the element buffer for this tensor as a slice.
-    ///
-    /// If the tensor is contiguous, the buffer will contain the same elements
-    /// in the same order as yielded by [View::iter]. In other cases the
-    /// buffer may have unused indexes or a different ordering.
-    fn data(&self) -> &[Self::Elem];
+    /// Return the underlying data of the tensor as a slice, if it is contiguous.
+    fn data(&self) -> Option<&[Self::Elem]>;
 
     /// Return an iterator over views of the innermost N dimensions of this
     /// tensor.
@@ -113,8 +109,8 @@ pub trait View: Layout {
     where
         F: Fn(&Self::Elem) -> U,
     {
-        let data = if self.is_contiguous() {
-            self.data().iter().map(f).collect()
+        let data = if let Some(data) = self.data() {
+            data.iter().map(f).collect()
         } else {
             self.iter().map(f).collect()
         };
@@ -383,7 +379,18 @@ impl<'a, T> TensorView<'a, T> {
         BroadcastIter::new(self, shape)
     }
 
-    pub fn data(&self) -> &'a [T] {
+    pub fn data(&self) -> Option<&'a [T]> {
+        self.is_contiguous().then_some(self.data)
+    }
+
+    /// Return the view's underlying data as a slice, without checking whether
+    /// it is contiguous.
+    ///
+    /// # Safety
+    ///
+    /// It is the caller's responsibility not to access elements in the slice
+    /// which are not part of this view.
+    pub unsafe fn data_unchecked(&self) -> &'a [T] {
         self.data
     }
 
@@ -423,9 +430,13 @@ impl<'a, T> TensorView<'a, T> {
     ) -> NdTensorView<'a, T, N> {
         assert!(B + N == self.ndim());
         let offset = self.layout.slice_offset(base);
-        let data = &self.data()[offset..];
+
+        // Safety: The offset for the slice is valid, and `NdTensorView` will
+        // only expose elements from `data` that belong to the sliced view.
+        let data = unsafe { &self.data_unchecked()[offset..] };
         let strides = self.layout.strides()[self.ndim() - N..].try_into().unwrap();
         let shape = self.layout.shape()[self.ndim() - N..].try_into().unwrap();
+
         NdTensorView::from_slice(data, shape, Some(strides)).unwrap()
     }
 
@@ -555,8 +566,8 @@ impl<T, S: AsRef<[T]>> Layout for TensorBase<T, S> {
 impl<T, S: AsRef<[T]>> View for TensorBase<T, S> {
     type Elem = T;
 
-    fn data(&self) -> &[T] {
-        self.data.as_ref()
+    fn data(&self) -> Option<&[T]> {
+        self.is_contiguous().then_some(self.data.as_ref())
     }
 
     fn to_tensor(&self) -> Tensor<T>
@@ -570,8 +581,8 @@ impl<T, S: AsRef<[T]>> View for TensorBase<T, S> {
     where
         T: Clone,
     {
-        if self.is_contiguous() {
-            self.data.as_ref().to_vec()
+        if let Some(data) = self.data() {
+            data.to_vec()
         } else {
             // This branch is equivalent to
             // `x.iter().cloned().collect::<Vec<_>>()` but uses a faster
@@ -621,10 +632,18 @@ impl<T, S: AsRef<[T]> + AsMut<[T]>> TensorBase<T, S> {
         }
     }
 
+    /// Return the underlying data of the tensor as a mutable slice, if it is
+    /// contiguous.
+    pub fn data_mut(&mut self) -> Option<&mut [T]> {
+        self.is_contiguous().then_some(self.data.as_mut())
+    }
+
     /// Return the element buffer for this tensor as a mutable slice.
     ///
-    /// WARNING: See notes about ordering in [TensorBase::data].
-    pub fn data_mut(&mut self) -> &mut [T] {
+    /// Unlike [TensorBase::data_mut] this does not check if the data is
+    /// contigous. If multiple mutable views of a non-contiguous tensor exist,
+    /// the returned slice may overlap with other mutable slices.
+    pub(crate) unsafe fn data_mut_unchecked(&mut self) -> &mut [T] {
         self.data.as_mut()
     }
 
@@ -741,7 +760,7 @@ impl<T, S: AsRef<[T]> + AsMut<[T]>> TensorBase<T, S> {
         let offset = self.layout.slice_offset(base);
         let strides = self.layout.strides()[self.ndim() - N..].try_into().unwrap();
         let shape = self.layout.shape()[self.ndim() - N..].try_into().unwrap();
-        let data = &mut self.data_mut()[offset..];
+        let data = &mut self.data.as_mut()[offset..];
         NdTensorViewMut::from_data(data, shape, Some(strides)).unwrap()
     }
 
@@ -795,7 +814,7 @@ impl<T> Tensor<T> {
         T: Clone + Default,
     {
         let mut tensor = Tensor::zeros(shape);
-        tensor.data_mut().fill_with(|| rand_src.next());
+        tensor.data.fill_with(|| rand_src.next());
         tensor
     }
 
@@ -1035,8 +1054,10 @@ fn fast_for_each_element<T, F: FnMut(&T)>(mut x: TensorView<T>, mut f: F) {
             x.insert_dim(0);
         }
 
+        // Safety: We only access valid offsets according to the shape and
+        // strides in the loop below.
+        let x_data = unsafe { x.data_unchecked() };
         let x: NdTensorView<T, 4> = x.nd_view();
-        let x_data = x.data();
         let shape = x.shape();
         let strides = x.strides();
 
@@ -1211,9 +1232,9 @@ mod tests {
         assert_eq!(x[[0, 0]], 4);
         assert_eq!(*x.index_mut([0, 0]), 4);
 
-        // Slices returned by `data`, `data_mut` should reflect the slice.
-        assert_eq!(x.data(), &[4, 5, 6, 7, 8, 9]);
-        assert_eq!(x.data_mut(), &[4, 5, 6, 7, 8, 9]);
+        // Slices returned by `data` should reflect the slice.
+        assert_eq!(x.data(), Some([4, 5, 6, 7, 8, 9].as_slice()));
+        assert_eq!(x.data_mut().as_deref(), Some([4, 5, 6, 7, 8, 9].as_slice()));
 
         // Offsets should be relative to the sliced returned by `data`,
         // `data_mut`.
@@ -1236,33 +1257,33 @@ mod tests {
         // 2D
         let x = Tensor::from([[2, 3], [4, 5], [6, 7]]);
         assert_eq!(x.shape(), &[3, 2]);
-        assert_eq!(x.data(), &[2, 3, 4, 5, 6, 7]);
+        assert_eq!(x.data(), Some([2, 3, 4, 5, 6, 7].as_slice()));
 
         // 3D
         let x = Tensor::from([[[2, 3], [4, 5], [6, 7]]]);
         assert_eq!(x.shape(), &[1, 3, 2]);
-        assert_eq!(x.data(), &[2, 3, 4, 5, 6, 7]);
+        assert_eq!(x.data(), Some([2, 3, 4, 5, 6, 7].as_slice()));
     }
 
     #[test]
     fn test_from_scalar() {
         let x = Tensor::from_scalar(5);
         assert_eq!(x.shape().len(), 0);
-        assert_eq!(x.data(), &[5]);
+        assert_eq!(x.data(), Some([5].as_slice()));
     }
 
     #[test]
     fn test_from_vec() {
         let x = tensor!([1, 2, 3]);
         assert_eq!(x.shape(), &[3]);
-        assert_eq!(x.data(), &[1, 2, 3]);
+        assert_eq!(x.data(), Some([1, 2, 3].as_slice()));
     }
 
     #[test]
     fn test_from_iterator() {
         let x: Tensor<i32> = FromIterator::from_iter(0..10);
         assert_eq!(x.shape(), &[10]);
-        assert_eq!(x.data(), &[0, 1, 2, 3, 4, 5, 6, 7, 8, 9]);
+        assert_eq!(x.data(), Some([0, 1, 2, 3, 4, 5, 6, 7, 8, 9].as_slice()));
     }
 
     #[test]
@@ -1435,14 +1456,14 @@ mod tests {
     fn test_reshape() {
         let mut rng = XorShiftRng::new(1234);
         let mut x = Tensor::rand(&[10, 5, 3, 7], &mut rng);
-        let x_data: Vec<f32> = x.data().into();
+        let x_data: Vec<f32> = x.data().unwrap().to_vec();
 
         assert_eq!(x.shape(), &[10, 5, 3, 7]);
 
         x.reshape(&[10, 5, 3 * 7]);
 
         assert_eq!(x.shape(), &[10, 5, 3 * 7]);
-        assert_eq!(x.data(), x_data);
+        assert_eq!(x.data(), Some(x_data.as_slice()));
     }
 
     #[test]
@@ -1492,7 +1513,7 @@ mod tests {
         // data.
         assert_eq!(x.shape(), &[80]);
         assert!(x.is_contiguous());
-        assert_eq!(x.data(), x_elements);
+        assert_eq!(x.data(), Some(x_elements.as_slice()));
     }
 
     #[test]
@@ -1653,7 +1674,7 @@ mod tests {
 
             let elts: Vec<f32> = x.iter().copied().collect();
 
-            assert_eq!(x.data(), elts);
+            assert_eq!(x.data(), Some(elts.as_slice()));
         }
     }
 
@@ -1666,19 +1687,22 @@ mod tests {
     #[test]
     fn test_iter_for_non_contiguous_array() {
         let mut x = Tensor::zeros(&[3, 3]);
-        for (index, elt) in x.data_mut().iter_mut().enumerate() {
+        for (index, elt) in x.iter_mut().enumerate() {
             *elt = index + 1;
         }
 
         // Initially tensor is contiguous, so data buffer and element sequence
         // match.
-        assert_eq!(x.data(), x.iter().copied().collect::<Vec<_>>());
+        assert_eq!(
+            x.data(),
+            Some(x.iter().copied().collect::<Vec<_>>().as_slice())
+        );
 
         // Slice the tensor along an outer dimension. This will leave the tensor
         // contiguous, and hence `data` and `elements` should return the same
         // elements.
         x.clip_dim(0, 0..2);
-        assert_eq!(x.data(), &[1, 2, 3, 4, 5, 6]);
+        assert_eq!(x.data(), Some([1, 2, 3, 4, 5, 6].as_slice()));
         assert_eq!(x.iter().copied().collect::<Vec<_>>(), &[1, 2, 3, 4, 5, 6]);
         // Test with step > 1 to exercise `Elements::nth`.
         assert_eq!(x.iter().step_by(2).copied().collect::<Vec<_>>(), &[1, 3, 5]);
@@ -1687,7 +1711,7 @@ mod tests {
         // be contiguous and hence `elements` will return different results than
         // `data`.
         x.clip_dim(1, 0..2);
-        assert_eq!(x.data(), &[1, 2, 3, 4, 5]);
+        assert_eq!(x.data(), None);
         assert_eq!(x.iter().copied().collect::<Vec<_>>(), &[1, 2, 4, 5]);
         // Test with step > 1 to exercise `Elements::nth`.
         assert_eq!(x.iter().step_by(2).copied().collect::<Vec<_>>(), &[1, 4]);
@@ -1719,14 +1743,14 @@ mod tests {
                 *elt *= 2.;
             }
 
-            assert_eq!(x.data(), elts);
+            assert_eq!(x.data(), Some(elts.as_slice()));
         }
     }
 
     #[test]
     fn test_iter_mut_for_non_contiguous_array() {
         let mut x = Tensor::zeros(&[3, 3]);
-        for (index, elt) in x.data_mut().iter_mut().enumerate() {
+        for (index, elt) in x.iter_mut().enumerate() {
             *elt = index + 1;
         }
         x.permute(&[1, 0]);
@@ -1800,7 +1824,7 @@ mod tests {
         let x_elts: Vec<_> = x.to_vec();
 
         let x_offsets = x.offsets();
-        let x_data = x.data_mut();
+        let x_data = x.data_mut().unwrap();
         let x_elts_from_offset: Vec<_> = x_offsets.map(|off| x_data[off]).collect();
 
         assert_eq!(x_elts, x_elts_from_offset);
@@ -1830,14 +1854,14 @@ mod tests {
 
         let matrix = Tensor::from_data(&[2, 2], vec![1, 2, 3, 4]);
         assert_eq!(matrix.shape(), &[2, 2]);
-        assert_eq!(matrix.data(), &[1, 2, 3, 4]);
+        assert_eq!(matrix.data(), Some([1, 2, 3, 4].as_slice()));
     }
 
     #[test]
     fn test_from_data_with_slice() {
         let matrix = TensorView::from_data(&[2, 2], [1, 2, 3, 4].as_slice());
         assert_eq!(matrix.shape(), &[2, 2]);
-        assert_eq!(matrix.data(), &[1, 2, 3, 4]);
+        assert_eq!(matrix.data(), Some([1, 2, 3, 4].as_slice()));
     }
 
     #[test]
@@ -1890,7 +1914,7 @@ mod tests {
     #[test]
     fn test_is_contiguous() {
         let mut x = Tensor::zeros(&[3, 3]);
-        for (index, elt) in x.data_mut().iter_mut().enumerate() {
+        for (index, elt) in x.iter_mut().enumerate() {
             *elt = index + 1;
         }
 
@@ -1901,13 +1925,13 @@ mod tests {
         let mut y = x.clone();
         y.clip_dim(0, 0..2);
         assert!(y.is_contiguous());
-        assert_eq!(y.data(), &[1, 2, 3, 4, 5, 6]);
+        assert_eq!(y.data(), Some([1, 2, 3, 4, 5, 6].as_slice()));
 
         // Tensor where outermost dimension has been clipped at the start.
         let mut y = x.clone();
         y.clip_dim(0, 1..3);
         assert!(y.is_contiguous());
-        assert_eq!(y.data(), &[4, 5, 6, 7, 8, 9]);
+        assert_eq!(y.data(), Some([4, 5, 6, 7, 8, 9].as_slice()));
 
         // Tensor where inner dimension has been clipped at the start.
         let mut y = x.clone();
@@ -1923,7 +1947,7 @@ mod tests {
     #[test]
     fn test_is_contiguous_1d() {
         let mut x = Tensor::zeros(&[10]);
-        for (index, elt) in x.data_mut().iter_mut().enumerate() {
+        for (index, elt) in x.iter_mut().enumerate() {
             *elt = index + 1;
         }
 
@@ -1954,13 +1978,13 @@ mod tests {
         let x = steps(&[3, 3]);
         let y = x.to_contiguous();
         assert!(y.is_contiguous());
-        assert_eq!(y.data().as_ptr(), x.data().as_ptr());
+        assert_eq!(y.data().unwrap().as_ptr(), x.data().unwrap().as_ptr());
 
         let x = x.permuted(&[1, 0]);
         let y = x.to_contiguous();
         assert!(y.is_contiguous());
-        assert_ne!(y.data().as_ptr(), x.data().as_ptr());
-        assert_eq!(y.data(), x.to_vec());
+        assert_eq!(x.data(), None);
+        assert_eq!(y.data().unwrap(), x.to_vec());
     }
 
     #[test]
@@ -2012,9 +2036,10 @@ mod tests {
         let to_shape = &[2, 2, 1, 4];
 
         let expected: Vec<i32> = x.broadcast_iter(to_shape).copied().collect();
+        let x_data = x.data().unwrap();
         let actual: Vec<i32> = x
             .broadcast_offsets(to_shape)
-            .map(|off| x.data()[off])
+            .map(|off| x_data[off])
             .collect();
 
         assert_eq!(&actual, &expected);
@@ -2298,9 +2323,10 @@ mod tests {
             SliceItem::range(1, Some(4), 1),
         ];
         let expected: Vec<_> = x.slice_iter(range).copied().collect();
+        let x_data = x.data().unwrap();
         let result: Vec<_> = x
             .slice_offsets(range)
-            .map(|offset| x.data()[offset])
+            .map(|offset| x_data[offset])
             .collect();
 
         assert_eq!(&result, &expected);

@@ -651,7 +651,7 @@ mod tests {
             .into_int()
             .unwrap();
         assert_eq!(result.shape(), &[4]);
-        assert_eq!(result.data(), &[1, 1, 2, 2]);
+        assert_eq!(result.to_vec(), &[1, 1, 2, 2]);
 
         // Int input
         let input = Tensor::from_data(&[1, 1, 2, 2], vec![1, 2, 3, 4]);
@@ -662,7 +662,7 @@ mod tests {
             .into_int()
             .unwrap();
         assert_eq!(result.shape(), &[4]);
-        assert_eq!(result.data(), &[1, 1, 2, 2]);
+        assert_eq!(result.to_vec(), &[1, 1, 2, 2]);
     }
 
     #[test]
@@ -807,7 +807,7 @@ mod tests {
         let scalar = tensor!(2.0);
         let output = unsqueeze(scalar.view(), &ndtensor!([0]).view()).unwrap();
         assert_eq!(output.shape(), &[1]);
-        assert_eq!(output.data(), &[2.0]);
+        assert_eq!(output.to_vec(), &[2.0]);
     }
 
     #[test]

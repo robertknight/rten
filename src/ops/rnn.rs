@@ -101,7 +101,7 @@ enum Activation {
 fn matmul(gemm: &GemmExecutor, mut output: TensorViewMut, a: Matrix, b: GemmInputB) {
     let row_stride = output.stride(output.ndim() - 2);
     gemm.gemm(
-        output.data_mut(),
+        output.data_mut().expect("expected contiguous input"),
         row_stride,
         GemmInputA::Unpacked(a),
         b,
@@ -114,7 +114,7 @@ fn matmul(gemm: &GemmExecutor, mut output: TensorViewMut, a: Matrix, b: GemmInpu
 fn add_matmul(gemm: &GemmExecutor, mut output: TensorViewMut, a: Matrix, b: GemmInputB) {
     let row_stride = output.stride(output.ndim() - 2);
     gemm.gemm(
-        output.data_mut(),
+        output.data_mut().expect("expected contiguous input"),
         row_stride,
         GemmInputA::Unpacked(a),
         b,
@@ -213,7 +213,12 @@ fn extract_weights_and_bias<'a>(
         let input_bias = bias.slice((dir, nth_gate(gate_index))).data();
         let hidden_bias = bias.slice((dir, nth_gate(gate_index + num_gates))).data();
 
-        (input_bias, hidden_bias)
+        // TODO - The requirement for the bias to be contiguous should be handled
+        // at a higher level.
+        (
+            input_bias.expect("expected contiguous bias"),
+            hidden_bias.expect("expected contiguous bias"),
+        )
     });
     (weight, rec_weight, bias)
 }

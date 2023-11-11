@@ -252,8 +252,8 @@ fn reduce<T: Copy + Default, R: Reducer<T>>(
         .collect();
     let mut reduced_data = Vec::with_capacity(reduced_shape.iter().product());
 
-    match (reduced_inner_dims, input.is_contiguous()) {
-        (Some(ndims), true) => {
+    match (reduced_inner_dims, input.data()) {
+        (Some(ndims), Some(input_data)) => {
             // Fast path for reducing over contiguous chunks of the input.
             let slice_len = if ndims == input.ndim() {
                 input.len()
@@ -262,8 +262,7 @@ fn reduce<T: Copy + Default, R: Reducer<T>>(
             };
 
             reduced_data.extend(
-                input
-                    .data()
+                input_data
                     .chunks(slice_len)
                     .map(|chunk| reducer.reduce_slice(chunk)),
             );

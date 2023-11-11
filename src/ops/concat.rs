@@ -21,8 +21,8 @@ struct TensorChunks<'a, T: Copy> {
 impl<'a, T: Copy> TensorChunks<'a, T> {
     fn new(tensor: &'a TensorView<'a, T>, from_dim: usize) -> TensorChunks<'a, T> {
         TensorChunks {
-            source: if tensor.is_contiguous() {
-                ChunkSource::Slice(tensor.data())
+            source: if let Some(data) = tensor.data() {
+                ChunkSource::Slice(data)
             } else {
                 ChunkSource::Iter(tensor.iter())
             },
@@ -217,7 +217,7 @@ mod tests {
         let c = from_slice(&[4, 5, 6]);
         let result = concat(&[a.view(), b.view(), c.view()], 0).unwrap();
         assert_eq!(result.shape(), &[6]);
-        assert_eq!(result.data(), &[1, 2, 3, 4, 5, 6]);
+        assert_eq!(result.to_vec(), &[1, 2, 3, 4, 5, 6]);
 
         Ok(())
     }

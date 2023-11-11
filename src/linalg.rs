@@ -335,6 +335,9 @@ fn pack_a_block<K: Kernel>(out: &mut [f32], a: Matrix, rows: Range<usize>, cols:
     let a_rows = rows.len();
     let a_cols = cols.len();
 
+    // Safety: Loops below must only access valid offsets in `a_data`.
+    let a_data = unsafe { a.data_unchecked() };
+
     let row_stride = a.row_stride();
     let col_stride = a.col_stride();
 
@@ -348,9 +351,7 @@ fn pack_a_block<K: Kernel>(out: &mut [f32], a: Matrix, rows: Range<usize>, cols:
             let a_offset = (rows.start + panel_start_row) * row_stride + cols.start * col_stride;
 
             assert!(out.len() > panel_offset + (a_cols - 1) * K::MR + K::MR - 1);
-            assert!(
-                a.data().len() > a_offset + (K::MR - 1) * row_stride + (a_cols - 1) * col_stride
-            );
+            assert!(a_data.len() > a_offset + (K::MR - 1) * row_stride + (a_cols - 1) * col_stride);
 
             // Optimize for common case of unit stride as this generates better
             // code.
@@ -360,7 +361,7 @@ fn pack_a_block<K: Kernel>(out: &mut [f32], a: Matrix, rows: Range<usize>, cols:
                         // Safety: Indexes are less than lengths asserted above.
                         unsafe {
                             *out.get_unchecked_mut(panel_offset + col * K::MR + row) =
-                                *a.data().get_unchecked(a_offset + row * row_stride + col);
+                                *a_data.get_unchecked(a_offset + row * row_stride + col);
                         }
                     }
                 }
@@ -369,8 +370,7 @@ fn pack_a_block<K: Kernel>(out: &mut [f32], a: Matrix, rows: Range<usize>, cols:
                     for row in 0..K::MR {
                         // Safety: Indexes are less than lengths asserted above.
                         unsafe {
-                            *out.get_unchecked_mut(panel_offset + col * K::MR + row) = *a
-                                .data()
+                            *out.get_unchecked_mut(panel_offset + col * K::MR + row) = *a_data
                                 .get_unchecked(a_offset + row * row_stride + col * col_stride);
                         }
                     }
@@ -383,7 +383,7 @@ fn pack_a_block<K: Kernel>(out: &mut [f32], a: Matrix, rows: Range<usize>, cols:
                 for row in 0..K::MR {
                     let a_row = rows.start + panel_start_row + row;
                     out[out_col_offset + row] = if a_row < rows.end {
-                        a.data()[a_row * row_stride + (cols.start + col) * col_stride]
+                        a_data[a_row * row_stride + (cols.start + col) * col_stride]
                     } else {
                         0.0
                     };
@@ -404,7 +404,9 @@ fn pack_b_block<K: Kernel>(out: &mut [f32], b: Matrix, rows: Range<usize>, cols:
     let b_rows = rows.len();
     let b_row_stride = b.row_stride();
     let b_col_stride = b.col_stride();
-    let b_data = b.data();
+
+    // Safety: Loops below must only access valid offsets in `b_data`.
+    let b_data = unsafe { b.data_unchecked() };
 
     let n_panels = round_up(b_cols, K::NR) / K::NR;
     for panel in 0..n_panels {
@@ -418,8 +420,7 @@ fn pack_b_block<K: Kernel>(out: &mut [f32], b: Matrix, rows: Range<usize>, cols:
 
             assert!(out.len() >= panel_offset + (b_rows - 1) * K::NR + K::NR);
             assert!(
-                b.data().len()
-                    > b_offset + (b_rows - 1) * b_row_stride + (K::NR - 1) * b_col_stride
+                b_data.len() > b_offset + (b_rows - 1) * b_row_stride + (K::NR - 1) * b_col_stride
             );
 
             // Optimize for common case of unit stride, as this makes the inner
@@ -963,7 +964,7 @@ impl OutputTiles {
     /// `tile_rows` * `tile_cols`.
     fn new(mut data: MatrixMut, tile_rows: usize, tile_cols: usize) -> OutputTiles {
         OutputTiles {
-            data: data.data_mut().as_mut_ptr(),
+            data: data.data_mut().unwrap().as_mut_ptr(),
             rows: data.rows(),
             cols: data.cols(),
             row_stride: data.stride(0),
@@ -1337,7 +1338,7 @@ mod tests {
         let gemm = GemmExecutor::with_kernel(kernel);
 
         gemm.gemm_bias(
-            output.data_mut(),
+            output.data_mut().expect("expected contiguous input"),
             out_row_stride,
             GemmInputA::Unpacked(a.nd_view()),
             GemmInputB::Unpacked(b.nd_view()),
@@ -1655,7 +1656,7 @@ mod tests {
             let result_row_stride = result.stride(0);
 
             gemm.gemm(
-                result.data_mut(),
+                result.data_mut().unwrap(),
                 result_row_stride,
                 GemmInputA::Packed(&packed_a),
                 GemmInputB::Packed(&packed_b),
@@ -1670,7 +1671,7 @@ mod tests {
             let mut expected = Tensor::zeros(result.shape());
             let expected_row_stride = expected.stride(0);
             gemm.gemm(
-                expected.data_mut(),
+                expected.data_mut().unwrap(),
                 expected_row_stride,
                 GemmInputA::Unpacked(a_mat),
                 GemmInputB::Unpacked(b_mat),
@@ -1767,7 +1768,7 @@ mod tests {
             };
 
             gemm.gemm(
-                result.data_mut(),
+                result.data_mut().unwrap(),
                 result_row_stride,
                 GemmInputA::Unpacked(a.nd_view()),
                 GemmInputB::Virtual(&packer),

@@ -312,8 +312,7 @@ mod tests {
                 None,
             )
             .unwrap();
-            assert_eq!(sliced.shape(), input.shape());
-            assert_eq!(sliced.data(), input.data());
+            assert_eq!(sliced, input);
         }
     }
 
@@ -485,9 +484,10 @@ mod tests {
                 Some(&steps.into()),
             )
             .unwrap();
-
-            assert_eq!(sliced.shape(), case.expected_shape);
-            assert_eq!(sliced.data(), case.expected_elements);
+            assert_eq!(
+                sliced,
+                Tensor::from_data(case.expected_shape, case.expected_elements)
+            );
         }
     }
 }
