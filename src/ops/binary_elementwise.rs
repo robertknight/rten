@@ -42,27 +42,6 @@ pub fn broadcast_shapes(a: &[usize], b: &[usize]) -> Option<Vec<usize>> {
     Some(result)
 }
 
-/// Compute the result of applying the binary operation `op` to corresponding
-/// elements of `a` and `b`. The shapes of `a` and `b` are broadcast to a
-/// matching shape if necessary.
-fn binary_op<T: Copy + Debug, R: Copy, F: Fn(T, T) -> R>(
-    a: TensorView<T>,
-    b: TensorView<T>,
-    op: F,
-) -> Result<Tensor<R>, OpError> {
-    if let Some(scalar) = b.item() {
-        return Ok(a.map(|x| op(*x, *scalar)));
-    }
-
-    let out_shape = broadcast_shapes(a.shape(), b.shape())
-        .ok_or(OpError::IncompatibleInputShapes("Cannot broadcast inputs"))?;
-
-    let a_elts = a.broadcast_iter(&out_shape);
-    let b_elts = b.broadcast_iter(&out_shape);
-    let out_data: Vec<_> = zip(a_elts, b_elts).map(|(a, b)| op(*a, *b)).collect();
-    Ok(Tensor::from_data(&out_shape, out_data))
-}
-
 /// Return true if an elementwise binary operation can be performed in-place
 /// on `a` given `b` as the other argument.
 fn can_run_binary_op_in_place<L1: Layout, L2: Layout>(a: &L1, b: &L2) -> bool {
@@ -148,6 +127,65 @@ fn fast_broadcast_params(from_shape: &[usize], to_shape: &[usize]) -> Option<(us
     Some((cycles, repeats))
 }
 
+/// Compute the result of applying the binary operation `op` to corresponding
+/// elements of `a` and `b`. The shapes of `a` and `b` are broadcast to a
+/// matching shape if necessary.
+fn binary_op<T: Copy + Debug, R: Copy + Default, F: Fn(T, T) -> R>(
+    a: TensorView<T>,
+    b: TensorView<T>,
+    op: F,
+) -> Result<Tensor<R>, OpError> {
+    let out_shape = broadcast_shapes(a.shape(), b.shape())
+        .ok_or(OpError::IncompatibleInputShapes("Cannot broadcast inputs"))?;
+
+    // Fast path for when LHS and RHS are contiguous, and fast broadcasting is
+    // possible.
+    if let (true, Some(a_data), Some(b_data)) = (a.shape() == out_shape, a.data(), b.data()) {
+        if let Some((cycles, repeats)) = fast_broadcast_params(b.shape(), a.shape()) {
+            assert!(cycles * b_data.len() * repeats == a.len());
+
+            let mut output = Tensor::zeros(&out_shape);
+
+            // Unsafe access used to skip bounds checks in inner loop.
+            let out_data = output.data_mut().unwrap();
+            let a_ptr = a_data.as_ptr();
+
+            let mut i = 0;
+            for _ in 0..cycles {
+                if repeats == 1 {
+                    for b_elt in b_data {
+                        // Safety: We checked the total loop count is in `[0,
+                        // out_data.len())` above, which is the same as
+                        // `a_data.len().
+                        let (a_elt, out_elt) =
+                            unsafe { (*a_ptr.add(i), out_data.get_unchecked_mut(i)) };
+                        *out_elt = op(a_elt, *b_elt);
+                        i += 1;
+                    }
+                } else {
+                    for b_elt in b_data {
+                        for _ in 0..repeats {
+                            // Safety: We checked the total loop count is in `[0,
+                            // out_data.len())` above, which is the same as
+                            // `a_data.len().
+                            let (a_elt, out_elt) =
+                                unsafe { (*a_ptr.add(i), out_data.get_unchecked_mut(i)) };
+                            *out_elt = op(a_elt, *b_elt);
+                            i += 1;
+                        }
+                    }
+                }
+            }
+            return Ok(output);
+        }
+    }
+
+    let a_elts = a.broadcast_iter(&out_shape);
+    let b_elts = b.broadcast_iter(&out_shape);
+    let out_data: Vec<_> = zip(a_elts, b_elts).map(|(a, b)| op(*a, *b)).collect();
+    Ok(Tensor::from_data(&out_shape, out_data))
+}
+
 /// Perform an elementwise binary operation in-place.
 ///
 /// This requires that `b` can be broadcast to the shape of `a`.
@@ -156,8 +194,8 @@ fn binary_op_in_place<T: Copy + Debug, F: Fn(T, T) -> T>(
     b: TensorView<T>,
     op: F,
 ) {
-    // Fast paths for contiguous LHS and RHS and where RHS has same shape as
-    // LHS, or fast broadcasting is possible.
+    // Fast path for when LHS and RHS are contiguous, and fast broadcasting is
+    // possible.
     if let (true, Some(b_data)) = (a.is_contiguous(), b.data()) {
         if let Some((cycles, repeats)) = fast_broadcast_params(b.shape(), a.shape()) {
             assert!(cycles * b_data.len() * repeats == a.len());
@@ -196,30 +234,20 @@ fn binary_op_in_place<T: Copy + Debug, F: Fn(T, T) -> T>(
 ///
 /// This is an optimized alternative to `binary_op` for the case where the
 /// operands can be swapped without affecting the result. In this case we
-/// copy the larger of the two operands and then perform the operation in-place
-/// on it. This benefits from various optimizations in `binary_op_in_place`.
-///
-/// When broadcasting is involved, the output may be larger than either of the
-/// inputs (eg. if the inputs are `[1, 5]` and `[5, 1]` respectively). In that
-/// case this falls back to a non-place op.
-fn binary_commutative_op<T: Copy + Debug, F: Fn(T, T) -> T>(
+/// can make the larger of the two operands the LHS and benefit from
+/// optimizations in `binary_op` that assume this.
+fn binary_commutative_op<T: Copy + Debug + Default, F: Fn(T, T) -> T>(
     a: TensorView<T>,
     b: TensorView<T>,
     op: F,
 ) -> Result<Tensor<T>, OpError> {
-    let mut out;
-    let other;
-    if b.can_broadcast_to(a.shape()) {
-        out = a.to_tensor();
-        other = b;
-    } else if a.can_broadcast_to(b.shape()) {
-        out = b.to_tensor();
-        other = a;
+    if b.len() > a.len() {
+        // `a` must be broadcast to `b`s shape. Swap operands so we can take
+        // potentially take advantage of fast paths for this.
+        binary_op(b, a, op)
     } else {
-        return binary_op(a, b, op);
+        binary_op(a, b, op)
     }
-    binary_op_in_place(&mut out, other, op);
-    Ok(out)
 }
 
 /// Extract two input operands from `$inputs` and invoke the appropriate
@@ -269,7 +297,7 @@ macro_rules! run_typed_op_in_place {
 }
 
 /// Perform elementwise addition of two tensors.
-pub fn add<T: Copy + Debug + std::ops::Add<Output = T>>(
+pub fn add<T: Copy + Debug + Default + std::ops::Add<Output = T>>(
     a: TensorView<T>,
     b: TensorView<T>,
 ) -> Result<Tensor<T>, OpError> {
@@ -352,7 +380,13 @@ logical_boolean_op!(Xor, xor, |x, y| x ^ y);
 
 /// Perform elementwise division of two tensors.
 pub fn div<
-    T: Copy + Debug + std::ops::Mul<Output = T> + std::ops::Div<Output = T> + IsInt + Identities,
+    T: Copy
+        + Debug
+        + Default
+        + std::ops::Mul<Output = T>
+        + std::ops::Div<Output = T>
+        + IsInt
+        + Identities,
 >(
     a: TensorView<T>,
     b: TensorView<T>,
@@ -547,7 +581,7 @@ impl Operator for Mod {
 }
 
 /// Multiply two tensors elementwise.
-pub fn mul<T: Copy + Debug + std::ops::Mul<Output = T>>(
+pub fn mul<T: Copy + Debug + Default + std::ops::Mul<Output = T>>(
     a: TensorView<T>,
     b: TensorView<T>,
 ) -> Result<Tensor<T>, OpError> {
@@ -637,7 +671,7 @@ impl Operator for Pow {
 }
 
 /// Perform elementwise subtraction of two tensors.
-pub fn sub<T: Copy + Debug + std::ops::Sub<Output = T>>(
+pub fn sub<T: Copy + Debug + Default + std::ops::Sub<Output = T>>(
     a: TensorView<T>,
     b: TensorView<T>,
 ) -> Result<Tensor<T>, OpError> {
@@ -1208,6 +1242,31 @@ mod tests {
         let expected = Tensor::from_data(&[2, 2], vec![9, 18, 27, 36]);
         let result = sub(a.view(), b.view()).unwrap();
         assert_eq!(&result, &expected);
+
+        Ok(())
+    }
+
+    // Test for a non-commutative binary operator that involves broadcasting
+    // both the inner and outer dimensions of the second operand.
+    #[test]
+    fn test_sub_broadcast() -> Result<(), Box<dyn Error>> {
+        // [2, 3, 3]
+        let a = Tensor::from([
+            [[2, 4, 6], [8, 10, 12], [14, 16, 18]],
+            [[3, 6, 9], [12, 15, 18], [21, 24, 27]],
+        ]);
+
+        // [1, 3, 1]
+        let b = Tensor::from([[[1], [2], [3]]]);
+
+        let expected = Tensor::from([
+            [[1, 3, 5], [6, 8, 10], [11, 13, 15]],
+            [[2, 5, 8], [10, 13, 16], [18, 21, 24]],
+        ]);
+
+        let result = sub(a.view(), b.view()).unwrap();
+
+        expect_equal(&result, &expected)?;
 
         Ok(())
     }
