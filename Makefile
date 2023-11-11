@@ -17,6 +17,15 @@ checkformatting:
 lint:
 	cargo clippy --workspace -- -Aclippy::needless_range_loop -Aclippy::too_many_arguments -Aclippy::derivable_impls -Aclippy::manual_memcpy -Aclippy::assertions_on_constants -Aclippy::uninlined_format_args
 
+.PHONY: miri
+miri:
+	# - Stacked borrow checks are disabled because they don't like tests involving
+	#   non-overlapping mutable views of the same underlying buffer. Fixing this
+	#   will probably involve changes to view internals.
+	# - Only the tensor lib is currently tested. Testing the main crate will
+	#   require changes to prevent tests taking too long to run.
+	MIRIFLAGS="-Zmiri-disable-stacked-borrows" cargo +nightly miri test -p wasnn-tensor
+
 .PHONY: test
 test:
 	cargo test --workspace
