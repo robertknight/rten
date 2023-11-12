@@ -14,7 +14,7 @@ pub mod ctc;
 
 pub mod ops;
 
-pub use graph::{Dimension, NodeId, RunOptions};
+pub use graph::{Dimension, NodeId, RunOptions, TimingSort};
 pub use model::{Model, OpRegistry};
 pub use ops::{FloatOperators, Input, Operators, Output};
 pub use timer::Timer;

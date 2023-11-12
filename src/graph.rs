@@ -190,6 +190,17 @@ impl NodeRefCount {
     }
 }
 
+/// Specifies sort order for graph run timings.
+#[derive(Default)]
+pub enum TimingSort {
+    /// Sort timings by operator name
+    ByName,
+
+    /// Sort timings by time, descending
+    #[default]
+    ByTime,
+}
+
 impl Error for RunError {}
 
 #[derive(Default)]
@@ -197,10 +208,100 @@ pub struct RunOptions {
     /// Whether to log times spent in different operators when run completes.
     pub timing: bool,
 
+    /// Order in which timings should be sorted. Defaults to sorting in
+    /// descending order by time.
+    pub timing_sort: TimingSort,
+
     /// Whether to log information about each graph operation as it is executed,
     /// including input shapes and execution time. This will slow down
     /// execution.
     pub verbose: bool,
+}
+
+struct RunTiming<'a> {
+    /// Total time spent in different operators
+    op_elapsed: &'a HashMap<&'a str, f32>,
+
+    /// Total time spent in memory allocations or de-allocations that were
+    /// tracked.
+    alloc_time: f32,
+
+    /// Total time for the graph run.
+    run_time: f32,
+}
+
+impl<'a> RunTiming<'a> {
+    fn total_op_time(&self) -> f32 {
+        self.op_elapsed.values().sum()
+    }
+
+    /// Return a struct that formats output with the given options.
+    fn display(&self, sort: TimingSort) -> impl fmt::Display + '_ {
+        FormattedRunTiming { timing: self, sort }
+    }
+}
+
+impl<'a> fmt::Display for RunTiming<'a> {
+    /// Format timings with the default sort order (see [TimingSort]).
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> std::fmt::Result {
+        self.display(TimingSort::ByTime).fmt(f)
+    }
+}
+
+/// Wrapper around a `RunTiming` that includes formatting configuration for the
+/// `Display` implementation.
+struct FormattedRunTiming<'a> {
+    timing: &'a RunTiming<'a>,
+    sort: TimingSort,
+}
+
+impl<'a> fmt::Display for FormattedRunTiming<'a> {
+    fn fmt(&self, f: &mut fmt::Formatter) -> std::fmt::Result {
+        let mut op_timings: Vec<_> = self
+            .timing
+            .op_elapsed
+            .iter()
+            .map(|(name, time)| (*name, *time))
+            .collect();
+
+        // Add `[Other]` for all unaccounted time.
+        let total_op_time = self.timing.total_op_time();
+        op_timings.push((
+            "[Other]",
+            self.timing.run_time - total_op_time - self.timing.alloc_time,
+        ));
+        op_timings.push(("[Mem alloc/free]", self.timing.alloc_time));
+
+        op_timings.sort_by(|a, b| match self.sort {
+            TimingSort::ByName => a.0.cmp(b.0),
+            TimingSort::ByTime => a.1.total_cmp(&b.1).reverse(),
+        });
+
+        let rows: Vec<_> = op_timings
+            .iter()
+            .map(|(op_name, op_total_time)| {
+                let run_percent = (*op_total_time / self.timing.run_time) * 100.;
+                [
+                    op_name.to_string(),
+                    format!("{:.2}ms", op_total_time),
+                    format!("({:.2}%)", run_percent),
+                ]
+            })
+            .collect();
+        let col_widths: Vec<usize> = (0..3)
+            .map(|col| rows.iter().fold(0, |width, row| row[col].len().max(width)))
+            .collect();
+
+        for row in rows {
+            writeln!(
+                f,
+                "{0:1$} {2:3$} {4:5$}",
+                row[0], col_widths[0], row[1], col_widths[1], row[2], col_widths[2]
+            )?;
+        }
+
+        Ok(())
+    }
 }
 
 impl Graph {
@@ -333,6 +434,7 @@ impl Graph {
         let mut temp_values: HashMap<NodeId, Output> = HashMap::new();
         let mut op_elapsed: HashMap<&str, f32> = HashMap::new();
         let record_timing = opts.timing || opts.verbose;
+        let mut alloc_timer = Timer::new();
 
         for (step, (op_node_id, op_node)) in plan.iter().enumerate() {
             let mut op_timer = Timer::new();
@@ -506,12 +608,14 @@ impl Graph {
             }
 
             // Remove temporary values that are no longer needed
+            record_timing.then(|| alloc_timer.start());
             for node_id in op_node.inputs.iter().filter_map(|node| *node) {
                 let rc = temp_value_refcount.dec(node_id);
                 if rc == 0 {
                     temp_values.remove(&node_id);
                 }
             }
+            record_timing.then(|| alloc_timer.end());
         }
 
         if opts.timing {
@@ -521,7 +625,12 @@ impl Graph {
                 plan.len(),
                 run_timer.elapsed_ms()
             );
-            self.print_timings(&op_elapsed, run_timer.elapsed_ms());
+            let timing = RunTiming {
+                op_elapsed: &op_elapsed,
+                alloc_time: alloc_timer.elapsed_ms(),
+                run_time: run_timer.elapsed_ms(),
+            };
+            print!("{}", timing.display(opts.timing_sort));
         }
 
         // Return the requested outputs
@@ -541,43 +650,6 @@ impl Graph {
             })
             .collect();
         Ok(result)
-    }
-
-    /// Print a table of operator timings from a graph run.
-    fn print_timings(&self, op_elapsed: &HashMap<&str, f32>, run_time: f32) {
-        // Display cumulative times for each op type, sorted by op name
-        let total_op_time: f32 = op_elapsed.values().sum();
-        let mut op_timings: Vec<_> = op_elapsed
-            .iter()
-            .map(|(name, time)| (*name, *time))
-            .collect();
-        op_timings.sort_by(|a, b| a.0.cmp(b.0));
-
-        // Show time taken by non-operator processing, such as any memory
-        // allocation / freeing that is done outside of ops.
-        op_timings.push(("[Other]", run_time - total_op_time));
-
-        let rows: Vec<_> = op_timings
-            .iter()
-            .map(|(op_name, op_total_time)| {
-                let op_percent = (*op_total_time / total_op_time) * 100.;
-                [
-                    op_name.to_string(),
-                    format!("{:.2}ms", op_total_time),
-                    format!("({:.2}%)", op_percent),
-                ]
-            })
-            .collect();
-        let col_widths: Vec<usize> = (0..3)
-            .map(|col| rows.iter().fold(0, |width, row| row[col].len().max(width)))
-            .collect();
-
-        for row in rows {
-            println!(
-                "{0:1$} {2:3$} {4:5$}",
-                row[0], col_widths[0], row[1], col_widths[1], row[2], col_widths[2]
-            );
-        }
     }
 
     /// Create an execution plan for a sequence of computation steps that begin

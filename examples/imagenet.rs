@@ -4,7 +4,7 @@ use std::fs;
 use std::fs::File;
 use std::io::{BufRead, BufReader};
 
-use wasnn::{Dimension, FloatOperators, Model, Operators, RunOptions};
+use wasnn::{Dimension, FloatOperators, Model, Operators};
 use wasnn_tensor::prelude::*;
 use wasnn_tensor::{NdTensor, Tensor};
 
@@ -243,15 +243,7 @@ fn main() -> Result<(), Box<dyn Error>> {
         img_tensor
     };
 
-    let logits: NdTensor<f32, 2> = model
-        .run_one(
-            img_tensor.view().into(),
-            Some(RunOptions {
-                timing: false,
-                verbose: false,
-            }),
-        )?
-        .try_into()?;
+    let logits: NdTensor<f32, 2> = model.run_one(img_tensor.view().into(), None)?.try_into()?;
 
     let (top_probs, top_classes) = logits
         .softmax(-1)?

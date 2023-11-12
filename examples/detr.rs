@@ -2,7 +2,7 @@ use std::collections::VecDeque;
 use std::error::Error;
 use std::fs;
 
-use wasnn::{FloatOperators, Model, NodeId, Operators, RunOptions};
+use wasnn::{FloatOperators, Model, NodeId, Operators};
 use wasnn_imageio::{normalize_image, read_image, write_image};
 use wasnn_imageproc::{Painter, Rect};
 use wasnn_tensor::prelude::*;
@@ -324,10 +324,7 @@ fn main() -> Result<(), Box<dyn Error>> {
     let [logits, boxes] = model.run_n(
         &[(pixel_input_id, image.view().into())],
         [logits_output_id, boxes_output_id],
-        Some(RunOptions {
-            verbose: false,
-            timing: false,
-        }),
+        None,
     )?;
     let logits: NdTensor<f32, 3> = logits.try_into()?;
     let boxes: NdTensor<f32, 3> = boxes.try_into()?;

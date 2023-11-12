@@ -3,7 +3,7 @@ use std::error::Error;
 use std::fs;
 
 use wasnn::ops::{non_max_suppression, BoxOrder};
-use wasnn::{Dimension, FloatOperators, Model, NodeId, RunOptions};
+use wasnn::{Dimension, FloatOperators, Model, NodeId};
 use wasnn_imageio::{read_image, write_image};
 use wasnn_imageproc::{Painter, Rect};
 use wasnn_tensor::prelude::*;
@@ -121,14 +121,7 @@ fn main() -> Result<(), Box<dyn Error>> {
     let input_id = get_node(&model, "images")?;
     let output_id = get_node(&model, "output0")?;
 
-    let [output] = model.run_n(
-        &[(input_id, image.view().into())],
-        [output_id],
-        Some(RunOptions {
-            verbose: false,
-            timing: false,
-        }),
-    )?;
+    let [output] = model.run_n(&[(input_id, image.view().into())], [output_id], None)?;
 
     // Output format is [N, 84, B] where `B` is the number of boxes. The second
     // dimension contains `[x, y, w, h, class_0 ... class 79]` where `(x, y)`

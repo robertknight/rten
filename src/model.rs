@@ -8,7 +8,7 @@ use std::fmt::{Display, Formatter};
 use smallvec::smallvec;
 use wasnn_tensor::Tensor;
 
-use crate::graph::{Dimension, Graph, Node, NodeId, RunError, RunOptions};
+use crate::graph::{Dimension, Graph, Node, NodeId, RunError, RunOptions, TimingSort};
 use crate::ops;
 use crate::ops::{
     BoxOrder, CoordTransformMode, DataType, Direction, Input, NearestMode, Operator, Output,
@@ -99,8 +99,25 @@ impl Model {
         opts: Option<RunOptions>,
     ) -> Result<Vec<Output>, RunError> {
         let mut opts = opts.unwrap_or_default();
-        if env::var_os("WASNN_TIMING").is_some() {
+        if let Some(timing_var) = env::var_os("WASNN_TIMING") {
+            let timing_var = timing_var.to_string_lossy();
+
             opts.timing = true;
+
+            for token in timing_var.split(',') {
+                if let Some((key, val)) = token.split_once('=') {
+                    match key {
+                        "sort" => match val {
+                            "name" => opts.timing_sort = TimingSort::ByName,
+                            "time" => opts.timing_sort = TimingSort::ByTime,
+                            _ => println!("unrecognized sort order \"{}\"", val),
+                        },
+                        _ => {
+                            println!("unrecognized timing option \"{}\"", key);
+                        }
+                    }
+                }
+            }
         }
         self.graph.run(inputs, outputs, Some(opts))
     }
