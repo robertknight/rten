@@ -8,6 +8,7 @@ use wasnn_tensor::Tensor;
 
 use crate::ops::{Input, InputList, OpError, Operator, Output};
 use crate::timer::Timer;
+use crate::timing::{InputShape, RunTiming, TimingRecord, TimingSort};
 
 /// Represents the size of a dimension of a runtime-provided value, such as
 /// an operator input, output or intermediate value.
@@ -190,17 +191,6 @@ impl NodeRefCount {
     }
 }
 
-/// Specifies sort order for graph run timings.
-#[derive(Default)]
-pub enum TimingSort {
-    /// Sort timings by operator name
-    ByName,
-
-    /// Sort timings by time, descending
-    #[default]
-    ByTime,
-}
-
 impl Error for RunError {}
 
 #[derive(Default)]
@@ -212,96 +202,14 @@ pub struct RunOptions {
     /// descending order by time.
     pub timing_sort: TimingSort,
 
+    /// Whether to include a breakdown of execution time by input shape, in
+    /// timing reports.
+    pub timing_by_shape: bool,
+
     /// Whether to log information about each graph operation as it is executed,
     /// including input shapes and execution time. This will slow down
     /// execution.
     pub verbose: bool,
-}
-
-struct RunTiming<'a> {
-    /// Total time spent in different operators
-    op_elapsed: &'a HashMap<&'a str, f32>,
-
-    /// Total time spent in memory allocations or de-allocations that were
-    /// tracked.
-    alloc_time: f32,
-
-    /// Total time for the graph run.
-    run_time: f32,
-}
-
-impl<'a> RunTiming<'a> {
-    fn total_op_time(&self) -> f32 {
-        self.op_elapsed.values().sum()
-    }
-
-    /// Return a struct that formats output with the given options.
-    fn display(&self, sort: TimingSort) -> impl fmt::Display + '_ {
-        FormattedRunTiming { timing: self, sort }
-    }
-}
-
-impl<'a> fmt::Display for RunTiming<'a> {
-    /// Format timings with the default sort order (see [TimingSort]).
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> std::fmt::Result {
-        self.display(TimingSort::ByTime).fmt(f)
-    }
-}
-
-/// Wrapper around a `RunTiming` that includes formatting configuration for the
-/// `Display` implementation.
-struct FormattedRunTiming<'a> {
-    timing: &'a RunTiming<'a>,
-    sort: TimingSort,
-}
-
-impl<'a> fmt::Display for FormattedRunTiming<'a> {
-    fn fmt(&self, f: &mut fmt::Formatter) -> std::fmt::Result {
-        let mut op_timings: Vec<_> = self
-            .timing
-            .op_elapsed
-            .iter()
-            .map(|(name, time)| (*name, *time))
-            .collect();
-
-        // Add `[Other]` for all unaccounted time.
-        let total_op_time = self.timing.total_op_time();
-        op_timings.push((
-            "[Other]",
-            self.timing.run_time - total_op_time - self.timing.alloc_time,
-        ));
-        op_timings.push(("[Mem alloc/free]", self.timing.alloc_time));
-
-        op_timings.sort_by(|a, b| match self.sort {
-            TimingSort::ByName => a.0.cmp(b.0),
-            TimingSort::ByTime => a.1.total_cmp(&b.1).reverse(),
-        });
-
-        let rows: Vec<_> = op_timings
-            .iter()
-            .map(|(op_name, op_total_time)| {
-                let run_percent = (*op_total_time / self.timing.run_time) * 100.;
-                [
-                    op_name.to_string(),
-                    format!("{:.2}ms", op_total_time),
-                    format!("({:.2}%)", run_percent),
-                ]
-            })
-            .collect();
-        let col_widths: Vec<usize> = (0..3)
-            .map(|col| rows.iter().fold(0, |width, row| row[col].len().max(width)))
-            .collect();
-
-        for row in rows {
-            writeln!(
-                f,
-                "{0:1$} {2:3$} {4:5$}",
-                row[0], col_widths[0], row[1], col_widths[1], row[2], col_widths[2]
-            )?;
-        }
-
-        Ok(())
-    }
 }
 
 impl Graph {
@@ -432,7 +340,7 @@ impl Graph {
 
         // Execute the plan
         let mut temp_values: HashMap<NodeId, Output> = HashMap::new();
-        let mut op_elapsed: HashMap<&str, f32> = HashMap::new();
+        let mut op_elapsed: Vec<TimingRecord> = Vec::new();
         let record_timing = opts.timing || opts.verbose;
         let mut alloc_timer = Timer::new();
 
@@ -488,13 +396,6 @@ impl Graph {
                 }
             });
 
-            // If logging is enabled, save the shape at the start of execution
-            // so we can report it later.
-            let in_place_input_shape = match (opts.verbose, &in_place_input) {
-                (true, Some(output)) => Some(output.shape().to_vec()),
-                _ => None,
-            };
-
             // Collect all or remaining inputs for the operator
             let mut op_inputs: Vec<Option<Input>> = Vec::new();
             for node_id in op_node.inputs.iter() {
@@ -524,6 +425,20 @@ impl Graph {
                 }
             }
 
+            // Collect input shapes if we'll need them for timing or logging.
+            let input_shapes = if opts.timing_by_shape || opts.verbose {
+                let mut shapes: Vec<InputShape> = Vec::new();
+                if let Some(ref input) = in_place_input {
+                    shapes.push(Some(input.shape().into()));
+                }
+                for input in &op_inputs {
+                    shapes.push(input.as_ref().map(|i| i.shape().into()))
+                }
+                shapes
+            } else {
+                Vec::new()
+            };
+
             let op_result = if let Some(input) = in_place_input {
                 op_node
                     .operator
@@ -538,25 +453,17 @@ impl Graph {
             if record_timing {
                 op_timer.end();
 
-                if let Some(elapsed) = op_elapsed.get_mut(op_node.operator.name()) {
-                    *elapsed += op_timer.elapsed_ms();
-                } else {
-                    op_elapsed.insert(op_node.operator.name(), op_timer.elapsed_ms());
-                }
+                op_elapsed.push(TimingRecord {
+                    name: op_node.operator.name().to_string(),
+                    input_shapes: input_shapes.clone(),
+                    elapsed_micros: op_timer.elapsed_micros(),
+                });
             }
 
             // Log verbose info if enabled. This is done before we check the
             // result so that in the event of an error, the verbose log includes
             // the failing operator's inputs.
             if opts.verbose {
-                let mut input_shapes: Vec<_> = op_inputs
-                    .iter()
-                    .map(|x| x.as_ref().map(|input| input.shape()))
-                    .collect();
-                if let Some(first_input_shape) = in_place_input_shape.as_ref() {
-                    input_shapes.insert(0, Some(first_input_shape));
-                }
-
                 println!(
                     "#{} {} ({})",
                     step,
@@ -626,11 +533,11 @@ impl Graph {
                 run_timer.elapsed_ms()
             );
             let timing = RunTiming {
-                op_elapsed: &op_elapsed,
+                records: &op_elapsed,
                 alloc_time: alloc_timer.elapsed_ms(),
-                run_time: run_timer.elapsed_ms(),
+                total_time: run_timer.elapsed_ms(),
             };
-            print!("{}", timing.display(opts.timing_sort));
+            print!("{}", timing.display(opts.timing_sort, opts.timing_by_shape));
         }
 
         // Return the requested outputs

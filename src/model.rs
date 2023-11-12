@@ -8,7 +8,7 @@ use std::fmt::{Display, Formatter};
 use smallvec::smallvec;
 use wasnn_tensor::Tensor;
 
-use crate::graph::{Dimension, Graph, Node, NodeId, RunError, RunOptions, TimingSort};
+use crate::graph::{Dimension, Graph, Node, NodeId, RunError, RunOptions};
 use crate::ops;
 use crate::ops::{
     BoxOrder, CoordTransformMode, DataType, Direction, Input, NearestMode, Operator, Output,
@@ -16,6 +16,7 @@ use crate::ops::{
 };
 use crate::schema_generated as sg;
 use crate::schema_generated::{root_as_model, OperatorNode, OperatorType, PadMode};
+use crate::timing::TimingSort;
 
 pub struct Model {
     node_ids: HashMap<String, NodeId>,
@@ -37,6 +38,41 @@ impl<'a> NodeInfo<'a> {
     /// Return the tensor shape associated with a node.
     pub fn shape(&self) -> Option<Vec<Dimension>> {
         self.node.shape()
+    }
+}
+
+/// Parse profiling flags from the `WASNN_TIMING` environment variable and
+/// update the graph run configuration `opts`.
+///
+/// This env var is a space-separated sequence of `key=value` pairs.
+fn parse_timing_config(config: &str, opts: &mut RunOptions) {
+    opts.timing = true;
+
+    let str_as_bool = |s: &str| match s {
+        "1" | "true" | "t" | "yes" | "y" => true,
+        "0" | "false" | "f" | "no" | "n" => false,
+        _ => {
+            eprintln!("Unrecognized boolean value \"{}\"", s);
+            false
+        }
+    };
+
+    for token in config.split_ascii_whitespace() {
+        if let Some((key, val)) = token.split_once('=') {
+            let (key, val) = (key.trim(), val.trim());
+
+            match key {
+                "by-shape" => opts.timing_by_shape = str_as_bool(val),
+                "sort" => match val {
+                    "name" => opts.timing_sort = TimingSort::ByName,
+                    "time" => opts.timing_sort = TimingSort::ByTime,
+                    _ => eprintln!("Unrecognized sort order \"{}\"", val),
+                },
+                _ => {
+                    eprintln!("Unrecognized timing option \"{}\"", key);
+                }
+            }
+        }
     }
 }
 
@@ -101,23 +137,7 @@ impl Model {
         let mut opts = opts.unwrap_or_default();
         if let Some(timing_var) = env::var_os("WASNN_TIMING") {
             let timing_var = timing_var.to_string_lossy();
-
-            opts.timing = true;
-
-            for token in timing_var.split(',') {
-                if let Some((key, val)) = token.split_once('=') {
-                    match key {
-                        "sort" => match val {
-                            "name" => opts.timing_sort = TimingSort::ByName,
-                            "time" => opts.timing_sort = TimingSort::ByTime,
-                            _ => println!("unrecognized sort order \"{}\"", val),
-                        },
-                        _ => {
-                            println!("unrecognized timing option \"{}\"", key);
-                        }
-                    }
-                }
-            }
+            parse_timing_config(&timing_var, &mut opts);
         }
         self.graph.run(inputs, outputs, Some(opts))
     }

@@ -34,6 +34,12 @@ impl Timer {
     }
 
     /// Return the cumulative elapsed time between calls to `start` and `end`
+    /// in microseconds.
+    pub fn elapsed_micros(&self) -> f32 {
+        self.elapsed as f32
+    }
+
+    /// Return the cumulative elapsed time between calls to `start` and `end`
     /// in seconds.
     pub fn elapsed_secs(&self) -> f32 {
         self.elapsed as f32 / 1_000_000.0

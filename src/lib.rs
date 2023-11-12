@@ -4,6 +4,7 @@ mod model;
 mod number;
 mod slice_reductions;
 mod timer;
+mod timing;
 
 #[cfg(feature = "wasm_api")]
 mod wasm_api;
@@ -14,10 +15,11 @@ pub mod ctc;
 
 pub mod ops;
 
-pub use graph::{Dimension, NodeId, RunOptions, TimingSort};
+pub use graph::{Dimension, NodeId, RunOptions};
 pub use model::{Model, OpRegistry};
 pub use ops::{FloatOperators, Input, Operators, Output};
 pub use timer::Timer;
+pub use timing::TimingSort;
 
 #[allow(dead_code, unused_imports)]
 mod schema_generated;
