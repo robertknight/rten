@@ -166,7 +166,7 @@ impl Table for TimingByShapeTable {
     }
 
     fn headings(&self) -> &[&str] {
-        &["Shape", "Count", "Mean (ms)", "Total (ms)", "ns/element"]
+        &["Shape", "Count", "Mean (ms)", "Total (ms)", "ns/input elem"]
     }
 
     fn cell(&self, row: usize, col: usize) -> String {
