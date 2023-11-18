@@ -575,9 +575,14 @@ def op_node_from_onnx_operator(
                 attrs.padMode = sg.PadMode.Fixed
             attrs.strides = read_strides(op_reader)
 
-        case "BatchNormalization" | "InstanceNormalization":
+        case "BatchNormalization":
             attrs = sg.BatchNormalizationAttrsT()
             attrs.epsilon = op_reader.get_attr("epsilon", "float", 1e-5)
+            op_reader.check_attr("training_mode", "int", 0)
+
+            # Ignore attributes which are valid only if training_mode=1, which
+            # is unsupported.
+            op_reader.ignore_attr("momentum")
 
         case "Cast":
             attrs = sg.CastAttrsT()
@@ -687,6 +692,10 @@ def op_node_from_onnx_operator(
             attrs = sg.HardSigmoidAttrsT()
             attrs.alpha = op_reader.get_attr("alpha", "float", 0.2)
             attrs.beta = op_reader.get_attr("beta", "float", 0.5)
+
+        case "InstanceNormalization":
+            attrs = sg.BatchNormalizationAttrsT()
+            attrs.epsilon = op_reader.get_attr("epsilon", "float", 1e-5)
 
         case "LeakyRelu":
             attrs = sg.LeakyReluAttrsT()
