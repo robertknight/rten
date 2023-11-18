@@ -8,7 +8,7 @@ use crate::index_iterator::NdIndices;
 use crate::iterators::{Iter, IterMut};
 use crate::layout::{Layout, MatrixLayout, NdLayout, OverlapPolicy};
 use crate::range::SliceItem;
-use crate::{IntoSliceItems, TensorBase, TensorView, TensorViewMut};
+use crate::{IntoSliceItems, TensorBase, TensorView, TensorViewMut, View};
 
 /// Multi-dimensional array view with a static dimension count. This trait
 /// includes operations that are available on tensors that own their data
@@ -195,8 +195,9 @@ impl<T, S: AsRef<[T]>, const N: usize> NdTensorBase<T, S, N> {
     where
         F: Fn(&T) -> U,
     {
-        let data = self.iter().map(f).collect();
-        NdTensor::from_data(data, self.shape(), None).unwrap()
+        // Convert to dynamic and back to benefit from fast paths in
+        // `Tensor::map`.
+        self.as_dyn().map(f).try_into().unwrap()
     }
 
     /// Change the layout to put dimensions in the order specified by `dims`.
