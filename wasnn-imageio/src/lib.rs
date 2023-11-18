@@ -1,6 +1,4 @@
 use std::error::Error;
-use std::fs;
-use std::io::BufWriter;
 use std::iter::zip;
 
 use wasnn_tensor::prelude::*;
@@ -26,52 +24,47 @@ pub fn normalize_image(mut img: NdTensorViewMut<f32, 3>) {
 pub fn read_image(path: &str) -> Result<NdTensor<f32, 3>, Box<dyn Error>> {
     let input_img = image::open(path)?;
     let input_img = input_img.into_rgb8();
-
     let (width, height) = input_img.dimensions();
+    let layout = input_img.sample_layout();
 
-    let in_chans = 3;
-    let mut float_img = NdTensor::zeros([in_chans, height as usize, width as usize]);
-    for c in 0..in_chans {
-        let mut chan_img = float_img.slice_mut([c]);
-        for y in 0..height {
-            for x in 0..width {
-                let pixel_value = input_img.get_pixel(x, y)[c] as f32 / 255.0;
-                chan_img[[y as usize, x as usize]] = pixel_value;
-            }
-        }
-    }
-    Ok(float_img)
+    let chw_tensor = NdTensorView::from_slice(
+        input_img.as_raw().as_slice(),
+        [height as usize, width as usize, 3],
+        Some([
+            layout.height_stride,
+            layout.width_stride,
+            layout.channel_stride,
+        ]),
+    )?
+    .permuted([2, 0, 1]) // HWC => CHW
+    .to_tensor() // Make tensor contiguous, which makes `map` faster
+    .map(|x| *x as f32 / 255.); // Rescale from [0, 255] to [0, 1]
+
+    Ok(chw_tensor)
 }
 
-/// Convert a CHW float tensor with values in the range [0, 1] to `Vec<u8>` with
-/// values scaled to [0, 255].
-fn image_from_tensor(tensor: NdTensorView<f32, 3>) -> Vec<u8> {
-    tensor
-        .iter()
-        .map(|x| (x.clamp(0., 1.) * 255.0) as u8)
-        .collect()
-}
-
-/// Write a CHW image to a PNG file in `path`.
+/// Write a CHW image to an image file in `path`.
 pub fn write_image(path: &str, img: NdTensorView<f32, 3>) -> Result<(), Box<dyn Error>> {
-    let img_width = img.size(2);
-    let img_height = img.size(1);
-    let color_type = match img.size(0) {
-        1 => png::ColorType::Grayscale,
-        3 => png::ColorType::Rgb,
-        4 => png::ColorType::Rgba,
+    let [channels, height, width] = img.shape();
+    let color_type = match channels {
+        1 => image::ColorType::L8,
+        3 => image::ColorType::Rgb8,
+        4 => image::ColorType::Rgba8,
         _ => return Err("Unsupported channel count".into()),
     };
 
-    let hwc_img = img.permuted([1, 2, 0]); // CHW => HWC
+    let hwc_img = img
+        .permuted([1, 2, 0]) // CHW => HWC
+        .map(|x| (x.clamp(0., 1.) * 255.0) as u8)
+        .to_tensor();
 
-    let out_img = image_from_tensor(hwc_img);
-    let file = fs::File::create(path)?;
-    let writer = BufWriter::new(file);
-    let mut encoder = png::Encoder::new(writer, img_width as u32, img_height as u32);
-    encoder.set_color(color_type);
-    let mut writer = encoder.write_header()?;
-    writer.write_image_data(&out_img)?;
+    image::save_buffer(
+        path,
+        hwc_img.data().unwrap(),
+        width as u32,
+        height as u32,
+        color_type,
+    )?;
 
     Ok(())
 }
