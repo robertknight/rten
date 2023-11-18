@@ -207,18 +207,15 @@ impl<T, S: AsRef<[T]>, const N: usize> NdTensorBase<T, S, N> {
         self.layout = self.layout.permuted(dims);
     }
 
-    /// Return a copy of this view that owns its data. For [NdTensorView] this
-    /// is different than cloning the view, as that returns a view which has
-    /// its own layout, but the same underlying data buffer.
+    /// Return a new contiguous tensor with the same shape and elements as this
+    /// view.
     pub fn to_tensor(&self) -> NdTensor<T, N>
     where
         T: Clone,
     {
-        NdTensor {
-            data: self.data.as_ref().to_vec(),
-            layout: self.layout,
-            element_type: PhantomData,
-        }
+        // Convert to dynamic and back to benefit from fast paths in
+        // `Tensor::to_tensor`.
+        self.as_dyn().to_tensor().try_into().unwrap()
     }
 
     /// Return an immutable view of this tensor.
@@ -1134,13 +1131,14 @@ mod tests {
     }
 
     #[test]
-    fn test_ndtensor_to_owned() {
+    fn test_ndtensor_to_tensor() {
         let data = vec![1., 2., 3., 4.];
-        let view = NdTensorView::<f32, 2>::from_slice(&data, [2, 2], None).unwrap();
+        let view = NdTensorView::<f32, 2>::from_slice(&data, [2, 2], None)
+            .unwrap()
+            .permuted([1, 0]);
         let owned = view.to_tensor();
         assert_eq!(owned.shape(), view.shape());
-        assert_eq!(owned.strides(), view.strides());
-        assert_eq!(owned.data(), view.data());
+        assert!(owned.is_contiguous());
     }
 
     #[test]
