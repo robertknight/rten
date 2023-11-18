@@ -1,3 +1,17 @@
-flatbuffers
+# General dependencies
+Pillow
 numpy
 onnx
+
+# For scripts that read/write this library's models
+flatbuffers
+
+# For scripts that use PyTorch to export models or produce reference outputs.
+torch
+
+# For scripts that use ONNX Runtime for transforming the model or to produce
+# reference outputs.
+onnxruntime
+
+# For fetching and exporting various image models
+timm
