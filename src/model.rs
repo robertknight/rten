@@ -888,6 +888,29 @@ impl Display for ModelLoadError {
 
 impl Error for ModelLoadError {}
 
+/// Optimized conversion of a `flatbuffers::Vector<T>` into a `Vec<T>` for
+/// primitive types.
+///
+/// This relies on the fact that the underlying bytes are likely correctly
+/// aligned for `T`. If so, we can transmute `&[u8] -> &[T]` and then benefit
+/// from fast slice-to-Vec conversion.
+fn vec_from_flatbuffers_vec<'a, T: Copy + flatbuffers::Follow<'a, Inner = T>>(
+    fbv: flatbuffers::Vector<'a, T>,
+) -> Vec<T> {
+    let bytes = fbv.bytes();
+    if bytes.as_ptr() as usize % std::mem::align_of::<T>() == 0 {
+        // Safety: We checked that the data is correctly aligned, and we trust
+        // `flatbuffers::Vector<T>` that its bytes contain `fbv.len()` Ts.
+        let typed_slice = unsafe {
+            let typed_slice = std::mem::transmute::<&[u8], &[T]>(bytes);
+            &typed_slice[..fbv.len()]
+        };
+        typed_slice.to_vec()
+    } else {
+        fbv.iter().collect()
+    }
+}
+
 fn load_model(data: &[u8], registry: &OpRegistry) -> Result<Model, ModelLoadError> {
     let model = root_as_model(data).map_err(ModelLoadError::ParseFailed)?;
 
@@ -988,11 +1011,11 @@ fn load_model(data: &[u8], registry: &OpRegistry) -> Result<Model, ModelLoadErro
             } else if let Some(constant) = node.data_as_constant_node() {
                 let shape: Vec<usize> = constant.shape().iter().map(|x| x as usize).collect();
                 let graph_node = if let Some(float_data) = constant.data_as_float_data() {
-                    let data: Vec<f32> = float_data.data().iter().collect();
+                    let data: Vec<f32> = vec_from_flatbuffers_vec(float_data.data());
                     let tensor = Tensor::from_data(&shape, data);
                     graph.add_constant(node.name(), tensor)
                 } else if let Some(int_data) = constant.data_as_int_data() {
-                    let data: Vec<i32> = int_data.data().iter().collect();
+                    let data: Vec<i32> = vec_from_flatbuffers_vec(int_data.data());
                     let tensor = Tensor::from_data(&shape, data);
                     graph.add_constant(node.name(), tensor)
                 } else {
