@@ -180,7 +180,7 @@ macro_rules! dispatch_unary_op {
 
         // Fallback for platforms where optimized implementation is used
         // conditionally.
-        #[cfg(target_arch = "x86_64")]
+        #[cfg(not(target_arch = "wasm32"))]
         for (x, y) in $in.iter().zip($out.iter_mut()) {
             *y = $fallback_func(*x);
         }
@@ -224,7 +224,7 @@ macro_rules! dispatch_unary_op {
 
         // Fallback for platforms where optimized implementation is used
         // conditionally.
-        #[cfg(target_arch = "x86_64")]
+        #[cfg(not(target_arch = "wasm32"))]
         for x in $out.iter_mut() {
             *x = $fallback_func(*x);
         }
