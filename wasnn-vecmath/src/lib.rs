@@ -20,6 +20,7 @@
 mod erf;
 mod exp;
 mod simd_vec;
+mod softmax;
 mod ulp;
 
 #[cfg(test)]
@@ -28,12 +29,19 @@ mod testing;
 pub use erf::{erf, vec_erf, vec_erf_in_place};
 pub use exp::{exp, sigmoid, vec_exp, vec_exp_in_place, vec_sigmoid, vec_sigmoid_in_place};
 use simd_vec::SimdFloat;
+pub use softmax::{vec_softmax, vec_softmax_in_place};
+
+/// Maximum SIMD vector size supported by this library, in units of 32-byte lanes.
+///
+/// Chosen as 16 to match AVX-512.
+const MAX_LEN: usize = 16;
 
 /// Const pointer to a range of `T`s.
 ///
 /// This is like an `&[T]`, but without the guarantee that no mutable aliases
 /// exist. This is useful as it enables re-using the same unsafe code for
 /// mutating and non-mutating variants of a function.
+#[derive(Copy, Clone)]
 struct PtrLen<T> {
     ptr: *const T,
     len: usize,
@@ -57,9 +65,19 @@ impl<'a, T> From<&'a mut [T]> for PtrLen<T> {
     }
 }
 
+impl<T> From<MutPtrLen<T>> for PtrLen<T> {
+    fn from(val: MutPtrLen<T>) -> PtrLen<T> {
+        PtrLen {
+            ptr: val.ptr,
+            len: val.len,
+        }
+    }
+}
+
 /// Mutable pointer to a range of `T`s.
 ///
 /// This is like an `&mut [T]`, but without the guarantee that no aliases exist.
+#[derive(Copy, Clone)]
 struct MutPtrLen<T> {
     ptr: *mut T,
     len: usize,
@@ -86,10 +104,10 @@ impl<'a, T> From<&'a mut [T]> for MutPtrLen<T> {
 /// to buffers of the expected lengths.
 #[cfg_attr(target_arch = "x86_64", target_feature(enable = "avx2"))]
 #[cfg_attr(target_arch = "x86_64", target_feature(enable = "fma"))]
-unsafe fn vec_unary_op<S: SimdFloat, Op: Fn(S) -> S>(
+unsafe fn vec_unary_op<S: SimdFloat, Op: FnMut(S) -> S>(
     xs: PtrLen<f32>,
     out: MutPtrLen<f32>,
-    simd_op: Op,
+    mut simd_op: Op,
     pad: f32,
 ) {
     assert!(xs.len == out.len);
@@ -98,11 +116,10 @@ unsafe fn vec_unary_op<S: SimdFloat, Op: Fn(S) -> S>(
     let mut x_ptr = xs.ptr;
     let mut out_ptr = out.ptr;
 
-    // We use an allocation because const generics aren't allowed as sizes
-    // for static arrays.
-    //
-    // TODO - Rework this to avoid allocation.
-    let mut remainder = vec![pad; S::LEN];
+    // S::LEN can't be used as the array size due to const generics limitations.
+    const MAX_LEN: usize = 16;
+    assert!(S::LEN <= MAX_LEN);
+    let mut remainder = [pad; MAX_LEN];
 
     // Main loop over full vectors.
     while n >= S::LEN {
@@ -129,6 +146,41 @@ unsafe fn vec_unary_op<S: SimdFloat, Op: Fn(S) -> S>(
             *out_ptr.add(i) = remainder[i];
         }
     }
+}
+
+#[cfg_attr(target_arch = "x86_64", target_feature(enable = "avx2"))]
+#[cfg_attr(target_arch = "x86_64", target_feature(enable = "fma"))]
+unsafe fn vec_fold<S: SimdFloat, Op: Fn(S, S) -> S>(
+    xs: PtrLen<f32>,
+    mut accum: S,
+    simd_op: Op,
+    pad: f32,
+) -> S {
+    let mut n = xs.len;
+    let mut x_ptr = xs.ptr;
+
+    // S::LEN can't be used as the array size due to const generics limitations.
+    assert!(S::LEN <= MAX_LEN);
+    let mut remainder = [pad; MAX_LEN];
+
+    // Main loop over full vectors.
+    while n >= S::LEN {
+        let x = S::load(x_ptr);
+        accum = simd_op(accum, x);
+        n -= S::LEN;
+        x_ptr = x_ptr.add(S::LEN);
+    }
+
+    // Handler remainder with a padded vector.
+    if n > 0 {
+        for i in 0..n {
+            remainder[i] = *x_ptr.add(i);
+        }
+        let x = S::load(remainder.as_ptr());
+        accum = simd_op(accum, x);
+    }
+
+    accum
 }
 
 /// Invoke the best available implementation of a unary operator on the current
@@ -232,3 +284,41 @@ macro_rules! dispatch_unary_op {
 }
 
 pub(crate) use dispatch_unary_op;
+
+/// Dispatch a SIMD function using the best available `SimdFloat` implementation
+/// on the current system.
+///
+/// `$func` should be a function with a generic argument `S: SimdFloat`. `$arg`
+/// is a list of arguments to pass to the function. `$func` may be unsafe, with
+/// a requirement that it is only called if the `SimdFloat` impl is safe to use
+/// on the current system.
+macro_rules! dispatch_simd {
+    ($func:ident, $($arg:expr),*) => {
+        #[cfg(target_arch = "x86_64")]
+        if is_x86_feature_detected!("fma") && is_x86_feature_detected!("avx2") {
+            use std::arch::x86_64::__m256;
+
+            // Safety: We've checked that AVX2 + FMA are available.
+            unsafe { $func::<__m256>($($arg),*) };
+
+            return;
+        }
+
+        #[cfg(target_arch = "wasm32")]
+        {
+            use crate::simd_vec::wasm::v128f;
+
+            // Safety: The WASM runtime will have verified SIMD instructions
+            // are accepted when loading the binary.
+            unsafe { $func::<v128f>($($arg),*) };
+            return;
+        }
+
+        // Fallback for platforms where optimized implementation is used
+        // conditionally.
+        #[cfg(target_arch = "x86_64")]
+        unsafe { $func::<f32>($($arg),*) };
+    };
+}
+
+pub(crate) use dispatch_simd;

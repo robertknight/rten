@@ -193,7 +193,7 @@ mod tests {
     use std::iter::repeat_with;
     use std::time::Instant;
 
-    use crate::testing::{arange, check_f32s_are_equal, check_with_all_f32s};
+    use crate::testing::{arange, check_f32s_are_equal_ulps, check_with_all_f32s};
     use crate::{exp, vec_exp, vec_exp_in_place, vec_sigmoid};
 
     // Maximum error of `vec_expf` compared to Rust standard library
@@ -242,7 +242,7 @@ mod tests {
             .zip(actual.iter().zip(expected.iter()))
             .map(|(x, (actual, expected))| (*x, *actual, *expected));
 
-        check_f32s_are_equal(results, MAX_EXP_ERROR_ULPS);
+        check_f32s_are_equal_ulps(results, MAX_EXP_ERROR_ULPS);
     }
 
     #[test]
@@ -271,7 +271,7 @@ mod tests {
             .iter()
             .zip(actual.iter().zip(expected.iter()))
             .map(|(x, (actual, expected))| (*x, *actual, *expected));
-        check_f32s_are_equal(results, MAX_SIGMOID_ERROR_ULPS);
+        check_f32s_are_equal_ulps(results, MAX_SIGMOID_ERROR_ULPS);
     }
 
     #[test]

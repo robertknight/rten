@@ -1,6 +1,6 @@
 use std::arch::wasm32::{
-    f32x4_add, f32x4_div, f32x4_ge, f32x4_le, f32x4_lt, f32x4_mul, f32x4_splat, f32x4_sub,
-    i32x4_add, i32x4_gt, i32x4_shl, i32x4_splat, i32x4_sub, i32x4_trunc_sat_f32x4, v128,
+    f32x4_add, f32x4_div, f32x4_ge, f32x4_le, f32x4_lt, f32x4_max, f32x4_mul, f32x4_splat,
+    f32x4_sub, i32x4_add, i32x4_gt, i32x4_shl, i32x4_splat, i32x4_sub, i32x4_trunc_sat_f32x4, v128,
     v128_bitselect, v128_load, v128_store,
 };
 
@@ -101,6 +101,10 @@ impl SimdFloat for v128f {
 
     unsafe fn lt(self, rhs: Self) -> Self {
         Self(f32x4_lt(self.0, rhs.0))
+    }
+
+    unsafe fn max(self, rhs: Self) -> Self {
+        Self(f32x4_max(self.0, rhs.0))
     }
 
     unsafe fn blend(self, rhs: Self, mask: Self) -> Self {

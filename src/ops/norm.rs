@@ -1,5 +1,8 @@
+use rayon::prelude::*;
+
 use wasnn_tensor::prelude::*;
 use wasnn_tensor::{NdTensorView, Tensor, TensorView};
+use wasnn_vecmath::vec_softmax_in_place;
 
 use crate::ops::{resolve_axis, InputList, IntoOpResult, OpError, Operator, Output};
 use crate::slice_reductions::{slice_max, slice_sum};
@@ -230,7 +233,7 @@ pub fn log_softmax(input: TensorView, axis: isize) -> Result<Tensor, OpError> {
 }
 
 /// Apply an operation `op` to all 1D lanes of the tensor along a given axis.
-fn softmax_lanes<F: Fn(&mut [f32])>(
+fn softmax_lanes<F: Fn(&mut [f32]) + Send + Sync>(
     output: &mut Tensor,
     axis: isize,
     apply_op: F,
@@ -255,9 +258,11 @@ fn softmax_lanes<F: Fn(&mut [f32])>(
         output.size(output.ndim() - 1)
     };
 
-    for els in output.data_mut().unwrap().chunks_mut(lane_size) {
-        apply_op(els);
-    }
+    output
+        .data_mut()
+        .unwrap()
+        .par_chunks_mut(lane_size)
+        .for_each(apply_op);
 
     if resolved_axis != output.ndim() - 1 {
         output.move_axis(output.ndim() - 1, resolved_axis);
@@ -327,21 +332,8 @@ pub fn softmax(input: TensorView, axis: isize) -> Result<Tensor, OpError> {
 }
 
 pub fn softmax_in_place(output: &mut Tensor, axis: isize) -> Result<(), OpError> {
-    softmax_lanes(output, axis, |lane| {
-        // Numerically stable softmax. See
-        // https://ogunlao.github.io/2020/04/26/you_dont_really_know_softmax.html.
-        let max_val = slice_max(lane);
-
-        let mut exp_sum = 0.0;
-        for el in lane.iter_mut() {
-            *el = (*el - max_val).exp();
-            exp_sum += *el;
-        }
-
-        for el in lane.iter_mut() {
-            *el /= exp_sum
-        }
-    })
+    softmax_lanes(output, axis, vec_softmax_in_place)?;
+    Ok(())
 }
 
 #[derive(Debug)]

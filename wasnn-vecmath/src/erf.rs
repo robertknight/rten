@@ -71,7 +71,7 @@ pub fn vec_erf_in_place(xs: &mut [f32]) {
 mod tests {
     use super::{erf, vec_erf};
 
-    use crate::testing::{arange, AllF32s, Progress};
+    use crate::testing::{arange, check_f32s_are_equal_atol, triples, AllF32s, Progress};
 
     // Maximum difference between our erf function and `libm::erf` found
     // through an exhaustive test.
@@ -86,22 +86,13 @@ mod tests {
     fn test_erf() {
         // This range is sufficient to cover the regions where the function
         // is not saturated and where it is saturated at +/- 1.
-        let cases: Vec<_> = arange(-6., 6., 0.001f32).collect();
-        let expected: Vec<_> = cases.iter().copied().map(libm::erff).collect();
+        let input: Vec<_> = arange(-6., 6., 0.001f32).collect();
+        let mut actual = vec![0.; input.len()];
+        let expected: Vec<_> = input.iter().copied().map(libm::erff).collect();
 
-        let mut actual = cases.clone();
-        vec_erf(&cases, &mut actual);
+        vec_erf(&input, &mut actual);
 
-        for (x, (actual, expected)) in cases.iter().zip(actual.iter().zip(expected.iter())) {
-            let diff = (actual - expected).abs();
-            assert!(
-                diff <= MAX_EXPECTED_DIFF,
-                "diff {} exceeds expected {} at x = {}",
-                diff,
-                MAX_EXPECTED_DIFF,
-                x
-            );
-        }
+        check_f32s_are_equal_atol(triples(&input, &actual, &expected), MAX_EXPECTED_DIFF);
     }
 
     #[test]

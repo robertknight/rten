@@ -120,15 +120,53 @@ impl<T: Copy + PartialOrd + std::ops::Add<Output = T>> Iterator for ARange<T> {
     }
 }
 
-/// Compare results of an f32 operation from an iterator against
-/// reference results.
+/// Take three slices of equal length and return an iterator over triples of
+/// corresponding elements.
+///
+/// This is a helper for use with other testing methods.
+pub fn triples<'a, T: Copy>(
+    input: &'a [T],
+    actual: &'a [T],
+    expected: &'a [T],
+) -> impl Iterator<Item = (T, T, T)> + 'a {
+    assert!(input.len() == actual.len() && actual.len() == expected.len());
+    input
+        .iter()
+        .zip(actual.iter().zip(expected.iter()))
+        .map(|(x, (actual, expected))| (*x, *actual, *expected))
+}
+
+/// Compare results of an operation on floats against expected results.
+///
+/// `results` is an iterator yielding tuples of `(input, actual, expected)`
+/// values.
+///
+/// `max_diff` specifies the maximum allowed difference between `actual` and
+/// `expected`.
+pub fn check_f32s_are_equal_atol<I: Iterator<Item = (f32, f32, f32)>>(results: I, max_diff: f32) {
+    for (x, actual, expected) in results {
+        let diff = (actual - expected).abs();
+        assert!(
+            diff <= max_diff,
+            "diff {} exceeds expected {} at x = {}",
+            diff,
+            max_diff,
+            x
+        );
+    }
+}
+
+/// Compare results of an operation on floats against expected results.
 ///
 /// `results` is an iterator yielding tuples of `(input, actual, expected)`
 /// values.
 ///
 /// `ulp_threshold` specifies the maximum allowed difference between
 /// `actual` and `expected` in ULPs.
-pub fn check_f32s_are_equal<I: Iterator<Item = (f32, f32, f32)>>(results: I, ulp_threshold: f32) {
+pub fn check_f32s_are_equal_ulps<I: Iterator<Item = (f32, f32, f32)>>(
+    results: I,
+    ulp_threshold: f32,
+) {
     let mut max_diff_ulps = 0.0f32;
     let mut max_diff_x = 0.0f32;
     let mut max_diff_actual = 0.0f32;
@@ -193,5 +231,5 @@ pub fn check_with_all_f32s<F: Fn(f32) -> (f32, f32)>(
         let (actual, expected) = op(x);
         (x, actual, expected)
     });
-    check_f32s_are_equal(Progress::wrap(actual_expected, progress_msg), ulp_threshold);
+    check_f32s_are_equal_ulps(Progress::wrap(actual_expected, progress_msg), ulp_threshold);
 }

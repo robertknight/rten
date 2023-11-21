@@ -3,6 +3,8 @@ pub(crate) mod avx;
 #[cfg(target_arch = "wasm32")]
 pub(crate) mod wasm;
 
+use crate::MAX_LEN;
+
 /// Trait for SIMD vectors containing 32-bit integers.
 ///
 /// All functions in this trait are unsafe due to limitations of Rust's
@@ -126,6 +128,9 @@ pub trait SimdFloat: Copy + Sized {
     /// Compute a mask containing `self < rhs`.
     unsafe fn lt(self, rhs: Self) -> Self;
 
+    /// Compute the maximum of `self` and `rhs`.
+    unsafe fn max(self, rhs: Self) -> Self;
+
     /// Combine elements of `self` and `rhs` according to a mask.
     ///
     /// If the mask bits for an element are off, the corresponding element from
@@ -159,6 +164,15 @@ pub trait SimdFloat: Copy + Sized {
     /// Safety: The caller must ensure `ptr` points to a buffer with space for
     /// at least `Self::LEN` floats.
     unsafe fn store(self, ptr: *mut f32);
+
+    /// Reduce the elements in this vector to a single value using `f`, then
+    /// return a new vector with the accumulated value broadcast to each lane.
+    unsafe fn fold_splat<F: Fn(f32, f32) -> f32>(self, accum: f32, f: F) -> Self {
+        let mut elements = [accum; MAX_LEN];
+        self.store(elements.as_mut_ptr());
+        let reduced = elements.into_iter().fold(accum, f);
+        Self::splat(reduced)
+    }
 }
 
 /// Treat an `i32` as a single-lane SIMD "vector".
@@ -276,6 +290,10 @@ impl SimdFloat for f32 {
         } else {
             0.
         }
+    }
+
+    unsafe fn max(self, rhs: Self) -> Self {
+        f32::max(self, rhs)
     }
 
     unsafe fn blend(self, rhs: Self, mask: Self) -> Self {
