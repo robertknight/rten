@@ -1,8 +1,14 @@
 extern crate libm;
 
+use rayon::prelude::*;
+
 use std::fmt::Debug;
 
+use wasnn_tensor::prelude::*;
 use wasnn_tensor::{Tensor, TensorView, TensorViewMut, View};
+use wasnn_vecmath::{
+    vec_erf, vec_erf_in_place, vec_exp, vec_exp_in_place, vec_sigmoid, vec_sigmoid_in_place,
+};
 
 use crate::number::AsBool;
 use crate::ops::{Input, InputList, IntoOpResult, OpError, Operator, Output};
@@ -127,6 +133,77 @@ macro_rules! unary_float_op {
     };
 }
 
+/// Minimum number of elements in a chunk that is processed on a single thread.
+const CHUNK_SIZE: usize = 32 * 1024;
+
+/// Apply a unary operation in parallel to contiguous slices of `input`.
+fn par_unary_op<T: Copy + Default + Send + Sync, F: Fn(&[T], &mut [T]) + Send + Sync>(
+    input: TensorView<T>,
+    op: F,
+) -> Tensor<T> {
+    let input = input.to_contiguous();
+    let mut output = Tensor::<T>::zeros(input.shape());
+
+    let in_chunks = input.data().unwrap().par_chunks(CHUNK_SIZE);
+    let out_chunks = output.data_mut().unwrap().par_chunks_mut(CHUNK_SIZE);
+    in_chunks
+        .zip(out_chunks)
+        .for_each(|(in_chunk, out_chunk)| op(in_chunk, out_chunk));
+
+    output
+}
+
+/// Apply a unary operation in parallel to contiguous slices of `input`,
+/// writing the results in-place.
+fn par_unary_op_in_place<T: Copy + Send, F: Fn(&mut [T]) + Send + Sync>(
+    input: &mut Tensor<T>,
+    op: F,
+) {
+    input.make_contiguous();
+    input
+        .data_mut()
+        .unwrap()
+        .par_chunks_mut(CHUNK_SIZE)
+        .for_each(op);
+}
+
+/// Define an operator which supports float tensors and is optimize using SIMD
+/// and multithreading.
+macro_rules! parallel_unary_float_op {
+    ($op_name:ident, $func_name:ident, $in_place_func_name:ident, $impl_func_name:ident, $impl_in_place_func_name:ident) => {
+        #[derive(Debug)]
+        pub struct $op_name {}
+
+        impl Operator for $op_name {
+            fn name(&self) -> &str {
+                stringify!($op_name)
+            }
+
+            fn can_run_in_place(&self) -> bool {
+                true
+            }
+
+            fn run(&self, inputs: InputList) -> Result<Vec<Output>, OpError> {
+                $func_name(inputs.require_as(0)?).into_op_result()
+            }
+
+            fn run_in_place(&self, input: Output, _: InputList) -> Result<Output, OpError> {
+                let mut tensor = input.into_float().ok_or(OpError::IncorrectInputType)?;
+                $in_place_func_name(&mut tensor);
+                Ok(tensor.into())
+            }
+        }
+
+        pub fn $func_name(input: TensorView) -> Tensor {
+            par_unary_op(input, $impl_func_name)
+        }
+
+        pub fn $in_place_func_name(input: &mut Tensor) {
+            par_unary_op_in_place(input, $impl_in_place_func_name);
+        }
+    };
+}
+
 pub trait AbsValue {
     fn abs(&self) -> Self;
 }
@@ -155,7 +232,6 @@ unary_numeric_op!(Abs, abs, abs_in_place);
 unary_float_op!(Acos, acos, acos_in_place, |val: f32| val.acos());
 unary_float_op!(Asin, asin, asin_in_place, |val: f32| val.asin());
 unary_float_op!(Atan, atan, atan_in_place, |val: f32| val.atan());
-
 unary_float_op!(Ceil, ceil, ceil_in_place, |val: f32| val.ceil());
 
 /// Numeric value with a finite minimum and maximum and operations to clamp
@@ -273,56 +349,8 @@ impl Operator for Clip {
 }
 
 unary_float_op!(Cos, cos, cos_in_place, |val: f32| val.cos());
-
-/// Evaluate a polynomial using Horner's method.
-///
-/// Computes `x * coeffs[0] + x^2 * coeffs[1] ... x^n * coeffs[N]`.
-fn poly_eval(x: f32, coeffs: &[f32]) -> f32 {
-    let mut y = coeffs[coeffs.len() - 1];
-    for i in (0..coeffs.len() - 1).rev() {
-        y = y * x + coeffs[i];
-    }
-    y * x
-}
-
-/// Fast implementation of error function (erf).
-///
-/// The implementation uses an approximation from Abramowitz and Stegun,
-/// see https://en.wikipedia.org/wiki/Error_function#Approximation_with_elementary_functions.
-fn fast_erf(x: f32) -> f32 {
-    let orig_x = x;
-    let x = x.abs();
-
-    let p = 0.3275911;
-
-    // Values are more precise than f32 allows, but they match the constants
-    // from the source.
-    #[allow(clippy::excessive_precision)]
-    let a = [
-        0.254829592,
-        -0.284496736,
-        1.421413741,
-        -1.453152027,
-        1.061405429,
-    ];
-    let t = 1. / (1. + p * x);
-    let at = poly_eval(t, &a);
-    let x_m2 = -(x * x);
-    let exp_mx2 = x_m2.exp();
-
-    let y = 1. - at * exp_mx2;
-
-    // Approximation is valid only for x >= 0. For negative values approximation
-    // can be computed as -erf(-x).
-    if orig_x < 0. {
-        -y
-    } else {
-        y
-    }
-}
-
-unary_float_op!(Erf, erf, erf_in_place, fast_erf);
-unary_float_op!(Exp, exp, exp_in_place, |val: f32| val.exp());
+parallel_unary_float_op!(Erf, erf, erf_in_place, vec_erf, vec_erf_in_place);
+parallel_unary_float_op!(Exp, exp, exp_in_place, vec_exp, vec_exp_in_place);
 unary_float_op!(Floor, floor, floor_in_place, |val: f32| val.floor());
 
 #[derive(Debug)]
@@ -465,8 +493,14 @@ pub fn round_in_place(x: &mut Tensor) {
     Round {}.apply(x)
 }
 
-unary_float_op!(Sigmoid, sigmoid, sigmoid_in_place, |val: f32| 1.
-    / (1. + (-val).exp()));
+parallel_unary_float_op!(
+    Sigmoid,
+    sigmoid,
+    sigmoid_in_place,
+    vec_sigmoid,
+    vec_sigmoid_in_place
+);
+
 unary_float_op!(Sin, sin, sin_in_place, |val: f32| val.sin());
 unary_float_op!(Sqrt, sqrt, sqrt_in_place, |val: f32| val.sqrt());
 unary_float_op!(Tan, tan, tan_in_place, |val: f32| val.tan());
@@ -480,7 +514,6 @@ mod tests {
     use wasnn_tensor::test_util::{eq_with_nans, expect_equal, expect_equal_with_tolerance};
     use wasnn_tensor::{tensor, RandomSource, Tensor, View};
 
-    use crate::ops::tests::expect_eq_1e4;
     use crate::ops::{
         abs, acos, acos_in_place, asin, asin_in_place, atan, atan_in_place, ceil, clip,
         clip_in_place, cos, cos_in_place, erf, erf_in_place, exp, exp_in_place, floor,
@@ -885,23 +918,18 @@ mod tests {
 
     #[test]
     fn test_sigmoid() -> Result<(), Box<dyn Error>> {
-        let input = Tensor::from_data(
+        let input: Tensor<f32> = Tensor::from_data(
             &[9],
             vec![-500.0, -3.0, -1.0, -0.5, 0.0, 0.5, 1.0, 3.0, 500.0],
         );
-        let expected = Tensor::from_data(
-            &[9],
-            vec![
-                0.0000, 0.0474, 0.2689, 0.3775, 0.5000, 0.6225, 0.7311, 0.9526, 1.0000,
-            ],
-        );
+        let expected = input.map(|x| 1. / (1. + (-x).exp()));
 
         let result = sigmoid(input.view());
-        expect_eq_1e4(&result, &expected)?;
+        expect_equal(&result, &expected)?;
 
         let mut result = input.clone();
         sigmoid_in_place(&mut result);
-        expect_eq_1e4(&result, &expected)?;
+        expect_equal(&result, &expected)?;
 
         Ok(())
     }

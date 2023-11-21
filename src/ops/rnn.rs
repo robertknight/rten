@@ -4,11 +4,12 @@ use std::ops::Range;
 use wasnn_tensor::prelude::*;
 use wasnn_tensor::Matrix;
 use wasnn_tensor::{Tensor, TensorView, TensorViewMut};
+use wasnn_vecmath::sigmoid;
 
 use crate::check_dims;
 use crate::linalg::{GemmExecutor, GemmInputA, GemmInputB};
 use crate::ops::unary_elementwise::UnaryFloatOp;
-use crate::ops::{InputList, IntoOpResult, OpError, Operator, Output, Sigmoid, Tanh};
+use crate::ops::{InputList, IntoOpResult, OpError, Operator, Output, Tanh};
 
 /// Direction that an RNN operator will traverse the input sequence in.
 #[derive(Copy, Clone, Debug)]
@@ -146,10 +147,9 @@ fn compute_rnn_gate(
     matmul(gemm, output.view_mut(), input.nd_view(), input_weight);
     add_matmul(gemm, output.view_mut(), hidden.nd_view(), hidden_weight);
 
-    let sigmoid_op = Sigmoid {};
     let tanh_op = Tanh {};
     let apply_act = |el: f32| match act {
-        Activation::Sigmoid => sigmoid_op.map_element(el),
+        Activation::Sigmoid => sigmoid(el),
         Activation::Tanh => tanh_op.map_element(el),
     };
 

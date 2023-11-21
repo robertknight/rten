@@ -1,0 +1,11 @@
+[package]
+name = "wasnn-vecmath"
+version = "0.1.0"
+edition = "2021"
+
+[dev-dependencies]
+fastrand = "1.9.0"
+libm = "0.2.6"
+
+[lib]
+crate-type = ["lib"]

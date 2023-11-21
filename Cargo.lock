@@ -646,6 +646,7 @@ dependencies = [
  "wasnn-imageproc",
  "wasnn-ocr",
  "wasnn-tensor",
+ "wasnn-vecmath",
 ]
 
 [[package]]
@@ -697,6 +698,14 @@ name = "wasnn-tensor"
 version = "0.1.0"
 dependencies = [
  "smallvec",
+]
+
+[[package]]
+name = "wasnn-vecmath"
+version = "0.1.0"
+dependencies = [
+ "fastrand",
+ "libm",
 ]
 
 [[package]]
