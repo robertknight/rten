@@ -7,7 +7,8 @@ use std::fmt::Debug;
 use wasnn_tensor::prelude::*;
 use wasnn_tensor::{Tensor, TensorView, TensorViewMut, View};
 use wasnn_vecmath::{
-    vec_erf, vec_erf_in_place, vec_exp, vec_exp_in_place, vec_sigmoid, vec_sigmoid_in_place,
+    erf as erf_scalar, exp as exp_scalar, sigmoid as sigmoid_scalar, vec_erf, vec_erf_in_place,
+    vec_exp, vec_exp_in_place, vec_sigmoid, vec_sigmoid_in_place,
 };
 
 use crate::number::AsBool;
@@ -27,7 +28,7 @@ pub trait UnaryFloatOp {
     }
 
     /// Apply the operator to all elements in `input`.
-    fn apply(&self, input: &mut Tensor) {
+    fn apply(&self, mut input: TensorViewMut) {
         input.apply(|val| self.map_element(*val))
     }
 }
@@ -48,7 +49,7 @@ impl<Op: UnaryFloatOp + Debug> Operator for Op {
 
     fn run_in_place(&self, input: Output, _: InputList) -> Result<Output, OpError> {
         let mut output = input.into_float().ok_or(OpError::IncorrectInputType)?;
-        self.apply(&mut output);
+        self.apply(output.view_mut());
         Ok(output.into())
     }
 }
@@ -83,11 +84,11 @@ macro_rules! unary_numeric_op {
             fn run_in_place(&self, input: Output, _: InputList) -> Result<Output, OpError> {
                 match input {
                     Output::FloatTensor(mut input) => {
-                        $mut_impl(&mut input);
+                        $mut_impl(input.view_mut());
                         Ok(input.into())
                     }
                     Output::IntTensor(mut input) => {
-                        $mut_impl(&mut input);
+                        $mut_impl(input.view_mut());
                         Ok(input.into())
                     }
                 }
@@ -102,7 +103,7 @@ macro_rules! unary_float_funcs {
             $name {}.map(input)
         }
 
-        pub fn $in_place_func_name(input: &mut Tensor) {
+        pub fn $in_place_func_name(input: TensorViewMut) {
             $name {}.apply(input)
         }
     };
@@ -155,22 +156,22 @@ fn par_unary_op<T: Copy + Default + Send + Sync, F: Fn(&[T], &mut [T]) + Send + 
 
 /// Apply a unary operation in parallel to contiguous slices of `input`,
 /// writing the results in-place.
-fn par_unary_op_in_place<T: Copy + Send, F: Fn(&mut [T]) + Send + Sync>(
-    input: &mut Tensor<T>,
-    op: F,
+fn par_unary_op_in_place<T: Copy + Send, VF: Fn(&mut [T]) + Send + Sync, SF: Fn(T) -> T>(
+    mut input: TensorViewMut<T>,
+    vec_op: VF,
+    scalar_op: SF,
 ) {
-    input.make_contiguous();
-    input
-        .data_mut()
-        .unwrap()
-        .par_chunks_mut(CHUNK_SIZE)
-        .for_each(op);
+    if let Some(data) = input.data_mut() {
+        data.par_chunks_mut(CHUNK_SIZE).for_each(vec_op);
+    } else {
+        input.apply(|x| scalar_op(*x));
+    }
 }
 
 /// Define an operator which supports float tensors and is optimize using SIMD
 /// and multithreading.
 macro_rules! parallel_unary_float_op {
-    ($op_name:ident, $func_name:ident, $in_place_func_name:ident, $impl_func_name:ident, $impl_in_place_func_name:ident) => {
+    ($op_name:ident, $func_name:ident, $in_place_func_name:ident, $impl_func_name:ident, $impl_in_place_func_name:ident, $impl_scalar_name:ident) => {
         #[derive(Debug)]
         pub struct $op_name {}
 
@@ -189,7 +190,7 @@ macro_rules! parallel_unary_float_op {
 
             fn run_in_place(&self, input: Output, _: InputList) -> Result<Output, OpError> {
                 let mut tensor = input.into_float().ok_or(OpError::IncorrectInputType)?;
-                $in_place_func_name(&mut tensor);
+                $in_place_func_name(tensor.view_mut());
                 Ok(tensor.into())
             }
         }
@@ -198,8 +199,8 @@ macro_rules! parallel_unary_float_op {
             par_unary_op(input, $impl_func_name)
         }
 
-        pub fn $in_place_func_name(input: &mut Tensor) {
-            par_unary_op_in_place(input, $impl_in_place_func_name);
+        pub fn $in_place_func_name(input: TensorViewMut) {
+            par_unary_op_in_place(input, $impl_in_place_func_name, $impl_scalar_name);
         }
     };
 }
@@ -224,7 +225,7 @@ pub fn abs<T: AbsValue>(input: TensorView<T>) -> Tensor<T> {
     input.map(|x| x.abs())
 }
 
-pub fn abs_in_place<T: AbsValue>(input: &mut Tensor<T>) {
+pub fn abs_in_place<T: AbsValue>(mut input: TensorViewMut<T>) {
     input.apply(|x| x.abs())
 }
 
@@ -349,8 +350,22 @@ impl Operator for Clip {
 }
 
 unary_float_op!(Cos, cos, cos_in_place, |val: f32| val.cos());
-parallel_unary_float_op!(Erf, erf, erf_in_place, vec_erf, vec_erf_in_place);
-parallel_unary_float_op!(Exp, exp, exp_in_place, vec_exp, vec_exp_in_place);
+parallel_unary_float_op!(
+    Erf,
+    erf,
+    erf_in_place,
+    vec_erf,
+    vec_erf_in_place,
+    erf_scalar
+);
+parallel_unary_float_op!(
+    Exp,
+    exp,
+    exp_in_place,
+    vec_exp,
+    vec_exp_in_place,
+    exp_scalar
+);
 unary_float_op!(Floor, floor, floor_in_place, |val: f32| val.floor());
 
 #[derive(Debug)]
@@ -373,7 +388,7 @@ pub fn hard_sigmoid(input: TensorView, alpha: f32, beta: f32) -> Tensor {
     HardSigmoid { alpha, beta }.map(input)
 }
 
-pub fn hard_sigmoid_in_place(input: &mut Tensor, alpha: f32, beta: f32) {
+pub fn hard_sigmoid_in_place(input: TensorViewMut, alpha: f32, beta: f32) {
     HardSigmoid { alpha, beta }.apply(input)
 }
 
@@ -398,7 +413,7 @@ pub fn leaky_relu(input: TensorView, alpha: f32) -> Tensor {
     LeakyRelu { alpha }.map(input)
 }
 
-pub fn leaky_relu_in_place(input: &mut Tensor, alpha: f32) {
+pub fn leaky_relu_in_place(input: TensorViewMut, alpha: f32) {
     LeakyRelu { alpha }.apply(input)
 }
 
@@ -427,7 +442,7 @@ pub fn neg<T: Copy + std::ops::Neg<Output = T>>(input: TensorView<T>) -> Tensor<
     input.map(|x| x.neg())
 }
 
-pub fn neg_in_place<T: Copy + std::ops::Neg<Output = T>>(input: &mut Tensor<T>) {
+pub fn neg_in_place<T: Copy + std::ops::Neg<Output = T>>(mut input: TensorViewMut<T>) {
     input.apply(|x| x.neg())
 }
 
@@ -489,7 +504,7 @@ pub fn round(x: TensorView) -> Tensor {
     Round {}.map(x)
 }
 
-pub fn round_in_place(x: &mut Tensor) {
+pub fn round_in_place(x: TensorViewMut) {
     Round {}.apply(x)
 }
 
@@ -498,7 +513,8 @@ parallel_unary_float_op!(
     sigmoid,
     sigmoid_in_place,
     vec_sigmoid,
-    vec_sigmoid_in_place
+    vec_sigmoid_in_place,
+    sigmoid_scalar
 );
 
 unary_float_op!(Sin, sin, sin_in_place, |val: f32| val.sin());
@@ -537,7 +553,7 @@ mod tests {
                 expect_equal(&result, &expected)?;
 
                 let mut input = input.clone();
-                $in_place_op(&mut input);
+                $in_place_op(input.view_mut());
                 expect_equal(&input, &expected)?;
 
                 Ok(())
@@ -715,7 +731,7 @@ mod tests {
             0.5204998778130465,
             0.9953222650189527,
         ]);
-        erf_in_place(&mut input);
+        erf_in_place(input.view_mut());
         expect_equal(&input, &expected)?;
         Ok(())
     }
@@ -743,7 +759,7 @@ mod tests {
             1.6487212707001282,
             7.38905609893065
         ]);
-        exp_in_place(&mut input);
+        exp_in_place(input.view_mut());
         expect_equal(&input, &expected)?;
         Ok(())
     }
@@ -809,7 +825,7 @@ mod tests {
         let mut input = Tensor::from_data(&[2, 2], vec![-5., -2., 3., 20.]);
         let alpha = 0.1;
         let expected = Tensor::from_data(&[2, 2], vec![-5. * alpha, -2. * alpha, 3., 20.]);
-        leaky_relu_in_place(&mut input, alpha);
+        leaky_relu_in_place(input.view_mut(), alpha);
         expect_equal(&input, &expected)?;
         Ok(())
     }
@@ -837,7 +853,7 @@ mod tests {
             0.,
             2.302585092994046
         ]);
-        log_in_place(&mut input);
+        log_in_place(input.view_mut());
         expect_equal(&input, &expected)?;
         Ok(())
     }
@@ -854,7 +870,7 @@ mod tests {
     fn test_neg_in_place() {
         let mut input = tensor!([0, 1, -1, 2]);
         let expected = tensor!([0, -1, 1, -2]);
-        neg_in_place(&mut input);
+        neg_in_place(input.view_mut());
         assert_eq!(input, expected);
     }
 
@@ -891,7 +907,7 @@ mod tests {
         expect_equal(&result, &expected)?;
 
         let mut result = input.clone();
-        relu_in_place(&mut result);
+        relu_in_place(result.view_mut());
         expect_equal(&result, &expected)?;
         Ok(())
     }
@@ -905,7 +921,7 @@ mod tests {
         expect_equal(&result, &expected)?;
 
         let mut input = input.clone();
-        round_in_place(&mut input);
+        round_in_place(input.view_mut());
         expect_equal(&input, &expected)?;
 
         // Per spec, integral, zero, NaN and infinities are unchanged.
@@ -928,7 +944,7 @@ mod tests {
         expect_equal(&result, &expected)?;
 
         let mut result = input.clone();
-        sigmoid_in_place(&mut result);
+        sigmoid_in_place(result.view_mut());
         expect_equal(&result, &expected)?;
 
         Ok(())
@@ -949,7 +965,7 @@ mod tests {
     fn test_sqrt_in_place() -> Result<(), Box<dyn Error>> {
         let mut input = tensor!([4., 9., 16.]);
         let expected = tensor!([2., 3., 4.]);
-        sqrt_in_place(&mut input);
+        sqrt_in_place(input.view_mut());
         expect_equal(&input, &expected)?;
         Ok(())
     }
