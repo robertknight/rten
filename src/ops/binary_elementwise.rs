@@ -2,7 +2,7 @@ use std::fmt::Debug;
 use std::iter::{repeat, zip};
 
 use wasnn_tensor::prelude::*;
-use wasnn_tensor::{Tensor, TensorView};
+use wasnn_tensor::{Tensor, TensorView, TensorViewMut};
 
 use crate::number::{AsBool, Identities, IsInt};
 use crate::ops::{Input, InputList, IntoOpResult, OpError, Operator, Output};
@@ -190,7 +190,7 @@ fn binary_op<T: Copy + Debug, R: Copy + Default, F: Fn(T, T) -> R>(
 ///
 /// This requires that `b` can be broadcast to the shape of `a`.
 fn binary_op_in_place<T: Copy + Debug, F: Fn(T, T) -> T>(
-    a: &mut Tensor<T>,
+    mut a: TensorViewMut<T>,
     b: TensorView<T>,
     op: F,
 ) {
@@ -277,7 +277,7 @@ macro_rules! run_typed_op_in_place {
             Output::FloatTensor(mut a) => {
                 let b = $other.require_as::<f32>(0)?;
                 if can_run_binary_op_in_place(&a, &b) {
-                    $in_place_op_func(&mut a, b.view());
+                    $in_place_op_func(a.view_mut(), b.view());
                     Ok(a.into())
                 } else {
                     $op_func(a.view(), b.view()).map(|t| t.into())
@@ -286,7 +286,7 @@ macro_rules! run_typed_op_in_place {
             Output::IntTensor(mut a) => {
                 let b = $other.require_as::<i32>(0)?;
                 if can_run_binary_op_in_place(&a, &b) {
-                    $in_place_op_func(&mut a, b.view());
+                    $in_place_op_func(a.view_mut(), b.view());
                     Ok(a.into())
                 } else {
                     $op_func(a.view(), b.view()).map(|t| t.into())
@@ -306,7 +306,7 @@ pub fn add<T: Copy + Debug + Default + std::ops::Add<Output = T>>(
 
 /// Perform in-place elementwise addition of two tensors.
 pub fn add_in_place<T: Copy + Debug + std::ops::Add<Output = T>>(
-    a: &mut Tensor<T>,
+    a: TensorViewMut<T>,
     b: TensorView<T>,
 ) {
     binary_op_in_place(a, b, |x, y| x + y);
@@ -404,7 +404,7 @@ pub fn div<
 pub fn div_in_place<
     T: Copy + Debug + std::ops::Mul<Output = T> + std::ops::Div<Output = T> + IsInt + Identities,
 >(
-    a: &mut Tensor<T>,
+    a: TensorViewMut<T>,
     b: TensorView<T>,
 ) {
     match (T::is_int(), b.item()) {
@@ -590,7 +590,7 @@ pub fn mul<T: Copy + Debug + Default + std::ops::Mul<Output = T>>(
 
 /// Perform in-place elementwise multiplication of two tensors.
 pub fn mul_in_place<T: Copy + Debug + std::ops::Mul<Output = T>>(
-    a: &mut Tensor<T>,
+    a: TensorViewMut<T>,
     b: TensorView<T>,
 ) {
     binary_op_in_place(a, b, |a_elt, b_elt| a_elt * b_elt);
@@ -631,7 +631,7 @@ pub fn pow(a: TensorView, b: TensorView) -> Result<Tensor, OpError> {
 }
 
 /// Perform in-place raise of elements of `a` to power of corresponding elements in `b`.
-pub fn pow_in_place(a: &mut Tensor, b: TensorView) {
+pub fn pow_in_place(mut a: TensorViewMut, b: TensorView) {
     if b.item() == Some(&2.0) {
         a.apply(|x| x * x);
     } else {
@@ -662,7 +662,7 @@ impl Operator for Pow {
         let b = other.require_as(0)?;
 
         if can_run_binary_op_in_place(&a, &b) {
-            pow_in_place(&mut a, b.view());
+            pow_in_place(a.view_mut(), b.view());
             Ok(a.into())
         } else {
             pow(a.view(), b.view()).map(|t| t.into())
@@ -680,7 +680,7 @@ pub fn sub<T: Copy + Debug + Default + std::ops::Sub<Output = T>>(
 
 /// Perform in-place elementwise subtraction of two tensors.
 pub fn sub_in_place<T: Copy + Debug + std::ops::Sub<Output = T>>(
-    a: &mut Tensor<T>,
+    a: TensorViewMut<T>,
     b: TensorView<T>,
 ) {
     binary_op_in_place(a, b, |x, y| x - y);
@@ -887,14 +887,14 @@ mod tests {
         let a_copy = a.clone();
         let b = Tensor::from_data(&[2, 2], vec![10., 20., 30., 40.]);
         let expected = Tensor::from_data(&[2, 2], vec![11., 22., 33., 44.]);
-        add_in_place(&mut a, b.view());
+        add_in_place(a.view_mut(), b.view());
         expect_equal(&a, &expected)?;
 
         // In-place addition with int inputs that have the same shape.
         let mut a_ints = Tensor::from_data(&[2, 2], vec![1, 2, 3, 4]);
         let b_ints = Tensor::from_data(&[2, 2], vec![10, 20, 30, 40]);
         let expected_ints = Tensor::from_data(&[2, 2], vec![11, 22, 33, 44]);
-        add_in_place(&mut a_ints, b_ints.view());
+        add_in_place(a_ints.view_mut(), b_ints.view());
         assert_eq!(&a_ints, &expected_ints);
 
         // Run `Add` operator in place with inputs that support in-place addition.
@@ -919,7 +919,7 @@ mod tests {
         let b = tensor!([1., 2.]);
         let expected = Tensor::from_data(&[2, 2], vec![2., 4., 4., 6.]);
 
-        add_in_place(&mut a, b.view());
+        add_in_place(a.view_mut(), b.view());
         expect_equal(&a, &expected)?;
 
         // In-place addition where the second input must be broadcast to the
@@ -930,7 +930,7 @@ mod tests {
         let b = tensor!([1., 2.]);
         let expected = Tensor::from_data(&[2, 2], vec![2., 4., 4., 6.]);
 
-        add_in_place(&mut a, b.view());
+        add_in_place(a.view_mut(), b.view());
         expect_equal(&a, &expected)?;
 
         Ok(())
@@ -998,28 +998,28 @@ mod tests {
         let mut a = Tensor::from_data(&[2, 2], vec![10., 20., 30., 40.]);
         let b = Tensor::from_data(&[2, 2], vec![1., 2., 3., 4.]);
         let expected = Tensor::from_data(&[2, 2], vec![10., 10., 10., 10.]);
-        div_in_place(&mut a, b.view());
+        div_in_place(a.view_mut(), b.view());
         expect_equal(&a, &expected)?;
 
         // Scalar b
         let mut a = Tensor::from_data(&[2, 2], vec![10., 20., 30., 40.]);
         let b = Tensor::from_scalar(10.);
         let expected = Tensor::from_data(&[2, 2], vec![1., 2., 3., 4.]);
-        div_in_place(&mut a, b.view());
+        div_in_place(a.view_mut(), b.view());
         expect_equal(&a, &expected)?;
 
         // Non-scalar a and b ints
         let mut a = tensor!([1, 2, 3, 4]);
         let b = tensor!([2, 2, 2, 2]);
         let expected = tensor!([0, 1, 1, 2]);
-        div_in_place(&mut a, b.view());
+        div_in_place(a.view_mut(), b.view());
         assert_eq!(&a, &expected);
 
         // Scalar b int
         let mut a = tensor!([1, 2, 3, 4]);
         let b = Tensor::from_scalar(2);
         let expected = tensor!([0, 1, 1, 2]);
-        div_in_place(&mut a, b.view());
+        div_in_place(a.view_mut(), b.view());
         assert_eq!(&a, &expected);
 
         Ok(())
@@ -1162,14 +1162,14 @@ mod tests {
         let mut a = Tensor::from_data(&[2, 2], vec![1., 2., 3., 4.]);
         let b = Tensor::from_data(&[2, 2], vec![10., 20., 30., 40.]);
         let expected = Tensor::from_data(&[2, 2], vec![10., 40., 90., 160.]);
-        mul_in_place(&mut a, b.view());
+        mul_in_place(a.view_mut(), b.view());
         expect_equal(&a, &expected)?;
 
         // Int tensor
         let mut a = Tensor::from_data(&[2, 2], vec![1, 2, 3, 4]);
         let b = Tensor::from_data(&[2, 2], vec![10, 20, 30, 40]);
         let expected = Tensor::from_data(&[2, 2], vec![10, 40, 90, 160]);
-        mul_in_place(&mut a, b.view());
+        mul_in_place(a.view_mut(), b.view());
         assert_eq!(&a, &expected);
 
         Ok(())
@@ -1220,7 +1220,7 @@ mod tests {
 
             // In-place variant
             let mut a = case.a.clone();
-            pow_in_place(&mut a, case.b.view());
+            pow_in_place(a.view_mut(), case.b.view());
             expect_equal(&a, &case.expected)?;
         }
 
@@ -1277,14 +1277,14 @@ mod tests {
         let mut a = Tensor::from_data(&[2, 2], vec![10., 20., 30., 40.]);
         let b = Tensor::from_data(&[2, 2], vec![1., 2., 3., 4.]);
         let expected = Tensor::from_data(&[2, 2], vec![9., 18., 27., 36.]);
-        sub_in_place(&mut a, b.view());
+        sub_in_place(a.view_mut(), b.view());
         expect_equal(&a, &expected)?;
 
         // Int tensor
         let mut a = Tensor::from_data(&[2, 2], vec![10, 20, 30, 40]);
         let b = Tensor::from_data(&[2, 2], vec![1, 2, 3, 4]);
         let expected = Tensor::from_data(&[2, 2], vec![9, 18, 27, 36]);
-        sub_in_place(&mut a, b.view());
+        sub_in_place(a.view_mut(), b.view());
         assert_eq!(&a, &expected);
 
         Ok(())
