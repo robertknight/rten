@@ -55,17 +55,18 @@ pub fn vec_softmax_in_place(xs: &mut [f32]) {
 mod tests {
     use super::vec_softmax;
 
-    use crate::testing::{check_f32s_are_equal_atol, triples};
+    use crate::testing::{check_f32s_are_equal_ulps, triples};
 
     #[test]
     fn test_vec_softmax() {
         let input = vec![0.1634, 0.8647, 0.6401, 0.8265, 0.0560, 0.2304];
-        let expected = &[0.1172, 0.2362, 0.1887, 0.2274, 0.1052, 0.1253];
+        let expected = &([
+            0.11715934, 0.23623686, 0.18871443, 0.2273828, 0.10522857, 0.12527795,
+        ]);
         let mut actual = vec![0.; input.len()];
 
         vec_softmax(&input, &mut actual);
 
-        let max_diff = 1e-4;
-        check_f32s_are_equal_atol(triples(&input, &actual, expected), max_diff);
+        check_f32s_are_equal_ulps(triples(&input, &actual, expected), 0. /* max ULPs */);
     }
 }
