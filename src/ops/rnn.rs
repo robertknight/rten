@@ -4,12 +4,12 @@ use std::ops::Range;
 use wasnn_tensor::prelude::*;
 use wasnn_tensor::Matrix;
 use wasnn_tensor::{Tensor, TensorView, TensorViewMut};
-use wasnn_vecmath::sigmoid;
+use wasnn_vecmath::vec_sigmoid_in_place;
 
 use crate::check_dims;
 use crate::linalg::{GemmExecutor, GemmInputA, GemmInputB};
 use crate::ops::unary_elementwise::UnaryFloatOp;
-use crate::ops::{InputList, IntoOpResult, OpError, Operator, Output, Tanh};
+use crate::ops::{add_in_place, InputList, IntoOpResult, OpError, Operator, Output, Tanh};
 
 /// Direction that an RNN operator will traverse the input sequence in.
 #[derive(Copy, Clone, Debug)]
@@ -147,25 +147,20 @@ fn compute_rnn_gate(
     matmul(gemm, output.view_mut(), input.nd_view(), input_weight);
     add_matmul(gemm, output.view_mut(), hidden.nd_view(), hidden_weight);
 
-    let tanh_op = Tanh {};
-    let apply_act = |el: f32| match act {
-        Activation::Sigmoid => sigmoid(el),
-        Activation::Tanh => tanh_op.map_element(el),
-    };
-
     if let Some((in_bias, hidden_bias)) = bias {
-        let hidden_size = output.size(1);
-        assert!(in_bias.len() == hidden_size);
-        assert!(hidden_bias.len() == hidden_size);
+        let in_bias = TensorView::from_data(&[in_bias.len()], in_bias);
+        add_in_place(output.view_mut(), in_bias);
 
-        let combined_bias = zip(in_bias.iter(), hidden_bias.iter())
-            .map(|(ib, hb)| ib + hb)
-            .cycle(); // Cycle to repeat for each item in batch
-        for (el, bias) in zip(output.iter_mut(), combined_bias) {
-            *el = apply_act(*el + bias);
+        let hidden_bias = TensorView::from_data(&[hidden_bias.len()], hidden_bias);
+        add_in_place(output.view_mut(), hidden_bias);
+    }
+
+    match act {
+        Activation::Sigmoid => vec_sigmoid_in_place(output.data_mut().unwrap()),
+        Activation::Tanh => {
+            let tanh_op = Tanh {};
+            output.apply(|x| tanh_op.map_element(*x));
         }
-    } else {
-        output.apply(|x| apply_act(*x));
     }
 }
 
