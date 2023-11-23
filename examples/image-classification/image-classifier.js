@@ -1,4 +1,4 @@
-import { Model, Tensor, TensorList } from "./node_modules/wasnn/index.js";
+import { Model, Tensor } from "./node_modules/wasnn/index.js";
 
 /**
  * Convert an RGB or RGBA image loaded with `loadImage` into an NCHW
@@ -117,9 +117,9 @@ export class ImageClassifier {
       throw new Error("Image size does not match expected size");
     }
 
-    const inputs = TensorList.from([tensorFromImage(image)]);
+    const inputs = [tensorFromImage(image)];
     const outputs = this.model.run(inputIds, inputs, outputIds);
-    const output = outputs.item(0);
+    const output = outputs[0];
 
     // `scores` has shape [1, 1000] where the second dimension are the scores for each
     // ImageNet category.

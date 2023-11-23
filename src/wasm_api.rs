@@ -63,20 +63,20 @@ impl Model {
     pub fn run(
         &self,
         input_ids: &[usize],
-        input: &TensorList,
+        input: Vec<Tensor>,
         output_ids: &[usize],
-    ) -> Result<TensorList, String> {
+    ) -> Result<Vec<Tensor>, String> {
         let inputs: Vec<(usize, Input)> = zip(
             input_ids.iter().copied(),
-            input.tensors.iter().map(|tensor| (&*tensor.data).into()),
+            input.iter().map(|tensor| (&*tensor.data).into()),
         )
         .collect();
         let result = self.model.run(&inputs[..], output_ids, None);
         match result {
             Ok(outputs) => {
-                let mut list = TensorList::new();
+                let mut list = Vec::new();
                 for output in outputs.into_iter() {
-                    list.push(&Tensor::from_output(output));
+                    list.push(Tensor::from_output(output));
                 }
                 Ok(list)
             }
@@ -203,44 +203,5 @@ impl Tensor {
         let b = other.as_float()?;
         let out = matmul(a, b).map_err(|e| e.to_string())?;
         Ok(Tensor::from_output(out.into()))
-    }
-}
-
-/// A list of tensors that can be passed as the input to or received as the
-/// result from a model run.
-///
-/// This custom list class exists because wasm-bindgen does not support passing
-/// or returning arrays of custom structs. The interface of this class is
-/// similar to array-like DOM APIs like `NodeList`. Like `NodeList`, TensorList
-/// is iterable and can be converted to an array using `Array.from` (nb. the
-/// iterator implementation is defined in JS).
-#[wasm_bindgen]
-#[derive(Default)]
-pub struct TensorList {
-    tensors: Vec<Tensor>,
-}
-
-#[wasm_bindgen]
-impl TensorList {
-    #[wasm_bindgen(constructor)]
-    pub fn new() -> TensorList {
-        TensorList {
-            tensors: Vec::new(),
-        }
-    }
-
-    /// Add a new tensor to the end of the list.
-    pub fn push(&mut self, tensor: &Tensor) {
-        self.tensors.push(tensor.clone());
-    }
-
-    /// Return the item at a given index.
-    pub fn item(&self, index: usize) -> Option<Tensor> {
-        self.tensors.get(index).cloned()
-    }
-
-    #[wasm_bindgen(getter)]
-    pub fn length(&self) -> usize {
-        self.tensors.len()
     }
 }

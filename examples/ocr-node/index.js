@@ -25,16 +25,6 @@ async function loadImage(path) {
 }
 
 /**
- * Convert a list-like object returned by the OCR library into an iterator
- * that can be used with `for ... of` or `Array.from`.
- */
-function* listItems(list) {
-  for (let i = 0; i < list.length; i++) {
-    yield list.item(i);
-  }
-}
-
-/**
  * Detect text in an image and return the result as a JSON-serialiable object.
  *
  * @param {OcrEngine} ocrEngine
@@ -42,8 +32,8 @@ function* listItems(list) {
  */
 function detectText(ocrEngine, ocrInput) {
   const detectedLines = ocrEngine.detectText(ocrInput);
-  const lines = Array.from(listItems(detectedLines)).map((line) => {
-    const words = Array.from(listItems(line.words())).map((rect) => {
+  const lines = detectedLines.map((line) => {
+    const words = line.words().map((rect) => {
       return {
         rect: Array.from(rect.boundingRect()),
       };
@@ -67,8 +57,8 @@ function detectText(ocrEngine, ocrInput) {
  */
 function detectAndRecognizeText(ocrEngine, ocrInput) {
   const textLines = ocrEngine.getTextLines(ocrInput);
-  const lines = Array.from(listItems(textLines)).map((line) => {
-    const words = Array.from(listItems(line.words())).map((word) => {
+  const lines = textLines.map((line) => {
+    const words = line.words().map((word) => {
       return {
         text: word.text(),
         rect: Array.from(word.rotatedRect().boundingRect()),
