@@ -9,7 +9,7 @@ use crate::{
 };
 
 /// IterPos tracks the position within a single dimension of an IndexingIter.
-#[derive(Debug)]
+#[derive(Copy, Clone, Debug)]
 struct IterPos {
     /// Steps remaining along this dimension before we reset. Each step
     /// corresponds to advancing one or more indexes either forwards or backwards.
@@ -48,7 +48,7 @@ impl IterPos {
 }
 
 /// Helper for iterating over offsets of elements in a tensor.
-#[derive(Debug)]
+#[derive(Clone, Debug)]
 struct IndexingIterBase {
     /// Remaining elements to visit
     len: usize,
@@ -215,6 +215,7 @@ impl IndexingIterBase {
 }
 
 /// Iterator over elements of a tensor, in their logical order.
+#[derive(Clone)]
 pub struct Iter<'a, T> {
     iter: IterKind<'a, T>,
 }
@@ -223,6 +224,7 @@ pub struct Iter<'a, T> {
 ///
 /// When the tensor has a contiguous layout, this iterator is just a thin
 /// wrapper around a slice iterator.
+#[derive(Clone)]
 enum IterKind<'a, T> {
     Direct(slice::Iter<'a, T>),
     Indexing(IndexingIter<'a, T>),
@@ -287,6 +289,7 @@ impl<'a, T> Iterator for Iter<'a, T> {
 
 impl<'a, T> ExactSizeIterator for Iter<'a, T> {}
 
+#[derive(Clone)]
 struct IndexingIter<'a, T> {
     base: IndexingIterBase,
 
