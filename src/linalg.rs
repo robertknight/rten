@@ -910,7 +910,20 @@ fn depth_block_size(a_cols: usize) -> usize {
 ///
 /// The result is always a multiple of `nr`.
 fn col_block_size(b_cols: usize, nr: usize) -> usize {
-    round_up(1024.min(b_cols), nr)
+    // The GEMM implementation currently only uses thread parallelism over
+    // columns of B, so we divide up "B" accordingly. A lower bound is applied
+    // to avoid creating tiny blocks which would incur a lot of multithreading
+    // overhead, and an upper bound is applied so that the block fits in the
+    // cache (per the general design of the GEMM impl).
+    //
+    // When parallelism is introduced for inner loops of the GEMM in future,
+    // this will need to be revisited.
+    let parallelism = std::thread::available_parallelism()
+        .map(|p| p.into())
+        .unwrap_or(1usize);
+    let lower_bound = 128.min(b_cols);
+    let unrounded = (b_cols / parallelism).max(lower_bound).min(1024);
+    round_up(unrounded, nr)
 }
 
 /// Return the block size for the M / row dimension of a GEMM operation.
