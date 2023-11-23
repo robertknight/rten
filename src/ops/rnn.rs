@@ -3,13 +3,15 @@ use std::ops::Range;
 
 use wasnn_tensor::prelude::*;
 use wasnn_tensor::Matrix;
-use wasnn_tensor::{Tensor, TensorView, TensorViewMut};
-use wasnn_vecmath::vec_sigmoid_in_place;
+use wasnn_tensor::{NdTensorView, Tensor, TensorView, TensorViewMut};
 
 use crate::check_dims;
 use crate::linalg::{GemmExecutor, GemmInputA, GemmInputB};
 use crate::ops::unary_elementwise::UnaryFloatOp;
-use crate::ops::{add_in_place, InputList, IntoOpResult, OpError, Operator, Output, Tanh};
+use crate::ops::{
+    add_in_place, sigmoid_in_place, tanh_in_place, InputList, IntoOpResult, OpError, Operator,
+    Output, Tanh,
+};
 
 /// Direction that an RNN operator will traverse the input sequence in.
 #[derive(Copy, Clone, Debug)]
@@ -142,25 +144,19 @@ fn compute_rnn_gate(
     input_weight: GemmInputB,
     hidden: &TensorView,
     hidden_weight: GemmInputB,
-    bias: Option<(&[f32], &[f32])>,
+    bias: Option<(NdTensorView<f32, 1>, NdTensorView<f32, 1>)>,
 ) {
     matmul(gemm, output.view_mut(), input.nd_view(), input_weight);
     add_matmul(gemm, output.view_mut(), hidden.nd_view(), hidden_weight);
 
     if let Some((in_bias, hidden_bias)) = bias {
-        let in_bias = TensorView::from_data(&[in_bias.len()], in_bias);
-        add_in_place(output.view_mut(), in_bias);
-
-        let hidden_bias = TensorView::from_data(&[hidden_bias.len()], hidden_bias);
-        add_in_place(output.view_mut(), hidden_bias);
+        add_in_place(output.view_mut(), in_bias.as_dyn());
+        add_in_place(output.view_mut(), hidden_bias.as_dyn());
     }
 
     match act {
-        Activation::Sigmoid => vec_sigmoid_in_place(output.data_mut().unwrap()),
-        Activation::Tanh => {
-            let tanh_op = Tanh {};
-            output.apply(|x| tanh_op.map_element(*x));
-        }
+        Activation::Sigmoid => sigmoid_in_place(output),
+        Activation::Tanh => tanh_in_place(output),
     }
 }
 
@@ -198,22 +194,21 @@ fn extract_weights_and_bias<'a>(
     dir: usize,
     num_gates: usize,
     gate_index: usize,
-) -> (Matrix<'a>, Matrix<'a>, Option<(&'a [f32], &'a [f32])>) {
+) -> (
+    Matrix<'a>,
+    Matrix<'a>,
+    Option<(NdTensorView<'a, f32, 1>, NdTensorView<'a, f32, 1>)>,
+) {
     let hidden_size = weights.size(1) / num_gates;
     let weight = extract_matrix(weights, dir, num_gates, gate_index).transposed();
     let rec_weight = extract_matrix(recurrent_weights, dir, num_gates, gate_index).transposed();
     let bias = bias.map(|bias| {
         let nth_gate = |gate_index| (gate_index * hidden_size)..((gate_index + 1) * hidden_size);
-
-        let input_bias = bias.slice((dir, nth_gate(gate_index))).data();
-        let hidden_bias = bias.slice((dir, nth_gate(gate_index + num_gates))).data();
-
-        // TODO - The requirement for the bias to be contiguous should be handled
-        // at a higher level.
-        (
-            input_bias.expect("expected contiguous bias"),
-            hidden_bias.expect("expected contiguous bias"),
-        )
+        let input_bias = bias.slice((dir, nth_gate(gate_index))).nd_view();
+        let hidden_bias = bias
+            .slice((dir, nth_gate(gate_index + num_gates)))
+            .nd_view();
+        (input_bias, hidden_bias)
     });
     (weight, rec_weight, bias)
 }
