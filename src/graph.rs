@@ -6,7 +6,8 @@ use std::iter::zip;
 use rten_tensor::prelude::*;
 use rten_tensor::Tensor;
 
-use crate::ops::{Input, InputList, OpError, Operator, Output};
+use crate::arena::Arena;
+use crate::ops::{ArenaOutput, Input, InputList, OpError, Operator, Output};
 use crate::timer::Timer;
 use crate::timing::{InputShape, RunTiming, TimingRecord, TimingSort};
 
@@ -228,6 +229,38 @@ pub struct RunOptions {
     pub verbose: bool,
 }
 
+/// An intermediate output produced by a graph node.
+enum TempOutput<'a> {
+    Owned(Output),
+
+    /// Output allocated in the arena used for the graph run.
+    Ref(ArenaOutput<'a>),
+}
+
+impl<'a> TempOutput<'a> {
+    fn len(&self) -> usize {
+        match self {
+            TempOutput::Owned(val) => val.len(),
+            TempOutput::Ref(val) => val.len(),
+        }
+    }
+
+    fn shape(&self) -> &[usize] {
+        match self {
+            TempOutput::Owned(val) => val.shape(),
+            TempOutput::Ref(val) => val.shape(),
+        }
+    }
+
+    /// Convert this output into an owned tensor.
+    fn into_output(self) -> Output {
+        match self {
+            TempOutput::Owned(out) => out,
+            TempOutput::Ref(val) => val.to_output(),
+        }
+    }
+}
+
 impl Graph {
     /// Create a new empty dataflow graph.
     pub fn new() -> Graph {
@@ -331,6 +364,8 @@ impl Graph {
         outputs: &[NodeId],
         opts: Option<RunOptions>,
     ) -> Result<Vec<Output>, RunError> {
+        let mut max_output_size = 0;
+
         let plan = self.create_plan(inputs, outputs)?;
         let opts = opts.unwrap_or_default();
 
@@ -367,7 +402,8 @@ impl Graph {
         }
 
         // Execute the plan
-        let mut temp_values: HashMap<NodeId, Output> = HashMap::new();
+        let arena = Arena::new(20 * 1024 * 1024);
+        let mut temp_values: HashMap<NodeId, TempOutput> = HashMap::new();
         let mut op_elapsed: Vec<TimingRecord> = Vec::new();
         let record_timing = opts.timing || opts.verbose;
         let mut alloc_timer = Timer::new();
@@ -416,9 +452,10 @@ impl Graph {
             let in_place_input = in_place_input_id.and_then(|first_input| {
                 if temp_values.contains_key(&first_input)
                     && temp_value_refcount.count(first_input) == 1
+                    && matches!(temp_values.get(&first_input), Some(TempOutput::Owned(_)))
                 {
                     temp_value_refcount.dec(first_input);
-                    Some(temp_values.remove(&first_input).unwrap())
+                    Some(temp_values.remove(&first_input).unwrap().into_output())
                 } else {
                     None
                 }
@@ -436,8 +473,12 @@ impl Graph {
                         op_inputs.push(Some(value.clone()));
                     } else if let Some(value) = temp_values.get(node_id) {
                         let input = match value {
-                            Output::IntTensor(t) => Input::IntTensor(t.view()),
-                            Output::FloatTensor(t) => Input::FloatTensor(t.view()),
+                            TempOutput::Owned(Output::IntTensor(t)) => Input::IntTensor(t.view()),
+                            TempOutput::Owned(Output::FloatTensor(t)) => {
+                                Input::FloatTensor(t.view())
+                            }
+                            TempOutput::Ref(ArenaOutput::Int(t)) => Input::IntTensor(t.view()),
+                            TempOutput::Ref(ArenaOutput::Float(t)) => Input::FloatTensor(t.view()),
                         };
                         op_inputs.push(Some(input));
                     } else {
@@ -467,15 +508,24 @@ impl Graph {
                 Vec::new()
             };
 
-            let op_result = if let Some(input) = in_place_input {
+            let op_result: Result<Vec<TempOutput>, OpError> = if let Some(input) = in_place_input {
                 op_node
                     .operator
                     .run_in_place(input, InputList::from_optional(&op_inputs))
-                    .map(|out| [out].into())
+                    .map(|out| vec![TempOutput::Owned(out)])
             } else {
-                op_node
-                    .operator
-                    .run(InputList::from_optional(&op_inputs[..]))
+                let inputs = InputList::from_optional(&op_inputs[..]);
+                if op_node.operator.supports_arena() {
+                    op_node
+                        .operator
+                        .run_with_arena(inputs, &arena)
+                        .map(|arena_refs| arena_refs.into_iter().map(TempOutput::Ref).collect())
+                } else {
+                    op_node
+                        .operator
+                        .run(inputs)
+                        .map(|outputs| outputs.into_iter().map(TempOutput::Owned).collect())
+                }
             };
 
             if record_timing {
@@ -537,6 +587,8 @@ impl Graph {
             }
 
             for (&output_id, output) in zip(op_node.outputs.iter(), outputs.into_iter()) {
+                max_output_size = max_output_size.max(output.len());
+
                 if let Some(output_id) = output_id {
                     temp_values.insert(output_id, output);
                 }
@@ -566,6 +618,7 @@ impl Graph {
                 total_time: run_timer.elapsed_ms(),
             };
             print!("{}", timing.display(opts.timing_sort, opts.timing_by_shape));
+            println!("Max intermediate output size: {}", max_output_size);
         }
 
         // Return the requested outputs
@@ -580,7 +633,10 @@ impl Graph {
                 } else {
                     // During execution planning we verified that each output
                     // ID is valid and unique, so this should always succeed.
-                    temp_values.remove(output_id).expect("missing output value")
+                    temp_values
+                        .remove(output_id)
+                        .expect("missing output value")
+                        .into_output()
                 }
             })
             .collect();

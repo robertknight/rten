@@ -25,6 +25,7 @@ miri:
 	# - Only the tensor lib is currently tested. Testing the main crate will
 	#   require changes to prevent tests taking too long to run.
 	MIRIFLAGS="-Zmiri-disable-stacked-borrows" cargo +nightly miri test -p rten-tensor
+	cargo +nightly miri test arena
 
 .PHONY: test
 test:

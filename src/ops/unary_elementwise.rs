@@ -3,6 +3,7 @@ extern crate libm;
 use rayon::prelude::*;
 
 use std::fmt::Debug;
+use std::ops::DerefMut;
 
 use rten_tensor::prelude::*;
 use rten_tensor::{Tensor, TensorView, TensorViewMut};
@@ -12,8 +13,9 @@ use rten_vecmath::{
     vec_tanh_in_place,
 };
 
+use crate::arena::Arena;
 use crate::number::AsBool;
-use crate::ops::{Input, InputList, IntoOpResult, OpError, Operator, Output};
+use crate::ops::{ArenaOutput, Input, InputList, IntoOpResult, OpError, Operator, Output};
 
 /// Trait for operators which take a single float tensor and apply a function
 /// to each element.
@@ -141,18 +143,18 @@ const CHUNK_SIZE: usize = 32 * 1024;
 /// Apply a unary operation in parallel to contiguous slices of `input`.
 fn par_unary_op<T: Copy + Default + Send + Sync, F: Fn(&[T], &mut [T]) + Send + Sync>(
     input: TensorView<T>,
+    output: &mut TensorViewMut<T>,
     op: F,
-) -> Tensor<T> {
-    let input = input.to_contiguous();
-    let mut output = Tensor::<T>::zeros(input.shape());
+) {
+    assert!(output.is_contiguous());
+    assert_eq!(output.shape(), input.shape());
 
+    let input = input.to_contiguous();
     let in_chunks = input.data().unwrap().par_chunks(CHUNK_SIZE);
     let out_chunks = output.data_mut().unwrap().par_chunks_mut(CHUNK_SIZE);
     in_chunks
         .zip(out_chunks)
         .for_each(|(in_chunk, out_chunk)| op(in_chunk, out_chunk));
-
-    output
 }
 
 /// Apply a unary operation in parallel to contiguous slices of `input`,
@@ -189,6 +191,19 @@ macro_rules! parallel_unary_float_op {
                 $func_name(inputs.require_as(0)?).into_op_result()
             }
 
+            fn run_with_arena<'a>(
+                &self,
+                inputs: InputList,
+                arena: &'a Arena,
+            ) -> Result<Vec<ArenaOutput<'a>>, OpError> {
+                let input = inputs.require_as(0)?;
+                let mut output = arena
+                    .alloc_uninit(input.shape())
+                    .expect("arena alloc failed");
+                par_unary_op(input, output.deref_mut(), $impl_func_name);
+                Ok(vec![ArenaOutput::Float(output)])
+            }
+
             fn run_in_place(&self, input: Output, _: InputList) -> Result<Output, OpError> {
                 let mut tensor = input.into_float().ok_or(OpError::IncorrectInputType)?;
                 $in_place_func_name(tensor.view_mut());
@@ -197,7 +212,9 @@ macro_rules! parallel_unary_float_op {
         }
 
         pub fn $func_name(input: TensorView) -> Tensor {
-            par_unary_op(input, $impl_func_name)
+            let mut output = Tensor::zeros(input.shape());
+            par_unary_op(input, &mut output.view_mut(), $impl_func_name);
+            output
         }
 
         pub fn $in_place_func_name(input: TensorViewMut) {
