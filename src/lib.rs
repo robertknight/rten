@@ -28,6 +28,7 @@
 #[allow(unused)] // Docs only
 use rten_tensor::{NdTensor, Tensor};
 
+mod arena;
 mod gemm;
 mod graph;
 mod iter_util;

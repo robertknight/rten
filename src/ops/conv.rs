@@ -1,19 +1,20 @@
 use std::iter::zip;
 
-use std::ops::Range;
+use std::ops::{DerefMut, Range};
 
 use rayon::prelude::*;
 use rten_tensor::prelude::*;
-use rten_tensor::{NdTensorView, NdTensorViewMut, Tensor, TensorView};
+use rten_tensor::{NdTensorView, NdTensorViewMut, Tensor, TensorView, TensorViewMut};
 use smallvec::SmallVec;
 
+use crate::arena::Arena;
 use crate::check_dims;
 use crate::gemm::{
     add_scaled_vector, div_ceil, gemm, round_up, GemmExecutor, GemmInputA, GemmInputB,
     VirtualMatrix,
 };
 use crate::ops::pooling::calc_output_size_and_padding;
-use crate::ops::{InputList, IntoOpResult, OpError, Operator, Output, Padding};
+use crate::ops::{ArenaOutput, InputList, IntoOpResult, OpError, Operator, Output, Padding};
 
 // Calculate the min and max output X coordinates that are valid when updating
 // a row of convolution output using a loop:
@@ -182,13 +183,15 @@ fn init_tensor_with_channel_bias(
 /// Specialization of conv_2d for pointwise convolutions over one image. This
 /// can be reduced to tensor reshaping and matrix multiplication.
 fn conv_2d_pointwise(
+    output: &mut TensorViewMut<f32>,
     input: &NdTensorView<f32, 4>,
     kernel: &NdTensorView<f32, 4>,
     bias: Option<NdTensorView<f32, 1>>,
-) -> Tensor {
+) {
     let [batch, _, in_h, in_w]: [usize; 4] = input.shape();
     let [out_c, in_c, _, _]: [usize; 4] = kernel.shape();
-    let mut output = Tensor::zeros(&[batch, out_c, in_h * in_w]);
+
+    let mut output = output.reshaped_mut(&[batch, out_c, in_h * in_w]);
 
     // Get input and kernel as contiguous tensors so we can create reshaped
     // views.
@@ -217,10 +220,6 @@ fn conv_2d_pointwise(
             bias.as_ref().map(|b| b.data().unwrap()),
         );
     }
-
-    output.reshape(&[batch, out_c, in_h, in_w]);
-
-    output
 }
 
 /// Specialization of conv_2d for depthwise convolutions.
@@ -229,6 +228,7 @@ fn conv_2d_pointwise(
 /// a time and hence the transformation of convolution to matrix multiplication
 /// doesn't pay off. An optimized direct method works better.
 fn conv_2d_depthwise(
+    output: &mut TensorViewMut<f32>,
     input: &NdTensorView<f32, 4>,
     kernel: &NdTensorView<f32, 4>,
     bias: Option<NdTensorView<f32, 1>>,
@@ -236,7 +236,7 @@ fn conv_2d_depthwise(
     strides: [usize; 2],
     dilations: [usize; 2],
     out_hw: [usize; 2],
-) -> Tensor {
+) {
     let [batch, in_c, in_h, in_w]: [usize; 4] = input.shape();
     let [out_c, _, k_h, k_w]: [usize; 4] = kernel.shape();
     let [pad_top, pad_left, _pad_bottom, _pad_right] = padding;
@@ -244,11 +244,12 @@ fn conv_2d_depthwise(
     let [dilation_y, dilation_x] = dilations;
     let [out_h, out_w] = out_hw;
 
-    let mut output = if let Some(bias) = bias {
-        init_tensor_with_channel_bias(&[batch, out_c, out_h, out_w], 1, &bias)
-    } else {
-        Tensor::zeros(&[batch, out_c, out_h, out_w])
-    };
+    if let Some(bias) = bias {
+        assert!(out_c == bias.len());
+        for (chan, chan_bias) in bias.iter().enumerate() {
+            output.slice_mut((.., chan, .., ..)).apply(|_| *chan_bias);
+        }
+    }
 
     // Use of input rows below assumes contiguous last dimension.
     let input = input.to_contiguous();
@@ -317,8 +318,61 @@ fn conv_2d_depthwise(
             }
         }
     }
+}
 
-    output
+fn conv_output_shape(
+    input: TensorView,
+    kernel: TensorView,
+    padding: Padding,
+    strides: &[usize],
+    dilations: &[usize],
+) -> Result<Vec<usize>, OpError> {
+    let [batch, _in_c, in_h, in_w] = check_dims!(input, 4, "NCHW");
+    let [out_c, _k_in_c, k_h, k_w] = check_dims!(kernel, 4, "OCHW");
+    let [stride_y, stride_x]: [usize; 2] = strides
+        .try_into()
+        .map_err(|_| OpError::InvalidValue("expected 2 stride values"))?;
+    let [dilation_y, dilation_x]: [usize; 2] = dilations
+        .try_into()
+        .map_err(|_| OpError::InvalidValue("expected 2 dilation values"))?;
+    let (out_h, out_w, _fixed_padding) = calc_output_size_and_padding(
+        (in_h, in_w),
+        (k_h, k_w),
+        (stride_y, stride_x),
+        padding,
+        Some((dilation_y, dilation_x)),
+    )?;
+    Ok(vec![batch, out_c, out_h, out_w])
+}
+
+pub fn conv(
+    input: TensorView,
+    kernel: TensorView,
+    bias: Option<TensorView>,
+    padding: Padding,
+    groups: usize,
+    strides: &[usize],
+    dilations: &[usize],
+) -> Result<Tensor, OpError> {
+    let out_shape = conv_output_shape(
+        input.view(),
+        kernel.view(),
+        padding.clone(),
+        strides,
+        dilations,
+    )?;
+    let mut output = Tensor::zeros(&out_shape);
+    conv_into(
+        &mut output.view_mut(),
+        input,
+        kernel,
+        bias,
+        padding,
+        groups,
+        strides,
+        dilations,
+    )?;
+    Ok(output)
 }
 
 /// Perform a convolution of `input` with `kernel`.
@@ -337,7 +391,8 @@ fn conv_2d_depthwise(
 ///   A value equal to the input channel count convolves each input channel
 ///   separately with `output_channels / groups` outputs. This is known as
 ///   depthwise convolution.
-pub fn conv(
+pub fn conv_into(
+    output: &mut TensorViewMut,
     input: TensorView,
     kernel: TensorView,
     bias: Option<TensorView>,
@@ -345,7 +400,7 @@ pub fn conv(
     groups: usize,
     strides: &[usize],
     dilations: &[usize],
-) -> Result<Tensor, OpError> {
+) -> Result<(), OpError> {
     // Handle 1D convolution by expanding to 2D and then removing the extra
     // dimension from the result.
     if input.ndim() == 3 {
@@ -382,6 +437,7 @@ pub fn conv(
             }
         };
 
+        // TODO - Get 1D convs working again.
         let result_2d = conv(
             input_2d,
             kernel_2d,
@@ -392,11 +448,12 @@ pub fn conv(
             &dilations_2d,
         );
 
-        return result_2d.map(|mut t| {
-            let [n, c, _h, w]: [usize; 4] = t.shape().try_into().expect("expected 4D output");
-            t.reshape(&[n, c, w]);
-            t
-        });
+        // return result_2d.map(|mut t| {
+        //     let [n, c, _h, w]: [usize; 4] = t.shape().try_into().expect("expected 4D output");
+        //     t.reshape(&[n, c, w]);
+        //     t
+        // });
+        return Ok(());
     }
 
     let [batch, in_c, in_h, in_w] = check_dims!(input, 4, "NCHW");
@@ -434,11 +491,13 @@ pub fn conv(
         && dilation_y == 1
         && dilation_x == 1
     {
-        return Ok(conv_2d_pointwise(
+        conv_2d_pointwise(
+            output,
             &input.nd_view(),
             &kernel.nd_view(),
             bias.as_ref().map(|b| b.nd_view()),
-        ));
+        );
+        return Ok(());
     }
 
     let out_channels_per_group = out_c / groups;
@@ -457,7 +516,8 @@ pub fn conv(
     }
 
     if in_c == out_c && groups == in_c {
-        return Ok(conv_2d_depthwise(
+        conv_2d_depthwise(
+            output,
             &input.nd_view(),
             &kernel.nd_view(),
             bias.map(|b| b.nd_view()),
@@ -465,11 +525,12 @@ pub fn conv(
             [stride_y, stride_x],
             [dilation_y, dilation_x],
             [out_h, out_w],
-        ));
+        );
+        return Ok(());
     }
 
     let n_patches = out_h * out_w;
-    let mut output = Tensor::zeros(&[batch, out_c, n_patches]);
+    let mut output = output.reshaped_mut(&[batch, out_c, n_patches]);
     let gemm = GemmExecutor::new();
 
     // Bias must be contiguous for use with `gemm_bias`.
@@ -516,9 +577,7 @@ pub fn conv(
             });
     }
 
-    output.reshape(&[batch, out_c, out_h, out_w]);
-
-    Ok(output)
+    Ok(())
 }
 
 #[derive(Debug)]
@@ -548,6 +607,39 @@ impl Operator for Conv {
             &self.dilations,
         )
         .into_op_result()
+    }
+
+    fn supports_arena(&self) -> bool {
+        true
+    }
+
+    fn run_with_arena<'a>(
+        &self,
+        inputs: InputList,
+        arena: &'a Arena,
+    ) -> Result<Vec<ArenaOutput<'a>>, OpError> {
+        let input = inputs.require_as(0)?;
+        let weight = inputs.require_as(1)?;
+        let bias = inputs.get_as(2)?;
+        let out_shape = conv_output_shape(
+            input.view(),
+            weight.view(),
+            self.padding.clone(),
+            &self.strides,
+            &self.dilations,
+        )?;
+        let mut output = arena.alloc_zeros(&out_shape).expect("alloc failed");
+        conv_into(
+            output.deref_mut(),
+            input,
+            weight,
+            bias,
+            self.padding.clone(),
+            self.groups,
+            &self.strides,
+            &self.dilations,
+        )?;
+        Ok(vec![ArenaOutput::Float(output)])
     }
 }
 

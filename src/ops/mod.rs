@@ -21,6 +21,8 @@ use smallvec::SmallVec;
 use rten_tensor::prelude::*;
 use rten_tensor::{DynLayout, NdTensor, NdTensorView, Tensor, TensorView};
 
+use crate::arena::{Arena, ArenaRef};
+
 mod binary_elementwise;
 mod concat;
 mod conv;
@@ -145,45 +147,53 @@ impl<'a> Input<'a> {
     }
 }
 
+/// Implement methods of the [Layout] trait on a type that has a
+/// `fn layout() -> impl Layout` method.
+macro_rules! impl_layout_methods {
+    () => {
+        fn ndim(&self) -> usize {
+            self.layout().ndim()
+        }
+
+        fn try_offset(&self, index: Self::Index<'_>) -> Option<usize> {
+            self.layout().try_offset(index)
+        }
+
+        fn len(&self) -> usize {
+            self.layout().len()
+        }
+
+        fn is_empty(&self) -> bool {
+            self.layout().is_empty()
+        }
+
+        fn shape(&self) -> Self::Index<'_> {
+            self.layout().shape()
+        }
+
+        fn size(&self, dim: usize) -> usize {
+            self.layout().size(dim)
+        }
+
+        fn strides(&self) -> Self::Index<'_> {
+            self.layout().strides()
+        }
+
+        fn stride(&self, dim: usize) -> usize {
+            self.layout().stride(dim)
+        }
+
+        fn indices(&self) -> Self::Indices {
+            self.layout().indices()
+        }
+    };
+}
+
 impl<'a> Layout for Input<'a> {
     type Index<'b> = <DynLayout as Layout>::Index<'b>;
     type Indices = <DynLayout as Layout>::Indices;
 
-    fn ndim(&self) -> usize {
-        self.layout().ndim()
-    }
-
-    fn try_offset(&self, index: Self::Index<'_>) -> Option<usize> {
-        self.layout().try_offset(index)
-    }
-
-    fn len(&self) -> usize {
-        self.layout().len()
-    }
-
-    fn is_empty(&self) -> bool {
-        self.layout().is_empty()
-    }
-
-    fn shape(&self) -> Self::Index<'_> {
-        self.layout().shape()
-    }
-
-    fn size(&self, dim: usize) -> usize {
-        self.layout().size(dim)
-    }
-
-    fn strides(&self) -> Self::Index<'_> {
-        self.layout().strides()
-    }
-
-    fn stride(&self, dim: usize) -> usize {
-        self.layout().stride(dim)
-    }
-
-    fn indices(&self) -> Self::Indices {
-        self.layout().indices()
-    }
+    impl_layout_methods!();
 }
 
 impl<'a> TryFrom<Input<'a>> for TensorView<'a, f32> {
@@ -266,7 +276,7 @@ impl<'a> From<&'a Output> for Input<'a> {
     }
 }
 
-/// Enum of the different types of output tensor that an operator can produce.
+/// Enum of different types of owned tensor that an operator can produce.
 #[derive(Debug, Clone, PartialEq)]
 pub enum Output {
     FloatTensor(Tensor<f32>),
@@ -318,41 +328,7 @@ impl Layout for Output {
     type Index<'a> = <DynLayout as Layout>::Index<'a>;
     type Indices = <DynLayout as Layout>::Indices;
 
-    fn ndim(&self) -> usize {
-        self.layout().ndim()
-    }
-
-    fn try_offset(&self, index: Self::Index<'_>) -> Option<usize> {
-        self.layout().try_offset(index)
-    }
-
-    fn len(&self) -> usize {
-        self.layout().len()
-    }
-
-    fn is_empty(&self) -> bool {
-        self.layout().is_empty()
-    }
-
-    fn shape(&self) -> Self::Index<'_> {
-        self.layout().shape()
-    }
-
-    fn size(&self, dim: usize) -> usize {
-        self.layout().size(dim)
-    }
-
-    fn strides(&self) -> Self::Index<'_> {
-        self.layout().strides()
-    }
-
-    fn stride(&self, dim: usize) -> usize {
-        self.layout().stride(dim)
-    }
-
-    fn indices(&self) -> Self::Indices {
-        self.layout().indices()
-    }
+    impl_layout_methods!();
 }
 
 /// Declare conversions between `Output` and `Tensor<T>` / `NdTensor<T, N>`.
@@ -413,6 +389,36 @@ macro_rules! impl_output_conversions {
 
 impl_output_conversions!(FloatTensor, f32);
 impl_output_conversions!(IntTensor, i32);
+
+/// Enum of different types of [Arena](crate::arena::Arena)-allocated output
+/// that an operator can produce.
+pub enum ArenaOutput<'a> {
+    Int(ArenaRef<'a, i32>),
+    Float(ArenaRef<'a, f32>),
+}
+
+impl<'a> ArenaOutput<'a> {
+    pub fn to_output(&self) -> Output {
+        match self {
+            ArenaOutput::Int(val) => Output::IntTensor(val.to_tensor()),
+            ArenaOutput::Float(val) => Output::FloatTensor(val.to_tensor()),
+        }
+    }
+
+    fn layout(&self) -> &DynLayout {
+        match self {
+            ArenaOutput::Float(view) => view.layout(),
+            ArenaOutput::Int(view) => view.layout(),
+        }
+    }
+}
+
+impl<'a> Layout for ArenaOutput<'a> {
+    type Index<'b> = <DynLayout as Layout>::Index<'b> where Self: 'b;
+    type Indices = <DynLayout as Layout>::Indices;
+
+    impl_layout_methods!();
+}
 
 /// Trait for values that can be converted into the result type used by
 /// `Operator::run`.
@@ -628,6 +634,21 @@ pub trait Operator: Debug {
     /// Execute the operator with the given inputs.
     fn run(&self, input: InputList) -> Result<Vec<Output>, OpError>;
 
+    /// Return true if this operator supports `run_with_arena`.
+    fn supports_arena(&self) -> bool {
+        false
+    }
+
+    /// Execute the operator with the given inputs, and use `arena` to allocate
+    /// output buffers.
+    fn run_with_arena<'a>(
+        &self,
+        _input: InputList,
+        _arena: &'a Arena,
+    ) -> Result<Vec<ArenaOutput<'a>>, OpError> {
+        Err(OpError::InvalidValue("arenas not supported"))
+    }
+
     /// Return true if this operator supports in-place execution via
     /// `run_in_place`.
     ///
@@ -666,6 +687,7 @@ pub trait Operator: Debug {
 ///
 /// An InputList can be constructed from a tensor reference or tuple of tensor
 /// references using `into`.
+#[derive(Clone)]
 pub struct InputList<'a> {
     inputs: Vec<Option<Input<'a>>>,
 }
