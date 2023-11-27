@@ -808,6 +808,20 @@ impl<T> Tensor<T> {
         }
     }
 
+    /// Create a new tensor filled with a given value.
+    pub fn full(shape: &[usize], value: T) -> Tensor<T>
+    where
+        T: Clone,
+    {
+        let n_elts = shape.iter().product();
+        let data = vec![value; n_elts];
+        Tensor {
+            data,
+            layout: DynLayout::new(shape),
+            element_type: PhantomData,
+        }
+    }
+
     /// Create a new tensor filled with random numbers from a given source.
     pub fn rand<R: RandomSource<T>>(shape: &[usize], rand_src: &mut R) -> Tensor<T>
     where
@@ -1277,6 +1291,13 @@ mod tests {
         let x = tensor!([1, 2, 3]);
         assert_eq!(x.shape(), &[3]);
         assert_eq!(x.data(), Some([1, 2, 3].as_slice()));
+    }
+
+    #[test]
+    fn test_full() {
+        let x = Tensor::full(&[2, 2], 1.0);
+        assert_eq!(x.shape(), &[2, 2]);
+        assert_eq!(x.data(), Some([1., 1., 1., 1.].as_slice()));
     }
 
     #[test]
