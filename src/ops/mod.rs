@@ -704,7 +704,7 @@ impl<'a> InputList<'a> {
     ///
     /// If the InputList was constructed with `from_optional`, this will skip
     /// over any missing inputs.
-    pub fn iter(&'a self) -> impl Iterator<Item = Input<'a>> + 'a {
+    pub fn iter<'b>(&'b self) -> impl Iterator<Item = Input<'a>> + 'b {
         self.inputs.iter().filter_map(|inp| inp.clone())
     }
 }
