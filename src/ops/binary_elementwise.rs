@@ -5,7 +5,9 @@ use rten_tensor::prelude::*;
 use rten_tensor::{Tensor, TensorView, TensorViewMut};
 
 use crate::number::{AsBool, Identities, IsInt};
-use crate::ops::{Input, InputList, IntoOpResult, OpError, Operator, Output};
+use crate::ops::{
+    Arena, ArenaOutput, ArenaRef, Input, InputList, IntoOpResult, OpError, Operator, Output,
+};
 
 /// Given the shapes of two inputs to a binary operation, return the shape
 /// that will result from broadcasting them following NumPy rules or `None`
@@ -286,6 +288,24 @@ macro_rules! run_typed_op {
             Input::IntTensor(a) => {
                 let b = $inputs.require_as::<i32>(1)?;
                 $op_func(a, b).into_op_result()
+            }
+        }
+    }};
+}
+
+macro_rules! run_typed_op_arena {
+    ($inputs:expr, $op_func:ident, $arena:ident) => {{
+        let a = $inputs.require(0)?;
+        match a {
+            Input::FloatTensor(a) => {
+                let b = $inputs.require_as::<f32>(1)?;
+                let out = $op_func(a.view(), b.view(), $arena)?;
+                Ok(vec![ArenaOutput::Float(out)])
+            }
+            Input::IntTensor(a) => {
+                let b = $inputs.require_as::<i32>(1)?;
+                let out = $op_func(a.view(), b.view(), $arena)?;
+                Ok(vec![ArenaOutput::Int(out)])
             }
         }
     }};
@@ -611,6 +631,14 @@ pub fn mul<T: Copy + Debug + Default + std::ops::Mul<Output = T>>(
     binary_commutative_op(a, b, |x, y| x * y)
 }
 
+fn mul_arena<'a, T: Copy + Debug + Default + std::ops::Mul<Output = T>>(
+    a: TensorView<T>,
+    b: TensorView<T>,
+    arena: &'a Arena,
+) -> Result<ArenaRef<'a, T>, OpError> {
+    todo!("implement mul_arena")
+}
+
 /// Perform in-place elementwise multiplication of two tensors.
 pub fn mul_in_place<T: Copy + Debug + std::ops::Mul<Output = T>>(
     a: TensorViewMut<T>,
@@ -629,6 +657,14 @@ impl Operator for Mul {
 
     fn run(&self, inputs: InputList) -> Result<Vec<Output>, OpError> {
         run_typed_op!(inputs, mul)
+    }
+
+    fn run_with_arena<'a>(
+        &self,
+        inputs: InputList,
+        arena: &'a Arena,
+    ) -> Result<Vec<ArenaOutput<'a>>, OpError> {
+        run_typed_op_arena!(inputs, mul_arena, arena)
     }
 
     fn can_run_in_place(&self) -> bool {
