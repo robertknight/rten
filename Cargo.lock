@@ -643,6 +643,16 @@ dependencies = [
 ]
 
 [[package]]
+name = "wasnn-cli"
+version = "0.1.0"
+dependencies = [
+ "fastrand",
+ "lexopt",
+ "wasnn",
+ "wasnn-tensor",
+]
+
+[[package]]
 name = "wasnn-imageio"
 version = "0.1.0"
 dependencies = [
