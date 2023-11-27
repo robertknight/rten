@@ -51,9 +51,28 @@ impl<'a, T: Copy> TensorChunks<'a, T> {
             ChunkSource::Iter(ref mut it) => dest.extend(it.by_ref().take(self.chunk_size)),
         }
     }
+
+    /// Add the next chunk of elements from this tensor to `dest`.
+    ///
+    /// The length of `dest` must be `self.chunk_size`.
+    fn append_next_chunk_to_slice(&mut self, dest: &mut [T]) {
+        match self.source {
+            ChunkSource::Slice(ref mut it) => {
+                // Take advantage of `Vec::extend`'s fast path for slices.
+                let (start, end) = it.split_at(self.chunk_size);
+                *it = end;
+                dest.copy_from_slice(start);
+            }
+            ChunkSource::Iter(ref mut it) => {
+                for (out, inp) in dest.iter_mut().zip(it.by_ref().take(self.chunk_size)) {
+                    *out = *inp;
+                }
+            }
+        }
+    }
 }
 
-fn concat_shape(inputs: &[TensorView<T>], axis: isize) -> Result<Vec<usize>, OpError> {
+fn concat_shape<T>(inputs: &[TensorView<T>], axis: isize) -> Result<Vec<usize>, OpError> {
     let first_shape = inputs[0].shape();
     let axis = resolve_axis(first_shape.len(), axis)?;
 
@@ -92,6 +111,7 @@ fn concat_arena<'a, T: Copy>(
     let mut output = arena
         .alloc_uninit(&out_shape)
         .ok_or(OpError::ExecutionError("alloc failed"))?;
+    let mut remaining_out = output.data_mut().unwrap();
 
     let mut input_iters: Vec<TensorChunks<'_, T>> = inputs
         .iter()
@@ -100,7 +120,9 @@ fn concat_arena<'a, T: Copy>(
 
     while input_iters.iter().any(|it| it.remaining_len() > 0) {
         for iter in input_iters.iter_mut() {
-            iter.append_next_chunk(&mut out_data);
+            let (next, remainder) = remaining_out.split_at_mut(iter.chunk_size);
+            remaining_out = remainder;
+            iter.append_next_chunk_to_slice(next);
         }
     }
 
