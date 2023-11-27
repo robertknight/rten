@@ -199,7 +199,7 @@ macro_rules! parallel_unary_float_op {
                 let input = inputs.require_as(0)?;
                 let mut output = arena
                     .alloc_uninit(input.shape())
-                    .expect("arena alloc failed");
+                    .ok_or(OpError::ExecutionError("alloc failed"))?;
                 par_unary_op(input, output.deref_mut(), $impl_func_name);
                 Ok(vec![ArenaOutput::Float(output)])
             }
