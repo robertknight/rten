@@ -498,11 +498,16 @@ pub enum OpError {
 
     /// An input or attribute has a value that is valid, but not currently supported.
     UnsupportedValue(&'static str),
+
+    /// Inputs are valid, but an error occurred during execution. For example
+    /// a memory allocation error.
+    ExecutionError(&'static str),
 }
 
 impl Display for OpError {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
+            OpError::ExecutionError(details) => write!(f, "execution error: {}", details),
             OpError::IncorrectInputType => write!(f, "incorrect or unsupported input type"),
             OpError::IncorrectOutputType => write!(f, "output type mismatch"),
             OpError::IncompatibleInputShapes(details) => {

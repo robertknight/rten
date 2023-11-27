@@ -1,7 +1,10 @@
 use rten_tensor::prelude::*;
 use rten_tensor::{Iter, NdTensorView, Tensor, TensorView};
 
-use crate::ops::{resolve_axis, Input, InputList, IntoOpResult, OpError, Operator, Output};
+use crate::ops::{
+    resolve_axis, Arena, ArenaOutput, ArenaRef, Input, InputList, IntoOpResult, OpError, Operator,
+    Output,
+};
 use crate::static_dims;
 
 enum ChunkSource<'a, T: Copy> {
@@ -50,7 +53,7 @@ impl<'a, T: Copy> TensorChunks<'a, T> {
     }
 }
 
-pub fn concat<T: Copy>(inputs: &[TensorView<T>], axis: isize) -> Result<Tensor<T>, OpError> {
+fn concat_shape(inputs: &[TensorView<T>], axis: isize) -> Result<Vec<usize>, OpError> {
     let first_shape = inputs[0].shape();
     let axis = resolve_axis(first_shape.len(), axis)?;
 
@@ -74,6 +77,40 @@ pub fn concat<T: Copy>(inputs: &[TensorView<T>], axis: isize) -> Result<Tensor<T
     for other in &inputs[1..] {
         out_shape[axis] += other.size(axis);
     }
+    Ok(out_shape)
+}
+
+fn concat_arena<'a, T: Copy>(
+    inputs: &[TensorView<T>],
+    axis: isize,
+    arena: &'a Arena,
+) -> Result<ArenaRef<'a, T>, OpError> {
+    let first_shape = inputs[0].shape();
+    let out_shape = concat_shape(inputs, axis)?;
+    let axis = resolve_axis(first_shape.len(), axis)?;
+
+    let mut output = arena
+        .alloc_uninit(&out_shape)
+        .ok_or(OpError::ExecutionError("alloc failed"))?;
+
+    let mut input_iters: Vec<TensorChunks<'_, T>> = inputs
+        .iter()
+        .map(|tensor| TensorChunks::new(tensor, axis))
+        .collect();
+
+    while input_iters.iter().any(|it| it.remaining_len() > 0) {
+        for iter in input_iters.iter_mut() {
+            iter.append_next_chunk(&mut out_data);
+        }
+    }
+
+    Ok(output)
+}
+
+pub fn concat<T: Copy>(inputs: &[TensorView<T>], axis: isize) -> Result<Tensor<T>, OpError> {
+    let first_shape = inputs[0].shape();
+    let out_shape = concat_shape(inputs, axis)?;
+    let axis = resolve_axis(first_shape.len(), axis)?;
     let mut out_data = Vec::with_capacity(out_shape.iter().product());
 
     let mut input_iters: Vec<TensorChunks<'_, T>> = inputs
@@ -95,6 +132,17 @@ pub struct Concat {
     pub axis: isize,
 }
 
+fn typed_inputs<'a, T>(inputs: &InputList<'a>) -> Result<Vec<TensorView<'a, T>>, OpError>
+where
+    TensorView<'a, T>: TryFrom<Input<'a>, Error = OpError>,
+{
+    let mut typed_inputs: Vec<TensorView<T>> = Vec::new();
+    for input in inputs.iter() {
+        typed_inputs.push(input.try_into()?);
+    }
+    Ok(typed_inputs)
+}
+
 impl Operator for Concat {
     fn name(&self) -> &str {
         "Concat"
@@ -104,18 +152,32 @@ impl Operator for Concat {
         let first = inputs.require(0)?;
         match first {
             Input::FloatTensor(_) => {
-                let mut typed_inputs: Vec<TensorView> = Vec::new();
-                for input in inputs.iter() {
-                    typed_inputs.push(input.try_into()?);
-                }
+                let typed_inputs = typed_inputs::<f32>(&inputs)?;
                 concat(&typed_inputs, self.axis).into_op_result()
             }
             Input::IntTensor(_) => {
-                let mut typed_inputs: Vec<TensorView<i32>> = Vec::new();
-                for input in inputs.iter() {
-                    typed_inputs.push(input.try_into()?);
-                }
+                let typed_inputs = typed_inputs::<i32>(&inputs)?;
                 concat(&typed_inputs, self.axis).into_op_result()
+            }
+        }
+    }
+
+    fn run_with_arena<'a>(
+        &self,
+        inputs: InputList,
+        arena: &'a Arena,
+    ) -> Result<Vec<ArenaOutput<'a>>, OpError> {
+        let first = inputs.require(0)?;
+        match first {
+            Input::FloatTensor(_) => {
+                let typed_inputs = typed_inputs::<f32>(&inputs)?;
+                let output = concat_arena(&typed_inputs, self.axis, arena)?;
+                Ok(vec![ArenaOutput::Float(output)])
+            }
+            Input::IntTensor(_) => {
+                let typed_inputs = typed_inputs::<i32>(&inputs)?;
+                let output = concat_arena(&typed_inputs, self.axis, arena)?;
+                Ok(vec![ArenaOutput::Int(output)])
             }
         }
     }
