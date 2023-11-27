@@ -45,6 +45,15 @@ pub enum Constant {
     Int(ConstantNode<i32>),
 }
 
+impl Constant {
+    fn len(&self) -> usize {
+        match self {
+            Constant::Float(f) => f.data.len(),
+            Constant::Int(i) => i.data.len(),
+        }
+    }
+}
+
 impl From<ConstantNode<f32>> for Constant {
     fn from(node: ConstantNode<f32>) -> Constant {
         Constant::Float(node)
@@ -293,6 +302,18 @@ impl Graph {
     /// Retrieve a node by ID
     pub fn get_node(&self, id: NodeId) -> Option<&Node> {
         self.nodes.get(id)
+    }
+
+    /// Return the total number of parameters in all constant nodes in the graph.
+    pub fn total_params(&self) -> usize {
+        self.nodes
+            .iter()
+            .map(|node| match node {
+                Node::Operator(_) => 0,
+                Node::Value(_) => 0,
+                Node::Constant(constant) => constant.len(),
+            })
+            .sum()
     }
 
     /// Compute a set of output values given a set of inputs, using the
@@ -1050,6 +1071,14 @@ mod tests {
         expect_equal(results[0].as_float_ref().unwrap(), &value)?;
 
         Ok(())
+    }
+
+    #[test]
+    fn test_total_params() {
+        let mut g = Graph::new();
+        g.add_constant(Some("floats"), Tensor::<f32>::zeros(&[10, 10]));
+        g.add_constant(Some("ints"), Tensor::<i32>::zeros(&[10, 10]));
+        assert_eq!(g.total_params(), 200);
     }
 
     #[test]

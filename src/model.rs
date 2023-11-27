@@ -111,6 +111,11 @@ impl Model {
         &self.output_ids
     }
 
+    /// Return the total number of parameters in the model's weights.
+    pub fn total_params(&self) -> usize {
+        self.graph.total_params()
+    }
+
     /// Convenience method that returns the expected input shape for the index'th input.
     ///
     /// The shape may contain a mix of fixed and symbolic dimensions.
