@@ -1,0 +1,253 @@
+use std::collections::VecDeque;
+use std::error::Error;
+use std::fs;
+
+use wasnn::ops::FloatOperators;
+use wasnn::{Input, Model, NodeId};
+use wasnn_tensor::prelude::*;
+use wasnn_tensor::*;
+use wasnn_text::tokenizers::{EncodeOptions, Encoded, Tokenizer, WordPiece};
+
+struct Args {
+    model: String,
+    vocab: String,
+    context_doc: String,
+    query: String,
+}
+
+fn parse_args() -> Result<Args, lexopt::Error> {
+    use lexopt::prelude::*;
+
+    let mut values = VecDeque::new();
+    let mut parser = lexopt::Parser::from_env();
+
+    while let Some(arg) = parser.next()? {
+        match arg {
+            Value(val) => values.push_back(val.string()?),
+            Long("help") => {
+                println!(
+                    "Search text files for answers to questions.
+
+Usage: {bin_name} <model> <vocab> <context_doc> <query...>
+
+Args:
+
+  <model>       - Input BERT model
+  <vocab>       - Vocabulary for tokenization (vocab.txt)
+  <context_doc> - Text document to search
+  <query>       - Question to search for answer to
+",
+                    bin_name = parser.bin_name().unwrap_or("bert_qa")
+                );
+                std::process::exit(0);
+            }
+            _ => return Err(arg.unexpected()),
+        }
+    }
+
+    let model = values.pop_front().ok_or("missing `model` arg")?;
+    let vocab = values.pop_front().ok_or("missing `vocab` arg")?;
+    let context_doc = values.pop_front().ok_or("missing `context_doc` arg")?;
+    let query = values.make_contiguous().join(" ");
+
+    let args = Args {
+        model,
+        vocab,
+        context_doc,
+        query,
+    };
+
+    Ok(args)
+}
+
+struct Answer<'a> {
+    score: f32,
+    text: &'a str,
+}
+
+/// Extract the the spans of the context from `query_context` which best
+/// answer the query.
+///
+/// `query_context` is the tokenized query and context, `model` is a BERT model
+/// finetuned for extractive QA. `nbest` is the number of results to return.
+fn extract_nbest_answers<'a>(
+    query_context: Encoded<'a>,
+    model: &Model,
+    n_best: usize,
+) -> Result<Vec<Answer<'a>>, Box<dyn Error>> {
+    let batch = 1;
+    let input_ids: Vec<i32> = query_context
+        .token_ids()
+        .iter()
+        .map(|tok| *tok as i32)
+        .collect();
+    let input_ids = Tensor::from_data(&[batch, input_ids.len()], input_ids);
+    let attention_mask = Tensor::full(&[batch, input_ids.len()], 1i32);
+
+    let input_ids_id = model.node_id("input_ids")?;
+    let attention_mask_id = model.node_id("attention_mask")?;
+    let start_logits_id = model.node_id("start_logits")?;
+    let end_logits_id = model.node_id("end_logits")?;
+
+    let mut inputs: Vec<(NodeId, Input)> = vec![
+        (input_ids_id, input_ids.view().into()),
+        (attention_mask_id, attention_mask.view().into()),
+    ];
+
+    // Generate token type IDs if this model needs them. The original BERT
+    // uses them, DistilBERT for example does not.
+    let type_ids: Tensor<i32>;
+    if let Some(type_ids_id) = model.find_node("token_type_ids") {
+        let type_ids_data: Vec<i32> = query_context
+            .token_type_ids()
+            .map(|tok| tok as i32)
+            .collect();
+        type_ids = Tensor::from_data(&[batch, type_ids_data.len()], type_ids_data);
+        inputs.push((type_ids_id, type_ids.view().into()));
+    }
+
+    let [start_logits, end_logits] =
+        model.run_n(&inputs, [start_logits_id, end_logits_id], None)?;
+
+    // Extract (batch, sequence)
+    let mut start_logits: NdTensor<f32, 2> = start_logits.try_into()?;
+    let mut end_logits: NdTensor<f32, 2> = end_logits.try_into()?;
+
+    // Mask of positions that are part of the context, excluding the final `[SEP]`.
+    let mut context_mask: Vec<bool> = query_context
+        .token_type_ids()
+        .map(|ttid| ttid == 1)
+        .collect();
+    context_mask[start_logits.len() - 1] = false;
+
+    // Set logits for positions outside of context to a large negative value
+    // before applying softmax, so those positions don't affect the values
+    // of in-context positions.
+    for (pos, (start, end)) in start_logits
+        .iter_mut()
+        .zip(end_logits.iter_mut())
+        .enumerate()
+    {
+        if !context_mask[pos] {
+            *start = -10_000.0;
+            *end = -10_000.0;
+        }
+    }
+
+    let start_probs: NdTensor<f32, 2> = start_logits.softmax(1)?.try_into()?;
+    let end_probs: NdTensor<f32, 2> = end_logits.softmax(1)?.try_into()?;
+
+    // Extract the answer as the highest scoring span where both the start and
+    // end positions are inside the context window.
+    //
+    // In the original BERT paper (see Section 4.2) the score is the sum of
+    // logits for the start and end positions for a span. Here we take the
+    // product of probabilities for the start and end positions, following the
+    // HF Transformers implementation [1].
+    //
+    // [1] https://github.com/huggingface/transformers/blob/df5c5c62ae253055336f5bb0828ca8e3e15ab6bd/src/transformers/pipelines/question_answering.py#L72
+    let max_answer_len = 15;
+    let min_start = 1; // Ignore [CLS] token at start.
+    let max_end = end_probs.size(1) - 1; // Ignore [SEP] token at end.
+    let mut span_scores: Vec<(usize, usize, f32)> = start_probs
+        .slice::<1, _>((0, min_start..max_end))
+        .iter()
+        .enumerate()
+        .map(|(start_pos, start_score)| {
+            let start_pos = start_pos + min_start;
+            let (relative_end_pos, end_score) = end_probs
+                .slice::<1, _>((0, start_pos..(start_pos + max_answer_len).min(max_end)))
+                .iter()
+                .enumerate()
+                .max_by(|(_pos_a, score_a), (_pos_b, score_b)| score_a.total_cmp(score_b))
+                .unwrap();
+            let end_pos = relative_end_pos + start_pos;
+
+            let span_score = start_score * end_score;
+
+            (start_pos, end_pos, span_score)
+        })
+        .collect();
+    span_scores.sort_by(|(_, _, score_a), (_, _, score_b)| score_a.total_cmp(score_b).reverse());
+
+    let n_best_answers: Vec<_> = span_scores
+        .into_iter()
+        .take(n_best)
+        .map(|(start_pos, end_pos, score)| {
+            let text = query_context
+                .text_for_token_range(start_pos..end_pos + 1)
+                .expect("failed to get answer text");
+            Answer { score, text }
+        })
+        .collect();
+
+    Ok(n_best_answers)
+}
+
+/// This example finds passages in a document that best answer a given query,
+/// aka. extractive QA [1].
+///
+/// It works with BERT-based models that have been fine-tuned for question
+/// answering, such as https://huggingface.co/deepset/bert-base-cased-squad2 or
+/// https://huggingface.co/distilbert-base-cased-distilled-squad.
+///
+/// You can export a BERT model in ONNX format from Hugging Face and convert
+/// it as follows, using Optimium [2].
+///
+/// ```
+/// optimum-cli export onnx --model distilbert-base-cased-distilled-squad distilbert
+/// tools/convert-onnx.py distilbert/model.onnx distilbert/distilbert.model
+/// ```
+///
+/// Then run the example with:
+///
+/// ```
+/// cargo run -r --example bert_qa distilbert/distilbert.model distilbert/vocab.txt <context> <query>
+/// ```
+///
+/// Where `<context>` is a text file to search, and `<query>` is a question.
+/// For example, given a text file containing "My name is Robert and I
+/// live in London" and the query "what am I called" the model should output
+/// the substring "Robert".
+///
+/// [1] https://huggingface.co/tasks/question-answering
+/// [2] https://huggingface.co/docs/optimum/index
+fn main() -> Result<(), Box<dyn Error>> {
+    let args = parse_args()?;
+    let model_bytes = fs::read(args.model)?;
+    let model = Model::load(&model_bytes)?;
+
+    let context = fs::read_to_string(args.context_doc)?;
+
+    let vocab_text = std::fs::read_to_string(&args.vocab)?;
+    let vocab: Vec<_> = vocab_text.lines().collect();
+    let tokenizer = WordPiece::from_vocab(&vocab, Default::default());
+
+    // Tokenize the query and context, breaking the context up into chunks to
+    // fit the model's context length.
+    let enc_opts = EncodeOptions {
+        // Max chunk length chosen as 384 to match what is used by the original
+        // BERT training scripts + the Hugging Face QA pipeline.
+        max_chunk_len: Some(384),
+        overlap: 0,
+        ..Default::default()
+    };
+    let encoded =
+        tokenizer.encode_chunks((args.query.as_str(), context.as_str()).into(), enc_opts)?;
+
+    let mut answers = Vec::new();
+    for chunk in encoded {
+        let nbest_per_chunk = 1;
+        let chunk_answers = extract_nbest_answers(chunk, &model, nbest_per_chunk)?;
+        answers.extend(chunk_answers.into_iter());
+    }
+    answers.sort_by(|ans_a, ans_b| ans_a.score.total_cmp(&ans_b.score).reverse());
+
+    println!("Question: {}", args.query);
+    let n_best = 1;
+    for answer in answers.into_iter().take(n_best) {
+        println!("Answer (score {:.2}): {}", answer.score, answer.text);
+    }
+
+    Ok(())
+}
