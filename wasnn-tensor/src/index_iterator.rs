@@ -6,6 +6,9 @@ pub trait IndexArray: AsMut<[usize]> + AsRef<[usize]> + Clone {}
 impl<const N: usize> IndexArray for SmallVec<[usize; N]> {}
 impl<const N: usize> IndexArray for [usize; N] {}
 
+/// The index type used for dynamic-rank tensors.
+pub type DynIndex = SmallVec<[usize; 5]>;
+
 /// Iterator over a range of N-dimensional indices, where N may be known at
 /// compile time (see [NdIndices]) or only at runtime ([DynIndices]).
 ///
@@ -24,20 +27,28 @@ where
     next: Option<Index>,
 }
 
-/// Iterator over a range of N-dimensional indices, where N is not known at
-/// compile time.
-pub type DynIndices = Indices<SmallVec<[usize; 5]>>;
-
-/// Iterator over a range of N-dimensional indices, where N is known at compile
-/// time.
-pub type NdIndices<const N: usize> = Indices<[usize; N]>;
+/// Return the number of steps for an index iterator over the range of indices
+/// from `from` to `to`.
+///
+/// If any index in `from` is greater than the corresponding index in `to`,
+/// this returns zero.
+fn steps(from: &[usize], to: &[usize]) -> usize {
+    assert!(from.len() == to.len());
+    let mut product = 1;
+    for (&from, &to) in from.iter().zip(to.iter()).rev() {
+        let size = to.saturating_sub(from);
+        product *= size;
+    }
+    product
+}
 
 impl<Index: IndexArray> Indices<Index> {
     fn from_start_and_end(start: Index, end: Index) -> Indices<Index> {
+        let steps = steps(start.as_ref(), end.as_ref());
         Indices {
             // Note that if the index is empty, `start == end` but the iterator
             // should yield a single empty element in that case.
-            next: if start.as_ref() != end.as_ref() || start.as_ref().is_empty() {
+            next: if steps > 0 || start.as_ref().is_empty() {
                 Some(start.clone())
             } else {
                 None
@@ -116,6 +127,118 @@ impl<Index: IndexArray> Iterator for Indices<Index> {
     }
 }
 
+/// Iterator over a range of N-dimensional indices, where N is known at compile
+/// time.
+pub struct NdIndices<const N: usize> {
+    inner: Indices<[usize; N]>,
+}
+
+impl<const N: usize> NdIndices<N> {
+    pub fn from_ranges(ranges: [Range<usize>; N]) -> NdIndices<N> {
+        NdIndices {
+            inner: Indices::<[usize; N]>::from_ranges(ranges),
+        }
+    }
+
+    pub fn from_shape(shape: [usize; N]) -> NdIndices<N> {
+        NdIndices {
+            inner: Indices::<[usize; N]>::from_shape(shape),
+        }
+    }
+}
+
+impl<const N: usize> Iterator for NdIndices<N> {
+    type Item = [usize; N];
+
+    fn next(&mut self) -> Option<Self::Item> {
+        self.inner.next()
+    }
+}
+
+enum DynIndicesInner {
+    Small { iter: NdIndices<4>, pad: usize },
+    Large(Indices<DynIndex>),
+}
+
+/// Iterator over a range of N-dimensional indices, where N is not known at
+/// compile time.
+pub struct DynIndices {
+    inner: DynIndicesInner,
+}
+
+/// Left-pad a shape with 1s to size N (eg. [32, 32] => [1, 1, 32, 32]).
+fn left_pad_shape<const N: usize>(shape: &[usize]) -> (usize, [usize; N]) {
+    assert!(shape.len() <= N);
+    let mut padded_shape = [0; N];
+    let pad = N - shape.len();
+    for i in 0..pad {
+        padded_shape[i] = 1;
+    }
+    for i in pad..N {
+        padded_shape[i] = shape[i - pad];
+    }
+    (N - shape.len(), padded_shape)
+}
+
+/// Left-pad ranges with `[0..1]` to size N.
+fn left_pad_ranges<const N: usize>(ranges: &[Range<usize>]) -> (usize, [Range<usize>; N]) {
+    assert!(ranges.len() <= N);
+
+    // We use a `SmallVec` here because sadly `[elem; N]` doesn't work with
+    // Range, which is a non-Copy type :(
+    let mut padded_ranges = SmallVec::<[Range<usize>; N]>::from_elem(0..1, N);
+    let pad = N - ranges.len();
+    for i in 0..pad {
+        padded_ranges[i] = 0..1;
+    }
+    for i in pad..N {
+        padded_ranges[i] = ranges[i - pad].clone();
+    }
+    (N - ranges.len(), padded_ranges.into_inner().unwrap())
+}
+
+impl DynIndices {
+    pub fn from_shape(shape: &[usize]) -> DynIndices {
+        let inner = if shape.len() <= 4 {
+            let (pad, padded) = left_pad_shape(shape);
+            DynIndicesInner::Small {
+                iter: NdIndices::from_shape(padded),
+                pad,
+            }
+        } else {
+            DynIndicesInner::Large(Indices::<DynIndex>::from_shape(shape))
+        };
+        DynIndices { inner }
+    }
+
+    pub fn from_ranges(ranges: &[Range<usize>]) -> DynIndices {
+        let inner = if ranges.len() <= 4 {
+            let (pad, padded) = left_pad_ranges(ranges);
+            DynIndicesInner::Small {
+                iter: NdIndices::from_ranges(padded),
+                pad,
+            }
+        } else {
+            DynIndicesInner::Large(Indices::<DynIndex>::from_ranges(ranges))
+        };
+        DynIndices { inner }
+    }
+}
+
+impl Iterator for DynIndices {
+    type Item = DynIndex;
+
+    #[inline]
+    fn next(&mut self) -> Option<Self::Item> {
+        match self.inner {
+            DynIndicesInner::Small { ref mut iter, pad } => {
+                iter.next().map(|idx| SmallVec::from_slice(&idx[pad..]))
+            }
+            DynIndicesInner::Large(ref mut inner) => inner.next(),
+        }
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::{DynIndices, NdIndices};
@@ -169,5 +292,58 @@ mod tests {
             visited,
             vec![vec![2, 2], vec![2, 3], vec![3, 2], vec![3, 3],]
         );
+
+        // 5D index iterator. This exercises the path for tensors with more
+        // than 4 dims.
+        let iter = DynIndices::from_shape(&[2, 1, 1, 2, 2]);
+        let visited: Vec<Vec<usize>> = iter.map(|ix| ix.into_iter().collect()).collect();
+        assert_eq!(
+            visited,
+            vec![
+                vec![0, 0, 0, 0, 0],
+                vec![0, 0, 0, 0, 1],
+                vec![0, 0, 0, 1, 0],
+                vec![0, 0, 0, 1, 1],
+                //
+                vec![1, 0, 0, 0, 0],
+                vec![1, 0, 0, 0, 1],
+                vec![1, 0, 0, 1, 0],
+                vec![1, 0, 0, 1, 1],
+            ]
+        );
+    }
+
+    #[test]
+    #[ignore]
+    fn bench_indices() {
+        use std::time::Instant;
+
+        // Shape taken from GatherElements usage in
+        // https://huggingface.co/microsoft/deberta-v3-large.
+        let shape = std::hint::black_box([16, 128, 128]);
+
+        // Dynamic rank
+        let start = Instant::now();
+        let mut count = 0;
+        for _ in 0..100 {
+            let indices = DynIndices::from_shape(&shape);
+            for _ in indices {
+                count += 1;
+            }
+        }
+        let elapsed = start.elapsed().as_millis();
+        println!("DynIndices stepped {} times in {} ms", count, elapsed);
+
+        // Same shape, static rank
+        let start = Instant::now();
+        let mut count = 0;
+        for _ in 0..100 {
+            let indices = NdIndices::from_shape(shape);
+            for _ in indices {
+                count += 1;
+            }
+        }
+        let elapsed = start.elapsed().as_millis();
+        println!("NdIndices stepped {} times in {} ms", count, elapsed);
     }
 }
