@@ -518,6 +518,36 @@ parallel_unary_float_op!(
 );
 
 unary_float_op!(Sin, sin, sin_in_place, |val: f32| val.sin());
+
+/// Trait for obtaining the sign of a number (-1, 0 or 1) as a value of the
+/// same type.
+pub trait Signum: Copy {
+    /// Return -1, 0 or 1 if the value is negative, zero or positive
+    /// respectively.
+    fn signum(self) -> Self;
+}
+
+macro_rules! impl_signum {
+    ($type:ident) => {
+        impl Signum for $type {
+            fn signum(self) -> Self {
+                $type::signum(self)
+            }
+        }
+    };
+}
+impl_signum!(i32);
+impl_signum!(f32);
+
+pub fn sign<T: Signum>(input: TensorView<T>) -> Tensor<T> {
+    input.map(|x| x.signum())
+}
+
+pub fn sign_in_place<T: Signum>(mut input: TensorViewMut<T>) {
+    input.apply(|x| x.signum())
+}
+
+unary_numeric_op!(Sign, sign, sign_in_place);
 unary_float_op!(Sqrt, sqrt, sqrt_in_place, |val: f32| val.sqrt());
 unary_float_op!(Tan, tan, tan_in_place, |val: f32| val.tan());
 unary_float_op!(Tanh, tanh, tanh_in_place, |val: f32| val.tanh());
@@ -535,8 +565,8 @@ mod tests {
         clip_in_place, cos, cos_in_place, erf, erf_in_place, exp, exp_in_place, floor,
         hard_sigmoid, hard_swish, leaky_relu, leaky_relu_in_place, log, log_in_place, neg,
         neg_in_place, not, not_in_place, reciprocal, relu, relu_in_place, round, round_in_place,
-        sigmoid, sigmoid_in_place, sin, sin_in_place, sqrt, sqrt_in_place, tan, tan_in_place, tanh,
-        tanh_in_place,
+        sigmoid, sigmoid_in_place, sign, sign_in_place, sin, sin_in_place, sqrt, sqrt_in_place,
+        tan, tan_in_place, tanh, tanh_in_place,
     };
 
     /// Define a test for a simple unary operator which applies the function
@@ -950,6 +980,7 @@ mod tests {
         Ok(())
     }
 
+    test_unary_op!(test_sign, sign, sign_in_place, |x: &f32| x.signum());
     test_unary_op!(test_sin, sin, sin_in_place, |x: &f32| x.sin());
 
     #[test]

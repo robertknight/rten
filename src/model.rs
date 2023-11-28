@@ -311,6 +311,7 @@ impl_default_factory!(ScatterElements, read_scatter_elements_op);
 impl_default_factory!(ScatterND, read_scatter_nd_op);
 impl_default_factory!(Shape);
 impl_default_factory!(Sigmoid);
+impl_default_factory!(Sign);
 impl_default_factory!(Sin);
 impl_default_factory!(Size);
 impl_default_factory!(Slice);
@@ -458,6 +459,7 @@ impl OpRegistry {
         register_op!(ScatterND);
         register_op!(Shape);
         register_op!(Sigmoid);
+        register_op!(Sign);
         register_op!(Sin);
         register_op!(Size);
         register_op!(Slice);
@@ -1435,6 +1437,7 @@ mod tests {
 
         add_operator!(Shape, [input_node]);
         add_operator!(Sigmoid, [input_node]);
+        add_operator!(Sign, [input_node]);
         add_operator!(Sin, [input_node]);
         add_operator!(Size, [input_node]);
 

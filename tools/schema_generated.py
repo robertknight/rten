@@ -98,6 +98,7 @@ class OperatorType(object):
     Trilu = 88
     ScatterND = 89
     NonMaxSuppression = 90
+    Sign = 91
 
 
 class RNNDirection(object):

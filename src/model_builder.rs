@@ -84,6 +84,7 @@ pub enum OpType {
     ScatterElements(ScatterElements),
     Shape,
     Sigmoid,
+    Sign,
     Sin,
     Size,
     Slice,
@@ -588,6 +589,7 @@ impl<'a> ModelBuilder<'a> {
             OpType::Sigmoid => op!(Sigmoid),
             OpType::Slice => op!(Slice),
             OpType::Sin => op!(Sin),
+            OpType::Sign => op!(Sign),
             OpType::Size => op!(Size),
             OpType::Softmax(args) => op_with_attrs!(
                 Softmax,

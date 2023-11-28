@@ -100,7 +100,8 @@ enum OperatorType: byte {
   Xor,
   Trilu,
   ScatterND,
-  NonMaxSuppression
+  NonMaxSuppression,
+  Sign
 }
 
 enum RNNDirection: byte {
