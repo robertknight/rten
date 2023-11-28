@@ -18,6 +18,10 @@ use crate::rng::XorShiftRng;
 
 /// Trait for indexing a `Tensor`
 pub trait TensorIndex {
+    type Iter<'a>: Iterator<Item = &'a usize>
+    where
+        Self: 'a;
+
     /// Return the number of dimensions in the index.
     fn len(&self) -> usize;
 
@@ -28,15 +32,27 @@ pub trait TensorIndex {
 
     /// Return the index for dimension `dim`
     fn index(&self, dim: usize) -> usize;
+
+    /// Return an iterator over sizes of dimensions in this index.
+    fn iter(&self) -> Self::Iter<'_>;
 }
 
 impl<Array: AsRef<[usize]>> TensorIndex for Array {
+    type Iter<'a> = std::slice::Iter<'a, usize> where Self: 'a;
+
+    #[inline]
     fn len(&self) -> usize {
         self.as_ref().len()
     }
 
+    #[inline]
     fn index(&self, dim: usize) -> usize {
         self.as_ref()[dim]
+    }
+
+    #[inline]
+    fn iter(&self) -> Self::Iter<'_> {
+        self.as_ref().iter()
     }
 }
 
@@ -87,6 +103,13 @@ pub trait View: Layout {
     /// (ie. a scalar)
     fn item(&self) -> Option<&Self::Elem> {
         self.view().item()
+    }
+
+    /// Return the element at a given index, or `None` if the index is out of
+    /// bounds in any dimension.
+    #[inline]
+    fn get<I: TensorIndex>(&self, index: I) -> Option<&Self::Elem> {
+        self.view().get(index)
     }
 
     /// Return an iterator over elements of this tensor, in their logical order.
@@ -394,6 +417,12 @@ impl<'a, T> TensorView<'a, T> {
         self.data
     }
 
+    #[inline]
+    fn get<I: TensorIndex>(&self, index: I) -> Option<&'a T> {
+        let offset = self.layout.try_offset(index)?;
+        Some(&self.data[offset])
+    }
+
     pub fn inner_iter<const N: usize>(&self) -> InnerIter<'a, T, N> {
         InnerIter::new(self.clone())
     }
@@ -661,6 +690,14 @@ impl<T, S: AsRef<[T]> + AsMut<[T]>> TensorBase<T, S> {
 
     pub fn axis_chunks_mut(&mut self, dim: usize, chunk_size: usize) -> AxisChunksMut<T> {
         AxisChunksMut::new(self.view_mut(), dim, chunk_size)
+    }
+
+    /// Return the element at a given index, or `None` if the index is out of
+    /// bounds in any dimension.
+    #[inline]
+    pub fn get_mut<I: TensorIndex>(&mut self, index: I) -> Option<&mut T> {
+        let offset = self.layout.try_offset(index)?;
+        Some(&mut self.data.as_mut()[offset])
     }
 
     /// Return an iterator over views of the innermost N dimensions of this
@@ -1323,6 +1360,33 @@ mod tests {
     }
 
     #[test]
+    fn test_get() {
+        let mut x = Tensor::<f32>::zeros(&[2, 2]);
+
+        x.data[0] = 1.0;
+        x.data[1] = 2.0;
+        x.data[2] = 3.0;
+        x.data[3] = 4.0;
+
+        // Index with fixed-sized array.
+        assert_eq!(x.get([0, 0]), Some(&1.0));
+        assert_eq!(x.get([0, 1]), Some(&2.0));
+        assert_eq!(x.get([1, 0]), Some(&3.0));
+        assert_eq!(x.get([1, 1]), Some(&4.0));
+
+        // Invalid indices
+        assert_eq!(x.get([0, 2]), None);
+        assert_eq!(x.get([2, 0]), None);
+        assert_eq!(x.get([1, 0, 0]), None);
+
+        // Index with slice.
+        assert_eq!(x.get([0, 0].as_slice()), Some(&1.0));
+        assert_eq!(x.get([0, 1].as_slice()), Some(&2.0));
+        assert_eq!(x.get([1, 0].as_slice()), Some(&3.0));
+        assert_eq!(x.get([1, 1].as_slice()), Some(&4.0));
+    }
+
+    #[test]
     fn test_index() {
         let mut x = Tensor::<f32>::zeros(&[2, 2]);
 
@@ -1363,6 +1427,23 @@ mod tests {
         assert_eq!(x.data[1], 2.0);
         assert_eq!(x.data[2], 3.0);
         assert_eq!(x.data[3], 4.0);
+    }
+
+    #[test]
+    fn test_get_mut() {
+        let mut x = Tensor::<f32>::zeros(&[2, 2]);
+
+        *x.get_mut([0, 0]).unwrap() = 1.0;
+        *x.get_mut([0, 1]).unwrap() = 2.0;
+        *x.get_mut([1, 0]).unwrap() = 3.0;
+        *x.get_mut([1, 1]).unwrap() = 4.0;
+
+        assert_eq!(x.data[0], 1.0);
+        assert_eq!(x.data[1], 2.0);
+        assert_eq!(x.data[2], 3.0);
+        assert_eq!(x.data[3], 4.0);
+
+        assert_eq!(x.get_mut([1, 2]), None);
     }
 
     #[test]

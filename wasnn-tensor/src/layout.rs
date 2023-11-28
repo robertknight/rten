@@ -703,15 +703,24 @@ impl DynLayout {
         reshaped
     }
 
+    /// Return the offset in the slice that an index maps to, or `None` if it
+    /// is out of bounds.
+    #[inline]
+    pub fn try_offset<Idx: TensorIndex>(&self, index: Idx) -> Option<usize> {
+        let shape = self.shape();
+        let strides = self.strides();
+        let mut valid = index.len() == shape.len();
+        let mut offset = 0;
+        for (idx, (size, stride)) in index.iter().zip(shape.iter().zip(strides.iter())) {
+            valid = valid && idx < size;
+            offset += idx * stride;
+        }
+        valid.then_some(offset)
+    }
+
     /// Return the offset of the element with a given index.
     pub fn offset<Idx: TensorIndex>(&self, index: Idx) -> usize {
-        assert!(
-            self.ndim() == index.len(),
-            "Cannot index {} dim tensor with {} dim index",
-            self.ndim(),
-            index.len()
-        );
-        self.slice_offset(index)
+        self.try_offset(index).expect("invalid index")
     }
 
     /// Return the offset of the slice that begins at the given index.
