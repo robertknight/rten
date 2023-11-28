@@ -39,7 +39,8 @@ pub use concat::{concat, tile, Concat, Tile};
 pub use conv::{conv, conv_transpose, Conv, ConvTranspose};
 pub use convert::Cast;
 pub use gather::{
-    gather, scatter_elements, scatter_nd, Gather, ScatterElements, ScatterND, ScatterReduction,
+    gather, gather_elements, scatter_elements, scatter_nd, Gather, GatherElements, ScatterElements,
+    ScatterND, ScatterReduction,
 };
 pub use generate::{constant_of_shape, onehot, range, ConstantOfShape, OneHot, Range};
 pub use identity::Identity;

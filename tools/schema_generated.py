@@ -99,6 +99,7 @@ class OperatorType(object):
     ScatterND = 89
     NonMaxSuppression = 90
     Sign = 91
+    GatherElements = 92
 
 
 class RNNDirection(object):

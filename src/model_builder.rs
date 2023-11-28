@@ -7,10 +7,11 @@ use wasnn_tensor::Tensor;
 use crate::graph::Dimension;
 use crate::ops::{
     ArgMax, ArgMin, AveragePool, BatchNormalization, BoxOrder, Cast, Concat, ConstantOfShape, Conv,
-    ConvTranspose, CoordTransformMode, DataType, Flatten, Gather, Gemm, HardSigmoid,
-    InstanceNormalization, LeakyRelu, LogSoftmax, MaxPool, Mod, NearestMode, NonMaxSuppression,
-    OneHot, Padding, ReduceMax, ReduceMean, ReduceMin, ReduceProd, ReduceSum, Reshape, Resize,
-    ResizeMode, Scalar, ScatterElements, ScatterReduction, Softmax, Split, TopK, Transpose, Trilu,
+    ConvTranspose, CoordTransformMode, DataType, Flatten, Gather, GatherElements, Gemm,
+    HardSigmoid, InstanceNormalization, LeakyRelu, LogSoftmax, MaxPool, Mod, NearestMode,
+    NonMaxSuppression, OneHot, Padding, ReduceMax, ReduceMean, ReduceMin, ReduceProd, ReduceSum,
+    Reshape, Resize, ResizeMode, Scalar, ScatterElements, ScatterReduction, Softmax, Split, TopK,
+    Transpose, Trilu,
 };
 use crate::schema_generated as sg;
 
@@ -42,6 +43,7 @@ pub enum OpType {
     Flatten(Flatten),
     Floor,
     Gather(Gather),
+    GatherElements(GatherElements),
     Gemm(Gemm),
     GlobalAveragePool,
     Greater,
@@ -428,6 +430,13 @@ impl<'a> ModelBuilder<'a> {
             OpType::Floor => op!(Floor),
             OpType::Gather(args) => op_with_attrs!(
                 Gather,
+                GatherAttrs,
+                sg::GatherAttrsArgs {
+                    axis: args.axis as i32,
+                }
+            ),
+            OpType::GatherElements(args) => op_with_attrs!(
+                GatherElements,
                 GatherAttrs,
                 sg::GatherAttrsArgs {
                     axis: args.axis as i32,

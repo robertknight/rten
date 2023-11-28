@@ -101,7 +101,8 @@ enum OperatorType: byte {
   Trilu,
   ScatterND,
   NonMaxSuppression,
-  Sign
+  Sign,
+  GatherElements,
 }
 
 enum RNNDirection: byte {
@@ -150,7 +151,7 @@ union OperatorAttrs {
   ConvAttrs,
   ConvTransposeAttrs,
   FlattenAttrs,
-  GatherAttrs,
+  GatherAttrs, // Also used for GatherElements
   GemmAttrs,
   GRUAttrs,
   LeakyReluAttrs,

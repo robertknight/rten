@@ -265,6 +265,7 @@ impl_default_factory!(Expand);
 impl_default_factory!(Flatten, read_flatten_op);
 impl_default_factory!(Floor);
 impl_default_factory!(Gather, read_gather_op);
+impl_default_factory!(GatherElements, read_gather_elements_op);
 impl_default_factory!(Gemm, read_gemm_op);
 impl_default_factory!(GlobalAveragePool);
 impl_default_factory!(Greater);
@@ -413,6 +414,7 @@ impl OpRegistry {
         register_op!(Flatten);
         register_op!(Floor);
         register_op!(Gather);
+        register_op!(GatherElements);
         register_op!(Gemm);
         register_op!(GlobalAveragePool);
         register_op!(Greater);
@@ -624,6 +626,11 @@ fn read_conv_transpose_op(node: &OperatorNode) -> ReadOpResult {
 
 read_axis_op!(read_flatten_op, attrs_as_flatten_attrs, Flatten);
 read_axis_op!(read_gather_op, attrs_as_gather_attrs, Gather);
+read_axis_op!(
+    read_gather_elements_op,
+    attrs_as_gather_attrs,
+    GatherElements
+);
 
 fn read_gemm_op(node: &OperatorNode) -> ReadOpResult {
     let attrs = node.attrs_as_gemm_attrs().ok_or(ReadOpError::AttrError)?;
@@ -1307,6 +1314,10 @@ mod tests {
         let gather_indices_val = Tensor::from_data(&[1], vec![0]);
         let gather_indices = builder.add_int_constant(&gather_indices_val);
         add_operator!(Gather, [input_node, gather_indices], { axis: 0 });
+
+        let gather_elements_indices_val = Tensor::zeros(&input_shape);
+        let gather_elements_indices = builder.add_int_constant(&gather_elements_indices_val);
+        add_operator!(GatherElements, [input_node, gather_elements_indices], { axis: 0 });
 
         add_operator!(Gemm, [input_2d, input_2d], {
             alpha: 1.0,

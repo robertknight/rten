@@ -89,6 +89,63 @@ impl Operator for Gather {
     }
 }
 
+pub fn gather_elements<T: Copy + Default>(
+    input: TensorView<T>,
+    indices: TensorView<i32>,
+    axis: isize,
+) -> Result<Tensor<T>, OpError> {
+    if input.ndim() != indices.ndim() {
+        return Err(OpError::IncompatibleInputShapes(
+            "Input and indices must have same rank",
+        ));
+    }
+    let axis = resolve_axis(input.ndim(), axis)?;
+    let axis_size = input.size(axis) as isize;
+    let mut output = Tensor::<T>::zeros(indices.shape());
+
+    for ((mut in_index, out_el), index) in
+        output.indices().zip(output.iter_mut()).zip(indices.iter())
+    {
+        // nb. If axis_val is < -axis_size, it will wrap around to a value
+        // that is still out of range.
+        let index = *index as isize;
+        let axis_val = if index < 0 { index + axis_size } else { index };
+        in_index[axis] = axis_val as usize;
+
+        if let Some(el) = input.get(&in_index) {
+            *out_el = *el;
+        } else {
+            return Err(OpError::InvalidValue("Entry in `indices` is out of range"));
+        }
+    }
+
+    Ok(output)
+}
+
+#[derive(Debug)]
+pub struct GatherElements {
+    pub axis: isize,
+}
+
+impl Operator for GatherElements {
+    fn name(&self) -> &str {
+        "GatherElements"
+    }
+
+    fn run(&self, inputs: InputList) -> Result<Vec<Output>, OpError> {
+        let input = inputs.require(0)?;
+        let indices = inputs.require_as::<i32>(1)?;
+        match input {
+            Input::IntTensor(input) => {
+                gather_elements(input.view(), indices.view(), self.axis).into_op_result()
+            }
+            Input::FloatTensor(input) => {
+                gather_elements(input.view(), indices.view(), self.axis).into_op_result()
+            }
+        }
+    }
+}
+
 // Specifies how to combine an existing element value with an update in a
 // scatter operation.
 #[derive(Copy, Clone, Debug)]
@@ -307,7 +364,9 @@ mod tests {
     use wasnn_tensor::test_util::expect_equal;
     use wasnn_tensor::{tensor, Tensor};
 
-    use crate::ops::{gather, scatter_elements, scatter_nd, OpError, ScatterReduction};
+    use crate::ops::{
+        gather, gather_elements, scatter_elements, scatter_nd, OpError, ScatterReduction,
+    };
 
     #[test]
     fn test_gather_scalar_index() {
@@ -367,6 +426,57 @@ mod tests {
         assert_eq!(
             result.err(),
             Some(OpError::InvalidValue("Entry in `indices` is out of range"))
+        );
+    }
+
+    #[test]
+    fn test_gather_elements() {
+        // Example #1 from ONNX spec
+        let input = Tensor::from([[1, 2], [3, 4]]);
+        let indices = Tensor::from([[0, 0], [1, 0]]);
+        let axis = 1;
+        let expected = Tensor::from([[1, 1], [4, 3]]);
+        let result = gather_elements(input.view(), indices.view(), axis).unwrap();
+        assert_eq!(result, expected);
+
+        // Example #2 from ONNX spec
+        let input = Tensor::from([[1, 2, 3], [4, 5, 6], [7, 8, 9]]);
+        let indices = Tensor::from([[1, 2, 0], [2, 0, 0]]);
+        let axis = 0;
+        let expected = Tensor::from([[4, 8, 3], [7, 2, 3]]);
+        let result = gather_elements(input.view(), indices.view(), axis).unwrap();
+        assert_eq!(result, expected);
+
+        // Negative indices
+        let input = Tensor::from([1, 2, 3]);
+        let indices = Tensor::from([-1, -1, -2, -2]);
+        let axis = 0;
+        let expected = Tensor::from([3, 3, 2, 2]);
+        let result = gather_elements(input.view(), indices.view(), axis).unwrap();
+        assert_eq!(result, expected);
+    }
+
+    #[test]
+    fn test_gather_elements_invalid_inputs() {
+        let input = Tensor::from([[1, 2], [3, 4]]);
+        let indices = Tensor::from([[0, 0], [1, 0]]);
+        let result = gather_elements(input.view(), indices.view(), 2 /* axis */);
+        assert_eq!(result.err(), Some(OpError::InvalidValue("Axis is invalid")));
+
+        let indices = Tensor::from([[0, 0], [1, 3]]);
+        let result = gather_elements(input.view(), indices.view(), 1 /* axis */);
+        assert_eq!(
+            result.err(),
+            Some(OpError::InvalidValue("Entry in `indices` is out of range"))
+        );
+
+        let indices = Tensor::from([1, 2, 3]);
+        let result = gather_elements(input.view(), indices.view(), 1 /* axis */);
+        assert_eq!(
+            result.err(),
+            Some(OpError::IncompatibleInputShapes(
+                "Input and indices must have same rank"
+            ))
         );
     }
 

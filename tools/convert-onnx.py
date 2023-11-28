@@ -667,7 +667,7 @@ def op_node_from_onnx_operator(
             attrs = sg.FlattenAttrsT()
             attrs.axis = op_reader.get_attr("axis", "int", 1)
 
-        case "Gather":
+        case "Gather" | "GatherElements":
             attrs = sg.GatherAttrsT()
             attrs.axis = op_reader.get_attr("axis", "int", 0)
 
