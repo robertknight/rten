@@ -5,7 +5,8 @@ members = [
   "wasnn-imageproc",
   "wasnn-ocr",
   "wasnn-ocr-cli",
-  "wasnn-tensor"
+  "wasnn-tensor",
+  "wasnn-text"
 ]
 
 [package]
@@ -33,6 +34,7 @@ serde_json = "1.0.91"
 wasnn-imageio = { path = "./wasnn-imageio" }
 wasnn-imageproc = { path = "./wasnn-imageproc" }
 wasnn-ocr = { path = "./wasnn-ocr" }
+wasnn-text = { path = "./wasnn-text" }
 
 [lib]
 crate-type = ["lib", "cdylib"]
