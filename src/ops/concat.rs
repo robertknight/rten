@@ -1,5 +1,3 @@
-use std::iter::zip;
-
 use wasnn_tensor::prelude::*;
 use wasnn_tensor::{Iter, NdTensorView, Tensor, TensorView};
 
@@ -123,6 +121,45 @@ impl Operator for Concat {
     }
 }
 
+/// Recursively tile (ie. repeatly copy) chunks of `input` to `output`.
+///
+/// `input_shape` and `repeats` are equal-length slices specifying the size
+/// of each dimension and the number of times to repeat that dim. All input
+/// dim sizes and repeats must be >= 1 (ie. input and output must be non-empty).
+fn tile_inner<T: Copy>(input: &[T], output: &mut [T], input_shape: &[usize], repeats: &[usize]) {
+    match (input_shape, repeats) {
+        ([size], [repeats]) => {
+            assert!(input.len() == *size);
+            assert!(input.len() * repeats == output.len());
+            for out_chunk in output.chunks_mut(input.len()) {
+                out_chunk.copy_from_slice(input);
+            }
+        }
+        ([size, inner_size @ ..], [repeats, inner_repeats @ ..]) => {
+            assert!(output.len() % repeats == 0);
+            let out_chunk_len = output.len() / repeats;
+            let inner_input_len = input.len() / size;
+            let inner_output_len = out_chunk_len / size;
+
+            // Tile the current dimension.
+            for out_chunk in output.chunks_mut(out_chunk_len) {
+                // Tile the inner dimensions.
+                for (inner_input, inner_output) in input
+                    .chunks(inner_input_len)
+                    .zip(out_chunk.chunks_mut(inner_output_len))
+                {
+                    tile_inner(inner_input, inner_output, inner_size, inner_repeats);
+                }
+            }
+        }
+        ([], []) => {
+            // Input is a scalar.
+            output.copy_from_slice(input);
+        }
+        _ => panic!("input_shape.len() != repeats.len()"),
+    }
+}
+
 pub fn tile<T: Copy + Default>(
     input: TensorView<T>,
     repeats: NdTensorView<i32, 1>,
@@ -131,11 +168,12 @@ pub fn tile<T: Copy + Default>(
         return Err(OpError::InvalidValue("invalid repeats"));
     }
 
+    let repeats: Vec<usize> = repeats.iter().map(|r| *r as usize).collect();
     let out_shape: Vec<_> = input
         .shape()
         .iter()
-        .enumerate()
-        .map(|(axis, size)| size * repeats[[axis]] as usize)
+        .zip(repeats.iter())
+        .map(|(size, repeat)| size * repeat)
         .collect();
     let mut output = Tensor::zeros(&out_shape);
 
@@ -143,13 +181,12 @@ pub fn tile<T: Copy + Default>(
         return Ok(output);
     }
 
-    for (out_index, out_val) in zip(output.indices(), output.iter_mut()) {
-        let mut in_index = out_index.clone();
-        for (axis, (out_idx, in_idx)) in zip(out_index.iter(), in_index.iter_mut()).enumerate() {
-            *in_idx = out_idx % input.size(axis)
-        }
-        *out_val = input[&in_index];
-    }
+    tile_inner(
+        input.to_contiguous().data().unwrap(),
+        output.data_mut().unwrap(),
+        input.shape(),
+        &repeats,
+    );
 
     Ok(output)
 }
@@ -287,6 +324,33 @@ mod tests {
                     3., 3. //
                 ]
             )
+        );
+
+        // Noop tile
+        let input = tensor!([1, 2, 3, 4]);
+        let repeats = tensor!([1]);
+        let result = tile(input.view(), repeats.nd_view()).unwrap();
+        assert_eq!(input, result);
+
+        // Repeat inner dim of a 2D tensor
+        let input = Tensor::from([[1, 2], [3, 4]]);
+        let repeats = tensor!([1, 2]);
+        let result = tile(input.view(), repeats.nd_view()).unwrap();
+        assert_eq!(result, Tensor::from([[1, 2, 1, 2], [3, 4, 3, 4]]));
+
+        // Repeat outer dim of a 2D tensor
+        let input = Tensor::from([[1, 2], [3, 4]]);
+        let repeats = tensor!([2, 1]);
+        let result = tile(input.view(), repeats.nd_view()).unwrap();
+        assert_eq!(result, Tensor::from([[1, 2], [3, 4], [1, 2], [3, 4]]));
+
+        // Repeat inner and outer dims of a 2D tensor
+        let input = Tensor::from([[1, 2], [3, 4]]);
+        let repeats = tensor!([2, 2]);
+        let result = tile(input.view(), repeats.nd_view()).unwrap();
+        assert_eq!(
+            result,
+            Tensor::from([[1, 2, 1, 2], [3, 4, 3, 4], [1, 2, 1, 2], [3, 4, 3, 4]])
         );
     }
 
