@@ -25,6 +25,9 @@ where
     end: Index,
 
     next: Option<Index>,
+
+    /// Remaining iteration steps.
+    steps: usize,
 }
 
 /// Return the number of steps for an index iterator over the range of indices
@@ -55,6 +58,7 @@ impl<Index: IndexArray> Indices<Index> {
             },
             start,
             end,
+            steps,
         }
     }
 }
@@ -100,6 +104,8 @@ impl<Index: IndexArray> Iterator for Indices<Index> {
     /// have been returned.
     fn next(&mut self) -> Option<Self::Item> {
         if let Some(current) = self.next.clone() {
+            self.steps -= 1;
+
             if current.as_ref().is_empty() {
                 self.next = None;
                 return Some(current);
@@ -125,7 +131,14 @@ impl<Index: IndexArray> Iterator for Indices<Index> {
             None
         }
     }
+
+    #[inline]
+    fn size_hint(&self) -> (usize, Option<usize>) {
+        (self.steps, Some(self.steps))
+    }
 }
+
+impl<Index: IndexArray> ExactSizeIterator for Indices<Index> {}
 
 /// Iterator over a range of N-dimensional indices, where N is known at compile
 /// time.
@@ -153,7 +166,13 @@ impl<const N: usize> Iterator for NdIndices<N> {
     fn next(&mut self) -> Option<Self::Item> {
         self.inner.next()
     }
+
+    fn size_hint(&self) -> (usize, Option<usize>) {
+        self.inner.size_hint()
+    }
 }
+
+impl<const N: usize> ExactSizeIterator for NdIndices<N> {}
 
 enum DynIndicesInner {
     Small { iter: NdIndices<4>, pad: usize },
@@ -237,7 +256,16 @@ impl Iterator for DynIndices {
             DynIndicesInner::Large(ref mut inner) => inner.next(),
         }
     }
+
+    fn size_hint(&self) -> (usize, Option<usize>) {
+        match self.inner {
+            DynIndicesInner::Small { ref iter, .. } => iter.size_hint(),
+            DynIndicesInner::Large(ref inner) => inner.size_hint(),
+        }
+    }
 }
+
+impl ExactSizeIterator for DynIndices {}
 
 #[cfg(test)]
 mod tests {
