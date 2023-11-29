@@ -60,7 +60,7 @@ fn can_run_binary_op_in_place<L1: Layout, L2: Layout>(a: &L1, b: &L2) -> bool {
 ///
 /// Returns a tuple of `(cycles, repeats)` indicating the number of element
 /// repeats and sequence cycles needed.
-fn fast_broadcast_params(from_shape: &[usize], to_shape: &[usize]) -> Option<(usize, usize)> {
+pub fn fast_broadcast_params(from_shape: &[usize], to_shape: &[usize]) -> Option<(usize, usize)> {
     if from_shape == to_shape {
         return Some((1, 1));
     }

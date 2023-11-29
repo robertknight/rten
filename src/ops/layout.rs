@@ -5,7 +5,7 @@ use std::iter::zip;
 use wasnn_tensor::prelude::*;
 use wasnn_tensor::{is_valid_permutation, tensor, NdTensorView, Tensor, TensorView};
 
-use crate::ops::binary_elementwise::broadcast_shapes;
+use crate::ops::binary_elementwise::{broadcast_shapes, fast_broadcast_params};
 use crate::ops::{
     resolve_axes, resolve_axis, Input, InputList, IntoOpResult, OpError, Operator, Output,
 };
@@ -20,8 +20,46 @@ pub fn expand<T: Copy>(
         OpError::IncompatibleInputShapes("Cannot broadcast input with target shape"),
     )?;
 
-    let out_elts: Vec<_> = input.broadcast_iter(&out_shape).copied().collect();
-    Ok(Tensor::from_data(&out_shape, out_elts))
+    match (
+        input.data(),
+        fast_broadcast_params(input.shape(), &out_shape),
+    ) {
+        // Fast path for common case of contiguous input and broadcast that can
+        // be performed using cycle + repeat.
+        (Some(in_data), Some((cycles, repeats))) => {
+            let out_len = out_shape.iter().product();
+            assert!(out_len == input.len() * cycles * repeats);
+
+            let mut out_data: Vec<T> = Vec::with_capacity(out_len);
+            let mut out_ptr = out_data.as_mut_ptr();
+            for _ in 0..cycles {
+                if repeats == 1 {
+                    // Super-fast path for cycling only.
+                    unsafe {
+                        std::ptr::copy_nonoverlapping(in_data.as_ptr(), out_ptr, in_data.len());
+                        out_ptr = out_ptr.add(in_data.len());
+                    }
+                } else {
+                    for el in in_data.iter() {
+                        for _ in 0..repeats {
+                            unsafe {
+                                *out_ptr = *el;
+                                out_ptr = out_ptr.add(1);
+                            }
+                        }
+                    }
+                }
+            }
+            // Safety: We have initialized all output elements.
+            unsafe { out_data.set_len(out_len) };
+
+            Ok(Tensor::from_data(&out_shape, out_data))
+        }
+        _ => {
+            let out_elts: Vec<_> = input.broadcast_iter(&out_shape).copied().collect();
+            Ok(Tensor::from_data(&out_shape, out_elts))
+        }
+    }
 }
 
 #[derive(Debug)]
@@ -487,6 +525,20 @@ mod tests {
         let shape = ndtensor!([3, 4]);
         let result = expand(input.view(), &shape.view()).unwrap();
         assert_eq!(result.shape(), &[3, 4]);
+
+        // Broadcast of leading and trailing dims
+        let input = tensor!((1, 2, 1); [1, 2]);
+        let shape = ndtensor!([2, 2, 2]);
+        let result = expand(input.view(), &shape.view()).unwrap();
+        assert_eq!(result.shape(), &[2, 2, 2]);
+        assert_eq!(result.to_vec(), &[1, 1, 2, 2, 1, 1, 2, 2]);
+
+        // Broadcast of inner dim
+        let input = tensor!((2, 1, 2); [1, 2, 3, 4]);
+        let shape = ndtensor!([2, 2, 2]);
+        let result = expand(input.view(), &shape.view()).unwrap();
+        assert_eq!(result.shape(), &[2, 2, 2]);
+        assert_eq!(result.to_vec(), &[1, 2, 1, 2, 3, 4, 3, 4]);
     }
 
     #[test]
