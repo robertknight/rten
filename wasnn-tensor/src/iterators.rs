@@ -1,4 +1,4 @@
-use std::iter::{repeat, zip, Cycle, StepBy, Take};
+use std::iter::{repeat, zip, Cycle, FusedIterator, StepBy, Take};
 use std::ops::{Add, Range};
 use std::slice;
 
@@ -571,6 +571,7 @@ impl<'a, T> BroadcastIter<'a, T> {
 impl<'a, T> Iterator for BroadcastIter<'a, T> {
     type Item = &'a T;
 
+    #[inline]
     fn next(&mut self) -> Option<Self::Item> {
         match self.iter {
             BroadcastIterKind::Direct(ref mut iter) => iter.next(),
@@ -587,6 +588,8 @@ impl<'a, T> Iterator for BroadcastIter<'a, T> {
 }
 
 impl<'a, T> ExactSizeIterator for BroadcastIter<'a, T> {}
+
+impl<'a, T> FusedIterator for BroadcastIter<'a, T> {}
 
 /// Iterator over slices of a tensor along an axis. See [TensorView::axis_iter].
 pub struct AxisIter<'a, T> {
