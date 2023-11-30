@@ -289,6 +289,8 @@ impl<'a, T> Iterator for Iter<'a, T> {
 
 impl<'a, T> ExactSizeIterator for Iter<'a, T> {}
 
+impl<'a, T> FusedIterator for Iter<'a, T> {}
+
 #[derive(Clone)]
 struct IndexingIter<'a, T> {
     base: IndexingIterBase,
@@ -340,6 +342,8 @@ impl<'a, T> Iterator for IndexingIter<'a, T> {
 }
 
 impl<'a, T> ExactSizeIterator for IndexingIter<'a, T> {}
+
+impl<'a, T> FusedIterator for IndexingIter<'a, T> {}
 
 /// Mutable iterator over elements of a tensor.
 pub struct IterMut<'a, T> {
@@ -401,6 +405,8 @@ impl<'a, T> Iterator for IterMut<'a, T> {
 
 impl<'a, T> ExactSizeIterator for IterMut<'a, T> {}
 
+impl<'a, T> FusedIterator for IterMut<'a, T> {}
+
 struct IndexingIterMut<'a, T> {
     base: IndexingIterBase,
 
@@ -447,6 +453,8 @@ impl<'a, T> Iterator for IndexingIterMut<'a, T> {
 }
 
 impl<'a, T> ExactSizeIterator for IndexingIterMut<'a, T> {}
+
+impl<'a, T> FusedIterator for IndexingIterMut<'a, T> {}
 
 /// Iterator over element offsets of a tensor.
 ///
@@ -501,6 +509,8 @@ impl Iterator for Offsets {
 }
 
 impl ExactSizeIterator for Offsets {}
+
+impl FusedIterator for Offsets {}
 
 /// Iterator over elements of a tensor which broadcasts to a different shape.
 ///

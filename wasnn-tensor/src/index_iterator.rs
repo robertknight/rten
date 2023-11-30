@@ -1,3 +1,4 @@
+use std::iter::FusedIterator;
 use std::ops::Range;
 
 use smallvec::{smallvec, SmallVec};
@@ -133,6 +134,8 @@ impl<Index: IndexArray> Iterator for Indices<Index> {
 
 impl<Index: IndexArray> ExactSizeIterator for Indices<Index> {}
 
+impl<Index: IndexArray> FusedIterator for Indices<Index> {}
+
 /// Iterator over a range of N-dimensional indices, where N is known at compile
 /// time.
 pub struct NdIndices<const N: usize> {
@@ -166,6 +169,7 @@ impl<const N: usize> Iterator for NdIndices<N> {
 }
 
 impl<const N: usize> ExactSizeIterator for NdIndices<N> {}
+impl<const N: usize> FusedIterator for NdIndices<N> {}
 
 /// Max tensor rank supported by the variant of [DynIndices] that is optimized
 /// for small-rank tensors.
@@ -266,6 +270,7 @@ impl Iterator for DynIndices {
 }
 
 impl ExactSizeIterator for DynIndices {}
+impl FusedIterator for DynIndices {}
 
 #[cfg(test)]
 mod tests {
