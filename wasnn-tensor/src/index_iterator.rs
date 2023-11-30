@@ -174,8 +174,15 @@ impl<const N: usize> Iterator for NdIndices<N> {
 
 impl<const N: usize> ExactSizeIterator for NdIndices<N> {}
 
+/// Max tensor rank supported by the variant of [DynIndices] that is optimized
+/// for small-rank tensors.
+const DYN_SMALL_LEN: usize = 4;
+
 enum DynIndicesInner {
-    Small { iter: NdIndices<4>, pad: usize },
+    Small {
+        iter: NdIndices<DYN_SMALL_LEN>,
+        pad: usize,
+    },
     Large(Indices<DynIndex>),
 }
 
@@ -218,7 +225,7 @@ fn left_pad_ranges<const N: usize>(ranges: &[Range<usize>]) -> (usize, [Range<us
 
 impl DynIndices {
     pub fn from_shape(shape: &[usize]) -> DynIndices {
-        let inner = if shape.len() <= 4 {
+        let inner = if shape.len() <= DYN_SMALL_LEN {
             let (pad, padded) = left_pad_shape(shape);
             DynIndicesInner::Small {
                 iter: NdIndices::from_shape(padded),
@@ -231,7 +238,7 @@ impl DynIndices {
     }
 
     pub fn from_ranges(ranges: &[Range<usize>]) -> DynIndices {
-        let inner = if ranges.len() <= 4 {
+        let inner = if ranges.len() <= DYN_SMALL_LEN {
             let (pad, padded) = left_pad_ranges(ranges);
             DynIndicesInner::Small {
                 iter: NdIndices::from_ranges(padded),
@@ -348,6 +355,10 @@ mod tests {
 
         // Shape taken from GatherElements usage in
         // https://huggingface.co/microsoft/deberta-v3-large.
+        //
+        // `black_box` is not necessary for the current implementations, but in
+        // an experiment with some less branch-y implementations of NdIndices,
+        // Rust was able to precompute the iteration count (!).
         let shape = std::hint::black_box([16, 128, 128]);
 
         // Dynamic rank
