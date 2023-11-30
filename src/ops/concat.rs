@@ -205,8 +205,27 @@ impl Operator for Tile {
         let repeats = static_dims!(repeats, 1)?;
 
         match input {
-            Input::IntTensor(input) => tile(input.view(), repeats.view()).into_op_result(),
-            Input::FloatTensor(input) => tile(input.view(), repeats.view()).into_op_result(),
+            Input::IntTensor(input) => tile(input.view(), repeats).into_op_result(),
+            Input::FloatTensor(input) => tile(input.view(), repeats).into_op_result(),
+        }
+    }
+
+    fn can_run_in_place(&self) -> bool {
+        // Tile can run in place if it is a noop, ie. all the repeats are 1.
+        true
+    }
+
+    fn run_in_place(&self, output: Output, inputs: InputList) -> Result<Output, OpError> {
+        let repeats = inputs.require_as::<i32>(0)?;
+        let repeats = static_dims!(repeats, 1)?;
+
+        if repeats.iter().all(|n| *n == 1) {
+            return Ok(output);
+        }
+
+        match output {
+            Output::IntTensor(input) => tile(input.view(), repeats).map(|t| t.into()),
+            Output::FloatTensor(input) => tile(input.view(), repeats).map(|t| t.into()),
         }
     }
 }

@@ -11,18 +11,23 @@ use crate::ops::{
 };
 use crate::static_dims;
 
-pub fn expand<T: Copy>(
-    input: TensorView<T>,
+/// Return the tensor shape resulting from broadcasting `input_shape` with `shape`.
+fn expand_output_shape(
+    input_shape: &[usize],
     shape: &NdTensorView<i32, 1>,
-) -> Result<Tensor<T>, OpError> {
+) -> Result<Vec<usize>, OpError> {
     let shape_vec: Vec<_> = shape.iter().map(|el| *el as usize).collect();
-    let out_shape = broadcast_shapes(input.shape(), &shape_vec).ok_or(
-        OpError::IncompatibleInputShapes("Cannot broadcast input with target shape"),
-    )?;
+    broadcast_shapes(input_shape, &shape_vec).ok_or(OpError::IncompatibleInputShapes(
+        "Cannot broadcast input with target shape",
+    ))
+}
 
+/// Broadcast `input` to `out_shape`. This assumes that `out_shape` has already
+/// been verified to be a valid broadcast target.
+fn expand_to<T: Copy>(input: TensorView<T>, out_shape: &[usize]) -> Tensor<T> {
     match (
         input.data(),
-        fast_broadcast_params(input.shape(), &out_shape),
+        fast_broadcast_params(input.shape(), out_shape),
     ) {
         // Fast path for common case of contiguous input and broadcast that can
         // be performed using cycle + repeat.
@@ -53,13 +58,21 @@ pub fn expand<T: Copy>(
             // Safety: We have initialized all output elements.
             unsafe { out_data.set_len(out_len) };
 
-            Ok(Tensor::from_data(&out_shape, out_data))
+            Tensor::from_data(out_shape, out_data)
         }
         _ => {
-            let out_elts: Vec<_> = input.broadcast_iter(&out_shape).copied().collect();
-            Ok(Tensor::from_data(&out_shape, out_elts))
+            let out_elts: Vec<_> = input.broadcast_iter(out_shape).copied().collect();
+            Tensor::from_data(out_shape, out_elts)
         }
     }
+}
+
+pub fn expand<T: Copy>(
+    input: TensorView<T>,
+    shape: &NdTensorView<i32, 1>,
+) -> Result<Tensor<T>, OpError> {
+    let out_shape = expand_output_shape(input.shape(), shape)?;
+    Ok(expand_to(input, &out_shape))
 }
 
 #[derive(Debug)]
@@ -79,6 +92,28 @@ impl Operator for Expand {
             Input::FloatTensor(input) => expand(input, &shape).into_op_result(),
             Input::IntTensor(input) => expand(input, &shape).into_op_result(),
         }
+    }
+
+    fn can_run_in_place(&self) -> bool {
+        // Expand can run in place if it is a noop, ie. if the broadcasted
+        // shape is the same as the input shape.
+        true
+    }
+
+    fn run_in_place(&self, input: Output, inputs: InputList) -> Result<Output, OpError> {
+        let shape = inputs.require_as(0)?;
+        let shape = static_dims!(shape, 1)?;
+
+        let out_shape = expand_output_shape(input.shape(), &shape)?;
+        if input.shape() == out_shape {
+            return Ok(input);
+        }
+
+        let output: Output = match input {
+            Output::FloatTensor(input) => expand_to(input.view(), &out_shape).into(),
+            Output::IntTensor(input) => expand_to(input.view(), &out_shape).into(),
+        };
+        Ok(output)
     }
 }
 
