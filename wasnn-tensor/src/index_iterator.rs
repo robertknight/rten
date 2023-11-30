@@ -103,14 +103,12 @@ impl<Index: IndexArray> Iterator for Indices<Index> {
     /// Return the next index in the sequence, or `None` after all indices
     /// have been returned.
     fn next(&mut self) -> Option<Self::Item> {
-        if let Some(current) = self.next.clone() {
-            self.steps -= 1;
+        let Some(current) = self.next.clone() else {
+            return None;
+        };
 
-            if current.as_ref().is_empty() {
-                self.next = None;
-                return Some(current);
-            }
-
+        self.steps = self.steps.saturating_sub(1);
+        if self.steps > 0 {
             // Find dimension where the last element has not been reached.
             let mut next = current.clone();
             let mut dim = next.as_ref().len() - 1;
@@ -119,17 +117,12 @@ impl<Index: IndexArray> Iterator for Indices<Index> {
                 dim -= 1;
             }
             next.as_mut()[dim] += 1;
-
-            if next.as_ref()[dim] < self.end.as_ref()[dim] {
-                self.next = Some(next);
-            } else {
-                self.next = None;
-            }
-
-            Some(current)
+            self.next = Some(next);
         } else {
-            None
+            self.next = None;
         }
+
+        Some(current)
     }
 
     #[inline]
