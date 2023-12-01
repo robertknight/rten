@@ -5,7 +5,7 @@ use std::iter::zip;
 use wasnn_tensor::prelude::*;
 use wasnn_tensor::{is_valid_permutation, tensor, NdTensorView, Tensor, TensorView};
 
-use crate::ops::binary_elementwise::{broadcast_shapes, fast_broadcast_params};
+use crate::ops::binary_elementwise::{broadcast_shapes, fast_broadcast_cycles_repeats};
 use crate::ops::{
     resolve_axes, resolve_axis, Input, InputList, IntoOpResult, OpError, Operator, Output,
 };
@@ -27,7 +27,7 @@ fn expand_output_shape(
 fn expand_to<T: Copy>(input: TensorView<T>, out_shape: &[usize]) -> Tensor<T> {
     match (
         input.data(),
-        fast_broadcast_params(input.shape(), out_shape),
+        fast_broadcast_cycles_repeats(input.shape(), out_shape),
     ) {
         // Fast path for common case of contiguous input and broadcast that can
         // be performed using cycle + repeat.

@@ -60,7 +60,10 @@ fn can_run_binary_op_in_place<L1: Layout, L2: Layout>(a: &L1, b: &L2) -> bool {
 ///
 /// Returns a tuple of `(cycles, repeats)` indicating the number of element
 /// repeats and sequence cycles needed.
-pub fn fast_broadcast_params(from_shape: &[usize], to_shape: &[usize]) -> Option<(usize, usize)> {
+pub fn fast_broadcast_cycles_repeats(
+    from_shape: &[usize],
+    to_shape: &[usize],
+) -> Option<(usize, usize)> {
     if from_shape == to_shape {
         return Some((1, 1));
     }
@@ -127,6 +130,26 @@ pub fn fast_broadcast_params(from_shape: &[usize], to_shape: &[usize]) -> Option
     Some((cycles, repeats))
 }
 
+/// Check if a tensor of shape `from_shape` can be broadcast to `to_shape`
+/// just by cycling the whole sequence. If so, returns the number of cycles.
+///
+/// This is a more restricted variant of [fast_broadcast_cycles_repeats].
+fn fast_broadcast_cycles(from_shape: &[usize], to_shape: &[usize]) -> Option<usize> {
+    // `fast_broadcast_params` handles this case by returning `(1, n)` (ie.
+    // 1 cycle, n repeats) but here we want to use the equivalent n cycles,
+    // 1 repeat.
+    if from_shape.iter().product::<usize>() == 1 {
+        return Some(to_shape.iter().product());
+    }
+
+    fast_broadcast_cycles_repeats(from_shape, to_shape).and_then(|(cycles, repeats)| {
+        match (cycles, repeats) {
+            (n, 1) => Some(n),
+            _ => None,
+        }
+    })
+}
+
 /// Compute the result of applying the binary operation `op` to corresponding
 /// elements of `a` and `b`. The shapes of `a` and `b` are broadcast to a
 /// matching shape if necessary.
@@ -141,7 +164,7 @@ fn binary_op<T: Copy + Debug, R: Copy + Default, F: Fn(T, T) -> R>(
     // Fast path for when LHS and RHS are contiguous, and fast broadcasting is
     // possible.
     if let (true, Some(a_data), Some(b_data)) = (a.shape() == out_shape, a.data(), b.data()) {
-        if let Some((cycles, repeats)) = fast_broadcast_params(b.shape(), a.shape()) {
+        if let Some((cycles, repeats)) = fast_broadcast_cycles_repeats(b.shape(), a.shape()) {
             assert!(cycles * b_data.len() * repeats == a.len());
 
             let mut output = Tensor::zeros(&out_shape);
@@ -197,7 +220,7 @@ fn binary_op_in_place<T: Copy + Debug, F: Fn(T, T) -> T>(
     // Fast path for when LHS and RHS are contiguous, and fast broadcasting is
     // possible.
     if let (true, Some(b_data)) = (a.is_contiguous(), b.data()) {
-        if let Some((cycles, repeats)) = fast_broadcast_params(b.shape(), a.shape()) {
+        if let Some((cycles, repeats)) = fast_broadcast_cycles_repeats(b.shape(), a.shape()) {
             assert!(cycles * b_data.len() * repeats == a.len());
             let a_data = a.data_mut().unwrap();
             let mut i = 0;
@@ -717,16 +740,39 @@ pub fn where_op<T: Copy>(
     let result_shape = broadcast_shapes(cond.shape(), &broadcast_xy_shape)
         .ok_or(OpError::IncompatibleInputShapes("Cannot broadcast inputs"))?;
 
-    let result_elts: Vec<_> = zip(
-        cond.broadcast_iter(&result_shape),
-        zip(
-            x.broadcast_iter(&result_shape),
-            y.broadcast_iter(&result_shape),
-        ),
-    )
-    .map(|(&cond, (&x, &y))| if cond != 0 { x } else { y })
-    .collect();
-    Ok(Tensor::from_data(&result_shape, result_elts))
+    let cond_cycles = fast_broadcast_cycles(cond.shape(), &result_shape);
+    let x_cycles = fast_broadcast_cycles(x.shape(), &result_shape);
+    let y_cycles = fast_broadcast_cycles(y.shape(), &result_shape);
+    let can_cycle = cond_cycles.is_some() && x_cycles.is_some() && y_cycles.is_some();
+
+    if let (true, Some(cond_data), Some(x_data), Some(y_data)) =
+        (can_cycle, cond.data(), x.data(), y.data())
+    {
+        // Fast path for when we can cycle the underlying iterators. Even
+        // though `broadcast_iter` has a fast path for cycling, cycling the
+        // data slices directly is 3-4x faster due to optimizations like
+        // `Iterator::zip` making use of the unstable `TrustedRandomAccess` trait.
+        let out_len = result_shape.iter().product();
+        let out_data: Vec<_> = cond_data
+            .iter()
+            .cycle()
+            .zip(x_data.iter().cycle())
+            .zip(y_data.iter().cycle())
+            .take(out_len)
+            .map(|((&cond, &x), &y)| if cond != 0 { x } else { y })
+            .collect();
+        Ok(Tensor::from_data(&result_shape, out_data))
+    } else {
+        // Fallback if tensors are non-contiguous or broadcasting can't be
+        // done with just cycling.
+        let out_data: Vec<_> = cond
+            .broadcast_iter(&result_shape)
+            .zip(x.broadcast_iter(&result_shape))
+            .zip(y.broadcast_iter(&result_shape))
+            .map(|((&cond, &x), &y)| if cond != 0 { x } else { y })
+            .collect();
+        Ok(Tensor::from_data(&result_shape, out_data))
+    }
 }
 
 #[derive(Debug)]
@@ -762,7 +808,7 @@ mod tests {
     use wasnn_tensor::test_util::expect_equal;
     use wasnn_tensor::{tensor, Tensor};
 
-    use super::fast_broadcast_params;
+    use super::{fast_broadcast_cycles, fast_broadcast_cycles_repeats};
     use crate::ops::{
         add, add_in_place, and, div, div_in_place, equal, greater, greater_or_equal, less,
         less_or_equal, mod_op, mul, mul_in_place, or, pow, pow_in_place, sub, sub_in_place,
@@ -770,47 +816,85 @@ mod tests {
     };
 
     #[test]
-    fn test_fast_broadcast_params() {
+    fn test_fast_broadcast_cycles_repeats() {
         // Scalar
-        let params = fast_broadcast_params(&[], &[1, 2, 3]);
+        let params = fast_broadcast_cycles_repeats(&[], &[1, 2, 3]);
         assert_eq!(params, Some((1, 6)));
 
         // All dims broadcast
-        let params = fast_broadcast_params(&[1, 1, 1], &[5, 6, 2]);
+        let params = fast_broadcast_cycles_repeats(&[1, 1, 1], &[5, 6, 2]);
         assert_eq!(params, Some((1, 60)));
 
         // Same from/to shapes.
-        let params = fast_broadcast_params(&[3, 4, 5], &[3, 4, 5]);
+        let params = fast_broadcast_cycles_repeats(&[3, 4, 5], &[3, 4, 5]);
         assert_eq!(params, Some((1, 1)));
 
         // Cycle only
-        let params = fast_broadcast_params(&[1, 1, 10], &[5, 2, 10]);
+        let params = fast_broadcast_cycles_repeats(&[1, 1, 10], &[5, 2, 10]);
         assert_eq!(params, Some((10, 1)));
 
         // Repeat only
-        let params = fast_broadcast_params(&[10, 1, 1], &[10, 5, 6]);
+        let params = fast_broadcast_cycles_repeats(&[10, 1, 1], &[10, 5, 6]);
         assert_eq!(params, Some((1, 30)));
 
         // Cycle + repeat
-        let params = fast_broadcast_params(&[1, 10, 1], &[5, 10, 6]);
+        let params = fast_broadcast_cycles_repeats(&[1, 10, 1], &[5, 10, 6]);
         assert_eq!(params, Some((5, 6)));
 
         // Non-fast broadcast
-        let params = fast_broadcast_params(&[5, 1, 5], &[5, 6, 5]);
+        let params = fast_broadcast_cycles_repeats(&[5, 1, 5], &[5, 6, 5]);
         assert_eq!(params, None);
 
-        let params = fast_broadcast_params(&[1, 5, 1, 5, 1], &[2, 5, 6, 5, 2]);
+        let params = fast_broadcast_cycles_repeats(&[1, 5, 1, 5, 1], &[2, 5, 6, 5, 2]);
         assert_eq!(params, None);
 
         // Implicit padding
-        let params = fast_broadcast_params(&[10], &[5, 3, 10]);
+        let params = fast_broadcast_cycles_repeats(&[10], &[5, 3, 10]);
         assert_eq!(params, Some((15, 1)));
     }
 
     #[test]
+    fn test_fast_broadcast_cycles() {
+        // Scalar
+        let params = fast_broadcast_cycles(&[], &[1, 2, 3]);
+        assert_eq!(params, Some(6));
+
+        // All dims broadcast
+        let params = fast_broadcast_cycles(&[1, 1, 1], &[5, 6, 2]);
+        assert_eq!(params, Some(60));
+
+        // Same from/to shapes.
+        let params = fast_broadcast_cycles(&[3, 4, 5], &[3, 4, 5]);
+        assert_eq!(params, Some(1));
+
+        // Cycle only
+        let params = fast_broadcast_cycles(&[1, 1, 10], &[5, 2, 10]);
+        assert_eq!(params, Some(10));
+
+        // Repeat only
+        let params = fast_broadcast_cycles(&[10, 1, 1], &[10, 5, 6]);
+        assert_eq!(params, None);
+
+        // Cycle + repeat
+        let params = fast_broadcast_cycles(&[1, 10, 1], &[5, 10, 6]);
+        assert_eq!(params, None);
+
+        // Non-fast broadcast
+        let params = fast_broadcast_cycles(&[5, 1, 5], &[5, 6, 5]);
+        assert_eq!(params, None);
+
+        let params = fast_broadcast_cycles(&[1, 5, 1, 5, 1], &[2, 5, 6, 5, 2]);
+        assert_eq!(params, None);
+
+        // Implicit padding
+        let params = fast_broadcast_cycles(&[10], &[5, 3, 10]);
+        assert_eq!(params, Some(15));
+    }
+
+    #[test]
     #[should_panic]
-    fn test_fast_broadcast_params_invalid() {
-        fast_broadcast_params(&[1, 2, 3], &[1, 2]);
+    fn test_fast_broadcast_cycles_repeats_invalid() {
+        fast_broadcast_cycles_repeats(&[1, 2, 3], &[1, 2]);
     }
 
     #[test]
@@ -1322,6 +1406,16 @@ mod tests {
         let y = Tensor::from_scalar(4);
         let result = where_op(cond.view(), x.view(), y.view()).unwrap();
         let expected = tensor!([3, 3, 4, 4]);
+        assert_eq!(&result, &expected);
+
+        // Int tensor broadcasting `x` and `y`, and broadcasting involves
+        // repeating the last dimension, not just cycling. This exercises a
+        // fallback path.
+        let cond = Tensor::from([[1, 0], [1, 0]]);
+        let x = Tensor::from([[1], [2]]);
+        let y = Tensor::from([[3], [4]]);
+        let result = where_op(cond.view(), x.view(), y.view()).unwrap();
+        let expected = Tensor::from([[1, 3], [2, 4]]);
         assert_eq!(&result, &expected);
     }
 
