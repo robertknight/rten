@@ -4,6 +4,7 @@ use smallvec::SmallVec;
 use wasnn_tensor::prelude::*;
 use wasnn_tensor::{to_slice_items, DynIndices, DynSliceItems, SliceItem, Tensor, TensorView};
 
+use crate::number::FastDiv;
 use crate::ops::reduce::{cmp_nan_greater, cmp_nan_less};
 use crate::ops::{
     resolve_axis, resolve_index, Input, InputList, IntoOpResult, OpError, Operator, Output,
@@ -124,6 +125,10 @@ pub fn gather_elements<T: Copy + Default>(
     let indices_axis_size = indices.size(axis);
     let mut indices_valid = true;
 
+    // Try to avoid division in the inner loop.
+    let indices_tail_len_div = FastDiv::divide_by(indices_tail_len);
+    let indices_axis_size_div = FastDiv::divide_by(indices_axis_size);
+
     for ((index, out), offset) in indices.iter().zip(output.iter_mut()).zip(0..indices.len()) {
         let index = *index as isize;
         let index = if index < 0 {
@@ -134,7 +139,7 @@ pub fn gather_elements<T: Copy + Default>(
         indices_valid = indices_valid && index >= 0 && index < input_axis_size as isize;
 
         // Compute index in the `axis` dimension of indices.
-        let axis_index = (offset / indices_tail_len) % indices_axis_size;
+        let axis_index = indices_axis_size_div.rem(indices_tail_len_div.divide(offset));
 
         // Compute input offset by subtracting the component of the offset that
         // corresponds to the `axis` dimension, and adding on a new offset

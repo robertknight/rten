@@ -91,3 +91,114 @@ impl MinMax for f32 {
         self.min(other)
     }
 }
+
+/// FastDiv optimizes repeated integer division or modulus by the same divisor
+/// in the case where the divisor is a power of 2.
+///
+/// This is useful because integer division is a slow operation. See
+/// https://stackoverflow.com/q/70132913/434243. In the power-of-2 case, this
+/// can be replaced with simple shifts and masks.
+#[derive(Clone, Copy, PartialEq)]
+pub enum FastDiv<T> {
+    /// Divisor is a power of 2. Payload is `divisor.ilog2()`.
+    PowerOf2(u32),
+    /// General case. Payload is the divisor.
+    Fallback(T),
+}
+
+macro_rules! impl_fastdiv {
+    ($int_type:ident) => {
+        impl FastDiv<$int_type> {
+            /// Create a new `FastDiv` which can compute `lhs / divisor` or
+            /// `lhs % divisor`. Panics if divisor is zero.
+            pub fn divide_by(divisor: $int_type) -> FastDiv<$int_type> {
+                let log = divisor.ilog2();
+                if 1 << log == divisor {
+                    FastDiv::PowerOf2(log)
+                } else {
+                    FastDiv::Fallback(divisor)
+                }
+            }
+
+            /// Compute `lhs / self`.
+            #[inline]
+            pub fn divide(self, lhs: $int_type) -> $int_type {
+                match self {
+                    FastDiv::PowerOf2(divisor_log2) => lhs >> divisor_log2,
+                    FastDiv::Fallback(divisor) => lhs / divisor,
+                }
+            }
+
+            /// Compute `lhs % self`.
+            #[inline]
+            pub fn rem(self, lhs: $int_type) -> $int_type {
+                match self {
+                    FastDiv::PowerOf2(divisor_log2) => {
+                        let mask = (1 << divisor_log2) - 1;
+                        lhs & mask
+                    }
+                    FastDiv::Fallback(divisor) => lhs % divisor,
+                }
+            }
+        }
+    };
+}
+
+// Add more types as needed. The `FastDiv::divide_by` impl currently assumes an
+// unsigned type.
+impl_fastdiv!(usize);
+
+#[cfg(test)]
+mod tests {
+    use super::FastDiv;
+
+    #[test]
+    fn test_fast_div_divide() {
+        let test = |divisor| {
+            let div = FastDiv::divide_by(divisor);
+            for lhs in 0..20 {
+                assert_eq!(
+                    div.divide(lhs),
+                    lhs / divisor,
+                    "mismatch with lhs = {}, divisor = {}",
+                    lhs,
+                    divisor
+                );
+            }
+        };
+
+        test(1);
+
+        // Non-power of two.
+        test(3);
+
+        // Powers of two.
+        test(2);
+        test(8);
+    }
+
+    #[test]
+    fn test_fast_div_rem() {
+        let test = |divisor| {
+            let div = FastDiv::divide_by(divisor);
+            for lhs in 0..20 {
+                assert_eq!(
+                    div.rem(lhs),
+                    lhs % divisor,
+                    "mismatch with lhs = {}, divisor = {}",
+                    lhs,
+                    divisor
+                );
+            }
+        };
+
+        test(1);
+
+        // Non-power of two.
+        test(3);
+
+        // Powers of two.
+        test(2);
+        test(8);
+    }
+}
