@@ -184,6 +184,10 @@ impl Operator for Concat {
         }
     }
 
+    fn supports_arena(&self) -> bool {
+        true
+    }
+
     fn run_with_arena<'a>(
         &self,
         inputs: InputList,
