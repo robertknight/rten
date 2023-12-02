@@ -3,11 +3,12 @@ use rayon::prelude::*;
 use rten_tensor::prelude::*;
 use rten_tensor::{Tensor, TensorView};
 
+use crate::arena::{Arena, ArenaRef};
 use crate::check_dims;
 use crate::gemm::{gemm, GemmExecutor, GemmInputA, GemmInputB};
 use crate::ops::binary_elementwise::broadcast_shapes;
 use crate::ops::layout::expand_to;
-use crate::ops::{InputList, IntoOpResult, OpError, Operator, Output};
+use crate::ops::{ArenaOutput, InputList, IntoOpResult, OpError, Operator, Output};
 
 #[derive(Debug)]
 pub struct Gemm {
@@ -210,6 +211,100 @@ fn matmul_impl(a: TensorView, b: TensorView, strategy: MatmulStrategy) -> Result
     Ok(output)
 }
 
+fn matmul_arena<'a>(
+    a: TensorView,
+    b: TensorView,
+    arena: &'a Arena,
+) -> Result<ArenaRef<'a, f32>, OpError> {
+    if a.ndim() < 2 || b.ndim() < 2 {
+        return Err(OpError::InvalidValue("Inputs must have >= 2 dimensions"));
+    }
+
+    let a_rows = a.size(a.ndim() - 2);
+    let a_cols = a.size(a.ndim() - 1);
+
+    let b_rows = b.size(b.ndim() - 2);
+    let b_cols = b.size(b.ndim() - 1);
+
+    if a_cols != b_rows {
+        return Err(OpError::IncompatibleInputShapes(
+            "Columns of first matrix does not match rows of second matrix",
+        ));
+    }
+
+    let a_prefix = &a.shape()[..a.ndim() - 2];
+    let b_prefix = &b.shape()[..b.ndim() - 2];
+    let out_prefix = broadcast_shapes(a_prefix, b_prefix)
+        .ok_or(OpError::IncompatibleInputShapes("Cannot broadcast shapes"))?;
+
+    let out_shape = &[out_prefix.as_slice(), &[a_rows, b_cols]].concat();
+
+    let mut output = arena
+        .alloc_uninit(out_shape)
+        .ok_or(OpError::ExecutionError("allocation failed"))?;
+
+    if output.is_empty() {
+        return Ok(output);
+    }
+
+    let a_broadcast_shape = [out_prefix.as_slice(), &[a_rows, a_cols]].concat();
+    let b_broadcast_shape = [out_prefix.as_slice(), &[b_rows, b_cols]].concat();
+
+    let a_broadcast = a.broadcast(&a_broadcast_shape);
+    let b_broadcast = b.broadcast(&b_broadcast_shape);
+
+    let out_row_stride = output.stride(output.ndim() - 2);
+    let out_batches = output
+        .data_mut()
+        .unwrap()
+        .chunks_mut(out_row_stride * a_rows);
+
+    let num_a_matrices: usize = a_prefix.iter().product();
+    let num_b_matrices: usize = b_prefix.iter().product();
+
+    let gemm = GemmExecutor::new();
+
+    // Prepack re-used inputs to amortize packing cost.
+    let prepacked_a = (num_a_matrices == 1 && num_b_matrices > 1).then(|| {
+        let a_matrix = a.inner_iter::<2>().next().unwrap();
+        gemm.prepack_a(a_matrix)
+    });
+    let prepacked_b = (num_a_matrices > 1 && num_b_matrices == 1).then(|| {
+        let b_matrix = b.inner_iter::<2>().next().unwrap();
+        gemm.prepack_b(b_matrix, a_cols)
+    });
+
+    a_broadcast
+        .inner_iter::<2>()
+        .zip(b_broadcast.inner_iter::<2>())
+        .zip(out_batches)
+        .par_bridge()
+        .for_each(|((a_mat, b_mat), out_mat)| {
+            let a_input = if let Some(prepacked_a) = prepacked_a.as_ref() {
+                GemmInputA::Packed(prepacked_a)
+            } else {
+                GemmInputA::Unpacked(a_mat)
+            };
+
+            let b_input = if let Some(prepacked_b) = prepacked_b.as_ref() {
+                GemmInputB::Packed(prepacked_b)
+            } else {
+                GemmInputB::Unpacked(b_mat)
+            };
+
+            gemm.gemm(
+                out_mat,
+                out_row_stride,
+                a_input,
+                b_input,
+                1., // alpha
+                0., // beta
+            );
+        });
+
+    Ok(output)
+}
+
 #[derive(Debug)]
 pub struct MatMul {}
 
@@ -222,6 +317,21 @@ impl Operator for MatMul {
         let a = inputs.require_as(0)?;
         let b = inputs.require_as(1)?;
         matmul(a, b).into_op_result()
+    }
+
+    fn supports_arena(&self) -> bool {
+        true
+    }
+
+    fn run_with_arena<'a>(
+        &self,
+        inputs: InputList,
+        arena: &'a Arena,
+    ) -> Result<Vec<ArenaOutput<'a>>, OpError> {
+        let a = inputs.require_as(0)?;
+        let b = inputs.require_as(1)?;
+        let output = matmul_arena(a.view(), b.view(), arena)?;
+        Ok(vec![ArenaOutput::Float(output)])
     }
 }
 
