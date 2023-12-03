@@ -55,6 +55,15 @@ pub fn slice<T: Copy>(
 ) -> Result<Tensor<T>, OpError> {
     let ranges = slice_ranges(input.shape(), starts, ends, axes, steps)?;
     let items: Vec<_> = ranges.iter().map(|r| SliceItem::Range(*r)).collect();
+
+    // Fast path for slice ranges supported by `Tensor::slice`. This includes
+    // all ranges except those with a negative step. This benefits from
+    // optimizations that `Tensor::to_tensor` has for slices that are already
+    // contiguous or have a small number of dims.
+    if let Ok(slice_view) = input.try_slice(items.as_slice()) {
+        return Ok(slice_view.to_tensor());
+    }
+
     let sliced_data: Vec<_> = input.slice_iter(&items).copied().collect();
     let sliced_shape: Vec<_> = ranges
         .iter()
