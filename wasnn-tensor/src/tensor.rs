@@ -378,7 +378,7 @@ impl<T, S: AsRef<[T]>> TensorBase<T, S> {
     ///
     /// Note that the offset order of the returned iterator will become incorrect
     /// if the tensor's layout is modified during iteration.
-    pub fn slice_offsets(&self, range: &[SliceItem]) -> Offsets {
+    pub(crate) fn slice_offsets(&self, range: &[SliceItem]) -> Offsets {
         Offsets::slice(self.layout(), range)
     }
 }
