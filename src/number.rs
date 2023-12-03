@@ -99,6 +99,7 @@ impl MinMax for f32 {
 /// https://stackoverflow.com/q/70132913/434243. In the power-of-2 case, this
 /// can be replaced with simple shifts and masks.
 #[derive(Clone, Copy, PartialEq)]
+#[allow(dead_code)] // No longer used currently, but likely useful in future.
 pub enum FastDiv<T> {
     /// Divisor is a power of 2. Payload is `divisor.ilog2()`.
     PowerOf2(u32),
@@ -108,6 +109,7 @@ pub enum FastDiv<T> {
 
 macro_rules! impl_fastdiv {
     ($int_type:ident) => {
+        #[allow(dead_code)] // No longer used currently, but likely useful in future.
         impl FastDiv<$int_type> {
             /// Create a new `FastDiv` which can compute `lhs / divisor` or
             /// `lhs % divisor`. Panics if divisor is zero.

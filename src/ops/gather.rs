@@ -2,9 +2,10 @@ use std::iter::zip;
 
 use smallvec::SmallVec;
 use wasnn_tensor::prelude::*;
-use wasnn_tensor::{to_slice_items, DynIndices, DynSliceItems, SliceItem, Tensor, TensorView};
+use wasnn_tensor::{
+    to_slice_items, DynIndices, DynSliceItems, SliceItem, Tensor, TensorView, TensorViewMut,
+};
 
-use crate::number::FastDiv;
 use crate::ops::reduce::{cmp_nan_greater, cmp_nan_less};
 use crate::ops::{
     resolve_axis, resolve_index, Input, InputList, IntoOpResult, OpError, Operator, Output,
@@ -90,6 +91,56 @@ impl Operator for Gather {
     }
 }
 
+/// Optimized implementation of `gather_elements` for tensor with static rank.
+/// Index iteration is much faster in this case.
+fn gather_elements_nd<const N: usize, T: Copy + Default>(
+    mut output: TensorViewMut<T>,
+    input: TensorView<T>,
+    indices: TensorView<i32>,
+    axis: usize,
+) -> Result<(), OpError> {
+    assert!(axis < input.ndim());
+    assert!(output.shape() == indices.shape());
+    let out_data = output.data_mut().expect("expected contiguous tensor");
+    let input = input.nd_view::<N>();
+    let axis_size = input.size(axis) as isize;
+
+    // This allows for faster iteration, and the tensor is likely already contiguous.
+    let indices = indices.nd_view::<N>().to_contiguous();
+
+    let mut indices_valid = true;
+
+    for ((mut in_index, out_el), index) in indices
+        .indices()
+        .zip(out_data.iter_mut())
+        .zip(indices.data().unwrap().iter())
+    {
+        // nb. If axis_val is < -axis_size, it will wrap around to a value
+        // that is still out of range.
+        let index = *index as isize;
+        let axis_val = if index < 0 { index + axis_size } else { index };
+        in_index[axis] = axis_val as usize;
+
+        let maybe_el = input.get(in_index).copied();
+        *out_el = maybe_el.unwrap_or_default();
+        indices_valid &= maybe_el.is_some();
+    }
+
+    if !indices_valid {
+        return Err(OpError::InvalidValue("Entry in `indices` is out of range"));
+    }
+
+    Ok(())
+}
+
+/// Expand a tensor to 4 dims by inserting `n` axes at the front.
+fn unsqueeze_n<T>(mut view: TensorView<T>, n: usize) -> TensorView<T> {
+    for _ in 0..n {
+        view.insert_dim(0);
+    }
+    view
+}
+
 pub fn gather_elements<T: Copy + Default>(
     input: TensorView<T>,
     indices: TensorView<i32>,
@@ -103,55 +154,40 @@ pub fn gather_elements<T: Copy + Default>(
     let axis = resolve_axis(input.ndim(), axis)?;
     let mut output = Tensor::<T>::zeros(indices.shape());
 
-    // Avoid needing to handle zero-sized dimensions in the loop below.
-    if output.is_empty() {
-        return Ok(output);
-    }
+    // For the common case of tensors with <= 4 dims, expand input to 4 dims
+    // and then use a fast path for static-rank tensors.
+    const FAST_PATH_NDIM: usize = 4;
+    if indices.ndim() <= FAST_PATH_NDIM {
+        let pad = FAST_PATH_NDIM - input.ndim();
+        let mut output = output.view_mut();
+        for _ in 0..pad {
+            output.insert_dim(0);
+        }
+        gather_elements_nd::<FAST_PATH_NDIM, _>(
+            output.view_mut(),
+            unsqueeze_n(input, pad),
+            unsqueeze_n(indices, pad),
+            axis + pad,
+        )?;
+    } else {
+        let axis_size = input.size(axis) as isize;
+        let mut indices_valid = true;
+        for ((mut in_index, out_el), index) in
+            output.indices().zip(output.iter_mut()).zip(indices.iter())
+        {
+            // nb. If axis_val is < -axis_size, it will wrap around to a value
+            // that is still out of range.
+            let index = *index as isize;
+            let axis_val = if index < 0 { index + axis_size } else { index };
+            in_index[axis] = axis_val as usize;
 
-    // Gathering elements works by iterating over indices and values in
-    // `indices` and deriving an index into `input` by replacing the `axis`
-    // dimension of the index with the value from `indices`. The corresponding
-    // value from `input` is then written to the output.
-    //
-    // In the implementation below we skip deriving the whole index and instead
-    // just compute the offset that the derived index would correspond to.
-    // This translation is simple because `indices` and `input` have the same
-    // shape except for the `axis` dimension.
-    let input = input.to_contiguous();
-    let in_data = input.data().unwrap();
-    let input_axis_size = input.size(axis);
-    let indices_tail_len: usize = indices.shape()[axis + 1..].iter().product();
-    let input_axis_stride = input.stride(axis);
-    let indices_axis_size = indices.size(axis);
-    let mut indices_valid = true;
-
-    // Try to avoid division in the inner loop.
-    let indices_tail_len_div = FastDiv::divide_by(indices_tail_len);
-    let indices_axis_size_div = FastDiv::divide_by(indices_axis_size);
-
-    for ((index, out), offset) in indices.iter().zip(output.iter_mut()).zip(0..indices.len()) {
-        let index = *index as isize;
-        let index = if index < 0 {
-            index + input_axis_size as isize
-        } else {
-            index
-        };
-        indices_valid = indices_valid && index >= 0 && index < input_axis_size as isize;
-
-        // Compute index in the `axis` dimension of indices.
-        let axis_index = indices_axis_size_div.rem(indices_tail_len_div.divide(offset));
-
-        // Compute input offset by subtracting the component of the offset that
-        // corresponds to the `axis` dimension, and adding on a new offset
-        // component based on the value from `indices`.
-        let in_offset =
-            offset - (axis_index * input_axis_stride) + (index as usize * input_axis_stride);
-
-        *out = in_data.get(in_offset).copied().unwrap_or_default();
-    }
-
-    if !indices_valid {
-        return Err(OpError::InvalidValue("Entry in `indices` is out of range"));
+            let maybe_el = input.get(in_index).copied();
+            *out_el = maybe_el.unwrap_or_default();
+            indices_valid &= maybe_el.is_some();
+        }
+        if !indices_valid {
+            return Err(OpError::InvalidValue("Entry in `indices` is out of range"));
+        }
     }
 
     Ok(output)
@@ -511,6 +547,15 @@ mod tests {
         let indices = tensor!([]);
         let axis = 0;
         let expected = tensor!([]);
+        let result = gather_elements(input.view(), indices.view(), axis).unwrap();
+        assert_eq!(result, expected);
+
+        // Case where `input` and `indices` have dims < axis that have different
+        // strides.
+        let input = Tensor::from([[1, 2], [3, 4]]);
+        let indices = Tensor::from([[0], [0]]);
+        let axis = 1;
+        let expected = Tensor::from([[1], [3]]);
         let result = gather_elements(input.view(), indices.view(), axis).unwrap();
         assert_eq!(result, expected);
     }
