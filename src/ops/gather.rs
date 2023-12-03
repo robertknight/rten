@@ -3,7 +3,8 @@ use std::iter::zip;
 use smallvec::SmallVec;
 use wasnn_tensor::prelude::*;
 use wasnn_tensor::{
-    to_slice_items, DynIndices, DynSliceItems, SliceItem, Tensor, TensorView, TensorViewMut,
+    to_slice_items, DynIndices, DynSliceItems, NdTensorView, SliceItem, Tensor, TensorView,
+    TensorViewMut,
 };
 
 use crate::ops::reduce::{cmp_nan_greater, cmp_nan_less};
@@ -93,37 +94,55 @@ impl Operator for Gather {
 
 /// Optimized implementation of `gather_elements` for tensor with static rank.
 /// Index iteration is much faster in this case.
-fn gather_elements_nd<const N: usize, T: Copy + Default>(
+fn gather_elements_4d<T: Copy + Default>(
     mut output: TensorViewMut<T>,
-    input: TensorView<T>,
-    indices: TensorView<i32>,
+    input: NdTensorView<T, 4>,
+    indices: NdTensorView<i32, 4>,
     axis: usize,
 ) -> Result<(), OpError> {
     assert!(axis < input.ndim());
     assert!(output.shape() == indices.shape());
-    let out_data = output.data_mut().expect("expected contiguous tensor");
-    let input = input.nd_view::<N>();
-    let axis_size = input.size(axis) as isize;
 
     // This allows for faster iteration, and the tensor is likely already contiguous.
-    let indices = indices.nd_view::<N>().to_contiguous();
+    let indices = indices.to_contiguous();
+    let indices = indices.view();
 
+    // nb. We iterate over the underlying data slices for efficiency.
+    let mut out_index_iter = output
+        .data_mut()
+        .unwrap()
+        .iter_mut()
+        .zip(indices.data().unwrap().iter());
     let mut indices_valid = true;
 
-    for ((mut in_index, out_el), index) in indices
-        .indices()
-        .zip(out_data.iter_mut())
-        .zip(indices.data().unwrap().iter())
-    {
-        // nb. If axis_val is < -axis_size, it will wrap around to a value
-        // that is still out of range.
-        let index = *index as isize;
-        let axis_val = if index < 0 { index + axis_size } else { index };
-        in_index[axis] = axis_val as usize;
+    let indices_shape = indices.shape();
+    let axis_size = input.size(axis) as isize;
 
-        let maybe_el = input.get(in_index).copied();
-        *out_el = maybe_el.unwrap_or_default();
-        indices_valid &= maybe_el.is_some();
+    // Use nested loops to iterate over indices in `indices` as this is faster
+    // than `indices.indices()`.
+    for i0 in 0..indices_shape[0] {
+        for i1 in 0..indices_shape[1] {
+            for i2 in 0..indices_shape[2] {
+                for i3 in 0..indices_shape[3] {
+                    let (out_el, index) = out_index_iter.next().unwrap();
+
+                    // nb. If axis_val is < -axis_size, it will wrap around to a value
+                    // that is still out of range.
+                    let index = *index as isize;
+
+                    let mut in_index = [i0, i1, i2, i3];
+                    in_index[axis] = if index < 0 {
+                        (index + axis_size) as usize
+                    } else {
+                        index as usize
+                    };
+
+                    let maybe_el = input.get(in_index).copied();
+                    *out_el = maybe_el.unwrap_or_default();
+                    indices_valid &= maybe_el.is_some();
+                }
+            }
+        }
     }
 
     if !indices_valid {
@@ -163,10 +182,10 @@ pub fn gather_elements<T: Copy + Default>(
         for _ in 0..pad {
             output.insert_dim(0);
         }
-        gather_elements_nd::<FAST_PATH_NDIM, _>(
+        gather_elements_4d(
             output.view_mut(),
-            unsqueeze_n(input, pad),
-            unsqueeze_n(indices, pad),
+            unsqueeze_n(input, pad).nd_view(),
+            unsqueeze_n(indices, pad).nd_view(),
             axis + pad,
         )?;
     } else {
