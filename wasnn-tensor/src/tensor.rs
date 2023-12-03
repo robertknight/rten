@@ -374,18 +374,6 @@ impl<T, S: AsRef<[T]>> TensorBase<T, S> {
         Offsets::new(self.layout())
     }
 
-    /// Return an iterator over offsets of this tensor, broadcasted to `shape`.
-    ///
-    /// This is very similar to `broadcast_iter`, except that the iterator
-    /// yields offsets into rather than elements of the data buffer.
-    pub fn broadcast_offsets(&self, shape: &[usize]) -> Offsets {
-        assert!(
-            self.can_broadcast_to(shape),
-            "Cannot broadcast to specified shape"
-        );
-        Offsets::broadcast(self.layout(), shape)
-    }
-
     /// Return an iterator over offsets of elements in this tensor.
     ///
     /// Note that the offset order of the returned iterator will become incorrect
@@ -2190,28 +2178,6 @@ mod tests {
     fn test_broadcast_invalid() {
         let x = steps(&[2, 2]);
         x.broadcast(&[4]);
-    }
-
-    #[test]
-    fn test_broadcast_offsets() {
-        let x = steps(&[2, 1, 4]);
-        let to_shape = &[2, 2, 1, 4];
-
-        let expected: Vec<i32> = x.broadcast_iter(to_shape).copied().collect();
-        let x_data = x.data().unwrap();
-        let actual: Vec<i32> = x
-            .broadcast_offsets(to_shape)
-            .map(|off| x_data[off])
-            .collect();
-
-        assert_eq!(&actual, &expected);
-    }
-
-    #[test]
-    #[should_panic(expected = "Cannot broadcast to specified shape")]
-    fn test_broadcast_offsets_with_invalid_shape() {
-        let x = steps(&[2, 2]);
-        x.broadcast_offsets(&[3, 2]);
     }
 
     #[test]
