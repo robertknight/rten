@@ -60,10 +60,7 @@ fn expand_to<T: Copy>(input: TensorView<T>, out_shape: &[usize]) -> Tensor<T> {
 
             Tensor::from_data(out_shape, out_data)
         }
-        _ => {
-            let out_elts: Vec<_> = input.broadcast_iter(out_shape).copied().collect();
-            Tensor::from_data(out_shape, out_elts)
-        }
+        _ => input.broadcast(out_shape).to_tensor(),
     }
 }
 
