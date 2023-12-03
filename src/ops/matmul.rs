@@ -1,9 +1,6 @@
-use std::iter::zip;
-
 use rayon::prelude::*;
 
 use wasnn_tensor::prelude::*;
-use wasnn_tensor::Matrix;
 use wasnn_tensor::{Tensor, TensorView};
 
 use crate::check_dims;
@@ -118,12 +115,8 @@ pub fn matmul(a: TensorView, b: TensorView) -> Result<Tensor, OpError> {
     let a_broadcast_shape = [out_prefix.as_slice(), &[a_rows, a_cols]].concat();
     let b_broadcast_shape = [out_prefix.as_slice(), &[b_rows, b_cols]].concat();
 
-    let a_offsets = a
-        .broadcast_offsets(&a_broadcast_shape)
-        .step_by(a_rows * a_cols);
-    let b_offsets = b
-        .broadcast_offsets(&b_broadcast_shape)
-        .step_by(b_rows * b_cols);
+    let a_broadcast = a.broadcast(&a_broadcast_shape);
+    let b_broadcast = b.broadcast(&b_broadcast_shape);
 
     let out_row_stride = output.stride(output.ndim() - 2);
     let out_batches = output
@@ -146,48 +139,26 @@ pub fn matmul(a: TensorView, b: TensorView) -> Result<Tensor, OpError> {
         gemm.prepack_b(b_matrix, a_cols)
     });
 
-    zip(out_batches, zip(a_offsets, b_offsets))
+    a_broadcast
+        .inner_iter::<2>()
+        .zip(b_broadcast.inner_iter::<2>())
+        .zip(out_batches)
         .par_bridge()
-        .for_each(|(out_batch, (a_offset, b_offset))| {
+        .for_each(|((a_mat, b_mat), out_mat)| {
             let a_input = if let Some(prepacked_a) = prepacked_a.as_ref() {
                 GemmInputA::Packed(prepacked_a)
             } else {
-                GemmInputA::Unpacked(
-                    Matrix::from_slice(
-                        // Safety: We are using the correct offset and strides
-                        // for a sub-matrix in the batch.
-                        //
-                        // TODO: It should be possible to add TensorView APIs
-                        // that would allow broadcasting and slicing the inputs
-                        // without this unsafe call.
-                        unsafe { &a.data_unchecked()[a_offset..] },
-                        [a_rows, a_cols],
-                        Some([a.stride(a.ndim() - 2), a.stride(a.ndim() - 1)]),
-                    )
-                    .unwrap(),
-                )
+                GemmInputA::Unpacked(a_mat)
             };
 
             let b_input = if let Some(prepacked_b) = prepacked_b.as_ref() {
                 GemmInputB::Packed(prepacked_b)
             } else {
-                let mat = Matrix::from_slice(
-                    // Safety: We are using the correct offset and strides
-                    // for a sub-matrix in the batch.
-                    //
-                    // TODO: It should be possible to add TensorView APIs that
-                    // would allow broadcasting and slicing the inputs without
-                    // this unsafe call.
-                    unsafe { &b.data_unchecked()[b_offset..] },
-                    [b_rows, b_cols],
-                    Some([b.stride(b.ndim() - 2), b.stride(b.ndim() - 1)]),
-                )
-                .unwrap();
-                GemmInputB::Unpacked(mat)
+                GemmInputB::Unpacked(b_mat)
             };
 
             gemm.gemm(
-                out_batch,
+                out_mat,
                 out_row_stride,
                 a_input,
                 b_input,
