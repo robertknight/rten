@@ -76,9 +76,9 @@ pub trait View: Layout {
         self.view().axis_chunks(dim, chunk_size)
     }
 
-    /// Return an iterator over elements of this tensor, broadcasted to `shape`.
+    /// Create a view of this tensor which is broadcasted to `shape`.
     ///
-    /// A broadcasted iterator behaves as if the tensor had the broadcasted
+    /// A broadcasted view behaves as if the underlying tensor had the broadcasted
     /// shape, repeating elements as necessary to fill the given dimensions.
     /// Broadcasting is only possible if the actual and broadcast shapes are
     /// compatible according to ONNX's rules. See
@@ -86,6 +86,19 @@ pub trait View: Layout {
     ///
     /// See also <https://numpy.org/doc/stable/user/basics.broadcasting.html#general-broadcasting-rules>
     /// for worked examples of how broadcasting works.
+    ///
+    /// Panics if `shape` is not broadcast-compatible with the current shape.
+    fn broadcast(&self, shape: &[usize]) -> TensorView<Self::Elem> {
+        self.view().broadcast(shape)
+    }
+
+    /// Return an iterator over the elements of this view broadcasted to
+    /// `shape`.
+    ///
+    /// This is functionally the same as `self.broadcast(shape).iter()` but
+    /// has some additional optimizations for common broadcasting uses - eg.
+    /// when the sequence of elements in the broadcasted view is equivalent to
+    /// cycling the original view using `tensor.iter().cycle()`.
     fn broadcast_iter(&self, shape: &[usize]) -> BroadcastIter<Self::Elem> {
         self.view().broadcast_iter(shape)
     }
@@ -392,6 +405,14 @@ impl<'a, T> TensorView<'a, T> {
 
     pub fn axis_chunks(&self, dim: usize, chunk_size: usize) -> AxisChunks<'a, T> {
         AxisChunks::new(self, dim, chunk_size)
+    }
+
+    pub fn broadcast(&self, shape: &[usize]) -> TensorView<'a, T> {
+        Self {
+            data: self.data,
+            layout: self.layout.broadcast(shape),
+            element_type: PhantomData,
+        }
     }
 
     pub fn broadcast_iter(&self, shape: &[usize]) -> BroadcastIter<'a, T> {
@@ -2130,6 +2151,45 @@ mod tests {
     fn test_broadcast_iter_with_shorter_shape() {
         let x = steps(&[2, 2]);
         x.broadcast_iter(&[4]);
+    }
+
+    #[test]
+    fn test_broadcast() {
+        let x = steps(&[1, 2, 1, 2]);
+        assert_eq!(x.to_vec(), &[1, 2, 3, 4]);
+
+        // Broadcast a 1-size dimension to size 2
+        let bx = x.broadcast(&[2, 2, 1, 2]);
+        assert_eq!(bx.shape(), &[2, 2, 1, 2]);
+        assert_eq!(bx.strides(), &[0, x.stride(1), x.stride(2), x.stride(3)]);
+        assert_eq!(bx.to_vec(), &[1, 2, 3, 4, 1, 2, 3, 4]);
+
+        // Broadcast a different 1-size dimension to size 2
+        let bx = x.broadcast(&[1, 2, 2, 2]);
+        assert_eq!(bx.shape(), &[1, 2, 2, 2]);
+        assert_eq!(bx.strides(), &[x.stride(0), x.stride(1), 0, x.stride(3)]);
+        assert_eq!(bx.to_vec(), &[1, 2, 1, 2, 3, 4, 3, 4]);
+
+        // Broadcast to a larger number of dimensions
+        let x = steps(&[5]);
+        let bx = x.broadcast(&[1, 5]);
+        assert_eq!(bx.shape(), &[1, 5]);
+        assert_eq!(bx.strides(), &[0, x.stride(0)]);
+        assert_eq!(bx.to_vec(), &[1, 2, 3, 4, 5]);
+
+        // Broadcast a scalar
+        let scalar = Tensor::from_scalar(7);
+        let bx = scalar.broadcast(&[3, 3]);
+        assert_eq!(bx.shape(), &[3, 3]);
+        assert_eq!(bx.strides(), &[0, 0]);
+        assert_eq!(bx.to_vec(), &[7, 7, 7, 7, 7, 7, 7, 7, 7]);
+    }
+
+    #[test]
+    #[should_panic(expected = "Cannot broadcast to specified shape")]
+    fn test_broadcast_invalid() {
+        let x = steps(&[2, 2]);
+        x.broadcast(&[4]);
     }
 
     #[test]

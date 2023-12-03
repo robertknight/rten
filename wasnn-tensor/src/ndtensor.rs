@@ -41,6 +41,15 @@ pub trait NdView<const N: usize>: Layout {
         self.view().iter()
     }
 
+    /// Create a view of this tensor which is broadcasted to `shape`.
+    ///
+    /// See notes in [View::broadcast].
+    ///
+    /// Panics if the shape is not broadcast-compatible with the current shape.
+    fn broadcast<const M: usize>(&self, shape: [usize; M]) -> NdTensorView<Self::Elem, M> {
+        self.view().broadcast(shape)
+    }
+
     /// Return a copy of this tensor with each element replaced by `f(element)`.
     ///
     /// The order in which elements are visited is unspecified and may not
@@ -379,6 +388,14 @@ impl<'a, T, const N: usize> NdTensorView<'a, T, N> {
 
     pub fn iter(&self) -> Iter<'a, T> {
         Iter::new(&self.as_dyn())
+    }
+
+    fn broadcast<const M: usize>(&self, shape: [usize; M]) -> NdTensorView<'a, T, M> {
+        NdTensorView {
+            layout: self.layout.broadcast(shape),
+            data: self.data,
+            element_type: PhantomData,
+        }
     }
 
     pub fn permuted(&self, dims: [usize; N]) -> NdTensorView<'a, T, N> {
@@ -828,6 +845,28 @@ mod tests {
         let dyn_view = view.as_dyn();
         let elements: Vec<_> = dyn_view.iter().copied().collect();
         assert_eq!(elements, &[1, 2, 3, 4, 1, 2, 3, 4, 1, 2, 3, 4, 1, 2, 3, 4]);
+    }
+
+    #[test]
+    fn test_ndtensor_broadcast() {
+        let x = NdTensor::from_data(vec![1, 2], [2], None).unwrap();
+        let bx = x.broadcast([3, 2]);
+        assert_eq!(bx.shape(), [3, 2]);
+        assert_eq!(bx.strides(), [0, 1]);
+        assert_eq!(bx.as_dyn().to_vec(), &[1, 2, 1, 2, 1, 2]);
+
+        let x = NdTensor::from_data(vec![3], [], None).unwrap();
+        let bx = x.broadcast([2, 4]);
+        assert_eq!(bx.shape(), [2, 4]);
+        assert_eq!(bx.strides(), [0, 0]);
+        assert_eq!(bx.as_dyn().to_vec(), &[3, 3, 3, 3, 3, 3, 3, 3]);
+    }
+
+    #[test]
+    #[should_panic(expected = "Cannot broadcast to specified shape")]
+    fn test_ndtensor_broadcast_invalid() {
+        let x = NdTensor::from_data(vec![1, 2], [2], None).unwrap();
+        x.broadcast([1, 4]);
     }
 
     #[test]

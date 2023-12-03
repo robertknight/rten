@@ -255,6 +255,27 @@ fn slice_layout<I: AsRef<[usize]>, O: AsMut<[usize]>>(
     Ok((ndim, offset))
 }
 
+/// Return an iterator over the strides of a layout that broadcasts a view
+/// with shape `from_shape` and strides `from_strides` to `to_shape`.
+fn broadcast_strides<'a>(
+    from_shape: &'a [usize],
+    from_strides: &'a [usize],
+    to_shape: &'a [usize],
+) -> impl Iterator<Item = usize> + 'a {
+    let pad = to_shape.len() - from_shape.len();
+    repeat(0)
+        .take(pad)
+        .chain(from_shape.iter().zip(from_strides.iter()).enumerate().map(
+            move |(i, (size, stride))| {
+                if *size == 1 && to_shape[i + pad] > 1 {
+                    0
+                } else {
+                    *stride
+                }
+            },
+        ))
+}
+
 impl<const N: usize> NdLayout<N> {
     /// Convert a layout with dynamic rank to a layout with a static rank.
     ///
@@ -373,6 +394,25 @@ impl<const N: usize> NdLayout<N> {
         }
 
         Ok(layout)
+    }
+
+    /// Construct a layout which broadcasts elements to `to_shape` by setting
+    /// the stride to `0` in broadcasted dimensions.
+    pub fn broadcast<const M: usize>(&self, to_shape: [usize; M]) -> NdLayout<M> {
+        assert!(
+            self.can_broadcast_to(&to_shape),
+            "Cannot broadcast to specified shape"
+        );
+        let mut strides = [0usize; M];
+        for (i, stride) in broadcast_strides(&self.shape(), &self.strides(), &to_shape).enumerate()
+        {
+            strides[i] = stride;
+        }
+
+        NdLayout {
+            shape: to_shape,
+            strides,
+        }
     }
 
     /// Swap strides of this layout to put axes in the given order.
@@ -535,6 +575,21 @@ impl DynLayout {
         let mut shape_and_strides = SmallVec::with_capacity(shape.len() + strides.len());
         shape_and_strides.extend_from_slice(shape);
         shape_and_strides.extend_from_slice(strides);
+        DynLayout { shape_and_strides }
+    }
+
+    /// Construct a layout which broadcasts elements to `to_shape` by setting
+    /// the stride to `0` in broadcasted dimensions.
+    pub fn broadcast(&self, to_shape: &[usize]) -> DynLayout {
+        assert!(
+            self.can_broadcast_to(to_shape),
+            "Cannot broadcast to specified shape"
+        );
+
+        let mut shape_and_strides = SmallVec::with_capacity(to_shape.len() * 2);
+        shape_and_strides.extend(to_shape.iter().copied());
+        shape_and_strides.extend(broadcast_strides(self.shape(), self.strides(), to_shape));
+
         DynLayout { shape_and_strides }
     }
 
