@@ -190,11 +190,8 @@ pub fn vec_exp_in_place(xs: &mut [f32]) {
 
 #[cfg(test)]
 mod tests {
-    use std::iter::repeat_with;
-    use std::time::Instant;
-
-    use crate::testing::{arange, check_f32s_are_equal_ulps, check_with_all_f32s};
-    use crate::{exp, vec_exp, vec_exp_in_place, vec_sigmoid};
+    use crate::testing::{arange, benchmark_op, check_f32s_are_equal_ulps, check_with_all_f32s};
+    use crate::{exp, vec_exp, vec_sigmoid};
 
     // Maximum error of `vec_expf` compared to Rust standard library
     // implementation.
@@ -291,29 +288,22 @@ mod tests {
     #[test]
     #[ignore]
     fn bench_expf() {
-        let mut floats: Vec<_> = repeat_with(|| fastrand::f32()).take(10_000_000).collect();
-        let mut floats2 = floats.clone();
-        let mut floats3 = floats.clone();
+        benchmark_op(
+            |xs, ys| xs.iter().zip(ys.iter_mut()).for_each(|(x, y)| *y = x.exp()),
+            vec_exp,
+        );
+    }
 
-        let native_start = Instant::now();
-        for v in floats.iter_mut() {
-            *v = v.exp();
-        }
-        let native_elapsed = native_start.elapsed().as_micros();
-
-        let vecmath_start = Instant::now();
-        for v in floats2.iter_mut() {
-            *v = v.exp();
-        }
-        let vecmath_elapsed = vecmath_start.elapsed().as_micros();
-
-        let vecmath_vec_start = Instant::now();
-        vec_exp_in_place(&mut floats3);
-        let vecmath_vec_elapsed = vecmath_vec_start.elapsed().as_micros();
-
-        println!(
-            "native {} vecmath {} vecmath vec {}",
-            native_elapsed, vecmath_elapsed, vecmath_vec_elapsed
+    #[test]
+    #[ignore]
+    fn bench_sigmoid() {
+        benchmark_op(
+            |xs, ys| {
+                xs.iter()
+                    .zip(ys.iter_mut())
+                    .for_each(|(x, y)| *y = reference_sigmoid(*x))
+            },
+            vec_sigmoid,
         );
     }
 }

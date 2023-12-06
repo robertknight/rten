@@ -71,7 +71,9 @@ pub fn vec_erf_in_place(xs: &mut [f32]) {
 mod tests {
     use super::{erf, vec_erf};
 
-    use crate::testing::{arange, check_f32s_are_equal_atol, triples, AllF32s, Progress};
+    use crate::testing::{
+        arange, benchmark_op, check_f32s_are_equal_atol, triples, AllF32s, Progress,
+    };
 
     // Maximum difference between our erf function and `libm::erf` found
     // through an exhaustive test.
@@ -105,5 +107,18 @@ mod tests {
             max_diff = max_diff.max(diff);
         }
         assert!(max_diff <= MAX_EXPECTED_DIFF);
+    }
+
+    #[test]
+    #[ignore]
+    fn bench_erf() {
+        benchmark_op(
+            |xs, ys| {
+                xs.iter()
+                    .zip(ys.iter_mut())
+                    .for_each(|(x, y)| *y = libm::erff(*x))
+            },
+            vec_erf,
+        );
     }
 }

@@ -1,4 +1,6 @@
 use std::io::prelude::*;
+use std::iter::repeat_with;
+use std::time::Instant;
 
 use crate::ulp::Ulp;
 
@@ -232,4 +234,38 @@ pub fn check_with_all_f32s<F: Fn(f32) -> (f32, f32)>(
         (x, actual, expected)
     });
     check_f32s_are_equal_ulps(Progress::wrap(actual_expected, progress_msg), ulp_threshold);
+}
+
+/// Benchmark a vectorized implementation of a function against a reference
+/// implementation.
+///
+/// `reference` and `vectorized` are functions which take an input slice of
+/// elements as a first argument and write the results of applying the operation
+/// to the second argument.
+pub fn benchmark_op<RF: Fn(&[f32], &mut [f32]), VF: Fn(&[f32], &mut [f32])>(
+    reference: RF,
+    vectorized: VF,
+) {
+    let input: Vec<_> = repeat_with(|| fastrand::f32()).take(1_000_000).collect();
+    let mut output = vec![0.; input.len()];
+    let iters = 100;
+
+    let reference_start = Instant::now();
+    for _ in 0..iters {
+        reference(&input, &mut output);
+    }
+    let reference_elapsed = reference_start.elapsed().as_micros();
+
+    let vecmath_vec_start = Instant::now();
+    for _ in 0..iters {
+        vectorized(&input, &mut output);
+    }
+    let vecmath_vec_elapsed = vecmath_vec_start.elapsed().as_micros();
+
+    let ratio = reference_elapsed as f32 / vecmath_vec_elapsed as f32;
+
+    println!(
+        "reference {} us vectorized {} us. reference / vectorized ratio {:.3}",
+        reference_elapsed, vecmath_vec_elapsed, ratio
+    );
 }
