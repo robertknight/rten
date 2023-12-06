@@ -192,22 +192,25 @@ unsafe fn vec_fold<S: SimdFloat, Op: Fn(S, S) -> S>(
 /// `vec_unary_op` call will be invoked.
 macro_rules! dispatch_unary_op {
     ($in:ident, $out:ident, $op_func:ident, $fallback_func:ident) => {
-        use crate::vec_unary_op;
+        use crate::{vec_unary_op, MutPtrLen, PtrLen};
 
         assert!($in.len() == $out.len());
 
+        // Non-generic wrapper for `vec_unary_op` which instantiates the
+        // AVX + FMA version.
+        #[cfg(target_arch = "x86_64")]
+        #[target_feature(enable = "avx2")]
+        #[target_feature(enable = "fma")]
+        unsafe fn vec_unary_op_avx(xs: PtrLen<f32>, out: MutPtrLen<f32>) {
+            use std::arch::x86_64::__m256;
+            vec_unary_op(xs, out, |x: __m256| $op_func(x), 0. /* pad */);
+        }
+
         #[cfg(target_arch = "x86_64")]
         if is_x86_feature_detected!("fma") && is_x86_feature_detected!("avx2") {
-            use std::arch::x86_64::__m256;
-
             // Safety: We've checked that AVX2 + FMA are available.
             unsafe {
-                vec_unary_op(
-                    $in.into(),
-                    $out.into(),
-                    |x: __m256| $op_func(x),
-                    0., /* pad */
-                );
+                vec_unary_op_avx($in.into(), $out.into());
             }
 
             return;
@@ -239,20 +242,23 @@ macro_rules! dispatch_unary_op {
     };
 
     ($out:ident, $op_func:ident, $fallback_func:ident) => {
-        use crate::vec_unary_op;
+        use crate::{vec_unary_op, MutPtrLen, PtrLen};
+
+        // Non-generic wrapper for `vec_unary_op` which instantiates the
+        // AVX + FMA version.
+        #[cfg(target_arch = "x86_64")]
+        #[target_feature(enable = "avx2")]
+        #[target_feature(enable = "fma")]
+        unsafe fn vec_unary_op_avx(xs: PtrLen<f32>, out: MutPtrLen<f32>) {
+            use std::arch::x86_64::__m256;
+            vec_unary_op(xs, out, |x: __m256| $op_func(x), 0. /* pad */);
+        }
 
         #[cfg(target_arch = "x86_64")]
         if is_x86_feature_detected!("fma") && is_x86_feature_detected!("avx2") {
-            use std::arch::x86_64::__m256;
-
             // Safety: We've checked that AVX2 + FMA are available.
             unsafe {
-                vec_unary_op(
-                    $out.into(),
-                    $out.into(),
-                    |x: __m256| $op_func(x),
-                    0., /* pad */
-                );
+                vec_unary_op_avx($out.into(), $out.into());
             }
             return;
         }
@@ -288,19 +294,25 @@ pub(crate) use dispatch_unary_op;
 /// Dispatch a SIMD function using the best available `SimdFloat` implementation
 /// on the current system.
 ///
-/// `$func` should be a function with a generic argument `S: SimdFloat`. `$arg`
-/// is a list of arguments to pass to the function. `$func` may be unsafe, with
-/// a requirement that it is only called if the `SimdFloat` impl is safe to use
-/// on the current system.
+/// `$func` should be a function with a generic argument `S: SimdFloat`. `$in`
+/// and `$out` are the function arguments.
 macro_rules! dispatch_simd {
-    ($func:ident, $($arg:expr),*) => {
+    ($func:ident, $in:expr, $out:expr) => {
+        use crate::{MutPtrLen, PtrLen};
+
+        // Non-generic wrapper for `$func` which instantiates the AVX + FMA version.
+        #[cfg(target_arch = "x86_64")]
+        #[target_feature(enable = "avx2")]
+        #[target_feature(enable = "fma")]
+        unsafe fn simd_op_avx(xs: PtrLen<f32>, out: MutPtrLen<f32>) {
+            use std::arch::x86_64::__m256;
+            $func::<__m256>(xs, out);
+        }
+
         #[cfg(target_arch = "x86_64")]
         if is_x86_feature_detected!("fma") && is_x86_feature_detected!("avx2") {
-            use std::arch::x86_64::__m256;
-
             // Safety: We've checked that AVX2 + FMA are available.
-            unsafe { $func::<__m256>($($arg),*) };
-
+            unsafe { simd_op_avx($in, $out) };
             return;
         }
 
@@ -310,14 +322,16 @@ macro_rules! dispatch_simd {
 
             // Safety: The WASM runtime will have verified SIMD instructions
             // are accepted when loading the binary.
-            unsafe { $func::<v128f>($($arg),*) };
+            unsafe { $func::<v128f>($in, $out) };
             return;
         }
 
         // Fallback for platforms where optimized implementation is used
         // conditionally.
         #[cfg(target_arch = "x86_64")]
-        unsafe { $func::<f32>($($arg),*) };
+        unsafe {
+            $func::<f32>($in, $out)
+        };
     };
 }
 
