@@ -3,7 +3,7 @@ use std::error::Error;
 use std::fs;
 
 use wasnn::ops::{non_max_suppression, BoxOrder};
-use wasnn::{Dimension, FloatOperators, Model, NodeId};
+use wasnn::{Dimension, FloatOperators, Model};
 use wasnn_imageio::{read_image, write_image};
 use wasnn_imageproc::{Painter, Rect};
 use wasnn_tensor::prelude::*;
@@ -60,12 +60,6 @@ Options:
     Ok(args)
 }
 
-fn get_node(model: &Model, name: &str) -> Result<NodeId, String> {
-    model
-        .find_node(name)
-        .ok_or_else(|| format!("failed to find model node {}", name))
-}
-
 /// Detect objects in images using the YOLO v8 model.
 ///
 /// See https://docs.ultralytics.com/modes/export/ for current instructions on
@@ -118,8 +112,8 @@ fn main() -> Result<(), Box<dyn Error>> {
     };
     let image = image.resize_image([input_h, input_w])?;
 
-    let input_id = get_node(&model, "images")?;
-    let output_id = get_node(&model, "output0")?;
+    let input_id = model.node_id("images")?;
+    let output_id = model.node_id("output0")?;
 
     let [output] = model.run_n(&[(input_id, image.view().into())], [output_id], None)?;
 

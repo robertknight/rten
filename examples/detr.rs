@@ -2,7 +2,7 @@ use std::collections::VecDeque;
 use std::error::Error;
 use std::fs;
 
-use wasnn::{FloatOperators, Model, NodeId, Operators};
+use wasnn::{FloatOperators, Model, Operators};
 use wasnn_imageio::{normalize_image, read_image, write_image};
 use wasnn_imageproc::{Painter, Rect};
 use wasnn_tensor::prelude::*;
@@ -159,12 +159,6 @@ fn rescaled_size(
     }
 }
 
-fn get_node(model: &Model, name: &str) -> Result<NodeId, String> {
-    model
-        .find_node(name)
-        .ok_or_else(|| format!("failed to find model node {}", name))
-}
-
 // Labels obtained from `id2label` map in
 // https://huggingface.co/facebook/detr-resnet-50/blob/main/config.json.
 const LABELS: &[&str] = &[
@@ -317,9 +311,9 @@ fn main() -> Result<(), Box<dyn Error>> {
         image = image.resize_image([rescaled_height, rescaled_width])?;
     }
 
-    let pixel_input_id = get_node(&model, "pixel_values")?;
-    let logits_output_id = get_node(&model, "logits")?;
-    let boxes_output_id = get_node(&model, "pred_boxes")?;
+    let pixel_input_id = model.node_id("pixel_values")?;
+    let logits_output_id = model.node_id("logits")?;
+    let boxes_output_id = model.node_id("pred_boxes")?;
 
     let [logits, boxes] = model.run_n(
         &[(pixel_input_id, image.view().into())],
