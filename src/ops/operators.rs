@@ -1,8 +1,10 @@
+use std::fmt::Debug;
+
 use wasnn_tensor::prelude::*;
-use wasnn_tensor::{NdTensorBase, NdTensorView, Tensor, TensorBase};
+use wasnn_tensor::{NdTensorBase, NdTensorView, Tensor, TensorBase, TensorView};
 
 use crate::ops::OpError;
-use crate::ops::{arg_max, pad, resize_image, softmax, topk};
+use crate::ops::{arg_max, mul, pad, reduce_l2, reduce_mean, resize_image, softmax, topk};
 
 /// Trait which exposes ONNX operators as methods of tensors.
 ///
@@ -15,6 +17,10 @@ pub trait Operators {
     fn arg_max(&self, axis: isize, keep_dims: bool) -> Result<Tensor<i32>, OpError>
     where
         Self::Elem: Copy + PartialOrd;
+
+    fn mul(&self, other: TensorView<Self::Elem>) -> Result<Tensor<Self::Elem>, OpError>
+    where
+        Self::Elem: Copy + Debug + Default + std::ops::Mul<Output = Self::Elem>;
 
     fn pad(
         &self,
@@ -39,6 +45,9 @@ pub trait Operators {
 ///
 /// This trait provides methods which are only available on float tensors.
 pub trait FloatOperators {
+    fn reduce_l2(&self, axes: Option<&[i32]>, keep_dims: bool) -> Result<Tensor, OpError>;
+    fn reduce_mean(&self, axes: Option<&[i32]>, keep_dims: bool) -> Result<Tensor, OpError>;
+
     /// Resize an NCHW image tensor to a given `[height, width]` using bilinear
     /// interpolation.
     fn resize_image(&self, size: [usize; 2]) -> Result<Tensor, OpError>;
@@ -53,6 +62,13 @@ impl<T, S: AsRef<[T]>> Operators for TensorBase<T, S> {
         T: Copy + PartialOrd,
     {
         arg_max(self.view(), axis, keep_dims)
+    }
+
+    fn mul(&self, other: TensorView<T>) -> Result<Tensor<T>, OpError>
+    where
+        T: Copy + Debug + Default + std::ops::Mul<Output = T>,
+    {
+        mul(self.view(), other)
     }
 
     fn pad(&self, padding: NdTensorView<i32, 1>, val: T) -> Result<Tensor<Self::Elem>, OpError>
@@ -86,6 +102,13 @@ impl<T, S: AsRef<[T]>, const N: usize> Operators for NdTensorBase<T, S, N> {
         arg_max(self.as_dyn(), axis, keep_dims)
     }
 
+    fn mul(&self, other: TensorView<T>) -> Result<Tensor<T>, OpError>
+    where
+        T: Copy + Debug + Default + std::ops::Mul<Output = T>,
+    {
+        mul(self.as_dyn(), other)
+    }
+
     fn pad(&self, padding: NdTensorView<i32, 1>, val: T) -> Result<Tensor<Self::Elem>, OpError>
     where
         Self::Elem: Copy,
@@ -108,6 +131,14 @@ impl<T, S: AsRef<[T]>, const N: usize> Operators for NdTensorBase<T, S, N> {
 }
 
 impl<S: AsRef<[f32]>> FloatOperators for TensorBase<f32, S> {
+    fn reduce_l2(&self, axes: Option<&[i32]>, keep_dims: bool) -> Result<Tensor, OpError> {
+        reduce_l2(self.view(), axes, keep_dims)
+    }
+
+    fn reduce_mean(&self, axes: Option<&[i32]>, keep_dims: bool) -> Result<Tensor, OpError> {
+        reduce_mean(self.view(), axes, keep_dims)
+    }
+
     fn resize_image(&self, size: [usize; 2]) -> Result<Tensor, OpError> {
         resize_image(self.view(), size)
     }
@@ -118,6 +149,14 @@ impl<S: AsRef<[f32]>> FloatOperators for TensorBase<f32, S> {
 }
 
 impl<S: AsRef<[f32]>, const N: usize> FloatOperators for NdTensorBase<f32, S, N> {
+    fn reduce_l2(&self, axes: Option<&[i32]>, keep_dims: bool) -> Result<Tensor, OpError> {
+        reduce_l2(self.as_dyn(), axes, keep_dims)
+    }
+
+    fn reduce_mean(&self, axes: Option<&[i32]>, keep_dims: bool) -> Result<Tensor, OpError> {
+        reduce_mean(self.as_dyn(), axes, keep_dims)
+    }
+
     fn resize_image(&self, size: [usize; 2]) -> Result<Tensor, OpError> {
         resize_image(self.as_dyn(), size)
     }
