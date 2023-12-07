@@ -125,6 +125,9 @@ pub enum RunError {
     /// An input or output node ID is invalid
     InvalidNodeId,
 
+    /// No node with a given name could be found
+    InvalidNodeName(String),
+
     /// A plan could not be constructed that would generate the requested output
     /// from the input.
     PlanningError(String),
@@ -141,6 +144,7 @@ impl fmt::Display for RunError {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
             RunError::InvalidNodeId => write!(f, "node ID is invalid"),
+            RunError::InvalidNodeName(ref name) => write!(f, "no node found with name {}", name),
             RunError::PlanningError(ref err) => write!(f, "planning error {:?}", err),
             RunError::OperatorError {
                 name,

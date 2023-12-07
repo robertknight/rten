@@ -91,9 +91,20 @@ impl Model {
         load_model(data, registry)
     }
 
-    /// Find a node in the model's graph given its string ID.
+    /// Find a node in the model's graph given its string name.
     pub fn find_node(&self, id: &str) -> Option<NodeId> {
         self.node_ids.get(id).copied()
+    }
+
+    /// Find a node in the model's graph given its string name.
+    ///
+    /// This is a convenience method which is like [Model::find_node] but
+    /// returns an error that includes the node's name if the node is not found.
+    pub fn node_id(&self, id: &str) -> Result<NodeId, RunError> {
+        self.node_ids
+            .get(id)
+            .copied()
+            .ok_or_else(|| RunError::InvalidNodeName(id.to_string()))
     }
 
     /// Return metadata about a node in the model's graph.
@@ -1103,11 +1114,24 @@ mod tests {
         let buffer = generate_model_buffer();
 
         let model = Model::load(&buffer).unwrap();
+
+        // Valid model IDs
         let input_id = model.find_node("input").unwrap();
         let output_id = model.find_node("output").unwrap();
 
         assert_eq!(model.input_ids(), &[input_id]);
         assert_eq!(model.output_ids(), &[output_id]);
+
+        // Get the same node ID via a convenience method which returns a
+        // Result.
+        assert_eq!(model.node_id("input"), Ok(input_id));
+
+        // Invalid model ID
+        assert_eq!(model.find_node("does_not_exist"), None);
+        assert_eq!(
+            model.node_id("does_not_exist"),
+            Err(RunError::InvalidNodeName("does_not_exist".to_string()))
+        );
     }
 
     #[test]
