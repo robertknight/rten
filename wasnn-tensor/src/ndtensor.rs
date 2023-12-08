@@ -228,6 +228,19 @@ impl<T, S: AsRef<[T]>, const N: usize> NdTensorBase<T, S, N> {
         self.as_dyn().to_tensor().try_into().unwrap()
     }
 
+    /// Return a copy of the elements of this tensor in their logical order
+    /// as a vector.
+    ///
+    /// This is equivalent to `self.iter().cloned().collect()` but faster
+    /// when the tensor is already contiguous or has a small number (<= 4)
+    /// dimensions.
+    pub fn to_vec(&self) -> Vec<T>
+    where
+        T: Clone,
+    {
+        self.as_dyn().to_vec()
+    }
+
     /// Return an immutable view of this tensor.
     pub fn view(&self) -> NdTensorView<T, N> {
         NdTensorView {
@@ -1179,6 +1192,13 @@ mod tests {
         let owned = view.to_tensor();
         assert_eq!(owned.shape(), view.shape());
         assert!(owned.is_contiguous());
+    }
+
+    #[test]
+    fn test_ndtensor_to_vec() {
+        let tensor = ndtensor!((2, 2); [1, 2, 3, 4]).unwrap();
+        let tensor = tensor.view().transposed();
+        assert_eq!(tensor.to_vec(), &[1, 3, 2, 4]);
     }
 
     #[test]
