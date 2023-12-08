@@ -547,10 +547,19 @@ impl<T, S: AsRef<[T]> + AsMut<[T]>, const N: usize> NdTensorBase<T, S, N> {
     /// The order in which elements are visited is unspecified and may not
     /// correspond to the logical order.
     pub fn apply<F: Fn(&T) -> T>(&mut self, f: F) {
-        // TODO: Skip unused elements when tensor is not contiguous.
-        for val in self.data.as_mut().iter_mut() {
-            *val = f(val);
+        if self.is_contiguous() {
+            self.data.as_mut().iter_mut().for_each(|x| *x = f(x));
+        } else {
+            self.iter_mut().for_each(|x| *x = f(x));
         }
+    }
+
+    /// Replace all elements of this tensor with `value`.
+    pub fn fill(&mut self, value: T)
+    where
+        T: Clone,
+    {
+        self.apply(|_| value.clone());
     }
 
     /// Copy elements from another tensor into this tensor.
@@ -826,9 +835,27 @@ mod tests {
 
     #[test]
     fn test_ndtensor_apply() {
-        let mut tensor = NdTensor::from_data(vec![1, 2, 3, 4], [2, 2], None).unwrap();
+        let mut tensor = ndtensor!((2, 2); [1, 2, 3, 4]).unwrap();
+
+        // Whole tensor
         tensor.apply(|x| x * 2);
-        assert_eq!(tensor_elements(tensor.view()), &[2, 4, 6, 8]);
+        assert_eq!(tensor.to_vec(), &[2, 4, 6, 8]);
+
+        // Non-contiguous slice
+        tensor.slice_mut::<1, _>((.., 0)).apply(|_| 0);
+        assert_eq!(tensor.to_vec(), &[0, 4, 0, 8]);
+    }
+
+    #[test]
+    fn test_ndtensor_fill() {
+        let mut x = NdTensor::zeros([2, 2]);
+        x.fill(1i32);
+        assert_eq!(x.to_vec(), &[1, 1, 1, 1]);
+
+        x.slice_mut::<1, _>(0).fill(2);
+        x.slice_mut::<1, _>(1).fill(3);
+
+        assert_eq!(x.to_vec(), &[2, 2, 3, 3]);
     }
 
     // Test conversion of a static-dim tensor with default strides, to a

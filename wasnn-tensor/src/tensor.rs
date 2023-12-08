@@ -735,6 +735,14 @@ impl<T, S: AsRef<[T]> + AsMut<[T]>> TensorBase<T, S> {
         }
     }
 
+    /// Replace all elements of this tensor with `value`.
+    pub fn fill(&mut self, value: T)
+    where
+        T: Clone,
+    {
+        self.apply(|_| value.clone());
+    }
+
     /// Return a new view with the dimensions re-ordered according to `dims`.
     pub fn permuted_mut(&mut self, dims: &[usize]) -> TensorViewMut<T> {
         TensorBase {
@@ -1165,6 +1173,18 @@ mod tests {
         x.apply(|el| el * el);
         let expected = Tensor::from_data(&[3, 3], vec![1, 4, 9, 16, 25, 36, 49, 64, 81]);
         assert_eq!(x, expected);
+    }
+
+    #[test]
+    fn test_fill() {
+        let mut x = Tensor::zeros(&[2, 2]);
+        x.fill(1i32);
+        assert_eq!(x.to_vec(), &[1, 1, 1, 1]);
+
+        x.slice_mut(0).fill(2);
+        x.slice_mut(1).fill(3);
+
+        assert_eq!(x.to_vec(), &[2, 2, 3, 3]);
     }
 
     #[test]
