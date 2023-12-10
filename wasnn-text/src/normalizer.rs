@@ -1,11 +1,10 @@
-/// Normalizer applies unicode normalization and case transformations to
-/// strings.
+/// Normalizer applies normalization such as Unicode normalization and
+/// lower-casing to strings.
 ///
-/// Unlike methods such as [str::to_lowercase], Normalizer also returns a
-/// mapping between offsets in the normalized string and offsets in the
-/// input. This is useful for NLP tasks such as extractive question answering
-/// where model outputs need to be mapped back to a passage of text from
-/// the input.
+/// In addition to the normalized text, Normalizer methods also return mappings
+/// from positions in the normalized string back to the original string. This
+/// is useful for post-processing in NLP tasks to map machine learning model
+/// outputs back to the location in the original text.
 #[derive(Clone, Debug)]
 pub struct Normalizer {
     lowercase: bool,
@@ -13,6 +12,7 @@ pub struct Normalizer {
 
 #[derive(Clone, Debug, Default)]
 pub struct NormalizerOptions {
+    /// If true, convert all text to lowercase using [char::to_lowercase].
     pub lowercase: bool,
 }
 
