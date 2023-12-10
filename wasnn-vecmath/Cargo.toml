@@ -9,3 +9,8 @@ libm = "0.2.6"
 
 [lib]
 crate-type = ["lib"]
+
+[lints.clippy]
+# See comments about `needless_range_loop` in root Cargo.toml.
+needless_range_loop = "allow"
+manual_memcpy = "allow"

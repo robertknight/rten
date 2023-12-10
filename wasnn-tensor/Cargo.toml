@@ -8,3 +8,8 @@ smallvec = { version = "1.10.0", features=["union", "const_generics", "const_new
 
 [lib]
 crate-type = ["lib"]
+
+[lints.clippy]
+# See comments about `needless_range_loop` in root Cargo.toml.
+needless_range_loop = "allow"
+manual_memcpy = "allow"
