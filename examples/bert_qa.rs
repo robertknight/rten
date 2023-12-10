@@ -26,7 +26,7 @@ fn parse_args() -> Result<Args, lexopt::Error> {
             Value(val) => values.push_back(val.string()?),
             Long("help") => {
                 println!(
-                    "Search text files for answers to questions.
+                    "Find answers to questions in a text file.
 
 Usage: {bin_name} <model> <vocab> <context_doc> <query...>
 
@@ -229,6 +229,10 @@ fn main() -> Result<(), Box<dyn Error>> {
         // Max chunk length chosen as 384 to match what is used by the original
         // BERT training scripts + the Hugging Face QA pipeline.
         max_chunk_len: Some(384),
+
+        // Overlap controls how many tokens successive chunks overlap by.
+        // This can avoid the model failing to find answers if the answer
+        // crosses a chunk boundary.
         overlap: 0,
         ..Default::default()
     };
