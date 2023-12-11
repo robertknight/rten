@@ -1,6 +1,63 @@
 use unicode_categories::UnicodeCategories;
 use unicode_normalization::char::decompose_canonical;
 
+struct CharNormalizer {
+    normalized: Vec<char>,
+
+    /// Temporary buffer that holds the output of a normalization step until
+    /// it is copied back to `normalized`.
+    tmp: Vec<char>,
+}
+
+impl CharNormalizer {
+    fn new() -> CharNormalizer {
+        CharNormalizer {
+            normalized: Vec::new(),
+            tmp: Vec::new(),
+        }
+    }
+
+    /// Set the input character to normalize.
+    fn set_char(&mut self, ch: char) {
+        self.tmp.push(ch);
+        self.update_normalized_from_tmp();
+    }
+
+    /// Lowercase the normalized characters.
+    fn lower_case(&mut self) {
+        for ch in &self.normalized {
+            for lower_ch in ch.to_lowercase() {
+                self.tmp.push(lower_ch);
+            }
+        }
+        self.update_normalized_from_tmp();
+    }
+
+    /// Decompose the input into NFD form and then remove any characters in
+    /// the Unicode non-spacing mark ("Mn") category.
+    fn strip_accents(&mut self) {
+        for ch in &self.normalized {
+            decompose_canonical(*ch, |decomposed| {
+                if !decomposed.is_mark_nonspacing() {
+                    self.tmp.push(decomposed);
+                }
+            });
+        }
+        self.update_normalized_from_tmp();
+    }
+
+    /// Return the normalized characters.
+    fn normalized(&self) -> &[char] {
+        &self.normalized
+    }
+
+    fn update_normalized_from_tmp(&mut self) {
+        self.normalized.clear();
+        self.normalized.extend(self.tmp.iter());
+        self.tmp.clear();
+    }
+}
+
 /// Normalizer applies normalization such as Unicode normalization and
 /// lower-casing to strings.
 ///
@@ -45,43 +102,20 @@ impl Normalizer {
 
         let mut normalized = String::with_capacity(text.len());
         let mut offsets = Vec::with_capacity(text.len());
-
-        // Temporary source and destination buffers for transforming characters.
-        // These are swapped after each normalization step.
-        let mut char_src = Vec::with_capacity(4);
-        let mut char_dest = Vec::with_capacity(4);
+        let mut char_normalizer = CharNormalizer::new();
 
         for (offset, ch) in text.char_indices() {
-            char_src.clear();
-            char_dest.clear();
-            char_src.push(ch);
+            char_normalizer.set_char(ch);
 
             if self.strip_accents {
-                for ch in &char_src {
-                    decompose_canonical(*ch, |decomposed| {
-                        if !decomposed.is_mark_nonspacing() {
-                            char_dest.push(decomposed);
-                        }
-                    });
-                }
-            } else {
-                char_dest.extend(char_src.iter().copied());
+                char_normalizer.strip_accents();
             }
-
-            let (char_src, char_dest) = (&char_dest, &mut char_src);
-            char_dest.clear();
 
             if self.lowercase {
-                for ch in char_src {
-                    for lower_ch in ch.to_lowercase() {
-                        char_dest.push(lower_ch);
-                    }
-                }
-            } else {
-                char_dest.extend(char_src.iter().copied());
+                char_normalizer.lower_case();
             }
 
-            for ch in char_dest {
+            for ch in char_normalizer.normalized() {
                 normalized.push(*ch);
                 for _ in 0..ch.len_utf8() {
                     offsets.push(offset);
