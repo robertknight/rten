@@ -66,7 +66,7 @@ mod tests {
             k: i32,
         }
 
-        let in_3x3 = Tensor::arange(1, 10, None).into_reshaped(&[3, 3]);
+        let in_3x3 = Tensor::arange(1, 10, None).into_shape(&[3, 3]);
 
         let cases = [
             // k = 0, upper = true
@@ -166,7 +166,7 @@ mod tests {
             },
             // Non-square (wide) matrix
             Case {
-                input: Tensor::arange(1, 16, None).into_reshaped(&[3, 5]),
+                input: Tensor::arange(1, 16, None).into_shape(&[3, 5]),
                 expected: Tensor::from([
                     [1, 2, 3, 4, 5],  //
                     [0, 7, 8, 9, 10], //
@@ -177,7 +177,7 @@ mod tests {
             },
             // Non-square (tall) matrix
             Case {
-                input: Tensor::arange(1, 16, None).into_reshaped(&[5, 3]),
+                input: Tensor::arange(1, 16, None).into_shape(&[5, 3]),
                 expected: Tensor::from([
                     [1, 2, 3], //
                     [0, 5, 6], //

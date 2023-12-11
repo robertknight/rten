@@ -985,7 +985,7 @@ impl<T> Tensor<T> {
     }
 
     /// Like [Tensor::reshape] but consumes self.
-    pub fn into_reshaped(mut self, new_shape: &[usize]) -> Tensor<T>
+    pub fn into_shape(mut self, new_shape: &[usize]) -> Tensor<T>
     where
         T: Clone,
     {
@@ -1164,7 +1164,7 @@ mod tests {
     /// plus one.
     fn steps(shape: &[usize]) -> Tensor<i32> {
         let steps: usize = shape.iter().product();
-        Tensor::arange(1, steps as i32 + 1, None).into_reshaped(shape)
+        Tensor::arange(1, steps as i32 + 1, None).into_shape(shape)
     }
 
     #[test]
