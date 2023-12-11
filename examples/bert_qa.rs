@@ -6,13 +6,16 @@ use wasnn::ops::FloatOperators;
 use wasnn::{Input, Model, NodeId};
 use wasnn_tensor::prelude::*;
 use wasnn_tensor::*;
-use wasnn_text::tokenizers::{EncodeOptions, Encoded, Tokenizer, WordPiece};
+use wasnn_text::normalizer::{Normalizer, NormalizerOptions};
+use wasnn_text::tokenizers::{EncodeOptions, Encoded, Tokenizer, WordPiece, WordPieceOptions};
 
 struct Args {
     model: String,
     vocab: String,
     context_doc: String,
     query: String,
+    lowercase: bool,
+    n_best: usize,
 }
 
 fn parse_args() -> Result<Args, lexopt::Error> {
@@ -20,15 +23,21 @@ fn parse_args() -> Result<Args, lexopt::Error> {
 
     let mut values = VecDeque::new();
     let mut parser = lexopt::Parser::from_env();
+    let mut lowercase = false;
+    let mut n_best = 1;
 
     while let Some(arg) = parser.next()? {
         match arg {
             Value(val) => values.push_back(val.string()?),
+            Short('l') | Long("lowercase") => lowercase = true,
+            Short('n') | Long("n-best") => {
+                n_best = parser.value()?.parse()?;
+            }
             Long("help") => {
                 println!(
                     "Find answers to questions in a text file.
 
-Usage: {bin_name} <model> <vocab> <context_doc> <query...>
+Usage: {bin_name} <model> <vocab> <context_doc> <query...> [options]
 
 Args:
 
@@ -36,6 +45,11 @@ Args:
   <vocab>       - Vocabulary for tokenization (vocab.txt)
   <context_doc> - Text document to search
   <query>       - Question to search for answer to
+
+Options:
+
+  -n, --n-best [n]  - Number of answers to produce (default 1)
+  -l, --lowercase   - Set to true if this is an uncased model
 ",
                     bin_name = parser.bin_name().unwrap_or("bert_qa")
                 );
@@ -55,6 +69,8 @@ Args:
         vocab,
         context_doc,
         query,
+        lowercase,
+        n_best,
     };
 
     Ok(args)
@@ -219,9 +235,18 @@ fn main() -> Result<(), Box<dyn Error>> {
 
     let context = fs::read_to_string(args.context_doc)?;
 
+    let normalizer = Normalizer::new(NormalizerOptions {
+        lowercase: args.lowercase,
+        ..Default::default()
+    });
+    let tokenizer_opts = WordPieceOptions {
+        normalizer: Some(normalizer),
+        ..Default::default()
+    };
+
     let vocab_text = std::fs::read_to_string(&args.vocab)?;
     let vocab: Vec<_> = vocab_text.lines().collect();
-    let tokenizer = WordPiece::from_vocab(&vocab, Default::default());
+    let tokenizer = WordPiece::from_vocab(&vocab, tokenizer_opts);
 
     // Tokenize the query and context, breaking the context up into chunks to
     // fit the model's context length.
@@ -241,15 +266,14 @@ fn main() -> Result<(), Box<dyn Error>> {
 
     let mut answers = Vec::new();
     for chunk in encoded {
-        let nbest_per_chunk = 1;
+        let nbest_per_chunk = args.n_best;
         let chunk_answers = extract_nbest_answers(chunk, &model, nbest_per_chunk)?;
         answers.extend(chunk_answers.into_iter());
     }
     answers.sort_by(|ans_a, ans_b| ans_a.score.total_cmp(&ans_b.score).reverse());
 
     println!("Question: {}", args.query);
-    let n_best = 1;
-    for answer in answers.into_iter().take(n_best) {
+    for answer in answers.into_iter().take(args.n_best) {
         println!("Answer (score {:.2}): {}", answer.score, answer.text);
     }
 
