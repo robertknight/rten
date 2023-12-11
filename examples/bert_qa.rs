@@ -92,12 +92,12 @@ fn extract_nbest_answers<'a>(
     n_best: usize,
 ) -> Result<Vec<Answer<'a>>, Box<dyn Error>> {
     let batch = 1;
-    let input_ids: Vec<i32> = query_context
+    let input_ids: Tensor<i32> = query_context
         .token_ids()
         .iter()
-        .map(|tok| *tok as i32)
-        .collect();
-    let input_ids = Tensor::from_data(&[batch, input_ids.len()], input_ids);
+        .map(|tid| *tid as i32)
+        .collect::<Tensor<_>>()
+        .into_reshaped(&[1, query_context.token_ids().len()]);
     let attention_mask = Tensor::full(&[batch, input_ids.len()], 1i32);
 
     let input_ids_id = model.node_id("input_ids")?;
@@ -114,11 +114,11 @@ fn extract_nbest_answers<'a>(
     // uses them, DistilBERT for example does not.
     let type_ids: Tensor<i32>;
     if let Some(type_ids_id) = model.find_node("token_type_ids") {
-        let type_ids_data: Vec<i32> = query_context
+        type_ids = query_context
             .token_type_ids()
-            .map(|tok| tok as i32)
-            .collect();
-        type_ids = Tensor::from_data(&[batch, type_ids_data.len()], type_ids_data);
+            .map(|tid| tid as i32)
+            .collect::<Tensor<_>>()
+            .into_reshaped(&[1, query_context.token_ids().len()]);
         inputs.push((type_ids_id, type_ids.view().into()));
     }
 
