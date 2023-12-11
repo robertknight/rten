@@ -714,6 +714,7 @@ dependencies = [
 name = "wasnn-text"
 version = "0.1.0"
 dependencies = [
+ "unicode-normalization",
  "unicode_categories",
 ]
 
