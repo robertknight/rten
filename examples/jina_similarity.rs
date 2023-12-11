@@ -222,6 +222,7 @@ fn main() -> Result<(), Box<dyn Error>> {
 
     let normalizer = Normalizer::new(NormalizerOptions {
         lowercase: true,
+        strip_accents: true,
         ..Default::default()
     });
     let tokenizer = WordPiece::from_vocab(
