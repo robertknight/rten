@@ -40,7 +40,11 @@ impl<T> SliceExt for [T] {
         assert!(overlap < chunk_size);
 
         let stride = chunk_size - overlap;
-        let remainder_size = self.len().saturating_sub(chunk_size) % stride;
+        let remainder_size = if self.len() < chunk_size {
+            self.len()
+        } else {
+            self.len().saturating_sub(chunk_size) % stride
+        };
 
         OverlappingChunks {
             inner: self.windows(chunk_size).step_by(stride),
@@ -153,6 +157,13 @@ mod tests {
                 chunk_size: 3,
                 overlap: 1,
                 expected: &[&[3, 4, 5], &[5, 6, 7], &[8]],
+            },
+            // One chunk that is smaller than chunk size
+            Case {
+                input: &[1, 2, 3],
+                chunk_size: 10,
+                overlap: 0,
+                expected: &[&[1, 2, 3]],
             },
         ];
 
