@@ -4,7 +4,41 @@ use std::io;
 use std::path::PathBuf;
 
 use serde::Deserialize;
-use wasnn_text::tokenizers::{Tokenizer, WordPiece};
+use wasnn_text::normalizer::{Normalizer, NormalizerOptions};
+use wasnn_text::tokenizers::{Tokenizer, WordPiece, WordPieceOptions};
+
+struct Vocab {
+    content: String,
+}
+
+impl Vocab {
+    /// Load a vocabulary from a text file with one token per line (ie. the
+    /// vocab.txt files that come with Hugging Face models).
+    fn from_file(path: &str) -> Result<Vocab, io::Error> {
+        let vocab = read_test_file(path)?;
+        Ok(Vocab { content: vocab })
+    }
+
+    /// Return a map from token ID to token string.
+    fn entries(&self) -> Vec<&str> {
+        self.content.lines().collect()
+    }
+}
+
+/// Struct representing the JSON files in `reftests/`.
+#[derive(Deserialize)]
+struct ReferenceTokenization {
+    token_ids: Vec<usize>,
+}
+
+impl ReferenceTokenization {
+    /// Load a reference tokenization from a JSON input file.
+    fn from_file(path: &str) -> Result<ReferenceTokenization, Box<dyn Error>> {
+        let json = read_test_file(path)?;
+        let ref_tok = serde_json::from_str(&json)?;
+        Ok(ref_tok)
+    }
+}
 
 fn read_test_file(path: &str) -> Result<String, io::Error> {
     let mut abs_path = PathBuf::from(env!("CARGO_MANIFEST_DIR"));
@@ -39,20 +73,40 @@ fn compare_tokens(actual: &[usize], expected: &[usize]) -> Result<(), Box<dyn Er
     Ok(())
 }
 
-#[derive(Deserialize)]
-struct ReferenceTokenization {
-    token_ids: Vec<usize>,
+#[test]
+fn test_wordpiece_bert_cased() -> Result<(), Box<dyn Error>> {
+    let vocab = Vocab::from_file("models/bert-base-cased/vocab.txt")?;
+    let text = read_test_file("Rust_(programming_language).txt")?;
+    let expected =
+        ReferenceTokenization::from_file("Rust_(programming_language)-bert-base-cased.json")?;
+
+    let tokenizer = WordPiece::from_vocab(&vocab.entries(), Default::default());
+    let encoded = tokenizer.encode(text.as_str().into(), Default::default())?;
+
+    compare_tokens(encoded.token_ids(), &expected.token_ids)?;
+
+    Ok(())
 }
 
 #[test]
-fn test_wordpiece_bert_cased() -> Result<(), Box<dyn Error>> {
-    let vocab = read_test_file("models/bert-base-cased/vocab.txt")?;
-    let vocab: Vec<_> = vocab.lines().collect();
+fn test_wordpiece_bert_uncased() -> Result<(), Box<dyn Error>> {
+    let vocab = Vocab::from_file("models/bert-base-uncased/vocab.txt")?;
     let text = read_test_file("Rust_(programming_language).txt")?;
-    let expected_json = read_test_file("Rust_(programming_language)-bert-base-cased.json")?;
-    let expected: ReferenceTokenization = serde_json::from_str(&expected_json)?;
+    let expected =
+        ReferenceTokenization::from_file("Rust_(programming_language)-bert-base-uncased.json")?;
 
-    let tokenizer = WordPiece::from_vocab(&vocab, Default::default());
+    let normalizer = Normalizer::new(NormalizerOptions {
+        lowercase: true,
+        strip_accents: true,
+        ..Default::default()
+    });
+    let tokenizer = WordPiece::from_vocab(
+        &vocab.entries(),
+        WordPieceOptions {
+            normalizer: Some(normalizer),
+            ..Default::default()
+        },
+    );
     let encoded = tokenizer.encode(text.as_str().into(), Default::default())?;
 
     compare_tokens(encoded.token_ids(), &expected.token_ids)?;
