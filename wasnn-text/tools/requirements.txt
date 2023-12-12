@@ -1,0 +1,2 @@
+tokenizers==0.15.0
+Wikipedia-API==0.6.0
