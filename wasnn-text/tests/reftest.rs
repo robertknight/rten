@@ -90,10 +90,30 @@ fn test_wordpiece_bert_cased() -> Result<(), Box<dyn Error>> {
 
 #[test]
 fn test_wordpiece_bert_uncased() -> Result<(), Box<dyn Error>> {
+    struct Case<'a> {
+        text: &'a str,
+        reference: &'a str,
+    }
+
+    let cases = [
+        // ASCII text
+        Case {
+            text: "Rust_(programming_language).txt",
+            reference: "Rust_(programming_language)-bert-base-uncased.json",
+        },
+        // Non-ASCII text
+        Case {
+            text: "monty-python-credits.txt",
+            reference: "monty-python-credits-bert-base-uncased.json",
+        },
+        // Accents
+        Case {
+            text: "Metal_umlaut.txt",
+            reference: "Metal_umlaut-bert-base-uncased.json",
+        },
+    ];
+
     let vocab = Vocab::from_file("models/bert-base-uncased/vocab.txt")?;
-    let text = read_test_file("Rust_(programming_language).txt")?;
-    let expected =
-        ReferenceTokenization::from_file("Rust_(programming_language)-bert-base-uncased.json")?;
 
     let normalizer = Normalizer::new(NormalizerOptions {
         lowercase: true,
@@ -107,9 +127,14 @@ fn test_wordpiece_bert_uncased() -> Result<(), Box<dyn Error>> {
             ..Default::default()
         },
     );
-    let encoded = tokenizer.encode(text.as_str().into(), Default::default())?;
 
-    compare_tokens(encoded.token_ids(), &expected.token_ids)?;
+    for Case { text, reference } in cases {
+        let text = read_test_file(text)?;
+        let expected = ReferenceTokenization::from_file(reference)?;
+        let encoded = tokenizer.encode(text.as_str().into(), Default::default())?;
+
+        compare_tokens(encoded.token_ids(), &expected.token_ids)?;
+    }
 
     Ok(())
 }
