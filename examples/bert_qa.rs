@@ -85,7 +85,7 @@ struct Answer<'a> {
 /// answer the query.
 ///
 /// `query_context` is the tokenized query and context, `model` is a BERT model
-/// finetuned for extractive QA. `nbest` is the number of results to return.
+/// finetuned for extractive QA. `n_best` is the number of results to return.
 fn extract_nbest_answers<'a>(
     query_context: Encoded<'a>,
     model: &Model,
@@ -237,6 +237,7 @@ fn main() -> Result<(), Box<dyn Error>> {
 
     let normalizer = Normalizer::new(NormalizerOptions {
         lowercase: args.lowercase,
+        strip_accents: args.lowercase,
         ..Default::default()
     });
     let tokenizer_opts = WordPieceOptions {
