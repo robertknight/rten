@@ -74,6 +74,11 @@ pub trait NdView<const N: usize>: Layout {
         self.view().permuted(dims)
     }
 
+    /// Return a new view with the order of dimensions reversed.
+    fn transposed(&self) -> NdTensorView<Self::Elem, N> {
+        self.view().transposed()
+    }
+
     /// Return an immutable view of part of this tensor.
     ///
     /// `M` specifies the number of dimensions that the layout must have after
@@ -419,6 +424,14 @@ impl<'a, T, const N: usize> NdTensorView<'a, T, N> {
         }
     }
 
+    pub fn transposed(&self) -> NdTensorView<'a, T, N> {
+        NdTensorBase {
+            data: self.data,
+            layout: self.layout.transposed(),
+            element_type: PhantomData,
+        }
+    }
+
     pub fn reshaped<const M: usize>(&self, shape: [usize; M]) -> NdTensorView<'a, T, M> {
         NdTensorBase {
             data: self.data,
@@ -699,18 +712,6 @@ impl<T, S: AsRef<[T]>> MatrixLayout for NdTensorBase<T, S, 2> {
 
     fn col_stride(&self) -> usize {
         self.layout.col_stride()
-    }
-}
-
-/// Provides methods specific to 2D tensors (matrices).
-impl<'a, T> NdTensorView<'a, T, 2> {
-    /// Return a new view which transposes the columns and rows.
-    pub fn transposed(&self) -> Self {
-        NdTensorBase {
-            data: self.data,
-            layout: self.layout.transposed(),
-            element_type: PhantomData,
-        }
     }
 }
 
@@ -1320,6 +1321,10 @@ mod tests {
         assert_eq!(tensor_elements(view), &[1, 2, 3, 4]);
         let view = view.transposed();
         assert_eq!(tensor_elements(view), &[1, 3, 2, 4]);
+
+        let view = NdTensorView::from(&data).reshaped([1, 1, 4]);
+        let transposed = view.transposed();
+        assert_eq!(transposed.shape(), [4, 1, 1]);
     }
 
     #[test]

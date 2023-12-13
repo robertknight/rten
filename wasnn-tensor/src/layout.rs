@@ -422,6 +422,11 @@ impl<const N: usize> NdLayout<N> {
         Self::from_dyn(self.as_dyn().permuted(&dims))
     }
 
+    /// Reverse the order of dimensions in this layout.
+    pub fn transposed(&self) -> Self {
+        Self::from_dyn(self.as_dyn().transposed())
+    }
+
     /// Return a layout with the same number of elements but a given shape.
     ///
     /// Panics if the layout is not contiguous.
@@ -449,15 +454,6 @@ impl<const N: usize> NdLayout<N> {
 
         let layout = NdLayout { shape, strides };
         (offset..offset + layout.min_data_len(), layout)
-    }
-}
-
-impl NdLayout<2> {
-    pub fn transposed(self) -> NdLayout<2> {
-        NdLayout {
-            shape: [self.shape[1], self.shape[0]],
-            strides: [self.strides[1], self.strides[0]],
-        }
     }
 }
 
