@@ -3,8 +3,11 @@ use std::fmt::Debug;
 use wasnn_tensor::prelude::*;
 use wasnn_tensor::{NdTensorBase, NdTensorView, Tensor, TensorBase, TensorView};
 
+use crate::number::{Identities, IsInt};
 use crate::ops::OpError;
-use crate::ops::{arg_max, matmul, mul, pad, reduce_l2, reduce_mean, resize_image, softmax, topk};
+use crate::ops::{
+    arg_max, div, matmul, mul, pad, reduce_l2, reduce_mean, resize_image, softmax, topk,
+};
 
 /// Trait which exposes ONNX operators as methods of tensors.
 ///
@@ -17,6 +20,16 @@ pub trait Operators {
     fn arg_max(&self, axis: isize, keep_dims: bool) -> Result<Tensor<i32>, OpError>
     where
         Self::Elem: Copy + PartialOrd;
+
+    fn div(&self, other: TensorView<Self::Elem>) -> Result<Tensor<Self::Elem>, OpError>
+    where
+        Self::Elem: Copy
+            + Debug
+            + Default
+            + std::ops::Mul<Output = Self::Elem>
+            + std::ops::Div<Output = Self::Elem>
+            + IsInt
+            + Identities;
 
     fn mul(&self, other: TensorView<Self::Elem>) -> Result<Tensor<Self::Elem>, OpError>
     where
@@ -66,6 +79,19 @@ impl<T, S: AsRef<[T]>> Operators for TensorBase<T, S> {
         arg_max(self.view(), axis, keep_dims)
     }
 
+    fn div(&self, other: TensorView<Self::Elem>) -> Result<Tensor<Self::Elem>, OpError>
+    where
+        Self::Elem: Copy
+            + Debug
+            + Default
+            + std::ops::Mul<Output = Self::Elem>
+            + std::ops::Div<Output = Self::Elem>
+            + IsInt
+            + Identities,
+    {
+        div(self.view(), other)
+    }
+
     fn mul(&self, other: TensorView<T>) -> Result<Tensor<T>, OpError>
     where
         T: Copy + Debug + Default + std::ops::Mul<Output = T>,
@@ -102,6 +128,19 @@ impl<T, S: AsRef<[T]>, const N: usize> Operators for NdTensorBase<T, S, N> {
         T: Copy + PartialOrd,
     {
         arg_max(self.as_dyn(), axis, keep_dims)
+    }
+
+    fn div(&self, other: TensorView<Self::Elem>) -> Result<Tensor<Self::Elem>, OpError>
+    where
+        Self::Elem: Copy
+            + Debug
+            + Default
+            + std::ops::Mul<Output = Self::Elem>
+            + std::ops::Div<Output = Self::Elem>
+            + IsInt
+            + Identities,
+    {
+        div(self.as_dyn(), other)
     }
 
     fn mul(&self, other: TensorView<T>) -> Result<Tensor<T>, OpError>
