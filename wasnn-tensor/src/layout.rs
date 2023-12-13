@@ -419,12 +419,20 @@ impl<const N: usize> NdLayout<N> {
     ///
     /// Values in `dims` must be < N.
     pub fn permuted(&self, dims: [usize; N]) -> Self {
-        Self::from_dyn(self.as_dyn().permuted(&dims))
+        assert!(is_valid_permutation(N, &dims), "permutation is invalid");
+        let mut shape = [0; N];
+        let mut strides = [0; N];
+        for i in 0..N {
+            shape[i] = self.shape[dims[i]];
+            strides[i] = self.strides[dims[i]];
+        }
+        NdLayout { shape, strides }
     }
 
     /// Reverse the order of dimensions in this layout.
     pub fn transposed(&self) -> Self {
-        Self::from_dyn(self.as_dyn().transposed())
+        let dims = std::array::from_fn(|i| N - i - 1);
+        self.permuted(dims)
     }
 
     /// Return a layout with the same number of elements but a given shape.
