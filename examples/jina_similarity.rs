@@ -2,10 +2,10 @@ use std::collections::VecDeque;
 use std::error::Error;
 use std::fs;
 
-use wasnn::ops::{concat, OpError};
+use wasnn::ops::concat;
 use wasnn::{FloatOperators, Input, Model, NodeId, Operators};
 use wasnn_tensor::prelude::*;
-use wasnn_tensor::{NdTensor, NdTensorView, Tensor};
+use wasnn_tensor::{NdTensor, Tensor};
 use wasnn_text::normalizer::{Normalizer, NormalizerOptions};
 use wasnn_text::tokenizers::{EncodeOptions, Tokenizer, WordPiece, WordPieceOptions};
 
@@ -166,24 +166,6 @@ fn embed_sentence_batch(
     Ok(mean_pooled)
 }
 
-/// Return the cosine similarity between two vectors.
-///
-/// Fails if the vectors are not of equal length.
-fn cosine_similarity(a: NdTensorView<f32, 1>, b: NdTensorView<f32, 1>) -> Result<f32, OpError> {
-    let dot_prod: f32 = a.mul(b.as_dyn())?.iter().sum();
-    let a_len = a
-        .reduce_l2(None /* axes */, false /* keep_dims */)?
-        .item()
-        .copied()
-        .unwrap();
-    let b_len = b
-        .reduce_l2(None /* axes */, false /* keep_dims */)?
-        .item()
-        .copied()
-        .unwrap();
-    Ok(dot_prod / (a_len * b_len))
-}
-
 /// This example computes the semantic similarity between a query sentence and
 /// a list of sentences in a text file (one per line).
 ///
@@ -254,16 +236,31 @@ fn main() -> Result<(), Box<dyn Error>> {
     // (batch, embed_dim) matrix of embeddings.
     let embeddings = embed_sentence_batch(&sentences, &tokenizer, &model, max_sequence_len)?;
 
+    // Compute cosine similarity of first row in `embeddings` with all rows.
+    //
+    // First normalize embeddings to unit length, then compute the dot product
+    // of the first row with other rows.
+    let embeddings_norm =
+        embeddings.reduce_l2(Some(&[1]) /* axes */, true /* keep_dims */)?;
+    let embeddings: NdTensor<f32, 2> = embeddings.div(embeddings_norm.view())?.try_into()?;
+
+    // (1, embed) @ (embed, batch) => (1, batch)
+    let similarities = embeddings
+        .slice::<2, _>(..1)
+        .matmul(embeddings.as_dyn().transposed())?;
+
     // Sort results by similarity to the query.
     //
     // Note that the raw scores are not very meaningful by themselves and will
     // all be "high" values (close to 1.0). They should be used only for
     // comparison with other scores.
-    let mut scores: Vec<(usize, f32)> = Vec::new();
-    for i in 1..sentences.len() {
-        let similarity = cosine_similarity(embeddings.slice(0), embeddings.slice(i))?;
-        scores.push((i, similarity));
-    }
+    let mut scores: Vec<(usize, f32)> = similarities
+        .slice(0)
+        .iter()
+        .copied()
+        .enumerate()
+        .skip(1) // Skip over similarity of query with itself.
+        .collect();
     scores.sort_by(|(_idx_a, score_a), (_idx_b, score_b)| score_a.total_cmp(score_b).reverse());
 
     println!("Query: \"{}\"", sentences[0]);
