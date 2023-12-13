@@ -4,7 +4,7 @@ use wasnn_tensor::prelude::*;
 use wasnn_tensor::{NdTensorBase, NdTensorView, Tensor, TensorBase, TensorView};
 
 use crate::ops::OpError;
-use crate::ops::{arg_max, mul, pad, reduce_l2, reduce_mean, resize_image, softmax, topk};
+use crate::ops::{arg_max, matmul, mul, pad, reduce_l2, reduce_mean, resize_image, softmax, topk};
 
 /// Trait which exposes ONNX operators as methods of tensors.
 ///
@@ -45,6 +45,8 @@ pub trait Operators {
 ///
 /// This trait provides methods which are only available on float tensors.
 pub trait FloatOperators {
+    fn matmul(&self, other: TensorView) -> Result<Tensor, OpError>;
+
     fn reduce_l2(&self, axes: Option<&[i32]>, keep_dims: bool) -> Result<Tensor, OpError>;
     fn reduce_mean(&self, axes: Option<&[i32]>, keep_dims: bool) -> Result<Tensor, OpError>;
 
@@ -131,6 +133,10 @@ impl<T, S: AsRef<[T]>, const N: usize> Operators for NdTensorBase<T, S, N> {
 }
 
 impl<S: AsRef<[f32]>> FloatOperators for TensorBase<f32, S> {
+    fn matmul(&self, other: TensorView) -> Result<Tensor, OpError> {
+        matmul(self.view(), other)
+    }
+
     fn reduce_l2(&self, axes: Option<&[i32]>, keep_dims: bool) -> Result<Tensor, OpError> {
         reduce_l2(self.view(), axes, keep_dims)
     }
@@ -149,6 +155,10 @@ impl<S: AsRef<[f32]>> FloatOperators for TensorBase<f32, S> {
 }
 
 impl<S: AsRef<[f32]>, const N: usize> FloatOperators for NdTensorBase<f32, S, N> {
+    fn matmul(&self, other: TensorView) -> Result<Tensor, OpError> {
+        matmul(self.as_dyn(), other)
+    }
+
     fn reduce_l2(&self, axes: Option<&[i32]>, keep_dims: bool) -> Result<Tensor, OpError> {
         reduce_l2(self.as_dyn(), axes, keep_dims)
     }
