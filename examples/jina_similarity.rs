@@ -247,7 +247,7 @@ fn main() -> Result<(), Box<dyn Error>> {
     // (1, embed) @ (embed, batch) => (1, batch)
     let similarities = embeddings
         .slice::<2, _>(..1)
-        .matmul(embeddings.as_dyn().transposed())?;
+        .matmul(embeddings.transposed().into())?;
 
     // Sort results by similarity to the query.
     //
