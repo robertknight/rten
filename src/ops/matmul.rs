@@ -112,6 +112,10 @@ pub fn matmul(a: TensorView, b: TensorView) -> Result<Tensor, OpError> {
     let out_shape = &[out_prefix.as_slice(), &[a_rows, b_cols]].concat();
     let mut output = Tensor::zeros(out_shape);
 
+    if output.is_empty() {
+        return Ok(output);
+    }
+
     let a_broadcast_shape = [out_prefix.as_slice(), &[a_rows, a_cols]].concat();
     let b_broadcast_shape = [out_prefix.as_slice(), &[b_rows, b_cols]].concat();
 
@@ -293,6 +297,33 @@ mod tests {
         expect_equal(&result, &expected)?;
 
         Ok(())
+    }
+
+    #[test]
+    fn test_matmul_zero_sized_dim() {
+        struct Case {
+            m: usize,
+            n: usize,
+            k: usize,
+        }
+
+        let cases = [
+            Case { m: 5, n: 0, k: 10 },
+            Case { m: 0, n: 5, k: 10 },
+            Case { m: 5, n: 10, k: 0 },
+        ];
+
+        for Case { m, n, k } in cases {
+            let mut rng = XorShiftRng::new(1234);
+            let a = Tensor::rand(&[m, k], &mut rng);
+            let b = Tensor::rand(&[k, n], &mut rng);
+            let result = matmul(a.view(), b.view()).unwrap();
+
+            assert_eq!(result.shape(), &[m, n]);
+            if k == 0 {
+                assert!(result.iter().all(|x| *x == 0.));
+            }
+        }
     }
 
     #[test]
