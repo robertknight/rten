@@ -12,8 +12,8 @@ use wasnn_text::tokenizers::{EncodeOptions, Tokenizer, WordPiece, WordPieceOptio
 struct Args {
     model: String,
     vocab: String,
-    first_sentence: String,
-    second_sentence: String,
+    index_file: String,
+    query: String,
 
     #[allow(dead_code)]
     verbose: bool,
@@ -34,14 +34,14 @@ fn parse_args() -> Result<Args, lexopt::Error> {
                 println!(
                     "Estimate semantic similarity of two sentences.
 
-Usage: {bin_name} <model> <vocab> <first_sentence> <second_sentence>
+Usage: {bin_name} <model> <vocab> <index_file> <query>
 
 Args:
 
   <model>       - Input model
   <vocab>       - Vocabulary for tokenization (vocab.txt)
-  <first_sentence>  - First input sentence to process
-  <second_sentence> - Second input sentence to process
+  <index_file>  - File containing sentences to search (one per line)
+  <query>       - Sentence to match against index file
 
 Options:
 
@@ -57,14 +57,14 @@ Options:
 
     let model = values.pop_front().ok_or("missing `model` arg")?;
     let vocab = values.pop_front().ok_or("missing `vocab` arg")?;
-    let first_sentence = values.pop_front().ok_or("missing `first_sentence` arg")?;
-    let second_sentence = values.pop_front().ok_or("missing `second_sentence` arg")?;
+    let index_file = values.pop_front().ok_or("missing `index_file` arg")?;
+    let query = values.pop_front().ok_or("missing `query` arg")?;
 
     let args = Args {
         model,
         vocab,
-        first_sentence,
-        second_sentence,
+        index_file,
+        query,
         verbose,
     };
 
@@ -184,34 +184,38 @@ fn cosine_similarity(a: NdTensorView<f32, 1>, b: NdTensorView<f32, 1>) -> Result
     Ok(dot_prod / (a_len * b_len))
 }
 
-/// This example computes the semantic similarity between two sentences or
-/// documents.
+/// This example computes the semantic similarity between a query sentence and
+/// a list of sentences in a text file (one per line).
 ///
-/// It works with BERT-based models designed for generating embeddings,
-/// such as https://huggingface.co/jinaai/jina-embeddings-v2-small-en.
-///
-/// You can download the Jina embeddings model in ONNX format, along with the
-/// vocab.txt vocabulary file from https://huggingface.co/jinaai/jina-embeddings-v2-small-en/tree/main.
+/// It uses the Jina embeddings model from
+/// https://huggingface.co/jinaai/jina-embeddings-v2-small-en. You can download
+/// the in ONNX format, along with the vocab.txt vocabulary file from
+/// https://huggingface.co/jinaai/jina-embeddings-v2-small-en/tree/main.
 ///
 /// Convert the model using:
 ///
-/// ```
+/// ```text
 /// tools/convert-onnx.py jina-embed.onnx jina-embed.model
 /// ```
 ///
 /// Then run the example with:
 ///
-/// ```
+/// ```text
 /// cargo run -r --example jina_similarity jina-embed.model jina-vocab.txt
-///   <first_sentence> <second_sentence>
+///   examples/data/rust-questions.txt "How can I make a function work with any type that supports addition?"
 /// ```
 ///
-/// Where `<first_sentence>` and `<second_sentence>` are two quoted sentences
-/// to compare. For example "How is the weather today?" and "What is the current
-/// weather like today?".
+/// This should output a result such as:
 ///
-/// [1] https://huggingface.co/tasks/question-answering
-/// [2] https://huggingface.co/docs/optimum/index
+/// ```text
+/// Query: "How can I make a function work with any type that supports addition?"
+///
+/// Best matches:
+///   #1: How do I require a generic type implement an operation like Add, Sub, Mul, or Div in a generic function?
+///   #2: How do I implement a trait I don't own for a type I don't own?
+///   #3: Is there any way to return a reference to a variable created in a function?
+///   ...
+/// ```
 fn main() -> Result<(), Box<dyn Error>> {
     let args = parse_args()?;
     let model_bytes = fs::read(args.model)?;
@@ -233,24 +237,41 @@ fn main() -> Result<(), Box<dyn Error>> {
         },
     );
 
-    let first_sentence = args.first_sentence;
-    let second_sentence = args.second_sentence;
+    let mut sentences: Vec<&str> = vec![&args.query];
+
+    // Read sentences from index. We only use the first 50 lines to limit the
+    // runtime in this example. Here we recompute embeddings on every run, but
+    // in an actual app you'd want to precompute the embeddings. Also you'd want
+    // to chunk up the documents/sentences to index into batches (eg. of 16,
+    // 32...).
+    let index_content = std::fs::read_to_string(&args.index_file)?;
+    sentences.extend(index_content.lines().take(50));
 
     // Max sequence length supported by Jina embeddings.
     // See notes in https://huggingface.co/jinaai/jina-embeddings-v2-base-en.
     let max_sequence_len = 8192;
 
-    let embeddings = embed_sentence_batch(
-        &[first_sentence.as_str(), second_sentence.as_str()],
-        &tokenizer,
-        &model,
-        max_sequence_len,
-    )?;
-    let similarity = cosine_similarity(embeddings.slice(0), embeddings.slice(1))?;
+    // (batch, embed_dim) matrix of embeddings.
+    let embeddings = embed_sentence_batch(&sentences, &tokenizer, &model, max_sequence_len)?;
 
-    println!("First sentence: \"{}\"", first_sentence);
-    println!("Second sentence: \"{}\"", second_sentence);
-    println!("Similarity: {similarity}");
+    // Sort results by similarity to the query.
+    //
+    // Note that the raw scores are not very meaningful by themselves and will
+    // all be "high" values (close to 1.0). They should be used only for
+    // comparison with other scores.
+    let mut scores: Vec<(usize, f32)> = Vec::new();
+    for i in 1..sentences.len() {
+        let similarity = cosine_similarity(embeddings.slice(0), embeddings.slice(i))?;
+        scores.push((i, similarity));
+    }
+    scores.sort_by(|(_idx_a, score_a), (_idx_b, score_b)| score_a.total_cmp(score_b).reverse());
+
+    println!("Query: \"{}\"", sentences[0]);
+    println!("");
+    println!("Best matches:");
+    for (rank, (idx, _score)) in scores.iter().take(10).enumerate() {
+        println!("  #{}: {}", rank + 1, sentences[*idx]);
+    }
 
     Ok(())
 }
