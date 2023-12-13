@@ -57,6 +57,7 @@ impl<T> SliceExt for [T] {
     }
 }
 
+/// Iterator returned by [SplitExt::split_keep_delimeters].
 pub struct SplitKeepDelim<'a, P: FnMut(char) -> bool> {
     remainder: &'a str,
     predicate: P,

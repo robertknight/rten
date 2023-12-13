@@ -64,7 +64,7 @@ impl WordPiece {
         self.token_to_id.get(token).copied()
     }
 
-    /// Return the canonical string that corresponds to a set of token IDs.
+    /// Return the canonical string that corresponds to a token ID.
     pub fn get_token(&self, id: usize) -> Option<&str> {
         self.id_to_token.get(id).map(|t| t.as_str())
     }
