@@ -1,0 +1,50 @@
+Why can't I store a value and a reference to that value in the same struct?
+Why is it discouraged to accept a reference &String, &Vec, or &Box as a function argument?
+Is there any way to return a reference to a variable created in a function?
+How do I create a global, mutable singleton?
+What are non-lexical lifetimes?
+What are Rust's exact auto-dereferencing rules?
+How can I pass a reference to a stack variable to a thread?
+Return local String as a slice (&str)
+What are the differences between Rust's `String` and `str`?
+How do I implement a trait I don't own for a type I don't own?
+Returning a reference from a HashMap or Vec causes a borrow to last beyond the scope it's in?
+Why does my string not match when reading user input from stdin?
+What is the correct way to return an Iterator (or any other trait)?
+Why can I return a reference to a local literal but not a variable?
+What is the difference between iter and into_iter?
+How to get mutable references to two array elements at the same time?
+How do I write an iterator that returns references to itself?
+How to lookup from and insert into a HashMap efficiently?
+How do I create a heterogeneous collection of objects?
+Why is it legal to borrow a temporary?
+What's the difference between placing "mut" before a variable name and after the ":"?
+Why doesn't Rust support trait object upcasting?
+How to get a reference to a concrete type from a trait object?
+"Expected type parameter" error in the constructor of a generic struct
+How can I swap in a new value for a field in a mutable reference to a structure?
+Why is a trait not implemented for a type that clearly has it implemented?
+Why do try!() and ? not compile when used in a function that doesn't return Option or Result?
+The compiler suggests I add a 'static lifetime because the parameter type may not live long enough, but I don't think that's what I want
+How do I print in Rust the type of a variable?
+How does "for<>" syntax differ from a regular lifetime bound?
+How do I return a reference to something inside a RefCell without breaking encapsulation?
+Cannot obtain a mutable reference when iterating a recursive structure: cannot borrow as mutable more than once at a time
+Why are explicit lifetimes needed in Rust?
+Cannot move out of borrowed content / cannot move out of behind a shared reference
+How can I create my own data structure with an iterator that returns mutable references?
+How can you make a safe static singleton in Rust?
+Why is this match pattern unreachable when using non-literal patterns?
+Cannot move out of value which is behind a shared reference when unwrapping
+Is it possible to control the size of an array using the type parameter of a generic?
+How can I include a module from another file from the same project?
+How to clone a struct storing a boxed trait object?
+Should trait bounds be duplicated in struct and impl?
+Conditionally iterate over one of several possible iterators
+How do I import from a sibling module?
+How do I synchronously return a value calculated in an asynchronous Future?
+How is there a conflicting implementation of `From` when using a generic type?
+Do mutable references have move semantics?
+How do I require a generic type implement an operation like Add, Sub, Mul, or Div in a generic function?
+What does "Sized is not implemented" mean?
+How do I express mutually recursive data structures in safe Rust?
