@@ -72,7 +72,7 @@ pub struct Generator<'a> {
 }
 
 impl<'a> Generator<'a> {
-    /// Create a generator that runs a given model.
+    /// Create a generator that iteratively produces tokens using a model.
     ///
     /// The model is expected to have the following inputs:
     ///

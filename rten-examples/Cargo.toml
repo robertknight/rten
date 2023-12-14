@@ -61,6 +61,10 @@ name = "bert_qa"
 path = "src/bert_qa.rs"
 
 [[bin]]
+name = "gpt2"
+path = "src/gpt2.rs"
+
+[[bin]]
 name = "jina_similarity"
 path = "src/jina_similarity.rs"
 
