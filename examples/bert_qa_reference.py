@@ -10,24 +10,6 @@ from transformers import AutoTokenizer, AutoModelForQuestionAnswering
 from transformers import pipeline
 
 
-# Wraps an `nn.Module` to allow debugging of inputs and outputs.
-class WrappedModule(nn.Module):
-    def __init__(self, base):
-        super().__init__()
-        self.base = base
-
-        # Prevents `transformers` warning that `WrappedModel` doesn't support
-        # the current task.
-        self.__class__.__name__ = base.__class__.__name__
-
-    @property
-    def config(self):
-        return self.base.config
-
-    def __call__(self, *args, **kwargs):
-        return self.base(*args, **kwargs)
-
-
 # Run inference on a question answering model using a Hugging Face transformers
 # pipeline.
 #
@@ -41,7 +23,6 @@ def eval_qa_model(model_name: str, context: str, question: str):
 
     tokenizer = AutoTokenizer.from_pretrained(model_name)
     model = AutoModelForQuestionAnswering.from_pretrained(model_name)
-    model = WrappedModule(model)
     oracle = pipeline(task="question-answering", model=model, tokenizer=tokenizer)
 
     start = time.perf_counter()
