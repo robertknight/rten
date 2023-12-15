@@ -644,10 +644,21 @@ impl Operator for Mul {
     }
 }
 
+/// Like [f32::powf] but with fast paths for common values.
+fn powf(x: f32, y: f32) -> f32 {
+    if y == 2. {
+        x * x
+    } else if y == 3. {
+        x * x * x
+    } else {
+        x.powf(y)
+    }
+}
+
 /// Raise elements of `a` to powers of corresponding elements in `b`.
 pub fn pow(a: TensorView, b: TensorView) -> Result<Tensor, OpError> {
-    if b.item() == Some(&2.0) {
-        Ok(a.map(|x| x * x))
+    if let Some(exp) = b.item() {
+        Ok(a.map(|x| powf(*x, *exp)))
     } else {
         binary_op(a, b, |x, y| x.powf(y))
     }
@@ -655,8 +666,8 @@ pub fn pow(a: TensorView, b: TensorView) -> Result<Tensor, OpError> {
 
 /// Perform in-place raise of elements of `a` to power of corresponding elements in `b`.
 pub fn pow_in_place(mut a: TensorViewMut, b: TensorView) {
-    if b.item() == Some(&2.0) {
-        a.apply(|x| x * x);
+    if let Some(exp) = b.item() {
+        a.apply(|x| powf(*x, *exp))
     } else {
         binary_op_in_place(a, b, |a_elt, b_elt| a_elt.powf(b_elt));
     }
@@ -1280,14 +1291,20 @@ mod tests {
             // Square input
             Case {
                 a: tensor!([2., 3., 4.]),
-                b: Tensor::from_scalar(2.),
+                b: tensor!(2.),
                 expected: tensor!([4., 9., 16.]),
+            },
+            // Cube input
+            Case {
+                a: tensor!([2., 3., 4.]),
+                b: tensor!(3.),
+                expected: tensor!([8., 27., 64.]),
             },
             // Raise all inputs to scalar
             Case {
                 a: tensor!([2., 3., 4.]),
-                b: Tensor::from_scalar(3.),
-                expected: tensor!([8., 27., 64.]),
+                b: tensor!(0.256),
+                expected: tensor!([(2f32).powf(0.256), (3f32).powf(0.256), (4f32).powf(0.256)]),
             },
             // Raise each input to different powers
             Case {
