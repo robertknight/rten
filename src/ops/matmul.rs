@@ -6,6 +6,7 @@ use wasnn_tensor::{Tensor, TensorView};
 use crate::check_dims;
 use crate::linalg::{gemm, GemmExecutor, GemmInputA, GemmInputB};
 use crate::ops::binary_elementwise::broadcast_shapes;
+use crate::ops::layout::expand_to;
 use crate::ops::{InputList, IntoOpResult, OpError, Operator, Output};
 
 #[derive(Debug)]
@@ -45,8 +46,7 @@ pub fn gemm_op(
                     "Cannot broadcast c to output shape",
                 ));
             }
-            let out_data: Vec<_> = c.broadcast_iter(out_shape).copied().collect();
-            Tensor::from_data(out_shape, out_data)
+            expand_to(c, out_shape)
         }
         _ => Tensor::zeros(out_shape),
     };

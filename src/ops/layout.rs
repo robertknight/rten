@@ -24,7 +24,7 @@ fn expand_output_shape(
 
 /// Broadcast `input` to `out_shape`. This assumes that `out_shape` has already
 /// been verified to be a valid broadcast target.
-fn expand_to<T: Copy>(input: TensorView<T>, out_shape: &[usize]) -> Tensor<T> {
+pub(crate) fn expand_to<T: Copy>(input: TensorView<T>, out_shape: &[usize]) -> Tensor<T> {
     match (
         input.data(),
         fast_broadcast_cycles_repeats(input.shape(), out_shape),
