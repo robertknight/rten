@@ -182,9 +182,9 @@ pub fn check_f32s_are_equal_ulps<I: Iterator<Item = (f32, f32, f32)>>(
         }
 
         assert_eq!(
-            expected.is_nan(),
             actual.is_nan(),
-            "NaN mismatch at {x}. Actual {x} Expected {x}"
+            expected.is_nan(),
+            "NaN mismatch at {x}. Actual {actual} Expected {expected}",
         );
         assert_eq!(
             expected.is_infinite(),
