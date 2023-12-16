@@ -7,8 +7,9 @@ use std::fmt::Debug;
 use wasnn_tensor::prelude::*;
 use wasnn_tensor::{Tensor, TensorView, TensorViewMut, View};
 use wasnn_vecmath::{
-    erf as erf_scalar, exp as exp_scalar, sigmoid as sigmoid_scalar, vec_erf, vec_erf_in_place,
-    vec_exp, vec_exp_in_place, vec_sigmoid, vec_sigmoid_in_place,
+    erf as erf_scalar, exp as exp_scalar, sigmoid as sigmoid_scalar, tanh as tanh_scalar, vec_erf,
+    vec_erf_in_place, vec_exp, vec_exp_in_place, vec_sigmoid, vec_sigmoid_in_place, vec_tanh,
+    vec_tanh_in_place,
 };
 
 use crate::number::AsBool;
@@ -550,7 +551,14 @@ pub fn sign_in_place<T: Signum>(mut input: TensorViewMut<T>) {
 unary_numeric_op!(Sign, sign, sign_in_place);
 unary_float_op!(Sqrt, sqrt, sqrt_in_place, |val: f32| val.sqrt());
 unary_float_op!(Tan, tan, tan_in_place, |val: f32| val.tan());
-unary_float_op!(Tanh, tanh, tanh_in_place, |val: f32| val.tanh());
+parallel_unary_float_op!(
+    Tanh,
+    tanh,
+    tanh_in_place,
+    vec_tanh,
+    vec_tanh_in_place,
+    tanh_scalar
+);
 
 #[cfg(test)]
 mod tests {

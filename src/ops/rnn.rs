@@ -7,10 +7,9 @@ use wasnn_tensor::{NdTensorView, Tensor, TensorView, TensorViewMut};
 
 use crate::check_dims;
 use crate::linalg::{GemmExecutor, GemmInputA, GemmInputB};
-use crate::ops::unary_elementwise::UnaryFloatOp;
 use crate::ops::{
     add_in_place, sigmoid_in_place, tanh_in_place, InputList, IntoOpResult, OpError, Operator,
-    Output, Tanh,
+    Output,
 };
 
 /// Direction that an RNN operator will traverse the input sequence in.
@@ -639,11 +638,10 @@ pub fn lstm(
             }
 
             let mut hidden_item = hidden.slice_mut([dir]);
-            let tanh_op = Tanh {};
             for (hidden, out_gate, cell) in
                 zip3(hidden_item.iter_mut(), out_gate.iter(), cell_item.iter())
             {
-                *hidden = out_gate * tanh_op.map_element(*cell)
+                *hidden = out_gate * cell.tanh()
             }
 
             hidden_seq
