@@ -1,7 +1,7 @@
 use std::arch::wasm32::{
-    f32x4_add, f32x4_div, f32x4_ge, f32x4_le, f32x4_lt, f32x4_max, f32x4_mul, f32x4_splat,
-    f32x4_sub, i32x4_add, i32x4_gt, i32x4_shl, i32x4_splat, i32x4_sub, i32x4_trunc_sat_f32x4, v128,
-    v128_bitselect, v128_load, v128_store,
+    f32x4_abs, f32x4_add, f32x4_div, f32x4_ge, f32x4_le, f32x4_lt, f32x4_max, f32x4_mul,
+    f32x4_splat, f32x4_sub, i32x4_add, i32x4_gt, i32x4_shl, i32x4_splat, i32x4_sub,
+    i32x4_trunc_sat_f32x4, v128, v128_bitselect, v128_load, v128_store,
 };
 
 use crate::simd_vec::{SimdFloat, SimdInt};
@@ -65,6 +65,10 @@ impl SimdFloat for v128f {
 
     unsafe fn splat(val: f32) -> Self {
         Self(f32x4_splat(val))
+    }
+
+    unsafe fn abs(self) -> Self {
+        Self(f32x4_abs(self.0))
     }
 
     unsafe fn mul_add(self, a: Self, b: Self) -> Self {

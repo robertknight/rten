@@ -1,9 +1,10 @@
 use std::arch::x86_64::{
-    __m256, __m256i, _mm256_add_epi32, _mm256_add_ps, _mm256_blendv_epi8, _mm256_blendv_ps,
-    _mm256_castsi256_ps, _mm256_cmp_ps, _mm256_cmpgt_epi32, _mm256_cvttps_epi32, _mm256_div_ps,
-    _mm256_fmadd_ps, _mm256_loadu_ps, _mm256_loadu_si256, _mm256_max_ps, _mm256_mul_ps,
-    _mm256_set1_epi32, _mm256_set1_ps, _mm256_setzero_si256, _mm256_slli_epi32, _mm256_storeu_ps,
-    _mm256_storeu_si256, _mm256_sub_epi32, _mm256_sub_ps, _CMP_GE_OQ, _CMP_LE_OQ, _CMP_LT_OQ,
+    __m256, __m256i, _mm256_add_epi32, _mm256_add_ps, _mm256_andnot_ps, _mm256_blendv_epi8,
+    _mm256_blendv_ps, _mm256_castsi256_ps, _mm256_cmp_ps, _mm256_cmpgt_epi32, _mm256_cvttps_epi32,
+    _mm256_div_ps, _mm256_fmadd_ps, _mm256_loadu_ps, _mm256_loadu_si256, _mm256_max_ps,
+    _mm256_mul_ps, _mm256_set1_epi32, _mm256_set1_ps, _mm256_setzero_si256, _mm256_slli_epi32,
+    _mm256_storeu_ps, _mm256_storeu_si256, _mm256_sub_epi32, _mm256_sub_ps, _CMP_GE_OQ, _CMP_LE_OQ,
+    _CMP_LT_OQ,
 };
 
 use crate::simd_vec::{SimdFloat, SimdInt};
@@ -85,6 +86,14 @@ impl SimdFloat for __m256 {
     #[target_feature(enable = "fma")]
     unsafe fn splat(val: f32) -> Self {
         _mm256_set1_ps(val)
+    }
+
+    #[target_feature(enable = "avx2")]
+    #[target_feature(enable = "fma")]
+    unsafe fn abs(self) -> Self {
+        // https://stackoverflow.com/q/63599391/434243
+        let sign_bit = _mm256_set1_ps(-0.0);
+        _mm256_andnot_ps(sign_bit, self)
     }
 
     #[target_feature(enable = "avx2")]

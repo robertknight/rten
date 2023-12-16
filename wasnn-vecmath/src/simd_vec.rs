@@ -98,6 +98,9 @@ pub trait SimdFloat: Copy + Sized {
         Self::one().div(self)
     }
 
+    /// Return the absolute value of `self`.
+    unsafe fn abs(self) -> Self;
+
     /// Broadcast `val` to all elements in a new vector.
     unsafe fn splat(val: f32) -> Self;
 
@@ -242,6 +245,10 @@ impl SimdFloat for f32 {
 
     unsafe fn splat(val: f32) -> Self {
         val
+    }
+
+    unsafe fn abs(self) -> Self {
+        self.abs()
     }
 
     unsafe fn mul_add(self, a: Self, b: Self) -> Self {
