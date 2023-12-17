@@ -194,7 +194,9 @@ unsafe fn vec_fold<S: SimdFloat, Op: Fn(S, S) -> S>(
 /// `vec_unary_op` call will be invoked.
 macro_rules! dispatch_unary_op {
     ($in:ident, $out:ident, $op_func:ident, $fallback_func:ident) => {
-        use crate::{vec_unary_op, MutPtrLen, PtrLen};
+        use crate::vec_unary_op;
+        #[allow(unused_imports)]
+        use crate::{MutPtrLen, PtrLen};
 
         assert!($in.len() == $out.len());
 
@@ -244,7 +246,9 @@ macro_rules! dispatch_unary_op {
     };
 
     ($out:ident, $op_func:ident, $fallback_func:ident) => {
-        use crate::{vec_unary_op, MutPtrLen, PtrLen};
+        use crate::vec_unary_op;
+        #[allow(unused_imports)]
+        use crate::{MutPtrLen, PtrLen};
 
         // Non-generic wrapper for `vec_unary_op` which instantiates the
         // AVX + FMA version.
@@ -300,6 +304,7 @@ pub(crate) use dispatch_unary_op;
 /// and `$out` are the function arguments.
 macro_rules! dispatch_simd {
     ($func:ident, $in:expr, $out:expr) => {
+        #[allow(unused_imports)]
         use crate::{MutPtrLen, PtrLen};
 
         // Non-generic wrapper for `$func` which instantiates the AVX + FMA version.
