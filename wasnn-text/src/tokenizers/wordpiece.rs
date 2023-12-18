@@ -165,9 +165,12 @@ impl Encoder for WordPiece {
 
 #[cfg(test)]
 mod tests {
-    use crate::normalizer::{Normalizer, NormalizerOptions};
-    use crate::tokenizers::{EncodeOptions, Tokenizer, WordPiece, WordPieceOptions};
     use std::collections::HashMap;
+
+    use crate::normalizer::{Normalizer, NormalizerOptions};
+    use crate::tokenizers::{
+        EncodeOptions, Tokenizer, TokenizerOptions, WordPiece, WordPieceOptions,
+    };
 
     fn create_tokenizer(vocab: &[&str], options: WordPieceOptions) -> Tokenizer {
         let vocab: HashMap<_, _> = vocab
@@ -176,7 +179,13 @@ mod tests {
             .map(|(i, token)| (token.to_string(), i))
             .collect();
         let encoder = WordPiece::from_vocab(vocab, options);
-        Tokenizer::new(encoder)
+        Tokenizer::new(
+            encoder,
+            TokenizerOptions {
+                cls_token: Some("[CLS]"),
+                sep_token: Some("[SEP]"),
+            },
+        )
     }
 
     #[test]
@@ -251,11 +260,13 @@ mod tests {
     #[test]
     fn test_wordpiece_max_word_len() {
         let vocab = &["[CLS]", "[SEP]", "[UNK]", "foo", "##bar", "##foo"];
-        let opts = WordPieceOptions {
-            max_word_len: Some(6),
-            ..Default::default()
-        };
-        let tokenizer = create_tokenizer(vocab, opts);
+        let tokenizer = create_tokenizer(
+            vocab,
+            WordPieceOptions {
+                max_word_len: Some(6),
+                ..Default::default()
+            },
+        );
 
         // The third word should be tokenized to `[UNK]` because it exceeds
         // `max_word_len`.
@@ -280,14 +291,16 @@ mod tests {
         let vocab = &[
             "[CLS]", "[SEP]", "[UNK]", "this", "is", "a", "test", "sequence",
         ];
-        let opts = WordPieceOptions {
-            normalizer: Some(Normalizer::new(NormalizerOptions {
-                lowercase: true,
+        let tokenizer = create_tokenizer(
+            vocab,
+            WordPieceOptions {
+                normalizer: Some(Normalizer::new(NormalizerOptions {
+                    lowercase: true,
+                    ..Default::default()
+                })),
                 ..Default::default()
-            })),
-            ..Default::default()
-        };
-        let tokenizer = create_tokenizer(vocab, opts);
+            },
+        );
 
         let cases = [
             // Single sequence, no subwords.
