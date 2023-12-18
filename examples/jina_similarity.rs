@@ -7,7 +7,9 @@ use wasnn::{FloatOperators, Input, Model, NodeId, Operators};
 use wasnn_tensor::prelude::*;
 use wasnn_tensor::{NdTensor, Tensor};
 use wasnn_text::normalizer::{Normalizer, NormalizerOptions};
-use wasnn_text::tokenizers::{EncodeOptions, Tokenizer, WordPiece, WordPieceOptions};
+use wasnn_text::tokenizers::{
+    EncodeOptions, Tokenizer, TokenizerOptions, WordPiece, WordPieceOptions,
+};
 
 struct Args {
     model: String,
@@ -218,7 +220,13 @@ fn main() -> Result<(), Box<dyn Error>> {
             ..Default::default()
         },
     );
-    let tokenizer = Tokenizer::new(encoder);
+    let tokenizer = Tokenizer::new(
+        encoder,
+        TokenizerOptions {
+            cls_token: Some("[CLS]"),
+            sep_token: Some("[SEP]"),
+        },
+    );
 
     let mut sentences: Vec<&str> = vec![&args.query];
 

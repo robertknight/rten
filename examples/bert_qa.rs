@@ -7,7 +7,9 @@ use wasnn::{Input, Model, NodeId};
 use wasnn_tensor::prelude::*;
 use wasnn_tensor::*;
 use wasnn_text::normalizer::{Normalizer, NormalizerOptions};
-use wasnn_text::tokenizers::{EncodeOptions, Encoded, Tokenizer, WordPiece, WordPieceOptions};
+use wasnn_text::tokenizers::{
+    EncodeOptions, Encoded, Tokenizer, TokenizerOptions, WordPiece, WordPieceOptions,
+};
 
 struct Args {
     model: String,
@@ -244,11 +246,16 @@ fn main() -> Result<(), Box<dyn Error>> {
         normalizer: Some(normalizer),
         ..Default::default()
     };
-
     let vocab_text = std::fs::read_to_string(&args.vocab)?;
     let vocab: Vec<_> = vocab_text.lines().collect();
     let encoder = WordPiece::from_vocab(&vocab, tokenizer_opts);
-    let tokenizer = Tokenizer::new(encoder);
+    let tokenizer = Tokenizer::new(
+        encoder,
+        TokenizerOptions {
+            cls_token: Some("[CLS]"),
+            sep_token: Some("[SEP]"),
+        },
+    );
 
     // Tokenize the query and context, breaking the context up into chunks to
     // fit the model's context length.

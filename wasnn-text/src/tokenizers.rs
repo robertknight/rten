@@ -16,7 +16,9 @@ use std::ops::Range;
 
 use crate::split::SliceExt;
 
+mod bpe;
 mod wordpiece;
+pub use bpe::{patterns, ByteLevelBpe};
 pub use wordpiece::{WordPiece, WordPieceOptions};
 
 #[derive(Copy, Clone, Debug, PartialEq)]
@@ -183,13 +185,23 @@ pub trait Encoder {
 /// into overlapping chunks and truncating long sequences.
 pub struct Tokenizer {
     encoder: Box<dyn Encoder>,
+    cls_token: Option<String>,
+    sep_token: Option<String>,
+}
+
+#[derive(Clone, Default)]
+pub struct TokenizerOptions<'a> {
+    pub cls_token: Option<&'a str>,
+    pub sep_token: Option<&'a str>,
 }
 
 impl Tokenizer {
     /// Create a new tokenizer which wraps the given encoder.
-    pub fn new<E: Encoder + 'static>(encoder: E) -> Tokenizer {
+    pub fn new<E: Encoder + 'static>(encoder: E, options: TokenizerOptions) -> Tokenizer {
         Tokenizer {
             encoder: Box::new(encoder),
+            cls_token: options.cls_token.map(|t| t.to_string()),
+            sep_token: options.sep_token.map(|t| t.to_string()),
         }
     }
 
@@ -198,14 +210,28 @@ impl Tokenizer {
         self.encoder.as_ref()
     }
 
+    fn cls_token(&self) -> Result<Option<usize>, TokenizerError> {
+        self.cls_token
+            .as_ref()
+            .map(|cls| self.encoder.get_token_id(cls.as_str()))
+            .transpose()
+    }
+
+    fn sep_token(&self) -> Result<Option<usize>, TokenizerError> {
+        self.sep_token
+            .as_ref()
+            .map(|sep| self.encoder.get_token_id(sep.as_str()))
+            .transpose()
+    }
+
     /// Encode one or two sequences into a sequence of tokens.
     pub fn encode<'a>(
         &self,
         input: EncoderInput<'a>,
         options: EncodeOptions,
     ) -> Result<Encoded<'a>, TokenizerError> {
-        let cls_token = self.encoder.get_token_id("[CLS]")?;
-        let sep_token = self.encoder.get_token_id("[SEP]")?;
+        let cls_token = self.cls_token()?;
+        let sep_token = self.sep_token()?;
 
         // To simplify the implementation, we tokenize the whole input and
         // just discard all chunks except the first. This could be optimized
@@ -215,11 +241,27 @@ impl Tokenizer {
         let chunk = chunks.into_iter().next().unwrap_or_else(|| {
             // If the input is empty after tokenization, generate a single
             // empty chunk.
-            let (tokens, offsets) = match input {
-                EncoderInput::Item(_) => (vec![cls_token, sep_token], vec![0, 0]),
-                EncoderInput::Pair(_) => (vec![cls_token, sep_token, sep_token], vec![0, 0, 0]),
-            };
-            Encoded::new(input, tokens, offsets, 2)
+            let mut tokens = Vec::new();
+            let mut offsets = Vec::new();
+            let mut first_seq_tokens = 0;
+
+            if let Some(cls_token) = cls_token {
+                tokens.push(cls_token);
+                offsets.push(0);
+                first_seq_tokens += 1;
+            }
+            if let Some(sep_token) = sep_token {
+                tokens.push(sep_token);
+                offsets.push(0);
+                first_seq_tokens += 1;
+
+                if matches!(input, EncoderInput::Pair(_)) {
+                    tokens.push(sep_token);
+                    offsets.push(0);
+                }
+            }
+
+            Encoded::new(input, tokens, offsets, first_seq_tokens)
         });
 
         Ok(chunk)
@@ -234,14 +276,14 @@ impl Tokenizer {
         input: EncoderInput<'a>,
         options: EncodeOptions,
     ) -> Result<Vec<Encoded<'a>>, TokenizerError> {
+        let cls_token = self.cls_token()?;
+        let sep_token = self.sep_token()?;
+
         // Number of non-content tokens added to each chunk.
         let non_content_tokens_per_chunk = match input {
             EncoderInput::Item(_) => 2, // [CLS] .. [SEP]
             EncoderInput::Pair(_) => 3, // [CLS] .. [SEP] .. [SEP]
         };
-
-        let cls_token = self.encoder.get_token_id("[CLS]")?;
-        let sep_token = self.encoder.get_token_id("[SEP]")?;
 
         // Encode the full input sequences.
         let mut tokens = Vec::new();
@@ -293,13 +335,17 @@ impl Tokenizer {
                     let mut tokens = Vec::new();
                     let mut offsets = Vec::new();
 
-                    tokens.push(cls_token);
-                    offsets.push(offsets_chunk.first().copied().unwrap());
+                    if let Some(cls_token) = cls_token {
+                        tokens.push(cls_token);
+                        offsets.push(offsets_chunk.first().copied().unwrap());
+                    }
 
                     tokens.extend_from_slice(tokens_chunk);
                     offsets.extend_from_slice(offsets_chunk);
 
-                    tokens.push(sep_token);
+                    if let Some(sep_token) = sep_token {
+                        tokens.push(sep_token);
+                    }
 
                     // The offset for the final token is the offset of the first
                     // token in the next chunk, or the input length if this
@@ -343,14 +389,18 @@ impl Tokenizer {
                     let mut offsets = Vec::new();
 
                     // Add the first sequence. This is the same for every chunk.
-                    tokens.push(cls_token);
-                    offsets.push(0);
+                    if let Some(cls_token) = cls_token {
+                        tokens.push(cls_token);
+                        offsets.push(0);
+                    }
 
                     tokens.extend_from_slice(&first_tokens[..first_len]);
                     offsets.extend_from_slice(&first_offsets[..first_len]);
 
-                    tokens.push(sep_token);
-                    offsets.push(first.len());
+                    if let Some(sep_token) = sep_token {
+                        tokens.push(sep_token);
+                        offsets.push(first.len());
+                    }
 
                     let first_seq_len = tokens.len();
 
@@ -361,7 +411,9 @@ impl Tokenizer {
                     // The offset for the final token is the offset of the first
                     // token from the second sequence in the next chunk, or
                     // the concatenated input length if this is the final chunk.
-                    tokens.push(sep_token);
+                    if let Some(sep_token) = sep_token {
+                        tokens.push(sep_token);
+                    }
                     let chunk_start = chunk_idx * second_len;
                     offsets.push(
                         second_offsets
@@ -380,12 +432,15 @@ impl Tokenizer {
 }
 
 /// Error type returned when tokenizing a string.
-#[derive(Clone, Debug, PartialEq)]
+#[derive(Clone, Debug)]
 pub enum TokenizerError {
     /// A token was not found in the vocabulary.
     MissingToken(String),
     /// No token with a given ID exists in the vocabulary.
     InvalidTokenId(usize),
+    /// Splitting the input with a regex failed.
+    RegexSplitFailed(fancy_regex::Error),
+    Utf8Error(std::str::Utf8Error),
 }
 
 impl fmt::Display for TokenizerError {
@@ -393,6 +448,8 @@ impl fmt::Display for TokenizerError {
         match self {
             Self::MissingToken(ref token) => write!(f, "missing vocab token {}", token),
             Self::InvalidTokenId(id) => write!(f, "unknown token id {}", id),
+            Self::RegexSplitFailed(err) => write!(f, "regex failed {}", err),
+            Self::Utf8Error(err) => write!(f, "{}", err),
         }
     }
 }
@@ -403,7 +460,9 @@ impl Error for TokenizerError {}
 mod tests {
     use std::ops::Range;
 
-    use super::{EncodeOptions, EncoderInput, Tokenizer, WordPiece, WordPieceOptions};
+    use super::{
+        EncodeOptions, EncoderInput, Tokenizer, TokenizerOptions, WordPiece, WordPieceOptions,
+    };
 
     // The tests below use the WordPiece encoder to exercise common Tokenizer
     // functionality. This is convenient as WordPiece is simple.
@@ -414,7 +473,13 @@ mod tests {
             "[CLS]", "[SEP]", "[UNK]", "This", "is", "a", "test", "sequence",
         ];
         let encoder = WordPiece::from_vocab(vocab, Default::default());
-        let tokenizer = Tokenizer::new(encoder);
+        let tokenizer = Tokenizer::new(
+            encoder,
+            TokenizerOptions {
+                cls_token: Some("[CLS]"),
+                sep_token: Some("[SEP]"),
+            },
+        );
 
         // Two sequences, no subwords.
         let encoded = tokenizer
@@ -509,7 +574,13 @@ mod tests {
         ];
 
         let encoder = WordPiece::from_vocab(vocab, WordPieceOptions::default());
-        let tokenizer = Tokenizer::new(encoder);
+        let tokenizer = Tokenizer::new(
+            encoder,
+            TokenizerOptions {
+                cls_token: Some("[CLS]"),
+                sep_token: Some("[SEP]"),
+            },
+        );
 
         for Case {
             input,
@@ -591,7 +662,13 @@ mod tests {
         ];
 
         let encoder = WordPiece::from_vocab(vocab, Default::default());
-        let tokenizer = Tokenizer::new(encoder);
+        let tokenizer = Tokenizer::new(
+            encoder,
+            TokenizerOptions {
+                cls_token: Some("[CLS]"),
+                sep_token: Some("[SEP]"),
+            },
+        );
 
         for Case {
             text,
@@ -633,7 +710,13 @@ mod tests {
             "Ferris",
         ];
         let encoder = WordPiece::from_vocab(vocab, Default::default());
-        let tokenizer = Tokenizer::new(encoder);
+        let tokenizer = Tokenizer::new(
+            encoder,
+            TokenizerOptions {
+                cls_token: Some("[CLS]"),
+                sep_token: Some("[SEP]"),
+            },
+        );
 
         struct Case<'a> {
             query: &'a str,

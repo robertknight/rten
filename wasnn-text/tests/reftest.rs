@@ -5,7 +5,7 @@ use std::path::PathBuf;
 
 use serde::Deserialize;
 use wasnn_text::normalizer::{Normalizer, NormalizerOptions};
-use wasnn_text::tokenizers::{Tokenizer, WordPiece, WordPieceOptions};
+use wasnn_text::tokenizers::{Tokenizer, TokenizerOptions, WordPiece, WordPieceOptions};
 
 struct Vocab {
     content: String,
@@ -73,6 +73,13 @@ fn compare_tokens(actual: &[usize], expected: &[usize]) -> Result<(), Box<dyn Er
     Ok(())
 }
 
+fn tokenizer_opts() -> TokenizerOptions<'static> {
+    TokenizerOptions {
+        cls_token: Some("[CLS]"),
+        sep_token: Some("[SEP]"),
+    }
+}
+
 #[test]
 fn test_wordpiece_bert_cased() -> Result<(), Box<dyn Error>> {
     let vocab = Vocab::from_file("models/bert-base-cased/vocab.txt")?;
@@ -81,7 +88,7 @@ fn test_wordpiece_bert_cased() -> Result<(), Box<dyn Error>> {
         ReferenceTokenization::from_file("Rust_(programming_language)-bert-base-cased.json")?;
 
     let encoder = WordPiece::from_vocab(&vocab.entries(), Default::default());
-    let tokenizer = Tokenizer::new(encoder);
+    let tokenizer = Tokenizer::new(encoder, tokenizer_opts());
     let encoded = tokenizer.encode(text.as_str().into(), Default::default())?;
 
     compare_tokens(encoded.token_ids(), &expected.token_ids)?;
@@ -128,7 +135,7 @@ fn test_wordpiece_bert_uncased() -> Result<(), Box<dyn Error>> {
             ..Default::default()
         },
     );
-    let tokenizer = Tokenizer::new(encoder);
+    let tokenizer = Tokenizer::new(encoder, tokenizer_opts());
 
     for Case { text, reference } in cases {
         let text = read_test_file(text)?;
