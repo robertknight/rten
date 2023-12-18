@@ -16,6 +16,7 @@ use unicode_categories::UnicodeCategories;
 /// [^2]: Devlin, Jacob, et al. "Bert: Pre-training of deep bidirectional
 ///       transformers for language understanding." arXiv preprint arXiv:1810.04805
 ///       (2018). <https://arxiv.org/abs/1810.04805>
+#[derive(Clone)]
 pub struct WordPiece {
     normalizer: Option<Normalizer>,
     token_to_id: HashMap<String, usize>,
@@ -165,9 +166,12 @@ impl Encoder for WordPiece {
 
 #[cfg(test)]
 mod tests {
-    use crate::normalizer::{Normalizer, NormalizerOptions};
-    use crate::tokenizers::{EncodeOptions, Tokenizer, WordPiece, WordPieceOptions};
     use std::collections::HashMap;
+
+    use crate::normalizer::{Normalizer, NormalizerOptions};
+    use crate::tokenizers::{
+        EncodeOptions, Tokenizer, TokenizerOptions, WordPiece, WordPieceOptions,
+    };
 
     fn create_tokenizer(vocab: &[&str], options: WordPieceOptions) -> Tokenizer {
         let vocab: HashMap<_, _> = vocab
@@ -176,7 +180,13 @@ mod tests {
             .map(|(i, token)| (token.to_string(), i))
             .collect();
         let encoder = WordPiece::from_vocab(vocab, options);
-        Tokenizer::new(encoder)
+        Tokenizer::new(
+            encoder,
+            TokenizerOptions {
+                cls_token: Some("[CLS]"),
+                sep_token: Some("[SEP]"),
+            },
+        )
     }
 
     #[test]
@@ -280,14 +290,16 @@ mod tests {
         let vocab = &[
             "[CLS]", "[SEP]", "[UNK]", "this", "is", "a", "test", "sequence",
         ];
-        let opts = WordPieceOptions {
-            normalizer: Some(Normalizer::new(NormalizerOptions {
-                lowercase: true,
+        let tokenizer = create_tokenizer(
+            vocab,
+            WordPieceOptions {
+                normalizer: Some(Normalizer::new(NormalizerOptions {
+                    lowercase: true,
+                    ..Default::default()
+                })),
                 ..Default::default()
-            })),
-            ..Default::default()
-        };
-        let tokenizer = create_tokenizer(vocab, opts);
+            },
+        );
 
         let cases = [
             // Single sequence, no subwords.
