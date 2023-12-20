@@ -247,7 +247,8 @@ fn main() -> Result<(), Box<dyn Error>> {
 
     let vocab_text = std::fs::read_to_string(&args.vocab)?;
     let vocab: Vec<_> = vocab_text.lines().collect();
-    let tokenizer = WordPiece::from_vocab(&vocab, tokenizer_opts);
+    let encoder = WordPiece::from_vocab(&vocab, tokenizer_opts);
+    let tokenizer = Tokenizer::new(encoder);
 
     // Tokenize the query and context, breaking the context up into chunks to
     // fit the model's context length.

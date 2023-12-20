@@ -80,7 +80,8 @@ fn test_wordpiece_bert_cased() -> Result<(), Box<dyn Error>> {
     let expected =
         ReferenceTokenization::from_file("Rust_(programming_language)-bert-base-cased.json")?;
 
-    let tokenizer = WordPiece::from_vocab(&vocab.entries(), Default::default());
+    let encoder = WordPiece::from_vocab(&vocab.entries(), Default::default());
+    let tokenizer = Tokenizer::new(encoder);
     let encoded = tokenizer.encode(text.as_str().into(), Default::default())?;
 
     compare_tokens(encoded.token_ids(), &expected.token_ids)?;
@@ -120,13 +121,14 @@ fn test_wordpiece_bert_uncased() -> Result<(), Box<dyn Error>> {
         strip_accents: true,
         ..Default::default()
     });
-    let tokenizer = WordPiece::from_vocab(
+    let encoder = WordPiece::from_vocab(
         &vocab.entries(),
         WordPieceOptions {
             normalizer: Some(normalizer),
             ..Default::default()
         },
     );
+    let tokenizer = Tokenizer::new(encoder);
 
     for Case { text, reference } in cases {
         let text = read_test_file(text)?;
