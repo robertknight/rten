@@ -6,16 +6,16 @@ use crate::split::SplitExt;
 
 use unicode_categories::UnicodeCategories;
 
-/// WordPiece tokenizer [1] used by BERT [2] models.
+/// WordPiece tokenizer [^1] used by BERT [^2] models.
 ///
-/// [1] Schuster, Mike, and Kaisuke Nakajima. "Japanese and korean voice
-///     search." 2012 IEEE international conference on acoustics, speech and signal
-///     processing (ICASSP). IEEE, 2012. Accessed at
-///     https://static.googleusercontent.com/media/research.google.com/en//pubs/archive/37842.pdf
+/// [^1]: Schuster, Mike, and Kaisuke Nakajima. "Japanese and korean voice
+///       search." 2012 IEEE international conference on acoustics, speech and signal
+///       processing (ICASSP). IEEE, 2012. Accessed at
+///       <https://static.googleusercontent.com/media/research.google.com/en//pubs/archive/37842.pdf>
 ///
-/// [2] Devlin, Jacob, et al. "Bert: Pre-training of deep bidirectional
-///     transformers for language understanding." arXiv preprint arXiv:1810.04805
-///     (2018). https://arxiv.org/abs/1810.04805
+/// [^2]: Devlin, Jacob, et al. "Bert: Pre-training of deep bidirectional
+///       transformers for language understanding." arXiv preprint arXiv:1810.04805
+///       (2018). <https://arxiv.org/abs/1810.04805>
 pub struct WordPiece {
     normalizer: Option<Normalizer>,
     token_to_id: HashMap<String, usize>,
