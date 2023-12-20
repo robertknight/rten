@@ -76,7 +76,7 @@ Options:
 /// Returns a `(batch, embed_dim)` tensor where `batch` is equal to `sentences.len()`.
 fn embed_sentence_batch(
     sentences: &[&str],
-    tokenizer: &WordPiece,
+    tokenizer: &Tokenizer,
     model: &Model,
     max_seq_len: usize,
 ) -> Result<NdTensor<f32, 2>, Box<dyn Error>> {
@@ -211,13 +211,14 @@ fn main() -> Result<(), Box<dyn Error>> {
         strip_accents: true,
         ..Default::default()
     });
-    let tokenizer = WordPiece::from_vocab(
+    let encoder = WordPiece::from_vocab(
         &vocab,
         WordPieceOptions {
             normalizer: Some(normalizer),
             ..Default::default()
         },
     );
+    let tokenizer = Tokenizer::new(encoder);
 
     let mut sentences: Vec<&str> = vec![&args.query];
 
