@@ -98,8 +98,8 @@ impl<'a, P: FnMut(char) -> bool> Iterator for SplitKeepDelim<'a, P> {
 pub trait SplitExt<'a> {
     /// Split a string but retain the delimeters.
     ///
-    /// ```
-    /// use wasnn_text::split::SplitExt;
+    /// ```text
+    /// use crate::split::SplitExt;
     ///
     /// let str = "foo.bar";
     /// let tokens: Vec<_> = str.split_keep_delimeters(|ch| ch.is_ascii_punctuation()).collect();

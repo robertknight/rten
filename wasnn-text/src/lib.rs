@@ -5,5 +5,6 @@
 //! [tokenizers](https://github.com/huggingface/tokenizers) project.
 
 pub mod normalizer;
-pub mod split;
 pub mod tokenizers;
+
+mod split;
