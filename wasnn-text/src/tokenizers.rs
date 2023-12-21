@@ -1,5 +1,4 @@
-//! Module containing tokenizers for converting text into sequences of token
-//! IDs that can be fed into models.
+//! Tokenizers for converting text into sequences of token IDs.
 //!
 //! There are two ways to construct a tokenizer:
 //!
@@ -25,6 +24,7 @@ mod wordpiece;
 pub use bpe::{patterns, ByteLevelBpe};
 pub use wordpiece::{WordPiece, WordPieceOptions};
 
+/// Input sequences for [Tokenizer::encode].
 #[derive(Copy, Clone, Debug, PartialEq)]
 pub enum EncoderInput<'a> {
     /// Encoder input with a single sequence.
@@ -136,6 +136,8 @@ impl<'a> Encoded<'a> {
     }
 }
 
+/// Options that control chunking and truncation by [Tokenizer::encode] and
+/// [Tokenizer::encode_chunks].
 #[derive(Clone, Default)]
 pub struct EncodeOptions {
     /// Maximum number of tokens in each chunk, including any special tokens

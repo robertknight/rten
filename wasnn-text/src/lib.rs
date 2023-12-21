@@ -1,8 +1,12 @@
-//! This crate provides tools for pre and post-processing text inputs and
-//! outputs of models. This primarily means tokenizing and de-tokenizing text.
+//! This crate provides text tokenizers for preparing inputs for
+//! inference of machine-learning models. It provides implementations of
+//! popular tokenization methods such as WordPiece (used by BERT),
+//! and Byte Pair Encoding (used by GPT-2).
 //!
-//! If you need a more featureful set of tokenizers, see the
-//! [tokenizers](https://github.com/huggingface/tokenizers) project.
+//! It does not support training new vocabularies and isn't optimized for
+//! processing very large volumes of text. If you need a tokenization crate
+//! with more complete functionality, see
+//! [HuggingFace tokenizers](https://github.com/huggingface/tokenizers).
 
 pub mod normalizer;
 pub mod tokenizers;

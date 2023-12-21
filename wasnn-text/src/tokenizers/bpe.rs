@@ -178,6 +178,11 @@ impl BpeBuilder {
     }
 }
 
+/// Regex patterns used by popular tokenizer models.
+///
+/// Some models (eg. GPT-2) use a regex to split input text into pieces prior
+/// to applying the trained tokenizer model. This module contains some widely
+/// used patterns.
 pub mod patterns {
     /// Tokenization regex used by GPT-2.
     ///
