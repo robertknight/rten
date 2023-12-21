@@ -244,30 +244,19 @@ impl Tokenizer {
     /// file.
     pub fn from_json(json: &str) -> Result<Tokenizer, FromJsonError> {
         let tokenizer_json = json::from_json(json).map_err(FromJsonError::JsonError)?;
-        match tokenizer_json.model.model_type.as_str() {
-            "BPE" => {
-                let merges: Vec<_> = tokenizer_json
-                    .model
-                    .merges
-                    .iter()
-                    .map(|s| s.as_str())
-                    .collect();
-                let encoder = ByteLevelBpe::new(
-                    &merges,
-                    bpe::patterns::GPT2,
-                    Some(tokenizer_json.model.vocab),
-                )
-                .map_err(FromJsonError::BpeError)?;
+        match tokenizer_json.model {
+            json::Model::Bpe(model) => {
+                let merges: Vec<_> = model.merges.iter().map(|s| s.as_str()).collect();
+                let encoder = ByteLevelBpe::new(&merges, bpe::patterns::GPT2, Some(model.vocab))
+                    .map_err(FromJsonError::BpeError)?;
                 let tokenizer = Tokenizer::new(encoder, Default::default());
                 Ok(tokenizer)
             }
-            "WordPiece" => {
-                let encoder =
-                    WordPiece::from_vocab(tokenizer_json.model.vocab.into(), Default::default());
+            json::Model::WordPiece(model) => {
+                let encoder = WordPiece::from_vocab(model.vocab.into(), Default::default());
                 let tokenizer = Tokenizer::new(encoder, Default::default());
                 Ok(tokenizer)
             }
-            _ => Err(FromJsonError::UnsupportedModel),
         }
     }
 
