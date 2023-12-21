@@ -19,12 +19,13 @@ use unicode_categories::UnicodeCategories;
 pub struct WordPiece {
     normalizer: Option<Normalizer>,
     token_to_id: HashMap<String, usize>,
-    id_to_token: Vec<String>,
+    id_to_token: HashMap<usize, String>,
     subword_prefix: String,
     max_word_len: usize,
 }
 
-#[derive(Default, Clone)]
+/// Configuration for a [WordPiece] tokenizer.
+#[derive(Debug, Default, Clone)]
 pub struct WordPieceOptions {
     /// The normalizer that handles Unicode normalization, lower-casing the
     /// input etc.
@@ -40,19 +41,16 @@ pub struct WordPieceOptions {
 impl WordPiece {
     /// Construct a WordPiece tokenizer from a vocabulary.
     ///
-    /// The index of each entry in `vocab` is used as the token ID.
-    pub fn from_vocab(vocab: &[&str], options: WordPieceOptions) -> WordPiece {
-        let token_to_id: HashMap<_, _> = vocab
-            .iter()
-            .enumerate()
-            .map(|(pos, token)| (token.to_string(), pos))
-            .collect();
-        let id_to_token: Vec<_> = vocab.iter().map(|s| s.to_string()).collect();
+    /// `vocab` is a mapping from word piece to token ID.
+    pub fn from_vocab(vocab: HashMap<String, usize>, options: WordPieceOptions) -> WordPiece {
+        let id_to_token: HashMap<usize, String> =
+            vocab.iter().map(|(k, v)| (*v, k.to_string())).collect();
+
         let subword_prefix = "##".to_string();
 
         WordPiece {
             normalizer: options.normalizer,
-            token_to_id,
+            token_to_id: vocab,
             subword_prefix,
             max_word_len: options.max_word_len.unwrap_or(100),
             id_to_token,
@@ -152,7 +150,7 @@ impl Encoder for WordPiece {
 
     fn get_token_str(&self, id: usize) -> Result<String, TokenizerError> {
         self.id_to_token
-            .get(id)
+            .get(&id)
             .cloned()
             .ok_or(TokenizerError::InvalidTokenId(id))
     }
@@ -169,6 +167,17 @@ impl Encoder for WordPiece {
 mod tests {
     use crate::normalizer::{Normalizer, NormalizerOptions};
     use crate::tokenizers::{EncodeOptions, Tokenizer, WordPiece, WordPieceOptions};
+    use std::collections::HashMap;
+
+    fn create_tokenizer(vocab: &[&str], options: WordPieceOptions) -> Tokenizer {
+        let vocab: HashMap<_, _> = vocab
+            .iter()
+            .enumerate()
+            .map(|(i, token)| (token.to_string(), i))
+            .collect();
+        let encoder = WordPiece::from_vocab(vocab, options);
+        Tokenizer::new(encoder)
+    }
 
     #[test]
     fn test_wordpiece_encoder() {
@@ -182,8 +191,7 @@ mod tests {
             "Piece", "of", "pie", ".", "!", "?", "Hey", "Hello", "the", "game", "is", "set", "in",
             "Faerûn",
         ];
-        let encoder = WordPiece::from_vocab(vocab, Default::default());
-        let tokenizer = Tokenizer::new(encoder);
+        let tokenizer = create_tokenizer(vocab, Default::default());
 
         let cases = [
             // Single sequence, no subwords.
@@ -243,14 +251,11 @@ mod tests {
     #[test]
     fn test_wordpiece_max_word_len() {
         let vocab = &["[CLS]", "[SEP]", "[UNK]", "foo", "##bar", "##foo"];
-        let encoder = WordPiece::from_vocab(
-            vocab,
-            WordPieceOptions {
-                max_word_len: Some(6),
-                ..Default::default()
-            },
-        );
-        let tokenizer = Tokenizer::new(encoder);
+        let opts = WordPieceOptions {
+            max_word_len: Some(6),
+            ..Default::default()
+        };
+        let tokenizer = create_tokenizer(vocab, opts);
 
         // The third word should be tokenized to `[UNK]` because it exceeds
         // `max_word_len`.
@@ -275,17 +280,14 @@ mod tests {
         let vocab = &[
             "[CLS]", "[SEP]", "[UNK]", "this", "is", "a", "test", "sequence",
         ];
-        let encoder = WordPiece::from_vocab(
-            vocab,
-            WordPieceOptions {
-                normalizer: Some(Normalizer::new(NormalizerOptions {
-                    lowercase: true,
-                    ..Default::default()
-                })),
+        let opts = WordPieceOptions {
+            normalizer: Some(Normalizer::new(NormalizerOptions {
+                lowercase: true,
                 ..Default::default()
-            },
-        );
-        let tokenizer = Tokenizer::new(encoder);
+            })),
+            ..Default::default()
+        };
+        let tokenizer = create_tokenizer(vocab, opts);
 
         let cases = [
             // Single sequence, no subwords.

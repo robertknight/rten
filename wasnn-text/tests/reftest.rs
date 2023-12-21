@@ -1,3 +1,4 @@
+use std::collections::HashMap;
 use std::error::Error;
 use std::fs::read_to_string;
 use std::io;
@@ -7,22 +8,15 @@ use serde::Deserialize;
 use wasnn_text::normalizer::{Normalizer, NormalizerOptions};
 use wasnn_text::tokenizers::{Tokenizer, WordPiece, WordPieceOptions};
 
-struct Vocab {
-    content: String,
-}
-
-impl Vocab {
-    /// Load a vocabulary from a text file with one token per line (ie. the
-    /// vocab.txt files that come with Hugging Face models).
-    fn from_file(path: &str) -> Result<Vocab, io::Error> {
-        let vocab = read_test_file(path)?;
-        Ok(Vocab { content: vocab })
-    }
-
-    /// Return a map from token ID to token string.
-    fn entries(&self) -> Vec<&str> {
-        self.content.lines().collect()
-    }
+/// Load a vocabulary from a text file with one token per line (ie. the
+/// vocab.txt files that come with Hugging Face models).
+fn read_vocab_text_file(path: &str) -> Result<HashMap<String, usize>, io::Error> {
+    let content = read_test_file(path)?;
+    Ok(content
+        .lines()
+        .enumerate()
+        .map(|(i, line)| (line.to_string(), i))
+        .collect())
 }
 
 /// Struct representing the JSON files in `reftests/`.
@@ -75,12 +69,12 @@ fn compare_tokens(actual: &[usize], expected: &[usize]) -> Result<(), Box<dyn Er
 
 #[test]
 fn test_wordpiece_bert_cased() -> Result<(), Box<dyn Error>> {
-    let vocab = Vocab::from_file("models/bert-base-cased/vocab.txt")?;
+    let vocab = read_vocab_text_file("models/bert-base-cased/vocab.txt")?;
     let text = read_test_file("Rust_(programming_language).txt")?;
     let expected =
         ReferenceTokenization::from_file("Rust_(programming_language)-bert-base-cased.json")?;
 
-    let encoder = WordPiece::from_vocab(&vocab.entries(), Default::default());
+    let encoder = WordPiece::from_vocab(vocab, Default::default());
     let tokenizer = Tokenizer::new(encoder);
     let encoded = tokenizer.encode(text.as_str().into(), Default::default())?;
 
@@ -114,7 +108,7 @@ fn test_wordpiece_bert_uncased() -> Result<(), Box<dyn Error>> {
         },
     ];
 
-    let vocab = Vocab::from_file("models/bert-base-uncased/vocab.txt")?;
+    let vocab = read_vocab_text_file("models/bert-base-uncased/vocab.txt")?;
 
     let normalizer = Normalizer::new(NormalizerOptions {
         lowercase: true,
@@ -122,7 +116,7 @@ fn test_wordpiece_bert_uncased() -> Result<(), Box<dyn Error>> {
         ..Default::default()
     });
     let encoder = WordPiece::from_vocab(
-        &vocab.entries(),
+        vocab,
         WordPieceOptions {
             normalizer: Some(normalizer),
             ..Default::default()

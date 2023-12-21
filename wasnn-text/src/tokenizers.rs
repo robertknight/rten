@@ -1,21 +1,25 @@
 //! Module containing tokenizers for converting text into sequences of token
 //! IDs that can be fed into models.
 //!
-//! The tokenizers are used by:
+//! There are two ways to construct a tokenizer:
 //!
-//! 1. Constructing an [Encoder] implementation, such as [WordPiece], that
-//!    corresponds to machine learning model you are using.
-//! 2. Wrapping the encoder with a [Tokenizer]
-//! 3. Calling the encoding methods of the [Tokenizer] to convert text strings
-//!    into sequences of token IDs
+//! 1. Load a preconfigured tokenizer from JSON, using [Tokenizer::from_json].
+//!    This crate supports a subset of the `tokenizer.json` format that
+//!    Hugging Face Tokenizers generates.
+//!
+//! 2. Manually configure a [Tokenizer] by creating an [Encoder] implementation,
+//!    such as [WordPiece] and then wrap it with a tokenizer using
+//!    [Tokenizer::new].
 
 use std::error::Error;
 use std::fmt;
 use std::iter::repeat;
 use std::ops::Range;
 
+use crate::normalizer::{Normalizer, NormalizerOptions};
 use crate::split::SliceExt;
 
+mod json;
 mod wordpiece;
 pub use wordpiece::{WordPiece, WordPieceOptions};
 
@@ -174,6 +178,26 @@ pub trait Encoder {
     }
 }
 
+/// Errors returned by [Tokenizer::from_json].
+#[derive(Debug)]
+pub enum FromJsonError {
+    /// There was an error decoding the JSON data.
+    JsonError(serde_json::Error),
+    /// The model type isn't supported by this crate.
+    UnsupportedModel,
+}
+
+impl fmt::Display for FromJsonError {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            Self::JsonError(err) => write!(f, "JSON error {}", err),
+            Self::UnsupportedModel => write!(f, "unsupported model type"),
+        }
+    }
+}
+
+impl Error for FromJsonError {}
+
 /// Tokenizes text inputs into sequences of token IDs that can be fed to a
 /// machine learning model.
 ///
@@ -190,6 +214,35 @@ impl Tokenizer {
     pub fn new<E: Encoder + 'static>(encoder: E) -> Tokenizer {
         Tokenizer {
             encoder: Box::new(encoder),
+        }
+    }
+
+    /// Load a tokenizer from the contents of a Hugging Face `tokenizer.json`
+    /// file.
+    pub fn from_json(json: &str) -> Result<Tokenizer, FromJsonError> {
+        let tokenizer_json = json::from_json(json).map_err(FromJsonError::JsonError)?;
+        Self::from_parsed_json(tokenizer_json)
+    }
+
+    fn from_parsed_json(json: json::TokenizerJson) -> Result<Tokenizer, FromJsonError> {
+        match json.model {
+            json::Model::WordPiece(model) => {
+                let normalizer = json.normalizer.map(|normalizer| match normalizer {
+                    json::Normalizer::Bert(bert_norm) => Normalizer::new(NormalizerOptions {
+                        lowercase: bert_norm.lowercase,
+                        strip_accents: bert_norm.strip_accents.unwrap_or(bert_norm.lowercase),
+                    }),
+                });
+                let encoder_opts = WordPieceOptions {
+                    normalizer,
+                    ..Default::default()
+                };
+
+                let encoder = WordPiece::from_vocab(model.vocab, encoder_opts);
+                let tokenizer = Tokenizer::new(encoder);
+
+                Ok(tokenizer)
+            }
         }
     }
 
@@ -401,9 +454,24 @@ impl Error for TokenizerError {}
 
 #[cfg(test)]
 mod tests {
+    use std::collections::HashMap;
+    use std::error::Error;
+    use std::fs::read_to_string;
     use std::ops::Range;
+    use std::path::PathBuf;
 
-    use super::{EncodeOptions, EncoderInput, Tokenizer, WordPiece, WordPieceOptions};
+    use serde::Deserialize;
+
+    use super::{EncodeOptions, EncoderInput, Tokenizer, WordPiece};
+
+    fn make_wordpiece(vocab: &[&str]) -> WordPiece {
+        let vocab: HashMap<_, _> = vocab
+            .iter()
+            .enumerate()
+            .map(|(i, token)| (token.to_string(), i))
+            .collect();
+        WordPiece::from_vocab(vocab, Default::default())
+    }
 
     // The tests below use the WordPiece encoder to exercise common Tokenizer
     // functionality. This is convenient as WordPiece is simple.
@@ -413,7 +481,7 @@ mod tests {
         let vocab = &[
             "[CLS]", "[SEP]", "[UNK]", "This", "is", "a", "test", "sequence",
         ];
-        let encoder = WordPiece::from_vocab(vocab, Default::default());
+        let encoder = make_wordpiece(vocab);
         let tokenizer = Tokenizer::new(encoder);
 
         // Two sequences, no subwords.
@@ -508,7 +576,7 @@ mod tests {
             },
         ];
 
-        let encoder = WordPiece::from_vocab(vocab, WordPieceOptions::default());
+        let encoder = make_wordpiece(vocab);
         let tokenizer = Tokenizer::new(encoder);
 
         for Case {
@@ -590,7 +658,7 @@ mod tests {
             },
         ];
 
-        let encoder = WordPiece::from_vocab(vocab, Default::default());
+        let encoder = make_wordpiece(vocab);
         let tokenizer = Tokenizer::new(encoder);
 
         for Case {
@@ -632,7 +700,8 @@ mod tests {
             "is",
             "Ferris",
         ];
-        let encoder = WordPiece::from_vocab(vocab, Default::default());
+
+        let encoder = make_wordpiece(vocab);
         let tokenizer = Tokenizer::new(encoder);
 
         struct Case<'a> {
@@ -764,6 +833,44 @@ mod tests {
                         assert_eq!(text, Some(token).as_deref());
                     }
                 }
+            }
+        }
+    }
+
+    #[derive(Deserialize)]
+    struct TokenizerJsonCase {
+        text: String,
+        token_ids: Vec<usize>,
+    }
+
+    #[derive(Deserialize)]
+    struct TokenizerJsonTest {
+        tokenizer: super::json::TokenizerJson,
+        cases: Vec<TokenizerJsonCase>,
+    }
+
+    fn read_test_json(path: &str) -> Result<TokenizerJsonTest, Box<dyn Error>> {
+        let mut abs_path = PathBuf::from(env!("CARGO_MANIFEST_DIR"));
+        abs_path.push("test-data/tokenizer-json/");
+        abs_path.push(path);
+        let content = read_to_string(abs_path)?;
+        let json = serde_json::from_str(&content)?;
+        Ok(json)
+    }
+
+    #[test]
+    fn test_from_json() {
+        let paths = ["wordpiece.json", "wordpiece-lower.json"];
+
+        for path in paths.iter() {
+            let config = read_test_json(path).unwrap();
+
+            let tokenizer = Tokenizer::from_parsed_json(config.tokenizer).unwrap();
+            for case in config.cases {
+                let encoded = tokenizer
+                    .encode(case.text.as_str().into(), Default::default())
+                    .unwrap();
+                assert_eq!(encoded.token_ids(), case.token_ids);
             }
         }
     }

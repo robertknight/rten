@@ -6,12 +6,11 @@ use wasnn::ops::concat;
 use wasnn::{FloatOperators, Input, Model, NodeId, Operators};
 use wasnn_tensor::prelude::*;
 use wasnn_tensor::{NdTensor, Tensor};
-use wasnn_text::normalizer::{Normalizer, NormalizerOptions};
-use wasnn_text::tokenizers::{EncodeOptions, Tokenizer, WordPiece, WordPieceOptions};
+use wasnn_text::tokenizers::{EncodeOptions, Tokenizer};
 
 struct Args {
     model: String,
-    vocab: String,
+    tokenizer: String,
     index_file: String,
     query: String,
 
@@ -34,12 +33,12 @@ fn parse_args() -> Result<Args, lexopt::Error> {
                 println!(
                     "Estimate semantic similarity of two sentences.
 
-Usage: {bin_name} <model> <vocab> <index_file> <query>
+Usage: {bin_name} <model> <tokenizer> <index_file> <query>
 
 Args:
 
   <model>       - Input model
-  <vocab>       - Vocabulary for tokenization (vocab.txt)
+  <tokenizer>   - Tokenizer configuration (tokenizer.json)
   <index_file>  - File containing sentences to search (one per line)
   <query>       - Sentence to match against index file
 
@@ -56,13 +55,13 @@ Options:
     }
 
     let model = values.pop_front().ok_or("missing `model` arg")?;
-    let vocab = values.pop_front().ok_or("missing `vocab` arg")?;
+    let tokenizer = values.pop_front().ok_or("missing `tokenizer` arg")?;
     let index_file = values.pop_front().ok_or("missing `index_file` arg")?;
     let query = values.pop_front().ok_or("missing `query` arg")?;
 
     let args = Args {
         model,
-        vocab,
+        tokenizer,
         index_file,
         query,
         verbose,
@@ -171,7 +170,7 @@ fn embed_sentence_batch(
 ///
 /// It uses the Jina embeddings model from
 /// https://huggingface.co/jinaai/jina-embeddings-v2-small-en. You can download
-/// the in ONNX format, along with the vocab.txt vocabulary file from
+/// the in ONNX format, along with the `tokenizer.json` tokenizer configuration
 /// https://huggingface.co/jinaai/jina-embeddings-v2-small-en/tree/main.
 ///
 /// Convert the model using:
@@ -183,7 +182,7 @@ fn embed_sentence_batch(
 /// Then run the example with:
 ///
 /// ```text
-/// cargo run -r --example jina_similarity jina-embed.model jina-vocab.txt
+/// cargo run -r --example jina_similarity jina-embed.model tokenizer.json
 ///   examples/data/rust-questions.txt "How can I make a function work with any type that supports addition?"
 /// ```
 ///
@@ -203,22 +202,8 @@ fn main() -> Result<(), Box<dyn Error>> {
     let model_bytes = fs::read(args.model)?;
     let model = Model::load(&model_bytes)?;
 
-    let vocab_text = std::fs::read_to_string(&args.vocab)?;
-    let vocab: Vec<_> = vocab_text.lines().collect();
-
-    let normalizer = Normalizer::new(NormalizerOptions {
-        lowercase: true,
-        strip_accents: true,
-        ..Default::default()
-    });
-    let encoder = WordPiece::from_vocab(
-        &vocab,
-        WordPieceOptions {
-            normalizer: Some(normalizer),
-            ..Default::default()
-        },
-    );
-    let tokenizer = Tokenizer::new(encoder);
+    let tokenizer_json = std::fs::read_to_string(&args.tokenizer)?;
+    let tokenizer = Tokenizer::from_json(&tokenizer_json)?;
 
     let mut sentences: Vec<&str> = vec![&args.query];
 

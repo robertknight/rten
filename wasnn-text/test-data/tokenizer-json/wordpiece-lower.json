@@ -1,0 +1,24 @@
+{
+  "tokenizer": {
+    "normalizer": {
+      "type": "BertNormalizer",
+      "lowercase": true,
+      "strip_accents": null
+    },
+    "model": {
+      "type": "WordPiece",
+      "vocab": {
+        "foo": 1,
+        "##bar": 2,
+        "[CLS]": 3,
+        "[SEP]": 4
+      }
+    }
+  },
+  "cases": [
+    {
+      "text": "foobar",
+      "token_ids": [3, 1, 2, 4]
+    }
+  ]
+}

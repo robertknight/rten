@@ -6,15 +6,13 @@ use wasnn::ops::FloatOperators;
 use wasnn::{Input, Model, NodeId};
 use wasnn_tensor::prelude::*;
 use wasnn_tensor::*;
-use wasnn_text::normalizer::{Normalizer, NormalizerOptions};
-use wasnn_text::tokenizers::{EncodeOptions, Encoded, Tokenizer, WordPiece, WordPieceOptions};
+use wasnn_text::tokenizers::{EncodeOptions, Encoded, Tokenizer};
 
 struct Args {
     model: String,
-    vocab: String,
+    tokenizer: String,
     context_doc: String,
     query: String,
-    lowercase: bool,
     n_best: usize,
 }
 
@@ -23,13 +21,11 @@ fn parse_args() -> Result<Args, lexopt::Error> {
 
     let mut values = VecDeque::new();
     let mut parser = lexopt::Parser::from_env();
-    let mut lowercase = false;
     let mut n_best = 1;
 
     while let Some(arg) = parser.next()? {
         match arg {
             Value(val) => values.push_back(val.string()?),
-            Short('l') | Long("lowercase") => lowercase = true,
             Short('n') | Long("n-best") => {
                 n_best = parser.value()?.parse()?;
             }
@@ -37,19 +33,18 @@ fn parse_args() -> Result<Args, lexopt::Error> {
                 println!(
                     "Find answers to questions in a text file.
 
-Usage: {bin_name} <model> <vocab> <context_doc> <query...> [options]
+Usage: {bin_name} <model> <tokenizer> <context_doc> <query...> [options]
 
 Args:
 
-  <model>       - Input BERT model
-  <vocab>       - Vocabulary for tokenization (vocab.txt)
+  <model>       - Input BERT or RoBERTa model
+  <tokenizer>   - Tokenizer configuration (tokenizer.json file)
   <context_doc> - Text document to search
   <query>       - Question to search for answer to
 
 Options:
 
   -n, --n-best [n]  - Number of answers to produce (default 1)
-  -l, --lowercase   - Set to true if this is an uncased model
 ",
                     bin_name = parser.bin_name().unwrap_or("bert_qa")
                 );
@@ -60,17 +55,16 @@ Options:
     }
 
     let model = values.pop_front().ok_or("missing `model` arg")?;
-    let vocab = values.pop_front().ok_or("missing `vocab` arg")?;
+    let tokenizer = values.pop_front().ok_or("missing `tokenizer` arg")?;
     let context_doc = values.pop_front().ok_or("missing `context_doc` arg")?;
     let query = values.make_contiguous().join(" ");
 
     let args = Args {
-        model,
-        vocab,
         context_doc,
-        query,
-        lowercase,
+        model,
         n_best,
+        query,
+        tokenizer,
     };
 
     Ok(args)
@@ -218,7 +212,7 @@ fn extract_nbest_answers<'a>(
 /// Then run the example with:
 ///
 /// ```
-/// cargo run -r --example bert_qa distilbert/distilbert.model distilbert/vocab.txt <context> <query>
+/// cargo run -r --example bert_qa distilbert/distilbert.model distilbert/tokenizer.json <context> <query>
 /// ```
 ///
 /// Where `<context>` is a text file to search, and `<query>` is a question.
@@ -235,20 +229,8 @@ fn main() -> Result<(), Box<dyn Error>> {
 
     let context = fs::read_to_string(args.context_doc)?;
 
-    let normalizer = Normalizer::new(NormalizerOptions {
-        lowercase: args.lowercase,
-        strip_accents: args.lowercase,
-        ..Default::default()
-    });
-    let tokenizer_opts = WordPieceOptions {
-        normalizer: Some(normalizer),
-        ..Default::default()
-    };
-
-    let vocab_text = std::fs::read_to_string(&args.vocab)?;
-    let vocab: Vec<_> = vocab_text.lines().collect();
-    let encoder = WordPiece::from_vocab(&vocab, tokenizer_opts);
-    let tokenizer = Tokenizer::new(encoder);
+    let tokenizer_json = fs::read_to_string(args.tokenizer)?;
+    let tokenizer = Tokenizer::from_json(&tokenizer_json)?;
 
     // Tokenize the query and context, breaking the context up into chunks to
     // fit the model's context length.
