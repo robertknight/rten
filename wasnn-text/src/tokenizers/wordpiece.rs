@@ -16,6 +16,7 @@ use unicode_categories::UnicodeCategories;
 /// [^2]: Devlin, Jacob, et al. "Bert: Pre-training of deep bidirectional
 ///       transformers for language understanding." arXiv preprint arXiv:1810.04805
 ///       (2018). <https://arxiv.org/abs/1810.04805>
+#[derive(Clone)]
 pub struct WordPiece {
     normalizer: Option<Normalizer>,
     token_to_id: HashMap<String, usize>,
