@@ -5,7 +5,10 @@ use std::path::PathBuf;
 
 use serde::Deserialize;
 use wasnn_text::normalizer::{Normalizer, NormalizerOptions};
-use wasnn_text::tokenizers::{Tokenizer, TokenizerOptions, WordPiece, WordPieceOptions};
+use wasnn_text::tokenizers::patterns::GPT2 as GPT2_SPLIT_PATTERN;
+use wasnn_text::tokenizers::{
+    ByteLevelBpe, Tokenizer, TokenizerOptions, WordPiece, WordPieceOptions,
+};
 
 struct Vocab {
     content: String,
@@ -73,7 +76,7 @@ fn compare_tokens(actual: &[usize], expected: &[usize]) -> Result<(), Box<dyn Er
     Ok(())
 }
 
-fn tokenizer_opts() -> TokenizerOptions<'static> {
+fn wordpiece_tokenizer_opts() -> TokenizerOptions<'static> {
     TokenizerOptions {
         cls_token: Some("[CLS]"),
         sep_token: Some("[SEP]"),
@@ -88,7 +91,7 @@ fn test_wordpiece_bert_cased() -> Result<(), Box<dyn Error>> {
         ReferenceTokenization::from_file("Rust_(programming_language)-bert-base-cased.json")?;
 
     let encoder = WordPiece::from_vocab(&vocab.entries(), Default::default());
-    let tokenizer = Tokenizer::new(encoder, tokenizer_opts());
+    let tokenizer = Tokenizer::new(encoder, wordpiece_tokenizer_opts());
     let encoded = tokenizer.encode(text.as_str().into(), Default::default())?;
 
     compare_tokens(encoded.token_ids(), &expected.token_ids)?;
@@ -135,11 +138,39 @@ fn test_wordpiece_bert_uncased() -> Result<(), Box<dyn Error>> {
             ..Default::default()
         },
     );
-    let tokenizer = Tokenizer::new(encoder, tokenizer_opts());
+    let tokenizer = Tokenizer::new(encoder, wordpiece_tokenizer_opts());
 
     for Case { text, reference } in cases {
         let text = read_test_file(text)?;
         let expected = ReferenceTokenization::from_file(reference)?;
+        let encoded = tokenizer.encode(text.as_str().into(), Default::default())?;
+
+        compare_tokens(encoded.token_ids(), &expected.token_ids)?;
+    }
+
+    Ok(())
+}
+
+#[test]
+fn test_byte_bpe_gpt2() -> Result<(), Box<dyn Error>> {
+    struct Case<'a> {
+        text: &'a str,
+        reference: &'a str,
+    }
+
+    let cases = [Case {
+        text: "monty-python-credits.txt",
+        reference: "monty-python-credits-gpt2.json",
+    }];
+
+    for Case { text, reference } in cases {
+        let text = read_test_file(text)?;
+        let expected = ReferenceTokenization::from_file(reference)?;
+        let merges = read_test_file("models/gpt2/merges.txt")?;
+        let merges: Vec<_> = merges.lines().collect();
+
+        let encoder = ByteLevelBpe::new(&merges, GPT2_SPLIT_PATTERN)?;
+        let tokenizer = Tokenizer::new(encoder, Default::default());
         let encoded = tokenizer.encode(text.as_str().into(), Default::default())?;
 
         compare_tokens(encoded.token_ids(), &expected.token_ids)?;
