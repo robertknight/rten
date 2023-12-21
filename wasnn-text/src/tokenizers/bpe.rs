@@ -270,7 +270,7 @@ impl Encoder for ByteLevelBpe {
         let bytes = self
             .get_token_bytes(id as u32)
             .ok_or(TokenizerError::InvalidTokenId(id))?;
-        String::from_utf8(bytes).map_err(|err| TokenizerError::Utf8Error(err.utf8_error()))
+        String::from_utf8(bytes).map_err(|err| TokenizerError::InvalidUtf8(err.utf8_error()))
     }
 
     fn get_token_id(&self, text: &str) -> Result<usize, TokenizerError> {

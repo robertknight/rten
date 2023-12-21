@@ -450,11 +450,18 @@ impl Tokenizer {
 pub enum TokenizerError {
     /// A token was not found in the vocabulary.
     MissingToken(String),
+
     /// No token with a given ID exists in the vocabulary.
     InvalidTokenId(usize),
+
     /// Splitting the input with a regex failed.
     RegexSplitFailed(fancy_regex::Error),
-    Utf8Error(std::str::Utf8Error),
+
+    /// There was an error parsing a byte sequence as a UTF-8 string.
+    ///
+    /// This can arise when working with tokenizers like [ByteLevelBpe] where
+    /// individual tokens do not always represent whole characters.
+    InvalidUtf8(std::str::Utf8Error),
 }
 
 impl fmt::Display for TokenizerError {
@@ -463,7 +470,7 @@ impl fmt::Display for TokenizerError {
             Self::MissingToken(ref token) => write!(f, "missing vocab token {}", token),
             Self::InvalidTokenId(id) => write!(f, "unknown token id {}", id),
             Self::RegexSplitFailed(err) => write!(f, "regex failed {}", err),
-            Self::Utf8Error(err) => write!(f, "{}", err),
+            Self::InvalidUtf8(err) => write!(f, "UTF-8 decode failed {}", err),
         }
     }
 }
