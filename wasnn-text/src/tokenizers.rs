@@ -1,13 +1,12 @@
 //! Module containing tokenizers for converting text into sequences of token
 //! IDs that can be fed into models.
 //!
-//! The tokenizers are used by:
+//! To use a tokenizer:
 //!
-//! 1. Constructing an [Encoder] implementation, such as [WordPiece], that
-//!    corresponds to machine learning model you are using.
-//! 2. Wrapping the encoder with a [Tokenizer]
-//! 3. Calling the encoding methods of the [Tokenizer] to convert text strings
-//!    into sequences of token IDs
+//! 1. Construct an [Encoder] implementation, such as [WordPiece], that
+//!    corresponds to the machine learning model you are using.
+//! 2. Wrap the encoder with a [Tokenizer]
+//! 3. Call [Tokenizer::encode] to convert text strings into sequences of token IDs
 
 use std::error::Error;
 use std::fmt;
