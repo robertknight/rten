@@ -169,7 +169,7 @@ fn test_byte_bpe_gpt2() -> Result<(), Box<dyn Error>> {
         let merges = read_test_file("models/gpt2/merges.txt")?;
         let merges: Vec<_> = merges.lines().collect();
 
-        let encoder = ByteLevelBpe::new(&merges, GPT2_SPLIT_PATTERN)?;
+        let encoder = ByteLevelBpe::new(&merges, GPT2_SPLIT_PATTERN, None)?;
         let tokenizer = Tokenizer::new(encoder, Default::default());
         let encoded = tokenizer.encode(text.as_str().into(), Default::default())?;
 
