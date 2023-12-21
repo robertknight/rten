@@ -6,6 +6,26 @@ use crate::split::SplitExt;
 
 use unicode_categories::UnicodeCategories;
 
+/// Vocabulary for a WordPiece tokenizer.
+pub enum WordPieceVocab<'a> {
+    /// List of tokens, where the ID of each token is its position in the list.
+    List(&'a [&'a str]),
+    /// Map from token string to ID.
+    Map(HashMap<String, usize>),
+}
+
+impl<'a> From<&'a [&'a str]> for WordPieceVocab<'a> {
+    fn from(val: &'a [&'a str]) -> WordPieceVocab<'a> {
+        WordPieceVocab::List(val)
+    }
+}
+
+impl<'a> From<HashMap<String, usize>> for WordPieceVocab<'a> {
+    fn from(val: HashMap<String, usize>) -> WordPieceVocab<'a> {
+        WordPieceVocab::Map(val)
+    }
+}
+
 /// WordPiece tokenizer [^1] used by BERT [^2] models.
 ///
 /// [^1]: Schuster, Mike, and Kaisuke Nakajima. "Japanese and korean voice
@@ -20,7 +40,7 @@ use unicode_categories::UnicodeCategories;
 pub struct WordPiece {
     normalizer: Option<Normalizer>,
     token_to_id: HashMap<String, usize>,
-    id_to_token: Vec<String>,
+    id_to_token: HashMap<usize, String>,
     subword_prefix: String,
     max_word_len: usize,
 }
@@ -43,13 +63,21 @@ impl WordPiece {
     /// Construct a WordPiece tokenizer from a vocabulary.
     ///
     /// The index of each entry in `vocab` is used as the token ID.
-    pub fn from_vocab(vocab: &[&str], options: WordPieceOptions) -> WordPiece {
-        let token_to_id: HashMap<_, _> = vocab
+    pub fn from_vocab(vocab: WordPieceVocab, options: WordPieceOptions) -> WordPiece {
+        let token_to_id = match vocab {
+            WordPieceVocab::List(vocab) => vocab
+                .iter()
+                .enumerate()
+                .map(|(pos, token)| (token.to_string(), pos))
+                .collect(),
+            WordPieceVocab::Map(vocab) => vocab,
+        };
+
+        let id_to_token: HashMap<usize, String> = token_to_id
             .iter()
-            .enumerate()
-            .map(|(pos, token)| (token.to_string(), pos))
+            .map(|(k, v)| (*v, k.to_string()))
             .collect();
-        let id_to_token: Vec<_> = vocab.iter().map(|s| s.to_string()).collect();
+
         let subword_prefix = "##".to_string();
 
         WordPiece {
@@ -154,7 +182,7 @@ impl Encoder for WordPiece {
 
     fn get_token_str(&self, id: usize) -> Result<String, TokenizerError> {
         self.id_to_token
-            .get(id)
+            .get(&id)
             .cloned()
             .ok_or(TokenizerError::InvalidTokenId(id))
     }
@@ -169,13 +197,14 @@ impl Encoder for WordPiece {
 
 #[cfg(test)]
 mod tests {
+    use super::WordPieceVocab;
     use crate::normalizer::{Normalizer, NormalizerOptions};
     use crate::tokenizers::{
         EncodeOptions, Tokenizer, TokenizerOptions, WordPiece, WordPieceOptions,
     };
 
     fn create_tokenizer(vocab: &[&str], options: WordPieceOptions) -> Tokenizer {
-        let encoder = WordPiece::from_vocab(vocab, options);
+        let encoder = WordPiece::from_vocab(WordPieceVocab::List(vocab), options);
         Tokenizer::new(
             encoder,
             TokenizerOptions {

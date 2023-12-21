@@ -7,7 +7,7 @@ use serde::Deserialize;
 use wasnn_text::normalizer::{Normalizer, NormalizerOptions};
 use wasnn_text::tokenizers::patterns::GPT2 as GPT2_SPLIT_PATTERN;
 use wasnn_text::tokenizers::{
-    ByteLevelBpe, Tokenizer, TokenizerOptions, WordPiece, WordPieceOptions,
+    ByteLevelBpe, Tokenizer, TokenizerOptions, WordPiece, WordPieceOptions, WordPieceVocab,
 };
 
 struct Vocab {
@@ -90,7 +90,7 @@ fn test_wordpiece_bert_cased() -> Result<(), Box<dyn Error>> {
     let expected =
         ReferenceTokenization::from_file("Rust_(programming_language)-bert-base-cased.json")?;
 
-    let encoder = WordPiece::from_vocab(&vocab.entries(), Default::default());
+    let encoder = WordPiece::from_vocab(WordPieceVocab::List(&vocab.entries()), Default::default());
     let tokenizer = Tokenizer::new(encoder, wordpiece_tokenizer_opts());
     let encoded = tokenizer.encode(text.as_str().into(), Default::default())?;
 
@@ -132,7 +132,7 @@ fn test_wordpiece_bert_uncased() -> Result<(), Box<dyn Error>> {
         ..Default::default()
     });
     let encoder = WordPiece::from_vocab(
-        &vocab.entries(),
+        WordPieceVocab::List(&vocab.entries()),
         WordPieceOptions {
             normalizer: Some(normalizer),
             ..Default::default()

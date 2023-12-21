@@ -15,9 +15,10 @@ use std::ops::Range;
 use crate::split::SliceExt;
 
 mod bpe;
+mod json;
 mod wordpiece;
 pub use bpe::{patterns, ByteLevelBpe};
-pub use wordpiece::{WordPiece, WordPieceOptions};
+pub use wordpiece::{WordPiece, WordPieceOptions, WordPieceVocab};
 
 /// Input sequences for [Tokenizer::encode].
 #[derive(Copy, Clone, Debug, PartialEq)]
@@ -177,6 +178,29 @@ pub trait Encoder {
     }
 }
 
+/// Errors returned by [Tokenizer::from_json].
+#[derive(Debug)]
+pub enum FromJsonError {
+    /// There was an error decoding the JSON data.
+    JsonError(serde_json::Error),
+    /// The model type isn't supported by this crate.
+    UnsupportedModel,
+    /// Error loading the data for a BPE model.
+    BpeError(bpe::BpeError),
+}
+
+impl fmt::Display for FromJsonError {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            Self::BpeError(err) => write!(f, "BPE error {}", err),
+            Self::JsonError(err) => write!(f, "JSON error {}", err),
+            Self::UnsupportedModel => write!(f, "unsupported model type"),
+        }
+    }
+}
+
+impl Error for FromJsonError {}
+
 /// Tokenizes text inputs into sequences of token IDs that can be fed to a
 /// machine learning model.
 ///
@@ -213,6 +237,37 @@ impl Tokenizer {
             encoder: Box::new(encoder),
             cls_token: options.cls_token.map(|t| t.to_string()),
             sep_token: options.sep_token.map(|t| t.to_string()),
+        }
+    }
+
+    /// Load a tokenizer from the contents of a Hugging Face `tokenizer.json`
+    /// file.
+    pub fn from_json(json: &str) -> Result<Tokenizer, FromJsonError> {
+        let tokenizer_json = json::from_json(json).map_err(FromJsonError::JsonError)?;
+        match tokenizer_json.model.model_type.as_str() {
+            "BPE" => {
+                let merges: Vec<_> = tokenizer_json
+                    .model
+                    .merges
+                    .iter()
+                    .map(|s| s.as_str())
+                    .collect();
+                let encoder = ByteLevelBpe::new(
+                    &merges,
+                    bpe::patterns::GPT2,
+                    Some(tokenizer_json.model.vocab),
+                )
+                .map_err(FromJsonError::BpeError)?;
+                let tokenizer = Tokenizer::new(encoder, Default::default());
+                Ok(tokenizer)
+            }
+            "WordPiece" => {
+                let encoder =
+                    WordPiece::from_vocab(tokenizer_json.model.vocab.into(), Default::default());
+                let tokenizer = Tokenizer::new(encoder, Default::default());
+                Ok(tokenizer)
+            }
+            _ => Err(FromJsonError::UnsupportedModel),
         }
     }
 
@@ -484,6 +539,7 @@ mod tests {
 
     use super::{
         EncodeOptions, EncoderInput, Tokenizer, TokenizerOptions, WordPiece, WordPieceOptions,
+        WordPieceVocab,
     };
 
     // The tests below use the WordPiece encoder to exercise common Tokenizer
@@ -494,7 +550,7 @@ mod tests {
         let vocab = &[
             "[CLS]", "[SEP]", "[UNK]", "This", "is", "a", "test", "sequence",
         ];
-        let encoder = WordPiece::from_vocab(vocab, Default::default());
+        let encoder = WordPiece::from_vocab(WordPieceVocab::List(vocab), Default::default());
         let tokenizer = Tokenizer::new(
             encoder,
             TokenizerOptions {
@@ -595,7 +651,8 @@ mod tests {
             },
         ];
 
-        let encoder = WordPiece::from_vocab(vocab, WordPieceOptions::default());
+        let encoder =
+            WordPiece::from_vocab(WordPieceVocab::List(vocab), WordPieceOptions::default());
         let tokenizer = Tokenizer::new(
             encoder,
             TokenizerOptions {
@@ -697,7 +754,7 @@ mod tests {
             },
         ];
 
-        let encoder = WordPiece::from_vocab(vocab, Default::default());
+        let encoder = WordPiece::from_vocab(WordPieceVocab::List(vocab), Default::default());
 
         for Case {
             text,
@@ -746,7 +803,7 @@ mod tests {
             "is",
             "Ferris",
         ];
-        let encoder = WordPiece::from_vocab(vocab, Default::default());
+        let encoder = WordPiece::from_vocab(WordPieceVocab::List(vocab), Default::default());
 
         struct Case<'a> {
             query: &'a str,
