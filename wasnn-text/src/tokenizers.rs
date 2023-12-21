@@ -338,11 +338,15 @@ impl Tokenizer {
         let cls_token = self.cls_token()?;
         let sep_token = self.sep_token()?;
 
+        let has_cls = cls_token.is_some() as usize;
+        let has_sep = sep_token.is_some() as usize;
+
         // Number of non-content tokens added to each chunk.
-        let non_content_tokens_per_chunk = match input {
-            EncoderInput::Item(_) => 2, // [CLS] .. [SEP]
-            EncoderInput::Pair(_) => 3, // [CLS] .. [SEP] .. [SEP]
-        };
+        let non_content_tokens_per_chunk = has_cls
+            + match input {
+                EncoderInput::Item(_) => has_sep,     // [CLS] .. [SEP]
+                EncoderInput::Pair(_) => has_sep * 2, // [CLS] .. [SEP] .. [SEP]
+            };
 
         // Encode the full input sequences.
         let mut tokens = Vec::new();
@@ -681,6 +685,7 @@ mod tests {
             max_chunk_len: Option<usize>,
             overlap: usize,
             tokens: Vec<&'a [&'a str]>,
+            use_cls_sep: bool,
         }
 
         let cases = [
@@ -690,6 +695,7 @@ mod tests {
                 max_chunk_len: None,
                 overlap: 0,
                 tokens: vec![&["[CLS]", "This", "is", "a", "test", "sequence", "[SEP]"]],
+                use_cls_sep: true,
             },
             // Two chunks
             Case {
@@ -700,6 +706,7 @@ mod tests {
                     &["[CLS]", "This", "is", "a", "[SEP]"],
                     &["[CLS]", "test", "sequence", "[SEP]"],
                 ],
+                use_cls_sep: true,
             },
             // Three chunks
             Case {
@@ -711,6 +718,7 @@ mod tests {
                     &["[CLS]", "a", "test", "[SEP]"],
                     &["[CLS]", "sequence", "[SEP]"],
                 ],
+                use_cls_sep: true,
             },
             // Chunk size that is small enough that there is no room for
             // any content tokens in each chunk.
@@ -719,6 +727,7 @@ mod tests {
                 max_chunk_len: Some(0),
                 overlap: 0,
                 tokens: vec![],
+                use_cls_sep: true,
             },
             // Overlap between chunks
             Case {
@@ -730,25 +739,35 @@ mod tests {
                     &["[CLS]", "is", "a", "test", "[SEP]"],
                     &["[CLS]", "a", "test", "sequence", "[SEP]"],
                 ],
+                use_cls_sep: true,
+            },
+            // No special tokens
+            Case {
+                text: "This is a test sequence",
+                max_chunk_len: None,
+                overlap: 0,
+                tokens: vec![&["This", "is", "a", "test", "sequence"]],
+                use_cls_sep: false,
             },
         ];
 
         let encoder = make_wordpiece(vocab);
-        let tokenizer = Tokenizer::new(
-            encoder,
-            TokenizerOptions {
-                cls_token: Some("[CLS]"),
-                sep_token: Some("[SEP]"),
-            },
-        );
 
         for Case {
             text,
             max_chunk_len,
             overlap,
             tokens,
+            use_cls_sep,
         } in cases
         {
+            let tokenizer = Tokenizer::new(
+                encoder.clone(),
+                TokenizerOptions {
+                    cls_token: use_cls_sep.then_some("[CLS]"),
+                    sep_token: use_cls_sep.then_some("[SEP]"),
+                },
+            );
             let options = EncodeOptions {
                 max_chunk_len,
                 overlap,
@@ -783,13 +802,6 @@ mod tests {
         ];
 
         let encoder = make_wordpiece(vocab);
-        let tokenizer = Tokenizer::new(
-            encoder,
-            TokenizerOptions {
-                cls_token: Some("[CLS]"),
-                sep_token: Some("[SEP]"),
-            },
-        );
 
         struct Case<'a> {
             query: &'a str,
@@ -797,6 +809,7 @@ mod tests {
             max_chunk_len: Option<usize>,
             overlap: usize,
             tokens: Vec<&'a [&'a str]>,
+            use_sep_cls: bool,
         }
 
         let cases = [
@@ -806,6 +819,7 @@ mod tests {
                 context: "Rust is a programming language",
                 max_chunk_len: None,
                 overlap: 0,
+                use_sep_cls: true,
                 tokens: vec![&[
                     "[CLS]",
                     "What",
@@ -827,6 +841,7 @@ mod tests {
                 context: "Rust is a programming language. Its mascot is Ferris.",
                 max_chunk_len: Some(13),
                 overlap: 0,
+                use_sep_cls: true,
                 tokens: vec![
                     &[
                         "[CLS]",
@@ -855,6 +870,7 @@ mod tests {
                 context: "Rust is a programming language. Its mascot is Ferris",
                 max_chunk_len: Some(13),
                 overlap: 2,
+                use_sep_cls: true,
                 tokens: vec![
                     &[
                         "[CLS]",
@@ -883,7 +899,27 @@ mod tests {
                 context: "Rust is a programming language",
                 max_chunk_len: Some(7), // Tokens in query + special tokens (3)
                 overlap: 0,
+                use_sep_cls: true,
                 tokens: vec![],
+            },
+            // No special tokens
+            Case {
+                query: "What is Rust?",
+                context: "Rust is a programming language",
+                max_chunk_len: None,
+                overlap: 0,
+                use_sep_cls: false,
+                tokens: vec![&[
+                    "What",
+                    "is",
+                    "Rust",
+                    "?",
+                    "Rust",
+                    "is",
+                    "a",
+                    "programming",
+                    "language",
+                ]],
             },
         ];
 
@@ -893,8 +929,16 @@ mod tests {
             max_chunk_len,
             overlap,
             tokens,
+            use_sep_cls,
         } in cases
         {
+            let tokenizer = Tokenizer::new(
+                encoder.clone(),
+                TokenizerOptions {
+                    cls_token: use_sep_cls.then_some("[CLS]"),
+                    sep_token: use_sep_cls.then_some("[SEP]"),
+                },
+            );
             let options = EncodeOptions {
                 max_chunk_len,
                 overlap,
