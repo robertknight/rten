@@ -185,13 +185,23 @@ pub trait Encoder {
 /// into overlapping chunks and truncating long sequences.
 pub struct Tokenizer {
     encoder: Box<dyn Encoder>,
+
+    /// Token added at start of output.
     cls_token: Option<String>,
+
+    /// Token added after end of each sequence.
     sep_token: Option<String>,
 }
 
+/// Configuration for a [Tokenizer].
 #[derive(Clone, Default)]
 pub struct TokenizerOptions<'a> {
+    /// Token added at the start of the output. For BERT models, this is the
+    /// `[CLS]` token.
     pub cls_token: Option<&'a str>,
+
+    /// Token added after each encoded sequence in the output. For BERT models,
+    /// this is the `[SEP]` token.
     pub sep_token: Option<&'a str>,
 }
 
