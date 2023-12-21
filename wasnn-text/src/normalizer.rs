@@ -1,3 +1,5 @@
+//! Tools for performing string normalization prior to tokenization.
+
 use unicode_categories::UnicodeCategories;
 use unicode_normalization::char::decompose_canonical;
 
@@ -71,6 +73,7 @@ pub struct Normalizer {
     strip_accents: bool,
 }
 
+/// Configuration for a [Normalizer].
 #[derive(Clone, Debug, Default)]
 pub struct NormalizerOptions {
     /// If true, convert all text to lowercase using [char::to_lowercase].
