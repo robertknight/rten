@@ -16,6 +16,8 @@ pub enum BpeError {
 
     /// The regex for splitting tokens is invalid.
     InvalidPattern(fancy_regex::Error),
+
+    InvalidVocabEntry(String),
 }
 
 impl Display for BpeError {
@@ -23,6 +25,7 @@ impl Display for BpeError {
         match self {
             BpeError::InvalidMergeEntry(entry) => write!(fmt, "invalid merge entry: {}", entry),
             BpeError::InvalidPattern(err) => write!(fmt, "invalid regex: {}", err),
+            BpeError::InvalidVocabEntry(entry) => write!(fmt, "invalid vocab entry: {}", entry),
         }
     }
 }
@@ -113,54 +116,66 @@ fn bpe_merge(tokens: &mut Vec<Rank>, ranks: &HashMap<(Rank, Rank), Rank>) -> usi
     tokens.len()
 }
 
-/// Build the BPE merge map that assigns a rank to pairs of tokens.
-///
-/// `merges` contains entries of the BPE merge table. Each entry is a
-/// space-separated pair of tokens. Each token is a sequence of byte values
-/// encoded using the scheme described in [char_to_byte].
-fn build_merge_map(merges: &[&str]) -> Result<HashMap<(Rank, Rank), Rank>, BpeError> {
-    let char_to_byte = char_to_byte();
-    let byte_to_rank = byte_to_rank();
+struct BpeBuilder {
+    ranks: HashMap<(Rank, Rank), Rank>,
+    char_to_byte: HashMap<char, u8>,
+    byte_to_rank: [Rank; 256],
+}
 
-    let mut tmp_tokens: Vec<Rank> = Vec::new();
-    let mut merge_ranks: HashMap<(Rank, Rank), Rank> = HashMap::new();
-
-    // The first 256 ranks are assigned to individual byte values.
-    let mut rank = 256;
-
-    for entry in merges.iter() {
-        if entry.starts_with("#version") || entry.trim().is_empty() {
-            continue;
+impl BpeBuilder {
+    fn new() -> BpeBuilder {
+        BpeBuilder {
+            ranks: HashMap::new(),
+            char_to_byte: char_to_byte(),
+            byte_to_rank: byte_to_rank(),
         }
-
-        let (a, b) = entry
-            .split_once(' ')
-            .ok_or_else(|| BpeError::InvalidMergeEntry(entry.to_string()))?;
-
-        let mut get_token_rank = |token: &str| -> Result<Rank, BpeError> {
-            tmp_tokens.clear();
-            for ch in token.chars() {
-                let Some(&byte) = char_to_byte.get(&ch) else {
-                    return Err(BpeError::InvalidMergeEntry(entry.to_string()));
-                };
-                tmp_tokens.push(byte_to_rank[byte as usize]);
-            }
-
-            let n_merged = bpe_merge(&mut tmp_tokens, &merge_ranks);
-            if n_merged == 1 {
-                Ok(tmp_tokens[0])
-            } else {
-                Err(BpeError::InvalidMergeEntry(entry.to_string()))
-            }
-        };
-
-        let a_rank = get_token_rank(a)?;
-        let b_rank = get_token_rank(b)?;
-        merge_ranks.insert((a_rank, b_rank), rank.try_into().unwrap());
-        rank += 1;
     }
 
-    Ok(merge_ranks)
+    /// Return the rank of a token in the merge list, ie. the pair whose
+    /// concatenated parts equal `token`.
+    fn get_token_rank(&self, token: &str) -> Option<Rank> {
+        let mut tmp_tokens = Vec::new();
+        for ch in token.chars() {
+            let Some(&byte) = self.char_to_byte.get(&ch) else {
+                return None;
+            };
+            tmp_tokens.push(self.byte_to_rank[byte as usize]);
+        }
+
+        let n_merged = bpe_merge(&mut tmp_tokens, &self.ranks);
+        if n_merged == 1 {
+            Some(tmp_tokens[0])
+        } else {
+            None
+        }
+    }
+
+    /// Build the BPE merge map that assigns a rank to pairs of tokens.
+    ///
+    /// `merges` contains entries of the BPE merge table. Each entry is a
+    /// space-separated pair of tokens. Each token is a sequence of byte values
+    /// encoded using the scheme described in [char_to_byte].
+    fn add_merges(&mut self, merges: &[&str]) -> Result<(), BpeError> {
+        // The first 256 ranks are assigned to individual byte values.
+        let mut rank = 256 + self.ranks.len();
+
+        for entry in merges.iter() {
+            if entry.starts_with("#version") || entry.trim().is_empty() {
+                continue;
+            }
+
+            let invalid_entry = || BpeError::InvalidMergeEntry(entry.to_string());
+            let (a, b) = entry.split_once(' ').ok_or_else(invalid_entry)?;
+            let a_rank = self.get_token_rank(a).ok_or_else(invalid_entry)?;
+            let b_rank = self.get_token_rank(b).ok_or_else(invalid_entry)?;
+            self.ranks
+                .insert((a_rank, b_rank), rank.try_into().unwrap());
+
+            rank += 1;
+        }
+
+        Ok(())
+    }
 }
 
 /// Regex patterns used by popular tokenizer models.
@@ -201,6 +216,12 @@ pub struct ByteLevelBpe {
     /// Map from byte values to token rank. Ranks are in the range [0, 255].
     byte_to_rank: [Rank; 256],
 
+    /// Map from rank in `merges` or `byte_to_rank`, to token ID.
+    ///
+    /// If `None`, the token ID is the same as the rank. This is the case with
+    /// GPT-2 and other OpenAI models for example.
+    rank_to_token_id: Option<HashMap<Rank, usize>>,
+
     /// Pattern used to split into text into pieces prior to applying BPE
     /// tokenization.
     splitter: Regex,
@@ -218,13 +239,33 @@ impl ByteLevelBpe {
     /// encoding is applied. The supported syntax is that supported by the
     /// [fancy_regex](https://crates.io/crates/fancy-regex) crate. The
     /// [patterns] module contains patterns used by popular models.
-    pub fn new(merges: &[&str], pattern: &str) -> Result<ByteLevelBpe, BpeError> {
+    pub fn new(
+        merges: &[&str],
+        pattern: &str,
+        vocab: Option<HashMap<String, usize>>,
+    ) -> Result<ByteLevelBpe, BpeError> {
         let splitter = Regex::new(pattern).map_err(BpeError::InvalidPattern)?;
-        let merges = build_merge_map(merges)?;
+
+        let mut builder = BpeBuilder::new();
+        builder.add_merges(merges)?;
+
+        let rank_to_token_id = if let Some(vocab) = vocab {
+            let mut rank_to_token_id = HashMap::with_capacity(vocab.len());
+            for (token, id) in vocab.into_iter() {
+                let rank = builder
+                    .get_token_rank(&token)
+                    .ok_or(BpeError::InvalidVocabEntry(token))?;
+                rank_to_token_id.insert(rank, id);
+            }
+            Some(rank_to_token_id)
+        } else {
+            None
+        };
 
         Ok(ByteLevelBpe {
-            merges,
-            byte_to_rank: byte_to_rank(),
+            merges: builder.ranks,
+            byte_to_rank: builder.byte_to_rank,
+            rank_to_token_id,
             splitter,
         })
     }
@@ -255,7 +296,7 @@ impl ByteLevelBpe {
     }
 
     /// Encode a word piece as a sequence of tokens.
-    fn encode_piece(&self, piece: &str) -> Vec<Rank> {
+    fn encode_piece(&self, piece: &str) -> Vec<usize> {
         // Start with one token per byte.
         let mut tokens: Vec<Rank> = piece
             .as_bytes()
@@ -266,7 +307,16 @@ impl ByteLevelBpe {
         // Iteratively merge tokens together until no more are possible.
         bpe_merge(&mut tokens, &self.merges);
 
-        tokens
+        // Convert ranks to token IDs.
+        let unknown_token_id = 0;
+        if let Some(id_map) = self.rank_to_token_id.as_ref() {
+            tokens
+                .into_iter()
+                .map(|rank| id_map.get(&rank).copied().unwrap_or(unknown_token_id))
+                .collect()
+        } else {
+            tokens.into_iter().map(|rank| rank as usize).collect()
+        }
     }
 }
 
@@ -281,7 +331,7 @@ impl Encoder for ByteLevelBpe {
     fn get_token_id(&self, text: &str) -> Result<usize, TokenizerError> {
         let tokens = self.encode_piece(text);
         if tokens.len() == 1 {
-            Ok(tokens[0] as usize)
+            Ok(tokens[0])
         } else {
             Err(TokenizerError::MissingToken(text.to_string()))
         }
@@ -298,8 +348,9 @@ impl Encoder for ByteLevelBpe {
                 continue;
             }
 
-            for token in self.encode_piece(piece.as_str()) {
-                on_token(piece.start(), token as usize)
+            let piece_str = piece.as_str();
+            for token in self.encode_piece(&piece_str) {
+                on_token(piece.start(), token)
             }
         }
 
@@ -380,7 +431,7 @@ in g";
         } in cases
         {
             let merges: Vec<&str> = merges.lines().collect();
-            let encoder = ByteLevelBpe::new(&merges, GPT2_SPLIT_PATTERN).unwrap();
+            let encoder = ByteLevelBpe::new(&merges, GPT2_SPLIT_PATTERN, None).unwrap();
             let tokenizer = Tokenizer::new(encoder, Default::default());
             let encoded = tokenizer.encode(text.into(), Default::default()).unwrap();
             assert_eq!(
