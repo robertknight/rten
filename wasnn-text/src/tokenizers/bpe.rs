@@ -252,10 +252,10 @@ impl ByteLevelBpe {
         let rank_to_token_id = if let Some(vocab) = vocab {
             let mut rank_to_token_id = HashMap::with_capacity(vocab.len());
             for (token, id) in vocab.into_iter() {
-                let rank = builder
-                    .get_token_rank(&token)
-                    .ok_or(BpeError::InvalidVocabEntry(token))?;
-                rank_to_token_id.insert(rank, id);
+                if let Some(rank) = builder.get_token_rank(&token) {
+                    rank_to_token_id.insert(rank, id);
+                }
+                // TODO - Handle other tokens
             }
             Some(rank_to_token_id)
         } else {
