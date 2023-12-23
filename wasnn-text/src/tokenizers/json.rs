@@ -19,6 +19,16 @@ pub(crate) enum Normalizer {
 }
 
 #[derive(Deserialize)]
+pub(crate) struct BpeModel {
+    /// Mapping from token text to token ID.
+    pub vocab: HashMap<String, usize>,
+
+    /// Space-separated pairs of tokens to merge. Each token in a pair is a
+    /// sequence of characters that represent byte values.
+    pub merges: Vec<String>,
+}
+
+#[derive(Deserialize)]
 pub(crate) struct WordPieceModel {
     /// Mapping from token text to token ID.
     pub vocab: HashMap<String, usize>,
@@ -27,6 +37,8 @@ pub(crate) struct WordPieceModel {
 #[derive(Deserialize)]
 #[serde(tag = "type")]
 pub(crate) enum Model {
+    #[serde(rename = "BPE")]
+    Bpe(BpeModel),
     WordPiece(WordPieceModel),
 }
 

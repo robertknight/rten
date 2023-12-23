@@ -185,6 +185,8 @@ pub trait Encoder {
 /// Errors returned by [Tokenizer::from_json].
 #[derive(Debug)]
 pub enum FromJsonError {
+    /// Error configuring a Byte Pair Encoding tokenizer.
+    BpeError(bpe::BpeError),
     /// There was an error decoding the JSON data.
     JsonError(serde_json::Error),
     /// The model type isn't supported by this crate.
@@ -194,6 +196,7 @@ pub enum FromJsonError {
 impl fmt::Display for FromJsonError {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
+            Self::BpeError(err) => write!(f, "BPE error {}", err),
             Self::JsonError(err) => write!(f, "JSON error {}", err),
             Self::UnsupportedModel => write!(f, "unsupported model type"),
         }
@@ -250,6 +253,18 @@ impl Tokenizer {
 
     fn from_parsed_json(json: json::TokenizerJson) -> Result<Tokenizer, FromJsonError> {
         match json.model {
+            json::Model::Bpe(model) => {
+                let merges: Vec<_> = model.merges.iter().map(|s| s.as_str()).collect();
+                let encoder = ByteLevelBpe::new(&merges, bpe::patterns::GPT2, Some(model.vocab))
+                    .map_err(FromJsonError::BpeError)?;
+                let tokenizer = Tokenizer::new(
+                    encoder,
+                    TokenizerOptions {
+                        ..Default::default()
+                    },
+                );
+                Ok(tokenizer)
+            }
             json::Model::WordPiece(model) => {
                 let normalizer = json.normalizer.map(|normalizer| match normalizer {
                     json::Normalizer::Bert(bert_norm) => Normalizer::new(NormalizerOptions {
