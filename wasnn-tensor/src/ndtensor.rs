@@ -611,12 +611,12 @@ impl<T: Clone + Default, const N: usize> NdTensorBase<T, Vec<T>, N> {
     /// Create a new tensor with a given shape, contigous layout and all
     /// elements set to zero (or whatever `T::default()` returns).
     pub fn zeros(shape: [usize; N]) -> Self {
-        Self::from_element(shape, T::default())
+        Self::full(shape, T::default())
     }
 
     /// Create a new tensor with a given shape, contiguous layout and all
     /// elements initialized to `element`.
-    pub fn from_element(shape: [usize; N], element: T) -> Self {
+    pub fn full(shape: [usize; N], element: T) -> Self {
         let layout = NdLayout::from_shape(shape);
         NdTensorBase {
             data: vec![element; layout.len()],
