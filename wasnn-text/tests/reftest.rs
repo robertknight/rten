@@ -42,7 +42,7 @@ impl ReferenceTokenization {
 
 fn read_test_file(path: &str) -> Result<String, io::Error> {
     let mut abs_path = PathBuf::from(env!("CARGO_MANIFEST_DIR"));
-    abs_path.push("reftests/");
+    abs_path.push("test-data/reftests/");
     abs_path.push(path);
     read_to_string(abs_path)
 }
