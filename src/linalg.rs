@@ -3,6 +3,8 @@
 //! This module provides a subset of BLAS-like functions that are used by
 //! neural network operators. This includes general matrix multiplication ("gemm"),
 //! and vector-scalar products.
+
+use std::borrow::Cow;
 use std::cell::RefCell;
 use std::ops::Range;
 
@@ -460,9 +462,9 @@ pub fn round_up(val: usize, factor: usize) -> usize {
 
 /// Left-hand or "A" GEMM input that has been pre-packed.
 #[derive(Clone)]
-pub struct PackedAMatrix {
+pub struct PackedAMatrix<'a> {
     /// Sequence of packed row panels.
-    data: Vec<f32>,
+    data: Cow<'a, [f32]>,
 
     /// Number of elements in each row panel.
     panel_len: usize,
@@ -477,7 +479,7 @@ pub struct PackedAMatrix {
     cols: usize,
 }
 
-impl PackedAMatrix {
+impl<'a> PackedAMatrix<'a> {
     fn block(&self, row_block_idx: usize, depth_block_idx: usize) -> &[f32] {
         let panel_idx = depth_block_idx * self.row_blocks + row_block_idx;
         let offset = panel_idx * self.panel_len;
@@ -519,7 +521,7 @@ pub enum GemmInputA<'a> {
     Unpacked(Matrix<'a>),
 
     /// A matrix which has been pre-packed by [GemmExecutor::prepack_a].
-    Packed(&'a PackedAMatrix),
+    Packed(&'a PackedAMatrix<'a>),
     // TODO - Support virtual "A" inputs, like `GemmInputB::Virtual`.
 }
 
@@ -778,14 +780,33 @@ impl GemmExecutor {
     }
 
     /// Prepack a matrix for use as the left-hand or "A" input.
-    pub fn prepack_a(&self, a: Matrix) -> PackedAMatrix {
+    pub fn prepack_a(&self, a: Matrix) -> PackedAMatrix<'static> {
+        let mut data = Vec::new();
+        let packed = self.prepack_a_into(a, &mut data);
+        let rows = packed.rows;
+        let cols = packed.cols;
+        let panel_len = packed.panel_len;
+        let row_blocks = packed.row_blocks;
+
+        PackedAMatrix {
+            data: Cow::Owned(data),
+            rows,
+            cols,
+            panel_len,
+            row_blocks,
+        }
+    }
+
+    /// Prepack a matrix for use as the left-hand or "A" input, re-using an
+    /// existing buffer which will be resized as needed.
+    fn prepack_a_into<'a>(&self, a: Matrix, out: &'a mut Vec<f32>) -> PackedAMatrix<'a> {
         let kc = depth_block_size(a.cols());
         let mc = row_block_size(a.rows(), self.mr);
         let panel_len = kc * mc;
         let row_blocks = div_ceil(a.rows(), mc);
         let depth_blocks = div_ceil(a.cols(), kc);
 
-        let mut out = vec![0.; depth_blocks * row_blocks * panel_len];
+        out.resize(depth_blocks * row_blocks * panel_len, 0.);
 
         // Pack blocks in the order they will be accessed by the GEMM
         // implementation.
@@ -799,7 +820,7 @@ impl GemmExecutor {
         }
 
         PackedAMatrix {
-            data: out,
+            data: Cow::Borrowed(out),
             rows: a.rows(),
             cols: a.cols(),
             panel_len,
@@ -1280,12 +1301,13 @@ mod tests {
     use wasnn_tensor::prelude::*;
     use wasnn_tensor::rng::XorShiftRng;
     use wasnn_tensor::test_util::expect_equal;
-    use wasnn_tensor::{Matrix, MatrixLayout, Tensor};
+    use wasnn_tensor::{Matrix, MatrixLayout, NdTensor, Tensor};
 
     use crate::linalg::{
         add_scaled_vector, gemm, round_up, GemmExecutor, GemmInputA, GemmInputB, KernelHint,
         VirtualMatrix,
     };
+    use crate::test_util::run_bench;
 
     fn reference_matmul(a: &Tensor, b: &Tensor) -> Tensor {
         let [a_rows, _a_cols]: [usize; 2] = a.shape().try_into().expect("input should be a matrix");
@@ -1847,6 +1869,48 @@ mod tests {
                 gflops,
             );
         }
+    }
+
+    #[test]
+    #[ignore]
+    fn bench_pack_a() {
+        let gemm = GemmExecutor::new();
+        let mut rng = XorShiftRng::new(1234);
+        let m = 1024;
+        let n = 1024;
+        let iters = 1000;
+        let a = NdTensor::rand([m, n], &mut rng);
+
+        // Re-use a buffer across each call, so we measure the packing cost and
+        // not the allocation cost. This is appropriate for measuring packing
+        // cost for GEMM ops with unpacked inputs, as a thread-local packing
+        // buffer is allocated once and then re-used.
+        let mut packed_data = Vec::new();
+
+        run_bench(10, &format!("m {} n {} iters {}", m, n, iters), || {
+            for _i in 0..iters {
+                gemm.prepack_a_into(a.view(), &mut packed_data);
+            }
+        });
+    }
+
+    // Like `bench_pack_a`, but this does include allocation costs, so is
+    // relevant for ops which prepack inputs (eg. batched matmul).
+    #[test]
+    #[ignore]
+    fn bench_prepack_a() {
+        let gemm = GemmExecutor::new();
+        let mut rng = XorShiftRng::new(1234);
+        let m = 1024;
+        let n = 1024;
+        let iters = 1000;
+        let a = NdTensor::rand([m, n], &mut rng);
+
+        run_bench(10, &format!("m {} n {} iters {}", m, n, iters), || {
+            for _i in 0..iters {
+                gemm.prepack_a(a.view());
+            }
+        });
     }
 
     // TODO - Add a set of tests for use with Miri. These should exercise all

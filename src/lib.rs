@@ -27,3 +27,6 @@ mod schema_generated;
 
 mod model_builder;
 pub use model_builder::{ModelBuilder, OpType};
+
+#[cfg(test)]
+mod test_util;
