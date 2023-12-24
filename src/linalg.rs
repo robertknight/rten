@@ -10,6 +10,9 @@ use rayon::prelude::*;
 use wasnn_tensor::prelude::*;
 use wasnn_tensor::{Matrix, MatrixLayout, MatrixMut};
 
+use crate::iter_util::range_chunks;
+
+/// Return `a / b`, rounding up if `b` does not evenly divide `a`.
 pub fn div_ceil(a: usize, b: usize) -> usize {
     if b == 1 {
         // Fast path
@@ -75,34 +78,6 @@ pub fn add_scaled_vector(
             *dest.get_unchecked_mut(i * dest_stride) += src.get_unchecked(i * src_stride) * scale;
         }
     }
-}
-
-struct BlockIter {
-    start: usize,
-    end: usize,
-    step: usize,
-}
-
-impl Iterator for BlockIter {
-    type Item = (usize, usize);
-
-    fn next(&mut self) -> Option<(usize, usize)> {
-        if self.start < self.end {
-            let start = self.start;
-            let end = (start + self.step).min(self.end);
-            self.start += self.step;
-            Some((start, end))
-        } else {
-            None
-        }
-    }
-}
-
-/// Return an iterator over (block_start, block_end) tuples of `step`-sized
-/// blocks between `start` and `end`. If `end - start` is not a multiple of
-/// `step` then the final block will be smaller.
-fn blocks(start: usize, end: usize, step: usize) -> BlockIter {
-    BlockIter { start, end, step }
 }
 
 /// Kernel that computes a small tile of a matrix multiplication output.
@@ -815,11 +790,11 @@ impl GemmExecutor {
         // Pack blocks in the order they will be accessed by the GEMM
         // implementation.
         let mut out_panels = out.chunks_exact_mut(panel_len);
-        for (depth_start, depth_end) in blocks(0, a.cols(), kc) {
-            for (row_start, row_end) in blocks(0, a.rows(), mc) {
+        for depth_range in range_chunks(0..a.cols(), kc) {
+            for row_range in range_chunks(0..a.rows(), mc) {
                 let out_panel = out_panels.next().unwrap();
                 self.kernel
-                    .pack_a_block(out_panel, a, row_start..row_end, depth_start..depth_end);
+                    .pack_a_block(out_panel, a, row_range, depth_range.clone());
             }
         }
 
@@ -845,11 +820,11 @@ impl GemmExecutor {
         // Pack blocks in the order they will be accessed by the GEMM
         // implementation.
         let mut out_panels = out.chunks_exact_mut(panel_len);
-        for (col_start, col_end) in blocks(0, b.cols(), nc) {
-            for (depth_start, depth_end) in blocks(0, a_cols, kc) {
+        for col_range in range_chunks(0..b.cols(), nc) {
+            for depth_range in range_chunks(0..a_cols, kc) {
                 let out_panel = out_panels.next().unwrap();
                 self.kernel
-                    .pack_b_block(out_panel, b, depth_start..depth_end, col_start..col_end);
+                    .pack_b_block(out_panel, b, depth_range, col_range.clone());
             }
         }
 
@@ -1103,17 +1078,17 @@ fn gemm_impl<K: Kernel, const MR_NR: usize>(
 
         // Loop over depth blocks. This is not parallelized because output
         // tiles are shared across iterations.
-        for (depth_idx, (depth_start, depth_end)) in blocks(0, a.cols(), kc).enumerate() {
+        for (depth_idx, depth_range) in range_chunks(0..a.cols(), kc).enumerate() {
             // Borrowed packing buffer for current thread. Returned after
             // the GEMM block is computed.
             let mut thread_local_packed_b: Option<Vec<f32>> = None;
-            let panel_length = depth_end - depth_start;
+            let panel_length = depth_range.len();
 
             let packed_b = match b {
                 GemmInputB::Unpacked(b) => PACKED_B.with(|cell| {
                     let mut packed_b = cell.take();
                     packed_b.resize(packed_b_size, 0.);
-                    pack_b_block::<K>(&mut packed_b, b, depth_start..depth_end, col_start..col_end);
+                    pack_b_block::<K>(&mut packed_b, b, depth_range.clone(), col_start..col_end);
                     thread_local_packed_b = Some(packed_b);
                     thread_local_packed_b.as_deref().unwrap()
                 }),
@@ -1124,7 +1099,7 @@ fn gemm_impl<K: Kernel, const MR_NR: usize>(
                     vm.pack_b(
                         &mut packed_b,
                         K::NR,
-                        depth_start..depth_end,
+                        depth_range.clone(),
                         col_start..col_end,
                     );
                     thread_local_packed_b = Some(packed_b);
@@ -1134,7 +1109,7 @@ fn gemm_impl<K: Kernel, const MR_NR: usize>(
 
             // Only use provided `beta` on the first write to this output
             // tile. For subsequent updates accumulate.
-            let effective_beta = if depth_start == 0 { beta } else { 1.0 };
+            let effective_beta = if depth_range.start == 0 { beta } else { 1.0 };
 
             // Loop over row blocks.
             //
@@ -1156,7 +1131,7 @@ fn gemm_impl<K: Kernel, const MR_NR: usize>(
                             &mut packed_a,
                             a,
                             row_start..row_end,
-                            depth_start..depth_end,
+                            depth_range.clone(),
                         );
                         thread_local_packed_a = Some(packed_a);
                         thread_local_packed_a.as_deref().unwrap()
@@ -1168,7 +1143,7 @@ fn gemm_impl<K: Kernel, const MR_NR: usize>(
                     &output_tiles,
                     col_start / K::NR..div_ceil(col_end, K::NR),
                     row_start / K::MR..div_ceil(row_end, K::MR),
-                    depth_start == 0,
+                    depth_range.start == 0,
                     packed_a,
                     packed_b,
                     panel_length,
