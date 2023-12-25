@@ -1,6 +1,7 @@
 use std::collections::VecDeque;
 use std::error::Error;
 use std::fs;
+use std::path::PathBuf;
 
 use wasnn::ops::{non_max_suppression, BoxOrder};
 use wasnn::{Dimension, FloatOperators, Model};
@@ -60,6 +61,13 @@ Options:
     Ok(args)
 }
 
+fn resource_path(path: &str) -> PathBuf {
+    let mut abs_path = PathBuf::from(env!("CARGO_MANIFEST_DIR"));
+    abs_path.push("data/");
+    abs_path.push(path);
+    abs_path
+}
+
 /// Detect objects in images using the YOLO v8 model.
 ///
 /// See https://docs.ultralytics.com/modes/export/ for current instructions on
@@ -87,7 +95,7 @@ fn main() -> Result<(), Box<dyn Error>> {
     let model = Model::load(&model_data)?;
 
     let image = read_image(&args.image)?;
-    let labels: Vec<_> = fs::read_to_string("../examples/data/coco.names")?
+    let labels: Vec<_> = fs::read_to_string(resource_path("coco.names"))?
         .lines()
         .map(|s| s.to_string())
         .collect();

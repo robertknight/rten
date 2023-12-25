@@ -3,6 +3,7 @@ use std::error::Error;
 use std::fs;
 use std::fs::File;
 use std::io::{BufRead, BufReader};
+use std::path::{Path, PathBuf};
 
 use wasnn::{Dimension, FloatOperators, Model, Operators};
 use wasnn_tensor::prelude::*;
@@ -104,6 +105,13 @@ fn read_image<N: Fn(usize, f32) -> f32>(
     }
 
     Ok(img_tensor)
+}
+
+fn resource_path(path: &str) -> PathBuf {
+    let mut abs_path = PathBuf::from(env!("CARGO_MANIFEST_DIR"));
+    abs_path.push("data/");
+    abs_path.push(path);
+    abs_path
 }
 
 // Config for MobileViT model exported from https://huggingface.co/apple/mobilevit-small
@@ -262,14 +270,17 @@ fn main() -> Result<(), Box<dyn Error>> {
     // labels in the predictions.
     let n_classes = logits.size(1);
     let index_to_wordnet_id_file = match n_classes {
-        1000 => Some("examples/data/imagenet_synsets.txt"),
-        21841 => Some("examples/data/imagenet22k_synsets.txt"),
+        1000 => Some(resource_path("imagenet_synsets.txt")),
+        21841 => Some(resource_path("imagenet22k_synsets.txt")),
         _ => None,
     };
 
     let labels = if let Some(index_to_wordnet_id_file) = index_to_wordnet_id_file {
-        let labels_path = "examples/data/imagenet_synset_to_lemma.txt";
-        Some(ImageNetLabels::read(index_to_wordnet_id_file, labels_path)?)
+        let labels_path = resource_path("imagenet_synset_to_lemma.txt");
+        Some(ImageNetLabels::read(
+            index_to_wordnet_id_file.as_path(),
+            labels_path.as_path(),
+        )?)
     } else {
         println!(
             "Unable to determine class labels for model with {} classes",
@@ -311,7 +322,7 @@ impl ImageNetLabels {
     /// per line. The line index in this file is treated as a class index.
     /// `label_file` is a file containing lines of the form
     /// `[synset_id]<TAB>[definition]`.
-    fn read(id_mapping_file: &str, label_file: &str) -> Result<ImageNetLabels, Box<dyn Error>> {
+    fn read(id_mapping_file: &Path, label_file: &Path) -> Result<ImageNetLabels, Box<dyn Error>> {
         let id_file = File::open(id_mapping_file)?;
         let id_reader = BufReader::new(id_file);
 
