@@ -1044,15 +1044,11 @@ fn gemm_impl<K: Kernel, const MR_NR: usize>(
             .expect("Output buffer should be large enough");
     let output_tiles = OutputTiles::new(output_mat, K::MR, K::NR);
 
-    // The constant values for block sizes below were taken from the
-    // matrixmultiply crate. See https://dl.acm.org/doi/pdf/10.1145/2925987 for
-    // an explanation of how suitable values are determined. Since we don't know
-    // exactly which CPU this code will be run on, we try to pick something that
-    // will work well on most systems.
-
     // Sizes of blocks that the width (nc), depth (kc) and height (mc)
-    // dimensions are partitioned into in the outer loops. These are chosen
-    // so that blocks can fit in specific cache levels.
+    // dimensions are partitioned into in the outer loops. These are chosen so
+    // that blocks can fit in specific cache levels. See
+    // https://dl.acm.org/doi/pdf/10.1145/2925987 for notes on choosing the
+    // values.
     let nc = col_block_size(b.cols(), K::NR);
     let mc = row_block_size(a.rows(), K::MR);
     let kc = depth_block_size(a.cols());
