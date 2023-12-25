@@ -451,7 +451,7 @@ impl<'a, T, const N: usize> NdTensorView<'a, T, N> {
                 element_type: PhantomData,
             }
         } else {
-            let data: Vec<T> = self.iter().cloned().collect();
+            let data = self.to_vec();
             NdTensorBase {
                 data: Cow::Owned(data),
                 layout: NdLayout::from_shape(self.layout.shape()),
