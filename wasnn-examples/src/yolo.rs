@@ -87,7 +87,7 @@ fn main() -> Result<(), Box<dyn Error>> {
     let model = Model::load(&model_data)?;
 
     let image = read_image(&args.image)?;
-    let labels: Vec<_> = fs::read_to_string("examples/data/coco.names")?
+    let labels: Vec<_> = fs::read_to_string("../examples/data/coco.names")?
         .lines()
         .map(|s| s.to_string())
         .collect();

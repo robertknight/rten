@@ -1,10 +1,18 @@
 [workspace]
 members = [
+  ".",
   "wasnn-cli",
+  "wasnn-examples",
   "wasnn-imageio",
   "wasnn-imageproc",
   "wasnn-ocr",
   "wasnn-ocr-cli",
+  "wasnn-tensor",
+  "wasnn-text"
+]
+default-members = [
+  ".",
+  "wasnn-imageproc",
   "wasnn-tensor",
   "wasnn-text"
 ]
@@ -26,15 +34,7 @@ wasnn-tensor = { path = "./wasnn-tensor" }
 wasnn-vecmath = { path = "./wasnn-vecmath" }
 
 [dev-dependencies]
-hound = "3.5.1"
-image = { version = "0.24.6", default-features = false, features = ["png", "jpeg", "webp"] }
-lexopt = "0.3.0"
-png = "0.17.6"
 serde_json = "1.0.91"
-wasnn-imageio = { path = "./wasnn-imageio" }
-wasnn-imageproc = { path = "./wasnn-imageproc" }
-wasnn-ocr = { path = "./wasnn-ocr" }
-wasnn-text = { path = "./wasnn-text" }
 
 [lib]
 crate-type = ["lib", "cdylib"]
