@@ -8,7 +8,7 @@ use crate::index_iterator::NdIndices;
 use crate::iterators::{Iter, IterMut};
 use crate::layout::{Layout, MatrixLayout, NdLayout, OverlapPolicy};
 use crate::range::SliceItem;
-use crate::{IntoSliceItems, TensorBase, TensorView, TensorViewMut, View};
+use crate::{IntoSliceItems, RandomSource, TensorBase, TensorView, TensorViewMut, View};
 
 /// Multi-dimensional array view with a static dimension count. This trait
 /// includes operations that are available on tensors that own their data
@@ -624,6 +624,16 @@ impl<T: Clone + Default, const N: usize> NdTensorBase<T, Vec<T>, N> {
             element_type: PhantomData,
         }
     }
+
+    /// Create a new tensor filled with random numbers from a given source.
+    pub fn rand<R: RandomSource<T>>(shape: [usize; N], rand_src: &mut R) -> NdTensor<T, N>
+    where
+        T: Clone + Default,
+    {
+        let mut tensor = NdTensor::zeros(shape);
+        tensor.data.fill_with(|| rand_src.next());
+        tensor
+    }
 }
 
 impl<T, S1: AsRef<[T]>, S2: AsRef<[T]>, const N: usize> TryFrom<TensorBase<T, S1>>
@@ -815,8 +825,8 @@ impl<T: PartialEq, S1: AsRef<[T]>, S2: AsRef<[T]>, const N: usize> PartialEq<NdT
 mod tests {
     use crate::errors::{DimensionError, FromDataError};
     use crate::{
-        ndtensor, Layout, MatrixLayout, NdTensor, NdTensorView, NdTensorViewMut, NdView, SliceItem,
-        Tensor, View,
+        ndtensor, Layout, MatrixLayout, NdTensor, NdTensorView, NdTensorViewMut, NdView,
+        RandomSource, SliceItem, Tensor, View,
     };
 
     /// Return elements of `tensor` in their logical order.
@@ -1260,6 +1270,27 @@ mod tests {
         assert_eq!(tensor_elements(view), &[1, 3, 2, 4]);
         view.permute([1, 0]);
         assert_eq!(tensor_elements(view), &[1, 2, 3, 4]);
+    }
+
+    #[test]
+    fn test_ndtensor_rand() {
+        struct NotRandom {
+            next: f32,
+        }
+
+        impl RandomSource<f32> for NotRandom {
+            fn next(&mut self) -> f32 {
+                let curr = self.next;
+                self.next += 1.0;
+                curr
+            }
+        }
+
+        let mut rng = NotRandom { next: 0. };
+
+        let tensor = NdTensor::rand([2, 2], &mut rng);
+        assert_eq!(tensor.shape(), [2, 2]);
+        assert_eq!(tensor.to_vec(), &[0., 1., 2., 3.]);
     }
 
     #[test]

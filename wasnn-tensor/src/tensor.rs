@@ -283,8 +283,9 @@ pub type TensorView<'a, T = f32> = TensorBase<T, &'a [T]>;
 /// Tensor can be modified through it.
 pub type TensorViewMut<'a, T = f32> = TensorBase<T, &'a mut [T]>;
 
-/// Trait for sources of random data for tensors.
+/// Trait for sources of random data for tensors, for use with [Tensor::rand].
 pub trait RandomSource<T> {
+    /// Generate the next random value.
     fn next(&mut self) -> T;
 }
 
