@@ -97,7 +97,7 @@ fn read_wav_file(path: &str) -> Result<Vec<f32>, hound::Error> {
 /// 3. Run this program on the generated .wav file:
 ///
 ///    ```
-///    cargo run --release --example wav2vec2 wav2vec.model output.wav
+///    cargo run --release --bin wav2vec2 wav2vec.model output.wav
 ///    ```
 ///
 /// [1] https://ai.meta.com/blog/wav2vec-20-learning-the-structure-of-speech-from-raw-audio/

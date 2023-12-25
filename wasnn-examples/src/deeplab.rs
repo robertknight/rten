@@ -101,7 +101,7 @@ const PASCAL_VOC_LABELS: [(&str, Rgb); 21] = [
 /// Run this program on an image with:
 ///
 /// ```
-/// cargo run --release --example deeplab deeplab.model image.jpg out.png
+/// cargo run --release --bin deeplab deeplab.model image.jpg out.png
 /// ```
 ///
 /// [1] https://arxiv.org/abs/1706.05587

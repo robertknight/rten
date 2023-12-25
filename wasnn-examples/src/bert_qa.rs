@@ -212,7 +212,7 @@ fn extract_nbest_answers<'a>(
 /// Then run the example with:
 ///
 /// ```
-/// cargo run -r --example bert_qa distilbert/distilbert.model distilbert/tokenizer.json <context> <query>
+/// cargo run -r --bin bert_qa distilbert/distilbert.model distilbert/tokenizer.json <context> <query>
 /// ```
 ///
 /// Where `<context>` is a text file to search, and `<query>` is a question.

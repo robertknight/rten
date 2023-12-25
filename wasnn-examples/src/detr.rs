@@ -270,7 +270,7 @@ const LABELS: &[&str] = &[
 /// Run this program on an image:
 ///
 /// ```
-/// cargo run --release --example detr detr.model image.jpg
+/// cargo run --release --bin detr detr.model image.jpg
 /// ```
 ///
 /// [1] https://arxiv.org/abs/2005.12872

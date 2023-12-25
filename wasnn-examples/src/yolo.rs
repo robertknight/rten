@@ -86,7 +86,7 @@ fn resource_path(path: &str) -> PathBuf {
 /// Run this program on an image:
 ///
 /// ```
-/// cargo run --release --example yolo yolov8.model image.jpg
+/// cargo run --release --bin yolo yolov8.model image.jpg
 /// ```
 fn main() -> Result<(), Box<dyn Error>> {
     let args = parse_args()?;
