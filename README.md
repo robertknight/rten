@@ -38,11 +38,10 @@ The best way to get started is to clone this repository and try running some of
 the examples locally. The conversion scripts use popular Python machine learning
 libraries, so you will need Python >= 3.10 installed.
 
-The examples are located in the
-[wasnn-examples/](wasnn-examples/) directory. See the comments above the `main`
-function in each example for instructions.
-
-Note that examples **must** be run in release mode for reasonable performance.
+The examples are located in the [wasnn-examples/](wasnn-examples/) directory.
+See the [README](wasnn-examples/) for descriptions of all the examples and steps
+to run them. As a quick-start, here are the steps to run the image
+classification example:
 
 ```sh
 git clone https://github.com/robertknight/wasnn.git
