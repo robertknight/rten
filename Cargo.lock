@@ -664,7 +664,6 @@ dependencies = [
  "wasnn",
  "wasnn-imageio",
  "wasnn-imageproc",
- "wasnn-ocr",
  "wasnn-tensor",
  "wasnn-text",
 ]
