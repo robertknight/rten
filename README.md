@@ -1,36 +1,77 @@
 # Wasnn
 
-Wasnn is a neural network inference engine for running [ONNX
-models](https://onnx.ai). It has a particular focus on use in browsers and
-other environments that support WebAssembly.
+Wasnn is an engine for running machine learning models converted from [ONNX
+](https://onnx.ai).
 
-Wasnn is written in portable Rust and has minimal dependencies.
+In addition to the inference engine, there are also supporting libraries for
+common pre-processing and post-processing tasks in various domains. This makes
+Wasnn a more complete toolkit for running models in Rust applications.
 
 ## Goals
 
- - Provide a small and reasonably efficient neural network runtime that is
-   well-suited to the needs of running small models in browsers
- - Be easy to compile and run on a variety of platforms.
+ - Provide a (relatively) small and efficient neural network runtime that makes
+   it easy to take models created in frameworks such as PyTorch and run them in
+   Rust applications.
+ - Be easy to compile and run on a variety of platforms, including WebAssembly
+ - End-to-end Rust. This project and all of its required dependencies are
+   written in Rust.
 
 ## Limitations
 
- - Not all ONNX operators are currently supported. See `OperatorType` in [src/schema.fbs](src/schema.fbs) for currently supported operators. For implemented operators, some attributes or input shapes may not be supported.
- - A limited set of data types are supported: float32 and int32 tensors. int64 and boolean tensors are converted to int32.
- - There is no support for running models on GPUs or other neural network
-   accelerators.
- - Wasnn is not as well optimized as more mature runtimes such as ONNX Runtime or TensorFlow Lite. The performance difference depends on the operators used, model structure, CPU architecture and platform.
+This project has a number of limitations to be aware of. Addressing them is
+planned for the future:
 
-## Usage
+ - Supports CPU inference only. There is currently no support for running models
+   on GPUs or other accelerators.
+ - Not all ONNX operators are currently supported. See `OperatorType` in
+   [src/schema.fbs](src/schema.fbs) for currently supported operators. For
+   implemented operators, some attributes or input shapes may not be supported.
+ - A limited set of data types are supported: float32 and int32 tensors. int64
+   and boolean tensors are converted to int32.
+ - Wasnn is not as well optimized as more mature runtimes such as ONNX Runtime
+   or TensorFlow Lite. The performance difference depends on the operators used,
+   model structure, CPU architecture and platform.
 
-See the [examples/](examples/) directory for projects that show the end-to-end steps to
-use this library to run an ONNX model in the browser or Node. The [image
-classification](examples/image-classification/) example is one of the simplest
-and a good place to start.
+## Getting started
+
+The best way to get started is to clone this repository and try running some of
+the examples locally. The conversion scripts use popular Python machine learning
+libraries, so you will need Python >= 3.10 installed.
+
+The examples are located in the
+[wasnn-examples/](wasnn-examples/) directory. See the comments above the `main`
+function in each example for instructions.
+
+Note that examples **must** be run in release mode for reasonable performance.
+
+```sh
+git clone https://github.com/robertknight/wasnn.git
+cd wasnn
+
+# Install dependencies for Python scripts
+pip install -r tools/requirements.txt
+
+# Export an ONNX model. We're using resnet-50, a classic image classification model.
+python -m tools.export-timm-model timm/resnet50.a1_in1k
+
+# Convert model to this library's format
+tools/convert-onnx.py resnet50.a1_in1k.onnx resnet50.model
+
+# Run image classification example. Replace `image.png` with your own image.
+cargo run -p wasnn-examples --release --bin imagenet mobilenet resnet50.model image.png
+```
+
+## Usage in JavaScript
+
+See the [js-examples/](js-examples/) directory for projects that show the
+end-to-end steps to use this library to run an ONNX model in the browser or
+Node. The [image classification](js-examples/image-classification/) example is
+one of the simplest and a good place to start.
 
 Before running the examples, you will need to follow the steps under ["Building
-the library"](#building-the-library) below to build the project locally. You
-will also need to install the dependencies of the model conversion script,
-explained under ["Preparing ONNX models"](#preparing-onnx-models).
+the WebAssembly library"](#building-the-webassembly-library) below. You will
+also need to install the dependencies of the model conversion script, explained
+under ["Preparing ONNX models"](#preparing-onnx-models).
 
 The general steps for using Wasnn to run models in a JavaScript project are:
 
@@ -63,7 +104,8 @@ classes is available in `dist/wasnn.d.ts`.
 Wasnn does not load ONNX models directly. ONNX models must be run through a
 conversion tool which produces an optimized model in a
 [FlatBuffers](https://google.github.io/flatbuffers/)-based format that the
-engine can load.
+engine can load. This is conceptually similar to the `.tflite` and `.ort`
+formats that TensorFlow Lite and ONNX Runtime use.
 
 The conversion tool requires Python >= 3.10. To convert an existing ONNX model,
 run:
@@ -74,16 +116,14 @@ pip install -r wasnn/tools/requirements.txt
 wasnn/tools/convert-onnx.py your-model.onnx output.model
 ```
 
-The optimized Wasnn model format is not yet backwards compatible, so models
-should be converted from ONNX for the specific Wasnn release that the model is
-going to be used with. Typically this would be done as part of your project's
-build process.
+The Wasnn model format does not yet guarantee backwards compatibility, so be
+aware that you may need to recompile models from ONNX for new releases.
 
-## Building the library
+## Building the WebAssembly library
 
 ### Prerequisites
 
-To build Wasnn you will need:
+To build Wasnn for WebAssembly you will need:
 
  - A recent stable version of Rust
  - `make`
@@ -100,10 +140,10 @@ make wasm-all
 ```
 
 The `make wasm-all` command will build two versions of the library, one for
-browsers that support SIMD (Chrome, Firefox) and one for those which do not
-(Safari <= 16). See the [WebAssembly Roadmap](https://webassembly.org/roadmap/)
-for a full list of which features different engines support. The SIMD build
-is significantly faster.
+browsers that support SIMD (Chrome 91, Firefox 89, Safari 16.4) and one for
+those which do not (primarily older Safari releases). See the [WebAssembly
+Roadmap](https://webassembly.org/roadmap/) for a full list of which features
+different engines support. **The SIMD build is significantly faster**.
 
 During development, you can speed up the testing cycle by running `make wasm`
 to build only the SIMD version, or `make wasm-nosimd` for the non-SIMD version.
