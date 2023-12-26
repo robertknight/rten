@@ -162,8 +162,7 @@ fn main() -> Result<(), Box<dyn Error>> {
     // Print a list of labels of categories found in the image.
     let classes: Vec<_> = found_classes
         .into_iter()
-        .map(|cls| PASCAL_VOC_LABELS.get(cls as usize).map(|(label, _)| *label))
-        .flatten()
+        .filter_map(|cls| PASCAL_VOC_LABELS.get(cls as usize).map(|(label, _)| *label))
         .collect();
     if !classes.is_empty() {
         println!("found objects: {}", classes.join(", "));

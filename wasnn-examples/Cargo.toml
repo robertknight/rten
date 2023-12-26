@@ -17,6 +17,11 @@ wasnn-ocr = { path = "../wasnn-ocr" }
 wasnn-tensor = { path = "../wasnn-tensor" }
 wasnn-text = { path = "../wasnn-text" }
 
+[lints.clippy]
+# Allows use of `..Default::default()` for future compatibility even when not
+# currently needed.
+needless_update = "allow"
+
 # Vision
 [[bin]]
 name = "deeplab"

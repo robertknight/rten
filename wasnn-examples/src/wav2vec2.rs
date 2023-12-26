@@ -2,8 +2,6 @@ use std::collections::VecDeque;
 use std::error::Error;
 use std::fs;
 
-use hound;
-
 use wasnn::ctc::CtcDecoder;
 use wasnn::Model;
 use wasnn_tensor::prelude::*;
@@ -127,7 +125,7 @@ fn main() -> Result<(), Box<dyn Error>> {
 
     let decoder = CtcDecoder::new();
     let hypothesis = decoder.decode_beam(result.slice([0]), 10 /* beam_size */);
-    let text = hypothesis.to_string(&vocab);
+    let text = hypothesis.to_string(vocab);
 
     println!("{}", text);
 

@@ -173,11 +173,9 @@ fn main() -> Result<(), Box<dyn Error>> {
 
     for b in 0..n_selected_boxes {
         let [batch_idx, cls, box_idx] = nms_boxes.slice(b).to_array();
-        let [cx, cy, w, h] = boxes.slice([batch_idx, box_idx]).to_array();
+        let [cx, cy, box_w, box_h] = boxes.slice([batch_idx, box_idx]).to_array();
         let score = scores[[batch_idx as usize, cls as usize, box_idx as usize]];
 
-        let box_h = h as f32;
-        let box_w = w as f32;
         let rect = Rect::from_tlhw(
             (cy - 0.5 * box_h) * scale_y,
             (cx - 0.5 * box_w) * scale_x,

@@ -225,7 +225,7 @@ fn main() -> Result<(), Box<dyn Error>> {
 
     let input_id = model
         .input_ids()
-        .get(0)
+        .first()
         .copied()
         .ok_or("model has no inputs")?;
     let input_shape = model
@@ -293,8 +293,7 @@ fn main() -> Result<(), Box<dyn Error>> {
     for (&cls, &score) in top_classes.iter().zip(top_probs.iter()) {
         let label = labels
             .as_ref()
-            .map(|labels| labels.label_for_index(cls as usize))
-            .flatten()
+            .and_then(|labels| labels.label_for_index(cls as usize))
             .unwrap_or("unknown");
         println!("  {} ({}) ({})", label, cls, score);
     }

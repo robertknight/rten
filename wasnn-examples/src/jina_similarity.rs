@@ -250,7 +250,7 @@ fn main() -> Result<(), Box<dyn Error>> {
     scores.sort_by(|(_idx_a, score_a), (_idx_b, score_b)| score_a.total_cmp(score_b).reverse());
 
     println!("Query: \"{}\"", sentences[0]);
-    println!("");
+    println!();
     println!("Best matches:");
     for (rank, (idx, _score)) in scores.iter().take(10).enumerate() {
         println!("  #{}: {}", rank + 1, sentences[*idx]);
