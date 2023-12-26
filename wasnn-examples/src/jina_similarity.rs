@@ -183,7 +183,7 @@ fn embed_sentence_batch(
 ///
 /// ```text
 /// cargo run -r --bin jina_similarity jina-embed.model tokenizer.json
-///   examples/data/rust-questions.txt "How can I make a function work with any type that supports addition?"
+///   data/rust-questions.txt "How can I make a function work with any type that supports addition?"
 /// ```
 ///
 /// This should output a result such as:
