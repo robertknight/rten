@@ -8,11 +8,10 @@ use std::borrow::Cow;
 use std::cell::RefCell;
 use std::ops::Range;
 
-use rayon::prelude::*;
 use wasnn_tensor::prelude::*;
 use wasnn_tensor::{Matrix, MatrixLayout, MatrixMut};
 
-use crate::iter_util::range_chunks;
+use crate::iter_util::{range_chunks, MaybeParIter};
 
 /// Return `a / b`, rounding up if `b` does not evenly divide `a`.
 pub fn div_ceil(a: usize, b: usize) -> usize {
@@ -935,14 +934,12 @@ fn depth_block_size(a_cols: usize) -> usize {
 ///
 /// The result is always a multiple of `nr`.
 fn col_block_size(b_cols: usize, nr: usize) -> usize {
-    // The GEMM implementation currently only uses thread parallelism over
-    // columns of B, so we divide up "B" accordingly. A lower bound is applied
-    // to avoid creating tiny blocks which would incur a lot of multithreading
-    // overhead, and an upper bound is applied so that the block fits in the
-    // cache (per the general design of the GEMM impl).
+    // In the BLIS library which formulated the GEMM algorithm we use,
+    // the column block size is chosen so that blocks fit in the L3 cache
+    // (see https://dl.acm.org/doi/pdf/10.1145/2925987, p 12:7).
     //
-    // When parallelism is introduced for inner loops of the GEMM in future,
-    // this will need to be revisited.
+    // In this library that constraint provides an upper bound, but the value
+    // is also adjusted to control parallelism.
     let parallelism = rayon::current_num_threads();
     let lower_bound = 128.min(b_cols);
     let unrounded = (b_cols / parallelism).max(lower_bound).min(1024);
@@ -1115,97 +1112,107 @@ fn gemm_impl<K: Kernel, const MR_NR: usize>(
     let n_col_blocks = div_ceil(b.cols(), nc);
     let n_row_blocks = div_ceil(a.rows(), mc);
 
+    // In a single-threaded context we get better performance by avoiding Rayon
+    // overhead altogether.
+    let parallel = rayon::current_num_threads() > 1;
+
     // Loop over column blocks.
-    (0..n_col_blocks).into_par_iter().for_each(|col_idx| {
-        let col_start = col_idx * nc;
-        let col_end = (col_start + nc).min(b.cols());
+    (0..n_col_blocks)
+        .maybe_par_iter(parallel)
+        .for_each(|col_idx| {
+            let col_start = col_idx * nc;
+            let col_end = (col_start + nc).min(b.cols());
 
-        // Loop over depth blocks. This is not parallelized because output
-        // tiles are shared across iterations.
-        for (depth_idx, depth_range) in range_chunks(0..a.cols(), kc).enumerate() {
-            // Borrowed packing buffer for current thread. Returned after
-            // the GEMM block is computed.
-            let mut thread_local_packed_b: Option<Vec<f32>> = None;
-            let panel_length = depth_range.len();
-
-            let packed_b = match b {
-                GemmInputB::Unpacked(b) => PACKED_B.with(|cell| {
-                    let mut packed_b = cell.take();
-                    packed_b.resize(packed_b_size, 0.);
-                    pack_b_block::<K>(&mut packed_b, b, depth_range.clone(), col_start..col_end);
-                    thread_local_packed_b = Some(packed_b);
-                    thread_local_packed_b.as_deref().unwrap()
-                }),
-                GemmInputB::Packed(pm) => pm.block(col_idx, depth_idx),
-                GemmInputB::Virtual(vm) => PACKED_B.with(|cell| {
-                    let mut packed_b = cell.take();
-                    packed_b.resize(packed_b_size, 0.);
-                    vm.pack_b(
-                        &mut packed_b,
-                        K::NR,
-                        depth_range.clone(),
-                        col_start..col_end,
-                    );
-                    thread_local_packed_b = Some(packed_b);
-                    thread_local_packed_b.as_deref().unwrap()
-                }),
-            };
-
-            // Only use provided `beta` on the first write to this output
-            // tile. For subsequent updates accumulate.
-            let effective_beta = if depth_range.start == 0 { beta } else { 1.0 };
-
-            // Loop over row blocks.
-            //
-            // TODO - This should be parallel, but overhead in single-threaded
-            // environments (ie. `RAYON_NUM_THREADS=1`) needs to be reduced.
-            (0..n_row_blocks).for_each(|row_idx| {
-                let row_start = row_idx * mc;
-                let row_end = (row_start + mc).min(a.rows());
-
+            // Loop over depth blocks. This is not parallelized because output
+            // tiles are shared across iterations.
+            for (depth_idx, depth_range) in range_chunks(0..a.cols(), kc).enumerate() {
                 // Borrowed packing buffer for current thread. Returned after
                 // the GEMM block is computed.
-                let mut thread_local_packed_a: Option<Vec<f32>> = None;
+                let mut thread_local_packed_b: Option<Vec<f32>> = None;
+                let panel_length = depth_range.len();
 
-                let packed_a = match a {
-                    GemmInputA::Unpacked(a) => PACKED_A.with(|cell| {
-                        let mut packed_a = cell.take();
-                        packed_a.resize(packed_a_size, 0.);
-                        pack_a_block::<K>(
-                            &mut packed_a,
-                            a,
-                            row_start..row_end,
+                let packed_b = match b {
+                    GemmInputB::Unpacked(b) => PACKED_B.with(|cell| {
+                        let mut packed_b = cell.take();
+                        packed_b.resize(packed_b_size, 0.);
+                        pack_b_block::<K>(
+                            &mut packed_b,
+                            b,
                             depth_range.clone(),
+                            col_start..col_end,
                         );
-                        thread_local_packed_a = Some(packed_a);
-                        thread_local_packed_a.as_deref().unwrap()
+                        thread_local_packed_b = Some(packed_b);
+                        thread_local_packed_b.as_deref().unwrap()
                     }),
-                    GemmInputA::Packed(pm) => pm.block(row_idx, depth_idx),
+                    GemmInputB::Packed(pm) => pm.block(col_idx, depth_idx),
+                    GemmInputB::Virtual(vm) => PACKED_B.with(|cell| {
+                        let mut packed_b = cell.take();
+                        packed_b.resize(packed_b_size, 0.);
+                        vm.pack_b(
+                            &mut packed_b,
+                            K::NR,
+                            depth_range.clone(),
+                            col_start..col_end,
+                        );
+                        thread_local_packed_b = Some(packed_b);
+                        thread_local_packed_b.as_deref().unwrap()
+                    }),
                 };
 
-                gemm_block::<K, MR_NR>(
-                    &output_tiles,
-                    col_start / K::NR..div_ceil(col_end, K::NR),
-                    row_start / K::MR..div_ceil(row_end, K::MR),
-                    depth_range.start == 0,
-                    packed_a,
-                    packed_b,
-                    panel_length,
-                    alpha,
-                    effective_beta,
-                    bias,
-                );
+                // Only use provided `beta` on the first write to this output
+                // tile. For subsequent updates accumulate.
+                let effective_beta = if depth_range.start == 0 { beta } else { 1.0 };
 
-                if let Some(packed_a) = thread_local_packed_a {
-                    PACKED_A.with(|cell| cell.replace(packed_a));
+                // Loop over row blocks.
+                (0..n_row_blocks)
+                    .maybe_par_iter(parallel)
+                    .for_each(|row_idx| {
+                        let row_start = row_idx * mc;
+                        let row_end = (row_start + mc).min(a.rows());
+
+                        // Borrowed packing buffer for current thread. Returned after
+                        // the GEMM block is computed.
+                        let mut thread_local_packed_a: Option<Vec<f32>> = None;
+
+                        let packed_a = match a {
+                            GemmInputA::Unpacked(a) => PACKED_A.with(|cell| {
+                                let mut packed_a = cell.take();
+                                packed_a.resize(packed_a_size, 0.);
+                                pack_a_block::<K>(
+                                    &mut packed_a,
+                                    a,
+                                    row_start..row_end,
+                                    depth_range.clone(),
+                                );
+                                thread_local_packed_a = Some(packed_a);
+                                thread_local_packed_a.as_deref().unwrap()
+                            }),
+                            GemmInputA::Packed(pm) => pm.block(row_idx, depth_idx),
+                        };
+
+                        gemm_block::<K, MR_NR>(
+                            &output_tiles,
+                            col_start / K::NR..div_ceil(col_end, K::NR),
+                            row_start / K::MR..div_ceil(row_end, K::MR),
+                            depth_range.start == 0,
+                            packed_a,
+                            packed_b,
+                            panel_length,
+                            alpha,
+                            effective_beta,
+                            bias,
+                        );
+
+                        if let Some(packed_a) = thread_local_packed_a {
+                            PACKED_A.with(|cell| cell.replace(packed_a));
+                        }
+                    });
+
+                if let Some(packed_b) = thread_local_packed_b {
+                    PACKED_B.with(|cell| cell.replace(packed_b));
                 }
-            });
-
-            if let Some(packed_b) = thread_local_packed_b {
-                PACKED_B.with(|cell| cell.replace(packed_b));
             }
-        }
-    });
+        });
 }
 
 /// Process a single block (ie. a slice along each of the M/N/K dimensions) of a
