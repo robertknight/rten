@@ -162,7 +162,7 @@ impl FMAKernel {
     ) {
         use core::arch::x86_64::{
             __m256, _mm256_add_ps, _mm256_fmadd_ps, _mm256_loadu_ps, _mm256_mul_ps, _mm256_set1_ps,
-            _mm256_setzero_ps, _mm256_storeu_ps,
+            _mm256_setzero_ps, _mm256_storeu_ps, _mm_prefetch, _MM_HINT_ET0, _MM_HINT_T0,
         };
         use std::mem::size_of;
 
@@ -176,6 +176,7 @@ impl FMAKernel {
         // Check that buffer accesses below are going to be valid.
         assert!(a.len() >= depth * MR);
         assert!(b.len() >= depth * NR);
+        assert!(depth > 0);
 
         let a_ptr = a.as_ptr();
         let b_ptr = b.as_ptr();
@@ -183,9 +184,13 @@ impl FMAKernel {
         let mut tmp = [[_mm256_setzero_ps(); NR_REGS]; MR];
         let mut b_rows = [_mm256_setzero_ps(); NR_REGS];
 
-        for k in 0..depth {
+        // Perform first `depth - 1` outer product updates.
+        for k in 0..depth - 1 {
             let a_off = k * MR;
             let b_off = k * NR;
+
+            // Prefetch B for the next iteration.
+            _mm_prefetch(b_ptr.add((k + 1) * NR) as *const i8, _MM_HINT_T0);
 
             for i in 0..NR_REGS {
                 b_rows[i] = _mm256_loadu_ps(b_ptr.add(b_off + i * REG_SIZE));
@@ -201,6 +206,30 @@ impl FMAKernel {
             }
         }
 
+        // Prefetch output before the final computation loop.
+        for i in 0..MR {
+            _mm_prefetch(tile_ptr.add(tile_row_stride * i) as *const i8, _MM_HINT_ET0);
+        }
+
+        // Perform final outer product update.
+        let k = depth - 1;
+        let a_off = k * MR;
+        let b_off = k * NR;
+
+        for i in 0..NR_REGS {
+            b_rows[i] = _mm256_loadu_ps(b_ptr.add(b_off + i * REG_SIZE));
+        }
+
+        for i in 0..MR {
+            let a_val = *a_ptr.add(a_off + i);
+            let a_broadcast = _mm256_set1_ps(a_val);
+
+            for j in 0..NR_REGS {
+                tmp[i][j] = _mm256_fmadd_ps(a_broadcast, b_rows[j], tmp[i][j]);
+            }
+        }
+
+        // Write to output tile
         if beta == 0. && alpha == 1. {
             for i in 0..MR {
                 for j in 0..NR_REGS {
@@ -1808,6 +1837,12 @@ mod tests {
                 n: 512,
                 k: 512,
             },
+            // Larger square output matrix
+            Case {
+                m: 1024,
+                n: 1024,
+                k: 1024,
+            },
             // Wide output matrix
             Case {
                 m: 128,
@@ -1824,7 +1859,12 @@ mod tests {
 
         for case in cases {
             let Case { m, n, k } = case;
-            let iters = 100;
+
+            // Adjust number of iterations based on a target amount of work,
+            // so that each case takes roughly the same amount of time, assuming
+            // equal efficiency.
+            let target_ops: u64 = 512 * 512 * 512 * 1000;
+            let iters = target_ops / (m * n * k) as u64;
 
             let mut rng = XorShiftRng::new(1234);
             let mut result = Tensor::zeros(&[m, n]);
@@ -1855,7 +1895,7 @@ mod tests {
             //   `fma_units` is 2. For a 3.4Ghz CPU this would give a max
             //   theoretical peak of 3.4 * 8 * 2 * 2 = 108.8 GFLOPS.
 
-            let flops = (2 * m * n * k * iters) as f32 / t.elapsed_secs();
+            let flops = (2 * m * n * k * iters as usize) as f32 / t.elapsed_secs();
             let gflops = flops / (10f32).powi(9);
 
             println!(
