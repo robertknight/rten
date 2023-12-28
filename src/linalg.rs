@@ -943,9 +943,7 @@ fn col_block_size(b_cols: usize, nr: usize) -> usize {
     //
     // When parallelism is introduced for inner loops of the GEMM in future,
     // this will need to be revisited.
-    let parallelism = std::thread::available_parallelism()
-        .map(|p| p.into())
-        .unwrap_or(1usize);
+    let parallelism = rayon::current_num_threads();
     let lower_bound = 128.min(b_cols);
     let unrounded = (b_cols / parallelism).max(lower_bound).min(1024);
     round_up(unrounded, nr)
