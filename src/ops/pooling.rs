@@ -5,7 +5,7 @@ use wasnn_tensor::prelude::*;
 use wasnn_tensor::{NdTensorView, NdTensorViewMut, Tensor, TensorView};
 
 use crate::check_dims;
-use crate::linalg::div_ceil;
+use crate::gemm::div_ceil;
 use crate::ops::{InputList, IntoOpResult, OpError, Operator, Output, Padding};
 
 /// Calculate the output size and padding for a convolution or pooling operation.

@@ -1,8 +1,9 @@
-//! Optimized linear algebra functions.
+//! Machine-learning oriented matrix multiplication functions.
 //!
-//! This module provides a subset of BLAS-like functions that are used by
-//! neural network operators. This includes general matrix multiplication ("gemm"),
-//! and vector-scalar products.
+//! This module provides a subset of BLAS-like functions that are used by neural
+//! network operators. The primary functionality is general matrix
+//! multiplication (gemm) with ML-oriented additions, but there are also
+//! operations like vector-scalar products.
 
 use std::borrow::Cow;
 use std::cell::RefCell;
@@ -1337,7 +1338,7 @@ mod tests {
     use wasnn_tensor::test_util::expect_equal;
     use wasnn_tensor::{Matrix, MatrixLayout, NdTensor, Tensor};
 
-    use crate::linalg::{
+    use super::{
         add_scaled_vector, gemm, round_up, GemmExecutor, GemmInputA, GemmInputB, KernelHint,
         VirtualMatrix,
     };

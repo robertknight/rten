@@ -8,7 +8,7 @@ use wasnn_tensor::prelude::*;
 use wasnn_tensor::{NdTensorView, NdTensorViewMut, Tensor, TensorView};
 
 use crate::check_dims;
-use crate::linalg::{
+use crate::gemm::{
     add_scaled_vector, div_ceil, gemm, round_up, GemmExecutor, GemmInputA, GemmInputB,
     VirtualMatrix,
 };

@@ -4,7 +4,7 @@ use wasnn_tensor::prelude::*;
 use wasnn_tensor::{Tensor, TensorView};
 
 use crate::check_dims;
-use crate::linalg::{gemm, GemmExecutor, GemmInputA, GemmInputB};
+use crate::gemm::{gemm, GemmExecutor, GemmInputA, GemmInputB};
 use crate::ops::binary_elementwise::broadcast_shapes;
 use crate::ops::layout::expand_to;
 use crate::ops::{InputList, IntoOpResult, OpError, Operator, Output};
@@ -22,7 +22,7 @@ pub struct Gemm {
 /// If `transpose_a` or `transpose_b` are set, the `a` and `b` inputs
 /// respectively are transposed before multiplying them.
 ///
-/// nb. This is named `gemm_op` to avoid confusion with `linalg::gemm`.
+/// nb. This is named `gemm_op` to avoid confusion with `gemm::gemm`.
 pub fn gemm_op(
     a: TensorView,
     b: TensorView,
@@ -198,7 +198,7 @@ mod tests {
     use wasnn_tensor::test_util::expect_equal;
     use wasnn_tensor::Tensor;
 
-    use crate::linalg::gemm;
+    use crate::gemm::gemm;
     use crate::ops::matmul::{gemm_op, matmul, OpError};
 
     fn gemm_tensors(c: &mut Tensor, a: &Tensor, b: &Tensor, alpha: f32, beta: f32) {

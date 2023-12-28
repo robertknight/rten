@@ -1,6 +1,6 @@
+mod gemm;
 mod graph;
 mod iter_util;
-mod linalg;
 mod model;
 mod number;
 mod slice_reductions;

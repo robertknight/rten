@@ -6,7 +6,7 @@ use wasnn_tensor::Matrix;
 use wasnn_tensor::{NdTensorView, Tensor, TensorView, TensorViewMut};
 
 use crate::check_dims;
-use crate::linalg::{GemmExecutor, GemmInputA, GemmInputB};
+use crate::gemm::{GemmExecutor, GemmInputA, GemmInputB};
 use crate::ops::{
     add_in_place, sigmoid_in_place, tanh_in_place, InputList, IntoOpResult, OpError, Operator,
     Output,
