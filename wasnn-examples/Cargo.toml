@@ -10,7 +10,7 @@ image = { version = "0.24.6", default-features = false, features = ["png", "jpeg
 lexopt = "0.3.0"
 png = "0.17.6"
 serde_json = "1.0.91"
-wasnn = { path = "../" }
+wasnn = { path = "../", features = ["avx512"] }
 wasnn-imageio = { path = "../wasnn-imageio" }
 wasnn-imageproc = { path = "../wasnn-imageproc" }
 wasnn-tensor = { path = "../wasnn-tensor" }

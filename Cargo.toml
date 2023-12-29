@@ -30,7 +30,9 @@ libm = "0.2.6"
 rayon = "1.7.0"
 smallvec = { version = "1.10.0", features = ["union", "const_generics", "const_new"] }
 wasnn-tensor = { path = "./wasnn-tensor" }
-wasnn-vecmath = { path = "./wasnn-vecmath" }
+
+# TESTING
+wasnn-vecmath = { path = "./wasnn-vecmath", features = ["avx512"] }
 
 [dev-dependencies]
 serde_json = "1.0.91"
