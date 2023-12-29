@@ -1,5 +1,8 @@
 #[cfg(target_arch = "x86_64")]
 pub(crate) mod avx;
+#[cfg(feature = "avx512")]
+#[cfg(target_arch = "x86_64")]
+pub(crate) mod avx512;
 #[cfg(target_arch = "wasm32")]
 pub(crate) mod wasm;
 

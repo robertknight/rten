@@ -17,6 +17,8 @@
 //!
 //! See the source code for comments on accuracy.
 
+#![cfg_attr(feature = "avx512", feature(stdsimd), feature(avx512_target_feature))]
+
 mod erf;
 mod exp;
 mod simd_vec;
@@ -104,8 +106,7 @@ impl<'a, T> From<&'a mut [T]> for MutPtrLen<T> {
 ///
 /// Safety: The caller must ensure that `xs` and `out` are valid pointers
 /// to buffers of the expected lengths.
-#[cfg_attr(target_arch = "x86_64", target_feature(enable = "avx2"))]
-#[cfg_attr(target_arch = "x86_64", target_feature(enable = "fma"))]
+#[inline(always)]
 unsafe fn vec_unary_op<S: SimdFloat, Op: FnMut(S) -> S>(
     xs: PtrLen<f32>,
     out: MutPtrLen<f32>,
@@ -150,8 +151,16 @@ unsafe fn vec_unary_op<S: SimdFloat, Op: FnMut(S) -> S>(
     }
 }
 
-#[cfg_attr(target_arch = "x86_64", target_feature(enable = "avx2"))]
-#[cfg_attr(target_arch = "x86_64", target_feature(enable = "fma"))]
+/// Apply a reduction to elements in `xs` using `simd_op`, starting with `accum`.
+///
+/// The operation is applied to SIMD vector-sized groups of elements at a time.
+/// If the final group has a size that is smaller than the SIMD vector width,
+/// `simd_op` will be called with a SIMD vector that is padded with `pad` on the
+/// right.
+///
+/// Safety: The caller must ensure that `xs` is a valid pointer to a buffer of
+/// the expected length.
+#[inline(always)]
 unsafe fn vec_fold<S: SimdFloat, Op: Fn(S, S) -> S>(
     xs: PtrLen<f32>,
     mut accum: S,
@@ -199,6 +208,27 @@ macro_rules! dispatch_unary_op {
         use crate::{MutPtrLen, PtrLen};
 
         assert!($in.len() == $out.len());
+
+        // Non-generic wrapper for `vec_unary_op` which instantiates the
+        // AVX512 version.
+        #[cfg(feature = "avx512")]
+        #[cfg(target_arch = "x86_64")]
+        #[target_feature(enable = "avx512f")]
+        unsafe fn vec_unary_op_avx512(xs: PtrLen<f32>, out: MutPtrLen<f32>) {
+            use std::arch::x86_64::__m512;
+            vec_unary_op(xs, out, |x: __m512| $op_func(x), 0. /* pad */);
+        }
+
+        // TODO - Handle AVX512 feature detection under macOS.
+        #[cfg(feature = "avx512")]
+        #[cfg(target_arch = "x86_64")]
+        if is_x86_feature_detected!("avx512f") {
+            // Safety: We've checked that AVX512 is available.
+            unsafe {
+                vec_unary_op_avx512($in.into(), $out.into());
+            }
+            return;
+        }
 
         // Non-generic wrapper for `vec_unary_op` which instantiates the
         // AVX + FMA version.
@@ -249,6 +279,27 @@ macro_rules! dispatch_unary_op {
         use crate::vec_unary_op;
         #[allow(unused_imports)]
         use crate::{MutPtrLen, PtrLen};
+
+        // Non-generic wrapper for `vec_unary_op` which instantiates the
+        // AVX512 version.
+        #[cfg(feature = "avx512")]
+        #[cfg(target_arch = "x86_64")]
+        #[target_feature(enable = "avx512f")]
+        unsafe fn vec_unary_op_avx512(xs: PtrLen<f32>, out: MutPtrLen<f32>) {
+            use std::arch::x86_64::__m512;
+            vec_unary_op(xs, out, |x: __m512| $op_func(x), 0. /* pad */);
+        }
+
+        // TODO - Handle AVX512 feature detection under macOS.
+        #[cfg(feature = "avx512")]
+        #[cfg(target_arch = "x86_64")]
+        if is_x86_feature_detected!("avx512f") {
+            // Safety: We've checked that AVX512 is available.
+            unsafe {
+                vec_unary_op_avx512($out.into(), $out.into());
+            }
+            return;
+        }
 
         // Non-generic wrapper for `vec_unary_op` which instantiates the
         // AVX + FMA version.
@@ -306,6 +357,25 @@ macro_rules! dispatch_simd {
     ($func:ident, $in:expr, $out:expr) => {
         #[allow(unused_imports)]
         use crate::{MutPtrLen, PtrLen};
+
+        #[cfg(feature = "avx512")]
+        #[cfg(target_arch = "x86_64")]
+        #[target_feature(enable = "avx512f")]
+        unsafe fn simd_op_avx512(xs: PtrLen<f32>, out: MutPtrLen<f32>) {
+            use std::arch::x86_64::__m512;
+            $func::<__m512>(xs, out);
+        }
+
+        // TODO - Handle AVX512 feature detection under macOS.
+        #[cfg(feature = "avx512")]
+        #[cfg(target_arch = "x86_64")]
+        if is_x86_feature_detected!("avx512f") {
+            // Safety: We've checked that AVX512 is available.
+            unsafe {
+                simd_op_avx512($in, $out);
+            }
+            return;
+        }
 
         // Non-generic wrapper for `$func` which instantiates the AVX + FMA version.
         #[cfg(target_arch = "x86_64")]
