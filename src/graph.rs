@@ -400,7 +400,7 @@ impl Graph {
                         .copied()
                         .flatten()
                 } else {
-                    op_node.inputs.get(0).copied().flatten()
+                    op_node.inputs.first().copied().flatten()
                 }
             } else {
                 None
