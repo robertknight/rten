@@ -2,9 +2,9 @@ use super::Kernel;
 
 /// Optimized kernel for x64 CPUs that support AVX + FMA instructions.
 #[derive(Default)]
-pub struct FMAKernel {}
+pub struct FmaKernel {}
 
-impl Kernel for FMAKernel {
+impl Kernel for FmaKernel {
     const MR: usize = 6;
 
     // Chosen to fit 2 AVX registers and take advantage of the two FMA
@@ -32,7 +32,7 @@ impl Kernel for FMAKernel {
     }
 }
 
-impl FMAKernel {
+impl FmaKernel {
     #[target_feature(enable = "fma")]
     unsafe fn kernel_fma(
         tile_ptr: *mut f32,
@@ -49,8 +49,8 @@ impl FMAKernel {
         };
         use std::mem::size_of;
 
-        const MR: usize = FMAKernel::MR;
-        const NR: usize = FMAKernel::NR;
+        const MR: usize = FmaKernel::MR;
+        const NR: usize = FmaKernel::NR;
 
         const REG_SIZE: usize = size_of::<__m256>() / size_of::<f32>();
         const NR_REGS: usize = NR / REG_SIZE;
@@ -143,7 +143,7 @@ impl FMAKernel {
     }
 }
 
-super::impl_gemmops!(FMAKernel);
+super::impl_gemmops!(FmaKernel);
 
 /// Detect availability of AVX-512 on macOS, where `is_x86_feature_detected`
 /// can return false even if AVX-512 is available.

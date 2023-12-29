@@ -317,13 +317,13 @@ impl GemmExecutor {
         }
         #[cfg(target_arch = "x86_64")]
         {
-            use kernels::x64::FMAKernel;
+            use kernels::x64::FmaKernel;
 
-            if FMAKernel::supported() {
+            if FmaKernel::supported() {
                 return GemmExecutor {
-                    kernel: Box::new(FMAKernel {}),
-                    nr: FMAKernel::NR,
-                    mr: FMAKernel::MR,
+                    kernel: Box::new(FmaKernel {}),
+                    nr: FmaKernel::NR,
+                    mr: FmaKernel::MR,
                 };
             }
         }
