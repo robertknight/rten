@@ -199,10 +199,14 @@ pub struct Avx512Kernel {}
 
 #[cfg(feature = "avx512")]
 impl Kernel for Avx512Kernel {
+    // The optimal value of MR depends on how many AVX-512 FMA units the CPU has.
+    // Client Intel CPUs have one, server CPUs have two. This smaller value is
+    // tuned for single-FMA CPUs.
+    //
+    // See https://github.com/robertknight/wasnn/issues/17.
     const MR: usize = 6;
 
-    // Chosen to fit 2 AVX registers and take advantage of the two FMA
-    // execution ports.
+    // 2 x 16-f32-wide registers.
     const NR: usize = 32;
 
     fn name() -> &'static str {
