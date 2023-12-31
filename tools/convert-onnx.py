@@ -1,6 +1,7 @@
 #!/usr/bin/env python
 
 from argparse import ArgumentParser
+from os.path import splitext
 import sys
 from typing import Any, Callable, Literal, Optional, cast
 
@@ -1140,16 +1141,22 @@ def write_graph(graph: Graph, out_path: str):
 
 
 def main():
-    parser = ArgumentParser()
+    parser = ArgumentParser(description="Convert ONNX models to .rten format.")
     parser.add_argument("model", help="Input ONNX model")
-    parser.add_argument("out_name", help="Output model file")
+    parser.add_argument("out_name", help="Output model file name", nargs="?")
     args = parser.parse_args()
 
     model_path = args.model
 
     model = onnx.load(model_path)
     graph = graph_from_onnx_graph(model.graph)
-    write_graph(graph, args.out_name)
+
+    output_path = args.out_name
+    if output_path is None:
+        model_basename = splitext(model_path)[0]
+        output_path = f"{model_basename}.rten"
+
+    write_graph(graph, output_path)
 
 
 if __name__ == "__main__":
