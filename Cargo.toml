@@ -24,6 +24,11 @@ default-members = [
 name = "rten"
 version = "0.1.0"
 edition = "2021"
+authors = ["Robert Knight"]
+description = "Machine learning runtime"
+license = "MIT OR Apache-2.0"
+homepage = "https://github.com/robertknight/rten"
+repository = "https://github.com/robertknight/rten"
 
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 

@@ -2,6 +2,11 @@
 name = "rten-cli"
 version = "0.1.0"
 edition = "2021"
+authors = ["Robert Knight"]
+description = "CLI tool for inspecting and running RTen models"
+license = "MIT OR Apache-2.0"
+homepage = "https://github.com/robertknight/rten"
+repository = "https://github.com/robertknight/rten"
 
 [dependencies]
 fastrand = "1.9.0"

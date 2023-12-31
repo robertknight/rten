@@ -2,6 +2,11 @@
 name = "rten-imageio"
 version = "0.1.0"
 edition = "2021"
+authors = ["Robert Knight"]
+description = "Utilities for loading images for use with RTen"
+license = "MIT OR Apache-2.0"
+homepage = "https://github.com/robertknight/rten"
+repository = "https://github.com/robertknight/rten"
 
 [dependencies]
 image = { version = "0.24.6", default-features = false, features = ["png", "jpeg", "jpeg_rayon", "webp"] }

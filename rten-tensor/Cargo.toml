@@ -2,6 +2,11 @@
 name = "rten-tensor"
 version = "0.1.0"
 edition = "2021"
+authors = ["Robert Knight"]
+description = "Tensor library for the RTen machine learning runtime"
+license = "MIT OR Apache-2.0"
+homepage = "https://github.com/robertknight/rten"
+repository = "https://github.com/robertknight/rten"
 
 [dependencies]
 smallvec = { version = "1.10.0", features=["union", "const_generics", "const_new"] }
