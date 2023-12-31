@@ -1,11 +1,14 @@
 # RTen
 
-RTen is an engine for running machine learning models converted from [ONNX
-](https://onnx.ai).
+RTen (the _Rusty Tensor engine_) † is a runtime for machine learning models
+converted from [ONNX](https://onnx.ai) format, which you can export from
+PyTorch and other frameworks.
 
-In addition to the inference engine, there are also supporting libraries for
-common pre-processing and post-processing tasks in various domains. This makes
-RTen a more complete toolkit for running models in Rust applications.
+The project also provides supporting libraries for common pre-processing and
+post-processing tasks in various domains. This makes RTen a more complete
+toolkit for running models in Rust applications.
+
+† _The name is also a reference to PyTorch's ATen library._
 
 ## Goals
 
