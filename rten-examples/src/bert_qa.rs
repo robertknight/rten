@@ -195,14 +195,14 @@ fn extract_nbest_answers<'a>(
 }
 
 /// This example finds passages in a document that best answer a given query,
-/// aka. extractive QA [1].
+/// aka. extractive QA [^1].
 ///
 /// It works with BERT-based models that have been fine-tuned for question
-/// answering, such as https://huggingface.co/deepset/bert-base-cased-squad2 or
-/// https://huggingface.co/distilbert-base-cased-distilled-squad.
+/// answering, such as <https://huggingface.co/deepset/bert-base-cased-squad2> or
+/// <https://huggingface.co/distilbert-base-cased-distilled-squad>.
 ///
 /// You can export a BERT model in ONNX format from Hugging Face and convert
-/// it as follows, using Optimium [2].
+/// it as follows, using Optimium [^2].
 ///
 /// ```
 /// optimum-cli export onnx --model distilbert-base-cased-distilled-squad distilbert
@@ -220,8 +220,8 @@ fn extract_nbest_answers<'a>(
 /// live in London" and the query "what am I called" the model should output
 /// the substring "Robert".
 ///
-/// [1] https://huggingface.co/tasks/question-answering
-/// [2] https://huggingface.co/docs/optimum/index
+/// [^1]: <https://huggingface.co/tasks/question-answering>
+/// [^2]: <https://huggingface.co/docs/optimum/index>
 fn main() -> Result<(), Box<dyn Error>> {
     let args = parse_args()?;
     let model_bytes = fs::read(args.model)?;

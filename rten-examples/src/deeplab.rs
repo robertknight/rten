@@ -60,7 +60,7 @@ type Rgb = (f32, f32, f32);
 /// Labels and colors for the different categories of object that DeepLabv3 can
 /// detect.
 ///
-/// For the labels, see https://github.com/NVIDIA/DIGITS/blob/master/examples/semantic-segmentation/pascal-voc-classes.txt
+/// For the labels, see <https://github.com/NVIDIA/DIGITS/blob/master/examples/semantic-segmentation/pascal-voc-classes.txt>.
 const PASCAL_VOC_LABELS: [(&str, Rgb); 21] = [
     ("background", (1.0, 0.0, 0.0)),   // Red
     ("aeroplane", (0.0, 1.0, 0.0)),    // Green
@@ -85,7 +85,7 @@ const PASCAL_VOC_LABELS: [(&str, Rgb); 21] = [
     ("tvmonitor", (1.0, 1.0, 1.0)),    // White
 ];
 
-/// Perform semantic segmentation of an image using DeepLabv3 [1].
+/// Perform semantic segmentation of an image using DeepLabv3 [^1].
 ///
 /// This classifies each of the pixels in an image as belonging to one of the 20
 /// Pascal VOC object categories or no object category.
@@ -104,7 +104,7 @@ const PASCAL_VOC_LABELS: [(&str, Rgb); 21] = [
 /// cargo run --release --bin deeplab deeplab.rten image.jpg out.png
 /// ```
 ///
-/// [1] https://arxiv.org/abs/1706.05587
+/// [^1] <https://arxiv.org/abs/1706.05587>
 fn main() -> Result<(), Box<dyn Error>> {
     let args = parse_args()?;
     let model_bytes = fs::read(args.model)?;

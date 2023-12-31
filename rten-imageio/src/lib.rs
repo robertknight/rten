@@ -5,7 +5,7 @@ use rten_tensor::prelude::*;
 use rten_tensor::{NdTensor, NdTensorView, NdTensorViewMut};
 
 /// Apply standard ImageNet normalization to a pixel value.
-/// See https://huggingface.co/facebook/detr-resnet-50#preprocessing.
+/// See <https://huggingface.co/facebook/detr-resnet-50#preprocessing>.
 pub fn normalize_pixel(value: f32, channel: usize) -> f32 {
     assert!(channel < 3, "channel index is invalid");
     let imagenet_mean = [0.485, 0.456, 0.406];

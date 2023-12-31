@@ -71,10 +71,10 @@ fn read_wav_file(path: &str) -> Result<Vec<f32>, hound::Error> {
     Ok(float_samples)
 }
 
-/// Recognize speech in .wav audio files using Wav2Vec 2 [1]
+/// Recognize speech in .wav audio files using Wav2Vec 2 [^1]
 ///
-/// The wav2vec2 speech recognition model [2] can be obtained from Hugging Face
-/// and converted to this library's format using Optimum [3].
+/// The wav2vec2 speech recognition model [^2] can be obtained from Hugging Face
+/// and converted to this library's format using Optimum [^3].
 ///
 /// ```
 /// optimum-cli export onnx --model facebook/wav2vec2-base-960h wav2vec2
@@ -98,9 +98,9 @@ fn read_wav_file(path: &str) -> Result<Vec<f32>, hound::Error> {
 ///    cargo run --release --bin wav2vec2 wav2vec.rten output.wav
 ///    ```
 ///
-/// [1] https://ai.meta.com/blog/wav2vec-20-learning-the-structure-of-speech-from-raw-audio/
-/// [2] https://huggingface.co/facebook/wav2vec2-base-960h
-/// [3] https://huggingface.co/docs/optimum/main/en/exporters/onnx/usage_guides/export_a_model
+/// [^1]: <https://ai.meta.com/blog/wav2vec-20-learning-the-structure-of-speech-from-raw-audio/>
+/// [^2]: <https://huggingface.co/facebook/wav2vec2-base-960h>
+/// [^3]: <https://huggingface.co/docs/optimum/main/en/exporters/onnx/usage_guides/export_a_model>
 fn main() -> Result<(), Box<dyn Error>> {
     let args = parse_args()?;
 

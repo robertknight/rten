@@ -304,8 +304,10 @@ name = "ocrs"
 version = "0.1.0"
 dependencies = [
  "fastrand",
+ "lexopt",
  "rayon",
  "rten",
+ "rten-imageio",
  "rten-imageproc",
  "rten-tensor",
  "wasm-bindgen",

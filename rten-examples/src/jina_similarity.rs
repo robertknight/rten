@@ -169,9 +169,9 @@ fn embed_sentence_batch(
 /// a list of sentences in a text file (one per line).
 ///
 /// It uses the Jina embeddings model from
-/// https://huggingface.co/jinaai/jina-embeddings-v2-small-en. You can download
+/// <https://huggingface.co/jinaai/jina-embeddings-v2-small-en>. You can download
 /// the in ONNX format, along with the `tokenizer.json` tokenizer configuration
-/// https://huggingface.co/jinaai/jina-embeddings-v2-small-en/tree/main.
+/// <https://huggingface.co/jinaai/jina-embeddings-v2-small-en/tree/main>.
 ///
 /// Convert the model using:
 ///

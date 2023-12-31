@@ -105,6 +105,7 @@ impl Node {
     }
 }
 
+/// ID of a node in a [Model](crate::Model) graph.
 pub type NodeId = usize;
 
 /// A graph defines how to produce output values from a set of dynamic input
@@ -206,6 +207,8 @@ impl NodeRefCount {
 
 impl Error for RunError {}
 
+/// Options that control logging and other behaviors when executing a
+/// [Model](crate::Model).
 #[derive(Default)]
 pub struct RunOptions {
     /// Whether to log times spent in different operators when run completes.
