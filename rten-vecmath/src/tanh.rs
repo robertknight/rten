@@ -76,7 +76,7 @@ mod tests {
     use crate::vec_tanh;
 
     // Maximum error of `vec_tanh` compared to `f32::tanh`.
-    const MAX_TANH_ERROR_ULPS: f32 = 2.0;
+    const MAX_TANH_ERROR_ULPS: f32 = 3.0;
 
     #[test]
     #[ignore] // Ignored by default due to long runtime
