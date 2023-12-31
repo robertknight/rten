@@ -1,6 +1,6 @@
 use std::ops::Range;
 
-use wasnn_tensor::{Matrix, MatrixLayout};
+use rten_tensor::{Matrix, MatrixLayout};
 
 use super::round_up;
 use super::Kernel;

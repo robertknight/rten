@@ -17,7 +17,7 @@ import { Tensor, initSync } from "../../index.js";
 // Init ML libs
 await tf.setBackend("wasm");
 
-const wasmPath = new URL("../../dist/wasnn_bg.wasm", import.meta.url);
+const wasmPath = new URL("../../dist/rten_bg.wasm", import.meta.url);
 const wasmBin = readFileSync(wasmPath);
 initSync(wasmBin);
 
@@ -55,7 +55,7 @@ function timeIt(iters, callback) {
  * Run a benchmark of `iters` iterations of matrix multiplication using random
  * inputs of size `[M, K]` and `[K, N]`.
  */
-function testWasnnMatmul(m, n, k, iters) {
+function testRTenMatmul(m, n, k, iters) {
   const seedA = 1234n;
   const seedB = 4567n;
   const a = Tensor.rand([m, k], seedA);
@@ -69,7 +69,7 @@ function testWasnnMatmul(m, n, k, iters) {
     c.free();
   });
 
-  logResult("Wasnn", elapsed, m, n, k, iters);
+  logResult("RTen", elapsed, m, n, k, iters);
 }
 
 /**
@@ -94,6 +94,6 @@ function testTensorflowMatMul(m, n, k, iters) {
 for (const { m, n, k } of cases) {
   const iters = 100;
 
-  testWasnnMatmul(m, n, k, iters);
+  testRTenMatmul(m, n, k, iters);
   testTensorflowMatMul(m, n, k, iters);
 }

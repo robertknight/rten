@@ -1,5 +1,5 @@
-use wasnn_tensor::prelude::*;
-use wasnn_tensor::{NdTensor, NdTensorView};
+use rten_tensor::prelude::*;
+use rten_tensor::{NdTensor, NdTensorView};
 
 use crate::ops::{InputList, IntoOpResult, OpError, Operator, Output};
 use crate::static_dims;
@@ -216,8 +216,8 @@ impl Operator for NonMaxSuppression {
 
 #[cfg(test)]
 mod tests {
-    use wasnn_tensor::prelude::*;
-    use wasnn_tensor::NdTensor;
+    use rten_tensor::prelude::*;
+    use rten_tensor::NdTensor;
 
     use crate::ops::{non_max_suppression, BoxOrder, OpError};
 

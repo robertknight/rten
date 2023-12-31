@@ -1,4 +1,4 @@
-import { Model, Tensor } from "./node_modules/wasnn/index.js";
+import { Model, Tensor } from "./node_modules/rten/index.js";
 
 /**
  * Convert an RGB or RGBA image loaded with `loadImage` into an NCHW
@@ -61,15 +61,15 @@ function topK(array, k) {
 
 /**
  * Classifies the content of images into the 1000 ImageNet categories (see
- * imagenet-classes.js) using a Wasnn model.
+ * imagenet-classes.js) using a RTen model.
  */
 export class ImageClassifier {
   /**
-   * Initialize a classifier using a serialized Wasnn model.
+   * Initialize a classifier using a serialized RTen model.
    *
-   * The Wasnn engine must be initialized before this method is called.
+   * The RTen engine must be initialized before this method is called.
    *
-   * @param {Uint8Array} modelData - Serialized Wasnn model
+   * @param {Uint8Array} modelData - Serialized RTen model
    */
   constructor(modelData) {
     try {

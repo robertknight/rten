@@ -9,8 +9,8 @@ use std::borrow::Cow;
 use std::cell::RefCell;
 use std::ops::Range;
 
-use wasnn_tensor::prelude::*;
-use wasnn_tensor::{Matrix, MatrixLayout, MatrixMut};
+use rten_tensor::prelude::*;
+use rten_tensor::{Matrix, MatrixLayout, MatrixMut};
 
 use crate::iter_util::{range_chunks, MaybeParIter};
 
@@ -902,10 +902,10 @@ mod tests {
     use std::error::Error;
     use std::ops::Range;
 
-    use wasnn_tensor::prelude::*;
-    use wasnn_tensor::rng::XorShiftRng;
-    use wasnn_tensor::test_util::expect_equal;
-    use wasnn_tensor::{Matrix, MatrixLayout, NdTensor, Tensor};
+    use rten_tensor::prelude::*;
+    use rten_tensor::rng::XorShiftRng;
+    use rten_tensor::test_util::expect_equal;
+    use rten_tensor::{Matrix, MatrixLayout, NdTensor, Tensor};
 
     use super::{
         add_scaled_vector, gemm, round_up, GemmExecutor, GemmInputA, GemmInputB, KernelHint,

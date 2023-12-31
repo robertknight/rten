@@ -203,7 +203,7 @@ impl Kernel for Avx512Kernel {
     // Client Intel CPUs have one, server CPUs have two. This smaller value is
     // tuned for single-FMA CPUs.
     //
-    // See https://github.com/robertknight/wasnn/issues/17.
+    // See https://github.com/robertknight/rten/issues/17.
     const MR: usize = 6;
 
     // 2 x 16-f32-wide registers.

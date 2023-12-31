@@ -1,11 +1,11 @@
-# Wasnn
+# RTen
 
-Wasnn is an engine for running machine learning models converted from [ONNX
+RTen is an engine for running machine learning models converted from [ONNX
 ](https://onnx.ai).
 
 In addition to the inference engine, there are also supporting libraries for
 common pre-processing and post-processing tasks in various domains. This makes
-Wasnn a more complete toolkit for running models in Rust applications.
+RTen a more complete toolkit for running models in Rust applications.
 
 ## Goals
 
@@ -28,7 +28,7 @@ planned for the future:
    implemented operators, some attributes or input shapes may not be supported.
  - A limited set of data types are supported: float32 and int32 tensors. int64
    and boolean tensors are converted to int32.
- - Wasnn is not as well optimized as more mature runtimes such as ONNX Runtime
+ - RTen is not as well optimized as more mature runtimes such as ONNX Runtime
    or TensorFlow Lite. The performance difference depends on the operators used,
    model structure, CPU architecture and platform.
 
@@ -38,14 +38,14 @@ The best way to get started is to clone this repository and try running some of
 the examples locally. The conversion scripts use popular Python machine learning
 libraries, so you will need Python >= 3.10 installed.
 
-The examples are located in the [wasnn-examples/](wasnn-examples/) directory.
-See the [README](wasnn-examples/) for descriptions of all the examples and steps
+The examples are located in the [rten-examples/](rten-examples/) directory.
+See the [README](rten-examples/) for descriptions of all the examples and steps
 to run them. As a quick-start, here are the steps to run the image
 classification example:
 
 ```sh
-git clone https://github.com/robertknight/wasnn.git
-cd wasnn
+git clone https://github.com/robertknight/rten.git
+cd rten
 
 # Install dependencies for Python scripts
 pip install -r tools/requirements.txt
@@ -57,7 +57,7 @@ python -m tools.export-timm-model timm/resnet50.a1_in1k
 tools/convert-onnx.py resnet50.a1_in1k.onnx resnet50.model
 
 # Run image classification example. Replace `image.png` with your own image.
-cargo run -p wasnn-examples --release --bin imagenet mobilenet resnet50.model image.png
+cargo run -p rten-examples --release --bin imagenet mobilenet resnet50.model image.png
 ```
 
 ## Usage in JavaScript
@@ -72,7 +72,7 @@ the WebAssembly library"](#building-the-webassembly-library) below. You will
 also need to install the dependencies of the model conversion script, explained
 under ["Preparing ONNX models"](#preparing-onnx-models).
 
-The general steps for using Wasnn to run models in a JavaScript project are:
+The general steps for using RTen to run models in a JavaScript project are:
 
  1. Develop a model or find a pre-trained one that you want to run. Pre-trained
     models in ONNX format can be obtained from the [ONNX Model Zoo](https://github.com/onnx/models)
@@ -80,15 +80,15 @@ The general steps for using Wasnn to run models in a JavaScript project are:
  2. If the model is not already in ONNX format, convert it to ONNX. PyTorch
     users can use [torch.onnx](https://pytorch.org/docs/stable/onnx.html) for this.
  3. Use the `tools/convert-onnx.py` script in this repository to convert the model
-    to the optimized format Wasnn uses. See the section below on preparing models.
+    to the optimized format RTen uses. See the section below on preparing models.
 
     **Note: This library is still new.** You may run into issues where your model
     uses operators or attributes that are not supported. Please file an issue
     that includes a link to the ONNX model you want to run.
 
- 4. In your JavaScript code, fetch the WebAssembly binary and initialize Wasnn
+ 4. In your JavaScript code, fetch the WebAssembly binary and initialize RTen
     using the `init` function.
- 5. Fetch the prepared Wasnn model and use it to an instantiate the `Model`
+ 5. Fetch the prepared RTen model and use it to an instantiate the `Model`
     class from this library.
  6. Each time you want to run the model, prepare one or more `Float32Array`s
     containing input data in the format expected by the model, and call
@@ -96,11 +96,11 @@ The general steps for using Wasnn to run models in a JavaScript project are:
     shapes and data of the outputs.
 
 After building the library, API documentation for the `Model` and `TensorList`
-classes is available in `dist/wasnn.d.ts`.
+classes is available in `dist/rten.d.ts`.
 
 ## Preparing ONNX models
 
-Wasnn does not load ONNX models directly. ONNX models must be run through a
+RTen does not load ONNX models directly. ONNX models must be run through a
 conversion tool which produces an optimized model in a
 [FlatBuffers](https://google.github.io/flatbuffers/)-based format that the
 engine can load. This is conceptually similar to the `.tflite` and `.ort`
@@ -110,19 +110,19 @@ The conversion tool requires Python >= 3.10. To convert an existing ONNX model,
 run:
 
 ```sh
-git clone https://github.com/robertknight/wasnn.git
-pip install -r wasnn/tools/requirements.txt
-wasnn/tools/convert-onnx.py your-model.onnx output.model
+git clone https://github.com/robertknight/rten.git
+pip install -r rten/tools/requirements.txt
+rten/tools/convert-onnx.py your-model.onnx output.model
 ```
 
-The Wasnn model format does not yet guarantee backwards compatibility, so be
+The RTen model format does not yet guarantee backwards compatibility, so be
 aware that you may need to recompile models from ONNX for new releases.
 
 ## Building the WebAssembly library
 
 ### Prerequisites
 
-To build Wasnn for WebAssembly you will need:
+To build RTen for WebAssembly you will need:
 
  - A recent stable version of Rust
  - `make`
@@ -130,11 +130,11 @@ To build Wasnn for WebAssembly you will need:
    can be used to optimize `.wasm` binaries for improved performance
  - (Optional) A recent version of Node for running demos
 
-### Building wasnn
+### Building rten
 
 ```sh
-git clone https://github.com/robertknight/wasnn.git
-cd wasnn
+git clone https://github.com/robertknight/rten.git
+cd rten
 make wasm-all
 ```
 

@@ -1,7 +1,7 @@
 use std::fmt::Debug;
 
-use wasnn_tensor::prelude::*;
-use wasnn_tensor::{NdTensorBase, NdTensorView, Tensor, TensorBase, TensorView};
+use rten_tensor::prelude::*;
+use rten_tensor::{NdTensorBase, NdTensorView, Tensor, TensorBase, TensorView};
 
 use crate::number::{Identities, IsInt};
 use crate::ops::OpError;

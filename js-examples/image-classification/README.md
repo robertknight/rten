@@ -7,7 +7,7 @@ kind of object.
 
 ## Setup
 
-1. Build the main Wasnn project. See the README.md file at the root of the
+1. Build the main RTen project. See the README.md file at the root of the
    repository.
 2. In this directory, run `npm install`
 3. Download and convert the ONNX MobileNet model:

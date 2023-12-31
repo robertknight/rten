@@ -1,9 +1,9 @@
 use std::cmp::Ordering;
 use std::iter::zip;
 
-use wasnn_tensor;
-use wasnn_tensor::prelude::*;
-use wasnn_tensor::{DynIndices, NdTensor, SliceItem, Tensor, TensorView};
+use rten_tensor;
+use rten_tensor::prelude::*;
+use rten_tensor::{DynIndices, NdTensor, SliceItem, Tensor, TensorView};
 
 use crate::number::Identities;
 use crate::ops::layout::squeeze_in_place;
@@ -690,9 +690,9 @@ impl Operator for TopK {
 mod tests {
     use std::error::Error;
 
-    use wasnn_tensor::prelude::*;
-    use wasnn_tensor::test_util::{eq_with_nans, expect_equal};
-    use wasnn_tensor::{tensor, Tensor};
+    use rten_tensor::prelude::*;
+    use rten_tensor::test_util::{eq_with_nans, expect_equal};
+    use rten_tensor::{tensor, Tensor};
 
     use crate::ops::{
         arg_max, arg_min, cum_sum, nonzero, reduce_l2, reduce_max, reduce_mean, reduce_min,

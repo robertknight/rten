@@ -3,7 +3,7 @@ export {
   initSync,
   Model,
   Tensor,
-} from "./dist/wasnn.js";
+} from "./dist/rten.js";
 
 /**
  * Return true if the current JS environment supports the SIMD extension for
@@ -27,13 +27,13 @@ function simdSupported() {
 }
 
 /**
- * Return the filename of the preferred Wasnn binary for the current
+ * Return the filename of the preferred RTen binary for the current
  * environment.
  */
 export function binaryName() {
   if (simdSupported()) {
-    return "wasnn_bg.wasm";
+    return "rten_bg.wasm";
   } else {
-    return "wasnn-nosimd_bg.wasm";
+    return "rten-nosimd_bg.wasm";
   }
 }

@@ -1,0 +1,10 @@
+[package]
+name = "rten-imageproc"
+version = "0.1.0"
+edition = "2021"
+
+[dependencies]
+rten-tensor = { path = "../rten-tensor" }
+
+[lib]
+crate-type = ["lib"]

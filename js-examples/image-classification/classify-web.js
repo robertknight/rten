@@ -1,4 +1,4 @@
-import { init as initWasnn, binaryName } from "./node_modules/wasnn/index.js";
+import { init as initRTen, binaryName } from "./node_modules/rten/index.js";
 
 import { ImageClassifier } from "./image-classifier.js";
 import { IMAGENET_CLASSES } from "./imagenet-classes.js";
@@ -43,17 +43,17 @@ function imageDataFromBitmap(bitmap) {
 }
 
 /**
- * Initialize an image classifier using the Wasnn engine and MobileNet v2
+ * Initialize an image classifier using the RTen engine and MobileNet v2
  * model.
  */
 async function createClassifier() {
-  // Fetch the Wasnn engine and MobileNet model in parallel.
+  // Fetch the RTen engine and MobileNet model in parallel.
   const [, modelData] = await Promise.all([
-    fetch("./node_modules/wasnn/dist/" + binaryName()).then(initWasnn),
+    fetch("./node_modules/rten/dist/" + binaryName()).then(initRTen),
     fetchBinary("./mobilenet.model"),
   ]);
 
-  // Initialize the classifier. This must be done after Wasnn is initialized.
+  // Initialize the classifier. This must be done after RTen is initialized.
   return new ImageClassifier(modelData);
 }
 

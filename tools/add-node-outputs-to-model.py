@@ -9,7 +9,7 @@ import onnx
 # This enables examining intermediate outputs from the model when run using
 # ONNX Runtime. See https://github.com/microsoft/onnxruntime/issues/1455#issuecomment-979901463.
 #
-# For Wasnn this step is not necessary since any value node in the graph can
+# For RTen this step is not necessary since any value node in the graph can
 # be specfied as the output for a model execution.
 def main():
     parser = ArgumentParser(

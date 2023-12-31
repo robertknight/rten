@@ -1,8 +1,8 @@
 use std::fmt::Debug;
 use std::iter::{repeat, zip};
 
-use wasnn_tensor::prelude::*;
-use wasnn_tensor::{Tensor, TensorView, TensorViewMut};
+use rten_tensor::prelude::*;
+use rten_tensor::{Tensor, TensorView, TensorViewMut};
 
 use crate::number::{AsBool, Identities, IsInt};
 use crate::ops::{Input, InputList, IntoOpResult, OpError, Operator, Output};
@@ -815,9 +815,9 @@ impl Operator for Where {
 mod tests {
     use std::error::Error;
 
-    use wasnn_tensor::prelude::*;
-    use wasnn_tensor::test_util::expect_equal;
-    use wasnn_tensor::{tensor, Tensor};
+    use rten_tensor::prelude::*;
+    use rten_tensor::test_util::expect_equal;
+    use rten_tensor::{tensor, Tensor};
 
     use super::{fast_broadcast_cycles, fast_broadcast_cycles_repeats};
     use crate::ops::{

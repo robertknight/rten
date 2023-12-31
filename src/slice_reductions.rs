@@ -45,8 +45,8 @@ pub fn slice_sum<T: Copy + Default + std::ops::Add<Output = T>>(xs: &[T]) -> T {
 
 #[cfg(test)]
 mod tests {
-    use wasnn_tensor::rng::XorShiftRng;
-    use wasnn_tensor::test_util::ApproxEq;
+    use rten_tensor::rng::XorShiftRng;
+    use rten_tensor::test_util::ApproxEq;
 
     use super::{slice_max, slice_sum};
 

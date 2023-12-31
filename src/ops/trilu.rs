@@ -1,5 +1,5 @@
-use wasnn_tensor::prelude::*;
-use wasnn_tensor::{Tensor, TensorView};
+use rten_tensor::prelude::*;
+use rten_tensor::{Tensor, TensorView};
 
 use crate::ops::{Input, InputList, IntoOpResult, OpError, Operator, Output};
 
@@ -55,7 +55,7 @@ impl Operator for Trilu {
 #[cfg(test)]
 mod tests {
     use crate::ops::{trilu, OpError};
-    use wasnn_tensor::{tensor, Tensor};
+    use rten_tensor::{tensor, Tensor};
 
     #[test]
     fn test_trilu() {

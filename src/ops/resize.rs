@@ -1,8 +1,8 @@
 use std::iter::zip;
 
 use rayon::prelude::*;
-use wasnn_tensor::prelude::*;
-use wasnn_tensor::{NdTensor, NdTensorView, NdTensorViewMut, Tensor, TensorView};
+use rten_tensor::prelude::*;
+use rten_tensor::{NdTensor, NdTensorView, NdTensorViewMut, Tensor, TensorView};
 
 use crate::ops::{Input, InputList, IntoOpResult, OpError, Operator, Output};
 use crate::{check_dims, static_dims};
@@ -336,9 +336,9 @@ impl Operator for Resize {
 mod tests {
     use std::error::Error;
 
-    use wasnn_tensor::prelude::*;
-    use wasnn_tensor::test_util::expect_equal;
-    use wasnn_tensor::Tensor;
+    use rten_tensor::prelude::*;
+    use rten_tensor::test_util::expect_equal;
+    use rten_tensor::Tensor;
 
     use crate::ops::tests::expect_eq_1e4;
     use crate::ops::{

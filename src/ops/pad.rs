@@ -1,7 +1,7 @@
 use std::iter::zip;
 
-use wasnn_tensor::prelude::*;
-use wasnn_tensor::{NdTensorView, SliceItem, Tensor, TensorView};
+use rten_tensor::prelude::*;
+use rten_tensor::{NdTensorView, SliceItem, Tensor, TensorView};
 
 use crate::ops::{Input, InputList, IntoOpResult, OpError, Operator, Output};
 use crate::static_dims;
@@ -90,9 +90,9 @@ impl Operator for Pad {
 mod tests {
     use std::error::Error;
 
-    use wasnn_tensor::prelude::*;
-    use wasnn_tensor::test_util::expect_equal;
-    use wasnn_tensor::Tensor;
+    use rten_tensor::prelude::*;
+    use rten_tensor::test_util::expect_equal;
+    use rten_tensor::Tensor;
 
     use crate::ops::{pad, OpError, Operator, Pad};
 

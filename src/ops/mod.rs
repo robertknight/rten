@@ -4,8 +4,8 @@ use std::fmt::{Debug, Display};
 
 use smallvec::SmallVec;
 
-use wasnn_tensor::prelude::*;
-use wasnn_tensor::{DynLayout, NdTensor, NdTensorView, Tensor, TensorView};
+use rten_tensor::prelude::*;
+use rten_tensor::{DynLayout, NdTensor, NdTensorView, Tensor, TensorView};
 
 mod binary_elementwise;
 mod concat;
@@ -552,7 +552,7 @@ macro_rules! check_dims {
 #[macro_export]
 macro_rules! static_dims {
     ($tensor:ident, $ndim:literal, $dim_names:literal) => {{
-        use wasnn_tensor::prelude::*;
+        use rten_tensor::prelude::*;
 
         if $tensor.ndim() != $ndim {
             Err(OpError::InvalidValue(concat!(
@@ -569,7 +569,7 @@ macro_rules! static_dims {
     }};
 
     ($tensor:ident, $ndim:literal) => {{
-        use wasnn_tensor::prelude::*;
+        use rten_tensor::prelude::*;
 
         if $tensor.ndim() != $ndim {
             Err(OpError::InvalidValue(concat!(
@@ -778,8 +778,8 @@ pub fn resolve_axes<'a, I: ExactSizeIterator<Item = &'a i32>>(
 
 #[cfg(test)]
 mod tests {
-    use wasnn_tensor::prelude::*;
-    use wasnn_tensor::test_util::{expect_equal_with_tolerance, ExpectEqualError};
+    use rten_tensor::prelude::*;
+    use rten_tensor::test_util::{expect_equal_with_tolerance, ExpectEqualError};
 
     /// Compare two f32 tensors with a higher absolute tolerance (1e-4) than
     /// the default (1e-5).
