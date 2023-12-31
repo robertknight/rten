@@ -2,8 +2,8 @@
 //
 // See https://google.github.io/flatbuffers/flatbuffers_guide_writing_schema.html.
 
-file_identifier "MODL";
-file_extension "model";
+file_identifier "RTEN";
+file_extension "rten";
 
 // Type for an operator node
 enum OperatorType: byte {

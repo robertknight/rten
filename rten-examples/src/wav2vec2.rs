@@ -78,7 +78,7 @@ fn read_wav_file(path: &str) -> Result<Vec<f32>, hound::Error> {
 ///
 /// ```
 /// optimum-cli export onnx --model facebook/wav2vec2-base-960h wav2vec2
-/// tools/convert-onnx.py wav2vec2/model.onnx wav2vec2.model
+/// tools/convert-onnx.py wav2vec2/model.onnx wav2vec2.rten
 /// ```
 ///
 /// To record a .wav file and test this app:
@@ -95,7 +95,7 @@ fn read_wav_file(path: &str) -> Result<Vec<f32>, hound::Error> {
 /// 3. Run this program on the generated .wav file:
 ///
 ///    ```
-///    cargo run --release --bin wav2vec2 wav2vec.model output.wav
+///    cargo run --release --bin wav2vec2 wav2vec.rten output.wav
 ///    ```
 ///
 /// [1] https://ai.meta.com/blog/wav2vec-20-learning-the-structure-of-speech-from-raw-audio/

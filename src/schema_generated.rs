@@ -7941,7 +7941,7 @@ pub unsafe fn root_as_model_unchecked(buf: &[u8]) -> Model {
 pub unsafe fn size_prefixed_root_as_model_unchecked(buf: &[u8]) -> Model {
     flatbuffers::size_prefixed_root_unchecked::<Model>(buf)
 }
-pub const MODEL_IDENTIFIER: &str = "MODL";
+pub const MODEL_IDENTIFIER: &str = "RTEN";
 
 #[inline]
 pub fn model_buffer_has_identifier(buf: &[u8]) -> bool {
@@ -7953,7 +7953,7 @@ pub fn model_size_prefixed_buffer_has_identifier(buf: &[u8]) -> bool {
     flatbuffers::buffer_has_identifier(buf, MODEL_IDENTIFIER, true)
 }
 
-pub const MODEL_EXTENSION: &str = "model";
+pub const MODEL_EXTENSION: &str = "rten";
 
 #[inline]
 pub fn finish_model_buffer<'a, 'b>(

@@ -206,13 +206,13 @@ fn extract_nbest_answers<'a>(
 ///
 /// ```
 /// optimum-cli export onnx --model distilbert-base-cased-distilled-squad distilbert
-/// tools/convert-onnx.py distilbert/model.onnx distilbert/distilbert.model
+/// tools/convert-onnx.py distilbert/model.onnx distilbert/distilbert.rten
 /// ```
 ///
 /// Then run the example with:
 ///
 /// ```
-/// cargo run -r --bin bert_qa distilbert/distilbert.model distilbert/tokenizer.json <context> <query>
+/// cargo run -r --bin bert_qa distilbert/distilbert.rten distilbert/tokenizer.json <context> <query>
 /// ```
 ///
 /// Where `<context>` is a text file to search, and `<query>` is a question.

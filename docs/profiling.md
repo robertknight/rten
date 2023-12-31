@@ -83,7 +83,7 @@ cargo build -r --example imagenet
 Then run it using `samply record`:
 
 ```sh
-samply record cargo run -r --example imagenet mobilevit mobilevit.model image.jpg
+samply record cargo run -r --example imagenet mobilevit mobilevit.rten image.jpg
 ```
 
 Here `cargo run` would automatically rebuild the binary if needed, but we build

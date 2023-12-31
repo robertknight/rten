@@ -80,13 +80,13 @@ fn resource_path(path: &str) -> PathBuf {
 /// ```
 /// pip install ultralytics
 /// yolo mode=export model=yolov8s.pt format=onnx
-/// tools/convert-onnx.py yolov8s.onnx yolov8.model
+/// tools/convert-onnx.py yolov8s.onnx yolov8.rten
 /// ```
 ///
 /// Run this program on an image:
 ///
 /// ```
-/// cargo run --release --bin yolo yolov8.model image.jpg
+/// cargo run --release --bin yolo yolov8.rten image.jpg
 /// ```
 fn main() -> Result<(), Box<dyn Error>> {
     let args = parse_args()?;

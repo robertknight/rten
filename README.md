@@ -57,10 +57,10 @@ pip install -r tools/requirements.txt
 python -m tools.export-timm-model timm/resnet50.a1_in1k
 
 # Convert model to this library's format
-tools/convert-onnx.py resnet50.a1_in1k.onnx resnet50.model
+tools/convert-onnx.py resnet50.a1_in1k.onnx resnet50.rten
 
 # Run image classification example. Replace `image.png` with your own image.
-cargo run -p rten-examples --release --bin imagenet mobilenet resnet50.model image.png
+cargo run -p rten-examples --release --bin imagenet mobilenet resnet50.rten image.png
 ```
 
 ## Usage in JavaScript
@@ -115,7 +115,7 @@ run:
 ```sh
 git clone https://github.com/robertknight/rten.git
 pip install -r rten/tools/requirements.txt
-rten/tools/convert-onnx.py your-model.onnx output.model
+rten/tools/convert-onnx.py your-model.onnx output.rten
 ```
 
 The RTen model format does not yet guarantee backwards compatibility, so be

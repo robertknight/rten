@@ -176,13 +176,13 @@ fn embed_sentence_batch(
 /// Convert the model using:
 ///
 /// ```text
-/// tools/convert-onnx.py jina-embed.onnx jina-embed.model
+/// tools/convert-onnx.py jina-embed.onnx jina-embed.rten
 /// ```
 ///
 /// Then run the example with:
 ///
 /// ```text
-/// cargo run -r --bin jina_similarity jina-embed.model tokenizer.json
+/// cargo run -r --bin jina_similarity jina-embed.rten tokenizer.json
 ///   data/rust-questions.txt "How can I make a function work with any type that supports addition?"
 /// ```
 ///

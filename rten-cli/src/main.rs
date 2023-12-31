@@ -111,8 +111,8 @@ fn format_param_count(n: usize) -> String {
 /// generated inputs.
 ///
 /// ```
-/// tools/convert-onnx.py model.onnx output.model
-/// cargo run -p rten-cli --release output.model
+/// tools/convert-onnx.py model.onnx output.rten
+/// cargo run -p rten-cli --release output.rten
 /// ```
 ///
 /// To get detailed timing information set the `RTEN_TIMING` env var before

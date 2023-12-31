@@ -14,7 +14,7 @@ kind of object.
 
    ```sh
    curl -L https://github.com/onnx/models/raw/main/vision/classification/mobilenet/model/mobilenetv2-10.onnx -o mobilenet.onnx
-   ../../tools/convert-onnx.py mobilenet.onnx mobilenet.model
+   ../../tools/convert-onnx.py mobilenet.onnx mobilenet.rten
    ```
 4. Follow either of the subsections below to run the example in Node or the
    browser

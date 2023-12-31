@@ -261,7 +261,7 @@ const LABELS: &[&str] = &[
 ///
 /// ```
 /// optimum-cli export onnx --model facebook/detr-resnet-50 detr
-/// tools/convert-onnx.py detr/model.onnx detr.model
+/// tools/convert-onnx.py detr/model.onnx detr.rten
 /// ```
 ///
 /// This model also works with YOLOS. Use `hustvl/yolos-tiny` or
@@ -270,7 +270,7 @@ const LABELS: &[&str] = &[
 /// Run this program on an image:
 ///
 /// ```
-/// cargo run --release --bin detr detr.model image.jpg
+/// cargo run --release --bin detr detr.rten image.jpg
 /// ```
 ///
 /// [1] https://arxiv.org/abs/2005.12872

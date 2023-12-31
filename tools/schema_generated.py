@@ -312,7 +312,7 @@ class ArgMaxAttrs(object):
         return cls.GetRootAs(buf, offset)
     @classmethod
     def ArgMaxAttrsBufferHasIdentifier(cls, buf, offset, size_prefixed=False):
-        return flatbuffers.util.BufferHasIdentifier(buf, offset, b"\x4D\x4F\x44\x4C", size_prefixed=size_prefixed)
+        return flatbuffers.util.BufferHasIdentifier(buf, offset, b"\x52\x54\x45\x4E", size_prefixed=size_prefixed)
 
     # ArgMaxAttrs
     def Init(self, buf, pos):
@@ -402,7 +402,7 @@ class AveragePoolAttrs(object):
         return cls.GetRootAs(buf, offset)
     @classmethod
     def AveragePoolAttrsBufferHasIdentifier(cls, buf, offset, size_prefixed=False):
-        return flatbuffers.util.BufferHasIdentifier(buf, offset, b"\x4D\x4F\x44\x4C", size_prefixed=size_prefixed)
+        return flatbuffers.util.BufferHasIdentifier(buf, offset, b"\x52\x54\x45\x4E", size_prefixed=size_prefixed)
 
     # AveragePoolAttrs
     def Init(self, buf, pos):
@@ -636,7 +636,7 @@ class BatchNormalizationAttrs(object):
         return cls.GetRootAs(buf, offset)
     @classmethod
     def BatchNormalizationAttrsBufferHasIdentifier(cls, buf, offset, size_prefixed=False):
-        return flatbuffers.util.BufferHasIdentifier(buf, offset, b"\x4D\x4F\x44\x4C", size_prefixed=size_prefixed)
+        return flatbuffers.util.BufferHasIdentifier(buf, offset, b"\x52\x54\x45\x4E", size_prefixed=size_prefixed)
 
     # BatchNormalizationAttrs
     def Init(self, buf, pos):
@@ -713,7 +713,7 @@ class CastAttrs(object):
         return cls.GetRootAs(buf, offset)
     @classmethod
     def CastAttrsBufferHasIdentifier(cls, buf, offset, size_prefixed=False):
-        return flatbuffers.util.BufferHasIdentifier(buf, offset, b"\x4D\x4F\x44\x4C", size_prefixed=size_prefixed)
+        return flatbuffers.util.BufferHasIdentifier(buf, offset, b"\x52\x54\x45\x4E", size_prefixed=size_prefixed)
 
     # CastAttrs
     def Init(self, buf, pos):
@@ -790,7 +790,7 @@ class ConcatAttrs(object):
         return cls.GetRootAs(buf, offset)
     @classmethod
     def ConcatAttrsBufferHasIdentifier(cls, buf, offset, size_prefixed=False):
-        return flatbuffers.util.BufferHasIdentifier(buf, offset, b"\x4D\x4F\x44\x4C", size_prefixed=size_prefixed)
+        return flatbuffers.util.BufferHasIdentifier(buf, offset, b"\x52\x54\x45\x4E", size_prefixed=size_prefixed)
 
     # ConcatAttrs
     def Init(self, buf, pos):
@@ -867,7 +867,7 @@ class IntScalar(object):
         return cls.GetRootAs(buf, offset)
     @classmethod
     def IntScalarBufferHasIdentifier(cls, buf, offset, size_prefixed=False):
-        return flatbuffers.util.BufferHasIdentifier(buf, offset, b"\x4D\x4F\x44\x4C", size_prefixed=size_prefixed)
+        return flatbuffers.util.BufferHasIdentifier(buf, offset, b"\x52\x54\x45\x4E", size_prefixed=size_prefixed)
 
     # IntScalar
     def Init(self, buf, pos):
@@ -944,7 +944,7 @@ class FloatScalar(object):
         return cls.GetRootAs(buf, offset)
     @classmethod
     def FloatScalarBufferHasIdentifier(cls, buf, offset, size_prefixed=False):
-        return flatbuffers.util.BufferHasIdentifier(buf, offset, b"\x4D\x4F\x44\x4C", size_prefixed=size_prefixed)
+        return flatbuffers.util.BufferHasIdentifier(buf, offset, b"\x52\x54\x45\x4E", size_prefixed=size_prefixed)
 
     # FloatScalar
     def Init(self, buf, pos):
@@ -1021,7 +1021,7 @@ class ConstantOfShapeAttrs(object):
         return cls.GetRootAs(buf, offset)
     @classmethod
     def ConstantOfShapeAttrsBufferHasIdentifier(cls, buf, offset, size_prefixed=False):
-        return flatbuffers.util.BufferHasIdentifier(buf, offset, b"\x4D\x4F\x44\x4C", size_prefixed=size_prefixed)
+        return flatbuffers.util.BufferHasIdentifier(buf, offset, b"\x52\x54\x45\x4E", size_prefixed=size_prefixed)
 
     # ConstantOfShapeAttrs
     def Init(self, buf, pos):
@@ -1121,7 +1121,7 @@ class ConvAttrs(object):
         return cls.GetRootAs(buf, offset)
     @classmethod
     def ConvAttrsBufferHasIdentifier(cls, buf, offset, size_prefixed=False):
-        return flatbuffers.util.BufferHasIdentifier(buf, offset, b"\x4D\x4F\x44\x4C", size_prefixed=size_prefixed)
+        return flatbuffers.util.BufferHasIdentifier(buf, offset, b"\x52\x54\x45\x4E", size_prefixed=size_prefixed)
 
     # ConvAttrs
     def Init(self, buf, pos):
@@ -1368,7 +1368,7 @@ class ConvTransposeAttrs(object):
         return cls.GetRootAs(buf, offset)
     @classmethod
     def ConvTransposeAttrsBufferHasIdentifier(cls, buf, offset, size_prefixed=False):
-        return flatbuffers.util.BufferHasIdentifier(buf, offset, b"\x4D\x4F\x44\x4C", size_prefixed=size_prefixed)
+        return flatbuffers.util.BufferHasIdentifier(buf, offset, b"\x52\x54\x45\x4E", size_prefixed=size_prefixed)
 
     # ConvTransposeAttrs
     def Init(self, buf, pos):
@@ -1487,7 +1487,7 @@ class FlattenAttrs(object):
         return cls.GetRootAs(buf, offset)
     @classmethod
     def FlattenAttrsBufferHasIdentifier(cls, buf, offset, size_prefixed=False):
-        return flatbuffers.util.BufferHasIdentifier(buf, offset, b"\x4D\x4F\x44\x4C", size_prefixed=size_prefixed)
+        return flatbuffers.util.BufferHasIdentifier(buf, offset, b"\x52\x54\x45\x4E", size_prefixed=size_prefixed)
 
     # FlattenAttrs
     def Init(self, buf, pos):
@@ -1564,7 +1564,7 @@ class GatherAttrs(object):
         return cls.GetRootAs(buf, offset)
     @classmethod
     def GatherAttrsBufferHasIdentifier(cls, buf, offset, size_prefixed=False):
-        return flatbuffers.util.BufferHasIdentifier(buf, offset, b"\x4D\x4F\x44\x4C", size_prefixed=size_prefixed)
+        return flatbuffers.util.BufferHasIdentifier(buf, offset, b"\x52\x54\x45\x4E", size_prefixed=size_prefixed)
 
     # GatherAttrs
     def Init(self, buf, pos):
@@ -1641,7 +1641,7 @@ class GemmAttrs(object):
         return cls.GetRootAs(buf, offset)
     @classmethod
     def GemmAttrsBufferHasIdentifier(cls, buf, offset, size_prefixed=False):
-        return flatbuffers.util.BufferHasIdentifier(buf, offset, b"\x4D\x4F\x44\x4C", size_prefixed=size_prefixed)
+        return flatbuffers.util.BufferHasIdentifier(buf, offset, b"\x52\x54\x45\x4E", size_prefixed=size_prefixed)
 
     # GemmAttrs
     def Init(self, buf, pos):
@@ -1757,7 +1757,7 @@ class GRUAttrs(object):
         return cls.GetRootAs(buf, offset)
     @classmethod
     def GRUAttrsBufferHasIdentifier(cls, buf, offset, size_prefixed=False):
-        return flatbuffers.util.BufferHasIdentifier(buf, offset, b"\x4D\x4F\x44\x4C", size_prefixed=size_prefixed)
+        return flatbuffers.util.BufferHasIdentifier(buf, offset, b"\x52\x54\x45\x4E", size_prefixed=size_prefixed)
 
     # GRUAttrs
     def Init(self, buf, pos):
@@ -1860,7 +1860,7 @@ class HardSigmoidAttrs(object):
         return cls.GetRootAs(buf, offset)
     @classmethod
     def HardSigmoidAttrsBufferHasIdentifier(cls, buf, offset, size_prefixed=False):
-        return flatbuffers.util.BufferHasIdentifier(buf, offset, b"\x4D\x4F\x44\x4C", size_prefixed=size_prefixed)
+        return flatbuffers.util.BufferHasIdentifier(buf, offset, b"\x52\x54\x45\x4E", size_prefixed=size_prefixed)
 
     # HardSigmoidAttrs
     def Init(self, buf, pos):
@@ -1950,7 +1950,7 @@ class LeakyReluAttrs(object):
         return cls.GetRootAs(buf, offset)
     @classmethod
     def LeakyReluAttrsBufferHasIdentifier(cls, buf, offset, size_prefixed=False):
-        return flatbuffers.util.BufferHasIdentifier(buf, offset, b"\x4D\x4F\x44\x4C", size_prefixed=size_prefixed)
+        return flatbuffers.util.BufferHasIdentifier(buf, offset, b"\x52\x54\x45\x4E", size_prefixed=size_prefixed)
 
     # LeakyReluAttrs
     def Init(self, buf, pos):
@@ -2027,7 +2027,7 @@ class LSTMAttrs(object):
         return cls.GetRootAs(buf, offset)
     @classmethod
     def LSTMAttrsBufferHasIdentifier(cls, buf, offset, size_prefixed=False):
-        return flatbuffers.util.BufferHasIdentifier(buf, offset, b"\x4D\x4F\x44\x4C", size_prefixed=size_prefixed)
+        return flatbuffers.util.BufferHasIdentifier(buf, offset, b"\x52\x54\x45\x4E", size_prefixed=size_prefixed)
 
     # LSTMAttrs
     def Init(self, buf, pos):
@@ -2117,7 +2117,7 @@ class MaxPoolAttrs(object):
         return cls.GetRootAs(buf, offset)
     @classmethod
     def MaxPoolAttrsBufferHasIdentifier(cls, buf, offset, size_prefixed=False):
-        return flatbuffers.util.BufferHasIdentifier(buf, offset, b"\x4D\x4F\x44\x4C", size_prefixed=size_prefixed)
+        return flatbuffers.util.BufferHasIdentifier(buf, offset, b"\x52\x54\x45\x4E", size_prefixed=size_prefixed)
 
     # MaxPoolAttrs
     def Init(self, buf, pos):
@@ -2351,7 +2351,7 @@ class ModAttrs(object):
         return cls.GetRootAs(buf, offset)
     @classmethod
     def ModAttrsBufferHasIdentifier(cls, buf, offset, size_prefixed=False):
-        return flatbuffers.util.BufferHasIdentifier(buf, offset, b"\x4D\x4F\x44\x4C", size_prefixed=size_prefixed)
+        return flatbuffers.util.BufferHasIdentifier(buf, offset, b"\x52\x54\x45\x4E", size_prefixed=size_prefixed)
 
     # ModAttrs
     def Init(self, buf, pos):
@@ -2428,7 +2428,7 @@ class NonMaxSuppressionAttrs(object):
         return cls.GetRootAs(buf, offset)
     @classmethod
     def NonMaxSuppressionAttrsBufferHasIdentifier(cls, buf, offset, size_prefixed=False):
-        return flatbuffers.util.BufferHasIdentifier(buf, offset, b"\x4D\x4F\x44\x4C", size_prefixed=size_prefixed)
+        return flatbuffers.util.BufferHasIdentifier(buf, offset, b"\x52\x54\x45\x4E", size_prefixed=size_prefixed)
 
     # NonMaxSuppressionAttrs
     def Init(self, buf, pos):
@@ -2505,7 +2505,7 @@ class OneHotAttrs(object):
         return cls.GetRootAs(buf, offset)
     @classmethod
     def OneHotAttrsBufferHasIdentifier(cls, buf, offset, size_prefixed=False):
-        return flatbuffers.util.BufferHasIdentifier(buf, offset, b"\x4D\x4F\x44\x4C", size_prefixed=size_prefixed)
+        return flatbuffers.util.BufferHasIdentifier(buf, offset, b"\x52\x54\x45\x4E", size_prefixed=size_prefixed)
 
     # OneHotAttrs
     def Init(self, buf, pos):
@@ -2582,7 +2582,7 @@ class ReduceMeanAttrs(object):
         return cls.GetRootAs(buf, offset)
     @classmethod
     def ReduceMeanAttrsBufferHasIdentifier(cls, buf, offset, size_prefixed=False):
-        return flatbuffers.util.BufferHasIdentifier(buf, offset, b"\x4D\x4F\x44\x4C", size_prefixed=size_prefixed)
+        return flatbuffers.util.BufferHasIdentifier(buf, offset, b"\x52\x54\x45\x4E", size_prefixed=size_prefixed)
 
     # ReduceMeanAttrs
     def Init(self, buf, pos):
@@ -2714,7 +2714,7 @@ class ReshapeAttrs(object):
         return cls.GetRootAs(buf, offset)
     @classmethod
     def ReshapeAttrsBufferHasIdentifier(cls, buf, offset, size_prefixed=False):
-        return flatbuffers.util.BufferHasIdentifier(buf, offset, b"\x4D\x4F\x44\x4C", size_prefixed=size_prefixed)
+        return flatbuffers.util.BufferHasIdentifier(buf, offset, b"\x52\x54\x45\x4E", size_prefixed=size_prefixed)
 
     # ReshapeAttrs
     def Init(self, buf, pos):
@@ -2791,7 +2791,7 @@ class ResizeAttrs(object):
         return cls.GetRootAs(buf, offset)
     @classmethod
     def ResizeAttrsBufferHasIdentifier(cls, buf, offset, size_prefixed=False):
-        return flatbuffers.util.BufferHasIdentifier(buf, offset, b"\x4D\x4F\x44\x4C", size_prefixed=size_prefixed)
+        return flatbuffers.util.BufferHasIdentifier(buf, offset, b"\x52\x54\x45\x4E", size_prefixed=size_prefixed)
 
     # ResizeAttrs
     def Init(self, buf, pos):
@@ -2894,7 +2894,7 @@ class ScatterElementsAttrs(object):
         return cls.GetRootAs(buf, offset)
     @classmethod
     def ScatterElementsAttrsBufferHasIdentifier(cls, buf, offset, size_prefixed=False):
-        return flatbuffers.util.BufferHasIdentifier(buf, offset, b"\x4D\x4F\x44\x4C", size_prefixed=size_prefixed)
+        return flatbuffers.util.BufferHasIdentifier(buf, offset, b"\x52\x54\x45\x4E", size_prefixed=size_prefixed)
 
     # ScatterElementsAttrs
     def Init(self, buf, pos):
@@ -2984,7 +2984,7 @@ class ScatterNDAttrs(object):
         return cls.GetRootAs(buf, offset)
     @classmethod
     def ScatterNDAttrsBufferHasIdentifier(cls, buf, offset, size_prefixed=False):
-        return flatbuffers.util.BufferHasIdentifier(buf, offset, b"\x4D\x4F\x44\x4C", size_prefixed=size_prefixed)
+        return flatbuffers.util.BufferHasIdentifier(buf, offset, b"\x52\x54\x45\x4E", size_prefixed=size_prefixed)
 
     # ScatterNDAttrs
     def Init(self, buf, pos):
@@ -3061,7 +3061,7 @@ class SoftmaxAttrs(object):
         return cls.GetRootAs(buf, offset)
     @classmethod
     def SoftmaxAttrsBufferHasIdentifier(cls, buf, offset, size_prefixed=False):
-        return flatbuffers.util.BufferHasIdentifier(buf, offset, b"\x4D\x4F\x44\x4C", size_prefixed=size_prefixed)
+        return flatbuffers.util.BufferHasIdentifier(buf, offset, b"\x52\x54\x45\x4E", size_prefixed=size_prefixed)
 
     # SoftmaxAttrs
     def Init(self, buf, pos):
@@ -3138,7 +3138,7 @@ class SplitAttrs(object):
         return cls.GetRootAs(buf, offset)
     @classmethod
     def SplitAttrsBufferHasIdentifier(cls, buf, offset, size_prefixed=False):
-        return flatbuffers.util.BufferHasIdentifier(buf, offset, b"\x4D\x4F\x44\x4C", size_prefixed=size_prefixed)
+        return flatbuffers.util.BufferHasIdentifier(buf, offset, b"\x52\x54\x45\x4E", size_prefixed=size_prefixed)
 
     # SplitAttrs
     def Init(self, buf, pos):
@@ -3215,7 +3215,7 @@ class TopKAttrs(object):
         return cls.GetRootAs(buf, offset)
     @classmethod
     def TopKAttrsBufferHasIdentifier(cls, buf, offset, size_prefixed=False):
-        return flatbuffers.util.BufferHasIdentifier(buf, offset, b"\x4D\x4F\x44\x4C", size_prefixed=size_prefixed)
+        return flatbuffers.util.BufferHasIdentifier(buf, offset, b"\x52\x54\x45\x4E", size_prefixed=size_prefixed)
 
     # TopKAttrs
     def Init(self, buf, pos):
@@ -3318,7 +3318,7 @@ class TransposeAttrs(object):
         return cls.GetRootAs(buf, offset)
     @classmethod
     def TransposeAttrsBufferHasIdentifier(cls, buf, offset, size_prefixed=False):
-        return flatbuffers.util.BufferHasIdentifier(buf, offset, b"\x4D\x4F\x44\x4C", size_prefixed=size_prefixed)
+        return flatbuffers.util.BufferHasIdentifier(buf, offset, b"\x52\x54\x45\x4E", size_prefixed=size_prefixed)
 
     # TransposeAttrs
     def Init(self, buf, pos):
@@ -3437,7 +3437,7 @@ class TriluAttrs(object):
         return cls.GetRootAs(buf, offset)
     @classmethod
     def TriluAttrsBufferHasIdentifier(cls, buf, offset, size_prefixed=False):
-        return flatbuffers.util.BufferHasIdentifier(buf, offset, b"\x4D\x4F\x44\x4C", size_prefixed=size_prefixed)
+        return flatbuffers.util.BufferHasIdentifier(buf, offset, b"\x52\x54\x45\x4E", size_prefixed=size_prefixed)
 
     # TriluAttrs
     def Init(self, buf, pos):
@@ -3514,7 +3514,7 @@ class OperatorNode(object):
         return cls.GetRootAs(buf, offset)
     @classmethod
     def OperatorNodeBufferHasIdentifier(cls, buf, offset, size_prefixed=False):
-        return flatbuffers.util.BufferHasIdentifier(buf, offset, b"\x4D\x4F\x44\x4C", size_prefixed=size_prefixed)
+        return flatbuffers.util.BufferHasIdentifier(buf, offset, b"\x52\x54\x45\x4E", size_prefixed=size_prefixed)
 
     # OperatorNode
     def Init(self, buf, pos):
@@ -3729,7 +3729,7 @@ class FloatData(object):
         return cls.GetRootAs(buf, offset)
     @classmethod
     def FloatDataBufferHasIdentifier(cls, buf, offset, size_prefixed=False):
-        return flatbuffers.util.BufferHasIdentifier(buf, offset, b"\x4D\x4F\x44\x4C", size_prefixed=size_prefixed)
+        return flatbuffers.util.BufferHasIdentifier(buf, offset, b"\x52\x54\x45\x4E", size_prefixed=size_prefixed)
 
     # FloatData
     def Init(self, buf, pos):
@@ -3848,7 +3848,7 @@ class IntData(object):
         return cls.GetRootAs(buf, offset)
     @classmethod
     def IntDataBufferHasIdentifier(cls, buf, offset, size_prefixed=False):
-        return flatbuffers.util.BufferHasIdentifier(buf, offset, b"\x4D\x4F\x44\x4C", size_prefixed=size_prefixed)
+        return flatbuffers.util.BufferHasIdentifier(buf, offset, b"\x52\x54\x45\x4E", size_prefixed=size_prefixed)
 
     # IntData
     def Init(self, buf, pos):
@@ -3967,7 +3967,7 @@ class ConstantNode(object):
         return cls.GetRootAs(buf, offset)
     @classmethod
     def ConstantNodeBufferHasIdentifier(cls, buf, offset, size_prefixed=False):
-        return flatbuffers.util.BufferHasIdentifier(buf, offset, b"\x4D\x4F\x44\x4C", size_prefixed=size_prefixed)
+        return flatbuffers.util.BufferHasIdentifier(buf, offset, b"\x52\x54\x45\x4E", size_prefixed=size_prefixed)
 
     # ConstantNode
     def Init(self, buf, pos):
@@ -4118,7 +4118,7 @@ class Dim(object):
         return cls.GetRootAs(buf, offset)
     @classmethod
     def DimBufferHasIdentifier(cls, buf, offset, size_prefixed=False):
-        return flatbuffers.util.BufferHasIdentifier(buf, offset, b"\x4D\x4F\x44\x4C", size_prefixed=size_prefixed)
+        return flatbuffers.util.BufferHasIdentifier(buf, offset, b"\x52\x54\x45\x4E", size_prefixed=size_prefixed)
 
     # Dim
     def Init(self, buf, pos):
@@ -4211,7 +4211,7 @@ class ValueNode(object):
         return cls.GetRootAs(buf, offset)
     @classmethod
     def ValueNodeBufferHasIdentifier(cls, buf, offset, size_prefixed=False):
-        return flatbuffers.util.BufferHasIdentifier(buf, offset, b"\x4D\x4F\x44\x4C", size_prefixed=size_prefixed)
+        return flatbuffers.util.BufferHasIdentifier(buf, offset, b"\x52\x54\x45\x4E", size_prefixed=size_prefixed)
 
     # ValueNode
     def Init(self, buf, pos):
@@ -4328,7 +4328,7 @@ class Node(object):
         return cls.GetRootAs(buf, offset)
     @classmethod
     def NodeBufferHasIdentifier(cls, buf, offset, size_prefixed=False):
-        return flatbuffers.util.BufferHasIdentifier(buf, offset, b"\x4D\x4F\x44\x4C", size_prefixed=size_prefixed)
+        return flatbuffers.util.BufferHasIdentifier(buf, offset, b"\x52\x54\x45\x4E", size_prefixed=size_prefixed)
 
     # Node
     def Init(self, buf, pos):
@@ -4444,7 +4444,7 @@ class Graph(object):
         return cls.GetRootAs(buf, offset)
     @classmethod
     def GraphBufferHasIdentifier(cls, buf, offset, size_prefixed=False):
-        return flatbuffers.util.BufferHasIdentifier(buf, offset, b"\x4D\x4F\x44\x4C", size_prefixed=size_prefixed)
+        return flatbuffers.util.BufferHasIdentifier(buf, offset, b"\x52\x54\x45\x4E", size_prefixed=size_prefixed)
 
     # Graph
     def Init(self, buf, pos):
@@ -4663,7 +4663,7 @@ class Model(object):
         return cls.GetRootAs(buf, offset)
     @classmethod
     def ModelBufferHasIdentifier(cls, buf, offset, size_prefixed=False):
-        return flatbuffers.util.BufferHasIdentifier(buf, offset, b"\x4D\x4F\x44\x4C", size_prefixed=size_prefixed)
+        return flatbuffers.util.BufferHasIdentifier(buf, offset, b"\x52\x54\x45\x4E", size_prefixed=size_prefixed)
 
     # Model
     def Init(self, buf, pos):
