@@ -9,7 +9,7 @@ homepage = "https://github.com/robertknight/rten"
 repository = "https://github.com/robertknight/rten"
 
 [dependencies]
-rten-tensor = { path = "../rten-tensor" }
+rten-tensor = { path = "../rten-tensor", version = "0.1.0" }
 
 [lib]
 crate-type = ["lib"]

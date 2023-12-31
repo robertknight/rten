@@ -37,8 +37,8 @@ flatbuffers = "22.10.26"
 libm = "0.2.6"
 rayon = "1.7.0"
 smallvec = { version = "1.10.0", features = ["union", "const_generics", "const_new"] }
-rten-tensor = { path = "./rten-tensor" }
-rten-vecmath = { path = "./rten-vecmath" }
+rten-tensor = { path = "./rten-tensor", version = "0.1.0" }
+rten-vecmath = { path = "./rten-vecmath", version = "0.1.0" }
 
 [dev-dependencies]
 serde_json = "1.0.91"

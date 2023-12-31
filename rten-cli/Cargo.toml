@@ -10,8 +10,8 @@ repository = "https://github.com/robertknight/rten"
 
 [dependencies]
 fastrand = "1.9.0"
-rten = { path = "../" }
-rten-tensor = { path = "../rten-tensor" }
+rten = { path = "../", version = "0.1.0" }
+rten-tensor = { path = "../rten-tensor", version = "0.1.0" }
 lexopt = "0.3.0"
 
 [[bin]]
