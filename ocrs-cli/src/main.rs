@@ -7,8 +7,8 @@ use std::iter::zip;
 
 use serde_json::json;
 
+use ocrs::{DecodeMethod, OcrEngine, OcrEngineParams, TextItem};
 use rten_imageproc::{min_area_rect, BoundingRect, Painter, Point, PointF, Rgb, RotatedRect};
-use rten_ocr::{DecodeMethod, OcrEngine, OcrEngineParams, TextItem};
 use rten_tensor::prelude::*;
 use rten_tensor::{NdTensor, NdTensorView};
 
@@ -179,7 +179,7 @@ Options:
 
     Export detected word boxes in JSON format.
 ",
-                    bin_name = parser.bin_name().unwrap_or("rten-ocr")
+                    bin_name = parser.bin_name().unwrap_or("ocrs")
                 );
                 std::process::exit(0);
             }

@@ -5,8 +5,8 @@ members = [
   "rten-examples",
   "rten-imageio",
   "rten-imageproc",
-  "rten-ocr",
-  "rten-ocr-cli",
+  "ocrs",
+  "ocrs-cli",
   "rten-tensor",
   "rten-text"
 ]

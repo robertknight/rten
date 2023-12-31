@@ -297,6 +297,34 @@ dependencies = [
 ]
 
 [[package]]
+name = "ocrs"
+version = "0.1.0"
+dependencies = [
+ "fastrand",
+ "rayon",
+ "rten",
+ "rten-imageproc",
+ "rten-tensor",
+ "wasm-bindgen",
+]
+
+[[package]]
+name = "ocrs-cli"
+version = "0.1.0"
+dependencies = [
+ "image",
+ "lexopt",
+ "ocrs",
+ "png",
+ "rten",
+ "rten-imageproc",
+ "rten-tensor",
+ "serde_json",
+ "ureq",
+ "url",
+]
+
+[[package]]
 name = "once_cell"
 version = "1.18.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -428,34 +456,6 @@ name = "rten-imageproc"
 version = "0.1.0"
 dependencies = [
  "rten-tensor",
-]
-
-[[package]]
-name = "rten-ocr"
-version = "0.1.0"
-dependencies = [
- "fastrand",
- "rayon",
- "rten",
- "rten-imageproc",
- "rten-tensor",
- "wasm-bindgen",
-]
-
-[[package]]
-name = "rten-ocr-cli"
-version = "0.1.0"
-dependencies = [
- "image",
- "lexopt",
- "png",
- "rten",
- "rten-imageproc",
- "rten-ocr",
- "rten-tensor",
- "serde_json",
- "ureq",
- "url",
 ]
 
 [[package]]
