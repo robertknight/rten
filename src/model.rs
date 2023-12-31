@@ -945,11 +945,13 @@ fn load_model(data: &[u8], registry: &OpRegistry) -> Result<Model, ModelLoadErro
 
     let mut graph = Graph::new();
 
+    let node_count = model.graph().nodes().map(|ns| ns.len()).unwrap_or(0);
+
     // Map of model node name to graph node ID
-    let mut node_id_from_name: HashMap<String, NodeId> = HashMap::new();
+    let mut node_id_from_name: HashMap<String, NodeId> = HashMap::with_capacity(node_count);
 
     // Map of model node index to graph node ID
-    let mut node_id_from_index: HashMap<usize, NodeId> = HashMap::new();
+    let mut node_id_from_index: HashMap<usize, NodeId> = HashMap::with_capacity(node_count);
 
     let mut add_node_id = |name: Option<&str>, graph_node| {
         if let Some(name) = name {
