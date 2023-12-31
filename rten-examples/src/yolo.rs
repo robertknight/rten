@@ -70,7 +70,7 @@ fn resource_path(path: &str) -> PathBuf {
 
 /// Detect objects in images using the YOLO v8 model.
 ///
-/// See https://docs.ultralytics.com/modes/export/ for current instructions on
+/// See <https://docs.ultralytics.com/modes/export/> for current instructions on
 /// how to get YOLO v8 models in ONNX format.
 ///
 /// Note that this model is AGPL-licensed. If you need an object detection model

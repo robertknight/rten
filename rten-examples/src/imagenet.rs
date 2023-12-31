@@ -305,7 +305,7 @@ fn main() -> Result<(), Box<dyn Error>> {
 ///
 /// Data files for the most common ImageNet variants are included in the
 /// examples/data/ directory. Additional labels can be found in
-/// https://github.com/huggingface/pytorch-image-models/tree/main/timm/data/_info.
+/// <https://github.com/huggingface/pytorch-image-models/tree/main/timm/data/_info>.
 struct ImageNetLabels {
     /// Map of class index to WordNet synset ID.
     wordnet_ids: Vec<String>,

@@ -254,10 +254,10 @@ const LABELS: &[&str] = &[
     "toothbrush",
 ];
 
-/// Detect objects in images using DETR [1].
+/// Detect objects in images using DETR [^1].
 ///
-/// The DETR model [2] can be obtained from Hugging Face and converted to this
-/// library's format using Optimum [3]:
+/// The DETR model [^2] can be obtained from Hugging Face and converted to this
+/// library's format using Optimum [^3]:
 ///
 /// ```
 /// optimum-cli export onnx --model facebook/detr-resnet-50 detr
@@ -273,9 +273,9 @@ const LABELS: &[&str] = &[
 /// cargo run --release --bin detr detr.rten image.jpg
 /// ```
 ///
-/// [1] https://arxiv.org/abs/2005.12872
-/// [2] https://huggingface.co/facebook/detr-resnet-50
-/// [3] https://huggingface.co/docs/optimum/main/en/exporters/onnx/usage_guides/export_a_model
+/// [^1]: <https://arxiv.org/abs/2005.12872>
+/// [^2]: <https://huggingface.co/facebook/detr-resnet-50>
+/// [^3]: <https://huggingface.co/docs/optimum/main/en/exporters/onnx/usage_guides/export_a_model>
 fn main() -> Result<(), Box<dyn Error>> {
     let args = parse_args()?;
 
