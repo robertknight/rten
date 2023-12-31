@@ -1,6 +1,7 @@
 use std::time::Instant;
 
 /// Utility for recording the cumulative time spent in an operation.
+#[doc(hidden)] // Not intended for external use
 pub struct Timer {
     start: Option<Instant>,
     elapsed: u64,

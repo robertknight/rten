@@ -1,3 +1,17 @@
+//! The `ops` module exposes the various operators available for machine-learning
+//! models.
+//!
+//! Most operators correspond to an [ONNX
+//! Operator](https://onnx.ai/onnx/operators/) of the same name, though RTen
+//! does not support all ONNX operators, data types or attributes.
+//!
+//! Operators are primarily invoked by RTen as part of executing a
+//! [Model](crate::Model), however they are also exposed as standalone
+//! functions and tensor methods for use in code that pre-processes model
+//! inputs and post-processes model outputs. Some standalone operator functions
+//! come into two flavors, one which operates in-place on an existing tensor,
+//! and one which takes a view as input and returns a new tensor as output.
+
 use std::error::Error;
 use std::fmt;
 use std::fmt::{Debug, Display};
@@ -501,6 +515,7 @@ impl Error for OpError {}
 /// a third argument can also be passed to specify the names of the dimensions,
 /// eg. "NCHW" or "dir, batch, seq". This can produce more helpful errors if
 /// the input does not match the expected shape.
+#[doc(hidden)]
 #[macro_export]
 macro_rules! check_dims {
     ($tensor:ident, $ndim:literal, $dim_names:literal) => {{
@@ -549,6 +564,7 @@ macro_rules! check_dims {
 
 /// Convert a tensor with dynamic dimension count to an `NdTensorView`, or
 /// return an `OpError::InvalidValue` if the dimension count is incorrect.
+#[doc(hidden)]
 #[macro_export]
 macro_rules! static_dims {
     ($tensor:ident, $ndim:literal, $dim_names:literal) => {{

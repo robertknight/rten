@@ -18,6 +18,35 @@ use crate::schema_generated as sg;
 use crate::schema_generated::{root_as_model, OperatorNode, OperatorType, PadMode};
 use crate::timing::TimingSort;
 
+/// The central type used to execute RTen machine learning models.
+///
+/// Models are loaded from `.rten` format model files using [Model::load] and
+/// executed using [Model::run] or one of the other `run_*` methods. They
+/// take a list of tensor views as inputs, perform a series of computations and
+/// return one or more output tensors. `.rten` models use
+/// [FlatBuffers](https://github.com/google/flatbuffers) and are conceptually
+/// similar to the `.ort` format used by ONNX Runtime and `.tflite` used by
+/// TensorFlow Lite.
+///
+/// RTen models are logically graphs consisting of three types of nodes:
+///
+///  - Values which are supplied or generated at runtime
+///  - Constants which are the weights, biases and other parameters of the
+///    model. Their values are determined when the model is trained.
+///  - Operators which combine the values and constants using operations such
+///    as matrix multiplication, convolution etc.
+///
+/// Some of these nodes are designated as inputs and outputs. The IDs of these
+/// nodes can be obtained using [Model::input_ids] and [Model::output_ids].
+/// These IDs are then used when calling [Model::run]. Model execution consists
+/// of generating a plan which starts with the input nodes, and executes the
+/// necessary operators to generate the requested outputs.
+///
+/// ## Custom operator registries
+///
+/// By default all supported ONNX operators are available for use by the model.
+/// You can reduce binary size and compilation time by loading a model with
+/// only a subset of operators enabled. See [Model::load_with_ops].
 pub struct Model {
     node_ids: HashMap<String, NodeId>,
     input_ids: Vec<NodeId>,
@@ -25,6 +54,7 @@ pub struct Model {
     graph: Graph,
 }
 
+/// Provides access to metadata about a graph node.
 pub struct NodeInfo<'a> {
     node: &'a Node,
 }
@@ -36,6 +66,8 @@ impl<'a> NodeInfo<'a> {
     }
 
     /// Return the tensor shape associated with a node.
+    ///
+    /// The shape can be a combination of fixed values and symbolic names.
     pub fn shape(&self) -> Option<Vec<Dimension>> {
         self.node.shape()
     }
@@ -213,11 +245,13 @@ pub type ReadOpFunction = dyn Fn(&OperatorNode) -> ReadOpResult;
 
 /// Trait that that creates the default/built-in implementation of an operator,
 /// for use with [OpRegistry::register_op].
+///
+/// This trait is implemented for all operators in [crate::ops].
 pub trait DefaultOperatorFactory {
     /// Return the type enum value for this operator.
     fn op_type() -> sg::OperatorType;
 
-    /// Function which reads an [OperatorNode] struct from a model file and
+    /// Function which reads an `OperatorNode` struct from a model file and
     /// creates an instance of the operator as a `Box<dyn Operator>`.
     fn factory() -> Box<ReadOpFunction>;
 }
@@ -885,6 +919,7 @@ fn read_trilu_op(node: &OperatorNode) -> ReadOpResult {
     }))
 }
 
+/// Errors reported by [Model::load].
 #[derive(Debug)]
 pub enum ModelLoadError {
     SchemaVersionUnsupported,

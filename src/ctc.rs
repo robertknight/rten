@@ -1,3 +1,5 @@
+//! Connectionist Temporal Classification (CTC) sequence decoding tools.
+
 use std::collections::HashMap;
 use std::num::NonZeroU32;
 
