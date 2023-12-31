@@ -5,8 +5,8 @@ use std::env;
 use std::error::Error;
 use std::fmt::{Display, Formatter};
 
+use rten_tensor::Tensor;
 use smallvec::smallvec;
-use wasnn_tensor::Tensor;
 
 use crate::graph::{Dimension, Graph, Node, NodeId, RunError, RunOptions};
 use crate::ops;
@@ -41,7 +41,7 @@ impl<'a> NodeInfo<'a> {
     }
 }
 
-/// Parse profiling flags from the `WASNN_TIMING` environment variable and
+/// Parse profiling flags from the `RTEN_TIMING` environment variable and
 /// update the graph run configuration `opts`.
 ///
 /// This env var is a space-separated sequence of `key=value` pairs.
@@ -151,7 +151,7 @@ impl Model {
         opts: Option<RunOptions>,
     ) -> Result<Vec<Output>, RunError> {
         let mut opts = opts.unwrap_or_default();
-        if let Some(timing_var) = env::var_os("WASNN_TIMING") {
+        if let Some(timing_var) = env::var_os("RTEN_TIMING") {
             let timing_var = timing_var.to_string_lossy();
             parse_timing_config(&timing_var, &mut opts);
         }
@@ -945,11 +945,13 @@ fn load_model(data: &[u8], registry: &OpRegistry) -> Result<Model, ModelLoadErro
 
     let mut graph = Graph::new();
 
+    let node_count = model.graph().nodes().map(|ns| ns.len()).unwrap_or(0);
+
     // Map of model node name to graph node ID
-    let mut node_id_from_name: HashMap<String, NodeId> = HashMap::new();
+    let mut node_id_from_name: HashMap<String, NodeId> = HashMap::with_capacity(node_count);
 
     // Map of model node index to graph node ID
-    let mut node_id_from_index: HashMap<usize, NodeId> = HashMap::new();
+    let mut node_id_from_index: HashMap<usize, NodeId> = HashMap::with_capacity(node_count);
 
     let mut add_node_id = |name: Option<&str>, graph_node| {
         if let Some(name) = name {
@@ -1070,8 +1072,8 @@ fn load_model(data: &[u8], registry: &OpRegistry) -> Result<Model, ModelLoadErro
 mod tests {
     extern crate flatbuffers;
 
-    use wasnn_tensor::prelude::*;
-    use wasnn_tensor::{tensor, Tensor};
+    use rten_tensor::prelude::*;
+    use rten_tensor::{tensor, Tensor};
 
     use crate::graph::{Dimension, RunError};
     use crate::model::Model;

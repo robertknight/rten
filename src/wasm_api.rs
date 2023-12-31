@@ -2,9 +2,9 @@ use std::borrow::Borrow;
 use std::iter::zip;
 use std::rc::Rc;
 
+use rten_tensor::prelude::*;
+use rten_tensor::rng::XorShiftRng;
 use wasm_bindgen::prelude::*;
-use wasnn_tensor::prelude::*;
-use wasnn_tensor::rng::XorShiftRng;
 
 use crate::graph::Dimension;
 use crate::model;
@@ -131,7 +131,7 @@ impl Tensor {
     /// Construct a float tensor from the given shape and data.
     #[wasm_bindgen(js_name = floatTensor)]
     pub fn float_tensor(shape: &[usize], data: &[f32]) -> Tensor {
-        let data: Output = wasnn_tensor::Tensor::from_data(shape, data.to_vec()).into();
+        let data: Output = rten_tensor::Tensor::from_data(shape, data.to_vec()).into();
         Tensor {
             data: Rc::new(data),
         }
@@ -140,7 +140,7 @@ impl Tensor {
     /// Construct an int tensor from the given shape and data.
     #[wasm_bindgen(js_name = intTensor)]
     pub fn int_tensor(shape: &[usize], data: &[i32]) -> Tensor {
-        let data: Output = wasnn_tensor::Tensor::from_data(shape, data.to_vec()).into();
+        let data: Output = rten_tensor::Tensor::from_data(shape, data.to_vec()).into();
         Tensor {
             data: Rc::new(data),
         }
@@ -176,7 +176,7 @@ impl Tensor {
 /// Additional constructors and ONNX operators exposed as JS methods.
 #[wasm_bindgen]
 impl Tensor {
-    fn as_float(&self) -> Result<wasnn_tensor::TensorView<f32>, String> {
+    fn as_float(&self) -> Result<rten_tensor::TensorView<f32>, String> {
         let Output::FloatTensor(ref a) = self.data.borrow() else {
             return Err("Expected a float tensor".to_string());
         };
@@ -189,7 +189,7 @@ impl Tensor {
     /// will always return the same output for a given seed.
     pub fn rand(shape: &[usize], seed: u64) -> Tensor {
         let mut rng = XorShiftRng::new(seed);
-        let tensor = wasnn_tensor::Tensor::rand(shape, &mut rng);
+        let tensor = rten_tensor::Tensor::rand(shape, &mut rng);
         Tensor::from_output(tensor.into())
     }
 

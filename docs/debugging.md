@@ -1,7 +1,7 @@
 # Debugging
 
 This document provides strategies for debugging incorrect/different outputs in
-Wasnn compared to other runtimes.
+RTen compared to other runtimes.
 
 ## Inspecting models
 
@@ -14,18 +14,18 @@ app for visualizing ONNX models.
 of the ONNX specification, and is often used as a reference for correctness and
 performance testing.
 
-The general steps to use ORT to compare and debug unexpected output from Wasnn
+The general steps to use ORT to compare and debug unexpected output from RTen
 are:
 
 1. Create a Python script to execute the model with ORT, and a
-   corresponding Rust binary to execute the model with Wasnn.
+   corresponding Rust binary to execute the model with RTen.
 
 2. Verify that the model produces the expected results with ORT.
 
 3. Verify that the inputs to the model, after all preprocessing and conversion
-   to tensors, are the same in Wasnn and ORT.
+   to tensors, are the same in RTen and ORT.
 
-4. Verify that there are significant differences in the Wasnn vs ORT output.
+4. Verify that there are significant differences in the RTen vs ORT output.
 
 5. Compare the values of intermediate outputs in the graph to find where
    significant differences begin to arise. For small tensors, the values can
@@ -34,7 +34,7 @@ are:
 
    1. Run the model specifying an intermediate node as an output.
 
-      Wasnn allows any node in the graph to be specified as an output. ORT on the
+      RTen allows any node in the graph to be specified as an output. ORT on the
       other hand only allows nodes specified in the model's output list to be
       fetched as an output from a model run. The
       `tools/add-node-outputs-to-model.py` script works around this limitation of
@@ -42,7 +42,7 @@ are:
       in the output list.
 
    2. Write out the resulting intermediate tensors. The `Tensor::write` method
-      can be used for this in Wasnn and the `write_tensor` function in
+      can be used for this in RTen and the `write_tensor` function in
       `tools/debug_utils.py` in Python.
 
    3. Compare the resulting tensors. `tools/compare-tensors.py` compares tensor

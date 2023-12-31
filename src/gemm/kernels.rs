@@ -1,6 +1,6 @@
 use std::ops::Range;
 
-use wasnn_tensor::Matrix;
+use rten_tensor::Matrix;
 
 use super::{GemmInputA, GemmInputB};
 
@@ -78,7 +78,7 @@ macro_rules! impl_gemmops {
             fn pack_a_block(
                 &self,
                 out: &mut [f32],
-                a: wasnn_tensor::Matrix,
+                a: rten_tensor::Matrix,
                 rows: std::ops::Range<usize>,
                 cols: std::ops::Range<usize>,
             ) {
@@ -88,7 +88,7 @@ macro_rules! impl_gemmops {
             fn pack_b_block(
                 &self,
                 out: &mut [f32],
-                a: wasnn_tensor::Matrix,
+                a: rten_tensor::Matrix,
                 rows: std::ops::Range<usize>,
                 cols: std::ops::Range<usize>,
             ) {

@@ -222,6 +222,9 @@ name = "jpeg-decoder"
 version = "0.3.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "bc0000e42512c92e31c2252315bda326620a4e034105e900c98ec492fa077b3e"
+dependencies = [
+ "rayon",
+]
 
 [[package]]
 name = "lexopt"
@@ -294,6 +297,34 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "39e3200413f237f41ab11ad6d161bc7239c84dcb631773ccd7de3dfe4b5c267c"
 dependencies = [
  "autocfg",
+]
+
+[[package]]
+name = "ocrs"
+version = "0.1.0"
+dependencies = [
+ "fastrand",
+ "rayon",
+ "rten",
+ "rten-imageproc",
+ "rten-tensor",
+ "wasm-bindgen",
+]
+
+[[package]]
+name = "ocrs-cli"
+version = "0.1.0"
+dependencies = [
+ "image",
+ "lexopt",
+ "ocrs",
+ "png",
+ "rten",
+ "rten-imageproc",
+ "rten-tensor",
+ "serde_json",
+ "ureq",
+ "url",
 ]
 
 [[package]]
@@ -371,6 +402,88 @@ dependencies = [
  "spin",
  "untrusted",
  "windows-sys",
+]
+
+[[package]]
+name = "rten"
+version = "0.1.0"
+dependencies = [
+ "flatbuffers",
+ "libm",
+ "rayon",
+ "rten-tensor",
+ "rten-vecmath",
+ "serde_json",
+ "smallvec",
+ "wasm-bindgen",
+]
+
+[[package]]
+name = "rten-cli"
+version = "0.1.0"
+dependencies = [
+ "fastrand",
+ "lexopt",
+ "rten",
+ "rten-tensor",
+]
+
+[[package]]
+name = "rten-examples"
+version = "0.1.0"
+dependencies = [
+ "fastrand",
+ "hound",
+ "image",
+ "lexopt",
+ "png",
+ "rten",
+ "rten-imageio",
+ "rten-imageproc",
+ "rten-tensor",
+ "rten-text",
+ "serde_json",
+]
+
+[[package]]
+name = "rten-imageio"
+version = "0.1.0"
+dependencies = [
+ "image",
+ "png",
+ "rten-tensor",
+]
+
+[[package]]
+name = "rten-imageproc"
+version = "0.1.0"
+dependencies = [
+ "rten-tensor",
+]
+
+[[package]]
+name = "rten-tensor"
+version = "0.1.0"
+dependencies = [
+ "smallvec",
+]
+
+[[package]]
+name = "rten-text"
+version = "0.1.0"
+dependencies = [
+ "serde",
+ "serde_json",
+ "unicode-normalization",
+ "unicode_categories",
+]
+
+[[package]]
+name = "rten-vecmath"
+version = "0.1.0"
+dependencies = [
+ "fastrand",
+ "libm",
 ]
 
 [[package]]
@@ -626,116 +739,6 @@ name = "wasm-bindgen-shared"
 version = "0.2.89"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "7ab9b36309365056cd639da3134bf87fa8f3d86008abf99e612384a6eecd459f"
-
-[[package]]
-name = "wasnn"
-version = "0.1.0"
-dependencies = [
- "flatbuffers",
- "libm",
- "rayon",
- "serde_json",
- "smallvec",
- "wasm-bindgen",
- "wasnn-tensor",
- "wasnn-vecmath",
-]
-
-[[package]]
-name = "wasnn-cli"
-version = "0.1.0"
-dependencies = [
- "fastrand",
- "lexopt",
- "wasnn",
- "wasnn-tensor",
-]
-
-[[package]]
-name = "wasnn-examples"
-version = "0.1.0"
-dependencies = [
- "fastrand",
- "hound",
- "image",
- "lexopt",
- "png",
- "serde_json",
- "wasnn",
- "wasnn-imageio",
- "wasnn-imageproc",
- "wasnn-tensor",
- "wasnn-text",
-]
-
-[[package]]
-name = "wasnn-imageio"
-version = "0.1.0"
-dependencies = [
- "image",
- "png",
- "wasnn-tensor",
-]
-
-[[package]]
-name = "wasnn-imageproc"
-version = "0.1.0"
-dependencies = [
- "wasnn-tensor",
-]
-
-[[package]]
-name = "wasnn-ocr"
-version = "0.1.0"
-dependencies = [
- "fastrand",
- "rayon",
- "wasm-bindgen",
- "wasnn",
- "wasnn-imageproc",
- "wasnn-tensor",
-]
-
-[[package]]
-name = "wasnn-ocr-cli"
-version = "0.1.0"
-dependencies = [
- "image",
- "lexopt",
- "png",
- "serde_json",
- "ureq",
- "url",
- "wasnn",
- "wasnn-imageproc",
- "wasnn-ocr",
- "wasnn-tensor",
-]
-
-[[package]]
-name = "wasnn-tensor"
-version = "0.1.0"
-dependencies = [
- "smallvec",
-]
-
-[[package]]
-name = "wasnn-text"
-version = "0.1.0"
-dependencies = [
- "serde",
- "serde_json",
- "unicode-normalization",
- "unicode_categories",
-]
-
-[[package]]
-name = "wasnn-vecmath"
-version = "0.1.0"
-dependencies = [
- "fastrand",
- "libm",
-]
 
 [[package]]
 name = "webpki-roots"

@@ -24,7 +24,7 @@ miri:
 	#   will probably involve changes to view internals.
 	# - Only the tensor lib is currently tested. Testing the main crate will
 	#   require changes to prevent tests taking too long to run.
-	MIRIFLAGS="-Zmiri-disable-stacked-borrows" cargo +nightly miri test -p wasnn-tensor
+	MIRIFLAGS="-Zmiri-disable-stacked-borrows" cargo +nightly miri test -p rten-tensor
 
 .PHONY: test
 test:
@@ -33,20 +33,20 @@ test:
 .PHONY: wasm
 wasm:
 	RUSTFLAGS="-C target-feature=+simd128" cargo build --features=wasm_api --release --target wasm32-unknown-unknown
-	wasm-bindgen target/wasm32-unknown-unknown/release/wasnn.wasm --out-dir dist/ --target web --weak-refs
-	tools/optimize-wasm.sh dist/wasnn_bg.wasm
+	wasm-bindgen target/wasm32-unknown-unknown/release/rten.wasm --out-dir dist/ --target web --weak-refs
+	tools/optimize-wasm.sh dist/rten_bg.wasm
 
-.PHONY: wasm-ocr
-wasm-ocr:
-	RUSTFLAGS="-C target-feature=+simd128" cargo build --release --target wasm32-unknown-unknown --package wasnn-ocr
-	wasm-bindgen target/wasm32-unknown-unknown/release/wasnn_ocr.wasm --out-dir dist/ --target web --reference-types --weak-refs
-	tools/optimize-wasm.sh dist/wasnn_ocr_bg.wasm
+.PHONY: ocrs-wasm
+ocrs-wasm:
+	RUSTFLAGS="-C target-feature=+simd128" cargo build --release --target wasm32-unknown-unknown --package ocrs
+	wasm-bindgen target/wasm32-unknown-unknown/release/ocrs.wasm --out-dir dist/ --target web --reference-types --weak-refs
+	tools/optimize-wasm.sh dist/ocrs_bg.wasm
 
 .PHONY: wasm-nosimd
 wasm-nosimd:
 	cargo build --release --target wasm32-unknown-unknown
-	wasm-bindgen target/wasm32-unknown-unknown/release/wasnn.wasm --out-dir dist/ --out-name wasnn-nosimd --target web --weak-refs
-	tools/optimize-wasm.sh dist/wasnn-nosimd_bg.wasm
+	wasm-bindgen target/wasm32-unknown-unknown/release/rten.wasm --out-dir dist/ --out-name rten-nosimd --target web --weak-refs
+	tools/optimize-wasm.sh dist/rten-nosimd_bg.wasm
 
 .PHONY: wasm-all
 wasm-all: wasm wasm-nosimd

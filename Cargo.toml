@@ -1,24 +1,27 @@
 [workspace]
 members = [
+  # RTen inference engine
   ".",
-  "wasnn-cli",
-  "wasnn-examples",
-  "wasnn-imageio",
-  "wasnn-imageproc",
-  "wasnn-ocr",
-  "wasnn-ocr-cli",
-  "wasnn-tensor",
-  "wasnn-text"
+  "rten-cli",
+  "rten-examples",
+  "rten-imageio",
+  "rten-imageproc",
+  "rten-tensor",
+  "rten-text",
+
+  # Libs and applications using RTen
+  "ocrs",
+  "ocrs-cli",
 ]
 default-members = [
   ".",
-  "wasnn-imageproc",
-  "wasnn-tensor",
-  "wasnn-text"
+  "rten-imageproc",
+  "rten-tensor",
+  "rten-text"
 ]
 
 [package]
-name = "wasnn"
+name = "rten"
 version = "0.1.0"
 edition = "2021"
 
@@ -29,8 +32,8 @@ flatbuffers = "22.10.26"
 libm = "0.2.6"
 rayon = "1.7.0"
 smallvec = { version = "1.10.0", features = ["union", "const_generics", "const_new"] }
-wasnn-tensor = { path = "./wasnn-tensor" }
-wasnn-vecmath = { path = "./wasnn-vecmath" }
+rten-tensor = { path = "./rten-tensor" }
+rten-vecmath = { path = "./rten-vecmath" }
 
 [dev-dependencies]
 serde_json = "1.0.91"

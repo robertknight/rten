@@ -4,9 +4,9 @@ use rayon::prelude::*;
 
 use std::fmt::Debug;
 
-use wasnn_tensor::prelude::*;
-use wasnn_tensor::{Tensor, TensorView, TensorViewMut, View};
-use wasnn_vecmath::{
+use rten_tensor::prelude::*;
+use rten_tensor::{Tensor, TensorView, TensorViewMut, View};
+use rten_vecmath::{
     erf as erf_scalar, exp as exp_scalar, sigmoid as sigmoid_scalar, tanh as tanh_scalar, vec_erf,
     vec_erf_in_place, vec_exp, vec_exp_in_place, vec_sigmoid, vec_sigmoid_in_place, vec_tanh,
     vec_tanh_in_place,
@@ -564,9 +564,9 @@ parallel_unary_float_op!(
 mod tests {
     use std::error::Error;
 
-    use wasnn_tensor::rng::XorShiftRng;
-    use wasnn_tensor::test_util::{eq_with_nans, expect_equal, expect_equal_with_tolerance};
-    use wasnn_tensor::{tensor, RandomSource, Tensor, View};
+    use rten_tensor::rng::XorShiftRng;
+    use rten_tensor::test_util::{eq_with_nans, expect_equal, expect_equal_with_tolerance};
+    use rten_tensor::{tensor, RandomSource, Tensor, View};
 
     use crate::ops::{
         abs, acos, acos_in_place, asin, asin_in_place, atan, atan_in_place, ceil, clip,

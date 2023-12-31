@@ -1,7 +1,7 @@
 use std::iter::zip;
 
-use wasnn_tensor::prelude::*;
-use wasnn_tensor::{Tensor, TensorView};
+use rten_tensor::prelude::*;
+use rten_tensor::{Tensor, TensorView};
 
 use crate::ops::binary_elementwise::broadcast_shapes;
 use crate::ops::reduce::{cmp_nan_greater, cmp_nan_less};
@@ -175,8 +175,8 @@ impl Operator for Sum {
 
 #[cfg(test)]
 mod tests {
-    use wasnn_tensor::test_util::eq_with_nans;
-    use wasnn_tensor::{tensor, Tensor};
+    use rten_tensor::test_util::eq_with_nans;
+    use rten_tensor::{tensor, Tensor};
 
     use crate::ops::{max, mean, min, sum, OpError};
 

@@ -1,11 +1,11 @@
 use std::iter::zip;
 
-use smallvec::SmallVec;
-use wasnn_tensor::prelude::*;
-use wasnn_tensor::{
+use rten_tensor::prelude::*;
+use rten_tensor::{
     to_slice_items, DynIndices, DynSliceItems, NdTensorView, SliceItem, Tensor, TensorView,
     TensorViewMut,
 };
+use smallvec::SmallVec;
 
 use crate::ops::reduce::{cmp_nan_greater, cmp_nan_less};
 use crate::ops::{
@@ -449,10 +449,10 @@ impl Operator for ScatterND {
 mod tests {
     use std::error::Error;
 
-    use wasnn_tensor::prelude::*;
-    use wasnn_tensor::rng::XorShiftRng;
-    use wasnn_tensor::test_util::expect_equal;
-    use wasnn_tensor::{tensor, Tensor};
+    use rten_tensor::prelude::*;
+    use rten_tensor::rng::XorShiftRng;
+    use rten_tensor::test_util::expect_equal;
+    use rten_tensor::{tensor, Tensor};
 
     use crate::ops::{
         gather, gather_elements, scatter_elements, scatter_nd, OpError, ScatterReduction,

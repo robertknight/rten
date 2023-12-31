@@ -1,7 +1,7 @@
 use rayon::prelude::*;
 
-use wasnn_tensor::prelude::*;
-use wasnn_tensor::{Tensor, TensorView};
+use rten_tensor::prelude::*;
+use rten_tensor::{Tensor, TensorView};
 
 use crate::check_dims;
 use crate::gemm::{gemm, GemmExecutor, GemmInputA, GemmInputB};
@@ -193,10 +193,10 @@ impl Operator for MatMul {
 mod tests {
     use std::error::Error;
 
-    use wasnn_tensor::prelude::*;
-    use wasnn_tensor::rng::XorShiftRng;
-    use wasnn_tensor::test_util::expect_equal;
-    use wasnn_tensor::Tensor;
+    use rten_tensor::prelude::*;
+    use rten_tensor::rng::XorShiftRng;
+    use rten_tensor::test_util::expect_equal;
+    use rten_tensor::Tensor;
 
     use crate::gemm::gemm;
     use crate::ops::matmul::{gemm_op, matmul, OpError};

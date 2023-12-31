@@ -1,8 +1,8 @@
 use std::collections::HashMap;
 use std::num::NonZeroU32;
 
-use wasnn_tensor::prelude::*;
-use wasnn_tensor::{NdTensor, NdTensorView};
+use rten_tensor::prelude::*;
+use rten_tensor::{NdTensor, NdTensorView};
 
 use crate::ops::arg_max;
 
@@ -387,7 +387,7 @@ impl Default for CtcDecoder {
 
 #[cfg(test)]
 mod tests {
-    use wasnn_tensor::NdTensor;
+    use rten_tensor::NdTensor;
 
     use super::{log_sum_exp, CtcDecoder, CtcHypothesis};
 

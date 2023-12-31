@@ -1,8 +1,8 @@
 use rayon::prelude::*;
 
-use wasnn_tensor::prelude::*;
-use wasnn_tensor::{NdTensorView, Tensor, TensorView};
-use wasnn_vecmath::vec_softmax_in_place;
+use rten_tensor::prelude::*;
+use rten_tensor::{NdTensorView, Tensor, TensorView};
+use rten_vecmath::vec_softmax_in_place;
 
 use crate::ops::{resolve_axis, InputList, IntoOpResult, OpError, Operator, Output};
 use crate::slice_reductions::{slice_max, slice_sum};
@@ -366,10 +366,10 @@ impl Operator for Softmax {
 mod tests {
     use std::error::Error;
 
-    use wasnn_tensor::prelude::*;
-    use wasnn_tensor::rng::XorShiftRng;
-    use wasnn_tensor::test_util::expect_equal;
-    use wasnn_tensor::{tensor, Tensor};
+    use rten_tensor::prelude::*;
+    use rten_tensor::rng::XorShiftRng;
+    use rten_tensor::test_util::expect_equal;
+    use rten_tensor::{tensor, Tensor};
 
     use crate::ops::tests::expect_eq_1e4;
     use crate::ops::{

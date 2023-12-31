@@ -1,5 +1,5 @@
-use wasnn_tensor::prelude::*;
-use wasnn_tensor::{NdTensorView, SliceItem, Tensor, TensorView};
+use rten_tensor::prelude::*;
+use rten_tensor::{NdTensorView, SliceItem, Tensor, TensorView};
 
 use crate::ops::{resolve_axis, InputList, OpError, Operator, Output};
 use crate::static_dims;
@@ -67,7 +67,7 @@ impl Operator for Split {
 
 #[cfg(test)]
 mod tests {
-    use wasnn_tensor::{tensor, View};
+    use rten_tensor::{tensor, View};
 
     use crate::ops::{split, OpError};
 

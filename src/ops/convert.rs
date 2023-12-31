@@ -1,4 +1,4 @@
-use wasnn_tensor::View;
+use rten_tensor::View;
 
 use crate::ops::{DataType, Input, InputList, IntoOpResult, OpError, Operator, Output};
 
@@ -46,8 +46,8 @@ impl Operator for Cast {
 mod tests {
     use std::error::Error;
 
-    use wasnn_tensor::tensor;
-    use wasnn_tensor::test_util::expect_equal;
+    use rten_tensor::tensor;
+    use rten_tensor::test_util::expect_equal;
 
     use crate::ops::{Cast, DataType, Operator};
 

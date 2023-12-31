@@ -1,7 +1,7 @@
 import { readFileSync } from "fs";
 
 import sharp from "sharp";
-import { initSync, binaryName } from "wasnn";
+import { initSync, binaryName } from "rten";
 
 import { ImageClassifier } from "./image-classifier.js";
 import { IMAGENET_CLASSES } from "./imagenet-classes.js";
@@ -22,11 +22,11 @@ async function loadImage(path, width, height) {
 }
 
 const path = process.argv[2];
-const modelPath = process.argv[3] ?? "./mobilenet.model";
+const modelPath = process.argv[3] ?? "./mobilenet.rten";
 
-// Initialize Wasnn.
-const wasnnBinary = readFileSync("node_modules/wasnn/dist/" + binaryName());
-initSync(wasnnBinary);
+// Initialize RTen.
+const rtenBinary = readFileSync("node_modules/rten/dist/" + binaryName());
+initSync(rtenBinary);
 
 // Load the MobileNet classification model.
 const modelData = new Uint8Array(readFileSync(modelPath));

@@ -7,14 +7,14 @@ kind of object.
 
 ## Setup
 
-1. Build the main Wasnn project. See the README.md file at the root of the
+1. Build the main RTen project. See the README.md file at the root of the
    repository.
 2. In this directory, run `npm install`
 3. Download and convert the ONNX MobileNet model:
 
    ```sh
    curl -L https://github.com/onnx/models/raw/main/vision/classification/mobilenet/model/mobilenetv2-10.onnx -o mobilenet.onnx
-   ../../tools/convert-onnx.py mobilenet.onnx mobilenet.model
+   ../../tools/convert-onnx.py mobilenet.onnx mobilenet.rten
    ```
 4. Follow either of the subsections below to run the example in Node or the
    browser

@@ -97,7 +97,7 @@ def export_timm_model(config: str, onnx_path: str):
     # impact of running the ONNX model "as is" vs. with the various fusions that
     # ONNX Runtime does.
     #
-    # Wasnn currently doesn't do any fusions, so the unoptimized performance
+    # RTen currently doesn't do any fusions, so the unoptimized performance
     # is a "fairer" comparison.
     print(f"Testing model with ONNX Runtime (unoptimized)...")
     sess_options = ort.SessionOptions()

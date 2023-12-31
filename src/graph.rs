@@ -3,8 +3,8 @@ use std::error::Error;
 use std::fmt;
 use std::iter::zip;
 
-use wasnn_tensor::prelude::*;
-use wasnn_tensor::Tensor;
+use rten_tensor::prelude::*;
+use rten_tensor::Tensor;
 
 use crate::ops::{Input, InputList, OpError, Operator, Output};
 use crate::timer::Timer;
@@ -706,9 +706,9 @@ mod tests {
     use std::error::Error;
     use std::sync::{Arc, Mutex};
 
-    use wasnn_tensor::prelude::*;
-    use wasnn_tensor::test_util::{expect_equal, expect_equal_with_tolerance};
-    use wasnn_tensor::{tensor, Tensor, TensorView};
+    use rten_tensor::prelude::*;
+    use rten_tensor::test_util::{expect_equal, expect_equal_with_tolerance};
+    use rten_tensor::{tensor, Tensor, TensorView};
 
     use crate::graph::{Dimension, Graph, RunError};
     use crate::ops::{

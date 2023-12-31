@@ -1,11 +1,11 @@
 # Profiling and optimizing
 
 This document provides strategies for profiling and optimizing graph execution
-performance in Wasnn.
+performance in RTen.
 
 ## Build settings
 
-Performance sensitive numeric code like Wasnn will run extremely slowly in debug
+Performance sensitive numeric code like RTen will run extremely slowly in debug
 builds, to the point of being unusable. For profiling, make sure you build your
 application in release mode.
 
@@ -13,7 +13,7 @@ application in release mode.
 
 To find out where model inference is spending time, you can enable the built-in
 timing logs, either by setting flags in the `RunOptions` passed to `Model::run`
-or by setting the `WASNN_TIMING` environment variable.
+or by setting the `RTEN_TIMING` environment variable.
 
 Example output for the MobileViT model with timing enabled:
 
@@ -47,9 +47,9 @@ as expected, but `Sigmoid` and `Softmax` are much more expensive than expected
 and need optimization. The entries in square brackets show time spent outside
 operators, eg. allocating and de-allocating memory.
 
-### `WASNN_TIMING` syntax
+### `RTEN_TIMING` syntax
 
-If the `WASNN_TIMING` environment variable is defined, a summary of operator
+If the `RTEN_TIMING` environment variable is defined, a summary of operator
 timings will be output at the each of each graph run. You can control the
 level of granularity in the output and the sort order by adding configuration
 values to the variable's value. Values are specified as a space-separated list
@@ -66,7 +66,7 @@ Valid keys are:
 For example, to sort timings by operator name and show a breakdown by shape:
 
 ```sh
-export WASNN_TIMING="sort=name by-shape=1"
+export RTEN_TIMING="sort=name by-shape=1"
 ```
 
 ## Profiling using sampling profilers
@@ -83,7 +83,7 @@ cargo build -r --example imagenet
 Then run it using `samply record`:
 
 ```sh
-samply record cargo run -r --example imagenet mobilevit mobilevit.model image.jpg
+samply record cargo run -r --example imagenet mobilevit mobilevit.rten image.jpg
 ```
 
 Here `cargo run` would automatically rebuild the binary if needed, but we build
@@ -115,12 +115,12 @@ parallelism or other factors.
 
 ## Optimizing inference
 
-Wasnn does not currently have many turn-key solutions for optimizing inference,
+RTen does not currently have many turn-key solutions for optimizing inference,
 like `torch.compile` for PyTorch or ONNX Runtime's [graph
 optimizations](https://onnxruntime.ai/docs/performance/model-optimizations/graph-optimizations.html).
 These are planned for the future.
 
-Some ways to speed up inference without changing Wasnn's code are:
+Some ways to speed up inference without changing RTen's code are:
 
 - If choosing from a family of models with different sizes, you can trade
   accuracy for performance by using a smaller model.
@@ -134,7 +134,7 @@ Some ways to speed up inference without changing Wasnn's code are:
 
 If you find that an operator is unexpectedly slow compared to other runtimes,
 and the issue can be reproduced using an open source model and code, please
-[file an issue](https://github.com/robertknight/wasnn/issues).
+[file an issue](https://github.com/robertknight/rten/issues).
 
 ## Platform-specific optimizations
 

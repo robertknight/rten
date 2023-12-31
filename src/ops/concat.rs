@@ -1,5 +1,5 @@
-use wasnn_tensor::prelude::*;
-use wasnn_tensor::{Iter, NdTensorView, Tensor, TensorView};
+use rten_tensor::prelude::*;
+use rten_tensor::{Iter, NdTensorView, Tensor, TensorView};
 
 use crate::ops::{resolve_axis, Input, InputList, IntoOpResult, OpError, Operator, Output};
 use crate::static_dims;
@@ -234,9 +234,9 @@ impl Operator for Tile {
 mod tests {
     use std::error::Error;
 
-    use wasnn_tensor::prelude::*;
-    use wasnn_tensor::test_util::expect_equal;
-    use wasnn_tensor::{tensor, Tensor};
+    use rten_tensor::prelude::*;
+    use rten_tensor::test_util::expect_equal;
+    use rten_tensor::{tensor, Tensor};
 
     use crate::ops::{concat, tile, OpError};
 
