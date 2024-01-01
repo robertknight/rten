@@ -19,6 +19,6 @@
   "homepage": "https://github.com/robertknight/rten#readme",
   "dependencies": {
     "rten": "file:../../",
-    "sharp": "^0.31.2"
+    "sharp": "^0.33.1"
   }
 }
