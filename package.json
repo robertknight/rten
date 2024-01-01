@@ -19,7 +19,7 @@
   },
   "homepage": "https://github.com/robertknight/rten#readme",
   "devDependencies": {
-    "sharp": "^0.31.1"
+    "sharp": "^0.33.1"
   },
   "files": [
     "dist/*",
