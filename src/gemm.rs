@@ -304,6 +304,9 @@ pub enum KernelHint {
 
     /// Use the AVX 512 kernel. Intel x64 only.
     Avx512,
+
+    /// Use the ARM NEON kernel. ARM 64 only.
+    ArmNeon,
 }
 
 impl GemmExecutor {
@@ -316,6 +319,10 @@ impl GemmExecutor {
         }
         #[cfg(target_arch = "x86_64")]
         if let Some(gemm) = Self::with_kernel(KernelHint::Fma) {
+            return gemm;
+        }
+        #[cfg(target_arch = "aarch64")]
+        if let Some(gemm) = Self::with_kernel(KernelHint::ArmNeon) {
             return gemm;
         }
         Self::with_base_kernel()
@@ -359,6 +366,21 @@ impl GemmExecutor {
                             kernel: Box::new(FmaKernel {}),
                             nr: FmaKernel::NR,
                             mr: FmaKernel::MR,
+                        });
+                    }
+                }
+                None
+            }
+            KernelHint::ArmNeon => {
+                #[cfg(target_arch = "aarch64")]
+                {
+                    use kernels::aarch64::ArmNeonKernel;
+
+                    if ArmNeonKernel::supported() {
+                        return Some(GemmExecutor {
+                            kernel: Box::new(ArmNeonKernel {}),
+                            nr: ArmNeonKernel::NR,
+                            mr: ArmNeonKernel::MR,
                         });
                     }
                 }
@@ -1133,6 +1155,12 @@ mod tests {
     #[test]
     fn test_gemm_with_avx512_kernel() -> Result<(), Box<dyn Error>> {
         test_gemm_with_kernel(KernelHint::Avx512)
+    }
+
+    #[cfg(target_arch = "aarch64")]
+    #[test]
+    fn test_gemm_with_arm_neon_kernel() -> Result<(), Box<dyn Error>> {
+        test_gemm_with_kernel(KernelHint::ArmNeon)
     }
 
     // This duplicates one of the other `test_gemm_with_XXX_kernel` tests
