@@ -134,11 +134,35 @@ impl MaybeParIter for Range<usize> {
     }
 }
 
+#[macro_export]
+macro_rules! unroll_loop {
+    ($count:expr, $loop_var:ident, $factor: literal, $block:tt) => {
+        let mut n = $count;
+        let mut $loop_var = 0;
+        while n >= $factor {
+            for _i in 0..$factor {
+                $block;
+                $loop_var += 1;
+            }
+            n -= $factor;
+        }
+        while n > 0 {
+            $block;
+
+            $loop_var += 1;
+            n -= 1;
+        }
+    };
+}
+
+#[allow(unused_imports)]
+pub use unroll_loop;
+
 #[cfg(test)]
 mod tests {
     use std::sync::atomic::{AtomicU32, Ordering};
 
-    use super::{range_chunks, range_chunks_exact, MaybeParIter};
+    use super::{range_chunks, range_chunks_exact, unroll_loop, MaybeParIter};
 
     #[test]
     fn test_range_chunks() {
@@ -196,5 +220,14 @@ mod tests {
             count.fetch_add(1, Ordering::SeqCst);
         });
         assert_eq!(count.load(Ordering::SeqCst), 1000);
+    }
+
+    #[test]
+    fn test_unroll_loop() {
+        let mut items: Vec<i32> = Vec::new();
+        unroll_loop!(10, i, 4, {
+            items.push(i);
+        });
+        assert_eq!(items, [0, 1, 2, 3, 4, 5, 6, 7, 8, 9]);
     }
 }
