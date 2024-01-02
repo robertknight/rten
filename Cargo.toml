@@ -1,6 +1,5 @@
 [workspace]
 members = [
-  # RTen inference engine
   ".",
   "rten-cli",
   "rten-examples",
@@ -8,10 +7,6 @@ members = [
   "rten-imageproc",
   "rten-tensor",
   "rten-text",
-
-  # Libs and applications using RTen
-  "ocrs",
-  "ocrs-cli",
 ]
 default-members = [
   ".",
