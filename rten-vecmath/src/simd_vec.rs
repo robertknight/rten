@@ -1,3 +1,5 @@
+#[cfg(target_arch = "aarch64")]
+pub(crate) mod aarch64;
 #[cfg(target_arch = "x86_64")]
 pub(crate) mod avx;
 #[cfg(target_arch = "wasm32")]
@@ -31,6 +33,9 @@ pub trait SimdInt: Copy + Sized {
     unsafe fn gt(self, other: Self) -> Self;
 
     /// Select elements from this vector or `other` according to a mask.
+    ///
+    /// For each lane, if the mask value is zero, return the element from
+    /// `self`, otherwise return the value from `other`.
     unsafe fn blend(self, other: Self, mask: Self) -> Self;
 
     /// Compute `self + rhs`.
@@ -136,10 +141,9 @@ pub trait SimdFloat: Copy + Sized {
 
     /// Combine elements of `self` and `rhs` according to a mask.
     ///
-    /// If the mask bits for an element are off, the corresponding element from
-    /// `self` is returned, otherwise the corresponding element from `rhs`
-    /// is returned.
-    unsafe fn blend(self, rhs: Self, mask: Self) -> Self;
+    /// For each lane, if the mask value is zero, return the element from
+    /// `self`, otherwise return the value from `other`.
+    unsafe fn blend(self, other: Self, mask: Self) -> Self;
 
     /// Evaluate a polynomial using Horner's method.
     ///
