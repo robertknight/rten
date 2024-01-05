@@ -194,9 +194,8 @@ unsafe fn vec_fold<S: SimdFloat, Op: Fn(S, S) -> S>(
 /// `vec_unary_op` call will be invoked.
 macro_rules! dispatch_unary_op {
     ($in:ident, $out:ident, $op_func:ident, $fallback_func:ident) => {
-        use crate::vec_unary_op;
         #[allow(unused_imports)]
-        use crate::{MutPtrLen, PtrLen};
+        use crate::{vec_unary_op, MutPtrLen, PtrLen};
 
         assert!($in.len() == $out.len());
 
@@ -247,9 +246,8 @@ macro_rules! dispatch_unary_op {
     };
 
     ($out:ident, $op_func:ident, $fallback_func:ident) => {
-        use crate::vec_unary_op;
         #[allow(unused_imports)]
-        use crate::{MutPtrLen, PtrLen};
+        use crate::{vec_unary_op, MutPtrLen, PtrLen};
 
         #[allow(unreachable_code)] // Ignore fallback, if unused
         {
