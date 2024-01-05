@@ -238,6 +238,21 @@ macro_rules! dispatch_unary_op {
                 return;
             }
 
+            #[cfg(target_arch = "aarch64")]
+            {
+                use std::arch::aarch64::float32x4_t;
+
+                unsafe {
+                    vec_unary_op(
+                        $in.into(),
+                        $out.into(),
+                        |x: float32x4_t| $op_func(x),
+                        0., /* pad */
+                    );
+                }
+                return;
+            }
+
             // Generic fallback.
             for (x, y) in $in.iter().zip($out.iter_mut()) {
                 *y = $fallback_func(*x);
@@ -281,6 +296,21 @@ macro_rules! dispatch_unary_op {
                         $out.into(),
                         $out.into(),
                         |x: v128f| $op_func(x),
+                        0., /* pad */
+                    );
+                }
+                return;
+            }
+
+            #[cfg(target_arch = "aarch64")]
+            {
+                use std::arch::aarch64::float32x4_t;
+
+                unsafe {
+                    vec_unary_op(
+                        $out.into(),
+                        $out.into(),
+                        |x: float32x4_t| $op_func(x),
                         0., /* pad */
                     );
                 }
@@ -332,6 +362,14 @@ macro_rules! dispatch_simd {
                 // Safety: The WASM runtime will have verified SIMD instructions
                 // are accepted when loading the binary.
                 unsafe { $func::<v128f>($in, $out) };
+                return;
+            }
+
+            #[cfg(target_arch = "aarch64")]
+            {
+                use std::arch::aarch64::float32x4_t;
+
+                unsafe { $func::<float32x4_t>($in, $out) };
                 return;
             }
 
