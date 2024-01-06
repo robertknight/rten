@@ -344,7 +344,7 @@ impl GemmExecutor {
                 #[cfg(feature = "avx512")]
                 #[cfg(target_arch = "x86_64")]
                 {
-                    use kernels::x64::Avx512Kernel;
+                    use kernels::x86_64::Avx512Kernel;
 
                     if Avx512Kernel::supported() {
                         return Some(GemmExecutor {
@@ -359,7 +359,7 @@ impl GemmExecutor {
             KernelHint::Fma => {
                 #[cfg(target_arch = "x86_64")]
                 {
-                    use kernels::x64::FmaKernel;
+                    use kernels::x86_64::FmaKernel;
 
                     if FmaKernel::supported() {
                         return Some(GemmExecutor {

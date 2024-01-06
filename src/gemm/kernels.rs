@@ -8,7 +8,7 @@ use super::{GemmInputA, GemmInputB};
 pub mod aarch64;
 
 #[cfg(target_arch = "x86_64")]
-pub mod x64;
+pub mod x86_64;
 
 /// Kernel that computes a small tile of a matrix multiplication output.
 ///

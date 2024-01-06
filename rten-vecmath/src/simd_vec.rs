@@ -1,9 +1,9 @@
 #[cfg(target_arch = "aarch64")]
 pub(crate) mod aarch64;
-#[cfg(target_arch = "x86_64")]
-pub(crate) mod avx;
 #[cfg(target_arch = "wasm32")]
 pub(crate) mod wasm;
+#[cfg(target_arch = "x86_64")]
+pub(crate) mod x86_64;
 
 use crate::MAX_LEN;
 
