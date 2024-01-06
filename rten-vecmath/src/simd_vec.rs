@@ -1,3 +1,14 @@
+//! Traits to support writing portable SIMD code.
+//!
+//! Unlike [std::simd] (as of Rust v1.75.0), this compiles against stable Rust.
+//!
+//! This module provides traits to support writing generic SIMD code which
+//! can be compiled to work with different instruction sets. These traits are
+//! implemented for architecture-specific SIMD types (or wrappers around them,
+//! in some cases). There is also a generic implementation for Rust primitives
+//! (eg. f32, i32) which treats the primitive as a single-element SIMD type.
+//! This is useful both as a fallback implementation and for debugging.
+
 #[cfg(target_arch = "aarch64")]
 pub(crate) mod aarch64;
 #[cfg(target_arch = "wasm32")]
@@ -19,6 +30,8 @@ pub trait SimdInt: Copy + Sized {
     /// The number of elements in the SIMD vector.
     const LEN: usize;
 
+    /// The type produced by an operation that converts each element in this
+    /// vector to a float.
     type Float: SimdFloat<Int = Self>;
 
     /// Return a new vector with all elements set to zero.
