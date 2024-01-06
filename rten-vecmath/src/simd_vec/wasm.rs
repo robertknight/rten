@@ -18,6 +18,7 @@ pub struct v128f(v128);
 
 impl SimdInt for v128i {
     type Float = v128f;
+    type Mask = v128i;
 
     const LEN: usize = 4;
 
@@ -25,11 +26,11 @@ impl SimdInt for v128i {
         Self(i32x4_splat(val))
     }
 
-    unsafe fn gt(self, other: Self) -> Self {
+    unsafe fn gt(self, other: Self) -> Self::Mask {
         Self(i32x4_gt(self.0, other.0))
     }
 
-    unsafe fn blend(self, other: Self, mask: Self) -> Self {
+    unsafe fn blend(self, other: Self, mask: Self::Mask) -> Self {
         Self(v128_bitselect(other.0, self.0, mask.0))
     }
 
@@ -60,6 +61,7 @@ impl SimdInt for v128i {
 
 impl SimdFloat for v128f {
     type Int = v128i;
+    type Mask = v128i;
 
     const LEN: usize = 4;
 
@@ -95,23 +97,23 @@ impl SimdFloat for v128f {
         Self(f32x4_div(self.0, rhs.0))
     }
 
-    unsafe fn ge(self, rhs: Self) -> Self {
-        Self(f32x4_ge(self.0, rhs.0))
+    unsafe fn ge(self, rhs: Self) -> Self::Mask {
+        v128i(f32x4_ge(self.0, rhs.0))
     }
 
-    unsafe fn le(self, rhs: Self) -> Self {
-        Self(f32x4_le(self.0, rhs.0))
+    unsafe fn le(self, rhs: Self) -> Self::Mask {
+        v128i(f32x4_le(self.0, rhs.0))
     }
 
-    unsafe fn lt(self, rhs: Self) -> Self {
-        Self(f32x4_lt(self.0, rhs.0))
+    unsafe fn lt(self, rhs: Self) -> Self::Mask {
+        v128i(f32x4_lt(self.0, rhs.0))
     }
 
     unsafe fn max(self, rhs: Self) -> Self {
         Self(f32x4_max(self.0, rhs.0))
     }
 
-    unsafe fn blend(self, rhs: Self, mask: Self) -> Self {
+    unsafe fn blend(self, rhs: Self, mask: Self::Mask) -> Self {
         Self(v128_bitselect(rhs.0, self.0, mask.0))
     }
 

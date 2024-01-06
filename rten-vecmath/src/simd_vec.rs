@@ -34,6 +34,9 @@ pub trait SimdInt: Copy + Sized {
     /// vector to a float.
     type Float: SimdFloat<Int = Self>;
 
+    /// The type used by operations that use or return masks.
+    type Mask: Copy;
+
     /// Return a new vector with all elements set to zero.
     unsafe fn zero() -> Self {
         Self::splat(0)
@@ -43,13 +46,13 @@ pub trait SimdInt: Copy + Sized {
     unsafe fn splat(val: i32) -> Self;
 
     /// Return a mask indicating whether `self > other`.
-    unsafe fn gt(self, other: Self) -> Self;
+    unsafe fn gt(self, other: Self) -> Self::Mask;
 
     /// Select elements from this vector or `other` according to a mask.
     ///
     /// For each lane, if the mask value is zero, return the element from
     /// `self`, otherwise return the value from `other`.
-    unsafe fn blend(self, other: Self, mask: Self) -> Self;
+    unsafe fn blend(self, other: Self, mask: Self::Mask) -> Self;
 
     /// Compute `self + rhs`.
     unsafe fn add(self, rhs: Self) -> Self;
@@ -96,6 +99,9 @@ pub trait SimdFloat: Copy + Sized {
     /// to a vector of ints.
     type Int: SimdInt<Float = Self>;
 
+    /// The type used by operations that use or return masks.
+    type Mask: Copy;
+
     /// Shorthand for `Self::splat(1.0)`.
     unsafe fn one() -> Self {
         Self::splat(1.0)
@@ -141,13 +147,13 @@ pub trait SimdFloat: Copy + Sized {
     unsafe fn div(self, rhs: Self) -> Self;
 
     /// Compute a mask containing `self >= rhs`.
-    unsafe fn ge(self, rhs: Self) -> Self;
+    unsafe fn ge(self, rhs: Self) -> Self::Mask;
 
     /// Compute a mask containing `self <= rhs`.
-    unsafe fn le(self, rhs: Self) -> Self;
+    unsafe fn le(self, rhs: Self) -> Self::Mask;
 
     /// Compute a mask containing `self < rhs`.
-    unsafe fn lt(self, rhs: Self) -> Self;
+    unsafe fn lt(self, rhs: Self) -> Self::Mask;
 
     /// Compute the maximum of `self` and `rhs`.
     unsafe fn max(self, rhs: Self) -> Self;
@@ -156,7 +162,7 @@ pub trait SimdFloat: Copy + Sized {
     ///
     /// For each lane, if the mask value is zero, return the element from
     /// `self`, otherwise return the value from `other`.
-    unsafe fn blend(self, other: Self, mask: Self) -> Self;
+    unsafe fn blend(self, other: Self, mask: Self::Mask) -> Self;
 
     /// Evaluate a polynomial using Horner's method.
     ///
@@ -200,6 +206,7 @@ impl SimdInt for i32 {
     const LEN: usize = 1;
 
     type Float = f32;
+    type Mask = bool;
 
     unsafe fn zero() -> Self {
         0
@@ -209,12 +216,12 @@ impl SimdInt for i32 {
         val
     }
 
-    unsafe fn gt(self, other: Self) -> Self {
-        (self > other) as i32
+    unsafe fn gt(self, other: Self) -> Self::Mask {
+        self > other
     }
 
-    unsafe fn blend(self, other: Self, mask: Self) -> Self {
-        if mask == 0 {
+    unsafe fn blend(self, other: Self, mask: Self::Mask) -> Self {
+        if !mask {
             self
         } else {
             other
@@ -251,6 +258,7 @@ impl SimdFloat for f32 {
     const LEN: usize = 1;
 
     type Int = i32;
+    type Mask = bool;
 
     unsafe fn one() -> Self {
         1.
@@ -292,36 +300,24 @@ impl SimdFloat for f32 {
         self / rhs
     }
 
-    unsafe fn ge(self, rhs: Self) -> Self {
-        if self >= rhs {
-            1.
-        } else {
-            0.
-        }
+    unsafe fn ge(self, rhs: Self) -> Self::Mask {
+        self >= rhs
     }
 
-    unsafe fn le(self, rhs: Self) -> Self {
-        if self <= rhs {
-            1.
-        } else {
-            0.
-        }
+    unsafe fn le(self, rhs: Self) -> Self::Mask {
+        self <= rhs
     }
 
-    unsafe fn lt(self, rhs: Self) -> Self {
-        if self < rhs {
-            1.
-        } else {
-            0.
-        }
+    unsafe fn lt(self, rhs: Self) -> Self::Mask {
+        self < rhs
     }
 
     unsafe fn max(self, rhs: Self) -> Self {
         f32::max(self, rhs)
     }
 
-    unsafe fn blend(self, rhs: Self, mask: Self) -> Self {
-        if mask == 0. {
+    unsafe fn blend(self, rhs: Self, mask: Self::Mask) -> Self {
+        if !mask {
             self
         } else {
             rhs

@@ -11,6 +11,7 @@ use crate::simd_vec::{SimdFloat, SimdInt};
 
 impl SimdInt for __m256i {
     type Float = __m256;
+    type Mask = __m256i;
 
     const LEN: usize = 8;
 
@@ -28,13 +29,13 @@ impl SimdInt for __m256i {
 
     #[target_feature(enable = "avx2")]
     #[target_feature(enable = "fma")]
-    unsafe fn gt(self, other: Self) -> Self {
+    unsafe fn gt(self, other: Self) -> Self::Mask {
         _mm256_cmpgt_epi32(self, other)
     }
 
     #[target_feature(enable = "avx2")]
     #[target_feature(enable = "fma")]
-    unsafe fn blend(self, other: Self, mask: Self) -> Self {
+    unsafe fn blend(self, other: Self, mask: Self::Mask) -> Self {
         _mm256_blendv_epi8(self, other, mask)
     }
 
@@ -79,6 +80,7 @@ impl SimdInt for __m256i {
 
 impl SimdFloat for __m256 {
     type Int = __m256i;
+    type Mask = __m256;
 
     const LEN: usize = 8;
 
@@ -134,19 +136,19 @@ impl SimdFloat for __m256 {
 
     #[target_feature(enable = "avx2")]
     #[target_feature(enable = "fma")]
-    unsafe fn ge(self, rhs: Self) -> Self {
+    unsafe fn ge(self, rhs: Self::Mask) -> Self {
         _mm256_cmp_ps(self, rhs, _CMP_GE_OQ)
     }
 
     #[target_feature(enable = "avx2")]
     #[target_feature(enable = "fma")]
-    unsafe fn le(self, rhs: Self) -> Self {
+    unsafe fn le(self, rhs: Self::Mask) -> Self {
         _mm256_cmp_ps(self, rhs, _CMP_LE_OQ)
     }
 
     #[target_feature(enable = "avx2")]
     #[target_feature(enable = "fma")]
-    unsafe fn lt(self, rhs: Self) -> Self {
+    unsafe fn lt(self, rhs: Self::Mask) -> Self {
         _mm256_cmp_ps(self, rhs, _CMP_LT_OQ)
     }
 
@@ -158,7 +160,7 @@ impl SimdFloat for __m256 {
 
     #[target_feature(enable = "avx2")]
     #[target_feature(enable = "fma")]
-    unsafe fn blend(self, rhs: Self, mask: Self) -> Self {
+    unsafe fn blend(self, rhs: Self, mask: Self::Mask) -> Self {
         _mm256_blendv_ps(self, rhs, mask)
     }
 
