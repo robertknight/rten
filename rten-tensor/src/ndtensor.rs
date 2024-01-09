@@ -7,7 +7,6 @@ use crate::errors::{DimensionError, FromDataError};
 use crate::index_iterator::NdIndices;
 use crate::iterators::{Iter, IterMut};
 use crate::layout::{Layout, MatrixLayout, NdLayout, OverlapPolicy};
-use crate::range::SliceItem;
 use crate::{IntoSliceItems, RandomSource, TensorBase, TensorView, TensorViewMut, View};
 
 /// Multi-dimensional array view with a static dimension count. This trait
@@ -514,16 +513,8 @@ impl<T, S: AsRef<[T]> + AsMut<[T]>, const N: usize> NdTensorBase<T, S, N> {
         &mut self,
         range: R,
     ) -> NdTensorViewMut<T, M> {
-        self.slice_mut_dyn(range.into_slice_items().as_ref())
-    }
-
-    /// Return a mutable view of part of this tensor.
-    ///
-    /// `M` specifies the number of dimensions that the layout must have after
-    /// slicing with `range`. Panics if the sliced layout has a different number
-    /// of dims.
-    pub fn slice_mut_dyn<const M: usize>(&mut self, range: &[SliceItem]) -> NdTensorViewMut<T, M> {
-        let (offset_range, sliced_layout) = self.layout.slice(range);
+        let range = range.into_slice_items();
+        let (offset_range, sliced_layout) = self.layout.slice(range.as_ref());
         NdTensorViewMut {
             data: &mut self.data.as_mut()[offset_range],
             layout: sliced_layout,
