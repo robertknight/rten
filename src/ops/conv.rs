@@ -1252,4 +1252,43 @@ mod tests {
 
         Ok(())
     }
+
+    #[test]
+    #[ignore]
+    fn bench_depthwise_conv() {
+        let mut rng = XorShiftRng::new(1234);
+
+        // Input and kernel sizes copied from the last layers of MobileNetV2.
+        // This has a small spatial shape, so it measures overhead around the
+        // inner loop. A larger spatial shape would be more affected by the
+        // efficiency of the innermost loops.
+        let input = Tensor::rand(&[1, 576, 14, 14], &mut rng);
+        let kernel = Tensor::rand(&[576, 1, 3, 3], &mut rng);
+
+        let n_groups = input.size(1);
+        let padding = Padding::Fixed([1, 1, 1, 1].into());
+        let bias = None;
+        let dilations = [1, 1];
+
+        let iters = 100;
+
+        let start = std::time::Instant::now();
+        for _ in 0..iters {
+            for stride in [1, 1, 2] {
+                conv(
+                    input.view(),
+                    kernel.view(),
+                    bias.clone(),
+                    padding.clone(),
+                    n_groups,
+                    &[stride, stride],
+                    &dilations,
+                )
+                .unwrap();
+            }
+        }
+        let elapsed = start.elapsed().as_secs_f32() * 1000.0;
+
+        println!("depthwise_conv {elapsed:.3}ms",);
+    }
 }
