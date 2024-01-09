@@ -3,9 +3,9 @@ use std::iter::zip;
 use std::ops::Range;
 
 use rayon::prelude::*;
-
 use rten_tensor::prelude::*;
 use rten_tensor::{NdTensorView, NdTensorViewMut, Tensor, TensorView};
+use smallvec::SmallVec;
 
 use crate::check_dims;
 use crate::gemm::{
@@ -254,18 +254,46 @@ fn conv_2d_depthwise(
     let input = input.to_contiguous();
     let mut out_view: NdTensorViewMut<f32, 4> = output.nd_view_mut();
 
+    // Map of kernel X position to `(in_range, out_range)` of column ranges that
+    // are used in the inner loop.
+    let col_range_for_kernel_x: SmallVec<[_; 7]> = (0..k_w)
+        .map(|k_x| {
+            let (min_out_x, max_out_x) =
+                min_max_out_x_coords(k_x, in_w, pad_left, stride_w, dilation_x, out_w);
+            let out_range = min_out_x..max_out_x;
+
+            let min_in_x = min_out_x * stride_w + k_x * dilation_x - pad_left;
+            let max_in_x = if out_range.is_empty() {
+                // `max_out_x` could be zero, so `max_out_x - 1` would underflow.
+                // If the output range is empty, the input range must be too.
+                min_in_x
+            } else {
+                (max_out_x - 1) * stride_w + k_x * dilation_x - pad_left + 1
+            };
+
+            (min_in_x..max_in_x, min_out_x..max_out_x)
+        })
+        .collect();
+
     for n in 0..batch {
         for c in 0..in_c {
             let kernel_view = kernel.slice([c, 0]).unchecked();
-            let in_chan = input.slice::<2, _>([n, c]);
+
+            // For efficiency, use manual slicing in the inner loops to extract
+            // input/output rows.
             let mut out_chan = out_view.slice_mut::<2, _>([n, c]);
+            let out_row_stride = out_chan.stride(0);
+            let out_chan_data = out_chan.data_mut().unwrap();
+
+            let in_chan = input.slice::<2, _>([n, c]);
+            let in_row_stride = in_chan.stride(0);
+            let in_chan_data = in_chan.data().unwrap();
 
             // The loops here are ordered so that the inner-most loop is as
             // efficient as possible and runs for as long as possible over a
             // contiguous slice of memory.
             for out_y in 0..out_h {
-                let mut out_row = out_chan.slice_mut::<1, _>([out_y]);
-                let out_row = out_row.data_mut().unwrap();
+                let out_row = &mut out_chan_data[out_y * out_row_stride..][..out_row_stride];
 
                 for k_y in 0..k_h {
                     let in_y = out_y * stride_h + k_y * dilation_y;
@@ -273,32 +301,16 @@ fn conv_2d_depthwise(
                         continue;
                     }
 
-                    let in_row = in_chan.slice::<1, _>([in_y - pad_top]);
+                    let in_row_y = in_y - pad_top;
+                    let in_row = &in_chan_data[in_row_y * in_row_stride..][..in_row_stride];
 
-                    // Safety: We ensured input is contiguous before these
-                    // loops.
-                    let in_row = unsafe { in_row.data_unchecked() };
-
-                    for k_x in 0..k_w {
-                        let kernel_val = kernel_view[[k_y, k_x]];
-                        let (min_out_x, max_out_x) =
-                            min_max_out_x_coords(k_x, in_w, pad_left, stride_w, dilation_x, out_w);
-
-                        if min_out_x == max_out_x {
-                            continue;
-                        }
-
-                        let out_row_slice = &mut out_row[min_out_x..max_out_x];
-                        let in_row_slice = &in_row[min_out_x * stride_w + k_x * dilation_x
-                            - pad_left
-                            ..(max_out_x - 1) * stride_w + k_x * dilation_x - pad_left + 1];
-
+                    for (k_x, (in_range, out_range)) in col_range_for_kernel_x.iter().enumerate() {
                         add_scaled_vector(
-                            out_row_slice,
-                            in_row_slice,
+                            &mut out_row[out_range.clone()],
+                            &in_row[in_range.clone()],
                             1,        /* dest_stride */
                             stride_w, /* src_stride */
-                            kernel_val,
+                            kernel_view[[k_y, k_x]],
                         );
                     }
                 }

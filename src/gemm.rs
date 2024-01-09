@@ -12,7 +12,7 @@ use std::ops::Range;
 use rten_tensor::prelude::*;
 use rten_tensor::{Matrix, MatrixLayout, MatrixMut};
 
-use crate::iter_util::{range_chunks, MaybeParIter};
+use crate::iter_util::{range_chunks, unroll_loop, MaybeParIter};
 
 mod kernels;
 mod packing;
@@ -36,6 +36,7 @@ pub fn div_ceil(a: usize, b: usize) -> usize {
 /// `dest_stride` and `src_stride` specifies the strides to use when iterating
 /// over `dest` and `src` respectively. The lengths of `dest` and `src` must
 /// match after accounting for their respective strides.
+#[inline]
 pub fn add_scaled_vector(
     dest: &mut [f32],
     src: &[f32],
@@ -56,36 +57,18 @@ pub fn add_scaled_vector(
         return;
     }
 
-    let src_els = div_ceil(src.len(), src_stride);
-    let dest_els = div_ceil(dest.len(), dest_stride);
+    let src_els = src.len().div_ceil(src_stride);
+    let dest_els = dest.len().div_ceil(dest_stride);
     assert!(
         src_els == dest_els,
         "src and dest vector sizes do not match"
     );
 
-    const N: usize = 4;
-    let n_blocks = src_els / N;
-    let mut val = [0.0; N];
-
-    for b in 0..n_blocks {
-        for i in 0..N {
-            unsafe {
-                val[i] = src.get_unchecked((b * N + i) * src_stride) * scale;
-            }
-        }
-
-        for i in 0..N {
-            unsafe {
-                *dest.get_unchecked_mut((b * N + i) * dest_stride) += val[i];
-            }
-        }
-    }
-
-    for i in n_blocks * N..src_els {
+    unroll_loop!(src_els, i, 4, {
         unsafe {
-            *dest.get_unchecked_mut(i * dest_stride) += src.get_unchecked(i * src_stride) * scale;
+            *dest.get_unchecked_mut(i * dest_stride) += *src.get_unchecked(i * src_stride) * scale;
         }
-    }
+    });
 }
 
 /// Return the smallest multiple of `factor` that is >= `val`.
