@@ -950,7 +950,13 @@ impl<'a, T, const N: usize> Iterator for InnerIter<'a, T, N> {
             self.view.slice(slice_items.as_slice()).try_into().unwrap()
         })
     }
+
+    fn size_hint(&self) -> (usize, Option<usize>) {
+        self.outer_indices.size_hint()
+    }
 }
+
+impl<'a, T, const N: usize> ExactSizeIterator for InnerIter<'a, T, N> {}
 
 /// Iterator over mutable views of the N innermost dimensions of a tensor.
 pub struct InnerIterMut<'a, T, const N: usize> {
@@ -988,7 +994,13 @@ impl<'a, T, const N: usize> Iterator for InnerIterMut<'a, T, N> {
             }
         })
     }
+
+    fn size_hint(&self) -> (usize, Option<usize>) {
+        self.outer_indices.size_hint()
+    }
 }
+
+impl<'a, T, const N: usize> ExactSizeIterator for InnerIterMut<'a, T, N> {}
 
 // Tests for iterator internals. Most tests of iterators are currently done via
 // tests on tensor methods.
