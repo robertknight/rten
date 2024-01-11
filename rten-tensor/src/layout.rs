@@ -16,18 +16,27 @@ pub fn is_valid_permutation(ndim: usize, permutation: &[usize]) -> bool {
         && (0..ndim).all(|dim| permutation.iter().filter(|d| **d == dim).count() == 1)
 }
 
-/// Provides methods for querying the shape and strides of a tensor.
+/// Layouts describe the shape of a tensor, ie. the number of dimensions and
+/// size of each, and the mapping between indices and offsets in the data
+/// storage.
+///
+/// The main implementations are [NdLayout], where the dimension count is known
+/// statically, and [DynLayout], where the dimension count is only known at
+/// runtime.
 pub trait Layout {
     /// Type used to represent indices.
     ///
     /// It is assumed that this type can also represent the shape and strides
     /// of the tensor.
-    type Index<'a>: AsRef<[usize]> + std::fmt::Debug + PartialEq<Self::Index<'a>>
-    where
-        Self: 'a;
+    type Index<'a>: AsRef<[usize]> + std::fmt::Debug + PartialEq<Self::Index<'a>>;
 
     /// Iterator over indices in this tensor.
     type Indices;
+
+    /// Map an index to a storage offset.
+    ///
+    /// Panics if any dimension of the index is out of bounds.
+    fn offset(&self, index: Self::Index<'_>) -> usize;
 
     /// Return the number of dimensions.
     fn ndim(&self) -> usize;
@@ -155,6 +164,10 @@ impl<const N: usize> Layout for NdLayout<N> {
 
     fn len(&self) -> usize {
         self.shape.iter().product()
+    }
+
+    fn offset(&self, index: [usize; N]) -> usize {
+        self.offset(index)
     }
 
     #[inline]
@@ -515,6 +528,10 @@ impl Layout for DynLayout {
     /// Return the number of elements in the tensor shape described by this layout.
     fn len(&self) -> usize {
         self.shape().iter().product()
+    }
+
+    fn offset(&self, index: &[usize]) -> usize {
+        self.offset(index)
     }
 
     fn is_empty(&self) -> bool {

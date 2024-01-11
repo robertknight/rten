@@ -558,12 +558,16 @@ impl<'a, T> TensorView<'a, T> {
 }
 
 impl<T, S: AsRef<[T]>> Layout for TensorBase<T, S> {
-    type Index<'a> = <DynLayout as Layout>::Index<'a> where S: 'a, T: 'a;
+    type Index<'a> = <DynLayout as Layout>::Index<'a>;
     type Indices = <DynLayout as Layout>::Indices;
 
     /// Return the number of dimensions.
     fn ndim(&self) -> usize {
         self.layout.ndim()
+    }
+
+    fn offset(&self, index: &[usize]) -> usize {
+        self.layout.offset(index)
     }
 
     /// Returns the number of elements in the array.

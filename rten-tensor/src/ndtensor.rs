@@ -662,7 +662,7 @@ impl<T, S: AsRef<[T]> + AsMut<[T]>, const N: usize> IndexMut<[usize; N]> for NdT
 }
 
 impl<T, S: AsRef<[T]>, const N: usize> Layout for NdTensorBase<T, S, N> {
-    type Index<'a> = [usize; N] where S: 'a, T: 'a;
+    type Index<'a> = [usize; N];
     type Indices = NdIndices<N>;
 
     fn ndim(&self) -> usize {
@@ -671,6 +671,10 @@ impl<T, S: AsRef<[T]>, const N: usize> Layout for NdTensorBase<T, S, N> {
 
     fn len(&self) -> usize {
         self.layout.len()
+    }
+
+    fn offset(&self, index: [usize; N]) -> usize {
+        self.layout.offset(index)
     }
 
     fn is_empty(&self) -> bool {
@@ -753,11 +757,15 @@ pub struct UncheckedNdTensor<T, S: AsRef<[T]>, const N: usize> {
 }
 
 impl<T, S: AsRef<[T]>, const N: usize> Layout for UncheckedNdTensor<T, S, N> {
-    type Index<'a> = [usize; N] where S: 'a, T: 'a;
+    type Index<'a> = [usize; N];
     type Indices = NdIndices<N>;
 
     fn ndim(&self) -> usize {
         N
+    }
+
+    fn offset(&self, index: [usize; N]) -> usize {
+        self.base.layout.offset_unchecked(index)
     }
 
     fn len(&self) -> usize {
