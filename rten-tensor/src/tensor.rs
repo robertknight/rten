@@ -888,7 +888,7 @@ impl<T> Tensor<T> {
 
     /// Clone this tensor with a new shape. The new shape must have the same
     /// total number of elements as the existing shape. See `reshape`.
-    pub fn clone_with_shape(&self, shape: &[usize]) -> Tensor<T>
+    pub fn to_shape(&self, shape: &[usize]) -> Tensor<T>
     where
         T: Clone,
     {
@@ -1531,7 +1531,7 @@ mod tests {
     fn test_partial_eq() {
         let x = tensor!([1, 2, 3, 4, 5]);
         let y = x.clone();
-        let z = x.clone_with_shape(&[1, 5]);
+        let z = x.to_shape(&[1, 5]);
 
         // Int tensors are equal if they have the same shape and elements.
         assert_eq!(&x, &y);
@@ -1723,10 +1723,10 @@ mod tests {
     }
 
     #[test]
-    fn test_clone_with_shape() {
+    fn test_to_shape() {
         let mut rng = XorShiftRng::new(1234);
         let x = Tensor::rand(&[10, 5, 3, 7], &mut rng);
-        let y = x.clone_with_shape(&[10, 5, 3 * 7]);
+        let y = x.to_shape(&[10, 5, 3 * 7]);
 
         assert_eq!(y.shape(), &[10, 5, 3 * 7]);
         assert_eq!(y.data(), x.data());
