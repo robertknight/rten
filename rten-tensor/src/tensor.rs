@@ -9,7 +9,7 @@ use std::ops::{Index, IndexMut, Range};
 use crate::errors::SliceError;
 use crate::iterators::{
     AxisChunks, AxisChunksMut, AxisIter, AxisIterMut, BroadcastIter, InnerIter, InnerIterMut, Iter,
-    IterMut, Lanes, LanesMut, Offsets,
+    IterMut, Lanes, LanesMut, MutViewRef, ViewRef,
 };
 use crate::layout::{DynLayout, Layout};
 use crate::ndtensor::{NdTensorBase, NdTensorView, NdTensorViewMut};
@@ -87,14 +87,14 @@ pub trait View: Layout {
 
     /// Return an iterator over elements of this tensor, in their logical order.
     fn iter(&self) -> Iter<Self::Elem> {
-        Iter::new(&self.view())
+        self.view().iter()
     }
 
     /// Return an iterator over all 1D slices ("lanes") along a given axis.
     ///
     /// Each slice is an iterator over the elements in that lane.
     fn lanes(&self, dim: usize) -> Lanes<Self::Elem> {
-        Lanes::new(self.view(), dim)
+        self.view().lanes(dim)
     }
 
     /// Return a copy of this tensor with each element replaced by `f(element)`.
@@ -325,23 +325,6 @@ impl<T, S: AsRef<[T]>> TensorBase<T, S> {
     pub fn layout(&self) -> &DynLayout {
         &self.layout
     }
-
-    /// Return an iterator over offsets of elements in this tensor, in their
-    /// logical order.
-    ///
-    /// See also the notes for `slice_offsets`.
-    #[cfg(test)]
-    fn offsets(&self) -> Offsets {
-        Offsets::new(self.layout())
-    }
-
-    /// Return an iterator over offsets of elements in this tensor.
-    ///
-    /// Note that the offset order of the returned iterator will become incorrect
-    /// if the tensor's layout is modified during iteration.
-    pub(crate) fn slice_offsets(&self, range: &[SliceItem]) -> Offsets {
-        Offsets::slice(self.layout(), range)
-    }
 }
 
 /// Specialized versions of the [View] methods for immutable views.
@@ -369,7 +352,7 @@ impl<'a, T> TensorView<'a, T> {
             self.can_broadcast_to(shape),
             "Cannot broadcast to specified shape"
         );
-        BroadcastIter::new(self, shape)
+        BroadcastIter::new(self.view_ref(), shape)
     }
 
     pub fn data(&self) -> Option<&'a [T]> {
@@ -398,7 +381,11 @@ impl<'a, T> TensorView<'a, T> {
     }
 
     pub fn iter(&self) -> Iter<'a, T> {
-        Iter::new(self)
+        Iter::new(self.view_ref())
+    }
+
+    pub(crate) fn view_ref(&self) -> ViewRef<'a, '_, T, DynLayout> {
+        ViewRef::new(self.data, &self.layout)
     }
 
     pub fn item(&self) -> Option<&'a T> {
@@ -410,7 +397,7 @@ impl<'a, T> TensorView<'a, T> {
     }
 
     pub fn lanes(&self, dim: usize) -> Lanes<'a, T> {
-        Lanes::new(self.clone(), dim)
+        Lanes::new(self.view_ref(), dim)
     }
 
     pub fn nd_view<const N: usize>(&self) -> NdTensorView<'a, T, N> {
@@ -458,7 +445,7 @@ impl<'a, T> TensorView<'a, T> {
     }
 
     pub fn slice_iter(&self, range: &[SliceItem]) -> Iter<'a, T> {
-        Iter::slice(self, range)
+        Iter::slice(self.view_ref(), range)
     }
 
     pub fn squeezed(&self) -> TensorView<'a, T> {
@@ -624,19 +611,13 @@ impl<T, S: AsRef<[T]> + AsMut<[T]>> TensorBase<T, S> {
         self.is_contiguous().then_some(self.data.as_mut())
     }
 
-    /// Return the element buffer for this tensor as a mutable slice.
-    ///
-    /// Unlike [TensorBase::data_mut] this does not check if the data is
-    /// contigous. If multiple mutable views of a non-contiguous tensor exist,
-    /// the returned slice may overlap with other mutable slices.
-    pub(crate) unsafe fn data_mut_unchecked(&mut self) -> &mut [T] {
-        self.data.as_mut()
-    }
-
     /// Return a mutable iterator over elements of this view.
     pub fn iter_mut(&mut self) -> IterMut<T> {
-        let layout = &self.layout;
-        IterMut::new(self.data.as_mut(), layout)
+        IterMut::new(self.mut_view_ref())
+    }
+
+    pub(crate) fn mut_view_ref(&mut self) -> MutViewRef<T, DynLayout> {
+        MutViewRef::new(self.data.as_mut(), &self.layout)
     }
 
     /// Return an iterator over mutable slices of this tensor along a given
@@ -666,7 +647,7 @@ impl<T, S: AsRef<[T]> + AsMut<[T]>> TensorBase<T, S> {
     /// Return a mutable iterator over all 1D slices of this tensor along a
     /// given axis.
     pub fn lanes_mut(&mut self, dim: usize) -> LanesMut<T> {
-        LanesMut::new(self.view_mut(), dim)
+        LanesMut::new(self.mut_view_ref(), dim)
     }
 
     /// Replace elements of this tensor with `f(element)`.
@@ -1088,6 +1069,7 @@ fn fast_for_each_element<T, F: FnMut(&T)>(mut x: TensorView<T>, mut f: F) {
 mod tests {
     use std::ops::IndexMut;
 
+    use crate::iterators::Offsets;
     use crate::rng::XorShiftRng;
     use crate::tensor;
     use crate::{
@@ -1253,7 +1235,10 @@ mod tests {
 
         // Offsets should be relative to the sliced returned by `data`,
         // `data_mut`.
-        assert_eq!(x.offsets().collect::<Vec<usize>>(), &[0, 1, 2, 3, 4, 5]);
+        assert_eq!(
+            Offsets::new(&x).collect::<Vec<usize>>(),
+            &[0, 1, 2, 3, 4, 5]
+        );
         assert_eq!(x.layout().offset(&[0, 0]), 0);
     }
 
@@ -1875,7 +1860,7 @@ mod tests {
 
         let x_elts: Vec<_> = x.to_vec();
 
-        let x_offsets = x.offsets();
+        let x_offsets = Offsets::new(&x);
         let x_data = x.data_mut().unwrap();
         let x_elts_from_offset: Vec<_> = x_offsets.map(|off| x_data[off]).collect();
 
@@ -1885,14 +1870,14 @@ mod tests {
     #[test]
     fn test_offsets_nth() {
         let x = steps(&[3]);
-        let mut iter = x.offsets();
+        let mut iter = Offsets::new(&x);
         assert_eq!(iter.nth(0), Some(0));
         assert_eq!(iter.nth(0), Some(1));
         assert_eq!(iter.nth(0), Some(2));
         assert_eq!(iter.nth(0), None);
 
         let x = steps(&[10]);
-        let mut iter = x.offsets();
+        let mut iter = Offsets::new(&x);
         assert_eq!(iter.nth(1), Some(1));
         assert_eq!(iter.nth(5), Some(7));
         assert_eq!(iter.nth(1), Some(9));
@@ -2377,28 +2362,6 @@ mod tests {
                 }
             }
         }
-    }
-
-    // These tests assume the correctness of `slice_iter`, given the tests
-    // above, and check for consistency between the results of `slice_offsets`
-    // and `slice_iter`.
-    #[test]
-    fn test_slice_offsets() {
-        let x = steps(&[5, 5]);
-
-        // Range that removes the start and end of each dimension.
-        let range = &[
-            SliceItem::range(1, Some(4), 1),
-            SliceItem::range(1, Some(4), 1),
-        ];
-        let expected: Vec<_> = x.slice_iter(range).copied().collect();
-        let x_data = x.data().unwrap();
-        let result: Vec<_> = x
-            .slice_offsets(range)
-            .map(|offset| x_data[offset])
-            .collect();
-
-        assert_eq!(&result, &expected);
     }
 
     #[test]
