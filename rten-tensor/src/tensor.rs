@@ -157,7 +157,7 @@ pub trait View: Layout {
         }
     }
 
-    /// Return an `NdTensor` version of this view.
+    /// Return a view with a static rank.
     ///
     /// Panics if the rank of this tensor is not `N`.
     fn nd_view<const N: usize>(&self) -> NdTensorView<Self::Elem, N> {
@@ -454,29 +454,10 @@ impl<'a, T> TensorView<'a, T> {
     }
 
     pub fn nd_view<const N: usize>(&self) -> NdTensorView<'a, T, N> {
-        self.nd_slice([])
-    }
-
-    /// Return an N-dimensional view of a slice of this tensor.
-    ///
-    /// See notes in [TensorBase::nd_view].
-    ///
-    /// Base specifies zero or more indices to slice the view with, and N
-    /// is the rank of the returned view. `B + N` must equal `self.ndim()`.
-    pub fn nd_slice<const B: usize, const N: usize>(
-        &self,
-        base: [usize; B],
-    ) -> NdTensorView<'a, T, N> {
-        assert!(B + N == self.ndim());
-        let offset = self.layout.slice_offset(base);
-
-        // Safety: The offset for the slice is valid, and `NdTensorView` will
-        // only expose elements from `data` that belong to the sliced view.
-        let data = unsafe { &self.data_unchecked()[offset..] };
-        let strides = self.layout.strides()[self.ndim() - N..].try_into().unwrap();
-        let shape = self.layout.shape()[self.ndim() - N..].try_into().unwrap();
-
-        NdTensorView::from_slice(data, shape, Some(strides)).unwrap()
+        assert!(self.ndim() == N);
+        let shape: [usize; N] = self.shape().try_into().unwrap();
+        let strides: [usize; N] = self.strides().try_into().unwrap();
+        NdTensorView::from_slice(self.data, shape, Some(strides)).unwrap()
     }
 
     pub fn permuted(&self, dims: &[usize]) -> TensorView<'a, T> {
@@ -807,27 +788,14 @@ impl<T, S: AsRef<[T]> + AsMut<[T]>> TensorBase<T, S> {
         TensorViewMut::new(self.data.as_mut(), &self.layout)
     }
 
-    /// Return an N-dimensional slice of this tensor.
+    /// Return a mutable view with a static rank.
     ///
-    /// This is the same as [TensorBase::nd_slice] except that the
-    /// returned view can be used to modify elements.
-    pub fn nd_slice_mut<const B: usize, const N: usize>(
-        &mut self,
-        base: [usize; B],
-    ) -> NdTensorViewMut<T, N> {
-        assert!(B + N == self.ndim());
-        let offset = self.layout.slice_offset(base);
-        let strides = self.layout.strides()[self.ndim() - N..].try_into().unwrap();
-        let shape = self.layout.shape()[self.ndim() - N..].try_into().unwrap();
-        let data = &mut self.data.as_mut()[offset..];
-        NdTensorViewMut::from_data(data, shape, Some(strides)).unwrap()
-    }
-
-    /// Return a mutable N-dimensional view of this tensor.
-    ///
-    /// See notes in `[TensorBase::nd_view]`.
+    /// Panics if the rank of this tensor is not `N`.
     pub fn nd_view_mut<const N: usize>(&mut self) -> NdTensorViewMut<T, N> {
-        self.nd_slice_mut([])
+        assert!(self.ndim() == N);
+        let shape: [usize; N] = self.shape().try_into().unwrap();
+        let strides: [usize; N] = self.strides().try_into().unwrap();
+        NdTensorViewMut::from_data(self.data.as_mut(), shape, Some(strides)).unwrap()
     }
 }
 
@@ -1765,37 +1733,23 @@ mod tests {
     }
 
     #[test]
-    fn test_nd_slice() {
+    fn test_nd_view() {
         let mut rng = XorShiftRng::new(1234);
         let x = Tensor::rand(&[10, 5, 3, 7], &mut rng);
-        let x_view = x.view().nd_slice([5, 3]);
-
-        for a in 0..x.size(2) {
-            for b in 0..x.size(3) {
-                assert_eq!(x[[5, 3, a, b]], x_view[[a, b]]);
-            }
-        }
+        let x_view = x.nd_view::<4>();
+        assert_eq!(x_view.shape(), x.shape());
+        assert_eq!(x_view.strides(), x.strides());
+        assert_eq!(x_view.data(), x.data());
     }
 
     #[test]
-    fn test_nd_slice_mut() {
+    fn test_nd_view_mut() {
         let mut rng = XorShiftRng::new(1234);
         let mut x = Tensor::rand(&[10, 5, 3, 7], &mut rng);
-
-        let [_, _, a_size, b_size]: [usize; 4] = x.shape().try_into().unwrap();
-        let mut x_view = x.nd_slice_mut([5, 3]);
-
-        for a in 0..a_size {
-            for b in 0..b_size {
-                x_view[[a, b]] = (a + b) as f32;
-            }
-        }
-
-        for a in 0..x.size(2) {
-            for b in 0..x.size(3) {
-                assert_eq!(x[[5, 3, a, b]], (a + b) as f32);
-            }
-        }
+        let layout = x.layout().clone();
+        let x_view = x.nd_view_mut::<4>();
+        assert_eq!(x_view.shape(), layout.shape());
+        assert_eq!(x_view.strides(), layout.strides());
     }
 
     #[test]
