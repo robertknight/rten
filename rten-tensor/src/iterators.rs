@@ -2,7 +2,6 @@ use std::iter::{repeat, zip, Cycle, FusedIterator, StepBy, Take};
 use std::ops::{Add, Range};
 use std::slice;
 
-use super::layout::DynLayout;
 use super::range::{SliceItem, SliceRange};
 use crate::{
     to_slice_items, DynIndices, Layout, NdTensorView, NdTensorViewMut, TensorView, TensorViewMut,
@@ -62,9 +61,10 @@ struct IndexingIterBase {
 
 impl IndexingIterBase {
     /// Create an iterator over element offsets in `tensor`.
-    fn new(layout: &DynLayout) -> IndexingIterBase {
+    fn new<L: Layout>(layout: &L) -> IndexingIterBase {
         let dims = layout
             .shape()
+            .as_ref()
             .iter()
             .enumerate()
             .map(|(dim, &len)| IterPos::new(len, layout.stride(dim) as isize))
@@ -79,11 +79,13 @@ impl IndexingIterBase {
 
     /// Create an iterator over offsets of elements in `tensor`, as if it had
     /// a given `shape`. This will repeat offsets as necessary.
-    fn broadcast(layout: &DynLayout, shape: &[usize]) -> IndexingIterBase {
+    fn broadcast<L: Layout>(layout: &L, shape: &[usize]) -> IndexingIterBase {
         // nb. We require that the broadcast shape has a length >= the actual
         // shape.
-        let added_dims = shape.len() - layout.shape().len();
-        let padded_tensor_shape = repeat(&0).take(added_dims).chain(layout.shape().iter());
+        let added_dims = shape.len() - layout.ndim();
+        let layout_shape = layout.shape();
+        let layout_shape = layout_shape.as_ref();
+        let padded_tensor_shape = repeat(&0).take(added_dims).chain(layout_shape.iter());
         let dims = zip(padded_tensor_shape, shape.iter())
             .enumerate()
             .map(|(dim, (&actual_len, &broadcast_len))| {
@@ -108,7 +110,7 @@ impl IndexingIterBase {
     }
 
     /// Create an iterator over offsets of a subset of elements in `tensor`.
-    fn slice(layout: &DynLayout, range: &[SliceItem]) -> IndexingIterBase {
+    fn slice<L: Layout>(layout: &L, range: &[SliceItem]) -> IndexingIterBase {
         assert!(
             range.len() == layout.ndim(),
             "slice dimensions {} do not match tensor dimensions {}",
@@ -360,7 +362,7 @@ enum IterMutKind<'a, T> {
 }
 
 impl<'a, T> IterMut<'a, T> {
-    pub(super) fn new(data: &'a mut [T], layout: &DynLayout) -> IterMut<'a, T> {
+    pub(super) fn new<L: Layout>(data: &'a mut [T], layout: &L) -> IterMut<'a, T> {
         if layout.is_contiguous() {
             IterMut {
                 iter: IterMutKind::Direct(data.iter_mut()),
@@ -415,7 +417,7 @@ struct IndexingIterMut<'a, T> {
 }
 
 impl<'a, T> IndexingIterMut<'a, T> {
-    fn new(data: &'a mut [T], layout: &DynLayout) -> IndexingIterMut<'a, T> {
+    fn new<L: Layout>(data: &'a mut [T], layout: &L) -> IndexingIterMut<'a, T> {
         // See notes in `Layout` about internal overlap.
         assert!(
             !layout.is_broadcast(),
@@ -467,19 +469,19 @@ pub struct Offsets {
 }
 
 impl Offsets {
-    pub fn new(layout: &DynLayout) -> Offsets {
+    pub fn new<L: Layout>(layout: &L) -> Offsets {
         Offsets {
             base: IndexingIterBase::new(layout),
         }
     }
 
-    pub fn broadcast(layout: &DynLayout, shape: &[usize]) -> Offsets {
+    pub fn broadcast<L: Layout>(layout: &L, shape: &[usize]) -> Offsets {
         Offsets {
             base: IndexingIterBase::broadcast(layout, shape),
         }
     }
 
-    pub fn slice(layout: &DynLayout, range: &[SliceItem]) -> Offsets {
+    pub fn slice<L: Layout>(layout: &L, range: &[SliceItem]) -> Offsets {
         Offsets {
             base: IndexingIterBase::slice(layout, range),
         }
