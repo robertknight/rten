@@ -570,7 +570,7 @@ impl Layout for DynLayout {
 impl DynLayout {
     /// Construct a layout with dimension sizes given by `shape` and default
     /// (contiguous) strides.
-    pub fn new(shape: &[usize]) -> DynLayout {
+    pub fn from_shape(shape: &[usize]) -> DynLayout {
         DynLayout {
             shape_and_strides: Self::contiguous_shape_and_strides(shape),
         }
@@ -764,7 +764,7 @@ impl DynLayout {
             self.is_contiguous(),
             "can only reshape a contiguous tensor/view"
         );
-        *self = DynLayout::new(shape);
+        *self = DynLayout::from_shape(shape);
     }
 
     pub fn reshaped(&self, shape: &[usize]) -> DynLayout {
@@ -855,11 +855,11 @@ mod tests {
     #[test]
     fn test_is_broadcast() {
         // Non-empty, contiguous layout
-        let layout = DynLayout::new(&[5, 5]);
+        let layout = DynLayout::from_shape(&[5, 5]);
         assert!(!layout.is_broadcast());
 
         // Empty layout
-        let layout = DynLayout::new(&[5, 0]);
+        let layout = DynLayout::from_shape(&[5, 0]);
         assert!(!layout.is_broadcast());
 
         // Broadcasting layout
@@ -902,7 +902,7 @@ mod tests {
 
     #[test]
     fn test_move_axis() {
-        let mut layout = DynLayout::new(&[2, 4, 8]);
+        let mut layout = DynLayout::from_shape(&[2, 4, 8]);
         assert_eq!(layout.strides(), [32, 8, 1]);
 
         layout.move_axis(1, 0);
@@ -921,41 +921,41 @@ mod tests {
     #[test]
     #[should_panic]
     fn test_move_axis_invalid_from() {
-        let mut layout = DynLayout::new(&[2, 4, 8]);
+        let mut layout = DynLayout::from_shape(&[2, 4, 8]);
         layout.move_axis(3, 0);
     }
 
     #[test]
     #[should_panic]
     fn test_move_axis_invalid_to() {
-        let mut layout = DynLayout::new(&[2, 4, 8]);
+        let mut layout = DynLayout::from_shape(&[2, 4, 8]);
         layout.move_axis(0, 3);
     }
 
     #[test]
     #[should_panic(expected = "permutation is invalid")]
     fn test_permute_invalid_len() {
-        let mut layout = DynLayout::new(&[5, 5]);
+        let mut layout = DynLayout::from_shape(&[5, 5]);
         layout.permute(&[1, 0, 3]);
     }
 
     #[test]
     #[should_panic(expected = "permutation is invalid")]
     fn test_permute_too_few_dims() {
-        let mut layout = DynLayout::new(&[5, 5]);
+        let mut layout = DynLayout::from_shape(&[5, 5]);
         layout.permute(&[1]);
     }
 
     #[test]
     #[should_panic(expected = "permutation is invalid")]
     fn test_permute_repeated_dims() {
-        let mut layout = DynLayout::new(&[5, 5]);
+        let mut layout = DynLayout::from_shape(&[5, 5]);
         layout.permute(&[1, 1]);
     }
 
     #[test]
     fn test_squeezed() {
-        let layout = DynLayout::new(&[1, 1, 10, 20]);
+        let layout = DynLayout::from_shape(&[1, 1, 10, 20]);
         let squeezed = layout.squeezed();
         assert_eq!(squeezed.shape(), &[10, 20]);
         assert_eq!(squeezed.strides(), &[20, 1]);
@@ -964,41 +964,41 @@ mod tests {
     #[test]
     #[should_panic(expected = "Slice index is invalid for tensor shape")]
     fn test_slice_invalid_index() {
-        let layout = DynLayout::new(&[3, 5]);
+        let layout = DynLayout::from_shape(&[3, 5]);
         layout.slice(&[SliceItem::Index(4), SliceItem::Index(0)]);
     }
 
     #[test]
     #[should_panic(expected = "Slice index is invalid for tensor shape")]
     fn test_slice_invalid_negative_index() {
-        let layout = DynLayout::new(&[3, 5]);
+        let layout = DynLayout::from_shape(&[3, 5]);
         layout.slice(&[SliceItem::Index(-4)]);
     }
 
     #[test]
     #[should_panic(expected = "Slice range is invalid for tensor shape")]
     fn test_slice_invalid_range() {
-        let layout = DynLayout::new(&[3, 5]);
+        let layout = DynLayout::from_shape(&[3, 5]);
         layout.slice(&[SliceItem::Range((1..4).into()), SliceItem::Index(0)]);
     }
 
     #[test]
     #[should_panic(expected = "Slice range is invalid for tensor shape")]
     fn test_slice_invalid_from_range() {
-        let layout = DynLayout::new(&[3, 5]);
+        let layout = DynLayout::from_shape(&[3, 5]);
         layout.slice(&[SliceItem::Range((4..).into()), SliceItem::Index(0)]);
     }
 
     #[test]
     #[should_panic(expected = "Cannot slice with negative step")]
     fn test_slice_negative_step() {
-        let layout = DynLayout::new(&[3, 5]);
+        let layout = DynLayout::from_shape(&[3, 5]);
         layout.slice(&[SliceItem::full_range(), SliceItem::range(0, None, -1)]);
     }
 
     #[test]
     fn test_size_stride() {
-        let layout = DynLayout::new(&[10, 20, 30]);
+        let layout = DynLayout::from_shape(&[10, 20, 30]);
         for (dim, (&size, &stride)) in
             zip(layout.shape().iter(), layout.strides().iter()).enumerate()
         {

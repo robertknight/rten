@@ -112,7 +112,7 @@ pub trait View: Layout {
         };
         Tensor {
             data,
-            layout: DynLayout::new(self.shape().as_ref()),
+            layout: DynLayout::from_shape(self.shape().as_ref()),
             element_type: PhantomData,
         }
     }
@@ -271,7 +271,7 @@ impl<T, S: AsRef<[T]>> TensorBase<T, S> {
         );
         TensorBase {
             data,
-            layout: DynLayout::new(shape),
+            layout: DynLayout::from_shape(shape),
             element_type: PhantomData,
         }
     }
@@ -483,7 +483,7 @@ impl<'a, T> TensorView<'a, T> {
             let data = self.to_vec();
             TensorBase {
                 data: Cow::Owned(data),
-                layout: DynLayout::new(self.layout().shape()),
+                layout: DynLayout::from_shape(self.layout().shape()),
                 element_type: PhantomData,
             }
         }
@@ -792,7 +792,7 @@ impl<T> Tensor<T> {
         let data = vec![T::default(); n_elts];
         Tensor {
             data,
-            layout: DynLayout::new(shape),
+            layout: DynLayout::from_shape(shape),
             element_type: PhantomData,
         }
     }
@@ -806,7 +806,7 @@ impl<T> Tensor<T> {
         let data = vec![value; n_elts];
         Tensor {
             data,
-            layout: DynLayout::new(shape),
+            layout: DynLayout::from_shape(shape),
             element_type: PhantomData,
         }
     }
@@ -916,7 +916,7 @@ impl<T> Tensor<T> {
         // However there are cases of custom strides where copies could be
         // avoided. See https://pytorch.org/docs/stable/generated/torch.Tensor.view.html.
         self.make_contiguous();
-        self.layout = DynLayout::new(shape);
+        self.layout = DynLayout::from_shape(shape);
     }
 
     /// Like [Tensor::reshape] but consumes self.
