@@ -49,6 +49,12 @@ pub trait Layout {
         is_contiguous(self.shape(), self.strides())
     }
 
+    /// Return true if iterating over elements in this layout will visit
+    /// elements multiple times.
+    fn is_broadcast(&self) -> bool {
+        !self.is_empty() && self.strides().as_ref().iter().any(|&stride| stride == 0)
+    }
+
     /// Returns true if the array has no elements.
     fn is_empty(&self) -> bool {
         self.len() == 0
@@ -680,12 +686,6 @@ impl DynLayout {
 
     pub fn resize_dim(&mut self, dim: usize, new_size: usize) {
         self.shape_and_strides[dim] = new_size;
-    }
-
-    /// Return true if iterating over elements in this layout will visit
-    /// elements multiple times.
-    pub fn is_broadcast(&self) -> bool {
-        !self.is_empty() && self.strides().iter().any(|&stride| stride == 0)
     }
 
     pub fn make_contiguous(&mut self) {
