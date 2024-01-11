@@ -16,46 +16,6 @@ use crate::ndtensor::{NdTensorBase, NdTensorView, NdTensorViewMut};
 use crate::range::{IntoSliceItems, SliceItem};
 use crate::rng::XorShiftRng;
 
-/// Trait for indexing a `Tensor`
-pub trait TensorIndex {
-    type Iter<'a>: Iterator<Item = &'a usize>
-    where
-        Self: 'a;
-
-    /// Return the number of dimensions in the index.
-    fn len(&self) -> usize;
-
-    /// Return true if this index has zero dimensions (ie. is a scalar).
-    fn is_empty(&self) -> bool {
-        self.len() == 0
-    }
-
-    /// Return the index for dimension `dim`
-    fn index(&self, dim: usize) -> usize;
-
-    /// Return an iterator over sizes of dimensions in this index.
-    fn iter(&self) -> Self::Iter<'_>;
-}
-
-impl<Array: AsRef<[usize]>> TensorIndex for Array {
-    type Iter<'a> = std::slice::Iter<'a, usize> where Self: 'a;
-
-    #[inline]
-    fn len(&self) -> usize {
-        self.as_ref().len()
-    }
-
-    #[inline]
-    fn index(&self, dim: usize) -> usize {
-        self.as_ref()[dim]
-    }
-
-    #[inline]
-    fn iter(&self) -> Self::Iter<'_> {
-        self.as_ref().iter()
-    }
-}
-
 /// Multi-dimensional array view with a dynamic dimension count. This trait
 /// includes operations that are available on tensors that own their data
 /// ([Tensor]) as well as views ([TensorView], [TensorViewMut]).
@@ -121,7 +81,7 @@ pub trait View: Layout {
     /// Return the element at a given index, or `None` if the index is out of
     /// bounds in any dimension.
     #[inline]
-    fn get<I: TensorIndex>(&self, index: I) -> Option<&Self::Elem> {
+    fn get<I: AsRef<[usize]>>(&self, index: I) -> Option<&Self::Elem> {
         self.view().get(index)
     }
 
@@ -428,7 +388,7 @@ impl<'a, T> TensorView<'a, T> {
     }
 
     #[inline]
-    fn get<I: TensorIndex>(&self, index: I) -> Option<&'a T> {
+    fn get<I: AsRef<[usize]>>(&self, index: I) -> Option<&'a T> {
         let offset = self.layout.try_offset(index)?;
         Some(&self.data[offset])
     }
@@ -635,10 +595,12 @@ impl<T, S: AsRef<[T]>> View for TensorBase<T, S> {
     }
 }
 
-impl<I: TensorIndex, T, S: AsRef<[T]>> Index<I> for TensorBase<T, S> {
+impl<I: AsRef<[usize]>, T, S: AsRef<[T]>> Index<I> for TensorBase<T, S> {
     type Output = T;
+
     fn index(&self, index: I) -> &Self::Output {
-        &self.data.as_ref()[self.layout.offset(index)]
+        let offset = self.layout.offset(index.as_ref());
+        &self.data.as_ref()[offset]
     }
 }
 
@@ -690,7 +652,7 @@ impl<T, S: AsRef<[T]> + AsMut<[T]>> TensorBase<T, S> {
     /// Return the element at a given index, or `None` if the index is out of
     /// bounds in any dimension.
     #[inline]
-    pub fn get_mut<I: TensorIndex>(&mut self, index: I) -> Option<&mut T> {
+    pub fn get_mut<I: AsRef<[usize]>>(&mut self, index: I) -> Option<&mut T> {
         let offset = self.layout.try_offset(index)?;
         Some(&mut self.data.as_mut()[offset])
     }
@@ -809,9 +771,9 @@ impl<'a, T> TensorViewMut<'a, T> {
     }
 }
 
-impl<I: TensorIndex, T, S: AsRef<[T]> + AsMut<[T]>> IndexMut<I> for TensorBase<T, S> {
+impl<I: AsRef<[usize]>, T, S: AsRef<[T]> + AsMut<[T]>> IndexMut<I> for TensorBase<T, S> {
     fn index_mut(&mut self, index: I) -> &mut Self::Output {
-        let offset = self.layout.offset(index);
+        let offset = self.layout.offset(index.as_ref());
         &mut self.data.as_mut()[offset]
     }
 }
@@ -1292,7 +1254,7 @@ mod tests {
         // Offsets should be relative to the sliced returned by `data`,
         // `data_mut`.
         assert_eq!(x.offsets().collect::<Vec<usize>>(), &[0, 1, 2, 3, 4, 5]);
-        assert_eq!(x.layout().offset([0, 0]), 0);
+        assert_eq!(x.layout().offset(&[0, 0]), 0);
     }
 
     #[test]

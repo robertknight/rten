@@ -7,7 +7,6 @@ use crate::errors::{DimensionError, FromDataError, SliceError};
 use crate::index_iterator::{DynIndices, NdIndices};
 use crate::overlap::{is_contiguous, may_have_internal_overlap};
 use crate::range::SliceItem;
-use crate::tensor::TensorIndex;
 
 /// Return true if `permutation` is a valid permutation of dimensions for
 /// a tensor of rank `ndim`.
@@ -87,7 +86,7 @@ pub trait Layout {
         //
         // If the tensor has fewer dimensions, pretend that it was prefixed with
         // 1-length dimensions to make the dimension counts equal.
-        let target_dims = target_shape[target_shape.len() - self.shape().len()..]
+        let target_dims = target_shape[target_shape.len() - self.shape().as_ref().len()..]
             .iter()
             .copied();
 
@@ -167,7 +166,13 @@ impl<const N: usize> Layout for NdLayout<N> {
     }
 
     fn offset(&self, index: [usize; N]) -> usize {
-        self.offset(index)
+        assert!(
+            self.index_valid(index),
+            "Index {:?} out of bounds for shape {:?}",
+            index,
+            self.shape
+        );
+        self.offset_unchecked(index)
     }
 
     #[inline]
@@ -313,17 +318,6 @@ impl<const N: usize> NdLayout<N> {
             valid = valid && index[i] < self.shape[i]
         }
         valid
-    }
-
-    /// Return the offset in the slice that an index maps to.
-    pub fn offset(&self, index: [usize; N]) -> usize {
-        assert!(
-            self.index_valid(index),
-            "Index {:?} out of bounds for shape {:?}",
-            index,
-            self.shape
-        );
-        self.offset_unchecked(index)
     }
 
     /// Return the offset in the slice that an index maps to, or `None` if it
@@ -531,7 +525,7 @@ impl Layout for DynLayout {
     }
 
     fn offset(&self, index: &[usize]) -> usize {
-        self.offset(index)
+        self.try_offset(index).expect("invalid index")
     }
 
     fn is_empty(&self) -> bool {
@@ -782,36 +776,33 @@ impl DynLayout {
     /// Return the offset in the slice that an index maps to, or `None` if it
     /// is out of bounds.
     #[inline]
-    pub fn try_offset<Idx: TensorIndex>(&self, index: Idx) -> Option<usize> {
+    pub fn try_offset<Idx: AsRef<[usize]>>(&self, index: Idx) -> Option<usize> {
         let shape = self.shape();
         let strides = self.strides();
-        let mut valid = index.len() == shape.len();
+        let mut valid = index.as_ref().len() == shape.len();
         let mut offset = 0;
-        for (idx, (size, stride)) in index.iter().zip(shape.iter().zip(strides.iter())) {
+        for (idx, (size, stride)) in index.as_ref().iter().zip(shape.iter().zip(strides.iter())) {
             valid = valid && idx < size;
             offset += idx * stride;
         }
         valid.then_some(offset)
     }
 
-    /// Return the offset of the element with a given index.
-    pub fn offset<Idx: TensorIndex>(&self, index: Idx) -> usize {
-        self.try_offset(index).expect("invalid index")
-    }
-
     /// Return the offset of the slice that begins at the given index.
-    pub fn slice_offset<Idx: TensorIndex>(&self, index: Idx) -> usize {
+    pub fn slice_offset<Idx: AsRef<[usize]>>(&self, index: Idx) -> usize {
+        let index = index.as_ref();
+
         assert!(index.len() <= self.ndim());
         let shape = self.shape();
         let mut offset = 0;
         for i in 0..index.len() {
             assert!(
-                index.index(i) < shape[i],
+                index[i] < shape[i],
                 "Invalid index {} for dim {}",
-                index.index(i),
+                index[i],
                 i
             );
-            offset += index.index(i) * self.stride(i)
+            offset += index[i] * self.stride(i)
         }
         offset
     }
