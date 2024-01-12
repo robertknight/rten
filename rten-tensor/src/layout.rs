@@ -839,6 +839,12 @@ impl<const N: usize> From<&NdLayout<N>> for DynLayout {
     }
 }
 
+impl<const N: usize> From<NdLayout<N>> for DynLayout {
+    fn from(value: NdLayout<N>) -> DynLayout {
+        DynLayout::from(&value)
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use std::iter::zip;
