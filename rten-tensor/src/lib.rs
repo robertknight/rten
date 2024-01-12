@@ -44,6 +44,9 @@ mod overlap;
 mod range;
 mod tensor;
 
+#[cfg(test)]
+mod unitensor;
+
 pub use index_iterator::{DynIndices, Indices, NdIndices};
 pub use iterators::{
     AxisChunks, AxisChunksMut, AxisIter, AxisIterMut, BroadcastIter, InnerIter, InnerIterMut, Iter,
