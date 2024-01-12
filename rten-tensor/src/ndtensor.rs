@@ -681,8 +681,8 @@ impl<T, S: AsRef<[T]>, const N: usize> Layout for NdTensorBase<T, S, N> {
         self.layout.len()
     }
 
-    fn offset(&self, index: [usize; N]) -> usize {
-        self.layout.offset(index)
+    fn try_offset(&self, index: [usize; N]) -> Option<usize> {
+        self.layout.try_offset(index)
     }
 
     fn is_empty(&self) -> bool {
@@ -772,8 +772,8 @@ impl<T, S: AsRef<[T]>, const N: usize> Layout for UncheckedNdTensor<T, S, N> {
         N
     }
 
-    fn offset(&self, index: [usize; N]) -> usize {
-        self.base.layout.offset_unchecked(index)
+    fn try_offset(&self, index: [usize; N]) -> Option<usize> {
+        self.base.try_offset(index)
     }
 
     fn len(&self) -> usize {

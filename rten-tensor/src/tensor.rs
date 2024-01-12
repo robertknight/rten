@@ -372,7 +372,7 @@ impl<'a, T> TensorView<'a, T> {
 
     #[inline]
     fn get<I: AsRef<[usize]>>(&self, index: I) -> Option<&'a T> {
-        let offset = self.layout.try_offset(index)?;
+        let offset = self.layout.try_offset(index.as_ref())?;
         Some(&self.data[offset])
     }
 
@@ -494,8 +494,8 @@ impl<T, S: AsRef<[T]>> Layout for TensorBase<T, S> {
         self.layout.ndim()
     }
 
-    fn offset(&self, index: &[usize]) -> usize {
-        self.layout.offset(index)
+    fn try_offset(&self, index: &[usize]) -> Option<usize> {
+        self.layout.try_offset(index)
     }
 
     /// Returns the number of elements in the array.
@@ -634,7 +634,7 @@ impl<T, S: AsRef<[T]> + AsMut<[T]>> TensorBase<T, S> {
     /// bounds in any dimension.
     #[inline]
     pub fn get_mut<I: AsRef<[usize]>>(&mut self, index: I) -> Option<&mut T> {
-        let offset = self.layout.try_offset(index)?;
+        let offset = self.layout.try_offset(index.as_ref())?;
         Some(&mut self.data.as_mut()[offset])
     }
 

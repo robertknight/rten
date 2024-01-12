@@ -153,8 +153,8 @@ impl<'a> Layout for Input<'a> {
         self.layout().ndim()
     }
 
-    fn offset(&self, index: Self::Index<'_>) -> usize {
-        self.layout().offset(index)
+    fn try_offset(&self, index: Self::Index<'_>) -> Option<usize> {
+        self.layout().try_offset(index)
     }
 
     fn len(&self) -> usize {
@@ -316,8 +316,8 @@ impl Layout for Output {
         self.layout().ndim()
     }
 
-    fn offset(&self, index: Self::Index<'_>) -> usize {
-        self.layout().offset(index)
+    fn try_offset(&self, index: Self::Index<'_>) -> Option<usize> {
+        self.layout().try_offset(index)
     }
 
     fn len(&self) -> usize {

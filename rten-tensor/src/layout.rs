@@ -27,7 +27,7 @@ pub trait Layout {
     ///
     /// It is assumed that this type can also represent the shape and strides
     /// of the tensor.
-    type Index<'a>: AsRef<[usize]> + std::fmt::Debug + PartialEq<Self::Index<'a>>;
+    type Index<'a>: AsRef<[usize]> + Clone + std::fmt::Debug + PartialEq<Self::Index<'a>>;
 
     /// Iterator over indices in this tensor.
     type Indices;
@@ -35,7 +35,19 @@ pub trait Layout {
     /// Map an index to a storage offset.
     ///
     /// Panics if any dimension of the index is out of bounds.
-    fn offset(&self, index: Self::Index<'_>) -> usize;
+    fn offset(&self, index: Self::Index<'_>) -> usize {
+        self.try_offset(index.clone()).unwrap_or_else(|| {
+            panic!(
+                "index {:?} out of bounds for shape {:?}",
+                index.as_ref(),
+                self.shape().as_ref()
+            );
+        })
+    }
+
+    /// Map an index to a storage offset, or return `None` if the index is out
+    /// of bounds along any dimension.
+    fn try_offset(&self, index: Self::Index<'_>) -> Option<usize>;
 
     /// Return the number of dimensions.
     fn ndim(&self) -> usize;
@@ -171,14 +183,11 @@ impl<const N: usize> Layout for NdLayout<N> {
         self.shape.iter().product()
     }
 
-    fn offset(&self, index: [usize; N]) -> usize {
-        assert!(
-            self.index_valid(index),
-            "Index {:?} out of bounds for shape {:?}",
-            index,
-            self.shape
-        );
-        self.offset_unchecked(index)
+    fn try_offset(&self, index: [usize; N]) -> Option<usize> {
+        if !self.index_valid(index) {
+            return None;
+        }
+        Some(self.offset_unchecked(index))
     }
 
     #[inline]
@@ -324,15 +333,6 @@ impl<const N: usize> NdLayout<N> {
             valid = valid && index[i] < self.shape[i]
         }
         valid
-    }
-
-    /// Return the offset in the slice that an index maps to, or `None` if it
-    /// is out of bounds.
-    pub fn try_offset(&self, index: [usize; N]) -> Option<usize> {
-        if !self.index_valid(index) {
-            return None;
-        }
-        Some(self.offset_unchecked(index))
     }
 
     /// Return the offset in the slice that an index maps to.
@@ -530,8 +530,17 @@ impl Layout for DynLayout {
         self.shape().iter().product()
     }
 
-    fn offset(&self, index: &[usize]) -> usize {
-        self.try_offset(index).expect("invalid index")
+    #[inline]
+    fn try_offset(&self, index: Self::Index<'_>) -> Option<usize> {
+        let shape = self.shape();
+        let strides = self.strides();
+        let mut valid = index.as_ref().len() == shape.len();
+        let mut offset = 0;
+        for (idx, (size, stride)) in index.as_ref().iter().zip(shape.iter().zip(strides.iter())) {
+            valid = valid && idx < size;
+            offset += idx * stride;
+        }
+        valid.then_some(offset)
     }
 
     fn is_empty(&self) -> bool {
@@ -771,21 +780,6 @@ impl DynLayout {
         let mut reshaped = self.clone();
         reshaped.reshape(shape);
         reshaped
-    }
-
-    /// Return the offset in the slice that an index maps to, or `None` if it
-    /// is out of bounds.
-    #[inline]
-    pub fn try_offset<Idx: AsRef<[usize]>>(&self, index: Idx) -> Option<usize> {
-        let shape = self.shape();
-        let strides = self.strides();
-        let mut valid = index.as_ref().len() == shape.len();
-        let mut offset = 0;
-        for (idx, (size, stride)) in index.as_ref().iter().zip(shape.iter().zip(strides.iter())) {
-            valid = valid && idx < size;
-            offset += idx * stride;
-        }
-        valid.then_some(offset)
     }
 
     /// Return the offset of the slice that begins at the given index.
