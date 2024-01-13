@@ -49,7 +49,7 @@ pub use iterators::{
     AxisChunks, AxisChunksMut, AxisIter, AxisIterMut, BroadcastIter, InnerIter, InnerIterMut, Iter,
     IterMut, Lanes, LanesMut, Offsets,
 };
-pub use layout::{is_valid_permutation, DynLayout, Layout, MatrixLayout};
+pub use layout::{is_valid_permutation, DynLayout, Layout, MatrixLayout, NdLayout};
 pub use ndtensor::{
     Matrix, MatrixMut, NdTensor, NdTensorBase, NdTensorView, NdTensorViewMut, NdView,
 };
