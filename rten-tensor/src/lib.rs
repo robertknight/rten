@@ -45,7 +45,7 @@ mod range;
 mod tensor;
 
 #[cfg(test)]
-mod unitensor;
+mod unified_tensor;
 
 /// Trait for sources of random data for tensors, for use with [Tensor::rand].
 pub trait RandomSource<T> {
