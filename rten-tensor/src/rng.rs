@@ -1,3 +1,5 @@
+use crate::RandomSource;
+
 /// Simple, non-cryptographically secure random number generator.
 ///
 /// See <https://en.wikipedia.org/wiki/Xorshift>.
@@ -27,5 +29,11 @@ impl XorShiftRng {
         let scale = 1.0 / (1u64 << n_bits) as f32;
         let val = self.next_u64() >> (64 - n_bits);
         (val as f32) * scale
+    }
+}
+
+impl RandomSource<f32> for XorShiftRng {
+    fn next(&mut self) -> f32 {
+        self.next_f32()
     }
 }

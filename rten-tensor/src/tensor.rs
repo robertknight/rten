@@ -14,7 +14,7 @@ use crate::iterators::{
 use crate::layout::{DynLayout, Layout};
 use crate::ndtensor::{NdTensorBase, NdTensorView, NdTensorViewMut};
 use crate::range::{IntoSliceItems, SliceItem};
-use crate::rng::XorShiftRng;
+use crate::RandomSource;
 
 /// Multi-dimensional array view with a dynamic dimension count. This trait
 /// includes operations that are available on tensors that own their data
@@ -242,12 +242,6 @@ pub type TensorView<'a, T = f32> = TensorBase<T, &'a [T]>;
 /// This is similar to [TensorView], except elements in the underyling
 /// Tensor can be modified through it.
 pub type TensorViewMut<'a, T = f32> = TensorBase<T, &'a mut [T]>;
-
-/// Trait for sources of random data for tensors, for use with [Tensor::rand].
-pub trait RandomSource<T> {
-    /// Generate the next random value.
-    fn next(&mut self) -> T;
-}
 
 impl<T, S: AsRef<[T]>> TensorBase<T, S> {
     /// Create a new tensor with a given layout and storage.
@@ -974,12 +968,6 @@ impl<T> FromIterator<T> for Tensor<T> {
     {
         let data: Vec<_> = FromIterator::from_iter(iter);
         Tensor::from_vec(data)
-    }
-}
-
-impl RandomSource<f32> for XorShiftRng {
-    fn next(&mut self) -> f32 {
-        self.next_f32()
     }
 }
 
