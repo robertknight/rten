@@ -20,6 +20,8 @@ pub fn batch_norm_in_place(
     epsilon: f32,
 ) -> Result<(), OpError> {
     let [batch, chans, in_h, in_w] = check_dims!(input, 4, "NCHW");
+    let mut input = input.nd_view_mut::<4>();
+
     for n in 0..batch {
         for c in 0..chans {
             let chan_mean = mean[[c]];
@@ -27,7 +29,7 @@ pub fn batch_norm_in_place(
             let chan_scale = scale[[c]];
             let chan_bias = bias[[c]];
 
-            let mut out_view = input.nd_slice_mut([n, c]);
+            let mut out_view = input.slice_mut([n, c]);
             let mut out_view = out_view.unchecked_mut();
 
             // The batch norm formula, from the ONNX spec, is:

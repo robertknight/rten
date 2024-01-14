@@ -849,7 +849,7 @@ mod tests {
         expect_equal(&result, &expected)?;
 
         let result = reduce_l2(input.view(), Some(&[2]), true /* keep_dims */).unwrap();
-        let expected = expected.clone_with_shape(&[3, 2, 1]);
+        let expected = expected.to_shape(&[3, 2, 1]);
         expect_equal(&result, &expected)?;
 
         Ok(())

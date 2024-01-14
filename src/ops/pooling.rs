@@ -2,7 +2,7 @@ use std::iter::zip;
 
 use rayon::prelude::*;
 use rten_tensor::prelude::*;
-use rten_tensor::{NdTensorView, NdTensorViewMut, Tensor, TensorView};
+use rten_tensor::{NdTensor, NdTensorView, NdTensorViewMut, Tensor, TensorView};
 
 use crate::check_dims;
 use crate::gemm::div_ceil;
@@ -104,14 +104,14 @@ pub fn average_pool(
     let [kernel_h, kernel_w] = kernel_size;
     let [stride_h, stride_w] = strides;
 
-    let mut output = Tensor::zeros(&[batch, in_c, out_h, out_w]);
-    let input = input.view();
+    let mut output = NdTensor::zeros([batch, in_c, out_h, out_w]);
+    let input = input.nd_view::<4>();
 
     for n in 0..batch {
         for chan in 0..in_c {
-            let mut out_view = output.nd_slice_mut([n, chan]);
+            let mut out_view = output.slice_mut([n, chan]);
             let mut out_view = out_view.unchecked_mut();
-            let in_view = input.nd_slice([n, chan]).unchecked();
+            let in_view = input.slice([n, chan]).unchecked();
 
             for out_y in 0..out_h {
                 for out_x in 0..out_w {
@@ -140,7 +140,7 @@ pub fn average_pool(
         }
     }
 
-    Ok(output)
+    Ok(output.into_dyn())
 }
 
 #[derive(Debug)]

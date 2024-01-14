@@ -646,7 +646,7 @@ pub fn conv_transpose(
         );
 
         col2im(
-            &mut output.nd_slice_mut([n]),
+            &mut output.nd_view_mut::<4>().slice_mut([n]),
             &col2im_mat
                 .nd_view::<2>()
                 .reshaped([in_h, in_w, out_c, k_h, k_w]),

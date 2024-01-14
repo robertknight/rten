@@ -146,11 +146,15 @@ impl<'a> Input<'a> {
 }
 
 impl<'a> Layout for Input<'a> {
-    type Index<'b> = <DynLayout as Layout>::Index<'b> where Self: 'b;
+    type Index<'b> = <DynLayout as Layout>::Index<'b>;
     type Indices = <DynLayout as Layout>::Indices;
 
     fn ndim(&self) -> usize {
         self.layout().ndim()
+    }
+
+    fn try_offset(&self, index: Self::Index<'_>) -> Option<usize> {
+        self.layout().try_offset(index)
     }
 
     fn len(&self) -> usize {
@@ -310,6 +314,10 @@ impl Layout for Output {
 
     fn ndim(&self) -> usize {
         self.layout().ndim()
+    }
+
+    fn try_offset(&self, index: Self::Index<'_>) -> Option<usize> {
+        self.layout().try_offset(index)
     }
 
     fn len(&self) -> usize {

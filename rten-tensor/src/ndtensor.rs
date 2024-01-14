@@ -5,7 +5,7 @@ use std::ops::{Index, IndexMut};
 
 use crate::errors::{DimensionError, FromDataError};
 use crate::index_iterator::NdIndices;
-use crate::iterators::{Iter, IterMut};
+use crate::iterators::{Iter, IterMut, MutViewRef, ViewRef};
 use crate::layout::{Layout, MatrixLayout, NdLayout, OverlapPolicy};
 use crate::{IntoSliceItems, RandomSource, TensorBase, TensorView, TensorViewMut, View};
 
@@ -404,7 +404,11 @@ impl<'a, T, const N: usize> NdTensorView<'a, T, N> {
     }
 
     pub fn iter(&self) -> Iter<'a, T> {
-        Iter::new(&self.as_dyn())
+        Iter::new(self.view_ref())
+    }
+
+    fn view_ref(&self) -> ViewRef<'a, '_, T, NdLayout<N>> {
+        ViewRef::new(self.data, &self.layout)
     }
 
     fn broadcast<const M: usize>(&self, shape: [usize; M]) -> NdTensorView<'a, T, M> {
@@ -541,7 +545,11 @@ impl<T, S: AsRef<[T]> + AsMut<[T]>, const N: usize> NdTensorBase<T, S, N> {
 
     /// Return a mutable iterator over elements of this tensor.
     pub fn iter_mut(&mut self) -> IterMut<T> {
-        IterMut::new(self.data.as_mut(), &self.layout.as_dyn())
+        IterMut::new(self.mut_view_ref())
+    }
+
+    fn mut_view_ref(&mut self) -> MutViewRef<T, NdLayout<N>> {
+        MutViewRef::new(self.data.as_mut(), &self.layout)
     }
 
     /// Replace elements of this tensor with `f(element)`.
@@ -662,7 +670,7 @@ impl<T, S: AsRef<[T]> + AsMut<[T]>, const N: usize> IndexMut<[usize; N]> for NdT
 }
 
 impl<T, S: AsRef<[T]>, const N: usize> Layout for NdTensorBase<T, S, N> {
-    type Index<'a> = [usize; N] where S: 'a, T: 'a;
+    type Index<'a> = [usize; N];
     type Indices = NdIndices<N>;
 
     fn ndim(&self) -> usize {
@@ -671,6 +679,10 @@ impl<T, S: AsRef<[T]>, const N: usize> Layout for NdTensorBase<T, S, N> {
 
     fn len(&self) -> usize {
         self.layout.len()
+    }
+
+    fn try_offset(&self, index: [usize; N]) -> Option<usize> {
+        self.layout.try_offset(index)
     }
 
     fn is_empty(&self) -> bool {
@@ -753,11 +765,15 @@ pub struct UncheckedNdTensor<T, S: AsRef<[T]>, const N: usize> {
 }
 
 impl<T, S: AsRef<[T]>, const N: usize> Layout for UncheckedNdTensor<T, S, N> {
-    type Index<'a> = [usize; N] where S: 'a, T: 'a;
+    type Index<'a> = [usize; N];
     type Indices = NdIndices<N>;
 
     fn ndim(&self) -> usize {
         N
+    }
+
+    fn try_offset(&self, index: [usize; N]) -> Option<usize> {
+        self.base.try_offset(index)
     }
 
     fn len(&self) -> usize {
