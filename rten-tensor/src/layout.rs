@@ -46,6 +46,21 @@ pub trait Layout {
         })
     }
 
+    /// Map an index to a storage offset, without checking if it is valid for
+    /// the tensor's shape.
+    ///
+    /// This method is not itself unsafe, because it only computes a storage
+    /// offset but does not access any data. Using the offset to index into
+    /// storage with a bounds check is unsafe however.
+    fn offset_unchecked(&self, index: Self::Index<'_>) -> usize {
+        index
+            .as_ref()
+            .iter()
+            .zip(self.strides().as_ref())
+            .map(|(idx, stride)| *idx * *stride)
+            .sum()
+    }
+
     /// Map an index to a storage offset, or return `None` if the index is out
     /// of bounds along any dimension.
     fn try_offset(&self, index: Self::Index<'_>) -> Option<usize>;
@@ -193,6 +208,15 @@ impl<const N: usize> Layout for NdLayout<N> {
     }
 
     #[inline]
+    fn offset_unchecked(&self, index: [usize; N]) -> usize {
+        let mut offset = 0;
+        for i in 0..N {
+            offset += index[i] * self.strides[i];
+        }
+        offset
+    }
+
+    #[inline]
     fn shape(&self) -> Self::Index<'_> {
         self.shape
     }
@@ -335,18 +359,6 @@ impl<const N: usize> NdLayout<N> {
             valid = valid && index[i] < self.shape[i]
         }
         valid
-    }
-
-    /// Return the offset in the slice that an index maps to.
-    ///
-    /// Unlike `offset`, this does not bounds-check elements of `index` against
-    /// the corresponding shape. Hence the returned offset may be out of bounds.
-    pub fn offset_unchecked(&self, index: [usize; N]) -> usize {
-        let mut offset = 0;
-        for i in 0..N {
-            offset += index[i] * self.strides[i];
-        }
-        offset
     }
 
     /// Return the minimum length required for the element data buffer used
