@@ -455,6 +455,18 @@ impl<T, S: AsRef<[T]> + AsMut<[T]>, L: MutLayout> TensorBase<T, S, L> {
             .map(|offset| &mut self.data.as_mut()[offset])
     }
 
+    /// Return the element at a given index, without performing any bounds-
+    /// checking.
+    ///
+    /// # Safety
+    ///
+    /// The caller must ensure that the index is valid for the tensor's shape.
+    pub unsafe fn get_unchecked_mut<I: AsIndex<L>>(&mut self, index: I) -> &mut T {
+        self.data
+            .as_mut()
+            .get_unchecked_mut(self.layout.offset_unchecked(index.as_index()))
+    }
+
     pub(crate) fn mut_view_ref(&mut self) -> MutViewRef<T, L> {
         MutViewRef::new(self.data.as_mut(), &self.layout)
     }
@@ -1118,6 +1130,17 @@ mod tests {
     }
 
     #[test]
+    fn test_get_mut() {
+        let data = vec![1., 2., 3., 4.];
+        let mut tensor: NdTensor<f32, 2> = NdTensor::from_data([2, 2], data);
+        if let Some(elem) = tensor.get_mut([1, 1]) {
+            *elem = 9.;
+        }
+        assert_eq!(tensor[[1, 1]], 9.);
+        assert_eq!(tensor.get_mut([2, 1]), None);
+    }
+
+    #[test]
     fn test_get_unchecked() {
         let ndtensor = NdTensor::arange(1, 5, None);
         for i in 0..ndtensor.size(0) {
@@ -1134,14 +1157,18 @@ mod tests {
     }
 
     #[test]
-    fn test_get_mut() {
-        let data = vec![1., 2., 3., 4.];
-        let mut tensor: NdTensor<f32, 2> = NdTensor::from_data([2, 2], data);
-        if let Some(elem) = tensor.get_mut([1, 1]) {
-            *elem = 9.;
+    fn test_get_unchecked_mut() {
+        let mut ndtensor = NdTensor::arange(1, 5, None);
+        for i in 0..ndtensor.size(0) {
+            unsafe { *ndtensor.get_unchecked_mut([i]) += 1 }
         }
-        assert_eq!(tensor[[1, 1]], 9.);
-        assert_eq!(tensor.get_mut([2, 1]), None);
+        assert_eq!(ndtensor.to_vec(), &[2, 3, 4, 5]);
+
+        let mut tensor = Tensor::arange(1, 5, None);
+        for i in 0..tensor.size(0) {
+            unsafe { *tensor.get_unchecked_mut([i]) += 1 }
+        }
+        assert_eq!(tensor.to_vec(), &[2, 3, 4, 5]);
     }
 
     #[test]
