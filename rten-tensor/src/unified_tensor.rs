@@ -81,6 +81,11 @@ pub trait View: Layout {
     /// index is invalid.
     fn get<I: AsIndex<Self::Layout>>(&self, index: I) -> Option<&Self::Elem>;
 
+    /// Insert a size-1 axis at the given index.
+    fn insert_axis(&mut self, index: usize)
+    where
+        Self::Layout: ResizeLayout;
+
     /// Return the scalar value in this tensor if it has 0 dimensions.
     fn item(&self) -> Option<&Self::Elem> {
         self.view().item()
@@ -326,6 +331,18 @@ impl MutLayout for DynLayout {
 
     fn squeezed(&self) -> DynLayout {
         self.squeezed()
+    }
+}
+
+/// Trait which extends [MutLayout] with support for changing the number of
+/// dimensions in-place.
+pub trait ResizeLayout: MutLayout {
+    fn insert_axis(&mut self, index: usize);
+}
+
+impl ResizeLayout for DynLayout {
+    fn insert_axis(&mut self, index: usize) {
+        self.insert_dim(index)
     }
 }
 
@@ -873,6 +890,13 @@ impl<T, S: AsRef<[T]>, L: MutLayout + Clone> View for TensorBase<T, S, L> {
         self.view().data()
     }
 
+    fn insert_axis(&mut self, index: usize)
+    where
+        L: ResizeLayout,
+    {
+        self.layout.insert_axis(index)
+    }
+
     fn layout(&self) -> &L {
         &self.layout
     }
@@ -1200,6 +1224,15 @@ mod tests {
         let dyn_tensor = tensor.into_dyn();
         assert_eq!(dyn_tensor.shape(), &[2, 2]);
         assert_eq!(dyn_tensor.data(), Some([1., 2., 3., 4.].as_slice()));
+    }
+
+    #[test]
+    fn test_insert_axis() {
+        let mut tensor = Tensor::from_data(&[2, 2], vec![1, 2, 3, 4]);
+        tensor.insert_axis(0);
+        assert_eq!(tensor.shape(), &[1, 2, 2]);
+        tensor.insert_axis(3);
+        assert_eq!(tensor.shape(), &[1, 2, 2, 1]);
     }
 
     #[test]
