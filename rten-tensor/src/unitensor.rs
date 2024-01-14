@@ -3,8 +3,8 @@ use std::marker::PhantomData;
 use std::ops::{Index, IndexMut, Range};
 
 use crate::iterators::{BroadcastIter, Iter, IterMut, Lanes, LanesMut, MutViewRef, ViewRef};
-use crate::layout::{DynLayout, Layout, NdLayout, OverlapPolicy};
-use crate::tensor::RandomSource;
+use crate::layout::{DynLayout, Layout, MatrixLayout, NdLayout, OverlapPolicy};
+use crate::RandomSource;
 use crate::{IntoSliceItems, SliceItem};
 
 /// The base type for multi-dimensional arrays. This consists of storage for

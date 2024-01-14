@@ -47,6 +47,12 @@ mod tensor;
 #[cfg(test)]
 mod unitensor;
 
+/// Trait for sources of random data for tensors, for use with [Tensor::rand].
+pub trait RandomSource<T> {
+    /// Generate the next random value.
+    fn next(&mut self) -> T;
+}
+
 pub use index_iterator::{DynIndices, Indices, NdIndices};
 pub use iterators::{
     AxisChunks, AxisChunksMut, AxisIter, AxisIterMut, BroadcastIter, InnerIter, InnerIterMut, Iter,
@@ -57,7 +63,7 @@ pub use ndtensor::{
     Matrix, MatrixMut, NdTensor, NdTensorBase, NdTensorView, NdTensorViewMut, NdView,
 };
 pub use range::{to_slice_items, DynSliceItems, IntoSliceItems, SliceItem, SliceRange};
-pub use tensor::{RandomSource, Tensor, TensorBase, TensorView, TensorViewMut, View};
+pub use tensor::{Tensor, TensorBase, TensorView, TensorViewMut, View};
 
 /// This module provides a convenient way to import the most common traits
 /// from this library via a glob import.

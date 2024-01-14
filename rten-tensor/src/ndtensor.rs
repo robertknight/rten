@@ -7,7 +7,8 @@ use crate::errors::{DimensionError, FromDataError};
 use crate::index_iterator::NdIndices;
 use crate::iterators::{Iter, IterMut, MutViewRef, ViewRef};
 use crate::layout::{Layout, MatrixLayout, NdLayout, OverlapPolicy};
-use crate::{IntoSliceItems, RandomSource, TensorBase, TensorView, TensorViewMut, View};
+use crate::tensor::{TensorBase, TensorView, TensorViewMut, View};
+use crate::{IntoSliceItems, RandomSource};
 
 /// Multi-dimensional array view with a static dimension count. This trait
 /// includes operations that are available on tensors that own their data
