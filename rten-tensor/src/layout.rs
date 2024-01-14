@@ -35,6 +35,7 @@ pub trait Layout {
     /// Map an index to a storage offset.
     ///
     /// Panics if any dimension of the index is out of bounds.
+    #[inline]
     fn offset(&self, index: Self::Index<'_>) -> usize {
         self.try_offset(index.clone()).unwrap_or_else(|| {
             panic!(
@@ -183,6 +184,7 @@ impl<const N: usize> Layout for NdLayout<N> {
         self.shape.iter().product()
     }
 
+    #[inline]
     fn try_offset(&self, index: [usize; N]) -> Option<usize> {
         if !self.index_valid(index) {
             return None;
