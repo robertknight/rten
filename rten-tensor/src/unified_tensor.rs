@@ -334,7 +334,7 @@ impl MutLayout for DynLayout {
 /// Static-rank tensors can be indexed with `[usize; N]` arrays. Dynamic-rank
 /// tensors can be indexed with any type that can be converted to a `&[usize]`
 /// slice.
-trait AsIndex<L: Layout> {
+pub trait AsIndex<L: Layout> {
     fn as_index(&self) -> L::Index<'_>;
 }
 
@@ -543,13 +543,22 @@ impl<T, S: AsRef<[T]> + AsMut<[T]>, L: MutLayout> TensorBase<T, S, L> {
 }
 
 impl<T, L: Clone + MutLayout> TensorBase<T, Vec<T>, L> {
-    /// Create a new tensor with a given shape, with all elements set to their
-    /// default value (ie. zero for numeric types).
-    pub fn zeros(shape: L::Index<'_>) -> TensorBase<T, Vec<T>, L>
+    /// Create a new 1D tensor filled with an arithmetic sequence of values
+    /// in the range `[start, end)` separated by `step`. If `step` is omitted,
+    /// it defaults to 1.
+    pub fn arange(start: T, end: T, step: Option<T>) -> TensorBase<T, Vec<T>, L>
     where
-        T: Clone + Default,
+        T: Copy + PartialOrd + From<bool> + std::ops::Add<Output = T>,
+        [usize; 1]: AsIndex<L>,
     {
-        Self::full(shape, T::default())
+        let step = step.unwrap_or((true).into());
+        let mut data = Vec::new();
+        let mut curr = start;
+        while curr < end {
+            data.push(curr);
+            curr = curr + step;
+        }
+        TensorBase::from_data([data.len()].as_index(), data)
     }
 
     /// Consume self and return the underlying data as a contiguous tensor.
@@ -564,6 +573,14 @@ impl<T, L: Clone + MutLayout> TensorBase<T, Vec<T>, L> {
         } else {
             self.to_vec()
         }
+    }
+
+    /// Create a new 0D tensor from a scalar value.
+    pub fn from_scalar(value: T) -> TensorBase<T, Vec<T>, L>
+    where
+        [usize; 0]: AsIndex<L>,
+    {
+        TensorBase::from_data([].as_index(), vec![value])
     }
 
     /// Create a new tensor with a given shape and all elements set to `value`.
@@ -586,6 +603,15 @@ impl<T, L: Clone + MutLayout> TensorBase<T, Vec<T>, L> {
             .take(shape.as_ref().iter().product())
             .collect();
         TensorBase::from_data(shape, data)
+    }
+
+    /// Create a new tensor with a given shape, with all elements set to their
+    /// default value (ie. zero for numeric types).
+    pub fn zeros(shape: L::Index<'_>) -> TensorBase<T, Vec<T>, L>
+    where
+        T: Clone + Default,
+    {
+        Self::full(shape, T::default())
     }
 }
 
@@ -952,6 +978,14 @@ mod tests {
     }
 
     #[test]
+    fn test_arange() {
+        let x = Tensor::arange(2, 6, None);
+        let y = NdTensor::arange(2, 6, None);
+        assert_eq!(x.data(), Some([2, 3, 4, 5].as_slice()));
+        assert_eq!(y.data(), Some([2, 3, 4, 5].as_slice()));
+    }
+
+    #[test]
     fn test_as_dyn() {
         let data = vec![1., 2., 3., 4.];
         let tensor = NdTensor::from_data([2, 2], data);
@@ -1039,6 +1073,14 @@ mod tests {
         let mut tensor = NdTensor::from_data([2, 2], data);
         tensor.fill(9.);
         assert_eq!(tensor.to_vec(), &[9., 9., 9., 9.]);
+    }
+
+    #[test]
+    fn test_from_scalar() {
+        let x = Tensor::from_scalar(5.);
+        let y = NdTensor::from_scalar(6.);
+        assert_eq!(x.item(), Some(&5.));
+        assert_eq!(y.item(), Some(&6.));
     }
 
     #[test]
