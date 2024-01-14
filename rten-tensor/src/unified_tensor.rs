@@ -79,7 +79,7 @@ pub trait View: Layout {
 
     /// Return a reference to the element at a given index, or `None` if the
     /// index is invalid.
-    fn get(&self, index: Self::Index<'_>) -> Option<&Self::Elem>;
+    fn get<I: AsIndex<Self::Layout>>(&self, index: I) -> Option<&Self::Elem>;
 
     /// Return the scalar value in this tensor if it has 0 dimensions.
     fn item(&self) -> Option<&Self::Elem> {
@@ -450,8 +450,8 @@ impl<T, S: AsRef<[T]> + AsMut<[T]>, L: MutLayout> TensorBase<T, S, L> {
 
     /// Return a mutable reference to the element at `index`, or `None` if the
     /// index is invalid.
-    pub fn get_mut(&mut self, index: L::Index<'_>) -> Option<&mut T> {
-        self.try_offset(index)
+    pub fn get_mut<I: AsIndex<L>>(&mut self, index: I) -> Option<&mut T> {
+        self.try_offset(index.as_index())
             .map(|offset| &mut self.data.as_mut()[offset])
     }
 
@@ -874,8 +874,8 @@ impl<T, S: AsRef<[T]>, L: MutLayout + Clone> View for TensorBase<T, S, L> {
         }
     }
 
-    fn get(&self, index: Self::Index<'_>) -> Option<&Self::Elem> {
-        self.try_offset(index)
+    fn get<I: AsIndex<L>>(&self, index: I) -> Option<&Self::Elem> {
+        self.try_offset(index.as_index())
             .map(|offset| &self.data.as_ref()[offset])
     }
 
@@ -1101,9 +1101,9 @@ mod tests {
         // DynLayout
         let data = vec![1., 2., 3., 4.];
         let tensor: Tensor<f32> = Tensor::from_data(&[2, 2], data);
-        assert_eq!(tensor.get(&[1, 1]), Some(&4.));
-        assert_eq!(tensor.get(&[2, 1]), None); // Invalid index
-        assert_eq!(tensor.get(&[1, 2, 3]), None); // Incorrect dim count
+        assert_eq!(tensor.get([1, 1]), Some(&4.));
+        assert_eq!(tensor.get([2, 1]), None); // Invalid index
+        assert_eq!(tensor.get([1, 2, 3]), None); // Incorrect dim count
     }
 
     #[test]
