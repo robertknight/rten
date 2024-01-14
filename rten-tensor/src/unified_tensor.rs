@@ -655,6 +655,17 @@ impl<'a, T, L: Clone + MutLayout> TensorBase<T, &'a [T], L> {
         self.layout.is_contiguous().then_some(self.data)
     }
 
+    /// Return the element at a given index, without performing any bounds-
+    /// checking.
+    ///
+    /// # Safety
+    ///
+    /// The caller must ensure that the index is valid for the tensor's shape.
+    pub unsafe fn get_unchecked<I: AsIndex<L>>(&self, index: I) -> &'a T {
+        self.data
+            .get_unchecked(self.layout.offset_unchecked(index.as_index()))
+    }
+
     /// Return the scalar value in this tensor if it has 0 dimensions.
     pub fn item(&self) -> Option<&'a T> {
         match self.ndim() {
@@ -1104,6 +1115,22 @@ mod tests {
         assert_eq!(tensor.get([1, 1]), Some(&4.));
         assert_eq!(tensor.get([2, 1]), None); // Invalid index
         assert_eq!(tensor.get([1, 2, 3]), None); // Incorrect dim count
+    }
+
+    #[test]
+    fn test_get_unchecked() {
+        let ndtensor = NdTensor::arange(1, 5, None);
+        for i in 0..ndtensor.size(0) {
+            assert_eq!(
+                unsafe { ndtensor.view().get_unchecked([i]) },
+                &ndtensor[[i]]
+            );
+        }
+
+        let tensor = Tensor::arange(1, 5, None);
+        for i in 0..tensor.size(0) {
+            assert_eq!(unsafe { tensor.view().get_unchecked([i]) }, &ndtensor[[i]]);
+        }
     }
 
     #[test]
