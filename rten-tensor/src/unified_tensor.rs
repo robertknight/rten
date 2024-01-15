@@ -1076,6 +1076,99 @@ impl<T, S: AsRef<[T]>, L: MutLayout + Clone> View for TensorBase<T, S, L> {
     }
 }
 
+impl<T, S: AsRef<[T]>, const N: usize> TensorBase<T, S, NdLayout<N>> {
+    /// Load an array of `M` elements from successive entries of a tensor along
+    /// the `dim` axis.
+    ///
+    /// eg. If `base` is `[0, 1, 2]`, dim=0 and `M` = 4 this will return an
+    /// array with values from indices `[0, 1, 2]`, `[1, 1, 2]` ... `[3, 1, 2]`.
+    ///
+    /// Panics if any of the array indices are out of bounds.
+    #[inline]
+    pub fn get_array<const M: usize>(&self, base: [usize; N], dim: usize) -> [T; M]
+    where
+        T: Copy + Default,
+    {
+        let offsets: [usize; M] = array_offsets(&self.layout, base, dim);
+        let data = self.data.as_ref();
+        let mut result = [T::default(); M];
+        for i in 0..M {
+            // Safety: `array_offsets` returns valid offsets
+            result[i] = unsafe { *data.get_unchecked(offsets[i]) };
+        }
+        result
+    }
+}
+
+/// Return the offsets of `M` successive elements along the `dim` axis, starting
+/// at index `base`.
+///
+/// Panics if any of the M element indices are out of bounds.
+fn array_offsets<const N: usize, const M: usize>(
+    layout: &NdLayout<N>,
+    base: [usize; N],
+    dim: usize,
+) -> [usize; M] {
+    assert!(
+        base[dim] < usize::MAX - M && layout.size(dim) >= base[dim] + M,
+        "array indices invalid"
+    );
+
+    let offset = layout.offset(base);
+    let stride = layout.stride(dim);
+    let mut offsets = [0; M];
+    for i in 0..M {
+        offsets[i] = offset + i * stride;
+    }
+    offsets
+}
+
+impl<T, S: AsRef<[T]> + AsMut<[T]>, const N: usize> TensorBase<T, S, NdLayout<N>> {
+    /// Store an array of `M` elements into successive entries of a tensor along
+    /// the `dim` axis.
+    ///
+    /// See [NdTensorBase::get_array] for more details.
+    #[inline]
+    pub fn set_array<const M: usize>(&mut self, base: [usize; N], dim: usize, values: [T; M])
+    where
+        T: Copy,
+    {
+        let offsets: [usize; M] = array_offsets(&self.layout, base, dim);
+        let data = self.data.as_mut();
+
+        for i in 0..M {
+            // Safety: `array_offsets` returns valid offsets.
+            unsafe { *data.get_unchecked_mut(offsets[i]) = values[i] };
+        }
+    }
+}
+
+impl<T, S: AsRef<[T]>> TensorBase<T, S, NdLayout<1>> {
+    /// Convert this vector to a static array of length `M`.
+    ///
+    /// Panics if the length of this vector is not M.
+    #[inline]
+    pub fn to_array<const M: usize>(&self) -> [T; M]
+    where
+        T: Copy + Default,
+    {
+        self.get_array([0], 0)
+    }
+}
+
+impl<T, S: AsRef<[T]> + AsMut<[T]>> TensorBase<T, S, NdLayout<1>> {
+    /// Fill this vector with values from a static array of length `M`.
+    ///
+    /// Panics if the length of this vector is not M.
+    #[inline]
+    pub fn assign_array<const M: usize>(&mut self, values: [T; M])
+    where
+        T: Copy + Default,
+    {
+        self.set_array([0], 0, values)
+    }
+}
+
 /// View of a slice of a tensor with a static dimension count.
 pub type NdTensorView<'a, T, const N: usize> = TensorBase<T, &'a [T], NdLayout<N>>;
 
@@ -1182,6 +1275,18 @@ mod tests {
     }
 
     #[test]
+    fn test_assign_array() {
+        let mut tensor = NdTensor::zeros([2, 2]);
+        let mut transposed = tensor.view_mut();
+
+        transposed.permute([1, 0]);
+        transposed.slice_mut(0).assign_array([1, 2]);
+        transposed.slice_mut(1).assign_array([3, 4]);
+
+        assert_eq!(tensor.iter().copied().collect::<Vec<_>>(), [1, 3, 2, 4]);
+    }
+
+    #[test]
     fn test_broadcast() {
         let data = vec![1., 2., 3., 4.];
         let tensor = NdTensor::from_data([2, 2], data);
@@ -1280,6 +1385,23 @@ mod tests {
         assert_eq!(tensor.get([1, 1]), Some(&4.));
         assert_eq!(tensor.get([2, 1]), None); // Invalid index
         assert_eq!(tensor.get([1, 2, 3]), None); // Incorrect dim count
+    }
+
+    #[test]
+    fn test_get_array() {
+        let tensor = NdTensor::arange(1, 17, None).into_shape([4, 2, 2]);
+
+        // First dim, zero base.
+        let values: [i32; 4] = tensor.get_array([0, 0, 0], 0);
+        assert_eq!(values, [1, 5, 9, 13]);
+
+        // First dim, different base.
+        let values: [i32; 4] = tensor.get_array([0, 1, 1], 0);
+        assert_eq!(values, [4, 8, 12, 16]);
+
+        // Last dim, zero base.
+        let values: [i32; 2] = tensor.get_array([0, 0, 0], 2);
+        assert_eq!(values, [1, 2]);
     }
 
     #[test]
@@ -1621,6 +1743,16 @@ mod tests {
     }
 
     #[test]
+    fn test_set_array() {
+        let mut tensor = NdTensor::arange(1, 17, None).into_shape([4, 2, 2]);
+        tensor.set_array([0, 0, 0], 0, [-1, -2, -3, -4]);
+        assert_eq!(
+            tensor.iter().copied().collect::<Vec<_>>(),
+            &[-1, 2, 3, 4, -2, 6, 7, 8, -3, 10, 11, 12, -4, 14, 15, 16]
+        );
+    }
+
+    #[test]
     fn test_slice_with_ndlayout() {
         let data = vec![1., 2., 3., 4.];
         let tensor = NdTensor::from_data([2, 2], data);
@@ -1719,6 +1851,15 @@ mod tests {
         let squeezed = tensor.squeezed();
 
         assert_eq!(squeezed.shape(), &[2, 3]);
+    }
+
+    #[test]
+    fn test_to_array() {
+        let tensor = NdTensor::arange(1., 5., None).into_shape([2, 2]);
+        let col0: [f32; 2] = tensor.view().transposed().slice::<1, _>(0).to_array();
+        let col1: [f32; 2] = tensor.view().transposed().slice::<1, _>(1).to_array();
+        assert_eq!(col0, [1., 3.]);
+        assert_eq!(col1, [2., 4.]);
     }
 
     #[test]
