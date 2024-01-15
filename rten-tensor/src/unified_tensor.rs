@@ -7,6 +7,9 @@ use crate::layout::{DynLayout, Layout, MatrixLayout, NdLayout, OverlapPolicy};
 use crate::RandomSource;
 use crate::{IntoSliceItems, SliceItem};
 
+mod iterators;
+use iterators::{InnerIter, InnerIterMut};
+
 /// The base type for multi-dimensional arrays. This consists of storage for
 /// elements, plus a _layout_ which maps from a multi-dimensional array index
 /// to a storage offset. This base type is not normally used directly but
@@ -80,6 +83,11 @@ pub trait View: Layout {
     /// Return a reference to the element at a given index, or `None` if the
     /// index is invalid.
     fn get<I: AsIndex<Self::Layout>>(&self, index: I) -> Option<&Self::Elem>;
+
+    /// Return an iterator over the innermost N dimensions.
+    fn inner_iter<const N: usize>(&self) -> InnerIter<Self::Elem, Self::Layout, N> {
+        self.view().inner_iter()
+    }
 
     /// Insert a size-1 axis at the given index.
     fn insert_axis(&mut self, index: usize)
@@ -488,6 +496,11 @@ impl<T, S: AsRef<[T]> + AsMut<[T]>, L: MutLayout> TensorBase<T, S, L> {
         MutViewRef::new(self.data.as_mut(), &self.layout)
     }
 
+    /// Return a mutable iterator over the N innermost dimensions of this tensor.
+    pub fn inner_iter_mut<const N: usize>(&mut self) -> InnerIterMut<T, L, N> {
+        InnerIterMut::new(self.view_mut())
+    }
+
     /// Return a mutable iterator over the elements of this tensor, in their
     /// logical order.
     pub fn iter_mut(&mut self) -> IterMut<T> {
@@ -695,6 +708,10 @@ impl<'a, T, L: Clone + MutLayout> TensorBase<T, &'a [T], L> {
             .get_unchecked(self.layout.offset_unchecked(index.as_index()))
     }
 
+    pub fn inner_iter<const N: usize>(&self) -> InnerIter<'a, T, L, N> {
+        InnerIter::new(self.view())
+    }
+
     /// Return the scalar value in this tensor if it has 0 dimensions.
     pub fn item(&self) -> Option<&'a T> {
         match self.ndim() {
@@ -810,6 +827,14 @@ impl<'a, T, L: Clone + MutLayout> TensorBase<T, &'a [T], L> {
         TensorBase {
             data: self.data,
             layout: self.layout.transposed(),
+            element_type: PhantomData,
+        }
+    }
+
+    pub fn view(&self) -> TensorBase<T, &'a [T], L> {
+        TensorBase {
+            data: self.data,
+            layout: self.layout.clone(),
             element_type: PhantomData,
         }
     }
@@ -1224,6 +1249,40 @@ mod tests {
         let dyn_tensor = tensor.into_dyn();
         assert_eq!(dyn_tensor.shape(), &[2, 2]);
         assert_eq!(dyn_tensor.data(), Some([1., 2., 3., 4.].as_slice()));
+    }
+
+    #[test]
+    fn test_inner_iter() {
+        let tensor = Tensor::from_data(&[2, 2], vec![1, 2, 3, 4]);
+        let mut rows = tensor.inner_iter::<1>();
+
+        let row = rows.next().unwrap();
+        assert_eq!(row.shape(), [2]);
+        assert_eq!(row.to_vec(), &[1, 2]);
+
+        let row = rows.next().unwrap();
+        assert_eq!(row.shape(), [2]);
+        assert_eq!(row.to_vec(), &[3, 4]);
+
+        assert_eq!(rows.next(), None);
+    }
+
+    #[test]
+    fn test_inner_iter_mut() {
+        let mut tensor = Tensor::from_data(&[2, 2], vec![1, 2, 3, 4]);
+        let mut rows = tensor.inner_iter_mut::<1>();
+
+        let mut row = rows.next().unwrap();
+        assert_eq!(row.shape(), [2]);
+        row.apply(|x| x * 2);
+
+        let mut row = rows.next().unwrap();
+        assert_eq!(row.shape(), [2]);
+        row.apply(|x| x * 2);
+
+        assert_eq!(rows.next(), None);
+
+        assert_eq!(tensor.to_vec(), &[2, 4, 6, 8]);
     }
 
     #[test]
