@@ -141,12 +141,8 @@ pub trait View: Layout {
         self.view().permuted(dims)
     }
 
-    fn reshaped<const M: usize>(&self, shape: [usize; M]) -> NdTensorView<Self::Elem, M> {
+    fn reshaped<S: ToLayout>(&self, shape: S) -> TensorBase<Self::Elem, &[Self::Elem], S::Layout> {
         self.view().reshaped(shape)
-    }
-
-    fn reshaped_dyn(&self, shape: &[usize]) -> TensorView<Self::Elem> {
-        self.view().reshaped_dyn(shape)
     }
 
     /// Reverse the order of dimensions in this tensor.
@@ -229,9 +225,13 @@ pub trait MutLayout: Layout + Clone {
 
     fn permuted(&self, order: Self::Index<'_>) -> Self;
 
-    fn reshaped<const M: usize>(&self, shape: [usize; M]) -> NdLayout<M>;
-
-    fn reshaped_dyn(&self, shape: &[usize]) -> DynLayout;
+    fn reshaped<S: ToLayout>(&self, shape: S) -> S::Layout {
+        assert!(
+            self.is_contiguous(),
+            "tried to reshape non-contiguous layout"
+        );
+        shape.to_layout()
+    }
 
     fn transposed(&self) -> Self;
 
@@ -266,14 +266,6 @@ impl<const N: usize> MutLayout for NdLayout<N> {
 
     fn permuted(&self, order: [usize; N]) -> NdLayout<N> {
         self.permuted(order)
-    }
-
-    fn reshaped<const M: usize>(&self, shape: [usize; M]) -> NdLayout<M> {
-        self.reshaped(shape)
-    }
-
-    fn reshaped_dyn(&self, shape: &[usize]) -> DynLayout {
-        self.as_dyn().reshaped(shape)
     }
 
     fn transposed(&self) -> NdLayout<N> {
@@ -314,14 +306,6 @@ impl MutLayout for DynLayout {
         self.permuted(order)
     }
 
-    fn reshaped<const M: usize>(&self, shape: [usize; M]) -> NdLayout<M> {
-        NdLayout::try_from(&self.reshaped(&shape)).expect("reshape failed")
-    }
-
-    fn reshaped_dyn(&self, shape: &[usize]) -> DynLayout {
-        self.reshaped(shape)
-    }
-
     fn transposed(&self) -> DynLayout {
         self.transposed()
     }
@@ -339,6 +323,34 @@ impl MutLayout for DynLayout {
 
     fn squeezed(&self) -> DynLayout {
         self.squeezed()
+    }
+}
+
+/// Trait for shapes which can be used to create a contiguous layout.
+///
+/// This is implemented for `[usize; N]` for creating static-rank layouts from
+/// arrays, and `&[usize]` for creating dynamic-rank layouts from slices.
+pub trait ToLayout {
+    /// The type of layout produced from this shape.
+    type Layout: MutLayout;
+
+    /// Convert this shape into a contiguous layout.
+    fn to_layout(self) -> Self::Layout;
+}
+
+impl<const N: usize> ToLayout for [usize; N] {
+    type Layout = NdLayout<N>;
+
+    fn to_layout(self) -> NdLayout<N> {
+        NdLayout::from_shape(self)
+    }
+}
+
+impl<'a> ToLayout for &'a [usize] {
+    type Layout = DynLayout;
+
+    fn to_layout(self) -> DynLayout {
+        DynLayout::from_shape(self)
     }
 }
 
@@ -533,7 +545,7 @@ impl<T, S: AsRef<[T]> + AsMut<[T]>, L: MutLayout> TensorBase<T, S, L> {
         }
     }
 
-    pub fn reshaped_mut<const M: usize>(&mut self, shape: [usize; M]) -> NdTensorViewMut<T, M> {
+    pub fn reshaped_mut<SH: ToLayout>(&mut self, shape: SH) -> TensorBase<T, &mut [T], SH::Layout> {
         TensorBase {
             layout: self.layout.reshaped(shape),
             data: self.data.as_mut(),
@@ -751,18 +763,10 @@ impl<'a, T, L: Clone + MutLayout> TensorBase<T, &'a [T], L> {
         }
     }
 
-    pub fn reshaped<const M: usize>(&self, shape: [usize; M]) -> NdTensorView<'a, T, M> {
+    pub fn reshaped<S: ToLayout>(&self, shape: S) -> TensorBase<T, &'a [T], S::Layout> {
         TensorBase {
             data: self.data,
             layout: self.layout.reshaped(shape),
-            element_type: PhantomData,
-        }
-    }
-
-    pub fn reshaped_dyn(&self, shape: &[usize]) -> TensorView<'a, T> {
-        TensorBase {
-            data: self.data,
-            layout: self.layout.reshaped_dyn(shape),
             element_type: PhantomData,
         }
     }
@@ -1462,9 +1466,13 @@ mod tests {
         let data = vec![1., 2., 3., 4., 5., 6.];
         let tensor = NdTensorView::from_data([1, 1, 2, 1, 3], &data);
 
+        // Reshape to static dim count
         let reshaped = tensor.reshaped([6]);
-
         assert_eq!(reshaped.shape(), [6]);
+
+        // Reshape to dynamic dim count
+        let reshaped = tensor.reshaped([6].as_slice());
+        assert_eq!(reshaped.shape(), &[6]);
     }
 
     #[test]
@@ -1477,16 +1485,6 @@ mod tests {
         reshaped[[5]] = 0.;
 
         assert_eq!(tensor.data(), Some([0., 2., 3., 4., 5., 0.].as_slice()));
-    }
-
-    #[test]
-    fn test_reshaped_dyn() {
-        let data = vec![1., 2., 3., 4., 5., 6.];
-        let tensor = NdTensorView::from_data([1, 1, 2, 1, 3], &data);
-
-        let reshaped = tensor.reshaped_dyn(&[6]);
-
-        assert_eq!(reshaped.shape(), &[6]);
     }
 
     #[test]
