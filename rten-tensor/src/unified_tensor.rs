@@ -2,6 +2,7 @@ use std::borrow::Cow;
 use std::marker::PhantomData;
 use std::ops::{Index, IndexMut, Range};
 
+use crate::errors::SliceError;
 use crate::iterators::{BroadcastIter, Iter, IterMut, Lanes, LanesMut, MutViewRef, ViewRef};
 use crate::layout::{DynLayout, Layout, MatrixLayout, NdLayout, OverlapPolicy};
 use crate::RandomSource;
@@ -153,6 +154,14 @@ pub trait View: Layout {
         self.view().transposed()
     }
 
+    /// Slice this tensor and return a dynamic-rank view.
+    ///
+    /// Fails if the range has more dimensions than the view or is out of bounds
+    /// for any dimension.
+    fn try_slice<R: IntoSliceItems>(&self, range: R) -> Result<TensorView<Self::Elem>, SliceError> {
+        self.view().try_slice(range)
+    }
+
     /// Slice this tensor and return a static-rank view with `M` dimensions.
     ///
     /// Use [View::slice_dyn] instead the number of dimensions in the returned
@@ -247,6 +256,11 @@ pub trait MutLayout: Layout + Clone {
     fn slice_dyn(&self, range: &[SliceItem]) -> (Range<usize>, DynLayout);
 
     fn squeezed(&self) -> DynLayout;
+
+    fn try_slice<R: IntoSliceItems>(
+        &self,
+        range: R,
+    ) -> Result<(Range<usize>, DynLayout), SliceError>;
 }
 
 impl<const N: usize> MutLayout for NdLayout<N> {
@@ -288,6 +302,14 @@ impl<const N: usize> MutLayout for NdLayout<N> {
     fn squeezed(&self) -> DynLayout {
         self.as_dyn().squeezed()
     }
+
+    fn try_slice<R: IntoSliceItems>(
+        &self,
+        range: R,
+    ) -> Result<(Range<usize>, DynLayout), SliceError> {
+        let items = range.into_slice_items();
+        self.as_dyn().try_slice(items.as_ref())
+    }
 }
 
 impl MutLayout for DynLayout {
@@ -328,6 +350,14 @@ impl MutLayout for DynLayout {
 
     fn squeezed(&self) -> DynLayout {
         self.squeezed()
+    }
+
+    fn try_slice<R: IntoSliceItems>(
+        &self,
+        range: R,
+    ) -> Result<(Range<usize>, DynLayout), SliceError> {
+        let items = range.into_slice_items();
+        self.try_slice(items.as_ref())
     }
 }
 
@@ -586,6 +616,22 @@ impl<T, S: AsRef<[T]> + AsMut<[T]>, L: MutLayout> TensorBase<T, S, L> {
             layout: sliced_layout,
             element_type: PhantomData,
         }
+    }
+
+    /// Slice this tensor and return a dynamic-rank view.
+    ///
+    /// Fails if the range has more dimensions than the view or is out of bounds
+    /// for any dimension.
+    pub fn try_slice_mut<R: IntoSliceItems>(
+        &mut self,
+        range: R,
+    ) -> Result<TensorViewMut<T>, SliceError> {
+        let (offset_range, layout) = self.layout.try_slice(range)?;
+        Ok(TensorBase {
+            data: &mut self.data.as_mut()[offset_range],
+            layout,
+            element_type: PhantomData,
+        })
     }
 
     /// Return a mutable view of this tensor.
@@ -864,6 +910,15 @@ impl<'a, T, L: Clone + MutLayout> TensorBase<T, &'a [T], L> {
             layout: self.layout.transposed(),
             element_type: PhantomData,
         }
+    }
+
+    pub fn try_slice<R: IntoSliceItems>(&self, range: R) -> Result<TensorView<'a, T>, SliceError> {
+        let (offset_range, layout) = self.layout.try_slice(range)?;
+        Ok(TensorBase {
+            data: &self.data[offset_range],
+            layout,
+            element_type: PhantomData,
+        })
     }
 
     pub fn view(&self) -> TensorBase<T, &'a [T], L> {
@@ -1725,6 +1780,39 @@ mod tests {
 
         assert_eq!(permuted.shape(), [3, 2]);
         assert_eq!(permuted.to_vec(), &[1., 4., 2., 5., 3., 6.]);
+    }
+
+    #[test]
+    fn test_try_slice() {
+        let data = vec![1., 2., 3., 4.];
+        let tensor = Tensor::from_data(&[2, 2], data);
+
+        let row = tensor.try_slice(0);
+        assert!(row.is_ok());
+        assert_eq!(row.unwrap().data(), Some([1., 2.].as_slice()));
+
+        let row = tensor.try_slice(1);
+        assert!(row.is_ok());
+
+        let row = tensor.try_slice(2);
+        assert!(row.is_err());
+    }
+
+    #[test]
+    fn test_try_slice_mut() {
+        let data = vec![1., 2., 3., 4.];
+        let mut tensor = Tensor::from_data(&[2, 2], data);
+
+        let mut row = tensor.try_slice_mut(0).unwrap();
+        row[[0]] += 1.;
+        row[[1]] += 1.;
+        assert_eq!(row.data(), Some([2., 3.].as_slice()));
+
+        let row = tensor.try_slice_mut(1);
+        assert!(row.is_ok());
+
+        let row = tensor.try_slice(2);
+        assert!(row.is_err());
     }
 
     #[test]
