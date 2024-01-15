@@ -629,6 +629,20 @@ impl<T, L: Clone + MutLayout> TensorBase<T, Vec<T>, L> {
         }
     }
 
+    /// Consume self and return a new contiguous tensor with the given shape.
+    ///
+    /// This avoids copying the data if it is already contiguous.
+    pub fn into_shape<S: ToLayout>(self, shape: S) -> TensorBase<T, Vec<T>, S::Layout>
+    where
+        T: Clone,
+    {
+        TensorBase {
+            data: self.into_data(),
+            layout: shape.to_layout(),
+            element_type: PhantomData,
+        }
+    }
+
     /// Create a new 0D tensor from a scalar value.
     pub fn from_scalar(value: T) -> TensorBase<T, Vec<T>, L>
     where
@@ -1253,6 +1267,22 @@ mod tests {
         let dyn_tensor = tensor.into_dyn();
         assert_eq!(dyn_tensor.shape(), &[2, 2]);
         assert_eq!(dyn_tensor.data(), Some([1., 2., 3., 4.].as_slice()));
+    }
+
+    #[test]
+    fn test_into_shape() {
+        // Contiguous tensor.
+        let tensor = NdTensor::from_data([2, 2], vec![1., 2., 3., 4.]);
+        let reshaped = tensor.into_shape([4]);
+        assert_eq!(reshaped.shape(), [4]);
+        assert_eq!(reshaped.data(), Some([1., 2., 3., 4.].as_slice()));
+
+        // Non-contiguous tensor.
+        let mut tensor = NdTensor::from_data([2, 2], vec![1., 2., 3., 4.]);
+        tensor.transpose();
+        let reshaped = tensor.into_shape([4]);
+        assert_eq!(reshaped.shape(), [4]);
+        assert_eq!(reshaped.data(), Some([1., 3., 2., 4.].as_slice()));
     }
 
     #[test]
