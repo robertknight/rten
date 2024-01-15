@@ -199,6 +199,11 @@ pub trait View: Layout {
         self.view().to_contiguous()
     }
 
+    /// Return a copy of this tensor with a given shape.
+    fn to_shape<S: ToLayout>(&self, shape: S) -> TensorBase<Self::Elem, Vec<Self::Elem>, S::Layout>
+    where
+        Self::Elem: Clone;
+
     /// Return clone of this tensor which uniquely owns its elements.
     fn to_tensor(&self) -> TensorBase<Self::Elem, Vec<Self::Elem>, Self::Layout>
     where
@@ -997,6 +1002,20 @@ impl<T, S: AsRef<[T]>, L: MutLayout + Clone> View for TensorBase<T, S, L> {
         }
     }
 
+    fn to_shape<SH: ToLayout>(
+        &self,
+        shape: SH,
+    ) -> TensorBase<Self::Elem, Vec<Self::Elem>, SH::Layout>
+    where
+        T: Clone,
+    {
+        TensorBase {
+            data: self.to_vec(),
+            layout: shape.to_layout(),
+            element_type: PhantomData,
+        }
+    }
+
     fn transpose(&mut self) {
         self.layout = self.layout.transposed();
     }
@@ -1658,9 +1677,23 @@ mod tests {
     }
 
     #[test]
+    fn test_to_shape() {
+        let tensor = NdTensor::from_data([2, 2], vec![1, 2, 3, 4]);
+        let flat = tensor.to_shape([4]);
+        assert_eq!(flat.shape(), [4]);
+        assert_eq!(flat.data(), Some([1, 2, 3, 4].as_slice()));
+    }
+
+    #[test]
     fn test_to_vec() {
-        let tensor = NdTensor::full([2, 2], 2.);
-        assert_eq!(tensor.to_vec(), &[2., 2., 2., 2.]);
+        // Contiguous case
+        let tensor = NdTensor::from_data([2, 2], vec![1, 2, 3, 4]);
+        assert_eq!(tensor.to_vec(), &[1, 2, 3, 4]);
+
+        // Non-contiguous case
+        let mut tensor = tensor.clone();
+        tensor.transpose();
+        assert_eq!(tensor.to_vec(), &[1, 3, 2, 4]);
     }
 
     #[test]
