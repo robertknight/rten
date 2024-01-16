@@ -60,14 +60,16 @@ pub trait View: Layout {
         self.view().as_dyn()
     }
 
-    /// Broadcast this view to another shape with a static dimension count.
-    fn broadcast<const M: usize>(&self, shape: [usize; M]) -> NdTensorView<Self::Elem, M> {
+    /// Broadcast this view to another shape.
+    ///
+    /// If `shape` is an array (`[usize; N]`), the result will have a
+    /// static-rank layout with `N` dims. If `shape` is a slice, the result will
+    /// have a dynamic-rank layout.
+    fn broadcast<S: ToLayout>(&self, shape: S) -> TensorBase<Self::Elem, &[Self::Elem], S::Layout>
+    where
+        Self::Layout: BroadcastLayout<S::Layout>,
+    {
         self.view().broadcast(shape)
-    }
-
-    /// Broadcast this view to another shape with a dynamic dimension count.
-    fn broadcast_dyn(&self, shape: &[usize]) -> TensorView<Self::Elem> {
-        self.view().broadcast_dyn(shape)
     }
 
     /// Return an iterator over elements of this tensor, broadcast to `shape`.
@@ -229,12 +231,6 @@ pub trait MutLayout: Layout + Clone {
     /// Create a new contiguous layout with a given shape.
     fn from_shape(shape: Self::Index<'_>) -> Self;
 
-    /// Broadcast this layout to a new shape with `M` dimensions.
-    fn broadcast<const M: usize>(&self, shape: [usize; M]) -> NdLayout<M>;
-
-    /// Broadcast this layout to a new shape with a variable number of dimensions.
-    fn broadcast_dyn(&self, shape: &[usize]) -> DynLayout;
-
     fn move_axis(&mut self, from: usize, to: usize);
 
     fn permuted(&self, order: Self::Index<'_>) -> Self;
@@ -263,17 +259,41 @@ pub trait MutLayout: Layout + Clone {
     ) -> Result<(Range<usize>, DynLayout), SliceError>;
 }
 
+/// Trait for broadcasting a layout from one shape to another.
+pub trait BroadcastLayout<L: MutLayout> {
+    /// Broadcast the `self` layout to a given shape.
+    fn broadcast<S: ToLayout<Layout = L>>(&self, shape: S) -> L;
+}
+
+impl<const N: usize, const M: usize> BroadcastLayout<NdLayout<M>> for NdLayout<N> {
+    fn broadcast<S: ToLayout<Layout = NdLayout<M>>>(&self, shape: S) -> NdLayout<M> {
+        let shape: [usize; M] = shape.as_ref().try_into().unwrap();
+        self.broadcast(shape)
+    }
+}
+
+impl<const N: usize> BroadcastLayout<DynLayout> for NdLayout<N> {
+    fn broadcast<S: ToLayout<Layout = DynLayout>>(&self, shape: S) -> DynLayout {
+        DynLayout::with_strides(&self.shape(), &self.strides()).broadcast(shape.as_ref())
+    }
+}
+
+impl BroadcastLayout<DynLayout> for DynLayout {
+    fn broadcast<S: ToLayout<Layout = DynLayout>>(&self, shape: S) -> DynLayout {
+        self.broadcast(shape.as_ref())
+    }
+}
+
+impl<const N: usize> BroadcastLayout<NdLayout<N>> for DynLayout {
+    fn broadcast<S: ToLayout<Layout = NdLayout<N>>>(&self, shape: S) -> NdLayout<N> {
+        let dyn_broadcast = self.broadcast(shape.as_ref());
+        (&dyn_broadcast).try_into().unwrap()
+    }
+}
+
 impl<const N: usize> MutLayout for NdLayout<N> {
     fn from_shape(shape: [usize; N]) -> Self {
         Self::from_shape(shape)
-    }
-
-    fn broadcast<const M: usize>(&self, shape: [usize; M]) -> NdLayout<M> {
-        self.broadcast(shape)
-    }
-
-    fn broadcast_dyn(&self, shape: &[usize]) -> DynLayout {
-        self.as_dyn().broadcast(shape)
     }
 
     fn move_axis(&mut self, from: usize, to: usize) {
@@ -317,14 +337,6 @@ impl MutLayout for DynLayout {
         Self::from_shape(shape)
     }
 
-    fn broadcast<const M: usize>(&self, shape: [usize; M]) -> NdLayout<M> {
-        NdLayout::try_from(&self.broadcast(&shape)).expect("broadcast failed")
-    }
-
-    fn broadcast_dyn(&self, shape: &[usize]) -> DynLayout {
-        self.broadcast(shape)
-    }
-
     fn move_axis(&mut self, from: usize, to: usize) {
         self.move_axis(from, to)
     }
@@ -365,7 +377,7 @@ impl MutLayout for DynLayout {
 ///
 /// This is implemented for `[usize; N]` for creating static-rank layouts from
 /// arrays, and `&[usize]` for creating dynamic-rank layouts from slices.
-pub trait ToLayout {
+pub trait ToLayout: AsRef<[usize]> {
     /// The type of layout produced from this shape.
     type Layout: MutLayout;
 
@@ -759,19 +771,13 @@ impl<'a, T, L: Clone + MutLayout> TensorBase<T, &'a [T], L> {
         }
     }
 
-    /// Broadcast this view to another shape with a static dimension count.
-    pub fn broadcast<const M: usize>(&self, shape: [usize; M]) -> NdTensorView<'a, T, M> {
-        NdTensorView {
+    /// Broadcast this view to another shape.
+    pub fn broadcast<S: ToLayout>(&self, shape: S) -> TensorBase<T, &'a [T], S::Layout>
+    where
+        L: BroadcastLayout<S::Layout>,
+    {
+        TensorBase {
             layout: self.layout.broadcast(shape),
-            data: self.data,
-            element_type: PhantomData,
-        }
-    }
-
-    /// Broadcast this view to another shape with a dynamic dimension count.
-    pub fn broadcast_dyn(&self, shape: &[usize]) -> TensorView<'a, T> {
-        TensorView {
-            layout: self.layout.broadcast_dyn(shape),
             data: self.data,
             element_type: PhantomData,
         }
@@ -1289,17 +1295,30 @@ mod tests {
     #[test]
     fn test_broadcast() {
         let data = vec![1., 2., 3., 4.];
-        let tensor = NdTensor::from_data([2, 2], data);
-        let view = tensor.broadcast([1, 1, 2, 2]);
-        assert_eq!(view.shape(), [1, 1, 2, 2]);
-    }
+        let dest_shape = [3, 1, 2, 2];
+        let expected_data: Vec<_> = data.iter().copied().cycle().take(data.len() * 3).collect();
+        let ndtensor = NdTensor::from_data([2, 2], data);
 
-    #[test]
-    fn test_broadcast_dyn() {
-        let data = vec![1., 2., 3., 4.];
-        let tensor = NdTensor::from_data([2, 2], data);
-        let view = tensor.broadcast_dyn(&[1, 1, 2, 2]);
-        assert_eq!(view.shape(), &[1, 1, 2, 2]);
+        // Broadcast static -> static.
+        let view = ndtensor.broadcast(dest_shape);
+        assert_eq!(view.shape(), dest_shape);
+        assert_eq!(view.to_vec(), expected_data);
+
+        // Broadcast static -> dynamic.
+        let view = ndtensor.broadcast(dest_shape.as_slice());
+        assert_eq!(view.shape(), dest_shape);
+        assert_eq!(view.to_vec(), expected_data);
+
+        // Broadcast dynamic -> static.
+        let tensor = ndtensor.as_dyn();
+        let view = tensor.broadcast(dest_shape);
+        assert_eq!(view.shape(), dest_shape);
+        assert_eq!(view.to_vec(), expected_data);
+
+        // Broadcast dynamic -> dynamic.
+        let view = tensor.broadcast(dest_shape.as_slice());
+        assert_eq!(view.shape(), dest_shape);
+        assert_eq!(view.to_vec(), expected_data);
     }
 
     #[test]
