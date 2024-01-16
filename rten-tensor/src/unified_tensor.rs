@@ -65,7 +65,7 @@ pub trait View: Layout {
     /// If `shape` is an array (`[usize; N]`), the result will have a
     /// static-rank layout with `N` dims. If `shape` is a slice, the result will
     /// have a dynamic-rank layout.
-    fn broadcast<S: ToLayout>(&self, shape: S) -> TensorBase<Self::Elem, &[Self::Elem], S::Layout>
+    fn broadcast<S: IntoLayout>(&self, shape: S) -> TensorBase<Self::Elem, &[Self::Elem], S::Layout>
     where
         Self::Layout: BroadcastLayout<S::Layout>,
     {
@@ -144,7 +144,7 @@ pub trait View: Layout {
         self.view().permuted(dims)
     }
 
-    fn reshaped<S: ToLayout>(&self, shape: S) -> TensorBase<Self::Elem, &[Self::Elem], S::Layout> {
+    fn reshaped<S: IntoLayout>(&self, shape: S) -> TensorBase<Self::Elem, &[Self::Elem], S::Layout> {
         self.view().reshaped(shape)
     }
 
@@ -211,7 +211,7 @@ pub trait View: Layout {
     }
 
     /// Return a copy of this tensor with a given shape.
-    fn to_shape<S: ToLayout>(&self, shape: S) -> TensorBase<Self::Elem, Vec<Self::Elem>, S::Layout>
+    fn to_shape<S: IntoLayout>(&self, shape: S) -> TensorBase<Self::Elem, Vec<Self::Elem>, S::Layout>
     where
         Self::Elem: Clone;
 
@@ -235,12 +235,12 @@ pub trait MutLayout: Layout + Clone {
 
     fn permuted(&self, order: Self::Index<'_>) -> Self;
 
-    fn reshaped<S: ToLayout>(&self, shape: S) -> S::Layout {
+    fn reshaped<S: IntoLayout>(&self, shape: S) -> S::Layout {
         assert!(
             self.is_contiguous(),
             "tried to reshape non-contiguous layout"
         );
-        shape.to_layout()
+        shape.into_layout()
     }
 
     fn transposed(&self) -> Self;
@@ -262,30 +262,30 @@ pub trait MutLayout: Layout + Clone {
 /// Trait for broadcasting a layout from one shape to another.
 pub trait BroadcastLayout<L: MutLayout> {
     /// Broadcast the `self` layout to a given shape.
-    fn broadcast<S: ToLayout<Layout = L>>(&self, shape: S) -> L;
+    fn broadcast<S: IntoLayout<Layout = L>>(&self, shape: S) -> L;
 }
 
 impl<const N: usize, const M: usize> BroadcastLayout<NdLayout<M>> for NdLayout<N> {
-    fn broadcast<S: ToLayout<Layout = NdLayout<M>>>(&self, shape: S) -> NdLayout<M> {
+    fn broadcast<S: IntoLayout<Layout = NdLayout<M>>>(&self, shape: S) -> NdLayout<M> {
         let shape: [usize; M] = shape.as_ref().try_into().unwrap();
         self.broadcast(shape)
     }
 }
 
 impl<const N: usize> BroadcastLayout<DynLayout> for NdLayout<N> {
-    fn broadcast<S: ToLayout<Layout = DynLayout>>(&self, shape: S) -> DynLayout {
+    fn broadcast<S: IntoLayout<Layout = DynLayout>>(&self, shape: S) -> DynLayout {
         DynLayout::with_strides(&self.shape(), &self.strides()).broadcast(shape.as_ref())
     }
 }
 
 impl BroadcastLayout<DynLayout> for DynLayout {
-    fn broadcast<S: ToLayout<Layout = DynLayout>>(&self, shape: S) -> DynLayout {
+    fn broadcast<S: IntoLayout<Layout = DynLayout>>(&self, shape: S) -> DynLayout {
         self.broadcast(shape.as_ref())
     }
 }
 
 impl<const N: usize> BroadcastLayout<NdLayout<N>> for DynLayout {
-    fn broadcast<S: ToLayout<Layout = NdLayout<N>>>(&self, shape: S) -> NdLayout<N> {
+    fn broadcast<S: IntoLayout<Layout = NdLayout<N>>>(&self, shape: S) -> NdLayout<N> {
         let dyn_broadcast = self.broadcast(shape.as_ref());
         (&dyn_broadcast).try_into().unwrap()
     }
@@ -377,26 +377,26 @@ impl MutLayout for DynLayout {
 ///
 /// This is implemented for `[usize; N]` for creating static-rank layouts from
 /// arrays, and `&[usize]` for creating dynamic-rank layouts from slices.
-pub trait ToLayout: AsRef<[usize]> {
+pub trait IntoLayout: AsRef<[usize]> {
     /// The type of layout produced from this shape.
     type Layout: MutLayout;
 
     /// Convert this shape into a contiguous layout.
-    fn to_layout(self) -> Self::Layout;
+    fn into_layout(self) -> Self::Layout;
 }
 
-impl<const N: usize> ToLayout for [usize; N] {
+impl<const N: usize> IntoLayout for [usize; N] {
     type Layout = NdLayout<N>;
 
-    fn to_layout(self) -> NdLayout<N> {
+    fn into_layout(self) -> NdLayout<N> {
         NdLayout::from_shape(self)
     }
 }
 
-impl<'a> ToLayout for &'a [usize] {
+impl<'a> IntoLayout for &'a [usize] {
     type Layout = DynLayout;
 
-    fn to_layout(self) -> DynLayout {
+    fn into_layout(self) -> DynLayout {
         DynLayout::from_shape(self)
     }
 }
@@ -592,7 +592,7 @@ impl<T, S: AsRef<[T]> + AsMut<[T]>, L: MutLayout> TensorBase<T, S, L> {
         }
     }
 
-    pub fn reshaped_mut<SH: ToLayout>(&mut self, shape: SH) -> TensorBase<T, &mut [T], SH::Layout> {
+    pub fn reshaped_mut<SH: IntoLayout>(&mut self, shape: SH) -> TensorBase<T, &mut [T], SH::Layout> {
         TensorBase {
             layout: self.layout.reshaped(shape),
             data: self.data.as_mut(),
@@ -695,13 +695,13 @@ impl<T, L: Clone + MutLayout> TensorBase<T, Vec<T>, L> {
     /// Consume self and return a new contiguous tensor with the given shape.
     ///
     /// This avoids copying the data if it is already contiguous.
-    pub fn into_shape<S: ToLayout>(self, shape: S) -> TensorBase<T, Vec<T>, S::Layout>
+    pub fn into_shape<S: IntoLayout>(self, shape: S) -> TensorBase<T, Vec<T>, S::Layout>
     where
         T: Clone,
     {
         TensorBase {
             data: self.into_data(),
-            layout: shape.to_layout(),
+            layout: shape.into_layout(),
             element_type: PhantomData,
         }
     }
@@ -772,7 +772,7 @@ impl<'a, T, L: Clone + MutLayout> TensorBase<T, &'a [T], L> {
     }
 
     /// Broadcast this view to another shape.
-    pub fn broadcast<S: ToLayout>(&self, shape: S) -> TensorBase<T, &'a [T], S::Layout>
+    pub fn broadcast<S: IntoLayout>(&self, shape: S) -> TensorBase<T, &'a [T], S::Layout>
     where
         L: BroadcastLayout<S::Layout>,
     {
@@ -846,7 +846,7 @@ impl<'a, T, L: Clone + MutLayout> TensorBase<T, &'a [T], L> {
         }
     }
 
-    pub fn reshaped<S: ToLayout>(&self, shape: S) -> TensorBase<T, &'a [T], S::Layout> {
+    pub fn reshaped<S: IntoLayout>(&self, shape: S) -> TensorBase<T, &'a [T], S::Layout> {
         TensorBase {
             data: self.data,
             layout: self.layout.reshaped(shape),
@@ -1063,7 +1063,7 @@ impl<T, S: AsRef<[T]>, L: MutLayout + Clone> View for TensorBase<T, S, L> {
         }
     }
 
-    fn to_shape<SH: ToLayout>(
+    fn to_shape<SH: IntoLayout>(
         &self,
         shape: SH,
     ) -> TensorBase<Self::Elem, Vec<Self::Elem>, SH::Layout>
@@ -1072,7 +1072,7 @@ impl<T, S: AsRef<[T]>, L: MutLayout + Clone> View for TensorBase<T, S, L> {
     {
         TensorBase {
             data: self.to_vec(),
-            layout: shape.to_layout(),
+            layout: shape.into_layout(),
             element_type: PhantomData,
         }
     }
