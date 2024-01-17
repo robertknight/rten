@@ -419,10 +419,44 @@ trait IndexCount {
     type IndexCount: UInt;
 }
 
-impl IndexCount for (usize,) {
+impl IndexCount for usize {
     type IndexCount = U1;
 }
 
+impl IndexCount for RangeFull {
+    type IndexCount = U0;
+}
+
+impl<T1: IndexCount> IndexCount for (T1,) {
+    type IndexCount = T1::IndexCount;
+}
+
+impl<T1: IndexCount, T2: IndexCount> IndexCount for (T1, T2)
+where
+    T1::IndexCount: AddUInt<T2::IndexCount>,
+{
+    type IndexCount = <T1::IndexCount as AddUInt<T2::IndexCount>>::Output;
+}
+
+/// Computes the result of adding `Self` and `RHS`, as a `UInt` type.
+trait AddUInt<RHS: UInt> {
+    type Output: UInt;
+}
+
+impl AddUInt<U0> for U0 {
+    type Output = U0;
+}
+
+impl AddUInt<U1> for U0 {
+    type Output = U1;
+}
+
+impl AddUInt<U1> for U1 {
+    type Output = U2;
+}
+
+// Test of static determination of output type when slicing a layout `L` with
+// range `R`.
 fn slice_layout<L: Layout, R: IntoSliceItems + IndexCount>(
     layout: L,
     range: R,
@@ -477,6 +511,9 @@ mod tests {
 
         let x: DynLayout = todo!();
         let y = slice_layout(x, (3,));
+
+        let x: NdLayout<3> = todo!();
+        let y = slice_layout(x, (2, 1));
 
         assert!(false);
     }
