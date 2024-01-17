@@ -144,7 +144,10 @@ pub trait View: Layout {
         self.view().permuted(dims)
     }
 
-    fn reshaped<S: IntoLayout>(&self, shape: S) -> TensorBase<Self::Elem, &[Self::Elem], S::Layout> {
+    fn reshaped<S: IntoLayout>(
+        &self,
+        shape: S,
+    ) -> TensorBase<Self::Elem, &[Self::Elem], S::Layout> {
         self.view().reshaped(shape)
     }
 
@@ -211,7 +214,10 @@ pub trait View: Layout {
     }
 
     /// Return a copy of this tensor with a given shape.
-    fn to_shape<S: IntoLayout>(&self, shape: S) -> TensorBase<Self::Elem, Vec<Self::Elem>, S::Layout>
+    fn to_shape<S: IntoLayout>(
+        &self,
+        shape: S,
+    ) -> TensorBase<Self::Elem, Vec<Self::Elem>, S::Layout>
     where
         Self::Elem: Clone;
 
@@ -592,7 +598,10 @@ impl<T, S: AsRef<[T]> + AsMut<[T]>, L: MutLayout> TensorBase<T, S, L> {
         }
     }
 
-    pub fn reshaped_mut<SH: IntoLayout>(&mut self, shape: SH) -> TensorBase<T, &mut [T], SH::Layout> {
+    pub fn reshaped_mut<SH: IntoLayout>(
+        &mut self,
+        shape: SH,
+    ) -> TensorBase<T, &mut [T], SH::Layout> {
         TensorBase {
             layout: self.layout.reshaped(shape),
             data: self.data.as_mut(),
