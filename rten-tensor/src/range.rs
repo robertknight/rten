@@ -361,9 +361,85 @@ impl From<RangeFull> for SliceRange {
     }
 }
 
+// x: TensorBase<T, S, NdLayout<3>>
+// x.slice((1, 2, ..)) // TensorBase<T, S, NdLayout<2>>
+// x.slice((1, 2, 3)) // TensorBase<T, S, NdLayout<0>>
+// x.slice((.., .., ..)) // TensorBase<T, S, NdLayout<3>>
+//
+// y: TensorBase<T, S, DynLayout>
+// y.slice((1, 2, ..)) // TensorBase<T, S, DynLayout>
+//
+// fn slice<R: IntoSliceItems + IndexCount>(
+//   range: IndexCount
+// ) -> TensorBase<Self::Elem, &[Self::Elem], <L as SubDims<R::IC>>::Output>
+//
+// // Count the number of index entries in a tuple.
+// trait IndexCount { ... }
+//
+// // Return a layout with `N` fewer dimensions.
+// trait SubDims<const N: usize> {
+//   type Output: MutLayout;
+// }
+
+use crate::layout::{DynLayout, Layout, NdLayout};
+
+trait SubDims<C> {
+    // nb. Should be MutLayout
+    type Output: Layout;
+}
+
+/// Trait for types representing unsigned integers.
+trait UInt {}
+
+struct U1 {}
+impl UInt for U1 {}
+
+/// Trait that counts the number of index entries in a tuple used for slicing.
+///
+/// For example, given `(1, ..)` 
+trait IndexCount {
+    type IndexCount: UInt;
+}
+
+impl IndexCount for (usize,) {
+    type IndexCount = U1;
+}
+
+fn slice_layout<L: Layout, R: IntoSliceItems + IndexCount>(
+    layout: L,
+    range: R,
+) -> <L as SubDims<R::IndexCount>>::Output
+where
+    L: SubDims<R::IndexCount>,
+{
+    todo!()
+}
+
+impl SubDims<U1> for NdLayout<3> {
+    type Output = NdLayout<2>;
+}
+
+impl<T> SubDims<T> for DynLayout {
+    type Output = DynLayout;
+}
+
 #[cfg(test)]
 mod tests {
     use super::{IntoSliceItems, SliceItem, SliceRange};
+
+    use super::slice_layout;
+    use crate::layout::{DynLayout, NdLayout};
+
+    #[test]
+    fn test_slice_types() {
+        let x: NdLayout<3> = todo!();
+        let y = slice_layout(x, (3,));
+
+        let x: DynLayout = todo!();
+        let y = slice_layout(x, (3,));
+
+        assert!(false);
+    }
 
     #[test]
     fn test_into_slice_items() {
