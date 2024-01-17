@@ -383,21 +383,39 @@ impl From<RangeFull> for SliceRange {
 
 use crate::layout::{DynLayout, Layout, NdLayout};
 
-trait SubDims<C> {
-    // nb. Should be MutLayout
+/// Compute the type of layout created by removing `N` dimensions from a layout.
+///
+/// For dynamic layouts, the result is always `DynLayout`.
+trait SubDims<N: UInt> {
+    /// The layout produced after removing `N` dimensions.
     type Output: Layout;
 }
 
 /// Trait for types representing unsigned integers.
 trait UInt {}
 
+struct U0 {}
+impl UInt for U0 {}
+
 struct U1 {}
 impl UInt for U1 {}
 
+struct U2 {}
+impl UInt for U2 {}
+
+struct U3 {}
+impl UInt for U3 {}
+
+struct U4 {}
+impl UInt for U4 {}
+
 /// Trait that counts the number of index entries in a tuple used for slicing.
 ///
-/// For example, given `(1, ..)` 
+/// For example, given `(1, ..)`
 trait IndexCount {
+    /// The number of index entries in the type. This is represented as a
+    /// type implementing [UInt] because of generic const expressions are not
+    /// supported in Rust yet.
     type IndexCount: UInt;
 }
 
@@ -415,11 +433,33 @@ where
     todo!()
 }
 
-impl SubDims<U1> for NdLayout<3> {
-    type Output = NdLayout<2>;
+macro_rules! impl_subdims_for_ndlayout {
+    ($in_dims:literal, $sub_dims:ident, $out_dims:literal) => {
+        impl SubDims<$sub_dims> for NdLayout<$in_dims> {
+            type Output = NdLayout<$out_dims>;
+        }
+    };
 }
 
-impl<T> SubDims<T> for DynLayout {
+impl_subdims_for_ndlayout!(1, U0, 1);
+impl_subdims_for_ndlayout!(1, U1, 0);
+
+impl_subdims_for_ndlayout!(2, U0, 2);
+impl_subdims_for_ndlayout!(2, U1, 1);
+impl_subdims_for_ndlayout!(2, U2, 0);
+
+impl_subdims_for_ndlayout!(3, U0, 3);
+impl_subdims_for_ndlayout!(3, U1, 2);
+impl_subdims_for_ndlayout!(3, U2, 1);
+impl_subdims_for_ndlayout!(3, U3, 0);
+
+impl_subdims_for_ndlayout!(4, U0, 4);
+impl_subdims_for_ndlayout!(4, U1, 3);
+impl_subdims_for_ndlayout!(4, U2, 2);
+impl_subdims_for_ndlayout!(4, U3, 1);
+impl_subdims_for_ndlayout!(4, U4, 0);
+
+impl<N: UInt> SubDims<N> for DynLayout {
     type Output = DynLayout;
 }
 
