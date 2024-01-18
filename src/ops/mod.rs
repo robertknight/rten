@@ -245,6 +245,12 @@ macro_rules! impl_input_conversions {
                 Input::$variant(t)
             }
         }
+
+        impl<'a, const N: usize> From<NdTensorView<'a, $element_type, N>> for Input<'a> {
+            fn from(t: NdTensorView<'a, $element_type, N>) -> Input {
+                Input::$variant(t.as_dyn())
+            }
+        }
     };
 }
 
@@ -804,6 +810,9 @@ pub fn resolve_axes<'a, I: ExactSizeIterator<Item = &'a i32>>(
 mod tests {
     use rten_tensor::prelude::*;
     use rten_tensor::test_util::{expect_equal_with_tolerance, ExpectEqualError};
+    use rten_tensor::NdTensor;
+
+    use super::Input;
 
     /// Compare two f32 tensors with a higher absolute tolerance (1e-4) than
     /// the default (1e-5).
@@ -815,5 +824,18 @@ mod tests {
         expected: &V,
     ) -> Result<(), ExpectEqualError> {
         expect_equal_with_tolerance(result, expected, 1e-4, 0.)
+    }
+
+    #[test]
+    fn test_input_from_tensor() {
+        let tensor = NdTensor::<i32, 3>::zeros([1, 2, 3]);
+        let input: Input = tensor.view().into();
+        assert!(matches!(input, Input::IntTensor(_)));
+        assert_eq!(input.shape(), &[1, 2, 3]);
+
+        let tensor = NdTensor::<f32, 2>::zeros([5, 5]);
+        let input: Input = tensor.view().into();
+        assert!(matches!(input, Input::FloatTensor(_)));
+        assert_eq!(input.shape(), &[5, 5]);
     }
 }
