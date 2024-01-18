@@ -361,26 +361,6 @@ impl From<RangeFull> for SliceRange {
     }
 }
 
-// x: TensorBase<T, S, NdLayout<3>>
-// x.slice((1, 2, ..)) // TensorBase<T, S, NdLayout<2>>
-// x.slice((1, 2, 3)) // TensorBase<T, S, NdLayout<0>>
-// x.slice((.., .., ..)) // TensorBase<T, S, NdLayout<3>>
-//
-// y: TensorBase<T, S, DynLayout>
-// y.slice((1, 2, ..)) // TensorBase<T, S, DynLayout>
-//
-// fn slice<R: IntoSliceItems + IndexCount>(
-//   range: IndexCount
-// ) -> TensorBase<Self::Elem, &[Self::Elem], <L as SubDims<R::IC>>::Output>
-//
-// // Count the number of index entries in a tuple.
-// trait IndexCount { ... }
-//
-// // Return a layout with `N` fewer dimensions.
-// trait SubDims<const N: usize> {
-//   type Output: MutLayout;
-// }
-
 use crate::layout::{DynLayout, Layout, NdLayout};
 
 /// Compute the type of layout created by removing `N` dimensions from a layout.
@@ -392,6 +372,10 @@ trait SubDims<N: UInt> {
 }
 
 /// Trait for types representing unsigned integers.
+///
+/// Implemented by `U[N]` structs where `N` is the integer value. These types
+/// are used to work around generic const expressions not being supported in
+/// stable Rust.
 trait UInt {}
 
 struct U0 {}
@@ -409,9 +393,16 @@ impl UInt for U3 {}
 struct U4 {}
 impl UInt for U4 {}
 
+/// Represents an integer value that is unknown at compile time.
+struct UnknownUInt {}
+impl UInt for UnknownUInt {}
+
 /// Trait that counts the number of index entries in a tuple used for slicing.
+/// This is used to determine the number of dimensions that will result from
+/// slicing a tensor.
 ///
-/// For example, given `(1, ..)`
+/// For example, when slicing a 3D tensor with `(1, .., ..)`, the output will
+/// have 2 dimensions, since the slice tuple contains one index.
 trait IndexCount {
     /// The number of index entries in the type. This is represented as a
     /// type implementing [UInt] because of generic const expressions are not
@@ -425,6 +416,22 @@ impl IndexCount for usize {
 
 impl IndexCount for RangeFull {
     type IndexCount = U0;
+}
+
+impl IndexCount for RangeFrom<usize> {
+    type IndexCount = U0;
+}
+
+impl IndexCount for RangeTo<usize> {
+    type IndexCount = U0;
+}
+
+impl IndexCount for SliceItem {
+    type IndexCount = UnknownUInt;
+}
+
+impl<'a> IndexCount for &'a [SliceItem] {
+    type IndexCount = UnknownUInt;
 }
 
 impl<T1: IndexCount> IndexCount for (T1,) {
@@ -443,16 +450,23 @@ trait AddUInt<RHS: UInt> {
     type Output: UInt;
 }
 
-impl AddUInt<U0> for U0 {
-    type Output = U0;
+/// Implement [AddUInt] to compute `$lhs + $rhs = $result` in terms of
+/// [UInt] types.
+macro_rules! impl_adduint {
+    ($lhs:ident, $rhs:ident, $result:ident) => {
+        impl AddUInt<$rhs> for $lhs {
+            type Output = $result;
+        }
+    };
 }
 
-impl AddUInt<U1> for U0 {
-    type Output = U1;
-}
+impl_adduint!(U0, U0, U0);
+impl_adduint!(U0, U1, U1);
+impl_adduint!(U1, U0, U1);
+impl_adduint!(U1, U1, U2);
 
-impl AddUInt<U1> for U1 {
-    type Output = U2;
+impl<RHS: UInt> AddUInt<RHS> for UnknownUInt {
+    type Output = UnknownUInt;
 }
 
 // Test of static determination of output type when slicing a layout `L` with
@@ -497,6 +511,10 @@ impl<N: UInt> SubDims<N> for DynLayout {
     type Output = DynLayout;
 }
 
+impl<const N: usize> SubDims<UnknownUInt> for NdLayout<N> {
+    type Output = DynLayout;
+}
+
 #[cfg(test)]
 mod tests {
     use super::{IntoSliceItems, SliceItem, SliceRange};
@@ -514,6 +532,9 @@ mod tests {
 
         let x: NdLayout<3> = todo!();
         let y = slice_layout(x, (2, 1));
+
+        let x: NdLayout<3> = todo!();
+        let y = slice_layout(x, [SliceItem::Index(0)].as_slice());
 
         assert!(false);
     }
