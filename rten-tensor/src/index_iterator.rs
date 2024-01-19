@@ -108,20 +108,26 @@ impl<Index: IndexArray> Iterator for Indices<Index> {
             return None;
         };
 
-        self.steps = self.steps.saturating_sub(1);
-        if self.steps > 0 {
-            // Find dimension where the last element has not been reached.
-            let mut next = current.clone();
-            let mut dim = next.as_ref().len() - 1;
-            while dim > 0 && next.as_ref()[dim] >= self.end.as_ref()[dim] - 1 {
-                next.as_mut()[dim] = self.start.as_ref()[dim];
-                dim -= 1;
+        let mut next = current.clone();
+        let mut has_next = false;
+        for ((&dim_end, &dim_start), index) in self
+            .end
+            .as_ref()
+            .iter()
+            .zip(self.start.as_ref())
+            .zip(next.as_mut().iter_mut())
+            .rev()
+        {
+            *index += 1;
+            if *index == dim_end {
+                *index = dim_start;
+            } else {
+                has_next = true;
+                break;
             }
-            next.as_mut()[dim] += 1;
-            self.next = Some(next);
-        } else {
-            self.next = None;
         }
+
+        self.next = has_next.then_some(next);
 
         Some(current)
     }
