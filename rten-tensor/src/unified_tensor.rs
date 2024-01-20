@@ -1227,6 +1227,19 @@ impl<'a, T> TensorBase<T, &'a mut [T], DynLayout> {
     }
 }
 
+impl<T, L: Clone + MutLayout> FromIterator<T> for TensorBase<T, Vec<T>, L>
+where
+    [usize; 1]: AsIndex<L>,
+{
+    /// Create a new 1D tensor filled with an arithmetic sequence of values
+    /// in the range `[start, end)` separated by `step`. If `step` is omitted,
+    /// it defaults to 1.
+    fn from_iter<I: IntoIterator<Item = T>>(iter: I) -> TensorBase<T, Vec<T>, L> {
+        let data: Vec<T> = iter.into_iter().collect();
+        TensorBase::from_data([data.len()].as_index(), data)
+    }
+}
+
 /// Return the offsets of `M` successive elements along the `dim` axis, starting
 /// at index `base`.
 ///
@@ -1559,6 +1572,17 @@ mod tests {
         let x = Tensor::from_data(&[2, 2], vec![1, 2, 3, 4]);
         let y: Result<NdTensor<i32, 3>, _> = x.try_into();
         assert!(y.is_err());
+    }
+
+    #[test]
+    fn test_from_iter() {
+        let x: Tensor = [1., 2., 3., 4.].into_iter().collect();
+        assert_eq!(x.shape(), &[4]);
+        assert_eq!(x.data(), Some([1., 2., 3., 4.].as_slice()));
+
+        let y: NdTensor<_, 1> = [1., 2., 3., 4.].into_iter().collect();
+        assert_eq!(y.shape(), [4]);
+        assert_eq!(y.data(), Some([1., 2., 3., 4.].as_slice()));
     }
 
     #[test]
