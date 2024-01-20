@@ -262,6 +262,9 @@ pub trait MutLayout: Layout + Clone {
         shape.into_layout()
     }
 
+    // Modify the size of a dimension. This does not alter the strides.
+    fn resize_dim(&mut self, dim: usize, size: usize);
+
     /// Reverse the order of dimensions. This is equivalent to
     /// `self.permuted([N-1, N-2, ... 0])`.
     fn transposed(&self) -> Self;
@@ -331,6 +334,10 @@ impl<const N: usize> MutLayout for NdLayout<N> {
         self.permuted(order)
     }
 
+    fn resize_dim(&mut self, dim: usize, size: usize) {
+        self.resize_dim(dim, size)
+    }
+
     fn transposed(&self) -> NdLayout<N> {
         self.transposed()
     }
@@ -367,6 +374,10 @@ impl MutLayout for DynLayout {
 
     fn permuted(&self, order: &[usize]) -> DynLayout {
         self.permuted(order)
+    }
+
+    fn resize_dim(&mut self, dim: usize, size: usize) {
+        self.resize_dim(dim, size)
     }
 
     fn transposed(&self) -> DynLayout {
@@ -722,6 +733,28 @@ impl<T, L: Clone + MutLayout> TensorBase<T, Vec<T>, L> {
             curr = curr + step;
         }
         TensorBase::from_data([data.len()].as_index(), data)
+    }
+
+    /// Clip dimension `dim` to `[range.start, range.end)`. The new size for
+    /// the dimension must be <= the old size.
+    ///
+    /// This currently requires `T: Copy` to support efficiently moving data
+    /// from the new start offset to the beginning of the element buffer.
+    pub fn clip_dim(&mut self, dim: usize, range: Range<usize>)
+    where
+        T: Copy,
+    {
+        let (start, end) = (range.start, range.end);
+
+        assert!(start <= end, "start must be <= end");
+        assert!(end <= self.size(dim), "end must be <= dim size");
+
+        let start_offset = self.layout.stride(dim) * start;
+        self.layout.resize_dim(dim, end - start);
+
+        let range = start_offset..start_offset + self.layout.min_data_len();
+        self.data.copy_within(range.clone(), 0);
+        self.data.truncate(range.end - range.start);
     }
 
     /// Consume self and return the underlying data as a contiguous tensor.
@@ -1494,6 +1527,17 @@ mod tests {
         let tensor = NdTensor::from_data([1], vec![3]);
         let elems: Vec<_> = tensor.broadcast_iter(&[2, 2]).copied().collect();
         assert_eq!(elems, &[3, 3, 3, 3]);
+    }
+
+    #[test]
+    fn test_clip_dim() {
+        let mut tensor = NdTensor::arange(0, 10, None).into_shape([3, 3]);
+        tensor.clip_dim(0, 0..3); // No-op
+        assert_eq!(tensor.shape(), [3, 3]);
+
+        tensor.clip_dim(0, 1..2); // Remove first and last rows
+        assert_eq!(tensor.shape(), [1, 3]);
+        assert_eq!(tensor.data(), Some([3, 4, 5].as_slice()));
     }
 
     #[test]
