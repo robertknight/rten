@@ -646,7 +646,7 @@ pub fn conv_transpose(
             input_mat.nd_view(),
             kernel_mat.nd_view(),
             1., /* alpha */
-            1., /* beta */
+            0., /* beta */
         );
 
         col2im(
