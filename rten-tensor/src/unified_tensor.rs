@@ -1359,6 +1359,18 @@ impl<T: PartialEq, S: AsRef<[T]>, L: MutLayout, V: AsView<Elem = T>> PartialEq<V
     }
 }
 
+impl<T, S: AsRef<[T]>, const N: usize> From<TensorBase<T, S, NdLayout<N>>>
+    for TensorBase<T, S, DynLayout>
+{
+    fn from(tensor: TensorBase<T, S, NdLayout<N>>) -> Self {
+        Self {
+            data: tensor.data,
+            layout: tensor.layout.into(),
+            element_type: PhantomData,
+        }
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::{AsView, NdTensor, NdTensorView, Tensor};
@@ -1507,6 +1519,14 @@ mod tests {
         let mut tensor = NdTensor::from_data([2, 2], data);
         tensor.fill(9.);
         assert_eq!(tensor.to_vec(), &[9., 9., 9., 9.]);
+    }
+
+    #[test]
+    fn test_dyn_tensor_from_nd_tensor() {
+        let x = NdTensor::from_data([2, 2], vec![1, 2, 3, 4]);
+        let y: Tensor<i32> = x.into();
+        assert_eq!(y.data(), Some([1, 2, 3, 4].as_slice()));
+        assert_eq!(y.shape(), &[2, 2]);
     }
 
     #[test]
