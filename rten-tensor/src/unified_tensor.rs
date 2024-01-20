@@ -1309,6 +1309,8 @@ impl<T, S: AsRef<[T]> + Clone, L: MutLayout + Clone> Clone for TensorBase<T, S, 
     }
 }
 
+impl<T, S: AsRef<[T]> + Copy, L: MutLayout + Copy> Copy for TensorBase<T, S, L> {}
+
 impl<T: PartialEq, S: AsRef<[T]>, L: MutLayout, V: AsView<Elem = T>> PartialEq<V>
     for TensorBase<T, S, L>
 {
@@ -1416,6 +1418,17 @@ mod tests {
         let cloned = tensor.clone();
         assert_eq!(tensor.shape(), cloned.shape());
         assert_eq!(tensor.to_vec(), cloned.to_vec());
+    }
+
+    #[test]
+    fn test_copy_view() {
+        let data = vec![1., 2., 3., 4.];
+        let view = NdTensorView::from_data([2, 2], &data);
+
+        // Verify that views are copyable, if their layout is.
+        let view2 = view;
+
+        assert_eq!(view.shape(), view2.shape());
     }
 
     #[test]
