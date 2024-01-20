@@ -735,6 +735,14 @@ impl<T, L: Clone + MutLayout> TensorBase<T, Vec<T>, L> {
         TensorBase::from_data([data.len()].as_index(), data)
     }
 
+    /// Create a new 1D tensor from a `Vec<T>`.
+    pub fn from_vec(vec: Vec<T>) -> TensorBase<T, Vec<T>, L>
+    where
+        [usize; 1]: AsIndex<L>,
+    {
+        TensorBase::from_data([vec.len()].as_index(), vec)
+    }
+
     /// Clip dimension `dim` to `[range.start, range.end)`. The new size for
     /// the dimension must be <= the old size.
     ///
@@ -1635,6 +1643,13 @@ mod tests {
         let y = NdTensor::from_scalar(6.);
         assert_eq!(x.item(), Some(&5.));
         assert_eq!(y.item(), Some(&6.));
+    }
+
+    #[test]
+    fn test_from_vec() {
+        let x = NdTensor::from_vec(vec![1, 2, 3, 4]);
+        assert_eq!(x.shape(), [4]);
+        assert_eq!(x.data(), Some([1, 2, 3, 4].as_slice()));
     }
 
     #[test]
