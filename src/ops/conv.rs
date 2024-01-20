@@ -570,21 +570,25 @@ fn col2im(
     columns: &NdTensorView<f32, 5>,
     strides: [usize; 2],
 ) {
-    let [in_h, in_w, _out_chans, k_h, k_w] = columns.shape();
-    let [out_chans, _, _] = output.shape();
     let [stride_h, stride_w] = strides;
 
-    let col_view = columns.unchecked();
+    // If we assume `columns` is likely already contiguous, we can avoid offset
+    // calculations and just iterate over the underlying data.
+    let columns = columns.to_contiguous();
+    let columns_shape = columns.shape();
+    let mut col_data_iter = columns.data().unwrap().iter();
+
     let mut out_view = output.unchecked_mut();
 
-    for y in 0..in_h {
-        for x in 0..in_w {
-            for out_c in 0..out_chans {
-                for k_y in 0..k_h {
+    // Loop order must match dim order of `columns`.
+    for y in 0..columns_shape[0] {
+        for x in 0..columns_shape[1] {
+            for out_c in 0..columns_shape[2] {
+                for k_y in 0..columns_shape[3] {
                     let out_y = y * stride_h + k_y;
-                    for k_x in 0..k_w {
+                    for k_x in 0..columns_shape[4] {
                         let out_x = x * stride_w + k_x;
-                        out_view[[out_c, out_y, out_x]] += col_view[[y, x, out_c, k_y, k_x]];
+                        out_view[[out_c, out_y, out_x]] += col_data_iter.next().unwrap();
                     }
                 }
             }
