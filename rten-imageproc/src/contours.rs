@@ -1,3 +1,5 @@
+#[allow(unused_imports)]
+use rten_tensor::prelude::*;
 use rten_tensor::{MatrixLayout, NdTensor, NdTensorView};
 
 use crate::{Point, Polygons};
