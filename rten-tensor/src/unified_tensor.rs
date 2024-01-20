@@ -168,7 +168,7 @@ pub trait AsView: Layout {
 
     /// Slice this tensor and return a static-rank view with `M` dimensions.
     ///
-    /// Use [View::slice_dyn] instead the number of dimensions in the returned
+    /// Use [AsView::slice_dyn] instead the number of dimensions in the returned
     /// view is unknown at compile time.
     ///
     /// Panics if the dimension count is not `M`.
@@ -227,6 +227,15 @@ pub trait AsView: Layout {
     {
         let data = self.to_vec();
         TensorBase::from_data(self.layout().shape(), data)
+    }
+
+    /// Return a view which uses unchecked indexing.
+    ///
+    /// This supports slightly faster indexing by not bounds checking each
+    /// element of an index, although the calculated offset is still
+    /// bounds-checked against the underlying data.
+    fn unchecked(&self) -> TensorBase<Self::Elem, &[Self::Elem], Self::Layout> {
+        self.view()
     }
 }
 
@@ -606,7 +615,7 @@ impl<T, S: AsRef<[T]> + AsMut<[T]>, L: MutLayout> TensorBase<T, S, L> {
 
     /// Permute the order of dimensions according to the given order.
     ///
-    /// See [View::permuted].
+    /// See [AsView::permuted].
     pub fn permuted_mut(&mut self, order: L::Index<'_>) -> TensorBase<T, &mut [T], L> {
         TensorBase {
             layout: self.layout.permuted(order),
@@ -617,7 +626,7 @@ impl<T, S: AsRef<[T]> + AsMut<[T]>, L: MutLayout> TensorBase<T, S, L> {
 
     /// Change the layout of the tensor without moving any data.
     ///
-    /// See [View::reshaped].
+    /// See [AsView::reshaped].
     pub fn reshaped_mut<SH: IntoLayout>(
         &mut self,
         shape: SH,
@@ -631,7 +640,7 @@ impl<T, S: AsRef<[T]> + AsMut<[T]>, L: MutLayout> TensorBase<T, S, L> {
 
     /// Slice this tensor and return a static-rank view with `M` dimensions.
     ///
-    /// Use [View::slice_dyn] instead the number of dimensions in the returned
+    /// Use [AsView::slice_dyn] instead the number of dimensions in the returned
     /// view is unknown at compile time.
     ///
     /// Panics if the dimension count is not `M`.
@@ -673,6 +682,14 @@ impl<T, S: AsRef<[T]> + AsMut<[T]>, L: MutLayout> TensorBase<T, S, L> {
             layout,
             element_type: PhantomData,
         })
+    }
+
+    /// Return a mutable view of this tensor which uses unchecked indexing.
+    ///
+    /// See also [AsView::unchecked].
+    pub fn unchecked_mut(&mut self) -> TensorBase<T, &mut [T], L> {
+        // This doesn't actually implement the "unchecked" part yet.
+        self.view_mut()
     }
 
     /// Return a mutable view of this tensor.
@@ -790,7 +807,7 @@ impl<T, L: Clone + MutLayout> TensorBase<T, Vec<T>, L> {
 impl<'a, T, L: Clone + MutLayout> TensorBase<T, &'a [T], L> {
     /// Return a view of this tensor with a dynamic dimension count.
     ///
-    /// See [View::as_dyn].
+    /// See [AsView::as_dyn].
     pub fn as_dyn(&self) -> TensorBase<T, &'a [T], DynLayout>
     where
         L: Clone + Into<DynLayout>,
@@ -804,7 +821,7 @@ impl<'a, T, L: Clone + MutLayout> TensorBase<T, &'a [T], L> {
 
     /// Broadcast this view to another shape.
     ///
-    /// See [View::broadcast].
+    /// See [AsView::broadcast].
     pub fn broadcast<S: IntoLayout>(&self, shape: S) -> TensorBase<T, &'a [T], S::Layout>
     where
         L: BroadcastLayout<S::Layout>,
@@ -819,7 +836,7 @@ impl<'a, T, L: Clone + MutLayout> TensorBase<T, &'a [T], L> {
     /// Return an iterator over elements as if this tensor was broadcast to
     /// another shape.
     ///
-    /// See [View::broadcast_iter].
+    /// See [AsView::broadcast_iter].
     pub fn broadcast_iter(&self, shape: &[usize]) -> BroadcastIter<'a, T> {
         BroadcastIter::new(self.view_ref(), shape.as_ref())
     }
@@ -842,7 +859,7 @@ impl<'a, T, L: Clone + MutLayout> TensorBase<T, &'a [T], L> {
 
     /// Return an iterator over the inner `N` dimensions of this tensor.
     ///
-    /// See [View::inner_iter].
+    /// See [AsView::inner_iter].
     pub fn inner_iter<const N: usize>(&self) -> InnerIter<'a, T, L, N> {
         InnerIter::new(self.view())
     }
@@ -858,14 +875,14 @@ impl<'a, T, L: Clone + MutLayout> TensorBase<T, &'a [T], L> {
 
     /// Return an iterator over elements of this tensor in their logical order.
     ///
-    /// See [View::iter].
+    /// See [AsView::iter].
     pub fn iter(&self) -> Iter<'a, T> {
         Iter::new(self.view_ref())
     }
 
     /// Return an iterator over 1D slices of this tensor along a given dimension.
     ///
-    /// See [View::lanes].
+    /// See [AsView::lanes].
     pub fn lanes(&self, dim: usize) -> Lanes<'a, T> {
         Lanes::new(self.view_ref(), dim)
     }
@@ -884,7 +901,7 @@ impl<'a, T, L: Clone + MutLayout> TensorBase<T, &'a [T], L> {
 
     /// Permute the axes of this tensor according to `order`.
     ///
-    /// See [View::permuted].
+    /// See [AsView::permuted].
     pub fn permuted(&self, order: L::Index<'_>) -> TensorBase<T, &'a [T], L> {
         TensorBase {
             data: self.data,
@@ -895,7 +912,7 @@ impl<'a, T, L: Clone + MutLayout> TensorBase<T, &'a [T], L> {
 
     /// Change the shape of this tensor without copying data.
     ///
-    /// See [View::reshaped].
+    /// See [AsView::reshaped].
     pub fn reshaped<S: IntoLayout>(&self, shape: S) -> TensorBase<T, &'a [T], S::Layout> {
         TensorBase {
             data: self.data,
@@ -904,7 +921,7 @@ impl<'a, T, L: Clone + MutLayout> TensorBase<T, &'a [T], L> {
         }
     }
 
-    /// Slice this tensor and return a static-rank view. See [View::slice].
+    /// Slice this tensor and return a static-rank view. See [AsView::slice].
     pub fn slice<const M: usize, R: IntoSliceItems>(&self, range: R) -> NdTensorView<'a, T, M> {
         let range = range.into_slice_items();
         let (offset_range, sliced_layout) = self.layout.slice(range.as_ref());
@@ -915,7 +932,7 @@ impl<'a, T, L: Clone + MutLayout> TensorBase<T, &'a [T], L> {
         }
     }
 
-    /// Slice this tensor and return a dynamic-rank view. See [View::slice_dyn].
+    /// Slice this tensor and return a dynamic-rank view. See [AsView::slice_dyn].
     pub fn slice_dyn<R: IntoSliceItems>(&self, range: R) -> TensorView<'a, T> {
         let range = range.into_slice_items();
         let (offset_range, sliced_layout) = self.layout.slice_dyn(range.as_ref());
@@ -926,14 +943,14 @@ impl<'a, T, L: Clone + MutLayout> TensorBase<T, &'a [T], L> {
         }
     }
 
-    /// See [View::slice_iter].
+    /// See [AsView::slice_iter].
     pub fn slice_iter(&self, range: &[SliceItem]) -> Iter<'a, T> {
         Iter::slice(self.view_ref(), range)
     }
 
     /// Remove all size-one dimensions from this tensor.
     ///
-    /// See [View::squeezed].
+    /// See [AsView::squeezed].
     pub fn squeezed(&self) -> TensorView<'a, T> {
         TensorBase {
             data: self.data,
@@ -966,7 +983,7 @@ impl<'a, T, L: Clone + MutLayout> TensorBase<T, &'a [T], L> {
         }
     }
 
-    /// Reverse the order of dimensions in this tensor. See [View::transposed].
+    /// Reverse the order of dimensions in this tensor. See [AsView::transposed].
     pub fn transposed(&self) -> TensorBase<T, &'a [T], L> {
         TensorBase {
             data: self.data,
@@ -984,7 +1001,13 @@ impl<'a, T, L: Clone + MutLayout> TensorBase<T, &'a [T], L> {
         })
     }
 
-    /// Return a read-only view of this tensor. See [View::view].
+    /// Return a view which uses unchecked indexing. See [AsView::unchecked].
+    pub fn unchecked(&self) -> TensorBase<T, &'a [T], L> {
+        // This doesn't actually implement the "unchecked" part yet.
+        self.view()
+    }
+
+    /// Return a read-only view of this tensor. See [AsView::view].
     pub fn view(&self) -> TensorBase<T, &'a [T], L> {
         TensorBase {
             data: self.data,
@@ -2031,6 +2054,28 @@ mod tests {
 
         let row = tensor.try_slice(2);
         assert!(row.is_err());
+    }
+
+    #[test]
+    fn test_unchecked() {
+        let tensor = NdTensor::from_data([2, 2], vec![1, 2, 3, 4]);
+        let view = tensor.unchecked();
+
+        // nb. The "unchecked" aspect of this view is not yet implemented,
+        // so this behaves the same as a regular view.
+        assert_eq!(view.data(), Some([1, 2, 3, 4].as_slice()));
+    }
+
+    #[test]
+    fn test_unchecked_mut() {
+        let mut tensor = NdTensor::from_data([2, 2], vec![1, 2, 3, 4]);
+        let mut view = tensor.unchecked_mut();
+        view[[0, 0]] = 0;
+        view[[1, 1]] = 0;
+
+        // nb. The "unchecked" aspect of this view is not yet implemented,
+        // so this behaves the same as a regular view.
+        assert_eq!(tensor.data(), Some([0, 2, 3, 0].as_slice()));
     }
 
     #[test]
