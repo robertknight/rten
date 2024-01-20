@@ -1,8 +1,12 @@
+use std::ops::Add;
+
 use crate::index_iterator::DynIndices;
 use crate::layout::Layout;
 use crate::range::to_slice_items;
 
-use super::{MutLayout, NdTensorView, NdTensorViewMut, TensorBase};
+use super::{
+    AsView, MutLayout, NdTensorView, NdTensorViewMut, TensorBase, TensorView, TensorViewMut,
+};
 
 /// Iterator over views of the N innermost dimensions of a tensor with element
 /// type `T` and layout `L`.
@@ -84,3 +88,161 @@ impl<'a, T, L: MutLayout, const N: usize> Iterator for InnerIterMut<'a, T, L, N>
 }
 
 impl<'a, T, L: MutLayout, const N: usize> ExactSizeIterator for InnerIterMut<'a, T, L, N> {}
+
+/// Iterator over slices of a tensor along an axis. See [TensorView::axis_iter].
+pub struct AxisIter<'a, T> {
+    view: TensorView<'a, T>,
+    index: usize,
+}
+
+impl<'a, T> AxisIter<'a, T> {
+    pub fn new(view: &TensorView<'a, T>, dim: usize) -> AxisIter<'a, T> {
+        let mut permuted = view.clone();
+        permuted.move_axis(dim, 0);
+        AxisIter {
+            view: permuted,
+            index: 0,
+        }
+    }
+}
+
+impl<'a, T> Iterator for AxisIter<'a, T> {
+    type Item = TensorView<'a, T>;
+
+    fn next(&mut self) -> Option<Self::Item> {
+        if self.index >= self.view.size(0) {
+            None
+        } else {
+            let view = self.view.slice_dyn([self.index]);
+            self.index += 1;
+            Some(view)
+        }
+    }
+}
+
+/// Iterator over mutable slices of a tensor along an axis. See [TensorViewMut::axis_iter_mut].
+pub struct AxisIterMut<'a, T> {
+    view: TensorViewMut<'a, T>,
+    index: usize,
+}
+
+impl<'a, T> AxisIterMut<'a, T> {
+    pub fn new(mut view: TensorViewMut<'a, T>, dim: usize) -> AxisIterMut<'a, T> {
+        // See notes in `Layout` about internal overlap.
+        assert!(
+            !view.layout().is_broadcast(),
+            "Cannot mutably iterate over broadcasting view"
+        );
+        view.move_axis(dim, 0);
+        AxisIterMut { view, index: 0 }
+    }
+}
+
+impl<'a, T> Iterator for AxisIterMut<'a, T> {
+    type Item = TensorViewMut<'a, T>;
+
+    fn next(&mut self) -> Option<Self::Item> {
+        if self.index >= self.view.size(0) {
+            None
+        } else {
+            let index = self.index;
+            self.index += 1;
+
+            // Safety: This is non-broadcasting view, and we increment the index
+            // each time, so returned views will not overlap.
+            let view = unsafe {
+                let view = self.view.slice_mut_dyn([index]);
+                std::mem::transmute::<TensorViewMut<'_, T>, TensorViewMut<'a, T>>(view)
+            };
+            Some(view)
+        }
+    }
+}
+
+/// Iterator over slices of a tensor along an axis. See [TensorView::axis_chunks].
+pub struct AxisChunks<'a, T> {
+    view: TensorView<'a, T>,
+    index: usize,
+    chunk_size: usize,
+}
+
+impl<'a, T> AxisChunks<'a, T> {
+    pub fn new(view: &TensorView<'a, T>, dim: usize, chunk_size: usize) -> AxisChunks<'a, T> {
+        let mut permuted = view.clone();
+        permuted.move_axis(dim, 0);
+        AxisChunks {
+            view: permuted,
+            index: 0,
+            chunk_size,
+        }
+    }
+}
+
+impl<'a, T> Iterator for AxisChunks<'a, T> {
+    type Item = TensorView<'a, T>;
+
+    fn next(&mut self) -> Option<Self::Item> {
+        let size = self.view.size(0);
+        if self.index >= self.view.size(0) {
+            None
+        } else {
+            let view = self
+                .view
+                .slice_dyn(self.index..self.index.add(self.chunk_size).min(size));
+            self.index += self.chunk_size;
+            Some(view)
+        }
+    }
+}
+
+/// Iterator over mutable slices of a tensor along an axis. See [TensorViewMut::axis_chunks_mut].
+pub struct AxisChunksMut<'a, T> {
+    view: TensorViewMut<'a, T>,
+    index: usize,
+    chunk_size: usize,
+}
+
+impl<'a, T> AxisChunksMut<'a, T> {
+    pub fn new(
+        mut view: TensorViewMut<'a, T>,
+        dim: usize,
+        chunk_size: usize,
+    ) -> AxisChunksMut<'a, T> {
+        // See notes in `Layout` about internal overlap.
+        assert!(
+            !view.layout().is_broadcast(),
+            "Cannot mutably iterate over broadcasting view"
+        );
+        view.move_axis(dim, 0);
+        AxisChunksMut {
+            view,
+            chunk_size,
+            index: 0,
+        }
+    }
+}
+
+impl<'a, T> Iterator for AxisChunksMut<'a, T> {
+    type Item = TensorViewMut<'a, T>;
+
+    fn next(&mut self) -> Option<Self::Item> {
+        let size = self.view.size(0);
+
+        if self.index >= size {
+            None
+        } else {
+            let index = self.index;
+            self.index += self.chunk_size;
+
+            // Safety: This is non-broadcasting view, and we increment the index
+            // each time, so returned views will not overlap.
+            let view = unsafe {
+                let view = self
+                    .view
+                    .slice_mut_dyn(index..index.add(self.chunk_size).min(size));
+                std::mem::transmute::<TensorViewMut<'_, T>, TensorViewMut<'a, T>>(view)
+            };
+            Some(view)
+        }
+    }
+}

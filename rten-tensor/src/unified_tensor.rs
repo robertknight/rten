@@ -8,7 +8,7 @@ use crate::layout::{DynLayout, Layout, MatrixLayout, NdLayout, OverlapPolicy};
 use crate::{IntoSliceItems, RandomSource, SliceItem};
 
 mod iterators;
-use iterators::{InnerIter, InnerIterMut};
+use iterators::{AxisChunks, AxisChunksMut, AxisIter, AxisIterMut, InnerIter, InnerIterMut};
 
 /// The base type for multi-dimensional arrays. This consists of storage for
 /// elements, plus a _layout_ which maps from a multi-dimensional array index
@@ -57,6 +57,16 @@ pub trait AsView: Layout {
         Self::Layout: Into<DynLayout>,
     {
         self.view().as_dyn()
+    }
+
+    /// Return an iterator over slices of this tensor along a given axis.
+    fn axis_chunks(&self, dim: usize, chunk_size: usize) -> AxisChunks<Self::Elem> {
+        self.view().axis_chunks(dim, chunk_size)
+    }
+
+    /// Return an iterator over slices of this tensor along a given axis.
+    fn axis_iter(&self, dim: usize) -> AxisIter<Self::Elem> {
+        self.view().axis_iter(dim)
     }
 
     /// Broadcast this view to another shape.
@@ -523,6 +533,16 @@ impl<T, S: AsRef<[T]>, L: MutLayout> TensorBase<T, S, L> {
 }
 
 impl<T, S: AsRef<[T]> + AsMut<[T]>, L: MutLayout> TensorBase<T, S, L> {
+    /// Return an iterator over mutable slices of this tensor along a given
+    /// axis.
+    pub fn axis_iter_mut(&mut self, dim: usize) -> AxisIterMut<T> {
+        AxisIterMut::new(self.view_mut(), dim)
+    }
+
+    pub fn axis_chunks_mut(&mut self, dim: usize, chunk_size: usize) -> AxisChunksMut<T> {
+        AxisChunksMut::new(self.view_mut(), dim, chunk_size)
+    }
+
     /// Replace each element in this tensor with the result of applying `f` to
     /// the element.
     pub fn apply<F: Fn(&T) -> T>(&mut self, f: F) {
@@ -846,6 +866,14 @@ impl<T, L: Clone + MutLayout> TensorBase<T, Vec<T>, L> {
 }
 
 impl<'a, T, L: Clone + MutLayout> TensorBase<T, &'a [T], L> {
+    pub fn axis_iter(&self, dim: usize) -> AxisIter<'a, T> {
+        AxisIter::new(self, dim)
+    }
+
+    pub fn axis_chunks(&self, dim: usize, chunk_size: usize) -> AxisChunks<'a, T> {
+        AxisChunks::new(self, dim, chunk_size)
+    }
+
     /// Return a view of this tensor with a dynamic dimension count.
     ///
     /// See [AsView::as_dyn].
