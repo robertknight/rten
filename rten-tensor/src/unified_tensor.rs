@@ -2,7 +2,7 @@ use std::borrow::Cow;
 use std::marker::PhantomData;
 use std::ops::{Index, IndexMut, Range};
 
-use crate::errors::SliceError;
+use crate::errors::{DimensionError, SliceError};
 use crate::iterators::{BroadcastIter, Iter, IterMut, Lanes, LanesMut, MutViewRef, ViewRef};
 use crate::layout::{DynLayout, Layout, MatrixLayout, NdLayout, OverlapPolicy};
 use crate::{IntoSliceItems, RandomSource, SliceItem};
@@ -1371,6 +1371,26 @@ impl<T, S: AsRef<[T]>, const N: usize> From<TensorBase<T, S, NdLayout<N>>>
     }
 }
 
+impl<T, S1: AsRef<[T]>, S2: AsRef<[T]>, const N: usize> TryFrom<TensorBase<T, S1, DynLayout>>
+    for TensorBase<T, S2, NdLayout<N>>
+where
+    S1: Into<S2>,
+{
+    type Error = DimensionError;
+
+    /// Convert a dynamic-dimensional tensor or view into a static-dimensional one.
+    ///
+    /// Fails if `value` does not have `N` dimensions.
+    fn try_from(value: TensorBase<T, S1, DynLayout>) -> Result<Self, Self::Error> {
+        let layout: NdLayout<N> = value.layout().try_into()?;
+        Ok(TensorBase {
+            data: value.data.into(),
+            layout,
+            element_type: PhantomData,
+        })
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::{AsView, NdTensor, NdTensorView, Tensor};
@@ -1527,6 +1547,18 @@ mod tests {
         let y: Tensor<i32> = x.into();
         assert_eq!(y.data(), Some([1, 2, 3, 4].as_slice()));
         assert_eq!(y.shape(), &[2, 2]);
+    }
+
+    #[test]
+    fn test_nd_tensor_from_dyn_tensor() {
+        let x = Tensor::from_data(&[2, 2], vec![1, 2, 3, 4]);
+        let y: NdTensor<i32, 2> = x.try_into().unwrap();
+        assert_eq!(y.data(), Some([1, 2, 3, 4].as_slice()));
+        assert_eq!(y.shape(), [2, 2]);
+
+        let x = Tensor::from_data(&[2, 2], vec![1, 2, 3, 4]);
+        let y: Result<NdTensor<i32, 3>, _> = x.try_into();
+        assert!(y.is_err());
     }
 
     #[test]
