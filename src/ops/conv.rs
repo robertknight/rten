@@ -1303,4 +1303,38 @@ mod tests {
 
         println!("depthwise_conv {elapsed:.3}ms",);
     }
+
+    #[test]
+    #[ignore]
+    fn bench_col2im() {
+        use super::col2im;
+        use rten_tensor::test_util::bench_loop;
+        use rten_tensor::NdTensor;
+
+        let out_chans = 32;
+        let in_height = 64;
+        let in_width = 64;
+        let kernel_height = 3;
+        let kernel_width = 3;
+        let [stride_y, stride_x] = [2, 2];
+        let out_height = (in_height - 1) * stride_y + (kernel_height - 1) + 1;
+        let out_width = (in_width - 1) * stride_x + (kernel_width - 1) + 1;
+
+        let mut rng = XorShiftRng::new(1234);
+        let mut output = NdTensor::zeros([out_chans, out_height, out_width]);
+        let columns = NdTensor::rand(
+            [in_height, in_width, out_chans, kernel_height, kernel_width],
+            &mut rng,
+        );
+
+        let stats = bench_loop(100, || {
+            col2im(
+                &mut output.view_mut(),
+                &columns.view(),
+                [stride_y, stride_x],
+            );
+        });
+
+        println!("col2im duration {:3} ms", stats.duration_ms());
+    }
 }
