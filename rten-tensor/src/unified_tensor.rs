@@ -1187,6 +1187,46 @@ impl<T, S: AsRef<[T]>, const N: usize> TensorBase<T, S, NdLayout<N>> {
     }
 }
 
+impl<T> TensorBase<T, Vec<T>, DynLayout> {
+    /// Reshape this tensor in place. This is cheap if the tensor is contiguous,
+    /// as only the layout will be changed, but requires copying data otherwise.
+    fn reshape(&mut self, shape: &[usize])
+    where
+        T: Clone,
+    {
+        if !self.is_contiguous() {
+            self.data = self.to_vec();
+        }
+        self.layout = DynLayout::from_shape(shape);
+    }
+}
+
+impl<'a, T> TensorBase<T, &'a [T], DynLayout> {
+    /// Reshape this view.
+    ///
+    /// Panics if the view is not contiguous.
+    fn reshape(&mut self, shape: &[usize])
+    where
+        T: Clone,
+    {
+        assert!(self.is_contiguous(), "can only reshape contiguous views");
+        self.layout = DynLayout::from_shape(shape);
+    }
+}
+
+impl<'a, T> TensorBase<T, &'a mut [T], DynLayout> {
+    /// Reshape this view.
+    ///
+    /// Panics if the view is not contiguous.
+    fn reshape(&mut self, shape: &[usize])
+    where
+        T: Clone,
+    {
+        assert!(self.is_contiguous(), "can only reshape contiguous views");
+        self.layout = DynLayout::from_shape(shape);
+    }
+}
+
 /// Return the offsets of `M` successive elements along the `dim` axis, starting
 /// at index `base`.
 ///
@@ -1827,6 +1867,26 @@ mod tests {
 
         assert_eq!(permuted.shape(), [3, 2]);
         assert_eq!(permuted.to_vec(), &[1., 4., 2., 5., 3., 8.]);
+    }
+
+    #[test]
+    fn test_reshape() {
+        // Owned tensor
+        let mut tensor = Tensor::<f32>::from_data(&[2, 2], vec![1., 2., 3., 4.]);
+        tensor.transpose();
+        tensor.reshape(&[4]);
+        assert_eq!(tensor.shape(), &[4]);
+        assert_eq!(tensor.to_vec(), &[1., 3., 2., 4.]);
+
+        // View
+        let mut view = tensor.view();
+        view.reshape(&[2, 2]);
+        assert_eq!(view.shape(), &[2, 2]);
+
+        // Mut view
+        let mut view_mut = tensor.view_mut();
+        view_mut.reshape(&[2, 2]);
+        assert_eq!(view_mut.shape(), &[2, 2]);
     }
 
     #[test]
