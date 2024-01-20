@@ -159,6 +159,18 @@ pub trait Layout {
 
         zip(a_iter, b_iter).all(|(a, b)| a == b || a == 1 || b == 1)
     }
+
+    /// Return the minimum length required for the element data buffer used
+    /// with this layout.
+    fn min_data_len(&self) -> usize {
+        if self.shape().as_ref().iter().any(|&size| size == 0) {
+            return 0;
+        }
+        let max_offset: usize = zip(self.shape().as_ref().iter(), self.strides().as_ref().iter())
+            .map(|(size, stride)| (size - 1) * stride)
+            .sum();
+        max_offset + 1
+    }
 }
 
 /// Provides convenience methods for querying the shape and strides of a matrix.
@@ -361,18 +373,6 @@ impl<const N: usize> NdLayout<N> {
         valid
     }
 
-    /// Return the minimum length required for the element data buffer used
-    /// with this layout.
-    pub fn min_data_len(&self) -> usize {
-        if self.shape.iter().any(|&size| size == 0) {
-            return 0;
-        }
-        let max_offset: usize = zip(self.shape.iter(), self.strides.iter())
-            .map(|(size, stride)| (size - 1) * stride)
-            .sum();
-        max_offset + 1
-    }
-
     /// Return the strides that a contiguous layout with a given shape would
     /// have.
     pub fn contiguous_strides(shape: [usize; N]) -> [usize; N] {
@@ -489,6 +489,10 @@ impl<const N: usize> NdLayout<N> {
 
         let layout = NdLayout { shape, strides };
         (offset..offset + layout.min_data_len(), layout)
+    }
+
+    pub fn resize_dim(&mut self, dim: usize, new_size: usize) {
+        self.shape[dim] = new_size;
     }
 }
 
@@ -690,21 +694,7 @@ impl DynLayout {
             slice_layout(self.shape(), self.strides(), out_shape, out_strides, range)?;
 
         let layout = Self { shape_and_strides };
-        Ok((offset..offset + layout.end_offset(), layout))
-    }
-
-    /// Return one past the maximum offset into the tensor/view's data buffer
-    /// that will be accessed when indexing into it using this layout.
-    pub fn end_offset(&self) -> usize {
-        let shape = self.shape();
-        if shape.iter().any(|&size| size == 0) {
-            return 0;
-        }
-        let strides = self.strides();
-        (0..self.ndim())
-            .map(|dim| (shape[dim] - 1) * strides[dim])
-            .sum::<usize>()
-            + 1
+        Ok((offset..offset + layout.min_data_len(), layout))
     }
 
     pub fn resize_dim(&mut self, dim: usize, new_size: usize) {

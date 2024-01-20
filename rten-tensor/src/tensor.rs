@@ -849,7 +849,7 @@ impl<T> Tensor<T> {
         let start_offset = self.layout.stride(dim) * start;
         self.layout.resize_dim(dim, end - start);
 
-        let range = start_offset..start_offset + self.layout.end_offset();
+        let range = start_offset..start_offset + self.layout.min_data_len();
         self.data.copy_within(range.clone(), 0);
         self.data.truncate(range.end - range.start);
     }
