@@ -1430,102 +1430,120 @@ mod tests {
 
     #[test]
     #[ignore]
-    fn bench_index() {
+    fn bench_iter() {
         use crate::rng::XorShiftRng;
-        use std::time::Instant;
+        use crate::test_util::bench_loop;
 
         let mut rng = XorShiftRng::new(1234);
 
         // Create 4D NCHW tensor, such as is common in vision models.
         let tensor = NdTensor::rand([5, 64, 256, 256], &mut rng);
+        let n_iters = 1;
 
         // Iteration via `for` loop;
-        let start = Instant::now();
-        let mut sum = 0.;
-        let data = tensor.data().unwrap();
-        for i in 0..data.len() {
-            sum += data[i];
-        }
-        assert!(sum > 0.);
-        let elapsed_for = start.elapsed().as_secs_f64();
+        let for_stats = bench_loop(n_iters, || {
+            let mut sum = 0.;
+            let data = tensor.data().unwrap();
+            for i in 0..data.len() {
+                sum += data[i];
+            }
+            assert!(sum > 0.);
+        });
+        println!(
+            "NCHW iteration via for loop: {:.3}ms",
+            for_stats.duration_ms()
+        );
 
         // Iteration via slice traversal.
-        let start = Instant::now();
-        let sum = tensor.data().unwrap().iter().sum::<f32>();
-        assert!(sum > 0.);
-        let elapsed_slice_iter = start.elapsed().as_secs_f64();
+        let slice_iter_stats = bench_loop(n_iters, || {
+            let sum = tensor.data().unwrap().iter().sum::<f32>();
+            assert!(sum > 0.);
+        });
+        println!(
+            "NCHW iteration via slice iter: {:.3}ms",
+            slice_iter_stats.duration_ms()
+        );
 
         // Iteration via tensor iterator (contiguous).
-        let start = Instant::now();
-        let sum = tensor.iter().sum::<f32>();
-        assert!(sum > 0.);
-        let elapsed_iter_contiguous = start.elapsed().as_secs_f64();
+        let iter_contiguous_stats = bench_loop(n_iters, || {
+            let sum = tensor.iter().sum::<f32>();
+            assert!(sum > 0.);
+        });
+        println!(
+            "NCHW iteration via contiguous iter: {:.3}ms",
+            iter_contiguous_stats.duration_ms()
+        );
 
         // Iteration via tensor iterator (non-contiguous).
-        let start = Instant::now();
-        let sum = tensor.permuted([1, 0, 2, 3]).iter().sum::<f32>();
-        assert!(sum > 0.);
-        let elapsed_iter_non_contiguous = start.elapsed().as_secs_f64();
+        let iter_non_contiguous_stats = bench_loop(n_iters, || {
+            let sum = tensor.permuted([1, 0, 2, 3]).iter().sum::<f32>();
+            assert!(sum > 0.);
+        });
+        println!(
+            "NCHW iteration via non-contiguous iter: {:.3}ms",
+            iter_non_contiguous_stats.duration_ms()
+        );
 
         // Iteration via indexing.
-        let start = Instant::now();
-        let mut sum = 0.;
-        let [batch, chans, height, width] = tensor.shape();
-        for n in 0..batch {
-            for c in 0..chans {
-                for h in 0..height {
-                    for w in 0..width {
-                        sum += tensor[[n, c, h, w]];
+        let indexing_stats = bench_loop(n_iters, || {
+            let mut sum = 0.;
+            let [batch, chans, height, width] = tensor.shape();
+            for n in 0..batch {
+                for c in 0..chans {
+                    for h in 0..height {
+                        for w in 0..width {
+                            sum += tensor[[n, c, h, w]];
+                        }
                     }
                 }
             }
-        }
-        assert!(sum > 0.);
-        let elapsed_indexing = start.elapsed().as_secs_f64();
+            assert!(sum > 0.);
+        });
+        println!(
+            "NCHW iteration via indexing: {:.3}ms",
+            indexing_stats.duration_ms()
+        );
 
         // Iteration via unchecked indexing.
-        let start = Instant::now();
-        let unchecked = tensor.view().unchecked();
-        let mut sum = 0.;
-        let [batch, chans, height, width] = tensor.shape();
-        for n in 0..batch {
-            for c in 0..chans {
-                for h in 0..height {
-                    for w in 0..width {
-                        sum += unchecked[[n, c, h, w]];
+        let unchecked_indexing_stats = bench_loop(n_iters, || {
+            let unchecked = tensor.view().unchecked();
+            let mut sum = 0.;
+            let [batch, chans, height, width] = tensor.shape();
+            for n in 0..batch {
+                for c in 0..chans {
+                    for h in 0..height {
+                        for w in 0..width {
+                            sum += unchecked[[n, c, h, w]];
+                        }
                     }
                 }
             }
-        }
-        assert!(sum > 0.);
-        let elapsed_indexing_unchecked = start.elapsed().as_secs_f64();
+            assert!(sum > 0.);
+        });
+        println!(
+            "NCHW iteration via unchecked indexing: {:.3}ms",
+            unchecked_indexing_stats.duration_ms()
+        );
 
         // Iteration via dynamic rank indexing.
-        let start = Instant::now();
-        let dyn_view = tensor.as_dyn();
-        let mut sum = 0.;
-        let [batch, chans, height, width] = tensor.shape();
-        for n in 0..batch {
-            for c in 0..chans {
-                for h in 0..height {
-                    for w in 0..width {
-                        sum += dyn_view[[n, c, h, w]];
+        let dyn_indexing_stats = bench_loop(n_iters, || {
+            let dyn_view = tensor.as_dyn();
+            let mut sum = 0.;
+            let [batch, chans, height, width] = tensor.shape();
+            for n in 0..batch {
+                for c in 0..chans {
+                    for h in 0..height {
+                        for w in 0..width {
+                            sum += dyn_view[[n, c, h, w]];
+                        }
                     }
                 }
             }
-        }
-        assert!(sum > 0.);
-        let elapsed_indexing_dyn = start.elapsed().as_secs_f64();
-
+            assert!(sum > 0.);
+        });
         println!(
-            "NCHW tensor iteration: for loop {} slice iter {}ms iter (contiguous) {}ms  iter (non-contiguous) {}ms indexing {}ms unchecked indexing {}ms dynamic rank indexing {}ms",
-            elapsed_for * 1000.0,
-            elapsed_slice_iter * 1000.0,
-            elapsed_iter_contiguous * 1000.0,
-            elapsed_iter_non_contiguous * 1000.0,
-            elapsed_indexing * 1000.0,
-            elapsed_indexing_unchecked * 1000.0,
-            elapsed_indexing_dyn * 1000.0,
+            "NCHW iteration via dyn indexing: {:.3}ms",
+            dyn_indexing_stats.duration_ms()
         );
     }
 }

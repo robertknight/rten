@@ -191,6 +191,31 @@ pub fn eq_with_nans(a: TensorView, b: TensorView) -> bool {
     }
 }
 
+pub struct BenchStats {
+    /// Duration in seconds.
+    duration: f64,
+}
+
+impl BenchStats {
+    /// Return total duration in milliseconds.
+    pub fn duration_ms(&self) -> f64 {
+        self.duration * 1000.0
+    }
+}
+
+/// A very simple benchmark helper which runs `f` for `n_iters` iterations.
+pub fn bench_loop<F: FnMut()>(n_iters: usize, mut f: F) -> BenchStats {
+    let start = std::time::Instant::now();
+
+    for _ in 0..n_iters {
+        f();
+    }
+
+    BenchStats {
+        duration: start.elapsed().as_secs_f64(),
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::ApproxEq;
