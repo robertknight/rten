@@ -236,10 +236,15 @@ pub trait MutLayout: Layout + Clone {
     /// Create a new contiguous layout with a given shape.
     fn from_shape(shape: Self::Index<'_>) -> Self;
 
+    /// Move the axis at position `from` to `to` by swapping their strides.
     fn move_axis(&mut self, from: usize, to: usize);
 
+    /// Return a layout with the axes permuted according to the given order.
     fn permuted(&self, order: Self::Index<'_>) -> Self;
 
+    /// Combine or split dimensions by reshaping the layout to a given shape.
+    ///
+    /// This will fail if the layout is not contiguous.
     fn reshaped<S: IntoLayout>(&self, shape: S) -> S::Layout {
         assert!(
             self.is_contiguous(),
@@ -248,6 +253,8 @@ pub trait MutLayout: Layout + Clone {
         shape.into_layout()
     }
 
+    /// Reverse the order of dimensions. This is equivalent to
+    /// `self.permuted([N-1, N-2, ... 0])`.
     fn transposed(&self) -> Self;
 
     /// Slice the layout and return a static rank layout with `M` dimensions.
@@ -256,8 +263,11 @@ pub trait MutLayout: Layout + Clone {
     /// Slice the layout and return a dynamic rank layout.
     fn slice_dyn(&self, range: &[SliceItem]) -> (Range<usize>, DynLayout);
 
+    /// Return a layout with all size-one dimensions removed.
     fn squeezed(&self) -> DynLayout;
 
+    /// Attempt to slice the layout or return an error if the range is invalid
+    /// for the layout's shape.
     fn try_slice<R: IntoSliceItems>(
         &self,
         range: R,
