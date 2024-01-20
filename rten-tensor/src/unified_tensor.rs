@@ -37,7 +37,7 @@ pub struct TensorBase<T, S: AsRef<[T]>, L: MutLayout> {
 /// In other words, this trait is conceptually similar to the way
 /// [std::ops::Deref] in the Rust standard library allows a `Vec<T>` to have all
 /// the methods of an `&[T]`.
-pub trait View: Layout {
+pub trait AsView: Layout {
     /// Type of element stored in this tensor.
     type Elem;
 
@@ -419,6 +419,8 @@ impl<'a> IntoLayout for &'a [usize] {
 /// Trait which extends [MutLayout] with support for changing the number of
 /// dimensions in-place.
 pub trait ResizeLayout: MutLayout {
+    /// Insert a size-one axis at the given index in the shape. This will have
+    /// the same stride as the dimension that follows it.
     fn insert_axis(&mut self, index: usize);
 }
 
@@ -434,6 +436,7 @@ impl ResizeLayout for DynLayout {
 /// tensors can be indexed with any type that can be converted to a `&[usize]`
 /// slice.
 pub trait AsIndex<L: Layout> {
+    /// Convert `self` into an index for use the layout `L`.
     fn as_index(&self) -> L::Index<'_>;
 }
 
@@ -467,6 +470,8 @@ impl<T, S: AsRef<[T]>, L: MutLayout> TensorBase<T, S, L> {
         }
     }
 
+    /// Convert the current tensor into a dynamic rank tensor without copying
+    /// any data.
     pub fn into_dyn(self) -> TensorBase<T, S, DynLayout>
     where
         L: Into<DynLayout>,
@@ -599,6 +604,9 @@ impl<T, S: AsRef<[T]> + AsMut<[T]>, L: MutLayout> TensorBase<T, S, L> {
         }
     }
 
+    /// Permute the order of dimensions according to the given order.
+    ///
+    /// See [View::permuted].
     pub fn permuted_mut(&mut self, order: L::Index<'_>) -> TensorBase<T, &mut [T], L> {
         TensorBase {
             layout: self.layout.permuted(order),
@@ -607,6 +615,9 @@ impl<T, S: AsRef<[T]> + AsMut<[T]>, L: MutLayout> TensorBase<T, S, L> {
         }
     }
 
+    /// Change the layout of the tensor without moving any data.
+    ///
+    /// See [View::reshaped].
     pub fn reshaped_mut<SH: IntoLayout>(
         &mut self,
         shape: SH,
@@ -778,6 +789,8 @@ impl<T, L: Clone + MutLayout> TensorBase<T, Vec<T>, L> {
 
 impl<'a, T, L: Clone + MutLayout> TensorBase<T, &'a [T], L> {
     /// Return a view of this tensor with a dynamic dimension count.
+    ///
+    /// See [View::as_dyn].
     pub fn as_dyn(&self) -> TensorBase<T, &'a [T], DynLayout>
     where
         L: Clone + Into<DynLayout>,
@@ -790,6 +803,8 @@ impl<'a, T, L: Clone + MutLayout> TensorBase<T, &'a [T], L> {
     }
 
     /// Broadcast this view to another shape.
+    ///
+    /// See [View::broadcast].
     pub fn broadcast<S: IntoLayout>(&self, shape: S) -> TensorBase<T, &'a [T], S::Layout>
     where
         L: BroadcastLayout<S::Layout>,
@@ -801,6 +816,10 @@ impl<'a, T, L: Clone + MutLayout> TensorBase<T, &'a [T], L> {
         }
     }
 
+    /// Return an iterator over elements as if this tensor was broadcast to
+    /// another shape.
+    ///
+    /// See [View::broadcast_iter].
     pub fn broadcast_iter(&self, shape: &[usize]) -> BroadcastIter<'a, T> {
         BroadcastIter::new(self.view_ref(), shape.as_ref())
     }
@@ -821,6 +840,9 @@ impl<'a, T, L: Clone + MutLayout> TensorBase<T, &'a [T], L> {
             .get_unchecked(self.layout.offset_unchecked(index.as_index()))
     }
 
+    /// Return an iterator over the inner `N` dimensions of this tensor.
+    ///
+    /// See [View::inner_iter].
     pub fn inner_iter<const N: usize>(&self) -> InnerIter<'a, T, L, N> {
         InnerIter::new(self.view())
     }
@@ -835,11 +857,15 @@ impl<'a, T, L: Clone + MutLayout> TensorBase<T, &'a [T], L> {
     }
 
     /// Return an iterator over elements of this tensor in their logical order.
+    ///
+    /// See [View::iter].
     pub fn iter(&self) -> Iter<'a, T> {
         Iter::new(self.view_ref())
     }
 
     /// Return an iterator over 1D slices of this tensor along a given dimension.
+    ///
+    /// See [View::lanes].
     pub fn lanes(&self, dim: usize) -> Lanes<'a, T> {
         Lanes::new(self.view_ref(), dim)
     }
@@ -856,6 +882,9 @@ impl<'a, T, L: Clone + MutLayout> TensorBase<T, &'a [T], L> {
         }
     }
 
+    /// Permute the axes of this tensor according to `order`.
+    ///
+    /// See [View::permuted].
     pub fn permuted(&self, order: L::Index<'_>) -> TensorBase<T, &'a [T], L> {
         TensorBase {
             data: self.data,
@@ -864,6 +893,9 @@ impl<'a, T, L: Clone + MutLayout> TensorBase<T, &'a [T], L> {
         }
     }
 
+    /// Change the shape of this tensor without copying data.
+    ///
+    /// See [View::reshaped].
     pub fn reshaped<S: IntoLayout>(&self, shape: S) -> TensorBase<T, &'a [T], S::Layout> {
         TensorBase {
             data: self.data,
@@ -872,6 +904,7 @@ impl<'a, T, L: Clone + MutLayout> TensorBase<T, &'a [T], L> {
         }
     }
 
+    /// Slice this tensor and return a static-rank view. See [View::slice].
     pub fn slice<const M: usize, R: IntoSliceItems>(&self, range: R) -> NdTensorView<'a, T, M> {
         let range = range.into_slice_items();
         let (offset_range, sliced_layout) = self.layout.slice(range.as_ref());
@@ -882,6 +915,7 @@ impl<'a, T, L: Clone + MutLayout> TensorBase<T, &'a [T], L> {
         }
     }
 
+    /// Slice this tensor and return a dynamic-rank view. See [View::slice_dyn].
     pub fn slice_dyn<R: IntoSliceItems>(&self, range: R) -> TensorView<'a, T> {
         let range = range.into_slice_items();
         let (offset_range, sliced_layout) = self.layout.slice_dyn(range.as_ref());
@@ -892,10 +926,14 @@ impl<'a, T, L: Clone + MutLayout> TensorBase<T, &'a [T], L> {
         }
     }
 
+    /// See [View::slice_iter].
     pub fn slice_iter(&self, range: &[SliceItem]) -> Iter<'a, T> {
         Iter::slice(self.view_ref(), range)
     }
 
+    /// Remove all size-one dimensions from this tensor.
+    ///
+    /// See [View::squeezed].
     pub fn squeezed(&self) -> TensorView<'a, T> {
         TensorBase {
             data: self.data,
@@ -928,6 +966,7 @@ impl<'a, T, L: Clone + MutLayout> TensorBase<T, &'a [T], L> {
         }
     }
 
+    /// Reverse the order of dimensions in this tensor. See [View::transposed].
     pub fn transposed(&self) -> TensorBase<T, &'a [T], L> {
         TensorBase {
             data: self.data,
@@ -945,6 +984,7 @@ impl<'a, T, L: Clone + MutLayout> TensorBase<T, &'a [T], L> {
         })
     }
 
+    /// Return a read-only view of this tensor. See [View::view].
     pub fn view(&self) -> TensorBase<T, &'a [T], L> {
         TensorBase {
             data: self.data,
@@ -1017,7 +1057,7 @@ impl<T, S: AsRef<[T]>, L: MutLayout + MatrixLayout> MatrixLayout for TensorBase<
     }
 }
 
-impl<T, S: AsRef<[T]>, L: MutLayout + Clone> View for TensorBase<T, S, L> {
+impl<T, S: AsRef<[T]>, L: MutLayout + Clone> AsView for TensorBase<T, S, L> {
     type Elem = T;
     type Layout = L;
 
@@ -1246,7 +1286,7 @@ impl<T, S: AsRef<[T]> + Clone, L: MutLayout + Clone> Clone for TensorBase<T, S, 
     }
 }
 
-impl<T: PartialEq, S: AsRef<[T]>, L: MutLayout, V: View<Elem = T>> PartialEq<V>
+impl<T: PartialEq, S: AsRef<[T]>, L: MutLayout, V: AsView<Elem = T>> PartialEq<V>
     for TensorBase<T, S, L>
 {
     fn eq(&self, other: &V) -> bool {
@@ -1256,7 +1296,7 @@ impl<T: PartialEq, S: AsRef<[T]>, L: MutLayout, V: View<Elem = T>> PartialEq<V>
 
 #[cfg(test)]
 mod tests {
-    use super::{NdTensor, NdTensorView, Tensor, View};
+    use super::{AsView, NdTensor, NdTensorView, Tensor};
     use crate::layout::MatrixLayout;
     use crate::prelude::*;
     use crate::rng::XorShiftRng;
