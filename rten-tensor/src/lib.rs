@@ -41,8 +41,7 @@ mod layout;
 mod macros;
 mod overlap;
 mod range;
-
-mod unified_tensor;
+mod tensor;
 
 /// Trait for sources of random data for tensors, for use with [Tensor::rand].
 pub trait RandomSource<T> {
@@ -51,11 +50,14 @@ pub trait RandomSource<T> {
 }
 
 pub use index_iterator::{DynIndices, Indices, NdIndices};
-pub use iterators::{BroadcastIter, Iter, IterMut, Lanes, LanesMut, Offsets};
+pub use iterators::{
+    AxisChunks, AxisChunksMut, AxisIter, AxisIterMut, BroadcastIter, InnerIter, InnerIterMut, Iter,
+    IterMut, Lanes, LanesMut, Offsets,
+};
 pub use layout::{is_valid_permutation, DynLayout, Layout, MatrixLayout, NdLayout};
 pub use range::{to_slice_items, DynSliceItems, IntoSliceItems, SliceItem, SliceRange};
 
-pub use unified_tensor::{
+pub use tensor::{
     AsView, Matrix, MatrixMut, MutLayout, NdTensor, NdTensorView, NdTensorViewMut, Tensor,
     TensorBase, TensorView, TensorViewMut,
 };
@@ -63,12 +65,8 @@ pub use unified_tensor::{
 // For backwards compatibility.
 pub type NdTensorBase<T, S, const N: usize> = TensorBase<T, S, NdLayout<N>>;
 
-pub use unified_tensor::iterators::{
-    AxisChunks, AxisChunksMut, AxisIter, AxisIterMut, InnerIter, InnerIterMut,
-};
-
 // For backwards compatibility.
-pub use unified_tensor::{AsView as View, AsView as NdView};
+pub use tensor::{AsView as View, AsView as NdView};
 
 /// This module provides a convenient way to import the most common traits
 /// from this library via a glob import.

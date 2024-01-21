@@ -3,12 +3,12 @@ use std::marker::PhantomData;
 use std::ops::{Index, IndexMut, Range};
 
 use crate::errors::{DimensionError, FromDataError, SliceError};
-use crate::iterators::{BroadcastIter, Iter, IterMut, Lanes, LanesMut, MutViewRef, ViewRef};
+use crate::iterators::{
+    AxisChunks, AxisChunksMut, AxisIter, AxisIterMut, BroadcastIter, InnerIter, InnerIterMut, Iter,
+    IterMut, Lanes, LanesMut, MutViewRef, ViewRef,
+};
 use crate::layout::{DynLayout, Layout, MatrixLayout, NdLayout, OverlapPolicy};
 use crate::{IntoSliceItems, RandomSource, SliceItem};
-
-pub mod iterators;
-use iterators::{AxisChunks, AxisChunksMut, AxisIter, AxisIterMut, InnerIter, InnerIterMut};
 
 /// The base type for multi-dimensional arrays. This consists of storage for
 /// elements, plus a _layout_ which maps from a multi-dimensional array index
