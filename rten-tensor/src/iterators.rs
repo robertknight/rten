@@ -1,11 +1,9 @@
 use std::iter::{repeat, zip, Cycle, FusedIterator, StepBy, Take};
-use std::ops::{Add, Range};
+use std::ops::Range;
 use std::slice;
 
 use super::range::{SliceItem, SliceRange};
-use crate::{
-    to_slice_items, DynIndices, Layout, NdTensorView, NdTensorViewMut, TensorView, TensorViewMut,
-};
+use crate::Layout;
 
 /// Borrowed reference to a tensor's data and layout. This differs from
 /// [TensorView] in that it borrows the layout rather than having its own.
@@ -643,164 +641,6 @@ impl<'a, T> ExactSizeIterator for BroadcastIter<'a, T> {}
 
 impl<'a, T> FusedIterator for BroadcastIter<'a, T> {}
 
-/// Iterator over slices of a tensor along an axis. See [TensorView::axis_iter].
-pub struct AxisIter<'a, T> {
-    view: TensorView<'a, T>,
-    index: usize,
-}
-
-impl<'a, T> AxisIter<'a, T> {
-    pub fn new(view: &TensorView<'a, T>, dim: usize) -> AxisIter<'a, T> {
-        let mut permuted = view.clone();
-        permuted.move_axis(dim, 0);
-        AxisIter {
-            view: permuted,
-            index: 0,
-        }
-    }
-}
-
-impl<'a, T> Iterator for AxisIter<'a, T> {
-    type Item = TensorView<'a, T>;
-
-    fn next(&mut self) -> Option<Self::Item> {
-        if self.index >= self.view.size(0) {
-            None
-        } else {
-            let view = self.view.slice([self.index]);
-            self.index += 1;
-            Some(view)
-        }
-    }
-}
-
-/// Iterator over mutable slices of a tensor along an axis. See [TensorViewMut::axis_iter_mut].
-pub struct AxisIterMut<'a, T> {
-    view: TensorViewMut<'a, T>,
-    index: usize,
-}
-
-impl<'a, T> AxisIterMut<'a, T> {
-    pub fn new(mut view: TensorViewMut<'a, T>, dim: usize) -> AxisIterMut<'a, T> {
-        // See notes in `Layout` about internal overlap.
-        assert!(
-            !view.layout().is_broadcast(),
-            "Cannot mutably iterate over broadcasting view"
-        );
-        view.move_axis(dim, 0);
-        AxisIterMut { view, index: 0 }
-    }
-}
-
-impl<'a, T> Iterator for AxisIterMut<'a, T> {
-    type Item = TensorViewMut<'a, T>;
-
-    fn next(&mut self) -> Option<Self::Item> {
-        if self.index >= self.view.size(0) {
-            None
-        } else {
-            let index = self.index;
-            self.index += 1;
-
-            // Safety: This is non-broadcasting view, and we increment the index
-            // each time, so returned views will not overlap.
-            let view = unsafe {
-                let view = self.view.slice_mut([index]);
-                std::mem::transmute::<TensorViewMut<'_, T>, TensorViewMut<'a, T>>(view)
-            };
-            Some(view)
-        }
-    }
-}
-
-/// Iterator over slices of a tensor along an axis. See [TensorView::axis_chunks].
-pub struct AxisChunks<'a, T> {
-    view: TensorView<'a, T>,
-    index: usize,
-    chunk_size: usize,
-}
-
-impl<'a, T> AxisChunks<'a, T> {
-    pub fn new(view: &TensorView<'a, T>, dim: usize, chunk_size: usize) -> AxisChunks<'a, T> {
-        let mut permuted = view.clone();
-        permuted.move_axis(dim, 0);
-        AxisChunks {
-            view: permuted,
-            index: 0,
-            chunk_size,
-        }
-    }
-}
-
-impl<'a, T> Iterator for AxisChunks<'a, T> {
-    type Item = TensorView<'a, T>;
-
-    fn next(&mut self) -> Option<Self::Item> {
-        let size = self.view.size(0);
-        if self.index >= self.view.size(0) {
-            None
-        } else {
-            let view = self
-                .view
-                .slice(self.index..self.index.add(self.chunk_size).min(size));
-            self.index += self.chunk_size;
-            Some(view)
-        }
-    }
-}
-
-/// Iterator over mutable slices of a tensor along an axis. See [TensorViewMut::axis_chunks_mut].
-pub struct AxisChunksMut<'a, T> {
-    view: TensorViewMut<'a, T>,
-    index: usize,
-    chunk_size: usize,
-}
-
-impl<'a, T> AxisChunksMut<'a, T> {
-    pub fn new(
-        mut view: TensorViewMut<'a, T>,
-        dim: usize,
-        chunk_size: usize,
-    ) -> AxisChunksMut<'a, T> {
-        // See notes in `Layout` about internal overlap.
-        assert!(
-            !view.layout().is_broadcast(),
-            "Cannot mutably iterate over broadcasting view"
-        );
-        view.move_axis(dim, 0);
-        AxisChunksMut {
-            view,
-            chunk_size,
-            index: 0,
-        }
-    }
-}
-
-impl<'a, T> Iterator for AxisChunksMut<'a, T> {
-    type Item = TensorViewMut<'a, T>;
-
-    fn next(&mut self) -> Option<Self::Item> {
-        let size = self.view.size(0);
-
-        if self.index >= size {
-            None
-        } else {
-            let index = self.index;
-            self.index += self.chunk_size;
-
-            // Safety: This is non-broadcasting view, and we increment the index
-            // each time, so returned views will not overlap.
-            let view = unsafe {
-                let view = self
-                    .view
-                    .slice_mut(index..index.add(self.chunk_size).min(size));
-                std::mem::transmute::<TensorViewMut<'_, T>, TensorViewMut<'a, T>>(view)
-            };
-            Some(view)
-        }
-    }
-}
-
 /// Iterator over the ranges of a tensor's data that correspond to 1D lanes
 /// along a particular dimension.
 struct LaneRanges {
@@ -964,89 +804,11 @@ impl<'a, T> Iterator for LanesMut<'a, T> {
     }
 }
 
-/// Iterator over views of the N innermost dimensions of a tensor.
-pub struct InnerIter<'a, T, const N: usize> {
-    outer_indices: DynIndices,
-    view: TensorView<'a, T>,
-}
-
-impl<'a, T, const N: usize> InnerIter<'a, T, N> {
-    pub fn new(view: TensorView<'a, T>) -> Self {
-        assert!(view.ndim() >= N);
-        let outer_dims = view.ndim() - N;
-        InnerIter {
-            outer_indices: DynIndices::from_shape(&view.shape()[..outer_dims]),
-            view,
-        }
-    }
-}
-
-impl<'a, T, const N: usize> Iterator for InnerIter<'a, T, N> {
-    type Item = NdTensorView<'a, T, N>;
-
-    fn next(&mut self) -> Option<Self::Item> {
-        self.outer_indices.next().map(|idx| {
-            let slice_items = to_slice_items(&idx);
-            self.view.slice(slice_items.as_slice()).try_into().unwrap()
-        })
-    }
-
-    fn size_hint(&self) -> (usize, Option<usize>) {
-        self.outer_indices.size_hint()
-    }
-}
-
-impl<'a, T, const N: usize> ExactSizeIterator for InnerIter<'a, T, N> {}
-
-/// Iterator over mutable views of the N innermost dimensions of a tensor.
-pub struct InnerIterMut<'a, T, const N: usize> {
-    outer_indices: DynIndices,
-    view: TensorViewMut<'a, T>,
-}
-
-impl<'a, T, const N: usize> InnerIterMut<'a, T, N> {
-    pub fn new(view: TensorViewMut<'a, T>) -> Self {
-        assert!(view.ndim() >= N);
-        let outer_dims = view.ndim() - N;
-        InnerIterMut {
-            outer_indices: DynIndices::from_shape(&view.shape()[..outer_dims]),
-            view,
-        }
-    }
-}
-
-impl<'a, T, const N: usize> Iterator for InnerIterMut<'a, T, N> {
-    type Item = NdTensorViewMut<'a, T, N>;
-
-    fn next(&mut self) -> Option<Self::Item> {
-        self.outer_indices.next().map(|idx| {
-            let slice_items = to_slice_items(&idx);
-            let view: NdTensorViewMut<'_, T, N> = self
-                .view
-                .slice_mut(slice_items.as_slice())
-                .try_into()
-                .unwrap();
-
-            unsafe {
-                // Safety: Outer view is non-broadcasting, and we increment the
-                // outer index each time, so returned views will not overlap.
-                std::mem::transmute::<NdTensorViewMut<'_, T, N>, NdTensorViewMut<'a, T, N>>(view)
-            }
-        })
-    }
-
-    fn size_hint(&self) -> (usize, Option<usize>) {
-        self.outer_indices.size_hint()
-    }
-}
-
-impl<'a, T, const N: usize> ExactSizeIterator for InnerIterMut<'a, T, N> {}
-
 // Tests for iterator internals. Most tests of iterators are currently done via
 // tests on tensor methods.
 #[cfg(test)]
 mod tests {
-    use crate::{Lanes, LanesMut, Tensor};
+    use crate::{AsView, Lanes, LanesMut, Tensor};
 
     #[test]
     fn test_lanes_empty() {
