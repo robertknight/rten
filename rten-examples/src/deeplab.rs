@@ -112,7 +112,7 @@ fn main() -> Result<(), Box<dyn Error>> {
 
     let mut image: Tensor = read_image(&args.image)?.into();
     normalize_image(image.nd_view_mut());
-    image.insert_dim(0); // Add batch dim
+    image.insert_axis(0); // Add batch dim
 
     // Resize image according to metadata in the model.
     let input_shape = model
@@ -132,7 +132,7 @@ fn main() -> Result<(), Box<dyn Error>> {
     output.permute(&[0, 2, 3, 1]); // (N,class,H,W) => (N,H,W,class)
 
     let seg_classes: NdTensor<i32, 2> = output
-        .slice(0)
+        .slice_dyn(0)
         .arg_max(-1, false /* keep_dims */)?
         .try_into()?;
     let [out_height, out_width] = seg_classes.shape();

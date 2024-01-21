@@ -103,7 +103,7 @@ fn embed_sentence_batch(
         let token_ids = encoded.token_ids();
         for (tid, input_id) in token_ids
             .iter()
-            .zip(input_ids.slice_mut((i, ..token_ids.len())).iter_mut())
+            .zip(input_ids.slice_mut_dyn((i, ..token_ids.len())).iter_mut())
         {
             *input_id = *tid as i32;
         }
@@ -114,7 +114,7 @@ fn embed_sentence_batch(
     let mut attention_mask = Tensor::zeros(&[batch, max_sequence_len]);
     for (i, encoded) in encoded.iter().enumerate() {
         attention_mask
-            .slice_mut((i, ..encoded.token_ids().len()))
+            .slice_mut::<1, _>((i, ..encoded.token_ids().len()))
             .fill(1i32);
     }
 
@@ -147,7 +147,7 @@ fn embed_sentence_batch(
             // Take the mean of the non-padding elements along the sequence
             // dimension.
             let seq_len = input.token_ids().len();
-            item.slice(..seq_len)
+            item.slice_dyn(..seq_len)
                 .reduce_mean(Some(&[0]), false /* keep_dims */)
                 .unwrap()
         })
@@ -157,7 +157,7 @@ fn embed_sentence_batch(
         .map(|mp| {
             // Re-add batch dim.
             let mut view = mp.view();
-            view.insert_dim(0);
+            view.insert_axis(0);
             view
         })
         .collect();
@@ -241,7 +241,7 @@ fn main() -> Result<(), Box<dyn Error>> {
     // all be "high" values (close to 1.0). They should be used only for
     // comparison with other scores.
     let mut scores: Vec<(usize, f32)> = similarities
-        .slice(0)
+        .slice_dyn(0)
         .iter()
         .copied()
         .enumerate()

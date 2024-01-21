@@ -117,7 +117,7 @@ fn main() -> Result<(), Box<dyn Error>> {
     let samples = read_wav_file(&args.wav_file)?;
 
     let mut sample_batch = Tensor::from_vec(samples);
-    sample_batch.insert_dim(0);
+    sample_batch.insert_axis(0);
 
     let result: NdTensor<f32, 3> = model
         .run_one(sample_batch.view().into(), None)?
