@@ -27,14 +27,14 @@ pub fn read_image(path: &str) -> Result<NdTensor<f32, 3>, Box<dyn Error>> {
     let (width, height) = input_img.dimensions();
     let layout = input_img.sample_layout();
 
-    let chw_tensor = NdTensorView::from_slice(
-        input_img.as_raw().as_slice(),
+    let chw_tensor = NdTensorView::from_data_with_strides(
         [height as usize, width as usize, 3],
-        Some([
+        input_img.as_raw().as_slice(),
+        [
             layout.height_stride,
             layout.width_stride,
             layout.channel_stride,
-        ]),
+        ],
     )?
     .permuted([2, 0, 1]) // HWC => CHW
     .to_tensor() // Make tensor contiguous, which makes `map` faster

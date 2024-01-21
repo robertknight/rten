@@ -162,6 +162,11 @@ fn array_offsets<const N: usize, const M: usize>(
 }
 
 impl<T, S: AsRef<[T]>, const N: usize> NdTensorBase<T, S, N> {
+    pub fn from_data(shape: [usize; N], data: S) -> NdTensorBase<T, S, N> {
+        Self::from_data_with_strides(shape, data, NdLayout::contiguous_strides(shape))
+            .expect("data length too short for shape")
+    }
+
     /// Constructs a tensor from the associated storage type and optional
     /// strides.
     ///
@@ -170,28 +175,24 @@ impl<T, S: AsRef<[T]>, const N: usize> NdTensorBase<T, S, N> {
     /// tensor maps to a unique element in the data. This upholds Rust's rules
     /// for mutable aliasing. [NdTensorBase::from_slice] does not have this
     /// restriction.
-    pub fn from_data(
-        data: S,
+    pub fn from_data_with_strides(
         shape: [usize; N],
-        strides: Option<[usize; N]>,
+        data: S,
+        strides: [usize; N],
     ) -> Result<NdTensorBase<T, S, N>, FromDataError> {
-        NdLayout::try_from_shape_and_strides(
-            shape,
-            strides.unwrap_or(NdLayout::contiguous_strides(shape)),
-            OverlapPolicy::DisallowOverlap,
-        )
-        .and_then(|layout| {
-            if layout.min_data_len() > data.as_ref().len() {
-                Err(FromDataError::StorageTooShort)
-            } else {
-                Ok(layout)
-            }
-        })
-        .map(|layout| NdTensorBase {
-            data,
-            layout,
-            element_type: PhantomData,
-        })
+        NdLayout::try_from_shape_and_strides(shape, strides, OverlapPolicy::DisallowOverlap)
+            .and_then(|layout| {
+                if layout.min_data_len() > data.as_ref().len() {
+                    Err(FromDataError::StorageTooShort)
+                } else {
+                    Ok(layout)
+                }
+            })
+            .map(|layout| NdTensorBase {
+                data,
+                layout,
+                element_type: PhantomData,
+            })
     }
 
     /// Consume self and return the underlying element storage.
@@ -329,7 +330,7 @@ impl<T, S: AsRef<[T]>, const N: usize> NdView<N> for NdTensorBase<T, S, N> {
 /// Convert a slice into a contiguous 1D tensor view.
 impl<'a, T, S: AsRef<[T]>> From<&'a S> for NdTensorBase<T, &'a [T], 1> {
     fn from(data: &'a S) -> Self {
-        Self::from_slice(data.as_ref(), [data.as_ref().len()], None).unwrap()
+        Self::from_data([data.as_ref().len()], data.as_ref())
     }
 }
 
@@ -340,28 +341,24 @@ impl<'a, T, const N: usize> NdTensorView<'a, T, N> {
     /// multiple indices in the tensor to refer to the same data element are
     /// allowed. Since the returned view is immutable, this will not enable
     /// violation of Rust's aliasing rules.
-    pub fn from_slice(
-        data: &'a [T],
+    pub fn from_slice_with_strides(
         shape: [usize; N],
-        strides: Option<[usize; N]>,
+        data: &'a [T],
+        strides: [usize; N],
     ) -> Result<Self, FromDataError> {
-        NdLayout::try_from_shape_and_strides(
-            shape,
-            strides.unwrap_or(NdLayout::contiguous_strides(shape)),
-            OverlapPolicy::AllowOverlap,
-        )
-        .and_then(|layout| {
-            if layout.min_data_len() > data.as_ref().len() {
-                Err(FromDataError::StorageTooShort)
-            } else {
-                Ok(layout)
-            }
-        })
-        .map(|layout| NdTensorBase {
-            data,
-            layout,
-            element_type: PhantomData,
-        })
+        NdLayout::try_from_shape_and_strides(shape, strides, OverlapPolicy::AllowOverlap)
+            .and_then(|layout| {
+                if layout.min_data_len() > data.as_ref().len() {
+                    Err(FromDataError::StorageTooShort)
+                } else {
+                    Ok(layout)
+                }
+            })
+            .map(|layout| NdTensorBase {
+                data,
+                layout,
+                element_type: PhantomData,
+            })
     }
 
     /// Return the element at a given index, without performing any bounds-
@@ -829,7 +826,7 @@ impl<T> FromIterator<T> for NdTensor<T, 1> {
     {
         let data: Vec<_> = FromIterator::from_iter(iter);
         let len = data.len();
-        NdTensor::from_data(data, [len], None).unwrap()
+        NdTensor::from_data([len], data)
     }
 }
 
@@ -866,7 +863,7 @@ mod tests {
 
     #[test]
     fn test_ndtensor_apply() {
-        let mut tensor = ndtensor!((2, 2); [1, 2, 3, 4]).unwrap();
+        let mut tensor = ndtensor!((2, 2); [1, 2, 3, 4]);
 
         // Whole tensor
         tensor.apply(|x| x * 2);
@@ -893,7 +890,7 @@ mod tests {
     // dynamic dim tensor.
     #[test]
     fn test_ndtensor_as_dyn() {
-        let tensor = NdTensor::from_data(vec![1, 2, 3, 4], [2, 2], None).unwrap();
+        let tensor = NdTensor::from_data([2, 2], vec![1, 2, 3, 4]);
         let dyn_tensor = tensor.as_dyn();
         assert_eq!(tensor.shape(), dyn_tensor.shape());
         assert_eq!(tensor.data(), dyn_tensor.data());
@@ -901,7 +898,7 @@ mod tests {
 
     #[test]
     fn test_ndtensor_as_dyn_mut() {
-        let mut tensor = NdTensor::from_data(vec![1, 2, 3, 4], [2, 2], None).unwrap();
+        let mut tensor = NdTensor::from_data([2, 2], vec![1, 2, 3, 4]);
         let mut dyn_tensor = tensor.as_dyn_mut();
         assert_eq!(dyn_tensor.shape(), [2, 2]);
         assert_eq!(dyn_tensor.data_mut().unwrap(), &[1, 2, 3, 4]);
@@ -912,7 +909,7 @@ mod tests {
     #[test]
     fn test_ndtensor_as_dyn_broadcast() {
         let data = [1, 2, 3, 4];
-        let view = NdTensorView::from_slice(&data, [4, 4], Some([0, 1])).unwrap();
+        let view = NdTensorView::from_slice_with_strides([4, 4], &data, [0, 1]).unwrap();
         let dyn_view = view.as_dyn();
         let elements: Vec<_> = dyn_view.iter().copied().collect();
         assert_eq!(elements, &[1, 2, 3, 4, 1, 2, 3, 4, 1, 2, 3, 4, 1, 2, 3, 4]);
@@ -920,13 +917,13 @@ mod tests {
 
     #[test]
     fn test_ndtensor_broadcast() {
-        let x = NdTensor::from_data(vec![1, 2], [2], None).unwrap();
+        let x = NdTensor::from_data([2], vec![1, 2]);
         let bx = x.broadcast([3, 2]);
         assert_eq!(bx.shape(), [3, 2]);
         assert_eq!(bx.strides(), [0, 1]);
         assert_eq!(bx.as_dyn().to_vec(), &[1, 2, 1, 2, 1, 2]);
 
-        let x = NdTensor::from_data(vec![3], [], None).unwrap();
+        let x = NdTensor::from_data([], vec![3]);
         let bx = x.broadcast([2, 4]);
         assert_eq!(bx.shape(), [2, 4]);
         assert_eq!(bx.strides(), [0, 0]);
@@ -936,13 +933,13 @@ mod tests {
     #[test]
     #[should_panic(expected = "Cannot broadcast to specified shape")]
     fn test_ndtensor_broadcast_invalid() {
-        let x = NdTensor::from_data(vec![1, 2], [2], None).unwrap();
+        let x = NdTensor::from_data([2], vec![1, 2]);
         x.broadcast([1, 4]);
     }
 
     #[test]
     fn test_ndtensor_copy_from() {
-        let x = NdTensor::from_data(vec![1, 2, 3, 4], [2, 2], None).unwrap();
+        let x = NdTensor::from_data([2, 2], vec![1, 2, 3, 4]);
         let mut y = NdTensor::zeros(x.shape());
 
         y.copy_from(&x.view());
@@ -953,7 +950,7 @@ mod tests {
     #[test]
     fn test_ndtensor_from_data() {
         let data = vec![1., 2., 3., 4.];
-        let view = NdTensorView::<f32, 2>::from_data(&data, [2, 2], None).unwrap();
+        let view = NdTensorView::<f32, 2>::from_data([2, 2], &data);
         assert_eq!(view.data(), Some(data.as_slice()));
         assert_eq!(view.shape(), [2, 2]);
         assert_eq!(view.strides(), [2, 1]);
@@ -995,9 +992,12 @@ mod tests {
         ];
 
         for case in cases {
-            let result =
-                NdTensorView::<f32, 2>::from_data(&case.data, case.shape, Some(case.strides))
-                    .unwrap();
+            let result = NdTensorView::<f32, 2>::from_data_with_strides(
+                case.shape,
+                &case.data,
+                case.strides,
+            )
+            .unwrap();
             assert_eq!(result.shape(), case.shape);
             assert_eq!(result.strides(), case.strides);
             assert_eq!(
@@ -1023,18 +1023,18 @@ mod tests {
     }
 
     #[test]
-    fn test_ndtensor_from_slice() {
+    fn test_ndtensor_from_slice_with_strides() {
         let data = vec![1., 2., 3., 4.];
-        let view = NdTensorView::<f32, 2>::from_slice(&data, [2, 2], None).unwrap();
+        let view = NdTensorView::<f32, 2>::from_slice_with_strides([2, 2], &data, [2, 1]).unwrap();
         assert_eq!(view.data(), Some(data.as_slice()));
         assert_eq!(view.shape(), [2, 2]);
         assert_eq!(view.strides(), [2, 1]);
     }
 
     #[test]
-    fn test_ndtensor_from_slice_fails_if_too_short() {
+    fn test_ndtensor_from_slice_with_strides_too_short() {
         let data = vec![1., 2., 3., 4.];
-        let result = NdTensorView::<f32, 2>::from_slice(&data, [3, 3], Some([2, 1]));
+        let result = NdTensorView::<f32, 2>::from_slice_with_strides([3, 3], &data, [2, 1]);
         assert_eq!(result.err(), Some(FromDataError::StorageTooShort));
     }
 
@@ -1063,8 +1063,11 @@ mod tests {
         ];
 
         for case in cases {
-            let result =
-                NdTensorView::<f32, 3>::from_data(&case.data, case.shape, Some(case.strides));
+            let result = NdTensorView::<f32, 3>::from_data_with_strides(
+                case.shape,
+                &case.data,
+                case.strides,
+            );
             assert_eq!(result.err(), Some(FromDataError::MayOverlap));
         }
     }
@@ -1072,7 +1075,7 @@ mod tests {
     #[test]
     fn test_ndtensor_from_slice_allows_overlap() {
         let data = vec![1., 2., 3., 4.];
-        let result = NdTensorView::<f32, 3>::from_slice(&data, [10, 2, 2], Some([0, 2, 1]));
+        let result = NdTensorView::<f32, 3>::from_slice_with_strides([10, 2, 2], &data, [0, 2, 1]);
         assert!(result.is_ok());
     }
 
@@ -1198,7 +1201,7 @@ mod tests {
 
     #[test]
     fn test_ndtensor_into_dyn() {
-        let nd_tensor = ndtensor!((2, 3); [0., 1., 2., 3., 4., 5., 6.]).unwrap();
+        let nd_tensor = ndtensor!((2, 3); [0., 1., 2., 3., 4., 5., 6.]);
         let tensor = nd_tensor.into_dyn();
         assert_eq!(tensor.shape(), [2, 3]);
         assert_eq!(
@@ -1209,7 +1212,7 @@ mod tests {
 
     #[test]
     fn test_ndtensor_iter() {
-        let tensor = NdTensor::<i32, 2>::from_data(vec![1, 2, 3, 4], [2, 2], None).unwrap();
+        let tensor = NdTensor::<i32, 2>::from_data([2, 2], vec![1, 2, 3, 4]);
         let elements: Vec<_> = tensor.iter().copied().collect();
         assert_eq!(elements, &[1, 2, 3, 4]);
     }
@@ -1227,14 +1230,14 @@ mod tests {
 
     #[test]
     fn test_ndtensor_map() {
-        let tensor = NdTensor::<i32, 2>::from_data(vec![1, 2, 3, 4], [2, 2], None).unwrap();
+        let tensor = NdTensor::<i32, 2>::from_data([2, 2], vec![1, 2, 3, 4]);
         let doubled = tensor.map(|x| x * 2);
         assert_eq!(tensor_elements(doubled.view()), &[2, 4, 6, 8]);
     }
 
     #[test]
     fn test_ndtensor_to_array() {
-        let tensor = ndtensor!((2, 2); [1., 2., 3., 4.]).unwrap();
+        let tensor = ndtensor!((2, 2); [1., 2., 3., 4.]);
         let col0: [f32; 2] = tensor.view().transposed().slice::<1, _>(0).to_array();
         let col1: [f32; 2] = tensor.view().transposed().slice::<1, _>(1).to_array();
         assert_eq!(col0, [1., 3.]);
@@ -1244,9 +1247,7 @@ mod tests {
     #[test]
     fn test_ndtensor_to_tensor() {
         let data = vec![1., 2., 3., 4.];
-        let view = NdTensorView::<f32, 2>::from_slice(&data, [2, 2], None)
-            .unwrap()
-            .permuted([1, 0]);
+        let view = NdTensorView::<f32, 2>::from_data([2, 2], &data).permuted([1, 0]);
         let owned = view.to_tensor();
         assert_eq!(owned.shape(), view.shape());
         assert!(owned.is_contiguous());
@@ -1254,17 +1255,17 @@ mod tests {
 
     #[test]
     fn test_ndtensor_to_vec() {
-        let tensor = ndtensor!((2, 2); [1, 2, 3, 4]).unwrap();
+        let tensor = ndtensor!((2, 2); [1, 2, 3, 4]);
         let tensor = tensor.view().transposed();
         assert_eq!(tensor.to_vec(), &[1, 3, 2, 4]);
     }
 
     #[test]
     fn test_ndtensor_partial_eq() {
-        let a = NdTensor::from_data(vec![1, 2, 3, 4], [2, 2], None).unwrap();
-        let b = NdTensor::from_data(vec![1, 2, 3, 4], [2, 2], None).unwrap();
-        let c = NdTensor::from_data(vec![1, 2, 3, 4], [1, 4], None).unwrap();
-        let d = NdTensor::from_data(vec![1, 2, 3, 5], [2, 2], None).unwrap();
+        let a = NdTensor::from_data([2, 2], vec![1, 2, 3, 4]);
+        let b = NdTensor::from_data([2, 2], vec![1, 2, 3, 4]);
+        let c = NdTensor::from_data([1, 4], vec![1, 2, 3, 4]);
+        let d = NdTensor::from_data([2, 2], vec![1, 2, 3, 5]);
 
         assert_eq!(a, b);
         assert_ne!(a, c);
@@ -1349,7 +1350,7 @@ mod tests {
 
     #[test]
     fn test_ndtensor_to_contiguous() {
-        let x = NdTensor::from_data(vec![1, 2, 3, 4, 5, 6, 7, 8, 9], [3, 3], None).unwrap();
+        let x = NdTensor::from_data([3, 3], vec![1, 2, 3, 4, 5, 6, 7, 8, 9]);
         let y = x.to_contiguous();
         assert!(y.is_contiguous());
         assert_eq!(y.data().unwrap().as_ptr(), x.data().unwrap().as_ptr());
@@ -1410,7 +1411,7 @@ mod tests {
     #[test]
     fn test_ndtensor_slice_mut() {
         let mut data = vec![1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16];
-        let mut view = NdTensorViewMut::<i32, 2>::from_data(&mut data, [4, 4], None).unwrap();
+        let mut view = NdTensorViewMut::<i32, 2>::from_data([4, 4], &mut data);
         let mut slice = view.slice_mut([1..3, 1..3]);
         slice[[0, 0]] = -1;
         slice[[0, 1]] = -2;
@@ -1426,7 +1427,7 @@ mod tests {
     #[should_panic(expected = "sliced dims != 3")]
     fn test_ndtensor_slice_mut_wrong_dims() {
         let mut data = vec![1, 2, 3, 4];
-        let mut view = NdTensorViewMut::<i32, 2>::from_data(&mut data, [2, 2], None).unwrap();
+        let mut view = NdTensorViewMut::<i32, 2>::from_data([2, 2], &mut data);
         view.slice_mut::<3, _>([0..2, 0..2]);
     }
 

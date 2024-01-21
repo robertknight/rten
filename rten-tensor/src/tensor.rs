@@ -398,7 +398,7 @@ impl<'a, T> TensorView<'a, T> {
         assert!(self.ndim() == N);
         let shape: [usize; N] = self.shape().try_into().unwrap();
         let strides: [usize; N] = self.strides().try_into().unwrap();
-        NdTensorView::from_slice(self.data, shape, Some(strides)).unwrap()
+        NdTensorView::from_slice_with_strides(shape, self.data, strides).unwrap()
     }
 
     pub fn permuted(&self, dims: &[usize]) -> TensorView<'a, T> {
@@ -732,7 +732,7 @@ impl<T, S: AsRef<[T]> + AsMut<[T]>> TensorBase<T, S> {
         assert!(self.ndim() == N);
         let shape: [usize; N] = self.shape().try_into().unwrap();
         let strides: [usize; N] = self.strides().try_into().unwrap();
-        NdTensorViewMut::from_data(self.data.as_mut(), shape, Some(strides)).unwrap()
+        NdTensorViewMut::from_data_with_strides(shape, self.data.as_mut(), strides).unwrap()
     }
 }
 

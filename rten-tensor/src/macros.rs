@@ -70,7 +70,7 @@ macro_rules! ndtensor {
             use $crate::NdTensor;
             let data = vec![$($elem),*];
             let len = data.len();
-            NdTensor::from_data(data, [len], None).unwrap()
+            NdTensor::from_data([len], data)
         }
     };
 
@@ -83,7 +83,7 @@ macro_rules! ndtensor {
         {
             use $crate::NdTensor;
             let data = vec![$($elem),*];
-            NdTensor::from_data(data, [$($dim),+], None)
+            NdTensor::from_data([$($dim),+], data)
         }
     };
 
@@ -92,14 +92,14 @@ macro_rules! ndtensor {
         {
             use $crate::NdTensor;
             let data = vec![$($elem),*];
-            NdTensor::from_data(data, [$($dim),+], None)
+            NdTensor::from_data([$($dim),+], data)
         }
     };
 
     ($elem:expr) => {
         {
             use $crate::NdTensor;
-            NdTensor::from_data(vec![$elem], [], None).unwrap()
+            NdTensor::from_data([], vec![$elem])
         }
     };
 }
@@ -133,24 +133,22 @@ mod tests {
     #[test]
     fn test_ndtensor_scalar() {
         let x = ndtensor!(5.);
-        assert_eq!(x, NdTensor::from_data(vec![5.], [], None).unwrap());
+        assert_eq!(x, NdTensor::from_data([], vec![5.]));
     }
 
     #[test]
     fn test_ndtensor_vector() {
         let x = ndtensor!([1, 2, 3]);
-        assert_eq!(x, NdTensor::from_data(vec![1, 2, 3], [3], None).unwrap());
+        assert_eq!(x, NdTensor::from_data([3], vec![1, 2, 3]));
     }
 
     #[test]
     fn test_ndtensor_nd() {
         let x = ndtensor!((1, 2, 2); [1, 2, 3, 4]);
-        assert!(x.is_ok());
-        assert_eq!(x, NdTensor::from_data(vec![1, 2, 3, 4], [1, 2, 2], None));
+        assert_eq!(x, NdTensor::from_data([1, 2, 2], vec![1, 2, 3, 4]));
 
         // As above, but with trailing comma in data
         let x = ndtensor!((1, 2, 2); [1, 2, 3, 4,]);
-        assert!(x.is_ok());
-        assert_eq!(x, NdTensor::from_data(vec![1, 2, 3, 4], [1, 2, 2], None));
+        assert_eq!(x, NdTensor::from_data([1, 2, 2], vec![1, 2, 3, 4]));
     }
 }

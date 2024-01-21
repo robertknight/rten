@@ -659,9 +659,12 @@ fn gemm_impl<K: Kernel, const MR_NR: usize>(
     }
 
     // Construct a Matrix from the implied dimensions, to validate the slice length.
-    let output_mat =
-        MatrixMut::<f32>::from_data(out_data, [a.rows(), b.cols()], Some([out_row_stride, 1]))
-            .expect("Output buffer should be large enough");
+    let output_mat = MatrixMut::<f32>::from_data_with_strides(
+        [a.rows(), b.cols()],
+        out_data,
+        [out_row_stride, 1],
+    )
+    .expect("Output buffer should be large enough");
     let output_tiles = OutputTiles::new(output_mat, K::MR, K::NR);
 
     // Sizes of blocks that the width (nc), depth (kc) and height (mc)
