@@ -16,7 +16,7 @@ pub fn pack_a_block<K: Kernel>(out: &mut [f32], a: Matrix, rows: Range<usize>, c
     let a_cols = cols.len();
 
     // Safety: Loops below must only access valid offsets in `a_data`.
-    let a_data = unsafe { a.data_unchecked() };
+    let a_data = a.non_contiguous_data();
 
     let row_stride = a.row_stride();
     let col_stride = a.col_stride();
@@ -86,7 +86,7 @@ pub fn pack_b_block<K: Kernel>(out: &mut [f32], b: Matrix, rows: Range<usize>, c
     let b_col_stride = b.col_stride();
 
     // Safety: Loops below must only access valid offsets in `b_data`.
-    let b_data = unsafe { b.data_unchecked() };
+    let b_data = b.non_contiguous_data();
 
     let n_panels = round_up(b_cols, K::NR) / K::NR;
     for panel in 0..n_panels {

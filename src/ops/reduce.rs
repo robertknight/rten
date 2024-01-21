@@ -3,7 +3,7 @@ use std::iter::zip;
 
 use rten_tensor;
 use rten_tensor::prelude::*;
-use rten_tensor::{DynIndices, NdTensor, SliceItem, Tensor, TensorView};
+use rten_tensor::{DynIndices, NdTensor, NdTensorView, SliceItem, Tensor, TensorView};
 
 use crate::number::Identities;
 use crate::ops::layout::squeeze_in_place;
@@ -46,7 +46,8 @@ fn select_max_index<T, Cmp: Fn(&T, &T) -> std::cmp::Ordering>(
 
     if !keep_dims {
         let axes = &[resolved_axis as i32];
-        squeeze_in_place(&mut reduced, Some(axes.into())).expect("Invalid axis");
+        let axes = NdTensorView::from_data([1], axes);
+        squeeze_in_place(&mut reduced, Some(axes)).expect("Invalid axis");
     }
 
     Ok(reduced)
@@ -849,7 +850,7 @@ mod tests {
         expect_equal(&result, &expected)?;
 
         let result = reduce_l2(input.view(), Some(&[2]), true /* keep_dims */).unwrap();
-        let expected = expected.to_shape(&[3, 2, 1]);
+        let expected = expected.to_shape([3, 2, 1].as_slice());
         expect_equal(&result, &expected)?;
 
         Ok(())

@@ -202,7 +202,7 @@ fn conv_2d_pointwise(
     let gemm = GemmExecutor::new();
 
     for n in 0..batch {
-        let mut out_item = output.slice_mut([n]);
+        let mut out_item = output.slice_mut::<2, _>([n]);
         let out_row_stride = out_item.stride(0);
 
         let in_mat = input.slice::<3, _>([n]).reshaped([in_c, in_h * in_w]);
@@ -277,7 +277,7 @@ fn conv_2d_depthwise(
 
     for n in 0..batch {
         for c in 0..in_c {
-            let kernel_view = kernel.slice([c, 0]).unchecked();
+            let kernel_view = kernel.slice([c, 0]).weakly_checked_view();
 
             // For efficiency, use manual slicing in the inner loops to extract
             // input/output rows.
@@ -483,18 +483,17 @@ pub fn conv(
         let out_chans = out_chan_start..out_chan_start + out_channels_per_group;
 
         let kernel_mat = kernel
-            .slice([out_chans.clone()])
-            .reshaped(&[out_channels_per_group, in_channels_per_group * k_h * k_w])
-            .nd_view();
+            .slice::<4, _>([out_chans.clone()])
+            .reshaped([out_channels_per_group, in_channels_per_group * k_h * k_w]);
         let prepacked_kernel = gemm.prepack_a(kernel_mat);
 
-        let in_group = input.slice((.., in_chan_start..in_chan_end));
-        let mut out_group = output.slice_mut((.., out_chans.clone()));
+        let in_group = input.slice_dyn((.., in_chan_start..in_chan_end));
+        let mut out_group = output.slice_mut_dyn((.., out_chans.clone()));
 
         zip(out_group.axis_iter_mut(0), in_group.axis_iter(0))
             .par_bridge()
             .for_each(|(mut out_item, in_item)| {
-                let mut out_mat = out_item.reshaped_mut(&[out_channels_per_group, out_h * out_w]);
+                let mut out_mat = out_item.reshaped_mut([out_channels_per_group, out_h * out_w]);
                 let out_row_stride = out_mat.stride(0);
 
                 let im2col = VirtualIm2Col::new(
@@ -578,7 +577,7 @@ fn col2im(
     let columns_shape = columns.shape();
     let mut col_data_iter = columns.data().unwrap().iter();
 
-    let mut out_view = output.unchecked_mut();
+    let mut out_view = output.weakly_checked_view_mut();
 
     // Loop order must match dim order of `columns`.
     for y in 0..columns_shape[0] {
@@ -633,18 +632,21 @@ pub fn conv_transpose(
     let kernel = kernel.to_contiguous();
 
     let mut col2im_mat = Tensor::zeros(&[in_h * in_w, out_c * k_h * k_w]);
-    let kernel_mat = kernel.reshaped(&[k_in_c, out_c * k_h * k_w]);
+    let kernel_mat = kernel.reshaped([k_in_c, out_c * k_h * k_w]);
 
     // The implementation here is the inverse of the im2col-based convolution.
     for n in 0..batch {
-        let input_mat = input.slice([n]).reshaped(&[in_c, in_h * in_w]).transposed();
+        let input_mat = input
+            .slice::<3, _>([n])
+            .reshaped([in_c, in_h * in_w])
+            .transposed();
 
         let col2im_row_stride = col2im_mat.stride(0);
         gemm(
             col2im_mat.data_mut().unwrap(),
             col2im_row_stride,
-            input_mat.nd_view(),
-            kernel_mat.nd_view(),
+            input_mat,
+            kernel_mat,
             1., /* alpha */
             0., /* beta */
         );

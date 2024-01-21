@@ -175,6 +175,7 @@ impl Operator for Sum {
 
 #[cfg(test)]
 mod tests {
+    use rten_tensor::prelude::*;
     use rten_tensor::test_util::eq_with_nans;
     use rten_tensor::{tensor, Tensor};
 

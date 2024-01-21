@@ -495,7 +495,7 @@ mod tests {
             .unwrap();
             assert_eq!(
                 sliced,
-                Tensor::from_data(case.expected_shape, case.expected_elements)
+                Tensor::from_data(case.expected_shape, case.expected_elements.to_vec())
             );
         }
     }

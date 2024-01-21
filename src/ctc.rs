@@ -389,6 +389,7 @@ impl Default for CtcDecoder {
 
 #[cfg(test)]
 mod tests {
+    use rten_tensor::prelude::*;
     use rten_tensor::NdTensor;
 
     use super::{log_sum_exp, CtcDecoder, CtcHypothesis};

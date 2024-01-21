@@ -607,7 +607,7 @@ mod tests {
         // Reshape with an unspecified (-1) dim and nonzero-length input
         let input = Tensor::from_data(&[2, 2], vec![-0.5, 0.5, 3.0, -5.5]);
         let shape = ndtensor!([1, -1, 2]);
-        let expected = input.to_shape(&[1, 2, 2]);
+        let expected = input.to_shape([1, 2, 2].as_slice());
         let result = reshape(input.view(), &shape.view(), false /* allow_zero */).unwrap();
         expect_equal(&result, &expected)?;
 
@@ -620,7 +620,7 @@ mod tests {
             false, /* allow_zero */
         )
         .unwrap();
-        let expected = zero_sized_input.to_shape(&[100, 0]);
+        let expected = zero_sized_input.to_shape([100, 0].as_slice());
         expect_equal(&result, &expected)?;
 
         Ok(())
@@ -632,14 +632,14 @@ mod tests {
         // size should be copied.
         let input = Tensor::from_data(&[1, 1, 4], vec![-0.5, 0.5, 3.0, -5.5]);
         let shape = ndtensor!([-1, 0]);
-        let expected = input.to_shape(&[4, 1]);
+        let expected = input.to_shape([4, 1].as_slice());
         let result = reshape(input.view(), &shape.view(), false /* allow_zero */).unwrap();
         expect_equal(&result, &expected)?;
 
         // Case where copied input dim is also zero.
         let input = Tensor::<f32>::from_data(&[0], vec![]);
         let shape = ndtensor!([0]);
-        let expected = input.to_shape(&[0]);
+        let expected = input.to_shape([0].as_slice());
         let result = reshape(input.view(), &shape.view(), false /* allow_zero */).unwrap();
         expect_equal(&result, &expected)?;
 
@@ -658,7 +658,7 @@ mod tests {
         let input = Tensor::<f32>::from_data(&[0, 0, 10], vec![]);
         let shape = ndtensor!([10, 0, 0]);
         let result = reshape(input.view(), &shape.view(), true /* allow_zero */).unwrap();
-        let expected = input.to_shape(&[10, 0, 0]);
+        let expected = input.to_shape([10, 0, 0].as_slice());
         expect_equal(&result, &expected)?;
 
         Ok(())
@@ -698,7 +698,7 @@ mod tests {
     fn test_reshape_in_place() {
         let mut input = Tensor::from_data(&[2, 2], vec![-0.5, 0.5, 3.0, -5.5]);
         let shape = ndtensor!([4]);
-        let expected = input.to_shape(&[4]);
+        let expected = input.to_shape([4].as_slice());
         reshape_in_place(&mut input, &shape.view(), false /* allow_zero */).unwrap();
         assert_eq!(&input, &expected);
     }
@@ -707,7 +707,7 @@ mod tests {
     fn test_reshape_op() -> Result<(), Box<dyn Error>> {
         let input = Tensor::from_data(&[2, 2], vec![-0.5, 0.5, 3.0, -5.5]);
         let shape = Tensor::from_data(&[1], vec![4]);
-        let expected = input.to_shape(&[4]);
+        let expected = input.to_shape([4].as_slice());
 
         let op = Reshape { allow_zero: false };
         let result = op

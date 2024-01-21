@@ -166,12 +166,10 @@ fn extract_matrix(tensor: TensorView, dir: usize, num_gates: usize, gate_index: 
     let hidden_total = tensor.size(1);
     assert!(hidden_total % num_gates == 0);
     let hidden_size = hidden_total / num_gates;
-    tensor
-        .slice((
-            dir,
-            (gate_index * hidden_size..(gate_index + 1) * hidden_size),
-        ))
-        .nd_view()
+    tensor.slice::<2, _>((
+        dir,
+        (gate_index * hidden_size..(gate_index + 1) * hidden_size),
+    ))
 }
 
 /// Extract weights and biases for a specific RNN gate/output from a tensor that
@@ -203,10 +201,8 @@ fn extract_weights_and_bias<'a>(
     let rec_weight = extract_matrix(recurrent_weights, dir, num_gates, gate_index).transposed();
     let bias = bias.map(|bias| {
         let nth_gate = |gate_index| (gate_index * hidden_size)..((gate_index + 1) * hidden_size);
-        let input_bias = bias.slice((dir, nth_gate(gate_index))).nd_view();
-        let hidden_bias = bias
-            .slice((dir, nth_gate(gate_index + num_gates)))
-            .nd_view();
+        let input_bias = bias.slice::<1, _>((dir, nth_gate(gate_index)));
+        let hidden_bias = bias.slice::<1, _>((dir, nth_gate(gate_index + num_gates)));
         (input_bias, hidden_bias)
     });
     (weight, rec_weight, bias)
@@ -311,8 +307,8 @@ pub fn gru(
             extract_gru_weights_and_bias(dir, HIDDEN_GATE);
 
         for seq in sequence_for_dir(direction, dir, seq_len) {
-            let in_item = input.slice([seq]);
-            let hidden_item = hidden.slice([dir]);
+            let in_item = input.slice_dyn([seq]);
+            let hidden_item = hidden.slice_dyn([dir]);
 
             // From the ONNX spec, the intermediate values are computed as:
             //
@@ -406,7 +402,7 @@ pub fn gru(
             }
 
             // Compute next hidden state
-            let mut hidden_item = hidden.slice_mut([dir]);
+            let mut hidden_item = hidden.slice_mut_dyn([dir]);
             for (hidden, update, hidden_gate) in zip3(
                 hidden_item.iter_mut(),
                 update_gate.iter(),
@@ -416,8 +412,8 @@ pub fn gru(
             }
 
             hidden_seq
-                .slice_mut([seq, dir])
-                .copy_from(&hidden_item.view());
+                .slice_mut_dyn([seq, dir])
+                .copy_from(&hidden_item.as_dyn());
         }
     }
 
@@ -577,8 +573,8 @@ pub fn lstm(
             //    supported.
             //  - `f`, `g` and `h` are activations. `f`=sigmoid, `g` and `h`
             //    are tanh.
-            let in_item = input.slice([seq]);
-            let hidden_item = hidden.slice([dir]);
+            let in_item = input.slice_dyn([seq]);
+            let hidden_item = hidden.slice_dyn([dir]);
 
             // Compute outputs for input, forget, cell and output gates.
             compute_rnn_gate(
@@ -626,7 +622,7 @@ pub fn lstm(
             );
 
             // Compute new values of cell and hidden state
-            let mut cell_item = cell.slice_mut([dir]);
+            let mut cell_item = cell.slice_mut_dyn([dir]);
 
             for (cell, forget_gate, input_gate, cell_gate) in zip4(
                 cell_item.iter_mut(),
@@ -637,7 +633,7 @@ pub fn lstm(
                 *cell = forget_gate * *cell + input_gate * cell_gate;
             }
 
-            let mut hidden_item = hidden.slice_mut([dir]);
+            let mut hidden_item = hidden.slice_mut_dyn([dir]);
             for (hidden, out_gate, cell) in
                 zip3(hidden_item.iter_mut(), out_gate.iter(), cell_item.iter())
             {
@@ -645,7 +641,7 @@ pub fn lstm(
             }
 
             hidden_seq
-                .slice_mut([seq, dir])
+                .slice_mut_dyn([seq, dir])
                 .copy_from(&hidden_item.view());
         }
     }
@@ -961,7 +957,7 @@ mod tests {
         let is_bidirectional = params.get("weight_ih_l0_reverse").is_some();
 
         let mut input = read_tensor(&case["input"]).expect("failed to read input");
-        input.insert_dim(1); // Add batch dim
+        input.insert_axis(1); // Add batch dim
 
         let mut expected = read_tensor(&case["output"]).expect("failed to read output");
 
@@ -970,9 +966,9 @@ mod tests {
             let es = expected.shape();
             expected.reshape(&[es[0], 2, es[1] / 2]);
         } else {
-            expected.insert_dim(1);
+            expected.insert_axis(1);
         }
-        expected.insert_dim(2); // Add batch dim
+        expected.insert_axis(2); // Add batch dim
 
         let read_param = |name| match op {
             Op::Lstm => reorder_ifco_to_iofc(
@@ -986,45 +982,45 @@ mod tests {
         };
 
         let mut weights = read_param("weight_ih_l0");
-        weights.insert_dim(0); // Add directions dim
+        weights.insert_axis(0); // Add directions dim
 
         let mut hidden_weights = read_param("weight_hh_l0");
-        hidden_weights.insert_dim(0); // Add directions dim
+        hidden_weights.insert_axis(0); // Add directions dim
 
         let input_bias = read_param("bias_ih_l0");
         let hidden_bias = read_param("bias_hh_l0");
         let mut bias = concat(&[input_bias.view(), hidden_bias.view()], 0).unwrap();
-        bias.insert_dim(0); // Add directions dim
+        bias.insert_axis(0); // Add directions dim
 
         // If this is a bidirectional RNN, there will be `_reverse`-suffixed
         // versions of the bias and weight params. Extract these and concatenate
         // with the forwards direction values.
         if is_bidirectional {
             let mut rev_weights = read_param("weight_ih_l0_reverse");
-            rev_weights.insert_dim(0); // Add directions dim
+            rev_weights.insert_axis(0); // Add directions dim
             weights = concat(&[weights.view(), rev_weights.view()], 0).unwrap();
 
             let mut rev_hidden_weights = read_param("weight_hh_l0_reverse");
-            rev_hidden_weights.insert_dim(0); // Add directions dim
+            rev_hidden_weights.insert_axis(0); // Add directions dim
             hidden_weights =
                 concat(&[hidden_weights.view(), rev_hidden_weights.view()], 0).unwrap();
 
             let rev_input_bias = read_param("bias_ih_l0_reverse");
             let rev_hidden_bias = read_param("bias_hh_l0_reverse");
             let mut rev_bias = concat(&[rev_input_bias.view(), rev_hidden_bias.view()], 0).unwrap();
-            rev_bias.insert_dim(0); // Add directions dim
+            rev_bias.insert_axis(0); // Add directions dim
             bias = concat(&[bias.view(), rev_bias.view()], 0).unwrap();
         }
 
         let initial_hidden = case.get("initial_hidden").map(|param| {
             let mut init = read_tensor(param).expect("failed to read initial hidden state");
-            init.insert_dim(1); // Add batch dim
+            init.insert_axis(1); // Add batch dim
             init
         });
 
         let initial_cell = case.get("initial_cell").map(|param| {
             let mut init = read_tensor(param).expect("failed to read initial cell state");
-            init.insert_dim(1); // Add batch dim
+            init.insert_axis(1); // Add batch dim
             init
         });
 

@@ -110,8 +110,8 @@ pub fn average_pool(
     for n in 0..batch {
         for chan in 0..in_c {
             let mut out_view = output.slice_mut([n, chan]);
-            let mut out_view = out_view.unchecked_mut();
-            let in_view = input.slice([n, chan]).unchecked();
+            let mut out_view = out_view.weakly_checked_view_mut();
+            let in_view = input.slice([n, chan]).weakly_checked_view();
 
             for out_y in 0..out_h {
                 for out_x in 0..out_w {
@@ -177,8 +177,10 @@ pub fn global_average_pool(input: TensorView) -> Result<Tensor, OpError> {
         const N: usize = 4;
 
         for (chan_group, mut out_group) in zip(
-            input.slice(n).axis_chunks(0, N),
-            output.slice_mut((n, .., 0, 0)).axis_chunks_mut(0, N),
+            input.slice::<3, _>(n).axis_chunks(0, N),
+            output
+                .slice_mut::<1, _>((n, .., 0, 0))
+                .axis_chunks_mut(0, N),
         ) {
             if chan_group.size(0) == N {
                 // Compute average over batch of N channels in parallel.
@@ -200,7 +202,7 @@ pub fn global_average_pool(input: TensorView) -> Result<Tensor, OpError> {
             } else {
                 // Compute average over remaining channels.
                 for i in 0..chan_group.size(0) {
-                    let sum: f32 = chan_group.slice([i]).iter().sum();
+                    let sum: f32 = chan_group.slice::<2, _>([i]).iter().sum();
                     out_group[[i]] = sum / (in_h * in_w) as f32;
                 }
             }

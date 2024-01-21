@@ -39,7 +39,7 @@ pub fn gather<T: Copy + Default>(
     if let (0, Some(index)) = (indices.ndim(), indices.item()) {
         let mut slice_range = full_range(input.ndim());
         slice_range[axis] = SliceItem::Index(*index as isize);
-        let output = input.slice(slice_range.as_slice()).to_tensor();
+        let output = input.slice_dyn(slice_range.as_slice()).to_tensor();
         return Ok(output);
     }
 
@@ -60,8 +60,8 @@ pub fn gather<T: Copy + Default>(
             out_range[axis + i] = SliceItem::Index(index_val as isize);
         }
 
-        let in_slice = input.slice(in_range.as_slice());
-        let mut out_slice = output.slice_mut(out_range.as_slice());
+        let in_slice = input.slice_dyn(in_range.as_slice());
+        let mut out_slice = output.slice_mut_dyn(out_range.as_slice());
         out_slice.copy_from(&in_slice);
     }
 
@@ -155,7 +155,7 @@ fn gather_elements_4d<T: Copy + Default>(
 /// Expand a tensor to 4 dims by inserting `n` axes at the front.
 fn unsqueeze_n<T>(mut view: TensorView<T>, n: usize) -> TensorView<T> {
     for _ in 0..n {
-        view.insert_dim(0);
+        view.insert_axis(0);
     }
     view
 }
@@ -180,7 +180,7 @@ pub fn gather_elements<T: Copy + Default>(
         let pad = FAST_PATH_NDIM - input.ndim();
         let mut output = output.view_mut();
         for _ in 0..pad {
-            output.insert_dim(0);
+            output.insert_axis(0);
         }
         gather_elements_4d(
             output.view_mut(),
@@ -397,7 +397,7 @@ pub fn scatter_nd<
     let mut output = data.to_tensor();
     for index in DynIndices::from_shape(update_indices) {
         let update_idx = to_slice_items(&index);
-        let update_slice = updates.slice(update_idx.as_slice());
+        let update_slice = updates.slice_dyn(update_idx.as_slice());
 
         let output_idx: DynSliceItems = indices
             .try_slice(update_idx.as_slice())

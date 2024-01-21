@@ -119,8 +119,8 @@ pub fn matmul(a: TensorView, b: TensorView) -> Result<Tensor, OpError> {
     let a_broadcast_shape = [out_prefix.as_slice(), &[a_rows, a_cols]].concat();
     let b_broadcast_shape = [out_prefix.as_slice(), &[b_rows, b_cols]].concat();
 
-    let a_broadcast = a.broadcast(&a_broadcast_shape);
-    let b_broadcast = b.broadcast(&b_broadcast_shape);
+    let a_broadcast = a.broadcast(a_broadcast_shape.as_slice());
+    let b_broadcast = b.broadcast(b_broadcast_shape.as_slice());
 
     let out_row_stride = output.stride(output.ndim() - 2);
     let out_batches = output
