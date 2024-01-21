@@ -217,6 +217,7 @@ pub fn find_contours(mask: NdTensorView<i32, 2>, mode: RetrievalMode) -> Polygon
 mod tests {
     use std::iter::zip;
 
+    use rten_tensor::prelude::*;
     use rten_tensor::NdTensor;
 
     use crate::tests::border_points;
