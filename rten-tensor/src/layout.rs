@@ -361,7 +361,7 @@ impl<const N: usize> NdLayout<N> {
 
     /// Convert this layout to one with a dynamic rank.
     pub fn as_dyn(&self) -> DynLayout {
-        DynLayout::with_strides(&self.shape, &self.strides)
+        self.into()
     }
 
     /// Return true if all components of `index` are in-bounds.
@@ -398,18 +398,10 @@ impl<const N: usize> NdLayout<N> {
     /// may have internal overlap.
     pub fn try_from_shape_and_strides(
         shape: [usize; N],
-        strides: Option<[usize; N]>,
-        data_len: usize,
+        strides: [usize; N],
         overlap: OverlapPolicy,
     ) -> Result<NdLayout<N>, FromDataError> {
-        let layout = NdLayout {
-            shape,
-            strides: strides.unwrap_or(NdLayout::contiguous_strides(shape)),
-        };
-
-        if data_len < layout.min_data_len() {
-            return Err(FromDataError::StorageTooShort);
-        }
+        let layout = NdLayout { shape, strides };
 
         match overlap {
             OverlapPolicy::DisallowOverlap => {
@@ -615,15 +607,26 @@ impl DynLayout {
     /// Panics if `strides` may lead to internal overlap (multiple indices
     /// map to the same data offset), unless strides contains a `0`. See
     /// struct notes.
-    pub fn with_strides(shape: &[usize], strides: &[usize]) -> DynLayout {
-        assert!(
-            strides.iter().any(|s| *s == 0) || !may_have_internal_overlap(shape, strides),
-            "Layout may have internal overlap"
-        );
+    pub fn try_from_shape_and_strides(
+        shape: &[usize],
+        strides: &[usize],
+        overlap: OverlapPolicy,
+    ) -> Result<DynLayout, FromDataError> {
         let mut shape_and_strides = SmallVec::with_capacity(shape.len() + strides.len());
         shape_and_strides.extend_from_slice(shape);
         shape_and_strides.extend_from_slice(strides);
-        DynLayout { shape_and_strides }
+        let layout = DynLayout { shape_and_strides };
+
+        match overlap {
+            OverlapPolicy::DisallowOverlap => {
+                if may_have_internal_overlap(layout.shape(), layout.strides()) {
+                    return Err(FromDataError::MayOverlap);
+                }
+            }
+            OverlapPolicy::AllowOverlap => {}
+        }
+
+        Ok(layout)
     }
 
     /// Construct a layout which broadcasts elements to `to_shape` by setting
@@ -839,7 +842,12 @@ impl DynLayout {
 
 impl<const N: usize> From<&NdLayout<N>> for DynLayout {
     fn from(value: &NdLayout<N>) -> DynLayout {
-        DynLayout::with_strides(&value.shape(), &value.strides())
+        DynLayout::try_from_shape_and_strides(
+            &value.shape(),
+            &value.strides(),
+            OverlapPolicy::AllowOverlap,
+        )
+        .expect("invalid layout")
     }
 }
 
@@ -853,6 +861,7 @@ impl<const N: usize> From<NdLayout<N>> for DynLayout {
 mod tests {
     use std::iter::zip;
 
+    use super::OverlapPolicy;
     use crate::layout::DynLayout;
     use crate::{Layout, SliceItem};
 
@@ -867,15 +876,17 @@ mod tests {
         assert!(!layout.is_broadcast());
 
         // Broadcasting layout
-        let layout = DynLayout::with_strides(&[5, 5], &[0, 0]);
+        let layout =
+            DynLayout::try_from_shape_and_strides(&[5, 5], &[0, 0], OverlapPolicy::AllowOverlap)
+                .unwrap();
         assert!(layout.is_broadcast());
     }
 
     #[test]
-    fn test_with_strides() {
-        struct Case {
-            shape: &'static [usize],
-            strides: &'static [usize],
+    fn test_try_from_shape_and_strides() {
+        struct Case<'a> {
+            shape: &'a [usize],
+            strides: &'a [usize],
         }
 
         let cases = [
@@ -892,16 +903,15 @@ mod tests {
         ];
 
         for case in cases {
-            let layout = DynLayout::with_strides(case.shape, case.strides);
+            let layout = DynLayout::try_from_shape_and_strides(
+                case.shape,
+                case.strides,
+                OverlapPolicy::AllowOverlap,
+            )
+            .unwrap();
             assert_eq!(layout.shape(), case.shape);
             assert_eq!(layout.strides(), case.strides);
         }
-    }
-
-    #[test]
-    #[should_panic(expected = "Layout may have internal overlap")]
-    fn test_with_strides_overlap() {
-        DynLayout::with_strides(&[10, 10], &[1, 2]);
     }
 
     #[test]

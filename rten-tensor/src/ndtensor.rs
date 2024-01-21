@@ -177,10 +177,16 @@ impl<T, S: AsRef<[T]>, const N: usize> NdTensorBase<T, S, N> {
     ) -> Result<NdTensorBase<T, S, N>, FromDataError> {
         NdLayout::try_from_shape_and_strides(
             shape,
-            strides,
-            data.as_ref().len(),
+            strides.unwrap_or(NdLayout::contiguous_strides(shape)),
             OverlapPolicy::DisallowOverlap,
         )
+        .and_then(|layout| {
+            if layout.min_data_len() > data.as_ref().len() {
+                Err(FromDataError::StorageTooShort)
+            } else {
+                Ok(layout)
+            }
+        })
         .map(|layout| NdTensorBase {
             data,
             layout,
@@ -341,10 +347,16 @@ impl<'a, T, const N: usize> NdTensorView<'a, T, N> {
     ) -> Result<Self, FromDataError> {
         NdLayout::try_from_shape_and_strides(
             shape,
-            strides,
-            data.len(),
+            strides.unwrap_or(NdLayout::contiguous_strides(shape)),
             OverlapPolicy::AllowOverlap,
         )
+        .and_then(|layout| {
+            if layout.min_data_len() > data.as_ref().len() {
+                Err(FromDataError::StorageTooShort)
+            } else {
+                Ok(layout)
+            }
+        })
         .map(|layout| NdTensorBase {
             data,
             layout,
