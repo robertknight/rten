@@ -61,12 +61,14 @@ pub use iterators::{
     AxisChunks, AxisChunksMut, AxisIter, AxisIterMut, BroadcastIter, InnerIter, InnerIterMut, Iter,
     IterMut, Lanes, LanesMut, Offsets,
 };
-pub use layout::{is_valid_permutation, DynLayout, Layout, MatrixLayout, NdLayout, OverlapPolicy};
+pub use layout::{
+    is_valid_permutation, DynLayout, Layout, MatrixLayout, MutLayout, NdLayout, OverlapPolicy,
+};
 pub use range::{to_slice_items, DynSliceItems, IntoSliceItems, SliceItem, SliceRange};
 
 pub use tensor::{
-    AsView, Matrix, MatrixMut, MutLayout, NdTensor, NdTensorView, NdTensorViewMut, Tensor,
-    TensorBase, TensorView, TensorViewMut, WeaklyCheckedView,
+    AsView, Matrix, MatrixMut, NdTensor, NdTensorView, NdTensorViewMut, Tensor, TensorBase,
+    TensorView, TensorViewMut, WeaklyCheckedView,
 };
 
 /// This module provides a convenient way to import the most common traits
