@@ -58,10 +58,7 @@ pub trait AsView: Layout {
     fn layout(&self) -> &Self::Layout;
 
     /// Return a view of this tensor with a dynamic rank.
-    fn as_dyn(&self) -> TensorBase<Self::Elem, &[Self::Elem], DynLayout>
-    where
-        Self::Layout: Into<DynLayout>,
-    {
+    fn as_dyn(&self) -> TensorBase<Self::Elem, &[Self::Elem], DynLayout> {
         self.view().as_dyn()
     }
 
@@ -631,12 +628,9 @@ impl<T, S: AsRef<[T]> + AsMut<[T]>, L: MutLayout> TensorBase<T, S, L> {
     }
 
     /// Return a mutable view of this tensor with a dynamic dimension count.
-    pub fn as_dyn_mut(&mut self) -> TensorBase<T, &mut [T], DynLayout>
-    where
-        L: Clone + Into<DynLayout>,
-    {
+    pub fn as_dyn_mut(&mut self) -> TensorBase<T, &mut [T], DynLayout> {
         TensorBase {
-            layout: self.layout.clone().into(),
+            layout: DynLayout::from_layout(&self.layout),
             data: self.data.as_mut(),
             element_type: PhantomData,
         }
@@ -959,13 +953,10 @@ impl<'a, T, L: Clone + MutLayout> TensorBase<T, &'a [T], L> {
     /// Return a view of this tensor with a dynamic dimension count.
     ///
     /// See [AsView::as_dyn].
-    pub fn as_dyn(&self) -> TensorBase<T, &'a [T], DynLayout>
-    where
-        L: Clone + Into<DynLayout>,
-    {
+    pub fn as_dyn(&self) -> TensorBase<T, &'a [T], DynLayout> {
         TensorBase {
             data: self.data,
-            layout: self.layout.clone().into(),
+            layout: DynLayout::from_layout(&self.layout),
             element_type: PhantomData,
         }
     }

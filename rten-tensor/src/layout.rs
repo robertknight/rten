@@ -629,6 +629,16 @@ impl DynLayout {
         Ok(layout)
     }
 
+    /// Create a new `DynLayout` with the same shape and strides as `layout`.
+    pub fn from_layout<L: Layout>(layout: &L) -> DynLayout {
+        DynLayout::try_from_shape_and_strides(
+            layout.shape().as_ref(),
+            layout.strides().as_ref(),
+            OverlapPolicy::AllowOverlap,
+        )
+        .expect("invalid layout")
+    }
+
     /// Construct a layout which broadcasts elements to `to_shape` by setting
     /// the stride to `0` in broadcasted dimensions.
     pub fn broadcast(&self, to_shape: &[usize]) -> DynLayout {
@@ -842,18 +852,13 @@ impl DynLayout {
 
 impl<const N: usize> From<&NdLayout<N>> for DynLayout {
     fn from(value: &NdLayout<N>) -> DynLayout {
-        DynLayout::try_from_shape_and_strides(
-            &value.shape(),
-            &value.strides(),
-            OverlapPolicy::AllowOverlap,
-        )
-        .expect("invalid layout")
+        DynLayout::from_layout(value)
     }
 }
 
 impl<const N: usize> From<NdLayout<N>> for DynLayout {
     fn from(value: NdLayout<N>) -> DynLayout {
-        DynLayout::from(&value)
+        DynLayout::from_layout(&value)
     }
 }
 
