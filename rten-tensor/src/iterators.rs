@@ -983,7 +983,7 @@ impl<'a, T, L: MutLayout> Iterator for AxisChunks<'a, T, L> {
 
     fn next(&mut self) -> Option<Self::Item> {
         let size = self.view.size(0);
-        if self.index >= self.view.size(0) {
+        if self.index >= size {
             None
         } else {
             let view = self
