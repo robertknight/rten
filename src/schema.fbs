@@ -103,6 +103,7 @@ enum OperatorType: byte {
   NonMaxSuppression,
   Sign,
   GatherElements,
+  LayerNormalization
 }
 
 enum RNNDirection: byte {
@@ -174,6 +175,7 @@ union OperatorAttrs {
   TriluAttrs,
   ScatterNDAttrs,
   NonMaxSuppressionAttrs,
+  LayerNormalizationAttrs,
 }
 
 table ArgMaxAttrs {
@@ -237,6 +239,11 @@ table ConvTransposeAttrs {
 
 table FlattenAttrs {
   axis:int;
+}
+
+table LayerNormalizationAttrs {
+  axis:int;
+  epsilon:float;
 }
 
 table GatherAttrs {

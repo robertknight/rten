@@ -18,13 +18,13 @@ pub const ENUM_MIN_OPERATOR_TYPE: i8 = 0;
     since = "2.0.0",
     note = "Use associated constants instead. This will no longer be generated in 2021."
 )]
-pub const ENUM_MAX_OPERATOR_TYPE: i8 = 92;
+pub const ENUM_MAX_OPERATOR_TYPE: i8 = 93;
 #[deprecated(
     since = "2.0.0",
     note = "Use associated constants instead. This will no longer be generated in 2021."
 )]
 #[allow(non_camel_case_types)]
-pub const ENUM_VALUES_OPERATOR_TYPE: [OperatorType; 93] = [
+pub const ENUM_VALUES_OPERATOR_TYPE: [OperatorType; 94] = [
     OperatorType::Add,
     OperatorType::ArgMin,
     OperatorType::ArgMax,
@@ -118,6 +118,7 @@ pub const ENUM_VALUES_OPERATOR_TYPE: [OperatorType; 93] = [
     OperatorType::NonMaxSuppression,
     OperatorType::Sign,
     OperatorType::GatherElements,
+    OperatorType::LayerNormalization,
 ];
 
 #[derive(Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash, Default)]
@@ -218,9 +219,10 @@ impl OperatorType {
     pub const NonMaxSuppression: Self = Self(90);
     pub const Sign: Self = Self(91);
     pub const GatherElements: Self = Self(92);
+    pub const LayerNormalization: Self = Self(93);
 
     pub const ENUM_MIN: i8 = 0;
-    pub const ENUM_MAX: i8 = 92;
+    pub const ENUM_MAX: i8 = 93;
     pub const ENUM_VALUES: &'static [Self] = &[
         Self::Add,
         Self::ArgMin,
@@ -315,6 +317,7 @@ impl OperatorType {
         Self::NonMaxSuppression,
         Self::Sign,
         Self::GatherElements,
+        Self::LayerNormalization,
     ];
     /// Returns the variant's name or "" if unknown.
     pub fn variant_name(self) -> Option<&'static str> {
@@ -412,6 +415,7 @@ impl OperatorType {
             Self::NonMaxSuppression => Some("NonMaxSuppression"),
             Self::Sign => Some("Sign"),
             Self::GatherElements => Some("GatherElements"),
+            Self::LayerNormalization => Some("LayerNormalization"),
             _ => None,
         }
     }
@@ -1034,13 +1038,13 @@ pub const ENUM_MIN_OPERATOR_ATTRS: u8 = 0;
     since = "2.0.0",
     note = "Use associated constants instead. This will no longer be generated in 2021."
 )]
-pub const ENUM_MAX_OPERATOR_ATTRS: u8 = 29;
+pub const ENUM_MAX_OPERATOR_ATTRS: u8 = 30;
 #[deprecated(
     since = "2.0.0",
     note = "Use associated constants instead. This will no longer be generated in 2021."
 )]
 #[allow(non_camel_case_types)]
-pub const ENUM_VALUES_OPERATOR_ATTRS: [OperatorAttrs; 30] = [
+pub const ENUM_VALUES_OPERATOR_ATTRS: [OperatorAttrs; 31] = [
     OperatorAttrs::NONE,
     OperatorAttrs::ArgMaxAttrs,
     OperatorAttrs::AveragePoolAttrs,
@@ -1071,6 +1075,7 @@ pub const ENUM_VALUES_OPERATOR_ATTRS: [OperatorAttrs; 30] = [
     OperatorAttrs::TriluAttrs,
     OperatorAttrs::ScatterNDAttrs,
     OperatorAttrs::NonMaxSuppressionAttrs,
+    OperatorAttrs::LayerNormalizationAttrs,
 ];
 
 #[derive(Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash, Default)]
@@ -1108,9 +1113,10 @@ impl OperatorAttrs {
     pub const TriluAttrs: Self = Self(27);
     pub const ScatterNDAttrs: Self = Self(28);
     pub const NonMaxSuppressionAttrs: Self = Self(29);
+    pub const LayerNormalizationAttrs: Self = Self(30);
 
     pub const ENUM_MIN: u8 = 0;
-    pub const ENUM_MAX: u8 = 29;
+    pub const ENUM_MAX: u8 = 30;
     pub const ENUM_VALUES: &'static [Self] = &[
         Self::NONE,
         Self::ArgMaxAttrs,
@@ -1142,6 +1148,7 @@ impl OperatorAttrs {
         Self::TriluAttrs,
         Self::ScatterNDAttrs,
         Self::NonMaxSuppressionAttrs,
+        Self::LayerNormalizationAttrs,
     ];
     /// Returns the variant's name or "" if unknown.
     pub fn variant_name(self) -> Option<&'static str> {
@@ -1176,6 +1183,7 @@ impl OperatorAttrs {
             Self::TriluAttrs => Some("TriluAttrs"),
             Self::ScatterNDAttrs => Some("ScatterNDAttrs"),
             Self::NonMaxSuppressionAttrs => Some("NonMaxSuppressionAttrs"),
+            Self::LayerNormalizationAttrs => Some("LayerNormalizationAttrs"),
             _ => None,
         }
     }
@@ -3184,6 +3192,134 @@ impl core::fmt::Debug for FlattenAttrs<'_> {
     fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
         let mut ds = f.debug_struct("FlattenAttrs");
         ds.field("axis", &self.axis());
+        ds.finish()
+    }
+}
+pub enum LayerNormalizationAttrsOffset {}
+#[derive(Copy, Clone, PartialEq)]
+
+pub struct LayerNormalizationAttrs<'a> {
+    pub _tab: flatbuffers::Table<'a>,
+}
+
+impl<'a> flatbuffers::Follow<'a> for LayerNormalizationAttrs<'a> {
+    type Inner = LayerNormalizationAttrs<'a>;
+    #[inline]
+    unsafe fn follow(buf: &'a [u8], loc: usize) -> Self::Inner {
+        Self {
+            _tab: flatbuffers::Table::new(buf, loc),
+        }
+    }
+}
+
+impl<'a> LayerNormalizationAttrs<'a> {
+    pub const VT_AXIS: flatbuffers::VOffsetT = 4;
+    pub const VT_EPSILON: flatbuffers::VOffsetT = 6;
+
+    #[inline]
+    pub unsafe fn init_from_table(table: flatbuffers::Table<'a>) -> Self {
+        LayerNormalizationAttrs { _tab: table }
+    }
+    #[allow(unused_mut)]
+    pub fn create<'bldr: 'args, 'args: 'mut_bldr, 'mut_bldr>(
+        _fbb: &'mut_bldr mut flatbuffers::FlatBufferBuilder<'bldr>,
+        args: &'args LayerNormalizationAttrsArgs,
+    ) -> flatbuffers::WIPOffset<LayerNormalizationAttrs<'bldr>> {
+        let mut builder = LayerNormalizationAttrsBuilder::new(_fbb);
+        builder.add_epsilon(args.epsilon);
+        builder.add_axis(args.axis);
+        builder.finish()
+    }
+
+    #[inline]
+    pub fn axis(&self) -> i32 {
+        // Safety:
+        // Created from valid Table for this object
+        // which contains a valid value in this slot
+        unsafe {
+            self._tab
+                .get::<i32>(LayerNormalizationAttrs::VT_AXIS, Some(0))
+                .unwrap()
+        }
+    }
+    #[inline]
+    pub fn epsilon(&self) -> f32 {
+        // Safety:
+        // Created from valid Table for this object
+        // which contains a valid value in this slot
+        unsafe {
+            self._tab
+                .get::<f32>(LayerNormalizationAttrs::VT_EPSILON, Some(0.0))
+                .unwrap()
+        }
+    }
+}
+
+impl flatbuffers::Verifiable for LayerNormalizationAttrs<'_> {
+    #[inline]
+    fn run_verifier(
+        v: &mut flatbuffers::Verifier,
+        pos: usize,
+    ) -> Result<(), flatbuffers::InvalidFlatbuffer> {
+        use self::flatbuffers::Verifiable;
+        v.visit_table(pos)?
+            .visit_field::<i32>("axis", Self::VT_AXIS, false)?
+            .visit_field::<f32>("epsilon", Self::VT_EPSILON, false)?
+            .finish();
+        Ok(())
+    }
+}
+pub struct LayerNormalizationAttrsArgs {
+    pub axis: i32,
+    pub epsilon: f32,
+}
+impl<'a> Default for LayerNormalizationAttrsArgs {
+    #[inline]
+    fn default() -> Self {
+        LayerNormalizationAttrsArgs {
+            axis: 0,
+            epsilon: 0.0,
+        }
+    }
+}
+
+pub struct LayerNormalizationAttrsBuilder<'a: 'b, 'b> {
+    fbb_: &'b mut flatbuffers::FlatBufferBuilder<'a>,
+    start_: flatbuffers::WIPOffset<flatbuffers::TableUnfinishedWIPOffset>,
+}
+impl<'a: 'b, 'b> LayerNormalizationAttrsBuilder<'a, 'b> {
+    #[inline]
+    pub fn add_axis(&mut self, axis: i32) {
+        self.fbb_
+            .push_slot::<i32>(LayerNormalizationAttrs::VT_AXIS, axis, 0);
+    }
+    #[inline]
+    pub fn add_epsilon(&mut self, epsilon: f32) {
+        self.fbb_
+            .push_slot::<f32>(LayerNormalizationAttrs::VT_EPSILON, epsilon, 0.0);
+    }
+    #[inline]
+    pub fn new(
+        _fbb: &'b mut flatbuffers::FlatBufferBuilder<'a>,
+    ) -> LayerNormalizationAttrsBuilder<'a, 'b> {
+        let start = _fbb.start_table();
+        LayerNormalizationAttrsBuilder {
+            fbb_: _fbb,
+            start_: start,
+        }
+    }
+    #[inline]
+    pub fn finish(self) -> flatbuffers::WIPOffset<LayerNormalizationAttrs<'a>> {
+        let o = self.fbb_.end_table(self.start_);
+        flatbuffers::WIPOffset::new(o.value())
+    }
+}
+
+impl core::fmt::Debug for LayerNormalizationAttrs<'_> {
+    fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
+        let mut ds = f.debug_struct("LayerNormalizationAttrs");
+        ds.field("axis", &self.axis());
+        ds.field("epsilon", &self.epsilon());
         ds.finish()
     }
 }
@@ -6200,6 +6336,21 @@ impl<'a> OperatorNode<'a> {
             None
         }
     }
+
+    #[inline]
+    #[allow(non_snake_case)]
+    pub fn attrs_as_layer_normalization_attrs(&self) -> Option<LayerNormalizationAttrs<'a>> {
+        if self.attrs_type() == OperatorAttrs::LayerNormalizationAttrs {
+            self.attrs().map(|t| {
+                // Safety:
+                // Created from a valid Table for this object
+                // Which contains a valid union in this slot
+                unsafe { LayerNormalizationAttrs::init_from_table(t) }
+            })
+        } else {
+            None
+        }
+    }
 }
 
 impl flatbuffers::Verifiable for OperatorNode<'_> {
@@ -6242,6 +6393,7 @@ impl flatbuffers::Verifiable for OperatorNode<'_> {
           OperatorAttrs::TriluAttrs => v.verify_union_variant::<flatbuffers::ForwardsUOffset<TriluAttrs>>("OperatorAttrs::TriluAttrs", pos),
           OperatorAttrs::ScatterNDAttrs => v.verify_union_variant::<flatbuffers::ForwardsUOffset<ScatterNDAttrs>>("OperatorAttrs::ScatterNDAttrs", pos),
           OperatorAttrs::NonMaxSuppressionAttrs => v.verify_union_variant::<flatbuffers::ForwardsUOffset<NonMaxSuppressionAttrs>>("OperatorAttrs::NonMaxSuppressionAttrs", pos),
+          OperatorAttrs::LayerNormalizationAttrs => v.verify_union_variant::<flatbuffers::ForwardsUOffset<LayerNormalizationAttrs>>("OperatorAttrs::LayerNormalizationAttrs", pos),
           _ => Ok(()),
         }
      })?
@@ -6607,6 +6759,16 @@ impl core::fmt::Debug for OperatorNode<'_> {
             }
             OperatorAttrs::NonMaxSuppressionAttrs => {
                 if let Some(x) = self.attrs_as_non_max_suppression_attrs() {
+                    ds.field("attrs", &x)
+                } else {
+                    ds.field(
+                        "attrs",
+                        &"InvalidFlatbuffer: Union discriminant does not match value.",
+                    )
+                }
+            }
+            OperatorAttrs::LayerNormalizationAttrs => {
+                if let Some(x) = self.attrs_as_layer_normalization_attrs() {
                     ds.field("attrs", &x)
                 } else {
                     ds.field(

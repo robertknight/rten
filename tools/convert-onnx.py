@@ -698,6 +698,11 @@ def op_node_from_onnx_operator(
             attrs = sg.BatchNormalizationAttrsT()
             attrs.epsilon = op_reader.get_attr("epsilon", "float", 1e-5)
 
+        case "LayerNormalization":
+            attrs = sg.LayerNormalizationAttrsT()
+            attrs.axis = op_reader.get_attr("axis", "int", -1)
+            attrs.epsilon = op_reader.get_attr("epsilon", "float", 1e-5)
+
         case "LeakyRelu":
             attrs = sg.LeakyReluAttrsT()
             attrs.alpha = op_reader.get_attr("alpha", "float", 0.01)

@@ -320,6 +320,7 @@ impl_default_factory!(HardSigmoid, read_hard_sigmoid_op);
 impl_default_factory!(HardSwish);
 impl_default_factory!(Identity);
 impl_default_factory!(InstanceNormalization, read_instance_normalization_op);
+impl_default_factory!(LayerNormalization, read_layer_normalization_op);
 impl_default_factory!(LeakyRelu, read_leaky_relu_op);
 impl_default_factory!(Less);
 impl_default_factory!(LessOrEqual);
@@ -469,6 +470,7 @@ impl OpRegistry {
         register_op!(HardSwish);
         register_op!(Identity);
         register_op!(InstanceNormalization);
+        register_op!(LayerNormalization);
         register_op!(LeakyRelu);
         register_op!(Less);
         register_op!(LessOrEqual);
@@ -720,6 +722,16 @@ fn read_instance_normalization_op(node: &OperatorNode) -> ReadOpResult {
         .attrs_as_batch_normalization_attrs()
         .ok_or(ReadOpError::AttrError)?;
     Ok(Box::new(ops::InstanceNormalization {
+        epsilon: Some(attrs.epsilon()),
+    }))
+}
+
+fn read_layer_normalization_op(node: &OperatorNode) -> ReadOpResult {
+    let attrs = node
+        .attrs_as_layer_normalization_attrs()
+        .ok_or(ReadOpError::AttrError)?;
+    Ok(Box::new(ops::LayerNormalization {
+        axis: attrs.axis() as isize,
         epsilon: Some(attrs.epsilon()),
     }))
 }
@@ -1406,6 +1418,14 @@ mod tests {
         add_operator!(InstanceNormalization, [
             input_node, instance_norm_scale, instance_norm_bias
         ], { epsilon: Some(1e-5) });
+
+        let layer_norm_scale_val = tensor!([1.0]);
+        let layer_norm_scale = builder.add_float_constant(&layer_norm_scale_val);
+        let layer_norm_bias_val = tensor!([1.0]);
+        let layer_norm_bias = builder.add_float_constant(&layer_norm_bias_val);
+        add_operator!(LayerNormalization, [
+            input_node, layer_norm_scale, layer_norm_bias
+        ], { axis: -1, epsilon: Some(1e-5) });
 
         add_operator!(LeakyRelu, [input_node], { alpha: 0.01 });
         add_operator!(Less, [input_node, input_node]);

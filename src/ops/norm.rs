@@ -3,7 +3,9 @@ use rayon::prelude::*;
 use rten_tensor::prelude::*;
 use rten_tensor::{NdTensorView, Tensor, TensorView};
 use rten_vecmath::vec_softmax_in_place;
+use smallvec::SmallVec;
 
+use crate::ops::{add, mul, reduce_mean, sub};
 use crate::ops::{resolve_axis, InputList, IntoOpResult, OpError, Operator, Output};
 use crate::slice_reductions::{slice_max, slice_sum};
 use crate::{check_dims, static_dims};
@@ -228,6 +230,79 @@ impl Operator for InstanceNormalization {
     }
 }
 
+pub fn layer_normalization(
+    input: TensorView,
+    scale: TensorView,
+    bias: Option<TensorView>,
+    axis: isize,
+    epsilon: Option<f32>,
+) -> Result<Tensor, OpError> {
+    if !scale.can_broadcast_to(input.shape()) {
+        return Err(OpError::IncompatibleInputShapes(
+            "`scale` cannot be broadcast to input shape",
+        ));
+    }
+    if let Some(bias) = bias.as_ref() {
+        if !bias.can_broadcast_to(input.shape()) {
+            return Err(OpError::IncompatibleInputShapes(
+                "`bias` cannot be broadcast to input shape",
+            ));
+        }
+    }
+
+    let epsilon = epsilon.unwrap_or(1e-5);
+    let resolved_axis = resolve_axis(input.ndim(), axis)?;
+    let normalized_axes: SmallVec<[i32; 5]> = (resolved_axis..input.ndim())
+        .map(|axis| axis as i32)
+        .collect();
+
+    // First step: standardize input elements to have unit mean and variance.
+    let mean = reduce_mean(
+        input.view(),
+        Some(normalized_axes.as_slice()),
+        true, /* keep_dims */
+    )?;
+    let d = sub(input, mean.view())?;
+    let dd = mul(d.view(), d.view())?;
+    let var = reduce_mean(
+        dd.view(),
+        Some(normalized_axes.as_slice()),
+        true, /* keep_dims */
+    )?;
+    let inverse_std_dev = var.map(|x| 1. / (x + epsilon).sqrt());
+    let normalized = mul(d.view(), inverse_std_dev.view())?;
+
+    // Second step: Shift and scale input.
+    let normalized_scaled = mul(normalized.view(), scale)?;
+    let output = if let Some(bias) = bias {
+        add(normalized_scaled.view(), bias)?
+    } else {
+        normalized_scaled
+    };
+
+    Ok(output)
+}
+
+#[derive(Debug)]
+pub struct LayerNormalization {
+    pub axis: isize,
+    pub epsilon: Option<f32>,
+}
+
+impl Operator for LayerNormalization {
+    fn name(&self) -> &str {
+        "LayerNormalization"
+    }
+
+    fn run(&self, inputs: InputList) -> Result<Vec<Output>, OpError> {
+        let input = inputs.require_as(0)?;
+        let scale = inputs.require_as(1)?;
+        let bias = inputs.get_as(2)?;
+
+        layer_normalization(input.view(), scale, bias, self.axis, self.epsilon).into_op_result()
+    }
+}
+
 pub fn log_softmax(input: TensorView, axis: isize) -> Result<Tensor, OpError> {
     let mut output = input.to_tensor();
     log_softmax_in_place(&mut output, axis)?;
@@ -375,7 +450,8 @@ mod tests {
 
     use crate::ops::tests::expect_eq_1e4;
     use crate::ops::{
-        batch_norm, batch_norm_in_place, instance_normalization, log_softmax, softmax,
+        batch_norm, batch_norm_in_place, instance_normalization, layer_normalization, log_softmax,
+        softmax,
     };
 
     #[test]
@@ -455,6 +531,37 @@ mod tests {
         let result =
             instance_normalization(input.view(), scale.nd_view(), bias.nd_view(), None).unwrap();
 
+        expect_eq_1e4(&result, &expected)?;
+
+        Ok(())
+    }
+
+    #[test]
+    fn test_layer_normalization() -> Result<(), Box<dyn Error>> {
+        // Sample values generated using `torch.rand`.
+        let input = tensor!((1, 5, 2); [
+            0.9562, 0.0572, 0.4366, 0.5655, 0.2017,
+            0.0230, 0.7941, 0.1554, 0.3226, 0.120
+        ]);
+        let scale = tensor!([0.0751, 0.6952]);
+        let bias = tensor!([0.9993, 0.7632]);
+
+        let result = layer_normalization(
+            input.view(),
+            scale.view(),
+            Some(bias.view()),
+            -1,   /* axis */
+            None, /* epsilon */
+        )
+        .unwrap();
+
+        let expected = Tensor::from([[
+            [1.0744, 0.0680],
+            [0.9243, 1.4576],
+            [1.0744, 0.0684],
+            [1.0744, 0.0680],
+            [1.0744, 0.0683],
+        ]]);
         expect_eq_1e4(&result, &expected)?;
 
         Ok(())
