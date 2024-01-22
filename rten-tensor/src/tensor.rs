@@ -8,6 +8,7 @@ use crate::iterators::{
     IterMut, Lanes, LanesMut, MutViewRef, ViewRef,
 };
 use crate::layout::{DynLayout, Layout, MatrixLayout, NdLayout, OverlapPolicy};
+use crate::transpose::contiguous_data;
 use crate::{IntoSliceItems, RandomSource, SliceItem};
 
 /// The base type for multi-dimensional arrays. This consists of storage for
@@ -1317,8 +1318,7 @@ impl<T, S: AsRef<[T]>, L: MutLayout + Clone> AsView for TensorBase<T, S, L> {
         if let Some(data) = self.data() {
             data.to_vec()
         } else {
-            // TODO - Add fast path for low rank that doesn't use iterators.
-            self.view().iter().cloned().collect()
+            contiguous_data(self.as_dyn())
         }
     }
 

@@ -42,6 +42,7 @@ mod macros;
 mod overlap;
 mod range;
 mod tensor;
+mod transpose;
 
 /// Trait for sources of random data for tensors, for use with [Tensor::rand].
 pub trait RandomSource<T> {
