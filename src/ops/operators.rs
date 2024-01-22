@@ -6,7 +6,8 @@ use rten_tensor::{DynLayout, NdLayout, NdTensorView, Tensor, TensorBase, TensorV
 use crate::number::{Identities, IsInt};
 use crate::ops::OpError;
 use crate::ops::{
-    arg_max, div, matmul, mul, pad, reduce_l2, reduce_mean, resize_image, softmax, topk,
+    arg_max, div, matmul, mul, pad, reduce_l2, reduce_max, reduce_mean, reduce_min, resize_image,
+    softmax, topk,
 };
 
 /// Trait which exposes ONNX operators as methods of tensors.
@@ -61,7 +62,9 @@ pub trait FloatOperators {
     fn matmul(&self, other: TensorView) -> Result<Tensor, OpError>;
 
     fn reduce_l2(&self, axes: Option<&[i32]>, keep_dims: bool) -> Result<Tensor, OpError>;
+    fn reduce_max(&self, axes: Option<&[i32]>, keep_dims: bool) -> Result<Tensor, OpError>;
     fn reduce_mean(&self, axes: Option<&[i32]>, keep_dims: bool) -> Result<Tensor, OpError>;
+    fn reduce_min(&self, axes: Option<&[i32]>, keep_dims: bool) -> Result<Tensor, OpError>;
 
     /// Resize an NCHW image tensor to a given `[height, width]` using bilinear
     /// interpolation.
@@ -180,6 +183,14 @@ impl<S: AsRef<[f32]>> FloatOperators for TensorBase<f32, S, DynLayout> {
         reduce_l2(self.view(), axes, keep_dims)
     }
 
+    fn reduce_max(&self, axes: Option<&[i32]>, keep_dims: bool) -> Result<Tensor, OpError> {
+        reduce_max(self.view(), axes, keep_dims)
+    }
+
+    fn reduce_min(&self, axes: Option<&[i32]>, keep_dims: bool) -> Result<Tensor, OpError> {
+        reduce_min(self.view(), axes, keep_dims)
+    }
+
     fn reduce_mean(&self, axes: Option<&[i32]>, keep_dims: bool) -> Result<Tensor, OpError> {
         reduce_mean(self.view(), axes, keep_dims)
     }
@@ -200,6 +211,14 @@ impl<S: AsRef<[f32]>, const N: usize> FloatOperators for TensorBase<f32, S, NdLa
 
     fn reduce_l2(&self, axes: Option<&[i32]>, keep_dims: bool) -> Result<Tensor, OpError> {
         reduce_l2(self.as_dyn(), axes, keep_dims)
+    }
+
+    fn reduce_max(&self, axes: Option<&[i32]>, keep_dims: bool) -> Result<Tensor, OpError> {
+        reduce_max(self.as_dyn(), axes, keep_dims)
+    }
+
+    fn reduce_min(&self, axes: Option<&[i32]>, keep_dims: bool) -> Result<Tensor, OpError> {
+        reduce_min(self.as_dyn(), axes, keep_dims)
     }
 
     fn reduce_mean(&self, axes: Option<&[i32]>, keep_dims: bool) -> Result<Tensor, OpError> {
