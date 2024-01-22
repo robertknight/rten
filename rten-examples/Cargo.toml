@@ -43,6 +43,10 @@ path = "src/imagenet.rs"
 name = "yolo"
 path = "src/yolo.rs"
 
+[[bin]]
+name = "depth_anything"
+path = "src/depth_anything.rs"
+
 # Text
 [[bin]]
 name = "bert_qa"
