@@ -139,9 +139,9 @@ fn compute_rnn_gate(
     gemm: &GemmExecutor,
     mut output: TensorViewMut,
     act: Activation,
-    input: &TensorView,
+    input: &NdTensorView<f32, 2>,
     input_weight: GemmInputB,
-    hidden: &TensorView,
+    hidden: &NdTensorView<f32, 2>,
     hidden_weight: GemmInputB,
     bias: Option<(NdTensorView<f32, 1>, NdTensorView<f32, 1>)>,
 ) {
@@ -307,8 +307,8 @@ pub fn gru(
             extract_gru_weights_and_bias(dir, HIDDEN_GATE);
 
         for seq in sequence_for_dir(direction, dir, seq_len) {
-            let in_item = input.slice_dyn([seq]);
-            let hidden_item = hidden.slice_dyn([dir]);
+            let in_item = input.slice::<2, _>([seq]);
+            let hidden_item = hidden.slice::<2, _>([dir]);
 
             // From the ONNX spec, the intermediate values are computed as:
             //
@@ -402,7 +402,7 @@ pub fn gru(
             }
 
             // Compute next hidden state
-            let mut hidden_item = hidden.slice_mut_dyn([dir]);
+            let mut hidden_item = hidden.slice_mut::<2, _>([dir]);
             for (hidden, update, hidden_gate) in zip3(
                 hidden_item.iter_mut(),
                 update_gate.iter(),
@@ -412,8 +412,8 @@ pub fn gru(
             }
 
             hidden_seq
-                .slice_mut_dyn([seq, dir])
-                .copy_from(&hidden_item.as_dyn());
+                .slice_mut::<2, _>([seq, dir])
+                .copy_from(&hidden_item);
         }
     }
 
@@ -573,8 +573,8 @@ pub fn lstm(
             //    supported.
             //  - `f`, `g` and `h` are activations. `f`=sigmoid, `g` and `h`
             //    are tanh.
-            let in_item = input.slice_dyn([seq]);
-            let hidden_item = hidden.slice_dyn([dir]);
+            let in_item = input.slice::<2, _>([seq]);
+            let hidden_item = hidden.slice::<2, _>([dir]);
 
             // Compute outputs for input, forget, cell and output gates.
             compute_rnn_gate(
@@ -622,7 +622,7 @@ pub fn lstm(
             );
 
             // Compute new values of cell and hidden state
-            let mut cell_item = cell.slice_mut_dyn([dir]);
+            let mut cell_item = cell.slice_mut::<2, _>([dir]);
 
             for (cell, forget_gate, input_gate, cell_gate) in zip4(
                 cell_item.iter_mut(),
@@ -633,7 +633,7 @@ pub fn lstm(
                 *cell = forget_gate * *cell + input_gate * cell_gate;
             }
 
-            let mut hidden_item = hidden.slice_mut_dyn([dir]);
+            let mut hidden_item = hidden.slice_mut::<2, _>([dir]);
             for (hidden, out_gate, cell) in
                 zip3(hidden_item.iter_mut(), out_gate.iter(), cell_item.iter())
             {
@@ -641,8 +641,8 @@ pub fn lstm(
             }
 
             hidden_seq
-                .slice_mut_dyn([seq, dir])
-                .copy_from(&hidden_item.view());
+                .slice_mut::<2, _>([seq, dir])
+                .copy_from(&hidden_item);
         }
     }
 
