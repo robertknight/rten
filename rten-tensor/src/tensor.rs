@@ -42,7 +42,7 @@ pub struct TensorBase<T, S: AsRef<[T]>, L: MutLayout> {
 /// standard library allows a `Vec<T>` to have all the methods of an `&[T]`.
 ///
 /// If stable Rust gains support for specialization or a `Deref` trait that can
-/// return non-references (see. https://github.com/rust-lang/rfcs/issues/997)
+/// return non-references (see <https://github.com/rust-lang/rfcs/issues/997>)
 /// this will become unnecessary.
 pub trait AsView: Layout {
     /// Type of element stored in this tensor.

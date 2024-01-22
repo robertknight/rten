@@ -1,38 +1,44 @@
 //! rten_tensor provides multi-dimensional arrays, commonly referred to as
-//! _tensors_ in a machine learning context. The tensor types are divided into two
-//! sets, one for tensors where the dimension count is specified at compile
-//! time, and one where it is determined at runtime.
+//! _tensors_ in a machine learning context.
 //!
 //! Each tensor is a combination of data and a layout. The data can be owned,
 //! borrowed or mutably borrowed. This is analagous to `Vec<T>`, `&[T]` and
-//! `&mut [T]` for 1D arrays. The layout determines the range of valid indices
-//! for each array and how indices are mapped to elements in the data.
+//! `&mut [T]` for 1D arrays. The layout determines the number of dimensions
+//! (the _rank_), the size of each dimension, and the strides (gap between
+//! successive indices along a given dimension).
 //!
-//! # Static rank tensors
+//! # Key types and traits
 //!
-//! [NdTensorBase] is the base type for tensors with a static dimension count.
-//! It is normally used via one of the type aliases [NdTensor], [NdTensorView]
-//! or [NdTensorViewMut]. [NdTensor] owns its elements, [NdTensorView] is an
-//! immutable view and [NdTensorViewMut] is a mutable view.
+//! The base type for all tensors is [TensorBase]. This is not normally used
+//! directly but instead via a type alias, depending on whether the number of
+//! dimensions (the _rank_) of the tensor is known at compile time or only
+//! at runtime, as well as whether the tensor owns, borrows or mutably borrows
+//! its data.
 //!
-//! [NdTensorBase] implements the [Layout] and [NdView] traits. The [Layout]
-//! trait provides information about the shape, rank and strides of the tensor.
-//! The [NdView] trait provides methods for reading and slicing the tensor.
-//! Read-only views ([NdTensorView]) provide specialized versions of [NdView]
-//! methods which preserve lifetimes of the data.
+//! | Rank    | Owned (like `Vec<T>`) | Borrowed (like `&[T]`) | Mutably borrowed |
+//! | ----    | --------------------- | ---------------------- | ---------------- |
+//! | Static  | [NdTensor] | [NdTensorView] | [NdTensorViewMut] |
+//! | Dynamic | [Tensor]   | [TensorView]   | [TensorViewMut]   |
 //!
-//! # Dynamic rank tensors
+//! All tensors implement the [Layout] trait, which provide methods to query
+//! the shape, dimension count and strides of the tensor. Tensor views provide
+//! various methods for indexing, iterating, slicing and transforming them.
+//! The [AsView] trait provides access to these methods for owned and mutably
+//! borrowed tensors. Conceptually it is similar to how [Deref](std::ops::Deref)
+//! allows accesing methods for `&[T]` on a `Vec<T>`. The preferred way to
+//! import the traits is via the prelude:
 //!
-//! [TensorBase] is the base type for tensors with a dynamic dimension count.
-//! It is normally used via one of the type aliases [Tensor], [TensorView] or
-//! [TensorViewMut]. [Tensor] owns its elements, [TensorView] is an immutable
-//! view and [TensorViewMut] is a mutable view.
+//! ```
+//! use rten_tensor::prelude::*;
+//! use rten_tensor::NdTensor;
 //!
-//! [TensorBase] implements the [Layout] and [View] traits. The [Layout]
-//! trait provides information about the shape, rank and strides of the tensor.
-//! The [View] trait provides methods for reading and slicing the tensor.
-//! Read-only views ([TensorView]) provide specialized versions of [View]
-//! methods which preserve lifetimes of the data.
+//! let tensor = NdTensor::from_data([2, 2], vec![1, 2, 3, 4]);
+//!
+//! // Logs 1, 3, 2, 4.
+//! for x in tensor.transposed().iter() {
+//!   println!("{}", x);
+//! }
+//! ```
 
 mod errors;
 mod index_iterator;
@@ -55,12 +61,12 @@ pub use iterators::{
     AxisChunks, AxisChunksMut, AxisIter, AxisIterMut, BroadcastIter, InnerIter, InnerIterMut, Iter,
     IterMut, Lanes, LanesMut, Offsets,
 };
-pub use layout::{is_valid_permutation, DynLayout, Layout, MatrixLayout, NdLayout};
+pub use layout::{is_valid_permutation, DynLayout, Layout, MatrixLayout, NdLayout, OverlapPolicy};
 pub use range::{to_slice_items, DynSliceItems, IntoSliceItems, SliceItem, SliceRange};
 
 pub use tensor::{
     AsView, Matrix, MatrixMut, MutLayout, NdTensor, NdTensorView, NdTensorViewMut, Tensor,
-    TensorBase, TensorView, TensorViewMut,
+    TensorBase, TensorView, TensorViewMut, WeaklyCheckedView,
 };
 
 /// This module provides a convenient way to import the most common traits
