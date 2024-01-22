@@ -181,7 +181,7 @@ pub fn resize_image(input: TensorView, size: [usize; 2]) -> Result<Tensor, OpErr
     let out_shape = [batch, chans, out_height, out_width].map(|x| x as i32);
     resize(
         input,
-        ResizeTarget::Sizes(NdTensorView::from_data([out_shape.len()], &out_shape)),
+        ResizeTarget::Sizes(out_shape.as_slice().into()),
         ResizeMode::Linear,
         CoordTransformMode::default(),
         NearestMode::default(),
