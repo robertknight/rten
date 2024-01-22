@@ -400,7 +400,7 @@ pub fn scatter_nd<
         let update_slice = updates.slice_dyn(update_idx.as_slice());
 
         let output_idx: DynSliceItems = indices
-            .try_slice(update_idx.as_slice())
+            .try_slice_dyn(update_idx.as_slice())
             .map_err(|_| OpError::InvalidValue("invalid scatter index"))?
             .iter()
             .map(|x| SliceItem::Index(*x as isize))

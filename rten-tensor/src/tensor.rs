@@ -178,8 +178,11 @@ pub trait AsView: Layout {
     ///
     /// Fails if the range has more dimensions than the view or is out of bounds
     /// for any dimension.
-    fn try_slice<R: IntoSliceItems>(&self, range: R) -> Result<TensorView<Self::Elem>, SliceError> {
-        self.view().try_slice(range)
+    fn try_slice_dyn<R: IntoSliceItems>(
+        &self,
+        range: R,
+    ) -> Result<TensorView<Self::Elem>, SliceError> {
+        self.view().try_slice_dyn(range)
     }
 
     /// Slice this tensor and return a static-rank view with `M` dimensions.
@@ -1152,7 +1155,10 @@ impl<'a, T, L: Clone + MutLayout> TensorBase<T, &'a [T], L> {
         }
     }
 
-    pub fn try_slice<R: IntoSliceItems>(&self, range: R) -> Result<TensorView<'a, T>, SliceError> {
+    pub fn try_slice_dyn<R: IntoSliceItems>(
+        &self,
+        range: R,
+    ) -> Result<TensorView<'a, T>, SliceError> {
         let (offset_range, layout) = self.layout.try_slice(range)?;
         Ok(TensorBase {
             data: &self.data[offset_range],
@@ -2632,14 +2638,14 @@ mod tests {
         let data = vec![1., 2., 3., 4.];
         let tensor = Tensor::from_data(&[2, 2], data);
 
-        let row = tensor.try_slice(0);
+        let row = tensor.try_slice_dyn(0);
         assert!(row.is_ok());
         assert_eq!(row.unwrap().data(), Some([1., 2.].as_slice()));
 
-        let row = tensor.try_slice(1);
+        let row = tensor.try_slice_dyn(1);
         assert!(row.is_ok());
 
-        let row = tensor.try_slice(2);
+        let row = tensor.try_slice_dyn(2);
         assert!(row.is_err());
     }
 
@@ -2656,7 +2662,7 @@ mod tests {
         let row = tensor.try_slice_mut(1);
         assert!(row.is_ok());
 
-        let row = tensor.try_slice(2);
+        let row = tensor.try_slice_dyn(2);
         assert!(row.is_err());
     }
 

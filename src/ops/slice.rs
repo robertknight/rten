@@ -60,7 +60,7 @@ pub fn slice<T: Copy>(
     // all ranges except those with a negative step. This benefits from
     // optimizations that `Tensor::to_tensor` has for slices that are already
     // contiguous or have a small number of dims.
-    if let Ok(slice_view) = input.try_slice(items.as_slice()) {
+    if let Ok(slice_view) = input.try_slice_dyn(items.as_slice()) {
         return Ok(slice_view.to_tensor());
     }
 
