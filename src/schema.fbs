@@ -125,7 +125,8 @@ enum DataType: byte {
 // Coordinate transform modes for Resize operator.
 enum CoordTransformMode: byte {
   HalfPixel,
-  Asymmetric
+  Asymmetric,
+  AlignCorners
 }
 
 // Rounding modes supported by Resize operator when `ResizeMode` is `Nearest`.

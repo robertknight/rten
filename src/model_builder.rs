@@ -574,6 +574,7 @@ impl<'a> ModelBuilder<'a> {
                 let coord_mode = match args.coord_mode {
                     CoordTransformMode::Asymmetric => sg::CoordTransformMode::Asymmetric,
                     CoordTransformMode::HalfPixel => sg::CoordTransformMode::HalfPixel,
+                    CoordTransformMode::AlignCorners => sg::CoordTransformMode::AlignCorners,
                 };
                 let nearest_mode = match args.nearest_mode {
                     NearestMode::Ceil => sg::NearestMode::Ceil,

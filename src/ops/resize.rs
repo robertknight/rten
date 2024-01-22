@@ -17,19 +17,36 @@ pub enum ResizeTarget<'a> {
 }
 
 /// Compute the input image coordinate that corresponds to an output coordinate,
-/// where `scale` is the scale factor from output to input.
+/// along an axis.
 ///
-/// ONNX supports several modes for transforming coords, specified by the
-/// `coordinate_transformation_mode` attribute. The default, implemented here,
-/// is the "half pixel" mode. The half pixel mode is consistent with how OpenCV
+/// - `dest_coord` is the coordinate along the output axis
+/// - `scale` is the scale factor from output to input along the axis
+/// - `mode` specifies the coordinate transformation mode from the
+///   `coordinate_transformation_mode` attribute.
+/// - `length_original` is the size of the axis in the input
+/// - `length_resized` is the size of the axis in the output
+///
+/// See https://github.com/onnx/onnx/blob/v1.15.0/docs/Operators.md#resize
+/// for the formulae for different transform modes.
+///
+/// The default is half pixel, and is is consistent with how OpenCV
 /// (`cv2.resize`) and PyTorch (`torch.nn.functional.interpolate`) work. See
-/// https://jricheimer.github.io/tensorflow/2019/02/11/resize-confusion/
-/// for rationale.
-fn input_coord(dest_coord: usize, scale: f32, mode: CoordTransformMode) -> f32 {
+/// https://jricheimer.github.io/tensorflow/2019/02/11/resize-confusion/ for
+/// rationale.
+fn input_coord(
+    dest_coord: usize,
+    scale: f32,
+    mode: CoordTransformMode,
+    length_original: usize,
+    length_resized: usize,
+) -> f32 {
     type Ctm = CoordTransformMode;
     match mode {
         Ctm::HalfPixel => scale * (dest_coord as f32 + 0.5) - 0.5,
         Ctm::Asymmetric => scale * dest_coord as f32,
+        Ctm::AlignCorners => {
+            dest_coord as f32 * (length_original - 1) as f32 / (length_resized - 1) as f32
+        }
     }
 }
 
@@ -51,6 +68,7 @@ pub enum CoordTransformMode {
     #[default]
     HalfPixel,
     Asymmetric,
+    AlignCorners,
 }
 
 const CHAN_GROUP_SIZE: usize = 4;
@@ -97,11 +115,14 @@ fn nearest_resize(
     };
 
     for y in 0..rows {
-        let in_y =
-            round_coord(input_coord(y, inv_scale_y, coord_mode).clamp(0., in_rows as f32 - 1.));
+        let in_y = round_coord(
+            input_coord(y, inv_scale_y, coord_mode, in_rows, rows).clamp(0., in_rows as f32 - 1.),
+        );
         for x in 0..cols {
-            let in_x =
-                round_coord(input_coord(x, inv_scale_x, coord_mode).clamp(0., in_cols as f32 - 1.));
+            let in_x = round_coord(
+                input_coord(x, inv_scale_x, coord_mode, in_cols, cols)
+                    .clamp(0., in_cols as f32 - 1.),
+            );
 
             for c in 0..chans {
                 output[[c, y, x]] = input[[c, in_y, in_x]];
@@ -124,13 +145,15 @@ fn bilinear_resize(
     let inv_scale_x = in_cols as f32 / cols as f32;
 
     for y in 0..rows {
-        let in_y = input_coord(y, inv_scale_y, coord_mode).clamp(0., in_rows as f32 - 1.);
+        let in_y =
+            input_coord(y, inv_scale_y, coord_mode, in_rows, rows).clamp(0., in_rows as f32 - 1.);
         let in_y1 = in_y as usize;
         let in_y2 = (in_y1 + 1).min(in_rows - 1);
         let weight_y = in_y - (in_y1 as f32);
 
         for x in 0..cols {
-            let in_x = input_coord(x, inv_scale_x, coord_mode).clamp(0., in_cols as f32 - 1.);
+            let in_x = input_coord(x, inv_scale_x, coord_mode, in_cols, cols)
+                .clamp(0., in_cols as f32 - 1.);
             let in_x1 = in_x as usize;
             let in_x2 = (in_x1 + 1).min(in_cols - 1);
             let weight_x = in_x - (in_x1 as f32);
@@ -508,6 +531,7 @@ mod tests {
             image: Tensor,
             scales: Vec<f32>,
             expected: Tensor,
+            coord_transform_mode: Option<CoordTransformMode>,
         }
 
         let cases = [
@@ -515,12 +539,14 @@ mod tests {
             Case {
                 image: Tensor::from_data(&[1, 1, 2, 2], vec![0.2, 0.7, 0.3, 0.8]),
                 scales: vec![1., 1., 0., 0.],
+                coord_transform_mode: None,
                 expected: Tensor::from_data(&[1, 1, 0, 0], vec![]),
             },
             // Scale width and height by 0.5x
             Case {
                 image: Tensor::from_data(&[1, 1, 2, 2], vec![0.2, 0.7, 0.3, 0.8]),
                 scales: vec![1., 1., 0.5, 0.5],
+                coord_transform_mode: None,
 
                 // OpenCV and PyTorch produce different results for this case.
                 // This result matches OpenCV. This relates to the `half_pixel`
@@ -532,12 +558,14 @@ mod tests {
             Case {
                 image: Tensor::from_data(&[1, 1, 2, 2], vec![0.2, 0.7, 0.3, 0.8]),
                 scales: vec![1., 1., 1., 1.],
+                coord_transform_mode: None,
                 expected: Tensor::from_data(&[1, 1, 2, 2], vec![0.2, 0.7, 0.3, 0.8]),
             },
             // Scale width and height by 1.5x
             Case {
                 image: Tensor::from_data(&[1, 1, 2, 2], vec![0.2, 0.7, 0.3, 0.8]),
                 scales: vec![1., 1., 1.5, 1.5],
+                coord_transform_mode: None,
                 expected: Tensor::from_data(
                     &[1, 1, 3, 3],
                     vec![
@@ -551,6 +579,7 @@ mod tests {
             Case {
                 image: Tensor::from_data(&[1, 1, 2, 2], vec![0.2, 0.7, 0.3, 0.8]),
                 scales: vec![1., 1., 2., 2.],
+                coord_transform_mode: None,
                 expected: Tensor::from_data(
                     &[1, 1, 4, 4],
                     vec![
@@ -561,10 +590,27 @@ mod tests {
                     ],
                 ),
             },
+            // Scale width and height by 2x, align corners.
+            Case {
+                image: Tensor::from_data(&[1, 1, 2, 2], vec![0.2, 0.7, 0.3, 0.8]),
+                scales: vec![1., 1., 2., 2.],
+                coord_transform_mode: Some(CoordTransformMode::AlignCorners),
+
+                // Generated with `torch.functional.nn.interpolate(x, scale_factor=2,
+                // mode='bilinear', align_corners=True)`.
+                expected: Tensor::from([
+                    [0.2000, 0.3667, 0.5333, 0.7000],
+                    [0.2333, 0.4000, 0.5667, 0.7333],
+                    [0.2667, 0.4333, 0.6000, 0.7667],
+                    [0.3000, 0.4667, 0.6333, 0.8000],
+                ])
+                .into_shape([1, 1, 4, 4].as_slice()),
+            },
             // Scale width and height by 3x
             Case {
                 image: Tensor::from_data(&[1, 1, 2, 2], vec![0.2, 0.7, 0.3, 0.8]),
                 scales: vec![1., 1., 3., 3.],
+                coord_transform_mode: None,
                 expected: Tensor::from_data(
                     &[1, 1, 6, 6],
                     vec![
@@ -584,7 +630,8 @@ mod tests {
                 case.image.view(),
                 ResizeTarget::Scales(case.scales.as_slice().into()),
                 ResizeMode::Linear,
-                CoordTransformMode::HalfPixel,
+                case.coord_transform_mode
+                    .unwrap_or(CoordTransformMode::HalfPixel),
                 NearestMode::Floor,
             )
             .unwrap();

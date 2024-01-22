@@ -122,6 +122,7 @@ class DataType(object):
 class CoordTransformMode(object):
     HalfPixel = 0
     Asymmetric = 1
+    AlignCorners = 2
 
 
 class NearestMode(object):

@@ -754,15 +754,16 @@ pub const ENUM_MIN_COORD_TRANSFORM_MODE: i8 = 0;
     since = "2.0.0",
     note = "Use associated constants instead. This will no longer be generated in 2021."
 )]
-pub const ENUM_MAX_COORD_TRANSFORM_MODE: i8 = 1;
+pub const ENUM_MAX_COORD_TRANSFORM_MODE: i8 = 2;
 #[deprecated(
     since = "2.0.0",
     note = "Use associated constants instead. This will no longer be generated in 2021."
 )]
 #[allow(non_camel_case_types)]
-pub const ENUM_VALUES_COORD_TRANSFORM_MODE: [CoordTransformMode; 2] = [
+pub const ENUM_VALUES_COORD_TRANSFORM_MODE: [CoordTransformMode; 3] = [
     CoordTransformMode::HalfPixel,
     CoordTransformMode::Asymmetric,
+    CoordTransformMode::AlignCorners,
 ];
 
 #[derive(Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash, Default)]
@@ -772,15 +773,18 @@ pub struct CoordTransformMode(pub i8);
 impl CoordTransformMode {
     pub const HalfPixel: Self = Self(0);
     pub const Asymmetric: Self = Self(1);
+    pub const AlignCorners: Self = Self(2);
 
     pub const ENUM_MIN: i8 = 0;
-    pub const ENUM_MAX: i8 = 1;
-    pub const ENUM_VALUES: &'static [Self] = &[Self::HalfPixel, Self::Asymmetric];
+    pub const ENUM_MAX: i8 = 2;
+    pub const ENUM_VALUES: &'static [Self] =
+        &[Self::HalfPixel, Self::Asymmetric, Self::AlignCorners];
     /// Returns the variant's name or "" if unknown.
     pub fn variant_name(self) -> Option<&'static str> {
         match self {
             Self::HalfPixel => Some("HalfPixel"),
             Self::Asymmetric => Some("Asymmetric"),
+            Self::AlignCorners => Some("AlignCorners"),
             _ => None,
         }
     }

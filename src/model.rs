@@ -854,6 +854,7 @@ fn read_resize_op(node: &OperatorNode) -> ReadOpResult {
     let coord_mode = match attrs.coord_mode() {
         sg::CoordTransformMode::Asymmetric => CoordTransformMode::Asymmetric,
         sg::CoordTransformMode::HalfPixel => CoordTransformMode::HalfPixel,
+        sg::CoordTransformMode::AlignCorners => CoordTransformMode::AlignCorners,
         _ => CoordTransformMode::default(),
     };
 
