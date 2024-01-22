@@ -819,7 +819,7 @@ mod tests {
     ///
     /// Tests that use this generally ought to use a lower tolerance, but
     /// their test expectations will often need updating to a higher precision.
-    pub fn expect_eq_1e4<V: View<Elem = f32>>(
+    pub fn expect_eq_1e4<V: AsView<Elem = f32>>(
         result: &V,
         expected: &V,
     ) -> Result<(), ExpectEqualError> {

@@ -2,7 +2,7 @@ use std::error::Error;
 use std::fmt::{Debug, Display, Formatter};
 use std::iter::zip;
 
-use crate::{Layout, TensorView, View};
+use crate::{AsView, Layout, TensorView};
 
 /// Trait that tests whether two values are approximately equal.
 ///
@@ -119,7 +119,7 @@ impl Error for ExpectEqualError {}
 ///
 /// If there are mismatches, this returns an `Err` with a message indicating
 /// the count of mismatches and details of the first N cases.
-pub fn expect_equal<V: View>(x: &V, y: &V) -> Result<(), ExpectEqualError>
+pub fn expect_equal<V: AsView>(x: &V, y: &V) -> Result<(), ExpectEqualError>
 where
     V::Elem: Clone + Debug + ApproxEq,
 {
@@ -135,7 +135,7 @@ where
 /// are approximately equal.
 ///
 /// This is like [expect_equal] but allows a custom absolute tolerance value.
-pub fn expect_equal_with_tolerance<V: View>(
+pub fn expect_equal_with_tolerance<V: AsView>(
     x: &V,
     y: &V,
     atol: V::Elem,

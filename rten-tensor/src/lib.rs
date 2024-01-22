@@ -62,16 +62,10 @@ pub use tensor::{
     TensorBase, TensorView, TensorViewMut,
 };
 
-// For backwards compatibility.
-pub type NdTensorBase<T, S, const N: usize> = TensorBase<T, S, NdLayout<N>>;
-
-// For backwards compatibility.
-pub use tensor::{AsView as View, AsView as NdView};
-
 /// This module provides a convenient way to import the most common traits
 /// from this library via a glob import.
 pub mod prelude {
-    pub use super::{AsView, Layout, NdView, View};
+    pub use super::{AsView, Layout};
 }
 
 // These modules are public for use by other crates in this repo, but

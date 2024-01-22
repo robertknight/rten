@@ -1,4 +1,4 @@
-use rten_tensor::View;
+use rten_tensor::prelude::*;
 
 use crate::ops::{DataType, Input, InputList, IntoOpResult, OpError, Operator, Output};
 
