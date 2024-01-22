@@ -46,7 +46,7 @@ mod iterators;
 mod layout;
 mod macros;
 mod overlap;
-mod range;
+mod slice_range;
 mod tensor;
 mod transpose;
 
@@ -64,7 +64,7 @@ pub use iterators::{
 pub use layout::{
     is_valid_permutation, DynLayout, Layout, MatrixLayout, MutLayout, NdLayout, OverlapPolicy,
 };
-pub use range::{to_slice_items, DynSliceItems, IntoSliceItems, SliceItem, SliceRange};
+pub use slice_range::{to_slice_items, DynSliceItems, IntoSliceItems, SliceItem, SliceRange};
 
 pub use tensor::{
     AsView, Matrix, MatrixMut, NdTensor, NdTensorView, NdTensorViewMut, Tensor, TensorBase,

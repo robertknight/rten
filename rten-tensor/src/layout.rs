@@ -6,7 +6,7 @@ use smallvec::{smallvec, SmallVec};
 use crate::errors::{DimensionError, FromDataError, SliceError};
 use crate::index_iterator::{DynIndices, NdIndices};
 use crate::overlap::{is_contiguous, may_have_internal_overlap};
-use crate::range::{IntoSliceItems, SliceItem};
+use crate::slice_range::{IntoSliceItems, SliceItem};
 
 /// Return true if `permutation` is a valid permutation of dimensions for
 /// a tensor of rank `ndim`.

@@ -4,7 +4,7 @@ use std::slice;
 
 use crate::index_iterator::DynIndices;
 use crate::layout::Layout;
-use crate::range::{to_slice_items, SliceItem, SliceRange};
+use crate::slice_range::{to_slice_items, SliceItem, SliceRange};
 
 use super::{
     AsView, MutLayout, NdTensorView, NdTensorViewMut, TensorBase, TensorView, TensorViewMut,
