@@ -1,159 +1,211 @@
 use std::borrow::Cow;
-use std::fmt::Debug;
-use std::io;
-use std::io::Write;
-use std::iter::zip;
 use std::marker::PhantomData;
 use std::ops::{Index, IndexMut, Range};
 
-use crate::errors::SliceError;
+use crate::errors::{DimensionError, FromDataError, SliceError};
 use crate::iterators::{
     AxisChunks, AxisChunksMut, AxisIter, AxisIterMut, BroadcastIter, InnerIter, InnerIterMut, Iter,
     IterMut, Lanes, LanesMut, MutViewRef, ViewRef,
 };
-use crate::layout::{DynLayout, Layout};
-use crate::ndtensor::{NdTensorBase, NdTensorView, NdTensorViewMut};
-use crate::range::{IntoSliceItems, SliceItem};
-use crate::RandomSource;
+use crate::layout::{DynLayout, Layout, MatrixLayout, NdLayout, OverlapPolicy};
+use crate::{IntoSliceItems, RandomSource, SliceItem};
 
-/// Multi-dimensional array view with a dynamic dimension count. This trait
-/// includes operations that are available on tensors that own their data
-/// ([Tensor]) as well as views ([TensorView], [TensorViewMut]).
+/// The base type for multi-dimensional arrays. This consists of storage for
+/// elements, plus a _layout_ which maps from a multi-dimensional array index
+/// to a storage offset. This base type is not normally used directly but
+/// instead through a type alias which selects the storage type and layout.
 ///
-/// [TensorView] implements specialized versions of these methods as
-/// inherent methods, which preserve lifetimes on the result.
-pub trait View: Layout {
-    /// The data type of elements in this tensor.
+/// The storage can be owned (like a `Vec<T>`), borrowed (like `&[T]`) or
+/// mutably borrowed (like `&mut [T]`). The layout can have a dimension count
+/// that is determined statically (ie. forms part of the tensor's type), see
+/// [NdLayout] or is only known at runtime, see [DynLayout].
+#[derive(Debug)]
+pub struct TensorBase<T, S: AsRef<[T]>, L: MutLayout> {
+    data: S,
+    layout: L,
+    element_type: PhantomData<T>,
+}
+
+/// Trait implemented by all variants of [TensorBase], which provides a
+/// `view` method to get an immutable view of the tensor, plus methods which
+/// forward to such a view.
+///
+/// The purpose of this trait is to allow methods to be specialized for
+/// immutable views by preserving the lifetime of the underlying data in
+/// return types (eg. `iter` returns `&[T]` in the trait, but `&'a [T]` in
+/// the view). This allows for chaining operations on views together (eg.
+/// `tensor.slice(...).transpose()`) without needing to separate each step
+/// into separate statements.
+///
+/// This trait is conceptually similar to the way [std::ops::Deref] in the Rust
+/// standard library allows a `Vec<T>` to have all the methods of an `&[T]`.
+///
+/// If stable Rust gains support for specialization or a `Deref` trait that can
+/// return non-references (see. https://github.com/rust-lang/rfcs/issues/997)
+/// this will become unnecessary.
+pub trait AsView: Layout {
+    /// Type of element stored in this tensor.
     type Elem;
 
-    /// Return an iterator over slices of this tensor along a given axis.
-    fn axis_iter(&self, dim: usize) -> AxisIter<Self::Elem> {
-        self.view().axis_iter(dim)
+    /// The underlying layout of this tensor. It must have the same index
+    /// type (eg. `[usize; N]` or `&[usize]`) as this view.
+    type Layout: for<'a> MutLayout<Index<'a> = Self::Index<'a>>;
+
+    /// Return a borrowed view of this tensor.
+    fn view(&self) -> TensorBase<Self::Elem, &[Self::Elem], Self::Layout>;
+
+    /// Return the layout of this tensor.
+    fn layout(&self) -> &Self::Layout;
+
+    /// Return a view of this tensor with a dynamic rank.
+    fn as_dyn(&self) -> TensorBase<Self::Elem, &[Self::Elem], DynLayout>
+    where
+        Self::Layout: Into<DynLayout>,
+    {
+        self.view().as_dyn()
     }
 
     /// Return an iterator over slices of this tensor along a given axis.
-    fn axis_chunks(&self, dim: usize, chunk_size: usize) -> AxisChunks<Self::Elem> {
+    fn axis_chunks(&self, dim: usize, chunk_size: usize) -> AxisChunks<Self::Elem, Self::Layout> {
         self.view().axis_chunks(dim, chunk_size)
     }
 
-    /// Create a view of this tensor which is broadcasted to `shape`.
+    /// Return an iterator over slices of this tensor along a given axis.
+    fn axis_iter(&self, dim: usize) -> AxisIter<Self::Elem, Self::Layout> {
+        self.view().axis_iter(dim)
+    }
+
+    /// Broadcast this view to another shape.
     ///
-    /// A broadcasted view behaves as if the underlying tensor had the broadcasted
-    /// shape, repeating elements as necessary to fill the given dimensions.
-    /// Broadcasting is only possible if the actual and broadcast shapes are
-    /// compatible according to ONNX's rules. See
-    /// <https://github.com/onnx/onnx/blob/main/docs/Operators.md>.
-    ///
-    /// See also <https://numpy.org/doc/stable/user/basics.broadcasting.html#general-broadcasting-rules>
-    /// for worked examples of how broadcasting works.
-    ///
-    /// Panics if `shape` is not broadcast-compatible with the current shape.
-    fn broadcast(&self, shape: &[usize]) -> TensorView<Self::Elem> {
+    /// If `shape` is an array (`[usize; N]`), the result will have a
+    /// static-rank layout with `N` dims. If `shape` is a slice, the result will
+    /// have a dynamic-rank layout.
+    fn broadcast<S: IntoLayout>(&self, shape: S) -> TensorBase<Self::Elem, &[Self::Elem], S::Layout>
+    where
+        Self::Layout: BroadcastLayout<S::Layout>,
+    {
         self.view().broadcast(shape)
     }
 
-    /// Return an iterator over the elements of this view broadcasted to
-    /// `shape`.
+    /// Return an iterator over elements of this tensor, broadcast to `shape`.
     ///
-    /// This is functionally the same as `self.broadcast(shape).iter()` but
-    /// has some additional optimizations for common broadcasting uses - eg.
-    /// when the sequence of elements in the broadcasted view is equivalent to
-    /// cycling the original view using `tensor.iter().cycle()`.
+    /// This is equivalent to `self.broadcast(shape).iter()` but has some
+    /// additional optimizations.
     fn broadcast_iter(&self, shape: &[usize]) -> BroadcastIter<Self::Elem> {
         self.view().broadcast_iter(shape)
     }
 
-    /// Return the underlying data of the tensor as a slice, if it is contiguous.
+    /// Return the layout of this tensor as a slice, if it is contiguous.
     fn data(&self) -> Option<&[Self::Elem]>;
 
-    /// Return an iterator over views of the innermost N dimensions of this
-    /// tensor.
-    fn inner_iter<const N: usize>(&self) -> InnerIter<Self::Elem, N> {
+    /// Return a reference to the element at a given index, or `None` if the
+    /// index is invalid.
+    fn get<I: AsIndex<Self::Layout>>(&self, index: I) -> Option<&Self::Elem>;
+
+    /// Return an iterator over the innermost N dimensions.
+    fn inner_iter<const N: usize>(&self) -> InnerIter<Self::Elem, Self::Layout, N> {
         self.view().inner_iter()
     }
 
-    /// Returns the single item if this tensor is a 0-dimensional tensor
-    /// (ie. a scalar)
+    /// Insert a size-1 axis at the given index.
+    fn insert_axis(&mut self, index: usize)
+    where
+        Self::Layout: ResizeLayout;
+
+    /// Return the scalar value in this tensor if it has 0 dimensions.
     fn item(&self) -> Option<&Self::Elem> {
         self.view().item()
     }
 
-    /// Return the element at a given index, or `None` if the index is out of
-    /// bounds in any dimension.
-    #[inline]
-    fn get<I: AsRef<[usize]>>(&self, index: I) -> Option<&Self::Elem> {
-        self.view().get(index)
-    }
+    /// Return an iterator over elements in this tensor in their logical order.
+    fn iter(&self) -> Iter<Self::Elem>;
 
-    /// Return an iterator over elements of this tensor, in their logical order.
-    fn iter(&self) -> Iter<Self::Elem> {
-        self.view().iter()
-    }
-
-    /// Return an iterator over all 1D slices ("lanes") along a given axis.
-    ///
-    /// Each slice is an iterator over the elements in that lane.
+    /// Return an iterator over 1D slices of this tensor along a given axis.
     fn lanes(&self, dim: usize) -> Lanes<Self::Elem> {
         self.view().lanes(dim)
     }
 
-    /// Return a copy of this tensor with each element replaced by `f(element)`.
-    ///
-    /// The order in which elements are visited is unspecified and may not
-    /// correspond to the logical order.
-    fn map<F, U>(&self, f: F) -> Tensor<U>
+    /// Return a new tensor with the same shape, formed by applying `f` to each
+    /// element in this tensor.
+    fn map<F, U>(&self, f: F) -> TensorBase<U, Vec<U>, Self::Layout>
     where
         F: Fn(&Self::Elem) -> U,
     {
-        let data = if let Some(data) = self.data() {
-            data.iter().map(f).collect()
-        } else {
-            self.iter().map(f).collect()
-        };
-        Tensor {
-            data,
-            layout: DynLayout::from_shape(self.shape().as_ref()),
-            element_type: PhantomData,
-        }
+        self.view().map(f)
     }
 
-    /// Return a view with a static rank.
+    /// Re-order the axes of this tensor to move the axis at index `from` to
+    /// `to`.
     ///
-    /// Panics if the rank of this tensor is not `N`.
-    fn nd_view<const N: usize>(&self) -> NdTensorView<Self::Elem, N> {
+    /// Panics if `from` or `to` is >= `self.ndim()`.
+    fn move_axis(&mut self, from: usize, to: usize);
+
+    /// Convert this tensor to one with the same shape but a static dimension
+    /// count.
+    ///
+    /// Panics if `self.ndim() != N`.
+    fn nd_view<const N: usize>(&self) -> TensorBase<Self::Elem, &[Self::Elem], NdLayout<N>> {
         self.view().nd_view()
     }
 
-    /// Return a new view with the given shape.
+    /// Permute the dimensions of this tensor.
+    fn permute(&mut self, order: Self::Index<'_>);
+
+    /// Return a view with dimensions permuted in the order given by `dims`.
+    fn permuted(
+        &self,
+        order: Self::Index<'_>,
+    ) -> TensorBase<Self::Elem, &[Self::Elem], Self::Layout> {
+        self.view().permuted(order)
+    }
+
+    /// Return a view with a given shape, without copying any data. This
+    /// requires that the tensor is contiguous.
     ///
-    /// The current view must be contiguous and the new shape must have the
-    /// same product as the current shape.
-    fn reshaped(&self, shape: &[usize]) -> TensorView<Self::Elem> {
+    /// The new shape must have the same number of elments as the current
+    /// shape. The result will have a static rank if `shape` is an array or
+    /// a dynamic rank if it is a slice.
+    ///
+    /// Panics if the tensor is not contiguous.
+    fn reshaped<S: IntoLayout>(
+        &self,
+        shape: S,
+    ) -> TensorBase<Self::Elem, &[Self::Elem], S::Layout> {
         self.view().reshaped(shape)
     }
 
-    /// Return a new view with the dimensions re-ordered according to `dims`.
-    fn permuted(&self, dims: &[usize]) -> TensorView<Self::Elem> {
-        self.view().permuted(dims)
+    /// Reverse the order of dimensions in this tensor.
+    fn transpose(&mut self);
+
+    /// Return a view with the order of dimensions reversed.
+    fn transposed(&self) -> TensorBase<Self::Elem, &[Self::Elem], Self::Layout> {
+        self.view().transposed()
     }
 
-    /// Return a view of part of this tensor.
+    /// Slice this tensor and return a dynamic-rank view.
     ///
-    /// `range` specifies the indices or ranges of this tensor to include in the
-    /// returned view. If the range has fewer dimensions than the tensor, they
-    /// refer to the leading dimensions.
+    /// Fails if the range has more dimensions than the view or is out of bounds
+    /// for any dimension.
+    fn try_slice_dyn<R: IntoSliceItems>(
+        &self,
+        range: R,
+    ) -> Result<TensorView<Self::Elem>, SliceError> {
+        self.view().try_slice_dyn(range)
+    }
+
+    /// Slice this tensor and return a static-rank view with `M` dimensions.
     ///
-    /// See [IntoSliceItems] for a description of how slices can be specified.
-    /// Slice ranges are currently restricted to use positive steps. In other
-    /// words, NumPy-style slicing with negative steps is not supported.
-    fn slice<R: IntoSliceItems>(&self, range: R) -> TensorView<Self::Elem> {
+    /// Use [AsView::slice_dyn] instead if the number of dimensions in the
+    /// returned view is unknown at compile time.
+    ///
+    /// Panics if the dimension count of the result is not `M`.
+    fn slice<const M: usize, R: IntoSliceItems>(&self, range: R) -> NdTensorView<Self::Elem, M> {
         self.view().slice(range)
     }
 
-    /// Variant of [View::slice] which returns an error if the slice spec
-    /// is invalid, instead of panicking.
-    fn try_slice<R: IntoSliceItems>(&self, range: R) -> Result<TensorView<Self::Elem>, SliceError> {
-        self.view().try_slice(range)
+    /// Slice this tensor and return a dynamic-rank view.
+    fn slice_dyn<R: IntoSliceItems>(&self, range: R) -> TensorView<Self::Elem> {
+        self.view().slice_dyn(range)
     }
 
     /// Return an iterator over a slice of this tensor.
@@ -171,485 +223,405 @@ pub trait View: Layout {
         self.view().squeezed()
     }
 
-    /// Return a tensor with data laid out in contiguous order. This will
-    /// be a view if the data is already contiguous, or a copy otherwise.
-    fn to_contiguous(&self) -> TensorBase<Self::Elem, Cow<[Self::Elem]>>
+    /// Return a vector containing the elements of this tensor in their logical
+    /// order, ie. as if the tensor were flattened into one dimension.
+    fn to_vec(&self) -> Vec<Self::Elem>
+    where
+        Self::Elem: Clone;
+
+    /// Return a tensor with the same shape as this tensor/view but with the
+    /// data contiguous in memory and arranged in the same order as the
+    /// logical/iteration order (used by `iter`).
+    ///
+    /// This will return a view if the data is already contiguous or copy
+    /// data into a new buffer otherwise.
+    ///
+    /// Certain operations require or are faster with contiguous tensors.
+    fn to_contiguous(&self) -> TensorBase<Self::Elem, Cow<[Self::Elem]>, Self::Layout>
     where
         Self::Elem: Clone,
     {
         self.view().to_contiguous()
     }
 
-    /// Return a new contiguous tensor with the same shape and elements as this
-    /// view.
-    fn to_tensor(&self) -> Tensor<Self::Elem>
+    /// Return a copy of this tensor with a given shape.
+    fn to_shape<S: IntoLayout>(
+        &self,
+        shape: S,
+    ) -> TensorBase<Self::Elem, Vec<Self::Elem>, S::Layout>
+    where
+        Self::Elem: Clone;
+
+    /// Return a copy of this tensor/view which uniquely owns its elements.
+    fn to_tensor(&self) -> TensorBase<Self::Elem, Vec<Self::Elem>, Self::Layout>
     where
         Self::Elem: Clone,
     {
-        self.view().to_tensor()
+        let data = self.to_vec();
+        TensorBase::from_data(self.layout().shape(), data)
     }
 
-    /// Return a copy of the elements of this tensor in their logical order
-    /// as a vector.
+    /// Return a view which performs "weak" checking when indexing via
+    /// `view[<index>]`. See [WeaklyCheckedView] for an explanation.
+    fn weakly_checked_view(&self) -> WeaklyCheckedView<Self::Elem, &[Self::Elem], Self::Layout> {
+        self.view().weakly_checked_view()
+    }
+}
+
+/// MutLayout extends [Layout] with methods for creating, modifying and
+/// transforming layouts.
+pub trait MutLayout: Layout + Clone {
+    /// Create a new contiguous layout with a given shape.
+    fn from_shape(shape: Self::Index<'_>) -> Self;
+
+    /// Create a layout with custom strides.
     ///
-    /// This is equivalent to `self.iter().cloned().collect()` but faster
-    /// when the tensor is already contiguous or has a small number (<= 4)
-    /// dimensions.
-    fn to_vec(&self) -> Vec<Self::Elem>
-    where
-        Self::Elem: Clone,
-    {
-        self.view().to_vec()
-    }
+    /// The strides specify the offset gap between successive entries along a
+    /// given axis. `overlap` controls whether the layout is allowed to map
+    /// multiple indices to the same element. This can be true for immutable
+    /// views, but must be false for tensors or views that are mutable.
+    fn from_shape_and_strides(
+        shape: Self::Index<'_>,
+        strides: Self::Index<'_>,
+        overlap: OverlapPolicy,
+    ) -> Result<Self, FromDataError>;
 
-    /// Return a new view with the order of dimensions reversed.
-    fn transposed(&self) -> TensorView<Self::Elem> {
-        self.view().transposed()
-    }
+    /// Move the axis at position `from` to `to` by swapping their strides.
+    fn move_axis(&mut self, from: usize, to: usize);
 
-    /// Return an immutable view of this tensor.
-    fn view(&self) -> TensorView<Self::Elem>;
-}
+    /// Return a layout with the axes permuted according to the given order.
+    fn permuted(&self, order: Self::Index<'_>) -> Self;
 
-/// N-dimensional array, where `N` is determined at runtime based on the shape
-/// that is specified when the tensor is constructed.
-///
-/// `T` is the element type and `S` is the element storage.
-///
-/// Most code will not use `TensorBase` directly but instead use the type
-/// aliases [Tensor], [TensorView] and [TensorViewMut]. [Tensor] owns
-/// its elements, and the other two types are views of slices.
-///
-/// All [TensorBase] variants implement the [Layout] trait which provide
-/// operations related to the shape and strides of the tensor, and the
-/// [View] trait which provides common methods applicable to all variants.
-#[derive(Debug)]
-pub struct TensorBase<T, S: AsRef<[T]>> {
-    data: S,
-    layout: DynLayout,
-    element_type: PhantomData<T>,
-}
-
-/// Variant of [TensorBase] which borrows its elements from a [Tensor].
-///
-/// Conceptually the relationship between [TensorView] and [Tensor] is similar
-/// to that between `[T]` and `Vec<T>`. They share the same element buffer, but
-/// views can have distinct layouts, with some limitations.
-pub type TensorView<'a, T = f32> = TensorBase<T, &'a [T]>;
-
-/// Variant of [TensorBase] which mutably borrows its elements from a [Tensor].
-///
-/// This is similar to [TensorView], except elements in the underyling
-/// Tensor can be modified through it.
-pub type TensorViewMut<'a, T = f32> = TensorBase<T, &'a mut [T]>;
-
-impl<T, S: AsRef<[T]>> TensorBase<T, S> {
-    /// Create a new tensor with a given layout and storage.
-    pub(crate) fn new(data: S, layout: &DynLayout) -> Self {
-        TensorBase {
-            data,
-            layout: layout.clone(),
-            element_type: PhantomData,
-        }
-    }
-
-    /// Create a new tensor from a given shape and set of elements. No copying
-    /// is required.
-    pub fn from_data<D: Into<S>>(shape: &[usize], data: D) -> Self {
-        let data = data.into();
+    /// Combine or split dimensions by reshaping the layout to a given shape.
+    ///
+    /// This will fail if the layout is not contiguous.
+    fn reshaped<S: IntoLayout>(&self, shape: S) -> S::Layout {
         assert!(
-            shape[..].iter().product::<usize>() == data.as_ref().len(),
-            "Number of elements given by shape {:?} does not match data length {}",
-            shape,
-            data.as_ref().len()
+            self.is_contiguous(),
+            "tried to reshape non-contiguous layout"
+        );
+        shape.into_layout()
+    }
+
+    // Modify the size of a dimension. This does not alter the strides.
+    fn resize_dim(&mut self, dim: usize, size: usize);
+
+    /// Reverse the order of dimensions. This is equivalent to
+    /// `self.permuted([N-1, N-2, ... 0])`.
+    fn transposed(&self) -> Self;
+
+    /// Slice the layout and return a static rank layout with `M` dimensions.
+    fn slice<const M: usize>(&self, range: &[SliceItem]) -> (Range<usize>, NdLayout<M>);
+
+    /// Slice the layout and return a dynamic rank layout.
+    fn slice_dyn(&self, range: &[SliceItem]) -> (Range<usize>, DynLayout);
+
+    /// Return a layout with all size-one dimensions removed.
+    fn squeezed(&self) -> DynLayout;
+
+    /// Attempt to slice the layout or return an error if the range is invalid
+    /// for the layout's shape.
+    fn try_slice<R: IntoSliceItems>(
+        &self,
+        range: R,
+    ) -> Result<(Range<usize>, DynLayout), SliceError>;
+}
+
+/// Trait for broadcasting a layout from one shape to another.
+pub trait BroadcastLayout<L: MutLayout> {
+    /// Broadcast the `self` layout to a given shape.
+    fn broadcast<S: IntoLayout<Layout = L>>(&self, shape: S) -> L;
+}
+
+impl<const N: usize, const M: usize> BroadcastLayout<NdLayout<M>> for NdLayout<N> {
+    fn broadcast<S: IntoLayout<Layout = NdLayout<M>>>(&self, shape: S) -> NdLayout<M> {
+        let shape: [usize; M] = shape.as_ref().try_into().unwrap();
+        self.broadcast(shape)
+    }
+}
+
+impl<const N: usize> BroadcastLayout<DynLayout> for NdLayout<N> {
+    fn broadcast<S: IntoLayout<Layout = DynLayout>>(&self, shape: S) -> DynLayout {
+        let dyn_layout: DynLayout = self.into();
+        dyn_layout.broadcast(shape.as_ref())
+    }
+}
+
+impl BroadcastLayout<DynLayout> for DynLayout {
+    fn broadcast<S: IntoLayout<Layout = DynLayout>>(&self, shape: S) -> DynLayout {
+        self.broadcast(shape.as_ref())
+    }
+}
+
+impl<const N: usize> BroadcastLayout<NdLayout<N>> for DynLayout {
+    fn broadcast<S: IntoLayout<Layout = NdLayout<N>>>(&self, shape: S) -> NdLayout<N> {
+        let dyn_broadcast = self.broadcast(shape.as_ref());
+        (&dyn_broadcast).try_into().unwrap()
+    }
+}
+
+impl<const N: usize> MutLayout for NdLayout<N> {
+    fn from_shape(shape: [usize; N]) -> Self {
+        Self::from_shape(shape)
+    }
+
+    fn from_shape_and_strides(
+        shape: Self::Index<'_>,
+        strides: Self::Index<'_>,
+        overlap: OverlapPolicy,
+    ) -> Result<Self, FromDataError> {
+        Self::try_from_shape_and_strides(shape, strides, overlap)
+    }
+
+    fn move_axis(&mut self, from: usize, to: usize) {
+        assert!(from < N && to < N);
+        let mut dyn_layout = self.as_dyn();
+        dyn_layout.move_axis(from, to);
+        *self = NdLayout::try_from(&dyn_layout).unwrap();
+    }
+
+    fn permuted(&self, order: [usize; N]) -> NdLayout<N> {
+        self.permuted(order)
+    }
+
+    fn resize_dim(&mut self, dim: usize, size: usize) {
+        self.resize_dim(dim, size)
+    }
+
+    fn transposed(&self) -> NdLayout<N> {
+        self.transposed()
+    }
+
+    fn slice<const M: usize>(&self, range: &[SliceItem]) -> (Range<usize>, NdLayout<M>) {
+        self.slice(range)
+    }
+
+    fn slice_dyn(&self, range: &[SliceItem]) -> (Range<usize>, DynLayout) {
+        self.as_dyn().slice(range)
+    }
+
+    fn squeezed(&self) -> DynLayout {
+        self.as_dyn().squeezed()
+    }
+
+    fn try_slice<R: IntoSliceItems>(
+        &self,
+        range: R,
+    ) -> Result<(Range<usize>, DynLayout), SliceError> {
+        let items = range.into_slice_items();
+        self.as_dyn().try_slice(items.as_ref())
+    }
+}
+
+impl MutLayout for DynLayout {
+    fn from_shape(shape: &[usize]) -> Self {
+        Self::from_shape(shape)
+    }
+
+    fn from_shape_and_strides(
+        shape: &[usize],
+        strides: &[usize],
+        overlap: OverlapPolicy,
+    ) -> Result<Self, FromDataError> {
+        Self::try_from_shape_and_strides(shape, strides, overlap)
+    }
+
+    fn move_axis(&mut self, from: usize, to: usize) {
+        self.move_axis(from, to)
+    }
+
+    fn permuted(&self, order: &[usize]) -> DynLayout {
+        self.permuted(order)
+    }
+
+    fn resize_dim(&mut self, dim: usize, size: usize) {
+        self.resize_dim(dim, size)
+    }
+
+    fn transposed(&self) -> DynLayout {
+        self.transposed()
+    }
+
+    fn slice<const M: usize>(&self, range: &[SliceItem]) -> (Range<usize>, NdLayout<M>) {
+        let (offset_range, dyn_layout) = self.slice(range);
+        let nd_layout = NdLayout::try_from(&dyn_layout).unwrap_or_else(|_| {
+            panic!(
+                "expected sliced tensor to have {} dims but it has {}",
+                M,
+                dyn_layout.ndim()
+            );
+        });
+        (offset_range, nd_layout)
+    }
+
+    fn slice_dyn(&self, range: &[SliceItem]) -> (Range<usize>, DynLayout) {
+        self.slice(range)
+    }
+
+    fn squeezed(&self) -> DynLayout {
+        self.squeezed()
+    }
+
+    fn try_slice<R: IntoSliceItems>(
+        &self,
+        range: R,
+    ) -> Result<(Range<usize>, DynLayout), SliceError> {
+        let items = range.into_slice_items();
+        self.try_slice(items.as_ref())
+    }
+}
+
+/// Trait for shapes which can be used to create a contiguous layout.
+///
+/// This is implemented for `[usize; N]` for creating static-rank layouts from
+/// arrays, and `&[usize]` for creating dynamic-rank layouts from slices.
+pub trait IntoLayout: AsRef<[usize]> {
+    /// The type of layout produced from this shape.
+    type Layout: MutLayout;
+
+    /// Convert this shape into a contiguous layout.
+    fn into_layout(self) -> Self::Layout;
+}
+
+impl<const N: usize> IntoLayout for [usize; N] {
+    type Layout = NdLayout<N>;
+
+    fn into_layout(self) -> NdLayout<N> {
+        NdLayout::from_shape(self)
+    }
+}
+
+impl<'a> IntoLayout for &'a [usize] {
+    type Layout = DynLayout;
+
+    fn into_layout(self) -> DynLayout {
+        DynLayout::from_shape(self)
+    }
+}
+
+/// Trait which extends [MutLayout] with support for changing the number of
+/// dimensions in-place.
+///
+/// This is only implemented for [DynLayout], since layouts that have a static
+/// rank cannot change their dimension count at runtime.
+pub trait ResizeLayout: MutLayout {
+    /// Insert a size-one axis at the given index in the shape. This will have
+    /// the same stride as the dimension that follows it.
+    fn insert_axis(&mut self, index: usize);
+}
+
+impl ResizeLayout for DynLayout {
+    fn insert_axis(&mut self, index: usize) {
+        self.insert_dim(index)
+    }
+}
+
+/// Trait for converting types into indices for use with a given layout.
+///
+/// Static-rank tensors can be indexed with `[usize; N]` arrays. Dynamic-rank
+/// tensors can be indexed with any type that can be converted to an `&[usize]`
+/// slice.
+pub trait AsIndex<L: Layout> {
+    /// Convert `self` into an index for use the layout `L`.
+    fn as_index(&self) -> L::Index<'_>;
+}
+
+impl<T: AsRef<[usize]>> AsIndex<DynLayout> for T {
+    fn as_index(&self) -> &[usize] {
+        self.as_ref()
+    }
+}
+
+impl<const N: usize> AsIndex<NdLayout<N>> for [usize; N] {
+    fn as_index(&self) -> [usize; N] {
+        *self
+    }
+}
+
+impl<T, S: AsRef<[T]>, L: MutLayout> TensorBase<T, S, L> {
+    /// Construct a new tensor from a given shape and storage.
+    pub fn from_data(shape: L::Index<'_>, data: S) -> TensorBase<T, S, L> {
+        let layout = L::from_shape(shape);
+        assert!(
+            data.as_ref().len() == layout.len(),
+            "data length {} does not match shape {:?}",
+            data.as_ref().len(),
+            layout.shape().as_ref(),
         );
         TensorBase {
             data,
-            layout: DynLayout::from_shape(shape),
+            layout,
             element_type: PhantomData,
         }
     }
 
-    /// Consume self and return the underlying element buffer.
+    /// Construct a new tensor from a given shape and storage, and custom
+    /// strides.
     ///
-    /// As with [TensorBase::data], there is no guarantee about the ordering of
-    /// elements.
-    pub fn into_data(self) -> S {
-        self.data
-    }
-
-    /// Return an immutable view of this tensor.
-    ///
-    /// Views share the same element array, but can have an independent layout,
-    /// with some limitations.
-    pub fn view(&self) -> TensorView<T> {
-        TensorView::new(self.data.as_ref(), &self.layout)
-    }
-
-    /// Change the layout to put dimensions in the order specified by `dims`.
-    ///
-    /// This does not modify the order of elements in the data buffer, it just
-    /// updates the strides used by indexing.
-    pub fn permute(&mut self, dims: &[usize]) {
-        self.layout.permute(dims);
-    }
-
-    /// Move the index at axis `from` to `to`, keeping the relative order of
-    /// other dimensions the same. This is like NumPy's `moveaxis` function.
-    ///
-    /// Panics if the `from` or `to` axes are >= `self.ndim()`.
-    pub fn move_axis(&mut self, from: usize, to: usize) {
-        self.layout.move_axis(from, to);
-    }
-
-    /// Reverse the order of dimensions.
-    ///
-    /// This does not modify the order of elements in the data buffer, it just
-    /// changes the strides used by indexing.
-    pub fn transpose(&mut self) {
-        self.layout.transpose();
-    }
-
-    /// Insert a dimension of size one at index `dim`.
-    pub fn insert_dim(&mut self, dim: usize) {
-        self.layout.insert_dim(dim);
-    }
-
-    /// Return the layout which maps indices to offsets in the data.
-    pub fn layout(&self) -> &DynLayout {
-        &self.layout
-    }
-}
-
-/// Specialized versions of the [View] methods for immutable views.
-/// These preserve the underlying lifetime of the view in results, allowing for
-/// method calls to be chained.
-impl<'a, T> TensorView<'a, T> {
-    pub fn axis_iter(&self, dim: usize) -> AxisIter<'a, T> {
-        AxisIter::new(self, dim)
-    }
-
-    pub fn axis_chunks(&self, dim: usize, chunk_size: usize) -> AxisChunks<'a, T> {
-        AxisChunks::new(self, dim, chunk_size)
-    }
-
-    pub fn broadcast(&self, shape: &[usize]) -> TensorView<'a, T> {
-        Self {
-            data: self.data,
-            layout: self.layout.broadcast(shape),
-            element_type: PhantomData,
+    /// This will fail if the data length is incorrect for the shape and stride
+    /// combination, or if the strides lead to overlap (see [OverlapPolicy]).
+    /// See also [TensorBase::from_slice_with_strides] which is a similar method
+    /// for immutable views that does allow overlapping strides.
+    pub fn from_data_with_strides(
+        shape: L::Index<'_>,
+        data: S,
+        strides: L::Index<'_>,
+    ) -> Result<TensorBase<T, S, L>, FromDataError> {
+        let layout = L::from_shape_and_strides(shape, strides, OverlapPolicy::DisallowOverlap)?;
+        if layout.min_data_len() > data.as_ref().len() {
+            return Err(FromDataError::StorageTooShort);
         }
-    }
-
-    pub fn broadcast_iter(&self, shape: &[usize]) -> BroadcastIter<'a, T> {
-        assert!(
-            self.can_broadcast_to(shape),
-            "Cannot broadcast to specified shape"
-        );
-        BroadcastIter::new(self.view_ref(), shape)
-    }
-
-    pub fn data(&self) -> Option<&'a [T]> {
-        self.is_contiguous().then_some(self.data)
-    }
-
-    /// Return the view's underlying data as a slice, without checking whether
-    /// it is contiguous.
-    ///
-    /// # Safety
-    ///
-    /// It is the caller's responsibility not to access elements in the slice
-    /// which are not part of this view.
-    pub unsafe fn data_unchecked(&self) -> &'a [T] {
-        self.data
-    }
-
-    #[inline]
-    fn get<I: AsRef<[usize]>>(&self, index: I) -> Option<&'a T> {
-        let offset = self.layout.try_offset(index.as_ref())?;
-        Some(&self.data[offset])
-    }
-
-    pub fn inner_iter<const N: usize>(&self) -> InnerIter<'a, T, N> {
-        InnerIter::new(self.clone())
-    }
-
-    pub fn iter(&self) -> Iter<'a, T> {
-        Iter::new(self.view_ref())
-    }
-
-    pub(crate) fn view_ref(&self) -> ViewRef<'a, '_, T, DynLayout> {
-        ViewRef::new(self.data, &self.layout)
-    }
-
-    pub fn item(&self) -> Option<&'a T> {
-        match self.ndim() {
-            0 => Some(&self.data[0]),
-            _ if self.len() == 1 => self.iter().next(),
-            _ => None,
-        }
-    }
-
-    pub fn lanes(&self, dim: usize) -> Lanes<'a, T> {
-        Lanes::new(self.view_ref(), dim)
-    }
-
-    pub fn nd_view<const N: usize>(&self) -> NdTensorView<'a, T, N> {
-        assert!(self.ndim() == N);
-        let shape: [usize; N] = self.shape().try_into().unwrap();
-        let strides: [usize; N] = self.strides().try_into().unwrap();
-        NdTensorView::from_slice_with_strides(shape, self.data, strides).unwrap()
-    }
-
-    pub fn permuted(&self, dims: &[usize]) -> TensorView<'a, T> {
-        Self {
-            data: self.data,
-            layout: self.layout.permuted(dims),
-            element_type: PhantomData,
-        }
-    }
-
-    pub fn reshaped(&self, shape: &[usize]) -> TensorView<'a, T> {
-        Self {
-            data: self.data,
-            layout: self.layout.reshaped(shape),
-            element_type: PhantomData,
-        }
-    }
-
-    /// Change the layout of this view to have the given shape.
-    ///
-    /// The current view must be contiguous and the new shape must have the
-    /// same product as the current shape.
-    pub fn reshape(&mut self, shape: &[usize]) {
-        self.layout.reshape(shape);
-    }
-
-    pub fn slice<R: IntoSliceItems>(&self, range: R) -> TensorView<'a, T> {
-        self.try_slice(range.into_slice_items().as_ref()).unwrap()
-    }
-
-    pub fn try_slice<R: IntoSliceItems>(&self, range: R) -> Result<TensorView<'a, T>, SliceError> {
-        let (offset_range, layout) = self.layout.try_slice(range.into_slice_items().as_ref())?;
         Ok(TensorBase {
-            data: &self.data[offset_range],
+            data,
             layout,
             element_type: PhantomData,
         })
     }
 
-    pub fn slice_iter(&self, range: &[SliceItem]) -> Iter<'a, T> {
-        Iter::slice(self.view_ref(), range)
-    }
-
-    pub fn squeezed(&self) -> TensorView<'a, T> {
+    /// Convert the current tensor into a dynamic rank tensor without copying
+    /// any data.
+    pub fn into_dyn(self) -> TensorBase<T, S, DynLayout>
+    where
+        L: Into<DynLayout>,
+    {
         TensorBase {
             data: self.data,
-            layout: self.layout.squeezed(),
+            layout: self.layout.into(),
             element_type: PhantomData,
         }
     }
 
-    pub fn to_contiguous(&self) -> TensorBase<T, Cow<'a, [T]>>
-    where
-        T: Clone,
-    {
-        if self.is_contiguous() {
-            TensorBase {
-                data: Cow::Borrowed(self.data),
-                layout: self.layout.clone(),
-                element_type: PhantomData,
-            }
-        } else {
-            let data = self.to_vec();
-            TensorBase {
-                data: Cow::Owned(data),
-                layout: DynLayout::from_shape(self.layout().shape()),
-                element_type: PhantomData,
-            }
+    /// Attempt to convert this tensor's layout to a static-rank layout with `N`
+    /// dimensions.
+    fn nd_layout<const N: usize>(&self) -> Option<NdLayout<N>> {
+        if self.ndim() != N {
+            return None;
         }
-    }
-
-    pub fn transposed(&self) -> TensorView<'a, T> {
-        Self {
-            data: self.data,
-            layout: self.layout.transposed(),
-            element_type: PhantomData,
-        }
+        let shape: [usize; N] = std::array::from_fn(|i| self.size(i));
+        let strides: [usize; N] = std::array::from_fn(|i| self.stride(i));
+        let layout =
+            NdLayout::try_from_shape_and_strides(shape, strides, OverlapPolicy::AllowOverlap)
+                .expect("invalid layout");
+        Some(layout)
     }
 }
 
-impl<T, S: AsRef<[T]>> Layout for TensorBase<T, S> {
-    type Index<'a> = <DynLayout as Layout>::Index<'a>;
-    type Indices = <DynLayout as Layout>::Indices;
-
-    /// Return the number of dimensions.
-    fn ndim(&self) -> usize {
-        self.layout.ndim()
-    }
-
-    fn try_offset(&self, index: &[usize]) -> Option<usize> {
-        self.layout.try_offset(index)
-    }
-
-    /// Returns the number of elements in the array.
-    fn len(&self) -> usize {
-        self.layout.len()
-    }
-
-    /// Returns true if the array has no elements.
-    fn is_empty(&self) -> bool {
-        self.layout.is_empty()
-    }
-
-    /// Returns an array of the sizes of each dimension.
-    fn shape(&self) -> Self::Index<'_> {
-        self.layout.shape()
-    }
-
-    /// Returns the size of the dimension `dim`.
-    fn size(&self, dim: usize) -> usize {
-        self.layout.size(dim)
-    }
-
-    /// Returns an array of the strides of each dimension.
-    fn strides(&self) -> Self::Index<'_> {
-        self.layout.strides()
-    }
-
-    /// Returns the offset between adjacent indices along dimension `dim`.
-    fn stride(&self, dim: usize) -> usize {
-        self.layout.stride(dim)
-    }
-
-    /// Return an iterator over all valid indices in this tensor.
-    fn indices(&self) -> Self::Indices {
-        self.layout.indices()
-    }
-}
-
-impl<T, S: AsRef<[T]>> View for TensorBase<T, S> {
-    type Elem = T;
-
-    fn data(&self) -> Option<&[T]> {
-        self.is_contiguous().then_some(self.data.as_ref())
-    }
-
-    fn to_tensor(&self) -> Tensor<T>
-    where
-        T: Clone,
-    {
-        Tensor::from_data(self.shape(), self.to_vec())
-    }
-
-    fn to_vec(&self) -> Vec<T>
-    where
-        T: Clone,
-    {
-        if let Some(data) = self.data() {
-            data.to_vec()
-        } else {
-            // This branch is equivalent to
-            // `x.iter().cloned().collect::<Vec<_>>()` but uses a faster
-            // iteration method that is optimized for tensors with few (<= 4)
-            // dimensions.
-            let mut data = Vec::with_capacity(self.len());
-            let ptr: *mut T = data.as_mut_ptr();
-
-            let mut offset = 0;
-            fast_for_each_element(self.view(), |elt| {
-                // Safety: `fast_for_each_element` calls fn `self.len()` times,
-                // matching the buffer capacity.
-                unsafe { *ptr.add(offset) = elt.clone() };
-                offset += 1;
-            });
-
-            // Safety: Length here matches capacity passed to `Vec::with_capacity`.
-            unsafe { data.set_len(self.len()) }
-
-            data
-        }
-    }
-
-    fn view(&self) -> TensorView<Self::Elem> {
-        TensorView::new(self.data.as_ref(), &self.layout)
-    }
-}
-
-impl<I: AsRef<[usize]>, T, S: AsRef<[T]>> Index<I> for TensorBase<T, S> {
-    type Output = T;
-
-    fn index(&self, index: I) -> &Self::Output {
-        let offset = self.layout.offset(index.as_ref());
-        &self.data.as_ref()[offset]
-    }
-}
-
-impl<T, S: AsRef<[T]> + AsMut<[T]>> TensorBase<T, S> {
-    /// Copy elements from another tensor into this tensor.
-    ///
-    /// This tensor and `other` must have the same shape.
-    pub fn copy_from(&mut self, other: &TensorView<T>)
-    where
-        T: Clone,
-    {
-        assert!(self.shape() == other.shape());
-        for (out, x) in zip(self.iter_mut(), other.iter()) {
-            *out = x.clone();
-        }
-    }
-
-    /// Return the underlying data of the tensor as a mutable slice, if it is
-    /// contiguous.
-    pub fn data_mut(&mut self) -> Option<&mut [T]> {
-        self.is_contiguous().then_some(self.data.as_mut())
-    }
-
-    /// Return a mutable iterator over elements of this view.
-    pub fn iter_mut(&mut self) -> IterMut<T> {
-        IterMut::new(self.mut_view_ref())
-    }
-
-    pub(crate) fn mut_view_ref(&mut self) -> MutViewRef<T, DynLayout> {
-        MutViewRef::new(self.data.as_mut(), &self.layout)
-    }
-
+impl<T, S: AsRef<[T]> + AsMut<[T]>, L: MutLayout> TensorBase<T, S, L> {
     /// Return an iterator over mutable slices of this tensor along a given
-    /// axis.
-    pub fn axis_iter_mut(&mut self, dim: usize) -> AxisIterMut<T> {
+    /// axis. Each view yielded has one dimension fewer than the current layout.
+    pub fn axis_iter_mut(&mut self, dim: usize) -> AxisIterMut<T, L> {
         AxisIterMut::new(self.view_mut(), dim)
     }
 
-    pub fn axis_chunks_mut(&mut self, dim: usize, chunk_size: usize) -> AxisChunksMut<T> {
+    /// Return an iterator over mutable slices of this tensor along a given
+    /// axis. Each view yielded has the same rank as this tensor, but the
+    /// dimension `dim` will only have `chunk_size` entries.
+    pub fn axis_chunks_mut(&mut self, dim: usize, chunk_size: usize) -> AxisChunksMut<T, L> {
         AxisChunksMut::new(self.view_mut(), dim, chunk_size)
     }
 
-    /// Return the element at a given index, or `None` if the index is out of
-    /// bounds in any dimension.
-    #[inline]
-    pub fn get_mut<I: AsRef<[usize]>>(&mut self, index: I) -> Option<&mut T> {
-        let offset = self.layout.try_offset(index.as_ref())?;
-        Some(&mut self.data.as_mut()[offset])
-    }
-
-    /// Return an iterator over views of the innermost N dimensions of this
-    /// tensor.
-    pub fn inner_iter_mut<const N: usize>(&mut self) -> InnerIterMut<T, N> {
-        InnerIterMut::new(self.view_mut())
-    }
-
-    /// Return a mutable iterator over all 1D slices of this tensor along a
-    /// given axis.
-    pub fn lanes_mut(&mut self, dim: usize) -> LanesMut<T> {
-        LanesMut::new(self.mut_view_ref(), dim)
-    }
-
-    /// Replace elements of this tensor with `f(element)`.
-    ///
-    /// This is the in-place version of `map`.
-    ///
-    /// The order in which elements are visited is unspecified and may not
-    /// correspond to the logical order.
+    /// Replace each element in this tensor with the result of applying `f` to
+    /// the element.
     pub fn apply<F: Fn(&T) -> T>(&mut self, f: F) {
         if self.is_contiguous() {
             self.data.as_mut().iter_mut().for_each(|x| *x = f(x));
@@ -658,150 +630,197 @@ impl<T, S: AsRef<[T]> + AsMut<[T]>> TensorBase<T, S> {
         }
     }
 
+    /// Return a mutable view of this tensor with a dynamic dimension count.
+    pub fn as_dyn_mut(&mut self) -> TensorBase<T, &mut [T], DynLayout>
+    where
+        L: Clone + Into<DynLayout>,
+    {
+        TensorBase {
+            layout: self.layout.clone().into(),
+            data: self.data.as_mut(),
+            element_type: PhantomData,
+        }
+    }
+
+    /// Copy elements from another tensor into this tensor.
+    ///
+    /// This tensor and `other` must have the same shape.
+    pub fn copy_from<S2: AsRef<[T]>>(&mut self, other: &TensorBase<T, S2, L>)
+    where
+        T: Clone,
+        L: Clone,
+    {
+        assert!(self.shape() == other.shape());
+        for (out, x) in self.iter_mut().zip(other.iter()) {
+            *out = x.clone();
+        }
+    }
+
+    /// Return the data in this tensor as a slice if it is contiguous.
+    pub fn data_mut(&mut self) -> Option<&mut [T]> {
+        self.layout.is_contiguous().then_some(self.data.as_mut())
+    }
+
     /// Replace all elements of this tensor with `value`.
     pub fn fill(&mut self, value: T)
     where
         T: Clone,
     {
-        self.apply(|_| value.clone());
+        self.apply(|_| value.clone())
     }
 
-    /// Return a new view with the dimensions re-ordered according to `dims`.
-    pub fn permuted_mut(&mut self, dims: &[usize]) -> TensorViewMut<T> {
-        TensorBase {
-            data: self.data.as_mut(),
-            layout: self.layout.permuted(dims),
-            element_type: PhantomData,
-        }
+    /// Return a mutable reference to the element at `index`, or `None` if the
+    /// index is invalid.
+    pub fn get_mut<I: AsIndex<L>>(&mut self, index: I) -> Option<&mut T> {
+        self.try_offset(index.as_index())
+            .map(|offset| &mut self.data.as_mut()[offset])
     }
 
-    /// Return a new view with a given shape. This has the same requirements
-    /// as `reshape`.
-    pub fn reshaped_mut(&mut self, shape: &[usize]) -> TensorViewMut<T> {
-        TensorBase {
-            data: self.data.as_mut(),
-            layout: self.layout.reshaped(shape),
-            element_type: PhantomData,
-        }
-    }
-
-    /// Return a new mutable slice of this tensor.
+    /// Return the element at a given index, without performing any bounds-
+    /// checking.
     ///
-    /// Slices are specified in the same way as for [TensorBase::slice].
-    pub fn slice_mut<R: IntoSliceItems>(&mut self, range: R) -> TensorViewMut<T> {
-        self.try_slice_mut(range.into_slice_items().as_ref())
-            .unwrap()
+    /// # Safety
+    ///
+    /// The caller must ensure that the index is valid for the tensor's shape.
+    pub unsafe fn get_unchecked_mut<I: AsIndex<L>>(&mut self, index: I) -> &mut T {
+        self.data
+            .as_mut()
+            .get_unchecked_mut(self.layout.offset_unchecked(index.as_index()))
     }
 
-    /// Variant of [TensorViewMut::slice_mut] which returns an error instead of
-    /// panicking if the slice range is invalid.
+    pub(crate) fn mut_view_ref(&mut self) -> MutViewRef<T, L> {
+        MutViewRef::new(self.data.as_mut(), &self.layout)
+    }
+
+    /// Return a mutable iterator over the N innermost dimensions of this tensor.
+    pub fn inner_iter_mut<const N: usize>(&mut self) -> InnerIterMut<T, L, N> {
+        InnerIterMut::new(self.view_mut())
+    }
+
+    /// Return a mutable iterator over the elements of this tensor, in their
+    /// logical order.
+    pub fn iter_mut(&mut self) -> IterMut<T> {
+        IterMut::new(self.mut_view_ref())
+    }
+
+    /// Return an iterator over mutable 1D slices of this tensor along a given
+    /// dimension.
+    pub fn lanes_mut(&mut self, dim: usize) -> LanesMut<T> {
+        LanesMut::new(self.mut_view_ref(), dim)
+    }
+
+    /// Return a view of this tensor with a static dimension count.
+    ///
+    /// Panics if `self.ndim() != N`.
+    pub fn nd_view_mut<const N: usize>(&mut self) -> TensorBase<T, &mut [T], NdLayout<N>> {
+        assert!(self.ndim() == N, "ndim {} != {}", self.ndim(), N);
+        TensorBase {
+            layout: self.nd_layout().unwrap(),
+            data: self.data.as_mut(),
+            element_type: PhantomData,
+        }
+    }
+
+    /// Permute the order of dimensions according to the given order.
+    ///
+    /// See [AsView::permuted].
+    pub fn permuted_mut(&mut self, order: L::Index<'_>) -> TensorBase<T, &mut [T], L> {
+        TensorBase {
+            layout: self.layout.permuted(order),
+            data: self.data.as_mut(),
+            element_type: PhantomData,
+        }
+    }
+
+    /// Change the layout of the tensor without moving any data.
+    ///
+    /// See [AsView::reshaped].
+    pub fn reshaped_mut<SH: IntoLayout>(
+        &mut self,
+        shape: SH,
+    ) -> TensorBase<T, &mut [T], SH::Layout> {
+        TensorBase {
+            layout: self.layout.reshaped(shape),
+            data: self.data.as_mut(),
+            element_type: PhantomData,
+        }
+    }
+
+    /// Slice this tensor and return a static-rank view with `M` dimensions.
+    ///
+    /// Use [AsView::slice_dyn] instead if the number of dimensions in the
+    /// returned view is unknown at compile time.
+    ///
+    /// Panics if the dimension count is not `M`.
+    pub fn slice_mut<const M: usize, R: IntoSliceItems>(
+        &mut self,
+        range: R,
+    ) -> NdTensorViewMut<T, M> {
+        let range = range.into_slice_items();
+        let (offset_range, sliced_layout) = self.layout.slice(range.as_ref());
+        NdTensorViewMut {
+            data: &mut self.data.as_mut()[offset_range],
+            layout: sliced_layout,
+            element_type: PhantomData,
+        }
+    }
+
+    /// Slice this tensor and return a dynamic-rank view.
+    pub fn slice_mut_dyn<R: IntoSliceItems>(&mut self, range: R) -> TensorViewMut<T> {
+        let range = range.into_slice_items();
+        let (offset_range, sliced_layout) = self.layout.slice_dyn(range.as_ref());
+        TensorViewMut {
+            data: &mut self.data.as_mut()[offset_range],
+            layout: sliced_layout,
+            element_type: PhantomData,
+        }
+    }
+
+    /// Slice this tensor and return a dynamic-rank view.
+    ///
+    /// Fails if the range has more dimensions than the view or is out of bounds
+    /// for any dimension.
     pub fn try_slice_mut<R: IntoSliceItems>(
         &mut self,
         range: R,
     ) -> Result<TensorViewMut<T>, SliceError> {
-        let (offset_range, layout) = self.layout.try_slice(range.into_slice_items().as_ref())?;
-        let data = &mut self.data.as_mut()[offset_range];
-        Ok(TensorViewMut {
-            data,
+        let (offset_range, layout) = self.layout.try_slice(range)?;
+        Ok(TensorBase {
+            data: &mut self.data.as_mut()[offset_range],
             layout,
             element_type: PhantomData,
         })
     }
 
-    /// Return a new view with the order of dimensions reversed.
-    pub fn transposed_mut(&mut self) -> TensorViewMut<T> {
+    /// Return a mutable view of this tensor.
+    pub fn view_mut(&mut self) -> TensorBase<T, &mut [T], L>
+    where
+        L: Clone,
+    {
         TensorBase {
             data: self.data.as_mut(),
-            layout: self.layout.transposed(),
+            layout: self.layout.clone(),
             element_type: PhantomData,
         }
     }
 
-    /// Return a mutable view of this tensor.
-    ///
-    /// Views share the same element array, but can have an independent layout,
-    /// with some limitations.
-    pub fn view_mut(&mut self) -> TensorViewMut<T> {
-        TensorViewMut::new(self.data.as_mut(), &self.layout)
-    }
-
-    /// Return a mutable view with a static rank.
-    ///
-    /// Panics if the rank of this tensor is not `N`.
-    pub fn nd_view_mut<const N: usize>(&mut self) -> NdTensorViewMut<T, N> {
-        assert!(self.ndim() == N);
-        let shape: [usize; N] = self.shape().try_into().unwrap();
-        let strides: [usize; N] = self.strides().try_into().unwrap();
-        NdTensorViewMut::from_data_with_strides(shape, self.data.as_mut(), strides).unwrap()
-    }
-}
-
-impl<'a, T> TensorViewMut<'a, T> {
-    /// Consume this view and return the underlying data slice.
-    ///
-    /// This differs from [Self::data_mut] as the lifetime of the returned slice
-    /// is tied to the underlying tensor, rather than the view.
-    pub fn into_data_mut(self) -> &'a mut [T] {
-        self.data
-    }
-}
-
-impl<I: AsRef<[usize]>, T, S: AsRef<[T]> + AsMut<[T]>> IndexMut<I> for TensorBase<T, S> {
-    fn index_mut(&mut self, index: I) -> &mut Self::Output {
-        let offset = self.layout.offset(index.as_ref());
-        &mut self.data.as_mut()[offset]
-    }
-}
-
-/// Variant of [TensorBase] which owns its elements, using a `Vec<T>` as
-/// the backing storage.
-pub type Tensor<T = f32> = TensorBase<T, Vec<T>>;
-
-impl<T> Tensor<T> {
-    /// Create a new zero-filled tensor with a given shape.
-    pub fn zeros(shape: &[usize]) -> Tensor<T>
-    where
-        T: Clone + Default,
-    {
-        let n_elts = shape.iter().product();
-        let data = vec![T::default(); n_elts];
-        Tensor {
-            data,
-            layout: DynLayout::from_shape(shape),
-            element_type: PhantomData,
+    /// Return a mutable view that performs only "weak" checking when indexing,
+    /// this is faster but can hide bugs. See [WeaklyCheckedView].
+    pub fn weakly_checked_view_mut(&mut self) -> WeaklyCheckedView<T, &mut [T], L> {
+        WeaklyCheckedView {
+            base: self.view_mut(),
         }
     }
+}
 
-    /// Create a new tensor filled with a given value.
-    pub fn full(shape: &[usize], value: T) -> Tensor<T>
-    where
-        T: Clone,
-    {
-        let n_elts = shape.iter().product();
-        let data = vec![value; n_elts];
-        Tensor {
-            data,
-            layout: DynLayout::from_shape(shape),
-            element_type: PhantomData,
-        }
-    }
-
-    /// Create a new tensor filled with random numbers from a given source.
-    pub fn rand<R: RandomSource<T>>(shape: &[usize], rand_src: &mut R) -> Tensor<T>
-    where
-        T: Clone + Default,
-    {
-        let mut tensor = Tensor::zeros(shape);
-        tensor.data.fill_with(|| rand_src.next());
-        tensor
-    }
-
+impl<T, L: Clone + MutLayout> TensorBase<T, Vec<T>, L> {
     /// Create a new 1D tensor filled with an arithmetic sequence of values
     /// in the range `[start, end)` separated by `step`. If `step` is omitted,
     /// it defaults to 1.
-    pub fn arange(start: T, end: T, step: Option<T>) -> Tensor<T>
+    pub fn arange(start: T, end: T, step: Option<T>) -> TensorBase<T, Vec<T>, L>
     where
         T: Copy + PartialOrd + From<bool> + std::ops::Add<Output = T>,
+        [usize; 1]: AsIndex<L>,
     {
         let step = step.unwrap_or((true).into());
         let mut data = Vec::new();
@@ -810,26 +829,15 @@ impl<T> Tensor<T> {
             data.push(curr);
             curr = curr + step;
         }
-        Tensor::from_vec(data)
+        TensorBase::from_data([data.len()].as_index(), data)
     }
 
-    /// Create a new 0-dimensional (scalar) tensor from a single value.
-    pub fn from_scalar(value: T) -> Tensor<T> {
-        Self::from_data(&[], vec![value])
-    }
-
-    /// Create a new 1-dimensional tensor from a vector. No copying is required.
-    pub fn from_vec(data: Vec<T>) -> Tensor<T> {
-        Self::from_data(&[data.len()], data)
-    }
-
-    /// Clone this tensor with a new shape. The new shape must have the same
-    /// total number of elements as the existing shape. See `reshape`.
-    pub fn to_shape(&self, shape: &[usize]) -> Tensor<T>
+    /// Create a new 1D tensor from a `Vec<T>`.
+    pub fn from_vec(vec: Vec<T>) -> TensorBase<T, Vec<T>, L>
     where
-        T: Clone,
+        [usize; 1]: AsIndex<L>,
     {
-        Self::from_data(shape, self.to_vec())
+        TensorBase::from_data([vec.len()].as_index(), vec)
     }
 
     /// Clip dimension `dim` to `[range.start, range.end)`. The new size for
@@ -854,10 +862,58 @@ impl<T> Tensor<T> {
         self.data.truncate(range.end - range.start);
     }
 
-    /// Convert the internal layout of elements to be contiguous, as reported
-    /// by `is_contiguous`.
+    /// Consume self and return the underlying data as a contiguous tensor.
     ///
-    /// This is a no-op if the tensor is already contiguous.
+    /// See also [TensorBase::to_vec].
+    pub fn into_data(self) -> Vec<T>
+    where
+        T: Clone,
+    {
+        if self.is_contiguous() {
+            self.data
+        } else {
+            self.to_vec()
+        }
+    }
+
+    /// Consume self and return a new contiguous tensor with the given shape.
+    ///
+    /// This avoids copying the data if it is already contiguous.
+    pub fn into_shape<S: IntoLayout>(self, shape: S) -> TensorBase<T, Vec<T>, S::Layout>
+    where
+        T: Clone,
+    {
+        TensorBase {
+            data: self.into_data(),
+            layout: shape.into_layout(),
+            element_type: PhantomData,
+        }
+    }
+
+    /// Create a new 0D tensor from a scalar value.
+    pub fn from_scalar(value: T) -> TensorBase<T, Vec<T>, L>
+    where
+        [usize; 0]: AsIndex<L>,
+    {
+        TensorBase::from_data([].as_index(), vec![value])
+    }
+
+    /// Create a new tensor with a given shape and all elements set to `value`.
+    pub fn full(shape: L::Index<'_>, value: T) -> TensorBase<T, Vec<T>, L>
+    where
+        T: Clone,
+    {
+        let n_elts = shape.as_ref().iter().product();
+        let data = vec![value; n_elts];
+        TensorBase::from_data(shape, data)
+    }
+
+    /// Make the underlying data in this tensor contiguous.
+    ///
+    /// This means that after calling `make_contiguous`, the elements are
+    /// guaranteed to be stored in the same order as the logical order in
+    /// which `iter` yields elements. This method is cheap if the storage is
+    /// already contiguous.
     pub fn make_contiguous(&mut self)
     where
         T: Clone,
@@ -866,77 +922,660 @@ impl<T> Tensor<T> {
             return;
         }
         self.data = self.to_vec();
-        self.layout.make_contiguous();
+        self.layout = L::from_shape(self.layout.shape());
     }
 
-    /// Update the shape of the tensor.
+    /// Create a new tensor with a given shape and elements populated using
+    /// numbers generated by `rand_src`.
+    pub fn rand<R: RandomSource<T>>(
+        shape: L::Index<'_>,
+        rand_src: &mut R,
+    ) -> TensorBase<T, Vec<T>, L> {
+        let data: Vec<_> = std::iter::from_fn(|| Some(rand_src.next()))
+            .take(shape.as_ref().iter().product())
+            .collect();
+        TensorBase::from_data(shape, data)
+    }
+
+    /// Create a new tensor with a given shape, with all elements set to their
+    /// default value (ie. zero for numeric types).
+    pub fn zeros(shape: L::Index<'_>) -> TensorBase<T, Vec<T>, L>
+    where
+        T: Clone + Default,
+    {
+        Self::full(shape, T::default())
+    }
+}
+
+impl<'a, T, L: Clone + MutLayout> TensorBase<T, &'a [T], L> {
+    pub fn axis_iter(&self, dim: usize) -> AxisIter<'a, T, L> {
+        AxisIter::new(self, dim)
+    }
+
+    pub fn axis_chunks(&self, dim: usize, chunk_size: usize) -> AxisChunks<'a, T, L> {
+        AxisChunks::new(self, dim, chunk_size)
+    }
+
+    /// Return a view of this tensor with a dynamic dimension count.
     ///
-    /// The total number of elements for the new shape must be the same as the
-    /// existing shape.
+    /// See [AsView::as_dyn].
+    pub fn as_dyn(&self) -> TensorBase<T, &'a [T], DynLayout>
+    where
+        L: Clone + Into<DynLayout>,
+    {
+        TensorBase {
+            data: self.data,
+            layout: self.layout.clone().into(),
+            element_type: PhantomData,
+        }
+    }
+
+    /// Broadcast this view to another shape.
     ///
-    /// This is a cheap operation if the tensor is contiguous, but requires
-    /// copying data if the tensor has a non-contiguous layout.
+    /// See [AsView::broadcast].
+    pub fn broadcast<S: IntoLayout>(&self, shape: S) -> TensorBase<T, &'a [T], S::Layout>
+    where
+        L: BroadcastLayout<S::Layout>,
+    {
+        TensorBase {
+            layout: self.layout.broadcast(shape),
+            data: self.data,
+            element_type: PhantomData,
+        }
+    }
+
+    /// Return an iterator over elements as if this tensor was broadcast to
+    /// another shape.
+    ///
+    /// See [AsView::broadcast_iter].
+    pub fn broadcast_iter(&self, shape: &[usize]) -> BroadcastIter<'a, T> {
+        BroadcastIter::new(self.view_ref(), shape)
+    }
+
+    /// Return the data in this tensor as a slice if it is contiguous, ie.
+    /// the order of elements in the slice is the same as the logical order
+    /// yielded by `iter`, and there are no gaps.
+    pub fn data(&self) -> Option<&'a [T]> {
+        self.layout.is_contiguous().then_some(self.data)
+    }
+
+    /// Return this view's underlying data as a slice.
+    ///
+    /// Unlike the `data` method, this method does not check if the storage
+    /// is contiguous in memory (ie. elements are stored in the same order as
+    /// returned by `iter`, with no gaps).
+    ///
+    /// Note there is no safe equivalent of this method for mutable views
+    /// because this could lead to overlapping mutable slices.
+    pub fn non_contiguous_data(&self) -> &'a [T] {
+        self.data
+    }
+
+    /// Create a new view with a given shape and data slice, and custom strides.
+    ///
+    /// If you do not need to specify custom strides, use [TensorBase::from_data]
+    /// instead. This method is similar to [TensorBase::from_data_with_strides],
+    /// but allows strides that lead to internal overlap (see [OverlapPolicy]).
+    pub fn from_slice_with_strides(
+        shape: L::Index<'_>,
+        data: &'a [T],
+        strides: L::Index<'_>,
+    ) -> Result<TensorBase<T, &'a [T], L>, FromDataError> {
+        let layout = L::from_shape_and_strides(shape, strides, OverlapPolicy::AllowOverlap)?;
+        if layout.min_data_len() > data.as_ref().len() {
+            return Err(FromDataError::StorageTooShort);
+        }
+        Ok(TensorBase {
+            data,
+            layout,
+            element_type: PhantomData,
+        })
+    }
+
+    /// Return the element at a given index, without performing any bounds-
+    /// checking.
+    ///
+    /// # Safety
+    ///
+    /// The caller must ensure that the index is valid for the tensor's shape.
+    pub unsafe fn get_unchecked<I: AsIndex<L>>(&self, index: I) -> &'a T {
+        self.data
+            .get_unchecked(self.layout.offset_unchecked(index.as_index()))
+    }
+
+    /// Return an iterator over the inner `N` dimensions of this tensor.
+    ///
+    /// See [AsView::inner_iter].
+    pub fn inner_iter<const N: usize>(&self) -> InnerIter<'a, T, L, N> {
+        InnerIter::new(self.view())
+    }
+
+    /// Return the scalar value in this tensor if it has one element.
+    pub fn item(&self) -> Option<&'a T> {
+        match self.ndim() {
+            0 => Some(&self.data[0]),
+            _ if self.len() == 1 => self.iter().next(),
+            _ => None,
+        }
+    }
+
+    /// Return an iterator over elements of this tensor in their logical order.
+    ///
+    /// See [AsView::iter].
+    pub fn iter(&self) -> Iter<'a, T> {
+        Iter::new(self.view_ref())
+    }
+
+    /// Return an iterator over 1D slices of this tensor along a given dimension.
+    ///
+    /// See [AsView::lanes].
+    pub fn lanes(&self, dim: usize) -> Lanes<'a, T> {
+        Lanes::new(self.view_ref(), dim)
+    }
+
+    /// Return a view of this tensor with a static dimension count.
+    ///
+    /// Panics if `self.ndim() != N`.
+    pub fn nd_view<const N: usize>(&self) -> TensorBase<T, &'a [T], NdLayout<N>> {
+        assert!(self.ndim() == N, "ndim {} != {}", self.ndim(), N);
+        TensorBase {
+            data: self.data,
+            layout: self.nd_layout().unwrap(),
+            element_type: PhantomData,
+        }
+    }
+
+    /// Permute the axes of this tensor according to `order`.
+    ///
+    /// See [AsView::permuted].
+    pub fn permuted(&self, order: L::Index<'_>) -> TensorBase<T, &'a [T], L> {
+        TensorBase {
+            data: self.data,
+            layout: self.layout.permuted(order),
+            element_type: PhantomData,
+        }
+    }
+
+    /// Change the shape of this tensor without copying data.
+    ///
+    /// See [AsView::reshaped].
+    pub fn reshaped<S: IntoLayout>(&self, shape: S) -> TensorBase<T, &'a [T], S::Layout> {
+        TensorBase {
+            data: self.data,
+            layout: self.layout.reshaped(shape),
+            element_type: PhantomData,
+        }
+    }
+
+    /// Slice this tensor and return a static-rank view. See [AsView::slice].
+    pub fn slice<const M: usize, R: IntoSliceItems>(&self, range: R) -> NdTensorView<'a, T, M> {
+        let range = range.into_slice_items();
+        let (offset_range, sliced_layout) = self.layout.slice(range.as_ref());
+        NdTensorView {
+            data: &self.data[offset_range],
+            layout: sliced_layout,
+            element_type: PhantomData,
+        }
+    }
+
+    /// Slice this tensor and return a dynamic-rank view. See [AsView::slice_dyn].
+    pub fn slice_dyn<R: IntoSliceItems>(&self, range: R) -> TensorView<'a, T> {
+        let range = range.into_slice_items();
+        let (offset_range, sliced_layout) = self.layout.slice_dyn(range.as_ref());
+        TensorView {
+            data: &self.data[offset_range],
+            layout: sliced_layout,
+            element_type: PhantomData,
+        }
+    }
+
+    /// See [AsView::slice_iter].
+    pub fn slice_iter(&self, range: &[SliceItem]) -> Iter<'a, T> {
+        Iter::slice(self.view_ref(), range)
+    }
+
+    /// Remove all size-one dimensions from this tensor.
+    ///
+    /// See [AsView::squeezed].
+    pub fn squeezed(&self) -> TensorView<'a, T> {
+        TensorBase {
+            data: self.data,
+            layout: self.layout.squeezed(),
+            element_type: PhantomData,
+        }
+    }
+
+    /// Return a view of this tensor with elements stored in contiguous order.
+    ///
+    /// If the data is already contiguous, no copy is made, otherwise the
+    /// elements are copied into a new buffer in contiguous order.
+    pub fn to_contiguous(&self) -> TensorBase<T, Cow<'a, [T]>, L>
+    where
+        T: Clone,
+    {
+        if self.is_contiguous() {
+            TensorBase {
+                data: Cow::Borrowed(self.data),
+                layout: self.layout.clone(),
+                element_type: PhantomData,
+            }
+        } else {
+            let data = self.to_vec();
+            TensorBase {
+                data: Cow::Owned(data),
+                layout: L::from_shape(self.layout.shape()),
+                element_type: PhantomData,
+            }
+        }
+    }
+
+    /// Reverse the order of dimensions in this tensor. See [AsView::transposed].
+    pub fn transposed(&self) -> TensorBase<T, &'a [T], L> {
+        TensorBase {
+            data: self.data,
+            layout: self.layout.transposed(),
+            element_type: PhantomData,
+        }
+    }
+
+    pub fn try_slice_dyn<R: IntoSliceItems>(
+        &self,
+        range: R,
+    ) -> Result<TensorView<'a, T>, SliceError> {
+        let (offset_range, layout) = self.layout.try_slice(range)?;
+        Ok(TensorBase {
+            data: &self.data[offset_range],
+            layout,
+            element_type: PhantomData,
+        })
+    }
+
+    /// Return a read-only view of this tensor. See [AsView::view].
+    pub fn view(&self) -> TensorBase<T, &'a [T], L> {
+        TensorBase {
+            data: self.data,
+            layout: self.layout.clone(),
+            element_type: PhantomData,
+        }
+    }
+
+    pub(crate) fn view_ref(&self) -> ViewRef<'a, '_, T, L> {
+        ViewRef::new(self.data, &self.layout)
+    }
+
+    pub fn weakly_checked_view(&self) -> WeaklyCheckedView<T, &'a [T], L> {
+        WeaklyCheckedView { base: self.view() }
+    }
+}
+
+impl<T, S: AsRef<[T]>, L: MutLayout> Layout for TensorBase<T, S, L> {
+    type Index<'a> = L::Index<'a>;
+    type Indices = L::Indices;
+
+    fn ndim(&self) -> usize {
+        self.layout.ndim()
+    }
+
+    fn len(&self) -> usize {
+        self.layout.len()
+    }
+
+    fn is_empty(&self) -> bool {
+        self.layout.is_empty()
+    }
+
+    fn shape(&self) -> Self::Index<'_> {
+        self.layout.shape()
+    }
+
+    fn size(&self, dim: usize) -> usize {
+        self.layout.size(dim)
+    }
+
+    fn strides(&self) -> Self::Index<'_> {
+        self.layout.strides()
+    }
+
+    fn stride(&self, dim: usize) -> usize {
+        self.layout.stride(dim)
+    }
+
+    fn indices(&self) -> Self::Indices {
+        self.layout.indices()
+    }
+
+    fn try_offset(&self, index: Self::Index<'_>) -> Option<usize> {
+        self.layout.try_offset(index)
+    }
+}
+
+impl<T, S: AsRef<[T]>, L: MutLayout + MatrixLayout> MatrixLayout for TensorBase<T, S, L> {
+    fn rows(&self) -> usize {
+        self.layout.rows()
+    }
+
+    fn cols(&self) -> usize {
+        self.layout.cols()
+    }
+
+    fn row_stride(&self) -> usize {
+        self.layout.row_stride()
+    }
+
+    fn col_stride(&self) -> usize {
+        self.layout.col_stride()
+    }
+}
+
+impl<T, S: AsRef<[T]>, L: MutLayout + Clone> AsView for TensorBase<T, S, L> {
+    type Elem = T;
+    type Layout = L;
+
+    fn iter(&self) -> Iter<T> {
+        self.view().iter()
+    }
+
+    fn data(&self) -> Option<&[Self::Elem]> {
+        self.view().data()
+    }
+
+    fn insert_axis(&mut self, index: usize)
+    where
+        L: ResizeLayout,
+    {
+        self.layout.insert_axis(index)
+    }
+
+    fn layout(&self) -> &L {
+        &self.layout
+    }
+
+    fn map<F, U>(&self, f: F) -> TensorBase<U, Vec<U>, L>
+    where
+        F: Fn(&Self::Elem) -> U,
+    {
+        let data: Vec<_> = self.iter().map(f).collect();
+        TensorBase::from_data(self.shape(), data)
+    }
+
+    fn move_axis(&mut self, from: usize, to: usize) {
+        self.layout.move_axis(from, to);
+    }
+
+    fn view(&self) -> TensorBase<T, &[T], L> {
+        TensorBase {
+            data: self.data.as_ref(),
+            layout: self.layout.clone(),
+            element_type: PhantomData,
+        }
+    }
+
+    fn get<I: AsIndex<L>>(&self, index: I) -> Option<&Self::Elem> {
+        self.try_offset(index.as_index())
+            .map(|offset| &self.data.as_ref()[offset])
+    }
+
+    fn permute(&mut self, order: Self::Index<'_>) {
+        self.layout = self.layout.permuted(order);
+    }
+
+    fn to_vec(&self) -> Vec<T>
+    where
+        T: Clone,
+    {
+        if let Some(data) = self.data() {
+            data.to_vec()
+        } else {
+            // TODO - Add fast path for low rank that doesn't use iterators.
+            self.view().iter().cloned().collect()
+        }
+    }
+
+    fn to_shape<SH: IntoLayout>(
+        &self,
+        shape: SH,
+    ) -> TensorBase<Self::Elem, Vec<Self::Elem>, SH::Layout>
+    where
+        T: Clone,
+    {
+        TensorBase {
+            data: self.to_vec(),
+            layout: shape.into_layout(),
+            element_type: PhantomData,
+        }
+    }
+
+    fn transpose(&mut self) {
+        self.layout = self.layout.transposed();
+    }
+}
+
+impl<T, S: AsRef<[T]>, const N: usize> TensorBase<T, S, NdLayout<N>> {
+    /// Load an array of `M` elements from successive entries of a tensor along
+    /// the `dim` axis.
+    ///
+    /// eg. If `base` is `[0, 1, 2]`, dim=0 and `M` = 4 this will return an
+    /// array with values from indices `[0, 1, 2]`, `[1, 1, 2]` ... `[3, 1, 2]`.
+    ///
+    /// Panics if any of the array indices are out of bounds.
+    #[inline]
+    pub fn get_array<const M: usize>(&self, base: [usize; N], dim: usize) -> [T; M]
+    where
+        T: Copy + Default,
+    {
+        let offsets: [usize; M] = array_offsets(&self.layout, base, dim);
+        let data = self.data.as_ref();
+        let mut result = [T::default(); M];
+        for i in 0..M {
+            // Safety: `array_offsets` returns valid offsets
+            result[i] = unsafe { *data.get_unchecked(offsets[i]) };
+        }
+        result
+    }
+}
+
+impl<T> TensorBase<T, Vec<T>, DynLayout> {
+    /// Reshape this tensor in place. This is cheap if the tensor is contiguous,
+    /// as only the layout will be changed, but requires copying data otherwise.
     pub fn reshape(&mut self, shape: &[usize])
     where
         T: Clone,
     {
-        let len: usize = shape.iter().product();
-        let current_len = self.len();
-        assert!(
-            len == current_len,
-            "New shape must have same total elements as current shape"
-        );
-
-        // We currently always copy data whenever the input is non-contiguous.
-        // However there are cases of custom strides where copies could be
-        // avoided. See https://pytorch.org/docs/stable/generated/torch.Tensor.view.html.
-        self.make_contiguous();
+        if !self.is_contiguous() {
+            self.data = self.to_vec();
+        }
         self.layout = DynLayout::from_shape(shape);
     }
+}
 
-    /// Like [Tensor::reshape] but consumes self.
-    pub fn into_shape(mut self, new_shape: &[usize]) -> Tensor<T>
+impl<'a, T> TensorBase<T, &'a [T], DynLayout> {
+    /// Reshape this view.
+    ///
+    /// Panics if the view is not contiguous.
+    pub fn reshape(&mut self, shape: &[usize])
     where
         T: Clone,
     {
-        self.reshape(new_shape);
-        self
+        assert!(self.is_contiguous(), "can only reshape contiguous views");
+        self.layout = DynLayout::from_shape(shape);
     }
 }
 
-impl<S: AsRef<[f32]>> TensorBase<f32, S> {
-    /// Serialize the tensor to a simple binary format.
+impl<'a, T> TensorBase<T, &'a mut [T], DynLayout> {
+    /// Reshape this view.
     ///
-    /// The serialized data is in little-endian order and has the structure:
+    /// Panics if the view is not contiguous.
+    pub fn reshape(&mut self, shape: &[usize])
+    where
+        T: Clone,
+    {
+        assert!(self.is_contiguous(), "can only reshape contiguous views");
+        self.layout = DynLayout::from_shape(shape);
+    }
+}
+
+impl<T, L: Clone + MutLayout> FromIterator<T> for TensorBase<T, Vec<T>, L>
+where
+    [usize; 1]: AsIndex<L>,
+{
+    /// Create a new 1D tensor filled with an arithmetic sequence of values
+    /// in the range `[start, end)` separated by `step`. If `step` is omitted,
+    /// it defaults to 1.
+    fn from_iter<I: IntoIterator<Item = T>>(iter: I) -> TensorBase<T, Vec<T>, L> {
+        let data: Vec<T> = iter.into_iter().collect();
+        TensorBase::from_data([data.len()].as_index(), data)
+    }
+}
+
+impl<T, L: Clone + MutLayout> From<Vec<T>> for TensorBase<T, Vec<T>, L>
+where
+    [usize; 1]: AsIndex<L>,
+{
+    /// Create a 1D tensor from a vector.
+    fn from(vec: Vec<T>) -> Self {
+        Self::from_data([vec.len()].as_index(), vec)
+    }
+}
+
+impl<'a, T, L: Clone + MutLayout> From<&'a [T]> for TensorBase<T, &'a [T], L>
+where
+    [usize; 1]: AsIndex<L>,
+{
+    /// Create a 1D view from a slice.
+    fn from(slice: &'a [T]) -> Self {
+        Self::from_data([slice.len()].as_index(), slice)
+    }
+}
+
+impl<'a, T, L: Clone + MutLayout, const N: usize> From<&'a [T; N]> for TensorBase<T, &'a [T], L>
+where
+    [usize; 1]: AsIndex<L>,
+{
+    /// Create a 1D view from a slice of known length.
+    fn from(slice: &'a [T; N]) -> Self {
+        Self::from_data([slice.len()].as_index(), slice.as_slice())
+    }
+}
+
+/// Return the offsets of `M` successive elements along the `dim` axis, starting
+/// at index `base`.
+///
+/// Panics if any of the M element indices are out of bounds.
+fn array_offsets<const N: usize, const M: usize>(
+    layout: &NdLayout<N>,
+    base: [usize; N],
+    dim: usize,
+) -> [usize; M] {
+    assert!(
+        base[dim] < usize::MAX - M && layout.size(dim) >= base[dim] + M,
+        "array indices invalid"
+    );
+
+    let offset = layout.offset(base);
+    let stride = layout.stride(dim);
+    let mut offsets = [0; M];
+    for i in 0..M {
+        offsets[i] = offset + i * stride;
+    }
+    offsets
+}
+
+impl<T, S: AsRef<[T]> + AsMut<[T]>, const N: usize> TensorBase<T, S, NdLayout<N>> {
+    /// Store an array of `M` elements into successive entries of a tensor along
+    /// the `dim` axis.
     ///
-    /// ```text
-    /// [ndim: u32][dims: u32 * rank][elements: T * product(dims)]
-    /// ```
-    ///
-    /// Where `T` is the tensor's element type.
-    pub fn write<W: io::Write>(&self, writer: &mut W) -> io::Result<()> {
-        let mut buf_writer = io::BufWriter::new(writer);
-        let ndim: u32 = self.ndim() as u32;
-        buf_writer.write_all(&ndim.to_le_bytes())?;
-        for &dim in self.shape() {
-            buf_writer.write_all(&(dim as u32).to_le_bytes())?;
+    /// See [TensorBase::get_array] for more details.
+    #[inline]
+    pub fn set_array<const M: usize>(&mut self, base: [usize; N], dim: usize, values: [T; M])
+    where
+        T: Copy,
+    {
+        let offsets: [usize; M] = array_offsets(&self.layout, base, dim);
+        let data = self.data.as_mut();
+
+        for i in 0..M {
+            // Safety: `array_offsets` returns valid offsets.
+            unsafe { *data.get_unchecked_mut(offsets[i]) = values[i] };
         }
-        for el in self.iter() {
-            buf_writer.write_all(&el.to_le_bytes())?;
-        }
-        buf_writer.flush()?;
-        Ok(())
     }
 }
 
-impl<T: PartialEq, S: AsRef<[T]>, V: View<Elem = T>> PartialEq<V> for TensorBase<T, S> {
-    fn eq(&self, other: &V) -> bool {
-        self.shape() == other.shape().as_ref() && self.iter().eq(other.iter())
+impl<T, S: AsRef<[T]>> TensorBase<T, S, NdLayout<1>> {
+    /// Convert this vector to a static array of length `M`.
+    ///
+    /// Panics if the length of this vector is not M.
+    #[inline]
+    pub fn to_array<const M: usize>(&self) -> [T; M]
+    where
+        T: Copy + Default,
+    {
+        self.get_array([0], 0)
     }
 }
 
-impl<T, S: AsRef<[T]> + Clone> Clone for TensorBase<T, S> {
-    fn clone(&self) -> TensorBase<T, S> {
+impl<T, S: AsRef<[T]> + AsMut<[T]>> TensorBase<T, S, NdLayout<1>> {
+    /// Fill this vector with values from a static array of length `M`.
+    ///
+    /// Panics if the length of this vector is not M.
+    #[inline]
+    pub fn assign_array<const M: usize>(&mut self, values: [T; M])
+    where
+        T: Copy + Default,
+    {
+        self.set_array([0], 0, values)
+    }
+}
+
+/// View of a slice of a tensor with a static dimension count.
+pub type NdTensorView<'a, T, const N: usize> = TensorBase<T, &'a [T], NdLayout<N>>;
+
+/// Tensor with a static dimension count.
+pub type NdTensor<T, const N: usize> = TensorBase<T, Vec<T>, NdLayout<N>>;
+
+/// Mutable view of a slice of a tensor with a static dimension count.
+pub type NdTensorViewMut<'a, T, const N: usize> = TensorBase<T, &'a mut [T], NdLayout<N>>;
+
+/// View of a slice as a matrix.
+pub type Matrix<'a, T = f32> = NdTensorView<'a, T, 2>;
+
+/// Mutable view of a slice as a matrix.
+pub type MatrixMut<'a, T = f32> = NdTensorViewMut<'a, T, 2>;
+
+/// Tensor with a dynamic dimension count.
+pub type Tensor<T = f32> = TensorBase<T, Vec<T>, DynLayout>;
+
+/// View of a slice of a tensor with a dynamic dimension count.
+pub type TensorView<'a, T = f32> = TensorBase<T, &'a [T], DynLayout>;
+
+/// Mutable view of a slice of a tensor with a dynamic dimension count.
+pub type TensorViewMut<'a, T = f32> = TensorBase<T, &'a mut [T], DynLayout>;
+
+impl<T, S: AsRef<[T]>, L: MutLayout, I: AsIndex<L>> Index<I> for TensorBase<T, S, L> {
+    type Output = T;
+
+    /// Return the element at a given index.
+    ///
+    /// Panics if the index is out of bounds along any dimension.
+    fn index(&self, index: I) -> &Self::Output {
+        let offset = self.layout.offset(index.as_index());
+        &self.data.as_ref()[offset]
+    }
+}
+
+impl<T, S: AsRef<[T]> + AsMut<[T]>, L: MutLayout, I: AsIndex<L>> IndexMut<I>
+    for TensorBase<T, S, L>
+{
+    /// Return the element at a given index.
+    ///
+    /// Panics if the index is out of bounds along any dimension.
+    fn index_mut(&mut self, index: I) -> &mut Self::Output {
+        let offset = self.layout.offset(index.as_index());
+        &mut self.data.as_mut()[offset]
+    }
+}
+
+impl<T, S: AsRef<[T]> + Clone, L: MutLayout + Clone> Clone for TensorBase<T, S, L> {
+    fn clone(&self) -> TensorBase<T, S, L> {
         let data = self.data.clone();
         TensorBase {
             data,
@@ -946,28 +1585,45 @@ impl<T, S: AsRef<[T]> + Clone> Clone for TensorBase<T, S> {
     }
 }
 
-impl<T, S1: AsRef<[T]>, S2: AsRef<[T]>, const N: usize> From<NdTensorBase<T, S1, N>>
-    for TensorBase<T, S2>
-where
-    S1: Into<S2>,
+impl<T, S: AsRef<[T]> + Copy, L: MutLayout + Copy> Copy for TensorBase<T, S, L> {}
+
+impl<T: PartialEq, S: AsRef<[T]>, L: MutLayout, V: AsView<Elem = T>> PartialEq<V>
+    for TensorBase<T, S, L>
 {
-    fn from(value: NdTensorBase<T, S1, N>) -> TensorBase<T, S2> {
-        let layout: DynLayout = value.layout().into();
-        TensorBase {
-            data: value.into_data().into(),
-            layout,
+    fn eq(&self, other: &V) -> bool {
+        self.shape().as_ref() == other.shape().as_ref() && self.iter().eq(other.iter())
+    }
+}
+
+impl<T, S: AsRef<[T]>, const N: usize> From<TensorBase<T, S, NdLayout<N>>>
+    for TensorBase<T, S, DynLayout>
+{
+    fn from(tensor: TensorBase<T, S, NdLayout<N>>) -> Self {
+        Self {
+            data: tensor.data,
+            layout: tensor.layout.into(),
             element_type: PhantomData,
         }
     }
 }
 
-impl<T> FromIterator<T> for Tensor<T> {
-    fn from_iter<I>(iter: I) -> Self
-    where
-        I: IntoIterator<Item = T>,
-    {
-        let data: Vec<_> = FromIterator::from_iter(iter);
-        Tensor::from_vec(data)
+impl<T, S1: AsRef<[T]>, S2: AsRef<[T]>, const N: usize> TryFrom<TensorBase<T, S1, DynLayout>>
+    for TensorBase<T, S2, NdLayout<N>>
+where
+    S1: Into<S2>,
+{
+    type Error = DimensionError;
+
+    /// Convert a tensor or view with dynamic rank into a static rank one.
+    ///
+    /// Fails if `value` does not have `N` dimensions.
+    fn try_from(value: TensorBase<T, S1, DynLayout>) -> Result<Self, Self::Error> {
+        let layout: NdLayout<N> = value.layout().try_into()?;
+        Ok(TensorBase {
+            data: value.data.into(),
+            layout,
+            element_type: PhantomData,
+        })
     }
 }
 
@@ -984,1414 +1640,1135 @@ impl Scalar for f32 {}
 // impl for a nested array literal, as it prevents `T` from matching an array
 // type.
 
-impl<const N: usize, T: Clone + Scalar> From<[T; N]> for Tensor<T> {
+impl<T: Clone + Scalar, L: MutLayout, const D0: usize> From<[T; D0]> for TensorBase<T, Vec<T>, L>
+where
+    [usize; 1]: AsIndex<L>,
+{
     /// Construct a 1D tensor from a 1D array.
-    fn from(value: [T; N]) -> Tensor<T> {
-        Tensor::from_vec(value.iter().cloned().collect())
+    fn from(value: [T; D0]) -> Self {
+        Self::from_data([D0].as_index(), value.iter().cloned().collect())
     }
 }
 
-impl<const N: usize, const M: usize, T: Clone + Scalar> From<[[T; N]; M]> for Tensor<T> {
+impl<T: Clone + Scalar, L: MutLayout, const D0: usize, const D1: usize> From<[[T; D1]; D0]>
+    for TensorBase<T, Vec<T>, L>
+where
+    [usize; 2]: AsIndex<L>,
+{
     /// Construct a 2D tensor from a nested array.
-    fn from(value: [[T; N]; M]) -> Tensor<T> {
+    fn from(value: [[T; D1]; D0]) -> Self {
         let data: Vec<_> = value.iter().flat_map(|y| y.iter()).cloned().collect();
-        Tensor::from_data(&[M, N], data)
+        Self::from_data([D0, D1].as_index(), data)
     }
 }
 
-impl<const N: usize, const M: usize, const K: usize, T: Clone + Scalar> From<[[[T; K]; N]; M]>
-    for Tensor<T>
+impl<T: Clone + Scalar, L: MutLayout, const D0: usize, const D1: usize, const D2: usize>
+    From<[[[T; D2]; D1]; D0]> for TensorBase<T, Vec<T>, L>
+where
+    [usize; 3]: AsIndex<L>,
 {
     /// Construct a 3D tensor from a nested array.
-    fn from(value: [[[T; K]; N]; M]) -> Tensor<T> {
+    fn from(value: [[[T; D2]; D1]; D0]) -> Self {
         let data: Vec<_> = value
             .iter()
             .flat_map(|y| y.iter().flat_map(|z| z.iter()))
             .cloned()
             .collect();
-        Tensor::from_data(&[M, N, K], data)
+        Self::from_data([D0, D1, D2].as_index(), data)
     }
 }
 
-/// Call `f` with every element in `x` in logical order.
+/// A view of a tensor which does "weak" checking when indexing via
+/// `view[<index>]`. This means that it does not bounds-check individual
+/// dimensions, but does bounds-check the computed offset.
 ///
-/// This is equivalent to `x.iter().for_each(f)` but is faster that Rust's
-/// standard iteration protocol when `x` is non-contiguous and has <= 4
-/// dimensions.
-fn fast_for_each_element<T, F: FnMut(&T)>(mut x: TensorView<T>, mut f: F) {
-    if x.ndim() > 4 {
-        x.iter().for_each(f)
-    } else {
-        while x.ndim() < 4 {
-            x.insert_dim(0);
-        }
+/// This offers a middle-ground between regular indexing, which bounds-checks
+/// each index element, and unchecked indexing, which does no bounds-checking
+/// at all and is thus unsafe.
+pub struct WeaklyCheckedView<T, S: AsRef<[T]>, L: MutLayout> {
+    base: TensorBase<T, S, L>,
+}
 
-        // Safety: We only access valid offsets according to the shape and
-        // strides in the loop below.
-        let x_data = unsafe { x.data_unchecked() };
-        let x: NdTensorView<T, 4> = x.nd_view();
-        let shape = x.shape();
-        let strides = x.strides();
+impl<T, S: AsRef<[T]>, L: MutLayout> Layout for WeaklyCheckedView<T, S, L> {
+    type Index<'a> = L::Index<'a>;
+    type Indices = L::Indices;
 
-        assert!(x_data.len() >= x.layout().min_data_len());
+    fn ndim(&self) -> usize {
+        self.base.ndim()
+    }
 
-        for i0 in 0..shape[0] {
-            for i1 in 0..shape[1] {
-                for i2 in 0..shape[2] {
-                    for i3 in 0..shape[3] {
-                        let offset =
-                            i0 * strides[0] + i1 * strides[1] + i2 * strides[2] + i3 * strides[3];
+    fn try_offset(&self, index: Self::Index<'_>) -> Option<usize> {
+        self.base.try_offset(index)
+    }
 
-                        // Safety: We checked data length > max offset produced
-                        // by layout.
-                        let elt = unsafe { x_data.get_unchecked(offset) };
-                        f(elt)
-                    }
-                }
-            }
-        }
+    fn len(&self) -> usize {
+        self.base.len()
+    }
+
+    fn shape(&self) -> Self::Index<'_> {
+        self.base.shape()
+    }
+
+    fn strides(&self) -> Self::Index<'_> {
+        self.base.strides()
+    }
+
+    fn indices(&self) -> Self::Indices {
+        self.base.indices()
+    }
+}
+
+impl<T, S: AsRef<[T]>, L: MutLayout, I: AsIndex<L>> Index<I> for WeaklyCheckedView<T, S, L> {
+    type Output = T;
+    fn index(&self, index: I) -> &Self::Output {
+        &self.base.data.as_ref()[self.base.layout.offset_unchecked(index.as_index())]
+    }
+}
+
+impl<T, S: AsRef<[T]> + AsMut<[T]>, L: MutLayout, I: AsIndex<L>> IndexMut<I>
+    for WeaklyCheckedView<T, S, L>
+{
+    fn index_mut(&mut self, index: I) -> &mut Self::Output {
+        let offset = self.base.layout.offset_unchecked(index.as_index());
+        &mut self.base.data.as_mut()[offset]
     }
 }
 
 #[cfg(test)]
 mod tests {
-    use std::ops::IndexMut;
-
-    use crate::iterators::Offsets;
+    use super::{AsView, NdTensor, NdTensorView, Tensor};
+    use crate::errors::FromDataError;
+    use crate::layout::MatrixLayout;
+    use crate::prelude::*;
     use crate::rng::XorShiftRng;
-    use crate::tensor;
-    use crate::{
-        Lanes, LanesMut, Layout, NdTensor, NdView, SliceItem, SliceRange, Tensor, TensorView,
-        TensorViewMut, View,
-    };
-
-    /// Create a tensor where the value of each element is its logical index
-    /// plus one.
-    fn steps(shape: &[usize]) -> Tensor<i32> {
-        let steps: usize = shape.iter().product();
-        Tensor::arange(1, steps as i32 + 1, None).into_shape(shape)
-    }
+    use crate::SliceItem;
 
     #[test]
     fn test_apply() {
-        let mut x = steps(&[3, 3]);
-        x.apply(|el| el * el);
-        let expected = Tensor::from_data(&[3, 3], vec![1, 4, 9, 16, 25, 36, 49, 64, 81]);
-        assert_eq!(x, expected);
-    }
-
-    #[test]
-    fn test_fill() {
-        let mut x = Tensor::zeros(&[2, 2]);
-        x.fill(1i32);
-        assert_eq!(x.to_vec(), &[1, 1, 1, 1]);
-
-        x.slice_mut(0).fill(2);
-        x.slice_mut(1).fill(3);
-
-        assert_eq!(x.to_vec(), &[2, 2, 3, 3]);
+        let data = vec![1., 2., 3., 4.];
+        let mut tensor = NdTensor::from_data([2, 2], data);
+        tensor.apply(|x| *x * 2.);
+        assert_eq!(tensor.to_vec(), &[2., 4., 6., 8.]);
     }
 
     #[test]
     fn test_arange() {
-        let x = Tensor::arange(1, 5, None);
-        assert_eq!(x.to_vec(), [1, 2, 3, 4]);
-
-        let x = Tensor::arange(1, 10, Some(2));
-        assert_eq!(x.to_vec(), [1, 3, 5, 7, 9]);
-
-        let x = Tensor::arange(1., 5., None);
-        assert_eq!(x.to_vec(), [1., 2., 3., 4.]);
-
-        let x = Tensor::arange(1., 5., Some(0.5));
-        assert_eq!(x.to_vec(), [1., 1.5, 2., 2.5, 3., 3.5, 4., 4.5]);
+        let x = Tensor::arange(2, 6, None);
+        let y = NdTensor::arange(2, 6, None);
+        assert_eq!(x.data(), Some([2, 3, 4, 5].as_slice()));
+        assert_eq!(y.data(), Some([2, 3, 4, 5].as_slice()));
     }
 
     #[test]
-    fn test_axis_iter() {
-        let x = steps(&[2, 3, 4]);
-
-        // First dimension.
-        let views: Vec<_> = x.axis_iter(0).collect();
-        assert_eq!(views.len(), 2);
-        assert_eq!(views[0], x.slice([0]));
-        assert_eq!(views[1], x.slice([1]));
-
-        // Second dimension.
-        let views: Vec<_> = x.axis_iter(1).collect();
-        assert_eq!(views.len(), 3);
-        assert_eq!(views[0], x.slice((.., 0)));
-        assert_eq!(views[1], x.slice((.., 1)));
+    fn test_as_dyn() {
+        let data = vec![1., 2., 3., 4.];
+        let tensor = NdTensor::from_data([2, 2], data);
+        let dyn_view = tensor.as_dyn();
+        assert_eq!(dyn_view.shape(), tensor.shape().as_ref());
+        assert_eq!(dyn_view.to_vec(), tensor.to_vec());
     }
 
     #[test]
-    fn test_axis_iter_mut() {
-        let mut x = steps(&[2, 3]);
-        let y0 = x.slice([0]).to_tensor();
-        let y1 = x.slice([1]).to_tensor();
+    fn test_as_dyn_mut() {
+        let data = vec![1., 2., 3., 4.];
+        let mut tensor = NdTensor::from_data([2, 2], data);
+        let mut dyn_view = tensor.as_dyn_mut();
 
-        // First dimension.
-        let mut views: Vec<_> = x.axis_iter_mut(0).collect();
-        assert_eq!(views.len(), 2);
-        assert_eq!(views[0], y0);
-        assert_eq!(views[1], y1);
-        views[0].iter_mut().for_each(|x| *x += 1);
-        views[1].iter_mut().for_each(|x| *x += 2);
-        assert_eq!(x.to_vec(), &[2, 3, 4, 6, 7, 8]);
+        dyn_view[[0, 0]] = 9.;
 
-        let z0 = x.slice((.., 0)).to_tensor();
-        let z1 = x.slice((.., 1)).to_tensor();
+        assert_eq!(tensor[[0, 0]], 9.);
+    }
 
-        // Second dimension.
-        let views: Vec<_> = x.axis_iter_mut(1).collect();
-        assert_eq!(views.len(), 3);
-        assert_eq!(views[0], z0);
-        assert_eq!(views[1], z1);
+    #[test]
+    fn test_assign_array() {
+        let mut tensor = NdTensor::zeros([2, 2]);
+        let mut transposed = tensor.view_mut();
+
+        transposed.permute([1, 0]);
+        transposed.slice_mut(0).assign_array([1, 2]);
+        transposed.slice_mut(1).assign_array([3, 4]);
+
+        assert_eq!(tensor.iter().copied().collect::<Vec<_>>(), [1, 3, 2, 4]);
     }
 
     #[test]
     fn test_axis_chunks() {
-        let x = steps(&[4, 2, 2]);
+        let tensor = NdTensor::arange(0, 8, None).into_shape([4, 2]);
+        let mut row_chunks = tensor.axis_chunks(0, 2);
 
-        let mut chunks = x.axis_chunks(0, 2);
+        let chunk = row_chunks.next().unwrap();
+        assert_eq!(chunk.shape(), &[2, 2]);
+        assert_eq!(chunk.to_vec(), &[0, 1, 2, 3]);
 
-        let chunk = chunks.next().expect("expected chunk");
-        assert_eq!(chunk.shape(), &[2, 2, 2]);
-        assert_eq!(
-            chunk.iter().copied().collect::<Vec<_>>(),
-            &[1, 2, 3, 4, 5, 6, 7, 8]
-        );
+        let chunk = row_chunks.next().unwrap();
+        assert_eq!(chunk.shape(), &[2, 2]);
+        assert_eq!(chunk.to_vec(), &[4, 5, 6, 7]);
 
-        let chunk = chunks.next().expect("expected chunk");
-        assert_eq!(chunk.shape(), &[2, 2, 2]);
-        assert_eq!(
-            chunk.iter().copied().collect::<Vec<_>>(),
-            &[9, 10, 11, 12, 13, 14, 15, 16]
-        );
-
-        assert!(chunks.next().is_none());
+        assert!(row_chunks.next().is_none());
     }
 
     #[test]
     fn test_axis_chunks_mut() {
-        let mut x = steps(&[4, 2, 2]);
+        let mut tensor = NdTensor::arange(1, 9, None).into_shape([4, 2]);
+        let mut row_chunks = tensor.axis_chunks_mut(0, 2);
 
-        let mut chunks = x.axis_chunks_mut(0, 2);
+        let mut chunk = row_chunks.next().unwrap();
+        chunk.apply(|x| x * 2);
 
-        let mut chunk = chunks.next().expect("expected chunk");
-        assert_eq!(chunk.shape(), &[2, 2, 2]);
-        chunk.iter_mut().for_each(|x| *x *= 10);
-        assert_eq!(
-            chunk.iter().copied().collect::<Vec<_>>(),
-            &[10, 20, 30, 40, 50, 60, 70, 80]
-        );
+        let mut chunk = row_chunks.next().unwrap();
+        chunk.apply(|x| x * -2);
 
-        let mut chunk = chunks.next().expect("expected chunk");
-        assert_eq!(chunk.shape(), &[2, 2, 2]);
-        chunk.iter_mut().for_each(|x| *x *= 10);
-        assert_eq!(
-            chunk.iter().copied().collect::<Vec<_>>(),
-            &[90, 100, 110, 120, 130, 140, 150, 160]
-        );
-
-        assert!(chunks.next().is_none());
+        assert!(row_chunks.next().is_none());
+        assert_eq!(tensor.to_vec(), [2, 4, 6, 8, -10, -12, -14, -16]);
     }
 
     #[test]
-    fn test_clip_dim() {
-        let mut x = steps(&[3, 3]);
-        x.clip_dim(0, 1..2);
-        x.clip_dim(1, 1..2);
-        assert_eq!(x.to_vec(), vec![5]);
+    fn test_axis_iter() {
+        let tensor = NdTensor::arange(0, 4, None).into_shape([2, 2]);
+        let mut rows = tensor.axis_iter(0);
+
+        let row = rows.next().unwrap();
+        assert_eq!(row.shape(), &[2]);
+        assert_eq!(row.to_vec(), &[0, 1]);
+
+        let row = rows.next().unwrap();
+        assert_eq!(row.shape(), &[2]);
+        assert_eq!(row.to_vec(), &[2, 3]);
+
+        assert!(rows.next().is_none());
     }
 
     #[test]
-    fn test_clip_dim_start() {
-        let mut x = steps(&[3, 3]);
+    fn test_axis_iter_mut() {
+        let mut tensor = NdTensor::arange(1, 5, None).into_shape([2, 2]);
+        let mut rows = tensor.axis_iter_mut(0);
 
-        // Clip the start of the tensor, adjusting the `base` offset.
-        x.clip_dim(0, 1..3);
+        let mut row = rows.next().unwrap();
+        row.apply(|x| x * 2);
 
-        // Indexing should reflect the slice.
-        assert_eq!(x.to_vec(), &[4, 5, 6, 7, 8, 9]);
-        assert_eq!(x[[0, 0]], 4);
-        assert_eq!(*x.index_mut([0, 0]), 4);
+        let mut row = rows.next().unwrap();
+        row.apply(|x| x * -2);
 
-        // Slices returned by `data` should reflect the slice.
-        assert_eq!(x.data(), Some([4, 5, 6, 7, 8, 9].as_slice()));
-        assert_eq!(x.data_mut().as_deref(), Some([4, 5, 6, 7, 8, 9].as_slice()));
-
-        // Offsets should be relative to the sliced returned by `data`,
-        // `data_mut`.
-        assert_eq!(
-            Offsets::new(&x).collect::<Vec<usize>>(),
-            &[0, 1, 2, 3, 4, 5]
-        );
-        assert_eq!(x.layout().offset(&[0, 0]), 0);
-    }
-
-    #[test]
-    fn test_copy_from() {
-        let x = steps(&[3, 3]);
-        let mut y = Tensor::zeros(x.shape());
-
-        y.copy_from(&x.view());
-
-        assert_eq!(y, x);
-    }
-
-    #[test]
-    fn test_from_arrays() {
-        // 2D
-        let x = Tensor::from([[2, 3], [4, 5], [6, 7]]);
-        assert_eq!(x.shape(), &[3, 2]);
-        assert_eq!(x.data(), Some([2, 3, 4, 5, 6, 7].as_slice()));
-
-        // 3D
-        let x = Tensor::from([[[2, 3], [4, 5], [6, 7]]]);
-        assert_eq!(x.shape(), &[1, 3, 2]);
-        assert_eq!(x.data(), Some([2, 3, 4, 5, 6, 7].as_slice()));
-    }
-
-    #[test]
-    fn test_from_scalar() {
-        let x = Tensor::from_scalar(5);
-        assert_eq!(x.shape().len(), 0);
-        assert_eq!(x.data(), Some([5].as_slice()));
-    }
-
-    #[test]
-    fn test_from_vec() {
-        let x = tensor!([1, 2, 3]);
-        assert_eq!(x.shape(), &[3]);
-        assert_eq!(x.data(), Some([1, 2, 3].as_slice()));
-    }
-
-    #[test]
-    fn test_full() {
-        let x = Tensor::full(&[2, 2], 1.0);
-        assert_eq!(x.shape(), &[2, 2]);
-        assert_eq!(x.data(), Some([1., 1., 1., 1.].as_slice()));
-    }
-
-    #[test]
-    fn test_from_iterator() {
-        let x: Tensor<i32> = FromIterator::from_iter(0..10);
-        assert_eq!(x.shape(), &[10]);
-        assert_eq!(x.data(), Some([0, 1, 2, 3, 4, 5, 6, 7, 8, 9].as_slice()));
-    }
-
-    #[test]
-    fn test_stride() {
-        let x = Tensor::<f32>::zeros(&[2, 5, 7, 3]);
-        assert_eq!(x.stride(3), 1);
-        assert_eq!(x.stride(2), 3);
-        assert_eq!(x.stride(1), 7 * 3);
-        assert_eq!(x.stride(0), 5 * 7 * 3);
-    }
-
-    #[test]
-    fn test_strides() {
-        let x = Tensor::<f32>::zeros(&[2, 5, 7, 3]);
-        assert_eq!(x.strides(), [5 * 7 * 3, 7 * 3, 3, 1]);
-    }
-
-    #[test]
-    fn test_get() {
-        let mut x = Tensor::<f32>::zeros(&[2, 2]);
-
-        x.data[0] = 1.0;
-        x.data[1] = 2.0;
-        x.data[2] = 3.0;
-        x.data[3] = 4.0;
-
-        // Index with fixed-sized array.
-        assert_eq!(x.get([0, 0]), Some(&1.0));
-        assert_eq!(x.get([0, 1]), Some(&2.0));
-        assert_eq!(x.get([1, 0]), Some(&3.0));
-        assert_eq!(x.get([1, 1]), Some(&4.0));
-
-        // Invalid indices
-        assert_eq!(x.get([0, 2]), None);
-        assert_eq!(x.get([2, 0]), None);
-        assert_eq!(x.get([1, 0, 0]), None);
-
-        // Index with slice.
-        assert_eq!(x.get([0, 0].as_slice()), Some(&1.0));
-        assert_eq!(x.get([0, 1].as_slice()), Some(&2.0));
-        assert_eq!(x.get([1, 0].as_slice()), Some(&3.0));
-        assert_eq!(x.get([1, 1].as_slice()), Some(&4.0));
-    }
-
-    #[test]
-    fn test_index() {
-        let mut x = Tensor::<f32>::zeros(&[2, 2]);
-
-        x.data[0] = 1.0;
-        x.data[1] = 2.0;
-        x.data[2] = 3.0;
-        x.data[3] = 4.0;
-
-        // Index with fixed-sized array.
-        assert_eq!(x[[0, 0]], 1.0);
-        assert_eq!(x[[0, 1]], 2.0);
-        assert_eq!(x[[1, 0]], 3.0);
-        assert_eq!(x[[1, 1]], 4.0);
-
-        // Index with slice.
-        assert_eq!(x[[0, 0].as_slice()], 1.0);
-        assert_eq!(x[[0, 1].as_slice()], 2.0);
-        assert_eq!(x[[1, 0].as_slice()], 3.0);
-        assert_eq!(x[[1, 1].as_slice()], 4.0);
-    }
-
-    #[test]
-    fn test_index_scalar() {
-        let x = Tensor::from_scalar(5.0);
-        assert_eq!(x[[]], 5.0);
-    }
-
-    #[test]
-    fn test_index_mut() {
-        let mut x = Tensor::<f32>::zeros(&[2, 2]);
-
-        x[[0, 0]] = 1.0;
-        x[[0, 1]] = 2.0;
-        x[[1, 0]] = 3.0;
-        x[[1, 1]] = 4.0;
-
-        assert_eq!(x.data[0], 1.0);
-        assert_eq!(x.data[1], 2.0);
-        assert_eq!(x.data[2], 3.0);
-        assert_eq!(x.data[3], 4.0);
-    }
-
-    #[test]
-    fn test_get_mut() {
-        let mut x = Tensor::<f32>::zeros(&[2, 2]);
-
-        *x.get_mut([0, 0]).unwrap() = 1.0;
-        *x.get_mut([0, 1]).unwrap() = 2.0;
-        *x.get_mut([1, 0]).unwrap() = 3.0;
-        *x.get_mut([1, 1]).unwrap() = 4.0;
-
-        assert_eq!(x.data[0], 1.0);
-        assert_eq!(x.data[1], 2.0);
-        assert_eq!(x.data[2], 3.0);
-        assert_eq!(x.data[3], 4.0);
-
-        assert_eq!(x.get_mut([1, 2]), None);
-    }
-
-    #[test]
-    #[should_panic]
-    fn test_index_panics_if_invalid() {
-        let x = Tensor::<f32>::zeros(&[2, 2]);
-        x[[2, 0]];
-    }
-
-    #[test]
-    #[should_panic]
-    fn test_index_panics_if_wrong_dim_count() {
-        let x = Tensor::<f32>::zeros(&[2, 2]);
-        x[[0, 0, 0]];
-    }
-
-    #[test]
-    fn test_indices() {
-        let x = Tensor::<f32>::zeros(&[2, 2]);
-        let x_indices = {
-            let mut indices = Vec::new();
-            let mut iter = x.indices();
-            while let Some(index) = iter.next() {
-                indices.push(index.to_vec());
-            }
-            indices
-        };
-        assert_eq!(
-            x_indices,
-            &[vec![0, 0], vec![0, 1], vec![1, 0], vec![1, 1],]
-        );
-    }
-
-    #[test]
-    fn test_item() {
-        let scalar = Tensor::from_scalar(5.0);
-        assert_eq!(scalar.item(), Some(&5.0));
-
-        let vec_one_item = tensor!([5.0]);
-        assert_eq!(vec_one_item.item(), Some(&5.0));
-
-        let vec_many_items = tensor!([1.0, 2.0]);
-        assert_eq!(vec_many_items.item(), None);
-
-        let matrix_one_item = Tensor::from_data(&[1, 1], vec![5.0]);
-        assert_eq!(matrix_one_item.item(), Some(&5.0));
-    }
-
-    #[test]
-    fn test_map() {
-        // Contiguous tensor.
-        let x = steps(&[2, 3]).map(|val| val * 2);
-        assert_eq!(x.to_vec(), &[2, 4, 6, 8, 10, 12]);
-
-        // Non-contiguous view.
-        let x = steps(&[2, 3]);
-        let x = x.transposed();
-        assert!(!x.is_contiguous());
-        assert_eq!(x.to_vec(), &[1, 4, 2, 5, 3, 6]);
-        let x = x.map(|val| val * 2);
-        assert_eq!(x.to_vec(), &[2, 8, 4, 10, 6, 12]);
-    }
-
-    #[test]
-    fn test_move_axis() {
-        let mut x = steps(&[2, 3]);
-        x.move_axis(1, 0);
-        assert_eq!(x.shape(), [3, 2]);
-    }
-
-    #[test]
-    fn test_ndim() {
-        let scalar = Tensor::from_scalar(5.0);
-        let vec = tensor!([5.0]);
-        let matrix = Tensor::from_data(&[1, 1], vec![5.0]);
-
-        assert_eq!(scalar.ndim(), 0);
-        assert_eq!(vec.ndim(), 1);
-        assert_eq!(matrix.ndim(), 2);
-    }
-
-    #[test]
-    fn test_partial_eq() {
-        let x = tensor!([1, 2, 3, 4, 5]);
-        let y = x.clone();
-        let z = x.to_shape(&[1, 5]);
-
-        // Int tensors are equal if they have the same shape and elements.
-        assert_eq!(&x, &y);
-        assert_ne!(&x, &z);
-    }
-
-    #[test]
-    fn test_len() {
-        let scalar = Tensor::from_scalar(5);
-        let vec = tensor!([1, 2, 3]);
-        let matrix = Tensor::from_data(&[2, 2], vec![1, 2, 3, 4]);
-
-        assert_eq!(scalar.len(), 1);
-        assert_eq!(vec.len(), 3);
-        assert_eq!(matrix.len(), 4);
-    }
-
-    #[test]
-    fn test_is_empty() {
-        assert!(Tensor::<f32>::from_vec(vec![]).is_empty());
-        assert!(!tensor!([1]).is_empty());
-        assert!(!Tensor::from_scalar(5.0).is_empty());
-    }
-
-    #[test]
-    fn test_reshape() {
-        let mut rng = XorShiftRng::new(1234);
-        let mut x = Tensor::rand(&[10, 5, 3, 7], &mut rng);
-        let x_data: Vec<f32> = x.data().unwrap().to_vec();
-
-        assert_eq!(x.shape(), &[10, 5, 3, 7]);
-
-        x.reshape(&[10, 5, 3 * 7]);
-
-        assert_eq!(x.shape(), &[10, 5, 3 * 7]);
-        assert_eq!(x.data(), Some(x_data.as_slice()));
-    }
-
-    #[test]
-    fn test_reshape_non_contiguous() {
-        let mut rng = XorShiftRng::new(1234);
-        let mut x = Tensor::rand(&[10, 10], &mut rng);
-
-        // Set the input up so that it is non-contiguous and has a non-zero
-        // `base` offset.
-        x.permute(&[1, 0]);
-        x.clip_dim(0, 2..8);
-
-        // Reshape the tensor. This should copy the data and reset the `base`
-        // offset.
-        x.reshape(&[x.shape().iter().product()]);
-
-        // After reshaping, we should be able to successfully read all the elements.
-        // Note this test doesn't check that the correct elements were read.
-        let elts: Vec<_> = x.iter().collect();
-        assert_eq!(elts.len(), 60);
-
-        // Set up another input so it is non-contiguous and has a non-zero `base` offset.
-        let mut x = steps(&[3, 3]);
-        x.clip_dim(0, 1..3);
-        x.clip_dim(1, 1..3);
-
-        // Flatten the input with reshape.
-        x.reshape(&[4]);
-
-        // Check that the correct elements were read.
-        assert_eq!(x.to_vec(), &[5, 6, 8, 9]);
-    }
-
-    #[test]
-    fn test_reshape_copies_with_custom_strides() {
-        let mut rng = XorShiftRng::new(1234);
-        let mut x = Tensor::rand(&[10, 10], &mut rng);
-
-        // Give the tensor a non-default stride
-        x.clip_dim(1, 0..8);
-        assert!(!x.is_contiguous());
-        let x_elements = x.to_vec();
-
-        x.reshape(&[80]);
-
-        // Since the tensor had a non-default stride, `reshape` will have copied
-        // data.
-        assert_eq!(x.shape(), &[80]);
-        assert!(x.is_contiguous());
-        assert_eq!(x.data(), Some(x_elements.as_slice()));
-    }
-
-    #[test]
-    #[should_panic(expected = "New shape must have same total elements as current shape")]
-    fn test_reshape_with_wrong_size() {
-        let mut rng = XorShiftRng::new(1234);
-        let mut x = Tensor::rand(&[10, 5, 3, 7], &mut rng);
-        x.reshape(&[10, 5]);
-    }
-
-    #[test]
-    fn test_permute() {
-        // Test with a vector (this is a no-op)
-        let mut input = steps(&[5]);
-        assert!(input.iter().eq([1, 2, 3, 4, 5].iter()));
-        input.permute(&[0]);
-        assert!(input.iter().eq([1, 2, 3, 4, 5].iter()));
-
-        // Test with a matrix (ie. transpose the matrix)
-        let mut input = steps(&[2, 3]);
-        assert!(input.iter().eq([1, 2, 3, 4, 5, 6].iter()));
-        input.permute(&[1, 0]);
-        assert_eq!(input.shape(), &[3, 2]);
-        assert!(input.iter().eq([1, 4, 2, 5, 3, 6].iter()));
-
-        // Test with a higher-rank tensor. For this test we don't list out the
-        // full permuted element sequence, but just check the shape and strides
-        // were updated.
-        let mut input = steps(&[3, 4, 5]);
-        let (stride_0, stride_1, stride_2) = (input.stride(0), input.stride(1), input.stride(2));
-        input.permute(&[2, 0, 1]);
-        assert_eq!(input.shape(), &[5, 3, 4]);
-        assert_eq!(
-            (input.stride(0), input.stride(1), input.stride(2)),
-            (stride_2, stride_0, stride_1)
-        );
-    }
-
-    #[test]
-    #[should_panic(expected = "permutation is invalid")]
-    fn test_permute_wrong_dim_count() {
-        let mut input = steps(&[2, 3]);
-        input.permute(&[1, 2, 3]);
-    }
-
-    #[test]
-    fn test_transpose() {
-        // Test with a vector (this is a no-op)
-        let mut input = steps(&[5]);
-        input.transpose();
-        assert_eq!(input.shape(), &[5]);
-
-        // Test with a matrix
-        let mut input = steps(&[2, 3]);
-        assert!(input.iter().eq([1, 2, 3, 4, 5, 6].iter()));
-        input.transpose();
-        assert_eq!(input.shape(), &[3, 2]);
-        assert!(input.iter().eq([1, 4, 2, 5, 3, 6].iter()));
-
-        // Test with a higher-rank tensor
-        let mut input = steps(&[1, 3, 7]);
-        input.transpose();
-        assert_eq!(input.shape(), [7, 3, 1]);
-    }
-
-    #[test]
-    fn test_insert_dim() {
-        // Insert dims in contiguous tensor.
-        let mut input = steps(&[2, 3]);
-        input.insert_dim(1);
-        assert_eq!(input.shape(), &[2, 1, 3]);
-        assert_eq!(input.strides(), &[3, 6, 1]);
-
-        input.insert_dim(1);
-        assert_eq!(input.shape(), &[2, 1, 1, 3]);
-        assert_eq!(input.strides(), &[3, 6, 6, 1]);
-
-        input.insert_dim(0);
-        assert_eq!(input.shape(), &[1, 2, 1, 1, 3]);
-        assert_eq!(input.strides(), &[6, 3, 6, 6, 1]);
-
-        // Insert dims in non-contiguous tensor.
-        let mut input = steps(&[2, 3]);
-        input.transpose();
-        input.insert_dim(0);
-        assert_eq!(input.shape(), &[1, 3, 2]);
-        assert_eq!(input.strides(), &[6, 1, 3]);
-
-        input.insert_dim(3);
-        assert_eq!(input.shape(), &[1, 3, 2, 1]);
-        assert_eq!(input.strides(), &[6, 1, 3, 6]);
-
-        // Insert dims in a tensor where the smallest stride is > 1.
-        let input = steps(&[2, 4]);
-        let mut view = input.slice((.., SliceRange::new(0, None, 2)));
-        assert_eq!(view.shape(), &[2, 2]);
-        assert_eq!(view.strides(), &[4, 2]);
-
-        view.insert_dim(0);
-
-        assert_eq!(view.shape(), &[1, 2, 2]);
-        assert_eq!(view.strides(), &[8, 4, 2]);
-    }
-
-    #[test]
-    fn test_to_shape() {
-        let mut rng = XorShiftRng::new(1234);
-        let x = Tensor::rand(&[10, 5, 3, 7], &mut rng);
-        let y = x.to_shape(&[10, 5, 3 * 7]);
-
-        assert_eq!(y.shape(), &[10, 5, 3 * 7]);
-        assert_eq!(y.data(), x.data());
-    }
-
-    #[test]
-    fn test_nd_view() {
-        let mut rng = XorShiftRng::new(1234);
-        let x = Tensor::rand(&[10, 5, 3, 7], &mut rng);
-        let x_view = x.nd_view::<4>();
-        assert_eq!(x_view.shape(), x.shape());
-        assert_eq!(x_view.strides(), x.strides());
-        assert_eq!(x_view.data(), x.data());
-    }
-
-    #[test]
-    fn test_nd_view_mut() {
-        let mut rng = XorShiftRng::new(1234);
-        let mut x = Tensor::rand(&[10, 5, 3, 7], &mut rng);
-        let layout = x.layout().clone();
-        let x_view = x.nd_view_mut::<4>();
-        assert_eq!(x_view.shape(), layout.shape());
-        assert_eq!(x_view.strides(), layout.strides());
-    }
-
-    #[test]
-    fn test_iter_for_contiguous_array() {
-        for dims in 1..7 {
-            let mut shape = Vec::new();
-            for d in 0..dims {
-                shape.push(d + 1);
-            }
-            let mut rng = XorShiftRng::new(1234);
-            let x = Tensor::rand(&shape, &mut rng);
-
-            let elts: Vec<f32> = x.iter().copied().collect();
-
-            assert_eq!(x.data(), Some(elts.as_slice()));
-        }
-    }
-
-    #[test]
-    fn test_iter_for_empty_array() {
-        let empty = Tensor::<f32>::zeros(&[3, 0, 5]);
-        assert!(empty.iter().next().is_none());
-    }
-
-    #[test]
-    fn test_iter_for_non_contiguous_array() {
-        let mut x = Tensor::zeros(&[3, 3]);
-        for (index, elt) in x.iter_mut().enumerate() {
-            *elt = index + 1;
-        }
-
-        // Initially tensor is contiguous, so data buffer and element sequence
-        // match.
-        assert_eq!(
-            x.data(),
-            Some(x.iter().copied().collect::<Vec<_>>().as_slice())
-        );
-
-        // Slice the tensor along an outer dimension. This will leave the tensor
-        // contiguous, and hence `data` and `elements` should return the same
-        // elements.
-        x.clip_dim(0, 0..2);
-        assert_eq!(x.data(), Some([1, 2, 3, 4, 5, 6].as_slice()));
-        assert_eq!(x.iter().copied().collect::<Vec<_>>(), &[1, 2, 3, 4, 5, 6]);
-        // Test with step > 1 to exercise `Elements::nth`.
-        assert_eq!(x.iter().step_by(2).copied().collect::<Vec<_>>(), &[1, 3, 5]);
-
-        // Slice the tensor along an inner dimension. The tensor will no longer
-        // be contiguous and hence `elements` will return different results than
-        // `data`.
-        x.clip_dim(1, 0..2);
-        assert_eq!(x.data(), None);
-        assert_eq!(x.iter().copied().collect::<Vec<_>>(), &[1, 2, 4, 5]);
-        // Test with step > 1 to exercise `Elements::nth`.
-        assert_eq!(x.iter().step_by(2).copied().collect::<Vec<_>>(), &[1, 4]);
-    }
-
-    // PyTorch and numpy do not allow iteration over a scalar, but it seems
-    // consistent for `Tensor::iter` to always yield `Tensor::len` elements,
-    // and `len` returns 1 for a scalar.
-    #[test]
-    fn test_iter_for_scalar() {
-        let x = Tensor::from_scalar(5.0);
-        let elements = x.iter().copied().collect::<Vec<_>>();
-        assert_eq!(&elements, &[5.0]);
-    }
-
-    #[test]
-    fn test_iter_mut_for_contiguous_array() {
-        for dims in 1..7 {
-            let mut shape = Vec::new();
-            for d in 0..dims {
-                shape.push(d + 1);
-            }
-            let mut rng = XorShiftRng::new(1234);
-            let mut x = Tensor::rand(&shape, &mut rng);
-
-            let elts: Vec<f32> = x.iter().map(|x| x * 2.).collect();
-
-            for elt in x.iter_mut() {
-                *elt *= 2.;
-            }
-
-            assert_eq!(x.data(), Some(elts.as_slice()));
-        }
-    }
-
-    #[test]
-    fn test_iter_mut_for_non_contiguous_array() {
-        let mut x = Tensor::zeros(&[3, 3]);
-        for (index, elt) in x.iter_mut().enumerate() {
-            *elt = index + 1;
-        }
-        x.permute(&[1, 0]);
-
-        let x_doubled: Vec<usize> = x.iter().map(|x| x * 2).collect();
-        for elt in x.iter_mut() {
-            *elt *= 2;
-        }
-        assert_eq!(x.to_vec(), x_doubled);
-    }
-
-    #[test]
-    fn test_lanes() {
-        let x = steps(&[3, 3]);
-
-        let collect_lane =
-            |lanes: &mut Lanes<'_, i32>| lanes.next().map(|lane| lane.copied().collect::<Vec<_>>());
-
-        let mut rows = x.lanes(1);
-        assert_eq!(collect_lane(&mut rows), Some([1, 2, 3].to_vec()));
-        assert_eq!(collect_lane(&mut rows), Some([4, 5, 6].to_vec()));
-        assert_eq!(collect_lane(&mut rows), Some([7, 8, 9].to_vec()));
-
-        let mut cols = x.lanes(0);
-        assert_eq!(collect_lane(&mut cols), Some([1, 4, 7].to_vec()));
-        assert_eq!(collect_lane(&mut cols), Some([2, 5, 8].to_vec()));
-        assert_eq!(collect_lane(&mut cols), Some([3, 6, 9].to_vec()));
-    }
-
-    #[test]
-    fn test_lanes_mut() {
-        let update_lanes = |lanes: LanesMut<'_, i32>| {
-            let mut lane_idx = 0;
-            for lane in lanes {
-                for el in lane {
-                    *el = lane_idx;
-                }
-                lane_idx += 1;
-            }
-        };
-
-        let mut x = Tensor::zeros(&[3, 3]);
-        let rows = x.lanes_mut(1);
-        update_lanes(rows);
-        assert_eq!(x.to_vec(), &[0, 0, 0, 1, 1, 1, 2, 2, 2]);
-
-        let mut x = Tensor::zeros(&[3, 3]);
-        let cols = x.lanes_mut(0);
-        update_lanes(cols);
-        assert_eq!(x.to_vec(), &[0, 1, 2, 0, 1, 2, 0, 1, 2]);
-    }
-
-    #[test]
-    fn test_to_vec() {
-        let mut x = steps(&[3, 3]);
-
-        // Contiguous case. This should use the fast-path.
-        assert_eq!(x.to_vec(), x.iter().copied().collect::<Vec<_>>());
-
-        // Non-contiguous case.
-        x.clip_dim(1, 0..2);
-        assert!(!x.is_contiguous());
-        assert_eq!(x.to_vec(), x.iter().copied().collect::<Vec<_>>());
-    }
-
-    #[test]
-    fn test_offsets() {
-        let mut rng = XorShiftRng::new(1234);
-        let mut x = Tensor::rand(&[10, 10], &mut rng);
-
-        let x_elts: Vec<_> = x.to_vec();
-
-        let x_offsets = Offsets::new(&x);
-        let x_data = x.data_mut().unwrap();
-        let x_elts_from_offset: Vec<_> = x_offsets.map(|off| x_data[off]).collect();
-
-        assert_eq!(x_elts, x_elts_from_offset);
-    }
-
-    #[test]
-    fn test_offsets_nth() {
-        let x = steps(&[3]);
-        let mut iter = Offsets::new(&x);
-        assert_eq!(iter.nth(0), Some(0));
-        assert_eq!(iter.nth(0), Some(1));
-        assert_eq!(iter.nth(0), Some(2));
-        assert_eq!(iter.nth(0), None);
-
-        let x = steps(&[10]);
-        let mut iter = Offsets::new(&x);
-        assert_eq!(iter.nth(1), Some(1));
-        assert_eq!(iter.nth(5), Some(7));
-        assert_eq!(iter.nth(1), Some(9));
-        assert_eq!(iter.nth(0), None);
-    }
-
-    #[test]
-    fn test_from_data() {
-        let scalar = Tensor::from_data(&[], vec![1.0]);
-        assert_eq!(scalar.len(), 1);
-
-        let matrix = Tensor::from_data(&[2, 2], vec![1, 2, 3, 4]);
-        assert_eq!(matrix.shape(), &[2, 2]);
-        assert_eq!(matrix.data(), Some([1, 2, 3, 4].as_slice()));
-    }
-
-    #[test]
-    fn test_from_data_with_slice() {
-        let matrix = TensorView::from_data(&[2, 2], [1, 2, 3, 4].as_slice());
-        assert_eq!(matrix.shape(), &[2, 2]);
-        assert_eq!(matrix.data(), Some([1, 2, 3, 4].as_slice()));
-    }
-
-    #[test]
-    fn test_from_data_with_mut_slice() {
-        let mut data = vec![1, 2, 3, 4];
-        let mut matrix = TensorViewMut::from_data(&[2, 2], &mut data[..]);
-        matrix[[0, 1]] = 5;
-        matrix[[1, 0]] = 6;
-        assert_eq!(data, &[1, 5, 6, 4]);
-    }
-
-    #[test]
-    #[should_panic]
-    fn test_from_data_panics_with_wrong_len() {
-        Tensor::from_data(&[1], vec![1, 2, 3]);
-    }
-
-    #[test]
-    #[should_panic]
-    fn test_from_data_panics_if_scalar_data_empty() {
-        Tensor::<i32>::from_data(&[], vec![]);
-    }
-
-    #[test]
-    #[should_panic]
-    fn test_from_data_panics_if_scalar_data_has_many_elements() {
-        Tensor::from_data(&[], vec![1, 2, 3]);
-    }
-
-    #[test]
-    fn test_from_ndtensor() {
-        // NdTensor -> Tensor
-        let ndtensor = NdTensor::zeros([1, 10, 20]);
-        let tensor: Tensor<i32> = ndtensor.clone().into();
-        assert_eq!(tensor.data(), ndtensor.data());
-        assert_eq!(tensor.shape(), ndtensor.shape());
-        assert_eq!(tensor.strides(), ndtensor.strides());
-
-        // NdTensorView -> TensorView
-        let view: TensorView<i32> = ndtensor.view().into();
-        assert_eq!(view.shape(), ndtensor.shape());
-
-        // NdTensorViewMut -> TensorViewMut
-        let mut ndtensor = NdTensor::zeros([1, 10, 20]);
-        let mut view: TensorViewMut<i32> = ndtensor.view_mut().into();
-        view[[0, 0, 0]] = 1;
-        assert_eq!(ndtensor[[0, 0, 0]], 1);
-    }
-
-    #[test]
-    fn test_is_contiguous() {
-        let mut x = Tensor::zeros(&[3, 3]);
-        for (index, elt) in x.iter_mut().enumerate() {
-            *elt = index + 1;
-        }
-
-        // Freshly-allocated tensor
-        assert!(x.is_contiguous());
-
-        // Tensor where outermost dimension has been clipped at the end.
-        let mut y = x.clone();
-        y.clip_dim(0, 0..2);
-        assert!(y.is_contiguous());
-        assert_eq!(y.data(), Some([1, 2, 3, 4, 5, 6].as_slice()));
-
-        // Tensor where outermost dimension has been clipped at the start.
-        let mut y = x.clone();
-        y.clip_dim(0, 1..3);
-        assert!(y.is_contiguous());
-        assert_eq!(y.data(), Some([4, 5, 6, 7, 8, 9].as_slice()));
-
-        // Tensor where inner dimension has been clipped at the start.
-        let mut y = x.clone();
-        y.clip_dim(1, 1..3);
-        assert!(!y.is_contiguous());
-
-        // Tensor where inner dimension has been clipped at the end.
-        let mut y = x.clone();
-        y.clip_dim(1, 0..2);
-        assert!(!y.is_contiguous());
-    }
-
-    #[test]
-    fn test_is_contiguous_1d() {
-        let mut x = Tensor::zeros(&[10]);
-        for (index, elt) in x.iter_mut().enumerate() {
-            *elt = index + 1;
-        }
-
-        assert!(x.is_contiguous());
-        x.clip_dim(0, 0..5);
-        assert!(x.is_contiguous());
-    }
-
-    #[test]
-    fn test_make_contiguous() {
-        let mut x = steps(&[3, 3]);
-        assert!(x.is_contiguous());
-
-        // Clip outer dimension at start. This will modify the base offset.
-        x.clip_dim(0, 1..3);
-
-        // Clip inner dimension at start. This will modify the strides.
-        x.clip_dim(1, 1..3);
-        assert!(!x.is_contiguous());
-
-        x.make_contiguous();
-        assert!(x.is_contiguous());
-        assert_eq!(x.to_vec(), &[5, 6, 8, 9]);
-    }
-
-    #[test]
-    fn test_to_contiguous() {
-        let x = steps(&[3, 3]);
-        let y = x.to_contiguous();
-        assert!(y.is_contiguous());
-        assert_eq!(y.data().unwrap().as_ptr(), x.data().unwrap().as_ptr());
-
-        let x = x.permuted(&[1, 0]);
-        let y = x.to_contiguous();
-        assert!(y.is_contiguous());
-        assert_eq!(x.data(), None);
-        assert_eq!(y.data().unwrap(), x.to_vec());
-    }
-
-    #[test]
-    fn test_broadcast_iter() {
-        let x = steps(&[1, 2, 1, 2]);
-        assert_eq!(x.to_vec(), &[1, 2, 3, 4]);
-
-        // Broadcast a 1-size dimension to size 2
-        let bx = x.broadcast_iter(&[2, 2, 1, 2]);
-        assert_eq!(bx.copied().collect::<Vec<i32>>(), &[1, 2, 3, 4, 1, 2, 3, 4]);
-
-        // Broadcast a different 1-size dimension to size 2
-        let bx = x.broadcast_iter(&[1, 2, 2, 2]);
-        assert_eq!(bx.copied().collect::<Vec<i32>>(), &[1, 2, 1, 2, 3, 4, 3, 4]);
-
-        // Broadcast to a larger number of dimensions
-        let x = steps(&[5]);
-        let bx = x.broadcast_iter(&[1, 5]);
-        assert_eq!(bx.copied().collect::<Vec<i32>>(), &[1, 2, 3, 4, 5]);
-    }
-
-    #[test]
-    fn test_broadcast_iter_with_scalar() {
-        let scalar = Tensor::from_scalar(7);
-        let bx = scalar.broadcast_iter(&[3, 3]);
-        assert_eq!(
-            bx.copied().collect::<Vec<i32>>(),
-            &[7, 7, 7, 7, 7, 7, 7, 7, 7]
-        );
-    }
-
-    #[test]
-    #[should_panic(expected = "Cannot broadcast to specified shape")]
-    fn test_broadcast_iter_with_invalid_shape() {
-        let x = steps(&[2, 2]);
-        x.broadcast_iter(&[3, 2]);
-    }
-
-    #[test]
-    #[should_panic(expected = "Cannot broadcast to specified shape")]
-    fn test_broadcast_iter_with_shorter_shape() {
-        let x = steps(&[2, 2]);
-        x.broadcast_iter(&[4]);
+        assert!(rows.next().is_none());
+        assert_eq!(tensor.to_vec(), [2, 4, -6, -8]);
     }
 
     #[test]
     fn test_broadcast() {
-        let x = steps(&[1, 2, 1, 2]);
-        assert_eq!(x.to_vec(), &[1, 2, 3, 4]);
+        let data = vec![1., 2., 3., 4.];
+        let dest_shape = [3, 1, 2, 2];
+        let expected_data: Vec<_> = data.iter().copied().cycle().take(data.len() * 3).collect();
+        let ndtensor = NdTensor::from_data([2, 2], data);
 
-        // Broadcast a 1-size dimension to size 2
-        let bx = x.broadcast(&[2, 2, 1, 2]);
-        assert_eq!(bx.shape(), &[2, 2, 1, 2]);
-        assert_eq!(bx.strides(), &[0, x.stride(1), x.stride(2), x.stride(3)]);
-        assert_eq!(bx.to_vec(), &[1, 2, 3, 4, 1, 2, 3, 4]);
+        // Broadcast static -> static.
+        let view = ndtensor.broadcast(dest_shape);
+        assert_eq!(view.shape(), dest_shape);
+        assert_eq!(view.to_vec(), expected_data);
 
-        // Broadcast a different 1-size dimension to size 2
-        let bx = x.broadcast(&[1, 2, 2, 2]);
-        assert_eq!(bx.shape(), &[1, 2, 2, 2]);
-        assert_eq!(bx.strides(), &[x.stride(0), x.stride(1), 0, x.stride(3)]);
-        assert_eq!(bx.to_vec(), &[1, 2, 1, 2, 3, 4, 3, 4]);
+        // Broadcast static -> dynamic.
+        let view = ndtensor.broadcast(dest_shape.as_slice());
+        assert_eq!(view.shape(), dest_shape);
+        assert_eq!(view.to_vec(), expected_data);
 
-        // Broadcast to a larger number of dimensions
-        let x = steps(&[5]);
-        let bx = x.broadcast(&[1, 5]);
-        assert_eq!(bx.shape(), &[1, 5]);
-        assert_eq!(bx.strides(), &[0, x.stride(0)]);
-        assert_eq!(bx.to_vec(), &[1, 2, 3, 4, 5]);
+        // Broadcast dynamic -> static.
+        let tensor = ndtensor.as_dyn();
+        let view = tensor.broadcast(dest_shape);
+        assert_eq!(view.shape(), dest_shape);
+        assert_eq!(view.to_vec(), expected_data);
 
-        // Broadcast a scalar
-        let scalar = Tensor::from_scalar(7);
-        let bx = scalar.broadcast(&[3, 3]);
-        assert_eq!(bx.shape(), &[3, 3]);
-        assert_eq!(bx.strides(), &[0, 0]);
-        assert_eq!(bx.to_vec(), &[7, 7, 7, 7, 7, 7, 7, 7, 7]);
+        // Broadcast dynamic -> dynamic.
+        let view = tensor.broadcast(dest_shape.as_slice());
+        assert_eq!(view.shape(), dest_shape);
+        assert_eq!(view.to_vec(), expected_data);
     }
 
     #[test]
-    #[should_panic(expected = "Cannot broadcast to specified shape")]
-    fn test_broadcast_invalid() {
-        let x = steps(&[2, 2]);
-        x.broadcast(&[4]);
+    fn test_broadcast_iter() {
+        let tensor = NdTensor::from_data([1], vec![3]);
+        let elems: Vec<_> = tensor.broadcast_iter(&[2, 2]).copied().collect();
+        assert_eq!(elems, &[3, 3, 3, 3]);
     }
 
     #[test]
-    fn test_can_broadcast_to() {
-        let x = steps(&[1, 5, 10]);
-        assert!(x.can_broadcast_to(&[2, 5, 10]));
-        assert!(x.can_broadcast_to(&[1, 5, 10]));
-        assert!(!x.can_broadcast_to(&[1, 1, 10]));
+    fn test_clip_dim() {
+        let mut tensor = NdTensor::arange(0, 10, None).into_shape([3, 3]);
+        tensor.clip_dim(0, 0..3); // No-op
+        assert_eq!(tensor.shape(), [3, 3]);
+
+        tensor.clip_dim(0, 1..2); // Remove first and last rows
+        assert_eq!(tensor.shape(), [1, 3]);
+        assert_eq!(tensor.data(), Some([3, 4, 5].as_slice()));
     }
 
     #[test]
-    fn test_can_broadcast_with() {
-        let x = steps(&[1, 5, 10]);
-        assert!(x.can_broadcast_with(&[2, 5, 10]));
-        assert!(x.can_broadcast_with(&[1, 5, 10]));
-        assert!(x.can_broadcast_with(&[1, 1, 10]));
+    fn test_clone() {
+        let data = vec![1., 2., 3., 4.];
+        let tensor = NdTensor::from_data([2, 2], data);
+        let cloned = tensor.clone();
+        assert_eq!(tensor.shape(), cloned.shape());
+        assert_eq!(tensor.to_vec(), cloned.to_vec());
+    }
+
+    #[test]
+    fn test_copy_view() {
+        let data = vec![1., 2., 3., 4.];
+        let view = NdTensorView::from_data([2, 2], &data);
+
+        // Verify that views are copyable, if their layout is.
+        let view2 = view;
+
+        assert_eq!(view.shape(), view2.shape());
+    }
+
+    #[test]
+    fn test_copy_from() {
+        let mut dest = Tensor::zeros(&[2, 2]);
+        let src = Tensor::from_data(&[2, 2], vec![1., 2., 3., 4.]);
+        dest.copy_from(&src);
+        assert_eq!(dest.to_vec(), &[1., 2., 3., 4.]);
+    }
+
+    #[test]
+    fn test_data() {
+        let data = vec![1., 2., 3., 4., 5., 6.];
+        let tensor = NdTensorView::from_data([2, 3], &data);
+        assert_eq!(tensor.data(), Some(data.as_slice()));
+
+        let permuted = tensor.permuted([1, 0]);
+        assert_eq!(permuted.shape(), [3, 2]);
+        assert_eq!(permuted.data(), None);
+    }
+
+    #[test]
+    fn test_data_mut() {
+        let mut data = vec![1., 2., 3., 4., 5., 6.];
+        let mut tensor = NdTensor::from_data([2, 3], data.clone());
+        assert_eq!(tensor.data_mut(), Some(data.as_mut_slice()));
+
+        let mut permuted = tensor.permuted_mut([1, 0]);
+        assert_eq!(permuted.shape(), [3, 2]);
+        assert_eq!(permuted.data_mut(), None);
+    }
+
+    #[test]
+    fn test_fill() {
+        let data = vec![1., 2., 3., 4.];
+        let mut tensor = NdTensor::from_data([2, 2], data);
+        tensor.fill(9.);
+        assert_eq!(tensor.to_vec(), &[9., 9., 9., 9.]);
+    }
+
+    #[test]
+    fn test_from_nested_array() {
+        let x = NdTensor::from([1, 2, 3]);
+        assert_eq!(x.shape(), [3]);
+        assert_eq!(x.data(), Some([1, 2, 3].as_slice()));
+
+        let x = NdTensor::from([[1, 2], [3, 4]]);
+        assert_eq!(x.shape(), [2, 2]);
+        assert_eq!(x.data(), Some([1, 2, 3, 4].as_slice()));
+
+        let x = NdTensor::from([[[1, 2], [3, 4]], [[5, 6], [7, 8]]]);
+        assert_eq!(x.shape(), [2, 2, 2]);
+        assert_eq!(x.data(), Some([1, 2, 3, 4, 5, 6, 7, 8].as_slice()));
+    }
+
+    #[test]
+    fn test_from_vec_or_slice() {
+        let x = NdTensor::from(vec![1, 2, 3, 4]);
+        assert_eq!(x.shape(), [4]);
+        assert_eq!(x.data(), Some([1, 2, 3, 4].as_slice()));
+
+        let x = NdTensorView::from(&[1, 2, 3]);
+        assert_eq!(x.shape(), [3]);
+        assert_eq!(x.data(), Some([1, 2, 3].as_slice()));
+    }
+
+    #[test]
+    fn test_dyn_tensor_from_nd_tensor() {
+        let x = NdTensor::from_data([2, 2], vec![1, 2, 3, 4]);
+        let y: Tensor<i32> = x.into();
+        assert_eq!(y.data(), Some([1, 2, 3, 4].as_slice()));
+        assert_eq!(y.shape(), &[2, 2]);
+    }
+
+    #[test]
+    fn test_nd_tensor_from_dyn_tensor() {
+        let x = Tensor::from_data(&[2, 2], vec![1, 2, 3, 4]);
+        let y: NdTensor<i32, 2> = x.try_into().unwrap();
+        assert_eq!(y.data(), Some([1, 2, 3, 4].as_slice()));
+        assert_eq!(y.shape(), [2, 2]);
+
+        let x = Tensor::from_data(&[2, 2], vec![1, 2, 3, 4]);
+        let y: Result<NdTensor<i32, 3>, _> = x.try_into();
+        assert!(y.is_err());
+    }
+
+    #[test]
+    fn test_from_data() {
+        let x = NdTensor::from_data([1, 2, 2], vec![1, 2, 3, 4]);
+        assert_eq!(x.shape(), [1, 2, 2]);
+        assert_eq!(x.strides(), [4, 2, 1]);
+        assert_eq!(x.to_vec(), [1, 2, 3, 4]);
+    }
+
+    #[test]
+    #[should_panic(expected = "data length 4 does not match shape [2, 2, 2]")]
+    fn test_from_data_shape_mismatch() {
+        NdTensor::from_data([2, 2, 2], vec![1, 2, 3, 4]);
+    }
+
+    #[test]
+    fn test_from_data_with_strides() {
+        let x = NdTensor::from_data_with_strides([2, 2, 1], vec![1, 2, 3, 4], [1, 2, 4]).unwrap();
+        assert_eq!(x.shape(), [2, 2, 1]);
+        assert_eq!(x.strides(), [1, 2, 4]);
+        assert_eq!(x.to_vec(), [1, 3, 2, 4]);
+
+        // Invalid (wrong storage length)
+        let x = NdTensor::from_data_with_strides([2, 2, 2], vec![1, 2, 3, 4], [1, 2, 4]);
+        assert_eq!(x, Err(FromDataError::StorageTooShort));
+
+        // Invalid strides (overlapping)
+        let x = NdTensor::from_data_with_strides([2, 2], vec![1, 2], [0, 1]);
+        assert_eq!(x, Err(FromDataError::MayOverlap));
+    }
+
+    #[test]
+    fn test_from_slice_with_strides() {
+        // The strides here are overlapping, but `from_slice_with_strides`
+        // allows this since it is a read-only view.
+        let data = [1, 2];
+        let x = NdTensorView::from_slice_with_strides([2, 2], &data, [0, 1]).unwrap();
+        assert_eq!(x.to_vec(), [1, 2, 1, 2]);
+    }
+
+    #[test]
+    fn test_from_iter() {
+        let x: Tensor = [1., 2., 3., 4.].into_iter().collect();
+        assert_eq!(x.shape(), &[4]);
+        assert_eq!(x.data(), Some([1., 2., 3., 4.].as_slice()));
+
+        let y: NdTensor<_, 1> = [1., 2., 3., 4.].into_iter().collect();
+        assert_eq!(y.shape(), [4]);
+        assert_eq!(y.data(), Some([1., 2., 3., 4.].as_slice()));
+    }
+
+    #[test]
+    fn test_from_scalar() {
+        let x = Tensor::from_scalar(5.);
+        let y = NdTensor::from_scalar(6.);
+        assert_eq!(x.item(), Some(&5.));
+        assert_eq!(y.item(), Some(&6.));
+    }
+
+    #[test]
+    fn test_from_vec() {
+        let x = NdTensor::from_vec(vec![1, 2, 3, 4]);
+        assert_eq!(x.shape(), [4]);
+        assert_eq!(x.data(), Some([1, 2, 3, 4].as_slice()));
+    }
+
+    #[test]
+    fn test_full() {
+        let tensor = NdTensor::full([2, 2], 2.);
+        assert_eq!(tensor.shape(), [2, 2]);
+        assert_eq!(tensor.data(), Some([2., 2., 2., 2.].as_slice()));
+    }
+
+    #[test]
+    fn test_get() {
+        // NdLayout
+        let data = vec![1., 2., 3., 4.];
+        let tensor: NdTensor<f32, 2> = NdTensor::from_data([2, 2], data);
+        assert_eq!(tensor.get([1, 1]), Some(&4.));
+        assert_eq!(tensor.get([2, 1]), None);
+
+        // DynLayout
+        let data = vec![1., 2., 3., 4.];
+        let tensor: Tensor<f32> = Tensor::from_data(&[2, 2], data);
+        assert_eq!(tensor.get([1, 1]), Some(&4.));
+        assert_eq!(tensor.get([2, 1]), None); // Invalid index
+        assert_eq!(tensor.get([1, 2, 3]), None); // Incorrect dim count
+    }
+
+    #[test]
+    fn test_get_array() {
+        let tensor = NdTensor::arange(1, 17, None).into_shape([4, 2, 2]);
+
+        // First dim, zero base.
+        let values: [i32; 4] = tensor.get_array([0, 0, 0], 0);
+        assert_eq!(values, [1, 5, 9, 13]);
+
+        // First dim, different base.
+        let values: [i32; 4] = tensor.get_array([0, 1, 1], 0);
+        assert_eq!(values, [4, 8, 12, 16]);
+
+        // Last dim, zero base.
+        let values: [i32; 2] = tensor.get_array([0, 0, 0], 2);
+        assert_eq!(values, [1, 2]);
+    }
+
+    #[test]
+    fn test_get_mut() {
+        let data = vec![1., 2., 3., 4.];
+        let mut tensor: NdTensor<f32, 2> = NdTensor::from_data([2, 2], data);
+        if let Some(elem) = tensor.get_mut([1, 1]) {
+            *elem = 9.;
+        }
+        assert_eq!(tensor[[1, 1]], 9.);
+        assert_eq!(tensor.get_mut([2, 1]), None);
+    }
+
+    #[test]
+    fn test_get_unchecked() {
+        let ndtensor = NdTensor::arange(1, 5, None);
+        for i in 0..ndtensor.size(0) {
+            assert_eq!(
+                unsafe { ndtensor.view().get_unchecked([i]) },
+                &ndtensor[[i]]
+            );
+        }
+
+        let tensor = Tensor::arange(1, 5, None);
+        for i in 0..tensor.size(0) {
+            assert_eq!(unsafe { tensor.view().get_unchecked([i]) }, &ndtensor[[i]]);
+        }
+    }
+
+    #[test]
+    fn test_get_unchecked_mut() {
+        let mut ndtensor = NdTensor::arange(1, 5, None);
+        for i in 0..ndtensor.size(0) {
+            unsafe { *ndtensor.get_unchecked_mut([i]) += 1 }
+        }
+        assert_eq!(ndtensor.to_vec(), &[2, 3, 4, 5]);
+
+        let mut tensor = Tensor::arange(1, 5, None);
+        for i in 0..tensor.size(0) {
+            unsafe { *tensor.get_unchecked_mut([i]) += 1 }
+        }
+        assert_eq!(tensor.to_vec(), &[2, 3, 4, 5]);
+    }
+
+    #[test]
+    fn test_index_and_index_mut() {
+        // NdLayout
+        let data = vec![1., 2., 3., 4.];
+        let mut tensor: NdTensor<f32, 2> = NdTensor::from_data([2, 2], data);
+        assert_eq!(tensor[[1, 1]], 4.);
+        tensor[[1, 1]] = 9.;
+        assert_eq!(tensor[[1, 1]], 9.);
+
+        // DynLayout
+        let data = vec![1., 2., 3., 4.];
+        let mut tensor: Tensor<f32> = Tensor::from_data(&[2, 2], data);
+        assert_eq!(tensor[[1, 1]], 4.);
+        tensor[&[1, 1]] = 9.;
+        assert_eq!(tensor[[1, 1]], 9.);
+    }
+
+    #[test]
+    fn test_into_data() {
+        let tensor = NdTensor::from_data([2], vec![2., 3.]);
+        assert_eq!(tensor.into_data(), vec![2., 3.]);
+    }
+
+    #[test]
+    fn test_into_dyn() {
+        let tensor = NdTensor::from_data([2, 2], vec![1., 2., 3., 4.]);
+        let dyn_tensor = tensor.into_dyn();
+        assert_eq!(dyn_tensor.shape(), &[2, 2]);
+        assert_eq!(dyn_tensor.data(), Some([1., 2., 3., 4.].as_slice()));
+    }
+
+    #[test]
+    fn test_into_shape() {
+        // Contiguous tensor.
+        let tensor = NdTensor::from_data([2, 2], vec![1., 2., 3., 4.]);
+        let reshaped = tensor.into_shape([4]);
+        assert_eq!(reshaped.shape(), [4]);
+        assert_eq!(reshaped.data(), Some([1., 2., 3., 4.].as_slice()));
+
+        // Non-contiguous tensor.
+        let mut tensor = NdTensor::from_data([2, 2], vec![1., 2., 3., 4.]);
+        tensor.transpose();
+        let reshaped = tensor.into_shape([4]);
+        assert_eq!(reshaped.shape(), [4]);
+        assert_eq!(reshaped.data(), Some([1., 3., 2., 4.].as_slice()));
     }
 
     #[test]
     fn test_inner_iter() {
-        let x = steps(&[2, 2, 2]);
-        let mut iter = x.inner_iter::<2>();
+        let tensor = Tensor::from_data(&[2, 2], vec![1, 2, 3, 4]);
+        let mut rows = tensor.inner_iter::<1>();
 
-        let mat = iter.next().unwrap();
-        assert_eq!(mat.shape(), [2, 2]);
-        assert_eq!(mat.iter().copied().collect::<Vec<_>>(), [1, 2, 3, 4]);
+        let row = rows.next().unwrap();
+        assert_eq!(row.shape(), [2]);
+        assert_eq!(row.to_vec(), &[1, 2]);
 
-        let mat = iter.next().unwrap();
-        assert_eq!(mat.shape(), [2, 2]);
-        assert_eq!(mat.iter().copied().collect::<Vec<_>>(), [5, 6, 7, 8]);
+        let row = rows.next().unwrap();
+        assert_eq!(row.shape(), [2]);
+        assert_eq!(row.to_vec(), &[3, 4]);
 
-        assert_eq!(iter.next(), None);
+        assert_eq!(rows.next(), None);
     }
 
     #[test]
     fn test_inner_iter_mut() {
-        let mut x = steps(&[2, 2, 2]);
-        let mut iter = x.inner_iter_mut::<2>();
+        let mut tensor = Tensor::from_data(&[2, 2], vec![1, 2, 3, 4]);
+        let mut rows = tensor.inner_iter_mut::<1>();
 
-        let mat = iter.next().unwrap();
-        assert_eq!(mat.shape(), [2, 2]);
-        assert_eq!(mat.iter().copied().collect::<Vec<_>>(), [1, 2, 3, 4]);
+        let mut row = rows.next().unwrap();
+        assert_eq!(row.shape(), [2]);
+        row.apply(|x| x * 2);
 
-        let mat = iter.next().unwrap();
-        assert_eq!(mat.shape(), [2, 2]);
-        assert_eq!(mat.iter().copied().collect::<Vec<_>>(), [5, 6, 7, 8]);
+        let mut row = rows.next().unwrap();
+        assert_eq!(row.shape(), [2]);
+        row.apply(|x| x * 2);
 
-        assert_eq!(iter.next(), None);
-    }
+        assert_eq!(rows.next(), None);
 
-    // Common slice tests for all slicing functions.
-    macro_rules! slice_tests {
-        ($x:expr, $method:ident) => {
-            assert_eq!($x.shape(), &[2, 3, 4]);
-
-            // 1D index
-            let y = $x.$method([0]);
-            assert_eq!(y.shape(), [3, 4]);
-            assert_eq!(y.to_vec(), (1..=(3 * 4)).into_iter().collect::<Vec<i32>>());
-
-            // Negative 1D index
-            let y = $x.$method([-1]);
-            assert_eq!(y.shape(), [3, 4]);
-            assert_eq!(
-                y.to_vec(),
-                ((3 * 4 + 1)..=(2 * 3 * 4))
-                    .into_iter()
-                    .collect::<Vec<i32>>()
-            );
-
-            // 2D index
-            let y = $x.$method([0, 1]);
-            assert_eq!(y.shape(), [4]);
-            assert_eq!(y.to_vec(), (5..=8).into_iter().collect::<Vec<i32>>());
-
-            // 3D index
-            let y = $x.$method([0, 1, 2]);
-            assert_eq!(y.shape(), []);
-            assert_eq!(y.item(), Some(&7));
-
-            // Full range
-            let y = $x.$method([..]);
-            assert_eq!(y.shape(), [2, 3, 4]);
-            assert_eq!(y.to_vec(), $x.to_vec());
-
-            // Partial ranges
-            let y = $x.$method((.., ..2, 1..));
-            assert_eq!(y.shape(), [2, 2, 3]);
-
-            // Stepped range
-            let y = $x.$method((.., .., SliceItem::range(0, None, 2)));
-            assert_eq!(
-                y.to_vec(),
-                $x.iter()
-                    .copied()
-                    .enumerate()
-                    .filter_map(|(i, x)| (i % 2 == 0).then_some(x))
-                    .collect::<Vec<_>>()
-            );
-
-            // Mixed indices and ranges
-            let y = $x.$method((.., 0, ..));
-            assert_eq!(y.shape(), [2, 4]);
-
-            let y = $x.$method((.., .., 0));
-            assert_eq!(y.shape(), [2, 3]);
-            assert_eq!(y.to_vec(), &[1, 5, 9, 13, 17, 21]);
-        };
+        assert_eq!(tensor.to_vec(), &[2, 4, 6, 8]);
     }
 
     #[test]
-    fn test_slice() {
-        let x = steps(&[2, 3, 4]);
-        slice_tests!(x.view(), slice);
+    fn test_insert_axis() {
+        let mut tensor = Tensor::from_data(&[2, 2], vec![1, 2, 3, 4]);
+        tensor.insert_axis(0);
+        assert_eq!(tensor.shape(), &[1, 2, 2]);
+        tensor.insert_axis(3);
+        assert_eq!(tensor.shape(), &[1, 2, 2, 1]);
     }
 
     #[test]
-    fn test_slice_mut() {
-        let mut x = steps(&[2, 3, 4]);
-        slice_tests!(x, slice_mut);
+    fn test_item() {
+        let tensor = NdTensor::from_data([], vec![5.]);
+        assert_eq!(tensor.item(), Some(&5.));
+        let tensor = NdTensor::from_data([1], vec![6.]);
+        assert_eq!(tensor.item(), Some(&6.));
+        let tensor = NdTensor::from_data([2], vec![2., 3.]);
+        assert_eq!(tensor.item(), None);
+
+        let tensor = Tensor::from_data(&[], vec![5.]);
+        assert_eq!(tensor.item(), Some(&5.));
+        let tensor = Tensor::from_data(&[1], vec![6.]);
+        assert_eq!(tensor.item(), Some(&6.));
+        let tensor = Tensor::from_data(&[2], vec![2., 3.]);
+        assert_eq!(tensor.item(), None);
+    }
+
+    #[test]
+    fn test_iter() {
+        let data = vec![1., 2., 3., 4.];
+        let tensor = NdTensor::from_data([2, 2], data);
+        assert_eq!(
+            tensor.iter().copied().collect::<Vec<_>>(),
+            &[1., 2., 3., 4.]
+        );
+        let transposed = tensor.transposed();
+        assert_eq!(
+            transposed.iter().copied().collect::<Vec<_>>(),
+            &[1., 3., 2., 4.]
+        );
+
+        let data = vec![1., 2., 3., 4.];
+        let tensor = Tensor::from_data(&[2, 2], data);
+        assert_eq!(
+            tensor.iter().copied().collect::<Vec<_>>(),
+            &[1., 2., 3., 4.]
+        );
+        let transposed = tensor.transposed();
+        assert_eq!(
+            transposed.iter().copied().collect::<Vec<_>>(),
+            &[1., 3., 2., 4.]
+        );
+    }
+
+    #[test]
+    fn test_iter_mut() {
+        let data = vec![1., 2., 3., 4.];
+        let mut tensor = NdTensor::from_data([2, 2], data);
+        tensor.iter_mut().for_each(|x| *x *= 2.);
+        assert_eq!(tensor.to_vec(), &[2., 4., 6., 8.]);
+    }
+
+    #[test]
+    fn test_lanes() {
+        let data = vec![1., 2., 3., 4.];
+        let tensor = NdTensor::from_data([2, 2], data);
+        let mut lanes = tensor.lanes(1);
+        assert_eq!(
+            lanes.next().unwrap().copied().collect::<Vec<_>>(),
+            &[1., 2.]
+        );
+        assert_eq!(
+            lanes.next().unwrap().copied().collect::<Vec<_>>(),
+            &[3., 4.]
+        );
+    }
+
+    #[test]
+    fn test_lanes_mut() {
+        let data = vec![1., 2., 3., 4.];
+        let mut tensor = NdTensor::from_data([2, 2], data);
+        let mut lanes = tensor.lanes_mut(1);
+        assert_eq!(lanes.next().unwrap().collect::<Vec<_>>(), &[&1., &2.]);
+        assert_eq!(lanes.next().unwrap().collect::<Vec<_>>(), &[&3., &4.]);
+    }
+
+    #[test]
+    fn test_make_contiguous() {
+        let mut tensor = NdTensor::from_data([2, 2], vec![1., 2., 3., 4.]);
+        assert!(tensor.is_contiguous());
+
+        // No-op, since tensor is already contiguous.
+        tensor.make_contiguous();
+        assert!(tensor.is_contiguous());
+
+        // On a non-contiguous tensor, the data should be shuffled.
+        tensor.transpose();
+        assert!(!tensor.is_contiguous());
+        tensor.make_contiguous();
+        assert!(tensor.is_contiguous());
+        assert_eq!(tensor.data(), Some([1., 3., 2., 4.].as_slice()));
+    }
+
+    #[test]
+    fn test_map() {
+        let data = vec![1., 2., 3., 4.];
+        let tensor = NdTensor::from_data([2, 2], data);
+        let doubled = tensor.map(|x| x * 2.);
+        assert_eq!(doubled.to_vec(), &[2., 4., 6., 8.]);
+    }
+
+    #[test]
+    fn test_matrix_layout() {
+        let data = vec![1., 2., 3., 4., 5., 6.];
+        let tensor = NdTensorView::from_data([2, 3], &data);
+        assert_eq!(tensor.rows(), 2);
+        assert_eq!(tensor.row_stride(), 3);
+        assert_eq!(tensor.cols(), 3);
+        assert_eq!(tensor.col_stride(), 1);
+    }
+
+    #[test]
+    fn test_move_axis() {
+        let data = vec![1., 2., 3., 4., 5., 6.];
+        let mut tensor = NdTensorView::from_data([2, 3], &data);
+
+        tensor.move_axis(1, 0);
+        assert_eq!(tensor.shape(), [3, 2]);
+        assert_eq!(tensor.to_vec(), &[1., 4., 2., 5., 3., 6.]);
+
+        tensor.move_axis(0, 1);
+        assert_eq!(tensor.shape(), [2, 3]);
+        assert_eq!(tensor.to_vec(), &[1., 2., 3., 4., 5., 6.]);
+    }
+
+    #[test]
+    fn test_nd_view() {
+        let tensor: Tensor<f32> = Tensor::zeros(&[1, 4, 5]);
+
+        // Dynamic -> static rank conversion.
+        let nd_view = tensor.nd_view::<3>();
+        assert_eq!(nd_view.shape(), [1, 4, 5]);
+        assert_eq!(nd_view.strides().as_ref(), tensor.strides());
+
+        // Static -> static rank conversion. Pointless, but it should compile.
+        let nd_view_2 = nd_view.nd_view::<3>();
+        assert_eq!(nd_view_2.shape(), nd_view.shape());
+    }
+
+    #[test]
+    fn test_nd_view_mut() {
+        let mut tensor: Tensor<f32> = Tensor::zeros(&[1, 4, 5]);
+        let mut nd_view = tensor.nd_view_mut::<3>();
+        assert_eq!(nd_view.shape(), [1, 4, 5]);
+
+        nd_view[[0, 0, 0]] = 9.;
+
+        assert_eq!(tensor[[0, 0, 0]], 9.);
+    }
+
+    #[test]
+    fn test_non_contiguous_data() {
+        let mut tensor = NdTensor::from_data([2, 2], vec![1, 2, 3, 4]);
+        assert_eq!(tensor.data(), Some(tensor.view().non_contiguous_data()));
+
+        tensor.transpose();
+
+        assert!(tensor.data().is_none());
+        assert_eq!(tensor.view().non_contiguous_data(), [1, 2, 3, 4]);
+    }
+
+    #[test]
+    fn test_rand() {
+        let mut rng = XorShiftRng::new(1234);
+        let tensor = NdTensor::rand([2, 2], &mut rng);
+        assert_eq!(tensor.shape(), [2, 2]);
+        for &x in tensor.iter() {
+            assert!(x >= 0. && x <= 1.);
+        }
+    }
+
+    #[test]
+    fn test_permute() {
+        let data = vec![1., 2., 3., 4., 5., 6.];
+        let mut tensor = NdTensorView::from_data([2, 3], &data);
+
+        tensor.permute([1, 0]);
+
+        assert_eq!(tensor.shape(), [3, 2]);
+        assert_eq!(tensor.to_vec(), &[1., 4., 2., 5., 3., 6.]);
+    }
+
+    #[test]
+    fn test_permuted() {
+        let data = vec![1., 2., 3., 4., 5., 6.];
+        let tensor = NdTensorView::from_data([2, 3], &data);
+
+        let permuted = tensor.permuted([1, 0]);
+
+        assert_eq!(permuted.shape(), [3, 2]);
+        assert_eq!(permuted.to_vec(), &[1., 4., 2., 5., 3., 6.]);
+    }
+
+    #[test]
+    fn test_permuted_mut() {
+        let data = vec![1., 2., 3., 4., 5., 6.];
+        let mut tensor = NdTensor::from_data([2, 3], data);
+
+        let mut permuted = tensor.permuted_mut([1, 0]);
+        permuted[[2, 1]] = 8.;
+
+        assert_eq!(permuted.shape(), [3, 2]);
+        assert_eq!(permuted.to_vec(), &[1., 4., 2., 5., 3., 8.]);
+    }
+
+    #[test]
+    fn test_reshape() {
+        // Owned tensor
+        let mut tensor = Tensor::<f32>::from_data(&[2, 2], vec![1., 2., 3., 4.]);
+        tensor.transpose();
+        tensor.reshape(&[4]);
+        assert_eq!(tensor.shape(), &[4]);
+        assert_eq!(tensor.to_vec(), &[1., 3., 2., 4.]);
+
+        // View
+        let mut view = tensor.view();
+        view.reshape(&[2, 2]);
+        assert_eq!(view.shape(), &[2, 2]);
+
+        // Mut view
+        let mut view_mut = tensor.view_mut();
+        view_mut.reshape(&[2, 2]);
+        assert_eq!(view_mut.shape(), &[2, 2]);
+    }
+
+    #[test]
+    fn test_reshaped() {
+        let data = vec![1., 2., 3., 4., 5., 6.];
+        let tensor = NdTensorView::from_data([1, 1, 2, 1, 3], &data);
+
+        // Reshape to static dim count
+        let reshaped = tensor.reshaped([6]);
+        assert_eq!(reshaped.shape(), [6]);
+
+        // Reshape to dynamic dim count
+        let reshaped = tensor.reshaped([6].as_slice());
+        assert_eq!(reshaped.shape(), &[6]);
+    }
+
+    #[test]
+    fn test_reshaped_mut() {
+        let data = vec![1., 2., 3., 4., 5., 6.];
+        let mut tensor = NdTensor::from_data([1, 1, 2, 1, 3], data);
+
+        let mut reshaped = tensor.reshaped_mut([6]);
+        reshaped[[0]] = 0.;
+        reshaped[[5]] = 0.;
+
+        assert_eq!(tensor.data(), Some([0., 2., 3., 4., 5., 0.].as_slice()));
+    }
+
+    #[test]
+    fn test_set_array() {
+        let mut tensor = NdTensor::arange(1, 17, None).into_shape([4, 2, 2]);
+        tensor.set_array([0, 0, 0], 0, [-1, -2, -3, -4]);
+        assert_eq!(
+            tensor.iter().copied().collect::<Vec<_>>(),
+            &[-1, 2, 3, 4, -2, 6, 7, 8, -3, 10, 11, 12, -4, 14, 15, 16]
+        );
+    }
+
+    #[test]
+    fn test_slice_with_ndlayout() {
+        let data = vec![1., 2., 3., 4.];
+        let tensor = NdTensor::from_data([2, 2], data);
+
+        let row_one = tensor.slice(0);
+        assert_eq!(row_one[[0]], 1.);
+        assert_eq!(row_one[[1]], 2.);
+
+        let row_two = tensor.slice(1);
+        assert_eq!(row_two[[0]], 3.);
+        assert_eq!(row_two[[1]], 4.);
+    }
+
+    #[test]
+    fn test_slice_dyn_with_ndlayout() {
+        let data = vec![1., 2., 3., 4.];
+        let tensor = NdTensor::from_data([2, 2], data);
+
+        let row_one = tensor.slice_dyn(0);
+        assert_eq!(row_one[[0]], 1.);
+        assert_eq!(row_one[[1]], 2.);
+
+        let row_two = tensor.slice_dyn(1);
+        assert_eq!(row_two[[0]], 3.);
+        assert_eq!(row_two[[1]], 4.);
+    }
+
+    #[test]
+    fn test_slice_with_dynlayout() {
+        let data = vec![1., 2., 3., 4.];
+        let tensor = Tensor::from_data(&[2, 2], data);
+
+        let row_one = tensor.slice(0);
+        assert_eq!(row_one[[0]], 1.);
+        assert_eq!(row_one[[1]], 2.);
+
+        let row_two = tensor.slice(1);
+        assert_eq!(row_two[[0]], 3.);
+        assert_eq!(row_two[[1]], 4.);
+    }
+
+    #[test]
+    fn test_slice_dyn_with_dynlayout() {
+        let data = vec![1., 2., 3., 4.];
+        let tensor = Tensor::from_data(&[2, 2], data);
+
+        let row_one = tensor.slice_dyn(0);
+        assert_eq!(row_one[[0]], 1.);
+        assert_eq!(row_one[[1]], 2.);
+
+        let row_two = tensor.slice_dyn(1);
+        assert_eq!(row_two[[0]], 3.);
+        assert_eq!(row_two[[1]], 4.);
     }
 
     #[test]
     fn test_slice_iter() {
-        let sr = |start, end| SliceItem::range(start, Some(end), 1);
-        let x = steps(&[3, 3]);
-
-        // Slice that extracts a specific index
-        let slice: Vec<_> = x
+        let data = vec![1., 2., 3., 4.];
+        let tensor = Tensor::from_data(&[2, 2], data);
+        let row_one: Vec<_> = tensor
             .slice_iter(&[SliceItem::Index(0), SliceItem::full_range()])
             .copied()
             .collect();
-        assert_eq!(slice, &[1, 2, 3]);
-
-        // Slice that removes start of each dimension
-        let slice: Vec<_> = x.slice_iter(&[sr(1, 3), sr(1, 3)]).copied().collect();
-        assert_eq!(slice, &[5, 6, 8, 9]);
-
-        // Slice that removes end of each dimension
-        let slice: Vec<_> = x.slice_iter(&[sr(0, 2), sr(0, 2)]).copied().collect();
-        assert_eq!(slice, &[1, 2, 4, 5]);
-
-        // Slice that removes start and end of first dimension
-        let slice: Vec<_> = x.slice_iter(&[sr(1, 2), sr(0, 3)]).copied().collect();
-        assert_eq!(slice, &[4, 5, 6]);
-
-        // Slice that removes start and end of second dimension
-        let slice: Vec<_> = x.slice_iter(&[sr(0, 3), sr(1, 2)]).copied().collect();
-        assert_eq!(slice, &[2, 5, 8]);
+        assert_eq!(row_one, &[1., 2.]);
     }
 
     #[test]
-    fn test_slice_iter_with_step() {
-        let sr = |start, end, step| SliceItem::range(start, Some(end), step);
-        let x = steps(&[10]);
+    fn test_slice_mut() {
+        let data = vec![1., 2., 3., 4.];
+        let mut tensor = NdTensor::from_data([2, 2], data);
 
-        // Positive steps > 1.
-        let slice: Vec<_> = x.slice_iter(&[sr(0, 10, 2)]).copied().collect();
-        assert_eq!(slice, &[1, 3, 5, 7, 9]);
+        let mut row = tensor.slice_mut(1);
+        row[[0]] = 8.;
+        row[[1]] = 9.;
 
-        let slice: Vec<_> = x.slice_iter(&[sr(0, 10, 3)]).copied().collect();
-        assert_eq!(slice, &[1, 4, 7, 10]);
-
-        let slice: Vec<_> = x.slice_iter(&[sr(0, 10, 10)]).copied().collect();
-        assert_eq!(slice, &[1]);
-
-        // Negative steps.
-        let slice: Vec<_> = x.slice_iter(&[sr(10, -11, -1)]).copied().collect();
-        assert_eq!(slice, &[10, 9, 8, 7, 6, 5, 4, 3, 2, 1]);
-
-        let slice: Vec<_> = x.slice_iter(&[sr(8, 0, -1)]).copied().collect();
-        assert_eq!(slice, &[9, 8, 7, 6, 5, 4, 3, 2]);
-
-        let slice: Vec<_> = x.slice_iter(&[sr(10, 0, -2)]).copied().collect();
-        assert_eq!(slice, &[10, 8, 6, 4, 2]);
-
-        let slice: Vec<_> = x.slice_iter(&[sr(10, 0, -10)]).copied().collect();
-        assert_eq!(slice, &[10]);
+        assert_eq!(tensor.to_vec(), &[1., 2., 8., 9.]);
     }
 
     #[test]
-    fn test_slice_iter_negative_indices() {
-        let sr = |start, end| SliceItem::range(start, Some(end), 1);
-        let x = steps(&[10]);
+    fn test_slice_mut_dyn() {
+        let data = vec![1., 2., 3., 4.];
+        let mut tensor = NdTensor::from_data([2, 2], data);
 
-        // Negative start
-        let slice: Vec<_> = x.slice_iter(&[sr(-2, 10)]).copied().collect();
-        assert_eq!(slice, &[9, 10]);
+        let mut row = tensor.slice_mut_dyn(1);
+        row[[0]] = 8.;
+        row[[1]] = 9.;
 
-        // Negative end
-        let slice: Vec<_> = x.slice_iter(&[sr(7, -1)]).copied().collect();
-        assert_eq!(slice, &[8, 9]);
-
-        // Negative start and end
-        let slice: Vec<_> = x.slice_iter(&[sr(-3, -1)]).copied().collect();
-        assert_eq!(slice, &[8, 9]);
-    }
-
-    #[test]
-    fn test_slice_iter_clamps_indices() {
-        let sr = |start, end, step| SliceItem::range(start, Some(end), step);
-        let x = steps(&[5]);
-
-        // Test cases for positive steps (ie. traversing forwards).
-
-        // Positive start out of bounds
-        let slice: Vec<_> = x.slice_iter(&[sr(10, 11, 1)]).collect();
-        assert_eq!(slice.len(), 0);
-
-        // Positive end out of bounds
-        let slice: Vec<_> = x.slice_iter(&[sr(0, 10, 1)]).copied().collect();
-        assert_eq!(slice, &[1, 2, 3, 4, 5]);
-
-        // Negative start out of bounds
-        let slice: Vec<_> = x.slice_iter(&[sr(-10, 5, 1)]).copied().collect();
-        assert_eq!(slice, &[1, 2, 3, 4, 5]);
-
-        // Negative end out of bounds
-        let slice: Vec<_> = x.slice_iter(&[sr(-10, -5, 1)]).collect();
-        assert_eq!(slice.len(), 0);
-
-        // Test cases for negative steps (ie. traversing backwards).
-
-        // Positive start out of bounds
-        let slice: Vec<_> = x.slice_iter(&[sr(10, -6, -1)]).copied().collect();
-        assert_eq!(slice, &[5, 4, 3, 2, 1]);
-
-        // Positive end out of bounds
-        let slice: Vec<_> = x.slice_iter(&[sr(0, 10, -1)]).collect();
-        assert_eq!(slice.len(), 0);
-
-        // Negative start out of bounds
-        let slice: Vec<_> = x.slice_iter(&[sr(-10, 5, -1)]).collect();
-        assert_eq!(slice.len(), 0);
-
-        // Negative end out of bounds
-        let slice: Vec<_> = x.slice_iter(&[sr(-1, -10, -1)]).copied().collect();
-        assert_eq!(slice, &[5, 4, 3, 2, 1]);
-    }
-
-    #[test]
-    fn test_slice_iter_start_end_step_combinations() {
-        let sr = |start, end, step| SliceItem::range(start, Some(end), step);
-        let x = steps(&[3]);
-
-        // Test various combinations of slice starts, ends and steps that are
-        // positive and negative, in-bounds and out-of-bounds, and ensure they
-        // don't cause a panic.
-        for start in -5..5 {
-            for end in -5..5 {
-                for step in -5..5 {
-                    if step == 0 {
-                        continue;
-                    }
-                    x.slice_iter(&[sr(start, end, step)]).for_each(drop);
-                }
-            }
-        }
+        assert_eq!(tensor.to_vec(), &[1., 2., 8., 9.]);
     }
 
     #[test]
     fn test_squeezed() {
-        let mut rng = XorShiftRng::new(1234);
-        let x = Tensor::rand(&[1, 1, 10, 20], &mut rng);
-        let y = x.squeezed();
-        assert_eq!(y.data(), x.data());
-        assert_eq!(y.shape(), &[10, 20]);
-        assert_eq!(y.stride(0), 20);
-        assert_eq!(y.stride(1), 1);
+        let data = vec![1., 2., 3., 4., 5., 6.];
+        let tensor = NdTensorView::from_data([1, 1, 2, 1, 3], &data);
+
+        let squeezed = tensor.squeezed();
+
+        assert_eq!(squeezed.shape(), &[2, 3]);
     }
 
     #[test]
-    fn test_write() -> std::io::Result<()> {
-        use std::io::{Cursor, Read};
-        let x = Tensor::from_data(&[2, 3], vec![1., 2., 3., 4., 5., 6.]);
-        let mut buf: Vec<u8> = Vec::new();
+    fn test_to_array() {
+        let tensor = NdTensor::arange(1., 5., None).into_shape([2, 2]);
+        let col0: [f32; 2] = tensor.view().transposed().slice::<1, _>(0).to_array();
+        let col1: [f32; 2] = tensor.view().transposed().slice::<1, _>(1).to_array();
+        assert_eq!(col0, [1., 3.]);
+        assert_eq!(col1, [2., 4.]);
+    }
 
-        x.write(&mut buf)?;
+    #[test]
+    fn test_to_contiguous() {
+        let data = vec![1., 2., 3., 4.];
+        let tensor = NdTensor::from_data([2, 2], data);
 
-        assert_eq!(buf.len(), 4 + x.ndim() * 4 + x.len() * 4);
+        // Tensor is already contiguous, so this is a no-op.
+        let mut tensor = tensor.to_contiguous();
+        assert_eq!(tensor.to_vec(), &[1., 2., 3., 4.]);
 
-        let mut cursor = Cursor::new(buf);
-        let mut tmp = [0u8; 4];
+        // Swap strides to make tensor non-contiguous.
+        tensor.transpose();
+        assert!(!tensor.is_contiguous());
+        assert_eq!(tensor.to_vec(), &[1., 3., 2., 4.]);
 
-        cursor.read(&mut tmp)?;
-        let ndim = u32::from_le_bytes(tmp);
-        assert_eq!(ndim, x.ndim() as u32);
+        // Create a new contiguous copy.
+        let tensor = tensor.to_contiguous();
+        assert!(tensor.is_contiguous());
+        assert_eq!(tensor.to_vec(), &[1., 3., 2., 4.]);
+    }
 
-        for &size in x.shape().iter() {
-            cursor.read(&mut tmp)?;
-            let written_size = u32::from_le_bytes(tmp);
-            assert_eq!(written_size, size as u32);
+    #[test]
+    fn test_to_shape() {
+        let tensor = NdTensor::from_data([2, 2], vec![1, 2, 3, 4]);
+        let flat = tensor.to_shape([4]);
+        assert_eq!(flat.shape(), [4]);
+        assert_eq!(flat.data(), Some([1, 2, 3, 4].as_slice()));
+    }
+
+    #[test]
+    fn test_to_vec() {
+        // Contiguous case
+        let tensor = NdTensor::from_data([2, 2], vec![1, 2, 3, 4]);
+        assert_eq!(tensor.to_vec(), &[1, 2, 3, 4]);
+
+        // Non-contiguous case
+        let mut tensor = tensor.clone();
+        tensor.transpose();
+        assert_eq!(tensor.to_vec(), &[1, 3, 2, 4]);
+    }
+
+    #[test]
+    fn test_to_tensor() {
+        let data = vec![1., 2., 3., 4.];
+        let view = NdTensorView::from_data([2, 2], &data);
+        let tensor = view.to_tensor();
+        assert_eq!(tensor.shape(), view.shape());
+        assert_eq!(tensor.to_vec(), view.to_vec());
+    }
+
+    #[test]
+    fn test_transpose() {
+        let data = vec![1., 2., 3., 4., 5., 6.];
+        let mut tensor = NdTensorView::from_data([2, 3], &data);
+
+        tensor.transpose();
+
+        assert_eq!(tensor.shape(), [3, 2]);
+        assert_eq!(tensor.to_vec(), &[1., 4., 2., 5., 3., 6.]);
+    }
+
+    #[test]
+    fn test_transposed() {
+        let data = vec![1., 2., 3., 4., 5., 6.];
+        let tensor = NdTensorView::from_data([2, 3], &data);
+
+        let permuted = tensor.transposed();
+
+        assert_eq!(permuted.shape(), [3, 2]);
+        assert_eq!(permuted.to_vec(), &[1., 4., 2., 5., 3., 6.]);
+    }
+
+    #[test]
+    fn test_try_slice() {
+        let data = vec![1., 2., 3., 4.];
+        let tensor = Tensor::from_data(&[2, 2], data);
+
+        let row = tensor.try_slice_dyn(0);
+        assert!(row.is_ok());
+        assert_eq!(row.unwrap().data(), Some([1., 2.].as_slice()));
+
+        let row = tensor.try_slice_dyn(1);
+        assert!(row.is_ok());
+
+        let row = tensor.try_slice_dyn(2);
+        assert!(row.is_err());
+    }
+
+    #[test]
+    fn test_try_slice_mut() {
+        let data = vec![1., 2., 3., 4.];
+        let mut tensor = Tensor::from_data(&[2, 2], data);
+
+        let mut row = tensor.try_slice_mut(0).unwrap();
+        row[[0]] += 1.;
+        row[[1]] += 1.;
+        assert_eq!(row.data(), Some([2., 3.].as_slice()));
+
+        let row = tensor.try_slice_mut(1);
+        assert!(row.is_ok());
+
+        let row = tensor.try_slice_dyn(2);
+        assert!(row.is_err());
+    }
+
+    #[test]
+    fn test_view() {
+        let tensor = NdTensor::from_data([2, 2], vec![1, 2, 3, 4]);
+        let view = tensor.view();
+        assert_eq!(view.data(), Some([1, 2, 3, 4].as_slice()));
+    }
+
+    #[test]
+    fn test_view_mut() {
+        let mut tensor = NdTensor::from_data([2, 2], vec![1, 2, 3, 4]);
+        let mut view = tensor.view_mut();
+        view[[0, 0]] = 0;
+        view[[1, 1]] = 0;
+        assert_eq!(tensor.data(), Some([0, 2, 3, 0].as_slice()));
+    }
+
+    #[test]
+    fn test_weakly_checked_view() {
+        let tensor = NdTensor::from_data([2, 2], vec![1, 2, 3, 4]);
+        let view = tensor.weakly_checked_view();
+
+        // Valid indexing should work the same as a normal view.
+        for y in 0..tensor.size(0) {
+            for x in 0..tensor.size(1) {
+                assert_eq!(view[[y, x]], tensor[[y, x]]);
+            }
         }
 
-        for el in x.iter().copied() {
-            cursor.read(&mut tmp)?;
-            let written_el = f32::from_le_bytes(tmp);
-            assert_eq!(written_el, el);
-        }
+        // Indexes that are invalid, but lead to an in-bounds offset, won't
+        // trigger a panic, unlike a normal view.
+        assert_eq!(view[[0, 2]], 3);
+    }
 
-        Ok(())
+    #[test]
+    fn test_weakly_checked_view_mut() {
+        let mut tensor = NdTensor::from_data([2, 2], vec![1, 2, 3, 4]);
+        let mut view = tensor.weakly_checked_view_mut();
+
+        // Valid indices
+        view[[0, 0]] = 5;
+        view[[1, 1]] = 6;
+
+        // Indices that are invalid, but lead to an in-bounds offset, won't
+        // trigger a panic, unlike a normal view.
+        view[[0, 2]] = 7;
+
+        assert_eq!(tensor.data(), Some([5, 2, 7, 6].as_slice()));
+    }
+
+    #[test]
+    fn test_zeros() {
+        let tensor = NdTensor::zeros([2, 2]);
+        assert_eq!(tensor.shape(), [2, 2]);
+        assert_eq!(tensor.data(), Some([0, 0, 0, 0].as_slice()));
     }
 }

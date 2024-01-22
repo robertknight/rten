@@ -38,7 +38,7 @@ pub fn split<T: Copy>(
 
             split_start += split_size;
 
-            input.view().slice(slice_range.as_slice()).to_tensor()
+            input.slice_dyn(slice_range.as_slice()).to_tensor()
         })
         .collect();
 
@@ -67,7 +67,8 @@ impl Operator for Split {
 
 #[cfg(test)]
 mod tests {
-    use rten_tensor::{tensor, View};
+    use rten_tensor::prelude::*;
+    use rten_tensor::tensor;
 
     use crate::ops::{split, OpError};
 

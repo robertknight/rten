@@ -30,7 +30,7 @@ pub fn batch_norm_in_place(
             let chan_bias = bias[[c]];
 
             let mut out_view = input.slice_mut([n, c]);
-            let mut out_view = out_view.unchecked_mut();
+            let mut out_view = out_view.weakly_checked_view_mut();
 
             // The batch norm formula, from the ONNX spec, is:
             //
@@ -160,7 +160,7 @@ pub fn instance_normalization_in_place(
 
     for n in 0..batch {
         for c in 0..chans {
-            let mut slice = input.slice_mut([n, c]);
+            let mut slice = input.slice_mut_dyn([n, c]);
             let chan_scale = scale[[c]];
             let chan_bias = bias[[c]];
             let chan_mean = slice_sum(slice.data().unwrap()) / slice.len() as f32;

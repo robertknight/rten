@@ -44,7 +44,7 @@ pub fn pad<T: Copy>(
 
     let mut output = Tensor::from_data(&out_shape, vec![const_val; out_len]);
     for (out, in_) in zip(
-        output.slice_mut(non_pad_region.as_slice()).iter_mut(),
+        output.slice_mut_dyn(non_pad_region.as_slice()).iter_mut(),
         input.iter(),
     ) {
         *out = *in_;

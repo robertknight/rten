@@ -1,7 +1,7 @@
 use std::fmt::Debug;
 
 use rten_tensor::prelude::*;
-use rten_tensor::{NdTensorBase, NdTensorView, Tensor, TensorBase, TensorView};
+use rten_tensor::{DynLayout, NdTensorBase, NdTensorView, Tensor, TensorBase, TensorView};
 
 use crate::number::{Identities, IsInt};
 use crate::ops::OpError;
@@ -69,7 +69,7 @@ pub trait FloatOperators {
     fn softmax(&self, axis: isize) -> Result<Tensor, OpError>;
 }
 
-impl<T, S: AsRef<[T]>> Operators for TensorBase<T, S> {
+impl<T, S: AsRef<[T]>> Operators for TensorBase<T, S, DynLayout> {
     type Elem = T;
 
     fn arg_max(&self, axis: isize, keep_dims: bool) -> Result<Tensor<i32>, OpError>
@@ -171,7 +171,7 @@ impl<T, S: AsRef<[T]>, const N: usize> Operators for NdTensorBase<T, S, N> {
     }
 }
 
-impl<S: AsRef<[f32]>> FloatOperators for TensorBase<f32, S> {
+impl<S: AsRef<[f32]>> FloatOperators for TensorBase<f32, S, DynLayout> {
     fn matmul(&self, other: TensorView) -> Result<Tensor, OpError> {
         matmul(self.view(), other)
     }

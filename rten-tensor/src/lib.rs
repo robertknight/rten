@@ -39,7 +39,6 @@ mod index_iterator;
 mod iterators;
 mod layout;
 mod macros;
-mod ndtensor;
 mod overlap;
 mod range;
 mod tensor;
@@ -56,16 +55,23 @@ pub use iterators::{
     IterMut, Lanes, LanesMut, Offsets,
 };
 pub use layout::{is_valid_permutation, DynLayout, Layout, MatrixLayout, NdLayout};
-pub use ndtensor::{
-    Matrix, MatrixMut, NdTensor, NdTensorBase, NdTensorView, NdTensorViewMut, NdView,
-};
 pub use range::{to_slice_items, DynSliceItems, IntoSliceItems, SliceItem, SliceRange};
-pub use tensor::{Tensor, TensorBase, TensorView, TensorViewMut, View};
+
+pub use tensor::{
+    AsView, Matrix, MatrixMut, MutLayout, NdTensor, NdTensorView, NdTensorViewMut, Tensor,
+    TensorBase, TensorView, TensorViewMut,
+};
+
+// For backwards compatibility.
+pub type NdTensorBase<T, S, const N: usize> = TensorBase<T, S, NdLayout<N>>;
+
+// For backwards compatibility.
+pub use tensor::{AsView as View, AsView as NdView};
 
 /// This module provides a convenient way to import the most common traits
 /// from this library via a glob import.
 pub mod prelude {
-    pub use super::{Layout, NdView, View};
+    pub use super::{AsView, Layout, NdView, View};
 }
 
 // These modules are public for use by other crates in this repo, but

@@ -181,7 +181,7 @@ pub fn resize_image(input: TensorView, size: [usize; 2]) -> Result<Tensor, OpErr
     let out_shape = [batch, chans, out_height, out_width].map(|x| x as i32);
     resize(
         input,
-        ResizeTarget::Sizes(NdTensorView::from(&out_shape)),
+        ResizeTarget::Sizes(out_shape.as_slice().into()),
         ResizeMode::Linear,
         CoordTransformMode::default(),
         NearestMode::default(),
@@ -232,8 +232,8 @@ pub fn resize(
     }
 
     for n in 0..batch {
-        let in_image = input.slice([n]);
-        let mut out_image = output.slice_mut([n]);
+        let in_image = input.slice::<3, _>([n]);
+        let mut out_image = output.slice_mut::<3, _>([n]);
 
         out_image
             .axis_chunks_mut(0, CHAN_GROUP_SIZE)
@@ -424,7 +424,7 @@ mod tests {
         for case in cases {
             let result = resize(
                 case.image.view(),
-                ResizeTarget::Scales((&case.scales).into()),
+                ResizeTarget::Scales(case.scales.as_slice().into()),
                 ResizeMode::Nearest,
                 CoordTransformMode::HalfPixel,
                 NearestMode::RoundPreferFloor,
@@ -582,7 +582,7 @@ mod tests {
         for case in cases {
             let result = resize(
                 case.image.view(),
-                ResizeTarget::Scales((&case.scales).into()),
+                ResizeTarget::Scales(case.scales.as_slice().into()),
                 ResizeMode::Linear,
                 CoordTransformMode::HalfPixel,
                 NearestMode::Floor,

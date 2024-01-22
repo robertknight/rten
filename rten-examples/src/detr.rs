@@ -292,7 +292,7 @@ fn main() -> Result<(), Box<dyn Error>> {
     let [_, image_height, image_width] = image.shape();
 
     let mut image = image.as_dyn().to_tensor();
-    image.insert_dim(0); // Add batch dim
+    image.insert_axis(0); // Add batch dim
 
     // Resize input image according to min/max side length constraints.
     //
