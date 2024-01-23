@@ -37,7 +37,16 @@ API changes as a result:
    `tensor.slice::<M, _>(range)` where `M` is the rank of the result. To create
    a view with a dynamic dimension count, use `tensor.slice_dyn(range)` instead.
 
-## Other changes
+## New features
+
+ - Implemented LayerNormalization operator
+   ([#44](https://github.com/robertknight/rten/pull/44))
+ - Added "Depth Anything" monocular depth estimation example
+   ([#44](https://github.com/robertknight/rten/pull/44))
+ - Added support for `align_corners` value for `coordinate_transformation_mode`
+   attr in Resize operator ([#44](https://github.com/robertknight/rten/pull/44)).
+
+## Performance improvements
 
  - Optimized index iteration for tensors (d3fd3c9)
  - Optimized col2im transform used by ConvTranspose (fbc541b)
