@@ -103,6 +103,7 @@ enum OperatorType: byte {
   NonMaxSuppression,
   Sign,
   GatherElements,
+  LayerNormalization
 }
 
 enum RNNDirection: byte {
@@ -124,7 +125,8 @@ enum DataType: byte {
 // Coordinate transform modes for Resize operator.
 enum CoordTransformMode: byte {
   HalfPixel,
-  Asymmetric
+  Asymmetric,
+  AlignCorners
 }
 
 // Rounding modes supported by Resize operator when `ResizeMode` is `Nearest`.
@@ -174,6 +176,7 @@ union OperatorAttrs {
   TriluAttrs,
   ScatterNDAttrs,
   NonMaxSuppressionAttrs,
+  LayerNormalizationAttrs,
 }
 
 table ArgMaxAttrs {
@@ -237,6 +240,11 @@ table ConvTransposeAttrs {
 
 table FlattenAttrs {
   axis:int;
+}
+
+table LayerNormalizationAttrs {
+  axis:int;
+  epsilon:float;
 }
 
 table GatherAttrs {

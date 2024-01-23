@@ -8,10 +8,10 @@ use crate::graph::Dimension;
 use crate::ops::{
     ArgMax, ArgMin, AveragePool, BatchNormalization, BoxOrder, Cast, Concat, ConstantOfShape, Conv,
     ConvTranspose, CoordTransformMode, DataType, Flatten, Gather, GatherElements, Gemm,
-    HardSigmoid, InstanceNormalization, LeakyRelu, LogSoftmax, MaxPool, Mod, NearestMode,
-    NonMaxSuppression, OneHot, Padding, ReduceMax, ReduceMean, ReduceMin, ReduceProd, ReduceSum,
-    Reshape, Resize, ResizeMode, Scalar, ScatterElements, ScatterReduction, Softmax, Split, TopK,
-    Transpose, Trilu,
+    HardSigmoid, InstanceNormalization, LayerNormalization, LeakyRelu, LogSoftmax, MaxPool, Mod,
+    NearestMode, NonMaxSuppression, OneHot, Padding, ReduceMax, ReduceMean, ReduceMin, ReduceProd,
+    ReduceSum, Reshape, Resize, ResizeMode, Scalar, ScatterElements, ScatterReduction, Softmax,
+    Split, TopK, Transpose, Trilu,
 };
 use crate::schema_generated as sg;
 
@@ -52,6 +52,7 @@ pub enum OpType {
     HardSwish,
     Identity,
     InstanceNormalization(InstanceNormalization),
+    LayerNormalization(LayerNormalization),
     LeakyRelu(LeakyRelu),
     Less,
     LessOrEqual,
@@ -472,6 +473,14 @@ impl<'a> ModelBuilder<'a> {
                     epsilon: args.epsilon.unwrap_or(1e-5)
                 }
             ),
+            OpType::LayerNormalization(args) => op_with_attrs!(
+                LayerNormalization,
+                LayerNormalizationAttrs,
+                sg::LayerNormalizationAttrsArgs {
+                    axis: args.axis as i32,
+                    epsilon: args.epsilon.unwrap_or(1e-5)
+                }
+            ),
             OpType::LeakyRelu(args) => op_with_attrs!(
                 LeakyRelu,
                 LeakyReluAttrs,
@@ -565,6 +574,7 @@ impl<'a> ModelBuilder<'a> {
                 let coord_mode = match args.coord_mode {
                     CoordTransformMode::Asymmetric => sg::CoordTransformMode::Asymmetric,
                     CoordTransformMode::HalfPixel => sg::CoordTransformMode::HalfPixel,
+                    CoordTransformMode::AlignCorners => sg::CoordTransformMode::AlignCorners,
                 };
                 let nearest_mode = match args.nearest_mode {
                     NearestMode::Ceil => sg::NearestMode::Ceil,

@@ -65,8 +65,8 @@ pub use layout::{
 pub use matmul::{gemm_op, matmul, Gemm, MatMul};
 pub use non_max_suppression::{non_max_suppression, BoxOrder, NonMaxSuppression};
 pub use norm::{
-    batch_norm, batch_norm_in_place, instance_normalization, log_softmax, softmax,
-    BatchNormalization, InstanceNormalization, LogSoftmax, Softmax,
+    batch_norm, batch_norm_in_place, instance_normalization, layer_normalization, log_softmax,
+    softmax, BatchNormalization, InstanceNormalization, LayerNormalization, LogSoftmax, Softmax,
 };
 pub use pad::{pad, Pad};
 pub use pooling::{
