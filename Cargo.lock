@@ -307,7 +307,7 @@ dependencies = [
 
 [[package]]
 name = "rten"
-version = "0.3.0"
+version = "0.3.1"
 dependencies = [
  "flatbuffers",
  "libm",
@@ -381,7 +381,7 @@ dependencies = [
 
 [[package]]
 name = "rten-vecmath"
-version = "0.1.1"
+version = "0.3.0"
 dependencies = [
  "fastrand",
  "libm",
