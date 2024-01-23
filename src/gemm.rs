@@ -290,6 +290,9 @@ pub enum KernelHint {
 
     /// Use the ARM NEON kernel. ARM 64 only.
     ArmNeon,
+
+    /// Use the WASM SIMD kernel.
+    WasmSimd,
 }
 
 impl GemmExecutor {
@@ -306,6 +309,10 @@ impl GemmExecutor {
         }
         #[cfg(target_arch = "aarch64")]
         if let Some(gemm) = Self::with_kernel(KernelHint::ArmNeon) {
+            return gemm;
+        }
+        #[cfg(target_arch = "wasm32")]
+        if let Some(gemm) = Self::with_kernel(KernelHint::WasmSimd) {
             return gemm;
         }
         Self::with_base_kernel()
@@ -364,6 +371,21 @@ impl GemmExecutor {
                             kernel: Box::new(ArmNeonKernel {}),
                             nr: ArmNeonKernel::NR,
                             mr: ArmNeonKernel::MR,
+                        });
+                    }
+                }
+                None
+            }
+            KernelHint::WasmSimd => {
+                #[cfg(target_arch = "wasm32")]
+                {
+                    use kernels::wasm32::WasmSimdKernel;
+
+                    if WasmSimdKernel::supported() {
+                        return Some(GemmExecutor {
+                            kernel: Box::new(WasmSimdKernel {}),
+                            nr: WasmSimdKernel::NR,
+                            mr: WasmSimdKernel::MR,
                         });
                     }
                 }

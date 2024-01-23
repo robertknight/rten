@@ -10,6 +10,9 @@ pub mod aarch64;
 #[cfg(target_arch = "x86_64")]
 pub mod x86_64;
 
+#[cfg(target_arch = "wasm32")]
+pub mod wasm32;
+
 /// Kernel that computes a small tile of a matrix multiplication output.
 ///
 /// The kernel corresponds to Loop 6 (the "microkernel") in Page 4 of [^1]. The
