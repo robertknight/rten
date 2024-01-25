@@ -391,4 +391,71 @@ mod tests {
             assert_eq!(border, border_points(*rect, false /* omit_corners */));
         }
     }
+
+    /// Generate a grid of uniformly sized and spaced rects.
+    ///
+    /// `grid_shape` is a (rows, columns) tuple. `rect_size` and `gap_size` are
+    /// (height, width) tuples.
+    fn gen_rect_grid(
+        top_left: Point,
+        grid_shape: (i32, i32),
+        rect_size: (i32, i32),
+        gap_size: (i32, i32),
+    ) -> Vec<Rect> {
+        let mut rects = Vec::new();
+
+        let (rows, cols) = grid_shape;
+        let (rect_h, rect_w) = rect_size;
+        let (gap_h, gap_w) = gap_size;
+
+        for r in 0..rows {
+            for c in 0..cols {
+                let top = top_left.y + r * (rect_h + gap_h);
+                let left = top_left.x + c * (rect_w + gap_w);
+                rects.push(Rect::from_tlbr(top, left, top + rect_h, left + rect_w))
+            }
+        }
+
+        rects
+    }
+
+    #[test]
+    #[ignore]
+    fn bench_find_contours() {
+        use rten_tensor::test_util::bench_loop;
+
+        // Fill a mask with a grid of rectangular objects.
+        let mask_h = 1024;
+        let mask_w = 1024;
+        let row_gap = 5;
+        let col_gap = 5;
+        let grid_cols = 20;
+        let grid_rows = 40;
+
+        let mut mask = NdTensor::zeros([mask_h, mask_w]);
+        let item_h = (mask_h / grid_rows) - row_gap;
+        let item_w = (mask_w / grid_cols) - col_gap;
+
+        let rects = gen_rect_grid(
+            Point::from_yx(0, 0),
+            (grid_rows as i32, grid_cols as i32),
+            (item_h as i32, item_w as i32),
+            (row_gap as i32, col_gap as i32),
+        );
+
+        for rect in rects {
+            fill_rect(mask.view_mut(), rect, 1);
+        }
+
+        let n_iters = 100;
+        let stats = bench_loop(n_iters, || {
+            let contours = find_contours(mask.view(), RetrievalMode::External);
+            assert_eq!(contours.len(), (grid_rows * grid_cols) as usize);
+        });
+        println!(
+            "find_contours {:.3} ms, {:.3} ns/elem",
+            stats.duration_ms(),
+            stats.duration_ns() / (mask_h * mask_w * n_iters) as f64
+        );
+    }
 }

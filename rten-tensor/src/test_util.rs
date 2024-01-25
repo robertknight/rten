@@ -196,10 +196,24 @@ pub struct BenchStats {
     duration: f64,
 }
 
+const SECS_TO_MS: f64 = 1000.;
+const SECS_TO_US: f64 = 1_000_000.;
+const SECS_TO_NS: f64 = 1_000_000_000.;
+
 impl BenchStats {
     /// Return total duration in milliseconds.
     pub fn duration_ms(&self) -> f64 {
-        self.duration * 1000.0
+        self.duration * SECS_TO_MS
+    }
+
+    /// Return total duration in microseconds.
+    pub fn duration_us(&self) -> f64 {
+        self.duration * SECS_TO_US
+    }
+
+    /// Return total duration in nanoseconds.
+    pub fn duration_ns(&self) -> f64 {
+        self.duration * SECS_TO_NS
     }
 }
 
