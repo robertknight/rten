@@ -14,8 +14,8 @@ enum Direction {
 ///
 /// If `skip_first` is true, start the search from the next neighbor of `start`
 /// in the order given by `dir`.
-fn find_nonzero_neighbor(
-    mask: &NdTensorView<i32, 2>,
+fn find_nonzero_neighbor<T: Default + std::cmp::PartialEq>(
+    mask: &NdTensorView<T, 2>,
     center: Point,
     start: Point,
     dir: Direction,
@@ -47,7 +47,7 @@ fn find_nonzero_neighbor(
 
     let mut idx = start_idx;
     loop {
-        if mask[neighbors[idx].coord()] != 0 {
+        if mask[neighbors[idx].coord()] != T::default() {
             return Some(neighbors[idx]);
         }
         idx = next_neighbor(idx);
@@ -86,13 +86,13 @@ pub fn find_contours(mask: NdTensorView<i32, 2>, mode: RetrievalMode) -> Polygon
     // padding enables the algorithm to handle objects that touch the edge of
     // the mask.
     let padding = 1;
-    let mut padded_mask = NdTensor::zeros([mask.rows() + 2 * padding, mask.cols() + 2 * padding]);
+    let mut padded_mask =
+        NdTensor::<i8, 2>::zeros([mask.rows() + 2 * padding, mask.cols() + 2 * padding]);
     for y in 0..mask.rows() {
         for x in 0..mask.cols() {
             // Clamp values in the copied mask to { 0, 1 } so the algorithm
             // below can use other values as part of its working.
-            let value = mask[[y, x]].clamp(0, 1);
-            padded_mask[[y + padding, x + padding]] = value;
+            padded_mask[[y + padding, x + padding]] = mask[[y, x]].clamp(0, 1) as i8;
         }
     }
     let mut mask = padded_mask;
@@ -102,8 +102,17 @@ pub fn find_contours(mask: NdTensorView<i32, 2>, mode: RetrievalMode) -> Polygon
     // Points of current border.
     let mut border = Vec::new();
 
-    // Sequential number of next border. Called `NBD` in the paper.
-    let mut border_num = 1;
+    // Label for pixels that have been marked as part of a border. The pixels are
+    // labeled with a positive or negative value depending on which side of the
+    // border it is on.
+    //
+    // In the paper this is called `NBD` and is incremented for each border. We
+    // don't increment the value because this is only needed as part of finding
+    // the hierarchical structure of borders, which is not implemented here.
+    // Instead we only need to distinguish background (0), object (1) and border
+    // (+/- 2) pixels. Using an `i8` label reduces memory consumption for the
+    // working space and speeds up finding contours in large images.
+    let border_num: i8 = 2;
 
     // Value of last non-zero pixel visited on current row. See Algorithm 2 in
     // paper. This value is zero if we've not passed through any borders on the
@@ -148,7 +157,6 @@ pub fn find_contours(mask: NdTensorView<i32, 2>, mode: RetrievalMode) -> Polygon
 
             // Follow the border if we found a start point.
             if let Some(start_neighbor) = start_neighbor {
-                border_num += 1;
                 border.clear();
 
                 let nonzero_start_neighbor = find_nonzero_neighbor(
