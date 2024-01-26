@@ -88,11 +88,15 @@ pub fn find_contours(mask: NdTensorView<i32, 2>, mode: RetrievalMode) -> Polygon
     let padding = 1;
     let mut padded_mask =
         NdTensor::<i8, 2>::zeros([mask.rows() + 2 * padding, mask.cols() + 2 * padding]);
+
+    // Use faster indexing (but with weaker bounds checks).
+    let wc_mask = mask.weakly_checked_view();
+    let mut wc_padded_mask = padded_mask.weakly_checked_view_mut();
     for y in 0..mask.rows() {
         for x in 0..mask.cols() {
             // Clamp values in the copied mask to { 0, 1 } so the algorithm
             // below can use other values as part of its working.
-            padded_mask[[y + padding, x + padding]] = mask[[y, x]].clamp(0, 1) as i8;
+            wc_padded_mask[[y + padding, x + padding]] = wc_mask[[y, x]].clamp(0, 1) as i8;
         }
     }
     let mut mask = padded_mask;
