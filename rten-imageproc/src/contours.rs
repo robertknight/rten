@@ -14,8 +14,13 @@ enum Direction {
 ///
 /// If `skip_first` is true, start the search from the next neighbor of `start`
 /// in the order given by `dir`.
-fn find_nonzero_neighbor<T: Default + std::cmp::PartialEq>(
-    mask: &NdTensorView<T, 2>,
+fn find_nonzero_neighbor<
+    T: Default + std::cmp::PartialEq,
+    // Use a generic for `mask` rather than `NdTensorView` to avoid the (small)
+    // overhead of repeated view creation.
+    M: std::ops::Index<[usize; 2], Output = T>,
+>(
+    mask: &M,
     center: Point,
     start: Point,
     dir: Direction,
@@ -164,7 +169,7 @@ pub fn find_contours(mask: NdTensorView<i32, 2>, mode: RetrievalMode) -> Polygon
                 border.clear();
 
                 let nonzero_start_neighbor = find_nonzero_neighbor(
-                    &mask.view(),
+                    &mask,
                     start_point,
                     start_neighbor,
                     Direction::Clockwise,
@@ -177,7 +182,7 @@ pub fn find_contours(mask: NdTensorView<i32, 2>, mode: RetrievalMode) -> Polygon
 
                     loop {
                         let next_point = find_nonzero_neighbor(
-                            &mask.view(),
+                            &mask,
                             current_point,
                             prev_neighbor,
                             Direction::CounterClockwise,
