@@ -101,7 +101,19 @@ pub trait AsView: Layout {
 
     /// Return a reference to the element at a given index, or `None` if the
     /// index is invalid.
-    fn get<I: AsIndex<Self::Layout>>(&self, index: I) -> Option<&Self::Elem>;
+    fn get<I: AsIndex<Self::Layout>>(&self, index: I) -> Option<&Self::Elem> {
+        self.view().get(index)
+    }
+
+    /// Return a reference to the element at a given index, without performing
+    /// bounds checks.
+    ///
+    /// # Safety
+    ///
+    /// The caller must ensure that the index is valid for the tensor's shape.
+    unsafe fn get_unchecked<I: AsIndex<Self::Layout>>(&self, index: I) -> &Self::Elem {
+        self.view().get_unchecked(index)
+    }
 
     /// Return an iterator over the innermost N dimensions.
     fn inner_iter<const N: usize>(&self) -> InnerIter<Self::Elem, Self::Layout, N> {
@@ -724,6 +736,11 @@ impl<'a, T, L: Clone + MutLayout> TensorBase<T, &'a [T], L> {
         self.layout.is_contiguous().then_some(self.data)
     }
 
+    pub fn get<I: AsIndex<L>>(&self, index: I) -> Option<&'a T> {
+        self.try_offset(index.as_index())
+            .map(|offset| &self.data[offset])
+    }
+
     /// Return this view's underlying data as a slice.
     ///
     /// Unlike the `data` method, this method does not check if the storage
@@ -1035,9 +1052,17 @@ impl<T, S: AsRef<[T]>, L: MutLayout + Clone> AsView for TensorBase<T, S, L> {
         }
     }
 
+    // For `get` and `get_unchecked` we override the default implementation in
+    // the trait to skip view creation.
+
     fn get<I: AsIndex<L>>(&self, index: I) -> Option<&Self::Elem> {
         self.try_offset(index.as_index())
             .map(|offset| &self.data.as_ref()[offset])
+    }
+
+    unsafe fn get_unchecked<I: AsIndex<L>>(&self, index: I) -> &T {
+        let offset = self.layout.offset_unchecked(index.as_index());
+        self.data.as_ref().get_unchecked(offset)
     }
 
     fn permute(&mut self, order: Self::Index<'_>) {
@@ -1805,15 +1830,28 @@ mod tests {
         // NdLayout
         let data = vec![1., 2., 3., 4.];
         let tensor: NdTensor<f32, 2> = NdTensor::from_data([2, 2], data);
+
+        // Impl for tensors
         assert_eq!(tensor.get([1, 1]), Some(&4.));
         assert_eq!(tensor.get([2, 1]), None);
+
+        // Impl for views
+        assert_eq!(tensor.view().get([1, 1]), Some(&4.));
+        assert_eq!(tensor.view().get([2, 1]), None);
 
         // DynLayout
         let data = vec![1., 2., 3., 4.];
         let tensor: Tensor<f32> = Tensor::from_data(&[2, 2], data);
+
+        // Impl for tensors
         assert_eq!(tensor.get([1, 1]), Some(&4.));
         assert_eq!(tensor.get([2, 1]), None); // Invalid index
         assert_eq!(tensor.get([1, 2, 3]), None); // Incorrect dim count
+
+        // Impl for views
+        assert_eq!(tensor.view().get([1, 1]), Some(&4.));
+        assert_eq!(tensor.view().get([2, 1]), None); // Invalid index
+        assert_eq!(tensor.view().get([1, 2, 3]), None); // Incorrect dim count
     }
 
     #[test]
@@ -1848,6 +1886,10 @@ mod tests {
     fn test_get_unchecked() {
         let ndtensor = NdTensor::arange(1, 5, None);
         for i in 0..ndtensor.size(0) {
+            // Called on a tensor.
+            assert_eq!(unsafe { ndtensor.get_unchecked([i]) }, &ndtensor[[i]]);
+
+            // Called on a view.
             assert_eq!(
                 unsafe { ndtensor.view().get_unchecked([i]) },
                 &ndtensor[[i]]
@@ -1856,6 +1898,9 @@ mod tests {
 
         let tensor = Tensor::arange(1, 5, None);
         for i in 0..tensor.size(0) {
+            // Called on a tensor.
+            assert_eq!(unsafe { tensor.get_unchecked([i]) }, &ndtensor[[i]]);
+            // Called on a view.
             assert_eq!(unsafe { tensor.view().get_unchecked([i]) }, &ndtensor[[i]]);
         }
     }
