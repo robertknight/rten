@@ -1878,6 +1878,7 @@ impl<'a> AveragePoolAttrs<'a> {
     pub const VT_PAD_MODE: flatbuffers::VOffsetT = 6;
     pub const VT_PADS: flatbuffers::VOffsetT = 8;
     pub const VT_STRIDES: flatbuffers::VOffsetT = 10;
+    pub const VT_COUNT_INCLUDE_PAD: flatbuffers::VOffsetT = 12;
 
     #[inline]
     pub unsafe fn init_from_table(table: flatbuffers::Table<'a>) -> Self {
@@ -1898,6 +1899,7 @@ impl<'a> AveragePoolAttrs<'a> {
         if let Some(x) = args.kernel_size {
             builder.add_kernel_size(x);
         }
+        builder.add_count_include_pad(args.count_include_pad);
         builder.add_pad_mode(args.pad_mode);
         builder.finish()
     }
@@ -1953,6 +1955,17 @@ impl<'a> AveragePoolAttrs<'a> {
                 )
         }
     }
+    #[inline]
+    pub fn count_include_pad(&self) -> bool {
+        // Safety:
+        // Created from valid Table for this object
+        // which contains a valid value in this slot
+        unsafe {
+            self._tab
+                .get::<bool>(AveragePoolAttrs::VT_COUNT_INCLUDE_PAD, Some(false))
+                .unwrap()
+        }
+    }
 }
 
 impl flatbuffers::Verifiable for AveragePoolAttrs<'_> {
@@ -1979,6 +1992,7 @@ impl flatbuffers::Verifiable for AveragePoolAttrs<'_> {
                 Self::VT_STRIDES,
                 false,
             )?
+            .visit_field::<bool>("count_include_pad", Self::VT_COUNT_INCLUDE_PAD, false)?
             .finish();
         Ok(())
     }
@@ -1988,6 +2002,7 @@ pub struct AveragePoolAttrsArgs<'a> {
     pub pad_mode: PadMode,
     pub pads: Option<flatbuffers::WIPOffset<flatbuffers::Vector<'a, u32>>>,
     pub strides: Option<flatbuffers::WIPOffset<flatbuffers::Vector<'a, u32>>>,
+    pub count_include_pad: bool,
 }
 impl<'a> Default for AveragePoolAttrsArgs<'a> {
     #[inline]
@@ -1997,6 +2012,7 @@ impl<'a> Default for AveragePoolAttrsArgs<'a> {
             pad_mode: PadMode::Same,
             pads: None,
             strides: None,
+            count_include_pad: false,
         }
     }
 }
@@ -2032,6 +2048,14 @@ impl<'a: 'b, 'b> AveragePoolAttrsBuilder<'a, 'b> {
             .push_slot_always::<flatbuffers::WIPOffset<_>>(AveragePoolAttrs::VT_STRIDES, strides);
     }
     #[inline]
+    pub fn add_count_include_pad(&mut self, count_include_pad: bool) {
+        self.fbb_.push_slot::<bool>(
+            AveragePoolAttrs::VT_COUNT_INCLUDE_PAD,
+            count_include_pad,
+            false,
+        );
+    }
+    #[inline]
     pub fn new(
         _fbb: &'b mut flatbuffers::FlatBufferBuilder<'a>,
     ) -> AveragePoolAttrsBuilder<'a, 'b> {
@@ -2057,6 +2081,7 @@ impl core::fmt::Debug for AveragePoolAttrs<'_> {
         ds.field("pad_mode", &self.pad_mode());
         ds.field("pads", &self.pads());
         ds.field("strides", &self.strides());
+        ds.field("count_include_pad", &self.count_include_pad());
         ds.finish()
     }
 }

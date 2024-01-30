@@ -91,6 +91,7 @@ pub fn average_pool(
     kernel_size: [usize; 2],
     strides: [usize; 2],
     padding: Padding,
+    count_include_pad: bool,
 ) -> Result<Tensor, OpError> {
     let [batch, in_c, in_h, in_w] = check_dims!(input, 4, "NCHW");
     let (out_h, out_w, fixed_padding) = calc_output_size_and_padding(
@@ -134,7 +135,13 @@ pub fn average_pool(
                         }
                     }
 
-                    out_view[[out_y, out_x]] = accumulator / non_padding_elements;
+                    let counted_elems = if count_include_pad {
+                        (kernel_h * kernel_w) as f32
+                    } else {
+                        non_padding_elements
+                    };
+
+                    out_view[[out_y, out_x]] = accumulator / counted_elems;
                 }
             }
         }
@@ -147,6 +154,7 @@ pub fn average_pool(
 pub struct AveragePool {
     pub kernel_size: [usize; 2],
     pub padding: Padding,
+    pub count_include_pad: bool,
     pub strides: [usize; 2],
 }
 
@@ -162,6 +170,7 @@ impl Operator for AveragePool {
             self.kernel_size,
             self.strides,
             self.padding.clone(),
+            self.count_include_pad,
         )
         .into_op_result()
     }
@@ -368,19 +377,6 @@ mod tests {
     use crate::ops::tests::expect_eq_1e4;
     use crate::ops::{average_pool, global_average_pool, max_pool, OpError, Padding};
 
-    fn from_2d_slice<T: Clone>(data: &[&[T]]) -> Tensor<T> {
-        let rows = data.len();
-        let cols = data.get(0).map(|first_row| first_row.len()).unwrap_or(0);
-
-        let mut result = Vec::new();
-        for row in data {
-            assert!(cols == row.len(), "All row slices must have same length");
-            result.extend_from_slice(row);
-        }
-
-        Tensor::from_data(&[rows, cols], result)
-    }
-
     #[test]
     fn test_average_pool() -> Result<(), Box<dyn Error>> {
         let input = Tensor::from_data(
@@ -452,6 +448,7 @@ mod tests {
                 case.kernel_size,
                 case.strides,
                 [0, 0, 0, 0].into(),
+                false, /* count_include_pad */
             )
             .unwrap();
             expect_equal(&result, &case.expected)?;
@@ -462,21 +459,21 @@ mod tests {
 
     #[test]
     fn test_average_pool_padding() -> Result<(), Box<dyn Error>> {
-        let mut input = from_2d_slice(&[
-            &[0.0809, 0.5529, 0.1534, 0.7507],
-            &[0.4698, 0.7771, 0.9896, 0.4873],
-            &[0.9750, 0.5160, 0.6419, 0.3670],
-            &[0.4101, 0.3762, 0.9689, 0.4389],
+        let mut input = Tensor::from([
+            [0.0809, 0.5529, 0.1534, 0.7507],
+            [0.4698, 0.7771, 0.9896, 0.4873],
+            [0.9750, 0.5160, 0.6419, 0.3670],
+            [0.4101, 0.3762, 0.9689, 0.4389],
         ]);
         let [rows, cols]: [usize; 2] = input.shape().try_into().unwrap();
         input.reshape(&[1, 1, rows, cols]);
 
         // Computed with `torch.nn.functional.avg_pool2d` in PyTorch with
         // `padding=1` and `count_include_pad=False`.
-        let mut expected = from_2d_slice(&[
-            &[0.0809, 0.3531, 0.7507],
-            &[0.7224, 0.7312, 0.4271],
-            &[0.4101, 0.6725, 0.4389],
+        let mut expected = Tensor::from([
+            [0.0809, 0.3531, 0.7507],
+            [0.7224, 0.7312, 0.4271],
+            [0.4101, 0.6725, 0.4389],
         ]);
         let [rows, cols]: [usize; 2] = expected.shape().try_into().unwrap();
         expected.reshape(&[1, 1, rows, cols]);
@@ -486,9 +483,28 @@ mod tests {
             [2, 2],
             [2, 2], /* stride */
             [1, 1, 1, 1].into(),
+            false, /* count_include_pad */
         )
         .unwrap();
         expect_eq_1e4(&result, &expected)?;
+
+        // As above, but with `count_include_pad=True`.
+        let expected_include_pad = Tensor::from([
+            [0.0202, 0.1766, 0.1877],
+            [0.3612, 0.7312, 0.2136],
+            [0.1025, 0.3363, 0.1097],
+        ])
+        .into_shape([1, 1, 3, 3])
+        .into_dyn();
+        let result = average_pool(
+            input.view(),
+            [2, 2],
+            [2, 2], /* stride */
+            [1, 1, 1, 1].into(),
+            true, /* count_include_pad */
+        )
+        .unwrap();
+        expect_eq_1e4(&result, &expected_include_pad)?;
 
         Ok(())
     }

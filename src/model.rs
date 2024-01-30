@@ -599,6 +599,7 @@ fn read_average_pool_op(node: &OperatorNode) -> ReadOpResult {
     Ok(Box::new(ops::AveragePool {
         kernel_size,
         padding,
+        count_include_pad: attrs.count_include_pad(),
         strides,
     }))
 }
@@ -1335,6 +1336,7 @@ mod tests {
             kernel_size: [2, 2],
             strides: [2, 2],
             padding: [0, 0, 0, 0].into(),
+            count_include_pad: false,
         });
 
         // Dummy value for BatchNormalization inputs which are vectors with

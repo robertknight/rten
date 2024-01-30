@@ -343,6 +343,7 @@ impl<'a> ModelBuilder<'a> {
                     pad_mode: pad_args.pad_mode,
                     pads,
                     strides,
+                    count_include_pad: args.count_include_pad,
                 }
             }),
             OpType::BatchNormalization(args) => op_with_attrs!(

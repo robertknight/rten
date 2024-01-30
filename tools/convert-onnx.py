@@ -223,6 +223,16 @@ class ONNXOperatorReader:
                 return val
         return default
 
+    def get_bool_attr(self, name: str, default: bool) -> bool:
+        """
+        Get the value of an optional boolean operator attribute.
+
+        ONNX represents boolean attributes as "int" fields with values 0 or 1
+        rather than a dedicated boolean type. This method converts these
+        attributes to Python booleans.
+        """
+        return bool(self.get_attr(name, "int", int(default)))
+
     def get_enum_attr(self, name: str, enum: Any, default: str, fallback: Any = None):
         """
         Get an optional attribute whose value is an enum variant.
@@ -564,7 +574,6 @@ def op_node_from_onnx_operator(
             check_ints_length("kernel_shape", kernel_shape, 2)
             pad_mode, pads = read_pads(op_reader)
             op_reader.check_attr("ceil_mode", "int", 0)
-            op_reader.check_attr("count_include_pad", "int", 0)
 
             attrs = sg.AveragePoolAttrsT()
             attrs.kernelSize = kernel_shape
@@ -575,6 +584,7 @@ def op_node_from_onnx_operator(
             else:
                 attrs.padMode = sg.PadMode.Fixed
             attrs.strides = read_strides(op_reader)
+            attrs.countIncludePad = op_reader.get_bool_attr("count_include_pad", False)
 
         case "BatchNormalization":
             attrs = sg.BatchNormalizationAttrsT()

@@ -192,6 +192,8 @@ table AveragePoolAttrs {
   pads:[uint];
 
   strides:[uint];
+
+  count_include_pad:bool;
 }
 
 table BatchNormalizationAttrs {
