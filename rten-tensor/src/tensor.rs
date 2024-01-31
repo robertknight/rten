@@ -283,19 +283,38 @@ pub trait AsView: Layout {
 
 impl<T, S: AsRef<[T]>, L: MutLayout> TensorBase<T, S, L> {
     /// Construct a new tensor from a given shape and storage.
-    pub fn from_data(shape: L::Index<'_>, data: S) -> TensorBase<T, S, L> {
+    ///
+    /// Panics if the data length does not match the product of `shape`.
+    pub fn from_data(shape: L::Index<'_>, data: S) -> TensorBase<T, S, L>
+    where
+        for<'a> L::Index<'a>: Clone,
+    {
+        let len = data.as_ref().len();
+        Self::try_from_data(shape.clone(), data).unwrap_or_else(|_| {
+            panic!(
+                "data length {} does not match shape {:?}",
+                len,
+                shape.as_ref(),
+            );
+        })
+    }
+
+    /// Construct a new tensor from a given shape and storage.
+    ///
+    /// This will fail if the data length does not match the product of `shape`.
+    pub fn try_from_data(
+        shape: L::Index<'_>,
+        data: S,
+    ) -> Result<TensorBase<T, S, L>, FromDataError> {
         let layout = L::from_shape(shape);
-        assert!(
-            data.as_ref().len() == layout.len(),
-            "data length {} does not match shape {:?}",
-            data.as_ref().len(),
-            layout.shape().as_ref(),
-        );
-        TensorBase {
+        if layout.min_data_len() != data.as_ref().len() {
+            return Err(FromDataError::StorageLengthMismatch);
+        }
+        Ok(TensorBase {
             data,
             layout,
             element_type: PhantomData,
-        }
+        })
     }
 
     /// Construct a new tensor from a given shape and storage, and custom
@@ -2450,6 +2469,20 @@ mod tests {
 
         assert_eq!(permuted.shape(), [3, 2]);
         assert_eq!(permuted.to_vec(), &[1., 4., 2., 5., 3., 6.]);
+    }
+
+    #[test]
+    fn test_try_from_data() {
+        let x = NdTensor::try_from_data([1, 2, 2], vec![1, 2, 3, 4]);
+        assert!(x.is_ok());
+        if let Ok(x) = x {
+            assert_eq!(x.shape(), [1, 2, 2]);
+            assert_eq!(x.strides(), [4, 2, 1]);
+            assert_eq!(x.to_vec(), [1, 2, 3, 4]);
+        }
+
+        let x = NdTensor::try_from_data([1, 2, 2], vec![1]);
+        assert_eq!(x, Err(FromDataError::StorageLengthMismatch));
     }
 
     #[test]

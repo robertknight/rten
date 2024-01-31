@@ -19,6 +19,10 @@ pub enum FromDataError {
     /// Some indices will map to offsets that are beyond the end of the storage.
     StorageTooShort,
 
+    /// The storage length was expected to exactly match the product of the
+    /// shape, and it did not.
+    StorageLengthMismatch,
+
     /// Some indices will map to the same offset within the storage.
     ///
     /// This error can only occur when the storage is mutable.
@@ -29,6 +33,7 @@ impl Display for FromDataError {
     fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
         match self {
             FromDataError::StorageTooShort => write!(f, "Data too short"),
+            FromDataError::StorageLengthMismatch => write!(f, "Data length mismatch"),
             FromDataError::MayOverlap => write!(f, "May have internal overlap"),
         }
     }
