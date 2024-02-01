@@ -7943,6 +7943,292 @@ impl core::fmt::Debug for Graph<'_> {
         ds.finish()
     }
 }
+pub enum MetadataOffset {}
+#[derive(Copy, Clone, PartialEq)]
+
+pub struct Metadata<'a> {
+    pub _tab: flatbuffers::Table<'a>,
+}
+
+impl<'a> flatbuffers::Follow<'a> for Metadata<'a> {
+    type Inner = Metadata<'a>;
+    #[inline]
+    unsafe fn follow(buf: &'a [u8], loc: usize) -> Self::Inner {
+        Self {
+            _tab: flatbuffers::Table::new(buf, loc),
+        }
+    }
+}
+
+impl<'a> Metadata<'a> {
+    pub const VT_ONNX_HASH: flatbuffers::VOffsetT = 4;
+    pub const VT_DESCRIPTION: flatbuffers::VOffsetT = 6;
+    pub const VT_LICENSE: flatbuffers::VOffsetT = 8;
+    pub const VT_COMMIT: flatbuffers::VOffsetT = 10;
+    pub const VT_CODE_REPOSITORY: flatbuffers::VOffsetT = 12;
+    pub const VT_MODEL_REPOSITORY: flatbuffers::VOffsetT = 14;
+    pub const VT_RUN_ID: flatbuffers::VOffsetT = 16;
+    pub const VT_RUN_URL: flatbuffers::VOffsetT = 18;
+
+    #[inline]
+    pub unsafe fn init_from_table(table: flatbuffers::Table<'a>) -> Self {
+        Metadata { _tab: table }
+    }
+    #[allow(unused_mut)]
+    pub fn create<'bldr: 'args, 'args: 'mut_bldr, 'mut_bldr>(
+        _fbb: &'mut_bldr mut flatbuffers::FlatBufferBuilder<'bldr>,
+        args: &'args MetadataArgs<'args>,
+    ) -> flatbuffers::WIPOffset<Metadata<'bldr>> {
+        let mut builder = MetadataBuilder::new(_fbb);
+        if let Some(x) = args.run_url {
+            builder.add_run_url(x);
+        }
+        if let Some(x) = args.run_id {
+            builder.add_run_id(x);
+        }
+        if let Some(x) = args.model_repository {
+            builder.add_model_repository(x);
+        }
+        if let Some(x) = args.code_repository {
+            builder.add_code_repository(x);
+        }
+        if let Some(x) = args.commit {
+            builder.add_commit(x);
+        }
+        if let Some(x) = args.license {
+            builder.add_license(x);
+        }
+        if let Some(x) = args.description {
+            builder.add_description(x);
+        }
+        if let Some(x) = args.onnx_hash {
+            builder.add_onnx_hash(x);
+        }
+        builder.finish()
+    }
+
+    #[inline]
+    pub fn onnx_hash(&self) -> Option<&'a str> {
+        // Safety:
+        // Created from valid Table for this object
+        // which contains a valid value in this slot
+        unsafe {
+            self._tab
+                .get::<flatbuffers::ForwardsUOffset<&str>>(Metadata::VT_ONNX_HASH, None)
+        }
+    }
+    #[inline]
+    pub fn description(&self) -> Option<&'a str> {
+        // Safety:
+        // Created from valid Table for this object
+        // which contains a valid value in this slot
+        unsafe {
+            self._tab
+                .get::<flatbuffers::ForwardsUOffset<&str>>(Metadata::VT_DESCRIPTION, None)
+        }
+    }
+    #[inline]
+    pub fn license(&self) -> Option<&'a str> {
+        // Safety:
+        // Created from valid Table for this object
+        // which contains a valid value in this slot
+        unsafe {
+            self._tab
+                .get::<flatbuffers::ForwardsUOffset<&str>>(Metadata::VT_LICENSE, None)
+        }
+    }
+    #[inline]
+    pub fn commit(&self) -> Option<&'a str> {
+        // Safety:
+        // Created from valid Table for this object
+        // which contains a valid value in this slot
+        unsafe {
+            self._tab
+                .get::<flatbuffers::ForwardsUOffset<&str>>(Metadata::VT_COMMIT, None)
+        }
+    }
+    #[inline]
+    pub fn code_repository(&self) -> Option<&'a str> {
+        // Safety:
+        // Created from valid Table for this object
+        // which contains a valid value in this slot
+        unsafe {
+            self._tab
+                .get::<flatbuffers::ForwardsUOffset<&str>>(Metadata::VT_CODE_REPOSITORY, None)
+        }
+    }
+    #[inline]
+    pub fn model_repository(&self) -> Option<&'a str> {
+        // Safety:
+        // Created from valid Table for this object
+        // which contains a valid value in this slot
+        unsafe {
+            self._tab
+                .get::<flatbuffers::ForwardsUOffset<&str>>(Metadata::VT_MODEL_REPOSITORY, None)
+        }
+    }
+    #[inline]
+    pub fn run_id(&self) -> Option<&'a str> {
+        // Safety:
+        // Created from valid Table for this object
+        // which contains a valid value in this slot
+        unsafe {
+            self._tab
+                .get::<flatbuffers::ForwardsUOffset<&str>>(Metadata::VT_RUN_ID, None)
+        }
+    }
+    #[inline]
+    pub fn run_url(&self) -> Option<&'a str> {
+        // Safety:
+        // Created from valid Table for this object
+        // which contains a valid value in this slot
+        unsafe {
+            self._tab
+                .get::<flatbuffers::ForwardsUOffset<&str>>(Metadata::VT_RUN_URL, None)
+        }
+    }
+}
+
+impl flatbuffers::Verifiable for Metadata<'_> {
+    #[inline]
+    fn run_verifier(
+        v: &mut flatbuffers::Verifier,
+        pos: usize,
+    ) -> Result<(), flatbuffers::InvalidFlatbuffer> {
+        use self::flatbuffers::Verifiable;
+        v.visit_table(pos)?
+            .visit_field::<flatbuffers::ForwardsUOffset<&str>>(
+                "onnx_hash",
+                Self::VT_ONNX_HASH,
+                false,
+            )?
+            .visit_field::<flatbuffers::ForwardsUOffset<&str>>(
+                "description",
+                Self::VT_DESCRIPTION,
+                false,
+            )?
+            .visit_field::<flatbuffers::ForwardsUOffset<&str>>("license", Self::VT_LICENSE, false)?
+            .visit_field::<flatbuffers::ForwardsUOffset<&str>>("commit", Self::VT_COMMIT, false)?
+            .visit_field::<flatbuffers::ForwardsUOffset<&str>>(
+                "code_repository",
+                Self::VT_CODE_REPOSITORY,
+                false,
+            )?
+            .visit_field::<flatbuffers::ForwardsUOffset<&str>>(
+                "model_repository",
+                Self::VT_MODEL_REPOSITORY,
+                false,
+            )?
+            .visit_field::<flatbuffers::ForwardsUOffset<&str>>("run_id", Self::VT_RUN_ID, false)?
+            .visit_field::<flatbuffers::ForwardsUOffset<&str>>("run_url", Self::VT_RUN_URL, false)?
+            .finish();
+        Ok(())
+    }
+}
+pub struct MetadataArgs<'a> {
+    pub onnx_hash: Option<flatbuffers::WIPOffset<&'a str>>,
+    pub description: Option<flatbuffers::WIPOffset<&'a str>>,
+    pub license: Option<flatbuffers::WIPOffset<&'a str>>,
+    pub commit: Option<flatbuffers::WIPOffset<&'a str>>,
+    pub code_repository: Option<flatbuffers::WIPOffset<&'a str>>,
+    pub model_repository: Option<flatbuffers::WIPOffset<&'a str>>,
+    pub run_id: Option<flatbuffers::WIPOffset<&'a str>>,
+    pub run_url: Option<flatbuffers::WIPOffset<&'a str>>,
+}
+impl<'a> Default for MetadataArgs<'a> {
+    #[inline]
+    fn default() -> Self {
+        MetadataArgs {
+            onnx_hash: None,
+            description: None,
+            license: None,
+            commit: None,
+            code_repository: None,
+            model_repository: None,
+            run_id: None,
+            run_url: None,
+        }
+    }
+}
+
+pub struct MetadataBuilder<'a: 'b, 'b> {
+    fbb_: &'b mut flatbuffers::FlatBufferBuilder<'a>,
+    start_: flatbuffers::WIPOffset<flatbuffers::TableUnfinishedWIPOffset>,
+}
+impl<'a: 'b, 'b> MetadataBuilder<'a, 'b> {
+    #[inline]
+    pub fn add_onnx_hash(&mut self, onnx_hash: flatbuffers::WIPOffset<&'b str>) {
+        self.fbb_
+            .push_slot_always::<flatbuffers::WIPOffset<_>>(Metadata::VT_ONNX_HASH, onnx_hash);
+    }
+    #[inline]
+    pub fn add_description(&mut self, description: flatbuffers::WIPOffset<&'b str>) {
+        self.fbb_
+            .push_slot_always::<flatbuffers::WIPOffset<_>>(Metadata::VT_DESCRIPTION, description);
+    }
+    #[inline]
+    pub fn add_license(&mut self, license: flatbuffers::WIPOffset<&'b str>) {
+        self.fbb_
+            .push_slot_always::<flatbuffers::WIPOffset<_>>(Metadata::VT_LICENSE, license);
+    }
+    #[inline]
+    pub fn add_commit(&mut self, commit: flatbuffers::WIPOffset<&'b str>) {
+        self.fbb_
+            .push_slot_always::<flatbuffers::WIPOffset<_>>(Metadata::VT_COMMIT, commit);
+    }
+    #[inline]
+    pub fn add_code_repository(&mut self, code_repository: flatbuffers::WIPOffset<&'b str>) {
+        self.fbb_.push_slot_always::<flatbuffers::WIPOffset<_>>(
+            Metadata::VT_CODE_REPOSITORY,
+            code_repository,
+        );
+    }
+    #[inline]
+    pub fn add_model_repository(&mut self, model_repository: flatbuffers::WIPOffset<&'b str>) {
+        self.fbb_.push_slot_always::<flatbuffers::WIPOffset<_>>(
+            Metadata::VT_MODEL_REPOSITORY,
+            model_repository,
+        );
+    }
+    #[inline]
+    pub fn add_run_id(&mut self, run_id: flatbuffers::WIPOffset<&'b str>) {
+        self.fbb_
+            .push_slot_always::<flatbuffers::WIPOffset<_>>(Metadata::VT_RUN_ID, run_id);
+    }
+    #[inline]
+    pub fn add_run_url(&mut self, run_url: flatbuffers::WIPOffset<&'b str>) {
+        self.fbb_
+            .push_slot_always::<flatbuffers::WIPOffset<_>>(Metadata::VT_RUN_URL, run_url);
+    }
+    #[inline]
+    pub fn new(_fbb: &'b mut flatbuffers::FlatBufferBuilder<'a>) -> MetadataBuilder<'a, 'b> {
+        let start = _fbb.start_table();
+        MetadataBuilder {
+            fbb_: _fbb,
+            start_: start,
+        }
+    }
+    #[inline]
+    pub fn finish(self) -> flatbuffers::WIPOffset<Metadata<'a>> {
+        let o = self.fbb_.end_table(self.start_);
+        flatbuffers::WIPOffset::new(o.value())
+    }
+}
+
+impl core::fmt::Debug for Metadata<'_> {
+    fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
+        let mut ds = f.debug_struct("Metadata");
+        ds.field("onnx_hash", &self.onnx_hash());
+        ds.field("description", &self.description());
+        ds.field("license", &self.license());
+        ds.field("commit", &self.commit());
+        ds.field("code_repository", &self.code_repository());
+        ds.field("model_repository", &self.model_repository());
+        ds.field("run_id", &self.run_id());
+        ds.field("run_url", &self.run_url());
+        ds.finish()
+    }
+}
 pub enum ModelOffset {}
 #[derive(Copy, Clone, PartialEq)]
 
@@ -7963,6 +8249,7 @@ impl<'a> flatbuffers::Follow<'a> for Model<'a> {
 impl<'a> Model<'a> {
     pub const VT_SCHEMA_VERSION: flatbuffers::VOffsetT = 4;
     pub const VT_GRAPH: flatbuffers::VOffsetT = 6;
+    pub const VT_METADATA: flatbuffers::VOffsetT = 8;
 
     #[inline]
     pub unsafe fn init_from_table(table: flatbuffers::Table<'a>) -> Self {
@@ -7974,6 +8261,9 @@ impl<'a> Model<'a> {
         args: &'args ModelArgs<'args>,
     ) -> flatbuffers::WIPOffset<Model<'bldr>> {
         let mut builder = ModelBuilder::new(_fbb);
+        if let Some(x) = args.metadata {
+            builder.add_metadata(x);
+        }
         if let Some(x) = args.graph {
             builder.add_graph(x);
         }
@@ -8003,6 +8293,16 @@ impl<'a> Model<'a> {
                 .unwrap()
         }
     }
+    #[inline]
+    pub fn metadata(&self) -> Option<Metadata<'a>> {
+        // Safety:
+        // Created from valid Table for this object
+        // which contains a valid value in this slot
+        unsafe {
+            self._tab
+                .get::<flatbuffers::ForwardsUOffset<Metadata>>(Model::VT_METADATA, None)
+        }
+    }
 }
 
 impl flatbuffers::Verifiable for Model<'_> {
@@ -8015,6 +8315,11 @@ impl flatbuffers::Verifiable for Model<'_> {
         v.visit_table(pos)?
             .visit_field::<i32>("schema_version", Self::VT_SCHEMA_VERSION, false)?
             .visit_field::<flatbuffers::ForwardsUOffset<Graph>>("graph", Self::VT_GRAPH, true)?
+            .visit_field::<flatbuffers::ForwardsUOffset<Metadata>>(
+                "metadata",
+                Self::VT_METADATA,
+                false,
+            )?
             .finish();
         Ok(())
     }
@@ -8022,6 +8327,7 @@ impl flatbuffers::Verifiable for Model<'_> {
 pub struct ModelArgs<'a> {
     pub schema_version: i32,
     pub graph: Option<flatbuffers::WIPOffset<Graph<'a>>>,
+    pub metadata: Option<flatbuffers::WIPOffset<Metadata<'a>>>,
 }
 impl<'a> Default for ModelArgs<'a> {
     #[inline]
@@ -8029,6 +8335,7 @@ impl<'a> Default for ModelArgs<'a> {
         ModelArgs {
             schema_version: 0,
             graph: None, // required field
+            metadata: None,
         }
     }
 }
@@ -8047,6 +8354,11 @@ impl<'a: 'b, 'b> ModelBuilder<'a, 'b> {
     pub fn add_graph(&mut self, graph: flatbuffers::WIPOffset<Graph<'b>>) {
         self.fbb_
             .push_slot_always::<flatbuffers::WIPOffset<Graph>>(Model::VT_GRAPH, graph);
+    }
+    #[inline]
+    pub fn add_metadata(&mut self, metadata: flatbuffers::WIPOffset<Metadata<'b>>) {
+        self.fbb_
+            .push_slot_always::<flatbuffers::WIPOffset<Metadata>>(Model::VT_METADATA, metadata);
     }
     #[inline]
     pub fn new(_fbb: &'b mut flatbuffers::FlatBufferBuilder<'a>) -> ModelBuilder<'a, 'b> {
@@ -8069,6 +8381,7 @@ impl core::fmt::Debug for Model<'_> {
         let mut ds = f.debug_struct("Model");
         ds.field("schema_version", &self.schema_version());
         ds.field("graph", &self.graph());
+        ds.field("metadata", &self.metadata());
         ds.finish()
     }
 }

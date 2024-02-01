@@ -28,6 +28,7 @@ mod gemm;
 mod graph;
 mod iter_util;
 mod model;
+mod model_metadata;
 mod number;
 mod slice_reductions;
 mod timer;
@@ -44,6 +45,7 @@ pub mod ops;
 
 pub use graph::{Dimension, NodeId, RunOptions};
 pub use model::{DefaultOperatorFactory, Model, ModelLoadError, NodeInfo, OpRegistry};
+pub use model_metadata::ModelMetadata;
 pub use ops::{FloatOperators, Input, Operators, Output};
 pub use timer::Timer;
 pub use timing::TimingSort;
