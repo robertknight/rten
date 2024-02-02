@@ -26,7 +26,8 @@ pub fn gather<T: Copy + Default>(
     let axis = resolve_axis(input.ndim(), axis)?;
 
     for index in indices.iter().copied() {
-        if index < 0 || index >= input.size(axis) as i32 {
+        let size = input.size(axis) as i32;
+        if index < -size || index >= size {
             return Err(OpError::InvalidValue("Entry in `indices` is out of range"));
         }
     }
@@ -499,6 +500,13 @@ mod tests {
         let expected = Tensor::from_data(&[3, 1, 2], vec![1.0, 1.9, 2.3, 3.9, 4.5, 5.9]);
         let result = gather(input.view(), 1, indices.view()).unwrap();
         expect_equal(&result, &expected)?;
+
+        // Negative index values.
+        let input = Tensor::from([1, 2, 3]);
+        let indices = Tensor::from([-1, -2, -3]);
+        let expected = Tensor::from([3, 2, 1]);
+        let result = gather(input.view(), 0, indices.view()).unwrap();
+        assert_eq!(&result, &expected);
 
         Ok(())
     }
