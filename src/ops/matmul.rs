@@ -87,7 +87,24 @@ impl Operator for Gemm {
     }
 }
 
+/// Hints for how a batched MatMul should be performed. This exists to enable
+/// comparisons in tests and benchmarks.
+#[derive(Copy, Clone, Debug, PartialEq)]
+enum MatmulStrategy {
+    /// Use the best strategy for the input shapes.
+    Auto,
+
+    /// Perform separate GEMM calls for each pair of matrices to multiply in
+    /// the batch.
+    #[cfg(test)]
+    Batch,
+}
+
 pub fn matmul(a: TensorView, b: TensorView) -> Result<Tensor, OpError> {
+    matmul_impl(a, b, MatmulStrategy::Auto)
+}
+
+fn matmul_impl(a: TensorView, b: TensorView, strategy: MatmulStrategy) -> Result<Tensor, OpError> {
     if a.ndim() < 2 || b.ndim() < 2 {
         return Err(OpError::InvalidValue("Inputs must have >= 2 dimensions"));
     }
@@ -106,12 +123,31 @@ pub fn matmul(a: TensorView, b: TensorView) -> Result<Tensor, OpError> {
 
     let a_prefix = &a.shape()[..a.ndim() - 2];
     let b_prefix = &b.shape()[..b.ndim() - 2];
+
+    let num_a_matrices: usize = a_prefix.iter().product();
+    let num_b_matrices: usize = b_prefix.iter().product();
+
     let out_prefix = broadcast_shapes(a_prefix, b_prefix)
         .ok_or(OpError::IncompatibleInputShapes("Cannot broadcast shapes"))?;
-
     let out_shape = &[out_prefix.as_slice(), &[a_rows, b_cols]].concat();
-    let mut output = Tensor::zeros(out_shape);
 
+    // A batched matrix multiplication with `[A, M, K] x [K, N]`, where `A` and
+    // can consist of multiple dimensions, can be converted to a non-batched
+    // matmul by reshaping the inputs as `[A * M, K]` * `[K, N]`, and then
+    // reshaping the `[A * M, N]` output to `[A, M, N]`.
+    //
+    // The upside is that one larger matmul is likely to be more efficient than
+    // `A` smaller matmuls. This is especially true if `M` is small (eg. 1).
+    if strategy == MatmulStrategy::Auto && a.ndim() > 2 && b.ndim() == 2 {
+        // nb. We assume `a` is likely already contiguous, so this will be cheap.
+        let a_contig = a.to_contiguous();
+        let a_matrix = a_contig.reshaped([num_a_matrices * a_rows, a_cols].as_slice());
+        let mut output = matmul(a_matrix, b.clone())?;
+        output.reshape(out_shape);
+        return Ok(output);
+    }
+
+    let mut output = Tensor::zeros(out_shape);
     if output.is_empty() {
         return Ok(output);
     }
@@ -127,9 +163,6 @@ pub fn matmul(a: TensorView, b: TensorView) -> Result<Tensor, OpError> {
         .data_mut()
         .unwrap()
         .chunks_mut(out_row_stride * a_rows);
-
-    let num_a_matrices: usize = a_prefix.iter().product();
-    let num_b_matrices: usize = b_prefix.iter().product();
 
     let gemm = GemmExecutor::new();
 
@@ -199,7 +232,9 @@ mod tests {
     use rten_tensor::Tensor;
 
     use crate::gemm::gemm;
-    use crate::ops::matmul::{gemm_op, matmul, OpError};
+    use crate::test_util::run_bench;
+
+    use super::{gemm_op, matmul, matmul_impl, MatmulStrategy, OpError};
 
     fn gemm_tensors(c: &mut Tensor, a: &Tensor, b: &Tensor, alpha: f32, beta: f32) {
         c.make_contiguous();
@@ -364,5 +399,57 @@ mod tests {
         expect_equal(&result.view(), &expected)?;
 
         Ok(())
+    }
+
+    #[test]
+    #[ignore]
+    fn bench_matmul() {
+        struct Case {
+            a_batch: usize,
+            a_rows: usize,
+            a_cols: usize,
+            b_cols: usize,
+        }
+
+        let mut cases = Vec::new();
+        let a_cols = 512;
+        let b_cols = 1536;
+
+        for a_batch in [1, 10, 128, 256, 512, 1024] {
+            for a_rows in [1, 16, 32, 64] {
+                cases.push(Case {
+                    a_batch,
+                    a_rows,
+                    a_cols,
+                    b_cols,
+                });
+            }
+        }
+
+        for Case {
+            a_batch,
+            a_rows,
+            a_cols,
+            b_cols,
+        } in cases
+        {
+            let mut rng = XorShiftRng::new(1234);
+            let a = Tensor::rand(&[a_batch, a_rows, a_cols], &mut rng);
+            let b = Tensor::rand(&[a_cols, b_cols], &mut rng);
+
+            let run_trial = |strategy| {
+                let trials = 10;
+                let desc = format!(
+                    "matmul [{a_batch},{a_rows},{a_cols}] x [{a_cols},{b_cols}], strategy={strategy:?}",
+                );
+                run_bench(trials, &desc, || {
+                    matmul_impl(a.view(), b.view(), strategy).unwrap();
+                });
+            };
+
+            run_trial(MatmulStrategy::Batch);
+            run_trial(MatmulStrategy::Auto);
+            println!();
+        }
     }
 }
