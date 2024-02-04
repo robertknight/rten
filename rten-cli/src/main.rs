@@ -211,6 +211,36 @@ fn run_with_random_input(model: &Model, run_opts: RunOptions) -> Result<(), Box<
     Ok(())
 }
 
+/// Format an input or output shape as a `[dim0, dim1, ...]` string, where each
+/// dimension is represented by its fixed size or symbolic name.
+fn format_shape(shape: &[Dimension]) -> String {
+    let dims = shape
+        .iter()
+        .map(|dim| match dim {
+            Dimension::Fixed(value) => value.to_string(),
+            Dimension::Symbolic(name) => name.clone(),
+        })
+        .collect::<Vec<_>>()
+        .join(", ");
+    format!("[{}]", dims)
+}
+
+/// Print a summary of the names and shapes of a list of input or output node IDs.
+fn print_input_output_list(model: &Model, node_ids: &[NodeId]) {
+    for &node_id in node_ids {
+        let Some(info) = model.node_info(node_id) else {
+            continue;
+        };
+        println!(
+            "  {}: {}",
+            info.name().unwrap_or("(unnamed)"),
+            info.shape()
+                .map(|dims| format_shape(&dims))
+                .unwrap_or("(unknown shape)".to_string())
+        );
+    }
+}
+
 /// Tool for inspecting converted ONNX models and running them with randomly
 /// generated inputs.
 ///
@@ -232,6 +262,14 @@ fn main() -> Result<(), Box<dyn Error>> {
         model.output_ids().len(),
         format_param_count(model.total_params()),
     );
+    println!();
+
+    println!("Inputs");
+    print_input_output_list(&model, model.input_ids());
+    println!();
+
+    println!("Outputs");
+    print_input_output_list(&model, model.output_ids());
     println!();
 
     print_metadata(model.metadata());
