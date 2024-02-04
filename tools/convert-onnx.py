@@ -6,13 +6,13 @@ import hashlib
 import json
 from os.path import splitext
 import sys
-from typing import Any, Callable, Literal, Optional, cast
+from typing import Any, Callable, Literal, Optional
 
 import flatbuffers
 import numpy as np
 import onnx
 import onnx.numpy_helper as numpy_helper
-from onnx import TensorProto
+from onnx import TensorProto, ValueInfoProto
 
 import schema_generated as sg
 
@@ -971,20 +971,34 @@ def graph_from_onnx_graph(onnx_graph: onnx.GraphProto) -> Graph:
             f"Errors occurred when converting {conversion_errors} constants"
         )
 
-    for value in onnx_graph.input:
-        # If the same node is referenced in the ONNX model's `initializer` and
-        # `input` properties, ignore the one from the input.
+    def add_value_node(value: ValueInfoProto):
+        # If the same node is referenced in at 2 or more of:
+        #
+        # - The initializer list
+        # - The input list
+        # - The output list
+        #
+        # Then we only keep the first definition seen.
         if value.name in tensor_map:
-            continue
+            return
         value_node = value_node_from_onnx_value(value)
         add_node(value_node)
+
+    for value_info in onnx_graph.input:
+        add_value_node(value_info)
+
+    for value_info in onnx_graph.output:
+        add_value_node(value_info)
 
     for operator in onnx_graph.node:
         if operator.op_type == "Constant":
             continue
 
         for output_name in operator.output:
-            # TODO - Add shape info for operator outputs, if available.
+            # If this output is also a model output, it will have been
+            # registered already.
+            if output_name in tensor_map:
+                continue
             value_node = ValueNode(output_name, shape=None)
             add_node(value_node)
 
