@@ -1,6 +1,9 @@
 #!/usr/bin/env python
 
 from argparse import ArgumentParser
+from dataclasses import dataclass
+import hashlib
+import json
 from os.path import splitext
 import sys
 from typing import Any, Callable, Literal, Optional, cast
@@ -140,6 +143,28 @@ class Graph:
         self.nodes = nodes
         self.inputs = inputs
         self.outputs = outputs
+
+
+@dataclass
+class Metadata:
+    """
+    Model metadata.
+
+    This corresponds to the `ModelMetadata` struct in RTen. See its docs for
+    details of the individual fields.
+
+    When adding new fields here, they also need to be added to
+    `METADATA_BUILDER_FNS`.
+    """
+
+    code_repository: Optional[str] = None
+    commit: Optional[str] = None
+    description: Optional[str] = None
+    license: Optional[str] = None
+    model_repository: Optional[str] = None
+    onnx_hash: Optional[str] = None
+    run_id: Optional[str] = None
+    run_url: Optional[str] = None
 
 
 # Mapping of ONNX attribute types to the field on an AttributeProto which
@@ -1111,16 +1136,44 @@ def build_value_node(builder: flatbuffers.Builder, value: ValueNode):
     return sg.ValueNodeEnd(builder)
 
 
-def write_graph(graph: Graph, out_path: str):
+METADATA_BUILDER_FNS = {
+    "code_repository": sg.MetadataAddCodeRepository,
+    "commit": sg.MetadataAddCommit,
+    "description": sg.MetadataAddDescription,
+    "license": sg.MetadataAddLicense,
+    "model_repository": sg.MetadataAddModelRepository,
+    "onnx_hash": sg.MetadataAddOnnxHash,
+    "run_id": sg.MetadataAddRunId,
+    "run_url": sg.MetadataAddRunUrl,
+}
+"""
+Map of metadata field to function that serializes this field.
+"""
+
+
+def build_metadata(builder: flatbuffers.Builder, metadata: Metadata):
     """
-    Serialize a model graph into a flatbuffers model.
-
-    This serializes the parsed graph representation into the flatbuffers-based
-    model format that this library uses.
+    Serialize model metadata into a flatbuffers model.
     """
 
-    builder = flatbuffers.Builder(initialSize=1024)
+    # Map of field name to flatbuffer string offset.
+    field_values = {}
 
+    for field in METADATA_BUILDER_FNS.keys():
+        if val := getattr(metadata, field):
+            field_values[field] = builder.CreateString(val)
+
+    sg.MetadataStart(builder)
+    for field, builder_fn in METADATA_BUILDER_FNS.items():
+        if val := field_values.get(field):
+            builder_fn(builder, val)
+    return sg.MetadataEnd(builder)
+
+
+def build_graph(builder: flatbuffers.Builder, graph: Graph):
+    """
+    Serialize a computation graph into a flatbuffers model.
+    """
     node_offsets = []
     for node in graph.nodes:
         match node:
@@ -1152,11 +1205,30 @@ def write_graph(graph: Graph, out_path: str):
     sg.GraphAddNodes(builder, graph_nodes)
     sg.GraphAddInputs(builder, inputs)
     sg.GraphAddOutputs(builder, outputs)
-    graph = sg.GraphEnd(builder)
+    return sg.GraphEnd(builder)
+
+
+def write_model(graph: Graph, metadata: Metadata, out_path: str):
+    """
+    Serialize a model into a flatbuffers model.
+
+    This serializes the parsed graph representation into the flatbuffers-based
+    model format that this library uses.
+
+    :param graph: The main graph for the model
+    :param metadata: Model metadata
+    :param out_path: Output .rten model path
+    """
+
+    builder = flatbuffers.Builder(initialSize=1024)
+
+    graph = build_graph(builder, graph)
+    metadata = build_metadata(builder, metadata)
 
     sg.ModelStart(builder)
     sg.ModelAddSchemaVersion(builder, 1)
     sg.ModelAddGraph(builder, graph)
+    sg.ModelAddMetadata(builder, metadata)
     model = sg.ModelEnd(builder)
 
     builder.Finish(model)
@@ -1166,23 +1238,57 @@ def write_graph(graph: Graph, out_path: str):
         output.write(data)
 
 
+def sha256(filename: str) -> str:
+    """Generate SHA-256 hash of a file as a hex string."""
+    hasher = hashlib.sha256()
+    with open(filename, "rb") as f:
+        for chunk in iter(lambda: f.read(4096), b""):
+            hasher.update(chunk)
+    return hasher.hexdigest()
+
+
+def generate_metadata(onnx_path: str, metadata_path: Optional[str] = None) -> Metadata:
+    """
+    Generate metadata to embed into RTen model.
+
+    :param onnx_path: Path to .onnx file
+    :param metadata_path: Path to JSON file containing additional metadata
+    """
+    onnx_hash = sha256(onnx_path)
+
+    fields = {"onnx_hash": onnx_hash}
+    if metadata_path:
+        with open(metadata_path) as fp:
+            metadata_dict = json.load(fp)
+
+        for field in METADATA_BUILDER_FNS.keys():
+            if field == "onnx_hash":
+                # This is handled separately.
+                continue
+            fields[field] = metadata_dict.get(field)
+
+    return Metadata(**fields)
+
+
 def main():
     parser = ArgumentParser(description="Convert ONNX models to .rten format.")
     parser.add_argument("model", help="Input ONNX model")
+    parser.add_argument(
+        "-m", "--metadata", help="Path to JSON file containing model metadata."
+    )
     parser.add_argument("out_name", help="Output model file name", nargs="?")
     args = parser.parse_args()
 
-    model_path = args.model
-
-    model = onnx.load(model_path)
+    model = onnx.load(args.model)
     graph = graph_from_onnx_graph(model.graph)
+    metadata = generate_metadata(args.model, args.metadata)
 
     output_path = args.out_name
     if output_path is None:
-        model_basename = splitext(model_path)[0]
+        model_basename = splitext(args.model)[0]
         output_path = f"{model_basename}.rten"
 
-    write_graph(graph, output_path)
+    write_model(graph, metadata, output_path)
 
 
 if __name__ == "__main__":
