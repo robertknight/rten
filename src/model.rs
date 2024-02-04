@@ -9,6 +9,7 @@ use rten_tensor::Tensor;
 use smallvec::smallvec;
 
 use crate::graph::{Dimension, Graph, Node, NodeId, RunError, RunOptions};
+use crate::model_metadata::ModelMetadata;
 use crate::ops;
 use crate::ops::{
     BoxOrder, CoordTransformMode, DataType, Direction, Input, NearestMode, Operator, Output,
@@ -52,6 +53,7 @@ pub struct Model {
     input_ids: Vec<NodeId>,
     output_ids: Vec<NodeId>,
     graph: Graph,
+    metadata: ModelMetadata,
 }
 
 /// Provides access to metadata about a graph node.
@@ -142,6 +144,11 @@ impl Model {
     /// Return metadata about a node in the model's graph.
     pub fn node_info(&self, id: NodeId) -> Option<NodeInfo> {
         self.graph.get_node(id).map(|node| NodeInfo { node })
+    }
+
+    /// Return metadata about the model.
+    pub fn metadata(&self) -> &ModelMetadata {
+        &self.metadata
     }
 
     /// Return the IDs of input nodes.
@@ -1108,11 +1115,17 @@ fn load_model(data: &[u8], registry: &OpRegistry) -> Result<Model, ModelLoadErro
         }
     }
 
+    let metadata = model
+        .metadata()
+        .map(ModelMetadata::deserialize)
+        .unwrap_or_default();
+
     let model = Model {
         node_ids: node_id_from_name,
         input_ids,
         output_ids,
         graph,
+        metadata,
     };
     Ok(model)
 }
@@ -1126,7 +1139,7 @@ mod tests {
 
     use crate::graph::{Dimension, RunError};
     use crate::model::Model;
-    use crate::model_builder::{ModelBuilder, OpType};
+    use crate::model_builder::{MetadataArgs, ModelBuilder, OpType};
     use crate::ops;
     use crate::ops::{BoxOrder, CoordTransformMode, NearestMode, OpError, ResizeMode, Scalar};
 
@@ -1156,6 +1169,10 @@ mod tests {
             &[concat_out],
         );
         builder.add_operator("relu", OpType::Relu, &[Some(concat_out)], &[output_node]);
+
+        builder.add_metadata(MetadataArgs {
+            onnx_hash: Some("abc".to_string()),
+        });
 
         builder.finish()
     }
@@ -1196,6 +1213,14 @@ mod tests {
             .and_then(|ni| ni.shape())
             .expect("input shape missing");
         assert_eq!(shape, &[1, 2, 2].map(Dimension::Fixed));
+    }
+
+    #[test]
+    fn test_metadata() {
+        let buffer = generate_model_buffer();
+        let model = Model::load(&buffer).unwrap();
+        assert_eq!(model.metadata().onnx_hash(), Some("abc"));
+        assert_eq!(model.metadata().description(), None);
     }
 
     #[test]

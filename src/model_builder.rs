@@ -118,12 +118,18 @@ pub struct ModelBuilder<'a> {
     nodes: Vec<WIPOffset<sg::Node<'a>>>,
     input_ids: Vec<u32>,
     output_ids: Vec<u32>,
+    metadata: Option<WIPOffset<sg::Metadata<'a>>>,
 }
 
 enum NodeData<'a> {
     Constant(WIPOffset<sg::ConstantNode<'a>>),
     Value(WIPOffset<sg::ValueNode<'a>>),
     Operator(WIPOffset<sg::OperatorNode<'a>>),
+}
+
+/// Arguments for [ModelBuilder::add_metadata].
+pub struct MetadataArgs {
+    pub onnx_hash: Option<String>,
 }
 
 struct PadArgs {
@@ -152,6 +158,7 @@ impl<'a> ModelBuilder<'a> {
             nodes: Vec::new(),
             input_ids: Vec::new(),
             output_ids: Vec::new(),
+            metadata: None,
         }
     }
 
@@ -683,6 +690,19 @@ impl<'a> ModelBuilder<'a> {
         self.output_ids.push(node_id);
     }
 
+    /// Add model metadata
+    pub fn add_metadata(&mut self, metadata: MetadataArgs) {
+        let hash = metadata
+            .onnx_hash
+            .as_ref()
+            .map(|hash| self.builder.create_string(hash));
+        let mut meta_builder = sg::MetadataBuilder::new(&mut self.builder);
+        if let Some(hash) = hash {
+            meta_builder.add_onnx_hash(hash);
+        }
+        self.metadata = Some(meta_builder.finish());
+    }
+
     /// Finish writing the model data to the buffer and return the buffer's contents.
     pub fn finish(mut self) -> Vec<u8> {
         let inputs_vec = self.builder.create_vector(&self.input_ids[..]);
@@ -703,6 +723,7 @@ impl<'a> ModelBuilder<'a> {
             &sg::ModelArgs {
                 schema_version: 1,
                 graph: Some(graph),
+                metadata: self.metadata,
             },
         );
 

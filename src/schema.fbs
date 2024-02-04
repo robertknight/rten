@@ -437,9 +437,40 @@ table Graph {
   outputs:[uint];
 }
 
+table Metadata {
+  // SHA-256 hash of the ONNX model that was used as the source for this RTen
+  // model.
+  onnx_hash:string;
+
+  // A short description of what this model does.
+  description:string;
+
+  // Identifier for the license used in this model.
+  //
+  // This should be an SPDX (https://spdx.org/licenses/) identifier for openly
+  // licensed models.
+  license:string;
+
+  // Commit ID for the code that produced this model.
+  commit:string;
+
+  // URL of repository where the model's code is hosted (eg. GitHub).
+  code_repository:string;
+
+  // URL of repository where the model is hosted (eg. Hugging Face).
+  model_repository:string;
+
+  // Identifier for the training run that produced this model.
+  run_id:string;
+
+  // URL of logs etc. for the training run that produced this model.
+  run_url:string;
+}
+
 table Model {
   schema_version:int;
   graph:Graph (required);
+  metadata:Metadata;
 }
 
 root_type Model;

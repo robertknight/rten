@@ -4755,6 +4755,198 @@ class GraphT(object):
         return graph
 
 
+class Metadata(object):
+    __slots__ = ['_tab']
+
+    @classmethod
+    def GetRootAs(cls, buf, offset=0):
+        n = flatbuffers.encode.Get(flatbuffers.packer.uoffset, buf, offset)
+        x = Metadata()
+        x.Init(buf, n + offset)
+        return x
+
+    @classmethod
+    def GetRootAsMetadata(cls, buf, offset=0):
+        """This method is deprecated. Please switch to GetRootAs."""
+        return cls.GetRootAs(buf, offset)
+    @classmethod
+    def MetadataBufferHasIdentifier(cls, buf, offset, size_prefixed=False):
+        return flatbuffers.util.BufferHasIdentifier(buf, offset, b"\x52\x54\x45\x4E", size_prefixed=size_prefixed)
+
+    # Metadata
+    def Init(self, buf, pos):
+        self._tab = flatbuffers.table.Table(buf, pos)
+
+    # Metadata
+    def OnnxHash(self):
+        o = flatbuffers.number_types.UOffsetTFlags.py_type(self._tab.Offset(4))
+        if o != 0:
+            return self._tab.String(o + self._tab.Pos)
+        return None
+
+    # Metadata
+    def Description(self):
+        o = flatbuffers.number_types.UOffsetTFlags.py_type(self._tab.Offset(6))
+        if o != 0:
+            return self._tab.String(o + self._tab.Pos)
+        return None
+
+    # Metadata
+    def License(self):
+        o = flatbuffers.number_types.UOffsetTFlags.py_type(self._tab.Offset(8))
+        if o != 0:
+            return self._tab.String(o + self._tab.Pos)
+        return None
+
+    # Metadata
+    def Commit(self):
+        o = flatbuffers.number_types.UOffsetTFlags.py_type(self._tab.Offset(10))
+        if o != 0:
+            return self._tab.String(o + self._tab.Pos)
+        return None
+
+    # Metadata
+    def CodeRepository(self):
+        o = flatbuffers.number_types.UOffsetTFlags.py_type(self._tab.Offset(12))
+        if o != 0:
+            return self._tab.String(o + self._tab.Pos)
+        return None
+
+    # Metadata
+    def ModelRepository(self):
+        o = flatbuffers.number_types.UOffsetTFlags.py_type(self._tab.Offset(14))
+        if o != 0:
+            return self._tab.String(o + self._tab.Pos)
+        return None
+
+    # Metadata
+    def RunId(self):
+        o = flatbuffers.number_types.UOffsetTFlags.py_type(self._tab.Offset(16))
+        if o != 0:
+            return self._tab.String(o + self._tab.Pos)
+        return None
+
+    # Metadata
+    def RunUrl(self):
+        o = flatbuffers.number_types.UOffsetTFlags.py_type(self._tab.Offset(18))
+        if o != 0:
+            return self._tab.String(o + self._tab.Pos)
+        return None
+
+def MetadataStart(builder):
+    builder.StartObject(8)
+
+def MetadataAddOnnxHash(builder, onnxHash):
+    builder.PrependUOffsetTRelativeSlot(0, flatbuffers.number_types.UOffsetTFlags.py_type(onnxHash), 0)
+
+def MetadataAddDescription(builder, description):
+    builder.PrependUOffsetTRelativeSlot(1, flatbuffers.number_types.UOffsetTFlags.py_type(description), 0)
+
+def MetadataAddLicense(builder, license):
+    builder.PrependUOffsetTRelativeSlot(2, flatbuffers.number_types.UOffsetTFlags.py_type(license), 0)
+
+def MetadataAddCommit(builder, commit):
+    builder.PrependUOffsetTRelativeSlot(3, flatbuffers.number_types.UOffsetTFlags.py_type(commit), 0)
+
+def MetadataAddCodeRepository(builder, codeRepository):
+    builder.PrependUOffsetTRelativeSlot(4, flatbuffers.number_types.UOffsetTFlags.py_type(codeRepository), 0)
+
+def MetadataAddModelRepository(builder, modelRepository):
+    builder.PrependUOffsetTRelativeSlot(5, flatbuffers.number_types.UOffsetTFlags.py_type(modelRepository), 0)
+
+def MetadataAddRunId(builder, runId):
+    builder.PrependUOffsetTRelativeSlot(6, flatbuffers.number_types.UOffsetTFlags.py_type(runId), 0)
+
+def MetadataAddRunUrl(builder, runUrl):
+    builder.PrependUOffsetTRelativeSlot(7, flatbuffers.number_types.UOffsetTFlags.py_type(runUrl), 0)
+
+def MetadataEnd(builder):
+    return builder.EndObject()
+
+
+
+class MetadataT(object):
+
+    # MetadataT
+    def __init__(self):
+        self.onnxHash = None  # type: str
+        self.description = None  # type: str
+        self.license = None  # type: str
+        self.commit = None  # type: str
+        self.codeRepository = None  # type: str
+        self.modelRepository = None  # type: str
+        self.runId = None  # type: str
+        self.runUrl = None  # type: str
+
+    @classmethod
+    def InitFromBuf(cls, buf, pos):
+        metadata = Metadata()
+        metadata.Init(buf, pos)
+        return cls.InitFromObj(metadata)
+
+    @classmethod
+    def InitFromPackedBuf(cls, buf, pos=0):
+        n = flatbuffers.encode.Get(flatbuffers.packer.uoffset, buf, pos)
+        return cls.InitFromBuf(buf, pos+n)
+
+    @classmethod
+    def InitFromObj(cls, metadata):
+        x = MetadataT()
+        x._UnPack(metadata)
+        return x
+
+    # MetadataT
+    def _UnPack(self, metadata):
+        if metadata is None:
+            return
+        self.onnxHash = metadata.OnnxHash()
+        self.description = metadata.Description()
+        self.license = metadata.License()
+        self.commit = metadata.Commit()
+        self.codeRepository = metadata.CodeRepository()
+        self.modelRepository = metadata.ModelRepository()
+        self.runId = metadata.RunId()
+        self.runUrl = metadata.RunUrl()
+
+    # MetadataT
+    def Pack(self, builder):
+        if self.onnxHash is not None:
+            onnxHash = builder.CreateString(self.onnxHash)
+        if self.description is not None:
+            description = builder.CreateString(self.description)
+        if self.license is not None:
+            license = builder.CreateString(self.license)
+        if self.commit is not None:
+            commit = builder.CreateString(self.commit)
+        if self.codeRepository is not None:
+            codeRepository = builder.CreateString(self.codeRepository)
+        if self.modelRepository is not None:
+            modelRepository = builder.CreateString(self.modelRepository)
+        if self.runId is not None:
+            runId = builder.CreateString(self.runId)
+        if self.runUrl is not None:
+            runUrl = builder.CreateString(self.runUrl)
+        MetadataStart(builder)
+        if self.onnxHash is not None:
+            MetadataAddOnnxHash(builder, onnxHash)
+        if self.description is not None:
+            MetadataAddDescription(builder, description)
+        if self.license is not None:
+            MetadataAddLicense(builder, license)
+        if self.commit is not None:
+            MetadataAddCommit(builder, commit)
+        if self.codeRepository is not None:
+            MetadataAddCodeRepository(builder, codeRepository)
+        if self.modelRepository is not None:
+            MetadataAddModelRepository(builder, modelRepository)
+        if self.runId is not None:
+            MetadataAddRunId(builder, runId)
+        if self.runUrl is not None:
+            MetadataAddRunUrl(builder, runUrl)
+        metadata = MetadataEnd(builder)
+        return metadata
+
+
 class Model(object):
     __slots__ = ['_tab']
 
@@ -4794,14 +4986,27 @@ class Model(object):
             return obj
         return None
 
+    # Model
+    def Metadata(self):
+        o = flatbuffers.number_types.UOffsetTFlags.py_type(self._tab.Offset(8))
+        if o != 0:
+            x = self._tab.Indirect(o + self._tab.Pos)
+            obj = Metadata()
+            obj.Init(self._tab.Bytes, x)
+            return obj
+        return None
+
 def ModelStart(builder):
-    builder.StartObject(2)
+    builder.StartObject(3)
 
 def ModelAddSchemaVersion(builder, schemaVersion):
     builder.PrependInt32Slot(0, schemaVersion, 0)
 
 def ModelAddGraph(builder, graph):
     builder.PrependUOffsetTRelativeSlot(1, flatbuffers.number_types.UOffsetTFlags.py_type(graph), 0)
+
+def ModelAddMetadata(builder, metadata):
+    builder.PrependUOffsetTRelativeSlot(2, flatbuffers.number_types.UOffsetTFlags.py_type(metadata), 0)
 
 def ModelEnd(builder):
     return builder.EndObject()
@@ -4818,6 +5023,7 @@ class ModelT(object):
     def __init__(self):
         self.schemaVersion = 0  # type: int
         self.graph = None  # type: Optional[GraphT]
+        self.metadata = None  # type: Optional[MetadataT]
 
     @classmethod
     def InitFromBuf(cls, buf, pos):
@@ -4843,15 +5049,21 @@ class ModelT(object):
         self.schemaVersion = model.SchemaVersion()
         if model.Graph() is not None:
             self.graph = GraphT.InitFromObj(model.Graph())
+        if model.Metadata() is not None:
+            self.metadata = MetadataT.InitFromObj(model.Metadata())
 
     # ModelT
     def Pack(self, builder):
         if self.graph is not None:
             graph = self.graph.Pack(builder)
+        if self.metadata is not None:
+            metadata = self.metadata.Pack(builder)
         ModelStart(builder)
         ModelAddSchemaVersion(builder, self.schemaVersion)
         if self.graph is not None:
             ModelAddGraph(builder, graph)
+        if self.metadata is not None:
+            ModelAddMetadata(builder, metadata)
         model = ModelEnd(builder)
         return model
 
