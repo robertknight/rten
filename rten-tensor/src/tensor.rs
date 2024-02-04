@@ -385,8 +385,9 @@ impl<T, S: AsRef<[T]> + AsMut<[T]>, L: MutLayout> TensorBase<T, S, L> {
     /// Replace each element in this tensor with the result of applying `f` to
     /// the element.
     pub fn apply<F: Fn(&T) -> T>(&mut self, f: F) {
-        if self.is_contiguous() {
-            self.data.as_mut().iter_mut().for_each(|x| *x = f(x));
+        if let Some(data) = self.data_mut() {
+            // Fast path for contiguous tensors.
+            data.iter_mut().for_each(|x| *x = f(x));
         } else {
             self.iter_mut().for_each(|x| *x = f(x));
         }
@@ -1086,7 +1087,12 @@ impl<T, S: AsRef<[T]>, L: MutLayout + Clone> AsView for TensorBase<T, S, L> {
     where
         F: Fn(&Self::Elem) -> U,
     {
-        let data: Vec<_> = self.iter().map(f).collect();
+        let data: Vec<U> = if let Some(data) = self.data() {
+            // Fast path for contiguous tensors.
+            data.iter().map(f).collect()
+        } else {
+            self.iter().map(f).collect()
+        };
         TensorBase::from_data(self.shape(), data)
     }
 
@@ -1545,9 +1551,16 @@ mod tests {
     #[test]
     fn test_apply() {
         let data = vec![1., 2., 3., 4.];
+
+        // Contiguous tensor.
         let mut tensor = NdTensor::from_data([2, 2], data);
         tensor.apply(|x| *x * 2.);
         assert_eq!(tensor.to_vec(), &[2., 4., 6., 8.]);
+
+        // Non-contiguous tensor
+        tensor.transpose();
+        tensor.apply(|x| *x / 2.);
+        assert_eq!(tensor.to_vec(), &[1., 3., 2., 4.]);
     }
 
     #[test]
@@ -2198,8 +2211,14 @@ mod tests {
     fn test_map() {
         let data = vec![1., 2., 3., 4.];
         let tensor = NdTensor::from_data([2, 2], data);
+
+        // Contiguous tensor
         let doubled = tensor.map(|x| x * 2.);
         assert_eq!(doubled.to_vec(), &[2., 4., 6., 8.]);
+
+        // Non-contiguous tensor
+        let halved = doubled.transposed().map(|x| x / 2.);
+        assert_eq!(halved.to_vec(), &[1., 3., 2., 4.]);
     }
 
     #[test]

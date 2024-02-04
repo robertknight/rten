@@ -657,8 +657,8 @@ fn powf(x: f32, y: f32) -> f32 {
 
 /// Raise elements of `a` to powers of corresponding elements in `b`.
 pub fn pow(a: TensorView, b: TensorView) -> Result<Tensor, OpError> {
-    if let Some(exp) = b.item() {
-        Ok(a.map(|x| powf(*x, *exp)))
+    if let Some(&exp) = b.item() {
+        Ok(a.map(|x| powf(*x, exp)))
     } else {
         binary_op(a, b, |x, y| x.powf(y))
     }
