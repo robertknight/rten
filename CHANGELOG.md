@@ -11,9 +11,21 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
  - Support `count_include_pad` attr in AveragePool operator (09ecb729)
 
+ - Support license/version/provenance metadata in RTen models
+   (https://github.com/robertknight/rten/pull/48)
+
+ - Fix error when a negative index was used with `Gather` operator (573ded4c)
+
 ### rten-imageproc
 
  - Optimized `find_contours` for large images (c471a6c, 7a14f43)
+
+### rten-tensor
+
+ - Optimize `TensorBase::map` for contiguous tensors (5562fd23)
+ - Add `TensorBase::{from_fn, from_simple_fn}` (5e654ea0)
+ - Add `TensorBase::try_from_data` (18817907)
+ - Support `get_unchecked` on owned/mutable tensors (06b02eaf)
 
 ## [0.3.1] - 2024-01-23
 
