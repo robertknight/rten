@@ -1,12 +1,11 @@
 use std::collections::VecDeque;
 use std::error::Error;
 use std::fs;
-use std::ops::Range;
 use std::time::Instant;
 
 use rten::{Dimension, Input, Model, NodeId, Output, RunOptions};
 use rten_tensor::prelude::*;
-use rten_tensor::{RandomSource, Tensor};
+use rten_tensor::Tensor;
 
 struct Args {
     /// Model file to load.
@@ -59,46 +58,6 @@ Usage: {bin_name} [OPTIONS] <model>
     })
 }
 
-/// Source for [Tensor::rand] that generates floats in [0, 1).
-struct FloatRng {
-    rng: fastrand::Rng,
-}
-
-impl FloatRng {
-    fn new() -> FloatRng {
-        FloatRng {
-            rng: fastrand::Rng::new(),
-        }
-    }
-}
-
-impl RandomSource<f32> for FloatRng {
-    fn next(&mut self) -> f32 {
-        self.rng.f32()
-    }
-}
-
-/// Source for [Tensor::rand] that generates ints in a given range.
-struct IntRng {
-    rng: fastrand::Rng,
-    range: Range<i32>,
-}
-
-impl IntRng {
-    fn new(range: Range<i32>) -> IntRng {
-        IntRng {
-            rng: fastrand::Rng::new(),
-            range,
-        }
-    }
-}
-
-impl RandomSource<i32> for IntRng {
-    fn next(&mut self) -> i32 {
-        self.rng.i32(self.range.clone())
-    }
-}
-
 fn format_param_count(n: usize) -> String {
     if n > 1_000_000 {
         format!("{:.1} M", n as f32 / 1_000_000.)
@@ -129,11 +88,11 @@ fn main() -> Result<(), Box<dyn Error>> {
         format_param_count(model.total_params()),
     );
 
-    let mut random_floats = FloatRng::new();
+    let mut rng = fastrand::Rng::new();
 
     // Generate random ints that are likely to be valid token IDs in a language
     // model.
-    let mut random_token_ids = IntRng::new(0..1000);
+    let generate_token_id = |rng: &mut fastrand::Rng| rng.i32(0..1000);
 
     // Generate random model inputs. The `Output` type here is used as an
     // enum that can hold tensors of different types.
@@ -175,7 +134,9 @@ fn main() -> Result<(), Box<dyn Error>> {
                 // For input names such as `input_ids`, generate some input that
                 // is likely to be a valid token ID.
                 name if name.ends_with("_ids") => {
-                    Output::from(Tensor::rand(&resolved_shape, &mut random_token_ids))
+                    Output::from(Tensor::from_simple_fn(&resolved_shape, || {
+                        generate_token_id(&mut rng)
+                    }))
                 }
 
                 // For anything else, random floats in [0, 1].
@@ -183,7 +144,7 @@ fn main() -> Result<(), Box<dyn Error>> {
                 // TODO - Value nodes in the model should include data types,
                 // so we can at least be sure to generate values of the correct
                 // type.
-                _ => Output::from(Tensor::rand(&resolved_shape, &mut random_floats)),
+                _ => Output::from(Tensor::from_simple_fn(&resolved_shape, || rng.f32())),
             };
 
             inputs.push((id, tensor));
