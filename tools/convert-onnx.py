@@ -601,7 +601,11 @@ def op_node_from_onnx_operator(
             match to:
                 case TensorProto.DataType.FLOAT:
                     attrs.to = sg.DataType.Float
-                case TensorProto.DataType.BOOL | TensorProto.DataType.INT32 | TensorProto.DataType.INT64:
+                case (
+                    TensorProto.DataType.BOOL
+                    | TensorProto.DataType.INT32
+                    | TensorProto.DataType.INT64
+                ):
                     attrs.to = sg.DataType.Int32
                 case _:
                     raise Exception(f"Unsupported target type for cast {to}")
@@ -769,7 +773,14 @@ def op_node_from_onnx_operator(
             attrs = sg.OneHotAttrsT()
             attrs.axis = op_reader.get_attr("axis", "int", -1)
 
-        case "ReduceL2" | "ReduceMax" | "ReduceMean" | "ReduceMin" | "ReduceProd" | "ReduceSum":
+        case (
+            "ReduceL2"
+            | "ReduceMax"
+            | "ReduceMean"
+            | "ReduceMin"
+            | "ReduceProd"
+            | "ReduceSum"
+        ):
             attrs = sg.ReduceMeanAttrsT()
             attrs.axes = op_reader.get_attr("axes", "ints", None)
             attrs.keepDims = bool(op_reader.get_attr("keepdims", "int", 1))
