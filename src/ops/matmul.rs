@@ -350,40 +350,18 @@ mod tests {
         // RHS input requires broadcasting
         let broadcast_a_shape = &[1, 4, 3, 10][..];
         let broadcast_expected_shape = &[1, 4, 3, 8][..];
-        let broadcast_a = Tensor::from_data(
-            broadcast_a_shape.into(),
-            a.broadcast_iter(broadcast_a_shape)
-                .copied()
-                .collect::<Vec<_>>(),
-        );
-        let broadcast_expected = Tensor::from_data(
-            broadcast_expected_shape.into(),
-            expected
-                .broadcast_iter(broadcast_expected_shape)
-                .copied()
-                .collect::<Vec<_>>(),
-        );
-        let result = matmul(broadcast_a.view(), b.view()).unwrap();
-        expect_equal(&result, &broadcast_expected)?;
+        let broadcast_a = a.broadcast(broadcast_a_shape);
+        let broadcast_expected = expected.broadcast(broadcast_expected_shape);
+        let result = matmul(broadcast_a, b.view()).unwrap();
+        expect_equal(&result.view(), &broadcast_expected)?;
 
         // LHS input requires broadcasting
         let broadcast_b_shape = &[1, 3, 10, 8][..];
         let broadcast_expected_shape = &[1, 3, 3, 8][..];
-        let broadcast_b = Tensor::from_data(
-            broadcast_b_shape.into(),
-            b.broadcast_iter(broadcast_b_shape)
-                .copied()
-                .collect::<Vec<_>>(),
-        );
-        let expected = Tensor::from_data(
-            broadcast_expected_shape.into(),
-            expected
-                .broadcast_iter(broadcast_expected_shape)
-                .copied()
-                .collect::<Vec<_>>(),
-        );
-        let result = matmul(a.view(), broadcast_b.view()).unwrap();
-        expect_equal(&result, &expected)?;
+        let broadcast_b = b.broadcast(broadcast_b_shape);
+        let expected = expected.broadcast(broadcast_expected_shape);
+        let result = matmul(a.view(), broadcast_b).unwrap();
+        expect_equal(&result.view(), &expected)?;
 
         Ok(())
     }
