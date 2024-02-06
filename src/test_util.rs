@@ -7,7 +7,7 @@ pub fn run_bench<F: FnMut()>(trials: usize, description: &str, mut f: F) {
         return;
     }
 
-    let mut times = Vec::new();
+    let mut times = Vec::with_capacity(trials);
     for _ in 0..trials {
         let mut t = Timer::new();
         t.start();
