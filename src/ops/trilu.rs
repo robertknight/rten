@@ -46,8 +46,8 @@ impl Operator for Trilu {
         let k = inputs.get_as_scalar(1)?.unwrap_or(0);
 
         match input {
-            Input::FloatTensor(input) => trilu(input.view(), k, self.upper).into_op_result(),
-            Input::IntTensor(input) => trilu(input.view(), k, self.upper).into_op_result(),
+            Input::FloatTensor(input) => trilu(input, k, self.upper).into_op_result(),
+            Input::IntTensor(input) => trilu(input, k, self.upper).into_op_result(),
         }
     }
 }

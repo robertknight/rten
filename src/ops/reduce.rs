@@ -77,7 +77,7 @@ impl Operator for ArgMax {
 
     fn run(&self, inputs: InputList) -> Result<Vec<Output>, OpError> {
         let input = inputs.require_as::<f32>(0)?;
-        arg_max(input.view(), self.axis, self.keep_dims).into_op_result()
+        arg_max(input, self.axis, self.keep_dims).into_op_result()
     }
 }
 
@@ -108,7 +108,7 @@ impl Operator for ArgMin {
 
     fn run(&self, inputs: InputList) -> Result<Vec<Output>, OpError> {
         let input = inputs.require_as::<f32>(0)?;
-        arg_min(input.view(), self.axis, self.keep_dims).into_op_result()
+        arg_min(input, self.axis, self.keep_dims).into_op_result()
     }
 }
 
@@ -146,8 +146,8 @@ impl Operator for CumSum {
         let input = inputs.require(0)?;
         let axis: i32 = inputs.require_as_scalar(1)?;
         match input {
-            Input::IntTensor(input) => cum_sum(input.view(), axis as isize).into_op_result(),
-            Input::FloatTensor(input) => cum_sum(input.view(), axis as isize).into_op_result(),
+            Input::IntTensor(input) => cum_sum(input, axis as isize).into_op_result(),
+            Input::FloatTensor(input) => cum_sum(input, axis as isize).into_op_result(),
         }
     }
 }
@@ -187,8 +187,8 @@ impl Operator for NonZero {
     fn run(&self, inputs: InputList) -> Result<Vec<Output>, OpError> {
         let input = inputs.require(0)?;
         match input {
-            Input::IntTensor(input) => nonzero(input.view()).into_op_result(),
-            Input::FloatTensor(input) => nonzero(input.view()).into_op_result(),
+            Input::IntTensor(input) => nonzero(input).into_op_result(),
+            Input::FloatTensor(input) => nonzero(input).into_op_result(),
         }
     }
 }
@@ -348,7 +348,7 @@ impl Operator for ReduceMean {
     fn run(&self, inputs: InputList) -> Result<Vec<Output>, OpError> {
         let input = inputs.require_as(0)?;
         reduce_mean(
-            input.view(),
+            input,
             self.axes.as_ref().map(|axis| &axis[..]),
             self.keep_dims,
         )
@@ -386,7 +386,7 @@ impl Operator for ReduceL2 {
     fn run(&self, inputs: InputList) -> Result<Vec<Output>, OpError> {
         let input = inputs.require_as(0)?;
         reduce_l2(
-            input.view(),
+            input,
             self.axes.as_ref().map(|axis| &axis[..]),
             self.keep_dims,
         )
@@ -397,18 +397,12 @@ impl Operator for ReduceL2 {
 macro_rules! dispatch_reduce_op {
     ($input:expr, $reduce_op:ident, $axes:expr, $keep_dims:expr) => {
         match $input {
-            Input::FloatTensor(input) => $reduce_op(
-                input.view(),
-                $axes.as_ref().map(|axis| &axis[..]),
-                $keep_dims,
-            )
-            .into_op_result(),
-            Input::IntTensor(input) => $reduce_op(
-                input.view(),
-                $axes.as_ref().map(|axis| &axis[..]),
-                $keep_dims,
-            )
-            .into_op_result(),
+            Input::FloatTensor(input) => {
+                $reduce_op(input, $axes.as_ref().map(|axis| &axis[..]), $keep_dims).into_op_result()
+            }
+            Input::IntTensor(input) => {
+                $reduce_op(input, $axes.as_ref().map(|axis| &axis[..]), $keep_dims).into_op_result()
+            }
         }
     };
 }
@@ -674,13 +668,11 @@ impl Operator for TopK {
 
         match values {
             Input::FloatTensor(values) => {
-                let (values, indices) =
-                    topk(values.view(), k, self.axis, self.largest, self.sorted)?;
+                let (values, indices) = topk(values, k, self.axis, self.largest, self.sorted)?;
                 Ok([values.into(), indices.into()].into_iter().collect())
             }
             Input::IntTensor(values) => {
-                let (values, indices) =
-                    topk(values.view(), k, self.axis, self.largest, self.sorted)?;
+                let (values, indices) = topk(values, k, self.axis, self.largest, self.sorted)?;
                 Ok([values.into(), indices.into()].into_iter().collect())
             }
         }

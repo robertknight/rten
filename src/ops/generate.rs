@@ -95,12 +95,12 @@ impl Operator for OneHot {
             Input::IntTensor(values) => {
                 let values = static_dims!(values, 1)?;
                 let (on_value, off_value) = extract_on_off_values(values)?;
-                onehot(indices.view(), self.axis, depth, on_value, off_value).into_op_result()
+                onehot(indices, self.axis, depth, on_value, off_value).into_op_result()
             }
             Input::FloatTensor(values) => {
                 let values = static_dims!(values, 1)?;
                 let (on_value, off_value) = extract_on_off_values(values)?;
-                onehot(indices.view(), self.axis, depth, on_value, off_value).into_op_result()
+                onehot(indices, self.axis, depth, on_value, off_value).into_op_result()
             }
         }
     }

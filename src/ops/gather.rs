@@ -83,12 +83,8 @@ impl Operator for Gather {
         let input = inputs.require(0)?;
         let indices = inputs.require_as::<i32>(1)?;
         match input {
-            Input::IntTensor(input) => {
-                gather(input.view(), self.axis, indices.view()).into_op_result()
-            }
-            Input::FloatTensor(input) => {
-                gather(input.view(), self.axis, indices.view()).into_op_result()
-            }
+            Input::IntTensor(input) => gather(input, self.axis, indices).into_op_result(),
+            Input::FloatTensor(input) => gather(input, self.axis, indices).into_op_result(),
         }
     }
 }
@@ -227,11 +223,9 @@ impl Operator for GatherElements {
         let input = inputs.require(0)?;
         let indices = inputs.require_as::<i32>(1)?;
         match input {
-            Input::IntTensor(input) => {
-                gather_elements(input.view(), indices.view(), self.axis).into_op_result()
-            }
+            Input::IntTensor(input) => gather_elements(input, indices, self.axis).into_op_result(),
             Input::FloatTensor(input) => {
-                gather_elements(input.view(), indices.view(), self.axis).into_op_result()
+                gather_elements(input, indices, self.axis).into_op_result()
             }
         }
     }
@@ -338,22 +332,12 @@ impl Operator for ScatterElements {
         let updates = inputs.require(2)?;
 
         match (data, updates) {
-            (Input::IntTensor(data), Input::IntTensor(updates)) => scatter_elements(
-                data.view(),
-                indices.view(),
-                updates.view(),
-                self.axis,
-                self.reduction,
-            )
-            .into_op_result(),
-            (Input::FloatTensor(data), Input::FloatTensor(updates)) => scatter_elements(
-                data.view(),
-                indices.view(),
-                updates.view(),
-                self.axis,
-                self.reduction,
-            )
-            .into_op_result(),
+            (Input::IntTensor(data), Input::IntTensor(updates)) => {
+                scatter_elements(data, indices, updates, self.axis, self.reduction).into_op_result()
+            }
+            (Input::FloatTensor(data), Input::FloatTensor(updates)) => {
+                scatter_elements(data, indices, updates, self.axis, self.reduction).into_op_result()
+            }
             _ => Err(OpError::IncorrectInputType),
         }
     }
@@ -434,12 +418,10 @@ impl Operator for ScatterND {
 
         match (data, updates) {
             (Input::IntTensor(data), Input::IntTensor(updates)) => {
-                scatter_nd(data.view(), indices.view(), updates.view(), self.reduction)
-                    .into_op_result()
+                scatter_nd(data, indices, updates, self.reduction).into_op_result()
             }
             (Input::FloatTensor(data), Input::FloatTensor(updates)) => {
-                scatter_nd(data.view(), indices.view(), updates.view(), self.reduction)
-                    .into_op_result()
+                scatter_nd(data, indices, updates, self.reduction).into_op_result()
             }
             _ => Err(OpError::IncorrectInputType),
         }

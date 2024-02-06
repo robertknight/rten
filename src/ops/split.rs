@@ -60,7 +60,7 @@ impl Operator for Split {
         let splits = inputs.require_as::<i32>(1)?;
         let splits = static_dims!(splits, 1)?;
 
-        split(input.view(), self.axis, &splits)
+        split(input, self.axis, &splits)
             .map(|tensors| tensors.into_iter().map(|t| t.into()).collect())
     }
 }

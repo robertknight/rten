@@ -41,7 +41,7 @@ impl<Op: UnaryFloatOp + Debug> Operator for Op {
 
     fn run(&self, inputs: InputList) -> Result<Vec<Output>, OpError> {
         let input = inputs.require_as(0)?;
-        self.map(input.view()).into_op_result()
+        self.map(input).into_op_result()
     }
 
     fn can_run_in_place(&self) -> bool {
@@ -73,8 +73,8 @@ macro_rules! unary_numeric_op {
             fn run(&self, inputs: InputList) -> Result<Vec<Output>, OpError> {
                 let input = inputs.require(0)?;
                 match input {
-                    Input::FloatTensor(input) => $view_impl(input.view()).into_op_result(),
-                    Input::IntTensor(input) => $view_impl(input.view()).into_op_result(),
+                    Input::FloatTensor(input) => $view_impl(input).into_op_result(),
+                    Input::IntTensor(input) => $view_impl(input).into_op_result(),
                 }
             }
 
@@ -318,12 +318,12 @@ impl Operator for Clip {
             Input::FloatTensor(input) => {
                 let min = inputs.get_as_scalar(1)?;
                 let max = inputs.get_as_scalar(2)?;
-                clip(input.view(), min, max).into_op_result()
+                clip(input, min, max).into_op_result()
             }
             Input::IntTensor(input) => {
                 let min = inputs.get_as_scalar(1)?;
                 let max = inputs.get_as_scalar(2)?;
-                clip(input.view(), min, max).into_op_result()
+                clip(input, min, max).into_op_result()
             }
         }
     }
@@ -467,7 +467,7 @@ impl Operator for Not {
 
     fn run(&self, inputs: InputList) -> Result<Vec<Output>, OpError> {
         let input = inputs.require_as::<i32>(0)?;
-        not(input.view()).into_op_result()
+        not(input).into_op_result()
     }
 
     fn can_run_in_place(&self) -> bool {

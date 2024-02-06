@@ -224,7 +224,6 @@ pub fn resize(
             .collect(),
         ResizeTarget::Sizes(sizes) => sizes.to_tensor(),
     };
-    let sizes = sizes.view();
 
     if sizes.len() != input.ndim() {
         return Err(OpError::IncompatibleInputShapes(
@@ -344,14 +343,7 @@ impl Operator for Resize {
             .map(ResizeTarget::Sizes);
         let target = scales.or(sizes).ok_or(OpError::MissingInputs)?;
 
-        resize(
-            input.view(),
-            target,
-            self.mode,
-            self.coord_mode,
-            self.nearest_mode,
-        )
-        .into_op_result()
+        resize(input, target, self.mode, self.coord_mode, self.nearest_mode).into_op_result()
     }
 }
 

@@ -208,7 +208,7 @@ impl Operator for InstanceNormalization {
         let bias = inputs.require_as(2)?;
         let bias = static_dims!(bias, 1)?;
 
-        instance_normalization(input.view(), scale, bias, self.epsilon).into_op_result()
+        instance_normalization(input, scale, bias, self.epsilon).into_op_result()
     }
 
     fn can_run_in_place(&self) -> bool {

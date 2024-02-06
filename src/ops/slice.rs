@@ -119,10 +119,10 @@ impl Operator for Slice {
 
         let result: Result<Output, OpError> = match input {
             Input::FloatTensor(input) => {
-                slice(input.view(), &starts, &ends, axes.as_ref(), steps.as_ref()).map(|t| t.into())
+                slice(input, &starts, &ends, axes.as_ref(), steps.as_ref()).map(|t| t.into())
             }
             Input::IntTensor(input) => {
-                slice(input.view(), &starts, &ends, axes.as_ref(), steps.as_ref()).map(|t| t.into())
+                slice(input, &starts, &ends, axes.as_ref(), steps.as_ref()).map(|t| t.into())
             }
         };
         result.into_op_result()

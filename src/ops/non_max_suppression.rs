@@ -202,8 +202,8 @@ impl Operator for NonMaxSuppression {
         let score_threshold = inputs.get_as_scalar(4)?;
 
         let selected_box_indices = non_max_suppression(
-            boxes.view(),
-            scores.view(),
+            boxes,
+            scores,
             self.box_order,
             max_output_boxes_per_class,
             iou_threshold.unwrap_or(0.),

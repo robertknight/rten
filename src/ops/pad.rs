@@ -76,11 +76,11 @@ impl Operator for Pad {
         match input {
             Input::IntTensor(t) => {
                 let const_val = inputs.get_as_scalar::<i32>(2)?;
-                pad(t.view(), &pads, const_val.unwrap_or(0)).into_op_result()
+                pad(t, &pads, const_val.unwrap_or(0)).into_op_result()
             }
             Input::FloatTensor(t) => {
                 let const_val = inputs.get_as_scalar::<f32>(2)?;
-                pad(t.view(), &pads, const_val.unwrap_or(0.0)).into_op_result()
+                pad(t, &pads, const_val.unwrap_or(0.0)).into_op_result()
             }
         }
     }

@@ -185,7 +185,7 @@ impl Operator for MatMul {
     fn run(&self, inputs: InputList) -> Result<Vec<Output>, OpError> {
         let a = inputs.require_as(0)?;
         let b = inputs.require_as(1)?;
-        matmul(a.view(), b.view()).into_op_result()
+        matmul(a, b).into_op_result()
     }
 }
 

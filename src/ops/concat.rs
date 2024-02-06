@@ -205,8 +205,8 @@ impl Operator for Tile {
         let repeats = static_dims!(repeats, 1)?;
 
         match input {
-            Input::IntTensor(input) => tile(input.view(), repeats).into_op_result(),
-            Input::FloatTensor(input) => tile(input.view(), repeats).into_op_result(),
+            Input::IntTensor(input) => tile(input, repeats).into_op_result(),
+            Input::FloatTensor(input) => tile(input, repeats).into_op_result(),
         }
     }
 

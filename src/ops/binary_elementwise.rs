@@ -281,11 +281,11 @@ macro_rules! run_typed_op {
         match a {
             Input::FloatTensor(a) => {
                 let b = $inputs.require_as::<f32>(1)?;
-                $op_func(a.view(), b.view()).into_op_result()
+                $op_func(a, b).into_op_result()
             }
             Input::IntTensor(a) => {
                 let b = $inputs.require_as::<i32>(1)?;
-                $op_func(a.view(), b.view()).into_op_result()
+                $op_func(a, b).into_op_result()
             }
         }
     }};
@@ -300,7 +300,7 @@ macro_rules! run_typed_op_in_place {
             Output::FloatTensor(mut a) => {
                 let b = $other.require_as::<f32>(0)?;
                 if can_run_binary_op_in_place(&a, &b) {
-                    $in_place_op_func(a.view_mut(), b.view());
+                    $in_place_op_func(a.view_mut(), b);
                     Ok(a.into())
                 } else {
                     $op_func(a.view(), b.view()).map(|t| t.into())
@@ -593,11 +593,11 @@ impl Operator for Mod {
         match a {
             Input::FloatTensor(a) => {
                 let b = inputs.require_as::<f32>(1)?;
-                mod_op(a.view(), b.view(), mode).into_op_result()
+                mod_op(a, b, mode).into_op_result()
             }
             Input::IntTensor(a) => {
                 let b = inputs.require_as::<i32>(1)?;
-                mod_op(a.view(), b.view(), mode).into_op_result()
+                mod_op(a, b, mode).into_op_result()
             }
         }
     }
@@ -684,7 +684,7 @@ impl Operator for Pow {
     fn run(&self, inputs: InputList) -> Result<Vec<Output>, OpError> {
         let a = inputs.require_as(0)?;
         let b = inputs.require_as(1)?;
-        pow(a.view(), b.view()).into_op_result()
+        pow(a, b).into_op_result()
     }
 
     fn can_run_in_place(&self) -> bool {
@@ -696,10 +696,10 @@ impl Operator for Pow {
         let b = other.require_as(0)?;
 
         if can_run_binary_op_in_place(&a, &b) {
-            pow_in_place(a.view_mut(), b.view());
+            pow_in_place(a.view_mut(), b);
             Ok(a.into())
         } else {
-            pow(a.view(), b.view()).map(|t| t.into())
+            pow(a.view(), b).map(|t| t.into())
         }
     }
 }
@@ -801,11 +801,11 @@ impl Operator for Where {
         match x {
             Input::FloatTensor(x) => {
                 let y: TensorView = y.try_into()?;
-                where_op(condition.view(), x.view(), y).into_op_result()
+                where_op(condition, x, y).into_op_result()
             }
             Input::IntTensor(x) => {
                 let y: TensorView<i32> = y.try_into()?;
-                where_op(condition.view(), x.view(), y).into_op_result()
+                where_op(condition, x, y).into_op_result()
             }
         }
     }

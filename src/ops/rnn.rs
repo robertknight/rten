@@ -250,8 +250,6 @@ pub fn gru(
     check_dims!(recurrent_weights, 3);
     check_dims!(initial_hidden?, 3);
 
-    let input = input.view();
-
     let num_directions = direction.num_directions();
     let hidden_size = hidden_x3 / 3;
 

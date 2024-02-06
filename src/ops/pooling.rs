@@ -166,7 +166,7 @@ impl Operator for AveragePool {
     fn run(&self, inputs: InputList) -> Result<Vec<Output>, OpError> {
         let input = inputs.require_as(0)?;
         average_pool(
-            input.view(),
+            input,
             self.kernel_size,
             self.strides,
             self.padding.clone(),
@@ -178,7 +178,6 @@ impl Operator for AveragePool {
 
 pub fn global_average_pool(input: TensorView) -> Result<Tensor, OpError> {
     let [batch, chans, in_h, in_w] = check_dims!(input, 4, "NCHW");
-    let input = input.view();
 
     let mut output = Tensor::zeros(&[batch, chans, 1, 1]);
 
@@ -231,7 +230,7 @@ impl Operator for GlobalAveragePool {
 
     fn run(&self, inputs: InputList) -> Result<Vec<Output>, OpError> {
         let input = inputs.require_as(0)?;
-        global_average_pool(input.view()).into_op_result()
+        global_average_pool(input).into_op_result()
     }
 }
 
@@ -355,13 +354,7 @@ impl Operator for MaxPool {
 
     fn run(&self, inputs: InputList) -> Result<Vec<Output>, OpError> {
         let input = inputs.require_as(0)?;
-        max_pool(
-            input.view(),
-            self.kernel_size,
-            self.strides,
-            self.padding.clone(),
-        )
-        .into_op_result()
+        max_pool(input, self.kernel_size, self.strides, self.padding.clone()).into_op_result()
     }
 }
 
