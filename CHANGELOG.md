@@ -16,6 +16,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
  - Fix error when a negative index was used with `Gather` operator (573ded4c)
 
+ - Improve performance of `MatMul` operator when row count of LHS is small and
+   batch size is large (https://github.com/robertknight/rten/pull/51)
+
 ### rten-imageproc
 
  - Optimized `find_contours` for large images (c471a6c, 7a14f43)
