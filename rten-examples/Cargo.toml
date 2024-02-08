@@ -26,6 +26,9 @@ rten-text = { path = "../rten-text" }
 # currently needed.
 needless_update = "allow"
 
+[package.metadata.release]
+release = false
+
 # Vision
 [[bin]]
 name = "deeplab"
