@@ -2,6 +2,7 @@ __pycache__
 /dist
 /node_modules
 /target
+/rten-convert/rten_convert.egg-info
 
 # Optimized neural network models
 *.model
