@@ -19,7 +19,7 @@ In detail, the process is:
    attributes from that operator.
 3. Run `make` to generate updated Rust and Python code to read the updated
    FlatBuffers schema
-4. If the new operator has attributes, edit `tools/convert-onnx.py` to read
+4. If the new operator has attributes, edit `rten-convert/rten_convert/converter.py` and reinstall rten-convert to read
    the attributes from ONNX and convert to this library's model format
 5. Define the implementation of the new operator in Rust. This is a struct
    that implements the `Operator` trait.

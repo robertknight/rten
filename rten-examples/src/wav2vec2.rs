@@ -78,7 +78,8 @@ fn read_wav_file(path: &str) -> Result<Vec<f32>, hound::Error> {
 ///
 /// ```
 /// optimum-cli export onnx --model facebook/wav2vec2-base-960h wav2vec2
-/// tools/convert-onnx.py wav2vec2/model.onnx wav2vec2.rten
+/// pip install -e rten-convert
+/// rten-convert wav2vec2/model.onnx wav2vec2.rten
 /// ```
 ///
 /// To record a .wav file and test this app:

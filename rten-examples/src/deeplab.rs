@@ -95,7 +95,8 @@ const PASCAL_VOC_LABELS: [(&str, Rgb); 21] = [
 ///
 /// ```
 /// python examples/export-deeplab.py
-/// tools/convert-onnx.py deeplab.onnx deeplab.rten
+/// pip install -e rten-convert
+/// rten-convert deeplab.onnx deeplab.rten
 /// ```
 ///
 /// Run this program on an image with:

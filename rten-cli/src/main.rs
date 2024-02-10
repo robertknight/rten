@@ -293,7 +293,8 @@ fn print_input_output_list(model: &Model, node_ids: &[NodeId]) {
 /// generated inputs.
 ///
 /// ```
-/// tools/convert-onnx.py model.onnx output.rten
+/// pip install -e rten-convert
+/// rten-convert model.onnx output.rten
 /// cargo run -p rten-cli --release output.rten
 /// ```
 ///

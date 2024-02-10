@@ -80,7 +80,8 @@ fn resource_path(path: &str) -> PathBuf {
 /// ```
 /// pip install ultralytics
 /// yolo mode=export model=yolov8s.pt format=onnx
-/// tools/convert-onnx.py yolov8s.onnx yolov8.rten
+/// pip install -e rten-convert
+/// rten-convert yolov8s.onnx yolov8.rten
 /// ```
 ///
 /// Run this program on an image:
