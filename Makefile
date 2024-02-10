@@ -51,7 +51,7 @@ src/schema_generated.rs: src/schema.fbs
 	(echo "#![allow(clippy::all)]" && cat src/schema_generated.rs) > src/schema_generated.rs.tmp
 	mv src/schema_generated.rs.tmp src/schema_generated.rs
 
-tools/schema_generated.py: src/schema.fbs
+rten-convert/rten_convert/schema_generated.py: src/schema.fbs
 	flatc -o tools/ --gen-onefile --gen-object-api --python src/schema.fbs
 
 
