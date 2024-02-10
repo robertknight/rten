@@ -131,10 +131,10 @@ fn matmul_impl(a: TensorView, b: TensorView, strategy: MatmulStrategy) -> Result
         .ok_or(OpError::IncompatibleInputShapes("Cannot broadcast shapes"))?;
     let out_shape = &[out_prefix.as_slice(), &[a_rows, b_cols]].concat();
 
-    // A batched matrix multiplication with `[A, M, K] x [K, N]`, where `A` and
-    // can consist of multiple dimensions, can be converted to a non-batched
-    // matmul by reshaping the inputs as `[A * M, K]` * `[K, N]`, and then
-    // reshaping the `[A * M, N]` output to `[A, M, N]`.
+    // A batched matrix multiplication with `[A, M, K] x [K, N]`, where `A` can
+    // consist of multiple dimensions, can be converted to a non-batched matmul
+    // by reshaping the inputs as `[A * M, K]` * `[K, N]`, and then reshaping
+    // the `[A * M, N]` output to `[A, M, N]`.
     //
     // The upside is that one larger matmul is likely to be more efficient than
     // `A` smaller matmuls. This is especially true if `M` is small (eg. 1).
