@@ -1,5 +1,5 @@
 .PHONY: all
-all: src/schema_generated.rs tools/schema_generated.py
+all: src/schema_generated.rs rten-convert/rten_convert/schema_generated.py
 
 .PHONY: clean
 clean:
@@ -52,7 +52,7 @@ src/schema_generated.rs: src/schema.fbs
 	mv src/schema_generated.rs.tmp src/schema_generated.rs
 
 rten-convert/rten_convert/schema_generated.py: src/schema.fbs
-	flatc -o tools/ --gen-onefile --gen-object-api --python src/schema.fbs
+	flatc -o rten-convert/rten_convert --gen-onefile --gen-object-api --python src/schema.fbs
 
 
 .PHONY: gen-pytorch-references
