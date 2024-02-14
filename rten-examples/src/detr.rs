@@ -261,7 +261,6 @@ const LABELS: &[&str] = &[
 ///
 /// ```
 /// optimum-cli export onnx --model facebook/detr-resnet-50 detr
-/// pip install -e rten-convert
 /// rten-convert detr/model.onnx detr.rten
 /// ```
 ///

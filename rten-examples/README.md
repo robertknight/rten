@@ -20,7 +20,6 @@ The general steps to run an example are:
    package:
 
    ```sh
-   $ pip install -e rten-convert
    $ rten-convert <onnx_model> <output_model>
    ```
 

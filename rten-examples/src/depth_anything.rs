@@ -66,7 +66,6 @@ Args:
 /// After downloading the model, it can be run on an image using:
 ///
 /// ```
-/// pip install -e rten-convert
 /// rten-convert depth_anything.onnx
 /// cargo run --release --bin depth_anything depth_anything.rten image.jpg
 /// ```

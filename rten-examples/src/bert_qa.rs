@@ -206,7 +206,6 @@ fn extract_nbest_answers<'a>(
 ///
 /// ```
 /// optimum-cli export onnx --model distilbert-base-cased-distilled-squad distilbert
-/// pip install -e rten-convert
 /// rten-convert distilbert/model.onnx distilbert/distilbert.rten
 /// ```
 ///
