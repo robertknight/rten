@@ -16,11 +16,11 @@ The general steps to run an example are:
    Face](https://huggingface.co/docs/optimum/exporters/onnx/overview),
    the [ONNX Model Zoo](https://github.com/onnx/models) or pre-created ONNX
    models by the model authors.
-2. Convert the ONNX model to this library's format using the `convert-onnx.py`
-   script:
+2. Convert the ONNX model to this library's format using the `rten-convert`
+   package:
 
    ```sh
-   $ ../tools/convert-onnx.py <onnx_model> <output_model>
+   $ rten-convert <onnx_model> <output_model>
    ```
 
 3. Run the example using:

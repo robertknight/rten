@@ -176,7 +176,7 @@ fn embed_sentence_batch(
 /// Convert the model using:
 ///
 /// ```text
-/// tools/convert-onnx.py jina-embed.onnx jina-embed.rten
+/// rten-convert jina-embed.onnx jina-embed.rten
 /// ```
 ///
 /// Then run the example with:

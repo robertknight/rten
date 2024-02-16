@@ -14,7 +14,7 @@ import onnx
 import onnx.numpy_helper as numpy_helper
 from onnx import TensorProto, ValueInfoProto
 
-import schema_generated as sg
+import rten_convert.schema_generated as sg
 
 AttributeValue = int | float | str | list[int]
 

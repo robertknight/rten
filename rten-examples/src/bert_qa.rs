@@ -206,7 +206,7 @@ fn extract_nbest_answers<'a>(
 ///
 /// ```
 /// optimum-cli export onnx --model distilbert-base-cased-distilled-squad distilbert
-/// tools/convert-onnx.py distilbert/model.onnx distilbert/distilbert.rten
+/// rten-convert distilbert/model.onnx distilbert/distilbert.rten
 /// ```
 ///
 /// Then run the example with:

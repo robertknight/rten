@@ -50,6 +50,9 @@ classification example:
 git clone https://github.com/robertknight/rten.git
 cd rten
 
+# Install dependencies for model conversion
+pip install -e rten-convert
+
 # Install dependencies for Python scripts
 pip install -r tools/requirements.txt
 
@@ -57,7 +60,7 @@ pip install -r tools/requirements.txt
 python -m tools.export-timm-model timm/resnet50.a1_in1k
 
 # Convert model to this library's format
-tools/convert-onnx.py resnet50.a1_in1k.onnx resnet50.rten
+rten-convert resnet50.a1_in1k.onnx resnet50.rten
 
 # Run image classification example. Replace `image.png` with your own image.
 cargo run -p rten-examples --release --bin imagenet mobilenet resnet50.rten image.png
@@ -76,8 +79,8 @@ run:
 
 ```sh
 git clone https://github.com/robertknight/rten.git
-pip install -r rten/tools/requirements.txt
-rten/tools/convert-onnx.py your-model.onnx output.rten
+pip install -e rten/rten-convert
+rten-convert your-model.onnx output.rten
 ```
 
 The RTen model format does not yet guarantee long-term backwards compatibility,
@@ -111,7 +114,7 @@ a JavaScript project are:
     or [Hugging Face](https://huggingface.co/docs/transformers/serialization).
 2.  If the model is not already in ONNX format, convert it to ONNX. PyTorch
     users can use [torch.onnx](https://pytorch.org/docs/stable/onnx.html) for this.
-3.  Use the `tools/convert-onnx.py` script in this repository to convert the model
+3.  Use the `rten-convert` package in this repository to convert the model
     to the optimized format RTen uses. See the section above on converting models.
 4.  In your JavaScript code, fetch the WebAssembly binary and initialize RTen
     using the `init` function.
