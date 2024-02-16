@@ -34,7 +34,7 @@ Args:
   <image> - Image to process
   <output> - Path to save depth image to. Defaults to \"depth-map.png\".
 ",
-                    bin_name = parser.bin_name().unwrap_or("deeplab")
+                    bin_name = parser.bin_name().unwrap_or("depth_anything")
                 );
                 std::process::exit(0);
             }
