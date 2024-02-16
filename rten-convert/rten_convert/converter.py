@@ -805,6 +805,7 @@ def op_node_from_onnx_operator(
             | "ReduceMin"
             | "ReduceProd"
             | "ReduceSum"
+            | "ReduceSumSquare"
         ):
             attrs = sg.ReduceMeanAttrsT()
             attrs.axes = op_reader.get_attr("axes", "ints", None)

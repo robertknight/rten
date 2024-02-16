@@ -18,13 +18,13 @@ pub const ENUM_MIN_OPERATOR_TYPE: i8 = 0;
     since = "2.0.0",
     note = "Use associated constants instead. This will no longer be generated in 2021."
 )]
-pub const ENUM_MAX_OPERATOR_TYPE: i8 = 93;
+pub const ENUM_MAX_OPERATOR_TYPE: i8 = 94;
 #[deprecated(
     since = "2.0.0",
     note = "Use associated constants instead. This will no longer be generated in 2021."
 )]
 #[allow(non_camel_case_types)]
-pub const ENUM_VALUES_OPERATOR_TYPE: [OperatorType; 94] = [
+pub const ENUM_VALUES_OPERATOR_TYPE: [OperatorType; 95] = [
     OperatorType::Add,
     OperatorType::ArgMin,
     OperatorType::ArgMax,
@@ -119,6 +119,7 @@ pub const ENUM_VALUES_OPERATOR_TYPE: [OperatorType; 94] = [
     OperatorType::Sign,
     OperatorType::GatherElements,
     OperatorType::LayerNormalization,
+    OperatorType::ReduceSumSquare,
 ];
 
 #[derive(Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash, Default)]
@@ -220,9 +221,10 @@ impl OperatorType {
     pub const Sign: Self = Self(91);
     pub const GatherElements: Self = Self(92);
     pub const LayerNormalization: Self = Self(93);
+    pub const ReduceSumSquare: Self = Self(94);
 
     pub const ENUM_MIN: i8 = 0;
-    pub const ENUM_MAX: i8 = 93;
+    pub const ENUM_MAX: i8 = 94;
     pub const ENUM_VALUES: &'static [Self] = &[
         Self::Add,
         Self::ArgMin,
@@ -318,6 +320,7 @@ impl OperatorType {
         Self::Sign,
         Self::GatherElements,
         Self::LayerNormalization,
+        Self::ReduceSumSquare,
     ];
     /// Returns the variant's name or "" if unknown.
     pub fn variant_name(self) -> Option<&'static str> {
@@ -416,6 +419,7 @@ impl OperatorType {
             Self::Sign => Some("Sign"),
             Self::GatherElements => Some("GatherElements"),
             Self::LayerNormalization => Some("LayerNormalization"),
+            Self::ReduceSumSquare => Some("ReduceSumSquare"),
             _ => None,
         }
     }

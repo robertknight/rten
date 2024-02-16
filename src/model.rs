@@ -357,6 +357,7 @@ impl_default_factory!(ReduceMean, read_reduce_mean_op);
 impl_default_factory!(ReduceMin, read_reduce_min_op);
 impl_default_factory!(ReduceProd, read_reduce_prod_op);
 impl_default_factory!(ReduceSum, read_reduce_sum_op);
+impl_default_factory!(ReduceSumSquare, read_reduce_sum_square_op);
 impl_default_factory!(Relu);
 impl_default_factory!(Reshape, read_reshape_op);
 impl_default_factory!(Resize, read_resize_op);
@@ -507,6 +508,7 @@ impl OpRegistry {
         register_op!(ReduceMin);
         register_op!(ReduceProd);
         register_op!(ReduceSum);
+        register_op!(ReduceSumSquare);
         register_op!(Relu);
         register_op!(Reshape);
         register_op!(Resize);
@@ -835,6 +837,7 @@ read_reduce_op!(read_reduce_mean_op, ReduceMean);
 read_reduce_op!(read_reduce_min_op, ReduceMin);
 read_reduce_op!(read_reduce_prod_op, ReduceProd);
 read_reduce_op!(read_reduce_sum_op, ReduceSum);
+read_reduce_op!(read_reduce_sum_square_op, ReduceSumSquare);
 
 fn read_reshape_op(node: &OperatorNode) -> ReadOpResult {
     let attrs = node
@@ -1533,6 +1536,10 @@ mod tests {
             keep_dims: false,
         });
         add_operator!(ReduceSum, [input_node], {
+            axes: None,
+            keep_dims: false,
+        });
+        add_operator!(ReduceSumSquare, [input_node], {
             axes: None,
             keep_dims: false,
         });

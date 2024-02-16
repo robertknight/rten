@@ -74,8 +74,8 @@ pub use pooling::{
 };
 pub use reduce::{
     arg_max, arg_min, cum_sum, nonzero, reduce_l2, reduce_max, reduce_mean, reduce_min,
-    reduce_prod, reduce_sum, topk, ArgMax, ArgMin, CumSum, NonZero, ReduceL2, ReduceMax,
-    ReduceMean, ReduceMin, ReduceProd, ReduceSum, TopK,
+    reduce_prod, reduce_sum, reduce_sum_square, topk, ArgMax, ArgMin, CumSum, NonZero, ReduceL2,
+    ReduceMax, ReduceMean, ReduceMin, ReduceProd, ReduceSum, ReduceSumSquare, TopK,
 };
 pub use resize::{
     resize, resize_image, CoordTransformMode, NearestMode, Resize, ResizeMode, ResizeTarget,

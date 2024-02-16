@@ -10,8 +10,8 @@ use crate::ops::{
     ConvTranspose, CoordTransformMode, DataType, Flatten, Gather, GatherElements, Gemm,
     HardSigmoid, InstanceNormalization, LayerNormalization, LeakyRelu, LogSoftmax, MaxPool, Mod,
     NearestMode, NonMaxSuppression, OneHot, Padding, ReduceMax, ReduceMean, ReduceMin, ReduceProd,
-    ReduceSum, Reshape, Resize, ResizeMode, Scalar, ScatterElements, ScatterReduction, Softmax,
-    Split, TopK, Transpose, Trilu,
+    ReduceSum, ReduceSumSquare, Reshape, Resize, ResizeMode, Scalar, ScatterElements,
+    ScatterReduction, Softmax, Split, TopK, Transpose, Trilu,
 };
 use crate::schema_generated as sg;
 
@@ -80,6 +80,7 @@ pub enum OpType {
     ReduceMin(ReduceMin),
     ReduceProd(ReduceProd),
     ReduceSum(ReduceSum),
+    ReduceSumSquare(ReduceSumSquare),
     Relu,
     Reshape(Reshape),
     Resize(Resize),
@@ -567,6 +568,9 @@ impl<'a> ModelBuilder<'a> {
             }
             OpType::ReduceSum(args) => {
                 op_with_attrs!(ReduceSum, ReduceMeanAttrs, reduce_attrs!(args))
+            }
+            OpType::ReduceSumSquare(args) => {
+                op_with_attrs!(ReduceSumSquare, ReduceMeanAttrs, reduce_attrs!(args))
             }
             OpType::Relu => op!(Relu),
             OpType::Reshape(args) => op_with_attrs!(Reshape, ReshapeAttrs, {

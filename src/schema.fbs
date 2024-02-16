@@ -103,7 +103,8 @@ enum OperatorType: byte {
   NonMaxSuppression,
   Sign,
   GatherElements,
-  LayerNormalization
+  LayerNormalization,
+  ReduceSumSquare,
 }
 
 enum RNNDirection: byte {

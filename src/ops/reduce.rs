@@ -573,6 +573,37 @@ impl Operator for ReduceSum {
     }
 }
 
+pub fn reduce_sum_square<T: Copy + Default + std::ops::Mul<T, Output = T> + std::iter::Sum>(
+    input: TensorView<T>,
+    axes: Option<&[i32]>,
+    keep_dims: bool,
+) -> Result<Tensor<T>, OpError> {
+    struct SumSquareReducer {}
+    impl<T: Copy + std::iter::Sum + std::ops::Mul<Output = T>> Reducer<T> for SumSquareReducer {
+        fn reduce<I: ExactSizeIterator<Item = T>>(&self, iter: I) -> T {
+            iter.map(|x| x * x).sum()
+        }
+    }
+    reduce(input, axes, keep_dims, SumSquareReducer {})
+}
+
+#[derive(Debug)]
+pub struct ReduceSumSquare {
+    pub axes: Option<Vec<i32>>,
+    pub keep_dims: bool,
+}
+
+impl Operator for ReduceSumSquare {
+    fn name(&self) -> &str {
+        "ReduceSumSquare"
+    }
+
+    fn run(&self, inputs: InputList) -> Result<Vec<Output>, OpError> {
+        let input = inputs.require(0)?;
+        dispatch_reduce_op!(input, reduce_sum_square, self.axes, self.keep_dims)
+    }
+}
+
 pub fn topk<T: Copy + Default + PartialOrd>(
     values: TensorView<T>,
     k: usize,
@@ -689,7 +720,7 @@ mod tests {
 
     use crate::ops::{
         arg_max, arg_min, cum_sum, nonzero, reduce_l2, reduce_max, reduce_mean, reduce_min,
-        reduce_prod, reduce_sum, topk, OpError,
+        reduce_prod, reduce_sum, reduce_sum_square, topk, OpError,
     };
 
     #[test]
@@ -1008,6 +1039,27 @@ mod tests {
             false, /* keep_dims */
         ));
         assert_eq!(result, input.iter().sum::<f32>());
+    }
+
+    #[test]
+    fn test_reduce_sum_square() {
+        // Int tensor
+        let input: Tensor<i32> = tensor!([1, 2, 3, 4, 5]);
+        let result = result_item(reduce_sum_square(
+            input.view(),
+            Some(&[0]),
+            false, /* keep_dims */
+        ));
+        assert_eq!(result, input.iter().map(|x| x * x).sum::<i32>());
+
+        // Float tensor
+        let input: Tensor<f32> = tensor!([1.5, 2.5, 3.5, 4.5, 5.5]);
+        let result = result_item(reduce_sum_square(
+            input.view(),
+            Some(&[0]),
+            false, /* keep_dims */
+        ));
+        assert_eq!(result, input.iter().map(|x| x * x).sum::<f32>());
     }
 
     #[test]
