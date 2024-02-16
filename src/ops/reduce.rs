@@ -209,7 +209,7 @@ trait Reducer<T> {
     }
 }
 
-fn reduce<T: Copy + Default, R: Reducer<T>>(
+fn reduce<T: Copy, R: Reducer<T>>(
     input: TensorView<T>,
     axes: Option<&[i32]>,
     keep_dims: bool,
@@ -439,7 +439,7 @@ pub fn cmp_nan_less<T: PartialOrd>(a: T, b: T) -> std::cmp::Ordering {
     }
 }
 
-fn reduce_min_max<T: Copy + Default + PartialOrd>(
+fn reduce_min_max<T: Copy + PartialOrd>(
     input: TensorView<T>,
     axes: Option<&[i32]>,
     keep_dims: bool,
@@ -461,7 +461,7 @@ fn reduce_min_max<T: Copy + Default + PartialOrd>(
     reduce(input, axes, keep_dims, MinMaxReducer { max })
 }
 
-pub fn reduce_min<T: Copy + Default + PartialOrd>(
+pub fn reduce_min<T: Copy + PartialOrd>(
     input: TensorView<T>,
     axes: Option<&[i32]>,
     keep_dims: bool,
@@ -486,7 +486,7 @@ impl Operator for ReduceMin {
     }
 }
 
-pub fn reduce_max<T: Copy + Default + PartialOrd>(
+pub fn reduce_max<T: Copy + PartialOrd>(
     input: TensorView<T>,
     axes: Option<&[i32]>,
     keep_dims: bool,
@@ -511,7 +511,7 @@ impl Operator for ReduceMax {
     }
 }
 
-pub fn reduce_prod<T: Copy + Default + std::iter::Product>(
+pub fn reduce_prod<T: Copy + std::iter::Product>(
     input: TensorView<T>,
     axes: Option<&[i32]>,
     keep_dims: bool,
@@ -542,7 +542,7 @@ impl Operator for ReduceProd {
     }
 }
 
-pub fn reduce_sum<T: Copy + Default + std::iter::Sum>(
+pub fn reduce_sum<T: Copy + std::iter::Sum>(
     input: TensorView<T>,
     axes: Option<&[i32]>,
     keep_dims: bool,
@@ -573,7 +573,7 @@ impl Operator for ReduceSum {
     }
 }
 
-pub fn reduce_sum_square<T: Copy + Default + std::ops::Mul<T, Output = T> + std::iter::Sum>(
+pub fn reduce_sum_square<T: Copy + std::ops::Mul<T, Output = T> + std::iter::Sum>(
     input: TensorView<T>,
     axes: Option<&[i32]>,
     keep_dims: bool,
