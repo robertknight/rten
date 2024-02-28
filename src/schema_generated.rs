@@ -13,12 +13,12 @@ use self::flatbuffers::{EndianScalar, Follow};
     since = "2.0.0",
     note = "Use associated constants instead. This will no longer be generated in 2021."
 )]
-pub const ENUM_MIN_OPERATOR_TYPE: i8 = 0;
+pub const ENUM_MIN_OPERATOR_TYPE: u8 = 0;
 #[deprecated(
     since = "2.0.0",
     note = "Use associated constants instead. This will no longer be generated in 2021."
 )]
-pub const ENUM_MAX_OPERATOR_TYPE: i8 = 94;
+pub const ENUM_MAX_OPERATOR_TYPE: u8 = 94;
 #[deprecated(
     since = "2.0.0",
     note = "Use associated constants instead. This will no longer be generated in 2021."
@@ -124,7 +124,7 @@ pub const ENUM_VALUES_OPERATOR_TYPE: [OperatorType; 95] = [
 
 #[derive(Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash, Default)]
 #[repr(transparent)]
-pub struct OperatorType(pub i8);
+pub struct OperatorType(pub u8);
 #[allow(non_upper_case_globals)]
 impl OperatorType {
     pub const Add: Self = Self(0);
@@ -223,8 +223,8 @@ impl OperatorType {
     pub const LayerNormalization: Self = Self(93);
     pub const ReduceSumSquare: Self = Self(94);
 
-    pub const ENUM_MIN: i8 = 0;
-    pub const ENUM_MAX: i8 = 94;
+    pub const ENUM_MIN: u8 = 0;
+    pub const ENUM_MAX: u8 = 94;
     pub const ENUM_VALUES: &'static [Self] = &[
         Self::Add,
         Self::ArgMin,
@@ -437,7 +437,7 @@ impl<'a> flatbuffers::Follow<'a> for OperatorType {
     type Inner = Self;
     #[inline]
     unsafe fn follow(buf: &'a [u8], loc: usize) -> Self::Inner {
-        let b = flatbuffers::read_scalar_at::<i8>(buf, loc);
+        let b = flatbuffers::read_scalar_at::<u8>(buf, loc);
         Self(b)
     }
 }
@@ -446,20 +446,20 @@ impl flatbuffers::Push for OperatorType {
     type Output = OperatorType;
     #[inline]
     unsafe fn push(&self, dst: &mut [u8], _written_len: usize) {
-        flatbuffers::emplace_scalar::<i8>(dst, self.0);
+        flatbuffers::emplace_scalar::<u8>(dst, self.0);
     }
 }
 
 impl flatbuffers::EndianScalar for OperatorType {
-    type Scalar = i8;
+    type Scalar = u8;
     #[inline]
-    fn to_little_endian(self) -> i8 {
+    fn to_little_endian(self) -> u8 {
         self.0.to_le()
     }
     #[inline]
     #[allow(clippy::wrong_self_convention)]
-    fn from_little_endian(v: i8) -> Self {
-        let b = i8::from_le(v);
+    fn from_little_endian(v: u8) -> Self {
+        let b = u8::from_le(v);
         Self(b)
     }
 }
@@ -471,7 +471,7 @@ impl<'a> flatbuffers::Verifiable for OperatorType {
         pos: usize,
     ) -> Result<(), flatbuffers::InvalidFlatbuffer> {
         use self::flatbuffers::Verifiable;
-        i8::run_verifier(v, pos)
+        u8::run_verifier(v, pos)
     }
 }
 

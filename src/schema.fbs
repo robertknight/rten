@@ -6,7 +6,7 @@ file_identifier "RTEN";
 file_extension "rten";
 
 // Type for an operator node
-enum OperatorType: byte {
+enum OperatorType: ubyte {
   Add,
   ArgMin,
   ArgMax,

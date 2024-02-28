@@ -3633,7 +3633,7 @@ class OperatorNode(object):
     def Type(self):
         o = flatbuffers.number_types.UOffsetTFlags.py_type(self._tab.Offset(4))
         if o != 0:
-            return self._tab.Get(flatbuffers.number_types.Int8Flags, o + self._tab.Pos)
+            return self._tab.Get(flatbuffers.number_types.Uint8Flags, o + self._tab.Pos)
         return 0
 
     # OperatorNode
@@ -3711,7 +3711,7 @@ def OperatorNodeStart(builder):
     builder.StartObject(5)
 
 def OperatorNodeAddType(builder, type):
-    builder.PrependInt8Slot(0, type, 0)
+    builder.PrependUint8Slot(0, type, 0)
 
 def OperatorNodeAddAttrsType(builder, attrsType):
     builder.PrependUint8Slot(1, attrsType, 0)
