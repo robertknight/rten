@@ -445,7 +445,7 @@ class AveragePoolAttrs(object):
     def PadMode(self):
         o = flatbuffers.number_types.UOffsetTFlags.py_type(self._tab.Offset(6))
         if o != 0:
-            return self._tab.Get(flatbuffers.number_types.Int8Flags, o + self._tab.Pos)
+            return self._tab.Get(flatbuffers.number_types.Uint8Flags, o + self._tab.Pos)
         return 0
 
     # AveragePoolAttrs
@@ -519,7 +519,7 @@ def AveragePoolAttrsStartKernelSizeVector(builder, numElems):
     return builder.StartVector(4, numElems, 4)
 
 def AveragePoolAttrsAddPadMode(builder, padMode):
-    builder.PrependInt8Slot(1, padMode, 0)
+    builder.PrependUint8Slot(1, padMode, 0)
 
 def AveragePoolAttrsAddPads(builder, pads):
     builder.PrependUOffsetTRelativeSlot(2, flatbuffers.number_types.UOffsetTFlags.py_type(pads), 0)
@@ -742,14 +742,14 @@ class CastAttrs(object):
     def To(self):
         o = flatbuffers.number_types.UOffsetTFlags.py_type(self._tab.Offset(4))
         if o != 0:
-            return self._tab.Get(flatbuffers.number_types.Int8Flags, o + self._tab.Pos)
+            return self._tab.Get(flatbuffers.number_types.Uint8Flags, o + self._tab.Pos)
         return 0
 
 def CastAttrsStart(builder):
     builder.StartObject(1)
 
 def CastAttrsAddTo(builder, to):
-    builder.PrependInt8Slot(0, to, 0)
+    builder.PrependUint8Slot(0, to, 0)
 
 def CastAttrsEnd(builder):
     return builder.EndObject()
@@ -1150,7 +1150,7 @@ class ConvAttrs(object):
     def PadMode(self):
         o = flatbuffers.number_types.UOffsetTFlags.py_type(self._tab.Offset(4))
         if o != 0:
-            return self._tab.Get(flatbuffers.number_types.Int8Flags, o + self._tab.Pos)
+            return self._tab.Get(flatbuffers.number_types.Uint8Flags, o + self._tab.Pos)
         return 0
 
     # ConvAttrs
@@ -1245,7 +1245,7 @@ def ConvAttrsStart(builder):
     builder.StartObject(5)
 
 def ConvAttrsAddPadMode(builder, padMode):
-    builder.PrependInt8Slot(0, padMode, 0)
+    builder.PrependUint8Slot(0, padMode, 0)
 
 def ConvAttrsAddPads(builder, pads):
     builder.PrependUOffsetTRelativeSlot(1, flatbuffers.number_types.UOffsetTFlags.py_type(pads), 0)
@@ -1876,7 +1876,7 @@ class GRUAttrs(object):
     def Direction(self):
         o = flatbuffers.number_types.UOffsetTFlags.py_type(self._tab.Offset(4))
         if o != 0:
-            return self._tab.Get(flatbuffers.number_types.Int8Flags, o + self._tab.Pos)
+            return self._tab.Get(flatbuffers.number_types.Uint8Flags, o + self._tab.Pos)
         return 0
 
     # GRUAttrs
@@ -1897,7 +1897,7 @@ def GRUAttrsStart(builder):
     builder.StartObject(3)
 
 def GRUAttrsAddDirection(builder, direction):
-    builder.PrependInt8Slot(0, direction, 0)
+    builder.PrependUint8Slot(0, direction, 0)
 
 def GRUAttrsAddHiddenSize(builder, hiddenSize):
     builder.PrependUint32Slot(1, hiddenSize, 0)
@@ -2146,7 +2146,7 @@ class LSTMAttrs(object):
     def Direction(self):
         o = flatbuffers.number_types.UOffsetTFlags.py_type(self._tab.Offset(4))
         if o != 0:
-            return self._tab.Get(flatbuffers.number_types.Int8Flags, o + self._tab.Pos)
+            return self._tab.Get(flatbuffers.number_types.Uint8Flags, o + self._tab.Pos)
         return 0
 
     # LSTMAttrs
@@ -2160,7 +2160,7 @@ def LSTMAttrsStart(builder):
     builder.StartObject(2)
 
 def LSTMAttrsAddDirection(builder, direction):
-    builder.PrependInt8Slot(0, direction, 0)
+    builder.PrependUint8Slot(0, direction, 0)
 
 def LSTMAttrsAddHiddenSize(builder, hiddenSize):
     builder.PrependUint32Slot(1, hiddenSize, 0)
@@ -2263,7 +2263,7 @@ class MaxPoolAttrs(object):
     def PadMode(self):
         o = flatbuffers.number_types.UOffsetTFlags.py_type(self._tab.Offset(6))
         if o != 0:
-            return self._tab.Get(flatbuffers.number_types.Int8Flags, o + self._tab.Pos)
+            return self._tab.Get(flatbuffers.number_types.Uint8Flags, o + self._tab.Pos)
         return 0
 
     # MaxPoolAttrs
@@ -2330,7 +2330,7 @@ def MaxPoolAttrsStartKernelSizeVector(builder, numElems):
     return builder.StartVector(4, numElems, 4)
 
 def MaxPoolAttrsAddPadMode(builder, padMode):
-    builder.PrependInt8Slot(1, padMode, 0)
+    builder.PrependUint8Slot(1, padMode, 0)
 
 def MaxPoolAttrsAddPads(builder, pads):
     builder.PrependUOffsetTRelativeSlot(2, flatbuffers.number_types.UOffsetTFlags.py_type(pads), 0)
@@ -2547,14 +2547,14 @@ class NonMaxSuppressionAttrs(object):
     def BoxOrder(self):
         o = flatbuffers.number_types.UOffsetTFlags.py_type(self._tab.Offset(4))
         if o != 0:
-            return self._tab.Get(flatbuffers.number_types.Int8Flags, o + self._tab.Pos)
+            return self._tab.Get(flatbuffers.number_types.Uint8Flags, o + self._tab.Pos)
         return 0
 
 def NonMaxSuppressionAttrsStart(builder):
     builder.StartObject(1)
 
 def NonMaxSuppressionAttrsAddBoxOrder(builder, boxOrder):
-    builder.PrependInt8Slot(0, boxOrder, 0)
+    builder.PrependUint8Slot(0, boxOrder, 0)
 
 def NonMaxSuppressionAttrsEnd(builder):
     return builder.EndObject()
@@ -2910,34 +2910,34 @@ class ResizeAttrs(object):
     def Mode(self):
         o = flatbuffers.number_types.UOffsetTFlags.py_type(self._tab.Offset(4))
         if o != 0:
-            return self._tab.Get(flatbuffers.number_types.Int8Flags, o + self._tab.Pos)
+            return self._tab.Get(flatbuffers.number_types.Uint8Flags, o + self._tab.Pos)
         return 0
 
     # ResizeAttrs
     def CoordMode(self):
         o = flatbuffers.number_types.UOffsetTFlags.py_type(self._tab.Offset(6))
         if o != 0:
-            return self._tab.Get(flatbuffers.number_types.Int8Flags, o + self._tab.Pos)
+            return self._tab.Get(flatbuffers.number_types.Uint8Flags, o + self._tab.Pos)
         return 0
 
     # ResizeAttrs
     def NearestMode(self):
         o = flatbuffers.number_types.UOffsetTFlags.py_type(self._tab.Offset(8))
         if o != 0:
-            return self._tab.Get(flatbuffers.number_types.Int8Flags, o + self._tab.Pos)
+            return self._tab.Get(flatbuffers.number_types.Uint8Flags, o + self._tab.Pos)
         return 0
 
 def ResizeAttrsStart(builder):
     builder.StartObject(3)
 
 def ResizeAttrsAddMode(builder, mode):
-    builder.PrependInt8Slot(0, mode, 0)
+    builder.PrependUint8Slot(0, mode, 0)
 
 def ResizeAttrsAddCoordMode(builder, coordMode):
-    builder.PrependInt8Slot(1, coordMode, 0)
+    builder.PrependUint8Slot(1, coordMode, 0)
 
 def ResizeAttrsAddNearestMode(builder, nearestMode):
-    builder.PrependInt8Slot(2, nearestMode, 0)
+    builder.PrependUint8Slot(2, nearestMode, 0)
 
 def ResizeAttrsEnd(builder):
     return builder.EndObject()
@@ -3020,7 +3020,7 @@ class ScatterElementsAttrs(object):
     def Reduction(self):
         o = flatbuffers.number_types.UOffsetTFlags.py_type(self._tab.Offset(6))
         if o != 0:
-            return self._tab.Get(flatbuffers.number_types.Int8Flags, o + self._tab.Pos)
+            return self._tab.Get(flatbuffers.number_types.Uint8Flags, o + self._tab.Pos)
         return 0
 
 def ScatterElementsAttrsStart(builder):
@@ -3030,7 +3030,7 @@ def ScatterElementsAttrsAddAxis(builder, axis):
     builder.PrependInt32Slot(0, axis, 0)
 
 def ScatterElementsAttrsAddReduction(builder, reduction):
-    builder.PrependInt8Slot(1, reduction, 0)
+    builder.PrependUint8Slot(1, reduction, 0)
 
 def ScatterElementsAttrsEnd(builder):
     return builder.EndObject()
@@ -3103,14 +3103,14 @@ class ScatterNDAttrs(object):
     def Reduction(self):
         o = flatbuffers.number_types.UOffsetTFlags.py_type(self._tab.Offset(4))
         if o != 0:
-            return self._tab.Get(flatbuffers.number_types.Int8Flags, o + self._tab.Pos)
+            return self._tab.Get(flatbuffers.number_types.Uint8Flags, o + self._tab.Pos)
         return 0
 
 def ScatterNDAttrsStart(builder):
     builder.StartObject(1)
 
 def ScatterNDAttrsAddReduction(builder, reduction):
-    builder.PrependInt8Slot(0, reduction, 0)
+    builder.PrependUint8Slot(0, reduction, 0)
 
 def ScatterNDAttrsEnd(builder):
     return builder.EndObject()
@@ -3633,7 +3633,7 @@ class OperatorNode(object):
     def Type(self):
         o = flatbuffers.number_types.UOffsetTFlags.py_type(self._tab.Offset(4))
         if o != 0:
-            return self._tab.Get(flatbuffers.number_types.Int8Flags, o + self._tab.Pos)
+            return self._tab.Get(flatbuffers.number_types.Uint8Flags, o + self._tab.Pos)
         return 0
 
     # OperatorNode
@@ -3711,7 +3711,7 @@ def OperatorNodeStart(builder):
     builder.StartObject(5)
 
 def OperatorNodeAddType(builder, type):
-    builder.PrependInt8Slot(0, type, 0)
+    builder.PrependUint8Slot(0, type, 0)
 
 def OperatorNodeAddAttrsType(builder, attrsType):
     builder.PrependUint8Slot(1, attrsType, 0)

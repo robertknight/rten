@@ -6,7 +6,7 @@ file_identifier "RTEN";
 file_extension "rten";
 
 // Type for an operator node
-enum OperatorType: byte {
+enum OperatorType: ubyte {
   Add,
   ArgMin,
   ArgMax,
@@ -107,38 +107,38 @@ enum OperatorType: byte {
   ReduceSumSquare,
 }
 
-enum RNNDirection: byte {
+enum RNNDirection: ubyte {
   Forwards,
   Reverse,
   Bidirectional
 }
 
-enum PadMode: byte {
+enum PadMode: ubyte {
   Same,
   Fixed
 }
 
-enum DataType: byte {
+enum DataType: ubyte {
   Int32,
   Float
 }
 
 // Coordinate transform modes for Resize operator.
-enum CoordTransformMode: byte {
+enum CoordTransformMode: ubyte {
   HalfPixel,
   Asymmetric,
   AlignCorners
 }
 
 // Rounding modes supported by Resize operator when `ResizeMode` is `Nearest`.
-enum NearestMode: byte {
+enum NearestMode: ubyte {
   Floor,
   Ceil,
   RoundPreferFloor,
   RoundPreferCeil,
 }
 
-enum ResizeMode: byte {
+enum ResizeMode: ubyte {
   Nearest,
   Linear
 }
@@ -295,7 +295,7 @@ table ModAttrs {
   fmod:bool;
 }
 
-enum NMSBoxOrder: byte {
+enum NMSBoxOrder: ubyte {
   TopLeftBottomRight,
   CenterWidthHeight,
 }
@@ -323,7 +323,7 @@ table ResizeAttrs {
   nearest_mode:NearestMode;
 }
 
-enum ScatterReduction: byte {
+enum ScatterReduction: ubyte {
   None,
   Add,
   Mul,

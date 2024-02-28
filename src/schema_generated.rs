@@ -13,12 +13,12 @@ use self::flatbuffers::{EndianScalar, Follow};
     since = "2.0.0",
     note = "Use associated constants instead. This will no longer be generated in 2021."
 )]
-pub const ENUM_MIN_OPERATOR_TYPE: i8 = 0;
+pub const ENUM_MIN_OPERATOR_TYPE: u8 = 0;
 #[deprecated(
     since = "2.0.0",
     note = "Use associated constants instead. This will no longer be generated in 2021."
 )]
-pub const ENUM_MAX_OPERATOR_TYPE: i8 = 94;
+pub const ENUM_MAX_OPERATOR_TYPE: u8 = 94;
 #[deprecated(
     since = "2.0.0",
     note = "Use associated constants instead. This will no longer be generated in 2021."
@@ -124,7 +124,7 @@ pub const ENUM_VALUES_OPERATOR_TYPE: [OperatorType; 95] = [
 
 #[derive(Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash, Default)]
 #[repr(transparent)]
-pub struct OperatorType(pub i8);
+pub struct OperatorType(pub u8);
 #[allow(non_upper_case_globals)]
 impl OperatorType {
     pub const Add: Self = Self(0);
@@ -223,8 +223,8 @@ impl OperatorType {
     pub const LayerNormalization: Self = Self(93);
     pub const ReduceSumSquare: Self = Self(94);
 
-    pub const ENUM_MIN: i8 = 0;
-    pub const ENUM_MAX: i8 = 94;
+    pub const ENUM_MIN: u8 = 0;
+    pub const ENUM_MAX: u8 = 94;
     pub const ENUM_VALUES: &'static [Self] = &[
         Self::Add,
         Self::ArgMin,
@@ -437,7 +437,7 @@ impl<'a> flatbuffers::Follow<'a> for OperatorType {
     type Inner = Self;
     #[inline]
     unsafe fn follow(buf: &'a [u8], loc: usize) -> Self::Inner {
-        let b = flatbuffers::read_scalar_at::<i8>(buf, loc);
+        let b = flatbuffers::read_scalar_at::<u8>(buf, loc);
         Self(b)
     }
 }
@@ -446,20 +446,20 @@ impl flatbuffers::Push for OperatorType {
     type Output = OperatorType;
     #[inline]
     unsafe fn push(&self, dst: &mut [u8], _written_len: usize) {
-        flatbuffers::emplace_scalar::<i8>(dst, self.0);
+        flatbuffers::emplace_scalar::<u8>(dst, self.0);
     }
 }
 
 impl flatbuffers::EndianScalar for OperatorType {
-    type Scalar = i8;
+    type Scalar = u8;
     #[inline]
-    fn to_little_endian(self) -> i8 {
+    fn to_little_endian(self) -> u8 {
         self.0.to_le()
     }
     #[inline]
     #[allow(clippy::wrong_self_convention)]
-    fn from_little_endian(v: i8) -> Self {
-        let b = i8::from_le(v);
+    fn from_little_endian(v: u8) -> Self {
+        let b = u8::from_le(v);
         Self(b)
     }
 }
@@ -471,7 +471,7 @@ impl<'a> flatbuffers::Verifiable for OperatorType {
         pos: usize,
     ) -> Result<(), flatbuffers::InvalidFlatbuffer> {
         use self::flatbuffers::Verifiable;
-        i8::run_verifier(v, pos)
+        u8::run_verifier(v, pos)
     }
 }
 
@@ -480,12 +480,12 @@ impl flatbuffers::SimpleToVerifyInSlice for OperatorType {}
     since = "2.0.0",
     note = "Use associated constants instead. This will no longer be generated in 2021."
 )]
-pub const ENUM_MIN_RNNDIRECTION: i8 = 0;
+pub const ENUM_MIN_RNNDIRECTION: u8 = 0;
 #[deprecated(
     since = "2.0.0",
     note = "Use associated constants instead. This will no longer be generated in 2021."
 )]
-pub const ENUM_MAX_RNNDIRECTION: i8 = 2;
+pub const ENUM_MAX_RNNDIRECTION: u8 = 2;
 #[deprecated(
     since = "2.0.0",
     note = "Use associated constants instead. This will no longer be generated in 2021."
@@ -499,15 +499,15 @@ pub const ENUM_VALUES_RNNDIRECTION: [RNNDirection; 3] = [
 
 #[derive(Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash, Default)]
 #[repr(transparent)]
-pub struct RNNDirection(pub i8);
+pub struct RNNDirection(pub u8);
 #[allow(non_upper_case_globals)]
 impl RNNDirection {
     pub const Forwards: Self = Self(0);
     pub const Reverse: Self = Self(1);
     pub const Bidirectional: Self = Self(2);
 
-    pub const ENUM_MIN: i8 = 0;
-    pub const ENUM_MAX: i8 = 2;
+    pub const ENUM_MIN: u8 = 0;
+    pub const ENUM_MAX: u8 = 2;
     pub const ENUM_VALUES: &'static [Self] = &[Self::Forwards, Self::Reverse, Self::Bidirectional];
     /// Returns the variant's name or "" if unknown.
     pub fn variant_name(self) -> Option<&'static str> {
@@ -532,7 +532,7 @@ impl<'a> flatbuffers::Follow<'a> for RNNDirection {
     type Inner = Self;
     #[inline]
     unsafe fn follow(buf: &'a [u8], loc: usize) -> Self::Inner {
-        let b = flatbuffers::read_scalar_at::<i8>(buf, loc);
+        let b = flatbuffers::read_scalar_at::<u8>(buf, loc);
         Self(b)
     }
 }
@@ -541,20 +541,20 @@ impl flatbuffers::Push for RNNDirection {
     type Output = RNNDirection;
     #[inline]
     unsafe fn push(&self, dst: &mut [u8], _written_len: usize) {
-        flatbuffers::emplace_scalar::<i8>(dst, self.0);
+        flatbuffers::emplace_scalar::<u8>(dst, self.0);
     }
 }
 
 impl flatbuffers::EndianScalar for RNNDirection {
-    type Scalar = i8;
+    type Scalar = u8;
     #[inline]
-    fn to_little_endian(self) -> i8 {
+    fn to_little_endian(self) -> u8 {
         self.0.to_le()
     }
     #[inline]
     #[allow(clippy::wrong_self_convention)]
-    fn from_little_endian(v: i8) -> Self {
-        let b = i8::from_le(v);
+    fn from_little_endian(v: u8) -> Self {
+        let b = u8::from_le(v);
         Self(b)
     }
 }
@@ -566,7 +566,7 @@ impl<'a> flatbuffers::Verifiable for RNNDirection {
         pos: usize,
     ) -> Result<(), flatbuffers::InvalidFlatbuffer> {
         use self::flatbuffers::Verifiable;
-        i8::run_verifier(v, pos)
+        u8::run_verifier(v, pos)
     }
 }
 
@@ -575,12 +575,12 @@ impl flatbuffers::SimpleToVerifyInSlice for RNNDirection {}
     since = "2.0.0",
     note = "Use associated constants instead. This will no longer be generated in 2021."
 )]
-pub const ENUM_MIN_PAD_MODE: i8 = 0;
+pub const ENUM_MIN_PAD_MODE: u8 = 0;
 #[deprecated(
     since = "2.0.0",
     note = "Use associated constants instead. This will no longer be generated in 2021."
 )]
-pub const ENUM_MAX_PAD_MODE: i8 = 1;
+pub const ENUM_MAX_PAD_MODE: u8 = 1;
 #[deprecated(
     since = "2.0.0",
     note = "Use associated constants instead. This will no longer be generated in 2021."
@@ -590,14 +590,14 @@ pub const ENUM_VALUES_PAD_MODE: [PadMode; 2] = [PadMode::Same, PadMode::Fixed];
 
 #[derive(Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash, Default)]
 #[repr(transparent)]
-pub struct PadMode(pub i8);
+pub struct PadMode(pub u8);
 #[allow(non_upper_case_globals)]
 impl PadMode {
     pub const Same: Self = Self(0);
     pub const Fixed: Self = Self(1);
 
-    pub const ENUM_MIN: i8 = 0;
-    pub const ENUM_MAX: i8 = 1;
+    pub const ENUM_MIN: u8 = 0;
+    pub const ENUM_MAX: u8 = 1;
     pub const ENUM_VALUES: &'static [Self] = &[Self::Same, Self::Fixed];
     /// Returns the variant's name or "" if unknown.
     pub fn variant_name(self) -> Option<&'static str> {
@@ -621,7 +621,7 @@ impl<'a> flatbuffers::Follow<'a> for PadMode {
     type Inner = Self;
     #[inline]
     unsafe fn follow(buf: &'a [u8], loc: usize) -> Self::Inner {
-        let b = flatbuffers::read_scalar_at::<i8>(buf, loc);
+        let b = flatbuffers::read_scalar_at::<u8>(buf, loc);
         Self(b)
     }
 }
@@ -630,20 +630,20 @@ impl flatbuffers::Push for PadMode {
     type Output = PadMode;
     #[inline]
     unsafe fn push(&self, dst: &mut [u8], _written_len: usize) {
-        flatbuffers::emplace_scalar::<i8>(dst, self.0);
+        flatbuffers::emplace_scalar::<u8>(dst, self.0);
     }
 }
 
 impl flatbuffers::EndianScalar for PadMode {
-    type Scalar = i8;
+    type Scalar = u8;
     #[inline]
-    fn to_little_endian(self) -> i8 {
+    fn to_little_endian(self) -> u8 {
         self.0.to_le()
     }
     #[inline]
     #[allow(clippy::wrong_self_convention)]
-    fn from_little_endian(v: i8) -> Self {
-        let b = i8::from_le(v);
+    fn from_little_endian(v: u8) -> Self {
+        let b = u8::from_le(v);
         Self(b)
     }
 }
@@ -655,7 +655,7 @@ impl<'a> flatbuffers::Verifiable for PadMode {
         pos: usize,
     ) -> Result<(), flatbuffers::InvalidFlatbuffer> {
         use self::flatbuffers::Verifiable;
-        i8::run_verifier(v, pos)
+        u8::run_verifier(v, pos)
     }
 }
 
@@ -664,12 +664,12 @@ impl flatbuffers::SimpleToVerifyInSlice for PadMode {}
     since = "2.0.0",
     note = "Use associated constants instead. This will no longer be generated in 2021."
 )]
-pub const ENUM_MIN_DATA_TYPE: i8 = 0;
+pub const ENUM_MIN_DATA_TYPE: u8 = 0;
 #[deprecated(
     since = "2.0.0",
     note = "Use associated constants instead. This will no longer be generated in 2021."
 )]
-pub const ENUM_MAX_DATA_TYPE: i8 = 1;
+pub const ENUM_MAX_DATA_TYPE: u8 = 1;
 #[deprecated(
     since = "2.0.0",
     note = "Use associated constants instead. This will no longer be generated in 2021."
@@ -679,14 +679,14 @@ pub const ENUM_VALUES_DATA_TYPE: [DataType; 2] = [DataType::Int32, DataType::Flo
 
 #[derive(Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash, Default)]
 #[repr(transparent)]
-pub struct DataType(pub i8);
+pub struct DataType(pub u8);
 #[allow(non_upper_case_globals)]
 impl DataType {
     pub const Int32: Self = Self(0);
     pub const Float: Self = Self(1);
 
-    pub const ENUM_MIN: i8 = 0;
-    pub const ENUM_MAX: i8 = 1;
+    pub const ENUM_MIN: u8 = 0;
+    pub const ENUM_MAX: u8 = 1;
     pub const ENUM_VALUES: &'static [Self] = &[Self::Int32, Self::Float];
     /// Returns the variant's name or "" if unknown.
     pub fn variant_name(self) -> Option<&'static str> {
@@ -710,7 +710,7 @@ impl<'a> flatbuffers::Follow<'a> for DataType {
     type Inner = Self;
     #[inline]
     unsafe fn follow(buf: &'a [u8], loc: usize) -> Self::Inner {
-        let b = flatbuffers::read_scalar_at::<i8>(buf, loc);
+        let b = flatbuffers::read_scalar_at::<u8>(buf, loc);
         Self(b)
     }
 }
@@ -719,20 +719,20 @@ impl flatbuffers::Push for DataType {
     type Output = DataType;
     #[inline]
     unsafe fn push(&self, dst: &mut [u8], _written_len: usize) {
-        flatbuffers::emplace_scalar::<i8>(dst, self.0);
+        flatbuffers::emplace_scalar::<u8>(dst, self.0);
     }
 }
 
 impl flatbuffers::EndianScalar for DataType {
-    type Scalar = i8;
+    type Scalar = u8;
     #[inline]
-    fn to_little_endian(self) -> i8 {
+    fn to_little_endian(self) -> u8 {
         self.0.to_le()
     }
     #[inline]
     #[allow(clippy::wrong_self_convention)]
-    fn from_little_endian(v: i8) -> Self {
-        let b = i8::from_le(v);
+    fn from_little_endian(v: u8) -> Self {
+        let b = u8::from_le(v);
         Self(b)
     }
 }
@@ -744,7 +744,7 @@ impl<'a> flatbuffers::Verifiable for DataType {
         pos: usize,
     ) -> Result<(), flatbuffers::InvalidFlatbuffer> {
         use self::flatbuffers::Verifiable;
-        i8::run_verifier(v, pos)
+        u8::run_verifier(v, pos)
     }
 }
 
@@ -753,12 +753,12 @@ impl flatbuffers::SimpleToVerifyInSlice for DataType {}
     since = "2.0.0",
     note = "Use associated constants instead. This will no longer be generated in 2021."
 )]
-pub const ENUM_MIN_COORD_TRANSFORM_MODE: i8 = 0;
+pub const ENUM_MIN_COORD_TRANSFORM_MODE: u8 = 0;
 #[deprecated(
     since = "2.0.0",
     note = "Use associated constants instead. This will no longer be generated in 2021."
 )]
-pub const ENUM_MAX_COORD_TRANSFORM_MODE: i8 = 2;
+pub const ENUM_MAX_COORD_TRANSFORM_MODE: u8 = 2;
 #[deprecated(
     since = "2.0.0",
     note = "Use associated constants instead. This will no longer be generated in 2021."
@@ -772,15 +772,15 @@ pub const ENUM_VALUES_COORD_TRANSFORM_MODE: [CoordTransformMode; 3] = [
 
 #[derive(Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash, Default)]
 #[repr(transparent)]
-pub struct CoordTransformMode(pub i8);
+pub struct CoordTransformMode(pub u8);
 #[allow(non_upper_case_globals)]
 impl CoordTransformMode {
     pub const HalfPixel: Self = Self(0);
     pub const Asymmetric: Self = Self(1);
     pub const AlignCorners: Self = Self(2);
 
-    pub const ENUM_MIN: i8 = 0;
-    pub const ENUM_MAX: i8 = 2;
+    pub const ENUM_MIN: u8 = 0;
+    pub const ENUM_MAX: u8 = 2;
     pub const ENUM_VALUES: &'static [Self] =
         &[Self::HalfPixel, Self::Asymmetric, Self::AlignCorners];
     /// Returns the variant's name or "" if unknown.
@@ -806,7 +806,7 @@ impl<'a> flatbuffers::Follow<'a> for CoordTransformMode {
     type Inner = Self;
     #[inline]
     unsafe fn follow(buf: &'a [u8], loc: usize) -> Self::Inner {
-        let b = flatbuffers::read_scalar_at::<i8>(buf, loc);
+        let b = flatbuffers::read_scalar_at::<u8>(buf, loc);
         Self(b)
     }
 }
@@ -815,20 +815,20 @@ impl flatbuffers::Push for CoordTransformMode {
     type Output = CoordTransformMode;
     #[inline]
     unsafe fn push(&self, dst: &mut [u8], _written_len: usize) {
-        flatbuffers::emplace_scalar::<i8>(dst, self.0);
+        flatbuffers::emplace_scalar::<u8>(dst, self.0);
     }
 }
 
 impl flatbuffers::EndianScalar for CoordTransformMode {
-    type Scalar = i8;
+    type Scalar = u8;
     #[inline]
-    fn to_little_endian(self) -> i8 {
+    fn to_little_endian(self) -> u8 {
         self.0.to_le()
     }
     #[inline]
     #[allow(clippy::wrong_self_convention)]
-    fn from_little_endian(v: i8) -> Self {
-        let b = i8::from_le(v);
+    fn from_little_endian(v: u8) -> Self {
+        let b = u8::from_le(v);
         Self(b)
     }
 }
@@ -840,7 +840,7 @@ impl<'a> flatbuffers::Verifiable for CoordTransformMode {
         pos: usize,
     ) -> Result<(), flatbuffers::InvalidFlatbuffer> {
         use self::flatbuffers::Verifiable;
-        i8::run_verifier(v, pos)
+        u8::run_verifier(v, pos)
     }
 }
 
@@ -849,12 +849,12 @@ impl flatbuffers::SimpleToVerifyInSlice for CoordTransformMode {}
     since = "2.0.0",
     note = "Use associated constants instead. This will no longer be generated in 2021."
 )]
-pub const ENUM_MIN_NEAREST_MODE: i8 = 0;
+pub const ENUM_MIN_NEAREST_MODE: u8 = 0;
 #[deprecated(
     since = "2.0.0",
     note = "Use associated constants instead. This will no longer be generated in 2021."
 )]
-pub const ENUM_MAX_NEAREST_MODE: i8 = 3;
+pub const ENUM_MAX_NEAREST_MODE: u8 = 3;
 #[deprecated(
     since = "2.0.0",
     note = "Use associated constants instead. This will no longer be generated in 2021."
@@ -869,7 +869,7 @@ pub const ENUM_VALUES_NEAREST_MODE: [NearestMode; 4] = [
 
 #[derive(Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash, Default)]
 #[repr(transparent)]
-pub struct NearestMode(pub i8);
+pub struct NearestMode(pub u8);
 #[allow(non_upper_case_globals)]
 impl NearestMode {
     pub const Floor: Self = Self(0);
@@ -877,8 +877,8 @@ impl NearestMode {
     pub const RoundPreferFloor: Self = Self(2);
     pub const RoundPreferCeil: Self = Self(3);
 
-    pub const ENUM_MIN: i8 = 0;
-    pub const ENUM_MAX: i8 = 3;
+    pub const ENUM_MIN: u8 = 0;
+    pub const ENUM_MAX: u8 = 3;
     pub const ENUM_VALUES: &'static [Self] = &[
         Self::Floor,
         Self::Ceil,
@@ -909,7 +909,7 @@ impl<'a> flatbuffers::Follow<'a> for NearestMode {
     type Inner = Self;
     #[inline]
     unsafe fn follow(buf: &'a [u8], loc: usize) -> Self::Inner {
-        let b = flatbuffers::read_scalar_at::<i8>(buf, loc);
+        let b = flatbuffers::read_scalar_at::<u8>(buf, loc);
         Self(b)
     }
 }
@@ -918,20 +918,20 @@ impl flatbuffers::Push for NearestMode {
     type Output = NearestMode;
     #[inline]
     unsafe fn push(&self, dst: &mut [u8], _written_len: usize) {
-        flatbuffers::emplace_scalar::<i8>(dst, self.0);
+        flatbuffers::emplace_scalar::<u8>(dst, self.0);
     }
 }
 
 impl flatbuffers::EndianScalar for NearestMode {
-    type Scalar = i8;
+    type Scalar = u8;
     #[inline]
-    fn to_little_endian(self) -> i8 {
+    fn to_little_endian(self) -> u8 {
         self.0.to_le()
     }
     #[inline]
     #[allow(clippy::wrong_self_convention)]
-    fn from_little_endian(v: i8) -> Self {
-        let b = i8::from_le(v);
+    fn from_little_endian(v: u8) -> Self {
+        let b = u8::from_le(v);
         Self(b)
     }
 }
@@ -943,7 +943,7 @@ impl<'a> flatbuffers::Verifiable for NearestMode {
         pos: usize,
     ) -> Result<(), flatbuffers::InvalidFlatbuffer> {
         use self::flatbuffers::Verifiable;
-        i8::run_verifier(v, pos)
+        u8::run_verifier(v, pos)
     }
 }
 
@@ -952,12 +952,12 @@ impl flatbuffers::SimpleToVerifyInSlice for NearestMode {}
     since = "2.0.0",
     note = "Use associated constants instead. This will no longer be generated in 2021."
 )]
-pub const ENUM_MIN_RESIZE_MODE: i8 = 0;
+pub const ENUM_MIN_RESIZE_MODE: u8 = 0;
 #[deprecated(
     since = "2.0.0",
     note = "Use associated constants instead. This will no longer be generated in 2021."
 )]
-pub const ENUM_MAX_RESIZE_MODE: i8 = 1;
+pub const ENUM_MAX_RESIZE_MODE: u8 = 1;
 #[deprecated(
     since = "2.0.0",
     note = "Use associated constants instead. This will no longer be generated in 2021."
@@ -967,14 +967,14 @@ pub const ENUM_VALUES_RESIZE_MODE: [ResizeMode; 2] = [ResizeMode::Nearest, Resiz
 
 #[derive(Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash, Default)]
 #[repr(transparent)]
-pub struct ResizeMode(pub i8);
+pub struct ResizeMode(pub u8);
 #[allow(non_upper_case_globals)]
 impl ResizeMode {
     pub const Nearest: Self = Self(0);
     pub const Linear: Self = Self(1);
 
-    pub const ENUM_MIN: i8 = 0;
-    pub const ENUM_MAX: i8 = 1;
+    pub const ENUM_MIN: u8 = 0;
+    pub const ENUM_MAX: u8 = 1;
     pub const ENUM_VALUES: &'static [Self] = &[Self::Nearest, Self::Linear];
     /// Returns the variant's name or "" if unknown.
     pub fn variant_name(self) -> Option<&'static str> {
@@ -998,7 +998,7 @@ impl<'a> flatbuffers::Follow<'a> for ResizeMode {
     type Inner = Self;
     #[inline]
     unsafe fn follow(buf: &'a [u8], loc: usize) -> Self::Inner {
-        let b = flatbuffers::read_scalar_at::<i8>(buf, loc);
+        let b = flatbuffers::read_scalar_at::<u8>(buf, loc);
         Self(b)
     }
 }
@@ -1007,20 +1007,20 @@ impl flatbuffers::Push for ResizeMode {
     type Output = ResizeMode;
     #[inline]
     unsafe fn push(&self, dst: &mut [u8], _written_len: usize) {
-        flatbuffers::emplace_scalar::<i8>(dst, self.0);
+        flatbuffers::emplace_scalar::<u8>(dst, self.0);
     }
 }
 
 impl flatbuffers::EndianScalar for ResizeMode {
-    type Scalar = i8;
+    type Scalar = u8;
     #[inline]
-    fn to_little_endian(self) -> i8 {
+    fn to_little_endian(self) -> u8 {
         self.0.to_le()
     }
     #[inline]
     #[allow(clippy::wrong_self_convention)]
-    fn from_little_endian(v: i8) -> Self {
-        let b = i8::from_le(v);
+    fn from_little_endian(v: u8) -> Self {
+        let b = u8::from_le(v);
         Self(b)
     }
 }
@@ -1032,7 +1032,7 @@ impl<'a> flatbuffers::Verifiable for ResizeMode {
         pos: usize,
     ) -> Result<(), flatbuffers::InvalidFlatbuffer> {
         use self::flatbuffers::Verifiable;
-        i8::run_verifier(v, pos)
+        u8::run_verifier(v, pos)
     }
 }
 
@@ -1347,12 +1347,12 @@ pub struct ScalarUnionTableOffset {}
     since = "2.0.0",
     note = "Use associated constants instead. This will no longer be generated in 2021."
 )]
-pub const ENUM_MIN_NMSBOX_ORDER: i8 = 0;
+pub const ENUM_MIN_NMSBOX_ORDER: u8 = 0;
 #[deprecated(
     since = "2.0.0",
     note = "Use associated constants instead. This will no longer be generated in 2021."
 )]
-pub const ENUM_MAX_NMSBOX_ORDER: i8 = 1;
+pub const ENUM_MAX_NMSBOX_ORDER: u8 = 1;
 #[deprecated(
     since = "2.0.0",
     note = "Use associated constants instead. This will no longer be generated in 2021."
@@ -1365,14 +1365,14 @@ pub const ENUM_VALUES_NMSBOX_ORDER: [NMSBoxOrder; 2] = [
 
 #[derive(Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash, Default)]
 #[repr(transparent)]
-pub struct NMSBoxOrder(pub i8);
+pub struct NMSBoxOrder(pub u8);
 #[allow(non_upper_case_globals)]
 impl NMSBoxOrder {
     pub const TopLeftBottomRight: Self = Self(0);
     pub const CenterWidthHeight: Self = Self(1);
 
-    pub const ENUM_MIN: i8 = 0;
-    pub const ENUM_MAX: i8 = 1;
+    pub const ENUM_MIN: u8 = 0;
+    pub const ENUM_MAX: u8 = 1;
     pub const ENUM_VALUES: &'static [Self] = &[Self::TopLeftBottomRight, Self::CenterWidthHeight];
     /// Returns the variant's name or "" if unknown.
     pub fn variant_name(self) -> Option<&'static str> {
@@ -1396,7 +1396,7 @@ impl<'a> flatbuffers::Follow<'a> for NMSBoxOrder {
     type Inner = Self;
     #[inline]
     unsafe fn follow(buf: &'a [u8], loc: usize) -> Self::Inner {
-        let b = flatbuffers::read_scalar_at::<i8>(buf, loc);
+        let b = flatbuffers::read_scalar_at::<u8>(buf, loc);
         Self(b)
     }
 }
@@ -1405,20 +1405,20 @@ impl flatbuffers::Push for NMSBoxOrder {
     type Output = NMSBoxOrder;
     #[inline]
     unsafe fn push(&self, dst: &mut [u8], _written_len: usize) {
-        flatbuffers::emplace_scalar::<i8>(dst, self.0);
+        flatbuffers::emplace_scalar::<u8>(dst, self.0);
     }
 }
 
 impl flatbuffers::EndianScalar for NMSBoxOrder {
-    type Scalar = i8;
+    type Scalar = u8;
     #[inline]
-    fn to_little_endian(self) -> i8 {
+    fn to_little_endian(self) -> u8 {
         self.0.to_le()
     }
     #[inline]
     #[allow(clippy::wrong_self_convention)]
-    fn from_little_endian(v: i8) -> Self {
-        let b = i8::from_le(v);
+    fn from_little_endian(v: u8) -> Self {
+        let b = u8::from_le(v);
         Self(b)
     }
 }
@@ -1430,7 +1430,7 @@ impl<'a> flatbuffers::Verifiable for NMSBoxOrder {
         pos: usize,
     ) -> Result<(), flatbuffers::InvalidFlatbuffer> {
         use self::flatbuffers::Verifiable;
-        i8::run_verifier(v, pos)
+        u8::run_verifier(v, pos)
     }
 }
 
@@ -1439,12 +1439,12 @@ impl flatbuffers::SimpleToVerifyInSlice for NMSBoxOrder {}
     since = "2.0.0",
     note = "Use associated constants instead. This will no longer be generated in 2021."
 )]
-pub const ENUM_MIN_SCATTER_REDUCTION: i8 = 0;
+pub const ENUM_MIN_SCATTER_REDUCTION: u8 = 0;
 #[deprecated(
     since = "2.0.0",
     note = "Use associated constants instead. This will no longer be generated in 2021."
 )]
-pub const ENUM_MAX_SCATTER_REDUCTION: i8 = 4;
+pub const ENUM_MAX_SCATTER_REDUCTION: u8 = 4;
 #[deprecated(
     since = "2.0.0",
     note = "Use associated constants instead. This will no longer be generated in 2021."
@@ -1460,7 +1460,7 @@ pub const ENUM_VALUES_SCATTER_REDUCTION: [ScatterReduction; 5] = [
 
 #[derive(Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash, Default)]
 #[repr(transparent)]
-pub struct ScatterReduction(pub i8);
+pub struct ScatterReduction(pub u8);
 #[allow(non_upper_case_globals)]
 impl ScatterReduction {
     pub const None: Self = Self(0);
@@ -1469,8 +1469,8 @@ impl ScatterReduction {
     pub const Min: Self = Self(3);
     pub const Max: Self = Self(4);
 
-    pub const ENUM_MIN: i8 = 0;
-    pub const ENUM_MAX: i8 = 4;
+    pub const ENUM_MIN: u8 = 0;
+    pub const ENUM_MAX: u8 = 4;
     pub const ENUM_VALUES: &'static [Self] =
         &[Self::None, Self::Add, Self::Mul, Self::Min, Self::Max];
     /// Returns the variant's name or "" if unknown.
@@ -1498,7 +1498,7 @@ impl<'a> flatbuffers::Follow<'a> for ScatterReduction {
     type Inner = Self;
     #[inline]
     unsafe fn follow(buf: &'a [u8], loc: usize) -> Self::Inner {
-        let b = flatbuffers::read_scalar_at::<i8>(buf, loc);
+        let b = flatbuffers::read_scalar_at::<u8>(buf, loc);
         Self(b)
     }
 }
@@ -1507,20 +1507,20 @@ impl flatbuffers::Push for ScatterReduction {
     type Output = ScatterReduction;
     #[inline]
     unsafe fn push(&self, dst: &mut [u8], _written_len: usize) {
-        flatbuffers::emplace_scalar::<i8>(dst, self.0);
+        flatbuffers::emplace_scalar::<u8>(dst, self.0);
     }
 }
 
 impl flatbuffers::EndianScalar for ScatterReduction {
-    type Scalar = i8;
+    type Scalar = u8;
     #[inline]
-    fn to_little_endian(self) -> i8 {
+    fn to_little_endian(self) -> u8 {
         self.0.to_le()
     }
     #[inline]
     #[allow(clippy::wrong_self_convention)]
-    fn from_little_endian(v: i8) -> Self {
-        let b = i8::from_le(v);
+    fn from_little_endian(v: u8) -> Self {
+        let b = u8::from_le(v);
         Self(b)
     }
 }
@@ -1532,7 +1532,7 @@ impl<'a> flatbuffers::Verifiable for ScatterReduction {
         pos: usize,
     ) -> Result<(), flatbuffers::InvalidFlatbuffer> {
         use self::flatbuffers::Verifiable;
-        i8::run_verifier(v, pos)
+        u8::run_verifier(v, pos)
     }
 }
 
