@@ -245,7 +245,7 @@ fn array_from_iter<const N: usize, T: Default + Copy, I: Iterator<Item = T>>(
 }
 
 /// Result of deserializing an operator node from a model file.
-pub type ReadOpResult = Result<Box<dyn Operator + Sync>, ReadOpError>;
+pub type ReadOpResult = Result<Box<dyn Operator + Send + Sync>, ReadOpError>;
 
 /// A function that deserializes an operator node.
 pub type ReadOpFunction = dyn Fn(&OperatorNode) -> ReadOpResult;
