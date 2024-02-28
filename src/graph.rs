@@ -27,7 +27,7 @@ pub struct OperatorNode {
     name: Option<String>,
     inputs: Vec<Option<NodeId>>,
     outputs: Vec<Option<NodeId>>,
-    operator: Box<dyn Operator + Sync>,
+    operator: Box<dyn Operator + Send + Sync>,
 }
 
 pub struct ValueNode {
@@ -250,7 +250,7 @@ impl Graph {
     pub fn add_op(
         &mut self,
         name: Option<&str>,
-        op: Box<dyn Operator + Sync>,
+        op: Box<dyn Operator + Send + Sync>,
         inputs: &[Option<NodeId>],
         outputs: &[Option<NodeId>],
     ) -> NodeId {
