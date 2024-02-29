@@ -1,8 +1,21 @@
 [project]
 name = "rten-convert"
+description = "Convert ONNX models to .rten format"
 requires-python = ">=3.10"
 version = "0.4.0"
-dependencies = ["flatbuffers", "onnx", "numpy", "setuptools"]
+dependencies = ["flatbuffers", "onnx", "numpy"]
+readme = "README.md"
+classifiers = [
+  "License :: OSI Approved :: MIT License",
+]
 
 [project.scripts]
 rten-convert = "rten_convert.converter:main"
+
+[project.urls]
+Homepage = "https://github.com/robertknight/rten"
+Issues = "https://github.com/robertknight/rten/issues"
+
+[build-system]
+requires = ["setuptools>=61.0"]
+build-backend = "setuptools.build_meta"
