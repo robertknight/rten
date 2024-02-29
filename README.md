@@ -50,7 +50,7 @@ classification example:
 git clone https://github.com/robertknight/rten.git
 cd rten
 
-# Install dependencies for model conversion
+# Install model conversion tool
 pip install -e rten-convert
 
 # Install dependencies for Python scripts
@@ -78,13 +78,12 @@ The conversion tool requires Python >= 3.10. To convert an existing ONNX model,
 run:
 
 ```sh
-git clone https://github.com/robertknight/rten.git
-pip install -e rten/rten-convert
-rten-convert your-model.onnx output.rten
+pip install rten-convert
+rten-convert your-model.onnx
 ```
 
-The RTen model format does not yet guarantee long-term backwards compatibility,
-so be aware that you may need to recompile models from ONNX for new releases.
+See the [rten-convert README](rten-convert/) for more information about usage
+and version compatibility.
 
 ## Usage in JavaScript
 
