@@ -17,7 +17,7 @@ default-members = [
 
 [package]
 name = "rten"
-version = "0.4.0"
+version = "0.5.0"
 edition = "2021"
 authors = ["Robert Knight"]
 description = "Machine learning runtime"
