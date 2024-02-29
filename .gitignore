@@ -4,5 +4,5 @@ __pycache__
 /target
 /rten-convert/rten_convert.egg-info
 
-# Optimized neural network models
-*.model
+# Converted rten ML models
+*.rten
