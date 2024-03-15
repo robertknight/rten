@@ -19,7 +19,11 @@
 //! these pieces fit together.
 //!
 //! [rten_examples]: https://github.com/robertknight/rten/tree/main/rten-examples
-#![cfg_attr(feature = "avx512", feature(stdsimd), feature(avx512_target_feature))]
+#![cfg_attr(
+    feature = "avx512",
+    feature(stdarch_x86_avx512),
+    feature(avx512_target_feature)
+)]
 
 #[allow(unused)] // Docs only
 use rten_tensor::{NdTensor, Tensor};
