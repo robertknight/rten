@@ -529,6 +529,7 @@ mod tests {
         unsqueeze, Reshape, Shape, Size,
     };
     use crate::ops::{OpError, Operator};
+    use crate::test_util::run_bench;
 
     #[test]
     fn test_expand() {
@@ -909,5 +910,68 @@ mod tests {
             result.err(),
             Some(OpError::InvalidValue("Axes must be unique"))
         );
+    }
+
+    #[test]
+    #[ignore]
+    fn bench_transpose() {
+        let mut rng = XorShiftRng::new(1234);
+
+        struct Case<'a> {
+            shape: &'a [usize],
+            perm: &'a [usize],
+        }
+
+        let cases = [
+            // No-op transpose
+            Case {
+                shape: &[512, 512],
+                perm: &[0, 1],
+            },
+            // Matrix transpose of different sizes.
+            Case {
+                shape: &[256, 256],
+                perm: &[1, 0],
+            },
+            Case {
+                shape: &[512, 512],
+                perm: &[1, 0],
+            },
+            Case {
+                shape: &[1024, 1024],
+                perm: &[1, 0],
+            },
+            // Transpose ops taken from Whisper decoder (base model).
+            Case {
+                shape: &[1, 1500, 8, 64],
+                perm: &[0, 2, 3, 1],
+            },
+            Case {
+                shape: &[1, 288, 8, 64],
+                perm: &[0, 2, 1, 3],
+            },
+        ];
+
+        for Case { shape, perm } in cases {
+            let tensor = Tensor::rand(shape, &mut rng);
+
+            // Do a simple copy. This provides a lower-bound on how fast
+            // transpose can operate.
+            let copy_stats = run_bench(100, format!("copy {:?}", shape), || {
+                tensor.view().to_tensor();
+            });
+
+            let transpose_stats = run_bench(
+                100,
+                format!("transpose {:?} perm {:?}", shape, perm),
+                || {
+                    transpose(tensor.view(), Some(perm)).unwrap();
+                },
+            );
+
+            let transpose_overhead =
+                (transpose_stats.mean - copy_stats.mean).max(0.) / copy_stats.mean;
+            println!("transpose {:?} overhead {}", shape, transpose_overhead);
+        }
     }
 }
