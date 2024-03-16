@@ -1,8 +1,10 @@
+use std::fmt::Display;
+
 use crate::timer::Timer;
 
 /// Run a benchmark function `f` for `trials` iterations and print statistics
 /// about the run.
-pub fn run_bench<F: FnMut()>(trials: usize, description: &str, mut f: F) {
+pub fn run_bench<F: FnMut(), D: Display>(trials: usize, description: D, mut f: F) {
     if trials == 0 {
         return;
     }
