@@ -2,11 +2,30 @@ use std::fmt::Display;
 
 use crate::timer::Timer;
 
+/// Statistics from a benchmark run. All fields are durations in milliseconds.
+#[derive(Default)]
+pub struct BenchStats {
+    /// Duration of longest run.
+    pub max: f32,
+
+    /// Mean duration.
+    pub mean: f32,
+
+    /// Median duration.
+    pub median: f32,
+
+    /// Minimum duration.
+    pub min: f32,
+
+    /// Variance of durations.
+    pub var: f32,
+}
+
 /// Run a benchmark function `f` for `trials` iterations and print statistics
 /// about the run.
-pub fn run_bench<F: FnMut(), D: Display>(trials: usize, description: D, mut f: F) {
+pub fn run_bench<F: FnMut(), D: Display>(trials: usize, description: D, mut f: F) -> BenchStats {
     if trials == 0 {
-        return;
+        return BenchStats::default();
     }
 
     let mut times = Vec::with_capacity(trials);
@@ -21,8 +40,8 @@ pub fn run_bench<F: FnMut(), D: Display>(trials: usize, description: D, mut f: F
     }
 
     times.sort_by(|a, b| a.total_cmp(b));
-    let min = times.first().unwrap();
-    let max = times.last().unwrap();
+    let min = times.first().copied().unwrap();
+    let max = times.last().copied().unwrap();
 
     let mid = times.len() / 2;
     let median = if times.len() % 2 == 1 {
@@ -37,4 +56,12 @@ pub fn run_bench<F: FnMut(), D: Display>(trials: usize, description: D, mut f: F
         "{}. mean {:.3}ms median {:.3} var {:.3} min {:.3} max {:.3}",
         description, mean, median, var, min, max
     );
+
+    BenchStats {
+        max,
+        mean,
+        median,
+        min,
+        var,
+    }
 }
