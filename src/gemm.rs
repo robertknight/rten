@@ -1460,6 +1460,12 @@ mod tests {
                 n: 128,
                 k: 512,
             },
+            // Vector-matrix. This is common in transformer decoders for example.
+            Case {
+                m: 1,
+                n: 4096,
+                k: 512,
+            },
         ];
 
         println!("Testing kernel {}", GemmExecutor::new().kernel_name());
@@ -1472,6 +1478,10 @@ mod tests {
             // equal efficiency.
             let target_ops: u64 = 512 * 512 * 512 * 1000;
             let iters = target_ops / (m * n * k) as u64;
+
+            // Cap the number of iterations, for cases where the equal-efficiency
+            // assumption is untrue.
+            let iters = iters.min(1000);
 
             let mut rng = XorShiftRng::new(1234);
             let mut result = Tensor::zeros(&[m, n]);
