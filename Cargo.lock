@@ -312,12 +312,17 @@ dependencies = [
  "flatbuffers",
  "libm",
  "rayon",
+ "rten-bench",
  "rten-tensor",
  "rten-vecmath",
  "serde_json",
  "smallvec",
  "wasm-bindgen",
 ]
+
+[[package]]
+name = "rten-bench"
+version = "0.1.0"
 
 [[package]]
 name = "rten-cli"
@@ -359,6 +364,7 @@ dependencies = [
 name = "rten-imageproc"
 version = "0.4.0"
 dependencies = [
+ "rten-bench",
  "rten-tensor",
 ]
 

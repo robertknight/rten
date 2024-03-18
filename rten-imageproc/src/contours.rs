@@ -439,7 +439,7 @@ mod tests {
     #[test]
     #[ignore]
     fn bench_find_contours() {
-        use rten_tensor::test_util::bench_loop;
+        use rten_bench::run_bench;
 
         // Fill a mask with a grid of rectangular objects.
         let mask_h = 1024;
@@ -465,14 +465,9 @@ mod tests {
         }
 
         let n_iters = 100;
-        let stats = bench_loop(n_iters, || {
+        run_bench(n_iters, "find_contours", || {
             let contours = find_contours(mask.view(), RetrievalMode::External);
             assert_eq!(contours.len(), (grid_rows * grid_cols) as usize);
         });
-        println!(
-            "find_contours {:.3} ms, {:.3} ns/elem",
-            stats.duration_ms(),
-            stats.duration_ns() / (mask_h * mask_w * n_iters) as f64
-        );
     }
 }
