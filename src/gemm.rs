@@ -910,6 +910,7 @@ mod tests {
     use std::error::Error;
     use std::ops::Range;
 
+    use rten_bench::run_bench;
     use rten_tensor::prelude::*;
     use rten_tensor::rng::XorShiftRng;
     use rten_tensor::test_util::expect_equal;
@@ -919,7 +920,6 @@ mod tests {
         add_scaled_vector, gemm, round_up, GemmExecutor, GemmInputA, GemmInputB, KernelHint,
         VirtualMatrix,
     };
-    use crate::test_util::run_bench;
 
     fn reference_matmul(a: &Tensor, b: &Tensor) -> Tensor {
         let [a_rows, _a_cols]: [usize; 2] = a.shape().try_into().expect("input should be a matrix");

@@ -2,11 +2,14 @@
 members = [
   ".",
   "rten-cli",
-  "rten-examples",
   "rten-imageio",
   "rten-imageproc",
   "rten-tensor",
   "rten-text",
+
+  # Development crates. These are not published.
+  "rten-bench",
+  "rten-examples",
 ]
 default-members = [
   ".",
@@ -36,6 +39,7 @@ rten-tensor = { path = "./rten-tensor", version = "0.4.0" }
 rten-vecmath = { path = "./rten-vecmath", version = "0.4.0" }
 
 [dev-dependencies]
+rten-bench = { path = "./rten-bench" }
 serde_json = "1.0.91"
 
 [lib]

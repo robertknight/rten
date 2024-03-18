@@ -519,6 +519,7 @@ impl Operator for Unsqueeze {
 mod tests {
     use std::error::Error;
 
+    use rten_bench::run_bench;
     use rten_tensor::prelude::*;
     use rten_tensor::rng::XorShiftRng;
     use rten_tensor::test_util::expect_equal;
@@ -529,7 +530,6 @@ mod tests {
         unsqueeze, Reshape, Shape, Size,
     };
     use crate::ops::{OpError, Operator};
-    use crate::test_util::run_bench;
 
     #[test]
     fn test_expand() {

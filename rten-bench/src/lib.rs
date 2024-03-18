@@ -1,6 +1,5 @@
 use std::fmt::Display;
-
-use crate::timer::Timer;
+use std::time::Instant;
 
 /// Statistics from a benchmark run. All fields are durations in milliseconds.
 #[derive(Default)]
@@ -30,13 +29,12 @@ pub fn run_bench<F: FnMut(), D: Display>(trials: usize, description: D, mut f: F
 
     let mut times = Vec::with_capacity(trials);
     for _ in 0..trials {
-        let mut t = Timer::new();
-        t.start();
+        let start = Instant::now();
 
         f();
 
-        t.end();
-        times.push(t.elapsed_ms());
+        let duration_ms = start.elapsed().as_secs_f64() * 1000.0;
+        times.push(duration_ms as f32);
     }
 
     times.sort_by(|a, b| a.total_cmp(b));

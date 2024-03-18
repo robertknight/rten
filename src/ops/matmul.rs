@@ -226,13 +226,13 @@ impl Operator for MatMul {
 mod tests {
     use std::error::Error;
 
+    use rten_bench::run_bench;
     use rten_tensor::prelude::*;
     use rten_tensor::rng::XorShiftRng;
     use rten_tensor::test_util::expect_equal;
     use rten_tensor::{Tensor, TensorView, TensorViewMut};
 
     use crate::gemm::gemm;
-    use crate::test_util::run_bench;
 
     use super::{gemm_op, matmul, matmul_impl, MatmulStrategy, OpError};
 

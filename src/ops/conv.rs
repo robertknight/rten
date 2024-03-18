@@ -1313,9 +1313,10 @@ mod tests {
     #[test]
     #[ignore]
     fn bench_col2im() {
-        use super::col2im;
-        use rten_tensor::test_util::bench_loop;
+        use rten_bench::run_bench;
         use rten_tensor::NdTensor;
+
+        use super::col2im;
 
         let out_chans = 32;
         let in_height = 64;
@@ -1333,14 +1334,12 @@ mod tests {
             &mut rng,
         );
 
-        let stats = bench_loop(100, || {
+        run_bench(100, "col2im", || {
             col2im(
                 &mut output.view_mut(),
                 &columns.view(),
                 [stride_y, stride_x],
             );
         });
-
-        println!("col2im duration {:3} ms", stats.duration_ms());
     }
 }

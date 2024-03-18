@@ -61,6 +61,3 @@ mod schema_generated;
 // create an abstraction around model execution instead.
 #[doc(hidden)]
 pub mod model_builder;
-
-#[cfg(test)]
-mod test_util;
