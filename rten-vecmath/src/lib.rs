@@ -19,7 +19,7 @@
 
 mod erf;
 mod exp;
-mod simd_vec;
+pub mod simd_vec;
 mod softmax;
 mod tanh;
 mod ulp;
