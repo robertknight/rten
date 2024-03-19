@@ -20,12 +20,18 @@ use crate::MAX_LEN;
 
 /// Trait for SIMD vectors containing 32-bit integers.
 ///
+/// # Safety
+///
+/// The caller must ensure that the SIMD instructions used by a type
+/// implementing this trait are available on the current system.
+///
 /// All functions in this trait are unsafe due to limitations of Rust's
-/// #[target_feature] macro. See
-/// https://rust-lang.github.io/rfcs/2396-target-feature-1.1.html. Also as
+/// `#[target_feature]` macro. See
+/// <https://rust-lang.github.io/rfcs/2396-target-feature-1.1.html>. Also as
 /// a consequence of this, standard operations like add, multiply etc. are
 /// implemented as functions in this trait rather than using the standard
 /// trait from `std::ops`.
+#[allow(clippy::missing_safety_doc)]
 pub trait SimdInt: Copy + Sized {
     /// The number of elements in the SIMD vector.
     const LEN: usize;
@@ -44,6 +50,9 @@ pub trait SimdInt: Copy + Sized {
     }
 
     /// Broadcast `val` to all elements in a new vector.
+    ///
+    /// # Safety
+    /// The caller must ensure SIMD operations on this type are supported.
     unsafe fn splat(val: i32) -> Self;
 
     /// Return a mask indicating whether `self > other`.
@@ -86,12 +95,18 @@ pub trait SimdInt: Copy + Sized {
 
 /// Trait for SIMD vectors containing single-precision floats.
 ///
+/// # Safety
+///
+/// The caller must ensure that the SIMD instructions used by a type
+/// implementing this trait are available on the current system.
+///
 /// All functions in this trait are unsafe due to limitations of Rust's
-/// #[target_feature] macro. See
-/// https://rust-lang.github.io/rfcs/2396-target-feature-1.1.html. Also as
+/// `#[target_feature]` macro. See
+/// <https://rust-lang.github.io/rfcs/2396-target-feature-1.1.html>. Also as
 /// a consequence of this, standard operations like add, multiply etc. are
 /// implemented as functions in this trait rather than using the standard
 /// trait from `std::ops`.
+#[allow(clippy::missing_safety_doc)]
 pub trait SimdFloat: Copy + Sized {
     /// The number of elements in the SIMD vector.
     const LEN: usize;
