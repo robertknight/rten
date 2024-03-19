@@ -167,11 +167,14 @@ fn matmul_impl(a: TensorView, b: TensorView, strategy: MatmulStrategy) -> Result
     let gemm = GemmExecutor::new();
 
     // Prepack re-used inputs to amortize packing cost.
-    let prepacked_a = (num_a_matrices == 1 && num_b_matrices > 1).then(|| {
+    //
+    // We don't prepack when the "A" matrix is a vector because that uses a
+    // special case vector-matrix algorithm that doesn't benefit from packing.
+    let prepacked_a = (num_a_matrices == 1 && num_b_matrices > 1 && a_rows > 1).then(|| {
         let a_matrix = a.inner_iter::<2>().next().unwrap();
         gemm.prepack_a(a_matrix)
     });
-    let prepacked_b = (num_a_matrices > 1 && num_b_matrices == 1).then(|| {
+    let prepacked_b = (num_a_matrices > 1 && num_b_matrices == 1 && a_rows > 1).then(|| {
         let b_matrix = b.inner_iter::<2>().next().unwrap();
         gemm.prepack_b(b_matrix, a_cols)
     });

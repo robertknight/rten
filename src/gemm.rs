@@ -9,8 +9,9 @@ use std::borrow::Cow;
 use std::cell::RefCell;
 use std::ops::Range;
 
+use rayon::prelude::*;
 use rten_tensor::prelude::*;
-use rten_tensor::{Matrix, MatrixLayout, MatrixMut};
+use rten_tensor::{Matrix, MatrixLayout, MatrixMut, NdTensorView};
 
 use crate::iter_util::{range_chunks, unroll_loop, MaybeParIter};
 
@@ -603,6 +604,53 @@ impl OutputTiles {
     }
 }
 
+/// Compute a vector-matrix product.
+///
+/// This operation is called "gemv" in BLAS APIs.
+fn gemv<K: Kernel>(
+    a: NdTensorView<f32, 1>,
+    b: Matrix,
+    mut output_mat: MatrixMut,
+    alpha: f32,
+    beta: f32,
+) {
+    assert!(K::supported());
+    assert!(a.is_contiguous());
+    assert!(b.is_contiguous());
+    assert!(output_mat.is_contiguous());
+
+    let a_cols = a.size(0);
+    let b_cols = b.cols();
+    let out_data = output_mat.data_mut().unwrap();
+
+    let b_block_size = 256;
+    let k_block_size = 256;
+
+    // Partition the matrix and vector into blocks, to achieve effective
+    // cache usage and enable parallelism.
+    range_chunks(0..b_cols, b_block_size)
+        .zip(out_data.chunks_mut(b_block_size))
+        .par_bridge()
+        .for_each(|(b_block, out_chunk)| {
+            let a_data = a.data().unwrap();
+            let mut effective_beta = beta;
+
+            for k_block in range_chunks(0..a_cols, k_block_size) {
+                let a_block = &a_data[k_block.clone()];
+                let b_block = b.slice::<2, _>((k_block, b_block.clone()));
+
+                // Safety - We checked this kernel is supported.
+                unsafe {
+                    K::gemv_kernel(out_chunk, a_block, b_block, alpha, effective_beta);
+                }
+
+                // Reset `beta` so that subsequent updates for each column
+                // accumulate into the first update.
+                effective_beta = 1.0;
+            }
+        });
+}
+
 /// Perform matrix multiplication with a given kernel.
 ///
 /// `MR_NR` should be computed as `K::MR * K::NR`. This function can't compute
@@ -659,12 +707,21 @@ fn gemm_impl<K: Kernel, const MR_NR: usize>(
     }
 
     // Construct a Matrix from the implied dimensions, to validate the slice length.
-    let output_mat = MatrixMut::<f32>::from_data_with_strides(
+    let mut output_mat = MatrixMut::<f32>::from_data_with_strides(
         [a.rows(), b.cols()],
         out_data,
         [out_row_stride, 1],
     )
     .expect("Output buffer should be large enough");
+
+    // Use optimized path for vector-matrix products.
+    if let (1, GemmInputA::Unpacked(a), GemmInputB::Unpacked(b)) = (a.rows(), a, b) {
+        if let (Some(_), Some(_)) = (a.data(), b.data()) {
+            gemv::<K>(a.slice::<1, _>(0), b, output_mat.view_mut(), alpha, beta);
+            return;
+        }
+    }
+
     let output_tiles = OutputTiles::new(output_mat, K::MR, K::NR);
 
     // Sizes of blocks that the width (nc), depth (kc) and height (mc)
@@ -921,14 +978,18 @@ mod tests {
         VirtualMatrix,
     };
 
-    fn reference_matmul(a: &Tensor, b: &Tensor) -> Tensor {
+    fn reference_matmul_alpha_beta(a: &Tensor, b: &Tensor, alpha: f32, beta: f32) -> Tensor {
         let [a_rows, _a_cols]: [usize; 2] = a.shape().try_into().expect("input should be a matrix");
         let [_b_rows, b_cols]: [usize; 2] = b.shape().try_into().expect("input should be a matrix");
         let mut output = Tensor::zeros(&[a_rows, b_cols]);
 
-        reference_gemm(&mut output, a, b, 1.0, 0.0, None);
+        reference_gemm(&mut output, a, b, alpha, beta, None);
 
         output
+    }
+
+    fn reference_matmul(a: &Tensor, b: &Tensor) -> Tensor {
+        reference_matmul_alpha_beta(a, b, 1., 0.)
     }
 
     // Maximum block sizes that the GEMM implementation uses. Choosing M, N, K
@@ -1417,6 +1478,101 @@ mod tests {
             );
             reference_gemm(&mut expected, &a, &b, 1., 1., None);
 
+            expect_equal(&result, &expected)?;
+        }
+
+        Ok(())
+    }
+
+    #[test]
+    fn test_gemv() -> Result<(), Box<dyn Error>> {
+        struct Case {
+            n: usize,
+            k: usize,
+            alpha: f32,
+            beta: f32,
+        }
+
+        let cases = [
+            // Empty inputs
+            Case {
+                n: 0,
+                k: 1,
+                alpha: 1.,
+                beta: 0.,
+            },
+            Case {
+                n: 1,
+                k: 0,
+                alpha: 1.,
+                beta: 0.,
+            },
+            // Smallest possible input
+            Case {
+                n: 1,
+                k: 1,
+                alpha: 1.,
+                beta: 0.,
+            },
+            // n is a multiple of the tile size (16 for AVX 2 / FMA)
+            Case {
+                n: 16,
+                k: 16,
+                alpha: 1.,
+                beta: 0.,
+            },
+            // n is not an exact multiple of the tile size
+            Case {
+                n: 20,
+                k: 16,
+                alpha: 1.,
+                beta: 1.,
+            },
+            // n exceeds column block size
+            Case {
+                n: 300,
+                k: 16,
+                alpha: 1.,
+                beta: 1.,
+            },
+            // k exceeds depth block size
+            Case {
+                n: 20,
+                k: 300,
+                alpha: 1.,
+                beta: 1.,
+            },
+            // beta value = 0.
+            Case {
+                n: 20,
+                k: 300,
+                alpha: 1.,
+                beta: 0.,
+            },
+            // Non-standard beta value
+            Case {
+                n: 20,
+                k: 300,
+                alpha: 1.,
+                beta: 0.5,
+            },
+            // Non-standard alpha value
+            Case {
+                n: 20,
+                k: 20,
+                alpha: 0.5,
+                beta: 1.,
+            },
+        ];
+
+        let mut rng = XorShiftRng::new(1234);
+
+        for Case { n, k, alpha, beta } in cases {
+            let a = Tensor::rand(&[1, k], &mut rng);
+            let b = Tensor::rand(&[k, n], &mut rng);
+            let mut result = Tensor::zeros(&[1, n]);
+            run_gemm(&mut result, &a, &b, alpha, beta, None, KernelHint::Auto);
+            let expected = reference_matmul_alpha_beta(&a, &b, alpha, beta);
             expect_equal(&result, &expected)?;
         }
 

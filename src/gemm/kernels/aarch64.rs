@@ -1,5 +1,8 @@
-use super::Kernel;
+use std::arch::aarch64::float32x4_t;
 
+use rten_tensor::Matrix;
+
+use super::{simd_gemv, Kernel};
 use crate::iter_util::unroll_loop;
 
 #[derive(Default)]
@@ -90,6 +93,10 @@ impl Kernel for ArmNeonKernel {
                 }
             }
         }
+    }
+
+    unsafe fn gemv_kernel(out: &mut [f32], a: &[f32], b: Matrix, alpha: f32, beta: f32) {
+        simd_gemv::<float32x4_t, 2>(out, a, b, alpha, beta);
     }
 }
 
