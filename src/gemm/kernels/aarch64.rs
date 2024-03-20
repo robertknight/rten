@@ -45,7 +45,7 @@ impl Kernel for ArmNeonKernel {
         let mut tmp = [[vdupq_n_f32(0.); NR_REGS]; MR];
         let mut b_rows = [vdupq_n_f32(0.); NR_REGS];
 
-        unroll_loop!(depth, k, 8, {
+        unroll_loop!(0..depth, k, 8, {
             let a_off = k * MR;
             let b_off = k * NR;
 

@@ -64,7 +64,7 @@ pub fn add_scaled_vector(
         "src and dest vector sizes do not match"
     );
 
-    unroll_loop!(src_els, i, 4, {
+    unroll_loop!(0..src_els, i, 4, {
         unsafe {
             *dest.get_unchecked_mut(i * dest_stride) += *src.get_unchecked(i * src_stride) * scale;
         }

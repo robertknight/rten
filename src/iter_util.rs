@@ -136,9 +136,9 @@ impl MaybeParIter for Range<usize> {
 
 #[macro_export]
 macro_rules! unroll_loop {
-    ($count:expr, $loop_var:ident, $factor: literal, $block:tt) => {
-        let mut n = $count;
-        let mut $loop_var = 0;
+    ($range:expr, $loop_var:ident, $factor: literal, $block:tt) => {
+        let mut n = $range.len();
+        let mut $loop_var = $range.start;
         while n >= $factor {
             for _i in 0..$factor {
                 $block;
@@ -225,7 +225,7 @@ mod tests {
     #[test]
     fn test_unroll_loop() {
         let mut items: Vec<i32> = Vec::new();
-        unroll_loop!(10, i, 4, {
+        unroll_loop!(0..10, i, 4, {
             items.push(i);
         });
         assert_eq!(items, [0, 1, 2, 3, 4, 5, 6, 7, 8, 9]);
