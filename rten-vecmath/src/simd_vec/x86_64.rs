@@ -3,8 +3,8 @@ use std::arch::x86_64::{
     _mm256_blendv_ps, _mm256_castsi256_ps, _mm256_cmp_ps, _mm256_cmpgt_epi32, _mm256_cvttps_epi32,
     _mm256_div_ps, _mm256_fmadd_ps, _mm256_loadu_ps, _mm256_loadu_si256, _mm256_max_ps,
     _mm256_mul_ps, _mm256_set1_epi32, _mm256_set1_ps, _mm256_setzero_si256, _mm256_slli_epi32,
-    _mm256_storeu_ps, _mm256_storeu_si256, _mm256_sub_epi32, _mm256_sub_ps, _CMP_GE_OQ, _CMP_LE_OQ,
-    _CMP_LT_OQ,
+    _mm256_storeu_ps, _mm256_storeu_si256, _mm256_sub_epi32, _mm256_sub_ps, _mm_prefetch,
+    _CMP_GE_OQ, _CMP_LE_OQ, _CMP_LT_OQ, _MM_HINT_ET0, _MM_HINT_T0,
 };
 
 use crate::simd_vec::{SimdFloat, SimdInt};
@@ -199,5 +199,17 @@ impl SimdFloat for __m256 {
     #[target_feature(enable = "fma")]
     unsafe fn store(self, ptr: *mut f32) {
         _mm256_storeu_ps(ptr, self)
+    }
+
+    /// Prefetch the cache line containing `data`, for reading.
+    #[inline]
+    unsafe fn prefetch(data: *const f32) {
+        _mm_prefetch(data as *const i8, _MM_HINT_T0);
+    }
+
+    /// Prefetch the cache line containing `data`, for writing.
+    #[inline]
+    unsafe fn prefetch_write(data: *mut f32) {
+        _mm_prefetch(data as *const i8, _MM_HINT_ET0);
     }
 }
