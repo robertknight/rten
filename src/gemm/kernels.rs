@@ -1,14 +1,89 @@
 use std::ops::Range;
 
-use rten_tensor::Matrix;
+use rten_tensor::{Matrix, MatrixLayout};
+use rten_vecmath::simd_vec::SimdFloat;
 
 use super::{GemmInputA, GemmInputB};
+use crate::iter_util::range_chunks_exact;
 
 #[cfg(target_arch = "aarch64")]
 pub mod aarch64;
 
 #[cfg(target_arch = "x86_64")]
 pub mod x86_64;
+
+/// Compute an output block of a vector-matrix product ("gemv" in BLAS APIs).
+///
+/// Multiple output columns are computed at a time, using `NR_REGS` SIMD
+/// registers of type `S`. See [Kernel::gemv_kernel].
+#[inline(always)]
+unsafe fn simd_gemv<S: SimdFloat, const NR_REGS: usize>(
+    out: &mut [f32],
+    a: &[f32],
+    b: Matrix,
+    alpha: f32,
+    beta: f32,
+) {
+    assert!(b.col_stride() == 1);
+    assert!(a.len() == b.rows());
+    assert!(out.len() == b.cols());
+
+    let out_ptr = out.as_mut_ptr();
+    let a_ptr = a.as_ptr();
+    let b_ptr = b.non_contiguous_data().as_ptr();
+    let b_row_stride = b.row_stride();
+
+    let mut b_tiles = range_chunks_exact(0..b.cols(), NR_REGS * S::LEN);
+    for b_tile in b_tiles.by_ref() {
+        let mut acc = [S::zero(); NR_REGS];
+        for k in 0..a.len() {
+            let a_elt = *a_ptr.add(k);
+            let a_elts = S::splat(a_elt);
+
+            for i in 0..NR_REGS {
+                let b_elts = S::load(b_ptr.add(k * b_row_stride + b_tile.start + i * S::LEN));
+                acc[i] = a_elts.mul_add(b_elts, acc[i]);
+            }
+        }
+
+        if alpha != 1. {
+            let alpha_vec = S::splat(alpha);
+            for i in 0..NR_REGS {
+                acc[i] = acc[i].mul(alpha_vec);
+            }
+        }
+
+        let get_out_tile_ptr = |i| out_ptr.add(b_tile.start + i * S::LEN);
+
+        if beta == 0. {
+            for i in 0..NR_REGS {
+                acc[i].store(get_out_tile_ptr(i));
+            }
+        } else if beta == 1. {
+            for i in 0..NR_REGS {
+                let out_tile_ptr = get_out_tile_ptr(i);
+                let out_tile = S::load(out_tile_ptr).add(acc[i]);
+                out_tile.store(out_tile_ptr);
+            }
+        } else {
+            let beta_vec = S::splat(beta);
+            for i in 0..NR_REGS {
+                let out_tile_ptr = get_out_tile_ptr(i);
+                let out_tile = S::load(out_tile_ptr).mul_add(beta_vec, acc[i]);
+                out_tile.store(out_tile_ptr);
+            }
+        }
+    }
+
+    for c in b_tiles.remainder() {
+        let mut acc = 0.;
+        for k in 0..a.len() {
+            acc += *a_ptr.add(k) * *b_ptr.add(k * b_row_stride + c);
+        }
+        let out_el = out_ptr.add(c);
+        *out_el = (*out_el * beta) + acc * alpha;
+    }
+}
 
 /// Kernel that computes a small tile of a matrix multiplication output.
 ///
@@ -30,12 +105,14 @@ pub trait Kernel {
 
     /// Return true if this kernel is usable on the current system.
     ///
-    /// It is unsafe to call `kernel` if this is false.
+    /// Unsafe functions in this trait can only be called if this returns true.
     fn supported() -> bool;
 
     /// Compute a tile of the output matrix. The output is stored in row-major
     /// order with `MR` rows and `NR` columns, a row stride of `tile_row_stride`
     /// and column stride of 1.
+    ///
+    /// # Safety
     ///
     /// The caller must ensure that the kernel is supported on the current
     /// system, and `tile_ptr` points to a buffer of the correct size.
@@ -48,6 +125,26 @@ pub trait Kernel {
         alpha: f32,
         beta: f32,
     );
+
+    /// Compute an output block of a vector-matrix product ("gemv").
+    ///
+    /// This computes `y = alpha * (a B) + beta * y` where `a` is a row vector
+    /// and `B` is a matrix.
+    ///
+    /// This is a simplified version of the matrix multiplication kernel that
+    /// operates on unpacked data, since the overhead of packing outweighs the
+    /// benefits for this operation.
+    ///
+    /// The length of vector `a` must match `b.rows()` and the length of `out`
+    /// must match `b.cols()`. The `b` matrix must have a column stride of 1.
+    ///
+    /// # Safety
+    ///
+    /// The caller must ensure that the kernel is supported on the current
+    /// system.
+    unsafe fn gemv_kernel(out: &mut [f32], a: &[f32], b: Matrix, alpha: f32, beta: f32) {
+        simd_gemv::<f32, 4>(out, a, b, alpha, beta);
+    }
 }
 
 /// Object-safe trait for performing matrix multiplications and packing inputs

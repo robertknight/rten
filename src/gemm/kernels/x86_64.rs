@@ -1,4 +1,6 @@
-use super::Kernel;
+use rten_tensor::Matrix;
+
+use super::{simd_gemv, Kernel};
 
 /// Optimized kernel for x64 CPUs that support AVX + FMA instructions.
 #[derive(Default)]
@@ -29,6 +31,13 @@ impl Kernel for FmaKernel {
         beta: f32,
     ) {
         Self::kernel_fma(tile_ptr, tile_row_stride, a, b, depth, alpha, beta)
+    }
+
+    #[target_feature(enable = "avx2")]
+    #[target_feature(enable = "fma")]
+    unsafe fn gemv_kernel(out: &mut [f32], a: &[f32], b: Matrix, alpha: f32, beta: f32) {
+        use core::arch::x86_64::__m256;
+        simd_gemv::<__m256, 2>(out, a, b, alpha, beta);
     }
 }
 
@@ -236,6 +245,14 @@ impl Kernel for Avx512Kernel {
         beta: f32,
     ) {
         Self::kernel_avx_512(tile_ptr, tile_row_stride, a, b, depth, alpha, beta)
+    }
+
+    #[target_feature(enable = "avx512f")]
+    #[target_feature(enable = "avx512vl")]
+    unsafe fn gemv_kernel(out: &mut [f32], a: &[f32], b: Matrix, alpha: f32, beta: f32) {
+        // Re-use the AVX2 / FMA kernel because rten_vecmath doesn't provide
+        // AVX-512 implementations for `SimdFloat` yet.
+        FmaKernel::gemv_kernel(out, a, b, alpha, beta);
     }
 }
 

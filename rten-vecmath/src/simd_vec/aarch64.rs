@@ -13,42 +13,52 @@ impl SimdInt for int32x4_t {
 
     const LEN: usize = 4;
 
+    #[inline]
     unsafe fn zero() -> Self {
         vdupq_n_s32(0)
     }
 
+    #[inline]
     unsafe fn splat(val: i32) -> Self {
         vdupq_n_s32(val)
     }
 
+    #[inline]
     unsafe fn gt(self, other: Self) -> Self::Mask {
         vcgtq_s32(self, other)
     }
 
+    #[inline]
     unsafe fn blend(self, other: Self, mask: Self::Mask) -> Self {
         vbslq_s32(mask, other, self)
     }
 
+    #[inline]
     unsafe fn add(self, rhs: Self) -> Self {
         vaddq_s32(self, rhs)
     }
 
+    #[inline]
     unsafe fn sub(self, rhs: Self) -> Self {
         vsubq_s32(self, rhs)
     }
 
+    #[inline]
     unsafe fn shl<const COUNT: i32>(self) -> Self {
         vshlq_n_s32(self, COUNT)
     }
 
+    #[inline]
     unsafe fn reinterpret_as_float(self) -> Self::Float {
         vreinterpretq_f32_s32(self)
     }
 
+    #[inline]
     unsafe fn load(ptr: *const i32) -> Self {
         vld1q_s32(ptr)
     }
 
+    #[inline]
     unsafe fn store(self, ptr: *mut i32) {
         vst1q_s32(ptr, self)
     }
@@ -60,62 +70,77 @@ impl SimdFloat for float32x4_t {
 
     const LEN: usize = 4;
 
+    #[inline]
     unsafe fn splat(val: f32) -> Self {
         vdupq_n_f32(val)
     }
 
+    #[inline]
     unsafe fn abs(self) -> Self {
         vabsq_f32(self)
     }
 
+    #[inline]
     unsafe fn mul_add(self, a: Self, b: Self) -> Self {
         vfmaq_f32(b, self, a)
     }
 
+    #[inline]
     unsafe fn sub(self, rhs: Self) -> Self {
         vsubq_f32(self, rhs)
     }
 
+    #[inline]
     unsafe fn add(self, rhs: Self) -> Self {
         vaddq_f32(self, rhs)
     }
 
+    #[inline]
     unsafe fn to_int_trunc(self) -> Self::Int {
         vcvtq_s32_f32(self)
     }
 
+    #[inline]
     unsafe fn mul(self, rhs: Self) -> Self {
         vmulq_f32(self, rhs)
     }
 
+    #[inline]
     unsafe fn div(self, rhs: Self) -> Self {
         vdivq_f32(self, rhs)
     }
 
+    #[inline]
     unsafe fn ge(self, rhs: Self) -> Self::Mask {
         vcgeq_f32(self, rhs)
     }
 
+    #[inline]
     unsafe fn le(self, rhs: Self) -> Self::Mask {
         vcleq_f32(self, rhs)
     }
 
+    #[inline]
     unsafe fn lt(self, rhs: Self) -> Self::Mask {
         vcltq_f32(self, rhs)
     }
 
+    #[inline]
     unsafe fn max(self, rhs: Self) -> Self {
         vmaxq_f32(self, rhs)
     }
 
+    #[inline]
     unsafe fn blend(self, other: Self, mask: Self::Mask) -> Self {
         vbslq_f32(mask, other, self)
     }
 
+    #[inline]
     unsafe fn load(ptr: *const f32) -> Self {
         vld1q_f32(ptr)
     }
 
+    #[inline]
     unsafe fn store(self, ptr: *mut f32) {
         vst1q_f32(ptr, self)
     }
