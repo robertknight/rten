@@ -134,9 +134,15 @@ impl MaybeParIter for Range<usize> {
     }
 }
 
+/// Generate an unrolled loop.
+///
+/// `$range` is a `Range` specifying the loop start and end. `$loop_var` is the
+/// name of the variable containing the current iteration inside `$block`.
+/// `$factor` should be a constant expression specifying the unroll factor,
+/// typically a small value such as 4 or 8.
 #[macro_export]
 macro_rules! unroll_loop {
-    ($range:expr, $loop_var:ident, $factor: literal, $block:tt) => {
+    ($range:expr, $loop_var:ident, $factor: expr, $block:tt) => {
         let mut n = $range.len();
         let mut $loop_var = $range.start;
         while n >= $factor {
