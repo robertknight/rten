@@ -12,6 +12,9 @@ pub mod aarch64;
 #[cfg(target_arch = "x86_64")]
 pub mod x86_64;
 
+#[cfg(target_arch = "wasm32")]
+pub mod wasm;
+
 /// Compute an output block of a vector-matrix product ("gemv" in BLAS APIs).
 ///
 /// Multiple output columns are computed at a time, using `NR_REGS` SIMD
