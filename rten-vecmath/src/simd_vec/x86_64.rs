@@ -213,3 +213,167 @@ impl SimdFloat for __m256 {
         _mm_prefetch(data as *const i8, _MM_HINT_ET0);
     }
 }
+
+#[cfg(feature = "avx512")]
+use std::arch::x86_64::{
+    __m512, __m512i, __mmask16, _mm512_abs_ps, _mm512_add_epi32, _mm512_add_ps,
+    _mm512_castsi512_ps, _mm512_cmp_epi32_mask, _mm512_cmp_ps_mask, _mm512_cvttps_epi32,
+    _mm512_div_ps, _mm512_fmadd_ps, _mm512_loadu_ps, _mm512_loadu_si512, _mm512_mask_blend_epi32,
+    _mm512_mask_blend_ps, _mm512_max_ps, _mm512_mul_ps, _mm512_set1_epi32, _mm512_set1_ps,
+    _mm512_setzero_si512, _mm512_sllv_epi32, _mm512_storeu_ps, _mm512_storeu_si512,
+    _mm512_sub_epi32, _mm512_sub_ps, _MM_CMPINT_LT,
+};
+
+#[cfg(feature = "avx512")]
+impl SimdInt for __m512i {
+    type Float = __m512;
+    type Mask = __mmask16;
+
+    const LEN: usize = 16;
+
+    #[inline]
+    unsafe fn zero() -> Self {
+        _mm512_setzero_si512()
+    }
+
+    #[inline]
+    unsafe fn splat(val: i32) -> Self {
+        _mm512_set1_epi32(val)
+    }
+
+    #[inline]
+    unsafe fn gt(self, other: Self) -> Self::Mask {
+        _mm512_cmp_epi32_mask(other, self, _MM_CMPINT_LT)
+    }
+
+    #[inline]
+    unsafe fn blend(self, other: Self, mask: Self::Mask) -> Self {
+        _mm512_mask_blend_epi32(mask, self, other)
+    }
+
+    #[inline]
+    unsafe fn add(self, rhs: Self) -> Self {
+        _mm512_add_epi32(self, rhs)
+    }
+
+    #[inline]
+    unsafe fn sub(self, rhs: Self) -> Self {
+        _mm512_sub_epi32(self, rhs)
+    }
+
+    #[inline]
+    unsafe fn shl<const COUNT: i32>(self) -> Self {
+        let count = Self::splat(COUNT);
+        _mm512_sllv_epi32(self, count)
+    }
+
+    #[inline]
+    unsafe fn reinterpret_as_float(self) -> Self::Float {
+        _mm512_castsi512_ps(self)
+    }
+
+    #[inline]
+    unsafe fn load(ptr: *const i32) -> Self {
+        _mm512_loadu_si512(ptr)
+    }
+
+    #[inline]
+    unsafe fn store(self, ptr: *mut i32) {
+        _mm512_storeu_si512(ptr, self)
+    }
+}
+
+#[cfg(feature = "avx512")]
+impl SimdFloat for __m512 {
+    type Int = __m512i;
+    type Mask = __mmask16;
+
+    const LEN: usize = 16;
+
+    #[inline]
+    unsafe fn splat(val: f32) -> Self {
+        _mm512_set1_ps(val)
+    }
+
+    #[inline]
+    unsafe fn abs(self) -> Self {
+        _mm512_abs_ps(self)
+    }
+
+    #[inline]
+    unsafe fn mul_add(self, a: Self, b: Self) -> Self {
+        _mm512_fmadd_ps(self, a, b)
+    }
+
+    #[inline]
+    unsafe fn sub(self, rhs: Self) -> Self {
+        _mm512_sub_ps(self, rhs)
+    }
+
+    #[inline]
+    unsafe fn add(self, rhs: Self) -> Self {
+        _mm512_add_ps(self, rhs)
+    }
+
+    #[inline]
+    unsafe fn to_int_trunc(self) -> Self::Int {
+        _mm512_cvttps_epi32(self)
+    }
+
+    #[inline]
+    unsafe fn mul(self, rhs: Self) -> Self {
+        _mm512_mul_ps(self, rhs)
+    }
+
+    #[inline]
+    unsafe fn div(self, rhs: Self) -> Self {
+        _mm512_div_ps(self, rhs)
+    }
+
+    #[inline]
+    unsafe fn ge(self, rhs: Self) -> Self::Mask {
+        _mm512_cmp_ps_mask(self, rhs, _CMP_GE_OQ)
+    }
+
+    #[inline]
+    unsafe fn le(self, rhs: Self) -> Self::Mask {
+        _mm512_cmp_ps_mask(self, rhs, _CMP_LE_OQ)
+    }
+
+    #[inline]
+    unsafe fn lt(self, rhs: Self) -> Self::Mask {
+        _mm512_cmp_ps_mask(self, rhs, _CMP_LT_OQ)
+    }
+
+    #[inline]
+    unsafe fn max(self, rhs: Self) -> Self {
+        _mm512_max_ps(self, rhs)
+    }
+
+    #[inline]
+    unsafe fn blend(self, rhs: Self, mask: Self::Mask) -> Self {
+        _mm512_mask_blend_ps(mask, self, rhs)
+    }
+
+    #[inline]
+    unsafe fn load(ptr: *const f32) -> Self {
+        _mm512_loadu_ps(ptr)
+    }
+
+    #[inline]
+    unsafe fn store(self, ptr: *mut f32) {
+        _mm512_storeu_ps(ptr, self)
+    }
+
+    /// Prefetch the cache line containing `data`, for reading.
+    #[inline]
+    unsafe fn prefetch(data: *const f32) {
+        _mm_prefetch(data as *const i8, _MM_HINT_T0);
+    }
+
+    /// Prefetch the cache line containing `data`, for writing.
+    #[inline]
+    unsafe fn prefetch_write(data: *mut f32) {
+        _mm_prefetch(data as *const i8, _MM_HINT_ET0);
+    }
+}

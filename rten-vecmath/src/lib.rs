@@ -17,6 +17,12 @@
 //!
 //! See the source code for comments on accuracy.
 
+#![cfg_attr(
+    feature = "avx512",
+    feature(stdarch_x86_avx512),
+    feature(avx512_target_feature)
+)]
+
 mod erf;
 mod exp;
 pub mod simd_vec;
