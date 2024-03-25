@@ -11,8 +11,12 @@
 
 #[cfg(target_arch = "aarch64")]
 pub(crate) mod aarch64;
+
+// The wasm module is exposed because it contains wrapper types which are needed
+// to use the functionality outside of this crate.
 #[cfg(target_arch = "wasm32")]
-pub(crate) mod wasm;
+pub mod wasm;
+
 #[cfg(target_arch = "x86_64")]
 pub(crate) mod x86_64;
 

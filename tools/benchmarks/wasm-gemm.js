@@ -26,6 +26,7 @@ const cases = [
   { m: 512, n: 512, k: 512 }, // Square
   { m: 128, n: 2048, k: 512 }, // Wide
   { m: 2048, n: 128, k: 512 }, // Tall
+  { m: 1, n: 4096, k: 512 }, // Vector
 ];
 
 function logResult(engine, elapsedMs, m, n, k, iters) {
