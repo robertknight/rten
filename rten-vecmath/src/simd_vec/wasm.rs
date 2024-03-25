@@ -22,38 +22,47 @@ impl SimdInt for v128i {
 
     const LEN: usize = 4;
 
+    #[inline]
     unsafe fn splat(val: i32) -> Self {
         Self(i32x4_splat(val))
     }
 
+    #[inline]
     unsafe fn gt(self, other: Self) -> Self::Mask {
         Self(i32x4_gt(self.0, other.0))
     }
 
+    #[inline]
     unsafe fn blend(self, other: Self, mask: Self::Mask) -> Self {
         Self(v128_bitselect(other.0, self.0, mask.0))
     }
 
+    #[inline]
     unsafe fn add(self, rhs: Self) -> Self {
         Self(i32x4_add(self.0, rhs.0))
     }
 
+    #[inline]
     unsafe fn sub(self, rhs: Self) -> Self {
         Self(i32x4_sub(self.0, rhs.0))
     }
 
+    #[inline]
     unsafe fn shl<const COUNT: i32>(self) -> Self {
         Self(i32x4_shl(self.0, COUNT as u32))
     }
 
+    #[inline]
     unsafe fn reinterpret_as_float(self) -> Self::Float {
         v128f(self.0)
     }
 
+    #[inline]
     unsafe fn load(ptr: *const i32) -> Self {
         Self(v128_load(ptr as *const v128))
     }
 
+    #[inline]
     unsafe fn store(self, ptr: *mut i32) {
         v128_store(ptr as *mut v128, self.0)
     }
@@ -65,62 +74,77 @@ impl SimdFloat for v128f {
 
     const LEN: usize = 4;
 
+    #[inline]
     unsafe fn splat(val: f32) -> Self {
         Self(f32x4_splat(val))
     }
 
+    #[inline]
     unsafe fn abs(self) -> Self {
         Self(f32x4_abs(self.0))
     }
 
+    #[inline]
     unsafe fn mul_add(self, a: Self, b: Self) -> Self {
         Self(f32x4_add(f32x4_mul(self.0, a.0), b.0))
     }
 
+    #[inline]
     unsafe fn sub(self, rhs: Self) -> Self {
         Self(f32x4_sub(self.0, rhs.0))
     }
 
+    #[inline]
     unsafe fn add(self, rhs: Self) -> Self {
         Self(f32x4_add(self.0, rhs.0))
     }
 
+    #[inline]
     unsafe fn to_int_trunc(self) -> Self::Int {
         v128i(i32x4_trunc_sat_f32x4(self.0))
     }
 
+    #[inline]
     unsafe fn mul(self, rhs: Self) -> Self {
         Self(f32x4_mul(self.0, rhs.0))
     }
 
+    #[inline]
     unsafe fn div(self, rhs: Self) -> Self {
         Self(f32x4_div(self.0, rhs.0))
     }
 
+    #[inline]
     unsafe fn ge(self, rhs: Self) -> Self::Mask {
         v128i(f32x4_ge(self.0, rhs.0))
     }
 
+    #[inline]
     unsafe fn le(self, rhs: Self) -> Self::Mask {
         v128i(f32x4_le(self.0, rhs.0))
     }
 
+    #[inline]
     unsafe fn lt(self, rhs: Self) -> Self::Mask {
         v128i(f32x4_lt(self.0, rhs.0))
     }
 
+    #[inline]
     unsafe fn max(self, rhs: Self) -> Self {
         Self(f32x4_max(self.0, rhs.0))
     }
 
+    #[inline]
     unsafe fn blend(self, rhs: Self, mask: Self::Mask) -> Self {
         Self(v128_bitselect(rhs.0, self.0, mask.0))
     }
 
+    #[inline]
     unsafe fn load(ptr: *const f32) -> Self {
         Self(v128_load(ptr as *const v128))
     }
 
+    #[inline]
     unsafe fn store(self, ptr: *mut f32) {
         v128_store(ptr as *mut v128, self.0)
     }
