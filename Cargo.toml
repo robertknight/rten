@@ -47,7 +47,7 @@ crate-type = ["lib", "cdylib"]
 
 [features]
 # Use AVX-512 instructions if available. Requires nightly Rust for AVX-512 intrinsics.
-avx512 = []
+avx512 = ["rten-vecmath/avx512"]
 # Generate WebAssembly API using wasm-bindgen.
 wasm_api = []
 
