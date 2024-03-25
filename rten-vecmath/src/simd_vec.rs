@@ -225,6 +225,18 @@ pub trait SimdFloat: Copy + Sized {
         let reduced = elements.into_iter().fold(accum, f);
         Self::splat(reduced)
     }
+
+    /// Prefetch the cache line containing `data`, for reading.
+    #[inline]
+    unsafe fn prefetch(_data: *const f32) {
+        // Noop
+    }
+
+    /// Prefetch the cache line containing `data`, for writing.
+    #[inline]
+    unsafe fn prefetch_write(_data: *mut f32) {
+        // Noop
+    }
 }
 
 /// Treat an `i32` as a single-lane SIMD "vector".

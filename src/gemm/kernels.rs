@@ -4,7 +4,7 @@ use rten_tensor::{Matrix, MatrixLayout};
 use rten_vecmath::simd_vec::SimdFloat;
 
 use super::{GemmInputA, GemmInputB};
-use crate::iter_util::range_chunks_exact;
+use crate::iter_util::{range_chunks_exact, unroll_loop};
 
 #[cfg(target_arch = "aarch64")]
 pub mod aarch64;
@@ -82,6 +82,111 @@ unsafe fn simd_gemv<S: SimdFloat, const NR_REGS: usize>(
         }
         let out_el = out_ptr.add(c);
         *out_el = (*out_el * beta) + acc * alpha;
+    }
+}
+
+/// Compute a tile of matrix-multiplication output.
+///
+/// `S` specifies the SIMD vector type, `MR` is the number of rows in the tile
+/// and `NR_REGS` specifies the number of columns in the tile as a multiple of
+/// the SIMD register width.
+///
+/// See [Kernel::kernel].
+#[inline(always)]
+unsafe fn simd_gemm<S: SimdFloat, const MR: usize, const NR_REGS: usize>(
+    tile_ptr: *mut f32,
+    tile_row_stride: usize,
+    a: &[f32],
+    b: &[f32],
+    depth: usize,
+    alpha: f32,
+    beta: f32,
+) {
+    // Check that buffer accesses below are going to be valid.
+    assert!(a.len() >= depth * MR);
+    assert!(b.len() >= depth * NR_REGS * S::LEN);
+    assert!(depth > 0);
+
+    let a_ptr = a.as_ptr();
+    let b_ptr = b.as_ptr();
+
+    let mut tmp = [[S::zero(); NR_REGS]; MR];
+    let mut b_rows = [S::zero(); NR_REGS];
+
+    unroll_loop!(0..depth - 1, k, 4, {
+        let a_off = k * MR;
+        let b_off = k * NR_REGS * S::LEN;
+
+        // Prefetch B for the next iteration
+        S::prefetch(b_ptr.add((k + 1) * NR_REGS * S::LEN));
+
+        for i in 0..NR_REGS {
+            b_rows[i] = S::load(b_ptr.add(b_off + i * S::LEN));
+        }
+
+        for i in 0..MR {
+            let a_val = *a_ptr.add(a_off + i);
+            let a_broadcast = S::splat(a_val);
+
+            for j in 0..NR_REGS {
+                tmp[i][j] = a_broadcast.mul_add(b_rows[j], tmp[i][j]);
+            }
+        }
+    });
+
+    // Prefetch output before the final computation loop
+    for i in 0..MR {
+        S::prefetch_write(tile_ptr.add(tile_row_stride * i));
+    }
+
+    // Perform final outer product update.
+    let k = depth - 1;
+    let a_off = k * MR;
+    let b_off = k * NR_REGS * S::LEN;
+
+    for i in 0..NR_REGS {
+        b_rows[i] = S::load(b_ptr.add(b_off + i * S::LEN));
+    }
+
+    for i in 0..MR {
+        let a_val = *a_ptr.add(a_off + i);
+        let a_broadcast = S::splat(a_val);
+
+        for j in 0..NR_REGS {
+            tmp[i][j] = a_broadcast.mul_add(b_rows[j], tmp[i][j]);
+        }
+    }
+
+    let get_out_ptr = |i, j| tile_ptr.add(tile_row_stride * i + j * S::LEN);
+
+    // Write to output tile
+    if beta == 0. && alpha == 1. {
+        for i in 0..MR {
+            for j in 0..NR_REGS {
+                let out_ptr = get_out_ptr(i, j);
+                tmp[i][j].store(out_ptr);
+            }
+        }
+    } else if beta == 1. && alpha == 1. {
+        for i in 0..MR {
+            for j in 0..NR_REGS {
+                let out_ptr = get_out_ptr(i, j);
+                let out_val = S::load(out_ptr).add(tmp[i][j]);
+                out_val.store(out_ptr);
+            }
+        }
+    } else {
+        let alpha_broadcast = S::splat(alpha);
+        let beta_broadcast = S::splat(beta);
+
+        for i in 0..MR {
+            for j in 0..NR_REGS {
+                let out_ptr = get_out_ptr(i, j);
+                let out_val = S::load(out_ptr).mul(beta_broadcast);
+                let out_val = tmp[i][j].mul_add(alpha_broadcast, out_val);
+                out_val.store(out_ptr);
+            }
+        }
     }
 }
 
@@ -254,46 +359,8 @@ impl Kernel for BaseKernel {
     ) {
         const MR: usize = BaseKernel::MR;
         const NR: usize = BaseKernel::NR;
-
-        assert!(a.len() >= depth * MR);
-        assert!(b.len() >= depth * NR);
-
-        // Accumulate into a fixed-sized array to allow the compiler to generate
-        // more efficient code for the loop over `depth`.
-        let mut tmp = [[0.0; NR]; MR];
-        for k in 0..depth {
-            let a_off = k * MR;
-            let b_off = k * NR;
-
-            for i in 0..MR {
-                for j in 0..NR {
-                    tmp[i][j] += a.get_unchecked(a_off + i) * b.get_unchecked(b_off + j);
-                }
-            }
-        }
-
-        if beta == 0. && alpha == 1. {
-            for i in 0..MR {
-                for j in 0..NR {
-                    let out_el = tile_ptr.add(tile_row_stride * i + j);
-                    *out_el = tmp[i][j];
-                }
-            }
-        } else if beta == 1. && alpha == 1. {
-            for i in 0..MR {
-                for j in 0..NR {
-                    let out_el = tile_ptr.add(tile_row_stride * i + j);
-                    *out_el += tmp[i][j];
-                }
-            }
-        } else {
-            for i in 0..MR {
-                for j in 0..NR {
-                    let out_el = tile_ptr.add(tile_row_stride * i + j);
-                    *out_el = beta * *out_el + alpha * tmp[i][j];
-                }
-            }
-        }
+        const NR_REGS: usize = NR / <f32 as SimdFloat>::LEN;
+        simd_gemm::<f32, MR, NR_REGS>(tile_ptr, tile_row_stride, a, b, depth, alpha, beta);
     }
 }
 
