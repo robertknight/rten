@@ -931,7 +931,12 @@ mod tests {
                 shape: &[512, 512],
                 perm: &[0, 1],
             },
-            // Matrix transpose of different sizes
+            // Matrix transpose with power-of-2 sizes.
+            //
+            // In a naive transpose implementation, these are liable to
+            // experience slowdown due to poor cache usage. There can also be
+            // issues to a lesser extent with sizes which are a multiple of
+            // (cache_line_size / element_size).
             Case {
                 shape: &[256, 256],
                 perm: &[1, 0],
@@ -944,8 +949,19 @@ mod tests {
                 shape: &[1024, 1024],
                 perm: &[1, 0],
             },
+            // Matrix transpose with non power-of-2 sizes.
+            Case {
+                shape: &[513, 513],
+                perm: &[1, 0],
+            },
+            Case {
+                shape: &[1023, 1023],
+                perm: &[1, 0],
+            },
             // Transpose ops taken from Whisper encoder (base model) with 4
-            // batches of samples
+            // batches of samples.
+            //
+            // Note the last two dimensions are powers of 2.
             Case {
                 shape: &[4, 1500, 8, 64],
                 perm: &[0, 2, 1, 3],
