@@ -1,5 +1,6 @@
 use std::borrow::Cow;
 use std::marker::PhantomData;
+use std::mem::MaybeUninit;
 use std::ops::{Index, IndexMut, Range};
 
 use crate::errors::{DimensionError, FromDataError, SliceError};
@@ -365,6 +366,50 @@ impl<T, S: AsRef<[T]>, L: MutLayout> TensorBase<T, S, L> {
             NdLayout::try_from_shape_and_strides(shape, strides, OverlapPolicy::AllowOverlap)
                 .expect("invalid layout");
         Some(layout)
+    }
+}
+
+/// Trait for data containers of uninitialized elements.
+pub trait UninitStorage {
+    /// Type of container produced by assuming that all elements have been
+    /// initialized to valid values.
+    type Init;
+
+    /// Convert this container to one where all elements are assumed to have
+    /// been initialized.
+    ///
+    /// # Safety
+    ///
+    /// The caller must ensure that all elements have been initialized to valid
+    /// values.
+    unsafe fn assume_init(self) -> Self::Init;
+}
+
+impl<T, S: AsRef<[MaybeUninit<T>]> + UninitStorage, L: MutLayout> TensorBase<MaybeUninit<T>, S, L>
+where
+    S::Init: AsRef<[T]>,
+{
+    /// Convert this tensor of uninitialized elements into a tensor of
+    /// initialized elements.
+    ///
+    /// # Safety
+    ///
+    /// The caller must ensure that all elements have been initialized to a
+    /// valid value.
+    pub unsafe fn assume_init(self) -> TensorBase<T, S::Init, L> {
+        TensorBase {
+            data: self.data.assume_init(),
+            layout: self.layout.clone(),
+            element_type: PhantomData,
+        }
+    }
+}
+
+impl<'a, T> UninitStorage for &'a mut [MaybeUninit<T>] {
+    type Init = &'a [T];
+
+    unsafe fn assume_init(self) -> Self::Init {
+        std::mem::transmute::<Self, Self::Init>(self)
     }
 }
 
