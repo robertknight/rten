@@ -6,7 +6,7 @@ use std::ops::{Deref, DerefMut};
 #[cfg(test)]
 use std::ops::Range;
 
-use wasnn_tensor::TensorViewMut;
+use rten_tensor::TensorViewMut;
 
 struct Alloc {
     /// ID of the allocation, used when releasing it.
@@ -212,7 +212,7 @@ impl<'a, T> DerefMut for ArenaRef<'a, T> {
 
 #[cfg(test)]
 mod tests {
-    use wasnn_tensor::prelude::*;
+    use rten_tensor::prelude::*;
 
     use super::Arena;
     use std::mem::size_of;

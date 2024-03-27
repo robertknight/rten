@@ -191,7 +191,7 @@ fn conv_2d_pointwise(
     let [batch, _, in_h, in_w]: [usize; 4] = input.shape();
     let [out_c, in_c, _, _]: [usize; 4] = kernel.shape();
 
-    let mut output = output.reshaped_mut(&[batch, out_c, in_h * in_w]);
+    let mut output = output.reshaped_mut([batch, out_c, in_h * in_w].as_slice());
 
     // Get input and kernel as contiguous tensors so we can create reshaped
     // views.
@@ -247,7 +247,9 @@ fn conv_2d_depthwise(
     if let Some(bias) = bias {
         assert!(out_c == bias.len());
         for (chan, chan_bias) in bias.iter().enumerate() {
-            output.slice_mut((.., chan, .., ..)).apply(|_| *chan_bias);
+            output
+                .slice_mut::<3, _>((.., chan, .., ..))
+                .apply(|_| *chan_bias);
         }
     }
 
@@ -530,7 +532,7 @@ pub fn conv_into(
     }
 
     let n_patches = out_h * out_w;
-    let mut output = output.reshaped_mut(&[batch, out_c, n_patches]);
+    let mut output = output.reshaped_mut([batch, out_c, n_patches].as_slice());
     let gemm = GemmExecutor::new();
 
     // Bias must be contiguous for use with `gemm_bias`.
