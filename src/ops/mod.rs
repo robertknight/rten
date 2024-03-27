@@ -422,7 +422,7 @@ impl<'a> ArenaOutput<'a> {
 }
 
 impl<'a> Layout for ArenaOutput<'a> {
-    type Index<'b> = <DynLayout as Layout>::Index<'b> where Self: 'b;
+    type Index<'b> = <DynLayout as Layout>::Index<'b>;
     type Indices = <DynLayout as Layout>::Indices;
 
     impl_layout_methods!();
