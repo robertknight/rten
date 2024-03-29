@@ -1,3 +1,4 @@
+use std::mem::MaybeUninit;
 use std::ops::Range;
 
 use rten_tensor::{Matrix, MatrixLayout};
@@ -257,10 +258,38 @@ pub trait Kernel {
 
 /// Object-safe trait for performing matrix multiplications and packing inputs
 /// with a specific kernel.
-pub trait GemmOps: Sync {
+///
+/// # Safety
+///
+/// The packing functions must initialize all elements of the output buffers
+/// passed to them.
+pub unsafe trait GemmOps: Sync {
     fn name(&self) -> &str;
-    fn pack_a_block(&self, out: &mut [f32], a: Matrix, rows: Range<usize>, cols: Range<usize>);
-    fn pack_b_block(&self, out: &mut [f32], a: Matrix, rows: Range<usize>, cols: Range<usize>);
+
+    /// Pack elements of `a` into a packing buffer for use by the matrix
+    /// multiplication kernel.
+    ///
+    /// Implementations must initialize all elements of `out`.
+    fn pack_a_block(
+        &self,
+        out: &mut [MaybeUninit<f32>],
+        a: Matrix,
+        rows: Range<usize>,
+        cols: Range<usize>,
+    );
+
+    /// Pack elements of `b` into a packing buffer for use by the matrix
+    /// multiplication kernel.
+    ///
+    /// Implementations must initialize all elements of `out`.
+    fn pack_b_block(
+        &self,
+        out: &mut [MaybeUninit<f32>],
+        a: Matrix,
+        rows: Range<usize>,
+        cols: Range<usize>,
+    );
+
     fn gemm(
         &self,
         out_data: &mut [f32],
@@ -278,14 +307,15 @@ pub trait GemmOps: Sync {
 /// stable Rust.
 macro_rules! impl_gemmops {
     ($kernel:ident) => {
-        impl crate::gemm::kernels::GemmOps for $kernel {
+        // Safety - The packing functions initialize all elements of their output.
+        unsafe impl crate::gemm::kernels::GemmOps for $kernel {
             fn name(&self) -> &str {
                 <$kernel as crate::gemm::kernels::Kernel>::name()
             }
 
             fn pack_a_block(
                 &self,
-                out: &mut [f32],
+                out: &mut [std::mem::MaybeUninit<f32>],
                 a: rten_tensor::Matrix,
                 rows: std::ops::Range<usize>,
                 cols: std::ops::Range<usize>,
@@ -295,7 +325,7 @@ macro_rules! impl_gemmops {
 
             fn pack_b_block(
                 &self,
-                out: &mut [f32],
+                out: &mut [std::mem::MaybeUninit<f32>],
                 a: rten_tensor::Matrix,
                 rows: std::ops::Range<usize>,
                 cols: std::ops::Range<usize>,
