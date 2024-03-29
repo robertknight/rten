@@ -8,9 +8,9 @@ use smallvec::SmallVec;
 use crate::ops::{add, mul, reduce_mean, sub};
 use crate::ops::{resolve_axis, InputList, IntoOpResult, OpError, Operator, Output};
 use crate::slice_reductions::{slice_max, slice_sum};
-use crate::{check_dims, static_dims};
+use crate::static_dims;
 
-/// Perform in-place batch normalization on the NCHW tensor `out`.
+/// Perform in-place batch normalization on the `NC*` tensor `out`.
 ///
 /// See <https://github.com/onnx/onnx/blob/main/docs/Operators.md#batchnormalization>.
 pub fn batch_norm_in_place(
@@ -21,8 +21,12 @@ pub fn batch_norm_in_place(
     var: &NdTensorView<f32, 1>,
     epsilon: f32,
 ) -> Result<(), OpError> {
-    let [batch, chans, in_h, in_w] = check_dims!(input, 4, "NCHW");
-    let mut input = input.nd_view_mut::<4>();
+    if input.ndim() < 3 {
+        return Err(OpError::InvalidValue("Input must have at least 3 dims"));
+    }
+
+    let batch = input.size(0);
+    let chans = input.size(1);
 
     for n in 0..batch {
         for c in 0..chans {
@@ -31,9 +35,6 @@ pub fn batch_norm_in_place(
             let chan_scale = scale[[c]];
             let chan_bias = bias[[c]];
 
-            let mut out_view = input.slice_mut([n, c]);
-            let mut out_view = out_view.weakly_checked_view_mut();
-
             // The batch norm formula, from the ONNX spec, is:
             //
             // Y = (X - input_mean) / sqrt(input_var + epsilon) * scale + bias
@@ -41,19 +42,16 @@ pub fn batch_norm_in_place(
             // It has been rewritten here to simplify the inner loop below.
             let scaled_std_dev_reciprocal = chan_scale / (chan_var + epsilon).sqrt();
 
-            for y in 0..in_h {
-                for x in 0..in_w {
-                    let el = &mut out_view[[y, x]];
-                    *el = (*el - chan_mean) * scaled_std_dev_reciprocal + chan_bias;
-                }
-            }
+            input
+                .slice_mut_dyn([n, c])
+                .apply(|el| (*el - chan_mean) * scaled_std_dev_reciprocal + chan_bias);
         }
     }
 
     Ok(())
 }
 
-/// Perform batch normalization on the NCHW tensor `input`.
+/// Perform batch normalization on the `NC*` tensor `input`.
 ///
 /// See <https://github.com/onnx/onnx/blob/main/docs/Operators.md#batchnormalization>.
 pub fn batch_norm(
@@ -449,6 +447,7 @@ mod tests {
     use rten_tensor::{tensor, Tensor};
 
     use crate::ops::tests::expect_eq_1e4;
+    use crate::ops::OpError;
     use crate::ops::{
         batch_norm, batch_norm_in_place, instance_normalization, layer_normalization, log_softmax,
         softmax,
@@ -456,17 +455,59 @@ mod tests {
 
     #[test]
     fn test_batch_norm() -> Result<(), Box<dyn Error>> {
-        let input = Tensor::from_data(&[1, 2, 1, 1], vec![1.0, 2.0]);
+        struct Case {
+            input: Tensor,
+        }
+
+        let cases = [
+            // 4D input (eg. NCHW image)
+            Case {
+                input: Tensor::from_data(&[1, 2, 1, 1], vec![1.0, 2.0]),
+            },
+            // 3D input (eg. NCT for audio)
+            Case {
+                input: Tensor::from_data(&[1, 2, 1], vec![1.0, 2.0]),
+            },
+        ];
+
+        for Case { input } in cases {
+            let scale = &[3.0, 3.0];
+            let bias = &[0.1, 0.2];
+            let mean = &[0.5, -0.5];
+            let var = &[1.0, 2.0];
+
+            let epsilon = 1e-5 as f32;
+
+            let flattened = input.reshaped([input.len()]);
+
+            let y1 = (flattened[[0]] - mean[0]) / (var[0] + epsilon).sqrt() * scale[0] + bias[0];
+            let y2 = (flattened[[1]] - mean[1]) / (var[1] + epsilon).sqrt() * scale[1] + bias[1];
+            let expected = Tensor::from_data(input.shape(), vec![y1, y2]);
+            let result = batch_norm(
+                input.view(),
+                &scale.into(),
+                &bias.into(),
+                &mean.into(),
+                &var.into(),
+                epsilon,
+            )
+            .unwrap();
+
+            expect_equal(&result, &expected)?;
+        }
+
+        Ok(())
+    }
+
+    #[test]
+    fn test_batch_norm_invalid() {
         let scale = &[3.0, 3.0];
         let bias = &[0.1, 0.2];
         let mean = &[0.5, -0.5];
         let var = &[1.0, 2.0];
-
         let epsilon = 1e-5 as f32;
+        let input = Tensor::zeros(&[2]);
 
-        let y1 = (input[[0, 0, 0, 0]] - mean[0]) / (var[0] + epsilon).sqrt() * scale[0] + bias[0];
-        let y2 = (input[[0, 1, 0, 0]] - mean[1]) / (var[1] + epsilon).sqrt() * scale[1] + bias[1];
-        let expected = Tensor::from_data(&[1, 2, 1, 1], vec![y1, y2]);
         let result = batch_norm(
             input.view(),
             &scale.into(),
@@ -474,12 +515,12 @@ mod tests {
             &mean.into(),
             &var.into(),
             epsilon,
-        )
-        .unwrap();
+        );
 
-        expect_equal(&result, &expected)?;
-
-        Ok(())
+        assert_eq!(
+            result,
+            Err(OpError::InvalidValue("Input must have at least 3 dims"))
+        );
     }
 
     #[test]
