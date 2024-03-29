@@ -349,6 +349,10 @@ impl_default_factory!(OneHot, read_onehot_op);
 impl_default_factory!(Or);
 impl_default_factory!(Pad);
 impl_default_factory!(Pow);
+
+#[cfg(feature = "random")]
+impl_default_factory!(RandomUniform, read_random_uniform_op);
+
 impl_default_factory!(Range);
 impl_default_factory!(Reciprocal);
 impl_default_factory!(ReduceL2, read_reduce_l2_op);
@@ -504,6 +508,10 @@ impl OpRegistry {
         register_op!(Or);
         register_op!(Pad);
         register_op!(Pow);
+
+        #[cfg(feature = "random")]
+        register_op!(RandomUniform);
+
         register_op!(Range);
         register_op!(Reciprocal);
         register_op!(ReduceL2);
@@ -817,6 +825,24 @@ fn read_non_max_suppression_op(node: &OperatorNode) -> ReadOpResult {
 }
 
 read_axis_op!(read_onehot_op, attrs_as_one_hot_attrs, OneHot);
+
+#[cfg(feature = "random")]
+fn read_random_uniform_op(node: &OperatorNode) -> ReadOpResult {
+    let attrs = node
+        .attrs_as_random_uniform_attrs()
+        .ok_or(ReadOpError::AttrError)?;
+    let shape = attrs
+        .shape()
+        .map(|shape| shape.iter().map(|size| size as usize).collect())
+        .unwrap_or(vec![]);
+
+    Ok(Box::new(ops::RandomUniform {
+        shape,
+        high: attrs.high(),
+        low: attrs.low(),
+        seed: attrs.seed(),
+    }))
+}
 
 fn read_reduce_attrs(node: &OperatorNode) -> Result<(Option<Vec<i32>>, bool), ReadOpError> {
     let attrs = node
@@ -1529,6 +1555,13 @@ mod tests {
         let pads = builder.add_int_constant(&Tensor::from_data(&[8], vec![0, 0, 1, 1, 0, 0, 1, 1]));
         add_operator!(Pad, [input_node, pads]);
         add_operator!(Pow, [input_node, input_node]);
+
+        add_operator!(RandomUniform, [], {
+            shape: vec![50, 50],
+            low: 0.,
+            high: 1.,
+            seed: None,
+        });
 
         let range_start_node = builder.add_value("range_start", None);
         let range_limit_node = builder.add_value("range_limit", None);

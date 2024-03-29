@@ -9,7 +9,7 @@ homepage = "https://github.com/robertknight/rten"
 repository = "https://github.com/robertknight/rten"
 
 [dev-dependencies]
-fastrand = "1.9.0"
+fastrand = "2.0.2"
 libm = "0.2.6"
 
 [lib]

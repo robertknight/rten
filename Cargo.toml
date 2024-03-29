@@ -27,6 +27,7 @@ description = "Machine learning runtime"
 license = "MIT OR Apache-2.0"
 homepage = "https://github.com/robertknight/rten"
 repository = "https://github.com/robertknight/rten"
+resolver = "2"
 
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 
@@ -37,8 +38,10 @@ rayon = "1.7.0"
 smallvec = { version = "1.10.0", features = ["union", "const_generics", "const_new"] }
 rten-tensor = { path = "./rten-tensor", version = "0.4.0" }
 rten-vecmath = { path = "./rten-vecmath", version = "0.4.0" }
+fastrand = { version = "2.0.2", optional = true }
 
 [dev-dependencies]
+rten = { path = ".", features = ["random"] }
 rten-bench = { path = "./rten-bench" }
 serde_json = "1.0.91"
 
@@ -50,6 +53,8 @@ crate-type = ["lib", "cdylib"]
 avx512 = ["rten-vecmath/avx512"]
 # Generate WebAssembly API using wasm-bindgen.
 wasm_api = []
+# Enable operators that generate random numbers.
+random = ["fastrand"]
 
 [target.'cfg(target_arch = "wasm32")'.dependencies]
 wasm-bindgen = "0.2.83"

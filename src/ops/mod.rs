@@ -34,6 +34,10 @@ mod non_max_suppression;
 mod norm;
 mod pad;
 mod pooling;
+
+#[cfg(feature = "random")]
+mod random;
+
 mod reduce;
 mod resize;
 mod rnn;
@@ -72,6 +76,10 @@ pub use pad::{pad, Pad};
 pub use pooling::{
     average_pool, global_average_pool, max_pool, AveragePool, GlobalAveragePool, MaxPool,
 };
+
+#[cfg(feature = "random")]
+pub use random::RandomUniform;
+
 pub use reduce::{
     arg_max, arg_min, cum_sum, nonzero, reduce_l2, reduce_max, reduce_mean, reduce_min,
     reduce_prod, reduce_sum, reduce_sum_square, topk, ArgMax, ArgMin, CumSum, NonZero, ReduceL2,
@@ -671,6 +679,11 @@ pub struct InputList<'a> {
 }
 
 impl<'a> InputList<'a> {
+    /// Construct an empty input list.
+    pub fn new() -> InputList<'static> {
+        InputList { inputs: vec![] }
+    }
+
     pub fn from<'b>(inputs: &[Input<'b>]) -> InputList<'b> {
         InputList {
             inputs: inputs.iter().cloned().map(Some).collect(),
