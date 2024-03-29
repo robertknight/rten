@@ -295,7 +295,7 @@ class ONNXOperatorReader:
                     f'Replacing unsupported value "{val}" for "{name}" attr in {op} op with "{fallback}"'
                 )
                 return convert_attr(fallback)
-            raise ValueError(f"Unsupported value {val} for {name} attr")
+            raise ValueError(f'Unsupported value "{val}" for "{name}" attr')
 
     def ignore_attr(self, name: str):
         """
