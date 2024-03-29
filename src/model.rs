@@ -704,10 +704,10 @@ fn read_gru_op(node: &OperatorNode) -> ReadOpResult {
 
     let hidden_size = attrs.hidden_size() as usize;
     let direction = match attrs.direction() {
-        sg::RNNDirection::Forwards => Direction::Forwards,
+        sg::RNNDirection::Forward => Direction::Forward,
         sg::RNNDirection::Reverse => Direction::Reverse,
         sg::RNNDirection::Bidirectional => Direction::Bidirectional,
-        _ => Direction::Forwards,
+        _ => Direction::Forward,
     };
 
     Ok(Box::new(ops::GRU {
@@ -762,10 +762,10 @@ fn read_lstm_op(node: &OperatorNode) -> ReadOpResult {
 
     let hidden_size = attrs.hidden_size() as usize;
     let direction = match attrs.direction() {
-        sg::RNNDirection::Forwards => Direction::Forwards,
+        sg::RNNDirection::Forward => Direction::Forward,
         sg::RNNDirection::Reverse => Direction::Reverse,
         sg::RNNDirection::Bidirectional => Direction::Bidirectional,
-        _ => Direction::Forwards,
+        _ => Direction::Forward,
     };
 
     Ok(Box::new(ops::LSTM {

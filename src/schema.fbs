@@ -108,7 +108,7 @@ enum OperatorType: ubyte {
 }
 
 enum RNNDirection: ubyte {
-  Forwards,
+  Forward,
   Reverse,
   Bidirectional
 }

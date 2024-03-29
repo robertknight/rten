@@ -15,7 +15,7 @@ use crate::ops::{
 /// Direction that an RNN operator will traverse the input sequence in.
 #[derive(Copy, Clone, Debug)]
 pub enum Direction {
-    Forwards,
+    Forward,
     Reverse,
     Bidirectional,
 }
@@ -24,16 +24,16 @@ impl Direction {
     /// Number of directions that an RNN operator will traverse the sequence in.
     pub fn num_directions(self) -> usize {
         match self {
-            Self::Forwards | Self::Reverse => 1,
+            Self::Forward | Self::Reverse => 1,
             Self::Bidirectional => 2,
         }
     }
 }
 
-/// Forwards or backwards iterator over values in a range.
+/// Forward or backward iterator over values in a range.
 enum Sequence {
-    Forwards(Range<usize>),
-    Backwards(Rev<Range<usize>>),
+    Forward(Range<usize>),
+    Backward(Rev<Range<usize>>),
 }
 
 impl Iterator for Sequence {
@@ -41,8 +41,8 @@ impl Iterator for Sequence {
 
     fn next(&mut self) -> Option<usize> {
         match self {
-            Sequence::Forwards(range) => range.next(),
-            Sequence::Backwards(rev_range) => rev_range.next(),
+            Sequence::Forward(range) => range.next(),
+            Sequence::Backward(rev_range) => rev_range.next(),
         }
     }
 }
@@ -57,9 +57,9 @@ fn sequence_for_dir(op_dirs: Direction, dir: usize, seq_len: usize) -> Sequence 
         (0, Direction::Reverse) | (1, Direction::Bidirectional)
     );
     if reversed {
-        Sequence::Backwards((0..seq_len).rev())
+        Sequence::Backward((0..seq_len).rev())
     } else {
-        Sequence::Forwards(0..seq_len)
+        Sequence::Forward(0..seq_len)
     }
 }
 
@@ -1045,11 +1045,11 @@ mod tests {
         let cases = &[
             Case {
                 name: "lstm_forwards",
-                dir: Direction::Forwards,
+                dir: Direction::Forward,
             },
             Case {
                 name: "lstm_initial",
-                dir: Direction::Forwards,
+                dir: Direction::Forward,
             },
             Case {
                 name: "lstm_bidirectional",
@@ -1057,11 +1057,11 @@ mod tests {
             },
             Case {
                 name: "gru_forwards",
-                dir: Direction::Forwards,
+                dir: Direction::Forward,
             },
             Case {
                 name: "gru_initial",
-                dir: Direction::Forwards,
+                dir: Direction::Forward,
             },
             Case {
                 name: "gru_bidirectional",
