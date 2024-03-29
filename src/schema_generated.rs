@@ -492,7 +492,7 @@ pub const ENUM_MAX_RNNDIRECTION: u8 = 2;
 )]
 #[allow(non_camel_case_types)]
 pub const ENUM_VALUES_RNNDIRECTION: [RNNDirection; 3] = [
-    RNNDirection::Forwards,
+    RNNDirection::Forward,
     RNNDirection::Reverse,
     RNNDirection::Bidirectional,
 ];
@@ -502,17 +502,17 @@ pub const ENUM_VALUES_RNNDIRECTION: [RNNDirection; 3] = [
 pub struct RNNDirection(pub u8);
 #[allow(non_upper_case_globals)]
 impl RNNDirection {
-    pub const Forwards: Self = Self(0);
+    pub const Forward: Self = Self(0);
     pub const Reverse: Self = Self(1);
     pub const Bidirectional: Self = Self(2);
 
     pub const ENUM_MIN: u8 = 0;
     pub const ENUM_MAX: u8 = 2;
-    pub const ENUM_VALUES: &'static [Self] = &[Self::Forwards, Self::Reverse, Self::Bidirectional];
+    pub const ENUM_VALUES: &'static [Self] = &[Self::Forward, Self::Reverse, Self::Bidirectional];
     /// Returns the variant's name or "" if unknown.
     pub fn variant_name(self) -> Option<&'static str> {
         match self {
-            Self::Forwards => Some("Forwards"),
+            Self::Forward => Some("Forward"),
             Self::Reverse => Some("Reverse"),
             Self::Bidirectional => Some("Bidirectional"),
             _ => None,
@@ -3662,7 +3662,7 @@ impl<'a> GRUAttrs<'a> {
         // which contains a valid value in this slot
         unsafe {
             self._tab
-                .get::<RNNDirection>(GRUAttrs::VT_DIRECTION, Some(RNNDirection::Forwards))
+                .get::<RNNDirection>(GRUAttrs::VT_DIRECTION, Some(RNNDirection::Forward))
                 .unwrap()
         }
     }
@@ -3714,7 +3714,7 @@ impl<'a> Default for GRUAttrsArgs {
     #[inline]
     fn default() -> Self {
         GRUAttrsArgs {
-            direction: RNNDirection::Forwards,
+            direction: RNNDirection::Forward,
             hidden_size: 0,
             linear_before_reset: false,
         }
@@ -3731,7 +3731,7 @@ impl<'a: 'b, 'b> GRUAttrsBuilder<'a, 'b> {
         self.fbb_.push_slot::<RNNDirection>(
             GRUAttrs::VT_DIRECTION,
             direction,
-            RNNDirection::Forwards,
+            RNNDirection::Forward,
         );
     }
     #[inline]
@@ -4041,7 +4041,7 @@ impl<'a> LSTMAttrs<'a> {
         // which contains a valid value in this slot
         unsafe {
             self._tab
-                .get::<RNNDirection>(LSTMAttrs::VT_DIRECTION, Some(RNNDirection::Forwards))
+                .get::<RNNDirection>(LSTMAttrs::VT_DIRECTION, Some(RNNDirection::Forward))
                 .unwrap()
         }
     }
@@ -4080,7 +4080,7 @@ impl<'a> Default for LSTMAttrsArgs {
     #[inline]
     fn default() -> Self {
         LSTMAttrsArgs {
-            direction: RNNDirection::Forwards,
+            direction: RNNDirection::Forward,
             hidden_size: 0,
         }
     }
@@ -4096,7 +4096,7 @@ impl<'a: 'b, 'b> LSTMAttrsBuilder<'a, 'b> {
         self.fbb_.push_slot::<RNNDirection>(
             LSTMAttrs::VT_DIRECTION,
             direction,
-            RNNDirection::Forwards,
+            RNNDirection::Forward,
         );
     }
     #[inline]

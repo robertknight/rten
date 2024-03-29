@@ -105,7 +105,7 @@ class OperatorType(object):
 
 
 class RNNDirection(object):
-    Forwards = 0
+    Forward = 0
     Reverse = 1
     Bidirectional = 2
 
