@@ -417,7 +417,11 @@ impl OpRegistry {
     fn read_op(&self, op: &OperatorNode) -> ReadOpResult {
         self.ops
             .get(&op.type_())
-            .ok_or(ReadOpError::UnsupportedOperator)
+            .ok_or_else(|| {
+                ReadOpError::UnsupportedOperator(
+                    op.type_().variant_name().unwrap_or("(unknown)").to_string(),
+                )
+            })
             .and_then(|read_fn| read_fn(op))
     }
 
@@ -542,19 +546,21 @@ impl OpRegistry {
 }
 
 /// Error type for errors that occur when de-serializing an operator.
-#[derive(Debug)]
+#[derive(Debug, PartialEq)]
 pub enum ReadOpError {
     /// The operator attributes were missing or of the wrong type.
     AttrError,
     /// The operator type is incorrect or unsupported.
-    UnsupportedOperator,
+    UnsupportedOperator(String),
 }
 
 impl Display for ReadOpError {
     fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
         match self {
             ReadOpError::AttrError => write!(f, "invalid attributes for operator"),
-            ReadOpError::UnsupportedOperator => write!(f, "unsupported operator"),
+            ReadOpError::UnsupportedOperator(name) => {
+                write!(f, "operator {name} is not supported or not enabled")
+            }
         }
     }
 }
@@ -944,7 +950,7 @@ fn read_trilu_op(node: &OperatorNode) -> ReadOpResult {
 }
 
 /// Errors reported by [Model::load].
-#[derive(Debug)]
+#[derive(Debug, PartialEq)]
 pub enum ModelLoadError {
     SchemaVersionUnsupported,
 
@@ -1145,6 +1151,7 @@ mod tests {
     use crate::model_builder::{MetadataArgs, ModelBuilder, OpType};
     use crate::ops;
     use crate::ops::{BoxOrder, CoordTransformMode, NearestMode, OpError, ResizeMode, Scalar};
+    use crate::{ModelLoadError, OpRegistry, ReadOpError};
 
     fn generate_model_buffer() -> Vec<u8> {
         let mut builder = ModelBuilder::new();
@@ -1202,6 +1209,19 @@ mod tests {
         assert_eq!(
             model.node_id("does_not_exist"),
             Err(RunError::InvalidNodeName("does_not_exist".to_string()))
+        );
+    }
+
+    #[test]
+    fn test_unsupported_operator() {
+        let buffer = generate_model_buffer();
+        let registry = OpRegistry::new();
+        let result = Model::load_with_ops(&buffer, &registry);
+        assert_eq!(
+            result.err(),
+            Some(ModelLoadError::OperatorInvalid(
+                ReadOpError::UnsupportedOperator("Concat".to_string())
+            ))
         );
     }
 
