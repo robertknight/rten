@@ -1,8 +1,10 @@
 //! rten is a runtime for machine learning models.
 //!
-//! RTen uses models that are exported from other frameworks such as
-//! PyTorch into [ONNX](https://onnx.ai) format and then converted into the
+//! RTen uses models that are exported from other frameworks such as PyTorch
+//! into [ONNX](https://onnx.ai) format and then converted into the
 //! inference-optimized `.rten` format by the tools in this repository.
+//!
+//! # Loading and running models
 //!
 //! The basic workflow for loading and running a model is:
 //!
@@ -18,7 +20,21 @@
 //! See the example projects in [rten-examples][rten_examples] to see how all
 //! these pieces fit together.
 //!
+//! # Supported operators
+//!
+//! RTen currently implements a subset of [ONNX operators][onnx_operators]. See
+//! the [`schema.fbs` FlatBuffers schema][schema_fbs] for currently supported
+//! operators and attributes.
+//!
+//! Some operators require additional dependencies and are only available if
+//! certain crate features are enabled:
+//!
+//! - The `random` feature enables operators that generate random numbers (eg.
+//!   `RandomUniform`).
+//!
 //! [rten_examples]: https://github.com/robertknight/rten/tree/main/rten-examples
+//! [onnx_operators]: https://onnx.ai/onnx/operators/
+//! [schema_fbs]: https://github.com/robertknight/rten/blob/main/src/schema.fbs
 #![cfg_attr(
     feature = "avx512",
     feature(stdarch_x86_avx512),
