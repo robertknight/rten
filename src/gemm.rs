@@ -407,46 +407,36 @@ impl GemmExecutor {
 
     /// Prepack a matrix for use as the left-hand or "A" input.
     pub fn prepack_a(&self, a: Matrix) -> PackedAMatrix<'static> {
-        let mut data = Vec::new();
-        let packed = self.prepack_a_into(a, &mut data);
-        let rows = packed.rows;
-        let cols = packed.cols;
-        let panel_len = packed.panel_len;
-        let row_blocks = packed.row_blocks;
-
-        PackedAMatrix {
-            data: Cow::Owned(data),
-            rows,
-            cols,
-            panel_len,
-            row_blocks,
-        }
-    }
-
-    /// Prepack a matrix for use as the left-hand or "A" input, re-using an
-    /// existing buffer which will be resized as needed.
-    fn prepack_a_into<'a>(&self, a: Matrix, out: &'a mut Vec<f32>) -> PackedAMatrix<'a> {
         let kc = depth_block_size(a.cols());
         let mc = row_block_size(a.rows(), self.mr);
         let panel_len = kc * mc;
         let row_blocks = div_ceil(a.rows(), mc);
         let depth_blocks = div_ceil(a.cols(), kc);
 
-        out.resize(depth_blocks * row_blocks * panel_len, 0.);
+        let packed_len = depth_blocks * row_blocks * panel_len;
+        let mut data = Vec::with_capacity(packed_len);
 
         // Pack blocks in the order they will be accessed by the GEMM
         // implementation.
-        let mut out_panels = out.chunks_exact_mut(panel_len);
+        let mut out_panels = data.spare_capacity_mut()[..packed_len].chunks_exact_mut(panel_len);
+        let mut n_init = 0;
         for depth_range in range_chunks(0..a.cols(), kc) {
             for row_range in range_chunks(0..a.rows(), mc) {
                 let out_panel = out_panels.next().unwrap();
                 self.kernel
                     .pack_a_block(out_panel, a, row_range, depth_range.clone());
+                n_init += out_panel.len();
             }
         }
 
+        // Safety: We used `pack_a_block` to initialize `packed_len` elements.
+        assert!(n_init == packed_len);
+        unsafe {
+            data.set_len(packed_len);
+        }
+
         PackedAMatrix {
-            data: Cow::Borrowed(out),
+            data: Cow::Owned(data),
             rows: a.rows(),
             cols: a.cols(),
             panel_len,
@@ -462,17 +452,26 @@ impl GemmExecutor {
         let depth_blocks = div_ceil(a_cols, kc);
         let col_blocks = div_ceil(b.cols(), nc);
 
-        let mut out = vec![0.; col_blocks * depth_blocks * panel_len];
+        let packed_len = col_blocks * depth_blocks * panel_len;
+        let mut out = Vec::with_capacity(packed_len);
 
         // Pack blocks in the order they will be accessed by the GEMM
         // implementation.
-        let mut out_panels = out.chunks_exact_mut(panel_len);
+        let mut out_panels = out.spare_capacity_mut()[..packed_len].chunks_exact_mut(panel_len);
+        let mut n_init = 0;
         for col_range in range_chunks(0..b.cols(), nc) {
             for depth_range in range_chunks(0..a_cols, kc) {
                 let out_panel = out_panels.next().unwrap();
                 self.kernel
                     .pack_b_block(out_panel, b, depth_range, col_range.clone());
+                n_init += out_panel.len();
             }
+        }
+
+        // Safety: We used `pack_b_block` to initialize `packed_len` elements.
+        assert!(n_init == packed_len);
+        unsafe {
+            out.set_len(packed_len);
         }
 
         PackedBMatrix {
@@ -791,13 +790,19 @@ fn gemm_impl<K: Kernel, const MR_NR: usize>(
                 let packed_b = match b {
                     GemmInputB::Unpacked(b) => PACKED_B.with(|cell| {
                         let mut packed_b = cell.take();
-                        packed_b.resize(packed_b_size, 0.);
+                        packed_b.clear();
+                        packed_b.reserve(packed_b_size);
                         pack_b_block::<K>(
-                            &mut packed_b,
+                            &mut packed_b.spare_capacity_mut()[..packed_b_size],
                             b,
                             depth_range.clone(),
                             col_start..col_end,
                         );
+                        // Safety: pack_b_block initialized `packed_b_size`
+                        // elements.
+                        unsafe {
+                            packed_b.set_len(packed_b_size);
+                        }
                         thread_local_packed_b = Some(packed_b);
                         thread_local_packed_b.as_deref().unwrap()
                     }),
@@ -834,13 +839,19 @@ fn gemm_impl<K: Kernel, const MR_NR: usize>(
                         let packed_a = match a {
                             GemmInputA::Unpacked(a) => PACKED_A.with(|cell| {
                                 let mut packed_a = cell.take();
-                                packed_a.resize(packed_a_size, 0.);
+                                packed_a.clear();
+                                packed_a.reserve(packed_a_size);
                                 pack_a_block::<K>(
-                                    &mut packed_a,
+                                    &mut packed_a.spare_capacity_mut()[..packed_a_size],
                                     a,
                                     row_start..row_end,
                                     depth_range.clone(),
                                 );
+                                // Safety: `pack_a_block` will have initialized
+                                // `packed_a_size` elements.
+                                unsafe {
+                                    packed_a.set_len(packed_a_size);
+                                }
                                 thread_local_packed_a = Some(packed_a);
                                 thread_local_packed_a.as_deref().unwrap()
                             }),
@@ -1704,29 +1715,6 @@ mod tests {
                 gflops,
             );
         }
-    }
-
-    #[test]
-    #[ignore]
-    fn bench_pack_a() {
-        let gemm = GemmExecutor::new();
-        let mut rng = XorShiftRng::new(1234);
-        let m = 1024;
-        let n = 1024;
-        let iters = 1000;
-        let a = NdTensor::rand([m, n], &mut rng);
-
-        // Re-use a buffer across each call, so we measure the packing cost and
-        // not the allocation cost. This is appropriate for measuring packing
-        // cost for GEMM ops with unpacked inputs, as a thread-local packing
-        // buffer is allocated once and then re-used.
-        let mut packed_data = Vec::new();
-
-        run_bench(10, &format!("m {} n {} iters {}", m, n, iters), || {
-            for _i in 0..iters {
-                gemm.prepack_a_into(a.view(), &mut packed_data);
-            }
-        });
     }
 
     // Like `bench_pack_a`, but this does include allocation costs, so is
