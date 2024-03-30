@@ -15,6 +15,9 @@ use crate::ops::{
 };
 use crate::schema_generated as sg;
 
+#[cfg(feature = "random")]
+use crate::ops::RandomUniform;
+
 /// Enum of all the built-in operators
 pub enum OpType {
     Abs,
@@ -73,6 +76,10 @@ pub enum OpType {
     Or,
     Pad,
     Pow,
+
+    #[cfg(feature = "random")]
+    RandomUniform(RandomUniform),
+
     Range,
     Reciprocal,
     ReduceMax(ReduceMax),
@@ -552,6 +559,20 @@ impl<'a> ModelBuilder<'a> {
             }
             OpType::Pad => op!(Pad),
             OpType::Pow => op!(Pow),
+
+            #[cfg(feature = "random")]
+            OpType::RandomUniform(args) => {
+                let shape = self.create_vec(Some(args.shape), |size| size as u32);
+                op_with_attrs!(RandomUniform, RandomUniformAttrs, {
+                    sg::RandomUniformAttrsArgs {
+                        high: args.high,
+                        low: args.low,
+                        seed: args.seed,
+                        shape,
+                    }
+                })
+            }
+
             OpType::Range => op!(Range),
             OpType::Reciprocal => op!(Reciprocal),
             OpType::ReduceMax(args) => {

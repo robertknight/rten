@@ -102,6 +102,7 @@ class OperatorType(object):
     GatherElements = 92
     LayerNormalization = 93
     ReduceSumSquare = 94
+    RandomUniform = 95
 
 
 class RNNDirection(object):
@@ -170,6 +171,7 @@ class OperatorAttrs(object):
     ScatterNDAttrs = 28
     NonMaxSuppressionAttrs = 29
     LayerNormalizationAttrs = 30
+    RandomUniformAttrs = 31
 
 def OperatorAttrsCreator(unionType, table):
     from flatbuffers.table import Table
@@ -235,6 +237,8 @@ def OperatorAttrsCreator(unionType, table):
         return NonMaxSuppressionAttrsT.InitFromBuf(table.Bytes, table.Pos)
     if unionType == OperatorAttrs().LayerNormalizationAttrs:
         return LayerNormalizationAttrsT.InitFromBuf(table.Bytes, table.Pos)
+    if unionType == OperatorAttrs().RandomUniformAttrs:
+        return RandomUniformAttrsT.InitFromBuf(table.Bytes, table.Pos)
     return None
 
 
@@ -2675,6 +2679,164 @@ class OneHotAttrsT(object):
         return oneHotAttrs
 
 
+class RandomUniformAttrs(object):
+    __slots__ = ['_tab']
+
+    @classmethod
+    def GetRootAs(cls, buf, offset=0):
+        n = flatbuffers.encode.Get(flatbuffers.packer.uoffset, buf, offset)
+        x = RandomUniformAttrs()
+        x.Init(buf, n + offset)
+        return x
+
+    @classmethod
+    def GetRootAsRandomUniformAttrs(cls, buf, offset=0):
+        """This method is deprecated. Please switch to GetRootAs."""
+        return cls.GetRootAs(buf, offset)
+    @classmethod
+    def RandomUniformAttrsBufferHasIdentifier(cls, buf, offset, size_prefixed=False):
+        return flatbuffers.util.BufferHasIdentifier(buf, offset, b"\x52\x54\x45\x4E", size_prefixed=size_prefixed)
+
+    # RandomUniformAttrs
+    def Init(self, buf, pos):
+        self._tab = flatbuffers.table.Table(buf, pos)
+
+    # RandomUniformAttrs
+    def Shape(self, j):
+        o = flatbuffers.number_types.UOffsetTFlags.py_type(self._tab.Offset(4))
+        if o != 0:
+            a = self._tab.Vector(o)
+            return self._tab.Get(flatbuffers.number_types.Uint32Flags, a + flatbuffers.number_types.UOffsetTFlags.py_type(j * 4))
+        return 0
+
+    # RandomUniformAttrs
+    def ShapeAsNumpy(self):
+        o = flatbuffers.number_types.UOffsetTFlags.py_type(self._tab.Offset(4))
+        if o != 0:
+            return self._tab.GetVectorAsNumpy(flatbuffers.number_types.Uint32Flags, o)
+        return 0
+
+    # RandomUniformAttrs
+    def ShapeLength(self):
+        o = flatbuffers.number_types.UOffsetTFlags.py_type(self._tab.Offset(4))
+        if o != 0:
+            return self._tab.VectorLen(o)
+        return 0
+
+    # RandomUniformAttrs
+    def ShapeIsNone(self):
+        o = flatbuffers.number_types.UOffsetTFlags.py_type(self._tab.Offset(4))
+        return o == 0
+
+    # RandomUniformAttrs
+    def High(self):
+        o = flatbuffers.number_types.UOffsetTFlags.py_type(self._tab.Offset(6))
+        if o != 0:
+            return self._tab.Get(flatbuffers.number_types.Float32Flags, o + self._tab.Pos)
+        return 0.0
+
+    # RandomUniformAttrs
+    def Low(self):
+        o = flatbuffers.number_types.UOffsetTFlags.py_type(self._tab.Offset(8))
+        if o != 0:
+            return self._tab.Get(flatbuffers.number_types.Float32Flags, o + self._tab.Pos)
+        return 0.0
+
+    # RandomUniformAttrs
+    def Seed(self):
+        o = flatbuffers.number_types.UOffsetTFlags.py_type(self._tab.Offset(10))
+        if o != 0:
+            return self._tab.Get(flatbuffers.number_types.Float32Flags, o + self._tab.Pos)
+        return None
+
+def RandomUniformAttrsStart(builder):
+    builder.StartObject(4)
+
+def RandomUniformAttrsAddShape(builder, shape):
+    builder.PrependUOffsetTRelativeSlot(0, flatbuffers.number_types.UOffsetTFlags.py_type(shape), 0)
+
+def RandomUniformAttrsStartShapeVector(builder, numElems):
+    return builder.StartVector(4, numElems, 4)
+
+def RandomUniformAttrsAddHigh(builder, high):
+    builder.PrependFloat32Slot(1, high, 0.0)
+
+def RandomUniformAttrsAddLow(builder, low):
+    builder.PrependFloat32Slot(2, low, 0.0)
+
+def RandomUniformAttrsAddSeed(builder, seed):
+    builder.PrependFloat32Slot(3, seed, None)
+
+def RandomUniformAttrsEnd(builder):
+    return builder.EndObject()
+
+
+try:
+    from typing import List
+except:
+    pass
+
+class RandomUniformAttrsT(object):
+
+    # RandomUniformAttrsT
+    def __init__(self):
+        self.shape = None  # type: List[int]
+        self.high = 0.0  # type: float
+        self.low = 0.0  # type: float
+        self.seed = None  # type: Optional[float]
+
+    @classmethod
+    def InitFromBuf(cls, buf, pos):
+        randomUniformAttrs = RandomUniformAttrs()
+        randomUniformAttrs.Init(buf, pos)
+        return cls.InitFromObj(randomUniformAttrs)
+
+    @classmethod
+    def InitFromPackedBuf(cls, buf, pos=0):
+        n = flatbuffers.encode.Get(flatbuffers.packer.uoffset, buf, pos)
+        return cls.InitFromBuf(buf, pos+n)
+
+    @classmethod
+    def InitFromObj(cls, randomUniformAttrs):
+        x = RandomUniformAttrsT()
+        x._UnPack(randomUniformAttrs)
+        return x
+
+    # RandomUniformAttrsT
+    def _UnPack(self, randomUniformAttrs):
+        if randomUniformAttrs is None:
+            return
+        if not randomUniformAttrs.ShapeIsNone():
+            if np is None:
+                self.shape = []
+                for i in range(randomUniformAttrs.ShapeLength()):
+                    self.shape.append(randomUniformAttrs.Shape(i))
+            else:
+                self.shape = randomUniformAttrs.ShapeAsNumpy()
+        self.high = randomUniformAttrs.High()
+        self.low = randomUniformAttrs.Low()
+        self.seed = randomUniformAttrs.Seed()
+
+    # RandomUniformAttrsT
+    def Pack(self, builder):
+        if self.shape is not None:
+            if np is not None and type(self.shape) is np.ndarray:
+                shape = builder.CreateNumpyVector(self.shape)
+            else:
+                RandomUniformAttrsStartShapeVector(builder, len(self.shape))
+                for i in reversed(range(len(self.shape))):
+                    builder.PrependUint32(self.shape[i])
+                shape = builder.EndVector()
+        RandomUniformAttrsStart(builder)
+        if self.shape is not None:
+            RandomUniformAttrsAddShape(builder, shape)
+        RandomUniformAttrsAddHigh(builder, self.high)
+        RandomUniformAttrsAddLow(builder, self.low)
+        RandomUniformAttrsAddSeed(builder, self.seed)
+        randomUniformAttrs = RandomUniformAttrsEnd(builder)
+        return randomUniformAttrs
+
+
 class ReduceMeanAttrs(object):
     __slots__ = ['_tab']
 
@@ -3746,7 +3908,7 @@ class OperatorNodeT(object):
     def __init__(self):
         self.type = 0  # type: int
         self.attrsType = 0  # type: int
-        self.attrs = None  # type: Union[None, ArgMaxAttrsT, AveragePoolAttrsT, BatchNormalizationAttrsT, CastAttrsT, ConcatAttrsT, ConstantOfShapeAttrsT, ConvAttrsT, ConvTransposeAttrsT, FlattenAttrsT, GatherAttrsT, GemmAttrsT, GRUAttrsT, LeakyReluAttrsT, LSTMAttrsT, MaxPoolAttrsT, ReduceMeanAttrsT, ReshapeAttrsT, ResizeAttrsT, SplitAttrsT, SoftmaxAttrsT, TransposeAttrsT, ModAttrsT, ScatterElementsAttrsT, OneHotAttrsT, TopKAttrsT, HardSigmoidAttrsT, TriluAttrsT, ScatterNDAttrsT, NonMaxSuppressionAttrsT, LayerNormalizationAttrsT]
+        self.attrs = None  # type: Union[None, ArgMaxAttrsT, AveragePoolAttrsT, BatchNormalizationAttrsT, CastAttrsT, ConcatAttrsT, ConstantOfShapeAttrsT, ConvAttrsT, ConvTransposeAttrsT, FlattenAttrsT, GatherAttrsT, GemmAttrsT, GRUAttrsT, LeakyReluAttrsT, LSTMAttrsT, MaxPoolAttrsT, ReduceMeanAttrsT, ReshapeAttrsT, ResizeAttrsT, SplitAttrsT, SoftmaxAttrsT, TransposeAttrsT, ModAttrsT, ScatterElementsAttrsT, OneHotAttrsT, TopKAttrsT, HardSigmoidAttrsT, TriluAttrsT, ScatterNDAttrsT, NonMaxSuppressionAttrsT, LayerNormalizationAttrsT, RandomUniformAttrsT]
         self.inputs = None  # type: List[int]
         self.outputs = None  # type: List[int]
 

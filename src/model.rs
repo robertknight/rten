@@ -349,6 +349,10 @@ impl_default_factory!(OneHot, read_onehot_op);
 impl_default_factory!(Or);
 impl_default_factory!(Pad);
 impl_default_factory!(Pow);
+
+#[cfg(feature = "random")]
+impl_default_factory!(RandomUniform, read_random_uniform_op);
+
 impl_default_factory!(Range);
 impl_default_factory!(Reciprocal);
 impl_default_factory!(ReduceL2, read_reduce_l2_op);
@@ -417,7 +421,11 @@ impl OpRegistry {
     fn read_op(&self, op: &OperatorNode) -> ReadOpResult {
         self.ops
             .get(&op.type_())
-            .ok_or(ReadOpError::UnsupportedOperator)
+            .ok_or_else(|| {
+                ReadOpError::UnsupportedOperator(
+                    op.type_().variant_name().unwrap_or("(unknown)").to_string(),
+                )
+            })
             .and_then(|read_fn| read_fn(op))
     }
 
@@ -500,6 +508,10 @@ impl OpRegistry {
         register_op!(Or);
         register_op!(Pad);
         register_op!(Pow);
+
+        #[cfg(feature = "random")]
+        register_op!(RandomUniform);
+
         register_op!(Range);
         register_op!(Reciprocal);
         register_op!(ReduceL2);
@@ -542,19 +554,21 @@ impl OpRegistry {
 }
 
 /// Error type for errors that occur when de-serializing an operator.
-#[derive(Debug)]
+#[derive(Debug, PartialEq)]
 pub enum ReadOpError {
     /// The operator attributes were missing or of the wrong type.
     AttrError,
     /// The operator type is incorrect or unsupported.
-    UnsupportedOperator,
+    UnsupportedOperator(String),
 }
 
 impl Display for ReadOpError {
     fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
         match self {
             ReadOpError::AttrError => write!(f, "invalid attributes for operator"),
-            ReadOpError::UnsupportedOperator => write!(f, "unsupported operator"),
+            ReadOpError::UnsupportedOperator(name) => {
+                write!(f, "operator {name} is not supported or not enabled")
+            }
         }
     }
 }
@@ -812,6 +826,24 @@ fn read_non_max_suppression_op(node: &OperatorNode) -> ReadOpResult {
 
 read_axis_op!(read_onehot_op, attrs_as_one_hot_attrs, OneHot);
 
+#[cfg(feature = "random")]
+fn read_random_uniform_op(node: &OperatorNode) -> ReadOpResult {
+    let attrs = node
+        .attrs_as_random_uniform_attrs()
+        .ok_or(ReadOpError::AttrError)?;
+    let shape = attrs
+        .shape()
+        .map(|shape| shape.iter().map(|size| size as usize).collect())
+        .unwrap_or(vec![]);
+
+    Ok(Box::new(ops::RandomUniform {
+        shape,
+        high: attrs.high(),
+        low: attrs.low(),
+        seed: attrs.seed(),
+    }))
+}
+
 fn read_reduce_attrs(node: &OperatorNode) -> Result<(Option<Vec<i32>>, bool), ReadOpError> {
     let attrs = node
         .attrs_as_reduce_mean_attrs()
@@ -944,7 +976,7 @@ fn read_trilu_op(node: &OperatorNode) -> ReadOpResult {
 }
 
 /// Errors reported by [Model::load].
-#[derive(Debug)]
+#[derive(Debug, PartialEq)]
 pub enum ModelLoadError {
     SchemaVersionUnsupported,
 
@@ -1145,6 +1177,7 @@ mod tests {
     use crate::model_builder::{MetadataArgs, ModelBuilder, OpType};
     use crate::ops;
     use crate::ops::{BoxOrder, CoordTransformMode, NearestMode, OpError, ResizeMode, Scalar};
+    use crate::{ModelLoadError, OpRegistry, ReadOpError};
 
     fn generate_model_buffer() -> Vec<u8> {
         let mut builder = ModelBuilder::new();
@@ -1202,6 +1235,19 @@ mod tests {
         assert_eq!(
             model.node_id("does_not_exist"),
             Err(RunError::InvalidNodeName("does_not_exist".to_string()))
+        );
+    }
+
+    #[test]
+    fn test_unsupported_operator() {
+        let buffer = generate_model_buffer();
+        let registry = OpRegistry::new();
+        let result = Model::load_with_ops(&buffer, &registry);
+        assert_eq!(
+            result.err(),
+            Some(ModelLoadError::OperatorInvalid(
+                ReadOpError::UnsupportedOperator("Concat".to_string())
+            ))
         );
     }
 
@@ -1509,6 +1555,13 @@ mod tests {
         let pads = builder.add_int_constant(&Tensor::from_data(&[8], vec![0, 0, 1, 1, 0, 0, 1, 1]));
         add_operator!(Pad, [input_node, pads]);
         add_operator!(Pow, [input_node, input_node]);
+
+        add_operator!(RandomUniform, [], {
+            shape: vec![50, 50],
+            low: 0.,
+            high: 1.,
+            seed: None,
+        });
 
         let range_start_node = builder.add_value("range_start", None);
         let range_limit_node = builder.add_value("range_limit", None);

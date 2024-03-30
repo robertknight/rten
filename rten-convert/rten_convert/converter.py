@@ -798,6 +798,15 @@ def op_node_from_onnx_operator(
             attrs = sg.OneHotAttrsT()
             attrs.axis = op_reader.get_attr("axis", "int", -1)
 
+        case "RandomUniform":
+            attrs = sg.RandomUniformAttrsT()
+            op_reader.check_attr("dtype", "int", 1)
+
+            attrs.seed = op_reader.get_attr("seed", "float", None)
+            attrs.shape = op_reader.require_attr("shape", "ints")
+            attrs.low = op_reader.get_attr("low", "float", 0.0)
+            attrs.high = op_reader.get_attr("high", "float", 1.0)
+
         case (
             "ReduceL2"
             | "ReduceMax"
