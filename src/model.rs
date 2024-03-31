@@ -117,12 +117,146 @@ impl Model {
     /// [OpRegistry::with_all_ops]).
     pub fn load(data: &[u8]) -> Result<Model, ModelLoadError> {
         let registry = OpRegistry::with_all_ops();
-        load_model(data, &registry)
+        Self::load_with_ops(data, &registry)
     }
 
     /// Load a serialized model with a custom operator registry.
     pub fn load_with_ops(data: &[u8], registry: &OpRegistry) -> Result<Model, ModelLoadError> {
-        load_model(data, registry)
+        let model = root_as_model(data).map_err(ModelLoadError::ParseFailed)?;
+
+        if model.schema_version() != 1 {
+            return Err(ModelLoadError::SchemaVersionUnsupported);
+        }
+
+        let mut graph = Graph::new();
+
+        let node_count = model.graph().nodes().map(|ns| ns.len()).unwrap_or(0);
+
+        // Map of model node name to graph node ID
+        let mut node_id_from_name: HashMap<String, NodeId> = HashMap::with_capacity(node_count);
+
+        // Map of model node index to graph node ID
+        let mut node_id_from_index: HashMap<usize, NodeId> = HashMap::with_capacity(node_count);
+
+        let mut add_node_id = |name: Option<&str>, graph_node| {
+            if let Some(name) = name {
+                node_id_from_name.insert(name.to_string(), graph_node);
+            }
+        };
+
+        let input_ids = model
+            .graph()
+            .inputs()
+            .map(|ids| ids.iter().map(|id| id as NodeId).collect())
+            .unwrap_or_default();
+
+        let output_ids = model
+            .graph()
+            .outputs()
+            .map(|ids| ids.iter().map(|id| id as NodeId).collect())
+            .unwrap_or_default();
+
+        if let Some(nodes) = model.graph().nodes() {
+            for (node_index, node) in nodes.iter().enumerate() {
+                if let Some(operator) = node.data_as_operator_node() {
+                    let op = registry
+                        .read_op(&operator)
+                        .map_err(ModelLoadError::OperatorInvalid)?;
+
+                    let mut inputs: Vec<Option<NodeId>> = Vec::new();
+                    if let Some(op_input_ids) = operator.inputs() {
+                        for node_index in op_input_ids.iter() {
+                            if node_index < 0 {
+                                inputs.push(None);
+                                continue;
+                            }
+                            let index_usize = node_index as usize;
+                            if let Some(node_id) = node_id_from_index.get(&index_usize) {
+                                inputs.push(Some(*node_id))
+                            } else {
+                                return Err(ModelLoadError::GraphError(
+                                    "operator input is invalid".to_string(),
+                                ));
+                            }
+                        }
+                    }
+
+                    let mut outputs: Vec<Option<NodeId>> = Vec::new();
+                    if let Some(op_output_ids) = operator.outputs() {
+                        for node_index in op_output_ids.iter() {
+                            if node_index < 0 {
+                                outputs.push(None);
+                                continue;
+                            }
+                            let index_usize = node_index as usize;
+                            if let Some(node_id) = node_id_from_index.get(&index_usize) {
+                                outputs.push(Some(*node_id))
+                            } else {
+                                return Err(ModelLoadError::GraphError(
+                                    "operator output is invalid".to_string(),
+                                ));
+                            }
+                        }
+                    }
+
+                    let graph_node = graph.add_op(node.name(), op, &inputs, &outputs);
+
+                    add_node_id(node.name(), graph_node);
+                    node_id_from_index.insert(node_index, graph_node);
+                } else if let Some(value_node) = node.data_as_value_node() {
+                    let shape: Option<Vec<Dimension>> = value_node.shape().map(|shape| {
+                        shape
+                            .iter()
+                            .map(|dim| {
+                                if let Some(name) = dim.name() {
+                                    Dimension::Symbolic(name.to_string())
+                                } else {
+                                    Dimension::Fixed(dim.value() as usize)
+                                }
+                            })
+                            .collect()
+                    });
+                    let graph_node = graph.add_value(node.name(), shape);
+
+                    add_node_id(node.name(), graph_node);
+                    node_id_from_index.insert(node_index, graph_node);
+                } else if let Some(constant) = node.data_as_constant_node() {
+                    let shape: Vec<usize> = constant.shape().iter().map(|x| x as usize).collect();
+                    let graph_node = if let Some(float_data) = constant.data_as_float_data() {
+                        let data: Vec<f32> = vec_from_flatbuffers_vec(float_data.data());
+                        let tensor = Tensor::from_data(&shape, data);
+                        graph.add_constant(node.name(), tensor)
+                    } else if let Some(int_data) = constant.data_as_int_data() {
+                        let data: Vec<i32> = vec_from_flatbuffers_vec(int_data.data());
+                        let tensor = Tensor::from_data(&shape, data);
+                        graph.add_constant(node.name(), tensor)
+                    } else {
+                        return Err(ModelLoadError::GraphError(
+                            "unsupported constant data type".to_string(),
+                        ));
+                    };
+
+                    add_node_id(node.name(), graph_node);
+                    node_id_from_index.insert(node_index, graph_node);
+                } else {
+                    return Err(ModelLoadError::GraphError("unknown node type".to_string()));
+                }
+            }
+        }
+
+        let metadata = model
+            .metadata()
+            .map(ModelMetadata::deserialize)
+            .unwrap_or_default();
+
+        let model = Model {
+            node_ids: node_id_from_name,
+            input_ids,
+            output_ids,
+            graph,
+            metadata,
+        };
+        Ok(model)
     }
 
     /// Find a node in the model's graph given its string name.
@@ -1025,144 +1159,6 @@ fn vec_from_flatbuffers_vec<'a, T: Copy + flatbuffers::Follow<'a, Inner = T>>(
     } else {
         fbv.iter().collect()
     }
-}
-
-fn load_model(data: &[u8], registry: &OpRegistry) -> Result<Model, ModelLoadError> {
-    let model = root_as_model(data).map_err(ModelLoadError::ParseFailed)?;
-
-    if model.schema_version() != 1 {
-        return Err(ModelLoadError::SchemaVersionUnsupported);
-    }
-
-    let mut graph = Graph::new();
-
-    let node_count = model.graph().nodes().map(|ns| ns.len()).unwrap_or(0);
-
-    // Map of model node name to graph node ID
-    let mut node_id_from_name: HashMap<String, NodeId> = HashMap::with_capacity(node_count);
-
-    // Map of model node index to graph node ID
-    let mut node_id_from_index: HashMap<usize, NodeId> = HashMap::with_capacity(node_count);
-
-    let mut add_node_id = |name: Option<&str>, graph_node| {
-        if let Some(name) = name {
-            node_id_from_name.insert(name.to_string(), graph_node);
-        }
-    };
-
-    let input_ids = model
-        .graph()
-        .inputs()
-        .map(|ids| ids.iter().map(|id| id as NodeId).collect())
-        .unwrap_or_default();
-
-    let output_ids = model
-        .graph()
-        .outputs()
-        .map(|ids| ids.iter().map(|id| id as NodeId).collect())
-        .unwrap_or_default();
-
-    if let Some(nodes) = model.graph().nodes() {
-        for (node_index, node) in nodes.iter().enumerate() {
-            if let Some(operator) = node.data_as_operator_node() {
-                let op = registry
-                    .read_op(&operator)
-                    .map_err(ModelLoadError::OperatorInvalid)?;
-
-                let mut inputs: Vec<Option<NodeId>> = Vec::new();
-                if let Some(op_input_ids) = operator.inputs() {
-                    for node_index in op_input_ids.iter() {
-                        if node_index < 0 {
-                            inputs.push(None);
-                            continue;
-                        }
-                        let index_usize = node_index as usize;
-                        if let Some(node_id) = node_id_from_index.get(&index_usize) {
-                            inputs.push(Some(*node_id))
-                        } else {
-                            return Err(ModelLoadError::GraphError(
-                                "operator input is invalid".to_string(),
-                            ));
-                        }
-                    }
-                }
-
-                let mut outputs: Vec<Option<NodeId>> = Vec::new();
-                if let Some(op_output_ids) = operator.outputs() {
-                    for node_index in op_output_ids.iter() {
-                        if node_index < 0 {
-                            outputs.push(None);
-                            continue;
-                        }
-                        let index_usize = node_index as usize;
-                        if let Some(node_id) = node_id_from_index.get(&index_usize) {
-                            outputs.push(Some(*node_id))
-                        } else {
-                            return Err(ModelLoadError::GraphError(
-                                "operator output is invalid".to_string(),
-                            ));
-                        }
-                    }
-                }
-
-                let graph_node = graph.add_op(node.name(), op, &inputs, &outputs);
-
-                add_node_id(node.name(), graph_node);
-                node_id_from_index.insert(node_index, graph_node);
-            } else if let Some(value_node) = node.data_as_value_node() {
-                let shape: Option<Vec<Dimension>> = value_node.shape().map(|shape| {
-                    shape
-                        .iter()
-                        .map(|dim| {
-                            if let Some(name) = dim.name() {
-                                Dimension::Symbolic(name.to_string())
-                            } else {
-                                Dimension::Fixed(dim.value() as usize)
-                            }
-                        })
-                        .collect()
-                });
-                let graph_node = graph.add_value(node.name(), shape);
-
-                add_node_id(node.name(), graph_node);
-                node_id_from_index.insert(node_index, graph_node);
-            } else if let Some(constant) = node.data_as_constant_node() {
-                let shape: Vec<usize> = constant.shape().iter().map(|x| x as usize).collect();
-                let graph_node = if let Some(float_data) = constant.data_as_float_data() {
-                    let data: Vec<f32> = vec_from_flatbuffers_vec(float_data.data());
-                    let tensor = Tensor::from_data(&shape, data);
-                    graph.add_constant(node.name(), tensor)
-                } else if let Some(int_data) = constant.data_as_int_data() {
-                    let data: Vec<i32> = vec_from_flatbuffers_vec(int_data.data());
-                    let tensor = Tensor::from_data(&shape, data);
-                    graph.add_constant(node.name(), tensor)
-                } else {
-                    return Err(ModelLoadError::GraphError(
-                        "unsupported constant data type".to_string(),
-                    ));
-                };
-
-                add_node_id(node.name(), graph_node);
-                node_id_from_index.insert(node_index, graph_node);
-            } else {
-                return Err(ModelLoadError::GraphError("unknown node type".to_string()));
-            }
-        }
-    }
-
-    let metadata = model
-        .metadata()
-        .map(ModelMetadata::deserialize)
-        .unwrap_or_default();
-
-    let model = Model {
-        node_ids: node_id_from_name,
-        input_ids,
-        output_ids,
-        graph,
-        metadata,
-    };
-    Ok(model)
 }
 
 #[cfg(test)]
