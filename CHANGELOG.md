@@ -5,6 +5,30 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.6.0] - 2024-03-31
+
+### rten
+
+- Updated AVX-512 support to work with latest Rust nightly releases
+  (https://github.com/robertknight/rten/pull/58)
+
+- Improved performance of vector-matrix product operations
+  (https://github.com/robertknight/rten/pull/61)
+
+- Slightly improved WASM matrix multiplication performance with a dedicated
+  kernel (https://github.com/robertknight/rten/pull/64)
+
+- Fixed conversion of RNN operators (LSTM, GRU) that explicitly declare the
+  direction as forward (https://github.com/robertknight/rten/pull/67)
+
+- Support tensors with 3 or 5+ dimensions in `BatchNormalization` operator
+  (https://github.com/robertknight/rten/pull/68)
+
+- Support `RandomUniform` operator (https://github.com/robertknight/rten/pull/69)
+
+- Improve matrix prepacking performance by eliminating unnecessary
+  zero-initialization of buffers (https://github.com/robertknight/rten/pull/70)
+
 ## [0.5.0] - 2024-02-29
 
 ### rten
