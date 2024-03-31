@@ -1,6 +1,6 @@
 # RTen
 
-RTen (the _Rusty Tensor engine_) † is a runtime for machine learning models
+RTen (the _Rust Tensor engine_) † is a runtime for machine learning models
 converted from [ONNX](https://onnx.ai) format, which you can export from
 PyTorch and other frameworks.
 
