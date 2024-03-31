@@ -634,6 +634,7 @@ fn gemv<K: Kernel>(
     mut output_mat: MatrixMut,
     alpha: f32,
     beta: f32,
+    bias: Option<f32>,
 ) {
     assert!(K::supported());
     assert!(a.is_contiguous());
@@ -668,6 +669,12 @@ fn gemv<K: Kernel>(
                 // Reset `beta` so that subsequent updates for each column
                 // accumulate into the first update.
                 effective_beta = 1.0;
+            }
+
+            if let Some(bias) = bias {
+                for x in out_chunk {
+                    *x += bias;
+                }
             }
         });
 }
@@ -738,7 +745,15 @@ fn gemm_impl<K: Kernel, const MR_NR: usize>(
     // Use optimized path for vector-matrix products.
     if let (1, GemmInputA::Unpacked(a), GemmInputB::Unpacked(b)) = (a.rows(), a, b) {
         if let (Some(_), Some(_)) = (a.data(), b.data()) {
-            gemv::<K>(a.slice::<1, _>(0), b, output_mat.view_mut(), alpha, beta);
+            gemv::<K>(
+                a.slice::<1, _>(0),
+                b,
+                output_mat.view_mut(),
+                alpha,
+                beta,
+                // nb. We checked above that, if present, the bias length matches `a.rows()`.
+                bias.map(|b| b[0]),
+            );
             return;
         }
     }
@@ -1524,6 +1539,7 @@ mod tests {
             k: usize,
             alpha: f32,
             beta: f32,
+            bias: Option<f32>,
         }
 
         let cases = [
@@ -1533,12 +1549,14 @@ mod tests {
                 k: 1,
                 alpha: 1.,
                 beta: 0.,
+                bias: None,
             },
             Case {
                 n: 1,
                 k: 0,
                 alpha: 1.,
                 beta: 0.,
+                bias: None,
             },
             // Smallest possible input
             Case {
@@ -1546,6 +1564,7 @@ mod tests {
                 k: 1,
                 alpha: 1.,
                 beta: 0.,
+                bias: None,
             },
             // n is a multiple of the tile size (16 for AVX 2 / FMA)
             Case {
@@ -1553,6 +1572,7 @@ mod tests {
                 k: 16,
                 alpha: 1.,
                 beta: 0.,
+                bias: None,
             },
             // n is not an exact multiple of the tile size
             Case {
@@ -1560,6 +1580,7 @@ mod tests {
                 k: 16,
                 alpha: 1.,
                 beta: 1.,
+                bias: None,
             },
             // n exceeds column block size
             Case {
@@ -1567,6 +1588,7 @@ mod tests {
                 k: 16,
                 alpha: 1.,
                 beta: 1.,
+                bias: None,
             },
             // k exceeds depth block size
             Case {
@@ -1574,6 +1596,7 @@ mod tests {
                 k: 300,
                 alpha: 1.,
                 beta: 1.,
+                bias: None,
             },
             // beta value = 0.
             Case {
@@ -1581,6 +1604,7 @@ mod tests {
                 k: 300,
                 alpha: 1.,
                 beta: 0.,
+                bias: None,
             },
             // Non-standard beta value
             Case {
@@ -1588,6 +1612,7 @@ mod tests {
                 k: 300,
                 alpha: 1.,
                 beta: 0.5,
+                bias: None,
             },
             // Non-standard alpha value
             Case {
@@ -1595,17 +1620,45 @@ mod tests {
                 k: 20,
                 alpha: 0.5,
                 beta: 1.,
+                bias: None,
+            },
+            // Test with bias
+            Case {
+                n: 20,
+                k: 20,
+                alpha: 1.,
+                beta: 0.,
+                bias: Some(0.5),
             },
         ];
 
         let mut rng = XorShiftRng::new(1234);
 
-        for Case { n, k, alpha, beta } in cases {
+        for Case {
+            n,
+            k,
+            alpha,
+            beta,
+            bias,
+        } in cases
+        {
             let a = Tensor::rand(&[1, k], &mut rng);
             let b = Tensor::rand(&[k, n], &mut rng);
             let mut result = Tensor::zeros(&[1, n]);
-            run_gemm(&mut result, &a, &b, alpha, beta, None, KernelHint::Auto);
-            let expected = reference_matmul_alpha_beta(&a, &b, alpha, beta);
+            let bias_array = bias.map(|b| [b]);
+
+            run_gemm(
+                &mut result,
+                &a,
+                &b,
+                alpha,
+                beta,
+                bias_array.as_ref().map(|b| b.as_slice()),
+                KernelHint::Auto,
+            );
+
+            let expected =
+                reference_matmul_alpha_beta(&a, &b, alpha, beta).map(|x| x + bias.unwrap_or(0.));
             expect_equal(&result, &expected)?;
         }
 
