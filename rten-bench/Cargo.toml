@@ -8,5 +8,8 @@ license = "MIT OR Apache-2.0"
 homepage = "https://github.com/robertknight/rten"
 repository = "https://github.com/robertknight/rten"
 
+[package.metadata.release]
+release = false
+
 [lib]
 crate-type = ["lib"]
