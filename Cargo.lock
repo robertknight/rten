@@ -295,7 +295,7 @@ dependencies = [
 
 [[package]]
 name = "rten"
-version = "0.5.0"
+version = "0.6.0"
 dependencies = [
  "fastrand",
  "flatbuffers",
@@ -316,7 +316,7 @@ version = "0.1.0"
 
 [[package]]
 name = "rten-cli"
-version = "0.5.0"
+version = "0.6.0"
 dependencies = [
  "fastrand",
  "lexopt",
@@ -343,7 +343,7 @@ dependencies = [
 
 [[package]]
 name = "rten-imageio"
-version = "0.4.0"
+version = "0.6.0"
 dependencies = [
  "image",
  "png",
@@ -352,7 +352,7 @@ dependencies = [
 
 [[package]]
 name = "rten-imageproc"
-version = "0.4.0"
+version = "0.6.0"
 dependencies = [
  "rten-bench",
  "rten-tensor",
@@ -360,7 +360,7 @@ dependencies = [
 
 [[package]]
 name = "rten-tensor"
-version = "0.4.0"
+version = "0.6.0"
 dependencies = [
  "smallvec",
 ]
@@ -377,7 +377,7 @@ dependencies = [
 
 [[package]]
 name = "rten-vecmath"
-version = "0.4.0"
+version = "0.6.0"
 dependencies = [
  "fastrand",
  "libm",
