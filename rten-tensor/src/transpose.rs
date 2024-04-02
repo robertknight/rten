@@ -7,6 +7,10 @@ use crate::{NdTensorView, TensorView};
 /// standard iteration protocol when `x` is non-contiguous and has <= 4
 /// dimensions.
 fn fast_for_each_element<T, F: FnMut(&T)>(mut x: TensorView<T>, mut f: F) {
+    // Merge axes to increase the chance that we can use the fast path and
+    // also maximize the iteration count of the innermost loops.
+    x.merge_axes();
+
     if x.ndim() > 4 {
         x.iter().for_each(f)
     } else {
