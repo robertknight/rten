@@ -1,5 +1,6 @@
 use std::borrow::Cow;
 use std::marker::PhantomData;
+use std::mem::MaybeUninit;
 use std::ops::{Index, IndexMut, Range};
 
 use crate::errors::{DimensionError, FromDataError, SliceError};
@@ -11,7 +12,7 @@ use crate::layout::{
     AsIndex, BroadcastLayout, DynLayout, IntoLayout, Layout, MatrixLayout, MutLayout, NdLayout,
     OverlapPolicy, ResizeLayout,
 };
-use crate::transpose::contiguous_data;
+use crate::transpose::{contiguous_data, copy_contiguous};
 use crate::{IntoSliceItems, RandomSource, SliceItem};
 
 /// The base type for multi-dimensional arrays. This consists of storage for
@@ -151,7 +152,7 @@ pub trait AsView: Layout {
     /// data or changing the iteration order.
     ///
     /// If the tensor is contiguous, this has the effect of flattening the
-    /// tensor into a single vector.
+    /// tensor into a vector.
     fn merge_axes(&mut self)
     where
         Self::Layout: ResizeLayout;
@@ -375,6 +376,11 @@ impl<T, S: AsRef<[T]>, L: MutLayout> TensorBase<T, S, L> {
                 .expect("invalid layout");
         Some(layout)
     }
+
+    /// Return a raw pointer to the tensor's underlying data.
+    pub fn data_ptr(&self) -> *const T {
+        self.data.as_ref().as_ptr()
+    }
 }
 
 impl<T, S: AsRef<[T]> + AsMut<[T]>, L: MutLayout> TensorBase<T, S, L> {
@@ -420,14 +426,38 @@ impl<T, S: AsRef<[T]> + AsMut<[T]>, L: MutLayout> TensorBase<T, S, L> {
         L: Clone,
     {
         assert!(self.shape() == other.shape());
-        for (out, x) in self.iter_mut().zip(other.iter()) {
-            *out = x.clone();
+
+        if let Some(dest) = self.data_mut() {
+            if let Some(src) = other.data() {
+                dest.clone_from_slice(src);
+            } else {
+                // Drop all the existing values. This should be compiled away for
+                // `Copy` types.
+                let uninit_dest: &mut [MaybeUninit<T>] = unsafe { std::mem::transmute(dest) };
+                for x in &mut *uninit_dest {
+                    // Safety: All elements were initialized at the start of this
+                    // block, and we haven't written to the slice yet.
+                    unsafe { x.assume_init_drop() }
+                }
+
+                // Copy source into destination in contiguous order.
+                copy_contiguous(other.as_dyn(), uninit_dest);
+            }
+        } else {
+            for (out, x) in self.iter_mut().zip(other.iter()) {
+                *out = x.clone();
+            }
         }
     }
 
     /// Return the data in this tensor as a slice if it is contiguous.
     pub fn data_mut(&mut self) -> Option<&mut [T]> {
         self.layout.is_contiguous().then_some(self.data.as_mut())
+    }
+
+    /// Return a raw pointer to the tensor's underlying data.
+    pub fn data_mut_ptr(&mut self) -> *mut T {
+        self.data.as_mut().as_mut_ptr()
     }
 
     /// Replace all elements of this tensor with `value`.
