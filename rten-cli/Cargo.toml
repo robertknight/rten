@@ -7,6 +7,7 @@ description = "CLI tool for inspecting and running RTen models"
 license = "MIT OR Apache-2.0"
 homepage = "https://github.com/robertknight/rten"
 repository = "https://github.com/robertknight/rten"
+include = ["/src", "/README.md"]
 
 [dependencies]
 fastrand = "2.0.2"

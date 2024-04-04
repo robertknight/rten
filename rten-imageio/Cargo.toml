@@ -7,6 +7,7 @@ description = "Utilities for loading images for use with RTen"
 license = "MIT OR Apache-2.0"
 homepage = "https://github.com/robertknight/rten"
 repository = "https://github.com/robertknight/rten"
+include = ["/src", "/README.md"]
 
 [dependencies]
 image = { version = "0.24.6", default-features = false, features = ["png", "jpeg", "jpeg_rayon", "webp"] }
