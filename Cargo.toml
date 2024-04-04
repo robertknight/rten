@@ -28,6 +28,7 @@ license = "MIT OR Apache-2.0"
 homepage = "https://github.com/robertknight/rten"
 repository = "https://github.com/robertknight/rten"
 resolver = "2"
+include = ["/src", "/CHANGELOG.md", "/README.md"]
 
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 

@@ -7,6 +7,7 @@ description = "Tensor library for the RTen machine learning runtime"
 license = "MIT OR Apache-2.0"
 homepage = "https://github.com/robertknight/rten"
 repository = "https://github.com/robertknight/rten"
+include = ["/src", "/README.md"]
 
 [dependencies]
 smallvec = { version = "1.10.0", features=["union", "const_generics", "const_new"] }
