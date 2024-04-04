@@ -1782,11 +1782,15 @@ mod tests {
         let iters = 1000;
         let a = NdTensor::rand([m, n], &mut rng);
 
-        run_bench(10, &format!("m {} n {} iters {}", m, n, iters), || {
-            for _i in 0..iters {
-                gemm.prepack_a(a.view());
-            }
-        });
+        run_bench(
+            10,
+            Some(&format!("m {} n {} iters {}", m, n, iters)),
+            || {
+                for _i in 0..iters {
+                    gemm.prepack_a(a.view());
+                }
+            },
+        );
     }
 
     // TODO - Add a set of tests for use with Miri. These should exercise all

@@ -1,4 +1,3 @@
-use std::fmt::Display;
 use std::time::Instant;
 
 /// Statistics from a benchmark run. All fields are durations in milliseconds.
@@ -20,9 +19,10 @@ pub struct BenchStats {
     pub var: f32,
 }
 
-/// Run a benchmark function `f` for `trials` iterations and print statistics
-/// about the run.
-pub fn run_bench<F: FnMut(), D: Display>(trials: usize, description: D, mut f: F) -> BenchStats {
+/// Run a benchmark function `f` for `trials` iterations and returns statistics.
+///
+/// Prints the statistics itself if `description` is provided.
+pub fn run_bench<F: FnMut()>(trials: usize, description: Option<&str>, mut f: F) -> BenchStats {
     if trials == 0 {
         return BenchStats::default();
     }
@@ -50,10 +50,12 @@ pub fn run_bench<F: FnMut(), D: Display>(trials: usize, description: D, mut f: F
     let mean = times.iter().sum::<f32>() / times.len() as f32;
     let var = times.iter().map(|x| (x - mean).abs()).sum::<f32>() / times.len() as f32;
 
-    println!(
-        "{}. mean {:.3}ms median {:.3} var {:.3} min {:.3} max {:.3}",
-        description, mean, median, var, min, max
-    );
+    if let Some(description) = description {
+        println!(
+            "{}. mean {:.3}ms median {:.3} var {:.3} min {:.3} max {:.3}",
+            description, mean, median, var, min, max
+        );
+    }
 
     BenchStats {
         max,

@@ -1334,7 +1334,7 @@ mod tests {
             &mut rng,
         );
 
-        run_bench(100, "col2im", || {
+        run_bench(100, Some("col2im"), || {
             col2im(
                 &mut output.view_mut(),
                 &columns.view(),
