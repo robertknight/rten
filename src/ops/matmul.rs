@@ -522,7 +522,7 @@ mod tests {
                 let desc = format!(
                     "matmul [{a_batch},{a_rows},{a_cols}] x [{a_cols},{b_cols}], strategy={strategy:?}",
                 );
-                run_bench(trials, &desc, || {
+                run_bench(trials, Some(&desc), || {
                     matmul_impl(a.view(), b.view(), strategy).unwrap();
                 });
             };

@@ -1102,11 +1102,50 @@ pub trait ResizeLayout: MutLayout {
     /// Insert a size-one axis at the given index in the shape. This will have
     /// the same stride as the dimension that follows it.
     fn insert_axis(&mut self, index: usize);
+
+    /// Merge consecutive axes where possible.
+    ///
+    /// This "simplifies" the layout by minimizing the number of dimensions
+    /// while preserving the iteration order.
+    fn merge_axes(&mut self);
 }
 
 impl ResizeLayout for DynLayout {
     fn insert_axis(&mut self, index: usize) {
         self.insert_dim(index)
+    }
+
+    fn merge_axes(&mut self) {
+        if self.ndim() == 0 {
+            return;
+        }
+
+        let mut shape = SmallVec::<[usize; 4]>::new();
+        let mut strides = SmallVec::<[usize; 4]>::new();
+
+        shape.push(self.size(self.ndim() - 1));
+        strides.push(self.stride(self.ndim() - 1));
+
+        for (&outer_size, &outer_stride) in
+            self.shape().iter().zip(self.strides().iter()).rev().skip(1)
+        {
+            let inner_stride = strides.last().unwrap();
+            let inner_size = shape.last().unwrap();
+            let can_merge = outer_size == 1 || (outer_stride == inner_stride * inner_size);
+
+            if can_merge {
+                let prev_size = shape.last_mut().unwrap();
+                *prev_size *= outer_size;
+            } else {
+                shape.push(outer_size);
+                strides.push(outer_stride);
+            }
+        }
+
+        shape.reverse();
+        strides.reverse();
+
+        self.shape_and_strides = shape.iter().chain(strides.iter()).copied().collect();
     }
 }
 
@@ -1137,7 +1176,7 @@ mod tests {
     use std::iter::zip;
 
     use super::OverlapPolicy;
-    use crate::layout::DynLayout;
+    use crate::layout::{DynLayout, ResizeLayout};
     use crate::{Layout, SliceItem};
 
     #[test]
@@ -1293,6 +1332,85 @@ mod tests {
         {
             assert_eq!(layout.size(dim), size);
             assert_eq!(layout.stride(dim), stride);
+        }
+    }
+
+    #[test]
+    fn test_merge_axes() {
+        struct Case<'a> {
+            shape: &'a [usize],
+            strides: &'a [usize],
+            merged_shape: &'a [usize],
+            merged_strides: &'a [usize],
+        }
+
+        let cases = [
+            // Empty shape
+            Case {
+                shape: &[],
+                strides: &[],
+                merged_shape: &[],
+                merged_strides: &[],
+            },
+            // Vector
+            Case {
+                shape: &[10],
+                strides: &[2],
+                merged_shape: &[10],
+                merged_strides: &[2],
+            },
+            // Simple contiguous layout
+            Case {
+                shape: &[10, 10],
+                strides: &[10, 1],
+                merged_shape: &[100],
+                merged_strides: &[1],
+            },
+            // Transposed matrix
+            Case {
+                shape: &[10, 10],
+                strides: &[1, 10],
+                merged_shape: &[10, 10],
+                merged_strides: &[1, 10],
+            },
+            // Leading 1-sized dims
+            Case {
+                shape: &[1, 10, 10],
+                strides: &[10, 1, 10],
+                merged_shape: &[10, 10],
+                merged_strides: &[1, 10],
+            },
+            // Inner 1-sized dims
+            Case {
+                shape: &[2, 1, 1, 2],
+                strides: &[2, 2, 2, 1],
+                merged_shape: &[4],
+                merged_strides: &[1],
+            },
+            // Inner 1-sized dims that have been shifted over from the left,
+            // ie. where the 1-sized dims where inserted at the left and then
+            // shifted over to the middle.
+            Case {
+                shape: &[2, 1, 1, 2],
+                strides: &[2, 4, 4, 1],
+                merged_shape: &[4],
+                merged_strides: &[1],
+            },
+        ];
+
+        for Case {
+            shape,
+            strides,
+            merged_shape,
+            merged_strides,
+        } in cases
+        {
+            let mut layout =
+                DynLayout::try_from_shape_and_strides(shape, strides, OverlapPolicy::AllowOverlap)
+                    .unwrap();
+            layout.merge_axes();
+            assert_eq!(layout.shape(), merged_shape);
+            assert_eq!(layout.strides(), merged_strides);
         }
     }
 }
