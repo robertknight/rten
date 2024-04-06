@@ -147,9 +147,9 @@ fn matmul_impl(a: TensorView, b: TensorView, strategy: MatmulStrategy) -> Result
         return Ok(output);
     }
 
-    let mut output = Tensor::zeros(out_shape);
+    let mut output = Tensor::<f32>::uninit(out_shape);
     if output.is_empty() {
-        return Ok(output);
+        return Ok(Tensor::zeros(out_shape));
     }
 
     let a_broadcast_shape = [out_prefix.as_slice(), &[a_rows, a_cols]].concat();
@@ -197,15 +197,17 @@ fn matmul_impl(a: TensorView, b: TensorView, strategy: MatmulStrategy) -> Result
                 GemmInputB::Unpacked(b_mat)
             };
 
-            gemm.gemm(
+            gemm.gemm_uninit(
                 out_mat,
                 out_row_stride,
                 a_input,
                 b_input,
                 1., // alpha
-                0., // beta
             );
         });
+
+    // Safety: Loop above initialized all output elements.
+    let output = unsafe { output.assume_init() };
 
     Ok(output)
 }
