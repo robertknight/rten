@@ -25,6 +25,30 @@ impl FmaKernel {
     const NR: usize = 16;
 }
 
+/// Wrapper for `pack_a_block` which enables AVX instructions.
+#[target_feature(enable = "avx2")]
+#[target_feature(enable = "fma")]
+unsafe fn pack_a_block_avx<const MR: usize>(
+    out: &mut [MaybeUninit<f32>],
+    a: Matrix,
+    rows: Range<usize>,
+    cols: Range<usize>,
+) {
+    pack_a_block::<MR>(out, a, rows, cols);
+}
+
+/// Wrapper for `pack_b_block` which enables AVX instructions.
+#[target_feature(enable = "avx2")]
+#[target_feature(enable = "fma")]
+unsafe fn pack_b_block_avx<const NR: usize>(
+    out: &mut [MaybeUninit<f32>],
+    b: Matrix,
+    rows: Range<usize>,
+    cols: Range<usize>,
+) {
+    pack_b_block::<NR>(out, b, rows, cols);
+}
+
 // Safety - The `new` fn tests for AVX-2 / FMA support.
 unsafe impl Kernel for FmaKernel {
     fn new() -> Option<Self> {
@@ -51,7 +75,10 @@ unsafe impl Kernel for FmaKernel {
         rows: Range<usize>,
         cols: Range<usize>,
     ) {
-        pack_a_block::<{ Self::MR }>(out, a, rows, cols);
+        // Safety: Kernel can only be constructed if AVX is supported.
+        unsafe {
+            pack_a_block_avx::<{ Self::MR }>(out, a, rows, cols);
+        }
     }
 
     fn pack_b_block(
@@ -61,7 +88,10 @@ unsafe impl Kernel for FmaKernel {
         rows: Range<usize>,
         cols: Range<usize>,
     ) {
-        pack_b_block::<{ Self::NR }>(out, b, rows, cols);
+        // Safety: Kernel can only be constructed if AVX is supported.
+        unsafe {
+            pack_b_block_avx::<{ Self::NR }>(out, b, rows, cols);
+        }
     }
 
     #[target_feature(enable = "avx2")]
@@ -203,7 +233,10 @@ unsafe impl Kernel for Avx512Kernel {
         rows: Range<usize>,
         cols: Range<usize>,
     ) {
-        pack_a_block::<{ Self::MR }>(out, a, rows, cols);
+        // Safety: We assume AVX-512 implies availability of AVX 2.
+        unsafe {
+            pack_a_block_avx::<{ Self::MR }>(out, a, rows, cols);
+        }
     }
 
     fn pack_b_block(
@@ -213,7 +246,10 @@ unsafe impl Kernel for Avx512Kernel {
         rows: Range<usize>,
         cols: Range<usize>,
     ) {
-        pack_b_block::<{ Self::NR }>(out, b, rows, cols);
+        // Safety: We assume AVX-512 implies availability of AVX 2.
+        unsafe {
+            pack_b_block_avx::<{ Self::NR }>(out, b, rows, cols);
+        }
     }
 
     #[target_feature(enable = "avx512f")]
