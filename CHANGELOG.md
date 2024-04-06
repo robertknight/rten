@@ -5,6 +5,36 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## Unreleased
+
+### rten-tensor
+
+- Add `Tensor::merge_axes` method to simplify layouts (https://github.com/robertknight/rten/pull/78)
+
+- Add `Tensor::{uninit, assume_init}` methods for working with uninitialized
+  buffers (https://github.com/robertknight/rten/pull/82)
+
+### rten
+
+- Optimize `MatMul` operator by avoiding unnecessary zeroing of output buffers
+  (https://github.com/robertknight/rten/pull/82)
+
+- Fixed incorrect output from `Gemm` operator when the bias is zero and the "C"
+  input contained infinities / NaNs (https://github.com/robertknight/rten/pull/81)
+
+- Optimize matrix packing operations on Intel CPUs using AVX-2 instructions
+  (https://github.com/robertknight/rten/pull/80)
+
+- Optimize `Transpose` operations where input dimensions are powers of 2 by
+  using blocking and tiling (https://github.com/robertknight/rten/pull/78)
+
+- Exclude test files and tools from published crate
+  (https://github.com/robertknight/rten/pull/77)
+
+- Optimize RNN operators for the case where the input sequence is short, by
+  avoiding prepacking of weights in this case
+  (https://github.com/robertknight/rten/pull/74)
+
 ## [0.6.0] - 2024-03-31
 
 ### rten
