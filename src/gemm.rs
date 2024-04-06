@@ -7,6 +7,7 @@
 
 use std::borrow::Cow;
 use std::cell::RefCell;
+use std::mem::MaybeUninit;
 use std::ops::Range;
 
 use rayon::prelude::*;
@@ -457,6 +458,32 @@ impl GemmExecutor {
             b,
             alpha,
             beta,
+            None,
+        )
+    }
+
+    /// Perform a General Matrix Multiplication ("gemm").
+    ///
+    /// This is the same as [GemmExecutor::gemm] but takes an uninitialized
+    /// output slice. The `beta` value is implicitly set to zero.
+    pub fn gemm_uninit(
+        &self,
+        out_data: &mut [MaybeUninit<f32>],
+        out_row_stride: usize,
+        a: GemmInputA,
+        b: GemmInputB,
+        alpha: f32,
+    ) {
+        gemm_impl(
+            &*self.kernel,
+            // Safety: When beta is zero, we initialize all output elements
+            // and ignore existing values.
+            unsafe { std::mem::transmute(out_data) },
+            out_row_stride,
+            a,
+            b,
+            alpha,
+            0., /* beta */
             None,
         )
     }
