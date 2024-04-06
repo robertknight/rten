@@ -5,11 +5,11 @@ use rten_tensor::{Matrix, MatrixLayout};
 
 use super::round_up;
 
-/// Pack a block of the "A" matrix for use by kernel K.
+/// Pack a block of the "A" matrix for use by a GEMM kernel.
 ///
-/// The packed buffer is laid out as a sequence of `ceil(rows.len() / K::MR)`
-/// row panels. Each row panel has size `K::MR * cols.len()` and uses
-/// column-major order. If `rows.len()` is not a multiple of `K::MR`, the
+/// The packed buffer is laid out as a sequence of `ceil(rows.len() / MR)`
+/// row panels. Each row panel has size `MR * cols.len()` and uses
+/// column-major order. If `rows.len()` is not a multiple of `MR`, the
 /// final panel is zero-padded.
 ///
 /// # Safety
@@ -92,12 +92,12 @@ pub fn pack_a_block<const MR: usize>(
     }
 }
 
-/// Pack a block of the "B" matrix for use by kernel K.
+/// Pack a block of the "B" matrix for use by a GEMM kernel.
 ///
 /// The packed buffer is laid out as a sequence of `ceil(cols.len() /
-/// K::NR)` column panels. Each column panel has size `rows.len() *
-/// K::NR` and uses row-major order. If `cols.len()` is not a multiple of
-/// `K::NR`, the final panel is zero-padded.
+/// NR)` column panels. Each column panel has size `rows.len() *
+/// NR` and uses row-major order. If `cols.len()` is not a multiple of
+/// `NR`, the final panel is zero-padded.
 ///
 /// # Safety
 ///
