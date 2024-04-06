@@ -16,6 +16,7 @@ use super::round_up;
 ///
 /// When this function returns, all elements of `out` will have been initialized
 /// either to a value from `a`, or zero.
+#[inline] // Allow caller to control `target_feature`s
 pub fn pack_a_block<const MR: usize>(
     out: &mut [MaybeUninit<f32>],
     a: Matrix,
@@ -102,6 +103,7 @@ pub fn pack_a_block<const MR: usize>(
 ///
 /// When this function returns, all elements of `out` will have been initialized
 /// either to a value from `b`, or zero.
+#[inline] // Allow caller to control `target_feature`s
 pub fn pack_b_block<const NR: usize>(
     out: &mut [MaybeUninit<f32>],
     b: Matrix,
