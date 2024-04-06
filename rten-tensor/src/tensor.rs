@@ -775,6 +775,44 @@ impl<T, L: Clone + MutLayout> TensorBase<T, Vec<T>, L> {
     {
         Self::full(shape, T::default())
     }
+
+    /// Return a new tensor containing uninitialized elements.
+    ///
+    /// The caller must initialize elements and then call
+    /// [assume_init](TensorBase::assume_init) to convert to an initialized
+    /// `Tensor<T>`.
+    pub fn uninit(shape: L::Index<'_>) -> TensorBase<MaybeUninit<T>, Vec<MaybeUninit<T>>, L>
+    where
+        MaybeUninit<T>: Clone,
+    {
+        let n_elts = shape.as_ref().iter().product();
+        let mut data = Vec::with_capacity(n_elts);
+
+        // Safety: Since the contents of the `Vec` are `MaybeUninit`, we don't
+        // need to initialize them.
+        unsafe { data.set_len(n_elts) }
+
+        TensorBase::from_data(shape, data)
+    }
+}
+
+impl<T, L: Clone + MutLayout> TensorBase<MaybeUninit<T>, Vec<MaybeUninit<T>>, L> {
+    /// Convert a tensor of potentially uninitialized elements to one of
+    /// initialized elements.
+    ///
+    /// See also [MaybeUninit::assume_init].
+    ///
+    /// # Safety
+    ///
+    /// The caller must guarantee that all elements in this tensor have been
+    /// initialized before calling `assume_init`.
+    pub unsafe fn assume_init(self) -> TensorBase<T, Vec<T>, L> {
+        TensorBase {
+            layout: self.layout.clone(),
+            data: std::mem::transmute(self.data),
+            element_type: PhantomData,
+        }
+    }
 }
 
 impl<'a, T, L: Clone + MutLayout> TensorBase<T, &'a [T], L> {
@@ -2665,6 +2703,16 @@ mod tests {
 
         let row = tensor.try_slice_dyn(2);
         assert!(row.is_err());
+    }
+
+    #[test]
+    fn test_uninit() {
+        let mut tensor = NdTensor::uninit([2, 2]);
+        for (i, x) in tensor.iter_mut().enumerate() {
+            x.write(i);
+        }
+        let tensor = unsafe { tensor.assume_init() };
+        assert_eq!(tensor, NdTensor::from_data([2, 2], vec![0, 1, 2, 3]));
     }
 
     #[test]
