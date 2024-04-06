@@ -104,9 +104,7 @@ impl<Index: IndexArray> Iterator for Indices<Index> {
     /// Return the next index in the sequence, or `None` after all indices
     /// have been returned.
     fn next(&mut self) -> Option<Self::Item> {
-        let Some(current) = self.next.clone() else {
-            return None;
-        };
+        let current = self.next.clone()?;
 
         let mut next = current.clone();
         let mut has_next = false;
