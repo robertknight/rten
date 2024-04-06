@@ -718,8 +718,18 @@ fn gemm_impl(
         "Bias vector length must match rows of matrix `a`"
     );
 
+    // Handle case where output is empty.
     if a.rows() == 0 || b.cols() == 0 {
-        // Output is empty.
+        return;
+    }
+
+    // Handle case where depth is zero. We still need to initialize the output
+    // in this case.
+    if a.cols() == 0 {
+        for x in out_data {
+            let tmp = if beta == 0. { 0. } else { *x };
+            *x = beta * tmp;
+        }
         return;
     }
 
@@ -1319,18 +1329,28 @@ mod tests {
     fn test_gemm_beta() -> Result<(), Box<dyn Error>> {
         let mut rng = XorShiftRng::new(1234);
 
-        let a = Tensor::rand(&[10, 5], &mut rng);
-        let b = Tensor::rand(&[5, 15], &mut rng);
+        struct Case {
+            m: usize,
+            n: usize,
+            k: usize,
+        }
 
-        for kernel in [KernelHint::Auto, KernelHint::Base] {
-            for beta in [0.0, 0.5, 1.0, 2.0] {
-                let mut result = Tensor::rand(&[10, 15], &mut rng);
-                let mut expected = result.clone();
+        let cases = [Case { m: 10, k: 5, n: 15 }, Case { m: 10, k: 0, n: 15 }];
 
-                run_gemm(&mut result, &a, &b, 1., beta, None, kernel);
-                reference_gemm(&mut expected, &a, &b, 1., beta, None);
+        for Case { m, n, k } in cases {
+            let a = Tensor::rand(&[m, k], &mut rng);
+            let b = Tensor::rand(&[k, n], &mut rng);
 
-                expect_equal(&result, &expected)?;
+            for kernel in [KernelHint::Auto, KernelHint::Base] {
+                for beta in [0.5, 1.0, 2.0] {
+                    let mut result = Tensor::rand(&[m, n], &mut rng);
+                    let mut expected = result.clone();
+
+                    run_gemm(&mut result, &a, &b, 1., beta, None, kernel);
+                    reference_gemm(&mut expected, &a, &b, 1., beta, None);
+
+                    expect_equal(&result, &expected)?;
+                }
             }
         }
 
@@ -1352,6 +1372,7 @@ mod tests {
                 n: 20,
                 k: 20,
             },
+            Case { m: 5, n: 5, k: 0 },
             // Vector-matrix multiplication
             Case { m: 1, n: 20, k: 20 },
         ];
