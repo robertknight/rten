@@ -1,4 +1,6 @@
 use std::arch::x86_64::__m256;
+use std::mem::MaybeUninit;
+use std::ops::Range;
 
 #[cfg(feature = "avx512")]
 use std::arch::x86_64::__m512;
@@ -7,6 +9,7 @@ use rten_tensor::Matrix;
 use rten_vecmath::simd_vec::SimdFloat;
 
 use super::{simd_gemm, simd_gemv, Kernel};
+use crate::gemm::packing::{pack_a_block, pack_b_block};
 
 /// Optimized kernel for x64 CPUs that support AVX + FMA instructions.
 #[derive(Default)]
@@ -14,14 +17,16 @@ pub struct FmaKernel {
     _private: (),
 }
 
-// Safety - The `new` fn tests for AVX-2 / FMA support.
-unsafe impl Kernel for FmaKernel {
+impl FmaKernel {
     const MR: usize = 6;
 
     // Chosen to fit 2 AVX registers and take advantage of the two FMA
     // execution ports.
     const NR: usize = 16;
+}
 
+// Safety - The `new` fn tests for AVX-2 / FMA support.
+unsafe impl Kernel for FmaKernel {
     fn new() -> Option<Self> {
         let supported = is_x86_feature_detected!("avx2") && is_x86_feature_detected!("fma");
         supported.then_some(FmaKernel { _private: () })
@@ -29,6 +34,34 @@ unsafe impl Kernel for FmaKernel {
 
     fn name(&self) -> &'static str {
         "fma"
+    }
+
+    fn mr(&self) -> usize {
+        Self::MR
+    }
+
+    fn nr(&self) -> usize {
+        Self::NR
+    }
+
+    fn pack_a_block(
+        &self,
+        out: &mut [MaybeUninit<f32>],
+        a: Matrix,
+        rows: Range<usize>,
+        cols: Range<usize>,
+    ) {
+        pack_a_block::<{ Self::MR }>(out, a, rows, cols);
+    }
+
+    fn pack_b_block(
+        &self,
+        out: &mut [MaybeUninit<f32>],
+        b: Matrix,
+        rows: Range<usize>,
+        cols: Range<usize>,
+    ) {
+        pack_b_block::<{ Self::NR }>(out, b, rows, cols);
     }
 
     #[target_feature(enable = "avx2")]
@@ -62,8 +95,6 @@ unsafe impl Kernel for FmaKernel {
         }
     }
 }
-
-super::impl_gemmops!(FmaKernel);
 
 /// Detect availability of AVX-512 on macOS, where `is_x86_feature_detected`
 /// can return false even if AVX-512 is available.
@@ -119,9 +150,8 @@ pub struct Avx512Kernel {
     _private: (),
 }
 
-// Safety - The `new` fn checks for AVX-512 support.
 #[cfg(feature = "avx512")]
-unsafe impl Kernel for Avx512Kernel {
+impl Avx512Kernel {
     // The optimal value of MR depends on how many AVX-512 FMA units the CPU has.
     // Client Intel CPUs have one, server CPUs have two. This smaller value is
     // tuned for single-FMA CPUs.
@@ -131,7 +161,11 @@ unsafe impl Kernel for Avx512Kernel {
 
     // 2 x 16-f32-wide registers.
     const NR: usize = 32;
+}
 
+// Safety - The `new` fn checks for AVX-512 support.
+#[cfg(feature = "avx512")]
+unsafe impl Kernel for Avx512Kernel {
     fn new() -> Option<Self> {
         let supported = {
             if is_x86_feature_detected!("avx512f") && is_x86_feature_detected!("avx512vl") {
@@ -152,6 +186,34 @@ unsafe impl Kernel for Avx512Kernel {
 
     fn name(&self) -> &'static str {
         "avx512"
+    }
+
+    fn mr(&self) -> usize {
+        Self::MR
+    }
+
+    fn nr(&self) -> usize {
+        Self::NR
+    }
+
+    fn pack_a_block(
+        &self,
+        out: &mut [MaybeUninit<f32>],
+        a: Matrix,
+        rows: Range<usize>,
+        cols: Range<usize>,
+    ) {
+        pack_a_block::<{ Self::MR }>(out, a, rows, cols);
+    }
+
+    fn pack_b_block(
+        &self,
+        out: &mut [MaybeUninit<f32>],
+        b: Matrix,
+        rows: Range<usize>,
+        cols: Range<usize>,
+    ) {
+        pack_b_block::<{ Self::NR }>(out, b, rows, cols);
     }
 
     #[target_feature(enable = "avx512f")]
@@ -185,6 +247,3 @@ unsafe impl Kernel for Avx512Kernel {
         }
     }
 }
-
-#[cfg(feature = "avx512")]
-super::impl_gemmops!(Avx512Kernel);

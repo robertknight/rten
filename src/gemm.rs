@@ -18,8 +18,7 @@ use crate::iter_util::{range_chunks, unroll_loop, MaybeParIter};
 mod kernels;
 mod packing;
 
-use kernels::{BaseKernel, GemmOps, Kernel};
-use packing::{pack_a_block, pack_b_block};
+use kernels::{BaseKernel, Kernel};
 
 /// Return `a / b`, rounding up if `b` does not evenly divide `a`.
 pub fn div_ceil(a: usize, b: usize) -> usize {
@@ -264,13 +263,7 @@ pub fn gemm(
 /// computational efficiency, which is normally does internally on each call,
 /// can be done just once for the reused input.
 pub struct GemmExecutor {
-    kernel: Box<dyn GemmOps>,
-
-    /// Tile width used by kernel.
-    nr: usize,
-
-    /// Tile height used by kernel.
-    mr: usize,
+    kernel: Box<dyn Kernel>,
 }
 
 /// Arguments for [GemmExecutor::with_kernel] specifying which kernel to use.
@@ -329,11 +322,9 @@ impl GemmExecutor {
     /// kernel is not supported.
     #[allow(dead_code)] // Currently only used in tests
     pub fn with_kernel(kernel: KernelHint) -> Option<GemmExecutor> {
-        fn make_kernel<K: Kernel + GemmOps + 'static>() -> Option<GemmExecutor> {
+        fn make_kernel<K: Kernel + 'static>() -> Option<GemmExecutor> {
             K::new().map(|kernel| GemmExecutor {
                 kernel: Box::new(kernel),
-                nr: K::NR,
-                mr: K::MR,
             })
         }
 
@@ -360,15 +351,13 @@ impl GemmExecutor {
         let kernel = BaseKernel::new().unwrap();
         GemmExecutor {
             kernel: Box::new(kernel),
-            nr: BaseKernel::NR,
-            mr: BaseKernel::MR,
         }
     }
 
     /// Prepack a matrix for use as the left-hand or "A" input.
     pub fn prepack_a(&self, a: Matrix) -> PackedAMatrix<'static> {
         let kc = depth_block_size(a.cols());
-        let mc = row_block_size(a.rows(), self.mr);
+        let mc = row_block_size(a.rows(), self.kernel.mr());
         let panel_len = kc * mc;
         let row_blocks = div_ceil(a.rows(), mc);
         let depth_blocks = div_ceil(a.cols(), kc);
@@ -406,7 +395,7 @@ impl GemmExecutor {
 
     /// Prepack a matrix for use as the right-hand or "B" matrix input.
     pub fn prepack_b(&self, b: Matrix, a_cols: usize) -> PackedBMatrix {
-        let nc = col_block_size(b.cols(), self.nr);
+        let nc = col_block_size(b.cols(), self.kernel.nr());
         let kc = depth_block_size(a_cols);
         let panel_len = nc * kc;
         let depth_blocks = div_ceil(a_cols, kc);
@@ -456,8 +445,16 @@ impl GemmExecutor {
         alpha: f32,
         beta: f32,
     ) {
-        self.kernel
-            .gemm(out_data, out_row_stride, a, b, alpha, beta, None)
+        gemm_impl(
+            &*self.kernel,
+            out_data,
+            out_row_stride,
+            a,
+            b,
+            alpha,
+            beta,
+            None,
+        )
     }
 
     /// Perform a matrix multiplication with fused bias vector addition.
@@ -477,8 +474,16 @@ impl GemmExecutor {
         beta: f32,
         bias: Option<&[f32]>,
     ) {
-        self.kernel
-            .gemm(out_data, out_row_stride, a, b, alpha, beta, bias)
+        gemm_impl(
+            &*self.kernel,
+            out_data,
+            out_row_stride,
+            a,
+            b,
+            alpha,
+            beta,
+            bias,
+        )
     }
 }
 
@@ -588,8 +593,8 @@ impl OutputTiles {
 /// Compute a vector-matrix product.
 ///
 /// This operation is called "gemv" in BLAS APIs.
-fn gemv<K: Kernel>(
-    kernel: &K,
+fn gemv(
+    kernel: &dyn Kernel,
     a: NdTensorView<f32, 1>,
     b: Matrix,
     mut output_mat: MatrixMut,
@@ -638,10 +643,6 @@ fn gemv<K: Kernel>(
 
 /// Perform matrix multiplication with a given kernel.
 ///
-/// `MR_NR` should be computed as `K::MR * K::NR`. This function can't compute
-/// that itself due to Rust limitations on using generic parameters in const
-/// expressions.
-///
 /// # Implementation notes
 ///
 /// The implementation uses the general approach of
@@ -667,8 +668,8 @@ fn gemv<K: Kernel>(
 /// [^1]: Low, Tze Meng, et al. "Analytical modeling is enough for
 ///       high-performance BLIS." ACM Transactions on Mathematical Software (TOMS)
 ///       43.2 (2016): 1-18. https://dl.acm.org/doi/pdf/10.1145/2925987
-fn gemm_impl<K: Kernel, const MR_NR: usize>(
-    kernel: &K,
+fn gemm_impl(
+    kernel: &dyn Kernel,
     out_data: &mut [f32],
     out_row_stride: usize,
     a: GemmInputA,
@@ -716,15 +717,15 @@ fn gemm_impl<K: Kernel, const MR_NR: usize>(
         }
     }
 
-    let output_tiles = OutputTiles::new(output_mat, K::MR, K::NR);
+    let output_tiles = OutputTiles::new(output_mat, kernel.mr(), kernel.nr());
 
     // Sizes of blocks that the width (nc), depth (kc) and height (mc)
     // dimensions are partitioned into in the outer loops. These are chosen so
     // that blocks can fit in specific cache levels. See
     // https://dl.acm.org/doi/pdf/10.1145/2925987 for notes on choosing the
     // values.
-    let nc = col_block_size(b.cols(), K::NR);
-    let mc = row_block_size(a.rows(), K::MR);
+    let nc = col_block_size(b.cols(), kernel.nr());
+    let mc = row_block_size(a.rows(), kernel.mr());
     let kc = depth_block_size(a.cols());
 
     let packed_b_size = kc * nc;
@@ -765,7 +766,7 @@ fn gemm_impl<K: Kernel, const MR_NR: usize>(
                         let mut packed_b = cell.take();
                         packed_b.clear();
                         packed_b.reserve(packed_b_size);
-                        pack_b_block::<K>(
+                        kernel.pack_b_block(
                             &mut packed_b.spare_capacity_mut()[..packed_b_size],
                             b,
                             depth_range.clone(),
@@ -785,7 +786,7 @@ fn gemm_impl<K: Kernel, const MR_NR: usize>(
                         packed_b.resize(packed_b_size, 0.);
                         vm.pack_b(
                             &mut packed_b,
-                            K::NR,
+                            kernel.nr(),
                             depth_range.clone(),
                             col_start..col_end,
                         );
@@ -814,7 +815,7 @@ fn gemm_impl<K: Kernel, const MR_NR: usize>(
                                 let mut packed_a = cell.take();
                                 packed_a.clear();
                                 packed_a.reserve(packed_a_size);
-                                pack_a_block::<K>(
+                                kernel.pack_a_block(
                                     &mut packed_a.spare_capacity_mut()[..packed_a_size],
                                     a,
                                     row_start..row_end,
@@ -831,11 +832,11 @@ fn gemm_impl<K: Kernel, const MR_NR: usize>(
                             GemmInputA::Packed(pm) => pm.block(row_idx, depth_idx),
                         };
 
-                        gemm_block::<K, MR_NR>(
+                        gemm_block(
                             kernel,
                             &output_tiles,
-                            col_start / K::NR..div_ceil(col_end, K::NR),
-                            row_start / K::MR..div_ceil(row_end, K::MR),
+                            col_start / kernel.nr()..div_ceil(col_end, kernel.nr()),
+                            row_start / kernel.mr()..div_ceil(row_end, kernel.mr()),
                             depth_range.start == 0,
                             packed_a,
                             packed_b,
@@ -866,8 +867,8 @@ fn gemm_impl<K: Kernel, const MR_NR: usize>(
 ///
 /// `is_first` indicates whether this is the first write to the output tiles
 /// in this block during the current GEMM operation.
-fn gemm_block<K: Kernel, const MR_NR: usize>(
-    kernel: &K,
+fn gemm_block(
+    kernel: &dyn Kernel,
     output: &OutputTiles,
     col_tiles: Range<usize>,
     row_tiles: Range<usize>,
@@ -879,8 +880,13 @@ fn gemm_block<K: Kernel, const MR_NR: usize>(
     beta: f32,
     bias: Option<&[f32]>,
 ) {
-    let b_panel_size = panel_length * K::NR;
-    let a_panel_size = K::MR * panel_length;
+    // Maximum tile size of all supported kernels.
+    const MAX_MR: usize = 8;
+    const MAX_NR: usize = 32;
+    assert!(kernel.nr() <= MAX_NR && kernel.mr() <= MAX_MR);
+
+    let b_panel_size = panel_length * kernel.nr();
+    let a_panel_size = kernel.mr() * panel_length;
 
     // Loop over column tiles.
     //
@@ -901,7 +907,7 @@ fn gemm_block<K: Kernel, const MR_NR: usize>(
                 //    every output tile is processed by one thread at a time.
                 let out_tile = unsafe { output.tile(row_tile, col_tile) };
 
-                if out_tile.used_rows == K::MR && out_tile.used_cols == K::NR {
+                if out_tile.used_rows == kernel.mr() && out_tile.used_cols == kernel.nr() {
                     // Safety:
                     //  - Tile size is MR * NR
                     unsafe {
@@ -921,14 +927,15 @@ fn gemm_block<K: Kernel, const MR_NR: usize>(
                     // copy the results back to the output. This allows the same
                     // kernel implementation to be used whether the tile is
                     // full-sized or not.
-                    let mut tmp_out_tile = [0.; MR_NR];
+                    let mut tmp_out_tile =
+                        [std::mem::MaybeUninit::<f32>::uninit(); MAX_MR * MAX_NR];
 
                     // Safety:
-                    //  - Tile size is MR * NR
+                    //  - Tile size is <= MAX_MR * MAX_NR
                     unsafe {
                         kernel.kernel(
-                            tmp_out_tile.as_mut_ptr(),
-                            K::NR,
+                            std::mem::transmute(tmp_out_tile.as_mut_ptr()),
+                            kernel.nr(),
                             a_panel,
                             b_panel,
                             panel_length,
@@ -943,8 +950,10 @@ fn gemm_block<K: Kernel, const MR_NR: usize>(
                             // cols in this tile.
                             unsafe {
                                 let out_el = out_tile.ptr.add(out_tile.row_stride * i + j);
-                                *out_el =
-                                    beta * *out_el + tmp_out_tile.get_unchecked(i * K::NR + j);
+                                *out_el = beta * *out_el
+                                    + tmp_out_tile
+                                        .get_unchecked(i * kernel.nr() + j)
+                                        .assume_init();
                             }
                         }
                     }
@@ -959,7 +968,7 @@ fn gemm_block<K: Kernel, const MR_NR: usize>(
                             //  - Bias length was checked at start of `gemm_impl`
                             unsafe {
                                 *out_tile.ptr.add(row * out_tile.row_stride + col) +=
-                                    *bias.get_unchecked(row_tile * K::MR + row);
+                                    *bias.get_unchecked(row_tile * kernel.mr() + row);
                             }
                         }
                     }

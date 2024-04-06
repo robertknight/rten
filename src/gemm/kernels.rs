@@ -4,7 +4,7 @@ use std::ops::Range;
 use rten_tensor::{Matrix, MatrixLayout};
 use rten_vecmath::simd_vec::SimdFloat;
 
-use super::{GemmInputA, GemmInputB};
+use crate::gemm::packing::{pack_a_block, pack_b_block};
 use crate::iter_util::{range_chunks_exact, unroll_loop};
 
 #[cfg(target_arch = "aarch64")]
@@ -212,20 +212,39 @@ unsafe fn simd_gemm<S: SimdFloat, const MR: usize, const NR_REGS: usize>(
 ///
 /// [^1]: https://dl.acm.org/doi/pdf/10.1145/2925987
 pub unsafe trait Kernel: Sync {
-    /// Height of output tiles computed by the kernel.
-    const MR: usize;
-
-    /// Width of output tiles computed by the kernel.
-    const NR: usize;
-
     /// Construct a new instance of this kernel, if supported on the current
     /// system.
     fn new() -> Option<Self>
     where
         Self: Sized;
 
+    /// Return the width of this kernel's tiles.
+    fn mr(&self) -> usize;
+
+    /// Return the height of this kernel's tiles.
+    fn nr(&self) -> usize;
+
     /// Return a name for this kernel for use in logging etc.
     fn name(&self) -> &'static str;
+
+    /// Pack a block of the LHS / "A" input for use by this kernel.
+    fn pack_a_block(
+        &self,
+        out: &mut [MaybeUninit<f32>],
+        a: Matrix,
+        rows: Range<usize>,
+        cols: Range<usize>,
+    );
+
+    /// Pack a block of the RHS / "B" input for use
+    /// by this kernel.
+    fn pack_b_block(
+        &self,
+        out: &mut [MaybeUninit<f32>],
+        b: Matrix,
+        rows: Range<usize>,
+        cols: Range<usize>,
+    );
 
     /// Compute a tile of the output matrix. The output is stored in row-major
     /// order with `MR` rows and `NR` columns, a row stride of `tile_row_stride`
@@ -270,110 +289,6 @@ pub unsafe trait Kernel: Sync {
     }
 }
 
-/// Object-safe trait for performing matrix multiplications and packing inputs
-/// with a specific kernel.
-///
-/// # Safety
-///
-/// The packing functions must initialize all elements of the output buffers
-/// passed to them.
-pub unsafe trait GemmOps: Sync {
-    fn name(&self) -> &str;
-
-    /// Pack elements of `a` into a packing buffer for use by the matrix
-    /// multiplication kernel.
-    ///
-    /// Implementations must initialize all elements of `out`.
-    fn pack_a_block(
-        &self,
-        out: &mut [MaybeUninit<f32>],
-        a: Matrix,
-        rows: Range<usize>,
-        cols: Range<usize>,
-    );
-
-    /// Pack elements of `b` into a packing buffer for use by the matrix
-    /// multiplication kernel.
-    ///
-    /// Implementations must initialize all elements of `out`.
-    fn pack_b_block(
-        &self,
-        out: &mut [MaybeUninit<f32>],
-        a: Matrix,
-        rows: Range<usize>,
-        cols: Range<usize>,
-    );
-
-    fn gemm(
-        &self,
-        out_data: &mut [f32],
-        out_row_stride: usize,
-        a: GemmInputA,
-        b: GemmInputB,
-        alpha: f32,
-        beta: f32,
-        bias: Option<&[f32]>,
-    );
-}
-
-/// Implement `GemmOps` for a specific kernel. A macro is used instead of
-/// `impl<K: Kernel> GemmOps for K` to work around const generics limitations in
-/// stable Rust.
-macro_rules! impl_gemmops {
-    ($kernel:ident) => {
-        // Safety - The packing functions initialize all elements of their output.
-        unsafe impl crate::gemm::kernels::GemmOps for $kernel {
-            fn name(&self) -> &str {
-                <$kernel as crate::gemm::kernels::Kernel>::name(self)
-            }
-
-            fn pack_a_block(
-                &self,
-                out: &mut [std::mem::MaybeUninit<f32>],
-                a: rten_tensor::Matrix,
-                rows: std::ops::Range<usize>,
-                cols: std::ops::Range<usize>,
-            ) {
-                crate::gemm::packing::pack_a_block::<Self>(out, a, rows, cols);
-            }
-
-            fn pack_b_block(
-                &self,
-                out: &mut [std::mem::MaybeUninit<f32>],
-                a: rten_tensor::Matrix,
-                rows: std::ops::Range<usize>,
-                cols: std::ops::Range<usize>,
-            ) {
-                crate::gemm::packing::pack_b_block::<Self>(out, a, rows, cols);
-            }
-
-            fn gemm(
-                &self,
-                out_data: &mut [f32],
-                out_row_stride: usize,
-                a: crate::gemm::GemmInputA,
-                b: crate::gemm::GemmInputB,
-                alpha: f32,
-                beta: f32,
-                bias: Option<&[f32]>,
-            ) {
-                crate::gemm::gemm_impl::<Self, { Self::MR * Self::NR }>(
-                    self,
-                    out_data,
-                    out_row_stride,
-                    a,
-                    b,
-                    alpha,
-                    beta,
-                    bias,
-                )
-            }
-        }
-    };
-}
-
-use impl_gemmops;
-
 /// This is the base kernel that does not use architecture-specific intrinsics
 /// but is autovectorization-friendly. It is expected to perform the same as
 /// a kernel using SSE intrinsics (or equivalent).
@@ -382,21 +297,51 @@ pub struct BaseKernel {
     _private: (),
 }
 
-// Safety - Base kernel is always supported
-unsafe impl Kernel for BaseKernel {
+impl BaseKernel {
     const MR: usize = 8;
 
     // The base kernel will most likely be compiled to SSE or equivalent. SSE
     // registers are 128 bits wide = 4 x f32, so this should be a multiple of
     // that.
     const NR: usize = 4;
+}
 
+// Safety - Base kernel is always supported
+unsafe impl Kernel for BaseKernel {
     fn new() -> Option<Self> {
         Some(BaseKernel { _private: () })
     }
 
+    fn mr(&self) -> usize {
+        Self::MR
+    }
+
+    fn nr(&self) -> usize {
+        Self::NR
+    }
+
     fn name(&self) -> &'static str {
         "base"
+    }
+
+    fn pack_a_block(
+        &self,
+        out: &mut [MaybeUninit<f32>],
+        a: Matrix,
+        rows: Range<usize>,
+        cols: Range<usize>,
+    ) {
+        pack_a_block::<{ Self::MR }>(out, a, rows, cols);
+    }
+
+    fn pack_b_block(
+        &self,
+        out: &mut [MaybeUninit<f32>],
+        b: Matrix,
+        rows: Range<usize>,
+        cols: Range<usize>,
+    ) {
+        pack_b_block::<{ Self::NR }>(out, b, rows, cols);
     }
 
     unsafe fn kernel(
@@ -415,5 +360,3 @@ unsafe impl Kernel for BaseKernel {
         simd_gemm::<f32, MR, NR_REGS>(tile_ptr, tile_row_stride, a, b, depth, alpha, beta);
     }
 }
-
-impl_gemmops!(BaseKernel);
