@@ -436,6 +436,10 @@ impl GemmExecutor {
     ///
     /// This computes `output = alpha * (a @ b) + beta * output` where `@` is
     /// matrix multiplication.
+    ///
+    /// As a special case, when beta is `0.0`, the computation is simplified to
+    /// `output = alpha * (a @ b)`. ie. existing values in `output` are not
+    /// used. This matters if the existing values include infinities or NaNs.
     pub fn gemm(
         &self,
         out_data: &mut [f32],
