@@ -777,8 +777,8 @@ fn gemm_impl<K: Kernel, const MR_NR: usize>(
     // These currently have no alignment specified. The paper mentioned above
     // suggests that aligning to cache-line (ie. 64-byte) boundaries may help
     // performance.
-    thread_local!(static PACKED_A: RefCell<Vec<f32>> = RefCell::new(Vec::new()));
-    thread_local!(static PACKED_B: RefCell<Vec<f32>> = RefCell::new(Vec::new()));
+    thread_local!(static PACKED_A: RefCell<Vec<f32>> = const { RefCell::new(Vec::new()) });
+    thread_local!(static PACKED_B: RefCell<Vec<f32>> = const { RefCell::new(Vec::new()) });
 
     let n_col_blocks = div_ceil(b.cols(), nc);
     let n_row_blocks = div_ceil(a.rows(), mc);
