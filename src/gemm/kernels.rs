@@ -87,7 +87,8 @@ unsafe fn simd_gemv<S: SimdFloat, const NR_REGS: usize>(
             acc += *a_ptr.add(k) * *b_ptr.add(k * b_row_stride + c);
         }
         let out_el = out_ptr.add(c);
-        *out_el = (*out_el * beta) + acc * alpha;
+        let tmp = if beta == 0. { 0. } else { *out_el };
+        *out_el = beta * tmp + acc * alpha;
     }
 }
 
