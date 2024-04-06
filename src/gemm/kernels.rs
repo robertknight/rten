@@ -122,12 +122,14 @@ unsafe fn simd_gemm<S: SimdFloat, const MR: usize, const NR_REGS: usize>(
     let mut tmp = [[S::zero(); NR_REGS]; MR];
     let mut b_rows = [S::zero(); NR_REGS];
 
-    unroll_loop!(0..depth - 1, k, 4, {
+    let prefetch_dist = 3;
+
+    unroll_loop!(0..depth.saturating_sub(prefetch_dist), k, 4, {
         let a_off = k * MR;
         let b_off = k * NR_REGS * S::LEN;
 
         // Prefetch B for the next iteration
-        S::prefetch(b_ptr.add((k + 1) * NR_REGS * S::LEN));
+        S::prefetch(b_ptr.add((k + prefetch_dist) * NR_REGS * S::LEN));
 
         for i in 0..NR_REGS {
             b_rows[i] = S::load(b_ptr.add(b_off + i * S::LEN));
@@ -143,26 +145,27 @@ unsafe fn simd_gemm<S: SimdFloat, const MR: usize, const NR_REGS: usize>(
         }
     });
 
-    // Prefetch output before the final computation loop
+    // Prefetch output before the final iterations.
     for i in 0..MR {
         S::prefetch_write(tile_ptr.add(tile_row_stride * i));
     }
 
-    // Perform final outer product update.
-    let k = depth - 1;
-    let a_off = k * MR;
-    let b_off = k * NR_REGS * S::LEN;
+    // Perform final outer product updates.
+    for k in depth.saturating_sub(prefetch_dist)..depth {
+        let a_off = k * MR;
+        let b_off = k * NR_REGS * S::LEN;
 
-    for i in 0..NR_REGS {
-        b_rows[i] = S::load(b_ptr.add(b_off + i * S::LEN));
-    }
+        for i in 0..NR_REGS {
+            b_rows[i] = S::load(b_ptr.add(b_off + i * S::LEN));
+        }
 
-    for i in 0..MR {
-        let a_val = *a_ptr.add(a_off + i);
-        let a_broadcast = S::splat(a_val);
+        for i in 0..MR {
+            let a_val = *a_ptr.add(a_off + i);
+            let a_broadcast = S::splat(a_val);
 
-        for j in 0..NR_REGS {
-            tmp[i][j] = a_broadcast.mul_add(b_rows[j], tmp[i][j]);
+            for j in 0..NR_REGS {
+                tmp[i][j] = a_broadcast.mul_add(b_rows[j], tmp[i][j]);
+            }
         }
     }
 
