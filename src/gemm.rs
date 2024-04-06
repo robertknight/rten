@@ -950,7 +950,8 @@ fn gemm_block(
                             // cols in this tile.
                             unsafe {
                                 let out_el = out_tile.ptr.add(out_tile.row_stride * i + j);
-                                *out_el = beta * *out_el
+                                let tmp = if beta == 0. { 0. } else { *out_el };
+                                *out_el = beta * tmp
                                     + tmp_out_tile
                                         .get_unchecked(i * kernel.nr() + j)
                                         .assume_init();
@@ -1300,6 +1301,50 @@ mod tests {
 
                 expect_equal(&result, &expected)?;
             }
+        }
+
+        Ok(())
+    }
+
+    #[test]
+    fn test_gemm_beta_zero() -> Result<(), Box<dyn Error>> {
+        struct Case {
+            m: usize,
+            n: usize,
+            k: usize,
+        }
+
+        let cases = [
+            // Matrix-matrix multiplication
+            Case {
+                m: 20,
+                n: 20,
+                k: 20,
+            },
+            // Vector-matrix multiplication
+            Case { m: 1, n: 20, k: 20 },
+        ];
+
+        for Case { m, n, k } in cases {
+            let mut rng = XorShiftRng::new(1234);
+            let a = Tensor::rand(&[m, k], &mut rng);
+            let b = Tensor::rand(&[k, n], &mut rng);
+
+            let mut result = Tensor::full(&[m, n], f32::NAN);
+            let mut expected = Tensor::zeros(result.shape());
+
+            run_gemm(
+                &mut result,
+                &a,
+                &b,
+                1.,
+                0., /* beta */
+                None,
+                KernelHint::Auto,
+            );
+            reference_gemm(&mut expected, &a, &b, 1., 0. /* beta */, None);
+
+            expect_equal(&result, &expected)?;
         }
 
         Ok(())
