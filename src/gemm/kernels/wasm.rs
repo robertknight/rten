@@ -5,21 +5,26 @@ use rten_vecmath::simd_vec::SimdFloat;
 use super::{simd_gemm, simd_gemv, Kernel};
 
 #[derive(Default)]
-pub struct WasmKernel {}
+pub struct WasmKernel {
+    _private: (),
+}
 
-impl Kernel for WasmKernel {
+// Safety - Support for used WASM instructions is checked by the runtime when
+// the WASM binary is loaded.
+unsafe impl Kernel for WasmKernel {
     const MR: usize = 8;
     const NR: usize = 8;
 
-    fn name() -> &'static str {
+    fn new() -> Option<Self> {
+        Some(WasmKernel { _private: () })
+    }
+
+    fn name(&self) -> &'static str {
         "wasm32"
     }
 
-    fn supported() -> bool {
-        true
-    }
-
     unsafe fn kernel(
+        &self,
         tile_ptr: *mut f32,
         tile_row_stride: usize,
         a: &[f32],
@@ -35,8 +40,11 @@ impl Kernel for WasmKernel {
         simd_gemm::<v128f, MR, NR_REGS>(tile_ptr, tile_row_stride, a, b, depth, alpha, beta);
     }
 
-    unsafe fn gemv_kernel(out: &mut [f32], a: &[f32], b: Matrix, alpha: f32, beta: f32) {
-        simd_gemv::<v128f, 4>(out, a, b, alpha, beta);
+    fn gemv_kernel(&self, out: &mut [f32], a: &[f32], b: Matrix, alpha: f32, beta: f32) {
+        // Safety - WASM SIMD types are supported if this kernel was constructed.
+        unsafe {
+            simd_gemv::<v128f, 4>(out, a, b, alpha, beta);
+        }
     }
 }
 

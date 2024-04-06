@@ -329,77 +329,37 @@ impl GemmExecutor {
     /// kernel is not supported.
     #[allow(dead_code)] // Currently only used in tests
     pub fn with_kernel(kernel: KernelHint) -> Option<GemmExecutor> {
+        fn make_kernel<K: Kernel + GemmOps + 'static>() -> Option<GemmExecutor> {
+            K::new().map(|kernel| GemmExecutor {
+                kernel: Box::new(kernel),
+                nr: K::NR,
+                mr: K::MR,
+            })
+        }
+
         match kernel {
             KernelHint::Auto => Some(Self::new()),
-            KernelHint::Avx512 => {
-                #[cfg(feature = "avx512")]
-                #[cfg(target_arch = "x86_64")]
-                {
-                    use kernels::x86_64::Avx512Kernel;
-
-                    if Avx512Kernel::supported() {
-                        return Some(GemmExecutor {
-                            kernel: Box::new(Avx512Kernel {}),
-                            nr: Avx512Kernel::NR,
-                            mr: Avx512Kernel::MR,
-                        });
-                    }
-                }
-                None
-            }
-            KernelHint::Fma => {
-                #[cfg(target_arch = "x86_64")]
-                {
-                    use kernels::x86_64::FmaKernel;
-
-                    if FmaKernel::supported() {
-                        return Some(GemmExecutor {
-                            kernel: Box::new(FmaKernel {}),
-                            nr: FmaKernel::NR,
-                            mr: FmaKernel::MR,
-                        });
-                    }
-                }
-                None
-            }
-            KernelHint::ArmNeon => {
-                #[cfg(target_arch = "aarch64")]
-                {
-                    use kernels::aarch64::ArmNeonKernel;
-
-                    if ArmNeonKernel::supported() {
-                        return Some(GemmExecutor {
-                            kernel: Box::new(ArmNeonKernel {}),
-                            nr: ArmNeonKernel::NR,
-                            mr: ArmNeonKernel::MR,
-                        });
-                    }
-                }
-                None
-            }
-            KernelHint::Wasm => {
-                #[cfg(target_arch = "wasm32")]
-                {
-                    use kernels::wasm::WasmKernel;
-
-                    if WasmKernel::supported() {
-                        return Some(GemmExecutor {
-                            kernel: Box::new(WasmKernel {}),
-                            mr: WasmKernel::MR,
-                            nr: WasmKernel::NR,
-                        });
-                    }
-                }
-                None
-            }
+            #[cfg(feature = "avx512")]
+            #[cfg(target_arch = "x86_64")]
+            KernelHint::Avx512 => make_kernel::<kernels::x86_64::Avx512Kernel>(),
+            #[cfg(target_arch = "x86_64")]
+            KernelHint::Fma => make_kernel::<kernels::x86_64::FmaKernel>(),
+            #[cfg(target_arch = "aarch64")]
+            KernelHint::ArmNeon => make_kernel::<kernels::aarch64::ArmNeonKernel>(),
+            #[cfg(target_arch = "wasm32")]
+            KernelHint::Wasm => make_kernel::<kernels::wasm::WasmKernel>(),
             KernelHint::Base => Some(Self::with_base_kernel()),
+            // Fail by default if requested kernel is never supported on
+            // current platform (eg. requesting Arm Neon on x64).
+            _ => None,
         }
     }
 
     /// Construct a GemmExecutor that uses the generic kernel.
     fn with_base_kernel() -> GemmExecutor {
+        let kernel = BaseKernel::new().unwrap();
         GemmExecutor {
-            kernel: Box::new(BaseKernel {}),
+            kernel: Box::new(kernel),
             nr: BaseKernel::NR,
             mr: BaseKernel::MR,
         }
@@ -629,6 +589,7 @@ impl OutputTiles {
 ///
 /// This operation is called "gemv" in BLAS APIs.
 fn gemv<K: Kernel>(
+    kernel: &K,
     a: NdTensorView<f32, 1>,
     b: Matrix,
     mut output_mat: MatrixMut,
@@ -636,7 +597,6 @@ fn gemv<K: Kernel>(
     beta: f32,
     bias: Option<f32>,
 ) {
-    assert!(K::supported());
     assert!(a.is_contiguous());
     assert!(b.is_contiguous());
     assert!(output_mat.is_contiguous());
@@ -661,10 +621,7 @@ fn gemv<K: Kernel>(
                 let a_block = &a_data[k_block.clone()];
                 let b_block = b.slice::<2, _>((k_block, b_block.clone()));
 
-                // Safety - We checked this kernel is supported.
-                unsafe {
-                    K::gemv_kernel(out_chunk, a_block, b_block, alpha, effective_beta);
-                }
+                kernel.gemv_kernel(out_chunk, a_block, b_block, alpha, effective_beta);
 
                 // Reset `beta` so that subsequent updates for each column
                 // accumulate into the first update.
@@ -711,6 +668,7 @@ fn gemv<K: Kernel>(
 ///       high-performance BLIS." ACM Transactions on Mathematical Software (TOMS)
 ///       43.2 (2016): 1-18. https://dl.acm.org/doi/pdf/10.1145/2925987
 fn gemm_impl<K: Kernel, const MR_NR: usize>(
+    kernel: &K,
     out_data: &mut [f32],
     out_row_stride: usize,
     a: GemmInputA,
@@ -719,7 +677,6 @@ fn gemm_impl<K: Kernel, const MR_NR: usize>(
     beta: f32,
     bias: Option<&[f32]>,
 ) {
-    assert!(K::supported());
     assert!(
         a.cols() == b.rows(),
         "Columns of matrix `a` must match rows of matrix `b`"
@@ -745,7 +702,8 @@ fn gemm_impl<K: Kernel, const MR_NR: usize>(
     // Use optimized path for vector-matrix products.
     if let (1, GemmInputA::Unpacked(a), GemmInputB::Unpacked(b)) = (a.rows(), a, b) {
         if let (Some(_), Some(_)) = (a.data(), b.data()) {
-            gemv::<K>(
+            gemv(
+                kernel,
                 a.slice::<1, _>(0),
                 b,
                 output_mat.view_mut(),
@@ -874,6 +832,7 @@ fn gemm_impl<K: Kernel, const MR_NR: usize>(
                         };
 
                         gemm_block::<K, MR_NR>(
+                            kernel,
                             &output_tiles,
                             col_start / K::NR..div_ceil(col_end, K::NR),
                             row_start / K::MR..div_ceil(row_end, K::MR),
@@ -908,6 +867,7 @@ fn gemm_impl<K: Kernel, const MR_NR: usize>(
 /// `is_first` indicates whether this is the first write to the output tiles
 /// in this block during the current GEMM operation.
 fn gemm_block<K: Kernel, const MR_NR: usize>(
+    kernel: &K,
     output: &OutputTiles,
     col_tiles: Range<usize>,
     row_tiles: Range<usize>,
@@ -944,9 +904,8 @@ fn gemm_block<K: Kernel, const MR_NR: usize>(
                 if out_tile.used_rows == K::MR && out_tile.used_cols == K::NR {
                     // Safety:
                     //  - Tile size is MR * NR
-                    //  - We checked this kernel is supported
                     unsafe {
-                        K::kernel(
+                        kernel.kernel(
                             out_tile.ptr,
                             out_tile.row_stride,
                             a_panel,
@@ -966,9 +925,8 @@ fn gemm_block<K: Kernel, const MR_NR: usize>(
 
                     // Safety:
                     //  - Tile size is MR * NR
-                    //  - We checked this kernel is supported
                     unsafe {
-                        K::kernel(
+                        kernel.kernel(
                             tmp_out_tile.as_mut_ptr(),
                             K::NR,
                             a_panel,

@@ -20,6 +20,8 @@ pub mod wasm;
 ///
 /// Multiple output columns are computed at a time, using `NR_REGS` SIMD
 /// registers of type `S`. See [Kernel::gemv_kernel].
+///
+/// Safety: The `SimdFloat` type must be supported on the current system.
 #[inline(always)]
 unsafe fn simd_gemv<S: SimdFloat, const NR_REGS: usize>(
     out: &mut [f32],
@@ -96,6 +98,8 @@ unsafe fn simd_gemv<S: SimdFloat, const NR_REGS: usize>(
 /// the SIMD register width.
 ///
 /// See [Kernel::kernel].
+///
+/// Safety: The `SimdFloat` type must be supported on the current system.
 #[inline(always)]
 unsafe fn simd_gemm<S: SimdFloat, const MR: usize, const NR_REGS: usize>(
     tile_ptr: *mut f32,
@@ -201,21 +205,27 @@ unsafe fn simd_gemm<S: SimdFloat, const MR: usize, const NR_REGS: usize>(
 /// associated constants. See Section 3.2 [^1] for theory behind choosing the
 /// `MR` and `NR` values.
 ///
+/// # Safety
+///
+/// It must only be possible to construct the kernel using `new` if the
+/// instructions it uses are supported on the current system.
+///
 /// [^1]: https://dl.acm.org/doi/pdf/10.1145/2925987
-pub trait Kernel {
+pub unsafe trait Kernel: Sync {
     /// Height of output tiles computed by the kernel.
     const MR: usize;
 
     /// Width of output tiles computed by the kernel.
     const NR: usize;
 
-    /// Return a name for this kernel for use in logging etc.
-    fn name() -> &'static str;
+    /// Construct a new instance of this kernel, if supported on the current
+    /// system.
+    fn new() -> Option<Self>
+    where
+        Self: Sized;
 
-    /// Return true if this kernel is usable on the current system.
-    ///
-    /// Unsafe functions in this trait can only be called if this returns true.
-    fn supported() -> bool;
+    /// Return a name for this kernel for use in logging etc.
+    fn name(&self) -> &'static str;
 
     /// Compute a tile of the output matrix. The output is stored in row-major
     /// order with `MR` rows and `NR` columns, a row stride of `tile_row_stride`
@@ -223,9 +233,10 @@ pub trait Kernel {
     ///
     /// # Safety
     ///
-    /// The caller must ensure that the kernel is supported on the current
-    /// system, and `tile_ptr` points to a buffer of the correct size.
+    /// The caller must ensure that `tile_ptr` points to a buffer of the correct
+    /// size.
     unsafe fn kernel(
+        &self,
         tile_ptr: *mut f32,
         tile_row_stride: usize,
         a: &[f32],
@@ -251,8 +262,11 @@ pub trait Kernel {
     ///
     /// The caller must ensure that the kernel is supported on the current
     /// system.
-    unsafe fn gemv_kernel(out: &mut [f32], a: &[f32], b: Matrix, alpha: f32, beta: f32) {
-        simd_gemv::<f32, 4>(out, a, b, alpha, beta);
+    fn gemv_kernel(&self, out: &mut [f32], a: &[f32], b: Matrix, alpha: f32, beta: f32) {
+        // Safety - f32 "SIMD" type is always supported
+        unsafe {
+            simd_gemv::<f32, 4>(out, a, b, alpha, beta);
+        }
     }
 }
 
@@ -310,7 +324,7 @@ macro_rules! impl_gemmops {
         // Safety - The packing functions initialize all elements of their output.
         unsafe impl crate::gemm::kernels::GemmOps for $kernel {
             fn name(&self) -> &str {
-                <$kernel as crate::gemm::kernels::Kernel>::name()
+                <$kernel as crate::gemm::kernels::Kernel>::name(self)
             }
 
             fn pack_a_block(
@@ -344,6 +358,7 @@ macro_rules! impl_gemmops {
                 bias: Option<&[f32]>,
             ) {
                 crate::gemm::gemm_impl::<Self, { Self::MR * Self::NR }>(
+                    self,
                     out_data,
                     out_row_stride,
                     a,
@@ -363,9 +378,12 @@ use impl_gemmops;
 /// but is autovectorization-friendly. It is expected to perform the same as
 /// a kernel using SSE intrinsics (or equivalent).
 #[derive(Default)]
-pub struct BaseKernel {}
+pub struct BaseKernel {
+    _private: (),
+}
 
-impl Kernel for BaseKernel {
+// Safety - Base kernel is always supported
+unsafe impl Kernel for BaseKernel {
     const MR: usize = 8;
 
     // The base kernel will most likely be compiled to SSE or equivalent. SSE
@@ -373,15 +391,16 @@ impl Kernel for BaseKernel {
     // that.
     const NR: usize = 4;
 
-    fn name() -> &'static str {
+    fn new() -> Option<Self> {
+        Some(BaseKernel { _private: () })
+    }
+
+    fn name(&self) -> &'static str {
         "base"
     }
 
-    fn supported() -> bool {
-        true
-    }
-
     unsafe fn kernel(
+        &self,
         tile_ptr: *mut f32,
         tile_row_stride: usize,
         a: &[f32],

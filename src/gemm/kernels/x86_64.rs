@@ -10,26 +10,31 @@ use super::{simd_gemm, simd_gemv, Kernel};
 
 /// Optimized kernel for x64 CPUs that support AVX + FMA instructions.
 #[derive(Default)]
-pub struct FmaKernel {}
+pub struct FmaKernel {
+    _private: (),
+}
 
-impl Kernel for FmaKernel {
+// Safety - The `new` fn tests for AVX-2 / FMA support.
+unsafe impl Kernel for FmaKernel {
     const MR: usize = 6;
 
     // Chosen to fit 2 AVX registers and take advantage of the two FMA
     // execution ports.
     const NR: usize = 16;
 
-    fn name() -> &'static str {
-        "fma"
+    fn new() -> Option<Self> {
+        let supported = is_x86_feature_detected!("avx2") && is_x86_feature_detected!("fma");
+        supported.then_some(FmaKernel { _private: () })
     }
 
-    fn supported() -> bool {
-        is_x86_feature_detected!("avx2") && is_x86_feature_detected!("fma")
+    fn name(&self) -> &'static str {
+        "fma"
     }
 
     #[target_feature(enable = "avx2")]
     #[target_feature(enable = "fma")]
     unsafe fn kernel(
+        &self,
         tile_ptr: *mut f32,
         tile_row_stride: usize,
         a: &[f32],
@@ -45,10 +50,16 @@ impl Kernel for FmaKernel {
         simd_gemm::<__m256, MR, NR_REGS>(tile_ptr, tile_row_stride, a, b, depth, alpha, beta);
     }
 
-    #[target_feature(enable = "avx2")]
-    #[target_feature(enable = "fma")]
-    unsafe fn gemv_kernel(out: &mut [f32], a: &[f32], b: Matrix, alpha: f32, beta: f32) {
-        simd_gemv::<__m256, 2>(out, a, b, alpha, beta);
+    fn gemv_kernel(&self, out: &mut [f32], a: &[f32], b: Matrix, alpha: f32, beta: f32) {
+        #[target_feature(enable = "avx2")]
+        #[target_feature(enable = "fma")]
+        unsafe fn gemv_kernel_impl(out: &mut [f32], a: &[f32], b: Matrix, alpha: f32, beta: f32) {
+            simd_gemv::<__m256, 2>(out, a, b, alpha, beta);
+        }
+        // Safety: Kernel can only be constructed if supported.
+        unsafe {
+            gemv_kernel_impl(out, a, b, alpha, beta);
+        }
     }
 }
 
@@ -104,10 +115,13 @@ fn test_for_avx512_on_macos() -> bool {
 /// Optimized kernel for x64 CPUs that support AVX 512 instructions.
 #[cfg(feature = "avx512")]
 #[derive(Default)]
-pub struct Avx512Kernel {}
+pub struct Avx512Kernel {
+    _private: (),
+}
 
+// Safety - The `new` fn checks for AVX-512 support.
 #[cfg(feature = "avx512")]
-impl Kernel for Avx512Kernel {
+unsafe impl Kernel for Avx512Kernel {
     // The optimal value of MR depends on how many AVX-512 FMA units the CPU has.
     // Client Intel CPUs have one, server CPUs have two. This smaller value is
     // tuned for single-FMA CPUs.
@@ -118,26 +132,32 @@ impl Kernel for Avx512Kernel {
     // 2 x 16-f32-wide registers.
     const NR: usize = 32;
 
-    fn name() -> &'static str {
-        "avx512"
+    fn new() -> Option<Self> {
+        let supported = {
+            if is_x86_feature_detected!("avx512f") && is_x86_feature_detected!("avx512vl") {
+                true
+            } else {
+                #[cfg(target_os = "macos")]
+                {
+                    test_for_avx512_on_macos()
+                }
+                #[cfg(not(target_os = "macos"))]
+                {
+                    false
+                }
+            }
+        };
+        supported.then_some(Avx512Kernel { _private: () })
     }
 
-    fn supported() -> bool {
-        if is_x86_feature_detected!("avx512f") && is_x86_feature_detected!("avx512vl") {
-            return true;
-        }
-
-        #[cfg(target_os = "macos")]
-        if test_for_avx512_on_macos() {
-            return true;
-        }
-
-        false
+    fn name(&self) -> &'static str {
+        "avx512"
     }
 
     #[target_feature(enable = "avx512f")]
     #[target_feature(enable = "avx512vl")]
     unsafe fn kernel(
+        &self,
         tile_ptr: *mut f32,
         tile_row_stride: usize,
         a: &[f32],
@@ -153,10 +173,16 @@ impl Kernel for Avx512Kernel {
         simd_gemm::<__m512, MR, NR_REGS>(tile_ptr, tile_row_stride, a, b, depth, alpha, beta)
     }
 
-    #[target_feature(enable = "avx512f")]
-    #[target_feature(enable = "avx512vl")]
-    unsafe fn gemv_kernel(out: &mut [f32], a: &[f32], b: Matrix, alpha: f32, beta: f32) {
-        simd_gemv::<__m512, 2>(out, a, b, alpha, beta);
+    fn gemv_kernel(&self, out: &mut [f32], a: &[f32], b: Matrix, alpha: f32, beta: f32) {
+        #[target_feature(enable = "avx512f")]
+        #[target_feature(enable = "avx512vl")]
+        unsafe fn gemv_kernel_impl(out: &mut [f32], a: &[f32], b: Matrix, alpha: f32, beta: f32) {
+            simd_gemv::<__m512, 2>(out, a, b, alpha, beta);
+        }
+        // Safety: Kernel can only be constructed if supported.
+        unsafe {
+            gemv_kernel_impl(out, a, b, alpha, beta);
+        }
     }
 }
 
