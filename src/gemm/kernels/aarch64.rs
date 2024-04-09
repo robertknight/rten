@@ -77,7 +77,7 @@ unsafe impl Kernel for ArmNeonKernel {
     fn gemv_kernel(&self, out: &mut [f32], a: &[f32], b: Matrix, alpha: f32, beta: f32) {
         // Safety - float32x4_t is supported if this kernel was constructed.
         unsafe {
-            simd_gemv::<float32x4_t, 2>(out, a, b, alpha, beta);
+            simd_gemv::<float32x4_t, 4>(out, a, b, alpha, beta);
         }
     }
 }

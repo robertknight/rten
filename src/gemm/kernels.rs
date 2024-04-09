@@ -42,7 +42,7 @@ unsafe fn simd_gemv<S: SimdFloat, const NR_REGS: usize>(
     let mut b_tiles = range_chunks_exact(0..b.cols(), NR_REGS * S::LEN);
     for b_tile in b_tiles.by_ref() {
         let mut acc = [S::zero(); NR_REGS];
-        for k in 0..a.len() {
+        unroll_loop!(0..a.len(), k, 4, {
             let a_elt = *a_ptr.add(k);
             let a_elts = S::splat(a_elt);
 
@@ -50,7 +50,7 @@ unsafe fn simd_gemv<S: SimdFloat, const NR_REGS: usize>(
                 let b_elts = S::load(b_ptr.add(k * b_row_stride + b_tile.start + i * S::LEN));
                 acc[i] = a_elts.mul_add(b_elts, acc[i]);
             }
-        }
+        });
 
         if alpha != 1. {
             let alpha_vec = S::splat(alpha);
