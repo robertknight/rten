@@ -395,11 +395,11 @@ impl GemmExecutor {
     }
 
     /// Prepack a matrix for use as the right-hand or "B" matrix input.
-    pub fn prepack_b(&self, b: Matrix, a_cols: usize) -> PackedBMatrix {
+    pub fn prepack_b(&self, b: Matrix) -> PackedBMatrix {
         let nc = col_block_size(b.cols(), self.kernel.nr());
-        let kc = depth_block_size(a_cols);
+        let kc = depth_block_size(b.rows());
         let panel_len = nc * kc;
-        let depth_blocks = div_ceil(a_cols, kc);
+        let depth_blocks = div_ceil(b.rows(), kc);
         let col_blocks = div_ceil(b.cols(), nc);
 
         let packed_len = col_blocks * depth_blocks * panel_len;
@@ -410,7 +410,7 @@ impl GemmExecutor {
         let mut out_panels = out.spare_capacity_mut()[..packed_len].chunks_exact_mut(panel_len);
         let mut n_init = 0;
         for col_range in range_chunks(0..b.cols(), nc) {
-            for depth_range in range_chunks(0..a_cols, kc) {
+            for depth_range in range_chunks(0..b.rows(), kc) {
                 let out_panel = out_panels.next().unwrap();
                 self.kernel
                     .pack_b_block(out_panel, b, depth_range, col_range.clone());
@@ -1463,7 +1463,7 @@ mod tests {
             let gemm = GemmExecutor::new();
 
             let packed_a = gemm.prepack_a(a_mat);
-            let packed_b = gemm.prepack_b(b.nd_view(), a.size(1));
+            let packed_b = gemm.prepack_b(b.nd_view());
 
             let mut result = Tensor::zeros(&[m, n]);
             let result_row_stride = result.stride(0);

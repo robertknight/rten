@@ -176,7 +176,7 @@ fn matmul_impl(a: TensorView, b: TensorView, strategy: MatmulStrategy) -> Result
     });
     let prepacked_b = (num_a_matrices > 1 && num_b_matrices == 1 && a_rows > 1).then(|| {
         let b_matrix = b.inner_iter::<2>().next().unwrap();
-        gemm.prepack_b(b_matrix, a_cols)
+        gemm.prepack_b(b_matrix)
     });
 
     a_broadcast
