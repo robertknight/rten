@@ -117,7 +117,7 @@ unsafe impl Kernel for FmaKernel {
         #[target_feature(enable = "avx2")]
         #[target_feature(enable = "fma")]
         unsafe fn gemv_kernel_impl(out: &mut [f32], a: &[f32], b: Matrix, alpha: f32, beta: f32) {
-            simd_gemv::<__m256, 2>(out, a, b, alpha, beta);
+            simd_gemv::<__m256, 4>(out, a, b, alpha, beta);
         }
         // Safety: Kernel can only be constructed if supported.
         unsafe {
