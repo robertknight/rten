@@ -211,7 +211,6 @@ fn extract_weights_and_bias<'a>(
     gate_index: usize,
     sequence_len: usize,
 ) -> GateWeightsAndBias<'a> {
-    let input_size = weights.size(2);
     let hidden_size = weights.size(1) / num_gates;
     let weights = extract_matrix(weights, dir, num_gates, gate_index).transposed();
     let recurrent_weights =
@@ -229,12 +228,12 @@ fn extract_weights_and_bias<'a>(
     let prepack = sequence_len > 4;
 
     let weights = if prepack {
-        GateWeights::Packed(gemm.prepack_b(weights, input_size))
+        GateWeights::Packed(gemm.prepack_b(weights))
     } else {
         GateWeights::Unpacked(weights)
     };
     let recurrent_weights = if prepack {
-        GateWeights::Packed(gemm.prepack_b(recurrent_weights, hidden_size))
+        GateWeights::Packed(gemm.prepack_b(recurrent_weights))
     } else {
         GateWeights::Unpacked(recurrent_weights)
     };
