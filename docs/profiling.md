@@ -131,6 +131,11 @@ Some ways to speed up inference without changing RTen's code are:
   input size can speed up inference significantly, although accuracy can degrade
   significantly if the input is much smaller than what the model was trained
   on.
+- For autoregressive or recurrent models which are run repeatedly inside a loop,
+  you can use `Model::partial_run` outside the loop to evaluate parts of the model
+  which depend only on loop-invariant inputs. Then inside the loop you pass the
+  results of `partial_run` together with the loop-varying inputs to `Model::run`
+  to compute the remainder of the graph.
 
 If you find that an operator is unexpectedly slow compared to other runtimes,
 and the issue can be reproduced using an open source model and code, please

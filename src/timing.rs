@@ -152,6 +152,10 @@ struct TimingByShapeRecord {
     ///
     /// This count is for each run of the operator.
     input_elements: usize,
+
+    /// Name of an example operator node in the graph that contributed to this
+    /// record.
+    node_name: String,
 }
 
 /// [Display]-able table containing a breakdown of operator execution time
@@ -166,7 +170,14 @@ impl Table for TimingByShapeTable {
     }
 
     fn headings(&self) -> &[&str] {
-        &["Shape", "Count", "Mean (ms)", "Total (ms)", "ns/input elem"]
+        &[
+            "Shape",
+            "Count",
+            "Mean (ms)",
+            "Total (ms)",
+            "ns/input elem",
+            "Example node",
+        ]
     }
 
     fn cell(&self, row: usize, col: usize) -> String {
@@ -180,6 +191,7 @@ impl Table for TimingByShapeTable {
                 "{:.3}",
                 (row.total_ms * 1_000_000.0) / (row.input_elements * row.count) as f32
             ),
+            5 => row.node_name.clone(),
             _ => panic!("invalid column"),
         }
     }
@@ -242,21 +254,24 @@ impl<'a> FormattedRunTiming<'a> {
                             .unwrap_or(0)
                     })
                     .sum::<usize>();
-                let (cum_time, count, _) =
-                    timings
-                        .entry(formatted_shapes)
-                        .or_insert((0., 0, input_elements));
+                let (cum_time, count, _, _) = timings.entry(formatted_shapes).or_insert((
+                    0.,
+                    0,
+                    input_elements,
+                    record.node_name.clone(),
+                ));
                 *cum_time += record.elapsed_micros / 1000.0;
                 *count += 1;
                 timings
             })
             .into_iter()
             .map(
-                |(shape, (total_ms, count, input_elements))| TimingByShapeRecord {
+                |(shape, (total_ms, count, input_elements, node_name))| TimingByShapeRecord {
                     shape,
                     total_ms,
                     count,
                     input_elements,
+                    node_name,
                 },
             )
             .collect();
@@ -338,8 +353,11 @@ pub type InputShape = Option<SmallVec<[usize; 4]>>;
 
 /// Timing record for a single graph computation step.
 pub struct TimingRecord {
-    /// Operator name
+    /// Operator name (eg. `MatMul`)
     pub name: String,
+
+    /// Name of the graph node
+    pub node_name: String,
 
     /// Shapes of the operator's inputs
     pub input_shapes: Vec<InputShape>,

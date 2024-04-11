@@ -43,6 +43,14 @@ use crate::timing::TimingSort;
 /// of generating a plan which starts with the input nodes, and executes the
 /// necessary operators to generate the requested outputs.
 ///
+/// ## Partial evaluation
+///
+/// Some models, such as transformer decoders, are evaluated repeatedly in a
+/// loop. If such models have inputs which are constant in each iteration of the
+/// loop, execution can be sped up by using partial evaluation. This involves
+/// evaluating the part of the graph that depends only on the constant inputs
+/// once, outside the loop. To do this use [Model::partial_run].
+///
 /// ## Custom operator registries
 ///
 /// By default all supported ONNX operators are available for use by the model.
@@ -354,6 +362,30 @@ impl Model {
         let &output_id = self.output_ids().first().ok_or(RunError::InvalidNodeId)?;
         self.run_n(&[(input_id, input)], [output_id], opts)
             .map(|[result]| result)
+    }
+
+    /// Run the model using an incomplete set of inputs.
+    ///
+    /// Unlike [`run`](Model::run) this will not fail if some values required to
+    /// compute `outputs` are missing. Instead it will compute as many
+    /// intermediate values as possible using the provided inputs and return the
+    /// leaf values of the subgraph that was executed. These intermediate
+    /// outputs can then be passed to future calls to [`run`](Model::run) when
+    /// the other inputs are available.
+    ///
+    /// This method can speed up autoregressive / recurrent models where the
+    /// model is run in a loop during inference, but some inputs are constant
+    /// across each iteration of the loop. In such cases, execution times can be
+    /// reduced by performing a `partial_run` once outside the loop, providing
+    /// the constant inputs, and the results can be provided together with the
+    /// the remaining inputs to `run` calls inside the loop.
+    pub fn partial_run(
+        &self,
+        inputs: &[(NodeId, Input)],
+        outputs: &[NodeId],
+        opts: Option<RunOptions>,
+    ) -> Result<Vec<(NodeId, Output)>, RunError> {
+        self.graph.partial_run(inputs, outputs, opts)
     }
 }
 
@@ -1172,7 +1204,9 @@ mod tests {
     use crate::model::Model;
     use crate::model_builder::{MetadataArgs, ModelBuilder, OpType};
     use crate::ops;
-    use crate::ops::{BoxOrder, CoordTransformMode, NearestMode, OpError, ResizeMode, Scalar};
+    use crate::ops::{
+        BoxOrder, CoordTransformMode, NearestMode, OpError, Output, ResizeMode, Scalar,
+    };
     use crate::{ModelLoadError, OpRegistry, ReadOpError};
 
     fn generate_model_buffer() -> Vec<u8> {
@@ -1291,16 +1325,26 @@ mod tests {
         let output_id = model.output_ids()[0];
 
         let input = Tensor::from_data(&[1, 2, 2], vec![1., 2., -1., -2.]);
-        let result = model
+
+        // Test a normal model run.
+        let mut result = model
             .run(&[(input_id, (&input).into())], &[output_id], None)
             .unwrap();
 
         assert_eq!(result.len(), 1);
-
-        let result_tensor = result[0].as_float_ref().unwrap();
-
+        let result_tensor = result.remove(0).into_float().unwrap();
         assert_eq!(result_tensor.shape(), &[2, 2, 2]);
         assert_eq!(result_tensor.to_vec(), &[0.5, 0., 0.1, 0., 1., 2., 0., 0.]);
+
+        // Test a partial run. Since we are providing all inputs, this works the
+        // same as `Model::run`. See `Graph::partial_run` tests for other cases.
+        let partial_run_result = model
+            .partial_run(&[(input_id, (&input).into())], &[output_id], None)
+            .unwrap();
+        assert_eq!(
+            partial_run_result,
+            vec![(output_id, Output::FloatTensor(result_tensor))]
+        );
     }
 
     #[test]
