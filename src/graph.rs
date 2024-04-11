@@ -485,6 +485,7 @@ impl Graph {
                     name: op_node.operator.name().to_string(),
                     input_shapes: input_shapes.clone(),
                     elapsed_micros: op_timer.elapsed_micros(),
+                    node_name: op_node.name.clone().unwrap_or(String::new()),
                 });
             }
 
