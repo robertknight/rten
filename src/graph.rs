@@ -450,7 +450,7 @@ impl Graph {
             });
 
             // Collect all or remaining inputs for the operator
-            let mut op_inputs: Vec<Option<Input>> = Vec::new();
+            let mut op_inputs: Vec<Option<Input>> = Vec::with_capacity(op_node.inputs.len());
             for node_id in op_node.inputs.iter() {
                 if in_place_input.is_some() && *node_id == in_place_input_id {
                     continue;
@@ -495,12 +495,10 @@ impl Graph {
             let op_result = if let Some(input) = in_place_input {
                 op_node
                     .operator
-                    .run_in_place(input, InputList::from_optional(&op_inputs))
+                    .run_in_place(input, InputList::from_optional(op_inputs))
                     .map(|out| [out].into())
             } else {
-                op_node
-                    .operator
-                    .run(InputList::from_optional(&op_inputs[..]))
+                op_node.operator.run(InputList::from_optional(op_inputs))
             };
 
             if record_timing {

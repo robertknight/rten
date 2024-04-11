@@ -690,10 +690,8 @@ impl<'a> InputList<'a> {
         }
     }
 
-    pub fn from_optional<'b>(inputs: &'b [Option<Input<'b>>]) -> InputList<'b> {
-        InputList {
-            inputs: inputs.to_vec(),
-        }
+    pub fn from_optional(inputs: Vec<Option<Input>>) -> InputList {
+        InputList { inputs }
     }
 
     /// Get an optional input.
