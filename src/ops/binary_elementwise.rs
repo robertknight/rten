@@ -167,7 +167,7 @@ fn binary_op<T: Copy + Debug, R: Copy + Default, F: Fn(T, T) -> R>(
         if let Some((cycles, repeats)) = fast_broadcast_cycles_repeats(b.shape(), a.shape()) {
             assert!(cycles * b_data.len() * repeats == a.len());
 
-            let mut output = Tensor::zeros(&out_shape);
+            let mut output = Tensor::uninit(&out_shape);
 
             // Unsafe access used to skip bounds checks in inner loop.
             let out_data = output.data_mut().unwrap();
@@ -182,7 +182,7 @@ fn binary_op<T: Copy + Debug, R: Copy + Default, F: Fn(T, T) -> R>(
                         // `a_data.len().
                         let (a_elt, out_elt) =
                             unsafe { (*a_ptr.add(i), out_data.get_unchecked_mut(i)) };
-                        *out_elt = op(a_elt, *b_elt);
+                        out_elt.write(op(a_elt, *b_elt));
                         i += 1;
                     }
                 } else {
@@ -193,12 +193,16 @@ fn binary_op<T: Copy + Debug, R: Copy + Default, F: Fn(T, T) -> R>(
                             // `a_data.len().
                             let (a_elt, out_elt) =
                                 unsafe { (*a_ptr.add(i), out_data.get_unchecked_mut(i)) };
-                            *out_elt = op(a_elt, *b_elt);
+                            out_elt.write(op(a_elt, *b_elt));
                             i += 1;
                         }
                     }
                 }
             }
+
+            // Safety: We initialized all output elements.
+            assert!(i == output.len());
+            let output = unsafe { output.assume_init() };
             return Ok(output);
         }
     }
