@@ -22,7 +22,9 @@ pub fn normalize_image(mut img: NdTensorViewMut<f32, 3>) {
 
 /// Read an image from `path` into a CHW tensor.
 pub fn read_image(path: &str) -> Result<NdTensor<f32, 3>, Box<dyn Error>> {
-    let input_img = image::open(path)?;
+    let input_img = image::io::Reader::open(path)?
+        .with_guessed_format()?
+        .decode()?;
     let input_img = input_img.into_rgb8();
     let (width, height) = input_img.dimensions();
     let layout = input_img.sample_layout();

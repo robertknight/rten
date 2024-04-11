@@ -62,7 +62,9 @@ fn read_image<N: Fn(usize, f32) -> f32>(
     out_height: u32,
     out_width: u32,
 ) -> Result<Tensor<f32>, Box<dyn Error>> {
-    let input_img = image::open(path)?;
+    let input_img = image::io::Reader::open(path)?
+        .with_guessed_format()?
+        .decode()?;
     let input_img = input_img.into_rgb8();
 
     // Resize the image using the `imageops::resize` function from the `image`
