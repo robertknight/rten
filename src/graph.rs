@@ -108,18 +108,6 @@ impl Node {
 /// ID of a node in a [Model](crate::Model) graph.
 pub type NodeId = usize;
 
-/// A graph defines how to produce output values from a set of dynamic input
-/// values and constants, by flowing the inputs through a series of computation
-/// steps (operators).
-///
-/// Graphs consists of three types of node, each of which has a numeric ID and a
-/// unique string name. A node in the graph is either a constant value such as
-/// weights produced during training, a dynamically supplied or produced input
-/// or output value, or a computation step.
-pub struct Graph {
-    nodes: Vec<Node>,
-}
-
 /// Reasons why a graph execution failed
 #[derive(Eq, PartialEq, Debug)]
 pub enum RunError {
@@ -235,6 +223,18 @@ pub struct RunOptions {
     /// including input shapes and execution time. This will slow down
     /// execution.
     pub verbose: bool,
+}
+
+/// A graph defines how to produce output values from a set of dynamic input
+/// values and constants, by flowing the inputs through a series of computation
+/// steps (operators).
+///
+/// Graphs consists of three types of node, each of which has a numeric ID and a
+/// unique string name. A node in the graph is either a constant value such as
+/// weights produced during training, a dynamically supplied or produced input
+/// or output value, or a computation step.
+pub struct Graph {
+    nodes: Vec<Node>,
 }
 
 impl Graph {
@@ -364,17 +364,18 @@ impl Graph {
             run_timer.start();
         }
 
-        // Collect operator inputs
-        let mut values: HashMap<NodeId, Input> = inputs.iter().cloned().collect();
-        for (node_id, node) in self.nodes.iter().enumerate() {
-            if let Node::Constant(constant) = node {
-                let input = match constant {
+        let inputs_by_id: HashMap<NodeId, Input> = inputs.iter().cloned().collect();
+        let get_value_from_constant_or_input = |node_id: NodeId| -> Option<Input> {
+            if let Some(Node::Constant(constant)) = self.nodes.get(node_id) {
+                let value = match constant {
                     Constant::Float(node) => Input::FloatTensor(node.data.view()),
                     Constant::Int(node) => Input::IntTensor(node.data.view()),
                 };
-                values.insert(node_id, input);
+                Some(value)
+            } else {
+                inputs_by_id.get(&node_id).cloned()
             }
-        }
+        };
 
         // Count how often each temporary output is used, so we can free them
         // when no longer needed.
@@ -450,15 +451,15 @@ impl Graph {
             });
 
             // Collect all or remaining inputs for the operator
-            let mut op_inputs: Vec<Option<Input>> = Vec::new();
+            let mut op_inputs: Vec<Option<Input>> = Vec::with_capacity(op_node.inputs.len());
             for node_id in op_node.inputs.iter() {
                 if in_place_input.is_some() && *node_id == in_place_input_id {
                     continue;
                 }
 
                 if let Some(node_id) = node_id {
-                    if let Some(value) = values.get(node_id) {
-                        op_inputs.push(Some(value.clone()));
+                    if let Some(value) = get_value_from_constant_or_input(*node_id) {
+                        op_inputs.push(Some(value));
                     } else if let Some(value) = temp_values.get(node_id) {
                         let input = match value {
                             Output::IntTensor(t) => Input::IntTensor(t.view()),
@@ -495,12 +496,10 @@ impl Graph {
             let op_result = if let Some(input) = in_place_input {
                 op_node
                     .operator
-                    .run_in_place(input, InputList::from_optional(&op_inputs))
+                    .run_in_place(input, InputList::from_optional(op_inputs))
                     .map(|out| [out].into())
             } else {
-                op_node
-                    .operator
-                    .run(InputList::from_optional(&op_inputs[..]))
+                op_node.operator.run(InputList::from_optional(op_inputs))
             };
 
             if record_timing {
@@ -598,7 +597,7 @@ impl Graph {
         let result = outputs
             .iter()
             .map(|output_id| {
-                if let Some(value) = values.get(output_id) {
+                if let Some(value) = get_value_from_constant_or_input(*output_id) {
                     match value {
                         Input::IntTensor(t) => Output::IntTensor(t.to_tensor()),
                         Input::FloatTensor(t) => Output::FloatTensor(t.to_tensor()),

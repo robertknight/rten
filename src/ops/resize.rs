@@ -725,13 +725,13 @@ mod tests {
                 mode: ResizeMode::Linear,
                 ..Resize::default()
             };
-            let inputs = [
+            let inputs = vec![
                 Some((&case.image).into()),
                 None, // `roi`
                 case.scales.as_ref().map(|t| t.into()),
                 case.sizes.as_ref().map(|t| t.into()),
             ];
-            let result = op.run(InputList::from_optional(&inputs));
+            let result = op.run(InputList::from_optional(inputs));
             match (case.expected, result) {
                 (CaseOutput::Shape(shape), Ok(out)) => {
                     let tensor = out[0].as_float_ref().unwrap();
