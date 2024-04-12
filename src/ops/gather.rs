@@ -1,10 +1,7 @@
 use std::iter::zip;
 
 use rten_tensor::prelude::*;
-use rten_tensor::{
-    to_slice_items, DynIndices, DynSliceItems, NdTensorView, SliceItem, Tensor, TensorView,
-    TensorViewMut,
-};
+use rten_tensor::{NdTensorView, SliceItem, Tensor, TensorView, TensorViewMut};
 use smallvec::SmallVec;
 
 use crate::ops::reduce::{cmp_nan_greater, cmp_nan_less};
@@ -377,22 +374,32 @@ pub fn scatter_nd<
         ));
     }
 
-    let update_indices = &indices.shape()[..indices.ndim() - 1];
+    // Assuming the updates and indices are likely already contiguous, we can
+    // optimize iterating over slices of the innermost dimensions using slice
+    // chunks.
+    let updates = updates.to_contiguous();
+    let update_slice_len: usize = updates.shape()[k..].iter().product();
+    let update_slices = updates.data().unwrap().chunks(update_slice_len);
+
+    let indices = indices.to_contiguous();
+    let index_slices = indices
+        .data()
+        .unwrap()
+        .chunks(indices.size(indices.ndim() - 1));
 
     let mut output = data.to_tensor();
-    for index in DynIndices::from_shape(update_indices) {
-        let update_idx = to_slice_items(&index);
-        let update_slice = updates.slice_dyn(update_idx.as_slice());
-
-        let output_idx: DynSliceItems = indices
-            .try_slice_dyn(update_idx.as_slice())
-            .map_err(|_| OpError::InvalidValue("invalid scatter index"))?
+    for (index, update_slice) in index_slices.zip(update_slices) {
+        let mut output_slice_offset = 0;
+        for (i, (size, stride)) in index
             .iter()
-            .map(|x| SliceItem::Index(*x as isize))
-            .collect();
-        let mut out_slice = output
-            .try_slice_mut(output_idx.as_slice())
-            .map_err(|_| OpError::InvalidValue("invalid scatter index"))?;
+            .zip(output.shape().iter().zip(output.strides().iter()))
+        {
+            let idx = resolve_index(*size, *i as isize)
+                .ok_or(OpError::InvalidValue("invalid scatter index"))?;
+            output_slice_offset += idx * stride;
+        }
+        let out_data = output.data_mut().unwrap();
+        let out_slice = &mut out_data[output_slice_offset..][..update_slice_len];
 
         for (out_el, update) in out_slice.iter_mut().zip(update_slice.iter()) {
             *out_el = scatter_reduce(*out_el, *update, reduction);
