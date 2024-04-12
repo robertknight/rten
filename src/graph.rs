@@ -108,18 +108,6 @@ impl Node {
 /// ID of a node in a [Model](crate::Model) graph.
 pub type NodeId = usize;
 
-/// A graph defines how to produce output values from a set of dynamic input
-/// values and constants, by flowing the inputs through a series of computation
-/// steps (operators).
-///
-/// Graphs consists of three types of node, each of which has a numeric ID and a
-/// unique string name. A node in the graph is either a constant value such as
-/// weights produced during training, a dynamically supplied or produced input
-/// or output value, or a computation step.
-pub struct Graph {
-    nodes: Vec<Node>,
-}
-
 /// Reasons why a graph execution failed
 #[derive(Eq, PartialEq, Debug)]
 pub enum RunError {
@@ -235,6 +223,18 @@ pub struct RunOptions {
     /// including input shapes and execution time. This will slow down
     /// execution.
     pub verbose: bool,
+}
+
+/// A graph defines how to produce output values from a set of dynamic input
+/// values and constants, by flowing the inputs through a series of computation
+/// steps (operators).
+///
+/// Graphs consists of three types of node, each of which has a numeric ID and a
+/// unique string name. A node in the graph is either a constant value such as
+/// weights produced during training, a dynamically supplied or produced input
+/// or output value, or a computation step.
+pub struct Graph {
+    nodes: Vec<Node>,
 }
 
 impl Graph {
