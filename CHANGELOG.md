@@ -16,8 +16,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### rten
 
-- Optimize `MatMul` operator by avoiding unnecessary zeroing of output buffers
-  (https://github.com/robertknight/rten/pull/82)
+- Reduced `Graph::run` overhead by reducing allocations
+  (https://github.com/robertknight/rten/pull/89)
+
+- Added `Model::partial_run` API to speed up autoregressive / recurrent models
+  by precomputing parts of the graph that depend only on inputs that are
+  unchanging across loop iterations (https://github.com/robertknight/rten/pull/86)
+
+- Optimize `MatMul` and binary operators by avoiding unnecessary zeroing of
+  output buffers (https://github.com/robertknight/rten/pull/82,
+  https://github.com/robertknight/rten/pull/88)
 
 - Fixed incorrect output from `Gemm` operator when the bias is zero and the "C"
   input contained infinities / NaNs (https://github.com/robertknight/rten/pull/81)
