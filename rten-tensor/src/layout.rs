@@ -1081,6 +1081,7 @@ pub trait IntoLayout: AsRef<[usize]> {
 impl<const N: usize> IntoLayout for [usize; N] {
     type Layout = NdLayout<N>;
 
+    #[inline]
     fn into_layout(self) -> NdLayout<N> {
         NdLayout::from_shape(self)
     }
@@ -1089,6 +1090,7 @@ impl<const N: usize> IntoLayout for [usize; N] {
 impl<'a> IntoLayout for &'a [usize] {
     type Layout = DynLayout;
 
+    #[inline]
     fn into_layout(self) -> DynLayout {
         DynLayout::from_shape(self)
     }
