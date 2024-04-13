@@ -1,10 +1,14 @@
-use std::collections::{HashMap, HashSet};
 use std::error::Error;
 use std::fmt;
 use std::iter::zip;
 
 use rten_tensor::prelude::*;
 use rten_tensor::Tensor;
+
+// The std HashMap/HashSet provide DOS resistance. In this module hash keys are
+// mostly `NodeId`s which we allocate ourselves, so this is not a concern.
+// Instead we want faster hashing.
+use rustc_hash::{FxHashMap, FxHashSet};
 
 use crate::ops::{Input, InputList, OpError, Operator, Output};
 use crate::timer::Timer;
@@ -167,12 +171,14 @@ struct PlanOptions {
 /// This is used to keep intermediate graph outputs alive until they are no
 /// longer needed.
 struct NodeRefCount {
-    rc: HashMap<NodeId, usize>,
+    rc: FxHashMap<NodeId, usize>,
 }
 
 impl NodeRefCount {
     fn new() -> NodeRefCount {
-        NodeRefCount { rc: HashMap::new() }
+        NodeRefCount {
+            rc: FxHashMap::default(),
+        }
     }
 
     /// Increment ref count of node
@@ -364,7 +370,7 @@ impl Graph {
             run_timer.start();
         }
 
-        let inputs_by_id: HashMap<NodeId, Input> = inputs.iter().cloned().collect();
+        let inputs_by_id: FxHashMap<NodeId, Input> = inputs.iter().cloned().collect();
         let get_value_from_constant_or_input = |node_id: NodeId| -> Option<Input> {
             if let Some(Node::Constant(constant)) = self.nodes.get(node_id) {
                 let value = match constant {
@@ -393,7 +399,7 @@ impl Graph {
         }
 
         // Execute the plan
-        let mut temp_values: HashMap<NodeId, Output> = HashMap::new();
+        let mut temp_values: FxHashMap<NodeId, Output> = FxHashMap::default();
         let mut op_elapsed: Vec<TimingRecord> = Vec::new();
         let record_timing = opts.timing || opts.verbose;
         let mut alloc_timer = Timer::new();
@@ -662,7 +668,7 @@ impl Graph {
 
         // IDs of input nodes for pruned operators that we can still generate
         // with the pruned plan.
-        let mut pruned_ops_resolved_inputs = HashSet::<NodeId>::new();
+        let mut pruned_ops_resolved_inputs = FxHashSet::<NodeId>::default();
 
         // Walk forwards through the plan and prune away steps that cannot be
         // computed due to missing inputs.
@@ -701,7 +707,7 @@ impl Graph {
 
     /// Return the node IDs whose values are available at the start of graph
     /// execution, given a collection of initial inputs.
-    fn init_resolved_values<I: Iterator<Item = NodeId>>(&self, inputs: I) -> HashSet<NodeId> {
+    fn init_resolved_values<I: Iterator<Item = NodeId>>(&self, inputs: I) -> FxHashSet<NodeId> {
         inputs
             .chain(
                 self.nodes.iter().enumerate().filter_map(|(node_id, node)| {
@@ -733,7 +739,7 @@ impl Graph {
         }
 
         // Map of output node to source operator
-        let mut operator_nodes = HashMap::new();
+        let mut operator_nodes = FxHashMap::default();
         for (node_id, node) in self.nodes.iter().enumerate() {
             if let Node::Operator(op_node) = node {
                 for output_id in op_node.outputs.iter().filter_map(|node| *node) {
@@ -747,11 +753,11 @@ impl Graph {
         // closures are not supported in Rust.
         struct PlanBuilder<'a> {
             graph: &'a Graph,
-            resolved_values: HashSet<NodeId>,
+            resolved_values: FxHashSet<NodeId>,
             plan: Vec<(NodeId, &'a OperatorNode)>,
 
             // Map of output ID to (op node ID, op)
-            operator_nodes: HashMap<NodeId, (NodeId, &'a OperatorNode)>,
+            operator_nodes: FxHashMap<NodeId, (NodeId, &'a OperatorNode)>,
 
             options: PlanOptions,
         }
@@ -815,7 +821,7 @@ impl Graph {
         }
 
         // Set of values that are available after executing the plan
-        let resolved_values: HashSet<NodeId> =
+        let resolved_values: FxHashSet<NodeId> =
             self.init_resolved_values(inputs.iter().map(|(node_id, _)| *node_id));
 
         let builder = PlanBuilder {
