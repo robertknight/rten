@@ -840,11 +840,12 @@ impl DynLayout {
 
     /// Create a shape-and-strides array for a contiguous layout.
     fn contiguous_shape_and_strides(shape: &[usize]) -> SmallVec<[usize; 8]> {
-        let mut strides_and_shape = SmallVec::with_capacity(shape.len() * 2);
-        strides_and_shape.extend_from_slice(shape);
-        for i in 0..shape.len() {
-            let stride = shape[i + 1..].iter().product();
-            strides_and_shape.push(stride);
+        let mut strides_and_shape: SmallVec<[usize; 8]> = SmallVec::from_slice(shape);
+        strides_and_shape.resize(shape.len() * 2, 0);
+        let mut stride = 1;
+        for i in (0..shape.len()).rev() {
+            strides_and_shape[shape.len() + i] = stride;
+            stride *= shape[i];
         }
         strides_and_shape
     }
@@ -1080,6 +1081,7 @@ pub trait IntoLayout: AsRef<[usize]> {
 impl<const N: usize> IntoLayout for [usize; N] {
     type Layout = NdLayout<N>;
 
+    #[inline]
     fn into_layout(self) -> NdLayout<N> {
         NdLayout::from_shape(self)
     }
@@ -1088,6 +1090,7 @@ impl<const N: usize> IntoLayout for [usize; N] {
 impl<'a> IntoLayout for &'a [usize] {
     type Layout = DynLayout;
 
+    #[inline]
     fn into_layout(self) -> DynLayout {
         DynLayout::from_shape(self)
     }
