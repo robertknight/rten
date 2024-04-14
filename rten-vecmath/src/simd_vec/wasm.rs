@@ -1,19 +1,19 @@
 use std::arch::wasm32::{
-    f32x4_abs, f32x4_add, f32x4_div, f32x4_ge, f32x4_le, f32x4_lt, f32x4_max, f32x4_mul,
-    f32x4_splat, f32x4_sub, i32x4_add, i32x4_gt, i32x4_shl, i32x4_splat, i32x4_sub,
-    i32x4_trunc_sat_f32x4, v128, v128_bitselect, v128_load, v128_store,
+    f32x4_abs, f32x4_add, f32x4_div, f32x4_extract_lane, f32x4_ge, f32x4_le, f32x4_lt, f32x4_max,
+    f32x4_mul, f32x4_splat, f32x4_sub, i32x4_add, i32x4_gt, i32x4_shl, i32x4_shuffle, i32x4_splat,
+    i32x4_sub, i32x4_trunc_sat_f32x4, v128, v128_bitselect, v128_load, v128_store,
 };
 
 use crate::simd_vec::{SimdFloat, SimdInt};
 
 /// Wrapper around a WASM v128 type that marks it as containing integers.
 #[allow(non_camel_case_types)]
-#[derive(Copy, Clone)]
+#[derive(Copy, Clone, Debug)]
 pub struct v128i(v128);
 
 /// Wrapper around a WASM v128 type that marks it as containing floats.
 #[allow(non_camel_case_types)]
-#[derive(Copy, Clone)]
+#[derive(Copy, Clone, Debug)]
 pub struct v128f(v128);
 
 impl SimdInt for v128i {
@@ -147,5 +147,17 @@ impl SimdFloat for v128f {
     #[inline]
     unsafe fn store(self, ptr: *mut f32) {
         v128_store(ptr as *mut v128, self.0)
+    }
+
+    #[inline]
+    unsafe fn sum(self) -> f32 {
+        // See https://github.com/WebAssembly/simd/issues/20.
+        let lo_2 = self.0;
+        let hi_2 = i32x4_shuffle::<2, 3, 0, 0>(self.0, self.0);
+        let sum_2 = f32x4_add(lo_2, hi_2);
+        let lo = sum_2;
+        let hi = i32x4_shuffle::<1, 0, 0, 0>(sum_2, sum_2);
+        let sum = f32x4_add(lo, hi);
+        f32x4_extract_lane::<0>(sum)
     }
 }

@@ -1,8 +1,8 @@
 use std::arch::aarch64::{
-    float32x4_t, int32x4_t, uint32x4_t, vabsq_f32, vaddq_f32, vaddq_s32, vbslq_f32, vbslq_s32,
-    vcgeq_f32, vcgtq_s32, vcleq_f32, vcltq_f32, vcvtq_s32_f32, vdivq_f32, vdupq_n_f32, vdupq_n_s32,
-    vfmaq_f32, vld1q_f32, vld1q_s32, vmaxq_f32, vmulq_f32, vreinterpretq_f32_s32, vshlq_n_s32,
-    vst1q_f32, vst1q_s32, vsubq_f32, vsubq_s32,
+    float32x4_t, int32x4_t, uint32x4_t, vabsq_f32, vaddq_f32, vaddq_s32, vaddvq_f32, vbslq_f32,
+    vbslq_s32, vcgeq_f32, vcgtq_s32, vcleq_f32, vcltq_f32, vcvtq_s32_f32, vdivq_f32, vdupq_n_f32,
+    vdupq_n_s32, vfmaq_f32, vld1q_f32, vld1q_s32, vmaxq_f32, vmulq_f32, vreinterpretq_f32_s32,
+    vshlq_n_s32, vst1q_f32, vst1q_s32, vsubq_f32, vsubq_s32,
 };
 
 use crate::simd_vec::{SimdFloat, SimdInt};
@@ -143,5 +143,10 @@ impl SimdFloat for float32x4_t {
     #[inline]
     unsafe fn store(self, ptr: *mut f32) {
         vst1q_f32(ptr, self)
+    }
+
+    #[inline]
+    unsafe fn sum(self) -> f32 {
+        vaddvq_f32(self)
     }
 }

@@ -633,8 +633,6 @@ fn gemv(
     beta: f32,
     bias: Option<f32>,
 ) {
-    assert!(a.is_contiguous());
-    assert!(b.is_contiguous());
     assert!(output_mat.is_contiguous());
 
     let a_cols = a.size(0);
@@ -644,19 +642,21 @@ fn gemv(
     let b_block_size = 256;
     let k_block_size = 256;
 
+    let a = a.to_contiguous();
+    let a_data = a.data().unwrap();
+
     // Partition the matrix and vector into blocks, to achieve effective
     // cache usage and enable parallelism.
     range_chunks(0..b_cols, b_block_size)
         .zip(out_data.chunks_mut(b_block_size))
         .par_bridge()
-        .for_each(|(b_block, out_chunk)| {
-            let a_data = a.data().unwrap();
+        .for_each(|(col_block, out_chunk)| {
             let mut effective_beta = beta;
 
-            for k_block in range_chunks(0..a_cols, k_block_size) {
-                let a_block = &a_data[k_block.clone()];
-                let b_block = b.slice::<2, _>((k_block, b_block.clone()));
-
+            for (k_block, a_block) in
+                range_chunks(0..a_cols, k_block_size).zip(a_data.chunks(k_block_size))
+            {
+                let b_block = b.slice::<2, _>((k_block, col_block.clone()));
                 kernel.gemv_kernel(out_chunk, a_block, b_block, alpha, effective_beta);
 
                 // Reset `beta` so that subsequent updates for each column
@@ -743,19 +743,17 @@ fn gemm_impl(
 
     // Use optimized path for vector-matrix products.
     if let (1, GemmInputA::Unpacked(a), GemmInputB::Unpacked(b)) = (a.rows(), a, b) {
-        if let (Some(_), Some(_)) = (a.data(), b.data()) {
-            gemv(
-                kernel,
-                a.slice::<1, _>(0),
-                b,
-                output_mat.view_mut(),
-                alpha,
-                beta,
-                // nb. We checked above that, if present, the bias length matches `a.rows()`.
-                bias.map(|b| b[0]),
-            );
-            return;
-        }
+        gemv(
+            kernel,
+            a.slice::<1, _>(0),
+            b,
+            output_mat.view_mut(),
+            alpha,
+            beta,
+            // nb. We checked above that, if present, the bias length matches `a.rows()`.
+            bias.map(|b| b[0]),
+        );
+        return;
     }
 
     let output_tiles = OutputTiles::new(output_mat, kernel.mr(), kernel.nr());
@@ -1598,12 +1596,32 @@ mod tests {
 
     #[test]
     fn test_gemv() -> Result<(), Box<dyn Error>> {
+        enum Strides {
+            Contiguous,
+            Transposed,
+            Other,
+        }
+
         struct Case {
             n: usize,
             k: usize,
             alpha: f32,
             beta: f32,
             bias: Option<f32>,
+            b_strides: Strides,
+        }
+
+        impl Default for Case {
+            fn default() -> Case {
+                Case {
+                    n: 16,
+                    k: 16,
+                    alpha: 1.,
+                    beta: 0.,
+                    bias: None,
+                    b_strides: Strides::Contiguous,
+                }
+            }
         }
 
         let cases = [
@@ -1611,88 +1629,117 @@ mod tests {
             Case {
                 n: 0,
                 k: 1,
-                alpha: 1.,
-                beta: 0.,
-                bias: None,
+                ..Default::default()
             },
             Case {
                 n: 1,
                 k: 0,
-                alpha: 1.,
-                beta: 0.,
-                bias: None,
+                ..Default::default()
             },
             // Smallest possible input
             Case {
                 n: 1,
                 k: 1,
-                alpha: 1.,
-                beta: 0.,
-                bias: None,
+                ..Default::default()
             },
             // n is a multiple of the tile size (16 for AVX 2 / FMA)
             Case {
                 n: 16,
                 k: 16,
-                alpha: 1.,
-                beta: 0.,
-                bias: None,
+                ..Default::default()
             },
             // n is not an exact multiple of the tile size
             Case {
                 n: 20,
                 k: 16,
-                alpha: 1.,
-                beta: 1.,
-                bias: None,
+                ..Default::default()
             },
             // n exceeds column block size
             Case {
                 n: 300,
                 k: 16,
-                alpha: 1.,
-                beta: 1.,
-                bias: None,
+                ..Default::default()
             },
             // k exceeds depth block size
             Case {
                 n: 20,
                 k: 300,
-                alpha: 1.,
-                beta: 1.,
-                bias: None,
+                ..Default::default()
             },
             // beta value = 0.
             Case {
                 n: 20,
                 k: 300,
-                alpha: 1.,
                 beta: 0.,
-                bias: None,
+                ..Default::default()
             },
             // Non-standard beta value
             Case {
                 n: 20,
                 k: 300,
-                alpha: 1.,
                 beta: 0.5,
-                bias: None,
+                ..Default::default()
             },
             // Non-standard alpha value
             Case {
                 n: 20,
                 k: 20,
                 alpha: 0.5,
-                beta: 1.,
-                bias: None,
+                ..Default::default()
             },
             // Test with bias
             Case {
                 n: 20,
                 k: 20,
-                alpha: 1.,
-                beta: 0.,
                 bias: Some(0.5),
+                ..Default::default()
+            },
+            // Transposed matrix. Note both `n` and `k` are chosen to not be
+            // an exact multiple of column or depth tile sizes.
+            Case {
+                n: 21,
+                k: 21,
+                b_strides: Strides::Transposed,
+                ..Default::default()
+            },
+            // Transposed matrix with beta != 0
+            Case {
+                n: 21,
+                k: 21,
+                beta: 1.,
+                b_strides: Strides::Transposed,
+                ..Default::default()
+            },
+            // Transposed matrix with alpha != 1
+            Case {
+                n: 20,
+                k: 20,
+                alpha: 0.5,
+                b_strides: Strides::Transposed,
+                ..Default::default()
+            },
+            // Matrix with non-unit strides
+            Case {
+                n: 21,
+                k: 21,
+                b_strides: Strides::Other,
+                ..Default::default()
+            },
+            // Matrix with non-unit strides, beta != 0
+            Case {
+                n: 21,
+                k: 21,
+                beta: 0.5,
+                b_strides: Strides::Other,
+                ..Default::default()
+            },
+            // Matrix with non-unit strides, alpha != 1
+            Case {
+                n: 21,
+                k: 21,
+                alpha: 0.5,
+                b_strides: Strides::Other,
+                ..Default::default()
             },
         ];
 
@@ -1704,11 +1751,23 @@ mod tests {
             alpha,
             beta,
             bias,
+            b_strides,
         } in cases
         {
             let a = Tensor::rand(&[1, k], &mut rng);
-            let b = Tensor::rand(&[k, n], &mut rng);
-            let mut result = Tensor::zeros(&[1, n]);
+            let mut b = Tensor::rand(&[k, n], &mut rng);
+            match b_strides {
+                Strides::Contiguous => {}
+                Strides::Transposed => {
+                    b.transpose();
+                }
+                Strides::Other => {
+                    b = Tensor::from_data_with_strides(&[k, n / 2], b.to_vec(), &[b.stride(0), 2])
+                        .unwrap();
+                }
+            }
+
+            let mut result = Tensor::zeros(&[1, b.size(1)]);
             let bias_array = bias.map(|b| [b]);
 
             run_gemm(

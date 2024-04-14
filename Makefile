@@ -45,6 +45,11 @@ wasm-nosimd:
 .PHONY: wasm-all
 wasm-all: wasm wasm-nosimd
 
+.PHONY: wasm-tests
+wasm-tests:
+	cargo build --tests -p rten
+	wasmtime --dir . target/wasm32-wasi/debug/deps/rten-*.wasm
+
 src/schema_generated.rs: src/schema.fbs
 	flatc -o src/ --rust src/schema.fbs
 	cargo fmt

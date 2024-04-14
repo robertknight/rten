@@ -200,6 +200,12 @@ pub trait SimdFloat: Copy + Sized {
         y.mul(self)
     }
 
+    /// Sum all the lanes in this vector.
+    ///
+    /// The ordering of the summation is not specified. This can lead to small
+    /// differences in results depending on the architecture.
+    unsafe fn sum(self) -> f32;
+
     /// Load `Self::LEN` floats from the memory address at `ptr`.
     ///
     /// Implementations must not require `ptr` to be aligned.
@@ -395,5 +401,10 @@ impl SimdFloat for f32 {
     #[inline]
     unsafe fn store(self, ptr: *mut f32) {
         *ptr = self;
+    }
+
+    #[inline]
+    unsafe fn sum(self) -> f32 {
+        self
     }
 }

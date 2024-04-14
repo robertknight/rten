@@ -1,10 +1,11 @@
 use std::arch::x86_64::{
     __m256, __m256i, _mm256_add_epi32, _mm256_add_ps, _mm256_andnot_ps, _mm256_blendv_epi8,
-    _mm256_blendv_ps, _mm256_castsi256_ps, _mm256_cmp_ps, _mm256_cmpgt_epi32, _mm256_cvttps_epi32,
-    _mm256_div_ps, _mm256_fmadd_ps, _mm256_loadu_ps, _mm256_loadu_si256, _mm256_max_ps,
-    _mm256_mul_ps, _mm256_set1_epi32, _mm256_set1_ps, _mm256_setzero_si256, _mm256_slli_epi32,
-    _mm256_storeu_ps, _mm256_storeu_si256, _mm256_sub_epi32, _mm256_sub_ps, _mm_prefetch,
-    _CMP_GE_OQ, _CMP_LE_OQ, _CMP_LT_OQ, _MM_HINT_ET0, _MM_HINT_T0,
+    _mm256_blendv_ps, _mm256_castps256_ps128, _mm256_castsi256_ps, _mm256_cmp_ps,
+    _mm256_cmpgt_epi32, _mm256_cvttps_epi32, _mm256_div_ps, _mm256_extractf128_ps, _mm256_fmadd_ps,
+    _mm256_loadu_ps, _mm256_loadu_si256, _mm256_max_ps, _mm256_mul_ps, _mm256_set1_epi32,
+    _mm256_set1_ps, _mm256_setzero_si256, _mm256_slli_epi32, _mm256_storeu_ps, _mm256_storeu_si256,
+    _mm256_sub_epi32, _mm256_sub_ps, _mm_add_ps, _mm_cvtss_f32, _mm_movehl_ps, _mm_prefetch,
+    _mm_shuffle_ps, _CMP_GE_OQ, _CMP_LE_OQ, _CMP_LT_OQ, _MM_HINT_ET0, _MM_HINT_T0,
 };
 
 use crate::simd_vec::{SimdFloat, SimdInt};
@@ -201,6 +202,21 @@ impl SimdFloat for __m256 {
         _mm256_storeu_ps(ptr, self)
     }
 
+    #[inline]
+    unsafe fn sum(self) -> f32 {
+        // See https://stackoverflow.com/a/13222410/434243
+        let hi_4 = _mm256_extractf128_ps(self, 1);
+        let lo_4 = _mm256_castps256_ps128(self);
+        let sum_4 = _mm_add_ps(lo_4, hi_4);
+        let lo_2 = sum_4;
+        let hi_2 = _mm_movehl_ps(sum_4, sum_4);
+        let sum_2 = _mm_add_ps(lo_2, hi_2);
+        let lo = sum_2;
+        let hi = _mm_shuffle_ps(sum_2, sum_2, 0x1);
+        let sum = _mm_add_ps(lo, hi);
+        _mm_cvtss_f32(sum)
+    }
+
     /// Prefetch the cache line containing `data`, for reading.
     #[inline]
     unsafe fn prefetch(data: *const f32) {
@@ -219,8 +235,8 @@ use std::arch::x86_64::{
     __m512, __m512i, __mmask16, _mm512_abs_ps, _mm512_add_epi32, _mm512_add_ps,
     _mm512_castsi512_ps, _mm512_cmp_epi32_mask, _mm512_cmp_ps_mask, _mm512_cvttps_epi32,
     _mm512_div_ps, _mm512_fmadd_ps, _mm512_loadu_ps, _mm512_loadu_si512, _mm512_mask_blend_epi32,
-    _mm512_mask_blend_ps, _mm512_max_ps, _mm512_mul_ps, _mm512_set1_epi32, _mm512_set1_ps,
-    _mm512_setzero_si512, _mm512_sllv_epi32, _mm512_storeu_ps, _mm512_storeu_si512,
+    _mm512_mask_blend_ps, _mm512_max_ps, _mm512_mul_ps, _mm512_reduce_add_ps, _mm512_set1_epi32,
+    _mm512_set1_ps, _mm512_setzero_si512, _mm512_sllv_epi32, _mm512_storeu_ps, _mm512_storeu_si512,
     _mm512_sub_epi32, _mm512_sub_ps, _MM_CMPINT_LT,
 };
 
@@ -375,5 +391,10 @@ impl SimdFloat for __m512 {
     #[inline]
     unsafe fn prefetch_write(data: *mut f32) {
         _mm_prefetch(data as *const i8, _MM_HINT_ET0);
+    }
+
+    #[inline]
+    unsafe fn sum(self) -> f32 {
+        _mm512_reduce_add_ps(self)
     }
 }

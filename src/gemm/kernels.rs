@@ -30,6 +30,13 @@ unsafe fn simd_gemv<S: SimdFloat, const NR_REGS: usize>(
     alpha: f32,
     beta: f32,
 ) {
+    // Handle uncommon cases where `b` does not have unit stride.
+    if b.row_stride() == 1 {
+        return simd_gemv_transposed::<S>(out, a, b, alpha, beta);
+    } else if b.col_stride() != 1 {
+        return simd_gemv_fallback(out, a, b, alpha, beta);
+    }
+
     assert!(b.col_stride() == 1);
     assert!(a.len() == b.rows());
     assert!(out.len() == b.cols());
@@ -89,6 +96,97 @@ unsafe fn simd_gemv<S: SimdFloat, const NR_REGS: usize>(
         let out_el = out_ptr.add(c);
         let tmp = if beta == 0. { 0. } else { *out_el };
         *out_el = beta * tmp + acc * alpha;
+    }
+}
+
+/// Variant of [simd_gemv] which handles the case where `b` has unit row stride.
+#[inline(always)]
+unsafe fn simd_gemv_transposed<S: SimdFloat>(
+    out: &mut [f32],
+    a: &[f32],
+    b: Matrix,
+    alpha: f32,
+    beta: f32,
+) {
+    assert!(b.row_stride() == 1);
+    assert!(a.len() == b.rows());
+    assert!(out.len() == b.cols());
+
+    let b_data = b.non_contiguous_data();
+    let b_col_stride = b.col_stride();
+
+    const COL_TILE: usize = 8;
+
+    let mut col_tiles = range_chunks_exact(0..b.cols(), COL_TILE);
+    for col_tile in col_tiles.by_ref() {
+        let mut acc = [S::zero(); COL_TILE];
+
+        let mut depth_tiles = range_chunks_exact(0..a.len(), S::LEN);
+        for depth_tile in depth_tiles.by_ref() {
+            let a_tile = S::load(a.as_ptr().add(depth_tile.start));
+            for i in 0..COL_TILE {
+                let b_col_ptr = b_data.as_ptr().add((col_tile.start + i) * b_col_stride);
+                let b_tile = S::load(b_col_ptr.add(depth_tile.start));
+                acc[i] = a_tile.mul_add(b_tile, acc[i]);
+            }
+        }
+
+        let mut acc: [f32; COL_TILE] = std::array::from_fn(|i| acc[i].sum());
+        for k in depth_tiles.remainder() {
+            let ak = *a.get_unchecked(k);
+            for i in 0..COL_TILE {
+                let b_col_ptr = b_data.as_ptr().add((col_tile.start + i) * b_col_stride);
+                let bk = *b_col_ptr.add(k);
+                acc[i] = ak.mul_add(bk, acc[i]);
+            }
+        }
+
+        if beta == 0. {
+            for i in 0..COL_TILE {
+                out[col_tile.start + i] = alpha * acc[i];
+            }
+        } else {
+            for i in 0..COL_TILE {
+                let out_val = alpha * acc[i] + beta * out[col_tile.start + i];
+                out[col_tile.start + i] = out_val;
+            }
+        }
+    }
+
+    let last_col_tile = col_tiles.remainder();
+    if !last_col_tile.is_empty() {
+        simd_gemv_fallback(
+            &mut out[last_col_tile.clone()],
+            a,
+            b.slice::<2, _>((.., last_col_tile)),
+            alpha,
+            beta,
+        );
+    }
+}
+
+/// Variant of [simd_gemv] which handles the case where `b` has non-unit strides
+/// for rows and columns.
+///
+/// This doesn't benefit from SIMD operations. It is at least inlined so it
+/// can benefit from the kernel's instruction set (eg. for FMA operations).
+#[inline(always)]
+fn simd_gemv_fallback(out: &mut [f32], a: &[f32], b: Matrix, alpha: f32, beta: f32) {
+    assert!(a.len() == b.rows());
+    assert!(out.len() == b.cols());
+
+    for (col, out) in out.iter_mut().enumerate() {
+        let mut acc = 0.;
+        for (k, ak) in (0..a.len()).zip(a.iter()) {
+            let bk = unsafe { *b.get_unchecked([k, col]) };
+            acc = ak.mul_add(bk, acc);
+        }
+        acc *= alpha;
+        if beta == 0. {
+            *out = acc;
+        } else {
+            *out = acc + beta * *out;
+        }
     }
 }
 
