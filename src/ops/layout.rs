@@ -4,6 +4,7 @@ use std::iter::zip;
 
 use rten_tensor::prelude::*;
 use rten_tensor::{is_valid_permutation, tensor, NdTensorView, Tensor, TensorView};
+use smallvec::SmallVec;
 
 use crate::ops::binary_elementwise::{broadcast_shapes, fast_broadcast_cycles_repeats};
 use crate::ops::{
@@ -365,7 +366,7 @@ pub fn squeeze_in_place<T: Clone>(
         }
     }
 
-    let new_shape: Vec<_> = input
+    let new_shape: SmallVec<[usize; 5]> = input
         .shape()
         .iter()
         .enumerate()
@@ -473,12 +474,12 @@ impl Operator for Transpose {
     }
 }
 
-pub fn unsqueeze<T: Clone>(
-    input: TensorView<T>,
+pub fn unsqueeze_in_place<T: Clone>(
+    mut input: Tensor<T>,
     axes: &NdTensorView<i32, 1>,
 ) -> Result<Tensor<T>, OpError> {
-    let mut new_shape: Vec<_> = input.shape().to_vec();
-    let mut sorted_axes: Vec<_> = resolve_axes(input.ndim() + axes.len(), axes.iter())?;
+    let mut new_shape: SmallVec<[usize; 5]> = input.shape().iter().copied().collect();
+    let mut sorted_axes = resolve_axes(input.ndim() + axes.len(), axes.iter())?;
     sorted_axes.sort();
 
     let axes_unique =
@@ -490,9 +491,18 @@ pub fn unsqueeze<T: Clone>(
     for axis in sorted_axes {
         new_shape.insert(axis, 1);
     }
-    let mut output = input.to_tensor();
-    output.reshape(&new_shape);
-    Ok(output)
+
+    input.make_contiguous();
+    input.reshape(&new_shape);
+
+    Ok(input)
+}
+
+pub fn unsqueeze<T: Clone>(
+    input: TensorView<T>,
+    axes: &NdTensorView<i32, 1>,
+) -> Result<Tensor<T>, OpError> {
+    unsqueeze_in_place(input.to_tensor(), axes)
 }
 
 #[derive(Debug)]
@@ -511,6 +521,20 @@ impl Operator for Unsqueeze {
         match input {
             Input::FloatTensor(input) => unsqueeze(input, &axes).into_op_result(),
             Input::IntTensor(input) => unsqueeze(input, &axes).into_op_result(),
+        }
+    }
+
+    fn can_run_in_place(&self) -> bool {
+        true
+    }
+
+    fn run_in_place(&self, output: Output, inputs: InputList) -> Result<Output, OpError> {
+        let axes = inputs.require_as(0)?;
+        let axes = static_dims!(axes, 1)?;
+
+        match output {
+            Output::FloatTensor(t) => unsqueeze_in_place(t, &axes).map(Output::FloatTensor),
+            Output::IntTensor(t) => unsqueeze_in_place(t, &axes).map(Output::IntTensor),
         }
     }
 }
