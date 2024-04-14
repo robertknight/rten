@@ -49,10 +49,7 @@ pub fn onehot<T: Copy + Default + PartialEq>(
     out_shape.extend_from_slice(indices.shape());
     out_shape.insert(onehot_axis, depth);
 
-    let mut output = Tensor::zeros(&out_shape);
-    if off_value != T::default() {
-        output.apply(|_| off_value);
-    }
+    let mut output = Tensor::full(&out_shape, off_value);
 
     for (mut index, class) in zip(indices.indices(), indices.iter()) {
         if let Some(class) = resolve_index(depth, *class as isize) {
