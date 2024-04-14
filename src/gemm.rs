@@ -1710,6 +1710,14 @@ mod tests {
                 b_strides: Strides::Transposed,
                 ..Default::default()
             },
+            // Transposed matrix with alpha != 1
+            Case {
+                n: 20,
+                k: 20,
+                alpha: 0.5,
+                b_strides: Strides::Transposed,
+                ..Default::default()
+            },
             // Matrix with non-unit strides
             Case {
                 n: 21,
@@ -1722,6 +1730,14 @@ mod tests {
                 n: 21,
                 k: 21,
                 beta: 0.5,
+                b_strides: Strides::Other,
+                ..Default::default()
+            },
+            // Matrix with non-unit strides, alpha != 1
+            Case {
+                n: 21,
+                k: 21,
+                alpha: 0.5,
                 b_strides: Strides::Other,
                 ..Default::default()
             },
