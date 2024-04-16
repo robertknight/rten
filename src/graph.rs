@@ -794,7 +794,15 @@ impl Graph {
                 op_node_id: NodeId,
                 op_node: &'a OperatorNode,
             ) -> Result<(), RunError> {
-                for input in op_node.inputs.iter().filter_map(|node| *node) {
+                // We visit the inputs in right-to-left order so that the
+                // execution plan will compute the inputs in that order.
+                //
+                // The rationale for this is that we want to run the operator
+                // in-place if possible, which requires that the first input is
+                // not required by any later steps in the execution. By
+                // computing inputs in reverse order, we improve the chances of
+                // this.
+                for input in op_node.inputs.iter().rev().filter_map(|node| *node) {
                     if self.resolved_values.contains(&input) {
                         continue;
                     }
