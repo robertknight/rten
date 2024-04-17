@@ -1,11 +1,12 @@
 use std::iter::zip;
 
+use std::mem::MaybeUninit;
 use std::ops::Range;
 use std::sync::atomic::{AtomicUsize, Ordering};
 
 use rayon::prelude::*;
 use rten_tensor::prelude::*;
-use rten_tensor::{NdTensorView, NdTensorViewMut, Tensor, TensorView};
+use rten_tensor::{NdTensor, NdTensorView, NdTensorViewMut, Tensor, TensorView};
 use smallvec::SmallVec;
 
 use crate::check_dims;
@@ -152,31 +153,6 @@ impl<'a> VirtualMatrix for VirtualIm2Col<'a> {
             }
         }
     }
-}
-
-/// Initialize a tensor, typically with NCHW or CHW dimensions, with a vector
-/// of per-channel biases.
-///
-/// This is slightly more efficient than creating a zero-filled tensor and then
-/// adding the appropriate bias to each element.
-fn init_tensor_with_channel_bias(
-    shape: &[usize],
-    chan_dim: usize,
-    bias: &NdTensorView<f32, 1>,
-) -> Tensor {
-    let mut out_data = Vec::with_capacity(shape.iter().product());
-
-    let chan_elts: usize = shape[chan_dim + 1..].iter().product();
-    let all_chan_elts: usize = chan_elts * shape[chan_dim];
-    let repeats = shape[0..chan_dim].iter().product();
-
-    for n in 0..repeats {
-        for c in 0..shape[chan_dim] {
-            out_data.resize(n * all_chan_elts + (c + 1) * chan_elts, bias[[c]]);
-        }
-    }
-
-    Tensor::from_data(shape, out_data)
 }
 
 /// Specialization of conv_2d for pointwise convolutions over one image. This
@@ -582,9 +558,10 @@ impl Operator for Conv {
 /// The unpacked columns are added to the existing output values to preserve
 /// any bias stored in the output.
 fn col2im(
-    output: &mut NdTensorViewMut<f32, 3>,
+    output: &mut NdTensorViewMut<MaybeUninit<f32>, 3>,
     columns: &NdTensorView<f32, 5>,
     strides: [usize; 2],
+    bias: Option<NdTensorView<f32, 1>>,
 ) {
     let [stride_h, stride_w] = strides;
 
@@ -600,11 +577,17 @@ fn col2im(
     for y in 0..columns_shape[0] {
         for x in 0..columns_shape[1] {
             for out_c in 0..columns_shape[2] {
+                let init_value = if let Some(bias) = bias {
+                    bias[[out_c]]
+                } else {
+                    0.
+                };
                 for k_y in 0..columns_shape[3] {
                     let out_y = y * stride_h + k_y;
                     for k_x in 0..columns_shape[4] {
                         let out_x = x * stride_w + k_x;
-                        out_view[[out_c, out_y, out_x]] += col_data_iter.next().unwrap();
+                        out_view[[out_c, out_y, out_x]]
+                            .write(init_value + col_data_iter.next().unwrap());
                     }
                 }
             }
@@ -638,11 +621,7 @@ pub fn conv_transpose(
     let out_h = (in_h - 1) * stride_h + k_h;
     let out_w = (in_w - 1) * stride_w + k_w;
 
-    let mut output = if let Some(bias) = bias {
-        init_tensor_with_channel_bias(&[batch, out_c, out_h, out_w], 1, &bias)
-    } else {
-        Tensor::zeros(&[batch, out_c, out_h, out_w])
-    };
+    let mut output = NdTensor::uninit([batch, out_c, out_h, out_w]);
 
     // Ensure input and kernel are contiguous to support reshaping.
     let input = input.to_contiguous();
@@ -653,6 +632,7 @@ pub fn conv_transpose(
     let gemm = GemmExecutor::new();
 
     // The implementation here is the inverse of the im2col-based convolution.
+    let mut n_init = 0;
     for n in 0..batch {
         let input_mat = input
             .slice::<3, _>([n])
@@ -671,16 +651,21 @@ pub fn conv_transpose(
         // Safety: `gemm_uninit` initialized col2im_mat.
         let col2im_mat = unsafe { col2im_mat.view().assume_init() };
 
+        let mut output_chw = output.slice_mut([n]);
         col2im(
-            &mut output.nd_view_mut::<4>().slice_mut([n]),
+            &mut output_chw,
             &col2im_mat
                 .nd_view::<2>()
                 .reshaped([in_h, in_w, out_c, k_h, k_w]),
             strides,
+            bias,
         );
+        n_init += output_chw.len();
     }
 
-    Ok(output)
+    // Safety: We initialized all output items.
+    assert!(n_init == output.len());
+    Ok(unsafe { output.into_dyn().assume_init() })
 }
 
 #[derive(Debug)]
@@ -1348,7 +1333,7 @@ mod tests {
         let out_width = (in_width - 1) * stride_x + (kernel_width - 1) + 1;
 
         let mut rng = XorShiftRng::new(1234);
-        let mut output = NdTensor::zeros([out_chans, out_height, out_width]);
+        let mut output = NdTensor::uninit([out_chans, out_height, out_width]);
         let columns = NdTensor::rand(
             [in_height, in_width, out_chans, kernel_height, kernel_width],
             &mut rng,
@@ -1359,6 +1344,7 @@ mod tests {
                 &mut output.view_mut(),
                 &columns.view(),
                 [stride_y, stride_x],
+                None,
             );
         });
     }
