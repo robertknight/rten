@@ -1,4 +1,6 @@
 use std::iter::zip;
+use std::mem::MaybeUninit;
+use std::sync::atomic::{AtomicUsize, Ordering};
 
 use rayon::prelude::*;
 use rten_tensor::prelude::*;
@@ -249,13 +251,13 @@ pub fn max_pool(
         None, /* dilations */
     )?;
     let [pad_top, pad_left, _pad_bottom, _pad_right] = fixed_padding;
-    let mut output = Tensor::zeros(&[batch, in_c, out_h, out_w]);
+    let mut output = Tensor::uninit(&[batch, in_c, out_h, out_w]);
 
     // Apply max-pooling to the channel indexes specified by `chans`.
     // Assuming `N` is chosen appropriately the inner loop should get unrolled /
     // autovectorized.
     fn max_pool_chans<const N: usize>(
-        mut out: NdTensorViewMut<f32, 3>,
+        mut out: NdTensorViewMut<MaybeUninit<f32>, 3>,
         in_view: NdTensorView<f32, 3>,
         chans: [usize; N],
         [kernel_h, kernel_w]: [usize; 2],
@@ -295,17 +297,20 @@ pub fn max_pool(
                     //  - We checked all `chans` are in-bounds
                     //  - `out_y` and `out_x` are in 0..out_h, 0..out_w
                     unsafe {
-                        *out.get_unchecked_mut([chan, out_y, out_x]) = accumulator[i];
+                        out.get_unchecked_mut([chan, out_y, out_x])
+                            .write(accumulator[i]);
                     }
                 }
             }
         }
     }
 
+    let n_init = AtomicUsize::new(0);
     zip(output.axis_iter_mut(0), input.axis_iter(0))
         .par_bridge()
         .for_each(|(mut out_item, in_item)| {
             let mut out_item = out_item.nd_view_mut();
+            let [_, out_h, out_w] = out_item.shape();
             let in_item = in_item.nd_view();
 
             // Loop over channel groups.
@@ -322,6 +327,7 @@ pub fn max_pool(
                     strides,
                     [pad_top, pad_left],
                 );
+                n_init.fetch_add(N * out_h * out_w, Ordering::SeqCst);
             }
 
             // Loop over remaining channels.
@@ -334,9 +340,12 @@ pub fn max_pool(
                     strides,
                     [pad_top, pad_left],
                 );
+                n_init.fetch_add(out_h * out_w, Ordering::SeqCst);
             }
         });
 
+    assert!(n_init.load(Ordering::SeqCst) == output.len());
+    let output = unsafe { output.assume_init() };
     Ok(output)
 }
 

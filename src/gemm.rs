@@ -805,6 +805,8 @@ fn gemm_impl(
     // overhead altogether.
     let parallel = rayon::current_num_threads() > 1;
 
+    let (mr, nr) = (kernel.mr(), kernel.nr());
+
     // Loop over column blocks.
     (0..n_col_blocks)
         .maybe_par_iter(parallel)
@@ -894,8 +896,8 @@ fn gemm_impl(
                         gemm_block(
                             kernel,
                             &output_tiles,
-                            col_start / kernel.nr()..div_ceil(col_end, kernel.nr()),
-                            row_start / kernel.mr()..div_ceil(row_end, kernel.mr()),
+                            col_start / nr..div_ceil(col_end, nr),
+                            row_start / mr..div_ceil(row_end, mr),
                             depth_range.start == 0,
                             packed_a,
                             packed_b,
@@ -942,10 +944,13 @@ fn gemm_block(
     // Maximum tile size of all supported kernels.
     const MAX_MR: usize = 8;
     const MAX_NR: usize = 32;
-    assert!(kernel.nr() <= MAX_NR && kernel.mr() <= MAX_MR);
 
-    let b_panel_size = panel_length * kernel.nr();
-    let a_panel_size = kernel.mr() * panel_length;
+    let (mr, nr) = (kernel.mr(), kernel.nr());
+
+    assert!(nr <= MAX_NR && mr <= MAX_MR);
+
+    let b_panel_size = panel_length * nr;
+    let a_panel_size = mr * panel_length;
 
     // Loop over column tiles.
     //
@@ -966,7 +971,7 @@ fn gemm_block(
                 //    every output tile is processed by one thread at a time.
                 let out_tile = unsafe { output.tile(row_tile, col_tile) };
 
-                if out_tile.used_rows == kernel.mr() && out_tile.used_cols == kernel.nr() {
+                if out_tile.used_rows == mr && out_tile.used_cols == nr {
                     // Safety:
                     //  - Tile size is MR * NR
                     unsafe {
@@ -994,7 +999,7 @@ fn gemm_block(
                     unsafe {
                         kernel.kernel(
                             std::mem::transmute(tmp_out_tile.as_mut_ptr()),
-                            kernel.nr(),
+                            nr,
                             a_panel,
                             b_panel,
                             panel_length,
@@ -1011,9 +1016,7 @@ fn gemm_block(
                                 let out_el = out_tile.ptr.add(out_tile.row_stride * i + j);
                                 let tmp = if beta == 0. { 0. } else { *out_el };
                                 *out_el = beta * tmp
-                                    + tmp_out_tile
-                                        .get_unchecked(i * kernel.nr() + j)
-                                        .assume_init();
+                                    + tmp_out_tile.get_unchecked(i * nr + j).assume_init();
                             }
                         }
                     }
@@ -1028,7 +1031,7 @@ fn gemm_block(
                             //  - Bias length was checked at start of `gemm_impl`
                             unsafe {
                                 *out_tile.ptr.add(row * out_tile.row_stride + col) +=
-                                    *bias.get_unchecked(row_tile * kernel.mr() + row);
+                                    *bias.get_unchecked(row_tile * mr + row);
                             }
                         }
                     }
