@@ -796,9 +796,56 @@ impl<T, L: Clone + MutLayout> TensorBase<T, Vec<T>, L> {
     }
 }
 
-impl<T, L: Clone + MutLayout> TensorBase<MaybeUninit<T>, Vec<MaybeUninit<T>>, L> {
+/// Trait for converting potentially uninitialized tensor element storage to
+/// initialized storage.
+pub trait AssumeInit {
+    /// The type of the initialized storage.
+    type Output;
+
+    /// Promise that all elements in the storage have been initialized.
+    ///
+    /// # Safety
+    ///
+    /// The caller must guarantee that all elements have been initialized.
+    unsafe fn assume_init(self) -> Self::Output;
+}
+
+impl<T> AssumeInit for Vec<MaybeUninit<T>> {
+    type Output = Vec<T>;
+
+    unsafe fn assume_init(self) -> Self::Output {
+        std::mem::transmute(self)
+    }
+}
+
+impl<'a, T> AssumeInit for &'a [MaybeUninit<T>] {
+    type Output = &'a [T];
+
+    unsafe fn assume_init(self) -> Self::Output {
+        std::mem::transmute(self)
+    }
+}
+
+impl<'a, T> AssumeInit for &'a mut [MaybeUninit<T>] {
+    type Output = &'a mut [T];
+
+    unsafe fn assume_init(self) -> Self::Output {
+        std::mem::transmute(self)
+    }
+}
+
+impl<T, S: AsRef<[MaybeUninit<T>]> + AssumeInit, L: Clone + MutLayout>
+    TensorBase<MaybeUninit<T>, S, L>
+where
+    <S as AssumeInit>::Output: AsRef<[T]>,
+{
     /// Convert a tensor of potentially uninitialized elements to one of
     /// initialized elements.
+    ///
+    /// The tensor or view must be contiguous and this method will panic if
+    /// it is not. This restriction avoids hazards with converting a view
+    /// to initialized if it does not address all elements in the underlying
+    /// storage.
     ///
     /// See also [MaybeUninit::assume_init].
     ///
@@ -806,10 +853,11 @@ impl<T, L: Clone + MutLayout> TensorBase<MaybeUninit<T>, Vec<MaybeUninit<T>>, L>
     ///
     /// The caller must guarantee that all elements in this tensor have been
     /// initialized before calling `assume_init`.
-    pub unsafe fn assume_init(self) -> TensorBase<T, Vec<T>, L> {
+    pub unsafe fn assume_init(self) -> TensorBase<T, <S as AssumeInit>::Output, L> {
+        assert!(self.is_contiguous());
         TensorBase {
             layout: self.layout.clone(),
-            data: std::mem::transmute(self.data),
+            data: self.data.assume_init(),
             element_type: PhantomData,
         }
     }
@@ -2711,6 +2759,13 @@ mod tests {
         for (i, x) in tensor.iter_mut().enumerate() {
             x.write(i);
         }
+
+        let view = unsafe { tensor.view().assume_init() };
+        assert_eq!(view, NdTensorView::from_data([2, 2], &[0, 1, 2, 3]));
+
+        let mut_view = unsafe { tensor.view_mut().assume_init() };
+        assert_eq!(mut_view, NdTensorView::from_data([2, 2], &[0, 1, 2, 3]));
+
         let tensor = unsafe { tensor.assume_init() };
         assert_eq!(tensor, NdTensor::from_data([2, 2], vec![0, 1, 2, 3]));
     }

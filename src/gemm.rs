@@ -474,18 +474,7 @@ impl GemmExecutor {
         b: GemmInputB,
         alpha: f32,
     ) {
-        gemm_impl(
-            &*self.kernel,
-            // Safety: When beta is zero, we initialize all output elements
-            // and ignore existing values.
-            unsafe { std::mem::transmute(out_data) },
-            out_row_stride,
-            a,
-            b,
-            alpha,
-            0., /* beta */
-            None,
-        )
+        self.gemm_uninit_bias(out_data, out_row_stride, a, b, alpha, None);
     }
 
     /// Perform a matrix multiplication with fused bias vector addition.
@@ -495,6 +484,7 @@ impl GemmExecutor {
     ///
     /// If `bias` is present, it is treated as a column vector whose length
     /// must match the rows of `a`.
+    #[allow(unused)]
     pub fn gemm_bias(
         &self,
         out_data: &mut [f32],
@@ -513,6 +503,36 @@ impl GemmExecutor {
             b,
             alpha,
             beta,
+            bias,
+        )
+    }
+
+    /// Perform a matrix multiplication with fused bias vector addition.
+    ///
+    /// This computes `output = alpha * (a @ b) + bias` where
+    /// `@` is matrix multiplication.
+    ///
+    /// If `bias` is present, it is treated as a column vector whose length
+    /// must match the rows of `a`.
+    pub fn gemm_uninit_bias(
+        &self,
+        out_data: &mut [MaybeUninit<f32>],
+        out_row_stride: usize,
+        a: GemmInputA,
+        b: GemmInputB,
+        alpha: f32,
+        bias: Option<&[f32]>,
+    ) {
+        gemm_impl(
+            &*self.kernel,
+            // Safety: When beta is zero, we initialize all output elements
+            // and ignore existing values.
+            unsafe { std::mem::transmute(out_data) },
+            out_row_stride,
+            a,
+            b,
+            alpha,
+            0., /* beta */
             bias,
         )
     }

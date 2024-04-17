@@ -1,6 +1,7 @@
 use std::iter::zip;
 
 use std::ops::Range;
+use std::sync::atomic::{AtomicUsize, Ordering};
 
 use rayon::prelude::*;
 use rten_tensor::prelude::*;
@@ -9,8 +10,7 @@ use smallvec::SmallVec;
 
 use crate::check_dims;
 use crate::gemm::{
-    add_scaled_vector, div_ceil, gemm, round_up, GemmExecutor, GemmInputA, GemmInputB,
-    VirtualMatrix,
+    add_scaled_vector, div_ceil, round_up, GemmExecutor, GemmInputA, GemmInputB, VirtualMatrix,
 };
 use crate::ops::pooling::calc_output_size_and_padding;
 use crate::ops::{InputList, IntoOpResult, OpError, Operator, Output, Padding};
@@ -188,7 +188,7 @@ fn conv_2d_pointwise(
 ) -> Tensor {
     let [batch, _, in_h, in_w]: [usize; 4] = input.shape();
     let [out_c, in_c, _, _]: [usize; 4] = kernel.shape();
-    let mut output = Tensor::zeros(&[batch, out_c, in_h * in_w]);
+    let mut output = Tensor::uninit(&[batch, out_c, in_h * in_w]);
 
     // Get input and kernel as contiguous tensors so we can create reshaped
     // views.
@@ -200,6 +200,7 @@ fn conv_2d_pointwise(
     let bias = bias.as_ref().map(|b| b.to_contiguous());
 
     let gemm = GemmExecutor::new();
+    let mut n_init = 0;
 
     for n in 0..batch {
         let mut out_item = output.slice_mut::<2, _>([n]);
@@ -207,20 +208,22 @@ fn conv_2d_pointwise(
 
         let in_mat = input.slice::<3, _>([n]).reshaped([in_c, in_h * in_w]);
 
-        gemm.gemm_bias(
+        gemm.gemm_uninit_bias(
             out_item.data_mut().unwrap(),
             out_row_stride,
             GemmInputA::Unpacked(kernel_mat),
             GemmInputB::Unpacked(in_mat),
             1., // alpha
-            0., // beta
             bias.as_ref().map(|b| b.data().unwrap()),
         );
+        n_init += out_item.len();
     }
 
     output.reshape(&[batch, out_c, in_h, in_w]);
 
-    output
+    // Safety: We used `gemm_uninit_bias` to initialize all elements.
+    assert!(n_init == output.len());
+    unsafe { output.assume_init() }
 }
 
 /// Specialization of conv_2d for depthwise convolutions.
@@ -244,15 +247,11 @@ fn conv_2d_depthwise(
     let [dilation_y, dilation_x] = dilations;
     let [out_h, out_w] = out_hw;
 
-    let mut output = if let Some(bias) = bias {
-        init_tensor_with_channel_bias(&[batch, out_c, out_h, out_w], 1, &bias)
-    } else {
-        Tensor::zeros(&[batch, out_c, out_h, out_w])
-    };
+    let mut output = Tensor::uninit(&[batch, out_c, out_h, out_w]);
 
     // Use of input rows below assumes contiguous last dimension.
     let input = input.to_contiguous();
-    let mut out_view: NdTensorViewMut<f32, 4> = output.nd_view_mut();
+    let mut out_view: NdTensorViewMut<_, 4> = output.nd_view_mut();
 
     // Map of kernel X position to `(in_range, out_range)` of column ranges that
     // are used in the inner loop.
@@ -275,6 +274,7 @@ fn conv_2d_depthwise(
         })
         .collect();
 
+    let mut n_init = 0;
     for n in 0..batch {
         for c in 0..in_c {
             let kernel_view = kernel.slice([c, 0]).weakly_checked_view();
@@ -289,11 +289,20 @@ fn conv_2d_depthwise(
             let in_row_stride = in_chan.stride(0);
             let in_chan_data = in_chan.data().unwrap();
 
+            let init_value = if let Some(bias) = bias { bias[[c]] } else { 0. };
+
             // The loops here are ordered so that the inner-most loop is as
             // efficient as possible and runs for as long as possible over a
             // contiguous slice of memory.
             for out_y in 0..out_h {
                 let out_row = &mut out_chan_data[out_y * out_row_stride..][..out_row_stride];
+
+                // Initialize output row.
+                for x in out_row.iter_mut() {
+                    x.write(init_value);
+                }
+                let out_row: &mut [f32] = unsafe { std::mem::transmute(out_row) };
+                n_init += out_row.len();
 
                 for k_y in 0..k_h {
                     let in_y = out_y * stride_h + k_y * dilation_y;
@@ -318,7 +327,9 @@ fn conv_2d_depthwise(
         }
     }
 
-    output
+    // Safety: We initialized all output rows
+    assert!(n_init == output.len());
+    unsafe { output.assume_init() }
 }
 
 /// Perform a convolution of `input` with `kernel`.
@@ -469,12 +480,14 @@ pub fn conv(
     }
 
     let n_patches = out_h * out_w;
-    let mut output = Tensor::zeros(&[batch, out_c, n_patches]);
+    let mut output = Tensor::uninit(&[batch, out_c, n_patches]);
     let gemm = GemmExecutor::new();
 
     // Bias must be contiguous for use with `gemm_bias`.
     let bias = bias.map(|b| b.to_contiguous());
     let bias = bias.as_ref().map(|b| b.view());
+
+    let n_init = AtomicUsize::new(0);
 
     for group in 0..groups {
         let in_chan_start = group * in_channels_per_group;
@@ -504,19 +517,23 @@ pub fn conv(
                     [dilation_y, dilation_x],
                 );
 
-                gemm.gemm_bias(
+                gemm.gemm_uninit_bias(
                     out_mat.data_mut().unwrap(),
                     out_row_stride,
                     GemmInputA::Packed(&prepacked_kernel),
                     GemmInputB::Virtual(&im2col),
                     1., // alpha
-                    0., // beta
                     bias.as_ref().map(|b| &b.data().unwrap()[out_chans.clone()]),
                 );
+                n_init.fetch_add(out_mat.len(), Ordering::SeqCst);
             });
     }
 
     output.reshape(&[batch, out_c, out_h, out_w]);
+
+    // Safety: We used `gemm_uninit_bias` to initialize all elements.
+    assert!(n_init.load(Ordering::SeqCst) == output.len());
+    let output = unsafe { output.assume_init() };
 
     Ok(output)
 }
@@ -631,8 +648,9 @@ pub fn conv_transpose(
     let input = input.to_contiguous();
     let kernel = kernel.to_contiguous();
 
-    let mut col2im_mat = Tensor::zeros(&[in_h * in_w, out_c * k_h * k_w]);
+    let mut col2im_mat = Tensor::uninit(&[in_h * in_w, out_c * k_h * k_w]);
     let kernel_mat = kernel.reshaped([k_in_c, out_c * k_h * k_w]);
+    let gemm = GemmExecutor::new();
 
     // The implementation here is the inverse of the im2col-based convolution.
     for n in 0..batch {
@@ -642,14 +660,16 @@ pub fn conv_transpose(
             .transposed();
 
         let col2im_row_stride = col2im_mat.stride(0);
-        gemm(
+        gemm.gemm_uninit(
             col2im_mat.data_mut().unwrap(),
             col2im_row_stride,
-            input_mat,
-            kernel_mat,
+            GemmInputA::Unpacked(input_mat),
+            GemmInputB::Unpacked(kernel_mat),
             1., /* alpha */
-            0., /* beta */
         );
+
+        // Safety: `gemm_uninit` initialized col2im_mat.
+        let col2im_mat = unsafe { col2im_mat.view().assume_init() };
 
         col2im(
             &mut output.nd_view_mut::<4>().slice_mut([n]),
