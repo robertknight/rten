@@ -627,7 +627,7 @@ pub fn conv_transpose(
     let input = input.to_contiguous();
     let kernel = kernel.to_contiguous();
 
-    let mut col2im_mat = Tensor::uninit(&[in_h * in_w, out_c * k_h * k_w]);
+    let mut col2im_mat = NdTensor::uninit([in_h * in_w, out_c * k_h * k_w]);
     let kernel_mat = kernel.reshaped([k_in_c, out_c * k_h * k_w]);
     let gemm = GemmExecutor::new();
 
@@ -654,9 +654,7 @@ pub fn conv_transpose(
         let mut output_chw = output.slice_mut([n]);
         col2im(
             &mut output_chw,
-            &col2im_mat
-                .nd_view::<2>()
-                .reshaped([in_h, in_w, out_c, k_h, k_w]),
+            &col2im_mat.reshaped([in_h, in_w, out_c, k_h, k_w]),
             strides,
             bias,
         );
