@@ -10,12 +10,13 @@ use rten_tensor::{NdTensor, NdTensorView, NdTensorViewMut, Tensor, TensorView};
 use smallvec::SmallVec;
 
 use crate::check_dims;
-use crate::gemm::{
-    add_scaled_vector, div_ceil, round_up, GemmExecutor, GemmInputA, GemmInputB, VirtualMatrix,
-};
+use crate::gemm::{add_scaled_vector, div_ceil, GemmExecutor, GemmInputA, GemmInputB};
 use crate::iter_util::range_chunks;
 use crate::ops::pooling::calc_output_size_and_padding;
 use crate::ops::{InputList, IntoOpResult, OpError, Operator, Output, Padding};
+
+mod im2col;
+use im2col::VirtualIm2Col;
 
 // Calculate the min and max output X coordinates that are valid when updating
 // a row of convolution output using a loop:
@@ -39,121 +40,6 @@ fn min_max_out_x_coords(
     let min_out_x = pad_left.saturating_sub(k_x * dilation);
     let max_out_x = div_ceil((in_w + pad_left).saturating_sub(k_x * dilation), stride).min(out_w);
     (min_out_x, max_out_x)
-}
-
-/// Unrolls patches of an image as columns of a virtual matrix.
-///
-/// The input image has shape [C,H,W] and is transformed into a matrix with
-/// shape [C * Kh * kW, Oh * Ow] where Kh/Kw are convolution kernel sizes and
-/// Oh/Ow are the number of patches in the Y and X directions.
-///
-/// The transform is virtual because the matrix is not actually materialized
-/// in memory. Instead blocks of it are produced on-demand during a matrix
-/// multiplication operation.
-struct VirtualIm2Col<'a> {
-    image: NdTensorView<'a, f32, 3>,
-    kernel: [usize; 2],
-    padding: [usize; 4],
-    strides: [usize; 2],
-    dilations: [usize; 2],
-    y_patches: usize,
-    x_patches: usize,
-}
-
-impl<'a> VirtualIm2Col<'a> {
-    fn new(
-        image: NdTensorView<'a, f32, 3>,
-        kernel: [usize; 2],
-        padding: [usize; 4],
-        strides: [usize; 2],
-        dilations: [usize; 2],
-    ) -> VirtualIm2Col {
-        let [_, h, w] = image.shape();
-        let [k_h, k_w] = kernel;
-        let [stride_h, stride_w] = strides;
-        let [dilation_y, dilation_x] = dilations;
-        let (y_patches, x_patches, _) = calc_output_size_and_padding(
-            (h, w),
-            (k_h, k_w),
-            (stride_h, stride_w),
-            Padding::Fixed(padding.into()),
-            Some((dilation_y, dilation_x)),
-        )
-        .unwrap();
-
-        VirtualIm2Col {
-            image,
-            kernel,
-            padding,
-            strides,
-            dilations,
-            y_patches,
-            x_patches,
-        }
-    }
-}
-
-impl<'a> VirtualMatrix for VirtualIm2Col<'a> {
-    fn rows(&self) -> usize {
-        let [chans, _h, _w] = self.image.shape();
-        let [k_h, k_w] = self.kernel;
-        chans * k_h * k_w
-    }
-
-    fn cols(&self) -> usize {
-        self.y_patches * self.x_patches
-    }
-
-    fn pack_b(&self, out: &mut [f32], panel_width: usize, rows: Range<usize>, cols: Range<usize>) {
-        let [k_h, k_w] = self.kernel;
-        let [stride_y, stride_x] = self.strides;
-        let [dilation_y, dilation_x] = self.dilations;
-        let [pad_top, pad_left, _pad_bottom, _pad_right] = self.padding;
-
-        // Build lookup table of column index in the virtual im2col matrix to
-        // patch coordinate in the input image.
-        let patch_coords: Vec<[i32; 2]> = (cols.start..round_up(cols.end, panel_width))
-            .map(|col| {
-                let patch_y = col as i32 / self.x_patches as i32;
-                let patch_x = col as i32 % self.x_patches as i32;
-                let img_x = (patch_x * stride_x as i32) - pad_left as i32;
-                let img_y = (patch_y * stride_y as i32) - pad_top as i32;
-                [img_y, img_x]
-            })
-            .collect();
-
-        // Build lookup table of row index in the virtual im2col matrix to input
-        // channel and kernel coordinates.
-        let kernel_coords: Vec<[i32; 3]> = rows
-            .map(|row| {
-                let in_chan = row as i32 / (k_h * k_w) as i32;
-                let kernel_element = row as i32 % (k_h * k_w) as i32;
-                let k_y = kernel_element / k_w as i32;
-                let k_x = kernel_element % k_w as i32;
-                [in_chan, k_y, k_x]
-            })
-            .collect();
-
-        // Loop over the output by column panel, then row, then element.
-        let mut out_rows = out.chunks_exact_mut(panel_width);
-        for panel_patch_coords in patch_coords.chunks_exact(panel_width) {
-            for [in_chan, k_y, k_x] in kernel_coords.iter().copied() {
-                let out_row = out_rows.next().unwrap();
-                for ([img_y, img_x], out_el) in zip(panel_patch_coords.iter(), out_row.iter_mut()) {
-                    let in_y = img_y + k_y * dilation_y as i32;
-                    let in_x = img_x + k_x * dilation_x as i32;
-
-                    // `in_y` or `in_x` may be negative here, in which case it will
-                    // wrap around and `image.get` will still return None.
-                    *out_el = self
-                        .image
-                        .get([in_chan as usize, in_y as usize, in_x as usize])
-                        .copied()
-                        .unwrap_or(0.);
-                }
-            }
-        }
-    }
 }
 
 /// Initialize a tensor, typically with NCHW or CHW dimensions, with a vector
@@ -565,11 +451,13 @@ pub fn conv(
                 let out_row_stride = out_mat.stride(0);
 
                 let im2col = VirtualIm2Col::new(
+                    gemm.kernel_type(),
                     in_item.nd_view(),
                     [k_h, k_w],
                     fixed_padding,
                     [stride_y, stride_x],
                     [dilation_y, dilation_x],
+                    gemm.b_panel_width(),
                 );
 
                 gemm.gemm_uninit_bias(

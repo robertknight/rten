@@ -398,6 +398,13 @@ impl GemmExecutor {
         }
     }
 
+    /// Return the panel width used when packing the "B" matrix.
+    ///
+    /// This information is useful for implementations of [VirtualMatrix].
+    pub fn b_panel_width(&self) -> usize {
+        self.kernel.nr()
+    }
+
     /// Prepack a matrix for use as the right-hand or "B" matrix input.
     pub fn prepack_b(&self, b: Matrix) -> PackedBMatrix {
         let nc = col_block_size(b.cols(), self.kernel.nr());
