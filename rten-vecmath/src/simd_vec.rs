@@ -62,6 +62,18 @@ pub trait SimdInt: Copy + Sized {
     /// Return a mask indicating whether `self > other`.
     unsafe fn gt(self, other: Self) -> Self::Mask;
 
+    /// Return a mask indicating whether `self >= other`.
+    unsafe fn ge(self, other: Self) -> Self::Mask;
+
+    /// Return a mask indicating whether `self <= other`.
+    unsafe fn le(self, other: Self) -> Self::Mask;
+
+    /// Return a mask indicating whether `self < other`.
+    unsafe fn lt(self, other: Self) -> Self::Mask;
+
+    /// Return a mask indicating where `self == other`.
+    unsafe fn eq(self, other: Self) -> Self::Mask;
+
     /// Select elements from this vector or `other` according to a mask.
     ///
     /// For each lane, if the mask value is zero, return the element from
@@ -79,6 +91,16 @@ pub trait SimdInt: Copy + Sized {
 
     /// Reinterpret the bits of each element as a float.
     unsafe fn reinterpret_as_float(self) -> Self::Float;
+
+    /// Reinterpret the bits of this value as a mask for use in float
+    /// operations.
+    ///
+    /// Callers must set all bits in a lane to 1 for the mask to be "on" for
+    /// that lane or all bits to 0 for the mask to be "off" for that lane.
+    /// Hence `-1` means "all lanes on" and `0` means "all lanes off". Note that
+    /// some architectures may only actually check a subset of bits within a
+    /// lane.
+    unsafe fn to_float_mask(self) -> <Self::Float as SimdFloat>::Mask;
 
     /// Load `Self::LEN` values from the memory address at `ptr`.
     ///
@@ -214,6 +236,19 @@ pub trait SimdFloat: Copy + Sized {
     /// floats.
     unsafe fn load(ptr: *const f32) -> Self;
 
+    /// Load `Self::LEN` values from the base memory address at `ptr` plus
+    /// offsets in `offsets`, excluding elements where `mask` is off.
+    ///
+    /// Offsets are expressed in terms of elements, not bytes. Elements of the
+    /// result are set to zero where the mask is off.
+    ///
+    /// # Safety
+    ///
+    /// All offsets in `offsets` and the offset zero must be valid for indexing
+    /// into `ptr`. The requirement for offset zero to be valid is needed on
+    /// architectures which do not have a gather instruction.
+    unsafe fn gather_mask(ptr: *const f32, offsets: Self::Int, mask: Self::Mask) -> Self;
+
     /// Store `Self::LEN` floats to the memory address at `ptr`.
     ///
     /// Implementations must not require `ptr` to be aligned.
@@ -263,6 +298,26 @@ impl SimdInt for i32 {
     }
 
     #[inline]
+    unsafe fn ge(self, other: Self) -> Self::Mask {
+        self >= other
+    }
+
+    #[inline]
+    unsafe fn eq(self, other: Self) -> Self::Mask {
+        self == other
+    }
+
+    #[inline]
+    unsafe fn le(self, other: Self) -> Self::Mask {
+        self <= other
+    }
+
+    #[inline]
+    unsafe fn lt(self, rhs: Self) -> Self::Mask {
+        self < rhs
+    }
+
+    #[inline]
     unsafe fn gt(self, other: Self) -> Self::Mask {
         self > other
     }
@@ -294,6 +349,11 @@ impl SimdInt for i32 {
     #[inline]
     unsafe fn reinterpret_as_float(self) -> Self::Float {
         f32::from_bits(self as u32)
+    }
+
+    #[inline]
+    unsafe fn to_float_mask(self) -> <Self::Float as SimdFloat>::Mask {
+        self != 0
     }
 
     #[inline]
@@ -396,6 +456,15 @@ impl SimdFloat for f32 {
     #[inline]
     unsafe fn load(ptr: *const f32) -> Self {
         *ptr
+    }
+
+    #[inline]
+    unsafe fn gather_mask(ptr: *const f32, offset: i32, mask: Self::Mask) -> Self {
+        if mask {
+            *ptr.add(offset as usize)
+        } else {
+            0.
+        }
     }
 
     #[inline]

@@ -1,7 +1,8 @@
 use std::arch::wasm32::{
     f32x4_abs, f32x4_add, f32x4_div, f32x4_extract_lane, f32x4_ge, f32x4_le, f32x4_lt, f32x4_max,
-    f32x4_mul, f32x4_splat, f32x4_sub, i32x4_add, i32x4_gt, i32x4_shl, i32x4_shuffle, i32x4_splat,
-    i32x4_sub, i32x4_trunc_sat_f32x4, v128, v128_bitselect, v128_load, v128_store,
+    f32x4_mul, f32x4_splat, f32x4_sub, i32x4_add, i32x4_eq, i32x4_ge, i32x4_gt, i32x4_le, i32x4_lt,
+    i32x4_shl, i32x4_shuffle, i32x4_splat, i32x4_sub, i32x4_trunc_sat_f32x4, v128, v128_bitselect,
+    v128_load, v128_store,
 };
 
 use crate::simd_vec::{SimdFloat, SimdInt};
@@ -33,6 +34,26 @@ impl SimdInt for v128i {
     }
 
     #[inline]
+    unsafe fn lt(self, other: Self) -> Self::Mask {
+        Self(i32x4_lt(self.0, other.0))
+    }
+
+    #[inline]
+    unsafe fn eq(self, other: Self) -> Self::Mask {
+        Self(i32x4_eq(self.0, other.0))
+    }
+
+    #[inline]
+    unsafe fn le(self, other: Self) -> Self::Mask {
+        Self(i32x4_le(self.0, other.0))
+    }
+
+    #[inline]
+    unsafe fn ge(self, other: Self) -> Self::Mask {
+        Self(i32x4_ge(self.0, other.0))
+    }
+
+    #[inline]
     unsafe fn blend(self, other: Self, mask: Self::Mask) -> Self {
         Self(v128_bitselect(other.0, self.0, mask.0))
     }
@@ -55,6 +76,11 @@ impl SimdInt for v128i {
     #[inline]
     unsafe fn reinterpret_as_float(self) -> Self::Float {
         v128f(self.0)
+    }
+
+    #[inline]
+    unsafe fn to_float_mask(self) -> <Self::Float as SimdFloat>::Mask {
+        self
     }
 
     #[inline]
@@ -147,6 +173,18 @@ impl SimdFloat for v128f {
     #[inline]
     unsafe fn store(self, ptr: *mut f32) {
         v128_store(ptr as *mut v128, self.0)
+    }
+
+    #[inline]
+    unsafe fn gather_mask(src: *const f32, offsets: Self::Int, mask: Self::Mask) -> Self {
+        // Set offset to zero where masked out. `src` is required to point to
+        // a non-empty buffer, so index zero can be loaded as a dummy.
+        let offsets = Self::Int::splat(0).blend(offsets, mask);
+        let mut offset_array = [0; 4];
+        offsets.store(offset_array.as_mut_ptr());
+
+        let values: [f32; 4] = std::array::from_fn(|i| *src.add(offset_array[i] as usize));
+        Self::splat(0.).blend(Self::load(values.as_ptr()), mask)
     }
 
     #[inline]
