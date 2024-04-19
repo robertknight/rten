@@ -47,7 +47,8 @@ wasm-all: wasm wasm-nosimd
 
 .PHONY: wasm-tests
 wasm-tests:
-	cargo build --tests -p rten
+	rm -f target/wasm32-wasi/debug/deps/rten-*.wasm
+	RUSTFLAGS="-C target-feature=+simd128" cargo build --target wasm32-wasi --tests -p rten
 	wasmtime --dir . target/wasm32-wasi/debug/deps/rten-*.wasm
 
 src/schema_generated.rs: src/schema.fbs
