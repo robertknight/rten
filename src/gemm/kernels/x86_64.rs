@@ -8,6 +8,9 @@ use std::arch::x86_64::__m512;
 use rten_tensor::Matrix;
 use rten_vecmath::simd_vec::SimdFloat;
 
+#[cfg(feature = "avx512")]
+use rten_vecmath::is_avx512_supported;
+
 use super::{simd_gemm, simd_gemv, Kernel};
 use crate::gemm::packing::{pack_a_block, pack_b_block};
 
@@ -126,53 +129,6 @@ unsafe impl Kernel for FmaKernel {
     }
 }
 
-/// Detect availability of AVX-512 on macOS, where `is_x86_feature_detected`
-/// can return false even if AVX-512 is available.
-///
-/// See https://github.com/golang/go/issues/43089. Go chose to use the
-/// `commpage` to get the info. We use `sysctlbyname` instead since it is
-/// a documented API.
-#[cfg(feature = "avx512")]
-#[cfg(target_os = "macos")]
-fn test_for_avx512_on_macos() -> bool {
-    use std::ffi::CStr;
-    use std::os::raw::{c_char, c_int, c_void};
-    use std::sync::OnceLock;
-
-    #[link(name = "c")]
-    extern "C" {
-        /// See https://developer.apple.com/documentation/kernel/1387446-sysctlbyname.
-        fn sysctlbyname(
-            name: *const c_char,
-            oldp: *mut c_void,
-            oldlenp: *mut usize,
-            newp: *const c_void,
-            newlen: usize,
-        ) -> c_int;
-    }
-
-    static AVX512_AVAILABLE: OnceLock<bool> = OnceLock::new();
-
-    *AVX512_AVAILABLE.get_or_init(|| {
-        unsafe {
-            let mut ret = 0u64;
-            let mut size = std::mem::size_of::<u64>();
-
-            // We test only for avx512vl, as this implies avx512f.
-            let sysctl_ret = sysctlbyname(
-                CStr::from_bytes_with_nul(b"hw.optional.avx512vl\0")
-                    .unwrap()
-                    .as_ptr(),
-                std::mem::transmute(&mut ret),
-                &mut size,
-                std::ptr::null(),
-                0,
-            );
-            sysctl_ret == 0 && ret == 1
-        }
-    })
-}
-
 /// Optimized kernel for x64 CPUs that support AVX 512 instructions.
 #[cfg(feature = "avx512")]
 #[derive(Default)]
@@ -197,21 +153,7 @@ impl Avx512Kernel {
 #[cfg(feature = "avx512")]
 unsafe impl Kernel for Avx512Kernel {
     fn new() -> Option<Self> {
-        let supported = {
-            if is_x86_feature_detected!("avx512f") && is_x86_feature_detected!("avx512vl") {
-                true
-            } else {
-                #[cfg(target_os = "macos")]
-                {
-                    test_for_avx512_on_macos()
-                }
-                #[cfg(not(target_os = "macos"))]
-                {
-                    false
-                }
-            }
-        };
-        supported.then_some(Avx512Kernel { _private: () })
+        is_avx512_supported().then_some(Avx512Kernel { _private: () })
     }
 
     fn name(&self) -> &'static str {
