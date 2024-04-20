@@ -265,28 +265,29 @@ pub fn gemm(
 /// can be done just once for the reused input.
 pub struct GemmExecutor {
     kernel: Box<dyn Kernel>,
+    kernel_type: KernelType,
 }
 
 /// Arguments for [GemmExecutor::with_kernel] specifying which kernel to use.
 #[derive(Clone, Copy, Debug)]
-#[allow(dead_code)] // Currently only used in tests
-pub enum KernelHint {
-    /// Use the preferred kernel for the current platform. Always available.
-    Auto,
-
+pub enum KernelType {
     /// Use the fallback/base kernel. Always available.
     Base,
 
     /// Use the AVX 2 + FMA kernel. Intel x64 only.
+    #[cfg(target_arch = "x86_64")]
     Fma,
 
     /// Use the AVX 512 kernel. Intel x64 only.
+    #[cfg(feature = "avx512")]
     Avx512,
 
     /// Use the ARM NEON kernel. ARM 64 only.
+    #[cfg(target_arch = "aarch64")]
     ArmNeon,
 
     /// Use the WASM SIMD kernel. WASM only.
+    #[cfg(target_arch = "wasm32")]
     Wasm,
 }
 
@@ -295,19 +296,19 @@ impl GemmExecutor {
     pub fn new() -> GemmExecutor {
         #[cfg(feature = "avx512")]
         #[cfg(target_arch = "x86_64")]
-        if let Some(gemm) = Self::with_kernel(KernelHint::Avx512) {
+        if let Some(gemm) = Self::with_kernel(KernelType::Avx512) {
             return gemm;
         }
         #[cfg(target_arch = "x86_64")]
-        if let Some(gemm) = Self::with_kernel(KernelHint::Fma) {
+        if let Some(gemm) = Self::with_kernel(KernelType::Fma) {
             return gemm;
         }
         #[cfg(target_arch = "aarch64")]
-        if let Some(gemm) = Self::with_kernel(KernelHint::ArmNeon) {
+        if let Some(gemm) = Self::with_kernel(KernelType::ArmNeon) {
             return gemm;
         }
         #[cfg(target_arch = "wasm32")]
-        if let Some(gemm) = Self::with_kernel(KernelHint::Wasm) {
+        if let Some(gemm) = Self::with_kernel(KernelType::Wasm) {
             return gemm;
         }
         Self::with_base_kernel()
@@ -319,31 +320,33 @@ impl GemmExecutor {
         self.kernel.name()
     }
 
+    /// Return the type of kernel being used.
+    pub fn kernel_type(&self) -> KernelType {
+        self.kernel_type
+    }
+
     /// Create a [GemmExecutor] using the given kernel. Returns `None` if the
     /// kernel is not supported.
     #[allow(dead_code)] // Currently only used in tests
-    pub fn with_kernel(kernel: KernelHint) -> Option<GemmExecutor> {
-        fn make_kernel<K: Kernel + 'static>() -> Option<GemmExecutor> {
+    pub fn with_kernel(hint: KernelType) -> Option<GemmExecutor> {
+        fn make_kernel<K: Kernel + 'static>(kernel_type: KernelType) -> Option<GemmExecutor> {
             K::new().map(|kernel| GemmExecutor {
                 kernel: Box::new(kernel),
+                kernel_type,
             })
         }
 
-        match kernel {
-            KernelHint::Auto => Some(Self::new()),
+        match hint {
             #[cfg(feature = "avx512")]
             #[cfg(target_arch = "x86_64")]
-            KernelHint::Avx512 => make_kernel::<kernels::x86_64::Avx512Kernel>(),
+            KernelType::Avx512 => make_kernel::<kernels::x86_64::Avx512Kernel>(hint),
             #[cfg(target_arch = "x86_64")]
-            KernelHint::Fma => make_kernel::<kernels::x86_64::FmaKernel>(),
+            KernelType::Fma => make_kernel::<kernels::x86_64::FmaKernel>(hint),
             #[cfg(target_arch = "aarch64")]
-            KernelHint::ArmNeon => make_kernel::<kernels::aarch64::ArmNeonKernel>(),
+            KernelType::ArmNeon => make_kernel::<kernels::aarch64::ArmNeonKernel>(hint),
             #[cfg(target_arch = "wasm32")]
-            KernelHint::Wasm => make_kernel::<kernels::wasm::WasmKernel>(),
-            KernelHint::Base => Some(Self::with_base_kernel()),
-            // Fail by default if requested kernel is never supported on
-            // current platform (eg. requesting Arm Neon on x64).
-            _ => None,
+            KernelType::Wasm => make_kernel::<kernels::wasm::WasmKernel>(hint),
+            KernelType::Base => Some(Self::with_base_kernel()),
         }
     }
 
@@ -352,6 +355,7 @@ impl GemmExecutor {
         let kernel = BaseKernel::new().unwrap();
         GemmExecutor {
             kernel: Box::new(kernel),
+            kernel_type: KernelType::Base,
         }
     }
 
@@ -1052,7 +1056,7 @@ mod tests {
     use rten_tensor::{Matrix, MatrixLayout, NdTensor, Tensor};
 
     use super::{
-        add_scaled_vector, gemm, round_up, GemmExecutor, GemmInputA, GemmInputB, KernelHint,
+        add_scaled_vector, gemm, round_up, GemmExecutor, GemmInputA, GemmInputB, KernelType,
         VirtualMatrix,
     };
 
@@ -1082,6 +1086,8 @@ mod tests {
     const COL_BLOCK_SIZE: usize = 1024;
     const DEPTH_BLOCK_SIZE: usize = 256;
 
+    /// Run a GEMM operation using the kernel specified by `kernel`, or the
+    /// default kernel for the current system if None.
     fn run_gemm(
         output: &mut Tensor,
         a: &Tensor,
@@ -1089,10 +1095,14 @@ mod tests {
         alpha: f32,
         beta: f32,
         bias: Option<&[f32]>,
-        kernel: KernelHint,
+        kernel: Option<KernelType>,
     ) {
         let out_row_stride = output.stride(0);
-        let gemm = GemmExecutor::with_kernel(kernel).expect("kernel not available");
+        let gemm = if let Some(kernel) = kernel {
+            GemmExecutor::with_kernel(kernel).expect("kernel not available")
+        } else {
+            GemmExecutor::new()
+        };
 
         gemm.gemm_bias(
             output.data_mut().expect("expected contiguous input"),
@@ -1186,11 +1196,11 @@ mod tests {
         let expected = reference_matmul(&a, &b);
 
         let mut result = Tensor::zeros(&[a.size(0), b.size(1)]);
-        run_gemm(&mut result, &a, &b, 1., 1., None, KernelHint::Auto);
+        run_gemm(&mut result, &a, &b, 1., 1., None, None);
         expect_equal(&result, &expected)?;
 
         let mut result = Tensor::zeros(&[a.size(0), b.size(1)]);
-        run_gemm(&mut result, &a, &b, 1., 1., None, KernelHint::Base);
+        run_gemm(&mut result, &a, &b, 1., 1., None, Some(KernelType::Base));
         expect_equal(&result, &expected)?;
 
         Ok(())
@@ -1214,7 +1224,7 @@ mod tests {
         );
     }
 
-    fn test_gemm_with_kernel(kernel: KernelHint) -> Result<(), Box<dyn Error>> {
+    fn test_gemm_with_kernel(kernel: Option<KernelType>) -> Result<(), Box<dyn Error>> {
         // "Interesting" sizes for the row, column and depth dimensions of the
         // computation. These are chosen to cover cases that are less than,
         // equal to and above the tile/block sizes which the algorithm divides
@@ -1272,20 +1282,20 @@ mod tests {
     #[cfg(target_arch = "x86_64")]
     #[test]
     fn test_gemm_with_fma_kernel() -> Result<(), Box<dyn Error>> {
-        test_gemm_with_kernel(KernelHint::Fma)
+        test_gemm_with_kernel(Some(KernelType::Fma))
     }
 
     #[cfg(feature = "avx512")]
     #[cfg(target_arch = "x86_64")]
     #[test]
     fn test_gemm_with_avx512_kernel() -> Result<(), Box<dyn Error>> {
-        test_gemm_with_kernel(KernelHint::Avx512)
+        test_gemm_with_kernel(Some(KernelType::Avx512))
     }
 
     #[cfg(target_arch = "aarch64")]
     #[test]
     fn test_gemm_with_arm_neon_kernel() -> Result<(), Box<dyn Error>> {
-        test_gemm_with_kernel(KernelHint::ArmNeon)
+        test_gemm_with_kernel(Some(KernelType::ArmNeon))
     }
 
     // This duplicates one of the other `test_gemm_with_XXX_kernel` tests
@@ -1293,12 +1303,12 @@ mod tests {
     // test is fast.
     #[test]
     fn test_gemm_with_auto_kernel() -> Result<(), Box<dyn Error>> {
-        test_gemm_with_kernel(KernelHint::Auto)
+        test_gemm_with_kernel(None)
     }
 
     #[test]
     fn test_gemm_with_base_kernel() -> Result<(), Box<dyn Error>> {
-        test_gemm_with_kernel(KernelHint::Base)
+        test_gemm_with_kernel(Some(KernelType::Base))
     }
 
     #[test]
@@ -1316,7 +1326,7 @@ mod tests {
         let [_, b_cols]: [usize; 2] = b.shape().try_into().unwrap();
 
         let mut result = Tensor::zeros(&[a_rows, b_cols]);
-        run_gemm(&mut result, &a, &b, 1., 1., None, KernelHint::Auto);
+        run_gemm(&mut result, &a, &b, 1., 1., None, None);
 
         let expected = reference_matmul(&a, &b);
         expect_equal(&result, &expected)?;
@@ -1331,7 +1341,7 @@ mod tests {
         let a = Tensor::rand(&[10, 5], &mut rng);
         let b = Tensor::rand(&[5, 15], &mut rng);
 
-        for kernel in [KernelHint::Auto, KernelHint::Base] {
+        for kernel in [None, Some(KernelType::Base)] {
             for alpha in [0.0, 0.5, 1.0, 2.0] {
                 let mut result = Tensor::rand(&[10, 15], &mut rng);
                 let mut expected = result.clone();
@@ -1362,7 +1372,7 @@ mod tests {
             let a = Tensor::rand(&[m, k], &mut rng);
             let b = Tensor::rand(&[k, n], &mut rng);
 
-            for kernel in [KernelHint::Auto, KernelHint::Base] {
+            for kernel in [None, Some(KernelType::Base)] {
                 for beta in [0.5, 1.0, 2.0] {
                     let mut result = Tensor::rand(&[m, n], &mut rng);
                     let mut expected = result.clone();
@@ -1406,15 +1416,7 @@ mod tests {
             let mut result = Tensor::full(&[m, n], f32::NAN);
             let mut expected = Tensor::zeros(result.shape());
 
-            run_gemm(
-                &mut result,
-                &a,
-                &b,
-                1.,
-                0., /* beta */
-                None,
-                KernelHint::Auto,
-            );
+            run_gemm(&mut result, &a, &b, 1., 0. /* beta */, None, None);
             reference_gemm(&mut expected, &a, &b, 1., 0. /* beta */, None);
 
             expect_equal(&result, &expected)?;
@@ -1434,7 +1436,7 @@ mod tests {
         let mut result = Tensor::zeros(&[10, 15]);
         let mut expected = result.clone();
 
-        for kernel in [KernelHint::Auto, KernelHint::Base] {
+        for kernel in [None, Some(KernelType::Base)] {
             run_gemm(&mut result, &a, &b, 1., 0., Some(&bias), kernel);
             reference_gemm(&mut expected, &a, &b, 1., 0., Some(&bias));
         }
@@ -1800,7 +1802,7 @@ mod tests {
                 alpha,
                 beta,
                 bias_array.as_ref().map(|b| b.as_slice()),
-                KernelHint::Auto,
+                None,
             );
 
             let expected =
@@ -1879,7 +1881,7 @@ mod tests {
             let mut t = Timer::new();
             t.start();
             for _i in 0..iters {
-                run_gemm(&mut result, &a, &b, 1., 0., None, KernelHint::Auto);
+                run_gemm(&mut result, &a, &b, 1., 0., None, None);
             }
             t.end();
 
