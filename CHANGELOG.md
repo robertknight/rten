@@ -5,6 +5,32 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## Unreleased
+
+## rten
+
+- Fixed a `MatMul` performance regression introduced in v0.7.0 due to virtual
+  calls to get kernel tile size (https://github.com/robertknight/rten/pull/101)
+
+- Optimize convolutions by using SIMD operations for im2col transform
+  (https://github.com/robertknight/rten/pull/104)
+
+- Parallelize depthwise convolution (https://github.com/robertknight/rten/pull/102)
+
+- Avoid redundant of zeroing buffers in `Conv`, `OneHot`, and various unary
+  operations (https://github.com/robertknight/rten/pull/97,
+  https://github.com/robertknight/rten/pull/99,
+  https://github.com/robertknight/rten/pull/101,
+  https://github.com/robertknight/rten/pull/106)
+
+- Optimize `Unsqueeze` by running in-place where possible (https://github.com/robertknight/rten/pull/96)
+
+- Optimize vector-matrix products where matrix is transposed (https://github.com/robertknight/rten/pull/94)
+
+- Reduced graph execution overhead by using faster hashing (https://github.com/robertknight/rten/pull/92)
+
+- Optimize `ScatterND` (https://github.com/robertknight/rten/pull/91)
+
 ## [0.7.0] - 2024-04-12
 
 ### rten-tensor
