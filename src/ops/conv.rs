@@ -436,13 +436,19 @@ pub fn conv(
         let out_chan_start = group * out_channels_per_group;
         let out_chans = out_chan_start..out_chan_start + out_channels_per_group;
 
+        let in_group = input.slice_dyn((.., in_chan_start..in_chan_end));
+        let mut out_group = output.slice_mut_dyn((.., out_chans.clone()));
+
         let kernel_mat = kernel
             .slice::<4, _>([out_chans.clone()])
             .reshaped([out_channels_per_group, in_channels_per_group * k_h * k_w]);
-        let prepacked_kernel = gemm.prepack_a(kernel_mat);
 
-        let in_group = input.slice_dyn((.., in_chan_start..in_chan_end));
-        let mut out_group = output.slice_mut_dyn((.., out_chans.clone()));
+        // Prepack kernel if we'll be able to reuse packed weights.
+        let prepacked_kernel = if in_group.size(0) > 1 {
+            Some(gemm.prepack_a(kernel_mat))
+        } else {
+            None
+        };
 
         zip(out_group.axis_iter_mut(0), in_group.axis_iter(0))
             .par_bridge()
@@ -463,7 +469,10 @@ pub fn conv(
                 gemm.gemm_uninit_bias(
                     out_mat.data_mut().unwrap(),
                     out_row_stride,
-                    GemmInputA::Packed(&prepacked_kernel),
+                    prepacked_kernel
+                        .as_ref()
+                        .map(GemmInputA::Packed)
+                        .unwrap_or(GemmInputA::Unpacked(kernel_mat)),
                     GemmInputB::Virtual(&im2col),
                     1., // alpha
                     bias.as_ref().map(|b| &b.data().unwrap()[out_chans.clone()]),
