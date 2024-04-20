@@ -277,33 +277,39 @@ impl<'a> VirtualMatrix for VirtualIm2Col<'a> {
     }
 
     fn pack_b(&self, out: &mut [f32], panel_width: usize, rows: Range<usize>, cols: Range<usize>) {
-        match self.gemm_kernel {
+        match (self.gemm_kernel, panel_width) {
             #[cfg(feature = "avx512")]
             #[cfg(target_arch = "x86_64")]
-            KernelType::Avx512 => unsafe {
+            (KernelType::Avx512, 32) => unsafe {
                 assert!(is_avx512_supported());
                 self.pack_b_impl_avx512(out, panel_width, rows.clone(), cols.clone());
             },
             #[cfg(target_arch = "x86_64")]
-            KernelType::Fma => unsafe {
+            (KernelType::Fma, 16) => unsafe {
                 assert!(is_x86_feature_detected!("avx2"));
                 self.pack_b_impl_avx(out, panel_width, rows.clone(), cols.clone());
             },
             #[cfg(target_arch = "aarch64")]
-            KernelType::ArmNeon => unsafe {
+            (KernelType::ArmNeon, 8) => unsafe {
                 // Safety: Neon is always available.
                 use std::arch::aarch64::float32x4_t;
                 self.pack_b_impl::<float32x4_t, 2>(out, panel_width, rows, cols);
             },
             #[cfg(target_arch = "wasm32")]
-            KernelType::Wasm => unsafe {
+            (KernelType::Wasm, 8) => unsafe {
                 // Safety: SIMD support is checked when WASM binary is loaded.
                 use rten_vecmath::simd_vec::wasm::v128f;
                 self.pack_b_impl::<v128f, 2>(out, panel_width, rows, cols);
             },
-            KernelType::Base => unsafe {
+            (KernelType::Base, 4) => unsafe {
                 self.pack_b_impl::<f32, 4>(out, panel_width, rows, cols);
             },
+            _ => {
+                panic!(
+                    "unsupported (kernel, panel_width) for im2col: ({:?}, {})",
+                    self.gemm_kernel, panel_width
+                );
+            }
         }
     }
 }
