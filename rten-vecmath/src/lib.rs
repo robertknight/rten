@@ -107,7 +107,7 @@ pub fn is_avx512_supported() -> bool {
     }
 }
 
-/// Maximum SIMD vector size supported by this library, in units of 32-byte lanes.
+/// Maximum SIMD vector size supported by this library, in units of 32-bit lanes.
 ///
 /// Chosen as 16 to match AVX-512.
 const MAX_LEN: usize = 16;
