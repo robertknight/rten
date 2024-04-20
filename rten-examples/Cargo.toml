@@ -21,6 +21,10 @@ rten-imageproc = { path = "../rten-imageproc" }
 rten-tensor = { path = "../rten-tensor" }
 rten-text = { path = "../rten-text" }
 
+[features]
+# Use AVX-512 instructions if available. Requires nightly Rust for AVX-512 intrinsics.
+avx512 = ["rten/avx512"]
+
 [lints.clippy]
 # Allows use of `..Default::default()` for future compatibility even when not
 # currently needed.
