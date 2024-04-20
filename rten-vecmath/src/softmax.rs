@@ -1,3 +1,5 @@
+use std::mem::MaybeUninit;
+
 use crate::dispatch_simd;
 use crate::exp::simd_exp;
 use crate::simd_vec::SimdFloat;
@@ -9,7 +11,7 @@ use crate::{vec_fold, vec_unary_op, MutPtrLen, PtrLen};
 /// The implementation uses a three-pass approach for numerical stability.
 /// See https://ogunlao.github.io/2020/04/26/you_dont_really_know_softmax.html
 /// and https://arxiv.org/abs/2001.04438.
-unsafe fn simd_softmax<S: SimdFloat>(xs: PtrLen<f32>, out: MutPtrLen<f32>) {
+unsafe fn simd_softmax<S: SimdFloat>(xs: PtrLen<f32>, out: MutPtrLen<MaybeUninit<f32>>) {
     let max_val = vec_fold(
         xs,
         S::splat(f32::MIN),
@@ -34,13 +36,20 @@ unsafe fn simd_softmax<S: SimdFloat>(xs: PtrLen<f32>, out: MutPtrLen<f32>) {
 
     // *x /= exp_sum
     let exp_sum = exp_sum.fold_splat(0., |sum, x| sum + x);
-    vec_unary_op(out.into(), out, |x: S| x.div(exp_sum), 1. /* pad */);
+    vec_unary_op(
+        out.assume_init().into(),
+        out,
+        |x: S| x.div(exp_sum),
+        1., /* pad */
+    );
 }
 
 /// Computes the [softmax][softmax] function over a slice of floats.
 ///
+/// `out` will be fully initialized after this function returns.
+///
 /// [softmax]: https://en.wikipedia.org/wiki/Softmax_function
-pub fn vec_softmax(xs: &[f32], out: &mut [f32]) {
+pub fn vec_softmax(xs: &[f32], out: &mut [MaybeUninit<f32>]) {
     dispatch_simd!(simd_softmax, xs.into(), out.into());
 }
 
@@ -48,14 +57,15 @@ pub fn vec_softmax(xs: &[f32], out: &mut [f32]) {
 ///
 /// [softmax]: https://en.wikipedia.org/wiki/Softmax_function
 pub fn vec_softmax_in_place(xs: &mut [f32]) {
-    dispatch_simd!(simd_softmax, xs.into(), xs.into());
+    let out: MutPtrLen<f32> = xs.into();
+    dispatch_simd!(simd_softmax, xs.into(), out.as_uninit());
 }
 
 #[cfg(test)]
 mod tests {
     use super::vec_softmax;
 
-    use crate::testing::{benchmark_op, check_f32s_are_equal_ulps, triples};
+    use crate::testing::{benchmark_op, check_f32s_are_equal_ulps, triples, AsUninit};
 
     fn reference_softmax(xs: &[f32], ys: &mut [f32]) {
         let max = xs.iter().copied().fold(f32::MIN, |max, x| max.max(x));
@@ -79,7 +89,7 @@ mod tests {
         ]);
         let mut actual = vec![0.; input.len()];
 
-        vec_softmax(&input, &mut actual);
+        vec_softmax(&input, actual.as_mut_slice().as_uninit());
 
         check_f32s_are_equal_ulps(triples(&input, &actual, expected), 0. /* max ULPs */);
     }

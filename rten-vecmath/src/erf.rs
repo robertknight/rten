@@ -1,5 +1,7 @@
 #![allow(clippy::excessive_precision)]
 
+use std::mem::MaybeUninit;
+
 use crate::dispatch_unary_op;
 use crate::exp::simd_exp;
 use crate::simd_vec::SimdFloat;
@@ -58,7 +60,7 @@ unsafe fn simd_erf<S: SimdFloat>(x: S) -> S {
 /// This is a vectorized version of [erf] that computes the function for each
 /// element in `xs` and writes the result to `out`. `xs` and `out` must be equal
 /// in length.
-pub fn vec_erf(xs: &[f32], out: &mut [f32]) {
+pub fn vec_erf(xs: &[f32], out: &mut [MaybeUninit<f32>]) {
     dispatch_unary_op!(xs, out, simd_erf, erf);
 }
 
@@ -72,7 +74,7 @@ mod tests {
     use super::{erf, vec_erf};
 
     use crate::testing::{
-        arange, benchmark_op, check_f32s_are_equal_atol, triples, AllF32s, Progress,
+        arange, benchmark_op, check_f32s_are_equal_atol, triples, AllF32s, AsUninit, Progress,
     };
 
     // Maximum difference between our erf function and `libm::erf` found
@@ -92,7 +94,7 @@ mod tests {
         let mut actual = vec![0.; input.len()];
         let expected: Vec<_> = input.iter().copied().map(libm::erff).collect();
 
-        vec_erf(&input, &mut actual);
+        vec_erf(&input, actual.as_mut_slice().as_uninit());
 
         check_f32s_are_equal_atol(triples(&input, &actual, &expected), MAX_EXPECTED_DIFF);
     }

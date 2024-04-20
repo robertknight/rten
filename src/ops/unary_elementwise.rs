@@ -3,6 +3,7 @@ extern crate libm;
 use rayon::prelude::*;
 
 use std::fmt::Debug;
+use std::mem::MaybeUninit;
 
 use rten_tensor::prelude::*;
 use rten_tensor::{Tensor, TensorView, TensorViewMut};
@@ -139,12 +140,15 @@ macro_rules! unary_float_op {
 const CHUNK_SIZE: usize = 32 * 1024;
 
 /// Apply a unary operation in parallel to contiguous slices of `input`.
-fn par_unary_op<T: Copy + Default + Send + Sync, F: Fn(&[T], &mut [T]) + Send + Sync>(
+fn par_unary_op<
+    T: Copy + Default + Send + Sync,
+    F: Fn(&[T], &mut [MaybeUninit<T>]) + Send + Sync,
+>(
     input: TensorView<T>,
     op: F,
 ) -> Tensor<T> {
     let input = input.to_contiguous();
-    let mut output = Tensor::<T>::zeros(input.shape());
+    let mut output = Tensor::<T>::uninit(input.shape());
 
     let in_chunks = input.data().unwrap().par_chunks(CHUNK_SIZE);
     let out_chunks = output.data_mut().unwrap().par_chunks_mut(CHUNK_SIZE);
@@ -152,7 +156,8 @@ fn par_unary_op<T: Copy + Default + Send + Sync, F: Fn(&[T], &mut [T]) + Send + 
         .zip(out_chunks)
         .for_each(|(in_chunk, out_chunk)| op(in_chunk, out_chunk));
 
-    output
+    // Safety: `op` initialized each chunk of `out_chunks`.
+    unsafe { output.assume_init() }
 }
 
 /// Apply a unary operation in parallel to contiguous slices of `input`,
