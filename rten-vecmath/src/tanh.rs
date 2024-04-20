@@ -1,5 +1,7 @@
 #![allow(clippy::excessive_precision)]
 
+use std::mem::MaybeUninit;
+
 use crate::dispatch_unary_op;
 use crate::exp::simd_exp;
 use crate::simd_vec::SimdFloat;
@@ -62,7 +64,13 @@ unsafe fn simd_tanh<S: SimdFloat>(x: S) -> S {
     y.blend(y.neg(), x_negative)
 }
 
-pub fn vec_tanh(xs: &[f32], out: &mut [f32]) {
+/// Vectorized tanh implementation.
+///
+/// This computes `x.tanh()` for each value in `xs` and writes the result to
+/// `out`.
+///
+/// After this function returns, `out` will be fully initialized.
+pub fn vec_tanh(xs: &[f32], out: &mut [MaybeUninit<f32>]) {
     dispatch_unary_op!(xs, out, simd_tanh, tanh);
 }
 
@@ -72,7 +80,9 @@ pub fn vec_tanh_in_place(xs: &mut [f32]) {
 
 #[cfg(test)]
 mod tests {
-    use crate::testing::{arange, benchmark_op, check_f32s_are_equal_ulps, check_with_all_f32s};
+    use crate::testing::{
+        arange, benchmark_op, check_f32s_are_equal_ulps, check_with_all_f32s, AsUninit,
+    };
     use crate::vec_tanh;
 
     // Maximum error of `vec_tanh` compared to `f32::tanh`.
@@ -84,7 +94,7 @@ mod tests {
         check_with_all_f32s(
             |x| {
                 let mut y = [0.; 1];
-                vec_tanh(&[x], &mut y);
+                vec_tanh(&[x], y.as_mut().as_uninit());
                 (y[0], x.tanh())
             },
             MAX_TANH_ERROR_ULPS,
@@ -94,10 +104,10 @@ mod tests {
 
     #[test]
     fn test_tanh() {
-        let cases: Vec<_> = arange(-8., 8., 0.001f32).collect();
+        let cases: Vec<f32> = arange(-8., 8., 0.001f32).collect();
         let expected: Vec<_> = cases.iter().copied().map(|x| x.tanh()).collect();
         let mut actual = cases.clone();
-        vec_tanh(&cases, &mut actual);
+        vec_tanh(&cases, actual.as_mut_slice().as_uninit());
 
         let results = cases
             .iter()

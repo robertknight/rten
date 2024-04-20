@@ -1,8 +1,27 @@
+use std::mem::MaybeUninit;
+
 use std::io::prelude::*;
 use std::iter::repeat_with;
 use std::time::Instant;
 
 use crate::ulp::Ulp;
+
+/// Trait for converting containers of initialized values into uninitialized
+/// ones.
+pub trait AsUninit {
+    type Output;
+
+    /// Convert all elements from `T` to `MaybeUninit<T>`
+    fn as_uninit(self) -> Self::Output;
+}
+
+impl<'a, T: Copy> AsUninit for &'a mut [T] {
+    type Output = &'a mut [MaybeUninit<T>];
+
+    fn as_uninit(self) -> Self::Output {
+        unsafe { std::mem::transmute(self) }
+    }
+}
 
 /// Iterator over all possible f32 values.
 pub struct AllF32s {
@@ -242,7 +261,7 @@ pub fn check_with_all_f32s<F: Fn(f32) -> (f32, f32)>(
 /// `reference` and `vectorized` are functions which take an input slice of
 /// elements as a first argument and write the results of applying the operation
 /// to the second argument.
-pub fn benchmark_op<RF: Fn(&[f32], &mut [f32]), VF: Fn(&[f32], &mut [f32])>(
+pub fn benchmark_op<RF: Fn(&[f32], &mut [f32]), VF: Fn(&[f32], &mut [MaybeUninit<f32>])>(
     reference: RF,
     vectorized: VF,
 ) {
@@ -258,7 +277,7 @@ pub fn benchmark_op<RF: Fn(&[f32], &mut [f32]), VF: Fn(&[f32], &mut [f32])>(
 
     let vecmath_vec_start = Instant::now();
     for _ in 0..iters {
-        vectorized(&input, &mut output);
+        vectorized(&input, output.as_mut_slice().as_uninit());
     }
     let vecmath_vec_elapsed = vecmath_vec_start.elapsed().as_micros();
 

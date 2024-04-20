@@ -2,6 +2,8 @@
 
 #![allow(clippy::excessive_precision)]
 
+use std::mem::MaybeUninit;
+
 use crate::dispatch_unary_op;
 use crate::simd_vec::{SimdFloat, SimdInt};
 
@@ -165,7 +167,9 @@ pub fn sigmoid(x: f32) -> f32 {
 /// This is a vectorized version of [sigmoid] that computes the function for
 /// each element in `xs` and writes the result to `out`. `xs` and `out` must be
 /// equal in length.
-pub fn vec_sigmoid(xs: &[f32], out: &mut [f32]) {
+///
+/// `out` will be fully initialized after this function returns.
+pub fn vec_sigmoid(xs: &[f32], out: &mut [MaybeUninit<f32>]) {
     dispatch_unary_op!(xs, out, simd_sigmoid, sigmoid);
 }
 
@@ -179,7 +183,9 @@ pub fn vec_sigmoid_in_place(xs: &mut [f32]) {
 /// This is a vectorized version of [exp] that computes the function for each
 /// element in `xs` and writes the result to `out`. `xs` and `out` must be equal
 /// in length.
-pub fn vec_exp(xs: &[f32], out: &mut [f32]) {
+///
+/// `out` will be fully initialized after this function returns.
+pub fn vec_exp(xs: &[f32], out: &mut [MaybeUninit<f32>]) {
     dispatch_unary_op!(xs, out, simd_exp, exp);
 }
 
@@ -190,7 +196,9 @@ pub fn vec_exp_in_place(xs: &mut [f32]) {
 
 #[cfg(test)]
 mod tests {
-    use crate::testing::{arange, benchmark_op, check_f32s_are_equal_ulps, check_with_all_f32s};
+    use crate::testing::{
+        arange, benchmark_op, check_f32s_are_equal_ulps, check_with_all_f32s, AsUninit,
+    };
     use crate::{exp, vec_exp, vec_sigmoid};
 
     // Maximum error of `vec_expf` compared to Rust standard library
@@ -232,7 +240,7 @@ mod tests {
         let expected: Vec<_> = cases.iter().copied().map(f32::exp).collect();
 
         let mut actual = cases.clone();
-        vec_exp(&cases, &mut actual);
+        vec_exp(&cases, actual.as_mut_slice().as_uninit());
 
         let results = cases
             .iter()
@@ -249,7 +257,7 @@ mod tests {
         check_with_all_f32s(
             |x| {
                 let mut y = [0.; 1];
-                vec_exp(&[x], &mut y);
+                vec_exp(&[x], y.as_mut().as_uninit());
                 (y[0], x.exp())
             },
             MAX_EXP_ERROR_ULPS,
@@ -262,7 +270,7 @@ mod tests {
         let cases: Vec<_> = arange(-6., 6., 0.001f32).collect();
         let expected: Vec<_> = cases.iter().copied().map(reference_sigmoid).collect();
         let mut actual = cases.clone();
-        vec_sigmoid(&cases, &mut actual);
+        vec_sigmoid(&cases, actual.as_mut_slice().as_uninit());
 
         let results = cases
             .iter()
@@ -277,7 +285,7 @@ mod tests {
         check_with_all_f32s(
             |x| {
                 let mut y = [0.; 1];
-                vec_sigmoid(&[x], &mut y);
+                vec_sigmoid(&[x], y.as_mut().as_uninit());
                 (y[0], reference_sigmoid(x))
             },
             MAX_SIGMOID_ERROR_ULPS,
