@@ -189,17 +189,18 @@ impl NodeRefCount {
             .or_insert(1);
     }
 
-    /// Decrement ref count of node and return new count
-    fn dec(&mut self, id: NodeId) -> usize {
-        let Some(rc) = self.rc.get_mut(&id) else {
-            return 0;
-        };
+    /// Decrement ref count of node and return new count, removing the entry
+    /// if it reaches zero.
+    ///
+    /// Returns `None` if there was no entry for this node.
+    fn dec(&mut self, id: NodeId) -> Option<usize> {
+        let rc = self.rc.get_mut(&id)?;
         *rc = rc.saturating_sub(1);
         if *rc == 0 {
             self.rc.remove(&id);
-            0
+            Some(0)
         } else {
-            *rc
+            Some(*rc)
         }
     }
 
@@ -388,7 +389,9 @@ impl Graph {
         let mut temp_value_refcount = NodeRefCount::new();
         for (_, op_node) in plan.iter() {
             for node_id in op_node.inputs.iter().filter_map(|node| *node) {
-                temp_value_refcount.inc(node_id);
+                if let Some(Node::Value(_)) = self.nodes.get(node_id) {
+                    temp_value_refcount.inc(node_id);
+                }
             }
         }
 
@@ -577,7 +580,7 @@ impl Graph {
             record_timing.then(|| alloc_timer.start());
             for node_id in op_node.inputs.iter().filter_map(|node| *node) {
                 let rc = temp_value_refcount.dec(node_id);
-                if rc == 0 {
+                if rc == Some(0) {
                     temp_values.remove(&node_id);
                 }
             }
