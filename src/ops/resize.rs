@@ -7,6 +7,7 @@ use rten_tensor::prelude::*;
 use rten_tensor::{NdTensor, NdTensorView, NdTensorViewMut, Tensor, TensorView};
 
 use crate::ops::{Input, InputList, IntoOpResult, OpError, Operator, Output};
+use crate::tensor_pool::TensorPool;
 use crate::{check_dims, static_dims};
 
 /// Specifies an output size for a resize operation.
@@ -212,6 +213,7 @@ pub fn resize_image(input: TensorView, size: [usize; 2]) -> Result<Tensor, OpErr
     let [out_height, out_width] = size;
     let out_shape = [batch, chans, out_height, out_width].map(|x| x as i32);
     resize(
+        &TensorPool::new(),
         input,
         ResizeTarget::Sizes(out_shape.as_slice().into()),
         ResizeMode::Linear,
@@ -221,6 +223,7 @@ pub fn resize_image(input: TensorView, size: [usize; 2]) -> Result<Tensor, OpErr
 }
 
 pub fn resize(
+    pool: &TensorPool,
     input: TensorView,
     target: ResizeTarget,
     mode: ResizeMode,
@@ -256,7 +259,7 @@ pub fn resize(
     }
 
     let sizes_usize: Vec<_> = sizes.iter().map(|size| *size as usize).collect();
-    let mut output = Tensor::uninit(&sizes_usize);
+    let mut output = pool.alloc(sizes_usize.as_slice());
 
     if output.is_empty() {
         // Safety: Empty output is already initialized.
@@ -342,7 +345,7 @@ impl Operator for Resize {
         "Resize"
     }
 
-    fn run(&self, inputs: InputList) -> Result<Vec<Output>, OpError> {
+    fn run(&self, pool: &TensorPool, inputs: InputList) -> Result<Vec<Output>, OpError> {
         let input = inputs.require_as(0)?;
 
         // The `roi` input is only used if the `coordinate_transformation_mode`
@@ -359,7 +362,15 @@ impl Operator for Resize {
             .map(ResizeTarget::Sizes);
         let target = scales.or(sizes).ok_or(OpError::MissingInputs)?;
 
-        resize(input, target, self.mode, self.coord_mode, self.nearest_mode).into_op_result()
+        resize(
+            pool,
+            input,
+            target,
+            self.mode,
+            self.coord_mode,
+            self.nearest_mode,
+        )
+        .into_op_result()
     }
 }
 
@@ -372,6 +383,7 @@ mod tests {
     use rten_tensor::{NdTensor, NdTensorView, Tensor};
 
     use crate::ops::tests::expect_eq_1e4;
+    use crate::ops::tests::new_pool;
     use crate::ops::{
         resize, CoordTransformMode, InputList, NearestMode, OpError, Operator, Resize, ResizeMode,
         ResizeTarget,
@@ -452,8 +464,10 @@ mod tests {
             },
         ];
 
+        let pool = new_pool();
         for case in cases {
             let result = resize(
+                &pool,
                 case.image.view(),
                 ResizeTarget::Scales(case.scales.as_slice().into()),
                 ResizeMode::Nearest,
@@ -517,8 +531,10 @@ mod tests {
             },
         ];
 
+        let pool = new_pool();
         for case in cases {
             let result = resize(
+                &pool,
                 image.view(),
                 ResizeTarget::Scales(scales.into()),
                 ResizeMode::Nearest,
@@ -636,8 +652,10 @@ mod tests {
             },
         ];
 
+        let pool = new_pool();
         for case in cases {
             let result = resize(
+                &pool,
                 case.image.as_dyn(),
                 ResizeTarget::Scales(case.scales.as_slice().into()),
                 ResizeMode::Linear,
@@ -736,6 +754,7 @@ mod tests {
             },
         ];
 
+        let pool = new_pool();
         for case in cases {
             let op = Resize {
                 mode: ResizeMode::Linear,
@@ -747,7 +766,7 @@ mod tests {
                 case.scales.as_ref().map(|t| t.into()),
                 case.sizes.as_ref().map(|t| t.into()),
             ];
-            let result = op.run(InputList::from_optional(inputs));
+            let result = op.run(&pool, InputList::from_optional(inputs));
             match (case.expected, result) {
                 (CaseOutput::Shape(shape), Ok(out)) => {
                     let tensor = out[0].as_float_ref().unwrap();

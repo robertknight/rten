@@ -11,6 +11,7 @@ use rten_tensor::Tensor;
 use rustc_hash::{FxHashMap, FxHashSet};
 
 use crate::ops::{Input, InputList, OpError, Operator, Output};
+use crate::tensor_pool::TensorPool;
 use crate::timer::Timer;
 use crate::timing::{InputShape, RunTiming, TimingRecord, TimingSort};
 
@@ -401,6 +402,9 @@ impl Graph {
             temp_value_refcount.inc(*node_id);
         }
 
+        // Create a pool to re-use buffers across execution steps.
+        let pool = TensorPool::new();
+
         // Execute the plan
         let mut temp_values: FxHashMap<NodeId, Output> = FxHashMap::default();
         let mut op_elapsed: Vec<TimingRecord> = Vec::new();
@@ -508,7 +512,9 @@ impl Graph {
                     .run_in_place(input, InputList::from_optional(op_inputs))
                     .map(|out| [out].into())
             } else {
-                op_node.operator.run(InputList::from_optional(op_inputs))
+                op_node
+                    .operator
+                    .run(&pool, InputList::from_optional(op_inputs))
             };
 
             if record_timing {
@@ -581,7 +587,12 @@ impl Graph {
             for node_id in op_node.inputs.iter().filter_map(|node| *node) {
                 let rc = temp_value_refcount.dec(node_id);
                 if rc == Some(0) {
-                    temp_values.remove(&node_id);
+                    if let Some(tensor) = temp_values.remove(&node_id) {
+                        match tensor {
+                            Output::FloatTensor(t) => pool.add(t),
+                            Output::IntTensor(t) => pool.add(t),
+                        }
+                    }
                 }
             }
             record_timing.then(|| alloc_timer.end());
@@ -593,6 +604,11 @@ impl Graph {
                 "Graph run of {} ops finished in {}ms",
                 plan.len(),
                 run_timer.elapsed_ms()
+            );
+            println!(
+                "Pool allocs {} hits {}",
+                pool.alloc_count(),
+                pool.hit_count()
             );
             let timing = RunTiming {
                 records: &op_elapsed,
@@ -851,6 +867,7 @@ mod tests {
     use crate::ops::{
         Add, Concat, Conv, InputList, IntoOpResult, OpError, Operator, Output, Relu, Shape,
     };
+    use crate::tensor_pool::TensorPool;
 
     #[derive(Clone, Debug, Default)]
     struct Metrics {
@@ -894,12 +911,12 @@ mod tests {
             self.inner.is_commutative()
         }
 
-        fn run(&self, inputs: InputList) -> Result<Vec<Output>, OpError> {
+        fn run(&self, pool: &TensorPool, inputs: InputList) -> Result<Vec<Output>, OpError> {
             {
                 let mut m = self.metrics.lock().unwrap();
                 m.run_count += 1;
             }
-            self.inner.run(inputs)
+            self.inner.run(pool, inputs)
         }
 
         fn run_in_place(&self, output: Output, inputs: InputList) -> Result<Output, OpError> {
@@ -1061,7 +1078,7 @@ mod tests {
             "AddOne"
         }
 
-        fn run(&self, inputs: InputList) -> Result<Vec<Output>, OpError> {
+        fn run(&self, _pool: &TensorPool, inputs: InputList) -> Result<Vec<Output>, OpError> {
             let input: TensorView<f32> = inputs.require_as(0)?;
             let output_data: Vec<f32> = input.iter().map(|x| x + 1.0).collect();
             Tensor::<f32>::from_data(input.shape().into(), output_data).into_op_result()
@@ -1324,7 +1341,7 @@ mod tests {
             true
         }
 
-        fn run(&self, inputs: InputList) -> Result<Vec<Output>, OpError> {
+        fn run(&self, _pool: &TensorPool, inputs: InputList) -> Result<Vec<Output>, OpError> {
             // An operator should normally have the same behavior in `run`
             // and `run_in_place`. Here we use different behavior to make it
             // possible to distinguish which path was used.
@@ -1485,7 +1502,7 @@ mod tests {
             "Split"
         }
 
-        fn run(&self, inputs: InputList) -> Result<Vec<Output>, OpError> {
+        fn run(&self, _pool: &TensorPool, inputs: InputList) -> Result<Vec<Output>, OpError> {
             {
                 let mut rc = self.run_count.lock().unwrap();
                 *rc += 1;

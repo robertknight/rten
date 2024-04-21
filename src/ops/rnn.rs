@@ -11,6 +11,7 @@ use crate::ops::{
     add_in_place, sigmoid_in_place, tanh_in_place, InputList, IntoOpResult, OpError, Operator,
     Output,
 };
+use crate::tensor_pool::TensorPool;
 
 /// Direction that an RNN operator will traverse the input sequence in.
 #[derive(Copy, Clone, Debug)]
@@ -447,7 +448,7 @@ impl Operator for GRU {
         "GRU"
     }
 
-    fn run(&self, inputs: InputList) -> Result<Vec<Output>, OpError> {
+    fn run(&self, _pool: &TensorPool, inputs: InputList) -> Result<Vec<Output>, OpError> {
         let input = inputs.require_as(0)?;
         let weights = inputs.require_as(1)?;
         let recurrent_weights = inputs.require_as(2)?;
@@ -678,7 +679,7 @@ impl Operator for LSTM {
         "LSTM"
     }
 
-    fn run(&self, inputs: InputList) -> Result<Vec<Output>, OpError> {
+    fn run(&self, _pool: &TensorPool, inputs: InputList) -> Result<Vec<Output>, OpError> {
         let input = inputs.require_as(0)?;
         let weights = inputs.require_as(1)?;
         let recurrent_weights = inputs.require_as(2)?;
@@ -712,6 +713,7 @@ mod tests {
     use rten_tensor::Tensor;
     use serde_json::Value;
 
+    use crate::ops::tests::new_pool;
     use crate::ops::{concat, gru, lstm, split, Direction};
 
     /// Read a float tensor from a JSON value.
@@ -917,14 +919,16 @@ mod tests {
     /// cell, output) as used by PyTorch to (input, output, forget, cell) as
     /// used by ONNX.
     fn reorder_ifco_to_iofc(x: &Tensor, axis: isize) -> Tensor {
+        let pool = new_pool();
         let size = x.size(axis as usize) / 4;
         let splits = &[size as i32; 4];
 
         // Split input into seperate tensor for each of the gates.
-        let ifco = split(x.view(), axis, &splits.into()).expect("split failed");
+        let ifco = split(&pool, x.view(), axis, &splits.into()).expect("split failed");
 
         // Recombine in a new gate order.
         concat(
+            &pool,
             &[
                 ifco[0].view(),
                 ifco[3].view(),
@@ -939,14 +943,15 @@ mod tests {
     /// Re-order a weight or bias tensor for GRU gates from (reset, update,
     /// hidden) as used by PyTorch to (update, reset, hidden) as used by ONNX.
     fn reorder_ruh_to_urh(x: &Tensor, axis: isize) -> Tensor {
+        let pool = new_pool();
         let size = x.size(axis as usize) / 3;
         let splits = &[size as i32; 3];
 
         // Split input into seperate tensor for each of the gates.
-        let ruh = split(x.view(), axis, &splits.into()).expect("split failed");
+        let ruh = split(&pool, x.view(), axis, &splits.into()).expect("split failed");
 
         // Recombine in a new gate order.
-        concat(&[ruh[1].view(), ruh[0].view(), ruh[2].view()], axis).expect("concat failed")
+        concat(&pool, &[ruh[1].view(), ruh[0].view(), ruh[2].view()], axis).expect("concat failed")
     }
 
     struct RNNRefTest {
@@ -976,6 +981,7 @@ mod tests {
 
     /// Read inputs for a PyTorch reference test for RNN ops from a JSON value.
     fn read_pytorch_ref_test(op: Op, case: &Value) -> RNNRefTest {
+        let pool = new_pool();
         let params = &case["params"];
 
         let is_bidirectional = params.get("weight_ih_l0_reverse").is_some();
@@ -1013,7 +1019,7 @@ mod tests {
 
         let input_bias = read_param("bias_ih_l0");
         let hidden_bias = read_param("bias_hh_l0");
-        let mut bias = concat(&[input_bias.view(), hidden_bias.view()], 0).unwrap();
+        let mut bias = concat(&pool, &[input_bias.view(), hidden_bias.view()], 0).unwrap();
         bias.insert_axis(0); // Add directions dim
 
         // If this is a bidirectional RNN, there will be `_reverse`-suffixed
@@ -1022,18 +1028,23 @@ mod tests {
         if is_bidirectional {
             let mut rev_weights = read_param("weight_ih_l0_reverse");
             rev_weights.insert_axis(0); // Add directions dim
-            weights = concat(&[weights.view(), rev_weights.view()], 0).unwrap();
+            weights = concat(&pool, &[weights.view(), rev_weights.view()], 0).unwrap();
 
             let mut rev_hidden_weights = read_param("weight_hh_l0_reverse");
             rev_hidden_weights.insert_axis(0); // Add directions dim
-            hidden_weights =
-                concat(&[hidden_weights.view(), rev_hidden_weights.view()], 0).unwrap();
+            hidden_weights = concat(
+                &pool,
+                &[hidden_weights.view(), rev_hidden_weights.view()],
+                0,
+            )
+            .unwrap();
 
             let rev_input_bias = read_param("bias_ih_l0_reverse");
             let rev_hidden_bias = read_param("bias_hh_l0_reverse");
-            let mut rev_bias = concat(&[rev_input_bias.view(), rev_hidden_bias.view()], 0).unwrap();
+            let mut rev_bias =
+                concat(&pool, &[rev_input_bias.view(), rev_hidden_bias.view()], 0).unwrap();
             rev_bias.insert_axis(0); // Add directions dim
-            bias = concat(&[bias.view(), rev_bias.view()], 0).unwrap();
+            bias = concat(&pool, &[bias.view(), rev_bias.view()], 0).unwrap();
         }
 
         let initial_hidden = case.get("initial_hidden").map(|param| {

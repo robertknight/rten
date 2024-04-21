@@ -1,3 +1,4 @@
+use std::any::Any;
 use std::fmt::Debug;
 
 use rten_tensor::prelude::*;
@@ -9,6 +10,7 @@ use crate::ops::{
     arg_max, div, matmul, mul, pad, reduce_l2, reduce_max, reduce_mean, reduce_min, resize_image,
     softmax, topk,
 };
+use crate::tensor_pool::TensorPool;
 
 /// Trait which exposes ONNX operators as methods of tensors.
 ///
@@ -24,7 +26,8 @@ pub trait Operators {
 
     fn div(&self, other: TensorView<Self::Elem>) -> Result<Tensor<Self::Elem>, OpError>
     where
-        Self::Elem: Copy
+        Self::Elem: Any
+            + Copy
             + Debug
             + Default
             + std::ops::Mul<Output = Self::Elem>
@@ -34,7 +37,7 @@ pub trait Operators {
 
     fn mul(&self, other: TensorView<Self::Elem>) -> Result<Tensor<Self::Elem>, OpError>
     where
-        Self::Elem: Copy + Debug + Default + std::ops::Mul<Output = Self::Elem>;
+        Self::Elem: Any + Copy + Debug + Default + std::ops::Mul<Output = Self::Elem>;
 
     fn pad(
         &self,
@@ -84,7 +87,8 @@ impl<T, S: AsRef<[T]>> Operators for TensorBase<T, S, DynLayout> {
 
     fn div(&self, other: TensorView<Self::Elem>) -> Result<Tensor<Self::Elem>, OpError>
     where
-        Self::Elem: Copy
+        Self::Elem: Any
+            + Copy
             + Debug
             + Default
             + std::ops::Mul<Output = Self::Elem>
@@ -92,14 +96,14 @@ impl<T, S: AsRef<[T]>> Operators for TensorBase<T, S, DynLayout> {
             + IsInt
             + Identities,
     {
-        div(self.view(), other)
+        div(&TensorPool::new(), self.view(), other)
     }
 
     fn mul(&self, other: TensorView<T>) -> Result<Tensor<T>, OpError>
     where
-        T: Copy + Debug + Default + std::ops::Mul<Output = T>,
+        T: Any + Copy + Debug + Default + std::ops::Mul<Output = T>,
     {
-        mul(self.view(), other)
+        mul(&TensorPool::new(), self.view(), other)
     }
 
     fn pad(&self, padding: NdTensorView<i32, 1>, val: T) -> Result<Tensor<Self::Elem>, OpError>
@@ -135,7 +139,8 @@ impl<T, S: AsRef<[T]>, const N: usize> Operators for TensorBase<T, S, NdLayout<N
 
     fn div(&self, other: TensorView<Self::Elem>) -> Result<Tensor<Self::Elem>, OpError>
     where
-        Self::Elem: Copy
+        Self::Elem: Any
+            + Copy
             + Debug
             + Default
             + std::ops::Mul<Output = Self::Elem>
@@ -143,14 +148,14 @@ impl<T, S: AsRef<[T]>, const N: usize> Operators for TensorBase<T, S, NdLayout<N
             + IsInt
             + Identities,
     {
-        div(self.as_dyn(), other)
+        div(&TensorPool::new(), self.as_dyn(), other)
     }
 
     fn mul(&self, other: TensorView<T>) -> Result<Tensor<T>, OpError>
     where
-        T: Copy + Debug + Default + std::ops::Mul<Output = T>,
+        T: Any + Copy + Debug + Default + std::ops::Mul<Output = T>,
     {
-        mul(self.as_dyn(), other)
+        mul(&TensorPool::new(), self.as_dyn(), other)
     }
 
     fn pad(&self, padding: NdTensorView<i32, 1>, val: T) -> Result<Tensor<Self::Elem>, OpError>

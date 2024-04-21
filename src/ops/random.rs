@@ -2,6 +2,7 @@ use fastrand::Rng;
 use rten_tensor::Tensor;
 
 use crate::ops::{InputList, IntoOpResult, OpError, Operator, Output};
+use crate::tensor_pool::TensorPool;
 
 #[derive(Debug)]
 pub struct RandomUniform {
@@ -21,7 +22,7 @@ impl Operator for RandomUniform {
         "RandomUniform"
     }
 
-    fn run(&self, _inputs: InputList) -> Result<Vec<Output>, OpError> {
+    fn run(&self, _pool: &TensorPool, _inputs: InputList) -> Result<Vec<Output>, OpError> {
         let scale_value = |val: f32| self.low + val * (self.high - self.low);
         let shape = self.shape.as_slice();
 
@@ -40,6 +41,7 @@ mod tests {
     use rten_tensor::prelude::*;
     use rten_tensor::Tensor;
 
+    use crate::ops::tests::new_pool;
     use crate::ops::{InputList, Operator};
 
     use super::RandomUniform;
@@ -83,6 +85,8 @@ mod tests {
             },
         ];
 
+        let pool = new_pool();
+
         for Case {
             low,
             high,
@@ -96,7 +100,7 @@ mod tests {
                 shape,
                 seed,
             };
-            let output = op.run(InputList::new()).unwrap().remove(0);
+            let output = op.run(&pool, InputList::new()).unwrap().remove(0);
             let output: Tensor = output.try_into().unwrap();
 
             assert_eq!(output.shape(), op.shape);
@@ -135,7 +139,7 @@ mod tests {
 
             // Test that repeated generation produces the same output if the
             // seed is fixed, or different output otherwise.
-            let output_2 = op.run(InputList::new()).unwrap().remove(0);
+            let output_2 = op.run(&pool, InputList::new()).unwrap().remove(0);
             let output_2: Tensor = output_2.try_into().unwrap();
             if let Some(_seed) = seed {
                 assert_eq!(output, output_2);

@@ -5,6 +5,7 @@ use rten_tensor::{NdTensorView, SliceItem, SliceRange, Tensor, TensorView};
 
 use crate::ops::{resolve_axis, Input, InputList, IntoOpResult, OpError, Operator, Output};
 use crate::static_dims;
+use crate::tensor_pool::TensorPool;
 
 /// Compute the effective starts, ends and steps for each input dimension in
 /// a Slice operation.
@@ -98,7 +99,7 @@ impl Operator for Slice {
         "Slice"
     }
 
-    fn run(&self, inputs: InputList) -> Result<Vec<Output>, OpError> {
+    fn run(&self, _pool: &TensorPool, inputs: InputList) -> Result<Vec<Output>, OpError> {
         let input = inputs.require(0)?;
 
         let starts = inputs.require_as::<i32>(1)?;
@@ -154,7 +155,7 @@ impl Operator for Slice {
                 let mut inputs: Vec<_> = vec![(&input).into()];
                 inputs.extend(other.iter());
                 return self
-                    .run(InputList::from(&inputs))
+                    .run(&TensorPool::new(), InputList::from(&inputs))
                     .map(|mut outputs| outputs.remove(0));
             }
         }

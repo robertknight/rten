@@ -1,8 +1,12 @@
+use std::any::Any;
+use std::mem::MaybeUninit;
+
 use rten_tensor::prelude::*;
 use rten_tensor::{Iter, NdTensorView, Tensor, TensorView};
 
 use crate::ops::{resolve_axis, Input, InputList, IntoOpResult, OpError, Operator, Output};
 use crate::static_dims;
+use crate::tensor_pool::TensorPool;
 
 enum ChunkSource<'a, T: Copy> {
     Slice(&'a [T]),
@@ -50,7 +54,11 @@ impl<'a, T: Copy> TensorChunks<'a, T> {
     }
 }
 
-pub fn concat<T: Copy>(inputs: &[TensorView<T>], axis: isize) -> Result<Tensor<T>, OpError> {
+pub fn concat<T: Any + Copy>(
+    pool: &TensorPool,
+    inputs: &[TensorView<T>],
+    axis: isize,
+) -> Result<Tensor<T>, OpError> {
     let first_shape = inputs[0].shape();
     let axis = resolve_axis(first_shape.len(), axis)?;
 
@@ -74,7 +82,10 @@ pub fn concat<T: Copy>(inputs: &[TensorView<T>], axis: isize) -> Result<Tensor<T
     for other in &inputs[1..] {
         out_shape[axis] += other.size(axis);
     }
-    let mut out_data = Vec::with_capacity(out_shape.iter().product());
+    let out: Tensor<MaybeUninit<T>> = pool.alloc(out_shape.as_slice());
+    let mut out_data = out.into_data();
+    out_data.clear();
+    let mut out_data: Vec<T> = unsafe { std::mem::transmute(out_data) };
 
     let mut input_iters: Vec<TensorChunks<'_, T>> = inputs
         .iter()
@@ -100,7 +111,7 @@ impl Operator for Concat {
         "Concat"
     }
 
-    fn run(&self, inputs: InputList) -> Result<Vec<Output>, OpError> {
+    fn run(&self, pool: &TensorPool, inputs: InputList) -> Result<Vec<Output>, OpError> {
         let first = inputs.require(0)?;
         match first {
             Input::FloatTensor(_) => {
@@ -108,14 +119,14 @@ impl Operator for Concat {
                 for input in inputs.iter() {
                     typed_inputs.push(input.try_into()?);
                 }
-                concat(&typed_inputs, self.axis).into_op_result()
+                concat(pool, &typed_inputs, self.axis).into_op_result()
             }
             Input::IntTensor(_) => {
                 let mut typed_inputs: Vec<TensorView<i32>> = Vec::new();
                 for input in inputs.iter() {
                     typed_inputs.push(input.try_into()?);
                 }
-                concat(&typed_inputs, self.axis).into_op_result()
+                concat(pool, &typed_inputs, self.axis).into_op_result()
             }
         }
     }
@@ -199,7 +210,7 @@ impl Operator for Tile {
         "Tile"
     }
 
-    fn run(&self, inputs: InputList) -> Result<Vec<Output>, OpError> {
+    fn run(&self, _pool: &TensorPool, inputs: InputList) -> Result<Vec<Output>, OpError> {
         let input = inputs.require(0)?;
         let repeats = inputs.require_as::<i32>(1)?;
         let repeats = static_dims!(repeats, 1)?;
@@ -238,6 +249,7 @@ mod tests {
     use rten_tensor::test_util::expect_equal;
     use rten_tensor::{tensor, Tensor};
 
+    use crate::ops::tests::new_pool;
     use crate::ops::{concat, tile, OpError};
 
     fn from_slice<T: Clone>(data: &[T]) -> Tensor<T> {
@@ -246,32 +258,33 @@ mod tests {
 
     #[test]
     fn test_concat() -> Result<(), Box<dyn Error>> {
+        let pool = new_pool();
         let a = Tensor::from_data(&[2, 2, 1], vec![0.1, 0.2, 0.3, 0.4]);
         let b = Tensor::from_data(&[2, 2, 1], vec![1.0, 2.0, 3.0, 4.0]);
 
         // Concatenation along the first dimension
         let expected = Tensor::from_data(&[4, 2, 1], vec![0.1, 0.2, 0.3, 0.4, 1.0, 2.0, 3.0, 4.0]);
-        let result = concat(&[a.view(), b.view()], 0).unwrap();
+        let result = concat(&pool, &[a.view(), b.view()], 0).unwrap();
         expect_equal(&result, &expected)?;
 
         // Concatenation along a non-first dimension
         let expected = Tensor::from_data(&[2, 2, 2], vec![0.1, 1.0, 0.2, 2.0, 0.3, 3.0, 0.4, 4.0]);
-        let result = concat(&[a.view(), b.view()], 2).unwrap();
+        let result = concat(&pool, &[a.view(), b.view()], 2).unwrap();
         expect_equal(&result, &expected)?;
 
         // Concatenation with one input
-        let result = concat(&[a.view()], 0).unwrap();
+        let result = concat(&pool, &[a.view()], 0).unwrap();
         expect_equal(&result, &a)?;
 
         // Concatenation with more than two inputs
-        let result = concat(&[a.view(), b.view(), a.view()], 0).unwrap();
+        let result = concat(&pool, &[a.view(), b.view(), a.view()], 0).unwrap();
         assert_eq!(result.shape(), &[6, 2, 1]);
 
         // Concatentation with some empty inputs
         let a = from_slice(&[1, 2, 3]);
         let b = from_slice(&[]);
         let c = from_slice(&[4, 5, 6]);
-        let result = concat(&[a.view(), b.view(), c.view()], 0).unwrap();
+        let result = concat(&pool, &[a.view(), b.view(), c.view()], 0).unwrap();
         assert_eq!(result.shape(), &[6]);
         assert_eq!(result.to_vec(), &[1, 2, 3, 4, 5, 6]);
 
@@ -280,15 +293,17 @@ mod tests {
 
     #[test]
     fn test_concat_invalid_inputs() {
+        let pool = new_pool();
+
         // Invalid `dim` attribute
         let input = from_slice(&[1, 2, 3]);
-        let result = concat(&[input.view(), input.view()], 1);
+        let result = concat(&pool, &[input.view(), input.view()], 1);
         assert_eq!(result.err(), Some(OpError::InvalidValue("Axis is invalid")));
 
         // Shape mismatch
         let a = Tensor::<f32>::zeros(&[1]);
         let b = Tensor::<f32>::zeros(&[1, 2]);
-        let result = concat(&[a.view(), b.view()], 0);
+        let result = concat(&pool, &[a.view(), b.view()], 0);
         assert_eq!(
             result.err(),
             Some(OpError::IncompatibleInputShapes(
@@ -299,7 +314,7 @@ mod tests {
         // Shape mismatch in non-`dim` dimension
         let a = Tensor::<f32>::zeros(&[5, 10]);
         let b = Tensor::<f32>::zeros(&[5, 11]);
-        let result = concat(&[a.view(), b.view()], 0);
+        let result = concat(&pool, &[a.view(), b.view()], 0);
         assert_eq!(
             result.err(),
             Some(OpError::IncompatibleInputShapes(

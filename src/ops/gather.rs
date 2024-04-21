@@ -8,6 +8,7 @@ use crate::ops::reduce::{cmp_nan_greater, cmp_nan_less};
 use crate::ops::{
     resolve_axis, resolve_index, Input, InputList, IntoOpResult, OpError, Operator, Output,
 };
+use crate::tensor_pool::TensorPool;
 
 /// Gather elements from `input` specified by `indices`.
 ///
@@ -76,7 +77,7 @@ impl Operator for Gather {
         "Gather"
     }
 
-    fn run(&self, inputs: InputList) -> Result<Vec<Output>, OpError> {
+    fn run(&self, _pool: &TensorPool, inputs: InputList) -> Result<Vec<Output>, OpError> {
         let input = inputs.require(0)?;
         let indices = inputs.require_as::<i32>(1)?;
         match input {
@@ -216,7 +217,7 @@ impl Operator for GatherElements {
         "GatherElements"
     }
 
-    fn run(&self, inputs: InputList) -> Result<Vec<Output>, OpError> {
+    fn run(&self, _pool: &TensorPool, inputs: InputList) -> Result<Vec<Output>, OpError> {
         let input = inputs.require(0)?;
         let indices = inputs.require_as::<i32>(1)?;
         match input {
@@ -323,7 +324,7 @@ impl Operator for ScatterElements {
         "ScatterElements"
     }
 
-    fn run(&self, inputs: InputList) -> Result<Vec<Output>, OpError> {
+    fn run(&self, _pool: &TensorPool, inputs: InputList) -> Result<Vec<Output>, OpError> {
         let data = inputs.require(0)?;
         let indices = inputs.require_as::<i32>(1)?;
         let updates = inputs.require(2)?;
@@ -418,7 +419,7 @@ impl Operator for ScatterND {
         "ScatterND"
     }
 
-    fn run(&self, inputs: InputList) -> Result<Vec<Output>, OpError> {
+    fn run(&self, _pool: &TensorPool, inputs: InputList) -> Result<Vec<Output>, OpError> {
         let data = inputs.require(0)?;
         let indices = inputs.require_as::<i32>(1)?;
         let updates = inputs.require(2)?;

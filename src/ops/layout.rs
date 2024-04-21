@@ -1,5 +1,6 @@
 //! Operators which query or change the shape of a tensor, or copy/move/reorder
 //! elements.
+use std::any::Any;
 use std::iter::zip;
 
 use rten_tensor::prelude::*;
@@ -11,6 +12,7 @@ use crate::ops::{
     resolve_axes, resolve_axis, Input, InputList, IntoOpResult, OpError, Operator, Output,
 };
 use crate::static_dims;
+use crate::tensor_pool::TensorPool;
 
 /// Return the tensor shape resulting from broadcasting `input_shape` with `shape`.
 fn expand_output_shape(
@@ -81,7 +83,7 @@ impl Operator for Expand {
         "Expand"
     }
 
-    fn run(&self, inputs: InputList) -> Result<Vec<Output>, OpError> {
+    fn run(&self, _pool: &TensorPool, inputs: InputList) -> Result<Vec<Output>, OpError> {
         let input = inputs.require(0)?;
         let shape = inputs.require_as(1)?;
         let shape = static_dims!(shape, 1)?;
@@ -145,7 +147,7 @@ impl Operator for Flatten {
         "Flatten"
     }
 
-    fn run(&self, inputs: InputList) -> Result<Vec<Output>, OpError> {
+    fn run(&self, _pool: &TensorPool, inputs: InputList) -> Result<Vec<Output>, OpError> {
         let input = inputs.require(0)?;
 
         match input {
@@ -277,7 +279,7 @@ impl Operator for Reshape {
         "Reshape"
     }
 
-    fn run(&self, inputs: InputList) -> Result<Vec<Output>, OpError> {
+    fn run(&self, _pool: &TensorPool, inputs: InputList) -> Result<Vec<Output>, OpError> {
         let input = inputs.require(0)?;
         let shape = inputs.require_as(1)?;
         let shape = static_dims!(shape, 1)?;
@@ -317,7 +319,7 @@ impl Operator for Shape {
         "Shape"
     }
 
-    fn run(&self, inputs: InputList) -> Result<Vec<Output>, OpError> {
+    fn run(&self, _pool: &TensorPool, inputs: InputList) -> Result<Vec<Output>, OpError> {
         let input = inputs.require(0)?;
         let shape = Tensor::from_data(
             &[input.shape().len()],
@@ -339,7 +341,7 @@ impl Operator for Size {
         "Size"
     }
 
-    fn run(&self, inputs: InputList) -> Result<Vec<Output>, OpError> {
+    fn run(&self, _pool: &TensorPool, inputs: InputList) -> Result<Vec<Output>, OpError> {
         let input = inputs.require(0)?;
         let len = input.len() as i32;
         tensor!(len).into_op_result()
@@ -400,7 +402,7 @@ impl Operator for Squeeze {
         "Squeeze"
     }
 
-    fn run(&self, inputs: InputList) -> Result<Vec<Output>, OpError> {
+    fn run(&self, _pool: &TensorPool, inputs: InputList) -> Result<Vec<Output>, OpError> {
         let input = inputs.require(0)?;
         let axes = inputs.get_as(1)?;
         let axes = axes.map(|axes| static_dims!(axes, 1)).transpose()?;
@@ -433,7 +435,8 @@ impl Operator for Squeeze {
     }
 }
 
-pub fn transpose<T: Clone>(
+pub fn transpose<T: Any + Copy>(
+    pool: &TensorPool,
     input: TensorView<T>,
     permutation: Option<&[usize]>,
 ) -> Result<Tensor<T>, OpError> {
@@ -449,7 +452,8 @@ pub fn transpose<T: Clone>(
             transposed.transpose();
         }
     };
-    Ok(transposed.to_tensor())
+    let output = pool.alloc(transposed.shape());
+    Ok(output.init_from(&transposed))
 }
 
 #[derive(Debug)]
@@ -464,12 +468,12 @@ impl Operator for Transpose {
         "Transpose"
     }
 
-    fn run(&self, inputs: InputList) -> Result<Vec<Output>, OpError> {
+    fn run(&self, pool: &TensorPool, inputs: InputList) -> Result<Vec<Output>, OpError> {
         let input = inputs.require(0)?;
         let perm_slice = self.perm.as_deref();
         match input {
-            Input::FloatTensor(input) => transpose(input, perm_slice).into_op_result(),
-            Input::IntTensor(input) => transpose(input, perm_slice).into_op_result(),
+            Input::FloatTensor(input) => transpose(pool, input, perm_slice).into_op_result(),
+            Input::IntTensor(input) => transpose(pool, input, perm_slice).into_op_result(),
         }
     }
 }
@@ -513,7 +517,7 @@ impl Operator for Unsqueeze {
         "Unsqueeze"
     }
 
-    fn run(&self, inputs: InputList) -> Result<Vec<Output>, OpError> {
+    fn run(&self, _pool: &TensorPool, inputs: InputList) -> Result<Vec<Output>, OpError> {
         let input = inputs.require(0)?;
         let axes = inputs.require_as(1)?;
         let axes = static_dims!(axes, 1)?;
@@ -553,6 +557,7 @@ mod tests {
         expand, flatten, reshape, reshape_in_place, squeeze, squeeze_in_place, transpose,
         unsqueeze, Reshape, Shape, Size,
     };
+    use crate::ops::tests::new_pool;
     use crate::ops::{OpError, Operator};
 
     #[test]
@@ -730,13 +735,14 @@ mod tests {
 
     #[test]
     fn test_reshape_op() -> Result<(), Box<dyn Error>> {
+        let pool = new_pool();
         let input = Tensor::from_data(&[2, 2], vec![-0.5, 0.5, 3.0, -5.5]);
         let shape = Tensor::from_data(&[1], vec![4]);
         let expected = input.to_shape([4].as_slice());
 
         let op = Reshape { allow_zero: false };
         let result = op
-            .run((&input, &shape).into())
+            .run(&pool, (&input, &shape).into())
             .unwrap()
             .remove(0)
             .into_float()
@@ -749,12 +755,13 @@ mod tests {
 
     #[test]
     fn test_shape() {
+        let pool = new_pool();
         let op = Shape {};
 
         // Float input
         let input = Tensor::from_data(&[1, 1, 2, 2], vec![1.0, 2.0, 3.0, 4.0]);
         let result = op
-            .run((&input).into())
+            .run(&pool, (&input).into())
             .unwrap()
             .remove(0)
             .into_int()
@@ -765,7 +772,7 @@ mod tests {
         // Int input
         let input = Tensor::from_data(&[1, 1, 2, 2], vec![1, 2, 3, 4]);
         let result = op
-            .run((&input).into())
+            .run(&pool, (&input).into())
             .unwrap()
             .remove(0)
             .into_int()
@@ -776,10 +783,11 @@ mod tests {
 
     #[test]
     fn test_size() {
+        let pool = new_pool();
         let op = Size {};
         let input = tensor!((2, 2); [1, 2, 3, 4]);
         let result = op
-            .run((&input).into())
+            .run(&pool, (&input).into())
             .unwrap()
             .remove(0)
             .into_int()
@@ -844,6 +852,7 @@ mod tests {
 
     #[test]
     fn test_transpose() -> Result<(), Box<dyn Error>> {
+        let pool = new_pool();
         let mut rng = XorShiftRng::new(5678);
         let input = Tensor::rand(&[10, 20], &mut rng);
 
@@ -851,15 +860,15 @@ mod tests {
         reversed.permute(&[1, 0]);
 
         // With no explicit permutation given, the axes should be reversed.
-        let result = transpose(input.view(), None).unwrap();
+        let result = transpose(&pool, input.view(), None).unwrap();
         expect_equal(&result, &reversed)?;
 
         // With a no-op permutation given, the output should be unchanged.
-        let result = transpose(input.view(), Some(&[0, 1])).unwrap();
+        let result = transpose(&pool, input.view(), Some(&[0, 1])).unwrap();
         expect_equal(&result, &input)?;
 
         // With a transposed permutation given, the axes should be reversed.
-        let result = transpose(input.view(), Some(&[1, 0])).unwrap();
+        let result = transpose(&pool, input.view(), Some(&[1, 0])).unwrap();
         expect_equal(&result, &reversed)?;
 
         Ok(())
@@ -867,32 +876,33 @@ mod tests {
 
     #[test]
     fn test_transpose_invalid_inputs() {
+        let pool = new_pool();
         let mut rng = XorShiftRng::new(5678);
         let input = Tensor::rand(&[10, 20], &mut rng);
 
         // Too many dims
-        let result = transpose(input.view(), Some(&[0, 1, 1]));
+        let result = transpose(&pool, input.view(), Some(&[0, 1, 1]));
         assert_eq!(
             result.err(),
             Some(OpError::InvalidValue("Permutation is invalid"))
         );
 
         // Too few dims
-        let result = transpose(input.view(), Some(&[]));
+        let result = transpose(&pool, input.view(), Some(&[]));
         assert_eq!(
             result.err(),
             Some(OpError::InvalidValue("Permutation is invalid"))
         );
 
         // Invalid dimension index
-        let result = transpose(input.view(), Some(&[2, 1]));
+        let result = transpose(&pool, input.view(), Some(&[2, 1]));
         assert_eq!(
             result.err(),
             Some(OpError::InvalidValue("Permutation is invalid"))
         );
 
         // Repeated dimension index
-        let result = transpose(input.view(), Some(&[1, 1]));
+        let result = transpose(&pool, input.view(), Some(&[1, 1]));
         assert_eq!(
             result.err(),
             Some(OpError::InvalidValue("Permutation is invalid"))
