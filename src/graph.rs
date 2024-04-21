@@ -372,6 +372,7 @@ impl Graph {
         if opts.timing {
             run_timer.start();
         }
+        let mut n_in_place_ops = 0;
 
         let inputs_by_id: FxHashMap<NodeId, Input> = inputs.iter().cloned().collect();
         let get_value_from_constant_or_input = |node_id: NodeId| -> Option<Input> {
@@ -513,6 +514,7 @@ impl Graph {
             };
 
             let op_result = if let Some(input) = in_place_input {
+                n_in_place_ops += 1;
                 op_node
                     .operator
                     .run_in_place(&pool, input, InputList::from_optional(op_inputs))
@@ -616,6 +618,7 @@ impl Graph {
                 pool.alloc_count(),
                 pool.hit_count()
             );
+            println!("In-place ops: {}", n_in_place_ops);
             let timing = RunTiming {
                 records: &op_elapsed,
                 alloc_time: alloc_timer.elapsed_ms(),
