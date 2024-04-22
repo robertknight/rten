@@ -867,6 +867,27 @@ where
             element_type: PhantomData,
         }
     }
+
+    /// Initialize this tensor with data from another view.
+    ///
+    /// This tensor and `other` must have the same shape.
+    pub fn init_from<S2: AsRef<[T]>>(
+        mut self,
+        other: &TensorBase<T, S2, L>,
+    ) -> TensorBase<T, <S as AssumeInit>::Output, L>
+    where
+        T: Copy,
+        S: AsMut<[MaybeUninit<T>]>,
+    {
+        assert_eq!(self.shape(), other.shape(), "shape mismatch");
+        if let Some(data) = other.data() {
+            let data: &[MaybeUninit<T>] = unsafe { std::mem::transmute(data) };
+            self.data.as_mut().clone_from_slice(data);
+        } else {
+            copy_contiguous(other.as_dyn(), self.data.as_mut());
+        }
+        unsafe { self.assume_init() }
+    }
 }
 
 impl<'a, T, L: Clone + MutLayout> TensorBase<T, &'a [T], L> {
@@ -2177,6 +2198,29 @@ mod tests {
         assert_eq!(tensor[[1, 1]], 4.);
         tensor[&[1, 1]] = 9.;
         assert_eq!(tensor[[1, 1]], 9.);
+    }
+
+    #[test]
+    fn test_init_from() {
+        // Contiguous case
+        let src = NdTensor::arange(0, 4, None).into_shape([2, 2]);
+        let dest = NdTensor::uninit([2, 2]);
+        let dest = dest.init_from(&src);
+        assert_eq!(dest.to_vec(), &[0, 1, 2, 3]);
+
+        // Non-contigous
+        let dest = NdTensor::uninit([2, 2]);
+        let dest = dest.init_from(&src.transposed());
+        assert_eq!(dest.to_vec(), &[0, 2, 1, 3]);
+    }
+
+    #[test]
+    #[should_panic(expected = "shape mismatch")]
+    fn test_init_from_shape_mismatch() {
+        let src = NdTensor::arange(0, 4, None).into_shape([2, 2]);
+        let dest = NdTensor::uninit([2, 3]);
+        let dest = dest.init_from(&src);
+        assert_eq!(dest.to_vec(), &[0, 1, 2, 3]);
     }
 
     #[test]
