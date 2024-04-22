@@ -62,7 +62,8 @@ pub use iterators::{
     IterMut, Lanes, LanesMut, Offsets,
 };
 pub use layout::{
-    is_valid_permutation, DynLayout, Layout, MatrixLayout, MutLayout, NdLayout, OverlapPolicy,
+    is_valid_permutation, DynLayout, IntoLayout, Layout, MatrixLayout, MutLayout, NdLayout,
+    OverlapPolicy,
 };
 pub use slice_range::{to_slice_items, DynSliceItems, IntoSliceItems, SliceItem, SliceRange};
 
