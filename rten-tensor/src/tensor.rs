@@ -675,6 +675,12 @@ impl<T, L: Clone + MutLayout> TensorBase<T, Vec<T>, L> {
         }
     }
 
+    /// Consume self and return the underlying data in whatever order the
+    /// elements are currently stored.
+    pub fn into_non_contiguous_data(self) -> Vec<T> {
+        self.data
+    }
+
     /// Consume self and return a new contiguous tensor with the given shape.
     ///
     /// This avoids copying the data if it is already contiguous.
@@ -2177,6 +2183,17 @@ mod tests {
     fn test_into_data() {
         let tensor = NdTensor::from_data([2], vec![2., 3.]);
         assert_eq!(tensor.into_data(), vec![2., 3.]);
+
+        let mut tensor = NdTensor::from_data([2, 2], vec![1., 2., 3., 4.]);
+        tensor.transpose();
+        assert_eq!(tensor.into_data(), vec![1., 3., 2., 4.]);
+    }
+
+    #[test]
+    fn test_into_non_contiguous_data() {
+        let mut tensor = NdTensor::from_data([2, 2], vec![1., 2., 3., 4.]);
+        tensor.transpose();
+        assert_eq!(tensor.into_non_contiguous_data(), vec![1., 2., 3., 4.]);
     }
 
     #[test]
