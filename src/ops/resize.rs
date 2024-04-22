@@ -1,4 +1,6 @@
 use std::iter::zip;
+use std::mem::MaybeUninit;
+use std::sync::atomic::{AtomicUsize, Ordering};
 
 use rayon::prelude::*;
 use rten_tensor::prelude::*;
@@ -81,7 +83,7 @@ fn lerp(a: f32, b: f32, weight: f32) -> f32 {
 /// Resize a group of channels in a CHW tensor using nearest neighbor resizing.
 fn nearest_resize(
     input: NdTensorView<f32, 3>,
-    mut output: NdTensorViewMut<f32, 3>,
+    mut output: NdTensorViewMut<MaybeUninit<f32>, 3>,
     mode: NearestMode,
     coord_mode: CoordTransformMode,
 ) {
@@ -114,6 +116,7 @@ fn nearest_resize(
         }
     };
 
+    let mut n_init = 0;
     for y in 0..rows {
         let in_y = round_coord(
             input_coord(y, inv_scale_y, coord_mode, in_rows, rows).clamp(0., in_rows as f32 - 1.),
@@ -125,16 +128,18 @@ fn nearest_resize(
             );
 
             for c in 0..chans {
-                output[[c, y, x]] = input[[c, in_y, in_x]];
+                output[[c, y, x]].write(input[[c, in_y, in_x]]);
+                n_init += 1;
             }
         }
     }
+    assert!(n_init == output.len());
 }
 
 /// Resize a group of channels in a CHW tensor using bilinear resizing.
 fn bilinear_resize(
     input: NdTensorView<f32, 3>,
-    mut output: NdTensorViewMut<f32, 3>,
+    mut output: NdTensorViewMut<MaybeUninit<f32>, 3>,
     coord_mode: CoordTransformMode,
 ) {
     let [chans, rows, cols] = output.shape();
@@ -144,6 +149,7 @@ fn bilinear_resize(
     let inv_scale_y = in_rows as f32 / rows as f32;
     let inv_scale_x = in_cols as f32 / cols as f32;
 
+    let mut n_init = 0;
     for y in 0..rows {
         let in_y =
             input_coord(y, inv_scale_y, coord_mode, in_rows, rows).clamp(0., in_rows as f32 - 1.);
@@ -165,14 +171,15 @@ fn bilinear_resize(
                 let in_bl = input.get_array::<N>([0, in_y2, in_x1], 0);
                 let in_br = input.get_array::<N>([0, in_y2, in_x2], 0);
 
-                let mut out = [0.; N];
+                let mut out = [MaybeUninit::new(0.); N];
                 for c in 0..chans {
                     // Interpolate in X direction
                     let out_top = lerp(in_tl[c], in_tr[c], weight_x);
                     let out_bottom = lerp(in_bl[c], in_br[c], weight_x);
 
                     // Interpolate in Y direction
-                    out[c] = lerp(out_top, out_bottom, weight_y);
+                    out[c].write(lerp(out_top, out_bottom, weight_y));
+                    n_init += 1;
                 }
 
                 output.set_array([0, y, x], 0, out);
@@ -188,11 +195,13 @@ fn bilinear_resize(
                     let out_bottom = lerp(in_bl, in_br, weight_x);
 
                     // Interpolate in Y direction
-                    output[[c, y, x]] = lerp(out_top, out_bottom, weight_y);
+                    output[[c, y, x]].write(lerp(out_top, out_bottom, weight_y));
+                    n_init += 1;
                 }
             }
         }
     }
+    assert!(n_init == output.len());
 }
 
 /// Resize an NCHW image tensor to a given `[height, width]`.
@@ -247,12 +256,15 @@ pub fn resize(
     }
 
     let sizes_usize: Vec<_> = sizes.iter().map(|size| *size as usize).collect();
-    let mut output = Tensor::zeros(&sizes_usize);
+    let mut output = Tensor::uninit(&sizes_usize);
 
     if output.is_empty() {
+        // Safety: Empty output is already initialized.
+        let output = unsafe { output.assume_init() };
         return Ok(output);
     }
 
+    let n_init = AtomicUsize::new(0);
     for n in 0..batch {
         let in_image = input.slice::<3, _>([n]);
         let mut out_image = output.slice_mut::<3, _>([n]);
@@ -275,8 +287,12 @@ pub fn resize(
                         bilinear_resize(in_chans.nd_view(), out_chans.nd_view_mut(), coord_mode);
                     }
                 };
+                n_init.fetch_add(out_chans.len(), Ordering::SeqCst);
             });
     }
+
+    assert!(n_init.load(Ordering::SeqCst) == output.len());
+    let output = unsafe { output.assume_init() };
 
     Ok(output)
 }
