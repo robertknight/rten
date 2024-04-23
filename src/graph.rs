@@ -1,3 +1,4 @@
+use std::env;
 use std::error::Error;
 use std::fmt;
 use std::iter::zip;
@@ -403,7 +404,12 @@ impl Graph {
         }
 
         // Create a pool to re-use buffers across execution steps.
+        //
+        // If the feature flag is off, we still create the pool, but never
+        // release buffers back into it, so all allocations use the system
+        // allocator.
         let pool = TensorPool::new();
+        let use_pool = env::var_os("RTEN_USE_POOL").is_some();
 
         // Execute the plan
         let mut temp_values: FxHashMap<NodeId, Output> = FxHashMap::default();
@@ -587,7 +593,7 @@ impl Graph {
             for node_id in op_node.inputs.iter().filter_map(|node| *node) {
                 let rc = temp_value_refcount.dec(node_id);
                 if rc == Some(0) {
-                    if let Some(tensor) = temp_values.remove(&node_id) {
+                    if let (true, Some(tensor)) = (use_pool, temp_values.remove(&node_id)) {
                         match tensor {
                             Output::FloatTensor(t) => pool.add(t),
                             Output::IntTensor(t) => pool.add(t),
