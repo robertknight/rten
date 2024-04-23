@@ -21,6 +21,8 @@ use smallvec::SmallVec;
 use rten_tensor::prelude::*;
 use rten_tensor::{DynLayout, NdTensor, NdTensorView, Tensor, TensorView};
 
+use crate::tensor_pool::TensorPool;
+
 mod binary_elementwise;
 mod concat;
 mod conv;
@@ -634,7 +636,7 @@ pub trait Operator: Debug {
     fn name(&self) -> &str;
 
     /// Execute the operator with the given inputs.
-    fn run(&self, input: InputList) -> Result<Vec<Output>, OpError>;
+    fn run(&self, pool: &TensorPool, input: InputList) -> Result<Vec<Output>, OpError>;
 
     /// Return true if this operator supports in-place execution via
     /// `run_in_place`.
@@ -824,6 +826,16 @@ mod tests {
     use rten_tensor::NdTensor;
 
     use super::Input;
+
+    use crate::tensor_pool::TensorPool;
+
+    /// Create an empty tensor pool.
+    ///
+    /// This is a wrapper that provides a place to customize the behavior of
+    /// the pool in tests.
+    pub fn new_pool() -> TensorPool {
+        TensorPool::new()
+    }
 
     /// Compare two f32 tensors with a higher absolute tolerance (1e-4) than
     /// the default (1e-5).

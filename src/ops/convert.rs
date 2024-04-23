@@ -1,6 +1,7 @@
 use rten_tensor::prelude::*;
 
 use crate::ops::{DataType, Input, InputList, IntoOpResult, OpError, Operator, Output};
+use crate::tensor_pool::TensorPool;
 
 #[derive(Debug)]
 pub struct Cast {
@@ -12,7 +13,7 @@ impl Operator for Cast {
         "Cast"
     }
 
-    fn run(&self, inputs: InputList) -> Result<Vec<Output>, OpError> {
+    fn run(&self, _pool: &TensorPool, inputs: InputList) -> Result<Vec<Output>, OpError> {
         let input = inputs.require(0)?;
         let result: Output = match input {
             Input::IntTensor(t) => match self.to {
@@ -36,7 +37,7 @@ impl Operator for Cast {
             (Output::IntTensor(t), DataType::Int32) => Ok(t.into()),
             (Output::FloatTensor(t), DataType::Float) => Ok(t.into()),
             (input, _) => self
-                .run(InputList::from(&[(&input).into()]))
+                .run(&TensorPool::new(), InputList::from(&[(&input).into()]))
                 .map(|mut outputs| outputs.remove(0)),
         }
     }
@@ -49,10 +50,12 @@ mod tests {
     use rten_tensor::tensor;
     use rten_tensor::test_util::expect_equal;
 
+    use crate::ops::tests::new_pool;
     use crate::ops::{Cast, DataType, Operator};
 
     #[test]
     fn test_cast() -> Result<(), Box<dyn Error>> {
+        let pool = new_pool();
         let int_input = tensor!([1, 2, 3]);
         let float_input = tensor!([1.0, 2.0, 3.0]);
 
@@ -61,7 +64,7 @@ mod tests {
             to: DataType::Int32,
         };
         let result = cast_to_int
-            .run((&int_input).into())
+            .run(&pool, (&int_input).into())
             .unwrap()
             .remove(0)
             .into_int()
@@ -70,7 +73,7 @@ mod tests {
         // Flooring cast from float => int32
         assert_eq!(result, int_input);
         let result = cast_to_int
-            .run((&float_input).into())
+            .run(&pool, (&float_input).into())
             .unwrap()
             .remove(0)
             .into_int()
@@ -82,7 +85,7 @@ mod tests {
             to: DataType::Float,
         };
         let result = cast_to_float
-            .run((&float_input).into())
+            .run(&pool, (&float_input).into())
             .unwrap()
             .remove(0)
             .into_float()
@@ -91,7 +94,7 @@ mod tests {
 
         // Cast from int32 => float
         let result = cast_to_float
-            .run((&int_input).into())
+            .run(&pool, (&int_input).into())
             .unwrap()
             .remove(0)
             .into_float()
@@ -103,6 +106,7 @@ mod tests {
 
     #[test]
     fn test_cast_out_of_range() -> Result<(), Box<dyn Error>> {
+        let pool = new_pool();
         let int_input = tensor!([i32::MIN, i32::MAX]);
 
         // Out-of-range cast from int => float. This will simply lose some
@@ -111,7 +115,7 @@ mod tests {
             to: DataType::Float,
         };
         let result = cast_to_float
-            .run((&int_input).into())
+            .run(&pool, (&int_input).into())
             .unwrap()
             .remove(0)
             .into_float()
@@ -124,7 +128,7 @@ mod tests {
             to: DataType::Int32,
         };
         let result = cast_to_int
-            .run((&float_input).into())
+            .run(&pool, (&float_input).into())
             .unwrap()
             .remove(0)
             .into_int()

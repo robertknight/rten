@@ -8,6 +8,7 @@ use crate::ops::{
     resolve_axis, resolve_index, Input, InputList, IntoOpResult, OpError, Operator, Output, Scalar,
 };
 use crate::static_dims;
+use crate::tensor_pool::TensorPool;
 
 pub fn constant_of_shape<T: Clone>(value: T, shape: &NdTensorView<i32, 1>) -> Tensor<T> {
     let shape: Vec<_> = shape.iter().map(|el| *el as usize).collect();
@@ -25,7 +26,7 @@ impl Operator for ConstantOfShape {
         "ConstantOfShape"
     }
 
-    fn run(&self, inputs: InputList) -> Result<Vec<Output>, OpError> {
+    fn run(&self, _pool: &TensorPool, inputs: InputList) -> Result<Vec<Output>, OpError> {
         let shape = inputs.require_as::<i32>(0)?;
         let shape = static_dims!(shape, 1)?;
 
@@ -79,7 +80,7 @@ impl Operator for OneHot {
         "OneHot"
     }
 
-    fn run(&self, inputs: InputList) -> Result<Vec<Output>, OpError> {
+    fn run(&self, _pool: &TensorPool, inputs: InputList) -> Result<Vec<Output>, OpError> {
         let indices = inputs.require_as::<i32>(0)?;
         let depth = inputs.require_as::<i32>(1)?;
         let depth = depth
@@ -132,7 +133,7 @@ impl Operator for Range {
         "Range"
     }
 
-    fn run(&self, inputs: InputList) -> Result<Vec<Output>, OpError> {
+    fn run(&self, _pool: &TensorPool, inputs: InputList) -> Result<Vec<Output>, OpError> {
         let start = inputs.require(0)?;
         let limit = inputs.require(1)?;
         let delta = inputs.require(2)?;
@@ -159,17 +160,19 @@ mod tests {
     use rten_tensor::prelude::*;
     use rten_tensor::{tensor, Tensor};
 
+    use crate::ops::tests::new_pool;
     use crate::ops::{onehot, range, ConstantOfShape, OpError, Operator, Scalar};
 
     #[test]
     fn test_constant_of_shape() {
+        let pool = new_pool();
         let op = ConstantOfShape {
             value: Scalar::Int(42),
         };
         let shape = Tensor::from_vec(vec![1, 5, 10]);
 
         let result = op
-            .run((&shape).into())
+            .run(&pool, (&shape).into())
             .unwrap()
             .remove(0)
             .into_int()

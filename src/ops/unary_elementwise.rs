@@ -2,6 +2,7 @@ extern crate libm;
 
 use rayon::prelude::*;
 
+use std::any::Any;
 use std::fmt::Debug;
 use std::mem::MaybeUninit;
 
@@ -15,6 +16,7 @@ use rten_vecmath::{
 
 use crate::number::AsBool;
 use crate::ops::{Input, InputList, IntoOpResult, OpError, Operator, Output};
+use crate::tensor_pool::TensorPool;
 
 /// Trait for operators which take a single float tensor and apply a function
 /// to each element.
@@ -40,7 +42,7 @@ impl<Op: UnaryFloatOp + Debug> Operator for Op {
         self.name()
     }
 
-    fn run(&self, inputs: InputList) -> Result<Vec<Output>, OpError> {
+    fn run(&self, _pool: &TensorPool, inputs: InputList) -> Result<Vec<Output>, OpError> {
         let input = inputs.require_as(0)?;
         self.map(input).into_op_result()
     }
@@ -71,11 +73,11 @@ macro_rules! unary_numeric_op {
                 stringify!($name)
             }
 
-            fn run(&self, inputs: InputList) -> Result<Vec<Output>, OpError> {
+            fn run(&self, pool: &TensorPool, inputs: InputList) -> Result<Vec<Output>, OpError> {
                 let input = inputs.require(0)?;
                 match input {
-                    Input::FloatTensor(input) => $view_impl(input).into_op_result(),
-                    Input::IntTensor(input) => $view_impl(input).into_op_result(),
+                    Input::FloatTensor(input) => $view_impl(pool, input).into_op_result(),
+                    Input::IntTensor(input) => $view_impl(pool, input).into_op_result(),
                 }
             }
 
@@ -101,7 +103,7 @@ macro_rules! unary_numeric_op {
 
 macro_rules! unary_float_funcs {
     ($name:ident, $func_name:ident, $in_place_func_name:ident) => {
-        pub fn $func_name(input: TensorView) -> Tensor {
+        pub fn $func_name(_pool: &TensorPool, input: TensorView) -> Tensor {
             $name {}.map(input)
         }
 
@@ -141,14 +143,15 @@ const CHUNK_SIZE: usize = 32 * 1024;
 
 /// Apply a unary operation in parallel to contiguous slices of `input`.
 fn par_unary_op<
-    T: Copy + Default + Send + Sync,
+    T: Any + Copy + Default + Send + Sync,
     F: Fn(&[T], &mut [MaybeUninit<T>]) + Send + Sync,
 >(
+    pool: &TensorPool,
     input: TensorView<T>,
     op: F,
 ) -> Tensor<T> {
     let input = input.to_contiguous();
-    let mut output = Tensor::<T>::uninit(input.shape());
+    let mut output = pool.alloc(input.shape());
 
     let in_chunks = input.data().unwrap().par_chunks(CHUNK_SIZE);
     let out_chunks = output.data_mut().unwrap().par_chunks_mut(CHUNK_SIZE);
@@ -190,8 +193,8 @@ macro_rules! parallel_unary_float_op {
                 true
             }
 
-            fn run(&self, inputs: InputList) -> Result<Vec<Output>, OpError> {
-                $func_name(inputs.require_as(0)?).into_op_result()
+            fn run(&self, pool: &TensorPool, inputs: InputList) -> Result<Vec<Output>, OpError> {
+                $func_name(pool, inputs.require_as(0)?).into_op_result()
             }
 
             fn run_in_place(&self, input: Output, _: InputList) -> Result<Output, OpError> {
@@ -201,8 +204,8 @@ macro_rules! parallel_unary_float_op {
             }
         }
 
-        pub fn $func_name(input: TensorView) -> Tensor {
-            par_unary_op(input, $impl_func_name)
+        pub fn $func_name(pool: &TensorPool, input: TensorView) -> Tensor {
+            par_unary_op(pool, input, $impl_func_name)
         }
 
         pub fn $in_place_func_name(input: TensorViewMut) {
@@ -227,7 +230,7 @@ impl AbsValue for i32 {
     }
 }
 
-pub fn abs<T: AbsValue>(input: TensorView<T>) -> Tensor<T> {
+pub fn abs<T: AbsValue>(_pool: &TensorPool, input: TensorView<T>) -> Tensor<T> {
     input.map(|x| x.abs())
 }
 
@@ -317,7 +320,7 @@ impl Operator for Clip {
         "Clip"
     }
 
-    fn run(&self, inputs: InputList) -> Result<Vec<Output>, OpError> {
+    fn run(&self, _pool: &TensorPool, inputs: InputList) -> Result<Vec<Output>, OpError> {
         let input = inputs.require(0)?;
         match input {
             Input::FloatTensor(input) => {
@@ -444,7 +447,10 @@ impl UnaryFloatOp for LeakyRelu {
 
 unary_float_op!(Log, log, log_in_place, |val: f32| val.ln());
 
-pub fn neg<T: Copy + std::ops::Neg<Output = T>>(input: TensorView<T>) -> Tensor<T> {
+pub fn neg<T: Copy + std::ops::Neg<Output = T>>(
+    _pool: &TensorPool,
+    input: TensorView<T>,
+) -> Tensor<T> {
     input.map(|x| x.neg())
 }
 
@@ -470,7 +476,7 @@ impl Operator for Not {
         "Not"
     }
 
-    fn run(&self, inputs: InputList) -> Result<Vec<Output>, OpError> {
+    fn run(&self, _pool: &TensorPool, inputs: InputList) -> Result<Vec<Output>, OpError> {
         let input = inputs.require_as::<i32>(0)?;
         not(input).into_op_result()
     }
@@ -545,7 +551,7 @@ macro_rules! impl_signum {
 impl_signum!(i32);
 impl_signum!(f32);
 
-pub fn sign<T: Signum>(input: TensorView<T>) -> Tensor<T> {
+pub fn sign<T: Signum>(_pool: &TensorPool, input: TensorView<T>) -> Tensor<T> {
     input.map(|x| x.signum())
 }
 
@@ -574,6 +580,7 @@ mod tests {
     use rten_tensor::test_util::{eq_with_nans, expect_equal, expect_equal_with_tolerance};
     use rten_tensor::{tensor, RandomSource, Tensor};
 
+    use crate::ops::tests::new_pool;
     use crate::ops::{
         abs, acos, acos_in_place, asin, asin_in_place, atan, atan_in_place, ceil, clip,
         clip_in_place, cos, cos_in_place, erf, erf_in_place, exp, exp_in_place, floor,
@@ -589,11 +596,13 @@ mod tests {
         ($test_name:ident, $op:ident, $in_place_op:ident, $gen_expected:expr) => {
             #[test]
             fn $test_name() -> Result<(), Box<dyn Error>> {
+                let pool = new_pool();
+
                 // Test inputs here chosen to be in the domain of inverse trig
                 // operators (ie. (-1, 1)).
                 let input = tensor!([0., 0.1, -0.1, 0.9, -0.9]);
                 let expected = input.map($gen_expected);
-                let result = $op(input.view());
+                let result = $op(&pool, input.view());
                 expect_equal(&result, &expected)?;
 
                 let mut input = input.clone();
@@ -641,14 +650,16 @@ mod tests {
 
     #[test]
     fn test_abs() {
+        let pool = new_pool();
+
         // Float tensor
         let x: Tensor<f32> = tensor!([1., -1., 0.]);
-        let result = abs(x.view());
+        let result = abs(&pool, x.view());
         assert_eq!(result, tensor!([1., 1., 0.]));
 
         // Int tensor
         let x: Tensor<i32> = tensor!([1, -1, 0]);
-        let result = abs(x.view());
+        let result = abs(&pool, x.view());
         assert_eq!(result, tensor!([1, 1, 0]));
     }
 
@@ -658,6 +669,7 @@ mod tests {
 
     #[test]
     fn test_ceil() {
+        let pool = new_pool();
         let input = tensor!([
             1.,
             1.2,
@@ -678,7 +690,7 @@ mod tests {
             f32::NEG_INFINITY,
             f32::INFINITY
         ]);
-        let result = ceil(input.view());
+        let result = ceil(&pool, input.view());
         assert!(eq_with_nans(result.view(), expected.view()));
     }
 
@@ -731,6 +743,7 @@ mod tests {
 
     #[test]
     fn test_erf() -> Result<(), Box<dyn Error>> {
+        let pool = new_pool();
         let input = tensor!([-2.0, -0.5, 0.5, 2.0]);
         let expected = tensor!([
             -0.9953222650189527,
@@ -738,7 +751,7 @@ mod tests {
             0.5204998778130465,
             0.9953222650189527,
         ]);
-        let result = erf(input.view());
+        let result = erf(&pool, input.view());
         expect_equal(&result, &expected)?;
 
         // Since we use a custom implementation of erf, do a test against the
@@ -754,13 +767,13 @@ mod tests {
         let input = Tensor::rand(&[samples], &mut rng);
 
         let expected = input.map(|x| libm::erff(*x));
-        let result = erf(input.view());
+        let result = erf(&pool, input.view());
         expect_equal_with_tolerance(&result, &expected, 1e-6, 0.)?;
 
         // Special values.
         let input = tensor!([f32::NAN, 0., f32::INFINITY, -f32::INFINITY]);
         let expected = tensor!([f32::NAN, 0., 1., -1.]);
-        let result = erf(input.view());
+        let result = erf(&pool, input.view());
         assert!(eq_with_nans(result.view(), expected.view()));
 
         Ok(())
@@ -782,6 +795,7 @@ mod tests {
 
     #[test]
     fn test_exp() -> Result<(), Box<dyn Error>> {
+        let pool = new_pool();
         let input = tensor!([-2.0, -0.5, 0.5, 2.0]);
         let expected = tensor!([
             0.1353352832366127,
@@ -789,7 +803,7 @@ mod tests {
             1.6487212707001282,
             7.38905609893065
         ]);
-        let result = exp(input.view());
+        let result = exp(&pool, input.view());
         expect_equal(&result, &expected)?;
         Ok(())
     }
@@ -810,6 +824,7 @@ mod tests {
 
     #[test]
     fn test_floor() {
+        let pool = new_pool();
         let input = tensor!([
             1.,
             1.2,
@@ -830,7 +845,7 @@ mod tests {
             f32::NEG_INFINITY,
             f32::INFINITY
         ]);
-        let result = floor(input.view());
+        let result = floor(&pool, input.view());
         assert!(eq_with_nans(result.view(), expected.view()));
     }
 
@@ -847,8 +862,9 @@ mod tests {
 
     #[test]
     fn test_hard_swish() -> Result<(), Box<dyn Error>> {
+        let pool = new_pool();
         let input = tensor!([-4., -3., -1., 0., 1., 3., 4.]);
-        let result = hard_swish(input.view());
+        let result = hard_swish(&pool, input.view());
         let expected = tensor!([0., 0., -1. / 3., 0., 2. / 3., 3., 4.]);
         expect_equal(&result, &expected)?;
         Ok(())
@@ -876,6 +892,7 @@ mod tests {
 
     #[test]
     fn test_log() -> Result<(), Box<dyn Error>> {
+        let pool = new_pool();
         let input = tensor!([0.1, 0.5, 1., 10.]);
         let expected = tensor!([
             -2.3025850929940455,
@@ -883,7 +900,7 @@ mod tests {
             0.,
             2.302585092994046
         ]);
-        let result = log(input.view());
+        let result = log(&pool, input.view());
         expect_equal(&result, &expected)?;
         Ok(())
     }
@@ -904,9 +921,10 @@ mod tests {
 
     #[test]
     fn test_neg() {
+        let pool = new_pool();
         let input = tensor!([0, 1, -1, 2]);
         let expected = tensor!([0, -1, 1, -2]);
-        let result = neg(input.view());
+        let result = neg(&pool, input.view());
         assert_eq!(result, expected);
     }
 
@@ -936,18 +954,20 @@ mod tests {
 
     #[test]
     fn test_reciprocal() {
+        let pool = new_pool();
         let input = tensor!([1., 2., 0.5, 0.]);
         let expected = input.map(|x| 1. / x);
-        let result = reciprocal(input.view());
+        let result = reciprocal(&pool, input.view());
         assert_eq!(result, expected);
     }
 
     #[test]
     fn test_relu() -> Result<(), Box<dyn Error>> {
+        let pool = new_pool();
         let input = Tensor::from_data(&[2, 2, 1], vec![-0.5, 0.5, 3.0, -5.5]);
         let expected = Tensor::from_data(&[2, 2, 1], vec![0.0, 0.5, 3.0, 0.0]);
 
-        let result = relu(input.view());
+        let result = relu(&pool, input.view());
         expect_equal(&result, &expected)?;
 
         let mut result = input.clone();
@@ -978,13 +998,14 @@ mod tests {
 
     #[test]
     fn test_sigmoid() -> Result<(), Box<dyn Error>> {
+        let pool = new_pool();
         let input: Tensor<f32> = Tensor::from_data(
             &[9],
             vec![-500.0, -3.0, -1.0, -0.5, 0.0, 0.5, 1.0, 3.0, 500.0],
         );
         let expected = input.map(|x| 1. / (1. + (-x).exp()));
 
-        let result = sigmoid(input.view());
+        let result = sigmoid(&pool, input.view());
         expect_equal(&result, &expected)?;
 
         let mut result = input.clone();
@@ -999,9 +1020,10 @@ mod tests {
 
     #[test]
     fn test_sqrt() -> Result<(), Box<dyn Error>> {
+        let pool = new_pool();
         let input = tensor!([4., 9., 16.]);
         let expected = tensor!([2., 3., 4.]);
-        let result = sqrt(input.view());
+        let result = sqrt(&pool, input.view());
         expect_equal(&result, &expected)?;
         Ok(())
     }

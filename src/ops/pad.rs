@@ -5,6 +5,7 @@ use rten_tensor::{NdTensorView, SliceItem, Tensor, TensorView};
 
 use crate::ops::{Input, InputList, IntoOpResult, OpError, Operator, Output};
 use crate::static_dims;
+use crate::tensor_pool::TensorPool;
 
 pub fn pad<T: Copy>(
     input: TensorView<T>,
@@ -61,7 +62,7 @@ impl Operator for Pad {
         "Pad"
     }
 
-    fn run(&self, inputs: InputList) -> Result<Vec<Output>, OpError> {
+    fn run(&self, _pool: &TensorPool, inputs: InputList) -> Result<Vec<Output>, OpError> {
         let input = inputs.require(0)?;
         let pads = inputs.require_as::<i32>(1)?;
         let pads = static_dims!(pads, 1)?;
@@ -94,6 +95,7 @@ mod tests {
     use rten_tensor::test_util::expect_equal;
     use rten_tensor::Tensor;
 
+    use crate::ops::tests::new_pool;
     use crate::ops::{pad, OpError, Operator, Pad};
 
     fn from_slice<T: Clone>(data: &[T]) -> Tensor<T> {
@@ -155,9 +157,10 @@ mod tests {
             ],
         );
 
+        let pool = new_pool();
         let op = Pad {};
         let result = op
-            .run((&input, &pads).into())
+            .run(&pool, (&input, &pads).into())
             .unwrap()
             .remove(0)
             .into_float()
@@ -169,12 +172,13 @@ mod tests {
 
     #[test]
     fn test_pad_invalid_inputs() {
+        let pool = new_pool();
         let input = Tensor::from_data(&[2, 2], vec![1.0, 2.0, 3.0, 4.0]);
         let op = Pad {};
 
         // Wrong padding vector length.
         let invalid_pads = from_slice(&[1]);
-        let result = op.run((&input, &invalid_pads).into());
+        let result = op.run(&pool, (&input, &invalid_pads).into());
         assert_eq!(
             result.err(),
             Some(OpError::InvalidValue(
@@ -184,7 +188,7 @@ mod tests {
 
         // Unsupported padding amounts.
         let invalid_pads = from_slice(&[1, 1, 1, -1]);
-        let result = op.run((&input, &invalid_pads).into());
+        let result = op.run(&pool, (&input, &invalid_pads).into());
         assert_eq!(
             result.err(),
             Some(OpError::InvalidValue("Pad only supports positive pads"))
@@ -193,13 +197,13 @@ mod tests {
         // Wrong constant value type.
         let invalid_pads = from_slice(&[1, 1, 1, -1]);
         let const_int = Tensor::from_scalar(1);
-        let result = op.run((&input, &invalid_pads, &const_int).into());
+        let result = op.run(&pool, (&input, &invalid_pads, &const_int).into());
         assert_eq!(result.err(), Some(OpError::IncorrectInputType));
 
         // Constant value not a scalar.
         let invalid_pads = from_slice(&[1, 1, 1, -1]);
         let int_vec = from_slice(&[1.0, 2.0]);
-        let result = op.run((&input, &invalid_pads, &int_vec).into());
+        let result = op.run(&pool, (&input, &invalid_pads, &int_vec).into());
         assert_eq!(
             result.err(),
             Some(OpError::InvalidValue("Expected scalar value"))

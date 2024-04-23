@@ -1,6 +1,7 @@
 use rten_tensor::prelude::*;
 
 use crate::ops::{Input, InputList, IntoOpResult, OpError, Operator, Output};
+use crate::tensor_pool::TensorPool;
 
 #[derive(Debug)]
 pub struct Identity {}
@@ -10,7 +11,7 @@ impl Operator for Identity {
         "Identity"
     }
 
-    fn run(&self, inputs: InputList) -> Result<Vec<Output>, OpError> {
+    fn run(&self, _pool: &TensorPool, inputs: InputList) -> Result<Vec<Output>, OpError> {
         let input = inputs.require(0)?;
         let result: Output = match input {
             Input::IntTensor(t) => t.to_tensor().into(),
@@ -35,15 +36,17 @@ mod tests {
     use rten_tensor::test_util::expect_equal;
     use rten_tensor::Tensor;
 
+    use crate::ops::tests::new_pool;
     use crate::ops::{Identity, Operator};
 
     #[test]
     fn test_identity() -> Result<(), Box<dyn Error>> {
+        let pool = new_pool();
         let id_op = Identity {};
 
         let int_input = Tensor::from_vec(vec![1, 2, 3]);
         let result = id_op
-            .run((&int_input).into())
+            .run(&pool, (&int_input).into())
             .unwrap()
             .remove(0)
             .into_int()
@@ -52,7 +55,7 @@ mod tests {
 
         let float_input = Tensor::from_vec(vec![1.0, 2.0, 3.0]);
         let result = id_op
-            .run((&float_input).into())
+            .run(&pool, (&float_input).into())
             .unwrap()
             .remove(0)
             .into_float()

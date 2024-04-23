@@ -9,6 +9,7 @@ use rten_tensor::{NdTensor, NdTensorView, NdTensorViewMut, Tensor, TensorView};
 use crate::check_dims;
 use crate::gemm::div_ceil;
 use crate::ops::{InputList, IntoOpResult, OpError, Operator, Output, Padding};
+use crate::tensor_pool::TensorPool;
 
 /// Calculate the output size and padding for a convolution or pooling operation.
 ///
@@ -165,7 +166,7 @@ impl Operator for AveragePool {
         "AveragePool"
     }
 
-    fn run(&self, inputs: InputList) -> Result<Vec<Output>, OpError> {
+    fn run(&self, _pool: &TensorPool, inputs: InputList) -> Result<Vec<Output>, OpError> {
         let input = inputs.require_as(0)?;
         average_pool(
             input,
@@ -230,13 +231,14 @@ impl Operator for GlobalAveragePool {
         "GlobalAveragePool"
     }
 
-    fn run(&self, inputs: InputList) -> Result<Vec<Output>, OpError> {
+    fn run(&self, _pool: &TensorPool, inputs: InputList) -> Result<Vec<Output>, OpError> {
         let input = inputs.require_as(0)?;
         global_average_pool(input).into_op_result()
     }
 }
 
 pub fn max_pool(
+    pool: &TensorPool,
     input: TensorView,
     kernel_size: [usize; 2],
     strides: [usize; 2],
@@ -251,7 +253,7 @@ pub fn max_pool(
         None, /* dilations */
     )?;
     let [pad_top, pad_left, _pad_bottom, _pad_right] = fixed_padding;
-    let mut output = Tensor::uninit(&[batch, in_c, out_h, out_w]);
+    let mut output = pool.alloc([batch, in_c, out_h, out_w].as_slice());
 
     // Apply max-pooling to the channel indexes specified by `chans`.
     // Assuming `N` is chosen appropriately the inner loop should get unrolled /
@@ -361,9 +363,16 @@ impl Operator for MaxPool {
         "MaxPool"
     }
 
-    fn run(&self, inputs: InputList) -> Result<Vec<Output>, OpError> {
+    fn run(&self, pool: &TensorPool, inputs: InputList) -> Result<Vec<Output>, OpError> {
         let input = inputs.require_as(0)?;
-        max_pool(input, self.kernel_size, self.strides, self.padding.clone()).into_op_result()
+        max_pool(
+            pool,
+            input,
+            self.kernel_size,
+            self.strides,
+            self.padding.clone(),
+        )
+        .into_op_result()
     }
 }
 
@@ -377,6 +386,7 @@ mod tests {
 
     use super::calc_output_size_and_padding;
     use crate::ops::tests::expect_eq_1e4;
+    use crate::ops::tests::new_pool;
     use crate::ops::{average_pool, global_average_pool, max_pool, OpError, Padding};
 
     #[test]
@@ -584,8 +594,10 @@ mod tests {
             },
         ];
 
+        let pool = new_pool();
         for case in cases {
             let result = max_pool(
+                &pool,
                 input.view(),
                 case.kernel_size,
                 case.strides,
@@ -600,21 +612,22 @@ mod tests {
 
     #[test]
     fn test_max_pool_padding() {
+        let pool = new_pool();
         let input = Tensor::zeros(&[1, 1, 9, 9]);
 
-        let result = max_pool(input.view(), [2, 2], [2, 2], [0, 0, 0, 0].into()).unwrap();
+        let result = max_pool(&pool, input.view(), [2, 2], [2, 2], [0, 0, 0, 0].into()).unwrap();
         assert_eq!(result.shape(), &[1, 1, 4, 4]);
 
-        let result = max_pool(input.view(), [2, 2], [2, 2], [1, 1, 1, 1].into()).unwrap();
+        let result = max_pool(&pool, input.view(), [2, 2], [2, 2], [1, 1, 1, 1].into()).unwrap();
         assert_eq!(result.shape(), &[1, 1, 5, 5]);
 
-        let result = max_pool(input.view(), [2, 2], [2, 2], [2, 2, 2, 2].into()).unwrap();
+        let result = max_pool(&pool, input.view(), [2, 2], [2, 2], [2, 2, 2, 2].into()).unwrap();
         assert_eq!(result.shape(), &[1, 1, 6, 6]);
 
-        let result = max_pool(input.view(), [2, 2], [2, 2], Padding::Same).unwrap();
+        let result = max_pool(&pool, input.view(), [2, 2], [2, 2], Padding::Same).unwrap();
         assert_eq!(result.shape(), &[1, 1, 5, 5]);
 
-        let result = max_pool(input.view(), [2, 2], [3, 3], Padding::Same).unwrap();
+        let result = max_pool(&pool, input.view(), [2, 2], [3, 3], Padding::Same).unwrap();
         assert_eq!(result.shape(), &[1, 1, 3, 3]);
     }
 

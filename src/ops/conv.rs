@@ -6,7 +6,7 @@ use std::sync::atomic::{AtomicUsize, Ordering};
 
 use rayon::prelude::*;
 use rten_tensor::prelude::*;
-use rten_tensor::{NdTensor, NdTensorView, NdTensorViewMut, Tensor, TensorView};
+use rten_tensor::{NdTensorView, NdTensorViewMut, Tensor, TensorView};
 use smallvec::SmallVec;
 
 use crate::check_dims;
@@ -14,6 +14,7 @@ use crate::gemm::{add_scaled_vector, div_ceil, GemmExecutor, GemmInputA, GemmInp
 use crate::iter_util::range_chunks;
 use crate::ops::pooling::calc_output_size_and_padding;
 use crate::ops::{InputList, IntoOpResult, OpError, Operator, Output, Padding};
+use crate::tensor_pool::TensorPool;
 
 mod im2col;
 use im2col::VirtualIm2Col;
@@ -70,13 +71,14 @@ fn init_tensor_with_channel_bias(
 /// Specialization of conv_2d for pointwise convolutions over one image. This
 /// can be reduced to tensor reshaping and matrix multiplication.
 fn conv_2d_pointwise(
+    pool: &TensorPool,
     input: &NdTensorView<f32, 4>,
     kernel: &NdTensorView<f32, 4>,
     bias: Option<NdTensorView<f32, 1>>,
 ) -> Tensor {
     let [batch, _, in_h, in_w]: [usize; 4] = input.shape();
     let [out_c, in_c, _, _]: [usize; 4] = kernel.shape();
-    let mut output = Tensor::uninit(&[batch, out_c, in_h * in_w]);
+    let mut output = pool.alloc([batch, out_c, in_h * in_w].as_slice());
 
     // Get input and kernel as contiguous tensors so we can create reshaped
     // views.
@@ -197,6 +199,7 @@ fn conv_2d_depthwise_block(
 /// a time and hence the transformation of convolution to matrix multiplication
 /// doesn't pay off. An optimized direct method works better.
 fn conv_2d_depthwise(
+    pool: &TensorPool,
     input: &NdTensorView<f32, 4>,
     kernel: &NdTensorView<f32, 4>,
     bias: Option<NdTensorView<f32, 1>>,
@@ -212,7 +215,7 @@ fn conv_2d_depthwise(
     let [_dilation_y, dilation_x] = dilations;
     let [out_h, out_w] = out_hw;
 
-    let mut output = NdTensor::uninit([batch, out_c, out_h, out_w]);
+    let mut output = pool.alloc([batch, out_c, out_h, out_w]);
 
     // Use of input rows below assumes contiguous last dimension.
     let input = input.to_contiguous();
@@ -290,6 +293,7 @@ fn conv_2d_depthwise(
 ///   separately with `output_channels / groups` outputs. This is known as
 ///   depthwise convolution.
 pub fn conv(
+    pool: &TensorPool,
     input: TensorView,
     kernel: TensorView,
     bias: Option<TensorView>,
@@ -335,6 +339,7 @@ pub fn conv(
         };
 
         let result_2d = conv(
+            pool,
             input_2d,
             kernel_2d,
             bias,
@@ -387,6 +392,7 @@ pub fn conv(
         && dilation_x == 1
     {
         return Ok(conv_2d_pointwise(
+            pool,
             &input.nd_view(),
             &kernel.nd_view(),
             bias.as_ref().map(|b| b.nd_view()),
@@ -410,6 +416,7 @@ pub fn conv(
 
     if in_c == out_c && groups == in_c {
         return Ok(conv_2d_depthwise(
+            pool,
             &input.nd_view(),
             &kernel.nd_view(),
             bias.map(|b| b.nd_view()),
@@ -421,7 +428,7 @@ pub fn conv(
     }
 
     let n_patches = out_h * out_w;
-    let mut output = Tensor::uninit(&[batch, out_c, n_patches]);
+    let mut output = pool.alloc([batch, out_c, n_patches].as_slice());
     let gemm = GemmExecutor::new();
 
     // Bias must be contiguous for use with `gemm_bias`.
@@ -503,11 +510,12 @@ impl Operator for Conv {
         "Conv"
     }
 
-    fn run(&self, inputs: InputList) -> Result<Vec<Output>, OpError> {
+    fn run(&self, pool: &TensorPool, inputs: InputList) -> Result<Vec<Output>, OpError> {
         let input = inputs.require_as(0)?;
         let weight = inputs.require_as(1)?;
         let bias = inputs.get_as(2)?;
         conv(
+            pool,
             input,
             weight,
             bias,
@@ -645,7 +653,7 @@ impl Operator for ConvTranspose {
         "ConvTranspose"
     }
 
-    fn run(&self, inputs: InputList) -> Result<Vec<Output>, OpError> {
+    fn run(&self, _pool: &TensorPool, inputs: InputList) -> Result<Vec<Output>, OpError> {
         let input = inputs.require_as(0)?;
         let weight = inputs.require_as(1)?;
         let bias = inputs.get_as(2)?;
@@ -664,6 +672,7 @@ mod tests {
 
     use crate::ops::pooling::calc_output_size_and_padding;
     use crate::ops::tests::expect_eq_1e4;
+    use crate::ops::tests::new_pool;
     use crate::ops::{conv, conv_transpose, Conv, OpError, Operator, Padding};
 
     /// Un-optimized reference implementation of convolution.
@@ -756,7 +765,9 @@ mod tests {
         strides: &[usize],
         dilations: &[usize],
     ) -> Result<Tensor, ExpectEqualError> {
+        let pool = new_pool();
         let result = conv(
+            &pool,
             input.view(),
             kernel.view(),
             bias.clone(),
@@ -853,6 +864,7 @@ mod tests {
             ],
         );
 
+        let pool = new_pool();
         let op = Conv {
             padding: Padding::Same,
             groups: 1,
@@ -860,7 +872,7 @@ mod tests {
             dilations: vec![1, 1],
         };
         let result = op
-            .run((&input, &kernel).into())
+            .run(&pool, (&input, &kernel).into())
             .unwrap()
             .remove(0)
             .into_float()
@@ -1106,7 +1118,9 @@ mod tests {
         let input = Tensor::rand(&[1, 1, 2, 2], &mut rng);
         let kernel = Tensor::rand(&[1, 1, 3, 3], &mut rng);
 
+        let pool = new_pool();
         let result = conv(
+            &pool,
             input.view(),
             kernel.view(),
             None,
@@ -1128,7 +1142,9 @@ mod tests {
         let input = Tensor::rand(&[1, 1, 2, 2], &mut rng);
         let kernel = Tensor::rand(&[1, 1, 2, 2], &mut rng);
 
+        let pool = new_pool();
         let result = conv(
+            &pool,
             input.view(),
             kernel.view(),
             None,
@@ -1202,7 +1218,9 @@ mod tests {
         let input = Tensor::rand(&[n, in_c, in_w], &mut rng);
         let kernel = Tensor::rand(&[out_c, in_c, k_w], &mut rng);
 
+        let pool = new_pool();
         let result = conv(
+            &pool,
             input.view(),
             kernel.view(),
             None,
@@ -1261,11 +1279,13 @@ mod tests {
         let dilations = [1, 1];
 
         let iters = 100;
+        let pool = new_pool();
 
         let start = std::time::Instant::now();
         for _ in 0..iters {
             for stride in [1, 1, 2] {
-                conv(
+                let result = conv(
+                    &pool,
                     input.view(),
                     kernel.view(),
                     bias.clone(),
@@ -1275,6 +1295,8 @@ mod tests {
                     &dilations,
                 )
                 .unwrap();
+
+                pool.add(result);
             }
         }
         let elapsed = start.elapsed().as_secs_f32() * 1000.0;

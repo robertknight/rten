@@ -3,7 +3,7 @@ use std::error::Error;
 use std::fs;
 
 use rten::ops::concat;
-use rten::{FloatOperators, Input, Model, NodeId, Operators};
+use rten::{FloatOperators, Input, Model, NodeId, Operators, TensorPool};
 use rten_tensor::prelude::*;
 use rten_tensor::{NdTensor, Tensor};
 use rten_text::tokenizers::{EncodeOptions, Tokenizer};
@@ -161,7 +161,8 @@ fn embed_sentence_batch(
             view
         })
         .collect();
-    let mean_pooled: NdTensor<f32, 2> = concat(&mean_pooled_views, 0)?.try_into()?;
+    let pool = TensorPool::new();
+    let mean_pooled: NdTensor<f32, 2> = concat(&pool, &mean_pooled_views, 0)?.try_into()?;
     Ok(mean_pooled)
 }
 

@@ -51,6 +51,7 @@ mod model;
 mod model_metadata;
 mod number;
 mod slice_reductions;
+mod tensor_pool;
 mod timer;
 mod timing;
 
@@ -67,6 +68,7 @@ pub use graph::{Dimension, NodeId, RunOptions};
 pub use model::{DefaultOperatorFactory, Model, ModelLoadError, NodeInfo, OpRegistry, ReadOpError};
 pub use model_metadata::ModelMetadata;
 pub use ops::{FloatOperators, Input, Operators, Output};
+pub use tensor_pool::TensorPool;
 pub use timer::Timer;
 pub use timing::TimingSort;
 

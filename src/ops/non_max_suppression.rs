@@ -3,6 +3,7 @@ use rten_tensor::{NdTensor, NdTensorView};
 
 use crate::ops::{InputList, IntoOpResult, OpError, Operator, Output};
 use crate::static_dims;
+use crate::tensor_pool::TensorPool;
 
 #[derive(Copy, Clone, Debug, PartialEq)]
 pub enum BoxOrder {
@@ -190,7 +191,7 @@ impl Operator for NonMaxSuppression {
         "NonMaxSuppression"
     }
 
-    fn run(&self, inputs: InputList) -> Result<Vec<Output>, OpError> {
+    fn run(&self, _pool: &TensorPool, inputs: InputList) -> Result<Vec<Output>, OpError> {
         let boxes = inputs.require_as(0)?;
         let boxes = static_dims!(boxes, 3, "ND4")?;
 

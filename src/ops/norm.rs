@@ -9,6 +9,7 @@ use crate::ops::{add, mul, reduce_mean, sub};
 use crate::ops::{resolve_axis, InputList, IntoOpResult, OpError, Operator, Output};
 use crate::slice_reductions::{slice_max, slice_sum};
 use crate::static_dims;
+use crate::tensor_pool::TensorPool;
 
 /// Perform in-place batch normalization on the `NC*` tensor `out`.
 ///
@@ -77,7 +78,7 @@ impl Operator for BatchNormalization {
         "BatchNormalization"
     }
 
-    fn run(&self, inputs: InputList) -> Result<Vec<Output>, OpError> {
+    fn run(&self, _pool: &TensorPool, inputs: InputList) -> Result<Vec<Output>, OpError> {
         let input = inputs.require_as(0)?;
 
         let scale = inputs.require_as(1)?;
@@ -197,7 +198,7 @@ impl Operator for InstanceNormalization {
         "InstanceNormalization"
     }
 
-    fn run(&self, inputs: InputList) -> Result<Vec<Output>, OpError> {
+    fn run(&self, _pool: &TensorPool, inputs: InputList) -> Result<Vec<Output>, OpError> {
         let input = inputs.require_as(0)?;
 
         let scale = inputs.require_as(1)?;
@@ -254,26 +255,28 @@ pub fn layer_normalization(
         .map(|axis| axis as i32)
         .collect();
 
+    let pool = TensorPool::new();
+
     // First step: standardize input elements to have unit mean and variance.
     let mean = reduce_mean(
         input.view(),
         Some(normalized_axes.as_slice()),
         true, /* keep_dims */
     )?;
-    let d = sub(input, mean.view())?;
-    let dd = mul(d.view(), d.view())?;
+    let d = sub(&pool, input, mean.view())?;
+    let dd = mul(&pool, d.view(), d.view())?;
     let var = reduce_mean(
         dd.view(),
         Some(normalized_axes.as_slice()),
         true, /* keep_dims */
     )?;
     let inverse_std_dev = var.map(|x| 1. / (x + epsilon).sqrt());
-    let normalized = mul(d.view(), inverse_std_dev.view())?;
+    let normalized = mul(&pool, d.view(), inverse_std_dev.view())?;
 
     // Second step: Shift and scale input.
-    let normalized_scaled = mul(normalized.view(), scale)?;
+    let normalized_scaled = mul(&pool, normalized.view(), scale)?;
     let output = if let Some(bias) = bias {
-        add(normalized_scaled.view(), bias)?
+        add(&pool, normalized_scaled.view(), bias)?
     } else {
         normalized_scaled
     };
@@ -292,7 +295,7 @@ impl Operator for LayerNormalization {
         "LayerNormalization"
     }
 
-    fn run(&self, inputs: InputList) -> Result<Vec<Output>, OpError> {
+    fn run(&self, _pool: &TensorPool, inputs: InputList) -> Result<Vec<Output>, OpError> {
         let input = inputs.require_as(0)?;
         let scale = inputs.require_as(1)?;
         let bias = inputs.get_as(2)?;
@@ -384,7 +387,7 @@ impl Operator for LogSoftmax {
         "LogSoftmax"
     }
 
-    fn run(&self, inputs: InputList) -> Result<Vec<Output>, OpError> {
+    fn run(&self, _pool: &TensorPool, inputs: InputList) -> Result<Vec<Output>, OpError> {
         let input = inputs.require_as(0)?;
         log_softmax(input.view(), self.axis).into_op_result()
     }
@@ -421,7 +424,7 @@ impl Operator for Softmax {
         "Softmax"
     }
 
-    fn run(&self, inputs: InputList) -> Result<Vec<Output>, OpError> {
+    fn run(&self, _pool: &TensorPool, inputs: InputList) -> Result<Vec<Output>, OpError> {
         let input = inputs.require_as(0)?;
         softmax(input.view(), self.axis).into_op_result()
     }

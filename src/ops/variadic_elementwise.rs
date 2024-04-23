@@ -6,6 +6,7 @@ use rten_tensor::{Tensor, TensorView};
 use crate::ops::binary_elementwise::broadcast_shapes;
 use crate::ops::reduce::{cmp_nan_greater, cmp_nan_less};
 use crate::ops::{Input, InputList, IntoOpResult, OpError, Operator, Output};
+use crate::tensor_pool::TensorPool;
 
 /// Apply an elementwise reduction to a sequence of tensors.
 ///
@@ -107,7 +108,7 @@ impl Operator for Max {
         "Max"
     }
 
-    fn run(&self, inputs: InputList) -> Result<Vec<Output>, OpError> {
+    fn run(&self, _pool: &TensorPool, inputs: InputList) -> Result<Vec<Output>, OpError> {
         run_typed_op!(inputs)
     }
 }
@@ -126,7 +127,7 @@ impl Operator for Mean {
         "Mean"
     }
 
-    fn run(&self, inputs: InputList) -> Result<Vec<Output>, OpError> {
+    fn run(&self, _pool: &TensorPool, inputs: InputList) -> Result<Vec<Output>, OpError> {
         let inputs: Vec<TensorView<f32>> = typed_views(&inputs)?;
         mean(&inputs).into_op_result()
     }
@@ -149,7 +150,7 @@ impl Operator for Min {
         "Min"
     }
 
-    fn run(&self, inputs: InputList) -> Result<Vec<Output>, OpError> {
+    fn run(&self, _pool: &TensorPool, inputs: InputList) -> Result<Vec<Output>, OpError> {
         run_typed_op!(inputs)
     }
 }
@@ -168,7 +169,7 @@ impl Operator for Sum {
         "Sum"
     }
 
-    fn run(&self, inputs: InputList) -> Result<Vec<Output>, OpError> {
+    fn run(&self, _pool: &TensorPool, inputs: InputList) -> Result<Vec<Output>, OpError> {
         run_typed_op!(inputs)
     }
 }
