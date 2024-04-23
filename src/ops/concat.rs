@@ -1,5 +1,4 @@
 use std::any::Any;
-use std::mem::MaybeUninit;
 
 use rten_tensor::prelude::*;
 use rten_tensor::{Iter, NdTensorView, Tensor, TensorView};
@@ -82,10 +81,7 @@ pub fn concat<T: Any + Copy>(
     for other in &inputs[1..] {
         out_shape[axis] += other.size(axis);
     }
-    let out: Tensor<MaybeUninit<T>> = pool.alloc(out_shape.as_slice());
-    let mut out_data = out.into_data();
-    out_data.clear();
-    let mut out_data: Vec<T> = unsafe { std::mem::transmute(out_data) };
+    let mut out_data: Vec<T> = pool.alloc_vec(out_shape.iter().product());
 
     let mut input_iters: Vec<TensorChunks<'_, T>> = inputs
         .iter()
