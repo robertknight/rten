@@ -93,16 +93,16 @@ pub fn max<T: Any + Copy + PartialOrd>(
 }
 
 macro_rules! run_typed_op {
-    ($pool:expr, $inputs:ident) => {{
+    ($pool:expr, $inputs:ident, $op:ident) => {{
         let first = $inputs.require(0)?;
         match first {
             Input::FloatTensor(_) => {
                 let inputs: Vec<TensorView<f32>> = typed_views(&$inputs)?;
-                max($pool, &inputs).into_op_result()
+                $op($pool, &inputs).into_op_result()
             }
             Input::IntTensor(_) => {
                 let inputs: Vec<TensorView<i32>> = typed_views(&$inputs)?;
-                max($pool, &inputs).into_op_result()
+                $op($pool, &inputs).into_op_result()
             }
         }
     }};
@@ -117,7 +117,7 @@ impl Operator for Max {
     }
 
     fn run(&self, pool: &TensorPool, inputs: InputList) -> Result<Vec<Output>, OpError> {
-        run_typed_op!(pool, inputs)
+        run_typed_op!(pool, inputs, max)
     }
 }
 
@@ -162,7 +162,7 @@ impl Operator for Min {
     }
 
     fn run(&self, pool: &TensorPool, inputs: InputList) -> Result<Vec<Output>, OpError> {
-        run_typed_op!(pool, inputs)
+        run_typed_op!(pool, inputs, min)
     }
 }
 
@@ -182,7 +182,7 @@ impl Operator for Sum {
     }
 
     fn run(&self, pool: &TensorPool, inputs: InputList) -> Result<Vec<Output>, OpError> {
-        run_typed_op!(pool, inputs)
+        run_typed_op!(pool, inputs, sum)
     }
 }
 
@@ -190,10 +190,17 @@ impl Operator for Sum {
 mod tests {
     use rten_tensor::prelude::*;
     use rten_tensor::test_util::eq_with_nans;
-    use rten_tensor::{tensor, Tensor};
+    use rten_tensor::{tensor, Tensor, TensorView};
 
     use crate::ops::tests::new_pool;
-    use crate::ops::{max, mean, min, sum, OpError};
+    use crate::ops::{max, mean, min, sum, Input, InputList, Max, Min, OpError, Operator, Sum};
+
+    fn run_operator<Op: Operator>(op: &Op, inputs: &[TensorView]) -> Tensor {
+        let inputs: Vec<Input> = inputs.iter().cloned().map(|i| i.into()).collect();
+        let pool = new_pool();
+        let mut outputs = op.run(&pool, InputList::from(inputs.as_slice())).unwrap();
+        outputs.remove(0).try_into().unwrap()
+    }
 
     // nb. Most of the tests are written for the `max` operator only, as the
     // other elementwise reductions share most of the implementation.
@@ -279,6 +286,13 @@ mod tests {
                 (result, expected) => assert_eq!(result, expected),
             }
         }
+
+        // Test the `Max` Operator impl
+        let a = tensor!([1., 2., 7., 8.]);
+        let b = tensor!([5., 6., 3., 4.]);
+        let expected = tensor!([5., 6., 7., 8.]);
+        let op_result = run_operator(&Max {}, &[a.view(), b.view()]);
+        assert_eq!(op_result, expected);
     }
 
     #[test]
@@ -297,7 +311,11 @@ mod tests {
         let pool = new_pool();
 
         let (a, b) = (tensor!([1., 2., 3.]), tensor!([4., 1., 3.]));
-        assert_eq!(min(&pool, &[a.view(), b.view()]), Ok(tensor!([1., 1., 3.])));
+        let expected = tensor!([1., 1., 3.]);
+        assert_eq!(min(&pool, &[a.view(), b.view()]), Ok(expected.clone()));
+
+        let output = run_operator(&Min {}, &[a.view(), b.view()]);
+        assert_eq!(output, expected);
 
         let (a, b) = (tensor!([1., 2., f32::NAN]), tensor!([4., 1., 3.]));
         let result = min(&pool, &[a.view(), b.view()]).unwrap();
@@ -312,9 +330,11 @@ mod tests {
         let pool = new_pool();
         let a = tensor!([1., 2., 3., 4.]);
         let b = tensor!([5., 6., 7., 8.]);
-        assert_eq!(
-            sum(&pool, &[a.view(), b.view()]),
-            Ok(tensor!([6., 8., 10., 12.]))
-        );
+        let expected = tensor!([6., 8., 10., 12.]);
+
+        assert_eq!(sum(&pool, &[a.view(), b.view()]), Ok(expected.clone()));
+
+        let output = run_operator(&Sum {}, &[a.view(), b.view()]);
+        assert_eq!(output, expected);
     }
 }
