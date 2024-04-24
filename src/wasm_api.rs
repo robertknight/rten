@@ -9,6 +9,7 @@ use wasm_bindgen::prelude::*;
 use crate::graph::Dimension;
 use crate::model;
 use crate::ops::{matmul, Input, Output};
+use crate::tensor_pool::TensorPool;
 
 #[wasm_bindgen]
 pub struct Model {
@@ -201,7 +202,8 @@ impl Tensor {
     pub fn matmul(&self, other: &Tensor) -> Result<Tensor, String> {
         let a = self.as_float()?;
         let b = other.as_float()?;
-        let out = matmul(a, b).map_err(|e| e.to_string())?;
+        let pool = TensorPool::new();
+        let out = matmul(&pool, a, b).map_err(|e| e.to_string())?;
         Ok(Tensor::from_output(out.into()))
     }
 }

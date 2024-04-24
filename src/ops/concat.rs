@@ -82,10 +82,7 @@ pub fn concat<T: Any + Copy>(
     for other in &inputs[1..] {
         out_shape[axis] += other.size(axis);
     }
-    let out: Tensor<MaybeUninit<T>> = pool.alloc(out_shape.as_slice());
-    let mut out_data = out.into_data();
-    out_data.clear();
-    let mut out_data: Vec<T> = unsafe { std::mem::transmute(out_data) };
+    let mut out_data: Vec<T> = pool.alloc_vec(out_shape.iter().product());
 
     let mut input_iters: Vec<TensorChunks<'_, T>> = inputs
         .iter()
@@ -132,18 +129,38 @@ impl Operator for Concat {
     }
 }
 
+/// Copied from `std::MaybeUninit::write_slice` in nightly std.
+fn write_slice<'a, T>(dest: &'a mut [MaybeUninit<T>], src: &[T]) -> &'a mut [T]
+where
+    T: Copy,
+{
+    // SAFETY: &[T] and &[MaybeUninit<T>] have the same layout
+    let uninit_src: &[MaybeUninit<T>] = unsafe { std::mem::transmute(src) };
+
+    dest.copy_from_slice(uninit_src);
+
+    // SAFETY: Valid elements have just been copied into `this` so it is initialized
+    unsafe { std::mem::transmute(dest) }
+}
+
 /// Recursively tile (ie. repeatly copy) chunks of `input` to `output`.
 ///
 /// `input_shape` and `repeats` are equal-length slices specifying the size
 /// of each dimension and the number of times to repeat that dim. All input
 /// dim sizes and repeats must be >= 1 (ie. input and output must be non-empty).
-fn tile_inner<T: Copy>(input: &[T], output: &mut [T], input_shape: &[usize], repeats: &[usize]) {
+fn tile_inner<T: Copy>(
+    input: &[T],
+    output: &mut [MaybeUninit<T>],
+    input_shape: &[usize],
+    repeats: &[usize],
+) {
+    let mut n_init = 0;
     match (input_shape, repeats) {
         ([size], [repeats]) => {
             assert!(input.len() == *size);
             assert!(input.len() * repeats == output.len());
             for out_chunk in output.chunks_mut(input.len()) {
-                out_chunk.copy_from_slice(input);
+                n_init += write_slice(out_chunk, input).len();
             }
         }
         ([size, inner_size @ ..], [repeats, inner_repeats @ ..]) => {
@@ -160,18 +177,21 @@ fn tile_inner<T: Copy>(input: &[T], output: &mut [T], input_shape: &[usize], rep
                     .zip(out_chunk.chunks_mut(inner_output_len))
                 {
                     tile_inner(inner_input, inner_output, inner_size, inner_repeats);
+                    n_init += inner_output.len();
                 }
             }
         }
         ([], []) => {
             // Input is a scalar.
-            output.copy_from_slice(input);
+            n_init += write_slice(output, input).len();
         }
         _ => panic!("input_shape.len() != repeats.len()"),
     }
+    assert!(n_init == output.len());
 }
 
-pub fn tile<T: Copy + Default>(
+pub fn tile<T: Any + Copy>(
+    pool: &TensorPool,
     input: TensorView<T>,
     repeats: NdTensorView<i32, 1>,
 ) -> Result<Tensor<T>, OpError> {
@@ -186,18 +206,20 @@ pub fn tile<T: Copy + Default>(
         .zip(repeats.iter())
         .map(|(size, repeat)| size * repeat)
         .collect();
-    let mut output = Tensor::zeros(&out_shape);
+    let mut output = pool.alloc(out_shape.as_slice());
 
-    if output.is_empty() {
-        return Ok(output);
+    if !output.is_empty() {
+        tile_inner(
+            input.to_contiguous().data().unwrap(),
+            output.data_mut().unwrap(),
+            input.shape(),
+            &repeats,
+        );
     }
 
-    tile_inner(
-        input.to_contiguous().data().unwrap(),
-        output.data_mut().unwrap(),
-        input.shape(),
-        &repeats,
-    );
+    // Safety - `tile_inner` initialized all output elements, or the tensor
+    // is empty.
+    let output = unsafe { output.assume_init() };
 
     Ok(output)
 }
@@ -210,14 +232,14 @@ impl Operator for Tile {
         "Tile"
     }
 
-    fn run(&self, _pool: &TensorPool, inputs: InputList) -> Result<Vec<Output>, OpError> {
+    fn run(&self, pool: &TensorPool, inputs: InputList) -> Result<Vec<Output>, OpError> {
         let input = inputs.require(0)?;
         let repeats = inputs.require_as::<i32>(1)?;
         let repeats = static_dims!(repeats, 1)?;
 
         match input {
-            Input::IntTensor(input) => tile(input, repeats).into_op_result(),
-            Input::FloatTensor(input) => tile(input, repeats).into_op_result(),
+            Input::IntTensor(input) => tile(pool, input, repeats).into_op_result(),
+            Input::FloatTensor(input) => tile(pool, input, repeats).into_op_result(),
         }
     }
 
@@ -234,9 +256,10 @@ impl Operator for Tile {
             return Ok(output);
         }
 
+        let pool = TensorPool::new();
         match output {
-            Output::IntTensor(input) => tile(input.view(), repeats).map(|t| t.into()),
-            Output::FloatTensor(input) => tile(input.view(), repeats).map(|t| t.into()),
+            Output::IntTensor(input) => tile(&pool, input.view(), repeats).map(|t| t.into()),
+            Output::FloatTensor(input) => tile(&pool, input.view(), repeats).map(|t| t.into()),
         }
     }
 }
@@ -325,29 +348,31 @@ mod tests {
 
     #[test]
     fn test_tile() {
+        let pool = new_pool();
+
         // Empty
         let input = Tensor::<f32>::zeros(&[3, 4, 5]);
         let repeats = tensor!([4, 0, 1]);
-        let result = tile(input.view(), repeats.nd_view()).unwrap();
+        let result = tile(&pool, input.view(), repeats.nd_view()).unwrap();
         assert_eq!(result.shape(), &[12, 0, 5]);
         assert!(result.is_empty());
 
         // Scalar
         let input = tensor!(5.);
         let repeats = tensor!([]);
-        let result = tile(input.view(), repeats.nd_view()).unwrap();
+        let result = tile(&pool, input.view(), repeats.nd_view()).unwrap();
         assert_eq!(result, tensor!(5.));
 
         // 1D tile
         let input = tensor!([1, 2, 3, 4]);
         let repeats = tensor!([3]);
-        let result = tile(input.view(), repeats.nd_view()).unwrap();
+        let result = tile(&pool, input.view(), repeats.nd_view()).unwrap();
         assert_eq!(result, tensor!([1, 2, 3, 4, 1, 2, 3, 4, 1, 2, 3, 4]));
 
         // 2D tile
         let input = tensor!((1, 1); [3.]);
         let repeats = tensor!([3, 2]);
-        let result = tile(input.view(), repeats.nd_view()).unwrap();
+        let result = tile(&pool, input.view(), repeats.nd_view()).unwrap();
         assert_eq!(
             result,
             tensor!(
@@ -363,25 +388,25 @@ mod tests {
         // Noop tile
         let input = tensor!([1, 2, 3, 4]);
         let repeats = tensor!([1]);
-        let result = tile(input.view(), repeats.nd_view()).unwrap();
+        let result = tile(&pool, input.view(), repeats.nd_view()).unwrap();
         assert_eq!(input, result);
 
         // Repeat inner dim of a 2D tensor
         let input = Tensor::from([[1, 2], [3, 4]]);
         let repeats = tensor!([1, 2]);
-        let result = tile(input.view(), repeats.nd_view()).unwrap();
+        let result = tile(&pool, input.view(), repeats.nd_view()).unwrap();
         assert_eq!(result, Tensor::from([[1, 2, 1, 2], [3, 4, 3, 4]]));
 
         // Repeat outer dim of a 2D tensor
         let input = Tensor::from([[1, 2], [3, 4]]);
         let repeats = tensor!([2, 1]);
-        let result = tile(input.view(), repeats.nd_view()).unwrap();
+        let result = tile(&pool, input.view(), repeats.nd_view()).unwrap();
         assert_eq!(result, Tensor::from([[1, 2], [3, 4], [1, 2], [3, 4]]));
 
         // Repeat inner and outer dims of a 2D tensor
         let input = Tensor::from([[1, 2], [3, 4]]);
         let repeats = tensor!([2, 2]);
-        let result = tile(input.view(), repeats.nd_view()).unwrap();
+        let result = tile(&pool, input.view(), repeats.nd_view()).unwrap();
         assert_eq!(
             result,
             Tensor::from([[1, 2, 1, 2], [3, 4, 3, 4], [1, 2, 1, 2], [3, 4, 3, 4]])
@@ -390,16 +415,18 @@ mod tests {
 
     #[test]
     fn test_tile_invalid_repeats() {
+        let pool = new_pool();
+
         // Repeats length does not match input ndim.
         let input = tensor!([1, 2, 3]);
         let repeats = tensor!([1, 2]);
-        let result = tile(input.view(), repeats.nd_view());
+        let result = tile(&pool, input.view(), repeats.nd_view());
         assert_eq!(result, Err(OpError::InvalidValue("invalid repeats")));
 
         // Negative repeats
         let input = tensor!([1, 2, 3]);
         let repeats = tensor!([-1]);
-        let result = tile(input.view(), repeats.nd_view());
+        let result = tile(&pool, input.view(), repeats.nd_view());
         assert_eq!(result, Err(OpError::InvalidValue("invalid repeats")));
     }
 }

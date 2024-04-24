@@ -770,7 +770,8 @@ impl Operator for Sub {
     }
 }
 
-pub fn where_op<T: Copy>(
+pub fn where_op<T: Any + Copy>(
+    pool: &TensorPool,
     cond: TensorView<i32>,
     x: TensorView<T>,
     y: TensorView<T>,
@@ -785,6 +786,9 @@ pub fn where_op<T: Copy>(
     let y_cycles = fast_broadcast_cycles(y.shape(), &result_shape);
     let can_cycle = cond_cycles.is_some() && x_cycles.is_some() && y_cycles.is_some();
 
+    let out_len = result_shape.iter().product();
+    let mut out_data = pool.alloc_vec(out_len);
+
     if let (true, Some(cond_data), Some(x_data), Some(y_data)) =
         (can_cycle, cond.data(), x.data(), y.data())
     {
@@ -792,27 +796,27 @@ pub fn where_op<T: Copy>(
         // though `broadcast_iter` has a fast path for cycling, cycling the
         // data slices directly is 3-4x faster due to optimizations like
         // `Iterator::zip` making use of the unstable `TrustedRandomAccess` trait.
-        let out_len = result_shape.iter().product();
-        let out_data: Vec<_> = cond_data
-            .iter()
-            .cycle()
-            .zip(x_data.iter().cycle())
-            .zip(y_data.iter().cycle())
-            .take(out_len)
-            .map(|((&cond, &x), &y)| if cond != 0 { x } else { y })
-            .collect();
-        Ok(Tensor::from_data(&result_shape, out_data))
+        out_data.extend(
+            cond_data
+                .iter()
+                .cycle()
+                .zip(x_data.iter().cycle())
+                .zip(y_data.iter().cycle())
+                .take(out_len)
+                .map(|((&cond, &x), &y)| if cond != 0 { x } else { y }),
+        );
     } else {
         // Fallback if tensors are non-contiguous or broadcasting can't be
         // done with just cycling.
-        let out_data: Vec<_> = cond
-            .broadcast_iter(&result_shape)
-            .zip(x.broadcast_iter(&result_shape))
-            .zip(y.broadcast_iter(&result_shape))
-            .map(|((&cond, &x), &y)| if cond != 0 { x } else { y })
-            .collect();
-        Ok(Tensor::from_data(&result_shape, out_data))
+        out_data.extend(
+            cond.broadcast_iter(&result_shape)
+                .zip(x.broadcast_iter(&result_shape))
+                .zip(y.broadcast_iter(&result_shape))
+                .map(|((&cond, &x), &y)| if cond != 0 { x } else { y }),
+        );
     }
+
+    Ok(Tensor::from_data(&result_shape, out_data))
 }
 
 #[derive(Debug)]
@@ -823,18 +827,18 @@ impl Operator for Where {
         "Where"
     }
 
-    fn run(&self, _pool: &TensorPool, inputs: InputList) -> Result<Vec<Output>, OpError> {
+    fn run(&self, pool: &TensorPool, inputs: InputList) -> Result<Vec<Output>, OpError> {
         let condition = inputs.require_as::<i32>(0)?;
         let x = inputs.require(1)?;
         let y = inputs.require(2)?;
         match x {
             Input::FloatTensor(x) => {
                 let y: TensorView = y.try_into()?;
-                where_op(condition, x, y).into_op_result()
+                where_op(pool, condition, x, y).into_op_result()
             }
             Input::IntTensor(x) => {
                 let y: TensorView<i32> = y.try_into()?;
-                where_op(condition, x, y).into_op_result()
+                where_op(pool, condition, x, y).into_op_result()
             }
         }
     }
@@ -1453,11 +1457,13 @@ mod tests {
 
     #[test]
     fn test_where() {
+        let pool = new_pool();
+
         // Float tensor with exact matching shapes
         let cond = Tensor::from_data(&[2, 2], vec![1, 0, 0, 1]);
         let x = Tensor::from_data(&[2, 2], vec![1., 2., 3., 4.]);
         let y = Tensor::from_data(&[2, 2], vec![10., 20., 30., 40.]);
-        let result = where_op(cond.view(), x.view(), y.view()).unwrap();
+        let result = where_op(&pool, cond.view(), x.view(), y.view()).unwrap();
         let expected = Tensor::from_data(&[2, 2], vec![1., 20., 30., 4.]);
         assert_eq!(&result, &expected);
 
@@ -1465,7 +1471,7 @@ mod tests {
         let cond = tensor!([1, 1, 0, 0]);
         let x = Tensor::from_scalar(1.);
         let y = Tensor::from_scalar(2.);
-        let result = where_op(cond.view(), x.view(), y.view()).unwrap();
+        let result = where_op(&pool, cond.view(), x.view(), y.view()).unwrap();
         let expected = tensor!([1., 1., 2., 2.]);
         assert_eq!(&result, &expected);
 
@@ -1473,7 +1479,7 @@ mod tests {
         let cond = Tensor::from_scalar(1);
         let x = tensor!([1., 2.]);
         let y = tensor!([3., 4.]);
-        let result = where_op(cond.view(), x.view(), y.view()).unwrap();
+        let result = where_op(&pool, cond.view(), x.view(), y.view()).unwrap();
         let expected = tensor!([1., 2.]);
         assert_eq!(&result, &expected);
 
@@ -1481,7 +1487,7 @@ mod tests {
         let cond = tensor!([1, 1, 0, 0]);
         let x = Tensor::from_scalar(3);
         let y = Tensor::from_scalar(4);
-        let result = where_op(cond.view(), x.view(), y.view()).unwrap();
+        let result = where_op(&pool, cond.view(), x.view(), y.view()).unwrap();
         let expected = tensor!([3, 3, 4, 4]);
         assert_eq!(&result, &expected);
 
@@ -1491,26 +1497,28 @@ mod tests {
         let cond = Tensor::from([[1, 0], [1, 0]]);
         let x = Tensor::from([[1], [2]]);
         let y = Tensor::from([[3], [4]]);
-        let result = where_op(cond.view(), x.view(), y.view()).unwrap();
+        let result = where_op(&pool, cond.view(), x.view(), y.view()).unwrap();
         let expected = Tensor::from([[1, 3], [2, 4]]);
         assert_eq!(&result, &expected);
     }
 
     #[test]
     fn test_where_invalid_inputs() {
+        let pool = new_pool();
+
         let cond = tensor!([1, 1]);
         let x = tensor!([1, 2, 3]);
         let y = tensor!([2, 2]);
 
         // Failure to broadcast `x` to match `cond`
-        let result = where_op(cond.view(), x.view(), y.view());
+        let result = where_op(&pool, cond.view(), x.view(), y.view());
         assert_eq!(
             result.err(),
             Some(OpError::IncompatibleInputShapes("Cannot broadcast inputs"))
         );
 
         // Failure to broadcast `y` to match `cond`
-        let result = where_op(cond.view(), y.view(), x.view());
+        let result = where_op(&pool, cond.view(), y.view(), x.view());
         assert_eq!(
             result.err(),
             Some(OpError::IncompatibleInputShapes("Cannot broadcast inputs"))

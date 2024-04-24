@@ -14,7 +14,7 @@ use crate::gemm::{add_scaled_vector, div_ceil, GemmExecutor, GemmInputA, GemmInp
 use crate::iter_util::range_chunks;
 use crate::ops::pooling::calc_output_size_and_padding;
 use crate::ops::{InputList, IntoOpResult, OpError, Operator, Output, Padding};
-use crate::tensor_pool::TensorPool;
+use crate::tensor_pool::{PoolRef, TensorPool};
 
 mod im2col;
 use im2col::VirtualIm2Col;
@@ -49,11 +49,12 @@ fn min_max_out_x_coords(
 /// This is slightly more efficient than creating a zero-filled tensor and then
 /// adding the appropriate bias to each element.
 fn init_tensor_with_channel_bias(
+    pool: &TensorPool,
     shape: &[usize],
     chan_dim: usize,
     bias: &NdTensorView<f32, 1>,
 ) -> Tensor {
-    let mut out_data = Vec::with_capacity(shape.iter().product());
+    let mut out_data = pool.alloc_vec(shape.iter().product());
 
     let chan_elts: usize = shape[chan_dim + 1..].iter().product();
     let all_chan_elts: usize = chan_elts * shape[chan_dim];
@@ -577,6 +578,7 @@ fn col2im(
 /// `input` has dimensions NCHW and `kernel` has dimensions COHW where `O` is
 /// the number of output channels.
 pub fn conv_transpose(
+    pool: &TensorPool,
     input: TensorView,
     kernel: TensorView,
     bias: Option<TensorView>,
@@ -599,16 +601,16 @@ pub fn conv_transpose(
     let out_w = (in_w - 1) * stride_w + k_w;
 
     let mut output = if let Some(bias) = bias {
-        init_tensor_with_channel_bias(&[batch, out_c, out_h, out_w], 1, &bias)
+        init_tensor_with_channel_bias(pool, &[batch, out_c, out_h, out_w], 1, &bias)
     } else {
-        Tensor::zeros(&[batch, out_c, out_h, out_w])
+        pool.alloc_zeroed([batch, out_c, out_h, out_w].as_slice())
     };
 
     // Ensure input and kernel are contiguous to support reshaping.
     let input = input.to_contiguous();
     let kernel = kernel.to_contiguous();
 
-    let mut col2im_mat = Tensor::uninit(&[in_h * in_w, out_c * k_h * k_w]);
+    let mut col2im_mat = PoolRef::new(pool, pool.alloc([in_h * in_w, out_c * k_h * k_w]));
     let kernel_mat = kernel.reshaped([k_in_c, out_c * k_h * k_w]);
     let gemm = GemmExecutor::new();
 
@@ -633,9 +635,7 @@ pub fn conv_transpose(
 
         col2im(
             &mut output.nd_view_mut::<4>().slice_mut([n]),
-            &col2im_mat
-                .nd_view::<2>()
-                .reshaped([in_h, in_w, out_c, k_h, k_w]),
+            &col2im_mat.reshaped([in_h, in_w, out_c, k_h, k_w]),
             strides,
         );
     }
@@ -653,11 +653,11 @@ impl Operator for ConvTranspose {
         "ConvTranspose"
     }
 
-    fn run(&self, _pool: &TensorPool, inputs: InputList) -> Result<Vec<Output>, OpError> {
+    fn run(&self, pool: &TensorPool, inputs: InputList) -> Result<Vec<Output>, OpError> {
         let input = inputs.require_as(0)?;
         let weight = inputs.require_as(1)?;
         let bias = inputs.get_as(2)?;
-        conv_transpose(input, weight, bias, self.strides).into_op_result()
+        conv_transpose(pool, input, weight, bias, self.strides).into_op_result()
     }
 }
 
@@ -1236,6 +1236,7 @@ mod tests {
 
     #[test]
     fn test_conv_transpose() -> Result<(), Box<dyn Error>> {
+        let pool = new_pool();
         let input = Tensor::from_data(&[1, 1, 2, 2], vec![1.0, 2.0, 3.0, 4.0]);
         let kernel = Tensor::from_data(&[1, 1, 2, 2], vec![0.1, 0.2, 0.3, 0.4]);
         let expected = Tensor::from_data(
@@ -1246,7 +1247,7 @@ mod tests {
             ],
         );
 
-        let result = conv_transpose(input.view(), kernel.view(), None, [2, 2]).unwrap();
+        let result = conv_transpose(&pool, input.view(), kernel.view(), None, [2, 2]).unwrap();
         expect_equal(&result, &expected)?;
 
         let mut expected_with_bias = Tensor::from_data(expected.shape().into(), expected.to_vec());
@@ -1254,8 +1255,14 @@ mod tests {
             *eb += 1.234;
         }
         let bias = Tensor::from_data(&[1], vec![1.234]);
-        let result =
-            conv_transpose(input.view(), kernel.view(), Some(bias.view()), [2, 2]).unwrap();
+        let result = conv_transpose(
+            &pool,
+            input.view(),
+            kernel.view(),
+            Some(bias.view()),
+            [2, 2],
+        )
+        .unwrap();
         expect_equal(&result, &expected_with_bias)?;
 
         Ok(())

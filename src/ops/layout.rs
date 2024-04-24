@@ -248,13 +248,14 @@ fn resolve_shape(
         .collect())
 }
 
-pub fn reshape<T: Clone>(
+pub fn reshape<T: Any + Copy>(
+    pool: &TensorPool,
     input: TensorView<T>,
     shape: &NdTensorView<i32, 1>,
     allow_zero: bool,
 ) -> Result<Tensor<T>, OpError> {
     let out_shape = resolve_shape(input.shape(), shape, allow_zero)?;
-    let mut output = input.to_tensor();
+    let mut output = pool.alloc(input.shape()).init_from(&input);
     output.reshape(&out_shape);
     Ok(output)
 }
@@ -279,14 +280,14 @@ impl Operator for Reshape {
         "Reshape"
     }
 
-    fn run(&self, _pool: &TensorPool, inputs: InputList) -> Result<Vec<Output>, OpError> {
+    fn run(&self, pool: &TensorPool, inputs: InputList) -> Result<Vec<Output>, OpError> {
         let input = inputs.require(0)?;
         let shape = inputs.require_as(1)?;
         let shape = static_dims!(shape, 1)?;
 
         match input {
-            Input::IntTensor(t) => reshape(t, &shape, self.allow_zero).into_op_result(),
-            Input::FloatTensor(t) => reshape(t, &shape, self.allow_zero).into_op_result(),
+            Input::IntTensor(t) => reshape(pool, t, &shape, self.allow_zero).into_op_result(),
+            Input::FloatTensor(t) => reshape(pool, t, &shape, self.allow_zero).into_op_result(),
         }
     }
 
@@ -634,17 +635,26 @@ mod tests {
 
     #[test]
     fn test_reshape_with_unspecified_dim() -> Result<(), Box<dyn Error>> {
+        let pool = new_pool();
+
         // Reshape with an unspecified (-1) dim and nonzero-length input
         let input = Tensor::from_data(&[2, 2], vec![-0.5, 0.5, 3.0, -5.5]);
         let shape = ndtensor!([1, -1, 2]);
         let expected = input.to_shape([1, 2, 2].as_slice());
-        let result = reshape(input.view(), &shape.view(), false /* allow_zero */).unwrap();
+        let result = reshape(
+            &pool,
+            input.view(),
+            &shape.view(),
+            false, /* allow_zero */
+        )
+        .unwrap();
         expect_equal(&result, &expected)?;
 
         // Reshape with an unspecified (-1) dim and zero-length input
         let zero_sized_input = Tensor::<f32>::from_data(&[4, 0, 1], vec![]);
         let shape = ndtensor!([100, -1]);
         let result = reshape(
+            &pool,
             zero_sized_input.view(),
             &shape.view(),
             false, /* allow_zero */
@@ -658,25 +668,44 @@ mod tests {
 
     #[test]
     fn test_reshape_with_zero_dim() -> Result<(), Box<dyn Error>> {
+        let pool = new_pool();
+
         // When the target shape has a zero dim, the corresponding input dim
         // size should be copied.
         let input = Tensor::from_data(&[1, 1, 4], vec![-0.5, 0.5, 3.0, -5.5]);
         let shape = ndtensor!([-1, 0]);
         let expected = input.to_shape([4, 1].as_slice());
-        let result = reshape(input.view(), &shape.view(), false /* allow_zero */).unwrap();
+        let result = reshape(
+            &pool,
+            input.view(),
+            &shape.view(),
+            false, /* allow_zero */
+        )
+        .unwrap();
         expect_equal(&result, &expected)?;
 
         // Case where copied input dim is also zero.
         let input = Tensor::<f32>::from_data(&[0], vec![]);
         let shape = ndtensor!([0]);
         let expected = input.to_shape([0].as_slice());
-        let result = reshape(input.view(), &shape.view(), false /* allow_zero */).unwrap();
+        let result = reshape(
+            &pool,
+            input.view(),
+            &shape.view(),
+            false, /* allow_zero */
+        )
+        .unwrap();
         expect_equal(&result, &expected)?;
 
         // Case where there is no corresponding input dim.
         let input = Tensor::from_data(&[1], vec![5.]);
         let shape = ndtensor!([1, 0]);
-        let result = reshape(input.view(), &shape.view(), false /* allow_zero */);
+        let result = reshape(
+            &pool,
+            input.view(),
+            &shape.view(),
+            false, /* allow_zero */
+        );
         assert_eq!(
             result.err(),
             Some(OpError::InvalidValue(
@@ -687,7 +716,13 @@ mod tests {
         // Case when allow_zero is true
         let input = Tensor::<f32>::from_data(&[0, 0, 10], vec![]);
         let shape = ndtensor!([10, 0, 0]);
-        let result = reshape(input.view(), &shape.view(), true /* allow_zero */).unwrap();
+        let result = reshape(
+            &pool,
+            input.view(),
+            &shape.view(),
+            true, /* allow_zero */
+        )
+        .unwrap();
         let expected = input.to_shape([10, 0, 0].as_slice());
         expect_equal(&result, &expected)?;
 
@@ -696,10 +731,17 @@ mod tests {
 
     #[test]
     fn test_reshape_with_multiple_unspecified_dims() {
+        let pool = new_pool();
         let input = Tensor::from_data(&[2, 2], vec![-0.5, 0.5, 3.0, -5.5]);
         let shape = ndtensor!([1, -1, -1]);
         assert_eq!(
-            reshape(input.view(), &shape.view(), false /* allow_zero */).err(),
+            reshape(
+                &pool,
+                input.view(),
+                &shape.view(),
+                false /* allow_zero */
+            )
+            .err(),
             Some(OpError::InvalidValue(
                 "Multiple dimensions in new shape set to -1"
             ))
@@ -708,19 +750,30 @@ mod tests {
 
     #[test]
     fn test_reshape_with_unsolvable_unspecified_dim() {
+        let pool = new_pool();
         let expected_err = Some(OpError::InvalidValue(
             "Input length must be a multiple of specified dimensions",
         ));
 
         let input = Tensor::from_data(&[2, 2], vec![-0.5, 0.5, 3.0, -5.5]);
         let shape = ndtensor!([5, -1]);
-        let result = reshape(input.view(), &shape.view(), false /* allow_zero */);
+        let result = reshape(
+            &pool,
+            input.view(),
+            &shape.view(),
+            false, /* allow_zero */
+        );
         assert_eq!(result.err(), expected_err);
 
         // Case when allow_zero is true
         let input = Tensor::from_data(&[1], vec![1]);
         let shape = ndtensor!([0, -1]);
-        let result = reshape(input.view(), &shape.view(), true /* allow_zero */);
+        let result = reshape(
+            &pool,
+            input.view(),
+            &shape.view(),
+            true, /* allow_zero */
+        );
         assert_eq!(result.err(), expected_err);
     }
 

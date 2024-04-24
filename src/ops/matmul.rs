@@ -101,11 +101,16 @@ enum MatmulStrategy {
     Batch,
 }
 
-pub fn matmul(a: TensorView, b: TensorView) -> Result<Tensor, OpError> {
-    matmul_impl(a, b, MatmulStrategy::Auto)
+pub fn matmul(pool: &TensorPool, a: TensorView, b: TensorView) -> Result<Tensor, OpError> {
+    matmul_impl(pool, a, b, MatmulStrategy::Auto)
 }
 
-fn matmul_impl(a: TensorView, b: TensorView, strategy: MatmulStrategy) -> Result<Tensor, OpError> {
+fn matmul_impl(
+    pool: &TensorPool,
+    a: TensorView,
+    b: TensorView,
+    strategy: MatmulStrategy,
+) -> Result<Tensor, OpError> {
     if a.ndim() < 2 || b.ndim() < 2 {
         return Err(OpError::InvalidValue("Inputs must have >= 2 dimensions"));
     }
@@ -143,13 +148,15 @@ fn matmul_impl(a: TensorView, b: TensorView, strategy: MatmulStrategy) -> Result
         // nb. We assume `a` is likely already contiguous, so this will be cheap.
         let a_contig = a.to_contiguous();
         let a_matrix = a_contig.reshaped([num_a_matrices * a_rows, a_cols].as_slice());
-        let mut output = matmul(a_matrix, b.clone())?;
+        let mut output = matmul(pool, a_matrix, b.clone())?;
         output.reshape(out_shape);
         return Ok(output);
     }
 
-    let mut output = Tensor::<f32>::uninit(out_shape);
+    let mut output = pool.alloc(out_shape.as_slice());
     if output.is_empty() {
+        // nb. We don't need to alloc from the pool here, since the buffer
+        // is already empty.
         return Ok(Tensor::zeros(out_shape));
     }
 
@@ -221,10 +228,10 @@ impl Operator for MatMul {
         "MatMul"
     }
 
-    fn run(&self, _pool: &TensorPool, inputs: InputList) -> Result<Vec<Output>, OpError> {
+    fn run(&self, pool: &TensorPool, inputs: InputList) -> Result<Vec<Output>, OpError> {
         let a = inputs.require_as(0)?;
         let b = inputs.require_as(1)?;
-        matmul(a, b).into_op_result()
+        matmul(pool, a, b).into_op_result()
     }
 }
 
@@ -239,6 +246,7 @@ mod tests {
     use rten_tensor::{Tensor, TensorView, TensorViewMut};
 
     use crate::gemm::gemm;
+    use crate::ops::tests::new_pool;
 
     use super::{gemm_op, matmul, matmul_impl, MatmulStrategy, OpError};
 
@@ -388,6 +396,8 @@ mod tests {
             },
         ];
 
+        let pool = new_pool();
+
         for Case {
             a_shape,
             b_shape,
@@ -400,7 +410,7 @@ mod tests {
             let mut expected = Tensor::zeros(out_shape);
 
             reference_matmul(expected.view_mut(), a.view(), b.view());
-            let result = matmul(a.view(), b.view()).unwrap();
+            let result = matmul(&pool, a.view(), b.view()).unwrap();
             expect_equal(&result, &expected)?;
         }
 
@@ -440,6 +450,7 @@ mod tests {
             },
         ];
 
+        let pool = new_pool();
         for Case {
             a_shape,
             b_shape,
@@ -450,7 +461,7 @@ mod tests {
             let a = Tensor::rand(a_shape, &mut rng);
             let b = Tensor::rand(b_shape, &mut rng);
 
-            let result = matmul(a.view(), b.view());
+            let result = matmul(&pool, a.view(), b.view());
             assert_eq!(result, Err(error));
         }
 
@@ -471,11 +482,12 @@ mod tests {
             Case { m: 5, n: 10, k: 0 },
         ];
 
+        let pool = new_pool();
         for Case { m, n, k } in cases {
             let mut rng = XorShiftRng::new(1234);
             let a = Tensor::rand(&[m, k], &mut rng);
             let b = Tensor::rand(&[k, n], &mut rng);
-            let result = matmul(a.view(), b.view()).unwrap();
+            let result = matmul(&pool, a.view(), b.view()).unwrap();
 
             assert_eq!(result.shape(), &[m, n]);
             if k == 0 {
@@ -525,8 +537,10 @@ mod tests {
                 let desc = format!(
                     "matmul [{a_batch},{a_rows},{a_cols}] x [{a_cols},{b_cols}], strategy={strategy:?}",
                 );
+                let pool = new_pool();
                 run_bench(trials, Some(&desc), || {
-                    matmul_impl(a.view(), b.view(), strategy).unwrap();
+                    let output = matmul_impl(&pool, a.view(), b.view(), strategy).unwrap();
+                    pool.add(output);
                 });
             };
 
