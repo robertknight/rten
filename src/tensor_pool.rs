@@ -128,7 +128,7 @@ impl TensorPool {
     ///
     /// This method expects `T` to be an initialized type (ie. not an
     /// uninitialized tensor as returned by `Tensor::uninit`).
-    pub fn add<T: Any, L: MutLayout>(&self, tensor: TensorBase<T, Vec<T>, L>) {
+    pub fn add<T: Any + Copy, L: MutLayout>(&self, tensor: TensorBase<T, Vec<T>, L>) {
         let data = tensor.into_non_contiguous_data();
 
         // Safety: We assume casting `Vec<T>` => `Vec<MaybeUninit<T>>` is safe
