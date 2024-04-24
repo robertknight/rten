@@ -181,7 +181,7 @@ impl<T, S: AsRef<[T]>, const N: usize> Operators for TensorBase<T, S, NdLayout<N
 
 impl<S: AsRef<[f32]>> FloatOperators for TensorBase<f32, S, DynLayout> {
     fn matmul(&self, other: TensorView) -> Result<Tensor, OpError> {
-        matmul(self.view(), other)
+        matmul(&TensorPool::new(), self.view(), other)
     }
 
     fn reduce_l2(&self, axes: Option<&[i32]>, keep_dims: bool) -> Result<Tensor, OpError> {
@@ -211,7 +211,7 @@ impl<S: AsRef<[f32]>> FloatOperators for TensorBase<f32, S, DynLayout> {
 
 impl<S: AsRef<[f32]>, const N: usize> FloatOperators for TensorBase<f32, S, NdLayout<N>> {
     fn matmul(&self, other: TensorView) -> Result<Tensor, OpError> {
-        matmul(self.as_dyn(), other)
+        matmul(&TensorPool::new(), self.as_dyn(), other)
     }
 
     fn reduce_l2(&self, axes: Option<&[i32]>, keep_dims: bool) -> Result<Tensor, OpError> {
