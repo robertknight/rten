@@ -1,3 +1,4 @@
+use std::any::Any;
 use std::iter::zip;
 
 use rten_tensor::prelude::*;
@@ -11,7 +12,8 @@ use crate::tensor_pool::TensorPool;
 /// Apply an elementwise reduction to a sequence of tensors.
 ///
 /// All inputs must be broadcastable to the same shape.
-fn reduce_elementwise<T: Copy + Default, R: Fn(&[T]) -> T>(
+fn reduce_elementwise<T: Any + Copy, R: Fn(&[T]) -> T>(
+    pool: &TensorPool,
     inputs: &[TensorView<T>],
     reduce: &R,
 ) -> Result<Tensor<T>, OpError> {
@@ -25,14 +27,16 @@ fn reduce_elementwise<T: Copy + Default, R: Fn(&[T]) -> T>(
                 ));
             };
 
-            let mut result = Tensor::zeros(&out_shape);
+            let mut result = pool.alloc(out_shape.as_slice());
             for (out, (&a, &b)) in zip(
                 result.iter_mut(),
                 zip(a.broadcast_iter(&out_shape), b.broadcast_iter(&out_shape)),
             ) {
-                *out = reduce(&[a, b]);
+                out.write(reduce(&[a, b]));
             }
-            Ok(result)
+
+            // Safety: We initialized all output elements.
+            Ok(unsafe { result.assume_init() })
         }
         _ => {
             let Some(out_shape) = inputs
@@ -51,15 +55,16 @@ fn reduce_elementwise<T: Copy + Default, R: Fn(&[T]) -> T>(
                 .map(|view| view.broadcast_iter(&out_shape))
                 .collect();
             let mut elts = Vec::with_capacity(inputs.len());
-            let mut output = Tensor::zeros(&out_shape);
+            let mut output = pool.alloc(out_shape.as_slice());
 
             for out in output.iter_mut() {
                 elts.extend(iters.iter_mut().map(|it| it.next().unwrap()));
-                *out = reduce(&elts);
+                out.write(reduce(&elts));
                 elts.clear();
             }
 
-            Ok(output)
+            // Safety: We initialized all output elements.
+            Ok(unsafe { output.assume_init() })
         }
     }
 }
@@ -75,8 +80,11 @@ where
     })
 }
 
-pub fn max<T: Copy + Default + PartialOrd>(inputs: &[TensorView<T>]) -> Result<Tensor<T>, OpError> {
-    reduce_elementwise(inputs, &|elts: &[T]| {
+pub fn max<T: Any + Copy + PartialOrd>(
+    pool: &TensorPool,
+    inputs: &[TensorView<T>],
+) -> Result<Tensor<T>, OpError> {
+    reduce_elementwise(pool, inputs, &|elts: &[T]| {
         elts.iter()
             .max_by(|a, b| cmp_nan_greater(*a, *b))
             .copied()
@@ -85,16 +93,16 @@ pub fn max<T: Copy + Default + PartialOrd>(inputs: &[TensorView<T>]) -> Result<T
 }
 
 macro_rules! run_typed_op {
-    ($inputs:ident) => {{
+    ($pool:expr, $inputs:ident, $op:ident) => {{
         let first = $inputs.require(0)?;
         match first {
             Input::FloatTensor(_) => {
                 let inputs: Vec<TensorView<f32>> = typed_views(&$inputs)?;
-                max(&inputs).into_op_result()
+                $op($pool, &inputs).into_op_result()
             }
             Input::IntTensor(_) => {
                 let inputs: Vec<TensorView<i32>> = typed_views(&$inputs)?;
-                max(&inputs).into_op_result()
+                $op($pool, &inputs).into_op_result()
             }
         }
     }};
@@ -108,13 +116,13 @@ impl Operator for Max {
         "Max"
     }
 
-    fn run(&self, _pool: &TensorPool, inputs: InputList) -> Result<Vec<Output>, OpError> {
-        run_typed_op!(inputs)
+    fn run(&self, pool: &TensorPool, inputs: InputList) -> Result<Vec<Output>, OpError> {
+        run_typed_op!(pool, inputs, max)
     }
 }
 
-pub fn mean(inputs: &[TensorView]) -> Result<Tensor, OpError> {
-    let mut result = reduce_elementwise(inputs, &|elts| elts.iter().sum())?;
+pub fn mean(pool: &TensorPool, inputs: &[TensorView]) -> Result<Tensor, OpError> {
+    let mut result = reduce_elementwise(pool, inputs, &|elts| elts.iter().sum())?;
     result.apply(|x| x / inputs.len() as f32);
     Ok(result)
 }
@@ -127,14 +135,17 @@ impl Operator for Mean {
         "Mean"
     }
 
-    fn run(&self, _pool: &TensorPool, inputs: InputList) -> Result<Vec<Output>, OpError> {
+    fn run(&self, pool: &TensorPool, inputs: InputList) -> Result<Vec<Output>, OpError> {
         let inputs: Vec<TensorView<f32>> = typed_views(&inputs)?;
-        mean(&inputs).into_op_result()
+        mean(pool, &inputs).into_op_result()
     }
 }
 
-pub fn min<T: Copy + Default + PartialOrd>(inputs: &[TensorView<T>]) -> Result<Tensor<T>, OpError> {
-    reduce_elementwise(inputs, &|elts: &[T]| {
+pub fn min<T: Any + Copy + PartialOrd>(
+    pool: &TensorPool,
+    inputs: &[TensorView<T>],
+) -> Result<Tensor<T>, OpError> {
+    reduce_elementwise(pool, inputs, &|elts: &[T]| {
         elts.iter()
             .min_by(|a, b| cmp_nan_less(*a, *b))
             .copied()
@@ -150,15 +161,16 @@ impl Operator for Min {
         "Min"
     }
 
-    fn run(&self, _pool: &TensorPool, inputs: InputList) -> Result<Vec<Output>, OpError> {
-        run_typed_op!(inputs)
+    fn run(&self, pool: &TensorPool, inputs: InputList) -> Result<Vec<Output>, OpError> {
+        run_typed_op!(pool, inputs, min)
     }
 }
 
-pub fn sum<T: Copy + Default + std::iter::Sum>(
+pub fn sum<T: Any + Copy + std::iter::Sum>(
+    pool: &TensorPool,
     inputs: &[TensorView<T>],
 ) -> Result<Tensor<T>, OpError> {
-    reduce_elementwise(inputs, &|elts: &[T]| elts.iter().copied().sum())
+    reduce_elementwise(pool, inputs, &|elts: &[T]| elts.iter().copied().sum())
 }
 
 #[derive(Debug)]
@@ -169,8 +181,8 @@ impl Operator for Sum {
         "Sum"
     }
 
-    fn run(&self, _pool: &TensorPool, inputs: InputList) -> Result<Vec<Output>, OpError> {
-        run_typed_op!(inputs)
+    fn run(&self, pool: &TensorPool, inputs: InputList) -> Result<Vec<Output>, OpError> {
+        run_typed_op!(pool, inputs, sum)
     }
 }
 
@@ -178,9 +190,17 @@ impl Operator for Sum {
 mod tests {
     use rten_tensor::prelude::*;
     use rten_tensor::test_util::eq_with_nans;
-    use rten_tensor::{tensor, Tensor};
+    use rten_tensor::{tensor, Tensor, TensorView};
 
-    use crate::ops::{max, mean, min, sum, OpError};
+    use crate::ops::tests::new_pool;
+    use crate::ops::{max, mean, min, sum, Input, InputList, Max, Min, OpError, Operator, Sum};
+
+    fn run_operator<Op: Operator>(op: &Op, inputs: &[TensorView]) -> Tensor {
+        let inputs: Vec<Input> = inputs.iter().cloned().map(|i| i.into()).collect();
+        let pool = new_pool();
+        let mut outputs = op.run(&pool, InputList::from(inputs.as_slice())).unwrap();
+        outputs.remove(0).try_into().unwrap()
+    }
 
     // nb. Most of the tests are written for the `max` operator only, as the
     // other elementwise reductions share most of the implementation.
@@ -257,30 +277,48 @@ mod tests {
             },
         ];
 
+        let pool = new_pool();
         for case in cases {
             let views: Vec<_> = case.inputs.iter().map(|t| t.view()).collect();
-            let result = max(&views);
+            let result = max(&pool, &views);
             match (result, case.expected) {
                 (Ok(result), Ok(expected)) => assert!(eq_with_nans(result.view(), expected.view())),
                 (result, expected) => assert_eq!(result, expected),
             }
         }
+
+        // Test the `Max` Operator impl
+        let a = tensor!([1., 2., 7., 8.]);
+        let b = tensor!([5., 6., 3., 4.]);
+        let expected = tensor!([5., 6., 7., 8.]);
+        let op_result = run_operator(&Max {}, &[a.view(), b.view()]);
+        assert_eq!(op_result, expected);
     }
 
     #[test]
     fn test_mean() {
         let a = tensor!([1., 2., 3., 4.]);
         let b = tensor!([5., 6., 7., 8.]);
-        assert_eq!(mean(&[a.view(), b.view()]), Ok(tensor!([3., 4., 5., 6.])));
+        let pool = new_pool();
+        assert_eq!(
+            mean(&pool, &[a.view(), b.view()]),
+            Ok(tensor!([3., 4., 5., 6.]))
+        );
     }
 
     #[test]
     fn test_min() {
+        let pool = new_pool();
+
         let (a, b) = (tensor!([1., 2., 3.]), tensor!([4., 1., 3.]));
-        assert_eq!(min(&[a.view(), b.view()]), Ok(tensor!([1., 1., 3.])));
+        let expected = tensor!([1., 1., 3.]);
+        assert_eq!(min(&pool, &[a.view(), b.view()]), Ok(expected.clone()));
+
+        let output = run_operator(&Min {}, &[a.view(), b.view()]);
+        assert_eq!(output, expected);
 
         let (a, b) = (tensor!([1., 2., f32::NAN]), tensor!([4., 1., 3.]));
-        let result = min(&[a.view(), b.view()]).unwrap();
+        let result = min(&pool, &[a.view(), b.view()]).unwrap();
         assert!(eq_with_nans(
             result.view(),
             tensor!([1., 1., f32::NAN]).view()
@@ -289,8 +327,14 @@ mod tests {
 
     #[test]
     fn test_sum() {
+        let pool = new_pool();
         let a = tensor!([1., 2., 3., 4.]);
         let b = tensor!([5., 6., 7., 8.]);
-        assert_eq!(sum(&[a.view(), b.view()]), Ok(tensor!([6., 8., 10., 12.])));
+        let expected = tensor!([6., 8., 10., 12.]);
+
+        assert_eq!(sum(&pool, &[a.view(), b.view()]), Ok(expected.clone()));
+
+        let output = run_operator(&Sum {}, &[a.view(), b.view()]);
+        assert_eq!(output, expected);
     }
 }
