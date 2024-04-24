@@ -1,6 +1,7 @@
 use std::any::Any;
 use std::cell::RefCell;
 use std::mem::MaybeUninit;
+use std::ops::{Deref, DerefMut};
 
 use rten_tensor::prelude::*;
 use rten_tensor::{IntoLayout, MutLayout, TensorBase};
@@ -170,6 +171,16 @@ impl TensorPool {
     pub fn hit_count(&self) -> usize {
         *self.hit_count.borrow()
     }
+
+    /// Return the number of buffers currently in the pool.
+    pub fn len(&self) -> usize {
+        self.items.borrow().len()
+    }
+
+    /// Return true if the pool is empty.
+    pub fn is_empty(&self) -> bool {
+        self.items.borrow().is_empty()
+    }
 }
 
 impl Default for TensorPool {
@@ -178,11 +189,50 @@ impl Default for TensorPool {
     }
 }
 
+/// A smart pointer which wraps a tensor and adds it to a pool when dropped.
+pub struct PoolRef<'a, T: Any + Copy, L: MutLayout> {
+    pool: &'a TensorPool,
+
+    /// Wrapped tensor, set to `None` after the PoolRef is dropped.
+    tensor: Option<TensorBase<T, Vec<T>, L>>,
+}
+
+impl<'a, T: Any + Copy, L: MutLayout> PoolRef<'a, T, L> {
+    /// Create a `PoolRef` which will wrap `tensor` and return it to `pool`
+    /// when dropped.
+    pub fn new(pool: &'a TensorPool, tensor: TensorBase<T, Vec<T>, L>) -> Self {
+        PoolRef {
+            pool,
+            tensor: Some(tensor),
+        }
+    }
+}
+
+impl<'a, T: Any + Copy, L: MutLayout> Deref for PoolRef<'a, T, L> {
+    type Target = TensorBase<T, Vec<T>, L>;
+
+    fn deref(&self) -> &Self::Target {
+        self.tensor.as_ref().unwrap()
+    }
+}
+
+impl<'a, T: Any + Copy, L: MutLayout> DerefMut for PoolRef<'a, T, L> {
+    fn deref_mut(&mut self) -> &mut Self::Target {
+        self.tensor.as_mut().unwrap()
+    }
+}
+
+impl<'a, T: Any + Copy, L: MutLayout> Drop for PoolRef<'a, T, L> {
+    fn drop(&mut self) {
+        self.pool.add(self.tensor.take().unwrap())
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use rten_tensor::prelude::*;
 
-    use super::TensorPool;
+    use super::{PoolRef, TensorPool};
 
     #[test]
     fn test_pool_alloc() {
@@ -260,5 +310,19 @@ mod tests {
         assert_eq!(vec.len(), 0);
         assert_eq!(pool.alloc_count(), 2);
         assert_eq!(pool.hit_count(), 1);
+    }
+
+    #[test]
+    fn test_pool_ref() {
+        let pool = TensorPool::new();
+        assert_eq!(pool.len(), 0);
+
+        {
+            let tensor = PoolRef::new(&pool, pool.alloc_zeroed::<f32, _>([2, 2]));
+            assert_eq!(tensor.shape(), [2, 2]);
+        }
+
+        assert_eq!(pool.alloc_count(), 1);
+        assert_eq!(pool.len(), 1);
     }
 }
