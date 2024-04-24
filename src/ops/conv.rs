@@ -14,7 +14,7 @@ use crate::gemm::{add_scaled_vector, div_ceil, GemmExecutor, GemmInputA, GemmInp
 use crate::iter_util::range_chunks;
 use crate::ops::pooling::calc_output_size_and_padding;
 use crate::ops::{InputList, IntoOpResult, OpError, Operator, Output, Padding};
-use crate::tensor_pool::TensorPool;
+use crate::tensor_pool::{PoolRef, TensorPool};
 
 mod im2col;
 use im2col::VirtualIm2Col;
@@ -610,7 +610,7 @@ pub fn conv_transpose(
     let input = input.to_contiguous();
     let kernel = kernel.to_contiguous();
 
-    let mut col2im_mat = Tensor::uninit(&[in_h * in_w, out_c * k_h * k_w]);
+    let mut col2im_mat = PoolRef::new(pool, pool.alloc([in_h * in_w, out_c * k_h * k_w]));
     let kernel_mat = kernel.reshaped([k_in_c, out_c * k_h * k_w]);
     let gemm = GemmExecutor::new();
 
@@ -635,9 +635,7 @@ pub fn conv_transpose(
 
         col2im(
             &mut output.nd_view_mut::<4>().slice_mut([n]),
-            &col2im_mat
-                .nd_view::<2>()
-                .reshaped([in_h, in_w, out_c, k_h, k_w]),
+            &col2im_mat.reshaped([in_h, in_w, out_c, k_h, k_w]),
             strides,
         );
     }
