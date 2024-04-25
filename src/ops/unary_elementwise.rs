@@ -27,8 +27,9 @@ pub trait UnaryFloatOp {
     fn map_element(&self, val: f32) -> f32;
 
     /// Apply the operator to all elements in `input`.
-    fn map(&self, input: TensorView) -> Tensor {
-        input.map(|val| self.map_element(*val))
+    fn map(&self, pool: &TensorPool, input: TensorView) -> Tensor {
+        let buf = pool.alloc_vec(input.len());
+        input.map_buf(buf, |val| self.map_element(*val))
     }
 
     /// Apply the operator to all elements in `input`.
@@ -42,9 +43,9 @@ impl<Op: UnaryFloatOp + Debug> Operator for Op {
         self.name()
     }
 
-    fn run(&self, _pool: &TensorPool, inputs: InputList) -> Result<Vec<Output>, OpError> {
+    fn run(&self, pool: &TensorPool, inputs: InputList) -> Result<Vec<Output>, OpError> {
         let input = inputs.require_as(0)?;
-        self.map(input).into_op_result()
+        self.map(pool, input).into_op_result()
     }
 
     fn can_run_in_place(&self) -> bool {
@@ -103,8 +104,8 @@ macro_rules! unary_numeric_op {
 
 macro_rules! unary_float_funcs {
     ($name:ident, $func_name:ident, $in_place_func_name:ident) => {
-        pub fn $func_name(_pool: &TensorPool, input: TensorView) -> Tensor {
-            $name {}.map(input)
+        pub fn $func_name(pool: &TensorPool, input: TensorView) -> Tensor {
+            $name {}.map(pool, input)
         }
 
         pub fn $in_place_func_name(input: TensorViewMut) {
@@ -230,8 +231,9 @@ impl AbsValue for i32 {
     }
 }
 
-pub fn abs<T: AbsValue>(_pool: &TensorPool, input: TensorView<T>) -> Tensor<T> {
-    input.map(|x| x.abs())
+pub fn abs<T: Any + AbsValue + Copy>(pool: &TensorPool, input: TensorView<T>) -> Tensor<T> {
+    let buf = pool.alloc_vec(input.len());
+    input.map_buf(buf, |x| x.abs())
 }
 
 pub fn abs_in_place<T: AbsValue>(mut input: TensorViewMut<T>) {
@@ -297,10 +299,16 @@ impl Clamp for f32 {
     }
 }
 
-pub fn clip<T: Copy + Clamp>(input: TensorView<T>, min: Option<T>, max: Option<T>) -> Tensor<T> {
+pub fn clip<T: Any + Copy + Clamp>(
+    pool: &TensorPool,
+    input: TensorView<T>,
+    min: Option<T>,
+    max: Option<T>,
+) -> Tensor<T> {
     let min = min.unwrap_or(T::min_val());
     let max = max.unwrap_or(T::max_val());
-    input.map(|x| x.clamp(min, max))
+    let buf = pool.alloc_vec(input.len());
+    input.map_buf(buf, |x| x.clamp(min, max))
 }
 
 pub fn clip_in_place<T: Copy + Clamp>(input: &mut Tensor<T>, min: Option<T>, max: Option<T>) {
@@ -320,18 +328,18 @@ impl Operator for Clip {
         "Clip"
     }
 
-    fn run(&self, _pool: &TensorPool, inputs: InputList) -> Result<Vec<Output>, OpError> {
+    fn run(&self, pool: &TensorPool, inputs: InputList) -> Result<Vec<Output>, OpError> {
         let input = inputs.require(0)?;
         match input {
             Input::FloatTensor(input) => {
                 let min = inputs.get_as_scalar(1)?;
                 let max = inputs.get_as_scalar(2)?;
-                clip(input, min, max).into_op_result()
+                clip(pool, input, min, max).into_op_result()
             }
             Input::IntTensor(input) => {
                 let min = inputs.get_as_scalar(1)?;
                 let max = inputs.get_as_scalar(2)?;
-                clip(input, min, max).into_op_result()
+                clip(pool, input, min, max).into_op_result()
             }
         }
     }
@@ -393,8 +401,8 @@ impl UnaryFloatOp for HardSigmoid {
     }
 }
 
-pub fn hard_sigmoid(input: TensorView, alpha: f32, beta: f32) -> Tensor {
-    HardSigmoid { alpha, beta }.map(input)
+pub fn hard_sigmoid(pool: &TensorPool, input: TensorView, alpha: f32, beta: f32) -> Tensor {
+    HardSigmoid { alpha, beta }.map(pool, input)
 }
 
 pub fn hard_sigmoid_in_place(input: TensorViewMut, alpha: f32, beta: f32) {
@@ -418,8 +426,8 @@ impl UnaryFloatOp for HardSwish {
 
 unary_float_funcs!(HardSwish, hard_swish, hard_swish_in_place);
 
-pub fn leaky_relu(input: TensorView, alpha: f32) -> Tensor {
-    LeakyRelu { alpha }.map(input)
+pub fn leaky_relu(pool: &TensorPool, input: TensorView, alpha: f32) -> Tensor {
+    LeakyRelu { alpha }.map(pool, input)
 }
 
 pub fn leaky_relu_in_place(input: TensorViewMut, alpha: f32) {
@@ -447,11 +455,12 @@ impl UnaryFloatOp for LeakyRelu {
 
 unary_float_op!(Log, log, log_in_place, |val: f32| val.ln());
 
-pub fn neg<T: Copy + std::ops::Neg<Output = T>>(
-    _pool: &TensorPool,
+pub fn neg<T: Any + Copy + std::ops::Neg<Output = T>>(
+    pool: &TensorPool,
     input: TensorView<T>,
 ) -> Tensor<T> {
-    input.map(|x| x.neg())
+    let buf = pool.alloc_vec(input.len());
+    input.map_buf(buf, |x| x.neg())
 }
 
 pub fn neg_in_place<T: Copy + std::ops::Neg<Output = T>>(mut input: TensorViewMut<T>) {
@@ -460,8 +469,9 @@ pub fn neg_in_place<T: Copy + std::ops::Neg<Output = T>>(mut input: TensorViewMu
 
 unary_numeric_op!(Neg, neg, neg_in_place);
 
-pub fn not<T: AsBool + PartialEq>(input: TensorView<T>) -> Tensor<i32> {
-    input.map(|x| i32::from(!x.as_bool()))
+pub fn not<T: AsBool + PartialEq>(pool: &TensorPool, input: TensorView<T>) -> Tensor<i32> {
+    let buf = pool.alloc_vec(input.len());
+    input.map_buf(buf, |x| i32::from(!x.as_bool()))
 }
 
 pub fn not_in_place(mut input: TensorViewMut<i32>) {
@@ -476,9 +486,9 @@ impl Operator for Not {
         "Not"
     }
 
-    fn run(&self, _pool: &TensorPool, inputs: InputList) -> Result<Vec<Output>, OpError> {
+    fn run(&self, pool: &TensorPool, inputs: InputList) -> Result<Vec<Output>, OpError> {
         let input = inputs.require_as::<i32>(0)?;
-        not(input).into_op_result()
+        not(pool, input).into_op_result()
     }
 
     fn can_run_in_place(&self) -> bool {
@@ -512,8 +522,8 @@ impl UnaryFloatOp for Round {
     }
 }
 
-pub fn round(x: TensorView) -> Tensor {
-    Round {}.map(x)
+pub fn round(pool: &TensorPool, x: TensorView) -> Tensor {
+    Round {}.map(pool, x)
 }
 
 pub fn round_in_place(x: TensorViewMut) {
@@ -551,8 +561,9 @@ macro_rules! impl_signum {
 impl_signum!(i32);
 impl_signum!(f32);
 
-pub fn sign<T: Signum>(_pool: &TensorPool, input: TensorView<T>) -> Tensor<T> {
-    input.map(|x| x.signum())
+pub fn sign<T: Any + Signum>(pool: &TensorPool, input: TensorView<T>) -> Tensor<T> {
+    let buf = pool.alloc_vec(input.len());
+    input.map_buf(buf, |x| x.signum())
 }
 
 pub fn sign_in_place<T: Signum>(mut input: TensorViewMut<T>) {
@@ -724,8 +735,9 @@ mod tests {
             },
         ];
 
+        let pool = new_pool();
         for case in cases {
-            let result = clip(case.input.view(), case.min, case.max);
+            let result = clip(&pool, case.input.view(), case.min, case.max);
             expect_equal(&result, &case.expected)?;
 
             let mut input = case.input.clone();
@@ -854,7 +866,8 @@ mod tests {
         let input = tensor!([-4., -3., -1., 0., 1., 3., 4.]);
         let alpha = 0.2;
         let beta = 0.5;
-        let result = hard_sigmoid(input.view(), alpha, beta);
+        let pool = new_pool();
+        let result = hard_sigmoid(&pool, input.view(), alpha, beta);
         let expected = tensor!([0., 0., -1. / 5. + 0.5, 0.5, 1. / 5. + 0.5, 1., 1.]);
         expect_equal(&result, &expected)?;
         Ok(())
@@ -872,10 +885,11 @@ mod tests {
 
     #[test]
     fn test_leaky_relu() -> Result<(), Box<dyn Error>> {
+        let pool = new_pool();
         let input = Tensor::from_data(&[2, 2], vec![-5., -2., 3., 20.]);
         let alpha = 0.1;
         let expected = Tensor::from_data(&[2, 2], vec![-5. * alpha, -2. * alpha, 3., 20.]);
-        let result = leaky_relu(input.view(), alpha);
+        let result = leaky_relu(&pool, input.view(), alpha);
         expect_equal(&result, &expected)?;
         Ok(())
     }
@@ -938,9 +952,10 @@ mod tests {
 
     #[test]
     fn test_not() {
+        let pool = new_pool();
         let input = tensor!([0, 1, 1, 0]);
         let expected = tensor!([1, 0, 0, 1]);
-        let result = not(input.view());
+        let result = not(&pool, input.view());
         assert_eq!(result, expected);
     }
 
@@ -978,10 +993,12 @@ mod tests {
 
     #[test]
     fn test_round() -> Result<(), Box<dyn Error>> {
+        let pool = new_pool();
+
         // Example from ONNX spec.
         let input = tensor!([0.9, 2.5, 2.3, 1.5, -4.5]);
         let expected = tensor!([1., 2., 2., 2., -4.]);
-        let result = round(input.view());
+        let result = round(&pool, input.view());
         expect_equal(&result, &expected)?;
 
         let mut input = input.clone();
@@ -990,7 +1007,7 @@ mod tests {
 
         // Per spec, integral, zero, NaN and infinities are unchanged.
         let input = tensor!([1., 0., -0., f32::NAN, f32::INFINITY, f32::NEG_INFINITY]);
-        let result = round(input.view());
+        let result = round(&pool, input.view());
         assert!(eq_with_nans(input.view(), result.view()));
 
         Ok(())
