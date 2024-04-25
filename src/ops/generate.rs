@@ -1,3 +1,4 @@
+use std::any::Any;
 use std::iter::zip;
 use std::ops;
 
@@ -10,10 +11,16 @@ use crate::ops::{
 use crate::static_dims;
 use crate::tensor_pool::TensorPool;
 
-pub fn constant_of_shape<T: Clone>(value: T, shape: &NdTensorView<i32, 1>) -> Tensor<T> {
+pub fn constant_of_shape<T: Any + Copy>(
+    pool: &TensorPool,
+    value: T,
+    shape: &NdTensorView<i32, 1>,
+) -> Tensor<T> {
     let shape: Vec<_> = shape.iter().map(|el| *el as usize).collect();
     let len = shape.iter().product();
-    Tensor::from_data(&shape, vec![value; len])
+    let mut data = pool.alloc_vec(len);
+    data.resize(len, value);
+    Tensor::from_data(&shape, data)
 }
 
 #[derive(Debug)]
@@ -26,18 +33,19 @@ impl Operator for ConstantOfShape {
         "ConstantOfShape"
     }
 
-    fn run(&self, _pool: &TensorPool, inputs: InputList) -> Result<Vec<Output>, OpError> {
+    fn run(&self, pool: &TensorPool, inputs: InputList) -> Result<Vec<Output>, OpError> {
         let shape = inputs.require_as::<i32>(0)?;
         let shape = static_dims!(shape, 1)?;
 
         match self.value {
-            Scalar::Int(value) => constant_of_shape(value, &shape).into_op_result(),
-            Scalar::Float(value) => constant_of_shape(value, &shape).into_op_result(),
+            Scalar::Int(value) => constant_of_shape(pool, value, &shape).into_op_result(),
+            Scalar::Float(value) => constant_of_shape(pool, value, &shape).into_op_result(),
         }
     }
 }
 
-pub fn onehot<T: Copy + Default + PartialEq>(
+pub fn onehot<T: Any + Copy + Default + PartialEq>(
+    pool: &TensorPool,
     indices: TensorView<i32>,
     onehot_axis: isize,
     depth: usize,
@@ -50,7 +58,10 @@ pub fn onehot<T: Copy + Default + PartialEq>(
     out_shape.extend_from_slice(indices.shape());
     out_shape.insert(onehot_axis, depth);
 
-    let mut output = Tensor::full(&out_shape, off_value);
+    let len = out_shape.iter().product();
+    let mut data = pool.alloc_vec(len);
+    data.resize(len, off_value);
+    let mut output = Tensor::from_data(&out_shape, data);
 
     for (mut index, class) in zip(indices.indices(), indices.iter()) {
         if let Some(class) = resolve_index(depth, *class as isize) {
@@ -80,7 +91,7 @@ impl Operator for OneHot {
         "OneHot"
     }
 
-    fn run(&self, _pool: &TensorPool, inputs: InputList) -> Result<Vec<Output>, OpError> {
+    fn run(&self, pool: &TensorPool, inputs: InputList) -> Result<Vec<Output>, OpError> {
         let indices = inputs.require_as::<i32>(0)?;
         let depth = inputs.require_as::<i32>(1)?;
         let depth = depth
@@ -93,12 +104,12 @@ impl Operator for OneHot {
             Input::IntTensor(values) => {
                 let values = static_dims!(values, 1)?;
                 let (on_value, off_value) = extract_on_off_values(values)?;
-                onehot(indices, self.axis, depth, on_value, off_value).into_op_result()
+                onehot(pool, indices, self.axis, depth, on_value, off_value).into_op_result()
             }
             Input::FloatTensor(values) => {
                 let values = static_dims!(values, 1)?;
                 let (on_value, off_value) = extract_on_off_values(values)?;
-                onehot(indices, self.axis, depth, on_value, off_value).into_op_result()
+                onehot(pool, indices, self.axis, depth, on_value, off_value).into_op_result()
             }
         }
     }
@@ -259,6 +270,7 @@ mod tests {
             },
         ];
 
+        let pool = new_pool();
         for Case {
             classes,
             axis,
@@ -268,7 +280,7 @@ mod tests {
             expected,
         } in cases
         {
-            let result = onehot(classes.view(), axis, depth, on_value, off_value);
+            let result = onehot(&pool, classes.view(), axis, depth, on_value, off_value);
             assert_eq!(result, expected);
         }
     }

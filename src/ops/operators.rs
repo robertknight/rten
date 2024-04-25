@@ -22,7 +22,7 @@ pub trait Operators {
 
     fn arg_max(&self, axis: isize, keep_dims: bool) -> Result<Tensor<i32>, OpError>
     where
-        Self::Elem: Copy + PartialOrd;
+        Self::Elem: Any + Copy + PartialOrd;
 
     fn div(&self, other: TensorView<Self::Elem>) -> Result<Tensor<Self::Elem>, OpError>
     where
@@ -45,7 +45,7 @@ pub trait Operators {
         val: Self::Elem,
     ) -> Result<Tensor<Self::Elem>, OpError>
     where
-        Self::Elem: Copy;
+        Self::Elem: Any + Copy;
 
     fn topk(
         &self,
@@ -55,7 +55,7 @@ pub trait Operators {
         sorted: bool,
     ) -> Result<(Tensor<Self::Elem>, Tensor<i32>), OpError>
     where
-        Self::Elem: Copy + Default + PartialOrd;
+        Self::Elem: Any + Copy + Default + PartialOrd;
 }
 
 /// Trait which exposes ONNX operators as methods of tensors.
@@ -80,9 +80,9 @@ impl<T, S: AsRef<[T]>> Operators for TensorBase<T, S, DynLayout> {
 
     fn arg_max(&self, axis: isize, keep_dims: bool) -> Result<Tensor<i32>, OpError>
     where
-        T: Copy + PartialOrd,
+        T: Any + Copy + PartialOrd,
     {
-        arg_max(self.view(), axis, keep_dims)
+        arg_max(&TensorPool::new(), self.view(), axis, keep_dims)
     }
 
     fn div(&self, other: TensorView<Self::Elem>) -> Result<Tensor<Self::Elem>, OpError>
@@ -108,9 +108,9 @@ impl<T, S: AsRef<[T]>> Operators for TensorBase<T, S, DynLayout> {
 
     fn pad(&self, padding: NdTensorView<i32, 1>, val: T) -> Result<Tensor<Self::Elem>, OpError>
     where
-        Self::Elem: Copy,
+        Self::Elem: Any + Copy,
     {
-        pad(self.view(), &padding, val)
+        pad(&TensorPool::new(), self.view(), &padding, val)
     }
 
     fn topk(
@@ -121,9 +121,9 @@ impl<T, S: AsRef<[T]>> Operators for TensorBase<T, S, DynLayout> {
         sorted: bool,
     ) -> Result<(Tensor<Self::Elem>, Tensor<i32>), OpError>
     where
-        T: Copy + Default + PartialOrd,
+        T: Any + Copy + Default + PartialOrd,
     {
-        topk(self.view(), k, axis, largest, sorted)
+        topk(&TensorPool::new(), self.view(), k, axis, largest, sorted)
     }
 }
 
@@ -132,9 +132,9 @@ impl<T, S: AsRef<[T]>, const N: usize> Operators for TensorBase<T, S, NdLayout<N
 
     fn arg_max(&self, axis: isize, keep_dims: bool) -> Result<Tensor<i32>, OpError>
     where
-        T: Copy + PartialOrd,
+        T: Any + Copy + PartialOrd,
     {
-        arg_max(self.as_dyn(), axis, keep_dims)
+        arg_max(&TensorPool::new(), self.as_dyn(), axis, keep_dims)
     }
 
     fn div(&self, other: TensorView<Self::Elem>) -> Result<Tensor<Self::Elem>, OpError>
@@ -160,9 +160,9 @@ impl<T, S: AsRef<[T]>, const N: usize> Operators for TensorBase<T, S, NdLayout<N
 
     fn pad(&self, padding: NdTensorView<i32, 1>, val: T) -> Result<Tensor<Self::Elem>, OpError>
     where
-        Self::Elem: Copy,
+        Self::Elem: Any + Copy,
     {
-        pad(self.as_dyn(), &padding, val)
+        pad(&TensorPool::new(), self.as_dyn(), &padding, val)
     }
 
     fn topk(
@@ -173,9 +173,9 @@ impl<T, S: AsRef<[T]>, const N: usize> Operators for TensorBase<T, S, NdLayout<N
         sorted: bool,
     ) -> Result<(Tensor<Self::Elem>, Tensor<i32>), OpError>
     where
-        T: Copy + Default + PartialOrd,
+        T: Any + Copy + Default + PartialOrd,
     {
-        topk(self.as_dyn(), k, axis, largest, sorted)
+        topk(&TensorPool::new(), self.as_dyn(), k, axis, largest, sorted)
     }
 }
 
@@ -185,19 +185,19 @@ impl<S: AsRef<[f32]>> FloatOperators for TensorBase<f32, S, DynLayout> {
     }
 
     fn reduce_l2(&self, axes: Option<&[i32]>, keep_dims: bool) -> Result<Tensor, OpError> {
-        reduce_l2(self.view(), axes, keep_dims)
+        reduce_l2(&TensorPool::new(), self.view(), axes, keep_dims)
     }
 
     fn reduce_max(&self, axes: Option<&[i32]>, keep_dims: bool) -> Result<Tensor, OpError> {
-        reduce_max(self.view(), axes, keep_dims)
+        reduce_max(&TensorPool::new(), self.view(), axes, keep_dims)
     }
 
     fn reduce_min(&self, axes: Option<&[i32]>, keep_dims: bool) -> Result<Tensor, OpError> {
-        reduce_min(self.view(), axes, keep_dims)
+        reduce_min(&TensorPool::new(), self.view(), axes, keep_dims)
     }
 
     fn reduce_mean(&self, axes: Option<&[i32]>, keep_dims: bool) -> Result<Tensor, OpError> {
-        reduce_mean(self.view(), axes, keep_dims)
+        reduce_mean(&TensorPool::new(), self.view(), axes, keep_dims)
     }
 
     fn resize_image(&self, size: [usize; 2]) -> Result<Tensor, OpError> {
@@ -215,19 +215,19 @@ impl<S: AsRef<[f32]>, const N: usize> FloatOperators for TensorBase<f32, S, NdLa
     }
 
     fn reduce_l2(&self, axes: Option<&[i32]>, keep_dims: bool) -> Result<Tensor, OpError> {
-        reduce_l2(self.as_dyn(), axes, keep_dims)
+        reduce_l2(&TensorPool::new(), self.as_dyn(), axes, keep_dims)
     }
 
     fn reduce_max(&self, axes: Option<&[i32]>, keep_dims: bool) -> Result<Tensor, OpError> {
-        reduce_max(self.as_dyn(), axes, keep_dims)
+        reduce_max(&TensorPool::new(), self.as_dyn(), axes, keep_dims)
     }
 
     fn reduce_min(&self, axes: Option<&[i32]>, keep_dims: bool) -> Result<Tensor, OpError> {
-        reduce_min(self.as_dyn(), axes, keep_dims)
+        reduce_min(&TensorPool::new(), self.as_dyn(), axes, keep_dims)
     }
 
     fn reduce_mean(&self, axes: Option<&[i32]>, keep_dims: bool) -> Result<Tensor, OpError> {
-        reduce_mean(self.as_dyn(), axes, keep_dims)
+        reduce_mean(&TensorPool::new(), self.as_dyn(), axes, keep_dims)
     }
 
     fn resize_image(&self, size: [usize; 2]) -> Result<Tensor, OpError> {

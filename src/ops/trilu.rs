@@ -1,10 +1,13 @@
+use std::any::Any;
+
 use rten_tensor::prelude::*;
 use rten_tensor::{Tensor, TensorView};
 
 use crate::ops::{Input, InputList, IntoOpResult, OpError, Operator, Output};
 use crate::tensor_pool::TensorPool;
 
-pub fn trilu<T: Copy + Default>(
+pub fn trilu<T: Any + Copy + Default>(
+    pool: &TensorPool,
     input: TensorView<T>,
     k: i32,
     upper: bool,
@@ -13,7 +16,7 @@ pub fn trilu<T: Copy + Default>(
         return Err(OpError::InvalidValue("Input must have >= 2 dims"));
     }
 
-    let mut output = Tensor::zeros(input.shape());
+    let mut output = pool.alloc_zeroed(input.shape());
 
     for (mut out_mat, in_mat) in output.inner_iter_mut::<2>().zip(input.inner_iter::<2>()) {
         let [rows, cols] = out_mat.shape();
@@ -42,22 +45,24 @@ impl Operator for Trilu {
         "Trilu"
     }
 
-    fn run(&self, _pool: &TensorPool, inputs: InputList) -> Result<Vec<Output>, OpError> {
+    fn run(&self, pool: &TensorPool, inputs: InputList) -> Result<Vec<Output>, OpError> {
         let input = inputs.require(0)?;
         let k = inputs.get_as_scalar(1)?.unwrap_or(0);
 
         match input {
-            Input::FloatTensor(input) => trilu(input, k, self.upper).into_op_result(),
-            Input::IntTensor(input) => trilu(input, k, self.upper).into_op_result(),
+            Input::FloatTensor(input) => trilu(pool, input, k, self.upper).into_op_result(),
+            Input::IntTensor(input) => trilu(pool, input, k, self.upper).into_op_result(),
         }
     }
 }
 
 #[cfg(test)]
 mod tests {
-    use crate::ops::{trilu, OpError};
     use rten_tensor::prelude::*;
     use rten_tensor::{tensor, Tensor};
+
+    use crate::ops::tests::new_pool;
+    use crate::ops::{trilu, OpError};
 
     #[test]
     fn test_trilu() {
@@ -192,6 +197,7 @@ mod tests {
             },
         ];
 
+        let pool = new_pool();
         for Case {
             input,
             expected,
@@ -199,15 +205,16 @@ mod tests {
             k,
         } in cases
         {
-            let result = trilu(input.view(), k, upper).unwrap();
+            let result = trilu(&pool, input.view(), k, upper).unwrap();
             assert_eq!(result, expected);
         }
     }
 
     #[test]
     fn test_trilu_invalid() {
+        let pool = new_pool();
         let input = tensor!([1]);
-        let result = trilu(input.view(), 0, true /* upper */);
+        let result = trilu(&pool, input.view(), 0, true /* upper */);
         assert_eq!(
             result,
             Err(OpError::InvalidValue("Input must have >= 2 dims"))

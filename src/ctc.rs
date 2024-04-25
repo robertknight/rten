@@ -6,7 +6,7 @@ use std::num::NonZeroU32;
 use rten_tensor::prelude::*;
 use rten_tensor::{NdTensor, NdTensorView};
 
-use crate::ops::arg_max;
+use crate::Operators;
 
 /// Connectionist Temporal Classification (CTC) [^1][^2] sequence decoder.
 ///
@@ -150,12 +150,9 @@ impl CtcDecoder {
     /// labels at each time step, where the label value 0 is reserved for the
     /// CTC blank label.
     pub fn decode_greedy(&self, prob_seq: NdTensorView<f32, 2>) -> CtcHypothesis {
-        let label_seq = arg_max(
-            prob_seq.as_dyn(),
-            /* axis */ 1,
-            /* keep_dims */ false,
-        )
-        .expect("argmax failed");
+        let label_seq = prob_seq
+            .arg_max(/* axis */ 1, /* keep_dims */ false)
+            .expect("argmax failed");
 
         let mut last_label = 0;
         let mut steps = Vec::new();

@@ -1,4 +1,4 @@
-use std::iter::zip;
+use std::any::Any;
 
 use rten_tensor::prelude::*;
 use rten_tensor::{NdTensorView, SliceItem, Tensor, TensorView};
@@ -7,7 +7,8 @@ use crate::ops::{Input, InputList, IntoOpResult, OpError, Operator, Output};
 use crate::static_dims;
 use crate::tensor_pool::TensorPool;
 
-pub fn pad<T: Copy>(
+pub fn pad<T: Any + Copy>(
+    pool: &TensorPool,
     input: TensorView<T>,
     padding: &NdTensorView<i32, 1>,
     const_val: T,
@@ -43,13 +44,13 @@ pub fn pad<T: Copy>(
         })
         .collect();
 
-    let mut output = Tensor::from_data(&out_shape, vec![const_val; out_len]);
-    for (out, in_) in zip(
-        output.slice_mut_dyn(non_pad_region.as_slice()).iter_mut(),
-        input.iter(),
-    ) {
-        *out = *in_;
-    }
+    let mut data = pool.alloc_vec(out_len);
+    data.resize(out_len, const_val);
+
+    let mut output = Tensor::from_data(&out_shape, data);
+    output
+        .slice_mut_dyn(non_pad_region.as_slice())
+        .copy_from(&input);
 
     Ok(output)
 }
@@ -62,7 +63,7 @@ impl Operator for Pad {
         "Pad"
     }
 
-    fn run(&self, _pool: &TensorPool, inputs: InputList) -> Result<Vec<Output>, OpError> {
+    fn run(&self, pool: &TensorPool, inputs: InputList) -> Result<Vec<Output>, OpError> {
         let input = inputs.require(0)?;
         let pads = inputs.require_as::<i32>(1)?;
         let pads = static_dims!(pads, 1)?;
@@ -77,11 +78,11 @@ impl Operator for Pad {
         match input {
             Input::IntTensor(t) => {
                 let const_val = inputs.get_as_scalar::<i32>(2)?;
-                pad(t, &pads, const_val.unwrap_or(0)).into_op_result()
+                pad(pool, t, &pads, const_val.unwrap_or(0)).into_op_result()
             }
             Input::FloatTensor(t) => {
                 let const_val = inputs.get_as_scalar::<f32>(2)?;
-                pad(t, &pads, const_val.unwrap_or(0.0)).into_op_result()
+                pad(pool, t, &pads, const_val.unwrap_or(0.0)).into_op_result()
             }
         }
     }
@@ -104,6 +105,8 @@ mod tests {
 
     #[test]
     fn test_pad() -> Result<(), Box<dyn Error>> {
+        let pool = new_pool();
+
         // Same padding around each edge.
         let input = Tensor::from_data(&[2, 2], vec![1.0, 2.0, 3.0, 4.0]);
         let expected = Tensor::from_data(
@@ -113,18 +116,18 @@ mod tests {
             ],
         );
         let const_pads = &[1, 1, 1, 1];
-        let result = pad(input.view(), &const_pads.into(), 0.0).unwrap();
+        let result = pad(&pool, input.view(), &const_pads.into(), 0.0).unwrap();
         expect_equal(&result, &expected)?;
 
         // Zero padding (no-op)
         let zero_pads = &[0, 0, 0, 0];
-        let result = pad(input.view(), &zero_pads.into(), 0.0).unwrap();
+        let result = pad(&pool, input.view(), &zero_pads.into(), 0.0).unwrap();
         expect_equal(&result, &input)?;
 
         // Un-even padding
         let input = Tensor::from_data(&[1, 2, 2], vec![1, 2, 3, 4]);
         let pads = &[0, 0, 0, 0, 1, 0];
-        let result = pad(input.view(), &pads.into(), 0).unwrap();
+        let result = pad(&pool, input.view(), &pads.into(), 0).unwrap();
         assert_eq!(result.shape(), &[1, 3, 2]);
         assert_eq!(result.data().unwrap(), &[1, 2, 3, 4, 0, 0]);
 
@@ -133,6 +136,7 @@ mod tests {
 
     #[test]
     fn test_pad_constant_val() -> Result<(), Box<dyn Error>> {
+        let pool = new_pool();
         let input = Tensor::from_data(&[2, 2], vec![1.0, 2.0, 3.0, 4.0]);
         let expected = Tensor::from_data(
             &[4, 4],
@@ -141,7 +145,7 @@ mod tests {
             ],
         );
         let const_pads = &[1, 1, 1, 1];
-        let result = pad(input.view(), &const_pads.into(), 9.).unwrap();
+        let result = pad(&pool, input.view(), &const_pads.into(), 9.).unwrap();
         expect_equal(&result, &expected)?;
         Ok(())
     }
