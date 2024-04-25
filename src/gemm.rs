@@ -230,6 +230,7 @@ impl<'a> GemmInputB<'a> {
 ///
 /// This computes `output = alpha * (a @ b) + beta * output` where `@` is
 /// matrix multiplication.
+#[allow(unused)]
 pub fn gemm(
     out_data: &mut [f32],
     out_row_stride: usize,

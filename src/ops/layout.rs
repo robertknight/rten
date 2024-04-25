@@ -27,7 +27,14 @@ fn expand_output_shape(
 
 /// Broadcast `input` to `out_shape`. This assumes that `out_shape` has already
 /// been verified to be a valid broadcast target.
-pub(crate) fn expand_to<T: Copy>(input: TensorView<T>, out_shape: &[usize]) -> Tensor<T> {
+pub(crate) fn expand_to<T: Any + Copy>(
+    pool: &TensorPool,
+    input: TensorView<T>,
+    out_shape: &[usize],
+) -> Tensor<T> {
+    let out_len = out_shape.iter().product();
+    let mut out_data: Vec<T> = pool.alloc_vec(out_len);
+
     match (
         input.data(),
         fast_broadcast_cycles_repeats(input.shape(), out_shape),
@@ -35,10 +42,8 @@ pub(crate) fn expand_to<T: Copy>(input: TensorView<T>, out_shape: &[usize]) -> T
         // Fast path for common case of contiguous input and broadcast that can
         // be performed using cycle + repeat.
         (Some(in_data), Some((cycles, repeats))) => {
-            let out_len = out_shape.iter().product();
             assert!(out_len == input.len() * cycles * repeats);
 
-            let mut out_data: Vec<T> = Vec::with_capacity(out_len);
             let mut out_ptr = out_data.as_mut_ptr();
             for _ in 0..cycles {
                 if repeats == 1 {
@@ -63,16 +68,17 @@ pub(crate) fn expand_to<T: Copy>(input: TensorView<T>, out_shape: &[usize]) -> T
 
             Tensor::from_data(out_shape, out_data)
         }
-        _ => input.broadcast(out_shape).to_tensor(),
+        _ => input.broadcast(out_shape).to_tensor_buf(out_data),
     }
 }
 
-pub fn expand<T: Copy>(
+pub fn expand<T: Any + Copy>(
+    pool: &TensorPool,
     input: TensorView<T>,
     shape: &NdTensorView<i32, 1>,
 ) -> Result<Tensor<T>, OpError> {
     let out_shape = expand_output_shape(input.shape(), shape)?;
-    Ok(expand_to(input, &out_shape))
+    Ok(expand_to(pool, input, &out_shape))
 }
 
 #[derive(Debug)]
@@ -83,14 +89,14 @@ impl Operator for Expand {
         "Expand"
     }
 
-    fn run(&self, _pool: &TensorPool, inputs: InputList) -> Result<Vec<Output>, OpError> {
+    fn run(&self, pool: &TensorPool, inputs: InputList) -> Result<Vec<Output>, OpError> {
         let input = inputs.require(0)?;
         let shape = inputs.require_as(1)?;
         let shape = static_dims!(shape, 1)?;
 
         match input {
-            Input::FloatTensor(input) => expand(input, &shape).into_op_result(),
-            Input::IntTensor(input) => expand(input, &shape).into_op_result(),
+            Input::FloatTensor(input) => expand(pool, input, &shape).into_op_result(),
+            Input::IntTensor(input) => expand(pool, input, &shape).into_op_result(),
         }
     }
 
@@ -109,9 +115,10 @@ impl Operator for Expand {
             return Ok(input);
         }
 
+        let pool = TensorPool::new();
         let output: Output = match input {
-            Output::FloatTensor(input) => expand_to(input.view(), &out_shape).into(),
-            Output::IntTensor(input) => expand_to(input.view(), &out_shape).into(),
+            Output::FloatTensor(input) => expand_to(&pool, input.view(), &out_shape).into(),
+            Output::IntTensor(input) => expand_to(&pool, input.view(), &out_shape).into(),
         };
         Ok(output)
     }
@@ -563,53 +570,57 @@ mod tests {
 
     #[test]
     fn test_expand() {
+        let pool = new_pool();
+
         // Broadcast scalar
         let input = tensor!(5.);
         let shape = ndtensor!([2, 2]);
         let expected = Tensor::from_data(&[2, 2], vec![5., 5., 5., 5.]);
-        let result = expand(input.view(), &shape.view()).unwrap();
+        let result = expand(&pool, input.view(), &shape.view()).unwrap();
         assert_eq!(&result, &expected);
 
         // Broadcast that changes dim count
         let input = Tensor::from_data(&[3, 1], (0..3).collect::<Vec<_>>());
         let shape = ndtensor!([2, 3, 1]);
-        let result = expand(input.view(), &shape.view()).unwrap();
+        let result = expand(&pool, input.view(), &shape.view()).unwrap();
         assert_eq!(result.shape(), &[2, 3, 1]);
 
         // Broadcast that uses dimensions from both the input shape and target
         // shape in the output shape.
         let input = Tensor::from_data(&[3, 1], (0..3).collect::<Vec<_>>());
         let shape = ndtensor!([2, 1, 6]);
-        let result = expand(input.view(), &shape.view()).unwrap();
+        let result = expand(&pool, input.view(), &shape.view()).unwrap();
         assert_eq!(result.shape(), &[2, 3, 6]);
 
         // Broadcast that does not change dim count
         let input = Tensor::from_data(&[3, 1], (0..3).collect::<Vec<_>>());
         let shape = ndtensor!([3, 4]);
-        let result = expand(input.view(), &shape.view()).unwrap();
+        let result = expand(&pool, input.view(), &shape.view()).unwrap();
         assert_eq!(result.shape(), &[3, 4]);
 
         // Broadcast of leading and trailing dims
         let input = tensor!((1, 2, 1); [1, 2]);
         let shape = ndtensor!([2, 2, 2]);
-        let result = expand(input.view(), &shape.view()).unwrap();
+        let result = expand(&pool, input.view(), &shape.view()).unwrap();
         assert_eq!(result.shape(), &[2, 2, 2]);
         assert_eq!(result.to_vec(), &[1, 1, 2, 2, 1, 1, 2, 2]);
 
         // Broadcast of inner dim
         let input = tensor!((2, 1, 2); [1, 2, 3, 4]);
         let shape = ndtensor!([2, 2, 2]);
-        let result = expand(input.view(), &shape.view()).unwrap();
+        let result = expand(&pool, input.view(), &shape.view()).unwrap();
         assert_eq!(result.shape(), &[2, 2, 2]);
         assert_eq!(result.to_vec(), &[1, 2, 1, 2, 3, 4, 3, 4]);
     }
 
     #[test]
     fn test_expand_invalid_inputs() {
+        let pool = new_pool();
+
         // Invalid broadcast shape
         let input = tensor!([1, 2, 3]);
         let shape = ndtensor!([2, 2]);
-        let result = expand(input.view(), &shape.view());
+        let result = expand(&pool, input.view(), &shape.view());
         assert_eq!(
             result.err(),
             Some(OpError::IncompatibleInputShapes(
