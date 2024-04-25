@@ -22,7 +22,7 @@ impl Operator for RandomUniform {
         "RandomUniform"
     }
 
-    fn run(&self, _pool: &TensorPool, _inputs: InputList) -> Result<Vec<Output>, OpError> {
+    fn run(&self, pool: &TensorPool, _inputs: InputList) -> Result<Vec<Output>, OpError> {
         let scale_value = |val: f32| self.low + val * (self.high - self.low);
         let shape = self.shape.as_slice();
 
@@ -32,7 +32,11 @@ impl Operator for RandomUniform {
             Rng::new()
         };
 
-        Tensor::from_simple_fn(shape, || scale_value(rng.f32())).into_op_result()
+        let len = shape.iter().product();
+        let mut data = pool.alloc_vec(len);
+        data.extend(std::iter::from_fn(|| Some(scale_value(rng.f32()))).take(len));
+
+        Tensor::from_data(shape, data).into_op_result()
     }
 }
 
