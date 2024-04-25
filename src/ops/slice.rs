@@ -1,3 +1,4 @@
+use std::any::Any;
 use std::iter::zip;
 
 use rten_tensor::prelude::*;
@@ -47,7 +48,8 @@ fn slice_ranges(
 }
 
 /// Return a copy of a tensor which only retains a subset of a given dimension.
-pub fn slice<T: Copy>(
+pub fn slice<T: Any + Copy>(
+    pool: &TensorPool,
     input: TensorView<T>,
     starts: &NdTensorView<i32, 1>,
     ends: &NdTensorView<i32, 1>,
@@ -65,13 +67,15 @@ pub fn slice<T: Copy>(
         return Ok(slice_view.to_tensor());
     }
 
-    let sliced_data: Vec<_> = input.slice_iter(&items).copied().collect();
     let sliced_shape: Vec<_> = ranges
         .iter()
         .copied()
         .enumerate()
         .map(|(dim, range)| range.steps(input.size(dim)))
         .collect();
+    let mut sliced_data = pool.alloc_vec(sliced_shape.iter().product());
+    sliced_data.extend(input.slice_iter(&items).copied());
+
     Ok(Tensor::from_data(&sliced_shape, sliced_data))
 }
 
@@ -99,7 +103,7 @@ impl Operator for Slice {
         "Slice"
     }
 
-    fn run(&self, _pool: &TensorPool, inputs: InputList) -> Result<Vec<Output>, OpError> {
+    fn run(&self, pool: &TensorPool, inputs: InputList) -> Result<Vec<Output>, OpError> {
         let input = inputs.require(0)?;
 
         let starts = inputs.require_as::<i32>(1)?;
@@ -120,10 +124,10 @@ impl Operator for Slice {
 
         let result: Result<Output, OpError> = match input {
             Input::FloatTensor(input) => {
-                slice(input, &starts, &ends, axes.as_ref(), steps.as_ref()).map(|t| t.into())
+                slice(pool, input, &starts, &ends, axes.as_ref(), steps.as_ref()).map(|t| t.into())
             }
             Input::IntTensor(input) => {
-                slice(input, &starts, &ends, axes.as_ref(), steps.as_ref()).map(|t| t.into())
+                slice(pool, input, &starts, &ends, axes.as_ref(), steps.as_ref()).map(|t| t.into())
             }
         };
         result.into_op_result()
@@ -182,6 +186,7 @@ mod tests {
     use rten_tensor::test_util::expect_equal;
     use rten_tensor::Tensor;
 
+    use crate::ops::tests::new_pool;
     use crate::ops::{slice, slice_in_place};
 
     fn from_slice<T: Copy>(data: &[T]) -> Tensor<T> {
@@ -229,6 +234,7 @@ mod tests {
 
     #[test]
     fn test_slice_first_dim() {
+        let pool = new_pool();
         let mut rng = XorShiftRng::new(5678);
         let input = Tensor::rand(&[5, 2, 5, 3], &mut rng);
 
@@ -237,6 +243,7 @@ mod tests {
         let axes = &[0];
 
         let sliced = slice(
+            &pool,
             input.view(),
             &starts.into(),
             &ends.into(),
@@ -265,6 +272,7 @@ mod tests {
 
     #[test]
     fn test_slice_inner_dim() {
+        let pool = new_pool();
         let mut rng = XorShiftRng::new(5678);
         let input = Tensor::rand(&[2, 2, 5, 3], &mut rng);
 
@@ -273,6 +281,7 @@ mod tests {
         let axes = &[2];
 
         let sliced = slice(
+            &pool,
             input.view(),
             &starts.into(),
             &ends.into(),
@@ -304,6 +313,7 @@ mod tests {
 
     #[test]
     fn test_slice_noop() {
+        let pool = new_pool();
         let mut rng = XorShiftRng::new(5678);
         let input = Tensor::rand(&[5, 2, 5, 3], &mut rng);
 
@@ -315,6 +325,7 @@ mod tests {
             let axes = &[dim as i32];
 
             let sliced = slice(
+                &pool,
                 input.view(),
                 &starts.into(),
                 &ends.into(),
@@ -328,12 +339,14 @@ mod tests {
 
     #[test]
     fn test_slice_negative_axes() {
+        let pool = new_pool();
         let input = Tensor::from_data(&[3, 3], vec![1, 2, 3, 4, 5, 6, 7, 8, 9]);
         let starts = &[0];
         let ends = &[2];
 
         let axes = &[-1];
         let sliced = slice(
+            &pool,
             input.view(),
             &starts.into(),
             &ends.into(),
@@ -345,6 +358,7 @@ mod tests {
 
         let axes = &[-2];
         let sliced = slice(
+            &pool,
             input.view(),
             &starts.into(),
             &ends.into(),
@@ -357,12 +371,14 @@ mod tests {
 
     #[test]
     fn test_slice_negative_starts() {
+        let pool = new_pool();
         let input = Tensor::from_data(&[3, 3], vec![1, 2, 3, 4, 5, 6, 7, 8, 9]);
         let axes = &[-1];
         let ends = &[2];
 
         let starts = &[-3];
         let sliced = slice(
+            &pool,
             input.view(),
             &starts.into(),
             &ends.into(),
@@ -374,6 +390,7 @@ mod tests {
 
         let starts = &[-2];
         let sliced = slice(
+            &pool,
             input.view(),
             &starts.into(),
             &ends.into(),
@@ -386,12 +403,14 @@ mod tests {
 
     #[test]
     fn test_slice_negative_ends() {
+        let pool = new_pool();
         let input = Tensor::from_data(&[3, 3], vec![1, 2, 3, 4, 5, 6, 7, 8, 9]);
         let axes = &[-1];
         let starts = &[0];
 
         let ends = &[-1];
         let sliced = slice(
+            &pool,
             input.view(),
             &starts.into(),
             &ends.into(),
@@ -403,6 +422,7 @@ mod tests {
 
         let ends = &[-2];
         let sliced = slice(
+            &pool,
             input.view(),
             &starts.into(),
             &ends.into(),
@@ -415,6 +435,7 @@ mod tests {
 
     #[test]
     fn test_slice_clamps_starts_and_ends() -> Result<(), Box<dyn Error>> {
+        let pool = new_pool();
         let mut rng = XorShiftRng::new(5678);
         let input = Tensor::rand(&[20, 20], &mut rng);
 
@@ -426,7 +447,15 @@ mod tests {
         let starts = &[-i32::MAX, -100];
         let ends = &[i32::MAX, 100];
 
-        let sliced = slice(input.view(), &starts.into(), &ends.into(), None, None).unwrap();
+        let sliced = slice(
+            &pool,
+            input.view(),
+            &starts.into(),
+            &ends.into(),
+            None,
+            None,
+        )
+        .unwrap();
 
         expect_equal(&sliced, &input)?;
 
@@ -480,6 +509,7 @@ mod tests {
             },
         ];
 
+        let pool = new_pool();
         for case in cases {
             let starts = &[case.start];
             let ends = &[case.end];
@@ -487,6 +517,7 @@ mod tests {
             let steps = &[case.step];
 
             let sliced = slice(
+                &pool,
                 input.view(),
                 &starts.into(),
                 &ends.into(),

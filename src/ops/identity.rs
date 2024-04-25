@@ -1,7 +1,15 @@
+use std::any::Any;
+
 use rten_tensor::prelude::*;
+use rten_tensor::{Tensor, TensorView};
 
 use crate::ops::{Input, InputList, IntoOpResult, OpError, Operator, Output};
 use crate::tensor_pool::TensorPool;
+
+fn identity<T: Any + Copy>(pool: &TensorPool, src: TensorView<T>) -> Tensor<T> {
+    let buf = pool.alloc_vec(src.len());
+    src.to_tensor_buf(buf)
+}
 
 #[derive(Debug)]
 pub struct Identity {}
@@ -11,11 +19,11 @@ impl Operator for Identity {
         "Identity"
     }
 
-    fn run(&self, _pool: &TensorPool, inputs: InputList) -> Result<Vec<Output>, OpError> {
+    fn run(&self, pool: &TensorPool, inputs: InputList) -> Result<Vec<Output>, OpError> {
         let input = inputs.require(0)?;
         let result: Output = match input {
-            Input::IntTensor(t) => t.to_tensor().into(),
-            Input::FloatTensor(t) => t.to_tensor().into(),
+            Input::IntTensor(t) => identity(pool, t).into(),
+            Input::FloatTensor(t) => identity(pool, t).into(),
         };
         result.into_op_result()
     }

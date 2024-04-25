@@ -12,7 +12,7 @@ use crate::layout::{
     AsIndex, BroadcastLayout, DynLayout, IntoLayout, Layout, MatrixLayout, MutLayout, NdLayout,
     OverlapPolicy, ResizeLayout,
 };
-use crate::transpose::{contiguous_data, copy_contiguous};
+use crate::transpose::copy_contiguous;
 use crate::{IntoSliceItems, RandomSource, SliceItem};
 
 /// The base type for multi-dimensional arrays. This consists of storage for
@@ -264,6 +264,12 @@ pub trait AsView: Layout {
     where
         Self::Elem: Clone;
 
+    /// Variant of [`to_vec`](AsView::to_vec) which takes an output buffer as
+    /// an argument.
+    fn to_vec_buf(&self, buf: Vec<Self::Elem>) -> Vec<Self::Elem>
+    where
+        Self::Elem: Clone;
+
     /// Return a tensor with the same shape as this tensor/view but with the
     /// data contiguous in memory and arranged in the same order as the
     /// logical/iteration order (used by `iter`).
@@ -292,8 +298,20 @@ pub trait AsView: Layout {
     where
         Self::Elem: Clone,
     {
-        let data = self.to_vec();
-        TensorBase::from_data(self.layout().shape(), data)
+        let buf = Vec::with_capacity(self.len());
+        self.to_tensor_buf(buf)
+    }
+
+    /// Variant of [`to_tensor`](AsView::to_tensor) which takes an output
+    /// buffer as an argument.
+    fn to_tensor_buf(
+        &self,
+        buf: Vec<Self::Elem>,
+    ) -> TensorBase<Self::Elem, Vec<Self::Elem>, Self::Layout>
+    where
+        Self::Elem: Clone,
+    {
+        TensorBase::from_data(self.layout().shape(), self.to_vec_buf(buf))
     }
 
     /// Return a view which performs "weak" checking when indexing via
@@ -1308,11 +1326,27 @@ impl<T, S: AsRef<[T]>, L: MutLayout + Clone> AsView for TensorBase<T, S, L> {
     where
         T: Clone,
     {
+        let buf = Vec::with_capacity(self.len());
+        self.to_vec_buf(buf)
+    }
+
+    fn to_vec_buf(&self, mut buf: Vec<T>) -> Vec<T>
+    where
+        T: Clone,
+    {
+        let len = self.len();
+        assert!(buf.is_empty() && buf.capacity() >= len);
+
         if let Some(data) = self.data() {
-            data.to_vec()
+            buf.extend_from_slice(data);
         } else {
-            contiguous_data(self.as_dyn())
+            copy_contiguous(self.as_dyn(), &mut buf.spare_capacity_mut()[..len]);
+
+            // Safety: We initialized `len` elements.
+            unsafe { buf.set_len(len) }
         }
+
+        buf
     }
 
     fn to_shape<SH: IntoLayout>(
@@ -2768,12 +2802,42 @@ mod tests {
     }
 
     #[test]
+    fn test_to_vec_buf() {
+        let tensor = NdTensor::arange(0, 4, None);
+        let buf = Vec::with_capacity(tensor.len());
+        let ptr = buf.as_ptr();
+        let vec = tensor.to_vec_buf(buf);
+
+        assert_eq!(vec, &[0, 1, 2, 3]);
+        assert_eq!(vec.as_ptr(), ptr);
+    }
+
+    #[test]
     fn test_to_tensor() {
         let data = vec![1., 2., 3., 4.];
         let view = NdTensorView::from_data([2, 2], &data);
         let tensor = view.to_tensor();
         assert_eq!(tensor.shape(), view.shape());
         assert_eq!(tensor.to_vec(), view.to_vec());
+    }
+
+    #[test]
+    fn test_to_tensor_buf() {
+        let tensor = NdTensor::arange(0, 4, None).into_shape([2, 2]);
+
+        // Contiguous case.
+        let buf = Vec::with_capacity(tensor.len());
+        let ptr = buf.as_ptr();
+        let cloned = tensor.to_tensor_buf(buf);
+        assert_eq!(cloned.to_vec(), &[0, 1, 2, 3]);
+        assert_eq!(cloned.data().unwrap().as_ptr(), ptr);
+
+        // Non-contigous case.
+        let buf = Vec::with_capacity(tensor.len());
+        let ptr = buf.as_ptr();
+        let cloned = tensor.transposed().to_tensor_buf(buf);
+        assert_eq!(cloned.to_vec(), &[0, 2, 1, 3]);
+        assert_eq!(cloned.data().unwrap().as_ptr(), ptr);
     }
 
     #[test]
