@@ -234,6 +234,7 @@ impl Operator for InstanceNormalization {
 }
 
 pub fn layer_normalization(
+    pool: &TensorPool,
     input: TensorView,
     scale: TensorView,
     bias: Option<TensorView>,
@@ -259,29 +260,29 @@ pub fn layer_normalization(
         .map(|axis| axis as i32)
         .collect();
 
-    let pool = TensorPool::new();
-
     // First step: standardize input elements to have unit mean and variance.
     let mean = reduce_mean(
+        pool,
         input.view(),
         Some(normalized_axes.as_slice()),
         true, /* keep_dims */
     )?;
-    let d = sub(&pool, input, mean.view())?;
-    let dd = mul(&pool, d.view(), d.view())?;
+    let d = sub(pool, input, mean.view())?;
+    let dd = mul(pool, d.view(), d.view())?;
     let var = reduce_mean(
+        pool,
         dd.view(),
         Some(normalized_axes.as_slice()),
         true, /* keep_dims */
     )?;
     let inverse_std_dev_buf = pool.alloc_vec(var.len());
     let inverse_std_dev = var.map_buf(inverse_std_dev_buf, |x| 1. / (x + epsilon).sqrt());
-    let normalized = mul(&pool, d.view(), inverse_std_dev.view())?;
+    let normalized = mul(pool, d.view(), inverse_std_dev.view())?;
 
     // Second step: Shift and scale input.
-    let normalized_scaled = mul(&pool, normalized.view(), scale)?;
+    let normalized_scaled = mul(pool, normalized.view(), scale)?;
     let output = if let Some(bias) = bias {
-        add(&pool, normalized_scaled.view(), bias)?
+        add(pool, normalized_scaled.view(), bias)?
     } else {
         normalized_scaled
     };
@@ -300,12 +301,13 @@ impl Operator for LayerNormalization {
         "LayerNormalization"
     }
 
-    fn run(&self, _pool: &TensorPool, inputs: InputList) -> Result<Vec<Output>, OpError> {
+    fn run(&self, pool: &TensorPool, inputs: InputList) -> Result<Vec<Output>, OpError> {
         let input = inputs.require_as(0)?;
         let scale = inputs.require_as(1)?;
         let bias = inputs.get_as(2)?;
 
-        layer_normalization(input.view(), scale, bias, self.axis, self.epsilon).into_op_result()
+        layer_normalization(pool, input.view(), scale, bias, self.axis, self.epsilon)
+            .into_op_result()
     }
 }
 
@@ -595,6 +597,8 @@ mod tests {
 
     #[test]
     fn test_layer_normalization() -> Result<(), Box<dyn Error>> {
+        let pool = new_pool();
+
         // Sample values generated using `torch.rand`.
         let input = tensor!((1, 5, 2); [
             0.9562, 0.0572, 0.4366, 0.5655, 0.2017,
@@ -604,6 +608,7 @@ mod tests {
         let bias = tensor!([0.9993, 0.7632]);
 
         let result = layer_normalization(
+            &pool,
             input.view(),
             scale.view(),
             Some(bias.view()),
