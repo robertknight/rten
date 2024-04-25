@@ -131,9 +131,14 @@ fn flattened_shape(shape: &[usize], axis: isize) -> Result<[usize; 2], OpError> 
     Ok([outer_size, inner_size])
 }
 
-pub fn flatten<T: Clone>(input: TensorView<T>, axis: isize) -> Result<Tensor<T>, OpError> {
+pub fn flatten<T: Any + Copy>(
+    pool: &TensorPool,
+    input: TensorView<T>,
+    axis: isize,
+) -> Result<Tensor<T>, OpError> {
     let shape = flattened_shape(input.shape(), axis)?;
-    let mut output = input.to_tensor();
+    let buf = pool.alloc_vec(input.len());
+    let mut output = input.to_tensor_buf(buf);
     output.reshape(&shape);
     Ok(output)
 }
@@ -154,12 +159,12 @@ impl Operator for Flatten {
         "Flatten"
     }
 
-    fn run(&self, _pool: &TensorPool, inputs: InputList) -> Result<Vec<Output>, OpError> {
+    fn run(&self, pool: &TensorPool, inputs: InputList) -> Result<Vec<Output>, OpError> {
         let input = inputs.require(0)?;
 
         match input {
-            Input::FloatTensor(input) => flatten(input, self.axis).into_op_result(),
-            Input::IntTensor(input) => flatten(input, self.axis).into_op_result(),
+            Input::FloatTensor(input) => flatten(pool, input, self.axis).into_op_result(),
+            Input::IntTensor(input) => flatten(pool, input, self.axis).into_op_result(),
         }
     }
 
@@ -393,11 +398,13 @@ pub fn squeeze_in_place<T: Clone>(
     Ok(())
 }
 
-pub fn squeeze<T: Clone>(
+pub fn squeeze<T: Any + Copy>(
+    pool: &TensorPool,
     input: TensorView<T>,
     axes: Option<NdTensorView<i32, 1>>,
 ) -> Result<Tensor<T>, OpError> {
-    let mut output = input.to_tensor();
+    let buf = pool.alloc_vec(input.len());
+    let mut output = input.to_tensor_buf(buf);
     squeeze_in_place(&mut output, axes)?;
     Ok(output)
 }
@@ -410,14 +417,14 @@ impl Operator for Squeeze {
         "Squeeze"
     }
 
-    fn run(&self, _pool: &TensorPool, inputs: InputList) -> Result<Vec<Output>, OpError> {
+    fn run(&self, pool: &TensorPool, inputs: InputList) -> Result<Vec<Output>, OpError> {
         let input = inputs.require(0)?;
         let axes = inputs.get_as(1)?;
         let axes = axes.map(|axes| static_dims!(axes, 1)).transpose()?;
 
         match input {
-            Input::FloatTensor(t) => squeeze(t, axes).into_op_result(),
-            Input::IntTensor(t) => squeeze(t, axes).into_op_result(),
+            Input::FloatTensor(t) => squeeze(pool, t, axes).into_op_result(),
+            Input::IntTensor(t) => squeeze(pool, t, axes).into_op_result(),
         }
     }
 
@@ -510,11 +517,13 @@ pub fn unsqueeze_in_place<T: Clone>(
     Ok(input)
 }
 
-pub fn unsqueeze<T: Clone>(
+pub fn unsqueeze<T: Any + Copy>(
+    pool: &TensorPool,
     input: TensorView<T>,
     axes: &NdTensorView<i32, 1>,
 ) -> Result<Tensor<T>, OpError> {
-    unsqueeze_in_place(input.to_tensor(), axes)
+    let buf = pool.alloc_vec(input.len());
+    unsqueeze_in_place(input.to_tensor_buf(buf), axes)
 }
 
 #[derive(Debug)]
@@ -525,14 +534,14 @@ impl Operator for Unsqueeze {
         "Unsqueeze"
     }
 
-    fn run(&self, _pool: &TensorPool, inputs: InputList) -> Result<Vec<Output>, OpError> {
+    fn run(&self, pool: &TensorPool, inputs: InputList) -> Result<Vec<Output>, OpError> {
         let input = inputs.require(0)?;
         let axes = inputs.require_as(1)?;
         let axes = static_dims!(axes, 1)?;
 
         match input {
-            Input::FloatTensor(input) => unsqueeze(input, &axes).into_op_result(),
-            Input::IntTensor(input) => unsqueeze(input, &axes).into_op_result(),
+            Input::FloatTensor(input) => unsqueeze(pool, input, &axes).into_op_result(),
+            Input::IntTensor(input) => unsqueeze(pool, input, &axes).into_op_result(),
         }
     }
 
@@ -631,16 +640,18 @@ mod tests {
 
     #[test]
     fn test_flatten() {
+        let pool = new_pool();
+
         let input = Tensor::from_data(&[1, 5, 1, 1], vec![1, 2, 3, 4, 5]);
-        let result = flatten(input.view(), 1 /* axis */).unwrap();
+        let result = flatten(&pool, input.view(), 1 /* axis */).unwrap();
         assert_eq!(result.shape(), &[1, 5]);
 
         let input = Tensor::from_data(&[2, 3, 1, 4], (1..=24).collect::<Vec<_>>());
-        let result = flatten(input.view(), 2 /* axis */).unwrap();
+        let result = flatten(&pool, input.view(), 2 /* axis */).unwrap();
         assert_eq!(result.shape(), &[6, 4]);
 
         // Case when `axis` is zero, first output dim should always be 1
-        let result = flatten(input.view(), 0 /* axis */).unwrap();
+        let result = flatten(&pool, input.view(), 0 /* axis */).unwrap();
         assert_eq!(result.shape(), &[1, 24]);
     }
 
@@ -862,23 +873,25 @@ mod tests {
 
     #[test]
     fn test_squeeze() -> Result<(), Box<dyn Error>> {
+        let pool = new_pool();
+
         let mut rng = XorShiftRng::new(5678);
         let input = Tensor::rand(&[1, 5, 5, 1], &mut rng);
         let mut expected = input.clone();
 
         // Remove all 1-size axes.
         expected.reshape(&[5, 5]);
-        let result = squeeze(input.view(), None).unwrap();
+        let result = squeeze(&pool, input.view(), None).unwrap();
         expect_equal(&result, &expected)?;
 
         // Remove final 1-size axis.
         expected.reshape(&[1, 5, 5]);
-        let result = squeeze(input.view(), Some(ndtensor!([3]).view())).unwrap();
+        let result = squeeze(&pool, input.view(), Some(ndtensor!([3]).view())).unwrap();
         expect_equal(&result, &expected)?;
 
         // Remove first 1-size axis.
         expected.reshape(&[5, 5, 1]);
-        let result = squeeze(input.view(), Some(ndtensor!([0]).view())).unwrap();
+        let result = squeeze(&pool, input.view(), Some(ndtensor!([0]).view())).unwrap();
         expect_equal(&result, &expected)?;
 
         Ok(())
@@ -904,7 +917,8 @@ mod tests {
         let mut rng = XorShiftRng::new(5678);
         let input = Tensor::rand(&[1, 5, 5, 1], &mut rng);
 
-        let result = squeeze(input.view(), Some(ndtensor!([1]).view()));
+        let pool = new_pool();
+        let result = squeeze(&pool, input.view(), Some(ndtensor!([1]).view()));
 
         assert_eq!(
             result.err(),
@@ -975,35 +989,37 @@ mod tests {
 
     #[test]
     fn test_unsqueeze() {
+        let pool = new_pool();
         let mut rng = XorShiftRng::new(5678);
         let input = Tensor::rand(&[3, 4, 5], &mut rng);
 
         // Unsqueeze with axes in increasing order
-        let output = unsqueeze(input.view(), &ndtensor!([0, 4]).view()).unwrap();
+        let output = unsqueeze(&pool, input.view(), &ndtensor!([0, 4]).view()).unwrap();
         assert_eq!(output.shape(), &[1, 3, 4, 5, 1]);
 
         // Unsqueeze with axes in decreasing order
-        let output = unsqueeze(input.view(), &ndtensor!([4, 0]).view()).unwrap();
+        let output = unsqueeze(&pool, input.view(), &ndtensor!([4, 0]).view()).unwrap();
         assert_eq!(output.shape(), &[1, 3, 4, 5, 1]);
 
         // Unsqueeze a scalar into a 1-item vec
         let scalar = tensor!(2.0);
-        let output = unsqueeze(scalar.view(), &ndtensor!([0]).view()).unwrap();
+        let output = unsqueeze(&pool, scalar.view(), &ndtensor!([0]).view()).unwrap();
         assert_eq!(output.shape(), &[1]);
         assert_eq!(output.to_vec(), &[2.0]);
     }
 
     #[test]
     fn test_unsqueeze_invalid_inputs() {
+        let pool = new_pool();
         let mut rng = XorShiftRng::new(5678);
         let input = Tensor::rand(&[10, 20], &mut rng);
 
         // Invalid dimension index
-        let result = unsqueeze(input.view(), &ndtensor!([3]).view());
+        let result = unsqueeze(&pool, input.view(), &ndtensor!([3]).view());
         assert_eq!(result.err(), Some(OpError::InvalidValue("Axis is invalid")));
 
         // Repeated dimension index
-        let result = unsqueeze(input.view(), &ndtensor!([1, 1]).view());
+        let result = unsqueeze(&pool, input.view(), &ndtensor!([1, 1]).view());
         assert_eq!(
             result.err(),
             Some(OpError::InvalidValue("Axes must be unique"))
