@@ -270,7 +270,8 @@ pub fn layer_normalization(
         Some(normalized_axes.as_slice()),
         true, /* keep_dims */
     )?;
-    let inverse_std_dev = var.map(|x| 1. / (x + epsilon).sqrt());
+    let inverse_std_dev_buf = pool.alloc_vec(var.len());
+    let inverse_std_dev = var.map_buf(inverse_std_dev_buf, |x| 1. / (x + epsilon).sqrt());
     let normalized = mul(&pool, d.view(), inverse_std_dev.view())?;
 
     // Second step: Shift and scale input.
