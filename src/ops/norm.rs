@@ -56,6 +56,7 @@ pub fn batch_norm_in_place(
 ///
 /// See <https://github.com/onnx/onnx/blob/main/docs/Operators.md#batchnormalization>.
 pub fn batch_norm(
+    pool: &TensorPool,
     input: TensorView,
     scale: &NdTensorView<f32, 1>,
     bias: &NdTensorView<f32, 1>,
@@ -63,7 +64,8 @@ pub fn batch_norm(
     var: &NdTensorView<f32, 1>,
     epsilon: f32,
 ) -> Result<Tensor, OpError> {
-    let mut output = input.to_tensor();
+    let buf = pool.alloc_vec(input.len());
+    let mut output = input.to_tensor_buf(buf);
     batch_norm_in_place(&mut output, scale, bias, mean, var, epsilon)?;
     Ok(output)
 }
@@ -78,7 +80,7 @@ impl Operator for BatchNormalization {
         "BatchNormalization"
     }
 
-    fn run(&self, _pool: &TensorPool, inputs: InputList) -> Result<Vec<Output>, OpError> {
+    fn run(&self, pool: &TensorPool, inputs: InputList) -> Result<Vec<Output>, OpError> {
         let input = inputs.require_as(0)?;
 
         let scale = inputs.require_as(1)?;
@@ -93,7 +95,7 @@ impl Operator for BatchNormalization {
         let var = inputs.require_as(4)?;
         let var = static_dims!(var, 1)?;
 
-        batch_norm(input, &scale, &bias, &mean, &var, self.epsilon).into_op_result()
+        batch_norm(pool, input, &scale, &bias, &mean, &var, self.epsilon).into_op_result()
     }
 
     fn can_run_in_place(&self) -> bool {
@@ -121,12 +123,14 @@ impl Operator for BatchNormalization {
 }
 
 pub fn instance_normalization(
+    pool: &TensorPool,
     input: TensorView,
     scale: NdTensorView<f32, 1>,
     bias: NdTensorView<f32, 1>,
     epsilon: Option<f32>,
 ) -> Result<Tensor, OpError> {
-    let mut output = input.to_tensor();
+    let buf = pool.alloc_vec(input.len());
+    let mut output = input.to_tensor_buf(buf);
     instance_normalization_in_place(&mut output, scale, bias, epsilon)?;
     Ok(output)
 }
@@ -198,7 +202,7 @@ impl Operator for InstanceNormalization {
         "InstanceNormalization"
     }
 
-    fn run(&self, _pool: &TensorPool, inputs: InputList) -> Result<Vec<Output>, OpError> {
+    fn run(&self, pool: &TensorPool, inputs: InputList) -> Result<Vec<Output>, OpError> {
         let input = inputs.require_as(0)?;
 
         let scale = inputs.require_as(1)?;
@@ -207,7 +211,7 @@ impl Operator for InstanceNormalization {
         let bias = inputs.require_as(2)?;
         let bias = static_dims!(bias, 1)?;
 
-        instance_normalization(input, scale, bias, self.epsilon).into_op_result()
+        instance_normalization(pool, input, scale, bias, self.epsilon).into_op_result()
     }
 
     fn can_run_in_place(&self) -> bool {
@@ -305,8 +309,9 @@ impl Operator for LayerNormalization {
     }
 }
 
-pub fn log_softmax(input: TensorView, axis: isize) -> Result<Tensor, OpError> {
-    let mut output = input.to_tensor();
+pub fn log_softmax(pool: &TensorPool, input: TensorView, axis: isize) -> Result<Tensor, OpError> {
+    let buf = pool.alloc_vec(input.len());
+    let mut output = input.to_tensor_buf(buf);
     log_softmax_in_place(&mut output, axis)?;
     Ok(output)
 }
@@ -388,9 +393,9 @@ impl Operator for LogSoftmax {
         "LogSoftmax"
     }
 
-    fn run(&self, _pool: &TensorPool, inputs: InputList) -> Result<Vec<Output>, OpError> {
+    fn run(&self, pool: &TensorPool, inputs: InputList) -> Result<Vec<Output>, OpError> {
         let input = inputs.require_as(0)?;
-        log_softmax(input.view(), self.axis).into_op_result()
+        log_softmax(pool, input.view(), self.axis).into_op_result()
     }
 
     fn can_run_in_place(&self) -> bool {
@@ -404,8 +409,9 @@ impl Operator for LogSoftmax {
     }
 }
 
-pub fn softmax(input: TensorView, axis: isize) -> Result<Tensor, OpError> {
-    let mut output = input.to_tensor();
+pub fn softmax(pool: &TensorPool, input: TensorView, axis: isize) -> Result<Tensor, OpError> {
+    let buf = pool.alloc_vec(input.len());
+    let mut output = input.to_tensor_buf(buf);
     softmax_in_place(&mut output, axis)?;
     Ok(output)
 }
@@ -425,9 +431,9 @@ impl Operator for Softmax {
         "Softmax"
     }
 
-    fn run(&self, _pool: &TensorPool, inputs: InputList) -> Result<Vec<Output>, OpError> {
+    fn run(&self, pool: &TensorPool, inputs: InputList) -> Result<Vec<Output>, OpError> {
         let input = inputs.require_as(0)?;
-        softmax(input.view(), self.axis).into_op_result()
+        softmax(pool, input.view(), self.axis).into_op_result()
     }
 
     fn can_run_in_place(&self) -> bool {
@@ -450,7 +456,7 @@ mod tests {
     use rten_tensor::test_util::expect_equal;
     use rten_tensor::{tensor, Tensor};
 
-    use crate::ops::tests::expect_eq_1e4;
+    use crate::ops::tests::{expect_eq_1e4, new_pool};
     use crate::ops::OpError;
     use crate::ops::{
         batch_norm, batch_norm_in_place, instance_normalization, layer_normalization, log_softmax,
@@ -474,6 +480,7 @@ mod tests {
             },
         ];
 
+        let pool = new_pool();
         for Case { input } in cases {
             let scale = &[3.0, 3.0];
             let bias = &[0.1, 0.2];
@@ -488,6 +495,7 @@ mod tests {
             let y2 = (flattened[[1]] - mean[1]) / (var[1] + epsilon).sqrt() * scale[1] + bias[1];
             let expected = Tensor::from_data(input.shape(), vec![y1, y2]);
             let result = batch_norm(
+                &pool,
                 input.view(),
                 &scale.into(),
                 &bias.into(),
@@ -512,7 +520,9 @@ mod tests {
         let epsilon = 1e-5 as f32;
         let input = Tensor::zeros(&[2]);
 
+        let pool = new_pool();
         let result = batch_norm(
+            &pool,
             input.view(),
             &scale.into(),
             &bias.into(),
@@ -573,8 +583,10 @@ mod tests {
             0.1883,  0.9217, -0.4364, 1.0608, -0.9152
         ]);
 
+        let pool = new_pool();
         let result =
-            instance_normalization(input.view(), scale.nd_view(), bias.nd_view(), None).unwrap();
+            instance_normalization(&pool, input.view(), scale.nd_view(), bias.nd_view(), None)
+                .unwrap();
 
         expect_eq_1e4(&result, &expected)?;
 
@@ -614,21 +626,23 @@ mod tests {
 
     #[test]
     fn test_log_softmax() -> Result<(), Box<dyn Error>> {
+        let pool = new_pool();
+
         // 1D input
         let mut input = tensor!([0.1634, 0.8647, 0.6401, 0.8265, 0.0560, 0.2345]);
         let expected = tensor!([-2.1447, -1.4434, -1.6680, -1.4816, -2.2521, -2.0736]);
-        let result = log_softmax(input.view(), 0).unwrap();
+        let result = log_softmax(&pool, input.view(), 0).unwrap();
         expect_eq_1e4(&result, &expected)?;
 
         // Second dimension of 2D input
         input.reshape(&[2, 3]);
         let expected = Tensor::from([[-1.5319, -0.8306, -1.0552], [-0.7011, -1.4716, -1.2931]]);
-        let result = log_softmax(input.view(), 1).unwrap();
+        let result = log_softmax(&pool, input.view(), 1).unwrap();
         expect_eq_1e4(&result, &expected)?;
 
         // First dimension of 2D input
         let expected = Tensor::from([[-1.0787, -0.3684, -0.5108], [-0.4156, -1.1771, -0.9164]]);
-        let result = log_softmax(input.view(), 0).unwrap();
+        let result = log_softmax(&pool, input.view(), 0).unwrap();
         expect_eq_1e4(&result, &expected)?;
 
         // Second dimension of 2D input with multiple entries in first dim
@@ -640,7 +654,7 @@ mod tests {
             [-2.0104, -1.3091, -1.5337, -1.3473, -2.1178],
             [-2.0104, -1.3091, -1.5337, -1.3473, -2.1178],
         ]);
-        let result = log_softmax(matrix_input.view(), 1).unwrap();
+        let result = log_softmax(&pool, matrix_input.view(), 1).unwrap();
         expect_eq_1e4(&result, &matrix_expected)?;
 
         Ok(())
@@ -648,21 +662,23 @@ mod tests {
 
     #[test]
     fn test_softmax() -> Result<(), Box<dyn Error>> {
+        let pool = new_pool();
+
         // Softmax on a 1D input
         let mut input = tensor!([0.1634, 0.8647, 0.6401, 0.8265, 0.0560, 0.2304]);
         let expected = tensor!([0.1172, 0.2362, 0.1887, 0.2274, 0.1052, 0.1253]);
-        let result = softmax(input.view(), 0).unwrap();
+        let result = softmax(&pool, input.view(), 0).unwrap();
         expect_eq_1e4(&result, &expected)?;
 
         // Softmax on final dimension of 2D input
         input.reshape(&[2, 3]);
         let expected = Tensor::from([[0.2161, 0.4358, 0.3481], [0.4966, 0.2298, 0.2736]]);
-        let result = softmax(input.view(), 1).unwrap();
+        let result = softmax(&pool, input.view(), 1).unwrap();
         expect_eq_1e4(&result, &expected)?;
 
         // Softmax on first dimension of 2D input
         let expected = Tensor::from([[0.3400, 0.6918, 0.6010], [0.6600, 0.3082, 0.3990]]);
-        let result = softmax(input.view(), 0).unwrap();
+        let result = softmax(&pool, input.view(), 0).unwrap();
         expect_eq_1e4(&result, &expected)?;
 
         // Softmax on second dimension of 2D input with multiple entries in
@@ -675,7 +691,7 @@ mod tests {
             [0.1339, 0.2701, 0.2157, 0.2599, 0.1203],
             [0.1339, 0.2701, 0.2157, 0.2599, 0.1203],
         ]);
-        let result = softmax(matrix_input.view(), 1).unwrap();
+        let result = softmax(&pool, matrix_input.view(), 1).unwrap();
         expect_eq_1e4(&result, &matrix_expected)?;
 
         Ok(())
@@ -700,7 +716,8 @@ mod tests {
         );
 
         input.permute(&[1, 0]);
-        let result = softmax(input.view(), 1).unwrap();
+        let pool = new_pool();
+        let result = softmax(&pool, input.view(), 1).unwrap();
 
         expect_eq_1e4(&result, &expected)?;
 
@@ -712,9 +729,11 @@ mod tests {
     // do check the shape and that each lane sums to 1.
     #[test]
     fn test_softmax_sizes() {
+        let pool = new_pool();
+
         let mut rng = XorShiftRng::new(1234);
         let input = Tensor::rand(&[1, 1, 3, 3], &mut rng);
-        let result = softmax(input.view(), 1).unwrap();
+        let result = softmax(&pool, input.view(), 1).unwrap();
 
         for lane in result.lanes(1) {
             assert!((lane.sum::<f32>() - 1.0).abs() < 0.001);

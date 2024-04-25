@@ -205,7 +205,7 @@ impl<S: AsRef<[f32]>> FloatOperators for TensorBase<f32, S, DynLayout> {
     }
 
     fn softmax(&self, axis: isize) -> Result<Tensor, OpError> {
-        softmax(self.view(), axis)
+        softmax(&TensorPool::new(), self.view(), axis)
     }
 }
 
@@ -235,6 +235,6 @@ impl<S: AsRef<[f32]>, const N: usize> FloatOperators for TensorBase<f32, S, NdLa
     }
 
     fn softmax(&self, axis: isize) -> Result<Tensor, OpError> {
-        softmax(self.as_dyn(), axis)
+        softmax(&TensorPool::new(), self.as_dyn(), axis)
     }
 }
