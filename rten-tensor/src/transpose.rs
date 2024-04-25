@@ -91,25 +91,6 @@ fn copy_blocked<T: Clone>(src: Matrix<T>, mut dest: MatrixMut<MaybeUninit<T>>) {
     }
 }
 
-/// Return the elements of `src` as a contiguous vector, in the same order they
-/// would be yielded by `src.iter()`.
-///
-/// This function assumes that the caller has already checked if `src` is
-/// contiguous and used more efficient methods to copy the data in that case.
-///
-/// This is equivalent to `src.iter().cloned().collect::<Vec<_>>()` but
-/// faster.
-pub fn contiguous_data<T: Clone>(src: TensorView<T>) -> Vec<T> {
-    let src_len = src.len();
-    let mut result = Vec::with_capacity(src_len);
-    copy_contiguous(src, &mut result.spare_capacity_mut()[..src_len]);
-
-    // Safety: `copy_contiguous` initialized `src_len` elements of result.
-    unsafe { result.set_len(src_len) };
-
-    result
-}
-
 /// Copy elements of `src` into `dest` in contiguous order.
 ///
 /// Returns `dest` as an initialized slice.
@@ -179,8 +160,27 @@ pub fn copy_contiguous<'a, T: Clone>(
 
 #[cfg(test)]
 mod tests {
-    use super::contiguous_data;
-    use crate::{AsView, Tensor};
+    use super::copy_contiguous;
+    use crate::{AsView, Layout, Tensor, TensorView};
+
+    /// Return the elements of `src` as a contiguous vector, in the same order they
+    /// would be yielded by `src.iter()`.
+    ///
+    /// This function assumes that the caller has already checked if `src` is
+    /// contiguous and used more efficient methods to copy the data in that case.
+    ///
+    /// This is equivalent to `src.iter().cloned().collect::<Vec<_>>()` but
+    /// faster.
+    fn contiguous_data<T: Clone>(src: TensorView<T>) -> Vec<T> {
+        let src_len = src.len();
+        let mut result = Vec::with_capacity(src_len);
+        copy_contiguous(src, &mut result.spare_capacity_mut()[..src_len]);
+
+        // Safety: `copy_contiguous` initialized `src_len` elements of result.
+        unsafe { result.set_len(src_len) };
+
+        result
+    }
 
     #[test]
     fn test_contiguous_data() {
