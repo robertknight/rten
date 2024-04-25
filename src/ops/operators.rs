@@ -45,7 +45,7 @@ pub trait Operators {
         val: Self::Elem,
     ) -> Result<Tensor<Self::Elem>, OpError>
     where
-        Self::Elem: Copy;
+        Self::Elem: Any + Copy;
 
     fn topk(
         &self,
@@ -108,9 +108,9 @@ impl<T, S: AsRef<[T]>> Operators for TensorBase<T, S, DynLayout> {
 
     fn pad(&self, padding: NdTensorView<i32, 1>, val: T) -> Result<Tensor<Self::Elem>, OpError>
     where
-        Self::Elem: Copy,
+        Self::Elem: Any + Copy,
     {
-        pad(self.view(), &padding, val)
+        pad(&TensorPool::new(), self.view(), &padding, val)
     }
 
     fn topk(
@@ -160,9 +160,9 @@ impl<T, S: AsRef<[T]>, const N: usize> Operators for TensorBase<T, S, NdLayout<N
 
     fn pad(&self, padding: NdTensorView<i32, 1>, val: T) -> Result<Tensor<Self::Elem>, OpError>
     where
-        Self::Elem: Copy,
+        Self::Elem: Any + Copy,
     {
-        pad(self.as_dyn(), &padding, val)
+        pad(&TensorPool::new(), self.as_dyn(), &padding, val)
     }
 
     fn topk(
