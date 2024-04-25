@@ -9,7 +9,7 @@ use crate::ops::{add, mul, reduce_mean, sub};
 use crate::ops::{resolve_axis, InputList, IntoOpResult, OpError, Operator, Output};
 use crate::slice_reductions::{slice_max, slice_sum};
 use crate::static_dims;
-use crate::tensor_pool::TensorPool;
+use crate::tensor_pool::{AutoReturn, TensorPool};
 
 /// Perform in-place batch normalization on the `NC*` tensor `out`.
 ///
@@ -266,28 +266,30 @@ pub fn layer_normalization(
         input.view(),
         Some(normalized_axes.as_slice()),
         true, /* keep_dims */
-    )?;
-    let d = sub(pool, input, mean.view())?;
-    let dd = mul(pool, d.view(), d.view())?;
+    )?
+    .auto_return(pool);
+    let d = sub(pool, input, mean.view())?.auto_return(pool);
+    let dd = mul(pool, d.view(), d.view())?.auto_return(pool);
     let var = reduce_mean(
         pool,
         dd.view(),
         Some(normalized_axes.as_slice()),
         true, /* keep_dims */
-    )?;
+    )?
+    .auto_return(pool);
     let inverse_std_dev_buf = pool.alloc_vec(var.len());
     let inverse_std_dev = var.map_buf(inverse_std_dev_buf, |x| 1. / (x + epsilon).sqrt());
-    let normalized = mul(pool, d.view(), inverse_std_dev.view())?;
+    let normalized = mul(pool, d.view(), inverse_std_dev.view())?.auto_return(pool);
 
     // Second step: Shift and scale input.
-    let normalized_scaled = mul(pool, normalized.view(), scale)?;
+    let normalized_scaled = mul(pool, normalized.view(), scale)?.auto_return(pool);
     let output = if let Some(bias) = bias {
-        add(pool, normalized_scaled.view(), bias)?
+        add(pool, normalized_scaled.view(), bias)?.auto_return(pool)
     } else {
         normalized_scaled
     };
 
-    Ok(output)
+    Ok(output.take())
 }
 
 #[derive(Debug)]
