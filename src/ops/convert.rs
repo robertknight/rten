@@ -13,17 +13,23 @@ impl Operator for Cast {
         "Cast"
     }
 
-    fn run(&self, _pool: &TensorPool, inputs: InputList) -> Result<Vec<Output>, OpError> {
+    fn run(&self, pool: &TensorPool, inputs: InputList) -> Result<Vec<Output>, OpError> {
         let input = inputs.require(0)?;
-        let result: Output = match input {
-            Input::IntTensor(t) => match self.to {
-                DataType::Int32 => t.to_tensor().into(),
-                DataType::Float => t.map(|x| *x as f32).into(),
-            },
-            Input::FloatTensor(t) => match self.to {
-                DataType::Int32 => t.map(|x| *x as i32).into(),
-                DataType::Float => t.to_tensor().into(),
-            },
+        let result: Output = match self.to {
+            DataType::Int32 => {
+                let buf: Vec<i32> = pool.alloc_vec(input.len());
+                match input {
+                    Input::IntTensor(t) => t.map_buf(buf, |x| *x).into(),
+                    Input::FloatTensor(t) => t.map_buf(buf, |x| *x as i32).into(),
+                }
+            }
+            DataType::Float => {
+                let buf: Vec<f32> = pool.alloc_vec(input.len());
+                match input {
+                    Input::FloatTensor(t) => t.map_buf(buf, |x| *x).into(),
+                    Input::IntTensor(t) => t.map_buf(buf, |x| *x as f32).into(),
+                }
+            }
         };
         result.into_op_result()
     }
