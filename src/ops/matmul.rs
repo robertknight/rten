@@ -4,7 +4,7 @@ use rten_tensor::prelude::*;
 use rten_tensor::{Tensor, TensorView};
 
 use crate::check_dims;
-use crate::gemm::{gemm, GemmExecutor, GemmInputA, GemmInputB};
+use crate::gemm::{GemmExecutor, GemmInputA, GemmInputB};
 use crate::ops::binary_elementwise::broadcast_shapes;
 use crate::ops::layout::expand_to;
 use crate::ops::{InputList, IntoOpResult, OpError, Operator, Output};
@@ -25,6 +25,7 @@ pub struct Gemm {
 ///
 /// nb. This is named `gemm_op` to avoid confusion with `gemm::gemm`.
 pub fn gemm_op(
+    pool: &TensorPool,
     a: TensorView,
     b: TensorView,
     c: Option<TensorView>,
@@ -40,28 +41,41 @@ pub fn gemm_op(
     let b = if transpose_b { b.transposed() } else { b };
 
     let out_shape = &[a.size(0), b.size(1)][..];
-    let mut output = match c {
+    let gemm = GemmExecutor::new();
+
+    let output = match c {
         Some(c) if beta != 0. => {
             if !c.can_broadcast_to(out_shape) {
                 return Err(OpError::IncompatibleInputShapes(
                     "Cannot broadcast c to output shape",
                 ));
             }
-            expand_to(c, out_shape)
+            let mut output = expand_to(pool, c, out_shape);
+            let out_row_stride = output.stride(0);
+            gemm.gemm(
+                output.data_mut().unwrap(),
+                out_row_stride,
+                GemmInputA::Unpacked(a.nd_view()),
+                GemmInputB::Unpacked(b.nd_view()),
+                alpha,
+                beta,
+            );
+            output
         }
-        _ => Tensor::zeros(out_shape),
+        _ => {
+            let mut output = pool.alloc(out_shape);
+            let out_row_stride = output.stride(0);
+            gemm.gemm_uninit(
+                output.data_mut().unwrap(),
+                out_row_stride,
+                GemmInputA::Unpacked(a.nd_view()),
+                GemmInputB::Unpacked(b.nd_view()),
+                alpha,
+            );
+            // Safety: `gemm_uninit` initialized all elements
+            unsafe { output.assume_init() }
+        }
     };
-
-    let out_row_stride = output.stride(0);
-
-    gemm(
-        output.data_mut().unwrap(),
-        out_row_stride,
-        a.nd_view(),
-        b.nd_view(),
-        alpha,
-        beta,
-    );
 
     Ok(output)
 }
@@ -71,11 +85,12 @@ impl Operator for Gemm {
         "Gemm"
     }
 
-    fn run(&self, _pool: &TensorPool, inputs: InputList) -> Result<Vec<Output>, OpError> {
+    fn run(&self, pool: &TensorPool, inputs: InputList) -> Result<Vec<Output>, OpError> {
         let a = inputs.require_as(0)?;
         let b = inputs.require_as(1)?;
         let c = inputs.get_as(2)?;
         gemm_op(
+            pool,
             a,
             b,
             c,
@@ -293,6 +308,8 @@ mod tests {
 
     #[test]
     fn test_gemm_op() -> Result<(), Box<dyn Error>> {
+        let pool = new_pool();
+
         let mut rng = XorShiftRng::new(1234);
         let a = Tensor::rand(&[3, 10], &mut rng);
         let b = Tensor::rand(&[10, 8], &mut rng);
@@ -300,7 +317,7 @@ mod tests {
         let mut expected = Tensor::zeros(&[3, 8]);
         gemm_tensors(&mut expected, &a, &b, 1., 1.);
 
-        let result = gemm_op(a.view(), b.view(), None, 1.0, 1.0, false, false).unwrap();
+        let result = gemm_op(&pool, a.view(), b.view(), None, 1.0, 1.0, false, false).unwrap();
 
         expect_equal(&result, &expected)?;
 
@@ -309,6 +326,8 @@ mod tests {
 
     #[test]
     fn test_gemm_op_transposed() -> Result<(), Box<dyn Error>> {
+        let pool = new_pool();
+
         let mut rng = XorShiftRng::new(1234);
         let a = Tensor::rand(&[10, 3], &mut rng);
         let b = Tensor::rand(&[8, 10], &mut rng);
@@ -320,7 +339,7 @@ mod tests {
         let mut expected = Tensor::zeros(&[3, 8]);
         gemm_tensors(&mut expected, &a_transposed, &b_transposed, 1., 1.);
 
-        let result = gemm_op(a.view(), b.view(), None, 1.0, 1.0, true, true).unwrap();
+        let result = gemm_op(&pool, a.view(), b.view(), None, 1.0, 1.0, true, true).unwrap();
 
         expect_equal(&result, &expected)?;
 
@@ -329,6 +348,8 @@ mod tests {
 
     #[test]
     fn test_gemm_op_adds_c() -> Result<(), Box<dyn Error>> {
+        let pool = new_pool();
+
         let mut rng = XorShiftRng::new(1234);
         let a = Tensor::rand(&[3, 10], &mut rng);
         let b = Tensor::rand(&[10, 8], &mut rng);
@@ -337,7 +358,17 @@ mod tests {
         let mut expected = c.clone();
         gemm_tensors(&mut expected, &a, &b, 1., 1.);
 
-        let result = gemm_op(a.view(), b.view(), Some(c.view()), 1.0, 1.0, false, false).unwrap();
+        let result = gemm_op(
+            &pool,
+            a.view(),
+            b.view(),
+            Some(c.view()),
+            1.0,
+            1.0,
+            false,
+            false,
+        )
+        .unwrap();
 
         expect_equal(&result, &expected)?;
 
@@ -346,12 +377,23 @@ mod tests {
 
     #[test]
     fn test_gemm_op_invalid_inputs() {
+        let pool = new_pool();
+
         let mut rng = XorShiftRng::new(1234);
         let a = Tensor::rand(&[3, 10], &mut rng);
         let b = Tensor::rand(&[10, 8], &mut rng);
         let c = Tensor::rand(&[3, 5], &mut rng);
 
-        let result = gemm_op(a.view(), b.view(), Some(c.view()), 1.0, 1.0, false, false);
+        let result = gemm_op(
+            &pool,
+            a.view(),
+            b.view(),
+            Some(c.view()),
+            1.0,
+            1.0,
+            false,
+            false,
+        );
 
         assert_eq!(
             result.err(),
