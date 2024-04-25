@@ -148,6 +148,18 @@ pub trait AsView: Layout {
         self.view().map(f)
     }
 
+    /// Variant of [`map`](AsView::map) which takes an output buffer as an
+    /// argument.
+    ///
+    /// The output buffer must be empty, but should have a capacity that is at
+    /// least the length of this tensor.
+    fn map_buf<F, U>(&self, buf: Vec<U>, f: F) -> TensorBase<U, Vec<U>, Self::Layout>
+    where
+        F: Fn(&Self::Elem) -> U,
+    {
+        self.view().map_buf(buf, f)
+    }
+
     /// Merge consecutive dimensions to the extent possible without copying
     /// data or changing the iteration order.
     ///
@@ -1246,13 +1258,21 @@ impl<T, S: AsRef<[T]>, L: MutLayout + Clone> AsView for TensorBase<T, S, L> {
     where
         F: Fn(&Self::Elem) -> U,
     {
-        let data: Vec<U> = if let Some(data) = self.data() {
+        let buf = Vec::with_capacity(self.len());
+        self.map_buf(buf, f)
+    }
+
+    fn map_buf<F, U>(&self, mut buf: Vec<U>, f: F) -> TensorBase<U, Vec<U>, L>
+    where
+        F: Fn(&Self::Elem) -> U,
+    {
+        if let Some(data) = self.data() {
             // Fast path for contiguous tensors.
-            data.iter().map(f).collect()
+            buf.extend(data.iter().map(f));
         } else {
-            self.iter().map(f).collect()
+            buf.extend(self.iter().map(f));
         };
-        TensorBase::from_data(self.shape(), data)
+        TensorBase::from_data(self.shape(), buf)
     }
 
     fn move_axis(&mut self, from: usize, to: usize) {
@@ -2412,6 +2432,17 @@ mod tests {
         // Non-contiguous tensor
         let halved = doubled.transposed().map(|x| x / 2.);
         assert_eq!(halved.to_vec(), &[1., 3., 2., 4.]);
+    }
+
+    #[test]
+    fn test_map_buf() {
+        let tensor = NdTensor::arange(0, 4, None);
+        let out_buf = Vec::with_capacity(tensor.len());
+        let ptr = out_buf.as_ptr();
+
+        let doubled = tensor.map_buf(out_buf, |x| x * 2);
+        assert_eq!(doubled.to_vec(), &[0, 2, 4, 6]);
+        assert_eq!(doubled.data().unwrap().as_ptr(), ptr);
     }
 
     #[test]
