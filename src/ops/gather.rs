@@ -1,3 +1,4 @@
+use std::any::Any;
 use std::iter::zip;
 
 use rten_tensor::prelude::*;
@@ -16,7 +17,8 @@ use crate::tensor_pool::TensorPool;
 /// is very similar to `numpy.take`. See
 /// <https://numpy.org/doc/stable/reference/generated/numpy.take.html> for
 /// additional explanation.
-pub fn gather<T: Copy + Default>(
+pub fn gather<T: Any + Copy + Default>(
+    pool: &TensorPool,
     input: TensorView<T>,
     axis: isize,
     indices: TensorView<i32>,
@@ -48,7 +50,7 @@ pub fn gather<T: Copy + Default>(
         &input.shape()[axis + 1..],
     ]
     .concat();
-    let mut output = Tensor::<T>::zeros(&out_shape);
+    let mut output = pool.alloc_zeroed::<T, _>(out_shape.as_slice());
 
     let mut in_range = full_range(input.ndim());
     let mut out_range = full_range(output.ndim());
@@ -77,12 +79,12 @@ impl Operator for Gather {
         "Gather"
     }
 
-    fn run(&self, _pool: &TensorPool, inputs: InputList) -> Result<Vec<Output>, OpError> {
+    fn run(&self, pool: &TensorPool, inputs: InputList) -> Result<Vec<Output>, OpError> {
         let input = inputs.require(0)?;
         let indices = inputs.require_as::<i32>(1)?;
         match input {
-            Input::IntTensor(input) => gather(input, self.axis, indices).into_op_result(),
-            Input::FloatTensor(input) => gather(input, self.axis, indices).into_op_result(),
+            Input::IntTensor(input) => gather(pool, input, self.axis, indices).into_op_result(),
+            Input::FloatTensor(input) => gather(pool, input, self.axis, indices).into_op_result(),
         }
     }
 }
@@ -155,7 +157,8 @@ fn unsqueeze_n<T>(mut view: TensorView<T>, n: usize) -> TensorView<T> {
     view
 }
 
-pub fn gather_elements<T: Copy + Default>(
+pub fn gather_elements<T: Any + Copy + Default>(
+    pool: &TensorPool,
     input: TensorView<T>,
     indices: TensorView<i32>,
     axis: isize,
@@ -166,7 +169,7 @@ pub fn gather_elements<T: Copy + Default>(
         ));
     }
     let axis = resolve_axis(input.ndim(), axis)?;
-    let mut output = Tensor::<T>::zeros(indices.shape());
+    let mut output = pool.alloc_zeroed::<T, _>(indices.shape());
 
     // For the common case of tensors with <= 4 dims, expand input to 4 dims
     // and then use a fast path for static-rank tensors.
@@ -217,13 +220,15 @@ impl Operator for GatherElements {
         "GatherElements"
     }
 
-    fn run(&self, _pool: &TensorPool, inputs: InputList) -> Result<Vec<Output>, OpError> {
+    fn run(&self, pool: &TensorPool, inputs: InputList) -> Result<Vec<Output>, OpError> {
         let input = inputs.require(0)?;
         let indices = inputs.require_as::<i32>(1)?;
         match input {
-            Input::IntTensor(input) => gather_elements(input, indices, self.axis).into_op_result(),
+            Input::IntTensor(input) => {
+                gather_elements(pool, input, indices, self.axis).into_op_result()
+            }
             Input::FloatTensor(input) => {
-                gather_elements(input, indices, self.axis).into_op_result()
+                gather_elements(pool, input, indices, self.axis).into_op_result()
             }
         }
     }
@@ -270,8 +275,9 @@ fn scatter_reduce<T: Copy + PartialOrd + std::ops::Add<Output = T> + std::ops::M
 }
 
 pub fn scatter_elements<
-    T: Copy + Default + PartialOrd + std::ops::Add<Output = T> + std::ops::Mul<Output = T>,
+    T: Any + Copy + Default + PartialOrd + std::ops::Add<Output = T> + std::ops::Mul<Output = T>,
 >(
+    pool: &TensorPool,
     data: TensorView<T>,
     indices: TensorView<i32>,
     updates: TensorView<T>,
@@ -290,7 +296,8 @@ pub fn scatter_elements<
     }
     let axis = resolve_axis(data.ndim(), axis)?;
 
-    let mut output = data.to_tensor();
+    let buf = pool.alloc_vec(data.len());
+    let mut output = data.to_tensor_buf(buf);
     for (index, update) in zip(updates.indices(), updates.iter()) {
         let target_index: SmallVec<[usize; 5]> = index
             .iter()
@@ -324,17 +331,19 @@ impl Operator for ScatterElements {
         "ScatterElements"
     }
 
-    fn run(&self, _pool: &TensorPool, inputs: InputList) -> Result<Vec<Output>, OpError> {
+    fn run(&self, pool: &TensorPool, inputs: InputList) -> Result<Vec<Output>, OpError> {
         let data = inputs.require(0)?;
         let indices = inputs.require_as::<i32>(1)?;
         let updates = inputs.require(2)?;
 
         match (data, updates) {
             (Input::IntTensor(data), Input::IntTensor(updates)) => {
-                scatter_elements(data, indices, updates, self.axis, self.reduction).into_op_result()
+                scatter_elements(pool, data, indices, updates, self.axis, self.reduction)
+                    .into_op_result()
             }
             (Input::FloatTensor(data), Input::FloatTensor(updates)) => {
-                scatter_elements(data, indices, updates, self.axis, self.reduction).into_op_result()
+                scatter_elements(pool, data, indices, updates, self.axis, self.reduction)
+                    .into_op_result()
             }
             _ => Err(OpError::IncorrectInputType),
         }
@@ -342,8 +351,9 @@ impl Operator for ScatterElements {
 }
 
 pub fn scatter_nd<
-    T: Copy + Default + PartialOrd + std::ops::Add<Output = T> + std::ops::Mul<Output = T>,
+    T: Any + Copy + Default + PartialOrd + std::ops::Add<Output = T> + std::ops::Mul<Output = T>,
 >(
+    pool: &TensorPool,
     data: TensorView<T>,
     indices: TensorView<i32>,
     updates: TensorView<T>,
@@ -388,7 +398,8 @@ pub fn scatter_nd<
         .unwrap()
         .chunks(indices.size(indices.ndim() - 1));
 
-    let mut output = data.to_tensor();
+    let buf = pool.alloc_vec(data.len());
+    let mut output = data.to_tensor_buf(buf);
     for (index, update_slice) in index_slices.zip(update_slices) {
         let mut output_slice_offset = 0;
         for (i, (size, stride)) in index
@@ -419,17 +430,17 @@ impl Operator for ScatterND {
         "ScatterND"
     }
 
-    fn run(&self, _pool: &TensorPool, inputs: InputList) -> Result<Vec<Output>, OpError> {
+    fn run(&self, pool: &TensorPool, inputs: InputList) -> Result<Vec<Output>, OpError> {
         let data = inputs.require(0)?;
         let indices = inputs.require_as::<i32>(1)?;
         let updates = inputs.require(2)?;
 
         match (data, updates) {
             (Input::IntTensor(data), Input::IntTensor(updates)) => {
-                scatter_nd(data, indices, updates, self.reduction).into_op_result()
+                scatter_nd(pool, data, indices, updates, self.reduction).into_op_result()
             }
             (Input::FloatTensor(data), Input::FloatTensor(updates)) => {
-                scatter_nd(data, indices, updates, self.reduction).into_op_result()
+                scatter_nd(pool, data, indices, updates, self.reduction).into_op_result()
             }
             _ => Err(OpError::IncorrectInputType),
         }
@@ -445,57 +456,62 @@ mod tests {
     use rten_tensor::test_util::expect_equal;
     use rten_tensor::{tensor, Tensor};
 
+    use crate::ops::tests::new_pool;
     use crate::ops::{
         gather, gather_elements, scatter_elements, scatter_nd, OpError, ScatterReduction,
     };
 
     #[test]
     fn test_gather_scalar_index() {
+        let pool = new_pool();
+
         // 1D input
         let input = tensor!([1, 20, 30]);
         for i in 0..input.len() {
             let indices = tensor!(i as i32);
-            let result = gather(input.view(), 0, indices.view()).unwrap();
+            let result = gather(&pool, input.view(), 0, indices.view()).unwrap();
             assert_eq!(result.item(), Some(&input[[i]]))
         }
 
         // 2D input
         let input = tensor!((2, 2); [1, 2, 3, 4]);
-        let result = gather(input.view(), 0, tensor!(0).view()).unwrap();
+        let result = gather(&pool, input.view(), 0, tensor!(0).view()).unwrap();
         assert_eq!(result, tensor!([1, 2]));
-        let result = gather(input.view(), 0, tensor!(1).view()).unwrap();
+        let result = gather(&pool, input.view(), 0, tensor!(1).view()).unwrap();
         assert_eq!(result, tensor!([3, 4]));
     }
 
     #[test]
     fn test_gather() -> Result<(), Box<dyn Error>> {
+        let pool = new_pool();
+
         // Test case shrunk down from a small BERT model where `gather` is used
         // to lookup embeddings.
         let mut rng = XorShiftRng::new(1234);
         let input = Tensor::rand(&[128, 10], &mut rng);
         let indices = Tensor::from_data(&[2, 2], vec![2, 5, 8, 50]);
-        let result = gather(input.view(), 0, indices.view()).unwrap();
+        let result = gather(&pool, input.view(), 0, indices.view()).unwrap();
         assert_eq!(result.shape(), &[2, 2, 10]);
 
         // Test case #1 from ONNX spec.
         let input = Tensor::from_data(&[3, 2], vec![1.0, 1.2, 2.3, 3.4, 4.5, 5.7]);
         let indices = Tensor::from_data(&[2, 2], vec![0, 1, 1, 2]);
         let expected = Tensor::from_data(&[2, 2, 2], vec![1.0, 1.2, 2.3, 3.4, 2.3, 3.4, 4.5, 5.7]);
-        let result = gather(input.view(), 0, indices.view()).unwrap();
+        let result = gather(&pool, input.view(), 0, indices.view()).unwrap();
         expect_equal(&result, &expected)?;
 
         // Test case #2 from ONNX spec.
         let input = Tensor::from_data(&[3, 3], vec![1.0, 1.2, 1.9, 2.3, 3.4, 3.9, 4.5, 5.7, 5.9]);
         let indices = Tensor::from_data(&[1, 2], vec![0, 2]);
         let expected = Tensor::from_data(&[3, 1, 2], vec![1.0, 1.9, 2.3, 3.9, 4.5, 5.9]);
-        let result = gather(input.view(), 1, indices.view()).unwrap();
+        let result = gather(&pool, input.view(), 1, indices.view()).unwrap();
         expect_equal(&result, &expected)?;
 
         // Negative index values.
         let input = Tensor::from([1, 2, 3]);
         let indices = Tensor::from([-1, -2, -3]);
         let expected = Tensor::from([3, 2, 1]);
-        let result = gather(input.view(), 0, indices.view()).unwrap();
+        let result = gather(&pool, input.view(), 0, indices.view()).unwrap();
         assert_eq!(&result, &expected);
 
         Ok(())
@@ -503,14 +519,16 @@ mod tests {
 
     #[test]
     fn test_gather_invalid_inputs() {
+        let pool = new_pool();
+
         let mut rng = XorShiftRng::new(1234);
         let input = Tensor::rand(&[128, 10], &mut rng);
         let indices = Tensor::from_data(&[2, 2], vec![2, 5, 8, 50]);
-        let result = gather(input.view(), 5, indices.view());
+        let result = gather(&pool, input.view(), 5, indices.view());
         assert_eq!(result.err(), Some(OpError::InvalidValue("Axis is invalid")));
 
         let indices = Tensor::from_data(&[2, 2], vec![2, 5, 8, 130]);
-        let result = gather(input.view(), 0, indices.view());
+        let result = gather(&pool, input.view(), 0, indices.view());
         assert_eq!(
             result.err(),
             Some(OpError::InvalidValue("Entry in `indices` is out of range"))
@@ -519,12 +537,14 @@ mod tests {
 
     #[test]
     fn test_gather_elements() {
+        let pool = new_pool();
+
         // Example #1 from ONNX spec
         let input = Tensor::from([[1, 2], [3, 4]]);
         let indices = Tensor::from([[0, 0], [1, 0]]);
         let axis = 1;
         let expected = Tensor::from([[1, 1], [4, 3]]);
-        let result = gather_elements(input.view(), indices.view(), axis).unwrap();
+        let result = gather_elements(&pool, input.view(), indices.view(), axis).unwrap();
         assert_eq!(result, expected);
 
         // Example #2 from ONNX spec
@@ -532,7 +552,7 @@ mod tests {
         let indices = Tensor::from([[1, 2, 0], [2, 0, 0]]);
         let axis = 0;
         let expected = Tensor::from([[4, 8, 3], [7, 2, 3]]);
-        let result = gather_elements(input.view(), indices.view(), axis).unwrap();
+        let result = gather_elements(&pool, input.view(), indices.view(), axis).unwrap();
         assert_eq!(result, expected);
 
         // Negative indices
@@ -540,7 +560,7 @@ mod tests {
         let indices = Tensor::from([-1, -1, -2, -2]);
         let axis = 0;
         let expected = Tensor::from([3, 3, 2, 2]);
-        let result = gather_elements(input.view(), indices.view(), axis).unwrap();
+        let result = gather_elements(&pool, input.view(), indices.view(), axis).unwrap();
         assert_eq!(result, expected);
 
         // Input with > 4 dims.
@@ -548,7 +568,7 @@ mod tests {
         let indices = tensor!((1, 1, 1, 2, 2); [1, 1, 0, 0]);
         let axis = 4;
         let expected = tensor!((1, 1, 1, 2, 2); [2, 2, 3, 3]);
-        let result = gather_elements(input.view(), indices.view(), axis).unwrap();
+        let result = gather_elements(&pool, input.view(), indices.view(), axis).unwrap();
         assert_eq!(result, expected);
 
         // Empty input and indices
@@ -556,7 +576,7 @@ mod tests {
         let indices = tensor!([]);
         let axis = 0;
         let expected = tensor!([]);
-        let result = gather_elements(input.view(), indices.view(), axis).unwrap();
+        let result = gather_elements(&pool, input.view(), indices.view(), axis).unwrap();
         assert_eq!(result, expected);
 
         // Empty indices
@@ -564,7 +584,7 @@ mod tests {
         let indices = tensor!([]);
         let axis = 0;
         let expected = tensor!([]);
-        let result = gather_elements(input.view(), indices.view(), axis).unwrap();
+        let result = gather_elements(&pool, input.view(), indices.view(), axis).unwrap();
         assert_eq!(result, expected);
 
         // Case where `input` and `indices` have dims < axis that have different
@@ -573,26 +593,28 @@ mod tests {
         let indices = Tensor::from([[0], [0]]);
         let axis = 1;
         let expected = Tensor::from([[1], [3]]);
-        let result = gather_elements(input.view(), indices.view(), axis).unwrap();
+        let result = gather_elements(&pool, input.view(), indices.view(), axis).unwrap();
         assert_eq!(result, expected);
     }
 
     #[test]
     fn test_gather_elements_invalid_inputs() {
+        let pool = new_pool();
+
         let input = Tensor::from([[1, 2], [3, 4]]);
         let indices = Tensor::from([[0, 0], [1, 0]]);
-        let result = gather_elements(input.view(), indices.view(), 2 /* axis */);
+        let result = gather_elements(&pool, input.view(), indices.view(), 2 /* axis */);
         assert_eq!(result.err(), Some(OpError::InvalidValue("Axis is invalid")));
 
         let indices = Tensor::from([[0, 0], [1, 3]]);
-        let result = gather_elements(input.view(), indices.view(), 1 /* axis */);
+        let result = gather_elements(&pool, input.view(), indices.view(), 1 /* axis */);
         assert_eq!(
             result.err(),
             Some(OpError::InvalidValue("Entry in `indices` is out of range"))
         );
 
         let indices = Tensor::from([1, 2, 3]);
-        let result = gather_elements(input.view(), indices.view(), 1 /* axis */);
+        let result = gather_elements(&pool, input.view(), indices.view(), 1 /* axis */);
         assert_eq!(
             result.err(),
             Some(OpError::IncompatibleInputShapes(
@@ -603,6 +625,8 @@ mod tests {
 
     #[test]
     fn test_scatter_elements() {
+        let pool = new_pool();
+
         // Example #1 from ONNX spec
         let data = Tensor::zeros(&[3, 3]);
         let indices = tensor!((2, 3); [
@@ -619,6 +643,7 @@ mod tests {
             0., 2.1, 1.2 //
         ]);
         let result = scatter_elements(
+            &pool,
             data.view(),
             indices.view(),
             updates.view(),
@@ -636,6 +661,7 @@ mod tests {
             1., 1.1, 3., 2.1, 5.
         ]);
         let result = scatter_elements(
+            &pool,
             data.view(),
             indices.view(),
             updates.view(),
@@ -648,12 +674,15 @@ mod tests {
 
     #[test]
     fn test_scatter_elements_reduction() {
+        let pool = new_pool();
+
         let data = tensor!([1, 2, 3, 4]);
         let indices = tensor!([1, 3]);
         let updates = tensor!([2, 2]);
 
         let scatter = |reduction: Option<ScatterReduction>| {
             scatter_elements(
+                &pool,
                 data.view(),
                 indices.view(),
                 updates.view(),
@@ -678,13 +707,15 @@ mod tests {
 
     #[test]
     fn test_scatter_nd() {
+        let pool = new_pool();
+
         // Example 1 from ONNX spec.
         let data = tensor!([1, 2, 3, 4, 5, 6, 7, 8]);
         let indices = tensor!((4, 1); [4, 3, 1, 7]);
         let updates = tensor!([9, 10, 11, 12]);
         let expected = tensor!([1, 11, 3, 10, 9, 6, 7, 12]);
 
-        let result = scatter_nd(data.view(), indices.view(), updates.view(), None).unwrap();
+        let result = scatter_nd(&pool, data.view(), indices.view(), updates.view(), None).unwrap();
         assert_eq!(result, expected);
 
         // Example 2 from ONNX spec.
@@ -705,7 +736,7 @@ mod tests {
             [[1, 1, 1, 1], [2, 2, 2, 2], [3, 3, 3, 3], [4, 4, 4, 4]],
             [[8, 7, 6, 5], [4, 3, 2, 1], [1, 2, 3, 4], [5, 6, 7, 8]],
         ]);
-        let result = scatter_nd(data.view(), indices.view(), updates.view(), None).unwrap();
+        let result = scatter_nd(&pool, data.view(), indices.view(), updates.view(), None).unwrap();
         assert_eq!(result, expected);
     }
 
@@ -750,6 +781,7 @@ mod tests {
             },
         ];
 
+        let pool = new_pool();
         for Case {
             data,
             indices,
@@ -758,8 +790,14 @@ mod tests {
             reduction,
         } in cases
         {
-            let result =
-                scatter_nd(data.view(), indices.view(), updates.view(), Some(reduction)).unwrap();
+            let result = scatter_nd(
+                &pool,
+                data.view(),
+                indices.view(),
+                updates.view(),
+                Some(reduction),
+            )
+            .unwrap();
             assert_eq!(result, expected);
         }
     }
@@ -806,6 +844,7 @@ mod tests {
             },
         ];
 
+        let pool = new_pool();
         for Case {
             data,
             indices,
@@ -813,7 +852,7 @@ mod tests {
             expected,
         } in cases
         {
-            let result = scatter_nd(data.view(), indices.view(), updates.view(), None);
+            let result = scatter_nd(&pool, data.view(), indices.view(), updates.view(), None);
             assert_eq!(result, Err(expected));
         }
     }
