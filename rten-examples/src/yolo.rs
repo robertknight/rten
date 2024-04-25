@@ -14,6 +14,7 @@ struct Args {
     model: String,
     image: String,
     annotated_image: Option<String>,
+    summary: bool,
 }
 
 fn parse_args() -> Result<Args, lexopt::Error> {
@@ -22,6 +23,7 @@ fn parse_args() -> Result<Args, lexopt::Error> {
     let mut values = VecDeque::new();
     let mut parser = lexopt::Parser::from_env();
     let mut annotated_image = None;
+    let mut summary = false;
 
     while let Some(arg) = parser.next()? {
         match arg {
@@ -37,6 +39,10 @@ Options:
   --annotate <path>
 
     Annotate image with bounding boxes and save to <path>
+
+  -s, --summary
+
+    Print only a summary of the objects found
 ",
                     bin_name = parser.bin_name().unwrap_or("detr")
                 );
@@ -45,6 +51,7 @@ Options:
             Long("annotate") => {
                 annotated_image = Some(parser.value()?.string()?);
             }
+            Short('s') | Long("summary") => summary = true,
             _ => return Err(arg.unexpected()),
         }
     }
@@ -56,6 +63,7 @@ Options:
         model,
         image,
         annotated_image,
+        summary,
     };
 
     Ok(args)
@@ -199,13 +207,15 @@ fn main() -> Result<(), Box<dyn Error>> {
             .map(|s| s.as_str())
             .unwrap_or("unknown");
 
-        println!(
+        if !args.summary {
+            println!(
             "object: {label} score: {score:.3} left: {} top: {} right: {} bottom: {} box index: {box_idx}",
             int_rect.left(),
             int_rect.top(),
             int_rect.right(),
             int_rect.bottom()
         );
+        }
     }
 
     if let (Some(annotated_image), Some(path)) = (annotated_image, args.annotated_image) {
