@@ -189,6 +189,26 @@ impl Default for TensorPool {
     }
 }
 
+/// Trait for wrapping a tensor in a [PoolRef] which automatically returns the
+/// tensor to a pool when it goes out of scope.
+pub trait AutoReturn {
+    type Elem: Any + Copy;
+    type Layout: MutLayout;
+
+    /// Wrap `self` in a [PoolRef]. When the returned [PoolRef] is dropped,
+    /// `self` will be returned to `pool`.
+    fn auto_return(self, pool: &TensorPool) -> PoolRef<Self::Elem, Self::Layout>;
+}
+
+impl<T: Any + Copy, L: MutLayout> AutoReturn for TensorBase<T, Vec<T>, L> {
+    type Elem = T;
+    type Layout = L;
+
+    fn auto_return(self, pool: &TensorPool) -> PoolRef<T, L> {
+        PoolRef::new(pool, self)
+    }
+}
+
 /// A smart pointer which wraps a tensor and adds it to a pool when dropped.
 pub struct PoolRef<'a, T: Any + Copy, L: MutLayout> {
     pool: &'a TensorPool,
@@ -205,6 +225,12 @@ impl<'a, T: Any + Copy, L: MutLayout> PoolRef<'a, T, L> {
             pool,
             tensor: Some(tensor),
         }
+    }
+
+    /// Extract the wrapped tensor. After this is used, the tensor will no
+    /// longer be added to the pool when `self` is dropped.
+    pub fn take(mut self) -> TensorBase<T, Vec<T>, L> {
+        self.tensor.take().unwrap()
     }
 }
 
@@ -224,15 +250,16 @@ impl<'a, T: Any + Copy, L: MutLayout> DerefMut for PoolRef<'a, T, L> {
 
 impl<'a, T: Any + Copy, L: MutLayout> Drop for PoolRef<'a, T, L> {
     fn drop(&mut self) {
-        self.pool.add(self.tensor.take().unwrap())
+        if let Some(tensor) = self.tensor.take() {
+            self.pool.add(tensor)
+        }
     }
 }
 
 #[cfg(test)]
 mod tests {
+    use super::{AutoReturn, TensorPool};
     use rten_tensor::prelude::*;
-
-    use super::{PoolRef, TensorPool};
 
     #[test]
     fn test_pool_alloc() {
@@ -318,11 +345,23 @@ mod tests {
         assert_eq!(pool.len(), 0);
 
         {
-            let tensor = PoolRef::new(&pool, pool.alloc_zeroed::<f32, _>([2, 2]));
+            let tensor = pool.alloc_zeroed::<f32, _>([2, 2]).auto_return(&pool);
             assert_eq!(tensor.shape(), [2, 2]);
         }
 
         assert_eq!(pool.alloc_count(), 1);
         assert_eq!(pool.len(), 1);
+    }
+
+    #[test]
+    fn test_pool_auto_return() {
+        let pool = TensorPool::new();
+        assert_eq!(pool.len(), 0);
+        {
+            let tensor = pool.alloc_zeroed::<f32, _>([2, 2]).auto_return(&pool);
+            assert_eq!(tensor.shape(), [2, 2]);
+            tensor.take(); // Take tensor out of the `PoolRef`
+        }
+        assert_eq!(pool.len(), 0);
     }
 }
