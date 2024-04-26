@@ -1,5 +1,3 @@
-use std::any::Any;
-
 use rten_tensor::prelude::*;
 use rten_tensor::{NdTensorView, SliceItem, Tensor, TensorView};
 
@@ -7,7 +5,7 @@ use crate::ops::{Input, InputList, IntoOpResult, OpError, Operator, Output};
 use crate::static_dims;
 use crate::tensor_pool::TensorPool;
 
-pub fn pad<T: Any + Copy>(
+pub fn pad<T: Copy>(
     pool: &TensorPool,
     input: TensorView<T>,
     padding: &NdTensorView<i32, 1>,

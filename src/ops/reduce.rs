@@ -1,4 +1,3 @@
-use std::any::Any;
 use std::cmp::Ordering;
 use std::iter::zip;
 
@@ -59,7 +58,7 @@ fn select_max_index<T, Cmp: Fn(&T, &T) -> std::cmp::Ordering>(
 /// Return the index of the maximum value along a given axis.
 ///
 /// NaN values are propagated by treating NaNs as greater than other values.
-pub fn arg_max<T: Any + Copy + PartialOrd>(
+pub fn arg_max<T: Copy + PartialOrd>(
     pool: &TensorPool,
     input: TensorView<T>,
     axis: isize,
@@ -88,7 +87,7 @@ impl Operator for ArgMax {
 /// Return the index of the minimum value along a given axis.
 ///
 /// NaN values are propagated by treating NaNs as smaller than other values.
-pub fn arg_min<T: Any + Copy + PartialOrd>(
+pub fn arg_min<T: Copy + PartialOrd>(
     pool: &TensorPool,
     input: TensorView<T>,
     axis: isize,
@@ -119,7 +118,7 @@ impl Operator for ArgMin {
     }
 }
 
-pub fn cum_sum<T: Any + Copy + Default + Identities + std::ops::AddAssign>(
+pub fn cum_sum<T: Copy + Default + Identities + std::ops::AddAssign>(
     pool: &TensorPool,
     input: TensorView<T>,
     axis: isize,
@@ -222,7 +221,7 @@ trait Reducer<T> {
     }
 }
 
-fn reduce<T: Any + Copy, R: Reducer<T>>(
+fn reduce<T: Copy, R: Reducer<T>>(
     pool: &TensorPool,
     input: TensorView<T>,
     axes: Option<&[i32]>,
@@ -465,7 +464,7 @@ pub fn cmp_nan_less<T: PartialOrd>(a: T, b: T) -> std::cmp::Ordering {
     }
 }
 
-fn reduce_min_max<T: Any + Copy + PartialOrd>(
+fn reduce_min_max<T: Copy + PartialOrd>(
     pool: &TensorPool,
     input: TensorView<T>,
     axes: Option<&[i32]>,
@@ -488,7 +487,7 @@ fn reduce_min_max<T: Any + Copy + PartialOrd>(
     reduce(pool, input, axes, keep_dims, MinMaxReducer { max })
 }
 
-pub fn reduce_min<T: Any + Copy + PartialOrd>(
+pub fn reduce_min<T: Copy + PartialOrd>(
     pool: &TensorPool,
     input: TensorView<T>,
     axes: Option<&[i32]>,
@@ -514,7 +513,7 @@ impl Operator for ReduceMin {
     }
 }
 
-pub fn reduce_max<T: Any + Copy + PartialOrd>(
+pub fn reduce_max<T: Copy + PartialOrd>(
     pool: &TensorPool,
     input: TensorView<T>,
     axes: Option<&[i32]>,
@@ -540,7 +539,7 @@ impl Operator for ReduceMax {
     }
 }
 
-pub fn reduce_prod<T: Any + Copy + std::iter::Product>(
+pub fn reduce_prod<T: Copy + std::iter::Product>(
     pool: &TensorPool,
     input: TensorView<T>,
     axes: Option<&[i32]>,
@@ -572,7 +571,7 @@ impl Operator for ReduceProd {
     }
 }
 
-pub fn reduce_sum<T: Any + Copy + std::iter::Sum>(
+pub fn reduce_sum<T: Copy + std::iter::Sum>(
     pool: &TensorPool,
     input: TensorView<T>,
     axes: Option<&[i32]>,
@@ -604,7 +603,7 @@ impl Operator for ReduceSum {
     }
 }
 
-pub fn reduce_sum_square<T: Any + Copy + std::ops::Mul<T, Output = T> + std::iter::Sum>(
+pub fn reduce_sum_square<T: Copy + std::ops::Mul<T, Output = T> + std::iter::Sum>(
     pool: &TensorPool,
     input: TensorView<T>,
     axes: Option<&[i32]>,
@@ -636,7 +635,7 @@ impl Operator for ReduceSumSquare {
     }
 }
 
-pub fn topk<T: Any + Copy + Default + PartialOrd>(
+pub fn topk<T: Copy + Default + PartialOrd>(
     pool: &TensorPool,
     values: TensorView<T>,
     k: usize,

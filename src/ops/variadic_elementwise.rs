@@ -1,4 +1,3 @@
-use std::any::Any;
 use std::iter::zip;
 
 use rten_tensor::prelude::*;
@@ -12,7 +11,7 @@ use crate::tensor_pool::TensorPool;
 /// Apply an elementwise reduction to a sequence of tensors.
 ///
 /// All inputs must be broadcastable to the same shape.
-fn reduce_elementwise<T: Any + Copy, R: Fn(&[T]) -> T>(
+fn reduce_elementwise<T: Copy, R: Fn(&[T]) -> T>(
     pool: &TensorPool,
     inputs: &[TensorView<T>],
     reduce: &R,
@@ -80,7 +79,7 @@ where
     })
 }
 
-pub fn max<T: Any + Copy + PartialOrd>(
+pub fn max<T: Copy + PartialOrd>(
     pool: &TensorPool,
     inputs: &[TensorView<T>],
 ) -> Result<Tensor<T>, OpError> {
@@ -141,7 +140,7 @@ impl Operator for Mean {
     }
 }
 
-pub fn min<T: Any + Copy + PartialOrd>(
+pub fn min<T: Copy + PartialOrd>(
     pool: &TensorPool,
     inputs: &[TensorView<T>],
 ) -> Result<Tensor<T>, OpError> {
@@ -166,7 +165,7 @@ impl Operator for Min {
     }
 }
 
-pub fn sum<T: Any + Copy + std::iter::Sum>(
+pub fn sum<T: Copy + std::iter::Sum>(
     pool: &TensorPool,
     inputs: &[TensorView<T>],
 ) -> Result<Tensor<T>, OpError> {

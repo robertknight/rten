@@ -1,5 +1,3 @@
-use std::any::Any;
-
 use rten_tensor::prelude::*;
 use rten_tensor::{NdTensorView, SliceItem, Tensor, TensorView};
 
@@ -7,7 +5,7 @@ use crate::ops::{resolve_axis, InputList, OpError, Operator, Output};
 use crate::static_dims;
 use crate::tensor_pool::TensorPool;
 
-pub fn split<T: Any + Copy>(
+pub fn split<T: Copy>(
     pool: &TensorPool,
     input: TensorView<T>,
     axis: isize,

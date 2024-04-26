@@ -1,12 +1,10 @@
-use std::any::Any;
-
 use rten_tensor::prelude::*;
 use rten_tensor::{Tensor, TensorView};
 
 use crate::ops::{Input, InputList, IntoOpResult, OpError, Operator, Output};
 use crate::tensor_pool::TensorPool;
 
-pub fn trilu<T: Any + Copy + Default>(
+pub fn trilu<T: Copy + Default>(
     pool: &TensorPool,
     input: TensorView<T>,
     k: i32,

@@ -1,12 +1,10 @@
-use std::any::Any;
-
 use rten_tensor::prelude::*;
 use rten_tensor::{Tensor, TensorView};
 
 use crate::ops::{Input, InputList, IntoOpResult, OpError, Operator, Output};
 use crate::tensor_pool::TensorPool;
 
-fn identity<T: Any + Copy>(pool: &TensorPool, src: TensorView<T>) -> Tensor<T> {
+fn identity<T: Copy>(pool: &TensorPool, src: TensorView<T>) -> Tensor<T> {
     src.to_tensor_in(pool)
 }
 

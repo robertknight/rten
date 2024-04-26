@@ -1,4 +1,3 @@
-use std::any::Any;
 use std::fmt::Debug;
 
 use rten_tensor::prelude::*;
@@ -22,12 +21,11 @@ pub trait Operators {
 
     fn arg_max(&self, axis: isize, keep_dims: bool) -> Result<Tensor<i32>, OpError>
     where
-        Self::Elem: Any + Copy + PartialOrd;
+        Self::Elem: Copy + PartialOrd;
 
     fn div(&self, other: TensorView<Self::Elem>) -> Result<Tensor<Self::Elem>, OpError>
     where
-        Self::Elem: Any
-            + Copy
+        Self::Elem: Copy
             + Debug
             + Default
             + std::ops::Mul<Output = Self::Elem>
@@ -37,7 +35,7 @@ pub trait Operators {
 
     fn mul(&self, other: TensorView<Self::Elem>) -> Result<Tensor<Self::Elem>, OpError>
     where
-        Self::Elem: Any + Copy + Debug + Default + std::ops::Mul<Output = Self::Elem>;
+        Self::Elem: Copy + Debug + Default + std::ops::Mul<Output = Self::Elem>;
 
     fn pad(
         &self,
@@ -45,7 +43,7 @@ pub trait Operators {
         val: Self::Elem,
     ) -> Result<Tensor<Self::Elem>, OpError>
     where
-        Self::Elem: Any + Copy;
+        Self::Elem: Copy;
 
     fn topk(
         &self,
@@ -55,7 +53,7 @@ pub trait Operators {
         sorted: bool,
     ) -> Result<(Tensor<Self::Elem>, Tensor<i32>), OpError>
     where
-        Self::Elem: Any + Copy + Default + PartialOrd;
+        Self::Elem: Copy + Default + PartialOrd;
 }
 
 /// Trait which exposes ONNX operators as methods of tensors.
@@ -80,15 +78,14 @@ impl<T, S: AsRef<[T]>> Operators for TensorBase<T, S, DynLayout> {
 
     fn arg_max(&self, axis: isize, keep_dims: bool) -> Result<Tensor<i32>, OpError>
     where
-        T: Any + Copy + PartialOrd,
+        T: Copy + PartialOrd,
     {
         arg_max(&TensorPool::new(), self.view(), axis, keep_dims)
     }
 
     fn div(&self, other: TensorView<Self::Elem>) -> Result<Tensor<Self::Elem>, OpError>
     where
-        Self::Elem: Any
-            + Copy
+        Self::Elem: Copy
             + Debug
             + Default
             + std::ops::Mul<Output = Self::Elem>
@@ -101,14 +98,14 @@ impl<T, S: AsRef<[T]>> Operators for TensorBase<T, S, DynLayout> {
 
     fn mul(&self, other: TensorView<T>) -> Result<Tensor<T>, OpError>
     where
-        T: Any + Copy + Debug + Default + std::ops::Mul<Output = T>,
+        T: Copy + Debug + Default + std::ops::Mul<Output = T>,
     {
         mul(&TensorPool::new(), self.view(), other)
     }
 
     fn pad(&self, padding: NdTensorView<i32, 1>, val: T) -> Result<Tensor<Self::Elem>, OpError>
     where
-        Self::Elem: Any + Copy,
+        Self::Elem: Copy,
     {
         pad(&TensorPool::new(), self.view(), &padding, val)
     }
@@ -121,7 +118,7 @@ impl<T, S: AsRef<[T]>> Operators for TensorBase<T, S, DynLayout> {
         sorted: bool,
     ) -> Result<(Tensor<Self::Elem>, Tensor<i32>), OpError>
     where
-        T: Any + Copy + Default + PartialOrd,
+        T: Copy + Default + PartialOrd,
     {
         topk(&TensorPool::new(), self.view(), k, axis, largest, sorted)
     }
@@ -132,15 +129,14 @@ impl<T, S: AsRef<[T]>, const N: usize> Operators for TensorBase<T, S, NdLayout<N
 
     fn arg_max(&self, axis: isize, keep_dims: bool) -> Result<Tensor<i32>, OpError>
     where
-        T: Any + Copy + PartialOrd,
+        T: Copy + PartialOrd,
     {
         arg_max(&TensorPool::new(), self.as_dyn(), axis, keep_dims)
     }
 
     fn div(&self, other: TensorView<Self::Elem>) -> Result<Tensor<Self::Elem>, OpError>
     where
-        Self::Elem: Any
-            + Copy
+        Self::Elem: Copy
             + Debug
             + Default
             + std::ops::Mul<Output = Self::Elem>
@@ -153,14 +149,14 @@ impl<T, S: AsRef<[T]>, const N: usize> Operators for TensorBase<T, S, NdLayout<N
 
     fn mul(&self, other: TensorView<T>) -> Result<Tensor<T>, OpError>
     where
-        T: Any + Copy + Debug + Default + std::ops::Mul<Output = T>,
+        T: Copy + Debug + Default + std::ops::Mul<Output = T>,
     {
         mul(&TensorPool::new(), self.as_dyn(), other)
     }
 
     fn pad(&self, padding: NdTensorView<i32, 1>, val: T) -> Result<Tensor<Self::Elem>, OpError>
     where
-        Self::Elem: Any + Copy,
+        Self::Elem: Copy,
     {
         pad(&TensorPool::new(), self.as_dyn(), &padding, val)
     }
@@ -173,7 +169,7 @@ impl<T, S: AsRef<[T]>, const N: usize> Operators for TensorBase<T, S, NdLayout<N
         sorted: bool,
     ) -> Result<(Tensor<Self::Elem>, Tensor<i32>), OpError>
     where
-        T: Any + Copy + Default + PartialOrd,
+        T: Copy + Default + PartialOrd,
     {
         topk(&TensorPool::new(), self.as_dyn(), k, axis, largest, sorted)
     }

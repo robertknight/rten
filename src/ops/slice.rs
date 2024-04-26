@@ -1,4 +1,3 @@
-use std::any::Any;
 use std::iter::zip;
 
 use rten_tensor::prelude::*;
@@ -48,7 +47,7 @@ fn slice_ranges(
 }
 
 /// Return a copy of a tensor which only retains a subset of a given dimension.
-pub fn slice<T: Any + Copy>(
+pub fn slice<T: Copy>(
     pool: &TensorPool,
     input: TensorView<T>,
     starts: &NdTensorView<i32, 1>,

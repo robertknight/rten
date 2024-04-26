@@ -1,6 +1,5 @@
 //! Operators which query or change the shape of a tensor, or copy/move/reorder
 //! elements.
-use std::any::Any;
 use std::iter::zip;
 
 use rten_tensor::prelude::*;
@@ -27,7 +26,7 @@ fn expand_output_shape(
 
 /// Broadcast `input` to `out_shape`. This assumes that `out_shape` has already
 /// been verified to be a valid broadcast target.
-pub(crate) fn expand_to<T: Any + Copy>(
+pub(crate) fn expand_to<T: Copy>(
     pool: &TensorPool,
     input: TensorView<T>,
     out_shape: &[usize],
@@ -72,7 +71,7 @@ pub(crate) fn expand_to<T: Any + Copy>(
     }
 }
 
-pub fn expand<T: Any + Copy>(
+pub fn expand<T: Copy>(
     pool: &TensorPool,
     input: TensorView<T>,
     shape: &NdTensorView<i32, 1>,
@@ -135,7 +134,7 @@ fn flattened_shape(shape: &[usize], axis: isize) -> Result<[usize; 2], OpError> 
     Ok([outer_size, inner_size])
 }
 
-pub fn flatten<T: Any + Copy>(
+pub fn flatten<T: Copy>(
     pool: &TensorPool,
     input: TensorView<T>,
     axis: isize,
@@ -146,7 +145,7 @@ pub fn flatten<T: Any + Copy>(
     Ok(output)
 }
 
-pub fn flatten_in_place<T: Any + Copy>(
+pub fn flatten_in_place<T: Copy>(
     pool: &TensorPool,
     input: &mut Tensor<T>,
     axis: isize,
@@ -272,7 +271,7 @@ fn resolve_shape(
         .collect())
 }
 
-pub fn reshape<T: Any + Copy>(
+pub fn reshape<T: Copy>(
     pool: &TensorPool,
     input: TensorView<T>,
     shape: &NdTensorView<i32, 1>,
@@ -284,7 +283,7 @@ pub fn reshape<T: Any + Copy>(
     Ok(output)
 }
 
-pub fn reshape_in_place<T: Any + Copy>(
+pub fn reshape_in_place<T: Copy>(
     pool: &TensorPool,
     input: &mut Tensor<T>,
     shape: &NdTensorView<i32, 1>,
@@ -421,7 +420,7 @@ pub fn squeeze_in_place<T: Clone>(
     Ok(())
 }
 
-pub fn squeeze<T: Any + Copy>(
+pub fn squeeze<T: Copy>(
     pool: &TensorPool,
     input: TensorView<T>,
     axes: Option<NdTensorView<i32, 1>>,
@@ -477,7 +476,7 @@ impl Operator for Squeeze {
     }
 }
 
-pub fn transpose<T: Any + Copy>(
+pub fn transpose<T: Copy>(
     pool: &TensorPool,
     input: TensorView<T>,
     permutation: Option<&[usize]>,
@@ -544,7 +543,7 @@ pub fn unsqueeze_in_place<T: Clone>(
     Ok(input)
 }
 
-pub fn unsqueeze<T: Any + Copy>(
+pub fn unsqueeze<T: Copy>(
     pool: &TensorPool,
     input: TensorView<T>,
     axes: &NdTensorView<i32, 1>,
