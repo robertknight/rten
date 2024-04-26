@@ -61,6 +61,7 @@ impl NmsBox {
 }
 
 pub fn non_max_suppression(
+    pool: &TensorPool,
     boxes: NdTensorView<f32, 3>,
     scores: NdTensorView<f32, 3>,
     box_order: BoxOrder,
@@ -169,7 +170,7 @@ pub fn non_max_suppression(
         });
     }
 
-    let mut selected_indices = NdTensor::<i32, 2>::zeros([selected.len(), 3]);
+    let mut selected_indices = pool.alloc_zeroed::<i32, _>([selected.len(), 3]);
     for (i, nms_box) in selected.into_iter().enumerate() {
         selected_indices.slice_mut(i).assign_array([
             nms_box.batch_index as i32,
@@ -191,7 +192,7 @@ impl Operator for NonMaxSuppression {
         "NonMaxSuppression"
     }
 
-    fn run(&self, _pool: &TensorPool, inputs: InputList) -> Result<Vec<Output>, OpError> {
+    fn run(&self, pool: &TensorPool, inputs: InputList) -> Result<Vec<Output>, OpError> {
         let boxes = inputs.require_as(0)?;
         let boxes = static_dims!(boxes, 3, "ND4")?;
 
@@ -203,6 +204,7 @@ impl Operator for NonMaxSuppression {
         let score_threshold = inputs.get_as_scalar(4)?;
 
         let selected_box_indices = non_max_suppression(
+            pool,
             boxes,
             scores,
             self.box_order,
@@ -220,6 +222,7 @@ mod tests {
     use rten_tensor::prelude::*;
     use rten_tensor::NdTensor;
 
+    use crate::ops::tests::new_pool;
     use crate::ops::{non_max_suppression, BoxOrder, OpError};
 
     struct NmsBox {
@@ -288,7 +291,9 @@ mod tests {
         let iou_threshold = 0.5;
         let score_threshold = 0.;
 
+        let pool = new_pool();
         let selected = non_max_suppression(
+            &pool,
             boxes.view(),
             scores.view(),
             BoxOrder::TopLeftBottomRight,
@@ -309,6 +314,8 @@ mod tests {
 
     #[test]
     fn test_non_max_suppression_box_order() {
+        let pool = new_pool();
+
         let (boxes_tlbr, scores) = example_boxes(BoxOrder::TopLeftBottomRight);
         let (boxes_chw, _) = example_boxes(BoxOrder::CenterWidthHeight);
 
@@ -316,6 +323,7 @@ mod tests {
         let score_threshold = 0.;
 
         let selected_tlbr = non_max_suppression(
+            &pool,
             boxes_tlbr.view(),
             scores.view(),
             BoxOrder::TopLeftBottomRight,
@@ -324,6 +332,7 @@ mod tests {
             score_threshold,
         );
         let selected_chw = non_max_suppression(
+            &pool,
             boxes_chw.view(),
             scores.view(),
             BoxOrder::CenterWidthHeight,
@@ -337,11 +346,14 @@ mod tests {
 
     #[test]
     fn test_non_max_suppression_iou_threshold() {
+        let pool = new_pool();
+
         let (boxes, scores) = example_boxes(BoxOrder::TopLeftBottomRight);
         let iou_threshold = 0.99;
         let score_threshold = 0.;
 
         let selected = non_max_suppression(
+            &pool,
             boxes.view(),
             scores.view(),
             BoxOrder::TopLeftBottomRight,
@@ -364,11 +376,13 @@ mod tests {
 
     #[test]
     fn test_non_max_suppression_max_outputs_per_class() {
+        let pool = new_pool();
         let (boxes, scores) = example_boxes(BoxOrder::TopLeftBottomRight);
         let iou_threshold = 1.0;
         let score_threshold = 0.;
 
         let selected = non_max_suppression(
+            &pool,
             boxes.view(),
             scores.view(),
             BoxOrder::TopLeftBottomRight,
@@ -391,11 +405,13 @@ mod tests {
 
     #[test]
     fn test_non_max_suppression_score_threshold() {
+        let pool = new_pool();
         let (boxes, scores) = example_boxes(BoxOrder::TopLeftBottomRight);
         let iou_threshold = 0.5;
         let score_threshold = 0.8;
 
         let selected = non_max_suppression(
+            &pool,
             boxes.view(),
             scores.view(),
             BoxOrder::TopLeftBottomRight,
@@ -414,10 +430,12 @@ mod tests {
 
     #[test]
     fn test_non_max_suppression_invalid() {
+        let pool = new_pool();
         let apply_nms = |boxes, scores| {
             let iou_threshold = 0.5;
             let score_threshold = 0.;
             non_max_suppression(
+                &pool,
                 boxes,
                 scores,
                 BoxOrder::TopLeftBottomRight,

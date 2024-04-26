@@ -4,7 +4,7 @@ use std::fs;
 use std::path::PathBuf;
 
 use rten::ops::{non_max_suppression, BoxOrder};
-use rten::{Dimension, FloatOperators, Model};
+use rten::{Dimension, FloatOperators, Model, TensorPool};
 use rten_imageio::{read_image, write_image};
 use rten_imageproc::{Painter, Rect};
 use rten_tensor::prelude::*;
@@ -158,6 +158,7 @@ fn main() -> Result<(), Box<dyn Error>> {
 
     // nms_boxes is [n_selected, 3];
     let nms_boxes = non_max_suppression(
+        &TensorPool::new(),
         boxes.view(),
         scores,
         BoxOrder::CenterWidthHeight,
