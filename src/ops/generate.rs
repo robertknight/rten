@@ -1,4 +1,3 @@
-use std::any::Any;
 use std::iter::zip;
 use std::ops;
 
@@ -11,7 +10,7 @@ use crate::ops::{
 use crate::static_dims;
 use crate::tensor_pool::TensorPool;
 
-pub fn constant_of_shape<T: Any + Copy>(
+pub fn constant_of_shape<T: Copy>(
     pool: &TensorPool,
     value: T,
     shape: &NdTensorView<i32, 1>,
@@ -44,7 +43,7 @@ impl Operator for ConstantOfShape {
     }
 }
 
-pub fn onehot<T: Any + Copy + Default + PartialEq>(
+pub fn onehot<T: Copy + Default + PartialEq>(
     pool: &TensorPool,
     indices: TensorView<i32>,
     onehot_axis: isize,

@@ -1,4 +1,3 @@
-use std::any::Any;
 use std::fmt::Debug;
 use std::iter::{repeat, zip};
 
@@ -155,7 +154,7 @@ fn fast_broadcast_cycles(from_shape: &[usize], to_shape: &[usize]) -> Option<usi
 /// Compute the result of applying the binary operation `op` to corresponding
 /// elements of `a` and `b`. The shapes of `a` and `b` are broadcast to a
 /// matching shape if necessary.
-fn binary_op<T: Copy + Debug, R: Any + Copy + Default, F: Fn(T, T) -> R>(
+fn binary_op<T: Copy + Debug, R: Default, F: Fn(T, T) -> R>(
     pool: &TensorPool,
     a: TensorView<T>,
     b: TensorView<T>,
@@ -266,7 +265,7 @@ fn binary_op_in_place<T: Copy + Debug, F: Fn(T, T) -> T>(
 /// operands can be swapped without affecting the result. In this case we
 /// can make the larger of the two operands the LHS and benefit from
 /// optimizations in `binary_op` that assume this.
-fn binary_commutative_op<T: Any + Copy + Debug + Default, F: Fn(T, T) -> T>(
+fn binary_commutative_op<T: Copy + Debug + Default, F: Fn(T, T) -> T>(
     pool: &TensorPool,
     a: TensorView<T>,
     b: TensorView<T>,
@@ -331,7 +330,7 @@ macro_rules! run_typed_op_in_place {
 }
 
 /// Perform elementwise addition of two tensors.
-pub fn add<T: Copy + Any + Debug + Default + std::ops::Add<Output = T>>(
+pub fn add<T: Copy + Debug + Default + std::ops::Add<Output = T>>(
     pool: &TensorPool,
     a: TensorView<T>,
     b: TensorView<T>,
@@ -340,7 +339,7 @@ pub fn add<T: Copy + Any + Debug + Default + std::ops::Add<Output = T>>(
 }
 
 /// Perform in-place elementwise addition of two tensors.
-pub fn add_in_place<T: Any + Copy + Debug + std::ops::Add<Output = T>>(
+pub fn add_in_place<T: Copy + Debug + std::ops::Add<Output = T>>(
     a: TensorViewMut<T>,
     b: TensorView<T>,
 ) {
@@ -382,7 +381,7 @@ impl Operator for Add {
 /// These accept two i32 tensors and produce an i32 result.
 macro_rules! logical_boolean_op {
     ($op:ident, $op_fn:ident, $expr:expr) => {
-        pub fn $op_fn<T: AsBool + Any + Copy + Debug>(
+        pub fn $op_fn<T: AsBool + Copy + Debug>(
             pool: &TensorPool,
             a: TensorView<T>,
             b: TensorView<T>,
@@ -421,8 +420,7 @@ logical_boolean_op!(Xor, xor, |x, y| x ^ y);
 
 /// Perform elementwise division of two tensors.
 pub fn div<
-    T: Any
-        + Copy
+    T: Copy
         + Debug
         + Default
         + std::ops::Mul<Output = T>
@@ -490,7 +488,7 @@ enum BooleanOp {
     GreaterOrEqual,
 }
 
-fn boolean_op<T: Any + Copy + Debug + PartialEq + PartialOrd>(
+fn boolean_op<T: Copy + Debug + PartialEq + PartialOrd>(
     pool: &TensorPool,
     a: TensorView<T>,
     b: TensorView<T>,
@@ -511,7 +509,7 @@ fn boolean_op<T: Any + Copy + Debug + PartialEq + PartialOrd>(
 /// types.
 macro_rules! boolean_cmp_op {
     ($name:ident, $func:ident) => {
-        pub fn $func<T: Any + Copy + Debug + PartialEq + PartialOrd>(
+        pub fn $func<T: Copy + Debug + PartialEq + PartialOrd>(
             pool: &TensorPool,
             a: TensorView<T>,
             b: TensorView<T>,
@@ -581,13 +579,7 @@ pub enum DivMode {
 
 /// Return the elementwise remainder of dividing `a / b`.
 pub fn mod_op<
-    T: Any
-        + Copy
-        + Debug
-        + Default
-        + PartialOrd
-        + std::ops::Add<Output = T>
-        + std::ops::Rem<Output = T>,
+    T: Copy + Debug + Default + PartialOrd + std::ops::Add<Output = T> + std::ops::Rem<Output = T>,
 >(
     pool: &TensorPool,
     a: TensorView<T>,
@@ -639,7 +631,7 @@ impl Operator for Mod {
 }
 
 /// Multiply two tensors elementwise.
-pub fn mul<T: Any + Copy + Debug + Default + std::ops::Mul<Output = T>>(
+pub fn mul<T: Copy + Debug + Default + std::ops::Mul<Output = T>>(
     pool: &TensorPool,
     a: TensorView<T>,
     b: TensorView<T>,
@@ -751,7 +743,7 @@ impl Operator for Pow {
 }
 
 /// Perform elementwise subtraction of two tensors.
-pub fn sub<T: Any + Copy + Debug + Default + std::ops::Sub<Output = T>>(
+pub fn sub<T: Copy + Debug + Default + std::ops::Sub<Output = T>>(
     pool: &TensorPool,
     a: TensorView<T>,
     b: TensorView<T>,
@@ -793,7 +785,7 @@ impl Operator for Sub {
     }
 }
 
-pub fn where_op<T: Any + Copy>(
+pub fn where_op<T: Copy>(
     pool: &TensorPool,
     cond: TensorView<i32>,
     x: TensorView<T>,

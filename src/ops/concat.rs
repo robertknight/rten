@@ -1,4 +1,3 @@
-use std::any::Any;
 use std::mem::MaybeUninit;
 
 use rten_tensor::prelude::*;
@@ -54,7 +53,7 @@ impl<'a, T: Copy> TensorChunks<'a, T> {
     }
 }
 
-pub fn concat<T: Any + Copy>(
+pub fn concat<T: Copy>(
     pool: &TensorPool,
     inputs: &[TensorView<T>],
     axis: isize,
@@ -190,7 +189,7 @@ fn tile_inner<T: Copy>(
     assert!(n_init == output.len());
 }
 
-pub fn tile<T: Any + Copy>(
+pub fn tile<T: Copy>(
     pool: &TensorPool,
     input: TensorView<T>,
     repeats: NdTensorView<i32, 1>,

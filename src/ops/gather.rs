@@ -1,4 +1,3 @@
-use std::any::Any;
 use std::iter::zip;
 
 use rten_tensor::prelude::*;
@@ -17,7 +16,7 @@ use crate::tensor_pool::TensorPool;
 /// is very similar to `numpy.take`. See
 /// <https://numpy.org/doc/stable/reference/generated/numpy.take.html> for
 /// additional explanation.
-pub fn gather<T: Any + Copy + Default>(
+pub fn gather<T: Copy + Default>(
     pool: &TensorPool,
     input: TensorView<T>,
     axis: isize,
@@ -157,7 +156,7 @@ fn unsqueeze_n<T>(mut view: TensorView<T>, n: usize) -> TensorView<T> {
     view
 }
 
-pub fn gather_elements<T: Any + Copy + Default>(
+pub fn gather_elements<T: Copy + Default>(
     pool: &TensorPool,
     input: TensorView<T>,
     indices: TensorView<i32>,
@@ -275,7 +274,7 @@ fn scatter_reduce<T: Copy + PartialOrd + std::ops::Add<Output = T> + std::ops::M
 }
 
 pub fn scatter_elements<
-    T: Any + Copy + Default + PartialOrd + std::ops::Add<Output = T> + std::ops::Mul<Output = T>,
+    T: Copy + Default + PartialOrd + std::ops::Add<Output = T> + std::ops::Mul<Output = T>,
 >(
     pool: &TensorPool,
     data: TensorView<T>,
@@ -296,8 +295,7 @@ pub fn scatter_elements<
     }
     let axis = resolve_axis(data.ndim(), axis)?;
 
-    let buf = pool.alloc_vec(data.len());
-    let mut output = data.to_tensor_buf(buf);
+    let mut output = data.to_tensor_in(pool);
     for (index, update) in zip(updates.indices(), updates.iter()) {
         let target_index: SmallVec<[usize; 5]> = index
             .iter()
@@ -351,7 +349,7 @@ impl Operator for ScatterElements {
 }
 
 pub fn scatter_nd<
-    T: Any + Copy + Default + PartialOrd + std::ops::Add<Output = T> + std::ops::Mul<Output = T>,
+    T: Copy + Default + PartialOrd + std::ops::Add<Output = T> + std::ops::Mul<Output = T>,
 >(
     pool: &TensorPool,
     data: TensorView<T>,
@@ -398,8 +396,7 @@ pub fn scatter_nd<
         .unwrap()
         .chunks(indices.size(indices.ndim() - 1));
 
-    let buf = pool.alloc_vec(data.len());
-    let mut output = data.to_tensor_buf(buf);
+    let mut output = data.to_tensor_in(pool);
     for (index, update_slice) in index_slices.zip(update_slices) {
         let mut output_slice_offset = 0;
         for (i, (size, stride)) in index
