@@ -515,7 +515,7 @@ impl Graph {
             let op_result = if let Some(input) = in_place_input {
                 op_node
                     .operator
-                    .run_in_place(input, InputList::from_optional(op_inputs))
+                    .run_in_place(&pool, input, InputList::from_optional(op_inputs))
                     .map(|out| [out].into())
             } else {
                 op_node
@@ -925,12 +925,17 @@ mod tests {
             self.inner.run(pool, inputs)
         }
 
-        fn run_in_place(&self, output: Output, inputs: InputList) -> Result<Output, OpError> {
+        fn run_in_place(
+            &self,
+            pool: &TensorPool,
+            output: Output,
+            inputs: InputList,
+        ) -> Result<Output, OpError> {
             {
                 let mut m = self.metrics.lock().unwrap();
                 m.run_in_place_count += 1;
             }
-            self.inner.run_in_place(output, inputs)
+            self.inner.run_in_place(pool, output, inputs)
         }
     }
 
@@ -1355,7 +1360,12 @@ mod tests {
             input.to_tensor().into_op_result()
         }
 
-        fn run_in_place(&self, input: Output, _other: InputList) -> Result<Output, OpError> {
+        fn run_in_place(
+            &self,
+            _pool: &TensorPool,
+            input: Output,
+            _other: InputList,
+        ) -> Result<Output, OpError> {
             let mut output = input.into_float().unwrap();
             for x in output.iter_mut() {
                 *x = *x + 1.0;

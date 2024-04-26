@@ -38,12 +38,17 @@ impl Operator for Cast {
         true
     }
 
-    fn run_in_place(&self, input: Output, _: InputList) -> Result<Output, OpError> {
+    fn run_in_place(
+        &self,
+        pool: &TensorPool,
+        input: Output,
+        _: InputList,
+    ) -> Result<Output, OpError> {
         match (input, self.to) {
             (Output::IntTensor(t), DataType::Int32) => Ok(t.into()),
             (Output::FloatTensor(t), DataType::Float) => Ok(t.into()),
             (input, _) => self
-                .run(&TensorPool::new(), InputList::from(&[(&input).into()]))
+                .run(pool, InputList::from(&[(&input).into()]))
                 .map(|mut outputs| outputs.remove(0)),
         }
     }

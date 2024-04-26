@@ -106,7 +106,12 @@ impl Operator for Expand {
         true
     }
 
-    fn run_in_place(&self, input: Output, inputs: InputList) -> Result<Output, OpError> {
+    fn run_in_place(
+        &self,
+        pool: &TensorPool,
+        input: Output,
+        inputs: InputList,
+    ) -> Result<Output, OpError> {
         let shape = inputs.require_as(0)?;
         let shape = static_dims!(shape, 1)?;
 
@@ -115,10 +120,9 @@ impl Operator for Expand {
             return Ok(input);
         }
 
-        let pool = TensorPool::new();
         let output: Output = match input {
-            Output::FloatTensor(input) => expand_to(&pool, input.view(), &out_shape).into(),
-            Output::IntTensor(input) => expand_to(&pool, input.view(), &out_shape).into(),
+            Output::FloatTensor(input) => expand_to(pool, input.view(), &out_shape).into(),
+            Output::IntTensor(input) => expand_to(pool, input.view(), &out_shape).into(),
         };
         Ok(output)
     }
@@ -172,7 +176,14 @@ impl Operator for Flatten {
         true
     }
 
-    fn run_in_place(&self, input: Output, _: InputList) -> Result<Output, OpError> {
+    fn run_in_place(
+        &self,
+        _pool: &TensorPool,
+        input: Output,
+        _: InputList,
+    ) -> Result<Output, OpError> {
+        // TODO - `flatten_in_place` should allocate from the pool if a copy is
+        // required.
         match input {
             Output::IntTensor(mut output) => {
                 flatten_in_place(&mut output, self.axis)?;
@@ -307,7 +318,15 @@ impl Operator for Reshape {
         true
     }
 
-    fn run_in_place(&self, input: Output, other: InputList) -> Result<Output, OpError> {
+    fn run_in_place(
+        &self,
+        _pool: &TensorPool,
+        input: Output,
+        other: InputList,
+    ) -> Result<Output, OpError> {
+        // TODO - `reshape_in_place` should allocate from the pool if a copy is
+        // required.
+
         let shape = other.require_as(0)?;
         let shape = static_dims!(shape, 1)?;
 
@@ -437,7 +456,12 @@ impl Operator for Squeeze {
         true
     }
 
-    fn run_in_place(&self, input: Output, other: InputList) -> Result<Output, OpError> {
+    fn run_in_place(
+        &self,
+        _pool: &TensorPool,
+        input: Output,
+        other: InputList,
+    ) -> Result<Output, OpError> {
         let axes = other.get_as(0)?;
         let axes = axes.map(|axes| static_dims!(axes, 1)).transpose()?;
 
@@ -554,7 +578,12 @@ impl Operator for Unsqueeze {
         true
     }
 
-    fn run_in_place(&self, output: Output, inputs: InputList) -> Result<Output, OpError> {
+    fn run_in_place(
+        &self,
+        _pool: &TensorPool,
+        output: Output,
+        inputs: InputList,
+    ) -> Result<Output, OpError> {
         let axes = inputs.require_as(0)?;
         let axes = static_dims!(axes, 1)?;
 
