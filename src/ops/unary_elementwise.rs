@@ -28,8 +28,7 @@ pub trait UnaryFloatOp {
 
     /// Apply the operator to all elements in `input`.
     fn map(&self, pool: &TensorPool, input: TensorView) -> Tensor {
-        let buf = pool.alloc_vec(input.len());
-        input.map_buf(buf, |val| self.map_element(*val))
+        input.map_in(pool, |val| self.map_element(*val))
     }
 
     /// Apply the operator to all elements in `input`.
@@ -247,8 +246,7 @@ impl AbsValue for i32 {
 }
 
 pub fn abs<T: Any + AbsValue + Copy>(pool: &TensorPool, input: TensorView<T>) -> Tensor<T> {
-    let buf = pool.alloc_vec(input.len());
-    input.map_buf(buf, |x| x.abs())
+    input.map_in(pool, |x| x.abs())
 }
 
 pub fn abs_in_place<T: AbsValue>(mut input: TensorViewMut<T>) {
@@ -322,8 +320,7 @@ pub fn clip<T: Any + Copy + Clamp>(
 ) -> Tensor<T> {
     let min = min.unwrap_or(T::min_val());
     let max = max.unwrap_or(T::max_val());
-    let buf = pool.alloc_vec(input.len());
-    input.map_buf(buf, |x| x.clamp(min, max))
+    input.map_in(pool, |x| x.clamp(min, max))
 }
 
 pub fn clip_in_place<T: Copy + Clamp>(input: &mut Tensor<T>, min: Option<T>, max: Option<T>) {
@@ -479,8 +476,7 @@ pub fn neg<T: Any + Copy + std::ops::Neg<Output = T>>(
     pool: &TensorPool,
     input: TensorView<T>,
 ) -> Tensor<T> {
-    let buf = pool.alloc_vec(input.len());
-    input.map_buf(buf, |x| x.neg())
+    input.map_in(pool, |x| x.neg())
 }
 
 pub fn neg_in_place<T: Copy + std::ops::Neg<Output = T>>(mut input: TensorViewMut<T>) {
@@ -490,8 +486,7 @@ pub fn neg_in_place<T: Copy + std::ops::Neg<Output = T>>(mut input: TensorViewMu
 unary_numeric_op!(Neg, neg, neg_in_place);
 
 pub fn not<T: AsBool + PartialEq>(pool: &TensorPool, input: TensorView<T>) -> Tensor<i32> {
-    let buf = pool.alloc_vec(input.len());
-    input.map_buf(buf, |x| i32::from(!x.as_bool()))
+    input.map_in(pool, |x| i32::from(!x.as_bool()))
 }
 
 pub fn not_in_place(mut input: TensorViewMut<i32>) {
@@ -587,8 +582,7 @@ impl_signum!(i32);
 impl_signum!(f32);
 
 pub fn sign<T: Any + Signum>(pool: &TensorPool, input: TensorView<T>) -> Tensor<T> {
-    let buf = pool.alloc_vec(input.len());
-    input.map_buf(buf, |x| x.signum())
+    input.map_in(pool, |x| x.signum())
 }
 
 pub fn sign_in_place<T: Signum>(mut input: TensorViewMut<T>) {

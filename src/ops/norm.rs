@@ -64,8 +64,7 @@ pub fn batch_norm(
     var: &NdTensorView<f32, 1>,
     epsilon: f32,
 ) -> Result<Tensor, OpError> {
-    let buf = pool.alloc_vec(input.len());
-    let mut output = input.to_tensor_buf(buf);
+    let mut output = input.to_tensor_in(pool);
     batch_norm_in_place(&mut output, scale, bias, mean, var, epsilon)?;
     Ok(output)
 }
@@ -134,8 +133,7 @@ pub fn instance_normalization(
     bias: NdTensorView<f32, 1>,
     epsilon: Option<f32>,
 ) -> Result<Tensor, OpError> {
-    let buf = pool.alloc_vec(input.len());
-    let mut output = input.to_tensor_buf(buf);
+    let mut output = input.to_tensor_in(pool);
     instance_normalization_in_place(&mut output, scale, bias, epsilon)?;
     Ok(output)
 }
@@ -287,8 +285,9 @@ pub fn layer_normalization(
         true, /* keep_dims */
     )?
     .auto_return(pool);
-    let inverse_std_dev_buf = pool.alloc_vec(var.len());
-    let inverse_std_dev = var.map_buf(inverse_std_dev_buf, |x| 1. / (x + epsilon).sqrt());
+    let inverse_std_dev = var
+        .map_in(pool, |x| 1. / (x + epsilon).sqrt())
+        .auto_return(pool);
     let normalized = mul(pool, d.view(), inverse_std_dev.view())?.auto_return(pool);
 
     // Second step: Shift and scale input.
@@ -324,8 +323,7 @@ impl Operator for LayerNormalization {
 }
 
 pub fn log_softmax(pool: &TensorPool, input: TensorView, axis: isize) -> Result<Tensor, OpError> {
-    let buf = pool.alloc_vec(input.len());
-    let mut output = input.to_tensor_buf(buf);
+    let mut output = input.to_tensor_in(pool);
     log_softmax_in_place(&mut output, axis)?;
     Ok(output)
 }
@@ -429,8 +427,7 @@ impl Operator for LogSoftmax {
 }
 
 pub fn softmax(pool: &TensorPool, input: TensorView, axis: isize) -> Result<Tensor, OpError> {
-    let buf = pool.alloc_vec(input.len());
-    let mut output = input.to_tensor_buf(buf);
+    let mut output = input.to_tensor_in(pool);
     softmax_in_place(&mut output, axis)?;
     Ok(output)
 }

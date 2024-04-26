@@ -13,7 +13,7 @@ use crate::layout::{
     OverlapPolicy, ResizeLayout,
 };
 use crate::transpose::copy_contiguous;
-use crate::{IntoSliceItems, RandomSource, SliceItem};
+use crate::{Alloc, GlobalAlloc, IntoSliceItems, RandomSource, SliceItem};
 
 /// The base type for multi-dimensional arrays. This consists of storage for
 /// elements, plus a _layout_ which maps from a multi-dimensional array index
@@ -153,11 +153,11 @@ pub trait AsView: Layout {
     ///
     /// The output buffer must be empty, but should have a capacity that is at
     /// least the length of this tensor.
-    fn map_buf<F, U>(&self, buf: Vec<U>, f: F) -> TensorBase<U, Vec<U>, Self::Layout>
+    fn map_in<A: Alloc, F, U>(&self, alloc: A, f: F) -> TensorBase<U, Vec<U>, Self::Layout>
     where
         F: Fn(&Self::Elem) -> U,
     {
-        self.view().map_buf(buf, f)
+        self.view().map_in(alloc, f)
     }
 
     /// Merge consecutive dimensions to the extent possible without copying
@@ -266,7 +266,7 @@ pub trait AsView: Layout {
 
     /// Variant of [`to_vec`](AsView::to_vec) which takes an output buffer as
     /// an argument.
-    fn to_vec_buf(&self, buf: Vec<Self::Elem>) -> Vec<Self::Elem>
+    fn to_vec_in<A: Alloc>(&self, alloc: A) -> Vec<Self::Elem>
     where
         Self::Elem: Clone;
 
@@ -298,20 +298,19 @@ pub trait AsView: Layout {
     where
         Self::Elem: Clone,
     {
-        let buf = Vec::with_capacity(self.len());
-        self.to_tensor_buf(buf)
+        self.to_tensor_in(GlobalAlloc::new())
     }
 
     /// Variant of [`to_tensor`](AsView::to_tensor) which takes an output
     /// buffer as an argument.
-    fn to_tensor_buf(
+    fn to_tensor_in<A: Alloc>(
         &self,
-        buf: Vec<Self::Elem>,
+        alloc: A,
     ) -> TensorBase<Self::Elem, Vec<Self::Elem>, Self::Layout>
     where
         Self::Elem: Clone,
     {
-        TensorBase::from_data(self.layout().shape(), self.to_vec_buf(buf))
+        TensorBase::from_data(self.layout().shape(), self.to_vec_in(alloc))
     }
 
     /// Return a view which performs "weak" checking when indexing via
@@ -1276,14 +1275,14 @@ impl<T, S: AsRef<[T]>, L: MutLayout + Clone> AsView for TensorBase<T, S, L> {
     where
         F: Fn(&Self::Elem) -> U,
     {
-        let buf = Vec::with_capacity(self.len());
-        self.map_buf(buf, f)
+        self.map_in(GlobalAlloc::new(), f)
     }
 
-    fn map_buf<F, U>(&self, mut buf: Vec<U>, f: F) -> TensorBase<U, Vec<U>, L>
+    fn map_in<A: Alloc, F, U>(&self, alloc: A, f: F) -> TensorBase<U, Vec<U>, L>
     where
         F: Fn(&Self::Elem) -> U,
     {
+        let mut buf = alloc.alloc(self.len());
         if let Some(data) = self.data() {
             // Fast path for contiguous tensors.
             buf.extend(data.iter().map(f));
@@ -1326,16 +1325,15 @@ impl<T, S: AsRef<[T]>, L: MutLayout + Clone> AsView for TensorBase<T, S, L> {
     where
         T: Clone,
     {
-        let buf = Vec::with_capacity(self.len());
-        self.to_vec_buf(buf)
+        self.to_vec_in(GlobalAlloc::new())
     }
 
-    fn to_vec_buf(&self, mut buf: Vec<T>) -> Vec<T>
+    fn to_vec_in<A: Alloc>(&self, alloc: A) -> Vec<T>
     where
         T: Clone,
     {
         let len = self.len();
-        assert!(buf.is_empty() && buf.capacity() >= len);
+        let mut buf = alloc.alloc(len);
 
         if let Some(data) = self.data() {
             buf.extend_from_slice(data);
@@ -1399,8 +1397,17 @@ impl<T> TensorBase<T, Vec<T>, DynLayout> {
     where
         T: Clone,
     {
+        self.reshape_in(GlobalAlloc::new(), shape)
+    }
+
+    /// Variant of [`reshape`](TensorBase::reshape) which takes an allocator
+    /// as an argument.
+    pub fn reshape_in<A: Alloc>(&mut self, alloc: A, shape: &[usize])
+    where
+        T: Clone,
+    {
         if !self.is_contiguous() {
-            self.data = self.to_vec();
+            self.data = self.to_vec_in(alloc);
         }
         self.layout = DynLayout::from_shape(shape);
     }
@@ -1754,12 +1761,37 @@ impl<T, S: AsRef<[T]> + AsMut<[T]>, L: MutLayout, I: AsIndex<L>> IndexMut<I>
 
 #[cfg(test)]
 mod tests {
+    use std::cell::RefCell;
+
     use super::{AsView, NdTensor, NdTensorView, Tensor};
     use crate::errors::FromDataError;
     use crate::layout::MatrixLayout;
     use crate::prelude::*;
     use crate::rng::XorShiftRng;
-    use crate::SliceItem;
+    use crate::{Alloc, SliceItem};
+
+    struct FakeAlloc {
+        count: RefCell<usize>,
+    }
+
+    impl FakeAlloc {
+        fn new() -> FakeAlloc {
+            FakeAlloc {
+                count: RefCell::new(0),
+            }
+        }
+
+        fn count(&self) -> usize {
+            *self.count.borrow()
+        }
+    }
+
+    impl Alloc for FakeAlloc {
+        fn alloc<T>(&self, capacity: usize) -> Vec<T> {
+            *self.count.borrow_mut() += 1;
+            Vec::with_capacity(capacity)
+        }
+    }
 
     #[test]
     fn test_apply() {
@@ -2469,14 +2501,13 @@ mod tests {
     }
 
     #[test]
-    fn test_map_buf() {
+    fn test_map_in() {
+        let alloc = FakeAlloc::new();
         let tensor = NdTensor::arange(0, 4, None);
-        let out_buf = Vec::with_capacity(tensor.len());
-        let ptr = out_buf.as_ptr();
 
-        let doubled = tensor.map_buf(out_buf, |x| x * 2);
+        let doubled = tensor.map_in(&alloc, |x| x * 2);
         assert_eq!(doubled.to_vec(), &[0, 2, 4, 6]);
-        assert_eq!(doubled.data().unwrap().as_ptr(), ptr);
+        assert_eq!(alloc.count(), 1);
     }
 
     #[test]
@@ -2802,14 +2833,13 @@ mod tests {
     }
 
     #[test]
-    fn test_to_vec_buf() {
+    fn test_to_vec_in() {
+        let alloc = FakeAlloc::new();
         let tensor = NdTensor::arange(0, 4, None);
-        let buf = Vec::with_capacity(tensor.len());
-        let ptr = buf.as_ptr();
-        let vec = tensor.to_vec_buf(buf);
+        let vec = tensor.to_vec_in(&alloc);
 
         assert_eq!(vec, &[0, 1, 2, 3]);
-        assert_eq!(vec.as_ptr(), ptr);
+        assert_eq!(alloc.count(), 1);
     }
 
     #[test]
@@ -2822,22 +2852,19 @@ mod tests {
     }
 
     #[test]
-    fn test_to_tensor_buf() {
+    fn test_to_tensor_in() {
+        let alloc = FakeAlloc::new();
         let tensor = NdTensor::arange(0, 4, None).into_shape([2, 2]);
 
         // Contiguous case.
-        let buf = Vec::with_capacity(tensor.len());
-        let ptr = buf.as_ptr();
-        let cloned = tensor.to_tensor_buf(buf);
+        let cloned = tensor.to_tensor_in(&alloc);
         assert_eq!(cloned.to_vec(), &[0, 1, 2, 3]);
-        assert_eq!(cloned.data().unwrap().as_ptr(), ptr);
+        assert_eq!(alloc.count(), 1);
 
         // Non-contigous case.
-        let buf = Vec::with_capacity(tensor.len());
-        let ptr = buf.as_ptr();
-        let cloned = tensor.transposed().to_tensor_buf(buf);
+        let cloned = tensor.transposed().to_tensor_in(&alloc);
         assert_eq!(cloned.to_vec(), &[0, 2, 1, 3]);
-        assert_eq!(cloned.data().unwrap().as_ptr(), ptr);
+        assert_eq!(alloc.count(), 2);
     }
 
     #[test]

@@ -33,7 +33,6 @@ pub(crate) fn expand_to<T: Any + Copy>(
     out_shape: &[usize],
 ) -> Tensor<T> {
     let out_len = out_shape.iter().product();
-    let mut out_data: Vec<T> = pool.alloc_vec(out_len);
 
     match (
         input.data(),
@@ -44,6 +43,7 @@ pub(crate) fn expand_to<T: Any + Copy>(
         (Some(in_data), Some((cycles, repeats))) => {
             assert!(out_len == input.len() * cycles * repeats);
 
+            let mut out_data: Vec<T> = pool.alloc_vec(out_len);
             let mut out_ptr = out_data.as_mut_ptr();
             for _ in 0..cycles {
                 if repeats == 1 {
@@ -68,7 +68,7 @@ pub(crate) fn expand_to<T: Any + Copy>(
 
             Tensor::from_data(out_shape, out_data)
         }
-        _ => input.broadcast(out_shape).to_tensor_buf(out_data),
+        _ => input.broadcast(out_shape).to_tensor_in(pool),
     }
 }
 
@@ -141,15 +141,18 @@ pub fn flatten<T: Any + Copy>(
     axis: isize,
 ) -> Result<Tensor<T>, OpError> {
     let shape = flattened_shape(input.shape(), axis)?;
-    let buf = pool.alloc_vec(input.len());
-    let mut output = input.to_tensor_buf(buf);
+    let mut output = input.to_tensor_in(pool);
     output.reshape(&shape);
     Ok(output)
 }
 
-pub fn flatten_in_place<T: Clone>(input: &mut Tensor<T>, axis: isize) -> Result<(), OpError> {
+pub fn flatten_in_place<T: Any + Copy>(
+    pool: &TensorPool,
+    input: &mut Tensor<T>,
+    axis: isize,
+) -> Result<(), OpError> {
     let shape = flattened_shape(input.shape(), axis)?;
-    input.reshape(&shape);
+    input.reshape_in(pool, &shape);
     Ok(())
 }
 
@@ -178,19 +181,17 @@ impl Operator for Flatten {
 
     fn run_in_place(
         &self,
-        _pool: &TensorPool,
+        pool: &TensorPool,
         input: Output,
         _: InputList,
     ) -> Result<Output, OpError> {
-        // TODO - `flatten_in_place` should allocate from the pool if a copy is
-        // required.
         match input {
             Output::IntTensor(mut output) => {
-                flatten_in_place(&mut output, self.axis)?;
+                flatten_in_place(pool, &mut output, self.axis)?;
                 Ok(output.into())
             }
             Output::FloatTensor(mut output) => {
-                flatten_in_place(&mut output, self.axis)?;
+                flatten_in_place(pool, &mut output, self.axis)?;
                 Ok(output.into())
             }
         }
@@ -283,13 +284,14 @@ pub fn reshape<T: Any + Copy>(
     Ok(output)
 }
 
-pub fn reshape_in_place<T: Clone>(
+pub fn reshape_in_place<T: Any + Copy>(
+    pool: &TensorPool,
     input: &mut Tensor<T>,
     shape: &NdTensorView<i32, 1>,
     allow_zero: bool,
 ) -> Result<(), OpError> {
     let out_shape = resolve_shape(input.shape(), shape, allow_zero)?;
-    input.reshape(&out_shape);
+    input.reshape_in(pool, &out_shape);
     Ok(())
 }
 
@@ -320,23 +322,20 @@ impl Operator for Reshape {
 
     fn run_in_place(
         &self,
-        _pool: &TensorPool,
+        pool: &TensorPool,
         input: Output,
         other: InputList,
     ) -> Result<Output, OpError> {
-        // TODO - `reshape_in_place` should allocate from the pool if a copy is
-        // required.
-
         let shape = other.require_as(0)?;
         let shape = static_dims!(shape, 1)?;
 
         match input {
             Output::IntTensor(mut output) => {
-                reshape_in_place(&mut output, &shape, self.allow_zero)?;
+                reshape_in_place(pool, &mut output, &shape, self.allow_zero)?;
                 Ok(output.into())
             }
             Output::FloatTensor(mut output) => {
-                reshape_in_place(&mut output, &shape, self.allow_zero)?;
+                reshape_in_place(pool, &mut output, &shape, self.allow_zero)?;
                 Ok(output.into())
             }
         }
@@ -427,8 +426,7 @@ pub fn squeeze<T: Any + Copy>(
     input: TensorView<T>,
     axes: Option<NdTensorView<i32, 1>>,
 ) -> Result<Tensor<T>, OpError> {
-    let buf = pool.alloc_vec(input.len());
-    let mut output = input.to_tensor_buf(buf);
+    let mut output = input.to_tensor_in(pool);
     squeeze_in_place(&mut output, axes)?;
     Ok(output)
 }
@@ -551,8 +549,7 @@ pub fn unsqueeze<T: Any + Copy>(
     input: TensorView<T>,
     axes: &NdTensorView<i32, 1>,
 ) -> Result<Tensor<T>, OpError> {
-    let buf = pool.alloc_vec(input.len());
-    unsqueeze_in_place(input.to_tensor_buf(buf), axes)
+    unsqueeze_in_place(input.to_tensor_in(pool), axes)
 }
 
 #[derive(Debug)]
@@ -835,10 +832,17 @@ mod tests {
 
     #[test]
     fn test_reshape_in_place() {
+        let pool = new_pool();
         let mut input = Tensor::from_data(&[2, 2], vec![-0.5, 0.5, 3.0, -5.5]);
         let shape = ndtensor!([4]);
         let expected = input.to_shape([4].as_slice());
-        reshape_in_place(&mut input, &shape.view(), false /* allow_zero */).unwrap();
+        reshape_in_place(
+            &pool,
+            &mut input,
+            &shape.view(),
+            false, /* allow_zero */
+        )
+        .unwrap();
         assert_eq!(&input, &expected);
     }
 

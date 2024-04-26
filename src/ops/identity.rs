@@ -7,8 +7,7 @@ use crate::ops::{Input, InputList, IntoOpResult, OpError, Operator, Output};
 use crate::tensor_pool::TensorPool;
 
 fn identity<T: Any + Copy>(pool: &TensorPool, src: TensorView<T>) -> Tensor<T> {
-    let buf = pool.alloc_vec(src.len());
-    src.to_tensor_buf(buf)
+    src.to_tensor_in(pool)
 }
 
 #[derive(Debug)]
