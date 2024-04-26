@@ -248,7 +248,12 @@ impl Operator for Tile {
         true
     }
 
-    fn run_in_place(&self, output: Output, inputs: InputList) -> Result<Output, OpError> {
+    fn run_in_place(
+        &self,
+        pool: &TensorPool,
+        output: Output,
+        inputs: InputList,
+    ) -> Result<Output, OpError> {
         let repeats = inputs.require_as::<i32>(0)?;
         let repeats = static_dims!(repeats, 1)?;
 
@@ -256,10 +261,9 @@ impl Operator for Tile {
             return Ok(output);
         }
 
-        let pool = TensorPool::new();
         match output {
-            Output::IntTensor(input) => tile(&pool, input.view(), repeats).map(|t| t.into()),
-            Output::FloatTensor(input) => tile(&pool, input.view(), repeats).map(|t| t.into()),
+            Output::IntTensor(input) => tile(pool, input.view(), repeats).map(|t| t.into()),
+            Output::FloatTensor(input) => tile(pool, input.view(), repeats).map(|t| t.into()),
         }
     }
 }

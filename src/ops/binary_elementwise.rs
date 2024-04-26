@@ -306,7 +306,7 @@ macro_rules! run_typed_op {
 /// appropriate instantiations of `$in_place_op_func` or `$op_func` depending
 /// on the tensor type.
 macro_rules! run_typed_op_in_place {
-    ($input:expr, $other: expr, $in_place_op_func:ident, $op_func:ident) => {{
+    ($pool:expr, $input:expr, $other: expr, $in_place_op_func:ident, $op_func:ident) => {{
         match $input {
             Output::FloatTensor(mut a) => {
                 let b = $other.require_as::<f32>(0)?;
@@ -314,8 +314,7 @@ macro_rules! run_typed_op_in_place {
                     $in_place_op_func(a.view_mut(), b);
                     Ok(a.into())
                 } else {
-                    let mut pool = TensorPool::new();
-                    $op_func(&mut pool, a.view(), b.view()).map(|t| t.into())
+                    $op_func($pool, a.view(), b.view()).map(|t| t.into())
                 }
             }
             Output::IntTensor(mut a) => {
@@ -324,8 +323,7 @@ macro_rules! run_typed_op_in_place {
                     $in_place_op_func(a.view_mut(), b.view());
                     Ok(a.into())
                 } else {
-                    let mut pool = TensorPool::new();
-                    $op_func(&mut pool, a.view(), b.view()).map(|t| t.into())
+                    $op_func($pool, a.view(), b.view()).map(|t| t.into())
                 }
             }
         }
@@ -369,8 +367,13 @@ impl Operator for Add {
         true
     }
 
-    fn run_in_place(&self, input: Output, other: InputList) -> Result<Output, OpError> {
-        run_typed_op_in_place!(input, other, add_in_place, add)
+    fn run_in_place(
+        &self,
+        pool: &TensorPool,
+        input: Output,
+        other: InputList,
+    ) -> Result<Output, OpError> {
+        run_typed_op_in_place!(pool, input, other, add_in_place, add)
     }
 }
 
@@ -469,8 +472,13 @@ impl Operator for Div {
         true
     }
 
-    fn run_in_place(&self, input: Output, other: InputList) -> Result<Output, OpError> {
-        run_typed_op_in_place!(input, other, div_in_place, div)
+    fn run_in_place(
+        &self,
+        pool: &TensorPool,
+        input: Output,
+        other: InputList,
+    ) -> Result<Output, OpError> {
+        run_typed_op_in_place!(pool, input, other, div_in_place, div)
     }
 }
 
@@ -667,8 +675,13 @@ impl Operator for Mul {
         true
     }
 
-    fn run_in_place(&self, input: Output, other: InputList) -> Result<Output, OpError> {
-        run_typed_op_in_place!(input, other, mul_in_place, mul)
+    fn run_in_place(
+        &self,
+        pool: &TensorPool,
+        input: Output,
+        other: InputList,
+    ) -> Result<Output, OpError> {
+        run_typed_op_in_place!(pool, input, other, mul_in_place, mul)
     }
 }
 
@@ -719,7 +732,12 @@ impl Operator for Pow {
         true
     }
 
-    fn run_in_place(&self, input: Output, other: InputList) -> Result<Output, OpError> {
+    fn run_in_place(
+        &self,
+        pool: &TensorPool,
+        input: Output,
+        other: InputList,
+    ) -> Result<Output, OpError> {
         let mut a = input.into_float().ok_or(OpError::IncorrectInputType)?;
         let b = other.require_as(0)?;
 
@@ -727,7 +745,7 @@ impl Operator for Pow {
             pow_in_place(a.view_mut(), b);
             Ok(a.into())
         } else {
-            pow(&TensorPool::new(), a.view(), b).map(|t| t.into())
+            pow(pool, a.view(), b).map(|t| t.into())
         }
     }
 }
@@ -765,8 +783,13 @@ impl Operator for Sub {
         true
     }
 
-    fn run_in_place(&self, input: Output, other: InputList) -> Result<Output, OpError> {
-        run_typed_op_in_place!(input, other, sub_in_place, sub)
+    fn run_in_place(
+        &self,
+        pool: &TensorPool,
+        input: Output,
+        other: InputList,
+    ) -> Result<Output, OpError> {
+        run_typed_op_in_place!(pool, input, other, sub_in_place, sub)
     }
 }
 
@@ -1016,6 +1039,8 @@ mod tests {
 
     #[test]
     fn test_add_in_place() -> Result<(), Box<dyn Error>> {
+        let pool = new_pool();
+
         // In-place addition with float inputs that have the same shape.
         let mut a = Tensor::from_data(&[2, 2], vec![1., 2., 3., 4.]);
         let a_copy = a.clone();
@@ -1034,7 +1059,7 @@ mod tests {
         // Run `Add` operator in place with inputs that support in-place addition.
         let op = Add {};
         let result = op
-            .run_in_place(Output::FloatTensor(a_copy), (&b).into())
+            .run_in_place(&pool, Output::FloatTensor(a_copy), (&b).into())
             .unwrap();
         expect_equal(result.as_float_ref().unwrap(), &expected)?;
 
@@ -1043,7 +1068,7 @@ mod tests {
         let scalar = Tensor::from_scalar(1.0);
         let expected = Tensor::from_data(&[2, 2], vec![11., 21., 31., 41.]);
         let result = op
-            .run_in_place(Output::FloatTensor(scalar), (&b).into())
+            .run_in_place(&pool, Output::FloatTensor(scalar), (&b).into())
             .unwrap();
         expect_equal(result.as_float_ref().unwrap(), &expected)?;
 

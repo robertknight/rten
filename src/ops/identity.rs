@@ -32,7 +32,12 @@ impl Operator for Identity {
         true
     }
 
-    fn run_in_place(&self, input: Output, _: InputList) -> Result<Output, OpError> {
+    fn run_in_place(
+        &self,
+        _pool: &TensorPool,
+        input: Output,
+        _: InputList,
+    ) -> Result<Output, OpError> {
         Ok(input)
     }
 }

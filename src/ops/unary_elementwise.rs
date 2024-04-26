@@ -52,7 +52,12 @@ impl<Op: UnaryFloatOp + Debug> Operator for Op {
         true
     }
 
-    fn run_in_place(&self, input: Output, _: InputList) -> Result<Output, OpError> {
+    fn run_in_place(
+        &self,
+        _pool: &TensorPool,
+        input: Output,
+        _: InputList,
+    ) -> Result<Output, OpError> {
         let mut output = input.into_float().ok_or(OpError::IncorrectInputType)?;
         self.apply(output.view_mut());
         Ok(output.into())
@@ -86,7 +91,12 @@ macro_rules! unary_numeric_op {
                 true
             }
 
-            fn run_in_place(&self, input: Output, _: InputList) -> Result<Output, OpError> {
+            fn run_in_place(
+                &self,
+                _pool: &TensorPool,
+                input: Output,
+                _: InputList,
+            ) -> Result<Output, OpError> {
                 match input {
                     Output::FloatTensor(mut input) => {
                         $mut_impl(input.view_mut());
@@ -198,7 +208,12 @@ macro_rules! parallel_unary_float_op {
                 $func_name(pool, inputs.require_as(0)?).into_op_result()
             }
 
-            fn run_in_place(&self, input: Output, _: InputList) -> Result<Output, OpError> {
+            fn run_in_place(
+                &self,
+                _pool: &TensorPool,
+                input: Output,
+                _: InputList,
+            ) -> Result<Output, OpError> {
                 let mut tensor = input.into_float().ok_or(OpError::IncorrectInputType)?;
                 $in_place_func_name(tensor.view_mut());
                 Ok(tensor.into())
@@ -348,7 +363,12 @@ impl Operator for Clip {
         true
     }
 
-    fn run_in_place(&self, input: Output, other: InputList) -> Result<Output, OpError> {
+    fn run_in_place(
+        &self,
+        _pool: &TensorPool,
+        input: Output,
+        other: InputList,
+    ) -> Result<Output, OpError> {
         match input {
             Output::FloatTensor(mut input) => {
                 let min = other.get_as_scalar(0)?;
@@ -495,7 +515,12 @@ impl Operator for Not {
         true
     }
 
-    fn run_in_place(&self, input: Output, _: InputList) -> Result<Output, OpError> {
+    fn run_in_place(
+        &self,
+        _pool: &TensorPool,
+        input: Output,
+        _: InputList,
+    ) -> Result<Output, OpError> {
         let mut output = input.into_int().ok_or(OpError::IncorrectInputType)?;
         not_in_place(output.view_mut());
         Ok(output.into())

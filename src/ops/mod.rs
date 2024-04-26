@@ -636,6 +636,9 @@ pub trait Operator: Debug {
     fn name(&self) -> &str;
 
     /// Execute the operator with the given inputs.
+    ///
+    /// The output, and any large intermediate buffers used by the operation,
+    /// should be allocated from `pool`.
     fn run(&self, pool: &TensorPool, input: InputList) -> Result<Vec<Output>, OpError>;
 
     /// Return true if this operator supports in-place execution via
@@ -663,7 +666,17 @@ pub trait Operator: Debug {
     ///
     /// `input` is the first input, which the implementation may modify and
     /// return as the output. `other` are the remaining inputs.
-    fn run_in_place(&self, _input: Output, _other: InputList) -> Result<Output, OpError> {
+    ///
+    /// Operators may fall back to allocating a new output if some property of
+    /// the input data or shapes means in-place operation is not possible. In
+    /// that case they should allocate the output from `pool`. The pool should
+    /// also be used for any temporary buffers created during execution.
+    fn run_in_place(
+        &self,
+        _pool: &TensorPool,
+        _input: Output,
+        _other: InputList,
+    ) -> Result<Output, OpError> {
         unimplemented!("in-place execution not supported")
     }
 }

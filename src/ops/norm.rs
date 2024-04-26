@@ -102,7 +102,12 @@ impl Operator for BatchNormalization {
         true
     }
 
-    fn run_in_place(&self, input: Output, other: InputList) -> Result<Output, OpError> {
+    fn run_in_place(
+        &self,
+        _pool: &TensorPool,
+        input: Output,
+        other: InputList,
+    ) -> Result<Output, OpError> {
         let mut output = input.into_float().ok_or(OpError::IncorrectInputType)?;
         let scale = other.require_as(0)?;
         let scale = static_dims!(scale, 1)?;
@@ -218,7 +223,12 @@ impl Operator for InstanceNormalization {
         true
     }
 
-    fn run_in_place(&self, output: Output, inputs: InputList) -> Result<Output, OpError> {
+    fn run_in_place(
+        &self,
+        _pool: &TensorPool,
+        output: Output,
+        inputs: InputList,
+    ) -> Result<Output, OpError> {
         let mut output = output.into_float().ok_or(OpError::IncorrectInputType)?;
 
         let scale = inputs.require_as(0)?;
@@ -406,7 +416,12 @@ impl Operator for LogSoftmax {
         true
     }
 
-    fn run_in_place(&self, input: Output, _other: InputList) -> Result<Output, OpError> {
+    fn run_in_place(
+        &self,
+        _pool: &TensorPool,
+        input: Output,
+        _other: InputList,
+    ) -> Result<Output, OpError> {
         let mut output = input.into_float().ok_or(OpError::IncorrectInputType)?;
         log_softmax_in_place(&mut output, self.axis)?;
         Ok(output.into())
@@ -444,7 +459,12 @@ impl Operator for Softmax {
         true
     }
 
-    fn run_in_place(&self, input: Output, _other: InputList) -> Result<Output, OpError> {
+    fn run_in_place(
+        &self,
+        _pool: &TensorPool,
+        input: Output,
+        _other: InputList,
+    ) -> Result<Output, OpError> {
         let mut output = input.into_float().ok_or(OpError::IncorrectInputType)?;
         softmax_in_place(&mut output, self.axis)?;
         Ok(output.into())
