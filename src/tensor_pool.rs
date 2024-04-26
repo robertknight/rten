@@ -49,6 +49,9 @@ impl Buffer {
         // that the original and new array layouts are the same.
         assert!(self.layout_match::<T>());
 
+        // Safety: We are reconstructing the vec with the same raw parts into
+        // which it was decomposed in `from_vec`. The type may be different,
+        // but it has the same alignment.
         let vec = unsafe { Vec::from_raw_parts(self.ptr as *mut T, 0, self.capacity) };
 
         // Don't drop self, as that would deallocate the buffer.
@@ -67,6 +70,8 @@ impl Buffer {
 
     /// Drop the buffer by reconstructing a `Vec<T>`.
     fn release<T>(this: &mut Buffer) {
+        // Safety: We are reconstructing the vec with the same raw parts into
+        // which it was decomposed in `from_vec`.
         let vec = unsafe { Vec::<T>::from_raw_parts(this.ptr as *mut T, 0, this.capacity) };
         std::mem::drop(vec);
     }
