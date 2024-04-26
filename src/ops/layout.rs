@@ -4,7 +4,7 @@ use std::any::Any;
 use std::iter::zip;
 
 use rten_tensor::prelude::*;
-use rten_tensor::{is_valid_permutation, tensor, NdTensorView, Tensor, TensorView};
+use rten_tensor::{is_valid_permutation, NdTensorView, Tensor, TensorView};
 use smallvec::SmallVec;
 
 use crate::ops::binary_elementwise::{broadcast_shapes, fast_broadcast_cycles_repeats};
@@ -332,16 +332,15 @@ impl Operator for Shape {
         "Shape"
     }
 
-    fn run(&self, _pool: &TensorPool, inputs: InputList) -> Result<Vec<Output>, OpError> {
+    fn run(&self, pool: &TensorPool, inputs: InputList) -> Result<Vec<Output>, OpError> {
         let input = inputs.require(0)?;
-        let shape = Tensor::from_data(
-            &[input.shape().len()],
-            input
-                .shape()
-                .iter()
-                .map(|&el| el as i32)
-                .collect::<Vec<_>>(),
-        );
+
+        // Allocate output from pool for consistency with other operators,
+        // even though the buffer is tiny, so there is no performance benefit.
+        let mut data = pool.alloc_vec(input.ndim());
+        data.extend(input.shape().iter().map(|&el| el as i32));
+
+        let shape = Tensor::from_data(&[input.ndim()], data);
         shape.into_op_result()
     }
 }
@@ -354,10 +353,16 @@ impl Operator for Size {
         "Size"
     }
 
-    fn run(&self, _pool: &TensorPool, inputs: InputList) -> Result<Vec<Output>, OpError> {
+    fn run(&self, pool: &TensorPool, inputs: InputList) -> Result<Vec<Output>, OpError> {
         let input = inputs.require(0)?;
         let len = input.len() as i32;
-        tensor!(len).into_op_result()
+
+        // Allocate output from pool for consistency with other operators,
+        // even though the buffer is tiny, so there is no performance benefit.
+        let mut output = pool.alloc_zeroed([]);
+        output[[]] = len;
+
+        output.into_op_result()
     }
 }
 
