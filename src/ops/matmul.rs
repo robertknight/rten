@@ -262,6 +262,7 @@ mod tests {
 
     use crate::gemm::gemm;
     use crate::ops::tests::new_pool;
+    use crate::tensor_pool::AutoReturn;
 
     use super::{gemm_op, matmul, matmul_impl, MatmulStrategy, OpError};
 
@@ -581,8 +582,9 @@ mod tests {
                 );
                 let pool = new_pool();
                 run_bench(trials, Some(&desc), || {
-                    let output = matmul_impl(&pool, a.view(), b.view(), strategy).unwrap();
-                    pool.add(output);
+                    matmul_impl(&pool, a.view(), b.view(), strategy)
+                        .unwrap()
+                        .auto_return(&pool);
                 });
             };
 

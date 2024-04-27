@@ -676,6 +676,7 @@ mod tests {
     use crate::ops::tests::expect_eq_1e4;
     use crate::ops::tests::new_pool;
     use crate::ops::{conv, conv_transpose, Conv, OpError, Operator, Padding};
+    use crate::tensor_pool::AutoReturn;
 
     /// Un-optimized reference implementation of convolution.
     ///
@@ -1293,7 +1294,7 @@ mod tests {
         let start = std::time::Instant::now();
         for _ in 0..iters {
             for stride in [1, 1, 2] {
-                let result = conv(
+                conv(
                     &pool,
                     input.view(),
                     kernel.view(),
@@ -1303,9 +1304,8 @@ mod tests {
                     &[stride, stride],
                     &dilations,
                 )
-                .unwrap();
-
-                pool.add(result);
+                .unwrap()
+                .auto_return(&pool);
             }
         }
         let elapsed = start.elapsed().as_secs_f32() * 1000.0;
