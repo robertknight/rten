@@ -81,22 +81,25 @@ impl Drop for Buffer {
     }
 }
 
-/// A pool which enables reuse of tensor data buffers.
+/// A pool which enables reuse of data buffers from tensors and other containers.
 ///
 /// Reusing buffers for operator outputs, as opposed to allocating a fresh
 /// buffer from the global allocator and freeing it when no longer needed,
 /// can provide a significant performance improvement.
 ///
-/// Tensors can be allocated from the pool by passing a reference to pool to the
-/// various `Tensor::*_in` methods, eg. [Tensor::zeros_in]. Allocation requests
-/// will be satisfied from the pool if there is a suitable buffer available, or
-/// it will fall back to the global allocator otherwise.
+/// [TensorPool] implements the [Alloc] trait, enabling tensors to be allocated
+/// from the pool using the various `Tensor::*_in` methods, eg.
+/// [Tensor::zeros_in]. Allocation requests will be satisfied from the pool if
+/// there is a suitable buffer available, or it will fall back to the global
+/// allocator otherwise.
 ///
 /// When a tensor is no longer needed, it's buffer can be added to the pool
-/// using [`add_tensor`](TensorPool::add_tensor), making it available for future
-/// allocations. Alternately
-/// [`tensor.auto_return(&pool)`](TensorBase::auto_return) can be used to wrap a
-/// tensor in a smart pointer that returns it to the pool when no longer needed.
+/// using `pool.add(tensor.extract_buffer())`, making it available for future
+/// allocations. A more convenient method is to wrap the tensor in a [PoolRef]
+/// smart pointer which will auto-return the tensor to the pool when dropped. A
+/// tensor can be wrapped using `tensor.auto_return(pool)`. The [PoolRef] smart
+/// pointer can also be used with other container types, by implementing the
+/// [ExtractBuffer] trait for them.
 pub struct TensorPool {
     /// List of buffers currently in the pool.
     buffers: RefCell<Vec<Buffer>>,
@@ -167,11 +170,6 @@ impl TensorPool {
         self.buffers.borrow_mut().push(Buffer::from_vec(vec));
     }
 
-    /// Extract the data buffer from a tensor and add it to the pool.
-    pub fn add_tensor<T, L: MutLayout>(&self, tensor: TensorBase<T, Vec<T>, L>) {
-        self.add(tensor.into_non_contiguous_data());
-    }
-
     /// Return the total number of allocation requests.
     pub fn alloc_count(&self) -> usize {
         *self.alloc_count.borrow()
@@ -206,76 +204,93 @@ impl Default for TensorPool {
     }
 }
 
-/// Trait for wrapping a tensor in a [PoolRef] which automatically returns the
-/// tensor to a pool when it goes out of scope.
-pub trait AutoReturn {
+/// Trait for extracting the data buffer from a tensor or other container.
+///
+/// This is used to extract the buffer from a container that is no longer
+/// needed, in order to return it to a [TensorPool].
+pub trait ExtractBuffer {
     type Elem;
-    type Layout: MutLayout;
 
-    /// Wrap `self` in a [PoolRef]. When the returned [PoolRef] is dropped,
-    /// `self` will be returned to `pool`.
-    fn auto_return(self, pool: &TensorPool) -> PoolRef<Self::Elem, Self::Layout>;
+    fn extract_buffer(self) -> Vec<Self::Elem>;
 }
 
-impl<T, L: MutLayout> AutoReturn for TensorBase<T, Vec<T>, L> {
+impl<T, L: MutLayout> ExtractBuffer for TensorBase<T, Vec<T>, L> {
     type Elem = T;
-    type Layout = L;
 
-    fn auto_return(self, pool: &TensorPool) -> PoolRef<T, L> {
+    fn extract_buffer(self) -> Vec<Self::Elem> {
+        self.into_non_contiguous_data()
+    }
+}
+
+/// Trait for wrapping a container in a [PoolRef] which automatically returns
+/// the container's data buffer to a pool when it goes out of scope.
+pub trait AutoReturn {
+    /// Wrap `self` in a [PoolRef]. When the returned [PoolRef] is dropped,
+    /// `self` will be returned to `pool`.
+    fn auto_return(self, pool: &TensorPool) -> PoolRef<Self>
+    where
+        Self: Sized + ExtractBuffer;
+}
+
+impl<EB: ExtractBuffer> AutoReturn for EB {
+    fn auto_return(self, pool: &TensorPool) -> PoolRef<EB> {
         PoolRef::new(pool, self)
     }
 }
 
-/// A smart pointer which wraps a tensor and adds it to a pool when dropped.
-pub struct PoolRef<'a, T, L: MutLayout> {
+/// A smart pointer which wraps a tensor or other container and returns it to
+/// a pool when dropped.
+///
+/// [PoolRef] is not currently [Sync], so if you want to wrap a container and
+/// then reference it inside a parallel block, you will need to deref the
+/// [PoolRef] outside the parallel block.
+pub struct PoolRef<'a, T: ExtractBuffer> {
     pool: &'a TensorPool,
-
-    /// Wrapped tensor, set to `None` after the PoolRef is dropped.
-    tensor: Option<TensorBase<T, Vec<T>, L>>,
+    container: Option<T>,
 }
 
-impl<'a, T, L: MutLayout> PoolRef<'a, T, L> {
+impl<'a, T: ExtractBuffer> PoolRef<'a, T> {
     /// Create a `PoolRef` which will wrap `tensor` and return it to `pool`
     /// when dropped.
-    pub fn new(pool: &'a TensorPool, tensor: TensorBase<T, Vec<T>, L>) -> Self {
+    pub fn new(pool: &'a TensorPool, tensor: T) -> Self {
         PoolRef {
             pool,
-            tensor: Some(tensor),
+            container: Some(tensor),
         }
     }
 
     /// Extract the wrapped tensor. After this is used, the tensor will no
     /// longer be added to the pool when `self` is dropped.
-    pub fn take(mut self) -> TensorBase<T, Vec<T>, L> {
-        self.tensor.take().unwrap()
+    pub fn take(mut self) -> T {
+        self.container.take().unwrap()
     }
 }
 
-impl<'a, T, L: MutLayout> Deref for PoolRef<'a, T, L> {
-    type Target = TensorBase<T, Vec<T>, L>;
+impl<'a, T: ExtractBuffer> Deref for PoolRef<'a, T> {
+    type Target = T;
 
     fn deref(&self) -> &Self::Target {
-        self.tensor.as_ref().unwrap()
+        self.container.as_ref().unwrap()
     }
 }
 
-impl<'a, T, L: MutLayout> DerefMut for PoolRef<'a, T, L> {
+impl<'a, T: ExtractBuffer> DerefMut for PoolRef<'a, T> {
     fn deref_mut(&mut self) -> &mut Self::Target {
-        self.tensor.as_mut().unwrap()
+        self.container.as_mut().unwrap()
     }
 }
 
-impl<'a, T, L: MutLayout> Drop for PoolRef<'a, T, L> {
+impl<'a, T: ExtractBuffer> Drop for PoolRef<'a, T> {
     fn drop(&mut self) {
-        if let Some(tensor) = self.tensor.take() {
-            self.pool.add_tensor(tensor)
+        if let Some(container) = self.container.take() {
+            self.pool.add(container.extract_buffer())
         }
     }
 }
 
 #[cfg(test)]
 mod tests {
-    use super::{AutoReturn, TensorPool};
+    use super::{AutoReturn, ExtractBuffer, TensorPool};
     use rten_tensor::prelude::*;
     use rten_tensor::NdTensor;
 
@@ -291,7 +306,7 @@ mod tests {
         assert_eq!(pool.hit_count(), 0);
         let ptr = tensor.data().unwrap().as_ptr();
 
-        pool.add_tensor(tensor);
+        pool.add(tensor.extract_buffer());
 
         // Alloc with an exact size match. This will be fulfilled from the pool.
         let tensor = NdTensor::<f32, 2>::zeros_in(&pool, [2, 2]);
@@ -302,7 +317,7 @@ mod tests {
         // Check we really did get the same data back.
         assert_eq!(tensor.data().unwrap().as_ptr(), ptr);
 
-        pool.add_tensor(tensor);
+        pool.add(tensor.extract_buffer());
 
         // Alloc with a smaller size. This will be fulfilled from the pool.
         let tensor = NdTensor::<f32, 2>::zeros_in(&pool, [2, 1]);
@@ -310,7 +325,7 @@ mod tests {
         assert_eq!(pool.alloc_count(), 3);
         assert_eq!(pool.hit_count(), 2);
 
-        pool.add_tensor(tensor);
+        pool.add(tensor.extract_buffer());
 
         // Alloc with a larger size. This will return a new tensor.
         let tensor = NdTensor::<f32, 2>::zeros_in(&pool, [2, 3]);
@@ -325,7 +340,7 @@ mod tests {
         assert_eq!(pool.alloc_count(), 5);
         assert_eq!(pool.hit_count(), 2);
 
-        pool.add_tensor(int_tensor);
+        pool.add(int_tensor.extract_buffer());
 
         // Alloc that matches the tensor we just freed. This will return the
         // item just added to the pool.
