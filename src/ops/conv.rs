@@ -603,7 +603,7 @@ pub fn conv_transpose(
     let mut output = if let Some(bias) = bias {
         init_tensor_with_channel_bias(pool, &[batch, out_c, out_h, out_w], 1, &bias)
     } else {
-        pool.alloc_zeroed([batch, out_c, out_h, out_w].as_slice())
+        Tensor::zeros_in(pool, [batch, out_c, out_h, out_w].as_slice())
     };
 
     // Ensure input and kernel are contiguous to support reshaping.

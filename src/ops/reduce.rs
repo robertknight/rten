@@ -650,8 +650,8 @@ pub fn topk<T: Copy + Default + PartialOrd>(
         .enumerate()
         .map(|(dim, size)| if dim == axis { k } else { *size })
         .collect();
-    let mut out_values = pool.alloc_zeroed::<T, _>(out_shape.as_slice());
-    let mut indices = pool.alloc_zeroed::<i32, _>(out_shape.as_slice());
+    let mut out_values = Tensor::zeros_in(pool, &out_shape);
+    let mut indices = Tensor::zeros_in(pool, &out_shape);
 
     // Handle edge case early to simplify main loop.
     if k == 0 {

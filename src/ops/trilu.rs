@@ -14,7 +14,7 @@ pub fn trilu<T: Copy + Default>(
         return Err(OpError::InvalidValue("Input must have >= 2 dims"));
     }
 
-    let mut output = pool.alloc_zeroed(input.shape());
+    let mut output = Tensor::zeros_in(pool, input.shape());
 
     for (mut out_mat, in_mat) in output.inner_iter_mut::<2>().zip(input.inner_iter::<2>()) {
         let [rows, cols] = out_mat.shape();

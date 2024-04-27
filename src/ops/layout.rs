@@ -376,7 +376,7 @@ impl Operator for Size {
 
         // Allocate output from pool for consistency with other operators,
         // even though the buffer is tiny, so there is no performance benefit.
-        let mut output = pool.alloc_zeroed([]);
+        let mut output = Tensor::zeros_in(pool, &[]);
         output[[]] = len;
 
         output.into_op_result()
