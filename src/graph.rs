@@ -12,7 +12,7 @@ use rustc_hash::{FxHashMap, FxHashSet};
 
 use crate::env::env_flag;
 use crate::ops::{Input, InputList, OpError, Operator, Output};
-use crate::tensor_pool::TensorPool;
+use crate::tensor_pool::{ExtractBuffer, TensorPool};
 use crate::timer::Timer;
 use crate::timing::{InputShape, RunTiming, TimingRecord, TimingSort};
 
@@ -595,8 +595,8 @@ impl Graph {
                 if rc == Some(0) {
                     if let (true, Some(tensor)) = (use_pool, temp_values.remove(&node_id)) {
                         match tensor {
-                            Output::FloatTensor(t) => pool.add_tensor(t),
-                            Output::IntTensor(t) => pool.add_tensor(t),
+                            Output::FloatTensor(t) => pool.add(t.extract_buffer()),
+                            Output::IntTensor(t) => pool.add(t.extract_buffer()),
                         }
                     }
                 }

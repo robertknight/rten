@@ -453,10 +453,11 @@ pub fn conv(
 
         // Prepack kernel if we'll be able to reuse packed weights.
         let prepacked_kernel = if in_group.size(0) > 1 {
-            Some(gemm.prepack_a(kernel_mat))
+            Some(gemm.prepack_a_in(pool, kernel_mat).auto_return(pool))
         } else {
             None
         };
+        let prepacked_kernel = prepacked_kernel.as_deref();
 
         zip(out_group.axis_iter_mut(0), in_group.axis_iter(0))
             .par_bridge()
@@ -478,7 +479,6 @@ pub fn conv(
                     out_mat.data_mut().unwrap(),
                     out_row_stride,
                     prepacked_kernel
-                        .as_ref()
                         .map(GemmInputA::Packed)
                         .unwrap_or(GemmInputA::Unpacked(kernel_mat)),
                     GemmInputB::Virtual(&im2col),

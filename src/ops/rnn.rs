@@ -11,7 +11,7 @@ use crate::ops::{
     add_in_place, sigmoid_in_place, tanh_in_place, InputList, IntoOpResult, OpError, Operator,
     Output,
 };
-use crate::tensor_pool::TensorPool;
+use crate::tensor_pool::{AutoReturn, TensorPool};
 
 /// Direction that an RNN operator will traverse the input sequence in.
 #[derive(Copy, Clone, Debug)]
@@ -577,17 +577,19 @@ pub fn lstm(
         let prepack = seq_len >= PREPACK_MIN_SEQ_LEN;
 
         let input_weights = weights.slice::<2, _>(dir).transposed();
-        let packed_input_weights = prepack.then(|| gemm.prepack_b(input_weights));
+        let packed_input_weights =
+            prepack.then(|| gemm.prepack_b_in(pool, input_weights).auto_return(pool));
         let input_weights = packed_input_weights
             .as_ref()
-            .map(GemmInputB::Packed)
+            .map(|packed| GemmInputB::Packed(packed))
             .unwrap_or(GemmInputB::Unpacked(input_weights));
 
         let hidden_weights = recurrent_weights.slice::<2, _>(dir).transposed();
-        let packed_hidden_weights = prepack.then(|| gemm.prepack_b(hidden_weights));
+        let packed_hidden_weights =
+            prepack.then(|| gemm.prepack_b_in(pool, hidden_weights).auto_return(pool));
         let hidden_weights = packed_hidden_weights
             .as_ref()
-            .map(GemmInputB::Packed)
+            .map(|packed| GemmInputB::Packed(packed))
             .unwrap_or(GemmInputB::Unpacked(hidden_weights));
 
         let input_bias = bias
