@@ -8,6 +8,7 @@ use std::fmt::{Display, Formatter};
 use rten_tensor::Tensor;
 use smallvec::smallvec;
 
+use crate::env::str_as_bool;
 use crate::graph::{Dimension, Graph, Node, NodeId, RunError, RunOptions};
 use crate::model_metadata::ModelMetadata;
 use crate::ops;
@@ -89,15 +90,6 @@ impl<'a> NodeInfo<'a> {
 /// This env var is a space-separated sequence of `key=value` pairs.
 fn parse_timing_config(config: &str, opts: &mut RunOptions) {
     opts.timing = true;
-
-    let str_as_bool = |s: &str| match s {
-        "1" | "true" | "t" | "yes" | "y" => true,
-        "0" | "false" | "f" | "no" | "n" => false,
-        _ => {
-            eprintln!("Unrecognized boolean value \"{}\"", s);
-            false
-        }
-    };
 
     for token in config.split_ascii_whitespace() {
         if let Some((key, val)) = token.split_once('=') {
