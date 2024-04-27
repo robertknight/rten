@@ -275,6 +275,7 @@ pub struct GRU {
 ///
 /// `initial_hidden` has shape `[directions, batch, hidden_size]`.
 pub fn gru(
+    pool: &TensorPool,
     direction: Direction,
     input: TensorView,
     weights: TensorView,
@@ -292,10 +293,10 @@ pub fn gru(
     let hidden_size = hidden_x3 / 3;
 
     let mut hidden = initial_hidden
-        .map(|t| t.to_tensor())
-        .unwrap_or_else(|| Tensor::zeros(&[num_directions, batch, hidden_size]));
-    let mut hidden_seq = Tensor::zeros(&[seq_len, num_directions, batch, hidden_size]);
-    let new_gate = || Tensor::zeros(&[batch, hidden_size]);
+        .map(|t| t.to_tensor_in(pool))
+        .unwrap_or_else(|| Tensor::zeros_in(pool, &[num_directions, batch, hidden_size]));
+    let mut hidden_seq = Tensor::zeros_in(pool, &[seq_len, num_directions, batch, hidden_size]);
+    let new_gate = || Tensor::zeros_in(pool, &[batch, hidden_size]);
 
     let mut update_gate = new_gate();
     let mut reset_gate = new_gate();
@@ -448,7 +449,7 @@ impl Operator for GRU {
         "GRU"
     }
 
-    fn run(&self, _pool: &TensorPool, inputs: InputList) -> Result<Vec<Output>, OpError> {
+    fn run(&self, pool: &TensorPool, inputs: InputList) -> Result<Vec<Output>, OpError> {
         let input = inputs.require_as(0)?;
         let weights = inputs.require_as(1)?;
         let recurrent_weights = inputs.require_as(2)?;
@@ -457,6 +458,7 @@ impl Operator for GRU {
         let initial_hidden = inputs.get_as(5)?;
 
         gru(
+            pool,
             self.direction,
             input,
             weights,
@@ -510,6 +512,7 @@ pub struct LSTM {
 /// `initial_hidden` has shape `[directions, batch, hidden_size]`.
 /// `initial_cell` has shape `[directions, batch, hidden_size]`.
 pub fn lstm(
+    pool: &TensorPool,
     direction: Direction,
     input: TensorView,
     weights: TensorView,
@@ -550,20 +553,21 @@ pub fn lstm(
     const FORGET_GATE: usize = 2;
     const CELL_GATE: usize = 3;
 
-    let new_gate = || Tensor::zeros(&[batch, hidden_size]);
+    let new_gate = || Tensor::zeros_in(pool, &[batch, hidden_size]);
     let mut input_gate = new_gate();
     let mut out_gate = new_gate();
     let mut forget_gate = new_gate();
     let mut cell_gate = new_gate();
 
     let mut cell = initial_cell
-        .map(|t| t.to_tensor())
-        .unwrap_or_else(|| Tensor::zeros(&[num_directions, batch, hidden_size]));
+        .map(|t| t.to_tensor_in(pool))
+        .unwrap_or_else(|| Tensor::zeros_in(pool, &[num_directions, batch, hidden_size]));
     let mut hidden = initial_hidden
-        .map(|t| t.to_tensor())
-        .unwrap_or_else(|| Tensor::zeros(&[num_directions, batch, hidden_size]));
+        .map(|t| t.to_tensor_in(pool))
+        .unwrap_or_else(|| Tensor::zeros_in(pool, &[num_directions, batch, hidden_size]));
 
-    let mut hidden_seq = Tensor::<f32>::zeros(&[seq_len, num_directions, batch, hidden_size]);
+    let mut hidden_seq =
+        Tensor::<f32>::zeros_in(pool, &[seq_len, num_directions, batch, hidden_size]);
 
     let gemm = GemmExecutor::new();
 
@@ -679,7 +683,7 @@ impl Operator for LSTM {
         "LSTM"
     }
 
-    fn run(&self, _pool: &TensorPool, inputs: InputList) -> Result<Vec<Output>, OpError> {
+    fn run(&self, pool: &TensorPool, inputs: InputList) -> Result<Vec<Output>, OpError> {
         let input = inputs.require_as(0)?;
         let weights = inputs.require_as(1)?;
         let recurrent_weights = inputs.require_as(2)?;
@@ -689,6 +693,7 @@ impl Operator for LSTM {
         let initial_cell = inputs.get_as(6)?;
 
         lstm(
+            pool,
             self.direction,
             input,
             weights,
@@ -803,6 +808,7 @@ mod tests {
             },
         ];
 
+        let pool = new_pool();
         for case in cases {
             let num_gates = match case.op {
                 Op::Gru => 3,
@@ -830,6 +836,7 @@ mod tests {
 
             let result = match case.op {
                 Op::Lstm => lstm(
+                    &pool,
                     dir,
                     input.view(),
                     weights.view(),
@@ -840,6 +847,7 @@ mod tests {
                 )
                 .expect("lstm op failed"),
                 Op::Gru => gru(
+                    &pool,
                     dir,
                     input.view(),
                     weights.view(),
@@ -1106,6 +1114,7 @@ mod tests {
             },
         ];
 
+        let pool = new_pool();
         for case in cases {
             let op = if case.name.starts_with("lstm") {
                 Op::Lstm
@@ -1115,6 +1124,7 @@ mod tests {
             let data = read_pytorch_ref_test(op, &dict[case.name]);
             let result = match op {
                 Op::Lstm => lstm(
+                    &pool,
                     case.dir,
                     data.input.view(),
                     data.weights.view(),
@@ -1125,6 +1135,7 @@ mod tests {
                 )
                 .expect("LSTM op failed"),
                 Op::Gru => gru(
+                    &pool,
                     case.dir,
                     data.input.view(),
                     data.weights.view(),
