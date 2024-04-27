@@ -97,7 +97,6 @@ fn zip5<T1, T2, T3, T4, T5>(
 #[derive(Copy, Clone)]
 enum Activation {
     Sigmoid,
-    Tanh,
 }
 
 /// Compute `output = dot(a, b)`
@@ -164,7 +163,6 @@ fn compute_rnn_gate(
 
     match act {
         Activation::Sigmoid => sigmoid_in_place(output),
-        Activation::Tanh => tanh_in_place(output),
     }
 }
 
@@ -192,6 +190,15 @@ struct GateWeightsAndBias<'a> {
     /// `hidden_size`.
     bias: Option<(NdTensorView<'a, f32, 1>, NdTensorView<'a, f32, 1>)>,
 }
+
+/// Sequence length threshold for prepacking weights.
+///
+/// For sufficiently long input sequences, prepacking weights can speed up
+/// execution by amortizing packing costs over the sequence length. For
+/// short sequences the added memory usage means this won't be worthwhile.
+///
+/// TODO: This value was chosen because it seemed reasonable. It needs tuning.
+const PREPACK_MIN_SEQ_LEN: usize = 5;
 
 /// Extract weights and biases for a specific RNN gate/output from a tensor that
 /// contains concatenated weights/biases for different gates.
@@ -223,11 +230,7 @@ fn extract_weights_and_bias<'a>(
         (input_bias, hidden_bias)
     });
 
-    // For sufficiently long input sequences, prepacking weights can speed up
-    // execution by amortizing packing costs over the sequence length. For
-    // short sequences the added memory usage means this won't be worthwhile.
-    let prepack = sequence_len > 4;
-
+    let prepack = sequence_len >= PREPACK_MIN_SEQ_LEN;
     let weights = if prepack {
         GateWeights::Packed(gemm.prepack_b(weights))
     } else {
@@ -553,11 +556,8 @@ pub fn lstm(
     const FORGET_GATE: usize = 2;
     const CELL_GATE: usize = 3;
 
-    let new_gate = || Tensor::zeros_in(pool, &[batch, hidden_size]);
-    let mut input_gate = new_gate();
-    let mut out_gate = new_gate();
-    let mut forget_gate = new_gate();
-    let mut cell_gate = new_gate();
+    let n_gates = 4;
+    let mut gates = Tensor::zeros_in(pool, &[batch, n_gates * hidden_size]);
 
     let mut cell = initial_cell
         .map(|t| t.to_tensor_in(pool))
@@ -571,24 +571,31 @@ pub fn lstm(
 
     let gemm = GemmExecutor::new();
 
-    let extract_lstm_weights_and_bias = |dir, gate_index| {
-        extract_weights_and_bias(
-            &gemm,
-            weights.view(),
-            recurrent_weights.view(),
-            bias.as_ref().map(|b| b.view()),
-            dir,
-            4,
-            gate_index,
-            seq_len,
-        )
-    };
+    let gate_range = |gate| (gate * hidden_size)..((gate + 1) * hidden_size);
 
     for dir in 0..num_directions {
-        let input_weights = extract_lstm_weights_and_bias(dir, INPUT_GATE);
-        let output_weights = extract_lstm_weights_and_bias(dir, OUTPUT_GATE);
-        let forget_weights = extract_lstm_weights_and_bias(dir, FORGET_GATE);
-        let cell_weights = extract_lstm_weights_and_bias(dir, CELL_GATE);
+        let prepack = seq_len >= PREPACK_MIN_SEQ_LEN;
+
+        let input_weights = weights.slice::<2, _>(dir).transposed();
+        let packed_input_weights = prepack.then(|| gemm.prepack_b(input_weights));
+        let input_weights = packed_input_weights
+            .as_ref()
+            .map(GemmInputB::Packed)
+            .unwrap_or(GemmInputB::Unpacked(input_weights));
+
+        let hidden_weights = recurrent_weights.slice::<2, _>(dir).transposed();
+        let packed_hidden_weights = prepack.then(|| gemm.prepack_b(hidden_weights));
+        let hidden_weights = packed_hidden_weights
+            .as_ref()
+            .map(GemmInputB::Packed)
+            .unwrap_or(GemmInputB::Unpacked(hidden_weights));
+
+        let input_bias = bias
+            .as_ref()
+            .map(|b| b.slice::<1, _>((dir, ..(n_gates * hidden_size))));
+        let hidden_bias = bias
+            .as_ref()
+            .map(|b| b.slice::<1, _>((dir, (n_gates * hidden_size)..)));
 
         for seq in sequence_for_dir(direction, dir, seq_len) {
             // From the ONNX spec, the intermediate values are computed as:
@@ -613,44 +620,47 @@ pub fn lstm(
             let in_item = input.slice::<2, _>([seq]);
             let hidden_item = hidden.slice::<2, _>([dir]);
 
-            // Compute outputs for input, forget, cell and output gates.
-            compute_rnn_gate(
-                &gemm,
-                input_gate.view_mut(),
-                Activation::Sigmoid,
-                &in_item,
-                &hidden_item,
-                &input_weights,
+            // Update input, output, forget and cell gates.
+            let gates_row_stride = gates.stride(gates.ndim() - 2);
+            gemm.gemm(
+                gates.data_mut().expect("expected contiguous input"),
+                gates_row_stride,
+                GemmInputA::Unpacked(in_item),
+                input_weights,
+                1., /* alpha */
+                0., /* beta */
             );
+            if let Some(input_bias) = input_bias {
+                add_in_place(gates.view_mut(), input_bias.as_dyn());
+            }
 
-            compute_rnn_gate(
-                &gemm,
-                forget_gate.view_mut(),
-                Activation::Sigmoid,
-                &in_item,
-                &hidden_item,
-                &forget_weights,
+            gemm.gemm(
+                gates.data_mut().expect("expected contiguous input"),
+                gates_row_stride,
+                GemmInputA::Unpacked(hidden_item),
+                hidden_weights,
+                1., /* alpha */
+                1., /* beta */
             );
+            if let Some(hidden_bias) = hidden_bias {
+                add_in_place(gates.view_mut(), hidden_bias.as_dyn());
+            }
 
-            compute_rnn_gate(
-                &gemm,
-                cell_gate.view_mut(),
-                Activation::Tanh,
-                &in_item,
-                &hidden_item,
-                &cell_weights,
-            );
+            let mut iof_gates = gates.slice_mut::<2, _>((
+                ..,
+                gate_range(INPUT_GATE).start..gate_range(FORGET_GATE).end,
+            ));
+            sigmoid_in_place(iof_gates.as_dyn_mut());
 
-            compute_rnn_gate(
-                &gemm,
-                out_gate.view_mut(),
-                Activation::Sigmoid,
-                &in_item,
-                &hidden_item,
-                &output_weights,
-            );
+            let mut cell_gate = gates.slice_mut::<2, _>((.., gate_range(CELL_GATE)));
+            tanh_in_place(cell_gate.as_dyn_mut());
 
-            // Compute new values of cell and hidden state
+            let input_gate = gates.slice::<2, _>((.., gate_range(INPUT_GATE)));
+            let out_gate = gates.slice::<2, _>((.., gate_range(OUTPUT_GATE)));
+            let forget_gate = gates.slice::<2, _>((.., gate_range(FORGET_GATE)));
+            let cell_gate = gates.slice::<2, _>((.., gate_range(CELL_GATE)));
+
+            // Update cell and hidden state
             let mut cell_item = cell.slice_mut::<2, _>([dir]);
 
             for (cell, forget_gate, input_gate, cell_gate) in zip4(
