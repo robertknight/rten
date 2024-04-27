@@ -771,8 +771,17 @@ impl<T, L: Clone + MutLayout> TensorBase<T, Vec<T>, L> {
     where
         T: Clone,
     {
-        let n_elts = shape.as_ref().iter().product();
-        let data = vec![value; n_elts];
+        Self::full_in(GlobalAlloc::new(), shape, value)
+    }
+
+    /// Variant of [`full`](TensorBase::full) which accepts an allocator.
+    pub fn full_in<A: Alloc>(alloc: A, shape: L::Index<'_>, value: T) -> TensorBase<T, Vec<T>, L>
+    where
+        T: Clone,
+    {
+        let len = shape.as_ref().iter().product();
+        let mut data = alloc.alloc(len);
+        data.resize(len, value);
         TensorBase::from_data(shape, data)
     }
 
@@ -808,7 +817,15 @@ impl<T, L: Clone + MutLayout> TensorBase<T, Vec<T>, L> {
     where
         T: Clone + Default,
     {
-        Self::full(shape, T::default())
+        Self::zeros_in(GlobalAlloc::new(), shape)
+    }
+
+    /// Variant of [`zeros`](TensorBase::zeros) which accepts an allocator.
+    pub fn zeros_in<A: Alloc>(alloc: A, shape: L::Index<'_>) -> TensorBase<T, Vec<T>, L>
+    where
+        T: Clone + Default,
+    {
+        Self::full_in(alloc, shape, T::default())
     }
 
     /// Return a new tensor containing uninitialized elements.
@@ -820,12 +837,20 @@ impl<T, L: Clone + MutLayout> TensorBase<T, Vec<T>, L> {
     where
         MaybeUninit<T>: Clone,
     {
-        let n_elts = shape.as_ref().iter().product();
-        let mut data = Vec::with_capacity(n_elts);
+        Self::uninit_in(GlobalAlloc::new(), shape)
+    }
+
+    /// Variant of [`uninit`](TensorBase::uninit) which accepts an allocator.
+    pub fn uninit_in<A: Alloc>(
+        alloc: A,
+        shape: L::Index<'_>,
+    ) -> TensorBase<MaybeUninit<T>, Vec<MaybeUninit<T>>, L> {
+        let len = shape.as_ref().iter().product();
+        let mut data = alloc.alloc(len);
 
         // Safety: Since the contents of the `Vec` are `MaybeUninit`, we don't
         // need to initialize them.
-        unsafe { data.set_len(n_elts) }
+        unsafe { data.set_len(len) }
 
         TensorBase::from_data(shape, data)
     }
@@ -2175,6 +2200,13 @@ mod tests {
     }
 
     #[test]
+    fn test_full_in() {
+        let pool = FakeAlloc::new();
+        NdTensor::<_, 2>::full_in(&pool, [2, 2], 5.);
+        assert_eq!(pool.count(), 1);
+    }
+
+    #[test]
     fn test_get() {
         // NdLayout
         let data = vec![1., 2., 3., 4.];
@@ -2954,6 +2986,13 @@ mod tests {
     }
 
     #[test]
+    fn test_uninit_in() {
+        let pool = FakeAlloc::new();
+        NdTensor::<f32, 2>::uninit_in(&pool, [2, 2]);
+        assert_eq!(pool.count(), 1);
+    }
+
+    #[test]
     fn test_view() {
         let tensor = NdTensor::from_data([2, 2], vec![1, 2, 3, 4]);
         let view = tensor.view();
@@ -3007,5 +3046,12 @@ mod tests {
         let tensor = NdTensor::zeros([2, 2]);
         assert_eq!(tensor.shape(), [2, 2]);
         assert_eq!(tensor.data(), Some([0, 0, 0, 0].as_slice()));
+    }
+
+    #[test]
+    fn test_zeros_in() {
+        let pool = FakeAlloc::new();
+        NdTensor::<f32, 2>::zeros_in(&pool, [2, 2]);
+        assert_eq!(pool.count(), 1);
     }
 }

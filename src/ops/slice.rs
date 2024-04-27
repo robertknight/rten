@@ -72,7 +72,7 @@ pub fn slice<T: Copy>(
         .enumerate()
         .map(|(dim, range)| range.steps(input.size(dim)))
         .collect();
-    let mut sliced_data = pool.alloc_vec(sliced_shape.iter().product());
+    let mut sliced_data = pool.alloc(sliced_shape.iter().product());
     sliced_data.extend(input.slice_iter(&items).copied());
 
     Ok(Tensor::from_data(&sliced_shape, sliced_data))

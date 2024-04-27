@@ -170,7 +170,7 @@ pub fn non_max_suppression(
         });
     }
 
-    let mut selected_indices = pool.alloc_zeroed::<i32, _>([selected.len(), 3]);
+    let mut selected_indices = NdTensor::zeros_in(pool, [selected.len(), 3]);
     for (i, nms_box) in selected.into_iter().enumerate() {
         selected_indices.slice_mut(i).assign_array([
             nms_box.batch_index as i32,

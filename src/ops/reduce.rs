@@ -35,7 +35,7 @@ fn select_max_index<T, Cmp: Fn(&T, &T) -> std::cmp::Ordering>(
         .enumerate()
         .map(|(dim, &size)| if resolved_axis == dim { 1 } else { size })
         .collect();
-    let mut reduced_data = pool.alloc_vec(reduced_shape.iter().product());
+    let mut reduced_data = pool.alloc(reduced_shape.iter().product());
 
     if !input.is_empty() {
         for slice in input.lanes(resolved_axis) {
@@ -124,7 +124,7 @@ pub fn cum_sum<T: Copy + Default + Identities + std::ops::AddAssign>(
     axis: isize,
 ) -> Result<Tensor<T>, OpError> {
     let resolved_axis = resolve_axis(input.ndim(), axis)?;
-    let mut output = pool.alloc::<T, _>(input.shape());
+    let mut output = Tensor::uninit_in(pool, input.shape());
 
     let mut n_init = 0;
     if !input.is_empty() {
@@ -264,7 +264,7 @@ fn reduce<T: Copy, R: Reducer<T>>(
             }
         })
         .collect();
-    let mut reduced_data = pool.alloc_vec(reduced_shape.iter().product());
+    let mut reduced_data = pool.alloc(reduced_shape.iter().product());
 
     match (reduced_inner_dims, input.data()) {
         (Some(ndims), Some(input_data)) => {
@@ -650,8 +650,8 @@ pub fn topk<T: Copy + Default + PartialOrd>(
         .enumerate()
         .map(|(dim, size)| if dim == axis { k } else { *size })
         .collect();
-    let mut out_values = pool.alloc_zeroed::<T, _>(out_shape.as_slice());
-    let mut indices = pool.alloc_zeroed::<i32, _>(out_shape.as_slice());
+    let mut out_values = Tensor::zeros_in(pool, &out_shape);
+    let mut indices = Tensor::zeros_in(pool, &out_shape);
 
     // Handle edge case early to simplify main loop.
     if k == 0 {

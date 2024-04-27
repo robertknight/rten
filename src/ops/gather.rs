@@ -49,7 +49,7 @@ pub fn gather<T: Copy + Default>(
         &input.shape()[axis + 1..],
     ]
     .concat();
-    let mut output = pool.alloc_zeroed::<T, _>(out_shape.as_slice());
+    let mut output = Tensor::zeros_in(pool, &out_shape);
 
     let mut in_range = full_range(input.ndim());
     let mut out_range = full_range(output.ndim());
@@ -168,7 +168,7 @@ pub fn gather_elements<T: Copy + Default>(
         ));
     }
     let axis = resolve_axis(input.ndim(), axis)?;
-    let mut output = pool.alloc_zeroed::<T, _>(indices.shape());
+    let mut output = Tensor::zeros_in(pool, indices.shape());
 
     // For the common case of tensors with <= 4 dims, expand input to 4 dims
     // and then use a fast path for static-rank tensors.

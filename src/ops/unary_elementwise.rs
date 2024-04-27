@@ -160,7 +160,7 @@ fn par_unary_op<
     op: F,
 ) -> Tensor<T> {
     let input = input.to_contiguous();
-    let mut output = pool.alloc(input.shape());
+    let mut output = Tensor::uninit_in(pool, input.shape());
 
     let in_chunks = input.data().unwrap().par_chunks(CHUNK_SIZE);
     let out_chunks = output.data_mut().unwrap().par_chunks_mut(CHUNK_SIZE);

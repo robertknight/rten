@@ -42,7 +42,7 @@ pub(crate) fn expand_to<T: Copy>(
         (Some(in_data), Some((cycles, repeats))) => {
             assert!(out_len == input.len() * cycles * repeats);
 
-            let mut out_data: Vec<T> = pool.alloc_vec(out_len);
+            let mut out_data: Vec<T> = pool.alloc(out_len);
             let mut out_ptr = out_data.as_mut_ptr();
             for _ in 0..cycles {
                 if repeats == 1 {
@@ -278,7 +278,7 @@ pub fn reshape<T: Copy>(
     allow_zero: bool,
 ) -> Result<Tensor<T>, OpError> {
     let out_shape = resolve_shape(input.shape(), shape, allow_zero)?;
-    let mut output = pool.alloc(input.shape()).init_from(&input);
+    let mut output = Tensor::uninit_in(pool, input.shape()).init_from(&input);
     output.reshape(&out_shape);
     Ok(output)
 }
@@ -354,7 +354,7 @@ impl Operator for Shape {
 
         // Allocate output from pool for consistency with other operators,
         // even though the buffer is tiny, so there is no performance benefit.
-        let mut data = pool.alloc_vec(input.ndim());
+        let mut data = pool.alloc(input.ndim());
         data.extend(input.shape().iter().map(|&el| el as i32));
 
         let shape = Tensor::from_data(&[input.ndim()], data);
@@ -376,7 +376,7 @@ impl Operator for Size {
 
         // Allocate output from pool for consistency with other operators,
         // even though the buffer is tiny, so there is no performance benefit.
-        let mut output = pool.alloc_zeroed([]);
+        let mut output = Tensor::zeros_in(pool, &[]);
         output[[]] = len;
 
         output.into_op_result()
@@ -493,7 +493,7 @@ pub fn transpose<T: Copy>(
             transposed.transpose();
         }
     };
-    let output = pool.alloc(transposed.shape());
+    let output = Tensor::uninit_in(pool, transposed.shape());
     Ok(output.init_from(&transposed))
 }
 

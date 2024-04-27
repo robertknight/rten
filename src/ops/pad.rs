@@ -30,7 +30,6 @@ pub fn pad<T: Copy>(
             start_pad + size + end_pad
         })
         .collect();
-    let out_len = out_shape.iter().product();
 
     let non_pad_region: Vec<SliceItem> = input
         .shape()
@@ -42,10 +41,7 @@ pub fn pad<T: Copy>(
         })
         .collect();
 
-    let mut data = pool.alloc_vec(out_len);
-    data.resize(out_len, const_val);
-
-    let mut output = Tensor::from_data(&out_shape, data);
+    let mut output = Tensor::full_in(pool, &out_shape, const_val);
     output
         .slice_mut_dyn(non_pad_region.as_slice())
         .copy_from(&input);
