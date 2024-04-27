@@ -1,4 +1,3 @@
-use std::env;
 use std::error::Error;
 use std::fmt;
 use std::iter::zip;
@@ -11,6 +10,7 @@ use rten_tensor::Tensor;
 // Instead we want faster hashing.
 use rustc_hash::{FxHashMap, FxHashSet};
 
+use crate::env::env_flag;
 use crate::ops::{Input, InputList, OpError, Operator, Output};
 use crate::tensor_pool::TensorPool;
 use crate::timer::Timer;
@@ -409,7 +409,7 @@ impl Graph {
         // release buffers back into it, so all allocations use the system
         // allocator.
         let pool = TensorPool::new();
-        let use_pool = env::var_os("RTEN_USE_POOL").is_some();
+        let use_pool = env_flag("RTEN_USE_POOL", true);
 
         // Execute the plan
         let mut temp_values: FxHashMap<NodeId, Output> = FxHashMap::default();

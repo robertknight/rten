@@ -44,6 +44,7 @@
 #[allow(unused)] // Docs only
 use rten_tensor::{NdTensor, Tensor};
 
+mod env;
 mod gemm;
 mod graph;
 mod iter_util;
