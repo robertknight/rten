@@ -8,7 +8,7 @@ use crate::gemm::{GemmExecutor, GemmInputA, GemmInputB};
 use crate::ops::binary_elementwise::broadcast_shapes;
 use crate::ops::layout::expand_to;
 use crate::ops::{InputList, IntoOpResult, OpError, Operator, Output};
-use crate::tensor_pool::TensorPool;
+use crate::tensor_pool::{AutoReturn, TensorPool};
 
 #[derive(Debug)]
 pub struct Gemm {
@@ -195,12 +195,15 @@ fn matmul_impl(
     // special case vector-matrix algorithm that doesn't benefit from packing.
     let prepacked_a = (num_a_matrices == 1 && num_b_matrices > 1 && a_rows > 1).then(|| {
         let a_matrix = a.inner_iter::<2>().next().unwrap();
-        gemm.prepack_a(a_matrix)
+        gemm.prepack_a_in(pool, a_matrix).auto_return(pool)
     });
+    let prepacked_a = prepacked_a.as_deref();
+
     let prepacked_b = (num_a_matrices > 1 && num_b_matrices == 1 && a_rows > 1).then(|| {
         let b_matrix = b.inner_iter::<2>().next().unwrap();
-        gemm.prepack_b(b_matrix)
+        gemm.prepack_b_in(pool, b_matrix).auto_return(pool)
     });
+    let prepacked_b = prepacked_b.as_deref();
 
     a_broadcast
         .inner_iter::<2>()
@@ -208,14 +211,14 @@ fn matmul_impl(
         .zip(out_batches)
         .par_bridge()
         .for_each(|((a_mat, b_mat), out_mat)| {
-            let a_input = if let Some(prepacked_a) = prepacked_a.as_ref() {
-                GemmInputA::Packed(prepacked_a)
+            let a_input = if let Some(packed) = prepacked_a {
+                GemmInputA::Packed(packed)
             } else {
                 GemmInputA::Unpacked(a_mat)
             };
 
-            let b_input = if let Some(prepacked_b) = prepacked_b.as_ref() {
-                GemmInputB::Packed(prepacked_b)
+            let b_input = if let Some(packed) = prepacked_b {
+                GemmInputB::Packed(packed)
             } else {
                 GemmInputB::Unpacked(b_mat)
             };

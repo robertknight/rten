@@ -12,9 +12,10 @@ use std::ops::Range;
 
 use rayon::prelude::*;
 use rten_tensor::prelude::*;
-use rten_tensor::{Matrix, MatrixLayout, MatrixMut, NdTensorView};
+use rten_tensor::{Alloc, GlobalAlloc, Matrix, MatrixLayout, MatrixMut, NdTensorView};
 
 use crate::iter_util::{range_chunks, unroll_loop, MaybeParIter};
+use crate::tensor_pool::ExtractBuffer;
 
 mod kernels;
 mod packing;
@@ -109,6 +110,14 @@ impl<'a> PackedAMatrix<'a> {
     }
 }
 
+impl<'a> ExtractBuffer for PackedAMatrix<'a> {
+    type Elem = f32;
+
+    fn extract_buffer(self) -> Vec<f32> {
+        self.data.into_owned()
+    }
+}
+
 /// Right-hand or "B" GEMM input that has been pre-packed.
 #[derive(Clone)]
 pub struct PackedBMatrix {
@@ -133,6 +142,14 @@ impl PackedBMatrix {
         let panel_idx = col_block_idx * self.depth_blocks + depth_block_idx;
         let offset = panel_idx * self.panel_len;
         &self.data[offset..offset + self.panel_len]
+    }
+}
+
+impl ExtractBuffer for PackedBMatrix {
+    type Elem = f32;
+
+    fn extract_buffer(self) -> Vec<f32> {
+        self.data
     }
 }
 
@@ -361,7 +378,14 @@ impl GemmExecutor {
     }
 
     /// Prepack a matrix for use as the left-hand or "A" input.
+    #[allow(unused)]
     pub fn prepack_a(&self, a: Matrix) -> PackedAMatrix<'static> {
+        self.prepack_a_in(GlobalAlloc::new(), a)
+    }
+
+    /// Variant of [`prepack_a`](GemmExecutor::prepack_a) which takes an
+    /// allocator.
+    pub fn prepack_a_in<A: Alloc>(&self, alloc: A, a: Matrix) -> PackedAMatrix<'static> {
         let kc = depth_block_size(a.cols());
         let mc = row_block_size(a.rows(), self.kernel.mr());
         let panel_len = kc * mc;
@@ -369,7 +393,7 @@ impl GemmExecutor {
         let depth_blocks = div_ceil(a.cols(), kc);
 
         let packed_len = depth_blocks * row_blocks * panel_len;
-        let mut data = Vec::with_capacity(packed_len);
+        let mut data = alloc.alloc(packed_len);
 
         // Pack blocks in the order they will be accessed by the GEMM
         // implementation.
@@ -408,6 +432,12 @@ impl GemmExecutor {
 
     /// Prepack a matrix for use as the right-hand or "B" matrix input.
     pub fn prepack_b(&self, b: Matrix) -> PackedBMatrix {
+        self.prepack_b_in(GlobalAlloc::new(), b)
+    }
+
+    /// Variant of [`prepack_b`](GemmExecutor::prepack_b) which takes an
+    /// allocator.
+    pub fn prepack_b_in<A: Alloc>(&self, alloc: A, b: Matrix) -> PackedBMatrix {
         let nc = col_block_size(b.cols(), self.kernel.nr());
         let kc = depth_block_size(b.rows());
         let panel_len = nc * kc;
@@ -415,7 +445,7 @@ impl GemmExecutor {
         let col_blocks = div_ceil(b.cols(), nc);
 
         let packed_len = col_blocks * depth_blocks * panel_len;
-        let mut out = Vec::with_capacity(packed_len);
+        let mut out = alloc.alloc(packed_len);
 
         // Pack blocks in the order they will be accessed by the GEMM
         // implementation.
