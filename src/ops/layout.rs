@@ -278,7 +278,7 @@ pub fn reshape<T: Copy>(
     allow_zero: bool,
 ) -> Result<Tensor<T>, OpError> {
     let out_shape = resolve_shape(input.shape(), shape, allow_zero)?;
-    let mut output = pool.alloc(input.shape()).init_from(&input);
+    let mut output = Tensor::uninit_in(pool, input.shape()).init_from(&input);
     output.reshape(&out_shape);
     Ok(output)
 }
@@ -493,7 +493,7 @@ pub fn transpose<T: Copy>(
             transposed.transpose();
         }
     };
-    let output = pool.alloc(transposed.shape());
+    let output = Tensor::uninit_in(pool, transposed.shape());
     Ok(output.init_from(&transposed))
 }
 

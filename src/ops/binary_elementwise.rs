@@ -169,7 +169,7 @@ fn binary_op<T: Copy + Debug, R: Default, F: Fn(T, T) -> R>(
         if let Some((cycles, repeats)) = fast_broadcast_cycles_repeats(b.shape(), a.shape()) {
             assert!(cycles * b_data.len() * repeats == a.len());
 
-            let mut output = pool.alloc(out_shape.as_slice());
+            let mut output = Tensor::uninit_in(pool, &out_shape);
 
             // Unsafe access used to skip bounds checks in inner loop.
             let out_data = output.data_mut().unwrap();

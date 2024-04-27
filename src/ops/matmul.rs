@@ -63,7 +63,7 @@ pub fn gemm_op(
             output
         }
         _ => {
-            let mut output = pool.alloc(out_shape);
+            let mut output = Tensor::uninit_in(pool, out_shape);
             let out_row_stride = output.stride(0);
             gemm.gemm_uninit(
                 output.data_mut().unwrap(),
@@ -168,7 +168,7 @@ fn matmul_impl(
         return Ok(output);
     }
 
-    let mut output = pool.alloc(out_shape.as_slice());
+    let mut output = Tensor::uninit_in(pool, out_shape);
     if output.is_empty() {
         // nb. We don't need to alloc from the pool here, since the buffer
         // is already empty.

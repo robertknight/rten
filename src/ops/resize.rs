@@ -259,7 +259,7 @@ pub fn resize(
     }
 
     let sizes_usize: Vec<_> = sizes.iter().map(|size| *size as usize).collect();
-    let mut output = pool.alloc(sizes_usize.as_slice());
+    let mut output = Tensor::uninit_in(pool, &sizes_usize);
 
     if output.is_empty() {
         // Safety: Empty output is already initialized.

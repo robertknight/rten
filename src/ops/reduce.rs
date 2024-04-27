@@ -124,7 +124,7 @@ pub fn cum_sum<T: Copy + Default + Identities + std::ops::AddAssign>(
     axis: isize,
 ) -> Result<Tensor<T>, OpError> {
     let resolved_axis = resolve_axis(input.ndim(), axis)?;
-    let mut output = pool.alloc::<T, _>(input.shape());
+    let mut output = Tensor::uninit_in(pool, input.shape());
 
     let mut n_init = 0;
     if !input.is_empty() {

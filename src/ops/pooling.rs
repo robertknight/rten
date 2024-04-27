@@ -4,7 +4,7 @@ use std::sync::atomic::{AtomicUsize, Ordering};
 
 use rayon::prelude::*;
 use rten_tensor::prelude::*;
-use rten_tensor::{NdTensorView, NdTensorViewMut, Tensor, TensorView};
+use rten_tensor::{NdTensor, NdTensorView, NdTensorViewMut, Tensor, TensorView};
 
 use crate::check_dims;
 use crate::gemm::div_ceil;
@@ -109,7 +109,7 @@ pub fn average_pool(
     let [kernel_h, kernel_w] = kernel_size;
     let [stride_h, stride_w] = strides;
 
-    let mut output = pool.alloc([batch, in_c, out_h, out_w]);
+    let mut output = NdTensor::uninit_in(pool, [batch, in_c, out_h, out_w]);
     let input = input.nd_view::<4>();
 
     let mut n_init = 0;
@@ -189,7 +189,7 @@ impl Operator for AveragePool {
 pub fn global_average_pool(pool: &TensorPool, input: TensorView) -> Result<Tensor, OpError> {
     let [batch, chans, in_h, in_w] = check_dims!(input, 4, "NCHW");
 
-    let mut output = pool.alloc([batch, chans, 1, 1]);
+    let mut output = NdTensor::uninit_in(pool, [batch, chans, 1, 1]);
     let mut n_init = 0;
 
     for n in 0..batch {
@@ -266,7 +266,7 @@ pub fn max_pool(
         None, /* dilations */
     )?;
     let [pad_top, pad_left, _pad_bottom, _pad_right] = fixed_padding;
-    let mut output = pool.alloc([batch, in_c, out_h, out_w].as_slice());
+    let mut output = Tensor::uninit_in(pool, [batch, in_c, out_h, out_w].as_slice());
 
     // Apply max-pooling to the channel indexes specified by `chans`.
     // Assuming `N` is chosen appropriately the inner loop should get unrolled /

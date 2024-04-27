@@ -26,7 +26,7 @@ fn reduce_elementwise<T: Copy, R: Fn(&[T]) -> T>(
                 ));
             };
 
-            let mut result = pool.alloc(out_shape.as_slice());
+            let mut result = Tensor::uninit_in(pool, &out_shape);
             for (out, (&a, &b)) in zip(
                 result.iter_mut(),
                 zip(a.broadcast_iter(&out_shape), b.broadcast_iter(&out_shape)),
@@ -54,7 +54,7 @@ fn reduce_elementwise<T: Copy, R: Fn(&[T]) -> T>(
                 .map(|view| view.broadcast_iter(&out_shape))
                 .collect();
             let mut elts = Vec::with_capacity(inputs.len());
-            let mut output = pool.alloc(out_shape.as_slice());
+            let mut output = Tensor::uninit_in(pool, &out_shape);
 
             for out in output.iter_mut() {
                 elts.extend(iters.iter_mut().map(|it| it.next().unwrap()));

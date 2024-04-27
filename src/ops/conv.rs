@@ -6,7 +6,7 @@ use std::sync::atomic::{AtomicUsize, Ordering};
 
 use rayon::prelude::*;
 use rten_tensor::prelude::*;
-use rten_tensor::{NdTensorView, NdTensorViewMut, Tensor, TensorView};
+use rten_tensor::{NdTensor, NdTensorView, NdTensorViewMut, Tensor, TensorView};
 use smallvec::SmallVec;
 
 use crate::check_dims;
@@ -79,7 +79,7 @@ fn conv_2d_pointwise(
 ) -> Tensor {
     let [batch, _, in_h, in_w]: [usize; 4] = input.shape();
     let [out_c, in_c, _, _]: [usize; 4] = kernel.shape();
-    let mut output = pool.alloc([batch, out_c, in_h * in_w].as_slice());
+    let mut output = Tensor::uninit_in(pool, &[batch, out_c, in_h * in_w]);
 
     // Get input and kernel as contiguous tensors so we can create reshaped
     // views.
@@ -216,7 +216,7 @@ fn conv_2d_depthwise(
     let [_dilation_y, dilation_x] = dilations;
     let [out_h, out_w] = out_hw;
 
-    let mut output = pool.alloc([batch, out_c, out_h, out_w]);
+    let mut output = NdTensor::uninit_in(pool, [batch, out_c, out_h, out_w]);
 
     // Use of input rows below assumes contiguous last dimension.
     let input = input.to_contiguous();
@@ -429,7 +429,7 @@ pub fn conv(
     }
 
     let n_patches = out_h * out_w;
-    let mut output = pool.alloc([batch, out_c, n_patches].as_slice());
+    let mut output = Tensor::uninit_in(pool, &[batch, out_c, n_patches]);
     let gemm = GemmExecutor::new();
 
     // Bias must be contiguous for use with `gemm_bias`.
@@ -610,9 +610,8 @@ pub fn conv_transpose(
     let input = input.to_contiguous();
     let kernel = kernel.to_contiguous();
 
-    let mut col2im_mat = pool
-        .alloc([in_h * in_w, out_c * k_h * k_w])
-        .auto_return(pool);
+    let mut col2im_mat =
+        NdTensor::uninit_in(pool, [in_h * in_w, out_c * k_h * k_w]).auto_return(pool);
     let kernel_mat = kernel.reshaped([k_in_c, out_c * k_h * k_w]);
     let gemm = GemmExecutor::new();
 

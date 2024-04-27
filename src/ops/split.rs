@@ -40,9 +40,7 @@ pub fn split<T: Copy>(
 
             split_start += split_size;
 
-            let slice = input.slice_dyn(slice_range.as_slice());
-            let output = pool.alloc(slice.shape());
-            output.init_from(&slice)
+            input.slice_dyn(slice_range.as_slice()).to_tensor_in(pool)
         })
         .collect();
 

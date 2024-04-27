@@ -205,7 +205,7 @@ pub fn tile<T: Copy>(
         .zip(repeats.iter())
         .map(|(size, repeat)| size * repeat)
         .collect();
-    let mut output = pool.alloc(out_shape.as_slice());
+    let mut output = Tensor::uninit_in(pool, &out_shape);
 
     if !output.is_empty() {
         tile_inner(
