@@ -1,9 +1,7 @@
 use std::cell::RefCell;
-use std::mem::MaybeUninit;
 use std::ops::{Deref, DerefMut};
 
-use rten_tensor::prelude::*;
-use rten_tensor::{Alloc, IntoLayout, MutLayout, TensorBase};
+use rten_tensor::{Alloc, MutLayout, TensorBase};
 
 /// A memory buffer that can be used to satisfy a future allocation from
 /// a [TensorPool].
@@ -89,16 +87,16 @@ impl Drop for Buffer {
 /// buffer from the global allocator and freeing it when no longer needed,
 /// can provide a significant performance improvement.
 ///
-/// Tensors can be allocated from the pool either using the `alloc_*` methods of
-/// the pool, or by passing the pool to a tensor method with an `_in` suffix as
-/// the allocator (eg. [`map_in`](TensorPool::map_in). The pool will reuse an
-/// existing buffer from the pool if available or allocate a new one using the
-/// global allocator otherwise.
+/// Tensors can be allocated from the pool by passing a reference to pool to the
+/// various `Tensor::*_in` methods, eg. [Tensor::zeros_in]. Allocation requests
+/// will be satisfied from the pool if there is a suitable buffer available, or
+/// it will fall back to the global allocator otherwise.
 ///
-/// When a tensor is no longer needed, its buffer can be added to the pool using
-/// [`add`](TensorPool::add), making it available for future allocations.
-/// Tensors can also be wrapped in a [PoolRef] smart pointer to automatically
-/// return them to the pool when the `PoolRef` is dropped.
+/// When a tensor is no longer needed, it's buffer can be added to the pool
+/// using [`add_tensor`](TensorPool::add_tensor), making it available for future
+/// allocations. Alternately
+/// [`tensor.auto_return(&pool)`](TensorBase::auto_return) can be used to wrap a
+/// tensor in a smart pointer that returns it to the pool when no longer needed.
 pub struct TensorPool {
     /// List of buffers currently in the pool.
     buffers: RefCell<Vec<Buffer>>,
@@ -124,50 +122,8 @@ impl TensorPool {
         }
     }
 
-    /// Allocate a tensor from the pool if possible, or fall back to the
-    /// global allocator otherwise.
-    ///
-    /// The contents of the returned tensor are uninitialized. After
-    /// initializing its contents, [`assume_init`](Tensor::assume_init) can
-    /// be used to mark it as initialized.
-    ///
-    /// When it is no longer needed, the tensor can be returned to the pool
-    /// using [`add`](TensorPool::add) to make it available for subsequent
-    /// allocations.
-    pub fn alloc<T, S: IntoLayout>(
-        &self,
-        shape: S,
-    ) -> TensorBase<MaybeUninit<T>, Vec<MaybeUninit<T>>, S::Layout> {
-        let layout = shape.into_layout();
-        let len = layout.len();
-
-        let mut buf = self.alloc_vec(len);
-        // Safety: Since the data is `MaybeUninit<T>` it is already "initialized".
-        unsafe {
-            buf.set_len(len);
-        }
-
-        TensorBase::from_data(layout.shape(), buf)
-    }
-
-    /// Allocate a tensor using [`alloc`](TensorPool::alloc) and fill all
-    /// entries with zero.
-    pub fn alloc_zeroed<T: Copy + Default, S: IntoLayout>(
-        &self,
-        shape: S,
-    ) -> TensorBase<T, Vec<T>, S::Layout> {
-        let mut tensor = self.alloc(shape);
-        tensor.fill(MaybeUninit::new(T::default()));
-
-        // Safety: We just populated all the elements.
-        unsafe { tensor.assume_init() }
-    }
-
     /// Allocate an empty vec with a given capacity from the pool.
-    ///
-    /// This is useful for scenarios where the data buffer for a tensor is
-    /// built up and then passed to `Tensor::from_data`.
-    pub fn alloc_vec<T>(&self, required_len: usize) -> Vec<T> {
+    pub fn alloc<T>(&self, capacity: usize) -> Vec<T> {
         *self.alloc_count.borrow_mut() += 1;
 
         // Find best fit item that matches the requested type and size with
@@ -178,7 +134,7 @@ impl TensorPool {
                 .iter()
                 .enumerate()
                 .fold(None, |best_fit, (idx, buffer)| {
-                    if !buffer.can_fit::<T>(required_len) {
+                    if !buffer.can_fit::<T>(capacity) {
                         return best_fit;
                     };
 
@@ -197,24 +153,23 @@ impl TensorPool {
             item.into_vec::<T>()
         } else {
             // No match :( - Fall back to the global allocator.
-            Vec::with_capacity(required_len)
+            Vec::with_capacity(capacity)
         };
 
         data
     }
 
-    /// Add the data buffer from a tensor into the pool, so it can be used
-    /// to satisfy future calls to [`alloc`](TensorPool::alloc).
-    pub fn add<T, L: MutLayout>(&self, tensor: TensorBase<T, Vec<T>, L>) {
-        self.add_vec(tensor.into_non_contiguous_data());
-    }
-
     /// Add a data buffer to the pool.
     ///
-    /// This is like [`add`](TensorPool::add) but takes a buffer directly,
-    /// instead of a tensor from which a buffer can be extracted.
-    pub fn add_vec<T>(&self, vec: Vec<T>) {
+    /// The buffer will be cleared using [Vec::clear] and then made available
+    /// to fulfill future allocation requests.
+    pub fn add<T>(&self, vec: Vec<T>) {
         self.buffers.borrow_mut().push(Buffer::from_vec(vec));
+    }
+
+    /// Extract the data buffer from a tensor and add it to the pool.
+    pub fn add_tensor<T, L: MutLayout>(&self, tensor: TensorBase<T, Vec<T>, L>) {
+        self.add(tensor.into_non_contiguous_data());
     }
 
     /// Return the total number of allocation requests.
@@ -241,7 +196,7 @@ impl TensorPool {
 
 impl Alloc for TensorPool {
     fn alloc<T>(&self, capacity: usize) -> Vec<T> {
-        self.alloc_vec(capacity)
+        self.alloc(capacity)
     }
 }
 
@@ -313,7 +268,7 @@ impl<'a, T, L: MutLayout> DerefMut for PoolRef<'a, T, L> {
 impl<'a, T, L: MutLayout> Drop for PoolRef<'a, T, L> {
     fn drop(&mut self) {
         if let Some(tensor) = self.tensor.take() {
-            self.pool.add(tensor)
+            self.pool.add_tensor(tensor)
         }
     }
 }
@@ -322,26 +277,24 @@ impl<'a, T, L: MutLayout> Drop for PoolRef<'a, T, L> {
 mod tests {
     use super::{AutoReturn, TensorPool};
     use rten_tensor::prelude::*;
+    use rten_tensor::NdTensor;
 
     #[test]
-    fn test_pool_alloc() {
+    fn test_pool_alloc_tensor() {
         let pool = TensorPool::new();
-
-        // nb. These tests use `alloc_zeroed` because `TensorPool::add` expects
-        // an initialized tensor.
 
         // Initial alloc. There is nothing in the pool so this will use the
         // system allocator.
-        let tensor = pool.alloc_zeroed::<f32, _>([2, 2]);
+        let tensor = NdTensor::<f32, 2>::zeros_in(&pool, [2, 2]);
         assert_eq!(tensor.shape(), [2, 2]);
         assert_eq!(pool.alloc_count(), 1);
         assert_eq!(pool.hit_count(), 0);
         let ptr = tensor.data().unwrap().as_ptr();
 
-        pool.add(tensor);
+        pool.add_tensor(tensor);
 
         // Alloc with an exact size match. This will be fulfilled from the pool.
-        let tensor = pool.alloc_zeroed::<f32, _>([2, 2]);
+        let tensor = NdTensor::<f32, 2>::zeros_in(&pool, [2, 2]);
         assert_eq!(tensor.shape(), [2, 2]);
         assert_eq!(pool.alloc_count(), 2);
         assert_eq!(pool.hit_count(), 1);
@@ -349,52 +302,52 @@ mod tests {
         // Check we really did get the same data back.
         assert_eq!(tensor.data().unwrap().as_ptr(), ptr);
 
-        pool.add(tensor);
+        pool.add_tensor(tensor);
 
         // Alloc with a smaller size. This will be fulfilled from the pool.
-        let tensor = pool.alloc_zeroed::<f32, _>([2, 1]);
+        let tensor = NdTensor::<f32, 2>::zeros_in(&pool, [2, 1]);
         assert_eq!(tensor.shape(), [2, 1]);
         assert_eq!(pool.alloc_count(), 3);
         assert_eq!(pool.hit_count(), 2);
 
-        pool.add(tensor);
+        pool.add_tensor(tensor);
 
         // Alloc with a larger size. This will return a new tensor.
-        let tensor = pool.alloc_zeroed::<f32, _>([2, 3]);
+        let tensor = NdTensor::<f32, 2>::zeros_in(&pool, [2, 3]);
         assert_eq!(tensor.shape(), [2, 3]);
         assert_eq!(pool.alloc_count(), 4);
         assert_eq!(pool.hit_count(), 2);
 
         // Alloc with a size that matches the item in the pool, but a different
         // type. This will return a new tensor.
-        let int_tensor = pool.alloc_zeroed::<i8, _>([2, 2]);
+        let int_tensor = NdTensor::<i8, 2>::zeros_in(&pool, [2, 2]);
         assert_eq!(int_tensor.shape(), [2, 2]);
         assert_eq!(pool.alloc_count(), 5);
         assert_eq!(pool.hit_count(), 2);
 
-        pool.add(int_tensor);
+        pool.add_tensor(int_tensor);
 
         // Alloc that matches the tensor we just freed. This will return the
         // item just added to the pool.
-        let int_tensor = pool.alloc_zeroed::<i8, _>([2, 2]);
+        let int_tensor = NdTensor::<i8, 2>::zeros_in(&pool, [2, 2]);
         assert_eq!(int_tensor.shape(), [2, 2]);
         assert_eq!(pool.alloc_count(), 6);
         assert_eq!(pool.hit_count(), 3);
     }
 
     #[test]
-    fn test_pool_alloc_vec() {
+    fn test_pool_alloc() {
         let pool = TensorPool::new();
 
-        let vec = pool.alloc_vec::<f32>(128);
+        let vec = pool.alloc::<f32>(128);
         assert_eq!(vec.capacity(), 128);
         assert_eq!(vec.len(), 0);
         assert_eq!(pool.alloc_count(), 1);
         assert_eq!(pool.hit_count(), 0);
 
-        pool.add_vec(vec);
+        pool.add(vec);
 
-        let vec = pool.alloc_vec::<f32>(64);
+        let vec = pool.alloc::<f32>(64);
         assert_eq!(vec.capacity(), 128);
         assert_eq!(vec.len(), 0);
         assert_eq!(pool.alloc_count(), 2);
@@ -405,13 +358,13 @@ mod tests {
     fn test_pool_alloc_zst() {
         let pool = TensorPool::new();
 
-        let vec = pool.alloc_vec::<()>(128);
+        let vec = pool.alloc::<()>(128);
         assert_eq!(vec.capacity(), usize::MAX);
-        pool.add_vec(vec);
+        pool.add(vec);
 
-        let vec = pool.alloc_vec::<()>(512);
+        let vec = pool.alloc::<()>(512);
         assert_eq!(vec.capacity(), usize::MAX);
-        pool.add_vec(vec);
+        pool.add(vec);
 
         assert_eq!(pool.alloc_count(), 2);
         assert_eq!(pool.hit_count(), 1);
@@ -421,26 +374,26 @@ mod tests {
     fn test_pool_alloc_non_copy_type() {
         let pool = TensorPool::new();
 
-        let mut vec = pool.alloc_vec::<String>(5);
+        let mut vec = pool.alloc::<String>(5);
         vec.push("hello".into());
         vec.push("world".into());
         let ptr = vec.as_ptr();
 
-        pool.add_vec(vec);
+        pool.add(vec);
 
-        let vec = pool.alloc_vec::<String>(3);
+        let vec = pool.alloc::<String>(3);
         assert_eq!(vec.as_ptr(), ptr);
         assert_eq!(vec.capacity(), 5);
         assert_eq!(vec.len(), 0);
     }
 
     #[test]
-    fn test_pool_ref() {
+    fn test_pool_ref_auto_return() {
         let pool = TensorPool::new();
         assert_eq!(pool.len(), 0);
 
         {
-            let tensor = pool.alloc_zeroed::<f32, _>([2, 2]).auto_return(&pool);
+            let tensor = NdTensor::<f32, 2>::zeros_in(&pool, [2, 2]).auto_return(&pool);
             assert_eq!(tensor.shape(), [2, 2]);
         }
 
@@ -449,11 +402,11 @@ mod tests {
     }
 
     #[test]
-    fn test_pool_auto_return() {
+    fn test_pool_ref_take() {
         let pool = TensorPool::new();
         assert_eq!(pool.len(), 0);
         {
-            let tensor = pool.alloc_zeroed::<f32, _>([2, 2]).auto_return(&pool);
+            let tensor = NdTensor::<f32, 2>::zeros_in(&pool, [2, 2]).auto_return(&pool);
             assert_eq!(tensor.shape(), [2, 2]);
             tensor.take(); // Take tensor out of the `PoolRef`
         }

@@ -35,7 +35,7 @@ fn select_max_index<T, Cmp: Fn(&T, &T) -> std::cmp::Ordering>(
         .enumerate()
         .map(|(dim, &size)| if resolved_axis == dim { 1 } else { size })
         .collect();
-    let mut reduced_data = pool.alloc_vec(reduced_shape.iter().product());
+    let mut reduced_data = pool.alloc(reduced_shape.iter().product());
 
     if !input.is_empty() {
         for slice in input.lanes(resolved_axis) {
@@ -264,7 +264,7 @@ fn reduce<T: Copy, R: Reducer<T>>(
             }
         })
         .collect();
-    let mut reduced_data = pool.alloc_vec(reduced_shape.iter().product());
+    let mut reduced_data = pool.alloc(reduced_shape.iter().product());
 
     match (reduced_inner_dims, input.data()) {
         (Some(ndims), Some(input_data)) => {

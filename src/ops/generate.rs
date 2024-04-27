@@ -17,7 +17,7 @@ pub fn constant_of_shape<T: Copy>(
 ) -> Tensor<T> {
     let shape: Vec<_> = shape.iter().map(|el| *el as usize).collect();
     let len = shape.iter().product();
-    let mut data = pool.alloc_vec(len);
+    let mut data = pool.alloc(len);
     data.resize(len, value);
     Tensor::from_data(&shape, data)
 }
@@ -58,7 +58,7 @@ pub fn onehot<T: Copy + Default + PartialEq>(
     out_shape.insert(onehot_axis, depth);
 
     let len = out_shape.iter().product();
-    let mut data = pool.alloc_vec(len);
+    let mut data = pool.alloc(len);
     data.resize(len, off_value);
     let mut output = Tensor::from_data(&out_shape, data);
 

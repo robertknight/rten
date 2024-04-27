@@ -81,7 +81,7 @@ pub fn concat<T: Copy>(
     for other in &inputs[1..] {
         out_shape[axis] += other.size(axis);
     }
-    let mut out_data: Vec<T> = pool.alloc_vec(out_shape.iter().product());
+    let mut out_data: Vec<T> = pool.alloc(out_shape.iter().product());
 
     let mut input_iters: Vec<TensorChunks<'_, T>> = inputs
         .iter()

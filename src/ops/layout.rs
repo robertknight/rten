@@ -42,7 +42,7 @@ pub(crate) fn expand_to<T: Copy>(
         (Some(in_data), Some((cycles, repeats))) => {
             assert!(out_len == input.len() * cycles * repeats);
 
-            let mut out_data: Vec<T> = pool.alloc_vec(out_len);
+            let mut out_data: Vec<T> = pool.alloc(out_len);
             let mut out_ptr = out_data.as_mut_ptr();
             for _ in 0..cycles {
                 if repeats == 1 {
@@ -354,7 +354,7 @@ impl Operator for Shape {
 
         // Allocate output from pool for consistency with other operators,
         // even though the buffer is tiny, so there is no performance benefit.
-        let mut data = pool.alloc_vec(input.ndim());
+        let mut data = pool.alloc(input.ndim());
         data.extend(input.shape().iter().map(|&el| el as i32));
 
         let shape = Tensor::from_data(&[input.ndim()], data);

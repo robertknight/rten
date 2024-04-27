@@ -33,7 +33,7 @@ impl Operator for RandomUniform {
         };
 
         let len = shape.iter().product();
-        let mut data = pool.alloc_vec(len);
+        let mut data = pool.alloc(len);
         data.extend(std::iter::from_fn(|| Some(scale_value(rng.f32()))).take(len));
 
         Tensor::from_data(shape, data).into_op_result()

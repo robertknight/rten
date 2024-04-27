@@ -802,7 +802,7 @@ pub fn where_op<T: Copy>(
     let can_cycle = cond_cycles.is_some() && x_cycles.is_some() && y_cycles.is_some();
 
     let out_len = result_shape.iter().product();
-    let mut out_data = pool.alloc_vec(out_len);
+    let mut out_data = pool.alloc(out_len);
 
     if let (true, Some(cond_data), Some(x_data), Some(y_data)) =
         (can_cycle, cond.data(), x.data(), y.data())

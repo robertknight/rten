@@ -54,7 +54,7 @@ fn init_tensor_with_channel_bias(
     chan_dim: usize,
     bias: &NdTensorView<f32, 1>,
 ) -> Tensor {
-    let mut out_data = pool.alloc_vec(shape.iter().product());
+    let mut out_data = pool.alloc(shape.iter().product());
 
     let chan_elts: usize = shape[chan_dim + 1..].iter().product();
     let all_chan_elts: usize = chan_elts * shape[chan_dim];
