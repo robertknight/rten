@@ -69,9 +69,7 @@ pub fn exp(val: f32) -> f32 {
 /// library.
 ///
 /// Safety: The caller must ensure the `SimdFloat` impl is usable on the current system.
-#[cfg_attr(target_arch = "x86_64", target_feature(enable = "avx2"))]
-#[cfg_attr(target_arch = "x86_64", target_feature(enable = "fma"))]
-#[inline]
+#[inline(always)]
 pub(crate) unsafe fn simd_exp<S: SimdFloat>(x: S) -> S {
     // Load constants
     let inv_log_2 = S::splat(INV_LOG2);
@@ -142,9 +140,7 @@ pub(crate) unsafe fn simd_exp<S: SimdFloat>(x: S) -> S {
 /// using `1. / (1. + (-x).exp())`.
 ///
 /// Safety: The caller must ensure the `SimdFloat` impl is usable on the current system.
-#[cfg_attr(target_arch = "x86_64", target_feature(enable = "avx2"))]
-#[cfg_attr(target_arch = "x86_64", target_feature(enable = "fma"))]
-#[inline]
+#[inline(always)]
 unsafe fn simd_sigmoid<S: SimdFloat>(x: S) -> S {
     // 1. + exp(-x)
     let denom = S::one().add(simd_exp(x.neg()));

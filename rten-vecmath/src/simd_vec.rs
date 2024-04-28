@@ -24,6 +24,25 @@ use crate::MAX_LEN;
 
 /// Trait for SIMD vectors containing 32-bit integers.
 ///
+/// ## Inlining and target features
+///
+/// Correct use of inlining and target features, in impls of these traits and
+/// generic functions using them, are critical to getting the performance
+/// benefits. If an intrinic is not inlined, the function call overhead can
+/// negate the benefits of using SIMD in the first place.
+///
+/// Implementations of this trait should add `#[inline]` and
+/// `#[target_feature(enable = "feature"]` attributes, where the feature names
+/// match the wrapped architecture-specific intrinics. An exception is for
+/// intrinsics which are always available in a given build configuration (eg.
+/// we assume SSE is always available under x86_64 and Neon under Arm).
+///
+/// Generic functions which use this trait must have `#[inline(always)]`
+/// annotations, including on any closures in their bodies. These generic
+/// functions must then be wrapped in target feature-specific wrappers which
+/// have `#[target_feature]`s that are a union of all those used in the
+/// implementation.
+///
 /// # Safety
 ///
 /// The caller must ensure that the SIMD instructions used by a type
@@ -120,6 +139,11 @@ pub trait SimdInt: Copy + Sized {
 }
 
 /// Trait for SIMD vectors containing single-precision floats.
+///
+/// ## Inlining and target features
+///
+/// See the comments for [SimdInt] on use of `#[inline]` and `#[target_feature]`
+/// attributes.
 ///
 /// # Safety
 ///
