@@ -206,8 +206,7 @@ impl<'a, T> From<&'a mut [T]> for MutPtrLen<T> {
 ///
 /// Safety: The caller must ensure that `xs` and `out` are valid pointers
 /// to buffers of the expected lengths.
-#[cfg_attr(target_arch = "x86_64", target_feature(enable = "avx2"))]
-#[cfg_attr(target_arch = "x86_64", target_feature(enable = "fma"))]
+#[inline(always)]
 unsafe fn vec_unary_op<S: SimdFloat, Op: FnMut(S) -> S>(
     xs: PtrLen<f32>,
     out: MutPtrLen<MaybeUninit<f32>>,
@@ -252,8 +251,7 @@ unsafe fn vec_unary_op<S: SimdFloat, Op: FnMut(S) -> S>(
     }
 }
 
-#[cfg_attr(target_arch = "x86_64", target_feature(enable = "avx2"))]
-#[cfg_attr(target_arch = "x86_64", target_feature(enable = "fma"))]
+#[inline(always)]
 unsafe fn vec_fold<S: SimdFloat, Op: Fn(S, S) -> S>(
     xs: PtrLen<f32>,
     mut accum: S,
@@ -307,6 +305,21 @@ macro_rules! dispatch_unary_op {
 
             use crate::{vec_unary_op, MutPtrLen, PtrLen};
 
+            #[cfg(feature = "avx512")]
+            #[cfg(target_arch = "x86_64")]
+            #[target_feature(enable = "avx512f")]
+            #[target_feature(enable = "avx512vl")]
+            unsafe fn vec_unary_op_avx512(xs: PtrLen<f32>, out: MutPtrLen<MaybeUninit<f32>>) {
+                use std::arch::x86_64::__m512;
+                vec_unary_op(
+                    xs,
+                    out,
+                    #[inline(always)]
+                    |x: __m512| $op_func(x),
+                    0., /* pad */
+                );
+            }
+
             // Non-generic wrapper for `vec_unary_op` which instantiates the
             // AVX + FMA version.
             #[cfg(target_arch = "x86_64")]
@@ -314,17 +327,32 @@ macro_rules! dispatch_unary_op {
             #[target_feature(enable = "fma")]
             unsafe fn vec_unary_op_avx(xs: PtrLen<f32>, out: MutPtrLen<MaybeUninit<f32>>) {
                 use std::arch::x86_64::__m256;
-                vec_unary_op(xs, out, |x: __m256| $op_func(x), 0. /* pad */);
+                vec_unary_op(
+                    xs,
+                    out,
+                    #[inline(always)]
+                    |x: __m256| $op_func(x),
+                    0., /* pad */
+                );
             }
 
             #[cfg(target_arch = "x86_64")]
-            if is_x86_feature_detected!("fma") && is_x86_feature_detected!("avx2") {
-                // Safety: We've checked that AVX2 + FMA are available.
-                unsafe {
-                    vec_unary_op_avx($in.into(), $out.into());
+            {
+                #[cfg(feature = "avx512")]
+                if crate::is_avx512_supported() {
+                    unsafe {
+                        vec_unary_op_avx512($in.into(), $out.into());
+                    }
+                    return;
                 }
 
-                return;
+                if is_x86_feature_detected!("fma") && is_x86_feature_detected!("avx2") {
+                    // Safety: We've checked that AVX2 + FMA are available.
+                    unsafe {
+                        vec_unary_op_avx($in.into(), $out.into());
+                    }
+                    return;
+                }
             }
 
             #[cfg(target_arch = "wasm32")]
@@ -372,6 +400,21 @@ macro_rules! dispatch_unary_op {
 
         #[allow(unreachable_code)] // Ignore fallback, if unused
         {
+            #[cfg(feature = "avx512")]
+            #[cfg(target_arch = "x86_64")]
+            #[target_feature(enable = "avx512f")]
+            #[target_feature(enable = "avx512vl")]
+            unsafe fn vec_unary_op_avx512(xs: PtrLen<f32>, out: MutPtrLen<f32>) {
+                use std::arch::x86_64::__m512;
+                vec_unary_op(
+                    xs,
+                    out.as_uninit(),
+                    #[inline(always)]
+                    |x: __m512| $op_func(x),
+                    0., /* pad */
+                );
+            }
+
             // Non-generic wrapper for `vec_unary_op` which instantiates the
             // AVX + FMA version.
             #[cfg(target_arch = "x86_64")]
@@ -382,18 +425,29 @@ macro_rules! dispatch_unary_op {
                 vec_unary_op(
                     xs,
                     out.as_uninit(),
+                    #[inline(always)]
                     |x: __m256| $op_func(x),
                     0., /* pad */
                 );
             }
 
             #[cfg(target_arch = "x86_64")]
-            if is_x86_feature_detected!("fma") && is_x86_feature_detected!("avx2") {
-                // Safety: We've checked that AVX2 + FMA are available.
-                unsafe {
-                    vec_unary_op_avx($out.into(), $out.into());
+            {
+                #[cfg(feature = "avx512")]
+                if crate::is_avx512_supported() {
+                    unsafe {
+                        vec_unary_op_avx512($out.into(), $out.into());
+                    }
+                    return;
                 }
-                return;
+
+                if is_x86_feature_detected!("fma") && is_x86_feature_detected!("avx2") {
+                    // Safety: We've checked that AVX2 + FMA are available.
+                    unsafe {
+                        vec_unary_op_avx($out.into(), $out.into());
+                    }
+                    return;
+                }
             }
 
             #[cfg(target_arch = "wasm32")]
@@ -452,6 +506,15 @@ macro_rules! dispatch_simd {
         {
             use crate::{MutPtrLen, PtrLen};
 
+            #[cfg(feature = "avx512")]
+            #[cfg(target_arch = "x86_64")]
+            #[target_feature(enable = "avx512f")]
+            #[target_feature(enable = "avx512vl")]
+            unsafe fn simd_op_avx512(xs: PtrLen<f32>, out: MutPtrLen<MaybeUninit<f32>>) {
+                use std::arch::x86_64::__m512;
+                $func::<__m512>(xs, out);
+            }
+
             // Non-generic wrapper for `$func` which instantiates the AVX + FMA version.
             #[cfg(target_arch = "x86_64")]
             #[target_feature(enable = "avx2")]
@@ -462,10 +525,18 @@ macro_rules! dispatch_simd {
             }
 
             #[cfg(target_arch = "x86_64")]
-            if is_x86_feature_detected!("fma") && is_x86_feature_detected!("avx2") {
-                // Safety: We've checked that AVX2 + FMA are available.
-                unsafe { simd_op_avx($in, $out) };
-                return;
+            {
+                #[cfg(feature = "avx512")]
+                if crate::is_avx512_supported() {
+                    unsafe { simd_op_avx512($in, $out) };
+                    return;
+                }
+
+                if is_x86_feature_detected!("fma") && is_x86_feature_detected!("avx2") {
+                    // Safety: We've checked that AVX2 + FMA are available.
+                    unsafe { simd_op_avx($in, $out) };
+                    return;
+                }
             }
 
             #[cfg(target_arch = "wasm32")]

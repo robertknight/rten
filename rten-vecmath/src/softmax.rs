@@ -11,10 +11,12 @@ use crate::{vec_fold, vec_unary_op, MutPtrLen, PtrLen};
 /// The implementation uses a three-pass approach for numerical stability.
 /// See https://ogunlao.github.io/2020/04/26/you_dont_really_know_softmax.html
 /// and https://arxiv.org/abs/2001.04438.
+#[inline(always)]
 unsafe fn simd_softmax<S: SimdFloat>(xs: PtrLen<f32>, out: MutPtrLen<MaybeUninit<f32>>) {
     let max_val = vec_fold(
         xs,
         S::splat(f32::MIN),
+        #[inline(always)]
         |max, x| max.max(x),
         f32::MIN, /* pad */
     );
@@ -26,6 +28,7 @@ unsafe fn simd_softmax<S: SimdFloat>(xs: PtrLen<f32>, out: MutPtrLen<MaybeUninit
     vec_unary_op(
         xs,
         out,
+        #[inline(always)]
         |x: S| {
             let y = simd_exp(x.sub(max_val));
             exp_sum = exp_sum.add(y);
@@ -39,6 +42,7 @@ unsafe fn simd_softmax<S: SimdFloat>(xs: PtrLen<f32>, out: MutPtrLen<MaybeUninit
     vec_unary_op(
         out.assume_init().into(),
         out,
+        #[inline(always)]
         |x: S| x.div(exp_sum),
         1., /* pad */
     );
