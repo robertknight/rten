@@ -7,7 +7,7 @@ use rten_tensor::Tensor;
 use crate::graph::Dimension;
 use crate::ops::{
     ArgMax, ArgMin, AveragePool, BatchNormalization, BoxOrder, Cast, Concat, ConstantOfShape, Conv,
-    ConvTranspose, CoordTransformMode, DataType, Flatten, Gather, GatherElements, Gemm,
+    ConvTranspose, CoordTransformMode, DataType, Elu, Flatten, Gather, GatherElements, Gemm,
     HardSigmoid, InstanceNormalization, LayerNormalization, LeakyRelu, LogSoftmax, MaxPool, Mod,
     NearestMode, NonMaxSuppression, OneHot, Padding, ReduceMax, ReduceMean, ReduceMin, ReduceProd,
     ReduceSum, ReduceSumSquare, Reshape, Resize, ResizeMode, Scalar, ScatterElements,
@@ -39,6 +39,7 @@ pub enum OpType {
     ConvTranspose(ConvTranspose),
     Cos,
     Div,
+    Elu(Elu),
     Equal,
     Erf,
     Exp,
@@ -433,6 +434,9 @@ impl<'a> ModelBuilder<'a> {
             }),
             OpType::Cos => op!(Cos),
             OpType::Div => op!(Div),
+            OpType::Elu(args) => {
+                op_with_attrs!(Elu, EluAttrs, sg::EluAttrsArgs { alpha: args.alpha })
+            }
             OpType::Equal => op!(Equal),
             OpType::Erf => op!(Erf),
             OpType::Exp => op!(Exp),

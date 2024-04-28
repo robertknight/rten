@@ -106,6 +106,7 @@ enum OperatorType: ubyte {
   LayerNormalization,
   ReduceSumSquare,
   RandomUniform,
+  Elu,
 }
 
 enum RNNDirection: ubyte {
@@ -180,6 +181,7 @@ union OperatorAttrs {
   NonMaxSuppressionAttrs,
   LayerNormalizationAttrs,
   RandomUniformAttrs,
+  EluAttrs,
 }
 
 table ArgMaxAttrs {
@@ -241,6 +243,10 @@ table ConvAttrs {
 
 table ConvTransposeAttrs {
   strides:[uint];
+}
+
+table EluAttrs {
+  alpha:float;
 }
 
 table FlattenAttrs {

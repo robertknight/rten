@@ -103,6 +103,7 @@ class OperatorType(object):
     LayerNormalization = 93
     ReduceSumSquare = 94
     RandomUniform = 95
+    Elu = 96
 
 
 class RNNDirection(object):
@@ -172,6 +173,7 @@ class OperatorAttrs(object):
     NonMaxSuppressionAttrs = 29
     LayerNormalizationAttrs = 30
     RandomUniformAttrs = 31
+    EluAttrs = 32
 
 def OperatorAttrsCreator(unionType, table):
     from flatbuffers.table import Table
@@ -239,6 +241,8 @@ def OperatorAttrsCreator(unionType, table):
         return LayerNormalizationAttrsT.InitFromBuf(table.Bytes, table.Pos)
     if unionType == OperatorAttrs().RandomUniformAttrs:
         return RandomUniformAttrsT.InitFromBuf(table.Bytes, table.Pos)
+    if unionType == OperatorAttrs().EluAttrs:
+        return EluAttrsT.InitFromBuf(table.Bytes, table.Pos)
     return None
 
 
@@ -1492,6 +1496,83 @@ class ConvTransposeAttrsT(object):
             ConvTransposeAttrsAddStrides(builder, strides)
         convTransposeAttrs = ConvTransposeAttrsEnd(builder)
         return convTransposeAttrs
+
+
+class EluAttrs(object):
+    __slots__ = ['_tab']
+
+    @classmethod
+    def GetRootAs(cls, buf, offset=0):
+        n = flatbuffers.encode.Get(flatbuffers.packer.uoffset, buf, offset)
+        x = EluAttrs()
+        x.Init(buf, n + offset)
+        return x
+
+    @classmethod
+    def GetRootAsEluAttrs(cls, buf, offset=0):
+        """This method is deprecated. Please switch to GetRootAs."""
+        return cls.GetRootAs(buf, offset)
+    @classmethod
+    def EluAttrsBufferHasIdentifier(cls, buf, offset, size_prefixed=False):
+        return flatbuffers.util.BufferHasIdentifier(buf, offset, b"\x52\x54\x45\x4E", size_prefixed=size_prefixed)
+
+    # EluAttrs
+    def Init(self, buf, pos):
+        self._tab = flatbuffers.table.Table(buf, pos)
+
+    # EluAttrs
+    def Alpha(self):
+        o = flatbuffers.number_types.UOffsetTFlags.py_type(self._tab.Offset(4))
+        if o != 0:
+            return self._tab.Get(flatbuffers.number_types.Float32Flags, o + self._tab.Pos)
+        return 0.0
+
+def EluAttrsStart(builder):
+    builder.StartObject(1)
+
+def EluAttrsAddAlpha(builder, alpha):
+    builder.PrependFloat32Slot(0, alpha, 0.0)
+
+def EluAttrsEnd(builder):
+    return builder.EndObject()
+
+
+
+class EluAttrsT(object):
+
+    # EluAttrsT
+    def __init__(self):
+        self.alpha = 0.0  # type: float
+
+    @classmethod
+    def InitFromBuf(cls, buf, pos):
+        eluAttrs = EluAttrs()
+        eluAttrs.Init(buf, pos)
+        return cls.InitFromObj(eluAttrs)
+
+    @classmethod
+    def InitFromPackedBuf(cls, buf, pos=0):
+        n = flatbuffers.encode.Get(flatbuffers.packer.uoffset, buf, pos)
+        return cls.InitFromBuf(buf, pos+n)
+
+    @classmethod
+    def InitFromObj(cls, eluAttrs):
+        x = EluAttrsT()
+        x._UnPack(eluAttrs)
+        return x
+
+    # EluAttrsT
+    def _UnPack(self, eluAttrs):
+        if eluAttrs is None:
+            return
+        self.alpha = eluAttrs.Alpha()
+
+    # EluAttrsT
+    def Pack(self, builder):
+        EluAttrsStart(builder)
+        EluAttrsAddAlpha(builder, self.alpha)
+        eluAttrs = EluAttrsEnd(builder)
+        return eluAttrs
 
 
 class FlattenAttrs(object):
@@ -3908,7 +3989,7 @@ class OperatorNodeT(object):
     def __init__(self):
         self.type = 0  # type: int
         self.attrsType = 0  # type: int
-        self.attrs = None  # type: Union[None, ArgMaxAttrsT, AveragePoolAttrsT, BatchNormalizationAttrsT, CastAttrsT, ConcatAttrsT, ConstantOfShapeAttrsT, ConvAttrsT, ConvTransposeAttrsT, FlattenAttrsT, GatherAttrsT, GemmAttrsT, GRUAttrsT, LeakyReluAttrsT, LSTMAttrsT, MaxPoolAttrsT, ReduceMeanAttrsT, ReshapeAttrsT, ResizeAttrsT, SplitAttrsT, SoftmaxAttrsT, TransposeAttrsT, ModAttrsT, ScatterElementsAttrsT, OneHotAttrsT, TopKAttrsT, HardSigmoidAttrsT, TriluAttrsT, ScatterNDAttrsT, NonMaxSuppressionAttrsT, LayerNormalizationAttrsT, RandomUniformAttrsT]
+        self.attrs = None  # type: Union[None, ArgMaxAttrsT, AveragePoolAttrsT, BatchNormalizationAttrsT, CastAttrsT, ConcatAttrsT, ConstantOfShapeAttrsT, ConvAttrsT, ConvTransposeAttrsT, FlattenAttrsT, GatherAttrsT, GemmAttrsT, GRUAttrsT, LeakyReluAttrsT, LSTMAttrsT, MaxPoolAttrsT, ReduceMeanAttrsT, ReshapeAttrsT, ResizeAttrsT, SplitAttrsT, SoftmaxAttrsT, TransposeAttrsT, ModAttrsT, ScatterElementsAttrsT, OneHotAttrsT, TopKAttrsT, HardSigmoidAttrsT, TriluAttrsT, ScatterNDAttrsT, NonMaxSuppressionAttrsT, LayerNormalizationAttrsT, RandomUniformAttrsT, EluAttrsT]
         self.inputs = None  # type: List[int]
         self.outputs = None  # type: List[int]
 

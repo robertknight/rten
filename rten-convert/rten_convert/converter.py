@@ -703,6 +703,10 @@ def op_node_from_onnx_operator(
             op_reader.check_attr("exclusive", "int", 0)
             op_reader.check_attr("reverse", "int", 0)
 
+        case "Elu":
+            attrs = sg.EluAttrsT()
+            attrs.alpha = op_reader.get_attr("alpha", "float", 1.0)
+
         case "Flatten":
             attrs = sg.FlattenAttrsT()
             attrs.axis = op_reader.get_attr("axis", "int", 1)
