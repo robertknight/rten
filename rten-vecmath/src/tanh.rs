@@ -10,9 +10,7 @@ pub fn tanh(x: f32) -> f32 {
     unsafe { simd_tanh(x) }
 }
 
-#[cfg_attr(target_arch = "x86_64", target_feature(enable = "avx2"))]
-#[cfg_attr(target_arch = "x86_64", target_feature(enable = "fma"))]
-#[inline]
+#[inline(always)]
 unsafe fn simd_tanh<S: SimdFloat>(x: S) -> S {
     let x_negative = x.le(S::zero());
     let abs_x = x.abs();
