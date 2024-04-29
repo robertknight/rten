@@ -11,7 +11,7 @@ use crate::ops::{
     add_in_place, sigmoid_in_place, tanh_in_place, InputList, IntoOpResult, OpError, Operator,
     Output,
 };
-use crate::tensor_pool::{AutoReturn, TensorPool};
+use crate::tensor_pool::{AutoReturn, PoolRef, TensorPool};
 
 /// Direction that an RNN operator will traverse the input sequence in.
 #[derive(Copy, Clone, Debug)]
@@ -210,6 +210,7 @@ const PREPACK_MIN_SEQ_LEN: usize = 5;
 /// Depending on the sequence length, the weights may be prepacked for use with
 /// `gemm`.
 fn extract_weights_and_bias<'a>(
+    pool: &'a TensorPool,
     gemm: &GemmExecutor,
     weights: TensorView<'a>,
     recurrent_weights: TensorView<'a>,
@@ -232,12 +233,12 @@ fn extract_weights_and_bias<'a>(
 
     let prepack = sequence_len >= PREPACK_MIN_SEQ_LEN;
     let weights = if prepack {
-        GateWeights::Packed(gemm.prepack_b(weights))
+        GateWeights::Packed(gemm.prepack_b_in(pool, weights).auto_return(pool))
     } else {
         GateWeights::Unpacked(weights)
     };
     let recurrent_weights = if prepack {
-        GateWeights::Packed(gemm.prepack_b(recurrent_weights))
+        GateWeights::Packed(gemm.prepack_b_in(pool, recurrent_weights).auto_return(pool))
     } else {
         GateWeights::Unpacked(recurrent_weights)
     };
@@ -313,6 +314,7 @@ pub fn gru(
     // Extract and prepack weights for a gate.
     let extract_gru_weights_and_bias = |dir, gate_index| {
         extract_weights_and_bias(
+            pool,
             &gemm,
             weights.view(),
             recurrent_weights.view(),
@@ -476,7 +478,7 @@ impl Operator for GRU {
 
 /// Weights for an RNN gate, which may or may not be prepacked.
 enum GateWeights<'a> {
-    Packed(PackedBMatrix),
+    Packed(PoolRef<'a, PackedBMatrix>),
     Unpacked(Matrix<'a>),
 }
 
@@ -557,7 +559,7 @@ pub fn lstm(
     const CELL_GATE: usize = 3;
 
     let n_gates = 4;
-    let mut gates = Tensor::zeros_in(pool, &[batch, n_gates * hidden_size]);
+    let mut gates = Tensor::zeros_in(pool, &[batch, n_gates * hidden_size]).auto_return(pool);
 
     let mut cell = initial_cell
         .map(|t| t.to_tensor_in(pool))
