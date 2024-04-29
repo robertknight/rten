@@ -838,8 +838,7 @@ mod tests {
     use rten_tensor::test_util::{expect_equal_with_tolerance, ExpectEqualError};
     use rten_tensor::NdTensor;
 
-    use super::Input;
-
+    use super::{Input, InputList, OpError, Operator, Output};
     use crate::tensor_pool::TensorPool;
 
     /// Create an empty tensor pool.
@@ -860,6 +859,22 @@ mod tests {
         expected: &V,
     ) -> Result<(), ExpectEqualError> {
         expect_equal_with_tolerance(result, expected, 1e-4, 0.)
+    }
+
+    /// Utility to simplify running a single-output [Operator] with a list of
+    /// typed inputs.
+    ///
+    /// Usage is:
+    ///
+    /// ```text
+    /// let result: NdTensor<f32, 2> = run_op(&op, (data.view(), arg.view()))
+    /// ```
+    pub fn run_op<'a, I: Into<InputList<'a>>, O: TryFrom<Output, Error = OpError>>(
+        op: &dyn Operator,
+        inputs: I,
+    ) -> Result<O, OpError> {
+        let pool = new_pool();
+        op.run(&pool, inputs.into())?.remove(0).try_into()
     }
 
     #[test]
