@@ -7,7 +7,41 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## Unreleased
 
+## rten-tensor
+
+- Added `Alloc` trait which provides a simple allocator interface, and
+  `*_in`-suffixed variants of several `TensorBase` methods, which allows
+  specifying an allocator for the returned tensor's data buffer
+  (https://github.com/robertknight/rten/pull/123).
+
+## rten-vecmath
+
+- Fixed crashes in several functions when running on pre-AVX2 x64 CPUs (see
+  `rten` changes)
+
 ## rten
+
+### New features
+
+- Support `Elu` operator (https://github.com/robertknight/rten/pull/132)
+
+- Support `Reduce*` operators that take `axes` as a dynamic input rather than
+  static attribute (https://github.com/robertknight/rten/pull/132)
+
+### Bug fixes
+
+- Fixed crash in several operators when running on x64 CPUs that do not
+  support AVX-2 instructions (https://github.com/robertknight/rten/pull/131,
+  https://github.com/robertknight/rten/pull/134)
+
+### Performance improvements
+
+- Added a buffer pool that enables reuse of operator output and temporary
+  buffers, avoiding the overhead of allocating and freeing large buffers using
+  the system allocator (https://github.com/robertknight/rten/pull/108).
+
+  Statistics about buffer pool usage are printed as part of `RTEN_TIMING`
+  output.
 
 - Fixed a `MatMul` performance regression introduced in v0.7.0 due to virtual
   calls to get kernel tile size (https://github.com/robertknight/rten/pull/101)
@@ -30,6 +64,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Reduced graph execution overhead by using faster hashing (https://github.com/robertknight/rten/pull/92)
 
 - Optimize `ScatterND` (https://github.com/robertknight/rten/pull/91)
+
+- Support AVX-512 acceleration for `Exp`, `Sigmoid`, `Tanh`, `Softmax` and
+  `Erf` operators (https://github.com/robertknight/rten/pull/131). This
+  requires nightly Rust and the `avx512` feature enabled.
 
 ## [0.7.0] - 2024-04-12
 
