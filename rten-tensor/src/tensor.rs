@@ -293,6 +293,19 @@ pub trait AsView: Layout {
     where
         Self::Elem: Clone;
 
+    /// Return a slice containing the elements of this tensor in their logical
+    /// order, ie. as if the tensor were flattened into one dimension.
+    ///
+    /// Unlike [`data`](AsView::data) this will copy the elements if they are
+    /// not contiguous. Unlike [`to_vec`](AsView::to_vec) this will not copy
+    /// the elements if the tensor is already contiguous.
+    fn to_slice(&self) -> Cow<[Self::Elem]>
+    where
+        Self::Elem: Clone,
+    {
+        self.view().to_slice()
+    }
+
     /// Return a copy of this tensor/view which uniquely owns its elements.
     fn to_tensor(&self) -> TensorBase<Self::Elem, Vec<Self::Elem>, Self::Layout>
     where
@@ -1168,6 +1181,20 @@ impl<'a, T, L: Clone + MutLayout> TensorBase<T, &'a [T], L> {
         }
     }
 
+    /// Return the underlying data as a flat slice if the tensor is contiguous,
+    /// or a copy of the data as a flat slice otherwise.
+    ///
+    /// See [AsView::to_slice].
+    pub fn to_slice(&self) -> Cow<'a, [T]>
+    where
+        T: Clone,
+    {
+        self.layout
+            .is_contiguous()
+            .then_some(Cow::Borrowed(self.data))
+            .unwrap_or_else(|| Cow::Owned(self.to_vec()))
+    }
+
     /// Reverse the order of dimensions in this tensor. See [AsView::transposed].
     pub fn transposed(&self) -> TensorBase<T, &'a [T], L> {
         TensorBase {
@@ -1786,6 +1813,7 @@ impl<T, S: AsRef<[T]> + AsMut<[T]>, L: MutLayout, I: AsIndex<L>> IndexMut<I>
 
 #[cfg(test)]
 mod tests {
+    use std::borrow::Cow;
     use std::cell::RefCell;
 
     use super::{AsView, NdTensor, NdTensorView, Tensor};
@@ -2872,6 +2900,16 @@ mod tests {
 
         assert_eq!(vec, &[0, 1, 2, 3]);
         assert_eq!(alloc.count(), 1);
+    }
+
+    #[test]
+    fn test_to_slice() {
+        let tensor = NdTensor::arange(0, 4, None).into_shape([2, 2]);
+        assert_eq!(tensor.to_slice(), Cow::Borrowed(&[0, 1, 2, 3]));
+        assert_eq!(
+            tensor.transposed().to_slice(),
+            Cow::<[i32]>::Owned(vec![0, 2, 1, 3])
+        );
     }
 
     #[test]
