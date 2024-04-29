@@ -468,6 +468,7 @@ impl_default_factory!(ConvTranspose, read_conv_transpose_op);
 impl_default_factory!(Cos);
 impl_default_factory!(CumSum);
 impl_default_factory!(Div);
+impl_default_factory!(Elu, read_elu_op);
 impl_default_factory!(Equal);
 impl_default_factory!(Erf);
 impl_default_factory!(Exp);
@@ -627,6 +628,7 @@ impl OpRegistry {
         register_op!(Cos);
         register_op!(CumSum);
         register_op!(Div);
+        register_op!(Elu);
         register_op!(Equal);
         register_op!(Erf);
         register_op!(Exp);
@@ -851,6 +853,13 @@ fn read_conv_transpose_op(node: &OperatorNode) -> ReadOpResult {
         .map(|stride| array_from_iter(stride.iter().map(|x| x as usize)))
         .unwrap_or([1, 1]);
     Ok(Box::new(ops::ConvTranspose { strides }))
+}
+
+fn read_elu_op(node: &OperatorNode) -> ReadOpResult {
+    let attrs = node.attrs_as_elu_attrs().ok_or(ReadOpError::AttrError)?;
+    Ok(Box::new(ops::Elu {
+        alpha: attrs.alpha(),
+    }))
 }
 
 read_axis_op!(read_flatten_op, attrs_as_flatten_attrs, Flatten);
@@ -1482,6 +1491,7 @@ mod tests {
         add_operator!(ConvTranspose, [input_node, kernel], { strides: [2, 2] });
         add_operator!(Cos, [input_node]);
         add_operator!(Div, [input_node, input_node]);
+        add_operator!(Elu, [input_node], { alpha: 1.0 });
         add_operator!(Equal, [input_node, input_node]);
         add_operator!(Erf, [input_node]);
         add_operator!(Exp, [input_node]);

@@ -18,13 +18,13 @@ pub const ENUM_MIN_OPERATOR_TYPE: u8 = 0;
     since = "2.0.0",
     note = "Use associated constants instead. This will no longer be generated in 2021."
 )]
-pub const ENUM_MAX_OPERATOR_TYPE: u8 = 95;
+pub const ENUM_MAX_OPERATOR_TYPE: u8 = 96;
 #[deprecated(
     since = "2.0.0",
     note = "Use associated constants instead. This will no longer be generated in 2021."
 )]
 #[allow(non_camel_case_types)]
-pub const ENUM_VALUES_OPERATOR_TYPE: [OperatorType; 96] = [
+pub const ENUM_VALUES_OPERATOR_TYPE: [OperatorType; 97] = [
     OperatorType::Add,
     OperatorType::ArgMin,
     OperatorType::ArgMax,
@@ -121,6 +121,7 @@ pub const ENUM_VALUES_OPERATOR_TYPE: [OperatorType; 96] = [
     OperatorType::LayerNormalization,
     OperatorType::ReduceSumSquare,
     OperatorType::RandomUniform,
+    OperatorType::Elu,
 ];
 
 #[derive(Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash, Default)]
@@ -224,9 +225,10 @@ impl OperatorType {
     pub const LayerNormalization: Self = Self(93);
     pub const ReduceSumSquare: Self = Self(94);
     pub const RandomUniform: Self = Self(95);
+    pub const Elu: Self = Self(96);
 
     pub const ENUM_MIN: u8 = 0;
-    pub const ENUM_MAX: u8 = 95;
+    pub const ENUM_MAX: u8 = 96;
     pub const ENUM_VALUES: &'static [Self] = &[
         Self::Add,
         Self::ArgMin,
@@ -324,6 +326,7 @@ impl OperatorType {
         Self::LayerNormalization,
         Self::ReduceSumSquare,
         Self::RandomUniform,
+        Self::Elu,
     ];
     /// Returns the variant's name or "" if unknown.
     pub fn variant_name(self) -> Option<&'static str> {
@@ -424,6 +427,7 @@ impl OperatorType {
             Self::LayerNormalization => Some("LayerNormalization"),
             Self::ReduceSumSquare => Some("ReduceSumSquare"),
             Self::RandomUniform => Some("RandomUniform"),
+            Self::Elu => Some("Elu"),
             _ => None,
         }
     }
@@ -1050,13 +1054,13 @@ pub const ENUM_MIN_OPERATOR_ATTRS: u8 = 0;
     since = "2.0.0",
     note = "Use associated constants instead. This will no longer be generated in 2021."
 )]
-pub const ENUM_MAX_OPERATOR_ATTRS: u8 = 31;
+pub const ENUM_MAX_OPERATOR_ATTRS: u8 = 32;
 #[deprecated(
     since = "2.0.0",
     note = "Use associated constants instead. This will no longer be generated in 2021."
 )]
 #[allow(non_camel_case_types)]
-pub const ENUM_VALUES_OPERATOR_ATTRS: [OperatorAttrs; 32] = [
+pub const ENUM_VALUES_OPERATOR_ATTRS: [OperatorAttrs; 33] = [
     OperatorAttrs::NONE,
     OperatorAttrs::ArgMaxAttrs,
     OperatorAttrs::AveragePoolAttrs,
@@ -1089,6 +1093,7 @@ pub const ENUM_VALUES_OPERATOR_ATTRS: [OperatorAttrs; 32] = [
     OperatorAttrs::NonMaxSuppressionAttrs,
     OperatorAttrs::LayerNormalizationAttrs,
     OperatorAttrs::RandomUniformAttrs,
+    OperatorAttrs::EluAttrs,
 ];
 
 #[derive(Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash, Default)]
@@ -1128,9 +1133,10 @@ impl OperatorAttrs {
     pub const NonMaxSuppressionAttrs: Self = Self(29);
     pub const LayerNormalizationAttrs: Self = Self(30);
     pub const RandomUniformAttrs: Self = Self(31);
+    pub const EluAttrs: Self = Self(32);
 
     pub const ENUM_MIN: u8 = 0;
-    pub const ENUM_MAX: u8 = 31;
+    pub const ENUM_MAX: u8 = 32;
     pub const ENUM_VALUES: &'static [Self] = &[
         Self::NONE,
         Self::ArgMaxAttrs,
@@ -1164,6 +1170,7 @@ impl OperatorAttrs {
         Self::NonMaxSuppressionAttrs,
         Self::LayerNormalizationAttrs,
         Self::RandomUniformAttrs,
+        Self::EluAttrs,
     ];
     /// Returns the variant's name or "" if unknown.
     pub fn variant_name(self) -> Option<&'static str> {
@@ -1200,6 +1207,7 @@ impl OperatorAttrs {
             Self::NonMaxSuppressionAttrs => Some("NonMaxSuppressionAttrs"),
             Self::LayerNormalizationAttrs => Some("LayerNormalizationAttrs"),
             Self::RandomUniformAttrs => Some("RandomUniformAttrs"),
+            Self::EluAttrs => Some("EluAttrs"),
             _ => None,
         }
     }
@@ -3132,6 +3140,103 @@ impl core::fmt::Debug for ConvTransposeAttrs<'_> {
     fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
         let mut ds = f.debug_struct("ConvTransposeAttrs");
         ds.field("strides", &self.strides());
+        ds.finish()
+    }
+}
+pub enum EluAttrsOffset {}
+#[derive(Copy, Clone, PartialEq)]
+
+pub struct EluAttrs<'a> {
+    pub _tab: flatbuffers::Table<'a>,
+}
+
+impl<'a> flatbuffers::Follow<'a> for EluAttrs<'a> {
+    type Inner = EluAttrs<'a>;
+    #[inline]
+    unsafe fn follow(buf: &'a [u8], loc: usize) -> Self::Inner {
+        Self {
+            _tab: flatbuffers::Table::new(buf, loc),
+        }
+    }
+}
+
+impl<'a> EluAttrs<'a> {
+    pub const VT_ALPHA: flatbuffers::VOffsetT = 4;
+
+    #[inline]
+    pub unsafe fn init_from_table(table: flatbuffers::Table<'a>) -> Self {
+        EluAttrs { _tab: table }
+    }
+    #[allow(unused_mut)]
+    pub fn create<'bldr: 'args, 'args: 'mut_bldr, 'mut_bldr>(
+        _fbb: &'mut_bldr mut flatbuffers::FlatBufferBuilder<'bldr>,
+        args: &'args EluAttrsArgs,
+    ) -> flatbuffers::WIPOffset<EluAttrs<'bldr>> {
+        let mut builder = EluAttrsBuilder::new(_fbb);
+        builder.add_alpha(args.alpha);
+        builder.finish()
+    }
+
+    #[inline]
+    pub fn alpha(&self) -> f32 {
+        // Safety:
+        // Created from valid Table for this object
+        // which contains a valid value in this slot
+        unsafe { self._tab.get::<f32>(EluAttrs::VT_ALPHA, Some(0.0)).unwrap() }
+    }
+}
+
+impl flatbuffers::Verifiable for EluAttrs<'_> {
+    #[inline]
+    fn run_verifier(
+        v: &mut flatbuffers::Verifier,
+        pos: usize,
+    ) -> Result<(), flatbuffers::InvalidFlatbuffer> {
+        use self::flatbuffers::Verifiable;
+        v.visit_table(pos)?
+            .visit_field::<f32>("alpha", Self::VT_ALPHA, false)?
+            .finish();
+        Ok(())
+    }
+}
+pub struct EluAttrsArgs {
+    pub alpha: f32,
+}
+impl<'a> Default for EluAttrsArgs {
+    #[inline]
+    fn default() -> Self {
+        EluAttrsArgs { alpha: 0.0 }
+    }
+}
+
+pub struct EluAttrsBuilder<'a: 'b, 'b> {
+    fbb_: &'b mut flatbuffers::FlatBufferBuilder<'a>,
+    start_: flatbuffers::WIPOffset<flatbuffers::TableUnfinishedWIPOffset>,
+}
+impl<'a: 'b, 'b> EluAttrsBuilder<'a, 'b> {
+    #[inline]
+    pub fn add_alpha(&mut self, alpha: f32) {
+        self.fbb_.push_slot::<f32>(EluAttrs::VT_ALPHA, alpha, 0.0);
+    }
+    #[inline]
+    pub fn new(_fbb: &'b mut flatbuffers::FlatBufferBuilder<'a>) -> EluAttrsBuilder<'a, 'b> {
+        let start = _fbb.start_table();
+        EluAttrsBuilder {
+            fbb_: _fbb,
+            start_: start,
+        }
+    }
+    #[inline]
+    pub fn finish(self) -> flatbuffers::WIPOffset<EluAttrs<'a>> {
+        let o = self.fbb_.end_table(self.start_);
+        flatbuffers::WIPOffset::new(o.value())
+    }
+}
+
+impl core::fmt::Debug for EluAttrs<'_> {
+    fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
+        let mut ds = f.debug_struct("EluAttrs");
+        ds.field("alpha", &self.alpha());
         ds.finish()
     }
 }
@@ -6585,6 +6690,21 @@ impl<'a> OperatorNode<'a> {
             None
         }
     }
+
+    #[inline]
+    #[allow(non_snake_case)]
+    pub fn attrs_as_elu_attrs(&self) -> Option<EluAttrs<'a>> {
+        if self.attrs_type() == OperatorAttrs::EluAttrs {
+            self.attrs().map(|t| {
+                // Safety:
+                // Created from a valid Table for this object
+                // Which contains a valid union in this slot
+                unsafe { EluAttrs::init_from_table(t) }
+            })
+        } else {
+            None
+        }
+    }
 }
 
 impl flatbuffers::Verifiable for OperatorNode<'_> {
@@ -6629,6 +6749,7 @@ impl flatbuffers::Verifiable for OperatorNode<'_> {
           OperatorAttrs::NonMaxSuppressionAttrs => v.verify_union_variant::<flatbuffers::ForwardsUOffset<NonMaxSuppressionAttrs>>("OperatorAttrs::NonMaxSuppressionAttrs", pos),
           OperatorAttrs::LayerNormalizationAttrs => v.verify_union_variant::<flatbuffers::ForwardsUOffset<LayerNormalizationAttrs>>("OperatorAttrs::LayerNormalizationAttrs", pos),
           OperatorAttrs::RandomUniformAttrs => v.verify_union_variant::<flatbuffers::ForwardsUOffset<RandomUniformAttrs>>("OperatorAttrs::RandomUniformAttrs", pos),
+          OperatorAttrs::EluAttrs => v.verify_union_variant::<flatbuffers::ForwardsUOffset<EluAttrs>>("OperatorAttrs::EluAttrs", pos),
           _ => Ok(()),
         }
      })?
@@ -7014,6 +7135,16 @@ impl core::fmt::Debug for OperatorNode<'_> {
             }
             OperatorAttrs::RandomUniformAttrs => {
                 if let Some(x) = self.attrs_as_random_uniform_attrs() {
+                    ds.field("attrs", &x)
+                } else {
+                    ds.field(
+                        "attrs",
+                        &"InvalidFlatbuffer: Union discriminant does not match value.",
+                    )
+                }
+            }
+            OperatorAttrs::EluAttrs => {
+                if let Some(x) = self.attrs_as_elu_attrs() {
                     ds.field("attrs", &x)
                 } else {
                     ds.field(

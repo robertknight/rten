@@ -39,6 +39,7 @@ def run_model(model_path: str, n_evals: int = 10, enable_profiling=False):
     for node in session.get_inputs():
         type_map = {
             "tensor(float)": np.float32,
+            "tensor(float16)": np.float16,
         }
         value = np.random.rand(*node.shape).astype(type_map[node.type])
         inputs[node.name] = value

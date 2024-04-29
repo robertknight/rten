@@ -96,14 +96,14 @@ pub use split::{split, Split};
 pub use trilu::{trilu, Trilu};
 pub use unary_elementwise::{
     abs, abs_in_place, acos, acos_in_place, asin, asin_in_place, atan, atan_in_place, ceil,
-    ceil_in_place, clip, clip_in_place, cos, cos_in_place, erf, erf_in_place, exp, exp_in_place,
-    floor, floor_in_place, hard_sigmoid, hard_sigmoid_in_place, hard_swish, hard_swish_in_place,
-    leaky_relu, leaky_relu_in_place, log, log_in_place, neg, neg_in_place, not, not_in_place,
-    reciprocal, reciprocal_in_place, relu, relu_in_place, round, round_in_place, sigmoid,
-    sigmoid_in_place, sign, sign_in_place, sin, sin_in_place, sqrt, sqrt_in_place, tan,
-    tan_in_place, tanh, tanh_in_place, Abs, Acos, Asin, Atan, Ceil, Clip, Cos, Erf, Exp, Floor,
-    HardSigmoid, HardSwish, LeakyRelu, Log, Neg, Not, Reciprocal, Relu, Round, Sigmoid, Sign, Sin,
-    Sqrt, Tan, Tanh,
+    ceil_in_place, clip, clip_in_place, cos, cos_in_place, elu, elu_in_place, erf, erf_in_place,
+    exp, exp_in_place, floor, floor_in_place, hard_sigmoid, hard_sigmoid_in_place, hard_swish,
+    hard_swish_in_place, leaky_relu, leaky_relu_in_place, log, log_in_place, neg, neg_in_place,
+    not, not_in_place, reciprocal, reciprocal_in_place, relu, relu_in_place, round, round_in_place,
+    sigmoid, sigmoid_in_place, sign, sign_in_place, sin, sin_in_place, sqrt, sqrt_in_place, tan,
+    tan_in_place, tanh, tanh_in_place, Abs, Acos, Asin, Atan, Ceil, Clip, Cos, Elu, Erf, Exp,
+    Floor, HardSigmoid, HardSwish, LeakyRelu, Log, Neg, Not, Reciprocal, Relu, Round, Sigmoid,
+    Sign, Sin, Sqrt, Tan, Tanh,
 };
 pub use variadic_elementwise::{max, mean, min, sum, Max, Mean, Min, Sum};
 
@@ -838,8 +838,7 @@ mod tests {
     use rten_tensor::test_util::{expect_equal_with_tolerance, ExpectEqualError};
     use rten_tensor::NdTensor;
 
-    use super::Input;
-
+    use super::{Input, InputList, OpError, Operator, Output};
     use crate::tensor_pool::TensorPool;
 
     /// Create an empty tensor pool.
@@ -860,6 +859,22 @@ mod tests {
         expected: &V,
     ) -> Result<(), ExpectEqualError> {
         expect_equal_with_tolerance(result, expected, 1e-4, 0.)
+    }
+
+    /// Utility to simplify running a single-output [Operator] with a list of
+    /// typed inputs.
+    ///
+    /// Usage is:
+    ///
+    /// ```text
+    /// let result: NdTensor<f32, 2> = run_op(&op, (data.view(), arg.view()))
+    /// ```
+    pub fn run_op<'a, I: Into<InputList<'a>>, O: TryFrom<Output, Error = OpError>>(
+        op: &dyn Operator,
+        inputs: I,
+    ) -> Result<O, OpError> {
+        let pool = new_pool();
+        op.run(&pool, inputs.into())?.remove(0).try_into()
     }
 
     #[test]

@@ -383,6 +383,42 @@ impl Operator for Clip {
 }
 
 unary_float_op!(Cos, cos, cos_in_place, |val: f32| val.cos());
+
+#[derive(Debug)]
+pub struct Elu {
+    pub alpha: f32,
+}
+
+impl UnaryFloatOp for Elu {
+    fn name(&self) -> &str {
+        "Elu"
+    }
+
+    fn map_element(&self, val: f32) -> f32 {
+        // The ONNX spec and the original paper [1] define Elu in slightly
+        // different, but equivalent ways:
+        //
+        // Original: `f(x) = x if x > 0 else alpha * (exp(x) - 1)`
+        // ONNX: `f(x) = x if x >= 0 else alpha * (exp(x) - 1)`
+        //
+        // [1] https://arxiv.org/pdf/1511.07289
+
+        if val >= 0. {
+            val
+        } else {
+            self.alpha * (val.exp() - 1.)
+        }
+    }
+}
+
+pub fn elu(pool: &TensorPool, input: TensorView, alpha: f32) -> Tensor {
+    Elu { alpha }.map(pool, input)
+}
+
+pub fn elu_in_place(input: TensorViewMut, alpha: f32) {
+    Elu { alpha }.apply(input)
+}
+
 parallel_unary_float_op!(
     Erf,
     erf,
@@ -612,8 +648,8 @@ mod tests {
     use crate::ops::tests::new_pool;
     use crate::ops::{
         abs, acos, acos_in_place, asin, asin_in_place, atan, atan_in_place, ceil, clip,
-        clip_in_place, cos, cos_in_place, erf, erf_in_place, exp, exp_in_place, floor,
-        hard_sigmoid, hard_swish, leaky_relu, leaky_relu_in_place, log, log_in_place, neg,
+        clip_in_place, cos, cos_in_place, elu, elu_in_place, erf, erf_in_place, exp, exp_in_place,
+        floor, hard_sigmoid, hard_swish, leaky_relu, leaky_relu_in_place, log, log_in_place, neg,
         neg_in_place, not, not_in_place, reciprocal, relu, relu_in_place, round, round_in_place,
         sigmoid, sigmoid_in_place, sign, sign_in_place, sin, sin_in_place, sqrt, sqrt_in_place,
         tan, tan_in_place, tanh, tanh_in_place,
@@ -770,6 +806,30 @@ mod tests {
     // in-place vs returning a new tensor.
 
     test_unary_op!(test_cos, cos, cos_in_place, |x: &f32| x.cos());
+
+    #[test]
+    fn test_elu() -> Result<(), Box<dyn Error>> {
+        struct Case {
+            alpha: f32,
+        }
+
+        let cases = [Case { alpha: 1.0 }, Case { alpha: 0.5 }];
+
+        let pool = new_pool();
+        for Case { alpha } in cases {
+            let input = tensor!([-5., -2., -1., -0.5, 0., 0.5, 1., 2., 5.]);
+            let expected = input.map(|&x: &f32| if x >= 0. { x } else { alpha * (x.exp() - 1.) });
+
+            let actual = elu(&pool, input.view(), alpha);
+            expect_equal(&actual, &expected)?;
+
+            let mut input = input.clone();
+            elu_in_place(input.view_mut(), alpha);
+            expect_equal(&input, &expected)?;
+        }
+
+        Ok(())
+    }
 
     #[test]
     fn test_erf() -> Result<(), Box<dyn Error>> {

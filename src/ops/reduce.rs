@@ -1,3 +1,4 @@
+use std::borrow::Cow;
 use std::cmp::Ordering;
 use std::iter::zip;
 
@@ -361,10 +362,11 @@ impl Operator for ReduceMean {
 
     fn run(&self, pool: &TensorPool, inputs: InputList) -> Result<Vec<Output>, OpError> {
         let input = inputs.require_as(0)?;
+        let axes = get_axes(&inputs, &self.axes)?;
         reduce_mean(
             pool,
             input,
-            self.axes.as_ref().map(|axis| &axis[..]),
+            axes.as_ref().map(|axis| &axis[..]),
             self.keep_dims,
         )
         .into_op_result()
@@ -401,10 +403,11 @@ impl Operator for ReduceL2 {
 
     fn run(&self, pool: &TensorPool, inputs: InputList) -> Result<Vec<Output>, OpError> {
         let input = inputs.require_as(0)?;
+        let axes = get_axes(&inputs, &self.axes)?;
         reduce_l2(
             pool,
             input,
-            self.axes.as_ref().map(|axis| &axis[..]),
+            axes.as_ref().map(|axis| &axis[..]),
             self.keep_dims,
         )
         .into_op_result()
@@ -487,6 +490,21 @@ fn reduce_min_max<T: Copy + PartialOrd>(
     reduce(pool, input, axes, keep_dims, MinMaxReducer { max })
 }
 
+/// Extract axes from input 1 in `inputs` or `attr`.
+///
+/// Earlier versions of the ONNX `Reduce*` operators used an attribute. In later
+/// versions this was promoted to an input.
+fn get_axes<'a>(
+    inputs: &'a InputList,
+    attr: &'a Option<Vec<i32>>,
+) -> Result<Option<Cow<'a, [i32]>>, OpError> {
+    let axes = inputs
+        .get_as::<i32>(1)?
+        .map(|x| x.to_slice())
+        .or(attr.as_ref().map(|a| Cow::Borrowed(a.as_slice())));
+    Ok(axes)
+}
+
 pub fn reduce_min<T: Copy + PartialOrd>(
     pool: &TensorPool,
     input: TensorView<T>,
@@ -509,7 +527,8 @@ impl Operator for ReduceMin {
 
     fn run(&self, pool: &TensorPool, inputs: InputList) -> Result<Vec<Output>, OpError> {
         let input = inputs.require(0)?;
-        dispatch_reduce_op!(pool, input, reduce_min, self.axes, self.keep_dims)
+        let axes = get_axes(&inputs, &self.axes)?;
+        dispatch_reduce_op!(pool, input, reduce_min, axes, self.keep_dims)
     }
 }
 
@@ -535,7 +554,8 @@ impl Operator for ReduceMax {
 
     fn run(&self, pool: &TensorPool, inputs: InputList) -> Result<Vec<Output>, OpError> {
         let input = inputs.require(0)?;
-        dispatch_reduce_op!(pool, input, reduce_max, self.axes, self.keep_dims)
+        let axes = get_axes(&inputs, &self.axes)?;
+        dispatch_reduce_op!(pool, input, reduce_max, axes, self.keep_dims)
     }
 }
 
@@ -567,7 +587,8 @@ impl Operator for ReduceProd {
 
     fn run(&self, pool: &TensorPool, inputs: InputList) -> Result<Vec<Output>, OpError> {
         let input = inputs.require(0)?;
-        dispatch_reduce_op!(pool, input, reduce_prod, self.axes, self.keep_dims)
+        let axes = get_axes(&inputs, &self.axes)?;
+        dispatch_reduce_op!(pool, input, reduce_prod, axes, self.keep_dims)
     }
 }
 
@@ -599,7 +620,8 @@ impl Operator for ReduceSum {
 
     fn run(&self, pool: &TensorPool, inputs: InputList) -> Result<Vec<Output>, OpError> {
         let input = inputs.require(0)?;
-        dispatch_reduce_op!(pool, input, reduce_sum, self.axes, self.keep_dims)
+        let axes = get_axes(&inputs, &self.axes)?;
+        dispatch_reduce_op!(pool, input, reduce_sum, axes, self.keep_dims)
     }
 }
 
@@ -631,7 +653,8 @@ impl Operator for ReduceSumSquare {
 
     fn run(&self, pool: &TensorPool, inputs: InputList) -> Result<Vec<Output>, OpError> {
         let input = inputs.require(0)?;
-        dispatch_reduce_op!(pool, input, reduce_sum_square, self.axes, self.keep_dims)
+        let axes = get_axes(&inputs, &self.axes)?;
+        dispatch_reduce_op!(pool, input, reduce_sum_square, axes, self.keep_dims)
     }
 }
 
@@ -750,12 +773,13 @@ mod tests {
 
     use rten_tensor::prelude::*;
     use rten_tensor::test_util::{eq_with_nans, expect_equal};
-    use rten_tensor::{tensor, Tensor};
+    use rten_tensor::{tensor, NdTensor, Tensor};
 
-    use crate::ops::tests::new_pool;
+    use crate::ops::tests::{new_pool, run_op};
     use crate::ops::{
         arg_max, arg_min, cum_sum, nonzero, reduce_l2, reduce_max, reduce_mean, reduce_min,
-        reduce_prod, reduce_sum, reduce_sum_square, topk, OpError,
+        reduce_prod, reduce_sum, reduce_sum_square, topk, OpError, Operator, ReduceL2, ReduceMax,
+        ReduceMean, ReduceMin, ReduceProd, ReduceSum, ReduceSumSquare,
     };
 
     #[test]
@@ -892,6 +916,49 @@ mod tests {
         let input = tensor!(0.);
         let result = nonzero(input.view());
         assert_eq!(result.shape(), &[0, 0]);
+    }
+
+    #[test]
+    fn test_reduce_axes_via_input() -> Result<(), Box<dyn Error>> {
+        struct Case {
+            op: Box<dyn Operator>,
+        }
+
+        macro_rules! op_case {
+            ($op:ident) => {
+                Case {
+                    op: Box::new($op {
+                        // Don't set `axes` attr. Axes will come from inputs
+                        // instead.
+                        axes: None,
+                        keep_dims: true,
+                    }),
+                }
+            };
+        }
+
+        let cases = [
+            op_case!(ReduceL2),
+            op_case!(ReduceMax),
+            op_case!(ReduceMean),
+            op_case!(ReduceMin),
+            op_case!(ReduceProd),
+            op_case!(ReduceSum),
+            op_case!(ReduceSumSquare),
+        ];
+
+        for Case { op } in cases {
+            let input = NdTensor::from([[0., 1., 2.], [3., 4., 5.]]);
+            let axes = tensor!([0]);
+            let result: NdTensor<f32, 2> = run_op(&*op, (input.view(), axes.view()))?;
+            assert_eq!(result.shape(), [1, 3]);
+
+            let axes = tensor!([1]);
+            let result: NdTensor<f32, 2> = run_op(&*op, (input.view(), axes.view()))?;
+            assert_eq!(result.shape(), [2, 1]);
+        }
+
+        Ok(())
     }
 
     #[test]
