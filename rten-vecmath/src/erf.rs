@@ -21,9 +21,7 @@ pub fn erf(x: f32) -> f32 {
 /// `libm::erff` as a source of truth.
 ///
 /// Safety: The caller must ensure the `SimdFloat` impl is usable on the current system.
-#[cfg_attr(target_arch = "x86_64", target_feature(enable = "avx2"))]
-#[cfg_attr(target_arch = "x86_64", target_feature(enable = "fma"))]
-#[inline]
+#[inline(always)]
 unsafe fn simd_erf<S: SimdFloat>(x: S) -> S {
     let neg_mask = x.lt(S::zero());
 
