@@ -295,7 +295,7 @@ dependencies = [
 
 [[package]]
 name = "rten"
-version = "0.7.0"
+version = "0.8.0"
 dependencies = [
  "fastrand",
  "flatbuffers",
@@ -317,7 +317,7 @@ version = "0.1.0"
 
 [[package]]
 name = "rten-cli"
-version = "0.7.0"
+version = "0.8.0"
 dependencies = [
  "fastrand",
  "lexopt",
@@ -361,7 +361,7 @@ dependencies = [
 
 [[package]]
 name = "rten-tensor"
-version = "0.7.0"
+version = "0.8.0"
 dependencies = [
  "smallvec",
 ]
@@ -378,7 +378,7 @@ dependencies = [
 
 [[package]]
 name = "rten-vecmath"
-version = "0.7.0"
+version = "0.8.0"
 dependencies = [
  "fastrand",
  "libm",
