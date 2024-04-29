@@ -1,6 +1,6 @@
 [package]
 name = "rten-imageio"
-version = "0.7.0"
+version = "0.8.0"
 edition = "2021"
 authors = ["Robert Knight"]
 description = "Utilities for loading images for use with RTen"
