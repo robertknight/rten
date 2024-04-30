@@ -5,12 +5,25 @@ from time import perf_counter
 import numpy as np
 import onnxruntime as ort
 
+OPT_LEVELS = {
+    "none": ort.GraphOptimizationLevel.ORT_DISABLE_ALL,
+    "basic": ort.GraphOptimizationLevel.ORT_ENABLE_BASIC,
+    "extended": ort.GraphOptimizationLevel.ORT_ENABLE_EXTENDED,
+    "all": ort.GraphOptimizationLevel.ORT_ENABLE_ALL,
+}
+
 
 def run_model(
     model_path: str,
-    n_evals: int = 10,
-    enable_profiling=False,
+    *,
     dynamic_dims: dict[str, int] | None = None,
+    enable_profiling=False,
+    execution_provider: str | None = None,
+    inter_op_threads: int | None = None,
+    intra_op_threads: int | None = None,
+    n_evals: int = 10,
+    opt_level: str | None = None,
+    optimized_path: str | None = None,
 ):
     """
     Run the ONNX model in `model_path` with randomly generated inputs.
@@ -28,12 +41,19 @@ def run_model(
     #
     # See https://onnxruntime.ai/docs/api/python/api_summary.html
 
-    # Parallelism flags
-    # sess_opts.inter_op_num_threads = 1
-    # sess_opts.intra_op_num_threads = 1
+    # Parallelism flags.
+    # See also https://onnxruntime.ai/docs/performance/tune-performance/threading.html.
+    if inter_op_threads:
+        sess_opts.inter_op_num_threads = inter_op_threads
+        sess_opts.execution_mode = ort.ExecutionMode.ORT_PARALLEL
 
-    # Graph optimization flags (eg. operator fusion)
-    # sess_opts.graph_optimization_level = ort.GraphOptimizationLevel.ORT_DISABLE_ALL
+    if intra_op_threads:
+        sess_opts.intra_op_num_threads = intra_op_threads
+
+    # Graph optimization flags (eg. operator fusion).
+    # See also https://onnxruntime.ai/docs/performance/model-optimizations/graph-optimizations.html.
+    if opt_level:
+        sess_opts.graph_optimization_level = OPT_LEVELS[opt_level]
 
     # Memory usage flags
     # sess_opts.enable_cpu_mem_arena = False
@@ -42,8 +62,15 @@ def run_model(
 
     sess_opts.enable_profiling = enable_profiling
 
+    if optimized_path:
+        sess_opts.optimized_model_filepath = optimized_path
+
+    providers = ["CPUExecutionProvider"]
+    if execution_provider and execution_provider != "CPU":
+        providers = [execution_provider + "ExecutionProvider"] + providers
+
     session = ort.InferenceSession(
-        model_path, providers=["CPUExecutionProvider"], sess_options=sess_opts
+        model_path, providers=providers, sess_options=sess_opts
     )
 
     def resolve_dim(dim: str) -> int:
@@ -96,9 +123,30 @@ parser.add_argument(
     help="Specify size for dynamic input dim as `dim_name=size`",
 )
 parser.add_argument(
+    "-e", "--exec-provider", type=str, help='Execution provider (eg. "CPU", "CoreML")'
+)
+parser.add_argument(
     "-n", "--n_evals", type=int, help="Number of inference iterations", default=10
 )
+parser.add_argument(
+    "-o",
+    "--opt-level",
+    choices=["none", "basic", "extended", "all"],
+    help="Graph optimization level",
+)
 parser.add_argument("-p", "--profile", action="store_true", help="Enable profiling")
+parser.add_argument(
+    "-s", "--save-optimized", type=str, help="Save optimized model to given path"
+)
+parser.add_argument(
+    "-t", "--intra-threads", type=int, help="Number of threads to use within ops"
+)
+parser.add_argument(
+    "-T",
+    "--inter-threads",
+    type=int,
+    help="Number of threads to use to run ops in parallel",
+)
 args = parser.parse_args()
 
 
@@ -125,7 +173,12 @@ for dim_str in args.dim or []:
 
 run_model(
     args.model,
-    n_evals=args.n_evals,
-    enable_profiling=args.profile,
     dynamic_dims=dynamic_dims,
+    enable_profiling=args.profile,
+    execution_provider=args.exec_provider,
+    inter_op_threads=args.inter_threads,
+    intra_op_threads=args.intra_threads,
+    n_evals=args.n_evals,
+    opt_level=args.opt_level,
+    optimized_path=args.save_optimized,
 )
