@@ -89,6 +89,9 @@ pub fn calc_output_size_and_padding(
     Ok((out_h, out_w, padding))
 }
 
+/// Number of channels processed together by the pooling kernel.
+const CHAN_GROUP_SIZE: usize = 4;
+
 /// Generic pooling implementation.
 ///
 /// The value of each output point is computed by:
@@ -165,8 +168,8 @@ where
                                     *in_view.get_unchecked([chan, in_y - pad_top, in_x - pad_left])
                                 };
                                 accumulator[i] = fold(accumulator[i], val);
-                                non_pad_elements += 1;
                             }
+                            non_pad_elements += 1;
                         }
                     }
                 }
@@ -195,7 +198,7 @@ where
             let in_item = in_item.nd_view();
 
             // Loop over channel groups.
-            const N: usize = 4;
+            const N: usize = CHAN_GROUP_SIZE;
             for chan in (0..in_c).step_by(N) {
                 if in_c - chan < N {
                     break;
@@ -497,35 +500,39 @@ mod tests {
     fn test_average_pool_padding() -> Result<(), Box<dyn Error>> {
         let pool = new_pool();
 
-        let mut input = Tensor::from([
+        // Exercise both the loop over channel groups and the tail in
+        // `pool_impl`.
+        let n_chans = super::CHAN_GROUP_SIZE + 1;
+
+        let input = Tensor::from([
             [0.0809, 0.5529, 0.1534, 0.7507],
             [0.4698, 0.7771, 0.9896, 0.4873],
             [0.9750, 0.5160, 0.6419, 0.3670],
             [0.4101, 0.3762, 0.9689, 0.4389],
         ]);
         let [rows, cols]: [usize; 2] = input.shape().try_into().unwrap();
-        input.reshape(&[1, 1, rows, cols]);
+        let input = input.broadcast([1, n_chans, rows, cols]);
 
         // Computed with `torch.nn.functional.avg_pool2d` in PyTorch with
         // `padding=1` and `count_include_pad=False`.
-        let mut expected = Tensor::from([
+        let expected = Tensor::from([
             [0.0809, 0.3531, 0.7507],
             [0.7224, 0.7312, 0.4271],
             [0.4101, 0.6725, 0.4389],
         ]);
         let [rows, cols]: [usize; 2] = expected.shape().try_into().unwrap();
-        expected.reshape(&[1, 1, rows, cols]);
+        let expected = expected.broadcast([1, n_chans, rows, cols]);
 
         let result = average_pool(
             &pool,
-            input.view(),
+            input.as_dyn(),
             [2, 2],
             [2, 2], /* stride */
             [1, 1, 1, 1].into(),
             false, /* count_include_pad */
         )
         .unwrap();
-        expect_eq_1e4(&result, &expected)?;
+        expect_eq_1e4(&result.view(), &expected.as_dyn())?;
 
         // As above, but with `count_include_pad=True`.
         let expected_include_pad = Tensor::from([
@@ -533,18 +540,18 @@ mod tests {
             [0.3612, 0.7312, 0.2136],
             [0.1025, 0.3363, 0.1097],
         ])
-        .into_shape([1, 1, 3, 3])
-        .into_dyn();
+        .broadcast([1, n_chans, 3, 3])
+        .to_tensor();
         let result = average_pool(
             &pool,
-            input.view(),
+            input.as_dyn(),
             [2, 2],
             [2, 2], /* stride */
             [1, 1, 1, 1].into(),
             true, /* count_include_pad */
         )
         .unwrap();
-        expect_eq_1e4(&result, &expected_include_pad)?;
+        expect_eq_1e4(&result.view(), &expected_include_pad.as_dyn())?;
 
         Ok(())
     }
