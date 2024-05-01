@@ -4,7 +4,7 @@ use std::sync::atomic::{AtomicUsize, Ordering};
 
 use rayon::prelude::*;
 use rten_tensor::prelude::*;
-use rten_tensor::{NdTensor, NdTensorView, NdTensorViewMut, Tensor, TensorView};
+use rten_tensor::{NdTensor, NdTensorView, NdTensorViewMut, Tensor, TensorView, TensorViewMut};
 
 use crate::check_dims;
 use crate::gemm::div_ceil;
@@ -89,6 +89,153 @@ pub fn calc_output_size_and_padding(
     Ok((out_h, out_w, padding))
 }
 
+/// Generic pooling implementation.
+///
+/// The value of each output point is computed by:
+///
+/// - Collecting values from `input`, with a window size and stride determined
+///   by `kernel_size` and `strides` respectively, except for values that are part
+///   of the padding region.
+/// - Folding the values using `fold`, starting with `fold_init`
+/// - Computing an average of the accumulated value using `average(accum,
+///   non_padding_count)`
+fn pool_impl<T: Copy + Send, F: Fn(T, T) -> T + Sync, A: Fn(T, usize) -> T + Sync>(
+    pool: &TensorPool,
+    input: TensorView<T>,
+    kernel_size: [usize; 2],
+    strides: [usize; 2],
+    padding: Padding,
+    fold_init: T,
+    fold: &F,
+    average: &A,
+) -> Result<Tensor<T>, OpError>
+where
+    for<'a> TensorViewMut<'a, T>: Send,
+    for<'a> TensorView<'a, T>: Send,
+    for<'a> &'a T: Sync,
+{
+    let [batch, in_c, in_h, in_w] = check_dims!(input, 4, "NCHW");
+    let (out_h, out_w, fixed_padding) = calc_output_size_and_padding(
+        (in_h, in_w),
+        (kernel_size[0], kernel_size[1]),
+        (strides[0], strides[1]),
+        padding,
+        None, /* dilations */
+    )?;
+    let [pad_top, pad_left, _pad_bottom, _pad_right] = fixed_padding;
+    let mut output = Tensor::uninit_in(pool, [batch, in_c, out_h, out_w].as_slice());
+
+    // Apply pooling to the channel indexes specified by `chans`.
+    // Assuming `N` is chosen appropriately the inner loop should get unrolled /
+    // autovectorized.
+    fn pool_chans<T: Copy, F: Fn(T, T) -> T, A: Fn(T, usize) -> T, const N: usize>(
+        mut out: NdTensorViewMut<MaybeUninit<T>, 3>,
+        in_view: NdTensorView<T, 3>,
+        chans: [usize; N],
+        [kernel_h, kernel_w]: [usize; 2],
+        [stride_h, stride_w]: [usize; 2],
+        [pad_top, pad_left]: [usize; 2],
+        fold_init: T,
+        fold: F,
+        average: A,
+    ) {
+        let [out_chans, out_h, out_w] = out.shape();
+        let [in_chans, in_h, in_w] = in_view.shape();
+        assert!(chans.into_iter().all(|c| c < out_chans && c < in_chans));
+
+        for out_y in 0..out_h {
+            for out_x in 0..out_w {
+                let mut accumulator = [fold_init; N];
+                let mut non_pad_elements = 0;
+
+                for k_y in 0..kernel_h {
+                    for k_x in 0..kernel_w {
+                        let in_y = out_y * stride_h + k_y;
+                        let in_x = out_x * stride_w + k_x;
+                        if in_y >= pad_top
+                            && in_y < in_h + pad_top
+                            && in_x >= pad_left
+                            && in_x < in_w + pad_left
+                        {
+                            for (i, chan) in chans.into_iter().enumerate() {
+                                // Safety:
+                                //  - We checked all `chans` are in-bounds
+                                //  - `in_y` and `in_x` are >= pad_top and pad_left
+                                let val = unsafe {
+                                    *in_view.get_unchecked([chan, in_y - pad_top, in_x - pad_left])
+                                };
+                                accumulator[i] = fold(accumulator[i], val);
+                                non_pad_elements += 1;
+                            }
+                        }
+                    }
+                }
+                for (i, chan) in chans.into_iter().enumerate() {
+                    // Safety:
+                    //  - We checked all `chans` are in-bounds
+                    //  - `out_y` and `out_x` are in 0..out_h, 0..out_w
+                    unsafe {
+                        out.get_unchecked_mut([chan, out_y, out_x])
+                            .write(average(accumulator[i], non_pad_elements));
+                    }
+                }
+            }
+        }
+    }
+
+    // Work around error if using `fold_init` directly in closure.
+    let accum_init_val = || fold_init;
+
+    let n_init = AtomicUsize::new(0);
+    zip(output.axis_iter_mut(0), input.axis_iter(0))
+        .par_bridge()
+        .for_each(|(mut out_item, in_item)| {
+            let mut out_item = out_item.nd_view_mut();
+            let [_, out_h, out_w] = out_item.shape();
+            let in_item = in_item.nd_view();
+
+            // Loop over channel groups.
+            const N: usize = 4;
+            for chan in (0..in_c).step_by(N) {
+                if in_c - chan < N {
+                    break;
+                }
+                pool_chans(
+                    out_item.view_mut(),
+                    in_item,
+                    [chan, chan + 1, chan + 2, chan + 3],
+                    kernel_size,
+                    strides,
+                    [pad_top, pad_left],
+                    accum_init_val(),
+                    fold,
+                    average,
+                );
+                n_init.fetch_add(N * out_h * out_w, Ordering::SeqCst);
+            }
+
+            // Loop over remaining channels.
+            for chan in (in_c - in_c % N)..in_c {
+                pool_chans(
+                    out_item.view_mut(),
+                    in_item,
+                    [chan],
+                    kernel_size,
+                    strides,
+                    [pad_top, pad_left],
+                    accum_init_val(),
+                    fold,
+                    average,
+                );
+                n_init.fetch_add(out_h * out_w, Ordering::SeqCst);
+            }
+        });
+
+    assert!(n_init.load(Ordering::SeqCst) == output.len());
+    let output = unsafe { output.assume_init() };
+    Ok(output)
+}
+
 pub fn average_pool(
     pool: &TensorPool,
     input: TensorView,
@@ -97,66 +244,23 @@ pub fn average_pool(
     padding: Padding,
     count_include_pad: bool,
 ) -> Result<Tensor, OpError> {
-    let [batch, in_c, in_h, in_w] = check_dims!(input, 4, "NCHW");
-    let (out_h, out_w, fixed_padding) = calc_output_size_and_padding(
-        (in_h, in_w),
-        (kernel_size[0], kernel_size[1]),
-        (strides[0], strides[1]),
+    let kernel_len = kernel_size[0] * kernel_size[1];
+    pool_impl(
+        pool,
+        input,
+        kernel_size,
+        strides,
         padding,
-        None,
-    )?;
-    let [pad_top, pad_left, _pad_bottom, _pad_right] = fixed_padding;
-    let [kernel_h, kernel_w] = kernel_size;
-    let [stride_h, stride_w] = strides;
-
-    let mut output = NdTensor::uninit_in(pool, [batch, in_c, out_h, out_w]);
-    let input = input.nd_view::<4>();
-
-    let mut n_init = 0;
-    for n in 0..batch {
-        for chan in 0..in_c {
-            let mut out_view = output.slice_mut([n, chan]);
-            let mut out_view = out_view.weakly_checked_view_mut();
-            let in_view = input.slice([n, chan]).weakly_checked_view();
-
-            for out_y in 0..out_h {
-                for out_x in 0..out_w {
-                    let mut accumulator = 0.0;
-                    let mut non_padding_elements = 0.0;
-
-                    for k_y in 0..kernel_h {
-                        for k_x in 0..kernel_w {
-                            let in_y = out_y * stride_h + k_y;
-                            let in_x = out_x * stride_w + k_x;
-                            if in_y >= pad_top
-                                && in_y < in_h + pad_top
-                                && in_x >= pad_left
-                                && in_x < in_w + pad_left
-                            {
-                                let val = in_view[[in_y - pad_top, in_x - pad_left]];
-                                accumulator += val;
-                                non_padding_elements += 1.0;
-                            }
-                        }
-                    }
-
-                    let counted_elems = if count_include_pad {
-                        (kernel_h * kernel_w) as f32
-                    } else {
-                        non_padding_elements
-                    };
-
-                    out_view[[out_y, out_x]].write(accumulator / counted_elems);
-                    n_init += 1;
-                }
+        0.,
+        &|acc, x| acc + x,
+        &|acc, non_pad_elements| {
+            if count_include_pad {
+                acc / (kernel_len as f32)
+            } else {
+                acc / (non_pad_elements as f32)
             }
-        }
-    }
-
-    assert!(n_init == output.len());
-    let output = unsafe { output.assume_init() };
-
-    Ok(output.into_dyn())
+        },
+    )
 }
 
 #[derive(Debug)]
@@ -257,111 +361,16 @@ pub fn max_pool(
     strides: [usize; 2],
     padding: Padding,
 ) -> Result<Tensor, OpError> {
-    let [batch, in_c, in_h, in_w] = check_dims!(input, 4, "NCHW");
-    let (out_h, out_w, fixed_padding) = calc_output_size_and_padding(
-        (in_h, in_w),
-        (kernel_size[0], kernel_size[1]),
-        (strides[0], strides[1]),
+    pool_impl(
+        pool,
+        input,
+        kernel_size,
+        strides,
         padding,
-        None, /* dilations */
-    )?;
-    let [pad_top, pad_left, _pad_bottom, _pad_right] = fixed_padding;
-    let mut output = Tensor::uninit_in(pool, [batch, in_c, out_h, out_w].as_slice());
-
-    // Apply max-pooling to the channel indexes specified by `chans`.
-    // Assuming `N` is chosen appropriately the inner loop should get unrolled /
-    // autovectorized.
-    fn max_pool_chans<const N: usize>(
-        mut out: NdTensorViewMut<MaybeUninit<f32>, 3>,
-        in_view: NdTensorView<f32, 3>,
-        chans: [usize; N],
-        [kernel_h, kernel_w]: [usize; 2],
-        [stride_h, stride_w]: [usize; 2],
-        [pad_top, pad_left]: [usize; 2],
-    ) {
-        let [out_chans, out_h, out_w] = out.shape();
-        let [in_chans, in_h, in_w] = in_view.shape();
-        assert!(chans.into_iter().all(|c| c < out_chans && c < in_chans));
-
-        for out_y in 0..out_h {
-            for out_x in 0..out_w {
-                let mut accumulator = [f32::NEG_INFINITY; N];
-                for k_y in 0..kernel_h {
-                    for k_x in 0..kernel_w {
-                        let in_y = out_y * stride_h + k_y;
-                        let in_x = out_x * stride_w + k_x;
-                        if in_y >= pad_top
-                            && in_y < in_h + pad_top
-                            && in_x >= pad_left
-                            && in_x < in_w + pad_left
-                        {
-                            for (i, chan) in chans.into_iter().enumerate() {
-                                // Safety:
-                                //  - We checked all `chans` are in-bounds
-                                //  - `in_y` and `in_x` are >= pad_top and pad_left
-                                let val = unsafe {
-                                    *in_view.get_unchecked([chan, in_y - pad_top, in_x - pad_left])
-                                };
-                                accumulator[i] = accumulator[i].max(val);
-                            }
-                        }
-                    }
-                }
-                for (i, chan) in chans.into_iter().enumerate() {
-                    // Safety:
-                    //  - We checked all `chans` are in-bounds
-                    //  - `out_y` and `out_x` are in 0..out_h, 0..out_w
-                    unsafe {
-                        out.get_unchecked_mut([chan, out_y, out_x])
-                            .write(accumulator[i]);
-                    }
-                }
-            }
-        }
-    }
-
-    let n_init = AtomicUsize::new(0);
-    zip(output.axis_iter_mut(0), input.axis_iter(0))
-        .par_bridge()
-        .for_each(|(mut out_item, in_item)| {
-            let mut out_item = out_item.nd_view_mut();
-            let [_, out_h, out_w] = out_item.shape();
-            let in_item = in_item.nd_view();
-
-            // Loop over channel groups.
-            const N: usize = 4;
-            for chan in (0..in_c).step_by(N) {
-                if in_c - chan < N {
-                    break;
-                }
-                max_pool_chans(
-                    out_item.view_mut(),
-                    in_item,
-                    [chan, chan + 1, chan + 2, chan + 3],
-                    kernel_size,
-                    strides,
-                    [pad_top, pad_left],
-                );
-                n_init.fetch_add(N * out_h * out_w, Ordering::SeqCst);
-            }
-
-            // Loop over remaining channels.
-            for chan in (in_c - in_c % N)..in_c {
-                max_pool_chans(
-                    out_item.view_mut(),
-                    in_item,
-                    [chan],
-                    kernel_size,
-                    strides,
-                    [pad_top, pad_left],
-                );
-                n_init.fetch_add(out_h * out_w, Ordering::SeqCst);
-            }
-        });
-
-    assert!(n_init.load(Ordering::SeqCst) == output.len());
-    let output = unsafe { output.assume_init() };
-    Ok(output)
+        f32::NEG_INFINITY,
+        &|acc, x| acc.max(x),
+        &|x, _non_pad_count| x,
+    )
 }
 
 #[derive(Debug)]
