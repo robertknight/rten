@@ -86,10 +86,11 @@ pub enum RetrievalMode {
 /// [^1]: Suzuki, Satoshi and Keiichi Abe. “Topological structural analysis of digitized binary
 ///       images by border following.” Comput. Vis. Graph. Image Process. 30 (1985): 32-46.
 /// [^2]: <https://docs.opencv.org/4.7.0/d3/dc0/group__imgproc__shape.html#gadf1ad6a0b82947fa1fe3c3d497f260e0>
-pub fn find_contours(mask: NdTensorView<i32, 2>, mode: RetrievalMode) -> Polygons {
-    // Create a copy of the mask with zero-padding around the border. The
-    // padding enables the algorithm to handle objects that touch the edge of
-    // the mask.
+pub fn find_contours(mask: NdTensorView<bool, 2>, mode: RetrievalMode) -> Polygons {
+    // Create a copy of the mask with zero-padding around the border and i8
+    // type. The padding enables the algorithm to handle objects that touch the
+    // edge of the mask. The i8 type is needed because the algorithm needs to
+    // store one of 3 values in each element.
     let padding = 1;
     let mut padded_mask =
         NdTensor::<i8, 2>::zeros([mask.rows() + 2 * padding, mask.cols() + 2 * padding]);
@@ -101,7 +102,7 @@ pub fn find_contours(mask: NdTensorView<i32, 2>, mode: RetrievalMode) -> Polygon
         for x in 0..mask.cols() {
             // Clamp values in the copied mask to { 0, 1 } so the algorithm
             // below can use other values as part of its working.
-            wc_padded_mask[[y + padding, x + padding]] = wc_mask[[y, x]].clamp(0, 1) as i8;
+            wc_padded_mask[[y + padding, x + padding]] = wc_mask[[y, x]] as i8;
         }
     }
     let mut mask = padded_mask;
@@ -265,40 +266,21 @@ mod tests {
     fn test_find_contours_single_rect() {
         struct Case {
             rect: Rect,
-            value: i32,
         }
 
-        let cases = [
-            Case {
-                rect: Rect::from_tlbr(5, 5, 10, 10),
-                value: 1,
-            },
-            // Values > 1 in the mask are clamped to 1, so they don't affect
-            // the contours found.
-            Case {
-                rect: Rect::from_tlbr(5, 5, 10, 10),
-                value: 2,
-            },
-            // Values < 0 are clamped to 0 and ignored.
-            Case {
-                rect: Rect::from_tlbr(5, 5, 10, 10),
-                value: -2,
-            },
-        ];
+        let cases = [Case {
+            rect: Rect::from_tlbr(5, 5, 10, 10),
+        }];
 
         for case in cases {
             let mut mask = NdTensor::zeros([20, 20]);
-            fill_rect(mask.view_mut(), case.rect, case.value);
+            fill_rect(mask.view_mut(), case.rect, true);
 
             let contours = find_contours(mask.view(), RetrievalMode::List);
 
-            if case.value > 0 {
-                assert_eq!(contours.len(), 1);
-                let border = contours.iter().next().unwrap();
-                assert_eq!(border, border_points(case.rect, false /* omit_corners */));
-            } else {
-                assert!(contours.is_empty());
-            }
+            assert_eq!(contours.len(), 1);
+            let border = contours.iter().next().unwrap();
+            assert_eq!(border, border_points(case.rect, false /* omit_corners */));
         }
     }
 
@@ -306,7 +288,7 @@ mod tests {
     fn test_find_contours_rect_touching_frame() {
         let mut mask = NdTensor::zeros([5, 5]);
         let rect = Rect::from_tlbr(0, 0, 5, 5);
-        fill_rect(mask.view_mut(), rect, 1);
+        fill_rect(mask.view_mut(), rect, true);
 
         let contours = find_contours(mask.view(), RetrievalMode::List);
         assert_eq!(contours.len(), 1);
@@ -319,7 +301,7 @@ mod tests {
     fn test_find_contours_hollow_rect() {
         let mut mask = NdTensor::zeros([20, 20]);
         let rect = Rect::from_tlbr(5, 5, 12, 12);
-        stroke_rect(mask.view_mut(), rect, 1, 2);
+        stroke_rect(mask.view_mut(), rect, true, 2);
 
         let contours = find_contours(mask.view(), RetrievalMode::List);
 
@@ -350,7 +332,7 @@ mod tests {
     fn test_find_contours_external() {
         let mut mask = NdTensor::zeros([20, 20]);
         let rect = Rect::from_tlbr(5, 5, 12, 12);
-        stroke_rect(mask.view_mut(), rect, 1, 2);
+        stroke_rect(mask.view_mut(), rect, true, 2);
 
         let contours = find_contours(mask.view(), RetrievalMode::External);
 
@@ -363,7 +345,7 @@ mod tests {
     #[test]
     fn test_find_contours_single_point() {
         let mut mask = NdTensor::zeros([20, 20]);
-        mask[[5, 5]] = 1;
+        mask[[5, 5]] = true;
 
         let contours = find_contours(mask.view(), RetrievalMode::List);
         assert_eq!(contours.len(), 1);
@@ -381,7 +363,7 @@ mod tests {
             Rect::from_tlbr(15, 15, 18, 18),
         ];
         for rect in rects {
-            fill_rect(mask.view_mut(), rect, 1);
+            fill_rect(mask.view_mut(), rect, true);
         }
 
         let contours = find_contours(mask.view(), RetrievalMode::List);
@@ -398,7 +380,7 @@ mod tests {
 
         let rects = [Rect::from_tlbr(5, 5, 11, 11), Rect::from_tlbr(7, 7, 9, 9)];
         for rect in rects {
-            stroke_rect(mask.view_mut(), rect, 1, 1);
+            stroke_rect(mask.view_mut(), rect, true, 1);
         }
 
         let contours = find_contours(mask.view(), RetrievalMode::List);
@@ -461,7 +443,7 @@ mod tests {
         );
 
         for rect in rects {
-            fill_rect(mask.view_mut(), rect, 1);
+            fill_rect(mask.view_mut(), rect, true);
         }
 
         let n_iters = 100;
