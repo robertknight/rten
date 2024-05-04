@@ -74,7 +74,7 @@ pub trait FloatOperators {
     fn softmax(&self, axis: isize) -> Result<Tensor, OpError>;
 }
 
-impl<T, S: Storage<Elem = T>> Operators for TensorBase<T, S, DynLayout> {
+impl<T, S: Storage<Elem = T>> Operators for TensorBase<S, DynLayout> {
     type Elem = T;
 
     fn arg_max(&self, axis: isize, keep_dims: bool) -> Result<Tensor<i32>, OpError>
@@ -125,7 +125,7 @@ impl<T, S: Storage<Elem = T>> Operators for TensorBase<T, S, DynLayout> {
     }
 }
 
-impl<T, S: Storage<Elem = T>, const N: usize> Operators for TensorBase<T, S, NdLayout<N>> {
+impl<T, S: Storage<Elem = T>, const N: usize> Operators for TensorBase<S, NdLayout<N>> {
     type Elem = T;
 
     fn arg_max(&self, axis: isize, keep_dims: bool) -> Result<Tensor<i32>, OpError>
@@ -176,7 +176,7 @@ impl<T, S: Storage<Elem = T>, const N: usize> Operators for TensorBase<T, S, NdL
     }
 }
 
-impl<S: Storage<Elem = f32>> FloatOperators for TensorBase<f32, S, DynLayout> {
+impl<S: Storage<Elem = f32>> FloatOperators for TensorBase<S, DynLayout> {
     fn matmul(&self, other: TensorView) -> Result<Tensor, OpError> {
         matmul(&TensorPool::new(), self.view(), other)
     }
@@ -210,7 +210,7 @@ impl<S: Storage<Elem = f32>> FloatOperators for TensorBase<f32, S, DynLayout> {
     }
 }
 
-impl<S: Storage<Elem = f32>, const N: usize> FloatOperators for TensorBase<f32, S, NdLayout<N>> {
+impl<S: Storage<Elem = f32>, const N: usize> FloatOperators for TensorBase<S, NdLayout<N>> {
     fn matmul(&self, other: TensorView) -> Result<Tensor, OpError> {
         matmul(&TensorPool::new(), self.as_dyn(), other)
     }

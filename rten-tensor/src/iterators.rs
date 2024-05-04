@@ -843,11 +843,11 @@ impl<'a, T> Iterator for LanesMut<'a, T> {
 /// type `T` and layout `L`.
 pub struct InnerIter<'a, T, L: MutLayout, const N: usize> {
     outer_indices: DynIndices,
-    view: TensorBase<T, ViewData<'a, T>, L>,
+    view: TensorBase<ViewData<'a, T>, L>,
 }
 
 impl<'a, T, L: MutLayout, const N: usize> InnerIter<'a, T, L, N> {
-    pub fn new(view: TensorBase<T, ViewData<'a, T>, L>) -> Self {
+    pub fn new(view: TensorBase<ViewData<'a, T>, L>) -> Self {
         assert!(view.ndim() >= N);
         let outer_dims = view.ndim() - N;
         let outer_indices = DynIndices::from_shape(&view.shape().as_ref()[..outer_dims]);
@@ -878,11 +878,11 @@ impl<'a, T, L: MutLayout, const N: usize> ExactSizeIterator for InnerIter<'a, T,
 /// Iterator over mutable views of the N innermost dimensions of a tensor.
 pub struct InnerIterMut<'a, T, L: MutLayout, const N: usize> {
     outer_indices: DynIndices,
-    view: TensorBase<T, ViewMutData<'a, T>, L>,
+    view: TensorBase<ViewMutData<'a, T>, L>,
 }
 
 impl<'a, T, L: MutLayout, const N: usize> InnerIterMut<'a, T, L, N> {
-    pub fn new(view: TensorBase<T, ViewMutData<'a, T>, L>) -> Self {
+    pub fn new(view: TensorBase<ViewMutData<'a, T>, L>) -> Self {
         assert!(view.ndim() >= N);
         let outer_dims = view.ndim() - N;
         let outer_indices = DynIndices::from_shape(&view.shape().as_ref()[..outer_dims]);
@@ -917,12 +917,12 @@ impl<'a, T, L: MutLayout, const N: usize> ExactSizeIterator for InnerIterMut<'a,
 
 /// Iterator over slices of a tensor along an axis. See [TensorView::axis_iter].
 pub struct AxisIter<'a, T, L: MutLayout> {
-    view: TensorBase<T, ViewData<'a, T>, L>,
+    view: TensorBase<ViewData<'a, T>, L>,
     index: usize,
 }
 
 impl<'a, T, L: MutLayout> AxisIter<'a, T, L> {
-    pub fn new(view: &TensorBase<T, ViewData<'a, T>, L>, dim: usize) -> AxisIter<'a, T, L> {
+    pub fn new(view: &TensorBase<ViewData<'a, T>, L>, dim: usize) -> AxisIter<'a, T, L> {
         let mut permuted = view.clone();
         permuted.move_axis(dim, 0);
         AxisIter {
@@ -948,15 +948,12 @@ impl<'a, T, L: MutLayout> Iterator for AxisIter<'a, T, L> {
 
 /// Iterator over mutable slices of a tensor along an axis. See [TensorViewMut::axis_iter_mut].
 pub struct AxisIterMut<'a, T, L: MutLayout> {
-    view: TensorBase<T, ViewMutData<'a, T>, L>,
+    view: TensorBase<ViewMutData<'a, T>, L>,
     index: usize,
 }
 
 impl<'a, T, L: MutLayout> AxisIterMut<'a, T, L> {
-    pub fn new(
-        mut view: TensorBase<T, ViewMutData<'a, T>, L>,
-        dim: usize,
-    ) -> AxisIterMut<'a, T, L> {
+    pub fn new(mut view: TensorBase<ViewMutData<'a, T>, L>, dim: usize) -> AxisIterMut<'a, T, L> {
         // See notes in `Layout` about internal overlap.
         assert!(
             !view.layout().is_broadcast(),
@@ -990,14 +987,14 @@ impl<'a, T, L: MutLayout> Iterator for AxisIterMut<'a, T, L> {
 
 /// Iterator over slices of a tensor along an axis. See [TensorView::axis_chunks].
 pub struct AxisChunks<'a, T, L: MutLayout> {
-    view: TensorBase<T, ViewData<'a, T>, L>,
+    view: TensorBase<ViewData<'a, T>, L>,
     index: usize,
     chunk_size: usize,
 }
 
 impl<'a, T, L: MutLayout> AxisChunks<'a, T, L> {
     pub fn new(
-        view: &TensorBase<T, ViewData<'a, T>, L>,
+        view: &TensorBase<ViewData<'a, T>, L>,
         dim: usize,
         chunk_size: usize,
     ) -> AxisChunks<'a, T, L> {
@@ -1030,14 +1027,14 @@ impl<'a, T, L: MutLayout> Iterator for AxisChunks<'a, T, L> {
 
 /// Iterator over mutable slices of a tensor along an axis. See [TensorViewMut::axis_chunks_mut].
 pub struct AxisChunksMut<'a, T, L: MutLayout> {
-    view: TensorBase<T, ViewMutData<'a, T>, L>,
+    view: TensorBase<ViewMutData<'a, T>, L>,
     index: usize,
     chunk_size: usize,
 }
 
 impl<'a, T, L: MutLayout> AxisChunksMut<'a, T, L> {
     pub fn new(
-        mut view: TensorBase<T, ViewMutData<'a, T>, L>,
+        mut view: TensorBase<ViewMutData<'a, T>, L>,
         dim: usize,
         chunk_size: usize,
     ) -> AxisChunksMut<'a, T, L> {
