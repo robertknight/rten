@@ -589,7 +589,7 @@ def op_node_from_onnx_operator(
     match op_type:
         case "ArgMax" | "ArgMin":
             attrs = sg.ArgMaxAttrsT()
-            attrs.axes = op_reader.get_attr("axis", "int", None)
+            attrs.axis = op_reader.get_attr("axis", "int", None)
             attrs.keepDims = bool(op_reader.get_attr("keepdims", "int", 1))
             op_reader.check_attr("select_last_index", "int", 0)
 
