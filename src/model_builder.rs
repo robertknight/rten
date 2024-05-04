@@ -16,7 +16,7 @@ use crate::ops::{
 use crate::schema_generated as sg;
 
 #[cfg(feature = "random")]
-use crate::ops::RandomUniform;
+use crate::ops::{RandomNormal, RandomNormalLike, RandomUniform, RandomUniformLike};
 
 /// Enum of all the built-in operators
 pub enum OpType {
@@ -79,7 +79,13 @@ pub enum OpType {
     Pow,
 
     #[cfg(feature = "random")]
+    RandomNormal(RandomNormal),
+    #[cfg(feature = "random")]
+    RandomNormalLike(RandomNormalLike),
+    #[cfg(feature = "random")]
     RandomUniform(RandomUniform),
+    #[cfg(feature = "random")]
+    RandomUniformLike(RandomUniformLike),
 
     Range,
     Reciprocal,
@@ -565,6 +571,30 @@ impl<'a> ModelBuilder<'a> {
             OpType::Pow => op!(Pow),
 
             #[cfg(feature = "random")]
+            OpType::RandomNormal(args) => {
+                let shape = self.create_vec(Some(args.shape), |size| size as u32);
+                op_with_attrs!(RandomNormal, RandomNormalAttrs, {
+                    sg::RandomNormalAttrsArgs {
+                        mean: args.mean,
+                        scale: args.scale,
+                        seed: args.seed,
+                        shape,
+                    }
+                })
+            }
+
+            #[cfg(feature = "random")]
+            OpType::RandomNormalLike(args) => {
+                op_with_attrs!(RandomNormalLike, RandomNormalLikeAttrs, {
+                    sg::RandomNormalLikeAttrsArgs {
+                        mean: args.mean,
+                        scale: args.scale,
+                        seed: args.seed,
+                    }
+                })
+            }
+
+            #[cfg(feature = "random")]
             OpType::RandomUniform(args) => {
                 let shape = self.create_vec(Some(args.shape), |size| size as u32);
                 op_with_attrs!(RandomUniform, RandomUniformAttrs, {
@@ -573,6 +603,17 @@ impl<'a> ModelBuilder<'a> {
                         low: args.low,
                         seed: args.seed,
                         shape,
+                    }
+                })
+            }
+
+            #[cfg(feature = "random")]
+            OpType::RandomUniformLike(args) => {
+                op_with_attrs!(RandomUniformLike, RandomUniformLikeAttrs, {
+                    sg::RandomUniformLikeAttrsArgs {
+                        high: args.high,
+                        low: args.low,
+                        seed: args.seed,
                     }
                 })
             }

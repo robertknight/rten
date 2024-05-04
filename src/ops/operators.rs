@@ -6,8 +6,8 @@ use rten_tensor::{DynLayout, NdLayout, NdTensorView, Tensor, TensorBase, TensorV
 use crate::number::{Identities, IsInt};
 use crate::ops::OpError;
 use crate::ops::{
-    arg_max, div, matmul, mul, pad, reduce_l2, reduce_max, reduce_mean, reduce_min, resize_image,
-    softmax, topk,
+    arg_max, div, matmul, mul, pad, reduce_l2, reduce_max, reduce_mean, reduce_min, reduce_sum,
+    resize_image, softmax, topk,
 };
 use crate::tensor_pool::TensorPool;
 
@@ -66,6 +66,7 @@ pub trait FloatOperators {
     fn reduce_max(&self, axes: Option<&[i32]>, keep_dims: bool) -> Result<Tensor, OpError>;
     fn reduce_mean(&self, axes: Option<&[i32]>, keep_dims: bool) -> Result<Tensor, OpError>;
     fn reduce_min(&self, axes: Option<&[i32]>, keep_dims: bool) -> Result<Tensor, OpError>;
+    fn reduce_sum(&self, axes: Option<&[i32]>, keep_dims: bool) -> Result<Tensor, OpError>;
 
     /// Resize an NCHW image tensor to a given `[height, width]` using bilinear
     /// interpolation.
@@ -196,6 +197,10 @@ impl<S: AsRef<[f32]>> FloatOperators for TensorBase<f32, S, DynLayout> {
         reduce_mean(&TensorPool::new(), self.view(), axes, keep_dims)
     }
 
+    fn reduce_sum(&self, axes: Option<&[i32]>, keep_dims: bool) -> Result<Tensor, OpError> {
+        reduce_sum(&TensorPool::new(), self.view(), axes, keep_dims)
+    }
+
     fn resize_image(&self, size: [usize; 2]) -> Result<Tensor, OpError> {
         resize_image(self.view(), size)
     }
@@ -224,6 +229,10 @@ impl<S: AsRef<[f32]>, const N: usize> FloatOperators for TensorBase<f32, S, NdLa
 
     fn reduce_mean(&self, axes: Option<&[i32]>, keep_dims: bool) -> Result<Tensor, OpError> {
         reduce_mean(&TensorPool::new(), self.as_dyn(), axes, keep_dims)
+    }
+
+    fn reduce_sum(&self, axes: Option<&[i32]>, keep_dims: bool) -> Result<Tensor, OpError> {
+        reduce_sum(&TensorPool::new(), self.as_dyn(), axes, keep_dims)
     }
 
     fn resize_image(&self, size: [usize; 2]) -> Result<Tensor, OpError> {

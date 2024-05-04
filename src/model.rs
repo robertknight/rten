@@ -510,7 +510,13 @@ impl_default_factory!(Pad);
 impl_default_factory!(Pow);
 
 #[cfg(feature = "random")]
+impl_default_factory!(RandomNormal, read_random_normal_op);
+#[cfg(feature = "random")]
+impl_default_factory!(RandomNormalLike, read_random_normal_like_op);
+#[cfg(feature = "random")]
 impl_default_factory!(RandomUniform, read_random_uniform_op);
+#[cfg(feature = "random")]
+impl_default_factory!(RandomUniformLike, read_random_uniform_like_op);
 
 impl_default_factory!(Range);
 impl_default_factory!(Reciprocal);
@@ -670,7 +676,13 @@ impl OpRegistry {
         register_op!(Pow);
 
         #[cfg(feature = "random")]
+        register_op!(RandomNormal);
+        #[cfg(feature = "random")]
+        register_op!(RandomNormalLike);
+        #[cfg(feature = "random")]
         register_op!(RandomUniform);
+        #[cfg(feature = "random")]
+        register_op!(RandomUniformLike);
 
         register_op!(Range);
         register_op!(Reciprocal);
@@ -992,6 +1004,48 @@ fn read_non_max_suppression_op(node: &OperatorNode) -> ReadOpResult {
 }
 
 read_axis_op!(read_onehot_op, attrs_as_one_hot_attrs, OneHot);
+
+#[cfg(feature = "random")]
+fn read_random_normal_op(node: &OperatorNode) -> ReadOpResult {
+    let attrs = node
+        .attrs_as_random_normal_attrs()
+        .ok_or(ReadOpError::AttrError)?;
+    let shape = attrs
+        .shape()
+        .map(|shape| shape.iter().map(|size| size as usize).collect())
+        .unwrap_or(vec![]);
+
+    Ok(Box::new(ops::RandomNormal {
+        shape,
+        mean: attrs.mean(),
+        scale: attrs.scale(),
+        seed: attrs.seed(),
+    }))
+}
+
+#[cfg(feature = "random")]
+fn read_random_normal_like_op(node: &OperatorNode) -> ReadOpResult {
+    let attrs = node
+        .attrs_as_random_normal_like_attrs()
+        .ok_or(ReadOpError::AttrError)?;
+    Ok(Box::new(ops::RandomNormalLike {
+        mean: attrs.mean(),
+        scale: attrs.scale(),
+        seed: attrs.seed(),
+    }))
+}
+
+#[cfg(feature = "random")]
+fn read_random_uniform_like_op(node: &OperatorNode) -> ReadOpResult {
+    let attrs = node
+        .attrs_as_random_uniform_like_attrs()
+        .ok_or(ReadOpError::AttrError)?;
+    Ok(Box::new(ops::RandomUniformLike {
+        high: attrs.high(),
+        low: attrs.low(),
+        seed: attrs.seed(),
+    }))
+}
 
 #[cfg(feature = "random")]
 fn read_random_uniform_op(node: &OperatorNode) -> ReadOpResult {
@@ -1598,8 +1652,24 @@ mod tests {
         add_operator!(Pad, [input_node, pads]);
         add_operator!(Pow, [input_node, input_node]);
 
+        add_operator!(RandomNormal, [], {
+            shape: vec![50, 50],
+            mean: 0.,
+            scale: 1.,
+            seed: None,
+        });
+        add_operator!(RandomNormalLike, [input_node], {
+            mean: 0.,
+            scale: 1.,
+            seed: None,
+        });
         add_operator!(RandomUniform, [], {
             shape: vec![50, 50],
+            low: 0.,
+            high: 1.,
+            seed: None,
+        });
+        add_operator!(RandomUniformLike, [input_node], {
             low: 0.,
             high: 1.,
             seed: None,

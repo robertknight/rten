@@ -104,6 +104,9 @@ class OperatorType(object):
     ReduceSumSquare = 94
     RandomUniform = 95
     Elu = 96
+    RandomUniformLike = 97
+    RandomNormal = 98
+    RandomNormalLike = 99
 
 
 class RNNDirection(object):
@@ -174,6 +177,9 @@ class OperatorAttrs(object):
     LayerNormalizationAttrs = 30
     RandomUniformAttrs = 31
     EluAttrs = 32
+    RandomUniformLikeAttrs = 33
+    RandomNormalAttrs = 34
+    RandomNormalLikeAttrs = 35
 
 def OperatorAttrsCreator(unionType, table):
     from flatbuffers.table import Table
@@ -243,6 +249,12 @@ def OperatorAttrsCreator(unionType, table):
         return RandomUniformAttrsT.InitFromBuf(table.Bytes, table.Pos)
     if unionType == OperatorAttrs().EluAttrs:
         return EluAttrsT.InitFromBuf(table.Bytes, table.Pos)
+    if unionType == OperatorAttrs().RandomUniformLikeAttrs:
+        return RandomUniformLikeAttrsT.InitFromBuf(table.Bytes, table.Pos)
+    if unionType == OperatorAttrs().RandomNormalAttrs:
+        return RandomNormalAttrsT.InitFromBuf(table.Bytes, table.Pos)
+    if unionType == OperatorAttrs().RandomNormalLikeAttrs:
+        return RandomNormalLikeAttrsT.InitFromBuf(table.Bytes, table.Pos)
     return None
 
 
@@ -2760,6 +2772,267 @@ class OneHotAttrsT(object):
         return oneHotAttrs
 
 
+class RandomNormalAttrs(object):
+    __slots__ = ['_tab']
+
+    @classmethod
+    def GetRootAs(cls, buf, offset=0):
+        n = flatbuffers.encode.Get(flatbuffers.packer.uoffset, buf, offset)
+        x = RandomNormalAttrs()
+        x.Init(buf, n + offset)
+        return x
+
+    @classmethod
+    def GetRootAsRandomNormalAttrs(cls, buf, offset=0):
+        """This method is deprecated. Please switch to GetRootAs."""
+        return cls.GetRootAs(buf, offset)
+    @classmethod
+    def RandomNormalAttrsBufferHasIdentifier(cls, buf, offset, size_prefixed=False):
+        return flatbuffers.util.BufferHasIdentifier(buf, offset, b"\x52\x54\x45\x4E", size_prefixed=size_prefixed)
+
+    # RandomNormalAttrs
+    def Init(self, buf, pos):
+        self._tab = flatbuffers.table.Table(buf, pos)
+
+    # RandomNormalAttrs
+    def Mean(self):
+        o = flatbuffers.number_types.UOffsetTFlags.py_type(self._tab.Offset(4))
+        if o != 0:
+            return self._tab.Get(flatbuffers.number_types.Float32Flags, o + self._tab.Pos)
+        return 0.0
+
+    # RandomNormalAttrs
+    def Scale(self):
+        o = flatbuffers.number_types.UOffsetTFlags.py_type(self._tab.Offset(6))
+        if o != 0:
+            return self._tab.Get(flatbuffers.number_types.Float32Flags, o + self._tab.Pos)
+        return 0.0
+
+    # RandomNormalAttrs
+    def Seed(self):
+        o = flatbuffers.number_types.UOffsetTFlags.py_type(self._tab.Offset(8))
+        if o != 0:
+            return self._tab.Get(flatbuffers.number_types.Float32Flags, o + self._tab.Pos)
+        return None
+
+    # RandomNormalAttrs
+    def Shape(self, j):
+        o = flatbuffers.number_types.UOffsetTFlags.py_type(self._tab.Offset(10))
+        if o != 0:
+            a = self._tab.Vector(o)
+            return self._tab.Get(flatbuffers.number_types.Uint32Flags, a + flatbuffers.number_types.UOffsetTFlags.py_type(j * 4))
+        return 0
+
+    # RandomNormalAttrs
+    def ShapeAsNumpy(self):
+        o = flatbuffers.number_types.UOffsetTFlags.py_type(self._tab.Offset(10))
+        if o != 0:
+            return self._tab.GetVectorAsNumpy(flatbuffers.number_types.Uint32Flags, o)
+        return 0
+
+    # RandomNormalAttrs
+    def ShapeLength(self):
+        o = flatbuffers.number_types.UOffsetTFlags.py_type(self._tab.Offset(10))
+        if o != 0:
+            return self._tab.VectorLen(o)
+        return 0
+
+    # RandomNormalAttrs
+    def ShapeIsNone(self):
+        o = flatbuffers.number_types.UOffsetTFlags.py_type(self._tab.Offset(10))
+        return o == 0
+
+def RandomNormalAttrsStart(builder):
+    builder.StartObject(4)
+
+def RandomNormalAttrsAddMean(builder, mean):
+    builder.PrependFloat32Slot(0, mean, 0.0)
+
+def RandomNormalAttrsAddScale(builder, scale):
+    builder.PrependFloat32Slot(1, scale, 0.0)
+
+def RandomNormalAttrsAddSeed(builder, seed):
+    builder.PrependFloat32Slot(2, seed, None)
+
+def RandomNormalAttrsAddShape(builder, shape):
+    builder.PrependUOffsetTRelativeSlot(3, flatbuffers.number_types.UOffsetTFlags.py_type(shape), 0)
+
+def RandomNormalAttrsStartShapeVector(builder, numElems):
+    return builder.StartVector(4, numElems, 4)
+
+def RandomNormalAttrsEnd(builder):
+    return builder.EndObject()
+
+
+try:
+    from typing import List
+except:
+    pass
+
+class RandomNormalAttrsT(object):
+
+    # RandomNormalAttrsT
+    def __init__(self):
+        self.mean = 0.0  # type: float
+        self.scale = 0.0  # type: float
+        self.seed = None  # type: Optional[float]
+        self.shape = None  # type: List[int]
+
+    @classmethod
+    def InitFromBuf(cls, buf, pos):
+        randomNormalAttrs = RandomNormalAttrs()
+        randomNormalAttrs.Init(buf, pos)
+        return cls.InitFromObj(randomNormalAttrs)
+
+    @classmethod
+    def InitFromPackedBuf(cls, buf, pos=0):
+        n = flatbuffers.encode.Get(flatbuffers.packer.uoffset, buf, pos)
+        return cls.InitFromBuf(buf, pos+n)
+
+    @classmethod
+    def InitFromObj(cls, randomNormalAttrs):
+        x = RandomNormalAttrsT()
+        x._UnPack(randomNormalAttrs)
+        return x
+
+    # RandomNormalAttrsT
+    def _UnPack(self, randomNormalAttrs):
+        if randomNormalAttrs is None:
+            return
+        self.mean = randomNormalAttrs.Mean()
+        self.scale = randomNormalAttrs.Scale()
+        self.seed = randomNormalAttrs.Seed()
+        if not randomNormalAttrs.ShapeIsNone():
+            if np is None:
+                self.shape = []
+                for i in range(randomNormalAttrs.ShapeLength()):
+                    self.shape.append(randomNormalAttrs.Shape(i))
+            else:
+                self.shape = randomNormalAttrs.ShapeAsNumpy()
+
+    # RandomNormalAttrsT
+    def Pack(self, builder):
+        if self.shape is not None:
+            if np is not None and type(self.shape) is np.ndarray:
+                shape = builder.CreateNumpyVector(self.shape)
+            else:
+                RandomNormalAttrsStartShapeVector(builder, len(self.shape))
+                for i in reversed(range(len(self.shape))):
+                    builder.PrependUint32(self.shape[i])
+                shape = builder.EndVector()
+        RandomNormalAttrsStart(builder)
+        RandomNormalAttrsAddMean(builder, self.mean)
+        RandomNormalAttrsAddScale(builder, self.scale)
+        RandomNormalAttrsAddSeed(builder, self.seed)
+        if self.shape is not None:
+            RandomNormalAttrsAddShape(builder, shape)
+        randomNormalAttrs = RandomNormalAttrsEnd(builder)
+        return randomNormalAttrs
+
+
+class RandomNormalLikeAttrs(object):
+    __slots__ = ['_tab']
+
+    @classmethod
+    def GetRootAs(cls, buf, offset=0):
+        n = flatbuffers.encode.Get(flatbuffers.packer.uoffset, buf, offset)
+        x = RandomNormalLikeAttrs()
+        x.Init(buf, n + offset)
+        return x
+
+    @classmethod
+    def GetRootAsRandomNormalLikeAttrs(cls, buf, offset=0):
+        """This method is deprecated. Please switch to GetRootAs."""
+        return cls.GetRootAs(buf, offset)
+    @classmethod
+    def RandomNormalLikeAttrsBufferHasIdentifier(cls, buf, offset, size_prefixed=False):
+        return flatbuffers.util.BufferHasIdentifier(buf, offset, b"\x52\x54\x45\x4E", size_prefixed=size_prefixed)
+
+    # RandomNormalLikeAttrs
+    def Init(self, buf, pos):
+        self._tab = flatbuffers.table.Table(buf, pos)
+
+    # RandomNormalLikeAttrs
+    def Mean(self):
+        o = flatbuffers.number_types.UOffsetTFlags.py_type(self._tab.Offset(4))
+        if o != 0:
+            return self._tab.Get(flatbuffers.number_types.Float32Flags, o + self._tab.Pos)
+        return 0.0
+
+    # RandomNormalLikeAttrs
+    def Scale(self):
+        o = flatbuffers.number_types.UOffsetTFlags.py_type(self._tab.Offset(6))
+        if o != 0:
+            return self._tab.Get(flatbuffers.number_types.Float32Flags, o + self._tab.Pos)
+        return 0.0
+
+    # RandomNormalLikeAttrs
+    def Seed(self):
+        o = flatbuffers.number_types.UOffsetTFlags.py_type(self._tab.Offset(8))
+        if o != 0:
+            return self._tab.Get(flatbuffers.number_types.Float32Flags, o + self._tab.Pos)
+        return None
+
+def RandomNormalLikeAttrsStart(builder):
+    builder.StartObject(3)
+
+def RandomNormalLikeAttrsAddMean(builder, mean):
+    builder.PrependFloat32Slot(0, mean, 0.0)
+
+def RandomNormalLikeAttrsAddScale(builder, scale):
+    builder.PrependFloat32Slot(1, scale, 0.0)
+
+def RandomNormalLikeAttrsAddSeed(builder, seed):
+    builder.PrependFloat32Slot(2, seed, None)
+
+def RandomNormalLikeAttrsEnd(builder):
+    return builder.EndObject()
+
+
+
+class RandomNormalLikeAttrsT(object):
+
+    # RandomNormalLikeAttrsT
+    def __init__(self):
+        self.mean = 0.0  # type: float
+        self.scale = 0.0  # type: float
+        self.seed = None  # type: Optional[float]
+
+    @classmethod
+    def InitFromBuf(cls, buf, pos):
+        randomNormalLikeAttrs = RandomNormalLikeAttrs()
+        randomNormalLikeAttrs.Init(buf, pos)
+        return cls.InitFromObj(randomNormalLikeAttrs)
+
+    @classmethod
+    def InitFromPackedBuf(cls, buf, pos=0):
+        n = flatbuffers.encode.Get(flatbuffers.packer.uoffset, buf, pos)
+        return cls.InitFromBuf(buf, pos+n)
+
+    @classmethod
+    def InitFromObj(cls, randomNormalLikeAttrs):
+        x = RandomNormalLikeAttrsT()
+        x._UnPack(randomNormalLikeAttrs)
+        return x
+
+    # RandomNormalLikeAttrsT
+    def _UnPack(self, randomNormalLikeAttrs):
+        if randomNormalLikeAttrs is None:
+            return
+        self.mean = randomNormalLikeAttrs.Mean()
+        self.scale = randomNormalLikeAttrs.Scale()
+        self.seed = randomNormalLikeAttrs.Seed()
+
+    # RandomNormalLikeAttrsT
+    def Pack(self, builder):
+        RandomNormalLikeAttrsStart(builder)
+        RandomNormalLikeAttrsAddMean(builder, self.mean)
+        RandomNormalLikeAttrsAddScale(builder, self.scale)
+        RandomNormalLikeAttrsAddSeed(builder, self.seed)
+        randomNormalLikeAttrs = RandomNormalLikeAttrsEnd(builder)
+        return randomNormalLikeAttrs
+
+
 class RandomUniformAttrs(object):
     __slots__ = ['_tab']
 
@@ -2916,6 +3189,109 @@ class RandomUniformAttrsT(object):
         RandomUniformAttrsAddSeed(builder, self.seed)
         randomUniformAttrs = RandomUniformAttrsEnd(builder)
         return randomUniformAttrs
+
+
+class RandomUniformLikeAttrs(object):
+    __slots__ = ['_tab']
+
+    @classmethod
+    def GetRootAs(cls, buf, offset=0):
+        n = flatbuffers.encode.Get(flatbuffers.packer.uoffset, buf, offset)
+        x = RandomUniformLikeAttrs()
+        x.Init(buf, n + offset)
+        return x
+
+    @classmethod
+    def GetRootAsRandomUniformLikeAttrs(cls, buf, offset=0):
+        """This method is deprecated. Please switch to GetRootAs."""
+        return cls.GetRootAs(buf, offset)
+    @classmethod
+    def RandomUniformLikeAttrsBufferHasIdentifier(cls, buf, offset, size_prefixed=False):
+        return flatbuffers.util.BufferHasIdentifier(buf, offset, b"\x52\x54\x45\x4E", size_prefixed=size_prefixed)
+
+    # RandomUniformLikeAttrs
+    def Init(self, buf, pos):
+        self._tab = flatbuffers.table.Table(buf, pos)
+
+    # RandomUniformLikeAttrs
+    def High(self):
+        o = flatbuffers.number_types.UOffsetTFlags.py_type(self._tab.Offset(4))
+        if o != 0:
+            return self._tab.Get(flatbuffers.number_types.Float32Flags, o + self._tab.Pos)
+        return 0.0
+
+    # RandomUniformLikeAttrs
+    def Low(self):
+        o = flatbuffers.number_types.UOffsetTFlags.py_type(self._tab.Offset(6))
+        if o != 0:
+            return self._tab.Get(flatbuffers.number_types.Float32Flags, o + self._tab.Pos)
+        return 0.0
+
+    # RandomUniformLikeAttrs
+    def Seed(self):
+        o = flatbuffers.number_types.UOffsetTFlags.py_type(self._tab.Offset(8))
+        if o != 0:
+            return self._tab.Get(flatbuffers.number_types.Float32Flags, o + self._tab.Pos)
+        return None
+
+def RandomUniformLikeAttrsStart(builder):
+    builder.StartObject(3)
+
+def RandomUniformLikeAttrsAddHigh(builder, high):
+    builder.PrependFloat32Slot(0, high, 0.0)
+
+def RandomUniformLikeAttrsAddLow(builder, low):
+    builder.PrependFloat32Slot(1, low, 0.0)
+
+def RandomUniformLikeAttrsAddSeed(builder, seed):
+    builder.PrependFloat32Slot(2, seed, None)
+
+def RandomUniformLikeAttrsEnd(builder):
+    return builder.EndObject()
+
+
+
+class RandomUniformLikeAttrsT(object):
+
+    # RandomUniformLikeAttrsT
+    def __init__(self):
+        self.high = 0.0  # type: float
+        self.low = 0.0  # type: float
+        self.seed = None  # type: Optional[float]
+
+    @classmethod
+    def InitFromBuf(cls, buf, pos):
+        randomUniformLikeAttrs = RandomUniformLikeAttrs()
+        randomUniformLikeAttrs.Init(buf, pos)
+        return cls.InitFromObj(randomUniformLikeAttrs)
+
+    @classmethod
+    def InitFromPackedBuf(cls, buf, pos=0):
+        n = flatbuffers.encode.Get(flatbuffers.packer.uoffset, buf, pos)
+        return cls.InitFromBuf(buf, pos+n)
+
+    @classmethod
+    def InitFromObj(cls, randomUniformLikeAttrs):
+        x = RandomUniformLikeAttrsT()
+        x._UnPack(randomUniformLikeAttrs)
+        return x
+
+    # RandomUniformLikeAttrsT
+    def _UnPack(self, randomUniformLikeAttrs):
+        if randomUniformLikeAttrs is None:
+            return
+        self.high = randomUniformLikeAttrs.High()
+        self.low = randomUniformLikeAttrs.Low()
+        self.seed = randomUniformLikeAttrs.Seed()
+
+    # RandomUniformLikeAttrsT
+    def Pack(self, builder):
+        RandomUniformLikeAttrsStart(builder)
+        RandomUniformLikeAttrsAddHigh(builder, self.high)
+        RandomUniformLikeAttrsAddLow(builder, self.low)
+        RandomUniformLikeAttrsAddSeed(builder, self.seed)
+        randomUniformLikeAttrs = RandomUniformLikeAttrsEnd(builder)
+        return randomUniformLikeAttrs
 
 
 class ReduceMeanAttrs(object):
@@ -3989,7 +4365,7 @@ class OperatorNodeT(object):
     def __init__(self):
         self.type = 0  # type: int
         self.attrsType = 0  # type: int
-        self.attrs = None  # type: Union[None, ArgMaxAttrsT, AveragePoolAttrsT, BatchNormalizationAttrsT, CastAttrsT, ConcatAttrsT, ConstantOfShapeAttrsT, ConvAttrsT, ConvTransposeAttrsT, FlattenAttrsT, GatherAttrsT, GemmAttrsT, GRUAttrsT, LeakyReluAttrsT, LSTMAttrsT, MaxPoolAttrsT, ReduceMeanAttrsT, ReshapeAttrsT, ResizeAttrsT, SplitAttrsT, SoftmaxAttrsT, TransposeAttrsT, ModAttrsT, ScatterElementsAttrsT, OneHotAttrsT, TopKAttrsT, HardSigmoidAttrsT, TriluAttrsT, ScatterNDAttrsT, NonMaxSuppressionAttrsT, LayerNormalizationAttrsT, RandomUniformAttrsT, EluAttrsT]
+        self.attrs = None  # type: Union[None, ArgMaxAttrsT, AveragePoolAttrsT, BatchNormalizationAttrsT, CastAttrsT, ConcatAttrsT, ConstantOfShapeAttrsT, ConvAttrsT, ConvTransposeAttrsT, FlattenAttrsT, GatherAttrsT, GemmAttrsT, GRUAttrsT, LeakyReluAttrsT, LSTMAttrsT, MaxPoolAttrsT, ReduceMeanAttrsT, ReshapeAttrsT, ResizeAttrsT, SplitAttrsT, SoftmaxAttrsT, TransposeAttrsT, ModAttrsT, ScatterElementsAttrsT, OneHotAttrsT, TopKAttrsT, HardSigmoidAttrsT, TriluAttrsT, ScatterNDAttrsT, NonMaxSuppressionAttrsT, LayerNormalizationAttrsT, RandomUniformAttrsT, EluAttrsT, RandomUniformLikeAttrsT, RandomNormalAttrsT, RandomNormalLikeAttrsT]
         self.inputs = None  # type: List[int]
         self.outputs = None  # type: List[int]
 
