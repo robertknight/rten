@@ -137,6 +137,9 @@ pub fn copy_contiguous<'a, T: Clone>(
                 copy_blocked(src, dest);
             }
         }
+        // Safety: Loop above initialized all elements of `dest`.
+        let data = dest.data().unwrap();
+        unsafe { std::mem::transmute(data) }
     } else {
         let mut dest_offset = 0;
         for i0 in 0..src.size(0) {
@@ -152,10 +155,9 @@ pub fn copy_contiguous<'a, T: Clone>(
                 }
             }
         }
+        // Safety: Loop above initialized all elements of `dest`.
+        unsafe { std::mem::transmute(dest) }
     }
-
-    // Safety: Loop above initialized all elements of `dest`.
-    unsafe { std::mem::transmute(dest) }
 }
 
 #[cfg(test)]

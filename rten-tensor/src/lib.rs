@@ -47,6 +47,7 @@ mod layout;
 mod macros;
 mod overlap;
 mod slice_range;
+mod storage;
 mod tensor;
 mod transpose;
 
@@ -104,6 +105,8 @@ pub use tensor::{
     AsView, Matrix, MatrixMut, NdTensor, NdTensorView, NdTensorViewMut, Tensor, TensorBase,
     TensorView, TensorViewMut, WeaklyCheckedView,
 };
+
+pub use storage::{Storage, StorageMut, ViewData, ViewMutData};
 
 /// This module provides a convenient way to import the most common traits
 /// from this library via a glob import.

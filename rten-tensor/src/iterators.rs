@@ -1,10 +1,11 @@
-use std::iter::{repeat, zip, Cycle, FusedIterator, StepBy, Take};
+use std::iter::{repeat, zip, Cycle, FusedIterator, Take};
 use std::ops::{Add, Range};
 use std::slice;
 
 use crate::index_iterator::DynIndices;
 use crate::layout::Layout;
 use crate::slice_range::{to_slice_items, SliceItem, SliceRange};
+use crate::storage::{StorageMut, ViewData, ViewMutData};
 
 use super::{
     AsView, MutLayout, NdTensorView, NdTensorViewMut, TensorBase, TensorView, TensorViewMut,
@@ -15,17 +16,20 @@ use super::{
 ///
 /// `'d` is the lifetime of the data and `'l` the lifetime of the layout.
 pub(crate) struct ViewRef<'d, 'l, T, L: Layout> {
-    data: &'d [T],
+    data: ViewData<'d, T>,
     layout: &'l L,
 }
 
 impl<'d, 'l, T, L: Layout> ViewRef<'d, 'l, T, L> {
-    pub(crate) fn new(data: &'d [T], layout: &'l L) -> ViewRef<'d, 'l, T, L> {
+    pub(crate) fn new(data: ViewData<'d, T>, layout: &'l L) -> ViewRef<'d, 'l, T, L> {
         ViewRef { data, layout }
     }
 
     fn contiguous_data(&self) -> Option<&'d [T]> {
-        self.layout.is_contiguous().then_some(self.data)
+        self.layout.is_contiguous().then_some(unsafe {
+            // Safety: We verified the layout is contigous
+            self.data.as_slice()
+        })
     }
 
     fn shape(&self) -> L::Index<'_> {
@@ -45,12 +49,12 @@ impl<'d, 'l, T, L: Layout> Clone for ViewRef<'d, 'l, T, L> {
 /// Mutably borrowed reference to a tensor's data and layout. This differs from
 /// [TensorViewMut] in that it borrows the layout rather than having its own.
 pub(crate) struct MutViewRef<'d, 'l, T, L: Layout> {
-    data: &'d mut [T],
+    data: ViewMutData<'d, T>,
     layout: &'l L,
 }
 
 impl<'d, 'l, T, L: Layout> MutViewRef<'d, 'l, T, L> {
-    pub(crate) fn new(data: &'d mut [T], layout: &'l L) -> MutViewRef<'d, 'l, T, L> {
+    pub(crate) fn new(data: ViewMutData<'d, T>, layout: &'l L) -> MutViewRef<'d, 'l, T, L> {
         MutViewRef { data, layout }
     }
 }
@@ -345,7 +349,7 @@ struct IndexingIter<'a, T> {
     base: IndexingIterBase,
 
     /// Data buffer of the tensor
-    data: &'a [T],
+    data: ViewData<'a, T>,
 }
 
 impl<'a, T> IndexingIter<'a, T> {
@@ -372,7 +376,7 @@ impl<'a, T> Iterator for IndexingIter<'a, T> {
         if self.base.len == 0 {
             return None;
         }
-        let element = &self.data[self.base.offset as usize];
+        let element = self.data.get(self.base.offset as usize).unwrap();
         self.base.step();
         Some(element)
     }
@@ -403,8 +407,10 @@ enum IterMutKind<'a, T> {
 impl<'a, T> IterMut<'a, T> {
     pub(super) fn new<L: Layout>(view: MutViewRef<'a, '_, T, L>) -> IterMut<'a, T> {
         if view.layout.is_contiguous() {
+            // Safety: The data is contiguous.
+            let data = unsafe { view.data.to_slice_mut() };
             IterMut {
-                iter: IterMutKind::Direct(view.data.iter_mut()),
+                iter: IterMutKind::Direct(data.iter_mut()),
             }
         } else {
             IterMut {
@@ -452,7 +458,7 @@ struct IndexingIterMut<'a, T> {
     base: IndexingIterBase,
 
     /// Data buffer of the tensor
-    data: &'a mut [T],
+    data: ViewMutData<'a, T>,
 }
 
 impl<'a, T> IndexingIterMut<'a, T> {
@@ -477,7 +483,7 @@ impl<'a, T> Iterator for IndexingIterMut<'a, T> {
             return None;
         }
         let element = unsafe {
-            let el = &mut self.data[self.base.offset as usize];
+            let el = self.data.get_mut(self.base.offset as usize).unwrap();
 
             // Safety: IndexingIterBase never yields the same offset more than
             // once as long as we're not broadcasting, which was checked in the
@@ -695,13 +701,18 @@ impl Iterator for LaneRanges {
 /// Conceptually this iterator steps through every distinct slice of a tensor
 /// where a target dim is varied from 0..N and other indices are held fixed.
 pub struct Lanes<'a, T> {
-    data: &'a [T],
+    data: ViewData<'a, T>,
     ranges: LaneRanges,
+    size: usize,
+    stride: usize,
 }
 
 /// Iterator over items in a 1D slice of a tensor.
 pub struct Lane<'a, T> {
-    inner: StepBy<std::slice::Iter<'a, T>>,
+    data: ViewData<'a, T>,
+    index: usize,
+    stride: usize,
+    size: usize,
 }
 
 impl<'a, T> Iterator for Lane<'a, T> {
@@ -709,11 +720,17 @@ impl<'a, T> Iterator for Lane<'a, T> {
 
     #[inline]
     fn next(&mut self) -> Option<Self::Item> {
-        self.inner.next()
+        if self.index < self.size {
+            let index = self.index;
+            self.index += 1;
+            self.data.get(index * self.stride)
+        } else {
+            None
+        }
     }
 
     fn size_hint(&self) -> (usize, Option<usize>) {
-        self.inner.size_hint()
+        (self.size, Some(self.size))
     }
 }
 
@@ -726,6 +743,8 @@ impl<'a, T> Lanes<'a, T> {
         Lanes {
             data: view.data,
             ranges: LaneRanges::new(view.layout, dim),
+            size: view.layout.size(dim),
+            stride: view.layout.stride(dim),
         }
     }
 }
@@ -735,11 +754,11 @@ impl<'a, T> Iterator for Lanes<'a, T> {
 
     /// Yield the next slice over the target dimension.
     fn next(&mut self) -> Option<Self::Item> {
-        self.ranges.next().map(|range| {
-            let slice = &self.data[range];
-            Lane {
-                inner: slice.iter().step_by(self.ranges.dim_stride),
-            }
+        self.ranges.next().map(|range| Lane {
+            data: self.data.slice(range),
+            index: 0,
+            stride: self.stride,
+            size: self.size,
         })
     }
 }
@@ -750,8 +769,10 @@ impl<'a, T> Iterator for Lanes<'a, T> {
 /// in implementing this for an iterator that returns mutable references, but
 /// it has a similar interface.
 pub struct LanesMut<'a, T> {
-    data: &'a mut [T],
+    data: ViewMutData<'a, T>,
     ranges: LaneRanges,
+    size: usize,
+    stride: usize,
 }
 
 impl<'a, T> LanesMut<'a, T> {
@@ -766,13 +787,18 @@ impl<'a, T> LanesMut<'a, T> {
         LanesMut {
             ranges: LaneRanges::new(view.layout, dim),
             data: view.data,
+            size: view.layout.size(dim),
+            stride: view.layout.stride(dim),
         }
     }
 }
 
 /// Iterator over items in a 1D slice of a tensor.
 pub struct LaneMut<'a, T> {
-    inner: StepBy<std::slice::IterMut<'a, T>>,
+    data: ViewMutData<'a, T>,
+    index: usize,
+    stride: usize,
+    size: usize,
 }
 
 impl<'a, T> Iterator for LaneMut<'a, T> {
@@ -780,11 +806,18 @@ impl<'a, T> Iterator for LaneMut<'a, T> {
 
     #[inline]
     fn next(&mut self) -> Option<Self::Item> {
-        self.inner.next()
+        if self.index < self.size {
+            let index = self.index;
+            self.index += 1;
+            let item = self.data.get_mut(index * self.stride);
+            unsafe { std::mem::transmute(item) }
+        } else {
+            None
+        }
     }
 
     fn size_hint(&self) -> (usize, Option<usize>) {
-        self.inner.size_hint()
+        (self.size, Some(self.size))
     }
 }
 
@@ -795,15 +828,12 @@ impl<'a, T> Iterator for LanesMut<'a, T> {
 
     fn next(&mut self) -> Option<LaneMut<'a, T>> {
         self.ranges.next().map(|range| {
-            // Safety: This is a non-broadcasting view, so each `LaneMut`
-            // yielded by this iterator will yield a distinct set of elements.
-            let slice = unsafe {
-                let slice = &mut self.data[range];
-                std::mem::transmute::<&mut [T], &'a mut [T]>(slice)
-            };
-
+            let data = self.data.slice_mut(range);
             LaneMut {
-                inner: slice.iter_mut().step_by(self.ranges.dim_stride),
+                data: unsafe { std::mem::transmute(data) },
+                size: self.size,
+                stride: self.stride,
+                index: 0,
             }
         })
     }
@@ -813,11 +843,11 @@ impl<'a, T> Iterator for LanesMut<'a, T> {
 /// type `T` and layout `L`.
 pub struct InnerIter<'a, T, L: MutLayout, const N: usize> {
     outer_indices: DynIndices,
-    view: TensorBase<T, &'a [T], L>,
+    view: TensorBase<T, ViewData<'a, T>, L>,
 }
 
 impl<'a, T, L: MutLayout, const N: usize> InnerIter<'a, T, L, N> {
-    pub fn new(view: TensorBase<T, &'a [T], L>) -> Self {
+    pub fn new(view: TensorBase<T, ViewData<'a, T>, L>) -> Self {
         assert!(view.ndim() >= N);
         let outer_dims = view.ndim() - N;
         let outer_indices = DynIndices::from_shape(&view.shape().as_ref()[..outer_dims]);
@@ -848,11 +878,11 @@ impl<'a, T, L: MutLayout, const N: usize> ExactSizeIterator for InnerIter<'a, T,
 /// Iterator over mutable views of the N innermost dimensions of a tensor.
 pub struct InnerIterMut<'a, T, L: MutLayout, const N: usize> {
     outer_indices: DynIndices,
-    view: TensorBase<T, &'a mut [T], L>,
+    view: TensorBase<T, ViewMutData<'a, T>, L>,
 }
 
 impl<'a, T, L: MutLayout, const N: usize> InnerIterMut<'a, T, L, N> {
-    pub fn new(view: TensorBase<T, &'a mut [T], L>) -> Self {
+    pub fn new(view: TensorBase<T, ViewMutData<'a, T>, L>) -> Self {
         assert!(view.ndim() >= N);
         let outer_dims = view.ndim() - N;
         let outer_indices = DynIndices::from_shape(&view.shape().as_ref()[..outer_dims]);
@@ -887,12 +917,12 @@ impl<'a, T, L: MutLayout, const N: usize> ExactSizeIterator for InnerIterMut<'a,
 
 /// Iterator over slices of a tensor along an axis. See [TensorView::axis_iter].
 pub struct AxisIter<'a, T, L: MutLayout> {
-    view: TensorBase<T, &'a [T], L>,
+    view: TensorBase<T, ViewData<'a, T>, L>,
     index: usize,
 }
 
 impl<'a, T, L: MutLayout> AxisIter<'a, T, L> {
-    pub fn new(view: &TensorBase<T, &'a [T], L>, dim: usize) -> AxisIter<'a, T, L> {
+    pub fn new(view: &TensorBase<T, ViewData<'a, T>, L>, dim: usize) -> AxisIter<'a, T, L> {
         let mut permuted = view.clone();
         permuted.move_axis(dim, 0);
         AxisIter {
@@ -918,12 +948,15 @@ impl<'a, T, L: MutLayout> Iterator for AxisIter<'a, T, L> {
 
 /// Iterator over mutable slices of a tensor along an axis. See [TensorViewMut::axis_iter_mut].
 pub struct AxisIterMut<'a, T, L: MutLayout> {
-    view: TensorBase<T, &'a mut [T], L>,
+    view: TensorBase<T, ViewMutData<'a, T>, L>,
     index: usize,
 }
 
 impl<'a, T, L: MutLayout> AxisIterMut<'a, T, L> {
-    pub fn new(mut view: TensorBase<T, &'a mut [T], L>, dim: usize) -> AxisIterMut<'a, T, L> {
+    pub fn new(
+        mut view: TensorBase<T, ViewMutData<'a, T>, L>,
+        dim: usize,
+    ) -> AxisIterMut<'a, T, L> {
         // See notes in `Layout` about internal overlap.
         assert!(
             !view.layout().is_broadcast(),
@@ -957,14 +990,14 @@ impl<'a, T, L: MutLayout> Iterator for AxisIterMut<'a, T, L> {
 
 /// Iterator over slices of a tensor along an axis. See [TensorView::axis_chunks].
 pub struct AxisChunks<'a, T, L: MutLayout> {
-    view: TensorBase<T, &'a [T], L>,
+    view: TensorBase<T, ViewData<'a, T>, L>,
     index: usize,
     chunk_size: usize,
 }
 
 impl<'a, T, L: MutLayout> AxisChunks<'a, T, L> {
     pub fn new(
-        view: &TensorBase<T, &'a [T], L>,
+        view: &TensorBase<T, ViewData<'a, T>, L>,
         dim: usize,
         chunk_size: usize,
     ) -> AxisChunks<'a, T, L> {
@@ -997,14 +1030,14 @@ impl<'a, T, L: MutLayout> Iterator for AxisChunks<'a, T, L> {
 
 /// Iterator over mutable slices of a tensor along an axis. See [TensorViewMut::axis_chunks_mut].
 pub struct AxisChunksMut<'a, T, L: MutLayout> {
-    view: TensorBase<T, &'a mut [T], L>,
+    view: TensorBase<T, ViewMutData<'a, T>, L>,
     index: usize,
     chunk_size: usize,
 }
 
 impl<'a, T, L: MutLayout> AxisChunksMut<'a, T, L> {
     pub fn new(
-        mut view: TensorBase<T, &'a mut [T], L>,
+        mut view: TensorBase<T, ViewMutData<'a, T>, L>,
         dim: usize,
         chunk_size: usize,
     ) -> AxisChunksMut<'a, T, L> {
