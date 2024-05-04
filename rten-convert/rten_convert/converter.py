@@ -417,7 +417,6 @@ def check_ints_length(name: str, ints: list[int], allowed_length: int):
 def constant_node_from_onnx_initializer(
     tensor: onnx.TensorProto, op_name: Optional[str]
 ) -> ConstantNode:
-
     dims = list(tensor.dims)
     data = numpy_helper.to_array(tensor)
 

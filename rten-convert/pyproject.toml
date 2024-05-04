@@ -19,3 +19,6 @@ Issues = "https://github.com/robertknight/rten/issues"
 [build-system]
 requires = ["setuptools>=61.0"]
 build-backend = "setuptools.build_meta"
+
+[tool.ruff]
+exclude = ["rten_convert/schema_generated.py"]

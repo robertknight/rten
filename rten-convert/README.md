@@ -33,3 +33,16 @@ To install this tool from a checkout of the Git repository, run:
 ```sh
 pip install -e .
 ```
+
+After making changes, run the QA checks. First, install the development
+dependencies:
+
+```
+pip install -r requirements.dev.txt
+```
+
+Then run:
+
+```
+make check
+```
