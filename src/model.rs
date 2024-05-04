@@ -1,5 +1,3 @@
-extern crate flatbuffers;
-
 use std::collections::HashMap;
 use std::env;
 use std::error::Error;
@@ -1185,8 +1183,6 @@ fn vec_from_flatbuffers_vec<'a, T: Copy + flatbuffers::Follow<'a, Inner = T>>(
 
 #[cfg(test)]
 mod tests {
-    extern crate flatbuffers;
-
     use rten_tensor::prelude::*;
     use rten_tensor::{tensor, Tensor};
 

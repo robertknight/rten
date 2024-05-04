@@ -1,5 +1,3 @@
-extern crate flatbuffers;
-
 use flatbuffers::{FlatBufferBuilder, UnionWIPOffset, Vector, WIPOffset};
 use rten_tensor::prelude::*;
 use rten_tensor::Tensor;
