@@ -18,13 +18,13 @@ pub const ENUM_MIN_OPERATOR_TYPE: u8 = 0;
     since = "2.0.0",
     note = "Use associated constants instead. This will no longer be generated in 2021."
 )]
-pub const ENUM_MAX_OPERATOR_TYPE: u8 = 96;
+pub const ENUM_MAX_OPERATOR_TYPE: u8 = 99;
 #[deprecated(
     since = "2.0.0",
     note = "Use associated constants instead. This will no longer be generated in 2021."
 )]
 #[allow(non_camel_case_types)]
-pub const ENUM_VALUES_OPERATOR_TYPE: [OperatorType; 97] = [
+pub const ENUM_VALUES_OPERATOR_TYPE: [OperatorType; 100] = [
     OperatorType::Add,
     OperatorType::ArgMin,
     OperatorType::ArgMax,
@@ -122,6 +122,9 @@ pub const ENUM_VALUES_OPERATOR_TYPE: [OperatorType; 97] = [
     OperatorType::ReduceSumSquare,
     OperatorType::RandomUniform,
     OperatorType::Elu,
+    OperatorType::RandomUniformLike,
+    OperatorType::RandomNormal,
+    OperatorType::RandomNormalLike,
 ];
 
 #[derive(Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash, Default)]
@@ -226,9 +229,12 @@ impl OperatorType {
     pub const ReduceSumSquare: Self = Self(94);
     pub const RandomUniform: Self = Self(95);
     pub const Elu: Self = Self(96);
+    pub const RandomUniformLike: Self = Self(97);
+    pub const RandomNormal: Self = Self(98);
+    pub const RandomNormalLike: Self = Self(99);
 
     pub const ENUM_MIN: u8 = 0;
-    pub const ENUM_MAX: u8 = 96;
+    pub const ENUM_MAX: u8 = 99;
     pub const ENUM_VALUES: &'static [Self] = &[
         Self::Add,
         Self::ArgMin,
@@ -327,6 +333,9 @@ impl OperatorType {
         Self::ReduceSumSquare,
         Self::RandomUniform,
         Self::Elu,
+        Self::RandomUniformLike,
+        Self::RandomNormal,
+        Self::RandomNormalLike,
     ];
     /// Returns the variant's name or "" if unknown.
     pub fn variant_name(self) -> Option<&'static str> {
@@ -428,6 +437,9 @@ impl OperatorType {
             Self::ReduceSumSquare => Some("ReduceSumSquare"),
             Self::RandomUniform => Some("RandomUniform"),
             Self::Elu => Some("Elu"),
+            Self::RandomUniformLike => Some("RandomUniformLike"),
+            Self::RandomNormal => Some("RandomNormal"),
+            Self::RandomNormalLike => Some("RandomNormalLike"),
             _ => None,
         }
     }
@@ -1054,13 +1066,13 @@ pub const ENUM_MIN_OPERATOR_ATTRS: u8 = 0;
     since = "2.0.0",
     note = "Use associated constants instead. This will no longer be generated in 2021."
 )]
-pub const ENUM_MAX_OPERATOR_ATTRS: u8 = 32;
+pub const ENUM_MAX_OPERATOR_ATTRS: u8 = 35;
 #[deprecated(
     since = "2.0.0",
     note = "Use associated constants instead. This will no longer be generated in 2021."
 )]
 #[allow(non_camel_case_types)]
-pub const ENUM_VALUES_OPERATOR_ATTRS: [OperatorAttrs; 33] = [
+pub const ENUM_VALUES_OPERATOR_ATTRS: [OperatorAttrs; 36] = [
     OperatorAttrs::NONE,
     OperatorAttrs::ArgMaxAttrs,
     OperatorAttrs::AveragePoolAttrs,
@@ -1094,6 +1106,9 @@ pub const ENUM_VALUES_OPERATOR_ATTRS: [OperatorAttrs; 33] = [
     OperatorAttrs::LayerNormalizationAttrs,
     OperatorAttrs::RandomUniformAttrs,
     OperatorAttrs::EluAttrs,
+    OperatorAttrs::RandomUniformLikeAttrs,
+    OperatorAttrs::RandomNormalAttrs,
+    OperatorAttrs::RandomNormalLikeAttrs,
 ];
 
 #[derive(Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash, Default)]
@@ -1134,9 +1149,12 @@ impl OperatorAttrs {
     pub const LayerNormalizationAttrs: Self = Self(30);
     pub const RandomUniformAttrs: Self = Self(31);
     pub const EluAttrs: Self = Self(32);
+    pub const RandomUniformLikeAttrs: Self = Self(33);
+    pub const RandomNormalAttrs: Self = Self(34);
+    pub const RandomNormalLikeAttrs: Self = Self(35);
 
     pub const ENUM_MIN: u8 = 0;
-    pub const ENUM_MAX: u8 = 32;
+    pub const ENUM_MAX: u8 = 35;
     pub const ENUM_VALUES: &'static [Self] = &[
         Self::NONE,
         Self::ArgMaxAttrs,
@@ -1171,6 +1189,9 @@ impl OperatorAttrs {
         Self::LayerNormalizationAttrs,
         Self::RandomUniformAttrs,
         Self::EluAttrs,
+        Self::RandomUniformLikeAttrs,
+        Self::RandomNormalAttrs,
+        Self::RandomNormalLikeAttrs,
     ];
     /// Returns the variant's name or "" if unknown.
     pub fn variant_name(self) -> Option<&'static str> {
@@ -1208,6 +1229,9 @@ impl OperatorAttrs {
             Self::LayerNormalizationAttrs => Some("LayerNormalizationAttrs"),
             Self::RandomUniformAttrs => Some("RandomUniformAttrs"),
             Self::EluAttrs => Some("EluAttrs"),
+            Self::RandomUniformLikeAttrs => Some("RandomUniformLikeAttrs"),
+            Self::RandomNormalAttrs => Some("RandomNormalAttrs"),
+            Self::RandomNormalLikeAttrs => Some("RandomNormalLikeAttrs"),
             _ => None,
         }
     }
@@ -4752,6 +4776,332 @@ impl core::fmt::Debug for OneHotAttrs<'_> {
         ds.finish()
     }
 }
+pub enum RandomNormalAttrsOffset {}
+#[derive(Copy, Clone, PartialEq)]
+
+pub struct RandomNormalAttrs<'a> {
+    pub _tab: flatbuffers::Table<'a>,
+}
+
+impl<'a> flatbuffers::Follow<'a> for RandomNormalAttrs<'a> {
+    type Inner = RandomNormalAttrs<'a>;
+    #[inline]
+    unsafe fn follow(buf: &'a [u8], loc: usize) -> Self::Inner {
+        Self {
+            _tab: flatbuffers::Table::new(buf, loc),
+        }
+    }
+}
+
+impl<'a> RandomNormalAttrs<'a> {
+    pub const VT_MEAN: flatbuffers::VOffsetT = 4;
+    pub const VT_SCALE: flatbuffers::VOffsetT = 6;
+    pub const VT_SEED: flatbuffers::VOffsetT = 8;
+    pub const VT_SHAPE: flatbuffers::VOffsetT = 10;
+
+    #[inline]
+    pub unsafe fn init_from_table(table: flatbuffers::Table<'a>) -> Self {
+        RandomNormalAttrs { _tab: table }
+    }
+    #[allow(unused_mut)]
+    pub fn create<'bldr: 'args, 'args: 'mut_bldr, 'mut_bldr>(
+        _fbb: &'mut_bldr mut flatbuffers::FlatBufferBuilder<'bldr>,
+        args: &'args RandomNormalAttrsArgs<'args>,
+    ) -> flatbuffers::WIPOffset<RandomNormalAttrs<'bldr>> {
+        let mut builder = RandomNormalAttrsBuilder::new(_fbb);
+        if let Some(x) = args.shape {
+            builder.add_shape(x);
+        }
+        if let Some(x) = args.seed {
+            builder.add_seed(x);
+        }
+        builder.add_scale(args.scale);
+        builder.add_mean(args.mean);
+        builder.finish()
+    }
+
+    #[inline]
+    pub fn mean(&self) -> f32 {
+        // Safety:
+        // Created from valid Table for this object
+        // which contains a valid value in this slot
+        unsafe {
+            self._tab
+                .get::<f32>(RandomNormalAttrs::VT_MEAN, Some(0.0))
+                .unwrap()
+        }
+    }
+    #[inline]
+    pub fn scale(&self) -> f32 {
+        // Safety:
+        // Created from valid Table for this object
+        // which contains a valid value in this slot
+        unsafe {
+            self._tab
+                .get::<f32>(RandomNormalAttrs::VT_SCALE, Some(0.0))
+                .unwrap()
+        }
+    }
+    #[inline]
+    pub fn seed(&self) -> Option<f32> {
+        // Safety:
+        // Created from valid Table for this object
+        // which contains a valid value in this slot
+        unsafe { self._tab.get::<f32>(RandomNormalAttrs::VT_SEED, None) }
+    }
+    #[inline]
+    pub fn shape(&self) -> Option<flatbuffers::Vector<'a, u32>> {
+        // Safety:
+        // Created from valid Table for this object
+        // which contains a valid value in this slot
+        unsafe {
+            self._tab
+                .get::<flatbuffers::ForwardsUOffset<flatbuffers::Vector<'a, u32>>>(
+                    RandomNormalAttrs::VT_SHAPE,
+                    None,
+                )
+        }
+    }
+}
+
+impl flatbuffers::Verifiable for RandomNormalAttrs<'_> {
+    #[inline]
+    fn run_verifier(
+        v: &mut flatbuffers::Verifier,
+        pos: usize,
+    ) -> Result<(), flatbuffers::InvalidFlatbuffer> {
+        use self::flatbuffers::Verifiable;
+        v.visit_table(pos)?
+            .visit_field::<f32>("mean", Self::VT_MEAN, false)?
+            .visit_field::<f32>("scale", Self::VT_SCALE, false)?
+            .visit_field::<f32>("seed", Self::VT_SEED, false)?
+            .visit_field::<flatbuffers::ForwardsUOffset<flatbuffers::Vector<'_, u32>>>(
+                "shape",
+                Self::VT_SHAPE,
+                false,
+            )?
+            .finish();
+        Ok(())
+    }
+}
+pub struct RandomNormalAttrsArgs<'a> {
+    pub mean: f32,
+    pub scale: f32,
+    pub seed: Option<f32>,
+    pub shape: Option<flatbuffers::WIPOffset<flatbuffers::Vector<'a, u32>>>,
+}
+impl<'a> Default for RandomNormalAttrsArgs<'a> {
+    #[inline]
+    fn default() -> Self {
+        RandomNormalAttrsArgs {
+            mean: 0.0,
+            scale: 0.0,
+            seed: None,
+            shape: None,
+        }
+    }
+}
+
+pub struct RandomNormalAttrsBuilder<'a: 'b, 'b> {
+    fbb_: &'b mut flatbuffers::FlatBufferBuilder<'a>,
+    start_: flatbuffers::WIPOffset<flatbuffers::TableUnfinishedWIPOffset>,
+}
+impl<'a: 'b, 'b> RandomNormalAttrsBuilder<'a, 'b> {
+    #[inline]
+    pub fn add_mean(&mut self, mean: f32) {
+        self.fbb_
+            .push_slot::<f32>(RandomNormalAttrs::VT_MEAN, mean, 0.0);
+    }
+    #[inline]
+    pub fn add_scale(&mut self, scale: f32) {
+        self.fbb_
+            .push_slot::<f32>(RandomNormalAttrs::VT_SCALE, scale, 0.0);
+    }
+    #[inline]
+    pub fn add_seed(&mut self, seed: f32) {
+        self.fbb_
+            .push_slot_always::<f32>(RandomNormalAttrs::VT_SEED, seed);
+    }
+    #[inline]
+    pub fn add_shape(&mut self, shape: flatbuffers::WIPOffset<flatbuffers::Vector<'b, u32>>) {
+        self.fbb_
+            .push_slot_always::<flatbuffers::WIPOffset<_>>(RandomNormalAttrs::VT_SHAPE, shape);
+    }
+    #[inline]
+    pub fn new(
+        _fbb: &'b mut flatbuffers::FlatBufferBuilder<'a>,
+    ) -> RandomNormalAttrsBuilder<'a, 'b> {
+        let start = _fbb.start_table();
+        RandomNormalAttrsBuilder {
+            fbb_: _fbb,
+            start_: start,
+        }
+    }
+    #[inline]
+    pub fn finish(self) -> flatbuffers::WIPOffset<RandomNormalAttrs<'a>> {
+        let o = self.fbb_.end_table(self.start_);
+        flatbuffers::WIPOffset::new(o.value())
+    }
+}
+
+impl core::fmt::Debug for RandomNormalAttrs<'_> {
+    fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
+        let mut ds = f.debug_struct("RandomNormalAttrs");
+        ds.field("mean", &self.mean());
+        ds.field("scale", &self.scale());
+        ds.field("seed", &self.seed());
+        ds.field("shape", &self.shape());
+        ds.finish()
+    }
+}
+pub enum RandomNormalLikeAttrsOffset {}
+#[derive(Copy, Clone, PartialEq)]
+
+pub struct RandomNormalLikeAttrs<'a> {
+    pub _tab: flatbuffers::Table<'a>,
+}
+
+impl<'a> flatbuffers::Follow<'a> for RandomNormalLikeAttrs<'a> {
+    type Inner = RandomNormalLikeAttrs<'a>;
+    #[inline]
+    unsafe fn follow(buf: &'a [u8], loc: usize) -> Self::Inner {
+        Self {
+            _tab: flatbuffers::Table::new(buf, loc),
+        }
+    }
+}
+
+impl<'a> RandomNormalLikeAttrs<'a> {
+    pub const VT_MEAN: flatbuffers::VOffsetT = 4;
+    pub const VT_SCALE: flatbuffers::VOffsetT = 6;
+    pub const VT_SEED: flatbuffers::VOffsetT = 8;
+
+    #[inline]
+    pub unsafe fn init_from_table(table: flatbuffers::Table<'a>) -> Self {
+        RandomNormalLikeAttrs { _tab: table }
+    }
+    #[allow(unused_mut)]
+    pub fn create<'bldr: 'args, 'args: 'mut_bldr, 'mut_bldr>(
+        _fbb: &'mut_bldr mut flatbuffers::FlatBufferBuilder<'bldr>,
+        args: &'args RandomNormalLikeAttrsArgs,
+    ) -> flatbuffers::WIPOffset<RandomNormalLikeAttrs<'bldr>> {
+        let mut builder = RandomNormalLikeAttrsBuilder::new(_fbb);
+        if let Some(x) = args.seed {
+            builder.add_seed(x);
+        }
+        builder.add_scale(args.scale);
+        builder.add_mean(args.mean);
+        builder.finish()
+    }
+
+    #[inline]
+    pub fn mean(&self) -> f32 {
+        // Safety:
+        // Created from valid Table for this object
+        // which contains a valid value in this slot
+        unsafe {
+            self._tab
+                .get::<f32>(RandomNormalLikeAttrs::VT_MEAN, Some(0.0))
+                .unwrap()
+        }
+    }
+    #[inline]
+    pub fn scale(&self) -> f32 {
+        // Safety:
+        // Created from valid Table for this object
+        // which contains a valid value in this slot
+        unsafe {
+            self._tab
+                .get::<f32>(RandomNormalLikeAttrs::VT_SCALE, Some(0.0))
+                .unwrap()
+        }
+    }
+    #[inline]
+    pub fn seed(&self) -> Option<f32> {
+        // Safety:
+        // Created from valid Table for this object
+        // which contains a valid value in this slot
+        unsafe { self._tab.get::<f32>(RandomNormalLikeAttrs::VT_SEED, None) }
+    }
+}
+
+impl flatbuffers::Verifiable for RandomNormalLikeAttrs<'_> {
+    #[inline]
+    fn run_verifier(
+        v: &mut flatbuffers::Verifier,
+        pos: usize,
+    ) -> Result<(), flatbuffers::InvalidFlatbuffer> {
+        use self::flatbuffers::Verifiable;
+        v.visit_table(pos)?
+            .visit_field::<f32>("mean", Self::VT_MEAN, false)?
+            .visit_field::<f32>("scale", Self::VT_SCALE, false)?
+            .visit_field::<f32>("seed", Self::VT_SEED, false)?
+            .finish();
+        Ok(())
+    }
+}
+pub struct RandomNormalLikeAttrsArgs {
+    pub mean: f32,
+    pub scale: f32,
+    pub seed: Option<f32>,
+}
+impl<'a> Default for RandomNormalLikeAttrsArgs {
+    #[inline]
+    fn default() -> Self {
+        RandomNormalLikeAttrsArgs {
+            mean: 0.0,
+            scale: 0.0,
+            seed: None,
+        }
+    }
+}
+
+pub struct RandomNormalLikeAttrsBuilder<'a: 'b, 'b> {
+    fbb_: &'b mut flatbuffers::FlatBufferBuilder<'a>,
+    start_: flatbuffers::WIPOffset<flatbuffers::TableUnfinishedWIPOffset>,
+}
+impl<'a: 'b, 'b> RandomNormalLikeAttrsBuilder<'a, 'b> {
+    #[inline]
+    pub fn add_mean(&mut self, mean: f32) {
+        self.fbb_
+            .push_slot::<f32>(RandomNormalLikeAttrs::VT_MEAN, mean, 0.0);
+    }
+    #[inline]
+    pub fn add_scale(&mut self, scale: f32) {
+        self.fbb_
+            .push_slot::<f32>(RandomNormalLikeAttrs::VT_SCALE, scale, 0.0);
+    }
+    #[inline]
+    pub fn add_seed(&mut self, seed: f32) {
+        self.fbb_
+            .push_slot_always::<f32>(RandomNormalLikeAttrs::VT_SEED, seed);
+    }
+    #[inline]
+    pub fn new(
+        _fbb: &'b mut flatbuffers::FlatBufferBuilder<'a>,
+    ) -> RandomNormalLikeAttrsBuilder<'a, 'b> {
+        let start = _fbb.start_table();
+        RandomNormalLikeAttrsBuilder {
+            fbb_: _fbb,
+            start_: start,
+        }
+    }
+    #[inline]
+    pub fn finish(self) -> flatbuffers::WIPOffset<RandomNormalLikeAttrs<'a>> {
+        let o = self.fbb_.end_table(self.start_);
+        flatbuffers::WIPOffset::new(o.value())
+    }
+}
+
+impl core::fmt::Debug for RandomNormalLikeAttrs<'_> {
+    fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
+        let mut ds = f.debug_struct("RandomNormalLikeAttrs");
+        ds.field("mean", &self.mean());
+        ds.field("scale", &self.scale());
+        ds.field("seed", &self.seed());
+        ds.finish()
+    }
+}
 pub enum RandomUniformAttrsOffset {}
 #[derive(Copy, Clone, PartialEq)]
 
@@ -4924,6 +5274,154 @@ impl core::fmt::Debug for RandomUniformAttrs<'_> {
     fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
         let mut ds = f.debug_struct("RandomUniformAttrs");
         ds.field("shape", &self.shape());
+        ds.field("high", &self.high());
+        ds.field("low", &self.low());
+        ds.field("seed", &self.seed());
+        ds.finish()
+    }
+}
+pub enum RandomUniformLikeAttrsOffset {}
+#[derive(Copy, Clone, PartialEq)]
+
+pub struct RandomUniformLikeAttrs<'a> {
+    pub _tab: flatbuffers::Table<'a>,
+}
+
+impl<'a> flatbuffers::Follow<'a> for RandomUniformLikeAttrs<'a> {
+    type Inner = RandomUniformLikeAttrs<'a>;
+    #[inline]
+    unsafe fn follow(buf: &'a [u8], loc: usize) -> Self::Inner {
+        Self {
+            _tab: flatbuffers::Table::new(buf, loc),
+        }
+    }
+}
+
+impl<'a> RandomUniformLikeAttrs<'a> {
+    pub const VT_HIGH: flatbuffers::VOffsetT = 4;
+    pub const VT_LOW: flatbuffers::VOffsetT = 6;
+    pub const VT_SEED: flatbuffers::VOffsetT = 8;
+
+    #[inline]
+    pub unsafe fn init_from_table(table: flatbuffers::Table<'a>) -> Self {
+        RandomUniformLikeAttrs { _tab: table }
+    }
+    #[allow(unused_mut)]
+    pub fn create<'bldr: 'args, 'args: 'mut_bldr, 'mut_bldr>(
+        _fbb: &'mut_bldr mut flatbuffers::FlatBufferBuilder<'bldr>,
+        args: &'args RandomUniformLikeAttrsArgs,
+    ) -> flatbuffers::WIPOffset<RandomUniformLikeAttrs<'bldr>> {
+        let mut builder = RandomUniformLikeAttrsBuilder::new(_fbb);
+        if let Some(x) = args.seed {
+            builder.add_seed(x);
+        }
+        builder.add_low(args.low);
+        builder.add_high(args.high);
+        builder.finish()
+    }
+
+    #[inline]
+    pub fn high(&self) -> f32 {
+        // Safety:
+        // Created from valid Table for this object
+        // which contains a valid value in this slot
+        unsafe {
+            self._tab
+                .get::<f32>(RandomUniformLikeAttrs::VT_HIGH, Some(0.0))
+                .unwrap()
+        }
+    }
+    #[inline]
+    pub fn low(&self) -> f32 {
+        // Safety:
+        // Created from valid Table for this object
+        // which contains a valid value in this slot
+        unsafe {
+            self._tab
+                .get::<f32>(RandomUniformLikeAttrs::VT_LOW, Some(0.0))
+                .unwrap()
+        }
+    }
+    #[inline]
+    pub fn seed(&self) -> Option<f32> {
+        // Safety:
+        // Created from valid Table for this object
+        // which contains a valid value in this slot
+        unsafe { self._tab.get::<f32>(RandomUniformLikeAttrs::VT_SEED, None) }
+    }
+}
+
+impl flatbuffers::Verifiable for RandomUniformLikeAttrs<'_> {
+    #[inline]
+    fn run_verifier(
+        v: &mut flatbuffers::Verifier,
+        pos: usize,
+    ) -> Result<(), flatbuffers::InvalidFlatbuffer> {
+        use self::flatbuffers::Verifiable;
+        v.visit_table(pos)?
+            .visit_field::<f32>("high", Self::VT_HIGH, false)?
+            .visit_field::<f32>("low", Self::VT_LOW, false)?
+            .visit_field::<f32>("seed", Self::VT_SEED, false)?
+            .finish();
+        Ok(())
+    }
+}
+pub struct RandomUniformLikeAttrsArgs {
+    pub high: f32,
+    pub low: f32,
+    pub seed: Option<f32>,
+}
+impl<'a> Default for RandomUniformLikeAttrsArgs {
+    #[inline]
+    fn default() -> Self {
+        RandomUniformLikeAttrsArgs {
+            high: 0.0,
+            low: 0.0,
+            seed: None,
+        }
+    }
+}
+
+pub struct RandomUniformLikeAttrsBuilder<'a: 'b, 'b> {
+    fbb_: &'b mut flatbuffers::FlatBufferBuilder<'a>,
+    start_: flatbuffers::WIPOffset<flatbuffers::TableUnfinishedWIPOffset>,
+}
+impl<'a: 'b, 'b> RandomUniformLikeAttrsBuilder<'a, 'b> {
+    #[inline]
+    pub fn add_high(&mut self, high: f32) {
+        self.fbb_
+            .push_slot::<f32>(RandomUniformLikeAttrs::VT_HIGH, high, 0.0);
+    }
+    #[inline]
+    pub fn add_low(&mut self, low: f32) {
+        self.fbb_
+            .push_slot::<f32>(RandomUniformLikeAttrs::VT_LOW, low, 0.0);
+    }
+    #[inline]
+    pub fn add_seed(&mut self, seed: f32) {
+        self.fbb_
+            .push_slot_always::<f32>(RandomUniformLikeAttrs::VT_SEED, seed);
+    }
+    #[inline]
+    pub fn new(
+        _fbb: &'b mut flatbuffers::FlatBufferBuilder<'a>,
+    ) -> RandomUniformLikeAttrsBuilder<'a, 'b> {
+        let start = _fbb.start_table();
+        RandomUniformLikeAttrsBuilder {
+            fbb_: _fbb,
+            start_: start,
+        }
+    }
+    #[inline]
+    pub fn finish(self) -> flatbuffers::WIPOffset<RandomUniformLikeAttrs<'a>> {
+        let o = self.fbb_.end_table(self.start_);
+        flatbuffers::WIPOffset::new(o.value())
+    }
+}
+
+impl core::fmt::Debug for RandomUniformLikeAttrs<'_> {
+    fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
+        let mut ds = f.debug_struct("RandomUniformLikeAttrs");
         ds.field("high", &self.high());
         ds.field("low", &self.low());
         ds.field("seed", &self.seed());
@@ -6705,6 +7203,51 @@ impl<'a> OperatorNode<'a> {
             None
         }
     }
+
+    #[inline]
+    #[allow(non_snake_case)]
+    pub fn attrs_as_random_uniform_like_attrs(&self) -> Option<RandomUniformLikeAttrs<'a>> {
+        if self.attrs_type() == OperatorAttrs::RandomUniformLikeAttrs {
+            self.attrs().map(|t| {
+                // Safety:
+                // Created from a valid Table for this object
+                // Which contains a valid union in this slot
+                unsafe { RandomUniformLikeAttrs::init_from_table(t) }
+            })
+        } else {
+            None
+        }
+    }
+
+    #[inline]
+    #[allow(non_snake_case)]
+    pub fn attrs_as_random_normal_attrs(&self) -> Option<RandomNormalAttrs<'a>> {
+        if self.attrs_type() == OperatorAttrs::RandomNormalAttrs {
+            self.attrs().map(|t| {
+                // Safety:
+                // Created from a valid Table for this object
+                // Which contains a valid union in this slot
+                unsafe { RandomNormalAttrs::init_from_table(t) }
+            })
+        } else {
+            None
+        }
+    }
+
+    #[inline]
+    #[allow(non_snake_case)]
+    pub fn attrs_as_random_normal_like_attrs(&self) -> Option<RandomNormalLikeAttrs<'a>> {
+        if self.attrs_type() == OperatorAttrs::RandomNormalLikeAttrs {
+            self.attrs().map(|t| {
+                // Safety:
+                // Created from a valid Table for this object
+                // Which contains a valid union in this slot
+                unsafe { RandomNormalLikeAttrs::init_from_table(t) }
+            })
+        } else {
+            None
+        }
+    }
 }
 
 impl flatbuffers::Verifiable for OperatorNode<'_> {
@@ -6750,6 +7293,9 @@ impl flatbuffers::Verifiable for OperatorNode<'_> {
           OperatorAttrs::LayerNormalizationAttrs => v.verify_union_variant::<flatbuffers::ForwardsUOffset<LayerNormalizationAttrs>>("OperatorAttrs::LayerNormalizationAttrs", pos),
           OperatorAttrs::RandomUniformAttrs => v.verify_union_variant::<flatbuffers::ForwardsUOffset<RandomUniformAttrs>>("OperatorAttrs::RandomUniformAttrs", pos),
           OperatorAttrs::EluAttrs => v.verify_union_variant::<flatbuffers::ForwardsUOffset<EluAttrs>>("OperatorAttrs::EluAttrs", pos),
+          OperatorAttrs::RandomUniformLikeAttrs => v.verify_union_variant::<flatbuffers::ForwardsUOffset<RandomUniformLikeAttrs>>("OperatorAttrs::RandomUniformLikeAttrs", pos),
+          OperatorAttrs::RandomNormalAttrs => v.verify_union_variant::<flatbuffers::ForwardsUOffset<RandomNormalAttrs>>("OperatorAttrs::RandomNormalAttrs", pos),
+          OperatorAttrs::RandomNormalLikeAttrs => v.verify_union_variant::<flatbuffers::ForwardsUOffset<RandomNormalLikeAttrs>>("OperatorAttrs::RandomNormalLikeAttrs", pos),
           _ => Ok(()),
         }
      })?
@@ -7145,6 +7691,36 @@ impl core::fmt::Debug for OperatorNode<'_> {
             }
             OperatorAttrs::EluAttrs => {
                 if let Some(x) = self.attrs_as_elu_attrs() {
+                    ds.field("attrs", &x)
+                } else {
+                    ds.field(
+                        "attrs",
+                        &"InvalidFlatbuffer: Union discriminant does not match value.",
+                    )
+                }
+            }
+            OperatorAttrs::RandomUniformLikeAttrs => {
+                if let Some(x) = self.attrs_as_random_uniform_like_attrs() {
+                    ds.field("attrs", &x)
+                } else {
+                    ds.field(
+                        "attrs",
+                        &"InvalidFlatbuffer: Union discriminant does not match value.",
+                    )
+                }
+            }
+            OperatorAttrs::RandomNormalAttrs => {
+                if let Some(x) = self.attrs_as_random_normal_attrs() {
+                    ds.field("attrs", &x)
+                } else {
+                    ds.field(
+                        "attrs",
+                        &"InvalidFlatbuffer: Union discriminant does not match value.",
+                    )
+                }
+            }
+            OperatorAttrs::RandomNormalLikeAttrs => {
+                if let Some(x) = self.attrs_as_random_normal_like_attrs() {
                     ds.field("attrs", &x)
                 } else {
                     ds.field(

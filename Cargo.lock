@@ -105,6 +105,15 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "658bd65b1cf4c852a3cc96f18a8ce7b5640f6b703f905c7d74532294c2a63984"
 
 [[package]]
+name = "fastrand-contrib"
+version = "0.1.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "fb6c045880cda8f657f4859baf534963ff0595e2dcce0de5f52dcdf3076c290b"
+dependencies = [
+ "fastrand",
+]
+
+[[package]]
 name = "fdeflate"
 version = "0.3.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -298,6 +307,7 @@ name = "rten"
 version = "0.8.0"
 dependencies = [
  "fastrand",
+ "fastrand-contrib",
  "flatbuffers",
  "libm",
  "rayon",

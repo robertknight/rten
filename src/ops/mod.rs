@@ -80,7 +80,7 @@ pub use pooling::{
 };
 
 #[cfg(feature = "random")]
-pub use random::RandomUniform;
+pub use random::{RandomNormal, RandomNormalLike, RandomUniform, RandomUniformLike};
 
 pub use reduce::{
     arg_max, arg_min, cum_sum, nonzero, reduce_l2, reduce_max, reduce_mean, reduce_min,

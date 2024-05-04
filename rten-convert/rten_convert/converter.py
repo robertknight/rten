@@ -802,12 +802,29 @@ def op_node_from_onnx_operator(
             attrs = sg.OneHotAttrsT()
             attrs.axis = op_reader.get_attr("axis", "int", -1)
 
-        case "RandomUniform":
-            attrs = sg.RandomUniformAttrsT()
-            op_reader.check_attr("dtype", "int", 1)
+        case "RandomNormal" | "RandomNormalLike":
+            match op_type:
+                case "RandomNormal":
+                    attrs = sg.RandomNormalAttrsT()
+                    attrs.shape = op_reader.require_attr("shape", "ints")
+                case "RandomNormalLike":
+                    attrs = sg.RandomNormalLikeAttrsT()
 
+            op_reader.check_attr("dtype", "int", 1)
             attrs.seed = op_reader.get_attr("seed", "float", None)
-            attrs.shape = op_reader.require_attr("shape", "ints")
+            attrs.mean = op_reader.get_attr("mean", "float", 0.0)
+            attrs.scale = op_reader.get_attr("scale", "float", 1.0)
+
+        case "RandomUniform" | "RandomUniformLike":
+            match op_type:
+                case "RandomUniform":
+                    attrs = sg.RandomUniformAttrsT()
+                    attrs.shape = op_reader.require_attr("shape", "ints")
+                case "RandomUniformLike":
+                    attrs = sg.RandomUniformLikeAttrsT()
+
+            op_reader.check_attr("dtype", "int", 1)
+            attrs.seed = op_reader.get_attr("seed", "float", None)
             attrs.low = op_reader.get_attr("low", "float", 0.0)
             attrs.high = op_reader.get_attr("high", "float", 1.0)
 

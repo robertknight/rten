@@ -40,6 +40,7 @@ smallvec = { version = "1.10.0", features = ["union", "const_generics", "const_n
 rten-tensor = { path = "./rten-tensor", version = "0.8.0" }
 rten-vecmath = { path = "./rten-vecmath", version = "0.8.0" }
 fastrand = { version = "2.0.2", optional = true }
+fastrand-contrib = { version = "0.1.0", optional = true }
 rustc-hash = "1.1.0"
 
 [dev-dependencies]
@@ -56,7 +57,7 @@ avx512 = ["rten-vecmath/avx512"]
 # Generate WebAssembly API using wasm-bindgen.
 wasm_api = []
 # Enable operators that generate random numbers.
-random = ["fastrand"]
+random = ["fastrand", "fastrand-contrib"]
 
 [target.'cfg(target_arch = "wasm32")'.dependencies]
 wasm-bindgen = "0.2.83"

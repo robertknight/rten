@@ -107,6 +107,9 @@ enum OperatorType: ubyte {
   ReduceSumSquare,
   RandomUniform,
   Elu,
+  RandomUniformLike,
+  RandomNormal,
+  RandomNormalLike,
 }
 
 enum RNNDirection: ubyte {
@@ -182,6 +185,9 @@ union OperatorAttrs {
   LayerNormalizationAttrs,
   RandomUniformAttrs,
   EluAttrs,
+  RandomUniformLikeAttrs,
+  RandomNormalAttrs,
+  RandomNormalLikeAttrs,
 }
 
 table ArgMaxAttrs {
@@ -316,8 +322,27 @@ table OneHotAttrs {
   axis:int;
 }
 
+table RandomNormalAttrs {
+  mean:float;
+  scale:float;
+  seed:float = null;
+  shape:[uint];
+}
+
+table RandomNormalLikeAttrs {
+  mean:float;
+  scale:float;
+  seed:float = null;
+}
+
 table RandomUniformAttrs {
   shape:[uint];
+  high:float;
+  low:float;
+  seed:float = null;
+}
+
+table RandomUniformLikeAttrs {
   high:float;
   low:float;
   seed:float = null;
