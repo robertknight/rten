@@ -39,3 +39,14 @@ jobs:
       run: |
         make checkformatting
         make lint
+    - name: Setup Python
+      run: |
+        pip install --upgrade pip
+      if: ${{ matrix.os == 'ubuntu-latest' }}
+    - name: Python Lint
+      run: |
+        cd rten-convert
+        pip install -e .
+        pip install -r requirements.dev.txt
+        make check
+      if: ${{ matrix.os == 'ubuntu-latest' }}
