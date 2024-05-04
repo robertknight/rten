@@ -618,6 +618,15 @@ impl_read_op!(Flatten, axis, attrs_as_flatten_attrs);
 impl_read_op!(Floor);
 impl_read_op!(Gather, axis, attrs_as_gather_attrs);
 impl_read_op!(GatherElements, axis, attrs_as_gather_attrs);
+impl_read_op!(
+    GatherND,
+    attrs_as_gather_ndattrs,
+    |attrs: sg::GatherNDAttrs| {
+        Ok(ops::GatherND {
+            batch_dims: attrs.batch_dims() as usize,
+        })
+    }
+);
 impl_read_op!(Gemm, attrs_as_gemm_attrs, |attrs: sg::GemmAttrs| {
     Ok(ops::Gemm {
         alpha: attrs.alpha(),
@@ -1010,6 +1019,7 @@ impl OpRegistry {
         register_op!(Floor);
         register_op!(Gather);
         register_op!(GatherElements);
+        register_op!(GatherND);
         register_op!(Gemm);
         register_op!(GlobalAveragePool);
         register_op!(Greater);

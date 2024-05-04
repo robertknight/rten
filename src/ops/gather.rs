@@ -1,7 +1,7 @@
 use std::iter::zip;
 
 use rten_tensor::prelude::*;
-use rten_tensor::{NdTensorView, SliceItem, Tensor, TensorView, TensorViewMut};
+use rten_tensor::{to_slice_items, NdTensorView, SliceItem, Tensor, TensorView, TensorViewMut};
 use smallvec::SmallVec;
 
 use crate::ops::reduce::{cmp_nan_greater, cmp_nan_less};
@@ -233,6 +233,94 @@ impl Operator for GatherElements {
     }
 }
 
+pub fn gather_nd<T: Clone + Default>(
+    pool: &TensorPool,
+    input: TensorView<T>,
+    indices: TensorView<i32>,
+    batch_dims: usize,
+) -> Result<Tensor<T>, OpError> {
+    if input.ndim() < 1 || indices.ndim() < 1 {
+        return Err(OpError::InvalidValue(
+            "Input and indices must have >= 1 dims",
+        ));
+    }
+    if batch_dims >= input.ndim().min(indices.ndim()) {
+        return Err(OpError::InvalidValue(
+            "`input` and `indices` ndim must be > `batch_dims`",
+        ));
+    }
+
+    if input.shape()[..batch_dims] != indices.shape()[..batch_dims] {
+        return Err(OpError::InvalidValue(
+            "`input` and `indices` batch dims have different sizes",
+        ));
+    }
+
+    let idx_tuple_size = indices.size(indices.ndim() - 1);
+    if idx_tuple_size < 1 || idx_tuple_size > input.ndim() - batch_dims {
+        return Err(OpError::InvalidValue(
+            "Size of last dim of `indices` is incorrect",
+        ));
+    }
+
+    let idx_len = indices.size(indices.ndim() - 1);
+    let out_slice_ndim = input.ndim() - batch_dims - idx_len;
+    let out_shape: Vec<usize> = indices.shape()[..indices.ndim() - 1]
+        .iter()
+        .chain(input.shape()[batch_dims + idx_len..].iter())
+        .copied()
+        .collect();
+    let mut output = Tensor::zeros_in(pool, &out_shape);
+
+    let output_non_batch_dims = output.ndim() - batch_dims;
+    let input_non_batch_dims = input.ndim() - batch_dims;
+    let indices_non_batch_dims = indices.ndim() - batch_dims;
+
+    for (mut output, (input, indices)) in output.inner_iter_dyn_mut(output_non_batch_dims).zip(
+        input
+            .inner_iter_dyn(input_non_batch_dims)
+            .zip(indices.inner_iter_dyn(indices_non_batch_dims)),
+    ) {
+        for (mut out_slice, idx) in output
+            .inner_iter_dyn_mut(out_slice_ndim)
+            .zip(indices.lanes(indices.ndim() - 1))
+        {
+            let idx_vec: SmallVec<[i32; 5]> = idx.copied().collect();
+            let slice_items = to_slice_items(&idx_vec);
+            let in_slice = input
+                .try_slice_dyn(slice_items.as_slice())
+                .map_err(|_| OpError::InvalidValue("Invalid index"))?;
+            out_slice.copy_from(&in_slice);
+        }
+    }
+
+    Ok(output)
+}
+
+#[derive(Debug)]
+pub struct GatherND {
+    pub batch_dims: usize,
+}
+
+impl Operator for GatherND {
+    fn name(&self) -> &str {
+        "GatherND"
+    }
+
+    fn run(&self, pool: &TensorPool, inputs: InputList) -> Result<Vec<Output>, OpError> {
+        let input = inputs.require(0)?;
+        let indices = inputs.require_as::<i32>(1)?;
+        match input {
+            Input::IntTensor(input) => {
+                gather_nd(pool, input, indices, self.batch_dims).into_op_result()
+            }
+            Input::FloatTensor(input) => {
+                gather_nd(pool, input, indices, self.batch_dims).into_op_result()
+            }
+        }
+    }
+}
+
 // Specifies how to combine an existing element value with an update in a
 // scatter operation.
 #[derive(Copy, Clone, Debug)]
@@ -455,7 +543,7 @@ mod tests {
 
     use crate::ops::tests::new_pool;
     use crate::ops::{
-        gather, gather_elements, scatter_elements, scatter_nd, OpError, ScatterReduction,
+        gather, gather_elements, gather_nd, scatter_elements, scatter_nd, OpError, ScatterReduction,
     };
 
     #[test]
@@ -618,6 +706,62 @@ mod tests {
                 "Input and indices must have same rank"
             ))
         );
+    }
+
+    #[test]
+    fn test_gather_nd() {
+        struct Case {
+            batch_dims: usize,
+            data: Tensor<i32>,
+            indices: Tensor<i32>,
+            expected: Result<Tensor<i32>, OpError>,
+        }
+
+        let cases = [
+            // Examples from ONNX spec.
+            Case {
+                batch_dims: 0,
+                data: [[0, 1], [2, 3]].into(),
+                indices: [[0, 0], [1, 1]].into(),
+                expected: Ok([0, 3].into()),
+            },
+            Case {
+                batch_dims: 0,
+                data: [[0, 1], [2, 3]].into(),
+                indices: [[1], [0]].into(),
+                expected: Ok([[2, 3], [0, 1]].into()),
+            },
+            Case {
+                batch_dims: 0,
+                data: [[[0, 1], [2, 3]], [[4, 5], [6, 7]]].into(),
+                indices: [[0, 1], [1, 0]].into(),
+                expected: Ok([[2, 3], [4, 5]].into()),
+            },
+            Case {
+                batch_dims: 0,
+                data: [[[0, 1], [2, 3]], [[4, 5], [6, 7]]].into(),
+                indices: [[[0, 1]], [[1, 0]]].into(),
+                expected: Ok([[[2, 3]], [[4, 5]]].into()),
+            },
+            Case {
+                batch_dims: 1,
+                data: [[[0, 1], [2, 3]], [[4, 5], [6, 7]]].into(),
+                indices: [[1], [0]].into(),
+                expected: Ok([[2, 3], [4, 5]].into()),
+            },
+        ];
+
+        let pool = new_pool();
+        for Case {
+            batch_dims,
+            data,
+            indices,
+            expected,
+        } in cases
+        {
+            let result = gather_nd(&pool, data.view(), indices.view(), batch_dims);
+            assert_eq!(result, expected);
+        }
     }
 
     #[test]

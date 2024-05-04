@@ -111,6 +111,7 @@ enum OperatorType: ubyte {
   RandomNormal,
   RandomNormalLike,
   Softplus,
+  GatherND,
 }
 
 enum RNNDirection: ubyte {
@@ -189,6 +190,7 @@ union OperatorAttrs {
   RandomUniformLikeAttrs,
   RandomNormalAttrs,
   RandomNormalLikeAttrs,
+  GatherNDAttrs,
 }
 
 table ArgMaxAttrs {
@@ -267,6 +269,10 @@ table LayerNormalizationAttrs {
 
 table GatherAttrs {
   axis:int;
+}
+
+table GatherNDAttrs {
+  batch_dims:int;
 }
 
 table GemmAttrs {
