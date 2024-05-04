@@ -942,20 +942,24 @@ def graph_from_onnx_graph(onnx_graph: onnx.GraphProto) -> Graph:
 
     nodes: list[Node] = []
 
-    # Map from tensor ID to node index
-    tensor_map: dict[str, int] = {}
+    # Map from name of constant or value node to index in `nodes`.
+    value_name_to_index: dict[str, int] = {}
 
-    # Map of constant/initializer name to node
+    # Map of constant/initializer name to node.
     constant_map: dict[str, ConstantNode] = {}
 
     def add_node(node: Node) -> int:
-        if node.name in tensor_map:
-            raise Exception(f'Node name "{node.name}" conflicts with another node')
-        if isinstance(node, ConstantNode):
-            constant_map[node.name] = node
         nodes.append(node)
         node_index = len(nodes) - 1
-        tensor_map[node.name] = node_index
+
+        if not isinstance(node, OperatorNode) and node.name:
+            if node.name in value_name_to_index:
+                raise Exception(f'Node name "{node.name}" conflicts with another node')
+            value_name_to_index[node.name] = node_index
+
+        if isinstance(node, ConstantNode):
+            constant_map[node.name] = node
+
         return node_index
 
     conversion_errors = 0
@@ -993,7 +997,7 @@ def graph_from_onnx_graph(onnx_graph: onnx.GraphProto) -> Graph:
         # - The output list
         #
         # Then we only keep the first definition seen.
-        if value.name in tensor_map:
+        if value.name in value_name_to_index:
             return
         value_node = value_node_from_onnx_value(value)
         add_node(value_node)
@@ -1011,14 +1015,14 @@ def graph_from_onnx_graph(onnx_graph: onnx.GraphProto) -> Graph:
         for output_name in operator.output:
             # If this output is also a model output, it will have been
             # registered already.
-            if output_name in tensor_map:
+            if output_name in value_name_to_index:
                 continue
             value_node = ValueNode(output_name, shape=None)
             add_node(value_node)
 
         try:
             op_node = op_node_from_onnx_operator(
-                operator, tensor_map, constant_map, add_node=add_node
+                operator, value_name_to_index, constant_map, add_node=add_node
             )
             add_node(op_node)
         except Exception as ex:
@@ -1045,8 +1049,8 @@ def graph_from_onnx_graph(onnx_graph: onnx.GraphProto) -> Graph:
             f"ONNX graph contains duplicate output names: {', '.join(dup_outputs)}"
         )
 
-    inputs = [tensor_map[info.name] for info in onnx_graph.input]
-    outputs = [tensor_map[info.name] for info in onnx_graph.output]
+    inputs = [value_name_to_index[info.name] for info in onnx_graph.input]
+    outputs = [value_name_to_index[info.name] for info in onnx_graph.output]
     return Graph(nodes=nodes, inputs=inputs, outputs=outputs)
 
 
