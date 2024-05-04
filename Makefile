@@ -19,12 +19,9 @@ lint:
 
 .PHONY: miri
 miri:
-	# - Stacked borrow checks are disabled because they don't like tests involving
-	#   non-overlapping mutable views of the same underlying buffer. Fixing this
-	#   will probably involve changes to view internals.
 	# - Only the tensor lib is currently tested. Testing the main crate will
 	#   require changes to prevent tests taking too long to run.
-	MIRIFLAGS="-Zmiri-disable-stacked-borrows" cargo +nightly miri test -p rten-tensor
+	cargo +nightly miri test -p rten-tensor
 
 .PHONY: test
 test:
