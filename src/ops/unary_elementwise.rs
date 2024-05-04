@@ -1,5 +1,3 @@
-extern crate libm;
-
 use rayon::prelude::*;
 
 use std::fmt::Debug;
