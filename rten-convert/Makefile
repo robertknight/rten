@@ -1,5 +1,9 @@
 .PHONY: check
-check: format lint typecheck
+check: checkformat lint typecheck
+
+.PHONY: checkformat
+checkformat:
+	ruff format --check rten_convert
 
 .PHONY: format
 format:
