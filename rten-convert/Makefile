@@ -1,5 +1,5 @@
 .PHONY: check
-check: format lint
+check: format lint typecheck
 
 .PHONY: format
 format:
@@ -9,4 +9,6 @@ format:
 lint:
 	ruff check rten_convert
 
-
+.PHONY: typecheck
+typecheck:
+	mypy rten_convert
