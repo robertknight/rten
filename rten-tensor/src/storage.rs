@@ -59,7 +59,10 @@ pub trait Storage {
     }
 }
 
-/// Trait for converting types into their corresponding `Storage` implementation.
+/// Trait for converting owned and borrowed element containers (`Vec<T>`, slices)
+/// into their corresponding `Storage` type.
+///
+/// This is used by [`Tensor::from_data`](crate::TensorBase::from_data).
 pub trait IntoStorage {
     type Output: Storage;
 
