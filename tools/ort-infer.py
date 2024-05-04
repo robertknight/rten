@@ -87,6 +87,8 @@ def run_model(
         type_map = {
             "tensor(float)": np.float32,
             "tensor(float16)": np.float16,
+            "tensor(int64)": np.int64,
+            "tensor(int32)": np.int32,
         }
         resolved_shape = [
             d if isinstance(d, int) else resolve_dim(d) for d in node.shape

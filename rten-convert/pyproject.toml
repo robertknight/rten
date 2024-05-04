@@ -19,3 +19,19 @@ Issues = "https://github.com/robertknight/rten/issues"
 [build-system]
 requires = ["setuptools>=61.0"]
 build-backend = "setuptools.build_meta"
+
+[tool.ruff]
+exclude = ["rten_convert/schema_generated.py"]
+
+[[tool.mypy.overrides]]
+module = "rten_convert.schema_generated"
+disable_error_code = [
+  "annotation-unchecked",
+  "import-untyped" # for flatbuffers
+]
+
+[[tool.mypy.overrides]]
+module = "rten_convert.converter"
+disable_error_code = [
+  "import-untyped", # for flatbuffers
+]
