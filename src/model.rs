@@ -408,152 +408,517 @@ pub type ReadOpResult = Result<Box<dyn Operator + Send + Sync>, ReadOpError>;
 /// A function that deserializes an operator node.
 pub type ReadOpFunction = dyn Fn(&OperatorNode) -> ReadOpResult;
 
-/// Trait that that creates the default/built-in implementation of an operator,
-/// for use with [OpRegistry::register_op].
+/// Trait that deserializes an [sg::OperatorNode] into an [Operator]
+/// implementation.
 ///
 /// This trait is implemented for all operators in [crate::ops].
-pub trait DefaultOperatorFactory {
+pub trait ReadOp: Operator + Sized + Send + Sync {
     /// Return the type enum value for this operator.
     fn op_type() -> sg::OperatorType;
 
-    /// Function which reads an `OperatorNode` struct from a model file and
-    /// creates an instance of the operator as a `Box<dyn Operator>`.
-    fn factory() -> Box<ReadOpFunction>;
+    /// Deserialize an operator.
+    ///
+    /// The node's type must correspond to the result of `op_type`.
+    fn read(op: &OperatorNode) -> Result<Self, ReadOpError>;
+
+    /// Deserialize an operator and box it into a `Box<dyn Operator>`.
+    ///
+    /// The node's type must correspond to the result of `op_type`.
+    fn read_boxed(op: &OperatorNode) -> ReadOpResult
+    where
+        Self: 'static,
+    {
+        let op = Self::read(op)?;
+        Ok(Box::new(op))
+    }
 }
 
-/// Implement `DefaultOperatorFactory` for a built-in operator factory.
-macro_rules! impl_default_factory {
+/// Convenience macro to simplify implementing [ReadOp].
+macro_rules! impl_read_op {
     ($op:ident) => {
-        impl DefaultOperatorFactory for ops::$op {
+        impl ReadOp for ops::$op {
             fn op_type() -> OperatorType {
                 OperatorType::$op
             }
 
-            fn factory() -> Box<ReadOpFunction> {
-                Box::new(move |_| Ok(Box::new(ops::$op {})))
+            fn read(_op: &OperatorNode) -> Result<Self, ReadOpError> {
+                Ok(ops::$op {})
             }
         }
     };
 
-    ($op:ident, $factory:ident) => {
-        impl DefaultOperatorFactory for ops::$op {
+    ($op:ident, axis, $attrs_method:ident) => {
+        impl ReadOp for ops::$op {
             fn op_type() -> OperatorType {
                 OperatorType::$op
             }
 
-            fn factory() -> Box<ReadOpFunction> {
-                Box::new($factory)
+            fn read(op: &OperatorNode) -> Result<Self, ReadOpError> {
+                let attrs = op.$attrs_method().ok_or(ReadOpError::AttrError)?;
+                let op = ops::$op {
+                    axis: attrs.axis() as isize,
+                };
+                Ok(op)
+            }
+        }
+    };
+
+    ($op:ident, reduce_axis, $attrs_method:ident) => {
+        impl ReadOp for ops::$op {
+            fn op_type() -> OperatorType {
+                OperatorType::$op
+            }
+
+            fn read(op: &OperatorNode) -> Result<Self, ReadOpError> {
+                let attrs = op.$attrs_method().ok_or(ReadOpError::AttrError)?;
+                let op = ops::$op {
+                    axis: attrs.axis() as isize,
+                    keep_dims: attrs.keep_dims(),
+                };
+                Ok(op)
+            }
+        }
+    };
+
+    ($op:ident, reduce_axes, $attrs_method:ident) => {
+        impl ReadOp for ops::$op {
+            fn op_type() -> OperatorType {
+                OperatorType::$op
+            }
+
+            fn read(op: &OperatorNode) -> Result<Self, ReadOpError> {
+                let attrs = op.$attrs_method().ok_or(ReadOpError::AttrError)?;
+                let axes = attrs.axes().map(|axes| axes.iter().collect());
+                let op = ops::$op {
+                    axes,
+                    keep_dims: attrs.keep_dims(),
+                };
+                Ok(op)
+            }
+        }
+    };
+
+    ($op:ident, $attrs_method:ident, $read_op:expr) => {
+        impl ReadOp for ops::$op {
+            fn op_type() -> OperatorType {
+                OperatorType::$op
+            }
+
+            fn read(op: &OperatorNode) -> Result<Self, ReadOpError> {
+                let attrs = op.$attrs_method().ok_or(ReadOpError::AttrError)?;
+                #[allow(clippy::redundant_closure_call)]
+                let op = { $read_op(attrs)? };
+                Ok(op)
             }
         }
     };
 }
 
-impl_default_factory!(Abs);
-impl_default_factory!(Acos);
-impl_default_factory!(Add);
-impl_default_factory!(And);
-impl_default_factory!(ArgMax, read_arg_max_op);
-impl_default_factory!(ArgMin, read_arg_min_op);
-impl_default_factory!(Asin);
-impl_default_factory!(Atan);
-impl_default_factory!(AveragePool, read_average_pool_op);
-impl_default_factory!(BatchNormalization, read_batch_normalization_op);
-impl_default_factory!(Cast, read_cast_op);
-impl_default_factory!(Ceil);
-impl_default_factory!(Clip);
-impl_default_factory!(Concat, read_concat_op);
-impl_default_factory!(Conv, read_conv_op);
-impl_default_factory!(ConstantOfShape, read_constant_of_shape_op);
-impl_default_factory!(ConvTranspose, read_conv_transpose_op);
-impl_default_factory!(Cos);
-impl_default_factory!(CumSum);
-impl_default_factory!(Div);
-impl_default_factory!(Elu, read_elu_op);
-impl_default_factory!(Equal);
-impl_default_factory!(Erf);
-impl_default_factory!(Exp);
-impl_default_factory!(Expand);
-impl_default_factory!(Flatten, read_flatten_op);
-impl_default_factory!(Floor);
-impl_default_factory!(Gather, read_gather_op);
-impl_default_factory!(GatherElements, read_gather_elements_op);
-impl_default_factory!(Gemm, read_gemm_op);
-impl_default_factory!(GlobalAveragePool);
-impl_default_factory!(Greater);
-impl_default_factory!(GreaterOrEqual);
-impl_default_factory!(GRU, read_gru_op);
-impl_default_factory!(HardSigmoid, read_hard_sigmoid_op);
-impl_default_factory!(HardSwish);
-impl_default_factory!(Identity);
-impl_default_factory!(InstanceNormalization, read_instance_normalization_op);
-impl_default_factory!(LayerNormalization, read_layer_normalization_op);
-impl_default_factory!(LeakyRelu, read_leaky_relu_op);
-impl_default_factory!(Less);
-impl_default_factory!(LessOrEqual);
-impl_default_factory!(Log);
-impl_default_factory!(LogSoftmax, read_log_softmax_op);
-impl_default_factory!(LSTM, read_lstm_op);
-impl_default_factory!(MatMul);
-impl_default_factory!(Max);
-impl_default_factory!(MaxPool, read_max_pool_op);
-impl_default_factory!(Mean);
-impl_default_factory!(Min);
-impl_default_factory!(Mod, read_mod_op);
-impl_default_factory!(Mul);
-impl_default_factory!(Neg);
-impl_default_factory!(NonMaxSuppression, read_non_max_suppression_op);
-impl_default_factory!(NonZero);
-impl_default_factory!(Not);
-impl_default_factory!(OneHot, read_onehot_op);
-impl_default_factory!(Or);
-impl_default_factory!(Pad);
-impl_default_factory!(Pow);
+impl_read_op!(Abs);
+impl_read_op!(Acos);
+impl_read_op!(Add);
+impl_read_op!(And);
+impl_read_op!(ArgMax, reduce_axis, attrs_as_arg_max_attrs);
+impl_read_op!(ArgMin, reduce_axis, attrs_as_arg_max_attrs);
+impl_read_op!(Asin);
+impl_read_op!(Atan);
+impl_read_op!(
+    AveragePool,
+    attrs_as_average_pool_attrs,
+    |attrs: sg::AveragePoolAttrs| {
+        let kernel_size = array_from_iter(attrs.kernel_size().iter().map(|x| x as usize));
+        let padding = padding_from_attrs(attrs.pad_mode(), attrs.pads());
+        let strides = attrs
+            .strides()
+            .map(|stride| array_from_iter(stride.iter().map(|x| x as usize)))
+            .unwrap_or([1, 1]);
+
+        Ok(ops::AveragePool {
+            kernel_size,
+            padding,
+            count_include_pad: attrs.count_include_pad(),
+            strides,
+        })
+    }
+);
+impl_read_op!(
+    BatchNormalization,
+    attrs_as_batch_normalization_attrs,
+    |attrs: sg::BatchNormalizationAttrs| {
+        Ok(ops::BatchNormalization {
+            epsilon: attrs.epsilon(),
+        })
+    }
+);
+impl_read_op!(Cast, attrs_as_cast_attrs, |attrs: sg::CastAttrs| {
+    let to = match attrs.to() {
+        sg::DataType::Int32 => DataType::Int32,
+        sg::DataType::Float => DataType::Float,
+        _ => DataType::Float,
+    };
+    Ok(ops::Cast { to })
+});
+impl_read_op!(Ceil);
+impl_read_op!(Clip);
+impl_read_op!(Concat, axis, attrs_as_concat_attrs);
+impl_read_op!(Conv, attrs_as_conv_attrs, |attrs: sg::ConvAttrs| {
+    let groups = attrs.groups() as usize;
+    let padding = padding_from_attrs(attrs.pad_mode(), attrs.pads());
+    let strides: Vec<usize> = attrs
+        .strides()
+        .map(|stride| stride.iter().map(|x| x as usize).collect())
+        .unwrap_or(vec![1, 1]);
+    let dilations: Vec<usize> = attrs
+        .dilations()
+        .map(|dilation| dilation.iter().map(|x| x as usize).collect())
+        .unwrap_or(vec![1, 1]);
+    Ok(ops::Conv {
+        groups,
+        padding,
+        strides,
+        dilations,
+    })
+});
+impl_read_op!(
+    ConstantOfShape,
+    attrs_as_constant_of_shape_attrs,
+    |attrs: sg::ConstantOfShapeAttrs| {
+        let value = if let Some(int_val) = attrs.value_as_int_scalar() {
+            Scalar::Int(int_val.value())
+        } else if let Some(float_val) = attrs.value_as_float_scalar() {
+            Scalar::Float(float_val.value())
+        } else {
+            Scalar::Int(0)
+        };
+        Ok(ops::ConstantOfShape { value })
+    }
+);
+impl_read_op!(
+    ConvTranspose,
+    attrs_as_conv_transpose_attrs,
+    |attrs: sg::ConvTransposeAttrs| {
+        let strides = attrs
+            .strides()
+            .map(|stride| array_from_iter(stride.iter().map(|x| x as usize)))
+            .unwrap_or([1, 1]);
+        Ok(ops::ConvTranspose { strides })
+    }
+);
+impl_read_op!(Cos);
+impl_read_op!(CumSum);
+impl_read_op!(Div);
+impl_read_op!(Elu, attrs_as_elu_attrs, |attrs: sg::EluAttrs| {
+    Ok(ops::Elu {
+        alpha: attrs.alpha(),
+    })
+});
+impl_read_op!(Equal);
+impl_read_op!(Erf);
+impl_read_op!(Exp);
+impl_read_op!(Expand);
+impl_read_op!(Flatten, axis, attrs_as_flatten_attrs);
+impl_read_op!(Floor);
+impl_read_op!(Gather, axis, attrs_as_gather_attrs);
+impl_read_op!(GatherElements, axis, attrs_as_gather_attrs);
+impl_read_op!(Gemm, attrs_as_gemm_attrs, |attrs: sg::GemmAttrs| {
+    Ok(ops::Gemm {
+        alpha: attrs.alpha(),
+        beta: attrs.beta(),
+        transpose_a: attrs.transpose_a(),
+        transpose_b: attrs.transpose_b(),
+    })
+});
+impl_read_op!(GlobalAveragePool);
+impl_read_op!(Greater);
+impl_read_op!(GreaterOrEqual);
+impl_read_op!(GRU, attrs_as_gruattrs, |attrs: sg::GRUAttrs| {
+    let hidden_size = attrs.hidden_size() as usize;
+    let direction = match attrs.direction() {
+        sg::RNNDirection::Forward => Direction::Forward,
+        sg::RNNDirection::Reverse => Direction::Reverse,
+        sg::RNNDirection::Bidirectional => Direction::Bidirectional,
+        _ => Direction::Forward,
+    };
+
+    Ok(ops::GRU {
+        direction,
+        hidden_size,
+        linear_before_reset: attrs.linear_before_reset(),
+    })
+});
+impl_read_op!(
+    HardSigmoid,
+    attrs_as_hard_sigmoid_attrs,
+    |attrs: sg::HardSigmoidAttrs| {
+        Ok(ops::HardSigmoid {
+            alpha: attrs.alpha(),
+            beta: attrs.beta(),
+        })
+    }
+);
+impl_read_op!(HardSwish);
+impl_read_op!(Identity);
+impl_read_op!(
+    InstanceNormalization,
+    attrs_as_batch_normalization_attrs,
+    |attrs: sg::BatchNormalizationAttrs| {
+        Ok(ops::InstanceNormalization {
+            epsilon: Some(attrs.epsilon()),
+        })
+    }
+);
+impl_read_op!(
+    LayerNormalization,
+    attrs_as_layer_normalization_attrs,
+    |attrs: sg::LayerNormalizationAttrs| {
+        Ok(ops::LayerNormalization {
+            axis: attrs.axis() as isize,
+            epsilon: Some(attrs.epsilon()),
+        })
+    }
+);
+impl_read_op!(
+    LeakyRelu,
+    attrs_as_leaky_relu_attrs,
+    |attrs: sg::LeakyReluAttrs| {
+        Ok(ops::LeakyRelu {
+            alpha: attrs.alpha(),
+        })
+    }
+);
+impl_read_op!(Less);
+impl_read_op!(LessOrEqual);
+impl_read_op!(Log);
+impl_read_op!(LogSoftmax, axis, attrs_as_softmax_attrs);
+impl_read_op!(LSTM, attrs_as_lstmattrs, |attrs: sg::LSTMAttrs| {
+    let hidden_size = attrs.hidden_size() as usize;
+    let direction = match attrs.direction() {
+        sg::RNNDirection::Forward => Direction::Forward,
+        sg::RNNDirection::Reverse => Direction::Reverse,
+        sg::RNNDirection::Bidirectional => Direction::Bidirectional,
+        _ => Direction::Forward,
+    };
+    Ok(ops::LSTM {
+        direction,
+        hidden_size,
+    })
+});
+impl_read_op!(MatMul);
+impl_read_op!(Max);
+impl_read_op!(
+    MaxPool,
+    attrs_as_max_pool_attrs,
+    |attrs: sg::MaxPoolAttrs| {
+        let kernel_size = array_from_iter(attrs.kernel_size().iter().map(|x| x as usize));
+        let padding = padding_from_attrs(attrs.pad_mode(), attrs.pads());
+        let strides = attrs
+            .strides()
+            .map(|stride| array_from_iter(stride.iter().map(|x| x as usize)))
+            .unwrap_or([1, 1]);
+
+        Ok(ops::MaxPool {
+            kernel_size,
+            padding,
+            strides,
+        })
+    }
+);
+impl_read_op!(Mean);
+impl_read_op!(Min);
+impl_read_op!(Mod, attrs_as_mod_attrs, |attrs: sg::ModAttrs| {
+    Ok(ops::Mod { fmod: attrs.fmod() })
+});
+impl_read_op!(Mul);
+impl_read_op!(Neg);
+impl_read_op!(
+    NonMaxSuppression,
+    attrs_as_non_max_suppression_attrs,
+    |attrs: sg::NonMaxSuppressionAttrs| {
+        let box_order = match attrs.box_order() {
+            sg::NMSBoxOrder::CenterWidthHeight => BoxOrder::CenterWidthHeight,
+            sg::NMSBoxOrder::TopLeftBottomRight => BoxOrder::TopLeftBottomRight,
+            _ => BoxOrder::TopLeftBottomRight,
+        };
+        Ok(ops::NonMaxSuppression { box_order })
+    }
+);
+impl_read_op!(NonZero);
+impl_read_op!(Not);
+impl_read_op!(OneHot, axis, attrs_as_one_hot_attrs);
+impl_read_op!(Or);
+impl_read_op!(Pad);
+impl_read_op!(Pow);
 
 #[cfg(feature = "random")]
-impl_default_factory!(RandomNormal, read_random_normal_op);
-#[cfg(feature = "random")]
-impl_default_factory!(RandomNormalLike, read_random_normal_like_op);
-#[cfg(feature = "random")]
-impl_default_factory!(RandomUniform, read_random_uniform_op);
-#[cfg(feature = "random")]
-impl_default_factory!(RandomUniformLike, read_random_uniform_like_op);
+impl_read_op!(
+    RandomNormal,
+    attrs_as_random_normal_attrs,
+    |attrs: sg::RandomNormalAttrs| {
+        let shape = attrs
+            .shape()
+            .map(|shape| shape.iter().map(|size| size as usize).collect())
+            .unwrap_or_default();
 
-impl_default_factory!(Range);
-impl_default_factory!(Reciprocal);
-impl_default_factory!(ReduceL2, read_reduce_l2_op);
-impl_default_factory!(ReduceMax, read_reduce_max_op);
-impl_default_factory!(ReduceMean, read_reduce_mean_op);
-impl_default_factory!(ReduceMin, read_reduce_min_op);
-impl_default_factory!(ReduceProd, read_reduce_prod_op);
-impl_default_factory!(ReduceSum, read_reduce_sum_op);
-impl_default_factory!(ReduceSumSquare, read_reduce_sum_square_op);
-impl_default_factory!(Relu);
-impl_default_factory!(Reshape, read_reshape_op);
-impl_default_factory!(Resize, read_resize_op);
-impl_default_factory!(Round);
-impl_default_factory!(ScatterElements, read_scatter_elements_op);
-impl_default_factory!(ScatterND, read_scatter_nd_op);
-impl_default_factory!(Shape);
-impl_default_factory!(Sigmoid);
-impl_default_factory!(Sign);
-impl_default_factory!(Sin);
-impl_default_factory!(Size);
-impl_default_factory!(Slice);
-impl_default_factory!(Softmax, read_softmax_op);
-impl_default_factory!(Split, read_split_op);
-impl_default_factory!(Sqrt);
-impl_default_factory!(Squeeze);
-impl_default_factory!(Sub);
-impl_default_factory!(Sum);
-impl_default_factory!(Tan);
-impl_default_factory!(Tanh);
-impl_default_factory!(Tile);
-impl_default_factory!(TopK, read_topk_op);
-impl_default_factory!(Transpose, read_transpose_op);
-impl_default_factory!(Trilu, read_trilu_op);
-impl_default_factory!(Unsqueeze);
-impl_default_factory!(Where);
-impl_default_factory!(Xor);
+        Ok(ops::RandomNormal {
+            shape,
+            mean: attrs.mean(),
+            scale: attrs.scale(),
+            seed: attrs.seed(),
+        })
+    }
+);
+#[cfg(feature = "random")]
+impl_read_op!(
+    RandomNormalLike,
+    attrs_as_random_normal_like_attrs,
+    |attrs: sg::RandomNormalLikeAttrs| {
+        Ok(ops::RandomNormalLike {
+            mean: attrs.mean(),
+            scale: attrs.scale(),
+            seed: attrs.seed(),
+        })
+    }
+);
+#[cfg(feature = "random")]
+impl_read_op!(
+    RandomUniform,
+    attrs_as_random_uniform_attrs,
+    |attrs: sg::RandomUniformAttrs| {
+        let shape = attrs
+            .shape()
+            .map(|shape| shape.iter().map(|size| size as usize).collect())
+            .unwrap_or_default();
+
+        Ok(ops::RandomUniform {
+            shape,
+            high: attrs.high(),
+            low: attrs.low(),
+            seed: attrs.seed(),
+        })
+    }
+);
+#[cfg(feature = "random")]
+impl_read_op!(
+    RandomUniformLike,
+    attrs_as_random_uniform_like_attrs,
+    |attrs: sg::RandomUniformLikeAttrs| {
+        Ok(ops::RandomUniformLike {
+            high: attrs.high(),
+            low: attrs.low(),
+            seed: attrs.seed(),
+        })
+    }
+);
+
+impl_read_op!(Range);
+impl_read_op!(Reciprocal);
+impl_read_op!(ReduceL2, reduce_axes, attrs_as_reduce_mean_attrs);
+impl_read_op!(ReduceMax, reduce_axes, attrs_as_reduce_mean_attrs);
+impl_read_op!(ReduceMean, reduce_axes, attrs_as_reduce_mean_attrs);
+impl_read_op!(ReduceMin, reduce_axes, attrs_as_reduce_mean_attrs);
+impl_read_op!(ReduceProd, reduce_axes, attrs_as_reduce_mean_attrs);
+impl_read_op!(ReduceSum, reduce_axes, attrs_as_reduce_mean_attrs);
+impl_read_op!(ReduceSumSquare, reduce_axes, attrs_as_reduce_mean_attrs);
+impl_read_op!(Relu);
+impl_read_op!(
+    Reshape,
+    attrs_as_reshape_attrs,
+    |attrs: sg::ReshapeAttrs| {
+        Ok(ops::Reshape {
+            allow_zero: attrs.allow_zero(),
+        })
+    }
+);
+impl_read_op!(Resize, attrs_as_resize_attrs, |attrs: sg::ResizeAttrs| {
+    let mode = match attrs.mode() {
+        sg::ResizeMode::Nearest => ResizeMode::Nearest,
+        sg::ResizeMode::Linear => ResizeMode::Linear,
+        _ => ResizeMode::Nearest,
+    };
+    let nearest_mode = match attrs.nearest_mode() {
+        sg::NearestMode::Floor => NearestMode::Floor,
+        sg::NearestMode::Ceil => NearestMode::Ceil,
+        sg::NearestMode::RoundPreferFloor => NearestMode::RoundPreferFloor,
+        sg::NearestMode::RoundPreferCeil => NearestMode::RoundPreferCeil,
+        _ => NearestMode::default(),
+    };
+
+    let coord_mode = match attrs.coord_mode() {
+        sg::CoordTransformMode::Asymmetric => CoordTransformMode::Asymmetric,
+        sg::CoordTransformMode::HalfPixel => CoordTransformMode::HalfPixel,
+        sg::CoordTransformMode::AlignCorners => CoordTransformMode::AlignCorners,
+        _ => CoordTransformMode::default(),
+    };
+
+    Ok(ops::Resize {
+        mode,
+        coord_mode,
+        nearest_mode,
+    })
+});
+impl_read_op!(Round);
+impl_read_op!(
+    ScatterElements,
+    attrs_as_scatter_elements_attrs,
+    |attrs: sg::ScatterElementsAttrs| {
+        Ok(ops::ScatterElements {
+            axis: attrs.axis() as isize,
+            reduction: convert_reduction(attrs.reduction())?,
+        })
+    }
+);
+impl_read_op!(
+    ScatterND,
+    attrs_as_scatter_ndattrs,
+    |attrs: sg::ScatterNDAttrs| {
+        Ok(ops::ScatterND {
+            reduction: convert_reduction(attrs.reduction())?,
+        })
+    }
+);
+impl_read_op!(Shape);
+impl_read_op!(Sigmoid);
+impl_read_op!(Sign);
+impl_read_op!(Sin);
+impl_read_op!(Size);
+impl_read_op!(Slice);
+impl_read_op!(Softmax, axis, attrs_as_softmax_attrs);
+impl_read_op!(Split, axis, attrs_as_split_attrs);
+impl_read_op!(Sqrt);
+impl_read_op!(Squeeze);
+impl_read_op!(Sub);
+impl_read_op!(Sum);
+impl_read_op!(Tan);
+impl_read_op!(Tanh);
+impl_read_op!(Tile);
+impl_read_op!(TopK, attrs_as_top_kattrs, |attrs: sg::TopKAttrs| {
+    let largest = attrs.largest();
+    let sorted = attrs.sorted();
+    let axis = attrs.axis();
+    Ok(ops::TopK {
+        axis: Some(axis as isize),
+        largest,
+        sorted,
+    })
+});
+impl_read_op!(
+    Transpose,
+    attrs_as_transpose_attrs,
+    |attrs: sg::TransposeAttrs| {
+        let perm = attrs
+            .perm()
+            .map(|perm| perm.iter().map(|dim| dim as usize).collect());
+        Ok(ops::Transpose { perm })
+    }
+);
+impl_read_op!(Trilu, attrs_as_trilu_attrs, |attrs: sg::TriluAttrs| {
+    Ok(ops::Trilu {
+        upper: attrs.upper(),
+    })
+});
+impl_read_op!(Unsqueeze);
+impl_read_op!(Where);
+impl_read_op!(Xor);
 
 /// Registry used to instantiate operators when loading a model file.
 ///
@@ -577,8 +942,11 @@ impl OpRegistry {
     }
 
     /// Register the default/built-in implementation of an operator.
-    pub fn register_op<Op: DefaultOperatorFactory>(&mut self) {
-        self.register_op_with_factory(Op::op_type(), Op::factory());
+    pub fn register_op<Op: ReadOp + 'static>(&mut self) {
+        self.register_op_with_factory(
+            Op::op_type(),
+            Box::new(|op: &OperatorNode| Op::read_boxed(op)),
+        );
     }
 
     /// Deserialize an operator from a model file using the operators in the
@@ -747,388 +1115,6 @@ impl Display for ReadOpError {
 
 impl Error for ReadOpError {}
 
-/// Define a function that reads an operator with one attribute, `axis`.
-macro_rules! read_axis_op {
-    ($func_name:ident, $attr_method:ident, $op:ident) => {
-        fn $func_name(node: &OperatorNode) -> ReadOpResult {
-            let attrs = node.$attr_method().ok_or(ReadOpError::AttrError)?;
-            Ok(Box::new(ops::$op {
-                axis: attrs.axis() as isize,
-            }))
-        }
-    };
-}
-
-fn read_arg_max_op(node: &OperatorNode) -> ReadOpResult {
-    let attrs = node
-        .attrs_as_arg_max_attrs()
-        .ok_or(ReadOpError::AttrError)?;
-    Ok(Box::new(ops::ArgMax {
-        axis: attrs.axis() as isize,
-        keep_dims: attrs.keep_dims(),
-    }))
-}
-
-fn read_arg_min_op(node: &OperatorNode) -> ReadOpResult {
-    let attrs = node
-        .attrs_as_arg_max_attrs()
-        .ok_or(ReadOpError::AttrError)?;
-    Ok(Box::new(ops::ArgMin {
-        axis: attrs.axis() as isize,
-        keep_dims: attrs.keep_dims(),
-    }))
-}
-
-fn read_average_pool_op(node: &OperatorNode) -> ReadOpResult {
-    let attrs = node
-        .attrs_as_average_pool_attrs()
-        .ok_or(ReadOpError::AttrError)?;
-
-    let kernel_size = array_from_iter(attrs.kernel_size().iter().map(|x| x as usize));
-    let padding = padding_from_attrs(attrs.pad_mode(), attrs.pads());
-    let strides = attrs
-        .strides()
-        .map(|stride| array_from_iter(stride.iter().map(|x| x as usize)))
-        .unwrap_or([1, 1]);
-
-    Ok(Box::new(ops::AveragePool {
-        kernel_size,
-        padding,
-        count_include_pad: attrs.count_include_pad(),
-        strides,
-    }))
-}
-
-fn read_batch_normalization_op(node: &OperatorNode) -> ReadOpResult {
-    let attrs = node
-        .attrs_as_batch_normalization_attrs()
-        .ok_or(ReadOpError::AttrError)?;
-    Ok(Box::new(ops::BatchNormalization {
-        epsilon: attrs.epsilon(),
-    }))
-}
-
-fn read_cast_op(node: &OperatorNode) -> ReadOpResult {
-    let attrs = node.attrs_as_cast_attrs().ok_or(ReadOpError::AttrError)?;
-    let to = match attrs.to() {
-        sg::DataType::Int32 => DataType::Int32,
-        sg::DataType::Float => DataType::Float,
-        _ => DataType::Float,
-    };
-    Ok(Box::new(ops::Cast { to }))
-}
-
-read_axis_op!(read_concat_op, attrs_as_concat_attrs, Concat);
-
-fn read_conv_op(node: &OperatorNode) -> ReadOpResult {
-    let attrs = node.attrs_as_conv_attrs().ok_or(ReadOpError::AttrError)?;
-
-    let groups = attrs.groups() as usize;
-    let padding = padding_from_attrs(attrs.pad_mode(), attrs.pads());
-    let strides: Vec<usize> = attrs
-        .strides()
-        .map(|stride| stride.iter().map(|x| x as usize).collect())
-        .unwrap_or(vec![1, 1]);
-    let dilations: Vec<usize> = attrs
-        .dilations()
-        .map(|dilation| dilation.iter().map(|x| x as usize).collect())
-        .unwrap_or(vec![1, 1]);
-
-    Ok(Box::new(ops::Conv {
-        groups,
-        padding,
-        strides,
-        dilations,
-    }))
-}
-
-fn read_constant_of_shape_op(node: &OperatorNode) -> ReadOpResult {
-    let attrs = node
-        .attrs_as_constant_of_shape_attrs()
-        .ok_or(ReadOpError::AttrError)?;
-    let value = if let Some(int_val) = attrs.value_as_int_scalar() {
-        Scalar::Int(int_val.value())
-    } else if let Some(float_val) = attrs.value_as_float_scalar() {
-        Scalar::Float(float_val.value())
-    } else {
-        Scalar::Int(0)
-    };
-    Ok(Box::new(ops::ConstantOfShape { value }))
-}
-
-fn read_conv_transpose_op(node: &OperatorNode) -> ReadOpResult {
-    let attrs = node
-        .attrs_as_conv_transpose_attrs()
-        .ok_or(ReadOpError::AttrError)?;
-    let strides = attrs
-        .strides()
-        .map(|stride| array_from_iter(stride.iter().map(|x| x as usize)))
-        .unwrap_or([1, 1]);
-    Ok(Box::new(ops::ConvTranspose { strides }))
-}
-
-fn read_elu_op(node: &OperatorNode) -> ReadOpResult {
-    let attrs = node.attrs_as_elu_attrs().ok_or(ReadOpError::AttrError)?;
-    Ok(Box::new(ops::Elu {
-        alpha: attrs.alpha(),
-    }))
-}
-
-read_axis_op!(read_flatten_op, attrs_as_flatten_attrs, Flatten);
-read_axis_op!(read_gather_op, attrs_as_gather_attrs, Gather);
-read_axis_op!(
-    read_gather_elements_op,
-    attrs_as_gather_attrs,
-    GatherElements
-);
-
-fn read_gemm_op(node: &OperatorNode) -> ReadOpResult {
-    let attrs = node.attrs_as_gemm_attrs().ok_or(ReadOpError::AttrError)?;
-    Ok(Box::new(ops::Gemm {
-        alpha: attrs.alpha(),
-        beta: attrs.beta(),
-        transpose_a: attrs.transpose_a(),
-        transpose_b: attrs.transpose_b(),
-    }))
-}
-
-fn read_gru_op(node: &OperatorNode) -> ReadOpResult {
-    let attrs = node.attrs_as_gruattrs().ok_or(ReadOpError::AttrError)?;
-
-    let hidden_size = attrs.hidden_size() as usize;
-    let direction = match attrs.direction() {
-        sg::RNNDirection::Forward => Direction::Forward,
-        sg::RNNDirection::Reverse => Direction::Reverse,
-        sg::RNNDirection::Bidirectional => Direction::Bidirectional,
-        _ => Direction::Forward,
-    };
-
-    Ok(Box::new(ops::GRU {
-        direction,
-        hidden_size,
-        linear_before_reset: attrs.linear_before_reset(),
-    }))
-}
-
-fn read_hard_sigmoid_op(node: &OperatorNode) -> ReadOpResult {
-    let attrs = node
-        .attrs_as_hard_sigmoid_attrs()
-        .ok_or(ReadOpError::AttrError)?;
-    Ok(Box::new(ops::HardSigmoid {
-        alpha: attrs.alpha(),
-        beta: attrs.beta(),
-    }))
-}
-
-fn read_instance_normalization_op(node: &OperatorNode) -> ReadOpResult {
-    let attrs = node
-        .attrs_as_batch_normalization_attrs()
-        .ok_or(ReadOpError::AttrError)?;
-    Ok(Box::new(ops::InstanceNormalization {
-        epsilon: Some(attrs.epsilon()),
-    }))
-}
-
-fn read_layer_normalization_op(node: &OperatorNode) -> ReadOpResult {
-    let attrs = node
-        .attrs_as_layer_normalization_attrs()
-        .ok_or(ReadOpError::AttrError)?;
-    Ok(Box::new(ops::LayerNormalization {
-        axis: attrs.axis() as isize,
-        epsilon: Some(attrs.epsilon()),
-    }))
-}
-
-fn read_leaky_relu_op(node: &OperatorNode) -> ReadOpResult {
-    let attrs = node
-        .attrs_as_leaky_relu_attrs()
-        .ok_or(ReadOpError::AttrError)?;
-    Ok(Box::new(ops::LeakyRelu {
-        alpha: attrs.alpha(),
-    }))
-}
-
-read_axis_op!(read_log_softmax_op, attrs_as_softmax_attrs, LogSoftmax);
-
-fn read_lstm_op(node: &OperatorNode) -> ReadOpResult {
-    let attrs = node.attrs_as_lstmattrs().ok_or(ReadOpError::AttrError)?;
-
-    let hidden_size = attrs.hidden_size() as usize;
-    let direction = match attrs.direction() {
-        sg::RNNDirection::Forward => Direction::Forward,
-        sg::RNNDirection::Reverse => Direction::Reverse,
-        sg::RNNDirection::Bidirectional => Direction::Bidirectional,
-        _ => Direction::Forward,
-    };
-
-    Ok(Box::new(ops::LSTM {
-        direction,
-        hidden_size,
-    }))
-}
-
-fn read_max_pool_op(node: &OperatorNode) -> ReadOpResult {
-    let attrs = node
-        .attrs_as_max_pool_attrs()
-        .ok_or(ReadOpError::AttrError)?;
-
-    let kernel_size = array_from_iter(attrs.kernel_size().iter().map(|x| x as usize));
-    let padding = padding_from_attrs(attrs.pad_mode(), attrs.pads());
-    let strides = attrs
-        .strides()
-        .map(|stride| array_from_iter(stride.iter().map(|x| x as usize)))
-        .unwrap_or([1, 1]);
-
-    Ok(Box::new(ops::MaxPool {
-        kernel_size,
-        padding,
-        strides,
-    }))
-}
-
-fn read_mod_op(node: &OperatorNode) -> ReadOpResult {
-    let attrs = node.attrs_as_mod_attrs().ok_or(ReadOpError::AttrError)?;
-    Ok(Box::new(ops::Mod { fmod: attrs.fmod() }))
-}
-
-fn read_non_max_suppression_op(node: &OperatorNode) -> ReadOpResult {
-    let attrs = node
-        .attrs_as_non_max_suppression_attrs()
-        .ok_or(ReadOpError::AttrError)?;
-    let box_order = match attrs.box_order() {
-        sg::NMSBoxOrder::CenterWidthHeight => BoxOrder::CenterWidthHeight,
-        sg::NMSBoxOrder::TopLeftBottomRight => BoxOrder::TopLeftBottomRight,
-        _ => BoxOrder::TopLeftBottomRight,
-    };
-    Ok(Box::new(ops::NonMaxSuppression { box_order }))
-}
-
-read_axis_op!(read_onehot_op, attrs_as_one_hot_attrs, OneHot);
-
-#[cfg(feature = "random")]
-fn read_random_normal_op(node: &OperatorNode) -> ReadOpResult {
-    let attrs = node
-        .attrs_as_random_normal_attrs()
-        .ok_or(ReadOpError::AttrError)?;
-    let shape = attrs
-        .shape()
-        .map(|shape| shape.iter().map(|size| size as usize).collect())
-        .unwrap_or(vec![]);
-
-    Ok(Box::new(ops::RandomNormal {
-        shape,
-        mean: attrs.mean(),
-        scale: attrs.scale(),
-        seed: attrs.seed(),
-    }))
-}
-
-#[cfg(feature = "random")]
-fn read_random_normal_like_op(node: &OperatorNode) -> ReadOpResult {
-    let attrs = node
-        .attrs_as_random_normal_like_attrs()
-        .ok_or(ReadOpError::AttrError)?;
-    Ok(Box::new(ops::RandomNormalLike {
-        mean: attrs.mean(),
-        scale: attrs.scale(),
-        seed: attrs.seed(),
-    }))
-}
-
-#[cfg(feature = "random")]
-fn read_random_uniform_like_op(node: &OperatorNode) -> ReadOpResult {
-    let attrs = node
-        .attrs_as_random_uniform_like_attrs()
-        .ok_or(ReadOpError::AttrError)?;
-    Ok(Box::new(ops::RandomUniformLike {
-        high: attrs.high(),
-        low: attrs.low(),
-        seed: attrs.seed(),
-    }))
-}
-
-#[cfg(feature = "random")]
-fn read_random_uniform_op(node: &OperatorNode) -> ReadOpResult {
-    let attrs = node
-        .attrs_as_random_uniform_attrs()
-        .ok_or(ReadOpError::AttrError)?;
-    let shape = attrs
-        .shape()
-        .map(|shape| shape.iter().map(|size| size as usize).collect())
-        .unwrap_or(vec![]);
-
-    Ok(Box::new(ops::RandomUniform {
-        shape,
-        high: attrs.high(),
-        low: attrs.low(),
-        seed: attrs.seed(),
-    }))
-}
-
-fn read_reduce_attrs(node: &OperatorNode) -> Result<(Option<Vec<i32>>, bool), ReadOpError> {
-    let attrs = node
-        .attrs_as_reduce_mean_attrs()
-        .ok_or(ReadOpError::AttrError)?;
-    let axes = attrs.axes().map(|axes| axes.iter().collect());
-    let keep_dims = attrs.keep_dims();
-    Ok((axes, keep_dims))
-}
-
-/// Define a function that reads `Reduce*` operators.
-macro_rules! read_reduce_op {
-    ($func_name:ident, $op:ident) => {
-        fn $func_name(node: &OperatorNode) -> ReadOpResult {
-            let (axes, keep_dims) = read_reduce_attrs(node)?;
-            Ok(Box::new(ops::$op { axes, keep_dims }))
-        }
-    };
-}
-
-read_reduce_op!(read_reduce_l2_op, ReduceL2);
-read_reduce_op!(read_reduce_max_op, ReduceMax);
-read_reduce_op!(read_reduce_mean_op, ReduceMean);
-read_reduce_op!(read_reduce_min_op, ReduceMin);
-read_reduce_op!(read_reduce_prod_op, ReduceProd);
-read_reduce_op!(read_reduce_sum_op, ReduceSum);
-read_reduce_op!(read_reduce_sum_square_op, ReduceSumSquare);
-
-fn read_reshape_op(node: &OperatorNode) -> ReadOpResult {
-    let attrs = node
-        .attrs_as_reshape_attrs()
-        .ok_or(ReadOpError::AttrError)?;
-    let allow_zero = attrs.allow_zero();
-    Ok(Box::new(ops::Reshape { allow_zero }))
-}
-
-fn read_resize_op(node: &OperatorNode) -> ReadOpResult {
-    let attrs = node.attrs_as_resize_attrs().ok_or(ReadOpError::AttrError)?;
-    let mode = match attrs.mode() {
-        sg::ResizeMode::Nearest => ResizeMode::Nearest,
-        sg::ResizeMode::Linear => ResizeMode::Linear,
-        _ => ResizeMode::Nearest,
-    };
-    let nearest_mode = match attrs.nearest_mode() {
-        sg::NearestMode::Floor => NearestMode::Floor,
-        sg::NearestMode::Ceil => NearestMode::Ceil,
-        sg::NearestMode::RoundPreferFloor => NearestMode::RoundPreferFloor,
-        sg::NearestMode::RoundPreferCeil => NearestMode::RoundPreferCeil,
-        _ => NearestMode::default(),
-    };
-
-    let coord_mode = match attrs.coord_mode() {
-        sg::CoordTransformMode::Asymmetric => CoordTransformMode::Asymmetric,
-        sg::CoordTransformMode::HalfPixel => CoordTransformMode::HalfPixel,
-        sg::CoordTransformMode::AlignCorners => CoordTransformMode::AlignCorners,
-        _ => CoordTransformMode::default(),
-    };
-
-    Ok(Box::new(ops::Resize {
-        mode,
-        coord_mode,
-        nearest_mode,
-    }))
-}
-
 fn convert_reduction(r: sg::ScatterReduction) -> Result<Option<ScatterReduction>, ReadOpError> {
     let reduction = match r {
         sg::ScatterReduction::None => None,
@@ -1141,59 +1127,6 @@ fn convert_reduction(r: sg::ScatterReduction) -> Result<Option<ScatterReduction>
         }
     };
     Ok(reduction)
-}
-
-fn read_scatter_elements_op(node: &OperatorNode) -> ReadOpResult {
-    let attrs = node
-        .attrs_as_scatter_elements_attrs()
-        .ok_or(ReadOpError::AttrError)?;
-
-    Ok(Box::new(ops::ScatterElements {
-        axis: attrs.axis() as isize,
-        reduction: convert_reduction(attrs.reduction())?,
-    }))
-}
-
-fn read_scatter_nd_op(node: &OperatorNode) -> ReadOpResult {
-    let attrs = node
-        .attrs_as_scatter_ndattrs()
-        .ok_or(ReadOpError::AttrError)?;
-
-    Ok(Box::new(ops::ScatterND {
-        reduction: convert_reduction(attrs.reduction())?,
-    }))
-}
-
-read_axis_op!(read_softmax_op, attrs_as_softmax_attrs, Softmax);
-read_axis_op!(read_split_op, attrs_as_split_attrs, Split);
-
-fn read_topk_op(node: &OperatorNode) -> ReadOpResult {
-    let attrs = node.attrs_as_top_kattrs().ok_or(ReadOpError::AttrError)?;
-    let largest = attrs.largest();
-    let sorted = attrs.sorted();
-    let axis = attrs.axis();
-    Ok(Box::new(ops::TopK {
-        axis: Some(axis as isize),
-        largest,
-        sorted,
-    }))
-}
-
-fn read_transpose_op(node: &OperatorNode) -> ReadOpResult {
-    let attrs = node
-        .attrs_as_transpose_attrs()
-        .ok_or(ReadOpError::AttrError)?;
-    let perm = attrs
-        .perm()
-        .map(|perm| perm.iter().map(|dim| dim as usize).collect());
-    Ok(Box::new(ops::Transpose { perm }))
-}
-
-fn read_trilu_op(node: &OperatorNode) -> ReadOpResult {
-    let attrs = node.attrs_as_trilu_attrs().ok_or(ReadOpError::AttrError)?;
-    Ok(Box::new(ops::Trilu {
-        upper: attrs.upper(),
-    }))
 }
 
 /// Errors reported by [Model::load].
