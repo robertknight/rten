@@ -100,10 +100,10 @@ pub use unary_elementwise::{
     exp, exp_in_place, floor, floor_in_place, hard_sigmoid, hard_sigmoid_in_place, hard_swish,
     hard_swish_in_place, leaky_relu, leaky_relu_in_place, log, log_in_place, neg, neg_in_place,
     not, not_in_place, reciprocal, reciprocal_in_place, relu, relu_in_place, round, round_in_place,
-    sigmoid, sigmoid_in_place, sign, sign_in_place, sin, sin_in_place, sqrt, sqrt_in_place, tan,
-    tan_in_place, tanh, tanh_in_place, Abs, Acos, Asin, Atan, Ceil, Clip, Cos, Elu, Erf, Exp,
-    Floor, HardSigmoid, HardSwish, LeakyRelu, Log, Neg, Not, Reciprocal, Relu, Round, Sigmoid,
-    Sign, Sin, Sqrt, Tan, Tanh,
+    sigmoid, sigmoid_in_place, sign, sign_in_place, sin, sin_in_place, softplus, softplus_in_place,
+    sqrt, sqrt_in_place, tan, tan_in_place, tanh, tanh_in_place, Abs, Acos, Asin, Atan, Ceil, Clip,
+    Cos, Elu, Erf, Exp, Floor, HardSigmoid, HardSwish, LeakyRelu, Log, Neg, Not, Reciprocal, Relu,
+    Round, Sigmoid, Sign, Sin, Softplus, Sqrt, Tan, Tanh,
 };
 pub use variadic_elementwise::{max, mean, min, sum, Max, Mean, Min, Sum};
 

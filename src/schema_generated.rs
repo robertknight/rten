@@ -18,13 +18,13 @@ pub const ENUM_MIN_OPERATOR_TYPE: u8 = 0;
     since = "2.0.0",
     note = "Use associated constants instead. This will no longer be generated in 2021."
 )]
-pub const ENUM_MAX_OPERATOR_TYPE: u8 = 99;
+pub const ENUM_MAX_OPERATOR_TYPE: u8 = 100;
 #[deprecated(
     since = "2.0.0",
     note = "Use associated constants instead. This will no longer be generated in 2021."
 )]
 #[allow(non_camel_case_types)]
-pub const ENUM_VALUES_OPERATOR_TYPE: [OperatorType; 100] = [
+pub const ENUM_VALUES_OPERATOR_TYPE: [OperatorType; 101] = [
     OperatorType::Add,
     OperatorType::ArgMin,
     OperatorType::ArgMax,
@@ -125,6 +125,7 @@ pub const ENUM_VALUES_OPERATOR_TYPE: [OperatorType; 100] = [
     OperatorType::RandomUniformLike,
     OperatorType::RandomNormal,
     OperatorType::RandomNormalLike,
+    OperatorType::Softplus,
 ];
 
 #[derive(Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash, Default)]
@@ -232,9 +233,10 @@ impl OperatorType {
     pub const RandomUniformLike: Self = Self(97);
     pub const RandomNormal: Self = Self(98);
     pub const RandomNormalLike: Self = Self(99);
+    pub const Softplus: Self = Self(100);
 
     pub const ENUM_MIN: u8 = 0;
-    pub const ENUM_MAX: u8 = 99;
+    pub const ENUM_MAX: u8 = 100;
     pub const ENUM_VALUES: &'static [Self] = &[
         Self::Add,
         Self::ArgMin,
@@ -336,6 +338,7 @@ impl OperatorType {
         Self::RandomUniformLike,
         Self::RandomNormal,
         Self::RandomNormalLike,
+        Self::Softplus,
     ];
     /// Returns the variant's name or "" if unknown.
     pub fn variant_name(self) -> Option<&'static str> {
@@ -440,6 +443,7 @@ impl OperatorType {
             Self::RandomUniformLike => Some("RandomUniformLike"),
             Self::RandomNormal => Some("RandomNormal"),
             Self::RandomNormalLike => Some("RandomNormalLike"),
+            Self::Softplus => Some("Softplus"),
             _ => None,
         }
     }

@@ -110,6 +110,7 @@ enum OperatorType: ubyte {
   RandomUniformLike,
   RandomNormal,
   RandomNormalLike,
+  Softplus,
 }
 
 enum RNNDirection: ubyte {

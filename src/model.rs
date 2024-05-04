@@ -883,6 +883,7 @@ impl_read_op!(Sin);
 impl_read_op!(Size);
 impl_read_op!(Slice);
 impl_read_op!(Softmax, axis, attrs_as_softmax_attrs);
+impl_read_op!(Softplus);
 impl_read_op!(Split, axis, attrs_as_split_attrs);
 impl_read_op!(Sqrt);
 impl_read_op!(Squeeze);
@@ -1074,6 +1075,7 @@ impl OpRegistry {
         register_op!(Size);
         register_op!(Slice);
         register_op!(Softmax);
+        register_op!(Softplus);
         register_op!(Split);
         register_op!(Sqrt);
         register_op!(Squeeze);
@@ -1680,6 +1682,7 @@ mod tests {
         let const_1 = builder.add_int_constant(&Tensor::from_data(&[1], vec![1]));
         add_operator!(Slice, [input_node, const_0, const_1, const_0]);
 
+        add_operator!(Softplus, [input_node]);
         add_operator!(Softmax, [input_node], { axis: 1 });
         add_operator!(Sqrt, [input_node]);
         add_operator!(Squeeze, [input_node]);
