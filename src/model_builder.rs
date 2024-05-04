@@ -107,6 +107,7 @@ pub enum OpType {
     Size,
     Slice,
     Softmax(Softmax),
+    Softplus,
     Split(Split),
     Sqrt,
     Squeeze,
@@ -695,6 +696,7 @@ impl<'a> ModelBuilder<'a> {
                     axis: args.axis as i32,
                 }
             ),
+            OpType::Softplus => op!(Softplus),
             OpType::Split(args) => op_with_attrs!(Split, SplitAttrs, {
                 sg::SplitAttrsArgs {
                     axis: args.axis as i32,

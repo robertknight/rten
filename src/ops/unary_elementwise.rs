@@ -626,6 +626,9 @@ pub fn sign_in_place<T: Signum>(mut input: TensorViewMut<T>) {
 
 unary_numeric_op!(Sign, sign, sign_in_place);
 unary_float_op!(Sqrt, sqrt, sqrt_in_place, |val: f32| val.sqrt());
+unary_float_op!(Softplus, softplus, softplus_in_place, |val: f32| {
+    val.exp().ln_1p()
+});
 unary_float_op!(Tan, tan, tan_in_place, |val: f32| val.tan());
 parallel_unary_float_op!(
     Tanh,
@@ -651,8 +654,8 @@ mod tests {
         clip_in_place, cos, cos_in_place, elu, elu_in_place, erf, erf_in_place, exp, exp_in_place,
         floor, hard_sigmoid, hard_swish, leaky_relu, leaky_relu_in_place, log, log_in_place, neg,
         neg_in_place, not, not_in_place, reciprocal, relu, relu_in_place, round, round_in_place,
-        sigmoid, sigmoid_in_place, sign, sign_in_place, sin, sin_in_place, sqrt, sqrt_in_place,
-        tan, tan_in_place, tanh, tanh_in_place,
+        sigmoid, sigmoid_in_place, sign, sign_in_place, sin, sin_in_place, softplus,
+        softplus_in_place, sqrt, sqrt_in_place, tan, tan_in_place, tanh, tanh_in_place,
     };
 
     /// Define a test for a simple unary operator which applies the function
@@ -1112,6 +1115,9 @@ mod tests {
 
     test_unary_op!(test_sign, sign, sign_in_place, |x: &f32| x.signum());
     test_unary_op!(test_sin, sin, sin_in_place, |x: &f32| x.sin());
+    test_unary_op!(test_softplus, softplus, softplus_in_place, |x: &f32| {
+        x.exp().ln_1p()
+    });
 
     #[test]
     fn test_sqrt() -> Result<(), Box<dyn Error>> {
