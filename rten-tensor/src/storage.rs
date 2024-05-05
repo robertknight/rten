@@ -358,3 +358,47 @@ where
         self.as_ref().as_ptr()
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use std::borrow::Cow;
+
+    use super::{IntoStorage, Storage, ViewData, ViewMutData};
+
+    fn test_storage_impl<S: Storage<Elem = i32>>(s: S, expected: &[i32]) {
+        // Test `len`, `get`.
+        assert_eq!(s.len(), expected.len());
+        for i in 0..s.len() {
+            assert_eq!(unsafe { s.get(i) }, expected.get(i));
+        }
+        assert_eq!(unsafe { s.get(s.len()) }, None);
+
+        // Test slicing storage.
+        let range = 1..s.len() - 1;
+        let slice = s.slice(range.clone());
+        assert_eq!(slice.len(), range.len());
+        for i in 0..slice.len() {
+            assert_eq!(unsafe { slice.get(i) }, expected[range.clone()].get(i));
+        }
+
+        // Test restoring a slice.
+        assert_eq!(unsafe { s.as_slice() }, expected);
+    }
+
+    #[test]
+    fn test_storage() {
+        let data = &mut [1, 2, 3, 4];
+
+        let owned = data.to_vec();
+        test_storage_impl(owned, data);
+
+        let view: ViewData<i32> = data.as_slice().into_storage();
+        test_storage_impl(view, data);
+
+        let cow_view = Cow::Borrowed(data.as_slice());
+        test_storage_impl(cow_view, data);
+
+        let mut_view: ViewMutData<i32> = data.as_mut_slice().into_storage();
+        test_storage_impl(mut_view, &[1, 2, 3, 4]);
+    }
+}
