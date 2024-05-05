@@ -972,8 +972,11 @@ impl<'a, T, L: Clone + MutLayout> TensorBase<ViewData<'a, T>, L> {
     }
 
     pub fn get<I: AsIndex<L>>(&self, index: I) -> Option<&'a T> {
-        self.try_offset(index.as_index())
-            .map(|offset| self.data.get(offset).unwrap())
+        self.try_offset(index.as_index()).map(|offset|
+                // Safety: No logically overlapping mutable view exist.
+                unsafe {
+                self.data.get(offset).unwrap()
+            })
     }
 
     /// Return this view's underlying data as a slice.
@@ -1030,7 +1033,10 @@ impl<'a, T, L: Clone + MutLayout> TensorBase<ViewData<'a, T>, L> {
     /// Return the scalar value in this tensor if it has one element.
     pub fn item(&self) -> Option<&'a T> {
         match self.ndim() {
-            0 => self.data.get(0),
+            0 => unsafe {
+                // Safety: No logically overlapping mutable views exist.
+                self.data.get(0)
+            },
             _ if self.len() == 1 => self.iter().next(),
             _ => None,
         }
@@ -1584,7 +1590,10 @@ impl<T, S: Storage<Elem = T>, L: MutLayout, I: AsIndex<L>> Index<I> for TensorBa
     /// Panics if the index is out of bounds along any dimension.
     fn index(&self, index: I) -> &Self::Output {
         let offset = self.layout.offset(index.as_index());
-        self.data.get(offset).expect("invalid offset")
+        unsafe {
+            // Safety: See comments in [Storage] trait.
+            self.data.get(offset).expect("invalid offset")
+        }
     }
 }
 
@@ -1594,7 +1603,10 @@ impl<T, S: StorageMut<Elem = T>, L: MutLayout, I: AsIndex<L>> IndexMut<I> for Te
     /// Panics if the index is out of bounds along any dimension.
     fn index_mut(&mut self, index: I) -> &mut Self::Output {
         let offset = self.layout.offset(index.as_index());
-        self.data.get_mut(offset).expect("invalid offset")
+        unsafe {
+            // Safety: See comments in [Storage] trait.
+            self.data.get_mut(offset).expect("invalid offset")
+        }
     }
 }
 
@@ -1743,10 +1755,11 @@ impl<T, S: Storage<Elem = T>, L: MutLayout> Layout for WeaklyCheckedView<S, L> {
 impl<T, S: Storage<Elem = T>, L: MutLayout, I: AsIndex<L>> Index<I> for WeaklyCheckedView<S, L> {
     type Output = T;
     fn index(&self, index: I) -> &Self::Output {
-        self.base
-            .data
-            .get(self.base.layout.offset_unchecked(index.as_index()))
-            .expect("invalid offset")
+        let offset = self.base.layout.offset_unchecked(index.as_index());
+        unsafe {
+            // Safety: See comments in [Storage] trait.
+            self.base.data.get(offset).expect("invalid offset")
+        }
     }
 }
 
@@ -1755,7 +1768,10 @@ impl<T, S: StorageMut<Elem = T>, L: MutLayout, I: AsIndex<L>> IndexMut<I>
 {
     fn index_mut(&mut self, index: I) -> &mut Self::Output {
         let offset = self.base.layout.offset_unchecked(index.as_index());
-        self.base.data.get_mut(offset).expect("invalid offset")
+        unsafe {
+            // Safety: See comments in [Storage] trait.
+            self.base.data.get_mut(offset).expect("invalid offset")
+        }
     }
 }
 

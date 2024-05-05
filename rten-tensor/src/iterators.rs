@@ -376,7 +376,10 @@ impl<'a, T> Iterator for IndexingIter<'a, T> {
         if self.base.len == 0 {
             return None;
         }
-        let element = self.data.get(self.base.offset as usize).unwrap();
+        let element = unsafe {
+            // Safety: See comments in Storage trait.
+            self.data.get(self.base.offset as usize).unwrap()
+        };
         self.base.step();
         Some(element)
     }
@@ -483,6 +486,7 @@ impl<'a, T> Iterator for IndexingIterMut<'a, T> {
             return None;
         }
         let element = unsafe {
+            // Safety: See comments in Storage trait.
             let el = self.data.get_mut(self.base.offset as usize).unwrap();
 
             // Safety: IndexingIterBase never yields the same offset more than
@@ -723,7 +727,9 @@ impl<'a, T> Iterator for Lane<'a, T> {
         if self.index < self.size {
             let index = self.index;
             self.index += 1;
-            self.data.get(index * self.stride)
+
+            // Safety: See comments in Storage trait.
+            unsafe { self.data.get(index * self.stride) }
         } else {
             None
         }
@@ -809,8 +815,14 @@ impl<'a, T> Iterator for LaneMut<'a, T> {
         if self.index < self.size {
             let index = self.index;
             self.index += 1;
-            let item = self.data.get_mut(index * self.stride);
-            unsafe { std::mem::transmute(item) }
+            unsafe {
+                // Safety: See comments in Storage trait.
+                let item = self.data.get_mut(index * self.stride);
+
+                // Transmute to preserve lifetime of data. This is safe as we
+                // yield each element only once.
+                std::mem::transmute(item)
+            }
         } else {
             None
         }

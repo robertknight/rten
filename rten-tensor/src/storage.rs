@@ -4,8 +4,19 @@ use std::ops::Range;
 
 /// Trait for backing storage used by tensors and views.
 ///
-/// This provides common operations needed by the tensor implementations.
-/// Owned tensors and views additionally implement [StorageMut].
+/// Mutable tensors have storage which also implements [StorageMut].
+///
+/// Storage specifies a contiguous array of elements in memory, as a pointer
+/// and a length. The storage may be owned or borrowed. For borrowed storage,
+/// there may be other storage whose ranges overlap. This is necessary to
+/// support mutable views of non-contiguous tensors (eg. independent columns
+/// of a matrix, whose data is stored in row-major order).
+///
+/// # Safety
+///
+/// Since different storage objects can have memory ranges that overlap, it is
+/// up to the caller to ensure that mutable tensors cannot logically overlap any
+/// other tensors (ie. there is no overlap between the elements they reference).
 pub trait Storage {
     /// The element type.
     type Elem;
@@ -22,14 +33,29 @@ pub trait Storage {
     fn as_ptr(&self) -> *const Self::Elem;
 
     /// Return the element at a given offset, or None if `offset >= self.len()`.
-    fn get(&self, offset: usize) -> Option<&Self::Elem>;
+    ///
+    /// # Safety
+    ///
+    /// - The caller must ensure that no mutable references to the same element
+    ///   can be created.
+    unsafe fn get(&self, offset: usize) -> Option<&Self::Elem> {
+        if offset < self.len() {
+            Some(&*self.as_ptr().add(offset))
+        } else {
+            None
+        }
+    }
 
     /// Return a reference to the element at `offset`.
     ///
     /// # Safety
     ///
-    /// The caller must ensure that `offset < len`.
-    unsafe fn get_unchecked(&self, offset: usize) -> &Self::Elem;
+    /// This has the same safety requirements as [`get`](Storage::get) plus
+    /// the caller must ensure that `offset < len`.
+    unsafe fn get_unchecked(&self, offset: usize) -> &Self::Elem {
+        debug_assert!(offset < self.len());
+        &*self.as_ptr().add(offset)
+    }
 
     /// Return a view of a sub-region of the storage.
     fn slice(&self, range: Range<usize>) -> ViewData<Self::Elem> {
@@ -117,14 +143,27 @@ pub trait StorageMut: Storage {
     fn as_mut_ptr(&mut self) -> *mut Self::Elem;
 
     /// Mutable version of [Storage::get].
-    fn get_mut(&mut self, offset: usize) -> Option<&mut Self::Elem>;
+    ///
+    /// # Safety
+    ///
+    /// This has the same safety requirements as [`get`](Storage::get).
+    unsafe fn get_mut(&mut self, offset: usize) -> Option<&mut Self::Elem> {
+        if offset < self.len() {
+            Some(&mut *self.as_mut_ptr().add(offset))
+        } else {
+            None
+        }
+    }
 
     /// Mutable version of [Storage::get_unchecked].
     ///
     /// # Safety
     ///
-    /// The caller must ensure that `offset < self.len()`.
-    unsafe fn get_unchecked_mut(&mut self, offset: usize) -> &mut Self::Elem;
+    /// This has the same requirement as [`get_mut`](StorageMut::get_mut) plus
+    /// the caller must ensure that `offset < self.len()`.
+    unsafe fn get_unchecked_mut(&mut self, offset: usize) -> &mut Self::Elem {
+        &mut *self.as_mut_ptr().add(offset)
+    }
 
     /// Return a slice of this storage.
     fn slice_mut(&mut self, range: Range<usize>) -> ViewMutData<Self::Elem> {
@@ -161,30 +200,14 @@ impl<T> Storage for Vec<T> {
         self.len()
     }
 
-    fn get(&self, offset: usize) -> Option<&T> {
-        self.as_slice().get(offset)
-    }
-
     fn as_ptr(&self) -> *const T {
         self.as_ptr()
-    }
-
-    unsafe fn get_unchecked(&self, offset: usize) -> &T {
-        self.as_slice().get_unchecked(offset)
     }
 }
 
 impl<T> StorageMut for Vec<T> {
     fn as_mut_ptr(&mut self) -> *mut T {
         self.as_mut_ptr()
-    }
-
-    fn get_mut(&mut self, offset: usize) -> Option<&mut T> {
-        self.as_mut_slice().get_mut(offset)
-    }
-
-    unsafe fn get_unchecked_mut(&mut self, offset: usize) -> &mut T {
-        self.as_mut_slice().get_unchecked_mut(offset)
     }
 }
 
@@ -214,7 +237,11 @@ impl<'a, T> Copy for ViewData<'a, T> {}
 
 impl<'a, T> ViewData<'a, T> {
     /// Variant of [Storage::get] which preserves lifetimes.
-    pub fn get(&self, offset: usize) -> Option<&'a T> {
+    ///
+    /// # Safety
+    ///
+    /// See [Storage::get].
+    pub unsafe fn get(&self, offset: usize) -> Option<&'a T> {
         if offset < self.len {
             Some(unsafe { &*self.ptr.add(offset) })
         } else {
@@ -267,21 +294,8 @@ impl<'a, T> Storage for ViewData<'a, T> {
         self.len
     }
 
-    fn get(&self, offset: usize) -> Option<&T> {
-        if offset < self.len {
-            Some(unsafe { &*self.ptr.add(offset) })
-        } else {
-            None
-        }
-    }
-
     fn as_ptr(&self) -> *const T {
         self.ptr
-    }
-
-    unsafe fn get_unchecked(&self, offset: usize) -> &T {
-        debug_assert!(offset < self.len);
-        &*self.ptr.add(offset)
     }
 }
 
@@ -319,39 +333,14 @@ impl<'a, T> Storage for ViewMutData<'a, T> {
         self.len
     }
 
-    fn get(&self, offset: usize) -> Option<&T> {
-        if offset < self.len {
-            Some(unsafe { &*self.ptr.add(offset) })
-        } else {
-            None
-        }
-    }
-
     fn as_ptr(&self) -> *const T {
         self.ptr
-    }
-
-    unsafe fn get_unchecked(&self, offset: usize) -> &T {
-        debug_assert!(offset < self.len);
-        &*self.ptr.add(offset)
     }
 }
 
 impl<'a, T> StorageMut for ViewMutData<'a, T> {
     fn as_mut_ptr(&mut self) -> *mut T {
         self.ptr
-    }
-
-    fn get_mut(&mut self, offset: usize) -> Option<&mut T> {
-        if offset < self.len {
-            Some(unsafe { &mut *self.ptr.add(offset) })
-        } else {
-            None
-        }
-    }
-
-    unsafe fn get_unchecked_mut(&mut self, offset: usize) -> &mut T {
-        &mut *self.ptr.add(offset)
     }
 }
 
@@ -365,15 +354,7 @@ where
         self.as_ref().len()
     }
 
-    fn get(&self, offset: usize) -> Option<&T> {
-        self.as_ref().get(offset)
-    }
-
     fn as_ptr(&self) -> *const T {
         self.as_ref().as_ptr()
-    }
-
-    unsafe fn get_unchecked(&self, offset: usize) -> &T {
-        self.as_slice().get_unchecked(offset)
     }
 }
