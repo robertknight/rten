@@ -1,7 +1,7 @@
 use std::mem::MaybeUninit;
 use std::ops::Range;
 
-use rten_tensor::{Matrix, MatrixLayout};
+use rten_tensor::{Matrix, MatrixLayout, Storage};
 
 use super::round_up;
 
@@ -27,7 +27,7 @@ pub fn pack_a_block<const MR: usize>(
     let a_cols = cols.len();
 
     // Safety: Loops below must only access valid offsets in `a_data`.
-    let a_data = a.non_contiguous_data();
+    let a_data = a.storage();
 
     let row_stride = a.row_stride();
     let col_stride = a.col_stride();
@@ -76,7 +76,8 @@ pub fn pack_a_block<const MR: usize>(
                 for row in 0..MR {
                     let a_row = rows.start + panel_start_row + row;
                     out[out_col_offset + row].write(if a_row < rows.end {
-                        a_data[a_row * row_stride + (cols.start + col) * col_stride]
+                        let offset = a_row * row_stride + (cols.start + col) * col_stride;
+                        unsafe { *a_data.get_unchecked(offset) }
                     } else {
                         0.0
                     });
@@ -116,7 +117,7 @@ pub fn pack_b_block<const NR: usize>(
     let b_col_stride = b.col_stride();
 
     // Safety: Loops below must only access valid offsets in `b_data`.
-    let b_data = b.non_contiguous_data();
+    let b_data = b.storage();
 
     let n_panels = round_up(b_cols, NR) / NR;
     for panel in 0..n_panels {
@@ -173,7 +174,7 @@ pub fn pack_b_block<const NR: usize>(
                         b_row_offset + (cols.start + panel_start_col + col) * b_col_stride;
 
                     out[out_row_offset + col].write(if out_col < b_cols {
-                        b_data[b_offset]
+                        unsafe { *b_data.get_unchecked(b_offset) }
                     } else {
                         0.0
                     });

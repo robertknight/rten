@@ -477,9 +477,9 @@ impl<S: StorageMut, L: MutLayout> TensorBase<S, L> {
         })
     }
 
-    /// Return a raw pointer to the tensor's underlying data.
-    pub fn data_mut_ptr(&mut self) -> *mut S::Elem {
-        self.data.as_mut_ptr()
+    /// Return a mutable view of the tensor's underlying storage.
+    pub fn storage_mut(&mut self) -> impl StorageMut<Elem = S::Elem> + '_ {
+        self.data.view_mut()
     }
 
     /// Replace all elements of this tensor with `value`.
@@ -971,25 +971,17 @@ impl<'a, T, L: Clone + MutLayout> TensorBase<ViewData<'a, T>, L> {
         })
     }
 
+    /// Return an immutable view of the tensor's underlying storage.
+    pub fn storage(&self) -> impl Storage<Elem = T> + 'a {
+        self.data.view()
+    }
+
     pub fn get<I: AsIndex<L>>(&self, index: I) -> Option<&'a T> {
         self.try_offset(index.as_index()).map(|offset|
                 // Safety: No logically overlapping mutable view exist.
                 unsafe {
                 self.data.get(offset).unwrap()
             })
-    }
-
-    /// Return this view's underlying data as a slice.
-    ///
-    /// Unlike the `data` method, this method does not check if the storage
-    /// is contiguous in memory (ie. elements are stored in the same order as
-    /// returned by `iter`, with no gaps).
-    ///
-    /// Note there is no safe equivalent of this method for mutable views
-    /// because this could lead to overlapping mutable slices.
-    pub fn non_contiguous_data(&self) -> &'a [T] {
-        // TODO - Handle the case where there are gaps in the data.
-        unsafe { self.data.as_slice() }
     }
 
     /// Create a new view with a given shape and data slice, and custom strides.
@@ -1780,12 +1772,12 @@ mod tests {
     use std::borrow::Cow;
     use std::cell::RefCell;
 
-    use super::{AsView, NdTensor, NdTensorView, Tensor};
+    use super::{AsView, NdTensor, NdTensorView, NdTensorViewMut, Tensor};
     use crate::errors::FromDataError;
     use crate::layout::MatrixLayout;
     use crate::prelude::*;
     use crate::rng::XorShiftRng;
-    use crate::{Alloc, SliceItem};
+    use crate::{Alloc, SliceItem, Storage};
 
     struct FakeAlloc {
         count: RefCell<usize>,
@@ -2596,17 +2588,6 @@ mod tests {
     }
 
     #[test]
-    fn test_non_contiguous_data() {
-        let mut tensor = NdTensor::from_data([2, 2], vec![1, 2, 3, 4]);
-        assert_eq!(tensor.data(), Some(tensor.view().non_contiguous_data()));
-
-        tensor.transpose();
-
-        assert!(tensor.data().is_none());
-        assert_eq!(tensor.view().non_contiguous_data(), [1, 2, 3, 4]);
-    }
-
-    #[test]
     fn test_rand() {
         let mut rng = XorShiftRng::new(1234);
         let tensor = NdTensor::rand([2, 2], &mut rng);
@@ -2805,6 +2786,25 @@ mod tests {
         let squeezed = tensor.squeezed();
 
         assert_eq!(squeezed.shape(), &[2, 3]);
+    }
+
+    #[test]
+    fn test_storage() {
+        let data = &[1, 2, 3, 4];
+        let tensor = NdTensorView::from_data([2, 2], data);
+        let storage = tensor.storage();
+        assert_eq!(storage.len(), 4);
+        assert_eq!(storage.as_ptr(), data.as_ptr());
+    }
+
+    #[test]
+    fn test_storage_mut() {
+        let data = &mut [1, 2, 3, 4];
+        let ptr = data.as_mut_ptr();
+        let mut tensor = NdTensorViewMut::from_data([2, 2], data.as_mut_slice());
+        let storage = tensor.storage_mut();
+        assert_eq!(storage.len(), 4);
+        assert_eq!(storage.as_ptr(), ptr);
     }
 
     #[test]

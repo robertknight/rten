@@ -1,7 +1,7 @@
 use std::mem::MaybeUninit;
 use std::ops::Range;
 
-use rten_tensor::{Matrix, MatrixLayout};
+use rten_tensor::{Matrix, MatrixLayout, Storage};
 use rten_vecmath::simd_vec::SimdFloat;
 
 use crate::gemm::packing::{pack_a_block, pack_b_block};
@@ -43,7 +43,7 @@ unsafe fn simd_gemv<S: SimdFloat, const NR_REGS: usize>(
 
     let out_ptr = out.as_mut_ptr();
     let a_ptr = a.as_ptr();
-    let b_ptr = b.non_contiguous_data().as_ptr();
+    let b_ptr = b.storage().as_ptr();
     let b_row_stride = b.row_stride();
 
     let mut b_tiles = range_chunks_exact(0..b.cols(), NR_REGS * S::LEN);
@@ -112,7 +112,7 @@ unsafe fn simd_gemv_transposed<S: SimdFloat>(
     assert!(a.len() == b.rows());
     assert!(out.len() == b.cols());
 
-    let b_data = b.non_contiguous_data();
+    let b_ptr = b.storage().as_ptr();
     let b_col_stride = b.col_stride();
 
     const COL_TILE: usize = 8;
@@ -125,7 +125,7 @@ unsafe fn simd_gemv_transposed<S: SimdFloat>(
         for depth_tile in depth_tiles.by_ref() {
             let a_tile = S::load(a.as_ptr().add(depth_tile.start));
             for i in 0..COL_TILE {
-                let b_col_ptr = b_data.as_ptr().add((col_tile.start + i) * b_col_stride);
+                let b_col_ptr = b_ptr.add((col_tile.start + i) * b_col_stride);
                 let b_tile = S::load(b_col_ptr.add(depth_tile.start));
                 acc[i] = a_tile.mul_add(b_tile, acc[i]);
             }
@@ -135,7 +135,7 @@ unsafe fn simd_gemv_transposed<S: SimdFloat>(
         for k in depth_tiles.remainder() {
             let ak = *a.get_unchecked(k);
             for i in 0..COL_TILE {
-                let b_col_ptr = b_data.as_ptr().add((col_tile.start + i) * b_col_stride);
+                let b_col_ptr = b_ptr.add((col_tile.start + i) * b_col_stride);
                 let bk = *b_col_ptr.add(k);
                 acc[i] = ak.mul_add(bk, acc[i]);
             }
