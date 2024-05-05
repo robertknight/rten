@@ -1,7 +1,7 @@
 use std::ops::Range;
 
 use rten_tensor::prelude::*;
-use rten_tensor::NdTensorView;
+use rten_tensor::{NdTensorView, Storage};
 use rten_vecmath::simd_vec::{SimdFloat, SimdInt};
 
 #[cfg(feature = "avx512")]
@@ -188,7 +188,7 @@ impl<'a> VirtualIm2Col<'a> {
         let row_y_offsets = &self.row_offsets.y[rows.clone()];
         let row_x_offsets = &self.row_offsets.x[rows.clone()];
 
-        let img_data = self.image.non_contiguous_data();
+        let img_ptr = self.image.storage().as_ptr();
 
         // Loop over column panels, then rows, then `S::LEN`-wide column groups
         // within each panel.
@@ -228,7 +228,7 @@ impl<'a> VirtualIm2Col<'a> {
                         .blend(zero, x_offset.lt(zero))
                         .blend(zero, x_offset.gt(max_x_offset));
 
-                    let elts = S::gather_mask(img_data.as_ptr(), offsets, pad_mask.to_float_mask());
+                    let elts = S::gather_mask(img_ptr, offsets, pad_mask.to_float_mask());
 
                     elts.store(out_ptr.add(out_offset));
                     out_offset += S::LEN;

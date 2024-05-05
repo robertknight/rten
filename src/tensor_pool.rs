@@ -214,7 +214,7 @@ pub trait ExtractBuffer {
     fn extract_buffer(self) -> Vec<Self::Elem>;
 }
 
-impl<T, L: MutLayout> ExtractBuffer for TensorBase<T, Vec<T>, L> {
+impl<T, L: MutLayout> ExtractBuffer for TensorBase<Vec<T>, L> {
     type Elem = T;
 
     fn extract_buffer(self) -> Vec<Self::Elem> {
