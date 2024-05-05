@@ -1,7 +1,7 @@
 use std::arch::x86_64::{
-    __m256, __m256i, _mm256_add_epi32, _mm256_add_ps, _mm256_andnot_ps, _mm256_blendv_epi8,
-    _mm256_blendv_ps, _mm256_castps256_ps128, _mm256_castsi256_ps, _mm256_cmp_ps,
-    _mm256_cmpeq_epi32, _mm256_cmpgt_epi32, _mm256_cvttps_epi32, _mm256_div_ps,
+    __m256, __m256i, _mm256_add_epi32, _mm256_add_ps, _mm256_and_si256, _mm256_andnot_ps,
+    _mm256_blendv_epi8, _mm256_blendv_ps, _mm256_castps256_ps128, _mm256_castsi256_ps,
+    _mm256_cmp_ps, _mm256_cmpeq_epi32, _mm256_cmpgt_epi32, _mm256_cvttps_epi32, _mm256_div_ps,
     _mm256_extractf128_ps, _mm256_fmadd_ps, _mm256_loadu_ps, _mm256_loadu_si256,
     _mm256_mask_i32gather_ps, _mm256_max_ps, _mm256_mul_ps, _mm256_or_si256, _mm256_set1_epi32,
     _mm256_set1_ps, _mm256_setzero_si256, _mm256_slli_epi32, _mm256_storeu_ps, _mm256_storeu_si256,
@@ -9,11 +9,22 @@ use std::arch::x86_64::{
     _mm_shuffle_ps, _CMP_GE_OQ, _CMP_LE_OQ, _CMP_LT_OQ, _MM_HINT_ET0, _MM_HINT_T0,
 };
 
-use crate::simd_vec::{SimdFloat, SimdInt};
+use crate::simd_vec::{SimdFloat, SimdInt, SimdMask, SimdVal};
+
+impl SimdMask for __m256i {
+    #[inline]
+    #[target_feature(enable = "avx2")]
+    unsafe fn and(self, other: Self) -> Self {
+        _mm256_and_si256(self, other)
+    }
+}
+
+impl SimdVal for __m256i {
+    type Mask = __m256i;
+}
 
 impl SimdInt for __m256i {
     type Float = __m256;
-    type Mask = __m256i;
 
     const LEN: usize = 8;
 
@@ -91,12 +102,6 @@ impl SimdInt for __m256i {
 
     #[inline]
     #[target_feature(enable = "avx2")]
-    unsafe fn to_float_mask(self) -> <Self::Float as SimdFloat>::Mask {
-        self.reinterpret_as_float()
-    }
-
-    #[inline]
-    #[target_feature(enable = "avx2")]
     unsafe fn load(ptr: *const i32) -> Self {
         // Cast is OK because instruction does not require alignment.
         _mm256_loadu_si256(ptr as *const __m256i)
@@ -110,9 +115,12 @@ impl SimdInt for __m256i {
     }
 }
 
+impl SimdVal for __m256 {
+    type Mask = __m256i;
+}
+
 impl SimdFloat for __m256 {
     type Int = __m256i;
-    type Mask = __m256;
 
     const LEN: usize = 8;
 
@@ -168,20 +176,20 @@ impl SimdFloat for __m256 {
 
     #[inline]
     #[target_feature(enable = "avx2")]
-    unsafe fn ge(self, rhs: Self::Mask) -> Self {
-        _mm256_cmp_ps(self, rhs, _CMP_GE_OQ)
+    unsafe fn ge(self, rhs: Self) -> Self::Mask {
+        std::mem::transmute(_mm256_cmp_ps(self, rhs, _CMP_GE_OQ))
     }
 
     #[inline]
     #[target_feature(enable = "avx2")]
-    unsafe fn le(self, rhs: Self::Mask) -> Self {
-        _mm256_cmp_ps(self, rhs, _CMP_LE_OQ)
+    unsafe fn le(self, rhs: Self) -> Self::Mask {
+        std::mem::transmute(_mm256_cmp_ps(self, rhs, _CMP_LE_OQ))
     }
 
     #[inline]
     #[target_feature(enable = "avx2")]
-    unsafe fn lt(self, rhs: Self::Mask) -> Self {
-        _mm256_cmp_ps(self, rhs, _CMP_LT_OQ)
+    unsafe fn lt(self, rhs: Self) -> Self::Mask {
+        std::mem::transmute(_mm256_cmp_ps(self, rhs, _CMP_LT_OQ))
     }
 
     #[inline]
@@ -193,7 +201,7 @@ impl SimdFloat for __m256 {
     #[inline]
     #[target_feature(enable = "avx2")]
     unsafe fn blend(self, rhs: Self, mask: Self::Mask) -> Self {
-        _mm256_blendv_ps(self, rhs, mask)
+        _mm256_blendv_ps(self, rhs, std::mem::transmute(mask))
     }
 
     #[inline]
@@ -205,7 +213,7 @@ impl SimdFloat for __m256 {
     #[inline]
     #[target_feature(enable = "avx2")]
     unsafe fn gather_mask(ptr: *const f32, offsets: Self::Int, mask: Self::Mask) -> Self {
-        _mm256_mask_i32gather_ps::<4>(Self::zero(), ptr, offsets, mask)
+        _mm256_mask_i32gather_ps::<4>(Self::zero(), ptr, offsets, std::mem::transmute(mask))
     }
 
     #[inline]
@@ -255,9 +263,22 @@ use std::arch::x86_64::{
 };
 
 #[cfg(feature = "avx512")]
+impl SimdMask for __mmask16 {
+    #[inline]
+    #[target_feature(enable = "avx512f")]
+    unsafe fn and(self, other: Self) -> Self {
+        self & other
+    }
+}
+
+#[cfg(feature = "avx512")]
+impl SimdVal for __m512i {
+    type Mask = __mmask16;
+}
+
+#[cfg(feature = "avx512")]
 impl SimdInt for __m512i {
     type Float = __m512;
-    type Mask = __mmask16;
 
     const LEN: usize = 16;
 
@@ -336,12 +357,6 @@ impl SimdInt for __m512i {
 
     #[inline]
     #[target_feature(enable = "avx512f")]
-    unsafe fn to_float_mask(self) -> <Self::Float as SimdFloat>::Mask {
-        self.eq(Self::splat(-1))
-    }
-
-    #[inline]
-    #[target_feature(enable = "avx512f")]
     unsafe fn load(ptr: *const i32) -> Self {
         _mm512_loadu_si512(ptr)
     }
@@ -354,9 +369,13 @@ impl SimdInt for __m512i {
 }
 
 #[cfg(feature = "avx512")]
+impl SimdVal for __m512 {
+    type Mask = __mmask16;
+}
+
+#[cfg(feature = "avx512")]
 impl SimdFloat for __m512 {
     type Int = __m512i;
-    type Mask = __mmask16;
 
     const LEN: usize = 16;
 

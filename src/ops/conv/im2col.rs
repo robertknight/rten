@@ -2,7 +2,7 @@ use std::ops::Range;
 
 use rten_tensor::prelude::*;
 use rten_tensor::{NdTensorView, Storage};
-use rten_vecmath::simd_vec::{SimdFloat, SimdInt};
+use rten_vecmath::simd_vec::{SimdFloat, SimdInt, SimdMask};
 
 #[cfg(feature = "avx512")]
 use rten_vecmath::is_avx512_supported;
@@ -222,13 +222,13 @@ impl<'a> VirtualIm2Col<'a> {
                     // Create mask to specify offsets which are valid. Others
                     // correspond to the padding region.
                     let zero = S::Int::zero();
-                    let pad_mask = S::Int::splat(-1)
-                        .blend(zero, y_offset.lt(zero))
-                        .blend(zero, y_offset.gt(max_y_offset))
-                        .blend(zero, x_offset.lt(zero))
-                        .blend(zero, x_offset.gt(max_x_offset));
+                    let pad_mask = y_offset
+                        .ge(zero)
+                        .and(y_offset.le(max_y_offset))
+                        .and(x_offset.ge(zero))
+                        .and(x_offset.le(max_x_offset));
 
-                    let elts = S::gather_mask(img_ptr, offsets, pad_mask.to_float_mask());
+                    let elts = S::gather_mask(img_ptr, offsets, pad_mask);
 
                     elts.store(out_ptr.add(out_offset));
                     out_offset += S::LEN;

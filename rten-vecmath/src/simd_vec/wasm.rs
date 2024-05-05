@@ -1,11 +1,11 @@
 use std::arch::wasm32::{
     f32x4_abs, f32x4_add, f32x4_div, f32x4_extract_lane, f32x4_ge, f32x4_le, f32x4_lt, f32x4_max,
     f32x4_mul, f32x4_splat, f32x4_sub, i32x4_add, i32x4_eq, i32x4_ge, i32x4_gt, i32x4_le, i32x4_lt,
-    i32x4_shl, i32x4_shuffle, i32x4_splat, i32x4_sub, i32x4_trunc_sat_f32x4, v128, v128_bitselect,
-    v128_load, v128_store,
+    i32x4_shl, i32x4_shuffle, i32x4_splat, i32x4_sub, i32x4_trunc_sat_f32x4, v128, v128_and,
+    v128_bitselect, v128_load, v128_store,
 };
 
-use crate::simd_vec::{SimdFloat, SimdInt};
+use crate::simd_vec::{SimdFloat, SimdInt, SimdMask, SimdVal};
 
 /// Wrapper around a WASM v128 type that marks it as containing integers.
 #[allow(non_camel_case_types)]
@@ -17,9 +17,19 @@ pub struct v128i(v128);
 #[derive(Copy, Clone, Debug)]
 pub struct v128f(v128);
 
+impl SimdMask for v128i {
+    #[inline]
+    unsafe fn and(self, other: Self) -> Self {
+        Self(v128_and(self.0, other.0))
+    }
+}
+
+impl SimdVal for v128i {
+    type Mask = v128i;
+}
+
 impl SimdInt for v128i {
     type Float = v128f;
-    type Mask = v128i;
 
     const LEN: usize = 4;
 
@@ -79,11 +89,6 @@ impl SimdInt for v128i {
     }
 
     #[inline]
-    unsafe fn to_float_mask(self) -> <Self::Float as SimdFloat>::Mask {
-        self
-    }
-
-    #[inline]
     unsafe fn load(ptr: *const i32) -> Self {
         Self(v128_load(ptr as *const v128))
     }
@@ -94,9 +99,12 @@ impl SimdInt for v128i {
     }
 }
 
+impl SimdVal for v128f {
+    type Mask = v128i;
+}
+
 impl SimdFloat for v128f {
     type Int = v128i;
-    type Mask = v128i;
 
     const LEN: usize = 4;
 

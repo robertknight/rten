@@ -8,6 +8,37 @@
 //! in some cases). There is also a generic implementation for Rust primitives
 //! (eg. f32, i32) which treats the primitive as a single-element SIMD type.
 //! This is useful both as a fallback implementation and for debugging.
+//!
+//! ## Inlining and target features
+//!
+//! Correct use of inlining and target features, in impls of these traits and
+//! generic functions using them, are critical to getting the performance
+//! benefits. If an intrinic is not inlined, the function call overhead can
+//! negate the benefits of using SIMD in the first place.
+//!
+//! Implementations of SIMD traits should add `#[inline]` and
+//! `#[target_feature(enable = "feature"]` attributes, where the feature names
+//! match the wrapped architecture-specific intrinics. An exception is for
+//! intrinsics which are always available in a given build configuration (eg.
+//! we assume SSE is always available under x86_64 and Neon under Arm).
+//!
+//! Generic functions which use SIMD traits must have `#[inline(always)]`
+//! annotations, including on any closures in their bodies. These generic
+//! functions must then be wrapped in target feature-specific wrappers which
+//! have `#[target_feature]`s that are a union of all those used in the
+//! implementation.
+//!
+//! # Safety
+//!
+//! The caller must ensure that the SIMD instructions used by a type
+//! implementing a SIMD trait are available on the current system.
+//!
+//! All architecture-specific functions in SIMD traits are unsafe due to
+//! limitations of Rust's `#[target_feature]` macro. See
+//! <https://rust-lang.github.io/rfcs/2396-target-feature-1.1.html>. Also as a
+//! consequence of this, standard operations like add, multiply etc. are
+//! implemented as functions in this trait rather than using the standard trait
+//! from `std::ops`.
 
 #[cfg(target_arch = "aarch64")]
 pub(crate) mod aarch64;
@@ -22,49 +53,35 @@ pub(crate) mod x86_64;
 
 use crate::MAX_LEN;
 
-/// Trait for SIMD vectors containing 32-bit integers.
+/// Base trait for SIMD vectors.
 ///
-/// ## Inlining and target features
-///
-/// Correct use of inlining and target features, in impls of these traits and
-/// generic functions using them, are critical to getting the performance
-/// benefits. If an intrinic is not inlined, the function call overhead can
-/// negate the benefits of using SIMD in the first place.
-///
-/// Implementations of this trait should add `#[inline]` and
-/// `#[target_feature(enable = "feature"]` attributes, where the feature names
-/// match the wrapped architecture-specific intrinics. An exception is for
-/// intrinsics which are always available in a given build configuration (eg.
-/// we assume SSE is always available under x86_64 and Neon under Arm).
-///
-/// Generic functions which use this trait must have `#[inline(always)]`
-/// annotations, including on any closures in their bodies. These generic
-/// functions must then be wrapped in target feature-specific wrappers which
-/// have `#[target_feature]`s that are a union of all those used in the
-/// implementation.
-///
-/// # Safety
-///
-/// The caller must ensure that the SIMD instructions used by a type
-/// implementing this trait are available on the current system.
-///
-/// All functions in this trait are unsafe due to limitations of Rust's
-/// `#[target_feature]` macro. See
-/// <https://rust-lang.github.io/rfcs/2396-target-feature-1.1.html>. Also as
-/// a consequence of this, standard operations like add, multiply etc. are
-/// implemented as functions in this trait rather than using the standard
-/// trait from `std::ops`.
+/// This provides common associated types and methods that are applicable for
+/// all SIMD vectors.
 #[allow(clippy::missing_safety_doc)]
-pub trait SimdInt: Copy + Sized {
+pub trait SimdVal: Copy + Sized {
+    /// The type used by operations that use or return masks.
+    ///
+    /// This should be the same for all vector types with a given number of
+    /// lanes in a particular architecture.
+    type Mask: SimdMask;
+}
+
+/// Trait implemented by SIMD masks.
+#[allow(clippy::missing_safety_doc)]
+pub trait SimdMask: Copy {
+    /// Return a bitwise AND of self and `rhs`.
+    unsafe fn and(self, rhs: Self) -> Self;
+}
+
+/// Trait for SIMD vectors containing 32-bit integers.
+#[allow(clippy::missing_safety_doc)]
+pub trait SimdInt: SimdVal {
     /// The number of elements in the SIMD vector.
     const LEN: usize;
 
     /// The type produced by an operation that converts each element in this
     /// vector to a float.
-    type Float: SimdFloat<Int = Self>;
-
-    /// The type used by operations that use or return masks.
-    type Mask: Copy;
+    type Float: SimdFloat<Int = Self, Mask = Self::Mask>;
 
     /// Return a new vector with all elements set to zero.
     #[inline]
@@ -111,16 +128,6 @@ pub trait SimdInt: Copy + Sized {
     /// Reinterpret the bits of each element as a float.
     unsafe fn reinterpret_as_float(self) -> Self::Float;
 
-    /// Reinterpret the bits of this value as a mask for use in float
-    /// operations.
-    ///
-    /// Callers must set all bits in a lane to 1 for the mask to be "on" for
-    /// that lane or all bits to 0 for the mask to be "off" for that lane.
-    /// Hence `-1` means "all lanes on" and `0` means "all lanes off". Note that
-    /// some architectures may only actually check a subset of bits within a
-    /// lane.
-    unsafe fn to_float_mask(self) -> <Self::Float as SimdFloat>::Mask;
-
     /// Load `Self::LEN` values from the memory address at `ptr`.
     ///
     /// Implementations must not require `ptr` to be aligned.
@@ -139,34 +146,14 @@ pub trait SimdInt: Copy + Sized {
 }
 
 /// Trait for SIMD vectors containing single-precision floats.
-///
-/// ## Inlining and target features
-///
-/// See the comments for [SimdInt] on use of `#[inline]` and `#[target_feature]`
-/// attributes.
-///
-/// # Safety
-///
-/// The caller must ensure that the SIMD instructions used by a type
-/// implementing this trait are available on the current system.
-///
-/// All functions in this trait are unsafe due to limitations of Rust's
-/// `#[target_feature]` macro. See
-/// <https://rust-lang.github.io/rfcs/2396-target-feature-1.1.html>. Also as
-/// a consequence of this, standard operations like add, multiply etc. are
-/// implemented as functions in this trait rather than using the standard
-/// trait from `std::ops`.
 #[allow(clippy::missing_safety_doc)]
-pub trait SimdFloat: Copy + Sized {
+pub trait SimdFloat: SimdVal {
     /// The number of elements in the SIMD vector.
     const LEN: usize;
 
     /// The type of vector produced by operations that convert this vector
     /// to a vector of ints.
-    type Int: SimdInt<Float = Self>;
-
-    /// The type used by operations that use or return masks.
-    type Mask: Copy;
+    type Int: SimdInt<Float = Self, Mask = Self::Mask>;
 
     /// Shorthand for `Self::splat(1.0)`.
     #[inline]
@@ -304,12 +291,22 @@ pub trait SimdFloat: Copy + Sized {
     }
 }
 
+impl SimdMask for bool {
+    #[inline]
+    unsafe fn and(self, rhs: Self) -> Self {
+        self & rhs
+    }
+}
+
+impl SimdVal for i32 {
+    type Mask = bool;
+}
+
 /// Treat an `i32` as a single-lane SIMD "vector".
 impl SimdInt for i32 {
     const LEN: usize = 1;
 
     type Float = f32;
-    type Mask = bool;
 
     #[inline]
     unsafe fn zero() -> Self {
@@ -376,11 +373,6 @@ impl SimdInt for i32 {
     }
 
     #[inline]
-    unsafe fn to_float_mask(self) -> <Self::Float as SimdFloat>::Mask {
-        self != 0
-    }
-
-    #[inline]
     unsafe fn load(ptr: *const i32) -> Self {
         *ptr
     }
@@ -391,12 +383,15 @@ impl SimdInt for i32 {
     }
 }
 
+impl SimdVal for f32 {
+    type Mask = bool;
+}
+
 /// Treat an `f32` as a single-lane SIMD "vector".
 impl SimdFloat for f32 {
     const LEN: usize = 1;
 
     type Int = i32;
-    type Mask = bool;
 
     #[inline]
     unsafe fn one() -> Self {

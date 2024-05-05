@@ -1,16 +1,26 @@
 use std::arch::aarch64::{
-    float32x4_t, int32x4_t, uint32x4_t, vabsq_f32, vaddq_f32, vaddq_s32, vaddvq_f32, vbslq_f32,
-    vbslq_s32, vceqq_s32, vcgeq_f32, vcgeq_s32, vcgtq_s32, vcleq_f32, vcleq_s32, vcltq_f32,
-    vcltq_s32, vcvtq_s32_f32, vdivq_f32, vdupq_n_f32, vdupq_n_s32, vfmaq_f32, vld1q_f32, vld1q_s32,
-    vmaxq_f32, vmulq_f32, vreinterpretq_f32_s32, vreinterpretq_u32_s32, vshlq_n_s32, vst1q_f32,
-    vst1q_s32, vsubq_f32, vsubq_s32,
+    float32x4_t, int32x4_t, uint32x4_t, vabsq_f32, vaddq_f32, vaddq_s32, vaddvq_f32, vandq_u32,
+    vbslq_f32, vbslq_s32, vceqq_s32, vcgeq_f32, vcgeq_s32, vcgtq_s32, vcleq_f32, vcleq_s32,
+    vcltq_f32, vcltq_s32, vcvtq_s32_f32, vdivq_f32, vdupq_n_f32, vdupq_n_s32, vfmaq_f32, vld1q_f32,
+    vld1q_s32, vmaxq_f32, vmulq_f32, vreinterpretq_f32_s32, vreinterpretq_u32_s32, vshlq_n_s32,
+    vst1q_f32, vst1q_s32, vsubq_f32, vsubq_s32,
 };
 
-use crate::simd_vec::{SimdFloat, SimdInt};
+use crate::simd_vec::{SimdFloat, SimdInt, SimdMask, SimdVal};
+
+impl SimdMask for uint32x4_t {
+    #[inline]
+    unsafe fn and(self, other: Self) -> Self {
+        vandq_u32(self, other)
+    }
+}
+
+impl SimdVal for int32x4_t {
+    type Mask = uint32x4_t;
+}
 
 impl SimdInt for int32x4_t {
     type Float = float32x4_t;
-    type Mask = uint32x4_t;
 
     const LEN: usize = 4;
 
@@ -75,11 +85,6 @@ impl SimdInt for int32x4_t {
     }
 
     #[inline]
-    unsafe fn to_float_mask(self) -> <Self::Float as SimdFloat>::Mask {
-        vreinterpretq_u32_s32(self)
-    }
-
-    #[inline]
     unsafe fn load(ptr: *const i32) -> Self {
         vld1q_s32(ptr)
     }
@@ -90,9 +95,12 @@ impl SimdInt for int32x4_t {
     }
 }
 
+impl SimdVal for float32x4_t {
+    type Mask = uint32x4_t;
+}
+
 impl SimdFloat for float32x4_t {
     type Int = int32x4_t;
-    type Mask = uint32x4_t;
 
     const LEN: usize = 4;
 
