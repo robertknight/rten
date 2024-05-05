@@ -99,7 +99,7 @@ pub trait IntoStorage {
     fn into_storage(self) -> Self::Output;
 }
 
-impl<T> IntoStorage for Vec<T> {
+impl<T: Storage> IntoStorage for T {
     type Output = Self;
 
     fn into_storage(self) -> Self {
