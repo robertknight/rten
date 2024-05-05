@@ -4,19 +4,21 @@ use std::ops::Range;
 
 /// Trait for backing storage used by tensors and views.
 ///
-/// Mutable tensors have storage which also implements [StorageMut].
+/// Mutable tensors have storage which also implement [StorageMut].
 ///
-/// Storage specifies a contiguous array of elements in memory, as a pointer
-/// and a length. The storage may be owned or borrowed. For borrowed storage,
-/// there may be other storage whose ranges overlap. This is necessary to
-/// support mutable views of non-contiguous tensors (eg. independent columns
-/// of a matrix, whose data is stored in row-major order).
+/// This specifies a contiguous array of elements in memory, as a pointer and a
+/// length. The storage may be owned or borrowed. For borrowed storage, there
+/// may be other storage whose ranges overlap. This is necessary to support
+/// mutable views of non-contiguous tensors (eg. independent columns of a
+/// matrix, whose data is stored in row-major order).
 ///
 /// # Safety
 ///
 /// Since different storage objects can have memory ranges that overlap, it is
 /// up to the caller to ensure that mutable tensors cannot logically overlap any
-/// other tensors (ie. there is no overlap between the elements they reference).
+/// other tensors. In other words, whenever a mutable tensor is split or sliced
+/// or iterated, it should not be possible to get duplicate mutable references
+/// to the same elements from those views.
 pub trait Storage {
     /// The element type.
     type Elem;
@@ -24,7 +26,7 @@ pub trait Storage {
     /// Return the number of elements in the storage.
     fn len(&self) -> usize;
 
-    /// Return true if `self.len() == 0`.
+    /// Return true if the storage contains no elements.
     fn is_empty(&self) -> bool {
         self.len() == 0
     }
@@ -58,6 +60,8 @@ pub trait Storage {
     }
 
     /// Return a view of a sub-region of the storage.
+    ///
+    /// Panics if the range is out of bounds.
     fn slice(&self, range: Range<usize>) -> ViewData<Self::Elem> {
         assert!(range.end <= self.len());
         ViewData {
@@ -69,7 +73,7 @@ pub trait Storage {
         }
     }
 
-    /// Shorthand for `self.slice(0..self.len())`.
+    /// Return an immutable view of this storage.
     fn view(&self) -> ViewData<Self::Elem> {
         self.slice(0..self.len())
     }
@@ -137,7 +141,8 @@ impl<'a, T> IntoStorage for &'a mut [T] {
 
 /// Trait for backing storage used by mutable tensors and views.
 ///
-/// This provides common operations needed by the tensor implementation.
+/// This extends [Storage] with methods to get mutable pointers and references
+/// to elements in the storage.
 pub trait StorageMut: Storage {
     /// Return a mutable pointer to the first element in storage.
     fn as_mut_ptr(&mut self) -> *mut Self::Elem;
@@ -162,6 +167,7 @@ pub trait StorageMut: Storage {
     /// This has the same requirement as [`get_mut`](StorageMut::get_mut) plus
     /// the caller must ensure that `offset < self.len()`.
     unsafe fn get_unchecked_mut(&mut self, offset: usize) -> &mut Self::Elem {
+        debug_assert!(offset < self.len());
         &mut *self.as_mut_ptr().add(offset)
     }
 
@@ -176,7 +182,7 @@ pub trait StorageMut: Storage {
         }
     }
 
-    /// Shorthand for `self.slice_mut(0..self.len())`.
+    /// Return a mutable view of this storage.
     fn view_mut(&mut self) -> ViewMutData<Self::Elem> {
         self.slice_mut(0..self.len())
     }
@@ -185,7 +191,7 @@ pub trait StorageMut: Storage {
     ///
     /// # Safety
     ///
-    /// The caller must ensure that the storage is contiguous (ie. no used
+    /// The caller must ensure that the storage is contiguous (ie. no unused
     /// elements) and that there are no references to any elements in the
     /// storage.
     unsafe fn as_slice_mut(&mut self) -> &mut [Self::Elem] {
@@ -214,10 +220,9 @@ impl<T> StorageMut for Vec<T> {
 /// Storage for an immutable tensor view.
 ///
 /// This has the same representation in memory as a slice: a pointer and a
-/// length. Unlike a slice it allows for other storage objects to reference
+/// length. Unlike a slice it allows for other mutable storage to reference
 /// memory ranges that overlap with this one. It is up to APIs built on top of
-/// this (ie. [Tensor](crate::Tensor)) to ensure that consumers cannot obtain
-/// multiple mutable references to the same element.
+/// this to ensure uniqueness of mutable element references.
 #[derive(Debug)]
 pub struct ViewData<'a, T> {
     ptr: *const T,
@@ -225,6 +230,8 @@ pub struct ViewData<'a, T> {
     _marker: PhantomData<&'a T>,
 }
 
+// Safety: `ViewData` does not provide mutable access to its elements, so it
+// is `Send` and `Sync`.
 unsafe impl<'a, T> Send for ViewData<'a, T> {}
 unsafe impl<'a, T> Sync for ViewData<'a, T> {}
 
@@ -304,8 +311,7 @@ impl<'a, T> Storage for ViewData<'a, T> {
 /// This has the same representation in memory as a mutable slice: a pointer
 /// and a length. Unlike a slice it allows for other storage objects to
 /// reference memory ranges that overlap with this one. It is up to
-/// APIs built on top of this (ie. [Tensor](crate::Tensor)) to ensure that
-/// consumers cannot obtain multiple mutable references to the same element.
+/// APIs built on top of this to ensure uniqueness of mutable references.
 #[derive(Debug)]
 pub struct ViewMutData<'a, T> {
     ptr: *mut T,
