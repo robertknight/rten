@@ -1445,13 +1445,56 @@ class ConvTransposeAttrs(object):
         o = flatbuffers.number_types.UOffsetTFlags.py_type(self._tab.Offset(4))
         return o == 0
 
+    # ConvTransposeAttrs
+    def PadMode(self):
+        o = flatbuffers.number_types.UOffsetTFlags.py_type(self._tab.Offset(6))
+        if o != 0:
+            return self._tab.Get(flatbuffers.number_types.Uint8Flags, o + self._tab.Pos)
+        return 0
+
+    # ConvTransposeAttrs
+    def Pads(self, j):
+        o = flatbuffers.number_types.UOffsetTFlags.py_type(self._tab.Offset(8))
+        if o != 0:
+            a = self._tab.Vector(o)
+            return self._tab.Get(flatbuffers.number_types.Uint32Flags, a + flatbuffers.number_types.UOffsetTFlags.py_type(j * 4))
+        return 0
+
+    # ConvTransposeAttrs
+    def PadsAsNumpy(self):
+        o = flatbuffers.number_types.UOffsetTFlags.py_type(self._tab.Offset(8))
+        if o != 0:
+            return self._tab.GetVectorAsNumpy(flatbuffers.number_types.Uint32Flags, o)
+        return 0
+
+    # ConvTransposeAttrs
+    def PadsLength(self):
+        o = flatbuffers.number_types.UOffsetTFlags.py_type(self._tab.Offset(8))
+        if o != 0:
+            return self._tab.VectorLen(o)
+        return 0
+
+    # ConvTransposeAttrs
+    def PadsIsNone(self):
+        o = flatbuffers.number_types.UOffsetTFlags.py_type(self._tab.Offset(8))
+        return o == 0
+
 def ConvTransposeAttrsStart(builder):
-    builder.StartObject(1)
+    builder.StartObject(3)
 
 def ConvTransposeAttrsAddStrides(builder, strides):
     builder.PrependUOffsetTRelativeSlot(0, flatbuffers.number_types.UOffsetTFlags.py_type(strides), 0)
 
 def ConvTransposeAttrsStartStridesVector(builder, numElems):
+    return builder.StartVector(4, numElems, 4)
+
+def ConvTransposeAttrsAddPadMode(builder, padMode):
+    builder.PrependUint8Slot(1, padMode, 0)
+
+def ConvTransposeAttrsAddPads(builder, pads):
+    builder.PrependUOffsetTRelativeSlot(2, flatbuffers.number_types.UOffsetTFlags.py_type(pads), 0)
+
+def ConvTransposeAttrsStartPadsVector(builder, numElems):
     return builder.StartVector(4, numElems, 4)
 
 def ConvTransposeAttrsEnd(builder):
@@ -1468,6 +1511,8 @@ class ConvTransposeAttrsT(object):
     # ConvTransposeAttrsT
     def __init__(self):
         self.strides = None  # type: List[int]
+        self.padMode = 0  # type: int
+        self.pads = None  # type: List[int]
 
     @classmethod
     def InitFromBuf(cls, buf, pos):
@@ -1497,6 +1542,14 @@ class ConvTransposeAttrsT(object):
                     self.strides.append(convTransposeAttrs.Strides(i))
             else:
                 self.strides = convTransposeAttrs.StridesAsNumpy()
+        self.padMode = convTransposeAttrs.PadMode()
+        if not convTransposeAttrs.PadsIsNone():
+            if np is None:
+                self.pads = []
+                for i in range(convTransposeAttrs.PadsLength()):
+                    self.pads.append(convTransposeAttrs.Pads(i))
+            else:
+                self.pads = convTransposeAttrs.PadsAsNumpy()
 
     # ConvTransposeAttrsT
     def Pack(self, builder):
@@ -1508,9 +1561,20 @@ class ConvTransposeAttrsT(object):
                 for i in reversed(range(len(self.strides))):
                     builder.PrependUint32(self.strides[i])
                 strides = builder.EndVector()
+        if self.pads is not None:
+            if np is not None and type(self.pads) is np.ndarray:
+                pads = builder.CreateNumpyVector(self.pads)
+            else:
+                ConvTransposeAttrsStartPadsVector(builder, len(self.pads))
+                for i in reversed(range(len(self.pads))):
+                    builder.PrependUint32(self.pads[i])
+                pads = builder.EndVector()
         ConvTransposeAttrsStart(builder)
         if self.strides is not None:
             ConvTransposeAttrsAddStrides(builder, strides)
+        ConvTransposeAttrsAddPadMode(builder, self.padMode)
+        if self.pads is not None:
+            ConvTransposeAttrsAddPads(builder, pads)
         convTransposeAttrs = ConvTransposeAttrsEnd(builder)
         return convTransposeAttrs
 
