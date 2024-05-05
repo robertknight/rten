@@ -350,18 +350,46 @@ impl<'a, T> StorageMut for ViewMutData<'a, T> {
     }
 }
 
-impl<'a, T> Storage for Cow<'a, [T]>
-where
-    [T]: ToOwned,
-{
+/// Tensor storage which may be either owned or borrowed.
+///
+/// The name is taken from [std::borrow::Cow] in the standard library,
+/// which is conceptually similar.
+pub enum CowData<'a, T> {
+    /// A [CowData] that owns its data.
+    Owned(Vec<T>),
+    /// A [CowData] that borrows data.
+    Borrowed(ViewData<'a, T>),
+}
+
+impl<'a, T> Storage for CowData<'a, T> {
     type Elem = T;
 
     fn len(&self) -> usize {
-        self.as_ref().len()
+        match self {
+            CowData::Owned(vec) => vec.len(),
+            CowData::Borrowed(view) => view.len(),
+        }
     }
 
     fn as_ptr(&self) -> *const T {
-        self.as_ref().as_ptr()
+        match self {
+            CowData::Owned(vec) => vec.as_ptr(),
+            CowData::Borrowed(view) => view.as_ptr(),
+        }
+    }
+}
+
+impl<'a, T> IntoStorage for Cow<'a, [T]>
+where
+    [T]: ToOwned<Owned = Vec<T>>,
+{
+    type Output = CowData<'a, T>;
+
+    fn into_storage(self) -> Self::Output {
+        match self {
+            Cow::Owned(vec) => CowData::Owned(vec),
+            Cow::Borrowed(slice) => CowData::Borrowed(slice.into_storage()),
+        }
     }
 }
 
@@ -401,7 +429,7 @@ mod tests {
         let view: ViewData<i32> = data.as_slice().into_storage();
         test_storage_impl(view, data);
 
-        let cow_view = Cow::Borrowed(data.as_slice());
+        let cow_view = Cow::Borrowed(data.as_slice()).into_storage();
         test_storage_impl(cow_view, data);
 
         let mut_view: ViewMutData<i32> = data.as_mut_slice().into_storage();

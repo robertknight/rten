@@ -11,7 +11,7 @@ use crate::layout::{
     AsIndex, BroadcastLayout, DynLayout, IntoLayout, Layout, MatrixLayout, MutLayout, NdLayout,
     OverlapPolicy, ResizeLayout,
 };
-use crate::storage::{IntoStorage, Storage, StorageMut, ViewData, ViewMutData};
+use crate::storage::{CowData, IntoStorage, Storage, StorageMut, ViewData, ViewMutData};
 use crate::transpose::copy_contiguous;
 use crate::{Alloc, GlobalAlloc, IntoSliceItems, RandomSource, SliceItem};
 
@@ -60,6 +60,18 @@ pub trait AsView: Layout {
 
     /// Return the layout of this tensor.
     fn layout(&self) -> &Self::Layout;
+
+    /// Return a view of this tensor using a borrowed [CowData] for storage.
+    ///
+    /// Together with [`into_cow`](TensorBase::into_cow), this is useful where
+    /// code needs to conditionally copy or create a new tensor, and get either
+    /// the borrowed or owned tensor into the same type.
+    fn as_cow(&self) -> TensorBase<CowData<Self::Elem>, Self::Layout>
+    where
+        [Self::Elem]: ToOwned,
+    {
+        self.view().as_cow()
+    }
 
     /// Return a view of this tensor with a dynamic rank.
     fn as_dyn(&self) -> TensorBase<ViewData<Self::Elem>, DynLayout> {
@@ -274,7 +286,7 @@ pub trait AsView: Layout {
     /// data into a new buffer otherwise.
     ///
     /// Certain operations require or are faster with contiguous tensors.
-    fn to_contiguous(&self) -> TensorBase<Cow<[Self::Elem]>, Self::Layout>
+    fn to_contiguous(&self) -> TensorBase<CowData<Self::Elem>, Self::Layout>
     where
         Self::Elem: Clone,
     {
@@ -677,6 +689,18 @@ impl<T, L: Clone + MutLayout> TensorBase<Vec<T>, L> {
         self.data.truncate(range.end - range.start);
     }
 
+    /// Convert the storage of this tensor into an owned [CowData].
+    ///
+    /// This is useful in contexts where code needs to conditionally copy or
+    /// create a new tensor. See [AsView::as_cow].
+    pub fn into_cow(self) -> TensorBase<CowData<'static, T>, L> {
+        let TensorBase { data, layout } = self;
+        TensorBase {
+            layout,
+            data: CowData::Owned(data),
+        }
+    }
+
     /// Consume self and return the underlying data as a contiguous tensor.
     ///
     /// See also [TensorBase::to_vec].
@@ -940,6 +964,16 @@ impl<'a, T, L: Clone + MutLayout> TensorBase<ViewData<'a, T>, L> {
         }
     }
 
+    /// Convert the storage of this view to a borrowed [CowData].
+    ///
+    /// See [AsView::as_cow].
+    pub fn as_cow(&self) -> TensorBase<CowData<'a, T>, L> {
+        TensorBase {
+            layout: self.layout.clone(),
+            data: CowData::Borrowed(self.data),
+        }
+    }
+
     /// Broadcast this view to another shape.
     ///
     /// See [AsView::broadcast].
@@ -1118,19 +1152,19 @@ impl<'a, T, L: Clone + MutLayout> TensorBase<ViewData<'a, T>, L> {
     ///
     /// If the data is already contiguous, no copy is made, otherwise the
     /// elements are copied into a new buffer in contiguous order.
-    pub fn to_contiguous(&self) -> TensorBase<Cow<'a, [T]>, L>
+    pub fn to_contiguous(&self) -> TensorBase<CowData<'a, T>, L>
     where
         T: Clone,
     {
         if let Some(data) = self.data() {
             TensorBase {
-                data: Cow::Borrowed(data),
+                data: CowData::Borrowed(data.into_storage()),
                 layout: self.layout.clone(),
             }
         } else {
             let data = self.to_vec();
             TensorBase {
-                data: Cow::Owned(data),
+                data: CowData::Owned(data),
                 layout: L::from_shape(self.layout.shape()),
             }
         }
@@ -1823,6 +1857,16 @@ mod tests {
         let y = NdTensor::arange(2, 6, None);
         assert_eq!(x.data(), Some([2, 3, 4, 5].as_slice()));
         assert_eq!(y.data(), Some([2, 3, 4, 5].as_slice()));
+    }
+
+    #[test]
+    fn test_as_cow_into_cow() {
+        for copy in [true, false] {
+            let x = Tensor::arange(0, 4, None).into_shape([2, 2]);
+            let cow_x = if copy { x.into_cow() } else { x.as_cow() };
+            assert_eq!(cow_x.shape(), [2, 2]);
+            assert_eq!(cow_x.data().unwrap(), &[0, 1, 2, 3]);
+        }
     }
 
     #[test]
