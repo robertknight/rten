@@ -1454,10 +1454,13 @@ mod tests {
             let mut result = Tensor::full(&[m, n], f32::NAN);
             let mut expected = Tensor::zeros(result.shape());
 
-            run_gemm(&mut result, &a, &b, 1., 0. /* beta */, None, None);
-            reference_gemm(&mut expected, &a, &b, 1., 0. /* beta */, None);
-
-            expect_equal(&result, &expected)?;
+            // Test alpha values for which we may have special cases (0, 1) and
+            // the general case.
+            for alpha in [0., 0.5, 1.] {
+                run_gemm(&mut result, &a, &b, alpha, 0. /* beta */, None, None);
+                reference_gemm(&mut expected, &a, &b, alpha, 0. /* beta */, None);
+                expect_equal(&result, &expected)?;
+            }
         }
 
         Ok(())

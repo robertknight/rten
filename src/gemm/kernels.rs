@@ -266,7 +266,12 @@ unsafe fn simd_gemm<S: SimdFloat, const MR: usize, const NR_REGS: usize>(
 
     let get_out_ptr = |i, j| tile_ptr.add(tile_row_stride * i + j * S::LEN);
 
-    // Write to output tile
+    // Write to output tile.
+    //
+    // We have special cases for zero/one values of alpha and beta, both for
+    // performance in the common cases where (alpha, beta) are (0, 1) or (1, 1)
+    // and because when beta is zero, the destination may be uninitialized and
+    // must not be read.
     if beta == 0. && alpha == 1. {
         for i in 0..MR {
             for j in 0..NR_REGS {
@@ -279,6 +284,16 @@ unsafe fn simd_gemm<S: SimdFloat, const MR: usize, const NR_REGS: usize>(
             for j in 0..NR_REGS {
                 let out_ptr = get_out_ptr(i, j);
                 let out_val = S::load(out_ptr).add(tmp[i][j]);
+                out_val.store(out_ptr);
+            }
+        }
+    } else if beta == 0. {
+        let alpha_broadcast = S::splat(alpha);
+
+        for i in 0..MR {
+            for j in 0..NR_REGS {
+                let out_ptr = get_out_ptr(i, j);
+                let out_val = tmp[i][j].mul(alpha_broadcast);
                 out_val.store(out_ptr);
             }
         }
