@@ -484,7 +484,7 @@ pub fn scatter_nd<
     // optimize iterating over slices of the innermost dimensions using slice
     // chunks.
     let updates = updates.to_contiguous();
-    let update_slice_len: usize = updates.shape()[k..].iter().product();
+    let update_slice_len: usize = updates.shape()[indices.ndim() - 1..].iter().product();
     let update_slices = updates.data().unwrap().chunks(update_slice_len);
 
     let indices = indices.to_contiguous();
@@ -893,6 +893,13 @@ mod tests {
                     [[1, 1, 1, 1], [2, 2, 2, 2], [3, 3, 3, 3], [4, 4, 4, 4]],
                     [[8, 7, 6, 5], [4, 3, 2, 1], [1, 2, 3, 4], [5, 6, 7, 8]],
                 ]),
+            },
+            // Test for issue when `updates` has a lower rank than `indices`.
+            Case {
+                data: Tensor::from([[1, 2], [3, 4]]),
+                indices: Tensor::from([[0, 0], [0, 1]]),
+                updates: Tensor::from([5, 6]),
+                expected: Tensor::from([[5, 6], [3, 4]]),
             },
         ];
 
