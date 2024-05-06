@@ -349,6 +349,7 @@ dependencies = [
  "rten-imageproc",
  "rten-tensor",
  "rten-text",
+ "serde",
  "serde_json",
 ]
 
