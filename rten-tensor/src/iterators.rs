@@ -887,6 +887,42 @@ impl<'a, T, L: MutLayout, const N: usize> Iterator for InnerIter<'a, T, L, N> {
 
 impl<'a, T, L: MutLayout, const N: usize> ExactSizeIterator for InnerIter<'a, T, L, N> {}
 
+/// Iterator over views of the N innermost dimensions of a tensor with element
+/// type `T` and layout `L`, where `N` is determined at runtime.
+pub struct InnerIterDyn<'a, T, L: MutLayout> {
+    outer_indices: DynIndices,
+    view: TensorBase<ViewData<'a, T>, L>,
+}
+
+impl<'a, T, L: MutLayout> InnerIterDyn<'a, T, L> {
+    pub fn new(view: TensorBase<ViewData<'a, T>, L>, inner_dims: usize) -> Self {
+        assert!(view.ndim() >= inner_dims);
+        let outer_dims = view.ndim() - inner_dims;
+        let outer_indices = DynIndices::from_shape(&view.shape().as_ref()[..outer_dims]);
+        InnerIterDyn {
+            outer_indices,
+            view,
+        }
+    }
+}
+
+impl<'a, T, L: MutLayout> Iterator for InnerIterDyn<'a, T, L> {
+    type Item = TensorView<'a, T>;
+
+    fn next(&mut self) -> Option<Self::Item> {
+        self.outer_indices.next().map(|idx| {
+            let slice_items = to_slice_items(&idx);
+            self.view.slice_dyn(slice_items.as_slice())
+        })
+    }
+
+    fn size_hint(&self) -> (usize, Option<usize>) {
+        self.outer_indices.size_hint()
+    }
+}
+
+impl<'a, T, L: MutLayout> ExactSizeIterator for InnerIterDyn<'a, T, L> {}
+
 /// Iterator over mutable views of the N innermost dimensions of a tensor.
 pub struct InnerIterMut<'a, T, L: MutLayout, const N: usize> {
     outer_indices: DynIndices,
@@ -926,6 +962,47 @@ impl<'a, T, L: MutLayout, const N: usize> Iterator for InnerIterMut<'a, T, L, N>
 }
 
 impl<'a, T, L: MutLayout, const N: usize> ExactSizeIterator for InnerIterMut<'a, T, L, N> {}
+
+/// Iterator over mutable views of the N innermost dimensions of a tensor,
+/// where N is determined at runtime.
+pub struct InnerIterDynMut<'a, T, L: MutLayout> {
+    outer_indices: DynIndices,
+    view: TensorBase<ViewMutData<'a, T>, L>,
+}
+
+impl<'a, T, L: MutLayout> InnerIterDynMut<'a, T, L> {
+    pub fn new(view: TensorBase<ViewMutData<'a, T>, L>, inner_dims: usize) -> Self {
+        assert!(view.ndim() >= inner_dims);
+        let outer_dims = view.ndim() - inner_dims;
+        let outer_indices = DynIndices::from_shape(&view.shape().as_ref()[..outer_dims]);
+        InnerIterDynMut {
+            outer_indices,
+            view,
+        }
+    }
+}
+
+impl<'a, T, L: MutLayout> Iterator for InnerIterDynMut<'a, T, L> {
+    type Item = TensorViewMut<'a, T>;
+
+    fn next(&mut self) -> Option<Self::Item> {
+        self.outer_indices.next().map(|idx| {
+            let slice_items = to_slice_items(&idx);
+            let view: TensorViewMut<'_, T> = self.view.slice_mut_dyn(slice_items.as_slice());
+            unsafe {
+                // Safety: Outer view is non-broadcasting, and we increment the
+                // outer index each time, so returned views will not overlap.
+                std::mem::transmute::<TensorViewMut<'_, T>, TensorViewMut<'a, T>>(view)
+            }
+        })
+    }
+
+    fn size_hint(&self) -> (usize, Option<usize>) {
+        self.outer_indices.size_hint()
+    }
+}
+
+impl<'a, T, L: MutLayout> ExactSizeIterator for InnerIterDynMut<'a, T, L> {}
 
 /// Iterator over slices of a tensor along an axis. See [TensorView::axis_iter].
 pub struct AxisIter<'a, T, L: MutLayout> {

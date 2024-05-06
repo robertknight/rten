@@ -4,8 +4,8 @@ use std::ops::{Index, IndexMut, Range};
 
 use crate::errors::{DimensionError, FromDataError, SliceError};
 use crate::iterators::{
-    AxisChunks, AxisChunksMut, AxisIter, AxisIterMut, BroadcastIter, InnerIter, InnerIterMut, Iter,
-    IterMut, Lanes, LanesMut, MutViewRef, ViewRef,
+    AxisChunks, AxisChunksMut, AxisIter, AxisIterMut, BroadcastIter, InnerIter, InnerIterDyn,
+    InnerIterDynMut, InnerIterMut, Iter, IterMut, Lanes, LanesMut, MutViewRef, ViewRef,
 };
 use crate::layout::{
     AsIndex, BroadcastLayout, DynLayout, IntoLayout, Layout, MatrixLayout, MutLayout, NdLayout,
@@ -130,6 +130,13 @@ pub trait AsView: Layout {
     /// Return an iterator over the innermost N dimensions.
     fn inner_iter<const N: usize>(&self) -> InnerIter<Self::Elem, Self::Layout, N> {
         self.view().inner_iter()
+    }
+
+    /// Return an iterator over the innermost `n` dimensions.
+    ///
+    /// Prefer [`inner_iter`](AsView::inner_iter) if `N` is known at compile time.
+    fn inner_iter_dyn(&self, n: usize) -> InnerIterDyn<Self::Elem, Self::Layout> {
+        self.view().inner_iter_dyn(n)
     }
 
     /// Insert a size-1 axis at the given index.
@@ -529,6 +536,14 @@ impl<S: StorageMut, L: MutLayout> TensorBase<S, L> {
     /// Return a mutable iterator over the N innermost dimensions of this tensor.
     pub fn inner_iter_mut<const N: usize>(&mut self) -> InnerIterMut<S::Elem, L, N> {
         InnerIterMut::new(self.view_mut())
+    }
+
+    /// Return a mutable iterator over the n innermost dimensions of this tensor.
+    ///
+    /// Prefer [`inner_iter_mut`](TensorBase::inner_iter_mut) if `N` is known
+    /// at compile time.
+    pub fn inner_iter_dyn_mut(&mut self, n: usize) -> InnerIterDynMut<S::Elem, L> {
+        InnerIterDynMut::new(self.view_mut(), n)
     }
 
     /// Return a mutable iterator over the elements of this tensor, in their
@@ -1054,6 +1069,13 @@ impl<'a, T, L: Clone + MutLayout> TensorBase<ViewData<'a, T>, L> {
     /// See [AsView::inner_iter].
     pub fn inner_iter<const N: usize>(&self) -> InnerIter<'a, T, L, N> {
         InnerIter::new(self.view())
+    }
+
+    /// Return an iterator over the inner `n` dimensions of this tensor.
+    ///
+    /// See [AsView::inner_iter_dyn].
+    pub fn inner_iter_dyn(&self, n: usize) -> InnerIterDyn<'a, T, L> {
+        InnerIterDyn::new(self.view(), n)
     }
 
     /// Return the scalar value in this tensor if it has one element.
@@ -2427,9 +2449,41 @@ mod tests {
     }
 
     #[test]
+    fn test_inner_iter_dyn() {
+        let tensor = Tensor::from_data(&[2, 2], vec![1, 2, 3, 4]);
+        let mut rows = tensor.inner_iter_dyn(1);
+
+        let row = rows.next().unwrap();
+        assert_eq!(row, Tensor::from([1, 2]));
+
+        let row = rows.next().unwrap();
+        assert_eq!(row, Tensor::from([3, 4]));
+
+        assert_eq!(rows.next(), None);
+    }
+
+    #[test]
     fn test_inner_iter_mut() {
         let mut tensor = Tensor::from_data(&[2, 2], vec![1, 2, 3, 4]);
         let mut rows = tensor.inner_iter_mut::<1>();
+
+        let mut row = rows.next().unwrap();
+        assert_eq!(row.shape(), [2]);
+        row.apply(|x| x * 2);
+
+        let mut row = rows.next().unwrap();
+        assert_eq!(row.shape(), [2]);
+        row.apply(|x| x * 2);
+
+        assert_eq!(rows.next(), None);
+
+        assert_eq!(tensor.to_vec(), &[2, 4, 6, 8]);
+    }
+
+    #[test]
+    fn test_inner_iter_dyn_mut() {
+        let mut tensor = Tensor::from_data(&[2, 2], vec![1, 2, 3, 4]);
+        let mut rows = tensor.inner_iter_dyn_mut(1);
 
         let mut row = rows.next().unwrap();
         assert_eq!(row.shape(), [2]);
