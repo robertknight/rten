@@ -715,6 +715,10 @@ def op_node_from_onnx_operator(
             attrs = sg.GatherAttrsT()
             attrs.axis = op_reader.get_attr("axis", "int", 0)
 
+        case "GatherND":
+            attrs = sg.GatherNDAttrsT()
+            attrs.batchDims = op_reader.get_attr("batch_dims", "int", 0)
+
         case "Gemm":
             attrs = sg.GemmAttrsT()
             attrs.alpha = op_reader.get_attr("alpha", "float", 1.0)

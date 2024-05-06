@@ -18,13 +18,13 @@ pub const ENUM_MIN_OPERATOR_TYPE: u8 = 0;
     since = "2.0.0",
     note = "Use associated constants instead. This will no longer be generated in 2021."
 )]
-pub const ENUM_MAX_OPERATOR_TYPE: u8 = 100;
+pub const ENUM_MAX_OPERATOR_TYPE: u8 = 101;
 #[deprecated(
     since = "2.0.0",
     note = "Use associated constants instead. This will no longer be generated in 2021."
 )]
 #[allow(non_camel_case_types)]
-pub const ENUM_VALUES_OPERATOR_TYPE: [OperatorType; 101] = [
+pub const ENUM_VALUES_OPERATOR_TYPE: [OperatorType; 102] = [
     OperatorType::Add,
     OperatorType::ArgMin,
     OperatorType::ArgMax,
@@ -126,6 +126,7 @@ pub const ENUM_VALUES_OPERATOR_TYPE: [OperatorType; 101] = [
     OperatorType::RandomNormal,
     OperatorType::RandomNormalLike,
     OperatorType::Softplus,
+    OperatorType::GatherND,
 ];
 
 #[derive(Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash, Default)]
@@ -234,9 +235,10 @@ impl OperatorType {
     pub const RandomNormal: Self = Self(98);
     pub const RandomNormalLike: Self = Self(99);
     pub const Softplus: Self = Self(100);
+    pub const GatherND: Self = Self(101);
 
     pub const ENUM_MIN: u8 = 0;
-    pub const ENUM_MAX: u8 = 100;
+    pub const ENUM_MAX: u8 = 101;
     pub const ENUM_VALUES: &'static [Self] = &[
         Self::Add,
         Self::ArgMin,
@@ -339,6 +341,7 @@ impl OperatorType {
         Self::RandomNormal,
         Self::RandomNormalLike,
         Self::Softplus,
+        Self::GatherND,
     ];
     /// Returns the variant's name or "" if unknown.
     pub fn variant_name(self) -> Option<&'static str> {
@@ -444,6 +447,7 @@ impl OperatorType {
             Self::RandomNormal => Some("RandomNormal"),
             Self::RandomNormalLike => Some("RandomNormalLike"),
             Self::Softplus => Some("Softplus"),
+            Self::GatherND => Some("GatherND"),
             _ => None,
         }
     }
@@ -1070,13 +1074,13 @@ pub const ENUM_MIN_OPERATOR_ATTRS: u8 = 0;
     since = "2.0.0",
     note = "Use associated constants instead. This will no longer be generated in 2021."
 )]
-pub const ENUM_MAX_OPERATOR_ATTRS: u8 = 35;
+pub const ENUM_MAX_OPERATOR_ATTRS: u8 = 36;
 #[deprecated(
     since = "2.0.0",
     note = "Use associated constants instead. This will no longer be generated in 2021."
 )]
 #[allow(non_camel_case_types)]
-pub const ENUM_VALUES_OPERATOR_ATTRS: [OperatorAttrs; 36] = [
+pub const ENUM_VALUES_OPERATOR_ATTRS: [OperatorAttrs; 37] = [
     OperatorAttrs::NONE,
     OperatorAttrs::ArgMaxAttrs,
     OperatorAttrs::AveragePoolAttrs,
@@ -1113,6 +1117,7 @@ pub const ENUM_VALUES_OPERATOR_ATTRS: [OperatorAttrs; 36] = [
     OperatorAttrs::RandomUniformLikeAttrs,
     OperatorAttrs::RandomNormalAttrs,
     OperatorAttrs::RandomNormalLikeAttrs,
+    OperatorAttrs::GatherNDAttrs,
 ];
 
 #[derive(Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash, Default)]
@@ -1156,9 +1161,10 @@ impl OperatorAttrs {
     pub const RandomUniformLikeAttrs: Self = Self(33);
     pub const RandomNormalAttrs: Self = Self(34);
     pub const RandomNormalLikeAttrs: Self = Self(35);
+    pub const GatherNDAttrs: Self = Self(36);
 
     pub const ENUM_MIN: u8 = 0;
-    pub const ENUM_MAX: u8 = 35;
+    pub const ENUM_MAX: u8 = 36;
     pub const ENUM_VALUES: &'static [Self] = &[
         Self::NONE,
         Self::ArgMaxAttrs,
@@ -1196,6 +1202,7 @@ impl OperatorAttrs {
         Self::RandomUniformLikeAttrs,
         Self::RandomNormalAttrs,
         Self::RandomNormalLikeAttrs,
+        Self::GatherNDAttrs,
     ];
     /// Returns the variant's name or "" if unknown.
     pub fn variant_name(self) -> Option<&'static str> {
@@ -1236,6 +1243,7 @@ impl OperatorAttrs {
             Self::RandomUniformLikeAttrs => Some("RandomUniformLikeAttrs"),
             Self::RandomNormalAttrs => Some("RandomNormalAttrs"),
             Self::RandomNormalLikeAttrs => Some("RandomNormalLikeAttrs"),
+            Self::GatherNDAttrs => Some("GatherNDAttrs"),
             _ => None,
         }
     }
@@ -3591,6 +3599,108 @@ impl core::fmt::Debug for GatherAttrs<'_> {
     fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
         let mut ds = f.debug_struct("GatherAttrs");
         ds.field("axis", &self.axis());
+        ds.finish()
+    }
+}
+pub enum GatherNDAttrsOffset {}
+#[derive(Copy, Clone, PartialEq)]
+
+pub struct GatherNDAttrs<'a> {
+    pub _tab: flatbuffers::Table<'a>,
+}
+
+impl<'a> flatbuffers::Follow<'a> for GatherNDAttrs<'a> {
+    type Inner = GatherNDAttrs<'a>;
+    #[inline]
+    unsafe fn follow(buf: &'a [u8], loc: usize) -> Self::Inner {
+        Self {
+            _tab: flatbuffers::Table::new(buf, loc),
+        }
+    }
+}
+
+impl<'a> GatherNDAttrs<'a> {
+    pub const VT_BATCH_DIMS: flatbuffers::VOffsetT = 4;
+
+    #[inline]
+    pub unsafe fn init_from_table(table: flatbuffers::Table<'a>) -> Self {
+        GatherNDAttrs { _tab: table }
+    }
+    #[allow(unused_mut)]
+    pub fn create<'bldr: 'args, 'args: 'mut_bldr, 'mut_bldr>(
+        _fbb: &'mut_bldr mut flatbuffers::FlatBufferBuilder<'bldr>,
+        args: &'args GatherNDAttrsArgs,
+    ) -> flatbuffers::WIPOffset<GatherNDAttrs<'bldr>> {
+        let mut builder = GatherNDAttrsBuilder::new(_fbb);
+        builder.add_batch_dims(args.batch_dims);
+        builder.finish()
+    }
+
+    #[inline]
+    pub fn batch_dims(&self) -> i32 {
+        // Safety:
+        // Created from valid Table for this object
+        // which contains a valid value in this slot
+        unsafe {
+            self._tab
+                .get::<i32>(GatherNDAttrs::VT_BATCH_DIMS, Some(0))
+                .unwrap()
+        }
+    }
+}
+
+impl flatbuffers::Verifiable for GatherNDAttrs<'_> {
+    #[inline]
+    fn run_verifier(
+        v: &mut flatbuffers::Verifier,
+        pos: usize,
+    ) -> Result<(), flatbuffers::InvalidFlatbuffer> {
+        use self::flatbuffers::Verifiable;
+        v.visit_table(pos)?
+            .visit_field::<i32>("batch_dims", Self::VT_BATCH_DIMS, false)?
+            .finish();
+        Ok(())
+    }
+}
+pub struct GatherNDAttrsArgs {
+    pub batch_dims: i32,
+}
+impl<'a> Default for GatherNDAttrsArgs {
+    #[inline]
+    fn default() -> Self {
+        GatherNDAttrsArgs { batch_dims: 0 }
+    }
+}
+
+pub struct GatherNDAttrsBuilder<'a: 'b, 'b> {
+    fbb_: &'b mut flatbuffers::FlatBufferBuilder<'a>,
+    start_: flatbuffers::WIPOffset<flatbuffers::TableUnfinishedWIPOffset>,
+}
+impl<'a: 'b, 'b> GatherNDAttrsBuilder<'a, 'b> {
+    #[inline]
+    pub fn add_batch_dims(&mut self, batch_dims: i32) {
+        self.fbb_
+            .push_slot::<i32>(GatherNDAttrs::VT_BATCH_DIMS, batch_dims, 0);
+    }
+    #[inline]
+    pub fn new(_fbb: &'b mut flatbuffers::FlatBufferBuilder<'a>) -> GatherNDAttrsBuilder<'a, 'b> {
+        let start = _fbb.start_table();
+        GatherNDAttrsBuilder {
+            fbb_: _fbb,
+            start_: start,
+        }
+    }
+    #[inline]
+    pub fn finish(self) -> flatbuffers::WIPOffset<GatherNDAttrs<'a>> {
+        let o = self.fbb_.end_table(self.start_);
+        flatbuffers::WIPOffset::new(o.value())
+    }
+}
+
+impl core::fmt::Debug for GatherNDAttrs<'_> {
+    fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
+        let mut ds = f.debug_struct("GatherNDAttrs");
+        ds.field("batch_dims", &self.batch_dims());
         ds.finish()
     }
 }
@@ -7252,6 +7362,21 @@ impl<'a> OperatorNode<'a> {
             None
         }
     }
+
+    #[inline]
+    #[allow(non_snake_case)]
+    pub fn attrs_as_gather_ndattrs(&self) -> Option<GatherNDAttrs<'a>> {
+        if self.attrs_type() == OperatorAttrs::GatherNDAttrs {
+            self.attrs().map(|t| {
+                // Safety:
+                // Created from a valid Table for this object
+                // Which contains a valid union in this slot
+                unsafe { GatherNDAttrs::init_from_table(t) }
+            })
+        } else {
+            None
+        }
+    }
 }
 
 impl flatbuffers::Verifiable for OperatorNode<'_> {
@@ -7300,6 +7425,7 @@ impl flatbuffers::Verifiable for OperatorNode<'_> {
           OperatorAttrs::RandomUniformLikeAttrs => v.verify_union_variant::<flatbuffers::ForwardsUOffset<RandomUniformLikeAttrs>>("OperatorAttrs::RandomUniformLikeAttrs", pos),
           OperatorAttrs::RandomNormalAttrs => v.verify_union_variant::<flatbuffers::ForwardsUOffset<RandomNormalAttrs>>("OperatorAttrs::RandomNormalAttrs", pos),
           OperatorAttrs::RandomNormalLikeAttrs => v.verify_union_variant::<flatbuffers::ForwardsUOffset<RandomNormalLikeAttrs>>("OperatorAttrs::RandomNormalLikeAttrs", pos),
+          OperatorAttrs::GatherNDAttrs => v.verify_union_variant::<flatbuffers::ForwardsUOffset<GatherNDAttrs>>("OperatorAttrs::GatherNDAttrs", pos),
           _ => Ok(()),
         }
      })?
@@ -7725,6 +7851,16 @@ impl core::fmt::Debug for OperatorNode<'_> {
             }
             OperatorAttrs::RandomNormalLikeAttrs => {
                 if let Some(x) = self.attrs_as_random_normal_like_attrs() {
+                    ds.field("attrs", &x)
+                } else {
+                    ds.field(
+                        "attrs",
+                        &"InvalidFlatbuffer: Union discriminant does not match value.",
+                    )
+                }
+            }
+            OperatorAttrs::GatherNDAttrs => {
+                if let Some(x) = self.attrs_as_gather_ndattrs() {
                     ds.field("attrs", &x)
                 } else {
                     ds.field(

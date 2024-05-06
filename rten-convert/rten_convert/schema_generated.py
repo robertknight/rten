@@ -108,6 +108,7 @@ class OperatorType(object):
     RandomNormal = 98
     RandomNormalLike = 99
     Softplus = 100
+    GatherND = 101
 
 
 class RNNDirection(object):
@@ -181,6 +182,7 @@ class OperatorAttrs(object):
     RandomUniformLikeAttrs = 33
     RandomNormalAttrs = 34
     RandomNormalLikeAttrs = 35
+    GatherNDAttrs = 36
 
 def OperatorAttrsCreator(unionType, table):
     from flatbuffers.table import Table
@@ -256,6 +258,8 @@ def OperatorAttrsCreator(unionType, table):
         return RandomNormalAttrsT.InitFromBuf(table.Bytes, table.Pos)
     if unionType == OperatorAttrs().RandomNormalLikeAttrs:
         return RandomNormalLikeAttrsT.InitFromBuf(table.Bytes, table.Pos)
+    if unionType == OperatorAttrs().GatherNDAttrs:
+        return GatherNDAttrsT.InitFromBuf(table.Bytes, table.Pos)
     return None
 
 
@@ -1830,6 +1834,83 @@ class GatherAttrsT(object):
         GatherAttrsAddAxis(builder, self.axis)
         gatherAttrs = GatherAttrsEnd(builder)
         return gatherAttrs
+
+
+class GatherNDAttrs(object):
+    __slots__ = ['_tab']
+
+    @classmethod
+    def GetRootAs(cls, buf, offset=0):
+        n = flatbuffers.encode.Get(flatbuffers.packer.uoffset, buf, offset)
+        x = GatherNDAttrs()
+        x.Init(buf, n + offset)
+        return x
+
+    @classmethod
+    def GetRootAsGatherNDAttrs(cls, buf, offset=0):
+        """This method is deprecated. Please switch to GetRootAs."""
+        return cls.GetRootAs(buf, offset)
+    @classmethod
+    def GatherNDAttrsBufferHasIdentifier(cls, buf, offset, size_prefixed=False):
+        return flatbuffers.util.BufferHasIdentifier(buf, offset, b"\x52\x54\x45\x4E", size_prefixed=size_prefixed)
+
+    # GatherNDAttrs
+    def Init(self, buf, pos):
+        self._tab = flatbuffers.table.Table(buf, pos)
+
+    # GatherNDAttrs
+    def BatchDims(self):
+        o = flatbuffers.number_types.UOffsetTFlags.py_type(self._tab.Offset(4))
+        if o != 0:
+            return self._tab.Get(flatbuffers.number_types.Int32Flags, o + self._tab.Pos)
+        return 0
+
+def GatherNDAttrsStart(builder):
+    builder.StartObject(1)
+
+def GatherNDAttrsAddBatchDims(builder, batchDims):
+    builder.PrependInt32Slot(0, batchDims, 0)
+
+def GatherNDAttrsEnd(builder):
+    return builder.EndObject()
+
+
+
+class GatherNDAttrsT(object):
+
+    # GatherNDAttrsT
+    def __init__(self):
+        self.batchDims = 0  # type: int
+
+    @classmethod
+    def InitFromBuf(cls, buf, pos):
+        gatherNdattrs = GatherNDAttrs()
+        gatherNdattrs.Init(buf, pos)
+        return cls.InitFromObj(gatherNdattrs)
+
+    @classmethod
+    def InitFromPackedBuf(cls, buf, pos=0):
+        n = flatbuffers.encode.Get(flatbuffers.packer.uoffset, buf, pos)
+        return cls.InitFromBuf(buf, pos+n)
+
+    @classmethod
+    def InitFromObj(cls, gatherNdattrs):
+        x = GatherNDAttrsT()
+        x._UnPack(gatherNdattrs)
+        return x
+
+    # GatherNDAttrsT
+    def _UnPack(self, gatherNdattrs):
+        if gatherNdattrs is None:
+            return
+        self.batchDims = gatherNdattrs.BatchDims()
+
+    # GatherNDAttrsT
+    def Pack(self, builder):
+        GatherNDAttrsStart(builder)
+        GatherNDAttrsAddBatchDims(builder, self.batchDims)
+        gatherNdattrs = GatherNDAttrsEnd(builder)
+        return gatherNdattrs
 
 
 class GemmAttrs(object):
@@ -4366,7 +4447,7 @@ class OperatorNodeT(object):
     def __init__(self):
         self.type = 0  # type: int
         self.attrsType = 0  # type: int
-        self.attrs = None  # type: Union[None, ArgMaxAttrsT, AveragePoolAttrsT, BatchNormalizationAttrsT, CastAttrsT, ConcatAttrsT, ConstantOfShapeAttrsT, ConvAttrsT, ConvTransposeAttrsT, FlattenAttrsT, GatherAttrsT, GemmAttrsT, GRUAttrsT, LeakyReluAttrsT, LSTMAttrsT, MaxPoolAttrsT, ReduceMeanAttrsT, ReshapeAttrsT, ResizeAttrsT, SplitAttrsT, SoftmaxAttrsT, TransposeAttrsT, ModAttrsT, ScatterElementsAttrsT, OneHotAttrsT, TopKAttrsT, HardSigmoidAttrsT, TriluAttrsT, ScatterNDAttrsT, NonMaxSuppressionAttrsT, LayerNormalizationAttrsT, RandomUniformAttrsT, EluAttrsT, RandomUniformLikeAttrsT, RandomNormalAttrsT, RandomNormalLikeAttrsT]
+        self.attrs = None  # type: Union[None, ArgMaxAttrsT, AveragePoolAttrsT, BatchNormalizationAttrsT, CastAttrsT, ConcatAttrsT, ConstantOfShapeAttrsT, ConvAttrsT, ConvTransposeAttrsT, FlattenAttrsT, GatherAttrsT, GemmAttrsT, GRUAttrsT, LeakyReluAttrsT, LSTMAttrsT, MaxPoolAttrsT, ReduceMeanAttrsT, ReshapeAttrsT, ResizeAttrsT, SplitAttrsT, SoftmaxAttrsT, TransposeAttrsT, ModAttrsT, ScatterElementsAttrsT, OneHotAttrsT, TopKAttrsT, HardSigmoidAttrsT, TriluAttrsT, ScatterNDAttrsT, NonMaxSuppressionAttrsT, LayerNormalizationAttrsT, RandomUniformAttrsT, EluAttrsT, RandomUniformLikeAttrsT, RandomNormalAttrsT, RandomNormalLikeAttrsT, GatherNDAttrsT]
         self.inputs = None  # type: List[int]
         self.outputs = None  # type: List[int]
 
