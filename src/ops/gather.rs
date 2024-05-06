@@ -292,7 +292,7 @@ pub fn gather_nd<T: Clone + Default>(
         let idx_slices = indices.data().unwrap().chunks(idx_tuple_size);
 
         for (out_slice, idx) in out_slices.zip(idx_slices) {
-            let slice_items = to_slice_items(&idx);
+            let slice_items = to_slice_items(idx);
             let in_slice = input
                 .try_slice_dyn(slice_items.as_slice())
                 .map_err(|_| OpError::InvalidValue("Invalid index"))?;
