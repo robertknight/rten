@@ -264,33 +264,42 @@ pub fn gather_nd<T: Clone + Default>(
     }
 
     let idx_len = indices.size(indices.ndim() - 1);
-    let out_slice_ndim = input.ndim() - batch_dims - idx_len;
     let out_shape: Vec<usize> = indices.shape()[..indices.ndim() - 1]
         .iter()
         .chain(input.shape()[batch_dims + idx_len..].iter())
         .copied()
         .collect();
-    let mut output = Tensor::zeros_in(pool, &out_shape);
+    let out_slice_ndim = input.ndim() - batch_dims - idx_len;
+    let out_slice_len = out_shape[out_shape.len() - out_slice_ndim..]
+        .iter()
+        .product();
+    let mut output = Tensor::<T>::zeros_in(pool, &out_shape);
 
     let output_non_batch_dims = output.ndim() - batch_dims;
     let input_non_batch_dims = input.ndim() - batch_dims;
     let indices_non_batch_dims = indices.ndim() - batch_dims;
+
+    // This allows the loop below to rely on index tuples being contiguous.
+    let indices = indices.to_contiguous();
 
     for (mut output, (input, indices)) in output.inner_iter_dyn_mut(output_non_batch_dims).zip(
         input
             .inner_iter_dyn(input_non_batch_dims)
             .zip(indices.inner_iter_dyn(indices_non_batch_dims)),
     ) {
-        for (mut out_slice, idx) in output
-            .inner_iter_dyn_mut(out_slice_ndim)
-            .zip(indices.lanes(indices.ndim() - 1))
-        {
-            let idx_vec: SmallVec<[i32; 5]> = idx.copied().collect();
-            let slice_items = to_slice_items(&idx_vec);
+        // For performance, work with data slices rather than tensor views here.
+        let out_slices = output.data_mut().unwrap().chunks_mut(out_slice_len);
+        let idx_slices = indices.data().unwrap().chunks(idx_tuple_size);
+
+        for (out_slice, idx) in out_slices.zip(idx_slices) {
+            let slice_items = to_slice_items(&idx);
             let in_slice = input
                 .try_slice_dyn(slice_items.as_slice())
                 .map_err(|_| OpError::InvalidValue("Invalid index"))?;
-            out_slice.copy_from(&in_slice);
+
+            for (out, x) in out_slice.iter_mut().zip(in_slice.iter()) {
+                *out = x.clone();
+            }
         }
     }
 
