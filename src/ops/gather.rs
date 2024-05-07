@@ -292,7 +292,7 @@ pub fn gather_nd<T: Clone + Default>(
         let idx_slices = indices.data().unwrap().chunks(idx_tuple_size);
 
         for (out_slice, idx) in out_slices.zip(idx_slices) {
-            let slice_items = to_slice_items(&idx);
+            let slice_items = to_slice_items(idx);
             let in_slice = input
                 .try_slice_dyn(slice_items.as_slice())
                 .map_err(|_| OpError::InvalidValue("Invalid index"))?;
@@ -484,7 +484,7 @@ pub fn scatter_nd<
     // optimize iterating over slices of the innermost dimensions using slice
     // chunks.
     let updates = updates.to_contiguous();
-    let update_slice_len: usize = updates.shape()[k..].iter().product();
+    let update_slice_len: usize = updates.shape()[indices.ndim() - 1..].iter().product();
     let update_slices = updates.data().unwrap().chunks(update_slice_len);
 
     let indices = indices.to_contiguous();
@@ -859,35 +859,61 @@ mod tests {
     fn test_scatter_nd() {
         let pool = new_pool();
 
-        // Example 1 from ONNX spec.
-        let data = tensor!([1, 2, 3, 4, 5, 6, 7, 8]);
-        let indices = tensor!((4, 1); [4, 3, 1, 7]);
-        let updates = tensor!([9, 10, 11, 12]);
-        let expected = tensor!([1, 11, 3, 10, 9, 6, 7, 12]);
+        struct Case {
+            data: Tensor<i32>,
+            indices: Tensor<i32>,
+            updates: Tensor<i32>,
+            expected: Tensor<i32>,
+        }
 
-        let result = scatter_nd(&pool, data.view(), indices.view(), updates.view(), None).unwrap();
-        assert_eq!(result, expected);
+        let cases = [
+            // Example 1 from ONNX spec.
+            Case {
+                data: tensor!([1, 2, 3, 4, 5, 6, 7, 8]),
+                indices: tensor!((4, 1); [4, 3, 1, 7]),
+                updates: tensor!([9, 10, 11, 12]),
+                expected: tensor!([1, 11, 3, 10, 9, 6, 7, 12]),
+            },
+            // Example 2 from ONNX spec.
+            Case {
+                data: Tensor::from([
+                    [[1, 2, 3, 4], [5, 6, 7, 8], [8, 7, 6, 5], [4, 3, 2, 1]],
+                    [[1, 2, 3, 4], [5, 6, 7, 8], [8, 7, 6, 5], [4, 3, 2, 1]],
+                    [[8, 7, 6, 5], [4, 3, 2, 1], [1, 2, 3, 4], [5, 6, 7, 8]],
+                    [[8, 7, 6, 5], [4, 3, 2, 1], [1, 2, 3, 4], [5, 6, 7, 8]],
+                ]),
+                indices: tensor!((2, 1); [0, 2]),
+                updates: Tensor::from([
+                    [[5, 5, 5, 5], [6, 6, 6, 6], [7, 7, 7, 7], [8, 8, 8, 8]],
+                    [[1, 1, 1, 1], [2, 2, 2, 2], [3, 3, 3, 3], [4, 4, 4, 4]],
+                ]),
+                expected: Tensor::from([
+                    [[5, 5, 5, 5], [6, 6, 6, 6], [7, 7, 7, 7], [8, 8, 8, 8]],
+                    [[1, 2, 3, 4], [5, 6, 7, 8], [8, 7, 6, 5], [4, 3, 2, 1]],
+                    [[1, 1, 1, 1], [2, 2, 2, 2], [3, 3, 3, 3], [4, 4, 4, 4]],
+                    [[8, 7, 6, 5], [4, 3, 2, 1], [1, 2, 3, 4], [5, 6, 7, 8]],
+                ]),
+            },
+            // Test for issue when `updates` has a lower rank than `indices`.
+            Case {
+                data: Tensor::from([[1, 2], [3, 4]]),
+                indices: Tensor::from([[0, 0], [0, 1]]),
+                updates: Tensor::from([5, 6]),
+                expected: Tensor::from([[5, 6], [3, 4]]),
+            },
+        ];
 
-        // Example 2 from ONNX spec.
-        let data = Tensor::from([
-            [[1, 2, 3, 4], [5, 6, 7, 8], [8, 7, 6, 5], [4, 3, 2, 1]],
-            [[1, 2, 3, 4], [5, 6, 7, 8], [8, 7, 6, 5], [4, 3, 2, 1]],
-            [[8, 7, 6, 5], [4, 3, 2, 1], [1, 2, 3, 4], [5, 6, 7, 8]],
-            [[8, 7, 6, 5], [4, 3, 2, 1], [1, 2, 3, 4], [5, 6, 7, 8]],
-        ]);
-        let indices = tensor!((2, 1); [0, 2]);
-        let updates = Tensor::from([
-            [[5, 5, 5, 5], [6, 6, 6, 6], [7, 7, 7, 7], [8, 8, 8, 8]],
-            [[1, 1, 1, 1], [2, 2, 2, 2], [3, 3, 3, 3], [4, 4, 4, 4]],
-        ]);
-        let expected = Tensor::from([
-            [[5, 5, 5, 5], [6, 6, 6, 6], [7, 7, 7, 7], [8, 8, 8, 8]],
-            [[1, 2, 3, 4], [5, 6, 7, 8], [8, 7, 6, 5], [4, 3, 2, 1]],
-            [[1, 1, 1, 1], [2, 2, 2, 2], [3, 3, 3, 3], [4, 4, 4, 4]],
-            [[8, 7, 6, 5], [4, 3, 2, 1], [1, 2, 3, 4], [5, 6, 7, 8]],
-        ]);
-        let result = scatter_nd(&pool, data.view(), indices.view(), updates.view(), None).unwrap();
-        assert_eq!(result, expected);
+        for Case {
+            data,
+            indices,
+            updates,
+            expected,
+        } in cases
+        {
+            let result =
+                scatter_nd(&pool, data.view(), indices.view(), updates.view(), None).unwrap();
+            assert_eq!(result, expected);
+        }
     }
 
     #[test]
