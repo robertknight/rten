@@ -859,35 +859,54 @@ mod tests {
     fn test_scatter_nd() {
         let pool = new_pool();
 
-        // Example 1 from ONNX spec.
-        let data = tensor!([1, 2, 3, 4, 5, 6, 7, 8]);
-        let indices = tensor!((4, 1); [4, 3, 1, 7]);
-        let updates = tensor!([9, 10, 11, 12]);
-        let expected = tensor!([1, 11, 3, 10, 9, 6, 7, 12]);
+        struct Case {
+            data: Tensor<i32>,
+            indices: Tensor<i32>,
+            updates: Tensor<i32>,
+            expected: Tensor<i32>,
+        }
 
-        let result = scatter_nd(&pool, data.view(), indices.view(), updates.view(), None).unwrap();
-        assert_eq!(result, expected);
+        let cases = [
+            // Example 1 from ONNX spec.
+            Case {
+                data: tensor!([1, 2, 3, 4, 5, 6, 7, 8]),
+                indices: tensor!((4, 1); [4, 3, 1, 7]),
+                updates: tensor!([9, 10, 11, 12]),
+                expected: tensor!([1, 11, 3, 10, 9, 6, 7, 12]),
+            },
+            // Example 2 from ONNX spec.
+            Case {
+                data: Tensor::from([
+                    [[1, 2, 3, 4], [5, 6, 7, 8], [8, 7, 6, 5], [4, 3, 2, 1]],
+                    [[1, 2, 3, 4], [5, 6, 7, 8], [8, 7, 6, 5], [4, 3, 2, 1]],
+                    [[8, 7, 6, 5], [4, 3, 2, 1], [1, 2, 3, 4], [5, 6, 7, 8]],
+                    [[8, 7, 6, 5], [4, 3, 2, 1], [1, 2, 3, 4], [5, 6, 7, 8]],
+                ]),
+                indices: tensor!((2, 1); [0, 2]),
+                updates: Tensor::from([
+                    [[5, 5, 5, 5], [6, 6, 6, 6], [7, 7, 7, 7], [8, 8, 8, 8]],
+                    [[1, 1, 1, 1], [2, 2, 2, 2], [3, 3, 3, 3], [4, 4, 4, 4]],
+                ]),
+                expected: Tensor::from([
+                    [[5, 5, 5, 5], [6, 6, 6, 6], [7, 7, 7, 7], [8, 8, 8, 8]],
+                    [[1, 2, 3, 4], [5, 6, 7, 8], [8, 7, 6, 5], [4, 3, 2, 1]],
+                    [[1, 1, 1, 1], [2, 2, 2, 2], [3, 3, 3, 3], [4, 4, 4, 4]],
+                    [[8, 7, 6, 5], [4, 3, 2, 1], [1, 2, 3, 4], [5, 6, 7, 8]],
+                ]),
+            },
+        ];
 
-        // Example 2 from ONNX spec.
-        let data = Tensor::from([
-            [[1, 2, 3, 4], [5, 6, 7, 8], [8, 7, 6, 5], [4, 3, 2, 1]],
-            [[1, 2, 3, 4], [5, 6, 7, 8], [8, 7, 6, 5], [4, 3, 2, 1]],
-            [[8, 7, 6, 5], [4, 3, 2, 1], [1, 2, 3, 4], [5, 6, 7, 8]],
-            [[8, 7, 6, 5], [4, 3, 2, 1], [1, 2, 3, 4], [5, 6, 7, 8]],
-        ]);
-        let indices = tensor!((2, 1); [0, 2]);
-        let updates = Tensor::from([
-            [[5, 5, 5, 5], [6, 6, 6, 6], [7, 7, 7, 7], [8, 8, 8, 8]],
-            [[1, 1, 1, 1], [2, 2, 2, 2], [3, 3, 3, 3], [4, 4, 4, 4]],
-        ]);
-        let expected = Tensor::from([
-            [[5, 5, 5, 5], [6, 6, 6, 6], [7, 7, 7, 7], [8, 8, 8, 8]],
-            [[1, 2, 3, 4], [5, 6, 7, 8], [8, 7, 6, 5], [4, 3, 2, 1]],
-            [[1, 1, 1, 1], [2, 2, 2, 2], [3, 3, 3, 3], [4, 4, 4, 4]],
-            [[8, 7, 6, 5], [4, 3, 2, 1], [1, 2, 3, 4], [5, 6, 7, 8]],
-        ]);
-        let result = scatter_nd(&pool, data.view(), indices.view(), updates.view(), None).unwrap();
-        assert_eq!(result, expected);
+        for Case {
+            data,
+            indices,
+            updates,
+            expected,
+        } in cases
+        {
+            let result =
+                scatter_nd(&pool, data.view(), indices.view(), updates.view(), None).unwrap();
+            assert_eq!(result, expected);
+        }
     }
 
     #[test]
