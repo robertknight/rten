@@ -689,7 +689,6 @@ def op_node_from_onnx_operator(
             attrs = sg.ConvTransposeAttrsT()
             attrs.strides = read_strides(op_reader)
 
-            op_reader.check_attr("auto_pad", "string", "NOTSET")
             op_reader.check_attr("dilations", "ints", ([1], [1, 1]))
             op_reader.check_attr("group", "int", 1)
 
@@ -697,7 +696,13 @@ def op_node_from_onnx_operator(
             op_reader.ignore_attr("kernel_shape")
 
             op_reader.check_attr("output_padding", "ints", [0, 0, 0, 0])
-            op_reader.check_attr("pads", "ints", [0, 0, 0, 0])
+
+            pad_mode, pads = read_pads(op_reader)
+            if pad_mode == "same":
+                attrs.padMode = sg.PadMode.Same
+            else:
+                attrs.padMode = sg.PadMode.Fixed
+                attrs.pads = pads
 
         case "CumSum":
             op_reader.check_attr("exclusive", "int", 0)

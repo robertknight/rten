@@ -242,7 +242,7 @@ table ConstantOfShapeAttrs {
 table ConvAttrs {
   pad_mode:PadMode;
 
-  // Padding for spatial axes as [top, left, bottom, right]
+  // Padding for spatial axes as [left, right] or [top, left, bottom, right]
   pads:[uint];
 
   groups:uint;
@@ -252,6 +252,11 @@ table ConvAttrs {
 
 table ConvTransposeAttrs {
   strides:[uint];
+
+  pad_mode:PadMode;
+
+  // Padding for spatial axes as [left, right] or [top, left, bottom, right]
+  pads:[uint];
 }
 
 table EluAttrs {

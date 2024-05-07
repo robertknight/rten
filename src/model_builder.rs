@@ -435,8 +435,14 @@ impl<'a> ModelBuilder<'a> {
                 }
             }),
             OpType::ConvTranspose(args) => op_with_attrs!(ConvTranspose, ConvTransposeAttrs, {
-                let strides = self.create_vec(Some(args.strides.into()), |s| s as u32);
-                sg::ConvTransposeAttrsArgs { strides }
+                let pad_args = pad_args_from_padding(args.padding);
+                let pads = self.create_vec(pad_args.pads, |pad| pad as u32);
+                let strides = self.create_vec(Some(args.strides), |s| s as u32);
+                sg::ConvTransposeAttrsArgs {
+                    strides,
+                    pad_mode: pad_args.pad_mode,
+                    pads,
+                }
             }),
             OpType::Cos => op!(Cos),
             OpType::Div => op!(Div),

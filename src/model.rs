@@ -400,6 +400,11 @@ fn array_from_iter<const N: usize, T: Default + Copy, I: Iterator<Item = T>>(
     result
 }
 
+fn vec_from_attr(attr: Option<flatbuffers::Vector<u32>>, default: &[usize]) -> Vec<usize> {
+    attr.map(|val| val.iter().map(|x| x as usize).collect())
+        .unwrap_or_else(|| default.to_vec())
+}
+
 /// Result of deserializing an operator node from a model file.
 pub type ReadOpResult = Result<Box<dyn Operator + Send + Sync>, ReadOpError>;
 
@@ -562,14 +567,8 @@ impl_read_op!(Concat, axis, attrs_as_concat_attrs);
 impl_read_op!(Conv, attrs_as_conv_attrs, |attrs: sg::ConvAttrs| {
     let groups = attrs.groups() as usize;
     let padding = padding_from_attrs(attrs.pad_mode(), attrs.pads());
-    let strides: Vec<usize> = attrs
-        .strides()
-        .map(|stride| stride.iter().map(|x| x as usize).collect())
-        .unwrap_or(vec![1, 1]);
-    let dilations: Vec<usize> = attrs
-        .dilations()
-        .map(|dilation| dilation.iter().map(|x| x as usize).collect())
-        .unwrap_or(vec![1, 1]);
+    let strides = vec_from_attr(attrs.strides(), &[1, 1]);
+    let dilations = vec_from_attr(attrs.dilations(), &[1, 1]);
     Ok(ops::Conv {
         groups,
         padding,
@@ -595,11 +594,9 @@ impl_read_op!(
     ConvTranspose,
     attrs_as_conv_transpose_attrs,
     |attrs: sg::ConvTransposeAttrs| {
-        let strides = attrs
-            .strides()
-            .map(|stride| array_from_iter(stride.iter().map(|x| x as usize)))
-            .unwrap_or([1, 1]);
-        Ok(ops::ConvTranspose { strides })
+        let padding = padding_from_attrs(attrs.pad_mode(), attrs.pads());
+        let strides = vec_from_attr(attrs.strides(), &[1, 1]);
+        Ok(ops::ConvTranspose { padding, strides })
     }
 );
 impl_read_op!(Cos);
@@ -1483,7 +1480,10 @@ mod tests {
             strides: vec![1, 1],
         });
 
-        add_operator!(ConvTranspose, [input_node, kernel], { strides: [2, 2] });
+        add_operator!(ConvTranspose, [input_node, kernel], {
+            strides: vec![2, 2],
+            padding: [0, 0, 0, 0].into(),
+        });
         add_operator!(Cos, [input_node]);
         add_operator!(Div, [input_node, input_node]);
         add_operator!(Elu, [input_node], { alpha: 1.0 });

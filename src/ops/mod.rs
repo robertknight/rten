@@ -126,6 +126,24 @@ pub enum Padding {
     Fixed(SmallVec<[usize; 4]>),
 }
 
+impl Padding {
+    /// Return fixed zero padding for an N-dimensional shape.
+    pub fn zero<const N: usize>() -> Padding {
+        Padding::Fixed(SmallVec::from_elem(0, N * 2))
+    }
+
+    /// Expand padding for a 1D operation to 2D.
+    pub fn expand_1d_to_2d(&self) -> Result<Padding, OpError> {
+        match self {
+            Padding::Same => Ok(Padding::Same),
+            Padding::Fixed(pads) => match pads.as_slice() {
+                &[pad_start, pad_end] => Ok([0, pad_start, 0, pad_end].into()),
+                _ => Err(OpError::InvalidValue("expected 2 pad values")),
+            },
+        }
+    }
+}
+
 /// Construct a [Padding::Fixed] from a slice of paddings for each size.
 impl<S: AsRef<[usize]>> From<S> for Padding {
     fn from(val: S) -> Padding {

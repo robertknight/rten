@@ -3086,6 +3086,8 @@ impl<'a> flatbuffers::Follow<'a> for ConvTransposeAttrs<'a> {
 
 impl<'a> ConvTransposeAttrs<'a> {
     pub const VT_STRIDES: flatbuffers::VOffsetT = 4;
+    pub const VT_PAD_MODE: flatbuffers::VOffsetT = 6;
+    pub const VT_PADS: flatbuffers::VOffsetT = 8;
 
     #[inline]
     pub unsafe fn init_from_table(table: flatbuffers::Table<'a>) -> Self {
@@ -3097,9 +3099,13 @@ impl<'a> ConvTransposeAttrs<'a> {
         args: &'args ConvTransposeAttrsArgs<'args>,
     ) -> flatbuffers::WIPOffset<ConvTransposeAttrs<'bldr>> {
         let mut builder = ConvTransposeAttrsBuilder::new(_fbb);
+        if let Some(x) = args.pads {
+            builder.add_pads(x);
+        }
         if let Some(x) = args.strides {
             builder.add_strides(x);
         }
+        builder.add_pad_mode(args.pad_mode);
         builder.finish()
     }
 
@@ -3112,6 +3118,30 @@ impl<'a> ConvTransposeAttrs<'a> {
             self._tab
                 .get::<flatbuffers::ForwardsUOffset<flatbuffers::Vector<'a, u32>>>(
                     ConvTransposeAttrs::VT_STRIDES,
+                    None,
+                )
+        }
+    }
+    #[inline]
+    pub fn pad_mode(&self) -> PadMode {
+        // Safety:
+        // Created from valid Table for this object
+        // which contains a valid value in this slot
+        unsafe {
+            self._tab
+                .get::<PadMode>(ConvTransposeAttrs::VT_PAD_MODE, Some(PadMode::Same))
+                .unwrap()
+        }
+    }
+    #[inline]
+    pub fn pads(&self) -> Option<flatbuffers::Vector<'a, u32>> {
+        // Safety:
+        // Created from valid Table for this object
+        // which contains a valid value in this slot
+        unsafe {
+            self._tab
+                .get::<flatbuffers::ForwardsUOffset<flatbuffers::Vector<'a, u32>>>(
+                    ConvTransposeAttrs::VT_PADS,
                     None,
                 )
         }
@@ -3131,17 +3161,29 @@ impl flatbuffers::Verifiable for ConvTransposeAttrs<'_> {
                 Self::VT_STRIDES,
                 false,
             )?
+            .visit_field::<PadMode>("pad_mode", Self::VT_PAD_MODE, false)?
+            .visit_field::<flatbuffers::ForwardsUOffset<flatbuffers::Vector<'_, u32>>>(
+                "pads",
+                Self::VT_PADS,
+                false,
+            )?
             .finish();
         Ok(())
     }
 }
 pub struct ConvTransposeAttrsArgs<'a> {
     pub strides: Option<flatbuffers::WIPOffset<flatbuffers::Vector<'a, u32>>>,
+    pub pad_mode: PadMode,
+    pub pads: Option<flatbuffers::WIPOffset<flatbuffers::Vector<'a, u32>>>,
 }
 impl<'a> Default for ConvTransposeAttrsArgs<'a> {
     #[inline]
     fn default() -> Self {
-        ConvTransposeAttrsArgs { strides: None }
+        ConvTransposeAttrsArgs {
+            strides: None,
+            pad_mode: PadMode::Same,
+            pads: None,
+        }
     }
 }
 
@@ -3154,6 +3196,16 @@ impl<'a: 'b, 'b> ConvTransposeAttrsBuilder<'a, 'b> {
     pub fn add_strides(&mut self, strides: flatbuffers::WIPOffset<flatbuffers::Vector<'b, u32>>) {
         self.fbb_
             .push_slot_always::<flatbuffers::WIPOffset<_>>(ConvTransposeAttrs::VT_STRIDES, strides);
+    }
+    #[inline]
+    pub fn add_pad_mode(&mut self, pad_mode: PadMode) {
+        self.fbb_
+            .push_slot::<PadMode>(ConvTransposeAttrs::VT_PAD_MODE, pad_mode, PadMode::Same);
+    }
+    #[inline]
+    pub fn add_pads(&mut self, pads: flatbuffers::WIPOffset<flatbuffers::Vector<'b, u32>>) {
+        self.fbb_
+            .push_slot_always::<flatbuffers::WIPOffset<_>>(ConvTransposeAttrs::VT_PADS, pads);
     }
     #[inline]
     pub fn new(
@@ -3176,6 +3228,8 @@ impl core::fmt::Debug for ConvTransposeAttrs<'_> {
     fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
         let mut ds = f.debug_struct("ConvTransposeAttrs");
         ds.field("strides", &self.strides());
+        ds.field("pad_mode", &self.pad_mode());
+        ds.field("pads", &self.pads());
         ds.finish()
     }
 }

@@ -305,8 +305,7 @@ pub fn conv(
 ) -> Result<Tensor, OpError> {
     // Handle 1D convolution by expanding to 2D and then removing the extra
     // dimension from the result.
-    if input.ndim() == 3 {
-        let [n, c, w] = check_dims!(input, 3, "NCW");
+    if let &[n, c, w] = input.shape() {
         let [out_c, k_in_c, k_w] = check_dims!(kernel, 3, "OCW");
 
         let mut input_2d = input.clone();
@@ -315,15 +314,7 @@ pub fn conv(
         let mut kernel_2d = kernel.clone();
         kernel_2d.reshape(&[out_c, k_in_c, 1, k_w]);
 
-        let padding_2d: Padding = match padding {
-            Padding::Same => Padding::Same,
-            Padding::Fixed(pads) => match pads.as_slice() {
-                &[pad_start, pad_end] => [0, pad_start, 0, pad_end].into(),
-                _ => {
-                    return Err(OpError::InvalidValue("expected 2 pad values"));
-                }
-            },
-        };
+        let padding_2d = padding.expand_1d_to_2d()?;
 
         let strides_2d = match strides {
             &[stride] => [1, stride],
@@ -545,31 +536,113 @@ impl Operator for Conv {
 fn col2im(
     output: &mut NdTensorViewMut<f32, 3>,
     columns: &NdTensorView<f32, 5>,
+    padding: [usize; 4],
     strides: [usize; 2],
 ) {
     let [stride_h, stride_w] = strides;
+    let [pad_top, pad_left, _pad_bottom, _pad_right] = padding;
 
     // If we assume `columns` is likely already contiguous, we can avoid offset
     // calculations and just iterate over the underlying data.
     let columns = columns.to_contiguous();
-    let columns_shape = columns.shape();
+    let [img_h, img_w, out_chans, kernel_h, kernel_w] = columns.shape();
     let mut col_data_iter = columns.data().unwrap().iter();
+    let [_, out_h, out_w] = output.shape();
 
     let mut out_view = output.weakly_checked_view_mut();
 
     // Loop order must match dim order of `columns`.
-    for y in 0..columns_shape[0] {
-        for x in 0..columns_shape[1] {
-            for out_c in 0..columns_shape[2] {
-                for k_y in 0..columns_shape[3] {
+    for y in 0..img_h {
+        for x in 0..img_w {
+            for out_c in 0..out_chans {
+                for k_y in 0..kernel_h {
                     let out_y = y * stride_h + k_y;
-                    for k_x in 0..columns_shape[4] {
+                    for k_x in 0..kernel_w {
                         let out_x = x * stride_w + k_x;
-                        out_view[[out_c, out_y, out_x]] += col_data_iter.next().unwrap();
+                        let out_el = col_data_iter.next().unwrap();
+
+                        if pad_top == 0 && pad_left == 0 {
+                            out_view[[out_c, out_y, out_x]] += out_el;
+                        } else {
+                            // The padded case is currently much slower due to
+                            // unpredictable branches.
+                            if out_y >= pad_top
+                                && out_y < out_h + pad_top
+                                && out_x >= pad_left
+                                && out_x < out_w + pad_left
+                            {
+                                out_view[[out_c, out_y - pad_top, out_x - pad_left]] += out_el;
+                            }
+                        }
                     }
                 }
             }
         }
+    }
+}
+
+/// Calculate ConvTranspose output spatial shape and padding.
+///
+/// See formulae in https://onnx.ai/onnx/operators/onnx__ConvTranspose.html.
+///
+/// Returns a tuple of (out_shape, padding).
+fn conv_transpose_output_size_and_padding(
+    input_shape: [usize; 2],
+    kernel_shape: [usize; 2],
+    padding: Padding,
+    strides: [usize; 2],
+) -> Result<([usize; 2], [usize; 4]), OpError> {
+    let [in_h, in_w] = input_shape;
+    let [stride_h, stride_w] = strides;
+    let [k_h, k_w] = kernel_shape;
+
+    if stride_h == 0 || stride_w == 0 {
+        return Err(OpError::InvalidValue("Strides must be > 0"));
+    }
+
+    if in_h == 0 || in_w == 0 {
+        return Err(OpError::InvalidValue("Input width and height must be > 0"));
+    }
+
+    match padding {
+        Padding::Same => {
+            // Per spec, pad the input so that:
+            // output_shape[i] = input_shape[i] * strides[i] for each axis i.
+            let out_h = in_h * stride_h;
+            let out_w = in_w * stride_w;
+
+            let pad_h = ((in_h - 1) * stride_h + k_h).checked_sub(out_h);
+            let pad_w = ((in_w - 1) * stride_w + k_w).checked_sub(out_w);
+
+            let (Some(pad_h), Some(pad_w)) = (pad_h, pad_w) else {
+                // We can't achieve an output size of (out_h, out_w) even with
+                // no padding.
+                return Err(OpError::InvalidValue("Input is too small"));
+            };
+
+            // If the total padding is not even, we assign the remaining unit to
+            // the ends of the axis. This matches the ONNX "SAME_UPPER"
+            // value for `auto_pad`.
+            let pad_top = pad_h / 2;
+            let pad_bottom = pad_h.div_ceil(2);
+            let pad_left = pad_w / 2;
+            let pad_right = pad_w.div_ceil(2);
+
+            Ok(([out_h, out_w], [pad_top, pad_bottom, pad_left, pad_right]))
+        }
+        Padding::Fixed(pads) => match pads.as_slice() {
+            &[pad_top, pad_left, pad_bottom, pad_right] => {
+                let out_h = ((in_h - 1) * stride_h + k_h).checked_sub(pad_top + pad_bottom);
+                let out_w = ((in_w - 1) * stride_w + k_w).checked_sub(pad_left + pad_right);
+
+                let (Some(out_h), Some(out_w)) = (out_h, out_w) else {
+                    return Err(OpError::InvalidValue("Input is too small"));
+                };
+
+                Ok(([out_h, out_w], [pad_top, pad_left, pad_bottom, pad_right]))
+            }
+            _ => Err(OpError::InvalidValue("Wrong number of pad values")),
+        },
     }
 }
 
@@ -582,8 +655,38 @@ pub fn conv_transpose(
     input: TensorView,
     kernel: TensorView,
     bias: Option<TensorView>,
-    strides: [usize; 2],
+    padding: Padding,
+    strides: &[usize],
 ) -> Result<Tensor, OpError> {
+    // Handle 1D transposed convolution by expanding to 2D and then removing
+    // the extra dimension from the result.
+    if let &[n, c, w] = input.shape() {
+        let [out_c, k_in_c, k_w] = check_dims!(kernel, 3, "OCW");
+
+        let mut input_2d = input.clone();
+        input_2d.reshape(&[n, c, 1, w]);
+
+        let mut kernel_2d = kernel.clone();
+        kernel_2d.reshape(&[out_c, k_in_c, 1, k_w]);
+
+        let padding_2d = padding.expand_1d_to_2d()?;
+
+        let strides_2d = match strides {
+            &[stride] => [1, stride],
+            _ => {
+                return Err(OpError::InvalidValue("expected 1 stride value"));
+            }
+        };
+
+        let result_2d = conv_transpose(pool, input_2d, kernel_2d, bias, padding_2d, &strides_2d);
+
+        return result_2d.map(|mut t| {
+            let [n, c, _h, w]: [usize; 4] = t.shape().try_into().expect("expected 4D output");
+            t.reshape(&[n, c, w]);
+            t
+        });
+    }
+
     let [batch, in_c, in_h, in_w] = check_dims!(input, 4, "NCHW");
     let [k_in_c, out_c, k_h, k_w] = check_dims!(kernel, 4, "OCHW");
     check_dims!(bias?, 1);
@@ -596,9 +699,18 @@ pub fn conv_transpose(
         ));
     }
 
-    let [stride_h, stride_w] = strides;
-    let out_h = (in_h - 1) * stride_h + k_h;
-    let out_w = (in_w - 1) * stride_w + k_w;
+    let &[stride_h, stride_w] = strides else {
+        return Err(OpError::InvalidValue("expected 2 stride values"));
+    };
+
+    let (out_shape, fixed_padding) = conv_transpose_output_size_and_padding(
+        [in_h, in_w],
+        [k_h, k_w],
+        padding,
+        [stride_h, stride_w],
+    )?;
+    let [out_h, out_w] = out_shape;
+    let [pad_top, pad_left, pad_bottom, pad_right] = fixed_padding;
 
     let mut output = if let Some(bias) = bias {
         init_tensor_with_channel_bias(pool, &[batch, out_c, out_h, out_w], 1, &bias)
@@ -637,7 +749,8 @@ pub fn conv_transpose(
         col2im(
             &mut output.nd_view_mut::<4>().slice_mut([n]),
             &col2im_mat.reshaped([in_h, in_w, out_c, k_h, k_w]),
-            strides,
+            [pad_top, pad_left, pad_right, pad_bottom],
+            [stride_h, stride_w],
         );
     }
 
@@ -646,7 +759,8 @@ pub fn conv_transpose(
 
 #[derive(Debug)]
 pub struct ConvTranspose {
-    pub strides: [usize; 2],
+    pub padding: Padding,
+    pub strides: Vec<usize>,
 }
 
 impl Operator for ConvTranspose {
@@ -658,7 +772,15 @@ impl Operator for ConvTranspose {
         let input = inputs.require_as(0)?;
         let weight = inputs.require_as(1)?;
         let bias = inputs.get_as(2)?;
-        conv_transpose(pool, input, weight, bias, self.strides).into_op_result()
+        conv_transpose(
+            pool,
+            input,
+            weight,
+            bias,
+            self.padding.clone(),
+            &self.strides,
+        )
+        .into_op_result()
     }
 }
 
@@ -676,6 +798,8 @@ mod tests {
     use crate::ops::tests::new_pool;
     use crate::ops::{conv, conv_transpose, Conv, OpError, Operator, Padding};
     use crate::tensor_pool::AutoReturn;
+
+    use super::conv_transpose_output_size_and_padding;
 
     /// Un-optimized reference implementation of convolution.
     ///
@@ -1241,6 +1365,8 @@ mod tests {
         let pool = new_pool();
         let input = Tensor::from_data(&[1, 1, 2, 2], vec![1.0, 2.0, 3.0, 4.0]);
         let kernel = Tensor::from_data(&[1, 1, 2, 2], vec![0.1, 0.2, 0.3, 0.4]);
+
+        // Expected values computed with `torch.nn.functional.conv_transpose2d`.
         let expected = Tensor::from_data(
             &[1, 1, 4, 4],
             vec![
@@ -1249,7 +1375,15 @@ mod tests {
             ],
         );
 
-        let result = conv_transpose(&pool, input.view(), kernel.view(), None, [2, 2]).unwrap();
+        let result = conv_transpose(
+            &pool,
+            input.view(),
+            kernel.view(),
+            None,
+            Padding::zero::<2>(),
+            &[2, 2],
+        )
+        .unwrap();
         expect_equal(&result, &expected)?;
 
         let mut expected_with_bias = Tensor::from_data(expected.shape().into(), expected.to_vec());
@@ -1262,12 +1396,211 @@ mod tests {
             input.view(),
             kernel.view(),
             Some(bias.view()),
-            [2, 2],
+            Padding::zero::<2>(),
+            &[2, 2],
         )
         .unwrap();
         expect_equal(&result, &expected_with_bias)?;
 
         Ok(())
+    }
+
+    #[test]
+    fn test_conv_transpose_padding() -> Result<(), Box<dyn Error>> {
+        let pool = new_pool();
+        let input = Tensor::from_data(&[1, 1, 2, 2], vec![1.0, 2.0, 3.0, 4.0]);
+        let kernel = Tensor::from_data(&[1, 1, 2, 2], vec![0.1, 0.2, 0.3, 0.4]);
+
+        // Expected values computed with `torch.nn.functional.conv_transpose2d`.
+        let expected = Tensor::from_data(&[1, 1, 2, 2], vec![0.4, 0.6, 0.6, 0.4]);
+        let strides = [2, 2];
+
+        // Fixed padding. The output shape should have rows and columns
+        // subtracted on each side according to the corresponding padding.
+        let result = conv_transpose(
+            &pool,
+            input.view(),
+            kernel.view(),
+            None,
+            Padding::Fixed([1, 1, 1, 1].into()),
+            &strides,
+        )
+        .unwrap();
+        expect_equal(&result, &expected)?;
+
+        // "Same" padding. The output shape should be `input_size * stride`
+        // for each spatial axis.
+        let result = conv_transpose(
+            &pool,
+            input.view(),
+            kernel.view(),
+            None,
+            Padding::Same,
+            &strides,
+        )
+        .unwrap();
+        assert_eq!(
+            result.shape(),
+            &[
+                input.size(0),
+                input.size(1),
+                input.size(2) * strides[0],
+                input.size(3) * strides[1]
+            ]
+        );
+
+        Ok(())
+    }
+
+    #[test]
+    fn test_conv_transpose_1d() -> Result<(), Box<dyn Error>> {
+        let pool = new_pool();
+        let input = Tensor::from_data(&[1, 1, 2], vec![1., 2.]);
+        let kernel = Tensor::from_data(&[1, 1, 2], vec![0.1, 0.2]);
+
+        // Expected values computed with `torch.nn.functional.conv_transpose1d`.
+        let expected = Tensor::from_data(&[1, 1, 4], vec![0.1, 0.2, 0.2, 0.4]);
+
+        let result = conv_transpose(
+            &pool,
+            input.view(),
+            kernel.view(),
+            None,
+            Padding::zero::<1>(),
+            &[2],
+        )
+        .unwrap();
+        expect_equal(&result, &expected)?;
+
+        let bias = Tensor::from([0.5]);
+        let expected_with_bias = expected.map(|x| x + bias[[0]]);
+        let result = conv_transpose(
+            &pool,
+            input.view(),
+            kernel.view(),
+            Some(bias.view()),
+            Padding::zero::<1>(),
+            &[2],
+        )
+        .unwrap();
+        expect_equal(&result, &expected_with_bias)?;
+
+        Ok(())
+    }
+
+    #[test]
+    fn test_conv_transpose_output_size_and_padding() {
+        struct Case {
+            input_shape: [usize; 2],
+            kernel_shape: [usize; 2],
+            padding: Padding,
+            strides: [usize; 2],
+            expected: Result<([usize; 2], [usize; 4]), OpError>,
+        }
+
+        let cases = [
+            // Zero padding, stride of 1
+            Case {
+                input_shape: [5, 5],
+                kernel_shape: [3, 3],
+                padding: Padding::zero::<2>(),
+                strides: [1, 1],
+                expected: Ok(([7, 7], [0, 0, 0, 0])),
+            },
+            // Zero padding, stride of 3
+            Case {
+                input_shape: [5, 5],
+                kernel_shape: [3, 3],
+                padding: Padding::zero::<2>(),
+                strides: [3, 3],
+                expected: Ok(([15, 15], [0, 0, 0, 0])),
+            },
+            // Non-zero padding, stride of 1
+            Case {
+                input_shape: [5, 5],
+                kernel_shape: [3, 3],
+                padding: Padding::Fixed([1, 1, 1, 1].into()),
+                strides: [1, 1],
+                expected: Ok(([5, 5], [1, 1, 1, 1])),
+            },
+            Case {
+                input_shape: [5, 5],
+                kernel_shape: [3, 3],
+                padding: Padding::Fixed([2, 2, 2, 2].into()),
+                strides: [1, 1],
+                expected: Ok(([3, 3], [2, 2, 2, 2])),
+            },
+            // Uneven padding
+            Case {
+                input_shape: [5, 5],
+                kernel_shape: [3, 3],
+                padding: Padding::Fixed([1, 2, 1, 2].into()),
+                strides: [1, 1],
+                expected: Ok(([5, 3], [1, 2, 1, 2])),
+            },
+            // Same padding
+            Case {
+                input_shape: [5, 5],
+                kernel_shape: [3, 3],
+                padding: Padding::Same,
+                strides: [1, 1],
+                expected: Ok(([5, 5], [1, 1, 1, 1])),
+            },
+            // Same padding. Case where output size is smaller than
+            // `input_shape * stride` even with no padding.
+            Case {
+                input_shape: [5, 5],
+                kernel_shape: [1, 1],
+                padding: Padding::Same,
+                strides: [3, 3],
+                expected: Err(OpError::InvalidValue("Input is too small")),
+            },
+            // Padding too large
+            Case {
+                input_shape: [5, 5],
+                kernel_shape: [3, 3],
+                padding: Padding::Fixed([4, 4, 4, 4].into()),
+                strides: [1, 1],
+                expected: Err(OpError::InvalidValue("Input is too small")),
+            },
+            // Invalid strides
+            Case {
+                input_shape: [5, 5],
+                kernel_shape: [3, 3],
+                padding: Padding::zero::<2>(),
+                strides: [0, 0],
+                expected: Err(OpError::InvalidValue("Strides must be > 0")),
+            },
+            // Empty input
+            Case {
+                input_shape: [0, 0],
+                kernel_shape: [3, 3],
+                padding: Padding::zero::<2>(),
+                strides: [1, 1],
+                expected: Err(OpError::InvalidValue("Input width and height must be > 0")),
+            },
+            // Wrong padding size for input spatial shape.
+            Case {
+                input_shape: [1, 1],
+                kernel_shape: [3, 3],
+                padding: Padding::zero::<1>(),
+                strides: [1, 1],
+                expected: Err(OpError::InvalidValue("Wrong number of pad values")),
+            },
+        ];
+
+        for Case {
+            input_shape,
+            kernel_shape,
+            padding,
+            strides,
+            expected,
+        } in cases
+        {
+            let result =
+                conv_transpose_output_size_and_padding(input_shape, kernel_shape, padding, strides);
+            assert_eq!(result, expected);
+        }
     }
 
     #[test]
@@ -1336,10 +1669,22 @@ mod tests {
             &mut rng,
         );
 
+        // Without padding.
         run_bench(100, Some("col2im"), || {
             col2im(
                 &mut output.view_mut(),
                 &columns.view(),
+                [0, 0, 0, 0], // Padding
+                [stride_y, stride_x],
+            );
+        });
+
+        // With padding.
+        run_bench(100, Some("col2im"), || {
+            col2im(
+                &mut output.slice_mut((.., 2.., 2..)),
+                &columns.view(),
+                [1, 1, 1, 1], // Padding
                 [stride_y, stride_x],
             );
         });
