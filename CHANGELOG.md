@@ -5,36 +5,105 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## Unreleased
+
+This release contains a breaking change for code using the `TensorBase` type
+directly. See `rten-tensor` changes. Code using the type aliases (`TensorView`
+etc.) should not be affected.
+
+### rten
+
+- Fixed incorrect calculation of update slice size in `ScatterND` operator
+  (https://github.com/robertknight/rten/pull/157)
+
+- Fixed incorrect conversion of `axis` attribute for `ArgMin` and `ArgMax`
+  operators (https://github.com/robertknight/rten/pull/142)
+
+- Support 1D inputs and padding in `ConvTranspose` (https://github.com/robertknight/rten/pull/156)
+
+- Support `GatherND` operator (https://github.com/robertknight/rten/pull/155)
+
+- Fixed uninitialized read in `Gemm` operator when `alpha != 1` and `beta == 0`
+  (https://github.com/robertknight/rten/pull/150)
+
+- Support `Softplus` operator (https://github.com/robertknight/rten/pull/146)
+
+- Support converting ONNX models containing unnamed operator nodes
+  (https://github.com/robertknight/rten/pull/143)
+
+- Support `RandomNormal`, `RandomNormalLike`, `RandomUniformLike` operators
+  (https://github.com/robertknight/rten/pull/144)
+
+- Parallelize `AveragePool` operator (https://github.com/robertknight/rten/pull/138)
+
+### rten-imageproc
+
+- The mask matrix argument to `find_contours` now uses `bool` instead of `i32`
+  for elements. This improves performance / reduces memory usage for large masks.
+
+### rten-tensor
+
+#### Breaking changes
+
+This release changes the signature of the `TensorBase` struct from
+`TensorBase<T, S: AsRef<[T]>, L: MutLayout>` where `T` is the element type, `S`
+the storage and `L` the layout to `TensorBase<S: Storage, L: MutLayout>`. The
+element type is now available via `S::Elem`. The type of `S` used by views has
+changed from slices to new custom types. The `TensorBase::from_data` method
+still accepts both `Vec<T>` and slices as the `data` argument, and will convert
+to the appropriate storage struct.
+
+Code using the type aliases (`Tensor`, `TensorView`, `TensorViewMut` etc.)
+does not need to change.
+
+#### Changes
+
+- Refactored tensor storage types to fix a violation of Rust's unique ownership
+  rules for mutable slices. This enables tests for rten-tensor and code using
+  this crate to be run under Miri
+  (https://github.com/robertknight/rten/pull/148).
+
+- Added `TensorBase::{as_cow, into_cow}` (named after `std::borrow::Cow`) to
+  convert tensor storage to a type which is `Cow`-like. This is useful for
+  writing code which works with either borrowed or owned tensors
+  (https://github.com/robertknight/rten/pull/153).
+
+### rten-vecmath
+
+- Revised SIMD traits to make working with masks more ergonomic and efficient
+  (https://github.com/robertknight/rten/pull/152). Integer and floating point
+  types with the same number of lanes will now use the same mask type.
+
 ## [0.8.0] - 2024-04-29
 
-## rten-tensor
+### rten-tensor
 
 - Added `Alloc` trait which provides a simple allocator interface, and
   `*_in`-suffixed variants of several `TensorBase` methods, which allows
   specifying an allocator for the returned tensor's data buffer
   (https://github.com/robertknight/rten/pull/123).
 
-## rten-vecmath
+### rten-vecmath
 
 - Fixed crashes in several functions when running on pre-AVX2 x64 CPUs (see
   `rten` changes)
 
-## rten
+### rten
 
-### New features
+#### New features
 
 - Support `Elu` operator (https://github.com/robertknight/rten/pull/132)
 
 - Support `Reduce*` operators that take `axes` as a dynamic input rather than
   static attribute (https://github.com/robertknight/rten/pull/132)
 
-### Bug fixes
+#### Bug fixes
 
 - Fixed crash in several operators when running on x64 CPUs that do not
   support AVX-2 instructions (https://github.com/robertknight/rten/pull/131,
   https://github.com/robertknight/rten/pull/134)
 
-### Performance improvements
+#### Performance improvements
 
 - Added a buffer pool that enables reuse of operator output and temporary
   buffers, avoiding the overhead of allocating and freeing large buffers using
