@@ -253,7 +253,8 @@ table ConvAttrs {
 table ConvTransposeAttrs {
   strides:[uint];
 
-  pad_mode:PadMode;
+  // Defaults to `Fixed` for backwards compatibility.
+  pad_mode:PadMode = Fixed;
 
   // Padding for spatial axes as [left, right] or [top, left, bottom, right]
   pads:[uint];
