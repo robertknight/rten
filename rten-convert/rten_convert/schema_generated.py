@@ -1450,7 +1450,7 @@ class ConvTransposeAttrs(object):
         o = flatbuffers.number_types.UOffsetTFlags.py_type(self._tab.Offset(6))
         if o != 0:
             return self._tab.Get(flatbuffers.number_types.Uint8Flags, o + self._tab.Pos)
-        return 0
+        return 1
 
     # ConvTransposeAttrs
     def Pads(self, j):
@@ -1489,7 +1489,7 @@ def ConvTransposeAttrsStartStridesVector(builder, numElems):
     return builder.StartVector(4, numElems, 4)
 
 def ConvTransposeAttrsAddPadMode(builder, padMode):
-    builder.PrependUint8Slot(1, padMode, 0)
+    builder.PrependUint8Slot(1, padMode, 1)
 
 def ConvTransposeAttrsAddPads(builder, pads):
     builder.PrependUOffsetTRelativeSlot(2, flatbuffers.number_types.UOffsetTFlags.py_type(pads), 0)
@@ -1511,7 +1511,7 @@ class ConvTransposeAttrsT(object):
     # ConvTransposeAttrsT
     def __init__(self):
         self.strides = None  # type: List[int]
-        self.padMode = 0  # type: int
+        self.padMode = 1  # type: int
         self.pads = None  # type: List[int]
 
     @classmethod

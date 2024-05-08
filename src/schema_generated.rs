@@ -3129,7 +3129,7 @@ impl<'a> ConvTransposeAttrs<'a> {
         // which contains a valid value in this slot
         unsafe {
             self._tab
-                .get::<PadMode>(ConvTransposeAttrs::VT_PAD_MODE, Some(PadMode::Same))
+                .get::<PadMode>(ConvTransposeAttrs::VT_PAD_MODE, Some(PadMode::Fixed))
                 .unwrap()
         }
     }
@@ -3181,7 +3181,7 @@ impl<'a> Default for ConvTransposeAttrsArgs<'a> {
     fn default() -> Self {
         ConvTransposeAttrsArgs {
             strides: None,
-            pad_mode: PadMode::Same,
+            pad_mode: PadMode::Fixed,
             pads: None,
         }
     }
@@ -3200,7 +3200,7 @@ impl<'a: 'b, 'b> ConvTransposeAttrsBuilder<'a, 'b> {
     #[inline]
     pub fn add_pad_mode(&mut self, pad_mode: PadMode) {
         self.fbb_
-            .push_slot::<PadMode>(ConvTransposeAttrs::VT_PAD_MODE, pad_mode, PadMode::Same);
+            .push_slot::<PadMode>(ConvTransposeAttrs::VT_PAD_MODE, pad_mode, PadMode::Fixed);
     }
     #[inline]
     pub fn add_pads(&mut self, pads: flatbuffers::WIPOffset<flatbuffers::Vector<'b, u32>>) {
