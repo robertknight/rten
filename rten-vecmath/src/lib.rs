@@ -427,8 +427,6 @@ fn dispatch_unary_op_in_place<Op: SimdUnaryOp>(xs: &mut [f32], op: Op) {
         );
     }
 
-    // Non-generic wrapper for `vec_unary_op` which instantiates the
-    // AVX + FMA version.
     #[cfg(target_arch = "x86_64")]
     #[target_feature(enable = "avx2")]
     #[target_feature(enable = "fma")]
@@ -538,7 +536,6 @@ fn dispatch_simd_op<Op: SimdOp>(input: PtrLen<f32>, out: MutPtrLen<MaybeUninit<f
         op.eval::<__m512>(xs, out);
     }
 
-    // Non-generic wrapper for `$func` which instantiates the AVX + FMA version.
     #[cfg(target_arch = "x86_64")]
     #[target_feature(enable = "avx2")]
     #[target_feature(enable = "fma")]
