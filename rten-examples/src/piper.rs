@@ -63,12 +63,22 @@ struct Args {
     /// Path to configuration JSON for the Piper model.
     model_config: String,
 
-    /// Custom string of IPA phonemes to speak.
+    /// Custom string of phonemes to speak.
     ///
-    /// You can generate these using an LLM by using a prompt such as:
+    /// The Piper project generates these using piper-phonemize
+    /// (https://pypi.org/project/piper-phonemize/). You can run this locally
+    /// with Python:
     ///
-    /// "Encode the string "Can you hear me speak?" as a string of phonetic
-    ///  characters using IPA."
+    /// ```text
+    /// pip install piper-phonemize
+    /// python
+    ///
+    /// >> import piper_phonemize as pp
+    /// >> ''.join(pp.phonemize_espeak('This is a text to speech system', 'en-US')[0])
+    /// ```
+    ///
+    /// The voice name ("en-US" here) can be found in the `espeak.voice`
+    /// property of the voice model config.
     phonemes: Option<String>,
 }
 
@@ -127,8 +137,8 @@ fn phonemes_to_ids(phonemes: &str, config: &ModelConfig) -> NdTensor<i32, 1> {
         .expect("missing ID for end char");
 
     // Replacement IDs for unknown phonemes.
-    let replacement = vec![];
-    let separator = vec![0];
+    let replacement = [];
+    let separator = [0];
     let mut ids: Vec<i32> = start_ids.to_vec();
     ids.extend(phonemes.chars().flat_map(|ch| {
         if let Some(ids) = config.phoneme_id_map.get(&ch) {
@@ -185,12 +195,8 @@ fn main() -> Result<(), Box<dyn Error>> {
     let default_phonemes = "ðɪs ɪz ɐ tˈɛkst tə spˈiːtʃ sˈɪstəm.";
 
     // Encode phonemes to IDs and prepare other model inputs.
-    let phonemes = args
-        .phonemes
-        .as_ref()
-        .map(|p| p.as_str())
-        .unwrap_or(default_phonemes);
-    let phoneme_ids = phonemes_to_ids(&phonemes, &config);
+    let phonemes = args.phonemes.as_deref().unwrap_or(default_phonemes);
+    let phoneme_ids = phonemes_to_ids(phonemes, &config);
     let phoneme_ids_len = phoneme_ids.size(0);
     let phoneme_ids = phoneme_ids.into_shape([1, phoneme_ids_len]); // Add batch dim
     let input_lengths = NdTensor::from([phoneme_ids_len as i32]);
