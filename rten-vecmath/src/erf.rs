@@ -2,9 +2,9 @@
 
 use std::mem::MaybeUninit;
 
-use crate::dispatch_unary_op;
 use crate::exp::simd_exp;
 use crate::simd_vec::SimdFloat;
+use crate::{dispatch_unary_op, dispatch_unary_op_in_place, SimdUnaryOp};
 
 /// Computes the [error function](https://en.wikipedia.org/wiki/Error_function).
 pub fn erf(x: f32) -> f32 {
@@ -53,18 +53,26 @@ unsafe fn simd_erf<S: SimdFloat>(x: S) -> S {
     y.blend(y.neg(), neg_mask)
 }
 
+struct SimdErf {}
+impl SimdUnaryOp for SimdErf {
+    #[inline(always)]
+    unsafe fn eval<S: SimdFloat>(&self, x: S) -> S {
+        simd_erf(x)
+    }
+}
+
 /// Vectorized error function.
 ///
 /// This is a vectorized version of [erf] that computes the function for each
 /// element in `xs` and writes the result to `out`. `xs` and `out` must be equal
 /// in length.
 pub fn vec_erf(xs: &[f32], out: &mut [MaybeUninit<f32>]) {
-    dispatch_unary_op!(xs, out, simd_erf, erf);
+    dispatch_unary_op(xs, out, SimdErf {});
 }
 
 /// Variant of [vec_erf] that modifies elements in-place.
 pub fn vec_erf_in_place(xs: &mut [f32]) {
-    dispatch_unary_op!(xs, simd_erf, erf);
+    dispatch_unary_op_in_place(xs, SimdErf {});
 }
 
 #[cfg(test)]

@@ -285,282 +285,298 @@ unsafe fn vec_fold<S: SimdFloat, Op: Fn(S, S) -> S>(
     accum
 }
 
-/// Invoke the best available implementation of a unary operator on the current
+/// Trait for evaluating a unary function on a SIMD vector.
+trait SimdUnaryOp {
+    /// Evaluate the unary function on the elements in `x`.
+    unsafe fn eval<S: SimdFloat>(&self, x: S) -> S;
+}
+
+/// Apply a vectorized unary function to elements of `xs`, and write the
+/// results to `out`.
+///
+/// This function will dispatch to the best SIMD implementation for the current
 /// platform.
-///
-/// After this macro executes, the contents of `out` will have been initialized.
-///
-/// This generates a call to [vec_unary_op] for each of the supported
-/// instruction sets, passing in a version of `$op_func` that is parametrized by
-/// the corresponding SIMD vector type. At runtime the appropriate
-/// `vec_unary_op` call will be invoked.
-macro_rules! dispatch_unary_op {
-    ($in:ident, $out:ident, $op_func:ident, $fallback_func:ident) => {
-        assert!($in.len() == $out.len());
+#[allow(unused_imports)]
+#[allow(unreachable_code)] // Ignore fallback, if unused
+fn dispatch_unary_op<Op: SimdUnaryOp>(xs: &[f32], out: &mut [MaybeUninit<f32>], op: Op) {
+    assert!(xs.len() == out.len());
 
-        #[allow(unused_imports)]
-        #[allow(unreachable_code)] // Ignore fallback, if unused
-        {
-            use std::mem::MaybeUninit;
+    #[cfg(feature = "avx512")]
+    #[cfg(target_arch = "x86_64")]
+    #[target_feature(enable = "avx512f")]
+    #[target_feature(enable = "avx512vl")]
+    unsafe fn vec_unary_op_avx512<Op: SimdUnaryOp>(
+        xs: PtrLen<f32>,
+        out: MutPtrLen<MaybeUninit<f32>>,
+        op: Op,
+    ) {
+        use std::arch::x86_64::__m512;
+        vec_unary_op(
+            xs,
+            out,
+            #[inline(always)]
+            |x: __m512| op.eval(x),
+            0., /* pad */
+        );
+    }
 
-            use crate::{vec_unary_op, MutPtrLen, PtrLen};
+    #[cfg(target_arch = "x86_64")]
+    #[target_feature(enable = "avx2")]
+    #[target_feature(enable = "fma")]
+    unsafe fn vec_unary_op_avx<Op: SimdUnaryOp>(
+        xs: PtrLen<f32>,
+        out: MutPtrLen<MaybeUninit<f32>>,
+        op: Op,
+    ) {
+        use std::arch::x86_64::__m256;
+        vec_unary_op(
+            xs,
+            out,
+            #[inline(always)]
+            |x: __m256| op.eval(x),
+            0., /* pad */
+        );
+    }
 
-            #[cfg(feature = "avx512")]
-            #[cfg(target_arch = "x86_64")]
-            #[target_feature(enable = "avx512f")]
-            #[target_feature(enable = "avx512vl")]
-            unsafe fn vec_unary_op_avx512(xs: PtrLen<f32>, out: MutPtrLen<MaybeUninit<f32>>) {
-                use std::arch::x86_64::__m512;
-                vec_unary_op(
-                    xs,
-                    out,
-                    #[inline(always)]
-                    |x: __m512| $op_func(x),
-                    0., /* pad */
-                );
+    #[cfg(target_arch = "x86_64")]
+    {
+        #[cfg(feature = "avx512")]
+        if crate::is_avx512_supported() {
+            unsafe {
+                vec_unary_op_avx512(xs.into(), out.into(), op);
             }
-
-            // Non-generic wrapper for `vec_unary_op` which instantiates the
-            // AVX + FMA version.
-            #[cfg(target_arch = "x86_64")]
-            #[target_feature(enable = "avx2")]
-            #[target_feature(enable = "fma")]
-            unsafe fn vec_unary_op_avx(xs: PtrLen<f32>, out: MutPtrLen<MaybeUninit<f32>>) {
-                use std::arch::x86_64::__m256;
-                vec_unary_op(
-                    xs,
-                    out,
-                    #[inline(always)]
-                    |x: __m256| $op_func(x),
-                    0., /* pad */
-                );
-            }
-
-            #[cfg(target_arch = "x86_64")]
-            {
-                #[cfg(feature = "avx512")]
-                if crate::is_avx512_supported() {
-                    unsafe {
-                        vec_unary_op_avx512($in.into(), $out.into());
-                    }
-                    return;
-                }
-
-                if is_x86_feature_detected!("fma") && is_x86_feature_detected!("avx2") {
-                    // Safety: We've checked that AVX2 + FMA are available.
-                    unsafe {
-                        vec_unary_op_avx($in.into(), $out.into());
-                    }
-                    return;
-                }
-            }
-
-            #[cfg(target_arch = "wasm32")]
-            {
-                use crate::simd_vec::wasm::v128f;
-
-                // Safety: The WASM runtime will have verified SIMD instructions
-                // are accepted when loading the binary.
-                unsafe {
-                    vec_unary_op(
-                        $in.into(),
-                        $out.into(),
-                        |x: v128f| $op_func(x),
-                        0., /* pad */
-                    );
-                }
-                return;
-            }
-
-            #[cfg(target_arch = "aarch64")]
-            {
-                use std::arch::aarch64::float32x4_t;
-
-                unsafe {
-                    vec_unary_op(
-                        $in.into(),
-                        $out.into(),
-                        |x: float32x4_t| $op_func(x),
-                        0., /* pad */
-                    );
-                }
-                return;
-            }
-
-            // Generic fallback.
-            for (x, y) in $in.iter().zip($out.iter_mut()) {
-                y.write($fallback_func(*x));
-            }
+            return;
         }
-    };
 
-    ($out:ident, $op_func:ident, $fallback_func:ident) => {
-        #[allow(unused_imports)]
-        use crate::{vec_unary_op, MutPtrLen, PtrLen};
-
-        #[allow(unreachable_code)] // Ignore fallback, if unused
-        {
-            #[cfg(feature = "avx512")]
-            #[cfg(target_arch = "x86_64")]
-            #[target_feature(enable = "avx512f")]
-            #[target_feature(enable = "avx512vl")]
-            unsafe fn vec_unary_op_avx512(xs: PtrLen<f32>, out: MutPtrLen<f32>) {
-                use std::arch::x86_64::__m512;
-                vec_unary_op(
-                    xs,
-                    out.as_uninit(),
-                    #[inline(always)]
-                    |x: __m512| $op_func(x),
-                    0., /* pad */
-                );
+        if is_x86_feature_detected!("fma") && is_x86_feature_detected!("avx2") {
+            // Safety: We've checked that AVX2 + FMA are available.
+            unsafe {
+                vec_unary_op_avx(xs.into(), out.into(), op);
             }
-
-            // Non-generic wrapper for `vec_unary_op` which instantiates the
-            // AVX + FMA version.
-            #[cfg(target_arch = "x86_64")]
-            #[target_feature(enable = "avx2")]
-            #[target_feature(enable = "fma")]
-            unsafe fn vec_unary_op_avx(xs: PtrLen<f32>, out: MutPtrLen<f32>) {
-                use std::arch::x86_64::__m256;
-                vec_unary_op(
-                    xs,
-                    out.as_uninit(),
-                    #[inline(always)]
-                    |x: __m256| $op_func(x),
-                    0., /* pad */
-                );
-            }
-
-            #[cfg(target_arch = "x86_64")]
-            {
-                #[cfg(feature = "avx512")]
-                if crate::is_avx512_supported() {
-                    unsafe {
-                        vec_unary_op_avx512($out.into(), $out.into());
-                    }
-                    return;
-                }
-
-                if is_x86_feature_detected!("fma") && is_x86_feature_detected!("avx2") {
-                    // Safety: We've checked that AVX2 + FMA are available.
-                    unsafe {
-                        vec_unary_op_avx($out.into(), $out.into());
-                    }
-                    return;
-                }
-            }
-
-            #[cfg(target_arch = "wasm32")]
-            {
-                use crate::simd_vec::wasm::v128f;
-
-                // Safety: The WASM runtime will have verified SIMD instructions
-                // are accepted when loading the binary.
-                let out: MutPtrLen<f32> = $out.into();
-                unsafe {
-                    vec_unary_op(
-                        $out.into(),
-                        out.as_uninit(),
-                        |x: v128f| $op_func(x),
-                        0., /* pad */
-                    );
-                }
-                return;
-            }
-
-            #[cfg(target_arch = "aarch64")]
-            {
-                use std::arch::aarch64::float32x4_t;
-
-                let out: MutPtrLen<f32> = $out.into();
-                unsafe {
-                    vec_unary_op(
-                        $out.into(),
-                        out.as_uninit(),
-                        |x: float32x4_t| $op_func(x),
-                        0., /* pad */
-                    );
-                }
-                return;
-            }
-
-            // Generic fallback.
-            for x in $out.iter_mut() {
-                *x = $fallback_func(*x);
-            }
+            return;
         }
-    };
+    }
+
+    #[cfg(target_arch = "wasm32")]
+    {
+        use crate::simd_vec::wasm::v128f;
+
+        // Safety: The WASM runtime will have verified SIMD instructions
+        // are accepted when loading the binary.
+        unsafe {
+            vec_unary_op(
+                xs.into(),
+                out.into(),
+                #[inline(always)]
+                |x: v128f| op.eval(x),
+                0., /* pad */
+            );
+        }
+        return;
+    }
+
+    #[cfg(target_arch = "aarch64")]
+    {
+        use std::arch::aarch64::float32x4_t;
+
+        unsafe {
+            vec_unary_op(
+                xs.into(),
+                out.into(),
+                #[inline(always)]
+                |x: float32x4_t| op.eval(x),
+                0., /* pad */
+            );
+        }
+        return;
+    }
+
+    unsafe {
+        vec_unary_op(
+            xs.into(),
+            out.into(),
+            #[inline(always)]
+            |x: f32| op.eval(x),
+            0., /* pad */
+        );
+    }
 }
 
-pub(crate) use dispatch_unary_op;
+/// Apply a vectorized unary function in-place to elements of `xs`.
+#[allow(unused_imports)]
+#[allow(unreachable_code)] // Ignore fallback, if unused
+fn dispatch_unary_op_in_place<Op: SimdUnaryOp>(xs: &mut [f32], op: Op) {
+    let out: MutPtrLen<f32> = xs.into();
 
-/// Dispatch a SIMD function using the best available `SimdFloat` implementation
-/// on the current system.
-///
-/// `$func` should be a function with a generic argument `S: SimdFloat`. `$in`
-/// and `$out` are the function arguments.
-macro_rules! dispatch_simd {
-    ($func:ident, $in:expr, $out:expr) => {
-        #[allow(unused_imports)]
-        #[allow(unreachable_code)] // Ignore fallback, if unused
-        {
-            use crate::{MutPtrLen, PtrLen};
+    #[cfg(feature = "avx512")]
+    #[cfg(target_arch = "x86_64")]
+    #[target_feature(enable = "avx512f")]
+    #[target_feature(enable = "avx512vl")]
+    unsafe fn vec_unary_op_avx512<Op: SimdUnaryOp>(
+        xs: PtrLen<f32>,
+        out: MutPtrLen<MaybeUninit<f32>>,
+        op: Op,
+    ) {
+        use std::arch::x86_64::__m512;
+        vec_unary_op(
+            xs,
+            out,
+            #[inline(always)]
+            |x: __m512| op.eval(x),
+            0., /* pad */
+        );
+    }
 
-            #[cfg(feature = "avx512")]
-            #[cfg(target_arch = "x86_64")]
-            #[target_feature(enable = "avx512f")]
-            #[target_feature(enable = "avx512vl")]
-            unsafe fn simd_op_avx512(xs: PtrLen<f32>, out: MutPtrLen<MaybeUninit<f32>>) {
-                use std::arch::x86_64::__m512;
-                $func::<__m512>(xs, out);
+    #[cfg(target_arch = "x86_64")]
+    #[target_feature(enable = "avx2")]
+    #[target_feature(enable = "fma")]
+    unsafe fn vec_unary_op_avx<Op: SimdUnaryOp>(
+        xs: PtrLen<f32>,
+        out: MutPtrLen<MaybeUninit<f32>>,
+        op: Op,
+    ) {
+        use std::arch::x86_64::__m256;
+        vec_unary_op(
+            xs,
+            out,
+            #[inline(always)]
+            |x: __m256| op.eval(x),
+            0., /* pad */
+        );
+    }
+
+    #[cfg(target_arch = "x86_64")]
+    {
+        #[cfg(feature = "avx512")]
+        if crate::is_avx512_supported() {
+            unsafe {
+                vec_unary_op_avx512(xs.into(), out.as_uninit(), op);
             }
-
-            // Non-generic wrapper for `$func` which instantiates the AVX + FMA version.
-            #[cfg(target_arch = "x86_64")]
-            #[target_feature(enable = "avx2")]
-            #[target_feature(enable = "fma")]
-            unsafe fn simd_op_avx(xs: PtrLen<f32>, out: MutPtrLen<MaybeUninit<f32>>) {
-                use std::arch::x86_64::__m256;
-                $func::<__m256>(xs, out);
-            }
-
-            #[cfg(target_arch = "x86_64")]
-            {
-                #[cfg(feature = "avx512")]
-                if crate::is_avx512_supported() {
-                    unsafe { simd_op_avx512($in, $out) };
-                    return;
-                }
-
-                if is_x86_feature_detected!("fma") && is_x86_feature_detected!("avx2") {
-                    // Safety: We've checked that AVX2 + FMA are available.
-                    unsafe { simd_op_avx($in, $out) };
-                    return;
-                }
-            }
-
-            #[cfg(target_arch = "wasm32")]
-            {
-                use crate::simd_vec::wasm::v128f;
-
-                // Safety: The WASM runtime will have verified SIMD instructions
-                // are accepted when loading the binary.
-                unsafe { $func::<v128f>($in, $out) };
-                return;
-            }
-
-            #[cfg(target_arch = "aarch64")]
-            {
-                use std::arch::aarch64::float32x4_t;
-
-                unsafe { $func::<float32x4_t>($in, $out) };
-                return;
-            }
-
-            // Generic fallback.
-            unsafe { $func::<f32>($in, $out) };
+            return;
         }
-    };
+
+        if is_x86_feature_detected!("fma") && is_x86_feature_detected!("avx2") {
+            // Safety: We've checked that AVX2 + FMA are available.
+            unsafe {
+                vec_unary_op_avx(xs.into(), out.as_uninit(), op);
+            }
+            return;
+        }
+    }
+
+    #[cfg(target_arch = "wasm32")]
+    {
+        use crate::simd_vec::wasm::v128f;
+
+        // Safety: The WASM runtime will have verified SIMD instructions
+        // are accepted when loading the binary.
+        unsafe {
+            vec_unary_op(
+                xs.into(),
+                out.as_uninit(),
+                #[inline(always)]
+                |x: v128f| op.eval(x),
+                0., /* pad */
+            );
+        }
+        return;
+    }
+
+    #[cfg(target_arch = "aarch64")]
+    {
+        use std::arch::aarch64::float32x4_t;
+
+        unsafe {
+            vec_unary_op(
+                xs.into(),
+                out.as_uninit(),
+                #[inline(always)]
+                |x: float32x4_t| op.eval(x),
+                0., /* pad */
+            );
+        }
+        return;
+    }
+
+    unsafe {
+        vec_unary_op(
+            xs.into(),
+            out.as_uninit(),
+            #[inline(always)]
+            |x: f32| op.eval(x),
+            0., /* pad */
+        );
+    }
 }
 
-pub(crate) use dispatch_simd;
+/// Trait for evaluating a SIMD reduction or normalization operator.
+trait SimdOp {
+    /// Evaluate the operator on `input` and write the results to `out`.
+    unsafe fn eval<S: SimdFloat>(&self, input: PtrLen<f32>, out: MutPtrLen<MaybeUninit<f32>>);
+}
+
+/// Apply a vectorized normalization or reduction function to `input`, writing
+/// the results to`out`.
+///
+/// This function will dispatch to the best SIMD implementation for the current
+/// platform.
+#[allow(unused_imports)]
+#[allow(unreachable_code)] // Ignore fallback, if unused
+fn dispatch_simd_op<Op: SimdOp>(input: PtrLen<f32>, out: MutPtrLen<MaybeUninit<f32>>, op: Op) {
+    #[cfg(feature = "avx512")]
+    #[cfg(target_arch = "x86_64")]
+    #[target_feature(enable = "avx512f")]
+    #[target_feature(enable = "avx512vl")]
+    unsafe fn simd_op_avx512<Op: SimdOp>(
+        xs: PtrLen<f32>,
+        out: MutPtrLen<MaybeUninit<f32>>,
+        op: Op,
+    ) {
+        use std::arch::x86_64::__m512;
+        op.eval::<__m512>(xs, out);
+    }
+
+    #[cfg(target_arch = "x86_64")]
+    #[target_feature(enable = "avx2")]
+    #[target_feature(enable = "fma")]
+    unsafe fn simd_op_avx<Op: SimdOp>(xs: PtrLen<f32>, out: MutPtrLen<MaybeUninit<f32>>, op: Op) {
+        use std::arch::x86_64::__m256;
+        op.eval::<__m256>(xs, out);
+    }
+
+    #[cfg(target_arch = "x86_64")]
+    {
+        #[cfg(feature = "avx512")]
+        if crate::is_avx512_supported() {
+            unsafe { simd_op_avx512(input, out, op) };
+            return;
+        }
+
+        if is_x86_feature_detected!("fma") && is_x86_feature_detected!("avx2") {
+            // Safety: We've checked that AVX2 + FMA are available.
+            unsafe { simd_op_avx(input, out, op) };
+            return;
+        }
+    }
+
+    #[cfg(target_arch = "wasm32")]
+    {
+        use crate::simd_vec::wasm::v128f;
+
+        // Safety: The WASM runtime will have verified SIMD instructions
+        // are accepted when loading the binary.
+        unsafe { op.eval::<v128f>(input, out) };
+        return;
+    }
+
+    #[cfg(target_arch = "aarch64")]
+    {
+        use std::arch::aarch64::float32x4_t;
+
+        unsafe { op.eval::<float32x4_t>(input, out) };
+        return;
+    }
+
+    // Generic fallback.
+    unsafe { op.eval::<f32>(input, out) };
+}

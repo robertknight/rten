@@ -1,9 +1,9 @@
 use std::mem::MaybeUninit;
 
-use crate::dispatch_simd;
+use crate::dispatch_simd_op;
 use crate::exp::simd_exp;
 use crate::simd_vec::SimdFloat;
-use crate::{vec_fold, vec_unary_op, MutPtrLen, PtrLen};
+use crate::{vec_fold, vec_unary_op, MutPtrLen, PtrLen, SimdOp};
 
 /// Apply the softmax operation over elements in `xs` and write results to
 /// `out`.
@@ -48,13 +48,21 @@ unsafe fn simd_softmax<S: SimdFloat>(xs: PtrLen<f32>, out: MutPtrLen<MaybeUninit
     );
 }
 
+struct SimdSoftmax {}
+impl SimdOp for SimdSoftmax {
+    #[inline(always)]
+    unsafe fn eval<S: SimdFloat>(&self, xs: PtrLen<f32>, out: MutPtrLen<MaybeUninit<f32>>) {
+        simd_softmax::<S>(xs, out)
+    }
+}
+
 /// Computes the [softmax][softmax] function over a slice of floats.
 ///
 /// `out` will be fully initialized after this function returns.
 ///
 /// [softmax]: https://en.wikipedia.org/wiki/Softmax_function
 pub fn vec_softmax(xs: &[f32], out: &mut [MaybeUninit<f32>]) {
-    dispatch_simd!(simd_softmax, xs.into(), out.into());
+    dispatch_simd_op(xs.into(), out.into(), SimdSoftmax {});
 }
 
 /// Computes the [softmax][softmax] function over a slice of floats.
@@ -62,7 +70,7 @@ pub fn vec_softmax(xs: &[f32], out: &mut [MaybeUninit<f32>]) {
 /// [softmax]: https://en.wikipedia.org/wiki/Softmax_function
 pub fn vec_softmax_in_place(xs: &mut [f32]) {
     let out: MutPtrLen<f32> = xs.into();
-    dispatch_simd!(simd_softmax, xs.into(), out.as_uninit());
+    dispatch_simd_op(xs.into(), out.as_uninit(), SimdSoftmax {});
 }
 
 #[cfg(test)]

@@ -2,9 +2,9 @@
 
 use std::mem::MaybeUninit;
 
-use crate::dispatch_unary_op;
 use crate::exp::simd_exp;
 use crate::simd_vec::SimdFloat;
+use crate::{dispatch_unary_op, dispatch_unary_op_in_place, SimdUnaryOp};
 
 pub fn tanh(x: f32) -> f32 {
     unsafe { simd_tanh(x) }
@@ -62,6 +62,14 @@ unsafe fn simd_tanh<S: SimdFloat>(x: S) -> S {
     y.blend(y.neg(), x_negative)
 }
 
+struct SimdTanh {}
+impl SimdUnaryOp for SimdTanh {
+    #[inline(always)]
+    unsafe fn eval<S: SimdFloat>(&self, x: S) -> S {
+        simd_tanh(x)
+    }
+}
+
 /// Vectorized tanh implementation.
 ///
 /// This computes `x.tanh()` for each value in `xs` and writes the result to
@@ -69,11 +77,11 @@ unsafe fn simd_tanh<S: SimdFloat>(x: S) -> S {
 ///
 /// After this function returns, `out` will be fully initialized.
 pub fn vec_tanh(xs: &[f32], out: &mut [MaybeUninit<f32>]) {
-    dispatch_unary_op!(xs, out, simd_tanh, tanh);
+    dispatch_unary_op(xs, out, SimdTanh {});
 }
 
 pub fn vec_tanh_in_place(xs: &mut [f32]) {
-    dispatch_unary_op!(xs, simd_tanh, tanh);
+    dispatch_unary_op_in_place(xs, SimdTanh {});
 }
 
 #[cfg(test)]
