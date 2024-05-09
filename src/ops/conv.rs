@@ -43,32 +43,6 @@ fn min_max_out_x_coords(
     (min_out_x, max_out_x)
 }
 
-/// Initialize a tensor, typically with NCHW or CHW dimensions, with a vector
-/// of per-channel biases.
-///
-/// This is slightly more efficient than creating a zero-filled tensor and then
-/// adding the appropriate bias to each element.
-fn init_tensor_with_channel_bias(
-    pool: &TensorPool,
-    shape: &[usize],
-    chan_dim: usize,
-    bias: &NdTensorView<f32, 1>,
-) -> Tensor {
-    let mut out_data = pool.alloc(shape.iter().product());
-
-    let chan_elts: usize = shape[chan_dim + 1..].iter().product();
-    let all_chan_elts: usize = chan_elts * shape[chan_dim];
-    let repeats = shape[0..chan_dim].iter().product();
-
-    for n in 0..repeats {
-        for c in 0..shape[chan_dim] {
-            out_data.resize(n * all_chan_elts + (c + 1) * chan_elts, bias[[c]]);
-        }
-    }
-
-    Tensor::from_data(shape, out_data)
-}
-
 /// Specialization of conv_2d for pointwise convolutions over one image. This
 /// can be reduced to tensor reshaping and matrix multiplication.
 fn conv_2d_pointwise(
@@ -526,53 +500,56 @@ impl Operator for Conv {
 /// `output` has shape [O,H,W] where O is the number of output channels and H/W
 /// are the output height/width.
 ///
-/// `columns` is a view of a matrix (Hi x Wi, O x Kh x Kw) reshaped to
-/// [Hi,Wi,O,Kh,Kw], where Hi and Wi are the image size, and Kh/Kw are the patch
-/// sizes. This matrix is passed as a view to avoid needing to pass the
+/// `columns` is a view of a matrix (O x Kh x Kw, Hi * Wi) reshaped to
+/// [O,Kh,Kw,Hi,Wi], where Hi and Wi are the image size, and Kh/Kw are the patch
+/// sizes. This matrix is passed as a 5D view to avoid needing to pass the
 /// sub-dimensions separately.
 ///
-/// The unpacked columns are added to the existing output values to preserve
-/// any bias stored in the output.
+/// `bias` is a vector of per-channel biases.
+///
+/// Each channel of the output image is initialized with the corresponding bias
+/// or zero, and then the unpacked columns for that channel are accumulated into
+/// it.
 fn col2im(
-    output: &mut NdTensorViewMut<f32, 3>,
+    output: &mut NdTensorViewMut<MaybeUninit<f32>, 3>,
     columns: &NdTensorView<f32, 5>,
     padding: [usize; 4],
     strides: [usize; 2],
+    bias: Option<NdTensorView<f32, 1>>,
 ) {
     let [stride_h, stride_w] = strides;
     let [pad_top, pad_left, _pad_bottom, _pad_right] = padding;
+    let [col_chans, kernel_h, kernel_w, _img_h, _img_w] = columns.shape();
+    let [out_chans, out_h, out_w] = output.shape();
+    assert!(col_chans == out_chans);
 
-    // If we assume `columns` is likely already contiguous, we can avoid offset
-    // calculations and just iterate over the underlying data.
-    let columns = columns.to_contiguous();
-    let [img_h, img_w, out_chans, kernel_h, kernel_w] = columns.shape();
-    let mut col_data_iter = columns.data().unwrap().iter();
-    let [_, out_h, out_w] = output.shape();
+    for out_c in 0..out_chans {
+        // Initialize each output channel just before we accumulate into it.
+        let mut out_img = output.slice_mut([out_c]);
+        out_img.fill(MaybeUninit::new(bias.map(|b| b[[out_c]]).unwrap_or(0.)));
 
-    let mut out_view = output.weakly_checked_view_mut();
+        // Safety: We just initialized all elements of `out_img`.
+        let mut out_img = unsafe { out_img.assume_init() };
 
-    // Loop order must match dim order of `columns`.
-    for y in 0..img_h {
-        for x in 0..img_w {
-            for out_c in 0..out_chans {
-                for k_y in 0..kernel_h {
+        for k_y in 0..kernel_h {
+            for k_x in 0..kernel_w {
+                let in_img = columns.slice([out_c, k_y, k_x]);
+                let [img_h, img_w] = in_img.shape();
+
+                for y in 0..img_h {
                     let out_y = y * stride_h + k_y;
-                    for k_x in 0..kernel_w {
-                        let out_x = x * stride_w + k_x;
-                        let out_el = col_data_iter.next().unwrap();
+                    if out_y < pad_top || out_y >= out_h + pad_top {
+                        continue;
+                    }
 
-                        if pad_top == 0 && pad_left == 0 {
-                            out_view[[out_c, out_y, out_x]] += out_el;
-                        } else {
-                            // The padded case is currently much slower due to
-                            // unpredictable branches.
-                            if out_y >= pad_top
-                                && out_y < out_h + pad_top
-                                && out_x >= pad_left
-                                && out_x < out_w + pad_left
-                            {
-                                out_view[[out_c, out_y - pad_top, out_x - pad_left]] += out_el;
-                            }
+                    for x in 0..img_w {
+                        let out_x = x * stride_w + k_x;
+                        if out_x < pad_left || out_x >= out_w + pad_left {
+                            continue;
+                        }
+                        unsafe {
+                            *out_img.get_unchecked_mut([out_y - pad_top, out_x - pad_left]) +=
+                                in_img.get_unchecked([y, x]);
                         }
                     }
                 }
@@ -712,48 +689,47 @@ pub fn conv_transpose(
     let [out_h, out_w] = out_shape;
     let [pad_top, pad_left, pad_bottom, pad_right] = fixed_padding;
 
-    let mut output = if let Some(bias) = bias {
-        init_tensor_with_channel_bias(pool, &[batch, out_c, out_h, out_w], 1, &bias)
-    } else {
-        Tensor::zeros_in(pool, [batch, out_c, out_h, out_w].as_slice())
-    };
+    let mut output = Tensor::uninit_in(pool, [batch, out_c, out_h, out_w].as_slice());
 
     // Ensure input and kernel are contiguous to support reshaping.
     let input = input.to_contiguous();
     let kernel = kernel.to_contiguous();
 
     let mut col2im_mat =
-        NdTensor::uninit_in(pool, [in_h * in_w, out_c * k_h * k_w]).auto_return(pool);
-    let kernel_mat = kernel.reshaped([k_in_c, out_c * k_h * k_w]);
+        NdTensor::uninit_in(pool, [out_c * k_h * k_w, in_h * in_w]).auto_return(pool);
+    let kernel_mat = kernel.reshaped([k_in_c, out_c * k_h * k_w]).transposed();
     let gemm = GemmExecutor::new();
 
     // The implementation here is the inverse of the im2col-based convolution.
+    let mut n_init = 0;
     for n in 0..batch {
-        let input_mat = input
-            .slice::<3, _>([n])
-            .reshaped([in_c, in_h * in_w])
-            .transposed();
+        let input_mat = input.slice::<3, _>([n]).reshaped([in_c, in_h * in_w]);
 
         let col2im_row_stride = col2im_mat.stride(0);
         gemm.gemm_uninit(
             col2im_mat.data_mut().unwrap(),
             col2im_row_stride,
-            GemmInputA::Unpacked(input_mat),
-            GemmInputB::Unpacked(kernel_mat),
+            GemmInputA::Unpacked(kernel_mat),
+            GemmInputB::Unpacked(input_mat),
             1., /* alpha */
         );
 
         // Safety: `gemm_uninit` initialized col2im_mat.
         let col2im_mat = unsafe { col2im_mat.view().assume_init() };
+        let mut out_img = output.slice_mut(n);
 
         col2im(
-            &mut output.nd_view_mut::<4>().slice_mut([n]),
-            &col2im_mat.reshaped([in_h, in_w, out_c, k_h, k_w]),
+            &mut out_img,
+            &col2im_mat.reshaped([out_c, k_h, k_w, in_h, in_w]),
             [pad_top, pad_left, pad_right, pad_bottom],
             [stride_h, stride_w],
+            bias,
         );
+        n_init += out_img.len();
     }
 
+    assert!(n_init == output.len());
+    let output = unsafe { output.assume_init() };
     Ok(output)
 }
 
@@ -1663,7 +1639,7 @@ mod tests {
         let out_width = (in_width - 1) * stride_x + (kernel_width - 1) + 1;
 
         let mut rng = XorShiftRng::new(1234);
-        let mut output = NdTensor::zeros([out_chans, out_height, out_width]);
+        let mut output = NdTensor::uninit([out_chans, out_height, out_width]);
         let columns = NdTensor::rand(
             [in_height, in_width, out_chans, kernel_height, kernel_width],
             &mut rng,
@@ -1676,6 +1652,7 @@ mod tests {
                 &columns.view(),
                 [0, 0, 0, 0], // Padding
                 [stride_y, stride_x],
+                None,
             );
         });
 
@@ -1686,6 +1663,7 @@ mod tests {
                 &columns.view(),
                 [1, 1, 1, 1], // Padding
                 [stride_y, stride_x],
+                None,
             );
         });
     }
