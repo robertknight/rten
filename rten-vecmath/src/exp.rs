@@ -4,8 +4,8 @@
 
 use std::mem::MaybeUninit;
 
-use crate::dispatch_unary_op;
 use crate::simd_vec::{SimdFloat, SimdInt};
+use crate::{dispatch_unary_op, dispatch_unary_op_in_place, SimdUnaryOp};
 
 const INV_LOG2: f32 = std::f32::consts::LOG2_E; // aka. 1 / ln2
 const ROUNDING_MAGIC: f32 = 12582912.; // 0x3 << 22
@@ -158,6 +158,14 @@ pub fn sigmoid(x: f32) -> f32 {
     unsafe { simd_sigmoid(x) }
 }
 
+struct SimdSigmoid {}
+impl SimdUnaryOp for SimdSigmoid {
+    #[inline(always)]
+    unsafe fn eval<S: SimdFloat>(&self, x: S) -> S {
+        simd_sigmoid(x)
+    }
+}
+
 /// Vectorized sigmoid function.
 ///
 /// This is a vectorized version of [sigmoid] that computes the function for
@@ -166,12 +174,20 @@ pub fn sigmoid(x: f32) -> f32 {
 ///
 /// `out` will be fully initialized after this function returns.
 pub fn vec_sigmoid(xs: &[f32], out: &mut [MaybeUninit<f32>]) {
-    dispatch_unary_op!(xs, out, simd_sigmoid, sigmoid);
+    dispatch_unary_op(xs, out, SimdSigmoid {});
 }
 
 /// Variant of [vec_sigmoid] that modifies elements in-place.
 pub fn vec_sigmoid_in_place(xs: &mut [f32]) {
-    dispatch_unary_op!(xs, simd_sigmoid, sigmoid);
+    dispatch_unary_op_in_place(xs, SimdSigmoid {});
+}
+
+struct SimdExp {}
+impl SimdUnaryOp for SimdExp {
+    #[inline(always)]
+    unsafe fn eval<S: SimdFloat>(&self, x: S) -> S {
+        simd_exp(x)
+    }
 }
 
 /// Vectorized exponential function.
@@ -182,12 +198,12 @@ pub fn vec_sigmoid_in_place(xs: &mut [f32]) {
 ///
 /// `out` will be fully initialized after this function returns.
 pub fn vec_exp(xs: &[f32], out: &mut [MaybeUninit<f32>]) {
-    dispatch_unary_op!(xs, out, simd_exp, exp);
+    dispatch_unary_op(xs, out, SimdExp {});
 }
 
 /// Variant of [vec_exp] that modifies elements in-place.
 pub fn vec_exp_in_place(xs: &mut [f32]) {
-    dispatch_unary_op!(xs, simd_exp, exp);
+    dispatch_unary_op_in_place(xs, SimdExp {});
 }
 
 #[cfg(test)]
