@@ -66,4 +66,5 @@ on the [SQuAD](https://paperswithcode.com/dataset/squad) dataset
 
 ### Audio
 
+- **piper** - Text-to-speech using [Piper](https://github.com/rhasspy/piper) models
 - **wav2vec2** - Speech recognition of .wav audio using [wav2vec2](https://arxiv.org/abs/2006.11477)
