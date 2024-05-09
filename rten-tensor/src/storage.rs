@@ -63,10 +63,14 @@ pub trait Storage {
     ///
     /// Panics if the range is out of bounds.
     fn slice(&self, range: Range<usize>) -> ViewData<Self::Elem> {
-        assert!(range.end <= self.len());
+        assert!(
+            range.start <= self.len() && range.end <= self.len(),
+            "invalid slice range {:?} for storage length {}",
+            range,
+            self.len()
+        );
         ViewData {
-            // Safety: `range.start < range.end` and `range.end <= self.len())`,
-            // so this is in-bounds.
+            // Safety: We verified that `range` is in bounds.
             ptr: unsafe { self.as_ptr().add(range.start) },
             len: range.len(),
             _marker: PhantomData,
@@ -173,9 +177,14 @@ pub trait StorageMut: Storage {
 
     /// Return a slice of this storage.
     fn slice_mut(&mut self, range: Range<usize>) -> ViewMutData<Self::Elem> {
-        assert!(range.end <= self.len());
+        assert!(
+            range.start <= self.len() && range.end <= self.len(),
+            "invalid slice range {:?} for storage length {}",
+            range,
+            self.len()
+        );
         ViewMutData {
-            // Safety: `range.start <= self.len()`
+            // Safety: We verified that `range` is in bounds.
             ptr: unsafe { self.as_mut_ptr().add(range.start) },
             len: range.len(),
             _marker: PhantomData,
@@ -397,7 +406,7 @@ where
 mod tests {
     use std::borrow::Cow;
 
-    use super::{IntoStorage, Storage, ViewData, ViewMutData};
+    use super::{IntoStorage, Storage, StorageMut, ViewData, ViewMutData};
 
     fn test_storage_impl<S: Storage<Elem = i32>>(s: S, expected: &[i32]) {
         // Test `len`, `get`.
@@ -434,5 +443,33 @@ mod tests {
 
         let mut_view: ViewMutData<i32> = data.as_mut_slice().into_storage();
         test_storage_impl(mut_view, &[1, 2, 3, 4]);
+    }
+
+    #[test]
+    #[should_panic(expected = "invalid slice range 5..2 for storage length 4")]
+    fn test_storage_slice_invalid_start() {
+        let data = vec![1, 2, 3, 4];
+        Storage::slice(&data, 5..2);
+    }
+
+    #[test]
+    #[should_panic(expected = "invalid slice range 2..5 for storage length 4")]
+    fn test_storage_slice_invalid_end() {
+        let data = vec![1, 2, 3, 4];
+        Storage::slice(&data, 2..5);
+    }
+
+    #[test]
+    #[should_panic(expected = "invalid slice range 5..2 for storage length 4")]
+    fn test_storage_slice_mut_invalid_start() {
+        let mut data = vec![1, 2, 3, 4];
+        StorageMut::slice_mut(&mut data, 5..2);
+    }
+
+    #[test]
+    #[should_panic(expected = "invalid slice range 2..5 for storage length 4")]
+    fn test_storage_slice_mut_invalid_end() {
+        let mut data = vec![1, 2, 3, 4];
+        StorageMut::slice_mut(&mut data, 2..5);
     }
 }
