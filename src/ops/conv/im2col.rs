@@ -1,3 +1,4 @@
+use std::mem::MaybeUninit;
 use std::ops::Range;
 
 use rten_tensor::prelude::*;
@@ -172,7 +173,7 @@ impl<'a> VirtualIm2Col<'a> {
     #[inline(always)]
     unsafe fn pack_b_impl<S: SimdFloat, const NR_REGS: usize>(
         &self,
-        out: &mut [f32],
+        out: &mut [MaybeUninit<f32>],
         panel_width: usize,
         rows: Range<usize>,
         cols: Range<usize>,
@@ -180,7 +181,8 @@ impl<'a> VirtualIm2Col<'a> {
         assert_eq!(panel_width, S::LEN * NR_REGS);
 
         let col_range = cols.start..round_up(cols.end, panel_width);
-        assert!(out.len() >= rows.len() * col_range.len());
+        let used_size = rows.len() * col_range.len();
+        assert_eq!(out.len(), used_size);
 
         let col_y_offsets = &self.col_offsets.y[col_range.clone()];
         let col_x_offsets = &self.col_offsets.x[col_range.clone()];
@@ -230,11 +232,15 @@ impl<'a> VirtualIm2Col<'a> {
 
                     let elts = S::gather_mask(img_ptr, offsets, pad_mask);
 
-                    elts.store(out_ptr.add(out_offset));
+                    let out_ptr: *mut f32 = std::mem::transmute(out_ptr.add(out_offset));
+                    elts.store(out_ptr);
                     out_offset += S::LEN;
                 }
             }
         }
+
+        // Check we initialized as many elements as used.
+        assert_eq!(out_offset, used_size);
     }
 
     #[cfg(target_arch = "x86_64")]
@@ -242,7 +248,7 @@ impl<'a> VirtualIm2Col<'a> {
     #[target_feature(enable = "fma")]
     unsafe fn pack_b_impl_avx(
         &self,
-        out: &mut [f32],
+        out: &mut [MaybeUninit<f32>],
         panel_width: usize,
         rows: Range<usize>,
         cols: Range<usize>,
@@ -257,7 +263,7 @@ impl<'a> VirtualIm2Col<'a> {
     #[target_feature(enable = "avx512vl")]
     unsafe fn pack_b_impl_avx512(
         &self,
-        out: &mut [f32],
+        out: &mut [MaybeUninit<f32>],
         panel_width: usize,
         rows: Range<usize>,
         cols: Range<usize>,
@@ -267,7 +273,8 @@ impl<'a> VirtualIm2Col<'a> {
     }
 }
 
-impl<'a> VirtualMatrix for VirtualIm2Col<'a> {
+// Safety: `pack_b` initializes the entire buffer passed to it.
+unsafe impl<'a> VirtualMatrix for VirtualIm2Col<'a> {
     fn rows(&self) -> usize {
         self.row_offsets.chan.len()
     }
@@ -276,7 +283,13 @@ impl<'a> VirtualMatrix for VirtualIm2Col<'a> {
         self.n_cols
     }
 
-    fn pack_b(&self, out: &mut [f32], panel_width: usize, rows: Range<usize>, cols: Range<usize>) {
+    fn pack_b(
+        &self,
+        out: &mut [MaybeUninit<f32>],
+        panel_width: usize,
+        rows: Range<usize>,
+        cols: Range<usize>,
+    ) {
         match (self.gemm_kernel, panel_width) {
             #[cfg(feature = "avx512")]
             #[cfg(target_arch = "x86_64")]
