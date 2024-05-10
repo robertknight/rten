@@ -187,7 +187,12 @@ impl<'a> GemmInputA<'a> {
 ///
 /// This is useful for operations such as im2col-based convolution, which
 /// involve creating potentially large temporary matrices.
-pub trait VirtualMatrix: Sync {
+///
+/// # Safety
+///
+/// Implementations of [`pack_b`](VirtualMatrix::pack_b) must initialize the
+/// entire buffer passed to them.
+pub unsafe trait VirtualMatrix: Sync {
     /// Return the number of rows in the virtual matrix.
     fn rows(&self) -> usize;
 
@@ -208,7 +213,13 @@ pub trait VirtualMatrix: Sync {
     ///    panel, elements should be written out in row-major order.
     ///  - `cols.len()` may not be an even multiple of `panel_width`. In that
     ///    case the final panel should be zero-padded.
-    fn pack_b(&self, out: &mut [f32], panel_width: usize, rows: Range<usize>, cols: Range<usize>);
+    fn pack_b(
+        &self,
+        out: &mut [MaybeUninit<f32>],
+        panel_width: usize,
+        rows: Range<usize>,
+        cols: Range<usize>,
+    );
 }
 
 /// Right-hand or "B" input for a GEMM operation.
@@ -387,7 +398,8 @@ impl GemmExecutor {
     /// allocator.
     pub fn prepack_a_in<A: Alloc>(&self, alloc: A, a: Matrix) -> PackedAMatrix<'static> {
         let kc = depth_block_size(a.cols());
-        let mc = row_block_size(a.rows(), self.kernel.mr());
+        let mr = self.kernel.mr();
+        let mc = row_block_size(a.rows(), mr);
         let panel_len = kc * mc;
         let row_blocks = div_ceil(a.rows(), mc);
         let depth_blocks = div_ceil(a.cols(), kc);
@@ -402,8 +414,13 @@ impl GemmExecutor {
         for depth_range in range_chunks(0..a.cols(), kc) {
             for row_range in range_chunks(0..a.rows(), mc) {
                 let out_panel = out_panels.next().unwrap();
+                let used_size = round_up(row_range.len(), mr) * depth_range.len();
+                let (used, unused) = out_panel.split_at_mut(used_size);
+
                 self.kernel
-                    .pack_a_block(out_panel, a, row_range, depth_range.clone());
+                    .pack_a_block(used, a, row_range, depth_range.clone());
+
+                unused.fill(MaybeUninit::new(0.));
                 n_init += out_panel.len();
             }
         }
@@ -438,7 +455,8 @@ impl GemmExecutor {
     /// Variant of [`prepack_b`](GemmExecutor::prepack_b) which takes an
     /// allocator.
     pub fn prepack_b_in<A: Alloc>(&self, alloc: A, b: Matrix) -> PackedBMatrix {
-        let nc = col_block_size(b.cols(), self.kernel.nr());
+        let nr = self.kernel.nr();
+        let nc = col_block_size(b.cols(), nr);
         let kc = depth_block_size(b.rows());
         let panel_len = nc * kc;
         let depth_blocks = div_ceil(b.rows(), kc);
@@ -454,8 +472,13 @@ impl GemmExecutor {
         for col_range in range_chunks(0..b.cols(), nc) {
             for depth_range in range_chunks(0..b.rows(), kc) {
                 let out_panel = out_panels.next().unwrap();
+                let used_size = round_up(col_range.len(), nr) * depth_range.len();
+                let (used, unused) = out_panel.split_at_mut(used_size);
+
                 self.kernel
-                    .pack_b_block(out_panel, b, depth_range, col_range.clone());
+                    .pack_b_block(used, b, depth_range, col_range.clone());
+
+                unused.fill(MaybeUninit::new(0.));
                 n_init += out_panel.len();
             }
         }
@@ -829,9 +852,6 @@ fn gemm_impl(
     let mc = row_block_size(a.rows(), kernel.mr());
     let kc = depth_block_size(a.cols());
 
-    let packed_b_size = kc * nc;
-    let packed_a_size = mc * kc;
-
     // Buffers for packed blocks of the matrix.
     //
     // These currently have no alignment specified. The paper mentioned above
@@ -863,20 +883,32 @@ fn gemm_impl(
                 // the GEMM block is computed.
                 let mut thread_local_packed_b: Option<Vec<f32>> = None;
                 let panel_length = depth_range.len();
+                let packed_b_size = round_up(col_end - col_start, nr) * panel_length;
 
                 let packed_b = match b {
-                    GemmInputB::Unpacked(b) => PACKED_B.with(|cell| {
+                    GemmInputB::Unpacked(_) | GemmInputB::Virtual(_) => PACKED_B.with(|cell| {
                         let mut packed_b = cell.take();
                         packed_b.clear();
                         packed_b.reserve(packed_b_size);
-                        kernel.pack_b_block(
-                            &mut packed_b.spare_capacity_mut()[..packed_b_size],
-                            b,
-                            depth_range.clone(),
-                            col_start..col_end,
-                        );
-                        // Safety: pack_b_block initialized `packed_b_size`
-                        // elements.
+                        let packed_b_slice = &mut packed_b.spare_capacity_mut()[..packed_b_size];
+
+                        match b {
+                            GemmInputB::Unpacked(b) => kernel.pack_b_block(
+                                packed_b_slice,
+                                b,
+                                depth_range.clone(),
+                                col_start..col_end,
+                            ),
+                            GemmInputB::Virtual(vm) => vm.pack_b(
+                                packed_b_slice,
+                                kernel.nr(),
+                                depth_range.clone(),
+                                col_start..col_end,
+                            ),
+                            GemmInputB::Packed(_) => unreachable!(),
+                        }
+
+                        // Safety: The packing call initialized `packed_b_size` elements.
                         unsafe {
                             packed_b.set_len(packed_b_size);
                         }
@@ -884,18 +916,6 @@ fn gemm_impl(
                         thread_local_packed_b.as_deref().unwrap()
                     }),
                     GemmInputB::Packed(pm) => pm.block(col_idx, depth_idx),
-                    GemmInputB::Virtual(vm) => PACKED_B.with(|cell| {
-                        let mut packed_b = cell.take();
-                        packed_b.resize(packed_b_size, 0.);
-                        vm.pack_b(
-                            &mut packed_b,
-                            kernel.nr(),
-                            depth_range.clone(),
-                            col_start..col_end,
-                        );
-                        thread_local_packed_b = Some(packed_b);
-                        thread_local_packed_b.as_deref().unwrap()
-                    }),
                 };
 
                 // Only use provided `beta` on the first write to this output
@@ -908,6 +928,7 @@ fn gemm_impl(
                     .for_each(|row_idx| {
                         let row_start = row_idx * mc;
                         let row_end = (row_start + mc).min(a.rows());
+                        let packed_a_size = round_up(row_end - row_start, mr) * depth_range.len();
 
                         // Borrowed packing buffer for current thread. Returned after
                         // the GEMM block is computed.
@@ -1085,6 +1106,7 @@ fn gemm_block(
 #[cfg(test)]
 mod tests {
     use std::error::Error;
+    use std::mem::MaybeUninit;
     use std::ops::Range;
 
     use rten_bench::run_bench;
@@ -1570,7 +1592,8 @@ mod tests {
             tensor: Matrix<'a, f32>,
         }
 
-        impl<'a> VirtualMatrix for Packer<'a> {
+        // Safety: `pack_b` initializes the entire buffer.
+        unsafe impl<'a> VirtualMatrix for Packer<'a> {
             fn rows(&self) -> usize {
                 self.tensor.rows()
             }
@@ -1581,7 +1604,7 @@ mod tests {
 
             fn pack_b(
                 &self,
-                out: &mut [f32],
+                out: &mut [MaybeUninit<f32>],
                 panel_width: usize,
                 rows: Range<usize>,
                 cols: Range<usize>,
@@ -1593,11 +1616,12 @@ mod tests {
                     for row in rows.clone() {
                         for panel_col in 0..panel_width {
                             let col = panel_start_col + panel_col;
-                            *out_iter.next().unwrap() = self
-                                .tensor
-                                .get([row, cols.start + col])
-                                .copied()
-                                .unwrap_or(0.);
+                            out_iter.next().unwrap().write(
+                                self.tensor
+                                    .get([row, cols.start + col])
+                                    .copied()
+                                    .unwrap_or(0.),
+                            );
                         }
                     }
                 }

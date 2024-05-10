@@ -12,6 +12,8 @@ use super::round_up;
 /// column-major order. If `rows.len()` is not a multiple of `MR`, the
 /// final panel is zero-padded.
 ///
+/// Panics if the output buffer is not exactly the correct size.
+///
 /// # Safety
 ///
 /// When this function returns, all elements of `out` will have been initialized
@@ -25,6 +27,9 @@ pub fn pack_a_block<const MR: usize>(
 ) {
     let a_rows = rows.len();
     let a_cols = cols.len();
+    let n_panels = round_up(a_rows, MR) / MR;
+    let used_size = n_panels * MR * a_cols;
+    assert_eq!(out.len(), used_size);
 
     // Safety: Loops below must only access valid offsets in `a_data`.
     let a_data = a.storage();
@@ -32,7 +37,6 @@ pub fn pack_a_block<const MR: usize>(
     let row_stride = a.row_stride();
     let col_stride = a.col_stride();
 
-    let n_panels = round_up(a_rows, MR) / MR;
     for panel in 0..n_panels {
         let panel_offset = panel * a_cols * MR;
         let panel_start_row = panel * MR;
@@ -85,12 +89,6 @@ pub fn pack_a_block<const MR: usize>(
             }
         }
     }
-
-    // Initialize any spare capacity in the buffer.
-    let n_init = n_panels * a_cols * MR;
-    for x in &mut out[n_init..] {
-        x.write(0.);
-    }
 }
 
 /// Pack a block of the "B" matrix for use by a GEMM kernel.
@@ -99,6 +97,8 @@ pub fn pack_a_block<const MR: usize>(
 /// NR)` column panels. Each column panel has size `rows.len() *
 /// NR` and uses row-major order. If `cols.len()` is not a multiple of
 /// `NR`, the final panel is zero-padded.
+///
+/// Panics if the output buffer is not exactly the correct size.
 ///
 /// # Safety
 ///
@@ -115,11 +115,14 @@ pub fn pack_b_block<const NR: usize>(
     let b_rows = rows.len();
     let b_row_stride = b.row_stride();
     let b_col_stride = b.col_stride();
+    let n_panels = round_up(b_cols, NR) / NR;
+
+    let used_size = n_panels * b_rows * NR;
+    assert_eq!(out.len(), used_size);
 
     // Safety: Loops below must only access valid offsets in `b_data`.
     let b_data = b.storage();
 
-    let n_panels = round_up(b_cols, NR) / NR;
     for panel in 0..n_panels {
         let panel_offset = panel * b_rows * NR;
         let panel_start_col = panel * NR;
@@ -181,11 +184,5 @@ pub fn pack_b_block<const NR: usize>(
                 }
             }
         }
-    }
-
-    // Initialize any spare capacity in the buffer.
-    let n_init = n_panels * b_rows * NR;
-    for x in &mut out[n_init..] {
-        x.write(0.);
     }
 }

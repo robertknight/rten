@@ -1,3 +1,4 @@
+use std::mem::MaybeUninit;
 use std::ops::Range;
 
 use rten_tensor::prelude::*;
@@ -12,13 +13,13 @@ use crate::ops::pooling::calc_output_size_and_padding;
 use crate::ops::Padding;
 
 struct RowOffsets {
-    /// Map of channel index to `channel * channel_stride`.
+    /// Map of row index to `channel * channel_stride`.
     chan: Vec<i32>,
 
     /// Map of row index to `row * row_stride`.
     y: Vec<i32>,
 
-    /// Map of col index to `col * col_stride`.
+    /// Map of row index to `col * col_stride`.
     x: Vec<i32>,
 }
 
@@ -102,38 +103,53 @@ impl<'a> VirtualIm2Col<'a> {
         // Build lookup table of row index in the virtual im2col matrix to
         // offsets in the image.
         let n_rows = chans * k_h * k_w;
-        let row_offsets = (0..n_rows).map(|row| {
-            let in_chan = row as i32 / (k_h * k_w) as i32;
-            let kernel_element = row as i32 % (k_h * k_w) as i32;
-            let k_y = kernel_element / k_w as i32;
-            let k_x = kernel_element % k_w as i32;
-
+        let mut row_chan_offsets = Vec::<i32>::with_capacity(n_rows);
+        let mut row_y_offsets = Vec::<i32>::with_capacity(n_rows);
+        let mut row_x_offsets = Vec::<i32>::with_capacity(n_rows);
+        for chan in 0..chans {
             // Offset to image channel
-            (
-                in_chan * im_stride_c,
+            row_chan_offsets.extend(std::iter::repeat(chan as i32 * im_stride_c).take(k_h * k_w));
+
+            for k_y in 0..k_h {
                 // Offset from top-left corner of patch
-                (
-                    im_stride_h * k_y * dilation_y as i32,
-                    im_stride_w * k_x * dilation_x as i32,
-                ),
-            )
-        });
-        let (row_chan_offsets, row_yx_offsets): (Vec<i32>, Vec<(i32, i32)>) = row_offsets.unzip();
-        let (row_y_offsets, row_x_offsets) = row_yx_offsets.into_iter().unzip();
+                row_y_offsets.extend(
+                    std::iter::repeat(im_stride_h * k_y as i32 * dilation_y as i32).take(k_w),
+                );
+                row_x_offsets.extend(
+                    (0..k_w as i32)
+                        .map(|k_x| im_stride_w * k_x * dilation_x as i32)
+                        .take(k_w),
+                );
+            }
+        }
 
         // Build lookup table of column index in the virtual im2col matrix to
         // offsets in the image.
         let n_cols = x_patches * y_patches;
         let n_cols_padded = round_up(n_cols, panel_width);
 
-        let col_offsets = (0..n_cols_padded).map(|col| {
+        // Main loop for the used columns.
+        let mut col_y_offsets = Vec::with_capacity(n_cols_padded);
+        let mut col_x_offsets = Vec::with_capacity(n_cols_padded);
+        for patch_y in 0..y_patches {
+            let img_y = (patch_y as i32 * stride_h as i32) - pad_top as i32;
+            col_y_offsets.extend(std::iter::repeat(img_y * im_stride_h).take(x_patches));
+            col_x_offsets.extend((0..x_patches).map(|patch_x| {
+                let img_x = (patch_x as i32 * stride_w as i32) - pad_left as i32;
+                img_x * im_stride_w
+            }));
+        }
+
+        // Remainder loop for columns added to pad count to a multiple of
+        // `panel_width`. This is slower as it uses divisions.
+        for col in n_cols..n_cols_padded {
             let patch_y = col as i32 / x_patches as i32;
             let patch_x = col as i32 % x_patches as i32;
             let img_x = (patch_x * stride_w as i32) - pad_left as i32;
             let img_y = (patch_y * stride_h as i32) - pad_top as i32;
-            (img_y * im_stride_h, img_x * im_stride_w)
-        });
-        let (col_y_offsets, col_x_offsets): (Vec<i32>, Vec<i32>) = col_offsets.unzip();
+            col_y_offsets.push(img_y * im_stride_h);
+            col_x_offsets.push(img_x * im_stride_w);
+        }
 
         // Compute max valid X / Y offsets for testing whether an element is in
         // the padding region or not.
@@ -172,7 +188,7 @@ impl<'a> VirtualIm2Col<'a> {
     #[inline(always)]
     unsafe fn pack_b_impl<S: SimdFloat, const NR_REGS: usize>(
         &self,
-        out: &mut [f32],
+        out: &mut [MaybeUninit<f32>],
         panel_width: usize,
         rows: Range<usize>,
         cols: Range<usize>,
@@ -180,7 +196,8 @@ impl<'a> VirtualIm2Col<'a> {
         assert_eq!(panel_width, S::LEN * NR_REGS);
 
         let col_range = cols.start..round_up(cols.end, panel_width);
-        assert!(out.len() >= rows.len() * col_range.len());
+        let used_size = rows.len() * col_range.len();
+        assert_eq!(out.len(), used_size);
 
         let col_y_offsets = &self.col_offsets.y[col_range.clone()];
         let col_x_offsets = &self.col_offsets.x[col_range.clone()];
@@ -230,11 +247,15 @@ impl<'a> VirtualIm2Col<'a> {
 
                     let elts = S::gather_mask(img_ptr, offsets, pad_mask);
 
-                    elts.store(out_ptr.add(out_offset));
+                    let out_ptr: *mut f32 = std::mem::transmute(out_ptr.add(out_offset));
+                    elts.store(out_ptr);
                     out_offset += S::LEN;
                 }
             }
         }
+
+        // Check we initialized as many elements as used.
+        assert_eq!(out_offset, used_size);
     }
 
     #[cfg(target_arch = "x86_64")]
@@ -242,7 +263,7 @@ impl<'a> VirtualIm2Col<'a> {
     #[target_feature(enable = "fma")]
     unsafe fn pack_b_impl_avx(
         &self,
-        out: &mut [f32],
+        out: &mut [MaybeUninit<f32>],
         panel_width: usize,
         rows: Range<usize>,
         cols: Range<usize>,
@@ -257,7 +278,7 @@ impl<'a> VirtualIm2Col<'a> {
     #[target_feature(enable = "avx512vl")]
     unsafe fn pack_b_impl_avx512(
         &self,
-        out: &mut [f32],
+        out: &mut [MaybeUninit<f32>],
         panel_width: usize,
         rows: Range<usize>,
         cols: Range<usize>,
@@ -267,7 +288,8 @@ impl<'a> VirtualIm2Col<'a> {
     }
 }
 
-impl<'a> VirtualMatrix for VirtualIm2Col<'a> {
+// Safety: `pack_b` initializes the entire buffer passed to it.
+unsafe impl<'a> VirtualMatrix for VirtualIm2Col<'a> {
     fn rows(&self) -> usize {
         self.row_offsets.chan.len()
     }
@@ -276,7 +298,13 @@ impl<'a> VirtualMatrix for VirtualIm2Col<'a> {
         self.n_cols
     }
 
-    fn pack_b(&self, out: &mut [f32], panel_width: usize, rows: Range<usize>, cols: Range<usize>) {
+    fn pack_b(
+        &self,
+        out: &mut [MaybeUninit<f32>],
+        panel_width: usize,
+        rows: Range<usize>,
+        cols: Range<usize>,
+    ) {
         match (self.gemm_kernel, panel_width) {
             #[cfg(feature = "avx512")]
             #[cfg(target_arch = "x86_64")]
