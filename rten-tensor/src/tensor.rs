@@ -2,6 +2,7 @@ use std::borrow::Cow;
 use std::mem::MaybeUninit;
 use std::ops::{Index, IndexMut, Range};
 
+use crate::copy::{copy_into, copy_into_slice};
 use crate::errors::{DimensionError, FromDataError, SliceError};
 use crate::iterators::{
     AxisChunks, AxisChunksMut, AxisIter, AxisIterMut, BroadcastIter, InnerIter, InnerIterDyn,
@@ -12,7 +13,6 @@ use crate::layout::{
     OverlapPolicy, ResizeLayout,
 };
 use crate::storage::{CowData, IntoStorage, Storage, StorageMut, ViewData, ViewMutData};
-use crate::transpose::copy_contiguous;
 use crate::{Alloc, GlobalAlloc, IntoSliceItems, RandomSource, SliceItem};
 
 /// The base type for multi-dimensional arrays. This consists of storage for
@@ -479,12 +479,10 @@ impl<S: StorageMut, L: MutLayout> TensorBase<S, L> {
                 }
 
                 // Copy source into destination in contiguous order.
-                copy_contiguous(other.as_dyn(), uninit_dest);
+                copy_into_slice(other.as_dyn(), uninit_dest);
             }
         } else {
-            for (out, x) in self.iter_mut().zip(other.iter()) {
-                *out = x.clone();
-            }
+            copy_into(other.as_dyn(), self.as_dyn_mut());
         }
     }
 
@@ -954,7 +952,7 @@ where
             let data: &[MaybeUninit<T>] = unsafe { std::mem::transmute(data) };
             self.data.as_mut().clone_from_slice(data);
         } else {
-            copy_contiguous(other.as_dyn(), self.data.as_mut());
+            copy_into_slice(other.as_dyn(), self.data.as_mut());
         }
         unsafe { self.assume_init() }
     }
@@ -1398,7 +1396,7 @@ impl<T, S: Storage<Elem = T>, L: MutLayout + Clone> AsView for TensorBase<S, L> 
         if let Some(data) = self.data() {
             buf.extend_from_slice(data);
         } else {
-            copy_contiguous(self.as_dyn(), &mut buf.spare_capacity_mut()[..len]);
+            copy_into_slice(self.as_dyn(), &mut buf.spare_capacity_mut()[..len]);
 
             // Safety: We initialized `len` elements.
             unsafe { buf.set_len(len) }

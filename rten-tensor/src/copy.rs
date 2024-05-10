@@ -2,7 +2,9 @@ use std::mem::MaybeUninit;
 use std::ops::Range;
 
 use crate::{AsView, Layout};
-use crate::{Matrix, MatrixLayout, MatrixMut, NdTensorView, NdTensorViewMut, TensorView};
+use crate::{
+    Matrix, MatrixLayout, MatrixMut, NdTensorView, NdTensorViewMut, TensorView, TensorViewMut,
+};
 
 /// Iterator returned by [range_chunks].
 pub struct RangeChunks {
@@ -91,10 +93,11 @@ fn copy_blocked<T: Clone>(src: Matrix<T>, mut dest: MatrixMut<MaybeUninit<T>>) {
     }
 }
 
-/// Copy elements of `src` into `dest` in contiguous order.
+/// Copy elements of `src` into a contiguous destination slice with the same
+/// length.
 ///
 /// Returns `dest` as an initialized slice.
-pub fn copy_contiguous<'a, T: Clone>(
+pub fn copy_into_slice<'a, T: Clone>(
     src: TensorView<T>,
     dest: &'a mut [MaybeUninit<T>],
 ) -> &'a [T] {
@@ -160,9 +163,50 @@ pub fn copy_contiguous<'a, T: Clone>(
     }
 }
 
+/// Clone elements of `src` into `dest`.
+///
+/// This is functionally equivalent to:
+///
+/// ```text
+/// src.iter().zip(dest.iter_mut()).for_each(|(y, x)| *y = x.clone())
+/// ```
+///
+/// But more efficient, especially when `src` or `dest` are not contiguous.
+pub fn copy_into<T: Clone>(mut src: TensorView<T>, mut dest: TensorViewMut<T>) {
+    assert!(src.shape() == dest.shape());
+
+    while src.ndim() < 4 {
+        src.insert_axis(0);
+        dest.insert_axis(0);
+    }
+
+    // Efficiency could be improved here by sorting dims so that those with
+    // the smallest stride are innermost. Also it could use the blocked copy
+    // that `copy_into_slice` uses to avoid cache conflicts when inputs are
+    // transposed.
+
+    src.inner_iter::<4>()
+        .zip(dest.inner_iter_mut::<4>())
+        .for_each(|(src, mut dest)| {
+            for i0 in 0..src.size(0) {
+                for i1 in 0..src.size(1) {
+                    for i2 in 0..src.size(2) {
+                        for i3 in 0..src.size(3) {
+                            unsafe {
+                                *dest.get_unchecked_mut([i0, i1, i2, i3]) =
+                                    src.get_unchecked([i0, i1, i2, i3]).clone();
+                            }
+                        }
+                    }
+                }
+            }
+        });
+}
+
 #[cfg(test)]
 mod tests {
-    use super::copy_contiguous;
+    use super::{copy_into, copy_into_slice};
+    use crate::rng::XorShiftRng;
     use crate::{AsView, Layout, Tensor, TensorView};
 
     /// Return the elements of `src` as a contiguous vector, in the same order they
@@ -173,10 +217,10 @@ mod tests {
     ///
     /// This is equivalent to `src.iter().cloned().collect::<Vec<_>>()` but
     /// faster.
-    fn contiguous_data<T: Clone>(src: TensorView<T>) -> Vec<T> {
+    fn copy_into_vec<T: Clone>(src: TensorView<T>) -> Vec<T> {
         let src_len = src.len();
         let mut result = Vec::with_capacity(src_len);
-        copy_contiguous(src, &mut result.spare_capacity_mut()[..src_len]);
+        copy_into_slice(src, &mut result.spare_capacity_mut()[..src_len]);
 
         // Safety: `copy_contiguous` initialized `src_len` elements of result.
         unsafe { result.set_len(src_len) };
@@ -185,16 +229,31 @@ mod tests {
     }
 
     #[test]
-    fn test_contiguous_data() {
+    fn test_copy_into() {
+        let mut rng = XorShiftRng::new(1234);
+        for ndim in 0..5 {
+            let shape: Vec<_> = (0..ndim).map(|d| d + 1).collect();
+            let src = Tensor::rand(&shape, &mut rng);
+            let src = src.transposed();
+
+            let mut dest = Tensor::zeros(src.shape());
+            copy_into(src.view(), dest.view_mut());
+
+            assert_eq!(dest, src);
+        }
+    }
+
+    #[test]
+    fn test_copy_into_slice() {
         // <= 4 dims
         let x = Tensor::from_data(&[2, 2], vec![1, 2, 3, 4]);
-        assert_eq!(contiguous_data(x.view()), [1, 2, 3, 4]);
-        assert_eq!(contiguous_data(x.transposed()), [1, 3, 2, 4]);
+        assert_eq!(copy_into_vec(x.view()), [1, 2, 3, 4]);
+        assert_eq!(copy_into_vec(x.transposed()), [1, 3, 2, 4]);
 
         // > 4 dims
         let x = Tensor::from_data(&[1, 1, 1, 2, 2], vec![1, 2, 3, 4]);
-        assert_eq!(contiguous_data(x.view()), [1, 2, 3, 4]);
-        assert_eq!(contiguous_data(x.transposed()), [1, 3, 2, 4]);
+        assert_eq!(copy_into_vec(x.view()), [1, 2, 3, 4]);
+        assert_eq!(copy_into_vec(x.transposed()), [1, 3, 2, 4]);
 
         // Transposed matrices of varying sizes. This includes:
         //
@@ -205,7 +264,7 @@ mod tests {
         for size in [0usize, 2, 4, 8, 15, 16, 32, 64, 65, 68] {
             let x = Tensor::<i32>::arange(0, (size * size) as i32, None);
             let x = x.reshaped([size, size]);
-            let transposed = contiguous_data(x.transposed().as_dyn());
+            let transposed = copy_into_vec(x.transposed().as_dyn());
             let expected = x.transposed().iter().copied().collect::<Vec<_>>();
             assert_eq!(transposed, expected);
         }
