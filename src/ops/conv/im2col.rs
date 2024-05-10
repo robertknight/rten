@@ -103,38 +103,53 @@ impl<'a> VirtualIm2Col<'a> {
         // Build lookup table of row index in the virtual im2col matrix to
         // offsets in the image.
         let n_rows = chans * k_h * k_w;
-        let row_offsets = (0..n_rows).map(|row| {
-            let in_chan = row as i32 / (k_h * k_w) as i32;
-            let kernel_element = row as i32 % (k_h * k_w) as i32;
-            let k_y = kernel_element / k_w as i32;
-            let k_x = kernel_element % k_w as i32;
-
+        let mut row_chan_offsets = Vec::<i32>::with_capacity(n_rows);
+        let mut row_y_offsets = Vec::<i32>::with_capacity(n_rows);
+        let mut row_x_offsets = Vec::<i32>::with_capacity(n_rows);
+        for chan in 0..chans {
             // Offset to image channel
-            (
-                in_chan * im_stride_c,
+            row_chan_offsets.extend(std::iter::repeat(chan as i32 * im_stride_c).take(k_h * k_w));
+
+            for k_y in 0..k_h {
                 // Offset from top-left corner of patch
-                (
-                    im_stride_h * k_y * dilation_y as i32,
-                    im_stride_w * k_x * dilation_x as i32,
-                ),
-            )
-        });
-        let (row_chan_offsets, row_yx_offsets): (Vec<i32>, Vec<(i32, i32)>) = row_offsets.unzip();
-        let (row_y_offsets, row_x_offsets) = row_yx_offsets.into_iter().unzip();
+                row_y_offsets.extend(
+                    std::iter::repeat(im_stride_h * k_y as i32 * dilation_y as i32).take(k_w),
+                );
+                row_x_offsets.extend(
+                    (0..k_w as i32)
+                        .map(|k_x| im_stride_w * k_x * dilation_x as i32)
+                        .take(k_w),
+                );
+            }
+        }
 
         // Build lookup table of column index in the virtual im2col matrix to
         // offsets in the image.
         let n_cols = x_patches * y_patches;
         let n_cols_padded = round_up(n_cols, panel_width);
 
-        let col_offsets = (0..n_cols_padded).map(|col| {
+        // Main loop for the used columns.
+        let mut col_y_offsets = Vec::with_capacity(n_cols_padded);
+        let mut col_x_offsets = Vec::with_capacity(n_cols_padded);
+        for patch_y in 0..y_patches {
+            let img_y = (patch_y as i32 * stride_h as i32) - pad_top as i32;
+            col_y_offsets.extend(std::iter::repeat(img_y * im_stride_h).take(x_patches));
+            col_x_offsets.extend((0..x_patches).map(|patch_x| {
+                let img_x = (patch_x as i32 * stride_w as i32) - pad_left as i32;
+                img_x * im_stride_w
+            }));
+        }
+
+        // Remainder loop for columns added to pad count to a multiple of
+        // `panel_width`. This is slower as it uses divisions.
+        for col in n_cols..n_cols_padded {
             let patch_y = col as i32 / x_patches as i32;
             let patch_x = col as i32 % x_patches as i32;
             let img_x = (patch_x * stride_w as i32) - pad_left as i32;
             let img_y = (patch_y * stride_h as i32) - pad_top as i32;
-            (img_y * im_stride_h, img_x * im_stride_w)
-        });
-        let (col_y_offsets, col_x_offsets): (Vec<i32>, Vec<i32>) = col_offsets.unzip();
+            col_y_offsets.push(img_y * im_stride_h);
+            col_x_offsets.push(img_x * im_stride_w);
+        }
 
         // Compute max valid X / Y offsets for testing whether an element is in
         // the padding region or not.
