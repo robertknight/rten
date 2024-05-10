@@ -40,6 +40,7 @@
 //! }
 //! ```
 
+mod copy;
 mod errors;
 mod index_iterator;
 mod iterators;
@@ -49,7 +50,6 @@ mod overlap;
 mod slice_range;
 mod storage;
 mod tensor;
-mod transpose;
 
 /// Trait for sources of random data for tensors, for use with [Tensor::rand].
 pub trait RandomSource<T> {
