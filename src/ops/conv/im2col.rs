@@ -12,13 +12,13 @@ use crate::ops::pooling::calc_output_size_and_padding;
 use crate::ops::Padding;
 
 struct RowOffsets {
-    /// Map of channel index to `channel * channel_stride`.
+    /// Map of row index to `channel * channel_stride`.
     chan: Vec<i32>,
 
     /// Map of row index to `row * row_stride`.
     y: Vec<i32>,
 
-    /// Map of col index to `col * col_stride`.
+    /// Map of row index to `col * col_stride`.
     x: Vec<i32>,
 }
 
