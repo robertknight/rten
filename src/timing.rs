@@ -98,7 +98,7 @@ impl<'a, T: Table> fmt::Display for DisplayTable<'a, T> {
 /// Timing statistics gathered from a graph run.
 pub struct RunTiming<'a> {
     /// Records of graph step execution times
-    pub records: &'a [TimingRecord],
+    pub records: &'a [TimingRecord<'a>],
 
     /// Total time spent in memory allocations or de-allocations that were
     /// tracked.
@@ -258,7 +258,7 @@ impl<'a> FormattedRunTiming<'a> {
                     0.,
                     0,
                     input_elements,
-                    record.node_name.clone(),
+                    record.node_name,
                 ));
                 *cum_time += record.elapsed_micros / 1000.0;
                 *count += 1;
@@ -271,7 +271,7 @@ impl<'a> FormattedRunTiming<'a> {
                     total_ms,
                     count,
                     input_elements,
-                    node_name,
+                    node_name: node_name.to_string(),
                 },
             )
             .collect();
@@ -291,7 +291,7 @@ impl<'a> fmt::Display for FormattedRunTiming<'a> {
             .records
             .iter()
             .fold(HashMap::new(), |mut timings, record| {
-                let total_op_time = timings.entry(record.name.as_str()).or_insert(0.);
+                let total_op_time = timings.entry(record.name).or_insert(0.);
                 *total_op_time += record.elapsed_micros / 1000.0;
                 timings
             })
@@ -352,12 +352,12 @@ impl<'a> fmt::Display for FormattedRunTiming<'a> {
 pub type InputShape = Option<SmallVec<[usize; 4]>>;
 
 /// Timing record for a single graph computation step.
-pub struct TimingRecord {
+pub struct TimingRecord<'a> {
     /// Operator name (eg. `MatMul`)
-    pub name: String,
+    pub name: &'a str,
 
     /// Name of the graph node
-    pub node_name: String,
+    pub node_name: &'a str,
 
     /// Shapes of the operator's inputs
     pub input_shapes: Vec<InputShape>,

@@ -413,8 +413,12 @@ impl Graph {
 
         // Execute the plan
         let mut temp_values: FxHashMap<NodeId, Output> = FxHashMap::default();
-        let mut op_elapsed: Vec<TimingRecord> = Vec::new();
         let record_timing = opts.timing || opts.verbose;
+        let mut op_elapsed: Vec<TimingRecord> = if record_timing {
+            Vec::with_capacity(plan.len())
+        } else {
+            Vec::new()
+        };
         let mut alloc_timer = Timer::new();
 
         for (step, (op_node_id, op_node)) in plan.iter().enumerate() {
@@ -527,10 +531,10 @@ impl Graph {
                 op_timer.end();
 
                 op_elapsed.push(TimingRecord {
-                    name: op_node.operator.name().to_string(),
+                    name: op_node.operator.name(),
                     input_shapes: input_shapes.clone(),
                     elapsed_micros: op_timer.elapsed_micros(),
-                    node_name: op_node.name.clone().unwrap_or(String::new()),
+                    node_name: op_node.name.as_deref().unwrap_or(""),
                 });
             }
 
