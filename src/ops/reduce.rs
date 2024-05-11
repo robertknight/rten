@@ -166,7 +166,7 @@ impl Operator for CumSum {
 }
 
 /// Return the indices of nonzero elements in `input` as a `(dim, index)` tensor.
-pub fn nonzero<T: Default + PartialEq>(input: TensorView<T>) -> Tensor<i32> {
+pub fn nonzero<T: Default + PartialEq>(pool: &TensorPool, input: TensorView<T>) -> Tensor<i32> {
     // Special case for scalar inputs.
     if let (Some(item), 0) = (input.item(), input.ndim()) {
         return Tensor::zeros(&[0, if *item != T::default() { 1 } else { 0 }]);
@@ -186,7 +186,7 @@ pub fn nonzero<T: Default + PartialEq>(input: TensorView<T>) -> Tensor<i32> {
     // Transpose from `(index, dim)` to `(dim, index)`.
     Tensor::from_data(&[nonzeros.len() / input.ndim(), input.ndim()], nonzeros)
         .transposed()
-        .to_tensor()
+        .to_tensor_in(pool)
 }
 
 #[derive(Debug)]
@@ -197,11 +197,11 @@ impl Operator for NonZero {
         "NonZero"
     }
 
-    fn run(&self, _pool: &TensorPool, inputs: InputList) -> Result<Vec<Output>, OpError> {
+    fn run(&self, pool: &TensorPool, inputs: InputList) -> Result<Vec<Output>, OpError> {
         let input = inputs.require(0)?;
         match input {
-            Input::IntTensor(input) => nonzero(input).into_op_result(),
-            Input::FloatTensor(input) => nonzero(input).into_op_result(),
+            Input::IntTensor(input) => nonzero(pool, input).into_op_result(),
+            Input::FloatTensor(input) => nonzero(pool, input).into_op_result(),
         }
     }
 }
@@ -889,8 +889,9 @@ mod tests {
 
     #[test]
     fn test_nonzero() {
+        let pool = new_pool();
         let input = tensor!((2, 2); [0., 1., 1., 1.]);
-        let result = nonzero(input.view());
+        let result = nonzero(&pool, input.view());
         assert_eq!(result.shape(), &[2, 3]);
 
         // (dim, index) => (index, dim)
@@ -909,12 +910,13 @@ mod tests {
 
     #[test]
     fn test_nonzero_scalar() {
+        let pool = new_pool();
         let input = tensor!(3.);
-        let result = nonzero(input.view());
+        let result = nonzero(&pool, input.view());
         assert_eq!(result.shape(), &[0, 1]);
 
         let input = tensor!(0.);
-        let result = nonzero(input.view());
+        let result = nonzero(&pool, input.view());
         assert_eq!(result.shape(), &[0, 0]);
     }
 
