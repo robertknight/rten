@@ -31,6 +31,16 @@ impl SliceItem {
     pub fn range(start: isize, end: Option<isize>, step: isize) -> SliceItem {
         SliceItem::Range(SliceRange::new(start, end, step))
     }
+
+    /// Return stepped index range selected by this item from an axis with a
+    /// given size.
+    pub(crate) fn index_range(&self, dim_size: usize) -> IndexRange {
+        let range = match *self {
+            SliceItem::Range(range) => range,
+            SliceItem::Index(idx) => SliceRange::new(idx, Some(idx + 1), 1),
+        };
+        range.index_range(dim_size)
+    }
 }
 
 // This conversion exists to avoid ambiguity when slicing a tensor with a
@@ -292,10 +302,32 @@ impl SliceRange {
             (start, end)
         };
 
-        if start >= 0 && end <= dim_size as isize && start <= end {
+        if start >= 0 && start <= dim_size as isize && end >= 0 && end <= dim_size as isize {
+            // If `end < start` this means the range is empty. Set `end ==
+            // start` to have a canonical representation for this case.
+            let end = end.max(start);
+
             Some(start as usize..end as usize)
         } else {
             None
+        }
+    }
+
+    /// Return stepped index range selected by this range from an axis with a
+    /// given size.
+    pub(crate) fn index_range(&self, dim_size: usize) -> IndexRange {
+        // Resolve range endpoints to `[0, N]`, counting forwards from the
+        // start if step > 0 or backwards from the end otherwise.
+        let resolved = self.resolve_clamped(dim_size);
+
+        if self.step > 0 {
+            IndexRange::new(resolved.start, resolved.end as isize, self.step)
+        } else {
+            IndexRange::new(
+                dim_size - 1 - resolved.start,
+                dim_size as isize - 1 - resolved.end as isize,
+                self.step,
+            )
         }
     }
 
@@ -361,6 +393,130 @@ impl From<RangeFull> for SliceRange {
     }
 }
 
+/// Return `a / b`, rounding up if `b` does not evenly divide `a`.
+///
+/// Replace with `usize::div_ceil` when that stabilizes.
+fn div_ceil(a: usize, b: usize) -> usize {
+    if b == 1 {
+        // Fast path
+        return a;
+    }
+    let rounding = usize::from(a % b != 0);
+    a / b + rounding
+}
+
+/// A range of indices with a step, which may be positive or negative.
+#[derive(Copy, Clone, Debug, PartialEq)]
+pub struct IndexRange {
+    /// Start index in [0, (dim_size - 1).max(0)]
+    start: usize,
+
+    /// End index in [-1, dim_size]
+    end: isize,
+    step: isize,
+}
+
+impl IndexRange {
+    /// Create a new range which steps from `start` (inclusive) to `end`
+    /// (exclusive) with a given step.
+    ///
+    /// The `step` value must not be zero.
+    ///
+    /// The `end` argument is signed to allow for a range which yields index 0
+    /// when `step` is negative. eg. `SteppedIndexRange::new(4, -1, -1)` will
+    /// yield indices `[4, 3, 2, 1, 0]`.
+    fn new(start: usize, end: isize, step: isize) -> Self {
+        assert!(step != 0);
+        assert!(start <= isize::MAX as usize);
+
+        IndexRange {
+            start,
+            end: end.max(-1),
+            step,
+        }
+    }
+
+    /// Return the start index.
+    #[allow(unused)]
+    pub fn start(&self) -> usize {
+        self.start
+    }
+
+    /// Return the index that is one past the end. This is signed since this
+    /// index can be -1 when `self.step() < 0`.
+    #[allow(unused)]
+    pub fn end(&self) -> isize {
+        self.end
+    }
+
+    /// Return the increment between indices.
+    #[allow(unused)]
+    pub fn step(&self) -> isize {
+        self.step
+    }
+
+    /// Return the number of steps along this dimension.
+    pub fn steps(&self) -> usize {
+        if self.step > 0 {
+            let len = (self.end - self.start as isize).max(0);
+            div_ceil(len as usize, self.step.unsigned_abs())
+        } else {
+            let len = (self.end - self.start as isize).min(0);
+            div_ceil(len.unsigned_abs(), self.step.unsigned_abs())
+        }
+    }
+}
+
+impl IntoIterator for IndexRange {
+    type Item = usize;
+    type IntoIter = IndexRangeIter;
+
+    #[inline]
+    fn into_iter(self) -> IndexRangeIter {
+        IndexRangeIter {
+            step: self.step,
+            index: self.start as isize,
+            remaining: self.steps(),
+        }
+    }
+}
+
+/// An iterator over the indices in an [IndexRange].
+#[derive(Clone, Debug, PartialEq)]
+pub struct IndexRangeIter {
+    /// Next index. This is in the range [-1, N] where `N` is the size of
+    /// the dimension. The values yielded by `next` are always in [0, N).
+    index: isize,
+
+    /// Remaining indices to yield.
+    remaining: usize,
+
+    step: isize,
+}
+
+impl Iterator for IndexRangeIter {
+    type Item = usize;
+
+    #[inline]
+    fn next(&mut self) -> Option<usize> {
+        if self.remaining == 0 {
+            return None;
+        }
+        let idx = self.index;
+        self.index += self.step;
+        self.remaining -= 1;
+        Some(idx as usize)
+    }
+
+    #[inline]
+    fn size_hint(&self) -> (usize, Option<usize>) {
+        (self.remaining, Some(self.remaining))
+    }
+}
+
+impl ExactSizeIterator for IndexRangeIter {}
+impl std::iter::FusedIterator for IndexRangeIter {}
+
 #[cfg(test)]
 mod tests {
     use super::{IntoSliceItems, SliceItem, SliceRange};
@@ -396,34 +552,116 @@ mod tests {
     }
 
     #[test]
-    fn test_slice_range_resolve() {
-        // +ve endpoints, +ve step
-        assert_eq!(SliceRange::new(0, Some(5), 1).resolve_clamped(10), 0..5);
-        assert_eq!(SliceRange::new(0, None, 1).resolve_clamped(10), 0..10);
-        assert_eq!(SliceRange::new(15, Some(20), 1).resolve_clamped(10), 10..10);
-        assert_eq!(SliceRange::new(15, Some(20), 1).resolve(10), None);
+    fn test_index_range() {
+        struct Case {
+            range: SliceItem,
+            dim_size: usize,
+            indices: Vec<usize>,
+        }
 
-        // -ve endpoints, +ve step
-        assert_eq!(SliceRange::new(-5, Some(-1), 1).resolve_clamped(10), 5..9);
-        assert_eq!(SliceRange::new(-20, Some(-1), 1).resolve_clamped(10), 0..9);
-        assert_eq!(SliceRange::new(-20, Some(-1), 1).resolve(10), None);
-        assert_eq!(SliceRange::new(-5, None, 1).resolve_clamped(10), 5..10);
+        let cases = [
+            // +ve step, +ve endpoints
+            Case {
+                range: SliceItem::range(0, Some(4), 1),
+                dim_size: 6,
+                indices: (0..4).collect(),
+            },
+            Case {
+                range: SliceItem::range(2, Some(4), 1),
+                dim_size: 6,
+                indices: vec![2, 3],
+            },
+            Case {
+                range: SliceItem::range(2, Some(128), 1),
+                dim_size: 5,
+                indices: vec![2, 3, 4],
+            },
+            // +ve step > 1, +ve endpoints
+            Case {
+                range: SliceItem::range(0, Some(5), 2),
+                dim_size: 5,
+                indices: vec![0, 2, 4],
+            },
+            // +ve step, no end
+            Case {
+                range: SliceItem::range(0, None, 1),
+                dim_size: 6,
+                indices: (0..6).collect(),
+            },
+            // +ve step, -ve endpoints
+            Case {
+                range: SliceItem::range(-1, Some(-6), 2),
+                dim_size: 5,
+                indices: vec![],
+            },
+            // -ve step, -ve endpoints
+            Case {
+                range: SliceItem::range(-1, Some(-128), -1),
+                dim_size: 5,
+                indices: vec![4, 3, 2, 1, 0],
+            },
+            // -ve step, no end
+            Case {
+                range: SliceItem::range(-1, None, -1),
+                dim_size: 5,
+                indices: vec![4, 3, 2, 1, 0],
+            },
+            // -ve step < -1, -ve endpoints
+            Case {
+                range: SliceItem::range(-1, Some(-6), -2),
+                dim_size: 5,
+                indices: vec![4, 2, 0],
+            },
+            // -ve step, +ve endpoints
+            Case {
+                range: SliceItem::range(1, Some(5), -2),
+                dim_size: 5,
+                indices: vec![],
+            },
+            // Empty range, +ve step
+            Case {
+                range: SliceItem::range(0, Some(0), 1),
+                dim_size: 4,
+                indices: vec![],
+            },
+            // Empty range, -ve step
+            Case {
+                range: SliceItem::range(0, Some(0), -1),
+                dim_size: 4,
+                indices: vec![],
+            },
+            // Single index
+            Case {
+                range: SliceItem::Index(2),
+                dim_size: 4,
+                indices: vec![2],
+            },
+            // Single index, out of range
+            Case {
+                range: SliceItem::Index(2),
+                dim_size: 0,
+                indices: vec![],
+            },
+        ];
 
-        // +ve endpoints, -ve step.
-        //
-        // Note the returned ranges count backwards from the end of the
-        // dimension.
-        assert_eq!(SliceRange::new(5, Some(0), -1).resolve_clamped(10), 4..9);
-        assert_eq!(SliceRange::new(5, None, -1).resolve_clamped(10), 4..10);
-        assert_eq!(SliceRange::new(9, None, -1).resolve_clamped(10), 0..10);
+        for Case {
+            range,
+            dim_size,
+            indices,
+        } in cases
+        {
+            let mut index_iter = range.index_range(dim_size).into_iter();
+            let size_hint = index_iter.size_hint();
+            let index_vec: Vec<_> = index_iter.by_ref().collect();
 
-        // -ve endpoints, -ve step.
-        assert_eq!(SliceRange::new(-1, Some(-4), -1).resolve_clamped(3), 0..3);
-        assert_eq!(SliceRange::new(-1, None, -1).resolve_clamped(2), 0..2);
+            assert_eq!(size_hint, (index_vec.len(), Some(index_vec.len())));
+            assert_eq!(index_vec, indices);
+            assert_eq!(index_iter.size_hint(), (0, Some(0)));
+        }
     }
 
     #[test]
-    fn test_slice_range_steps() {
+    fn test_index_range_steps() {
         struct Case {
             range: SliceRange,
             dim_size: usize,
@@ -439,7 +677,7 @@ mod tests {
             },
             // Positive step size exceeds range length.
             Case {
-                range: SliceRange::new(0, None, 1),
+                range: SliceRange::new(0, None, 5),
                 dim_size: 4,
                 steps: 1,
             },
@@ -463,7 +701,42 @@ mod tests {
             steps,
         } in cases
         {
-            assert_eq!(range.steps(dim_size), steps);
+            assert_eq!(range.index_range(dim_size).steps(), steps);
         }
+    }
+
+    #[test]
+    #[should_panic(expected = "Slice step cannot be 0")]
+    fn test_slice_range_zero_step() {
+        SliceRange::new(0, None, 0);
+    }
+
+    #[test]
+    fn test_slice_range_resolve() {
+        // +ve endpoints, +ve step
+        assert_eq!(SliceRange::new(0, Some(5), 1).resolve_clamped(10), 0..5);
+        assert_eq!(SliceRange::new(0, None, 1).resolve_clamped(10), 0..10);
+        assert_eq!(SliceRange::new(15, Some(20), 1).resolve_clamped(10), 10..10);
+        assert_eq!(SliceRange::new(15, Some(20), 1).resolve(10), None);
+        assert_eq!(SliceRange::new(4, None, 1).resolve(3), None);
+        assert_eq!(SliceRange::new(0, Some(10), 1).resolve(3), None);
+
+        // -ve endpoints, +ve step
+        assert_eq!(SliceRange::new(-5, Some(-1), 1).resolve_clamped(10), 5..9);
+        assert_eq!(SliceRange::new(-20, Some(-1), 1).resolve_clamped(10), 0..9);
+        assert_eq!(SliceRange::new(-20, Some(-1), 1).resolve(10), None);
+        assert_eq!(SliceRange::new(-5, None, 1).resolve_clamped(10), 5..10);
+
+        // +ve endpoints, -ve step.
+        //
+        // Note the returned ranges count backwards from the end of the
+        // dimension.
+        assert_eq!(SliceRange::new(5, Some(0), -1).resolve_clamped(10), 4..9);
+        assert_eq!(SliceRange::new(5, None, -1).resolve_clamped(10), 4..10);
+        assert_eq!(SliceRange::new(9, None, -1).resolve_clamped(10), 0..10);
+
+        // -ve endpoints, -ve step.
+        assert_eq!(SliceRange::new(-1, Some(-4), -1).resolve_clamped(3), 0..3);
+        assert_eq!(SliceRange::new(-1, None, -1).resolve_clamped(2), 0..2);
     }
 }

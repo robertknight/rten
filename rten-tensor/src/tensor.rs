@@ -2,7 +2,7 @@ use std::borrow::Cow;
 use std::mem::MaybeUninit;
 use std::ops::{Index, IndexMut, Range};
 
-use crate::copy::{copy_into, copy_into_slice};
+use crate::copy::{copy_into, copy_into_slice, copy_range_into_slice};
 use crate::errors::{DimensionError, FromDataError, SliceError};
 use crate::iterators::{
     AxisChunks, AxisChunksMut, AxisIter, AxisIterMut, BroadcastIter, InnerIter, InnerIterDyn,
@@ -248,6 +248,9 @@ pub trait AsView: Layout {
     /// Use [AsView::slice_dyn] instead if the number of dimensions in the
     /// returned view is unknown at compile time.
     ///
+    /// This method is cheap as it does not copy the data, but does not support
+    /// ranges with negative steps. For that use [`slice_copy`](AsView::slice_copy).
+    ///
     /// Panics if the dimension count of the result is not `M`.
     fn slice<const M: usize, R: IntoSliceItems>(&self, range: R) -> NdTensorView<Self::Elem, M> {
         self.view().slice(range)
@@ -256,6 +259,62 @@ pub trait AsView: Layout {
     /// Slice this tensor and return a dynamic-rank view.
     fn slice_dyn<R: IntoSliceItems>(&self, range: R) -> TensorView<Self::Elem> {
         self.view().slice_dyn(range)
+    }
+
+    /// Return a slice of this tensor as an owned tensor.
+    ///
+    /// This is more expensive than [`slice`](AsView::slice) as it copies the
+    /// data, but is more flexible as it supports ranges with negative steps.
+    fn slice_copy<R: Clone + IntoSliceItems>(&self, range: R) -> Tensor<Self::Elem>
+    where
+        Self::Elem: Clone,
+    {
+        self.slice_copy_in(GlobalAlloc::new(), range)
+    }
+
+    /// Variant of [`slice_copy`](AsView::slice_copy) which accepts an allocator.
+    fn slice_copy_in<A: Alloc, R: Clone + IntoSliceItems>(
+        &self,
+        pool: A,
+        range: R,
+    ) -> Tensor<Self::Elem>
+    where
+        Self::Elem: Clone,
+    {
+        // Fast path for slice ranges supported by `Tensor::slice`. This includes
+        // all ranges except those with a negative step. This benefits from
+        // optimizations that `Tensor::to_tensor` has for slices that are already
+        // contiguous or have a small number of dims.
+        if let Ok(slice_view) = self.try_slice_dyn(range.clone()) {
+            return slice_view.to_tensor_in(pool);
+        }
+
+        let items = range.into_slice_items();
+        let sliced_shape: Vec<_> = items
+            .as_ref()
+            .iter()
+            .copied()
+            .enumerate()
+            .filter_map(|(dim, item)| match item {
+                SliceItem::Index(_) => None,
+                SliceItem::Range(range) => Some(range.index_range(self.size(dim)).steps()),
+            })
+            .collect();
+        let sliced_len = sliced_shape.iter().product();
+        let mut sliced_data = pool.alloc(sliced_len);
+
+        copy_range_into_slice(
+            self.as_dyn(),
+            &mut sliced_data.spare_capacity_mut()[..sliced_len],
+            items.as_ref(),
+        );
+
+        // Safety: `copy_range_into_slice` initialized `sliced_len` elements.
+        unsafe {
+            sliced_data.set_len(sliced_len);
+        }
+
+        Tensor::from_data(&sliced_shape, sliced_data)
     }
 
     /// Return an iterator over a slice of this tensor.
@@ -1846,7 +1905,7 @@ mod tests {
     use crate::layout::MatrixLayout;
     use crate::prelude::*;
     use crate::rng::XorShiftRng;
-    use crate::{Alloc, SliceItem, Storage};
+    use crate::{Alloc, SliceItem, SliceRange, Storage};
 
     struct FakeAlloc {
         count: RefCell<usize>,
@@ -2816,6 +2875,60 @@ mod tests {
             tensor.iter().copied().collect::<Vec<_>>(),
             &[-1, 2, 3, 4, -2, 6, 7, 8, -3, 10, 11, 12, -4, 14, 15, 16]
         );
+    }
+
+    // nb. In addition to the tests here, see also tests for the `Slice` op
+    // in the rten crate.
+    #[test]
+    fn test_slice_copy() {
+        struct Case<'a> {
+            shape: &'a [usize],
+            slice_range: &'a [SliceItem],
+            expected: Tensor<i32>,
+        }
+
+        let cases = [
+            // No-op slice.
+            Case {
+                shape: &[4, 4],
+                slice_range: &[],
+                expected: Tensor::<i32>::arange(0, 16, None).into_shape([4, 4].as_slice()),
+            },
+            // Positive step and endpoints.
+            Case {
+                shape: &[4, 4],
+                slice_range: &[
+                    // Every row
+                    SliceItem::Range(SliceRange::new(0, None, 1)),
+                    // Every other column
+                    SliceItem::Range(SliceRange::new(0, None, 2)),
+                ],
+                expected: Tensor::from([[0, 2], [4, 6], [8, 10], [12, 14]]),
+            },
+            // Negative step and endpoints.
+            Case {
+                shape: &[4, 4],
+                slice_range: &[
+                    // Every row, reversed
+                    SliceItem::Range(SliceRange::new(-1, None, -1)),
+                    // Every other column, reversed
+                    SliceItem::Range(SliceRange::new(-1, None, -2)),
+                ],
+                expected: Tensor::from([[15, 13], [11, 9], [7, 5], [3, 1]]),
+            },
+        ];
+
+        for Case {
+            shape,
+            slice_range,
+            expected,
+        } in cases
+        {
+            let len = shape.iter().product::<usize>() as i32;
+            let tensor = Tensor::<i32>::arange(0, len as i32, None).into_shape(shape);
+            let sliced = tensor.slice_copy(slice_range);
+            assert_eq!(sliced, expected);
+        }
     }
 
     #[test]

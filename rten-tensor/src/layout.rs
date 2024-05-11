@@ -307,7 +307,7 @@ fn slice_layout<I: AsRef<[usize]>, O: AsMut<[usize]>>(
                     // Fast path when no custom step is used.
                     resolved.end - resolved.start
                 } else {
-                    range.steps(size)
+                    range.index_range(size).steps()
                 };
                 let new_stride = stride * step;
                 (stride * resolved.start, Some((new_size, new_stride)))
