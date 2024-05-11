@@ -206,7 +206,7 @@ impl SliceRange {
         let end_idx = clamped
             .end
             .map(|index| Self::offset_from_start(index, dim_size))
-            .unwrap_or(dim_size as isize);
+            .unwrap_or(if self.step > 0 { dim_size as isize } else { -1 });
 
         if (clamped.step > 0 && end_idx <= start_idx) || (clamped.step < 0 && end_idx >= start_idx)
         {
@@ -315,7 +315,7 @@ impl SliceRange {
         if index >= 0 {
             dim_size as isize - 1 - index
         } else {
-            dim_size as isize + index
+            -index - 1
         }
     }
 }
@@ -416,5 +416,54 @@ mod tests {
         assert_eq!(SliceRange::new(5, Some(0), -1).resolve_clamped(10), 4..9);
         assert_eq!(SliceRange::new(5, None, -1).resolve_clamped(10), 4..10);
         assert_eq!(SliceRange::new(9, None, -1).resolve_clamped(10), 0..10);
+
+        // -ve endpoints, -ve step.
+        assert_eq!(SliceRange::new(-1, Some(-4), -1).resolve_clamped(3), 0..3);
+        assert_eq!(SliceRange::new(-1, None, -1).resolve_clamped(2), 0..2);
+    }
+
+    #[test]
+    fn test_slice_range_steps() {
+        struct Case {
+            range: SliceRange,
+            dim_size: usize,
+            steps: usize,
+        }
+
+        let cases = [
+            // Positive step, no end.
+            Case {
+                range: SliceRange::new(0, None, 1),
+                dim_size: 4,
+                steps: 4,
+            },
+            // Positive step size exceeds range length.
+            Case {
+                range: SliceRange::new(0, None, 1),
+                dim_size: 4,
+                steps: 1,
+            },
+            // Negative step, no end.
+            Case {
+                range: SliceRange::new(-1, None, -1),
+                dim_size: 3,
+                steps: 3,
+            },
+            // Negative step size exceeds range length.
+            Case {
+                range: SliceRange::new(1, Some(0), -2),
+                dim_size: 2,
+                steps: 1,
+            },
+        ];
+
+        for Case {
+            range,
+            dim_size,
+            steps,
+        } in cases
+        {
+            assert_eq!(range.steps(dim_size), steps);
+        }
     }
 }
