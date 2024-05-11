@@ -3,7 +3,7 @@ use std::ops::Range;
 
 use smallvec::{smallvec, SmallVec};
 
-use crate::errors::{DimensionError, FromDataError, SliceError};
+use crate::errors::{DimensionError, FromDataError, ReshapeError, SliceError};
 use crate::index_iterator::{DynIndices, NdIndices};
 use crate::overlap::{is_contiguous, may_have_internal_overlap};
 use crate::slice_range::{IntoSliceItems, SliceItem};
@@ -193,7 +193,7 @@ pub enum OverlapPolicy {
 
 /// Defines the valid indices for an N-dimensional array and how to map them
 /// to offsets in a linear buffer, where N is known at compile time.
-#[derive(Clone, Copy, Debug)]
+#[derive(Clone, Copy, Debug, PartialEq)]
 pub struct NdLayout<const N: usize> {
     shape: [usize; N],
     strides: [usize; N],
@@ -452,13 +452,6 @@ impl<const N: usize> NdLayout<N> {
     pub fn transposed(&self) -> Self {
         let dims = std::array::from_fn(|i| N - i - 1);
         self.permuted(dims)
-    }
-
-    /// Return a layout with the same number of elements but a given shape.
-    ///
-    /// Panics if the layout is not contiguous.
-    pub fn reshaped<const M: usize>(&self, shape: [usize; M]) -> NdLayout<M> {
-        NdLayout::from_dyn(self.as_dyn().reshaped(&shape))
     }
 
     /// Compute the new layout and offset of the first element for a slice into
@@ -777,28 +770,6 @@ impl DynLayout {
         self.shape_and_strides.insert(ndim + 1 + dim, new_stride);
     }
 
-    /// Change the shape of this layout to `shape`.
-    ///
-    /// `shape` must have the same product as the current shape (ie. must
-    /// specify the same number of elements) and the layout must be contiguous.
-    pub fn reshape(&mut self, shape: &[usize]) {
-        assert!(
-            shape.iter().product::<usize>() == self.len(),
-            "new shape must have same number of elements as current shape"
-        );
-        assert!(
-            self.is_contiguous(),
-            "can only reshape a contiguous tensor/view"
-        );
-        *self = DynLayout::from_shape(shape);
-    }
-
-    pub fn reshaped(&self, shape: &[usize]) -> DynLayout {
-        let mut reshaped = self.clone();
-        reshaped.reshape(shape);
-        reshaped
-    }
-
     /// Return the offset of the slice that begins at the given index.
     pub fn slice_offset<Idx: AsRef<[usize]>>(&self, index: Idx) -> usize {
         let index = index.as_ref();
@@ -887,15 +858,25 @@ pub trait MutLayout: Layout + Clone {
     /// Return a layout with the axes permuted according to the given order.
     fn permuted(&self, order: Self::Index<'_>) -> Self;
 
-    /// Combine or split dimensions by reshaping the layout to a given shape.
+    /// Return a new layout formed by reshaping this one to `shape`.
     ///
-    /// This will fail if the layout is not contiguous.
-    fn reshaped<S: IntoLayout>(&self, shape: S) -> S::Layout {
-        assert!(
-            self.is_contiguous(),
-            "tried to reshape non-contiguous layout"
-        );
-        shape.into_layout()
+    /// This has the same requirements as
+    /// [`reshaped_for_copy`](MutLayout::reshaped_for_copy) but also requires
+    /// that the layout is contiguous.
+    fn reshaped_for_view<S: IntoLayout>(&self, shape: S) -> Result<S::Layout, ReshapeError> {
+        if !self.is_contiguous() {
+            return Err(ReshapeError::NotContiguous);
+        }
+        self.reshaped_for_copy(shape)
+    }
+
+    /// Return a new layout formed by reshaping this one to `shape`.
+    fn reshaped_for_copy<S: IntoLayout>(&self, shape: S) -> Result<S::Layout, ReshapeError> {
+        let layout = shape.into_layout();
+        if layout.len() != self.len() {
+            return Err(ReshapeError::LengthMismatch);
+        }
+        Ok(layout)
     }
 
     // Modify the size of a dimension. This does not alter the strides.
@@ -1179,8 +1160,9 @@ mod tests {
     use std::iter::zip;
 
     use super::OverlapPolicy;
-    use crate::layout::{DynLayout, ResizeLayout};
-    use crate::{Layout, SliceItem};
+    use crate::errors::ReshapeError;
+    use crate::layout::{DynLayout, Layout, MutLayout, ResizeLayout};
+    use crate::SliceItem;
 
     #[test]
     fn test_is_broadcast() {
@@ -1282,6 +1264,70 @@ mod tests {
     fn test_permute_repeated_dims() {
         let mut layout = DynLayout::from_shape(&[5, 5]);
         layout.permute(&[1, 1]);
+    }
+
+    #[test]
+    fn test_reshaped() {
+        struct Case<'a> {
+            layout: DynLayout,
+            new_shape: &'a [usize],
+            for_copy: bool,
+            error: Option<ReshapeError>,
+        }
+
+        let cases = [
+            // Reshapes that don't allow copying.
+            Case {
+                layout: DynLayout::from_shape(&[2, 2]),
+                new_shape: &[4],
+                for_copy: false,
+                error: None,
+            },
+            Case {
+                layout: DynLayout::from_shape(&[2, 2]).transposed(),
+                new_shape: &[4],
+                for_copy: false,
+                error: Some(ReshapeError::NotContiguous),
+            },
+            Case {
+                layout: DynLayout::from_shape(&[2, 2]),
+                new_shape: &[3],
+                for_copy: false,
+                error: Some(ReshapeError::LengthMismatch),
+            },
+            // Reshapes that do allow copying.
+            Case {
+                layout: DynLayout::from_shape(&[2, 2]).transposed(),
+                new_shape: &[4],
+                for_copy: true,
+                error: None,
+            },
+            Case {
+                layout: DynLayout::from_shape(&[2, 2]),
+                new_shape: &[3],
+                for_copy: false,
+                error: Some(ReshapeError::LengthMismatch),
+            },
+        ];
+
+        for Case {
+            layout,
+            new_shape,
+            for_copy,
+            error,
+        } in cases
+        {
+            let reshaped = if for_copy {
+                layout.reshaped_for_copy(new_shape)
+            } else {
+                layout.reshaped_for_view(new_shape)
+            };
+
+            assert_eq!(reshaped.as_ref().err(), error.as_ref());
+            if let Ok(new_layout) = reshaped {
+                assert_eq!(new_layout.shape(), new_shape);
+            }
+        }
     }
 
     #[test]
