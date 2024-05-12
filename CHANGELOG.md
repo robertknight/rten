@@ -13,18 +13,13 @@ etc.) should not be affected.
 
 ### rten
 
-- Fixed incorrect calculation of update slice size in `ScatterND` operator
-  (https://github.com/robertknight/rten/pull/157)
+#### New features
 
-- Fixed incorrect conversion of `axis` attribute for `ArgMin` and `ArgMax`
-  operators (https://github.com/robertknight/rten/pull/142)
+- Added Piper text-to-speech example (https://github.com/robertknight/rten/pull/161)
 
 - Support 1D inputs and padding in `ConvTranspose` (https://github.com/robertknight/rten/pull/156)
 
 - Support `GatherND` operator (https://github.com/robertknight/rten/pull/155)
-
-- Fixed uninitialized read in `Gemm` operator when `alpha != 1` and `beta == 0`
-  (https://github.com/robertknight/rten/pull/150)
 
 - Support `Softplus` operator (https://github.com/robertknight/rten/pull/146)
 
@@ -33,6 +28,35 @@ etc.) should not be affected.
 
 - Support `RandomNormal`, `RandomNormalLike`, `RandomUniformLike` operators
   (https://github.com/robertknight/rten/pull/144)
+
+
+#### Bug fixes
+
+- Fixed incorrect calculation of update slice size in `ScatterND` operator
+  (https://github.com/robertknight/rten/pull/157)
+
+- Fixed incorrect conversion of `axis` attribute for `ArgMin` and `ArgMax`
+  operators (https://github.com/robertknight/rten/pull/142)
+
+- Fixed uninitialized read in `Gemm` operator when `alpha != 1` and `beta == 0`
+  (https://github.com/robertknight/rten/pull/150)
+
+#### Optimizations
+
+- Optimize `Gather`, `NonZero` operator by allocating from memory pool
+  (https://github.com/robertknight/rten/pull/168)
+
+- Optimize `Slice` operator when slice ranges contain negative steps
+  (https://github.com/robertknight/rten/pull/167)
+
+- Optimize `Pad` operator by making copying of non-contiguous views more
+  efficient (https://github.com/robertknight/rten/pull/166)
+
+- Optimize `Conv` operator by avoiding redundant zeroing of packing buffers,
+  optimizing `im2col` setup (https://github.com/robertknight/rten/pull/165)
+
+- Optimize `ConvTranspose` by fusing bias addition into `col2im` transform
+  (https://github.com/robertknight/rten/pull/159)
 
 - Parallelize `AveragePool` operator (https://github.com/robertknight/rten/pull/138)
 
@@ -56,17 +80,26 @@ to the appropriate storage struct.
 Code using the type aliases (`Tensor`, `TensorView`, `TensorViewMut` etc.)
 does not need to change.
 
-#### Changes
-
-- Refactored tensor storage types to fix a violation of Rust's unique ownership
-  rules for mutable slices. This enables tests for rten-tensor and code using
-  this crate to be run under Miri
-  (https://github.com/robertknight/rten/pull/148).
+#### New features
 
 - Added `TensorBase::{as_cow, into_cow}` (named after `std::borrow::Cow`) to
   convert tensor storage to a type which is `Cow`-like. This is useful for
   writing code which works with either borrowed or owned tensors
   (https://github.com/robertknight/rten/pull/153).
+
+#### Bug fixes
+
+- Added missing checks for equality between old/new layout lengths in
+  reshape operations (https://github.com/robertknight/rten/pull/170,
+  https://github.com/robertknight/rten/pull/171)
+
+- Improved internal checks that storage slicing does not lead to out-of-bounds
+  accesses (https://github.com/robertknight/rten/pull/163)
+
+- Refactored tensor storage types to fix a violation of Rust's unique ownership
+  rules for mutable slices. This enables tests for rten-tensor and code using
+  this crate to be run under Miri
+  (https://github.com/robertknight/rten/pull/148).
 
 ### rten-vecmath
 
