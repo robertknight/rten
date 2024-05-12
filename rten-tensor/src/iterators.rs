@@ -4,7 +4,7 @@ use std::slice;
 
 use crate::index_iterator::DynIndices;
 use crate::layout::Layout;
-use crate::slice_range::{to_slice_items, SliceItem, SliceRange};
+use crate::slice_range::{to_slice_items, SliceItem};
 use crate::storage::{StorageMut, ViewData, ViewMutData};
 
 use super::{
@@ -161,57 +161,6 @@ impl IndexingIterBase {
         }
     }
 
-    /// Create an iterator over offsets of a subset of elements in `tensor`.
-    fn slice<L: Layout>(layout: &L, range: &[SliceItem]) -> IndexingIterBase {
-        assert!(
-            range.len() == layout.ndim(),
-            "slice dimensions {} do not match tensor dimensions {}",
-            range.len(),
-            layout.ndim()
-        );
-        let mut offset = 0;
-        let dims: Vec<_> = range
-            .iter()
-            .enumerate()
-            .map(|(dim, range)| {
-                let len = layout.size(dim);
-                let range = match range {
-                    SliceItem::Index(idx) => {
-                        let len = len as isize;
-                        assert!(*idx >= -len && *idx < len, "slice index is invalid");
-                        SliceRange::new(*idx, Some(*idx + 1), 1)
-                    }
-                    SliceItem::Range(range) => range.clamp(len),
-                };
-                let stride = layout.stride(dim);
-
-                let start_index = if range.start >= 0 {
-                    range.start
-                } else {
-                    (len as isize) + range.start
-                };
-
-                // Clamped ranges either have a start index that is valid, or
-                // that is one before/after the first/last valid index
-                // (depending on step direction). If invalid, the slice is
-                // empty.
-                if start_index >= 0 && start_index < (len as isize) {
-                    offset += stride * start_index as usize;
-                } else {
-                    assert!(range.steps(len) == 0);
-                }
-
-                IterPos::new(range.steps(len), (stride as isize) * range.step())
-            })
-            .collect();
-
-        IndexingIterBase {
-            len: dims.iter().map(|dim| dim.steps).product(),
-            offset: offset as isize,
-            pos: dims,
-        }
-    }
-
     /// Advance the iterator by stepping along dimension `dim`.
     ///
     /// The caller must calculate `stride`, the number of indices being stepped
@@ -294,19 +243,6 @@ impl<'a, T> Iter<'a, T> {
             Iter {
                 iter: IterKind::Indexing(IndexingIter::new(view)),
             }
-        }
-    }
-
-    pub(super) fn slice<L: Layout>(
-        view: ViewRef<'a, '_, T, L>,
-        range: &[SliceItem],
-    ) -> Iter<'a, T> {
-        let iter = IndexingIter {
-            base: IndexingIterBase::slice(view.layout, range),
-            data: view.data,
-        };
-        Iter {
-            iter: IterKind::Indexing(iter),
         }
     }
 }
@@ -529,12 +465,6 @@ impl Offsets {
             base: IndexingIterBase::broadcast(layout, shape),
         }
     }
-
-    pub fn slice<L: Layout>(layout: &L, range: &[SliceItem]) -> Offsets {
-        Offsets {
-            base: IndexingIterBase::slice(layout, range),
-        }
-    }
 }
 
 impl Iterator for Offsets {
@@ -668,17 +598,19 @@ struct LaneRanges {
 }
 
 impl LaneRanges {
-    fn new<L: Layout>(layout: &L, dim: usize) -> LaneRanges {
+    fn new<L: MutLayout>(layout: &L, dim: usize) -> LaneRanges {
         let slice_starts: Vec<SliceItem> = (0..layout.ndim())
             .map(|i| {
-                if i == dim {
-                    (0..1).into()
+                let end = if i == dim {
+                    1.min(layout.size(i) as isize)
                 } else {
-                    (0..(layout.size(i) as isize)).into()
-                }
+                    layout.size(i) as isize
+                };
+                (0..end).into()
             })
             .collect();
-        let offsets = Offsets::slice(layout, &slice_starts);
+        let (_range, sliced) = layout.slice_dyn(&slice_starts);
+        let offsets = Offsets::new(&sliced);
         LaneRanges {
             offsets,
             dim_size: layout.size(dim),
@@ -745,7 +677,7 @@ impl<'a, T> ExactSizeIterator for Lane<'a, T> {}
 impl<'a, T> Lanes<'a, T> {
     /// Create an iterator which yields all possible slices over the `dim`
     /// dimension of `tensor`.
-    pub(crate) fn new<L: Layout>(view: ViewRef<'a, '_, T, L>, dim: usize) -> Lanes<'a, T> {
+    pub(crate) fn new<L: MutLayout>(view: ViewRef<'a, '_, T, L>, dim: usize) -> Lanes<'a, T> {
         Lanes {
             data: view.data,
             ranges: LaneRanges::new(view.layout, dim),
@@ -784,7 +716,7 @@ pub struct LanesMut<'a, T> {
 impl<'a, T> LanesMut<'a, T> {
     /// Create an iterator which yields all possible slices over the `dim`
     /// dimension of `view`.
-    pub(crate) fn new<L: Layout>(view: MutViewRef<'a, '_, T, L>, dim: usize) -> LanesMut<'a, T> {
+    pub(crate) fn new<L: MutLayout>(view: MutViewRef<'a, '_, T, L>, dim: usize) -> LanesMut<'a, T> {
         // See notes in `Layout` about internal overlap.
         assert!(
             !view.layout.is_broadcast(),
