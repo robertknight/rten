@@ -33,12 +33,7 @@ impl Operator for RandomUniform {
         } else {
             Rng::new()
         };
-
-        let len = shape.iter().product();
-        let mut data = pool.alloc(len);
-        data.extend(std::iter::from_fn(|| Some(scale_value(rng.f32()))).take(len));
-
-        Tensor::from_data(shape, data).into_op_result()
+        Tensor::from_simple_fn_in(pool, shape, || scale_value(rng.f32())).into_op_result()
     }
 }
 
@@ -95,11 +90,8 @@ impl Operator for RandomNormal {
             Rng::new()
         };
 
-        let len = shape.iter().product();
-        let mut data = pool.alloc(len);
-        data.extend(std::iter::from_fn(|| Some(rng.f32_normal(self.mean, self.scale))).take(len));
-
-        Tensor::from_data(shape, data).into_op_result()
+        Tensor::from_simple_fn_in(pool, shape, || rng.f32_normal(self.mean, self.scale))
+            .into_op_result()
     }
 }
 
