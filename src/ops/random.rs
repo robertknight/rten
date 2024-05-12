@@ -269,7 +269,7 @@ mod tests {
             // Custom mean/scale values.
             Case {
                 mean: 5.,
-                scale: 2.,
+                scale: 0.5,
                 shape: vec![10, 10],
                 seed: None,
             },
