@@ -317,16 +317,6 @@ pub trait AsView: Layout {
         Tensor::from_data(&sliced_shape, sliced_data)
     }
 
-    /// Return an iterator over a slice of this tensor.
-    ///
-    /// This is similar to `self.slice(range).iter()` except that it
-    /// returns an iterator directly instead of creating an intermediate view.
-    /// Also slicing with this method is more flexible as negative steps are
-    /// supported for items in `range`.
-    fn slice_iter(&self, range: &[SliceItem]) -> Iter<Self::Elem> {
-        self.view().slice_iter(range)
-    }
-
     /// Return a view of this tensor with all dimensions of size 1 removed.
     fn squeezed(&self) -> TensorView<Self::Elem> {
         self.view().squeezed()
@@ -1219,11 +1209,6 @@ impl<'a, T, L: Clone + MutLayout> TensorBase<ViewData<'a, T>, L> {
             data: self.data.slice(offset_range),
             layout: sliced_layout,
         }
-    }
-
-    /// See [AsView::slice_iter].
-    pub fn slice_iter(&self, range: &[SliceItem]) -> Iter<'a, T> {
-        Iter::slice(self.view_ref(), range)
     }
 
     /// Remove all size-one dimensions from this tensor.
@@ -2985,17 +2970,6 @@ mod tests {
         let row_two = tensor.slice_dyn(1);
         assert_eq!(row_two[[0]], 3.);
         assert_eq!(row_two[[1]], 4.);
-    }
-
-    #[test]
-    fn test_slice_iter() {
-        let data = vec![1., 2., 3., 4.];
-        let tensor = Tensor::from_data(&[2, 2], data);
-        let row_one: Vec<_> = tensor
-            .slice_iter(&[SliceItem::Index(0), SliceItem::full_range()])
-            .copied()
-            .collect();
-        assert_eq!(row_one, &[1., 2.]);
     }
 
     #[test]
