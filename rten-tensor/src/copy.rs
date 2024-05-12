@@ -195,6 +195,8 @@ pub fn copy_into<T: Clone>(mut src: TensorView<T>, mut dest: TensorViewMut<T>) {
                 for i1 in 0..src.size(1) {
                     for i2 in 0..src.size(2) {
                         for i3 in 0..src.size(3) {
+                            // Safety: `dest` and `src` have the same shape,
+                            // and i0..i3 are in `[0, src.size(i))`.
                             unsafe {
                                 *dest.get_unchecked_mut([i0, i1, i2, i3]) =
                                     src.get_unchecked([i0, i1, i2, i3]).clone();
