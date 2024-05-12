@@ -72,3 +72,24 @@ impl Display for SliceError {
 }
 
 impl Error for SliceError {}
+
+/// Errors that can occur while reshaping a layout or tensor.
+#[derive(Clone, Debug, PartialEq)]
+pub enum ReshapeError {
+    /// Attempted to reshape a tensor without copying data, but the layout
+    /// is not contiguous.
+    NotContiguous,
+
+    /// The reshaped layout would have a different length than the current
+    /// layout.
+    LengthMismatch,
+}
+
+impl std::fmt::Display for ReshapeError {
+    fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
+        match self {
+            ReshapeError::NotContiguous => write!(f, "view is not contiguous"),
+            ReshapeError::LengthMismatch => write!(f, "new shape has a different length"),
+        }
+    }
+}

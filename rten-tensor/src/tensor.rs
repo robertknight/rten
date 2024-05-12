@@ -585,7 +585,10 @@ impl<S: StorageMut, L: MutLayout> TensorBase<S, L> {
         shape: SH,
     ) -> TensorBase<ViewMutData<S::Elem>, SH::Layout> {
         TensorBase {
-            layout: self.layout.reshaped(shape),
+            layout: self
+                .layout
+                .reshaped_for_view(shape)
+                .expect("reshape failed"),
             data: self.data.view_mut(),
         }
     }
@@ -742,8 +745,11 @@ impl<T, L: Clone + MutLayout> TensorBase<Vec<T>, L> {
         T: Clone,
     {
         TensorBase {
+            layout: self
+                .layout
+                .reshaped_for_copy(shape)
+                .expect("reshape failed"),
             data: self.into_data(),
-            layout: shape.into_layout(),
         }
     }
 
@@ -1129,7 +1135,10 @@ impl<'a, T, L: Clone + MutLayout> TensorBase<ViewData<'a, T>, L> {
     pub fn reshaped<S: IntoLayout>(&self, shape: S) -> TensorBase<ViewData<'a, T>, S::Layout> {
         TensorBase {
             data: self.data,
-            layout: self.layout.reshaped(shape),
+            layout: self
+                .layout
+                .reshaped_for_view(shape)
+                .expect("reshape failed"),
         }
     }
 
@@ -1411,7 +1420,10 @@ impl<T, S: Storage<Elem = T>, L: MutLayout + Clone> AsView for TensorBase<S, L> 
     {
         TensorBase {
             data: self.to_vec(),
-            layout: shape.into_layout(),
+            layout: self
+                .layout
+                .reshaped_for_copy(shape)
+                .expect("reshape failed"),
         }
     }
 
@@ -2021,7 +2033,7 @@ mod tests {
 
     #[test]
     fn test_clip_dim() {
-        let mut tensor = NdTensor::arange(0, 10, None).into_shape([3, 3]);
+        let mut tensor = NdTensor::arange(0, 9, None).into_shape([3, 3]);
         tensor.clip_dim(0, 0..3); // No-op
         assert_eq!(tensor.shape(), [3, 3]);
 
@@ -2431,6 +2443,12 @@ mod tests {
     }
 
     #[test]
+    #[should_panic(expected = "reshape failed")]
+    fn test_into_shape_invalid() {
+        NdTensor::arange(0, 16, None).into_shape([2, 2]);
+    }
+
+    #[test]
     fn test_inner_iter() {
         let tensor = Tensor::from_data(&[2, 2], vec![1, 2, 3, 4]);
         let mut rows = tensor.inner_iter::<1>();
@@ -2762,6 +2780,13 @@ mod tests {
     }
 
     #[test]
+    #[should_panic(expected = "reshape failed")]
+    fn test_reshaped_invalid() {
+        let tensor = NdTensor::arange(0, 16, None);
+        tensor.reshaped([2, 2]);
+    }
+
+    #[test]
     fn test_reshaped_mut() {
         let data = vec![1., 2., 3., 4., 5., 6.];
         let mut tensor = NdTensor::from_data([1, 1, 2, 1, 3], data);
@@ -2938,6 +2963,12 @@ mod tests {
         let flat = tensor.to_shape([4]);
         assert_eq!(flat.shape(), [4]);
         assert_eq!(flat.data(), Some([1, 2, 3, 4].as_slice()));
+    }
+
+    #[test]
+    #[should_panic(expected = "reshape failed")]
+    fn test_to_shape_invalid() {
+        NdTensor::arange(0, 16, None).to_shape([2, 2]);
     }
 
     #[test]
