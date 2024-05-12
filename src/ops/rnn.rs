@@ -902,36 +902,19 @@ mod tests {
             // The last hidden state should match the end of the hidden sequence
             // for the forwards direction, and the start of the hidden sequence
             // for the reverse direction.
-            let hss = hidden_seq.shape();
-            let hidden_seq_fwd = hidden_seq
-                .slice_iter(&[
-                    (..hss[0]).into(), // seq
-                    (0..1).into(),     // direction
-                    (..hss[2]).into(), // batch
-                    (..hss[3]).into(), // hidden
-                ])
-                .collect::<Vec<_>>();
-            let last_hidden_fwd = last_hidden
-                .slice_iter(&[(0..1).into(), (..batch).into(), (..hidden_size).into()])
-                .collect::<Vec<_>>();
+            let hidden_seq_fwd = hidden_seq.slice::<2, _>((
+                -1, // seq
+                0,  // direction
+            ));
+            let last_hidden_fwd = last_hidden.slice::<2, _>(0);
+            assert_eq!(hidden_seq_fwd, last_hidden_fwd);
 
-            assert_eq!(
-                hidden_seq_fwd[hidden_seq_fwd.len() - batch * hidden_size..],
-                last_hidden_fwd
-            );
-
-            let hidden_seq_rev = hidden_seq
-                .slice_iter(&[
-                    (..hss[0]).into(), // seq
-                    (1..2).into(),     // direction
-                    (..hss[2]).into(), // batch
-                    (..hss[3]).into(), // hidden
-                ])
-                .collect::<Vec<_>>();
-            let last_hidden_rev = last_hidden
-                .slice_iter(&[(1..2).into(), (..batch).into(), (..hidden_size).into()])
-                .collect::<Vec<_>>();
-            assert_eq!(hidden_seq_rev[0..batch * hidden_size], last_hidden_rev);
+            let hidden_seq_rev = hidden_seq.slice::<2, _>((
+                0, // seq
+                1, // direction
+            ));
+            let last_hidden_rev = last_hidden.slice::<2, _>(1);
+            assert_eq!(hidden_seq_rev, last_hidden_rev);
         }
     }
 
