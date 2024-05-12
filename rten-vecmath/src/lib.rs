@@ -1,5 +1,27 @@
-//! SIMD-vectorized implementations of various math functions that are commonly
-//! used in neural networks.
+//! rten-vecmath provides portable SIMD types for implementing vectorized
+//! functions that work across different architectures.
+//!
+//! # Portable SIMD types
+//!
+//! The [`simd_vec`] module contains types and traits to support
+//! writing portable SIMD code, that works on stable Rust.
+//!
+//! ## Supported architectures
+//!
+//! SIMD wrappers are provided for the following architectures:
+//!
+//! - Arm Neon
+//! - AVX 2 / FMA
+//! - AVX-512 (requires `avx512` feature and nightly Rust)
+//! - WebAssembly SIMD
+//!
+//! There is also a scalar fallback that works on all platforms, but provides no
+//! performance benefit over non-SIMD code.
+//!
+//! # Vectorized math functions
+//!
+//! This crate contains SIMD-vectorized implementations of various math
+//! functions that are commonly used in neural networks.
 //!
 //! For each function in this library there are multiple variants, which
 //! typically include:
