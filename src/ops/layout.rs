@@ -278,8 +278,7 @@ pub fn reshape<T: Copy>(
     allow_zero: bool,
 ) -> Result<Tensor<T>, OpError> {
     let out_shape = resolve_shape(input.shape(), shape, allow_zero)?;
-    let mut output = Tensor::uninit_in(pool, input.shape()).init_from(&input);
-    output.reshape(&out_shape);
+    let output = input.to_tensor_in(pool).into_shape(out_shape.as_slice());
     Ok(output)
 }
 

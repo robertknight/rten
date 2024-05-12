@@ -16,10 +16,7 @@ pub fn constant_of_shape<T: Copy>(
     shape: &NdTensorView<i32, 1>,
 ) -> Tensor<T> {
     let shape: Vec<_> = shape.iter().map(|el| *el as usize).collect();
-    let len = shape.iter().product();
-    let mut data = pool.alloc(len);
-    data.resize(len, value);
-    Tensor::from_data(&shape, data)
+    Tensor::full_in(pool, &shape, value)
 }
 
 #[derive(Debug)]
