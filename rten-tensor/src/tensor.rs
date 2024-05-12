@@ -1474,7 +1474,10 @@ impl<T> TensorBase<Vec<T>, DynLayout> {
         if !self.is_contiguous() {
             self.data = self.to_vec_in(alloc);
         }
-        self.layout = DynLayout::from_shape(shape);
+        self.layout = self
+            .layout
+            .reshaped_for_copy(shape)
+            .expect("reshape failed");
     }
 }
 
@@ -2763,6 +2766,13 @@ mod tests {
         let mut view_mut = tensor.view_mut();
         view_mut.reshape(&[2, 2]);
         assert_eq!(view_mut.shape(), &[2, 2]);
+    }
+
+    #[test]
+    #[should_panic(expected = "reshape failed")]
+    fn test_reshape_invalid() {
+        let mut tensor = Tensor::arange(0, 16, None);
+        tensor.reshape(&[2, 2]);
     }
 
     #[test]
