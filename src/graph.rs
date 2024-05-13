@@ -3,13 +3,14 @@ use std::fmt;
 use std::iter::zip;
 
 use rten_tensor::prelude::*;
-use rten_tensor::Tensor;
+use rten_tensor::{DynLayout, Tensor, TensorView};
 
 // The std HashMap/HashSet provide DOS resistance. In this module hash keys are
 // mostly `NodeId`s which we allocate ourselves, so this is not a concern.
 // Instead we want faster hashing.
 use rustc_hash::{FxHashMap, FxHashSet};
 
+use crate::constant_storage::ArcTensorView;
 use crate::env::env_flag;
 use crate::ops::{Input, InputList, OpError, Operator, Output};
 use crate::tensor_pool::{ExtractBuffer, TensorPool};
@@ -41,9 +42,43 @@ pub struct ValueNode {
     shape: Option<Vec<Dimension>>,
 }
 
+/// Data for a constant node (ie. model weights) in a [Graph].
+pub enum ConstantNodeData<T> {
+    Owned(Tensor<T>),
+    Arc(ArcTensorView<T>),
+}
+
+impl<T> From<Tensor<T>> for ConstantNodeData<T> {
+    fn from(val: Tensor<T>) -> ConstantNodeData<T> {
+        ConstantNodeData::Owned(val)
+    }
+}
+
+impl<T> From<ArcTensorView<T>> for ConstantNodeData<T> {
+    fn from(val: ArcTensorView<T>) -> ConstantNodeData<T> {
+        ConstantNodeData::Arc(val)
+    }
+}
+
 pub struct ConstantNode<T> {
     name: Option<String>,
-    data: Tensor<T>,
+    data: ConstantNodeData<T>,
+}
+
+impl<T> ConstantNode<T> {
+    fn view(&self) -> TensorView<T> {
+        match &self.data {
+            ConstantNodeData::Owned(data) => data.view(),
+            ConstantNodeData::Arc(data) => data.view(),
+        }
+    }
+
+    fn layout(&self) -> &DynLayout {
+        match &self.data {
+            ConstantNodeData::Owned(data) => data.layout(),
+            ConstantNodeData::Arc(data) => data.layout(),
+        }
+    }
 }
 
 pub enum Constant {
@@ -52,10 +87,10 @@ pub enum Constant {
 }
 
 impl Constant {
-    fn len(&self) -> usize {
+    fn layout(&self) -> &DynLayout {
         match self {
-            Constant::Float(f) => f.data.len(),
-            Constant::Int(i) => i.data.len(),
+            Constant::Float(f) => f.layout(),
+            Constant::Int(i) => i.layout(),
         }
     }
 }
@@ -102,10 +137,7 @@ impl Node {
 
         match self {
             Node::Operator(_) => None,
-            Node::Constant(constant) => match constant {
-                Constant::Float(node) => Some(dims_from_fixed_shape(node.data.shape())),
-                Constant::Int(node) => Some(dims_from_fixed_shape(node.data.shape())),
-            },
+            Node::Constant(node) => Some(dims_from_fixed_shape(node.layout().shape())),
             Node::Value(node) => node.shape.clone(),
         }
     }
@@ -286,13 +318,14 @@ impl Graph {
     /// `name` is an identifier for this node that is used in debug messages etc.
     ///
     /// Returns the ID of the added node.
-    pub fn add_constant<T>(&mut self, name: Option<&str>, value: Tensor<T>) -> NodeId
+    pub fn add_constant<T, V>(&mut self, name: Option<&str>, value: V) -> NodeId
     where
+        V: Into<ConstantNodeData<T>>,
         ConstantNode<T>: Into<Constant>,
     {
         let node = ConstantNode {
             name: name.map(|s| s.to_owned()),
-            data: value,
+            data: value.into(),
         };
         self.nodes.push(Node::Constant(node.into()));
         self.nodes.len() - 1
@@ -336,7 +369,7 @@ impl Graph {
             .map(|node| match node {
                 Node::Operator(_) => 0,
                 Node::Value(_) => 0,
-                Node::Constant(constant) => constant.len(),
+                Node::Constant(constant) => constant.layout().len(),
             })
             .sum()
     }
@@ -377,8 +410,8 @@ impl Graph {
         let get_value_from_constant_or_input = |node_id: NodeId| -> Option<Input> {
             if let Some(Node::Constant(constant)) = self.nodes.get(node_id) {
                 let value = match constant {
-                    Constant::Float(node) => Input::FloatTensor(node.data.view()),
-                    Constant::Int(node) => Input::IntTensor(node.data.view()),
+                    Constant::Float(node) => Input::FloatTensor(node.view()),
+                    Constant::Int(node) => Input::IntTensor(node.view()),
                 };
                 Some(value)
             } else {

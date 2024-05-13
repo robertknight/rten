@@ -1,6 +1,5 @@
 use std::collections::VecDeque;
 use std::error::Error;
-use std::fs;
 
 use rten::{FloatOperators, Model};
 use rten_imageio::{normalize_image, read_image, write_image};
@@ -75,8 +74,7 @@ Args:
 /// [depth_anything]: <https://github.com/LiheYoung/Depth-Anything>
 fn main() -> Result<(), Box<dyn Error>> {
     let args = parse_args()?;
-    let model_bytes = fs::read(args.model)?;
-    let model = Model::load(&model_bytes)?;
+    let model = Model::load_file(args.model)?;
 
     let mut image: Tensor = read_image(&args.image)?.into();
     let [_, orig_height, orig_width] = image.shape().try_into()?;

@@ -1,6 +1,5 @@
 use std::collections::{HashMap, VecDeque};
 use std::error::Error;
-use std::fs;
 use std::fs::File;
 use std::io::{BufRead, BufReader};
 use std::path::{Path, PathBuf};
@@ -211,8 +210,7 @@ Where config is one of:
 /// the models.
 fn main() -> Result<(), Box<dyn Error>> {
     let args = parse_args()?;
-    let model_bytes = fs::read(args.model)?;
-    let model = Model::load(&model_bytes)?;
+    let model = Model::load_file(args.model)?;
 
     let normalize_pixel = match args.config.norm {
         PixelNorm::NoNorm => |_, value| value,

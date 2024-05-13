@@ -1,6 +1,5 @@
 use std::collections::VecDeque;
 use std::error::Error;
-use std::fs;
 
 use rten::ops::concat;
 use rten::{FloatOperators, Input, Model, NodeId, Operators, TensorPool};
@@ -200,8 +199,7 @@ fn embed_sentence_batch(
 /// ```
 fn main() -> Result<(), Box<dyn Error>> {
     let args = parse_args()?;
-    let model_bytes = fs::read(args.model)?;
-    let model = Model::load(&model_bytes)?;
+    let model = Model::load_file(args.model)?;
 
     let tokenizer_json = std::fs::read_to_string(&args.tokenizer)?;
     let tokenizer = Tokenizer::from_json(&tokenizer_json)?;

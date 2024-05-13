@@ -179,9 +179,7 @@ fn phonemes_to_ids(phonemes: &str, config: &ModelConfig) -> NdTensor<i32, 1> {
 fn main() -> Result<(), Box<dyn Error>> {
     let args = parse_args()?;
 
-    let model_data = std::fs::read(args.model)?;
-    let model = Model::load(&model_data)?;
-    std::mem::drop(model_data);
+    let model = Model::load_file(args.model)?;
 
     let config_json = std::fs::read_to_string(args.model_config)?;
     let config: ModelConfig = serde_json::from_str(&config_json)?;

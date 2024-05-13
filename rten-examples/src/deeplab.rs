@@ -1,6 +1,5 @@
 use std::collections::{HashSet, VecDeque};
 use std::error::Error;
-use std::fs;
 
 use rten::{Dimension, FloatOperators, Model, Operators};
 use rten_imageio::{normalize_image, read_image, write_image};
@@ -107,8 +106,7 @@ const PASCAL_VOC_LABELS: [(&str, Rgb); 21] = [
 /// [^1] <https://arxiv.org/abs/1706.05587>
 fn main() -> Result<(), Box<dyn Error>> {
     let args = parse_args()?;
-    let model_bytes = fs::read(args.model)?;
-    let model = Model::load(&model_bytes)?;
+    let model = Model::load_file(args.model)?;
 
     let mut image: Tensor = read_image(&args.image)?.into();
     normalize_image(image.nd_view_mut());

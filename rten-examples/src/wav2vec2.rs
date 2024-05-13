@@ -1,6 +1,5 @@
 use std::collections::VecDeque;
 use std::error::Error;
-use std::fs;
 
 use rten::ctc::CtcDecoder;
 use rten::Model;
@@ -111,9 +110,7 @@ fn main() -> Result<(), Box<dyn Error>> {
     // with index 0 is omitted, as that is used for a CTC blank.
     let vocab = "???|ETAONIHSRDLUMWCFGYPBVK'XJQZ";
 
-    let model_data = fs::read(args.model)?;
-    let model = Model::load(&model_data)?;
-
+    let model = Model::load_file(args.model)?;
     let samples = read_wav_file(&args.wav_file)?;
 
     let mut sample_batch = Tensor::from_vec(samples);
