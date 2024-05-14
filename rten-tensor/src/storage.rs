@@ -19,7 +19,14 @@ use std::ops::Range;
 /// other tensors. In other words, whenever a mutable tensor is split or sliced
 /// or iterated, it should not be possible to get duplicate mutable references
 /// to the same elements from those views.
-pub trait Storage {
+///
+/// Implementations of this trait must ensure that the
+/// [`as_ptr`](Storage::as_ptr) and [`len`](Storage::len) methods define a valid
+/// range of memory within the same allocated object, which is correctly aligned
+/// for the `Elem` type. For the case where the storage is contiguous, these
+/// requirements are the same as
+/// [`slice::from_raw_parts`](std::slice::from_raw_parts).
+pub unsafe trait Storage {
     /// The element type.
     type Elem;
 
@@ -147,7 +154,13 @@ impl<'a, T> IntoStorage for &'a mut [T] {
 ///
 /// This extends [Storage] with methods to get mutable pointers and references
 /// to elements in the storage.
-pub trait StorageMut: Storage {
+///
+/// # Safety
+///
+/// The [`as_mut_ptr`](StorageMut::as_mut_ptr) method has the same safety
+/// requirements as [`Storage::as_ptr`]. The result of `as_mut_ptr` must also
+/// be equal to `as_ptr`.
+pub unsafe trait StorageMut: Storage {
     /// Return a mutable pointer to the first element in storage.
     fn as_mut_ptr(&mut self) -> *mut Self::Elem;
 
@@ -208,7 +221,7 @@ pub trait StorageMut: Storage {
     }
 }
 
-impl<T> Storage for Vec<T> {
+unsafe impl<T> Storage for Vec<T> {
     type Elem = T;
 
     fn len(&self) -> usize {
@@ -220,7 +233,7 @@ impl<T> Storage for Vec<T> {
     }
 }
 
-impl<T> StorageMut for Vec<T> {
+unsafe impl<T> StorageMut for Vec<T> {
     fn as_mut_ptr(&mut self) -> *mut T {
         self.as_mut_ptr()
     }
@@ -303,7 +316,7 @@ impl<'a, T> ViewData<'a, T> {
     }
 }
 
-impl<'a, T> Storage for ViewData<'a, T> {
+unsafe impl<'a, T> Storage for ViewData<'a, T> {
     type Elem = T;
 
     fn len(&self) -> usize {
@@ -341,7 +354,7 @@ impl<'a, T> ViewMutData<'a, T> {
     }
 }
 
-impl<'a, T> Storage for ViewMutData<'a, T> {
+unsafe impl<'a, T> Storage for ViewMutData<'a, T> {
     type Elem = T;
 
     fn len(&self) -> usize {
@@ -353,7 +366,7 @@ impl<'a, T> Storage for ViewMutData<'a, T> {
     }
 }
 
-impl<'a, T> StorageMut for ViewMutData<'a, T> {
+unsafe impl<'a, T> StorageMut for ViewMutData<'a, T> {
     fn as_mut_ptr(&mut self) -> *mut T {
         self.ptr
     }
@@ -370,7 +383,7 @@ pub enum CowData<'a, T> {
     Borrowed(ViewData<'a, T>),
 }
 
-impl<'a, T> Storage for CowData<'a, T> {
+unsafe impl<'a, T> Storage for CowData<'a, T> {
     type Elem = T;
 
     fn len(&self) -> usize {
