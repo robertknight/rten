@@ -105,7 +105,7 @@ pub fn non_max_suppression(
             }
 
             let [c0, c1, c2, c3] = boxes.slice((n, b)).to_array();
-            let [top, left, right, bottom] = match box_order {
+            let [top, left, bottom, right] = match box_order {
                 BoxOrder::TopLeftBottomRight => [c0, c1, c2, c3],
                 BoxOrder::CenterWidthHeight => {
                     let [x, y, w, h] = [c0, c1, c2, c3];
@@ -264,14 +264,18 @@ mod tests {
 
     fn example_boxes(order: BoxOrder) -> (NdTensor<f32, 3>, NdTensor<f32, 3>) {
         let boxes = [
-            // Two overlapping boxes
+            // Two overlapping boxes. These overlap at a "medium" threshold of
+            // 0.5, but not at a very high threshold (eg. 0.99).
+            //
+            // The left/right coords don't overlap with the top/bottom coords,
+            // to catch mistakes if these are mixed up.
             NmsBox {
-                tlbr: [0., 0., 100., 100.],
+                tlbr: [0., 20., 20., 40.],
                 class: 0,
                 score: 0.8,
             },
             NmsBox {
-                tlbr: [5., 5., 90., 90.],
+                tlbr: [2., 22., 22., 42.],
                 class: 0,
                 score: 0.71,
             },
@@ -303,7 +307,7 @@ mod tests {
         )
         .unwrap();
 
-        assert!(selected.size(0) == 2);
+        assert_eq!(selected.size(0), 2);
 
         let [batch, class, box_idx] = selected.slice(0).to_array();
         assert_eq!([batch, class, box_idx], [0, 0, 0]);
@@ -365,7 +369,7 @@ mod tests {
 
         // Since we set a high IoU, the overlapping boxes for class 0 will be
         // returned.
-        assert!(selected.size(0) == 3);
+        assert_eq!(selected.size(0), 3);
 
         let [batch, class, box_idx] = selected.slice(0).to_array();
         assert_eq!([batch, class, box_idx], [0, 0, 0]);
