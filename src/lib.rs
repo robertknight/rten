@@ -44,6 +44,7 @@
 #[allow(unused)] // Docs only
 use rten_tensor::{NdTensor, Tensor};
 
+mod constant_storage;
 mod env;
 mod gemm;
 mod graph;
@@ -66,7 +67,7 @@ pub mod ctc;
 pub mod ops;
 
 pub use graph::{Dimension, NodeId, RunOptions};
-pub use model::{Model, ModelLoadError, NodeInfo, OpRegistry, ReadOp, ReadOpError};
+pub use model::{Model, ModelLoadError, ModelOptions, NodeInfo, OpRegistry, ReadOp, ReadOpError};
 pub use model_metadata::ModelMetadata;
 pub use ops::{FloatOperators, Input, Operators, Output};
 pub use tensor_pool::TensorPool;

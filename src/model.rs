@@ -2,12 +2,21 @@ use std::collections::HashMap;
 use std::env;
 use std::error::Error;
 use std::fmt::{Display, Formatter};
+use std::path::Path;
+use std::sync::Arc;
+
+#[cfg(feature = "mmap")]
+use std::fs::File;
+
+#[cfg(feature = "mmap")]
+use memmap2::Mmap;
 
 use rten_tensor::Tensor;
 use smallvec::smallvec;
 
+use crate::constant_storage::{ArcSlice, ArcTensorView, ConstantStorage};
 use crate::env::str_as_bool;
-use crate::graph::{Dimension, Graph, Node, NodeId, RunError, RunOptions};
+use crate::graph::{ConstantNodeData, Dimension, Graph, Node, NodeId, RunError, RunOptions};
 use crate::model_metadata::ModelMetadata;
 use crate::ops;
 use crate::ops::{
@@ -20,13 +29,40 @@ use crate::timing::TimingSort;
 
 /// The central type used to execute RTen machine learning models.
 ///
-/// Models are loaded from `.rten` format model files using [Model::load] and
-/// executed using [Model::run] or one of the other `run_*` methods. They
-/// take a list of tensor views as inputs, perform a series of computations and
-/// return one or more output tensors. `.rten` models use
-/// [FlatBuffers](https://github.com/google/flatbuffers) and are conceptually
-/// similar to the `.ort` format used by ONNX Runtime and `.tflite` used by
-/// TensorFlow Lite.
+/// Models are loaded from `.rten` format model files and executed using
+/// [`Model::run`]. They take a list of tensor views as inputs, perform a series
+/// of computations and return one or more output tensors.
+///
+/// ## Example
+///
+/// ```no_run
+/// use rten_tensor::prelude::*;
+/// use rten_tensor::Tensor;
+///
+/// use rten::Model;
+///
+/// fn main() -> Result<(), Box<dyn std::error::Error>> {
+///     let model = Model::load_file("model.rten")?;
+///     let input_id = model.node_id("input")?;
+///     let output_id = model.node_id("output")?;
+///
+///     // Prepare inputs in format expected by model.
+///     let input_data: Tensor<f32> = Tensor::zeros(&[1, 3, 224, 224]);
+///
+///     let mut outputs = model.run(&[(input_id, input_data.view().into())], &[output_id], None)?;
+///     let output: Tensor<f32> = outputs.remove(0).try_into()?;
+///
+///     // Post-process outputs.
+///
+///     Ok(())
+/// }
+/// ```
+///
+/// ## About RTen models
+///
+/// `.rten` models use the [FlatBuffers](https://github.com/google/flatbuffers)
+/// format and are conceptually similar to the `.ort` format used by ONNX
+/// Runtime and `.tflite` used by TensorFlow Lite.
 ///
 /// RTen models are logically graphs consisting of three types of nodes:
 ///
@@ -37,8 +73,8 @@ use crate::timing::TimingSort;
 ///    as matrix multiplication, convolution etc.
 ///
 /// Some of these nodes are designated as inputs and outputs. The IDs of these
-/// nodes can be obtained using [Model::input_ids] and [Model::output_ids].
-/// These IDs are then used when calling [Model::run]. Model execution consists
+/// nodes can be obtained using [`Model::input_ids`] and [`Model::output_ids`].
+/// These IDs are then used when calling [`Model::run`]. Model execution consists
 /// of generating a plan which starts with the input nodes, and executes the
 /// necessary operators to generate the requested outputs.
 ///
@@ -54,7 +90,7 @@ use crate::timing::TimingSort;
 ///
 /// By default all supported ONNX operators are available for use by the model.
 /// You can reduce binary size and compilation time by loading a model with
-/// only a subset of operators enabled. See [Model::load_with_ops].
+/// only a subset of operators enabled. See [`ModelOptions::with_ops`].
 pub struct Model {
     node_ids: HashMap<String, NodeId>,
     input_ids: Vec<NodeId>,
@@ -108,19 +144,106 @@ fn parse_timing_config(config: &str, opts: &mut RunOptions) {
     }
 }
 
-impl Model {
-    /// Load a serialized model.
-    ///
-    /// The model will have all of the built-in operators available to it (see
-    /// [OpRegistry::with_all_ops]).
-    pub fn load(data: &[u8]) -> Result<Model, ModelLoadError> {
-        let registry = OpRegistry::with_all_ops();
-        Self::load_with_ops(data, &registry)
+/// Options which customize how a model is loaded.
+///
+/// This enables more advanced use cases such as loading a model with only
+/// a subset of operators available.
+pub struct ModelOptions {
+    registry: OpRegistry,
+}
+
+impl ModelOptions {
+    /// Create a set of options with all operators enabled.
+    pub fn with_all_ops() -> ModelOptions {
+        ModelOptions {
+            registry: OpRegistry::with_all_ops(),
+        }
     }
 
-    /// Load a serialized model with a custom operator registry.
-    pub fn load_with_ops(data: &[u8], registry: &OpRegistry) -> Result<Model, ModelLoadError> {
-        let model = root_as_model(data).map_err(ModelLoadError::ParseFailed)?;
+    /// Create a set of options with a custom set of operators enabled.
+    ///
+    /// This can be used to reduce binary size by excluding operators that
+    /// the model will not use, or use custom implementations of operators.
+    pub fn with_ops(ops: OpRegistry) -> ModelOptions {
+        ModelOptions { registry: ops }
+    }
+
+    /// Load the model from a file. See [`Model::load_file`].
+    pub fn load_file<P: AsRef<Path>>(&self, path: P) -> Result<Model, ModelLoadError> {
+        let data = std::fs::read(path).map_err(ModelLoadError::ReadFailed)?;
+        self.load(data)
+    }
+
+    /// Load the model from a data buffer. See [`Model::load`].
+    pub fn load(&self, data: Vec<u8>) -> Result<Model, ModelLoadError> {
+        let storage = Arc::new(ConstantStorage::Buffer(data));
+        Model::load_impl(storage, &self.registry)
+    }
+
+    /// Load the model from a memory-mapped view of a file. See [`Model::load_mmap`].
+    ///
+    /// # Safety
+    ///
+    /// See notes in [`Model::load_mmap`].
+    #[cfg(feature = "mmap")]
+    pub unsafe fn load_mmap<P: AsRef<Path>>(&self, path: P) -> Result<Model, ModelLoadError> {
+        let file = File::open(path).map_err(ModelLoadError::ReadFailed)?;
+        let mmap = Mmap::map(&file).map_err(ModelLoadError::ReadFailed)?;
+        let storage = Arc::new(ConstantStorage::Mmap(mmap));
+        Model::load_impl(storage, &self.registry)
+    }
+}
+
+impl Model {
+    /// Load a serialized model from a `.rten` file.
+    ///
+    /// This method reads the entire file into memory. For large models (hundreds
+    /// of MB or more), [`load_mmap`](Model::load_mmap) can be faster.
+    pub fn load_file<P: AsRef<Path>>(path: P) -> Result<Model, ModelLoadError> {
+        ModelOptions::with_all_ops().load_file(path)
+    }
+
+    /// Load a serialized model from a byte buffer.
+    pub fn load(data: Vec<u8>) -> Result<Model, ModelLoadError> {
+        ModelOptions::with_all_ops().load(data)
+    }
+
+    /// Load a serialized model by mapping a view of a file as memory.
+    ///
+    /// This method requires the `mmap` crate feature to be enabled.
+    ///
+    /// For large models (hundreds of MB), this can be faster and use less
+    /// memory than reading the entire model into memory. The first _run_ of a
+    /// memory-mapped model will be slower than if the file is read into memory
+    /// first and then executed. Depending on the size of the model, the overall
+    /// time taken for load + first run may be less or about the same.
+    /// Subsequent model executions should take about the same time.
+    ///
+    /// # Safety
+    ///
+    /// This method is marked unsafe because undefined behavior can be caused
+    /// if the model file is modified on disk while it is being used by a
+    /// `Model`. Callers will need to decide whether this is an acceptable risk
+    /// for their context.
+    ///
+    /// ```no_run
+    /// # fn main() -> Result<(), Box<dyn std::error::Error>> {
+    /// use rten::Model;
+    ///
+    /// let model = unsafe { Model::load_mmap("model.rten")? };
+    /// # Ok(())
+    /// # }
+    /// ```
+    #[cfg(feature = "mmap")]
+    pub unsafe fn load_mmap<P: AsRef<Path>>(path: P) -> Result<Model, ModelLoadError> {
+        ModelOptions::with_all_ops().load_mmap(path)
+    }
+
+    fn load_impl(
+        storage: Arc<ConstantStorage>,
+        registry: &OpRegistry,
+    ) -> Result<Model, ModelLoadError> {
+        let model = root_as_model(storage.data()).map_err(ModelLoadError::ParseFailed)?;
 
         if model.schema_version() != 1 {
             return Err(ModelLoadError::SchemaVersionUnsupported);
@@ -221,13 +344,13 @@ impl Model {
                 } else if let Some(constant) = node.data_as_constant_node() {
                     let shape: Vec<usize> = constant.shape().iter().map(|x| x as usize).collect();
                     let graph_node = if let Some(float_data) = constant.data_as_float_data() {
-                        let data: Vec<f32> = vec_from_flatbuffers_vec(float_data.data());
-                        let tensor = Tensor::from_data(&shape, data);
-                        graph.add_constant(node.name(), tensor)
+                        let const_data =
+                            constant_node_from_flatbuffers_vec(&storage, float_data.data(), &shape);
+                        graph.add_constant(node.name(), const_data)
                     } else if let Some(int_data) = constant.data_as_int_data() {
-                        let data: Vec<i32> = vec_from_flatbuffers_vec(int_data.data());
-                        let tensor = Tensor::from_data(&shape, data);
-                        graph.add_constant(node.name(), tensor)
+                        let const_data =
+                            constant_node_from_flatbuffers_vec(&storage, int_data.data(), &shape);
+                        graph.add_constant(node.name(), const_data)
                     } else {
                         return Err(ModelLoadError::GraphError(
                             "unsupported constant data type".to_string(),
@@ -1137,9 +1260,12 @@ fn convert_reduction(r: sg::ScatterReduction) -> Result<Option<ScatterReduction>
 }
 
 /// Errors reported by [Model::load].
-#[derive(Debug, PartialEq)]
+#[derive(Debug)]
 pub enum ModelLoadError {
     SchemaVersionUnsupported,
+
+    /// An error occurred reading the file from disk.
+    ReadFailed(std::io::Error),
 
     /// An error occurred parsing the FlatBuffers file.
     ParseFailed(flatbuffers::InvalidFlatbuffer),
@@ -1156,6 +1282,7 @@ impl Display for ModelLoadError {
     fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
         match self {
             ModelLoadError::SchemaVersionUnsupported => write!(f, "unsupported schema version"),
+            ModelLoadError::ReadFailed(e) => write!(f, "read error: {e}"),
             ModelLoadError::ParseFailed(e) => write!(f, "parse error: {e}"),
             ModelLoadError::OperatorInvalid(e) => write!(f, "operator error: {e}"),
             ModelLoadError::GraphError(e) => write!(f, "graph error: {e}"),
@@ -1165,26 +1292,31 @@ impl Display for ModelLoadError {
 
 impl Error for ModelLoadError {}
 
-/// Optimized conversion of a `flatbuffers::Vector<T>` into a `Vec<T>` for
-/// primitive types.
+/// Convert a vector from a FlatBuffers file into data for a graph constant node.
 ///
-/// This relies on the fact that the underlying bytes are likely correctly
-/// aligned for `T`. If so, we can transmute `&[u8] -> &[T]` and then benefit
-/// from fast slice-to-Vec conversion.
-fn vec_from_flatbuffers_vec<'a, T: Copy + flatbuffers::Follow<'a, Inner = T>>(
-    fbv: flatbuffers::Vector<'a, T>,
-) -> Vec<T> {
-    let bytes = fbv.bytes();
+/// If the data in the file is suitably aligned, as should be the case, and the
+/// current system is little endian, this will return a tensor view that
+/// references data in `storage`, without copying. Otherwise it will copy the
+/// data into an owned tensor.
+fn constant_node_from_flatbuffers_vec<'a, T: Copy + flatbuffers::Follow<'a, Inner = T>>(
+    storage: &Arc<ConstantStorage>,
+    fb_vec: flatbuffers::Vector<'a, T>,
+    shape: &[usize],
+) -> ConstantNodeData<T> {
+    let bytes = fb_vec.bytes();
     if bytes.as_ptr() as usize % std::mem::align_of::<T>() == 0 {
         // Safety: We checked that the data is correctly aligned, and we trust
         // `flatbuffers::Vector<T>` that its bytes contain `fbv.len()` Ts.
         let typed_slice = unsafe {
             let typed_slice = std::mem::transmute::<&[u8], &[T]>(bytes);
-            &typed_slice[..fbv.len()]
+            &typed_slice[..fb_vec.len()]
         };
-        typed_slice.to_vec()
+        let storage =
+            ArcSlice::new(storage.clone(), typed_slice).expect("storage does not contain data");
+        ArcTensorView::from_data(shape, storage).into()
     } else {
-        fbv.iter().collect()
+        let storage: Vec<T> = fb_vec.iter().collect();
+        Tensor::from_data(shape, storage).into()
     }
 }
 
@@ -1194,7 +1326,7 @@ mod tests {
     use rten_tensor::{tensor, Tensor};
 
     use crate::graph::{Dimension, RunError};
-    use crate::model::Model;
+    use crate::model::{Model, ModelOptions};
     use crate::model_builder::{MetadataArgs, ModelBuilder, OpType};
     use crate::ops;
     use crate::ops::{
@@ -1236,11 +1368,28 @@ mod tests {
         builder.finish()
     }
 
+    /// Generate input for the model created by `generate_model_buffer`.
+    fn generate_input() -> Tensor<f32> {
+        Tensor::from_data(&[1, 2, 2], vec![1., 2., -1., -2.])
+    }
+
+    /// Check the output of a model created by `generate_model_buffer`, using
+    /// input created by `generate_input`.
+    fn check_output(mut result: Vec<Output>) -> Tensor<f32> {
+        assert_eq!(result.len(), 1);
+
+        let tensor: Tensor<f32> = result.remove(0).into_float().unwrap();
+        assert_eq!(tensor.shape(), &[2, 2, 2]);
+        assert_eq!(tensor.to_vec(), &[0.5, 0., 0.1, 0., 1., 2., 0., 0.]);
+
+        tensor
+    }
+
     #[test]
     fn test_model_input_output_ids() {
         let buffer = generate_model_buffer();
 
-        let model = Model::load(&buffer).unwrap();
+        let model = Model::load(buffer).unwrap();
 
         // Valid model IDs
         let input_id = model.find_node("input").unwrap();
@@ -1265,19 +1414,23 @@ mod tests {
     fn test_unsupported_operator() {
         let buffer = generate_model_buffer();
         let registry = OpRegistry::new();
-        let result = Model::load_with_ops(&buffer, &registry);
-        assert_eq!(
-            result.err(),
-            Some(ModelLoadError::OperatorInvalid(
-                ReadOpError::UnsupportedOperator("Concat".to_string())
-            ))
-        );
+        let result = ModelOptions::with_ops(registry).load(buffer);
+
+        let matches = match result.err() {
+            Some(ModelLoadError::OperatorInvalid(ReadOpError::UnsupportedOperator(op)))
+                if op == "Concat" =>
+            {
+                true
+            }
+            _ => false,
+        };
+        assert!(matches);
     }
 
     #[test]
     fn test_shape_info() {
         let buffer = generate_model_buffer();
-        let model = Model::load(&buffer).unwrap();
+        let model = Model::load(buffer).unwrap();
         let input_id = model.input_ids()[0];
 
         let shape = model
@@ -1290,7 +1443,7 @@ mod tests {
     #[test]
     fn test_metadata() {
         let buffer = generate_model_buffer();
-        let model = Model::load(&buffer).unwrap();
+        let model = Model::load(buffer).unwrap();
         assert_eq!(model.metadata().onnx_hash(), Some("abc"));
         assert_eq!(model.metadata().description(), None);
     }
@@ -1298,7 +1451,7 @@ mod tests {
     #[test]
     fn test_input_shape() {
         let buffer = generate_model_buffer();
-        let model = Model::load(&buffer).unwrap();
+        let model = Model::load(buffer).unwrap();
         assert_eq!(
             model.input_shape(0),
             Some(vec![
@@ -1313,21 +1466,17 @@ mod tests {
     fn test_load_and_run_model() {
         let buffer = generate_model_buffer();
 
-        let model = Model::load(&buffer).unwrap();
+        let model = Model::load(buffer).unwrap();
         let input_id = model.input_ids()[0];
         let output_id = model.output_ids()[0];
 
-        let input = Tensor::from_data(&[1, 2, 2], vec![1., 2., -1., -2.]);
+        let input = generate_input();
 
         // Test a normal model run.
-        let mut result = model
+        let result = model
             .run(&[(input_id, (&input).into())], &[output_id], None)
             .unwrap();
-
-        assert_eq!(result.len(), 1);
-        let result_tensor = result.remove(0).into_float().unwrap();
-        assert_eq!(result_tensor.shape(), &[2, 2, 2]);
-        assert_eq!(result_tensor.to_vec(), &[0.5, 0., 0.1, 0., 1., 2., 0., 0.]);
+        let result_tensor = check_output(result);
 
         // Test a partial run. Since we are providing all inputs, this works the
         // same as `Model::run`. See `Graph::partial_run` tests for other cases.
@@ -1341,9 +1490,42 @@ mod tests {
     }
 
     #[test]
+    fn test_load_file() {
+        let buffer = generate_model_buffer();
+        std::fs::write("model-load-test.rten", buffer).unwrap();
+
+        let model = Model::load_file("model-load-test.rten").unwrap();
+        let input_id = model.input_ids()[0];
+        let output_id = model.output_ids()[0];
+
+        let input = generate_input();
+        let result = model
+            .run(&[(input_id, (&input).into())], &[output_id], None)
+            .unwrap();
+        check_output(result);
+    }
+
+    #[cfg(feature = "mmap")]
+    #[test]
+    fn test_load_mmap() {
+        let buffer = generate_model_buffer();
+        std::fs::write("model-load-test.rten", buffer).unwrap();
+
+        let model = unsafe { Model::load_mmap("model-load-test.rten").unwrap() };
+        let input_id = model.input_ids()[0];
+        let output_id = model.output_ids()[0];
+
+        let input = generate_input();
+        let result = model
+            .run(&[(input_id, (&input).into())], &[output_id], None)
+            .unwrap();
+        check_output(result);
+    }
+
+    #[test]
     fn test_run_one() {
         let buffer = generate_model_buffer();
-        let model = Model::load(&buffer).unwrap();
+        let model = Model::load(buffer).unwrap();
 
         let input = tensor!((1, 2, 2); [1., 2., -1., -2.]);
         let result: Tensor<f32> = model
@@ -1365,7 +1547,7 @@ mod tests {
         builder.add_operator("shape", OpType::Shape, &[None], &[output_node]);
 
         let buffer = builder.finish();
-        let model = Model::load(&buffer).unwrap();
+        let model = Model::load(buffer).unwrap();
 
         let result = model.run(&[], &[output_node as usize], None);
 
@@ -1741,7 +1923,7 @@ mod tests {
 
         let buffer = builder.finish();
 
-        let model = Model::load(&buffer).unwrap();
+        let model = Model::load(buffer).unwrap();
 
         // Most ops are tested with one of several standard inputs:
         //

@@ -42,9 +42,10 @@ rten-vecmath = { path = "./rten-vecmath", version = "0.8.0" }
 fastrand = { version = "2.0.2", optional = true }
 fastrand-contrib = { version = "0.1.0", optional = true }
 rustc-hash = "1.1.0"
+memmap2 = { version = "0.9.4", optional = true }
 
 [dev-dependencies]
-rten = { path = ".", features = ["random"] }
+rten = { path = ".", features = ["mmap", "random"] }
 rten-bench = { path = "./rten-bench" }
 serde_json = "1.0.91"
 
@@ -54,6 +55,8 @@ crate-type = ["lib", "cdylib"]
 [features]
 # Use AVX-512 instructions if available. Requires nightly Rust for AVX-512 intrinsics.
 avx512 = ["rten-vecmath/avx512"]
+# Enable loading models using memory mapping
+mmap = ["memmap2"]
 # Generate WebAssembly API using wasm-bindgen.
 wasm_api = []
 # Enable operators that generate random numbers.

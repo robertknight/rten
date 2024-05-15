@@ -99,8 +99,7 @@ fn resource_path(path: &str) -> PathBuf {
 fn main() -> Result<(), Box<dyn Error>> {
     let args = parse_args()?;
 
-    let model_data = fs::read(args.model)?;
-    let model = Model::load(&model_data)?;
+    let model = Model::load_file(args.model)?;
 
     let image = read_image(&args.image)?;
     let labels: Vec<_> = fs::read_to_string(resource_path("coco.names"))?

@@ -1,6 +1,5 @@
 use std::collections::{HashMap, VecDeque};
 use std::error::Error;
-use std::fs;
 use std::time::Instant;
 
 use rten::{Dimension, Input, Model, ModelMetadata, NodeId, Output, RunOptions};
@@ -301,8 +300,7 @@ fn print_input_output_list(model: &Model, node_ids: &[NodeId]) {
 /// running. See `docs/profiling.md`.
 fn main() -> Result<(), Box<dyn Error>> {
     let args = parse_args()?;
-    let model_bytes = fs::read(args.model)?;
-    let model = Model::load(&model_bytes)?;
+    let model = Model::load_file(args.model)?;
 
     println!(
         "Model summary: {} inputs, {} outputs, {} params",

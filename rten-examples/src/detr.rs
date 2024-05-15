@@ -1,6 +1,5 @@
 use std::collections::VecDeque;
 use std::error::Error;
-use std::fs;
 
 use rten::{FloatOperators, Model, Operators};
 use rten_imageio::{normalize_image, read_image, write_image};
@@ -279,8 +278,7 @@ const LABELS: &[&str] = &[
 fn main() -> Result<(), Box<dyn Error>> {
     let args = parse_args()?;
 
-    let model_data = fs::read(args.model)?;
-    let model = Model::load(&model_data)?;
+    let model = Model::load_file(args.model)?;
 
     let mut image = read_image(&args.image)?;
 
