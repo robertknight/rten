@@ -1,4 +1,10 @@
 # RTen
+[![Latest Version]][crates.io] [![Documentation]][docs.rs]
+
+[Latest Version]: https://img.shields.io/crates/v/rten.svg
+[Documentation]: https://img.shields.io/docsrs/rten
+[docs.rs]: https://docs.rs/rten
+[crates.io]: https://crates.io/crates/rten
 
 RTen (the _Rust Tensor engine_) † is a runtime for machine learning models
 converted from [ONNX](https://onnx.ai) format, which you can export from
