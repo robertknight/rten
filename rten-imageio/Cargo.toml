@@ -1,6 +1,6 @@
 [package]
 name = "rten-imageio"
-version = "0.8.0"
+version = "0.9.0"
 edition = "2021"
 authors = ["Robert Knight"]
 description = "Utilities for loading images for use with RTen"
@@ -12,4 +12,4 @@ include = ["/src", "/README.md"]
 [dependencies]
 image = { version = "0.24.6", default-features = false, features = ["png", "jpeg", "jpeg_rayon", "webp"] }
 png = "0.17.6"
-rten-tensor = { path = "../rten-tensor", version = "0.8.0" }
+rten-tensor = { path = "../rten-tensor", version = "0.9.0" }
