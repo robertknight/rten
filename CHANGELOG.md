@@ -7,13 +7,31 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## Unreleased
 
-This release contains a breaking change for code using the `TensorBase` type
-directly. See `rten-tensor` changes. Code using the type aliases (`TensorView`
-etc.) should not be affected.
+### Breaking Changes
+
+This release contains breaking changes to the model loading APIs and code using
+the `TensorBase` type directly (as opposed to aliases like `Tensor`). See the
+notes for the `rten` and `rten-tensor` crates respectively.
 
 ### rten
 
+#### Breaking changes
+
+- The `Model::load` API now takes a `Vec<u8>` rather than `&[u8]` as an
+  argument. This enables it to avoid copying data internally. For the most
+  common use case of loading a model from disk, use the new `Model::load_file`
+  API.
+
+- The `Model::load_with_ops` API has been replaced `ModelOptions::with_ops`.
+
 #### New features
+
+- Added `Model::load_file` API for more convenient loading of a model from
+  a file (https://github.com/robertknight/rten/pull/174)
+
+- Added `Model::load_mmap` API for zero-copy loading of models by using
+  memory maps. This can be faster than `Model::load` for very large models
+  (https://github.com/robertknight/rten/pull/174).
 
 - Added Piper text-to-speech example (https://github.com/robertknight/rten/pull/161)
 
@@ -29,7 +47,6 @@ etc.) should not be affected.
 - Support `RandomNormal`, `RandomNormalLike`, `RandomUniformLike` operators
   (https://github.com/robertknight/rten/pull/144)
 
-
 #### Bug fixes
 
 - Fixed incorrect calculation of update slice size in `ScatterND` operator
@@ -40,6 +57,9 @@ etc.) should not be affected.
 
 - Fixed uninitialized read in `Gemm` operator when `alpha != 1` and `beta == 0`
   (https://github.com/robertknight/rten/pull/150)
+
+- Fixed `NonMaxSuppression` operator missing overlap of boxes due to confusion
+  of X/Y coordinates (https://github.com/robertknight/rten/pull/177)
 
 #### Optimizations
 
@@ -60,6 +80,9 @@ etc.) should not be affected.
 
 - Parallelize `AveragePool` operator (https://github.com/robertknight/rten/pull/138)
 
+- Improved model loading performance by avoiding copying weights in `Model::load`
+  (https://github.com/robertknight/rten/pull/174)
+
 ### rten-imageproc
 
 - The mask matrix argument to `find_contours` now uses `bool` instead of `i32`
@@ -70,12 +93,11 @@ etc.) should not be affected.
 #### Breaking changes
 
 This release changes the signature of the `TensorBase` struct from
-`TensorBase<T, S: AsRef<[T]>, L: MutLayout>` where `T` is the element type, `S`
-the storage and `L` the layout to `TensorBase<S: Storage, L: MutLayout>`. The
-element type is now available via `S::Elem`. The type of `S` used by views has
-changed from slices to new custom types. The `TensorBase::from_data` method
-still accepts both `Vec<T>` and slices as the `data` argument, and will convert
-to the appropriate storage struct.
+`TensorBase<T, S: AsRef<[T]>, L: MutLayout>` to `TensorBase<S: Storage, L:
+MutLayout>`. The element type is now available via `S::Elem`. The type of `S`
+used by views has changed from slices to new custom types. The
+`TensorBase::from_data` method still accepts both `Vec<T>` and slices as the
+`data` argument, and will convert to the appropriate storage struct.
 
 Code using the type aliases (`Tensor`, `TensorView`, `TensorViewMut` etc.)
 does not need to change.
