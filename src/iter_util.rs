@@ -140,7 +140,6 @@ impl MaybeParIter for Range<usize> {
 /// name of the variable containing the current iteration inside `$block`.
 /// `$factor` should be a constant expression specifying the unroll factor,
 /// typically a small value such as 4 or 8.
-#[macro_export]
 macro_rules! unroll_loop {
     ($range:expr, $loop_var:ident, $factor: expr, $block:tt) => {
         let mut n = $range.len();
@@ -162,7 +161,7 @@ macro_rules! unroll_loop {
 }
 
 #[allow(unused_imports)]
-pub use unroll_loop;
+pub(crate) use unroll_loop;
 
 #[cfg(test)]
 mod tests {

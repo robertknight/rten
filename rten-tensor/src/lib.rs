@@ -106,7 +106,7 @@ pub use tensor::{
     TensorView, TensorViewMut, WeaklyCheckedView,
 };
 
-pub use storage::{IntoStorage, Storage, StorageMut, ViewData, ViewMutData};
+pub use storage::{CowData, IntoStorage, Storage, StorageMut, ViewData, ViewMutData};
 
 /// This module provides a convenient way to import the most common traits
 /// from this library via a glob import.
