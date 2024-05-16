@@ -89,9 +89,9 @@ impl Drop for Buffer {
 ///
 /// [TensorPool] implements the [Alloc] trait, enabling tensors to be allocated
 /// from the pool using the various `Tensor::*_in` methods, eg.
-/// [Tensor::zeros_in]. Allocation requests will be satisfied from the pool if
-/// there is a suitable buffer available, or it will fall back to the global
-/// allocator otherwise.
+/// [`Tensor::zeros_in`](rten_tensor::Tensor::zeros_in). Allocation requests
+/// will be satisfied from the pool if there is a suitable buffer available, or
+/// it will fall back to the global allocator otherwise.
 ///
 /// When a tensor is no longer needed, it's buffer can be added to the pool
 /// using `pool.add(tensor.extract_buffer())`, making it available for future
