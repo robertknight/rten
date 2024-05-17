@@ -14,5 +14,5 @@ multiple crates from a single repository.
    to exclude packages that haven't changed.
 4. If the dry run looks good, run step 2 again with the `--execute` flag
 5. Bump the package version of `rten-convert` in its `pyproject.toml` file
-6. Publish `rten-convert` to PyPI following the steps at
-   https://packaging.python.org/en/latest/tutorials/packaging-projects/#generating-distribution-archives
+6. Publish `rten-convert` to PyPI by running `make release` in the directory
+   containing rten-convert's pyproject.toml.
