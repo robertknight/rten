@@ -73,10 +73,10 @@
 //! The [rten-cli](https://crates.io/crates/rten-cli) tool can be used to query
 //! basic information about a `.rten` model.
 //!
-//! # Profiling and performance
+//! # Performance
 //!
-//! See the [profiling
-//! guide](https://github.com/robertknight/rten/blob/main/docs/profiling.md) for
+//! See the [performance
+//! guide](https://github.com/robertknight/rten/blob/main/docs/performance.md) for
 //! information on profiling and improving model execution performance.
 //!
 //! [rten_examples]: https://github.com/robertknight/rten/tree/main/rten-examples

@@ -1,13 +1,25 @@
 # Profiling and optimizing
 
-This document provides strategies for profiling and optimizing graph execution
-performance in RTen.
+This document provides information about configuration that affects execution
+performance, and tools for profiling and optimizing inference.
 
 ## Build settings
 
 Performance sensitive numeric code like RTen will run extremely slowly in debug
-builds, to the point of being unusable. For profiling, make sure you build your
-application in release mode.
+builds, to the point of being unusable. For development and production, make
+sure you **build your application, or at least the `rten` crates, in release
+mode**.
+
+## Threading
+
+RTen will use multiple threads automatically. By default it will choose the
+number of threads to match the number of physical CPUs, as reported by the
+`num_cpus` crate. Note that this will differ from
+`std::thread::available_parallelism` on systems which support [SMT /
+Hyper-threading](https://doc.rust-lang.org/std/thread/fn.available_parallelism.html).
+
+You can vary the number of threads between 1 and the number of logical cores by
+setting the `RTEN_NUM_THREADS` environment variable.
 
 ## Profiling using built-in logging
 
