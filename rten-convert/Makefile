@@ -16,3 +16,10 @@ lint:
 .PHONY: typecheck
 typecheck:
 	mypy rten_convert
+
+# See https://packaging.python.org/en/latest/tutorials/packaging-projects/#generating-distribution-archives
+.PHONY: release
+release: check
+	rm -rf dist/
+	python -m build
+	python -m twine upload dist/*
