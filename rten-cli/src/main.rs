@@ -54,6 +54,10 @@ fn parse_args() -> Result<Args, lexopt::Error> {
         match arg {
             Value(val) => values.push_back(val.string()?),
             Short('v') | Long("verbose") => verbose = true,
+            Short('V') | Long("version") => {
+                println!("rten {}", env!("CARGO_PKG_VERSION"));
+                std::process::exit(0);
+            }
             Short('t') | Long("timing") => timing = true,
             Short('s') | Long("shape") => {
                 let value = parser.value()?.string()?;
@@ -71,12 +75,14 @@ Args:
     Path to '.rten' model to inspect and run.
 
 Options:
-  -t, --timing   Output timing info
-  -v, --verbose  Enable verbose logging
   -h, --help     Print help
+  -t, --timing   Output timing info
 
   -s, --shape <shape>
                  Specify shape for an input in the form `name=dim0,dim1,...`
+
+  -v, --verbose  Enable verbose logging
+  -V, --version  Display RTen version
 ",
                     bin_name = parser.bin_name().unwrap_or("rten")
                 );
