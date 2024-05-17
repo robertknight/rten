@@ -1,4 +1,4 @@
-use std::collections::{HashMap, VecDeque};
+use std::collections::VecDeque;
 use std::error::Error;
 use std::time::Instant;
 
@@ -16,28 +16,75 @@ struct Args {
     /// Enable verbose logging for model execution.
     verbose: bool,
 
-    /// Map of `(input_name, dims)` with custom shapes for inputs.
-    input_shapes: HashMap<String, Vec<usize>>,
+    /// Sizes for dynamic dimensions of inputs.
+    input_sizes: Vec<DimSize>,
 }
 
-/// Parse an input shape specifier in the form `input_name=dim0,dim1,...`.
-///
-/// Returns a tuple of (name, shape).
-fn parse_shape_spec(spec: &str) -> Result<(String, Vec<usize>), lexopt::Error> {
-    let parts: Vec<&str> = spec.split('=').collect();
-    if parts.len() != 2 {
-        return Err(lexopt::Error::Custom(
-            "Invalid input format. Expected input_name=dim0,dim1,...".into(),
-        ));
+/// Specifies the size for a dynamic input dimension.
+struct DimSize {
+    /// Name of model input. If `None`, this matches all inputs.
+    input_name: Option<String>,
+
+    /// Name of the dynamically-sized dimension.
+    dim_name: String,
+
+    /// Dimension size
+    size: usize,
+}
+
+impl DimSize {
+    /// Return true if `self` specifies the size for a given input dimension.
+    fn matches(&self, input_name: &str, dim_name: &str) -> bool {
+        match self {
+            DimSize {
+                input_name: Some(in_name),
+                dim_name: dn,
+                size: _,
+            } if in_name == input_name && dn == dim_name => true,
+            DimSize {
+                input_name: None,
+                dim_name: dn,
+                size: _,
+            } if dn == dim_name => true,
+            _ => false,
+        }
     }
 
-    let name = parts[0].to_string();
-    let dims_str = parts[1];
-    let parsed_dims: Result<Vec<usize>, _> = dims_str.split(',').map(|dim| dim.parse()).collect();
+    /// Parse a dimension size specifier in the form `dim_name=size` or
+    /// `input_name.dim_name=size`.
+    fn parse(spec: &str) -> Result<DimSize, String> {
+        let parts: Vec<&str> = spec.split('=').collect();
+        let (name_spec, size_spec) = match parts[..] {
+            [name, size] => (name, size),
+            _ => {
+                return Err(
+                    "Invalid input format. Expected dim_name=size or input_name.dim_name=size"
+                        .into(),
+                );
+            }
+        };
 
-    match parsed_dims {
-        Ok(dims) => Ok((name, dims)),
-        Err(e) => Err(lexopt::Error::Custom(e.into())),
+        let name_parts: Vec<_> = name_spec.split('.').collect();
+        let (input_name, dim_name) = match &name_parts[..] {
+            [dim_name] => (None, dim_name),
+            [input_name, dim_name] => (Some(input_name), dim_name),
+            _ => {
+                return Err(
+                    "Invalid input input name format. Expected dim_name or input_name.dim_name"
+                        .into(),
+                );
+            }
+        };
+
+        let size: usize = size_spec
+            .parse()
+            .map_err(|_| format!("Failed to parse dimension size \"{}\"", parts[1]))?;
+
+        Ok(DimSize {
+            input_name: input_name.map(|s| s.to_string()),
+            dim_name: dim_name.to_string(),
+            size,
+        })
     }
 }
 
@@ -47,7 +94,7 @@ fn parse_args() -> Result<Args, lexopt::Error> {
     let mut values = VecDeque::new();
     let mut timing = false;
     let mut verbose = false;
-    let mut input_shapes = HashMap::new();
+    let mut input_sizes = Vec::new();
 
     let mut parser = lexopt::Parser::from_env();
     while let Some(arg) = parser.next()? {
@@ -61,8 +108,9 @@ fn parse_args() -> Result<Args, lexopt::Error> {
             Short('t') | Long("timing") => timing = true,
             Short('s') | Long("shape") => {
                 let value = parser.value()?.string()?;
-                let (name, shape) = parse_shape_spec(&value)?;
-                input_shapes.insert(name, shape);
+                let size =
+                    DimSize::parse(&value).map_err(|err| lexopt::Error::Custom(err.into()))?;
+                input_sizes.push(size);
             }
             Short('h') | Long("help") => {
                 println!(
@@ -78,8 +126,9 @@ Options:
   -h, --help     Print help
   -t, --timing   Output timing info
 
-  -s, --shape <shape>
-                 Specify shape for an input in the form `name=dim0,dim1,...`
+  -s, --size <spec>
+                 Specify size for a dynamic dimension in the form `dim_name=size`
+                 or `input_name.dim_name=size`
 
   -v, --verbose  Enable verbose logging
   -V, --version  Display RTen version
@@ -98,7 +147,7 @@ Options:
         model,
         timing,
         verbose,
-        input_shapes,
+        input_sizes,
     })
 }
 
@@ -131,12 +180,10 @@ fn print_metadata(metadata: &ModelMetadata) {
 /// Generate random inputs for `model` using shape metadata and heuristics,
 /// run it, and print details of the output.
 ///
-/// `custom_shapes` is a map of (input_name, dims) to use as shapes for inputs.
-/// If a shape is not specified for an input, one is generated using heuristics
-/// and the shape information specified by the model.
+/// `dim_sizes` specifies the sizes for input dimensions with dynamic sizes.
 fn run_with_random_input(
     model: &Model,
-    custom_shapes: &HashMap<String, Vec<usize>>,
+    dim_sizes: &[DimSize],
     run_opts: RunOptions,
 ) -> Result<(), Box<dyn Error>> {
     let mut rng = fastrand::Rng::new();
@@ -156,25 +203,24 @@ fn run_with_random_input(
                 .shape()
                 .ok_or(format!("Unable to get shape for input {}", name))?;
 
-            let resolved_shape = if let Some(shape) = custom_shapes.get(name) {
-                shape.clone()
-            } else {
-                shape
-                    .iter()
-                    .map(|dim| {
-                        match dim {
-                            // Guess a suitable size for an input dimension based on
-                            // the name.
-                            Dimension::Symbolic(name) => match name.as_str() {
-                                "batch" | "batch_size" => 1,
-                                "sequence" | "sequence_length" => 128,
-                                _ => 256,
-                            },
-                            Dimension::Fixed(size) => *size,
+            let resolved_shape: Vec<usize> = shape
+                .iter()
+                .map(|dim| match dim {
+                    Dimension::Symbolic(dim_name) => {
+                        let dim_size = dim_sizes.iter().find(|ds| ds.matches(name, dim_name));
+                        if let Some(ds) = dim_size {
+                            ds.size
+                        } else {
+                            println!(
+                                "  Size not specified for dynamic dimension \"{}.{}\". Defaulting to 1.",
+                                name, dim_name
+                            );
+                            1
                         }
-                    })
-                    .collect()
-            };
+                    }
+                    Dimension::Fixed(size) => *size,
+                })
+                .collect();
 
             // Guess suitable content for the input based on its name.
             let tensor = match name {
@@ -330,7 +376,7 @@ fn main() -> Result<(), Box<dyn Error>> {
     println!("Running model with random inputs...");
     run_with_random_input(
         &model,
-        &args.input_shapes,
+        &args.input_sizes,
         RunOptions {
             timing: args.timing,
             verbose: args.verbose,
