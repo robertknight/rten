@@ -30,6 +30,15 @@
 //! See the example projects in [rten-examples][rten_examples] to see how all
 //! these pieces fit together.
 //!
+//! ## Threading
+//!
+//! RTen automatically executes models using multiple threads. For this purpose
+//! it creates its own Rayon
+//! [ThreadPool](https://docs.rs/rayon/latest/rayon/struct.ThreadPool.html)
+//! which is sized to match the number of physical cores. You can access this
+//! pool using [threading::thread_pool] if you want to run your own tasks in
+//! this pool.
+//!
 //! # Supported models and hardware
 //!
 //! ## Hardware
@@ -92,6 +101,7 @@ mod model_metadata;
 mod number;
 mod slice_reductions;
 mod tensor_pool;
+mod threading;
 mod timer;
 mod timing;
 
@@ -109,6 +119,7 @@ pub use model::{Model, ModelLoadError, ModelOptions, NodeInfo, OpRegistry, ReadO
 pub use model_metadata::ModelMetadata;
 pub use ops::{FloatOperators, Input, Operators, Output};
 pub use tensor_pool::{ExtractBuffer, PoolRef, TensorPool};
+pub use threading::thread_pool;
 pub use timer::Timer;
 pub use timing::TimingSort;
 

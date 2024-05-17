@@ -14,6 +14,7 @@ use crate::constant_storage::ArcTensorView;
 use crate::env::env_flag;
 use crate::ops::{Input, InputList, OpError, Operator, Output};
 use crate::tensor_pool::{ExtractBuffer, TensorPool};
+use crate::threading;
 use crate::timer::Timer;
 use crate::timing::{InputShape, RunTiming, TimingRecord, TimingSort};
 
@@ -389,7 +390,8 @@ impl Graph {
                 allow_missing_inputs: false,
             },
         )?;
-        self.run_plan(inputs, &plan, outputs, opts)
+
+        threading::thread_pool().install(|| self.run_plan(inputs, &plan, outputs, opts))
     }
 
     fn run_plan(
@@ -705,7 +707,8 @@ impl Graph {
         )?;
         let input_ids: Vec<_> = inputs.iter().map(|(id, _)| id).copied().collect();
         let (pruned_plan, pruned_plan_output_ids) = self.prune_plan(&plan, &input_ids, outputs);
-        let outputs = self.run_plan(inputs, &pruned_plan, &pruned_plan_output_ids, opts)?;
+        let outputs = threading::thread_pool()
+            .install(|| self.run_plan(inputs, &pruned_plan, &pruned_plan_output_ids, opts))?;
         let output_ids_and_values: Vec<_> =
             pruned_plan_output_ids.into_iter().zip(outputs).collect();
         Ok(output_ids_and_values)
