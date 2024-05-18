@@ -7,13 +7,14 @@ kind of object.
 
 ## Setup
 
-1. Build the main RTen project. See the README.md file at the root of the
-   repository.
+1. Build the main RTen project for WebAssembly. See the README.md file at the
+   root of the repository.
 2. In this directory, run `npm install`
-3. Download and convert the ONNX MobileNet model:
+3. Download the ONNX MobileNet model from the ONNX Model Zoo and convert it
+   to `.rten` format:
 
    ```sh
-   curl -L https://github.com/onnx/models/raw/main/vision/classification/mobilenet/model/mobilenetv2-10.onnx -o mobilenet.onnx
+   curl -L https://github.com/onnx/models/raw/main/Computer_Vision/mobilenetv2_110d_Opset18_timm/mobilenetv2_110d_Opset18.onnx -o mobilenet.onnx
 
    rten-convert mobilenet.onnx mobilenet.rten
    ```
