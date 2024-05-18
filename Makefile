@@ -13,6 +13,10 @@ check: checkformatting test lint
 checkformatting:
 	cargo fmt --check
 
+.PHONY: docs
+docs:
+	RUSTDOCFLAGS='-D warnings' cargo doc -p rten --features mmap
+
 .PHONY: lint
 lint:
 	cargo clippy --workspace

@@ -39,6 +39,9 @@ jobs:
       run: |
         make checkformatting
         make lint
+    - name: Docs
+      run: |
+        make docs
     - name: Setup Python
       run: |
         pip install --upgrade pip
