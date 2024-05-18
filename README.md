@@ -150,17 +150,13 @@ To build RTen for WebAssembly you will need:
 ```sh
 git clone https://github.com/robertknight/rten.git
 cd rten
-make wasm-all
+make wasm
 ```
 
-The `make wasm-all` command will build two versions of the library, one for
-browsers that support SIMD (Chrome 91, Firefox 89, Safari 16.4) and one for
-those which do not (primarily older Safari releases). See the [WebAssembly
-Roadmap](https://webassembly.org/roadmap/) for a full list of which features
-different engines support. **The SIMD build is significantly faster**.
+The build created by `make wasm` requires support for WebAssembly SIMD,
+available since Chrome 91, Firefox 89 and Safari 16.4. It is possible to
+build the library without WebAssembly SIMD support using `make wasm-nosimd`,
+or both using `make wasm-all`. The non-SIMD builds are significantly slower.
 
-During development, you can speed up the testing cycle by running `make wasm`
-to build only the SIMD version, or `make wasm-nosimd` for the non-SIMD version.
-
-At runtime, you can find out which build is supported by calling the `binaryName()`
-function exported by this package.
+At runtime, you can find out which build is supported by calling the
+`binaryName()` function exported by this package.
