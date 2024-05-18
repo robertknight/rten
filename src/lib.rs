@@ -119,7 +119,7 @@ pub use model::{Model, ModelLoadError, ModelOptions, NodeInfo, OpRegistry, ReadO
 pub use model_metadata::ModelMetadata;
 pub use ops::{FloatOperators, Input, Operators, Output};
 pub use tensor_pool::{ExtractBuffer, PoolRef, TensorPool};
-pub use threading::thread_pool;
+pub use threading::{thread_pool, ThreadPool};
 pub use timer::Timer;
 pub use timing::TimingSort;
 

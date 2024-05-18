@@ -83,7 +83,7 @@ pub trait FloatOperators {
 /// it does not change which thread pool is used by parallel iterators. See
 /// https://github.com/rayon-rs/rayon/issues/1165.
 fn use_thread_pool<R: Send, F: Send + FnOnce() -> R>(op: F) -> R {
-    thread_pool().install(op)
+    thread_pool().run(op)
 }
 
 impl<T: Send, S: Storage<Elem = T>, L: MutLayout> Operators for TensorBase<S, L> {

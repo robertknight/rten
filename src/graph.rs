@@ -391,7 +391,7 @@ impl Graph {
             },
         )?;
 
-        threading::thread_pool().install(|| self.run_plan(inputs, &plan, outputs, opts))
+        threading::thread_pool().run(|| self.run_plan(inputs, &plan, outputs, opts))
     }
 
     fn run_plan(
@@ -708,7 +708,7 @@ impl Graph {
         let input_ids: Vec<_> = inputs.iter().map(|(id, _)| id).copied().collect();
         let (pruned_plan, pruned_plan_output_ids) = self.prune_plan(&plan, &input_ids, outputs);
         let outputs = threading::thread_pool()
-            .install(|| self.run_plan(inputs, &pruned_plan, &pruned_plan_output_ids, opts))?;
+            .run(|| self.run_plan(inputs, &pruned_plan, &pruned_plan_output_ids, opts))?;
         let output_ids_and_values: Vec<_> =
             pruned_plan_output_ids.into_iter().zip(outputs).collect();
         Ok(output_ids_and_values)
