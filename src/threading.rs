@@ -35,7 +35,7 @@ impl ThreadPool {
 /// between 1 and the logical core count.
 ///
 /// To run your own tasks in this thread pool, you can use
-/// [`ThreadPool::install`].
+/// [`ThreadPool::run`].
 ///
 /// [rayon]: https://github.com/rayon-rs/rayon
 pub fn thread_pool() -> &'static ThreadPool {
