@@ -534,7 +534,7 @@ pub type ReadOpResult = Result<Box<dyn Operator + Send + Sync>, ReadOpError>;
 /// A function that deserializes an operator node.
 pub type ReadOpFunction = dyn Fn(&OperatorNode) -> ReadOpResult;
 
-/// Trait that deserializes an [sg::OperatorNode] into an [Operator]
+/// Trait that deserializes an operator from a `.rten` file into an [Operator]
 /// implementation.
 ///
 /// This trait is implemented for all operators in [crate::ops].
