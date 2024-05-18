@@ -380,6 +380,7 @@ fn dispatch_unary_op<Op: SimdUnaryOp>(xs: &[f32], out: &mut [MaybeUninit<f32>], 
     }
 
     #[cfg(target_arch = "wasm32")]
+    #[cfg(target_feature = "simd128")]
     {
         use crate::simd_vec::wasm::v128f;
 
@@ -487,6 +488,7 @@ fn dispatch_unary_op_in_place<Op: SimdUnaryOp>(xs: &mut [f32], op: Op) {
     }
 
     #[cfg(target_arch = "wasm32")]
+    #[cfg(target_feature = "simd128")]
     {
         use crate::simd_vec::wasm::v128f;
 
@@ -582,6 +584,7 @@ fn dispatch_simd_op<Op: SimdOp>(input: PtrLen<f32>, out: MutPtrLen<MaybeUninit<f
     }
 
     #[cfg(target_arch = "wasm32")]
+    #[cfg(target_feature = "simd128")]
     {
         use crate::simd_vec::wasm::v128f;
 
