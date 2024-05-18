@@ -324,6 +324,7 @@ unsafe impl<'a> VirtualMatrix for VirtualIm2Col<'a> {
                 self.pack_b_impl::<float32x4_t, 2>(out, panel_width, rows, cols);
             },
             #[cfg(target_arch = "wasm32")]
+            #[cfg(target_feature = "simd128")]
             (KernelType::Wasm, 8) => unsafe {
                 // Safety: SIMD support is checked when WASM binary is loaded.
                 use rten_vecmath::simd_vec::wasm::v128f;

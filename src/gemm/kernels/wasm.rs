@@ -22,7 +22,11 @@ impl WasmKernel {
 // the WASM binary is loaded.
 unsafe impl Kernel for WasmKernel {
     fn new() -> Option<Self> {
-        Some(WasmKernel { _private: () })
+        #[cfg(target_feature = "simd128")]
+        return Some(WasmKernel { _private: () });
+
+        #[cfg(not(target_feature = "simd128"))]
+        None
     }
 
     fn name(&self) -> &'static str {
