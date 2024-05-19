@@ -209,9 +209,46 @@ fn binary_op<T: Copy + Debug, R: Default, F: Fn(T, T) -> R>(
         }
     }
 
-    let a_elts = a.broadcast_iter(&out_shape);
-    let b_elts = b.broadcast_iter(&out_shape);
-    let out_data: Vec<_> = zip(a_elts, b_elts).map(|(a, b)| op(*a, *b)).collect();
+    let mut a = a.broadcast(out_shape.as_slice());
+    let mut b = b.broadcast(out_shape.as_slice());
+    let mut out_data = pool.alloc(a.len());
+    let out_uninit = &mut out_data.spare_capacity_mut()[..a.len()];
+    let mut out_offset = 0;
+
+    // Loop over a statically known number of inner dims for efficiency.
+    while a.ndim() <= 4 {
+        a.insert_axis(0);
+        b.insert_axis(0);
+    }
+
+    a.inner_iter::<4>()
+        .zip(b.inner_iter::<4>())
+        .for_each(|(a, b)| {
+            for i0 in 0..a.size(0) {
+                for i1 in 0..a.size(1) {
+                    for i2 in 0..a.size(2) {
+                        for i3 in 0..a.size(3) {
+                            // Safety:
+                            // - `a` and `b` have the same shape, and i0..i3 are in `[0, a.size(i))`.
+                            // - The length of `out_uninit` is the same as `a.len()`.
+                            unsafe {
+                                let a_elt = a.get_unchecked([i0, i1, i2, i3]);
+                                let b_elt = b.get_unchecked([i0, i1, i2, i3]);
+                                out_uninit
+                                    .get_unchecked_mut(out_offset)
+                                    .write(op(*a_elt, *b_elt));
+                                out_offset += 1;
+                            }
+                        }
+                    }
+                }
+            }
+        });
+
+    // Safety: We initialized `out_offset` elements.
+    unsafe {
+        out_data.set_len(out_offset);
+    }
     Ok(Tensor::from_data(&out_shape, out_data))
 }
 
@@ -253,10 +290,32 @@ fn binary_op_in_place<T: Copy + Debug, F: Fn(T, T) -> T>(
         }
     }
 
-    let b_elts = b.broadcast_iter(a.shape());
-    for (a_elt, b_elt) in zip(a.iter_mut(), b_elts) {
-        *a_elt = op(*a_elt, *b_elt);
+    // Loop over a statically known number of inner dims for efficiency.
+    let mut b = b.broadcast(a.shape());
+    while a.ndim() <= 4 {
+        a.insert_axis(0);
+        b.insert_axis(0);
     }
+
+    a.inner_iter_mut::<4>()
+        .zip(b.inner_iter::<4>())
+        .for_each(|(mut a, b)| {
+            for i0 in 0..a.size(0) {
+                for i1 in 0..a.size(1) {
+                    for i2 in 0..a.size(2) {
+                        for i3 in 0..a.size(3) {
+                            // Safety: `a` and `b` have the same shape, and
+                            // i0..i3 are in `[0, a.size(i))`.
+                            unsafe {
+                                let a_elt = a.get_unchecked_mut([i0, i1, i2, i3]);
+                                let b_elt = b.get_unchecked([i0, i1, i2, i3]);
+                                *a_elt = op(*a_elt, *b_elt);
+                            }
+                        }
+                    }
+                }
+            }
+        });
 }
 
 /// Perform a commutative elementwise binary operation.
