@@ -451,6 +451,7 @@ impl GemmExecutor {
     }
 
     /// Prepack a matrix for use as the right-hand or "B" matrix input.
+    #[allow(unused)]
     pub fn prepack_b(&self, b: Matrix) -> PackedBMatrix {
         self.prepack_b_in(GlobalAlloc::new(), b)
     }
