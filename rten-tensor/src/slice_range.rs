@@ -393,18 +393,6 @@ impl From<RangeFull> for SliceRange {
     }
 }
 
-/// Return `a / b`, rounding up if `b` does not evenly divide `a`.
-///
-/// Replace with `usize::div_ceil` when that stabilizes.
-fn div_ceil(a: usize, b: usize) -> usize {
-    if b == 1 {
-        // Fast path
-        return a;
-    }
-    let rounding = usize::from(a % b != 0);
-    a / b + rounding
-}
-
 /// A range of indices with a step, which may be positive or negative.
 #[derive(Copy, Clone, Debug, PartialEq)]
 pub struct IndexRange {
@@ -457,13 +445,12 @@ impl IndexRange {
 
     /// Return the number of steps along this dimension.
     pub fn steps(&self) -> usize {
-        if self.step > 0 {
-            let len = (self.end - self.start as isize).max(0);
-            div_ceil(len as usize, self.step.unsigned_abs())
+        let len = if self.step > 0 {
+            (self.end - self.start as isize).max(0).unsigned_abs()
         } else {
-            let len = (self.end - self.start as isize).min(0);
-            div_ceil(len.unsigned_abs(), self.step.unsigned_abs())
-        }
+            (self.end - self.start as isize).min(0).unsigned_abs()
+        };
+        len.div_ceil(self.step.unsigned_abs())
     }
 }
 
