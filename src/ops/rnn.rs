@@ -2,14 +2,13 @@ use std::iter::{zip, Rev};
 use std::ops::Range;
 
 use rten_tensor::prelude::*;
-use rten_tensor::Matrix;
-use rten_tensor::{NdTensorView, Tensor, TensorView, TensorViewMut};
+use rten_tensor::{Tensor, TensorView};
 
 use crate::check_dims;
-use crate::gemm::{GemmExecutor, GemmInputA, GemmInputB, PackedBMatrix};
+use crate::gemm::{GemmExecutor, GemmInputA, GemmInputB};
 use crate::ops::{
-    add_in_place, sigmoid_in_place, tanh_in_place, InputList, IntoOpResult, OpError, Operator,
-    Output,
+    add_in_place, mul_in_place, sigmoid_in_place, tanh, tanh_in_place, InputList, IntoOpResult,
+    OpError, Operator, Output,
 };
 use crate::tensor_pool::{AutoReturn, TensorPool};
 
@@ -83,114 +82,6 @@ fn zip4<T1, T2, T3, T4>(
     zip3(a, b, zip(c, d)).map(|(a, b, (c, d))| (a, b, c, d))
 }
 
-/// Like [std::iter::zip], but combines 5 iterators.
-fn zip5<T1, T2, T3, T4, T5>(
-    a: impl Iterator<Item = T1>,
-    b: impl Iterator<Item = T2>,
-    c: impl Iterator<Item = T3>,
-    d: impl Iterator<Item = T4>,
-    e: impl Iterator<Item = T5>,
-) -> impl Iterator<Item = (T1, T2, T3, T4, T5)> {
-    zip4(a, b, c, zip(d, e)).map(|(a, b, c, (d, e))| (a, b, c, d, e))
-}
-
-#[derive(Copy, Clone)]
-enum Activation {
-    Sigmoid,
-}
-
-/// Compute `output = dot(a, b)`
-fn matmul(gemm: &GemmExecutor, mut output: TensorViewMut, a: Matrix, b: GemmInputB) {
-    let row_stride = output.stride(output.ndim() - 2);
-    gemm.gemm(
-        output.data_mut().expect("expected contiguous input"),
-        row_stride,
-        GemmInputA::Unpacked(a),
-        b,
-        1., /* alpha */
-        0., /* beta */
-    );
-}
-
-/// Compute `output += dot(a, b)`
-fn add_matmul(gemm: &GemmExecutor, mut output: TensorViewMut, a: Matrix, b: GemmInputB) {
-    let row_stride = output.stride(output.ndim() - 2);
-    gemm.gemm(
-        output.data_mut().expect("expected contiguous input"),
-        row_stride,
-        GemmInputA::Unpacked(a),
-        b,
-        1., /* alpha */
-        1., /* beta */
-    );
-}
-
-/// Compute output of an RNN gate as:
-///
-/// `output = act(dot(input, input_weight) + dot(hidden, hidden_weight) + input_bias + hidden_bias)`.
-///
-/// `output` has shape (batch, hidden_size)
-/// `input` has shape (batch, input_size)
-/// `input_weight` has shape (input_size, hidden_size)
-/// `hidden` has shape (batch, hidden_size)
-/// `hidden_weight` has shape (hidden_size, hidden_size)
-/// `bias` is a tuple of `(input_bias, hidden_bias)` where each bias has length `hidden_size`
-fn compute_rnn_gate(
-    gemm: &GemmExecutor,
-    mut output: TensorViewMut,
-    act: Activation,
-    input: &NdTensorView<f32, 2>,
-    hidden: &NdTensorView<f32, 2>,
-    weights_and_bias: &GateWeightsAndBias,
-) {
-    matmul(
-        gemm,
-        output.view_mut(),
-        input.nd_view(),
-        weights_and_bias.weights.as_gemm_input(),
-    );
-    add_matmul(
-        gemm,
-        output.view_mut(),
-        hidden.nd_view(),
-        weights_and_bias.recurrent_weights.as_gemm_input(),
-    );
-
-    if let Some((in_bias, hidden_bias)) = weights_and_bias.bias {
-        add_in_place(output.view_mut(), in_bias.as_dyn());
-        add_in_place(output.view_mut(), hidden_bias.as_dyn());
-    }
-
-    match act {
-        Activation::Sigmoid => sigmoid_in_place(output),
-    }
-}
-
-/// Extract a gate weight matrix from a tensor. The tensor has dims
-/// `[direction, num_gates * hidden_size, x]`. The result has shape
-/// `[x, hidden_size]`.
-fn extract_matrix(tensor: TensorView, dir: usize, num_gates: usize, gate_index: usize) -> Matrix {
-    let hidden_total = tensor.size(1);
-    assert!(hidden_total % num_gates == 0);
-    let hidden_size = hidden_total / num_gates;
-    tensor.slice::<2, _>((
-        dir,
-        (gate_index * hidden_size..(gate_index + 1) * hidden_size),
-    ))
-}
-
-struct GateWeightsAndBias<'a> {
-    /// Gate weights. Has shape `[input_size, hidden_size]`.
-    weights: GateWeights<'a>,
-
-    /// Hidden/recurrent gate weights. Has shape `[hidden_size, hidden_size]`.
-    recurrent_weights: GateWeights<'a>,
-
-    /// Tuple of (input_bias, hidden_bias) where each vector has length
-    /// `hidden_size`.
-    bias: Option<(NdTensorView<'a, f32, 1>, NdTensorView<'a, f32, 1>)>,
-}
-
 /// Sequence length threshold for prepacking weights.
 ///
 /// For sufficiently long input sequences, prepacking weights can speed up
@@ -199,55 +90,6 @@ struct GateWeightsAndBias<'a> {
 ///
 /// TODO: This value was chosen because it seemed reasonable. It needs tuning.
 const PREPACK_MIN_SEQ_LEN: usize = 5;
-
-/// Extract weights and biases for a specific RNN gate/output from a tensor that
-/// contains concatenated weights/biases for different gates.
-///
-/// `weights` has shape `[num_directions, num_gates * hidden_size, input_size]`
-/// `recurrent_weights` has shape `[num_directions, num_gates * hidden_size, hidden_size]`
-/// `bias` has shape `[num_directions, 2 * num_gates * hidden_size]`.
-///
-/// Depending on the sequence length, the weights may be prepacked for use with
-/// `gemm`.
-fn extract_weights_and_bias<'a>(
-    gemm: &GemmExecutor,
-    weights: TensorView<'a>,
-    recurrent_weights: TensorView<'a>,
-    bias: Option<TensorView<'a>>,
-    dir: usize,
-    num_gates: usize,
-    gate_index: usize,
-    sequence_len: usize,
-) -> GateWeightsAndBias<'a> {
-    let hidden_size = weights.size(1) / num_gates;
-    let weights = extract_matrix(weights, dir, num_gates, gate_index).transposed();
-    let recurrent_weights =
-        extract_matrix(recurrent_weights, dir, num_gates, gate_index).transposed();
-    let bias = bias.map(|bias| {
-        let nth_gate = |gate_index| (gate_index * hidden_size)..((gate_index + 1) * hidden_size);
-        let input_bias = bias.slice::<1, _>((dir, nth_gate(gate_index)));
-        let hidden_bias = bias.slice::<1, _>((dir, nth_gate(gate_index + num_gates)));
-        (input_bias, hidden_bias)
-    });
-
-    let prepack = sequence_len >= PREPACK_MIN_SEQ_LEN;
-    let weights = if prepack {
-        GateWeights::Packed(gemm.prepack_b(weights))
-    } else {
-        GateWeights::Unpacked(weights)
-    };
-    let recurrent_weights = if prepack {
-        GateWeights::Packed(gemm.prepack_b(recurrent_weights))
-    } else {
-        GateWeights::Unpacked(recurrent_weights)
-    };
-
-    GateWeightsAndBias {
-        weights,
-        recurrent_weights,
-        bias,
-    }
-}
 
 /// Gated Recurrent Unit operator.
 #[derive(Debug)]
@@ -287,6 +129,18 @@ pub fn gru(
     initial_hidden: Option<TensorView>,
     linear_before_reset: bool,
 ) -> Result<Vec<Tensor>, OpError> {
+    // PyTorch and cuDNN only support the `linear_before_reset=true` case, as
+    // it enables better efficiency. The `linear_before_reset=false` case
+    // matches the paper that introduced the GRU operator.
+    //
+    // See note in https://pytorch.org/docs/stable/generated/torch.nn.GRU.html.
+    if !linear_before_reset {
+        // PyTorch and cuDNN
+        return Err(OpError::UnsupportedValue(
+            "`linear_before_reset=0` is not supported",
+        ));
+    }
+
     let [seq_len, batch, _input_size] = check_dims!(input, 3, "seq, batch, input");
     let [_directions, hidden_x3, _input_size] = check_dims!(weights, 3, "dir, hidden x 3, input");
     check_dims!(recurrent_weights, 3);
@@ -299,43 +153,46 @@ pub fn gru(
         .map(|t| t.to_tensor_in(pool))
         .unwrap_or_else(|| Tensor::zeros_in(pool, &[num_directions, batch, hidden_size]));
     let mut hidden_seq = Tensor::zeros_in(pool, &[seq_len, num_directions, batch, hidden_size]);
-    let new_gate = || Tensor::zeros_in(pool, &[batch, hidden_size]);
-
-    let mut update_gate = new_gate();
-    let mut reset_gate = new_gate();
-    let mut hidden_gate = new_gate();
-
-    // `extract_weights_and_bias` requires a contiguous tensor.
-    let bias = bias.map(|t| t.to_contiguous());
-
-    let gemm = GemmExecutor::new();
-
-    // Extract and prepack weights for a gate.
-    let extract_gru_weights_and_bias = |dir, gate_index| {
-        extract_weights_and_bias(
-            &gemm,
-            weights.view(),
-            recurrent_weights.view(),
-            bias.as_ref().map(|b| b.view()),
-            dir,
-            3,
-            gate_index,
-            seq_len,
-        )
-    };
 
     // Indices of gates in the concatenated weight and bias tensors.
     const UPDATE_GATE: usize = 0;
     const RESET_GATE: usize = 1;
     const HIDDEN_GATE: usize = 2;
 
-    // Scratch buffer for computing new hidden state.
-    let mut hidden_tmp = new_gate();
+    let n_gates = 3;
+    let mut gates = Tensor::zeros_in(pool, &[batch, n_gates * hidden_size]).auto_return(pool);
+    let gate_range = |gate| (gate * hidden_size)..((gate + 1) * hidden_size);
 
+    // Scratch space for output of `hidden_state @ hidden_weights` matmul.
+    let mut hidden_scratch =
+        Tensor::zeros_in(pool, &[batch, n_gates * hidden_size]).auto_return(pool);
+
+    let gemm = GemmExecutor::new();
     for dir in 0..num_directions {
-        let update_weights = extract_gru_weights_and_bias(dir, UPDATE_GATE);
-        let reset_weights = extract_gru_weights_and_bias(dir, RESET_GATE);
-        let hidden_weights = extract_gru_weights_and_bias(dir, HIDDEN_GATE);
+        let prepack = seq_len >= PREPACK_MIN_SEQ_LEN;
+
+        let input_weights = weights.slice::<2, _>(dir).transposed();
+        let packed_input_weights =
+            prepack.then(|| gemm.prepack_b_in(pool, input_weights).auto_return(pool));
+        let input_weights = packed_input_weights
+            .as_ref()
+            .map(|packed| GemmInputB::Packed(packed))
+            .unwrap_or(GemmInputB::Unpacked(input_weights));
+
+        let hidden_weights = recurrent_weights.slice::<2, _>(dir).transposed();
+        let packed_hidden_weights =
+            prepack.then(|| gemm.prepack_b_in(pool, hidden_weights).auto_return(pool));
+        let hidden_weights = packed_hidden_weights
+            .as_ref()
+            .map(|packed| GemmInputB::Packed(packed))
+            .unwrap_or(GemmInputB::Unpacked(hidden_weights));
+
+        let input_bias = bias
+            .as_ref()
+            .map(|b| b.slice::<1, _>((dir, ..(n_gates * hidden_size))));
+        let hidden_bias = bias
+            .as_ref()
+            .map(|b| b.slice::<1, _>((dir, (n_gates * hidden_size)..)));
 
         for seq in sequence_for_dir(direction, dir, seq_len) {
             let in_item = input.slice::<2, _>([seq]);
@@ -346,10 +203,10 @@ pub fn gru(
             //   zt = f(Xt*(Wz^T) + Ht-1*(Rz^T) + Wbz + Rbz)
             //   rt = f(Xt*(Wr^T) + Ht-1*(Rr^T) + Wbr + Rbr)
             //
-            //   If `linear_before_reset` is false:
-            //     ht = tanh(dot(input, hidden_w) + reset * (dot(hidden, rec_hidden_w) + rec_hidden_bias) + hidden_bias)
+            //   If `linear_before_reset` is true:
+            //     ht = tanh(dot(input, hidden_w) + rt * (dot(hidden, rec_hidden_w) + rec_hidden_bias) + hidden_bias)
             //   Else:
-            //     ht = tanh(dot(input, hidden_w) + dot((reset * hidden), rec_hidden_w) + rec_hidden_bias + hidden_bias)
+            //     ht = tanh(dot(input, hidden_w) + dot((rt * hidden), rec_hidden_w) + rec_hidden_bias + hidden_bias)
             //
             //   Ht = (1 - zt) (.) ht + zt (.) (Ht-1)
             //
@@ -360,76 +217,75 @@ pub fn gru(
             //  - `W{z,r,h}` and `R{z,r,h}` are the input and recurrent weights
             //  - `Wb{z,r,h}` and `Rb{z,r,h}` are the input and recurrent biases
             //  - `f` and `g` are activations. f=sigmoid, g=tanh
+            //
+            // In the `linear_before_reset=true` case, which is all we currently
+            // support, the matrix multiplications for all gates can be
+            // combined into two: one for `input @ input_weights`, one for
+            // `hidden @ hidden_weights`.
 
-            // Compute update gate.
-            compute_rnn_gate(
-                &gemm,
-                update_gate.view_mut(),
-                Activation::Sigmoid,
-                &in_item,
-                &hidden_item,
-                &update_weights,
+            // Compute `input @ weights + bias` for all gates.
+            let gates_row_stride = gates.stride(gates.ndim() - 2);
+            gemm.gemm(
+                gates.data_mut().expect("expected contiguous input"),
+                gates_row_stride,
+                GemmInputA::Unpacked(in_item),
+                input_weights,
+                1., /* alpha */
+                0., /* beta */
             );
-
-            // Compute reset gate.
-            compute_rnn_gate(
-                &gemm,
-                reset_gate.view_mut(),
-                Activation::Sigmoid,
-                &in_item,
-                &hidden_item,
-                &reset_weights,
-            );
-
-            // Compute hidden gate.
-            matmul(
-                &gemm,
-                hidden_gate.view_mut(),
-                in_item.nd_view(),
-                hidden_weights.weights.as_gemm_input(),
-            );
-            if linear_before_reset {
-                matmul(
-                    &gemm,
-                    hidden_tmp.view_mut(),
-                    hidden_item.nd_view(),
-                    hidden_weights.recurrent_weights.as_gemm_input(),
-                );
-
-                // Compute `hidden_gate = tanh(hidden_gate + hidden_bias + reset * (dot(update_tmp) + rec_hidden_bias))`
-                if let Some((hidden_bias, rec_hidden_bias)) = hidden_weights.bias {
-                    for (hidden_gate, update_tmp, reset, rec_hidden_bias, hidden_bias) in zip5(
-                        hidden_gate.iter_mut(),
-                        hidden_tmp.iter(),
-                        reset_gate.iter(),
-                        // Cycle to repeat for each item in batch.
-                        rec_hidden_bias.iter().cycle(),
-                        hidden_bias.iter().cycle(),
-                    ) {
-                        let update = reset * (update_tmp + rec_hidden_bias);
-                        *hidden_gate = (*hidden_gate + update + hidden_bias).tanh();
-                    }
-                } else {
-                    for (hidden_gate, update_tmp, reset) in
-                        zip3(hidden_gate.iter_mut(), hidden_tmp.iter(), reset_gate.iter())
-                    {
-                        let update = reset * update_tmp;
-                        *hidden_gate = (*hidden_gate + update).tanh();
-                    }
-                }
-            } else {
-                // TODO - Support alternate GRU variant where hidden gate is
-                // computed as:
-                //
-                //   `hidden_gate = tanh(dot(input, hidden_w) + dot((reset * hidden), rec_hidden_w) + rec_hidden_bias + hidden_bias)
-                //
-                // Note that cuDNN and PyTorch use the semantics of
-                // `linear_before_reset = true`.
-                unimplemented!("`linear_before_reset == false` is not supported");
+            if let Some(input_bias) = input_bias {
+                add_in_place(gates.view_mut(), input_bias.as_dyn());
             }
+
+            // Compute `hidden @ hidden_weights + hidden_bias` for all gates.
+            let hidden_scratch_row_stride = hidden_scratch.stride(hidden_scratch.ndim() - 2);
+            gemm.gemm(
+                hidden_scratch.data_mut().unwrap(),
+                hidden_scratch_row_stride,
+                GemmInputA::Unpacked(hidden_item),
+                hidden_weights,
+                1., /* alpha */
+                0., /* beta */
+            );
+            if let Some(hidden_bias) = hidden_bias {
+                add_in_place(hidden_scratch.view_mut(), hidden_bias.as_dyn());
+            }
+
+            // Combine inputs for reset and update gates and apply activation.
+            let mut update_reset_gates = gates.slice_mut::<2, _>((
+                ..,
+                gate_range(UPDATE_GATE).start..gate_range(RESET_GATE).end,
+            ));
+            let hidden_scratch_reset_update_gates = hidden_scratch.slice::<2, _>((
+                ..,
+                gate_range(UPDATE_GATE).start..gate_range(RESET_GATE).end,
+            ));
+            add_in_place(
+                update_reset_gates.as_dyn_mut(),
+                hidden_scratch_reset_update_gates.as_dyn(),
+            );
+
+            // nb. This is slower than it should be because it falls back to
+            // the slow path for non-contiguous tensors.
+            sigmoid_in_place(update_reset_gates.as_dyn_mut());
+
+            // Combine inputs for hidden gate and apply activation.
+            let reset_gate = gates.slice::<2, _>((.., gate_range(RESET_GATE)));
+            let mut hidden_gate_recurrent =
+                hidden_scratch.slice_mut::<2, _>((.., gate_range(HIDDEN_GATE)));
+            mul_in_place(hidden_gate_recurrent.as_dyn_mut(), reset_gate.as_dyn());
+
+            let mut hidden_gate = gates.slice_mut::<2, _>((.., gate_range(HIDDEN_GATE)));
+            add_in_place(hidden_gate.as_dyn_mut(), hidden_gate_recurrent.as_dyn());
+
+            // Copy the hidden gate because `tanh_in_place` is slow with
+            // non-contiguous tensors.
+            let hidden_gate = tanh(pool, hidden_gate.as_dyn()).auto_return(pool);
 
             // Compute next hidden state
             let mut hidden_item = hidden.slice_mut::<2, _>([dir]);
+            let update_gate = gates.slice::<2, _>((.., gate_range(UPDATE_GATE)));
+
             for (hidden, update, hidden_gate) in zip3(
                 hidden_item.iter_mut(),
                 update_gate.iter(),
@@ -471,21 +327,6 @@ impl Operator for GRU {
             self.linear_before_reset,
         )
         .into_op_result()
-    }
-}
-
-/// Weights for an RNN gate, which may or may not be prepacked.
-enum GateWeights<'a> {
-    Packed(PackedBMatrix),
-    Unpacked(Matrix<'a>),
-}
-
-impl<'a> GateWeights<'a> {
-    fn as_gemm_input(&self) -> GemmInputB {
-        match self {
-            GateWeights::Packed(packed) => GemmInputB::Packed(packed),
-            GateWeights::Unpacked(matrix) => GemmInputB::Unpacked(matrix.view()),
-        }
     }
 }
 
