@@ -113,8 +113,11 @@ impl<'a> PackedAMatrix<'a> {
 impl<'a> ExtractBuffer for PackedAMatrix<'a> {
     type Elem = f32;
 
-    fn extract_buffer(self) -> Vec<f32> {
-        self.data.into_owned()
+    fn extract_buffer(self) -> Option<Vec<f32>> {
+        match self.data {
+            Cow::Owned(owned) => Some(owned),
+            Cow::Borrowed(_) => None,
+        }
     }
 }
 
@@ -148,8 +151,8 @@ impl PackedBMatrix {
 impl ExtractBuffer for PackedBMatrix {
     type Elem = f32;
 
-    fn extract_buffer(self) -> Vec<f32> {
-        self.data
+    fn extract_buffer(self) -> Option<Vec<f32>> {
+        Some(self.data)
     }
 }
 

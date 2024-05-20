@@ -1,7 +1,7 @@
 use std::cell::RefCell;
 use std::ops::{Deref, DerefMut};
 
-use rten_tensor::{Alloc, MutLayout, TensorBase};
+use rten_tensor::{Alloc, CowData, MutLayout, TensorBase};
 
 /// A memory buffer that can be used to satisfy a future allocation from
 /// a [TensorPool].
@@ -211,13 +211,23 @@ impl Default for TensorPool {
 pub trait ExtractBuffer {
     type Elem;
 
-    fn extract_buffer(self) -> Vec<Self::Elem>;
+    /// Consume `self` and return it's data buffer if it was uniquely owned, or
+    /// `None` otherwise.
+    fn extract_buffer(self) -> Option<Vec<Self::Elem>>;
 }
 
 impl<T, L: MutLayout> ExtractBuffer for TensorBase<Vec<T>, L> {
     type Elem = T;
 
-    fn extract_buffer(self) -> Vec<Self::Elem> {
+    fn extract_buffer(self) -> Option<Vec<Self::Elem>> {
+        Some(self.into_non_contiguous_data())
+    }
+}
+
+impl<'a, T, L: MutLayout> ExtractBuffer for TensorBase<CowData<'a, T>, L> {
+    type Elem = T;
+
+    fn extract_buffer(self) -> Option<Vec<Self::Elem>> {
         self.into_non_contiguous_data()
     }
 }
@@ -283,7 +293,9 @@ impl<'a, T: ExtractBuffer> DerefMut for PoolRef<'a, T> {
 impl<'a, T: ExtractBuffer> Drop for PoolRef<'a, T> {
     fn drop(&mut self) {
         if let Some(container) = self.container.take() {
-            self.pool.add(container.extract_buffer())
+            if let Some(buffer) = container.extract_buffer() {
+                self.pool.add(buffer)
+            }
         }
     }
 }
@@ -306,7 +318,7 @@ mod tests {
         assert_eq!(pool.hit_count(), 0);
         let ptr = tensor.data().unwrap().as_ptr();
 
-        pool.add(tensor.extract_buffer());
+        pool.add(tensor.extract_buffer().unwrap());
 
         // Alloc with an exact size match. This will be fulfilled from the pool.
         let tensor = NdTensor::<f32, 2>::zeros_in(&pool, [2, 2]);
@@ -317,7 +329,7 @@ mod tests {
         // Check we really did get the same data back.
         assert_eq!(tensor.data().unwrap().as_ptr(), ptr);
 
-        pool.add(tensor.extract_buffer());
+        pool.add(tensor.extract_buffer().unwrap());
 
         // Alloc with a smaller size. This will be fulfilled from the pool.
         let tensor = NdTensor::<f32, 2>::zeros_in(&pool, [2, 1]);
@@ -325,7 +337,7 @@ mod tests {
         assert_eq!(pool.alloc_count(), 3);
         assert_eq!(pool.hit_count(), 2);
 
-        pool.add(tensor.extract_buffer());
+        pool.add(tensor.extract_buffer().unwrap());
 
         // Alloc with a larger size. This will return a new tensor.
         let tensor = NdTensor::<f32, 2>::zeros_in(&pool, [2, 3]);
@@ -340,7 +352,7 @@ mod tests {
         assert_eq!(pool.alloc_count(), 5);
         assert_eq!(pool.hit_count(), 2);
 
-        pool.add(int_tensor.extract_buffer());
+        pool.add(int_tensor.extract_buffer().unwrap());
 
         // Alloc that matches the tensor we just freed. This will return the
         // item just added to the pool.
@@ -408,12 +420,22 @@ mod tests {
         assert_eq!(pool.len(), 0);
 
         {
+            // Owned tensor. This will auto-return to the pool.
             let tensor = NdTensor::<f32, 2>::zeros_in(&pool, [2, 2]).auto_return(&pool);
             assert_eq!(tensor.shape(), [2, 2]);
+
+            // Conditional copy which doesn't copy. This will not return to the pool.
+            tensor.to_contiguous_in(&pool).auto_return(&pool);
+
+            // Conditional copy which does copy. This will return to the pool.
+            tensor
+                .transposed()
+                .to_contiguous_in(&pool)
+                .auto_return(&pool);
         }
 
-        assert_eq!(pool.alloc_count(), 1);
-        assert_eq!(pool.len(), 1);
+        assert_eq!(pool.alloc_count(), 2);
+        assert_eq!(pool.len(), 2);
     }
 
     #[test]
