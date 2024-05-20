@@ -57,8 +57,8 @@ fn conv_2d_pointwise(
 
     // Get input and kernel as contiguous tensors so we can create reshaped
     // views.
-    let input = input.to_contiguous();
-    let kernel = kernel.to_contiguous();
+    let input = input.to_contiguous_in(pool).auto_return(pool);
+    let kernel = kernel.to_contiguous_in(pool).auto_return(pool);
     let kernel_mat = kernel.reshaped([out_c, in_c]);
 
     // Bias must be contiguous for use with `gemm_bias`.
@@ -193,7 +193,7 @@ fn conv_2d_depthwise(
     let mut output = NdTensor::uninit_in(pool, [batch, out_c, out_h, out_w]);
 
     // Use of input rows below assumes contiguous last dimension.
-    let input = input.to_contiguous();
+    let input = input.to_contiguous_in(pool).auto_return(pool);
 
     // Map of kernel X position to `(in_range, out_range)` of column ranges that
     // are used in the inner loop.
@@ -692,8 +692,8 @@ pub fn conv_transpose(
     let mut output = Tensor::uninit_in(pool, [batch, out_c, out_h, out_w].as_slice());
 
     // Ensure input and kernel are contiguous to support reshaping.
-    let input = input.to_contiguous();
-    let kernel = kernel.to_contiguous();
+    let input = input.to_contiguous_in(pool).auto_return(pool);
+    let kernel = kernel.to_contiguous_in(pool).auto_return(pool);
 
     let mut col2im_mat =
         NdTensor::uninit_in(pool, [out_c * k_h * k_w, in_h * in_w]).auto_return(pool);

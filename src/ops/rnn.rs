@@ -547,7 +547,7 @@ pub fn lstm(
     check_dims!(initial_cell?, 3);
 
     // Contiguous input and bias needed to allow reshaping below.
-    let input = input.to_contiguous();
+    let input = input.to_contiguous_in(pool).auto_return(pool);
     let bias = bias.map(|t| t.to_contiguous());
 
     // Indices of gates in the concatenated weight and bias tensors.

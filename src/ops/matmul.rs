@@ -161,7 +161,7 @@ fn matmul_impl(
     // `A` smaller matmuls. This is especially true if `M` is small (eg. 1).
     if strategy == MatmulStrategy::Auto && a.ndim() > 2 && b.ndim() == 2 {
         // nb. We assume `a` is likely already contiguous, so this will be cheap.
-        let a_contig = a.to_contiguous();
+        let a_contig = a.to_contiguous_in(pool).auto_return(pool);
         let a_matrix = a_contig.reshaped([num_a_matrices * a_rows, a_cols].as_slice());
         let mut output = matmul(pool, a_matrix, b.clone())?;
         output.reshape(out_shape);

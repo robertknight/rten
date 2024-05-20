@@ -5,7 +5,7 @@ use rten_tensor::{Iter, NdTensorView, Tensor, TensorView};
 
 use crate::ops::{resolve_axis, Input, InputList, IntoOpResult, OpError, Operator, Output};
 use crate::static_dims;
-use crate::tensor_pool::TensorPool;
+use crate::tensor_pool::{AutoReturn, TensorPool};
 
 enum ChunkSource<'a, T: Copy> {
     Slice(&'a [T]),
@@ -209,7 +209,11 @@ pub fn tile<T: Copy>(
 
     if !output.is_empty() {
         tile_inner(
-            input.to_contiguous().data().unwrap(),
+            input
+                .to_contiguous_in(pool)
+                .auto_return(pool)
+                .data()
+                .unwrap(),
             output.data_mut().unwrap(),
             input.shape(),
             &repeats,

@@ -634,9 +634,9 @@ impl Graph {
                 if rc == Some(0) {
                     if let (true, Some(tensor)) = (use_pool, temp_values.remove(&node_id)) {
                         match tensor {
-                            Output::FloatTensor(t) => pool.add(t.extract_buffer()),
-                            Output::IntTensor(t) => pool.add(t.extract_buffer()),
-                        }
+                            Output::FloatTensor(t) => t.extract_buffer().map(|buf| pool.add(buf)),
+                            Output::IntTensor(t) => t.extract_buffer().map(|buf| pool.add(buf)),
+                        };
                     }
                 }
             }

@@ -166,11 +166,7 @@ pub trait AsView: Layout {
         self.view().map(f)
     }
 
-    /// Variant of [`map`](AsView::map) which takes an output buffer as an
-    /// argument.
-    ///
-    /// The output buffer must be empty, but should have a capacity that is at
-    /// least the length of this tensor.
+    /// Variant of [`map`](AsView::map) which takes an allocator.
     fn map_in<A: Alloc, F, U>(&self, alloc: A, f: F) -> TensorBase<Vec<U>, Self::Layout>
     where
         F: Fn(&Self::Elem) -> U,
@@ -272,7 +268,7 @@ pub trait AsView: Layout {
         self.slice_copy_in(GlobalAlloc::new(), range)
     }
 
-    /// Variant of [`slice_copy`](AsView::slice_copy) which accepts an allocator.
+    /// Variant of [`slice_copy`](AsView::slice_copy) which takes an allocator.
     fn slice_copy_in<A: Alloc, R: Clone + IntoSliceItems>(
         &self,
         pool: A,
@@ -328,8 +324,7 @@ pub trait AsView: Layout {
     where
         Self::Elem: Clone;
 
-    /// Variant of [`to_vec`](AsView::to_vec) which takes an output buffer as
-    /// an argument.
+    /// Variant of [`to_vec`](AsView::to_vec) which takes an allocator.
     fn to_vec_in<A: Alloc>(&self, alloc: A) -> Vec<Self::Elem>
     where
         Self::Elem: Clone;
@@ -347,6 +342,15 @@ pub trait AsView: Layout {
         Self::Elem: Clone,
     {
         self.view().to_contiguous()
+    }
+
+    /// Variant of [`to_contiguous`](AsView::to_contiguous) which takes an
+    /// allocator.
+    fn to_contiguous_in<A: Alloc>(&self, alloc: A) -> TensorBase<CowData<Self::Elem>, Self::Layout>
+    where
+        Self::Elem: Clone,
+    {
+        self.view().to_contiguous_in(alloc)
     }
 
     /// Return a copy of this tensor with a given shape.
@@ -375,8 +379,7 @@ pub trait AsView: Layout {
         self.to_tensor_in(GlobalAlloc::new())
     }
 
-    /// Variant of [`to_tensor`](AsView::to_tensor) which takes an output
-    /// buffer as an argument.
+    /// Variant of [`to_tensor`](AsView::to_tensor) which takes an allocator.
     fn to_tensor_in<A: Alloc>(&self, alloc: A) -> TensorBase<Vec<Self::Elem>, Self::Layout>
     where
         Self::Elem: Clone,
@@ -856,7 +859,7 @@ impl<T, L: Clone + MutLayout> TensorBase<Vec<T>, L> {
         Self::full_in(GlobalAlloc::new(), shape, value)
     }
 
-    /// Variant of [`full`](TensorBase::full) which accepts an allocator.
+    /// Variant of [`full`](TensorBase::full) which takes an allocator.
     pub fn full_in<A: Alloc>(alloc: A, shape: L::Index<'_>, value: T) -> TensorBase<Vec<T>, L>
     where
         T: Clone,
@@ -902,7 +905,7 @@ impl<T, L: Clone + MutLayout> TensorBase<Vec<T>, L> {
         Self::zeros_in(GlobalAlloc::new(), shape)
     }
 
-    /// Variant of [`zeros`](TensorBase::zeros) which accepts an allocator.
+    /// Variant of [`zeros`](TensorBase::zeros) which takes an allocator.
     pub fn zeros_in<A: Alloc>(alloc: A, shape: L::Index<'_>) -> TensorBase<Vec<T>, L>
     where
         T: Clone + Default,
@@ -922,7 +925,7 @@ impl<T, L: Clone + MutLayout> TensorBase<Vec<T>, L> {
         Self::uninit_in(GlobalAlloc::new(), shape)
     }
 
-    /// Variant of [`uninit`](TensorBase::uninit) which accepts an allocator.
+    /// Variant of [`uninit`](TensorBase::uninit) which takes an allocator.
     pub fn uninit_in<A: Alloc>(
         alloc: A,
         shape: L::Index<'_>,
@@ -935,6 +938,18 @@ impl<T, L: Clone + MutLayout> TensorBase<Vec<T>, L> {
         unsafe { data.set_len(len) }
 
         TensorBase::from_data(shape, data)
+    }
+}
+
+impl<'a, T, L: MutLayout> TensorBase<CowData<'a, T>, L> {
+    /// Consume self and return the underlying data in whatever order the
+    /// elements are currently stored, if the storage is owned, or `None` if
+    /// it is borrowed.
+    pub fn into_non_contiguous_data(self) -> Option<Vec<T>> {
+        match self.data {
+            CowData::Owned(vec) => Some(vec),
+            CowData::Borrowed(_) => None,
+        }
     }
 }
 
@@ -1240,13 +1255,22 @@ impl<'a, T, L: Clone + MutLayout> TensorBase<ViewData<'a, T>, L> {
     where
         T: Clone,
     {
+        self.to_contiguous_in(GlobalAlloc::new())
+    }
+
+    /// Variant of [`to_contiguous`](TensorBase::to_contiguous) which takes
+    /// an allocator.
+    pub fn to_contiguous_in<A: Alloc>(&self, alloc: A) -> TensorBase<CowData<'a, T>, L>
+    where
+        T: Clone,
+    {
         if let Some(data) = self.data() {
             TensorBase {
                 data: CowData::Borrowed(data.into_storage()),
                 layout: self.layout.clone(),
             }
         } else {
-            let data = self.to_vec();
+            let data = self.to_vec_in(alloc);
             TensorBase {
                 data: CowData::Owned(data),
                 layout: L::from_shape(self.layout.shape()),
@@ -1520,8 +1544,7 @@ impl<T> TensorBase<Vec<T>, DynLayout> {
         self.reshape_in(GlobalAlloc::new(), shape)
     }
 
-    /// Variant of [`reshape`](TensorBase::reshape) which takes an allocator
-    /// as an argument.
+    /// Variant of [`reshape`](TensorBase::reshape) which takes an allocator.
     pub fn reshape_in<A: Alloc>(&mut self, alloc: A, shape: &[usize])
     where
         T: Clone,
