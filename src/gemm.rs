@@ -22,16 +22,6 @@ mod packing;
 
 use kernels::{BaseKernel, Kernel};
 
-/// Return `a / b`, rounding up if `b` does not evenly divide `a`.
-pub fn div_ceil(a: usize, b: usize) -> usize {
-    if b == 1 {
-        // Fast path
-        return a;
-    }
-    let rounding = usize::from(a % b != 0);
-    a / b + rounding
-}
-
 /// Return the smallest multiple of `factor` that is >= `val`.
 pub fn round_up(val: usize, factor: usize) -> usize {
     let rem = val % factor;
@@ -363,8 +353,8 @@ impl GemmExecutor {
         let mr = self.kernel.mr();
         let mc = row_block_size(a.rows(), mr);
         let panel_len = kc * mc;
-        let row_blocks = div_ceil(a.rows(), mc);
-        let depth_blocks = div_ceil(a.cols(), kc);
+        let row_blocks = a.rows().div_ceil(mc);
+        let depth_blocks = a.cols().div_ceil(kc);
 
         let packed_len = depth_blocks * row_blocks * panel_len;
         let mut data = alloc.alloc(packed_len);
@@ -422,8 +412,8 @@ impl GemmExecutor {
         let nc = col_block_size(b.cols(), nr);
         let kc = depth_block_size(b.rows());
         let panel_len = nc * kc;
-        let depth_blocks = div_ceil(b.rows(), kc);
-        let col_blocks = div_ceil(b.cols(), nc);
+        let depth_blocks = b.rows().div_ceil(kc);
+        let col_blocks = b.cols().div_ceil(nc);
 
         let packed_len = col_blocks * depth_blocks * panel_len;
         let mut out = alloc.alloc(packed_len);
@@ -644,8 +634,8 @@ impl OutputTiles {
             row_stride: data.stride(0),
             tile_rows,
             tile_cols,
-            n_row_tiles: div_ceil(data.rows(), tile_rows),
-            n_col_tiles: div_ceil(data.cols(), tile_cols),
+            n_row_tiles: data.rows().div_ceil(tile_rows),
+            n_col_tiles: data.cols().div_ceil(tile_cols),
         }
     }
 
@@ -823,8 +813,8 @@ fn gemm_impl(
     thread_local!(static PACKED_A: RefCell<Vec<f32>> = const { RefCell::new(Vec::new()) });
     thread_local!(static PACKED_B: RefCell<Vec<f32>> = const { RefCell::new(Vec::new()) });
 
-    let n_col_blocks = div_ceil(b.cols(), nc);
-    let n_row_blocks = div_ceil(a.rows(), mc);
+    let n_col_blocks = b.cols().div_ceil(nc);
+    let n_row_blocks = a.rows().div_ceil(mc);
 
     // In a single-threaded context we get better performance by avoiding Rayon
     // overhead altogether.
@@ -922,8 +912,8 @@ fn gemm_impl(
                         gemm_block(
                             kernel,
                             &output_tiles,
-                            col_start / nr..div_ceil(col_end, nr),
-                            row_start / mr..div_ceil(row_end, mr),
+                            col_start / nr..col_end.div_ceil(nr),
+                            row_start / mr..row_end.div_ceil(mr),
                             depth_range.start == 0,
                             packed_a,
                             packed_b,
