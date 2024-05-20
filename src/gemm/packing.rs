@@ -3,8 +3,6 @@ use std::ops::Range;
 
 use rten_tensor::{Matrix, MatrixLayout, Storage};
 
-use super::round_up;
-
 /// Pack a block of the "A" matrix for use by a GEMM kernel.
 ///
 /// The packed buffer is laid out as a sequence of `ceil(rows.len() / MR)`
@@ -27,7 +25,7 @@ pub fn pack_a_block<const MR: usize>(
 ) {
     let a_rows = rows.len();
     let a_cols = cols.len();
-    let n_panels = round_up(a_rows, MR) / MR;
+    let n_panels = a_rows.next_multiple_of(MR) / MR;
     let used_size = n_panels * MR * a_cols;
     assert_eq!(out.len(), used_size);
 
@@ -115,7 +113,7 @@ pub fn pack_b_block<const NR: usize>(
     let b_rows = rows.len();
     let b_row_stride = b.row_stride();
     let b_col_stride = b.col_stride();
-    let n_panels = round_up(b_cols, NR) / NR;
+    let n_panels = b_cols.next_multiple_of(NR) / NR;
 
     let used_size = n_panels * b_rows * NR;
     assert_eq!(out.len(), used_size);

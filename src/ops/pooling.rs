@@ -7,7 +7,6 @@ use rten_tensor::prelude::*;
 use rten_tensor::{NdTensor, NdTensorView, NdTensorViewMut, Tensor, TensorView, TensorViewMut};
 
 use crate::check_dims;
-use crate::gemm::div_ceil;
 use crate::ops::{InputList, IntoOpResult, OpError, Operator, Output, Padding};
 use crate::tensor_pool::TensorPool;
 
@@ -47,8 +46,8 @@ pub fn calc_output_size_and_padding(
 
     let (out_h, out_w, padding) = match padding {
         Padding::Same => {
-            let out_h = div_ceil(in_h, stride_h);
-            let out_w = div_ceil(in_w, stride_w);
+            let out_h = in_h.div_ceil(stride_h);
+            let out_w = in_w.div_ceil(stride_w);
 
             let pad_total_h =
                 ((out_h - 1) * stride_h + (k_h - 1) * dilation_y + 1).saturating_sub(in_h);
@@ -61,8 +60,8 @@ pub fn calc_output_size_and_padding(
             // If the total padding is not even, we assign the remaining unit to
             // the ends of the axis. This matches the ONNX "SAME_UPPER"
             // value for `auto_pad`.
-            let pad_bottom = div_ceil(pad_total_h, 2);
-            let pad_right = div_ceil(pad_total_w, 2);
+            let pad_bottom = pad_total_h.div_ceil(2);
+            let pad_right = pad_total_w.div_ceil(2);
 
             (out_h, out_w, [pad_top, pad_left, pad_bottom, pad_right])
         }

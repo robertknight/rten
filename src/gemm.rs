@@ -14,74 +14,13 @@ use rayon::prelude::*;
 use rten_tensor::prelude::*;
 use rten_tensor::{Alloc, GlobalAlloc, Matrix, MatrixLayout, MatrixMut, NdTensorView};
 
-use crate::iter_util::{range_chunks, unroll_loop, MaybeParIter};
+use crate::iter_util::{range_chunks, MaybeParIter};
 use crate::tensor_pool::ExtractBuffer;
 
 mod kernels;
 mod packing;
 
 use kernels::{BaseKernel, Kernel};
-
-/// Return `a / b`, rounding up if `b` does not evenly divide `a`.
-pub fn div_ceil(a: usize, b: usize) -> usize {
-    if b == 1 {
-        // Fast path
-        return a;
-    }
-    let rounding = usize::from(a % b != 0);
-    a / b + rounding
-}
-
-/// Compute `dest += src * scale`, also known as a vector-scalar product or
-/// "axpy" operation.
-///
-/// `dest_stride` and `src_stride` specifies the strides to use when iterating
-/// over `dest` and `src` respectively. The lengths of `dest` and `src` must
-/// match after accounting for their respective strides.
-#[inline]
-pub fn add_scaled_vector(
-    dest: &mut [f32],
-    src: &[f32],
-    dest_stride: usize,
-    src_stride: usize,
-    scale: f32,
-) {
-    // Fast path for non-strided case. We write a trivial loop and leave the
-    // compiler to optimize it.
-    if src_stride == 1 && dest_stride == 1 {
-        assert!(
-            src.len() == dest.len(),
-            "src and dest vector sizes do not match"
-        );
-        for i in 0..dest.len() {
-            dest[i] += src[i] * scale;
-        }
-        return;
-    }
-
-    let src_els = src.len().div_ceil(src_stride);
-    let dest_els = dest.len().div_ceil(dest_stride);
-    assert!(
-        src_els == dest_els,
-        "src and dest vector sizes do not match"
-    );
-
-    unroll_loop!(0..src_els, i, 4, {
-        unsafe {
-            *dest.get_unchecked_mut(i * dest_stride) += *src.get_unchecked(i * src_stride) * scale;
-        }
-    });
-}
-
-/// Return the smallest multiple of `factor` that is >= `val`.
-pub fn round_up(val: usize, factor: usize) -> usize {
-    let rem = val % factor;
-    if rem == 0 {
-        val
-    } else {
-        (val + factor) - rem
-    }
-}
 
 /// Left-hand or "A" GEMM input that has been pre-packed.
 #[derive(Clone)]
@@ -404,8 +343,8 @@ impl GemmExecutor {
         let mr = self.kernel.mr();
         let mc = row_block_size(a.rows(), mr);
         let panel_len = kc * mc;
-        let row_blocks = div_ceil(a.rows(), mc);
-        let depth_blocks = div_ceil(a.cols(), kc);
+        let row_blocks = a.rows().div_ceil(mc);
+        let depth_blocks = a.cols().div_ceil(kc);
 
         let packed_len = depth_blocks * row_blocks * panel_len;
         let mut data = alloc.alloc(packed_len);
@@ -417,7 +356,7 @@ impl GemmExecutor {
         for depth_range in range_chunks(0..a.cols(), kc) {
             for row_range in range_chunks(0..a.rows(), mc) {
                 let out_panel = out_panels.next().unwrap();
-                let used_size = round_up(row_range.len(), mr) * depth_range.len();
+                let used_size = row_range.len().next_multiple_of(mr) * depth_range.len();
                 let (used, unused) = out_panel.split_at_mut(used_size);
 
                 self.kernel
@@ -463,8 +402,8 @@ impl GemmExecutor {
         let nc = col_block_size(b.cols(), nr);
         let kc = depth_block_size(b.rows());
         let panel_len = nc * kc;
-        let depth_blocks = div_ceil(b.rows(), kc);
-        let col_blocks = div_ceil(b.cols(), nc);
+        let depth_blocks = b.rows().div_ceil(kc);
+        let col_blocks = b.cols().div_ceil(nc);
 
         let packed_len = col_blocks * depth_blocks * panel_len;
         let mut out = alloc.alloc(packed_len);
@@ -476,7 +415,7 @@ impl GemmExecutor {
         for col_range in range_chunks(0..b.cols(), nc) {
             for depth_range in range_chunks(0..b.rows(), kc) {
                 let out_panel = out_panels.next().unwrap();
-                let used_size = round_up(col_range.len(), nr) * depth_range.len();
+                let used_size = col_range.len().next_multiple_of(nr) * depth_range.len();
                 let (used, unused) = out_panel.split_at_mut(used_size);
 
                 self.kernel
@@ -625,14 +564,14 @@ fn col_block_size(b_cols: usize, nr: usize) -> usize {
     let parallelism = rayon::current_num_threads();
     let lower_bound = 128.min(b_cols);
     let unrounded = (b_cols / parallelism).max(lower_bound).min(1024);
-    round_up(unrounded, nr)
+    unrounded.next_multiple_of(nr)
 }
 
 /// Return the block size for the M / row dimension of a GEMM operation.
 ///
 /// The result is always a multiple of `mr`.
 fn row_block_size(a_rows: usize, mr: usize) -> usize {
-    round_up(64.min(a_rows), mr)
+    64.min(a_rows).next_multiple_of(mr)
 }
 
 /// A single tile of the output matrix.
@@ -685,8 +624,8 @@ impl OutputTiles {
             row_stride: data.stride(0),
             tile_rows,
             tile_cols,
-            n_row_tiles: div_ceil(data.rows(), tile_rows),
-            n_col_tiles: div_ceil(data.cols(), tile_cols),
+            n_row_tiles: data.rows().div_ceil(tile_rows),
+            n_col_tiles: data.cols().div_ceil(tile_cols),
         }
     }
 
@@ -864,8 +803,8 @@ fn gemm_impl(
     thread_local!(static PACKED_A: RefCell<Vec<f32>> = const { RefCell::new(Vec::new()) });
     thread_local!(static PACKED_B: RefCell<Vec<f32>> = const { RefCell::new(Vec::new()) });
 
-    let n_col_blocks = div_ceil(b.cols(), nc);
-    let n_row_blocks = div_ceil(a.rows(), mc);
+    let n_col_blocks = b.cols().div_ceil(nc);
+    let n_row_blocks = a.rows().div_ceil(mc);
 
     // In a single-threaded context we get better performance by avoiding Rayon
     // overhead altogether.
@@ -887,7 +826,7 @@ fn gemm_impl(
                 // the GEMM block is computed.
                 let mut thread_local_packed_b: Option<Vec<f32>> = None;
                 let panel_length = depth_range.len();
-                let packed_b_size = round_up(col_end - col_start, nr) * panel_length;
+                let packed_b_size = (col_end - col_start).next_multiple_of(nr) * panel_length;
 
                 let packed_b = match b {
                     GemmInputB::Unpacked(_) | GemmInputB::Virtual(_) => PACKED_B.with(|cell| {
@@ -932,7 +871,8 @@ fn gemm_impl(
                     .for_each(|row_idx| {
                         let row_start = row_idx * mc;
                         let row_end = (row_start + mc).min(a.rows());
-                        let packed_a_size = round_up(row_end - row_start, mr) * depth_range.len();
+                        let packed_a_size =
+                            (row_end - row_start).next_multiple_of(mr) * depth_range.len();
 
                         // Borrowed packing buffer for current thread. Returned after
                         // the GEMM block is computed.
@@ -963,8 +903,8 @@ fn gemm_impl(
                         gemm_block(
                             kernel,
                             &output_tiles,
-                            col_start / nr..div_ceil(col_end, nr),
-                            row_start / mr..div_ceil(row_end, mr),
+                            col_start / nr..col_end.div_ceil(nr),
+                            row_start / mr..row_end.div_ceil(mr),
                             depth_range.start == 0,
                             packed_a,
                             packed_b,
@@ -1119,10 +1059,7 @@ mod tests {
     use rten_tensor::test_util::expect_equal;
     use rten_tensor::{Matrix, MatrixLayout, NdTensor, Tensor};
 
-    use super::{
-        add_scaled_vector, gemm, round_up, GemmExecutor, GemmInputA, GemmInputB, KernelType,
-        VirtualMatrix,
-    };
+    use super::{gemm, GemmExecutor, GemmInputA, GemmInputB, KernelType, VirtualMatrix};
 
     fn reference_matmul_alpha_beta(a: &Tensor, b: &Tensor, alpha: f32, beta: f32) -> Tensor {
         let [a_rows, _a_cols]: [usize; 2] = a.shape().try_into().expect("input should be a matrix");
@@ -1204,52 +1141,6 @@ mod tests {
                     alpha * accum + beta * output[[r, c]] + bias.map(|b| b[r]).unwrap_or(0.);
             }
         }
-    }
-
-    #[test]
-    fn test_add_scaled_vector() {
-        let mut dest = vec![1.0, 2.0, 3.0, 4.0];
-        let src = vec![10.0, 20.0, 30.0, 40.0];
-
-        add_scaled_vector(&mut dest, &src, 1, 1, 2.0);
-
-        assert_eq!(&dest, &[21.0, 42.0, 63.0, 84.0]);
-    }
-
-    #[test]
-    fn test_add_scaled_vector_src_stride() {
-        let mut dest = vec![1.0, 2.0];
-        let src = vec![10.0, 20.0, 30.0];
-
-        add_scaled_vector(&mut dest, &src, 1, 2, 1.0);
-
-        assert_eq!(&dest, &[11.0, 32.0]);
-    }
-
-    #[test]
-    fn test_add_scaled_vector_dest_stride() {
-        let mut dest = vec![1.0, 2.0, 3.0];
-        let src = vec![10.0, 20.0];
-
-        add_scaled_vector(&mut dest, &src, 2, 1, 1.0);
-
-        assert_eq!(&dest, &[11.0, 2.0, 23.0]);
-    }
-
-    #[test]
-    #[should_panic(expected = "src and dest vector sizes do not match")]
-    fn test_add_scaled_vector_size_mismatch() {
-        let mut dest = vec![1.0, 2.0, 3.0];
-        let src = vec![10.0, 20.0];
-        add_scaled_vector(&mut dest, &src, 1, 1, 1.0);
-    }
-
-    #[test]
-    #[should_panic(expected = "src and dest vector sizes do not match")]
-    fn test_add_scaled_vector_strided_size_mismatch() {
-        let mut dest = vec![1.0, 2.0];
-        let src = vec![10.0, 20.0];
-        add_scaled_vector(&mut dest, &src, 2, 1, 1.0);
     }
 
     // Simplest possible test case for easy debugging.
@@ -1613,7 +1504,7 @@ mod tests {
                 rows: Range<usize>,
                 cols: Range<usize>,
             ) {
-                let out_cols = round_up(cols.len(), panel_width);
+                let out_cols = cols.len().next_multiple_of(panel_width);
                 let mut out_iter = out.iter_mut();
 
                 for panel_start_col in (0..out_cols).step_by(panel_width) {
