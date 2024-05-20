@@ -8,7 +8,7 @@ use rten_vecmath::simd_vec::{SimdFloat, SimdInt, SimdMask};
 #[cfg(feature = "avx512")]
 use rten_vecmath::is_avx512_supported;
 
-use crate::gemm::{round_up, KernelType, VirtualMatrix};
+use crate::gemm::{KernelType, VirtualMatrix};
 use crate::ops::pooling::calc_output_size_and_padding;
 use crate::ops::Padding;
 
@@ -126,7 +126,7 @@ impl<'a> VirtualIm2Col<'a> {
         // Build lookup table of column index in the virtual im2col matrix to
         // offsets in the image.
         let n_cols = x_patches * y_patches;
-        let n_cols_padded = round_up(n_cols, panel_width);
+        let n_cols_padded = n_cols.next_multiple_of(panel_width);
 
         // Main loop for the used columns.
         let mut col_y_offsets = Vec::with_capacity(n_cols_padded);
@@ -195,7 +195,7 @@ impl<'a> VirtualIm2Col<'a> {
     ) {
         assert_eq!(panel_width, S::LEN * NR_REGS);
 
-        let col_range = cols.start..round_up(cols.end, panel_width);
+        let col_range = cols.start..cols.end.next_multiple_of(panel_width);
         let used_size = rows.len() * col_range.len();
         assert_eq!(out.len(), used_size);
 

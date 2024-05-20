@@ -22,16 +22,6 @@ mod packing;
 
 use kernels::{BaseKernel, Kernel};
 
-/// Return the smallest multiple of `factor` that is >= `val`.
-pub fn round_up(val: usize, factor: usize) -> usize {
-    let rem = val % factor;
-    if rem == 0 {
-        val
-    } else {
-        (val + factor) - rem
-    }
-}
-
 /// Left-hand or "A" GEMM input that has been pre-packed.
 #[derive(Clone)]
 pub struct PackedAMatrix<'a> {
@@ -366,7 +356,7 @@ impl GemmExecutor {
         for depth_range in range_chunks(0..a.cols(), kc) {
             for row_range in range_chunks(0..a.rows(), mc) {
                 let out_panel = out_panels.next().unwrap();
-                let used_size = round_up(row_range.len(), mr) * depth_range.len();
+                let used_size = row_range.len().next_multiple_of(mr) * depth_range.len();
                 let (used, unused) = out_panel.split_at_mut(used_size);
 
                 self.kernel
@@ -425,7 +415,7 @@ impl GemmExecutor {
         for col_range in range_chunks(0..b.cols(), nc) {
             for depth_range in range_chunks(0..b.rows(), kc) {
                 let out_panel = out_panels.next().unwrap();
-                let used_size = round_up(col_range.len(), nr) * depth_range.len();
+                let used_size = col_range.len().next_multiple_of(nr) * depth_range.len();
                 let (used, unused) = out_panel.split_at_mut(used_size);
 
                 self.kernel
@@ -574,14 +564,14 @@ fn col_block_size(b_cols: usize, nr: usize) -> usize {
     let parallelism = rayon::current_num_threads();
     let lower_bound = 128.min(b_cols);
     let unrounded = (b_cols / parallelism).max(lower_bound).min(1024);
-    round_up(unrounded, nr)
+    unrounded.next_multiple_of(nr)
 }
 
 /// Return the block size for the M / row dimension of a GEMM operation.
 ///
 /// The result is always a multiple of `mr`.
 fn row_block_size(a_rows: usize, mr: usize) -> usize {
-    round_up(64.min(a_rows), mr)
+    64.min(a_rows).next_multiple_of(mr)
 }
 
 /// A single tile of the output matrix.
@@ -836,7 +826,7 @@ fn gemm_impl(
                 // the GEMM block is computed.
                 let mut thread_local_packed_b: Option<Vec<f32>> = None;
                 let panel_length = depth_range.len();
-                let packed_b_size = round_up(col_end - col_start, nr) * panel_length;
+                let packed_b_size = (col_end - col_start).next_multiple_of(nr) * panel_length;
 
                 let packed_b = match b {
                     GemmInputB::Unpacked(_) | GemmInputB::Virtual(_) => PACKED_B.with(|cell| {
@@ -881,7 +871,8 @@ fn gemm_impl(
                     .for_each(|row_idx| {
                         let row_start = row_idx * mc;
                         let row_end = (row_start + mc).min(a.rows());
-                        let packed_a_size = round_up(row_end - row_start, mr) * depth_range.len();
+                        let packed_a_size =
+                            (row_end - row_start).next_multiple_of(mr) * depth_range.len();
 
                         // Borrowed packing buffer for current thread. Returned after
                         // the GEMM block is computed.
@@ -1068,7 +1059,7 @@ mod tests {
     use rten_tensor::test_util::expect_equal;
     use rten_tensor::{Matrix, MatrixLayout, NdTensor, Tensor};
 
-    use super::{gemm, round_up, GemmExecutor, GemmInputA, GemmInputB, KernelType, VirtualMatrix};
+    use super::{gemm, GemmExecutor, GemmInputA, GemmInputB, KernelType, VirtualMatrix};
 
     fn reference_matmul_alpha_beta(a: &Tensor, b: &Tensor, alpha: f32, beta: f32) -> Tensor {
         let [a_rows, _a_cols]: [usize; 2] = a.shape().try_into().expect("input should be a matrix");
@@ -1513,7 +1504,7 @@ mod tests {
                 rows: Range<usize>,
                 cols: Range<usize>,
             ) {
-                let out_cols = round_up(cols.len(), panel_width);
+                let out_cols = cols.len().next_multiple_of(panel_width);
                 let mut out_iter = out.iter_mut();
 
                 for panel_start_col in (0..out_cols).step_by(panel_width) {
