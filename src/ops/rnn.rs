@@ -7,8 +7,7 @@ use rten_tensor::{Tensor, TensorView};
 use crate::check_dims;
 use crate::gemm::{GemmExecutor, GemmInputA, GemmInputB};
 use crate::ops::{
-    add_in_place, mul_in_place, sigmoid, sigmoid_in_place, tanh, tanh_in_place, InputList,
-    IntoOpResult, OpError, Operator, Output,
+    add_in_place, mul_in_place, sigmoid, tanh, InputList, IntoOpResult, OpError, Operator, Output,
 };
 use crate::tensor_pool::{AutoReturn, TensorPool};
 
@@ -494,19 +493,19 @@ pub fn lstm(
                 add_in_place(gates.view_mut(), hidden_bias.as_dyn());
             }
 
-            let mut iof_gates = gates.slice_mut::<2, _>((
+            // Copy gates to work around `tanh_in_place` and `sigmoid_in_place`
+            // being slow for non-contiguous inputs. See notes in GRU op.
+            let iof_gates = gates.slice::<2, _>((
                 ..,
                 gate_range(INPUT_GATE).start..gate_range(FORGET_GATE).end,
             ));
-            sigmoid_in_place(iof_gates.as_dyn_mut());
+            let iof_gates = sigmoid(pool, iof_gates.as_dyn()).auto_return(pool);
+            let input_gate = iof_gates.slice::<2, _>((.., gate_range(INPUT_GATE)));
+            let out_gate = iof_gates.slice::<2, _>((.., gate_range(OUTPUT_GATE)));
+            let forget_gate = iof_gates.slice::<2, _>((.., gate_range(FORGET_GATE)));
 
-            let mut cell_gate = gates.slice_mut::<2, _>((.., gate_range(CELL_GATE)));
-            tanh_in_place(cell_gate.as_dyn_mut());
-
-            let input_gate = gates.slice::<2, _>((.., gate_range(INPUT_GATE)));
-            let out_gate = gates.slice::<2, _>((.., gate_range(OUTPUT_GATE)));
-            let forget_gate = gates.slice::<2, _>((.., gate_range(FORGET_GATE)));
             let cell_gate = gates.slice::<2, _>((.., gate_range(CELL_GATE)));
+            let cell_gate = tanh(pool, cell_gate.as_dyn()).auto_return(pool);
 
             // Update cell and hidden state
             let mut cell_item = cell.slice_mut::<2, _>([dir]);
