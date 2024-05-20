@@ -8,7 +8,7 @@ use crate::ops::reduce::{cmp_nan_greater, cmp_nan_less};
 use crate::ops::{
     resolve_axis, resolve_index, Input, InputList, IntoOpResult, OpError, Operator, Output,
 };
-use crate::tensor_pool::TensorPool;
+use crate::tensor_pool::{AutoReturn, TensorPool};
 
 /// Gather elements from `input` specified by `indices`.
 ///
@@ -91,6 +91,7 @@ impl Operator for Gather {
 /// Optimized implementation of `gather_elements` for tensor with static rank.
 /// Index iteration is much faster in this case.
 fn gather_elements_4d<T: Copy + Default>(
+    pool: &TensorPool,
     mut output: TensorViewMut<T>,
     input: NdTensorView<T, 4>,
     indices: NdTensorView<i32, 4>,
@@ -100,7 +101,7 @@ fn gather_elements_4d<T: Copy + Default>(
     assert!(output.shape() == indices.shape());
 
     // This allows for faster iteration, and the tensor is likely already contiguous.
-    let indices = indices.to_contiguous();
+    let indices = indices.to_contiguous_in(pool).auto_return(pool);
     let indices = indices.view();
 
     // nb. We iterate over the underlying data slices for efficiency.
@@ -180,6 +181,7 @@ pub fn gather_elements<T: Copy + Default>(
             output.insert_axis(0);
         }
         gather_elements_4d(
+            pool,
             output.view_mut(),
             unsqueeze_n(input, pad).nd_view(),
             unsqueeze_n(indices, pad).nd_view(),
@@ -280,7 +282,7 @@ pub fn gather_nd<T: Clone + Default>(
     let indices_non_batch_dims = indices.ndim() - batch_dims;
 
     // This allows the loop below to rely on index tuples being contiguous.
-    let indices = indices.to_contiguous();
+    let indices = indices.to_contiguous_in(pool).auto_return(pool);
 
     for (mut output, (input, indices)) in output.inner_iter_dyn_mut(output_non_batch_dims).zip(
         input
@@ -483,11 +485,11 @@ pub fn scatter_nd<
     // Assuming the updates and indices are likely already contiguous, we can
     // optimize iterating over slices of the innermost dimensions using slice
     // chunks.
-    let updates = updates.to_contiguous();
+    let updates = updates.to_contiguous_in(pool).auto_return(pool);
     let update_slice_len: usize = updates.shape()[indices.ndim() - 1..].iter().product();
     let update_slices = updates.data().unwrap().chunks(update_slice_len);
 
-    let indices = indices.to_contiguous();
+    let indices = indices.to_contiguous_in(pool).auto_return(pool);
     let index_slices = indices
         .data()
         .unwrap()

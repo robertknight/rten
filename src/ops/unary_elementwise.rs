@@ -13,7 +13,7 @@ use rten_vecmath::{
 
 use crate::number::AsBool;
 use crate::ops::{Input, InputList, IntoOpResult, OpError, Operator, Output};
-use crate::tensor_pool::TensorPool;
+use crate::tensor_pool::{AutoReturn, TensorPool};
 
 /// Trait for operators which take a single float tensor and apply a function
 /// to each element.
@@ -157,7 +157,7 @@ fn par_unary_op<
     input: TensorView<T>,
     op: F,
 ) -> Tensor<T> {
-    let input = input.to_contiguous();
+    let input = input.to_contiguous_in(pool).auto_return(pool);
     let mut output = Tensor::uninit_in(pool, input.shape());
 
     let in_chunks = input.data().unwrap().par_chunks(CHUNK_SIZE);
