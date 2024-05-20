@@ -14,7 +14,7 @@ use rayon::prelude::*;
 use rten_tensor::prelude::*;
 use rten_tensor::{Alloc, GlobalAlloc, Matrix, MatrixLayout, MatrixMut, NdTensorView};
 
-use crate::iter_util::{range_chunks, unroll_loop, MaybeParIter};
+use crate::iter_util::{range_chunks, MaybeParIter};
 use crate::tensor_pool::ExtractBuffer;
 
 mod kernels;
@@ -30,47 +30,6 @@ pub fn div_ceil(a: usize, b: usize) -> usize {
     }
     let rounding = usize::from(a % b != 0);
     a / b + rounding
-}
-
-/// Compute `dest += src * scale`, also known as a vector-scalar product or
-/// "axpy" operation.
-///
-/// `dest_stride` and `src_stride` specifies the strides to use when iterating
-/// over `dest` and `src` respectively. The lengths of `dest` and `src` must
-/// match after accounting for their respective strides.
-#[inline]
-pub fn add_scaled_vector(
-    dest: &mut [f32],
-    src: &[f32],
-    dest_stride: usize,
-    src_stride: usize,
-    scale: f32,
-) {
-    // Fast path for non-strided case. We write a trivial loop and leave the
-    // compiler to optimize it.
-    if src_stride == 1 && dest_stride == 1 {
-        assert!(
-            src.len() == dest.len(),
-            "src and dest vector sizes do not match"
-        );
-        for i in 0..dest.len() {
-            dest[i] += src[i] * scale;
-        }
-        return;
-    }
-
-    let src_els = src.len().div_ceil(src_stride);
-    let dest_els = dest.len().div_ceil(dest_stride);
-    assert!(
-        src_els == dest_els,
-        "src and dest vector sizes do not match"
-    );
-
-    unroll_loop!(0..src_els, i, 4, {
-        unsafe {
-            *dest.get_unchecked_mut(i * dest_stride) += *src.get_unchecked(i * src_stride) * scale;
-        }
-    });
 }
 
 /// Return the smallest multiple of `factor` that is >= `val`.
@@ -1119,10 +1078,7 @@ mod tests {
     use rten_tensor::test_util::expect_equal;
     use rten_tensor::{Matrix, MatrixLayout, NdTensor, Tensor};
 
-    use super::{
-        add_scaled_vector, gemm, round_up, GemmExecutor, GemmInputA, GemmInputB, KernelType,
-        VirtualMatrix,
-    };
+    use super::{gemm, round_up, GemmExecutor, GemmInputA, GemmInputB, KernelType, VirtualMatrix};
 
     fn reference_matmul_alpha_beta(a: &Tensor, b: &Tensor, alpha: f32, beta: f32) -> Tensor {
         let [a_rows, _a_cols]: [usize; 2] = a.shape().try_into().expect("input should be a matrix");
@@ -1204,52 +1160,6 @@ mod tests {
                     alpha * accum + beta * output[[r, c]] + bias.map(|b| b[r]).unwrap_or(0.);
             }
         }
-    }
-
-    #[test]
-    fn test_add_scaled_vector() {
-        let mut dest = vec![1.0, 2.0, 3.0, 4.0];
-        let src = vec![10.0, 20.0, 30.0, 40.0];
-
-        add_scaled_vector(&mut dest, &src, 1, 1, 2.0);
-
-        assert_eq!(&dest, &[21.0, 42.0, 63.0, 84.0]);
-    }
-
-    #[test]
-    fn test_add_scaled_vector_src_stride() {
-        let mut dest = vec![1.0, 2.0];
-        let src = vec![10.0, 20.0, 30.0];
-
-        add_scaled_vector(&mut dest, &src, 1, 2, 1.0);
-
-        assert_eq!(&dest, &[11.0, 32.0]);
-    }
-
-    #[test]
-    fn test_add_scaled_vector_dest_stride() {
-        let mut dest = vec![1.0, 2.0, 3.0];
-        let src = vec![10.0, 20.0];
-
-        add_scaled_vector(&mut dest, &src, 2, 1, 1.0);
-
-        assert_eq!(&dest, &[11.0, 2.0, 23.0]);
-    }
-
-    #[test]
-    #[should_panic(expected = "src and dest vector sizes do not match")]
-    fn test_add_scaled_vector_size_mismatch() {
-        let mut dest = vec![1.0, 2.0, 3.0];
-        let src = vec![10.0, 20.0];
-        add_scaled_vector(&mut dest, &src, 1, 1, 1.0);
-    }
-
-    #[test]
-    #[should_panic(expected = "src and dest vector sizes do not match")]
-    fn test_add_scaled_vector_strided_size_mismatch() {
-        let mut dest = vec![1.0, 2.0];
-        let src = vec![10.0, 20.0];
-        add_scaled_vector(&mut dest, &src, 2, 1, 1.0);
     }
 
     // Simplest possible test case for easy debugging.
