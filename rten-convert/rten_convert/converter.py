@@ -921,7 +921,7 @@ def op_node_from_onnx_operator(
 
         case "Transpose":
             attrs = sg.TransposeAttrsT()
-            attrs.perm = op_reader.get_attr("perm", "ints", [])
+            attrs.perm = op_reader.get_attr("perm", "ints", None)
 
         case "Trilu":
             attrs = sg.TriluAttrsT()
