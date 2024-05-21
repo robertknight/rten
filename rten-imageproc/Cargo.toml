@@ -11,9 +11,14 @@ include = ["/src", "/README.md"]
 
 [dependencies]
 rten-tensor = { path = "../rten-tensor", version = "0.9.0" }
+serde = { workspace = true, features = ["derive"], optional = true }
 
 [dev-dependencies]
 rten-bench = { path = "../rten-bench" }
 
 [lib]
 crate-type = ["lib"]
+
+[features]
+# Implement serde Serialize and Deserialize traits on items where it makes sense
+serde_traits = ["serde"]
