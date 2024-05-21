@@ -1,9 +1,11 @@
 use std::mem::MaybeUninit;
 
-use crate::dispatch_simd_op;
+use rten_simd::dispatch::{SimdDispatcher, SimdOp};
+use rten_simd::functional::{simd_fold, simd_map};
+use rten_simd::span::{MutPtrLen, PtrLen};
+use rten_simd::SimdFloat;
+
 use crate::exp::simd_exp;
-use crate::simd_vec::SimdFloat;
-use crate::{vec_fold, vec_unary_op, MutPtrLen, PtrLen, SimdOp};
 
 /// Apply the softmax operation over elements in `xs` and write results to
 /// `out`.
@@ -12,9 +14,9 @@ use crate::{vec_fold, vec_unary_op, MutPtrLen, PtrLen, SimdOp};
 /// See https://ogunlao.github.io/2020/04/26/you_dont_really_know_softmax.html
 /// and https://arxiv.org/abs/2001.04438.
 #[inline(always)]
-unsafe fn simd_softmax<S: SimdFloat>(xs: PtrLen<f32>, out: MutPtrLen<MaybeUninit<f32>>) {
-    let max_val = vec_fold(
-        xs,
+unsafe fn simd_softmax<S: SimdFloat>(input: PtrLen<f32>, out: MutPtrLen<MaybeUninit<f32>>) {
+    let max_val = simd_fold(
+        input,
         S::splat(f32::MIN),
         #[inline(always)]
         |max, x| max.max(x),
@@ -25,8 +27,8 @@ unsafe fn simd_softmax<S: SimdFloat>(xs: PtrLen<f32>, out: MutPtrLen<MaybeUninit
     // *x = (*x - max_val).exp()
     let mut exp_sum = S::zero();
     let exp_pad = f32::NEG_INFINITY; // exp(-inf) = 0, so won't affect `exp_sum`
-    vec_unary_op(
-        xs,
+    simd_map(
+        input,
         out,
         #[inline(always)]
         |x: S| {
@@ -39,7 +41,7 @@ unsafe fn simd_softmax<S: SimdFloat>(xs: PtrLen<f32>, out: MutPtrLen<MaybeUninit
 
     // *x /= exp_sum
     let exp_sum = exp_sum.fold_splat(0., |sum, x| sum + x);
-    vec_unary_op(
+    simd_map(
         out.assume_init().into(),
         out,
         #[inline(always)]
@@ -48,11 +50,15 @@ unsafe fn simd_softmax<S: SimdFloat>(xs: PtrLen<f32>, out: MutPtrLen<MaybeUninit
     );
 }
 
-struct SimdSoftmax {}
+struct SimdSoftmax {
+    input: PtrLen<f32>,
+    output: MutPtrLen<MaybeUninit<f32>>,
+}
+
 impl SimdOp for SimdSoftmax {
     #[inline(always)]
-    unsafe fn eval<S: SimdFloat>(&self, xs: PtrLen<f32>, out: MutPtrLen<MaybeUninit<f32>>) {
-        simd_softmax::<S>(xs, out)
+    unsafe fn eval<S: SimdFloat>(&self) {
+        simd_softmax::<S>(self.input, self.output)
     }
 }
 
@@ -62,7 +68,12 @@ impl SimdOp for SimdSoftmax {
 ///
 /// [softmax]: https://en.wikipedia.org/wiki/Softmax_function
 pub fn vec_softmax(xs: &[f32], out: &mut [MaybeUninit<f32>]) {
-    dispatch_simd_op(xs.into(), out.into(), SimdSoftmax {});
+    let op = SimdSoftmax {
+        input: xs.into(),
+        output: out.into(),
+    };
+    let dispatcher = SimdDispatcher::default();
+    dispatcher.dispatch(op);
 }
 
 /// Computes the [softmax][softmax] function over a slice of floats.
@@ -70,7 +81,12 @@ pub fn vec_softmax(xs: &[f32], out: &mut [MaybeUninit<f32>]) {
 /// [softmax]: https://en.wikipedia.org/wiki/Softmax_function
 pub fn vec_softmax_in_place(xs: &mut [f32]) {
     let out: MutPtrLen<f32> = xs.into();
-    dispatch_simd_op(xs.into(), out.as_uninit(), SimdSoftmax {});
+    let op = SimdSoftmax {
+        input: xs.into(),
+        output: out.as_uninit(),
+    };
+    let dispatcher = SimdDispatcher::default();
+    dispatcher.dispatch(op);
 }
 
 #[cfg(test)]

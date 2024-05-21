@@ -6,7 +6,7 @@ use std::arch::aarch64::{
     vst1q_f32, vst1q_s32, vsubq_f32, vsubq_s32,
 };
 
-use crate::simd_vec::{SimdFloat, SimdInt, SimdMask, SimdVal};
+use crate::{SimdFloat, SimdInt, SimdMask, SimdVal};
 
 impl SimdMask for uint32x4_t {
     #[inline]

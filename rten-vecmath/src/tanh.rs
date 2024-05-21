@@ -2,9 +2,10 @@
 
 use std::mem::MaybeUninit;
 
+use rten_simd::dispatch::{dispatch_map_op, dispatch_map_op_in_place, SimdUnaryOp};
+use rten_simd::SimdFloat;
+
 use crate::exp::simd_exp;
-use crate::simd_vec::SimdFloat;
-use crate::{dispatch_unary_op, dispatch_unary_op_in_place, SimdUnaryOp};
 
 pub fn tanh(x: f32) -> f32 {
     unsafe { simd_tanh(x) }
@@ -77,11 +78,11 @@ impl SimdUnaryOp for SimdTanh {
 ///
 /// After this function returns, `out` will be fully initialized.
 pub fn vec_tanh(xs: &[f32], out: &mut [MaybeUninit<f32>]) {
-    dispatch_unary_op(xs, out, SimdTanh {});
+    dispatch_map_op(xs, out, SimdTanh {});
 }
 
 pub fn vec_tanh_in_place(xs: &mut [f32]) {
-    dispatch_unary_op_in_place(xs, SimdTanh {});
+    dispatch_map_op_in_place(xs, SimdTanh {});
 }
 
 #[cfg(test)]

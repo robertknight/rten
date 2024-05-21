@@ -9,7 +9,7 @@ use std::arch::x86_64::{
     _mm_shuffle_ps, _CMP_GE_OQ, _CMP_LE_OQ, _CMP_LT_OQ, _MM_HINT_ET0, _MM_HINT_T0,
 };
 
-use crate::simd_vec::{SimdFloat, SimdInt, SimdMask, SimdVal};
+use crate::{SimdFloat, SimdInt, SimdMask, SimdVal};
 
 impl SimdMask for __m256i {
     #[inline]

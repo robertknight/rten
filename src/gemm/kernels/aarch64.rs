@@ -2,8 +2,8 @@ use std::arch::aarch64::float32x4_t;
 use std::mem::MaybeUninit;
 use std::ops::Range;
 
+use rten_simd::SimdFloat;
 use rten_tensor::Matrix;
-use rten_vecmath::simd_vec::SimdFloat;
 
 use super::{simd_gemm, simd_gemv, Kernel};
 use crate::gemm::packing::{pack_a_block, pack_b_block};
