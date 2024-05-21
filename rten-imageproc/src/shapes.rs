@@ -65,6 +65,7 @@ fn max_or_lhs<T: PartialOrd>(a: T, b: T) -> T {
 
 /// A point defined by X and Y coordinates.
 #[derive(Copy, Clone, Default, Eq, PartialEq)]
+#[cfg_attr(feature = "serde_traits", derive(serde::Serialize, serde::Deserialize))]
 pub struct Point<T: Coord = i32> {
     pub x: T,
     pub y: T,
@@ -197,6 +198,7 @@ fn sort_pair<T: PartialOrd>(pair: (T, T)) -> (T, T) {
 
 /// A bounded line segment defined by a start and end point.
 #[derive(Copy, Clone, PartialEq)]
+#[cfg_attr(feature = "serde_traits", derive(serde::Serialize, serde::Deserialize))]
 pub struct Line<T: Coord = i32> {
     pub start: Point<T>,
     pub end: Point<T>,
@@ -446,6 +448,7 @@ impl<T: Coord> BoundingRect for Line<T> {
 /// The left and top coordinates are inclusive. The right and bottom coordinates
 /// are exclusive.
 #[derive(Copy, Clone, Debug, PartialEq, Eq)]
+#[cfg_attr(feature = "serde_traits", derive(serde::Serialize, serde::Deserialize))]
 pub struct Rect<T: Coord = i32> {
     top_left: Point<T>,
     bottom_right: Point<T>,
@@ -708,6 +711,7 @@ impl<T: Coord> BoundingRect for Rect<T> {
 /// orientation, width (extent along axis perpendicular to the up axis) and
 /// height (extent along up axis).
 #[derive(Copy, Clone, Debug)]
+#[cfg_attr(feature = "serde_traits", derive(serde::Serialize, serde::Deserialize))]
 pub struct RotatedRect {
     // Centroid of the rect.
     center: PointF,
@@ -910,6 +914,7 @@ where
 /// Depending on the storage type `S`, a Polygon can own its vertices
 /// (eg. `Vec<Point>`) or they can borrowed (eg. `&[Point]`).
 #[derive(Copy, Clone, Debug)]
+#[cfg_attr(feature = "serde_traits", derive(serde::Serialize, serde::Deserialize))]
 pub struct Polygon<T: Coord = i32, S: AsRef<[Point<T>]> = Vec<Point<T>>> {
     points: S,
 
@@ -1073,6 +1078,7 @@ impl_bounding_rect_for_polygon!(f32);
 /// `Polygons` is primarily useful when building up collections of many polygons
 /// as it stores all points in a single Vec, which is more efficient than
 /// allocating a separate Vec for each polygon's points.
+#[cfg_attr(feature = "serde_traits", derive(serde::Serialize, serde::Deserialize))]
 pub struct Polygons {
     points: Vec<Point>,
 
