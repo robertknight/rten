@@ -248,7 +248,7 @@ impl Error for RunError {}
 
 /// Options that control logging and other behaviors when executing a
 /// [Model](crate::Model).
-#[derive(Default)]
+#[derive(Clone, Default, PartialEq)]
 pub struct RunOptions {
     /// Whether to log times spent in different operators when run completes.
     pub timing: bool,
