@@ -1,20 +1,13 @@
 [package]
-name = "rten-vecmath"
+name = "rten-simd"
 version = "0.9.0"
 edition = "2021"
 authors = ["Robert Knight"]
-description = "SIMD vectorized implementations of various math functions used in ML models"
+description = "Portable SIMD for stable Rust"
 license = "MIT OR Apache-2.0"
 homepage = "https://github.com/robertknight/rten"
 repository = "https://github.com/robertknight/rten"
 include = ["/src", "/README.md"]
-
-[dependencies]
-rten-simd = { path = "../rten-simd", version = "0.9.0" }
-
-[dev-dependencies]
-fastrand = "2.0.2"
-libm = "0.2.6"
 
 [lib]
 crate-type = ["lib"]
@@ -25,4 +18,4 @@ needless_range_loop = "allow"
 manual_memcpy = "allow"
 
 [features]
-avx512 = ["rten-simd/avx512"]
+avx512 = []

@@ -2,9 +2,10 @@
 
 use std::mem::MaybeUninit;
 
+use rten_simd::dispatch::{dispatch_map_op, dispatch_map_op_in_place, SimdUnaryOp};
+use rten_simd::SimdFloat;
+
 use crate::exp::simd_exp;
-use crate::simd_vec::SimdFloat;
-use crate::{dispatch_unary_op, dispatch_unary_op_in_place, SimdUnaryOp};
 
 /// Computes the [error function](https://en.wikipedia.org/wiki/Error_function).
 pub fn erf(x: f32) -> f32 {
@@ -67,12 +68,12 @@ impl SimdUnaryOp for SimdErf {
 /// element in `xs` and writes the result to `out`. `xs` and `out` must be equal
 /// in length.
 pub fn vec_erf(xs: &[f32], out: &mut [MaybeUninit<f32>]) {
-    dispatch_unary_op(xs, out, SimdErf {});
+    dispatch_map_op(xs, out, SimdErf {});
 }
 
 /// Variant of [vec_erf] that modifies elements in-place.
 pub fn vec_erf_in_place(xs: &mut [f32]) {
-    dispatch_unary_op_in_place(xs, SimdErf {});
+    dispatch_map_op_in_place(xs, SimdErf {});
 }
 
 #[cfg(test)]

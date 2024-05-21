@@ -1,8 +1,8 @@
 use std::mem::MaybeUninit;
 use std::ops::Range;
 
+use rten_simd::SimdFloat;
 use rten_tensor::{Matrix, MatrixLayout, Storage};
-use rten_vecmath::simd_vec::SimdFloat;
 
 use crate::gemm::packing::{pack_a_block, pack_b_block};
 use crate::iter_util::{range_chunks_exact, unroll_loop};

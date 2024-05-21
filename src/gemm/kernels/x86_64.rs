@@ -5,11 +5,11 @@ use std::ops::Range;
 #[cfg(feature = "avx512")]
 use std::arch::x86_64::__m512;
 
+use rten_simd::SimdFloat;
 use rten_tensor::Matrix;
-use rten_vecmath::simd_vec::SimdFloat;
 
 #[cfg(feature = "avx512")]
-use rten_vecmath::is_avx512_supported;
+use rten_simd::isa_detection::is_avx512_supported;
 
 use super::{simd_gemm, simd_gemv, Kernel};
 use crate::gemm::packing::{pack_a_block, pack_b_block};

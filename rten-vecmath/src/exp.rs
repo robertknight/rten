@@ -4,8 +4,8 @@
 
 use std::mem::MaybeUninit;
 
-use crate::simd_vec::{SimdFloat, SimdInt};
-use crate::{dispatch_unary_op, dispatch_unary_op_in_place, SimdUnaryOp};
+use rten_simd::dispatch::{dispatch_map_op, dispatch_map_op_in_place, SimdUnaryOp};
+use rten_simd::{SimdFloat, SimdInt};
 
 const INV_LOG2: f32 = std::f32::consts::LOG2_E; // aka. 1 / ln2
 const ROUNDING_MAGIC: f32 = 12582912.; // 0x3 << 22
@@ -174,12 +174,12 @@ impl SimdUnaryOp for SimdSigmoid {
 ///
 /// `out` will be fully initialized after this function returns.
 pub fn vec_sigmoid(xs: &[f32], out: &mut [MaybeUninit<f32>]) {
-    dispatch_unary_op(xs, out, SimdSigmoid {});
+    dispatch_map_op(xs, out, SimdSigmoid {});
 }
 
 /// Variant of [vec_sigmoid] that modifies elements in-place.
 pub fn vec_sigmoid_in_place(xs: &mut [f32]) {
-    dispatch_unary_op_in_place(xs, SimdSigmoid {});
+    dispatch_map_op_in_place(xs, SimdSigmoid {});
 }
 
 struct SimdExp {}
@@ -198,12 +198,12 @@ impl SimdUnaryOp for SimdExp {
 ///
 /// `out` will be fully initialized after this function returns.
 pub fn vec_exp(xs: &[f32], out: &mut [MaybeUninit<f32>]) {
-    dispatch_unary_op(xs, out, SimdExp {});
+    dispatch_map_op(xs, out, SimdExp {});
 }
 
 /// Variant of [vec_exp] that modifies elements in-place.
 pub fn vec_exp_in_place(xs: &mut [f32]) {
-    dispatch_unary_op_in_place(xs, SimdExp {});
+    dispatch_map_op_in_place(xs, SimdExp {});
 }
 
 #[cfg(test)]

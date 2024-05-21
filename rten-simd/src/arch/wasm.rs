@@ -5,7 +5,7 @@ use std::arch::wasm32::{
     v128_bitselect, v128_load, v128_store,
 };
 
-use crate::simd_vec::{SimdFloat, SimdInt, SimdMask, SimdVal};
+use crate::{SimdFloat, SimdInt, SimdMask, SimdVal};
 
 /// Wrapper around a WASM v128 type that marks it as containing integers.
 #[allow(non_camel_case_types)]

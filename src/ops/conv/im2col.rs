@@ -1,12 +1,13 @@
 use std::mem::MaybeUninit;
 use std::ops::Range;
 
-use rten_tensor::prelude::*;
-use rten_tensor::{NdTensorView, Storage};
-use rten_vecmath::simd_vec::{SimdFloat, SimdInt, SimdMask};
+use rten_simd::{SimdFloat, SimdInt, SimdMask};
 
 #[cfg(feature = "avx512")]
-use rten_vecmath::is_avx512_supported;
+use rten_simd::isa_detection::is_avx512_supported;
+
+use rten_tensor::prelude::*;
+use rten_tensor::{NdTensorView, Storage};
 
 use crate::gemm::{KernelType, VirtualMatrix};
 use crate::ops::pooling::calc_output_size_and_padding;
@@ -327,7 +328,7 @@ unsafe impl<'a> VirtualMatrix for VirtualIm2Col<'a> {
             #[cfg(target_feature = "simd128")]
             (KernelType::Wasm, 8) => unsafe {
                 // Safety: SIMD support is checked when WASM binary is loaded.
-                use rten_vecmath::simd_vec::wasm::v128f;
+                use rten_simd::arch::wasm::v128f;
                 self.pack_b_impl::<v128f, 2>(out, panel_width, rows, cols);
             },
             (KernelType::Base, 4) => unsafe {

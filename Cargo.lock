@@ -346,6 +346,7 @@ dependencies = [
  "rayon",
  "rten",
  "rten-bench",
+ "rten-simd",
  "rten-tensor",
  "rten-vecmath",
  "rustc-hash",
@@ -404,6 +405,10 @@ dependencies = [
 ]
 
 [[package]]
+name = "rten-simd"
+version = "0.9.0"
+
+[[package]]
 name = "rten-tensor"
 version = "0.9.0"
 dependencies = [
@@ -426,6 +431,7 @@ version = "0.9.0"
 dependencies = [
  "fastrand",
  "libm",
+ "rten-simd",
 ]
 
 [[package]]
