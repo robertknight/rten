@@ -159,7 +159,7 @@ fn matmul_impl(
     //
     // The upside is that one larger matmul is likely to be more efficient than
     // `A` smaller matmuls. This is especially true if `M` is small (eg. 1).
-    if strategy == MatmulStrategy::Auto && a.ndim() > 2 && b.ndim() == 2 {
+    if strategy == MatmulStrategy::Auto && num_a_matrices > 1 && num_b_matrices == 1 {
         // nb. We assume `a` is likely already contiguous, so this will be cheap.
         let a_contig = a.to_contiguous_in(pool).auto_return(pool);
         let a_matrix = a_contig.reshaped([num_a_matrices * a_rows, a_cols].as_slice());
@@ -421,6 +421,24 @@ mod tests {
                 a_shape: &[3, 10],
                 b_shape: &[10, 8],
                 out_shape: &[3, 8],
+            },
+            // LHS is a 1-sized batch
+            Case {
+                a_shape: &[1, 3, 10],
+                b_shape: &[10, 8],
+                out_shape: &[1, 3, 8],
+            },
+            // RHS is a 1-sized batch
+            Case {
+                a_shape: &[3, 10],
+                b_shape: &[1, 10, 8],
+                out_shape: &[1, 3, 8],
+            },
+            // LHS and RHS are 1-sized batches
+            Case {
+                a_shape: &[1, 3, 10],
+                b_shape: &[1, 10, 8],
+                out_shape: &[1, 3, 8],
             },
             // LHS input is a batch
             Case {
