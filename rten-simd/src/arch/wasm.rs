@@ -185,14 +185,7 @@ impl SimdFloat for v128f {
 
     #[inline]
     unsafe fn gather_mask(src: *const f32, offsets: Self::Int, mask: Self::Mask) -> Self {
-        // Set offset to zero where masked out. `src` is required to point to
-        // a non-empty buffer, so index zero can be loaded as a dummy.
-        let offsets = Self::Int::splat(0).blend(offsets, mask);
-        let mut offset_array = [0; 4];
-        offsets.store(offset_array.as_mut_ptr());
-
-        let values: [f32; 4] = std::array::from_fn(|i| *src.add(offset_array[i] as usize));
-        Self::splat(0.).blend(Self::load(values.as_ptr()), mask)
+        super::simd_gather_mask::<Self, { Self::LEN }>(src, offsets, mask)
     }
 
     #[inline]

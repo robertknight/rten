@@ -2,11 +2,11 @@ use std::arch::x86_64::{
     __m256, __m256i, _mm256_add_epi32, _mm256_add_ps, _mm256_and_si256, _mm256_andnot_ps,
     _mm256_blendv_epi8, _mm256_blendv_ps, _mm256_castps256_ps128, _mm256_castsi256_ps,
     _mm256_cmp_ps, _mm256_cmpeq_epi32, _mm256_cmpgt_epi32, _mm256_cvttps_epi32, _mm256_div_ps,
-    _mm256_extractf128_ps, _mm256_fmadd_ps, _mm256_loadu_ps, _mm256_loadu_si256,
-    _mm256_mask_i32gather_ps, _mm256_max_ps, _mm256_mul_ps, _mm256_or_si256, _mm256_set1_epi32,
-    _mm256_set1_ps, _mm256_setzero_si256, _mm256_slli_epi32, _mm256_storeu_ps, _mm256_storeu_si256,
-    _mm256_sub_epi32, _mm256_sub_ps, _mm_add_ps, _mm_cvtss_f32, _mm_movehl_ps, _mm_prefetch,
-    _mm_shuffle_ps, _CMP_GE_OQ, _CMP_LE_OQ, _CMP_LT_OQ, _MM_HINT_ET0, _MM_HINT_T0,
+    _mm256_extractf128_ps, _mm256_fmadd_ps, _mm256_loadu_ps, _mm256_loadu_si256, _mm256_max_ps,
+    _mm256_mul_ps, _mm256_or_si256, _mm256_set1_epi32, _mm256_set1_ps, _mm256_setzero_si256,
+    _mm256_slli_epi32, _mm256_storeu_ps, _mm256_storeu_si256, _mm256_sub_epi32, _mm256_sub_ps,
+    _mm_add_ps, _mm_cvtss_f32, _mm_movehl_ps, _mm_prefetch, _mm_shuffle_ps, _CMP_GE_OQ, _CMP_LE_OQ,
+    _CMP_LT_OQ, _MM_HINT_ET0, _MM_HINT_T0,
 };
 
 use crate::{SimdFloat, SimdInt, SimdMask, SimdVal};
@@ -212,8 +212,16 @@ impl SimdFloat for __m256 {
 
     #[inline]
     #[target_feature(enable = "avx2")]
-    unsafe fn gather_mask(ptr: *const f32, offsets: Self::Int, mask: Self::Mask) -> Self {
-        _mm256_mask_i32gather_ps::<4>(Self::zero(), ptr, offsets, std::mem::transmute(mask))
+    unsafe fn gather_mask(src: *const f32, offsets: Self::Int, mask: Self::Mask) -> Self {
+        // AVX2 has a gather instruction, but we don't use it because on some
+        // Intel CPUs it is slower than regular loads due to a mitigation for
+        // the Gather Data Sampling (GDS) vulnerability.
+        //
+        // From initial testing it appears that AVX512 is not affected to the
+        // same extent, so using an emulated gather may not pay off there.
+        //
+        // See https://www.intel.com/content/www/us/en/developer/articles/technical/software-security-guidance/technical-documentation/gather-data-sampling.html
+        super::simd_gather_mask::<Self, { Self::LEN }>(src, offsets, mask)
     }
 
     #[inline]
