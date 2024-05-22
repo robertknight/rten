@@ -7,6 +7,61 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## Unreleased
 
+### rten
+
+#### Breaking changes
+
+- RTen now creates its own Rayon thread pool where the number of threads is
+  configured to match the physical rather than logical core count, rather than
+  using the global Rayon thread pool. This improves performance on systems with
+  Simultaneous Multi-Threading (aka. SMT, Hyper-Threading) (most x86_64 CPUs),
+  but can lead to contention if the calling application has its own
+  multi-threaded parallelism. Applications may need to adjust their own use of
+  threading to avoid this. RTen provides functions for applications to run
+  their own tasks within this thread pool.
+
+  See https://github.com/robertknight/rten/pull/183.
+
+#### Bug fixes
+
+- Fixed conversion of `Transpose` operators without a `perm` attribute
+  (https://github.com/robertknight/rten/pull/201)
+
+#### Performance improvements
+
+- Improved performance of `GRU` operator by combining operations on separate
+  gates (https://github.com/robertknight/rten/pull/188)
+
+- Improved performance of binary operators on non-contiguous tensors
+(https://github.com/robertknight/rten/pull/190)
+
+### rten-cli
+
+- Added `--n_iters` flag to control how many times the model is run (https://github.com/robertknight/rten/pull/202)
+
+- Optimize model by performing constant propagation before running the model
+  (https://github.com/robertknight/rten/pull/202)
+
+- Made it easier to specify sizes for dynamic inputs. The new syntax is
+  `--size dim_name=size`. Additionally the size for dynamic dimensions defaults
+  to 1. See https://github.com/robertknight/rten/pull/182.
+
+- Added `--version` flag (https://github.com/robertknight/rten/pull/181)
+
+### rten-imageproc
+
+- Added `serde_traits` feature which implements serde `Serialize` and
+  `Deserialize` traits for geometry types
+  (Thanks @luketpeterson, https://github.com/robertknight/rten/pull/198)
+
+### rten-vecmath, rten-simd
+
+- The internal crate providing portable SIMD and vectorized math functions
+  was split into two. rten-simd now contains the portable SIMD code.
+  rten-vecmath contains the vectorized math functions.
+
+## [0.9.0] - 2024-05-16
+
 ### Breaking Changes
 
 This release contains breaking changes to the model loading APIs and code using
@@ -22,7 +77,7 @@ notes for the `rten` and `rten-tensor` crates respectively.
   common use case of loading a model from disk, use the new `Model::load_file`
   API.
 
-- The `Model::load_with_ops` API has been replaced `ModelOptions::with_ops`.
+- The `Model::load_with_ops` API has been replaced by `ModelOptions::with_ops`.
 
 #### New features
 
