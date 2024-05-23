@@ -114,7 +114,7 @@ pub mod ctc;
 
 pub mod ops;
 
-pub use graph::{Dimension, NodeId, RunOptions};
+pub use graph::{Dimension, NodeId, RunError, RunOptions};
 pub use model::{Model, ModelLoadError, ModelOptions, NodeInfo, OpRegistry, ReadOp, ReadOpError};
 pub use model_metadata::ModelMetadata;
 pub use ops::{FloatOperators, Input, Operators, Output};
