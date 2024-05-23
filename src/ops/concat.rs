@@ -1,57 +1,11 @@
 use std::mem::MaybeUninit;
 
 use rten_tensor::prelude::*;
-use rten_tensor::{Iter, NdTensorView, Tensor, TensorView};
+use rten_tensor::{NdTensorView, Tensor, TensorView};
 
 use crate::ops::{resolve_axis, Input, InputList, IntoOpResult, OpError, Operator, Output};
 use crate::static_dims;
 use crate::tensor_pool::{AutoReturn, TensorPool};
-
-enum ChunkSource<'a, T: Copy> {
-    Slice(&'a [T]),
-    Iter(Iter<'a, T>),
-}
-
-/// Reads chunks of a tensor, where each chunk consists of one iteration over
-/// N innermost dimensions.
-struct TensorChunks<'a, T: Copy> {
-    source: ChunkSource<'a, T>,
-    chunk_size: usize,
-}
-
-impl<'a, T: Copy> TensorChunks<'a, T> {
-    fn new(tensor: &'a TensorView<'a, T>, from_dim: usize) -> TensorChunks<'a, T> {
-        TensorChunks {
-            source: if let Some(data) = tensor.data() {
-                ChunkSource::Slice(data)
-            } else {
-                ChunkSource::Iter(tensor.iter())
-            },
-            chunk_size: tensor.shape()[from_dim..].iter().product(),
-        }
-    }
-
-    /// Return total remaining elements.
-    fn remaining_len(&self) -> usize {
-        match self.source {
-            ChunkSource::Slice(it) => it.len(),
-            ChunkSource::Iter(ref it) => it.len(),
-        }
-    }
-
-    /// Add the next chunk of elements from this tensor to `dest`.
-    fn append_next_chunk(&mut self, dest: &mut Vec<T>) {
-        match self.source {
-            ChunkSource::Slice(ref mut it) => {
-                // Take advantage of `Vec::extend`'s fast path for slices.
-                let (start, end) = it.split_at(self.chunk_size);
-                *it = end;
-                dest.extend(start);
-            }
-            ChunkSource::Iter(ref mut it) => dest.extend(it.by_ref().take(self.chunk_size)),
-        }
-    }
-}
 
 pub fn concat<T: Copy>(
     pool: &TensorPool,
@@ -81,20 +35,23 @@ pub fn concat<T: Copy>(
     for other in &inputs[1..] {
         out_shape[axis] += other.size(axis);
     }
-    let mut out_data: Vec<T> = pool.alloc(out_shape.iter().product());
 
-    let mut input_iters: Vec<TensorChunks<'_, T>> = inputs
-        .iter()
-        .map(|tensor| TensorChunks::new(tensor, axis))
-        .collect();
+    let mut output = Tensor::uninit_in(pool, &out_shape);
 
-    while input_iters.iter().any(|it| it.remaining_len() > 0) {
-        for iter in input_iters.iter_mut() {
-            iter.append_next_chunk(&mut out_data);
-        }
+    let mut n_init = 0;
+    let mut offset = 0;
+    for input in inputs {
+        let (_start, mut middle) = output.split_at_mut(axis, offset);
+        let (middle, _end) = middle.split_at_mut(axis, input.size(axis));
+        middle.init_from(input);
+
+        n_init += input.len();
+        offset += input.size(axis);
     }
 
-    Ok(Tensor::from_data(&out_shape, out_data))
+    assert!(n_init == output.len());
+    let output = unsafe { output.assume_init() };
+    Ok(output)
 }
 
 #[derive(Debug)]
