@@ -161,7 +161,11 @@ pub enum RunError {
     PlanningError(String),
 
     /// Execution of an operator failed
-    OperatorError { name: String, error: OpError },
+    OperatorError {
+        /// Name of the operator node.
+        name: String,
+        error: OpError,
+    },
 
     /// The output of a graph operator did not match expectations (eg. the
     /// count, types or shapes of outputs did not match what was expected.)
