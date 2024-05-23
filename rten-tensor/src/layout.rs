@@ -895,6 +895,12 @@ pub trait MutLayout: Layout + Clone {
     /// Return a layout with all size-one dimensions removed.
     fn squeezed(&self) -> DynLayout;
 
+    /// Split the layout along the given axis into two.
+    ///
+    /// Returns a tuple of `(left, right)` where each item is an `(offset_range,
+    /// layout)` tuple.
+    fn split(&self, axis: usize, mid: usize) -> ((Range<usize>, Self), (Range<usize>, Self));
+
     /// Attempt to slice the layout or return an error if the range is invalid
     /// for the layout's shape.
     fn try_slice<R: IntoSliceItems>(
@@ -980,6 +986,42 @@ impl<const N: usize> MutLayout for NdLayout<N> {
         self.as_dyn().squeezed()
     }
 
+    fn split(&self, axis: usize, mid: usize) -> ((Range<usize>, Self), (Range<usize>, Self)) {
+        assert!(axis < self.ndim());
+        assert!(mid <= self.size(axis));
+
+        let left_shape = std::array::from_fn(|i| if i == axis { mid } else { self.shape[i] });
+        let right_shape = std::array::from_fn(|i| {
+            if i == axis {
+                self.size(axis) - mid
+            } else {
+                self.shape[i]
+            }
+        });
+
+        let left = NdLayout {
+            shape: left_shape,
+            strides: self.strides,
+        };
+        let right = NdLayout {
+            shape: right_shape,
+            strides: self.strides,
+        };
+
+        let mid_offset = mid * self.strides[axis];
+        let left_offsets = 0..left.min_data_len();
+
+        let right_offsets = if right.is_empty() {
+            // The choice of offsets here is arbitrary, as long as the range
+            // is empty.
+            mid_offset..mid_offset
+        } else {
+            mid_offset..self.min_data_len()
+        };
+
+        ((left_offsets, left), (right_offsets, right))
+    }
+
     fn try_slice<R: IntoSliceItems>(
         &self,
         range: R,
@@ -1036,6 +1078,47 @@ impl MutLayout for DynLayout {
 
     fn squeezed(&self) -> DynLayout {
         self.squeezed()
+    }
+
+    fn split(&self, axis: usize, mid: usize) -> ((Range<usize>, Self), (Range<usize>, Self)) {
+        assert!(axis < self.ndim());
+        assert!(mid <= self.size(axis));
+
+        let mut left_shape_strides: SmallVec<[usize; 8]> = (0..self.ndim())
+            .map(|i| if i == axis { mid } else { self.size(i) })
+            .collect();
+        left_shape_strides.extend(self.strides().iter().copied());
+
+        let mut right_shape_strides: SmallVec<[usize; 8]> = (0..self.ndim())
+            .map(|i| {
+                if i == axis {
+                    self.size(axis) - mid
+                } else {
+                    self.size(i)
+                }
+            })
+            .collect();
+        right_shape_strides.extend(self.strides().iter().copied());
+
+        let left = DynLayout {
+            shape_and_strides: left_shape_strides,
+        };
+        let right = DynLayout {
+            shape_and_strides: right_shape_strides,
+        };
+
+        let mid_offset = mid * self.stride(axis);
+        let left_offsets = 0..left.min_data_len();
+
+        let right_offsets = if right.is_empty() {
+            // The choice of offsets here is arbitrary, as long as the range
+            // is empty.
+            mid_offset..mid_offset
+        } else {
+            mid_offset..self.min_data_len()
+        };
+
+        ((left_offsets, left), (right_offsets, right))
     }
 
     fn try_slice<R: IntoSliceItems>(
@@ -1161,7 +1244,7 @@ mod tests {
 
     use super::OverlapPolicy;
     use crate::errors::ReshapeError;
-    use crate::layout::{DynLayout, Layout, MutLayout, ResizeLayout};
+    use crate::layout::{DynLayout, Layout, MutLayout, NdLayout, ResizeLayout};
     use crate::SliceItem;
 
     #[test]
@@ -1381,6 +1464,71 @@ mod tests {
         {
             assert_eq!(layout.size(dim), size);
             assert_eq!(layout.stride(dim), stride);
+        }
+    }
+
+    #[test]
+    fn test_split() {
+        struct Case {
+            shape: [usize; 2],
+            axis: usize,
+            mid: usize,
+        }
+
+        let mut cases = Vec::new();
+
+        // All combinations of (axis, mid) for a small shape.
+        let shape = [4, 2];
+        for axis in 0..shape.len() {
+            for mid in 0..shape[axis] {
+                cases.push(Case { shape, axis, mid });
+            }
+        }
+
+        // Empty layout
+        cases.push(Case {
+            shape: [0, 0],
+            axis: 0,
+            mid: 0,
+        });
+
+        fn check_split<L: MutLayout>(layout: L, axis: usize, mid: usize) {
+            let (left, right) = layout.split(axis, mid);
+            let (left_offsets, left_layout) = left;
+            let (right_offsets, right_layout) = right;
+
+            assert_eq!(left_layout.strides(), layout.strides());
+            assert_eq!(right_layout.strides(), layout.strides());
+
+            assert_eq!(left_offsets.len(), left_layout.min_data_len());
+            assert_eq!(right_offsets.len(), right_layout.min_data_len());
+
+            let orig_len = layout.min_data_len();
+            assert!(left_offsets.start <= orig_len && left_offsets.end <= orig_len);
+            assert!(right_offsets.start <= orig_len && right_offsets.end <= orig_len);
+
+            for i in 0..layout.ndim() {
+                assert_eq!(
+                    left_layout.size(i),
+                    if i == axis { mid } else { layout.size(i) }
+                );
+                assert_eq!(
+                    right_layout.size(i),
+                    if i == axis {
+                        layout.size(i) - mid
+                    } else {
+                        layout.size(i)
+                    }
+                );
+            }
+        }
+
+        for Case { shape, axis, mid } in cases {
+            let layout = NdLayout::from_shape(shape);
+            let dyn_layout = DynLayout::from_shape(shape.as_slice());
+
+            check_split(layout, axis, mid);
+            check_split(dyn_layout, axis, mid);
         }
     }
 
