@@ -2,7 +2,7 @@ use std::borrow::Cow;
 use std::mem::MaybeUninit;
 use std::ops::{Index, IndexMut, Range};
 
-use crate::copy::{copy_into, copy_into_slice, copy_range_into_slice};
+use crate::copy::{copy_into, copy_into_slice, copy_into_uninit, copy_range_into_slice};
 use crate::errors::{DimensionError, FromDataError, SliceError};
 use crate::iterators::{
     AxisChunks, AxisChunksMut, AxisIter, AxisIterMut, BroadcastIter, InnerIter, InnerIterDyn,
@@ -1026,15 +1026,26 @@ where
     ) -> TensorBase<<S as AssumeInit>::Output, L>
     where
         T: Copy,
-        S: AsMut<[MaybeUninit<T>]>,
+        S: StorageMut<Elem = MaybeUninit<T>>,
     {
         assert_eq!(self.shape(), other.shape(), "shape mismatch");
-        if let Some(data) = other.data() {
-            let data: &[MaybeUninit<T>] = unsafe { std::mem::transmute(data) };
-            self.data.as_mut().clone_from_slice(data);
-        } else {
-            copy_into_slice(other.as_dyn(), self.data.as_mut());
+
+        match (self.data_mut(), other.data()) {
+            // Source and dest are contiguous. Use a memcpy.
+            (Some(self_data), Some(other_data)) => {
+                let other_data: &[MaybeUninit<T>] = unsafe { std::mem::transmute(other_data) };
+                self_data.clone_from_slice(other_data);
+            }
+            // Dest is contiguous.
+            (Some(self_data), _) => {
+                copy_into_slice(other.as_dyn(), self_data);
+            }
+            // Neither are contiguous.
+            _ => {
+                copy_into_uninit(other.as_dyn(), self.as_dyn_mut());
+            }
         }
+
         unsafe { self.assume_init() }
     }
 }
