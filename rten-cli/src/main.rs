@@ -109,7 +109,7 @@ fn parse_args() -> Result<Args, lexopt::Error> {
                 let value = parser.value()?.string()?;
                 n_iters = value
                     .parse()
-                    .map_err(|_| format!("Unable to parse `n_iters`"))?;
+                    .map_err(|_| "Unable to parse `n_iters`".to_string())?;
             }
             Short('v') | Long("verbose") => verbose = true,
             Short('V') | Long("version") => {
@@ -298,7 +298,7 @@ fn run_with_random_input(
         inputs.push((*node_id, const_val.into()));
     }
     let opt_elapsed = opt_start.elapsed().as_millis();
-    if const_prop.len() > 0 {
+    if !const_prop.is_empty() {
         println!(
             "  Constant propagation produced {} values in {:.2}ms",
             const_prop.len(),
