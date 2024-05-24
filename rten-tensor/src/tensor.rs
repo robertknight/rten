@@ -673,42 +673,6 @@ impl<S: StorageMut, L: MutLayout> TensorBase<S, L> {
         }
     }
 
-    /// Divide this tensor into two mutable views along a given axis.
-    ///
-    /// Returns a `(left, right)` tuple of views, where the `left` view
-    /// contains the slice from `[0, mid)` along `axis` and the `right`
-    /// view contains the slice from `[mid, end)` along `axis`.
-    #[allow(clippy::type_complexity)]
-    pub fn split_at_mut(
-        &mut self,
-        axis: usize,
-        mid: usize,
-    ) -> (
-        TensorBase<ViewMutData<S::Elem>, L>,
-        TensorBase<ViewMutData<S::Elem>, L>,
-    ) {
-        let (left, right) = self.layout.split(axis, mid);
-        let (left_offset_range, left_layout) = left;
-        let (right_offset_range, right_layout) = right;
-        let (left_data, right_data) = self
-            .data
-            .split_mut(left_offset_range.clone(), right_offset_range.clone());
-
-        debug_assert_eq!(left_data.len(), left_layout.min_data_len());
-        let left_view = TensorBase {
-            data: left_data,
-            layout: left_layout,
-        };
-
-        debug_assert_eq!(right_data.len(), right_layout.min_data_len());
-        let right_view = TensorBase {
-            data: right_data,
-            layout: right_layout,
-        };
-
-        (left_view, right_view)
-    }
-
     /// Slice this tensor and return a dynamic-rank view.
     ///
     /// Fails if the range has more dimensions than the view or is out of bounds
@@ -1288,6 +1252,41 @@ impl<'a, T, L: Clone + MutLayout> TensorBase<ViewData<'a, T>, L> {
         }
     }
 
+    /// Divide this tensor into two mutable views along a given axis.
+    ///
+    /// Returns a `(left, right)` tuple of views, where the `left` view
+    /// contains the slice from `[0, mid)` along `axis` and the `right`
+    /// view contains the slice from `[mid, end)` along `axis`.
+    #[allow(clippy::type_complexity)]
+    pub fn split_at(
+        &self,
+        axis: usize,
+        mid: usize,
+    ) -> (
+        TensorBase<ViewData<'a, T>, L>,
+        TensorBase<ViewData<'a, T>, L>,
+    ) {
+        let (left, right) = self.layout.split(axis, mid);
+        let (left_offset_range, left_layout) = left;
+        let (right_offset_range, right_layout) = right;
+        let left_data = self.data.slice(left_offset_range.clone());
+        let right_data = self.data.slice(right_offset_range.clone());
+
+        debug_assert_eq!(left_data.len(), left_layout.min_data_len());
+        let left_view = TensorBase {
+            data: left_data,
+            layout: left_layout,
+        };
+
+        debug_assert_eq!(right_data.len(), right_layout.min_data_len());
+        let right_view = TensorBase {
+            data: right_data,
+            layout: right_layout,
+        };
+
+        (left_view, right_view)
+    }
+
     /// Return a view of this tensor with elements stored in contiguous order.
     ///
     /// If the data is already contiguous, no copy is made, otherwise the
@@ -1610,6 +1609,44 @@ impl<'a, T> TensorBase<ViewData<'a, T>, DynLayout> {
     {
         assert!(self.is_contiguous(), "can only reshape contiguous views");
         self.layout = DynLayout::from_shape(shape);
+    }
+}
+
+impl<'a, T, L: MutLayout> TensorBase<ViewMutData<'a, T>, L> {
+    /// Divide this tensor into two mutable views along a given axis.
+    ///
+    /// Returns a `(left, right)` tuple of views, where the `left` view
+    /// contains the slice from `[0, mid)` along `axis` and the `right`
+    /// view contains the slice from `[mid, end)` along `axis`.
+    #[allow(clippy::type_complexity)]
+    pub fn split_at_mut(
+        self,
+        axis: usize,
+        mid: usize,
+    ) -> (
+        TensorBase<ViewMutData<'a, T>, L>,
+        TensorBase<ViewMutData<'a, T>, L>,
+    ) {
+        let (left, right) = self.layout.split(axis, mid);
+        let (left_offset_range, left_layout) = left;
+        let (right_offset_range, right_layout) = right;
+        let (left_data, right_data) = self
+            .data
+            .split_mut(left_offset_range.clone(), right_offset_range.clone());
+
+        debug_assert_eq!(left_data.len(), left_layout.min_data_len());
+        let left_view = TensorBase {
+            data: left_data,
+            layout: left_layout,
+        };
+
+        debug_assert_eq!(right_data.len(), right_layout.min_data_len());
+        let right_view = TensorBase {
+            data: right_data,
+            layout: right_layout,
+        };
+
+        (left_view, right_view)
     }
 }
 
@@ -2061,11 +2098,11 @@ mod tests {
         let mut row_chunks = tensor.axis_chunks(0, 2);
 
         let chunk = row_chunks.next().unwrap();
-        assert_eq!(chunk.shape(), &[2, 2]);
+        assert_eq!(chunk.shape(), [2, 2]);
         assert_eq!(chunk.to_vec(), &[0, 1, 2, 3]);
 
         let chunk = row_chunks.next().unwrap();
-        assert_eq!(chunk.shape(), &[2, 2]);
+        assert_eq!(chunk.shape(), [2, 2]);
         assert_eq!(chunk.to_vec(), &[4, 5, 6, 7]);
 
         assert!(row_chunks.next().is_none());
@@ -3082,7 +3119,7 @@ mod tests {
     }
 
     #[test]
-    fn test_split_at_mut() {
+    fn test_split_at() {
         struct Case {
             shape: [usize; 2],
             axis: usize,
@@ -3108,6 +3145,14 @@ mod tests {
                 expected_left: NdTensor::from([[0], [2], [4], [6]]),
                 expected_right: NdTensor::from([[1], [3], [5], [7]]),
             },
+            // Split last dim such that left split is empty.
+            Case {
+                shape: [4, 2],
+                axis: 1,
+                mid: 0,
+                expected_left: NdTensor::from([[], [], [], []]),
+                expected_right: NdTensor::from([[0, 1], [2, 3], [4, 5], [6, 7]]),
+            },
             // Split last dim such that right split is empty.
             Case {
                 shape: [4, 2],
@@ -3126,14 +3171,24 @@ mod tests {
             expected_right,
         } in cases
         {
+            // For each case, test all combinations of (static/dynamic,
+            // immutable/mutable).
             let len: usize = shape.iter().product();
             let mut tensor = NdTensor::arange(0, len as i32, None).into_shape(shape);
-            let (left, right) = tensor.split_at_mut(axis, mid);
+            let (left, right) = tensor.view().split_at(axis, mid);
+            assert_eq!(left, expected_left);
+            assert_eq!(right, expected_right);
+
+            let (left, right) = tensor.view_mut().split_at_mut(axis, mid);
             assert_eq!(left, expected_left);
             assert_eq!(right, expected_right);
 
             let mut tensor = tensor.into_dyn();
-            let (left, right) = tensor.split_at_mut(axis, mid);
+            let (left, right) = tensor.view().split_at(axis, mid);
+            assert_eq!(left, expected_left);
+            assert_eq!(right, expected_right);
+
+            let (left, right) = tensor.view_mut().split_at_mut(axis, mid);
             assert_eq!(left, expected_left.as_dyn());
             assert_eq!(right, expected_right.as_dyn());
         }

@@ -39,14 +39,12 @@ pub fn concat<T: Copy>(
     let mut output = Tensor::uninit_in(pool, &out_shape);
 
     let mut n_init = 0;
-    let mut offset = 0;
+    let mut remainder = output.view_mut();
     for input in inputs {
-        let (_start, mut middle) = output.split_at_mut(axis, offset);
-        let (middle, _end) = middle.split_at_mut(axis, input.size(axis));
-        middle.init_from(input);
-
+        let (left, right) = remainder.split_at_mut(axis, input.size(axis));
+        left.init_from(input);
+        remainder = right;
         n_init += input.len();
-        offset += input.size(axis);
     }
 
     assert!(n_init == output.len());
