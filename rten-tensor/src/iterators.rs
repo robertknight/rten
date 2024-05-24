@@ -1,5 +1,5 @@
 use std::iter::{repeat, zip, Cycle, FusedIterator, Take};
-use std::ops::{Add, Range};
+use std::ops::Range;
 use std::slice;
 
 use crate::index_iterator::DynIndices;
@@ -1008,55 +1008,57 @@ impl<'a, T, L: MutLayout> Iterator for AxisIterMut<'a, T, L> {
 
 /// Iterator over slices of a tensor along an axis. See [TensorView::axis_chunks].
 pub struct AxisChunks<'a, T, L: MutLayout> {
-    view: TensorBase<ViewData<'a, T>, L>,
-    index: usize,
+    remainder: Option<TensorBase<ViewData<'a, T>, L>>,
+    axis: usize,
     chunk_size: usize,
 }
 
 impl<'a, T, L: MutLayout> AxisChunks<'a, T, L> {
     pub fn new(
         view: &TensorBase<ViewData<'a, T>, L>,
-        dim: usize,
+        axis: usize,
         chunk_size: usize,
     ) -> AxisChunks<'a, T, L> {
-        let mut permuted = view.clone();
-        permuted.move_axis(dim, 0);
+        assert!(chunk_size > 0, "chunk size must be > 0");
         AxisChunks {
-            view: permuted,
-            index: 0,
+            remainder: if view.size(axis) > 0 {
+                Some(view.view())
+            } else {
+                None
+            },
+            axis,
             chunk_size,
         }
     }
 }
 
 impl<'a, T, L: MutLayout> Iterator for AxisChunks<'a, T, L> {
-    type Item = TensorView<'a, T>;
+    type Item = TensorBase<ViewData<'a, T>, L>;
 
     fn next(&mut self) -> Option<Self::Item> {
-        let size = self.view.size(0);
-        if self.index >= size {
-            None
+        let remainder = self.remainder.take()?;
+        let chunk_len = self.chunk_size.min(remainder.size(self.axis));
+        let (current, next_remainder) = remainder.split_at(self.axis, chunk_len);
+        self.remainder = if next_remainder.size(self.axis) > 0 {
+            Some(next_remainder)
         } else {
-            let view = self
-                .view
-                .slice_dyn(self.index..self.index.add(self.chunk_size).min(size));
-            self.index += self.chunk_size;
-            Some(view)
-        }
+            None
+        };
+        Some(current)
     }
 }
 
 /// Iterator over mutable slices of a tensor along an axis. See [TensorViewMut::axis_chunks_mut].
 pub struct AxisChunksMut<'a, T, L: MutLayout> {
-    view: TensorBase<ViewMutData<'a, T>, L>,
-    index: usize,
+    remainder: Option<TensorBase<ViewMutData<'a, T>, L>>,
+    axis: usize,
     chunk_size: usize,
 }
 
 impl<'a, T, L: MutLayout> AxisChunksMut<'a, T, L> {
     pub fn new(
-        mut view: TensorBase<ViewMutData<'a, T>, L>,
-        dim: usize,
+        view: TensorBase<ViewMutData<'a, T>, L>,
+        axis: usize,
         chunk_size: usize,
     ) -> AxisChunksMut<'a, T, L> {
         // See notes in `Layout` about internal overlap.
@@ -1064,37 +1066,32 @@ impl<'a, T, L: MutLayout> AxisChunksMut<'a, T, L> {
             !view.layout().is_broadcast(),
             "Cannot mutably iterate over broadcasting view"
         );
-        view.move_axis(dim, 0);
+        assert!(chunk_size > 0, "chunk size must be > 0");
         AxisChunksMut {
-            view,
+            remainder: if view.size(axis) > 0 {
+                Some(view)
+            } else {
+                None
+            },
+            axis,
             chunk_size,
-            index: 0,
         }
     }
 }
 
 impl<'a, T, L: MutLayout> Iterator for AxisChunksMut<'a, T, L> {
-    type Item = TensorViewMut<'a, T>;
+    type Item = TensorBase<ViewMutData<'a, T>, L>;
 
     fn next(&mut self) -> Option<Self::Item> {
-        let size = self.view.size(0);
-
-        if self.index >= size {
-            None
+        let remainder = self.remainder.take()?;
+        let chunk_len = self.chunk_size.min(remainder.size(self.axis));
+        let (current, next_remainder) = remainder.split_at_mut(self.axis, chunk_len);
+        self.remainder = if next_remainder.size(self.axis) > 0 {
+            Some(next_remainder)
         } else {
-            let index = self.index;
-            self.index += self.chunk_size;
-
-            // Safety: This is non-broadcasting view, and we increment the index
-            // each time, so returned views will not overlap.
-            let view = unsafe {
-                let view = self
-                    .view
-                    .slice_mut_dyn(index..index.add(self.chunk_size).min(size));
-                std::mem::transmute::<TensorViewMut<'_, T>, TensorViewMut<'a, T>>(view)
-            };
-            Some(view)
-        }
+            None
+        };
+        Some(current)
     }
 }
 
@@ -1102,7 +1099,33 @@ impl<'a, T, L: MutLayout> Iterator for AxisChunksMut<'a, T, L> {
 // tests on tensor methods.
 #[cfg(test)]
 mod tests {
-    use crate::{AsView, Lanes, LanesMut, Tensor};
+    use crate::{AsView, AxisChunks, AxisChunksMut, Lanes, LanesMut, Tensor};
+
+    #[test]
+    fn test_axis_chunks_empty() {
+        let x = Tensor::<i32>::zeros(&[5, 0]);
+        assert!(AxisChunks::new(&x.view(), 1, 1).next().is_none());
+    }
+
+    #[test]
+    #[should_panic(expected = "chunk size must be > 0")]
+    fn test_axis_chunks_zero_size() {
+        let x = Tensor::<i32>::zeros(&[5, 0]);
+        assert!(AxisChunks::new(&x.view(), 1, 0).next().is_none());
+    }
+
+    #[test]
+    fn test_axis_chunks_mut_empty() {
+        let mut x = Tensor::<i32>::zeros(&[5, 0]);
+        assert!(AxisChunksMut::new(x.view_mut(), 1, 1).next().is_none());
+    }
+
+    #[test]
+    #[should_panic(expected = "chunk size must be > 0")]
+    fn test_axis_chunks_mut_zero_size() {
+        let mut x = Tensor::<i32>::zeros(&[5, 0]);
+        assert!(AxisChunksMut::new(x.view_mut(), 1, 0).next().is_none());
+    }
 
     #[test]
     fn test_lanes_empty() {

@@ -208,32 +208,6 @@ pub unsafe trait StorageMut: Storage {
         }
     }
 
-    /// Return two sub-views of the storage.
-    ///
-    /// Unlike splitting a slice, this does *not* ensure that the two halves
-    /// do not overlap, only that the "left" and "right" ranges are valid.
-    fn split_mut(
-        &mut self,
-        left: Range<usize>,
-        right: Range<usize>,
-    ) -> (ViewMutData<Self::Elem>, ViewMutData<Self::Elem>) {
-        assert_storage_range_valid(self, left.clone());
-        assert_storage_range_valid(self, right.clone());
-
-        let ptr = self.as_mut_ptr();
-        let left = ViewMutData {
-            ptr: unsafe { ptr.add(left.start) },
-            len: left.len(),
-            _marker: PhantomData,
-        };
-        let right = ViewMutData {
-            ptr: unsafe { ptr.add(right.start) },
-            len: right.len(),
-            _marker: PhantomData,
-        };
-        (left, right)
-    }
-
     /// Return a mutable view of this storage.
     fn view_mut(&mut self) -> ViewMutData<Self::Elem> {
         self.slice_mut(0..self.len())
@@ -381,6 +355,31 @@ impl<'a, T> ViewMutData<'a, T> {
     /// See [StorageMut::as_slice_mut].
     pub unsafe fn to_slice_mut(mut self) -> &'a mut [T] {
         std::slice::from_raw_parts_mut(self.as_mut_ptr(), self.len())
+    }
+
+    /// Split the storage into two sub-views.
+    ///
+    /// Unlike splitting a slice, this does *not* ensure that the two halves
+    /// do not overlap, only that the "left" and "right" ranges are valid.
+    pub fn split_mut(
+        self,
+        left: Range<usize>,
+        right: Range<usize>,
+    ) -> (ViewMutData<'a, T>, ViewMutData<'a, T>) {
+        assert_storage_range_valid(&self, left.clone());
+        assert_storage_range_valid(&self, right.clone());
+
+        let left = ViewMutData {
+            ptr: unsafe { self.ptr.add(left.start) },
+            len: left.len(),
+            _marker: PhantomData,
+        };
+        let right = ViewMutData {
+            ptr: unsafe { self.ptr.add(right.start) },
+            len: right.len(),
+            _marker: PhantomData,
+        };
+        (left, right)
     }
 }
 
