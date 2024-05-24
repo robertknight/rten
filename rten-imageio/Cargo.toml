@@ -10,6 +10,6 @@ repository = "https://github.com/robertknight/rten"
 include = ["/src", "/README.md"]
 
 [dependencies]
-image = { version = "0.24.6", default-features = false, features = ["png", "jpeg", "jpeg_rayon", "webp"] }
 png = "0.17.6"
 rten-tensor = { path = "../rten-tensor", version = "0.9.0" }
+image = { workspace = true }

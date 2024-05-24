@@ -11,7 +11,7 @@ repository = "https://github.com/robertknight/rten"
 [dependencies]
 fastrand = "2.0.2"
 hound = "3.5.1"
-image = { version = "0.24.6", default-features = false, features = ["png", "jpeg", "jpeg_rayon", "webp"] }
+image = { workspace = true }
 lexopt = "0.3.0"
 png = "0.17.6"
 serde = { workspace = true, features = ["derive"] }
