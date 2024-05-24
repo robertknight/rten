@@ -6,6 +6,7 @@ use rayon::prelude::*;
 use rten_tensor::prelude::*;
 use rten_tensor::{NdTensor, NdTensorView, NdTensorViewMut, Tensor, TensorView};
 
+use crate::iter_util::range_chunks;
 use crate::ops::{Input, InputList, IntoOpResult, OpError, Operator, Output};
 use crate::tensor_pool::TensorPool;
 use crate::{check_dims, static_dims};
@@ -82,6 +83,8 @@ fn lerp(a: f32, b: f32, weight: f32) -> f32 {
 }
 
 /// Resize a group of channels in a CHW tensor using nearest neighbor resizing.
+///
+/// This initializes all elements of `output`.
 fn nearest_resize(
     input: NdTensorView<f32, 3>,
     mut output: NdTensorViewMut<MaybeUninit<f32>, 3>,
@@ -138,6 +141,8 @@ fn nearest_resize(
 }
 
 /// Resize a group of channels in a CHW tensor using bilinear resizing.
+///
+/// This initializes all elements of `output`.
 fn bilinear_resize(
     input: NdTensorView<f32, 3>,
     mut output: NdTensorViewMut<MaybeUninit<f32>, 3>,
@@ -150,59 +155,72 @@ fn bilinear_resize(
     let inv_scale_y = in_rows as f32 / rows as f32;
     let inv_scale_x = in_cols as f32 / cols as f32;
 
-    let mut n_init = 0;
-    for y in 0..rows {
-        let in_y =
-            input_coord(y, inv_scale_y, coord_mode, in_rows, rows).clamp(0., in_rows as f32 - 1.);
-        let in_y1 = in_y as usize;
-        let in_y2 = (in_y1 + 1).min(in_rows - 1);
-        let weight_y = in_y - (in_y1 as f32);
+    let n_init = AtomicUsize::new(0);
 
-        for x in 0..cols {
-            let in_x = input_coord(x, inv_scale_x, coord_mode, in_cols, cols)
-                .clamp(0., in_cols as f32 - 1.);
-            let in_x1 = in_x as usize;
-            let in_x2 = (in_x1 + 1).min(in_cols - 1);
-            let weight_x = in_x - (in_x1 as f32);
+    let row_chunk = rows.div_ceil(
+        std::thread::available_parallelism()
+            .map(|c| c.get())
+            .unwrap_or(1),
+    );
 
-            const N: usize = CHAN_GROUP_SIZE;
-            if chans == N {
-                let in_tl = input.get_array::<N>([0, in_y1, in_x1], 0);
-                let in_tr = input.get_array::<N>([0, in_y1, in_x2], 0);
-                let in_bl = input.get_array::<N>([0, in_y2, in_x1], 0);
-                let in_br = input.get_array::<N>([0, in_y2, in_x2], 0);
+    output
+        .axis_chunks_mut(1, row_chunk)
+        .zip(range_chunks(0..rows, row_chunk))
+        .par_bridge()
+        .for_each(|(mut out_row_chunk, out_row_range)| {
+            for y in out_row_range.clone() {
+                let in_y = input_coord(y, inv_scale_y, coord_mode, in_rows, rows)
+                    .clamp(0., in_rows as f32 - 1.);
+                let in_y1 = in_y as usize;
+                let in_y2 = (in_y1 + 1).min(in_rows - 1);
+                let weight_y = in_y - (in_y1 as f32);
 
-                let mut out = [MaybeUninit::new(0.); N];
-                for c in 0..chans {
-                    // Interpolate in X direction
-                    let out_top = lerp(in_tl[c], in_tr[c], weight_x);
-                    let out_bottom = lerp(in_bl[c], in_br[c], weight_x);
+                for x in 0..cols {
+                    let in_x = input_coord(x, inv_scale_x, coord_mode, in_cols, cols)
+                        .clamp(0., in_cols as f32 - 1.);
+                    let in_x1 = in_x as usize;
+                    let in_x2 = (in_x1 + 1).min(in_cols - 1);
+                    let weight_x = in_x - (in_x1 as f32);
 
-                    // Interpolate in Y direction
-                    out[c].write(lerp(out_top, out_bottom, weight_y));
-                    n_init += 1;
-                }
+                    const N: usize = CHAN_GROUP_SIZE;
+                    if chans == N {
+                        let in_tl = input.get_array::<N>([0, in_y1, in_x1], 0);
+                        let in_tr = input.get_array::<N>([0, in_y1, in_x2], 0);
+                        let in_bl = input.get_array::<N>([0, in_y2, in_x1], 0);
+                        let in_br = input.get_array::<N>([0, in_y2, in_x2], 0);
 
-                output.set_array([0, y, x], 0, out);
-            } else {
-                for c in 0..chans {
-                    let in_tl = input[[c, in_y1, in_x1]];
-                    let in_tr = input[[c, in_y1, in_x2]];
-                    let in_bl = input[[c, in_y2, in_x1]];
-                    let in_br = input[[c, in_y2, in_x2]];
+                        let mut out = [MaybeUninit::new(0.); N];
+                        for c in 0..chans {
+                            // Interpolate in X direction
+                            let out_top = lerp(in_tl[c], in_tr[c], weight_x);
+                            let out_bottom = lerp(in_bl[c], in_br[c], weight_x);
 
-                    // Interpolate in X direction
-                    let out_top = lerp(in_tl, in_tr, weight_x);
-                    let out_bottom = lerp(in_bl, in_br, weight_x);
+                            // Interpolate in Y direction
+                            out[c].write(lerp(out_top, out_bottom, weight_y));
+                        }
 
-                    // Interpolate in Y direction
-                    output[[c, y, x]].write(lerp(out_top, out_bottom, weight_y));
-                    n_init += 1;
+                        out_row_chunk.set_array([0, y - out_row_range.start, x], 0, out);
+                    } else {
+                        for c in 0..chans {
+                            let in_tl = input[[c, in_y1, in_x1]];
+                            let in_tr = input[[c, in_y1, in_x2]];
+                            let in_bl = input[[c, in_y2, in_x1]];
+                            let in_br = input[[c, in_y2, in_x2]];
+
+                            // Interpolate in X direction
+                            let out_top = lerp(in_tl, in_tr, weight_x);
+                            let out_bottom = lerp(in_bl, in_br, weight_x);
+
+                            // Interpolate in Y direction
+                            out_row_chunk[[c, y - out_row_range.start, x]]
+                                .write(lerp(out_top, out_bottom, weight_y));
+                        }
+                    }
                 }
             }
-        }
-    }
-    assert!(n_init == output.len());
+            n_init.fetch_add(out_row_chunk.len(), Ordering::SeqCst);
+        });
+    assert!(n_init.load(Ordering::SeqCst) == output.len());
 }
 
 /// Resize an NCHW image tensor to a given `[height, width]`.
@@ -279,15 +297,10 @@ pub fn resize(
             .for_each(|(mut out_chans, in_chans)| {
                 match mode {
                     ResizeMode::Nearest => {
-                        nearest_resize(
-                            in_chans.nd_view(),
-                            out_chans.nd_view_mut(),
-                            nearest_mode,
-                            coord_mode,
-                        );
+                        nearest_resize(in_chans, out_chans.view_mut(), nearest_mode, coord_mode);
                     }
                     ResizeMode::Linear => {
-                        bilinear_resize(in_chans.nd_view(), out_chans.nd_view_mut(), coord_mode);
+                        bilinear_resize(in_chans, out_chans.view_mut(), coord_mode);
                     }
                 };
                 n_init.fetch_add(out_chans.len(), Ordering::SeqCst);

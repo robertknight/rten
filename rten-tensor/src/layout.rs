@@ -1010,13 +1010,12 @@ impl<const N: usize> MutLayout for NdLayout<N> {
 
         let mid_offset = mid * self.strides[axis];
         let left_offsets = 0..left.min_data_len();
+        let end_offset = self.min_data_len();
 
         let right_offsets = if right.is_empty() {
-            // The choice of offsets here is arbitrary, as long as the range
-            // is empty.
-            mid_offset..mid_offset
+            end_offset..end_offset
         } else {
-            mid_offset..self.min_data_len()
+            mid_offset..end_offset
         };
 
         ((left_offsets, left), (right_offsets, right))
@@ -1109,13 +1108,12 @@ impl MutLayout for DynLayout {
 
         let mid_offset = mid * self.stride(axis);
         let left_offsets = 0..left.min_data_len();
+        let end_offset = self.min_data_len();
 
         let right_offsets = if right.is_empty() {
-            // The choice of offsets here is arbitrary, as long as the range
-            // is empty.
-            mid_offset..mid_offset
+            end_offset..end_offset
         } else {
-            mid_offset..self.min_data_len()
+            mid_offset..end_offset
         };
 
         ((left_offsets, left), (right_offsets, right))
@@ -1471,6 +1469,7 @@ mod tests {
     fn test_split() {
         struct Case {
             shape: [usize; 2],
+            strides: Option<[usize; 2]>,
             axis: usize,
             mid: usize,
         }
@@ -1481,15 +1480,30 @@ mod tests {
         let shape = [4, 2];
         for axis in 0..shape.len() {
             for mid in 0..shape[axis] {
-                cases.push(Case { shape, axis, mid });
+                cases.push(Case {
+                    shape,
+                    axis,
+                    mid,
+                    strides: None,
+                });
             }
         }
 
         // Empty layout
         cases.push(Case {
             shape: [0, 0],
+            strides: None,
             axis: 0,
             mid: 0,
+        });
+
+        // Case where we are splitting a 1-sized dimension with `mid=1` and
+        // the stride is larger than the minimum storage length for the layout.
+        cases.push(Case {
+            shape: [1, 4],
+            strides: Some([10, 0]),
+            axis: 0,
+            mid: 1,
         });
 
         fn check_split<L: MutLayout>(layout: L, axis: usize, mid: usize) {
@@ -1523,9 +1537,29 @@ mod tests {
             }
         }
 
-        for Case { shape, axis, mid } in cases {
-            let layout = NdLayout::from_shape(shape);
-            let dyn_layout = DynLayout::from_shape(shape.as_slice());
+        for Case {
+            shape,
+            strides,
+            axis,
+            mid,
+        } in cases
+        {
+            let layout = if let Some(strides) = strides {
+                NdLayout::try_from_shape_and_strides(shape, strides, OverlapPolicy::AllowOverlap)
+                    .unwrap()
+            } else {
+                NdLayout::from_shape(shape)
+            };
+            let dyn_layout = if let Some(strides) = strides {
+                DynLayout::try_from_shape_and_strides(
+                    shape.as_slice(),
+                    strides.as_slice(),
+                    OverlapPolicy::AllowOverlap,
+                )
+                .unwrap()
+            } else {
+                DynLayout::from_shape(shape.as_slice())
+            };
 
             check_split(layout, axis, mid);
             check_split(dyn_layout, axis, mid);

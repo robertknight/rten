@@ -70,12 +70,7 @@ pub unsafe trait Storage {
     ///
     /// Panics if the range is out of bounds.
     fn slice(&self, range: Range<usize>) -> ViewData<Self::Elem> {
-        assert!(
-            range.start <= self.len() && range.end <= self.len(),
-            "invalid slice range {:?} for storage length {}",
-            range,
-            self.len()
-        );
+        assert_storage_range_valid(self, range.clone());
         ViewData {
             // Safety: We verified that `range` is in bounds.
             ptr: unsafe { self.as_ptr().add(range.start) },
@@ -150,6 +145,7 @@ impl<'a, T> IntoStorage for &'a mut [T] {
     }
 }
 
+/// Panic if an offset range is out of bounds for a given storage.
 fn assert_storage_range_valid<S: Storage + ?Sized>(storage: &S, range: Range<usize>) {
     assert!(
         range.start <= storage.len() && range.end <= storage.len(),
@@ -294,7 +290,7 @@ impl<'a, T> ViewData<'a, T> {
 
     /// Variant of [Storage::slice] which preserves lifetimes.
     pub fn slice(&self, range: Range<usize>) -> ViewData<'a, T> {
-        assert!(range.end <= self.len());
+        assert_storage_range_valid(self, range.clone());
         ViewData {
             // Safety: `range.start < range.end` and `range.end <= self.len())`,
             // so this is in-bounds.
