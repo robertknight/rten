@@ -21,6 +21,7 @@ default-members = [
 ]
 
 [workspace.dependencies]
+image = { version = "0.25.1", default-features = false, features = ["png", "jpeg", "webp"] }
 serde = { version = "1.0.202" }
 serde_json = { version = "1.0.117" }
 
