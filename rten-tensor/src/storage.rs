@@ -150,6 +150,15 @@ impl<'a, T> IntoStorage for &'a mut [T] {
     }
 }
 
+fn assert_storage_range_valid<S: Storage + ?Sized>(storage: &S, range: Range<usize>) {
+    assert!(
+        range.start <= storage.len() && range.end <= storage.len(),
+        "invalid slice range {:?} for storage length {}",
+        range,
+        storage.len()
+    );
+}
+
 /// Trait for backing storage used by mutable tensors and views.
 ///
 /// This extends [Storage] with methods to get mutable pointers and references
@@ -190,18 +199,39 @@ pub unsafe trait StorageMut: Storage {
 
     /// Return a slice of this storage.
     fn slice_mut(&mut self, range: Range<usize>) -> ViewMutData<Self::Elem> {
-        assert!(
-            range.start <= self.len() && range.end <= self.len(),
-            "invalid slice range {:?} for storage length {}",
-            range,
-            self.len()
-        );
+        assert_storage_range_valid(self, range.clone());
         ViewMutData {
             // Safety: We verified that `range` is in bounds.
             ptr: unsafe { self.as_mut_ptr().add(range.start) },
             len: range.len(),
             _marker: PhantomData,
         }
+    }
+
+    /// Return two sub-views of the storage.
+    ///
+    /// Unlike splitting a slice, this does *not* ensure that the two halves
+    /// do not overlap, only that the "left" and "right" ranges are valid.
+    fn split_mut(
+        &mut self,
+        left: Range<usize>,
+        right: Range<usize>,
+    ) -> (ViewMutData<Self::Elem>, ViewMutData<Self::Elem>) {
+        assert_storage_range_valid(self, left.clone());
+        assert_storage_range_valid(self, right.clone());
+
+        let ptr = self.as_mut_ptr();
+        let left = ViewMutData {
+            ptr: unsafe { ptr.add(left.start) },
+            len: left.len(),
+            _marker: PhantomData,
+        };
+        let right = ViewMutData {
+            ptr: unsafe { ptr.add(right.start) },
+            len: right.len(),
+            _marker: PhantomData,
+        };
+        (left, right)
     }
 
     /// Return a mutable view of this storage.
@@ -214,7 +244,7 @@ pub unsafe trait StorageMut: Storage {
     /// # Safety
     ///
     /// The caller must ensure that the storage is contiguous (ie. no unused
-    /// elements) and that there are no references to any elements in the
+    /// elements) and that there are no other references to any elements in the
     /// storage.
     unsafe fn as_slice_mut(&mut self) -> &mut [Self::Elem] {
         std::slice::from_raw_parts_mut(self.as_mut_ptr(), self.len())

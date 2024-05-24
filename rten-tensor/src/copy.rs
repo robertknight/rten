@@ -208,6 +208,48 @@ pub fn copy_into<T: Clone>(mut src: TensorView<T>, mut dest: TensorViewMut<T>) {
         });
 }
 
+/// Clone elements of `src` into `dest`.
+///
+/// This is functionally equivalent to:
+///
+/// ```text
+/// src.iter().zip(dest.iter_mut()).for_each(|(y, x)| y.write(x.clone()))
+/// ```
+///
+/// But more efficient, especially when `src` or `dest` are not contiguous.
+pub fn copy_into_uninit<T: Clone>(mut src: TensorView<T>, mut dest: TensorViewMut<MaybeUninit<T>>) {
+    assert!(src.shape() == dest.shape());
+
+    while src.ndim() < 4 {
+        src.insert_axis(0);
+        dest.insert_axis(0);
+    }
+
+    // Efficiency could be improved here by sorting dims so that those with
+    // the smallest stride are innermost. Also it could use the blocked copy
+    // that `copy_into_slice` uses to avoid cache conflicts when inputs are
+    // transposed.
+
+    src.inner_iter::<4>()
+        .zip(dest.inner_iter_mut::<4>())
+        .for_each(|(src, mut dest)| {
+            for i0 in 0..src.size(0) {
+                for i1 in 0..src.size(1) {
+                    for i2 in 0..src.size(2) {
+                        for i3 in 0..src.size(3) {
+                            // Safety: `dest` and `src` have the same shape,
+                            // and i0..i3 are in `[0, src.size(i))`.
+                            unsafe {
+                                dest.get_unchecked_mut([i0, i1, i2, i3])
+                                    .write(src.get_unchecked([i0, i1, i2, i3]).clone());
+                            }
+                        }
+                    }
+                }
+            }
+        });
+}
+
 /// Copy a slice of `src` specified by `ranges` into `dest` in contiguous order.
 pub fn copy_range_into_slice<T: Clone>(
     mut src: TensorView<T>,
@@ -291,7 +333,7 @@ fn copy_range_into_slice_inner<T: Clone>(
 
 #[cfg(test)]
 mod tests {
-    use super::{copy_into, copy_into_slice, copy_range_into_slice};
+    use super::{copy_into, copy_into_slice, copy_into_uninit, copy_range_into_slice};
     use crate::rng::XorShiftRng;
     use crate::{AsView, Layout, NdTensor, SliceItem, Tensor, TensorView};
 
@@ -324,6 +366,22 @@ mod tests {
 
             let mut dest = Tensor::zeros(src.shape());
             copy_into(src.view(), dest.view_mut());
+
+            assert_eq!(dest, src);
+        }
+    }
+
+    #[test]
+    fn test_copy_into_uninit() {
+        let mut rng = XorShiftRng::new(1234);
+        for ndim in 0..5 {
+            let shape: Vec<_> = (0..ndim).map(|d| d + 1).collect();
+            let src = Tensor::rand(&shape, &mut rng);
+            let src = src.transposed();
+
+            let mut dest = Tensor::uninit(src.shape());
+            copy_into_uninit(src.view(), dest.view_mut());
+            let dest = unsafe { dest.assume_init() };
 
             assert_eq!(dest, src);
         }

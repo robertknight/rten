@@ -2,7 +2,7 @@ use std::borrow::Cow;
 use std::mem::MaybeUninit;
 use std::ops::{Index, IndexMut, Range};
 
-use crate::copy::{copy_into, copy_into_slice, copy_range_into_slice};
+use crate::copy::{copy_into, copy_into_slice, copy_into_uninit, copy_range_into_slice};
 use crate::errors::{DimensionError, FromDataError, SliceError};
 use crate::iterators::{
     AxisChunks, AxisChunksMut, AxisIter, AxisIterMut, BroadcastIter, InnerIter, InnerIterDyn,
@@ -673,6 +673,42 @@ impl<S: StorageMut, L: MutLayout> TensorBase<S, L> {
         }
     }
 
+    /// Divide this tensor into two mutable views along a given axis.
+    ///
+    /// Returns a `(left, right)` tuple of views, where the `left` view
+    /// contains the slice from `[0, mid)` along `axis` and the `right`
+    /// view contains the slice from `[mid, end)` along `axis`.
+    #[allow(clippy::type_complexity)]
+    pub fn split_at_mut(
+        &mut self,
+        axis: usize,
+        mid: usize,
+    ) -> (
+        TensorBase<ViewMutData<S::Elem>, L>,
+        TensorBase<ViewMutData<S::Elem>, L>,
+    ) {
+        let (left, right) = self.layout.split(axis, mid);
+        let (left_offset_range, left_layout) = left;
+        let (right_offset_range, right_layout) = right;
+        let (left_data, right_data) = self
+            .data
+            .split_mut(left_offset_range.clone(), right_offset_range.clone());
+
+        debug_assert_eq!(left_data.len(), left_layout.min_data_len());
+        let left_view = TensorBase {
+            data: left_data,
+            layout: left_layout,
+        };
+
+        debug_assert_eq!(right_data.len(), right_layout.min_data_len());
+        let right_view = TensorBase {
+            data: right_data,
+            layout: right_layout,
+        };
+
+        (left_view, right_view)
+    }
+
     /// Slice this tensor and return a dynamic-rank view.
     ///
     /// Fails if the range has more dimensions than the view or is out of bounds
@@ -998,11 +1034,6 @@ where
     /// Convert a tensor of potentially uninitialized elements to one of
     /// initialized elements.
     ///
-    /// The tensor or view must be contiguous and this method will panic if
-    /// it is not. This restriction avoids hazards with converting a view
-    /// to initialized if it does not address all elements in the underlying
-    /// storage.
-    ///
     /// See also [MaybeUninit::assume_init].
     ///
     /// # Safety
@@ -1010,7 +1041,6 @@ where
     /// The caller must guarantee that all elements in this tensor have been
     /// initialized before calling `assume_init`.
     pub unsafe fn assume_init(self) -> TensorBase<<S as AssumeInit>::Output, L> {
-        assert!(self.is_contiguous());
         TensorBase {
             layout: self.layout.clone(),
             data: self.data.assume_init(),
@@ -1026,15 +1056,26 @@ where
     ) -> TensorBase<<S as AssumeInit>::Output, L>
     where
         T: Copy,
-        S: AsMut<[MaybeUninit<T>]>,
+        S: StorageMut<Elem = MaybeUninit<T>>,
     {
         assert_eq!(self.shape(), other.shape(), "shape mismatch");
-        if let Some(data) = other.data() {
-            let data: &[MaybeUninit<T>] = unsafe { std::mem::transmute(data) };
-            self.data.as_mut().clone_from_slice(data);
-        } else {
-            copy_into_slice(other.as_dyn(), self.data.as_mut());
+
+        match (self.data_mut(), other.data()) {
+            // Source and dest are contiguous. Use a memcpy.
+            (Some(self_data), Some(other_data)) => {
+                let other_data: &[MaybeUninit<T>] = unsafe { std::mem::transmute(other_data) };
+                self_data.clone_from_slice(other_data);
+            }
+            // Dest is contiguous.
+            (Some(self_data), _) => {
+                copy_into_slice(other.as_dyn(), self_data);
+            }
+            // Neither are contiguous.
+            _ => {
+                copy_into_uninit(other.as_dyn(), self.as_dyn_mut());
+            }
         }
+
         unsafe { self.assume_init() }
     }
 }
@@ -3038,6 +3079,64 @@ mod tests {
         let squeezed = tensor.squeezed();
 
         assert_eq!(squeezed.shape(), &[2, 3]);
+    }
+
+    #[test]
+    fn test_split_at_mut() {
+        struct Case {
+            shape: [usize; 2],
+            axis: usize,
+            mid: usize,
+            expected_left: NdTensor<i32, 2>,
+            expected_right: NdTensor<i32, 2>,
+        }
+
+        let cases = [
+            // Split first dim.
+            Case {
+                shape: [4, 2],
+                axis: 0,
+                mid: 1,
+                expected_left: NdTensor::from([[0, 1]]),
+                expected_right: NdTensor::from([[2, 3], [4, 5], [6, 7]]),
+            },
+            // Split last dim.
+            Case {
+                shape: [4, 2],
+                axis: 1,
+                mid: 1,
+                expected_left: NdTensor::from([[0], [2], [4], [6]]),
+                expected_right: NdTensor::from([[1], [3], [5], [7]]),
+            },
+            // Split last dim such that right split is empty.
+            Case {
+                shape: [4, 2],
+                axis: 1,
+                mid: 2,
+                expected_left: NdTensor::from([[0, 1], [2, 3], [4, 5], [6, 7]]),
+                expected_right: NdTensor::from([[], [], [], []]),
+            },
+        ];
+
+        for Case {
+            shape,
+            axis,
+            mid,
+            expected_left,
+            expected_right,
+        } in cases
+        {
+            let len: usize = shape.iter().product();
+            let mut tensor = NdTensor::arange(0, len as i32, None).into_shape(shape);
+            let (left, right) = tensor.split_at_mut(axis, mid);
+            assert_eq!(left, expected_left);
+            assert_eq!(right, expected_right);
+
+            let mut tensor = tensor.into_dyn();
+            let (left, right) = tensor.split_at_mut(axis, mid);
+            assert_eq!(left, expected_left.as_dyn());
+            assert_eq!(right, expected_right.as_dyn());
+        }
     }
 
     #[test]
