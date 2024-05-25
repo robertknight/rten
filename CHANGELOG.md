@@ -27,7 +27,23 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Fixed conversion of `Transpose` operators without a `perm` attribute
   (https://github.com/robertknight/rten/pull/201)
 
+- The `RunError` type returned by `Model::run` is now exported
+  (https://github.com/robertknight/rten/pull/206)
+
 #### Performance improvements
+
+- Made `Resize` operator parallel over rows. This benefits resize operations on
+  images with large spatial dimensions and few channels
+  (https://github.com/robertknight/rten/pull/208).
+
+- Improved performance of `Conv` operator on Intel CPUs with a mitigation for
+  the Gather Data Sampling /
+  "[Downfall](https://en.wikipedia.org/wiki/Downfall_(security_vulnerability))"
+  vulnerability applied. This affects most 6th-11th generation Intel CPUs
+  (https://github.com/robertknight/rten/pull/204).
+
+- Optimized `Concat` operator when input is not contiguous (eg. following a
+  `Slice` op) (https://github.com/robertknight/rten/pull/204)
 
 - Improved performance of `GRU` operator by combining operations on separate
   gates (https://github.com/robertknight/rten/pull/188)
@@ -53,6 +69,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Added `serde_traits` feature which implements serde `Serialize` and
   `Deserialize` traits for geometry types
   (Thanks @luketpeterson, https://github.com/robertknight/rten/pull/198)
+
+### rten-tensor
+
+- Added `Tensor::split_at` and `Tensor::split_at_mut` (
+  https://github.com/robertknight/rten/pull/205, https://github.com/robertknight/rten/pull/207)
+
+- `Tensor::{axis_chunks, axis_chunks_mut}` iterators now preserve the layout
+  in their output type (https://github.com/robertknight/rten/pull/207).
 
 ### rten-vecmath, rten-simd
 
