@@ -210,7 +210,7 @@ pub fn conv(
     }
 
     let n_patches = out_h * out_w;
-    let mut output = Tensor::uninit_in(pool, &[batch, out_c, n_patches]);
+    let mut output = NdTensor::uninit_in(pool, [batch, out_c, n_patches]);
     let gemm = GemmExecutor::new();
 
     // Bias must be contiguous for use with `gemm_bias`.
@@ -225,8 +225,8 @@ pub fn conv(
         let out_chan_start = group * out_channels_per_group;
         let out_chans = out_chan_start..out_chan_start + out_channels_per_group;
 
-        let in_group = input.slice_dyn((.., in_chan_start..in_chan_end));
-        let mut out_group = output.slice_mut_dyn((.., out_chans.clone()));
+        let in_group = input.slice::<4, _>((.., in_chan_start..in_chan_end));
+        let mut out_group = output.slice_mut::<3, _>((.., out_chans.clone()));
 
         let kernel_mat = kernel
             .slice::<4, _>([out_chans.clone()])
@@ -248,7 +248,7 @@ pub fn conv(
 
                 let im2col = VirtualIm2Col::new(
                     gemm.kernel_type(),
-                    in_item.nd_view(),
+                    in_item,
                     [k_h, k_w],
                     fixed_padding,
                     [stride_y, stride_x],
@@ -270,13 +270,13 @@ pub fn conv(
             });
     }
 
-    output.reshape(&[batch, out_c, out_h, out_w]);
+    let output = output.into_shape([batch, out_c, out_h, out_w]);
 
     // Safety: We used `gemm_uninit_bias` to initialize all elements.
     assert!(n_init.load(Ordering::SeqCst) == output.len());
     let output = unsafe { output.assume_init() };
 
-    Ok(output)
+    Ok(output.into())
 }
 
 #[derive(Debug)]

@@ -3,7 +3,7 @@ use std::ops::Range;
 use std::slice;
 
 use crate::index_iterator::DynIndices;
-use crate::layout::Layout;
+use crate::layout::{Layout, RemoveDim};
 use crate::slice_range::{to_slice_items, SliceItem};
 use crate::storage::{StorageMut, ViewData, ViewMutData};
 
@@ -937,56 +937,62 @@ impl<'a, T, L: MutLayout> Iterator for InnerIterDynMut<'a, T, L> {
 impl<'a, T, L: MutLayout> ExactSizeIterator for InnerIterDynMut<'a, T, L> {}
 
 /// Iterator over slices of a tensor along an axis. See [TensorView::axis_iter].
-pub struct AxisIter<'a, T, L: MutLayout> {
+pub struct AxisIter<'a, T, L: MutLayout + RemoveDim> {
     view: TensorBase<ViewData<'a, T>, L>,
+    axis: usize,
     index: usize,
 }
 
-impl<'a, T, L: MutLayout> AxisIter<'a, T, L> {
-    pub fn new(view: &TensorBase<ViewData<'a, T>, L>, dim: usize) -> AxisIter<'a, T, L> {
-        let mut permuted = view.clone();
-        permuted.move_axis(dim, 0);
+impl<'a, T, L: MutLayout + RemoveDim> AxisIter<'a, T, L> {
+    pub fn new(view: &TensorBase<ViewData<'a, T>, L>, axis: usize) -> AxisIter<'a, T, L> {
+        assert!(axis < view.ndim());
         AxisIter {
-            view: permuted,
+            view: view.clone(),
+            axis,
             index: 0,
         }
     }
 }
 
-impl<'a, T, L: MutLayout> Iterator for AxisIter<'a, T, L> {
-    type Item = TensorView<'a, T>;
+impl<'a, T, L: MutLayout + RemoveDim> Iterator for AxisIter<'a, T, L> {
+    type Item = TensorBase<ViewData<'a, T>, <L as RemoveDim>::Output>;
 
     fn next(&mut self) -> Option<Self::Item> {
-        if self.index >= self.view.size(0) {
+        if self.index >= self.view.size(self.axis) {
             None
         } else {
-            let view = self.view.slice_dyn([self.index]);
+            let slice = self.view.index_axis(self.axis, self.index);
             self.index += 1;
-            Some(view)
+            Some(slice)
         }
     }
 }
 
 /// Iterator over mutable slices of a tensor along an axis. See [TensorViewMut::axis_iter_mut].
-pub struct AxisIterMut<'a, T, L: MutLayout> {
+pub struct AxisIterMut<'a, T, L: MutLayout + RemoveDim> {
     view: TensorBase<ViewMutData<'a, T>, L>,
+    axis: usize,
     index: usize,
 }
 
-impl<'a, T, L: MutLayout> AxisIterMut<'a, T, L> {
-    pub fn new(mut view: TensorBase<ViewMutData<'a, T>, L>, dim: usize) -> AxisIterMut<'a, T, L> {
+impl<'a, T, L: MutLayout + RemoveDim> AxisIterMut<'a, T, L> {
+    pub fn new(view: TensorBase<ViewMutData<'a, T>, L>, axis: usize) -> AxisIterMut<'a, T, L> {
         // See notes in `Layout` about internal overlap.
         assert!(
             !view.layout().is_broadcast(),
             "Cannot mutably iterate over broadcasting view"
         );
-        view.move_axis(dim, 0);
-        AxisIterMut { view, index: 0 }
+        assert!(axis < view.ndim());
+        AxisIterMut {
+            view,
+            axis,
+            index: 0,
+        }
     }
 }
 
-impl<'a, T, L: MutLayout> Iterator for AxisIterMut<'a, T, L> {
-    type Item = TensorViewMut<'a, T>;
+impl<'a, T, L: MutLayout + RemoveDim> Iterator for AxisIterMut<'a, T, L> {
+    type Item = TensorBase<ViewMutData<'a, T>, <L as RemoveDim>::Output>;
 
     fn next(&mut self) -> Option<Self::Item> {
         if self.index >= self.view.size(0) {
@@ -995,12 +1001,14 @@ impl<'a, T, L: MutLayout> Iterator for AxisIterMut<'a, T, L> {
             let index = self.index;
             self.index += 1;
 
+            let slice = self.view.index_axis_mut(self.axis, index);
+
+            // Promote lifetime from self -> 'a.
+            //
             // Safety: This is non-broadcasting view, and we increment the index
             // each time, so returned views will not overlap.
-            let view = unsafe {
-                let view = self.view.slice_mut_dyn([index]);
-                std::mem::transmute::<TensorViewMut<'_, T>, TensorViewMut<'a, T>>(view)
-            };
+            let view = unsafe { std::mem::transmute(slice) };
+
             Some(view)
         }
     }

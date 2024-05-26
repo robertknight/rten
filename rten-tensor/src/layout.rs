@@ -514,7 +514,7 @@ impl<'a, const N: usize> TryFrom<&'a DynLayout> for NdLayout<N> {
 ///
 /// Zero-strides are used for broadcasting, which is widely used and easy to
 /// check for.
-#[derive(Clone, Debug)]
+#[derive(Clone, Debug, PartialEq)]
 pub struct DynLayout {
     /// Array of dimension sizes followed by the corresponding dimension strides.
     ///
@@ -851,6 +851,22 @@ pub trait MutLayout: Layout + Clone {
         strides: Self::Index<'_>,
         overlap: OverlapPolicy,
     ) -> Result<Self, FromDataError>;
+
+    /// Slice a layout by selecting a single entry from a given axis.
+    ///
+    /// Returns an `(offset_range, layout)` tuple for the sliced layout.
+    fn index_axis(&self, axis: usize, index: usize) -> (Range<usize>, <Self as RemoveDim>::Output)
+    where
+        Self: RemoveDim,
+    {
+        assert!(axis < self.ndim());
+        assert!(index < self.size(axis));
+
+        let layout = self.remove_dim(axis);
+        let start_offset = self.stride(axis) * index;
+
+        (start_offset..start_offset + layout.min_data_len(), layout)
+    }
 
     /// Move the axis at position `from` to `to` by swapping their strides.
     fn move_axis(&mut self, from: usize, to: usize);
@@ -1236,6 +1252,73 @@ impl<const N: usize> AsIndex<NdLayout<N>> for [usize; N] {
     }
 }
 
+/// Trait that removes one dimension from a layout.
+pub trait RemoveDim {
+    type Output: MutLayout;
+
+    /// Return a copy of this layout with the dimension at index `dim` removed.
+    fn remove_dim(&self, dim: usize) -> Self::Output;
+}
+
+impl RemoveDim for DynLayout {
+    type Output = DynLayout;
+
+    fn remove_dim(&self, dim: usize) -> DynLayout {
+        let ndim = self.ndim();
+        assert!(ndim > 0, "cannot remove axis from tensor with 0 dims");
+
+        let shape = (0..ndim - 1).map(|i| {
+            if i < dim {
+                self.size(i)
+            } else {
+                self.size(i + 1)
+            }
+        });
+        let strides = (0..ndim - 1).map(|i| {
+            if i < dim {
+                self.stride(i)
+            } else {
+                self.stride(i + 1)
+            }
+        });
+        DynLayout {
+            shape_and_strides: shape.chain(strides).collect(),
+        }
+    }
+}
+
+macro_rules! impl_remove_dim {
+    ($in_dims:expr, $out_dims:expr) => {
+        impl RemoveDim for NdLayout<$in_dims> {
+            type Output = NdLayout<$out_dims>;
+
+            fn remove_dim(&self, dim: usize) -> Self::Output {
+                let shape = std::array::from_fn(|i| {
+                    if i < dim {
+                        self.shape[i]
+                    } else {
+                        self.shape[i + 1]
+                    }
+                });
+                let strides = std::array::from_fn(|i| {
+                    if i < dim {
+                        self.strides[i]
+                    } else {
+                        self.strides[i + 1]
+                    }
+                });
+                NdLayout { shape, strides }
+            }
+        }
+    };
+}
+
+impl_remove_dim!(1, 0);
+impl_remove_dim!(2, 1);
+impl_remove_dim!(3, 2);
+impl_remove_dim!(4, 3);
+impl_remove_dim!(5, 4);
+
 #[cfg(test)]
 mod tests {
     use std::iter::zip;
@@ -1244,6 +1327,10 @@ mod tests {
     use crate::errors::ReshapeError;
     use crate::layout::{DynLayout, Layout, MutLayout, NdLayout, ResizeLayout};
     use crate::SliceItem;
+
+    fn layout_with_strides<const N: usize>(shape: [usize; N], strides: [usize; N]) -> NdLayout<N> {
+        NdLayout::try_from_shape_and_strides(shape, strides, OverlapPolicy::AllowOverlap).unwrap()
+    }
 
     #[test]
     fn test_is_broadcast() {
@@ -1292,6 +1379,61 @@ mod tests {
             assert_eq!(layout.shape(), case.shape);
             assert_eq!(layout.strides(), case.strides);
         }
+    }
+
+    #[test]
+    fn test_index_axis() {
+        struct Case {
+            layout: NdLayout<2>,
+            axis: usize,
+            index: usize,
+            expected: (usize, NdLayout<1>), // (start offset, sliced layout)
+        }
+
+        let cases = [
+            Case {
+                layout: NdLayout::from_shape([3, 4]),
+                axis: 0,
+                index: 1,
+                expected: (4, layout_with_strides([4], [1])),
+            },
+            Case {
+                layout: NdLayout::from_shape([3, 4]),
+                axis: 1,
+                index: 2,
+                expected: (2, layout_with_strides([3], [4])),
+            },
+        ];
+
+        for Case {
+            layout,
+            axis,
+            index,
+            expected,
+        } in cases
+        {
+            let (expected_start, expected_layout) = expected;
+
+            let (offsets, sliced_layout) = layout.index_axis(axis, index);
+            assert_eq!(sliced_layout, expected_layout);
+            assert_eq!(offsets.start, expected_start);
+            assert_eq!(offsets.len(), expected_layout.min_data_len());
+
+            let (_, sliced_layout_dyn) = layout.as_dyn().index_axis(axis, index);
+            assert_eq!(sliced_layout_dyn, expected_layout.as_dyn());
+        }
+    }
+
+    #[test]
+    #[should_panic(expected = "axis < self.ndim()")]
+    fn test_index_axis_invalid_axis() {
+        NdLayout::from_shape([2, 3]).index_axis(2, 0);
+    }
+
+    #[test]
+    #[should_panic(expected = "index < self.size(axis)")]
+    fn test_index_axis_invalid_index() {
+        NdLayout::from_shape([2, 3]).index_axis(0, 3);
     }
 
     #[test]
