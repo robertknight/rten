@@ -27,6 +27,16 @@ use crate::{Alloc, GlobalAlloc, IntoSliceItems, RandomSource, SliceItem};
 #[derive(Debug)]
 pub struct TensorBase<S: Storage, L: MutLayout> {
     data: S,
+
+    // Layout mapping N-dimensional indices to offsets in `data`.
+    //
+    // Constructors must ensure:
+    //
+    // - Every index that is valid for `layout` must map to an offset that is
+    //   less than `data.len()`. The minimum length for a layout is given by
+    //   `Layout::min_data_len`.
+    // - If `S` is a mutable storage type, no two indices of `layout` can map to
+    //   the same offset. See the `may_have_internal_overlap` function.
     layout: L,
 }
 
