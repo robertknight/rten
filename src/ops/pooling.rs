@@ -6,9 +6,9 @@ use rayon::prelude::*;
 use rten_tensor::prelude::*;
 use rten_tensor::{NdTensor, NdTensorView, NdTensorViewMut, Tensor, TensorView, TensorViewMut};
 
-use crate::check_dims;
 use crate::ops::{InputList, IntoOpResult, OpError, Operator, Output, Padding};
 use crate::tensor_pool::TensorPool;
+use crate::{check_dims, static_dims};
 
 /// Calculate the output size and padding for a convolution or pooling operation.
 ///
@@ -116,7 +116,8 @@ where
     for<'a> TensorView<'a, T>: Send,
     for<'a> &'a T: Sync,
 {
-    let [batch, in_c, in_h, in_w] = check_dims!(input, 4, "NCHW");
+    let input = static_dims!(input, 4, "NCHW")?;
+    let [batch, in_c, in_h, in_w] = input.shape();
     let (out_h, out_w, fixed_padding) = calc_output_size_and_padding(
         (in_h, in_w),
         (kernel_size[0], kernel_size[1]),
@@ -125,7 +126,7 @@ where
         None, /* dilations */
     )?;
     let [pad_top, pad_left, _pad_bottom, _pad_right] = fixed_padding;
-    let mut output = Tensor::uninit_in(pool, [batch, in_c, out_h, out_w].as_slice());
+    let mut output = NdTensor::uninit_in(pool, [batch, in_c, out_h, out_w]);
 
     // Apply pooling to the channel indexes specified by `chans`.
     // Assuming `N` is chosen appropriately the inner loop should get unrolled /
@@ -192,9 +193,7 @@ where
     zip(output.axis_iter_mut(0), input.axis_iter(0))
         .par_bridge()
         .for_each(|(mut out_item, in_item)| {
-            let mut out_item = out_item.nd_view_mut();
             let [_, out_h, out_w] = out_item.shape();
-            let in_item = in_item.nd_view();
 
             // Loop over channel groups.
             const N: usize = CHAN_GROUP_SIZE;
@@ -235,7 +234,7 @@ where
 
     assert!(n_init.load(Ordering::SeqCst) == output.len());
     let output = unsafe { output.assume_init() };
-    Ok(output)
+    Ok(output.into())
 }
 
 pub fn average_pool(
