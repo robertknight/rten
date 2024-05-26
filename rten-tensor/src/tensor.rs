@@ -10,7 +10,7 @@ use crate::iterators::{
 };
 use crate::layout::{
     AsIndex, BroadcastLayout, DynLayout, IntoLayout, Layout, MatrixLayout, MutLayout, NdLayout,
-    OverlapPolicy, ResizeLayout,
+    OverlapPolicy, RemoveDim, ResizeLayout,
 };
 use crate::storage::{CowData, IntoStorage, Storage, StorageMut, ViewData, ViewMutData};
 use crate::{Alloc, GlobalAlloc, IntoSliceItems, RandomSource, SliceItem};
@@ -84,7 +84,10 @@ pub trait AsView: Layout {
     }
 
     /// Return an iterator over slices of this tensor along a given axis.
-    fn axis_iter(&self, dim: usize) -> AxisIter<Self::Elem, Self::Layout> {
+    fn axis_iter(&self, dim: usize) -> AxisIter<Self::Elem, Self::Layout>
+    where
+        Self::Layout: RemoveDim,
+    {
         self.view().axis_iter(dim)
     }
 
@@ -125,6 +128,22 @@ pub trait AsView: Layout {
     /// The caller must ensure that the index is valid for the tensor's shape.
     unsafe fn get_unchecked<I: AsIndex<Self::Layout>>(&self, index: I) -> &Self::Elem {
         self.view().get_unchecked(index)
+    }
+
+    /// Index the tensor along a given axis.
+    ///
+    /// Returns a view with one dimension removed.
+    ///
+    /// Panics if `axis >= self.ndim()` or `index >= self.size(axis)`.
+    fn index_axis(
+        &self,
+        axis: usize,
+        index: usize,
+    ) -> TensorBase<ViewData<Self::Elem>, <Self::Layout as RemoveDim>::Output>
+    where
+        Self::Layout: RemoveDim,
+    {
+        self.view().index_axis(axis, index)
     }
 
     /// Return an iterator over the innermost N dimensions.
@@ -477,7 +496,10 @@ impl<S: Storage, L: MutLayout> TensorBase<S, L> {
 impl<S: StorageMut, L: MutLayout> TensorBase<S, L> {
     /// Return an iterator over mutable slices of this tensor along a given
     /// axis. Each view yielded has one dimension fewer than the current layout.
-    pub fn axis_iter_mut(&mut self, dim: usize) -> AxisIterMut<S::Elem, L> {
+    pub fn axis_iter_mut(&mut self, dim: usize) -> AxisIterMut<S::Elem, L>
+    where
+        L: RemoveDim,
+    {
         AxisIterMut::new(self.view_mut(), dim)
     }
 
@@ -544,6 +566,26 @@ impl<S: StorageMut, L: MutLayout> TensorBase<S, L> {
             // Safety: We verified the layout is contiguous.
             self.data.as_slice_mut()
         })
+    }
+
+    /// Index the tensor along a given axis.
+    ///
+    /// Returns a mutable view with one dimension removed.
+    ///
+    /// Panics if `axis >= self.ndim()` or `index >= self.size(axis)`.
+    pub fn index_axis_mut(
+        &mut self,
+        axis: usize,
+        index: usize,
+    ) -> TensorBase<ViewMutData<S::Elem>, <L as RemoveDim>::Output>
+    where
+        L: RemoveDim,
+    {
+        let (offsets, layout) = self.layout.index_axis(axis, index);
+        TensorBase {
+            data: self.data.slice_mut(offsets),
+            layout,
+        }
     }
 
     /// Return a mutable view of the tensor's underlying storage.
@@ -1045,7 +1087,10 @@ where
 }
 
 impl<'a, T, L: Clone + MutLayout> TensorBase<ViewData<'a, T>, L> {
-    pub fn axis_iter(&self, dim: usize) -> AxisIter<'a, T, L> {
+    pub fn axis_iter(&self, dim: usize) -> AxisIter<'a, T, L>
+    where
+        L: RemoveDim,
+    {
         AxisIter::new(self, dim)
     }
 
@@ -1146,6 +1191,26 @@ impl<'a, T, L: Clone + MutLayout> TensorBase<ViewData<'a, T>, L> {
     pub unsafe fn get_unchecked<I: AsIndex<L>>(&self, index: I) -> &'a T {
         self.data
             .get_unchecked(self.layout.offset_unchecked(index.as_index()))
+    }
+
+    /// Index the tensor along a given axis.
+    ///
+    /// Returns a view with one dimension removed.
+    ///
+    /// Panics if `axis >= self.ndim()` or `index >= self.size(axis)`.
+    pub fn index_axis(
+        &self,
+        axis: usize,
+        index: usize,
+    ) -> TensorBase<ViewData<'a, T>, <L as RemoveDim>::Output>
+    where
+        L: RemoveDim,
+    {
+        let (offsets, layout) = self.layout.index_axis(axis, index);
+        TensorBase {
+            data: self.data.slice(offsets),
+            layout,
+        }
     }
 
     /// Return an iterator over the inner `N` dimensions of this tensor.
@@ -2129,11 +2194,11 @@ mod tests {
         let mut rows = tensor.axis_iter(0);
 
         let row = rows.next().unwrap();
-        assert_eq!(row.shape(), &[2]);
+        assert_eq!(row.shape(), [2]);
         assert_eq!(row.to_vec(), &[0, 1]);
 
         let row = rows.next().unwrap();
-        assert_eq!(row.shape(), &[2]);
+        assert_eq!(row.shape(), [2]);
         assert_eq!(row.to_vec(), &[2, 3]);
 
         assert!(rows.next().is_none());
@@ -2535,6 +2600,18 @@ mod tests {
         assert_eq!(tensor[[1, 1]], 4.);
         tensor[&[1, 1]] = 9.;
         assert_eq!(tensor[[1, 1]], 9.);
+    }
+
+    #[test]
+    fn test_index_axis() {
+        let mut tensor = NdTensor::arange(0, 8, None).into_shape([4, 2]);
+        let slice = tensor.index_axis(0, 2);
+        assert_eq!(slice.shape(), [2]);
+        assert_eq!(slice.data().unwrap(), [4, 5]);
+
+        let mut slice = tensor.index_axis_mut(0, 3);
+        assert_eq!(slice.shape(), [2]);
+        assert_eq!(slice.data_mut().unwrap(), [6, 7]);
     }
 
     #[test]
