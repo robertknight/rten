@@ -866,10 +866,7 @@ pub fn where_op<T: Copy>(
     if let (true, Some(cond_data), Some(x_data), Some(y_data)) =
         (can_cycle, cond.data(), x.data(), y.data())
     {
-        // Fast path for when we can cycle the underlying iterators. Even
-        // though `broadcast_iter` has a fast path for cycling, cycling the
-        // data slices directly is 3-4x faster due to optimizations like
-        // `Iterator::zip` making use of the unstable `TrustedRandomAccess` trait.
+        // Fast path for when we can cycle the underlying iterators.
         out_data.extend(
             cond_data
                 .iter()
@@ -880,14 +877,49 @@ pub fn where_op<T: Copy>(
                 .map(|((&cond, &x), &y)| if cond != 0 { x } else { y }),
         );
     } else {
-        // Fallback if tensors are non-contiguous or broadcasting can't be
-        // done with just cycling.
-        out_data.extend(
-            cond.broadcast_iter(&result_shape)
-                .zip(x.broadcast_iter(&result_shape))
-                .zip(y.broadcast_iter(&result_shape))
-                .map(|((&cond, &x), &y)| if cond != 0 { x } else { y }),
-        );
+        let mut cond = cond.broadcast(result_shape.as_slice());
+        let mut x = x.broadcast(result_shape.as_slice());
+        let mut y = y.broadcast(result_shape.as_slice());
+
+        // Loop over a statically known number of inner dims for efficiency.
+        while cond.ndim() <= 4 {
+            cond.insert_axis(0);
+            x.insert_axis(0);
+            y.insert_axis(0);
+        }
+
+        let out_uninit = &mut out_data.spare_capacity_mut()[..cond.len()];
+        let mut out_offset = 0;
+
+        cond.inner_iter::<4>()
+            .zip(x.inner_iter::<4>().zip(y.inner_iter::<4>()))
+            .for_each(|(cond, (x, y))| {
+                for i0 in 0..cond.size(0) {
+                    for i1 in 0..cond.size(1) {
+                        for i2 in 0..cond.size(2) {
+                            for i3 in 0..cond.size(3) {
+                                // Safety:
+                                // - `cond`, `x` and `y` have the same shape, and i0..i3 are in `[0, cond.size(i))`.
+                                // - The length of `out_uninit` is the same as `cond.len()`.
+                                unsafe {
+                                    let cond_elt = *cond.get_unchecked([i0, i1, i2, i3]);
+                                    let x_elt = *x.get_unchecked([i0, i1, i2, i3]);
+                                    let y_elt = *y.get_unchecked([i0, i1, i2, i3]);
+                                    let out_elt = if cond_elt != 0 { x_elt } else { y_elt };
+                                    out_uninit.get_unchecked_mut(out_offset).write(out_elt);
+                                    out_offset += 1;
+                                }
+                            }
+                        }
+                    }
+                }
+            });
+
+        // Safety: We just initialized `cond.len` elements.
+        assert!(out_offset == cond.len());
+        unsafe {
+            out_data.set_len(cond.len());
+        }
     }
 
     Ok(Tensor::from_data(&result_shape, out_data))
