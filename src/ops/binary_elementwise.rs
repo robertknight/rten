@@ -154,7 +154,7 @@ fn fast_broadcast_cycles(from_shape: &[usize], to_shape: &[usize]) -> Option<usi
 /// Compute the result of applying the binary operation `op` to corresponding
 /// elements of `a` and `b`. The shapes of `a` and `b` are broadcast to a
 /// matching shape if necessary.
-fn binary_op<T: Copy + Debug, R: Default, F: Fn(T, T) -> R>(
+pub fn binary_op<T: Copy, R, F: Fn(T, T) -> R>(
     pool: &TensorPool,
     a: TensorView<T>,
     b: TensorView<T>,
