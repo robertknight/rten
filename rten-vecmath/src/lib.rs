@@ -21,6 +21,8 @@ mod erf;
 mod exp;
 mod softmax;
 mod tanh;
+
+#[cfg(test)]
 mod ulp;
 
 #[cfg(test)]
