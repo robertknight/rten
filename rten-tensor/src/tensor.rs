@@ -5,8 +5,8 @@ use std::ops::{Index, IndexMut, Range};
 use crate::copy::{copy_into, copy_into_slice, copy_into_uninit, copy_range_into_slice};
 use crate::errors::{DimensionError, FromDataError, SliceError};
 use crate::iterators::{
-    AxisChunks, AxisChunksMut, AxisIter, AxisIterMut, BroadcastIter, InnerIter, InnerIterDyn,
-    InnerIterDynMut, InnerIterMut, Iter, IterMut, Lanes, LanesMut, MutViewRef, ViewRef,
+    AxisChunks, AxisChunksMut, AxisIter, AxisIterMut, InnerIter, InnerIterDyn, InnerIterDynMut,
+    InnerIterMut, Iter, IterMut, Lanes, LanesMut, MutViewRef, ViewRef,
 };
 use crate::layout::{
     AsIndex, BroadcastLayout, DynLayout, IntoLayout, Layout, MatrixLayout, MutLayout, NdLayout,
@@ -111,14 +111,6 @@ pub trait AsView: Layout {
         Self::Layout: BroadcastLayout<S::Layout>,
     {
         self.view().broadcast(shape)
-    }
-
-    /// Return an iterator over elements of this tensor, broadcast to `shape`.
-    ///
-    /// This is equivalent to `self.broadcast(shape).iter()` but has some
-    /// additional optimizations.
-    fn broadcast_iter(&self, shape: &[usize]) -> BroadcastIter<Self::Elem> {
-        self.view().broadcast_iter(shape)
     }
 
     /// Return the layout of this tensor as a slice, if it is contiguous.
@@ -1139,14 +1131,6 @@ impl<'a, T, L: Clone + MutLayout> TensorBase<ViewData<'a, T>, L> {
             layout: self.layout.broadcast(shape),
             data: self.data,
         }
-    }
-
-    /// Return an iterator over elements as if this tensor was broadcast to
-    /// another shape.
-    ///
-    /// See [AsView::broadcast_iter].
-    pub fn broadcast_iter(&self, shape: &[usize]) -> BroadcastIter<'a, T> {
-        BroadcastIter::new(self.view_ref(), shape)
     }
 
     /// Return the data in this tensor as a slice if it is contiguous, ie.
@@ -2256,13 +2240,6 @@ mod tests {
         let view = tensor.broadcast(dest_shape.as_slice());
         assert_eq!(view.shape(), dest_shape);
         assert_eq!(view.to_vec(), expected_data);
-    }
-
-    #[test]
-    fn test_broadcast_iter() {
-        let tensor = NdTensor::from_data([1], vec![3]);
-        let elems: Vec<_> = tensor.broadcast_iter(&[2, 2]).copied().collect();
-        assert_eq!(elems, &[3, 3, 3, 3]);
     }
 
     #[test]
