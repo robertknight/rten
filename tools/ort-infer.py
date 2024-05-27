@@ -60,6 +60,11 @@ def run_model(
     # sess_opts.enable_mem_pattern = False
     # sess_opts.enable_mem_reuse = False
 
+    # Additional optimization controls. See
+    # https://github.com/microsoft/onnxruntime/blob/main/include/onnxruntime/core/session/onnxruntime_session_options_config_keys.h
+    #
+    # sess_opts.add_session_config_entry("session.disable_prepacking", "1")
+
     sess_opts.enable_profiling = enable_profiling
 
     if optimized_path:
