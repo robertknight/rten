@@ -406,7 +406,7 @@ impl<'a, T> FusedIterator for IndexingIterMut<'a, T> {}
 /// be modified during iteration. It is the caller's responsibilty not to modify
 /// the tensor in ways that invalidate the offset sequence returned by this
 /// iterator.
-pub struct Offsets {
+struct Offsets {
     base: IndexingIterBase,
 }
 

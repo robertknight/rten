@@ -93,7 +93,7 @@ impl Alloc for GlobalAlloc {
 pub use index_iterator::{DynIndices, Indices, NdIndices};
 pub use iterators::{
     AxisChunks, AxisChunksMut, AxisIter, AxisIterMut, InnerIter, InnerIterMut, Iter, IterMut,
-    Lanes, LanesMut, Offsets,
+    Lanes, LanesMut,
 };
 pub use layout::{
     is_valid_permutation, DynLayout, IntoLayout, Layout, MatrixLayout, MutLayout, NdLayout,
