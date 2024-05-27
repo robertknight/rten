@@ -62,12 +62,14 @@ impl Identities for i32 {
 
 pub trait MinMax {
     /// Return the maximum value for this type.
+    #[allow(unused)] // Not used yet, but included for completeness
     fn max_val() -> Self;
 
     /// Return the minimum value for this type.
     fn min_val() -> Self;
 
     /// Return the minimum of `self` and `other`.
+    #[allow(unused)] // Not used yet, but included for completeness
     fn min(self, other: Self) -> Self;
 
     /// Return the maximum of `self` and `other`.

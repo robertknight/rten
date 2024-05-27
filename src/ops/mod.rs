@@ -769,9 +769,9 @@ impl<'a> InputList<'a> {
     }
 
     /// Get a required input as a scalar value.
-    pub fn require_as_scalar<T: Copy + 'a>(&self, index: usize) -> Result<T, OpError>
+    pub fn require_as_scalar<T>(&self, index: usize) -> Result<T, OpError>
     where
-        T: TryFrom<Input<'a>, Error = OpError>,
+        T: 'a + Copy + TryFrom<Input<'a>, Error = OpError>,
     {
         self.require(index).and_then(|input| input.try_into())
     }

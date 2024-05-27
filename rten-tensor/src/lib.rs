@@ -84,6 +84,12 @@ impl GlobalAlloc {
     }
 }
 
+impl Default for GlobalAlloc {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 impl Alloc for GlobalAlloc {
     fn alloc<T>(&self, capacity: usize) -> Vec<T> {
         Vec::with_capacity(capacity)
