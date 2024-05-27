@@ -1,69 +1,32 @@
-use std::iter::zip;
+use std::cmp::Ordering;
 
 use rten_tensor::prelude::*;
 use rten_tensor::{Tensor, TensorView};
 
-use crate::ops::binary_elementwise::broadcast_shapes;
+use crate::ops::binary_elementwise::binary_op;
 use crate::ops::reduce::{cmp_nan_greater, cmp_nan_less};
 use crate::ops::{Input, InputList, IntoOpResult, OpError, Operator, Output};
-use crate::tensor_pool::TensorPool;
+use crate::tensor_pool::{AutoReturn, TensorPool};
 
 /// Apply an elementwise reduction to a sequence of tensors.
 ///
 /// All inputs must be broadcastable to the same shape.
-fn reduce_elementwise<T: Copy, R: Fn(&[T]) -> T>(
+fn reduce_elementwise<T: Copy, R: Fn(T, T) -> T + Copy>(
     pool: &TensorPool,
     inputs: &[TensorView<T>],
-    reduce: &R,
+    reduce: R,
 ) -> Result<Tensor<T>, OpError> {
     match inputs {
         [] => Err(OpError::InvalidValue("Expected at least one input")),
-        [a, b] => {
-            // Specialize common case of binary input.
-            let Some(out_shape) = broadcast_shapes(a.shape(), b.shape()) else {
-                return Err(OpError::IncompatibleInputShapes(
-                    "Cannot broadcast inputs to same shape",
-                ));
-            };
-
-            let mut result = Tensor::uninit_in(pool, &out_shape);
-            for (out, (&a, &b)) in zip(
-                result.iter_mut(),
-                zip(a.broadcast_iter(&out_shape), b.broadcast_iter(&out_shape)),
-            ) {
-                out.write(reduce(&[a, b]));
+        [a] => Ok(a.to_tensor_in(pool)),
+        [a, b] => binary_op(pool, a.view(), b.view(), reduce),
+        [a, b, c @ ..] => {
+            let mut tmp = binary_op(pool, a.view(), b.view(), reduce)?;
+            for arg in c {
+                let old_tmp = tmp.auto_return(pool);
+                tmp = binary_op(pool, old_tmp.view(), arg.view(), reduce)?;
             }
-
-            // Safety: We initialized all output elements.
-            Ok(unsafe { result.assume_init() })
-        }
-        _ => {
-            let Some(out_shape) = inputs
-                .iter()
-                .try_fold(inputs[0].shape().to_vec(), |out_shape, input| {
-                    broadcast_shapes(&out_shape, input.shape())
-                })
-            else {
-                return Err(OpError::IncompatibleInputShapes(
-                    "Cannot broadcast inputs to same shape",
-                ));
-            };
-
-            let mut iters: Vec<_> = inputs
-                .iter()
-                .map(|view| view.broadcast_iter(&out_shape))
-                .collect();
-            let mut elts = Vec::with_capacity(inputs.len());
-            let mut output = Tensor::uninit_in(pool, &out_shape);
-
-            for out in output.iter_mut() {
-                elts.extend(iters.iter_mut().map(|it| it.next().unwrap()));
-                out.write(reduce(&elts));
-                elts.clear();
-            }
-
-            // Safety: We initialized all output elements.
-            Ok(unsafe { output.assume_init() })
+            Ok(tmp)
         }
     }
 }
@@ -83,11 +46,9 @@ pub fn max<T: Copy + PartialOrd>(
     pool: &TensorPool,
     inputs: &[TensorView<T>],
 ) -> Result<Tensor<T>, OpError> {
-    reduce_elementwise(pool, inputs, &|elts: &[T]| {
-        elts.iter()
-            .max_by(|a, b| cmp_nan_greater(*a, *b))
-            .copied()
-            .unwrap()
+    reduce_elementwise(pool, inputs, |a, b| match cmp_nan_greater(a, b) {
+        Ordering::Equal | Ordering::Greater => a,
+        Ordering::Less => b,
     })
 }
 
@@ -121,7 +82,7 @@ impl Operator for Max {
 }
 
 pub fn mean(pool: &TensorPool, inputs: &[TensorView]) -> Result<Tensor, OpError> {
-    let mut result = reduce_elementwise(pool, inputs, &|elts| elts.iter().sum())?;
+    let mut result = sum(pool, inputs)?;
     result.apply(|x| x / inputs.len() as f32);
     Ok(result)
 }
@@ -144,11 +105,9 @@ pub fn min<T: Copy + PartialOrd>(
     pool: &TensorPool,
     inputs: &[TensorView<T>],
 ) -> Result<Tensor<T>, OpError> {
-    reduce_elementwise(pool, inputs, &|elts: &[T]| {
-        elts.iter()
-            .min_by(|a, b| cmp_nan_less(*a, *b))
-            .copied()
-            .unwrap()
+    reduce_elementwise(pool, inputs, |a, b| match cmp_nan_less(a, b) {
+        Ordering::Less | Ordering::Equal => a,
+        Ordering::Greater => b,
     })
 }
 
@@ -165,11 +124,11 @@ impl Operator for Min {
     }
 }
 
-pub fn sum<T: Copy + std::iter::Sum>(
+pub fn sum<T: Copy + std::ops::Add<Output = T>>(
     pool: &TensorPool,
     inputs: &[TensorView<T>],
 ) -> Result<Tensor<T>, OpError> {
-    reduce_elementwise(pool, inputs, &|elts: &[T]| elts.iter().copied().sum())
+    reduce_elementwise(pool, inputs, |a, b| a + b)
 }
 
 #[derive(Debug)]
@@ -259,9 +218,7 @@ mod tests {
             // Two inputs, incompatible broadcast
             Case {
                 inputs: vec![tensor!([4., 5., 6.]), tensor!((2, 2); [1., 2., 3., 4.])],
-                expected: Err(OpError::IncompatibleInputShapes(
-                    "Cannot broadcast inputs to same shape",
-                )),
+                expected: Err(OpError::IncompatibleInputShapes("Cannot broadcast inputs")),
             },
             // Three inputs, incompatible broadcast
             Case {
@@ -270,9 +227,7 @@ mod tests {
                     tensor!(3.),
                     tensor!((2, 2); [1., 2., 3., 4.]),
                 ],
-                expected: Err(OpError::IncompatibleInputShapes(
-                    "Cannot broadcast inputs to same shape",
-                )),
+                expected: Err(OpError::IncompatibleInputShapes("Cannot broadcast inputs")),
             },
         ];
 
