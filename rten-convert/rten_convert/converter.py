@@ -6,7 +6,7 @@ import hashlib
 import json
 from os.path import splitext
 import sys
-from typing import Any, Callable, Literal, Optional, cast
+from typing import Any, Callable, Literal, Optional, Protocol, cast
 
 import flatbuffers
 import numpy as np
@@ -484,26 +484,40 @@ def value_node_from_onnx_value(value: onnx.ValueInfoProto) -> ValueNode:
     return ValueNode(name=value.name, shape=dims)
 
 
-def read_pads(op_reader: ONNXOperatorReader) -> tuple[str, list[int]]:
+class PadAttrs(Protocol):
+    """Common fields for RTen operator attributes which support padding."""
+
+    autoPad: int  # sg.AutoPad
+    pads: list[int]
+
+
+def read_pads(op_reader: ONNXOperatorReader, attrs: PadAttrs) -> None:
     """
-    Read a padding specification from an ONNX operator.
+    Update the padding attributes for an operator.
+
+    Reads padding attributes from an ONNX operator and updates the attributes
+    for an RTen operator.
     """
 
-    auto_pad = op_reader.get_attr("auto_pad", "string", "NOTSET")
+    auto_pad_attr = op_reader.get_attr("auto_pad", "string", "NOTSET")
+    pads: list[int]
 
-    match auto_pad:
+    match auto_pad_attr:
         case "SAME_UPPER" | "SAME_LOWER":
-            pad_mode = "same"
+            auto_pad = sg.AutoPad.Same
             pads = []
         case "NOTSET":
-            pad_mode = "fixed"
+            auto_pad = sg.AutoPad.NotSet
             pads = op_reader.get_attr("pads", "ints", [0, 0, 0, 0])
             if len(pads) not in [2, 4]:
                 raise Exception('"padding" attribute must have 2 or 4 values')
         case other:
             raise Exception(f"Unsupported auto_pad value {other}")
 
-    return (pad_mode, pads)
+    if auto_pad == sg.AutoPad.NotSet:
+        attrs.pads = pads
+    else:
+        attrs.autoPad = auto_pad
 
 
 def read_strides(
@@ -596,17 +610,11 @@ def op_node_from_onnx_operator(
         case "AveragePool":
             kernel_shape = op_reader.require_attr("kernel_shape", "ints")
             check_ints_length("kernel_shape", kernel_shape, 2)
-            pad_mode, pads = read_pads(op_reader)
             op_reader.check_attr("ceil_mode", "int", 0)
 
             attrs = sg.AveragePoolAttrsT()
             attrs.kernelSize = kernel_shape
-            if pads:
-                attrs.pads = pads
-            if pad_mode == "same":
-                attrs.padMode = sg.PadMode.Same
-            else:
-                attrs.padMode = sg.PadMode.Fixed
+            read_pads(op_reader, attrs)
             attrs.strides = read_strides(op_reader)
             attrs.countIncludePad = op_reader.get_bool_attr("count_include_pad", False)
 
@@ -673,13 +681,7 @@ def op_node_from_onnx_operator(
             attrs = sg.ConvAttrsT()
             attrs.dilations = read_dilations(op_reader)
             attrs.groups = op_reader.get_attr("group", "int", 1)
-
-            pad_mode, pads = read_pads(op_reader)
-            if pad_mode == "same":
-                attrs.padMode = sg.PadMode.Same
-            else:
-                attrs.padMode = sg.PadMode.Fixed
-                attrs.pads = pads
+            read_pads(op_reader, attrs)
             attrs.strides = read_strides(op_reader)
 
             # The kernel shape is inferred at runtime from the input weight tensor.
@@ -696,13 +698,7 @@ def op_node_from_onnx_operator(
             op_reader.ignore_attr("kernel_shape")
 
             op_reader.check_attr("output_padding", "ints", [0, 0, 0, 0])
-
-            pad_mode, pads = read_pads(op_reader)
-            if pad_mode == "same":
-                attrs.padMode = sg.PadMode.Same
-            else:
-                attrs.padMode = sg.PadMode.Fixed
-                attrs.pads = pads
+            read_pads(op_reader, attrs)
 
         case "CumSum":
             op_reader.check_attr("exclusive", "int", 0)
@@ -782,13 +778,7 @@ def op_node_from_onnx_operator(
             kernel_shape = op_reader.require_attr("kernel_shape", "ints")
             check_ints_length("kernel_shape", kernel_shape, 2)
             attrs.kernelSize = kernel_shape
-
-            pad_mode, pads = read_pads(op_reader)
-            if pad_mode == "same":
-                attrs.padMode = sg.PadMode.Same
-            else:
-                attrs.padMode = sg.PadMode.Fixed
-                attrs.pads = pads
+            read_pads(op_reader, attrs)
             attrs.strides = read_strides(op_reader)
 
             op_reader.check_attr("ceil_mode", "int", 0)

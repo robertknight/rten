@@ -24,7 +24,7 @@ use crate::ops::{
     Padding, ResizeMode, Scalar, ScatterReduction,
 };
 use crate::schema_generated as sg;
-use crate::schema_generated::{root_as_model, OperatorNode, OperatorType, PadMode};
+use crate::schema_generated::{root_as_model, AutoPad, OperatorNode, OperatorType};
 use crate::timing::TimingSort;
 
 /// The central type used to execute RTen machine learning models.
@@ -502,10 +502,10 @@ impl Model {
     }
 }
 
-fn padding_from_attrs(mode: PadMode, pads: Option<flatbuffers::Vector<'_, u32>>) -> Padding {
-    match (mode, pads) {
-        (PadMode::Same, _) => Padding::Same,
-        (PadMode::Fixed, Some(pads)) => Padding::Fixed(pads.iter().map(|p| p as usize).collect()),
+fn padding_from_attrs(auto_pad: AutoPad, pads: Option<flatbuffers::Vector<'_, u32>>) -> Padding {
+    match (auto_pad, pads) {
+        (AutoPad::Same, _) => Padding::Same,
+        (AutoPad::NotSet, Some(pads)) => Padding::Fixed(pads.iter().map(|p| p as usize).collect()),
         _ => Padding::Fixed(smallvec!(0; 4)),
     }
 }
@@ -653,7 +653,7 @@ impl_read_op!(
     attrs_as_average_pool_attrs,
     |attrs: sg::AveragePoolAttrs| {
         let kernel_size = array_from_iter(attrs.kernel_size().iter().map(|x| x as usize));
-        let padding = padding_from_attrs(attrs.pad_mode(), attrs.pads());
+        let padding = padding_from_attrs(attrs.auto_pad(), attrs.pads());
         let strides = attrs
             .strides()
             .map(|stride| array_from_iter(stride.iter().map(|x| x as usize)))
@@ -689,7 +689,7 @@ impl_read_op!(Clip);
 impl_read_op!(Concat, axis, attrs_as_concat_attrs);
 impl_read_op!(Conv, attrs_as_conv_attrs, |attrs: sg::ConvAttrs| {
     let groups = attrs.groups() as usize;
-    let padding = padding_from_attrs(attrs.pad_mode(), attrs.pads());
+    let padding = padding_from_attrs(attrs.auto_pad(), attrs.pads());
     let strides = vec_from_attr(attrs.strides(), &[1, 1]);
     let dilations = vec_from_attr(attrs.dilations(), &[1, 1]);
     Ok(ops::Conv {
@@ -717,7 +717,7 @@ impl_read_op!(
     ConvTranspose,
     attrs_as_conv_transpose_attrs,
     |attrs: sg::ConvTransposeAttrs| {
-        let padding = padding_from_attrs(attrs.pad_mode(), attrs.pads());
+        let padding = padding_from_attrs(attrs.auto_pad(), attrs.pads());
         let strides = vec_from_attr(attrs.strides(), &[1, 1]);
         Ok(ops::ConvTranspose { padding, strides })
     }
@@ -837,7 +837,7 @@ impl_read_op!(
     attrs_as_max_pool_attrs,
     |attrs: sg::MaxPoolAttrs| {
         let kernel_size = array_from_iter(attrs.kernel_size().iter().map(|x| x as usize));
-        let padding = padding_from_attrs(attrs.pad_mode(), attrs.pads());
+        let padding = padding_from_attrs(attrs.auto_pad(), attrs.pads());
         let strides = attrs
             .strides()
             .map(|stride| array_from_iter(stride.iter().map(|x| x as usize)))

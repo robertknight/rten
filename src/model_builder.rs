@@ -148,18 +148,18 @@ pub struct MetadataArgs {
 }
 
 struct PadArgs {
-    pad_mode: sg::PadMode,
+    auto_pad: sg::AutoPad,
     pads: Option<Vec<usize>>,
 }
 
 fn pad_args_from_padding(padding: Padding) -> PadArgs {
     match padding {
         Padding::Same => PadArgs {
-            pad_mode: sg::PadMode::Same,
+            auto_pad: sg::AutoPad::Same,
             pads: None,
         },
         Padding::Fixed(pads) => PadArgs {
-            pad_mode: sg::PadMode::Fixed,
+            auto_pad: sg::AutoPad::NotSet,
             pads: Some(pads.iter().copied().collect()),
         },
     }
@@ -362,7 +362,7 @@ impl<'a> ModelBuilder<'a> {
                 let strides = self.create_vec(Some(args.strides.into()), |s| s as u32);
                 sg::AveragePoolAttrsArgs {
                     kernel_size,
-                    pad_mode: pad_args.pad_mode,
+                    auto_pad: pad_args.auto_pad,
                     pads,
                     strides,
                     count_include_pad: args.count_include_pad,
@@ -429,7 +429,7 @@ impl<'a> ModelBuilder<'a> {
                 sg::ConvAttrsArgs {
                     dilations,
                     groups: args.groups as u32,
-                    pad_mode: pad_args.pad_mode,
+                    auto_pad: pad_args.auto_pad,
                     pads,
                     strides,
                 }
@@ -440,7 +440,7 @@ impl<'a> ModelBuilder<'a> {
                 let strides = self.create_vec(Some(args.strides), |s| s as u32);
                 sg::ConvTransposeAttrsArgs {
                     strides,
-                    pad_mode: pad_args.pad_mode,
+                    auto_pad: pad_args.auto_pad,
                     pads,
                 }
             }),
@@ -544,7 +544,7 @@ impl<'a> ModelBuilder<'a> {
                 let strides = self.create_vec(Some(args.strides.into()), |s| s as u32);
                 sg::MaxPoolAttrsArgs {
                     kernel_size,
-                    pad_mode: pad_args.pad_mode,
+                    auto_pad: pad_args.auto_pad,
                     pads,
                     strides,
                 }

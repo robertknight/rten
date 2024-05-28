@@ -603,40 +603,40 @@ impl flatbuffers::SimpleToVerifyInSlice for RNNDirection {}
     since = "2.0.0",
     note = "Use associated constants instead. This will no longer be generated in 2021."
 )]
-pub const ENUM_MIN_PAD_MODE: u8 = 0;
+pub const ENUM_MIN_AUTO_PAD: u8 = 0;
 #[deprecated(
     since = "2.0.0",
     note = "Use associated constants instead. This will no longer be generated in 2021."
 )]
-pub const ENUM_MAX_PAD_MODE: u8 = 1;
+pub const ENUM_MAX_AUTO_PAD: u8 = 1;
 #[deprecated(
     since = "2.0.0",
     note = "Use associated constants instead. This will no longer be generated in 2021."
 )]
 #[allow(non_camel_case_types)]
-pub const ENUM_VALUES_PAD_MODE: [PadMode; 2] = [PadMode::Same, PadMode::Fixed];
+pub const ENUM_VALUES_AUTO_PAD: [AutoPad; 2] = [AutoPad::Same, AutoPad::NotSet];
 
 #[derive(Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash, Default)]
 #[repr(transparent)]
-pub struct PadMode(pub u8);
+pub struct AutoPad(pub u8);
 #[allow(non_upper_case_globals)]
-impl PadMode {
+impl AutoPad {
     pub const Same: Self = Self(0);
-    pub const Fixed: Self = Self(1);
+    pub const NotSet: Self = Self(1);
 
     pub const ENUM_MIN: u8 = 0;
     pub const ENUM_MAX: u8 = 1;
-    pub const ENUM_VALUES: &'static [Self] = &[Self::Same, Self::Fixed];
+    pub const ENUM_VALUES: &'static [Self] = &[Self::Same, Self::NotSet];
     /// Returns the variant's name or "" if unknown.
     pub fn variant_name(self) -> Option<&'static str> {
         match self {
             Self::Same => Some("Same"),
-            Self::Fixed => Some("Fixed"),
+            Self::NotSet => Some("NotSet"),
             _ => None,
         }
     }
 }
-impl core::fmt::Debug for PadMode {
+impl core::fmt::Debug for AutoPad {
     fn fmt(&self, f: &mut core::fmt::Formatter) -> core::fmt::Result {
         if let Some(name) = self.variant_name() {
             f.write_str(name)
@@ -645,7 +645,7 @@ impl core::fmt::Debug for PadMode {
         }
     }
 }
-impl<'a> flatbuffers::Follow<'a> for PadMode {
+impl<'a> flatbuffers::Follow<'a> for AutoPad {
     type Inner = Self;
     #[inline]
     unsafe fn follow(buf: &'a [u8], loc: usize) -> Self::Inner {
@@ -654,15 +654,15 @@ impl<'a> flatbuffers::Follow<'a> for PadMode {
     }
 }
 
-impl flatbuffers::Push for PadMode {
-    type Output = PadMode;
+impl flatbuffers::Push for AutoPad {
+    type Output = AutoPad;
     #[inline]
     unsafe fn push(&self, dst: &mut [u8], _written_len: usize) {
         flatbuffers::emplace_scalar::<u8>(dst, self.0);
     }
 }
 
-impl flatbuffers::EndianScalar for PadMode {
+impl flatbuffers::EndianScalar for AutoPad {
     type Scalar = u8;
     #[inline]
     fn to_little_endian(self) -> u8 {
@@ -676,7 +676,7 @@ impl flatbuffers::EndianScalar for PadMode {
     }
 }
 
-impl<'a> flatbuffers::Verifiable for PadMode {
+impl<'a> flatbuffers::Verifiable for AutoPad {
     #[inline]
     fn run_verifier(
         v: &mut flatbuffers::Verifier,
@@ -687,7 +687,7 @@ impl<'a> flatbuffers::Verifiable for PadMode {
     }
 }
 
-impl flatbuffers::SimpleToVerifyInSlice for PadMode {}
+impl flatbuffers::SimpleToVerifyInSlice for AutoPad {}
 #[deprecated(
     since = "2.0.0",
     note = "Use associated constants instead. This will no longer be generated in 2021."
@@ -1933,7 +1933,7 @@ impl<'a> flatbuffers::Follow<'a> for AveragePoolAttrs<'a> {
 
 impl<'a> AveragePoolAttrs<'a> {
     pub const VT_KERNEL_SIZE: flatbuffers::VOffsetT = 4;
-    pub const VT_PAD_MODE: flatbuffers::VOffsetT = 6;
+    pub const VT_AUTO_PAD: flatbuffers::VOffsetT = 6;
     pub const VT_PADS: flatbuffers::VOffsetT = 8;
     pub const VT_STRIDES: flatbuffers::VOffsetT = 10;
     pub const VT_COUNT_INCLUDE_PAD: flatbuffers::VOffsetT = 12;
@@ -1958,7 +1958,7 @@ impl<'a> AveragePoolAttrs<'a> {
             builder.add_kernel_size(x);
         }
         builder.add_count_include_pad(args.count_include_pad);
-        builder.add_pad_mode(args.pad_mode);
+        builder.add_auto_pad(args.auto_pad);
         builder.finish()
     }
 
@@ -1977,13 +1977,13 @@ impl<'a> AveragePoolAttrs<'a> {
         }
     }
     #[inline]
-    pub fn pad_mode(&self) -> PadMode {
+    pub fn auto_pad(&self) -> AutoPad {
         // Safety:
         // Created from valid Table for this object
         // which contains a valid value in this slot
         unsafe {
             self._tab
-                .get::<PadMode>(AveragePoolAttrs::VT_PAD_MODE, Some(PadMode::Same))
+                .get::<AutoPad>(AveragePoolAttrs::VT_AUTO_PAD, Some(AutoPad::Same))
                 .unwrap()
         }
     }
@@ -2039,7 +2039,7 @@ impl flatbuffers::Verifiable for AveragePoolAttrs<'_> {
                 Self::VT_KERNEL_SIZE,
                 true,
             )?
-            .visit_field::<PadMode>("pad_mode", Self::VT_PAD_MODE, false)?
+            .visit_field::<AutoPad>("auto_pad", Self::VT_AUTO_PAD, false)?
             .visit_field::<flatbuffers::ForwardsUOffset<flatbuffers::Vector<'_, u32>>>(
                 "pads",
                 Self::VT_PADS,
@@ -2057,7 +2057,7 @@ impl flatbuffers::Verifiable for AveragePoolAttrs<'_> {
 }
 pub struct AveragePoolAttrsArgs<'a> {
     pub kernel_size: Option<flatbuffers::WIPOffset<flatbuffers::Vector<'a, u32>>>,
-    pub pad_mode: PadMode,
+    pub auto_pad: AutoPad,
     pub pads: Option<flatbuffers::WIPOffset<flatbuffers::Vector<'a, u32>>>,
     pub strides: Option<flatbuffers::WIPOffset<flatbuffers::Vector<'a, u32>>>,
     pub count_include_pad: bool,
@@ -2067,7 +2067,7 @@ impl<'a> Default for AveragePoolAttrsArgs<'a> {
     fn default() -> Self {
         AveragePoolAttrsArgs {
             kernel_size: None, // required field
-            pad_mode: PadMode::Same,
+            auto_pad: AutoPad::Same,
             pads: None,
             strides: None,
             count_include_pad: false,
@@ -2091,9 +2091,9 @@ impl<'a: 'b, 'b, A: flatbuffers::Allocator + 'a> AveragePoolAttrsBuilder<'a, 'b,
         );
     }
     #[inline]
-    pub fn add_pad_mode(&mut self, pad_mode: PadMode) {
+    pub fn add_auto_pad(&mut self, auto_pad: AutoPad) {
         self.fbb_
-            .push_slot::<PadMode>(AveragePoolAttrs::VT_PAD_MODE, pad_mode, PadMode::Same);
+            .push_slot::<AutoPad>(AveragePoolAttrs::VT_AUTO_PAD, auto_pad, AutoPad::Same);
     }
     #[inline]
     pub fn add_pads(&mut self, pads: flatbuffers::WIPOffset<flatbuffers::Vector<'b, u32>>) {
@@ -2136,7 +2136,7 @@ impl core::fmt::Debug for AveragePoolAttrs<'_> {
     fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
         let mut ds = f.debug_struct("AveragePoolAttrs");
         ds.field("kernel_size", &self.kernel_size());
-        ds.field("pad_mode", &self.pad_mode());
+        ds.field("auto_pad", &self.auto_pad());
         ds.field("pads", &self.pads());
         ds.field("strides", &self.strides());
         ds.field("count_include_pad", &self.count_include_pad());
@@ -2877,7 +2877,7 @@ impl<'a> flatbuffers::Follow<'a> for ConvAttrs<'a> {
 }
 
 impl<'a> ConvAttrs<'a> {
-    pub const VT_PAD_MODE: flatbuffers::VOffsetT = 4;
+    pub const VT_AUTO_PAD: flatbuffers::VOffsetT = 4;
     pub const VT_PADS: flatbuffers::VOffsetT = 6;
     pub const VT_GROUPS: flatbuffers::VOffsetT = 8;
     pub const VT_STRIDES: flatbuffers::VOffsetT = 10;
@@ -2903,18 +2903,18 @@ impl<'a> ConvAttrs<'a> {
         if let Some(x) = args.pads {
             builder.add_pads(x);
         }
-        builder.add_pad_mode(args.pad_mode);
+        builder.add_auto_pad(args.auto_pad);
         builder.finish()
     }
 
     #[inline]
-    pub fn pad_mode(&self) -> PadMode {
+    pub fn auto_pad(&self) -> AutoPad {
         // Safety:
         // Created from valid Table for this object
         // which contains a valid value in this slot
         unsafe {
             self._tab
-                .get::<PadMode>(ConvAttrs::VT_PAD_MODE, Some(PadMode::Same))
+                .get::<AutoPad>(ConvAttrs::VT_AUTO_PAD, Some(AutoPad::Same))
                 .unwrap()
         }
     }
@@ -2974,7 +2974,7 @@ impl flatbuffers::Verifiable for ConvAttrs<'_> {
     ) -> Result<(), flatbuffers::InvalidFlatbuffer> {
         use self::flatbuffers::Verifiable;
         v.visit_table(pos)?
-            .visit_field::<PadMode>("pad_mode", Self::VT_PAD_MODE, false)?
+            .visit_field::<AutoPad>("auto_pad", Self::VT_AUTO_PAD, false)?
             .visit_field::<flatbuffers::ForwardsUOffset<flatbuffers::Vector<'_, u32>>>(
                 "pads",
                 Self::VT_PADS,
@@ -2996,7 +2996,7 @@ impl flatbuffers::Verifiable for ConvAttrs<'_> {
     }
 }
 pub struct ConvAttrsArgs<'a> {
-    pub pad_mode: PadMode,
+    pub auto_pad: AutoPad,
     pub pads: Option<flatbuffers::WIPOffset<flatbuffers::Vector<'a, u32>>>,
     pub groups: u32,
     pub strides: Option<flatbuffers::WIPOffset<flatbuffers::Vector<'a, u32>>>,
@@ -3006,7 +3006,7 @@ impl<'a> Default for ConvAttrsArgs<'a> {
     #[inline]
     fn default() -> Self {
         ConvAttrsArgs {
-            pad_mode: PadMode::Same,
+            auto_pad: AutoPad::Same,
             pads: None,
             groups: 0,
             strides: None,
@@ -3021,9 +3021,9 @@ pub struct ConvAttrsBuilder<'a: 'b, 'b, A: flatbuffers::Allocator + 'a> {
 }
 impl<'a: 'b, 'b, A: flatbuffers::Allocator + 'a> ConvAttrsBuilder<'a, 'b, A> {
     #[inline]
-    pub fn add_pad_mode(&mut self, pad_mode: PadMode) {
+    pub fn add_auto_pad(&mut self, auto_pad: AutoPad) {
         self.fbb_
-            .push_slot::<PadMode>(ConvAttrs::VT_PAD_MODE, pad_mode, PadMode::Same);
+            .push_slot::<AutoPad>(ConvAttrs::VT_AUTO_PAD, auto_pad, AutoPad::Same);
     }
     #[inline]
     pub fn add_pads(&mut self, pads: flatbuffers::WIPOffset<flatbuffers::Vector<'b, u32>>) {
@@ -3065,7 +3065,7 @@ impl<'a: 'b, 'b, A: flatbuffers::Allocator + 'a> ConvAttrsBuilder<'a, 'b, A> {
 impl core::fmt::Debug for ConvAttrs<'_> {
     fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
         let mut ds = f.debug_struct("ConvAttrs");
-        ds.field("pad_mode", &self.pad_mode());
+        ds.field("auto_pad", &self.auto_pad());
         ds.field("pads", &self.pads());
         ds.field("groups", &self.groups());
         ds.field("strides", &self.strides());
@@ -3092,7 +3092,7 @@ impl<'a> flatbuffers::Follow<'a> for ConvTransposeAttrs<'a> {
 
 impl<'a> ConvTransposeAttrs<'a> {
     pub const VT_STRIDES: flatbuffers::VOffsetT = 4;
-    pub const VT_PAD_MODE: flatbuffers::VOffsetT = 6;
+    pub const VT_AUTO_PAD: flatbuffers::VOffsetT = 6;
     pub const VT_PADS: flatbuffers::VOffsetT = 8;
 
     #[inline]
@@ -3111,7 +3111,7 @@ impl<'a> ConvTransposeAttrs<'a> {
         if let Some(x) = args.strides {
             builder.add_strides(x);
         }
-        builder.add_pad_mode(args.pad_mode);
+        builder.add_auto_pad(args.auto_pad);
         builder.finish()
     }
 
@@ -3129,13 +3129,13 @@ impl<'a> ConvTransposeAttrs<'a> {
         }
     }
     #[inline]
-    pub fn pad_mode(&self) -> PadMode {
+    pub fn auto_pad(&self) -> AutoPad {
         // Safety:
         // Created from valid Table for this object
         // which contains a valid value in this slot
         unsafe {
             self._tab
-                .get::<PadMode>(ConvTransposeAttrs::VT_PAD_MODE, Some(PadMode::Fixed))
+                .get::<AutoPad>(ConvTransposeAttrs::VT_AUTO_PAD, Some(AutoPad::NotSet))
                 .unwrap()
         }
     }
@@ -3167,7 +3167,7 @@ impl flatbuffers::Verifiable for ConvTransposeAttrs<'_> {
                 Self::VT_STRIDES,
                 false,
             )?
-            .visit_field::<PadMode>("pad_mode", Self::VT_PAD_MODE, false)?
+            .visit_field::<AutoPad>("auto_pad", Self::VT_AUTO_PAD, false)?
             .visit_field::<flatbuffers::ForwardsUOffset<flatbuffers::Vector<'_, u32>>>(
                 "pads",
                 Self::VT_PADS,
@@ -3179,7 +3179,7 @@ impl flatbuffers::Verifiable for ConvTransposeAttrs<'_> {
 }
 pub struct ConvTransposeAttrsArgs<'a> {
     pub strides: Option<flatbuffers::WIPOffset<flatbuffers::Vector<'a, u32>>>,
-    pub pad_mode: PadMode,
+    pub auto_pad: AutoPad,
     pub pads: Option<flatbuffers::WIPOffset<flatbuffers::Vector<'a, u32>>>,
 }
 impl<'a> Default for ConvTransposeAttrsArgs<'a> {
@@ -3187,7 +3187,7 @@ impl<'a> Default for ConvTransposeAttrsArgs<'a> {
     fn default() -> Self {
         ConvTransposeAttrsArgs {
             strides: None,
-            pad_mode: PadMode::Fixed,
+            auto_pad: AutoPad::NotSet,
             pads: None,
         }
     }
@@ -3204,9 +3204,9 @@ impl<'a: 'b, 'b, A: flatbuffers::Allocator + 'a> ConvTransposeAttrsBuilder<'a, '
             .push_slot_always::<flatbuffers::WIPOffset<_>>(ConvTransposeAttrs::VT_STRIDES, strides);
     }
     #[inline]
-    pub fn add_pad_mode(&mut self, pad_mode: PadMode) {
+    pub fn add_auto_pad(&mut self, auto_pad: AutoPad) {
         self.fbb_
-            .push_slot::<PadMode>(ConvTransposeAttrs::VT_PAD_MODE, pad_mode, PadMode::Fixed);
+            .push_slot::<AutoPad>(ConvTransposeAttrs::VT_AUTO_PAD, auto_pad, AutoPad::NotSet);
     }
     #[inline]
     pub fn add_pads(&mut self, pads: flatbuffers::WIPOffset<flatbuffers::Vector<'b, u32>>) {
@@ -3234,7 +3234,7 @@ impl core::fmt::Debug for ConvTransposeAttrs<'_> {
     fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
         let mut ds = f.debug_struct("ConvTransposeAttrs");
         ds.field("strides", &self.strides());
-        ds.field("pad_mode", &self.pad_mode());
+        ds.field("auto_pad", &self.auto_pad());
         ds.field("pads", &self.pads());
         ds.finish()
     }
@@ -4465,7 +4465,7 @@ impl<'a> flatbuffers::Follow<'a> for MaxPoolAttrs<'a> {
 
 impl<'a> MaxPoolAttrs<'a> {
     pub const VT_KERNEL_SIZE: flatbuffers::VOffsetT = 4;
-    pub const VT_PAD_MODE: flatbuffers::VOffsetT = 6;
+    pub const VT_AUTO_PAD: flatbuffers::VOffsetT = 6;
     pub const VT_PADS: flatbuffers::VOffsetT = 8;
     pub const VT_STRIDES: flatbuffers::VOffsetT = 10;
 
@@ -4488,7 +4488,7 @@ impl<'a> MaxPoolAttrs<'a> {
         if let Some(x) = args.kernel_size {
             builder.add_kernel_size(x);
         }
-        builder.add_pad_mode(args.pad_mode);
+        builder.add_auto_pad(args.auto_pad);
         builder.finish()
     }
 
@@ -4507,13 +4507,13 @@ impl<'a> MaxPoolAttrs<'a> {
         }
     }
     #[inline]
-    pub fn pad_mode(&self) -> PadMode {
+    pub fn auto_pad(&self) -> AutoPad {
         // Safety:
         // Created from valid Table for this object
         // which contains a valid value in this slot
         unsafe {
             self._tab
-                .get::<PadMode>(MaxPoolAttrs::VT_PAD_MODE, Some(PadMode::Same))
+                .get::<AutoPad>(MaxPoolAttrs::VT_AUTO_PAD, Some(AutoPad::Same))
                 .unwrap()
         }
     }
@@ -4558,7 +4558,7 @@ impl flatbuffers::Verifiable for MaxPoolAttrs<'_> {
                 Self::VT_KERNEL_SIZE,
                 true,
             )?
-            .visit_field::<PadMode>("pad_mode", Self::VT_PAD_MODE, false)?
+            .visit_field::<AutoPad>("auto_pad", Self::VT_AUTO_PAD, false)?
             .visit_field::<flatbuffers::ForwardsUOffset<flatbuffers::Vector<'_, u32>>>(
                 "pads",
                 Self::VT_PADS,
@@ -4575,7 +4575,7 @@ impl flatbuffers::Verifiable for MaxPoolAttrs<'_> {
 }
 pub struct MaxPoolAttrsArgs<'a> {
     pub kernel_size: Option<flatbuffers::WIPOffset<flatbuffers::Vector<'a, u32>>>,
-    pub pad_mode: PadMode,
+    pub auto_pad: AutoPad,
     pub pads: Option<flatbuffers::WIPOffset<flatbuffers::Vector<'a, u32>>>,
     pub strides: Option<flatbuffers::WIPOffset<flatbuffers::Vector<'a, u32>>>,
 }
@@ -4584,7 +4584,7 @@ impl<'a> Default for MaxPoolAttrsArgs<'a> {
     fn default() -> Self {
         MaxPoolAttrsArgs {
             kernel_size: None, // required field
-            pad_mode: PadMode::Same,
+            auto_pad: AutoPad::Same,
             pads: None,
             strides: None,
         }
@@ -4607,9 +4607,9 @@ impl<'a: 'b, 'b, A: flatbuffers::Allocator + 'a> MaxPoolAttrsBuilder<'a, 'b, A> 
         );
     }
     #[inline]
-    pub fn add_pad_mode(&mut self, pad_mode: PadMode) {
+    pub fn add_auto_pad(&mut self, auto_pad: AutoPad) {
         self.fbb_
-            .push_slot::<PadMode>(MaxPoolAttrs::VT_PAD_MODE, pad_mode, PadMode::Same);
+            .push_slot::<AutoPad>(MaxPoolAttrs::VT_AUTO_PAD, auto_pad, AutoPad::Same);
     }
     #[inline]
     pub fn add_pads(&mut self, pads: flatbuffers::WIPOffset<flatbuffers::Vector<'b, u32>>) {
@@ -4644,7 +4644,7 @@ impl core::fmt::Debug for MaxPoolAttrs<'_> {
     fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
         let mut ds = f.debug_struct("MaxPoolAttrs");
         ds.field("kernel_size", &self.kernel_size());
-        ds.field("pad_mode", &self.pad_mode());
+        ds.field("auto_pad", &self.auto_pad());
         ds.field("pads", &self.pads());
         ds.field("strides", &self.strides());
         ds.finish()

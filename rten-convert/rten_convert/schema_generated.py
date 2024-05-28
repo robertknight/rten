@@ -117,9 +117,9 @@ class RNNDirection(object):
     Bidirectional = 2
 
 
-class PadMode(object):
+class AutoPad(object):
     Same = 0
-    Fixed = 1
+    NotSet = 1
 
 
 class DataType(object):
@@ -467,7 +467,7 @@ class AveragePoolAttrs(object):
         return o == 0
 
     # AveragePoolAttrs
-    def PadMode(self):
+    def AutoPad(self):
         o = flatbuffers.number_types.UOffsetTFlags.py_type(self._tab.Offset(6))
         if o != 0:
             return self._tab.Get(flatbuffers.number_types.Uint8Flags, o + self._tab.Pos)
@@ -543,8 +543,8 @@ def AveragePoolAttrsAddKernelSize(builder, kernelSize):
 def AveragePoolAttrsStartKernelSizeVector(builder, numElems):
     return builder.StartVector(4, numElems, 4)
 
-def AveragePoolAttrsAddPadMode(builder, padMode):
-    builder.PrependUint8Slot(1, padMode, 0)
+def AveragePoolAttrsAddAutoPad(builder, autoPad):
+    builder.PrependUint8Slot(1, autoPad, 0)
 
 def AveragePoolAttrsAddPads(builder, pads):
     builder.PrependUOffsetTRelativeSlot(2, flatbuffers.number_types.UOffsetTFlags.py_type(pads), 0)
@@ -575,7 +575,7 @@ class AveragePoolAttrsT(object):
     # AveragePoolAttrsT
     def __init__(self):
         self.kernelSize = None  # type: List[int]
-        self.padMode = 0  # type: int
+        self.autoPad = 0  # type: int
         self.pads = None  # type: List[int]
         self.strides = None  # type: List[int]
         self.countIncludePad = False  # type: bool
@@ -608,7 +608,7 @@ class AveragePoolAttrsT(object):
                     self.kernelSize.append(averagePoolAttrs.KernelSize(i))
             else:
                 self.kernelSize = averagePoolAttrs.KernelSizeAsNumpy()
-        self.padMode = averagePoolAttrs.PadMode()
+        self.autoPad = averagePoolAttrs.AutoPad()
         if not averagePoolAttrs.PadsIsNone():
             if np is None:
                 self.pads = []
@@ -654,7 +654,7 @@ class AveragePoolAttrsT(object):
         AveragePoolAttrsStart(builder)
         if self.kernelSize is not None:
             AveragePoolAttrsAddKernelSize(builder, kernelSize)
-        AveragePoolAttrsAddPadMode(builder, self.padMode)
+        AveragePoolAttrsAddAutoPad(builder, self.autoPad)
         if self.pads is not None:
             AveragePoolAttrsAddPads(builder, pads)
         if self.strides is not None:
@@ -1172,7 +1172,7 @@ class ConvAttrs(object):
         self._tab = flatbuffers.table.Table(buf, pos)
 
     # ConvAttrs
-    def PadMode(self):
+    def AutoPad(self):
         o = flatbuffers.number_types.UOffsetTFlags.py_type(self._tab.Offset(4))
         if o != 0:
             return self._tab.Get(flatbuffers.number_types.Uint8Flags, o + self._tab.Pos)
@@ -1269,8 +1269,8 @@ class ConvAttrs(object):
 def ConvAttrsStart(builder):
     builder.StartObject(5)
 
-def ConvAttrsAddPadMode(builder, padMode):
-    builder.PrependUint8Slot(0, padMode, 0)
+def ConvAttrsAddAutoPad(builder, autoPad):
+    builder.PrependUint8Slot(0, autoPad, 0)
 
 def ConvAttrsAddPads(builder, pads):
     builder.PrependUOffsetTRelativeSlot(1, flatbuffers.number_types.UOffsetTFlags.py_type(pads), 0)
@@ -1306,7 +1306,7 @@ class ConvAttrsT(object):
 
     # ConvAttrsT
     def __init__(self):
-        self.padMode = 0  # type: int
+        self.autoPad = 0  # type: int
         self.pads = None  # type: List[int]
         self.groups = 0  # type: int
         self.strides = None  # type: List[int]
@@ -1333,7 +1333,7 @@ class ConvAttrsT(object):
     def _UnPack(self, convAttrs):
         if convAttrs is None:
             return
-        self.padMode = convAttrs.PadMode()
+        self.autoPad = convAttrs.AutoPad()
         if not convAttrs.PadsIsNone():
             if np is None:
                 self.pads = []
@@ -1384,7 +1384,7 @@ class ConvAttrsT(object):
                     builder.PrependUint32(self.dilations[i])
                 dilations = builder.EndVector()
         ConvAttrsStart(builder)
-        ConvAttrsAddPadMode(builder, self.padMode)
+        ConvAttrsAddAutoPad(builder, self.autoPad)
         if self.pads is not None:
             ConvAttrsAddPads(builder, pads)
         ConvAttrsAddGroups(builder, self.groups)
@@ -1446,7 +1446,7 @@ class ConvTransposeAttrs(object):
         return o == 0
 
     # ConvTransposeAttrs
-    def PadMode(self):
+    def AutoPad(self):
         o = flatbuffers.number_types.UOffsetTFlags.py_type(self._tab.Offset(6))
         if o != 0:
             return self._tab.Get(flatbuffers.number_types.Uint8Flags, o + self._tab.Pos)
@@ -1488,8 +1488,8 @@ def ConvTransposeAttrsAddStrides(builder, strides):
 def ConvTransposeAttrsStartStridesVector(builder, numElems):
     return builder.StartVector(4, numElems, 4)
 
-def ConvTransposeAttrsAddPadMode(builder, padMode):
-    builder.PrependUint8Slot(1, padMode, 1)
+def ConvTransposeAttrsAddAutoPad(builder, autoPad):
+    builder.PrependUint8Slot(1, autoPad, 1)
 
 def ConvTransposeAttrsAddPads(builder, pads):
     builder.PrependUOffsetTRelativeSlot(2, flatbuffers.number_types.UOffsetTFlags.py_type(pads), 0)
@@ -1511,7 +1511,7 @@ class ConvTransposeAttrsT(object):
     # ConvTransposeAttrsT
     def __init__(self):
         self.strides = None  # type: List[int]
-        self.padMode = 1  # type: int
+        self.autoPad = 1  # type: int
         self.pads = None  # type: List[int]
 
     @classmethod
@@ -1542,7 +1542,7 @@ class ConvTransposeAttrsT(object):
                     self.strides.append(convTransposeAttrs.Strides(i))
             else:
                 self.strides = convTransposeAttrs.StridesAsNumpy()
-        self.padMode = convTransposeAttrs.PadMode()
+        self.autoPad = convTransposeAttrs.AutoPad()
         if not convTransposeAttrs.PadsIsNone():
             if np is None:
                 self.pads = []
@@ -1572,7 +1572,7 @@ class ConvTransposeAttrsT(object):
         ConvTransposeAttrsStart(builder)
         if self.strides is not None:
             ConvTransposeAttrsAddStrides(builder, strides)
-        ConvTransposeAttrsAddPadMode(builder, self.padMode)
+        ConvTransposeAttrsAddAutoPad(builder, self.autoPad)
         if self.pads is not None:
             ConvTransposeAttrsAddPads(builder, pads)
         convTransposeAttrs = ConvTransposeAttrsEnd(builder)
@@ -2503,7 +2503,7 @@ class MaxPoolAttrs(object):
         return o == 0
 
     # MaxPoolAttrs
-    def PadMode(self):
+    def AutoPad(self):
         o = flatbuffers.number_types.UOffsetTFlags.py_type(self._tab.Offset(6))
         if o != 0:
             return self._tab.Get(flatbuffers.number_types.Uint8Flags, o + self._tab.Pos)
@@ -2572,8 +2572,8 @@ def MaxPoolAttrsAddKernelSize(builder, kernelSize):
 def MaxPoolAttrsStartKernelSizeVector(builder, numElems):
     return builder.StartVector(4, numElems, 4)
 
-def MaxPoolAttrsAddPadMode(builder, padMode):
-    builder.PrependUint8Slot(1, padMode, 0)
+def MaxPoolAttrsAddAutoPad(builder, autoPad):
+    builder.PrependUint8Slot(1, autoPad, 0)
 
 def MaxPoolAttrsAddPads(builder, pads):
     builder.PrependUOffsetTRelativeSlot(2, flatbuffers.number_types.UOffsetTFlags.py_type(pads), 0)
@@ -2601,7 +2601,7 @@ class MaxPoolAttrsT(object):
     # MaxPoolAttrsT
     def __init__(self):
         self.kernelSize = None  # type: List[int]
-        self.padMode = 0  # type: int
+        self.autoPad = 0  # type: int
         self.pads = None  # type: List[int]
         self.strides = None  # type: List[int]
 
@@ -2633,7 +2633,7 @@ class MaxPoolAttrsT(object):
                     self.kernelSize.append(maxPoolAttrs.KernelSize(i))
             else:
                 self.kernelSize = maxPoolAttrs.KernelSizeAsNumpy()
-        self.padMode = maxPoolAttrs.PadMode()
+        self.autoPad = maxPoolAttrs.AutoPad()
         if not maxPoolAttrs.PadsIsNone():
             if np is None:
                 self.pads = []
@@ -2678,7 +2678,7 @@ class MaxPoolAttrsT(object):
         MaxPoolAttrsStart(builder)
         if self.kernelSize is not None:
             MaxPoolAttrsAddKernelSize(builder, kernelSize)
-        MaxPoolAttrsAddPadMode(builder, self.padMode)
+        MaxPoolAttrsAddAutoPad(builder, self.autoPad)
         if self.pads is not None:
             MaxPoolAttrsAddPads(builder, pads)
         if self.strides is not None:
