@@ -1,5 +1,9 @@
 .PHONY: all
-all: src/schema_generated.rs rten-convert/rten_convert/schema_generated.py
+all:
+	cargo build --workspace
+
+.PHONY: schema
+schema: src/schema_generated.rs rten-convert/rten_convert/schema_generated.py
 
 .PHONY: clean
 clean:
