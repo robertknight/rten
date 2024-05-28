@@ -87,7 +87,7 @@ pub use norm::{
     batch_norm, batch_norm_in_place, instance_normalization, layer_normalization, log_softmax,
     softmax, BatchNormalization, InstanceNormalization, LayerNormalization, LogSoftmax, Softmax,
 };
-pub use pad::{pad, Pad};
+pub use pad::{pad, Pad, PadMode};
 pub use pooling::{
     average_pool, global_average_pool, max_pool, AveragePool, GlobalAveragePool, MaxPool,
 };

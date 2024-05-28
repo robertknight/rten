@@ -1086,13 +1086,13 @@ pub const ENUM_MIN_OPERATOR_ATTRS: u8 = 0;
     since = "2.0.0",
     note = "Use associated constants instead. This will no longer be generated in 2021."
 )]
-pub const ENUM_MAX_OPERATOR_ATTRS: u8 = 39;
+pub const ENUM_MAX_OPERATOR_ATTRS: u8 = 40;
 #[deprecated(
     since = "2.0.0",
     note = "Use associated constants instead. This will no longer be generated in 2021."
 )]
 #[allow(non_camel_case_types)]
-pub const ENUM_VALUES_OPERATOR_ATTRS: [OperatorAttrs; 40] = [
+pub const ENUM_VALUES_OPERATOR_ATTRS: [OperatorAttrs; 41] = [
     OperatorAttrs::NONE,
     OperatorAttrs::ArgMaxAttrs,
     OperatorAttrs::AveragePoolAttrs,
@@ -1133,6 +1133,7 @@ pub const ENUM_VALUES_OPERATOR_ATTRS: [OperatorAttrs; 40] = [
     OperatorAttrs::GeluAttrs,
     OperatorAttrs::EinsumAttrs,
     OperatorAttrs::IfAttrs,
+    OperatorAttrs::PadAttrs,
 ];
 
 #[derive(Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash, Default)]
@@ -1180,9 +1181,10 @@ impl OperatorAttrs {
     pub const GeluAttrs: Self = Self(37);
     pub const EinsumAttrs: Self = Self(38);
     pub const IfAttrs: Self = Self(39);
+    pub const PadAttrs: Self = Self(40);
 
     pub const ENUM_MIN: u8 = 0;
-    pub const ENUM_MAX: u8 = 39;
+    pub const ENUM_MAX: u8 = 40;
     pub const ENUM_VALUES: &'static [Self] = &[
         Self::NONE,
         Self::ArgMaxAttrs,
@@ -1224,6 +1226,7 @@ impl OperatorAttrs {
         Self::GeluAttrs,
         Self::EinsumAttrs,
         Self::IfAttrs,
+        Self::PadAttrs,
     ];
     /// Returns the variant's name or "" if unknown.
     pub fn variant_name(self) -> Option<&'static str> {
@@ -1268,6 +1271,7 @@ impl OperatorAttrs {
             Self::GeluAttrs => Some("GeluAttrs"),
             Self::EinsumAttrs => Some("EinsumAttrs"),
             Self::IfAttrs => Some("IfAttrs"),
+            Self::PadAttrs => Some("PadAttrs"),
             _ => None,
         }
     }
@@ -1511,6 +1515,95 @@ impl<'a> flatbuffers::Verifiable for NMSBoxOrder {
 }
 
 impl flatbuffers::SimpleToVerifyInSlice for NMSBoxOrder {}
+#[deprecated(
+    since = "2.0.0",
+    note = "Use associated constants instead. This will no longer be generated in 2021."
+)]
+pub const ENUM_MIN_PAD_MODE: u8 = 0;
+#[deprecated(
+    since = "2.0.0",
+    note = "Use associated constants instead. This will no longer be generated in 2021."
+)]
+pub const ENUM_MAX_PAD_MODE: u8 = 1;
+#[deprecated(
+    since = "2.0.0",
+    note = "Use associated constants instead. This will no longer be generated in 2021."
+)]
+#[allow(non_camel_case_types)]
+pub const ENUM_VALUES_PAD_MODE: [PadMode; 2] = [PadMode::Constant, PadMode::Reflect];
+
+#[derive(Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash, Default)]
+#[repr(transparent)]
+pub struct PadMode(pub u8);
+#[allow(non_upper_case_globals)]
+impl PadMode {
+    pub const Constant: Self = Self(0);
+    pub const Reflect: Self = Self(1);
+
+    pub const ENUM_MIN: u8 = 0;
+    pub const ENUM_MAX: u8 = 1;
+    pub const ENUM_VALUES: &'static [Self] = &[Self::Constant, Self::Reflect];
+    /// Returns the variant's name or "" if unknown.
+    pub fn variant_name(self) -> Option<&'static str> {
+        match self {
+            Self::Constant => Some("Constant"),
+            Self::Reflect => Some("Reflect"),
+            _ => None,
+        }
+    }
+}
+impl core::fmt::Debug for PadMode {
+    fn fmt(&self, f: &mut core::fmt::Formatter) -> core::fmt::Result {
+        if let Some(name) = self.variant_name() {
+            f.write_str(name)
+        } else {
+            f.write_fmt(format_args!("<UNKNOWN {:?}>", self.0))
+        }
+    }
+}
+impl<'a> flatbuffers::Follow<'a> for PadMode {
+    type Inner = Self;
+    #[inline]
+    unsafe fn follow(buf: &'a [u8], loc: usize) -> Self::Inner {
+        let b = flatbuffers::read_scalar_at::<u8>(buf, loc);
+        Self(b)
+    }
+}
+
+impl flatbuffers::Push for PadMode {
+    type Output = PadMode;
+    #[inline]
+    unsafe fn push(&self, dst: &mut [u8], _written_len: usize) {
+        flatbuffers::emplace_scalar::<u8>(dst, self.0);
+    }
+}
+
+impl flatbuffers::EndianScalar for PadMode {
+    type Scalar = u8;
+    #[inline]
+    fn to_little_endian(self) -> u8 {
+        self.0.to_le()
+    }
+    #[inline]
+    #[allow(clippy::wrong_self_convention)]
+    fn from_little_endian(v: u8) -> Self {
+        let b = u8::from_le(v);
+        Self(b)
+    }
+}
+
+impl<'a> flatbuffers::Verifiable for PadMode {
+    #[inline]
+    fn run_verifier(
+        v: &mut flatbuffers::Verifier,
+        pos: usize,
+    ) -> Result<(), flatbuffers::InvalidFlatbuffer> {
+        use self::flatbuffers::Verifiable;
+        u8::run_verifier(v, pos)
+    }
+}
+
+impl flatbuffers::SimpleToVerifyInSlice for PadMode {}
 #[deprecated(
     since = "2.0.0",
     note = "Use associated constants instead. This will no longer be generated in 2021."
@@ -5402,6 +5495,110 @@ impl core::fmt::Debug for OneHotAttrs<'_> {
         ds.finish()
     }
 }
+pub enum PadAttrsOffset {}
+#[derive(Copy, Clone, PartialEq)]
+
+pub struct PadAttrs<'a> {
+    pub _tab: flatbuffers::Table<'a>,
+}
+
+impl<'a> flatbuffers::Follow<'a> for PadAttrs<'a> {
+    type Inner = PadAttrs<'a>;
+    #[inline]
+    unsafe fn follow(buf: &'a [u8], loc: usize) -> Self::Inner {
+        Self {
+            _tab: flatbuffers::Table::new(buf, loc),
+        }
+    }
+}
+
+impl<'a> PadAttrs<'a> {
+    pub const VT_MODE: flatbuffers::VOffsetT = 4;
+
+    #[inline]
+    pub unsafe fn init_from_table(table: flatbuffers::Table<'a>) -> Self {
+        PadAttrs { _tab: table }
+    }
+    #[allow(unused_mut)]
+    pub fn create<'bldr: 'args, 'args: 'mut_bldr, 'mut_bldr, A: flatbuffers::Allocator + 'bldr>(
+        _fbb: &'mut_bldr mut flatbuffers::FlatBufferBuilder<'bldr, A>,
+        args: &'args PadAttrsArgs,
+    ) -> flatbuffers::WIPOffset<PadAttrs<'bldr>> {
+        let mut builder = PadAttrsBuilder::new(_fbb);
+        builder.add_mode(args.mode);
+        builder.finish()
+    }
+
+    #[inline]
+    pub fn mode(&self) -> PadMode {
+        // Safety:
+        // Created from valid Table for this object
+        // which contains a valid value in this slot
+        unsafe {
+            self._tab
+                .get::<PadMode>(PadAttrs::VT_MODE, Some(PadMode::Constant))
+                .unwrap()
+        }
+    }
+}
+
+impl flatbuffers::Verifiable for PadAttrs<'_> {
+    #[inline]
+    fn run_verifier(
+        v: &mut flatbuffers::Verifier,
+        pos: usize,
+    ) -> Result<(), flatbuffers::InvalidFlatbuffer> {
+        use self::flatbuffers::Verifiable;
+        v.visit_table(pos)?
+            .visit_field::<PadMode>("mode", Self::VT_MODE, false)?
+            .finish();
+        Ok(())
+    }
+}
+pub struct PadAttrsArgs {
+    pub mode: PadMode,
+}
+impl<'a> Default for PadAttrsArgs {
+    #[inline]
+    fn default() -> Self {
+        PadAttrsArgs {
+            mode: PadMode::Constant,
+        }
+    }
+}
+
+pub struct PadAttrsBuilder<'a: 'b, 'b, A: flatbuffers::Allocator + 'a> {
+    fbb_: &'b mut flatbuffers::FlatBufferBuilder<'a, A>,
+    start_: flatbuffers::WIPOffset<flatbuffers::TableUnfinishedWIPOffset>,
+}
+impl<'a: 'b, 'b, A: flatbuffers::Allocator + 'a> PadAttrsBuilder<'a, 'b, A> {
+    #[inline]
+    pub fn add_mode(&mut self, mode: PadMode) {
+        self.fbb_
+            .push_slot::<PadMode>(PadAttrs::VT_MODE, mode, PadMode::Constant);
+    }
+    #[inline]
+    pub fn new(_fbb: &'b mut flatbuffers::FlatBufferBuilder<'a, A>) -> PadAttrsBuilder<'a, 'b, A> {
+        let start = _fbb.start_table();
+        PadAttrsBuilder {
+            fbb_: _fbb,
+            start_: start,
+        }
+    }
+    #[inline]
+    pub fn finish(self) -> flatbuffers::WIPOffset<PadAttrs<'a>> {
+        let o = self.fbb_.end_table(self.start_);
+        flatbuffers::WIPOffset::new(o.value())
+    }
+}
+
+impl core::fmt::Debug for PadAttrs<'_> {
+    fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
+        let mut ds = f.debug_struct("PadAttrs");
+        ds.field("mode", &self.mode());
+        ds.finish()
+    }
+}
 pub enum RandomNormalAttrsOffset {}
 #[derive(Copy, Clone, PartialEq)]
 
@@ -7950,6 +8147,21 @@ impl<'a> OperatorNode<'a> {
             None
         }
     }
+
+    #[inline]
+    #[allow(non_snake_case)]
+    pub fn attrs_as_pad_attrs(&self) -> Option<PadAttrs<'a>> {
+        if self.attrs_type() == OperatorAttrs::PadAttrs {
+            self.attrs().map(|t| {
+                // Safety:
+                // Created from a valid Table for this object
+                // Which contains a valid union in this slot
+                unsafe { PadAttrs::init_from_table(t) }
+            })
+        } else {
+            None
+        }
+    }
 }
 
 impl flatbuffers::Verifiable for OperatorNode<'_> {
@@ -8002,6 +8214,7 @@ impl flatbuffers::Verifiable for OperatorNode<'_> {
           OperatorAttrs::GeluAttrs => v.verify_union_variant::<flatbuffers::ForwardsUOffset<GeluAttrs>>("OperatorAttrs::GeluAttrs", pos),
           OperatorAttrs::EinsumAttrs => v.verify_union_variant::<flatbuffers::ForwardsUOffset<EinsumAttrs>>("OperatorAttrs::EinsumAttrs", pos),
           OperatorAttrs::IfAttrs => v.verify_union_variant::<flatbuffers::ForwardsUOffset<IfAttrs>>("OperatorAttrs::IfAttrs", pos),
+          OperatorAttrs::PadAttrs => v.verify_union_variant::<flatbuffers::ForwardsUOffset<PadAttrs>>("OperatorAttrs::PadAttrs", pos),
           _ => Ok(()),
         }
      })?
@@ -8469,6 +8682,16 @@ impl core::fmt::Debug for OperatorNode<'_> {
             }
             OperatorAttrs::IfAttrs => {
                 if let Some(x) = self.attrs_as_if_attrs() {
+                    ds.field("attrs", &x)
+                } else {
+                    ds.field(
+                        "attrs",
+                        &"InvalidFlatbuffer: Union discriminant does not match value.",
+                    )
+                }
+            }
+            OperatorAttrs::PadAttrs => {
+                if let Some(x) = self.attrs_as_pad_attrs() {
                     ds.field("attrs", &x)
                 } else {
                     ds.field(

@@ -7,8 +7,8 @@ use smallvec::smallvec;
 use crate::graph::Graph;
 use crate::ops;
 use crate::ops::{
-    BoxOrder, CoordTransformMode, DataType, Direction, NearestMode, Operator, Padding, ResizeMode,
-    Scalar, ScatterReduction,
+    BoxOrder, CoordTransformMode, DataType, Direction, NearestMode, Operator, PadMode, Padding,
+    ResizeMode, Scalar, ScatterReduction,
 };
 use crate::schema_generated as sg;
 use crate::schema_generated::{AutoPad, OperatorNode, OperatorType};
@@ -641,7 +641,24 @@ impl_read_op!(NonZero);
 impl_read_op!(Not);
 impl_read_op!(OneHot, attrs_as_one_hot_attrs, axis);
 impl_read_op!(Or);
-impl_read_op!(Pad);
+
+impl ReadOp for ops::Pad {
+    fn op_type() -> sg::OperatorType {
+        OperatorType::Pad
+    }
+
+    fn read(op: &OperatorNode, _ctx: &dyn OpLoadContext) -> Result<Self, ReadOpError> {
+        // Pad attributes are optional for backwards compatibility.
+        let attrs = op.attrs_as_pad_attrs();
+        let mode = match attrs.map(|a| a.mode()).unwrap_or(sg::PadMode::Constant) {
+            sg::PadMode::Constant => PadMode::Constant,
+            sg::PadMode::Reflect => PadMode::Reflect,
+            _ => return Err(ReadOpError::AttrError),
+        };
+        Ok(ops::Pad { mode })
+    }
+}
+
 impl_read_op!(Pow);
 
 #[cfg(feature = "random")]

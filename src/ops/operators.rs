@@ -7,7 +7,7 @@ use crate::number::{Identities, IsInt};
 use crate::ops::OpError;
 use crate::ops::{
     arg_max, div, matmul, mul, pad, reduce_l2, reduce_max, reduce_mean, reduce_min, reduce_sum,
-    resize_image, softmax, topk,
+    resize_image, softmax, topk, PadMode,
 };
 use crate::tensor_pool::TensorPool;
 use crate::threading::thread_pool;
@@ -173,7 +173,7 @@ impl<T: Send, S: Storage<Elem = T>, L: MutLayout> Operators for TensorBase<S, L>
         Self::Elem: Copy,
     {
         let view = self.as_dyn();
-        use_thread_pool(move || pad(&TensorPool::new(), view, &padding, val))
+        use_thread_pool(move || pad(&TensorPool::new(), view, &padding, PadMode::Constant, val))
     }
 
     fn topk(
