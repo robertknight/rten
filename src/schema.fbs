@@ -120,9 +120,11 @@ enum RNNDirection: ubyte {
   Bidirectional
 }
 
-enum PadMode: ubyte {
+enum AutoPad: ubyte {
+  // nb. ONNX defines `SAME_UPPER` and `SAME_LOWER`. This corresponds to
+  // `SAME_UPPER` and TensorFlow / Keras's "same".
   Same,
-  Fixed
+  NotSet
 }
 
 enum DataType: ubyte {
@@ -200,7 +202,7 @@ table ArgMaxAttrs {
 
 table AveragePoolAttrs {
   kernel_size:[uint] (required);
-  pad_mode:PadMode;
+  auto_pad:AutoPad;
 
   // Padding for spatial axes as [top, left, bottom, right]
   pads:[uint];
@@ -240,7 +242,7 @@ table ConstantOfShapeAttrs {
 }
 
 table ConvAttrs {
-  pad_mode:PadMode;
+  auto_pad:AutoPad;
 
   // Padding for spatial axes as [left, right] or [top, left, bottom, right]
   pads:[uint];
@@ -253,8 +255,8 @@ table ConvAttrs {
 table ConvTransposeAttrs {
   strides:[uint];
 
-  // Defaults to `Fixed` for backwards compatibility.
-  pad_mode:PadMode = Fixed;
+  // Defaults to `NotSet` for backwards compatibility.
+  auto_pad:AutoPad = NotSet;
 
   // Padding for spatial axes as [left, right] or [top, left, bottom, right]
   pads:[uint];
@@ -310,7 +312,7 @@ table LSTMAttrs {
 
 table MaxPoolAttrs {
   kernel_size:[uint] (required);
-  pad_mode:PadMode;
+  auto_pad:AutoPad;
 
   // Padding for spatial axes as [top, left, bottom, right]
   pads:[uint];
