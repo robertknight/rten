@@ -1,6 +1,9 @@
 // Flatbuffers schema for serialized RTen models.
 //
 // See https://google.github.io/flatbuffers/flatbuffers_guide_writing_schema.html.
+//
+// Operator names and attributes align with the corresponding ONNX operators.
+// See https://onnx.ai/onnx/operators/index.html.
 
 file_identifier "RTEN";
 file_extension "rten";
