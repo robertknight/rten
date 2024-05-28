@@ -40,7 +40,7 @@ include = ["/src", "/CHANGELOG.md", "/README.md"]
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 
 [dependencies]
-flatbuffers = "22.10.26"
+flatbuffers = "24.3.25"
 libm = "0.2.6"
 rayon = "1.7.0"
 smallvec = { version = "1.10.0", features = ["union", "const_generics", "const_new"] }
