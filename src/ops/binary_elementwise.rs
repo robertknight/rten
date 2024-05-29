@@ -750,9 +750,9 @@ fn powf(x: f32, y: f32) -> f32 {
 /// Raise elements of `a` to powers of corresponding elements in `b`.
 pub fn pow(pool: &TensorPool, a: TensorView, b: TensorView) -> Result<Tensor, OpError> {
     if let Some(&exp) = b.item() {
-        Ok(a.map(|x| powf(*x, exp)))
+        Ok(a.map_in(pool, |x| powf(*x, exp)))
     } else {
-        binary_op(pool, a, b, |x, y| x.powf(y))
+        binary_op(pool, a, b, powf)
     }
 }
 
@@ -761,7 +761,7 @@ pub fn pow_in_place(mut a: TensorViewMut, b: TensorView) {
     if let Some(exp) = b.item() {
         a.apply(|x| powf(*x, *exp))
     } else {
-        binary_op_in_place(a, b, |a_elt, b_elt| a_elt.powf(b_elt));
+        binary_op_in_place(a, b, powf);
     }
 }
 
