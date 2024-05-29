@@ -961,6 +961,32 @@ impl<'a, T, L: MutLayout> Iterator for AxisChunksMut<'a, T, L> {
     }
 }
 
+/// Call `f` on each element of `view`.
+pub fn for_each_mut<T, F: Fn(&mut T)>(mut view: TensorViewMut<T>, f: F) {
+    while view.ndim() < 4 {
+        view.insert_axis(0);
+    }
+
+    // This could be improved by sorting dimensions of `view` in order of
+    // decreasing stride. If the resulting view is contiguous, `f` can be
+    // applied to the underlying data directly. Even if it isn't, this will
+    // still make memory access as contiguous as possible.
+
+    view.inner_iter_mut::<4>().for_each(|mut src| {
+        for i0 in 0..src.size(0) {
+            for i1 in 0..src.size(1) {
+                for i2 in 0..src.size(2) {
+                    for i3 in 0..src.size(3) {
+                        // Safety: i0..i3 are in `[0, src.size(i))`.
+                        let x = unsafe { src.get_unchecked_mut([i0, i1, i2, i3]) };
+                        f(x);
+                    }
+                }
+            }
+        }
+    });
+}
+
 // Tests for iterator internals. Most tests of iterators are currently done via
 // tests on tensor methods.
 #[cfg(test)]

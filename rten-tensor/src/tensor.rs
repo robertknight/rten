@@ -2,11 +2,13 @@ use std::borrow::Cow;
 use std::mem::MaybeUninit;
 use std::ops::{Index, IndexMut, Range};
 
-use crate::copy::{copy_into, copy_into_slice, copy_into_uninit, copy_range_into_slice};
+use crate::copy::{
+    copy_into, copy_into_slice, copy_into_uninit, copy_range_into_slice, map_into_slice,
+};
 use crate::errors::{DimensionError, FromDataError, SliceError};
 use crate::iterators::{
-    AxisChunks, AxisChunksMut, AxisIter, AxisIterMut, InnerIter, InnerIterDyn, InnerIterDynMut,
-    InnerIterMut, Iter, IterMut, Lanes, LanesMut, MutViewRef, ViewRef,
+    for_each_mut, AxisChunks, AxisChunksMut, AxisIter, AxisIterMut, InnerIter, InnerIterDyn,
+    InnerIterDynMut, InnerIterMut, Iter, IterMut, Lanes, LanesMut, MutViewRef, ViewRef,
 };
 use crate::layout::{
     AsIndex, BroadcastLayout, DynLayout, IntoLayout, Layout, MatrixLayout, MutLayout, NdLayout,
@@ -519,7 +521,7 @@ impl<S: StorageMut, L: MutLayout> TensorBase<S, L> {
             // Fast path for contiguous tensors.
             data.iter_mut().for_each(|x| *x = f(x));
         } else {
-            self.iter_mut().for_each(|x| *x = f(x));
+            for_each_mut(self.as_dyn_mut(), |x| *x = f(x));
         }
     }
 
@@ -1526,12 +1528,19 @@ impl<T, S: Storage<Elem = T>, L: MutLayout + Clone> AsView for TensorBase<S, L> 
     where
         F: Fn(&Self::Elem) -> U,
     {
-        let mut buf = alloc.alloc(self.len());
+        let len = self.len();
+        let mut buf = alloc.alloc(len);
         if let Some(data) = self.data() {
             // Fast path for contiguous tensors.
             buf.extend(data.iter().map(f));
         } else {
-            buf.extend(self.iter().map(f));
+            let dest = &mut buf.spare_capacity_mut()[..len];
+            map_into_slice(self.as_dyn(), dest, f);
+
+            // Safety: `map_into` initialized all elements of `dest`.
+            unsafe {
+                buf.set_len(len);
+            }
         };
         TensorBase::from_data(self.shape(), buf)
     }

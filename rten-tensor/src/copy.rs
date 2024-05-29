@@ -250,6 +250,48 @@ pub fn copy_into_uninit<T: Clone>(mut src: TensorView<T>, mut dest: TensorViewMu
         });
 }
 
+/// Apply `f` to each element of `src` and write the output to `dest` in
+/// contiguous order.
+pub fn map_into_slice<T, R, F: Fn(&T) -> R>(
+    mut src: TensorView<T>,
+    dest: &mut [MaybeUninit<R>],
+    f: F,
+) {
+    assert!(src.len() == dest.len());
+
+    while src.ndim() < 4 {
+        src.insert_axis(0);
+    }
+
+    // This would benefit from the same optimizations that `copy_into_slice` has
+    // for eg. transposed inputs, preferably without generating a ton of
+    // duplicate code for each map function `F`.
+
+    let mut out_offset = 0;
+    src.inner_iter::<4>().for_each(|src| {
+        for i0 in 0..src.size(0) {
+            for i1 in 0..src.size(1) {
+                for i2 in 0..src.size(2) {
+                    for i3 in 0..src.size(3) {
+                        // Safety: i0..i3 are in `[0, src.size(i))`.
+                        let x = unsafe { src.get_unchecked([i0, i1, i2, i3]) };
+                        let y = f(x);
+
+                        // Safety: We write to `src.len()` successive output
+                        // elements, and `src` and `dest` have the same length.
+                        unsafe {
+                            dest.get_unchecked_mut(out_offset).write(y);
+                        }
+                        out_offset += 1;
+                    }
+                }
+            }
+        }
+    });
+
+    debug_assert!(out_offset == src.len());
+}
+
 /// Copy a slice of `src` specified by `ranges` into `dest` in contiguous order.
 pub fn copy_range_into_slice<T: Clone>(
     mut src: TensorView<T>,
