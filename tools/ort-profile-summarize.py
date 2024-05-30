@@ -66,7 +66,21 @@ class ProfNode(TypedDict):
     """Duration in microseconds"""
 
 
-def summarize_profile(profile: list[ProfNode]):
+def shape_key(shapes: list[TypeShape]) -> tuple:
+    """
+    Convert an input/output tensor type+shape list into a nested tuple.
+
+    Returns a tuple of `(input_0_shape, input_1_shape, ...)`, convenient for
+    use as a dict key.
+    """
+    flat_shapes = []
+    for type_shape in shapes:
+        for dtype, shape in type_shape.items():
+            flat_shapes.append(tuple(shape))
+    return tuple(flat_shapes)
+
+
+def summarize_profile(profile: list[ProfNode], by_shape=False):
     # Extract nodes containing details for execution of an operator.
     op_execution_nodes = [
         node for node in profile if node["name"].endswith("_kernel_time")
@@ -104,11 +118,49 @@ def summarize_profile(profile: list[ProfNode]):
         percent = float(stats["total"]) * 100.0 / float(sum_total)
         print(f"{op_name: <16}\t{total_ms: <10.3f}{mean_ms:<8.3f}{percent:.2f}%")
 
+        if by_shape:
+            print()
+            nodes_by_shape = {}
+            for node in nodes_by_op[op_name]:
+                args = cast(KernelTimeNodeArgs, node["args"])
+                shapes = shape_key(args["input_type_shape"])
+                if shapes not in nodes_by_shape:
+                    nodes_by_shape[shapes] = []
+                nodes_by_shape[shapes].append(node)
+
+            shape_time_stats = []
+            for shape, nodes in nodes_by_shape.items():
+                total_dur_us = sum(n["dur"] for n in nodes)
+                mean_dur_us = float(total_dur_us) / float(len(nodes))
+                shape_time_stats.append(
+                    {
+                        "shape": shape,
+                        "mean": mean_dur_us,
+                        "total": total_dur_us,
+                        "count": len(nodes),
+                    }
+                )
+            shape_time_stats.sort(key=lambda entry: entry["total"], reverse=True)
+
+            for shape_stats in shape_time_stats:
+                shape_str = str(shape_stats["shape"])
+                total_ms = shape_stats["total"] / 1000.0
+                mean_ms = shape_stats["mean"] / 1000.0
+                count = shape_stats["count"]
+                print(
+                    f"\t{shape_str: <40} {count:<3} {total_ms:<10.3f} {mean_ms:<8.3f}"
+                )
+
+            print()
+
 
 parser = ArgumentParser(description="Analyze profiler output from ONNX Runtime")
 parser.add_argument("profile", help="Path to JSON profile")
+parser.add_argument(
+    "-s", "--by-shape", action="store_true", help="Show execution time by input shape"
+)
 args = parser.parse_args()
 
 with open(args.profile) as profile_fp:
     profile_data = json.load(profile_fp)
-    summarize_profile(profile_data)
+    summarize_profile(profile_data, by_shape=args.by_shape)
