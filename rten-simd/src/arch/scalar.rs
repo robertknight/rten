@@ -8,13 +8,13 @@ impl SimdMask for bool {
 }
 
 impl SimdVal for i32 {
+    const LEN: usize = 1;
+
     type Mask = bool;
 }
 
 /// Treat an `i32` as a single-lane SIMD "vector".
 impl SimdInt for i32 {
-    const LEN: usize = 1;
-
     type Float = f32;
 
     #[inline]
@@ -93,13 +93,13 @@ impl SimdInt for i32 {
 }
 
 impl SimdVal for f32 {
+    const LEN: usize = 1;
+
     type Mask = bool;
 }
 
 /// Treat an `f32` as a single-lane SIMD "vector".
 impl SimdFloat for f32 {
-    const LEN: usize = 1;
-
     type Int = i32;
 
     #[inline]

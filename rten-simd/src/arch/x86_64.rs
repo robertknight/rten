@@ -20,13 +20,13 @@ impl SimdMask for __m256i {
 }
 
 impl SimdVal for __m256i {
+    const LEN: usize = 8;
+
     type Mask = __m256i;
 }
 
 impl SimdInt for __m256i {
     type Float = __m256;
-
-    const LEN: usize = 8;
 
     #[inline]
     #[target_feature(enable = "avx2")]
@@ -116,13 +116,13 @@ impl SimdInt for __m256i {
 }
 
 impl SimdVal for __m256 {
+    const LEN: usize = 8;
+
     type Mask = __m256i;
 }
 
 impl SimdFloat for __m256 {
     type Int = __m256i;
-
-    const LEN: usize = 8;
 
     #[inline]
     #[target_feature(enable = "avx2")]
@@ -281,14 +281,14 @@ impl SimdMask for __mmask16 {
 
 #[cfg(feature = "avx512")]
 impl SimdVal for __m512i {
+    const LEN: usize = 16;
+
     type Mask = __mmask16;
 }
 
 #[cfg(feature = "avx512")]
 impl SimdInt for __m512i {
     type Float = __m512;
-
-    const LEN: usize = 16;
 
     #[inline]
     #[target_feature(enable = "avx512f")]
@@ -378,14 +378,14 @@ impl SimdInt for __m512i {
 
 #[cfg(feature = "avx512")]
 impl SimdVal for __m512 {
+    const LEN: usize = 16;
+
     type Mask = __mmask16;
 }
 
 #[cfg(feature = "avx512")]
 impl SimdFloat for __m512 {
     type Int = __m512i;
-
-    const LEN: usize = 16;
 
     #[inline]
     #[target_feature(enable = "avx512f")]

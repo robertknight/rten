@@ -5,7 +5,7 @@ use std::ops::Range;
 #[cfg(feature = "avx512")]
 use std::arch::x86_64::__m512;
 
-use rten_simd::SimdFloat;
+use rten_simd::vec_count;
 use rten_tensor::Matrix;
 
 #[cfg(feature = "avx512")]
@@ -111,7 +111,7 @@ unsafe impl Kernel for FmaKernel {
     ) {
         const MR: usize = FmaKernel::MR;
         const NR: usize = FmaKernel::NR;
-        const NR_REGS: usize = NR / <__m256 as SimdFloat>::LEN;
+        const NR_REGS: usize = vec_count::<__m256>(NR);
 
         simd_gemm::<__m256, MR, NR_REGS>(tile_ptr, tile_row_stride, a, b, depth, alpha, beta);
     }
@@ -208,7 +208,7 @@ unsafe impl Kernel for Avx512Kernel {
     ) {
         const MR: usize = Avx512Kernel::MR;
         const NR: usize = Avx512Kernel::NR;
-        const NR_REGS: usize = NR / <__m512 as SimdFloat>::LEN;
+        const NR_REGS: usize = vec_count::<__m512>(NR);
 
         simd_gemm::<__m512, MR, NR_REGS>(tile_ptr, tile_row_stride, a, b, depth, alpha, beta)
     }

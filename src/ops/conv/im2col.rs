@@ -1,7 +1,7 @@
 use std::mem::MaybeUninit;
 use std::ops::Range;
 
-use rten_simd::{SimdFloat, SimdInt, SimdMask};
+use rten_simd::{vec_count, SimdFloat, SimdInt, SimdMask};
 
 #[cfg(feature = "avx512")]
 use rten_simd::isa_detection::is_avx512_supported;
@@ -270,7 +270,8 @@ impl<'a> VirtualIm2Col<'a> {
         cols: Range<usize>,
     ) {
         use std::arch::x86_64::__m256;
-        self.pack_b_impl::<__m256, 2>(out, panel_width, rows.clone(), cols.clone());
+        const NR_REGS: usize = vec_count::<__m256>(KERNEL_FMA_NR);
+        self.pack_b_impl::<__m256, NR_REGS>(out, panel_width, rows.clone(), cols.clone());
     }
 
     #[cfg(feature = "avx512")]
@@ -285,9 +286,27 @@ impl<'a> VirtualIm2Col<'a> {
         cols: Range<usize>,
     ) {
         use std::arch::x86_64::__m512;
-        self.pack_b_impl::<__m512, 2>(out, panel_width, rows.clone(), cols.clone());
+        const NR_REGS: usize = vec_count::<__m512>(KERNEL_AVX512_NR);
+        self.pack_b_impl::<__m512, NR_REGS>(out, panel_width, rows.clone(), cols.clone());
     }
 }
+
+// Micro-tile widths assumed for different GEMM kernels. This must be kept
+// in sync with the corresponding GEMM kernels in `crate::gemm::kernels`.
+#[cfg(target_arch = "aarch64")]
+const KERNEL_ARM_NEON_NR: usize = 8;
+
+#[cfg(feature = "avx512")]
+#[cfg(target_arch = "x86_64")]
+const KERNEL_AVX512_NR: usize = 32;
+
+const KERNEL_BASE_NR: usize = 4;
+
+#[cfg(target_arch = "x86_64")]
+const KERNEL_FMA_NR: usize = 16;
+
+#[cfg(target_arch = "wasm32")]
+const KERNEL_WASM_NR: usize = 8;
 
 // Safety: `pack_b` initializes the entire buffer passed to it.
 unsafe impl<'a> VirtualMatrix for VirtualIm2Col<'a> {
@@ -309,30 +328,33 @@ unsafe impl<'a> VirtualMatrix for VirtualIm2Col<'a> {
         match (self.gemm_kernel, panel_width) {
             #[cfg(feature = "avx512")]
             #[cfg(target_arch = "x86_64")]
-            (KernelType::Avx512, 32) => unsafe {
+            (KernelType::Avx512, KERNEL_AVX512_NR) => unsafe {
                 assert!(is_avx512_supported());
                 self.pack_b_impl_avx512(out, panel_width, rows.clone(), cols.clone());
             },
             #[cfg(target_arch = "x86_64")]
-            (KernelType::Fma, 16) => unsafe {
+            (KernelType::Fma, KERNEL_FMA_NR) => unsafe {
                 assert!(is_x86_feature_detected!("avx2"));
                 self.pack_b_impl_avx(out, panel_width, rows.clone(), cols.clone());
             },
             #[cfg(target_arch = "aarch64")]
-            (KernelType::ArmNeon, 8) => unsafe {
+            (KernelType::ArmNeon, KERNEL_ARM_NEON_NR) => unsafe {
                 // Safety: Neon is always available.
                 use std::arch::aarch64::float32x4_t;
-                self.pack_b_impl::<float32x4_t, 2>(out, panel_width, rows, cols);
+                const NR_REGS: usize = vec_count::<float32x4_t>(KERNEL_ARM_NEON_NR);
+                self.pack_b_impl::<float32x4_t, NR_REGS>(out, panel_width, rows, cols);
             },
             #[cfg(target_arch = "wasm32")]
             #[cfg(target_feature = "simd128")]
-            (KernelType::Wasm, 8) => unsafe {
+            (KernelType::Wasm, KERNEL_WASM_NR) => unsafe {
                 // Safety: SIMD support is checked when WASM binary is loaded.
                 use rten_simd::arch::wasm::v128f;
-                self.pack_b_impl::<v128f, 2>(out, panel_width, rows, cols);
+                const NR_REGS: usize = vec_count::<v128f>(KERNEL_WASM_NR);
+                self.pack_b_impl::<v128f, NR_REGS>(out, panel_width, rows, cols);
             },
-            (KernelType::Base, 4) => unsafe {
-                self.pack_b_impl::<f32, 4>(out, panel_width, rows, cols);
+            (KernelType::Base, KERNEL_BASE_NR) => unsafe {
+                const NR_REGS: usize = vec_count::<f32>(KERNEL_BASE_NR);
+                self.pack_b_impl::<f32, NR_REGS>(out, panel_width, rows, cols);
             },
             _ => {
                 panic!(

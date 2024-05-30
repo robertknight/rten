@@ -50,11 +50,19 @@ pub const MAX_LEN: usize = 16;
 /// all SIMD vectors.
 #[allow(clippy::missing_safety_doc)]
 pub trait SimdVal: Copy + Sized {
+    /// The number of elements in the SIMD vector.
+    const LEN: usize;
+
     /// The type used by operations that use or return masks.
     ///
     /// This should be the same for all vector types with a given number of
     /// lanes in a particular architecture.
     type Mask: SimdMask;
+}
+
+/// Return the number of SIMD vectors required to hold `count` elements.
+pub const fn vec_count<S: SimdVal>(count: usize) -> usize {
+    count.div_ceil(S::LEN)
 }
 
 /// Trait implemented by SIMD masks.
@@ -67,9 +75,6 @@ pub trait SimdMask: Copy {
 /// Trait for SIMD vectors containing 32-bit integers.
 #[allow(clippy::missing_safety_doc)]
 pub trait SimdInt: SimdVal {
-    /// The number of elements in the SIMD vector.
-    const LEN: usize;
-
     /// The type produced by an operation that converts each element in this
     /// vector to a float.
     type Float: SimdFloat<Int = Self, Mask = Self::Mask>;
@@ -139,9 +144,6 @@ pub trait SimdInt: SimdVal {
 /// Trait for SIMD vectors containing single-precision floats.
 #[allow(clippy::missing_safety_doc)]
 pub trait SimdFloat: SimdVal {
-    /// The number of elements in the SIMD vector.
-    const LEN: usize;
-
     /// The type of vector produced by operations that convert this vector
     /// to a vector of ints.
     type Int: SimdInt<Float = Self, Mask = Self::Mask>;

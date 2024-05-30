@@ -25,13 +25,13 @@ impl SimdMask for v128i {
 }
 
 impl SimdVal for v128i {
+    const LEN: usize = 4;
+
     type Mask = v128i;
 }
 
 impl SimdInt for v128i {
     type Float = v128f;
-
-    const LEN: usize = 4;
 
     #[inline]
     unsafe fn splat(val: i32) -> Self {
@@ -100,13 +100,13 @@ impl SimdInt for v128i {
 }
 
 impl SimdVal for v128f {
+    const LEN: usize = 4;
+
     type Mask = v128i;
 }
 
 impl SimdFloat for v128f {
     type Int = v128i;
-
-    const LEN: usize = 4;
 
     #[inline]
     unsafe fn splat(val: f32) -> Self {

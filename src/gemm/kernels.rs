@@ -1,7 +1,7 @@
 use std::mem::MaybeUninit;
 use std::ops::Range;
 
-use rten_simd::SimdFloat;
+use rten_simd::{vec_count, SimdFloat};
 use rten_tensor::{Matrix, MatrixLayout, Storage};
 
 use crate::gemm::packing::{pack_a_block, pack_b_block};
@@ -470,7 +470,7 @@ unsafe impl Kernel for BaseKernel {
     ) {
         const MR: usize = BaseKernel::MR;
         const NR: usize = BaseKernel::NR;
-        const NR_REGS: usize = NR / <f32 as SimdFloat>::LEN;
+        const NR_REGS: usize = vec_count::<f32>(NR);
         simd_gemm::<f32, MR, NR_REGS>(tile_ptr, tile_row_stride, a, b, depth, alpha, beta);
     }
 }
