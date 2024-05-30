@@ -2,7 +2,7 @@ use std::mem::MaybeUninit;
 use std::ops::Range;
 
 use rten_simd::arch::wasm::v128f;
-use rten_simd::SimdFloat;
+use rten_simd::vec_count;
 use rten_tensor::Matrix;
 
 use super::{simd_gemm, simd_gemv, Kernel};
@@ -73,7 +73,7 @@ unsafe impl Kernel for WasmKernel {
     ) {
         const MR: usize = WasmKernel::MR;
         const NR: usize = WasmKernel::NR;
-        const NR_REGS: usize = NR / <v128f as SimdFloat>::LEN;
+        const NR_REGS: usize = vec_count::<v128f>(NR);
 
         simd_gemm::<v128f, MR, NR_REGS>(tile_ptr, tile_row_stride, a, b, depth, alpha, beta);
     }

@@ -2,7 +2,7 @@ use std::arch::aarch64::float32x4_t;
 use std::mem::MaybeUninit;
 use std::ops::Range;
 
-use rten_simd::SimdFloat;
+use rten_simd::vec_count;
 use rten_tensor::Matrix;
 
 use super::{simd_gemm, simd_gemv, Kernel};
@@ -69,7 +69,7 @@ unsafe impl Kernel for ArmNeonKernel {
     ) {
         const MR: usize = ArmNeonKernel::MR;
         const NR: usize = ArmNeonKernel::NR;
-        const NR_REGS: usize = NR / <float32x4_t as SimdFloat>::LEN;
+        const NR_REGS: usize = vec_count::<float32x4_t>(NR);
 
         simd_gemm::<float32x4_t, MR, NR_REGS>(tile_ptr, tile_row_stride, a, b, depth, alpha, beta);
     }

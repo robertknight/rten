@@ -16,13 +16,13 @@ impl SimdMask for uint32x4_t {
 }
 
 impl SimdVal for int32x4_t {
+    const LEN: usize = 4;
+
     type Mask = uint32x4_t;
 }
 
 impl SimdInt for int32x4_t {
     type Float = float32x4_t;
-
-    const LEN: usize = 4;
 
     #[inline]
     unsafe fn zero() -> Self {
@@ -96,13 +96,13 @@ impl SimdInt for int32x4_t {
 }
 
 impl SimdVal for float32x4_t {
+    const LEN: usize = 4;
+
     type Mask = uint32x4_t;
 }
 
 impl SimdFloat for float32x4_t {
     type Int = int32x4_t;
-
-    const LEN: usize = 4;
 
     #[inline]
     unsafe fn splat(val: f32) -> Self {
