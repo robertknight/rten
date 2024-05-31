@@ -3,7 +3,7 @@ use std::iter::zip;
 use smallvec::SmallVec;
 
 /// Return true if a given shape and strides describe a contiguous layout in
-/// "C" order.
+/// row-major ("C") order.
 pub fn is_contiguous<S: AsRef<[usize]>>(shape: S, strides: S) -> bool {
     // Trim leading 1s from the shape. These dimensions can have a larger
     // stride than the product of inner dimensions without affecting whether
