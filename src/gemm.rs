@@ -5,7 +5,6 @@
 //! multiplication (gemm) with ML-oriented additions, but there are also
 //! operations like vector-scalar products.
 
-use std::borrow::Cow;
 use std::cell::RefCell;
 use std::mem::MaybeUninit;
 use std::ops::Range;
@@ -24,9 +23,9 @@ use kernels::{BaseKernel, Kernel};
 
 /// Left-hand or "A" GEMM input that has been pre-packed.
 #[derive(Clone)]
-pub struct PackedAMatrix<'a> {
+pub struct PackedAMatrix {
     /// Sequence of packed row panels.
-    data: Cow<'a, [f32]>,
+    data: Vec<f32>,
 
     /// Number of elements in each row panel.
     panel_len: usize,
@@ -41,7 +40,7 @@ pub struct PackedAMatrix<'a> {
     cols: usize,
 }
 
-impl<'a> PackedAMatrix<'a> {
+impl PackedAMatrix {
     fn block(&self, row_block_idx: usize, depth_block_idx: usize) -> &[f32] {
         let panel_idx = depth_block_idx * self.row_blocks + row_block_idx;
         let offset = panel_idx * self.panel_len;
@@ -49,14 +48,11 @@ impl<'a> PackedAMatrix<'a> {
     }
 }
 
-impl<'a> ExtractBuffer for PackedAMatrix<'a> {
+impl ExtractBuffer for PackedAMatrix {
     type Elem = f32;
 
     fn extract_buffer(self) -> Option<Vec<f32>> {
-        match self.data {
-            Cow::Owned(owned) => Some(owned),
-            Cow::Borrowed(_) => None,
-        }
+        Some(self.data)
     }
 }
 
@@ -102,7 +98,7 @@ pub enum GemmInputA<'a> {
     Unpacked(Matrix<'a>),
 
     /// A matrix which has been pre-packed by [GemmExecutor::prepack_a].
-    Packed(&'a PackedAMatrix<'a>),
+    Packed(&'a PackedAMatrix),
     // TODO - Support virtual "A" inputs, like `GemmInputB::Virtual`.
 }
 
@@ -332,13 +328,13 @@ impl GemmExecutor {
 
     /// Prepack a matrix for use as the left-hand or "A" input.
     #[allow(unused)]
-    pub fn prepack_a(&self, a: Matrix) -> PackedAMatrix<'static> {
+    pub fn prepack_a(&self, a: Matrix) -> PackedAMatrix {
         self.prepack_a_in(GlobalAlloc::new(), a)
     }
 
     /// Variant of [`prepack_a`](GemmExecutor::prepack_a) which takes an
     /// allocator.
-    pub fn prepack_a_in<A: Alloc>(&self, alloc: A, a: Matrix) -> PackedAMatrix<'static> {
+    pub fn prepack_a_in<A: Alloc>(&self, alloc: A, a: Matrix) -> PackedAMatrix {
         let kc = depth_block_size(a.cols());
         let mr = self.kernel.mr();
         let mc = row_block_size(a.rows(), mr);
@@ -374,7 +370,7 @@ impl GemmExecutor {
         }
 
         PackedAMatrix {
-            data: Cow::Owned(data),
+            data,
             rows: a.rows(),
             cols: a.cols(),
             panel_len,
