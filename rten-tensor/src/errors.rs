@@ -1,3 +1,5 @@
+//! Error types that are reported by various tensor operations.
+
 use std::error::Error;
 use std::fmt::{Display, Formatter};
 
@@ -32,9 +34,9 @@ pub enum FromDataError {
 impl Display for FromDataError {
     fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
         match self {
-            FromDataError::StorageTooShort => write!(f, "Data too short"),
-            FromDataError::StorageLengthMismatch => write!(f, "Data length mismatch"),
-            FromDataError::MayOverlap => write!(f, "May have internal overlap"),
+            FromDataError::StorageTooShort => write!(f, "data too short"),
+            FromDataError::StorageLengthMismatch => write!(f, "data length mismatch"),
+            FromDataError::MayOverlap => write!(f, "may have internal overlap"),
         }
     }
 }
