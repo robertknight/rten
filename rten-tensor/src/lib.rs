@@ -41,7 +41,7 @@
 //! ```
 
 mod copy;
-mod errors;
+pub mod errors;
 mod index_iterator;
 mod iterators;
 mod layout;
