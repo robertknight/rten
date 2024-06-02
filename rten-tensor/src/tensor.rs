@@ -1951,8 +1951,24 @@ where
 // `T` to be inferred as an array type.
 pub trait Scalar {}
 
-impl Scalar for i32 {}
-impl Scalar for f32 {}
+macro_rules! impl_scalar {
+    ($ty:ty) => {
+        impl Scalar for $ty {}
+    };
+}
+impl_scalar!(bool);
+impl_scalar!(u8);
+impl_scalar!(i8);
+impl_scalar!(u16);
+impl_scalar!(i16);
+impl_scalar!(u32);
+impl_scalar!(i32);
+impl_scalar!(u64);
+impl_scalar!(i64);
+impl_scalar!(usize);
+impl_scalar!(isize);
+impl_scalar!(f32);
+impl_scalar!(f64);
 
 // The `T: Scalar` bound avoids ambiguity when choosing a `Tensor::from`
 // impl for a nested array literal, as it prevents `T` from matching an array
@@ -2342,17 +2358,30 @@ mod tests {
 
     #[test]
     fn test_from_nested_array() {
+        // 1D
         let x = NdTensor::from([1, 2, 3]);
         assert_eq!(x.shape(), [3]);
         assert_eq!(x.data(), Some([1, 2, 3].as_slice()));
 
+        // 2D
         let x = NdTensor::from([[1, 2], [3, 4]]);
         assert_eq!(x.shape(), [2, 2]);
         assert_eq!(x.data(), Some([1, 2, 3, 4].as_slice()));
 
+        // 3D
         let x = NdTensor::from([[[1, 2], [3, 4]], [[5, 6], [7, 8]]]);
         assert_eq!(x.shape(), [2, 2, 2]);
         assert_eq!(x.data(), Some([1, 2, 3, 4, 5, 6, 7, 8].as_slice()));
+
+        // Float
+        let x = NdTensor::from([1., 2., 3.]);
+        assert_eq!(x.shape(), [3]);
+        assert_eq!(x.data(), Some([1., 2., 3.].as_slice()));
+
+        // Bool
+        let x = NdTensor::from([true, false]);
+        assert_eq!(x.shape(), [2]);
+        assert_eq!(x.data(), Some([true, false].as_slice()));
     }
 
     #[test]
