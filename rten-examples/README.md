@@ -62,6 +62,8 @@ The examples have been chosen to cover common tasks and popular models.
 - **bert_qa** - Extractive question answering using
 [BERT](https://arxiv.org/abs/1810.04805)-based models which have been fine-tuned
 on the [SQuAD](https://paperswithcode.com/dataset/squad) dataset
+- **gpt2** - Text generation using the [GPT-2](https://openai.com/index/better-language-models/)
+language model.
 - **jina_similarity** - Sentence similarity using vector embeddings of sentences
 
 ### Audio
