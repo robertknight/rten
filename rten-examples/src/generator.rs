@@ -1,9 +1,10 @@
 use std::error::Error;
 use std::fmt;
 
-use rten::{Dimension, Input, Model, NodeId, Operators};
+use rten::{Dimension, Input, Model, NodeId, Operators, Output};
 use rten_tensor::prelude::*;
 use rten_tensor::{NdTensor, Tensor};
+use rten_text::tokenizers::Tokenizer;
 
 /// Errors that occur when creating or running a [`Generator`].
 #[derive(Debug)]
@@ -53,13 +54,22 @@ struct KvCache {
 pub struct Generator<'a> {
     model: &'a Model,
 
+    /// Additional model inputs (eg. encoder outputs) passed to each model
+    /// step.
+    constant_inputs: Vec<(NodeId, Input<'a>)>,
+
+    /// Additional model inputs computed using constant propagation. This
+    /// effectively caches parts of the graph that don't change in each
+    /// generation step. This is `None` if the cache is out of date.
+    constant_prop_inputs: Option<Vec<(NodeId, Output)>>,
+
     /// Input token IDs for the next run of the model.
     input_ids: Vec<u32>,
 
     // Input node IDs
     input_ids_input: NodeId,
-    attention_mask_input: NodeId,
-    position_ids_input: NodeId,
+    attention_mask_input: Option<NodeId>,
+    position_ids_input: Option<NodeId>,
 
     // Output node IDs
     logits_output: NodeId,
@@ -93,12 +103,8 @@ impl<'a> Generator<'a> {
         let input_ids_input = model
             .find_node("input_ids")
             .ok_or(GeneratorError::InputNotFound("input_ids".to_string()))?;
-        let attention_mask_input = model
-            .find_node("attention_mask")
-            .ok_or(GeneratorError::InputNotFound("attention_mask".to_string()))?;
-        let position_ids_input = model
-            .find_node("position_ids")
-            .ok_or(GeneratorError::InputNotFound("position_ids".to_string()))?;
+        let attention_mask_input = model.find_node("attention_mask");
+        let position_ids_input = model.find_node("position_ids");
 
         let logits_output = model
             .find_node("logits")
@@ -162,6 +168,8 @@ impl<'a> Generator<'a> {
 
         Ok(Generator {
             model,
+            constant_inputs: Vec::new(),
+            constant_prop_inputs: None,
             input_ids: vec![],
             input_ids_input,
             attention_mask_input,
@@ -176,6 +184,16 @@ impl<'a> Generator<'a> {
     /// when it is first run.
     pub fn with_prompt(mut self, prompt: &'a [u32]) -> Self {
         self.input_ids = prompt.to_vec();
+        self
+    }
+
+    /// Add a constant input which is provided to the model at each iteration.
+    ///
+    /// A common use case is to pass the outputs of an encoder model to
+    /// an auto-regressive decoder.
+    pub fn with_constant_input(mut self, input_id: NodeId, value: Input<'a>) -> Self {
+        self.constant_prop_inputs = None;
+        self.constant_inputs.push((input_id, value));
         self
     }
 
@@ -195,25 +213,54 @@ impl<'a> Generator<'a> {
             .map(|id| *id as i32)
             .collect::<Tensor<_>>()
             .into_shape([batch_size, self.input_ids.len()]);
-        let attention_mask = NdTensor::full([batch_size, self.input_ids.len()], 1i32);
 
+        let attention_mask = NdTensor::full([batch_size, self.input_ids.len()], 1i32);
         let position_ids = NdTensor::from_fn([batch_size, input_ids.len()], |[_batch, pos]| {
             self.seq_len as i32 + pos as i32
         });
 
-        let model_inputs: Vec<(NodeId, Input)> = [
-            (self.input_ids_input, input_ids.view().into()),
-            (self.attention_mask_input, attention_mask.view().into()),
-            (self.position_ids_input, position_ids.view().into()),
-        ]
-        .into_iter()
-        .chain(
+        let mut model_inputs: Vec<(NodeId, Input)> =
+            vec![(self.input_ids_input, input_ids.view().into())];
+
+        if let Some(attention_mask_input) = self.attention_mask_input {
+            model_inputs.push((attention_mask_input, attention_mask.view().into()));
+        }
+
+        if let Some(position_ids_input) = self.position_ids_input {
+            model_inputs.push((position_ids_input, position_ids.view().into()));
+        }
+
+        // Propagate constants on the first run.
+        if self.constant_prop_inputs.is_none() {
+            let inputs =
+                match self
+                    .model
+                    .partial_run(&self.constant_inputs, &[self.logits_output], None)
+                {
+                    Ok(inputs) => inputs,
+                    Err(err) => {
+                        return Err(wrap_error(err));
+                    }
+                };
+            self.constant_prop_inputs = Some(inputs);
+        }
+
+        if let Some(constants) = self.constant_prop_inputs.as_ref() {
+            model_inputs.extend(
+                constants
+                    .iter()
+                    .map(|(node_id, output)| (*node_id, (output).into())),
+            );
+        }
+
+        // Add key-value cache from previous run.
+        model_inputs.extend(
             self.kv_cache
                 .iter()
                 .map(|entry| (entry.input_id, entry.cache.view().into())),
-        )
-        .collect();
+        );
 
+        // Run the model and collect outputs and updated KV cache.
         let model_outputs: Vec<NodeId> = [self.logits_output]
             .into_iter()
             .chain(self.kv_cache.iter().map(|entry| entry.output_id))
@@ -248,11 +295,86 @@ impl<'a> Generator<'a> {
     }
 }
 
+/// Output items from a [`Generator`].
+pub type GeneratorItem = Result<u32, GeneratorError>;
+
 impl<'a> Iterator for Generator<'a> {
     type Item = Result<u32, GeneratorError>;
 
     /// Run the model and generate the next output token.
     fn next(&mut self) -> Option<Self::Item> {
         Some(self.generate_next_token())
+    }
+}
+
+/// Iterator utilities that wrap a [`Generator`] to perform common tasks such
+/// as stopping generation when an end-of-text token is encountered.
+pub trait GeneratorUtils: Iterator<Item = GeneratorItem> + Sized {
+    /// Stop the generator when `eos_token` or an error is encountered.
+    fn stop_on_token(self, eos_token: u32) -> impl Iterator<Item = GeneratorItem> {
+        self.take_while(move |tok| match tok {
+            Ok(tok_id) => *tok_id != eos_token,
+            Err(_) => false,
+        })
+    }
+
+    /// Decode the tokens to text using a tokenizer.
+    fn decode<'a>(self, tokenizer: &'a Tokenizer) -> TextGenerator<'a, Self> {
+        TextGenerator::wrap(self, tokenizer)
+    }
+}
+
+impl<I: Iterator<Item = GeneratorItem>> GeneratorUtils for I {}
+
+/// Wraps a [`Generator`] to decode the output token IDs from the model into
+/// text using a [`Tokenizer`].
+pub struct TextGenerator<'a, G: Iterator<Item = GeneratorItem>> {
+    generator: G,
+    tokenizer: &'a Tokenizer,
+}
+
+impl<'a, G> TextGenerator<'a, G>
+where
+    G: Iterator<Item = GeneratorItem>,
+{
+    /// Wrap a token generator and decode its outputs using `tokenizer`.
+    pub fn wrap(generator: G, tokenizer: &'a Tokenizer) -> TextGenerator<'a, G> {
+        TextGenerator {
+            generator,
+            tokenizer,
+        }
+    }
+}
+
+impl<'a, G: Iterator<Item = GeneratorItem>> Iterator for TextGenerator<'a, G> {
+    /// The generated token string, or the error that occurred during generation.
+    type Item = Result<String, GeneratorError>;
+
+    /// Run the model repeatedly until it generates a sequence of tokens which
+    /// can be decoded into a valid UTF-8 sequence.
+    ///
+    /// Returns `Some(Ok(text))` if successful, `Some(Err(error))` if an error
+    /// occurs during generation or `None` if the end of output has been
+    /// reached.
+    fn next(&mut self) -> Option<Self::Item> {
+        // Buffer that holds model output tokens until it forms a valid UTF-8
+        // sequence.
+        let mut token_buf = Vec::new();
+
+        while let Some(token) = self.generator.next() {
+            let token = match token {
+                Ok(tok) => tok,
+                Err(err) => return Some(Err(err)),
+            };
+
+            token_buf.push(token as usize);
+
+            let token_strings = self.tokenizer.encoder().get_tokens(&token_buf);
+            if let Ok(strings) = token_strings {
+                return Some(Ok(strings.concat()));
+            }
+        }
+
+        None
     }
 }

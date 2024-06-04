@@ -55,6 +55,7 @@ The examples have been chosen to cover common tasks and popular models.
 - **deeplab** - Semantic segmentation of images using [DeepLabv3](https://arxiv.org/abs/1706.05587)
 - **depth_anything** - Monocular depth estimation using [Depth Anything](https://github.com/LiheYoung/Depth-Anything)
 - **detr** - Object detection using [DETR](https://research.facebook.com/publications/end-to-end-object-detection-with-transformers/)
+- **distilvit** - Image captioning using [Mozilla's DistilViT](https://hacks.mozilla.org/2024/05/experimenting-with-local-alt-text-generation-in-firefox-nightly/)
 - **yolo** - Object detection using [YOLO v8](https://github.com/ultralytics/ultralytics)
 
 ### Text

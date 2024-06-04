@@ -44,6 +44,10 @@ name = "detr"
 path = "src/detr.rs"
 
 [[bin]]
+name = "distilvit"
+path = "src/distilvit.rs"
+
+[[bin]]
 name = "imagenet"
 path = "src/imagenet.rs"
 
