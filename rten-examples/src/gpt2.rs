@@ -4,7 +4,7 @@ use std::fs;
 use std::io::prelude::*;
 
 use rten::Model;
-use rten_examples::generator::Generator;
+use rten_examples::generator::{Generator, GeneratorUtils};
 use rten_text::tokenizers::Tokenizer;
 
 struct Args {
@@ -102,23 +102,14 @@ fn main() -> Result<(), Box<dyn Error>> {
     // The output starts with the user's prompt.
     print!("{}", prompt);
 
-    // Buffer that holds model output tokens until it forms a valid UTF-8
-    // sequence.
-    let mut token_buf = Vec::new();
-
-    let generator = Generator::from_model(&model)?.with_prompt(&token_ids);
-    for token in generator.take(args.output_length) {
+    let generator = Generator::from_model(&model)?
+        .with_prompt(&token_ids)
+        .take(args.output_length)
+        .decode(&tokenizer);
+    for token in generator {
         let token = token?;
-        token_buf.push(token as usize);
-
-        let token_strings = tokenizer.encoder().get_tokens(&token_buf);
-        if let Ok(strings) = token_strings {
-            for s in strings {
-                print!("{}", s);
-            }
-            let _ = std::io::stdout().flush();
-            token_buf.clear();
-        }
+        print!("{}", token);
+        let _ = std::io::stdout().flush();
     }
 
     Ok(())
