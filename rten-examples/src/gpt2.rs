@@ -86,8 +86,7 @@ Options:
 /// [2] https://huggingface.co/docs/optimum/index
 fn main() -> Result<(), Box<dyn Error>> {
     let args = parse_args()?;
-    let model_bytes = fs::read(args.model)?;
-    let model = Model::load(model_bytes)?;
+    let model = Model::load_file(args.model)?;
 
     let tokenizer_config = fs::read_to_string(&args.tokenizer_config)?;
     let tokenizer = Tokenizer::from_json(&tokenizer_config)?;
