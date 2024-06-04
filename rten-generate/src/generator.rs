@@ -47,10 +47,17 @@ struct KvCache {
     cache: NdTensor<f32, 4>,
 }
 
-/// Generates a token sequence using an auto-regressive language model.
+/// Generates a token ID sequence using an auto-regressive language model.
 ///
 /// This is an iterator that runs the model on each call to [`Iterator::next`]
 /// and yields a result containing the next token ID or an error.
+///
+/// The token ID sequence can be converted to text using the
+/// [`decode`](GeneratorUtils::decode) method of the [`GeneratorUtils`] trait.
+/// This trait also provides useful wrappers for the output, such as stopping
+/// generation when an end-of-text token is reached. You can also use all of
+/// the standard iterator adapters. For example `generator.take(30)` will
+/// return an iterator that stops generation after 30 tokens have been produced).
 pub struct Generator<'a> {
     model: &'a Model,
 
@@ -84,9 +91,12 @@ pub struct Generator<'a> {
 impl<'a> Generator<'a> {
     /// Create a generator that iteratively produces tokens using a model.
     ///
-    /// The model is expected to have the following inputs:
+    /// The model must have the required inputs:
     ///
     ///  - `input_ids` - (batch, sequence) tensor of token IDs
+    ///
+    /// The model may have the optional inputs:
+    ///
     ///  - `attention_mask` - (batch, sequence) tensor of booleans
     ///  - `position_ids` - (batch, sequence) tensor of position indices
     ///  - `past_key_values.N.key` - (batch, head, past_seq_len, size) key vector cache
@@ -94,9 +104,12 @@ impl<'a> Generator<'a> {
     ///  - `past_key_values.N.value` - (batch, head, past_key_values, size) value vector cache,
     ///    where `N` is the layer index
     ///
-    /// The model is expected to have the following outputs:
+    /// The model must have the outputs:
     ///
     ///  - `logits` - output (batch, sequence, vocab) tensor of next token probabilities
+    ///
+    /// The model may have the optional outputs:
+    ///
     ///  - `present.N.key` - (batch, head, past_seq_len + 1, size) updated key vector cache
     ///  - `present.N.value` - (batch, head, past_seq_len + 1, size) updated value vector cache
     pub fn from_model(model: &'a Model) -> Result<Generator<'a>, GeneratorError> {
@@ -182,7 +195,7 @@ impl<'a> Generator<'a> {
 
     /// Set the initial sequence of tokens (aka. the prompt) passed to the model
     /// when it is first run.
-    pub fn with_prompt(mut self, prompt: &'a [u32]) -> Self {
+    pub fn with_prompt(mut self, prompt: &[u32]) -> Self {
         self.input_ids = prompt.to_vec();
         self
     }
@@ -319,7 +332,7 @@ pub trait GeneratorUtils: Iterator<Item = GeneratorItem> + Sized {
     }
 
     /// Decode the tokens to text using a tokenizer.
-    fn decode<'a>(self, tokenizer: &'a Tokenizer) -> TextGenerator<'a, Self> {
+    fn decode(self, tokenizer: &Tokenizer) -> TextGenerator<Self> {
         TextGenerator::wrap(self, tokenizer)
     }
 }
@@ -361,7 +374,7 @@ impl<'a, G: Iterator<Item = GeneratorItem>> Iterator for TextGenerator<'a, G> {
         // sequence.
         let mut token_buf = Vec::new();
 
-        while let Some(token) = self.generator.next() {
+        for token in self.generator.by_ref() {
             let token = match token {
                 Ok(tok) => tok,
                 Err(err) => return Some(Err(err)),

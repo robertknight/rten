@@ -4,7 +4,7 @@ use std::fs;
 use std::io::prelude::*;
 
 use rten::Model;
-use rten_examples::generator::{Generator, GeneratorUtils};
+use rten_generate::{Generator, GeneratorUtils};
 use rten_text::tokenizers::Tokenizer;
 
 struct Args {

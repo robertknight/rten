@@ -4,7 +4,7 @@ use std::fs;
 use std::io::prelude::*;
 
 use rten::{FloatOperators, Model};
-use rten_examples::generator::{Generator, GeneratorUtils};
+use rten_generate::{Generator, GeneratorUtils};
 use rten_imageio::read_image;
 use rten_tensor::prelude::*;
 use rten_tensor::NdTensor;
