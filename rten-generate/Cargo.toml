@@ -1,0 +1,15 @@
+[package]
+name = "rten-generate"
+version = "0.10.0"
+edition = "2021"
+authors = ["Robert Knight"]
+description = "Utilities to simplify running auto-regressive models with RTen"
+license = "MIT OR Apache-2.0"
+homepage = "https://github.com/robertknight/rten"
+repository = "https://github.com/robertknight/rten"
+include = ["/src", "/README.md"]
+
+[dependencies]
+rten = { path = "../", version = "0.10.0" }
+rten-text = { path = "../rten-text", version = "0.10.0" }
+rten-tensor = { path = "../rten-tensor", version = "0.10.0" }

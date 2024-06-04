@@ -411,12 +411,22 @@ dependencies = [
  "lexopt",
  "png",
  "rten",
+ "rten-generate",
  "rten-imageio",
  "rten-imageproc",
  "rten-tensor",
  "rten-text",
  "serde",
  "serde_json",
+]
+
+[[package]]
+name = "rten-generate"
+version = "0.10.0"
+dependencies = [
+ "rten",
+ "rten-tensor",
+ "rten-text",
 ]
 
 [[package]]

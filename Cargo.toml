@@ -2,6 +2,7 @@
 members = [
   ".",
   "rten-cli",
+  "rten-generate",
   "rten-imageio",
   "rten-imageproc",
   "rten-simd",
