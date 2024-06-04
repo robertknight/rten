@@ -51,6 +51,54 @@ pub fn range_chunks(range: Range<usize>, chunk_size: usize) -> RangeChunks {
     }
 }
 
+pub struct RangeChunksExact {
+    remainder: Range<usize>,
+    chunk_size: usize,
+}
+
+impl RangeChunksExact {
+    /// Return the part of the range that has not yet been visited.
+    pub fn remainder(&self) -> Range<usize> {
+        self.remainder.clone()
+    }
+}
+
+impl Iterator for RangeChunksExact {
+    type Item = Range<usize>;
+
+    #[inline]
+    fn next(&mut self) -> Option<Self::Item> {
+        if self.remainder.len() >= self.chunk_size {
+            let start = self.remainder.start;
+            let end = start + self.chunk_size;
+            self.remainder.start += self.chunk_size;
+            Some(start..end)
+        } else {
+            None
+        }
+    }
+
+    #[inline]
+    fn size_hint(&self) -> (usize, Option<usize>) {
+        let len = self.remainder.len() / self.chunk_size;
+        (len, Some(len))
+    }
+}
+
+impl ExactSizeIterator for RangeChunksExact {}
+
+impl std::iter::FusedIterator for RangeChunksExact {}
+
+/// Return an iterator over sub-ranges of `range`. If `range.len()` is not a
+/// multiple of `chunk_size` then there will be a remainder after iteration
+/// completes, available via [RangeChunksExact::remainder].
+pub fn range_chunks_exact(range: Range<usize>, chunk_size: usize) -> RangeChunksExact {
+    RangeChunksExact {
+        remainder: range,
+        chunk_size,
+    }
+}
+
 /// Tile size for blocked copy. A tile should fit in registers for 32-bit
 /// values.
 const TILE_SIZE: usize = 4;
@@ -68,17 +116,13 @@ fn copy_blocked<T: Clone>(src: Matrix<T>, mut dest: MatrixMut<MaybeUninit<T>>) {
     // Ensure src and dest have same index range.
     assert!(src.shape() == dest.shape());
 
-    // Ensure tiles are always full.
-    assert!(dest.rows() % TILE_SIZE == 0);
-    assert!(dest.cols() % TILE_SIZE == 0);
-
     for row_block in range_chunks(0..dest.rows(), BLOCK_SIZE) {
         for col_block in range_chunks(0..dest.cols(), BLOCK_SIZE) {
-            for row_tile in range_chunks(row_block.clone(), TILE_SIZE) {
-                for col_tile in range_chunks(col_block.clone(), TILE_SIZE) {
-                    debug_assert!(row_tile.len() == TILE_SIZE);
-                    debug_assert!(col_tile.len() == TILE_SIZE);
-
+            let mut row_tiles = range_chunks_exact(row_block.clone(), TILE_SIZE);
+            for row_tile in row_tiles.by_ref() {
+                // Handle full height + width tiles.
+                let mut col_tiles = range_chunks_exact(col_block.clone(), TILE_SIZE);
+                for col_tile in col_tiles.by_ref() {
                     for y in 0..TILE_SIZE {
                         for x in 0..TILE_SIZE {
                             // Safety: Max values of `idx` are in-bounds for
@@ -89,6 +133,32 @@ fn copy_blocked<T: Clone>(src: Matrix<T>, mut dest: MatrixMut<MaybeUninit<T>>) {
                                 dest.get_unchecked_mut(idx).write(src_el);
                             }
                         }
+                    }
+                }
+
+                // Handle full height but narrow edge tiles.
+                for y in 0..TILE_SIZE {
+                    for x in col_tiles.remainder() {
+                        // Safety: Max values of `idx` are in-bounds for
+                        // `src` and `dest`.
+                        unsafe {
+                            let idx = [row_tile.start + y, x];
+                            let src_el = src.get_unchecked(idx).clone();
+                            dest.get_unchecked_mut(idx).write(src_el);
+                        }
+                    }
+                }
+            }
+
+            // Handle short edge tiles.
+            for y in row_tiles.remainder() {
+                for x in col_block.clone() {
+                    // Safety: Max values of `idx` are in-bounds for
+                    // `src` and `dest`.
+                    unsafe {
+                        let idx = [y, x];
+                        let src_el = src.get_unchecked(idx).clone();
+                        dest.get_unchecked_mut(idx).write(src_el);
                     }
                 }
             }
@@ -129,10 +199,7 @@ pub fn copy_into_slice<'a, T: Clone>(
     // to cache conflicts. Otherwise a simple direct copy is probably going to
     // be faster. With a better optimized blocked copy path, we might be able to
     // use it all the time.
-    let use_blocked_copy = src.stride(3).count_ones() == 1
-        && src.stride(3) >= 32
-        && src.size(2) % TILE_SIZE == 0
-        && src.size(3) % TILE_SIZE == 0;
+    let use_blocked_copy = src.stride(3) % 16 == 0 && src.stride(3) >= 32;
 
     if use_blocked_copy {
         let mut dest = NdTensorViewMut::from_data(src.shape(), dest);
