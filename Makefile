@@ -19,7 +19,7 @@ checkformatting:
 
 .PHONY: docs
 docs:
-	RUSTDOCFLAGS='-D warnings' cargo doc -p rten --features mmap
+	RUSTDOCFLAGS='-D warnings' cargo doc -p rten --features mmap,random
 
 .PHONY: lint
 lint:
