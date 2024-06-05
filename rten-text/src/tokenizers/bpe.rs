@@ -12,7 +12,7 @@ use crate::tokenizers::{Encoder, TokenizerError};
 #[derive(Debug)]
 pub enum BpeError {
     /// There was an invalid entry in the merge list. This means that either
-    /// the entry doesn't have the expected "<token> [SPACE] <token>" format
+    /// the entry doesn't have the expected `<token> [SPACE] <token>` format
     /// or the `<token>` is not either a single character or the concatenation
     /// of another pair in the merge list.
     InvalidMergeEntry(String),

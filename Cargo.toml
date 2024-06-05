@@ -84,3 +84,10 @@ assertions_on_constants = "allow"
 # potentially less efficient.
 needless_range_loop = "allow"
 too_many_arguments = "allow"
+
+[package.metadata.docs.rs]
+# These features should match the features enabled by `make docs`.
+features = [
+  "mmap",
+  "random",
+]
