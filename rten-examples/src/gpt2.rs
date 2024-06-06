@@ -4,6 +4,7 @@ use std::fs;
 use std::io::prelude::*;
 
 use rten::Model;
+use rten_generate::metrics::Metrics;
 use rten_generate::{Generator, GeneratorUtils};
 use rten_text::tokenizers::Tokenizer;
 
@@ -102,15 +103,30 @@ fn main() -> Result<(), Box<dyn Error>> {
     // The output starts with the user's prompt.
     print!("{}", prompt);
 
+    let mut metrics = Metrics::new();
     let generator = Generator::from_model(&model)?
         .with_prompt(&token_ids)
         .take(args.output_length)
+        .profile(&mut metrics)
         .decode(&tokenizer);
+
     for token in generator {
         let token = token?;
         print!("{}", token);
         let _ = std::io::stdout().flush();
     }
+    println!();
+
+    println!(
+        "Metrics: {:.2}s total, {:.2}s warmup, {:.2} tokens/sec, {:.2} ms/token.",
+        metrics.total_duration().as_secs_f32(),
+        metrics
+            .warmup_duration()
+            .map(|dur| dur.as_secs_f32())
+            .unwrap_or(0.),
+        metrics.tokens_per_second(),
+        metrics.mean_duration()
+    );
 
     Ok(())
 }
