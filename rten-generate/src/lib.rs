@@ -8,5 +8,6 @@
 //! [rten-examples]: https://github.com/robertknight/rten/tree/main/rten-examples
 
 pub mod generator;
+pub mod metrics;
 
 pub use generator::{Generator, GeneratorError, GeneratorUtils};
