@@ -6,6 +6,8 @@ use rten_tensor::prelude::*;
 use rten_tensor::{NdTensor, Tensor};
 use rten_text::tokenizers::Tokenizer;
 
+use crate::metrics::Metrics;
+
 /// Errors that occur when creating or running a [`Generator`].
 #[derive(Debug)]
 pub enum GeneratorError {
@@ -335,6 +337,14 @@ pub trait GeneratorUtils: Iterator<Item = GeneratorItem> + Sized {
     fn decode(self, tokenizer: &Tokenizer) -> TextGenerator<Self> {
         TextGenerator::wrap(self, tokenizer)
     }
+
+    /// Record timing metrics.
+    ///
+    /// Metrics such as the number of tokens generated per second will be
+    /// available from `metrics` after generation has finished.
+    fn profile(self, metrics: &mut Metrics) -> impl Iterator<Item = Self::Item> {
+        Profiler::wrap(self, metrics)
+    }
 }
 
 impl<I: Iterator<Item = GeneratorItem>> GeneratorUtils for I {}
@@ -389,5 +399,28 @@ impl<'a, G: Iterator<Item = GeneratorItem>> Iterator for TextGenerator<'a, G> {
         }
 
         None
+    }
+}
+
+/// Wraps a [`Generator`] to record timing metrics into a [`Metrics`] struct.
+struct Profiler<'a, G: Iterator> {
+    generator: G,
+    metrics: &'a mut Metrics,
+}
+
+impl<'a, G: Iterator> Profiler<'a, G> {
+    fn wrap(generator: G, metrics: &'a mut Metrics) -> Profiler<'a, G> {
+        Profiler { generator, metrics }
+    }
+}
+
+impl<'a, G: Iterator> Iterator for Profiler<'a, G> {
+    type Item = G::Item;
+
+    fn next(&mut self) -> Option<Self::Item> {
+        let start = std::time::Instant::now();
+        let item = self.generator.next()?;
+        self.metrics.add_step_duration(start.elapsed());
+        Some(item)
     }
 }
