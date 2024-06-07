@@ -49,6 +49,69 @@ struct KvCache {
     cache: NdTensor<f32, 4>,
 }
 
+/// Specifies how a [`Generator`] should generate a model input at each step.
+enum InputConfig<'a> {
+    /// An input that contains token IDs. On the first step this will be set
+    /// to the tokenized prompt. On subsequent steps it will be the most
+    /// recently sampled token ID.
+    TokenIds,
+
+    /// An input that contains the sequence position for each token ID.
+    ///
+    /// This is useful for models which take position IDs for each input token
+    /// and internally calculate position embeddings.
+    PositionIds,
+
+    /// An input that is the same at each step.
+    ///
+    /// This is useful for encoder outputs.
+    Constant(Input<'a>),
+
+    /// An input that changes at each step, depending on the sequence position.
+    ///
+    /// The value is a function that takes the sequence position and returns
+    /// the model input for that step.
+    ///
+    /// This is useful for position embeddings.
+    Varying(&'a dyn Fn(u32) -> Input<'a>),
+
+    /// A model input that takes an initial value on the first step, and an
+    /// output from the previous step in subsequent steps.
+    ///
+    /// The value is the name of the model output that corresponds to this
+    /// input.
+    ///
+    /// This is useful for key-value cache inputs.
+    Cache(String),
+}
+
+/// Specifies how a [`Generator`] should handle a model output at each step.
+enum OutputConfig {
+    /// An output that contains a probability distribution for the next token
+    /// ID.
+    ///
+    /// This will be sampled from and the chosen token ID will be passed as the
+    /// token ID at the next input step.
+    Logits,
+
+    /// A model output that corresponds to an [`InputConfig::Cache`] model
+    /// input.
+    Cache,
+}
+
+/// Configures how a generator should handle each model input and output.
+trait GeneratorConfig<'a> {
+    /// Invoked for each model input. The implementation should return an
+    /// [`InputConfig`] that specifies how to handle the input, or `None`
+    /// if unrecognized.
+    fn input_config(&self, name: &str) -> Option<InputConfig<'a>>;
+
+    /// Invoked for each model output. The implementation should return an
+    /// [`OutputConfig`] that specifies how to handle the output, or `None`
+    /// if the output should be ignored.
+    fn output_config(&self, name: &str) -> Option<OutputConfig>;
+}
+
 /// Generates a token ID sequence using an auto-regressive language model.
 ///
 /// This is an iterator that runs the model on each call to [`Iterator::next`]
