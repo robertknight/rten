@@ -1,6 +1,7 @@
 use std::error::Error;
 use std::fmt;
 use std::iter::zip;
+use std::sync::{Arc, Mutex};
 
 use rten_tensor::prelude::*;
 use rten_tensor::{DynLayout, Tensor, TensorView};
@@ -250,6 +251,54 @@ impl NodeRefCount {
 
 impl Error for RunError {}
 
+/// An execution plan specifying the operations to perform to derive a set of
+/// output nodes given a set of input nodes.
+struct CachedPlan {
+    /// Sorted list of value nodes that are provided at the start of execution.
+    inputs: Vec<NodeId>,
+
+    /// Sorted list of value nodes produced after the plan has executed.
+    outputs: Vec<NodeId>,
+
+    /// List of operator nodes to execute to produce `outputs` given `inputs`.
+    plan: Vec<NodeId>,
+}
+
+impl CachedPlan {
+    fn new(inputs: &[NodeId], outputs: &[NodeId], plan: Vec<NodeId>) -> CachedPlan {
+        let mut inputs = inputs.to_vec();
+        let mut outputs = outputs.to_vec();
+
+        inputs.sort();
+        outputs.sort();
+
+        CachedPlan {
+            inputs,
+            outputs,
+            plan,
+        }
+    }
+
+    /// Return true if a set of input and output nodes matches those used to
+    /// create the plan.
+    fn matches(&self, inputs: &[NodeId], outputs: &[NodeId]) -> bool {
+        let input_match = inputs.len() == self.inputs.len()
+            && inputs
+                .iter()
+                .all(|node_id| self.inputs.binary_search(node_id).is_ok());
+        let output_match = outputs.len() == self.outputs.len()
+            && outputs
+                .iter()
+                .all(|node_id| self.outputs.binary_search(node_id).is_ok());
+        input_match && output_match
+    }
+
+    /// Return the set of operator node IDs for this plan.
+    fn plan(&self) -> &[NodeId] {
+        &self.plan
+    }
+}
+
 /// Options that control logging and other behaviors when executing a
 /// [Model](crate::Model).
 #[derive(Clone, Default, PartialEq)]
@@ -281,12 +330,18 @@ pub struct RunOptions {
 /// or output value, or a computation step.
 pub struct Graph {
     nodes: Vec<Node>,
+
+    /// The plan that was used for the most recent execution of the graph.
+    cached_plan: Mutex<Option<Arc<CachedPlan>>>,
 }
 
 impl Graph {
     /// Create a new empty dataflow graph.
     pub fn new() -> Graph {
-        Graph { nodes: Vec::new() }
+        Graph {
+            nodes: Vec::new(),
+            cached_plan: Mutex::new(None),
+        }
     }
 
     /// Add an operator node to the graph.
@@ -387,21 +442,37 @@ impl Graph {
         outputs: &[NodeId],
         opts: Option<RunOptions>,
     ) -> Result<Vec<Output>, RunError> {
-        let plan = self.create_plan(
-            inputs,
-            outputs,
-            PlanOptions {
-                allow_missing_inputs: false,
-            },
-        )?;
+        let plan = {
+            // Reuse the plan from the previous run if the input and output IDs
+            // match, otherwise create a new one.
+            //
+            // Note that we only hold the plan lock while creating the plan,
+            // not while executing the model.
+            let mut cached_plan = self.cached_plan.lock().unwrap();
+            let input_ids: Vec<_> = inputs.iter().map(|(node_id, _)| *node_id).collect();
+            match cached_plan.as_ref() {
+                Some(plan) if plan.matches(&input_ids, outputs) => plan.clone(),
+                _ => {
+                    let plan = self.create_plan(
+                        inputs,
+                        outputs,
+                        PlanOptions {
+                            allow_missing_inputs: false,
+                        },
+                    )?;
+                    *cached_plan = Some(Arc::new(CachedPlan::new(&input_ids, outputs, plan)));
+                    cached_plan.clone().unwrap()
+                }
+            }
+        };
 
-        threading::thread_pool().run(|| self.run_plan(inputs, &plan, outputs, opts))
+        threading::thread_pool().run(|| self.run_plan(inputs, plan.plan(), outputs, opts))
     }
 
     fn run_plan(
         &self,
         inputs: &[(NodeId, Input)],
-        plan: &[(NodeId, &OperatorNode)],
+        plan: &[NodeId],
         outputs: &[NodeId],
         opts: Option<RunOptions>,
     ) -> Result<Vec<Output>, RunError> {
@@ -428,7 +499,12 @@ impl Graph {
         // Count how often each temporary output is used, so we can free them
         // when no longer needed.
         let mut temp_value_refcount = NodeRefCount::new();
-        for (_, op_node) in plan.iter() {
+        for &op_node_id in plan.iter() {
+            let Some(Node::Operator(op_node)) = self.nodes.get(op_node_id) else {
+                return Err(RunError::PlanningError(
+                    "operator node not found".to_string(),
+                ));
+            };
             for node_id in op_node.inputs.iter().filter_map(|node| *node) {
                 if let Some(Node::Value(_)) = self.nodes.get(node_id) {
                     temp_value_refcount.inc(node_id);
@@ -460,7 +536,12 @@ impl Graph {
         };
         let mut alloc_timer = Timer::new();
 
-        for (step, (op_node_id, op_node)) in plan.iter().enumerate() {
+        for (step, &op_node_id) in plan.iter().enumerate() {
+            let Some(Node::Operator(op_node)) = self.nodes.get(op_node_id) else {
+                return Err(RunError::PlanningError(
+                    "operator node not found".to_string(),
+                ));
+            };
             let mut op_timer = Timer::new();
             if record_timing {
                 op_timer.start();
@@ -533,7 +614,7 @@ impl Graph {
                         panic!(
                             "Invalid plan did not produce input value {} for operator {}",
                             self.node_name(*node_id),
-                            self.node_name(*op_node_id),
+                            self.node_name(op_node_id),
                         );
                     }
                 } else {
@@ -719,21 +800,22 @@ impl Graph {
     }
 
     /// Prune a plan so that it contains only operators which can be executed
-    /// given an initial set of inputs.
+    /// given a subset of the inputs.
     ///
     /// Returns a tuple of `(pruned_plan, new_outputs)` where `new_outputs`
     /// contains the IDs of leaf nodes in the pruned plan. These are the values
     /// that can still be generated by the reduced plan, and are either in
     /// the original `outputs` list or are inputs to parts of the plan that
     /// were pruned away.
-    fn prune_plan<'a>(
+    fn prune_plan(
         &self,
-        plan: &[(NodeId, &'a OperatorNode)],
+        plan: &[NodeId],
         inputs: &[NodeId],
         outputs: &[NodeId],
-    ) -> (Vec<(NodeId, &'a OperatorNode)>, Vec<NodeId>) {
+    ) -> (Vec<NodeId>, Vec<NodeId>) {
         let mut resolved_values = self.init_resolved_values(inputs.iter().copied());
         let mut pruned_plan = Vec::new();
+        let mut candidate_outputs = Vec::new();
 
         // IDs of input nodes for pruned operators that we can still generate
         // with the pruned plan.
@@ -741,7 +823,10 @@ impl Graph {
 
         // Walk forwards through the plan and prune away steps that cannot be
         // computed due to missing inputs.
-        for (node_id, op_node) in plan {
+        for &node_id in plan {
+            let Some(Node::Operator(op_node)) = self.nodes.get(node_id) else {
+                continue;
+            };
             let all_inputs_available = op_node
                 .inputs
                 .iter()
@@ -756,16 +841,15 @@ impl Graph {
                 continue;
             }
             resolved_values.extend(op_node.outputs.iter().filter_map(|id_opt| *id_opt));
-            pruned_plan.push((*node_id, *op_node));
+            pruned_plan.push(node_id);
+            candidate_outputs.extend(op_node.outputs.iter().filter_map(|id_opt| *id_opt));
         }
 
         // Get IDs of values produced by the pruned plan which are either in the
         // originally requested set of outputs, or are inputs to steps of the
         // original plan that were pruned away.
-        let new_outputs: Vec<NodeId> = pruned_plan
-            .iter()
-            .flat_map(|(_, op_node)| op_node.outputs.iter())
-            .filter_map(|id_opt| *id_opt)
+        let new_outputs: Vec<NodeId> = candidate_outputs
+            .into_iter()
             .filter(|output| {
                 outputs.contains(output) || pruned_ops_resolved_inputs.contains(output)
             })
@@ -798,7 +882,7 @@ impl Graph {
         inputs: &[(NodeId, Input)],
         outputs: &[NodeId],
         options: PlanOptions,
-    ) -> Result<Vec<(NodeId, &OperatorNode)>, RunError> {
+    ) -> Result<Vec<NodeId>, RunError> {
         if !all_unique(outputs, |x, y| x == y) {
             return Err(RunError::PlanningError("output IDs are not unique".into()));
         }
@@ -866,10 +950,7 @@ impl Graph {
 
             /// Return a sequential plan to generate `outputs`. The plan is
             /// a vec of `(op_node_id, operator)` tuples.
-            fn plan(
-                mut self,
-                outputs: &[NodeId],
-            ) -> Result<Vec<(NodeId, &'a OperatorNode)>, RunError> {
+            fn plan(mut self, outputs: &[NodeId]) -> Result<Vec<NodeId>, RunError> {
                 for output_id in outputs.iter() {
                     if self.resolved_values.contains(output_id) {
                         // Value is either a constant node or is produced by
@@ -885,7 +966,7 @@ impl Graph {
                         return Err(RunError::PlanningError(msg));
                     }
                 }
-                Ok(self.plan)
+                Ok(self.plan.into_iter().map(|(node_id, _)| node_id).collect())
             }
         }
 
@@ -913,6 +994,7 @@ mod tests {
     use rten_tensor::test_util::{expect_equal, expect_equal_with_tolerance};
     use rten_tensor::{tensor, Tensor, TensorView};
 
+    use super::CachedPlan;
     use crate::graph::{Dimension, Graph, RunError};
     use crate::ops::{
         Add, Concat, Conv, InputList, IntoOpResult, OpError, Operator, Output, Relu, Shape,
@@ -1687,5 +1769,24 @@ mod tests {
         assert_eq!(partial_outs[0].1, Output::FloatTensor(tensor!(11.)));
 
         Ok(())
+    }
+
+    #[test]
+    fn test_cached_plan_matches() {
+        let input_ids = &[3, 1, 2];
+        let output_ids = &[6, 4, 5];
+        let op_ids = &[10, 11, 12];
+
+        let plan = CachedPlan::new(input_ids, output_ids, op_ids.to_vec());
+
+        assert!(plan.matches(input_ids, output_ids));
+
+        // Same input and output IDs, different orders.
+        assert!(plan.matches(&[1, 2, 3], &[4, 5, 6]));
+        assert!(plan.matches(&[3, 2, 1], &[6, 5, 4]));
+
+        // Different input and output IDs
+        assert!(!plan.matches(&[20, 21, 22], output_ids));
+        assert!(!plan.matches(input_ids, &[20, 21, 22]));
     }
 }
