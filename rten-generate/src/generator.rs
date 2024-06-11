@@ -1,12 +1,15 @@
+//! Tools to run the generation loop for an auto-regressive model.
+
 use std::error::Error;
 use std::fmt;
 
-use rten::{Dimension, Input, Model, NodeId, Operators, Output};
+use rten::{Dimension, Input, Model, NodeId, Output};
 use rten_tensor::prelude::*;
 use rten_tensor::{NdTensor, Tensor};
 use rten_text::tokenizers::Tokenizer;
 
 use crate::metrics::Metrics;
+use crate::sampler::{ArgMaxSampler, Sampler};
 
 /// Errors that occur when creating or running a [`Generator`].
 #[derive(Debug)]
@@ -60,6 +63,13 @@ struct KvCache {
 /// generation when an end-of-text token is reached. You can also use all of
 /// the standard iterator adapters. For example `generator.take(30)` will
 /// return an iterator that stops generation after 30 tokens have been produced).
+///
+/// ## Sampling
+///
+/// The token ID is sampled from the outputs of the model (the "logits") using
+/// a [`Sampler`]. By default this is an [`ArgMaxSampler`] which simply chooses
+/// the token with the highest probability. The sampler can be configured using
+/// [`with_sampler`](Self::with_sampler).
 pub struct Generator<'a> {
     model: &'a Model,
 
@@ -82,6 +92,9 @@ pub struct Generator<'a> {
 
     // Output node IDs
     logits_output: NodeId,
+
+    // Sampler used to get the next token ID from the output logits.
+    sampler: Box<dyn Sampler>,
 
     /// Length of the sequence generated so far.
     seq_len: u32,
@@ -192,6 +205,7 @@ impl<'a> Generator<'a> {
             logits_output,
             kv_cache,
             seq_len: 0,
+            sampler: Box::new(ArgMaxSampler {}),
         })
     }
 
@@ -209,6 +223,12 @@ impl<'a> Generator<'a> {
     pub fn with_constant_input(mut self, input_id: NodeId, value: Input<'a>) -> Self {
         self.constant_prop_inputs = None;
         self.constant_inputs.push((input_id, value));
+        self
+    }
+
+    /// Set the sampler used to sample the next token ID from the output logits.
+    pub fn with_sampler<S: Sampler + 'static>(mut self, sampler: S) -> Self {
+        self.sampler = Box::new(sampler);
         self
     }
 
@@ -288,14 +308,7 @@ impl<'a> Generator<'a> {
 
         // Sample output token.
         let logits: NdTensor<f32, 3> = outputs.remove(0).try_into().map_err(wrap_error)?;
-        let next_ids = logits
-            .arg_max(-1, false /* keep_dims */)
-            .map_err(wrap_error)?;
-        let next_id = next_ids
-            .slice::<0, _>((0, -1))
-            .item()
-            .map(|it| *it as u32)
-            .expect("expected scalar");
+        let next_id = self.sampler.sample(logits.slice::<1, _>((0, -1)));
 
         // Update the key-value cache.
         for cache_entry in self.kv_cache.iter_mut() {

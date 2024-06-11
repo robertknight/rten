@@ -424,6 +424,7 @@ dependencies = [
 name = "rten-generate"
 version = "0.10.0"
 dependencies = [
+ "fastrand",
  "rten",
  "rten-tensor",
  "rten-text",

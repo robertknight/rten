@@ -1,3 +1,5 @@
+//! Record timing metrics during generation.
+
 use std::time::Duration;
 
 /// Records timing metrics for a generation loop.
