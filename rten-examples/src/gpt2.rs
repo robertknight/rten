@@ -5,6 +5,7 @@ use std::io::prelude::*;
 
 use rten::Model;
 use rten_generate::metrics::Metrics;
+use rten_generate::sampler::TopKSampler;
 use rten_generate::{Generator, GeneratorUtils};
 use rten_text::tokenizers::Tokenizer;
 
@@ -13,6 +14,7 @@ struct Args {
     tokenizer_config: String,
     prompt: String,
     output_length: usize,
+    top_k: usize,
 }
 
 fn parse_args() -> Result<Args, lexopt::Error> {
@@ -21,11 +23,15 @@ fn parse_args() -> Result<Args, lexopt::Error> {
     let mut values = VecDeque::new();
     let mut parser = lexopt::Parser::from_env();
     let mut output_length = 30;
+    let mut top_k = 50;
 
     while let Some(arg) = parser.next()? {
         match arg {
             Short('l') | Long("length") => {
                 output_length = parser.value()?.parse()?;
+            }
+            Short('k') | Long("top-k") => {
+                top_k = parser.value()?.parse()?;
             }
             Value(val) => values.push_back(val.string()?),
             Long("help") => {
@@ -42,7 +48,9 @@ Args:
 
 Options:
 
- -l, --length   - Set max output length (in tokens)
+ -l, --length N - Set max output length (in tokens)
+
+ -k, --top-k K  - Sample from top `K` tokens at each step.
 ",
                     bin_name = parser.bin_name().unwrap_or("gpt2")
                 );
@@ -61,6 +69,7 @@ Options:
         tokenizer_config,
         prompt,
         output_length,
+        top_k,
     };
 
     Ok(args)
@@ -106,6 +115,7 @@ fn main() -> Result<(), Box<dyn Error>> {
     let mut metrics = Metrics::new();
     let generator = Generator::from_model(&model)?
         .with_prompt(&token_ids)
+        .with_sampler(TopKSampler::new(args.top_k))
         .take(args.output_length)
         .profile(&mut metrics)
         .decode(&tokenizer);
