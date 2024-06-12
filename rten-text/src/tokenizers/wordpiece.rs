@@ -162,6 +162,11 @@ impl Encoder for WordPiece {
             .copied()
             .ok_or(TokenizerError::MissingToken(tok.to_string()))
     }
+
+    fn decode(&self, ids: &[usize]) -> Result<String, TokenizerError> {
+        let token_strings = self.get_tokens(ids)?;
+        Ok(token_strings.join(" "))
+    }
 }
 
 #[cfg(test)]
@@ -322,6 +327,49 @@ mod tests {
                 tokens
             );
             assert!(encoded.token_type_ids().all(|ttid| ttid == 0));
+        }
+    }
+
+    #[test]
+    fn test_decode() {
+        struct Case<'a> {
+            input: &'a str,
+            expected: &'a str,
+        }
+
+        let cases = [
+            Case {
+                input: "",
+                expected: "[CLS] [SEP]",
+            },
+            Case {
+                input: "this is a test sequence",
+                expected: "[CLS] this is a test sequence [SEP]",
+            },
+            Case {
+                input: "THIS IS A TEST SEQUENCE",
+                expected: "[CLS] this is a test sequence [SEP]",
+            },
+        ];
+
+        let vocab = &[
+            "[CLS]", "[SEP]", "[UNK]", "this", "is", "a", "test", "sequence",
+        ];
+        let tokenizer = create_tokenizer(
+            vocab,
+            WordPieceOptions {
+                normalizer: Some(Normalizer::new(NormalizerOptions {
+                    lowercase: true,
+                    ..Default::default()
+                })),
+                ..Default::default()
+            },
+        );
+
+        for Case { input, expected } in cases {
+            let encoded = tokenizer.encode(input.into(), Default::default()).unwrap();
+            let decoded = tokenizer.encoder().decode(encoded.token_ids()).unwrap();
+            assert_eq!(decoded, expected);
         }
     }
 }

@@ -357,7 +357,21 @@ impl Encoder for Bpe {
         let bytes = self
             .get_token_bytes(id as u32)
             .ok_or(TokenizerError::InvalidTokenId(id))?;
-        String::from_utf8(bytes).map_err(|err| TokenizerError::InvalidUtf8(err.utf8_error()))
+
+        let byte_to_char: HashMap<u8, char> = char_to_byte()
+            .into_iter()
+            .map(|(ch, byte)| (byte, ch))
+            .collect();
+
+        let token_str: String = bytes
+            .into_iter()
+            .map(|byte| {
+                byte_to_char
+                    .get(&byte)
+                    .expect("should have char for all bytes")
+            })
+            .collect();
+        Ok(token_str)
     }
 
     fn get_token_id(&self, text: &str) -> Result<usize, TokenizerError> {
@@ -387,6 +401,17 @@ impl Encoder for Bpe {
         }
 
         Ok(())
+    }
+
+    fn decode(&self, ids: &[usize]) -> Result<String, TokenizerError> {
+        let mut bytes = Vec::new();
+        for &id in ids {
+            let token_bytes = self
+                .get_token_bytes(id as u32)
+                .ok_or(TokenizerError::InvalidTokenId(id))?;
+            bytes.extend(token_bytes);
+        }
+        String::from_utf8(bytes).map_err(|_| TokenizerError::InvalidUtf8)
     }
 }
 
@@ -438,7 +463,7 @@ in g";
             Case {
                 text: "the cat is in the bed",
                 tokens: &[
-                    "t", "he", " c", "at", " ", "is", " ", "in", " the", " b", "ed",
+                    "t", "he", "Ġc", "at", "Ġ", "is", "Ġ", "in", "Ġthe", "Ġb", "ed",
                 ],
                 merges: MINI_GPT2,
             },
@@ -469,6 +494,53 @@ in g";
                 tokenizer.encoder().get_tokens(encoded.token_ids()).unwrap(),
                 tokens
             );
+        }
+    }
+
+    #[test]
+    fn test_get_token_str() {
+        struct Case<'a> {
+            input: &'a str,
+            encoded_str: &'a str,
+        }
+
+        let cases = [Case {
+            input: " ",
+            encoded_str: "Ġ",
+        }];
+
+        let merges: Vec<&str> = MINI_GPT2.lines().collect();
+        let encoder = Bpe::new(&merges, GPT2_SPLIT_PATTERN, None, HashSet::new()).unwrap();
+        let tokenizer = Tokenizer::new(encoder, Default::default());
+
+        for Case { input, encoded_str } in cases {
+            let tok_id = tokenizer.encoder().get_token_id(input).unwrap();
+            let token_str = tokenizer.encoder().get_token_str(tok_id).unwrap();
+            assert_eq!(token_str, encoded_str);
+        }
+    }
+
+    #[test]
+    fn test_decode() {
+        struct Case<'a> {
+            text: &'a str,
+        }
+
+        let cases = [
+            Case { text: "foo bar" },
+            Case {
+                text: "the cat is in the bed",
+            },
+        ];
+
+        let merges: Vec<&str> = MINI_GPT2.lines().collect();
+        let encoder = Bpe::new(&merges, GPT2_SPLIT_PATTERN, None, HashSet::new()).unwrap();
+        let tokenizer = Tokenizer::new(encoder, Default::default());
+
+        for Case { text } in cases {
+            let encoded = tokenizer.encode(text.into(), Default::default()).unwrap();
+            let decoded = tokenizer.encoder().decode(encoded.token_ids()).unwrap();
+            assert_eq!(decoded, text);
         }
     }
 }

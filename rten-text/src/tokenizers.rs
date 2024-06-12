@@ -161,6 +161,16 @@ pub trait Encoder {
     fn get_token_id(&self, token: &str) -> Result<usize, TokenizerError>;
 
     /// Convert a token ID to its canonical string representation.
+    ///
+    /// This is the representation of the token used in text-based
+    /// representations of the vocabulary, such as the `tokenizer.json` file
+    /// for Hugging Face tokenizers.
+    ///
+    /// For tokenizers such as [`Bpe`] where tokens correspond to sequences of
+    /// bytes rather than strings, the canonical string representation is an
+    /// encoding of the _bytes_, not the text string that the token logically
+    /// corresponds to. To get text strings, pass a sequence of token IDs to
+    /// [`decode`](Self::decode) instead.
     fn get_token_str(&self, id: usize) -> Result<String, TokenizerError>;
 
     /// Encode a string into a sequence of token IDs. `on_token` is a callback
@@ -172,7 +182,18 @@ pub trait Encoder {
         on_token: &mut dyn FnMut(usize, usize),
     ) -> Result<(), TokenizerError>;
 
-    /// Return the canonical strings that correspond to a set of token IDs.
+    /// Decode a sequence of token IDs to a text string.
+    ///
+    /// For tokenizers which operate on byte sequences (eg. [`Bpe`]) this can
+    /// fail if the token IDs don't correspond to a complete UTF-8 sequence.
+    /// In that case the solution is to accumulate more token IDs and then
+    /// retry decoding.
+    fn decode(&self, ids: &[usize]) -> Result<String, TokenizerError>;
+
+    /// Return the canonical strings that correspond to a sequence of token IDs.
+    ///
+    /// See [`get_token_str`](Self::get_token_str) for notes on what the
+    /// "canonical string" is.
     fn get_tokens(&self, ids: &[usize]) -> Result<Vec<String>, TokenizerError> {
         let mut tokens = Vec::with_capacity(ids.len());
         for &id in ids {
@@ -551,7 +572,7 @@ pub enum TokenizerError {
     ///
     /// This can arise when working with tokenizers like [Bpe] where
     /// individual tokens do not always represent whole characters.
-    InvalidUtf8(std::str::Utf8Error),
+    InvalidUtf8,
 }
 
 impl fmt::Display for TokenizerError {
@@ -560,7 +581,7 @@ impl fmt::Display for TokenizerError {
             Self::MissingToken(ref token) => write!(f, "missing vocab token {}", token),
             Self::InvalidTokenId(id) => write!(f, "unknown token id {}", id),
             Self::RegexSplitFailed(err) => write!(f, "regex failed {}", err),
-            Self::InvalidUtf8(err) => write!(f, "UTF-8 decode failed {}", err),
+            Self::InvalidUtf8 => write!(f, "UTF-8 decode failed"),
         }
     }
 }
