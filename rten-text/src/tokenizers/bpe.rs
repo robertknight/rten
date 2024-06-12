@@ -1,4 +1,4 @@
-use std::collections::{HashMap, HashSet};
+use std::collections::HashMap;
 use std::error::Error;
 use std::fmt;
 use std::fmt::{Debug, Display};
@@ -247,6 +247,9 @@ pub struct Bpe {
     /// Pattern used to split the text into pieces prior to applying BPE
     /// tokenization.
     splitter: Regex,
+
+    /// Map from token ID to content for special tokens (eg. end-of-string).
+    added_tokens: HashMap<usize, String>,
 }
 
 impl Bpe {
@@ -273,7 +276,7 @@ impl Bpe {
         merges: &[&str],
         pattern: &str,
         vocab: Option<HashMap<String, usize>>,
-        added_tokens: HashSet<&str>,
+        added_tokens: HashMap<usize, String>,
     ) -> Result<Bpe, BpeError> {
         let splitter = Regex::new(pattern).map_err(BpeError::InvalidPattern)?;
 
@@ -285,7 +288,11 @@ impl Bpe {
             for (token, id) in vocab.into_iter() {
                 if let Some(rank) = builder.get_token_rank(&token) {
                     rank_to_token_id.insert(rank, id);
-                } else if !added_tokens.contains(token.as_str()) {
+                } else if !added_tokens
+                    .values()
+                    .find(|s| *s == token.as_str())
+                    .is_some()
+                {
                     return Err(BpeError::InvalidVocabEntry(token));
                 }
             }
@@ -299,6 +306,7 @@ impl Bpe {
             byte_to_rank: builder.byte_to_rank,
             rank_to_token_id,
             splitter,
+            added_tokens,
         })
     }
 
@@ -354,6 +362,14 @@ impl Bpe {
 
 impl Encoder for Bpe {
     fn get_token_str(&self, id: usize) -> Result<String, TokenizerError> {
+        if let Some(tok_str) = self.added_tokens.get(&id) {
+            return Ok(tok_str.to_string());
+        }
+
+        // nb. The current implementation is inefficient as it does recursive
+        // calls to `get_token_bytes` and creates the byte-to-char lookup table
+        // on every call.
+
         let bytes = self
             .get_token_bytes(id as u32)
             .ok_or(TokenizerError::InvalidTokenId(id))?;
@@ -375,6 +391,10 @@ impl Encoder for Bpe {
     }
 
     fn get_token_id(&self, text: &str) -> Result<usize, TokenizerError> {
+        if let Some((&id, _str)) = self.added_tokens.iter().find(|(_id, str)| *str == text) {
+            return Ok(id);
+        }
+
         let tokens = self.encode_piece(text);
         if tokens.len() == 1 {
             Ok(tokens[0])
@@ -406,10 +426,14 @@ impl Encoder for Bpe {
     fn decode(&self, ids: &[usize]) -> Result<String, TokenizerError> {
         let mut bytes = Vec::new();
         for &id in ids {
-            let token_bytes = self
-                .get_token_bytes(id as u32)
-                .ok_or(TokenizerError::InvalidTokenId(id))?;
-            bytes.extend(token_bytes);
+            if let Some(tok_str) = self.added_tokens.get(&id) {
+                bytes.extend(tok_str.as_bytes());
+            } else {
+                let token_bytes = self
+                    .get_token_bytes(id as u32)
+                    .ok_or(TokenizerError::InvalidTokenId(id))?;
+                bytes.extend(token_bytes);
+            }
         }
         String::from_utf8(bytes).map_err(|_| TokenizerError::InvalidUtf8)
     }
@@ -417,7 +441,7 @@ impl Encoder for Bpe {
 
 #[cfg(test)]
 mod tests {
-    use std::collections::HashSet;
+    use std::collections::HashMap;
 
     use super::patterns::GPT2 as GPT2_SPLIT_PATTERN;
     use super::Bpe;
@@ -449,6 +473,13 @@ e s
 e d
 Ġ f
 in g";
+
+    fn added_tokens() -> HashMap<usize, String> {
+        [(50256, "<|endoftext|>")]
+            .into_iter()
+            .map(|(id, str)| (id, str.to_string()))
+            .collect()
+    }
 
     #[test]
     fn test_encode() {
@@ -487,7 +518,7 @@ in g";
         } in cases
         {
             let merges: Vec<&str> = merges.lines().collect();
-            let encoder = Bpe::new(&merges, GPT2_SPLIT_PATTERN, None, HashSet::new()).unwrap();
+            let encoder = Bpe::new(&merges, GPT2_SPLIT_PATTERN, None, HashMap::new()).unwrap();
             let tokenizer = Tokenizer::new(encoder, Default::default());
             let encoded = tokenizer.encode(text.into(), Default::default()).unwrap();
             assert_eq!(
@@ -504,13 +535,27 @@ in g";
             encoded_str: &'a str,
         }
 
-        let cases = [Case {
-            input: " ",
-            encoded_str: "Ġ",
-        }];
+        let cases = [
+            // Printable ASCII text. Encoded string is same as input.
+            Case {
+                input: "a",
+                encoded_str: "a",
+            },
+            // Non-printable or non-ASCII text. Encoded string will use
+            // printable characters to represent these bytes.
+            Case {
+                input: " ",
+                encoded_str: "Ġ",
+            },
+            // Added tokens.
+            Case {
+                input: "<|endoftext|>",
+                encoded_str: "<|endoftext|>",
+            },
+        ];
 
         let merges: Vec<&str> = MINI_GPT2.lines().collect();
-        let encoder = Bpe::new(&merges, GPT2_SPLIT_PATTERN, None, HashSet::new()).unwrap();
+        let encoder = Bpe::new(&merges, GPT2_SPLIT_PATTERN, None, added_tokens()).unwrap();
         let tokenizer = Tokenizer::new(encoder, Default::default());
 
         for Case { input, encoded_str } in cases {
@@ -524,23 +569,45 @@ in g";
     fn test_decode() {
         struct Case<'a> {
             text: &'a str,
+            add_eos: bool,
+            expected: &'a str,
         }
 
         let cases = [
-            Case { text: "foo bar" },
+            Case {
+                text: "foo bar",
+                add_eos: false,
+                expected: "foo bar",
+            },
+            Case {
+                text: "foo bar",
+                add_eos: true,
+                expected: "foo bar<|endoftext|>",
+            },
             Case {
                 text: "the cat is in the bed",
+                add_eos: false,
+                expected: "the cat is in the bed",
             },
         ];
 
         let merges: Vec<&str> = MINI_GPT2.lines().collect();
-        let encoder = Bpe::new(&merges, GPT2_SPLIT_PATTERN, None, HashSet::new()).unwrap();
+        let encoder = Bpe::new(&merges, GPT2_SPLIT_PATTERN, None, added_tokens()).unwrap();
         let tokenizer = Tokenizer::new(encoder, Default::default());
 
-        for Case { text } in cases {
+        for Case {
+            text,
+            add_eos,
+            expected,
+        } in cases
+        {
             let encoded = tokenizer.encode(text.into(), Default::default()).unwrap();
-            let decoded = tokenizer.encoder().decode(encoded.token_ids()).unwrap();
-            assert_eq!(decoded, text);
+            let mut token_ids = encoded.token_ids().to_vec();
+            if add_eos {
+                token_ids.push(50256);
+            }
+            let decoded = tokenizer.encoder().decode(&token_ids).unwrap();
+            assert_eq!(decoded, expected);
         }
     }
 }

@@ -1,4 +1,4 @@
-use std::collections::{HashMap, HashSet};
+use std::collections::HashMap;
 use std::error::Error;
 use std::fs::read_to_string;
 use std::io;
@@ -158,7 +158,7 @@ fn test_bpe_gpt2() -> Result<(), Box<dyn Error>> {
     // Create tokenizer manually.
     let merges = read_test_file("models/gpt2/merges.txt")?;
     let merges: Vec<_> = merges.lines().collect();
-    let encoder = Bpe::new(&merges, GPT2_SPLIT_PATTERN, None, HashSet::new())?;
+    let encoder = Bpe::new(&merges, GPT2_SPLIT_PATTERN, None, Default::default())?;
     let tokenizer = Tokenizer::new(encoder, Default::default());
 
     // Create tokenizer from a `tokenizers.json` file.

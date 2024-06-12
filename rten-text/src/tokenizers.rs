@@ -10,7 +10,7 @@
 //!    such as [WordPiece] and then wrap it with a tokenizer using
 //!    [Tokenizer::new].
 
-use std::collections::HashSet;
+use std::collections::HashMap;
 use std::error::Error;
 use std::fmt;
 use std::iter::repeat;
@@ -188,6 +188,9 @@ pub trait Encoder {
     /// fail if the token IDs don't correspond to a complete UTF-8 sequence.
     /// In that case the solution is to accumulate more token IDs and then
     /// retry decoding.
+    ///
+    /// Special tokens are decoded into their canonical string representations
+    /// as returned by [`get_token_str`](Self::get_token_str).
     fn decode(&self, ids: &[usize]) -> Result<String, TokenizerError>;
 
     /// Return the canonical strings that correspond to a sequence of token IDs.
@@ -283,10 +286,15 @@ impl Tokenizer {
 
         match json.model {
             json::Model::Bpe(model) => {
-                let added_tokens: HashSet<&str> = json
+                let added_tokens: HashMap<usize, String> = json
                     .added_tokens
                     .as_ref()
-                    .map(|tokens| tokens.iter().map(|token| token.content.as_str()).collect())
+                    .map(|tokens| {
+                        tokens
+                            .iter()
+                            .map(|token| (token.id as usize, token.content.clone()))
+                            .collect()
+                    })
                     .unwrap_or_default();
                 let merges: Vec<_> = model.merges.iter().map(|s| s.as_str()).collect();
                 let encoder = Bpe::new(
