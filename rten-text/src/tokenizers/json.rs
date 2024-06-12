@@ -8,6 +8,7 @@ use serde::Deserialize;
 #[derive(Deserialize)]
 pub(crate) struct AddedToken {
     pub content: String,
+    pub id: u32,
 }
 
 #[derive(Deserialize)]
