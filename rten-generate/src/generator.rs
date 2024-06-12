@@ -6,7 +6,7 @@ use std::fmt;
 use rten::{Dimension, Input, Model, NodeId, Output};
 use rten_tensor::prelude::*;
 use rten_tensor::{NdTensor, Tensor};
-use rten_text::tokenizers::Tokenizer;
+use rten_text::tokenizers::{Tokenizer, TokenizerError};
 
 use crate::metrics::Metrics;
 use crate::sampler::{ArgMaxSampler, Sampler};
@@ -25,6 +25,9 @@ pub enum GeneratorError {
 
     /// An error occurred while generating the next token.
     GenerateError(Box<dyn Error>),
+
+    /// An error occurred while decoding tokens.
+    DecodeError(TokenizerError),
 }
 
 impl fmt::Display for GeneratorError {
@@ -34,6 +37,7 @@ impl fmt::Display for GeneratorError {
             GeneratorError::OutputNotFound(name) => write!(f, "model output not found: {}", name),
             GeneratorError::ShapeMismatch(err) => write!(f, "shape mismatch: {}", err),
             GeneratorError::GenerateError(err) => write!(f, "generation error: {}", err),
+            GeneratorError::DecodeError(err) => write!(f, "decode error: {}", err),
         }
     }
 }
@@ -405,9 +409,17 @@ impl<'a, G: Iterator<Item = GeneratorItem>> Iterator for TextGenerator<'a, G> {
 
             token_buf.push(token as usize);
 
-            let token_strings = self.tokenizer.encoder().get_tokens(&token_buf);
-            if let Ok(strings) = token_strings {
-                return Some(Ok(strings.concat()));
+            let text = self.tokenizer.encoder().decode(&token_buf);
+            match text {
+                Ok(text) => return Some(Ok(text)),
+                Err(TokenizerError::InvalidUtf8) => {
+                    // If the current token sequence doesn't correspond to a
+                    // complete UTF-8 sequence, add more tokens until it does.
+                    continue;
+                }
+                Err(err) => {
+                    return Some(Err(GeneratorError::DecodeError(err)));
+                }
             }
         }
 
