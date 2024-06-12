@@ -173,26 +173,6 @@ pub trait Encoder {
     /// [`decode`](Self::decode) instead.
     fn get_token_str(&self, id: usize) -> Result<String, TokenizerError>;
 
-    /// Encode a string into a sequence of token IDs. `on_token` is a callback
-    /// with `(offset, token_id)` arguments that should be invoked for each
-    /// token produced.
-    fn encode_sequence(
-        &self,
-        text: &str,
-        on_token: &mut dyn FnMut(usize, usize),
-    ) -> Result<(), TokenizerError>;
-
-    /// Decode a sequence of token IDs to a text string.
-    ///
-    /// For tokenizers which operate on byte sequences (eg. [`Bpe`]) this can
-    /// fail if the token IDs don't correspond to a complete UTF-8 sequence.
-    /// In that case the solution is to accumulate more token IDs and then
-    /// retry decoding.
-    ///
-    /// Special tokens are decoded into their canonical string representations
-    /// as returned by [`get_token_str`](Self::get_token_str).
-    fn decode(&self, ids: &[usize]) -> Result<String, TokenizerError>;
-
     /// Return the canonical strings that correspond to a sequence of token IDs.
     ///
     /// See [`get_token_str`](Self::get_token_str) for notes on what the
@@ -205,6 +185,38 @@ pub trait Encoder {
         }
         Ok(tokens)
     }
+
+    /// Encode a string into a sequence of token IDs with source offsets.
+    ///
+    /// `on_token` is a callback with `(offset, token_id)` arguments that should
+    /// be invoked for each token produced.
+    fn encode_with_offsets(
+        &self,
+        text: &str,
+        on_token: &mut dyn FnMut(usize, usize),
+    ) -> Result<(), TokenizerError>;
+
+    /// Encode a string into a sequence of token IDs.
+    ///
+    /// This is a convenience wrapper around
+    /// [`encode_with_offsets`](Self::encode_with_offsets) for cases when the
+    /// source offsets are not needed.
+    fn encode(&self, text: &str) -> Result<Vec<usize>, TokenizerError> {
+        let mut token_ids = Vec::new();
+        self.encode_with_offsets(text, &mut |_offset, token_id| token_ids.push(token_id))?;
+        Ok(token_ids)
+    }
+
+    /// Decode a sequence of token IDs to a text string.
+    ///
+    /// For tokenizers which operate on byte sequences (eg. [`Bpe`]) this can
+    /// fail if the token IDs don't correspond to a complete UTF-8 sequence.
+    /// In that case the solution is to accumulate more token IDs and then
+    /// retry decoding.
+    ///
+    /// Special tokens are decoded into their canonical string representations
+    /// as returned by [`get_token_str`](Self::get_token_str).
+    fn decode(&self, ids: &[usize]) -> Result<String, TokenizerError>;
 }
 
 /// Errors returned by [Tokenizer::from_json].
@@ -427,7 +439,7 @@ impl Tokenizer {
         };
 
         self.encoder
-            .encode_sequence(first_seq, &mut |offset, token| {
+            .encode_with_offsets(first_seq, &mut |offset, token| {
                 offsets.push(offset);
                 tokens.push(token);
             })?;
@@ -435,7 +447,7 @@ impl Tokenizer {
 
         if let Some(second_seq) = second_seq {
             self.encoder
-                .encode_sequence(second_seq, &mut |offset, token| {
+                .encode_with_offsets(second_seq, &mut |offset, token| {
                     offsets.push(offset + first_seq.len());
                     tokens.push(token);
                 })?;

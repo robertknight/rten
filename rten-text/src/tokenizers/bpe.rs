@@ -403,7 +403,7 @@ impl Encoder for Bpe {
         }
     }
 
-    fn encode_sequence(
+    fn encode_with_offsets(
         &self,
         text: &str,
         on_token: &mut dyn FnMut(usize, usize),
