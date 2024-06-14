@@ -95,3 +95,30 @@ impl std::fmt::Display for ReshapeError {
         }
     }
 }
+
+/// Errors that can occur while expanding a tensor.
+#[derive(Clone, Debug, PartialEq)]
+pub enum ExpandError {
+    /// The shape of the source and destination tensor do not match, excluding
+    /// the dimensions along which expansion is happening.
+    ShapeMismatch,
+
+    /// The tensor cannot be resized without copying into a new buffer.
+    InsufficientCapacity,
+}
+
+impl std::fmt::Display for ExpandError {
+    fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
+        match self {
+            ExpandError::ShapeMismatch => {
+                write!(
+                    f,
+                    "non-expanding dimensions of source and destination do not match"
+                )
+            }
+            ExpandError::InsufficientCapacity => {
+                write!(f, "insufficient capacity for new dimension size")
+            }
+        }
+    }
+}

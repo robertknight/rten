@@ -5,7 +5,7 @@ use std::ops::{Index, IndexMut, Range};
 use crate::copy::{
     copy_into, copy_into_slice, copy_into_uninit, copy_range_into_slice, map_into_slice,
 };
-use crate::errors::{DimensionError, FromDataError, SliceError};
+use crate::errors::{DimensionError, ExpandError, FromDataError, SliceError};
 use crate::iterators::{
     for_each_mut, AxisChunks, AxisChunksMut, AxisIter, AxisIterMut, InnerIter, InnerIterDyn,
     InnerIterDynMut, InnerIterMut, Iter, IterMut, Lanes, LanesMut, MutViewRef, ViewRef,
@@ -14,6 +14,7 @@ use crate::layout::{
     AsIndex, BroadcastLayout, DynLayout, IntoLayout, Layout, MatrixLayout, MutLayout, NdLayout,
     OverlapPolicy, RemoveDim, ResizeLayout,
 };
+use crate::overlap::may_have_internal_overlap;
 use crate::storage::{CowData, IntoStorage, Storage, StorageMut, ViewData, ViewMutData};
 use crate::{Alloc, GlobalAlloc, IntoSliceItems, RandomSource, SliceItem};
 
@@ -541,7 +542,12 @@ impl<S: StorageMut, L: MutLayout> TensorBase<S, L> {
         S::Elem: Clone,
         L: Clone,
     {
-        assert!(self.shape() == other.shape());
+        assert!(
+            self.shape() == other.shape(),
+            "copy dest shape {:?} != src shape {:?}",
+            self.shape(),
+            other.shape()
+        );
 
         if let Some(dest) = self.data_mut() {
             if let Some(src) = other.data() {
@@ -691,6 +697,21 @@ impl<S: StorageMut, L: MutLayout> TensorBase<S, L> {
         }
     }
 
+    /// Slice this tensor along a given axis.
+    fn slice_axis_mut(
+        &mut self,
+        axis: usize,
+        range: Range<usize>,
+    ) -> TensorBase<ViewMutData<S::Elem>, L> {
+        let (offset_range, sliced_layout) = self.layout.slice_axis(axis, range.clone());
+        debug_assert_eq!(sliced_layout.size(axis), range.len());
+
+        TensorBase {
+            data: self.data.slice_mut(offset_range),
+            layout: sliced_layout,
+        }
+    }
+
     /// Slice this tensor and return a static-rank view with `M` dimensions.
     ///
     /// Use [AsView::slice_dyn] instead if the number of dimensions in the
@@ -773,6 +794,48 @@ impl<T, L: Clone + MutLayout> TensorBase<Vec<T>, L> {
         TensorBase::from_data([data.len()].as_index(), data)
     }
 
+    /// Append elements from `other` to this tensor along a given axis.
+    ///
+    /// This will fail if the shapes of `self` and `other` do not match along
+    /// dimensions other than `axis`, or if the current tensor has
+    /// insufficient capacity to expand without re-allocating.
+    pub fn append<S2: Storage<Elem = T>>(
+        &mut self,
+        axis: usize,
+        other: TensorBase<S2, L>,
+    ) -> Result<(), ExpandError>
+    where
+        T: Copy,
+    {
+        let shape_match = self.ndim() == other.ndim()
+            && (0..self.ndim()).all(|d| d == axis || self.size(d) == other.size(d));
+        if !shape_match {
+            return Err(ExpandError::ShapeMismatch);
+        }
+
+        let old_size = self.size(axis);
+        let new_size = self.size(axis) + other.size(axis);
+
+        let Some(new_layout) = self.expanded_layout(axis, new_size) else {
+            return Err(ExpandError::InsufficientCapacity);
+        };
+
+        let new_data_len = new_layout.min_data_len();
+        self.layout = new_layout;
+
+        // Safety: The `copy_from` call below will initialize all elements
+        // added to the tensor.
+        assert!(self.data.capacity() >= new_data_len);
+        unsafe {
+            self.data.set_len(new_data_len);
+        }
+
+        self.slice_axis_mut(axis, old_size..new_size)
+            .copy_from(&other);
+
+        Ok(())
+    }
+
     /// Create a new 1D tensor from a `Vec<T>`.
     pub fn from_vec(vec: Vec<T>) -> TensorBase<Vec<T>, L>
     where
@@ -801,6 +864,30 @@ impl<T, L: Clone + MutLayout> TensorBase<Vec<T>, L> {
         let range = start_offset..start_offset + self.layout.min_data_len();
         self.data.copy_within(range.clone(), 0);
         self.data.truncate(range.end - range.start);
+    }
+
+    /// Return true if this tensor can be expanded along a given axis to a
+    /// new size without re-allocating.
+    pub fn has_capacity(&self, axis: usize, new_size: usize) -> bool {
+        self.expanded_layout(axis, new_size).is_some()
+    }
+
+    /// Return the layout this tensor would have if the size of `axis` were
+    /// expanded to `new_size`.
+    ///
+    /// Returns `None` if the tensor does not have capacity for the new size.
+    fn expanded_layout(&self, axis: usize, new_size: usize) -> Option<L> {
+        let mut new_layout = self.layout.clone();
+        new_layout.resize_dim(axis, new_size);
+        let new_data_len = new_layout.min_data_len();
+
+        let has_capacity = new_data_len <= self.data.capacity()
+            && !may_have_internal_overlap(
+                new_layout.shape().as_ref(),
+                new_layout.strides().as_ref(),
+            );
+
+        has_capacity.then_some(new_layout)
     }
 
     /// Convert the storage of this tensor into an owned [CowData].
@@ -984,6 +1071,36 @@ impl<T, L: Clone + MutLayout> TensorBase<Vec<T>, L> {
         unsafe { data.set_len(len) }
 
         TensorBase::from_data(shape, data)
+    }
+
+    /// Create a tensor which initially has zero elements, but can be expanded
+    /// along a given dimension without reallocating.
+    ///
+    /// `shape` specifies the maximum shape that the tensor can be expanded to
+    /// without reallocating. The initial shape will be the same, except for
+    /// the dimension specified by `expand_dim`, which will be zero.
+    pub fn with_capacity(shape: L::Index<'_>, expand_dim: usize) -> TensorBase<Vec<T>, L>
+    where
+        T: Copy,
+    {
+        Self::with_capacity_in(GlobalAlloc::new(), shape, expand_dim)
+    }
+
+    /// Variant of [`with_capacity`](Self::with_capacity) which takes an allocator.
+    pub fn with_capacity_in<A: Alloc>(
+        alloc: A,
+        shape: L::Index<'_>,
+        expand_dim: usize,
+    ) -> TensorBase<Vec<T>, L>
+    where
+        T: Copy,
+    {
+        let mut tensor = Self::uninit_in(alloc, shape);
+        tensor.clip_dim(expand_dim, 0..0);
+
+        // Safety: Since at least one dimension has a size of zero, the tensor
+        // has no elements and thus is fully initialized.
+        unsafe { tensor.assume_init() }
     }
 }
 
@@ -2082,7 +2199,7 @@ mod tests {
     use std::cell::RefCell;
 
     use super::{AsView, NdTensor, NdTensorView, NdTensorViewMut, Tensor};
-    use crate::errors::FromDataError;
+    use crate::errors::{ExpandError, FromDataError};
     use crate::layout::MatrixLayout;
     use crate::prelude::*;
     use crate::rng::XorShiftRng;
@@ -2109,6 +2226,32 @@ mod tests {
             *self.count.borrow_mut() += 1;
             Vec::with_capacity(capacity)
         }
+    }
+
+    #[test]
+    fn test_append() {
+        let mut tensor = NdTensor::<i32, 2>::with_capacity([3, 3], 1);
+        assert_eq!(tensor.shape(), [3, 0]);
+
+        assert_eq!(
+            tensor.append(1, NdTensor::from([[1, 2, 3]])),
+            Err(ExpandError::ShapeMismatch)
+        );
+
+        tensor
+            .append(1, NdTensor::from([[1, 2], [3, 4], [5, 6]]))
+            .unwrap();
+        assert_eq!(tensor.shape(), [3, 2]);
+
+        tensor.append(1, NdTensor::from([[7], [8], [9]])).unwrap();
+        assert_eq!(tensor.shape(), [3, 3]);
+
+        assert_eq!(tensor, NdTensor::from([[1, 2, 7], [3, 4, 8], [5, 6, 9],]));
+
+        assert_eq!(
+            tensor.append(1, NdTensor::from([[10], [11], [12]])),
+            Err(ExpandError::InsufficientCapacity)
+        );
     }
 
     #[test]
@@ -2608,6 +2751,16 @@ mod tests {
             unsafe { *tensor.get_unchecked_mut([i]) += 1 }
         }
         assert_eq!(tensor.to_vec(), &[2, 3, 4, 5]);
+    }
+
+    #[test]
+    fn test_has_capacity() {
+        let tensor = NdTensor::<f32, 3>::with_capacity([2, 3, 4], 1);
+        assert_eq!(tensor.shape(), [2, 0, 4]);
+        for i in 0..=3 {
+            assert!(tensor.has_capacity(1, i));
+        }
+        assert!(!tensor.has_capacity(1, 4));
     }
 
     #[test]
