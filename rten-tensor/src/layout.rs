@@ -902,10 +902,27 @@ pub trait MutLayout: Layout + Clone {
     /// `self.permuted([N-1, N-2, ... 0])`.
     fn transposed(&self) -> Self;
 
-    /// Slice the layout and return a static rank layout with `M` dimensions.
+    /// Slice the layout.
+    ///
+    /// Returns a tuple of `(offset_range, sliced_layout)`.
     fn slice<const M: usize>(&self, range: &[SliceItem]) -> (Range<usize>, NdLayout<M>);
 
+    /// Slice the layout along a given axis.
+    ///
+    /// Returns a tuple of `(offset_range, sliced_layout)`.
+    fn slice_axis(&self, axis: usize, range: Range<usize>) -> (Range<usize>, Self) {
+        assert!(range.end >= range.start);
+
+        let mut sliced_layout = self.clone();
+        sliced_layout.resize_dim(axis, range.len());
+        let start_offset = range.start * sliced_layout.stride(axis);
+        let end_offset = start_offset + sliced_layout.min_data_len();
+        (start_offset..end_offset, sliced_layout)
+    }
+
     /// Slice the layout and return a dynamic rank layout.
+    ///
+    /// Returns a tuple of `(offset_range, sliced_layout)`.
     fn slice_dyn(&self, range: &[SliceItem]) -> (Range<usize>, DynLayout);
 
     /// Return a layout with all size-one dimensions removed.
@@ -1322,6 +1339,7 @@ impl_remove_dim!(5, 4);
 #[cfg(test)]
 mod tests {
     use std::iter::zip;
+    use std::ops::Range;
 
     use super::OverlapPolicy;
     use crate::errors::ReshapeError;
@@ -1559,6 +1577,40 @@ mod tests {
         let squeezed = layout.squeezed();
         assert_eq!(squeezed.shape(), &[10, 20]);
         assert_eq!(squeezed.strides(), &[20, 1]);
+    }
+
+    #[test]
+    fn test_slice_axis() {
+        struct Case<'a> {
+            shape: &'a [usize],
+            axis: usize,
+            range: Range<usize>,
+            sliced_shape: &'a [usize],
+            offsets: Range<usize>,
+        }
+
+        let cases = [Case {
+            shape: &[3, 5],
+            axis: 1,
+            range: 2..4,
+            sliced_shape: &[3, 2],
+            offsets: 2..14,
+        }];
+
+        for Case {
+            shape,
+            axis,
+            range,
+            sliced_shape,
+            offsets,
+        } in cases
+        {
+            let layout = DynLayout::from_shape(shape);
+            let (offset_range, sliced_layout) = layout.slice_axis(axis, range);
+            assert_eq!(sliced_layout.shape(), sliced_shape);
+            assert_eq!(sliced_layout.strides(), layout.strides());
+            assert_eq!(offset_range, offsets);
+        }
     }
 
     #[test]

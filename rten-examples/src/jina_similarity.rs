@@ -2,7 +2,7 @@ use std::collections::VecDeque;
 use std::error::Error;
 
 use rten::ops::concat;
-use rten::{FloatOperators, Input, Model, NodeId, Operators, TensorPool};
+use rten::{FloatOperators, InputOrOutput, Model, NodeId, Operators, TensorPool};
 use rten_tensor::prelude::*;
 use rten_tensor::{NdTensor, Tensor};
 use rten_text::tokenizers::{EncodeOptions, Tokenizer};
@@ -120,7 +120,7 @@ fn embed_sentence_batch(
     let input_ids_id = model.node_id("input_ids")?;
     let attention_mask_id = model.node_id("attention_mask")?;
 
-    let mut inputs: Vec<(NodeId, Input)> = vec![
+    let mut inputs: Vec<(NodeId, InputOrOutput)> = vec![
         (input_ids_id, input_ids.view().into()),
         (attention_mask_id, attention_mask.view().into()),
     ];
@@ -134,7 +134,7 @@ fn embed_sentence_batch(
     }
 
     let output_id = model.node_id("last_hidden_state")?;
-    let [last_hidden_state] = model.run_n(&inputs, [output_id], None)?;
+    let [last_hidden_state] = model.run_n(inputs, [output_id], None)?;
     let last_hidden_state = last_hidden_state.into_float().ok_or("wrong output type")?;
 
     // Mean pool each item in the batch. We process each batch item separately

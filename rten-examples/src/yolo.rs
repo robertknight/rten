@@ -130,7 +130,7 @@ fn main() -> Result<(), Box<dyn Error>> {
     let input_id = model.node_id("images")?;
     let output_id = model.node_id("output0")?;
 
-    let [output] = model.run_n(&[(input_id, image.view().into())], [output_id], None)?;
+    let [output] = model.run_n(vec![(input_id, image.view().into())], [output_id], None)?;
 
     // Output format is [N, 84, B] where `B` is the number of boxes. The second
     // dimension contains `[x, y, w, h, class_0 ... class 79]` where `(x, y)`

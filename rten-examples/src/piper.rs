@@ -211,10 +211,10 @@ fn main() -> Result<(), Box<dyn Error>> {
     let scales_id = model.find_node("scales").unwrap();
 
     let [samples] = model.run_n(
-        &[
-            (input_id, phoneme_ids.view().into()),
-            (input_lengths_id, input_lengths.view().into()),
-            (scales_id, scales.view().into()),
+        vec![
+            (input_id, phoneme_ids.into()),
+            (input_lengths_id, input_lengths.into()),
+            (scales_id, scales.into()),
         ],
         [output_id],
         None,

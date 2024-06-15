@@ -2,7 +2,7 @@ use std::collections::VecDeque;
 use std::error::Error;
 use std::time::Instant;
 
-use rten::{Dimension, Input, Model, ModelMetadata, NodeId, Output, RunOptions};
+use rten::{Dimension, InputOrOutput, Model, ModelMetadata, NodeId, Output, RunOptions};
 use rten_tensor::prelude::*;
 use rten_tensor::Tensor;
 
@@ -273,9 +273,9 @@ fn run_with_random_input(
     )?;
 
     // Convert inputs from `Output` (owned) to `Input` (view).
-    let mut inputs: Vec<(NodeId, Input)> = inputs
+    let mut inputs: Vec<(NodeId, InputOrOutput)> = inputs
         .iter()
-        .map(|(id, output)| (*id, Input::from(output)))
+        .map(|(id, output)| (*id, InputOrOutput::from(output)))
         .collect();
 
     for (id, input) in inputs.iter() {
@@ -293,7 +293,7 @@ fn run_with_random_input(
     // doesn't have any built-in graph optimizations yet, so we have to do this
     // manually.
     let opt_start = Instant::now();
-    let const_prop = model.partial_run(&[], model.output_ids(), None)?;
+    let const_prop = model.partial_run(vec![], model.output_ids(), None)?;
     for (node_id, const_val) in const_prop.iter() {
         inputs.push((*node_id, const_val.into()));
     }
@@ -312,7 +312,7 @@ fn run_with_random_input(
     let mut outputs;
     loop {
         let start = Instant::now();
-        outputs = model.run(&inputs, model.output_ids(), Some(run_opts.clone()))?;
+        outputs = model.run(inputs.clone(), model.output_ids(), Some(run_opts.clone()))?;
         let elapsed = start.elapsed().as_millis();
 
         println!(
