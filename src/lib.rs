@@ -117,7 +117,7 @@ pub mod ops;
 pub use graph::{Dimension, NodeId, RunError, RunOptions};
 pub use model::{Model, ModelLoadError, ModelOptions, NodeInfo, OpRegistry, ReadOp, ReadOpError};
 pub use model_metadata::ModelMetadata;
-pub use ops::{FloatOperators, Input, Operators, Output};
+pub use ops::{FloatOperators, Input, InputOrOutput, Operators, Output};
 pub use tensor_pool::{ExtractBuffer, PoolRef, TensorPool};
 pub use threading::{thread_pool, ThreadPool};
 pub use timer::Timer;

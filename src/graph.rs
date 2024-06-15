@@ -13,7 +13,7 @@ use rustc_hash::{FxHashMap, FxHashSet};
 
 use crate::constant_storage::ArcTensorView;
 use crate::env::env_flag;
-use crate::ops::{Input, InputList, OpError, Operator, Output};
+use crate::ops::{Input, InputList, InputOrOutput, OpError, Operator, Output};
 use crate::tensor_pool::{ExtractBuffer, TensorPool};
 use crate::threading;
 use crate::timer::Timer;
@@ -438,7 +438,7 @@ impl Graph {
     /// processing steps and constant values defined by the graph.
     pub fn run(
         &self,
-        inputs: &[(NodeId, Input)],
+        inputs: &[(NodeId, InputOrOutput)],
         outputs: &[NodeId],
         opts: Option<RunOptions>,
     ) -> Result<Vec<Output>, RunError> {
@@ -471,7 +471,7 @@ impl Graph {
 
     fn run_plan(
         &self,
-        inputs: &[(NodeId, Input)],
+        inputs: &[(NodeId, InputOrOutput)],
         plan: &[NodeId],
         outputs: &[NodeId],
         opts: Option<RunOptions>,
@@ -483,7 +483,7 @@ impl Graph {
             run_timer.start();
         }
 
-        let inputs_by_id: FxHashMap<NodeId, Input> = inputs.iter().cloned().collect();
+        let inputs_by_id: FxHashMap<NodeId, InputOrOutput> = inputs.iter().cloned().collect();
         let get_value_from_constant_or_input = |node_id: NodeId| -> Option<Input> {
             if let Some(Node::Constant(constant)) = self.nodes.get(node_id) {
                 let value = match constant {
@@ -492,7 +492,7 @@ impl Graph {
                 };
                 Some(value)
             } else {
-                inputs_by_id.get(&node_id).cloned()
+                inputs_by_id.get(&node_id).map(|input| input.as_input())
             }
         };
 
@@ -779,7 +779,7 @@ impl Graph {
     /// later be passed to calls to `run` when the missing values are available.
     pub fn partial_run(
         &self,
-        inputs: &[(NodeId, Input)],
+        inputs: &[(NodeId, InputOrOutput)],
         outputs: &[NodeId],
         opts: Option<RunOptions>,
     ) -> Result<Vec<(NodeId, Output)>, RunError> {
@@ -879,7 +879,7 @@ impl Graph {
     /// omitted from the plan.
     fn create_plan(
         &self,
-        inputs: &[(NodeId, Input)],
+        inputs: &[(NodeId, InputOrOutput)],
         outputs: &[NodeId],
         options: PlanOptions,
     ) -> Result<Vec<NodeId>, RunError> {
@@ -1108,7 +1108,7 @@ mod tests {
         );
 
         let results = g
-            .run(&[(input_id, (&input).into())], &[relu_out], None)
+            .run(&[(input_id, input.into())], &[relu_out], None)
             .unwrap();
 
         let expected = Tensor::from_data(
@@ -1265,13 +1265,13 @@ mod tests {
         let input = Tensor::from_data(&[1], vec![1.]);
 
         let results = g
-            .run(&[(input_id, (&input).into())], &[op_c_out], None)
+            .run(&[(input_id, input.view().into())], &[op_c_out], None)
             .unwrap();
         let expected = Tensor::from_data(&[2], vec![2., 3.]);
         expect_equal(results[0].as_float_ref().unwrap(), &expected)?;
 
         let results = g
-            .run(&[(input_id, (&input).into())], &[op_d_out], None)
+            .run(&[(input_id, input.into())], &[op_d_out], None)
             .unwrap();
         let expected = Tensor::from_data(&[2], vec![3., 2.]);
         expect_equal(results[0].as_float_ref().unwrap(), &expected)?;
@@ -1303,7 +1303,7 @@ mod tests {
 
         let input = tensor!(0.);
         let results = g
-            .run(&[(input_id, (&input).into())], &[op_a_out, op_b_out], None)
+            .run(&[(input_id, input.into())], &[op_a_out, op_b_out], None)
             .unwrap();
         assert_eq!(results[0].as_float_ref().unwrap(), &tensor!(1.));
         assert_eq!(results[1].as_float_ref().unwrap(), &tensor!(2.));
@@ -1329,7 +1329,7 @@ mod tests {
         }
 
         let results = g
-            .run(&[(input_id, (&input).into())], &[prev_output], None)
+            .run(&[(input_id, input.into())], &[prev_output], None)
             .unwrap();
 
         let expected = Tensor::from_data(&[5], vec![101., 102., 103., 104., 105.]);
@@ -1346,7 +1346,7 @@ mod tests {
         let input_id = g.add_value(Some("input"), None);
 
         let results = g
-            .run(&[(input_id, (&input).into())], &[input_id], None)
+            .run(&[(input_id, input.view().into())], &[input_id], None)
             .unwrap();
 
         expect_equal(results[0].as_float_ref().unwrap(), &input)?;
@@ -1389,7 +1389,10 @@ mod tests {
         let input_id = g.add_value(Some("input"), None);
         let input = tensor!([1.]);
         let result = g.run(
-            &[(input_id, (&input).into()), (input_id, (&input).into())],
+            &[
+                (input_id, input.view().into()),
+                (input_id, input.view().into()),
+            ],
             &[input_id],
             None,
         );
@@ -1414,7 +1417,7 @@ mod tests {
 
         let input = tensor!([1.]);
 
-        let result = g.run(&[(input_id, (&input).into())], &[op_a_out, op_a_out], None);
+        let result = g.run(&[(input_id, input.into())], &[op_a_out, op_a_out], None);
 
         assert_eq!(
             result,
@@ -1538,14 +1541,14 @@ mod tests {
         // First operator should not be run in-place, since it has an
         // immutable input. The result should be the same as the input.
         let results = g
-            .run(&[(input_id, (&input).into())], &[op1_out], None)
+            .run(&[(input_id, input.view().into())], &[op1_out], None)
             .unwrap();
         assert_eq!(results[0].as_float_ref().unwrap()[[0, 0]], 0.0);
 
         // Second operator should be run in-place, as it meets all the
         // requirements for this optimization.
         let results = g
-            .run(&[(input_id, (&input).into())], &[op2_out], None)
+            .run(&[(input_id, input.view().into())], &[op2_out], None)
             .unwrap();
         assert_eq!(results[0].as_float_ref().unwrap()[[0, 0]], 1.0);
 
@@ -1553,7 +1556,7 @@ mod tests {
         // for fourth op. Fourth op can run in place as by then, it is the
         // only consumer of its input.
         let results = g
-            .run(&[(input_id, (&input).into())], &[op3_out, op4_out], None)
+            .run(&[(input_id, input.into())], &[op3_out, op4_out], None)
             .unwrap();
         assert_eq!(results[0].as_float_ref().unwrap()[[0, 0]], 1.0);
         assert_eq!(results[1].as_float_ref().unwrap()[[0, 0]], 2.0);
@@ -1597,7 +1600,7 @@ mod tests {
 
         let results = g
             .run(
-                &[(input_id, (&input).into()), (bias_id, (&bias).into())],
+                &[(input_id, input.into()), (bias_id, bias.into())],
                 &[op2_out],
                 None,
             )
@@ -1679,7 +1682,7 @@ mod tests {
         let input = Tensor::from_vec(vec![1.0, 2.0, 3.0, 4.0, 5.0]);
         let mut results = g
             .run(
-                &[(input_id, (&input).into())],
+                &[(input_id, input.into())],
                 &[left_split_out, right_split_out],
                 None,
             )

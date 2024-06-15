@@ -2,7 +2,7 @@ use std::collections::VecDeque;
 use std::error::Error;
 use std::time::Instant;
 
-use rten::{Dimension, Input, Model, ModelMetadata, NodeId, Output, RunOptions};
+use rten::{Dimension, InputOrOutput, Model, ModelMetadata, NodeId, Output, RunOptions};
 use rten_tensor::prelude::*;
 use rten_tensor::Tensor;
 
@@ -273,9 +273,9 @@ fn run_with_random_input(
     )?;
 
     // Convert inputs from `Output` (owned) to `Input` (view).
-    let mut inputs: Vec<(NodeId, Input)> = inputs
+    let mut inputs: Vec<(NodeId, InputOrOutput)> = inputs
         .iter()
-        .map(|(id, output)| (*id, Input::from(output)))
+        .map(|(id, output)| (*id, InputOrOutput::from(output)))
         .collect();
 
     for (id, input) in inputs.iter() {

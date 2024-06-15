@@ -20,8 +20,8 @@ use crate::graph::{ConstantNodeData, Dimension, Graph, Node, NodeId, RunError, R
 use crate::model_metadata::ModelMetadata;
 use crate::ops;
 use crate::ops::{
-    BoxOrder, CoordTransformMode, DataType, Direction, Input, NearestMode, Operator, Output,
-    Padding, ResizeMode, Scalar, ScatterReduction,
+    BoxOrder, CoordTransformMode, DataType, Direction, InputOrOutput, NearestMode, Operator,
+    Output, Padding, ResizeMode, Scalar, ScatterReduction,
 };
 use crate::schema_generated as sg;
 use crate::schema_generated::{root_as_model, AutoPad, OperatorNode, OperatorType};
@@ -440,7 +440,7 @@ impl Model {
     /// The input and output nodes are specified via IDs looked up via `find_node`.
     pub fn run(
         &self,
-        inputs: &[(NodeId, Input)],
+        inputs: &[(NodeId, InputOrOutput)],
         outputs: &[NodeId],
         opts: Option<RunOptions>,
     ) -> Result<Vec<Output>, RunError> {
@@ -458,7 +458,7 @@ impl Model {
     /// executing a model with a statically known number of outputs.
     pub fn run_n<const N: usize>(
         &self,
-        inputs: &[(NodeId, Input)],
+        inputs: &[(NodeId, InputOrOutput)],
         outputs: [NodeId; N],
         opts: Option<RunOptions>,
     ) -> Result<[Output; N], RunError> {
@@ -470,7 +470,11 @@ impl Model {
     ///
     /// This is a simplified version of [Model::run] for the common case of
     /// executing a model with a single input and output.
-    pub fn run_one(&self, input: Input, opts: Option<RunOptions>) -> Result<Output, RunError> {
+    pub fn run_one(
+        &self,
+        input: InputOrOutput,
+        opts: Option<RunOptions>,
+    ) -> Result<Output, RunError> {
         let &input_id = self.input_ids().first().ok_or(RunError::InvalidNodeId)?;
         let &output_id = self.output_ids().first().ok_or(RunError::InvalidNodeId)?;
         self.run_n(&[(input_id, input)], [output_id], opts)
@@ -494,7 +498,7 @@ impl Model {
     /// the remaining inputs to `run` calls inside the loop.
     pub fn partial_run(
         &self,
-        inputs: &[(NodeId, Input)],
+        inputs: &[(NodeId, InputOrOutput)],
         outputs: &[NodeId],
         opts: Option<RunOptions>,
     ) -> Result<Vec<(NodeId, Output)>, RunError> {
@@ -1474,14 +1478,14 @@ mod tests {
 
         // Test a normal model run.
         let result = model
-            .run(&[(input_id, (&input).into())], &[output_id], None)
+            .run(&[(input_id, input.view().into())], &[output_id], None)
             .unwrap();
         let result_tensor = check_output(result);
 
         // Test a partial run. Since we are providing all inputs, this works the
         // same as `Model::run`. See `Graph::partial_run` tests for other cases.
         let partial_run_result = model
-            .partial_run(&[(input_id, (&input).into())], &[output_id], None)
+            .partial_run(&[(input_id, input.into())], &[output_id], None)
             .unwrap();
         assert_eq!(
             partial_run_result,
@@ -1500,7 +1504,7 @@ mod tests {
 
         let input = generate_input();
         let result = model
-            .run(&[(input_id, (&input).into())], &[output_id], None)
+            .run(&[(input_id, input.into())], &[output_id], None)
             .unwrap();
         check_output(result);
     }
@@ -1517,7 +1521,7 @@ mod tests {
 
         let input = generate_input();
         let result = model
-            .run(&[(input_id, (&input).into())], &[output_id], None)
+            .run(&[(input_id, input.into())], &[output_id], None)
             .unwrap();
         check_output(result);
     }
@@ -1529,7 +1533,7 @@ mod tests {
 
         let input = tensor!((1, 2, 2); [1., 2., -1., -2.]);
         let result: Tensor<f32> = model
-            .run_one((&input).into(), None)
+            .run_one(input.into(), None)
             .unwrap()
             .try_into()
             .unwrap();
@@ -1954,8 +1958,8 @@ mod tests {
             let result = model
                 .run(
                     &[
-                        (input_node as usize, (&input).into()),
-                        (input_bool as usize, (&input_bool_data).into()),
+                        (input_node as usize, input.view().into()),
+                        (input_bool as usize, input_bool_data.view().into()),
                     ],
                     &[output_id],
                     None,
@@ -1978,7 +1982,11 @@ mod tests {
         for output in outputs {
             let output_id = model.find_node(output).unwrap();
             let result = model
-                .run(&[(input_2d as usize, (&input).into())], &[output_id], None)
+                .run(
+                    &[(input_2d as usize, input.view().into())],
+                    &[output_id],
+                    None,
+                )
                 .unwrap();
             assert_eq!(result.len(), 1);
         }
@@ -1990,9 +1998,9 @@ mod tests {
         let result = model
             .run(
                 &[
-                    (range_start_node as usize, (&start).into()),
-                    (range_limit_node as usize, (&limit).into()),
-                    (range_delta_node as usize, (&delta).into()),
+                    (range_start_node as usize, start.into()),
+                    (range_limit_node as usize, limit.into()),
+                    (range_delta_node as usize, delta.into()),
                 ],
                 &[range_out as usize],
                 None,
@@ -2007,9 +2015,9 @@ mod tests {
         let result = model
             .run(
                 &[
-                    (where_cond as usize, (&cond).into()),
-                    (where_x as usize, (&x).into()),
-                    (where_y as usize, (&y).into()),
+                    (where_cond as usize, cond.into()),
+                    (where_x as usize, x.into()),
+                    (where_y as usize, y.into()),
                 ],
                 &[where_out as usize],
                 None,

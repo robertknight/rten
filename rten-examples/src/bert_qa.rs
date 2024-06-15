@@ -3,7 +3,7 @@ use std::error::Error;
 use std::fs;
 
 use rten::ops::FloatOperators;
-use rten::{Input, Model, NodeId};
+use rten::{InputOrOutput, Model, NodeId};
 use rten_tensor::prelude::*;
 use rten_tensor::*;
 use rten_text::tokenizers::{EncodeOptions, Encoded, Tokenizer};
@@ -99,7 +99,7 @@ fn extract_nbest_answers<'a>(
     let start_logits_id = model.node_id("start_logits")?;
     let end_logits_id = model.node_id("end_logits")?;
 
-    let mut inputs: Vec<(NodeId, Input)> = vec![
+    let mut inputs: Vec<(NodeId, InputOrOutput)> = vec![
         (input_ids_id, input_ids.view().into()),
         (attention_mask_id, attention_mask.view().into()),
     ];

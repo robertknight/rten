@@ -3,7 +3,7 @@
 use std::error::Error;
 use std::fmt;
 
-use rten::{Dimension, Input, Model, NodeId, Output};
+use rten::{Dimension, Input, InputOrOutput, Model, NodeId, Output};
 use rten_tensor::prelude::*;
 use rten_tensor::{NdTensor, Tensor};
 use rten_text::tokenizers::{Tokenizer, TokenizerError};
@@ -79,7 +79,7 @@ pub struct Generator<'a> {
 
     /// Additional model inputs (eg. encoder outputs) passed to each model
     /// step.
-    constant_inputs: Vec<(NodeId, Input<'a>)>,
+    constant_inputs: Vec<(NodeId, InputOrOutput<'a>)>,
 
     /// Additional model inputs computed using constant propagation. This
     /// effectively caches parts of the graph that don't change in each
@@ -226,7 +226,7 @@ impl<'a> Generator<'a> {
     /// an auto-regressive decoder.
     pub fn with_constant_input(mut self, input_id: NodeId, value: Input<'a>) -> Self {
         self.constant_prop_inputs = None;
-        self.constant_inputs.push((input_id, value));
+        self.constant_inputs.push((input_id, value.into()));
         self
     }
 
@@ -258,7 +258,7 @@ impl<'a> Generator<'a> {
             self.seq_len as i32 + pos as i32
         });
 
-        let mut model_inputs: Vec<(NodeId, Input)> =
+        let mut model_inputs: Vec<(NodeId, InputOrOutput)> =
             vec![(self.input_ids_input, input_ids.view().into())];
 
         if let Some(attention_mask_input) = self.attention_mask_input {
@@ -288,7 +288,7 @@ impl<'a> Generator<'a> {
             model_inputs.extend(
                 constants
                     .iter()
-                    .map(|(node_id, output)| (*node_id, (output).into())),
+                    .map(|(node_id, output)| (*node_id, output.as_input().into())),
             );
         }
 

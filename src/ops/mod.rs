@@ -19,7 +19,9 @@ use std::fmt::{Debug, Display};
 use smallvec::SmallVec;
 
 use rten_tensor::prelude::*;
-use rten_tensor::{DynLayout, NdTensor, NdTensorView, Tensor, TensorView};
+use rten_tensor::{
+    DynLayout, MutLayout, NdTensor, NdTensorView, Tensor, TensorBase, TensorView, ViewData,
+};
 
 use crate::tensor_pool::TensorPool;
 
@@ -165,6 +167,13 @@ pub enum Input<'a> {
 }
 
 impl<'a> Input<'a> {
+    pub fn to_output(&self) -> Output {
+        match self {
+            Input::FloatTensor(t) => t.to_tensor().into(),
+            Input::IntTensor(t) => t.to_tensor().into(),
+        }
+    }
+
     fn layout(&self) -> &DynLayout {
         match self {
             Input::FloatTensor(t) => t.layout(),
@@ -302,6 +311,13 @@ pub enum Output {
 }
 
 impl Output {
+    pub fn as_input(&self) -> Input {
+        match self {
+            Self::FloatTensor(ft) => Input::FloatTensor(ft.view()),
+            Self::IntTensor(it) => Input::IntTensor(it.view()),
+        }
+    }
+
     pub fn into_int(self) -> Option<Tensor<i32>> {
         if let Output::IntTensor(t) = self {
             Some(t)
@@ -441,6 +457,118 @@ macro_rules! impl_output_conversions {
 
 impl_output_conversions!(FloatTensor, f32);
 impl_output_conversions!(IntTensor, i32);
+
+/// A value that is either a tensor view ([`Input`]) or an owned tensor
+/// ([`Output`]).
+#[derive(Clone)]
+pub enum InputOrOutput<'a> {
+    Input(Input<'a>),
+    Output(Output),
+}
+
+impl<'a> InputOrOutput<'a> {
+    /// Convert this value to a tensor view.
+    pub fn as_input(&self) -> Input {
+        match self {
+            InputOrOutput::Input(inp) => inp.clone(),
+            InputOrOutput::Output(outp) => outp.as_input(),
+        }
+    }
+
+    /// Convert this value to an owned tensor.
+    pub fn to_output(&self) -> Output {
+        match self {
+            InputOrOutput::Input(inp) => inp.to_output(),
+            InputOrOutput::Output(outp) => outp.clone(),
+        }
+    }
+
+    pub fn layout(&self) -> &DynLayout {
+        match self {
+            Self::Input(inp) => inp.layout(),
+            Self::Output(outp) => outp.layout(),
+        }
+    }
+}
+
+impl<'a> From<Input<'a>> for InputOrOutput<'a> {
+    fn from(val: Input<'a>) -> Self {
+        InputOrOutput::Input(val)
+    }
+}
+
+impl<'a, T, L: MutLayout> From<TensorBase<ViewData<'a, T>, L>> for InputOrOutput<'a>
+where
+    Input<'a>: From<TensorView<'a, T>>,
+{
+    fn from(val: TensorBase<ViewData<'a, T>, L>) -> Self {
+        InputOrOutput::Input(val.as_dyn().into())
+    }
+}
+
+impl<T, L: MutLayout> From<TensorBase<Vec<T>, L>> for InputOrOutput<'static>
+where
+    Output: From<Tensor<T>>,
+    DynLayout: From<L>,
+{
+    fn from(val: TensorBase<Vec<T>, L>) -> Self {
+        InputOrOutput::Output(val.into_dyn().into())
+    }
+}
+
+impl From<Output> for InputOrOutput<'static> {
+    fn from(val: Output) -> Self {
+        InputOrOutput::Output(val)
+    }
+}
+
+impl<'a> From<&'a Output> for InputOrOutput<'a> {
+    fn from(val: &'a Output) -> Self {
+        let inp: Input<'a> = Input::from(val);
+        inp.into()
+    }
+}
+
+impl<'a> Layout for InputOrOutput<'a> {
+    type Index<'b> = <DynLayout as Layout>::Index<'b>;
+    type Indices = <DynLayout as Layout>::Indices;
+
+    fn ndim(&self) -> usize {
+        self.layout().ndim()
+    }
+
+    fn try_offset(&self, index: Self::Index<'_>) -> Option<usize> {
+        self.layout().try_offset(index)
+    }
+
+    fn len(&self) -> usize {
+        self.layout().len()
+    }
+
+    fn is_empty(&self) -> bool {
+        self.layout().is_empty()
+    }
+
+    fn shape(&self) -> Self::Index<'_> {
+        self.layout().shape()
+    }
+
+    fn size(&self, dim: usize) -> usize {
+        self.layout().size(dim)
+    }
+
+    fn strides(&self) -> Self::Index<'_> {
+        self.layout().strides()
+    }
+
+    fn stride(&self, dim: usize) -> usize {
+        self.layout().stride(dim)
+    }
+
+    fn indices(&self) -> Self::Indices {
+        self.layout().indices()
+    }
+}
 
 /// Trait for values that can be converted into the result type used by
 /// `Operator::run`.
