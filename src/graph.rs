@@ -438,7 +438,7 @@ impl Graph {
     /// processing steps and constant values defined by the graph.
     pub fn run(
         &self,
-        inputs: &[(NodeId, InputOrOutput)],
+        inputs: Vec<(NodeId, InputOrOutput)>,
         outputs: &[NodeId],
         opts: Option<RunOptions>,
     ) -> Result<Vec<Output>, RunError> {
@@ -454,7 +454,7 @@ impl Graph {
                 Some(plan) if plan.matches(&input_ids, outputs) => plan.clone(),
                 _ => {
                     let plan = self.create_plan(
-                        inputs,
+                        &inputs,
                         outputs,
                         PlanOptions {
                             allow_missing_inputs: false,
@@ -471,7 +471,7 @@ impl Graph {
 
     fn run_plan(
         &self,
-        inputs: &[(NodeId, InputOrOutput)],
+        mut inputs: Vec<(NodeId, InputOrOutput)>,
         plan: &[NodeId],
         outputs: &[NodeId],
         opts: Option<RunOptions>,
@@ -481,6 +481,24 @@ impl Graph {
         let mut run_timer = Timer::new();
         if opts.timing {
             run_timer.start();
+        }
+
+        let mut temp_values: FxHashMap<NodeId, Output> = FxHashMap::default();
+
+        // Extract all the owned tensor inputs into the temp value map.
+        //
+        // This enables these inputs to be used for in-place operations or
+        // returned directly as outputs.
+        let mut idx = 0;
+        while idx < inputs.len() {
+            if matches!(inputs[idx], (_, InputOrOutput::Output(_))) {
+                let (node_id, InputOrOutput::Output(outp)) = inputs.remove(idx) else {
+                    unreachable!();
+                };
+                temp_values.insert(node_id, outp);
+            } else {
+                idx += 1;
+            }
         }
 
         let inputs_by_id: FxHashMap<NodeId, InputOrOutput> = inputs.iter().cloned().collect();
@@ -527,7 +545,6 @@ impl Graph {
         let use_pool = env_flag("RTEN_USE_POOL", true);
 
         // Execute the plan
-        let mut temp_values: FxHashMap<NodeId, Output> = FxHashMap::default();
         let record_timing = opts.timing || opts.verbose;
         let mut op_elapsed: Vec<TimingRecord> = if record_timing {
             Vec::with_capacity(plan.len())
@@ -779,12 +796,12 @@ impl Graph {
     /// later be passed to calls to `run` when the missing values are available.
     pub fn partial_run(
         &self,
-        inputs: &[(NodeId, InputOrOutput)],
+        inputs: Vec<(NodeId, InputOrOutput)>,
         outputs: &[NodeId],
         opts: Option<RunOptions>,
     ) -> Result<Vec<(NodeId, Output)>, RunError> {
         let plan = self.create_plan(
-            inputs,
+            &inputs,
             outputs,
             PlanOptions {
                 allow_missing_inputs: true,
@@ -1108,7 +1125,7 @@ mod tests {
         );
 
         let results = g
-            .run(&[(input_id, input.into())], &[relu_out], None)
+            .run(vec![(input_id, input.into())], &[relu_out], None)
             .unwrap();
 
         let expected = Tensor::from_data(
@@ -1265,13 +1282,13 @@ mod tests {
         let input = Tensor::from_data(&[1], vec![1.]);
 
         let results = g
-            .run(&[(input_id, input.view().into())], &[op_c_out], None)
+            .run(vec![(input_id, input.view().into())], &[op_c_out], None)
             .unwrap();
         let expected = Tensor::from_data(&[2], vec![2., 3.]);
         expect_equal(results[0].as_float_ref().unwrap(), &expected)?;
 
         let results = g
-            .run(&[(input_id, input.into())], &[op_d_out], None)
+            .run(vec![(input_id, input.into())], &[op_d_out], None)
             .unwrap();
         let expected = Tensor::from_data(&[2], vec![3., 2.]);
         expect_equal(results[0].as_float_ref().unwrap(), &expected)?;
@@ -1303,7 +1320,7 @@ mod tests {
 
         let input = tensor!(0.);
         let results = g
-            .run(&[(input_id, input.into())], &[op_a_out, op_b_out], None)
+            .run(vec![(input_id, input.into())], &[op_a_out, op_b_out], None)
             .unwrap();
         assert_eq!(results[0].as_float_ref().unwrap(), &tensor!(1.));
         assert_eq!(results[1].as_float_ref().unwrap(), &tensor!(2.));
@@ -1329,7 +1346,7 @@ mod tests {
         }
 
         let results = g
-            .run(&[(input_id, input.into())], &[prev_output], None)
+            .run(vec![(input_id, input.into())], &[prev_output], None)
             .unwrap();
 
         let expected = Tensor::from_data(&[5], vec![101., 102., 103., 104., 105.]);
@@ -1346,7 +1363,7 @@ mod tests {
         let input_id = g.add_value(Some("input"), None);
 
         let results = g
-            .run(&[(input_id, input.view().into())], &[input_id], None)
+            .run(vec![(input_id, input.view().into())], &[input_id], None)
             .unwrap();
 
         expect_equal(results[0].as_float_ref().unwrap(), &input)?;
@@ -1361,7 +1378,7 @@ mod tests {
         let value = Tensor::from_data(&[5], vec![1., 2., 3., 4., 5.]);
         let const_id = g.add_constant(Some("weight"), value.clone());
 
-        let results = g.run(&[], &[const_id], None).unwrap();
+        let results = g.run(vec![], &[const_id], None).unwrap();
 
         expect_equal(results[0].as_float_ref().unwrap(), &value)?;
 
@@ -1379,7 +1396,7 @@ mod tests {
     #[test]
     fn test_no_outputs() {
         let g = Graph::new();
-        let results = g.run(&[], &[], None).unwrap();
+        let results = g.run(vec![], &[], None).unwrap();
         assert_eq!(results.len(), 0);
     }
 
@@ -1389,7 +1406,7 @@ mod tests {
         let input_id = g.add_value(Some("input"), None);
         let input = tensor!([1.]);
         let result = g.run(
-            &[
+            vec![
                 (input_id, input.view().into()),
                 (input_id, input.view().into()),
             ],
@@ -1417,7 +1434,7 @@ mod tests {
 
         let input = tensor!([1.]);
 
-        let result = g.run(&[(input_id, input.into())], &[op_a_out, op_a_out], None);
+        let result = g.run(vec![(input_id, input.into())], &[op_a_out, op_a_out], None);
 
         assert_eq!(
             result,
@@ -1435,7 +1452,7 @@ mod tests {
         // an input but still providing subsequent ones.
         g.add_op(Some("shape"), Box::new(Shape {}), &[None], &[Some(output)]);
 
-        let results = g.run(&[], &[output], None);
+        let results = g.run(vec![], &[output], None);
 
         assert_eq!(
             results.err(),
@@ -1449,7 +1466,7 @@ mod tests {
     #[test]
     fn test_err_if_invalid_output() {
         let g = Graph::new();
-        let result = g.run(&[], &[123], None);
+        let result = g.run(vec![], &[123], None);
         assert_eq!(
             result.err(),
             Some(RunError::PlanningError("Missing output 123".to_string()))
@@ -1461,7 +1478,7 @@ mod tests {
         let mut g = Graph::new();
         let output = g.add_value(None, None);
         g.add_op(Some("op"), Box::new(Relu {}), &[Some(42)], &[Some(output)]);
-        let result = g.run(&[], &[output], None);
+        let result = g.run(vec![], &[output], None);
         assert_eq!(
             result.err(),
             Some(RunError::PlanningError(
@@ -1541,14 +1558,14 @@ mod tests {
         // First operator should not be run in-place, since it has an
         // immutable input. The result should be the same as the input.
         let results = g
-            .run(&[(input_id, input.view().into())], &[op1_out], None)
+            .run(vec![(input_id, input.view().into())], &[op1_out], None)
             .unwrap();
         assert_eq!(results[0].as_float_ref().unwrap()[[0, 0]], 0.0);
 
         // Second operator should be run in-place, as it meets all the
         // requirements for this optimization.
         let results = g
-            .run(&[(input_id, input.view().into())], &[op2_out], None)
+            .run(vec![(input_id, input.view().into())], &[op2_out], None)
             .unwrap();
         assert_eq!(results[0].as_float_ref().unwrap()[[0, 0]], 1.0);
 
@@ -1556,7 +1573,11 @@ mod tests {
         // for fourth op. Fourth op can run in place as by then, it is the
         // only consumer of its input.
         let results = g
-            .run(&[(input_id, input.into())], &[op3_out, op4_out], None)
+            .run(
+                vec![(input_id, input.view().into())],
+                &[op3_out, op4_out],
+                None,
+            )
             .unwrap();
         assert_eq!(results[0].as_float_ref().unwrap()[[0, 0]], 1.0);
         assert_eq!(results[1].as_float_ref().unwrap()[[0, 0]], 2.0);
@@ -1600,7 +1621,7 @@ mod tests {
 
         let results = g
             .run(
-                &[(input_id, input.into()), (bias_id, bias.into())],
+                vec![(input_id, input.view().into()), (bias_id, bias.into())],
                 &[op2_out],
                 None,
             )
@@ -1617,7 +1638,7 @@ mod tests {
             &[3., 3., 3., 3.]
         );
 
-        // The first operator in a graph run must always copy its input.
+        // The first operator must copy its input because it is a view.
         let op1_metrics = op1_metrics.lock().unwrap();
         assert_eq!(op1_metrics.run_count, 1);
         assert_eq!(op1_metrics.run_in_place_count, 0);
@@ -1682,7 +1703,7 @@ mod tests {
         let input = Tensor::from_vec(vec![1.0, 2.0, 3.0, 4.0, 5.0]);
         let mut results = g
             .run(
-                &[(input_id, input.into())],
+                vec![(input_id, input.into())],
                 &[left_split_out, right_split_out],
                 None,
             )
@@ -1742,13 +1763,13 @@ mod tests {
         // Run graph with no inputs. This is equivalent to constant evaluation.
         // In this case no operators can be evaluated with graph constants
         // alone, so the output is empty.
-        let partial_outs = g.partial_run(&[], &[op_2_out], None)?;
+        let partial_outs = g.partial_run(vec![], &[op_2_out], None)?;
         assert_eq!(partial_outs.len(), 0);
 
         // Run graph with just the `V0` input. This will compute the result of
         // `Op0` but not other nodes which depend on `V1`.
         let input = tensor!(2.);
-        let partial_outs = g.partial_run(&[(val_0, input.view().into())], &[op_2_out], None)?;
+        let partial_outs = g.partial_run(vec![(val_0, input.view().into())], &[op_2_out], None)?;
         assert_eq!(partial_outs.len(), 1);
         assert_eq!(partial_outs[0].0, op_0_out);
         assert_eq!(partial_outs[0].1, Output::FloatTensor(tensor!(5.)));
@@ -1756,14 +1777,14 @@ mod tests {
         // Run graph with just the `V1` input. This will compute the result of
         // `Op1` but not other nodes which depend on `V0`.
         let input = tensor!(2.);
-        let partial_outs = g.partial_run(&[(val_1, input.view().into())], &[op_2_out], None)?;
+        let partial_outs = g.partial_run(vec![(val_1, input.view().into())], &[op_2_out], None)?;
         assert_eq!(partial_outs.len(), 1);
         assert_eq!(partial_outs[0].0, op_1_out);
         assert_eq!(partial_outs[0].1, Output::FloatTensor(tensor!(6.)));
 
         // Run graph with all inputs. This should behave like `Graph::run`.
         let partial_outs = g.partial_run(
-            &[(val_1, input.view().into()), (val_0, input.view().into())],
+            vec![(val_1, input.view().into()), (val_0, input.view().into())],
             &[op_2_out],
             None,
         )?;

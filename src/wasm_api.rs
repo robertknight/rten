@@ -8,7 +8,7 @@ use wasm_bindgen::prelude::*;
 
 use crate::graph::Dimension;
 use crate::model;
-use crate::ops::{matmul, Input, Output};
+use crate::ops::{matmul, InputOrOutput, Output};
 use crate::tensor_pool::TensorPool;
 
 #[wasm_bindgen]
@@ -67,12 +67,12 @@ impl Model {
         input: Vec<Tensor>,
         output_ids: &[usize],
     ) -> Result<Vec<Tensor>, String> {
-        let inputs: Vec<(usize, Input)> = zip(
+        let inputs: Vec<(usize, InputOrOutput)> = zip(
             input_ids.iter().copied(),
-            input.iter().map(|tensor| (&*tensor.data).into()),
+            input.iter().map(|tensor| tensor.data.as_input().into()),
         )
         .collect();
-        let result = self.model.run(&inputs[..], output_ids, None);
+        let result = self.model.run(inputs, output_ids, None);
         match result {
             Ok(outputs) => {
                 let mut list = Vec::new();

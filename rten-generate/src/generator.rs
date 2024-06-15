@@ -271,16 +271,16 @@ impl<'a> Generator<'a> {
 
         // Propagate constants on the first run.
         if self.constant_prop_inputs.is_none() {
-            let inputs =
-                match self
-                    .model
-                    .partial_run(&self.constant_inputs, &[self.logits_output], None)
-                {
-                    Ok(inputs) => inputs,
-                    Err(err) => {
-                        return Err(wrap_error(err));
-                    }
-                };
+            let inputs = match self.model.partial_run(
+                self.constant_inputs.clone(),
+                &[self.logits_output],
+                None,
+            ) {
+                Ok(inputs) => inputs,
+                Err(err) => {
+                    return Err(wrap_error(err));
+                }
+            };
             self.constant_prop_inputs = Some(inputs);
         }
 
@@ -307,7 +307,7 @@ impl<'a> Generator<'a> {
 
         let mut outputs = self
             .model
-            .run(model_inputs.as_slice(), &model_outputs, None)
+            .run(model_inputs, &model_outputs, None)
             .map_err(wrap_error)?;
 
         // Sample output token.

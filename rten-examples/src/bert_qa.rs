@@ -116,8 +116,7 @@ fn extract_nbest_answers<'a>(
         inputs.push((type_ids_id, type_ids.view().into()));
     }
 
-    let [start_logits, end_logits] =
-        model.run_n(&inputs, [start_logits_id, end_logits_id], None)?;
+    let [start_logits, end_logits] = model.run_n(inputs, [start_logits_id, end_logits_id], None)?;
 
     // Extract (batch, sequence)
     let mut start_logits: NdTensor<f32, 2> = start_logits.try_into()?;

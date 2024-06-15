@@ -49,7 +49,7 @@ use crate::timing::TimingSort;
 ///     // Prepare inputs in format expected by model.
 ///     let input_data: Tensor<f32> = Tensor::zeros(&[1, 3, 224, 224]);
 ///
-///     let mut outputs = model.run(&[(input_id, input_data.view().into())], &[output_id], None)?;
+///     let mut outputs = model.run(vec![(input_id, input_data.into())], &[output_id], None)?;
 ///     let output: Tensor<f32> = outputs.remove(0).try_into()?;
 ///
 ///     // Post-process outputs.
@@ -440,7 +440,7 @@ impl Model {
     /// The input and output nodes are specified via IDs looked up via `find_node`.
     pub fn run(
         &self,
-        inputs: &[(NodeId, InputOrOutput)],
+        inputs: Vec<(NodeId, InputOrOutput)>,
         outputs: &[NodeId],
         opts: Option<RunOptions>,
     ) -> Result<Vec<Output>, RunError> {
@@ -458,7 +458,7 @@ impl Model {
     /// executing a model with a statically known number of outputs.
     pub fn run_n<const N: usize>(
         &self,
-        inputs: &[(NodeId, InputOrOutput)],
+        inputs: Vec<(NodeId, InputOrOutput)>,
         outputs: [NodeId; N],
         opts: Option<RunOptions>,
     ) -> Result<[Output; N], RunError> {
@@ -477,7 +477,7 @@ impl Model {
     ) -> Result<Output, RunError> {
         let &input_id = self.input_ids().first().ok_or(RunError::InvalidNodeId)?;
         let &output_id = self.output_ids().first().ok_or(RunError::InvalidNodeId)?;
-        self.run_n(&[(input_id, input)], [output_id], opts)
+        self.run_n(vec![(input_id, input)], [output_id], opts)
             .map(|[result]| result)
     }
 
@@ -498,7 +498,7 @@ impl Model {
     /// the remaining inputs to `run` calls inside the loop.
     pub fn partial_run(
         &self,
-        inputs: &[(NodeId, InputOrOutput)],
+        inputs: Vec<(NodeId, InputOrOutput)>,
         outputs: &[NodeId],
         opts: Option<RunOptions>,
     ) -> Result<Vec<(NodeId, Output)>, RunError> {
@@ -1478,14 +1478,14 @@ mod tests {
 
         // Test a normal model run.
         let result = model
-            .run(&[(input_id, input.view().into())], &[output_id], None)
+            .run(vec![(input_id, input.view().into())], &[output_id], None)
             .unwrap();
         let result_tensor = check_output(result);
 
         // Test a partial run. Since we are providing all inputs, this works the
         // same as `Model::run`. See `Graph::partial_run` tests for other cases.
         let partial_run_result = model
-            .partial_run(&[(input_id, input.into())], &[output_id], None)
+            .partial_run(vec![(input_id, input.into())], &[output_id], None)
             .unwrap();
         assert_eq!(
             partial_run_result,
@@ -1504,7 +1504,7 @@ mod tests {
 
         let input = generate_input();
         let result = model
-            .run(&[(input_id, input.into())], &[output_id], None)
+            .run(vec![(input_id, input.into())], &[output_id], None)
             .unwrap();
         check_output(result);
     }
@@ -1521,7 +1521,7 @@ mod tests {
 
         let input = generate_input();
         let result = model
-            .run(&[(input_id, input.into())], &[output_id], None)
+            .run(vec![(input_id, input.into())], &[output_id], None)
             .unwrap();
         check_output(result);
     }
@@ -1553,7 +1553,7 @@ mod tests {
         let buffer = builder.finish();
         let model = Model::load(buffer).unwrap();
 
-        let result = model.run(&[], &[output_node as usize], None);
+        let result = model.run(vec![], &[output_node as usize], None);
 
         assert_eq!(
             result.err(),
@@ -1957,7 +1957,7 @@ mod tests {
             let output_id = model.find_node(&output).unwrap();
             let result = model
                 .run(
-                    &[
+                    vec![
                         (input_node as usize, input.view().into()),
                         (input_bool as usize, input_bool_data.view().into()),
                     ],
@@ -1983,7 +1983,7 @@ mod tests {
             let output_id = model.find_node(output).unwrap();
             let result = model
                 .run(
-                    &[(input_2d as usize, input.view().into())],
+                    vec![(input_2d as usize, input.view().into())],
                     &[output_id],
                     None,
                 )
@@ -1997,7 +1997,7 @@ mod tests {
         let delta = Tensor::from_scalar(1.);
         let result = model
             .run(
-                &[
+                vec![
                     (range_start_node as usize, start.into()),
                     (range_limit_node as usize, limit.into()),
                     (range_delta_node as usize, delta.into()),
@@ -2014,7 +2014,7 @@ mod tests {
         let y = tensor!([4, 5, 6]);
         let result = model
             .run(
-                &[
+                vec![
                     (where_cond as usize, cond.into()),
                     (where_x as usize, x.into()),
                     (where_y as usize, y.into()),
