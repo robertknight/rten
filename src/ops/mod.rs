@@ -717,6 +717,14 @@ impl<'a> InputList<'a> {
         InputList { inputs: vec![] }
     }
 
+    pub fn len(&self) -> usize {
+        self.inputs.len()
+    }
+
+    pub fn is_empty(&self) -> bool {
+        self.inputs.is_empty()
+    }
+
     pub fn from<'b>(inputs: &[Input<'b>]) -> InputList<'b> {
         InputList {
             inputs: inputs.iter().cloned().map(Some).collect(),

@@ -7,13 +7,12 @@ use crate::ops::{resolve_axis, Input, InputList, IntoOpResult, OpError, Operator
 use crate::static_dims;
 use crate::tensor_pool::{AutoReturn, TensorPool};
 
-pub fn concat<T: Copy>(
-    pool: &TensorPool,
+/// Return the shape formed by concatenating all tensors along a given axis.
+fn concatenated_shape<T: Copy>(
     inputs: &[TensorView<T>],
-    axis: isize,
-) -> Result<Tensor<T>, OpError> {
+    axis: usize,
+) -> Result<Vec<usize>, OpError> {
     let first_shape = inputs[0].shape();
-    let axis = resolve_axis(first_shape.len(), axis)?;
 
     for other in &inputs[1..] {
         let other_shape = other.shape();
@@ -36,19 +35,66 @@ pub fn concat<T: Copy>(
         out_shape[axis] += other.size(axis);
     }
 
-    let mut output = Tensor::uninit_in(pool, &out_shape);
+    Ok(out_shape)
+}
 
-    let mut n_init = 0;
-    let mut remainder = output.view_mut();
+fn typed_inputs<'a, T>(inputs: &InputList<'a>) -> Result<Vec<TensorView<'a, T>>, OpError>
+where
+    TensorView<'a, T>: TryFrom<Input<'a>, Error = OpError>,
+{
+    let mut typed_inputs: Vec<TensorView<T>> = Vec::with_capacity(inputs.len());
+    for input in inputs.iter() {
+        typed_inputs.push(input.try_into()?);
+    }
+    Ok(typed_inputs)
+}
+
+fn concat_impl<T: Copy>(
+    pool: &TensorPool,
+    out_shape: &[usize],
+    axis: usize,
+    inputs: &[TensorView<T>],
+) -> Result<Tensor<T>, OpError> {
+    let mut output = Tensor::with_capacity_in(pool, out_shape, axis);
     for input in inputs {
-        let (left, right) = remainder.split_at_mut(axis, input.size(axis));
-        left.init_from(input);
-        remainder = right;
-        n_init += input.len();
+        output
+            .append(axis, input.view())
+            .expect("should have capacity");
+    }
+    Ok(output)
+}
+
+pub fn concat<T: Copy>(
+    pool: &TensorPool,
+    inputs: &[TensorView<T>],
+    axis: isize,
+) -> Result<Tensor<T>, OpError> {
+    let axis = resolve_axis(inputs[0].ndim(), axis)?;
+    let out_shape = concatenated_shape(inputs, axis)?;
+    concat_impl(pool, &out_shape, axis, inputs)
+}
+
+pub fn concat_in_place<T: Copy>(
+    pool: &TensorPool,
+    mut output: Tensor<T>,
+    inputs: &[TensorView<T>],
+    axis: isize,
+) -> Result<Tensor<T>, OpError> {
+    let axis = resolve_axis(output.ndim(), axis)?;
+    let all_inputs: Vec<_> = std::iter::once(output.view())
+        .chain(inputs.iter().cloned())
+        .collect();
+    let out_shape = concatenated_shape(&all_inputs, axis)?;
+    if !output.has_capacity(axis, out_shape[axis]) {
+        return concat_impl(pool, &out_shape, axis, &all_inputs);
     }
 
-    assert!(n_init == output.len());
-    let output = unsafe { output.assume_init() };
+    for input in inputs {
+        output
+            .append(axis, input.view())
+            .expect("should have capacity");
+    }
+
     Ok(output)
 }
 
@@ -66,18 +112,43 @@ impl Operator for Concat {
         let first = inputs.require(0)?;
         match first {
             Input::FloatTensor(_) => {
-                let mut typed_inputs: Vec<TensorView> = Vec::new();
-                for input in inputs.iter() {
-                    typed_inputs.push(input.try_into()?);
-                }
+                let typed_inputs = typed_inputs::<f32>(&inputs)?;
                 concat(pool, &typed_inputs, self.axis).into_op_result()
             }
             Input::IntTensor(_) => {
-                let mut typed_inputs: Vec<TensorView<i32>> = Vec::new();
-                for input in inputs.iter() {
-                    typed_inputs.push(input.try_into()?);
-                }
+                let typed_inputs = typed_inputs::<i32>(&inputs)?;
                 concat(pool, &typed_inputs, self.axis).into_op_result()
+            }
+        }
+    }
+
+    fn can_run_in_place(&self) -> bool {
+        // This operator can run in place in several cases:
+        //
+        // - There is only one input
+        // - All inputs except the first are empty
+        // - Concatenation is being performed along the dimension with the
+        //   largest stride, and the tensor's buffer happens to have enough
+        //   spare capacity.
+        // - Capacity was specifically reserved (via `Tensor::with_capacity`)
+        //   by higher-level code which anticipated the concatenation.
+        true
+    }
+
+    fn run_in_place(
+        &self,
+        pool: &TensorPool,
+        first: Output,
+        rest: InputList,
+    ) -> Result<Output, OpError> {
+        match first {
+            Output::FloatTensor(first) => {
+                let typed_inputs = typed_inputs(&rest)?;
+                concat_in_place(pool, first, &typed_inputs, self.axis).map(|t| t.into())
+            }
+            Output::IntTensor(first) => {
+                let typed_inputs = typed_inputs(&rest)?;
+                concat_in_place(pool, first, &typed_inputs, self.axis).map(|t| t.into())
             }
         }
     }
@@ -235,7 +306,9 @@ mod tests {
     use rten_tensor::{tensor, Tensor};
 
     use crate::ops::tests::new_pool;
-    use crate::ops::{concat, tile, OpError};
+    use crate::ops::OpError;
+
+    use super::{concat, concat_in_place, tile};
 
     fn from_slice<T: Clone>(data: &[T]) -> Tensor<T> {
         Tensor::from_data(&[data.len()], data.to_vec())
@@ -272,6 +345,44 @@ mod tests {
         let result = concat(&pool, &[a.view(), b.view(), c.view()], 0).unwrap();
         assert_eq!(result.shape(), &[6]);
         assert_eq!(result.to_vec(), &[1, 2, 3, 4, 5, 6]);
+
+        Ok(())
+    }
+
+    #[test]
+    fn test_concat_in_place() -> Result<(), Box<dyn Error>> {
+        let pool = new_pool();
+
+        let dest = Tensor::with_capacity_in(&pool, &[3, 3], 1);
+
+        // Concatenate within spare capacity.
+        let dest =
+            concat_in_place(&pool, dest, &[Tensor::from([[1], [2], [3]]).view()], 1).unwrap();
+        let dest =
+            concat_in_place(&pool, dest, &[Tensor::from([[4], [5], [6]]).view()], 1).unwrap();
+        let dest =
+            concat_in_place(&pool, dest, &[Tensor::from([[7], [8], [9]]).view()], 1).unwrap();
+
+        assert_eq!(dest.shape(), &[3, 3]);
+        assert_eq!(dest, Tensor::from([[1, 4, 7], [2, 5, 8], [3, 6, 9],]));
+
+        // Concatenate beyond the allocated capacity. This should fall back to
+        // allocating a new tensor.
+        let dest =
+            concat_in_place(&pool, dest, &[Tensor::from([[10], [11], [12]]).view()], 1).unwrap();
+        assert_eq!(dest.shape(), &[3, 4]);
+        assert_eq!(
+            dest,
+            Tensor::from([[1, 4, 7, 10], [2, 5, 8, 11], [3, 6, 9, 12],])
+        );
+
+        // Shape mismatch along non-concatenation axes.
+        let result = concat_in_place(&pool, dest.clone(), &[Tensor::from([[1, 2, 3]]).view()], 1);
+        assert!(result.is_err());
+
+        // Dimension count mismatch.
+        let result = concat_in_place(&pool, dest.clone(), &[Tensor::from_scalar(1).view()], 1);
+        assert!(result.is_err());
 
         Ok(())
     }
