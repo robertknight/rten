@@ -191,10 +191,16 @@ impl<'a> Generator<'a> {
                 .find_node(&output_name)
                 .ok_or(GeneratorError::OutputNotFound(output_name))?;
 
+            // This value should be configurable.
+            let max_seq_len = 512;
+
             kv_cache.push(KvCache {
                 input_id,
                 output_id,
-                cache: NdTensor::zeros([batch_size, n_heads, 0 /* seq len */, size]),
+                cache: NdTensor::with_capacity(
+                    [batch_size, n_heads, max_seq_len, size],
+                    2, /* seq dim */
+                ),
             });
         }
 
@@ -292,12 +298,14 @@ impl<'a> Generator<'a> {
             );
         }
 
-        // Add key-value cache from previous run.
-        model_inputs.extend(
-            self.kv_cache
-                .iter()
-                .map(|entry| (entry.input_id, entry.cache.view().into())),
-        );
+        // Add key-value cache from previous run. The model takes ownership
+        // of the KV-cache tensor during the run so it can efficiently append
+        // the entry for the current step, without copying the existing buffer.
+        for entry in self.kv_cache.iter_mut() {
+            let empty_tensor = NdTensor::zeros([0, 0, 0, 0]);
+            let cache = std::mem::replace(&mut entry.cache, empty_tensor);
+            model_inputs.push((entry.input_id, cache.into()));
+        }
 
         // Run the model and collect outputs and updated KV cache.
         let model_outputs: Vec<NodeId> = [self.logits_output]
@@ -315,6 +323,10 @@ impl<'a> Generator<'a> {
         let next_id = self.sampler.sample(logits.slice::<1, _>((0, -1)));
 
         // Update the key-value cache.
+        //
+        // The KV cache tensors returned from the model should be the same as
+        // the passed in tensors, but extended by one element along the sequence
+        // axis.
         for cache_entry in self.kv_cache.iter_mut() {
             cache_entry.cache = outputs.remove(0).try_into().map_err(wrap_error)?;
         }
