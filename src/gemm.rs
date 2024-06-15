@@ -6,7 +6,7 @@
 //! operations like vector-scalar products.
 
 use std::cell::RefCell;
-use std::mem::MaybeUninit;
+use std::mem::{transmute, MaybeUninit};
 use std::ops::Range;
 
 use rayon::prelude::*;
@@ -531,7 +531,7 @@ impl GemmExecutor {
             &*self.kernel,
             // Safety: When beta is zero, we initialize all output elements
             // and ignore existing values.
-            unsafe { std::mem::transmute(out_data) },
+            unsafe { transmute::<&mut [MaybeUninit<f32>], &mut [f32]>(out_data) },
             out_row_stride,
             a,
             b,
@@ -994,14 +994,13 @@ fn gemm_block(
                     // copy the results back to the output. This allows the same
                     // kernel implementation to be used whether the tile is
                     // full-sized or not.
-                    let mut tmp_out_tile =
-                        [std::mem::MaybeUninit::<f32>::uninit(); MAX_MR * MAX_NR];
+                    let mut tmp_out_tile = [MaybeUninit::<f32>::uninit(); MAX_MR * MAX_NR];
 
                     // Safety:
                     //  - Tile size is <= MAX_MR * MAX_NR
                     unsafe {
                         kernel.kernel(
-                            std::mem::transmute(tmp_out_tile.as_mut_ptr()),
+                            transmute::<*mut MaybeUninit<f32>, *mut f32>(tmp_out_tile.as_mut_ptr()),
                             nr,
                             a_panel,
                             b_panel,
