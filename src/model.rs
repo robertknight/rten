@@ -23,6 +23,7 @@ use crate::ops::{
     BoxOrder, CoordTransformMode, DataType, Direction, InputOrOutput, NearestMode, Operator,
     Output, Padding, ResizeMode, Scalar, ScatterReduction,
 };
+use crate::optimize::{GraphOptimizer, OptimizedGraph};
 use crate::schema_generated as sg;
 use crate::schema_generated::{root_as_model, AutoPad, OperatorNode, OperatorType};
 use crate::timing::TimingSort;
@@ -147,17 +148,17 @@ fn parse_timing_config(config: &str, opts: &mut RunOptions) {
 /// Options which customize how a model is loaded.
 ///
 /// This enables more advanced use cases such as loading a model with only
-/// a subset of operators available.
+/// a subset of operators available, or with different sets of optimizations
+/// applied.
 pub struct ModelOptions {
     registry: OpRegistry,
+    optimize: bool,
 }
 
 impl ModelOptions {
     /// Create a set of options with all operators enabled.
     pub fn with_all_ops() -> ModelOptions {
-        ModelOptions {
-            registry: OpRegistry::with_all_ops(),
-        }
+        Self::with_ops(OpRegistry::with_all_ops())
     }
 
     /// Create a set of options with a custom set of operators enabled.
@@ -165,7 +166,16 @@ impl ModelOptions {
     /// This can be used to reduce binary size by excluding operators that
     /// the model will not use, or use custom implementations of operators.
     pub fn with_ops(ops: OpRegistry) -> ModelOptions {
-        ModelOptions { registry: ops }
+        ModelOptions {
+            registry: ops,
+            optimize: true,
+        }
+    }
+
+    /// Set whether graph optimizations are enabled.
+    pub fn enable_optimization(&mut self, enable: bool) -> &mut Self {
+        self.optimize = enable;
+        self
     }
 
     /// Load the model from a file. See [`Model::load_file`].
@@ -177,7 +187,7 @@ impl ModelOptions {
     /// Load the model from a data buffer. See [`Model::load`].
     pub fn load(&self, data: Vec<u8>) -> Result<Model, ModelLoadError> {
         let storage = Arc::new(ConstantStorage::Buffer(data));
-        Model::load_impl(storage, &self.registry)
+        Model::load_impl(storage, &self)
     }
 
     /// Load the model from a memory-mapped view of a file. See [`Model::load_mmap`].
@@ -190,7 +200,7 @@ impl ModelOptions {
         let file = File::open(path).map_err(ModelLoadError::ReadFailed)?;
         let mmap = Mmap::map(&file).map_err(ModelLoadError::ReadFailed)?;
         let storage = Arc::new(ConstantStorage::Mmap(mmap));
-        Model::load_impl(storage, &self.registry)
+        Model::load_impl(storage, &self)
     }
 }
 
@@ -241,8 +251,9 @@ impl Model {
 
     fn load_impl(
         storage: Arc<ConstantStorage>,
-        registry: &OpRegistry,
+        options: &ModelOptions,
     ) -> Result<Model, ModelLoadError> {
+        let registry = &options.registry;
         let model = root_as_model(storage.data()).map_err(ModelLoadError::ParseFailed)?;
 
         if model.schema_version() != 1 {
@@ -265,13 +276,13 @@ impl Model {
             }
         };
 
-        let input_ids = model
+        let input_ids: Vec<NodeId> = model
             .graph()
             .inputs()
             .map(|ids| ids.iter().map(|id| id as NodeId).collect())
             .unwrap_or_default();
 
-        let output_ids = model
+        let output_ids: Vec<NodeId> = model
             .graph()
             .outputs()
             .map(|ids| ids.iter().map(|id| id as NodeId).collect())
@@ -369,6 +380,20 @@ impl Model {
             .metadata()
             .map(ModelMetadata::deserialize)
             .unwrap_or_default();
+
+        let (graph, input_ids, output_ids) = if options.optimize {
+            let opt = GraphOptimizer::new();
+            let OptimizedGraph {
+                graph,
+                input_ids,
+                output_ids,
+            } = opt
+                .optimize(graph, &input_ids, &output_ids)
+                .map_err(|err| ModelLoadError::OptimizeError(Box::new(err)))?;
+            (graph, input_ids, output_ids)
+        } else {
+            (graph, input_ids, output_ids)
+        };
 
         let model = Model {
             node_ids: node_id_from_name,
@@ -1280,6 +1305,9 @@ pub enum ModelLoadError {
     /// An error occurred while traversing the model's graph to instantiate
     /// nodes and connections.
     GraphError(String),
+
+    /// An error occurred while optimizing the graph.
+    OptimizeError(Box<dyn Error + Send>),
 }
 
 impl Display for ModelLoadError {
@@ -1290,6 +1318,7 @@ impl Display for ModelLoadError {
             ModelLoadError::ParseFailed(e) => write!(f, "parse error: {e}"),
             ModelLoadError::OperatorInvalid(e) => write!(f, "operator error: {e}"),
             ModelLoadError::GraphError(e) => write!(f, "graph error: {e}"),
+            ModelLoadError::OptimizeError(e) => write!(f, "graph optimization error: {e}"),
         }
     }
 }

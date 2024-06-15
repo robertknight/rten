@@ -99,6 +99,7 @@ mod iter_util;
 mod model;
 mod model_metadata;
 mod number;
+mod optimize;
 mod slice_reductions;
 mod tensor_pool;
 mod threading;
