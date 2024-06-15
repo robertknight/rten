@@ -1,4 +1,5 @@
 use std::iter::FusedIterator;
+use std::mem::transmute;
 use std::ops::Range;
 use std::slice;
 
@@ -611,7 +612,7 @@ impl<'a, T> Iterator for LaneMut<'a, T> {
 
                 // Transmute to preserve lifetime of data. This is safe as we
                 // yield each element only once.
-                std::mem::transmute(item)
+                transmute::<Option<&mut T>, Option<Self::Item>>(item)
             }
         } else {
             None
@@ -632,7 +633,7 @@ impl<'a, T> Iterator for LanesMut<'a, T> {
         self.ranges.next().map(|range| {
             let data = self.data.slice_mut(range);
             LaneMut {
-                data: unsafe { std::mem::transmute(data) },
+                data: unsafe { transmute::<ViewMutData<'_, T>, ViewMutData<'a, T>>(data) },
                 size: self.size,
                 stride: self.stride,
                 index: 0,
@@ -849,6 +850,9 @@ impl<'a, T, L: MutLayout + RemoveDim> AxisIterMut<'a, T, L> {
     }
 }
 
+/// Mutable tensor view with one less dimension than `L`.
+type SmallerMutView<'b, T, L> = TensorBase<ViewMutData<'b, T>, <L as RemoveDim>::Output>;
+
 impl<'a, T, L: MutLayout + RemoveDim> Iterator for AxisIterMut<'a, T, L> {
     type Item = TensorBase<ViewMutData<'a, T>, <L as RemoveDim>::Output>;
 
@@ -865,7 +869,7 @@ impl<'a, T, L: MutLayout + RemoveDim> Iterator for AxisIterMut<'a, T, L> {
             //
             // Safety: This is non-broadcasting view, and we increment the index
             // each time, so returned views will not overlap.
-            let view = unsafe { std::mem::transmute(slice) };
+            let view = unsafe { transmute::<SmallerMutView<'_, T, L>, Self::Item>(slice) };
 
             Some(view)
         }

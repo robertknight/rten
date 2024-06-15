@@ -1,6 +1,6 @@
 //! Slice-like types without the restrictions on aliasing.
 
-use std::mem::MaybeUninit;
+use std::mem::{transmute, MaybeUninit};
 
 /// Const pointer to a range of `T`s.
 ///
@@ -86,7 +86,7 @@ impl<T> MutPtrLen<MaybeUninit<T>> {
     /// been initialized.
     pub unsafe fn assume_init(self) -> MutPtrLen<T> {
         MutPtrLen {
-            ptr: unsafe { std::mem::transmute(self.ptr) },
+            ptr: unsafe { transmute::<*mut MaybeUninit<T>, *mut T>(self.ptr) },
             len: self.len,
         }
     }
@@ -99,7 +99,7 @@ impl<T> MutPtrLen<T> {
         T: Copy,
     {
         MutPtrLen {
-            ptr: unsafe { std::mem::transmute(self.ptr) },
+            ptr: unsafe { transmute::<*mut T, *mut MaybeUninit<T>>(self.ptr) },
             len: self.len,
         }
     }

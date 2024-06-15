@@ -8,6 +8,7 @@ use std::arch::x86_64::{
     _mm_add_ps, _mm_cvtss_f32, _mm_movehl_ps, _mm_prefetch, _mm_shuffle_ps, _CMP_GE_OQ, _CMP_LE_OQ,
     _CMP_LT_OQ, _MM_HINT_ET0, _MM_HINT_T0,
 };
+use std::mem::transmute;
 
 use crate::{SimdFloat, SimdInt, SimdMask, SimdVal};
 
@@ -177,19 +178,19 @@ impl SimdFloat for __m256 {
     #[inline]
     #[target_feature(enable = "avx2")]
     unsafe fn ge(self, rhs: Self) -> Self::Mask {
-        std::mem::transmute(_mm256_cmp_ps(self, rhs, _CMP_GE_OQ))
+        transmute(_mm256_cmp_ps(self, rhs, _CMP_GE_OQ))
     }
 
     #[inline]
     #[target_feature(enable = "avx2")]
     unsafe fn le(self, rhs: Self) -> Self::Mask {
-        std::mem::transmute(_mm256_cmp_ps(self, rhs, _CMP_LE_OQ))
+        transmute(_mm256_cmp_ps(self, rhs, _CMP_LE_OQ))
     }
 
     #[inline]
     #[target_feature(enable = "avx2")]
     unsafe fn lt(self, rhs: Self) -> Self::Mask {
-        std::mem::transmute(_mm256_cmp_ps(self, rhs, _CMP_LT_OQ))
+        transmute(_mm256_cmp_ps(self, rhs, _CMP_LT_OQ))
     }
 
     #[inline]
@@ -201,7 +202,7 @@ impl SimdFloat for __m256 {
     #[inline]
     #[target_feature(enable = "avx2")]
     unsafe fn blend(self, rhs: Self, mask: Self::Mask) -> Self {
-        _mm256_blendv_ps(self, rhs, std::mem::transmute(mask))
+        _mm256_blendv_ps(self, rhs, transmute::<__m256i, __m256>(mask))
     }
 
     #[inline]

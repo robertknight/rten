@@ -1,4 +1,4 @@
-use std::mem::MaybeUninit;
+use std::mem::{transmute, MaybeUninit};
 use std::ops::Range;
 
 use smallvec::SmallVec;
@@ -186,7 +186,7 @@ pub fn copy_into_slice<'a, T: Clone>(
             dst.write(src.clone());
         }
         // Safety: Loop above initialized all elements of `dest`.
-        return unsafe { std::mem::transmute(dest) };
+        return unsafe { transmute::<&mut [MaybeUninit<T>], &[T]>(dest) };
     }
 
     while src.ndim() < 4 {
@@ -212,7 +212,7 @@ pub fn copy_into_slice<'a, T: Clone>(
         }
         // Safety: Loop above initialized all elements of `dest`.
         let data = dest.data().unwrap();
-        unsafe { std::mem::transmute(data) }
+        unsafe { transmute::<&[MaybeUninit<T>], &[T]>(data) }
     } else {
         let mut dest_offset = 0;
         for i0 in 0..src.size(0) {
@@ -229,7 +229,7 @@ pub fn copy_into_slice<'a, T: Clone>(
             }
         }
         // Safety: Loop above initialized all elements of `dest`.
-        unsafe { std::mem::transmute(dest) }
+        unsafe { transmute::<&[MaybeUninit<T>], &[T]>(dest) }
     }
 }
 
