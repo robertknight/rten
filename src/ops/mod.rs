@@ -806,6 +806,19 @@ pub trait Operator: Debug {
         false
     }
 
+    /// Return true if this operator's outputs depend only on its inputs.
+    ///
+    /// The default implementation returns true, since most operators are
+    /// deterministic. Operators such as random number generators however are
+    /// not.
+    ///
+    /// The definition of _deterministic_ used here excludes minor differences
+    /// due to eg. the order in which results from parallel sub-problems are
+    /// accumulated. It also does not guarantee exact consistency across devices.
+    fn is_deterministic(&self) -> bool {
+        true
+    }
+
     /// Execute this operator in-place on an existing tensor.
     ///
     /// This may only be called if `can_run_in_place` returns true.
