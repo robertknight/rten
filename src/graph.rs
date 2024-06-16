@@ -849,7 +849,7 @@ impl Graph {
                 .iter()
                 .filter_map(|id_opt| *id_opt)
                 .all(|input_id| resolved_values.contains(&input_id));
-            if !all_inputs_available {
+            if !op_node.operator.is_deterministic() || !all_inputs_available {
                 for input_id in op_node.inputs.iter().filter_map(|id_opt| *id_opt) {
                     if resolved_values.contains(&input_id) {
                         pruned_ops_resolved_inputs.insert(input_id);
@@ -1005,6 +1005,7 @@ impl Graph {
 #[cfg(test)]
 mod tests {
     use std::error::Error;
+    use std::sync::atomic::{AtomicI32, Ordering};
     use std::sync::{Arc, Mutex};
 
     use rten_tensor::prelude::*;
@@ -1791,6 +1792,68 @@ mod tests {
         assert_eq!(partial_outs.len(), 1);
         assert_eq!(partial_outs[0].0, op_2_out);
         assert_eq!(partial_outs[0].1, Output::FloatTensor(tensor!(11.)));
+
+        Ok(())
+    }
+
+    #[derive(Debug)]
+    struct Counter {
+        count: AtomicI32,
+    }
+
+    impl Operator for Counter {
+        fn name(&self) -> &str {
+            "Counter"
+        }
+
+        fn is_deterministic(&self) -> bool {
+            false
+        }
+
+        fn run(&self, _pool: &TensorPool, _inputs: InputList) -> Result<Vec<Output>, OpError> {
+            let count = self.count.fetch_add(1, Ordering::SeqCst);
+            Ok(vec![Tensor::from_scalar(count).into()])
+        }
+    }
+
+    #[test]
+    fn test_partial_run_non_deterministic_ops() -> Result<(), Box<dyn Error>> {
+        let mut g = Graph::new();
+        let const_val = g.add_constant(Some("c0"), tensor!(3));
+
+        // Add deterministic op with constant inputs.
+        let add_op_0 = Box::new(Add {});
+        let add_op_0_out = g.add_value(Some("out0"), None);
+        g.add_op(
+            Some("Add_0"),
+            add_op_0,
+            &[Some(const_val), Some(const_val)],
+            &[add_op_0_out].map(Some),
+        );
+
+        // Add non-deterministic op.
+        let count_op = Box::new(Counter {
+            count: AtomicI32::new(0),
+        });
+        let count_op_out = g.add_value(Some("count_out"), None);
+        g.add_op(Some("Count"), count_op, &[], &[count_op_out].map(Some));
+
+        // Add final op that combines outputs from other ops.
+        let add_op_1 = Box::new(Add {});
+        let add_op_1_out = g.add_value(Some("out1"), None);
+        g.add_op(
+            Some("Add_1"),
+            add_op_1,
+            &[Some(add_op_0_out), Some(count_op_out)],
+            &[add_op_1_out].map(Some),
+        );
+
+        // Do a partial run with no inputs. This should propagate constants
+        // though all the deterministic operators, but skip any
+        // non-deterministic ops.
+        let partial_outs = g.partial_run(vec![], &[add_op_1_out], None)?;
+        assert_eq!(partial_outs.len(), 1);
+        assert_eq!(partial_outs[0].0, add_op_0_out);
 
         Ok(())
     }

@@ -24,6 +24,10 @@ impl Operator for RandomUniform {
         "RandomUniform"
     }
 
+    fn is_deterministic(&self) -> bool {
+        false
+    }
+
     fn run(&self, pool: &TensorPool, _inputs: InputList) -> Result<Vec<Output>, OpError> {
         let scale_value = |val: f32| self.low + val * (self.high - self.low);
         let shape = self.shape.as_slice();
@@ -49,6 +53,10 @@ pub struct RandomUniformLike {
 impl Operator for RandomUniformLike {
     fn name(&self) -> &str {
         "RandomUniformLike"
+    }
+
+    fn is_deterministic(&self) -> bool {
+        false
     }
 
     fn run(&self, pool: &TensorPool, inputs: InputList) -> Result<Vec<Output>, OpError> {
@@ -81,6 +89,10 @@ impl Operator for RandomNormal {
         "RandomNormal"
     }
 
+    fn is_deterministic(&self) -> bool {
+        false
+    }
+
     fn run(&self, pool: &TensorPool, _inputs: InputList) -> Result<Vec<Output>, OpError> {
         let shape = self.shape.as_slice();
 
@@ -107,6 +119,10 @@ pub struct RandomNormalLike {
 impl Operator for RandomNormalLike {
     fn name(&self) -> &str {
         "RandomNormalLike"
+    }
+
+    fn is_deterministic(&self) -> bool {
+        false
     }
 
     fn run(&self, pool: &TensorPool, inputs: InputList) -> Result<Vec<Output>, OpError> {
