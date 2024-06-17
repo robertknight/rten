@@ -187,7 +187,7 @@ impl ModelOptions {
     /// Load the model from a data buffer. See [`Model::load`].
     pub fn load(&self, data: Vec<u8>) -> Result<Model, ModelLoadError> {
         let storage = Arc::new(ConstantStorage::Buffer(data));
-        Model::load_impl(storage, &self)
+        Model::load_impl(storage, self)
     }
 
     /// Load the model from a memory-mapped view of a file. See [`Model::load_mmap`].
@@ -200,7 +200,7 @@ impl ModelOptions {
         let file = File::open(path).map_err(ModelLoadError::ReadFailed)?;
         let mmap = Mmap::map(&file).map_err(ModelLoadError::ReadFailed)?;
         let storage = Arc::new(ConstantStorage::Mmap(mmap));
-        Model::load_impl(storage, &self)
+        Model::load_impl(storage, self)
     }
 }
 
@@ -1580,7 +1580,13 @@ mod tests {
         builder.add_operator("shape", OpType::Shape, &[None], &[output_node]);
 
         let buffer = builder.finish();
-        let model = Model::load(buffer).unwrap();
+
+        // Load with optimizations disabled to prevent the optimizer from
+        // running the graph as part of constant propagation.
+        let model = ModelOptions::with_all_ops()
+            .enable_optimization(false)
+            .load(buffer)
+            .unwrap();
 
         let result = model.run(vec![], &[output_node as usize], None);
 

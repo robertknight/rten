@@ -39,6 +39,20 @@ pub struct OperatorNode {
     operator: Box<dyn Operator + Send + Sync>,
 }
 
+impl OperatorNode {
+    pub fn input_ids(&self) -> impl Iterator<Item = Option<NodeId>> + '_ {
+        self.inputs.iter().cloned()
+    }
+
+    pub fn replace_input(&mut self, old_id: NodeId, new_id: NodeId) {
+        for input_id in self.inputs.iter_mut() {
+            if *input_id == Some(old_id) {
+                *input_id = Some(new_id);
+            }
+        }
+    }
+}
+
 pub struct ValueNode {
     name: Option<String>,
     shape: Option<Vec<Dimension>>,
@@ -68,7 +82,7 @@ pub struct ConstantNode<T> {
 }
 
 impl<T> ConstantNode<T> {
-    fn view(&self) -> TensorView<T> {
+    pub fn view(&self) -> TensorView<T> {
         match &self.data {
             ConstantNodeData::Owned(data) => data.view(),
             ConstantNodeData::Arc(data) => data.view(),
@@ -409,6 +423,11 @@ impl Graph {
         self.nodes.len() - 1
     }
 
+    /// Return an iterator over nodes in the graph.
+    pub fn iter(&self) -> impl Iterator<Item = (NodeId, &Node)> {
+        self.nodes.iter().enumerate()
+    }
+
     /// Return the debug name for a node.
     pub fn node_name(&self, id: NodeId) -> String {
         self.get_node(id)
@@ -420,6 +439,11 @@ impl Graph {
     /// Retrieve a node by ID
     pub fn get_node(&self, id: NodeId) -> Option<&Node> {
         self.nodes.get(id)
+    }
+
+    /// Retrieve a node by ID
+    pub fn get_node_mut(&mut self, id: NodeId) -> Option<&mut Node> {
+        self.nodes.get_mut(id)
     }
 
     /// Return the total number of parameters in all constant nodes in the graph.
