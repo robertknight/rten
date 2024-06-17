@@ -273,7 +273,7 @@ fn run_with_random_input(
     )?;
 
     // Convert inputs from `Output` (owned) to `Input` (view).
-    let mut inputs: Vec<(NodeId, InputOrOutput)> = inputs
+    let inputs: Vec<(NodeId, InputOrOutput)> = inputs
         .iter()
         .map(|(id, output)| (*id, InputOrOutput::from(output)))
         .collect();
@@ -285,25 +285,6 @@ fn run_with_random_input(
             .and_then(|ni| ni.name())
             .unwrap_or("(unnamed)");
         println!("  Input \"{name}\" generated shape {:?}", input.shape());
-    }
-
-    // Evaluate operators that don't depend on any inputs.
-    //
-    // ONNX Runtime does this when graph optimizations are enabled. RTen
-    // doesn't have any built-in graph optimizations yet, so we have to do this
-    // manually.
-    let opt_start = Instant::now();
-    let const_prop = model.partial_run(vec![], model.output_ids(), None)?;
-    for (node_id, const_val) in const_prop.iter() {
-        inputs.push((*node_id, const_val.into()));
-    }
-    let opt_elapsed = opt_start.elapsed().as_millis();
-    if !const_prop.is_empty() {
-        println!(
-            "  Constant propagation produced {} values in {:.2}ms",
-            const_prop.len(),
-            opt_elapsed
-        );
     }
 
     // Run model and summarize outputs.
