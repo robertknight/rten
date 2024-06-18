@@ -207,7 +207,12 @@ impl<'a> Generator<'a> {
         Ok(Generator {
             model,
             constant_inputs: Vec::new(),
-            constant_prop_inputs: None,
+
+            // Constant propagation is performed as a graph optimization when
+            // the model is loaded, so we only need to re-do it if additional
+            // constant inputs are added.
+            constant_prop_inputs: Some(Vec::new()),
+
             input_ids: vec![],
             input_ids_input,
             attention_mask_input,
