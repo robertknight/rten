@@ -79,6 +79,13 @@ use crate::timing::TimingSort;
 /// of generating a plan which starts with the input nodes, and executes the
 /// necessary operators to generate the requested outputs.
 ///
+/// ## Graph optimizations
+///
+/// By default RTen applies various optimizations to the model when it is loaded
+/// to improve inference performance. These optimizations guarantee to preserve
+/// the model's inputs and outputs, but other nodes may be replaced or
+/// eliminated. To configure or disable optimizations, use [`ModelOptions`].
+///
 /// ## Partial evaluation
 ///
 /// Some models, such as transformer decoders, are evaluated repeatedly in a
