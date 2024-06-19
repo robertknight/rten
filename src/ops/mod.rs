@@ -27,6 +27,7 @@ use rten_tensor::{
 use crate::downcast::impl_downcastdyn;
 use crate::tensor_pool::TensorPool;
 
+// Modules containing ops that correspond to ONNX operators.
 mod binary_elementwise;
 mod concat;
 mod conv;
@@ -52,6 +53,9 @@ mod split;
 mod trilu;
 mod unary_elementwise;
 mod variadic_elementwise;
+
+// Fused operators.
+pub(crate) mod fused;
 
 pub use binary_elementwise::{
     add, add_in_place, and, div, div_in_place, equal, greater, greater_or_equal, less,
@@ -883,6 +887,10 @@ impl<'a> InputList<'a> {
     /// Get an optional input.
     pub fn get(&self, index: usize) -> Option<Input<'a>> {
         self.inputs.get(index).cloned().flatten()
+    }
+
+    pub fn get_mut(&mut self, index: usize) -> Option<&mut Input<'a>> {
+        self.inputs.get_mut(index)?.as_mut()
     }
 
     /// Get an optional input as a tensor.

@@ -40,8 +40,20 @@ pub struct OperatorNode {
 }
 
 impl OperatorNode {
-    pub fn input_ids(&self) -> impl Iterator<Item = Option<NodeId>> + '_ {
-        self.inputs.iter().cloned()
+    pub fn name(&self) -> Option<&str> {
+        self.name.as_deref()
+    }
+
+    pub fn input_ids(&self) -> &[Option<NodeId>] {
+        &self.inputs
+    }
+
+    pub fn output_ids(&self) -> &[Option<NodeId>] {
+        &self.outputs
+    }
+
+    pub fn operator(&self) -> &dyn Operator {
+        self.operator.as_ref()
     }
 
     pub fn replace_input(&mut self, old_id: NodeId, new_id: NodeId) {
@@ -56,6 +68,12 @@ impl OperatorNode {
 pub struct ValueNode {
     name: Option<String>,
     shape: Option<Vec<Dimension>>,
+}
+
+impl ValueNode {
+    fn name(&self) -> Option<&str> {
+        self.name.as_deref()
+    }
 }
 
 /// Data for a constant node (ie. model weights) in a [Graph].
@@ -103,6 +121,13 @@ pub enum Constant {
 }
 
 impl Constant {
+    pub fn name(&self) -> Option<&str> {
+        match self {
+            Constant::Float(f) => f.name.as_deref(),
+            Constant::Int(i) => i.name.as_deref(),
+        }
+    }
+
     fn layout(&self) -> &DynLayout {
         match self {
             Constant::Float(f) => f.layout(),
@@ -132,15 +157,11 @@ pub enum Node {
 impl Node {
     /// Return the debug name of this node
     pub fn name(&self) -> Option<&str> {
-        let maybe_name = match self {
-            Node::Operator(node) => &node.name,
-            Node::Constant(constant) => match constant {
-                Constant::Float(node) => &node.name,
-                Constant::Int(node) => &node.name,
-            },
-            Node::Value(node) => &node.name,
-        };
-        maybe_name.as_ref().map(|s| s.as_str())
+        match self {
+            Node::Operator(node) => node.name(),
+            Node::Constant(constant) => constant.name(),
+            Node::Value(node) => node.name(),
+        }
     }
 
     /// Return the tensor shape associated with this node.
