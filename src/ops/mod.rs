@@ -12,6 +12,7 @@
 //! come into two flavors, one which operates in-place on an existing tensor,
 //! and one which takes a view as input and returns a new tensor as output.
 
+use std::any::Any;
 use std::error::Error;
 use std::fmt;
 use std::fmt::{Debug, Display};
@@ -23,6 +24,7 @@ use rten_tensor::{
     DynLayout, MutLayout, NdTensor, NdTensorView, Tensor, TensorBase, TensorView, ViewData,
 };
 
+use crate::downcast::impl_downcastdyn;
 use crate::tensor_pool::TensorPool;
 
 mod binary_elementwise;
@@ -777,7 +779,7 @@ macro_rules! static_dims {
 ///
 /// Operators are usually named after the ONNX operator that they implement.
 /// See <https://onnx.ai/onnx/operators/>.
-pub trait Operator: Debug {
+pub trait Operator: Any + Debug {
     /// Return a display name for the operator.
     fn name(&self) -> &str;
 
@@ -839,6 +841,8 @@ pub trait Operator: Debug {
         unimplemented!("in-place execution not supported")
     }
 }
+
+impl_downcastdyn!(Operator);
 
 /// List of inputs for an operator evaluation.
 ///
@@ -1006,6 +1010,8 @@ mod tests {
     use rten_tensor::NdTensor;
 
     use super::{Input, InputList, OpError, Operator, Output};
+    use crate::downcast::DowncastDyn;
+    use crate::ops::{Add, Sub};
     use crate::tensor_pool::TensorPool;
 
     /// Create an empty tensor pool.
@@ -1055,5 +1061,17 @@ mod tests {
         let input: Input = tensor.view().into();
         assert!(matches!(input, Input::FloatTensor(_)));
         assert_eq!(input.shape(), &[5, 5]);
+    }
+
+    #[test]
+    fn test_downcast_operator() {
+        let add_op = Add {};
+        let sub_op = Sub {};
+
+        let add_op_dyn: &dyn Operator = &add_op;
+        let sub_op_dyn: &dyn Operator = &sub_op;
+
+        assert!(add_op_dyn.downcast_ref::<Add>().is_some());
+        assert!(sub_op_dyn.downcast_ref::<Sub>().is_some());
     }
 }

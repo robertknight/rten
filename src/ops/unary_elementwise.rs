@@ -1,5 +1,6 @@
 use rayon::prelude::*;
 
+use std::any::Any;
 use std::fmt::Debug;
 use std::mem::MaybeUninit;
 
@@ -34,7 +35,7 @@ pub trait UnaryFloatOp {
     }
 }
 
-impl<Op: UnaryFloatOp + Debug> Operator for Op {
+impl<Op: Any + Debug + UnaryFloatOp> Operator for Op {
     fn name(&self) -> &str {
         self.name()
     }

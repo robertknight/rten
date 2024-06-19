@@ -92,6 +92,7 @@
 use rten_tensor::{NdTensor, Tensor};
 
 mod constant_storage;
+mod downcast;
 mod env;
 mod gemm;
 mod graph;
