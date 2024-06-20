@@ -3,6 +3,8 @@ use std::iter::zip;
 use rten_tensor::prelude::*;
 use rten_tensor::{NdTensorView, SliceItem, SliceRange, Tensor, TensorView};
 
+use smallvec::SmallVec;
+
 use crate::ops::{resolve_axis, Input, InputList, IntoOpResult, OpError, Operator, Output};
 use crate::static_dims;
 use crate::tensor_pool::TensorPool;
@@ -17,7 +19,7 @@ fn slice_ranges(
     ends: &NdTensorView<i32, 1>,
     axes: Option<&NdTensorView<i32, 1>>,
     steps: Option<&NdTensorView<i32, 1>>,
-) -> Result<Vec<SliceRange>, OpError> {
+) -> Result<SmallVec<[SliceRange; 4]>, OpError> {
     // FIXME: Verify that `starts`, `ends`, `axes` and `steps` have compatible
     // lengths.
 
@@ -29,7 +31,7 @@ fn slice_ranges(
         }
     }
 
-    let mut ranges: Vec<SliceRange> = input_shape
+    let mut ranges: SmallVec<_> = input_shape
         .iter()
         .map(|dim_size| SliceRange::new(0, Some(*dim_size as isize), 1))
         .collect();

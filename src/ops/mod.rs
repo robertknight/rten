@@ -1007,8 +1007,8 @@ fn resolve_axis(ndim: usize, axis: isize) -> Result<usize, OpError> {
 pub fn resolve_axes<'a, I: ExactSizeIterator<Item = &'a i32>>(
     ndim: usize,
     axes: I,
-) -> Result<Vec<usize>, OpError> {
-    let mut resolved_axes = Vec::with_capacity(axes.len());
+) -> Result<SmallVec<[usize; 4]>, OpError> {
+    let mut resolved_axes = SmallVec::with_capacity(axes.len());
     for axis in axes {
         let resolved = resolve_axis(ndim, *axis as isize)?;
         resolved_axes.push(resolved);

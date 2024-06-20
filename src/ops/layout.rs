@@ -208,7 +208,7 @@ fn resolve_shape(
     input_shape: &[usize],
     shape: &NdTensorView<i32, 1>,
     allow_zero: bool,
-) -> Result<Vec<usize>, OpError> {
+) -> Result<SmallVec<[usize; 4]>, OpError> {
     // If exactly one of the new shape's dimensions is -1, infer the size
     // from the input length and the sizes of the other dimensions.
     let mut unspecified_dim = None;
