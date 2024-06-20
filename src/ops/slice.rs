@@ -142,8 +142,14 @@ impl Operator for Slice {
         // Fall back to copying if non-default steps are given.
         if let Some(steps) = steps {
             if steps.iter().any(|step| *step != 1) {
-                let mut inputs: Vec<_> = vec![(&input).into()];
-                inputs.extend(other.iter());
+                let mut inputs: Vec<_> = vec![input.as_input()];
+
+                // `inputs.extend(other.iter())` not used here as it triggers
+                // a borrow-checking error.
+                for x in other.iter() {
+                    inputs.push(x);
+                }
+
                 return self
                     .run(pool, InputList::from(&inputs))
                     .map(|mut outputs| outputs.remove(0));

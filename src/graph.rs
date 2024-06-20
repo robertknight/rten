@@ -11,6 +11,8 @@ use rten_tensor::{DynLayout, Tensor, TensorView};
 // Instead we want faster hashing.
 use rustc_hash::{FxHashMap, FxHashSet};
 
+use smallvec::SmallVec;
+
 use crate::constant_storage::ArcTensorView;
 use crate::env::env_flag;
 use crate::ops::{Input, InputList, InputOrOutput, OpError, Operator, Output};
@@ -657,7 +659,8 @@ impl Graph {
             });
 
             // Collect all or remaining inputs for the operator
-            let mut op_inputs: Vec<Option<Input>> = Vec::with_capacity(op_node.inputs.len());
+            let mut op_inputs: SmallVec<[Option<Input>; 4]> =
+                SmallVec::with_capacity(op_node.inputs.len());
             for node_id in op_node.inputs.iter() {
                 if in_place_input.is_some() && *node_id == in_place_input_id {
                     continue;
@@ -702,13 +705,14 @@ impl Graph {
             let op_result = if let Some(input) = in_place_input {
                 op_node
                     .operator
-                    .run_in_place(&pool, input, InputList::from_optional(op_inputs))
+                    .run_in_place(&pool, input, InputList::from_optional(&op_inputs))
                     .map(|out| [out].into())
             } else {
                 op_node
                     .operator
-                    .run(&pool, InputList::from_optional(op_inputs))
+                    .run(&pool, InputList::from_optional(&op_inputs))
             };
+            std::mem::drop(op_inputs);
 
             if record_timing {
                 op_timer.end();
