@@ -238,7 +238,7 @@ fn matmul_impl(
     Ok(output)
 }
 
-#[derive(Debug)]
+#[derive(Clone, Debug)]
 pub struct MatMul {}
 
 impl Operator for MatMul {

@@ -12,6 +12,7 @@
 //! come into two flavors, one which operates in-place on an existing tensor,
 //! and one which takes a view as input and returns a new tensor as output.
 
+use std::any::Any;
 use std::error::Error;
 use std::fmt;
 use std::fmt::{Debug, Display};
@@ -23,8 +24,10 @@ use rten_tensor::{
     DynLayout, MutLayout, NdTensor, NdTensorView, Tensor, TensorBase, TensorView, ViewData,
 };
 
+use crate::downcast::impl_downcastdyn;
 use crate::tensor_pool::TensorPool;
 
+// Modules containing ops that correspond to ONNX operators.
 mod binary_elementwise;
 mod concat;
 mod conv;
@@ -50,6 +53,9 @@ mod split;
 mod trilu;
 mod unary_elementwise;
 mod variadic_elementwise;
+
+// Fused operators.
+pub(crate) mod fused;
 
 pub use binary_elementwise::{
     add, add_in_place, and, div, div_in_place, equal, greater, greater_or_equal, less,
@@ -777,7 +783,7 @@ macro_rules! static_dims {
 ///
 /// Operators are usually named after the ONNX operator that they implement.
 /// See <https://onnx.ai/onnx/operators/>.
-pub trait Operator: Debug {
+pub trait Operator: Any + Debug {
     /// Return a display name for the operator.
     fn name(&self) -> &str;
 
@@ -840,6 +846,8 @@ pub trait Operator: Debug {
     }
 }
 
+impl_downcastdyn!(Operator);
+
 /// List of inputs for an operator evaluation.
 ///
 /// Conceptually this is like a `&[Option<Input>]` with methods to conveniently
@@ -879,6 +887,10 @@ impl<'a> InputList<'a> {
     /// Get an optional input.
     pub fn get(&self, index: usize) -> Option<Input<'a>> {
         self.inputs.get(index).cloned().flatten()
+    }
+
+    pub fn get_mut(&mut self, index: usize) -> Option<&mut Input<'a>> {
+        self.inputs.get_mut(index)?.as_mut()
     }
 
     /// Get an optional input as a tensor.
@@ -1006,6 +1018,8 @@ mod tests {
     use rten_tensor::NdTensor;
 
     use super::{Input, InputList, OpError, Operator, Output};
+    use crate::downcast::DowncastDyn;
+    use crate::ops::{Add, Sub};
     use crate::tensor_pool::TensorPool;
 
     /// Create an empty tensor pool.
@@ -1055,5 +1069,17 @@ mod tests {
         let input: Input = tensor.view().into();
         assert!(matches!(input, Input::FloatTensor(_)));
         assert_eq!(input.shape(), &[5, 5]);
+    }
+
+    #[test]
+    fn test_downcast_operator() {
+        let add_op = Add {};
+        let sub_op = Sub {};
+
+        let add_op_dyn: &dyn Operator = &add_op;
+        let sub_op_dyn: &dyn Operator = &sub_op;
+
+        assert!(add_op_dyn.downcast_ref::<Add>().is_some());
+        assert!(sub_op_dyn.downcast_ref::<Sub>().is_some());
     }
 }
