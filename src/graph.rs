@@ -246,41 +246,42 @@ struct PlanOptions {
 /// This is used to keep intermediate graph outputs alive until they are no
 /// longer needed.
 struct NodeRefCount {
-    rc: FxHashMap<NodeId, usize>,
+    rc: Vec<u8>,
 }
 
 impl NodeRefCount {
-    fn new() -> NodeRefCount {
+    /// Create a new ref count array with a maximum node ID of `n_nodes - 1`.
+    fn with_capacity(n_nodes: usize) -> NodeRefCount {
         NodeRefCount {
-            rc: FxHashMap::default(),
+            rc: vec![0; n_nodes],
         }
     }
 
-    /// Increment ref count of node
+    /// Increment ref count of node. If the refcount reaches `u8::MAX` it
+    /// will become "sticky" and never decrement.
     fn inc(&mut self, id: NodeId) {
-        self.rc
-            .entry(id)
-            .and_modify(|count| *count += 1)
-            .or_insert(1);
+        let rc = &mut self.rc[id];
+        *rc = rc.saturating_add(1);
     }
 
-    /// Decrement ref count of node and return new count, removing the entry
-    /// if it reaches zero.
-    ///
-    /// Returns `None` if there was no entry for this node.
+    /// Decrement ref count of node and return new count, or `None` if the
+    /// ref count was already zero.
     fn dec(&mut self, id: NodeId) -> Option<usize> {
-        let rc = self.rc.get_mut(&id)?;
-        *rc = rc.saturating_sub(1);
-        if *rc == 0 {
-            self.rc.remove(&id);
-            Some(0)
-        } else {
-            Some(*rc)
+        let rc = &mut self.rc[id];
+
+        // If the refcount reaches the max value, it becomes sticky.
+        if *rc == u8::MAX {
+            return Some(*rc as usize);
+        } else if *rc == 0 {
+            return None;
         }
+
+        *rc = rc.saturating_sub(1);
+        Some(*rc as usize)
     }
 
     fn count(&self, id: NodeId) -> usize {
-        *self.rc.get(&id).unwrap_or(&0)
+        self.rc[id] as usize
     }
 }
 
@@ -561,7 +562,7 @@ impl Graph {
 
         // Count how often each temporary output is used, so we can free them
         // when no longer needed.
-        let mut temp_value_refcount = NodeRefCount::new();
+        let mut temp_value_refcount = NodeRefCount::with_capacity(self.nodes.len());
         for &op_node_id in plan.iter() {
             let Some(Node::Operator(op_node)) = self.nodes.get(op_node_id) else {
                 return Err(RunError::PlanningError(
