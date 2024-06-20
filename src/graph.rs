@@ -11,6 +11,8 @@ use rten_tensor::{DynLayout, Tensor, TensorView};
 // Instead we want faster hashing.
 use rustc_hash::{FxHashMap, FxHashSet};
 
+use smallvec::SmallVec;
+
 use crate::constant_storage::ArcTensorView;
 use crate::env::env_flag;
 use crate::ops::{Input, InputList, InputOrOutput, OpError, Operator, Output};
@@ -246,41 +248,42 @@ struct PlanOptions {
 /// This is used to keep intermediate graph outputs alive until they are no
 /// longer needed.
 struct NodeRefCount {
-    rc: FxHashMap<NodeId, usize>,
+    rc: Vec<u8>,
 }
 
 impl NodeRefCount {
-    fn new() -> NodeRefCount {
+    /// Create a new ref count array with a maximum node ID of `n_nodes - 1`.
+    fn with_capacity(n_nodes: usize) -> NodeRefCount {
         NodeRefCount {
-            rc: FxHashMap::default(),
+            rc: vec![0; n_nodes],
         }
     }
 
-    /// Increment ref count of node
+    /// Increment ref count of node. If the refcount reaches `u8::MAX` it
+    /// will become "sticky" and never decrement.
     fn inc(&mut self, id: NodeId) {
-        self.rc
-            .entry(id)
-            .and_modify(|count| *count += 1)
-            .or_insert(1);
+        let rc = &mut self.rc[id];
+        *rc = rc.saturating_add(1);
     }
 
-    /// Decrement ref count of node and return new count, removing the entry
-    /// if it reaches zero.
-    ///
-    /// Returns `None` if there was no entry for this node.
+    /// Decrement ref count of node and return new count, or `None` if the
+    /// ref count was already zero.
     fn dec(&mut self, id: NodeId) -> Option<usize> {
-        let rc = self.rc.get_mut(&id)?;
-        *rc = rc.saturating_sub(1);
-        if *rc == 0 {
-            self.rc.remove(&id);
-            Some(0)
-        } else {
-            Some(*rc)
+        let rc = &mut self.rc[id];
+
+        // If the refcount reaches the max value, it becomes sticky.
+        if *rc == u8::MAX {
+            return Some(*rc as usize);
+        } else if *rc == 0 {
+            return None;
         }
+
+        *rc = rc.saturating_sub(1);
+        Some(*rc as usize)
     }
 
     fn count(&self, id: NodeId) -> usize {
-        *self.rc.get(&id).unwrap_or(&0)
+        self.rc[id] as usize
     }
 }
 
@@ -561,7 +564,7 @@ impl Graph {
 
         // Count how often each temporary output is used, so we can free them
         // when no longer needed.
-        let mut temp_value_refcount = NodeRefCount::new();
+        let mut temp_value_refcount = NodeRefCount::with_capacity(self.nodes.len());
         for &op_node_id in plan.iter() {
             let Some(Node::Operator(op_node)) = self.nodes.get(op_node_id) else {
                 return Err(RunError::PlanningError(
@@ -656,7 +659,8 @@ impl Graph {
             });
 
             // Collect all or remaining inputs for the operator
-            let mut op_inputs: Vec<Option<Input>> = Vec::with_capacity(op_node.inputs.len());
+            let mut op_inputs: SmallVec<[Option<Input>; 4]> =
+                SmallVec::with_capacity(op_node.inputs.len());
             for node_id in op_node.inputs.iter() {
                 if in_place_input.is_some() && *node_id == in_place_input_id {
                     continue;
@@ -701,13 +705,14 @@ impl Graph {
             let op_result = if let Some(input) = in_place_input {
                 op_node
                     .operator
-                    .run_in_place(&pool, input, InputList::from_optional(op_inputs))
+                    .run_in_place(&pool, input, InputList::from_optional(&op_inputs))
                     .map(|out| [out].into())
             } else {
                 op_node
                     .operator
-                    .run(&pool, InputList::from_optional(op_inputs))
+                    .run(&pool, InputList::from_optional(&op_inputs))
             };
+            std::mem::drop(op_inputs);
 
             if record_timing {
                 op_timer.end();

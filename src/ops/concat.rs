@@ -3,18 +3,19 @@ use std::mem::MaybeUninit;
 use rten_tensor::prelude::*;
 use rten_tensor::{NdTensorView, Tensor, TensorView};
 
+use smallvec::SmallVec;
+
 use crate::ops::{resolve_axis, Input, InputList, IntoOpResult, OpError, Operator, Output};
 use crate::static_dims;
 use crate::tensor_pool::{AutoReturn, TensorPool};
 
 /// Return the shape formed by concatenating all tensors along a given axis.
 fn concatenated_shape<T: Copy>(
+    first_shape: &[usize],
     inputs: &[TensorView<T>],
     axis: usize,
-) -> Result<Vec<usize>, OpError> {
-    let first_shape = inputs[0].shape();
-
-    for other in &inputs[1..] {
+) -> Result<SmallVec<[usize; 4]>, OpError> {
+    for other in inputs {
         let other_shape = other.shape();
         if other_shape.len() != first_shape.len() {
             return Err(OpError::IncompatibleInputShapes(
@@ -30,19 +31,19 @@ fn concatenated_shape<T: Copy>(
         }
     }
 
-    let mut out_shape: Vec<_> = first_shape.into();
-    for other in &inputs[1..] {
+    let mut out_shape: SmallVec<_> = first_shape.into();
+    for other in inputs {
         out_shape[axis] += other.size(axis);
     }
 
     Ok(out_shape)
 }
 
-fn typed_inputs<'a, T>(inputs: &InputList<'a>) -> Result<Vec<TensorView<'a, T>>, OpError>
+fn typed_inputs<'a, T>(inputs: &InputList<'a>) -> Result<SmallVec<[TensorView<'a, T>; 4]>, OpError>
 where
     TensorView<'a, T>: TryFrom<Input<'a>, Error = OpError>,
 {
-    let mut typed_inputs: Vec<TensorView<T>> = Vec::with_capacity(inputs.len());
+    let mut typed_inputs: SmallVec<_> = SmallVec::with_capacity(inputs.len());
     for input in inputs.iter() {
         typed_inputs.push(input.try_into()?);
     }
@@ -53,10 +54,11 @@ fn concat_impl<T: Copy>(
     pool: &TensorPool,
     out_shape: &[usize],
     axis: usize,
+    first_input: &TensorView<T>,
     inputs: &[TensorView<T>],
 ) -> Result<Tensor<T>, OpError> {
     let mut output = Tensor::with_capacity_in(pool, out_shape, axis);
-    for input in inputs {
+    for input in std::iter::once(first_input).chain(inputs) {
         output
             .append(axis, input.view())
             .expect("should have capacity");
@@ -70,8 +72,8 @@ pub fn concat<T: Copy>(
     axis: isize,
 ) -> Result<Tensor<T>, OpError> {
     let axis = resolve_axis(inputs[0].ndim(), axis)?;
-    let out_shape = concatenated_shape(inputs, axis)?;
-    concat_impl(pool, &out_shape, axis, inputs)
+    let out_shape = concatenated_shape(inputs[0].shape(), &inputs[1..], axis)?;
+    concat_impl(pool, &out_shape, axis, &inputs[0], &inputs[1..])
 }
 
 pub fn concat_in_place<T: Copy>(
@@ -81,12 +83,9 @@ pub fn concat_in_place<T: Copy>(
     axis: isize,
 ) -> Result<Tensor<T>, OpError> {
     let axis = resolve_axis(output.ndim(), axis)?;
-    let all_inputs: Vec<_> = std::iter::once(output.view())
-        .chain(inputs.iter().cloned())
-        .collect();
-    let out_shape = concatenated_shape(&all_inputs, axis)?;
+    let out_shape = concatenated_shape(output.shape(), inputs, axis)?;
     if !output.has_capacity(axis, out_shape[axis]) {
-        return concat_impl(pool, &out_shape, axis, &all_inputs);
+        return concat_impl(pool, &out_shape, axis, &output.view(), inputs);
     }
 
     for input in inputs {

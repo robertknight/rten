@@ -13,6 +13,7 @@
 //! and one which takes a view as input and returns a new tensor as output.
 
 use std::any::Any;
+use std::borrow::Cow;
 use std::error::Error;
 use std::fmt;
 use std::fmt::{Debug, Display};
@@ -857,13 +858,15 @@ impl_downcastdyn!(Operator);
 /// An InputList can be constructed from a tensor reference or tuple of tensor
 /// references using `into`.
 pub struct InputList<'a> {
-    inputs: Vec<Option<Input<'a>>>,
+    inputs: Cow<'a, [Option<Input<'a>>]>,
 }
 
 impl<'a> InputList<'a> {
     /// Construct an empty input list.
     pub fn new() -> InputList<'static> {
-        InputList { inputs: vec![] }
+        InputList {
+            inputs: Cow::Owned(vec![]),
+        }
     }
 
     pub fn len(&self) -> usize {
@@ -874,14 +877,16 @@ impl<'a> InputList<'a> {
         self.inputs.is_empty()
     }
 
-    pub fn from<'b>(inputs: &[Input<'b>]) -> InputList<'b> {
+    pub fn from(inputs: &[Input<'a>]) -> InputList<'a> {
         InputList {
             inputs: inputs.iter().cloned().map(Some).collect(),
         }
     }
 
-    pub fn from_optional(inputs: Vec<Option<Input>>) -> InputList {
-        InputList { inputs }
+    pub fn from_optional(inputs: &'a [Option<Input<'a>>]) -> InputList<'a> {
+        InputList {
+            inputs: Cow::Borrowed(inputs),
+        }
     }
 
     /// Get an optional input.
@@ -890,7 +895,7 @@ impl<'a> InputList<'a> {
     }
 
     pub fn get_mut(&mut self, index: usize) -> Option<&mut Input<'a>> {
-        self.inputs.get_mut(index)?.as_mut()
+        self.inputs.to_mut().get_mut(index)?.as_mut()
     }
 
     /// Get an optional input as a tensor.
@@ -1002,8 +1007,8 @@ fn resolve_axis(ndim: usize, axis: isize) -> Result<usize, OpError> {
 pub fn resolve_axes<'a, I: ExactSizeIterator<Item = &'a i32>>(
     ndim: usize,
     axes: I,
-) -> Result<Vec<usize>, OpError> {
-    let mut resolved_axes = Vec::with_capacity(axes.len());
+) -> Result<SmallVec<[usize; 4]>, OpError> {
+    let mut resolved_axes = SmallVec::with_capacity(axes.len());
     for axis in axes {
         let resolved = resolve_axis(ndim, *axis as isize)?;
         resolved_axes.push(resolved);
