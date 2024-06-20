@@ -514,7 +514,7 @@ impl<'a, const N: usize> TryFrom<&'a DynLayout> for NdLayout<N> {
 ///
 /// Zero-strides are used for broadcasting, which is widely used and easy to
 /// check for.
-#[derive(Clone, Debug, PartialEq)]
+#[derive(Debug, PartialEq)]
 pub struct DynLayout {
     /// Array of dimension sizes followed by the corresponding dimension strides.
     ///
@@ -522,6 +522,17 @@ pub struct DynLayout {
     /// are combined into one array to avoid redundantly storing separate
     /// lengths for each.
     shape_and_strides: SmallVec<[usize; 8]>,
+}
+
+impl Clone for DynLayout {
+    fn clone(&self) -> DynLayout {
+        DynLayout {
+            // We implement `Clone` manually here so we can clone
+            // `shape_and_strides` using `SmallVec::from_slice` instead of
+            // `SmallVec::from`. This is faster for `Copy` types.
+            shape_and_strides: SmallVec::from_slice(self.shape_and_strides.as_slice()),
+        }
+    }
 }
 
 impl Layout for DynLayout {
