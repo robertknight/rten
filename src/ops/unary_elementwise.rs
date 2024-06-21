@@ -7,9 +7,9 @@ use std::mem::MaybeUninit;
 use rten_tensor::prelude::*;
 use rten_tensor::{Tensor, TensorView, TensorViewMut};
 use rten_vecmath::{
-    erf as erf_scalar, exp as exp_scalar, sigmoid as sigmoid_scalar, tanh as tanh_scalar, vec_erf,
-    vec_erf_in_place, vec_exp, vec_exp_in_place, vec_sigmoid, vec_sigmoid_in_place, vec_tanh,
-    vec_tanh_in_place,
+    erf as erf_scalar, exp as exp_scalar, sigmoid as sigmoid_scalar, silu as silu_scalar,
+    tanh as tanh_scalar, vec_erf, vec_erf_in_place, vec_exp, vec_exp_in_place, vec_sigmoid,
+    vec_sigmoid_in_place, vec_silu, vec_silu_in_place, vec_tanh, vec_tanh_in_place,
 };
 
 use crate::number::AsBool;
@@ -593,6 +593,22 @@ parallel_unary_float_op!(
     sigmoid_scalar
 );
 
+// Sigmoid Linear Unit (SiLU) function.
+//
+// This is a special case of the Swish function
+// (https://en.wikipedia.org/wiki/Swish_function).
+//
+// Not an official ONNX operator, but used in popular object detection models.
+// See https://github.com/onnx/onnx/issues/4854.
+parallel_unary_float_op!(
+    Silu,
+    silu,
+    silu_in_place,
+    vec_silu,
+    vec_silu_in_place,
+    silu_scalar
+);
+
 unary_float_op!(Sin, sin, sin_in_place, |val: f32| val.sin());
 
 /// Trait for obtaining the sign of a number (-1, 0 or 1) as a value of the
@@ -653,8 +669,8 @@ mod tests {
         clip_in_place, cos, cos_in_place, elu, elu_in_place, erf, erf_in_place, exp, exp_in_place,
         floor, hard_sigmoid, hard_swish, leaky_relu, leaky_relu_in_place, log, log_in_place, neg,
         neg_in_place, not, not_in_place, reciprocal, relu, relu_in_place, round, round_in_place,
-        sigmoid, sigmoid_in_place, sign, sign_in_place, sin, sin_in_place, softplus,
-        softplus_in_place, sqrt, sqrt_in_place, tan, tan_in_place, tanh, tanh_in_place,
+        sigmoid, sigmoid_in_place, sign, sign_in_place, silu, silu_in_place, sin, sin_in_place,
+        softplus, softplus_in_place, sqrt, sqrt_in_place, tan, tan_in_place, tanh, tanh_in_place,
     };
 
     /// Define a test for a simple unary operator which applies the function
@@ -1093,6 +1109,10 @@ mod tests {
         Ok(())
     }
 
+    fn reference_sigmoid(x: f32) -> f32 {
+        1. / (1. + (-x).exp())
+    }
+
     #[test]
     fn test_sigmoid() -> Result<(), Box<dyn Error>> {
         let pool = new_pool();
@@ -1100,7 +1120,7 @@ mod tests {
             &[9],
             vec![-500.0, -3.0, -1.0, -0.5, 0.0, 0.5, 1.0, 3.0, 500.0],
         );
-        let expected = input.map(|x| 1. / (1. + (-x).exp()));
+        let expected = input.map(|x| reference_sigmoid(*x));
 
         let result = sigmoid(&pool, input.view());
         expect_equal(&result, &expected)?;
@@ -1112,6 +1132,8 @@ mod tests {
         Ok(())
     }
 
+    test_unary_op!(test_silu, silu, silu_in_place, |x: &f32| x
+        * reference_sigmoid(*x));
     test_unary_op!(test_sign, sign, sign_in_place, |x: &f32| x.signum());
     test_unary_op!(test_sin, sin, sin_in_place, |x: &f32| x.sin());
     test_unary_op!(test_softplus, softplus, softplus_in_place, |x: &f32| {

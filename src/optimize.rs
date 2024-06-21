@@ -7,7 +7,7 @@ use rustc_hash::FxHashMap;
 use crate::downcast::DowncastDyn;
 use crate::graph::{Constant, ConstantNode, Graph, Node, NodeId, OperatorNode, RunError};
 use crate::ops::fused::FusedTranspose;
-use crate::ops::{MatMul, Operator, Transpose};
+use crate::ops::{MatMul, Mul, Operator, Sigmoid, Silu, Transpose};
 use crate::Output;
 
 /// Errors that occur while applying graph optimizations.
@@ -202,6 +202,24 @@ struct Fusion {
 }
 
 impl Fusion {
+    /// Create a fusion with a given operator, name and input nodes.
+    ///
+    /// `old_output_id` specifies the output ID of the subgraph that this fusion
+    /// replaces.
+    fn from_op<Op: Operator + Send + Sync>(
+        name: Option<&str>,
+        op: Op,
+        input_ids: &[NodeId],
+        old_output_id: NodeId,
+    ) -> Fusion {
+        Fusion {
+            name: name.map(|s| s.to_string()),
+            fused_op: Box::new(op),
+            input_ids: input_ids.iter().copied().map(Some).collect(),
+            old_output_id,
+        }
+    }
+
     /// Apply the fusion to the graph.
     ///
     /// This adds the fused operator to the graph and replaces references to
@@ -251,6 +269,13 @@ impl OperatorMatch for OperatorNode {
     }
 }
 
+/// Return true if `a` and `b`, viewed as sets, contain the same elements.
+fn array_sets_equal<T: PartialEq + Ord, const N: usize>(mut a: [T; N], mut b: [T; N]) -> bool {
+    a.sort_unstable();
+    b.sort_unstable();
+    a == b
+}
+
 /// Applies optimizations to a [`Graph`] to enable faster inference.
 pub struct GraphOptimizer {}
 
@@ -279,6 +304,7 @@ impl GraphOptimizer {
         self.propagate_constants(&mut graph_mut)?;
 
         self.fuse_transpose_matmul(&mut graph_mut)?;
+        self.fuse_silu(&mut graph_mut)?;
 
         let (graph, output_ids) = graph_mut.into_graph_and_output_ids();
 
@@ -319,8 +345,9 @@ impl GraphOptimizer {
         Ok(())
     }
 
-    /// Fuse `[Transpose(X), Y] -> MatMul` subgraphs, where the inputs can be in
-    /// either order.
+    /// Fuse `MatMul(Transpose(X), Y)`.
+    ///
+    /// The `MatMul` inputs can be in either order.
     fn fuse_transpose_matmul(&self, graph: &mut GraphMutator) -> Result<(), OptimizeError> {
         graph.apply_fusion(|edges, op_node| {
             let (transpose_op, [transpose_input], [transpose_output]) =
@@ -338,7 +365,7 @@ impl GraphOptimizer {
                 [matmul_input_a, transpose_input]
             };
 
-            let fused_transpose_matmul = FusedTranspose::wrap(
+            let fused_op = FusedTranspose::wrap(
                 Box::new(matmul_op.clone()),
                 if matmul_input_a == transpose_output {
                     0
@@ -347,11 +374,29 @@ impl GraphOptimizer {
                 },
                 transpose_op.perm.as_deref(),
             );
-            Some(Fusion {
-                name: transpose_target.name().map(|s| s.to_string()),
-                fused_op: Box::new(fused_transpose_matmul),
-                input_ids: fused_input.map(Some).to_vec(),
-                old_output_id: matmul_output,
+
+            Some(Fusion::from_op(
+                transpose_target.name(),
+                fused_op,
+                &fused_input,
+                matmul_output,
+            ))
+        });
+
+        Ok(())
+    }
+
+    /// Fuse `x * Sigmoid(x)` into `Silu(x)`.
+    fn fuse_silu(&self, graph: &mut GraphMutator) -> Result<(), OptimizeError> {
+        graph.apply_fusion(|graph, op_node| {
+            let (_sigmoid_op, [sigmoid_input], [sigmoid_output]) =
+                op_node.match_type::<Sigmoid, 1, 1>()?;
+            let sigmoid_target = graph.find_operator_with_input(sigmoid_output)?;
+
+            let (_mul_op, mul_inputs, [mul_output]) = sigmoid_target.match_type::<Mul, 2, 1>()?;
+
+            array_sets_equal(mul_inputs, [sigmoid_input, sigmoid_output]).then(|| {
+                Fusion::from_op(sigmoid_target.name(), Silu {}, &[sigmoid_input], mul_output)
             })
         });
 
@@ -373,7 +418,7 @@ mod tests {
 
     use super::{GraphOptimizer, OptimizeError, OptimizedGraph};
     use crate::graph::{Constant, Graph, Node, NodeId, OperatorNode};
-    use crate::ops::{Add, MatMul, Operator, Transpose};
+    use crate::ops::{Add, MatMul, Mul, Operator, Sigmoid, Transpose};
 
     /// Extensions to [`Graph`] to make tests easier to write.
     trait GraphTestUtils {
@@ -418,6 +463,26 @@ mod tests {
                 _ => None,
             }
         }
+    }
+
+    fn optimize_graph(
+        graph: Graph,
+        input_ids: &[NodeId],
+        output_ids: &[NodeId],
+    ) -> Result<(Graph, Vec<NodeId>), OptimizeError> {
+        let optimizer = GraphOptimizer::new();
+        let OptimizedGraph {
+            graph, output_ids, ..
+        } = optimizer.optimize(graph, input_ids, output_ids)?;
+        Ok((graph, output_ids))
+    }
+
+    /// Return the operator node which produces a given output value node.
+    fn source_operator(graph: &Graph, output_id: NodeId) -> Option<&OperatorNode> {
+        graph.iter().find_map(|(_, node)| match node {
+            Node::Operator(op) => (op.output_ids() == &[Some(output_id)]).then_some(op),
+            _ => None,
+        })
     }
 
     #[test]
@@ -476,33 +541,31 @@ mod tests {
         let input_1 = graph.add_value(None, None);
         let input_2 = graph.add_value(None, None);
 
-        let transpose_op = Transpose { perm: None };
-
-        let (_, transpose_out) = graph.add_simple_op("transpose", transpose_op, &[input_1]);
+        let (_, transpose_out) =
+            graph.add_simple_op("transpose", Transpose { perm: None }, &[input_1]);
         let (_, matmul_out) = graph.add_simple_op("matmul", MatMul {}, &[transpose_out, input_2]);
 
-        let optimizer = GraphOptimizer::new();
-        let OptimizedGraph {
-            graph: optimized_graph,
-            output_ids: new_output_ids,
-            ..
-        } = optimizer
-            .optimize(graph, &[input_1, input_2], &[matmul_out])
-            .unwrap();
+        let (graph, new_output_ids) =
+            optimize_graph(graph, &[input_1, input_2], &[matmul_out]).unwrap();
 
-        let Some((_, new_op)) = optimized_graph.iter().find(|(_, node)| match node {
-            Node::Operator(op) => op.output_ids() == &[Some(new_output_ids[0])],
-            _ => false,
-        }) else {
-            panic!("node not found");
-        };
-
-        let Node::Operator(op) = new_op else {
-            panic!("should be an operator");
-        };
-
+        let op = source_operator(&graph, new_output_ids[0]).unwrap();
         assert_eq!(op.operator().name(), "FusedTranspose(MatMul)");
         assert_eq!(op.name(), Some("matmul"));
+    }
+
+    #[test]
+    fn test_fuse_silu() {
+        let mut graph = Graph::new();
+
+        let input = graph.add_value(None, None);
+        let (_, sigmoid_out) = graph.add_simple_op("sigmoid", Sigmoid {}, &[input]);
+        let (_, mul_out) = graph.add_simple_op("mul", Mul {}, &[input, sigmoid_out]);
+
+        let (graph, new_output_ids) = optimize_graph(graph, &[input], &[mul_out]).unwrap();
+
+        let op = source_operator(&graph, new_output_ids[0]).unwrap();
+        assert_eq!(op.operator().name(), "Silu");
+        assert_eq!(op.name(), Some("mul"));
     }
 
     #[test]
