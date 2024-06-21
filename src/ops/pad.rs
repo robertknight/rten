@@ -1,7 +1,7 @@
 use rten_tensor::prelude::*;
 use rten_tensor::{NdTensorView, SliceItem, Tensor, TensorView};
 
-use crate::ops::{Input, InputList, IntoOpResult, OpError, Operator, Output};
+use crate::ops::{Input, InputList, IntoOpResult, OpError, Operator, OutputList};
 use crate::static_dims;
 use crate::tensor_pool::TensorPool;
 
@@ -57,7 +57,7 @@ impl Operator for Pad {
         "Pad"
     }
 
-    fn run(&self, pool: &TensorPool, inputs: InputList) -> Result<Vec<Output>, OpError> {
+    fn run(&self, pool: &TensorPool, inputs: InputList) -> Result<OutputList, OpError> {
         let input = inputs.require(0)?;
         let pads = inputs.require_as::<i32>(1)?;
         let pads = static_dims!(pads, 1)?;

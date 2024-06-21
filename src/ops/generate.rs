@@ -5,7 +5,8 @@ use rten_tensor::prelude::*;
 use rten_tensor::{NdTensorView, Tensor, TensorView};
 
 use crate::ops::{
-    resolve_axis, resolve_index, Input, InputList, IntoOpResult, OpError, Operator, Output, Scalar,
+    resolve_axis, resolve_index, Input, InputList, IntoOpResult, OpError, Operator, OutputList,
+    Scalar,
 };
 use crate::static_dims;
 use crate::tensor_pool::TensorPool;
@@ -29,7 +30,7 @@ impl Operator for ConstantOfShape {
         "ConstantOfShape"
     }
 
-    fn run(&self, pool: &TensorPool, inputs: InputList) -> Result<Vec<Output>, OpError> {
+    fn run(&self, pool: &TensorPool, inputs: InputList) -> Result<OutputList, OpError> {
         let shape = inputs.require_as::<i32>(0)?;
         let shape = static_dims!(shape, 1)?;
 
@@ -87,7 +88,7 @@ impl Operator for OneHot {
         "OneHot"
     }
 
-    fn run(&self, pool: &TensorPool, inputs: InputList) -> Result<Vec<Output>, OpError> {
+    fn run(&self, pool: &TensorPool, inputs: InputList) -> Result<OutputList, OpError> {
         let indices = inputs.require_as::<i32>(0)?;
         let depth = inputs.require_as::<i32>(1)?;
         let depth = depth
@@ -140,7 +141,7 @@ impl Operator for Range {
         "Range"
     }
 
-    fn run(&self, _pool: &TensorPool, inputs: InputList) -> Result<Vec<Output>, OpError> {
+    fn run(&self, _pool: &TensorPool, inputs: InputList) -> Result<OutputList, OpError> {
         let start = inputs.require(0)?;
         let limit = inputs.require(1)?;
         let delta = inputs.require(2)?;

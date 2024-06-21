@@ -9,6 +9,7 @@ use smallvec::SmallVec;
 use crate::ops::binary_elementwise::{broadcast_shapes, fast_broadcast_cycles_repeats};
 use crate::ops::{
     resolve_axes, resolve_axis, Input, InputList, IntoOpResult, OpError, Operator, Output,
+    OutputList,
 };
 use crate::static_dims;
 use crate::tensor_pool::TensorPool;
@@ -88,7 +89,7 @@ impl Operator for Expand {
         "Expand"
     }
 
-    fn run(&self, pool: &TensorPool, inputs: InputList) -> Result<Vec<Output>, OpError> {
+    fn run(&self, pool: &TensorPool, inputs: InputList) -> Result<OutputList, OpError> {
         let input = inputs.require(0)?;
         let shape = inputs.require_as(1)?;
         let shape = static_dims!(shape, 1)?;
@@ -165,7 +166,7 @@ impl Operator for Flatten {
         "Flatten"
     }
 
-    fn run(&self, pool: &TensorPool, inputs: InputList) -> Result<Vec<Output>, OpError> {
+    fn run(&self, pool: &TensorPool, inputs: InputList) -> Result<OutputList, OpError> {
         let input = inputs.require(0)?;
 
         match input {
@@ -303,7 +304,7 @@ impl Operator for Reshape {
         "Reshape"
     }
 
-    fn run(&self, pool: &TensorPool, inputs: InputList) -> Result<Vec<Output>, OpError> {
+    fn run(&self, pool: &TensorPool, inputs: InputList) -> Result<OutputList, OpError> {
         let input = inputs.require(0)?;
         let shape = inputs.require_as(1)?;
         let shape = static_dims!(shape, 1)?;
@@ -348,7 +349,7 @@ impl Operator for Shape {
         "Shape"
     }
 
-    fn run(&self, pool: &TensorPool, inputs: InputList) -> Result<Vec<Output>, OpError> {
+    fn run(&self, pool: &TensorPool, inputs: InputList) -> Result<OutputList, OpError> {
         let input = inputs.require(0)?;
 
         // Allocate output from pool for consistency with other operators,
@@ -369,7 +370,7 @@ impl Operator for Size {
         "Size"
     }
 
-    fn run(&self, pool: &TensorPool, inputs: InputList) -> Result<Vec<Output>, OpError> {
+    fn run(&self, pool: &TensorPool, inputs: InputList) -> Result<OutputList, OpError> {
         let input = inputs.require(0)?;
         let len = input.len() as i32;
 
@@ -437,7 +438,7 @@ impl Operator for Squeeze {
         "Squeeze"
     }
 
-    fn run(&self, pool: &TensorPool, inputs: InputList) -> Result<Vec<Output>, OpError> {
+    fn run(&self, pool: &TensorPool, inputs: InputList) -> Result<OutputList, OpError> {
         let input = inputs.require(0)?;
         let axes = inputs.get_as(1)?;
         let axes = axes.map(|axes| static_dims!(axes, 1)).transpose()?;
@@ -508,7 +509,7 @@ impl Operator for Transpose {
         "Transpose"
     }
 
-    fn run(&self, pool: &TensorPool, inputs: InputList) -> Result<Vec<Output>, OpError> {
+    fn run(&self, pool: &TensorPool, inputs: InputList) -> Result<OutputList, OpError> {
         let input = inputs.require(0)?;
         let perm_slice = self.perm.as_deref();
         match input {
@@ -558,7 +559,7 @@ impl Operator for Unsqueeze {
         "Unsqueeze"
     }
 
-    fn run(&self, pool: &TensorPool, inputs: InputList) -> Result<Vec<Output>, OpError> {
+    fn run(&self, pool: &TensorPool, inputs: InputList) -> Result<OutputList, OpError> {
         let input = inputs.require(0)?;
         let axes = inputs.require_as(1)?;
         let axes = static_dims!(axes, 1)?;

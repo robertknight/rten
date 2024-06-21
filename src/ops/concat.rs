@@ -5,7 +5,9 @@ use rten_tensor::{NdTensorView, Tensor, TensorView};
 
 use smallvec::SmallVec;
 
-use crate::ops::{resolve_axis, Input, InputList, IntoOpResult, OpError, Operator, Output};
+use crate::ops::{
+    resolve_axis, Input, InputList, IntoOpResult, OpError, Operator, Output, OutputList,
+};
 use crate::static_dims;
 use crate::tensor_pool::{AutoReturn, TensorPool};
 
@@ -107,7 +109,7 @@ impl Operator for Concat {
         "Concat"
     }
 
-    fn run(&self, pool: &TensorPool, inputs: InputList) -> Result<Vec<Output>, OpError> {
+    fn run(&self, pool: &TensorPool, inputs: InputList) -> Result<OutputList, OpError> {
         let first = inputs.require(0)?;
         match first {
             Input::FloatTensor(_) => {
@@ -260,7 +262,7 @@ impl Operator for Tile {
         "Tile"
     }
 
-    fn run(&self, pool: &TensorPool, inputs: InputList) -> Result<Vec<Output>, OpError> {
+    fn run(&self, pool: &TensorPool, inputs: InputList) -> Result<OutputList, OpError> {
         let input = inputs.require(0)?;
         let repeats = inputs.require_as::<i32>(1)?;
         let repeats = static_dims!(repeats, 1)?;

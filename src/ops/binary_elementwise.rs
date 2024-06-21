@@ -5,7 +5,7 @@ use rten_tensor::prelude::*;
 use rten_tensor::{Tensor, TensorView, TensorViewMut};
 
 use crate::number::{AsBool, Identities, IsInt};
-use crate::ops::{Input, InputList, IntoOpResult, OpError, Operator, Output};
+use crate::ops::{Input, InputList, IntoOpResult, OpError, Operator, Output, OutputList};
 use crate::tensor_pool::TensorPool;
 
 /// Given the shapes of two inputs to a binary operation, return the shape
@@ -413,7 +413,7 @@ impl Operator for Add {
         "Add"
     }
 
-    fn run(&self, pool: &TensorPool, inputs: InputList) -> Result<Vec<Output>, OpError> {
+    fn run(&self, pool: &TensorPool, inputs: InputList) -> Result<OutputList, OpError> {
         run_typed_op!(pool, inputs, add)
     }
 
@@ -464,7 +464,7 @@ macro_rules! logical_boolean_op {
                 true
             }
 
-            fn run(&self, pool: &TensorPool, inputs: InputList) -> Result<Vec<Output>, OpError> {
+            fn run(&self, pool: &TensorPool, inputs: InputList) -> Result<OutputList, OpError> {
                 let a: TensorView<i32> = inputs.require_as(0)?;
                 let b: TensorView<i32> = inputs.require_as(1)?;
                 $op_fn(pool, a, b).into_op_result()
@@ -521,7 +521,7 @@ impl Operator for Div {
         "Div"
     }
 
-    fn run(&self, pool: &TensorPool, inputs: InputList) -> Result<Vec<Output>, OpError> {
+    fn run(&self, pool: &TensorPool, inputs: InputList) -> Result<OutputList, OpError> {
         run_typed_op!(pool, inputs, div)
     }
 
@@ -591,7 +591,7 @@ macro_rules! boolean_cmp_op {
                 stringify!($name) == "Equal"
             }
 
-            fn run(&self, pool: &TensorPool, inputs: InputList) -> Result<Vec<Output>, OpError> {
+            fn run(&self, pool: &TensorPool, inputs: InputList) -> Result<OutputList, OpError> {
                 run_typed_op!(pool, inputs, $func)
             }
         }
@@ -668,7 +668,7 @@ impl Operator for Mod {
         "Mod"
     }
 
-    fn run(&self, pool: &TensorPool, inputs: InputList) -> Result<Vec<Output>, OpError> {
+    fn run(&self, pool: &TensorPool, inputs: InputList) -> Result<OutputList, OpError> {
         let a = inputs.require(0)?;
         let mode = if self.fmod {
             DivMode::TruncDiv
@@ -714,7 +714,7 @@ impl Operator for Mul {
         "Mul"
     }
 
-    fn run(&self, pool: &TensorPool, inputs: InputList) -> Result<Vec<Output>, OpError> {
+    fn run(&self, pool: &TensorPool, inputs: InputList) -> Result<OutputList, OpError> {
         run_typed_op!(pool, inputs, mul)
     }
 
@@ -773,7 +773,7 @@ impl Operator for Pow {
         "Pow"
     }
 
-    fn run(&self, pool: &TensorPool, inputs: InputList) -> Result<Vec<Output>, OpError> {
+    fn run(&self, pool: &TensorPool, inputs: InputList) -> Result<OutputList, OpError> {
         let a = inputs.require_as(0)?;
         let b = inputs.require_as(1)?;
         pow(pool, a, b).into_op_result()
@@ -826,7 +826,7 @@ impl Operator for Sub {
         "Sub"
     }
 
-    fn run(&self, pool: &TensorPool, inputs: InputList) -> Result<Vec<Output>, OpError> {
+    fn run(&self, pool: &TensorPool, inputs: InputList) -> Result<OutputList, OpError> {
         run_typed_op!(pool, inputs, sub)
     }
 
@@ -933,7 +933,7 @@ impl Operator for Where {
         "Where"
     }
 
-    fn run(&self, pool: &TensorPool, inputs: InputList) -> Result<Vec<Output>, OpError> {
+    fn run(&self, pool: &TensorPool, inputs: InputList) -> Result<OutputList, OpError> {
         let condition = inputs.require_as::<i32>(0)?;
         let x = inputs.require(1)?;
         let y = inputs.require(2)?;

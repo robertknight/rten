@@ -1,7 +1,7 @@
 use rten_tensor::prelude::*;
 use rten_tensor::{Tensor, TensorView};
 
-use crate::ops::{Input, InputList, IntoOpResult, OpError, Operator, Output};
+use crate::ops::{Input, InputList, IntoOpResult, OpError, Operator, OutputList};
 use crate::tensor_pool::TensorPool;
 
 pub fn trilu<T: Copy + Default>(
@@ -43,7 +43,7 @@ impl Operator for Trilu {
         "Trilu"
     }
 
-    fn run(&self, pool: &TensorPool, inputs: InputList) -> Result<Vec<Output>, OpError> {
+    fn run(&self, pool: &TensorPool, inputs: InputList) -> Result<OutputList, OpError> {
         let input = inputs.require(0)?;
         let k = inputs.get_as_scalar(1)?.unwrap_or(0);
 

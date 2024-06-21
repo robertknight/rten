@@ -13,7 +13,7 @@ use rten_vecmath::{
 };
 
 use crate::number::AsBool;
-use crate::ops::{Input, InputList, IntoOpResult, OpError, Operator, Output};
+use crate::ops::{Input, InputList, IntoOpResult, OpError, Operator, Output, OutputList};
 use crate::tensor_pool::{AutoReturn, TensorPool};
 
 /// Trait for operators which take a single float tensor and apply a function
@@ -40,7 +40,7 @@ impl<Op: Any + Debug + UnaryFloatOp> Operator for Op {
         self.name()
     }
 
-    fn run(&self, pool: &TensorPool, inputs: InputList) -> Result<Vec<Output>, OpError> {
+    fn run(&self, pool: &TensorPool, inputs: InputList) -> Result<OutputList, OpError> {
         let input = inputs.require_as(0)?;
         self.map(pool, input).into_op_result()
     }
@@ -76,7 +76,7 @@ macro_rules! unary_numeric_op {
                 stringify!($name)
             }
 
-            fn run(&self, pool: &TensorPool, inputs: InputList) -> Result<Vec<Output>, OpError> {
+            fn run(&self, pool: &TensorPool, inputs: InputList) -> Result<OutputList, OpError> {
                 let input = inputs.require(0)?;
                 match input {
                     Input::FloatTensor(input) => $view_impl(pool, input).into_op_result(),
@@ -201,7 +201,7 @@ macro_rules! parallel_unary_float_op {
                 true
             }
 
-            fn run(&self, pool: &TensorPool, inputs: InputList) -> Result<Vec<Output>, OpError> {
+            fn run(&self, pool: &TensorPool, inputs: InputList) -> Result<OutputList, OpError> {
                 $func_name(pool, inputs.require_as(0)?).into_op_result()
             }
 
@@ -338,7 +338,7 @@ impl Operator for Clip {
         "Clip"
     }
 
-    fn run(&self, pool: &TensorPool, inputs: InputList) -> Result<Vec<Output>, OpError> {
+    fn run(&self, pool: &TensorPool, inputs: InputList) -> Result<OutputList, OpError> {
         let input = inputs.require(0)?;
         match input {
             Input::FloatTensor(input) => {
@@ -535,7 +535,7 @@ impl Operator for Not {
         "Not"
     }
 
-    fn run(&self, pool: &TensorPool, inputs: InputList) -> Result<Vec<Output>, OpError> {
+    fn run(&self, pool: &TensorPool, inputs: InputList) -> Result<OutputList, OpError> {
         let input = inputs.require_as::<i32>(0)?;
         not(pool, input).into_op_result()
     }

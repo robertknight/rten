@@ -1,7 +1,7 @@
 use rten_tensor::prelude::*;
 use rten_tensor::{NdTensorView, SliceItem, Tensor, TensorView};
 
-use crate::ops::{resolve_axis, InputList, OpError, Operator, Output};
+use crate::ops::{resolve_axis, InputList, OpError, Operator, OutputList};
 use crate::static_dims;
 use crate::tensor_pool::TensorPool;
 
@@ -57,7 +57,7 @@ impl Operator for Split {
         "Split"
     }
 
-    fn run(&self, pool: &TensorPool, inputs: InputList) -> Result<Vec<Output>, OpError> {
+    fn run(&self, pool: &TensorPool, inputs: InputList) -> Result<OutputList, OpError> {
         let input = inputs.require_as::<f32>(0)?;
         let splits = inputs.require_as::<i32>(1)?;
         let splits = static_dims!(splits, 1)?;

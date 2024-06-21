@@ -9,7 +9,7 @@ use rten_tensor::{DynIndices, NdTensor, NdTensorView, SliceItem, Tensor, TensorV
 use crate::number::Identities;
 use crate::ops::layout::squeeze_in_place;
 use crate::ops::{
-    resolve_axes, resolve_axis, Input, InputList, IntoOpResult, OpError, Operator, Output,
+    resolve_axes, resolve_axis, Input, InputList, IntoOpResult, OpError, Operator, OutputList,
 };
 use crate::slice_reductions::slice_sum;
 use crate::tensor_pool::TensorPool;
@@ -79,7 +79,7 @@ impl Operator for ArgMax {
         "ArgMax"
     }
 
-    fn run(&self, pool: &TensorPool, inputs: InputList) -> Result<Vec<Output>, OpError> {
+    fn run(&self, pool: &TensorPool, inputs: InputList) -> Result<OutputList, OpError> {
         let input = inputs.require_as::<f32>(0)?;
         arg_max(pool, input, self.axis, self.keep_dims).into_op_result()
     }
@@ -113,7 +113,7 @@ impl Operator for ArgMin {
         "ArgMin"
     }
 
-    fn run(&self, pool: &TensorPool, inputs: InputList) -> Result<Vec<Output>, OpError> {
+    fn run(&self, pool: &TensorPool, inputs: InputList) -> Result<OutputList, OpError> {
         let input = inputs.require_as::<f32>(0)?;
         arg_min(pool, input, self.axis, self.keep_dims).into_op_result()
     }
@@ -155,7 +155,7 @@ impl Operator for CumSum {
         "CumSum"
     }
 
-    fn run(&self, pool: &TensorPool, inputs: InputList) -> Result<Vec<Output>, OpError> {
+    fn run(&self, pool: &TensorPool, inputs: InputList) -> Result<OutputList, OpError> {
         let input = inputs.require(0)?;
         let axis: i32 = inputs.require_as_scalar(1)?;
         match input {
@@ -197,7 +197,7 @@ impl Operator for NonZero {
         "NonZero"
     }
 
-    fn run(&self, pool: &TensorPool, inputs: InputList) -> Result<Vec<Output>, OpError> {
+    fn run(&self, pool: &TensorPool, inputs: InputList) -> Result<OutputList, OpError> {
         let input = inputs.require(0)?;
         match input {
             Input::IntTensor(input) => nonzero(pool, input).into_op_result(),
@@ -361,7 +361,7 @@ impl Operator for ReduceMean {
         "ReduceMean"
     }
 
-    fn run(&self, pool: &TensorPool, inputs: InputList) -> Result<Vec<Output>, OpError> {
+    fn run(&self, pool: &TensorPool, inputs: InputList) -> Result<OutputList, OpError> {
         let input = inputs.require_as(0)?;
         let axes = get_axes(&inputs, &self.axes)?;
         reduce_mean(
@@ -402,7 +402,7 @@ impl Operator for ReduceL2 {
         "ReduceL2"
     }
 
-    fn run(&self, pool: &TensorPool, inputs: InputList) -> Result<Vec<Output>, OpError> {
+    fn run(&self, pool: &TensorPool, inputs: InputList) -> Result<OutputList, OpError> {
         let input = inputs.require_as(0)?;
         let axes = get_axes(&inputs, &self.axes)?;
         reduce_l2(
@@ -526,7 +526,7 @@ impl Operator for ReduceMin {
         "ReduceMin"
     }
 
-    fn run(&self, pool: &TensorPool, inputs: InputList) -> Result<Vec<Output>, OpError> {
+    fn run(&self, pool: &TensorPool, inputs: InputList) -> Result<OutputList, OpError> {
         let input = inputs.require(0)?;
         let axes = get_axes(&inputs, &self.axes)?;
         dispatch_reduce_op!(pool, input, reduce_min, axes, self.keep_dims)
@@ -553,7 +553,7 @@ impl Operator for ReduceMax {
         "ReduceMax"
     }
 
-    fn run(&self, pool: &TensorPool, inputs: InputList) -> Result<Vec<Output>, OpError> {
+    fn run(&self, pool: &TensorPool, inputs: InputList) -> Result<OutputList, OpError> {
         let input = inputs.require(0)?;
         let axes = get_axes(&inputs, &self.axes)?;
         dispatch_reduce_op!(pool, input, reduce_max, axes, self.keep_dims)
@@ -586,7 +586,7 @@ impl Operator for ReduceProd {
         "ReduceProd"
     }
 
-    fn run(&self, pool: &TensorPool, inputs: InputList) -> Result<Vec<Output>, OpError> {
+    fn run(&self, pool: &TensorPool, inputs: InputList) -> Result<OutputList, OpError> {
         let input = inputs.require(0)?;
         let axes = get_axes(&inputs, &self.axes)?;
         dispatch_reduce_op!(pool, input, reduce_prod, axes, self.keep_dims)
@@ -619,7 +619,7 @@ impl Operator for ReduceSum {
         "ReduceSum"
     }
 
-    fn run(&self, pool: &TensorPool, inputs: InputList) -> Result<Vec<Output>, OpError> {
+    fn run(&self, pool: &TensorPool, inputs: InputList) -> Result<OutputList, OpError> {
         let input = inputs.require(0)?;
         let axes = get_axes(&inputs, &self.axes)?;
         dispatch_reduce_op!(pool, input, reduce_sum, axes, self.keep_dims)
@@ -652,7 +652,7 @@ impl Operator for ReduceSumSquare {
         "ReduceSumSquare"
     }
 
-    fn run(&self, pool: &TensorPool, inputs: InputList) -> Result<Vec<Output>, OpError> {
+    fn run(&self, pool: &TensorPool, inputs: InputList) -> Result<OutputList, OpError> {
         let input = inputs.require(0)?;
         let axes = get_axes(&inputs, &self.axes)?;
         dispatch_reduce_op!(pool, input, reduce_sum_square, axes, self.keep_dims)
@@ -743,7 +743,7 @@ impl Operator for TopK {
         "TopK"
     }
 
-    fn run(&self, pool: &TensorPool, inputs: InputList) -> Result<Vec<Output>, OpError> {
+    fn run(&self, pool: &TensorPool, inputs: InputList) -> Result<OutputList, OpError> {
         let values = inputs.require(0)?;
         let k = inputs.require_as_scalar::<i32>(1).and_then(|k| {
             if k < 0 {

@@ -10,7 +10,7 @@ use rten_tensor::{NdTensor, NdTensorView, NdTensorViewMut, Tensor, TensorView};
 use crate::check_dims;
 use crate::gemm::{GemmExecutor, GemmInputA, GemmInputB};
 use crate::ops::pooling::calc_output_size_and_padding;
-use crate::ops::{InputList, IntoOpResult, OpError, Operator, Output, Padding};
+use crate::ops::{InputList, IntoOpResult, OpError, Operator, OutputList, Padding};
 use crate::tensor_pool::{AutoReturn, TensorPool};
 
 mod depthwise;
@@ -292,7 +292,7 @@ impl Operator for Conv {
         "Conv"
     }
 
-    fn run(&self, pool: &TensorPool, inputs: InputList) -> Result<Vec<Output>, OpError> {
+    fn run(&self, pool: &TensorPool, inputs: InputList) -> Result<OutputList, OpError> {
         let input = inputs.require_as(0)?;
         let weight = inputs.require_as(1)?;
         let bias = inputs.get_as(2)?;
@@ -560,7 +560,7 @@ impl Operator for ConvTranspose {
         "ConvTranspose"
     }
 
-    fn run(&self, pool: &TensorPool, inputs: InputList) -> Result<Vec<Output>, OpError> {
+    fn run(&self, pool: &TensorPool, inputs: InputList) -> Result<OutputList, OpError> {
         let input = inputs.require_as(0)?;
         let weight = inputs.require_as(1)?;
         let bias = inputs.get_as(2)?;

@@ -3,7 +3,7 @@ use fastrand_contrib::RngExt;
 use rten_tensor::prelude::*;
 use rten_tensor::Tensor;
 
-use crate::ops::{InputList, IntoOpResult, OpError, Operator, Output};
+use crate::ops::{InputList, IntoOpResult, OpError, Operator, OutputList};
 use crate::tensor_pool::TensorPool;
 
 #[derive(Debug)]
@@ -28,7 +28,7 @@ impl Operator for RandomUniform {
         false
     }
 
-    fn run(&self, pool: &TensorPool, _inputs: InputList) -> Result<Vec<Output>, OpError> {
+    fn run(&self, pool: &TensorPool, _inputs: InputList) -> Result<OutputList, OpError> {
         let scale_value = |val: f32| self.low + val * (self.high - self.low);
         let shape = self.shape.as_slice();
 
@@ -59,7 +59,7 @@ impl Operator for RandomUniformLike {
         false
     }
 
-    fn run(&self, pool: &TensorPool, inputs: InputList) -> Result<Vec<Output>, OpError> {
+    fn run(&self, pool: &TensorPool, inputs: InputList) -> Result<OutputList, OpError> {
         let input = inputs.require(0)?;
         let op = RandomUniform {
             low: self.low,
@@ -93,7 +93,7 @@ impl Operator for RandomNormal {
         false
     }
 
-    fn run(&self, pool: &TensorPool, _inputs: InputList) -> Result<Vec<Output>, OpError> {
+    fn run(&self, pool: &TensorPool, _inputs: InputList) -> Result<OutputList, OpError> {
         let shape = self.shape.as_slice();
 
         let mut rng = if let Some(seed) = self.seed {
@@ -125,7 +125,7 @@ impl Operator for RandomNormalLike {
         false
     }
 
-    fn run(&self, pool: &TensorPool, inputs: InputList) -> Result<Vec<Output>, OpError> {
+    fn run(&self, pool: &TensorPool, inputs: InputList) -> Result<OutputList, OpError> {
         let input = inputs.require(0)?;
         let op = RandomNormal {
             mean: self.mean,
