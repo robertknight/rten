@@ -1,6 +1,6 @@
 use rten_tensor::prelude::*;
 
-use crate::ops::{DataType, Input, InputList, IntoOpResult, OpError, Operator, Output};
+use crate::ops::{DataType, Input, InputList, IntoOpResult, OpError, Operator, Output, OutputList};
 use crate::tensor_pool::TensorPool;
 
 #[derive(Debug)]
@@ -13,7 +13,7 @@ impl Operator for Cast {
         "Cast"
     }
 
-    fn run(&self, pool: &TensorPool, inputs: InputList) -> Result<Vec<Output>, OpError> {
+    fn run(&self, pool: &TensorPool, inputs: InputList) -> Result<OutputList, OpError> {
         let input = inputs.require(0)?;
         let result: Output = match self.to {
             DataType::Int32 => match input {

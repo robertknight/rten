@@ -580,17 +580,17 @@ impl<'a> Layout for InputOrOutput<'a> {
 /// Trait for values that can be converted into the result type used by
 /// `Operator::run`.
 pub trait IntoOpResult {
-    fn into_op_result(self) -> Result<Vec<Output>, OpError>;
+    fn into_op_result(self) -> Result<OutputList, OpError>;
 }
 
 impl IntoOpResult for Result<Output, OpError> {
-    fn into_op_result(self) -> Result<Vec<Output>, OpError> {
+    fn into_op_result(self) -> Result<OutputList, OpError> {
         self.map(|out| [out].into())
     }
 }
 
 impl IntoOpResult for Output {
-    fn into_op_result(self) -> Result<Vec<Output>, OpError> {
+    fn into_op_result(self) -> Result<OutputList, OpError> {
         Ok([self].into())
     }
 }
@@ -599,7 +599,7 @@ impl<T> IntoOpResult for Tensor<T>
 where
     Output: From<Tensor<T>>,
 {
-    fn into_op_result(self) -> Result<Vec<Output>, OpError> {
+    fn into_op_result(self) -> Result<OutputList, OpError> {
         let output: Output = self.into();
         Ok([output].into())
     }
@@ -609,7 +609,7 @@ impl<T, const N: usize> IntoOpResult for NdTensor<T, N>
 where
     Output: From<Tensor<T>>,
 {
-    fn into_op_result(self) -> Result<Vec<Output>, OpError> {
+    fn into_op_result(self) -> Result<OutputList, OpError> {
         let output: Output = self.into_dyn().into();
         Ok([output].into())
     }
@@ -619,7 +619,7 @@ impl<T> IntoOpResult for Result<Tensor<T>, OpError>
 where
     Output: From<Tensor<T>>,
 {
-    fn into_op_result(self) -> Result<Vec<Output>, OpError> {
+    fn into_op_result(self) -> Result<OutputList, OpError> {
         self.map(|tensor| [tensor.into()].into())
     }
 }
@@ -628,7 +628,7 @@ impl<T> IntoOpResult for Result<Vec<Tensor<T>>, OpError>
 where
     Output: From<Tensor<T>>,
 {
-    fn into_op_result(self) -> Result<Vec<Output>, OpError> {
+    fn into_op_result(self) -> Result<OutputList, OpError> {
         self.map(|tensors| tensors.into_iter().map(|t| t.into()).collect())
     }
 }
@@ -777,6 +777,12 @@ macro_rules! static_dims {
     }};
 }
 
+/// Outputs from an operator.
+///
+/// Most operators only produce one output, so in that case, this avoid
+/// allocations.
+pub type OutputList = SmallVec<[Output; 1]>;
+
 /// An Operator performs a computation step when executing a data flow graph.
 ///
 /// Operators take zero or more dynamic input values, plus a set of static
@@ -792,7 +798,7 @@ pub trait Operator: Any + Debug {
     ///
     /// The output, and any large intermediate buffers used by the operation,
     /// should be allocated from `pool`.
-    fn run(&self, pool: &TensorPool, input: InputList) -> Result<Vec<Output>, OpError>;
+    fn run(&self, pool: &TensorPool, input: InputList) -> Result<OutputList, OpError>;
 
     /// Return true if this operator supports in-place execution via
     /// `run_in_place`.

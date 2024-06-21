@@ -1062,10 +1062,13 @@ mod tests {
     use rten_tensor::test_util::{expect_equal, expect_equal_with_tolerance};
     use rten_tensor::{tensor, Tensor, TensorView};
 
+    use smallvec::smallvec;
+
     use super::CachedPlan;
     use crate::graph::{Dimension, Graph, RunError};
     use crate::ops::{
-        Add, Concat, Conv, InputList, IntoOpResult, OpError, Operator, Output, Relu, Shape,
+        Add, Concat, Conv, InputList, IntoOpResult, OpError, Operator, Output, OutputList, Relu,
+        Shape,
     };
     use crate::tensor_pool::TensorPool;
 
@@ -1111,7 +1114,7 @@ mod tests {
             self.inner.is_commutative()
         }
 
-        fn run(&self, pool: &TensorPool, inputs: InputList) -> Result<Vec<Output>, OpError> {
+        fn run(&self, pool: &TensorPool, inputs: InputList) -> Result<OutputList, OpError> {
             {
                 let mut m = self.metrics.lock().unwrap();
                 m.run_count += 1;
@@ -1283,7 +1286,7 @@ mod tests {
             "AddOne"
         }
 
-        fn run(&self, _pool: &TensorPool, inputs: InputList) -> Result<Vec<Output>, OpError> {
+        fn run(&self, _pool: &TensorPool, inputs: InputList) -> Result<OutputList, OpError> {
             let input: TensorView<f32> = inputs.require_as(0)?;
             let output_data: Vec<f32> = input.iter().map(|x| x + 1.0).collect();
             Tensor::<f32>::from_data(input.shape().into(), output_data).into_op_result()
@@ -1549,7 +1552,7 @@ mod tests {
             true
         }
 
-        fn run(&self, _pool: &TensorPool, inputs: InputList) -> Result<Vec<Output>, OpError> {
+        fn run(&self, _pool: &TensorPool, inputs: InputList) -> Result<OutputList, OpError> {
             // An operator should normally have the same behavior in `run`
             // and `run_in_place`. Here we use different behavior to make it
             // possible to distinguish which path was used.
@@ -1719,7 +1722,7 @@ mod tests {
             "Split"
         }
 
-        fn run(&self, _pool: &TensorPool, inputs: InputList) -> Result<Vec<Output>, OpError> {
+        fn run(&self, _pool: &TensorPool, inputs: InputList) -> Result<OutputList, OpError> {
             {
                 let mut rc = self.run_count.lock().unwrap();
                 *rc += 1;
@@ -1730,7 +1733,7 @@ mod tests {
             let left_split = Tensor::from_vec(input.iter().take(left_split_len).copied().collect());
             let right_split =
                 Tensor::from_vec(input.iter().skip(left_split_len).copied().collect());
-            Ok([left_split.into(), right_split.into()].into())
+            Ok(smallvec![left_split.into(), right_split.into()])
         }
     }
 
@@ -1860,9 +1863,9 @@ mod tests {
             false
         }
 
-        fn run(&self, _pool: &TensorPool, _inputs: InputList) -> Result<Vec<Output>, OpError> {
+        fn run(&self, _pool: &TensorPool, _inputs: InputList) -> Result<OutputList, OpError> {
             let count = self.count.fetch_add(1, Ordering::SeqCst);
-            Ok(vec![Tensor::from_scalar(count).into()])
+            Ok([Tensor::from_scalar(count).into()].into())
         }
     }
 

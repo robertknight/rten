@@ -6,7 +6,7 @@ use rten_vecmath::vec_softmax_in_place;
 use smallvec::SmallVec;
 
 use crate::ops::{add, mul, reduce_mean, sub};
-use crate::ops::{resolve_axis, InputList, IntoOpResult, OpError, Operator, Output};
+use crate::ops::{resolve_axis, InputList, IntoOpResult, OpError, Operator, Output, OutputList};
 use crate::slice_reductions::{slice_max, slice_sum};
 use crate::static_dims;
 use crate::tensor_pool::{AutoReturn, TensorPool};
@@ -79,7 +79,7 @@ impl Operator for BatchNormalization {
         "BatchNormalization"
     }
 
-    fn run(&self, pool: &TensorPool, inputs: InputList) -> Result<Vec<Output>, OpError> {
+    fn run(&self, pool: &TensorPool, inputs: InputList) -> Result<OutputList, OpError> {
         let input = inputs.require_as(0)?;
 
         let scale = inputs.require_as(1)?;
@@ -205,7 +205,7 @@ impl Operator for InstanceNormalization {
         "InstanceNormalization"
     }
 
-    fn run(&self, pool: &TensorPool, inputs: InputList) -> Result<Vec<Output>, OpError> {
+    fn run(&self, pool: &TensorPool, inputs: InputList) -> Result<OutputList, OpError> {
         let input = inputs.require_as(0)?;
 
         let scale = inputs.require_as(1)?;
@@ -312,7 +312,7 @@ impl Operator for LayerNormalization {
         "LayerNormalization"
     }
 
-    fn run(&self, pool: &TensorPool, inputs: InputList) -> Result<Vec<Output>, OpError> {
+    fn run(&self, pool: &TensorPool, inputs: InputList) -> Result<OutputList, OpError> {
         let input = inputs.require_as(0)?;
         let scale = inputs.require_as(1)?;
         let bias = inputs.get_as(2)?;
@@ -405,7 +405,7 @@ impl Operator for LogSoftmax {
         "LogSoftmax"
     }
 
-    fn run(&self, pool: &TensorPool, inputs: InputList) -> Result<Vec<Output>, OpError> {
+    fn run(&self, pool: &TensorPool, inputs: InputList) -> Result<OutputList, OpError> {
         let input = inputs.require_as(0)?;
         log_softmax(pool, input.view(), self.axis).into_op_result()
     }
@@ -447,7 +447,7 @@ impl Operator for Softmax {
         "Softmax"
     }
 
-    fn run(&self, pool: &TensorPool, inputs: InputList) -> Result<Vec<Output>, OpError> {
+    fn run(&self, pool: &TensorPool, inputs: InputList) -> Result<OutputList, OpError> {
         let input = inputs.require_as(0)?;
         softmax(pool, input.view(), self.axis).into_op_result()
     }

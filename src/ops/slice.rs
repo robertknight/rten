@@ -5,7 +5,9 @@ use rten_tensor::{NdTensorView, SliceItem, SliceRange, Tensor, TensorView};
 
 use smallvec::SmallVec;
 
-use crate::ops::{resolve_axis, Input, InputList, IntoOpResult, OpError, Operator, Output};
+use crate::ops::{
+    resolve_axis, Input, InputList, IntoOpResult, OpError, Operator, Output, OutputList,
+};
 use crate::static_dims;
 use crate::tensor_pool::TensorPool;
 
@@ -86,7 +88,7 @@ impl Operator for Slice {
         "Slice"
     }
 
-    fn run(&self, pool: &TensorPool, inputs: InputList) -> Result<Vec<Output>, OpError> {
+    fn run(&self, pool: &TensorPool, inputs: InputList) -> Result<OutputList, OpError> {
         let input = inputs.require(0)?;
 
         let starts = inputs.require_as::<i32>(1)?;

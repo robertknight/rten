@@ -1,6 +1,6 @@
 use rten_tensor::prelude::*;
 
-use crate::ops::{Input, InputList, OpError, Operator, Output};
+use crate::ops::{Input, InputList, OpError, Operator, OutputList};
 use crate::tensor_pool::TensorPool;
 
 /// Specifies a permutation to an operator input.
@@ -69,7 +69,7 @@ impl Operator for FusedTranspose {
         &self.name
     }
 
-    fn run(&self, pool: &TensorPool, mut inputs: InputList) -> Result<Vec<Output>, OpError> {
+    fn run(&self, pool: &TensorPool, mut inputs: InputList) -> Result<OutputList, OpError> {
         self.perm.apply(&mut inputs)?;
         self.inner.run(pool, inputs)
     }

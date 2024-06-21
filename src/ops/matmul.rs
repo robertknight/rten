@@ -7,7 +7,7 @@ use crate::check_dims;
 use crate::gemm::{GemmExecutor, GemmInputA, GemmInputB};
 use crate::ops::binary_elementwise::broadcast_shapes;
 use crate::ops::layout::expand_to;
-use crate::ops::{InputList, IntoOpResult, OpError, Operator, Output};
+use crate::ops::{InputList, IntoOpResult, OpError, Operator, OutputList};
 use crate::tensor_pool::{AutoReturn, TensorPool};
 
 #[derive(Debug)]
@@ -85,7 +85,7 @@ impl Operator for Gemm {
         "Gemm"
     }
 
-    fn run(&self, pool: &TensorPool, inputs: InputList) -> Result<Vec<Output>, OpError> {
+    fn run(&self, pool: &TensorPool, inputs: InputList) -> Result<OutputList, OpError> {
         let a = inputs.require_as(0)?;
         let b = inputs.require_as(1)?;
         let c = inputs.get_as(2)?;
@@ -246,7 +246,7 @@ impl Operator for MatMul {
         "MatMul"
     }
 
-    fn run(&self, pool: &TensorPool, inputs: InputList) -> Result<Vec<Output>, OpError> {
+    fn run(&self, pool: &TensorPool, inputs: InputList) -> Result<OutputList, OpError> {
         let a = inputs.require_as(0)?;
         let b = inputs.require_as(1)?;
         matmul(pool, a, b).into_op_result()

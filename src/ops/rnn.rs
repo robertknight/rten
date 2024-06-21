@@ -7,7 +7,8 @@ use rten_tensor::{Tensor, TensorView};
 use crate::check_dims;
 use crate::gemm::{GemmExecutor, GemmInputA, GemmInputB};
 use crate::ops::{
-    add_in_place, mul_in_place, sigmoid, tanh, InputList, IntoOpResult, OpError, Operator, Output,
+    add_in_place, mul_in_place, sigmoid, tanh, InputList, IntoOpResult, OpError, Operator,
+    OutputList,
 };
 use crate::tensor_pool::{AutoReturn, TensorPool};
 
@@ -312,7 +313,7 @@ impl Operator for GRU {
         "GRU"
     }
 
-    fn run(&self, pool: &TensorPool, inputs: InputList) -> Result<Vec<Output>, OpError> {
+    fn run(&self, pool: &TensorPool, inputs: InputList) -> Result<OutputList, OpError> {
         let input = inputs.require_as(0)?;
         let weights = inputs.require_as(1)?;
         let recurrent_weights = inputs.require_as(2)?;
@@ -540,7 +541,7 @@ impl Operator for LSTM {
         "LSTM"
     }
 
-    fn run(&self, pool: &TensorPool, inputs: InputList) -> Result<Vec<Output>, OpError> {
+    fn run(&self, pool: &TensorPool, inputs: InputList) -> Result<OutputList, OpError> {
         let input = inputs.require_as(0)?;
         let weights = inputs.require_as(1)?;
         let recurrent_weights = inputs.require_as(2)?;

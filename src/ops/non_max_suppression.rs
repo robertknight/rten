@@ -1,7 +1,7 @@
 use rten_tensor::prelude::*;
 use rten_tensor::{NdTensor, NdTensorView};
 
-use crate::ops::{InputList, IntoOpResult, OpError, Operator, Output};
+use crate::ops::{InputList, IntoOpResult, OpError, Operator, OutputList};
 use crate::static_dims;
 use crate::tensor_pool::TensorPool;
 
@@ -192,7 +192,7 @@ impl Operator for NonMaxSuppression {
         "NonMaxSuppression"
     }
 
-    fn run(&self, pool: &TensorPool, inputs: InputList) -> Result<Vec<Output>, OpError> {
+    fn run(&self, pool: &TensorPool, inputs: InputList) -> Result<OutputList, OpError> {
         let boxes = inputs.require_as(0)?;
         let boxes = static_dims!(boxes, 3, "ND4")?;
 

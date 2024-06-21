@@ -7,7 +7,7 @@ use rten_tensor::prelude::*;
 use rten_tensor::{NdTensor, NdTensorView, NdTensorViewMut, Tensor, TensorView};
 
 use crate::iter_util::range_chunks;
-use crate::ops::{Input, InputList, IntoOpResult, OpError, Operator, Output};
+use crate::ops::{Input, InputList, IntoOpResult, OpError, Operator, OutputList};
 use crate::tensor_pool::TensorPool;
 use crate::{check_dims, static_dims};
 
@@ -358,7 +358,7 @@ impl Operator for Resize {
         "Resize"
     }
 
-    fn run(&self, pool: &TensorPool, inputs: InputList) -> Result<Vec<Output>, OpError> {
+    fn run(&self, pool: &TensorPool, inputs: InputList) -> Result<OutputList, OpError> {
         let input = inputs.require_as(0)?;
 
         // The `roi` input is only used if the `coordinate_transformation_mode`

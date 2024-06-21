@@ -1,7 +1,7 @@
 use rten_tensor::prelude::*;
 use rten_tensor::{Tensor, TensorView};
 
-use crate::ops::{Input, InputList, IntoOpResult, OpError, Operator, Output};
+use crate::ops::{Input, InputList, IntoOpResult, OpError, Operator, Output, OutputList};
 use crate::tensor_pool::TensorPool;
 
 fn identity<T: Copy>(pool: &TensorPool, src: TensorView<T>) -> Tensor<T> {
@@ -16,7 +16,7 @@ impl Operator for Identity {
         "Identity"
     }
 
-    fn run(&self, pool: &TensorPool, inputs: InputList) -> Result<Vec<Output>, OpError> {
+    fn run(&self, pool: &TensorPool, inputs: InputList) -> Result<OutputList, OpError> {
         let input = inputs.require(0)?;
         let result: Output = match input {
             Input::IntTensor(t) => identity(pool, t).into(),
