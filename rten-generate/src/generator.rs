@@ -2,14 +2,20 @@
 
 use std::error::Error;
 use std::fmt;
+use std::ops::Range;
 
 use rten::{Dimension, Input, InputOrOutput, Model, NodeId, Output};
 use rten_tensor::prelude::*;
 use rten_tensor::{NdTensor, Tensor};
+
+#[cfg(feature = "text-decoder")]
 use rten_text::tokenizers::{Tokenizer, TokenizerError};
 
 use crate::metrics::Metrics;
 use crate::sampler::{ArgMaxSampler, Sampler};
+
+#[cfg(feature = "text-decoder")]
+use crate::text_decoder::TextDecoder;
 
 /// Errors that occur when creating or running a [`Generator`].
 #[derive(Debug)]
@@ -27,6 +33,7 @@ pub enum GeneratorError {
     GenerateError(Box<dyn Error>),
 
     /// An error occurred while decoding tokens.
+    #[cfg(feature = "text-decoder")]
     DecodeError(TokenizerError),
 }
 
@@ -37,12 +44,23 @@ impl fmt::Display for GeneratorError {
             GeneratorError::OutputNotFound(name) => write!(f, "model output not found: {}", name),
             GeneratorError::ShapeMismatch(err) => write!(f, "shape mismatch: {}", err),
             GeneratorError::GenerateError(err) => write!(f, "generation error: {}", err),
+            #[cfg(feature = "text-decoder")]
             GeneratorError::DecodeError(err) => write!(f, "decode error: {}", err),
         }
     }
 }
 
 impl Error for GeneratorError {}
+
+enum KvCacheData {
+    /// Key-value cache with shape `[batch, seq_len, channels]`.
+    ///
+    /// In this configuration the channels for all heads are combined into the
+    /// last dimension.
+    BatchSeqChans(NdTensor<f32, 3>),
+    /// Key-value cache with shape `[batch, heads, seq_len, channels]`.
+    BatchHeadSeqChans(NdTensor<f32, 4>),
+}
 
 /// Key-value cache for a single layer of a transformer model.
 struct KvCache {
@@ -52,8 +70,85 @@ struct KvCache {
     /// Output ID for this cache entry.
     output_id: NodeId,
 
-    /// The cached keys and values, with shape [batch, heads, seq_len, size].
-    cache: NdTensor<f32, 4>,
+    /// The cached keys and values. This is set to `None` during inference, as
+    /// the model temporarily takes ownership of it.
+    cache: Option<KvCacheData>,
+}
+
+/// Specifies a pattern for the name of a key-value cache input or output.
+///
+/// These inputs are expected to have the form `{prefix}{layer_number}{suffix}`,
+/// with one input and output per layer for the key cache and the value cache.
+pub struct KVCachePattern<'a> {
+    pub prefix: &'a str,
+    pub suffix: &'a str,
+}
+
+impl<'a> From<(&'a str, &'a str)> for KVCachePattern<'a> {
+    /// Construct a [`KVCachePattern`] from a `(prefix, suffix)` tuple.
+    fn from(value: (&'a str, &'a str)) -> Self {
+        let (prefix, suffix) = value;
+        KVCachePattern { prefix, suffix }
+    }
+}
+
+/// Specifies the names of model inputs and outputs.
+///
+/// The [`Default`] impl for this struct returns an instance whose names
+/// follow the configuration of Hugging Face's Optimum tool.
+///
+/// Any inputs that are not present in the model are ignored.
+pub struct ModelInputsConfig<'a> {
+    /// Model input that contains the token IDs of the prompt and output
+    /// generated so far.
+    pub input_ids: &'a str,
+
+    /// Model output that contains logits.
+    pub logits: &'a str,
+
+    /// Model input that contains an attention mask.
+    pub attention_mask: &'a str,
+
+    /// Model input that contains position IDs for each position.
+    pub position_ids: &'a str,
+
+    /// Pattern for key cache inputs.
+    pub key_cache: KVCachePattern<'a>,
+
+    /// Pattern for key cache outputs.
+    pub key_cache_output: KVCachePattern<'a>,
+
+    /// Pattern for value cache inputs.
+    pub value_cache: KVCachePattern<'a>,
+
+    /// Pattern for value cache outputs.
+    pub value_cache_output: KVCachePattern<'a>,
+}
+
+/// Contains essential configuration needed for a `Generator` to execute a
+/// model, such as the roles of different inputs and outputs.
+pub struct GeneratorConfig<'a> {
+    /// Specifies names and roles of model inputs and outputs.
+    pub model_inputs: ModelInputsConfig<'a>,
+}
+
+impl<'a> Default for ModelInputsConfig<'a> {
+    /// Return default model input names.
+    ///
+    /// These are based on [Hugging Face's
+    /// Optimum](https://huggingface.co/docs/optimum/en/index) model exporter.
+    fn default() -> Self {
+        ModelInputsConfig {
+            input_ids: "input_ids",
+            logits: "logits",
+            attention_mask: "attention_mask",
+            position_ids: "position_ids",
+            key_cache: ("past_key_values.", ".key").into(),
+            key_cache_output: ("present.", ".key").into(),
+            value_cache: ("past_key_values.", ".value").into(),
+            value_cache_output: ("present.", ".value").into(),
+        }
+    }
 }
 
 /// Generates a token ID sequence using an auto-regressive language model.
@@ -63,6 +158,7 @@ struct KvCache {
 ///
 /// The token ID sequence can be converted to text using the
 /// [`decode`](GeneratorUtils::decode) method of the [`GeneratorUtils`] trait.
+///
 /// This trait also provides useful wrappers for the output, such as stopping
 /// generation when an end-of-text token is reached. You can also use all of
 /// the standard iterator adapters. For example `generator.take(30)` will
@@ -77,8 +173,8 @@ struct KvCache {
 pub struct Generator<'a> {
     model: &'a Model,
 
-    /// Additional model inputs (eg. encoder outputs) passed to each model
-    /// step.
+    /// Additional constant model inputs (eg. encoder outputs) passed to the
+    /// model at each step.
     constant_inputs: Vec<(NodeId, InputOrOutput<'a>)>,
 
     /// Additional model inputs computed using constant propagation. This
@@ -86,13 +182,16 @@ pub struct Generator<'a> {
     /// generation step. This is `None` if the cache is out of date.
     constant_prop_inputs: Option<Vec<(NodeId, Output)>>,
 
+    /// Additional varying model inputs computed and passed to the model at
+    /// each step. The functions receive `(batch_size, sequence_positions)` as inputs.
+    #[allow(clippy::type_complexity)]
+    varying_inputs: Vec<(NodeId, &'a dyn Fn(usize, Range<usize>) -> InputOrOutput<'a>)>,
+
     /// Input token IDs for the next run of the model.
     input_ids: Vec<u32>,
 
     // Input node IDs
     input_ids_input: NodeId,
-    attention_mask_input: Option<NodeId>,
-    position_ids_input: Option<NodeId>,
 
     // Output node IDs
     logits_output: NodeId,
@@ -109,6 +208,10 @@ pub struct Generator<'a> {
 
 impl<'a> Generator<'a> {
     /// Create a generator that iteratively produces tokens using a model.
+    ///
+    /// This function assumes default names for model inputs and outputs
+    /// based on the conventions of Hugging Face's Optimum exporter. These
+    /// can be customized using [`from_model_config`](Self::from_model_config).
     ///
     /// The model must have the required inputs:
     ///
@@ -132,15 +235,35 @@ impl<'a> Generator<'a> {
     ///  - `present.N.key` - (batch, head, past_seq_len + 1, size) updated key vector cache
     ///  - `present.N.value` - (batch, head, past_seq_len + 1, size) updated value vector cache
     pub fn from_model(model: &'a Model) -> Result<Generator<'a>, GeneratorError> {
-        let input_ids_input = model
-            .find_node("input_ids")
-            .ok_or(GeneratorError::InputNotFound("input_ids".to_string()))?;
-        let attention_mask_input = model.find_node("attention_mask");
-        let position_ids_input = model.find_node("position_ids");
+        let config = GeneratorConfig {
+            model_inputs: ModelInputsConfig::default(),
+        };
+        Self::from_model_config(model, config)
+    }
 
-        let logits_output = model
-            .find_node("logits")
-            .ok_or(GeneratorError::OutputNotFound("logits".to_string()))?;
+    /// Create a generator that iteratively produces tokens using a model.
+    ///
+    /// This is a variant of [`from_model`](Self::from_model) that allows
+    /// specifying custom names for model inputs.
+    pub fn from_model_config(
+        model: &'a Model,
+        config: GeneratorConfig,
+    ) -> Result<Generator<'a>, GeneratorError> {
+        let model_inputs = &config.model_inputs;
+
+        let input_ids_input =
+            model
+                .find_node(model_inputs.input_ids)
+                .ok_or(GeneratorError::InputNotFound(
+                    model_inputs.input_ids.to_string(),
+                ))?;
+
+        let logits_output =
+            model
+                .find_node(model_inputs.logits)
+                .ok_or(GeneratorError::OutputNotFound(
+                    model_inputs.logits.to_string(),
+                ))?;
 
         // Find inputs and corresponding outputs for key-value cache.
         let batch_size = 1;
@@ -156,28 +279,32 @@ impl<'a> Generator<'a> {
                 continue;
             };
 
-            if !name.starts_with("past_key_values.") {
+            let is_key_cache = name.starts_with(model_inputs.key_cache.prefix)
+                && name.ends_with(model_inputs.key_cache.suffix);
+            let is_value_cache = name.starts_with(model_inputs.value_cache.prefix)
+                && name.ends_with(model_inputs.value_cache.suffix);
+
+            if !is_key_cache && !is_value_cache {
                 continue;
             }
 
-            if !name.ends_with(".key") && !name.ends_with(".value") {
-                continue;
-            }
-
-            let [n_heads, size] = match input_info.shape().as_deref() {
-                Some(&[_, Dimension::Fixed(n_heads), _, Dimension::Fixed(size)]) => [n_heads, size],
+            let (n_heads, size) = match input_info.shape().as_deref() {
+                Some(&[_, Dimension::Fixed(n_heads), _, Dimension::Fixed(size)]) => {
+                    (Some(n_heads), size)
+                }
+                Some(&[_, _, Dimension::Fixed(size)]) => (None, size),
                 _ => {
-                    return Err(GeneratorError::ShapeMismatch(format!("input \"{}\" has unexpected shape. expected (batch, heads, past_seq_len, size) where `heads` and `size` are fixed", name)));
+                    return Err(GeneratorError::ShapeMismatch(format!("input \"{}\" has unexpected shape. expected (batch, past_seq_len, chans) or (batch, heads, past_seq_len, chans) where `heads` and `size` are fixed", name)));
                 }
             };
 
-            let cache_type = if name.ends_with(".key") {
-                "key"
+            let prefix = if is_key_cache {
+                model_inputs.key_cache.prefix
             } else {
-                "value"
+                model_inputs.value_cache.prefix
             };
 
-            let layer_index_start = "past_key_values.".len();
+            let layer_index_start = prefix.len();
             let layer_index_str: String = name[layer_index_start..]
                 .chars()
                 .take_while(|ch| ch.is_ascii_digit())
@@ -186,7 +313,19 @@ impl<'a> Generator<'a> {
                 continue;
             };
 
-            let output_name = format!("present.{}.{}", layer_index, cache_type);
+            let (output_prefix, output_suffix) = if is_key_cache {
+                (
+                    model_inputs.key_cache_output.prefix,
+                    model_inputs.key_cache_output.suffix,
+                )
+            } else {
+                (
+                    model_inputs.value_cache_output.prefix,
+                    model_inputs.value_cache_output.suffix,
+                )
+            };
+
+            let output_name = format!("{}{}{}", output_prefix, layer_index, output_suffix);
             let output_id = model
                 .find_node(&output_name)
                 .ok_or(GeneratorError::OutputNotFound(output_name))?;
@@ -197,16 +336,24 @@ impl<'a> Generator<'a> {
             kv_cache.push(KvCache {
                 input_id,
                 output_id,
-                cache: NdTensor::with_capacity(
-                    [batch_size, n_heads, max_seq_len, size],
-                    2, /* seq dim */
-                ),
+                cache: if let Some(n_heads) = n_heads {
+                    Some(KvCacheData::BatchHeadSeqChans(NdTensor::with_capacity(
+                        [batch_size, n_heads, max_seq_len, size],
+                        2, /* seq dim */
+                    )))
+                } else {
+                    Some(KvCacheData::BatchSeqChans(NdTensor::with_capacity(
+                        [batch_size, max_seq_len, size],
+                        1, /* seq dim */
+                    )))
+                },
             });
         }
 
-        Ok(Generator {
+        let mut generator = Generator {
             model,
             constant_inputs: Vec::new(),
+            varying_inputs: Vec::new(),
 
             // Constant propagation is performed as a graph optimization when
             // the model is loaded, so we only need to re-do it if additional
@@ -215,13 +362,32 @@ impl<'a> Generator<'a> {
 
             input_ids: vec![],
             input_ids_input,
-            attention_mask_input,
-            position_ids_input,
             logits_output,
             kv_cache,
             seq_len: 0,
             sampler: Box::new(ArgMaxSampler {}),
-        })
+        };
+
+        let attention_mask_input = model.find_node(model_inputs.attention_mask);
+        if let Some(attention_mask_input) = attention_mask_input {
+            generator = generator
+                .with_varying_input(attention_mask_input, &|batch_size, positions| {
+                    NdTensor::full([batch_size, positions.len()], 1i32).into()
+                });
+        }
+
+        let position_ids_input = model.find_node(model_inputs.position_ids);
+        if let Some(position_ids_input) = position_ids_input {
+            generator =
+                generator.with_varying_input(position_ids_input, &|batch_size, positions| {
+                    NdTensor::from_fn([batch_size, positions.len()], |[_batch, pos]| {
+                        (positions.start + pos) as i32
+                    })
+                    .into()
+                });
+        }
+
+        Ok(generator)
     }
 
     /// Set the initial sequence of tokens (aka. the prompt) passed to the model
@@ -238,6 +404,22 @@ impl<'a> Generator<'a> {
     pub fn with_constant_input(mut self, input_id: NodeId, value: Input<'a>) -> Self {
         self.constant_prop_inputs = None;
         self.constant_inputs.push((input_id, value.into()));
+        self
+    }
+
+    /// Add an input which varies with the sequence position.
+    ///
+    /// `value_fn` receives `(batch_size, sequence_positions)` as input and
+    /// computes the value for the input at the given positions.
+    ///
+    /// A common use case is to pass position embeddings, if they are not
+    /// computed internally by the model.
+    pub fn with_varying_input<F: Fn(usize, Range<usize>) -> InputOrOutput<'a>>(
+        mut self,
+        input_id: NodeId,
+        value_fn: &'a F,
+    ) -> Self {
+        self.varying_inputs.push((input_id, value_fn));
         self
     }
 
@@ -264,21 +446,10 @@ impl<'a> Generator<'a> {
             .collect::<Tensor<_>>()
             .into_shape([batch_size, self.input_ids.len()]);
 
-        let attention_mask = NdTensor::full([batch_size, self.input_ids.len()], 1i32);
-        let position_ids = NdTensor::from_fn([batch_size, input_ids.len()], |[_batch, pos]| {
-            self.seq_len as i32 + pos as i32
-        });
+        let seq_range = (self.seq_len as usize)..(self.seq_len as usize + self.input_ids.len());
 
         let mut model_inputs: Vec<(NodeId, InputOrOutput)> =
             vec![(self.input_ids_input, input_ids.view().into())];
-
-        if let Some(attention_mask_input) = self.attention_mask_input {
-            model_inputs.push((attention_mask_input, attention_mask.view().into()));
-        }
-
-        if let Some(position_ids_input) = self.position_ids_input {
-            model_inputs.push((position_ids_input, position_ids.view().into()));
-        }
 
         // Propagate constants on the first run.
         if self.constant_prop_inputs.is_none() {
@@ -303,13 +474,28 @@ impl<'a> Generator<'a> {
             );
         }
 
+        if !self.varying_inputs.is_empty() {
+            model_inputs.extend(
+                self.varying_inputs
+                    .iter()
+                    .map(|(node_id, value_fn)| (*node_id, value_fn(batch_size, seq_range.clone()))),
+            );
+        }
+
         // Add key-value cache from previous run. The model takes ownership
         // of the KV-cache tensor during the run so it can efficiently append
         // the entry for the current step, without copying the existing buffer.
         for entry in self.kv_cache.iter_mut() {
-            let empty_tensor = NdTensor::zeros([0, 0, 0, 0]);
-            let cache = std::mem::replace(&mut entry.cache, empty_tensor);
-            model_inputs.push((entry.input_id, cache.into()));
+            let cache = entry.cache.take();
+            match cache {
+                Some(KvCacheData::BatchSeqChans(cache)) => {
+                    model_inputs.push((entry.input_id, cache.into()));
+                }
+                Some(KvCacheData::BatchHeadSeqChans(cache)) => {
+                    model_inputs.push((entry.input_id, cache.into()));
+                }
+                None => {}
+            }
         }
 
         // Run the model and collect outputs and updated KV cache.
@@ -333,7 +519,15 @@ impl<'a> Generator<'a> {
         // the passed in tensors, but extended by one element along the sequence
         // axis.
         for cache_entry in self.kv_cache.iter_mut() {
-            cache_entry.cache = outputs.remove(0).try_into().map_err(wrap_error)?;
+            let output = outputs.remove(0);
+            let kv_cache = match output.ndim() {
+                3 => KvCacheData::BatchSeqChans(output.try_into().map_err(wrap_error)?),
+                4 => KvCacheData::BatchHeadSeqChans(output.try_into().map_err(wrap_error)?),
+                _ => {
+                    return Err(wrap_error("expected KV cache output to have 3 or 4 dims"));
+                }
+            };
+            cache_entry.cache = Some(kv_cache);
         }
 
         // Update the token IDs for the next iteration.
@@ -368,8 +562,9 @@ pub trait GeneratorUtils: Iterator<Item = GeneratorItem> + Sized {
     }
 
     /// Decode the tokens to text using a tokenizer.
-    fn decode(self, tokenizer: &Tokenizer) -> TextGenerator<Self> {
-        TextGenerator::wrap(self, tokenizer)
+    #[cfg(feature = "text-decoder")]
+    fn decode(self, tokenizer: &Tokenizer) -> TextDecoder<Self> {
+        TextDecoder::wrap(self, tokenizer)
     }
 
     /// Record timing metrics.
@@ -382,67 +577,6 @@ pub trait GeneratorUtils: Iterator<Item = GeneratorItem> + Sized {
 }
 
 impl<I: Iterator<Item = GeneratorItem>> GeneratorUtils for I {}
-
-/// Wraps a [`Generator`] to decode the output token IDs from the model into
-/// text using a [`Tokenizer`].
-pub struct TextGenerator<'a, G: Iterator<Item = GeneratorItem>> {
-    generator: G,
-    tokenizer: &'a Tokenizer,
-}
-
-impl<'a, G> TextGenerator<'a, G>
-where
-    G: Iterator<Item = GeneratorItem>,
-{
-    /// Wrap a token generator and decode its outputs using `tokenizer`.
-    pub fn wrap(generator: G, tokenizer: &'a Tokenizer) -> TextGenerator<'a, G> {
-        TextGenerator {
-            generator,
-            tokenizer,
-        }
-    }
-}
-
-impl<'a, G: Iterator<Item = GeneratorItem>> Iterator for TextGenerator<'a, G> {
-    /// The generated token string, or the error that occurred during generation.
-    type Item = Result<String, GeneratorError>;
-
-    /// Run the model repeatedly until it generates a sequence of tokens which
-    /// can be decoded into a valid UTF-8 sequence.
-    ///
-    /// Returns `Some(Ok(text))` if successful, `Some(Err(error))` if an error
-    /// occurs during generation or `None` if the end of output has been
-    /// reached.
-    fn next(&mut self) -> Option<Self::Item> {
-        // Buffer that holds model output tokens until it forms a valid UTF-8
-        // sequence.
-        let mut token_buf = Vec::new();
-
-        for token in self.generator.by_ref() {
-            let token = match token {
-                Ok(tok) => tok,
-                Err(err) => return Some(Err(err)),
-            };
-
-            token_buf.push(token as usize);
-
-            let text = self.tokenizer.encoder().decode(&token_buf);
-            match text {
-                Ok(text) => return Some(Ok(text)),
-                Err(TokenizerError::InvalidUtf8) => {
-                    // If the current token sequence doesn't correspond to a
-                    // complete UTF-8 sequence, add more tokens until it does.
-                    continue;
-                }
-                Err(err) => {
-                    return Some(Err(GeneratorError::DecodeError(err)));
-                }
-            }
-        }
-
-        None
-    }
-}
 
 /// Wraps a [`Generator`] to record timing metrics into a [`Metrics`] struct.
 struct Profiler<'a, G: Iterator> {
@@ -464,107 +598,5 @@ impl<'a, G: Iterator> Iterator for Profiler<'a, G> {
         let item = self.generator.next()?;
         self.metrics.add_step_duration(start.elapsed());
         Some(item)
-    }
-}
-
-#[cfg(test)]
-mod tests {
-    use std::collections::HashMap;
-
-    use super::{GeneratorError, GeneratorUtils};
-    use rten_text::tokenizers::patterns::GPT2;
-    use rten_text::tokenizers::{Bpe, Tokenizer, WordPiece};
-
-    /// Create a simple WordPiece tokenizer. This is essentially just a lookup
-    /// from token ID to string.
-    fn create_tokenizer() -> Tokenizer {
-        let vocab: HashMap<String, usize> = [("one", 1), ("two", 2), ("three", 3)]
-            .into_iter()
-            .map(|(s, id)| (s.to_string(), id))
-            .collect();
-        let encoder = WordPiece::from_vocab(vocab, Default::default());
-        Tokenizer::new(encoder, Default::default())
-    }
-
-    /// Create a BPE tokenizer with an empty vocab. This can encode and decode
-    /// arbitrary Unicode characters, by using one token per UTF-8 byte.
-    fn create_bpe_tokenizer() -> Tokenizer {
-        let encoder = Bpe::new(&[], GPT2, None, Default::default()).unwrap();
-        Tokenizer::new(encoder, Default::default())
-    }
-
-    #[test]
-    fn test_text_generator() {
-        let tokenizer = create_tokenizer();
-        let generator = [1, 2, 3].into_iter().map(Ok);
-        let tokens: Vec<_> = generator
-            .decode(&tokenizer)
-            .map(|tok| tok.map_err(|e| e.to_string()))
-            .collect();
-        assert_eq!(tokens, ["one", "two", "three"].map(|s| Ok(s.to_string())));
-    }
-
-    #[test]
-    fn test_text_generator_partial_utf8() {
-        let tokenizer = create_bpe_tokenizer();
-
-        // Encode a character which will require multiple token IDs. This means
-        // the text decoder will need to loop until accumulated tokens decode
-        // to a valid UTF-8 sequence.
-        let token_ids = tokenizer.encoder().encode("😊").unwrap();
-        assert!(token_ids.len() > 1);
-        let generator = token_ids.into_iter().map(|tok_id| Ok(tok_id as u32));
-
-        let tokens: Vec<_> = generator
-            .decode(&tokenizer)
-            .map(|tok| tok.map_err(|e| e.to_string()))
-            .collect();
-
-        assert_eq!(tokens, ["😊"].map(|s| Ok(s.to_string())));
-    }
-
-    #[test]
-    fn test_text_generator_generate_error() {
-        let tokenizer = create_tokenizer();
-        let generator = [
-            Ok(1),
-            Err(GeneratorError::GenerateError("oh no".to_string().into())),
-            Ok(3),
-        ]
-        .into_iter();
-
-        let tokens: Vec<_> = generator
-            .decode(&tokenizer)
-            .map(|tok| tok.map_err(|e| e.to_string()))
-            .collect();
-
-        assert_eq!(
-            tokens,
-            [
-                Ok("one".to_string()),
-                Err("generation error: oh no".to_string()),
-                Ok("three".to_string())
-            ]
-        );
-    }
-
-    #[test]
-    fn test_text_generator_decode_error() {
-        let tokenizer = create_tokenizer();
-        let generator = [1, 5, 3].into_iter().map(Ok);
-
-        let tokens: Vec<_> = generator
-            .decode(&tokenizer)
-            .map(|tok| tok.map_err(|e| e.to_string()))
-            .collect();
-
-        assert_eq!(
-            tokens,
-            [
-                Ok("one".to_string()),
-                Err("decode error: unknown token id 5".to_string()),
-                Ok("three".to_string())
-            ]
-        );
     }
 }

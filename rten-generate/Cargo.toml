@@ -12,5 +12,15 @@ include = ["/src", "/README.md"]
 [dependencies]
 fastrand = { version = "2.0.2" }
 rten = { path = "../", version = "0.10.0" }
-rten-text = { path = "../rten-text", version = "0.10.0" }
+rten-text = { path = "../rten-text", version = "0.10.0", optional = true }
 rten-tensor = { path = "../rten-tensor", version = "0.10.0" }
+
+[dev-dependencies]
+rten-generate = { path = ".", features = ["text-decoder"] }
+
+[features]
+# Enable text decoding using tokenizers from rten-text
+text-decoder = ["rten-text"]
+
+[package.metadata.docs.rs]
+features = ["text-decoder"]
