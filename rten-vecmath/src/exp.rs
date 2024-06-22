@@ -182,6 +182,42 @@ pub fn vec_sigmoid_in_place(xs: &mut [f32]) {
     dispatch_map_op_in_place(xs, SimdSigmoid {});
 }
 
+/// Compute Sigmoid Linear Unit (SiLU) function.
+///
+/// This computes `x * sigmoid(x)` for all lanes in `x`.
+#[inline(always)]
+unsafe fn simd_silu<S: SimdFloat>(x: S) -> S {
+    x.mul(simd_sigmoid(x))
+}
+
+/// Sigmoid Linear Unit (SiLU) function. This computes `x * sigmoid(x)`.
+pub fn silu(x: f32) -> f32 {
+    // Safety: f32 is available on all systems
+    unsafe { simd_silu(x) }
+}
+
+struct SimdSilu {}
+impl SimdUnaryOp for SimdSilu {
+    #[inline(always)]
+    unsafe fn eval<S: SimdFloat>(&self, x: S) -> S {
+        simd_silu(x)
+    }
+}
+
+/// Vectorized Sigmoid Linear Unit (SiLU) function.
+///
+/// This computes `x * sigmoid(x)` for each element.
+pub fn vec_silu(xs: &[f32], out: &mut [MaybeUninit<f32>]) {
+    dispatch_map_op(xs, out, SimdSilu {});
+}
+
+/// Vectorized Sigmoid Linear Unit (SiLU) function.
+///
+/// This computes `x * sigmoid(x)` for each element.
+pub fn vec_silu_in_place(xs: &mut [f32]) {
+    dispatch_map_op_in_place(xs, SimdSilu {});
+}
+
 struct SimdExp {}
 impl SimdUnaryOp for SimdExp {
     #[inline(always)]
@@ -208,10 +244,12 @@ pub fn vec_exp_in_place(xs: &mut [f32]) {
 
 #[cfg(test)]
 mod tests {
+    use std::mem::MaybeUninit;
+
     use crate::testing::{
         arange, benchmark_op, check_f32s_are_equal_ulps, check_with_all_f32s, AsUninit,
     };
-    use crate::{exp, vec_exp, vec_sigmoid};
+    use crate::{exp, vec_exp, vec_sigmoid, vec_silu};
 
     // Maximum error of `vec_expf` compared to Rust standard library
     // implementation.
@@ -223,6 +261,35 @@ mod tests {
 
     fn reference_sigmoid(x: f32) -> f32 {
         1. / (1. + (-x).exp())
+    }
+
+    fn reference_silu(x: f32) -> f32 {
+        x * reference_sigmoid(x)
+    }
+
+    /// Check the results of a SIMD implementation of a unary operator against
+    /// a reference implementation.
+    fn check_simd_vs_reference<
+        F: Fn(&[f32], &mut [MaybeUninit<f32>]),
+        R: Fn(f32) -> f32,
+        I: Iterator<Item = f32>,
+    >(
+        simd_op: F,
+        reference_op: R,
+        max_error_ulps: f32,
+        values: I,
+    ) {
+        let cases: Vec<_> = values.collect();
+        let expected: Vec<_> = cases.iter().copied().map(reference_op).collect();
+        let mut actual = cases.clone();
+
+        simd_op(&cases, actual.as_mut_slice().as_uninit());
+
+        let results = cases
+            .iter()
+            .zip(actual.iter().zip(expected.iter()))
+            .map(|(x, (actual, expected))| (*x, *actual, *expected));
+        check_f32s_are_equal_ulps(results, max_error_ulps);
     }
 
     #[test]
@@ -248,18 +315,12 @@ mod tests {
 
     #[test]
     fn test_vec_expf() {
-        let cases: Vec<_> = arange(-6., 6., 0.001f32).collect();
-        let expected: Vec<_> = cases.iter().copied().map(f32::exp).collect();
-
-        let mut actual = cases.clone();
-        vec_exp(&cases, actual.as_mut_slice().as_uninit());
-
-        let results = cases
-            .iter()
-            .zip(actual.iter().zip(expected.iter()))
-            .map(|(x, (actual, expected))| (*x, *actual, *expected));
-
-        check_f32s_are_equal_ulps(results, MAX_EXP_ERROR_ULPS);
+        check_simd_vs_reference(
+            vec_exp,
+            f32::exp,
+            MAX_EXP_ERROR_ULPS,
+            arange(-6., 6., 0.001f32),
+        );
     }
 
     #[test]
@@ -279,16 +340,12 @@ mod tests {
 
     #[test]
     fn test_sigmoid() {
-        let cases: Vec<_> = arange(-6., 6., 0.001f32).collect();
-        let expected: Vec<_> = cases.iter().copied().map(reference_sigmoid).collect();
-        let mut actual = cases.clone();
-        vec_sigmoid(&cases, actual.as_mut_slice().as_uninit());
-
-        let results = cases
-            .iter()
-            .zip(actual.iter().zip(expected.iter()))
-            .map(|(x, (actual, expected))| (*x, *actual, *expected));
-        check_f32s_are_equal_ulps(results, MAX_SIGMOID_ERROR_ULPS);
+        check_simd_vs_reference(
+            vec_sigmoid,
+            reference_sigmoid,
+            MAX_SIGMOID_ERROR_ULPS,
+            arange(-6., 6., 0.001f32),
+        );
     }
 
     #[test]
@@ -302,6 +359,16 @@ mod tests {
             },
             MAX_SIGMOID_ERROR_ULPS,
             "testing vec_sigmoid",
+        );
+    }
+
+    #[test]
+    fn test_silu() {
+        check_simd_vs_reference(
+            vec_silu,
+            reference_silu,
+            MAX_SIGMOID_ERROR_ULPS,
+            arange(-6., 6., 0.001f32),
         );
     }
 
