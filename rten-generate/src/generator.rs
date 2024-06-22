@@ -45,6 +45,16 @@ impl fmt::Display for GeneratorError {
 
 impl Error for GeneratorError {}
 
+enum KvCacheData {
+    /// Key-value cache with shape `[batch, seq_len, channels]`.
+    ///
+    /// In this configuration the channels for all heads are combined into the
+    /// last dimension.
+    BatchSeqChans(NdTensor<f32, 3>),
+    /// Key-value cache with shape `[batch, heads, seq_len, channels]`.
+    BatchHeadSeqChans(NdTensor<f32, 4>),
+}
+
 /// Key-value cache for a single layer of a transformer model.
 struct KvCache {
     /// Input ID for this cache entry.
@@ -53,8 +63,9 @@ struct KvCache {
     /// Output ID for this cache entry.
     output_id: NodeId,
 
-    /// The cached keys and values, with shape [batch, heads, seq_len, size].
-    cache: NdTensor<f32, 4>,
+    /// The cached keys and values. This is set to `None` during inference, as
+    /// the model temporarily takes ownership of it.
+    cache: Option<KvCacheData>,
 }
 
 /// Specifies a pattern for the name of a key-value cache input or output.
@@ -140,6 +151,7 @@ impl<'a> Default for ModelInputsConfig<'a> {
 ///
 /// The token ID sequence can be converted to text using the
 /// [`decode`](GeneratorUtils::decode) method of the [`GeneratorUtils`] trait.
+///
 /// This trait also provides useful wrappers for the output, such as stopping
 /// generation when an end-of-text token is reached. You can also use all of
 /// the standard iterator adapters. For example `generator.take(30)` will
@@ -269,10 +281,13 @@ impl<'a> Generator<'a> {
                 continue;
             }
 
-            let [n_heads, size] = match input_info.shape().as_deref() {
-                Some(&[_, Dimension::Fixed(n_heads), _, Dimension::Fixed(size)]) => [n_heads, size],
+            let (n_heads, size) = match input_info.shape().as_deref() {
+                Some(&[_, Dimension::Fixed(n_heads), _, Dimension::Fixed(size)]) => {
+                    (Some(n_heads), size)
+                }
+                Some(&[_, _, Dimension::Fixed(size)]) => (None, size),
                 _ => {
-                    return Err(GeneratorError::ShapeMismatch(format!("input \"{}\" has unexpected shape. expected (batch, heads, past_seq_len, size) where `heads` and `size` are fixed", name)));
+                    return Err(GeneratorError::ShapeMismatch(format!("input \"{}\" has unexpected shape. expected (batch, past_seq_len, chans) or (batch, heads, past_seq_len, chans) where `heads` and `size` are fixed", name)));
                 }
             };
 
@@ -314,10 +329,17 @@ impl<'a> Generator<'a> {
             kv_cache.push(KvCache {
                 input_id,
                 output_id,
-                cache: NdTensor::with_capacity(
-                    [batch_size, n_heads, max_seq_len, size],
-                    2, /* seq dim */
-                ),
+                cache: if let Some(n_heads) = n_heads {
+                    Some(KvCacheData::BatchHeadSeqChans(NdTensor::with_capacity(
+                        [batch_size, n_heads, max_seq_len, size],
+                        2, /* seq dim */
+                    )))
+                } else {
+                    Some(KvCacheData::BatchSeqChans(NdTensor::with_capacity(
+                        [batch_size, max_seq_len, size],
+                        1, /* seq dim */
+                    )))
+                },
             });
         }
 
@@ -457,9 +479,16 @@ impl<'a> Generator<'a> {
         // of the KV-cache tensor during the run so it can efficiently append
         // the entry for the current step, without copying the existing buffer.
         for entry in self.kv_cache.iter_mut() {
-            let empty_tensor = NdTensor::zeros([0, 0, 0, 0]);
-            let cache = std::mem::replace(&mut entry.cache, empty_tensor);
-            model_inputs.push((entry.input_id, cache.into()));
+            let cache = entry.cache.take();
+            match cache {
+                Some(KvCacheData::BatchSeqChans(cache)) => {
+                    model_inputs.push((entry.input_id, cache.into()));
+                }
+                Some(KvCacheData::BatchHeadSeqChans(cache)) => {
+                    model_inputs.push((entry.input_id, cache.into()));
+                }
+                None => {}
+            }
         }
 
         // Run the model and collect outputs and updated KV cache.
@@ -483,7 +512,15 @@ impl<'a> Generator<'a> {
         // the passed in tensors, but extended by one element along the sequence
         // axis.
         for cache_entry in self.kv_cache.iter_mut() {
-            cache_entry.cache = outputs.remove(0).try_into().map_err(wrap_error)?;
+            let output = outputs.remove(0);
+            let kv_cache = match output.ndim() {
+                3 => KvCacheData::BatchSeqChans(output.try_into().map_err(wrap_error)?),
+                4 => KvCacheData::BatchHeadSeqChans(output.try_into().map_err(wrap_error)?),
+                _ => {
+                    return Err(wrap_error("expected KV cache output to have 3 or 4 dims"));
+                }
+            };
+            cache_entry.cache = Some(kv_cache);
         }
 
         // Update the token IDs for the next iteration.
