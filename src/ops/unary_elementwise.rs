@@ -7,9 +7,10 @@ use std::mem::MaybeUninit;
 use rten_tensor::prelude::*;
 use rten_tensor::{Tensor, TensorView, TensorViewMut};
 use rten_vecmath::{
-    erf as erf_scalar, exp as exp_scalar, sigmoid as sigmoid_scalar, silu as silu_scalar,
-    tanh as tanh_scalar, vec_erf, vec_erf_in_place, vec_exp, vec_exp_in_place, vec_sigmoid,
-    vec_sigmoid_in_place, vec_silu, vec_silu_in_place, vec_tanh, vec_tanh_in_place,
+    erf as erf_scalar, exp as exp_scalar, gelu as gelu_scalar, sigmoid as sigmoid_scalar,
+    silu as silu_scalar, tanh as tanh_scalar, vec_erf, vec_erf_in_place, vec_exp, vec_exp_in_place,
+    vec_gelu, vec_gelu_in_place, vec_sigmoid, vec_sigmoid_in_place, vec_silu, vec_silu_in_place,
+    vec_tanh, vec_tanh_in_place,
 };
 
 use crate::number::AsBool;
@@ -436,6 +437,15 @@ parallel_unary_float_op!(
 );
 unary_float_op!(Floor, floor, floor_in_place, |val: f32| val.floor());
 
+parallel_unary_float_op!(
+    Gelu,
+    gelu,
+    gelu_in_place,
+    vec_gelu,
+    vec_gelu_in_place,
+    gelu_scalar
+);
+
 #[derive(Debug)]
 pub struct HardSigmoid {
     pub alpha: f32,
@@ -667,10 +677,11 @@ mod tests {
     use crate::ops::{
         abs, acos, acos_in_place, asin, asin_in_place, atan, atan_in_place, ceil, clip,
         clip_in_place, cos, cos_in_place, elu, elu_in_place, erf, erf_in_place, exp, exp_in_place,
-        floor, hard_sigmoid, hard_swish, leaky_relu, leaky_relu_in_place, log, log_in_place, neg,
-        neg_in_place, not, not_in_place, reciprocal, relu, relu_in_place, round, round_in_place,
-        sigmoid, sigmoid_in_place, sign, sign_in_place, silu, silu_in_place, sin, sin_in_place,
-        softplus, softplus_in_place, sqrt, sqrt_in_place, tan, tan_in_place, tanh, tanh_in_place,
+        floor, gelu, gelu_in_place, hard_sigmoid, hard_swish, leaky_relu, leaky_relu_in_place, log,
+        log_in_place, neg, neg_in_place, not, not_in_place, reciprocal, relu, relu_in_place, round,
+        round_in_place, sigmoid, sigmoid_in_place, sign, sign_in_place, silu, silu_in_place, sin,
+        sin_in_place, softplus, softplus_in_place, sqrt, sqrt_in_place, tan, tan_in_place, tanh,
+        tanh_in_place,
     };
 
     /// Define a test for a simple unary operator which applies the function
@@ -956,6 +967,11 @@ mod tests {
         let result = floor(&pool, input.view());
         assert!(eq_with_nans(result.view(), expected.view()));
     }
+
+    fn reference_gelu(x: f32) -> f32 {
+        0.5 * x * (1. + libm::erff(x / (2.0f32).sqrt()))
+    }
+    test_unary_op!(test_gelu, gelu, gelu_in_place, |x| reference_gelu(*x));
 
     #[test]
     fn test_hard_sigmoid() -> Result<(), Box<dyn Error>> {

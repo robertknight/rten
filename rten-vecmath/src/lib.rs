@@ -28,7 +28,7 @@ mod ulp;
 #[cfg(test)]
 mod testing;
 
-pub use erf::{erf, vec_erf, vec_erf_in_place};
+pub use erf::{erf, gelu, vec_erf, vec_erf_in_place, vec_gelu, vec_gelu_in_place};
 pub use exp::{
     exp, sigmoid, silu, vec_exp, vec_exp_in_place, vec_sigmoid, vec_sigmoid_in_place, vec_silu,
     vec_silu_in_place,
