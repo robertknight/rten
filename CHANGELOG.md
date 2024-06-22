@@ -5,6 +5,94 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## Unreleased
+
+### rten
+
+#### Breaking changes
+
+- The `inputs` argument to `Model::run` now accepts a `Vec<(NodeId,
+  InputOrOutput)>` instead of `&[(NodeId, Input)]`, where `InputOrOutput` is an
+  enum that is either an owned `Tensor` or a `TensorView`. This enables passing
+  ownership of an input to `Model::run`, which is in turn enables efficient
+  in-place updates to cache-like inputs.
+
+  The `InputOrOutput` type implements `From` for tensors and tensor views, so
+  code such as:
+
+  ```rs
+  model.run(&[(input_id, tensor_view.into())], output_ids, None)
+  ```
+
+  Becomes:
+
+  ```rs
+  model.run(vec![(input_id, tensor_view.into())], output_ids, None)
+  ```
+
+#### Bug fixes
+
+- Prevent `Model::partial_run` from propagating values through randomized
+  operators (https://github.com/robertknight/rten/pull/240).
+
+#### Performance improvements
+
+This release adds a new graph optimization step as part of loading models. This
+performs fusions and other optimizations to speed up inference. These
+optimizations are enabled by default, but can be disabled via options in
+`ModelOptions`.
+
+- Fuse `Mul(X, Sigmoid(X))` subgraphs into a `Silu` operation. This speeds up
+  YOLOv8 by 8%. See https://github.com/robertknight/rten/pull/246.
+
+- Further reduce small allocations during graph execution
+  (https://github.com/robertknight/rten/pull/243,
+  https://github.com/robertknight/rten/pull/245).
+
+- Fuse `MatMul(Transpose(X), Y)` subgraphs to avoid materializing the transposed
+  matrix (https://github.com/robertknight/rten/pull/242).
+
+- Perform constant propagation when loading models
+  (https://github.com/robertknight/rten/pull/241).
+
+- Enabled `Concat` operator to run in-place if the caller has specifically
+  reserved space in the first input's buffer
+  (https://github.com/robertknight/rten/pull/239).
+
+- Cache the last-used execution plan. This avoids recomputing the sequence of
+  execution steps when a model is run in a loop
+  (https://github.com/robertknight/rten/pull/234).
+
+- Improved performance of unary operators for non-contiguous inputs
+  (https://github.com/robertknight/rten/pull/223)
+
+- Optimized `Where` operator for non-contiguous inputs
+  (https://github.com/robertknight/rten/pull/213)
+
+- Optimized variadic operators (https://github.com/robertknight/rten/pull/212)
+
+- Optimized `Pow` operator (https://github.com/robertknight/rten/pull/219)
+
+### rten-examples
+
+- Added GPT-2 text generation example (https://github.com/robertknight/rten/pull/228)
+- Added DistilViT image captioning example (https://github.com/robertknight/rten/pull/230)
+
+### rten-generate
+
+This is a new crate which provides a convenient `Iterator`-based interface for
+running auto-regressive decoder models. See the `gpt2` and `distilvit` examples
+in the `rten-examples` crate for code samples.
+
+### rten-tensor
+
+- Support more primitive element types in `NdTensor::from`
+  (https://github.com/robertknight/rten/pull/226).
+
+### rten-text
+
+- Added Byte Pair Encoding (BPE) tokenizer (https://github.com/robertknight/rten/pull/227)
+
 ## [0.10.0] - 2024-05-25
 
 ### rten
