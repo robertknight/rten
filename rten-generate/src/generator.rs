@@ -2,6 +2,7 @@
 
 use std::error::Error;
 use std::fmt;
+use std::ops::Range;
 
 use rten::{Dimension, Input, InputOrOutput, Model, NodeId, Output};
 use rten_tensor::prelude::*;
@@ -77,8 +78,8 @@ struct KvCache {
 pub struct Generator<'a> {
     model: &'a Model,
 
-    /// Additional model inputs (eg. encoder outputs) passed to each model
-    /// step.
+    /// Additional constant model inputs (eg. encoder outputs) passed to the
+    /// model at each step.
     constant_inputs: Vec<(NodeId, InputOrOutput<'a>)>,
 
     /// Additional model inputs computed using constant propagation. This
@@ -86,13 +87,16 @@ pub struct Generator<'a> {
     /// generation step. This is `None` if the cache is out of date.
     constant_prop_inputs: Option<Vec<(NodeId, Output)>>,
 
+    /// Additional varying model inputs computed and passed to the model at
+    /// each step. The functions receive `(batch_size, sequence_positions)` as inputs.
+    #[allow(clippy::type_complexity)]
+    varying_inputs: Vec<(NodeId, &'a dyn Fn(usize, Range<usize>) -> InputOrOutput<'a>)>,
+
     /// Input token IDs for the next run of the model.
     input_ids: Vec<u32>,
 
     // Input node IDs
     input_ids_input: NodeId,
-    attention_mask_input: Option<NodeId>,
-    position_ids_input: Option<NodeId>,
 
     // Output node IDs
     logits_output: NodeId,
@@ -135,8 +139,6 @@ impl<'a> Generator<'a> {
         let input_ids_input = model
             .find_node("input_ids")
             .ok_or(GeneratorError::InputNotFound("input_ids".to_string()))?;
-        let attention_mask_input = model.find_node("attention_mask");
-        let position_ids_input = model.find_node("position_ids");
 
         let logits_output = model
             .find_node("logits")
@@ -204,9 +206,10 @@ impl<'a> Generator<'a> {
             });
         }
 
-        Ok(Generator {
+        let mut generator = Generator {
             model,
             constant_inputs: Vec::new(),
+            varying_inputs: Vec::new(),
 
             // Constant propagation is performed as a graph optimization when
             // the model is loaded, so we only need to re-do it if additional
@@ -215,13 +218,32 @@ impl<'a> Generator<'a> {
 
             input_ids: vec![],
             input_ids_input,
-            attention_mask_input,
-            position_ids_input,
             logits_output,
             kv_cache,
             seq_len: 0,
             sampler: Box::new(ArgMaxSampler {}),
-        })
+        };
+
+        let attention_mask_input = model.find_node("attention_mask");
+        if let Some(attention_mask_input) = attention_mask_input {
+            generator = generator
+                .with_varying_input(attention_mask_input, &|batch_size, positions| {
+                    NdTensor::full([batch_size, positions.len()], 1i32).into()
+                });
+        }
+
+        let position_ids_input = model.find_node("position_ids");
+        if let Some(position_ids_input) = position_ids_input {
+            generator =
+                generator.with_varying_input(position_ids_input, &|batch_size, positions| {
+                    NdTensor::from_fn([batch_size, positions.len()], |[_batch, pos]| {
+                        (positions.start + pos) as i32
+                    })
+                    .into()
+                });
+        }
+
+        Ok(generator)
     }
 
     /// Set the initial sequence of tokens (aka. the prompt) passed to the model
@@ -238,6 +260,22 @@ impl<'a> Generator<'a> {
     pub fn with_constant_input(mut self, input_id: NodeId, value: Input<'a>) -> Self {
         self.constant_prop_inputs = None;
         self.constant_inputs.push((input_id, value.into()));
+        self
+    }
+
+    /// Add an input which varies with the sequence position.
+    ///
+    /// `value_fn` receives `(batch_size, sequence_positions)` as input and
+    /// computes the value for the input at the given positions.
+    ///
+    /// A common use case is to pass position embeddings, if they are not
+    /// computed internally by the model.
+    pub fn with_varying_input<F: Fn(usize, Range<usize>) -> InputOrOutput<'a>>(
+        mut self,
+        input_id: NodeId,
+        value_fn: &'a F,
+    ) -> Self {
+        self.varying_inputs.push((input_id, value_fn));
         self
     }
 
@@ -264,21 +302,10 @@ impl<'a> Generator<'a> {
             .collect::<Tensor<_>>()
             .into_shape([batch_size, self.input_ids.len()]);
 
-        let attention_mask = NdTensor::full([batch_size, self.input_ids.len()], 1i32);
-        let position_ids = NdTensor::from_fn([batch_size, input_ids.len()], |[_batch, pos]| {
-            self.seq_len as i32 + pos as i32
-        });
+        let seq_range = (self.seq_len as usize)..(self.seq_len as usize + self.input_ids.len());
 
         let mut model_inputs: Vec<(NodeId, InputOrOutput)> =
             vec![(self.input_ids_input, input_ids.view().into())];
-
-        if let Some(attention_mask_input) = self.attention_mask_input {
-            model_inputs.push((attention_mask_input, attention_mask.view().into()));
-        }
-
-        if let Some(position_ids_input) = self.position_ids_input {
-            model_inputs.push((position_ids_input, position_ids.view().into()));
-        }
 
         // Propagate constants on the first run.
         if self.constant_prop_inputs.is_none() {
@@ -300,6 +327,14 @@ impl<'a> Generator<'a> {
                 constants
                     .iter()
                     .map(|(node_id, output)| (*node_id, output.as_input().into())),
+            );
+        }
+
+        if !self.varying_inputs.is_empty() {
+            model_inputs.extend(
+                self.varying_inputs
+                    .iter()
+                    .map(|(node_id, value_fn)| (*node_id, value_fn(batch_size, seq_range.clone()))),
             );
         }
 
