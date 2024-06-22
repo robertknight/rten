@@ -115,6 +115,7 @@ enum OperatorType: ubyte {
   RandomNormalLike,
   Softplus,
   GatherND,
+  Gelu,
 }
 
 enum RNNDirection: ubyte {

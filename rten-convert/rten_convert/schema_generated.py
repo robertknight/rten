@@ -109,6 +109,7 @@ class OperatorType(object):
     RandomNormalLike = 99
     Softplus = 100
     GatherND = 101
+    Gelu = 102
 
 
 class RNNDirection(object):

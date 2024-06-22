@@ -47,6 +47,7 @@ pub enum OpType {
     Gather(Gather),
     GatherElements(GatherElements),
     GatherND(GatherND),
+    Gelu,
     Gemm(Gemm),
     GlobalAveragePool,
     Greater,
@@ -482,6 +483,7 @@ impl<'a> ModelBuilder<'a> {
                     batch_dims: args.batch_dims as i32,
                 }
             ),
+            OpType::Gelu => op!(Gelu),
             OpType::Gemm(args) => op_with_attrs!(
                 Gemm,
                 GemmAttrs,

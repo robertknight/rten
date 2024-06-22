@@ -783,6 +783,7 @@ impl_read_op!(
         })
     }
 );
+impl_read_op!(Gelu);
 impl_read_op!(Gemm, attrs_as_gemm_attrs, |attrs: sg::GemmAttrs| {
     Ok(ops::Gemm {
         alpha: attrs.alpha(),
@@ -1176,6 +1177,7 @@ impl OpRegistry {
         register_op!(Gather);
         register_op!(GatherElements);
         register_op!(GatherND);
+        register_op!(Gelu);
         register_op!(Gemm);
         register_op!(GlobalAveragePool);
         register_op!(Greater);
@@ -1733,7 +1735,7 @@ mod tests {
         let gather_elements_indices_val = Tensor::zeros(&input_shape);
         let gather_elements_indices = builder.add_int_constant(&gather_elements_indices_val);
         add_operator!(GatherElements, [input_node, gather_elements_indices], { axis: 0 });
-
+        add_operator!(Gelu, [input_node]);
         add_operator!(Gemm, [input_2d, input_2d], {
             alpha: 1.0,
             beta: 1.0,

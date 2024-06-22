@@ -169,10 +169,12 @@ pub fn check_f32s_are_equal_atol<I: Iterator<Item = (f32, f32, f32)>>(results: I
         let diff = (actual - expected).abs();
         assert!(
             diff <= max_diff,
-            "diff {} exceeds expected {} at x = {}",
+            "diff {} exceeds expected {} at x = {}. actual = {}, expected = {}",
             diff,
             max_diff,
-            x
+            x,
+            actual,
+            expected
         );
     }
 }
