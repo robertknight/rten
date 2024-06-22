@@ -57,6 +57,82 @@ struct KvCache {
     cache: NdTensor<f32, 4>,
 }
 
+/// Specifies a pattern for the name of a key-value cache input or output.
+///
+/// These inputs are expected to have the form `{prefix}{layer_number}{suffix}`,
+/// with one input and output per layer for the key cache and the value cache.
+pub struct KVCachePattern<'a> {
+    pub prefix: &'a str,
+    pub suffix: &'a str,
+}
+
+impl<'a> From<(&'a str, &'a str)> for KVCachePattern<'a> {
+    /// Construct a [`KVCachePattern`] from a `(prefix, suffix)` tuple.
+    fn from(value: (&'a str, &'a str)) -> Self {
+        let (prefix, suffix) = value;
+        KVCachePattern { prefix, suffix }
+    }
+}
+
+/// Specifies the names of model inputs and outputs.
+///
+/// The [`Default`] impl for this struct returns an instance whose names
+/// follow the configuration of Hugging Face's Optimum tool.
+///
+/// Any inputs that are not present in the model are ignored.
+pub struct ModelInputsConfig<'a> {
+    /// Model input that contains the token IDs of the prompt and output
+    /// generated so far.
+    pub input_ids: &'a str,
+
+    /// Model output that contains logits.
+    pub logits: &'a str,
+
+    /// Model input that contains an attention mask.
+    pub attention_mask: &'a str,
+
+    /// Model input that contains position IDs for each position.
+    pub position_ids: &'a str,
+
+    /// Pattern for key cache inputs.
+    pub key_cache: KVCachePattern<'a>,
+
+    /// Pattern for key cache outputs.
+    pub key_cache_output: KVCachePattern<'a>,
+
+    /// Pattern for value cache inputs.
+    pub value_cache: KVCachePattern<'a>,
+
+    /// Pattern for value cache outputs.
+    pub value_cache_output: KVCachePattern<'a>,
+}
+
+/// Contains essential configuration needed for a `Generator` to execute a
+/// model, such as the roles of different inputs and outputs.
+pub struct GeneratorConfig<'a> {
+    /// Specifies names and roles of model inputs and outputs.
+    pub model_inputs: ModelInputsConfig<'a>,
+}
+
+impl<'a> Default for ModelInputsConfig<'a> {
+    /// Return default model input names.
+    ///
+    /// These are based on [Hugging Face's
+    /// Optimum](https://huggingface.co/docs/optimum/en/index) model exporter.
+    fn default() -> Self {
+        ModelInputsConfig {
+            input_ids: "input_ids",
+            logits: "logits",
+            attention_mask: "attention_mask",
+            position_ids: "position_ids",
+            key_cache: ("past_key_values.", ".key").into(),
+            key_cache_output: ("present.", ".key").into(),
+            value_cache: ("past_key_values.", ".value").into(),
+            value_cache_output: ("present.", ".value").into(),
+        }
+    }
+}
+
 /// Generates a token ID sequence using an auto-regressive language model.
 ///
 /// This is an iterator that runs the model on each call to [`Iterator::next`]
@@ -114,6 +190,10 @@ pub struct Generator<'a> {
 impl<'a> Generator<'a> {
     /// Create a generator that iteratively produces tokens using a model.
     ///
+    /// This function assumes default names for model inputs and outputs
+    /// based on the conventions of Hugging Face's Optimum exporter. These
+    /// can be customized using [`from_model_config`](Self::from_model_config).
+    ///
     /// The model must have the required inputs:
     ///
     ///  - `input_ids` - (batch, sequence) tensor of token IDs
@@ -136,13 +216,35 @@ impl<'a> Generator<'a> {
     ///  - `present.N.key` - (batch, head, past_seq_len + 1, size) updated key vector cache
     ///  - `present.N.value` - (batch, head, past_seq_len + 1, size) updated value vector cache
     pub fn from_model(model: &'a Model) -> Result<Generator<'a>, GeneratorError> {
-        let input_ids_input = model
-            .find_node("input_ids")
-            .ok_or(GeneratorError::InputNotFound("input_ids".to_string()))?;
+        let config = GeneratorConfig {
+            model_inputs: ModelInputsConfig::default(),
+        };
+        Self::from_model_config(model, config)
+    }
 
-        let logits_output = model
-            .find_node("logits")
-            .ok_or(GeneratorError::OutputNotFound("logits".to_string()))?;
+    /// Create a generator that iteratively produces tokens using a model.
+    ///
+    /// This is a variant of [`from_model`](Self::from_model) that allows
+    /// specifying custom names for model inputs.
+    pub fn from_model_config(
+        model: &'a Model,
+        config: GeneratorConfig,
+    ) -> Result<Generator<'a>, GeneratorError> {
+        let model_inputs = &config.model_inputs;
+
+        let input_ids_input =
+            model
+                .find_node(model_inputs.input_ids)
+                .ok_or(GeneratorError::InputNotFound(
+                    model_inputs.input_ids.to_string(),
+                ))?;
+
+        let logits_output =
+            model
+                .find_node(model_inputs.logits)
+                .ok_or(GeneratorError::OutputNotFound(
+                    model_inputs.logits.to_string(),
+                ))?;
 
         // Find inputs and corresponding outputs for key-value cache.
         let batch_size = 1;
@@ -158,11 +260,12 @@ impl<'a> Generator<'a> {
                 continue;
             };
 
-            if !name.starts_with("past_key_values.") {
-                continue;
-            }
+            let is_key_cache = name.starts_with(model_inputs.key_cache.prefix)
+                && name.ends_with(model_inputs.key_cache.suffix);
+            let is_value_cache = name.starts_with(model_inputs.value_cache.prefix)
+                && name.ends_with(model_inputs.value_cache.suffix);
 
-            if !name.ends_with(".key") && !name.ends_with(".value") {
+            if !is_key_cache && !is_value_cache {
                 continue;
             }
 
@@ -173,13 +276,13 @@ impl<'a> Generator<'a> {
                 }
             };
 
-            let cache_type = if name.ends_with(".key") {
-                "key"
+            let prefix = if is_key_cache {
+                model_inputs.key_cache.prefix
             } else {
-                "value"
+                model_inputs.value_cache.prefix
             };
 
-            let layer_index_start = "past_key_values.".len();
+            let layer_index_start = prefix.len();
             let layer_index_str: String = name[layer_index_start..]
                 .chars()
                 .take_while(|ch| ch.is_ascii_digit())
@@ -188,7 +291,19 @@ impl<'a> Generator<'a> {
                 continue;
             };
 
-            let output_name = format!("present.{}.{}", layer_index, cache_type);
+            let (output_prefix, output_suffix) = if is_key_cache {
+                (
+                    model_inputs.key_cache_output.prefix,
+                    model_inputs.key_cache_output.suffix,
+                )
+            } else {
+                (
+                    model_inputs.value_cache_output.prefix,
+                    model_inputs.value_cache_output.suffix,
+                )
+            };
+
+            let output_name = format!("{}{}{}", output_prefix, layer_index, output_suffix);
             let output_id = model
                 .find_node(&output_name)
                 .ok_or(GeneratorError::OutputNotFound(output_name))?;
@@ -224,7 +339,7 @@ impl<'a> Generator<'a> {
             sampler: Box::new(ArgMaxSampler {}),
         };
 
-        let attention_mask_input = model.find_node("attention_mask");
+        let attention_mask_input = model.find_node(model_inputs.attention_mask);
         if let Some(attention_mask_input) = attention_mask_input {
             generator = generator
                 .with_varying_input(attention_mask_input, &|batch_size, positions| {
@@ -232,7 +347,7 @@ impl<'a> Generator<'a> {
                 });
         }
 
-        let position_ids_input = model.find_node("position_ids");
+        let position_ids_input = model.find_node(model_inputs.position_ids);
         if let Some(position_ids_input) = position_ids_input {
             generator =
                 generator.with_varying_input(position_ids_input, &|batch_size, positions| {

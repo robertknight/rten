@@ -11,4 +11,6 @@ pub mod generator;
 pub mod metrics;
 pub mod sampler;
 
-pub use generator::{Generator, GeneratorError, GeneratorUtils};
+pub use generator::{
+    Generator, GeneratorConfig, GeneratorError, GeneratorUtils, ModelInputsConfig,
+};
