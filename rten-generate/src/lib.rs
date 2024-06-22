@@ -11,6 +11,9 @@ pub mod generator;
 pub mod metrics;
 pub mod sampler;
 
+#[cfg(feature = "text-decoder")]
+pub mod text_decoder;
+
 pub use generator::{
     Generator, GeneratorConfig, GeneratorError, GeneratorUtils, ModelInputsConfig,
 };
