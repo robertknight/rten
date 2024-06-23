@@ -15,7 +15,7 @@ use smallvec::SmallVec;
 
 use crate::constant_storage::ArcTensorView;
 use crate::env::env_flag;
-use crate::ops::{Input, InputList, InputOrOutput, OpError, Operator, Output};
+use crate::ops::{Input, InputList, InputOrOutput, OpError, Operator, Output, OutputList};
 use crate::tensor_pool::{ExtractBuffer, TensorPool};
 use crate::threading;
 use crate::timer::Timer;
@@ -594,7 +594,7 @@ impl Graph {
 
         // Execute the plan
         let record_timing = opts.timing || opts.verbose;
-        let mut op_elapsed: Vec<TimingRecord> = if record_timing {
+        let mut op_timing_records: Vec<TimingRecord> = if record_timing {
             Vec::with_capacity(plan.len())
         } else {
             Vec::new()
@@ -717,7 +717,7 @@ impl Graph {
             if record_timing {
                 op_timer.end();
 
-                op_elapsed.push(TimingRecord {
+                op_timing_records.push(TimingRecord {
                     name: op_node.operator.name(),
                     input_shapes: input_shapes.clone(),
                     elapsed_micros: op_timer.elapsed_micros(),
@@ -729,31 +729,7 @@ impl Graph {
             // result so that in the event of an error, the verbose log includes
             // the failing operator's inputs.
             if opts.verbose {
-                println!(
-                    "#{} {} ({})",
-                    step,
-                    op_node.operator.name(),
-                    op_node.name.as_ref().unwrap_or(&String::new())
-                );
-                for (index, (id, shape)) in
-                    zip(op_node.inputs.iter(), input_shapes.iter()).enumerate()
-                {
-                    if let (Some(id), Some(shape)) = (id, shape) {
-                        let name = self.node_name(*id);
-                        println!("  input {}: {} ({:?})", index, name, shape);
-                    }
-                }
-
-                if let Ok(outputs) = op_result.as_ref() {
-                    for (index, (id, output)) in
-                        zip(op_node.outputs.iter(), outputs.iter()).enumerate()
-                    {
-                        let name = id.map(|id| self.node_name(id)).unwrap_or(String::new());
-                        println!("  output {}: {} ({:?})", index, name, output.shape());
-                    }
-                }
-
-                println!("  time: {}ms", op_timer.elapsed_ms());
+                self.print_op_timing(step, op_node, &op_result, &op_timer, &input_shapes);
             }
 
             let outputs = match op_result {
@@ -797,22 +773,14 @@ impl Graph {
 
         if opts.timing {
             run_timer.end();
-            println!(
-                "Graph run of {} ops finished in {}ms",
-                plan.len(),
-                run_timer.elapsed_ms()
+            self.print_run_timing(
+                plan,
+                &pool,
+                run_timer,
+                alloc_timer,
+                &op_timing_records,
+                &opts,
             );
-            println!(
-                "Pool allocs {} hits {}",
-                pool.alloc_count(),
-                pool.hit_count()
-            );
-            let timing = RunTiming {
-                records: &op_elapsed,
-                alloc_time: alloc_timer.elapsed_ms(),
-                total_time: run_timer.elapsed_ms(),
-            };
-            print!("{}", timing.display(opts.timing_sort, opts.timing_by_shape));
         }
 
         // Return the requested outputs
@@ -832,6 +800,69 @@ impl Graph {
             })
             .collect();
         Ok(result)
+    }
+
+    /// Print detailed information about an operation just after it has run.
+    fn print_op_timing(
+        &self,
+        step: usize,
+        op_node: &OperatorNode,
+        op_result: &Result<OutputList, OpError>,
+        op_timer: &Timer,
+        input_shapes: &[InputShape],
+    ) {
+        println!(
+            "#{} {} ({})",
+            step,
+            op_node.operator.name(),
+            op_node.name.as_ref().unwrap_or(&String::new())
+        );
+        for (index, (id, shape)) in zip(op_node.inputs.iter(), input_shapes.iter()).enumerate() {
+            if let (Some(id), Some(shape)) = (id, shape) {
+                let name = self.node_name(*id);
+                println!("  input {}: {} ({:?})", index, name, shape);
+            }
+        }
+
+        if let Ok(outputs) = op_result.as_ref() {
+            for (index, (id, output)) in zip(op_node.outputs.iter(), outputs.iter()).enumerate() {
+                let name = id.map(|id| self.node_name(id)).unwrap_or(String::new());
+                println!("  output {}: {} ({:?})", index, name, output.shape());
+            }
+        }
+
+        println!("  time: {}ms", op_timer.elapsed_ms());
+    }
+
+    /// Print a profiling summary at the end of the run.
+    fn print_run_timing(
+        &self,
+        plan: &[NodeId],
+        pool: &TensorPool,
+        run_timer: Timer,
+        alloc_timer: Timer,
+        op_timing_records: &[TimingRecord],
+        opts: &RunOptions,
+    ) {
+        println!(
+            "Graph run of {} ops finished in {}ms",
+            plan.len(),
+            run_timer.elapsed_ms()
+        );
+        println!(
+            "Pool allocs {} hits {}",
+            pool.alloc_count(),
+            pool.hit_count()
+        );
+        let timing = RunTiming {
+            records: op_timing_records,
+            alloc_time: alloc_timer.elapsed_ms(),
+            total_time: run_timer.elapsed_ms(),
+        };
+        print!(
+            "{}",
+            timing.display(opts.timing_sort.clone(), opts.timing_by_shape)
+        );
     }
 
     /// Run part of the graph required to produce `outputs`, given an
