@@ -30,7 +30,7 @@ unsafe fn simd_gemv<S: SimdFloat, const NR_REGS: usize>(
     alpha: f32,
     beta: f32,
 ) {
-    // Handle uncommon cases where `b` does not have unit stride.
+    // Handle cases where `b` does not have unit stride.
     if b.row_stride() == 1 {
         return simd_gemv_transposed::<S>(out, a, b, alpha, beta);
     } else if b.col_stride() != 1 {
@@ -52,6 +52,9 @@ unsafe fn simd_gemv<S: SimdFloat, const NR_REGS: usize>(
         unroll_loop!(0..a.len(), k, 4, {
             let a_elt = *a_ptr.add(k);
             let a_elts = S::splat(a_elt);
+
+            // Pre-fetch the current row for the next column tile.
+            S::prefetch(b_ptr.add(k * b_row_stride + b_tile.start + NR_REGS + S::LEN));
 
             for i in 0..NR_REGS {
                 let b_elts = S::load(b_ptr.add(k * b_row_stride + b_tile.start + i * S::LEN));

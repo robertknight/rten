@@ -663,18 +663,24 @@ fn gemv(
     let b_cols = b.cols();
     let out_data = output_mat.data_mut().unwrap();
 
-    let b_block_size = 256;
-    let k_block_size = 256;
-
     let a = a.to_contiguous();
     let a_data = a.data().unwrap();
 
-    // Partition the matrix and vector into blocks, to achieve effective
-    // cache usage and enable parallelism.
-    range_chunks(0..b_cols, b_block_size)
-        .zip(out_data.chunks_mut(b_block_size))
-        .par_bridge()
-        .for_each(|(col_block, out_chunk)| {
+    // The matrix is partitioned into column blocks that are processed in
+    // parallel.
+    //
+    // Each column block is partitioned into row blocks for calls to the kernel.
+    // The kernel internally divides the row blocks into column tiles. The row
+    // block size should be small to maximize cache efficiency.
+    let b_block_size = b_cols.div_ceil(rayon::current_num_threads()).max(128);
+    let k_block_size = 32;
+
+    out_data
+        .par_chunks_mut(b_block_size)
+        .enumerate()
+        .for_each(|(col_block_idx, out_chunk)| {
+            let col_block =
+                (col_block_idx * b_block_size)..((col_block_idx + 1) * b_block_size).min(b_cols);
             let mut effective_beta = beta;
 
             for (k_block, a_block) in
