@@ -652,12 +652,9 @@ impl Graph {
             // that can be used as the output. This requires that the tensor
             // is not a constant (eg. weights) and is not going to be used by
             // other ops in future.
-            let in_place_input = in_place_input_id.and_then(|first_input| {
-                if temp_values.contains_key(&first_input)
-                    && temp_value_refcount.count(first_input) == 1
-                {
-                    temp_value_refcount.dec(first_input);
-                    Some(temp_values.remove(&first_input).unwrap())
+            let in_place_input = in_place_input_id.and_then(|input| {
+                if temp_value_refcount.count(input) == 1 {
+                    temp_values.remove(&input)
                 } else {
                     None
                 }
