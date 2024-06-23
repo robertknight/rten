@@ -26,7 +26,7 @@ use rten_tensor::{
 };
 
 use crate::downcast::impl_downcastdyn;
-use crate::tensor_pool::TensorPool;
+use crate::tensor_pool::{ExtractBuffer, TensorPool};
 
 mod binary_elementwise;
 mod concat;
@@ -323,6 +323,14 @@ impl Output {
             Self::FloatTensor(ft) => Input::FloatTensor(ft.view()),
             Self::IntTensor(it) => Input::IntTensor(it.view()),
         }
+    }
+
+    /// Move this tensor's buffer into a pool.
+    pub(crate) fn add_to_pool(self, pool: &TensorPool) {
+        match self {
+            Self::FloatTensor(t) => t.extract_buffer().map(|buf| pool.add(buf)),
+            Self::IntTensor(t) => t.extract_buffer().map(|buf| pool.add(buf)),
+        };
     }
 
     pub fn into_int(self) -> Option<Tensor<i32>> {
