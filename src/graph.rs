@@ -16,7 +16,7 @@ use smallvec::SmallVec;
 use crate::constant_storage::ArcTensorView;
 use crate::env::env_flag;
 use crate::ops::{Input, InputList, InputOrOutput, OpError, Operator, Output, OutputList};
-use crate::tensor_pool::{ExtractBuffer, TensorPool};
+use crate::tensor_pool::TensorPool;
 use crate::threading;
 use crate::timer::Timer;
 use crate::timing::{InputShape, RunTiming, TimingRecord, TimingSort};
@@ -134,6 +134,13 @@ impl Constant {
         match self {
             Constant::Float(f) => f.layout(),
             Constant::Int(i) => i.layout(),
+        }
+    }
+
+    fn as_input(&self) -> Input {
+        match self {
+            Constant::Float(f) => Input::FloatTensor(f.view()),
+            Constant::Int(i) => Input::IntTensor(i.view()),
         }
     }
 }
@@ -551,14 +558,12 @@ impl Graph {
 
         let inputs_by_id: FxHashMap<NodeId, InputOrOutput> = inputs.iter().cloned().collect();
         let get_value_from_constant_or_input = |node_id: NodeId| -> Option<Input> {
-            if let Some(Node::Constant(constant)) = self.nodes.get(node_id) {
-                let value = match constant {
-                    Constant::Float(node) => Input::FloatTensor(node.view()),
-                    Constant::Int(node) => Input::IntTensor(node.view()),
-                };
-                Some(value)
-            } else {
-                inputs_by_id.get(&node_id).map(|input| input.as_input())
+            match self.nodes.get(node_id) {
+                Some(Node::Constant(constant)) => Some(constant.as_input()),
+                Some(Node::Value(_)) => inputs_by_id.get(&node_id).map(|input| input.as_input()),
+                Some(Node::Operator(_)) | None => {
+                    panic!("node is not a value or constant");
+                }
             }
         };
 
@@ -670,11 +675,7 @@ impl Graph {
                     if let Some(value) = get_value_from_constant_or_input(*node_id) {
                         op_inputs.push(Some(value));
                     } else if let Some(value) = temp_values.get(node_id) {
-                        let input = match value {
-                            Output::IntTensor(t) => Input::IntTensor(t.view()),
-                            Output::FloatTensor(t) => Input::FloatTensor(t.view()),
-                        };
-                        op_inputs.push(Some(input));
+                        op_inputs.push(Some(value.as_input()));
                     } else {
                         // If this is reached, there was a bug in plan creation.
                         panic!(
@@ -702,6 +703,7 @@ impl Graph {
                 Vec::new()
             };
 
+            // Run the operation.
             let op_result = if let Some(input) = in_place_input {
                 op_node
                     .operator
@@ -714,9 +716,11 @@ impl Graph {
             };
             std::mem::drop(op_inputs);
 
+            // Record timings. We do this even if the operation failed so logs
+            // will contain details of the failed operation in the event of an
+            // error.
             if record_timing {
                 op_timer.end();
-
                 op_timing_records.push(TimingRecord {
                     name: op_node.operator.name(),
                     input_shapes: input_shapes.clone(),
@@ -724,36 +728,29 @@ impl Graph {
                     node_name: op_node.name.as_deref().unwrap_or(""),
                 });
             }
-
-            // Log verbose info if enabled. This is done before we check the
-            // result so that in the event of an error, the verbose log includes
-            // the failing operator's inputs.
             if opts.verbose {
                 self.print_op_timing(step, op_node, &op_result, &op_timer, &input_shapes);
             }
 
-            let outputs = match op_result {
-                Ok(outputs) => outputs,
-                Err(op_error) => {
-                    let err = RunError::OperatorError {
-                        name: op_node.name.as_deref().unwrap_or("").to_string(),
-                        error: op_error,
-                    };
-                    return Err(err);
-                }
-            };
-
+            // Extract outputs or fail if an error occurred.
+            let outputs = op_result.map_err(|op_error| RunError::OperatorError {
+                name: op_node.name.as_deref().unwrap_or("").to_string(),
+                error: op_error,
+            })?;
             if op_node.outputs.len() != outputs.len() {
                 return Err(RunError::OutputMismatch(
                     "operator output count did not match expected count",
                 ));
             }
 
-            for (&output_id, output) in zip(op_node.outputs.iter(), outputs.into_iter()) {
-                if let Some(output_id) = output_id {
-                    temp_values.insert(output_id, output);
-                }
-            }
+            // Save outputs for future steps.
+            temp_values.extend(
+                op_node
+                    .outputs
+                    .iter()
+                    .zip(outputs.into_iter())
+                    .filter_map(|(output_id, output)| output_id.map(|id| (id, output))),
+            );
 
             // Remove temporary values that are no longer needed
             record_timing.then(|| alloc_timer.start());
@@ -761,10 +758,7 @@ impl Graph {
                 let rc = temp_value_refcount.dec(node_id);
                 if rc == Some(0) {
                     if let (true, Some(tensor)) = (use_pool, temp_values.remove(&node_id)) {
-                        match tensor {
-                            Output::FloatTensor(t) => t.extract_buffer().map(|buf| pool.add(buf)),
-                            Output::IntTensor(t) => t.extract_buffer().map(|buf| pool.add(buf)),
-                        };
+                        tensor.add_to_pool(&pool)
                     }
                 }
             }
@@ -788,10 +782,7 @@ impl Graph {
             .iter()
             .map(|output_id| {
                 if let Some(value) = get_value_from_constant_or_input(*output_id) {
-                    match value {
-                        Input::IntTensor(t) => Output::IntTensor(t.to_tensor()),
-                        Input::FloatTensor(t) => Output::FloatTensor(t.to_tensor()),
-                    }
+                    value.to_output()
                 } else {
                     // During execution planning we verified that each output
                     // ID is valid and unique, so this should always succeed.
