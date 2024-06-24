@@ -596,3 +596,259 @@ impl<'a, G: Iterator> Iterator for Profiler<'a, G> {
         Some(item)
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use std::cell::{Cell, RefCell};
+    use std::collections::HashMap;
+    use std::error::Error;
+
+    use rten::{Dimension, InputOrOutput, NodeId, Output};
+    use rten_tensor::prelude::*;
+    use rten_tensor::NdTensor;
+
+    use super::Generator;
+    use crate::model::{Model, NodeInfo};
+
+    struct FakeModel {
+        nodes: Vec<NodeInfo>,
+        input_ids: Vec<NodeId>,
+        output_ids: Vec<NodeId>,
+
+        // Next inference step
+        step: Cell<usize>,
+
+        // Inference outputs for each step
+        outputs: Vec<HashMap<NodeId, Output>>,
+
+        // Inference inputs for each step
+        inputs: RefCell<Vec<HashMap<NodeId, Output>>>,
+    }
+
+    impl FakeModel {
+        /// Return a model with a given set of inputs and outputs.
+        fn with_inputs_and_outputs(inputs: &[NodeInfo], outputs: &[NodeInfo]) -> FakeModel {
+            let node_infos = [inputs, outputs].concat();
+            let input_ids = (0..inputs.len()).collect();
+            let output_ids = (inputs.len()..(inputs.len() + outputs.len())).collect();
+
+            FakeModel {
+                input_ids,
+                output_ids,
+                nodes: node_infos,
+                step: Cell::new(0),
+                inputs: RefCell::new(vec![]),
+                outputs: vec![],
+            }
+        }
+
+        /// Add inference outputs for one run of the model.
+        fn add_outputs(&mut self, outputs: HashMap<NodeId, Output>) {
+            self.outputs.push(outputs)
+        }
+
+        /// Get an input for the `step`th run of the model.
+        fn get_inputs(&self, step: usize, node_id: NodeId) -> Option<Output> {
+            self.inputs
+                .borrow()
+                .get(step)
+                .map(|step_inputs| step_inputs.get(&node_id))
+                .flatten()
+                .cloned()
+        }
+    }
+
+    impl Model for FakeModel {
+        fn find_node(&self, name: &str) -> Option<NodeId> {
+            self.nodes.iter().position(|info| info.name() == name)
+        }
+
+        fn node_info(&self, id: NodeId) -> Option<NodeInfo> {
+            self.nodes.get(id).cloned()
+        }
+
+        fn input_ids(&self) -> &[NodeId] {
+            &self.input_ids
+        }
+
+        fn run(
+            &self,
+            inputs: Vec<(NodeId, InputOrOutput)>,
+            outputs: &[NodeId],
+        ) -> Result<Vec<Output>, Box<dyn Error>> {
+            if let Some((input_id, _)) = inputs.iter().find(|(id, _)| !self.input_ids.contains(id))
+            {
+                return Err(format!("invalid input ID {}", input_id).into());
+            }
+
+            if let Some(output_id) = outputs.iter().find(|id| !self.output_ids.contains(id)) {
+                return Err(format!("invalid output ID {}", output_id).into());
+            }
+
+            self.inputs.borrow_mut().push(
+                inputs
+                    .into_iter()
+                    .map(|(id, input_or_output)| (id, input_or_output.to_output()))
+                    .collect(),
+            );
+
+            let result = outputs
+                .iter()
+                .map(|id| {
+                    let step_outputs = self
+                        .outputs
+                        .get(self.step.get())
+                        .expect("outputs not specified for step");
+
+                    step_outputs
+                        .get(id)
+                        .cloned()
+                        .expect("invalid output node ID")
+                })
+                .collect();
+
+            self.step.set(self.step.get() + 1);
+
+            Ok(result)
+        }
+
+        fn partial_run(
+            &self,
+            _inputs: Vec<(NodeId, InputOrOutput)>,
+            _outputs: &[NodeId],
+        ) -> Result<Vec<(NodeId, Output)>, Box<dyn Error>> {
+            Ok(Vec::new())
+        }
+    }
+
+    /// Generate `[batch, sequence, n_vocab]` tensor for `logits` output.
+    fn generate_logits(n_vocab: usize, selected_ids: &[usize]) -> NdTensor<f32, 3> {
+        let mut logits = NdTensor::zeros([1, selected_ids.len(), n_vocab]);
+        for (idx, id) in selected_ids.iter().copied().enumerate() {
+            logits[[0, idx, id]] = 1.0;
+        }
+        logits
+    }
+
+    #[test]
+    fn test_generator() -> Result<(), Box<dyn Error>> {
+        // Parameters for fake model.
+        let n_layers = 5;
+        let n_heads = 3;
+        let n_vocab = 5;
+        let n_embed = 8;
+
+        // Add inputs and outputs using the standard names.
+        let mut inputs = vec![
+            NodeInfo::from_name_shape("input_ids", &[]),
+            NodeInfo::from_name_shape("position_ids", &[]),
+            NodeInfo::from_name_shape("attention_mask", &[]),
+        ];
+        let mut outputs = vec![NodeInfo::from_name_shape("logits", &[])];
+
+        // Add KV-cache inputs and outputs.
+        let mut kv_cache_output_names = Vec::new();
+        for layer in 0..n_layers {
+            let dims = [
+                Dimension::Symbolic("batch".to_string()),
+                Dimension::Fixed(n_heads),
+                Dimension::Symbolic("seq".to_string()),
+                Dimension::Fixed(n_embed),
+            ];
+            let past_key_name = format!("past_key_values.{}.key", layer);
+            let past_value_name = format!("past_key_values.{}.value", layer);
+            let present_key_name = format!("present.{}.key", layer);
+            let present_value_name = format!("present.{}.value", layer);
+
+            inputs.push(NodeInfo::from_name_shape(&past_key_name, &dims));
+            inputs.push(NodeInfo::from_name_shape(&past_value_name, &dims));
+
+            outputs.push(NodeInfo::from_name_shape(&present_key_name, &dims));
+            outputs.push(NodeInfo::from_name_shape(&present_value_name, &dims));
+            kv_cache_output_names.push(present_key_name);
+            kv_cache_output_names.push(present_value_name);
+        }
+
+        let mut model = FakeModel::with_inputs_and_outputs(&inputs, &outputs);
+        let logits_id = model.find_node("logits").unwrap();
+
+        let max_steps = 20;
+        let prompt = [1, 2, 3, 1, 2, 3];
+        for step in 0..max_steps {
+            let logits = generate_logits(n_vocab, &[step % n_vocab]);
+            let mut outputs = HashMap::new();
+            outputs.insert(logits_id, Output::FloatTensor(logits.into()));
+
+            // Add KV cache outputs
+            for kv_output in kv_cache_output_names.iter() {
+                let kv_output_id = model.find_node(&kv_output).unwrap();
+                let context_len = if step == 0 {
+                    prompt.len()
+                } else {
+                    prompt.len() + step - 1
+                };
+                outputs.insert(
+                    kv_output_id,
+                    Output::FloatTensor(NdTensor::zeros([1, n_heads, context_len, n_embed]).into()),
+                );
+            }
+
+            model.add_outputs(outputs);
+        }
+
+        let generator = Generator::from_model(&model)?;
+        let generation_len = 10;
+
+        let output_token_ids: Vec<_> = generator
+            .with_prompt(&prompt)
+            .take(generation_len)
+            .map(|id| id.expect("generation failed"))
+            .collect();
+
+        // Check generator outputs
+        let expected = [0, 1, 2, 3, 4, 0, 1, 2, 3, 4];
+        assert_eq!(output_token_ids.len(), generation_len);
+        assert_eq!(output_token_ids, &expected[..generation_len]);
+
+        // Check model inputs
+        let input_id = model.find_node("input_ids").unwrap();
+        let position_ids = model.find_node("position_ids").unwrap();
+        let attention_mask = model.find_node("attention_mask").unwrap();
+
+        for step in 0..generation_len {
+            let step_inputs = model.get_inputs(step, input_id).unwrap();
+            let step_inputs: NdTensor<i32, 2> = step_inputs.try_into().unwrap();
+
+            let step_pos_ids = model.get_inputs(step, position_ids).unwrap();
+            let step_pos_ids: NdTensor<i32, 2> = step_pos_ids.try_into().unwrap();
+
+            let step_attn_mask = model.get_inputs(step, attention_mask).unwrap();
+            let step_attn_mask: NdTensor<i32, 2> = step_attn_mask.try_into().unwrap();
+
+            if step == 0 {
+                assert_eq!(step_inputs.size(1), prompt.len());
+                assert!(step_inputs
+                    .iter()
+                    .map(|x| *x as u32)
+                    .eq(prompt.iter().copied()));
+
+                assert_eq!(step_attn_mask.size(1), prompt.len());
+                assert!(step_attn_mask.iter().all(|x| *x == 1));
+
+                assert_eq!(step_pos_ids.size(1), prompt.len());
+                assert!(step_pos_ids.iter().map(|x| *x as usize).eq(0..prompt.len()));
+            } else {
+                assert_eq!(step_inputs.size(1), 1);
+                assert_eq!(step_inputs[[0, 0]] as u32, expected[step - 1]);
+
+                assert_eq!(step_attn_mask.size(1), 1);
+                assert_eq!(step_attn_mask[[0, 0]], 1);
+
+                assert_eq!(step_pos_ids.size(1), 1);
+                assert_eq!(step_pos_ids[[0, 0]], (prompt.len() + step - 1) as i32);
+            }
+        }
+
+        Ok(())
+    }
+}
