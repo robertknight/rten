@@ -4,7 +4,7 @@ use std::error::Error;
 use std::fmt;
 use std::ops::Range;
 
-use rten::{Dimension, Input, InputOrOutput, Model, NodeId, Output};
+use rten::{Dimension, Input, InputOrOutput, NodeId, Output};
 use rten_tensor::prelude::*;
 use rten_tensor::{NdTensor, Tensor};
 
@@ -12,6 +12,7 @@ use rten_tensor::{NdTensor, Tensor};
 use rten_text::tokenizers::{Tokenizer, TokenizerError};
 
 use crate::metrics::Metrics;
+use crate::model::Model;
 use crate::sampler::{ArgMaxSampler, Sampler};
 
 #[cfg(feature = "text-decoder")]
@@ -171,7 +172,7 @@ impl<'a> Default for ModelInputsConfig<'a> {
 /// the token with the highest probability. The sampler can be configured using
 /// [`with_sampler`](Self::with_sampler).
 pub struct Generator<'a> {
-    model: &'a Model,
+    model: &'a dyn Model,
 
     /// Additional constant model inputs (eg. encoder outputs) passed to the
     /// model at each step.
@@ -234,7 +235,7 @@ impl<'a> Generator<'a> {
     ///
     ///  - `present.N.key` - (batch, head, past_seq_len + 1, size) updated key vector cache
     ///  - `present.N.value` - (batch, head, past_seq_len + 1, size) updated value vector cache
-    pub fn from_model(model: &'a Model) -> Result<Generator<'a>, GeneratorError> {
+    pub fn from_model(model: &'a dyn Model) -> Result<Generator<'a>, GeneratorError> {
         let config = GeneratorConfig {
             model_inputs: ModelInputsConfig::default(),
         };
@@ -246,7 +247,7 @@ impl<'a> Generator<'a> {
     /// This is a variant of [`from_model`](Self::from_model) that allows
     /// specifying custom names for model inputs.
     pub fn from_model_config(
-        model: &'a Model,
+        model: &'a dyn Model,
         config: GeneratorConfig,
     ) -> Result<Generator<'a>, GeneratorError> {
         let model_inputs = &config.model_inputs;
@@ -275,10 +276,8 @@ impl<'a> Generator<'a> {
                     "input ID {}",
                     input_id
                 )))?;
-            let Some(name) = input_info.name() else {
-                continue;
-            };
 
+            let name = input_info.name();
             let is_key_cache = name.starts_with(model_inputs.key_cache.prefix)
                 && name.ends_with(model_inputs.key_cache.suffix);
             let is_value_cache = name.starts_with(model_inputs.value_cache.prefix)
@@ -288,11 +287,9 @@ impl<'a> Generator<'a> {
                 continue;
             }
 
-            let (n_heads, size) = match input_info.shape().as_deref() {
-                Some(&[_, Dimension::Fixed(n_heads), _, Dimension::Fixed(size)]) => {
-                    (Some(n_heads), size)
-                }
-                Some(&[_, _, Dimension::Fixed(size)]) => (None, size),
+            let (n_heads, size) = match *input_info.shape() {
+                [_, Dimension::Fixed(n_heads), _, Dimension::Fixed(size)] => (Some(n_heads), size),
+                [_, _, Dimension::Fixed(size)] => (None, size),
                 _ => {
                     return Err(GeneratorError::ShapeMismatch(format!("input \"{}\" has unexpected shape. expected (batch, past_seq_len, chans) or (batch, heads, past_seq_len, chans) where `heads` and `size` are fixed", name)));
                 }
@@ -453,11 +450,10 @@ impl<'a> Generator<'a> {
 
         // Propagate constants on the first run.
         if self.constant_prop_inputs.is_none() {
-            let inputs = match self.model.partial_run(
-                self.constant_inputs.clone(),
-                &[self.logits_output],
-                None,
-            ) {
+            let inputs = match self
+                .model
+                .partial_run(self.constant_inputs.clone(), &[self.logits_output])
+            {
                 Ok(inputs) => inputs,
                 Err(err) => {
                     return Err(wrap_error(err));
@@ -506,7 +502,7 @@ impl<'a> Generator<'a> {
 
         let mut outputs = self
             .model
-            .run(model_inputs, &model_outputs, None)
+            .run(model_inputs, &model_outputs)
             .map_err(wrap_error)?;
 
         // Sample output token.
