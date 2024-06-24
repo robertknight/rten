@@ -9,6 +9,7 @@
 
 pub mod generator;
 pub mod metrics;
+pub mod model;
 pub mod sampler;
 
 #[cfg(feature = "text-decoder")]
