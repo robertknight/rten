@@ -607,7 +607,8 @@ mod tests {
     use rten_tensor::prelude::*;
     use rten_tensor::NdTensor;
 
-    use super::Generator;
+    use super::{Generator, GeneratorUtils};
+    use crate::metrics::Metrics;
     use crate::model::{Model, NodeInfo};
 
     struct FakeModel {
@@ -722,21 +723,51 @@ mod tests {
     }
 
     /// Generate `[batch, sequence, n_vocab]` tensor for `logits` output.
-    fn generate_logits(n_vocab: usize, selected_ids: &[usize]) -> NdTensor<f32, 3> {
-        let mut logits = NdTensor::zeros([1, selected_ids.len(), n_vocab]);
-        for (idx, id) in selected_ids.iter().copied().enumerate() {
-            logits[[0, idx, id]] = 1.0;
+    fn generate_logits(n_vocab: usize, token_ids: &[u32]) -> NdTensor<f32, 3> {
+        let mut logits = NdTensor::zeros([1, token_ids.len(), n_vocab]);
+        for (idx, id) in token_ids.iter().copied().enumerate() {
+            logits[[0, idx, id as usize]] = 1.0;
         }
         logits
     }
 
-    #[test]
-    fn test_generator() -> Result<(), Box<dyn Error>> {
-        // Parameters for fake model.
-        let n_layers = 5;
-        let n_heads = 3;
-        let n_vocab = 5;
-        let n_embed = 8;
+    #[derive(Copy, Clone, PartialEq)]
+    struct TransformerParams {
+        /// Number of layers. This determines the number of KV-cache inputs
+        /// and outputs.
+        n_layers: usize,
+        n_heads: usize,
+        n_embed: usize,
+
+        /// Vocabulary size. This is the size of the last dimension of the
+        /// logits output.
+        n_vocab: usize,
+    }
+
+    impl Default for TransformerParams {
+        fn default() -> Self {
+            Self {
+                n_layers: 5,
+                n_heads: 3,
+                n_vocab: 5,
+                n_embed: 8,
+            }
+        }
+    }
+
+    /// Create a fake transformer model using the default names for inputs and
+    /// outputs.
+    fn fake_transformer_model(
+        params: TransformerParams,
+        prompt_len: usize,
+        output_token_ids: &[u32],
+    ) -> FakeModel {
+        let TransformerParams {
+            n_layers,
+            n_heads,
+            n_vocab,
+            n_embed,
+        } = params;
 
         // Add inputs and outputs using the standard names.
         let mut inputs = vec![
@@ -751,7 +782,7 @@ mod tests {
         for layer in 0..n_layers {
             let dims = [
                 Dimension::Symbolic("batch".to_string()),
-                Dimension::Fixed(n_heads),
+                Dimension::Fixed(n_heads as usize),
                 Dimension::Symbolic("seq".to_string()),
                 Dimension::Fixed(n_embed),
             ];
@@ -772,10 +803,13 @@ mod tests {
         let mut model = FakeModel::with_inputs_and_outputs(&inputs, &outputs);
         let logits_id = model.find_node("logits").unwrap();
 
-        let max_steps = 20;
-        let prompt = [1, 2, 3, 1, 2, 3];
-        for step in 0..max_steps {
-            let logits = generate_logits(n_vocab, &[step % n_vocab]);
+        for (step, output_token_id) in output_token_ids.iter().copied().enumerate() {
+            assert!(
+                output_token_id < n_vocab as u32,
+                "token ID is invalid for vocab size"
+            );
+
+            let logits = generate_logits(n_vocab, &[output_token_id]);
             let mut outputs = HashMap::new();
             outputs.insert(logits_id, Output::FloatTensor(logits.into()));
 
@@ -783,9 +817,9 @@ mod tests {
             for kv_output in kv_cache_output_names.iter() {
                 let kv_output_id = model.find_node(&kv_output).unwrap();
                 let context_len = if step == 0 {
-                    prompt.len()
+                    prompt_len
                 } else {
-                    prompt.len() + step - 1
+                    prompt_len + step - 1
                 };
                 outputs.insert(
                     kv_output_id,
@@ -795,6 +829,16 @@ mod tests {
 
             model.add_outputs(outputs);
         }
+
+        model
+    }
+
+    #[test]
+    fn test_generator() -> Result<(), Box<dyn Error>> {
+        let params = TransformerParams::default();
+        let expected_token_ids = [0, 1, 2, 3, 4, 0, 1, 2, 3, 4, 0, 0, 0];
+        let prompt = [1, 2, 3, 1, 2, 3];
+        let model = fake_transformer_model(params, prompt.len(), &expected_token_ids);
 
         let generator = Generator::from_model(&model)?;
         let generation_len = 10;
@@ -806,9 +850,8 @@ mod tests {
             .collect();
 
         // Check generator outputs
-        let expected = [0, 1, 2, 3, 4, 0, 1, 2, 3, 4];
         assert_eq!(output_token_ids.len(), generation_len);
-        assert_eq!(output_token_ids, &expected[..generation_len]);
+        assert_eq!(output_token_ids, &expected_token_ids[..generation_len]);
 
         // Check model inputs
         let input_id = model.find_node("input_ids").unwrap();
@@ -839,7 +882,7 @@ mod tests {
                 assert!(step_pos_ids.iter().map(|x| *x as usize).eq(0..prompt.len()));
             } else {
                 assert_eq!(step_inputs.size(1), 1);
-                assert_eq!(step_inputs[[0, 0]] as u32, expected[step - 1]);
+                assert_eq!(step_inputs[[0, 0]] as u32, expected_token_ids[step - 1]);
 
                 assert_eq!(step_attn_mask.size(1), 1);
                 assert_eq!(step_attn_mask[[0, 0]], 1);
@@ -848,6 +891,50 @@ mod tests {
                 assert_eq!(step_pos_ids[[0, 0]], (prompt.len() + step - 1) as i32);
             }
         }
+
+        Ok(())
+    }
+
+    #[test]
+    fn test_stop_on_token() -> Result<(), Box<dyn Error>> {
+        let params = TransformerParams::default();
+        let expected_token_ids = [0, 1, 2, 3, 4, 0, 1, 2, 3, 4, 0, 0, 0];
+        let prompt = [1, 2, 3, 1, 2, 3];
+        let model = fake_transformer_model(params, prompt.len(), &expected_token_ids);
+
+        let generator = Generator::from_model(&model)?;
+
+        let output_token_ids: Vec<_> = generator
+            .with_prompt(&prompt)
+            .stop_on_token(4)
+            .map(|id| id.expect("generation failed"))
+            .collect();
+
+        assert_eq!(output_token_ids, &[0, 1, 2, 3]);
+
+        Ok(())
+    }
+
+    #[test]
+    fn test_profile() -> Result<(), Box<dyn Error>> {
+        let params = TransformerParams::default();
+        let expected_token_ids = [0, 1, 2, 3, 4];
+        let prompt = [1, 2, 3, 1, 2, 3];
+        let model = fake_transformer_model(params, prompt.len(), &expected_token_ids);
+
+        let generator = Generator::from_model(&model)?;
+        let mut metrics = Metrics::new();
+
+        let output_token_ids: Vec<_> = generator
+            .with_prompt(&prompt)
+            .profile(&mut metrics)
+            .take(expected_token_ids.len())
+            .map(|id| id.expect("generation failed"))
+            .collect();
+
+        assert_eq!(output_token_ids, expected_token_ids);
+        assert!(metrics.warmup_duration().is_some());
+        assert_eq!(metrics.step_durations().len(), output_token_ids.len() - 1);
 
         Ok(())
     }
