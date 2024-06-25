@@ -607,7 +607,8 @@ mod tests {
     use rten_tensor::prelude::*;
     use rten_tensor::NdTensor;
 
-    use super::Generator;
+    use super::{Generator, GeneratorUtils};
+    use crate::metrics::Metrics;
     use crate::model::{Model, NodeInfo};
 
     struct FakeModel {
@@ -743,6 +744,17 @@ mod tests {
         n_vocab: usize,
     }
 
+    impl Default for TransformerParams {
+        fn default() -> Self {
+            Self {
+                n_layers: 5,
+                n_heads: 3,
+                n_vocab: 5,
+                n_embed: 8,
+            }
+        }
+    }
+
     /// Create a fake transformer model using the default names for inputs and
     /// outputs.
     fn fake_transformer_model(
@@ -823,12 +835,7 @@ mod tests {
 
     #[test]
     fn test_generator() -> Result<(), Box<dyn Error>> {
-        let params = TransformerParams {
-            n_layers: 5,
-            n_heads: 3,
-            n_vocab: 5,
-            n_embed: 8,
-        };
+        let params = TransformerParams::default();
         let expected_token_ids = [0, 1, 2, 3, 4, 0, 1, 2, 3, 4, 0, 0, 0];
         let prompt = [1, 2, 3, 1, 2, 3];
         let model = fake_transformer_model(params, prompt.len(), &expected_token_ids);
@@ -884,6 +891,50 @@ mod tests {
                 assert_eq!(step_pos_ids[[0, 0]], (prompt.len() + step - 1) as i32);
             }
         }
+
+        Ok(())
+    }
+
+    #[test]
+    fn test_stop_on_token() -> Result<(), Box<dyn Error>> {
+        let params = TransformerParams::default();
+        let expected_token_ids = [0, 1, 2, 3, 4, 0, 1, 2, 3, 4, 0, 0, 0];
+        let prompt = [1, 2, 3, 1, 2, 3];
+        let model = fake_transformer_model(params, prompt.len(), &expected_token_ids);
+
+        let generator = Generator::from_model(&model)?;
+
+        let output_token_ids: Vec<_> = generator
+            .with_prompt(&prompt)
+            .stop_on_token(4)
+            .map(|id| id.expect("generation failed"))
+            .collect();
+
+        assert_eq!(output_token_ids, &[0, 1, 2, 3]);
+
+        Ok(())
+    }
+
+    #[test]
+    fn test_profile() -> Result<(), Box<dyn Error>> {
+        let params = TransformerParams::default();
+        let expected_token_ids = [0, 1, 2, 3, 4];
+        let prompt = [1, 2, 3, 1, 2, 3];
+        let model = fake_transformer_model(params, prompt.len(), &expected_token_ids);
+
+        let generator = Generator::from_model(&model)?;
+        let mut metrics = Metrics::new();
+
+        let output_token_ids: Vec<_> = generator
+            .with_prompt(&prompt)
+            .profile(&mut metrics)
+            .take(expected_token_ids.len())
+            .map(|id| id.expect("generation failed"))
+            .collect();
+
+        assert_eq!(output_token_ids, expected_token_ids);
+        assert!(metrics.warmup_duration().is_some());
+        assert_eq!(metrics.step_durations().len(), output_token_ids.len() - 1);
 
         Ok(())
     }
