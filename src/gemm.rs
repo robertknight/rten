@@ -670,10 +670,11 @@ fn gemv(
     // parallel.
     //
     // Each column block is partitioned into row blocks for calls to the kernel.
-    // The kernel internally divides the row blocks into column tiles. The row
-    // block size should be small to maximize cache efficiency.
+    // The kernel internally divides the row blocks into column tiles. The
+    // kernel prefers tall row blocks if B has unit row stride, or short row
+    // blocks if it has unit column stride.
     let b_block_size = b_cols.div_ceil(rayon::current_num_threads()).max(128);
-    let k_block_size = 32;
+    let k_block_size = if b.row_stride() == 1 { 512 } else { 8 };
 
     out_data
         .par_chunks_mut(b_block_size)
@@ -1784,6 +1785,7 @@ mod tests {
             m: usize,
             n: usize,
             k: usize,
+            transpose_b: bool,
         }
 
         let cases = [
@@ -1792,37 +1794,53 @@ mod tests {
                 m: 512,
                 n: 512,
                 k: 512,
+                transpose_b: false,
             },
             // Larger square output matrix
             Case {
                 m: 1024,
                 n: 1024,
                 k: 1024,
+                transpose_b: false,
             },
             // Wide output matrix
             Case {
                 m: 128,
                 n: 2048,
                 k: 512,
+                transpose_b: false,
             },
             // Tall output matrix
             Case {
                 m: 2048,
                 n: 128,
                 k: 512,
+                transpose_b: false,
             },
             // Vector-matrix. This is common in transformer decoders for example.
             Case {
                 m: 1,
                 n: 4096,
                 k: 512,
+                transpose_b: false,
+            },
+            Case {
+                m: 1,
+                n: 4096,
+                k: 512,
+                transpose_b: true,
             },
         ];
 
         println!("Testing kernel {}", GemmExecutor::new().kernel_name());
 
         for case in cases {
-            let Case { m, n, k } = case;
+            let Case {
+                m,
+                n,
+                k,
+                transpose_b,
+            } = case;
 
             // Adjust number of iterations based on a target amount of work,
             // so that each case takes roughly the same amount of time, assuming
@@ -1837,7 +1855,13 @@ mod tests {
             let mut rng = XorShiftRng::new(1234);
             let mut result = Tensor::zeros(&[m, n]);
             let a = Tensor::rand(&[m, k], &mut rng);
-            let b = Tensor::rand(&[k, n], &mut rng);
+            let b = if transpose_b {
+                let mut b = Tensor::rand(&[n, k], &mut rng);
+                b.transpose();
+                b
+            } else {
+                Tensor::rand(&[k, n], &mut rng)
+            };
 
             let mut t = Timer::new();
             t.start();
