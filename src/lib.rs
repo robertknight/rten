@@ -104,7 +104,6 @@ mod optimize;
 mod slice_reductions;
 mod tensor_pool;
 mod threading;
-mod timer;
 mod timing;
 
 #[cfg(feature = "wasm_api")]
@@ -122,7 +121,6 @@ pub use model_metadata::ModelMetadata;
 pub use ops::{FloatOperators, Input, InputOrOutput, Operators, Output};
 pub use tensor_pool::{ExtractBuffer, PoolRef, TensorPool};
 pub use threading::{thread_pool, ThreadPool};
-pub use timer::Timer;
 pub use timing::TimingSort;
 
 #[allow(dead_code, unused_imports)]
