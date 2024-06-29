@@ -1,5 +1,6 @@
 use std::collections::HashMap;
 use std::fmt;
+use std::time::Duration;
 
 use smallvec::SmallVec;
 
@@ -100,19 +101,11 @@ pub struct RunTiming<'a> {
     /// Records of graph step execution times
     pub records: &'a [TimingRecord<'a>],
 
-    /// Total time spent in memory allocations or de-allocations that were
-    /// tracked.
-    pub alloc_time: f32,
-
-    /// Total time for the graph run.
-    pub total_time: f32,
+    /// Total time for the graph run
+    pub total_time: Duration,
 }
 
 impl<'a> RunTiming<'a> {
-    fn total_op_time(&self) -> f32 {
-        self.records.iter().map(|tr| tr.elapsed_micros).sum::<f32>() / 1000.0
-    }
-
     /// Return a struct that formats output with the given options.
     pub fn display(&self, sort: TimingSort, include_shapes: bool) -> impl fmt::Display + '_ {
         FormattedRunTiming {
@@ -136,8 +129,8 @@ struct TimingByShapeRecord {
     /// Formatted representation of input shapes
     shape: String,
 
-    /// Total elapsed time for this operator with a given shape
-    total_ms: f32,
+    /// Total elapsed time for this operator
+    total_duration: Duration,
 
     /// Number of times the operator was run with this shape
     count: usize,
@@ -182,15 +175,14 @@ impl Table for TimingByShapeTable {
 
     fn cell(&self, row: usize, col: usize) -> String {
         let row = self.rows.get(row).expect("invalid row");
+        let total_ms = row.total_duration.as_secs_f64() * 1000.0;
+        let total_ns = total_ms * 1_000_000.0;
         match col {
             0 => row.shape.clone(),
             1 => row.count.to_string(),
-            2 => format!("{:.3}", row.total_ms / row.count as f32),
-            3 => format!("{:.3}", row.total_ms),
-            4 => format!(
-                "{:.3}",
-                (row.total_ms * 1_000_000.0) / (row.input_elements * row.count) as f32
-            ),
+            2 => format!("{:.3}", total_ms / row.count as f64),
+            3 => format!("{:.3}", total_ms),
+            4 => format!("{:.3}", total_ns / (row.input_elements * row.count) as f64),
             5 => row.node_name.clone(),
             _ => panic!("invalid column"),
         }
@@ -255,20 +247,20 @@ impl<'a> FormattedRunTiming<'a> {
                     })
                     .sum::<usize>();
                 let (cum_time, count, _, _) = timings.entry(formatted_shapes).or_insert((
-                    0.,
+                    Duration::ZERO,
                     0,
                     input_elements,
                     record.node_name,
                 ));
-                *cum_time += record.elapsed_micros / 1000.0;
+                *cum_time += record.elapsed;
                 *count += 1;
                 timings
             })
             .into_iter()
             .map(
-                |(shape, (total_ms, count, input_elements, node_name))| TimingByShapeRecord {
+                |(shape, (total, count, input_elements, node_name))| TimingByShapeRecord {
                     shape,
-                    total_ms,
+                    total_duration: total,
                     count,
                     input_elements,
                     node_name: node_name.to_string(),
@@ -276,7 +268,7 @@ impl<'a> FormattedRunTiming<'a> {
             )
             .collect();
 
-        time_by_shape_rows.sort_by(|a, b| a.total_ms.total_cmp(&b.total_ms).reverse());
+        time_by_shape_rows.sort_by(|a, b| a.total_duration.cmp(&b.total_duration).reverse());
 
         TimingByShapeTable {
             rows: time_by_shape_rows,
@@ -291,33 +283,27 @@ impl<'a> fmt::Display for FormattedRunTiming<'a> {
             .records
             .iter()
             .fold(HashMap::new(), |mut timings, record| {
-                let total_op_time = timings.entry(record.name).or_insert(0.);
-                *total_op_time += record.elapsed_micros / 1000.0;
+                let total_op_time = timings.entry(record.name).or_insert(Duration::ZERO);
+                *total_op_time += record.elapsed;
                 timings
             })
             .into_iter()
             .collect();
 
-        // Add `[Other]` for all unaccounted time.
-        let total_op_time = self.timing.total_op_time();
-        op_timings.push((
-            "[Other]",
-            self.timing.total_time - total_op_time - self.timing.alloc_time,
-        ));
-        op_timings.push(("[Mem alloc/free]", self.timing.alloc_time));
-
         op_timings.sort_by(|(a_name, a_time), (b_name, b_time)| match self.sort {
             TimingSort::ByName => a_name.cmp(b_name),
-            TimingSort::ByTime => a_time.total_cmp(b_time).reverse(),
+            TimingSort::ByTime => a_time.cmp(b_time).reverse(),
         });
 
         let rows: Vec<_> = op_timings
-            .iter()
+            .into_iter()
             .map(|(op_name, op_total_time)| {
-                let run_percent = (*op_total_time / self.timing.total_time) * 100.;
+                let op_total_time_ms = op_total_time.as_secs_f64() * 1000.0;
+                let total_time_ms = self.timing.total_time.as_secs_f64() * 1000.0;
+                let run_percent = (op_total_time_ms / total_time_ms) * 100.;
                 [
                     op_name.to_string(),
-                    format!("{:.2}ms", op_total_time),
+                    format!("{:.2}ms", op_total_time_ms),
                     format!("({:.2}%)", run_percent),
                 ]
             })
@@ -362,8 +348,8 @@ pub struct TimingRecord<'a> {
     /// Shapes of the operator's inputs
     pub input_shapes: Vec<InputShape>,
 
-    /// Execution time of this step in microseconds
-    pub elapsed_micros: f32,
+    /// Execution time of this step
+    pub elapsed: Duration,
 }
 
 /// Specifies sort order for graph run timings.

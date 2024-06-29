@@ -1054,6 +1054,7 @@ mod tests {
     use std::error::Error;
     use std::mem::MaybeUninit;
     use std::ops::Range;
+    use std::time::Instant;
 
     use rten_bench::run_bench;
     use rten_tensor::prelude::*;
@@ -1775,8 +1776,6 @@ mod tests {
         Ok(())
     }
 
-    use crate::timer::Timer;
-
     // Run with `cargo test --release bench_gemm -- --nocapture --ignored`
     #[test]
     #[ignore]
@@ -1863,12 +1862,11 @@ mod tests {
                 Tensor::rand(&[k, n], &mut rng)
             };
 
-            let mut t = Timer::new();
-            t.start();
+            let start = Instant::now();
             for _i in 0..iters {
                 run_gemm(&mut result, &a, &b, 1., 0., None, None);
             }
-            t.end();
+            let duration = start.elapsed();
 
             // Calculate throughput. For comparison, the theoretical maximum
             // GFLOPS for a single core (`RAYON_NUM_THREADS=1`) can be computed
@@ -1887,8 +1885,9 @@ mod tests {
             //   `fma_units` is 2. For a 3.4Ghz CPU this would give a max
             //   theoretical peak of 3.4 * 8 * 2 * 2 = 108.8 GFLOPS.
 
-            let flops = (2 * m * n * k * iters as usize) as f32 / t.elapsed_secs();
+            let flops = (2 * m * n * k * iters as usize) as f32 / duration.as_secs_f32();
             let gflops = flops / (10f32).powi(9);
+            let duration_ms = duration.as_secs_f64() * 1000.0;
 
             println!(
                 "m {} n {} k {} iters {}. Duration {}ms ({}ms/iter). GFLOPS {}",
@@ -1896,8 +1895,8 @@ mod tests {
                 n,
                 k,
                 iters,
-                t.elapsed_ms(),
-                t.elapsed_ms() / iters as f32,
+                duration_ms,
+                duration_ms / iters as f64,
                 gflops,
             );
         }

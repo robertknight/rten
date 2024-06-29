@@ -2,6 +2,7 @@ use std::error::Error;
 use std::fmt;
 use std::iter::zip;
 use std::sync::{Arc, Mutex};
+use std::time::{Duration, Instant};
 
 use rten_tensor::prelude::*;
 use rten_tensor::{DynLayout, Tensor, TensorView};
@@ -18,7 +19,6 @@ use crate::env::env_flag;
 use crate::ops::{Input, InputList, InputOrOutput, OpError, Operator, Output, OutputList};
 use crate::tensor_pool::TensorPool;
 use crate::threading;
-use crate::timer::Timer;
 use crate::timing::{InputShape, RunTiming, TimingRecord, TimingSort};
 
 /// Represents the size of a dimension of a runtime-provided value, such as
@@ -533,11 +533,6 @@ impl Graph {
     ) -> Result<Vec<Output>, RunError> {
         let opts = opts.unwrap_or_default();
 
-        let mut run_timer = Timer::new();
-        if opts.timing {
-            run_timer.start();
-        }
-
         let mut temp_values: FxHashMap<NodeId, Output> = FxHashMap::default();
 
         // Extract all the owned tensor inputs into the temp value map.
@@ -604,7 +599,8 @@ impl Graph {
         } else {
             Vec::new()
         };
-        let mut alloc_timer = Timer::new();
+
+        let mut op_start = Instant::now();
 
         for (step, &op_node_id) in plan.iter().enumerate() {
             let Some(Node::Operator(op_node)) = self.nodes.get(op_node_id) else {
@@ -612,10 +608,6 @@ impl Graph {
                     "operator node not found".to_string(),
                 ));
             };
-            let mut op_timer = Timer::new();
-            if record_timing {
-                op_timer.start();
-            }
 
             // Choose the input that we'll try to modify in-place to avoid
             // allocating a new buffer for the output. This will be passed as
@@ -713,20 +705,12 @@ impl Graph {
             };
             std::mem::drop(op_inputs);
 
-            // Record timings. We do this even if the operation failed so logs
-            // will contain details of the failed operation in the event of an
-            // error.
-            if record_timing {
-                op_timer.end();
-                op_timing_records.push(TimingRecord {
-                    name: op_node.operator.name(),
-                    input_shapes: input_shapes.clone(),
-                    elapsed_micros: op_timer.elapsed_micros(),
-                    node_name: op_node.name.as_deref().unwrap_or(""),
-                });
-            }
+            // Print verbose logs if enabled. This is done before checking the
+            // op's result, so logs will contain details of the failed operation
+            // in the event of an error.
             if opts.verbose {
-                self.print_op_timing(step, op_node, &op_result, &op_timer, &input_shapes);
+                let op_duration = op_start.elapsed();
+                self.print_op_timing(step, op_node, &op_result, op_duration, &input_shapes);
             }
 
             // Extract outputs or fail if an error occurred.
@@ -750,7 +734,6 @@ impl Graph {
             );
 
             // Remove temporary values that are no longer needed
-            record_timing.then(|| alloc_timer.start());
             for node_id in op_node.inputs.iter().filter_map(|node| *node) {
                 let rc = temp_value_refcount.dec(node_id);
                 if rc == Some(0) {
@@ -759,19 +742,23 @@ impl Graph {
                     }
                 }
             }
-            record_timing.then(|| alloc_timer.end());
+
+            if record_timing {
+                let op_end = Instant::now();
+                let op_duration = op_end - op_start;
+                op_start = op_end;
+
+                op_timing_records.push(TimingRecord {
+                    name: op_node.operator.name(),
+                    input_shapes,
+                    elapsed: op_duration,
+                    node_name: op_node.name.as_deref().unwrap_or(""),
+                });
+            }
         }
 
         if opts.timing {
-            run_timer.end();
-            self.print_run_timing(
-                plan,
-                &pool,
-                run_timer,
-                alloc_timer,
-                &op_timing_records,
-                &opts,
-            );
+            self.print_run_timing(plan, &pool, &op_timing_records, &opts);
         }
 
         // Return the requested outputs
@@ -796,7 +783,7 @@ impl Graph {
         step: usize,
         op_node: &OperatorNode,
         op_result: &Result<OutputList, OpError>,
-        op_timer: &Timer,
+        op_duration: Duration,
         input_shapes: &[InputShape],
     ) {
         println!(
@@ -819,7 +806,7 @@ impl Graph {
             }
         }
 
-        println!("  time: {}ms", op_timer.elapsed_ms());
+        println!("  time: {}ms", op_duration.as_secs_f64() * 1000.0);
     }
 
     /// Print a profiling summary at the end of the run.
@@ -827,15 +814,15 @@ impl Graph {
         &self,
         plan: &[NodeId],
         pool: &TensorPool,
-        run_timer: Timer,
-        alloc_timer: Timer,
         op_timing_records: &[TimingRecord],
         opts: &RunOptions,
     ) {
+        let run_duration: Duration = op_timing_records.iter().map(|r| r.elapsed).sum();
+        let run_duration_ms = run_duration.as_secs_f64() * 1000.0;
         println!(
-            "Graph run of {} ops finished in {}ms",
+            "Graph run of {} ops finished in {:.3}ms",
             plan.len(),
-            run_timer.elapsed_ms()
+            run_duration_ms,
         );
         println!(
             "Pool allocs {} hits {}",
@@ -844,8 +831,7 @@ impl Graph {
         );
         let timing = RunTiming {
             records: op_timing_records,
-            alloc_time: alloc_timer.elapsed_ms(),
-            total_time: run_timer.elapsed_ms(),
+            total_time: run_duration,
         };
         print!(
             "{}",
