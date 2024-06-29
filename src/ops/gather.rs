@@ -10,6 +10,8 @@ use crate::ops::{
 };
 use crate::tensor_pool::{AutoReturn, TensorPool};
 
+const INVALID_INDEX_ERR: OpError = OpError::InvalidValue("Entry in `indices` is out of range");
+
 /// Gather elements from `input` specified by `indices`.
 ///
 /// See <https://onnx.ai/onnx/operators/onnx__Gather.html>. Per the ONNX spec this
@@ -24,13 +26,6 @@ pub fn gather<T: Copy + Default>(
 ) -> Result<Tensor<T>, OpError> {
     let axis = resolve_axis(input.ndim(), axis)?;
 
-    for index in indices.iter().copied() {
-        let size = input.size(axis) as i32;
-        if index < -size || index >= size {
-            return Err(OpError::InvalidValue("Entry in `indices` is out of range"));
-        }
-    }
-
     let full_range = |ndim: usize| -> SmallVec<[SliceItem; 4]> {
         (0..ndim).map(|_| SliceItem::full_range()).collect()
     };
@@ -38,9 +33,19 @@ pub fn gather<T: Copy + Default>(
     // Fast path for scalar `indices`. This amounts to indexing `input` along
     // `axis`.
     if let (0, Some(index)) = (indices.ndim(), indices.item()) {
-        let mut slice_range = full_range(input.ndim());
-        slice_range[axis] = SliceItem::Index(*index as isize);
-        let output = input.slice_dyn(slice_range.as_slice()).to_tensor_in(pool);
+        let output = if input.ndim() == 1 {
+            // Fast path for indexing a vector with a scalar. This is common
+            // in subgraphs that process tensor shapes.
+            let index = resolve_index(input.len(), *index as isize).ok_or(INVALID_INDEX_ERR)?;
+            Tensor::full_in(pool, &[], input[[index]])
+        } else {
+            let mut slice_range = full_range(input.ndim());
+            slice_range[axis] = SliceItem::Index(*index as isize);
+            let slice = input
+                .try_slice_dyn(slice_range.as_slice())
+                .map_err(|_| INVALID_INDEX_ERR)?;
+            slice.to_tensor_in(pool)
+        };
         return Ok(output);
     }
 
@@ -60,8 +65,9 @@ pub fn gather<T: Copy + Default>(
         for (i, index_val) in index_idx.into_iter().enumerate() {
             out_range[axis + i] = SliceItem::Index(index_val as isize);
         }
-
-        let in_slice = input.slice_dyn(in_range.as_slice());
+        let in_slice = input
+            .try_slice_dyn(in_range.as_slice())
+            .map_err(|_| INVALID_INDEX_ERR)?;
         let mut out_slice = output.slice_mut_dyn(out_range.as_slice());
         out_slice.copy_from(&in_slice);
     }
@@ -615,7 +621,7 @@ mod tests {
     }
 
     #[test]
-    fn test_gather_invalid_inputs() {
+    fn test_gather_invalid_axis() {
         let pool = new_pool();
 
         let mut rng = XorShiftRng::new(1234);
@@ -623,13 +629,40 @@ mod tests {
         let indices = Tensor::from_data(&[2, 2], vec![2, 5, 8, 50]);
         let result = gather(&pool, input.view(), 5, indices.view());
         assert_eq!(result.err(), Some(OpError::InvalidValue("Axis is invalid")));
+    }
 
-        let indices = Tensor::from_data(&[2, 2], vec![2, 5, 8, 130]);
-        let result = gather(&pool, input.view(), 0, indices.view());
-        assert_eq!(
-            result.err(),
-            Some(OpError::InvalidValue("Entry in `indices` is out of range"))
-        );
+    #[test]
+    fn test_gather_invalid_indices() {
+        struct Case {
+            input: Tensor<i32>,
+            indices: Tensor<i32>,
+        }
+
+        let cases = [
+            // Non-scalar indices
+            Case {
+                input: Tensor::zeros(&[128, 10]),
+                indices: Tensor::from_data(&[2, 2], vec![2, 5, 8, 130]),
+            },
+            // Scalar indices, with 1D and ND inputs
+            Case {
+                input: Tensor::from([1, 2, 3]),
+                indices: Tensor::from_scalar(4),
+            },
+            Case {
+                input: Tensor::from([[1, 2, 3]]),
+                indices: Tensor::from_scalar(2),
+            },
+        ];
+
+        for Case { input, indices } in cases {
+            let pool = new_pool();
+            let result = gather(&pool, input.view(), 0, indices.view());
+            assert_eq!(
+                result.err(),
+                Some(OpError::InvalidValue("Entry in `indices` is out of range"))
+            );
+        }
     }
 
     #[test]
