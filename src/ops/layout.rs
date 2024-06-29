@@ -523,22 +523,25 @@ pub fn unsqueeze_in_place<T: Clone>(
     mut input: Tensor<T>,
     axes: &NdTensorView<i32, 1>,
 ) -> Result<Tensor<T>, OpError> {
-    let mut new_shape: SmallVec<[usize; 5]> = input.shape().iter().copied().collect();
-    let mut sorted_axes = resolve_axes(input.ndim() + axes.len(), axes.iter())?;
-    sorted_axes.sort();
+    let sorted_axes = if axes.len() == 1 {
+        let axis = resolve_axis(input.ndim() + 1, axes[[0]] as isize)?;
+        SmallVec::from_slice(&[axis])
+    } else {
+        let mut sorted_axes = resolve_axes(input.ndim() + axes.len(), axes.iter())?;
+        sorted_axes.sort_unstable();
 
-    let axes_unique =
-        zip(sorted_axes.iter().skip(1), sorted_axes.iter()).all(|(prev, current)| prev != current);
-    if !axes_unique {
-        return Err(OpError::InvalidValue("Axes must be unique"));
-    }
-
-    for axis in sorted_axes {
-        new_shape.insert(axis, 1);
-    }
+        let axes_unique = zip(sorted_axes.iter().skip(1), sorted_axes.iter())
+            .all(|(prev, current)| prev != current);
+        if !axes_unique {
+            return Err(OpError::InvalidValue("Axes must be unique"));
+        }
+        sorted_axes
+    };
 
     input.make_contiguous();
-    input.reshape(&new_shape);
+    for axis in sorted_axes {
+        input.insert_axis(axis);
+    }
 
     Ok(input)
 }
