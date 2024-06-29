@@ -802,7 +802,7 @@ impl<T, L: Clone + MutLayout> TensorBase<Vec<T>, L> {
     pub fn append<S2: Storage<Elem = T>>(
         &mut self,
         axis: usize,
-        other: TensorBase<S2, L>,
+        other: &TensorBase<S2, L>,
     ) -> Result<(), ExpandError>
     where
         T: Copy,
@@ -831,7 +831,7 @@ impl<T, L: Clone + MutLayout> TensorBase<Vec<T>, L> {
         }
 
         self.slice_axis_mut(axis, old_size..new_size)
-            .copy_from(&other);
+            .copy_from(other);
 
         Ok(())
     }
@@ -2234,22 +2234,22 @@ mod tests {
         assert_eq!(tensor.shape(), [3, 0]);
 
         assert_eq!(
-            tensor.append(1, NdTensor::from([[1, 2, 3]])),
+            tensor.append(1, &NdTensor::from([[1, 2, 3]])),
             Err(ExpandError::ShapeMismatch)
         );
 
         tensor
-            .append(1, NdTensor::from([[1, 2], [3, 4], [5, 6]]))
+            .append(1, &NdTensor::from([[1, 2], [3, 4], [5, 6]]))
             .unwrap();
         assert_eq!(tensor.shape(), [3, 2]);
 
-        tensor.append(1, NdTensor::from([[7], [8], [9]])).unwrap();
+        tensor.append(1, &NdTensor::from([[7], [8], [9]])).unwrap();
         assert_eq!(tensor.shape(), [3, 3]);
 
         assert_eq!(tensor, NdTensor::from([[1, 2, 7], [3, 4, 8], [5, 6, 9],]));
 
         assert_eq!(
-            tensor.append(1, NdTensor::from([[10], [11], [12]])),
+            tensor.append(1, &NdTensor::from([[10], [11], [12]])),
             Err(ExpandError::InsufficientCapacity)
         );
     }
