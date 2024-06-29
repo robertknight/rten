@@ -26,9 +26,18 @@ use std::ops::Range;
 /// for the `Elem` type. For the case where the storage is contiguous, these
 /// requirements are the same as
 /// [`slice::from_raw_parts`](std::slice::from_raw_parts).
+///
+/// The [`MUTABLE`](Storage::MUTABLE) associated const must be true if the
+/// storage also implements [`StorageMut`].
 pub unsafe trait Storage {
     /// The element type.
     type Elem;
+
+    /// True if this storage allows mutable access via [`StorageMut`]. This is
+    /// used to determine if a layout can be safely used with a storage.
+    /// Layouts where multiple indices map to the same offset must not be used
+    /// with mutable storage.
+    const MUTABLE: bool;
 
     /// Return the number of elements in the storage.
     fn len(&self) -> usize;
@@ -224,6 +233,8 @@ pub unsafe trait StorageMut: Storage {
 unsafe impl<T> Storage for Vec<T> {
     type Elem = T;
 
+    const MUTABLE: bool = true;
+
     fn len(&self) -> usize {
         self.len()
     }
@@ -319,6 +330,8 @@ impl<'a, T> ViewData<'a, T> {
 unsafe impl<'a, T> Storage for ViewData<'a, T> {
     type Elem = T;
 
+    const MUTABLE: bool = false;
+
     fn len(&self) -> usize {
         self.len
     }
@@ -382,6 +395,8 @@ impl<'a, T> ViewMutData<'a, T> {
 unsafe impl<'a, T> Storage for ViewMutData<'a, T> {
     type Elem = T;
 
+    const MUTABLE: bool = true;
+
     fn len(&self) -> usize {
         self.len
     }
@@ -410,6 +425,8 @@ pub enum CowData<'a, T> {
 
 unsafe impl<'a, T> Storage for CowData<'a, T> {
     type Elem = T;
+
+    const MUTABLE: bool = false;
 
     fn len(&self) -> usize {
         match self {

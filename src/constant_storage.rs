@@ -95,6 +95,8 @@ impl<T> ArcSlice<T> {
 unsafe impl<T> Storage for ArcSlice<T> {
     type Elem = T;
 
+    const MUTABLE: bool = false;
+
     fn len(&self) -> usize {
         self.len
     }
