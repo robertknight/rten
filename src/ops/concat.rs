@@ -17,6 +17,8 @@ fn concatenated_shape<T: Copy>(
     inputs: &[TensorView<T>],
     axis: usize,
 ) -> Result<SmallVec<[usize; 4]>, OpError> {
+    let mut out_shape = SmallVec::from_slice(first_shape);
+
     for other in inputs {
         let other_shape = other.shape();
         if other_shape.len() != first_shape.len() {
@@ -24,18 +26,16 @@ fn concatenated_shape<T: Copy>(
                 "Tensors must have the same number of dimensions",
             ));
         }
-        for d in 0..first_shape.len() {
-            if d != axis && first_shape[d] != other_shape[d] {
+        for (d, (first_size, other_size)) in first_shape.iter().zip(other_shape.iter()).enumerate()
+        {
+            if d != axis && first_size != other_size {
                 return Err(OpError::IncompatibleInputShapes(
                     "Dimensions must be the same except for concat axis",
                 ));
+            } else if d == axis {
+                out_shape[axis] += other_size;
             }
         }
-    }
-
-    let mut out_shape: SmallVec<_> = first_shape.into();
-    for other in inputs {
-        out_shape[axis] += other.size(axis);
     }
 
     Ok(out_shape)
@@ -61,9 +61,7 @@ fn concat_impl<T: Copy>(
 ) -> Result<Tensor<T>, OpError> {
     let mut output = Tensor::with_capacity_in(pool, out_shape, axis);
     for input in std::iter::once(first_input).chain(inputs) {
-        output
-            .append(axis, input.view())
-            .expect("should have capacity");
+        output.append(axis, input).expect("should have capacity");
     }
     Ok(output)
 }
@@ -91,9 +89,7 @@ pub fn concat_in_place<T: Copy>(
     }
 
     for input in inputs {
-        output
-            .append(axis, input.view())
-            .expect("should have capacity");
+        output.append(axis, input).expect("should have capacity");
     }
 
     Ok(output)
