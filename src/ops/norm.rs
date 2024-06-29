@@ -328,6 +328,9 @@ pub fn log_softmax(pool: &TensorPool, input: TensorView, axis: isize) -> Result<
     Ok(output)
 }
 
+/// Grain size for parallelizing softmax.
+const SOFTMAX_GRAIN_SIZE: usize = 1024;
+
 /// Apply an operation `op` to all 1D lanes of the tensor along a given axis.
 fn softmax_lanes<F: Fn(&mut [f32]) + Send + Sync>(
     output: &mut Tensor,
@@ -354,11 +357,21 @@ fn softmax_lanes<F: Fn(&mut [f32]) + Send + Sync>(
         output.size(output.ndim() - 1)
     };
 
-    output
-        .data_mut()
-        .unwrap()
-        .par_chunks_mut(lane_size)
-        .for_each(apply_op);
+    let grain_size = SOFTMAX_GRAIN_SIZE.max(lane_size);
+    let n_grains = output.len().div_ceil(grain_size);
+
+    let out_data = output.data_mut().unwrap();
+    if n_grains == 1 {
+        // Avoid parallelism overhead for small outputs
+        out_data.chunks_mut(lane_size).for_each(apply_op);
+    } else {
+        let n_lanes_per_grain = grain_size.div_ceil(lane_size);
+        out_data
+            .par_chunks_mut(n_lanes_per_grain * lane_size)
+            .for_each(move |grain| {
+                grain.chunks_mut(lane_size).for_each(&apply_op);
+            });
+    }
 
     if resolved_axis != output.ndim() - 1 {
         output.move_axis(output.ndim() - 1, resolved_axis);
@@ -477,6 +490,7 @@ mod tests {
     use rten_tensor::test_util::expect_equal;
     use rten_tensor::{tensor, Tensor};
 
+    use super::SOFTMAX_GRAIN_SIZE;
     use crate::ops::tests::{expect_eq_1e4, new_pool};
     use crate::ops::OpError;
     use crate::ops::{
@@ -755,12 +769,21 @@ mod tests {
     fn test_softmax_sizes() {
         let pool = new_pool();
 
+        let check_result = |result: Tensor<f32>| {
+            for lane in result.lanes(1) {
+                assert!((lane.sum::<f32>() - 1.0).abs() < 0.001);
+            }
+        };
+
         let mut rng = XorShiftRng::new(1234);
         let input = Tensor::rand(&[1, 1, 3, 3], &mut rng);
         let result = softmax(&pool, input.view(), 1).unwrap();
+        check_result(result);
 
-        for lane in result.lanes(1) {
-            assert!((lane.sum::<f32>() - 1.0).abs() < 0.001);
-        }
+        // "Large" output, where output size exceeds the parallelism grain size.
+        let mut rng = XorShiftRng::new(1234);
+        let input = Tensor::rand(&[4, SOFTMAX_GRAIN_SIZE / 2], &mut rng);
+        let result = softmax(&pool, input.view(), 1).unwrap();
+        check_result(result);
     }
 }
