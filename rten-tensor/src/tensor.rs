@@ -152,7 +152,7 @@ pub trait AsView: Layout {
     }
 
     /// Return an iterator over the innermost N dimensions.
-    fn inner_iter<const N: usize>(&self) -> InnerIter<Self::Elem, Self::Layout, N> {
+    fn inner_iter<const N: usize>(&self) -> InnerIter<Self::Elem, N> {
         self.view().inner_iter()
     }
 
@@ -446,6 +446,19 @@ impl<S: Storage, L: MutLayout> TensorBase<S, L> {
         Ok(TensorBase { data, layout })
     }
 
+    /// Create a tensor from a pre-created storage and layout.
+    ///
+    /// Panics if the storage length is too short for the layout, or the storage
+    /// is mutable and the layout may map multiple indices to the same offset.
+    pub(crate) fn from_storage_and_layout(data: S, layout: L) -> TensorBase<S, L> {
+        assert!(data.len() >= layout.min_data_len());
+        assert!(
+            !S::MUTABLE
+                || !may_have_internal_overlap(layout.shape().as_ref(), layout.strides().as_ref())
+        );
+        TensorBase { data, layout }
+    }
+
     /// Construct a new tensor from a given shape and storage, and custom
     /// strides.
     ///
@@ -476,6 +489,13 @@ impl<S: Storage, L: MutLayout> TensorBase<S, L> {
             data: self.data,
             layout: self.layout.into(),
         }
+    }
+
+    /// Consume this tensor and return the underlying storage.
+    ///
+    /// Be aware that the underlying elements are not guaranteed to be contiguous.
+    pub(crate) fn into_storage(self) -> S {
+        self.data
     }
 
     /// Attempt to convert this tensor's layout to a static-rank layout with `N`
@@ -599,7 +619,7 @@ impl<S: StorageMut, L: MutLayout> TensorBase<S, L> {
     }
 
     /// Return a mutable view of the tensor's underlying storage.
-    pub fn storage_mut(&mut self) -> impl StorageMut<Elem = S::Elem> + '_ {
+    pub fn storage_mut(&mut self) -> ViewMutData<'_, S::Elem> {
         self.data.view_mut()
     }
 
@@ -636,7 +656,7 @@ impl<S: StorageMut, L: MutLayout> TensorBase<S, L> {
     }
 
     /// Return a mutable iterator over the N innermost dimensions of this tensor.
-    pub fn inner_iter_mut<const N: usize>(&mut self) -> InnerIterMut<S::Elem, L, N> {
+    pub fn inner_iter_mut<const N: usize>(&mut self) -> InnerIterMut<S::Elem, N> {
         InnerIterMut::new(self.view_mut())
     }
 
@@ -1263,7 +1283,7 @@ impl<'a, T, L: Clone + MutLayout> TensorBase<ViewData<'a, T>, L> {
     }
 
     /// Return an immutable view of the tensor's underlying storage.
-    pub fn storage(&self) -> impl Storage<Elem = T> + 'a {
+    pub fn storage(&self) -> ViewData<'a, T> {
         self.data.view()
     }
 
@@ -1329,7 +1349,7 @@ impl<'a, T, L: Clone + MutLayout> TensorBase<ViewData<'a, T>, L> {
     /// Return an iterator over the inner `N` dimensions of this tensor.
     ///
     /// See [AsView::inner_iter].
-    pub fn inner_iter<const N: usize>(&self) -> InnerIter<'a, T, L, N> {
+    pub fn inner_iter<const N: usize>(&self) -> InnerIter<'a, T, N> {
         InnerIter::new(self.view())
     }
 

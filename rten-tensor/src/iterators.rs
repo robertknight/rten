@@ -3,8 +3,10 @@ use std::mem::transmute;
 use std::ops::Range;
 use std::slice;
 
+use smallvec::SmallVec;
+
 use crate::index_iterator::DynIndices;
-use crate::layout::{Layout, RemoveDim};
+use crate::layout::{Layout, NdLayout, OverlapPolicy, RemoveDim};
 use crate::slice_range::{to_slice_items, SliceItem};
 use crate::storage::{StorageMut, ViewData, ViewMutData};
 
@@ -642,32 +644,54 @@ impl<'a, T> Iterator for LanesMut<'a, T> {
     }
 }
 
-/// Iterator over views of the N innermost dimensions of a tensor with element
-/// type `T` and layout `L`.
-pub struct InnerIter<'a, T, L: MutLayout, const N: usize> {
+/// Base for iterators over views of the inner N dimensions of a tensor.
+struct InnerIterBase<const N: usize> {
     outer_indices: DynIndices,
-    view: TensorBase<ViewData<'a, T>, L>,
+    outer_strides: SmallVec<[usize; 4]>,
+    inner_layout: NdLayout<N>,
 }
 
-impl<'a, T, L: MutLayout, const N: usize> InnerIter<'a, T, L, N> {
-    pub fn new(view: TensorBase<ViewData<'a, T>, L>) -> Self {
-        assert!(view.ndim() >= N);
-        let outer_dims = view.ndim() - N;
-        let outer_indices = DynIndices::from_shape(&view.shape().as_ref()[..outer_dims]);
-        InnerIter {
+impl<const N: usize> InnerIterBase<N> {
+    pub fn new<L: Layout>(parent_layout: &L) -> Self {
+        assert!(parent_layout.ndim() >= N);
+        let outer_dims = parent_layout.ndim() - N;
+        let parent_shape = parent_layout.shape();
+        let parent_strides = parent_layout.strides();
+        let (outer_shape, inner_shape) = parent_shape.as_ref().split_at(outer_dims);
+        let (outer_strides, inner_strides) = parent_strides.as_ref().split_at(outer_dims);
+
+        let inner_shape: [usize; N] = inner_shape.try_into().unwrap();
+        let inner_strides: [usize; N] = inner_strides.try_into().unwrap();
+        let inner_layout = NdLayout::from_shape_and_strides(
+            inner_shape,
+            inner_strides,
+            // We allow overlap here, but the view that owns `parent_layout`
+            // will enforce there is no overlap if it is a mutable view.
+            OverlapPolicy::AllowOverlap,
+        )
+        .expect("failed to create layout");
+
+        let outer_indices = DynIndices::from_shape(outer_shape);
+        InnerIterBase {
             outer_indices,
-            view,
+            outer_strides: SmallVec::from_slice(outer_strides),
+            inner_layout,
         }
     }
 }
 
-impl<'a, T, L: MutLayout, const N: usize> Iterator for InnerIter<'a, T, L, N> {
-    type Item = NdTensorView<'a, T, N>;
+impl<const N: usize> Iterator for InnerIterBase<N> {
+    /// Storage offset range for next view
+    type Item = Range<usize>;
 
-    fn next(&mut self) -> Option<Self::Item> {
+    fn next(&mut self) -> Option<Range<usize>> {
         self.outer_indices.next().map(|idx| {
-            let slice_items = to_slice_items(&idx);
-            self.view.slice(slice_items.as_slice())
+            let offset: usize = idx
+                .iter()
+                .zip(self.outer_strides.as_ref())
+                .map(|(idx, stride)| idx * stride)
+                .sum();
+            offset..(offset + self.inner_layout.min_data_len())
         })
     }
 
@@ -676,7 +700,41 @@ impl<'a, T, L: MutLayout, const N: usize> Iterator for InnerIter<'a, T, L, N> {
     }
 }
 
-impl<'a, T, L: MutLayout, const N: usize> ExactSizeIterator for InnerIter<'a, T, L, N> {}
+/// Iterator over views of the N innermost dimensions of a tensor with element
+/// type `T` and layout `L`.
+pub struct InnerIter<'a, T, const N: usize> {
+    base: InnerIterBase<N>,
+    data: ViewData<'a, T>,
+}
+
+impl<'a, T, const N: usize> InnerIter<'a, T, N> {
+    pub fn new<L: MutLayout>(view: TensorBase<ViewData<'a, T>, L>) -> Self {
+        let base = InnerIterBase::new(&view);
+        InnerIter {
+            base,
+            data: view.storage(),
+        }
+    }
+}
+
+impl<'a, T, const N: usize> Iterator for InnerIter<'a, T, N> {
+    type Item = NdTensorView<'a, T, N>;
+
+    fn next(&mut self) -> Option<Self::Item> {
+        self.base.next().map(|offset_range| {
+            NdTensorView::from_storage_and_layout(
+                self.data.slice(offset_range),
+                self.base.inner_layout,
+            )
+        })
+    }
+
+    fn size_hint(&self) -> (usize, Option<usize>) {
+        self.base.size_hint()
+    }
+}
+
+impl<'a, T, const N: usize> ExactSizeIterator for InnerIter<'a, T, N> {}
 
 /// Iterator over views of the N innermost dimensions of a tensor with element
 /// type `T` and layout `L`, where `N` is determined at runtime.
@@ -715,30 +773,30 @@ impl<'a, T, L: MutLayout> Iterator for InnerIterDyn<'a, T, L> {
 impl<'a, T, L: MutLayout> ExactSizeIterator for InnerIterDyn<'a, T, L> {}
 
 /// Iterator over mutable views of the N innermost dimensions of a tensor.
-pub struct InnerIterMut<'a, T, L: MutLayout, const N: usize> {
-    outer_indices: DynIndices,
-    view: TensorBase<ViewMutData<'a, T>, L>,
+pub struct InnerIterMut<'a, T, const N: usize> {
+    base: InnerIterBase<N>,
+    data: ViewMutData<'a, T>,
 }
 
-impl<'a, T, L: MutLayout, const N: usize> InnerIterMut<'a, T, L, N> {
-    pub fn new(view: TensorBase<ViewMutData<'a, T>, L>) -> Self {
-        assert!(view.ndim() >= N);
-        let outer_dims = view.ndim() - N;
-        let outer_indices = DynIndices::from_shape(&view.shape().as_ref()[..outer_dims]);
+impl<'a, T, const N: usize> InnerIterMut<'a, T, N> {
+    pub fn new<L: MutLayout>(view: TensorBase<ViewMutData<'a, T>, L>) -> InnerIterMut<'a, T, N> {
+        let base = InnerIterBase::new(&view);
         InnerIterMut {
-            outer_indices,
-            view,
+            base,
+            data: view.into_storage(),
         }
     }
 }
 
-impl<'a, T, L: MutLayout, const N: usize> Iterator for InnerIterMut<'a, T, L, N> {
+impl<'a, T, const N: usize> Iterator for InnerIterMut<'a, T, N> {
     type Item = NdTensorViewMut<'a, T, N>;
 
     fn next(&mut self) -> Option<Self::Item> {
-        self.outer_indices.next().map(|idx| {
-            let slice_items = to_slice_items(&idx);
-            let view: NdTensorViewMut<'_, T, N> = self.view.slice_mut(slice_items.as_slice());
+        self.base.next().map(|offset_range| {
+            let view: NdTensorViewMut<'_, T, N> = NdTensorViewMut::from_storage_and_layout(
+                self.data.slice_mut(offset_range),
+                self.base.inner_layout,
+            );
             unsafe {
                 // Safety: Outer view is non-broadcasting, and we increment the
                 // outer index each time, so returned views will not overlap.
@@ -748,11 +806,11 @@ impl<'a, T, L: MutLayout, const N: usize> Iterator for InnerIterMut<'a, T, L, N>
     }
 
     fn size_hint(&self) -> (usize, Option<usize>) {
-        self.outer_indices.size_hint()
+        self.base.size_hint()
     }
 }
 
-impl<'a, T, L: MutLayout, const N: usize> ExactSizeIterator for InnerIterMut<'a, T, L, N> {}
+impl<'a, T, const N: usize> ExactSizeIterator for InnerIterMut<'a, T, N> {}
 
 /// Iterator over mutable views of the N innermost dimensions of a tensor,
 /// where N is determined at runtime.
