@@ -328,6 +328,11 @@ def ConstantDataCreator(unionType, table):
     return None
 
 
+class ConstantDataType(object):
+    Int32 = 0
+    Float32 = 1
+
+
 class ArgMaxAttrs(object):
     __slots__ = ['_tab']
 
@@ -4892,8 +4897,22 @@ class ConstantNode(object):
             return obj
         return None
 
+    # ConstantNode
+    def Dtype(self):
+        o = flatbuffers.number_types.UOffsetTFlags.py_type(self._tab.Offset(10))
+        if o != 0:
+            return self._tab.Get(flatbuffers.number_types.Uint16Flags, o + self._tab.Pos)
+        return None
+
+    # ConstantNode
+    def DataOffset(self):
+        o = flatbuffers.number_types.UOffsetTFlags.py_type(self._tab.Offset(12))
+        if o != 0:
+            return self._tab.Get(flatbuffers.number_types.Uint64Flags, o + self._tab.Pos)
+        return None
+
 def ConstantNodeStart(builder):
-    builder.StartObject(3)
+    builder.StartObject(5)
 
 def ConstantNodeAddShape(builder, shape):
     builder.PrependUOffsetTRelativeSlot(0, flatbuffers.number_types.UOffsetTFlags.py_type(shape), 0)
@@ -4906,6 +4925,12 @@ def ConstantNodeAddDataType(builder, dataType):
 
 def ConstantNodeAddData(builder, data):
     builder.PrependUOffsetTRelativeSlot(2, flatbuffers.number_types.UOffsetTFlags.py_type(data), 0)
+
+def ConstantNodeAddDtype(builder, dtype):
+    builder.PrependUint16Slot(3, dtype, None)
+
+def ConstantNodeAddDataOffset(builder, dataOffset):
+    builder.PrependUint64Slot(4, dataOffset, None)
 
 def ConstantNodeEnd(builder):
     return builder.EndObject()
@@ -4923,6 +4948,8 @@ class ConstantNodeT(object):
         self.shape = None  # type: List[int]
         self.dataType = 0  # type: int
         self.data = None  # type: Union[None, FloatDataT, IntDataT]
+        self.dtype = None  # type: Optional[int]
+        self.dataOffset = None  # type: Optional[int]
 
     @classmethod
     def InitFromBuf(cls, buf, pos):
@@ -4954,6 +4981,8 @@ class ConstantNodeT(object):
                 self.shape = constantNode.ShapeAsNumpy()
         self.dataType = constantNode.DataType()
         self.data = ConstantDataCreator(self.dataType, constantNode.Data())
+        self.dtype = constantNode.Dtype()
+        self.dataOffset = constantNode.DataOffset()
 
     # ConstantNodeT
     def Pack(self, builder):
@@ -4973,6 +5002,8 @@ class ConstantNodeT(object):
         ConstantNodeAddDataType(builder, self.dataType)
         if self.data is not None:
             ConstantNodeAddData(builder, data)
+        ConstantNodeAddDtype(builder, self.dtype)
+        ConstantNodeAddDataOffset(builder, self.dataOffset)
         constantNode = ConstantNodeEnd(builder)
         return constantNode
 
