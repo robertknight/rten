@@ -60,6 +60,37 @@ impl Identities for i32 {
     }
 }
 
+/// Convert between a primitive type and an array of bytes in little-endian
+/// order.
+pub trait LeBytes {
+    /// The `[u8; N]` array type holding the serialized bytes for this value.
+    type Bytes: AsRef<[u8]> + for<'a> TryFrom<&'a [u8], Error = std::array::TryFromSliceError>;
+
+    fn from_le_bytes(bytes: Self::Bytes) -> Self;
+    fn to_le_bytes(self) -> Self::Bytes;
+}
+
+macro_rules! impl_le_bytes {
+    ($type:ty, $size:literal) => {
+        impl LeBytes for $type {
+            type Bytes = [u8; $size];
+
+            fn from_le_bytes(bytes: Self::Bytes) -> Self {
+                <$type>::from_le_bytes(bytes)
+            }
+
+            fn to_le_bytes(self) -> Self::Bytes {
+                <$type>::to_le_bytes(self)
+            }
+        }
+    };
+}
+
+impl_le_bytes!(i32, 4);
+impl_le_bytes!(f32, 4);
+impl_le_bytes!(u32, 4);
+impl_le_bytes!(u64, 8);
+
 pub trait MinMax {
     /// Return the maximum value for this type.
     #[allow(unused)] // Not used yet, but included for completeness
@@ -151,6 +182,17 @@ macro_rules! impl_fastdiv {
 // Add more types as needed. The `FastDiv::divide_by` impl currently assumes an
 // unsigned type.
 impl_fastdiv!(usize);
+
+/// Marker trait for "plain old data".
+///
+/// POD types which are simple value types that impl `Copy`, have no padding,
+/// and for which any bit pattern is valid.
+///
+/// This means an arbitrary byte sequence can be converted to this type, as
+/// long as the byte sequence length is a multiple of the type's size.
+pub trait Pod: Copy {}
+impl Pod for i32 {}
+impl Pod for f32 {}
 
 #[cfg(test)]
 mod tests {

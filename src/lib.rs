@@ -96,6 +96,7 @@ mod downcast;
 mod env;
 mod gemm;
 mod graph;
+mod header;
 mod iter_util;
 mod model;
 mod model_metadata;

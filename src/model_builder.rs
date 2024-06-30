@@ -1,8 +1,10 @@
 use flatbuffers::{FlatBufferBuilder, UnionWIPOffset, Vector, WIPOffset};
 use rten_tensor::prelude::*;
-use rten_tensor::Tensor;
+use rten_tensor::{Tensor, TensorView};
 
 use crate::graph::Dimension;
+use crate::header::Header;
+use crate::number::LeBytes;
 use crate::ops::{
     ArgMax, ArgMin, AveragePool, BatchNormalization, BoxOrder, Cast, Concat, ConstantOfShape, Conv,
     ConvTranspose, CoordTransformMode, DataType, Elu, Flatten, Gather, GatherElements, GatherND,
@@ -124,8 +126,58 @@ pub enum OpType {
     Xor,
 }
 
-/// Builds a serialized FlatBuffers representation of a model using the schema
-/// defined in schema.fbs.
+/// Specifies which version of the model format to generate.
+pub enum ModelFormat {
+    /// Generate the V1 format. This consists of just FlatBuffers data
+    /// containing both the model structure and tensor data.
+    V1,
+
+    /// Generate the V2 format, which consists of a header, the FlatBuffers
+    /// data containing the model structure and a tensor data segment.
+    V2,
+}
+
+/// Helpers for converting tensors to constant node data.
+pub trait ToConstantData: Sized {
+    /// Return the data type identifier for this type.
+    fn dtype() -> sg::ConstantDataType;
+
+    /// Create a `ConstantData` union value that stores the tensor data in the
+    /// model buffer.
+    fn create_inline_data(
+        builder: &mut FlatBufferBuilder,
+        data: &[Self],
+    ) -> (sg::ConstantData, WIPOffset<UnionWIPOffset>);
+}
+
+macro_rules! impl_to_constant_data {
+    ($type:ty, $dtype:ident, $inline_union_type:ident, $inline_args:ident) => {
+        impl ToConstantData for $type {
+            fn dtype() -> sg::ConstantDataType {
+                sg::ConstantDataType::$dtype
+            }
+
+            fn create_inline_data(
+                builder: &mut FlatBufferBuilder<'_>,
+                data: &[Self],
+            ) -> (sg::ConstantData, WIPOffset<UnionWIPOffset>) {
+                let data_vec = builder.create_vector(data);
+                let data = sg::$inline_union_type::create(
+                    builder,
+                    &sg::$inline_args {
+                        data: Some(data_vec),
+                    },
+                )
+                .as_union_value();
+                (sg::ConstantData::$inline_union_type, data)
+            }
+        }
+    };
+}
+impl_to_constant_data!(f32, Float32, FloatData, FloatDataArgs);
+impl_to_constant_data!(i32, Int32, IntData, IntDataArgs);
+
+/// Serializes models to the RTen model format.
 ///
 /// This exists for use in model-loading tests. Models for deployment are
 /// normally built by converting ONNX models using the Python scripts.
@@ -135,6 +187,10 @@ pub struct ModelBuilder<'a> {
     input_ids: Vec<u32>,
     output_ids: Vec<u32>,
     metadata: Option<WIPOffset<sg::Metadata<'a>>>,
+
+    // Builder for the buffer containing tensor data stored outside the model.
+    // `None` if building the V1 format which stores all data inline.
+    tensor_data_builder: Option<TensorDataBuilder>,
 }
 
 enum NodeData<'a> {
@@ -167,7 +223,7 @@ fn pad_args_from_padding(padding: Padding) -> PadArgs {
 }
 
 impl<'a> ModelBuilder<'a> {
-    pub fn new() -> ModelBuilder<'a> {
+    pub fn new(format: ModelFormat) -> ModelBuilder<'a> {
         let builder = FlatBufferBuilder::with_capacity(1024);
         ModelBuilder {
             builder,
@@ -175,6 +231,10 @@ impl<'a> ModelBuilder<'a> {
             input_ids: Vec::new(),
             output_ids: Vec::new(),
             metadata: None,
+            tensor_data_builder: match format {
+                ModelFormat::V1 => None,
+                ModelFormat::V2 => Some(TensorDataBuilder::new()),
+            },
         }
     }
 
@@ -194,61 +254,54 @@ impl<'a> ModelBuilder<'a> {
         (self.nodes.len() - 1) as u32
     }
 
-    /// Add a constant node (eg. weights, biases) to the model
+    /// Add a constant node (eg. weights, biases) to the model.
+    ///
+    /// Deprecated. Use `add_constant` instead.
     pub fn add_float_constant(&mut self, input: &Tensor) -> u32 {
-        let elts: Vec<f32> = input.to_vec();
-        let data_vec = self.builder.create_vector(&elts);
-
-        let float_data = sg::FloatData::create(
-            &mut self.builder,
-            &sg::FloatDataArgs {
-                data: Some(data_vec),
-            },
-        );
-
-        self.add_constant_node(
-            input.shape(),
-            sg::ConstantData::FloatData,
-            float_data.as_union_value(),
-        )
+        self.add_constant(input.view())
     }
 
     /// Add a constant node (eg. weights, biases) to the model
+    ///
+    /// Deprecated. Use `add_constant` instead.
     pub fn add_int_constant(&mut self, input: &Tensor<i32>) -> u32 {
-        let elts: Vec<i32> = input.to_vec();
-        let data_vec = self.builder.create_vector(&elts);
-
-        let int_data = sg::IntData::create(
-            &mut self.builder,
-            &sg::IntDataArgs {
-                data: Some(data_vec),
-            },
-        );
-
-        self.add_constant_node(
-            input.shape(),
-            sg::ConstantData::IntData,
-            int_data.as_union_value(),
-        )
+        self.add_constant(input.view())
     }
 
-    fn add_constant_node(
+    /// Add a constant node (eg. weights, biases) to the model
+    pub fn add_constant<T: Copy + LeBytes + ToConstantData>(
         &mut self,
-        shape: &[usize],
-        data_type: sg::ConstantData,
-        data: WIPOffset<UnionWIPOffset>,
+        input: TensorView<T>,
     ) -> u32 {
-        let shape: Vec<u32> = shape.iter().map(|&x| x as u32).collect();
+        let shape: Vec<u32> = input.shape().iter().map(|&x| x as u32).collect();
         let shape_vec = self.builder.create_vector(&shape[..]);
+        let dtype = <T as ToConstantData>::dtype();
 
-        let const_node = sg::ConstantNode::create(
-            &mut self.builder,
-            &sg::ConstantNodeArgs {
+        let elts: Vec<T> = input.to_vec();
+        let args: sg::ConstantNodeArgs = if let Some(tdb) = self.tensor_data_builder.as_mut() {
+            let offset = tdb.add_tensor(&elts) as u64;
+
+            sg::ConstantNodeArgs {
                 shape: Some(shape_vec),
-                data_type,
+                data_type: sg::ConstantData::NONE,
+                data: None,
+                data_offset: Some(offset),
+                dtype: Some(dtype),
+            }
+        } else {
+            let (inline_dtype, data) =
+                <T as ToConstantData>::create_inline_data(&mut self.builder, &elts);
+
+            sg::ConstantNodeArgs {
+                shape: Some(shape_vec),
+                data_type: inline_dtype,
                 data: Some(data),
-            },
-        );
+                data_offset: None,
+                dtype: Some(dtype),
+            }
+        };
+
+        let const_node = sg::ConstantNode::create(&mut self.builder, &args);
         self.add_node(None, NodeData::Constant(const_node))
     }
 
@@ -814,12 +867,72 @@ impl<'a> ModelBuilder<'a> {
         );
 
         self.builder.finish(model, None);
-        self.builder.finished_data().to_vec()
+        let model_data = self.builder.finished_data().to_vec();
+
+        // If we are storing tensor data externally, then generate a file in the
+        // V2 format. Otherwise use the V1 format which contains just the
+        // FlatBuffers data.
+        if let Some(tensor_data) = self.tensor_data_builder.take() {
+            let mut file_buf = Vec::new();
+            let tensor_data = tensor_data.into_vec();
+            let header = Header {
+                version: 2,
+                model_len: model_data.len() as u64,
+                model_offset: Header::LEN as u64,
+                tensor_data_offset: Header::LEN as u64 + model_data.len() as u64,
+            };
+            file_buf.extend(header.to_buf());
+            file_buf.extend(model_data);
+            file_buf.extend(tensor_data);
+            file_buf
+        } else {
+            model_data
+        }
     }
 }
 
 impl<'a> Default for ModelBuilder<'a> {
     fn default() -> Self {
-        Self::new()
+        Self::new(ModelFormat::V1)
+    }
+}
+
+/// Builds the buffer used for storing tensor data outside the FlatBuffers
+/// model.
+struct TensorDataBuilder {
+    data: Vec<u8>,
+}
+
+impl TensorDataBuilder {
+    fn new() -> TensorDataBuilder {
+        TensorDataBuilder { data: Vec::new() }
+    }
+
+    /// Append data for a tensor to the end of the buffer.
+    ///
+    /// Returns the offset within the buffer of the start of the data for the
+    /// tensor.
+    fn add_tensor<T: Copy + LeBytes>(&mut self, data: &[T]) -> usize {
+        let offset = self.data.len();
+
+        // This currently uses the minimum required alignment for the type.
+        //
+        // In the real models we might choose a larger alignment so that rows
+        // of matrices start on a cache line boundary.
+        let align = std::mem::align_of::<T>();
+        let padding = offset.next_multiple_of(align) - offset;
+        self.data.extend(std::iter::repeat(0).take(padding));
+
+        for x in data {
+            let bytes = x.to_le_bytes();
+            self.data.extend(bytes.as_ref());
+        }
+
+        offset
+    }
+
+    /// Consume the builder and return the finalized tensor data buffer.
+    fn into_vec(self) -> Vec<u8> {
+        self.data
     }
 }
