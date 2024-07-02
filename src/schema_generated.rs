@@ -1795,6 +1795,96 @@ impl<'a> flatbuffers::Verifiable for ConstantData {
 impl flatbuffers::SimpleToVerifyInSlice for ConstantData {}
 pub struct ConstantDataUnionTableOffset {}
 
+#[deprecated(
+    since = "2.0.0",
+    note = "Use associated constants instead. This will no longer be generated in 2021."
+)]
+pub const ENUM_MIN_CONSTANT_DATA_TYPE: u16 = 0;
+#[deprecated(
+    since = "2.0.0",
+    note = "Use associated constants instead. This will no longer be generated in 2021."
+)]
+pub const ENUM_MAX_CONSTANT_DATA_TYPE: u16 = 1;
+#[deprecated(
+    since = "2.0.0",
+    note = "Use associated constants instead. This will no longer be generated in 2021."
+)]
+#[allow(non_camel_case_types)]
+pub const ENUM_VALUES_CONSTANT_DATA_TYPE: [ConstantDataType; 2] =
+    [ConstantDataType::Int32, ConstantDataType::Float32];
+
+#[derive(Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash, Default)]
+#[repr(transparent)]
+pub struct ConstantDataType(pub u16);
+#[allow(non_upper_case_globals)]
+impl ConstantDataType {
+    pub const Int32: Self = Self(0);
+    pub const Float32: Self = Self(1);
+
+    pub const ENUM_MIN: u16 = 0;
+    pub const ENUM_MAX: u16 = 1;
+    pub const ENUM_VALUES: &'static [Self] = &[Self::Int32, Self::Float32];
+    /// Returns the variant's name or "" if unknown.
+    pub fn variant_name(self) -> Option<&'static str> {
+        match self {
+            Self::Int32 => Some("Int32"),
+            Self::Float32 => Some("Float32"),
+            _ => None,
+        }
+    }
+}
+impl core::fmt::Debug for ConstantDataType {
+    fn fmt(&self, f: &mut core::fmt::Formatter) -> core::fmt::Result {
+        if let Some(name) = self.variant_name() {
+            f.write_str(name)
+        } else {
+            f.write_fmt(format_args!("<UNKNOWN {:?}>", self.0))
+        }
+    }
+}
+impl<'a> flatbuffers::Follow<'a> for ConstantDataType {
+    type Inner = Self;
+    #[inline]
+    unsafe fn follow(buf: &'a [u8], loc: usize) -> Self::Inner {
+        let b = flatbuffers::read_scalar_at::<u16>(buf, loc);
+        Self(b)
+    }
+}
+
+impl flatbuffers::Push for ConstantDataType {
+    type Output = ConstantDataType;
+    #[inline]
+    unsafe fn push(&self, dst: &mut [u8], _written_len: usize) {
+        flatbuffers::emplace_scalar::<u16>(dst, self.0);
+    }
+}
+
+impl flatbuffers::EndianScalar for ConstantDataType {
+    type Scalar = u16;
+    #[inline]
+    fn to_little_endian(self) -> u16 {
+        self.0.to_le()
+    }
+    #[inline]
+    #[allow(clippy::wrong_self_convention)]
+    fn from_little_endian(v: u16) -> Self {
+        let b = u16::from_le(v);
+        Self(b)
+    }
+}
+
+impl<'a> flatbuffers::Verifiable for ConstantDataType {
+    #[inline]
+    fn run_verifier(
+        v: &mut flatbuffers::Verifier,
+        pos: usize,
+    ) -> Result<(), flatbuffers::InvalidFlatbuffer> {
+        use self::flatbuffers::Verifiable;
+        u16::run_verifier(v, pos)
+    }
+}
+
+impl flatbuffers::SimpleToVerifyInSlice for ConstantDataType {}
 pub enum ArgMaxAttrsOffset {}
 #[derive(Copy, Clone, PartialEq)]
 
@@ -8222,6 +8312,8 @@ impl<'a> ConstantNode<'a> {
     pub const VT_SHAPE: flatbuffers::VOffsetT = 4;
     pub const VT_DATA_TYPE: flatbuffers::VOffsetT = 6;
     pub const VT_DATA: flatbuffers::VOffsetT = 8;
+    pub const VT_DTYPE: flatbuffers::VOffsetT = 10;
+    pub const VT_DATA_OFFSET: flatbuffers::VOffsetT = 12;
 
     #[inline]
     pub unsafe fn init_from_table(table: flatbuffers::Table<'a>) -> Self {
@@ -8233,12 +8325,16 @@ impl<'a> ConstantNode<'a> {
         args: &'args ConstantNodeArgs<'args>,
     ) -> flatbuffers::WIPOffset<ConstantNode<'bldr>> {
         let mut builder = ConstantNodeBuilder::new(_fbb);
+        if let Some(x) = args.data_offset {
+            builder.add_data_offset(x);
+        }
         if let Some(x) = args.data {
             builder.add_data(x);
         }
         if let Some(x) = args.shape {
             builder.add_shape(x);
         }
+        builder.add_dtype(args.dtype);
         builder.add_data_type(args.data_type);
         builder.finish()
     }
@@ -8281,6 +8377,24 @@ impl<'a> ConstantNode<'a> {
                 )
                 .unwrap()
         }
+    }
+    #[inline]
+    pub fn dtype(&self) -> ConstantDataType {
+        // Safety:
+        // Created from valid Table for this object
+        // which contains a valid value in this slot
+        unsafe {
+            self._tab
+                .get::<ConstantDataType>(ConstantNode::VT_DTYPE, Some(ConstantDataType::Int32))
+                .unwrap()
+        }
+    }
+    #[inline]
+    pub fn data_offset(&self) -> Option<u64> {
+        // Safety:
+        // Created from valid Table for this object
+        // which contains a valid value in this slot
+        unsafe { self._tab.get::<u64>(ConstantNode::VT_DATA_OFFSET, None) }
     }
     #[inline]
     #[allow(non_snake_case)]
@@ -8344,6 +8458,8 @@ impl flatbuffers::Verifiable for ConstantNode<'_> {
                     _ => Ok(()),
                 },
             )?
+            .visit_field::<ConstantDataType>("dtype", Self::VT_DTYPE, false)?
+            .visit_field::<u64>("data_offset", Self::VT_DATA_OFFSET, false)?
             .finish();
         Ok(())
     }
@@ -8352,6 +8468,8 @@ pub struct ConstantNodeArgs<'a> {
     pub shape: Option<flatbuffers::WIPOffset<flatbuffers::Vector<'a, u32>>>,
     pub data_type: ConstantData,
     pub data: Option<flatbuffers::WIPOffset<flatbuffers::UnionWIPOffset>>,
+    pub dtype: ConstantDataType,
+    pub data_offset: Option<u64>,
 }
 impl<'a> Default for ConstantNodeArgs<'a> {
     #[inline]
@@ -8360,6 +8478,8 @@ impl<'a> Default for ConstantNodeArgs<'a> {
             shape: None, // required field
             data_type: ConstantData::NONE,
             data: None, // required field
+            dtype: ConstantDataType::Int32,
+            data_offset: None,
         }
     }
 }
@@ -8386,6 +8506,19 @@ impl<'a: 'b, 'b, A: flatbuffers::Allocator + 'a> ConstantNodeBuilder<'a, 'b, A> 
     pub fn add_data(&mut self, data: flatbuffers::WIPOffset<flatbuffers::UnionWIPOffset>) {
         self.fbb_
             .push_slot_always::<flatbuffers::WIPOffset<_>>(ConstantNode::VT_DATA, data);
+    }
+    #[inline]
+    pub fn add_dtype(&mut self, dtype: ConstantDataType) {
+        self.fbb_.push_slot::<ConstantDataType>(
+            ConstantNode::VT_DTYPE,
+            dtype,
+            ConstantDataType::Int32,
+        );
+    }
+    #[inline]
+    pub fn add_data_offset(&mut self, data_offset: u64) {
+        self.fbb_
+            .push_slot_always::<u64>(ConstantNode::VT_DATA_OFFSET, data_offset);
     }
     #[inline]
     pub fn new(
@@ -8437,6 +8570,8 @@ impl core::fmt::Debug for ConstantNode<'_> {
                 ds.field("data", &x)
             }
         };
+        ds.field("dtype", &self.dtype());
+        ds.field("data_offset", &self.data_offset());
         ds.finish()
     }
 }
