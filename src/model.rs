@@ -1682,9 +1682,9 @@ mod tests {
     #[test]
     fn test_load_file() {
         let buffer = generate_model_buffer(ModelFormat::V1);
-        std::fs::write("model-load-test.rten", buffer).unwrap();
+        std::fs::write("model-load-file-test.rten", buffer).unwrap();
 
-        let model = Model::load_file("model-load-test.rten").unwrap();
+        let model = Model::load_file("model-load-file-test.rten").unwrap();
         let input_id = model.input_ids()[0];
         let output_id = model.output_ids()[0];
 
@@ -1699,9 +1699,9 @@ mod tests {
     #[test]
     fn test_load_mmap() {
         let buffer = generate_model_buffer(ModelFormat::V1);
-        std::fs::write("model-load-test.rten", buffer).unwrap();
+        std::fs::write("model-load-mmap-test.rten", buffer).unwrap();
 
-        let model = unsafe { Model::load_mmap("model-load-test.rten").unwrap() };
+        let model = unsafe { Model::load_mmap("model-load-mmap-test.rten").unwrap() };
         let input_id = model.input_ids()[0];
         let output_id = model.output_ids()[0];
 
