@@ -2,11 +2,14 @@
 
 from argparse import ArgumentParser
 from dataclasses import dataclass
+from functools import reduce
 import hashlib
 import json
+from operator import mul
 from os.path import splitext
 import sys
-from typing import Any, Callable, Literal, Optional, Protocol, cast
+import struct
+from typing import Any, BinaryIO, Callable, Literal, Optional, Protocol, cast
 
 import flatbuffers
 import numpy as np
@@ -15,6 +18,8 @@ import onnx.numpy_helper as numpy_helper
 from onnx import TensorProto, ValueInfoProto
 
 import rten_convert.schema_generated as sg
+from rten_convert.tensor_data import TensorDataBuilder
+from rten_convert.util import round_up, write_padding
 
 AttributeValue = int | float | str | list[int]
 
@@ -1070,36 +1075,66 @@ def graph_from_onnx_graph(onnx_graph: onnx.GraphProto) -> Graph:
     return Graph(nodes=nodes, inputs=inputs, outputs=outputs)
 
 
-def build_constant_node(builder: flatbuffers.Builder, constant: ConstantNode):
+def build_constant_node(
+    builder: flatbuffers.Builder,
+    constant: ConstantNode,
+    tensor_data: TensorDataBuilder | None,
+):
     """
     Serialize a constant tensor value (eg. model weights) into a FlatBuffers model.
     """
     shape_vec = write_vec(
         builder, sg.ConstantNodeStartShapeVector, constant.shape, "u32"
     )
-
-    # Convert data to NumPy array then serialize. This is much faster than
-    # serializing a Python array element by element.
-    data_vec = builder.CreateNumpyVector(constant.data.flatten())
+    n_elems = reduce(mul, constant.shape, 1)
+    assert n_elems == constant.data.size, "constant shape does not match element count"
 
     match constant.data.dtype:
         case np.float32:
-            sg.FloatDataStart(builder)
-            sg.FloatDataAddData(builder, data_vec)
-            const_data = sg.FloatDataEnd(builder)
-            const_data_type = sg.ConstantData.FloatData
+            inline_data_type = sg.ConstantData.FloatData
+            dtype = sg.ConstantDataType.Float32
         case np.int32:
-            sg.IntDataStart(builder)
-            sg.IntDataAddData(builder, data_vec)
-            const_data = sg.IntDataEnd(builder)
-            const_data_type = sg.ConstantData.IntData
+            inline_data_type = sg.ConstantData.IntData
+            dtype = sg.ConstantDataType.Int32
         case _:
             raise ValueError(f"Unsupported data array type {constant.data.dtype.name}")  # type:ignore[union-attr]
 
+    # Store inline if we're generating the V1 format, or the tensor is small.
+    # Small values are mostly parameters such as axes, slice ranges etc.
+    store_inline = tensor_data is None or n_elems <= 16
+    inline_data = None
+    data_offset = None
+
+    if store_inline:
+        inline_data_vec = builder.CreateNumpyVector(constant.data.flatten())
+        match constant.data.dtype:
+            case np.float32:
+                sg.FloatDataStart(builder)
+                sg.FloatDataAddData(builder, inline_data_vec)
+                inline_data = sg.FloatDataEnd(builder)
+            case np.int32:
+                sg.IntDataStart(builder)
+                sg.IntDataAddData(builder, inline_data_vec)
+                inline_data = sg.IntDataEnd(builder)
+            case _:
+                raise ValueError(
+                    f"Unsupported data array type {constant.data.dtype.name}"  # type:ignore
+                )
+    else:
+        assert tensor_data
+        data_offset = tensor_data.add_tensor(constant.data)
+
     sg.ConstantNodeStart(builder)
     sg.ConstantNodeAddShape(builder, shape_vec)
-    sg.ConstantNodeAddDataType(builder, const_data_type)
-    sg.ConstantNodeAddData(builder, const_data)
+    sg.ConstantNodeAddDtype(builder, dtype)
+
+    if inline_data:
+        sg.ConstantNodeAddDataType(builder, inline_data_type)
+        sg.ConstantNodeAddData(builder, inline_data)
+    else:
+        assert data_offset is not None
+        sg.ConstantNodeAddDataOffset(builder, data_offset)
+
     return sg.ConstantNodeEnd(builder)
 
 
@@ -1218,7 +1253,9 @@ def build_metadata(builder: flatbuffers.Builder, metadata: Metadata):
     return sg.MetadataEnd(builder)
 
 
-def build_graph(builder: flatbuffers.Builder, graph: Graph):
+def build_graph(
+    builder: flatbuffers.Builder, graph: Graph, tensor_data: TensorDataBuilder | None
+):
     """
     Serialize a computation graph into a flatbuffers model.
     """
@@ -1227,7 +1264,7 @@ def build_graph(builder: flatbuffers.Builder, graph: Graph):
         match node:
             case ConstantNode():
                 data_type = sg.NodeKind.ConstantNode
-                data = build_constant_node(builder, node)
+                data = build_constant_node(builder, node, tensor_data)
             case OperatorNode():
                 data_type = sg.NodeKind.OperatorNode
                 data = build_operator_node(builder, node)
@@ -1256,7 +1293,9 @@ def build_graph(builder: flatbuffers.Builder, graph: Graph):
     return sg.GraphEnd(builder)
 
 
-def write_model(graph: Graph, metadata: Metadata, out_path: str):
+def serialize_model(
+    graph: Graph, metadata: Metadata, tensor_data: TensorDataBuilder | None
+) -> bytes:
     """
     Serialize a model into a flatbuffers model.
 
@@ -1265,12 +1304,14 @@ def write_model(graph: Graph, metadata: Metadata, out_path: str):
 
     :param graph: The main graph for the model
     :param metadata: Model metadata
-    :param out_path: Output .rten model path
+    :param tensor_data:
+        Object that will be used to write the tensor data in a separate segment
+        of the file that follows the model buffer.
     """
 
     builder = flatbuffers.Builder(initialSize=1024)
 
-    graph = build_graph(builder, graph)
+    graph = build_graph(builder, graph, tensor_data)
     metadata = build_metadata(builder, metadata)
 
     sg.ModelStart(builder)
@@ -1280,10 +1321,36 @@ def write_model(graph: Graph, metadata: Metadata, out_path: str):
     model = sg.ModelEnd(builder)
 
     builder.Finish(model)
-    data = builder.Output()
+    return builder.Output()
 
-    with open(out_path, "wb") as output:
-        output.write(data)
+
+def write_header(
+    fp: BinaryIO, model_data_offset: int, model_data_len: int, tensor_data_offset: int
+):
+    """
+    Write the model file header.
+
+    :param model_data_offset:
+        Offset of the FlatBuffers data for the model, relative to the start of the file.
+    :param model_data_len:
+        Length of the FlatBuffers data for the model.
+    :param tensor_data_offset:
+        Offset of the tensor data segment, relative to the start of the file.
+    """
+    fp.write(b"RTEN")
+
+    version = 2
+    version_bytes = struct.pack("<I", version)
+    fp.write(version_bytes)
+
+    md_offset_bytes = struct.pack("<Q", model_data_offset)
+    fp.write(md_offset_bytes)
+
+    md_len_bytes = struct.pack("<Q", model_data_len)
+    fp.write(md_len_bytes)
+
+    td_offset_bytes = struct.pack("<Q", tensor_data_offset)
+    fp.write(td_offset_bytes)
 
 
 def sha256(filename: str) -> str:
@@ -1324,19 +1391,69 @@ def main():
     parser.add_argument(
         "-m", "--metadata", help="Path to JSON file containing model metadata."
     )
+    parser.add_argument(
+        "--v2",
+        action="store_true",
+        help="Generate version 2 .rten models, with support for files > 2GB",
+    )
     parser.add_argument("out_name", help="Output model file name", nargs="?")
     args = parser.parse_args()
-
-    model = onnx.load(args.model)
-    graph = graph_from_onnx_graph(model.graph)
-    metadata = generate_metadata(args.model, args.metadata)
 
     output_path = args.out_name
     if output_path is None:
         model_basename = splitext(args.model)[0]
         output_path = f"{model_basename}.rten"
 
-    write_model(graph, metadata, output_path)
+    use_v2_format = args.v2
+    if use_v2_format:
+        tensor_data = TensorDataBuilder()
+    else:
+        # Version 1 format stores all tensor data inline.
+        tensor_data = None
+
+    model = onnx.load(args.model)
+    graph = graph_from_onnx_graph(model.graph)
+    metadata = generate_metadata(args.model, args.metadata)
+
+    try:
+        model_data = serialize_model(graph, metadata, tensor_data)
+    except flatbuffers.builder.BuilderSizeError:
+        print("Model buffer exceeded maximum size (2GB)", file=sys.stderr)
+        if not use_v2_format:
+            print(
+                "To serialize models > 2GB, the V2 format must be used via the `--v2` flag.",
+                file=sys.stderr,
+            )
+        sys.exit(1)
+
+    with open(output_path, "wb") as output:
+        if use_v2_format:
+            header_size = 32
+
+            # The model data needs to start at an offset that is a multiple of
+            # the largest tensor element alignment, so inline tensor data is
+            # correctly aligned. Fortunately the header size is already a
+            # suitable offset.
+            model_data_offset = header_size
+            model_data_len = len(model_data)
+
+            tensor_data_align = 64
+            tensor_data_offset = round_up(
+                header_size + len(model_data), tensor_data_align
+            )
+
+            write_header(output, model_data_offset, model_data_len, tensor_data_offset)
+
+            assert output.tell() == model_data_offset
+            output.write(model_data)
+            assert output.tell() <= tensor_data_offset
+
+            if tensor_data:
+                write_padding(output, tensor_data_offset - output.tell())
+                tensor_data.write(output)
+        else:
+            # The Version 1 format is just the FlatBuffers model
+            output.write(model_data)
 
 
 if __name__ == "__main__":

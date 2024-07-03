@@ -17,7 +17,9 @@ use smallvec::smallvec;
 use crate::constant_storage::{ArcSlice, ArcTensorView, ConstantStorage};
 use crate::env::str_as_bool;
 use crate::graph::{ConstantNodeData, Dimension, Graph, Node, NodeId, RunError, RunOptions};
+use crate::header::{Header, HeaderError};
 use crate::model_metadata::ModelMetadata;
+use crate::number::{LeBytes, Pod};
 use crate::ops;
 use crate::ops::{
     BoxOrder, CoordTransformMode, DataType, Direction, InputOrOutput, NearestMode, Operator,
@@ -261,13 +263,28 @@ impl Model {
         options: &ModelOptions,
     ) -> Result<Model, ModelLoadError> {
         let registry = &options.registry;
-        let model = root_as_model(storage.data()).map_err(ModelLoadError::ParseFailed)?;
+
+        let file_data = storage.data();
+        let header = match Header::from_buf(file_data) {
+            Ok(header) => Some(header),
+            Err(HeaderError::InvalidMagic) => None,
+            Err(err) => {
+                return Err(ModelLoadError::InvalidHeader(Box::new(err)));
+            }
+        };
+
+        let model_data = if let Some(header) = header.as_ref() {
+            let (offset, len) = (header.model_offset as usize, header.model_len as usize);
+            &file_data[offset..offset + len]
+        } else {
+            file_data
+        };
+
+        let model = root_as_model(model_data).map_err(ModelLoadError::ParseFailed)?;
 
         if model.schema_version() != 1 {
             return Err(ModelLoadError::SchemaVersionUnsupported);
         }
-
-        let mut graph = Graph::new();
 
         let node_count = model.graph().nodes().map(|ns| ns.len()).unwrap_or(0);
 
@@ -295,91 +312,32 @@ impl Model {
             .map(|ids| ids.iter().map(|id| id as NodeId).collect())
             .unwrap_or_default();
 
+        let mut graph = Graph::new();
         if let Some(nodes) = model.graph().nodes() {
             for (node_index, node) in nodes.iter().enumerate() {
-                if let Some(operator) = node.data_as_operator_node() {
-                    let op = registry
-                        .read_op(&operator)
-                        .map_err(ModelLoadError::OperatorInvalid)?;
-
-                    let mut inputs: Vec<Option<NodeId>> = Vec::new();
-                    if let Some(op_input_ids) = operator.inputs() {
-                        for node_index in op_input_ids.iter() {
-                            if node_index < 0 {
-                                inputs.push(None);
-                                continue;
-                            }
-                            let index_usize = node_index as usize;
-                            if let Some(node_id) = node_id_from_index.get(&index_usize) {
-                                inputs.push(Some(*node_id))
-                            } else {
-                                return Err(ModelLoadError::GraphError(
-                                    "operator input is invalid".to_string(),
-                                ));
-                            }
-                        }
-                    }
-
-                    let mut outputs: Vec<Option<NodeId>> = Vec::new();
-                    if let Some(op_output_ids) = operator.outputs() {
-                        for node_index in op_output_ids.iter() {
-                            if node_index < 0 {
-                                outputs.push(None);
-                                continue;
-                            }
-                            let index_usize = node_index as usize;
-                            if let Some(node_id) = node_id_from_index.get(&index_usize) {
-                                outputs.push(Some(*node_id))
-                            } else {
-                                return Err(ModelLoadError::GraphError(
-                                    "operator output is invalid".to_string(),
-                                ));
-                            }
-                        }
-                    }
-
-                    let graph_node = graph.add_op(node.name(), op, &inputs, &outputs);
-
-                    add_node_id(node.name(), graph_node);
-                    node_id_from_index.insert(node_index, graph_node);
-                } else if let Some(value_node) = node.data_as_value_node() {
-                    let shape: Option<Vec<Dimension>> = value_node.shape().map(|shape| {
-                        shape
-                            .iter()
-                            .map(|dim| {
-                                if let Some(name) = dim.name() {
-                                    Dimension::Symbolic(name.to_string())
-                                } else {
-                                    Dimension::Fixed(dim.value() as usize)
-                                }
-                            })
-                            .collect()
-                    });
-                    let graph_node = graph.add_value(node.name(), shape);
-
-                    add_node_id(node.name(), graph_node);
-                    node_id_from_index.insert(node_index, graph_node);
+                let graph_node = if let Some(operator) = node.data_as_operator_node() {
+                    Self::add_graph_operator(
+                        &mut graph,
+                        node.name(),
+                        operator,
+                        registry,
+                        &node_id_from_index,
+                    )?
+                } else if let Some(value) = node.data_as_value_node() {
+                    Self::add_graph_value(&mut graph, node.name(), value)?
                 } else if let Some(constant) = node.data_as_constant_node() {
-                    let shape: Vec<usize> = constant.shape().iter().map(|x| x as usize).collect();
-                    let graph_node = if let Some(float_data) = constant.data_as_float_data() {
-                        let const_data =
-                            constant_node_from_flatbuffers_vec(&storage, float_data.data(), &shape);
-                        graph.add_constant(node.name(), const_data)
-                    } else if let Some(int_data) = constant.data_as_int_data() {
-                        let const_data =
-                            constant_node_from_flatbuffers_vec(&storage, int_data.data(), &shape);
-                        graph.add_constant(node.name(), const_data)
-                    } else {
-                        return Err(ModelLoadError::GraphError(
-                            "unsupported constant data type".to_string(),
-                        ));
-                    };
-
-                    add_node_id(node.name(), graph_node);
-                    node_id_from_index.insert(node_index, graph_node);
+                    Self::add_graph_constant(
+                        &mut graph,
+                        node.name(),
+                        constant,
+                        &storage,
+                        header.as_ref().map(|h| h.tensor_data_offset),
+                    )?
                 } else {
                     return Err(ModelLoadError::GraphError("unknown node type".to_string()));
-                }
+                };
+                add_node_id(node.name(), graph_node);
+                node_id_from_index.insert(node_index, graph_node);
             }
         }
 
@@ -410,6 +368,134 @@ impl Model {
             metadata,
         };
         Ok(model)
+    }
+
+    fn add_graph_operator(
+        graph: &mut Graph,
+        name: Option<&str>,
+        operator: sg::OperatorNode,
+        registry: &OpRegistry,
+        node_id_from_index: &HashMap<usize, NodeId>,
+    ) -> Result<NodeId, ModelLoadError> {
+        let op = registry
+            .read_op(&operator)
+            .map_err(ModelLoadError::OperatorInvalid)?;
+
+        let mut inputs: Vec<Option<NodeId>> = Vec::new();
+        if let Some(op_input_ids) = operator.inputs() {
+            for node_index in op_input_ids.iter() {
+                if node_index < 0 {
+                    inputs.push(None);
+                    continue;
+                }
+                let index_usize = node_index as usize;
+                if let Some(node_id) = node_id_from_index.get(&index_usize) {
+                    inputs.push(Some(*node_id))
+                } else {
+                    return Err(ModelLoadError::GraphError(
+                        "operator input is invalid".to_string(),
+                    ));
+                }
+            }
+        }
+
+        let mut outputs: Vec<Option<NodeId>> = Vec::new();
+        if let Some(op_output_ids) = operator.outputs() {
+            for node_index in op_output_ids.iter() {
+                if node_index < 0 {
+                    outputs.push(None);
+                    continue;
+                }
+                let index_usize = node_index as usize;
+                if let Some(node_id) = node_id_from_index.get(&index_usize) {
+                    outputs.push(Some(*node_id))
+                } else {
+                    return Err(ModelLoadError::GraphError(
+                        "operator output is invalid".to_string(),
+                    ));
+                }
+            }
+        }
+
+        let graph_node = graph.add_op(name, op, &inputs, &outputs);
+        Ok(graph_node)
+    }
+
+    fn add_graph_value(
+        graph: &mut Graph,
+        name: Option<&str>,
+        value: sg::ValueNode,
+    ) -> Result<NodeId, ModelLoadError> {
+        let shape: Option<Vec<Dimension>> = value.shape().map(|shape| {
+            shape
+                .iter()
+                .map(|dim| {
+                    if let Some(name) = dim.name() {
+                        Dimension::Symbolic(name.to_string())
+                    } else {
+                        Dimension::Fixed(dim.value() as usize)
+                    }
+                })
+                .collect()
+        });
+        let graph_node = graph.add_value(name, shape);
+        Ok(graph_node)
+    }
+
+    fn add_graph_constant(
+        graph: &mut Graph,
+        name: Option<&str>,
+        constant: sg::ConstantNode,
+        storage: &Arc<ConstantStorage>,
+        tensor_data_offset: Option<u64>,
+    ) -> Result<NodeId, ModelLoadError> {
+        let shape: Vec<usize> = constant.shape().iter().map(|x| x as usize).collect();
+
+        if let Some(data_offset) = constant.data_offset() {
+            // Constant data is stored outside the model buffer, in the same file.
+
+            let Some(tensor_data_offset) = tensor_data_offset else {
+                return Err(ModelLoadError::GraphError(
+                    "tensor data section missing".to_string(),
+                ));
+            };
+            let data_offset = (tensor_data_offset + data_offset) as usize;
+
+            let graph_node = match constant.dtype() {
+                Some(sg::ConstantDataType::Int32) => {
+                    let const_data =
+                        constant_data_from_storage_offset::<i32>(storage, &shape, data_offset)?;
+                    graph.add_constant(name, const_data)
+                }
+                Some(sg::ConstantDataType::Float32) => {
+                    let const_data =
+                        constant_data_from_storage_offset::<f32>(storage, &shape, data_offset)?;
+                    graph.add_constant(name, const_data)
+                }
+                _ => {
+                    return Err(ModelLoadError::GraphError(
+                        "unsupported data type for external constant".to_string(),
+                    ));
+                }
+            };
+            Ok(graph_node)
+        } else {
+            // Constant data is stored inline in model
+            let graph_node = if let Some(float_data) = constant.data_as_float_data() {
+                let const_data =
+                    constant_data_from_flatbuffers_vec(storage, float_data.data(), &shape);
+                graph.add_constant(name, const_data)
+            } else if let Some(int_data) = constant.data_as_int_data() {
+                let const_data =
+                    constant_data_from_flatbuffers_vec(storage, int_data.data(), &shape);
+                graph.add_constant(name, const_data)
+            } else {
+                return Err(ModelLoadError::GraphError(
+                    "unsupported data type for inline constant".to_string(),
+                ));
+            };
+            Ok(graph_node)
+        }
     }
 
     /// Find a node in the model's graph given its string name.
@@ -1317,6 +1403,9 @@ pub enum ModelLoadError {
 
     /// An error occurred while optimizing the graph.
     OptimizeError(Box<dyn Error + Send>),
+
+    /// The file's header is invalid.
+    InvalidHeader(Box<dyn Error + Send>),
 }
 
 impl Display for ModelLoadError {
@@ -1328,33 +1417,77 @@ impl Display for ModelLoadError {
             ModelLoadError::OperatorInvalid(e) => write!(f, "operator error: {e}"),
             ModelLoadError::GraphError(e) => write!(f, "graph error: {e}"),
             ModelLoadError::OptimizeError(e) => write!(f, "graph optimization error: {e}"),
+            ModelLoadError::InvalidHeader(e) => write!(f, "invalid header: {e}"),
         }
     }
 }
 
 impl Error for ModelLoadError {}
 
+/// Transmute a `[u8]` to `[T]` provided it is correctly aligned and we're on
+/// a little-endian system.
+fn transmute_bytes<T: Pod>(bytes: &[u8]) -> Option<&[T]> {
+    if bytes.as_ptr() as usize % std::mem::align_of::<T>() != 0
+        || bytes.len() % std::mem::size_of::<T>() != 0
+    {
+        return None;
+    }
+
+    if std::mem::size_of::<T>() != 1 && !cfg!(target_endian = "little") {
+        return None;
+    }
+
+    // Safety: We checked that the data is correctly aligned, and this is
+    // a POD type for which any byte values are allowed.
+    let n_elements = bytes.len() / std::mem::size_of::<T>();
+    let elements = unsafe { std::slice::from_raw_parts(bytes.as_ptr() as *const T, n_elements) };
+    Some(elements)
+}
+
+/// Convert a range of bytes in storage into data for a graph constant.
+///
+/// If the data is correctly aligned and the system is little-endian, this will
+/// return a view, otherwise it will copy the data into an owned tensor.
+fn constant_data_from_storage_offset<T: LeBytes + Pod>(
+    storage: &Arc<ConstantStorage>,
+    shape: &[usize],
+    offset: usize,
+) -> Result<ConstantNodeData<T>, ModelLoadError> {
+    let n_elements: usize = shape.iter().product();
+    let byte_len = n_elements * std::mem::size_of::<T>();
+
+    let Some(bytes) = storage.data().get(offset..offset + byte_len) else {
+        return Err(ModelLoadError::GraphError(
+            "invalid tensor data offset".to_string(),
+        ));
+    };
+
+    if let Some(elements) = transmute_bytes(bytes) {
+        let storage =
+            ArcSlice::new(storage.clone(), elements).expect("storage does not contain data");
+        let const_data: ConstantNodeData<T> = ArcTensorView::from_data(shape, storage).into();
+        Ok(const_data)
+    } else {
+        let data: Vec<T> = bytes
+            .chunks(std::mem::size_of::<T>())
+            .map(|chunk| T::from_le_bytes(chunk.try_into().unwrap()))
+            .collect();
+        Ok(Tensor::from_data(shape, data).into())
+    }
+}
+
 /// Convert a vector from a FlatBuffers file into data for a graph constant node.
 ///
-/// If the data in the file is suitably aligned, as should be the case, and the
-/// current system is little endian, this will return a tensor view that
-/// references data in `storage`, without copying. Otherwise it will copy the
-/// data into an owned tensor.
-fn constant_node_from_flatbuffers_vec<'a, T: Copy + flatbuffers::Follow<'a, Inner = T>>(
+/// If the data is correctly aligned and the system is little-endian, this will
+/// return a view, otherwise it will copy the data into an owned tensor.
+fn constant_data_from_flatbuffers_vec<'a, T: Pod + flatbuffers::Follow<'a, Inner = T>>(
     storage: &Arc<ConstantStorage>,
     fb_vec: flatbuffers::Vector<'a, T>,
     shape: &[usize],
 ) -> ConstantNodeData<T> {
-    let bytes = fb_vec.bytes();
-    if bytes.as_ptr() as usize % std::mem::align_of::<T>() == 0 {
-        // Safety: We checked that the data is correctly aligned, and we trust
-        // `flatbuffers::Vector<T>` that its bytes contain `fbv.len()` Ts.
-        let typed_slice = unsafe {
-            let typed_slice = std::mem::transmute::<&[u8], &[T]>(bytes);
-            &typed_slice[..fb_vec.len()]
-        };
+    if let Some(elements) = transmute_bytes(fb_vec.bytes()) {
         let storage =
-            ArcSlice::new(storage.clone(), typed_slice).expect("storage does not contain data");
+            ArcSlice::new(storage.clone(), elements).expect("storage does not contain data");
         ArcTensorView::from_data(shape, storage).into()
     } else {
         let storage: Vec<T> = fb_vec.iter().collect();
@@ -1369,15 +1502,15 @@ mod tests {
 
     use crate::graph::{Dimension, RunError};
     use crate::model::{Model, ModelOptions};
-    use crate::model_builder::{MetadataArgs, ModelBuilder, OpType};
+    use crate::model_builder::{MetadataArgs, ModelBuilder, ModelFormat, OpType};
     use crate::ops;
     use crate::ops::{
         BoxOrder, CoordTransformMode, NearestMode, OpError, Output, ResizeMode, Scalar,
     };
     use crate::{ModelLoadError, OpRegistry, ReadOpError};
 
-    fn generate_model_buffer() -> Vec<u8> {
-        let mut builder = ModelBuilder::new();
+    fn generate_model_buffer(format: ModelFormat) -> Vec<u8> {
+        let mut builder = ModelBuilder::new(format);
 
         let const_val = Tensor::from_data(&[1, 2, 2], vec![0.5, -0.5, 0.1, -0.1]);
         let const_node = builder.add_float_constant(&const_val);
@@ -1429,7 +1562,7 @@ mod tests {
 
     #[test]
     fn test_model_input_output_ids() {
-        let buffer = generate_model_buffer();
+        let buffer = generate_model_buffer(ModelFormat::V1);
 
         let model = Model::load(buffer).unwrap();
 
@@ -1454,7 +1587,7 @@ mod tests {
 
     #[test]
     fn test_unsupported_operator() {
-        let buffer = generate_model_buffer();
+        let buffer = generate_model_buffer(ModelFormat::V1);
         let registry = OpRegistry::new();
         let result = ModelOptions::with_ops(registry).load(buffer);
 
@@ -1471,7 +1604,7 @@ mod tests {
 
     #[test]
     fn test_shape_info() {
-        let buffer = generate_model_buffer();
+        let buffer = generate_model_buffer(ModelFormat::V1);
         let model = Model::load(buffer).unwrap();
         let input_id = model.input_ids()[0];
 
@@ -1484,7 +1617,7 @@ mod tests {
 
     #[test]
     fn test_metadata() {
-        let buffer = generate_model_buffer();
+        let buffer = generate_model_buffer(ModelFormat::V1);
         let model = Model::load(buffer).unwrap();
         assert_eq!(model.metadata().onnx_hash(), Some("abc"));
         assert_eq!(model.metadata().description(), None);
@@ -1492,7 +1625,7 @@ mod tests {
 
     #[test]
     fn test_input_shape() {
-        let buffer = generate_model_buffer();
+        let buffer = generate_model_buffer(ModelFormat::V1);
         let model = Model::load(buffer).unwrap();
         assert_eq!(
             model.input_shape(0),
@@ -1506,37 +1639,52 @@ mod tests {
 
     #[test]
     fn test_load_and_run_model() {
-        let buffer = generate_model_buffer();
+        struct Case {
+            format: ModelFormat,
+        }
 
-        let model = Model::load(buffer).unwrap();
-        let input_id = model.input_ids()[0];
-        let output_id = model.output_ids()[0];
+        let cases = [
+            Case {
+                format: ModelFormat::V1,
+            },
+            Case {
+                format: ModelFormat::V2,
+            },
+        ];
 
-        let input = generate_input();
+        for Case { format } in cases {
+            let buffer = generate_model_buffer(format);
 
-        // Test a normal model run.
-        let result = model
-            .run(vec![(input_id, input.view().into())], &[output_id], None)
-            .unwrap();
-        let result_tensor = check_output(result);
+            let model = Model::load(buffer).unwrap();
+            let input_id = model.input_ids()[0];
+            let output_id = model.output_ids()[0];
 
-        // Test a partial run. Since we are providing all inputs, this works the
-        // same as `Model::run`. See `Graph::partial_run` tests for other cases.
-        let partial_run_result = model
-            .partial_run(vec![(input_id, input.into())], &[output_id], None)
-            .unwrap();
-        assert_eq!(
-            partial_run_result,
-            vec![(output_id, Output::FloatTensor(result_tensor))]
-        );
+            let input = generate_input();
+
+            // Test a normal model run.
+            let result = model
+                .run(vec![(input_id, input.view().into())], &[output_id], None)
+                .unwrap();
+            let result_tensor = check_output(result);
+
+            // Test a partial run. Since we are providing all inputs, this works the
+            // same as `Model::run`. See `Graph::partial_run` tests for other cases.
+            let partial_run_result = model
+                .partial_run(vec![(input_id, input.into())], &[output_id], None)
+                .unwrap();
+            assert_eq!(
+                partial_run_result,
+                vec![(output_id, Output::FloatTensor(result_tensor))]
+            );
+        }
     }
 
     #[test]
     fn test_load_file() {
-        let buffer = generate_model_buffer();
-        std::fs::write("model-load-test.rten", buffer).unwrap();
+        let buffer = generate_model_buffer(ModelFormat::V1);
+        std::fs::write("model-load-file-test.rten", buffer).unwrap();
 
-        let model = Model::load_file("model-load-test.rten").unwrap();
+        let model = Model::load_file("model-load-file-test.rten").unwrap();
         let input_id = model.input_ids()[0];
         let output_id = model.output_ids()[0];
 
@@ -1550,10 +1698,10 @@ mod tests {
     #[cfg(feature = "mmap")]
     #[test]
     fn test_load_mmap() {
-        let buffer = generate_model_buffer();
-        std::fs::write("model-load-test.rten", buffer).unwrap();
+        let buffer = generate_model_buffer(ModelFormat::V1);
+        std::fs::write("model-load-mmap-test.rten", buffer).unwrap();
 
-        let model = unsafe { Model::load_mmap("model-load-test.rten").unwrap() };
+        let model = unsafe { Model::load_mmap("model-load-mmap-test.rten").unwrap() };
         let input_id = model.input_ids()[0];
         let output_id = model.output_ids()[0];
 
@@ -1566,7 +1714,7 @@ mod tests {
 
     #[test]
     fn test_run_one() {
-        let buffer = generate_model_buffer();
+        let buffer = generate_model_buffer(ModelFormat::V1);
         let model = Model::load(buffer).unwrap();
 
         let input = tensor!((1, 2, 2); [1., 2., -1., -2.]);
@@ -1582,7 +1730,7 @@ mod tests {
 
     #[test]
     fn test_omitted_optional_inputs() {
-        let mut builder = ModelBuilder::new();
+        let mut builder = ModelBuilder::new(ModelFormat::V1);
 
         let output_node = builder.add_value("output", None);
         builder.add_output(output_node);
@@ -1613,7 +1761,7 @@ mod tests {
     // executed successfully.
     #[test]
     fn test_all_op_types() {
-        let mut builder = ModelBuilder::new();
+        let mut builder = ModelBuilder::new(ModelFormat::V1);
 
         let input_node = builder.add_value("input", None);
         let input_2d = builder.add_value("input.2d", None);

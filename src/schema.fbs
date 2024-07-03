@@ -441,6 +441,7 @@ table OperatorNode {
   outputs:[int];
 }
 
+// Data for constants stored inline in a model.
 union ConstantData {
   FloatData,
   IntData,
@@ -454,10 +455,24 @@ table IntData {
   data: [int32] (required);
 }
 
+enum ConstantDataType: ushort {
+  Int32, // Signed 32-bit int
+  Float32, // IEEE-754 32-bit float
+}
+
 // Graph node for a constant tensor value, whose data is part of the model.
 table ConstantNode {
   shape:[uint] (required);
-  data:ConstantData (required);
+
+  // Tensor data embedded within the model file.
+  data:ConstantData;
+
+  // Data type. This is null in older models.
+  dtype:ConstantDataType = null;
+
+  // Offset of tensor data from the start of the tensor data segment in the
+  // model file. Null if the tensor data is stored inline.
+  data_offset:uint64 = null;
 }
 
 // Dimension of a ValueNode's shape. This can be either a fixed value or a
