@@ -8,10 +8,10 @@ use crate::number::LeBytes;
 use crate::ops::{
     ArgMax, ArgMin, AveragePool, BatchNormalization, BoxOrder, Cast, Concat, ConstantOfShape, Conv,
     ConvTranspose, CoordTransformMode, DataType, Elu, Flatten, Gather, GatherElements, GatherND,
-    Gemm, HardSigmoid, InstanceNormalization, LayerNormalization, LeakyRelu, LogSoftmax, MaxPool,
-    Mod, NearestMode, NonMaxSuppression, OneHot, Padding, ReduceMax, ReduceMean, ReduceMin,
-    ReduceProd, ReduceSum, ReduceSumSquare, Reshape, Resize, ResizeMode, Scalar, ScatterElements,
-    ScatterReduction, Softmax, Split, TopK, Transpose, Trilu,
+    Gelu, Gemm, HardSigmoid, InstanceNormalization, LayerNormalization, LeakyRelu, LogSoftmax,
+    MaxPool, Mod, NearestMode, NonMaxSuppression, OneHot, Padding, ReduceMax, ReduceMean,
+    ReduceMin, ReduceProd, ReduceSum, ReduceSumSquare, Reshape, Resize, ResizeMode, Scalar,
+    ScatterElements, ScatterReduction, Softmax, Split, TopK, Transpose, Trilu,
 };
 use crate::schema_generated as sg;
 
@@ -49,7 +49,7 @@ pub enum OpType {
     Gather(Gather),
     GatherElements(GatherElements),
     GatherND(GatherND),
-    Gelu,
+    Gelu(Gelu),
     Gemm(Gemm),
     GlobalAveragePool,
     Greater,
@@ -522,7 +522,7 @@ impl<'a> ModelBuilder<'a> {
                     batch_dims: args.batch_dims as i32,
                 }
             ),
-            OpType::Gelu => op!(Gelu),
+            OpType::Gelu(_args) => op_with_attrs!(Gelu, GeluAttrs, sg::GeluAttrsArgs {}),
             OpType::Gemm(args) => op_with_attrs!(
                 Gemm,
                 GemmAttrs,

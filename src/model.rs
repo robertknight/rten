@@ -1120,7 +1120,7 @@ mod tests {
         let gather_elements_indices_val = Tensor::<i32>::zeros(&input_shape);
         let gather_elements_indices = builder.add_constant(gather_elements_indices_val.view());
         add_operator!(GatherElements, [input_node, gather_elements_indices], { axis: 0 });
-        add_operator!(Gelu, [input_node]);
+        add_operator!(Gelu, [input_node], {});
         add_operator!(Gemm, [input_2d, input_2d], {
             alpha: 1.0,
             beta: 1.0,

@@ -477,7 +477,9 @@ impl_read_op!(
         })
     }
 );
-impl_read_op!(Gelu);
+impl_read_op!(Gelu, attrs_as_gelu_attrs, |_attrs: sg::GeluAttrs| {
+    Ok(ops::Gelu {})
+});
 impl_read_op!(Gemm, attrs_as_gemm_attrs, |attrs: sg::GemmAttrs| {
     Ok(ops::Gemm {
         alpha: attrs.alpha(),

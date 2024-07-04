@@ -725,6 +725,11 @@ def op_node_from_onnx_operator(
             attrs = sg.GatherNDAttrsT()
             attrs.batchDims = op_reader.get_attr("batch_dims", "int", 0)
 
+        case "Gelu":
+            # Gelu has an "approximate" attr in the ONNX spec, but this is
+            # not currently implemented.
+            attrs = sg.GeluAttrsT()
+
         case "Gemm":
             attrs = sg.GemmAttrsT()
             attrs.alpha = op_reader.get_attr("alpha", "float", 1.0)

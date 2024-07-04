@@ -184,6 +184,7 @@ class OperatorAttrs(object):
     RandomNormalAttrs = 34
     RandomNormalLikeAttrs = 35
     GatherNDAttrs = 36
+    GeluAttrs = 37
 
 def OperatorAttrsCreator(unionType, table):
     from flatbuffers.table import Table
@@ -261,6 +262,8 @@ def OperatorAttrsCreator(unionType, table):
         return RandomNormalLikeAttrsT.InitFromBuf(table.Bytes, table.Pos)
     if unionType == OperatorAttrs().GatherNDAttrs:
         return GatherNDAttrsT.InitFromBuf(table.Bytes, table.Pos)
+    if unionType == OperatorAttrs().GeluAttrs:
+        return GeluAttrsT.InitFromBuf(table.Bytes, table.Pos)
     return None
 
 
@@ -1981,6 +1984,71 @@ class GatherNDAttrsT(object):
         GatherNDAttrsAddBatchDims(builder, self.batchDims)
         gatherNdattrs = GatherNDAttrsEnd(builder)
         return gatherNdattrs
+
+
+class GeluAttrs(object):
+    __slots__ = ['_tab']
+
+    @classmethod
+    def GetRootAs(cls, buf, offset=0):
+        n = flatbuffers.encode.Get(flatbuffers.packer.uoffset, buf, offset)
+        x = GeluAttrs()
+        x.Init(buf, n + offset)
+        return x
+
+    @classmethod
+    def GetRootAsGeluAttrs(cls, buf, offset=0):
+        """This method is deprecated. Please switch to GetRootAs."""
+        return cls.GetRootAs(buf, offset)
+    @classmethod
+    def GeluAttrsBufferHasIdentifier(cls, buf, offset, size_prefixed=False):
+        return flatbuffers.util.BufferHasIdentifier(buf, offset, b"\x52\x54\x45\x4E", size_prefixed=size_prefixed)
+
+    # GeluAttrs
+    def Init(self, buf, pos):
+        self._tab = flatbuffers.table.Table(buf, pos)
+
+def GeluAttrsStart(builder):
+    builder.StartObject(0)
+
+def GeluAttrsEnd(builder):
+    return builder.EndObject()
+
+
+
+class GeluAttrsT(object):
+
+    # GeluAttrsT
+    def __init__(self):
+        pass
+
+    @classmethod
+    def InitFromBuf(cls, buf, pos):
+        geluAttrs = GeluAttrs()
+        geluAttrs.Init(buf, pos)
+        return cls.InitFromObj(geluAttrs)
+
+    @classmethod
+    def InitFromPackedBuf(cls, buf, pos=0):
+        n = flatbuffers.encode.Get(flatbuffers.packer.uoffset, buf, pos)
+        return cls.InitFromBuf(buf, pos+n)
+
+    @classmethod
+    def InitFromObj(cls, geluAttrs):
+        x = GeluAttrsT()
+        x._UnPack(geluAttrs)
+        return x
+
+    # GeluAttrsT
+    def _UnPack(self, geluAttrs):
+        if geluAttrs is None:
+            return
+
+    # GeluAttrsT
+    def Pack(self, builder):
+        GeluAttrsStart(builder)
+        geluAttrs = GeluAttrsEnd(builder)
+        return geluAttrs
 
 
 class GemmAttrs(object):
@@ -4517,7 +4585,7 @@ class OperatorNodeT(object):
     def __init__(self):
         self.type = 0  # type: int
         self.attrsType = 0  # type: int
-        self.attrs = None  # type: Union[None, ArgMaxAttrsT, AveragePoolAttrsT, BatchNormalizationAttrsT, CastAttrsT, ConcatAttrsT, ConstantOfShapeAttrsT, ConvAttrsT, ConvTransposeAttrsT, FlattenAttrsT, GatherAttrsT, GemmAttrsT, GRUAttrsT, LeakyReluAttrsT, LSTMAttrsT, MaxPoolAttrsT, ReduceMeanAttrsT, ReshapeAttrsT, ResizeAttrsT, SplitAttrsT, SoftmaxAttrsT, TransposeAttrsT, ModAttrsT, ScatterElementsAttrsT, OneHotAttrsT, TopKAttrsT, HardSigmoidAttrsT, TriluAttrsT, ScatterNDAttrsT, NonMaxSuppressionAttrsT, LayerNormalizationAttrsT, RandomUniformAttrsT, EluAttrsT, RandomUniformLikeAttrsT, RandomNormalAttrsT, RandomNormalLikeAttrsT, GatherNDAttrsT]
+        self.attrs = None  # type: Union[None, ArgMaxAttrsT, AveragePoolAttrsT, BatchNormalizationAttrsT, CastAttrsT, ConcatAttrsT, ConstantOfShapeAttrsT, ConvAttrsT, ConvTransposeAttrsT, FlattenAttrsT, GatherAttrsT, GemmAttrsT, GRUAttrsT, LeakyReluAttrsT, LSTMAttrsT, MaxPoolAttrsT, ReduceMeanAttrsT, ReshapeAttrsT, ResizeAttrsT, SplitAttrsT, SoftmaxAttrsT, TransposeAttrsT, ModAttrsT, ScatterElementsAttrsT, OneHotAttrsT, TopKAttrsT, HardSigmoidAttrsT, TriluAttrsT, ScatterNDAttrsT, NonMaxSuppressionAttrsT, LayerNormalizationAttrsT, RandomUniformAttrsT, EluAttrsT, RandomUniformLikeAttrsT, RandomNormalAttrsT, RandomNormalLikeAttrsT, GatherNDAttrsT, GeluAttrsT]
         self.inputs = None  # type: List[int]
         self.outputs = None  # type: List[int]
 
