@@ -101,6 +101,7 @@ mod iter_util;
 mod model;
 mod model_metadata;
 mod number;
+mod op_registry;
 mod optimize;
 mod slice_reductions;
 mod tensor_pool;
@@ -117,8 +118,9 @@ pub mod ctc;
 pub mod ops;
 
 pub use graph::{Dimension, NodeId, RunError, RunOptions};
-pub use model::{Model, ModelLoadError, ModelOptions, NodeInfo, OpRegistry, ReadOp, ReadOpError};
+pub use model::{Model, ModelLoadError, ModelOptions, NodeInfo};
 pub use model_metadata::ModelMetadata;
+pub use op_registry::{OpRegistry, ReadOp, ReadOpError};
 pub use ops::{FloatOperators, Input, InputOrOutput, Operators, Output};
 pub use tensor_pool::{ExtractBuffer, PoolRef, TensorPool};
 pub use threading::{thread_pool, ThreadPool};
