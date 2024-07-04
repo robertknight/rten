@@ -1,6 +1,6 @@
 use flatbuffers::{FlatBufferBuilder, UnionWIPOffset, Vector, WIPOffset};
 use rten_tensor::prelude::*;
-use rten_tensor::{Tensor, TensorView};
+use rten_tensor::TensorView;
 
 use crate::graph::Dimension;
 use crate::header::Header;
@@ -252,20 +252,6 @@ impl<'a> ModelBuilder<'a> {
         let node = sg::Node::create(&mut self.builder, &args);
         self.nodes.push(node);
         (self.nodes.len() - 1) as u32
-    }
-
-    /// Add a constant node (eg. weights, biases) to the model.
-    ///
-    /// Deprecated. Use `add_constant` instead.
-    pub fn add_float_constant(&mut self, input: &Tensor) -> u32 {
-        self.add_constant(input.view())
-    }
-
-    /// Add a constant node (eg. weights, biases) to the model
-    ///
-    /// Deprecated. Use `add_constant` instead.
-    pub fn add_int_constant(&mut self, input: &Tensor<i32>) -> u32 {
-        self.add_constant(input.view())
     }
 
     /// Add a constant node (eg. weights, biases) to the model
