@@ -1513,7 +1513,7 @@ mod tests {
         let mut builder = ModelBuilder::new(format);
 
         let const_val = Tensor::from_data(&[1, 2, 2], vec![0.5, -0.5, 0.1, -0.1]);
-        let const_node = builder.add_float_constant(&const_val);
+        let const_node = builder.add_constant(const_val.view());
 
         let input_shape: Vec<Dimension> = const_val
             .shape()
@@ -1772,7 +1772,7 @@ mod tests {
         let input_shape = [1, 1, 3, 3];
 
         let kernel_val = Tensor::from_data(&[1, 1, 1, 1], vec![0.5]);
-        let kernel = builder.add_float_constant(&kernel_val);
+        let kernel = builder.add_constant(kernel_val.view());
 
         // Names of all operator output nodes.
         let mut op_outputs = Vec::new();
@@ -1827,7 +1827,7 @@ mod tests {
         // Dummy value for BatchNormalization inputs which are vectors with
         // per-channel values.
         let batch_norm_param_val = tensor!([1.0]);
-        let batch_norm_param = builder.add_float_constant(&batch_norm_param_val);
+        let batch_norm_param = builder.add_constant(batch_norm_param_val.view());
         add_operator!(
             BatchNormalization,
             [
@@ -1843,12 +1843,12 @@ mod tests {
         add_operator!(Cast, [input_node], { to: ops::DataType::Float });
         add_operator!(Ceil, [input_node]);
 
-        let clip_min = builder.add_float_constant(&tensor!(1.));
-        let clip_max = builder.add_float_constant(&tensor!(6.));
+        let clip_min = builder.add_constant(tensor!(1.).view());
+        let clip_max = builder.add_constant(tensor!(6.).view());
         add_operator!(Clip, [input_node, clip_min, clip_max]);
         add_operator!(Concat, [input_node, input_node], { axis: 0 });
 
-        let shape = builder.add_int_constant(&Tensor::from_data(&[3], vec![1, 5, 10]));
+        let shape = builder.add_constant(Tensor::from([1, 5, 10]).view());
         add_operator!(ConstantOfShape, [shape], { value: Scalar::Int(42) });
 
         add_operator!(Conv, [input_node, kernel], {
@@ -1870,18 +1870,18 @@ mod tests {
         add_operator!(Exp, [input_node]);
 
         let expand_shape_val = tensor!([2, 2, 3, 3]);
-        let expand_shape = builder.add_int_constant(&expand_shape_val);
+        let expand_shape = builder.add_constant(expand_shape_val.view());
         add_operator!(Expand, [input_node, expand_shape]);
 
         add_operator!(Flatten, [input_node], { axis: 1 });
         add_operator!(Floor, [input_node]);
 
-        let gather_indices_val = Tensor::from_data(&[1], vec![0]);
-        let gather_indices = builder.add_int_constant(&gather_indices_val);
+        let gather_indices_val = Tensor::from([0]);
+        let gather_indices = builder.add_constant(gather_indices_val.view());
         add_operator!(Gather, [input_node, gather_indices], { axis: 0 });
 
-        let gather_elements_indices_val = Tensor::zeros(&input_shape);
-        let gather_elements_indices = builder.add_int_constant(&gather_elements_indices_val);
+        let gather_elements_indices_val = Tensor::<i32>::zeros(&input_shape);
+        let gather_elements_indices = builder.add_constant(gather_elements_indices_val.view());
         add_operator!(GatherElements, [input_node, gather_elements_indices], { axis: 0 });
         add_operator!(Gelu, [input_node]);
         add_operator!(Gemm, [input_2d, input_2d], {
@@ -1904,17 +1904,17 @@ mod tests {
         add_operator!(Identity, [input_node]);
 
         let instance_norm_scale_val = tensor!([1.0]);
-        let instance_norm_scale = builder.add_float_constant(&instance_norm_scale_val);
+        let instance_norm_scale = builder.add_constant(instance_norm_scale_val.view());
         let instance_norm_bias_val = tensor!([1.0]);
-        let instance_norm_bias = builder.add_float_constant(&instance_norm_bias_val);
+        let instance_norm_bias = builder.add_constant(instance_norm_bias_val.view());
         add_operator!(InstanceNormalization, [
             input_node, instance_norm_scale, instance_norm_bias
         ], { epsilon: Some(1e-5) });
 
         let layer_norm_scale_val = tensor!([1.0]);
-        let layer_norm_scale = builder.add_float_constant(&layer_norm_scale_val);
+        let layer_norm_scale = builder.add_constant(layer_norm_scale_val.view());
         let layer_norm_bias_val = tensor!([1.0]);
-        let layer_norm_bias = builder.add_float_constant(&layer_norm_bias_val);
+        let layer_norm_bias = builder.add_constant(layer_norm_bias_val.view());
         add_operator!(LayerNormalization, [
             input_node, layer_norm_scale, layer_norm_bias
         ], { axis: -1, epsilon: Some(1e-5) });
@@ -1944,12 +1944,12 @@ mod tests {
 
         let nms_n_boxes = 10;
         let nms_n_classes = 20;
-        let nms_boxes = builder.add_float_constant(&Tensor::zeros(&[1, nms_n_boxes, 4]));
+        let nms_boxes = builder.add_constant(Tensor::<f32>::zeros(&[1, nms_n_boxes, 4]).view());
         let nms_scores =
-            builder.add_float_constant(&Tensor::zeros(&[1, nms_n_classes, nms_n_boxes]));
-        let nms_max_outputs_per_class = builder.add_int_constant(&tensor!(10));
-        let nms_iou_threshold = builder.add_float_constant(&tensor!(0.45));
-        let nms_score_threshold = builder.add_float_constant(&tensor!(0.2));
+            builder.add_constant(Tensor::<f32>::zeros(&[1, nms_n_classes, nms_n_boxes]).view());
+        let nms_max_outputs_per_class = builder.add_constant(Tensor::from_scalar(10).view());
+        let nms_iou_threshold = builder.add_constant(Tensor::from_scalar(0.45).view());
+        let nms_score_threshold = builder.add_constant(Tensor::from_scalar(0.2).view());
 
         add_operator!(NonMaxSuppression, [nms_boxes, nms_scores, nms_max_outputs_per_class, nms_iou_threshold, nms_score_threshold], {
             box_order: BoxOrder::CenterWidthHeight,
@@ -1958,16 +1958,16 @@ mod tests {
         add_operator!(NonZero, [input_node]);
         add_operator!(Not, [input_bool]);
 
-        let onehot_indices = builder.add_int_constant(&tensor!([0, 1, 2]));
-        let onehot_depth = builder.add_int_constant(&tensor!(5));
-        let onehot_values = builder.add_float_constant(&tensor!([1., 0.]));
+        let onehot_indices = builder.add_constant(Tensor::from([0, 1, 2]).view());
+        let onehot_depth = builder.add_constant(Tensor::from_scalar(5).view());
+        let onehot_values = builder.add_constant(Tensor::from([1., 0.]).view());
         add_operator!(OneHot, [onehot_indices, onehot_depth, onehot_values], {
             axis: -1,
         });
 
         add_operator!(Or, [input_bool, input_bool]);
 
-        let pads = builder.add_int_constant(&Tensor::from_data(&[8], vec![0, 0, 1, 1, 0, 0, 1, 1]));
+        let pads = builder.add_constant(Tensor::from([0, 0, 1, 1, 0, 0, 1, 1]).view());
         add_operator!(Pad, [input_node, pads]);
         add_operator!(Pow, [input_node, input_node]);
 
@@ -2029,15 +2029,15 @@ mod tests {
         });
         add_operator!(Relu, [input_node]);
 
-        let new_shape = builder.add_int_constant(&Tensor::from_data(&[1], vec![9]));
+        let new_shape = builder.add_constant(Tensor::from([9]).view());
         add_operator!(Reshape, [input_node, new_shape], {
             allow_zero: false,
         });
 
         let resize_roi_val = tensor!([0., 0., 0., 0., 1., 1., 1., 1.]);
         let resize_scales_val = tensor!([1., 1., 2., 2.]);
-        let resize_roi = builder.add_float_constant(&resize_roi_val);
-        let resize_scales = builder.add_float_constant(&resize_scales_val);
+        let resize_roi = builder.add_constant(resize_roi_val.view());
+        let resize_scales = builder.add_constant(resize_scales_val.view());
         add_operator!(Resize, [input_node, resize_roi, resize_scales], {
             mode: ResizeMode::Nearest,
             nearest_mode: NearestMode::default(),
@@ -2052,18 +2052,18 @@ mod tests {
         add_operator!(Sin, [input_node]);
         add_operator!(Size, [input_node]);
 
-        let scatter_elem_indices_val = Tensor::zeros(&input_shape);
-        let scatter_elem_indices = builder.add_int_constant(&scatter_elem_indices_val);
-        let scatter_elem_updates_val = Tensor::zeros(&input_shape);
-        let scatter_elem_updates = builder.add_float_constant(&scatter_elem_updates_val);
+        let scatter_elem_indices_val = Tensor::<i32>::zeros(&input_shape);
+        let scatter_elem_indices = builder.add_constant(scatter_elem_indices_val.view());
+        let scatter_elem_updates_val = Tensor::<f32>::zeros(&input_shape);
+        let scatter_elem_updates = builder.add_constant(scatter_elem_updates_val.view());
         add_operator!(
             ScatterElements,
             [input_node, scatter_elem_indices, scatter_elem_updates],
             { axis: 0, reduction: None }
         );
 
-        let const_0 = builder.add_int_constant(&Tensor::from_data(&[1], vec![0]));
-        let const_1 = builder.add_int_constant(&Tensor::from_data(&[1], vec![1]));
+        let const_0 = builder.add_constant(Tensor::from([0]).view());
+        let const_1 = builder.add_constant(Tensor::from([1]).view());
         add_operator!(Slice, [input_node, const_0, const_1, const_0]);
 
         add_operator!(Softplus, [input_node]);
@@ -2071,7 +2071,7 @@ mod tests {
         add_operator!(Sqrt, [input_node]);
         add_operator!(Squeeze, [input_node]);
 
-        let split_splits = builder.add_int_constant(&tensor!([1, 2]));
+        let split_splits = builder.add_constant(Tensor::from([1, 2]).view());
         let split_out_1 = builder.add_value("Split_out_1", None);
         let split_out_2 = builder.add_value("Split_out_2", None);
         builder.add_operator(
@@ -2086,10 +2086,10 @@ mod tests {
         add_operator!(Tan, [input_node]);
         add_operator!(Tanh, [input_node]);
 
-        let tile_repeats = builder.add_int_constant(&tensor!([1, 2, 3, 4]));
+        let tile_repeats = builder.add_constant(Tensor::from([1, 2, 3, 4]).view());
         add_operator!(Tile, [input_node, tile_repeats]);
 
-        let topk_k = builder.add_int_constant(&tensor!(3));
+        let topk_k = builder.add_constant(Tensor::from_scalar(3).view());
         let topk_out_values = builder.add_value("TopK_out_values", None);
         let topk_out_indices = builder.add_value("TopK_out_indices", None);
         builder.add_operator(
@@ -2107,7 +2107,7 @@ mod tests {
 
         add_operator!(Trilu, [input_node], { upper: true });
 
-        let unsqueeze_axes = builder.add_int_constant(&tensor!([0, 4]));
+        let unsqueeze_axes = builder.add_constant(Tensor::from([0, 4]).view());
         add_operator!(Unsqueeze, [input_node, unsqueeze_axes]);
 
         let where_cond = builder.add_value("where_cond", None);
