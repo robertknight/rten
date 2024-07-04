@@ -22,7 +22,7 @@ use smallvec::SmallVec;
 
 use rten_tensor::prelude::*;
 use rten_tensor::{
-    DynLayout, MutLayout, NdTensor, NdTensorView, Tensor, TensorBase, TensorView, ViewData,
+    DynLayout, MutLayout, NdTensor, NdTensorView, Storage, Tensor, TensorBase, TensorView, ViewData,
 };
 
 use crate::downcast::impl_downcastdyn;
@@ -509,6 +509,16 @@ impl<'a> InputOrOutput<'a> {
 impl<'a> From<Input<'a>> for InputOrOutput<'a> {
     fn from(val: Input<'a>) -> Self {
         InputOrOutput::Input(val)
+    }
+}
+
+impl<'a, T: 'static, S: Storage<Elem = T>, L: MutLayout> From<&'a TensorBase<S, L>>
+    for InputOrOutput<'a>
+where
+    Input<'a>: From<TensorView<'a, T>>,
+{
+    fn from(val: &'a TensorBase<S, L>) -> Self {
+        InputOrOutput::Input(val.as_dyn().into())
     }
 }
 

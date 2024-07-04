@@ -639,10 +639,10 @@ pub enum ModelLoadError {
     GraphError(String),
 
     /// An error occurred while optimizing the graph.
-    OptimizeError(Box<dyn Error + Send>),
+    OptimizeError(Box<dyn Error + Send + Sync>),
 
     /// The file's header is invalid.
-    InvalidHeader(Box<dyn Error + Send>),
+    InvalidHeader(Box<dyn Error + Send + Sync>),
 }
 
 impl Display for ModelLoadError {
