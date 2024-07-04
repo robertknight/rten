@@ -282,6 +282,14 @@ pub trait ReadOp: Operator + Sized + Send + Sync {
 }
 
 /// Convenience macro to simplify implementing [`ReadOp`].
+///
+/// The syntax is `impl_read_op!(BarOp, attrs_as_bar_attrs, constructor)` where
+/// `BarOp` is the type implementing [`Operator`], `attr_as_bar_attrs` is the
+/// method on `sg::OperatorNode` to get the associated attributes table and
+/// `constructor` is a function that takes the operator attributes and
+/// constructs a `BarOp` struct. There are a few tokens that can be used in
+/// place of `constructor` to reduce boilerplate when constructing different
+/// operators that take the same set of attributes.
 macro_rules! impl_read_op {
     ($op:ident) => {
         impl ReadOp for ops::$op {
@@ -295,7 +303,7 @@ macro_rules! impl_read_op {
         }
     };
 
-    ($op:ident, axis, $attrs_method:ident) => {
+    ($op:ident, $attrs_method:ident, axis) => {
         impl ReadOp for ops::$op {
             fn op_type() -> OperatorType {
                 OperatorType::$op
@@ -311,7 +319,7 @@ macro_rules! impl_read_op {
         }
     };
 
-    ($op:ident, reduce_axis, $attrs_method:ident) => {
+    ($op:ident, $attrs_method:ident, reduce_axis) => {
         impl ReadOp for ops::$op {
             fn op_type() -> OperatorType {
                 OperatorType::$op
@@ -328,7 +336,7 @@ macro_rules! impl_read_op {
         }
     };
 
-    ($op:ident, reduce_axes, $attrs_method:ident) => {
+    ($op:ident, $attrs_method:ident, reduce_axes) => {
         impl ReadOp for ops::$op {
             fn op_type() -> OperatorType {
                 OperatorType::$op
@@ -366,8 +374,8 @@ impl_read_op!(Abs);
 impl_read_op!(Acos);
 impl_read_op!(Add);
 impl_read_op!(And);
-impl_read_op!(ArgMax, reduce_axis, attrs_as_arg_max_attrs);
-impl_read_op!(ArgMin, reduce_axis, attrs_as_arg_max_attrs);
+impl_read_op!(ArgMax, attrs_as_arg_max_attrs, reduce_axis);
+impl_read_op!(ArgMin, attrs_as_arg_max_attrs, reduce_axis);
 impl_read_op!(Asin);
 impl_read_op!(Atan);
 impl_read_op!(
@@ -408,7 +416,7 @@ impl_read_op!(Cast, attrs_as_cast_attrs, |attrs: sg::CastAttrs| {
 });
 impl_read_op!(Ceil);
 impl_read_op!(Clip);
-impl_read_op!(Concat, axis, attrs_as_concat_attrs);
+impl_read_op!(Concat, attrs_as_concat_attrs, axis);
 impl_read_op!(Conv, attrs_as_conv_attrs, |attrs: sg::ConvAttrs| {
     let groups = attrs.groups() as usize;
     let padding = padding_from_attrs(attrs.auto_pad(), attrs.pads());
@@ -456,10 +464,10 @@ impl_read_op!(Equal);
 impl_read_op!(Erf);
 impl_read_op!(Exp);
 impl_read_op!(Expand);
-impl_read_op!(Flatten, axis, attrs_as_flatten_attrs);
+impl_read_op!(Flatten, attrs_as_flatten_attrs, axis);
 impl_read_op!(Floor);
-impl_read_op!(Gather, axis, attrs_as_gather_attrs);
-impl_read_op!(GatherElements, axis, attrs_as_gather_attrs);
+impl_read_op!(Gather, attrs_as_gather_attrs, axis);
+impl_read_op!(GatherElements, attrs_as_gather_attrs, axis);
 impl_read_op!(
     GatherND,
     attrs_as_gather_ndattrs,
@@ -539,7 +547,7 @@ impl_read_op!(
 impl_read_op!(Less);
 impl_read_op!(LessOrEqual);
 impl_read_op!(Log);
-impl_read_op!(LogSoftmax, axis, attrs_as_softmax_attrs);
+impl_read_op!(LogSoftmax, attrs_as_softmax_attrs, axis);
 impl_read_op!(LSTM, attrs_as_lstmattrs, |attrs: sg::LSTMAttrs| {
     let hidden_size = attrs.hidden_size() as usize;
     let direction = match attrs.direction() {
@@ -594,7 +602,7 @@ impl_read_op!(
 );
 impl_read_op!(NonZero);
 impl_read_op!(Not);
-impl_read_op!(OneHot, axis, attrs_as_one_hot_attrs);
+impl_read_op!(OneHot, attrs_as_one_hot_attrs, axis);
 impl_read_op!(Or);
 impl_read_op!(Pad);
 impl_read_op!(Pow);
@@ -662,13 +670,13 @@ impl_read_op!(
 
 impl_read_op!(Range);
 impl_read_op!(Reciprocal);
-impl_read_op!(ReduceL2, reduce_axes, attrs_as_reduce_mean_attrs);
-impl_read_op!(ReduceMax, reduce_axes, attrs_as_reduce_mean_attrs);
-impl_read_op!(ReduceMean, reduce_axes, attrs_as_reduce_mean_attrs);
-impl_read_op!(ReduceMin, reduce_axes, attrs_as_reduce_mean_attrs);
-impl_read_op!(ReduceProd, reduce_axes, attrs_as_reduce_mean_attrs);
-impl_read_op!(ReduceSum, reduce_axes, attrs_as_reduce_mean_attrs);
-impl_read_op!(ReduceSumSquare, reduce_axes, attrs_as_reduce_mean_attrs);
+impl_read_op!(ReduceL2, attrs_as_reduce_mean_attrs, reduce_axes);
+impl_read_op!(ReduceMax, attrs_as_reduce_mean_attrs, reduce_axes);
+impl_read_op!(ReduceMean, attrs_as_reduce_mean_attrs, reduce_axes);
+impl_read_op!(ReduceMin, attrs_as_reduce_mean_attrs, reduce_axes);
+impl_read_op!(ReduceProd, attrs_as_reduce_mean_attrs, reduce_axes);
+impl_read_op!(ReduceSum, attrs_as_reduce_mean_attrs, reduce_axes);
+impl_read_op!(ReduceSumSquare, attrs_as_reduce_mean_attrs, reduce_axes);
 impl_read_op!(Relu);
 impl_read_op!(
     Reshape,
@@ -732,9 +740,9 @@ impl_read_op!(Sign);
 impl_read_op!(Sin);
 impl_read_op!(Size);
 impl_read_op!(Slice);
-impl_read_op!(Softmax, axis, attrs_as_softmax_attrs);
+impl_read_op!(Softmax, attrs_as_softmax_attrs, axis);
 impl_read_op!(Softplus);
-impl_read_op!(Split, axis, attrs_as_split_attrs);
+impl_read_op!(Split, attrs_as_split_attrs, axis);
 impl_read_op!(Sqrt);
 impl_read_op!(Squeeze);
 impl_read_op!(Sub);
