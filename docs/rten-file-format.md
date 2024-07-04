@@ -8,7 +8,15 @@ such as PyTorch or Keras into [ONNX](https://onnx.ai) format, and converting the
 ONNX model to `.rten` using the
 [rten-convert](https://pypi.org/project/rten-convert/) tool.
 
-## Format structure
+## History
+
+There are two versions of the RTen model format. The second version added
+support for models larger than 2GB. RTen can load models in either format. The
+`rten-convert` tool currently generates the V1 format by default, and will
+generate the V2 format if the `--v2` flag is passed. The V2 format will become
+the default in future.
+
+## V2 format
 
 ### Overall structure
 
@@ -34,7 +42,7 @@ All numbers are encoded in little-endian order.
 - `model_data_offset` - Offset of the data describing the model
 - `model_data_len` - Length of the data describing the model
 - `tensor_data_offset` - Offset of the start of tensor data. Tensor references in
-  the model buffer are relative to this.
+  the model data are relative to this.
 
 ### Model data
 
@@ -56,10 +64,11 @@ The FlatBuffers schema can be found in `src/schema.fbs`.
 
 The tensor data section is a block of bytes referenced by the model data.
 
-## Earlier versions
+## V1 format
 
-The initial version of the `.rten` model format consisted of just the model
-data without the header or tensor data sections.
+The first version of the `.rten` model format consisted of just the model
+data without the header or tensor data sections. The FlatBuffers schema used by
+V1 is the same as V2.
 
 This was changed due to FlatBuffers having a 2GB file
 size limit, and also to enable more control over the alignment of tensor data.
