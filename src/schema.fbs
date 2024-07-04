@@ -197,6 +197,7 @@ union OperatorAttrs {
   RandomNormalAttrs,
   RandomNormalLikeAttrs,
   GatherNDAttrs,
+  GeluAttrs,
 }
 
 table ArgMaxAttrs {
@@ -286,6 +287,9 @@ table GatherAttrs {
 table GatherNDAttrs {
   batch_dims:int;
 }
+
+// Reserved for supporting `approximate` attr in future.
+table GeluAttrs {}
 
 table GemmAttrs {
   alpha:float;
