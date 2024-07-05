@@ -11,3 +11,4 @@ dist/
 
 # Converted rten ML models
 *.rten
+models/
