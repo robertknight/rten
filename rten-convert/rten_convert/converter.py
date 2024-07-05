@@ -1397,9 +1397,9 @@ def main():
         "-m", "--metadata", help="Path to JSON file containing model metadata."
     )
     parser.add_argument(
-        "--v2",
+        "--v1",
         action="store_true",
-        help="Generate version 2 .rten models, with support for files > 2GB",
+        help="Generate version 1 .rten models. These are limited to files < 2GB",
     )
     parser.add_argument("out_name", help="Output model file name", nargs="?")
     args = parser.parse_args()
@@ -1409,7 +1409,7 @@ def main():
         model_basename = splitext(args.model)[0]
         output_path = f"{model_basename}.rten"
 
-    use_v2_format = args.v2
+    use_v2_format = not args.v1
     if use_v2_format:
         tensor_data = TensorDataBuilder()
     else:
@@ -1426,7 +1426,7 @@ def main():
         print("Model buffer exceeded maximum size (2GB)", file=sys.stderr)
         if not use_v2_format:
             print(
-                "To serialize models > 2GB, the V2 format must be used via the `--v2` flag.",
+                "To serialize models > 2GB, the V2 format must be used.",
                 file=sys.stderr,
             )
         sys.exit(1)
