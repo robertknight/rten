@@ -1,12 +1,22 @@
 # RTen model format
 
 RTen model files (`.rten`) contain the computation graph for a machine learning
-model, model metadata and weights.
+model, model metadata and weights. The format is designed to be efficient to
+load and to minimize additional memory required, beyond the size of the file
+itself.
 
 RTen files are produced by exporting models from a machine learning framework
 such as PyTorch or Keras into [ONNX](https://onnx.ai) format, and converting the
 ONNX model to `.rten` using the
 [rten-convert](https://pypi.org/project/rten-convert/) tool.
+
+## Compatibility
+
+The `rten-convert` tool and `rten` Rust crate have version numbers that are
+aligned. A `.rten` model produced by version X of `rten-convert` can be read by
+version X of the `rten` crate or newer. Models produced by version X of
+`rten-convert` _may_ work with earlier versions of `rten` as long as the model
+does not rely on operators or attributes that were added in version X.
 
 ## History
 
@@ -62,7 +72,9 @@ The FlatBuffers schema can be found in `src/schema.fbs`.
 
 ### Tensor data
 
-The tensor data section is a block of bytes referenced by the model data.
+The tensor data section is a block of bytes referenced by the model data. The
+shape of tensors, type of elements and other metadata is contained in the model
+data.
 
 ## V1 format
 
