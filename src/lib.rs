@@ -5,7 +5,8 @@
 //! To use a model trained with a framework such as
 //! [PyTorch](https://pytorch.org), it needs to first be exported into
 //! [ONNX](https://onnx.ai) format and then converted into `.rten` format using
-//! the [`rten-convert`](https://pypi.org/project/rten-convert/) tool.
+//! the [`rten-convert`](https://pypi.org/project/rten-convert/) tool. See the
+//! [rten model format][file_format] docs for more details on the file format.
 //!
 //! # Loading and running models
 //!
@@ -82,6 +83,7 @@
 //! [rten_examples]: https://github.com/robertknight/rten/tree/main/rten-examples
 //! [onnx_operators]: https://onnx.ai/onnx/operators/
 //! [schema_fbs]: https://github.com/robertknight/rten/blob/main/src/schema.fbs
+//! [file_format]: https://github.com/robertknight/rten/blob/main/docs/rten-file-format.md
 #![cfg_attr(
     feature = "avx512",
     feature(stdarch_x86_avx512),
