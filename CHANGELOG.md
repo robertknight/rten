@@ -30,10 +30,22 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   model.run(vec![(input_id, tensor_view.into())], output_ids, None)
   ```
 
+#### New features
+
+- Add a new version of the `.rten` file format which supports models over 2GB
+  in size. The `rten-convert` tool still generates V1 models by default but
+  will generate the V2 format if the `--v2` flag is provided
+  (https://github.com/robertknight/rten/pull/260).
+
+- Support `Gelu` operator (https://github.com/robertknight/rten/pull/248)
+
 #### Bug fixes
 
 - Prevent `Model::partial_run` from propagating values through randomized
   operators (https://github.com/robertknight/rten/pull/240).
+
+- Improved accuracy of timing metrics and eliminated unaccounted for
+  ("[Other]") time https://github.com/robertknight/rten/pull/254.
 
 #### Performance improvements
 
@@ -41,6 +53,20 @@ This release adds a new graph optimization step as part of loading models. This
 performs fusions and other optimizations to speed up inference. These
 optimizations are enabled by default, but can be disabled via options in
 `ModelOptions`.
+
+- Improved parallelism in the `Softmax` operator (https://github.com/robertknight/rten/pull/258)
+
+- Made `Tensor::inner_iter` faster (https://github.com/robertknight/rten/pull/259)
+
+- Made `Gather`, `Concat` and `Unsqueeze` operators faster for small inputs.
+  These operations are common in subgraphs that operator on tensor shapes.
+  https://github.com/robertknight/rten/pull/255,
+  https://github.com/robertknight/rten/pull/256,
+  https://github.com/robertknight/rten/pull/257.
+
+- Optimized vector-matrix multiplication (https://github.com/robertknight/rten/pull/250,
+  https://github.com/robertknight/rten/pull/253). This benefits transformer
+  decoder inference when the batch size is 1.
 
 - Fuse `Mul(X, Sigmoid(X))` subgraphs into a `Silu` operation. This speeds up
   YOLOv8 by 8%. See https://github.com/robertknight/rten/pull/246.
