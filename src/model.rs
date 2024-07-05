@@ -803,7 +803,7 @@ mod tests {
 
     #[test]
     fn test_model_input_output_ids() {
-        let buffer = generate_model_buffer(ModelFormat::V1);
+        let buffer = generate_model_buffer(ModelFormat::V2);
 
         let model = Model::load(buffer).unwrap();
 
@@ -828,7 +828,7 @@ mod tests {
 
     #[test]
     fn test_unsupported_operator() {
-        let buffer = generate_model_buffer(ModelFormat::V1);
+        let buffer = generate_model_buffer(ModelFormat::V2);
         let registry = OpRegistry::new();
         let result = ModelOptions::with_ops(registry).load(buffer);
 
@@ -845,7 +845,7 @@ mod tests {
 
     #[test]
     fn test_shape_info() {
-        let buffer = generate_model_buffer(ModelFormat::V1);
+        let buffer = generate_model_buffer(ModelFormat::V2);
         let model = Model::load(buffer).unwrap();
         let input_id = model.input_ids()[0];
 
@@ -858,7 +858,7 @@ mod tests {
 
     #[test]
     fn test_metadata() {
-        let buffer = generate_model_buffer(ModelFormat::V1);
+        let buffer = generate_model_buffer(ModelFormat::V2);
         let model = Model::load(buffer).unwrap();
         assert_eq!(model.metadata().onnx_hash(), Some("abc"));
         assert_eq!(model.metadata().description(), None);
@@ -866,7 +866,7 @@ mod tests {
 
     #[test]
     fn test_input_shape() {
-        let buffer = generate_model_buffer(ModelFormat::V1);
+        let buffer = generate_model_buffer(ModelFormat::V2);
         let model = Model::load(buffer).unwrap();
         assert_eq!(
             model.input_shape(0),
@@ -922,7 +922,7 @@ mod tests {
 
     #[test]
     fn test_load_file() {
-        let buffer = generate_model_buffer(ModelFormat::V1);
+        let buffer = generate_model_buffer(ModelFormat::V2);
         std::fs::write("model-load-file-test.rten", buffer).unwrap();
 
         let model = Model::load_file("model-load-file-test.rten").unwrap();
@@ -939,7 +939,7 @@ mod tests {
     #[cfg(feature = "mmap")]
     #[test]
     fn test_load_mmap() {
-        let buffer = generate_model_buffer(ModelFormat::V1);
+        let buffer = generate_model_buffer(ModelFormat::V2);
         std::fs::write("model-load-mmap-test.rten", buffer).unwrap();
 
         let model = unsafe { Model::load_mmap("model-load-mmap-test.rten").unwrap() };
@@ -955,7 +955,7 @@ mod tests {
 
     #[test]
     fn test_run_one() {
-        let buffer = generate_model_buffer(ModelFormat::V1);
+        let buffer = generate_model_buffer(ModelFormat::V2);
         let model = Model::load(buffer).unwrap();
 
         let input = tensor!((1, 2, 2); [1., 2., -1., -2.]);
@@ -971,7 +971,7 @@ mod tests {
 
     #[test]
     fn test_omitted_optional_inputs() {
-        let mut builder = ModelBuilder::new(ModelFormat::V1);
+        let mut builder = ModelBuilder::new(ModelFormat::V2);
 
         let output_node = builder.add_value("output", None);
         builder.add_output(output_node);
@@ -1002,7 +1002,7 @@ mod tests {
     // executed successfully.
     #[test]
     fn test_all_op_types() {
-        let mut builder = ModelBuilder::new(ModelFormat::V1);
+        let mut builder = ModelBuilder::new(ModelFormat::V2);
 
         let input_node = builder.add_value("input", None);
         let input_2d = builder.add_value("input.2d", None);

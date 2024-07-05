@@ -22,9 +22,8 @@ does not rely on operators or attributes that were added in version X.
 
 There are two versions of the RTen model format. The second version added
 support for models larger than 2GB. RTen can load models in either format. The
-`rten-convert` tool currently generates the V1 format by default, and will
-generate the V2 format if the `--v2` flag is passed. The V2 format will become
-the default in future.
+`rten-convert` tool generates the V2 format by default, and will generate the V1
+format if the `--v1` flag is passed.
 
 ## V2 format
 
