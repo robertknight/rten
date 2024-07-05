@@ -166,7 +166,8 @@ pub enum DataType {
     Float,
 }
 
-/// Enum of the different types of input tensor that an operator can accept.
+/// Enum of the different types of tensor view that can be used as a model or
+/// operator input.
 #[derive(Clone)]
 pub enum Input<'a> {
     FloatTensor(TensorView<'a, f32>),
@@ -310,7 +311,8 @@ impl<'a> From<&'a Output> for Input<'a> {
     }
 }
 
-/// Enum of the different types of output tensor that an operator can produce.
+/// Enum of the different types of output tensor that a model or operator can
+/// return.
 #[derive(Debug, Clone, PartialEq)]
 pub enum Output {
     FloatTensor(Tensor<f32>),
@@ -474,10 +476,13 @@ impl_output_conversions!(FloatTensor, f32);
 impl_output_conversions!(IntTensor, i32);
 
 /// A value that is either a tensor view ([`Input`]) or an owned tensor
-/// ([`Output`]).
+/// ([`Output`]). The names originate from the usage of these types as model
+/// inputs and outputs.
 #[derive(Clone)]
 pub enum InputOrOutput<'a> {
+    /// A tensor view (like a slice)
     Input(Input<'a>),
+    /// An owned tensor (like a `Vec<T>`)
     Output(Output),
 }
 

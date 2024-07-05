@@ -547,7 +547,7 @@ impl Model {
     /// Execute the model and return the outputs specified by `outputs`.
     ///
     /// This method allows for running a model with a variable number of inputs
-    /// and outputs of different types. See [Model::run_one] or [Model::run_n]
+    /// and outputs of different types. See [`Model::run_one`] or [`Model::run_n`]
     /// for the common case of running a model with a single or statically
     /// known number of inputs and outputs.
     ///
@@ -568,8 +568,9 @@ impl Model {
 
     /// Run a model and retrieve `N` outputs.
     ///
-    /// This is a simplified version of [Model::run] for the common case of
-    /// executing a model with a statically known number of outputs.
+    /// This is a simplified version of [`Model::run`] for the common case of
+    /// executing a model with a statically known number of outputs. Use
+    /// [`Model::run`] instead if the number of outputs is known only at runtime.
     pub fn run_n<const N: usize>(
         &self,
         inputs: Vec<(NodeId, InputOrOutput)>,
@@ -623,12 +624,15 @@ impl Model {
 /// Errors reported by [Model::load].
 #[derive(Debug)]
 pub enum ModelLoadError {
+    /// The FlatBuffers data describing the model is not supported by this
+    /// version of RTen.
     SchemaVersionUnsupported,
 
     /// An error occurred reading the file from disk.
     ReadFailed(std::io::Error),
 
-    /// An error occurred parsing the FlatBuffers file.
+    /// An error occurred parsing the FlatBuffers data describing the model
+    /// structure.
     ParseFailed(flatbuffers::InvalidFlatbuffer),
 
     /// An error occurred deserializing an operator.
