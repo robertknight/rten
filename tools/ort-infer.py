@@ -82,12 +82,12 @@ def run_model(
         if dim in dynamic_dims:
             return dynamic_dims[dim]
         else:
-            raise ValueError(
-                f"Missing size for dynamic dim `{dim}`. Specify it with `-d {dim}=size`"
-            )
+            raise ValueError("Missing size for dynamic dim")
 
     inputs = {}
     output_names = [node.name for node in session.get_outputs()]
+    unresolved_dim_names = set()
+
     for node in session.get_inputs():
         type_map = {
             "tensor(float)": np.float32,
@@ -95,11 +95,34 @@ def run_model(
             "tensor(int64)": np.int64,
             "tensor(int32)": np.int32,
         }
-        resolved_shape = [
-            d if isinstance(d, int) else resolve_dim(d) for d in node.shape
-        ]
+
+        resolved_shape = []
+        for d in node.shape:
+            if isinstance(d, int):
+                resolved_shape.append(d)
+            else:
+                try:
+                    resolved_d = resolve_dim(d)
+                    resolved_shape.append(resolved_d)
+                except ValueError:
+                    # Collect names of dims with unresolved sizes. We then
+                    # list them all in one error. This avoids needing to run
+                    # the tool multiple times to get the names of all dynamic
+                    # inputs that the user needs to specify sizes for.
+                    unresolved_dim_names.add(d)
+        if unresolved_dim_names:
+            continue
+
         value = np.random.rand(*resolved_shape).astype(type_map[node.type])
         inputs[node.name] = value
+
+    if unresolved_dim_names:
+        unresolved_list = ", ".join(f'"{dim}"' for dim in unresolved_dim_names)
+        raise ValueError(
+            "Missing size for dynamic dims: {}. Specify with `-d dim_name=size`".format(
+                unresolved_list
+            )
+        )
 
     print(
         "Model inputs:",
