@@ -1,7 +1,7 @@
 use std::collections::VecDeque;
 use std::error::Error;
 
-use rten::{FloatOperators, Model};
+use rten::{FloatOperators, Model, Operators};
 use rten_imageio::{normalize_image, read_image, write_image};
 use rten_tensor::prelude::*;
 use rten_tensor::{NdTensor, Tensor};

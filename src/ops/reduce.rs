@@ -593,16 +593,16 @@ impl Operator for ReduceProd {
     }
 }
 
-pub fn reduce_sum<T: Copy + std::iter::Sum>(
+pub fn reduce_sum<T: Copy + Default + std::ops::Add<T, Output = T>>(
     pool: &TensorPool,
     input: TensorView<T>,
     axes: Option<&[i32]>,
     keep_dims: bool,
 ) -> Result<Tensor<T>, OpError> {
     struct SumReducer {}
-    impl<T: std::iter::Sum> Reducer<T> for SumReducer {
+    impl<T: Default + std::ops::Add<T, Output = T>> Reducer<T> for SumReducer {
         fn reduce<I: ExactSizeIterator<Item = T>>(&self, iter: I) -> T {
-            iter.sum()
+            iter.fold(T::default(), |a, b| a + b)
         }
     }
     reduce(pool, input, axes, keep_dims, SumReducer {})

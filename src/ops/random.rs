@@ -144,7 +144,7 @@ mod tests {
     use rten_tensor::prelude::*;
     use rten_tensor::Tensor;
 
-    use crate::ops::operators::FloatOperators;
+    use crate::ops::operators::{FloatOperators, Operators};
     use crate::ops::tests::{new_pool, run_op};
     use crate::ops::{InputList, Operator};
 
