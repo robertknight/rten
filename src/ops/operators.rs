@@ -38,6 +38,30 @@ pub trait Operators {
     where
         Self::Elem: Copy + Debug + Default + std::ops::Mul<Output = Self::Elem>;
 
+    fn reduce_max(
+        &self,
+        axes: Option<&[i32]>,
+        keep_dims: bool,
+    ) -> Result<Tensor<Self::Elem>, OpError>
+    where
+        Self::Elem: Copy + PartialOrd;
+
+    fn reduce_min(
+        &self,
+        axes: Option<&[i32]>,
+        keep_dims: bool,
+    ) -> Result<Tensor<Self::Elem>, OpError>
+    where
+        Self::Elem: Copy + PartialOrd;
+
+    fn reduce_sum(
+        &self,
+        axes: Option<&[i32]>,
+        keep_dims: bool,
+    ) -> Result<Tensor<Self::Elem>, OpError>
+    where
+        Self::Elem: Copy + Default + std::ops::Add<Self::Elem, Output = Self::Elem>;
+
     fn pad(
         &self,
         padding: NdTensorView<i32, 1>,
@@ -64,10 +88,7 @@ pub trait FloatOperators {
     fn matmul(&self, other: TensorView) -> Result<Tensor, OpError>;
 
     fn reduce_l2(&self, axes: Option<&[i32]>, keep_dims: bool) -> Result<Tensor, OpError>;
-    fn reduce_max(&self, axes: Option<&[i32]>, keep_dims: bool) -> Result<Tensor, OpError>;
     fn reduce_mean(&self, axes: Option<&[i32]>, keep_dims: bool) -> Result<Tensor, OpError>;
-    fn reduce_min(&self, axes: Option<&[i32]>, keep_dims: bool) -> Result<Tensor, OpError>;
-    fn reduce_sum(&self, axes: Option<&[i32]>, keep_dims: bool) -> Result<Tensor, OpError>;
 
     /// Resize an NCHW image tensor to a given `[height, width]` using bilinear
     /// interpolation.
@@ -119,6 +140,34 @@ impl<T: Send, S: Storage<Elem = T>, L: MutLayout> Operators for TensorBase<S, L>
         use_thread_pool(|| mul(&TensorPool::new(), view, other))
     }
 
+    fn reduce_max(&self, axes: Option<&[i32]>, keep_dims: bool) -> Result<Tensor<T>, OpError>
+    where
+        T: Copy + PartialOrd,
+    {
+        let view = self.as_dyn();
+        use_thread_pool(|| reduce_max(&TensorPool::new(), view, axes, keep_dims))
+    }
+
+    fn reduce_min(&self, axes: Option<&[i32]>, keep_dims: bool) -> Result<Tensor<T>, OpError>
+    where
+        T: Copy + PartialOrd,
+    {
+        let view = self.as_dyn();
+        use_thread_pool(|| reduce_min(&TensorPool::new(), view, axes, keep_dims))
+    }
+
+    fn reduce_sum(
+        &self,
+        axes: Option<&[i32]>,
+        keep_dims: bool,
+    ) -> Result<Tensor<Self::Elem>, OpError>
+    where
+        Self::Elem: Copy + Default + std::ops::Add<Self::Elem, Output = Self::Elem>,
+    {
+        let view = self.as_dyn();
+        use_thread_pool(|| reduce_sum(&TensorPool::new(), view, axes, keep_dims))
+    }
+
     fn pad(&self, padding: NdTensorView<i32, 1>, val: T) -> Result<Tensor<Self::Elem>, OpError>
     where
         Self::Elem: Copy,
@@ -153,24 +202,9 @@ impl<S: Storage<Elem = f32>, L: MutLayout> FloatOperators for TensorBase<S, L> {
         use_thread_pool(|| reduce_l2(&TensorPool::new(), view, axes, keep_dims))
     }
 
-    fn reduce_max(&self, axes: Option<&[i32]>, keep_dims: bool) -> Result<Tensor, OpError> {
-        let view = self.as_dyn();
-        use_thread_pool(|| reduce_max(&TensorPool::new(), view, axes, keep_dims))
-    }
-
-    fn reduce_min(&self, axes: Option<&[i32]>, keep_dims: bool) -> Result<Tensor, OpError> {
-        let view = self.as_dyn();
-        use_thread_pool(|| reduce_min(&TensorPool::new(), view, axes, keep_dims))
-    }
-
     fn reduce_mean(&self, axes: Option<&[i32]>, keep_dims: bool) -> Result<Tensor, OpError> {
         let view = self.as_dyn();
         use_thread_pool(|| reduce_mean(&TensorPool::new(), view, axes, keep_dims))
-    }
-
-    fn reduce_sum(&self, axes: Option<&[i32]>, keep_dims: bool) -> Result<Tensor, OpError> {
-        let view = self.as_dyn();
-        use_thread_pool(|| reduce_sum(&TensorPool::new(), view, axes, keep_dims))
     }
 
     fn resize_image(&self, size: [usize; 2]) -> Result<Tensor, OpError> {
