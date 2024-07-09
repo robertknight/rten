@@ -7,7 +7,7 @@ use rustc_hash::FxHashMap;
 use crate::downcast::DowncastDyn;
 use crate::graph::{Constant, ConstantNode, Graph, Node, NodeId, OperatorNode, RunError};
 use crate::ops::fused::FusedTranspose;
-use crate::ops::{MatMul, Mul, Operator, Sigmoid, Silu, Transpose};
+use crate::ops::{Mul, Operator, Sigmoid, Silu, Transpose};
 use crate::Output;
 
 /// Errors that occur while applying graph optimizations.
@@ -209,13 +209,13 @@ impl Fusion {
     fn from_op<Op: Operator + Send + Sync>(
         name: Option<&str>,
         op: Op,
-        input_ids: &[NodeId],
+        input_ids: Vec<Option<NodeId>>,
         old_output_id: NodeId,
     ) -> Fusion {
         Fusion {
             name: name.map(|s| s.to_string()),
             fused_op: Box::new(op),
-            input_ids: input_ids.iter().copied().map(Some).collect(),
+            input_ids,
             old_output_id,
         }
     }
@@ -303,7 +303,7 @@ impl GraphOptimizer {
 
         self.propagate_constants(&mut graph_mut)?;
 
-        self.fuse_transpose_matmul(&mut graph_mut)?;
+        self.fuse_transpose(&mut graph_mut)?;
         self.fuse_silu(&mut graph_mut)?;
 
         let (graph, output_ids) = graph_mut.into_graph_and_output_ids();
@@ -345,41 +345,50 @@ impl GraphOptimizer {
         Ok(())
     }
 
-    /// Fuse `MatMul(Transpose(X), Y)`.
+    /// Fuse `Op(Transpose(X), Y, ...) -> Z` into `FusedTranspose<Op>(X, Y, ...) -> Z`.
     ///
-    /// The `MatMul` inputs can be in either order.
-    fn fuse_transpose_matmul(&self, graph: &mut GraphMutator) -> Result<(), OptimizeError> {
+    /// This avoids materializing the transposed input for operators which can
+    /// efficiently handle the input being non-contiguous.
+    fn fuse_transpose(&self, graph: &mut GraphMutator) -> Result<(), OptimizeError> {
         graph.apply_fusion(|edges, op_node| {
             let (transpose_op, [transpose_input], [transpose_output]) =
                 op_node.match_type::<Transpose, 1, 1>()?;
 
             let transpose_target = edges.find_operator_with_input(transpose_output)?;
 
-            let (matmul_op, matmul_inputs, [matmul_output]) =
-                transpose_target.match_type::<MatMul, 2, 1>()?;
-            let [matmul_input_a, matmul_input_b] = matmul_inputs;
+            // Filter against a set of operators which are known to efficiently
+            // handle transposed inputs.
+            if !["MatMul"].contains(&transpose_target.operator().name()) {
+                return None;
+            }
 
-            let fused_input = if matmul_input_a == transpose_output {
-                [transpose_input, matmul_input_b]
-            } else {
-                [matmul_input_a, transpose_input]
-            };
+            // Only single-output operators are currently supported.
+            let target_output = match transpose_target.output_ids() {
+                [Some(output)] => Some(*output),
+                _ => None,
+            }?;
+
+            // Replace transpose output with transpose input in the fused
+            // operator's inputs.
+            let fused_input_idx = transpose_target
+                .input_ids()
+                .iter()
+                .position(|&input_id| input_id == Some(transpose_output))
+                .expect("fused input missing");
+            let mut fused_input = transpose_target.input_ids().to_vec();
+            fused_input[fused_input_idx] = Some(transpose_input);
 
             let fused_op = FusedTranspose::wrap(
-                Box::new(matmul_op.clone()),
-                if matmul_input_a == transpose_output {
-                    0
-                } else {
-                    1
-                },
+                transpose_target.clone_operator(),
+                fused_input_idx,
                 transpose_op.perm.as_deref(),
             );
 
             Some(Fusion::from_op(
                 transpose_target.name(),
                 fused_op,
-                &fused_input,
-                matmul_output,
+                fused_input,
+                target_output,
             ))
         });
 
@@ -396,7 +405,12 @@ impl GraphOptimizer {
             let (_mul_op, mul_inputs, [mul_output]) = sigmoid_target.match_type::<Mul, 2, 1>()?;
 
             array_sets_equal(mul_inputs, [sigmoid_input, sigmoid_output]).then(|| {
-                Fusion::from_op(sigmoid_target.name(), Silu {}, &[sigmoid_input], mul_output)
+                Fusion::from_op(
+                    sigmoid_target.name(),
+                    Silu {},
+                    vec![Some(sigmoid_input)],
+                    mul_output,
+                )
             })
         });
 
@@ -535,7 +549,7 @@ mod tests {
     }
 
     #[test]
-    fn test_fuse_transpose_matmul() {
+    fn test_fuse_transpose() {
         let mut graph = Graph::new();
 
         let input_1 = graph.add_value(None, None);
