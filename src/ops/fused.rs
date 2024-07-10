@@ -1,3 +1,5 @@
+use std::sync::Arc;
+
 use rten_tensor::prelude::*;
 
 use crate::ops::{Input, InputList, OpError, Operator, OutputList};
@@ -42,14 +44,14 @@ impl PermuteSpec {
 /// before evaluating the wrapped operator.
 #[derive(Debug)]
 pub struct FusedTranspose {
-    inner: Box<dyn Operator + Send + Sync>,
+    inner: Arc<dyn Operator + Send + Sync>,
     perm: PermuteSpec,
     name: String,
 }
 
 impl FusedTranspose {
     pub fn wrap(
-        op: Box<dyn Operator + Send + Sync>,
+        op: Arc<dyn Operator + Send + Sync>,
         input_index: usize,
         permutation: Option<&[usize]>,
     ) -> FusedTranspose {
@@ -78,6 +80,7 @@ impl Operator for FusedTranspose {
 #[cfg(test)]
 mod tests {
     use std::error::Error;
+    use std::sync::Arc;
 
     use rten_tensor::prelude::*;
     use rten_tensor::Tensor;
@@ -127,7 +130,7 @@ mod tests {
             // binary op.
             let sub_op = Sub {};
             let fused_transpose =
-                FusedTranspose::wrap(Box::new(sub_op), transpose_input, Some(&[1, 0]));
+                FusedTranspose::wrap(Arc::new(sub_op), transpose_input, Some(&[1, 0]));
 
             let pool = new_pool();
             let mut outputs =

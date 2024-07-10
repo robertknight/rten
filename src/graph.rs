@@ -38,7 +38,7 @@ pub struct OperatorNode {
     name: Option<String>,
     inputs: Vec<Option<NodeId>>,
     outputs: Vec<Option<NodeId>>,
-    operator: Box<dyn Operator + Send + Sync>,
+    operator: Arc<dyn Operator + Send + Sync>,
 }
 
 impl OperatorNode {
@@ -56,6 +56,14 @@ impl OperatorNode {
 
     pub fn operator(&self) -> &dyn Operator {
         self.operator.as_ref()
+    }
+
+    /// Return a new `Arc` reference to this node's operator.
+    ///
+    /// Since operators are stateless and immutable once added to a graph, they
+    /// can be "cloned" just be creating a new reference.
+    pub fn clone_operator(&self) -> Arc<dyn Operator + Send + Sync> {
+        self.operator.clone()
     }
 
     pub fn replace_input(&mut self, old_id: NodeId, new_id: NodeId) {
@@ -413,7 +421,7 @@ impl Graph {
             name: name.map(|s| s.to_owned()),
             inputs: Vec::from(inputs),
             outputs: Vec::from(outputs),
-            operator: op,
+            operator: Arc::from(op),
         }));
         self.nodes.len() - 1
     }
