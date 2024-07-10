@@ -10,6 +10,8 @@ use crate::ops::fused::FusedTranspose;
 use crate::ops::{Mul, Operator, Sigmoid, Silu, Transpose};
 use crate::Output;
 
+mod pattern_matcher;
+
 /// Errors that occur while applying graph optimizations.
 #[derive(Debug, PartialEq)]
 pub enum OptimizeError {
@@ -435,7 +437,7 @@ mod tests {
     use crate::ops::{Add, MatMul, Mul, Operator, Sigmoid, Transpose};
 
     /// Extensions to [`Graph`] to make tests easier to write.
-    trait GraphTestUtils {
+    pub(crate) trait GraphTestUtils {
         /// Add a single-output operator to the graph and return a tuple of
         /// `(operator_node_id, output_node_id)`.
         fn add_simple_op<Op: Operator + Send + Sync + 'static>(
