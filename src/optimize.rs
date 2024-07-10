@@ -7,7 +7,7 @@ use rustc_hash::FxHashMap;
 use crate::downcast::DowncastDyn;
 use crate::graph::{Constant, ConstantNode, Graph, Node, NodeId, OperatorNode, RunError};
 use crate::ops::fused::FusedTranspose;
-use crate::ops::{Operator, Silu, Transpose};
+use crate::ops::{Gelu, Operator, Silu, Transpose};
 use crate::Output;
 
 mod pattern_matcher;
@@ -303,6 +303,7 @@ impl GraphOptimizer {
 
         self.fuse_transpose(&mut graph_mut)?;
         self.fuse_silu(&mut graph_mut)?;
+        self.fuse_gelu(&mut graph_mut)?;
 
         let (graph, output_ids) = graph_mut.into_graph_and_output_ids();
 
@@ -414,6 +415,36 @@ impl GraphOptimizer {
 
         Ok(())
     }
+
+    /// Fuse `0.5 * X * (1 + Erf(X / Sqrt(2)))` into `Gelu(X)`.
+    fn fuse_gelu(&self, graph: &mut GraphMutator) -> Result<(), OptimizeError> {
+        use pattern_matcher::{constant, symbol, unary_op};
+
+        // The expression for GELU is usually written as `x * 0.5 * (...)`
+        // instead of `x * (...) * 0.5`. Ideally our graph pattern matcher
+        // would be smart enough to let us write one pattern and have it match
+        // either structure. However it isn't. The pattern used matches PyTorch's
+        // `nn.GELU`.
+        let x = symbol("x");
+        let sqrt_2 = constant((2.0f32).sqrt());
+        let gelu_expr =
+            x.clone() * (unary_op("Erf", x.clone() / sqrt_2) + constant(1.0)) * constant(0.5);
+
+        graph.apply_fusion(|graph, op_node_id, op_node| {
+            let gelu_match = gelu_expr.test(op_node_id, graph.graph())?;
+            let gelu_input = gelu_match.resolved_symbol("x").expect("missing symbol");
+            let op_output = op_node.output_id()?;
+
+            Some(Fusion::from_op(
+                op_node.name(),
+                Gelu {},
+                vec![Some(gelu_input)],
+                op_output,
+            ))
+        });
+
+        Ok(())
+    }
 }
 
 impl Default for GraphOptimizer {
@@ -430,7 +461,7 @@ mod tests {
 
     use super::{GraphOptimizer, OptimizeError, OptimizedGraph};
     use crate::graph::{Constant, Graph, Node, NodeId, OperatorNode};
-    use crate::ops::{Add, MatMul, Mul, Operator, Sigmoid, Transpose};
+    use crate::ops::{Add, Div, Erf, MatMul, Mul, Operator, Sigmoid, Transpose};
 
     /// Extensions to [`Graph`] to make tests easier to write.
     pub(crate) trait GraphTestUtils {
@@ -578,6 +609,27 @@ mod tests {
         let op = source_operator(&graph, new_output_ids[0]).unwrap();
         assert_eq!(op.operator().name(), "Silu");
         assert_eq!(op.name(), Some("mul"));
+    }
+
+    #[test]
+    fn test_fuse_gelu() {
+        let mut graph = Graph::new();
+
+        let sqrt_2 = graph.add_constant(None, Tensor::from_scalar((2.0f32).sqrt()));
+        let one = graph.add_constant(None, Tensor::from_scalar(1.0));
+        let half = graph.add_constant(None, Tensor::from_scalar(0.5));
+
+        let input = graph.add_value(None, None);
+        let (_, div_out) = graph.add_simple_op("div", Div {}, &[input, sqrt_2]);
+        let (_, erf_out) = graph.add_simple_op("erf", Erf {}, &[div_out]);
+        let (_, add_out) = graph.add_simple_op("add", Add {}, &[erf_out, one]);
+        let (_, mul_out) = graph.add_simple_op("mul", Mul {}, &[input, add_out]);
+        let (_, mul_half_out) = graph.add_simple_op("mul_half", Mul {}, &[mul_out, half]);
+
+        let (graph, new_output_ids) = optimize_graph(graph, &[input], &[mul_half_out]).unwrap();
+        let op = source_operator(&graph, new_output_ids[0]).unwrap();
+        assert_eq!(op.operator().name(), "Gelu");
+        assert_eq!(op.name(), Some("mul_half"));
     }
 
     #[test]
