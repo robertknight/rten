@@ -7,8 +7,10 @@ use rustc_hash::FxHashMap;
 use crate::downcast::DowncastDyn;
 use crate::graph::{Constant, ConstantNode, Graph, Node, NodeId, OperatorNode, RunError};
 use crate::ops::fused::FusedTranspose;
-use crate::ops::{Mul, Operator, Sigmoid, Silu, Transpose};
+use crate::ops::{Operator, Silu, Transpose};
 use crate::Output;
+
+mod pattern_matcher;
 
 /// Errors that occur while applying graph optimizations.
 #[derive(Debug, PartialEq)]
@@ -131,11 +133,14 @@ impl GraphMutator {
 
     /// Iterate over each operator node in the graph and potentially apply a
     /// fusion which combines this node and adjacent nodes.
-    fn apply_fusion<F: Fn(&Self, &OperatorNode) -> Option<Fusion>>(&mut self, create_fusion: F) {
+    fn apply_fusion<F: Fn(&Self, NodeId, &OperatorNode) -> Option<Fusion>>(
+        &mut self,
+        create_fusion: F,
+    ) {
         let mut fusions = Vec::new();
 
-        for (_, op_node) in self.iter_operators() {
-            if let Some(fusion) = create_fusion(self, op_node) {
+        for (op_node_id, op_node) in self.iter_operators() {
+            if let Some(fusion) = create_fusion(self, op_node_id, op_node) {
                 fusions.push(fusion);
             }
         }
@@ -269,13 +274,6 @@ impl OperatorMatch for OperatorNode {
     }
 }
 
-/// Return true if `a` and `b`, viewed as sets, contain the same elements.
-fn array_sets_equal<T: PartialEq + Ord, const N: usize>(mut a: [T; N], mut b: [T; N]) -> bool {
-    a.sort_unstable();
-    b.sort_unstable();
-    a == b
-}
-
 /// Applies optimizations to a [`Graph`] to enable faster inference.
 pub struct GraphOptimizer {}
 
@@ -350,7 +348,7 @@ impl GraphOptimizer {
     /// This avoids materializing the transposed input for operators which can
     /// efficiently handle the input being non-contiguous.
     fn fuse_transpose(&self, graph: &mut GraphMutator) -> Result<(), OptimizeError> {
-        graph.apply_fusion(|edges, op_node| {
+        graph.apply_fusion(|edges, _op_node_id, op_node| {
             let (transpose_op, [transpose_input], [transpose_output]) =
                 op_node.match_type::<Transpose, 1, 1>()?;
 
@@ -397,21 +395,21 @@ impl GraphOptimizer {
 
     /// Fuse `x * Sigmoid(x)` into `Silu(x)`.
     fn fuse_silu(&self, graph: &mut GraphMutator) -> Result<(), OptimizeError> {
-        graph.apply_fusion(|graph, op_node| {
-            let (_sigmoid_op, [sigmoid_input], [sigmoid_output]) =
-                op_node.match_type::<Sigmoid, 1, 1>()?;
-            let sigmoid_target = graph.find_operator_with_input(sigmoid_output)?;
+        use pattern_matcher::{symbol, unary_op};
+        let x = symbol("x");
+        let silu_pattern = x.clone() * unary_op("Sigmoid", x.clone());
 
-            let (_mul_op, mul_inputs, [mul_output]) = sigmoid_target.match_type::<Mul, 2, 1>()?;
+        graph.apply_fusion(|graph, op_node_id, op_node| {
+            let silu_match = silu_pattern.test(op_node_id, graph.graph())?;
+            let silu_input = silu_match.resolved_symbol("x").expect("missing symbol");
+            let op_output = op_node.output_id()?;
 
-            array_sets_equal(mul_inputs, [sigmoid_input, sigmoid_output]).then(|| {
-                Fusion::from_op(
-                    sigmoid_target.name(),
-                    Silu {},
-                    vec![Some(sigmoid_input)],
-                    mul_output,
-                )
-            })
+            Some(Fusion::from_op(
+                op_node.name(),
+                Silu {},
+                vec![Some(silu_input)],
+                op_output,
+            ))
         });
 
         Ok(())
@@ -435,7 +433,7 @@ mod tests {
     use crate::ops::{Add, MatMul, Mul, Operator, Sigmoid, Transpose};
 
     /// Extensions to [`Graph`] to make tests easier to write.
-    trait GraphTestUtils {
+    pub(crate) trait GraphTestUtils {
         /// Add a single-output operator to the graph and return a tuple of
         /// `(operator_node_id, output_node_id)`.
         fn add_simple_op<Op: Operator + Send + Sync + 'static>(

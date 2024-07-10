@@ -54,6 +54,13 @@ impl OperatorNode {
         &self.outputs
     }
 
+    pub fn output_id(&self) -> Option<NodeId> {
+        match &self.outputs[..] {
+            [Some(id)] => Some(*id),
+            _ => None,
+        }
+    }
+
     pub fn operator(&self) -> &dyn Operator {
         self.operator.as_ref()
     }
@@ -145,7 +152,8 @@ impl Constant {
         }
     }
 
-    fn as_input(&self) -> Input {
+    /// Return the data for this constant as a tensor view.
+    pub fn as_input(&self) -> Input {
         match self {
             Constant::Float(f) => Input::FloatTensor(f.view()),
             Constant::Int(i) => Input::IntTensor(i.view()),
@@ -386,6 +394,10 @@ pub struct Graph {
 
     /// The plan that was used for the most recent execution of the graph.
     cached_plan: Mutex<Option<Arc<CachedPlan>>>,
+
+    /// Map of value node ID => source operator ID. This enables traversing the
+    /// graph from outputs to inputs.
+    source_ids: FxHashMap<NodeId, NodeId>,
 }
 
 impl Graph {
@@ -394,6 +406,7 @@ impl Graph {
         Graph {
             nodes: Vec::new(),
             cached_plan: Mutex::new(None),
+            source_ids: FxHashMap::default(),
         }
     }
 
@@ -423,7 +436,13 @@ impl Graph {
             outputs: Vec::from(outputs),
             operator: Arc::from(op),
         }));
-        self.nodes.len() - 1
+        let op_id = self.nodes.len() - 1;
+
+        for output_id in outputs.iter().flatten() {
+            self.source_ids.insert(*output_id, op_id);
+        }
+
+        op_id
     }
 
     /// Add a constant node to the graph.
@@ -478,6 +497,16 @@ impl Graph {
     /// Retrieve a node by ID
     pub fn get_node(&self, id: NodeId) -> Option<&Node> {
         self.nodes.get(id)
+    }
+
+    /// Look up the operator node which produced a given value node.
+    pub fn get_source_node(&self, id: NodeId) -> Option<(NodeId, &OperatorNode)> {
+        self.source_ids
+            .get(&id)
+            .and_then(|&id| match self.get_node(id) {
+                Some(Node::Operator(op_node)) => Some((id, op_node)),
+                _ => None,
+            })
     }
 
     /// Retrieve a node by ID
@@ -971,16 +1000,6 @@ impl Graph {
             return Err(RunError::PlanningError("input IDs are not unique".into()));
         }
 
-        // Map of output node to source operator
-        let mut operator_nodes = FxHashMap::default();
-        for (node_id, node) in self.nodes.iter().enumerate() {
-            if let Node::Operator(op_node) = node {
-                for output_id in op_node.outputs.iter().filter_map(|node| *node) {
-                    operator_nodes.insert(output_id, (node_id, op_node));
-                }
-            }
-        }
-
         // Build an execution plan via a depth first traversal of the graph
         // starting at the output nodes. A helper struct is used as recursive
         // closures are not supported in Rust.
@@ -988,10 +1007,6 @@ impl Graph {
             graph: &'a Graph,
             resolved_values: FxHashSet<NodeId>,
             plan: Vec<(NodeId, &'a OperatorNode)>,
-
-            // Map of output ID to (op node ID, op)
-            operator_nodes: FxHashMap<NodeId, (NodeId, &'a OperatorNode)>,
-
             options: PlanOptions,
         }
         impl<'a> PlanBuilder<'a> {
@@ -1006,9 +1021,7 @@ impl Graph {
                     if self.resolved_values.contains(&input) {
                         continue;
                     }
-                    if let Some((input_op_id, input_op_node)) =
-                        self.operator_nodes.get(&input).copied()
-                    {
+                    if let Some((input_op_id, input_op_node)) = self.graph.get_source_node(input) {
                         self.visit(input_op_id, input_op_node)?;
                     } else if self.options.allow_missing_inputs {
                         continue;
@@ -1038,8 +1051,7 @@ impl Graph {
                         continue;
                     }
 
-                    if let Some((op_node_id, op_node)) = self.operator_nodes.get(output_id).copied()
-                    {
+                    if let Some((op_node_id, op_node)) = self.graph.get_source_node(*output_id) {
                         self.visit(op_node_id, op_node)?;
                     } else {
                         let msg = format!("Missing output {}", output_id);
@@ -1058,10 +1070,15 @@ impl Graph {
             graph: self,
             resolved_values,
             plan: Vec::new(),
-            operator_nodes,
             options,
         };
         builder.plan(outputs)
+    }
+}
+
+impl Default for Graph {
+    fn default() -> Self {
+        Self::new()
     }
 }
 
