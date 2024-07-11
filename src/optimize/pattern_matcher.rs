@@ -218,11 +218,11 @@ impl From<f32> for Pattern {
 
 macro_rules! impl_binop_for_pattern {
     ($trait:ident, $method:ident, $op_name:expr) => {
-        impl $trait<Pattern> for Pattern {
+        impl<I: Into<Pattern>> $trait<I> for Pattern {
             type Output = Pattern;
 
-            fn $method(self, rhs: Pattern) -> Pattern {
-                binary_op($op_name, self, rhs)
+            fn $method(self, rhs: I) -> Pattern {
+                binary_op($op_name, self, rhs.into())
             }
         }
 
@@ -290,10 +290,11 @@ mod tests {
     use rten_tensor::Tensor;
 
     use super::super::tests::GraphTestUtils;
-    use super::{constant, symbol, unary_op, Pattern};
+    use super::{symbol, unary_op, Pattern};
     use crate::graph::{Graph, NodeId};
     use crate::ops::{Abs, Add, Div};
 
+    /// Create a graph that implements the softsign function `x / 1 + |x|`.
     fn softsign_graph() -> (Graph, NodeId, NodeId) {
         let mut graph = Graph::new();
         let input_id = graph.add_value(Some("x"), None);
@@ -330,7 +331,7 @@ mod tests {
             // Pattern with operands of a commutative operator ("+") swapped around.
             Case {
                 graph: softsign_graph(),
-                pattern: x.clone() / (unary_op("Abs", x.clone()) + constant(1.0)),
+                pattern: x.clone() / (unary_op("Abs", x.clone()) + 1.0),
                 expect_match: true,
             },
             // Pattern with "+" operator swapped for "-".
