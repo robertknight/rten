@@ -517,14 +517,6 @@ mod tests {
         Ok((graph, output_ids))
     }
 
-    /// Return the operator node which produces a given output value node.
-    fn source_operator(graph: &Graph, output_id: NodeId) -> Option<&OperatorNode> {
-        graph.iter().find_map(|(_, node)| match node {
-            Node::Operator(op) => (op.output_ids() == &[Some(output_id)]).then_some(op),
-            _ => None,
-        })
-    }
-
     #[test]
     fn test_constant_propagation() -> Result<(), Box<dyn Error>> {
         let mut graph = Graph::new();
@@ -588,7 +580,7 @@ mod tests {
         let (graph, new_output_ids) =
             optimize_graph(graph, &[input_1, input_2], &[matmul_out]).unwrap();
 
-        let op = source_operator(&graph, new_output_ids[0]).unwrap();
+        let (_, op) = graph.get_source_node(new_output_ids[0]).unwrap();
         assert_eq!(op.operator().name(), "FusedTranspose(MatMul)");
         assert_eq!(op.name(), Some("matmul"));
     }
@@ -603,7 +595,7 @@ mod tests {
 
         let (graph, new_output_ids) = optimize_graph(graph, &[input], &[mul_out]).unwrap();
 
-        let op = source_operator(&graph, new_output_ids[0]).unwrap();
+        let (_, op) = graph.get_source_node(new_output_ids[0]).unwrap();
         assert_eq!(op.operator().name(), "Silu");
         assert_eq!(op.name(), Some("mul"));
     }
@@ -624,7 +616,7 @@ mod tests {
         let (_, mul_half_out) = graph.add_simple_op("mul_half", Mul {}, &[mul_out, half]);
 
         let (graph, new_output_ids) = optimize_graph(graph, &[input], &[mul_half_out]).unwrap();
-        let op = source_operator(&graph, new_output_ids[0]).unwrap();
+        let (_, op) = graph.get_source_node(new_output_ids[0]).unwrap();
         assert_eq!(op.operator().name(), "Gelu");
         assert_eq!(op.name(), Some("mul_half"));
     }
