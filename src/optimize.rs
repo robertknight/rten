@@ -12,6 +12,8 @@ use crate::Output;
 
 mod pattern_matcher;
 
+use pattern_matcher::{symbol, unary_op};
+
 /// Errors that occur while applying graph optimizations.
 #[derive(Debug, PartialEq)]
 pub enum OptimizeError {
@@ -396,7 +398,6 @@ impl GraphOptimizer {
 
     /// Fuse `x * Sigmoid(x)` into `Silu(x)`.
     fn fuse_silu(&self, graph: &mut GraphMutator) -> Result<(), OptimizeError> {
-        use pattern_matcher::{symbol, unary_op};
         let x = symbol("x");
         let silu_pattern = x.clone() * unary_op("Sigmoid", x.clone());
 
@@ -418,20 +419,16 @@ impl GraphOptimizer {
 
     /// Fuse `0.5 * X * (1 + Erf(X / Sqrt(2)))` into `Gelu(X)`.
     fn fuse_gelu(&self, graph: &mut GraphMutator) -> Result<(), OptimizeError> {
-        use pattern_matcher::{constant, symbol, unary_op};
-
         // The expression for GELU is usually written as `x * 0.5 * (...)`
         // instead of `x * (...) * 0.5`. Ideally our graph pattern matcher
         // would be smart enough to let us write one pattern and have it match
         // either structure. However it isn't. The pattern used matches PyTorch's
         // `nn.GELU`.
         let x = symbol("x");
-        let sqrt_2 = constant((2.0f32).sqrt());
-        let gelu_expr =
-            x.clone() * (unary_op("Erf", x.clone() / sqrt_2) + constant(1.0)) * constant(0.5);
+        let gelu_pattern = x.clone() * (unary_op("Erf", x.clone() / (2.0f32).sqrt()) + 1.0) * 0.5;
 
         graph.apply_fusion(|graph, op_node_id, op_node| {
-            let gelu_match = gelu_expr.test(op_node_id, graph.graph())?;
+            let gelu_match = gelu_pattern.test(op_node_id, graph.graph())?;
             let gelu_input = gelu_match.resolved_symbol("x").expect("missing symbol");
             let op_output = op_node.output_id()?;
 
