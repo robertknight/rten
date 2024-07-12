@@ -5,14 +5,16 @@ use rten_tensor::Tensor;
 use rustc_hash::FxHashMap;
 
 use crate::downcast::DowncastDyn;
-use crate::graph::{Constant, ConstantNode, Graph, Node, NodeId, OperatorNode, RunError};
+use crate::graph::{
+    Constant, ConstantNode, Graph, Node, NodeId, OperatorNode, RunError, TypedConstant,
+};
 use crate::ops::fused::FusedTranspose;
-use crate::ops::{Gelu, Operator, Silu, Transpose};
+use crate::ops::{Gelu, LayerNormalization, Operator, ReduceMean, Silu, Transpose};
 use crate::Output;
 
 mod pattern_matcher;
 
-use pattern_matcher::{symbol, unary_op};
+use pattern_matcher::{binary_op, const_symbol, symbol, unary_op, unary_op_key};
 
 /// Errors that occur while applying graph optimizations.
 #[derive(Debug, PartialEq)]
@@ -306,6 +308,7 @@ impl GraphOptimizer {
         self.fuse_transpose(&mut graph_mut)?;
         self.fuse_silu(&mut graph_mut)?;
         self.fuse_gelu(&mut graph_mut)?;
+        self.fuse_layer_norm(&mut graph_mut)?;
 
         let (graph, output_ids) = graph_mut.into_graph_and_output_ids();
 
@@ -442,6 +445,100 @@ impl GraphOptimizer {
 
         Ok(())
     }
+
+    /// Identify and fuse common patterns for `LayerNormalization(X)`.
+    fn fuse_layer_norm(&self, graph: &mut GraphMutator) -> Result<(), OptimizeError> {
+        let x = symbol("x");
+
+        // LayerNormalization has three steps. Pattern matching only supports a
+        // single expression, so we use three patterns and match them in reverse
+        // order (ie. starting from the output of the final step).
+
+        // First step: Center values
+        let center_pat = x.clone() - unary_op_key("ReduceMean", x.clone(), "center_mean");
+
+        // Middle step: Normalize variance
+        let epsilon = const_symbol("epsilon");
+        let normalize_variance_pat = x.clone()
+            / unary_op(
+                "Sqrt",
+                epsilon + unary_op_key("ReduceMean", binary_op("Pow", x.clone(), 2.0), "norm_mean"),
+            );
+
+        // Final step: Shift and scale the normalized values
+        let bias = const_symbol("bias");
+        let scale = const_symbol("scale");
+        let shift_scale_pat = (x.clone() * scale) + bias;
+
+        graph.apply_fusion(|graph, op_node_id, op_node| {
+            // Test if a node is a `ReduceMean` operator that reduces over its
+            // last axis.
+            let mean_op_reduces_last_axis = |node_id| match graph.graph().get_node(node_id) {
+                Some(Node::Operator(op_node)) => {
+                    let Some(mean_op) = op_node.operator().downcast_ref::<ReduceMean>() else {
+                        return false;
+                    };
+
+                    // The last axis can be specified with either a positive or
+                    // negative value. We only support the negative case as that
+                    // is easier to handle and used in popular models.
+                    if mean_op.axes.as_deref() == Some(&[-1]) {
+                        true
+                    } else if let Some(axes_input) = op_node.input_ids().get(1).copied().flatten() {
+                        match graph.graph().get_node(axes_input) {
+                            Some(Node::Constant(val)) => val.as_vector() == Some(&[-1]),
+                            _ => false,
+                        }
+                    } else {
+                        false
+                    }
+                }
+                _ => false,
+            };
+
+            let shift_scale_match = shift_scale_pat.test(op_node_id, graph.graph())?;
+            let shift_scale_input = shift_scale_match.resolved_symbol("x").unwrap();
+            let bias_input = shift_scale_match.resolved_symbol("bias").unwrap();
+            let scale_input = shift_scale_match.resolved_symbol("scale").unwrap();
+
+            let norm_match = normalize_variance_pat.test(shift_scale_input, graph.graph())?;
+            let norm_input = norm_match.resolved_symbol("x").unwrap();
+            let epsilon_input = norm_match.resolved_symbol("epsilon").unwrap();
+            let norm_mean = norm_match.resolved_symbol("norm_mean").unwrap();
+            if !mean_op_reduces_last_axis(norm_mean) {
+                // The LayerNormalization operator supports taking the mean over
+                // multiple trailing axes. However this fusion only supports the
+                // common case of taking the mean over one axis.
+                return None;
+            }
+
+            let center_match = center_pat.test(norm_input, graph.graph())?;
+            let center_input = center_match.resolved_symbol("x").unwrap();
+            let center_mean = center_match.resolved_symbol("center_mean").unwrap();
+            if !mean_op_reduces_last_axis(center_mean) {
+                return None;
+            }
+
+            let op_output = op_node.output_id()?;
+
+            let epsilon = match graph.graph().get_node(epsilon_input) {
+                Some(Node::Constant(val)) => val.as_scalar(),
+                _ => None,
+            }?;
+
+            Some(Fusion::from_op(
+                op_node.name(),
+                LayerNormalization {
+                    axis: -1,
+                    epsilon: Some(epsilon),
+                },
+                vec![Some(center_input), Some(scale_input), Some(bias_input)],
+                op_output,
+            ))
+        });
+
+        Ok(())
+    }
 }
 
 impl Default for GraphOptimizer {
@@ -457,8 +554,12 @@ mod tests {
     use rten_tensor::Tensor;
 
     use super::{GraphOptimizer, OptimizeError, OptimizedGraph};
+    use crate::downcast::DowncastDyn;
     use crate::graph::{Constant, Graph, Node, NodeId, OperatorNode};
-    use crate::ops::{Add, Div, Erf, MatMul, Mul, Operator, Sigmoid, Transpose};
+    use crate::ops::{
+        Add, Div, Erf, LayerNormalization, MatMul, Mul, Operator, Pow, ReduceMean, Sigmoid, Sqrt,
+        Sub, Transpose,
+    };
 
     /// Extensions to [`Graph`] to make tests easier to write.
     pub(crate) trait GraphTestUtils {
@@ -619,6 +720,58 @@ mod tests {
         let (_, op) = graph.get_source_node(new_output_ids[0]).unwrap();
         assert_eq!(op.operator().name(), "Gelu");
         assert_eq!(op.name(), Some("mul_half"));
+    }
+
+    fn layer_norm_graph() -> (Graph, NodeId, NodeId) {
+        let mut graph = Graph::new();
+        let input = graph.add_value(None, None);
+
+        // Center values
+        let (_, mean_out) = graph.add_simple_op(
+            "mean",
+            ReduceMean {
+                axes: Some(vec![-1]),
+                keep_dims: false,
+            },
+            &[input],
+        );
+        let (_, sub_out) = graph.add_simple_op("sub", Sub {}, &[input, mean_out]);
+
+        // Normalize variance
+        let two = graph.add_constant(None, Tensor::from_scalar(2.));
+        let (_, pow_out) = graph.add_simple_op("pow", Pow {}, &[sub_out, two]);
+        let (_, var_mean_out) = graph.add_simple_op(
+            "var_mean",
+            ReduceMean {
+                axes: Some(vec![-1]),
+                keep_dims: false,
+            },
+            &[pow_out],
+        );
+        let epsilon = graph.add_constant(None, Tensor::from_scalar(1e-6));
+        let (_, add_eps_out) = graph.add_simple_op("add_eps", Add {}, &[epsilon, var_mean_out]);
+        let (_, sqrt_out) = graph.add_simple_op("sqrt", Sqrt {}, &[add_eps_out]);
+        let (_, div_out) = graph.add_simple_op("div", Div {}, &[sub_out, sqrt_out]);
+
+        // Shift and scale
+        let bias = graph.add_constant(None, Tensor::from([1., 2., 3.]));
+        let scale = graph.add_constant(None, Tensor::from([3., 4., 5.]));
+        let (_, mul_out) = graph.add_simple_op("mul", Mul {}, &[div_out, scale]);
+        let (_, add_out) = graph.add_simple_op("final_add", Add {}, &[mul_out, bias]);
+
+        (graph, input, add_out)
+    }
+
+    #[test]
+    fn test_fuse_layer_norm() {
+        let (graph, input, output) = layer_norm_graph();
+        let (graph, new_output_ids) = optimize_graph(graph, &[input], &[output]).unwrap();
+        let (_, op) = graph.get_source_node(new_output_ids[0]).unwrap();
+        assert_eq!(op.operator().name(), "LayerNormalization");
+        assert_eq!(op.name(), Some("final_add"));
+
+        let layer_norm = op.operator().downcast_ref::<LayerNormalization>().unwrap();
+        assert_eq!(layer_norm.epsilon, Some(1e-6));
     }
 
     #[test]
