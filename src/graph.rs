@@ -173,6 +173,41 @@ impl From<ConstantNode<i32>> for Constant {
     }
 }
 
+/// Extract typed data from a [`Constant`].
+pub trait TypedConstant<T> {
+    fn as_view(&self) -> Option<TensorView<T>>;
+    fn as_scalar(&self) -> Option<T>;
+    fn as_vector(&self) -> Option<&[T]>;
+}
+
+macro_rules! impl_typed_constant {
+    ($type:ty, $variant:ident) => {
+        impl TypedConstant<$type> for Constant {
+            fn as_view(&self) -> Option<TensorView<$type>> {
+                match self {
+                    Constant::$variant(tensor) => Some(tensor.view()),
+                    _ => None,
+                }
+            }
+
+            fn as_scalar(&self) -> Option<$type> {
+                self.as_view().and_then(|view| view.item().copied())
+            }
+
+            fn as_vector(&self) -> Option<&[$type]> {
+                self.as_view()
+                    .and_then(|view| match (view.ndim(), view.data()) {
+                        (1, Some(vec_data)) => Some(vec_data),
+                        _ => None,
+                    })
+            }
+        }
+    };
+}
+
+impl_typed_constant!(f32, Float);
+impl_typed_constant!(i32, Int);
+
 pub enum Node {
     Operator(OperatorNode),
     Constant(Constant),
@@ -1095,7 +1130,7 @@ mod tests {
     use smallvec::smallvec;
 
     use super::CachedPlan;
-    use crate::graph::{Dimension, Graph, RunError};
+    use crate::graph::{Dimension, Graph, Node, RunError, TypedConstant};
     use crate::ops::{
         Add, Concat, Conv, InputList, IntoOpResult, OpError, Operator, Output, OutputList, Relu,
         Shape,
@@ -1467,6 +1502,31 @@ mod tests {
         expect_equal(results[0].as_float_ref().unwrap(), &value)?;
 
         Ok(())
+    }
+
+    #[test]
+    fn test_typed_constant() {
+        let mut g = Graph::new();
+        let scalar_id = g.add_constant(None, Tensor::from_scalar(42.));
+        let vec_id = g.add_constant(None, Tensor::from([1, 2, 3]));
+
+        let scalar_node = match g.get_node(scalar_id) {
+            Some(Node::Constant(c)) => Some(c),
+            _ => None,
+        }
+        .unwrap();
+        let vec_node = match g.get_node(vec_id) {
+            Some(Node::Constant(c)) => Some(c),
+            _ => None,
+        }
+        .unwrap();
+
+        assert_eq!(scalar_node.as_scalar(), Some(42.0));
+        assert_ne!(scalar_node.as_scalar(), Some(42));
+        assert_eq!(vec_node.as_scalar(), None::<i32>);
+
+        assert_eq!(vec_node.as_vector(), Some([1, 2, 3].as_slice()));
+        assert_eq!(vec_node.as_scalar(), None::<f32>);
     }
 
     #[test]

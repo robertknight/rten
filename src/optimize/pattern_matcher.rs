@@ -87,8 +87,15 @@ impl ConstantPattern {
 
 #[derive(Clone, Debug, PartialEq)]
 pub struct OpPattern {
+    /// Name of the operator (eg. "MatMul")
     name: &'static str,
+
+    /// Patterns that the inputs must match.
     inputs: Vec<Pattern>,
+
+    /// Unique identifier for this pattern. Used to look up the resolved
+    /// operator node ID after a successful match.
+    key: Option<&'static str>,
 }
 
 impl OpPattern {
@@ -133,6 +140,9 @@ impl OpPattern {
 #[derive(Copy, Clone, Debug, PartialEq)]
 pub struct SymbolPattern {
     name: &'static str,
+
+    /// True if this symbol can only match a constant.
+    constant: bool,
 }
 
 /// Specifies a pattern for a subgraph within a [`Graph`].
@@ -152,7 +162,7 @@ pub enum Pattern {
     Operator(OpPattern),
     /// Expression which matches a constant value.
     Constant(ConstantPattern),
-    /// Expression which matches a variable.
+    /// Expression which matches either a constant or a value.
     Symbol(SymbolPattern),
 }
 
@@ -184,18 +194,36 @@ impl Pattern {
             // Operator patterns can match either an operator node or an
             // operator output.
             (Pattern::Operator(op_pat), Node::Operator(op_node)) => {
-                op_pat.matches(op_node, graph, symbols)
+                if op_pat.matches(op_node, graph, symbols) {
+                    if let Some(key) = op_pat.key {
+                        symbols.add(key, node_id);
+                    }
+                    true
+                } else {
+                    false
+                }
             }
             (Pattern::Operator(op_pat), Node::Value(_)) => {
-                let Some((_op_node_id, op_node)) = graph.get_source_node(node_id) else {
+                let Some((op_node_id, op_node)) = graph.get_source_node(node_id) else {
                     return false;
                 };
-                op_pat.matches(op_node, graph, symbols)
+                if op_pat.matches(op_node, graph, symbols) {
+                    if let Some(key) = op_pat.key {
+                        symbols.add(key, op_node_id);
+                    }
+                    true
+                } else {
+                    false
+                }
             }
             (Pattern::Constant(const_pat), Node::Constant(const_node)) => {
                 const_pat.matches(const_node)
             }
-            (Pattern::Symbol(sym_pat), _) => {
+            (Pattern::Symbol(sym_pat), Node::Constant(_) | Node::Value(_)) => {
+                if sym_pat.constant && !matches!(node, Node::Constant(_)) {
+                    return false;
+                }
+
                 // If we have seen this symbol before, it must resolve to the
                 // same node. Otherwise it always matches.
                 if let Some(resolved_id) = symbols.find(sym_pat.name) {
@@ -249,10 +277,15 @@ impl Neg for Pattern {
 }
 
 /// Create a pattern that matches an operator.
-pub fn operator<I: Into<Vec<Pattern>>>(name: &'static str, inputs: I) -> Pattern {
+pub fn operator<I: Into<Vec<Pattern>>>(
+    name: &'static str,
+    inputs: I,
+    key: Option<&'static str>,
+) -> Pattern {
     Pattern::Operator(OpPattern {
         name,
         inputs: inputs.into(),
+        key,
     })
 }
 
@@ -263,13 +296,21 @@ pub fn binary_op<A: Into<Pattern>, B: Into<Pattern>>(
     input_b: B,
 ) -> Pattern {
     let inputs: [Pattern; 2] = [input_a.into(), input_b.into()];
-    operator(name, inputs)
+    operator(name, inputs, None)
 }
 
 /// Create a pattern that matches a unary operator.
 pub fn unary_op<I: Into<Pattern>>(name: &'static str, input: I) -> Pattern {
     let inputs: [Pattern; 1] = [input.into()];
-    operator(name, inputs)
+    operator(name, inputs, None)
+}
+
+/// Create a pattern that matches a unary operator.
+///
+/// The operator is associated with a key so it can be looked up after the match.
+pub fn unary_op_key<I: Into<Pattern>>(name: &'static str, input: I, key: &'static str) -> Pattern {
+    let inputs: [Pattern; 1] = [input.into()];
+    operator(name, inputs, Some(key))
 }
 
 /// Create a pattern that matches a constant node with a given value.
@@ -282,7 +323,20 @@ pub fn constant(value: f32) -> Pattern {
 /// In order for a pattern to match a node, all symbols with the same name
 /// must resolve to the same node.
 pub fn symbol(name: &'static str) -> Pattern {
-    Pattern::Symbol(SymbolPattern { name })
+    Pattern::Symbol(SymbolPattern {
+        name,
+        constant: false,
+    })
+}
+
+/// Create a pattern that matches a constant.
+///
+/// Unlike [`constant`], the value of the constant is not specified.
+pub fn const_symbol(name: &'static str) -> Pattern {
+    Pattern::Symbol(SymbolPattern {
+        name,
+        constant: true,
+    })
 }
 
 #[cfg(test)]
@@ -290,8 +344,8 @@ mod tests {
     use rten_tensor::Tensor;
 
     use super::super::tests::GraphTestUtils;
-    use super::{symbol, unary_op, Pattern};
-    use crate::graph::{Graph, NodeId};
+    use super::{const_symbol, symbol, unary_op, unary_op_key, Pattern};
+    use crate::graph::{Graph, Node, NodeId};
     use crate::ops::{Abs, Add, Div};
 
     /// Create a graph that implements the softsign function `x / 1 + |x|`.
@@ -316,10 +370,18 @@ mod tests {
         }
 
         let x = symbol("x");
+        let c = const_symbol("c");
+
         let cases = [
             Case {
                 graph: softsign_graph(),
                 pattern: x.clone() / (1.0 + unary_op("Abs", x.clone())),
+                expect_match: true,
+            },
+            // Pattern with constant symbol instead of fixed constant.
+            Case {
+                graph: softsign_graph(),
+                pattern: x.clone() / (c.clone() + unary_op("Abs", x.clone())),
                 expect_match: true,
             },
             // Pattern with operands of a non-commutative operator ("/") swapped.
@@ -360,6 +422,13 @@ mod tests {
                 pattern: x.clone() / (x.clone() + unary_op("Abs", x.clone())),
                 expect_match: false,
             },
+            // Pattern which has the right structure, except that a dynamic
+            // input is matched against a constant symbol.
+            Case {
+                graph: softsign_graph(),
+                pattern: c.clone() / (1.0 + unary_op("Abs", x.clone())),
+                expect_match: false,
+            },
         ];
 
         for (
@@ -379,5 +448,16 @@ mod tests {
                 assert_eq!(pat_match.resolved_symbol("x"), Some(input));
             }
         }
+    }
+
+    #[test]
+    fn test_operator_with_key() {
+        let (graph, _input, output) = softsign_graph();
+        let x = symbol("x");
+        let pat = x.clone() / (1.0 + unary_op_key("Abs", x.clone(), "abs_op"));
+        let pat_match = pat.test(output, &graph).unwrap();
+        let abs_node_id = pat_match.resolved_symbol("abs_op").unwrap();
+        let abs_op = graph.get_node(abs_node_id).unwrap();
+        assert!(matches!(abs_op, Node::Operator(op) if op.operator().name() == "Abs"));
     }
 }
