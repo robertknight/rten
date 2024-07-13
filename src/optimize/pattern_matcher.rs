@@ -343,7 +343,6 @@ pub fn const_symbol(name: &'static str) -> Pattern {
 mod tests {
     use rten_tensor::Tensor;
 
-    use super::super::tests::GraphTestUtils;
     use super::{const_symbol, symbol, unary_op, unary_op_key, Pattern};
     use crate::graph::{Graph, Node, NodeId};
     use crate::ops::{Abs, Add, Div};
