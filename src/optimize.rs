@@ -555,56 +555,11 @@ mod tests {
 
     use super::{GraphOptimizer, OptimizeError, OptimizedGraph};
     use crate::downcast::DowncastDyn;
-    use crate::graph::{Constant, Graph, Node, NodeId, OperatorNode};
+    use crate::graph::{Constant, Graph, Node, NodeId};
     use crate::ops::{
-        Add, Div, Erf, LayerNormalization, MatMul, Mul, Operator, Pow, ReduceMean, Sigmoid, Sqrt,
-        Sub, Transpose,
+        Add, Div, Erf, LayerNormalization, MatMul, Mul, Pow, ReduceMean, Sigmoid, Sqrt, Sub,
+        Transpose,
     };
-
-    /// Extensions to [`Graph`] to make tests easier to write.
-    pub(crate) trait GraphTestUtils {
-        /// Add a single-output operator to the graph and return a tuple of
-        /// `(operator_node_id, output_node_id)`.
-        fn add_simple_op<Op: Operator + Send + Sync + 'static>(
-            &mut self,
-            name: &str,
-            op: Op,
-            input_ids: &[NodeId],
-        ) -> (NodeId, NodeId);
-
-        fn get_operator(&self, node_id: NodeId) -> Option<&OperatorNode>;
-        fn get_constant(&self, node_id: NodeId) -> Option<&Constant>;
-    }
-
-    impl GraphTestUtils for Graph {
-        fn add_simple_op<Op: Operator + Send + Sync + 'static>(
-            &mut self,
-            name: &str,
-            op: Op,
-            input_ids: &[NodeId],
-        ) -> (NodeId, NodeId) {
-            let op_out_name = format!("{}_out", name);
-            let op_out_id = self.add_value(Some(&op_out_name), None);
-            let input_ids: Vec<_> = input_ids.iter().copied().map(Some).collect();
-            let op_node_id =
-                self.add_op(Some(name), Box::new(op), &input_ids, &[op_out_id].map(Some));
-            (op_node_id, op_out_id)
-        }
-
-        fn get_operator(&self, node_id: NodeId) -> Option<&OperatorNode> {
-            match self.get_node(node_id) {
-                Some(Node::Operator(op)) => Some(op),
-                _ => None,
-            }
-        }
-
-        fn get_constant(&self, node_id: NodeId) -> Option<&Constant> {
-            match self.get_node(node_id) {
-                Some(Node::Constant(constant)) => Some(constant),
-                _ => None,
-            }
-        }
-    }
 
     fn optimize_graph(
         graph: Graph,
@@ -649,7 +604,11 @@ mod tests {
 
         // Check first output was replaced with constant.
         let replaced_node = optimized_graph
-            .get_constant(optimized_graph_output_ids[0])
+            .get_node(optimized_graph_output_ids[0])
+            .and_then(|n| match &n {
+                Node::Constant(c) => Some(c),
+                _ => None,
+            })
             .unwrap();
         let Constant::Int(const_int) = replaced_node else {
             return Err("constant not an int".into());
@@ -657,7 +616,13 @@ mod tests {
         assert_eq!(const_int.view(), Tensor::from([5, 7, 9]));
 
         // Check input to second operator was replaced with constant.
-        let op = optimized_graph.get_operator(add_op_2).unwrap();
+        let op = optimized_graph
+            .get_node(add_op_2)
+            .and_then(|n| match &n {
+                Node::Operator(op) => Some(op),
+                _ => None,
+            })
+            .unwrap();
         let input_ids: Vec<_> = op.input_ids().iter().map(|id| id.unwrap()).collect();
         assert_eq!(input_ids.len(), 2);
         assert_ne!(input_ids[0], add_out);

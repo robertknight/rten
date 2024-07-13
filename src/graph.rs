@@ -480,6 +480,26 @@ impl Graph {
         op_id
     }
 
+    /// Add an operator and output value node to the graph.
+    ///
+    /// This is a simplified variant of [`add_op`](Self::add_op) for the
+    /// common case of an operator with a single output and no missing inputs.
+    ///
+    /// Returns an `(operator_node_id, output_node_id)` tuple.
+    #[cfg(test)]
+    pub fn add_simple_op<Op: Operator + Send + Sync>(
+        &mut self,
+        name: &str,
+        op: Op,
+        input_ids: &[NodeId],
+    ) -> (NodeId, NodeId) {
+        let op_out_name = format!("{}_out", name);
+        let op_out_id = self.add_value(Some(&op_out_name), None);
+        let input_ids: Vec<_> = input_ids.iter().copied().map(Some).collect();
+        let op_node_id = self.add_op(Some(name), Box::new(op), &input_ids, &[op_out_id].map(Some));
+        (op_node_id, op_out_id)
+    }
+
     /// Add a constant node to the graph.
     ///
     /// `name` is an identifier for this node that is used in debug messages etc.
@@ -1216,25 +1236,17 @@ mod tests {
         let weights_id = g.add_constant(Some("weight"), weights);
         let input_id = g.add_value(Some("input"), None);
 
-        let conv_out = g.add_value(Some("conv_out"), None);
-        g.add_op(
-            Some("conv"),
-            Box::new(Conv {
+        let (_, conv_out) = g.add_simple_op(
+            "conv",
+            Conv {
                 dilations: vec![1, 1],
                 groups: 1,
                 padding: [1, 1, 1, 1].into(),
                 strides: vec![1, 1],
-            }),
-            &[input_id, weights_id].map(Some),
-            &[conv_out].map(Some),
+            },
+            &[input_id, weights_id],
         );
-        let relu_out = g.add_value(Some("relu_out"), None);
-        g.add_op(
-            Some("relu"),
-            Box::new(Relu {}),
-            &[conv_out].map(Some),
-            &[relu_out].map(Some),
-        );
+        let (_, relu_out) = g.add_simple_op("relu", Relu {}, &[conv_out]);
 
         let input = Tensor::from_data(
             &[1, 1, 3, 3],
@@ -1317,13 +1329,7 @@ mod tests {
                 .to_vec(),
             ),
         );
-        let relu_out_id = g.add_value(Some("relu_out"), None);
-        let relu_op_id = g.add_op(
-            Some("relu"),
-            Box::new(Relu {}),
-            &[Some(input_id)],
-            &[Some(relu_out_id)],
-        );
+        let (relu_op_id, _) = g.add_simple_op("relu", Relu {}, &[input_id]);
 
         assert_eq!(
             g.get_node(weights_id).and_then(|n| n.shape()),
@@ -1364,39 +1370,15 @@ mod tests {
 
         let input_id = g.add_value(Some("input"), None);
 
-        let op_a_out = g.add_value(Some("op_a_out"), None);
-        g.add_op(
-            Some("op_a"),
-            Box::new(AddOne {}),
-            &[Some(input_id)],
-            &[Some(op_a_out)],
-        );
-        let op_b_out = g.add_value(Some("op_b_out"), None);
-        g.add_op(
-            Some("op_b"),
-            Box::new(AddOne {}),
-            &[Some(op_a_out)],
-            &[Some(op_b_out)],
-        );
+        let (_, op_a_out) = g.add_simple_op("op_a", AddOne {}, &[input_id]);
+        let (_, op_b_out) = g.add_simple_op("op_b", AddOne {}, &[op_a_out]);
 
         // op_c has both op_a and op_b as inputs. Since op_b depends on op_a,
         // execution must run op_a, then op_b, then op_c.
-        let op_c_out = g.add_value(Some("op_c_out"), None);
-        g.add_op(
-            Some("op_c"),
-            Box::new(Concat { axis: 0 }),
-            &[op_a_out, op_b_out].map(Some),
-            &[Some(op_c_out)],
-        );
+        let (_, op_c_out) = g.add_simple_op("op_c", Concat { axis: 0 }, &[op_a_out, op_b_out]);
 
         // op_d is the same as op_c, but input order is reversed
-        let op_d_out = g.add_value(Some("op_d_out"), None);
-        g.add_op(
-            Some("op_d"),
-            Box::new(Concat { axis: 0 }),
-            &[op_b_out, op_a_out].map(Some),
-            &[Some(op_d_out)],
-        );
+        let (_, op_d_out) = g.add_simple_op("op_d", Concat { axis: 0 }, &[op_b_out, op_a_out]);
 
         let input = Tensor::from_data(&[1], vec![1.]);
 
@@ -1422,20 +1404,8 @@ mod tests {
         let mut g = Graph::new();
 
         let input_id = g.add_value(Some("input"), None);
-        let op_a_out = g.add_value(Some("op_a_out"), None);
-        g.add_op(
-            Some("op_a"),
-            Box::new(AddOne {}),
-            &[Some(input_id)],
-            &[Some(op_a_out)],
-        );
-        let op_b_out = g.add_value(Some("op_b_out"), None);
-        g.add_op(
-            Some("op_b"),
-            Box::new(AddOne {}),
-            &[Some(op_a_out)],
-            &[Some(op_b_out)],
-        );
+        let (_, op_a_out) = g.add_simple_op("op_a", AddOne {}, &[input_id]);
+        let (_, op_b_out) = g.add_simple_op("op_b", AddOne {}, &[op_a_out]);
 
         let input = tensor!(0.);
         let results = g
@@ -1568,13 +1538,7 @@ mod tests {
         let mut g = Graph::new();
 
         let input_id = g.add_value(Some("input"), None);
-        let op_a_out = g.add_value(Some("op_a_out"), None);
-        g.add_op(
-            Some("op_a"),
-            Box::new(AddOne {}),
-            &[Some(input_id)],
-            &[Some(op_a_out)],
-        );
+        let (_, op_a_out) = g.add_simple_op("op_a", AddOne {}, &[input_id]);
 
         let input = tensor!([1.]);
 
@@ -1589,11 +1553,11 @@ mod tests {
     #[test]
     fn test_call_op_with_missing_input() {
         let mut g = Graph::new();
-        let output = g.add_value(None, None);
 
         // Call an operator with an input omitted by setting it to `None`,
         // as opposed to passing a shorter input list. This enables omitting
         // an input but still providing subsequent ones.
+        let output = g.add_value(None, None);
         g.add_op(Some("shape"), Box::new(Shape {}), &[None], &[Some(output)]);
 
         let results = g.run(vec![], &[output], None);
@@ -1620,8 +1584,7 @@ mod tests {
     #[test]
     fn test_err_if_missing_operator_input() {
         let mut g = Graph::new();
-        let output = g.add_value(None, None);
-        g.add_op(Some("op"), Box::new(Relu {}), &[Some(42)], &[Some(output)]);
+        let (_, output) = g.add_simple_op("op", Relu {}, &[42]);
         let result = g.run(vec![], &[output], None);
         assert_eq!(
             result.err(),
@@ -1669,34 +1632,10 @@ mod tests {
         let mut g = Graph::new();
         let input_id = g.add_value(Some("input"), None);
 
-        let op1_out = g.add_value(Some("op1_out"), None);
-        g.add_op(
-            Some("op1"),
-            Box::new(AddOneInPlace {}),
-            &[Some(input_id)],
-            &[Some(op1_out)],
-        );
-        let op2_out = g.add_value(Some("op2_out"), None);
-        g.add_op(
-            Some("op2"),
-            Box::new(AddOneInPlace {}),
-            &[Some(op1_out)],
-            &[Some(op2_out)],
-        );
-        let op3_out = g.add_value(Some("op3_out"), None);
-        g.add_op(
-            Some("op3"),
-            Box::new(AddOneInPlace {}),
-            &[Some(op2_out)],
-            &[Some(op3_out)],
-        );
-        let op4_out = g.add_value(Some("op4_out"), None);
-        g.add_op(
-            Some("op4"),
-            Box::new(AddOneInPlace {}),
-            &[Some(op2_out)],
-            &[Some(op4_out)],
-        );
+        let (_, op1_out) = g.add_simple_op("op1", AddOneInPlace {}, &[input_id]);
+        let (_, op2_out) = g.add_simple_op("op2", AddOneInPlace {}, &[op1_out]);
+        let (_, op3_out) = g.add_simple_op("op3", AddOneInPlace {}, &[op2_out]);
+        let (_, op4_out) = g.add_simple_op("op4", AddOneInPlace {}, &[op2_out]);
         let input = Tensor::<f32>::zeros(&[1, 1]);
 
         // First operator should not be run in-place, since it has an
@@ -1743,22 +1682,14 @@ mod tests {
         let op2 = TrackUsage::new(Add {});
         let op2_metrics = op2.metrics();
 
-        let op1_out = g.add_value(Some("op1_out"), None);
-        g.add_op(
-            Some("op1"),
-            Box::new(op1),
-            &[Some(input_id), Some(bias_id)],
-            &[Some(op1_out)],
-        );
-        let op2_out = g.add_value(Some("op2_out"), None);
-        g.add_op(
-            Some("op2"),
-            Box::new(op2),
+        let (_, op1_out) = g.add_simple_op("op1", op1, &[input_id, bias_id]);
+        let (_, op2_out) = g.add_simple_op(
+            "op2",
+            op2,
             // Note here the input ordering. The bias value is smaller, but
             // is the first argument. This operator can run in place, but only
             // if the inputs are swapped.
-            &[Some(bias_id), Some(op1_out)],
-            &[Some(op2_out)],
+            &[bias_id, op1_out],
         );
         let input = Tensor::<f32>::zeros(&[2, 2]);
         let bias = tensor!(1.5);
@@ -1877,32 +1808,9 @@ mod tests {
         let const_1 = g.add_constant(Some("c1"), tensor!(4.));
         let val_1 = g.add_value(Some("i1"), None);
 
-        let add_op_0 = Box::new(Add {});
-        let op_0_out = g.add_value(Some("out0"), None);
-        g.add_op(
-            Some("Add_0"),
-            add_op_0,
-            &[Some(const_0), Some(val_0)],
-            &[op_0_out].map(Some),
-        );
-
-        let add_op_1 = Box::new(Add {});
-        let op_1_out = g.add_value(Some("out1"), None);
-        g.add_op(
-            Some("Add_1"),
-            add_op_1,
-            &[Some(const_1), Some(val_1)],
-            &[op_1_out].map(Some),
-        );
-
-        let add_op_2 = Box::new(Add {});
-        let op_2_out = g.add_value(Some("out2"), None);
-        g.add_op(
-            Some("Add_2"),
-            add_op_2,
-            &[Some(op_0_out), Some(op_1_out)],
-            &[op_2_out].map(Some),
-        );
+        let (_, op_0_out) = g.add_simple_op("Add_0", Add {}, &[const_0, val_0]);
+        let (_, op_1_out) = g.add_simple_op("Add_1", Add {}, &[const_1, val_1]);
+        let (_, op_2_out) = g.add_simple_op("Add_2", Add {}, &[op_0_out, op_1_out]);
 
         // Run graph with no inputs. This is equivalent to constant evaluation.
         // In this case no operators can be evaluated with graph constants
@@ -1965,31 +1873,19 @@ mod tests {
         let const_val = g.add_constant(Some("c0"), tensor!(3));
 
         // Add deterministic op with constant inputs.
-        let add_op_0 = Box::new(Add {});
-        let add_op_0_out = g.add_value(Some("out0"), None);
-        g.add_op(
-            Some("Add_0"),
-            add_op_0,
-            &[Some(const_val), Some(const_val)],
-            &[add_op_0_out].map(Some),
-        );
+        let (_, add_op_0_out) = g.add_simple_op("Add_0", Add {}, &[const_val, const_val]);
 
         // Add non-deterministic op.
-        let count_op = Box::new(Counter {
-            count: AtomicI32::new(0),
-        });
-        let count_op_out = g.add_value(Some("count_out"), None);
-        g.add_op(Some("Count"), count_op, &[], &[count_op_out].map(Some));
+        let (_, count_op_out) = g.add_simple_op(
+            "Count",
+            Counter {
+                count: AtomicI32::new(0),
+            },
+            &[],
+        );
 
         // Add final op that combines outputs from other ops.
-        let add_op_1 = Box::new(Add {});
-        let add_op_1_out = g.add_value(Some("out1"), None);
-        g.add_op(
-            Some("Add_1"),
-            add_op_1,
-            &[Some(add_op_0_out), Some(count_op_out)],
-            &[add_op_1_out].map(Some),
-        );
+        let (_, add_op_1_out) = g.add_simple_op("Add_1", Add {}, &[add_op_0_out, count_op_out]);
 
         // Do a partial run with no inputs. This should propagate constants
         // though all the deterministic operators, but skip any
