@@ -369,7 +369,7 @@ impl<'a> Generator<'a> {
         if let Some(attention_mask_input) = attention_mask_input {
             generator = generator
                 .with_varying_input(attention_mask_input, &|batch_size, positions| {
-                    NdTensor::full([batch_size, positions.len()], 1i32).into()
+                    NdTensor::full([batch_size, positions.end], 1i32).into()
                 });
         }
 
@@ -884,7 +884,7 @@ mod tests {
                 assert_eq!(step_inputs.size(1), 1);
                 assert_eq!(step_inputs[[0, 0]] as u32, expected_token_ids[step - 1]);
 
-                assert_eq!(step_attn_mask.size(1), 1);
+                assert_eq!(step_attn_mask.size(1), prompt.len() + step);
                 assert_eq!(step_attn_mask[[0, 0]], 1);
 
                 assert_eq!(step_pos_ids.size(1), 1);
