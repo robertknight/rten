@@ -549,11 +549,11 @@ impl<'a> Iterator for Generator<'a> {
 /// Iterator utilities that wrap a [`Generator`] to perform common tasks such
 /// as stopping generation when an end-of-text token is encountered.
 pub trait GeneratorUtils: Iterator<Item = GeneratorItem> + Sized {
-    /// Stop the generator when `eos_token` or an error is encountered.
-    fn stop_on_token(self, eos_token: u32) -> impl Iterator<Item = GeneratorItem> {
+    /// Stop the generator when any token in `eos_tokens` is encountered.
+    fn stop_on_tokens<A: AsRef<[u32]>>(self, eos_tokens: A) -> impl Iterator<Item = GeneratorItem> {
         self.take_while(move |tok| match tok {
-            Ok(tok_id) => *tok_id != eos_token,
-            Err(_) => false,
+            Ok(tok_id) => !eos_tokens.as_ref().contains(tok_id),
+            _ => true,
         })
     }
 
@@ -896,7 +896,7 @@ mod tests {
     }
 
     #[test]
-    fn test_stop_on_token() -> Result<(), Box<dyn Error>> {
+    fn test_stop_on_tokens() -> Result<(), Box<dyn Error>> {
         let params = TransformerParams::default();
         let expected_token_ids = [0, 1, 2, 3, 4, 0, 1, 2, 3, 4, 0, 0, 0];
         let prompt = [1, 2, 3, 1, 2, 3];
@@ -906,7 +906,7 @@ mod tests {
 
         let output_token_ids: Vec<_> = generator
             .with_prompt(&prompt)
-            .stop_on_token(4)
+            .stop_on_tokens([4])
             .map(|id| id.expect("generation failed"))
             .collect();
 

@@ -107,7 +107,7 @@ fn main() -> Result<(), Box<dyn Error>> {
     let generator = Generator::from_model(&decoder_model)?
         .with_prompt(&prompt)
         .with_constant_input(encoder_hidden_states_id, encoded_image.view().into())
-        .stop_on_token(eos_token)
+        .stop_on_tokens([eos_token])
         .take(max_tokens)
         .decode(&tokenizer);
 
