@@ -66,6 +66,7 @@ on the [SQuAD](https://paperswithcode.com/dataset/squad) dataset
 - **gpt2** - Text generation using the [GPT-2](https://openai.com/index/better-language-models/)
 language model.
 - **jina_similarity** - Sentence similarity using vector embeddings of sentences
+- **qwen2_chat** - Chatbot using [Qwen2](https://github.com/QwenLM/Qwen2)
 
 ### Audio
 
