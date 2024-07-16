@@ -95,7 +95,7 @@ fn encode_message(
 /// Run the converted model with a prompt:
 ///
 /// ```sh
-/// cargo run --release --bin qwen2 qwen2-0.5b/model.rten qwen2-0.5b/tokenizer.json
+/// cargo run --release --bin qwen2_chat qwen2-0.5b/model.rten qwen2-0.5b/tokenizer.json
 /// ```
 ///
 /// For better output, but generated more slowly, use the "1.5b" model.
