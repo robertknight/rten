@@ -40,27 +40,45 @@ impl Sampler for ArgMaxSampler {
 /// probabilities.
 pub struct TopKSampler {
     k: usize,
+    temperature: f32,
     rng: RefCell<fastrand::Rng>,
 }
 
 impl TopKSampler {
-    /// Create a sampler which samples from the top `k` tokens.
-    pub fn new(k: usize) -> TopKSampler {
-        Self::with_rng(fastrand::Rng::new(), k)
+    /// Create a sampler which samples from the top `k` tokens with a given
+    /// temperature.
+    ///
+    /// The `k` value must be > 0 and temperature must be >= 0.0.
+    pub fn new(k: usize, temperature: f32) -> TopKSampler {
+        Self::with_rng(fastrand::Rng::new(), k, temperature)
     }
 
     /// Create a sampler which samples from the top `k` tokens, using a seeded
     /// random number generator.
-    pub fn with_rng(rng: fastrand::Rng, k: usize) -> TopKSampler {
+    pub fn with_rng(rng: fastrand::Rng, k: usize, temperature: f32) -> TopKSampler {
+        assert!(temperature >= 0.);
+        assert!(k > 0);
+
         TopKSampler {
             rng: RefCell::new(rng),
             k,
+            temperature,
         }
     }
 }
 
 impl Sampler for TopKSampler {
     fn sample(&self, logits: NdTensorView<f32, 1>) -> u32 {
+        if self.temperature == 0. || self.k == 1 {
+            return ArgMaxSampler::new().sample(logits);
+        }
+
+        let logits = if self.temperature != 1.0 {
+            logits.map(|x| x / self.temperature).into_cow()
+        } else {
+            logits.as_cow()
+        };
+
         let [n_vocab] = logits.shape();
         let (topk_logits, topk_indices) = logits
             .topk(
@@ -124,34 +142,72 @@ mod tests {
 
     #[test]
     fn test_topk_sampler() {
-        // Use a fixed seed for reproducibility.
-        let rng = fastrand::Rng::with_seed(1234);
+        struct Case<'a> {
+            k: usize,
+            temperature: f32,
 
-        let logits = NdTensor::arange(0., 10., None);
-        let vocab_dim = 0;
-        let k = 3;
-        let sampler = TopKSampler::with_rng(rng, k);
-
-        let token_ids: Vec<_> = (0..100).map(|_| sampler.sample(logits.view())).collect();
-        let mut counts = vec![0; logits.size(vocab_dim)];
-        for tok_id in &token_ids {
-            counts[*tok_id as usize] += 1;
+            // Number of times each of the top `k` tokens should be sampled
+            // ordered from least to most frequent. The rng seed is fixed to
+            // make this consistent across runs.
+            expected_counts: &'a [usize],
         }
 
-        // All samples should come from the top K tokens.
-        for token_id in 0..logits.size(vocab_dim) - k {
-            assert_eq!(counts[token_id], 0);
-        }
-        assert_eq!(
-            counts
-                .iter()
-                .skip(logits.size(vocab_dim) - k)
-                .sum::<usize>(),
-            token_ids.len()
-        );
+        let cases = [
+            Case {
+                k: 3,
+                temperature: 1.0,
+                expected_counts: &[12, 25, 63],
+            },
+            Case {
+                k: 1,
+                temperature: 1.0,
+                expected_counts: &[100],
+            },
+            Case {
+                k: 3,
+                temperature: 0.,
+                expected_counts: &[0, 0, 100],
+            },
+            Case {
+                k: 3,
+                temperature: 0.5,
+                expected_counts: &[5, 11, 84],
+            },
+        ];
 
-        // For the top K tokens the distribution should be in proportion to
-        // their probabilities.
-        assert_eq!(counts[logits.size(vocab_dim) - k..], [12, 25, 63]);
+        for Case {
+            k,
+            temperature,
+            expected_counts: expected,
+        } in cases
+        {
+            let rng = fastrand::Rng::with_seed(1234);
+
+            let logits = NdTensor::arange(0., 10., None);
+            let vocab_dim = 0;
+            let sampler = TopKSampler::with_rng(rng, k, temperature);
+
+            let token_ids: Vec<_> = (0..100).map(|_| sampler.sample(logits.view())).collect();
+            let mut counts = vec![0; logits.size(vocab_dim)];
+            for tok_id in &token_ids {
+                counts[*tok_id as usize] += 1;
+            }
+
+            // All samples should come from the top K tokens.
+            for token_id in 0..logits.size(vocab_dim) - k {
+                assert_eq!(counts[token_id], 0);
+            }
+            assert_eq!(
+                counts
+                    .iter()
+                    .skip(logits.size(vocab_dim) - k)
+                    .sum::<usize>(),
+                token_ids.len()
+            );
+
+            // For the top K tokens the distribution should be in proportion to
+            // their probabilities.
+            assert_eq!(counts[logits.size(vocab_dim) - k..], *expected);
+        }
     }
 }
