@@ -73,6 +73,10 @@ path = "src/gpt2.rs"
 name = "jina_similarity"
 path = "src/jina_similarity.rs"
 
+[[bin]]
+name = "qwen2_chat"
+path = "src/qwen2_chat.rs"
+
 # Audio
 [[bin]]
 name = "piper"

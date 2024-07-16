@@ -369,7 +369,7 @@ impl<'a> Generator<'a> {
         if let Some(attention_mask_input) = attention_mask_input {
             generator = generator
                 .with_varying_input(attention_mask_input, &|batch_size, positions| {
-                    NdTensor::full([batch_size, positions.len()], 1i32).into()
+                    NdTensor::full([batch_size, positions.end], 1i32).into()
                 });
         }
 
@@ -389,9 +389,20 @@ impl<'a> Generator<'a> {
 
     /// Set the initial sequence of tokens (aka. the prompt) passed to the model
     /// when it is first run.
+    ///
+    /// To add new inputs after the initial generation, use
+    /// [`append_prompt`](Self::append_prompt) instead.
     pub fn with_prompt(mut self, prompt: &[u32]) -> Self {
         self.input_ids = prompt.to_vec();
         self
+    }
+
+    /// Add input tokens to be included in the next iteration of the model.
+    ///
+    /// This is useful in applications such as chat where the model's input
+    /// alternates between encoded user input and model-generated output.
+    pub fn append_prompt(&mut self, prompt: &[u32]) {
+        self.input_ids.extend(prompt);
     }
 
     /// Add a constant input which is provided to the model at each iteration.
@@ -549,11 +560,11 @@ impl<'a> Iterator for Generator<'a> {
 /// Iterator utilities that wrap a [`Generator`] to perform common tasks such
 /// as stopping generation when an end-of-text token is encountered.
 pub trait GeneratorUtils: Iterator<Item = GeneratorItem> + Sized {
-    /// Stop the generator when `eos_token` or an error is encountered.
-    fn stop_on_token(self, eos_token: u32) -> impl Iterator<Item = GeneratorItem> {
+    /// Stop the generator when any token in `eos_tokens` is encountered.
+    fn stop_on_tokens<A: AsRef<[u32]>>(self, eos_tokens: A) -> impl Iterator<Item = GeneratorItem> {
         self.take_while(move |tok| match tok {
-            Ok(tok_id) => *tok_id != eos_token,
-            Err(_) => false,
+            Ok(tok_id) => !eos_tokens.as_ref().contains(tok_id),
+            _ => true,
         })
     }
 
@@ -884,7 +895,7 @@ mod tests {
                 assert_eq!(step_inputs.size(1), 1);
                 assert_eq!(step_inputs[[0, 0]] as u32, expected_token_ids[step - 1]);
 
-                assert_eq!(step_attn_mask.size(1), 1);
+                assert_eq!(step_attn_mask.size(1), prompt.len() + step);
                 assert_eq!(step_attn_mask[[0, 0]], 1);
 
                 assert_eq!(step_pos_ids.size(1), 1);
@@ -896,7 +907,43 @@ mod tests {
     }
 
     #[test]
-    fn test_stop_on_token() -> Result<(), Box<dyn Error>> {
+    fn test_generator_append_prompt() -> Result<(), Box<dyn Error>> {
+        let mut params = TransformerParams::default();
+        params.n_vocab = 110;
+        let output_token_ids = [0, 1, 2, 3, 4, 5, 6, 7, 8];
+        let prompt = [99];
+        let model = fake_transformer_model(params, prompt.len(), &output_token_ids);
+
+        let mut generator = Generator::from_model(&model)?.with_prompt(&prompt);
+
+        generator.next();
+        generator.append_prompt(&[100]);
+        generator.next();
+        generator.append_prompt(&[101, 102]);
+        generator.next();
+
+        let input_id = model.find_node("input_ids").unwrap();
+
+        // The input to the first step is just the prompt.
+        let inputs = model.get_inputs(0, input_id).unwrap();
+        let inputs: NdTensor<i32, 2> = inputs.try_into().unwrap();
+        assert_eq!(inputs, NdTensor::from([[99]]));
+
+        // The inputs for the next steps are the output followed by the inputs
+        // added with `append_prompt`.
+        let inputs = model.get_inputs(1, input_id).unwrap();
+        let inputs: NdTensor<i32, 2> = inputs.try_into().unwrap();
+        assert_eq!(inputs, NdTensor::from([[0, 100]]));
+
+        let inputs = model.get_inputs(2, input_id).unwrap();
+        let inputs: NdTensor<i32, 2> = inputs.try_into().unwrap();
+        assert_eq!(inputs, NdTensor::from([[1, 101, 102]]));
+
+        Ok(())
+    }
+
+    #[test]
+    fn test_stop_on_tokens() -> Result<(), Box<dyn Error>> {
         let params = TransformerParams::default();
         let expected_token_ids = [0, 1, 2, 3, 4, 0, 1, 2, 3, 4, 0, 0, 0];
         let prompt = [1, 2, 3, 1, 2, 3];
@@ -906,7 +953,7 @@ mod tests {
 
         let output_token_ids: Vec<_> = generator
             .with_prompt(&prompt)
-            .stop_on_token(4)
+            .stop_on_tokens([4])
             .map(|id| id.expect("generation failed"))
             .collect();
 

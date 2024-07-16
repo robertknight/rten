@@ -204,10 +204,6 @@ fn run_with_random_input(
 ) -> Result<(), Box<dyn Error>> {
     let mut rng = fastrand::Rng::new();
 
-    // Generate random ints that are likely to be valid token IDs in a language
-    // model.
-    let generate_token_id = |rng: &mut fastrand::Rng| rng.i32(0..1000);
-
     // Generate random model inputs. The `Output` type here is used as an
     // enum that can hold tensors of different types.
     let inputs: Vec<(NodeId, Output)> = model.input_ids().iter().copied().try_fold(
@@ -246,17 +242,10 @@ fn run_with_random_input(
                     Output::from(Tensor::full(&resolved_shape, 1i32))
                 }
 
-                // For BERT-style models from Hugging Face, `token_type_ids`
-                // must be 0 or 1.
-                "token_type_ids" => Output::from(Tensor::<i32>::zeros(&resolved_shape)),
-
-                // For input names such as `input_ids`, generate some input that
-                // is likely to be a valid token ID.
-                name if name.ends_with("_ids") => {
-                    Output::from(Tensor::from_simple_fn(&resolved_shape, || {
-                        generate_token_id(&mut rng)
-                    }))
-                }
+                // Inputs such as `token_type_ids`, `position_ids`, `input_ids`.
+                // We use zero as a value that is likely to be valid for all
+                // of these.
+                name if name.ends_with("_ids") => Output::from(Tensor::<i32>::zeros(&resolved_shape)),
 
                 // For anything else, random floats in [0, 1].
                 //

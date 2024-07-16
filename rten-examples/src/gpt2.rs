@@ -113,9 +113,10 @@ fn main() -> Result<(), Box<dyn Error>> {
     print!("{}", prompt);
 
     let mut metrics = Metrics::new();
+    let temperature = 1.0;
     let generator = Generator::from_model(&model)?
         .with_prompt(&token_ids)
-        .with_sampler(TopKSampler::new(args.top_k))
+        .with_sampler(TopKSampler::new(args.top_k, temperature))
         .take(args.output_length)
         .profile(&mut metrics)
         .decode(&tokenizer);

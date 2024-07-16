@@ -294,6 +294,12 @@ impl Tokenizer {
                 lowercase: bert_norm.lowercase,
                 strip_accents: bert_norm.strip_accents.unwrap_or(bert_norm.lowercase),
             }),
+
+            // Dummy implementation of NFC normalization.
+            json::Normalizer::Nfc => Normalizer::new(NormalizerOptions {
+                lowercase: false,
+                strip_accents: false,
+            }),
         });
 
         match json.model {

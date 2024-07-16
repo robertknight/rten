@@ -22,6 +22,8 @@ pub(crate) struct BertNormalizer {
 pub(crate) enum Normalizer {
     #[serde(rename = "BertNormalizer")]
     Bert(BertNormalizer),
+    #[serde(rename = "NFC")]
+    Nfc,
 }
 
 #[derive(Deserialize)]

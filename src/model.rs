@@ -227,12 +227,17 @@ impl Model {
     ///
     /// This method requires the `mmap` crate feature to be enabled.
     ///
-    /// For large models (hundreds of MB), this can be faster and use less
-    /// memory than reading the entire model into memory. The first _run_ of a
-    /// memory-mapped model will be slower than if the file is read into memory
-    /// first and then executed. Depending on the size of the model, the overall
-    /// time taken for load + first run may be less or about the same.
-    /// Subsequent model executions should take about the same time.
+    /// Loading a model via memory-mapping makes the initial load of the model
+    /// faster for large models (hundreds of MB) and also allows sharing the
+    /// memory with other processes. If a process uses `load_file`, its private
+    /// memory usage will be the size of the model plus its working space. If a
+    /// process uses `load_mmap`, its private memory usage will only be that
+    /// needed for working space.
+    ///
+    /// The first _run_ of a memory-mapped model will be slower than if the file
+    /// is read into memory first and then executed. Depending on the size of
+    /// the model, the overall time taken for load + first run may be less or
+    /// about the same.  Subsequent model executions should the same time.
     ///
     /// # Safety
     ///
