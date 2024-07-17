@@ -28,7 +28,7 @@ serde_json = { version = "1.0.117" }
 
 [package]
 name = "rten"
-version = "0.11.0"
+version = "0.11.1"
 edition = "2021"
 authors = ["Robert Knight"]
 description = "Machine learning runtime"
