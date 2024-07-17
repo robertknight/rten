@@ -246,6 +246,11 @@ impl Model {
     /// `Model`. Callers will need to decide whether this is an acceptable risk
     /// for their context.
     ///
+    /// # Platform support
+    ///
+    /// This function is not available on WebAssembly. Use [`load`](Self::load)
+    /// or [`load_file`](Self::load_file) instead.
+    ///
     /// ```no_run
     /// # fn main() -> Result<(), Box<dyn std::error::Error>> {
     /// use rten::Model;
@@ -255,6 +260,7 @@ impl Model {
     /// # }
     /// ```
     #[cfg(feature = "mmap")]
+    #[cfg(not(target_arch = "wasm32"))]
     pub unsafe fn load_mmap<P: AsRef<Path>>(path: P) -> Result<Model, ModelLoadError> {
         ModelOptions::with_all_ops().load_mmap(path)
     }
@@ -942,6 +948,7 @@ mod tests {
     }
 
     #[cfg(feature = "mmap")]
+    #[cfg(not(target_arch = "wasm32"))]
     #[test]
     fn test_load_mmap() {
         let buffer = generate_model_buffer(ModelFormat::V2);
