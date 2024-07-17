@@ -2,7 +2,7 @@ use std::error::Error;
 use std::fmt;
 use std::iter::zip;
 use std::sync::{Arc, Mutex};
-use std::time::{Duration, Instant};
+use std::time::Duration;
 
 use rten_tensor::prelude::*;
 use rten_tensor::{DynLayout, Tensor, TensorView};
@@ -19,7 +19,7 @@ use crate::env::env_flag;
 use crate::ops::{Input, InputList, InputOrOutput, OpError, Operator, Output, OutputList};
 use crate::tensor_pool::TensorPool;
 use crate::threading;
-use crate::timing::{InputShape, RunTiming, TimingRecord, TimingSort};
+use crate::timing::{InputShape, Instant, RunTiming, TimingRecord, TimingSort};
 
 /// Represents the size of a dimension of a runtime-provided value, such as
 /// an operator input, output or intermediate value.
@@ -801,7 +801,7 @@ impl Graph {
             // op's result, so logs will contain details of the failed operation
             // in the event of an error.
             if opts.verbose {
-                let op_duration = op_start.elapsed();
+                let op_duration = Instant::now() - op_start;
                 self.print_op_timing(step, op_node, &op_result, op_duration, &input_shapes);
             }
 
