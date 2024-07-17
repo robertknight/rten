@@ -1,8 +1,54 @@
 use std::collections::HashMap;
 use std::fmt;
+use std::ops::Sub;
 use std::time::Duration;
 
+#[cfg(not(all(target_arch = "wasm32", target_os = "unknown")))]
+use std::time;
+
 use smallvec::SmallVec;
+
+#[cfg(all(target_arch = "wasm32", target_os = "unknown"))]
+type Seconds = f64;
+
+/// A wrapper around [`std::time::Instant`] that provides a fallback on
+/// platforms (WebAssembly) where `Instant::now` is unsupported.
+#[derive(Copy, Clone, PartialEq)]
+pub struct Instant {
+    #[cfg(not(all(target_arch = "wasm32", target_os = "unknown")))]
+    inner: time::Instant,
+    #[cfg(all(target_arch = "wasm32", target_os = "unknown"))]
+    inner: Seconds,
+}
+
+impl Instant {
+    pub fn now() -> Self {
+        Instant {
+            #[cfg(not(all(target_arch = "wasm32", target_os = "unknown")))]
+            inner: time::Instant::now(),
+
+            // This could use `performance.now()` when available.
+            #[cfg(all(target_arch = "wasm32", target_os = "unknown"))]
+            inner: 0.0,
+        }
+    }
+}
+
+impl Sub<Instant> for Instant {
+    type Output = Duration;
+
+    fn sub(self, rhs: Instant) -> Duration {
+        #[cfg(not(all(target_arch = "wasm32", target_os = "unknown")))]
+        {
+            self.inner - rhs.inner
+        }
+
+        #[cfg(all(target_arch = "wasm32", target_os = "unknown"))]
+        {
+            Duration::from_secs_f64(self.inner - rhs.inner)
+        }
+    }
+}
 
 /// Trait for text data table sources.
 ///

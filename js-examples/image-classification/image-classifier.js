@@ -75,7 +75,7 @@ export class ImageClassifier {
     try {
       this.model = new Model(modelData);
     } catch (err) {
-      throw new Error(`Failed to load model: ${err}`);
+      throw new Error('Failed to load model', { cause: err });
     }
   }
 

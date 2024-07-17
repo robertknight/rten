@@ -39,6 +39,8 @@ test:
 wasm:
 	RUSTFLAGS="-C target-feature=+simd128" cargo build --features=wasm_api --release --target wasm32-unknown-unknown
 	wasm-bindgen target/wasm32-unknown-unknown/release/rten.wasm --out-dir dist/ --target web --weak-refs
+	# This makes the binary smaller but also removes all symbols. Comment this
+	# out to get a release WASM build with symbols.
 	tools/optimize-wasm.sh dist/rten_bg.wasm
 
 .PHONY: wasm-nosimd
