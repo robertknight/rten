@@ -671,7 +671,7 @@ mod tests {
     use rten_tensor::prelude::*;
     use rten_tensor::rng::XorShiftRng;
     use rten_tensor::test_util::{eq_with_nans, expect_equal, expect_equal_with_tolerance};
-    use rten_tensor::{tensor, RandomSource, Tensor};
+    use rten_tensor::{RandomSource, Tensor};
 
     use crate::ops::tests::new_pool;
     use crate::ops::{
@@ -694,7 +694,7 @@ mod tests {
 
                 // Test inputs here chosen to be in the domain of inverse trig
                 // operators (ie. (-1, 1)).
-                let input = tensor!([0., 0.1, -0.1, 0.9, -0.9]);
+                let input = Tensor::from([0., 0.1, -0.1, 0.9, -0.9]);
                 let expected = input.map($gen_expected);
                 let result = $op(&pool, input.view());
                 expect_equal(&result, &expected)?;
@@ -747,14 +747,14 @@ mod tests {
         let pool = new_pool();
 
         // Float tensor
-        let x: Tensor<f32> = tensor!([1., -1., 0.]);
+        let x: Tensor<f32> = Tensor::from([1., -1., 0.]);
         let result = abs(&pool, x.view());
-        assert_eq!(result, tensor!([1., 1., 0.]));
+        assert_eq!(result, Tensor::from([1., 1., 0.]));
 
         // Int tensor
-        let x: Tensor<i32> = tensor!([1, -1, 0]);
+        let x: Tensor<i32> = Tensor::from([1, -1, 0]);
         let result = abs(&pool, x.view());
-        assert_eq!(result, tensor!([1, 1, 0]));
+        assert_eq!(result, Tensor::from([1, 1, 0]));
     }
 
     test_unary_op!(test_acos, acos, acos_in_place, |x: &f32| x.acos());
@@ -764,7 +764,7 @@ mod tests {
     #[test]
     fn test_ceil() {
         let pool = new_pool();
-        let input = tensor!([
+        let input = Tensor::from([
             1.,
             1.2,
             1.5,
@@ -772,9 +772,9 @@ mod tests {
             0.,
             f32::NAN,
             f32::NEG_INFINITY,
-            f32::INFINITY
+            f32::INFINITY,
         ]);
-        let expected = tensor!([
+        let expected = Tensor::from([
             1.,
             2.,
             2.,
@@ -782,7 +782,7 @@ mod tests {
             0.,
             f32::NAN,
             f32::NEG_INFINITY,
-            f32::INFINITY
+            f32::INFINITY,
         ]);
         let result = ceil(&pool, input.view());
         assert!(eq_with_nans(result.view(), expected.view()));
@@ -799,22 +799,22 @@ mod tests {
 
         let cases = [
             Case {
-                input: tensor!((2, 2); [-5., -2., 3., 20.]),
+                input: [[-5., -2.], [3., 20.]].into(),
                 min: Some(1.),
                 max: Some(5.),
-                expected: tensor!((2, 2); [1., 1., 3., 5.]),
+                expected: [[1., 1.], [3., 5.]].into(),
             },
             Case {
-                input: tensor!((2, 2); [-5., -2., 3., 20.]),
+                input: [[-5., -2.], [3., 20.]].into(),
                 min: Some(1.),
                 max: None,
-                expected: tensor!((2, 2); [1., 1., 3., 20.]),
+                expected: [[1., 1.], [3., 20.]].into(),
             },
             Case {
-                input: tensor!((2, 2); [-5., -2., 3., 20.]),
+                input: [[-5., -2.], [3., 20.]].into(),
                 min: None,
                 max: Some(5.),
-                expected: tensor!((2, 2); [-5., -2., 3., 5.]),
+                expected: [[-5., -2.], [3., 5.]].into(),
             },
         ];
 
@@ -846,7 +846,7 @@ mod tests {
 
         let pool = new_pool();
         for Case { alpha } in cases {
-            let input = tensor!([-5., -2., -1., -0.5, 0., 0.5, 1., 2., 5.]);
+            let input = Tensor::from([-5., -2., -1., -0.5, 0., 0.5, 1., 2., 5.]);
             let expected = input.map(|&x: &f32| if x >= 0. { x } else { alpha * (x.exp() - 1.) });
 
             let actual = elu(&pool, input.view(), alpha);
@@ -863,8 +863,8 @@ mod tests {
     #[test]
     fn test_erf() -> Result<(), Box<dyn Error>> {
         let pool = new_pool();
-        let input = tensor!([-2.0, -0.5, 0.5, 2.0]);
-        let expected = tensor!([
+        let input = Tensor::from([-2.0, -0.5, 0.5, 2.0]);
+        let expected = Tensor::from([
             -0.9953222650189527,
             -0.5204998778130465,
             0.5204998778130465,
@@ -890,8 +890,8 @@ mod tests {
         expect_equal_with_tolerance(&result, &expected, 1e-6, 0.)?;
 
         // Special values.
-        let input = tensor!([f32::NAN, 0., f32::INFINITY, -f32::INFINITY]);
-        let expected = tensor!([f32::NAN, 0., 1., -1.]);
+        let input = Tensor::from([f32::NAN, 0., f32::INFINITY, -f32::INFINITY]);
+        let expected = Tensor::from([f32::NAN, 0., 1., -1.]);
         let result = erf(&pool, input.view());
         assert!(eq_with_nans(result.view(), expected.view()));
 
@@ -900,8 +900,8 @@ mod tests {
 
     #[test]
     fn test_erf_in_place() -> Result<(), Box<dyn Error>> {
-        let mut input = tensor!([-2.0, -0.5, 0.5, 2.0]);
-        let expected = tensor!([
+        let mut input = Tensor::from([-2.0, -0.5, 0.5, 2.0]);
+        let expected = Tensor::from([
             -0.9953222650189527,
             -0.5204998778130465,
             0.5204998778130465,
@@ -915,12 +915,12 @@ mod tests {
     #[test]
     fn test_exp() -> Result<(), Box<dyn Error>> {
         let pool = new_pool();
-        let input = tensor!([-2.0, -0.5, 0.5, 2.0]);
-        let expected = tensor!([
+        let input = Tensor::from([-2.0, -0.5, 0.5, 2.0]);
+        let expected = Tensor::from([
             0.1353352832366127,
             0.6065306597126334,
             1.6487212707001282,
-            7.38905609893065
+            7.38905609893065,
         ]);
         let result = exp(&pool, input.view());
         expect_equal(&result, &expected)?;
@@ -929,12 +929,12 @@ mod tests {
 
     #[test]
     fn test_exp_in_place() -> Result<(), Box<dyn Error>> {
-        let mut input = tensor!([-2.0, -0.5, 0.5, 2.0]);
-        let expected = tensor!([
+        let mut input = Tensor::from([-2.0, -0.5, 0.5, 2.0]);
+        let expected = Tensor::from([
             0.1353352832366127,
             0.6065306597126334,
             1.6487212707001282,
-            7.38905609893065
+            7.38905609893065,
         ]);
         exp_in_place(input.view_mut());
         expect_equal(&input, &expected)?;
@@ -944,7 +944,7 @@ mod tests {
     #[test]
     fn test_floor() {
         let pool = new_pool();
-        let input = tensor!([
+        let input = Tensor::from([
             1.,
             1.2,
             1.5,
@@ -952,9 +952,9 @@ mod tests {
             0.,
             f32::NAN,
             f32::NEG_INFINITY,
-            f32::INFINITY
+            f32::INFINITY,
         ]);
-        let expected = tensor!([
+        let expected = Tensor::from([
             1.,
             1.,
             1.,
@@ -962,7 +962,7 @@ mod tests {
             0.,
             f32::NAN,
             f32::NEG_INFINITY,
-            f32::INFINITY
+            f32::INFINITY,
         ]);
         let result = floor(&pool, input.view());
         assert!(eq_with_nans(result.view(), expected.view()));
@@ -975,12 +975,12 @@ mod tests {
 
     #[test]
     fn test_hard_sigmoid() -> Result<(), Box<dyn Error>> {
-        let input = tensor!([-4., -3., -1., 0., 1., 3., 4.]);
+        let input = Tensor::from([-4., -3., -1., 0., 1., 3., 4.]);
         let alpha = 0.2;
         let beta = 0.5;
         let pool = new_pool();
         let result = hard_sigmoid(&pool, input.view(), alpha, beta);
-        let expected = tensor!([0., 0., -1. / 5. + 0.5, 0.5, 1. / 5. + 0.5, 1., 1.]);
+        let expected = Tensor::from([0., 0., -1. / 5. + 0.5, 0.5, 1. / 5. + 0.5, 1., 1.]);
         expect_equal(&result, &expected)?;
         Ok(())
     }
@@ -988,9 +988,9 @@ mod tests {
     #[test]
     fn test_hard_swish() -> Result<(), Box<dyn Error>> {
         let pool = new_pool();
-        let input = tensor!([-4., -3., -1., 0., 1., 3., 4.]);
+        let input = Tensor::from([-4., -3., -1., 0., 1., 3., 4.]);
         let result = hard_swish(&pool, input.view());
-        let expected = tensor!([0., 0., -1. / 3., 0., 2. / 3., 3., 4.]);
+        let expected = Tensor::from([0., 0., -1. / 3., 0., 2. / 3., 3., 4.]);
         expect_equal(&result, &expected)?;
         Ok(())
     }
@@ -1019,12 +1019,12 @@ mod tests {
     #[test]
     fn test_log() -> Result<(), Box<dyn Error>> {
         let pool = new_pool();
-        let input = tensor!([0.1, 0.5, 1., 10.]);
-        let expected = tensor!([
+        let input = Tensor::from([0.1, 0.5, 1., 10.]);
+        let expected = Tensor::from([
             -2.3025850929940455,
             -0.6931471805599453,
             0.,
-            2.302585092994046
+            2.302585092994046,
         ]);
         let result = log(&pool, input.view());
         expect_equal(&result, &expected)?;
@@ -1033,12 +1033,12 @@ mod tests {
 
     #[test]
     fn test_log_in_place() -> Result<(), Box<dyn Error>> {
-        let mut input = tensor!([0.1, 0.5, 1., 10.]);
-        let expected = tensor!([
+        let mut input = Tensor::from([0.1, 0.5, 1., 10.]);
+        let expected = Tensor::from([
             -2.3025850929940455,
             -0.6931471805599453,
             0.,
-            2.302585092994046
+            2.302585092994046,
         ]);
         log_in_place(input.view_mut());
         expect_equal(&input, &expected)?;
@@ -1048,16 +1048,16 @@ mod tests {
     #[test]
     fn test_neg() {
         let pool = new_pool();
-        let input = tensor!([0, 1, -1, 2]);
-        let expected = tensor!([0, -1, 1, -2]);
+        let input = Tensor::from([0, 1, -1, 2]);
+        let expected = Tensor::from([0, -1, 1, -2]);
         let result = neg(&pool, input.view());
         assert_eq!(result, expected);
     }
 
     #[test]
     fn test_neg_in_place() {
-        let mut input = tensor!([0, 1, -1, 2]);
-        let expected = tensor!([0, -1, 1, -2]);
+        let mut input = Tensor::from([0, 1, -1, 2]);
+        let expected = Tensor::from([0, -1, 1, -2]);
         neg_in_place(input.view_mut());
         assert_eq!(input, expected);
     }
@@ -1065,16 +1065,16 @@ mod tests {
     #[test]
     fn test_not() {
         let pool = new_pool();
-        let input = tensor!([0, 1, 1, 0]);
-        let expected = tensor!([1, 0, 0, 1]);
+        let input = Tensor::from([0, 1, 1, 0]);
+        let expected = Tensor::from([1, 0, 0, 1]);
         let result = not(&pool, input.view());
         assert_eq!(result, expected);
     }
 
     #[test]
     fn test_not_in_place() {
-        let mut input = tensor!([0, 1, 1, 0]);
-        let expected = tensor!([1, 0, 0, 1]);
+        let mut input = Tensor::from([0, 1, 1, 0]);
+        let expected = Tensor::from([1, 0, 0, 1]);
         not_in_place(input.view_mut());
         assert_eq!(input, expected);
     }
@@ -1082,7 +1082,7 @@ mod tests {
     #[test]
     fn test_reciprocal() {
         let pool = new_pool();
-        let input = tensor!([1., 2., 0.5, 0.]);
+        let input = Tensor::from([1., 2., 0.5, 0.]);
         let expected = input.map(|x| 1. / x);
         let result = reciprocal(&pool, input.view());
         assert_eq!(result, expected);
@@ -1108,8 +1108,8 @@ mod tests {
         let pool = new_pool();
 
         // Example from ONNX spec.
-        let input = tensor!([0.9, 2.5, 2.3, 1.5, -4.5]);
-        let expected = tensor!([1., 2., 2., 2., -4.]);
+        let input = Tensor::from([0.9, 2.5, 2.3, 1.5, -4.5]);
+        let expected = Tensor::from([1., 2., 2., 2., -4.]);
         let result = round(&pool, input.view());
         expect_equal(&result, &expected)?;
 
@@ -1118,7 +1118,7 @@ mod tests {
         expect_equal(&input, &expected)?;
 
         // Per spec, integral, zero, NaN and infinities are unchanged.
-        let input = tensor!([1., 0., -0., f32::NAN, f32::INFINITY, f32::NEG_INFINITY]);
+        let input = Tensor::from([1., 0., -0., f32::NAN, f32::INFINITY, f32::NEG_INFINITY]);
         let result = round(&pool, input.view());
         assert!(eq_with_nans(input.view(), result.view()));
 
@@ -1159,8 +1159,8 @@ mod tests {
     #[test]
     fn test_sqrt() -> Result<(), Box<dyn Error>> {
         let pool = new_pool();
-        let input = tensor!([4., 9., 16.]);
-        let expected = tensor!([2., 3., 4.]);
+        let input = Tensor::from([4., 9., 16.]);
+        let expected = Tensor::from([2., 3., 4.]);
         let result = sqrt(&pool, input.view());
         expect_equal(&result, &expected)?;
         Ok(())
@@ -1168,8 +1168,8 @@ mod tests {
 
     #[test]
     fn test_sqrt_in_place() -> Result<(), Box<dyn Error>> {
-        let mut input = tensor!([4., 9., 16.]);
-        let expected = tensor!([2., 3., 4.]);
+        let mut input = Tensor::from([4., 9., 16.]);
+        let expected = Tensor::from([2., 3., 4.]);
         sqrt_in_place(input.view_mut());
         expect_equal(&input, &expected)?;
         Ok(())

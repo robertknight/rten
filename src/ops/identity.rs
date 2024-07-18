@@ -54,7 +54,7 @@ mod tests {
         let pool = new_pool();
         let id_op = Identity {};
 
-        let int_input = Tensor::from_vec(vec![1, 2, 3]);
+        let int_input = Tensor::from([1, 2, 3]);
         let result = id_op
             .run(&pool, (&int_input).into())
             .unwrap()
@@ -63,7 +63,7 @@ mod tests {
             .unwrap();
         assert_eq!(result, int_input);
 
-        let float_input = Tensor::from_vec(vec![1.0, 2.0, 3.0]);
+        let float_input = Tensor::from([1.0, 2.0, 3.0]);
         let result = id_op
             .run(&pool, (&float_input).into())
             .unwrap()

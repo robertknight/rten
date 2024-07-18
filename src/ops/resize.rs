@@ -760,8 +760,8 @@ mod tests {
                 )),
             },
             Case {
-                image: Tensor::from_vec(vec![1., 1.]),
-                scales: Some(Tensor::from_vec(vec![1.])),
+                image: [1., 1.].into(),
+                scales: Some(Tensor::from([1.])),
                 sizes: None,
                 expected: CaseOutput::Error(OpError::InvalidValue("input must have 4 dims (NCHW)")),
             },

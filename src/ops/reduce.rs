@@ -774,7 +774,7 @@ mod tests {
 
     use rten_tensor::prelude::*;
     use rten_tensor::test_util::{eq_with_nans, expect_equal};
-    use rten_tensor::{tensor, NdTensor, Tensor};
+    use rten_tensor::{NdTensor, Tensor};
 
     use crate::ops::tests::{new_pool, run_op};
     use crate::ops::{
@@ -788,7 +788,7 @@ mod tests {
         let pool = new_pool();
 
         // Reduce a simple vector.
-        let probs = tensor!([0.1, 0.5, 0.2, 0.9, 0.01, 0.6]);
+        let probs = Tensor::from([0.1, 0.5, 0.2, 0.9, 0.01, 0.6]);
         let class = arg_max(&pool, probs.view(), 0, false /* keep_dims */).unwrap();
         assert_eq!(class.item(), Some(&3));
 
@@ -840,7 +840,7 @@ mod tests {
     #[test]
     fn test_arg_min() {
         let pool = new_pool();
-        let probs = tensor!([0.1, 0.5, 0.2, 0.9, 0.01, 0.6]);
+        let probs = Tensor::from([0.1, 0.5, 0.2, 0.9, 0.01, 0.6]);
         let class = arg_min(&pool, probs.view(), 0, false /* keep_dims */).unwrap();
         assert_eq!(class.item(), Some(&4));
     }
@@ -852,7 +852,7 @@ mod tests {
     #[test]
     fn test_arg_min_max_nan() {
         let pool = new_pool();
-        let probs = tensor!([0.1, 0.5, f32::NAN, 0.9, 0.01, 0.6]);
+        let probs = Tensor::from([0.1, 0.5, f32::NAN, 0.9, 0.01, 0.6]);
         let min_idx = arg_min(&pool, probs.view(), 0, false /* keep_dims */).unwrap();
         let max_idx = arg_max(&pool, probs.view(), 0, false /* keep_dims */).unwrap();
         assert_eq!(min_idx.item(), Some(&2));
@@ -882,7 +882,7 @@ mod tests {
             &[1, 2, 3, 4, 1, 2, 3, 4, 1, 2, 3, 4, 1, 2, 3, 4]
         );
 
-        let elements: Tensor<f32> = tensor!([]);
+        let elements: Tensor<f32> = Tensor::from([0.; 0]);
         let sums = cum_sum(&pool, elements.view(), 0).unwrap();
         assert_eq!(sums.shape(), &[0]);
         assert_eq!(sums.to_vec(), &[] as &[f32]);
@@ -891,7 +891,7 @@ mod tests {
     #[test]
     fn test_nonzero() {
         let pool = new_pool();
-        let input = tensor!((2, 2); [0., 1., 1., 1.]);
+        let input = Tensor::from([[0., 1.], [1., 1.]]);
         let result = nonzero(&pool, input.view());
         assert_eq!(result.shape(), &[2, 3]);
 
@@ -912,11 +912,11 @@ mod tests {
     #[test]
     fn test_nonzero_scalar() {
         let pool = new_pool();
-        let input = tensor!(3.);
+        let input = Tensor::from(3.);
         let result = nonzero(&pool, input.view());
         assert_eq!(result.shape(), &[0, 1]);
 
-        let input = tensor!(0.);
+        let input = Tensor::from(0.);
         let result = nonzero(&pool, input.view());
         assert_eq!(result.shape(), &[0, 0]);
     }
@@ -952,11 +952,11 @@ mod tests {
 
         for Case { op } in cases {
             let input = NdTensor::from([[0., 1., 2.], [3., 4., 5.]]);
-            let axes = tensor!([0]);
+            let axes = Tensor::from([0]);
             let result: NdTensor<f32, 2> = run_op(&*op, (input.view(), axes.view()))?;
             assert_eq!(result.shape(), [1, 3]);
 
-            let axes = tensor!([1]);
+            let axes = Tensor::from([1]);
             let result: NdTensor<f32, 2> = run_op(&*op, (input.view(), axes.view()))?;
             assert_eq!(result.shape(), [2, 1]);
         }
@@ -997,7 +997,7 @@ mod tests {
 
         // Test with `keep_dims` off
         let result = reduce_mean(&pool, input.view(), Some(&[-1]), false /* keep_dims */).unwrap();
-        let expected = tensor!([2., 5., 8.]);
+        let expected = Tensor::from([2., 5., 8.]);
         expect_equal(&result, &expected)?;
 
         // Test with `keep_dims` on
@@ -1007,17 +1007,17 @@ mod tests {
 
         // Reduce first dim
         let result = reduce_mean(&pool, input.view(), Some(&[0]), false /* keep_dims */).unwrap();
-        let expected = tensor!([4., 5., 6.]);
+        let expected = Tensor::from([4., 5., 6.]);
         expect_equal(&result, &expected)?;
 
         // Reduce all axes
         let result = reduce_mean(&pool, input.view(), None, false /* keep_dims */).unwrap();
-        let expected = Tensor::from_scalar(5.);
+        let expected = Tensor::from(5.);
         expect_equal(&result, &expected)?;
 
         // Reduce all axes (specified via empty array)
         let result = reduce_mean(&pool, input.view(), Some(&[]), false /* keep_dims */).unwrap();
-        let expected = Tensor::from_scalar(5.);
+        let expected = Tensor::from(5.);
         expect_equal(&result, &expected)?;
 
         // Test case from ONNX spec
@@ -1032,7 +1032,7 @@ mod tests {
         // Reduce a scalar value
         let result = reduce_mean(
             &pool,
-            Tensor::from_scalar(5.0).view(),
+            Tensor::from(5.0).view(),
             Some(&[]),
             false, /* keep_dims */
         )
@@ -1042,7 +1042,7 @@ mod tests {
         // Reduce a vector
         let result = reduce_mean(
             &pool,
-            tensor!([0., 10.]).view(),
+            Tensor::from([0., 10.]).view(),
             Some(&[0]),
             false, /* keep_dims */
         )
@@ -1066,7 +1066,7 @@ mod tests {
         // Empty tensor
         let result = reduce_mean(
             &pool,
-            tensor!([]).view(),
+            Tensor::from([0.; 0]).view(),
             Some(&[0]),
             false, /* keep_dims */
         );
@@ -1083,7 +1083,7 @@ mod tests {
     #[test]
     fn test_reduce_min_max() {
         let pool = new_pool();
-        let input: Tensor<f32> = tensor!([1.5, 2.5, 3.5, 4.5, 5.5]);
+        let input: Tensor<f32> = [1.5, 2.5, 3.5, 4.5, 5.5].into();
         let min = result_item(reduce_min(
             &pool,
             input.view(),
@@ -1108,7 +1108,7 @@ mod tests {
     #[test]
     fn test_reduce_min_max_propagates_nan() {
         let pool = new_pool();
-        let input: Tensor<f32> = tensor!([1.5, 2.5, 3.5, f32::NAN, 5.5]);
+        let input: Tensor<f32> = [1.5, 2.5, 3.5, f32::NAN, 5.5].into();
         let min = result_item(reduce_min(
             &pool,
             input.view(),
@@ -1130,7 +1130,7 @@ mod tests {
         let pool = new_pool();
 
         // Int tensor
-        let input: Tensor<i32> = tensor!([1, 2, 3, 4, 5]);
+        let input: Tensor<i32> = [1, 2, 3, 4, 5].into();
         let result = result_item(reduce_prod(
             &pool,
             input.view(),
@@ -1140,7 +1140,7 @@ mod tests {
         assert_eq!(result, input.iter().product::<i32>());
 
         // Float tensor
-        let input: Tensor<f32> = tensor!([1.5, 2.5, 3.5, 4.5, 5.5]);
+        let input: Tensor<f32> = [1.5, 2.5, 3.5, 4.5, 5.5].into();
         let result = result_item(reduce_prod(
             &pool,
             input.view(),
@@ -1155,7 +1155,7 @@ mod tests {
         let pool = new_pool();
 
         // Int tensor
-        let input: Tensor<i32> = tensor!([1, 2, 3, 4, 5]);
+        let input: Tensor<i32> = [1, 2, 3, 4, 5].into();
         let result = result_item(reduce_sum(
             &pool,
             input.view(),
@@ -1165,7 +1165,7 @@ mod tests {
         assert_eq!(result, input.iter().sum::<i32>());
 
         // Float tensor
-        let input: Tensor<f32> = tensor!([1.5, 2.5, 3.5, 4.5, 5.5]);
+        let input: Tensor<f32> = [1.5, 2.5, 3.5, 4.5, 5.5].into();
         let result = result_item(reduce_sum(
             &pool,
             input.view(),
@@ -1180,7 +1180,7 @@ mod tests {
         let pool = new_pool();
 
         // Int tensor
-        let input: Tensor<i32> = tensor!([1, 2, 3, 4, 5]);
+        let input: Tensor<i32> = [1, 2, 3, 4, 5].into();
         let result = result_item(reduce_sum_square(
             &pool,
             input.view(),
@@ -1190,7 +1190,7 @@ mod tests {
         assert_eq!(result, input.iter().map(|x| x * x).sum::<i32>());
 
         // Float tensor
-        let input: Tensor<f32> = tensor!([1.5, 2.5, 3.5, 4.5, 5.5]);
+        let input: Tensor<f32> = [1.5, 2.5, 3.5, 4.5, 5.5].into();
         let result = result_item(reduce_sum_square(
             &pool,
             input.view(),
@@ -1225,110 +1225,88 @@ mod tests {
         let cases = [
             // Simple case, largest=true
             Case {
-                input: tensor!([0., 1., 2.]),
+                input: [0., 1., 2.].into(),
                 k: 2,
-                expected: Ok((tensor!([2., 1.]), tensor!([2, 1]))),
+                expected: Ok((Tensor::from([2., 1.]), Tensor::from([2, 1]))),
                 ..Default::default()
             },
             // Simple case, largest=false
             Case {
-                input: tensor!([0., 1., 2.]),
+                input: [0., 1., 2.].into(),
                 k: 2,
                 largest: false,
-                expected: Ok((tensor!([0., 1.]), tensor!([0, 1]))),
+                expected: Ok((Tensor::from([0., 1.]), Tensor::from([0, 1]))),
                 ..Default::default()
             },
             // Special case where k=0
             Case {
-                input: tensor!([0., 1., 2.]),
+                input: [0., 1., 2.].into(),
                 k: 0,
-                expected: Ok((tensor!([]), tensor!([]))),
+                expected: Ok((Tensor::from([0.; 0]), Tensor::from([0; 0]))),
                 ..Default::default()
             },
             // Tie break by index when input values are equal.
             Case {
-                input: tensor!([1., 0., 2., 3., 1.]),
+                input: [1., 0., 2., 3., 1.].into(),
                 k: 5,
-                expected: Ok((tensor!([3., 2., 1., 1., 0.]), tensor!([3, 2, 0, 4, 1]))),
+                expected: Ok(([3., 2., 1., 1., 0.].into(), [3, 2, 0, 4, 1].into())),
                 ..Default::default()
             },
             // Tie break by index when input values are equal, largest=false
             Case {
-                input: tensor!([1., 0., 2., 3., 1.]),
+                input: [1., 0., 2., 3., 1.].into(),
                 k: 5,
                 largest: false,
-                expected: Ok((tensor!([0., 1., 1., 2., 3.]), tensor!([1, 0, 4, 2, 3]))),
+                expected: Ok(([0., 1., 1., 2., 3.].into(), [1, 0, 4, 2, 3].into())),
                 ..Default::default()
             },
             // NaN values
             Case {
-                input: tensor!([0., f32::NAN, 2.]),
+                input: [0., f32::NAN, 2.].into(),
                 k: 2,
-                expected: Ok((tensor!([f32::NAN, 2.]), tensor!([1, 2]))),
+                expected: Ok((Tensor::from([f32::NAN, 2.]), Tensor::from([1, 2]))),
                 ..Default::default()
             },
             // NaN values, with largest=false
             Case {
-                input: tensor!([0., f32::NAN, 2.]),
+                input: [0., f32::NAN, 2.].into(),
                 k: 3,
-                expected: Ok((tensor!([0., 2., f32::NAN]), tensor!([0, 2, 1]))),
+                expected: Ok(([0., 2., f32::NAN].into(), [0, 2, 1].into())),
                 largest: false,
                 ..Default::default()
             },
             // Invalid k value
             Case {
-                input: tensor!([0., 1., 2.]),
+                input: [0., 1., 2.].into(),
                 k: 4,
                 expected: Err(OpError::InvalidValue("k > dimension size")),
                 ..Default::default()
             },
             // Scalar input
             Case {
-                input: tensor!(0.),
+                input: Tensor::from(0.),
                 k: 2,
                 expected: Err(OpError::InvalidValue("Axis is invalid")),
                 ..Default::default()
             },
             // 2D input, take top-K over axis 1
             Case {
-                input: tensor!((3, 3); [
-                    0., 1., 2., //
-                    0., 1., 3., //
-                    0., 1., 4. //
-                ]),
+                input: [[0., 1., 2.], [0., 1., 3.], [0., 1., 4.]].into(),
                 k: 2,
                 expected: Ok((
-                    tensor!((3, 2); [
-                        2., 1., //
-                        3., 1., //
-                        4., 1. //
-                    ]),
-                    tensor!((3, 2); [
-                        2, 1, //
-                        2, 1, //
-                        2, 1 //
-                    ]),
+                    [[2., 1.], [3., 1.], [4., 1.]].into(),
+                    [[2, 1], [2, 1], [2, 1]].into(),
                 )),
                 ..Default::default()
             },
             // 2D input, take top-K over axis 0
             Case {
-                input: tensor!((3, 3); [
-                    0., 1., 2., //
-                    3., 4., 5., //
-                    6., 7., 8. //
-                ]),
+                input: Tensor::from([[0., 1., 2.], [3., 4., 5.], [6., 7., 8.]]),
                 k: 2,
                 axis: Some(0),
                 expected: Ok((
-                    tensor!((2, 3); [
-                        6., 7., 8., //
-                        3., 4., 5. //
-                    ]),
-                    tensor!((2, 3); [
-                        2, 2, 2, //
-                        1, 1, 1 //
-                    ]),
+                    [[6., 7., 8.], [3., 4., 5.]].into(),
+                    [[2, 2, 2], [1, 1, 1]].into(),
                 )),
                 ..Default::default()
             },

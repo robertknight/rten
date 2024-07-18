@@ -488,7 +488,7 @@ mod tests {
     use rten_tensor::prelude::*;
     use rten_tensor::rng::XorShiftRng;
     use rten_tensor::test_util::expect_equal;
-    use rten_tensor::{tensor, Tensor};
+    use rten_tensor::Tensor;
 
     use super::SOFTMAX_GRAIN_SIZE;
     use crate::ops::tests::{expect_eq_1e4, new_pool};
@@ -604,19 +604,25 @@ mod tests {
     #[test]
     fn test_instance_normalization() -> Result<(), Box<dyn Error>> {
         // Sample values generated using `torch.rand`.
-        let input = tensor!((1, 5, 2); [
-            0.9562, 0.0572, 0.4366, 0.5655, 0.2017,
-            0.0230, 0.7941, 0.1554, 0.3226, 0.120
-        ]);
-        let scale = tensor!([0.0751, 0.6952, 0.5800, 0.6791, 0.9884]);
-        let bias = tensor!([0.9993, 0.7632, 0.7679, 0.2427, 0.0728]);
+        let input = Tensor::from([[
+            [0.9562, 0.0572],
+            [0.4366, 0.5655],
+            [0.2017, 0.0230],
+            [0.7941, 0.1554],
+            [0.3226, 0.120],
+        ]]);
+        let scale = Tensor::from([0.0751, 0.6952, 0.5800, 0.6791, 0.9884]);
+        let bias = Tensor::from([0.9993, 0.7632, 0.7679, 0.2427, 0.0728]);
 
         // Expected result computed with `torch.nn.functional.instance_norm`.
         // The `scale` parameter in ONNX is called `weight` in PyTorch.
-        let expected = tensor!((1, 5, 2); [
-            1.0744,  0.9242,  0.0688,  1.4576,  1.3476,
-            0.1883,  0.9217, -0.4364, 1.0608, -0.9152
-        ]);
+        let expected = Tensor::from([[
+            [1.0744, 0.9242],
+            [0.0688, 1.4576],
+            [1.3476, 0.1883],
+            [0.9217, -0.4364],
+            [1.0608, -0.9152],
+        ]]);
 
         let pool = new_pool();
         let result =
@@ -633,12 +639,15 @@ mod tests {
         let pool = new_pool();
 
         // Sample values generated using `torch.rand`.
-        let input = tensor!((1, 5, 2); [
-            0.9562, 0.0572, 0.4366, 0.5655, 0.2017,
-            0.0230, 0.7941, 0.1554, 0.3226, 0.120
-        ]);
-        let scale = tensor!([0.0751, 0.6952]);
-        let bias = tensor!([0.9993, 0.7632]);
+        let input = Tensor::from([[
+            [0.9562, 0.0572],
+            [0.4366, 0.5655],
+            [0.2017, 0.0230],
+            [0.7941, 0.1554],
+            [0.3226, 0.120],
+        ]]);
+        let scale = Tensor::from([0.0751, 0.6952]);
+        let bias = Tensor::from([0.9993, 0.7632]);
 
         let result = layer_normalization(
             &pool,
@@ -667,8 +676,8 @@ mod tests {
         let pool = new_pool();
 
         // 1D input
-        let mut input = tensor!([0.1634, 0.8647, 0.6401, 0.8265, 0.0560, 0.2345]);
-        let expected = tensor!([-2.1447, -1.4434, -1.6680, -1.4816, -2.2521, -2.0736]);
+        let mut input = Tensor::from([0.1634, 0.8647, 0.6401, 0.8265, 0.0560, 0.2345]);
+        let expected = Tensor::from([-2.1447, -1.4434, -1.6680, -1.4816, -2.2521, -2.0736]);
         let result = log_softmax(&pool, input.view(), 0).unwrap();
         expect_eq_1e4(&result, &expected)?;
 
@@ -703,8 +712,8 @@ mod tests {
         let pool = new_pool();
 
         // Softmax on a 1D input
-        let mut input = tensor!([0.1634, 0.8647, 0.6401, 0.8265, 0.0560, 0.2304]);
-        let expected = tensor!([0.1172, 0.2362, 0.1887, 0.2274, 0.1052, 0.1253]);
+        let mut input = Tensor::from([0.1634, 0.8647, 0.6401, 0.8265, 0.0560, 0.2304]);
+        let expected = Tensor::from([0.1172, 0.2362, 0.1887, 0.2274, 0.1052, 0.1253]);
         let result = softmax(&pool, input.view(), 0).unwrap();
         expect_eq_1e4(&result, &expected)?;
 

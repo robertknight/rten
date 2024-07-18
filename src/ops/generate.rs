@@ -166,7 +166,7 @@ impl Operator for Range {
 #[cfg(test)]
 mod tests {
     use rten_tensor::prelude::*;
-    use rten_tensor::{tensor, Tensor};
+    use rten_tensor::Tensor;
 
     use crate::ops::tests::new_pool;
     use crate::ops::{onehot, range, ConstantOfShape, OpError, Operator, Scalar};
@@ -205,60 +205,54 @@ mod tests {
             // Common case of converting class labels to a float one-hot tensor
             // with values of 0/1.
             Case {
-                classes: tensor!([0, 1, 2, 3, 4]),
+                classes: [0, 1, 2, 3, 4].into(),
                 axis: -1,
                 depth: 5,
                 on_value: 1.,
                 off_value: 0.,
-                expected: Ok(tensor!((5, 5); [
-                    1., 0., 0., 0., 0., // 1
-                    0., 1., 0., 0., 0., // 2
-                    0., 0., 1., 0., 0., // 3
-                    0., 0., 0., 1., 0., // 4
-                    0., 0., 0., 0., 1. // 5
-                ])),
+                expected: Ok([
+                    [1., 0., 0., 0., 0.],
+                    [0., 1., 0., 0., 0.],
+                    [0., 0., 1., 0., 0.],
+                    [0., 0., 0., 1., 0.],
+                    [0., 0., 0., 0., 1.],
+                ]
+                .into()),
             },
             // Non-standard on/off values.
             Case {
-                classes: tensor!([0, 1]),
+                classes: [0, 1].into(),
                 axis: -1,
                 depth: 2,
                 on_value: 2.,
                 off_value: -3.,
-                expected: Ok(tensor!((2, 2); [
-                    2., -3., // 1
-                    -3., 2. // 2
-                ])),
+                expected: Ok([[2., -3.], [-3., 2.]].into()),
             },
             // Add classes as first axis.
             Case {
-                classes: tensor!([0, 1]),
+                classes: [0, 1].into(),
                 axis: 0,
                 depth: 2,
                 on_value: 1.,
                 off_value: 0.,
-                expected: Ok(tensor!((2, 2); [
-                    1., 0., // 1
-                    0., 1. // 2
-                ])
-                .transposed()
-                .to_tensor()),
+                expected: Ok(Tensor::from([[1., 0.], [0., 1.]]).transposed().to_tensor()),
             },
             // Invalid class index for depth.
             Case {
-                classes: tensor!([0, 2]),
+                classes: [0, 2].into(),
                 axis: -1,
                 depth: 2,
                 on_value: 1.,
                 off_value: 0.,
-                expected: Ok(tensor!((2, 2); [
-                    1., 0., // 1
-                    0., 0. // 2. All "off" because class is out of range.
-                ])),
+                expected: Ok([
+                    [1., 0.],
+                    [0., 0.], // All "off" because class is out of range.
+                ]
+                .into()),
             },
             // Invalid axis
             Case {
-                classes: tensor!([0, 1]),
+                classes: [0, 1].into(),
                 axis: 2,
                 depth: 2,
                 on_value: 1.,

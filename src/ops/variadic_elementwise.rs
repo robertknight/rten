@@ -148,7 +148,7 @@ impl Operator for Sum {
 mod tests {
     use rten_tensor::prelude::*;
     use rten_tensor::test_util::eq_with_nans;
-    use rten_tensor::{tensor, Tensor, TensorView};
+    use rten_tensor::{Tensor, TensorView};
 
     use crate::ops::tests::new_pool;
     use crate::ops::{max, mean, min, sum, Input, InputList, Max, Min, OpError, Operator, Sum};
@@ -177,55 +177,49 @@ mod tests {
             },
             // One input
             Case {
-                inputs: vec![tensor!([1., 2., 3., 4.])],
-                expected: Ok(tensor!([1., 2., 3., 4.])),
+                inputs: vec![[1., 2., 3., 4.].into()],
+                expected: Ok([1., 2., 3., 4.].into()),
             },
             // Two inputs
             Case {
-                inputs: vec![tensor!([1., 2., 3.]), tensor!([4., 1., 3.])],
-                expected: Ok(tensor!([4., 2., 3.])),
+                inputs: vec![[1., 2., 3.].into(), [4., 1., 3.].into()],
+                expected: Ok([4., 2., 3.].into()),
             },
             // Two inputs with NaNs
             Case {
-                inputs: vec![tensor!([1., 2., f32::NAN]), tensor!([4., 1., 3.])],
-                expected: Ok(tensor!([4., 2., f32::NAN])),
+                inputs: vec![[1., 2., f32::NAN].into(), [4., 1., 3.].into()],
+                expected: Ok([4., 2., f32::NAN].into()),
             },
             // Three inputs
             Case {
-                inputs: vec![tensor!([1., 2.]), tensor!([5., 1.]), tensor!([2., 3.])],
-                expected: Ok(tensor!([5., 3.])),
+                inputs: vec![[1., 2.].into(), [5., 1.].into(), [2., 3.].into()],
+                expected: Ok([5., 3.].into()),
             },
             // Two inputs, broadcasted
             Case {
-                inputs: vec![tensor!([2., 4.]), tensor!((2, 2); [1., 2., 3., 4.])],
-                expected: Ok(tensor!((2, 2); [
-                    2., 4.,
-                    3., 4.
-                ])),
+                inputs: vec![[2., 4.].into(), [[1., 2.], [3., 4.]].into()],
+                expected: Ok([[2., 4.], [3., 4.]].into()),
             },
             // Three inputs, broadcasted
             Case {
                 inputs: vec![
-                    tensor!([2., 4.]),
-                    tensor!(3.),
-                    tensor!((2, 2); [1., 2., 3., 4.]),
+                    [2., 4.].into(),
+                    Tensor::from(3.),
+                    [[1., 2.], [3., 4.]].into(),
                 ],
-                expected: Ok(tensor!((2, 2); [
-                    3., 4.,
-                    3., 4.
-                ])),
+                expected: Ok(Tensor::from([[3., 4.], [3., 4.]])),
             },
             // Two inputs, incompatible broadcast
             Case {
-                inputs: vec![tensor!([4., 5., 6.]), tensor!((2, 2); [1., 2., 3., 4.])],
+                inputs: vec![[4., 5., 6.].into(), [[1., 2.], [3., 4.]].into()],
                 expected: Err(OpError::IncompatibleInputShapes("Cannot broadcast inputs")),
             },
             // Three inputs, incompatible broadcast
             Case {
                 inputs: vec![
-                    tensor!([2., 4., 5.]),
-                    tensor!(3.),
-                    tensor!((2, 2); [1., 2., 3., 4.]),
+                    [2., 4., 5.].into(),
+                    Tensor::from(3.),
+                    [[1., 2.], [3., 4.]].into(),
                 ],
                 expected: Err(OpError::IncompatibleInputShapes("Cannot broadcast inputs")),
             },
@@ -242,21 +236,21 @@ mod tests {
         }
 
         // Test the `Max` Operator impl
-        let a = tensor!([1., 2., 7., 8.]);
-        let b = tensor!([5., 6., 3., 4.]);
-        let expected = tensor!([5., 6., 7., 8.]);
+        let a = Tensor::from([1., 2., 7., 8.]);
+        let b = Tensor::from([5., 6., 3., 4.]);
+        let expected = Tensor::from([5., 6., 7., 8.]);
         let op_result = run_operator(&Max {}, &[a.view(), b.view()]);
         assert_eq!(op_result, expected);
     }
 
     #[test]
     fn test_mean() {
-        let a = tensor!([1., 2., 3., 4.]);
-        let b = tensor!([5., 6., 7., 8.]);
+        let a = Tensor::from([1., 2., 3., 4.]);
+        let b = Tensor::from([5., 6., 7., 8.]);
         let pool = new_pool();
         assert_eq!(
             mean(&pool, &[a.view(), b.view()]),
-            Ok(tensor!([3., 4., 5., 6.]))
+            Ok(Tensor::from([3., 4., 5., 6.]))
         );
     }
 
@@ -264,27 +258,27 @@ mod tests {
     fn test_min() {
         let pool = new_pool();
 
-        let (a, b) = (tensor!([1., 2., 3.]), tensor!([4., 1., 3.]));
-        let expected = tensor!([1., 1., 3.]);
+        let (a, b) = (Tensor::from([1., 2., 3.]), Tensor::from([4., 1., 3.]));
+        let expected = Tensor::from([1., 1., 3.]);
         assert_eq!(min(&pool, &[a.view(), b.view()]), Ok(expected.clone()));
 
         let output = run_operator(&Min {}, &[a.view(), b.view()]);
         assert_eq!(output, expected);
 
-        let (a, b) = (tensor!([1., 2., f32::NAN]), tensor!([4., 1., 3.]));
+        let (a, b) = (Tensor::from([1., 2., f32::NAN]), Tensor::from([4., 1., 3.]));
         let result = min(&pool, &[a.view(), b.view()]).unwrap();
         assert!(eq_with_nans(
             result.view(),
-            tensor!([1., 1., f32::NAN]).view()
+            Tensor::from([1., 1., f32::NAN]).view()
         ));
     }
 
     #[test]
     fn test_sum() {
         let pool = new_pool();
-        let a = tensor!([1., 2., 3., 4.]);
-        let b = tensor!([5., 6., 7., 8.]);
-        let expected = tensor!([6., 8., 10., 12.]);
+        let a = Tensor::from([1., 2., 3., 4.]);
+        let b = Tensor::from([5., 6., 7., 8.]);
+        let expected = Tensor::from([6., 8., 10., 12.]);
 
         assert_eq!(sum(&pool, &[a.view(), b.view()]), Ok(expected.clone()));
 

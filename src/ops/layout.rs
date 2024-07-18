@@ -601,7 +601,7 @@ mod tests {
     use rten_tensor::prelude::*;
     use rten_tensor::rng::XorShiftRng;
     use rten_tensor::test_util::expect_equal;
-    use rten_tensor::{ndtensor, tensor, Tensor};
+    use rten_tensor::{NdTensor, Tensor};
 
     use crate::ops::layout::{
         expand, flatten, reshape, reshape_in_place, squeeze, squeeze_in_place, transpose,
@@ -615,41 +615,41 @@ mod tests {
         let pool = new_pool();
 
         // Broadcast scalar
-        let input = tensor!(5.);
-        let shape = ndtensor!([2, 2]);
+        let input = Tensor::from(5.);
+        let shape = NdTensor::from([2, 2]);
         let expected = Tensor::from_data(&[2, 2], vec![5., 5., 5., 5.]);
         let result = expand(&pool, input.view(), &shape.view()).unwrap();
         assert_eq!(&result, &expected);
 
         // Broadcast that changes dim count
         let input = Tensor::from_data(&[3, 1], (0..3).collect::<Vec<_>>());
-        let shape = ndtensor!([2, 3, 1]);
+        let shape = NdTensor::from([2, 3, 1]);
         let result = expand(&pool, input.view(), &shape.view()).unwrap();
         assert_eq!(result.shape(), &[2, 3, 1]);
 
         // Broadcast that uses dimensions from both the input shape and target
         // shape in the output shape.
         let input = Tensor::from_data(&[3, 1], (0..3).collect::<Vec<_>>());
-        let shape = ndtensor!([2, 1, 6]);
+        let shape = NdTensor::from([2, 1, 6]);
         let result = expand(&pool, input.view(), &shape.view()).unwrap();
         assert_eq!(result.shape(), &[2, 3, 6]);
 
         // Broadcast that does not change dim count
         let input = Tensor::from_data(&[3, 1], (0..3).collect::<Vec<_>>());
-        let shape = ndtensor!([3, 4]);
+        let shape = NdTensor::from([3, 4]);
         let result = expand(&pool, input.view(), &shape.view()).unwrap();
         assert_eq!(result.shape(), &[3, 4]);
 
         // Broadcast of leading and trailing dims
-        let input = tensor!((1, 2, 1); [1, 2]);
-        let shape = ndtensor!([2, 2, 2]);
+        let input = Tensor::from([1, 2]).into_shape([1, 2, 1].as_slice());
+        let shape = NdTensor::from([2, 2, 2]);
         let result = expand(&pool, input.view(), &shape.view()).unwrap();
         assert_eq!(result.shape(), &[2, 2, 2]);
         assert_eq!(result.to_vec(), &[1, 1, 2, 2, 1, 1, 2, 2]);
 
         // Broadcast of inner dim
-        let input = tensor!((2, 1, 2); [1, 2, 3, 4]);
-        let shape = ndtensor!([2, 2, 2]);
+        let input = Tensor::from([1, 2, 3, 4]).into_shape([2, 1, 2].as_slice());
+        let shape = NdTensor::from([2, 2, 2]);
         let result = expand(&pool, input.view(), &shape.view()).unwrap();
         assert_eq!(result.shape(), &[2, 2, 2]);
         assert_eq!(result.to_vec(), &[1, 2, 1, 2, 3, 4, 3, 4]);
@@ -660,8 +660,8 @@ mod tests {
         let pool = new_pool();
 
         // Invalid broadcast shape
-        let input = tensor!([1, 2, 3]);
-        let shape = ndtensor!([2, 2]);
+        let input = Tensor::from([1, 2, 3]);
+        let shape = NdTensor::from([2, 2]);
         let result = expand(&pool, input.view(), &shape.view());
         assert_eq!(
             result.err(),
@@ -694,7 +694,7 @@ mod tests {
 
         // Reshape with an unspecified (-1) dim and nonzero-length input
         let input = Tensor::from_data(&[2, 2], vec![-0.5, 0.5, 3.0, -5.5]);
-        let shape = ndtensor!([1, -1, 2]);
+        let shape = NdTensor::from([1, -1, 2]);
         let expected = input.to_shape([1, 2, 2].as_slice());
         let result = reshape(
             &pool,
@@ -707,7 +707,7 @@ mod tests {
 
         // Reshape with an unspecified (-1) dim and zero-length input
         let zero_sized_input = Tensor::<f32>::from_data(&[4, 0, 1], vec![]);
-        let shape = ndtensor!([100, -1]);
+        let shape = NdTensor::from([100, -1]);
         let result = reshape(
             &pool,
             zero_sized_input.view(),
@@ -728,7 +728,7 @@ mod tests {
         // When the target shape has a zero dim, the corresponding input dim
         // size should be copied.
         let input = Tensor::from_data(&[1, 1, 4], vec![-0.5, 0.5, 3.0, -5.5]);
-        let shape = ndtensor!([-1, 0]);
+        let shape = NdTensor::from([-1, 0]);
         let expected = input.to_shape([4, 1].as_slice());
         let result = reshape(
             &pool,
@@ -741,7 +741,7 @@ mod tests {
 
         // Case where copied input dim is also zero.
         let input = Tensor::<f32>::from_data(&[0], vec![]);
-        let shape = ndtensor!([0]);
+        let shape = NdTensor::from([0]);
         let expected = input.to_shape([0].as_slice());
         let result = reshape(
             &pool,
@@ -754,7 +754,7 @@ mod tests {
 
         // Case where there is no corresponding input dim.
         let input = Tensor::from_data(&[1], vec![5.]);
-        let shape = ndtensor!([1, 0]);
+        let shape = NdTensor::from([1, 0]);
         let result = reshape(
             &pool,
             input.view(),
@@ -770,7 +770,7 @@ mod tests {
 
         // Case when allow_zero is true
         let input = Tensor::<f32>::from_data(&[0, 0, 10], vec![]);
-        let shape = ndtensor!([10, 0, 0]);
+        let shape = NdTensor::from([10, 0, 0]);
         let result = reshape(
             &pool,
             input.view(),
@@ -788,7 +788,7 @@ mod tests {
     fn test_reshape_with_multiple_unspecified_dims() {
         let pool = new_pool();
         let input = Tensor::from_data(&[2, 2], vec![-0.5, 0.5, 3.0, -5.5]);
-        let shape = ndtensor!([1, -1, -1]);
+        let shape = NdTensor::from([1, -1, -1]);
         assert_eq!(
             reshape(
                 &pool,
@@ -811,7 +811,7 @@ mod tests {
         ));
 
         let input = Tensor::from_data(&[2, 2], vec![-0.5, 0.5, 3.0, -5.5]);
-        let shape = ndtensor!([5, -1]);
+        let shape = NdTensor::from([5, -1]);
         let result = reshape(
             &pool,
             input.view(),
@@ -822,7 +822,7 @@ mod tests {
 
         // Case when allow_zero is true
         let input = Tensor::from_data(&[1], vec![1]);
-        let shape = ndtensor!([0, -1]);
+        let shape = NdTensor::from([0, -1]);
         let result = reshape(
             &pool,
             input.view(),
@@ -836,7 +836,7 @@ mod tests {
     fn test_reshape_in_place() {
         let pool = new_pool();
         let mut input = Tensor::from_data(&[2, 2], vec![-0.5, 0.5, 3.0, -5.5]);
-        let shape = ndtensor!([4]);
+        let shape = NdTensor::from([4]);
         let expected = input.to_shape([4].as_slice());
         reshape_in_place(
             &pool,
@@ -900,7 +900,7 @@ mod tests {
     fn test_size() {
         let pool = new_pool();
         let op = Size {};
-        let input = tensor!((2, 2); [1, 2, 3, 4]);
+        let input = Tensor::from([[1, 2], [3, 4]]);
         let result = op
             .run(&pool, (&input).into())
             .unwrap()
@@ -926,12 +926,12 @@ mod tests {
 
         // Remove final 1-size axis.
         expected.reshape(&[1, 5, 5]);
-        let result = squeeze(&pool, input.view(), Some(ndtensor!([3]).view())).unwrap();
+        let result = squeeze(&pool, input.view(), Some(NdTensor::from([3]).view())).unwrap();
         expect_equal(&result, &expected)?;
 
         // Remove first 1-size axis.
         expected.reshape(&[5, 5, 1]);
-        let result = squeeze(&pool, input.view(), Some(ndtensor!([0]).view())).unwrap();
+        let result = squeeze(&pool, input.view(), Some(NdTensor::from([0]).view())).unwrap();
         expect_equal(&result, &expected)?;
 
         Ok(())
@@ -958,7 +958,7 @@ mod tests {
         let input = Tensor::rand(&[1, 5, 5, 1], &mut rng);
 
         let pool = new_pool();
-        let result = squeeze(&pool, input.view(), Some(ndtensor!([1]).view()));
+        let result = squeeze(&pool, input.view(), Some(NdTensor::from([1]).view()));
 
         assert_eq!(
             result.err(),
@@ -1034,16 +1034,16 @@ mod tests {
         let input = Tensor::rand(&[3, 4, 5], &mut rng);
 
         // Unsqueeze with axes in increasing order
-        let output = unsqueeze(&pool, input.view(), &ndtensor!([0, 4]).view()).unwrap();
+        let output = unsqueeze(&pool, input.view(), &NdTensor::from([0, 4]).view()).unwrap();
         assert_eq!(output.shape(), &[1, 3, 4, 5, 1]);
 
         // Unsqueeze with axes in decreasing order
-        let output = unsqueeze(&pool, input.view(), &ndtensor!([4, 0]).view()).unwrap();
+        let output = unsqueeze(&pool, input.view(), &NdTensor::from([4, 0]).view()).unwrap();
         assert_eq!(output.shape(), &[1, 3, 4, 5, 1]);
 
         // Unsqueeze a scalar into a 1-item vec
-        let scalar = tensor!(2.0);
-        let output = unsqueeze(&pool, scalar.view(), &ndtensor!([0]).view()).unwrap();
+        let scalar = Tensor::from(2.0);
+        let output = unsqueeze(&pool, scalar.view(), &NdTensor::from([0]).view()).unwrap();
         assert_eq!(output.shape(), &[1]);
         assert_eq!(output.to_vec(), &[2.0]);
     }
@@ -1055,11 +1055,11 @@ mod tests {
         let input = Tensor::rand(&[10, 20], &mut rng);
 
         // Invalid dimension index
-        let result = unsqueeze(&pool, input.view(), &ndtensor!([3]).view());
+        let result = unsqueeze(&pool, input.view(), &NdTensor::from([3]).view());
         assert_eq!(result.err(), Some(OpError::InvalidValue("Axis is invalid")));
 
         // Repeated dimension index
-        let result = unsqueeze(&pool, input.view(), &ndtensor!([1, 1]).view());
+        let result = unsqueeze(&pool, input.view(), &NdTensor::from([1, 1]).view());
         assert_eq!(
             result.err(),
             Some(OpError::InvalidValue("Axes must be unique"))

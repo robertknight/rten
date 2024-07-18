@@ -300,7 +300,7 @@ mod tests {
 
     use rten_tensor::prelude::*;
     use rten_tensor::test_util::expect_equal;
-    use rten_tensor::{tensor, Tensor};
+    use rten_tensor::Tensor;
 
     use crate::ops::tests::new_pool;
     use crate::ops::OpError;
@@ -422,60 +422,51 @@ mod tests {
 
         // Empty
         let input = Tensor::<f32>::zeros(&[3, 4, 5]);
-        let repeats = tensor!([4, 0, 1]);
+        let repeats = Tensor::from([4, 0, 1]);
         let result = tile(&pool, input.view(), repeats.nd_view()).unwrap();
         assert_eq!(result.shape(), &[12, 0, 5]);
         assert!(result.is_empty());
 
         // Scalar
-        let input = tensor!(5.);
-        let repeats = tensor!([]);
+        let input = Tensor::from(5.);
+        let empty: [i32; 0] = [];
+        let repeats = Tensor::from(empty);
         let result = tile(&pool, input.view(), repeats.nd_view()).unwrap();
-        assert_eq!(result, tensor!(5.));
+        assert_eq!(result, Tensor::from(5.));
 
         // 1D tile
-        let input = tensor!([1, 2, 3, 4]);
-        let repeats = tensor!([3]);
+        let input = Tensor::from([1, 2, 3, 4]);
+        let repeats = Tensor::from([3]);
         let result = tile(&pool, input.view(), repeats.nd_view()).unwrap();
-        assert_eq!(result, tensor!([1, 2, 3, 4, 1, 2, 3, 4, 1, 2, 3, 4]));
+        assert_eq!(result, Tensor::from([1, 2, 3, 4, 1, 2, 3, 4, 1, 2, 3, 4]));
 
         // 2D tile
-        let input = tensor!((1, 1); [3.]);
-        let repeats = tensor!([3, 2]);
+        let input = Tensor::from([[3.]]);
+        let repeats = Tensor::from([3, 2]);
         let result = tile(&pool, input.view(), repeats.nd_view()).unwrap();
-        assert_eq!(
-            result,
-            tensor!(
-                (3, 2);
-                [
-                    3., 3., //
-                    3., 3., //
-                    3., 3. //
-                ]
-            )
-        );
+        assert_eq!(result, Tensor::from([[3., 3.], [3., 3.], [3., 3.]]));
 
         // Noop tile
-        let input = tensor!([1, 2, 3, 4]);
-        let repeats = tensor!([1]);
+        let input = Tensor::from([1, 2, 3, 4]);
+        let repeats = Tensor::from([1]);
         let result = tile(&pool, input.view(), repeats.nd_view()).unwrap();
         assert_eq!(input, result);
 
         // Repeat inner dim of a 2D tensor
         let input = Tensor::from([[1, 2], [3, 4]]);
-        let repeats = tensor!([1, 2]);
+        let repeats = Tensor::from([1, 2]);
         let result = tile(&pool, input.view(), repeats.nd_view()).unwrap();
         assert_eq!(result, Tensor::from([[1, 2, 1, 2], [3, 4, 3, 4]]));
 
         // Repeat outer dim of a 2D tensor
         let input = Tensor::from([[1, 2], [3, 4]]);
-        let repeats = tensor!([2, 1]);
+        let repeats = Tensor::from([2, 1]);
         let result = tile(&pool, input.view(), repeats.nd_view()).unwrap();
         assert_eq!(result, Tensor::from([[1, 2], [3, 4], [1, 2], [3, 4]]));
 
         // Repeat inner and outer dims of a 2D tensor
         let input = Tensor::from([[1, 2], [3, 4]]);
-        let repeats = tensor!([2, 2]);
+        let repeats = Tensor::from([2, 2]);
         let result = tile(&pool, input.view(), repeats.nd_view()).unwrap();
         assert_eq!(
             result,
@@ -488,14 +479,14 @@ mod tests {
         let pool = new_pool();
 
         // Repeats length does not match input ndim.
-        let input = tensor!([1, 2, 3]);
-        let repeats = tensor!([1, 2]);
+        let input = Tensor::from([1, 2, 3]);
+        let repeats = Tensor::from([1, 2]);
         let result = tile(&pool, input.view(), repeats.nd_view());
         assert_eq!(result, Err(OpError::InvalidValue("invalid repeats")));
 
         // Negative repeats
-        let input = tensor!([1, 2, 3]);
-        let repeats = tensor!([-1]);
+        let input = Tensor::from([1, 2, 3]);
+        let repeats = Tensor::from([-1]);
         let result = tile(&pool, input.view(), repeats.nd_view());
         assert_eq!(result, Err(OpError::InvalidValue("invalid repeats")));
     }

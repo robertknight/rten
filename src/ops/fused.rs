@@ -100,22 +100,22 @@ mod tests {
 
         let cases = [
             Case {
-                a: Tensor::from([[1, 2], [3, 4]]),
-                b: Tensor::from([[0, 1], [2, 3]]),
+                a: [[1, 2], [3, 4]].into(),
+                b: [[0, 1], [2, 3]].into(),
                 transpose_input: 1,
 
                 // 1 2 - 0 2 = 1 0
                 // 3 4   1 3   2 1
-                expected: Tensor::from([[1, 0], [2, 1]]),
+                expected: [[1, 0], [2, 1]].into(),
             },
             Case {
-                a: Tensor::from([[1, 2], [3, 4]]),
-                b: Tensor::from([[0, 1], [2, 3]]),
+                a: [[1, 2], [3, 4]].into(),
+                b: [[0, 1], [2, 3]].into(),
                 transpose_input: 0,
 
                 // 1 3 - 0 1 = 1 2
                 // 2 4   2 3   0 1
-                expected: Tensor::from([[1, 2], [0, 1]]),
+                expected: [[1, 2], [0, 1]].into(),
             },
         ];
 
