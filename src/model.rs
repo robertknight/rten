@@ -932,6 +932,47 @@ mod tests {
     }
 
     #[test]
+    fn test_load_invalid_model() {
+        struct Case {
+            buf: Vec<u8>,
+            expected_error: &'static str,
+        }
+
+        let buf = generate_model_buffer(ModelFormat::V2);
+
+        let mut invalid_model = buf.clone();
+        let header_size = 32;
+        invalid_model.insert(header_size, 0); // Corrupt buffer after header
+
+        let mut truncated_buf = buf.clone();
+        truncated_buf.truncate(truncated_buf.len() - 1);
+
+        let cases = [
+            Case {
+                buf: b"RTENabc".to_vec(),
+                expected_error: "invalid header",
+            },
+            Case {
+                buf: invalid_model,
+                expected_error: "parse error:",
+            },
+            Case {
+                buf: truncated_buf,
+                expected_error: "graph error: invalid tensor data offset",
+            },
+        ];
+
+        for Case {
+            buf,
+            expected_error,
+        } in cases
+        {
+            let err = Model::load(buf).err().unwrap();
+            assert!(err.to_string().contains(expected_error));
+        }
+    }
+
+    #[test]
     fn test_load_file() {
         let buffer = generate_model_buffer(ModelFormat::V2);
         std::fs::write("model-load-file-test.rten", buffer).unwrap();
