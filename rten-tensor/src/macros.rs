@@ -18,6 +18,7 @@
 /// // Create a 3D tensor with shape [1, 2, 2] and elements [1, 2, 3, 4].
 /// tensor!((1, 2, 2); [1, 2, 3, 4]);
 /// Tensor::from([[[1, 2], [3, 4]]]);
+/// Tensor::from([1, 2, 3, 4]).into_shape([1, 2, 2].as_slice());
 /// ```
 #[macro_export]
 macro_rules! tensor {
@@ -76,6 +77,7 @@ macro_rules! tensor {
 /// // Create a 3D tensor with shape [1, 2, 2] and elements [1, 2, 3, 4].
 /// ndtensor!((1, 2, 2); [1, 2, 3, 4]);
 /// NdTensor::from([[[1, 2], [3, 4]]]);
+/// NdTensor::from([1, 2, 3, 4]).into_shape([1, 2, 2]);
 /// ```
 #[macro_export]
 macro_rules! ndtensor {
