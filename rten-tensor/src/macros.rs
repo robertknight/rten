@@ -21,6 +21,7 @@
 /// Tensor::from([1, 2, 3, 4]).into_shape([1, 2, 2].as_slice());
 /// ```
 #[macro_export]
+#[deprecated(note = "Use `Tensor::from` or `Tensor::from_data` instead")]
 macro_rules! tensor {
     [[$($elem:expr),*]] => {
         {
@@ -80,6 +81,7 @@ macro_rules! tensor {
 /// NdTensor::from([1, 2, 3, 4]).into_shape([1, 2, 2]);
 /// ```
 #[macro_export]
+#[deprecated(note = "Use `NdTensor::from` or `NdTensor::from_data` instead")]
 macro_rules! ndtensor {
     [[$($elem:expr),*]] => {
         {
@@ -121,6 +123,7 @@ macro_rules! ndtensor {
 }
 
 #[cfg(test)]
+#[allow(deprecated)]
 mod tests {
     use crate::{ndtensor, tensor, NdTensor, Tensor};
 
