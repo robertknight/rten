@@ -378,7 +378,7 @@ mod tests {
         assert!(result.is_err());
 
         // Dimension count mismatch.
-        let result = concat_in_place(&pool, dest.clone(), &[Tensor::from_scalar(1).view()], 1);
+        let result = concat_in_place(&pool, dest.clone(), &[Tensor::from(1).view()], 1);
         assert!(result.is_err());
 
         Ok(())

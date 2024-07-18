@@ -353,7 +353,7 @@ mod tests {
         let input_id = graph.add_value(Some("x"), None);
 
         let (_, abs_out) = graph.add_simple_op("abs", Abs {}, &[input_id]);
-        let one = graph.add_constant(None, Tensor::from_scalar(1.0));
+        let one = graph.add_constant(None, Tensor::from(1.0));
         let (_, add_out) = graph.add_simple_op("add", Add {}, &[one, abs_out]);
         let (_, div_out) = graph.add_simple_op("div", Div {}, &[input_id, add_out]);
 

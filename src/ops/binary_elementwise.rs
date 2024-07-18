@@ -1577,14 +1577,14 @@ mod tests {
 
         // Float tensor broadcasting `x` and `y`
         let cond = tensor!([1, 1, 0, 0]);
-        let x = Tensor::from_scalar(1.);
-        let y = Tensor::from_scalar(2.);
+        let x = Tensor::from(1.);
+        let y = Tensor::from(2.);
         let result = where_op(&pool, cond.view(), x.view(), y.view()).unwrap();
         let expected = tensor!([1., 1., 2., 2.]);
         assert_eq!(&result, &expected);
 
         // Float tensor broadcasting `cond`
-        let cond = Tensor::from_scalar(1);
+        let cond = Tensor::from(1);
         let x = tensor!([1., 2.]);
         let y = tensor!([3., 4.]);
         let result = where_op(&pool, cond.view(), x.view(), y.view()).unwrap();
@@ -1593,8 +1593,8 @@ mod tests {
 
         // Int tensor broadcasting `x` and `y`
         let cond = tensor!([1, 1, 0, 0]);
-        let x = Tensor::from_scalar(3);
-        let y = Tensor::from_scalar(4);
+        let x = Tensor::from(3);
+        let y = Tensor::from(4);
         let result = where_op(&pool, cond.view(), x.view(), y.view()).unwrap();
         let expected = tensor!([3, 3, 4, 4]);
         assert_eq!(&result, &expected);

@@ -1241,9 +1241,9 @@ mod tests {
         let nms_boxes = builder.add_constant(Tensor::<f32>::zeros(&[1, nms_n_boxes, 4]).view());
         let nms_scores =
             builder.add_constant(Tensor::<f32>::zeros(&[1, nms_n_classes, nms_n_boxes]).view());
-        let nms_max_outputs_per_class = builder.add_constant(Tensor::from_scalar(10).view());
-        let nms_iou_threshold = builder.add_constant(Tensor::from_scalar(0.45).view());
-        let nms_score_threshold = builder.add_constant(Tensor::from_scalar(0.2).view());
+        let nms_max_outputs_per_class = builder.add_constant(Tensor::from(10).view());
+        let nms_iou_threshold = builder.add_constant(Tensor::from(0.45).view());
+        let nms_score_threshold = builder.add_constant(Tensor::from(0.2).view());
 
         add_operator!(NonMaxSuppression, [nms_boxes, nms_scores, nms_max_outputs_per_class, nms_iou_threshold, nms_score_threshold], {
             box_order: BoxOrder::CenterWidthHeight,
@@ -1253,7 +1253,7 @@ mod tests {
         add_operator!(Not, [input_bool]);
 
         let onehot_indices = builder.add_constant(Tensor::from([0, 1, 2]).view());
-        let onehot_depth = builder.add_constant(Tensor::from_scalar(5).view());
+        let onehot_depth = builder.add_constant(Tensor::from(5).view());
         let onehot_values = builder.add_constant(Tensor::from([1., 0.]).view());
         add_operator!(OneHot, [onehot_indices, onehot_depth, onehot_values], {
             axis: -1,
@@ -1383,7 +1383,7 @@ mod tests {
         let tile_repeats = builder.add_constant(Tensor::from([1, 2, 3, 4]).view());
         add_operator!(Tile, [input_node, tile_repeats]);
 
-        let topk_k = builder.add_constant(Tensor::from_scalar(3).view());
+        let topk_k = builder.add_constant(Tensor::from(3).view());
         let topk_out_values = builder.add_value("TopK_out_values", None);
         let topk_out_indices = builder.add_value("TopK_out_indices", None);
         builder.add_operator(
@@ -1478,9 +1478,9 @@ mod tests {
         }
 
         // Range op
-        let start = Tensor::from_scalar(0.);
-        let limit = Tensor::from_scalar(5.);
-        let delta = Tensor::from_scalar(1.);
+        let start = Tensor::from(0.);
+        let limit = Tensor::from(5.);
+        let delta = Tensor::from(1.);
         let result = model
             .run(
                 vec![
@@ -1495,7 +1495,7 @@ mod tests {
         assert_eq!(result.len(), 1);
 
         // Where op
-        let cond = Tensor::from_scalar(1);
+        let cond = Tensor::from(1);
         let x = tensor!([1, 2, 3]);
         let y = tensor!([4, 5, 6]);
         let result = model

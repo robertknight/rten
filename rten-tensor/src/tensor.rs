@@ -2111,6 +2111,16 @@ impl_scalar!(f64);
 // impl for a nested array literal, as it prevents `T` from matching an array
 // type.
 
+impl<T: Clone + Scalar, L: MutLayout> From<T> for TensorBase<Vec<T>, L>
+where
+    [usize; 0]: AsIndex<L>,
+{
+    /// Construct a scalar tensor from a scalar value.
+    fn from(value: T) -> Self {
+        Self::from_scalar(value)
+    }
+}
+
 impl<T: Clone + Scalar, L: MutLayout, const D0: usize> From<[T; D0]> for TensorBase<Vec<T>, L>
 where
     [usize; 1]: AsIndex<L>,
@@ -2521,6 +2531,11 @@ mod tests {
 
     #[test]
     fn test_from_nested_array() {
+        // Scalar
+        let x = NdTensor::from(5);
+        assert_eq!(x.shape(), []);
+        assert_eq!(x.data(), Some([5].as_slice()));
+
         // 1D
         let x = NdTensor::from([1, 2, 3]);
         assert_eq!(x.shape(), [3]);
