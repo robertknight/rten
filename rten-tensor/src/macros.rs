@@ -1,16 +1,23 @@
-/// Construct a `Tensor`.
+/// Construct a [`Tensor`](crate::Tensor) from literal elements.
+///
+/// This macro has been kept for compatibility with existing code, but using
+/// `Tensor::from` is preferred. `Tensor::from` accepts scalar values and nested
+/// arrays.
 ///
 /// ```
-/// use rten_tensor::tensor;
+/// use rten_tensor::{Tensor, tensor};
 ///
 /// // Create a scalar (0D tensor)
 /// tensor!(2.);
+/// Tensor::from(2.);
 ///
 /// // Create a vector (1D tensor)
 /// tensor!([1, 2, 3]);
+/// Tensor::from([1, 2, 3]);
 ///
 /// // Create a 3D tensor with shape [1, 2, 2] and elements [1, 2, 3, 4].
 /// tensor!((1, 2, 2); [1, 2, 3, 4]);
+/// Tensor::from([[[1, 2], [3, 4]]]);
 /// ```
 #[macro_export]
 macro_rules! tensor {
@@ -49,19 +56,26 @@ macro_rules! tensor {
     };
 }
 
-/// Construct an `NdTensor`.
+/// Construct an [`NdTensor`](crate::NdTensor) from literal elements.
+///
+/// This macro has been kept for compatibility with existing code, but using
+/// `NdTensor::from` is preferred. `NdTensor::from` accepts scalar values and
+/// nested arrays.
 ///
 /// ```
-/// use rten_tensor::ndtensor;
+/// use rten_tensor::{NdTensor, ndtensor};
 ///
 /// // Create a scalar (0D tensor)
 /// ndtensor!(2.);
+/// NdTensor::from(2.);
 ///
 /// // Create a vector (1D tensor)
 /// ndtensor!([1, 2, 3]);
+/// NdTensor::from([1, 2, 3]);
 ///
 /// // Create a 3D tensor with shape [1, 2, 2] and elements [1, 2, 3, 4].
 /// ndtensor!((1, 2, 2); [1, 2, 3, 4]);
+/// NdTensor::from([[[1, 2], [3, 4]]]);
 /// ```
 #[macro_export]
 macro_rules! ndtensor {
