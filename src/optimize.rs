@@ -670,9 +670,9 @@ mod tests {
     fn test_fuse_gelu() {
         let mut graph = Graph::new();
 
-        let sqrt_2 = graph.add_constant(None, Tensor::from_scalar((2.0f32).sqrt()));
-        let one = graph.add_constant(None, Tensor::from_scalar(1.0));
-        let half = graph.add_constant(None, Tensor::from_scalar(0.5));
+        let sqrt_2 = graph.add_constant(None, Tensor::from((2.0f32).sqrt()));
+        let one = graph.add_constant(None, Tensor::from(1.0));
+        let half = graph.add_constant(None, Tensor::from(0.5));
 
         let input = graph.add_value(None, None);
         let (_, div_out) = graph.add_simple_op("div", Div {}, &[input, sqrt_2]);
@@ -703,7 +703,7 @@ mod tests {
         let (_, sub_out) = graph.add_simple_op("sub", Sub {}, &[input, mean_out]);
 
         // Normalize variance
-        let two = graph.add_constant(None, Tensor::from_scalar(2.));
+        let two = graph.add_constant(None, Tensor::from(2.));
         let (_, pow_out) = graph.add_simple_op("pow", Pow {}, &[sub_out, two]);
         let (_, var_mean_out) = graph.add_simple_op(
             "var_mean",
@@ -713,7 +713,7 @@ mod tests {
             },
             &[pow_out],
         );
-        let epsilon = graph.add_constant(None, Tensor::from_scalar(1e-6));
+        let epsilon = graph.add_constant(None, Tensor::from(1e-6));
         let (_, add_eps_out) = graph.add_simple_op("add_eps", Add {}, &[epsilon, var_mean_out]);
         let (_, sqrt_out) = graph.add_simple_op("sqrt", Sqrt {}, &[add_eps_out]);
         let (_, div_out) = graph.add_simple_op("div", Div {}, &[sub_out, sqrt_out]);

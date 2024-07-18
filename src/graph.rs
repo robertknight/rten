@@ -1477,7 +1477,7 @@ mod tests {
     #[test]
     fn test_typed_constant() {
         let mut g = Graph::new();
-        let scalar_id = g.add_constant(None, Tensor::from_scalar(42.));
+        let scalar_id = g.add_constant(None, Tensor::from(42.));
         let vec_id = g.add_constant(None, Tensor::from([1, 2, 3]));
 
         let scalar_node = match g.get_node(scalar_id) {
@@ -1863,7 +1863,7 @@ mod tests {
 
         fn run(&self, _pool: &TensorPool, _inputs: InputList) -> Result<OutputList, OpError> {
             let count = self.count.fetch_add(1, Ordering::SeqCst);
-            Ok([Tensor::from_scalar(count).into()].into())
+            Ok([Tensor::from(count).into()].into())
         }
     }
 

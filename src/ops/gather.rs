@@ -647,11 +647,11 @@ mod tests {
             // Scalar indices, with 1D and ND inputs
             Case {
                 input: Tensor::from([1, 2, 3]),
-                indices: Tensor::from_scalar(4),
+                indices: Tensor::from(4),
             },
             Case {
                 input: Tensor::from([[1, 2, 3]]),
-                indices: Tensor::from_scalar(2),
+                indices: Tensor::from(2),
             },
         ];
 

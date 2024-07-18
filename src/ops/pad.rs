@@ -194,7 +194,7 @@ mod tests {
 
         // Wrong constant value type.
         let invalid_pads = from_slice(&[1, 1, 1, -1]);
-        let const_int = Tensor::from_scalar(1);
+        let const_int = Tensor::from(1);
         let result = op.run(&pool, (&input, &invalid_pads, &const_int).into());
         assert_eq!(result.err(), Some(OpError::IncorrectInputType));
 
