@@ -1775,7 +1775,7 @@ mod tests {
             &[left_split_out, right_split_out].map(Some),
         );
 
-        let input = Tensor::from_vec(vec![1.0, 2.0, 3.0, 4.0, 5.0]);
+        let input = Tensor::from([1.0, 2.0, 3.0, 4.0, 5.0]);
         let mut results = g
             .run(
                 vec![(input_id, input.into())],

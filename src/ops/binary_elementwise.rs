@@ -1095,7 +1095,7 @@ mod tests {
         expect_equal(&result, &expected)?;
 
         // Case where one of the inputs is a scalar.
-        let a = Tensor::from_scalar(3.0);
+        let a = Tensor::from(3.0);
         let b = Tensor::from_data(&[2, 2], vec![1.0, 2.0, 3.0, 4.0]);
         let result = add(&pool, a.view(), b.view()).unwrap();
         let expected = Tensor::from_data(&[2, 2], vec![4.0, 5.0, 6.0, 7.0]);
@@ -1148,7 +1148,7 @@ mod tests {
 
         // Run `Add` operator in-place with inputs that don't support in-place
         // addition. The operator should fall back to creating a new output tensor.
-        let scalar = Tensor::from_scalar(1.0);
+        let scalar = Tensor::from(1.0);
         let expected = Tensor::from_data(&[2, 2], vec![11., 21., 31., 41.]);
         let result = op
             .run_in_place(&pool, Output::FloatTensor(scalar), (&b).into())
@@ -1216,7 +1216,7 @@ mod tests {
 
         // Scalar b
         let a = Tensor::from_data(&[2, 2], vec![10., 20., 30., 40.]);
-        let b = Tensor::from_scalar(10.);
+        let b = Tensor::from(10.);
         let expected = Tensor::from_data(&[2, 2], vec![1., 2., 3., 4.]);
         let result = div(&pool, a.view(), b.view()).unwrap();
         expect_equal(&result, &expected)?;
@@ -1230,7 +1230,7 @@ mod tests {
 
         // Scalar b int
         let a = Tensor::from([1, 2, 3, 4]);
-        let b = Tensor::from_scalar(2);
+        let b = Tensor::from(2);
         let expected = Tensor::from([0, 1, 1, 2]);
         let result = div(&pool, a.view(), b.view()).unwrap();
         assert_eq!(&result, &expected);
@@ -1249,7 +1249,7 @@ mod tests {
 
         // Scalar b
         let mut a = Tensor::from_data(&[2, 2], vec![10., 20., 30., 40.]);
-        let b = Tensor::from_scalar(10.);
+        let b = Tensor::from(10.);
         let expected = Tensor::from_data(&[2, 2], vec![1., 2., 3., 4.]);
         div_in_place(a.view_mut(), b.view());
         expect_equal(&a, &expected)?;
@@ -1263,7 +1263,7 @@ mod tests {
 
         // Scalar b int
         let mut a = Tensor::from([1, 2, 3, 4]);
-        let b = Tensor::from_scalar(2);
+        let b = Tensor::from(2);
         let expected = Tensor::from([0, 1, 1, 2]);
         div_in_place(a.view_mut(), b.view());
         assert_eq!(&a, &expected);

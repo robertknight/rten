@@ -149,7 +149,7 @@ fn phonemes_to_ids(phonemes: &str, config: &ModelConfig) -> NdTensor<i32, 1> {
         }
     }));
     ids.extend(end_ids);
-    NdTensor::from_vec(ids)
+    ids.into()
 }
 
 /// Text to speech demo using models from Piper [1].

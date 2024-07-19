@@ -130,7 +130,7 @@ pub fn range<T: Copy + Default + ops::Add<Output = T> + PartialOrd>(
         output.push(val);
         val = val + delta;
     }
-    Ok(Tensor::from_vec(output))
+    Ok(output.into())
 }
 
 #[derive(Debug)]
@@ -177,7 +177,7 @@ mod tests {
         let op = ConstantOfShape {
             value: Scalar::Int(42),
         };
-        let shape = Tensor::from_vec(vec![1, 5, 10]);
+        let shape = Tensor::from([1, 5, 10]);
 
         let result = op
             .run(&pool, (&shape).into())
