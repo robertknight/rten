@@ -557,7 +557,7 @@ mod tests {
     use rten_tensor::prelude::*;
     use rten_tensor::rng::XorShiftRng;
     use rten_tensor::test_util::expect_equal;
-    use rten_tensor::{tensor, Tensor};
+    use rten_tensor::Tensor;
 
     use crate::ops::tests::new_pool;
     use crate::ops::{
@@ -569,19 +569,19 @@ mod tests {
         let pool = new_pool();
 
         // 1D input
-        let input = tensor!([1, 20, 30]);
+        let input = Tensor::from([1, 20, 30]);
         for i in 0..input.len() {
-            let indices = tensor!(i as i32);
+            let indices = Tensor::from(i as i32);
             let result = gather(&pool, input.view(), 0, indices.view()).unwrap();
             assert_eq!(result.item(), Some(&input[[i]]))
         }
 
         // 2D input
-        let input = tensor!((2, 2); [1, 2, 3, 4]);
-        let result = gather(&pool, input.view(), 0, tensor!(0).view()).unwrap();
-        assert_eq!(result, tensor!([1, 2]));
-        let result = gather(&pool, input.view(), 0, tensor!(1).view()).unwrap();
-        assert_eq!(result, tensor!([3, 4]));
+        let input = Tensor::from([[1, 2], [3, 4]]);
+        let result = gather(&pool, input.view(), 0, Tensor::from(0).view()).unwrap();
+        assert_eq!(result, Tensor::from([1, 2]));
+        let result = gather(&pool, input.view(), 0, Tensor::from(1).view()).unwrap();
+        assert_eq!(result, Tensor::from([3, 4]));
     }
 
     #[test]
@@ -646,11 +646,11 @@ mod tests {
             },
             // Scalar indices, with 1D and ND inputs
             Case {
-                input: Tensor::from([1, 2, 3]),
+                input: [1, 2, 3].into(),
                 indices: Tensor::from(4),
             },
             Case {
-                input: Tensor::from([[1, 2, 3]]),
+                input: [[1, 2, 3]].into(),
                 indices: Tensor::from(2),
             },
         ];
@@ -694,26 +694,26 @@ mod tests {
         assert_eq!(result, expected);
 
         // Input with > 4 dims.
-        let input = tensor!((1, 1, 1, 2, 2); [1, 2, 3, 4]);
-        let indices = tensor!((1, 1, 1, 2, 2); [1, 1, 0, 0]);
+        let input = Tensor::from([1, 2, 3, 4]).into_shape([1, 1, 1, 2, 2].as_slice());
+        let indices = Tensor::from([1, 1, 0, 0]).into_shape([1, 1, 1, 2, 2].as_slice());
         let axis = 4;
-        let expected = tensor!((1, 1, 1, 2, 2); [2, 2, 3, 3]);
+        let expected = Tensor::from([2, 2, 3, 3]).into_shape([1, 1, 1, 2, 2].as_slice());
         let result = gather_elements(&pool, input.view(), indices.view(), axis).unwrap();
         assert_eq!(result, expected);
 
         // Empty input and indices
-        let input: Tensor<i32> = tensor!([]);
-        let indices = tensor!([]);
+        let input = Tensor::from([0; 0]);
+        let indices = Tensor::from([0; 0]);
         let axis = 0;
-        let expected = tensor!([]);
+        let expected = Tensor::from([0; 0]);
         let result = gather_elements(&pool, input.view(), indices.view(), axis).unwrap();
         assert_eq!(result, expected);
 
         // Empty indices
-        let input: Tensor<i32> = tensor!([1, 2, 3]);
-        let indices = tensor!([]);
+        let input: Tensor<i32> = Tensor::from([1, 2, 3]);
+        let indices = Tensor::from([0; 0]);
         let axis = 0;
-        let expected = tensor!([]);
+        let expected = Tensor::from([0; 0]);
         let result = gather_elements(&pool, input.view(), indices.view(), axis).unwrap();
         assert_eq!(result, expected);
 
@@ -815,19 +815,9 @@ mod tests {
 
         // Example #1 from ONNX spec
         let data = Tensor::zeros(&[3, 3]);
-        let indices = tensor!((2, 3); [
-            1, 0, 2, //
-            0, 2, 1 //
-        ]);
-        let updates = tensor!((2, 3); [
-            1., 1.1, 1.2, //
-            2., 2.1, 2.2 //
-        ]);
-        let expected = tensor!((3, 3); [
-            2., 1.1, 0., //
-            1., 0., 2.2, //
-            0., 2.1, 1.2 //
-        ]);
+        let indices = Tensor::from([[1, 0, 2], [0, 2, 1]]);
+        let updates = Tensor::from([[1., 1.1, 1.2], [2., 2.1, 2.2]]);
+        let expected = Tensor::from([[2., 1.1, 0.], [1., 0., 2.2], [0., 2.1, 1.2]]);
         let result = scatter_elements(
             &pool,
             data.view(),
@@ -840,12 +830,10 @@ mod tests {
         assert_eq!(result, expected);
 
         // Example #2 from ONNX spec
-        let data = tensor!((1, 5); [1., 2., 3., 4., 5.]);
-        let indices = tensor!((1, 2); [1, 3]);
-        let updates = tensor!((1, 2); [1.1, 2.1]);
-        let expected = tensor!((1, 5); [
-            1., 1.1, 3., 2.1, 5.
-        ]);
+        let data = Tensor::from([[1., 2., 3., 4., 5.]]);
+        let indices = Tensor::from([[1, 3]]);
+        let updates = Tensor::from([[1.1, 2.1]]);
+        let expected = Tensor::from([[1., 1.1, 3., 2.1, 5.]]);
         let result = scatter_elements(
             &pool,
             data.view(),
@@ -862,9 +850,9 @@ mod tests {
     fn test_scatter_elements_reduction() {
         let pool = new_pool();
 
-        let data = tensor!([1, 2, 3, 4]);
-        let indices = tensor!([1, 3]);
-        let updates = tensor!([2, 2]);
+        let data = Tensor::from([1, 2, 3, 4]);
+        let indices = Tensor::from([1, 3]);
+        let updates = Tensor::from([2, 2]);
 
         let scatter = |reduction: Option<ScatterReduction>| {
             scatter_elements(
@@ -879,16 +867,16 @@ mod tests {
         };
 
         let result = scatter(Some(ScatterReduction::Add));
-        assert_eq!(result, tensor!([1, 4, 3, 6]));
+        assert_eq!(result, Tensor::from([1, 4, 3, 6]));
 
         let result = scatter(Some(ScatterReduction::Mul));
-        assert_eq!(result, tensor!([1, 4, 3, 8]));
+        assert_eq!(result, Tensor::from([1, 4, 3, 8]));
 
         let result = scatter(Some(ScatterReduction::Min));
-        assert_eq!(result, tensor!([1, 2, 3, 2]));
+        assert_eq!(result, Tensor::from([1, 2, 3, 2]));
 
         let result = scatter(Some(ScatterReduction::Max));
-        assert_eq!(result, tensor!([1, 2, 3, 4]));
+        assert_eq!(result, Tensor::from([1, 2, 3, 4]));
     }
 
     #[test]
@@ -905,37 +893,40 @@ mod tests {
         let cases = [
             // Example 1 from ONNX spec.
             Case {
-                data: tensor!([1, 2, 3, 4, 5, 6, 7, 8]),
-                indices: tensor!((4, 1); [4, 3, 1, 7]),
-                updates: tensor!([9, 10, 11, 12]),
-                expected: tensor!([1, 11, 3, 10, 9, 6, 7, 12]),
+                data: [1, 2, 3, 4, 5, 6, 7, 8].into(),
+                indices: Tensor::from_data(&[4, 1], vec![4, 3, 1, 7]),
+                updates: [9, 10, 11, 12].into(),
+                expected: [1, 11, 3, 10, 9, 6, 7, 12].into(),
             },
             // Example 2 from ONNX spec.
             Case {
-                data: Tensor::from([
+                data: [
                     [[1, 2, 3, 4], [5, 6, 7, 8], [8, 7, 6, 5], [4, 3, 2, 1]],
                     [[1, 2, 3, 4], [5, 6, 7, 8], [8, 7, 6, 5], [4, 3, 2, 1]],
                     [[8, 7, 6, 5], [4, 3, 2, 1], [1, 2, 3, 4], [5, 6, 7, 8]],
                     [[8, 7, 6, 5], [4, 3, 2, 1], [1, 2, 3, 4], [5, 6, 7, 8]],
-                ]),
-                indices: tensor!((2, 1); [0, 2]),
-                updates: Tensor::from([
+                ]
+                .into(),
+                indices: [[0], [2]].into(),
+                updates: [
                     [[5, 5, 5, 5], [6, 6, 6, 6], [7, 7, 7, 7], [8, 8, 8, 8]],
                     [[1, 1, 1, 1], [2, 2, 2, 2], [3, 3, 3, 3], [4, 4, 4, 4]],
-                ]),
-                expected: Tensor::from([
+                ]
+                .into(),
+                expected: [
                     [[5, 5, 5, 5], [6, 6, 6, 6], [7, 7, 7, 7], [8, 8, 8, 8]],
                     [[1, 2, 3, 4], [5, 6, 7, 8], [8, 7, 6, 5], [4, 3, 2, 1]],
                     [[1, 1, 1, 1], [2, 2, 2, 2], [3, 3, 3, 3], [4, 4, 4, 4]],
                     [[8, 7, 6, 5], [4, 3, 2, 1], [1, 2, 3, 4], [5, 6, 7, 8]],
-                ]),
+                ]
+                .into(),
             },
             // Test for issue when `updates` has a lower rank than `indices`.
             Case {
-                data: Tensor::from([[1, 2], [3, 4]]),
-                indices: Tensor::from([[0, 0], [0, 1]]),
-                updates: Tensor::from([5, 6]),
-                expected: Tensor::from([[5, 6], [3, 4]]),
+                data: [[1, 2], [3, 4]].into(),
+                indices: [[0, 0], [0, 1]].into(),
+                updates: [5, 6].into(),
+                expected: [[5, 6], [3, 4]].into(),
             },
         ];
 
@@ -965,30 +956,30 @@ mod tests {
         let cases = [
             Case {
                 data: Tensor::arange(1., 5., None),
-                indices: tensor!((4, 1); [0, 1, 2, 3]),
-                updates: tensor!([1., 2., 3., 4.]),
-                expected: tensor!([2., 4., 6., 8.]),
+                indices: Tensor::from_data(&[4, 1], vec![0, 1, 2, 3]),
+                updates: [1., 2., 3., 4.].into(),
+                expected: [2., 4., 6., 8.].into(),
                 reduction: ScatterReduction::Add,
             },
             Case {
                 data: Tensor::arange(1., 5., None),
-                indices: tensor!((4, 1); [0, 1, 2, 3]),
-                updates: tensor!([1., 2., 3., 4.]),
-                expected: tensor!([1., 4., 9., 16.]),
+                indices: Tensor::from_data(&[4, 1], vec![0, 1, 2, 3]),
+                updates: [1., 2., 3., 4.].into(),
+                expected: [1., 4., 9., 16.].into(),
                 reduction: ScatterReduction::Mul,
             },
             Case {
                 data: Tensor::arange(1., 5., None),
-                indices: tensor!((4, 1); [0, 1, 2, 3]),
-                updates: tensor!([1., -2., 3., -4.]),
-                expected: tensor!([1., -2., 3., -4.]),
+                indices: Tensor::from_data(&[4, 1], vec![0, 1, 2, 3]),
+                updates: [1., -2., 3., -4.].into(),
+                expected: [1., -2., 3., -4.].into(),
                 reduction: ScatterReduction::Min,
             },
             Case {
                 data: Tensor::arange(1., 5., None),
-                indices: tensor!((4, 1); [0, 1, 2, 3]),
-                updates: tensor!([1., -2., 3., -4.]),
-                expected: tensor!([1., 2., 3., 4.]),
+                indices: Tensor::from_data(&[4, 1], vec![0, 1, 2, 3]),
+                updates: [1., -2., 3., -4.].into(),
+                expected: [1., 2., 3., 4.].into(),
                 reduction: ScatterReduction::Max,
             },
         ];
@@ -1025,33 +1016,33 @@ mod tests {
 
         let cases = [
             Case {
-                data: tensor!(5.),
-                indices: tensor!([0]),
-                updates: tensor!([0.]),
+                data: (5.).into(),
+                indices: [0].into(),
+                updates: [0.].into(),
                 expected: OpError::InvalidValue("`data` and `indices` must have rank >= 1"),
             },
             Case {
-                data: tensor!([0.]),
-                indices: tensor!(0),
-                updates: tensor!([0.]),
+                data: Tensor::from([0.]),
+                indices: Tensor::from(0),
+                updates: [0.].into(),
                 expected: OpError::InvalidValue("`data` and `indices` must have rank >= 1"),
             },
             Case {
                 data: Tensor::arange(1., 5., None),
-                indices: tensor!((4, 1); [0, 1, 2, 3]),
-                updates: Tensor::from([[1., 2., 3., 4.]]),
+                indices: [[0], [1], [2], [3]].into(),
+                updates: [[1., 2., 3., 4.]].into(),
                 expected: OpError::InvalidValue("`updates` does not have expected rank"),
             },
             Case {
                 data: Tensor::arange(1., 5., None),
-                indices: tensor!((4, 1); [0, 1, 2, 3]),
-                updates: tensor!([1., 2., 3., 4., 5.]),
+                indices: [[0], [1], [2], [3]].into(),
+                updates: [1., 2., 3., 4., 5.].into(),
                 expected: OpError::InvalidValue("`updates` does not have expected shape"),
             },
             Case {
                 data: Tensor::arange(1., 5., None),
-                indices: tensor!((4, 1); [0, 1, 2, 4]),
-                updates: tensor!([1., 2., 3., 4.]),
+                indices: [[0], [1], [2], [4]].into(),
+                updates: [1., 2., 3., 4.].into(),
                 expected: OpError::InvalidValue("invalid scatter index"),
             },
         ];

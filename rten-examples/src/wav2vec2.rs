@@ -113,7 +113,7 @@ fn main() -> Result<(), Box<dyn Error>> {
     let model = Model::load_file(args.model)?;
     let samples = read_wav_file(&args.wav_file)?;
 
-    let mut sample_batch = Tensor::from_vec(samples);
+    let mut sample_batch = Tensor::from(samples);
     sample_batch.insert_axis(0);
 
     let result: NdTensor<f32, 3> = model

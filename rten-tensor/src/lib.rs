@@ -32,12 +32,10 @@
 //! use rten_tensor::prelude::*;
 //! use rten_tensor::NdTensor;
 //!
-//! let tensor = NdTensor::from_data([2, 2], vec![1, 2, 3, 4]);
+//! let tensor = NdTensor::from([[1, 2], [3, 4]]);
 //!
-//! // Logs 1, 3, 2, 4.
-//! for x in tensor.transposed().iter() {
-//!   println!("{}", x);
-//! }
+//! let transposed_elems: Vec<_> = tensor.transposed().iter().copied().collect();
+//! assert_eq!(transposed_elems, [1, 3, 2, 4]);
 //! ```
 
 mod copy;

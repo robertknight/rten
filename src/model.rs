@@ -750,7 +750,7 @@ fn constant_data_from_flatbuffers_vec<'a, T: Pod + flatbuffers::Follow<'a, Inner
 #[cfg(test)]
 mod tests {
     use rten_tensor::prelude::*;
-    use rten_tensor::{tensor, Tensor};
+    use rten_tensor::Tensor;
 
     use crate::graph::{Dimension, RunError};
     use crate::model::{Model, ModelOptions};
@@ -1011,7 +1011,7 @@ mod tests {
         let buffer = generate_model_buffer(ModelFormat::V2);
         let model = Model::load(buffer).unwrap();
 
-        let input = tensor!((1, 2, 2); [1., 2., -1., -2.]);
+        let input = Tensor::from([[[1., 2.], [-1., -2.]]]);
         let result: Tensor<f32> = model
             .run_one(input.into(), None)
             .unwrap()
@@ -1120,7 +1120,7 @@ mod tests {
 
         // Dummy value for BatchNormalization inputs which are vectors with
         // per-channel values.
-        let batch_norm_param_val = tensor!([1.0]);
+        let batch_norm_param_val = Tensor::from([1.0]);
         let batch_norm_param = builder.add_constant(batch_norm_param_val.view());
         add_operator!(
             BatchNormalization,
@@ -1137,8 +1137,8 @@ mod tests {
         add_operator!(Cast, [input_node], { to: ops::DataType::Float });
         add_operator!(Ceil, [input_node]);
 
-        let clip_min = builder.add_constant(tensor!(1.).view());
-        let clip_max = builder.add_constant(tensor!(6.).view());
+        let clip_min = builder.add_constant(Tensor::from(1.).view());
+        let clip_max = builder.add_constant(Tensor::from(6.).view());
         add_operator!(Clip, [input_node, clip_min, clip_max]);
         add_operator!(Concat, [input_node, input_node], { axis: 0 });
 
@@ -1163,7 +1163,7 @@ mod tests {
         add_operator!(Erf, [input_node]);
         add_operator!(Exp, [input_node]);
 
-        let expand_shape_val = tensor!([2, 2, 3, 3]);
+        let expand_shape_val = Tensor::from([2, 2, 3, 3]);
         let expand_shape = builder.add_constant(expand_shape_val.view());
         add_operator!(Expand, [input_node, expand_shape]);
 
@@ -1197,17 +1197,17 @@ mod tests {
 
         add_operator!(Identity, [input_node]);
 
-        let instance_norm_scale_val = tensor!([1.0]);
+        let instance_norm_scale_val = Tensor::from([1.0]);
         let instance_norm_scale = builder.add_constant(instance_norm_scale_val.view());
-        let instance_norm_bias_val = tensor!([1.0]);
+        let instance_norm_bias_val = Tensor::from([1.0]);
         let instance_norm_bias = builder.add_constant(instance_norm_bias_val.view());
         add_operator!(InstanceNormalization, [
             input_node, instance_norm_scale, instance_norm_bias
         ], { epsilon: Some(1e-5) });
 
-        let layer_norm_scale_val = tensor!([1.0]);
+        let layer_norm_scale_val = Tensor::from([1.0]);
         let layer_norm_scale = builder.add_constant(layer_norm_scale_val.view());
-        let layer_norm_bias_val = tensor!([1.0]);
+        let layer_norm_bias_val = Tensor::from([1.0]);
         let layer_norm_bias = builder.add_constant(layer_norm_bias_val.view());
         add_operator!(LayerNormalization, [
             input_node, layer_norm_scale, layer_norm_bias
@@ -1328,8 +1328,8 @@ mod tests {
             allow_zero: false,
         });
 
-        let resize_roi_val = tensor!([0., 0., 0., 0., 1., 1., 1., 1.]);
-        let resize_scales_val = tensor!([1., 1., 2., 2.]);
+        let resize_roi_val = Tensor::from([0., 0., 0., 0., 1., 1., 1., 1.]);
+        let resize_scales_val = Tensor::from([1., 1., 2., 2.]);
         let resize_roi = builder.add_constant(resize_roi_val.view());
         let resize_scales = builder.add_constant(resize_scales_val.view());
         add_operator!(Resize, [input_node, resize_roi, resize_scales], {
@@ -1422,7 +1422,7 @@ mod tests {
         //
         // A few require different shapes are tested separately.
         let input = Tensor::from_data(&input_shape, vec![1., 2., 3., 4., 5., 6., 7., 8., 9.]);
-        let input_bool_data: Tensor<i32> = tensor!([0, 1, 1]);
+        let input_bool_data: Tensor<i32> = Tensor::from([0, 1, 1]);
         for output in op_outputs {
             if [
                 "Gemm_out",
@@ -1496,8 +1496,8 @@ mod tests {
 
         // Where op
         let cond = Tensor::from(1);
-        let x = tensor!([1, 2, 3]);
-        let y = tensor!([4, 5, 6]);
+        let x = Tensor::from([1, 2, 3]);
+        let y = Tensor::from([4, 5, 6]);
         let result = model
             .run(
                 vec![

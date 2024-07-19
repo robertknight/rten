@@ -956,7 +956,7 @@ mod tests {
 
     use rten_tensor::prelude::*;
     use rten_tensor::test_util::expect_equal;
-    use rten_tensor::{tensor, Tensor};
+    use rten_tensor::Tensor;
 
     use super::{fast_broadcast_cycles, fast_broadcast_cycles_repeats};
     use crate::ops::tests::new_pool;
@@ -1095,7 +1095,7 @@ mod tests {
         expect_equal(&result, &expected)?;
 
         // Case where one of the inputs is a scalar.
-        let a = Tensor::from_scalar(3.0);
+        let a = Tensor::from(3.0);
         let b = Tensor::from_data(&[2, 2], vec![1.0, 2.0, 3.0, 4.0]);
         let result = add(&pool, a.view(), b.view()).unwrap();
         let expected = Tensor::from_data(&[2, 2], vec![4.0, 5.0, 6.0, 7.0]);
@@ -1148,7 +1148,7 @@ mod tests {
 
         // Run `Add` operator in-place with inputs that don't support in-place
         // addition. The operator should fall back to creating a new output tensor.
-        let scalar = Tensor::from_scalar(1.0);
+        let scalar = Tensor::from(1.0);
         let expected = Tensor::from_data(&[2, 2], vec![11., 21., 31., 41.]);
         let result = op
             .run_in_place(&pool, Output::FloatTensor(scalar), (&b).into())
@@ -1158,7 +1158,7 @@ mod tests {
         // In-place addition where the second input must be broadcast to the
         // shape of the first.
         let mut a = Tensor::from_data(&[2, 2], vec![1., 2., 3., 4.]);
-        let b = tensor!([1., 2.]);
+        let b = Tensor::from([1., 2.]);
         let expected = Tensor::from_data(&[2, 2], vec![2., 4., 4., 6.]);
 
         add_in_place(a.view_mut(), b.view());
@@ -1169,7 +1169,7 @@ mod tests {
         let mut a = Tensor::from_data(&[2, 3], vec![1., 2., 0., 3., 4., 0.]);
         a.clip_dim(1, 0..2);
         assert!(!a.is_contiguous());
-        let b = tensor!([1., 2.]);
+        let b = Tensor::from([1., 2.]);
         let expected = Tensor::from_data(&[2, 2], vec![2., 4., 4., 6.]);
 
         add_in_place(a.view_mut(), b.view());
@@ -1196,9 +1196,9 @@ mod tests {
     #[test]
     fn test_and() {
         let pool = new_pool();
-        let a = tensor!([0, 1, 0, 1]);
-        let b = tensor!([0, 0, 1, 1]);
-        let expected = tensor!([0, 0, 0, 1]);
+        let a = Tensor::from([0, 1, 0, 1]);
+        let b = Tensor::from([0, 0, 1, 1]);
+        let expected = Tensor::from([0, 0, 0, 1]);
         let result = and(&pool, a.view(), b.view()).unwrap();
         assert_eq!(&result, &expected);
     }
@@ -1216,22 +1216,22 @@ mod tests {
 
         // Scalar b
         let a = Tensor::from_data(&[2, 2], vec![10., 20., 30., 40.]);
-        let b = Tensor::from_scalar(10.);
+        let b = Tensor::from(10.);
         let expected = Tensor::from_data(&[2, 2], vec![1., 2., 3., 4.]);
         let result = div(&pool, a.view(), b.view()).unwrap();
         expect_equal(&result, &expected)?;
 
         // Non-scalar a and b ints
-        let a = tensor!([1, 2, 3, 4]);
-        let b = tensor!([2, 2, 2, 2]);
-        let expected = tensor!([0, 1, 1, 2]);
+        let a = Tensor::from([1, 2, 3, 4]);
+        let b = Tensor::from([2, 2, 2, 2]);
+        let expected = Tensor::from([0, 1, 1, 2]);
         let result = div(&pool, a.view(), b.view()).unwrap();
         assert_eq!(&result, &expected);
 
         // Scalar b int
-        let a = tensor!([1, 2, 3, 4]);
-        let b = Tensor::from_scalar(2);
-        let expected = tensor!([0, 1, 1, 2]);
+        let a = Tensor::from([1, 2, 3, 4]);
+        let b = Tensor::from(2);
+        let expected = Tensor::from([0, 1, 1, 2]);
         let result = div(&pool, a.view(), b.view()).unwrap();
         assert_eq!(&result, &expected);
 
@@ -1249,22 +1249,22 @@ mod tests {
 
         // Scalar b
         let mut a = Tensor::from_data(&[2, 2], vec![10., 20., 30., 40.]);
-        let b = Tensor::from_scalar(10.);
+        let b = Tensor::from(10.);
         let expected = Tensor::from_data(&[2, 2], vec![1., 2., 3., 4.]);
         div_in_place(a.view_mut(), b.view());
         expect_equal(&a, &expected)?;
 
         // Non-scalar a and b ints
-        let mut a = tensor!([1, 2, 3, 4]);
-        let b = tensor!([2, 2, 2, 2]);
-        let expected = tensor!([0, 1, 1, 2]);
+        let mut a = Tensor::from([1, 2, 3, 4]);
+        let b = Tensor::from([2, 2, 2, 2]);
+        let expected = Tensor::from([0, 1, 1, 2]);
         div_in_place(a.view_mut(), b.view());
         assert_eq!(&a, &expected);
 
         // Scalar b int
-        let mut a = tensor!([1, 2, 3, 4]);
-        let b = Tensor::from_scalar(2);
-        let expected = tensor!([0, 1, 1, 2]);
+        let mut a = Tensor::from([1, 2, 3, 4]);
+        let b = Tensor::from(2);
+        let expected = Tensor::from([0, 1, 1, 2]);
         div_in_place(a.view_mut(), b.view());
         assert_eq!(&a, &expected);
 
@@ -1276,16 +1276,16 @@ mod tests {
         let pool = new_pool();
 
         // Int tensor
-        let a = tensor!([1, 2]);
-        let b = tensor!([1, 3]);
-        let expected = tensor!([1, 0]);
+        let a = Tensor::from([1, 2]);
+        let b = Tensor::from([1, 3]);
+        let expected = Tensor::from([1, 0]);
         let result = equal(&pool, a.view(), b.view()).unwrap();
         assert_eq!(&result, &expected);
 
         // Float tensor
-        let a = tensor!([1., 2.]);
-        let b = tensor!([1., 3.]);
-        let expected = tensor!([1, 0]);
+        let a = Tensor::from([1., 2.]);
+        let b = Tensor::from([1., 3.]);
+        let expected = Tensor::from([1, 0]);
         let result = equal(&pool, a.view(), b.view()).unwrap();
         assert_eq!(&result, &expected);
     }
@@ -1295,16 +1295,16 @@ mod tests {
         let pool = new_pool();
 
         // Int tensor
-        let a = tensor!([1, 2, 5]);
-        let b = tensor!([1, 3, 4]);
-        let expected = tensor!([0, 0, 1]);
+        let a = Tensor::from([1, 2, 5]);
+        let b = Tensor::from([1, 3, 4]);
+        let expected = Tensor::from([0, 0, 1]);
         let result = greater(&pool, a.view(), b.view()).unwrap();
         assert_eq!(&result, &expected);
 
         // Float tensor
-        let a = tensor!([1., 2., 5.]);
-        let b = tensor!([1., 3., 4.]);
-        let expected = tensor!([0, 0, 1]);
+        let a = Tensor::from([1., 2., 5.]);
+        let b = Tensor::from([1., 3., 4.]);
+        let expected = Tensor::from([0, 0, 1]);
         let result = greater(&pool, a.view(), b.view()).unwrap();
         assert_eq!(&result, &expected);
     }
@@ -1314,16 +1314,16 @@ mod tests {
         let pool = new_pool();
 
         // Int tensor
-        let a = tensor!([1, 2, 5]);
-        let b = tensor!([1, 3, 4]);
-        let expected = tensor!([1, 0, 1]);
+        let a = Tensor::from([1, 2, 5]);
+        let b = Tensor::from([1, 3, 4]);
+        let expected = Tensor::from([1, 0, 1]);
         let result = greater_or_equal(&pool, a.view(), b.view()).unwrap();
         assert_eq!(&result, &expected);
 
         // Float tensor
-        let a = tensor!([1., 2., 5.]);
-        let b = tensor!([1., 3., 4.]);
-        let expected = tensor!([1, 0, 1]);
+        let a = Tensor::from([1., 2., 5.]);
+        let b = Tensor::from([1., 3., 4.]);
+        let expected = Tensor::from([1, 0, 1]);
         let result = greater_or_equal(&pool, a.view(), b.view()).unwrap();
         assert_eq!(&result, &expected);
     }
@@ -1333,16 +1333,16 @@ mod tests {
         let pool = new_pool();
 
         // Int tensor
-        let a = tensor!([1, 2]);
-        let b = tensor!([1, 3]);
-        let expected = tensor!([0, 1]);
+        let a = Tensor::from([1, 2]);
+        let b = Tensor::from([1, 3]);
+        let expected = Tensor::from([0, 1]);
         let result = less(&pool, a.view(), b.view()).unwrap();
         assert_eq!(&result, &expected);
 
         // Float tensor
-        let a = tensor!([1., 2.]);
-        let b = tensor!([1., 3.]);
-        let expected = tensor!([0, 1]);
+        let a = Tensor::from([1., 2.]);
+        let b = Tensor::from([1., 3.]);
+        let expected = Tensor::from([0, 1]);
         let result = less(&pool, a.view(), b.view()).unwrap();
         assert_eq!(&result, &expected);
     }
@@ -1352,16 +1352,16 @@ mod tests {
         let pool = new_pool();
 
         // Int tensor
-        let a = tensor!([1, 2, 5]);
-        let b = tensor!([1, 3, 4]);
-        let expected = tensor!([1, 1, 0]);
+        let a = Tensor::from([1, 2, 5]);
+        let b = Tensor::from([1, 3, 4]);
+        let expected = Tensor::from([1, 1, 0]);
         let result = less_or_equal(&pool, a.view(), b.view()).unwrap();
         assert_eq!(&result, &expected);
 
         // Float tensor
-        let a = tensor!([1., 2., 5.]);
-        let b = tensor!([1., 3., 4.]);
-        let expected = tensor!([1, 1, 0]);
+        let a = Tensor::from([1., 2., 5.]);
+        let b = Tensor::from([1., 3., 4.]);
+        let expected = Tensor::from([1, 1, 0]);
         let result = less_or_equal(&pool, a.view(), b.view()).unwrap();
         assert_eq!(&result, &expected);
     }
@@ -1371,26 +1371,26 @@ mod tests {
         let pool = new_pool();
 
         // Int tensor, floor division (like Python's `%`, `numpy.mod`).
-        let a = tensor!([10, -10, 10, -10]);
-        let b = tensor!([3, 3, -3, -3]);
-        let expected = tensor!([1, 2, -2, -1]);
+        let a = Tensor::from([10, -10, 10, -10]);
+        let b = Tensor::from([3, 3, -3, -3]);
+        let expected = Tensor::from([1, 2, -2, -1]);
         let result = mod_op(&pool, a.view(), b.view(), DivMode::FloorDiv).unwrap();
         assert_eq!(&result, &expected);
 
         // Int tensor, truncated division (like Rust's `%`, `numpy.fmod`).
-        let expected = tensor!([1, -1, 1, -1]);
+        let expected = Tensor::from([1, -1, 1, -1]);
         let result = mod_op(&pool, a.view(), b.view(), DivMode::TruncDiv).unwrap();
         assert_eq!(&result, &expected);
 
         // Float tensor, floor division.
-        let af = tensor!([3.5, -3.5, 3.5, -3.5]);
-        let bf = tensor!([2.5, 2.5, -2.5, -2.5]);
-        let expected = tensor!([1., 1.5, -1.5, -1.]);
+        let af = Tensor::from([3.5, -3.5, 3.5, -3.5]);
+        let bf = Tensor::from([2.5, 2.5, -2.5, -2.5]);
+        let expected = Tensor::from([1., 1.5, -1.5, -1.]);
         let result = mod_op(&pool, af.view(), bf.view(), DivMode::FloorDiv).unwrap();
         assert_eq!(&result, &expected);
 
         // Float tensor, truncated division.
-        let expected = tensor!([1., -1., 1., -1.]);
+        let expected = Tensor::from([1., -1., 1., -1.]);
         let result = mod_op(&pool, af.view(), bf.view(), DivMode::TruncDiv).unwrap();
         assert_eq!(&result, &expected);
     }
@@ -1438,9 +1438,9 @@ mod tests {
     #[test]
     fn test_or() {
         let pool = new_pool();
-        let a = tensor!([0, 1, 0, 1]);
-        let b = tensor!([0, 0, 1, 1]);
-        let expected = tensor!([0, 1, 1, 1]);
+        let a = Tensor::from([0, 1, 0, 1]);
+        let b = Tensor::from([0, 0, 1, 1]);
+        let expected = Tensor::from([0, 1, 1, 1]);
         let result = or(&pool, a.view(), b.view()).unwrap();
         assert_eq!(&result, &expected);
     }
@@ -1456,27 +1456,27 @@ mod tests {
         let cases = [
             // Square input
             Case {
-                a: tensor!([2., 3., 4.]),
-                b: tensor!(2.),
-                expected: tensor!([4., 9., 16.]),
+                a: [2., 3., 4.].into(),
+                b: (2.).into(),
+                expected: [4., 9., 16.].into(),
             },
             // Cube input
             Case {
-                a: tensor!([2., 3., 4.]),
-                b: tensor!(3.),
-                expected: tensor!([8., 27., 64.]),
+                a: [2., 3., 4.].into(),
+                b: (3.).into(),
+                expected: [8., 27., 64.].into(),
             },
             // Raise all inputs to scalar
             Case {
-                a: tensor!([2., 3., 4.]),
-                b: tensor!(0.256),
-                expected: tensor!([(2f32).powf(0.256), (3f32).powf(0.256), (4f32).powf(0.256)]),
+                a: [2., 3., 4.].into(),
+                b: (0.256).into(),
+                expected: [(2f32).powf(0.256), (3f32).powf(0.256), (4f32).powf(0.256)].into(),
             },
             // Raise each input to different powers
             Case {
-                a: tensor!([2., 3., 4.]),
-                b: tensor!([1., 2., 3.]),
-                expected: tensor!([2., 9., 64.]),
+                a: [2., 3., 4.].into(),
+                b: [1., 2., 3.].into(),
+                expected: [2., 9., 64.].into(),
             },
         ];
 
@@ -1576,27 +1576,27 @@ mod tests {
         assert_eq!(&result, &expected);
 
         // Float tensor broadcasting `x` and `y`
-        let cond = tensor!([1, 1, 0, 0]);
+        let cond = Tensor::from([1, 1, 0, 0]);
         let x = Tensor::from(1.);
         let y = Tensor::from(2.);
         let result = where_op(&pool, cond.view(), x.view(), y.view()).unwrap();
-        let expected = tensor!([1., 1., 2., 2.]);
+        let expected = Tensor::from([1., 1., 2., 2.]);
         assert_eq!(&result, &expected);
 
         // Float tensor broadcasting `cond`
         let cond = Tensor::from(1);
-        let x = tensor!([1., 2.]);
-        let y = tensor!([3., 4.]);
+        let x = Tensor::from([1., 2.]);
+        let y = Tensor::from([3., 4.]);
         let result = where_op(&pool, cond.view(), x.view(), y.view()).unwrap();
-        let expected = tensor!([1., 2.]);
+        let expected = Tensor::from([1., 2.]);
         assert_eq!(&result, &expected);
 
         // Int tensor broadcasting `x` and `y`
-        let cond = tensor!([1, 1, 0, 0]);
+        let cond = Tensor::from([1, 1, 0, 0]);
         let x = Tensor::from(3);
         let y = Tensor::from(4);
         let result = where_op(&pool, cond.view(), x.view(), y.view()).unwrap();
-        let expected = tensor!([3, 3, 4, 4]);
+        let expected = Tensor::from([3, 3, 4, 4]);
         assert_eq!(&result, &expected);
 
         // Int tensor broadcasting `x` and `y`, and broadcasting involves
@@ -1614,9 +1614,9 @@ mod tests {
     fn test_where_invalid_inputs() {
         let pool = new_pool();
 
-        let cond = tensor!([1, 1]);
-        let x = tensor!([1, 2, 3]);
-        let y = tensor!([2, 2]);
+        let cond = Tensor::from([1, 1]);
+        let x = Tensor::from([1, 2, 3]);
+        let y = Tensor::from([2, 2]);
 
         // Failure to broadcast `x` to match `cond`
         let result = where_op(&pool, cond.view(), x.view(), y.view());
@@ -1636,9 +1636,9 @@ mod tests {
     #[test]
     fn test_xor() {
         let pool = new_pool();
-        let a = tensor!([0, 1, 0, 1]);
-        let b = tensor!([0, 0, 1, 1]);
-        let expected = tensor!([0, 1, 1, 0]);
+        let a = Tensor::from([0, 1, 0, 1]);
+        let b = Tensor::from([0, 0, 1, 1]);
+        let expected = Tensor::from([0, 1, 1, 0]);
         let result = xor(&pool, a.view(), b.view()).unwrap();
         assert_eq!(&result, &expected);
     }

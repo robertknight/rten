@@ -52,8 +52,8 @@ impl Operator for Cast {
 mod tests {
     use std::error::Error;
 
-    use rten_tensor::tensor;
     use rten_tensor::test_util::expect_equal;
+    use rten_tensor::Tensor;
 
     use crate::ops::tests::new_pool;
     use crate::ops::{Cast, DataType, Operator};
@@ -61,8 +61,8 @@ mod tests {
     #[test]
     fn test_cast() -> Result<(), Box<dyn Error>> {
         let pool = new_pool();
-        let int_input = tensor!([1, 2, 3]);
-        let float_input = tensor!([1.0, 2.0, 3.0]);
+        let int_input = Tensor::from([1, 2, 3]);
+        let float_input = Tensor::from([1.0, 2.0, 3.0]);
 
         // No-op cast from int32 => int32
         let cast_to_int = Cast {
@@ -112,7 +112,7 @@ mod tests {
     #[test]
     fn test_cast_out_of_range() -> Result<(), Box<dyn Error>> {
         let pool = new_pool();
-        let int_input = tensor!([i32::MIN, i32::MAX]);
+        let int_input = Tensor::from([i32::MIN, i32::MAX]);
 
         // Out-of-range cast from int => float. This will simply lose some
         // significant digits.
@@ -125,10 +125,10 @@ mod tests {
             .remove(0)
             .into_float()
             .unwrap();
-        expect_equal(&result, &tensor!([-2147483600.0, 2147483600.0]))?;
+        expect_equal(&result, &Tensor::from([-2147483600.0, 2147483600.0]))?;
 
         // Out-of-range cast from float => int.
-        let float_input = tensor!([f32::MIN, f32::MAX]);
+        let float_input = Tensor::from([f32::MIN, f32::MAX]);
         let cast_to_int = Cast {
             to: DataType::Int32,
         };
@@ -138,7 +138,7 @@ mod tests {
             .remove(0)
             .into_int()
             .unwrap();
-        assert_eq!(&result, &tensor!([i32::MIN, i32::MAX]));
+        assert_eq!(&result, &Tensor::from([i32::MIN, i32::MAX]));
 
         Ok(())
     }

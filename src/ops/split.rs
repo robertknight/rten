@@ -70,7 +70,7 @@ impl Operator for Split {
 #[cfg(test)]
 mod tests {
     use rten_tensor::prelude::*;
-    use rten_tensor::tensor;
+    use rten_tensor::Tensor;
 
     use crate::ops::tests::new_pool;
     use crate::ops::{split, OpError};
@@ -79,7 +79,7 @@ mod tests {
     fn test_split() {
         let pool = new_pool();
 
-        let input = tensor!((5, 2); [0., 1., 2., 3., 4., 5., 6., 7., 8., 9.]);
+        let input = Tensor::from([[0., 1.], [2., 3.], [4., 5.], [6., 7.], [8., 9.]]);
 
         // Split with positive axis
         let splits = &[1, 1];
@@ -102,7 +102,7 @@ mod tests {
     fn test_split_invalid_inputs() {
         let pool = new_pool();
 
-        let input = tensor!((5, 2); [0., 1., 2., 3., 4., 5., 6., 7., 8., 9.]);
+        let input = Tensor::from([[0., 1.], [2., 3.], [4., 5.], [6., 7.], [8., 9.]]);
 
         let splits = &[1, 1];
         let result = split(&pool, input.view(), 2, &splits.into());

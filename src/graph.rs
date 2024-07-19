@@ -1145,7 +1145,7 @@ mod tests {
 
     use rten_tensor::prelude::*;
     use rten_tensor::test_util::{expect_equal, expect_equal_with_tolerance};
-    use rten_tensor::{tensor, Tensor, TensorView};
+    use rten_tensor::{Tensor, TensorView};
 
     use smallvec::smallvec;
 
@@ -1407,12 +1407,12 @@ mod tests {
         let (_, op_a_out) = g.add_simple_op("op_a", AddOne {}, &[input_id]);
         let (_, op_b_out) = g.add_simple_op("op_b", AddOne {}, &[op_a_out]);
 
-        let input = tensor!(0.);
+        let input = Tensor::from(0.);
         let results = g
             .run(vec![(input_id, input.into())], &[op_a_out, op_b_out], None)
             .unwrap();
-        assert_eq!(results[0].as_float_ref().unwrap(), &tensor!(1.));
-        assert_eq!(results[1].as_float_ref().unwrap(), &tensor!(2.));
+        assert_eq!(results[0].as_float_ref().unwrap(), &Tensor::from(1.));
+        assert_eq!(results[1].as_float_ref().unwrap(), &Tensor::from(2.));
     }
 
     #[test]
@@ -1518,7 +1518,7 @@ mod tests {
     fn test_duplicate_inputs() {
         let mut g = Graph::new();
         let input_id = g.add_value(Some("input"), None);
-        let input = tensor!([1.]);
+        let input = Tensor::from([1.]);
         let result = g.run(
             vec![
                 (input_id, input.view().into()),
@@ -1540,7 +1540,7 @@ mod tests {
         let input_id = g.add_value(Some("input"), None);
         let (_, op_a_out) = g.add_simple_op("op_a", AddOne {}, &[input_id]);
 
-        let input = tensor!([1.]);
+        let input = Tensor::from([1.]);
 
         let result = g.run(vec![(input_id, input.into())], &[op_a_out, op_a_out], None);
 
@@ -1692,7 +1692,7 @@ mod tests {
             &[bias_id, op1_out],
         );
         let input = Tensor::<f32>::zeros(&[2, 2]);
-        let bias = tensor!(1.5);
+        let bias = Tensor::from(1.5);
 
         let results = g
             .run(
@@ -1775,7 +1775,7 @@ mod tests {
             &[left_split_out, right_split_out].map(Some),
         );
 
-        let input = Tensor::from_vec(vec![1.0, 2.0, 3.0, 4.0, 5.0]);
+        let input = Tensor::from([1.0, 2.0, 3.0, 4.0, 5.0]);
         let mut results = g
             .run(
                 vec![(input_id, input.into())],
@@ -1803,9 +1803,9 @@ mod tests {
         // Where `Cn` are constants, `Vn` are input values and `OpN` are
         // operators.
         let mut g = Graph::new();
-        let const_0 = g.add_constant(Some("c0"), tensor!(3.));
+        let const_0 = g.add_constant(Some("c0"), Tensor::from(3.));
         let val_0 = g.add_value(Some("i0"), None);
-        let const_1 = g.add_constant(Some("c1"), tensor!(4.));
+        let const_1 = g.add_constant(Some("c1"), Tensor::from(4.));
         let val_1 = g.add_value(Some("i1"), None);
 
         let (_, op_0_out) = g.add_simple_op("Add_0", Add {}, &[const_0, val_0]);
@@ -1820,19 +1820,19 @@ mod tests {
 
         // Run graph with just the `V0` input. This will compute the result of
         // `Op0` but not other nodes which depend on `V1`.
-        let input = tensor!(2.);
+        let input = Tensor::from(2.);
         let partial_outs = g.partial_run(vec![(val_0, input.view().into())], &[op_2_out], None)?;
         assert_eq!(partial_outs.len(), 1);
         assert_eq!(partial_outs[0].0, op_0_out);
-        assert_eq!(partial_outs[0].1, Output::FloatTensor(tensor!(5.)));
+        assert_eq!(partial_outs[0].1, Output::FloatTensor(Tensor::from(5.)));
 
         // Run graph with just the `V1` input. This will compute the result of
         // `Op1` but not other nodes which depend on `V0`.
-        let input = tensor!(2.);
+        let input = Tensor::from(2.);
         let partial_outs = g.partial_run(vec![(val_1, input.view().into())], &[op_2_out], None)?;
         assert_eq!(partial_outs.len(), 1);
         assert_eq!(partial_outs[0].0, op_1_out);
-        assert_eq!(partial_outs[0].1, Output::FloatTensor(tensor!(6.)));
+        assert_eq!(partial_outs[0].1, Output::FloatTensor(Tensor::from(6.)));
 
         // Run graph with all inputs. This should behave like `Graph::run`.
         let partial_outs = g.partial_run(
@@ -1842,7 +1842,7 @@ mod tests {
         )?;
         assert_eq!(partial_outs.len(), 1);
         assert_eq!(partial_outs[0].0, op_2_out);
-        assert_eq!(partial_outs[0].1, Output::FloatTensor(tensor!(11.)));
+        assert_eq!(partial_outs[0].1, Output::FloatTensor(Tensor::from(11.)));
 
         Ok(())
     }
@@ -1870,7 +1870,7 @@ mod tests {
     #[test]
     fn test_partial_run_non_deterministic_ops() -> Result<(), Box<dyn Error>> {
         let mut g = Graph::new();
-        let const_val = g.add_constant(Some("c0"), tensor!(3));
+        let const_val = g.add_constant(Some("c0"), Tensor::from(3));
 
         // Add deterministic op with constant inputs.
         let (_, add_op_0_out) = g.add_simple_op("Add_0", Add {}, &[const_val, const_val]);

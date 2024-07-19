@@ -702,7 +702,7 @@ mod tests {
             // Specify output size via `scales`
             Case {
                 image: Tensor::from_data(&[1, 1, 1, 1], vec![1.]),
-                scales: Some(Tensor::from_vec(vec![1., 1., 1., 1.])),
+                scales: Some(Tensor::from([1., 1., 1., 1.])),
                 sizes: None,
                 expected: CaseOutput::Shape(vec![1, 1, 1, 1]),
             },
@@ -710,7 +710,7 @@ mod tests {
             Case {
                 image: Tensor::from_data(&[1, 1, 1, 1], vec![1.]),
                 scales: None,
-                sizes: Some(Tensor::from_vec(vec![1, 1, 2, 2])),
+                sizes: Some(Tensor::from([1, 1, 2, 2])),
                 expected: CaseOutput::Shape(vec![1, 1, 2, 2]),
             },
             // At least one of `scales` or `sizes` must be provided
@@ -731,7 +731,7 @@ mod tests {
             // Invalid values for scales/sizes
             Case {
                 image: Tensor::from_data(&[1, 1, 1, 1], vec![1.]),
-                scales: Some(Tensor::from_vec(vec![1., 1., 1.])),
+                scales: Some(Tensor::from([1., 1., 1.])),
                 sizes: None,
                 expected: CaseOutput::Error(OpError::IncompatibleInputShapes(
                     "scales/sizes length should equal input rank",
@@ -739,7 +739,7 @@ mod tests {
             },
             Case {
                 image: Tensor::from_data(&[1, 1, 1, 1], vec![1.]),
-                scales: Some(Tensor::from_vec(vec![1., 1., -1., 1.])),
+                scales: Some(Tensor::from([1., 1., -1., 1.])),
                 sizes: None,
                 expected: CaseOutput::Error(OpError::InvalidValue("scales/sizes must be positive")),
             },
@@ -753,15 +753,15 @@ mod tests {
             // but not currently supported in our implementation.
             Case {
                 image: Tensor::from_data(&[1, 1, 2, 2], vec![0.2, 0.7, 0.3, 0.8]),
-                scales: Some(Tensor::from_vec(vec![2., 1., 3., 3.])),
+                scales: Some(Tensor::from([2., 1., 3., 3.])),
                 sizes: None,
                 expected: CaseOutput::Error(OpError::UnsupportedValue(
                     "only height and width dimensions can be resized",
                 )),
             },
             Case {
-                image: Tensor::from_vec(vec![1., 1.]),
-                scales: Some(Tensor::from_vec(vec![1.])),
+                image: [1., 1.].into(),
+                scales: Some(Tensor::from([1.])),
                 sizes: None,
                 expected: CaseOutput::Error(OpError::InvalidValue("input must have 4 dims (NCHW)")),
             },
