@@ -12,6 +12,7 @@ use rten_text::tokenizers::{Tokenizer, TokenizerError};
 struct Args {
     model: String,
     tokenizer_config: String,
+    temperature: f32,
 }
 
 fn parse_args() -> Result<Args, lexopt::Error> {
@@ -20,8 +21,15 @@ fn parse_args() -> Result<Args, lexopt::Error> {
     let mut values = VecDeque::new();
     let mut parser = lexopt::Parser::from_env();
 
+    // Default from Qwen2's `generate_config.json`.
+    let mut temperature: f32 = 0.7;
+
     while let Some(arg) = parser.next()? {
         match arg {
+            Short('t') | Long("temperature") => {
+                temperature = parser.value()?.parse()?;
+                temperature = temperature.max(0.);
+            }
             Value(val) => values.push_back(val.string()?),
             Long("help") => {
                 println!(
@@ -33,6 +41,14 @@ Args:
 
   <model>       - Input model
   <tokenizer>   - `tokenizer.json` file
+
+Options:
+
+ -t, --temperature TEMP
+
+    Set the generation temperature. Must be >= 0. Smaller values make the
+    output less \"creative\" by concentrating the output probability distribution
+    more. A value of 0.0 causes sampling to be greedy.
 ",
                     bin_name = parser.bin_name().unwrap_or("chat")
                 );
@@ -48,6 +64,7 @@ Args:
     let args = Args {
         model,
         tokenizer_config,
+        temperature,
     };
 
     Ok(args)
@@ -126,13 +143,12 @@ fn main() -> Result<(), Box<dyn Error>> {
         ],
     )?;
 
-    // From `generation_config.json`
+    // From Qwen2's `generation_config.json`
     let top_k = 20;
-    let temperature = 0.7;
 
     let mut generator = Generator::from_model(&model)?
         .with_prompt(&prompt_tokens)
-        .with_sampler(TopKSampler::new(top_k, temperature));
+        .with_sampler(TopKSampler::new(top_k, args.temperature));
 
     loop {
         print!("> ");
