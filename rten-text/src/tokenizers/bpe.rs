@@ -41,12 +41,16 @@ impl Error for BpeError {}
 /// smaller tokens, or a single byte.
 type Rank = u32;
 
-/// An encoded token. This is a character string representing a sequence of
-/// UTF-8 bytes. See [char_to_byte] for the mapping between characters and bytes.
-type EncodedStr<'a> = &'a str;
+/// A sequence of UTF-8 bytes, encoded as a string of characters.
+/// [`char_to_byte`] provides the mapping between characters and bytes.
+///
+/// Unlike a Rust `str`, the sequence of bytes do not necessarily form a
+/// complete sequence of Unicode characters. The bytes may end in the middle of
+/// a character.
+type EncodedByteSlice<'a> = &'a str;
 
-/// Like [EncodedStr], but owned.
-type EncodedString = String;
+/// Like [EncodedByteSlice], but owned.
+type EncodedBytes = String;
 
 /// Return true if `c` is considered a printable character.
 ///
@@ -137,11 +141,10 @@ struct BpeBuilder {
     /// See [ByteLevelBpe::merges].
     ranks: HashMap<(Rank, Rank), Rank>,
 
-    /// Mapping between encoded token strings, as they appear in the merge list,
-    /// and the corresponding rank. In addition to entries in the merge list,
-    /// this also has single-character entries that correspond to byte values.
-    /// See [char_to_byte].
-    token_ranks: HashMap<EncodedString, Rank>,
+    /// Mapping between encoded tokens and their rank in the BPE merge list. In
+    /// addition to entries created from the merge list, this also has
+    /// single-character entries that correspond to byte values.
+    token_ranks: HashMap<EncodedBytes, Rank>,
 
     /// Ranks assigned to individual bytes.
     byte_to_rank: [Rank; 256],
@@ -151,7 +154,7 @@ impl BpeBuilder {
     fn new() -> BpeBuilder {
         let char_to_byte = char_to_byte();
         let byte_to_rank = byte_to_rank();
-        let token_ranks: HashMap<EncodedString, u32> = char_to_byte
+        let token_ranks: HashMap<EncodedBytes, u32> = char_to_byte
             .iter()
             .map(|(ch, byte)| (ch.to_string(), byte_to_rank[*byte as usize]))
             .collect();
@@ -165,7 +168,7 @@ impl BpeBuilder {
 
     /// Return the rank of a token in the merge list, ie. the pair whose
     /// concatenated parts equal `token`.
-    fn get_token_rank(&self, token: EncodedStr) -> Option<Rank> {
+    fn get_token_rank(&self, token: EncodedByteSlice) -> Option<Rank> {
         self.token_ranks.get(token).copied()
     }
 
@@ -173,8 +176,8 @@ impl BpeBuilder {
     ///
     /// `merges` contains entries of the BPE merge table. Each entry is a
     /// space-separated pair of tokens. Each token is a sequence of byte values
-    /// encoded using the scheme described in [char_to_byte].
-    fn add_merges(&mut self, merges: &[EncodedStr]) -> Result<(), BpeError> {
+    /// encoded using the scheme described in [`char_to_byte`].
+    fn add_merges(&mut self, merges: &[EncodedByteSlice]) -> Result<(), BpeError> {
         // The first 256 ranks are assigned to individual byte values.
         let mut rank = 256 + self.ranks.len() as u32;
         self.ranks.reserve(merges.len());
@@ -244,6 +247,14 @@ pub struct Bpe {
     /// GPT-2 and other OpenAI models for example.
     rank_to_token_id: Option<HashMap<Rank, usize>>,
 
+    /// Map from token ID to encoded bytes.
+    ///
+    /// If `None`, the token ID is the same as the rank, and the bytes are
+    /// obtained by recursively replacing the token ID with the pair of token
+    /// IDs that make it up (see `merges`) until we have a sequence of token IDs
+    /// that each represent single byte values.
+    token_id_to_encoded_bytes: Option<HashMap<usize, EncodedBytes>>,
+
     /// Pattern used to split the text into pieces prior to applying BPE
     /// tokenization.
     splitter: Regex,
@@ -273,9 +284,9 @@ impl Bpe {
     /// do have a mapping in `vocab`. These are used for special purposes such
     /// as representing the end of output.
     pub fn new(
-        merges: &[&str],
+        merges: &[EncodedByteSlice],
         pattern: &str,
-        vocab: Option<HashMap<String, usize>>,
+        vocab: Option<HashMap<EncodedBytes, usize>>,
         added_tokens: HashMap<usize, String>,
     ) -> Result<Bpe, BpeError> {
         let splitter = Regex::new(pattern).map_err(BpeError::InvalidPattern)?;
@@ -283,18 +294,21 @@ impl Bpe {
         let mut builder = BpeBuilder::new();
         builder.add_merges(merges)?;
 
-        let rank_to_token_id = if let Some(vocab) = vocab {
+        let (rank_to_token_id, token_id_to_encoded_bytes) = if let Some(vocab) = vocab {
+            let mut token_id_to_encoded_bytes = HashMap::with_capacity(vocab.len());
             let mut rank_to_token_id = HashMap::with_capacity(vocab.len());
             for (token, id) in vocab.into_iter() {
+                token_id_to_encoded_bytes.insert(id, token.clone());
+
                 if let Some(rank) = builder.get_token_rank(&token) {
                     rank_to_token_id.insert(rank, id);
                 } else if !added_tokens.values().any(|s| *s == token.as_str()) {
                     return Err(BpeError::InvalidVocabEntry(token));
                 }
             }
-            Some(rank_to_token_id)
+            (Some(rank_to_token_id), Some(token_id_to_encoded_bytes))
         } else {
-            None
+            (None, None)
         };
 
         Ok(Bpe {
@@ -303,6 +317,7 @@ impl Bpe {
             rank_to_token_id,
             splitter,
             added_tokens,
+            token_id_to_encoded_bytes,
         })
     }
 
@@ -360,6 +375,14 @@ impl Encoder for Bpe {
     fn get_token_str(&self, id: usize) -> Result<String, TokenizerError> {
         if let Some(tok_str) = self.added_tokens.get(&id) {
             return Ok(tok_str.to_string());
+        }
+
+        if let Some(tok_str) = self
+            .token_id_to_encoded_bytes
+            .as_ref()
+            .and_then(|map| map.get(&id))
+        {
+            return Ok(tok_str.clone());
         }
 
         // nb. The current implementation is inefficient as it does recursive
@@ -420,10 +443,22 @@ impl Encoder for Bpe {
     }
 
     fn decode(&self, ids: &[usize]) -> Result<String, TokenizerError> {
+        let char_to_byte = char_to_byte();
+
         let mut bytes = Vec::new();
         for &id in ids {
             if let Some(tok_str) = self.added_tokens.get(&id) {
                 bytes.extend(tok_str.as_bytes());
+            } else if let Some(encoded_bytes) = self
+                .token_id_to_encoded_bytes
+                .as_ref()
+                .and_then(|map| map.get(&id))
+            {
+                bytes.extend(
+                    encoded_bytes
+                        .chars()
+                        .map(|ch| char_to_byte.get(&ch).copied().unwrap()),
+                );
             } else {
                 let token_bytes = self
                     .get_token_bytes(id as u32)
@@ -440,10 +475,10 @@ mod tests {
     use std::collections::HashMap;
 
     use super::patterns::GPT2 as GPT2_SPLIT_PATTERN;
-    use super::Bpe;
+    use super::{Bpe, EncodedBytes};
     use crate::tokenizers::Tokenizer;
 
-    // The first ~25 lines of the merge map from GPT 2.
+    // The first ~25 lines of the merge list from GPT 2.
     const MINI_GPT2: &str = "
 #version: 0.2
 Ġ t
@@ -475,6 +510,32 @@ in g";
             .into_iter()
             .map(|(id, str)| (id, str.to_string()))
             .collect()
+    }
+
+    /// Generate a map from encoded token string to token ID.
+    ///
+    /// The token IDs are chosen to be different than the ones that would be
+    /// automatically generated based on the merge list, if the vocabulary was
+    /// not supplied.
+    fn gen_vocab() -> HashMap<EncodedBytes, usize> {
+        let mut vocab = HashMap::new();
+        let mut next_token_id = 1000;
+
+        for ch in super::char_to_byte().keys() {
+            vocab.insert(ch.to_string(), next_token_id);
+            next_token_id += 1;
+        }
+
+        for line in MINI_GPT2.lines().map(|l| l.trim()) {
+            if line.starts_with("#version") || line.is_empty() {
+                continue;
+            }
+            let token_str: EncodedBytes = line.chars().filter(|ch| *ch != ' ').collect();
+            vocab.insert(token_str, next_token_id);
+            next_token_id += 1;
+        }
+
+        vocab
     }
 
     #[test]
@@ -567,39 +628,53 @@ in g";
             text: &'a str,
             add_eos: bool,
             expected: &'a str,
+            vocab: Option<HashMap<EncodedBytes, usize>>,
         }
+
+        let vocab = gen_vocab();
 
         let cases = [
             Case {
                 text: "foo bar",
                 add_eos: false,
                 expected: "foo bar",
+                vocab: None,
             },
             Case {
                 text: "foo bar",
                 add_eos: true,
                 expected: "foo bar<|endoftext|>",
+                vocab: None,
             },
             Case {
                 text: "the cat is in the bed",
                 add_eos: false,
                 expected: "the cat is in the bed",
+                vocab: None,
+            },
+            Case {
+                text: "the cat is in the bed",
+                add_eos: false,
+                expected: "the cat is in the bed",
+                vocab: Some(vocab),
             },
         ];
-
-        let merges: Vec<&str> = MINI_GPT2.lines().collect();
-        let encoder = Bpe::new(&merges, GPT2_SPLIT_PATTERN, None, added_tokens()).unwrap();
-        let tokenizer = Tokenizer::new(encoder, Default::default());
 
         for Case {
             text,
             add_eos,
             expected,
+            vocab,
         } in cases
         {
+            let merges: Vec<&str> = MINI_GPT2.lines().collect();
+            let encoder = Bpe::new(&merges, GPT2_SPLIT_PATTERN, vocab, added_tokens()).unwrap();
+            let tokenizer = Tokenizer::new(encoder, Default::default());
+
             let encoded = tokenizer.encode(text.into(), Default::default()).unwrap();
             let mut token_ids = encoded.token_ids().to_vec();
             if add_eos {
+                // The `<|endoftext|>` token ID from GPT-2.
                 token_ids.push(50256);
             }
             let decoded = tokenizer.encoder().decode(&token_ids).unwrap();
