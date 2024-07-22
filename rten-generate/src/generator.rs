@@ -38,6 +38,9 @@ pub enum GeneratorError {
     DecodeError(TokenizerError),
 }
 
+/// Integer type used to represent token IDs.
+pub type TokenId = u32;
+
 impl fmt::Display for GeneratorError {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         match self {
@@ -189,7 +192,7 @@ pub struct Generator<'a> {
     varying_inputs: Vec<(NodeId, &'a dyn Fn(usize, Range<usize>) -> InputOrOutput<'a>)>,
 
     /// Input token IDs for the next run of the model.
-    input_ids: Vec<u32>,
+    input_ids: Vec<TokenId>,
 
     // Input node IDs
     input_ids_input: NodeId,
@@ -392,7 +395,7 @@ impl<'a> Generator<'a> {
     ///
     /// To add new inputs after the initial generation, use
     /// [`append_prompt`](Self::append_prompt) instead.
-    pub fn with_prompt(mut self, prompt: &[u32]) -> Self {
+    pub fn with_prompt(mut self, prompt: &[TokenId]) -> Self {
         self.input_ids = prompt.to_vec();
         self
     }
@@ -401,7 +404,7 @@ impl<'a> Generator<'a> {
     ///
     /// This is useful in applications such as chat where the model's input
     /// alternates between encoded user input and model-generated output.
-    pub fn append_prompt(&mut self, prompt: &[u32]) {
+    pub fn append_prompt(&mut self, prompt: &[TokenId]) {
         self.input_ids.extend(prompt);
     }
 
@@ -438,7 +441,7 @@ impl<'a> Generator<'a> {
     }
 
     /// Run the model and generate the next token.
-    fn generate_next_token(&mut self) -> Result<u32, GeneratorError> {
+    fn generate_next_token(&mut self) -> Result<TokenId, GeneratorError> {
         fn wrap_error<E>(e: E) -> GeneratorError
         where
             E: Into<Box<dyn Error>>,
@@ -546,10 +549,10 @@ impl<'a> Generator<'a> {
 }
 
 /// Output items from a [`Generator`].
-pub type GeneratorItem = Result<u32, GeneratorError>;
+pub type GeneratorItem = Result<TokenId, GeneratorError>;
 
 impl<'a> Iterator for Generator<'a> {
-    type Item = Result<u32, GeneratorError>;
+    type Item = Result<TokenId, GeneratorError>;
 
     /// Run the model and generate the next output token.
     fn next(&mut self) -> Option<Self::Item> {

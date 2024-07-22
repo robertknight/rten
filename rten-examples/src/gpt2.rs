@@ -103,11 +103,6 @@ fn main() -> Result<(), Box<dyn Error>> {
 
     let prompt = args.prompt.as_str();
     let encoded_prompt = tokenizer.encode(prompt.into(), Default::default())?;
-    let token_ids: Vec<u32> = encoded_prompt
-        .token_ids()
-        .iter()
-        .map(|id| *id as u32)
-        .collect();
 
     // The output starts with the user's prompt.
     print!("{}", prompt);
@@ -115,7 +110,7 @@ fn main() -> Result<(), Box<dyn Error>> {
     let mut metrics = Metrics::new();
     let temperature = 1.0;
     let generator = Generator::from_model(&model)?
-        .with_prompt(&token_ids)
+        .with_prompt(encoded_prompt.token_ids())
         .with_sampler(TopKSampler::new(args.top_k, temperature))
         .take(args.output_length)
         .profile(&mut metrics)

@@ -50,7 +50,10 @@ impl<'a> From<(&'a str, &'a str)> for EncoderInput<'a> {
     }
 }
 
-/// Output producd by a [Tokenizer::encode] implementation.
+/// Integer type used to represent token IDs.
+pub type TokenId = u32;
+
+/// Output produced by a [Tokenizer::encode] implementation.
 ///
 /// Use [Encoded::token_ids] to get the token IDs to feed to a model, and
 /// [Encoded::text_for_token_range] to map token ID ranges back to the
@@ -58,7 +61,7 @@ impl<'a> From<(&'a str, &'a str)> for EncoderInput<'a> {
 #[derive(Debug)]
 pub struct Encoded<'a> {
     input: EncoderInput<'a>,
-    token_ids: Vec<usize>,
+    token_ids: Vec<TokenId>,
 
     /// Number of tokens in `token_ids` that were generated from the first
     /// sequence in the input. This includes the `[CLS]` and `[SEP]` tokens
@@ -74,7 +77,7 @@ pub struct Encoded<'a> {
 impl<'a> Encoded<'a> {
     fn new(
         input: EncoderInput<'a>,
-        ids: Vec<usize>,
+        ids: Vec<TokenId>,
         offsets: Vec<usize>,
         first_seq_tokens: usize,
     ) -> Encoded<'a> {
@@ -87,7 +90,7 @@ impl<'a> Encoded<'a> {
     }
 
     /// Return the sequence of token IDs that the input was tokenized into.
-    pub fn token_ids(&self) -> &[usize] {
+    pub fn token_ids(&self) -> &[TokenId] {
         &self.token_ids
     }
 
@@ -158,7 +161,7 @@ pub trait Encoder {
     /// Look up the numeric ID for a token given its canonical string
     /// representation. This is used eg. for looking up the IDs of special
     /// tokens.
-    fn get_token_id(&self, token: &str) -> Result<usize, TokenizerError>;
+    fn get_token_id(&self, token: &str) -> Result<TokenId, TokenizerError>;
 
     /// Convert a token ID to its canonical string representation.
     ///
@@ -171,13 +174,13 @@ pub trait Encoder {
     /// encoding of the _bytes_, not the text string that the token logically
     /// corresponds to. To get text strings, pass a sequence of token IDs to
     /// [`decode`](Self::decode) instead.
-    fn get_token_str(&self, id: usize) -> Result<String, TokenizerError>;
+    fn get_token_str(&self, id: TokenId) -> Result<String, TokenizerError>;
 
     /// Return the canonical strings that correspond to a sequence of token IDs.
     ///
     /// See [`get_token_str`](Self::get_token_str) for notes on what the
     /// "canonical string" is.
-    fn get_tokens(&self, ids: &[usize]) -> Result<Vec<String>, TokenizerError> {
+    fn get_tokens(&self, ids: &[TokenId]) -> Result<Vec<String>, TokenizerError> {
         let mut tokens = Vec::with_capacity(ids.len());
         for &id in ids {
             let token = self.get_token_str(id)?;
@@ -193,7 +196,7 @@ pub trait Encoder {
     fn encode_with_offsets(
         &self,
         text: &str,
-        on_token: &mut dyn FnMut(usize, usize),
+        on_token: &mut dyn FnMut(usize, TokenId),
     ) -> Result<(), TokenizerError>;
 
     /// Encode a string into a sequence of token IDs.
@@ -201,7 +204,7 @@ pub trait Encoder {
     /// This is a convenience wrapper around
     /// [`encode_with_offsets`](Self::encode_with_offsets) for cases when the
     /// source offsets are not needed.
-    fn encode(&self, text: &str) -> Result<Vec<usize>, TokenizerError> {
+    fn encode(&self, text: &str) -> Result<Vec<TokenId>, TokenizerError> {
         let mut token_ids = Vec::new();
         self.encode_with_offsets(text, &mut |_offset, token_id| token_ids.push(token_id))?;
         Ok(token_ids)
@@ -216,7 +219,7 @@ pub trait Encoder {
     ///
     /// Special tokens are decoded into their canonical string representations
     /// as returned by [`get_token_str`](Self::get_token_str).
-    fn decode(&self, ids: &[usize]) -> Result<String, TokenizerError>;
+    fn decode(&self, ids: &[TokenId]) -> Result<String, TokenizerError>;
 }
 
 /// Errors returned by [Tokenizer::from_json].
@@ -304,13 +307,13 @@ impl Tokenizer {
 
         match json.model {
             json::Model::Bpe(model) => {
-                let added_tokens: HashMap<usize, String> = json
+                let added_tokens: HashMap<TokenId, String> = json
                     .added_tokens
                     .as_ref()
                     .map(|tokens| {
                         tokens
                             .iter()
-                            .map(|token| (token.id as usize, token.content.clone()))
+                            .map(|token| (token.id, token.content.clone()))
                             .collect()
                     })
                     .unwrap_or_default();
@@ -357,14 +360,14 @@ impl Tokenizer {
         self.encoder.as_ref()
     }
 
-    fn cls_token(&self) -> Result<Option<usize>, TokenizerError> {
+    fn cls_token(&self) -> Result<Option<TokenId>, TokenizerError> {
         self.cls_token
             .as_ref()
             .map(|cls| self.encoder.get_token_id(cls.as_str()))
             .transpose()
     }
 
-    fn sep_token(&self) -> Result<Option<usize>, TokenizerError> {
+    fn sep_token(&self) -> Result<Option<TokenId>, TokenizerError> {
         self.sep_token
             .as_ref()
             .map(|sep| self.encoder.get_token_id(sep.as_str()))
@@ -589,7 +592,7 @@ pub enum TokenizerError {
     MissingToken(String),
 
     /// No token with a given ID exists in the vocabulary.
-    InvalidTokenId(usize),
+    InvalidTokenId(TokenId),
 
     /// Splitting the input with a regex failed.
     RegexSplitFailed(fancy_regex::Error),
@@ -622,14 +625,14 @@ mod tests {
     use std::ops::Range;
     use std::path::PathBuf;
 
-    use super::{EncodeOptions, EncoderInput, Tokenizer, TokenizerOptions, WordPiece};
+    use super::{EncodeOptions, EncoderInput, TokenId, Tokenizer, TokenizerOptions, WordPiece};
     use serde::Deserialize;
 
     fn make_wordpiece(vocab: &[&str]) -> WordPiece {
         let vocab: HashMap<_, _> = vocab
             .iter()
             .enumerate()
-            .map(|(i, token)| (token.to_string(), i))
+            .map(|(i, token)| (token.to_string(), i as u32))
             .collect();
         WordPiece::from_vocab(vocab, Default::default())
     }
@@ -1065,7 +1068,7 @@ mod tests {
     #[derive(Deserialize)]
     struct TokenizerJsonCase {
         text: String,
-        token_ids: Vec<usize>,
+        token_ids: Vec<TokenId>,
     }
 
     #[derive(Deserialize)]

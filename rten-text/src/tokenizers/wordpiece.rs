@@ -1,6 +1,6 @@
 use std::collections::HashMap;
 
-use super::{Encoder, TokenizerError};
+use super::{Encoder, TokenId, TokenizerError};
 use crate::normalizer::Normalizer;
 use crate::split::SplitExt;
 
@@ -19,8 +19,8 @@ use unicode_categories::UnicodeCategories;
 #[derive(Clone)]
 pub struct WordPiece {
     normalizer: Option<Normalizer>,
-    token_to_id: HashMap<String, usize>,
-    id_to_token: HashMap<usize, String>,
+    token_to_id: HashMap<String, TokenId>,
+    id_to_token: HashMap<TokenId, String>,
     subword_prefix: String,
     max_word_len: usize,
 }
@@ -43,8 +43,8 @@ impl WordPiece {
     /// Construct a WordPiece tokenizer from a vocabulary.
     ///
     /// `vocab` is a mapping from word piece to token ID.
-    pub fn from_vocab(vocab: HashMap<String, usize>, options: WordPieceOptions) -> WordPiece {
-        let id_to_token: HashMap<usize, String> =
+    pub fn from_vocab(vocab: HashMap<String, TokenId>, options: WordPieceOptions) -> WordPiece {
+        let id_to_token: HashMap<TokenId, String> =
             vocab.iter().map(|(k, v)| (*v, k.to_string())).collect();
 
         let subword_prefix = "##".to_string();
@@ -63,7 +63,7 @@ impl Encoder for WordPiece {
     fn encode_with_offsets(
         &self,
         text: &str,
-        on_token: &mut dyn FnMut(usize, usize),
+        on_token: &mut dyn FnMut(usize, TokenId),
     ) -> Result<(), TokenizerError> {
         let mut tmp_buf = String::with_capacity(self.max_word_len);
 
@@ -149,21 +149,21 @@ impl Encoder for WordPiece {
         Ok(())
     }
 
-    fn get_token_str(&self, id: usize) -> Result<String, TokenizerError> {
+    fn get_token_str(&self, id: TokenId) -> Result<String, TokenizerError> {
         self.id_to_token
             .get(&id)
             .cloned()
             .ok_or(TokenizerError::InvalidTokenId(id))
     }
 
-    fn get_token_id(&self, tok: &str) -> Result<usize, TokenizerError> {
+    fn get_token_id(&self, tok: &str) -> Result<TokenId, TokenizerError> {
         self.token_to_id
             .get(tok)
             .copied()
             .ok_or(TokenizerError::MissingToken(tok.to_string()))
     }
 
-    fn decode(&self, ids: &[usize]) -> Result<String, TokenizerError> {
+    fn decode(&self, ids: &[TokenId]) -> Result<String, TokenizerError> {
         let token_strings = self.get_tokens(ids)?;
         Ok(token_strings.join(" "))
     }
@@ -182,7 +182,7 @@ mod tests {
         let vocab: HashMap<_, _> = vocab
             .iter()
             .enumerate()
-            .map(|(i, token)| (token.to_string(), i))
+            .map(|(i, token)| (token.to_string(), i as u32))
             .collect();
         let encoder = WordPiece::from_vocab(vocab, options);
         Tokenizer::new(

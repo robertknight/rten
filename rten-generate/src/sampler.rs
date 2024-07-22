@@ -6,12 +6,14 @@ use rten::{FloatOperators, Operators};
 use rten_tensor::prelude::*;
 use rten_tensor::NdTensorView;
 
+use crate::generator::TokenId;
+
 /// Samplers take the output logits from a model and select a token ID.
 pub trait Sampler {
     /// Sample a token ID from the output logits of a model.
     ///
     /// `logits` has shape `[n_vocab]`.
-    fn sample(&self, logits: NdTensorView<f32, 1>) -> u32;
+    fn sample(&self, logits: NdTensorView<f32, 1>) -> TokenId;
 }
 
 /// A [`Sampler`] which always chooses the token ID with the highest probability.
@@ -25,14 +27,14 @@ impl ArgMaxSampler {
 }
 
 impl Sampler for ArgMaxSampler {
-    fn sample(&self, logits: NdTensorView<f32, 1>) -> u32 {
+    fn sample(&self, logits: NdTensorView<f32, 1>) -> TokenId {
         let next_id = logits
             .arg_max(-1, false /* keep_dims */)
             .expect("logits should be non-empty")
             .item()
             .copied()
             .expect("result should be scalar");
-        next_id as u32
+        next_id as TokenId
     }
 }
 
@@ -68,7 +70,7 @@ impl TopKSampler {
 }
 
 impl Sampler for TopKSampler {
-    fn sample(&self, logits: NdTensorView<f32, 1>) -> u32 {
+    fn sample(&self, logits: NdTensorView<f32, 1>) -> TokenId {
         if self.temperature == 0. || self.k == 1 {
             return ArgMaxSampler::new().sample(logits);
         }
@@ -100,7 +102,7 @@ impl Sampler for TopKSampler {
             .item()
             .copied()
             .unwrap();
-        token_id as u32
+        token_id as TokenId
     }
 }
 

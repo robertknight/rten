@@ -48,7 +48,7 @@ impl<'a, G: Iterator<Item = GeneratorItem>> Iterator for TextDecoder<'a, G> {
                 Err(err) => return Some(Err(err)),
             };
 
-            token_buf.push(token as usize);
+            token_buf.push(token);
 
             let text = self.tokenizer.encoder().decode(&token_buf);
             match text {
@@ -73,14 +73,14 @@ mod tests {
     use std::collections::HashMap;
 
     use rten_text::tokenizers::patterns::GPT2;
-    use rten_text::tokenizers::{Bpe, Tokenizer, WordPiece};
+    use rten_text::tokenizers::{Bpe, TokenId, Tokenizer, WordPiece};
 
     use crate::{GeneratorError, GeneratorUtils};
 
     /// Create a simple WordPiece tokenizer. This is essentially just a lookup
     /// from token ID to string.
     fn create_tokenizer() -> Tokenizer {
-        let vocab: HashMap<String, usize> = [("one", 1), ("two", 2), ("three", 3)]
+        let vocab: HashMap<String, TokenId> = [("one", 1), ("two", 2), ("three", 3)]
             .into_iter()
             .map(|(s, id)| (s.to_string(), id))
             .collect();
