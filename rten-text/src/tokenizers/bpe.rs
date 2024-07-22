@@ -5,7 +5,7 @@ use std::fmt::{Debug, Display};
 
 use fancy_regex::Regex;
 
-use crate::tokenizers::{Encoder, TokenizerError};
+use crate::tokenizers::{Encoder, TokenId, TokenizerError};
 
 /// Errors that can occur when building a [Bpe] tokenizer or encoding or
 /// decoding text using it.
@@ -245,7 +245,7 @@ pub struct Bpe {
     ///
     /// If `None`, the token ID is the same as the rank. This is the case with
     /// GPT-2 and other OpenAI models for example.
-    rank_to_token_id: Option<HashMap<Rank, usize>>,
+    rank_to_token_id: Option<HashMap<Rank, TokenId>>,
 
     /// Map from token ID to encoded bytes.
     ///
@@ -253,14 +253,14 @@ pub struct Bpe {
     /// obtained by recursively replacing the token ID with the pair of token
     /// IDs that make it up (see `merges`) until we have a sequence of token IDs
     /// that each represent single byte values.
-    token_id_to_encoded_bytes: Option<HashMap<usize, EncodedBytes>>,
+    token_id_to_encoded_bytes: Option<HashMap<TokenId, EncodedBytes>>,
 
     /// Pattern used to split the text into pieces prior to applying BPE
     /// tokenization.
     splitter: Regex,
 
     /// Map from token ID to content for special tokens (eg. end-of-string).
-    added_tokens: HashMap<usize, String>,
+    added_tokens: HashMap<TokenId, String>,
 }
 
 impl Bpe {
@@ -286,8 +286,8 @@ impl Bpe {
     pub fn new(
         merges: &[EncodedByteSlice],
         pattern: &str,
-        vocab: Option<HashMap<EncodedBytes, usize>>,
-        added_tokens: HashMap<usize, String>,
+        vocab: Option<HashMap<EncodedBytes, TokenId>>,
+        added_tokens: HashMap<TokenId, String>,
     ) -> Result<Bpe, BpeError> {
         let splitter = Regex::new(pattern).map_err(BpeError::InvalidPattern)?;
 
@@ -323,7 +323,7 @@ impl Bpe {
 
     /// Decode a token ID to a byte sequence. Be aware that the returned bytes
     /// may end in the middle of a UTF-8 character.
-    fn get_token_bytes(&self, id: u32) -> Option<Vec<u8>> {
+    fn get_token_bytes(&self, id: TokenId) -> Option<Vec<u8>> {
         if id < 256 {
             let byte = self
                 .byte_to_rank
@@ -347,7 +347,7 @@ impl Bpe {
     }
 
     /// Encode a string as a sequence of tokens.
-    fn encode_piece(&self, piece: &str) -> Vec<usize> {
+    fn encode_piece(&self, piece: &str) -> Vec<TokenId> {
         // Start with one token per byte.
         let mut tokens: Vec<Rank> = piece
             .as_bytes()
@@ -366,13 +366,13 @@ impl Bpe {
                 .map(|rank| id_map.get(&rank).copied().unwrap_or(unknown_token_id))
                 .collect()
         } else {
-            tokens.into_iter().map(|rank| rank as usize).collect()
+            tokens
         }
     }
 }
 
 impl Encoder for Bpe {
-    fn get_token_str(&self, id: usize) -> Result<String, TokenizerError> {
+    fn get_token_str(&self, id: TokenId) -> Result<String, TokenizerError> {
         if let Some(tok_str) = self.added_tokens.get(&id) {
             return Ok(tok_str.to_string());
         }
@@ -390,7 +390,7 @@ impl Encoder for Bpe {
         // on every call.
 
         let bytes = self
-            .get_token_bytes(id as u32)
+            .get_token_bytes(id)
             .ok_or(TokenizerError::InvalidTokenId(id))?;
 
         let byte_to_char: HashMap<u8, char> = char_to_byte()
@@ -409,7 +409,7 @@ impl Encoder for Bpe {
         Ok(token_str)
     }
 
-    fn get_token_id(&self, text: &str) -> Result<usize, TokenizerError> {
+    fn get_token_id(&self, text: &str) -> Result<TokenId, TokenizerError> {
         if let Some((&id, _str)) = self.added_tokens.iter().find(|(_id, str)| *str == text) {
             return Ok(id);
         }
@@ -425,7 +425,7 @@ impl Encoder for Bpe {
     fn encode_with_offsets(
         &self,
         text: &str,
-        on_token: &mut dyn FnMut(usize, usize),
+        on_token: &mut dyn FnMut(usize, TokenId),
     ) -> Result<(), TokenizerError> {
         for piece in self.splitter.find_iter(text) {
             let piece = piece.map_err(TokenizerError::RegexSplitFailed)?;
@@ -442,7 +442,7 @@ impl Encoder for Bpe {
         Ok(())
     }
 
-    fn decode(&self, ids: &[usize]) -> Result<String, TokenizerError> {
+    fn decode(&self, ids: &[TokenId]) -> Result<String, TokenizerError> {
         let char_to_byte = char_to_byte();
 
         let mut bytes = Vec::new();
@@ -461,7 +461,7 @@ impl Encoder for Bpe {
                 );
             } else {
                 let token_bytes = self
-                    .get_token_bytes(id as u32)
+                    .get_token_bytes(id)
                     .ok_or(TokenizerError::InvalidTokenId(id))?;
                 bytes.extend(token_bytes);
             }
@@ -476,7 +476,7 @@ mod tests {
 
     use super::patterns::GPT2 as GPT2_SPLIT_PATTERN;
     use super::{Bpe, EncodedBytes};
-    use crate::tokenizers::Tokenizer;
+    use crate::tokenizers::{TokenId, Tokenizer};
 
     // The first ~25 lines of the merge list from GPT 2.
     const MINI_GPT2: &str = "
@@ -505,7 +505,7 @@ e d
 Ġ f
 in g";
 
-    fn added_tokens() -> HashMap<usize, String> {
+    fn added_tokens() -> HashMap<TokenId, String> {
         [(50256, "<|endoftext|>")]
             .into_iter()
             .map(|(id, str)| (id, str.to_string()))
@@ -517,7 +517,7 @@ in g";
     /// The token IDs are chosen to be different than the ones that would be
     /// automatically generated based on the merge list, if the vocabulary was
     /// not supplied.
-    fn gen_vocab() -> HashMap<EncodedBytes, usize> {
+    fn gen_vocab() -> HashMap<EncodedBytes, TokenId> {
         let mut vocab = HashMap::new();
         let mut next_token_id = 1000;
 
@@ -628,7 +628,7 @@ in g";
             text: &'a str,
             add_eos: bool,
             expected: &'a str,
-            vocab: Option<HashMap<EncodedBytes, usize>>,
+            vocab: Option<HashMap<EncodedBytes, TokenId>>,
         }
 
         let vocab = gen_vocab();

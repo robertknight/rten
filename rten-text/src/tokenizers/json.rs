@@ -3,12 +3,13 @@
 
 use std::collections::HashMap;
 
+use super::TokenId;
 use serde::Deserialize;
 
 #[derive(Deserialize)]
 pub(crate) struct AddedToken {
     pub content: String,
-    pub id: u32,
+    pub id: TokenId,
 }
 
 #[derive(Deserialize)]
@@ -29,13 +30,13 @@ pub(crate) enum Normalizer {
 #[derive(Deserialize)]
 pub(crate) struct WordPieceModel {
     /// Mapping from token text to token ID.
-    pub vocab: HashMap<String, usize>,
+    pub vocab: HashMap<String, TokenId>,
 }
 
 #[derive(Deserialize)]
 pub(crate) struct BpeModel {
     /// Mapping from token text to token ID.
-    pub vocab: HashMap<String, usize>,
+    pub vocab: HashMap<String, TokenId>,
 
     /// List of `<token_a> [SPACE] <token_b>` containing tokens to merge.
     pub merges: Vec<String>,

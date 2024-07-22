@@ -91,7 +91,7 @@ fn encode_message(
             MessageChunk::Token(tok_id) => token_ids.push(*tok_id),
             MessageChunk::Text(text) => {
                 let encoded = tokenizer.encode((*text).into(), Default::default())?;
-                token_ids.extend(encoded.token_ids().iter().map(|id| *id as u32));
+                token_ids.extend(encoded.token_ids());
             }
         }
     }
@@ -129,9 +129,9 @@ fn main() -> Result<(), Box<dyn Error>> {
     let tokenizer_config = fs::read_to_string(&args.tokenizer_config)?;
     let tokenizer = Tokenizer::from_json(&tokenizer_config)?;
 
-    let im_start_token = tokenizer.encoder().get_token_id("<|im_start|>")? as u32;
-    let im_end_token = tokenizer.encoder().get_token_id("<|im_end|>")? as u32;
-    let end_of_text_token = tokenizer.encoder().get_token_id("<|endoftext|>")? as u32;
+    let im_start_token = tokenizer.encoder().get_token_id("<|im_start|>")?;
+    let im_end_token = tokenizer.encoder().get_token_id("<|im_end|>")?;
+    let end_of_text_token = tokenizer.encoder().get_token_id("<|endoftext|>")?;
 
     // From `chat_template` in tokenizer_config.json.
     let prompt_tokens = encode_message(

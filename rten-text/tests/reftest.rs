@@ -6,24 +6,26 @@ use std::path::PathBuf;
 
 use rten_text::normalizer::{Normalizer, NormalizerOptions};
 use rten_text::tokenizers::patterns::GPT2 as GPT2_SPLIT_PATTERN;
-use rten_text::tokenizers::{Bpe, Tokenizer, TokenizerOptions, WordPiece, WordPieceOptions};
+use rten_text::tokenizers::{
+    Bpe, TokenId, Tokenizer, TokenizerOptions, WordPiece, WordPieceOptions,
+};
 use serde::Deserialize;
 
 /// Load a vocabulary from a text file with one token per line (ie. the
 /// vocab.txt files that come with Hugging Face models).
-fn read_vocab_text_file(path: &str) -> Result<HashMap<String, usize>, io::Error> {
+fn read_vocab_text_file(path: &str) -> Result<HashMap<String, TokenId>, io::Error> {
     let content = read_test_file(path)?;
     Ok(content
         .lines()
         .enumerate()
-        .map(|(i, line)| (line.to_string(), i))
+        .map(|(i, line)| (line.to_string(), i as TokenId))
         .collect())
 }
 
 /// Struct representing the JSON files in `reftests/`.
 #[derive(Deserialize)]
 struct ReferenceTokenization {
-    token_ids: Vec<usize>,
+    token_ids: Vec<TokenId>,
 }
 
 impl ReferenceTokenization {
@@ -44,7 +46,7 @@ fn read_test_file(path: &str) -> Result<String, io::Error> {
 
 /// Compare two slices of token IDs and return an error if there are any
 /// mismatches.
-fn compare_tokens(actual: &[usize], expected: &[usize]) -> Result<(), Box<dyn Error>> {
+fn compare_tokens(actual: &[TokenId], expected: &[TokenId]) -> Result<(), Box<dyn Error>> {
     for (i, (actual, expected)) in actual.iter().zip(expected.iter()).enumerate() {
         if actual != expected {
             return Err(
