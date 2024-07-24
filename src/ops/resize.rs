@@ -264,6 +264,16 @@ pub fn resize(
         return Err(OpError::InvalidValue("scales/sizes must be positive"));
     }
 
+    // Fall back to a simple copy if this is a no-op resize.
+    if input
+        .shape()
+        .iter()
+        .zip(sizes.iter())
+        .all(|(in_size, out_size)| *in_size as i32 == *out_size)
+    {
+        return Ok(input.to_tensor_in(pool));
+    }
+
     // The current implementation only supports NCHW tensors with scale factors
     // other than 1.0 for the H and W dims.
     let [batch, _chans, _height, _width] = check_dims!(input, 4, "NCHW");
@@ -702,9 +712,9 @@ mod tests {
             // Specify output size via `scales`
             Case {
                 image: Tensor::from_data(&[1, 1, 1, 1], vec![1.]),
-                scales: Some(Tensor::from([1., 1., 1., 1.])),
+                scales: Some(Tensor::from([1., 1., 2., 2.])),
                 sizes: None,
-                expected: CaseOutput::Shape(vec![1, 1, 1, 1]),
+                expected: CaseOutput::Shape(vec![1, 1, 2, 2]),
             },
             // Specify output size via `sizes`
             Case {
@@ -712,6 +722,20 @@ mod tests {
                 scales: None,
                 sizes: Some(Tensor::from([1, 1, 2, 2])),
                 expected: CaseOutput::Shape(vec![1, 1, 2, 2]),
+            },
+            // Identity resize via `scales`
+            Case {
+                image: Tensor::from_data(&[1, 1, 1, 1], vec![1.]),
+                scales: Some(Tensor::from([1., 1., 1., 1.])),
+                sizes: None,
+                expected: CaseOutput::Shape(vec![1, 1, 1, 1]),
+            },
+            // Identity resize via `sizes`
+            Case {
+                image: Tensor::from_data(&[1, 1, 1, 1], vec![1.]),
+                scales: None,
+                sizes: Some(Tensor::from([1, 1, 1, 1])),
+                expected: CaseOutput::Shape(vec![1, 1, 1, 1]),
             },
             // At least one of `scales` or `sizes` must be provided
             Case {
@@ -759,9 +783,17 @@ mod tests {
                     "only height and width dimensions can be resized",
                 )),
             },
+            // 1D input, with identity scale
             Case {
                 image: [1., 1.].into(),
                 scales: Some(Tensor::from([1.])),
+                sizes: None,
+                expected: CaseOutput::Shape(vec![2]),
+            },
+            // 1D input, with non-identity scale. This is not currently supported.
+            Case {
+                image: [1., 1.].into(),
+                scales: Some(Tensor::from([2.])),
                 sizes: None,
                 expected: CaseOutput::Error(OpError::InvalidValue("input must have 4 dims (NCHW)")),
             },
