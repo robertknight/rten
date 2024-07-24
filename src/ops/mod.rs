@@ -864,8 +864,9 @@ pub trait Operator: Any + Debug {
     ///
     /// Operators may fall back to allocating a new output if some property of
     /// the input data or shapes means in-place operation is not possible. In
-    /// that case they should allocate the output from `pool`. The pool should
-    /// also be used for any temporary buffers created during execution.
+    /// this case they should return the input buffer to the pool, and allocate
+    /// the new output buffer from it. The pool should also be used for any
+    /// temporary buffers created during execution.
     fn run_in_place(
         &self,
         _pool: &TensorPool,

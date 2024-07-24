@@ -3,6 +3,19 @@ use rten_tensor::prelude::*;
 use crate::ops::{DataType, Input, InputList, IntoOpResult, OpError, Operator, Output, OutputList};
 use crate::tensor_pool::TensorPool;
 
+fn cast(pool: &TensorPool, input: Input, dtype: DataType) -> Output {
+    match dtype {
+        DataType::Int32 => match input {
+            Input::IntTensor(t) => t.map_in(pool, |x| *x).into(),
+            Input::FloatTensor(t) => t.map_in(pool, |x| *x as i32).into(),
+        },
+        DataType::Float => match input {
+            Input::FloatTensor(t) => t.map_in(pool, |x| *x).into(),
+            Input::IntTensor(t) => t.map_in(pool, |x| *x as f32).into(),
+        },
+    }
+}
+
 #[derive(Debug)]
 pub struct Cast {
     pub to: DataType,
@@ -15,17 +28,7 @@ impl Operator for Cast {
 
     fn run(&self, pool: &TensorPool, inputs: InputList) -> Result<OutputList, OpError> {
         let input = inputs.require(0)?;
-        let result: Output = match self.to {
-            DataType::Int32 => match input {
-                Input::IntTensor(t) => t.map_in(pool, |x| *x).into(),
-                Input::FloatTensor(t) => t.map_in(pool, |x| *x as i32).into(),
-            },
-            DataType::Float => match input {
-                Input::FloatTensor(t) => t.map_in(pool, |x| *x).into(),
-                Input::IntTensor(t) => t.map_in(pool, |x| *x as f32).into(),
-            },
-        };
-        result.into_op_result()
+        cast(pool, input, self.to).into_op_result()
     }
 
     fn can_run_in_place(&self) -> bool {
@@ -41,9 +44,11 @@ impl Operator for Cast {
         match (input, self.to) {
             (Output::IntTensor(t), DataType::Int32) => Ok(t.into()),
             (Output::FloatTensor(t), DataType::Float) => Ok(t.into()),
-            (input, _) => self
-                .run(pool, InputList::from(&[(&input).into()]))
-                .map(|mut outputs| outputs.remove(0)),
+            (input, _) => {
+                let converted = cast(pool, input.as_input(), self.to);
+                input.add_to_pool(pool);
+                Ok(converted)
+            }
         }
     }
 }
