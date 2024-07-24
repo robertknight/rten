@@ -32,6 +32,7 @@ mod binary_elementwise;
 mod concat;
 mod conv;
 mod convert;
+mod einsum;
 mod gather;
 mod generate;
 mod identity;
@@ -66,6 +67,7 @@ pub use binary_elementwise::{
 pub use concat::{concat, tile, Concat, Tile};
 pub use conv::{conv, conv_transpose, Conv, ConvTranspose};
 pub use convert::Cast;
+pub use einsum::{einsum, Einsum};
 pub use gather::{
     gather, gather_elements, gather_nd, scatter_elements, scatter_nd, Gather, GatherElements,
     GatherND, ScatterElements, ScatterND, ScatterReduction,

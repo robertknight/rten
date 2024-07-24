@@ -110,6 +110,7 @@ class OperatorType(object):
     Softplus = 100
     GatherND = 101
     Gelu = 102
+    Einsum = 103
 
 
 class RNNDirection(object):
@@ -185,6 +186,7 @@ class OperatorAttrs(object):
     RandomNormalLikeAttrs = 35
     GatherNDAttrs = 36
     GeluAttrs = 37
+    EinsumAttrs = 38
 
 def OperatorAttrsCreator(unionType, table):
     from flatbuffers.table import Table
@@ -264,6 +266,8 @@ def OperatorAttrsCreator(unionType, table):
         return GatherNDAttrsT.InitFromBuf(table.Bytes, table.Pos)
     if unionType == OperatorAttrs().GeluAttrs:
         return GeluAttrsT.InitFromBuf(table.Bytes, table.Pos)
+    if unionType == OperatorAttrs().EinsumAttrs:
+        return EinsumAttrsT.InitFromBuf(table.Bytes, table.Pos)
     return None
 
 
@@ -1586,6 +1590,86 @@ class ConvTransposeAttrsT(object):
             ConvTransposeAttrsAddPads(builder, pads)
         convTransposeAttrs = ConvTransposeAttrsEnd(builder)
         return convTransposeAttrs
+
+
+class EinsumAttrs(object):
+    __slots__ = ['_tab']
+
+    @classmethod
+    def GetRootAs(cls, buf, offset=0):
+        n = flatbuffers.encode.Get(flatbuffers.packer.uoffset, buf, offset)
+        x = EinsumAttrs()
+        x.Init(buf, n + offset)
+        return x
+
+    @classmethod
+    def GetRootAsEinsumAttrs(cls, buf, offset=0):
+        """This method is deprecated. Please switch to GetRootAs."""
+        return cls.GetRootAs(buf, offset)
+    @classmethod
+    def EinsumAttrsBufferHasIdentifier(cls, buf, offset, size_prefixed=False):
+        return flatbuffers.util.BufferHasIdentifier(buf, offset, b"\x52\x54\x45\x4E", size_prefixed=size_prefixed)
+
+    # EinsumAttrs
+    def Init(self, buf, pos):
+        self._tab = flatbuffers.table.Table(buf, pos)
+
+    # EinsumAttrs
+    def Equation(self):
+        o = flatbuffers.number_types.UOffsetTFlags.py_type(self._tab.Offset(4))
+        if o != 0:
+            return self._tab.String(o + self._tab.Pos)
+        return None
+
+def EinsumAttrsStart(builder):
+    builder.StartObject(1)
+
+def EinsumAttrsAddEquation(builder, equation):
+    builder.PrependUOffsetTRelativeSlot(0, flatbuffers.number_types.UOffsetTFlags.py_type(equation), 0)
+
+def EinsumAttrsEnd(builder):
+    return builder.EndObject()
+
+
+
+class EinsumAttrsT(object):
+
+    # EinsumAttrsT
+    def __init__(self):
+        self.equation = None  # type: str
+
+    @classmethod
+    def InitFromBuf(cls, buf, pos):
+        einsumAttrs = EinsumAttrs()
+        einsumAttrs.Init(buf, pos)
+        return cls.InitFromObj(einsumAttrs)
+
+    @classmethod
+    def InitFromPackedBuf(cls, buf, pos=0):
+        n = flatbuffers.encode.Get(flatbuffers.packer.uoffset, buf, pos)
+        return cls.InitFromBuf(buf, pos+n)
+
+    @classmethod
+    def InitFromObj(cls, einsumAttrs):
+        x = EinsumAttrsT()
+        x._UnPack(einsumAttrs)
+        return x
+
+    # EinsumAttrsT
+    def _UnPack(self, einsumAttrs):
+        if einsumAttrs is None:
+            return
+        self.equation = einsumAttrs.Equation()
+
+    # EinsumAttrsT
+    def Pack(self, builder):
+        if self.equation is not None:
+            equation = builder.CreateString(self.equation)
+        EinsumAttrsStart(builder)
+        if self.equation is not None:
+            EinsumAttrsAddEquation(builder, equation)
+        einsumAttrs = EinsumAttrsEnd(builder)
+        return einsumAttrs
 
 
 class EluAttrs(object):
@@ -4585,7 +4669,7 @@ class OperatorNodeT(object):
     def __init__(self):
         self.type = 0  # type: int
         self.attrsType = 0  # type: int
-        self.attrs = None  # type: Union[None, ArgMaxAttrsT, AveragePoolAttrsT, BatchNormalizationAttrsT, CastAttrsT, ConcatAttrsT, ConstantOfShapeAttrsT, ConvAttrsT, ConvTransposeAttrsT, FlattenAttrsT, GatherAttrsT, GemmAttrsT, GRUAttrsT, LeakyReluAttrsT, LSTMAttrsT, MaxPoolAttrsT, ReduceMeanAttrsT, ReshapeAttrsT, ResizeAttrsT, SplitAttrsT, SoftmaxAttrsT, TransposeAttrsT, ModAttrsT, ScatterElementsAttrsT, OneHotAttrsT, TopKAttrsT, HardSigmoidAttrsT, TriluAttrsT, ScatterNDAttrsT, NonMaxSuppressionAttrsT, LayerNormalizationAttrsT, RandomUniformAttrsT, EluAttrsT, RandomUniformLikeAttrsT, RandomNormalAttrsT, RandomNormalLikeAttrsT, GatherNDAttrsT, GeluAttrsT]
+        self.attrs = None  # type: Union[None, ArgMaxAttrsT, AveragePoolAttrsT, BatchNormalizationAttrsT, CastAttrsT, ConcatAttrsT, ConstantOfShapeAttrsT, ConvAttrsT, ConvTransposeAttrsT, FlattenAttrsT, GatherAttrsT, GemmAttrsT, GRUAttrsT, LeakyReluAttrsT, LSTMAttrsT, MaxPoolAttrsT, ReduceMeanAttrsT, ReshapeAttrsT, ResizeAttrsT, SplitAttrsT, SoftmaxAttrsT, TransposeAttrsT, ModAttrsT, ScatterElementsAttrsT, OneHotAttrsT, TopKAttrsT, HardSigmoidAttrsT, TriluAttrsT, ScatterNDAttrsT, NonMaxSuppressionAttrsT, LayerNormalizationAttrsT, RandomUniformAttrsT, EluAttrsT, RandomUniformLikeAttrsT, RandomNormalAttrsT, RandomNormalLikeAttrsT, GatherNDAttrsT, GeluAttrsT, EinsumAttrsT]
         self.inputs = None  # type: List[int]
         self.outputs = None  # type: List[int]
 

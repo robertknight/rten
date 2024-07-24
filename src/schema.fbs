@@ -116,6 +116,7 @@ enum OperatorType: ubyte {
   Softplus,
   GatherND,
   Gelu,
+  Einsum,
 }
 
 enum RNNDirection: ubyte {
@@ -198,6 +199,7 @@ union OperatorAttrs {
   RandomNormalLikeAttrs,
   GatherNDAttrs,
   GeluAttrs,
+  EinsumAttrs,
 }
 
 table ArgMaxAttrs {
@@ -265,6 +267,10 @@ table ConvTransposeAttrs {
 
   // Padding for spatial axes as [left, right] or [top, left, bottom, right]
   pads:[uint];
+}
+
+table EinsumAttrs {
+  equation:string;
 }
 
 table EluAttrs {
