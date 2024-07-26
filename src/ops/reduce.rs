@@ -286,9 +286,11 @@ fn reduce<T: Copy, R: Reducer<T>>(
             if resolved_axes.len() == 1 {
                 // Fast path for reducing a single axis.
                 let resolved_axis = resolved_axes[0];
-                for slice in input.lanes(resolved_axis) {
-                    reduced_data.push(reducer.reduce(slice.copied()));
-                }
+                reduced_data.extend(
+                    input
+                        .lanes(resolved_axis)
+                        .map(|lane| reducer.reduce(lane.copied())),
+                );
             } else {
                 // Slow case when we have to step through each index
                 let outer_range: Vec<_> = (0..input.ndim())
