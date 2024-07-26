@@ -5,6 +5,7 @@ use rten_tensor::{NdTensorView, Tensor, TensorView};
 use rten_vecmath::vec_softmax_in_place;
 use smallvec::SmallVec;
 
+use crate::ops::reduce::reduce_inverse_rms;
 use crate::ops::{add_in_place, mul_in_place, reduce_mean, sub};
 use crate::ops::{resolve_axis, InputList, IntoOpResult, OpError, Operator, Output, OutputList};
 use crate::slice_reductions::{slice_max, slice_sum};
@@ -277,15 +278,15 @@ pub fn layer_normalization(
     )?
     .auto_return(pool);
     let mut normalized = sub(pool, input, mean.view())?.auto_return(pool);
-    let centered_square = normalized.map_in(pool, |x| x * x).auto_return(pool);
-    let mut inverse_std_dev = reduce_mean(
+
+    let inverse_std_dev = reduce_inverse_rms(
         pool,
-        centered_square.view(),
+        normalized.view(),
         Some(normalized_axes.as_slice()),
         true, /* keep_dims */
+        epsilon,
     )?
     .auto_return(pool);
-    inverse_std_dev.apply(|x| 1. / (x + epsilon).sqrt());
     mul_in_place(normalized.view_mut(), inverse_std_dev.view());
 
     // Second step: Shift and scale input.

@@ -352,6 +352,40 @@ pub fn reduce_mean(
     reduce(pool, input, axes, keep_dims, MeanReducer {})
 }
 
+/// Reduces axes of a tensor using an inverse Root Mean Squared (RMS)
+/// operation.
+///
+/// This reduces axes according to the formula:
+///
+/// ```text
+/// 1. / (mean(x^2) + epsilon).sqrt()
+/// ```
+pub fn reduce_inverse_rms(
+    pool: &TensorPool,
+    input: TensorView,
+    axes: Option<&[i32]>,
+    keep_dims: bool,
+    epsilon: f32,
+) -> Result<Tensor, OpError> {
+    struct InverseRmsReducer {
+        epsilon: f32,
+    }
+
+    impl Reducer<f32> for InverseRmsReducer {
+        fn reduce<I: ExactSizeIterator<Item = f32>>(&self, iter: I) -> f32 {
+            let len = iter.len();
+            let mean_square = iter_sum(iter.map(|x| x * x)) / len as f32;
+            1. / (mean_square + self.epsilon).sqrt()
+        }
+
+        fn reduce_slice(&self, slice: &[f32]) -> f32 {
+            self.reduce(slice.iter().copied())
+        }
+    }
+
+    reduce(pool, input, axes, keep_dims, InverseRmsReducer { epsilon })
+}
+
 #[derive(Debug)]
 pub struct ReduceMean {
     pub axes: Option<Vec<i32>>,
