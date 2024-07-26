@@ -5,7 +5,8 @@ use rten_tensor::{NdTensorView, Tensor, TensorView};
 use rten_vecmath::vec_softmax_in_place;
 use smallvec::SmallVec;
 
-use crate::ops::{add, mul, reduce_mean, sub};
+use crate::ops::reduce::reduce_inverse_rms;
+use crate::ops::{add_in_place, mul_in_place, reduce_mean, sub};
 use crate::ops::{resolve_axis, InputList, IntoOpResult, OpError, Operator, Output, OutputList};
 use crate::slice_reductions::{slice_max, slice_sum};
 use crate::static_dims;
@@ -276,29 +277,25 @@ pub fn layer_normalization(
         true, /* keep_dims */
     )?
     .auto_return(pool);
-    let d = sub(pool, input, mean.view())?.auto_return(pool);
-    let dd = mul(pool, d.view(), d.view())?.auto_return(pool);
-    let var = reduce_mean(
+    let mut normalized = sub(pool, input, mean.view())?.auto_return(pool);
+
+    let inverse_std_dev = reduce_inverse_rms(
         pool,
-        dd.view(),
+        normalized.view(),
         Some(normalized_axes.as_slice()),
         true, /* keep_dims */
+        epsilon,
     )?
     .auto_return(pool);
-    let inverse_std_dev = var
-        .map_in(pool, |x| 1. / (x + epsilon).sqrt())
-        .auto_return(pool);
-    let normalized = mul(pool, d.view(), inverse_std_dev.view())?.auto_return(pool);
+    mul_in_place(normalized.view_mut(), inverse_std_dev.view());
 
     // Second step: Shift and scale input.
-    let normalized_scaled = mul(pool, normalized.view(), scale)?.auto_return(pool);
-    let output = if let Some(bias) = bias {
-        add(pool, normalized_scaled.view(), bias)?.auto_return(pool)
-    } else {
-        normalized_scaled
-    };
+    mul_in_place(normalized.view_mut(), scale);
+    if let Some(bias) = bias {
+        add_in_place(normalized.view_mut(), bias);
+    }
 
-    Ok(output.take())
+    Ok(normalized.take())
 }
 
 #[derive(Debug)]

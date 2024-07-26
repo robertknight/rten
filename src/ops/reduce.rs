@@ -11,7 +11,7 @@ use crate::ops::layout::squeeze_in_place;
 use crate::ops::{
     resolve_axes, resolve_axis, Input, InputList, IntoOpResult, OpError, Operator, OutputList,
 };
-use crate::slice_reductions::slice_sum;
+use crate::slice_reductions::{iter_sum, slice_sum};
 use crate::tensor_pool::TensorPool;
 
 /// Compute the indices of the max elements along an axis, according to a
@@ -286,9 +286,11 @@ fn reduce<T: Copy, R: Reducer<T>>(
             if resolved_axes.len() == 1 {
                 // Fast path for reducing a single axis.
                 let resolved_axis = resolved_axes[0];
-                for slice in input.lanes(resolved_axis) {
-                    reduced_data.push(reducer.reduce(slice.copied()));
-                }
+                reduced_data.extend(
+                    input
+                        .lanes(resolved_axis)
+                        .map(|lane| reducer.reduce(lane.copied())),
+                );
             } else {
                 // Slow case when we have to step through each index
                 let outer_range: Vec<_> = (0..input.ndim())
@@ -338,8 +340,8 @@ pub fn reduce_mean(
     struct MeanReducer {}
     impl Reducer<f32> for MeanReducer {
         fn reduce<I: ExactSizeIterator<Item = f32>>(&self, iter: I) -> f32 {
-            let len = iter.len() as f32;
-            iter.sum::<f32>() / len
+            let len = iter.len();
+            iter_sum(iter) / len as f32
         }
 
         fn reduce_slice(&self, slice: &[f32]) -> f32 {
@@ -348,6 +350,40 @@ pub fn reduce_mean(
     }
 
     reduce(pool, input, axes, keep_dims, MeanReducer {})
+}
+
+/// Reduces axes of a tensor using an inverse Root Mean Squared (RMS)
+/// operation.
+///
+/// This reduces axes according to the formula:
+///
+/// ```text
+/// 1. / (mean(x^2) + epsilon).sqrt()
+/// ```
+pub fn reduce_inverse_rms(
+    pool: &TensorPool,
+    input: TensorView,
+    axes: Option<&[i32]>,
+    keep_dims: bool,
+    epsilon: f32,
+) -> Result<Tensor, OpError> {
+    struct InverseRmsReducer {
+        epsilon: f32,
+    }
+
+    impl Reducer<f32> for InverseRmsReducer {
+        fn reduce<I: ExactSizeIterator<Item = f32>>(&self, iter: I) -> f32 {
+            let len = iter.len();
+            let mean_square = iter_sum(iter.map(|x| x * x)) / len as f32;
+            1. / (mean_square + self.epsilon).sqrt()
+        }
+
+        fn reduce_slice(&self, slice: &[f32]) -> f32 {
+            self.reduce(slice.iter().copied())
+        }
+    }
+
+    reduce(pool, input, axes, keep_dims, InverseRmsReducer { epsilon })
 }
 
 #[derive(Debug)]
@@ -600,9 +636,9 @@ pub fn reduce_sum<T: Copy + Default + std::ops::Add<T, Output = T>>(
     keep_dims: bool,
 ) -> Result<Tensor<T>, OpError> {
     struct SumReducer {}
-    impl<T: Default + std::ops::Add<T, Output = T>> Reducer<T> for SumReducer {
+    impl<T: Copy + Default + std::ops::Add<T, Output = T>> Reducer<T> for SumReducer {
         fn reduce<I: ExactSizeIterator<Item = T>>(&self, iter: I) -> T {
-            iter.fold(T::default(), |a, b| a + b)
+            iter_sum(iter)
         }
     }
     reduce(pool, input, axes, keep_dims, SumReducer {})

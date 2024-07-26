@@ -1,4 +1,14 @@
-//! Optimized reductions of slices of numbers.
+//! Optimized reductions of slices and iterators of numbers.
+//!
+//! Library APIs like `std::iter::Sum` reduce elements in-order. For float
+//! values this is not optimal for performance as each step has a dependency on
+//! the previous step, inhibiting Instruction Level Parallelism and
+//! autovectorization. The functions in this module re-order operations to
+//! enable better performance.
+//!
+//! Related reading:
+//!
+//! - <https://blog.zachbjornson.com/2019/08/11/fast-float-summation.html>
 
 use crate::number::MinMax;
 
@@ -41,6 +51,36 @@ pub fn slice_sum<T: Copy + Default + std::ops::Add<Output = T>>(xs: &[T]) -> T {
             }
         })
         .fold(T::default(), |x, y| x + y)
+}
+
+/// Return the sum of an iterator of numbers.
+pub fn iter_sum<T: Copy + Default + std::ops::Add<Output = T>, I: ExactSizeIterator<Item = T>>(
+    mut iter: I,
+) -> T {
+    let zero = T::default();
+    let len = iter.len();
+    let mut sum = zero;
+    let mut n = len;
+
+    while n > 4 {
+        n -= 4;
+
+        let a = iter.next().unwrap_or(zero);
+        let b = iter.next().unwrap_or(zero);
+        let c = iter.next().unwrap_or(zero);
+        let d = iter.next().unwrap_or(zero);
+
+        let ab = a + b;
+        let cd = c + d;
+        let abcd = ab + cd;
+        sum = sum + abcd;
+    }
+
+    for x in iter {
+        sum = sum + x;
+    }
+
+    sum
 }
 
 #[cfg(test)]
