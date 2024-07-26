@@ -491,7 +491,15 @@ impl Iterator for LaneRanges {
             offset..offset + (self.dim_size - 1) * self.dim_stride + 1
         })
     }
+
+    fn size_hint(&self) -> (usize, Option<usize>) {
+        self.offsets.size_hint()
+    }
 }
+
+impl ExactSizeIterator for LaneRanges {}
+
+impl FusedIterator for LaneRanges {}
 
 /// Iterator over 1D slices of a tensor along a target dimension of size N.
 ///
@@ -535,6 +543,8 @@ impl<'a, T> Iterator for Lane<'a, T> {
 
 impl<'a, T> ExactSizeIterator for Lane<'a, T> {}
 
+impl<'a, T> FusedIterator for Lane<'a, T> {}
+
 impl<'a, T> Lanes<'a, T> {
     /// Create an iterator which yields all possible slices over the `dim`
     /// dimension of `tensor`.
@@ -560,7 +570,15 @@ impl<'a, T> Iterator for Lanes<'a, T> {
             size: self.size,
         })
     }
+
+    fn size_hint(&self) -> (usize, Option<usize>) {
+        self.ranges.size_hint()
+    }
 }
+
+impl<'a, T> ExactSizeIterator for Lanes<'a, T> {}
+
+impl<'a, T> FusedIterator for Lanes<'a, T> {}
 
 /// Mutable version of [Lanes].
 ///
