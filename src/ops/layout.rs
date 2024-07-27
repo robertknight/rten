@@ -18,8 +18,8 @@ use crate::tensor_pool::TensorPool;
 fn expand_output_shape(
     input_shape: &[usize],
     shape: &NdTensorView<i32, 1>,
-) -> Result<Vec<usize>, OpError> {
-    let shape_vec: Vec<_> = shape.iter().map(|el| *el as usize).collect();
+) -> Result<SmallVec<[usize; 4]>, OpError> {
+    let shape_vec: SmallVec<[usize; 4]> = shape.iter().map(|el| *el as usize).collect();
     broadcast_shapes(input_shape, &shape_vec).ok_or(OpError::IncompatibleInputShapes(
         "Cannot broadcast input with target shape",
     ))
@@ -116,7 +116,7 @@ impl Operator for Expand {
         let shape = static_dims!(shape, 1)?;
 
         let out_shape = expand_output_shape(input.shape(), &shape)?;
-        if input.shape() == out_shape {
+        if input.shape() == out_shape.as_slice() {
             return Ok(input);
         }
 

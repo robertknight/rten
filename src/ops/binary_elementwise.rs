@@ -1,3 +1,4 @@
+use smallvec::SmallVec;
 use std::fmt::Debug;
 use std::iter::{repeat, zip};
 
@@ -19,14 +20,14 @@ use crate::tensor_pool::TensorPool;
 /// the output shape.
 ///
 /// See https://numpy.org/doc/stable/user/basics.broadcasting.html#general-broadcasting-rules
-pub fn broadcast_shapes(a: &[usize], b: &[usize]) -> Option<Vec<usize>> {
+pub fn broadcast_shapes(a: &[usize], b: &[usize]) -> Option<SmallVec<[usize; 4]>> {
     let a_pad = b.len().saturating_sub(a.len());
     let b_pad = a.len().saturating_sub(b.len());
 
     let a_iter = a.iter().copied().rev().chain(repeat(1).take(a_pad));
     let b_iter = b.iter().copied().rev().chain(repeat(1).take(b_pad));
 
-    let mut result = Vec::with_capacity(a.len().max(b.len()));
+    let mut result = SmallVec::with_capacity(a.len().max(b.len()));
     for (a, b) in zip(a_iter, b_iter) {
         if a == b {
             result.push(a);
@@ -165,7 +166,9 @@ pub fn binary_op<T: Copy, R, F: Fn(T, T) -> R>(
 
     // Fast path for when LHS and RHS are contiguous, and fast broadcasting is
     // possible.
-    if let (true, Some(a_data), Some(b_data)) = (a.shape() == out_shape, a.data(), b.data()) {
+    if let (true, Some(a_data), Some(b_data)) =
+        (a.shape() == out_shape.as_slice(), a.data(), b.data())
+    {
         if let Some((cycles, repeats)) = fast_broadcast_cycles_repeats(b.shape(), a.shape()) {
             assert!(cycles * b_data.len() * repeats == a.len());
 
