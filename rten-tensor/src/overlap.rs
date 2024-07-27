@@ -5,25 +5,14 @@ use smallvec::SmallVec;
 /// Return true if a given shape and strides describe a contiguous layout in
 /// row-major ("C") order.
 pub fn is_contiguous<S: AsRef<[usize]>>(shape: S, strides: S) -> bool {
-    // Trim leading 1s from the shape. These dimensions can have a larger
-    // stride than the product of inner dimensions without affecting whether
-    // the tensor is contiguous.
-    //
-    // For example if a `[1, C, H, W]` tensor is sliced into two `[1, C/2, H,
-    // W]` views, each view is still contiguous but the stride of the first
-    // dimension will be `C * H * W` instead of `C/2 * H * W`. This would not be
-    // true if the original shape was `[2, C, H, W]` and sliced into two `[2,
-    // C/2, H, W]` views however.
-    let outer_dims = shape.as_ref().iter().take_while(|size| **size == 1).count();
-
     let mut product = 1;
-    for (&size, &stride) in shape
-        .as_ref()
-        .iter()
-        .zip(strides.as_ref().iter())
-        .skip(outer_dims)
-        .rev()
-    {
+    for (&size, &stride) in shape.as_ref().iter().zip(strides.as_ref().iter()).rev() {
+        // Dimensions of size 1 cannot affect whether the tensor is contiguous,
+        // since the only valid index is 0 and `0 * stride = 0` for any stride.
+        if size == 1 {
+            continue;
+        }
+
         if stride != product {
             return false;
         }
@@ -107,10 +96,24 @@ mod tests {
                 strides: &[2],
                 contiguous: false,
             },
+            // 1D with a stride != 1, but still contiguous since the dimension
+            // size is 1.
+            Case {
+                shape: &[1],
+                strides: &[2],
+                contiguous: true,
+            },
             // 2D contiguous
             Case {
                 shape: &[5, 5],
                 strides: &[5, 1],
+                contiguous: true,
+            },
+            // 2D with inner stride != 1, but still contiguous since the
+            // dimension size is 1.
+            Case {
+                shape: &[5, 1],
+                strides: &[1, 2],
                 contiguous: true,
             },
             // 2D transposed
@@ -118,6 +121,18 @@ mod tests {
                 shape: &[5, 5],
                 strides: &[1, 5],
                 contiguous: false,
+            },
+            // 2D broadcast
+            Case {
+                shape: &[5, 5],
+                strides: &[1, 0],
+                contiguous: false,
+            },
+            // 2D broadcast with size-1 dimension
+            Case {
+                shape: &[5, 1],
+                strides: &[1, 0],
+                contiguous: true,
             },
             // 4D contiguous
             Case {
