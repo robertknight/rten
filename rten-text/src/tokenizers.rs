@@ -595,7 +595,7 @@ pub enum TokenizerError {
     InvalidTokenId(TokenId),
 
     /// Splitting the input with a regex failed.
-    RegexSplitFailed(fancy_regex::Error),
+    RegexSplitFailed(Box<fancy_regex::Error>),
 
     /// There was an error parsing a byte sequence as a UTF-8 string.
     ///
