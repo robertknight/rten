@@ -18,7 +18,7 @@ pub enum BpeError {
     InvalidMergeEntry(String),
 
     /// The regex for splitting tokens is invalid.
-    InvalidPattern(fancy_regex::Error),
+    InvalidPattern(Box<fancy_regex::Error>),
 
     /// An entry in the vocab (token string to ID map) is not either a known
     /// special token or an entry in the merge list.
@@ -289,7 +289,7 @@ impl Bpe {
         vocab: Option<HashMap<EncodedBytes, TokenId>>,
         added_tokens: HashMap<TokenId, String>,
     ) -> Result<Bpe, BpeError> {
-        let splitter = Regex::new(pattern).map_err(BpeError::InvalidPattern)?;
+        let splitter = Regex::new(pattern).map_err(|err| BpeError::InvalidPattern(err.into()))?;
 
         let mut builder = BpeBuilder::new();
         builder.add_merges(merges)?;
@@ -428,7 +428,7 @@ impl Encoder for Bpe {
         on_token: &mut dyn FnMut(usize, TokenId),
     ) -> Result<(), TokenizerError> {
         for piece in self.splitter.find_iter(text) {
-            let piece = piece.map_err(TokenizerError::RegexSplitFailed)?;
+            let piece = piece.map_err(|err| TokenizerError::RegexSplitFailed(err.into()))?;
             if piece.range().is_empty() {
                 continue;
             }
