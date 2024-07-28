@@ -881,7 +881,7 @@ impl_downcastdyn!(Operator);
 
 /// List of inputs for an operator evaluation.
 ///
-/// Conceptually this is like a `&[Option<Input>]` with methods to conveniently
+/// Conceptually this is a `Cow<[Option<Input>]>` with methods to conveniently
 /// extract inputs and produce appropriate errors if inputs are missing or of
 /// the wrong type.
 ///
@@ -893,7 +893,7 @@ pub struct InputList<'a> {
 
 impl<'a> InputList<'a> {
     /// Construct an empty input list.
-    pub fn new() -> InputList<'static> {
+    pub fn new() -> InputList<'a> {
         InputList {
             inputs: Cow::Owned(vec![]),
         }
@@ -907,12 +907,26 @@ impl<'a> InputList<'a> {
         self.inputs.is_empty()
     }
 
+    /// Append an input to the list.
+    ///
+    /// This will copy the existing inputs into a new owned vector.
+    pub fn push<I: Into<Input<'a>>>(&mut self, inp: I) {
+        self.inputs.to_mut().push(Some(inp.into()))
+    }
+
+    /// Construct an input list from a slice of non-optional inputs.
+    ///
+    /// This copies the inputs into a new vector of `Optional<Input>`s. Using
+    /// [`from_optional`](Self::from_optional) is more efficient.
     pub fn from(inputs: &[Input<'a>]) -> InputList<'a> {
         InputList {
             inputs: inputs.iter().cloned().map(Some).collect(),
         }
     }
 
+    /// Construct an input list from a slice of optional inputs.
+    ///
+    /// This is a cheap conversion that borrows `inputs`.
     pub fn from_optional(inputs: &'a [Option<Input<'a>>]) -> InputList<'a> {
         InputList {
             inputs: Cow::Borrowed(inputs),
@@ -924,6 +938,9 @@ impl<'a> InputList<'a> {
         self.inputs.get(index).cloned().flatten()
     }
 
+    /// Get a mutable reference to an input.
+    ///
+    /// This will convert the list into an owned list of inputs first.
     pub fn get_mut(&mut self, index: usize) -> Option<&mut Input<'a>> {
         self.inputs.to_mut().get_mut(index)?.as_mut()
     }
