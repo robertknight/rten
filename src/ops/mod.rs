@@ -998,6 +998,12 @@ impl<'a> InputList<'a> {
     }
 }
 
+impl<'a> Default for InputList<'a> {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 impl<'a, I: Into<Input<'a>>> From<I> for InputList<'a> {
     fn from(val: I) -> InputList<'a> {
         InputList::from(&[val.into()])
