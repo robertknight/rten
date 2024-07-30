@@ -60,6 +60,10 @@ path = "src/yolo.rs"
 name = "depth_anything"
 path = "src/depth_anything.rs"
 
+[[bin]]
+name = "segment_anything"
+path = "src/segment_anything.rs"
+
 # Text
 [[bin]]
 name = "bert_qa"

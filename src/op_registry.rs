@@ -94,6 +94,7 @@ impl OpRegistry {
         register_op!(Cos);
         register_op!(CumSum);
         register_op!(Div);
+        register_op!(Einsum);
         register_op!(Elu);
         register_op!(Equal);
         register_op!(Erf);
@@ -455,6 +456,11 @@ impl_read_op!(
 impl_read_op!(Cos);
 impl_read_op!(CumSum);
 impl_read_op!(Div);
+impl_read_op!(Einsum, attrs_as_einsum_attrs, |attrs: sg::EinsumAttrs| {
+    Ok(ops::Einsum {
+        equation: attrs.equation().unwrap_or("").to_string(),
+    })
+});
 impl_read_op!(Elu, attrs_as_elu_attrs, |attrs: sg::EluAttrs| {
     Ok(ops::Elu {
         alpha: attrs.alpha(),

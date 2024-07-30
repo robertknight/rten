@@ -7,11 +7,11 @@ use crate::header::Header;
 use crate::number::LeBytes;
 use crate::ops::{
     ArgMax, ArgMin, AveragePool, BatchNormalization, BoxOrder, Cast, Concat, ConstantOfShape, Conv,
-    ConvTranspose, CoordTransformMode, DataType, Elu, Flatten, Gather, GatherElements, GatherND,
-    Gelu, Gemm, HardSigmoid, InstanceNormalization, LayerNormalization, LeakyRelu, LogSoftmax,
-    MaxPool, Mod, NearestMode, NonMaxSuppression, OneHot, Padding, ReduceMax, ReduceMean,
-    ReduceMin, ReduceProd, ReduceSum, ReduceSumSquare, Reshape, Resize, ResizeMode, Scalar,
-    ScatterElements, ScatterReduction, Softmax, Split, TopK, Transpose, Trilu,
+    ConvTranspose, CoordTransformMode, DataType, Einsum, Elu, Flatten, Gather, GatherElements,
+    GatherND, Gelu, Gemm, HardSigmoid, InstanceNormalization, LayerNormalization, LeakyRelu,
+    LogSoftmax, MaxPool, Mod, NearestMode, NonMaxSuppression, OneHot, Padding, ReduceMax,
+    ReduceMean, ReduceMin, ReduceProd, ReduceSum, ReduceSumSquare, Reshape, Resize, ResizeMode,
+    Scalar, ScatterElements, ScatterReduction, Softmax, Split, TopK, Transpose, Trilu,
 };
 use crate::schema_generated as sg;
 
@@ -39,6 +39,7 @@ pub enum OpType {
     ConvTranspose(ConvTranspose),
     Cos,
     Div,
+    Einsum(Einsum),
     Elu(Elu),
     Equal,
     Erf,
@@ -486,6 +487,16 @@ impl<'a> ModelBuilder<'a> {
             }),
             OpType::Cos => op!(Cos),
             OpType::Div => op!(Div),
+            OpType::Einsum(args) => {
+                let equation = self.builder.create_string(&args.equation);
+                op_with_attrs!(
+                    Einsum,
+                    EinsumAttrs,
+                    sg::EinsumAttrsArgs {
+                        equation: Some(equation)
+                    }
+                )
+            }
             OpType::Elu(args) => {
                 op_with_attrs!(Elu, EluAttrs, sg::EluAttrsArgs { alpha: args.alpha })
             }

@@ -18,13 +18,13 @@ pub const ENUM_MIN_OPERATOR_TYPE: u8 = 0;
     since = "2.0.0",
     note = "Use associated constants instead. This will no longer be generated in 2021."
 )]
-pub const ENUM_MAX_OPERATOR_TYPE: u8 = 102;
+pub const ENUM_MAX_OPERATOR_TYPE: u8 = 103;
 #[deprecated(
     since = "2.0.0",
     note = "Use associated constants instead. This will no longer be generated in 2021."
 )]
 #[allow(non_camel_case_types)]
-pub const ENUM_VALUES_OPERATOR_TYPE: [OperatorType; 103] = [
+pub const ENUM_VALUES_OPERATOR_TYPE: [OperatorType; 104] = [
     OperatorType::Add,
     OperatorType::ArgMin,
     OperatorType::ArgMax,
@@ -128,6 +128,7 @@ pub const ENUM_VALUES_OPERATOR_TYPE: [OperatorType; 103] = [
     OperatorType::Softplus,
     OperatorType::GatherND,
     OperatorType::Gelu,
+    OperatorType::Einsum,
 ];
 
 #[derive(Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash, Default)]
@@ -238,9 +239,10 @@ impl OperatorType {
     pub const Softplus: Self = Self(100);
     pub const GatherND: Self = Self(101);
     pub const Gelu: Self = Self(102);
+    pub const Einsum: Self = Self(103);
 
     pub const ENUM_MIN: u8 = 0;
-    pub const ENUM_MAX: u8 = 102;
+    pub const ENUM_MAX: u8 = 103;
     pub const ENUM_VALUES: &'static [Self] = &[
         Self::Add,
         Self::ArgMin,
@@ -345,6 +347,7 @@ impl OperatorType {
         Self::Softplus,
         Self::GatherND,
         Self::Gelu,
+        Self::Einsum,
     ];
     /// Returns the variant's name or "" if unknown.
     pub fn variant_name(self) -> Option<&'static str> {
@@ -452,6 +455,7 @@ impl OperatorType {
             Self::Softplus => Some("Softplus"),
             Self::GatherND => Some("GatherND"),
             Self::Gelu => Some("Gelu"),
+            Self::Einsum => Some("Einsum"),
             _ => None,
         }
     }
@@ -1078,13 +1082,13 @@ pub const ENUM_MIN_OPERATOR_ATTRS: u8 = 0;
     since = "2.0.0",
     note = "Use associated constants instead. This will no longer be generated in 2021."
 )]
-pub const ENUM_MAX_OPERATOR_ATTRS: u8 = 37;
+pub const ENUM_MAX_OPERATOR_ATTRS: u8 = 38;
 #[deprecated(
     since = "2.0.0",
     note = "Use associated constants instead. This will no longer be generated in 2021."
 )]
 #[allow(non_camel_case_types)]
-pub const ENUM_VALUES_OPERATOR_ATTRS: [OperatorAttrs; 38] = [
+pub const ENUM_VALUES_OPERATOR_ATTRS: [OperatorAttrs; 39] = [
     OperatorAttrs::NONE,
     OperatorAttrs::ArgMaxAttrs,
     OperatorAttrs::AveragePoolAttrs,
@@ -1123,6 +1127,7 @@ pub const ENUM_VALUES_OPERATOR_ATTRS: [OperatorAttrs; 38] = [
     OperatorAttrs::RandomNormalLikeAttrs,
     OperatorAttrs::GatherNDAttrs,
     OperatorAttrs::GeluAttrs,
+    OperatorAttrs::EinsumAttrs,
 ];
 
 #[derive(Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash, Default)]
@@ -1168,9 +1173,10 @@ impl OperatorAttrs {
     pub const RandomNormalLikeAttrs: Self = Self(35);
     pub const GatherNDAttrs: Self = Self(36);
     pub const GeluAttrs: Self = Self(37);
+    pub const EinsumAttrs: Self = Self(38);
 
     pub const ENUM_MIN: u8 = 0;
-    pub const ENUM_MAX: u8 = 37;
+    pub const ENUM_MAX: u8 = 38;
     pub const ENUM_VALUES: &'static [Self] = &[
         Self::NONE,
         Self::ArgMaxAttrs,
@@ -1210,6 +1216,7 @@ impl OperatorAttrs {
         Self::RandomNormalLikeAttrs,
         Self::GatherNDAttrs,
         Self::GeluAttrs,
+        Self::EinsumAttrs,
     ];
     /// Returns the variant's name or "" if unknown.
     pub fn variant_name(self) -> Option<&'static str> {
@@ -1252,6 +1259,7 @@ impl OperatorAttrs {
             Self::RandomNormalLikeAttrs => Some("RandomNormalLikeAttrs"),
             Self::GatherNDAttrs => Some("GatherNDAttrs"),
             Self::GeluAttrs => Some("GeluAttrs"),
+            Self::EinsumAttrs => Some("EinsumAttrs"),
             _ => None,
         }
     }
@@ -3334,6 +3342,115 @@ impl core::fmt::Debug for ConvTransposeAttrs<'_> {
         ds.field("strides", &self.strides());
         ds.field("auto_pad", &self.auto_pad());
         ds.field("pads", &self.pads());
+        ds.finish()
+    }
+}
+pub enum EinsumAttrsOffset {}
+#[derive(Copy, Clone, PartialEq)]
+
+pub struct EinsumAttrs<'a> {
+    pub _tab: flatbuffers::Table<'a>,
+}
+
+impl<'a> flatbuffers::Follow<'a> for EinsumAttrs<'a> {
+    type Inner = EinsumAttrs<'a>;
+    #[inline]
+    unsafe fn follow(buf: &'a [u8], loc: usize) -> Self::Inner {
+        Self {
+            _tab: flatbuffers::Table::new(buf, loc),
+        }
+    }
+}
+
+impl<'a> EinsumAttrs<'a> {
+    pub const VT_EQUATION: flatbuffers::VOffsetT = 4;
+
+    #[inline]
+    pub unsafe fn init_from_table(table: flatbuffers::Table<'a>) -> Self {
+        EinsumAttrs { _tab: table }
+    }
+    #[allow(unused_mut)]
+    pub fn create<'bldr: 'args, 'args: 'mut_bldr, 'mut_bldr, A: flatbuffers::Allocator + 'bldr>(
+        _fbb: &'mut_bldr mut flatbuffers::FlatBufferBuilder<'bldr, A>,
+        args: &'args EinsumAttrsArgs<'args>,
+    ) -> flatbuffers::WIPOffset<EinsumAttrs<'bldr>> {
+        let mut builder = EinsumAttrsBuilder::new(_fbb);
+        if let Some(x) = args.equation {
+            builder.add_equation(x);
+        }
+        builder.finish()
+    }
+
+    #[inline]
+    pub fn equation(&self) -> Option<&'a str> {
+        // Safety:
+        // Created from valid Table for this object
+        // which contains a valid value in this slot
+        unsafe {
+            self._tab
+                .get::<flatbuffers::ForwardsUOffset<&str>>(EinsumAttrs::VT_EQUATION, None)
+        }
+    }
+}
+
+impl flatbuffers::Verifiable for EinsumAttrs<'_> {
+    #[inline]
+    fn run_verifier(
+        v: &mut flatbuffers::Verifier,
+        pos: usize,
+    ) -> Result<(), flatbuffers::InvalidFlatbuffer> {
+        use self::flatbuffers::Verifiable;
+        v.visit_table(pos)?
+            .visit_field::<flatbuffers::ForwardsUOffset<&str>>(
+                "equation",
+                Self::VT_EQUATION,
+                false,
+            )?
+            .finish();
+        Ok(())
+    }
+}
+pub struct EinsumAttrsArgs<'a> {
+    pub equation: Option<flatbuffers::WIPOffset<&'a str>>,
+}
+impl<'a> Default for EinsumAttrsArgs<'a> {
+    #[inline]
+    fn default() -> Self {
+        EinsumAttrsArgs { equation: None }
+    }
+}
+
+pub struct EinsumAttrsBuilder<'a: 'b, 'b, A: flatbuffers::Allocator + 'a> {
+    fbb_: &'b mut flatbuffers::FlatBufferBuilder<'a, A>,
+    start_: flatbuffers::WIPOffset<flatbuffers::TableUnfinishedWIPOffset>,
+}
+impl<'a: 'b, 'b, A: flatbuffers::Allocator + 'a> EinsumAttrsBuilder<'a, 'b, A> {
+    #[inline]
+    pub fn add_equation(&mut self, equation: flatbuffers::WIPOffset<&'b str>) {
+        self.fbb_
+            .push_slot_always::<flatbuffers::WIPOffset<_>>(EinsumAttrs::VT_EQUATION, equation);
+    }
+    #[inline]
+    pub fn new(
+        _fbb: &'b mut flatbuffers::FlatBufferBuilder<'a, A>,
+    ) -> EinsumAttrsBuilder<'a, 'b, A> {
+        let start = _fbb.start_table();
+        EinsumAttrsBuilder {
+            fbb_: _fbb,
+            start_: start,
+        }
+    }
+    #[inline]
+    pub fn finish(self) -> flatbuffers::WIPOffset<EinsumAttrs<'a>> {
+        let o = self.fbb_.end_table(self.start_);
+        flatbuffers::WIPOffset::new(o.value())
+    }
+}
+
+impl core::fmt::Debug for EinsumAttrs<'_> {
+    fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
+        let mut ds = f.debug_struct("EinsumAttrs");
+        ds.field("equation", &self.equation());
         ds.finish()
     }
 }
@@ -7655,6 +7772,21 @@ impl<'a> OperatorNode<'a> {
             None
         }
     }
+
+    #[inline]
+    #[allow(non_snake_case)]
+    pub fn attrs_as_einsum_attrs(&self) -> Option<EinsumAttrs<'a>> {
+        if self.attrs_type() == OperatorAttrs::EinsumAttrs {
+            self.attrs().map(|t| {
+                // Safety:
+                // Created from a valid Table for this object
+                // Which contains a valid union in this slot
+                unsafe { EinsumAttrs::init_from_table(t) }
+            })
+        } else {
+            None
+        }
+    }
 }
 
 impl flatbuffers::Verifiable for OperatorNode<'_> {
@@ -7705,6 +7837,7 @@ impl flatbuffers::Verifiable for OperatorNode<'_> {
           OperatorAttrs::RandomNormalLikeAttrs => v.verify_union_variant::<flatbuffers::ForwardsUOffset<RandomNormalLikeAttrs>>("OperatorAttrs::RandomNormalLikeAttrs", pos),
           OperatorAttrs::GatherNDAttrs => v.verify_union_variant::<flatbuffers::ForwardsUOffset<GatherNDAttrs>>("OperatorAttrs::GatherNDAttrs", pos),
           OperatorAttrs::GeluAttrs => v.verify_union_variant::<flatbuffers::ForwardsUOffset<GeluAttrs>>("OperatorAttrs::GeluAttrs", pos),
+          OperatorAttrs::EinsumAttrs => v.verify_union_variant::<flatbuffers::ForwardsUOffset<EinsumAttrs>>("OperatorAttrs::EinsumAttrs", pos),
           _ => Ok(()),
         }
      })?
@@ -8152,6 +8285,16 @@ impl core::fmt::Debug for OperatorNode<'_> {
             }
             OperatorAttrs::GeluAttrs => {
                 if let Some(x) = self.attrs_as_gelu_attrs() {
+                    ds.field("attrs", &x)
+                } else {
+                    ds.field(
+                        "attrs",
+                        &"InvalidFlatbuffer: Union discriminant does not match value.",
+                    )
+                }
+            }
+            OperatorAttrs::EinsumAttrs => {
+                if let Some(x) = self.attrs_as_einsum_attrs() {
                     ds.field("attrs", &x)
                 } else {
                     ds.field(
