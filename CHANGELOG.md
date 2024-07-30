@@ -32,11 +32,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Added chatbot example using Qwen2 (https://github.com/robertknight/rten/pull/282).
   This also works with [SmolLM](https://huggingface.co/blog/smollm).
 
+- `Model::load_mmap` docs now have a better explanation of the memory and
+  performance impact (ce0b717)
+
 #### New features
 
 - Added partial support for `Einsum` operator (https://github.com/robertknight/rten/pull/295).
 
 #### Performance improvements
+
+- Avoid allocations in most cases when broadcasting tensor shapes (c4b5f26).
 
 - Strides of size-1 dimensions are ignored when determining whether a tensor is
   contiguous (https://github.com/robertknight/rten/pull/292). This allows more
@@ -53,12 +58,33 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 - Implemented `GELU` fusion (https://github.com/robertknight/rten/pull/277)
 
+### rten-cli
+
+- Inputs with names matching the pattern `*_ids` now use zero as the
+  auto-generated input value (78cd621)
+
+### rten-generate
+
+- `TopKSampler` now supports specifying a temperature (65b837b)
+
+- Added `Generator::append_prompt` to append to prompt after initial generation.
+  This is useful for chat-like applications (5ef3cb2)
+
+- Fixed an issue where `attention_mask` input had the wrong size (cae6134)
+
 ### rten-tensor
 
 #### Breaking changes
 
 - The `tensor` and `ndtensor` macros have been deprecated in favor of
   `Tensor::from` and `NdTensor::from` (https://github.com/robertknight/rten/pull/286).
+
+#### Other changes
+
+- `Tensor::from` now supports creating tensors from scalar values (d2ca876)
+
+- `Tensor::lanes` iterator performance was improved by making them exact-sized
+  and fused (9e31556)
 
 ### rten-text
 
