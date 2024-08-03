@@ -168,6 +168,14 @@ pub trait AsView: Layout {
     where
         Self::Layout: ResizeLayout;
 
+    /// Remove a size-1 axis at the given index.
+    ///
+    /// This will panic if the index is out of bounds or the size of the index
+    /// is not 1.
+    fn remove_axis(&mut self, index: usize)
+    where
+        Self::Layout: ResizeLayout;
+
     /// Return the scalar value in this tensor if it has 0 dimensions.
     fn item(&self) -> Option<&Self::Elem> {
         self.view().item()
@@ -1641,6 +1649,13 @@ impl<T, S: Storage<Elem = T>, L: MutLayout + Clone> AsView for TensorBase<S, L> 
         L: ResizeLayout,
     {
         self.layout.insert_axis(index)
+    }
+
+    fn remove_axis(&mut self, index: usize)
+    where
+        L: ResizeLayout,
+    {
+        self.layout.remove_axis(index)
     }
 
     fn merge_axes(&mut self)
@@ -3192,6 +3207,15 @@ mod tests {
 
         assert_eq!(permuted.shape(), [3, 2]);
         assert_eq!(permuted.to_vec(), &[1., 4., 2., 5., 3., 8.]);
+    }
+
+    #[test]
+    fn test_remove_axis() {
+        let mut tensor = Tensor::arange(0., 16., None).into_shape([1, 2, 1, 8, 1].as_slice());
+        tensor.remove_axis(0);
+        tensor.remove_axis(1);
+        tensor.remove_axis(2);
+        assert_eq!(tensor.shape(), [2, 8]);
     }
 
     #[test]

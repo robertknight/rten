@@ -1212,6 +1212,11 @@ pub trait ResizeLayout: MutLayout {
     /// the same stride as the dimension that follows it.
     fn insert_axis(&mut self, index: usize);
 
+    /// Remove a size-1 axis at the given index.
+    ///
+    /// Panics if the axis does not have a size of 1.
+    fn remove_axis(&mut self, index: usize);
+
     /// Merge consecutive axes where possible.
     ///
     /// This "simplifies" the layout by minimizing the number of dimensions
@@ -1222,6 +1227,12 @@ pub trait ResizeLayout: MutLayout {
 impl ResizeLayout for DynLayout {
     fn insert_axis(&mut self, index: usize) {
         self.insert_dim(index)
+    }
+
+    fn remove_axis(&mut self, index: usize) {
+        assert!(self.size(index) == 1);
+        self.shape_and_strides.remove(index);
+        self.shape_and_strides.remove(self.ndim() + index);
     }
 
     fn merge_axes(&mut self) {
