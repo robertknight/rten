@@ -3,6 +3,7 @@ use rten_tensor::{Tensor, TensorView};
 
 use smallvec::SmallVec;
 
+use crate::ops::layout::expand_to;
 use crate::ops::{
     matmul, mul, mul_in_place, reduce_sum, InputList, IntoOpResult, OpError, Operator, OutputList,
 };
@@ -138,11 +139,10 @@ pub fn einsum(pool: &TensorPool, inputs: &[TensorView], equation: &str) -> Resul
     // For einsum equations with a single input or no reduced dimensions, the
     // naive implementation is efficient.
     //
-    // For einsum equations with more than two inputs or multiple reduced
-    // dimensions we fall back to the naive implementation, but this is far
-    // from optimal.
+    // For einsum equations with more than two inputs we fall back to the naive
+    // implementation, which is much slower if reductions are required.
     let reduced_dims = equation.reduced_dims();
-    if inputs.len() != 2 || reduced_dims.len() != 1 {
+    if inputs.len() != 2 || reduced_dims.is_empty() {
         return naive_einsum(pool, inputs, &equation);
     }
 
@@ -151,60 +151,70 @@ pub fn einsum(pool: &TensorPool, inputs: &[TensorView], equation: &str) -> Resul
     let term1 = &equation.inputs[0];
     let term2 = &equation.inputs[1];
 
-    let matmul_k = reduced_dims[0];
-
-    // Find terms that can be used as the `N` and `M` dimensions of a matmul.
-    //
-    // If there aren't suitable dimensions, we'll insert them. Upper-case
-    // letters are used to denote inserted dimensions since these cannot
-    // conflict with dimensions in the einsum equation.
-    let matmul_n = term2.chars().find(|c| !term1.contains(*c)).unwrap_or('N');
-    let matmul_m = term1
-        .chars()
-        .rev()
-        .find(|c| !term2.contains(*c))
-        .unwrap_or('M');
-
-    // Find the terms that will be used as the batch dimensions of a matmul.
-    let batch_dims = term1
-        .chars()
-        .filter(|c| !reduced_dims.contains(c) && *c != matmul_n && *c != matmul_m);
-
-    let mut x_order: String = batch_dims.clone().collect();
-    x_order.push(matmul_m);
-    x_order.push(matmul_k);
-
-    let mut y_order: String = batch_dims
-        .clone()
-        .filter(|bc| term2.contains(*bc))
-        .collect();
-    y_order.push(matmul_k);
-    y_order.push(matmul_n);
-
-    let mut out_order: String = batch_dims.collect();
-    if matmul_m.is_ascii_lowercase() {
-        out_order.push(matmul_m);
-    }
-    if matmul_n.is_ascii_lowercase() {
-        out_order.push(matmul_n);
-    }
-
-    let xp = permute_and_insert_axes(x, term1, &x_order);
-    let yp = permute_and_insert_axes(y, term2, &y_order);
-    let mut out = matmul(pool, xp, yp)?;
-
-    if !matmul_m.is_ascii_lowercase() {
-        out.remove_axis(out.ndim() - 2);
-    }
-    if !matmul_n.is_ascii_lowercase() {
-        out.remove_axis(out.ndim() - 1);
-    }
-
-    if out_order == equation.output {
-        Ok(out)
+    if reduced_dims.len() == 1 {
+        einsum_matmul(pool, x, y, term1, term2, &equation.output, reduced_dims[0])
     } else {
-        let out_permuted = permute_and_insert_axes(&out.view(), &out_order, &equation.output);
-        Ok(out_permuted.to_tensor_in(pool))
+        // Re-arrange input views as `[output_dims][reduced_dims]`. This makes
+        // the reduced dimensions adjacent.
+        let reduced_dims = equation.reduced_dims();
+        let common_order: String = equation
+            .output
+            .chars()
+            .chain(reduced_dims.iter().copied())
+            .collect();
+        let xp = permute_and_insert_axes(x, term1, &common_order);
+        let yp = permute_and_insert_axes(y, term2, &common_order);
+
+        // Expand the reduced dimensions of each input if needed, so they are
+        // the same size. Note that the non-reduced dimensions are not expanded,
+        // they will be broadcast if needed during the matmul.
+        let mut tmp_x_shape = xp.shape().to_vec();
+        let mut tmp_y_shape = yp.shape().to_vec();
+        for i in xp.ndim() - reduced_dims.len()..xp.ndim() {
+            tmp_x_shape[i] = tmp_x_shape[i].max(tmp_y_shape[i]);
+            tmp_y_shape[i] = tmp_y_shape[i].max(tmp_x_shape[i]);
+        }
+        let x = if tmp_x_shape == xp.shape() {
+            x.to_contiguous_in(pool)
+        } else {
+            expand_to(pool, x.view(), &tmp_x_shape).into_cow()
+        };
+        let y = if tmp_y_shape == yp.shape() {
+            y.to_contiguous_in(pool)
+        } else {
+            expand_to(pool, y.view(), &tmp_y_shape).into_cow()
+        };
+
+        // Reshape the adjacent reduced dimensions into a single dimension.
+        let reduced_dims_start_index = xp.ndim() - reduced_dims.len();
+        let reduced_size: usize = xp.shape()[reduced_dims_start_index..].iter().product();
+
+        tmp_x_shape.truncate(reduced_dims_start_index);
+        tmp_x_shape.push(reduced_size);
+        let x = x.reshaped(tmp_x_shape.as_slice());
+
+        tmp_y_shape.truncate(reduced_dims_start_index);
+        tmp_y_shape.push(reduced_size);
+        let y = y.reshaped(tmp_y_shape.as_slice());
+
+        // Evaluate the equation with the simplified input shapes using a
+        // matmul.
+        let reduced_dim = 'K'; // Upper-case to avoid conflict with equation
+                               // terms.
+        let term_simplified: String = equation
+            .output
+            .chars()
+            .chain(std::iter::once(reduced_dim))
+            .collect();
+        einsum_matmul(
+            pool,
+            &x,
+            &y,
+            &term_simplified,
+            &term_simplified,
+            &equation.output,
+            reduced_dim,
+        )
     }
 }
 
@@ -310,6 +320,76 @@ fn naive_einsum(
         Some(reduced_dim_indices.as_slice()),
         false, /* keep_dims */
     );
+}
+
+/// Reduce inputs of an Einsum equation with two terms using matrix
+/// multiplication.
+///
+/// The equation must have a single reduced dimension.
+fn einsum_matmul(
+    pool: &TensorPool,
+    x: &TensorView,
+    y: &TensorView,
+    term1: &str,
+    term2: &str,
+    output: &str,
+    reduced_dim: char,
+) -> Result<Tensor, OpError> {
+    let matmul_k = reduced_dim;
+
+    // Find terms that can be used as the `N` and `M` dimensions of a matmul.
+    //
+    // If there aren't suitable dimensions, we'll insert them. Upper-case
+    // letters are used to denote inserted dimensions since these cannot
+    // conflict with dimensions in the einsum equation.
+    let matmul_n = term2.chars().find(|c| !term1.contains(*c)).unwrap_or('N');
+    let matmul_m = term1
+        .chars()
+        .rev()
+        .find(|c| !term2.contains(*c))
+        .unwrap_or('M');
+
+    // Find the terms that will be used as the batch dimensions of a matmul.
+    let batch_dims = term1
+        .chars()
+        .filter(|c| *c != matmul_k && *c != matmul_n && *c != matmul_m);
+
+    let mut x_order: String = batch_dims.clone().collect();
+    x_order.push(matmul_m);
+    x_order.push(matmul_k);
+
+    let mut y_order: String = batch_dims
+        .clone()
+        .filter(|bc| term2.contains(*bc))
+        .collect();
+    y_order.push(matmul_k);
+    y_order.push(matmul_n);
+
+    let mut out_order: String = batch_dims.collect();
+    if matmul_m.is_ascii_lowercase() {
+        out_order.push(matmul_m);
+    }
+    if matmul_n.is_ascii_lowercase() {
+        out_order.push(matmul_n);
+    }
+
+    let xp = permute_and_insert_axes(x, term1, &x_order);
+    let yp = permute_and_insert_axes(y, term2, &y_order);
+    let mut out = matmul(pool, xp, yp)?;
+
+    if !matmul_m.is_ascii_lowercase() {
+        out.remove_axis(out.ndim() - 2);
+    }
+    if !matmul_n.is_ascii_lowercase() {
+        out.remove_axis(out.ndim() - 1);
+    }
+
+    if out_order == output {
+        Ok(out)
+    } else {
+        let out_permuted = permute_and_insert_axes(&out.view(), &out_order, output);
+        Ok(out_permuted.to_tensor_in(pool))
+    }
 }
 
 #[cfg(test)]
@@ -489,11 +569,17 @@ mod tests {
                     .unwrap()
                     .into_shape([mat_b.size(1)].as_slice())),
             },
-            // Reduction over multiple dimensions
+            // Reduction over two dimensions
             Case {
                 equation: "ij,ij->",
                 inputs: vec![mat_a.view(), mat_a.view()],
                 expected: Ok(Tensor::from(mat_a.iter().map(|x| x * x).sum::<f32>())),
+            },
+            // Reduction over four dimensions
+            Case {
+                equation: "bhwc,bhwc->",
+                inputs: vec![bhwc.as_dyn(), bhwc.as_dyn()],
+                expected: Ok(Tensor::from(bhwc.iter().map(|x| x * x).sum::<f32>())),
             },
             // Reduction over multiple dimensions where the reduced dimensions
             // are not present in all tensors.
