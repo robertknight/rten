@@ -1,13 +1,13 @@
+use std::collections::HashMap;
+
 use rten_tensor::prelude::*;
 use rten_tensor::{Tensor, TensorView};
 
 use smallvec::SmallVec;
 
 use crate::ops::layout::expand_to;
-use crate::ops::{
-    matmul, mul, mul_in_place, reduce_sum, InputList, IntoOpResult, OpError, Operator, OutputList,
-};
-use crate::tensor_pool::TensorPool;
+use crate::ops::{matmul, mul, reduce_sum, InputList, IntoOpResult, OpError, Operator, OutputList};
+use crate::tensor_pool::{AutoReturn, PoolRef, TensorPool};
 
 /// A parsed equation for an Einsum operator.
 ///
@@ -21,6 +21,8 @@ struct EinsumExpr {
 
 impl EinsumExpr {
     /// Parse an [Einsum expression][einsum].
+    ///
+    /// The expression must contain at least one input term.
     ///
     /// [einsum]: https://onnx.ai/onnx/operators/onnx__Einsum.html
     fn parse(expr: &str) -> Result<EinsumExpr, OpError> {
@@ -121,8 +123,12 @@ impl Operator for Einsum {
     }
 }
 
-pub fn einsum(pool: &TensorPool, inputs: &[TensorView], equation: &str) -> Result<Tensor, OpError> {
-    let equation = EinsumExpr::parse(equation)?;
+pub fn einsum(
+    pool: &TensorPool,
+    inputs: &[TensorView],
+    equation_str: &str,
+) -> Result<Tensor, OpError> {
+    let equation = EinsumExpr::parse(equation_str)?;
     if equation.inputs.len() != inputs.len() {
         return Err(OpError::InvalidValue(
             "Number of terms in Einsum equation does not match input tensor count",
@@ -136,34 +142,81 @@ pub fn einsum(pool: &TensorPool, inputs: &[TensorView], equation: &str) -> Resul
         }
     }
 
-    // For einsum equations with a single input or no reduced dimensions, the
-    // naive implementation is efficient.
-    //
-    // For einsum equations with more than two inputs we fall back to the naive
-    // implementation, which is much slower if reductions are required.
-    let reduced_dims = equation.reduced_dims();
-    if inputs.len() != 2 || reduced_dims.is_empty() {
-        return naive_einsum(pool, inputs, &equation);
+    let path = einsum_path(&equation);
+
+    let mut output: Option<PoolRef<Tensor>> = None;
+    for step in &path {
+        let output_view = output.as_ref().map(|o| o.view());
+        let x = match step.lhs.input {
+            EinsumInput::Index(idx) => &inputs[idx as usize],
+            EinsumInput::PrevOutput => output_view.as_ref().expect("invalid einsum path"),
+        };
+        let y = step.rhs.as_ref().map(|rhs| match rhs.input {
+            EinsumInput::Index(idx) => &inputs[idx as usize],
+            EinsumInput::PrevOutput => output_view.as_ref().expect("invalid einsum path"),
+        });
+        let new_output = einsum_step(pool, step, x, y)?.auto_return(pool);
+        output = Some(new_output);
     }
 
-    let x = &inputs[0];
-    let y = &inputs[1];
-    let term1 = &equation.inputs[0];
-    let term2 = &equation.inputs[1];
+    // EinsumExpr ensures that equations have at least one input, so the path
+    // should never be empty.
+    Ok(output.expect("empty path").take())
+}
+
+/// Evaluate a single step in an einsum path.
+fn einsum_step(
+    pool: &TensorPool,
+    step: &EinsumStep,
+    x: &TensorView,
+    y: Option<&TensorView>,
+) -> Result<Tensor, OpError> {
+    let (Some(y), Some(rhs)) = (y, &step.rhs) else {
+        // Re-arrange input views as `[output_dims][reduced_dims]`.
+        let reduced_dims = step.reduced_dims();
+        let common_order: String = step
+            .output
+            .chars()
+            .chain(reduced_dims.iter().copied())
+            .collect();
+
+        let xp = permute_and_insert_axes(x, &step.lhs.term, &common_order);
+        if reduced_dims.is_empty() {
+            return Ok(xp.to_tensor_in(pool));
+        }
+
+        let reduced_dim_indices: Vec<i32> = (0..reduced_dims.len()).map(|i| i as i32 - 1).collect();
+        return reduce_sum(
+            pool,
+            xp,
+            Some(reduced_dim_indices.as_slice()),
+            false, /* keep_dims */
+        );
+    };
+
+    let reduced_dims = step.reduced_dims();
+    let term1 = &step.lhs.term;
+    let term2 = &rhs.term;
 
     if reduced_dims.len() == 1 {
-        einsum_matmul(pool, x, y, term1, term2, &equation.output, reduced_dims[0])
+        einsum_matmul(pool, x, y, term1, term2, &step.output, reduced_dims[0])
     } else {
         // Re-arrange input views as `[output_dims][reduced_dims]`. This makes
         // the reduced dimensions adjacent.
-        let reduced_dims = equation.reduced_dims();
-        let common_order: String = equation
+        let common_order: String = step
             .output
             .chars()
             .chain(reduced_dims.iter().copied())
             .collect();
         let xp = permute_and_insert_axes(x, term1, &common_order);
         let yp = permute_and_insert_axes(y, term2, &common_order);
+
+        // If there are no reduced dimensions, fall back to a simple multiply
+        // with broadcasting.
+        if reduced_dims.is_empty() {
+            let output = mul(pool, xp, yp)?;
+            return Ok(output);
+        }
 
         // Expand the reduced dimensions of each input if needed, so they are
         // the same size. Note that the non-reduced dimensions are not expanded,
@@ -201,7 +254,7 @@ pub fn einsum(pool: &TensorPool, inputs: &[TensorView], equation: &str) -> Resul
         // matmul.
         let reduced_dim = 'K'; // Upper-case to avoid conflict with equation
                                // terms.
-        let term_simplified: String = equation
+        let term_simplified: String = step
             .output
             .chars()
             .chain(std::iter::once(reduced_dim))
@@ -212,7 +265,7 @@ pub fn einsum(pool: &TensorPool, inputs: &[TensorView], equation: &str) -> Resul
             &y,
             &term_simplified,
             &term_simplified,
-            &equation.output,
+            &step.output,
             reduced_dim,
         )
     }
@@ -271,55 +324,6 @@ fn permute_and_insert_axes<'a, T>(
     }
 
     permuted
-}
-
-/// Simple non-optimized Einsum implementation.
-///
-/// This uses a combination of transpose, multiplication and reduce-sum
-/// operations. It is efficient for cases where only multiplication or only
-/// reduction (plus transpose) is needed. It is not efficient when both
-/// multiplication and reduction are needed. Such cases are much more
-/// efficiently handled as matrix multiplication.
-fn naive_einsum(
-    pool: &TensorPool,
-    inputs: &[TensorView],
-    equation: &EinsumExpr,
-) -> Result<Tensor, OpError> {
-    // Re-arrange input views as `[output_dims][reduced_dims]`.
-    let reduced_dims = equation.reduced_dims();
-    let common_order: String = equation
-        .output
-        .chars()
-        .chain(reduced_dims.iter().copied())
-        .collect();
-    let mut broadcasted_inputs: Vec<_> = inputs
-        .iter()
-        .zip(&equation.inputs)
-        .map(|(inp, term)| permute_and_insert_axes(inp, term, &common_order))
-        .collect();
-
-    // Multiply corresponding elements of each input.
-    let mut output = broadcasted_inputs.remove(0).to_tensor_in(pool);
-    for rhs in broadcasted_inputs.into_iter() {
-        if rhs.can_broadcast_to(output.shape()) {
-            mul_in_place(output.view_mut(), rhs)
-        } else {
-            output = mul(pool, output.view(), rhs)?;
-        }
-    }
-
-    // Sum over the reduced dimensions.
-    if reduced_dims.is_empty() {
-        return Ok(output);
-    }
-
-    let reduced_dim_indices: Vec<i32> = (0..reduced_dims.len()).map(|i| i as i32 - 1).collect();
-    return reduce_sum(
-        pool,
-        output.view(),
-        Some(reduced_dim_indices.as_slice()),
-        false, /* keep_dims */
-    );
 }
 
 /// Reduce inputs of an Einsum equation with two terms using matrix
@@ -392,11 +396,184 @@ fn einsum_matmul(
     }
 }
 
+/// Specifies the input tensor to use when processing a term in an Einsum
+/// equation.
+#[derive(Copy, Clone, Debug, PartialEq)]
+enum EinsumInput {
+    /// Use the nth input tensor, from the list of inputs for the complete
+    /// einsum equation.
+    Index(u32),
+    /// Use the output from the previous step.
+    PrevOutput,
+}
+
+/// A term in an Einsum equation which specifies the input to use and labels
+/// for the dimensions.
+#[derive(Clone, Debug, PartialEq)]
+struct EinsumTerm {
+    term: String,
+    input: EinsumInput,
+}
+
+/// A processing step in an Einsum path which handles one or two terms.
+#[derive(Clone, Debug, PartialEq)]
+struct EinsumStep {
+    lhs: EinsumTerm,
+    rhs: Option<EinsumTerm>,
+    output: String,
+}
+
+impl EinsumStep {
+    /// Return a list of chars which appear in the input terms but not in the
+    /// output of this step.
+    fn reduced_dims(&self) -> Vec<char> {
+        let in_terms = [
+            self.lhs.term.as_str(),
+            self.rhs.as_ref().map(|rhs| rhs.term.as_str()).unwrap_or(""),
+        ];
+
+        let mut terms = Vec::new();
+        for in_term in in_terms {
+            for in_ch in in_term.chars() {
+                if !terms.contains(&in_ch) && !self.output.contains(in_ch) {
+                    terms.push(in_ch);
+                }
+            }
+        }
+        terms
+    }
+}
+
+/// Convert an Einsum expression with many inputs into a sequence of steps which
+/// each processes one or two inputs.
+fn einsum_path(expr: &EinsumExpr) -> Vec<EinsumStep> {
+    match &expr.inputs[..] {
+        // This case shouldn't happen since Einsum equations must have at least
+        // one input term.
+        [] => Vec::new(),
+        [term] => {
+            let step = EinsumStep {
+                lhs: EinsumTerm {
+                    term: term.to_string(),
+                    input: EinsumInput::Index(0),
+                },
+                rhs: None,
+                output: expr.output.clone(),
+            };
+            [step].into()
+        }
+        [term_a, term_b] => {
+            let step = EinsumStep {
+                lhs: EinsumTerm {
+                    term: term_a.to_string(),
+                    input: EinsumInput::Index(0),
+                },
+                rhs: Some(EinsumTerm {
+                    term: term_b.to_string(),
+                    input: EinsumInput::Index(1),
+                }),
+                output: expr.output.clone(),
+            };
+            [step].into()
+        }
+        all_terms @ [term_a, term_b, rest @ ..] => {
+            let mut steps = Vec::with_capacity(all_terms.len() - 1);
+
+            // Count how many terms use each reduced dimension.
+            let mut reduced_dims: HashMap<char, usize> = expr
+                .reduced_dims()
+                .into_iter()
+                .map(|dim| {
+                    (
+                        dim,
+                        all_terms.iter().filter(|term| term.contains(dim)).count(),
+                    )
+                })
+                .collect();
+
+            // Add step for first two terms.
+            for dim in term_a.chars() {
+                if let Some(count) = reduced_dims.get_mut(&dim) {
+                    *count -= 1;
+                }
+            }
+            for dim in term_b.chars() {
+                if let Some(count) = reduced_dims.get_mut(&dim) {
+                    *count -= 1;
+                }
+            }
+
+            // The output for each step consists of the unique input dim labels
+            // which either appear in the final output, or are reduced
+            // dimensions that appear in subsequent steps.
+            let mut next_output: String = term_a
+                .chars()
+                .chain(term_b.chars().filter(|c| !term_a.contains(*c)))
+                .filter(|dim| {
+                    expr.output.contains(*dim) || reduced_dims.get(dim).copied().unwrap_or(0) > 0
+                })
+                .collect();
+
+            steps.push(EinsumStep {
+                lhs: EinsumTerm {
+                    term: term_a.to_string(),
+                    input: EinsumInput::Index(0),
+                },
+                rhs: Some(EinsumTerm {
+                    term: term_b.to_string(),
+                    input: EinsumInput::Index(1),
+                }),
+                output: next_output.clone(),
+            });
+
+            // Add a step for each remaining term.
+            for (term_idx, term) in rest.iter().enumerate() {
+                for dim in term.chars() {
+                    if let Some(count) = reduced_dims.get_mut(&dim) {
+                        *count -= 1;
+                    }
+                }
+                let prev_output = next_output;
+                if term_idx == rest.len() - 1 {
+                    next_output = expr.output.clone();
+                } else {
+                    next_output = prev_output
+                        .chars()
+                        .chain(term.chars().filter(|c| !prev_output.contains(*c)))
+                        .filter(|dim| {
+                            expr.output.contains(*dim)
+                                || reduced_dims.get(dim).copied().unwrap_or(0) > 0
+                        })
+                        .collect();
+                }
+                steps.push(EinsumStep {
+                    lhs: EinsumTerm {
+                        term: prev_output,
+                        input: EinsumInput::PrevOutput,
+                    },
+                    rhs: Some(EinsumTerm {
+                        term: term.to_string(),
+
+                        // The first two inputs are used in the first step.
+                        // Each subsequent step uses one term from the input
+                        // plus the output from the previous step.
+                        input: EinsumInput::Index(term_idx as u32 + 2),
+                    }),
+                    output: next_output.clone(),
+                });
+            }
+
+            steps
+        }
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use rten_tensor::prelude::*;
     use rten_tensor::{Tensor, TensorView};
 
+    use super::{einsum_path, EinsumExpr, EinsumInput, EinsumStep, EinsumTerm};
     use crate::ops::tests::new_pool;
     use crate::ops::{einsum, matmul, mul, reduce_sum, OpError};
 
@@ -646,6 +823,93 @@ mod tests {
                 "result mismatch for equation {}",
                 equation
             );
+        }
+    }
+
+    #[test]
+    fn test_einsum_path() {
+        struct Case<'a> {
+            path: Vec<EinsumStep>,
+            equation: &'a str,
+        }
+
+        let new_term = |term: &str, index: Option<u32>| EinsumTerm {
+            term: term.to_string(),
+            input: index
+                .map(EinsumInput::Index)
+                .unwrap_or(EinsumInput::PrevOutput),
+        };
+
+        let cases = [
+            // Single input term
+            Case {
+                equation: "i->i",
+                path: [EinsumStep {
+                    lhs: new_term("i", Some(0)),
+                    rhs: None,
+                    output: "i".to_string(),
+                }]
+                .into(),
+            },
+            // Two input terms
+            Case {
+                equation: "ij,jk->ik",
+                path: [EinsumStep {
+                    lhs: new_term("ij", Some(0)),
+                    rhs: Some(new_term("jk", Some(1))),
+                    output: "ik".to_string(),
+                }]
+                .into(),
+            },
+            // 3+ input terms.
+            //
+            // Each term has one "new" dimension and one that occurs in earlier
+            // steps.
+            Case {
+                equation: "ab,bc,cd,de->ea",
+                path: [
+                    EinsumStep {
+                        lhs: new_term("ab", Some(0)),
+                        rhs: Some(new_term("bc", Some(1))),
+                        output: "ac".to_string(),
+                    },
+                    EinsumStep {
+                        lhs: new_term("ac", None),
+                        rhs: Some(new_term("cd", Some(2))),
+                        output: "ad".to_string(),
+                    },
+                    EinsumStep {
+                        lhs: new_term("ad", None),
+                        rhs: Some(new_term("de", Some(3))),
+                        output: "ea".to_string(),
+                    },
+                ]
+                .into(),
+            },
+            // 3+ input terms.
+            //
+            // Each input's terms are unique, so there are no reductions.
+            Case {
+                equation: "ab,cd,ef",
+                path: [
+                    EinsumStep {
+                        lhs: new_term("ab", Some(0)),
+                        rhs: Some(new_term("cd", Some(1))),
+                        output: "abcd".to_string(),
+                    },
+                    EinsumStep {
+                        lhs: new_term("abcd", None),
+                        rhs: Some(new_term("ef", Some(2))),
+                        output: "abcdef".to_string(),
+                    },
+                ]
+                .into(),
+            },
+        ];
+
+        for Case { equation, path } in cases {
+            let expr = EinsumExpr::parse(equation).unwrap();
+            assert_eq!(einsum_path(&expr), path);
         }
     }
 }
