@@ -26,6 +26,12 @@ impl EinsumExpr {
     ///
     /// [einsum]: https://onnx.ai/onnx/operators/onnx__Einsum.html
     fn parse(expr: &str) -> Result<EinsumExpr, OpError> {
+        if expr.contains("...") {
+            return Err(OpError::UnsupportedValue(
+                "Using \"...\" for broadcasting is not supported",
+            ));
+        }
+
         let mut parts = expr.trim().splitn(2, "->").map(|part| part.trim());
 
         let lhs = match parts.next() {
@@ -839,6 +845,14 @@ mod tests {
                 equation: "i,i,i->",
                 inputs: vec![vec_a.view(), vec_a.view(), vec_a.view()],
                 expected: Ok(Tensor::from(vec_a.map(|x| x * x * x).iter().sum::<f32>())),
+            },
+            // Unsupported ellipsis for broadcasting control
+            Case {
+                equation: "i...j->i...j",
+                inputs: vec![mat_a.view()],
+                expected: Err(OpError::UnsupportedValue(
+                    "Using \"...\" for broadcasting is not supported",
+                )),
             },
         ];
 
