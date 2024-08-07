@@ -26,12 +26,6 @@ impl EinsumExpr {
     ///
     /// [einsum]: https://onnx.ai/onnx/operators/onnx__Einsum.html
     fn parse(expr: &str) -> Result<EinsumExpr, OpError> {
-        if expr.contains("...") {
-            return Err(OpError::UnsupportedValue(
-                "Using \"...\" for broadcasting is not supported",
-            ));
-        }
-
         let mut parts = expr.trim().splitn(2, "->").map(|part| part.trim());
 
         let lhs = match parts.next() {
@@ -48,9 +42,7 @@ impl EinsumExpr {
             .map(|term| non_whitespace_chars(term).collect())
             .collect();
         if inputs.iter().any(|term| !is_valid_einsum_term(term)) {
-            return Err(OpError::InvalidValue(
-                "Einsum terms must contain only lowercase letters",
-            ));
+            return Err(OpError::InvalidValue("Input term is invalid"));
         }
         if inputs.iter().any(|term| contains_repeated_chars(term)) {
             return Err(OpError::UnsupportedValue(
@@ -65,7 +57,10 @@ impl EinsumExpr {
 
                 // Count occurences of each lowercase ASCII letter.
                 let mut char_count = [0; N_LETTERS];
-                for ch in inputs.iter().flat_map(|term| term.chars()) {
+                for ch in inputs
+                    .iter()
+                    .flat_map(|term| term.chars().filter(|c| c.is_ascii_lowercase()))
+                {
                     let ascii_idx = ch as u8 - b'a';
                     char_count[ascii_idx as usize] += 1;
                 }
@@ -73,6 +68,11 @@ impl EinsumExpr {
                 // Generate output as sequence of alphabetically ordered
                 // letters which appear only once in the input.
                 let mut output = String::with_capacity(N_LETTERS);
+
+                if inputs.iter().any(|term| term.contains("...")) {
+                    output.push_str("...");
+                }
+
                 for i in 0..N_LETTERS as u8 {
                     if char_count[i as usize] == 1 {
                         let ascii_ch = b'a' + i;
@@ -85,9 +85,7 @@ impl EinsumExpr {
         };
 
         if !is_valid_einsum_term(&output) {
-            return Err(OpError::InvalidValue(
-                "Einsum terms must contain only lowercase letters",
-            ));
+            return Err(OpError::InvalidValue("Output term is invalid"));
         }
         if contains_repeated_chars(&output) {
             return Err(OpError::InvalidValue(
@@ -113,7 +111,11 @@ impl EinsumExpr {
 }
 
 fn is_valid_einsum_term(term: &str) -> bool {
-    term.chars().all(|c| c.is_ascii_lowercase())
+    if let Some((lhs, rhs)) = term.split_once("...") {
+        is_valid_einsum_term(lhs) && !rhs.contains("...") && is_valid_einsum_term(rhs)
+    } else {
+        term.chars().all(|c| c.is_ascii_lowercase())
+    }
 }
 
 fn non_whitespace_chars(s: &str) -> impl Iterator<Item = char> + '_ {
@@ -122,6 +124,7 @@ fn non_whitespace_chars(s: &str) -> impl Iterator<Item = char> + '_ {
 
 fn contains_repeated_chars(term: &str) -> bool {
     term.chars()
+        .filter(|c| *c != '.')
         .any(|c1| term.chars().filter(|c2| c1 == *c2).count() > 1)
 }
 
@@ -155,15 +158,48 @@ pub fn einsum(
             "Number of terms in Einsum equation does not match input tensor count",
         ));
     }
+
+    // Maximum number of dimensions allowed. This value is chosen to make it
+    // easy to use single digits to represent broadcasting dimensions in terms.
+    const MAX_DIMS: usize = 10;
+
+    // Number of dimensions represented by "..." in equation. This must be the
+    // same for every term.
+    let mut broadcast_ndim = None;
     for (term, view) in equation.inputs.iter().zip(inputs) {
-        if term.len() != view.ndim() {
+        let non_broadcast_ndim = term.split("...").fold(0, |len, term| len + term.len());
+        if view.ndim() < non_broadcast_ndim {
+            return Err(OpError::InvalidValue(
+                "Einsum term dimension count does not match input tensor",
+            ));
+        }
+        if non_broadcast_ndim > MAX_DIMS || view.ndim() > MAX_DIMS {
+            return Err(OpError::UnsupportedValue(
+                "Einsum input or term has too many dimensions",
+            ));
+        }
+
+        if term.contains("...") {
+            let new_broadcast_ndim = (view.ndim() - non_broadcast_ndim) as u8;
+            match broadcast_ndim {
+                None => {
+                    broadcast_ndim = Some(new_broadcast_ndim);
+                }
+                Some(b) if b == new_broadcast_ndim => {}
+                _ => {
+                    return Err(OpError::InvalidValue(
+                        "Number of broadcast dims does not match across inputs",
+                    ));
+                }
+            }
+        } else if term.len() != view.ndim() {
             return Err(OpError::InvalidValue(
                 "Einsum term dimension count does not match input tensor",
             ));
         }
     }
 
-    let path = einsum_path(&equation);
+    let path = einsum_path(&equation, broadcast_ndim.unwrap_or(0));
 
     let mut output: Option<PoolRef<Tensor>> = None;
     for step in &path {
@@ -465,35 +501,56 @@ impl EinsumStep {
     }
 }
 
+/// Replace an ellipsis representing a fixed number of dimensions with a
+/// sequence of numbers.
+///
+/// Numbers are used because they are not allowed as dimension labels in
+/// input Einsum equations.
+///
+/// eg. `replace_ellipsis("i...j", 3)` returns `"i012j"`.
+fn replace_ellipsis(term: &str, broadcast_ndim: u8) -> String {
+    assert!(broadcast_ndim <= 10);
+
+    let zero = b'0';
+    if let Some((lhs, rhs)) = term.split_once("...") {
+        lhs.chars()
+            .chain((0..broadcast_ndim).map(|i| (zero + i) as char))
+            .chain(rhs.chars())
+            .collect()
+    } else {
+        term.to_string()
+    }
+}
+
 /// Convert an Einsum expression with many inputs into a sequence of steps which
 /// each processes one or two inputs.
-fn einsum_path(expr: &EinsumExpr) -> Vec<EinsumStep> {
+///
+/// `broadcast_ndim` specifies how many dimensions ellipses in input and output
+/// terms stand for. The ellipses are replaced with digit labels in the path.
+fn einsum_path(expr: &EinsumExpr, broadcast_ndim: u8) -> Vec<EinsumStep> {
+    let output = replace_ellipsis(&expr.output, broadcast_ndim);
+    let input_term = |term: &str, index: u32| EinsumTerm {
+        term: replace_ellipsis(term, broadcast_ndim),
+        input: EinsumInput::Index(index),
+    };
+
     match &expr.inputs[..] {
         // This case shouldn't happen since Einsum equations must have at least
         // one input term.
         [] => Vec::new(),
         [term] => {
             let step = EinsumStep {
-                lhs: EinsumTerm {
-                    term: term.to_string(),
-                    input: EinsumInput::Index(0),
-                },
+                lhs: input_term(term, 0),
                 rhs: None,
-                output: expr.output.clone(),
+                output,
             };
             [step].into()
         }
         [term_a, term_b] => {
             let step = EinsumStep {
-                lhs: EinsumTerm {
-                    term: term_a.to_string(),
-                    input: EinsumInput::Index(0),
-                },
-                rhs: Some(EinsumTerm {
-                    term: term_b.to_string(),
-                    input: EinsumInput::Index(1),
-                }),
-                output: expr.output.clone(),
+                lhs: input_term(term_a, 0),
+                rhs: Some(input_term(term_b, 1)),
+                output,
             };
             [step].into()
         }
@@ -536,14 +593,8 @@ fn einsum_path(expr: &EinsumExpr) -> Vec<EinsumStep> {
                 .collect();
 
             steps.push(EinsumStep {
-                lhs: EinsumTerm {
-                    term: term_a.to_string(),
-                    input: EinsumInput::Index(0),
-                },
-                rhs: Some(EinsumTerm {
-                    term: term_b.to_string(),
-                    input: EinsumInput::Index(1),
-                }),
+                lhs: input_term(term_a, 0),
+                rhs: Some(input_term(term_b, 1)),
                 output: next_output.clone(),
             });
 
@@ -556,14 +607,13 @@ fn einsum_path(expr: &EinsumExpr) -> Vec<EinsumStep> {
                 }
                 let prev_output = next_output;
                 if term_idx == rest.len() - 1 {
-                    next_output = expr.output.clone();
+                    next_output = output.clone();
                 } else {
                     next_output = prev_output
                         .chars()
                         .chain(term.chars().filter(|c| !prev_output.contains(*c)))
                         .filter(|dim| {
-                            expr.output.contains(*dim)
-                                || reduced_dims.get(dim).copied().unwrap_or(0) > 0
+                            output.contains(*dim) || reduced_dims.get(dim).copied().unwrap_or(0) > 0
                         })
                         .collect();
                 }
@@ -572,14 +622,10 @@ fn einsum_path(expr: &EinsumExpr) -> Vec<EinsumStep> {
                         term: prev_output,
                         input: EinsumInput::PrevOutput,
                     },
-                    rhs: Some(EinsumTerm {
-                        term: term.to_string(),
-
-                        // The first two inputs are used in the first step.
-                        // Each subsequent step uses one term from the input
-                        // plus the output from the previous step.
-                        input: EinsumInput::Index(term_idx as u32 + 2),
-                    }),
+                    // The first two inputs are used in the first step.
+                    // Each subsequent step uses one term from the input
+                    // plus the output from the previous step.
+                    rhs: Some(input_term(term, term_idx as u32 + 2)),
                     output: next_output.clone(),
                 });
             }
@@ -634,6 +680,9 @@ mod tests {
         let bhwk = matmul_ab
             .clone()
             .into_shape([1, 1, mat_a.size(0), mat_b.size(1)]);
+
+        // 3D tensor with each dimension having a different size.
+        let ijk = Tensor::zeros(&[10, 5, 8]);
 
         let cases = [
             // Identity
@@ -802,11 +851,19 @@ mod tests {
             },
             // Invalid input terms
             Case {
-                equation: "IJ,JK",
+                equation: "IJ,JK", // Upper-case letters
                 inputs: vec![mat_a.view(), mat_b.view()],
-                expected: Err(OpError::InvalidValue(
-                    "Einsum terms must contain only lowercase letters",
-                )),
+                expected: Err(OpError::InvalidValue("Input term is invalid")),
+            },
+            Case {
+                equation: "i.j", // Period that is not part of an ellipsis
+                inputs: vec![mat_a.view()],
+                expected: Err(OpError::InvalidValue("Input term is invalid")),
+            },
+            Case {
+                equation: "i...j...", // Multiple ellipses in a term
+                inputs: vec![mat_a.view()],
+                expected: Err(OpError::InvalidValue("Input term is invalid")),
             },
             // Unsupported repeated labels in input term
             Case {
@@ -820,9 +877,7 @@ mod tests {
             Case {
                 equation: "ij,jk->IK",
                 inputs: vec![mat_a.view(), mat_b.view()],
-                expected: Err(OpError::InvalidValue(
-                    "Einsum terms must contain only lowercase letters",
-                )),
+                expected: Err(OpError::InvalidValue("Output term is invalid")),
             },
             // Repeated labels in output term
             Case {
@@ -840,18 +895,69 @@ mod tests {
                     "Einsum term dimension count does not match input tensor",
                 )),
             },
+            Case {
+                equation: "i...j",
+                inputs: vec![vec_a.view()],
+                expected: Err(OpError::InvalidValue(
+                    "Einsum term dimension count does not match input tensor",
+                )),
+            },
+            // Too many dimensions in term
+            Case {
+                equation: "abcdefghijkl...",
+                inputs: vec![TensorView::from_data([0; 12].as_slice(), &[])],
+                expected: Err(OpError::UnsupportedValue(
+                    "Einsum input or term has too many dimensions",
+                )),
+            },
+            // Too many dimensions in input
+            Case {
+                equation: "...",
+                inputs: vec![TensorView::from_data([0; 11].as_slice(), &[])],
+                expected: Err(OpError::UnsupportedValue(
+                    "Einsum input or term has too many dimensions",
+                )),
+            },
             // Three input dot product
             Case {
                 equation: "i,i,i->",
                 inputs: vec![vec_a.view(), vec_a.view(), vec_a.view()],
                 expected: Ok(Tensor::from(vec_a.map(|x| x * x * x).iter().sum::<f32>())),
             },
-            // Unsupported ellipsis for broadcasting control
+            // Ellipsis for broadcasting control
+            Case {
+                equation: "...",
+                inputs: vec![mat_a.view()],
+                expected: Ok(mat_a.clone()),
+            },
             Case {
                 equation: "i...j->i...j",
                 inputs: vec![mat_a.view()],
-                expected: Err(OpError::UnsupportedValue(
-                    "Using \"...\" for broadcasting is not supported",
+                expected: Ok(mat_a.clone()),
+            },
+            Case {
+                equation: "i...j->j...i",
+                inputs: vec![ijk.view()],
+                expected: Ok(ijk.transposed().to_tensor()),
+            },
+            Case {
+                // Implicit output is "...ij". Ellipsis is inserted at front
+                // and remaining letters are in alphabetical order.
+                equation: "i...j",
+                inputs: vec![ijk.view()],
+                expected: Ok(ijk.permuted(&[1, 0, 2]).to_tensor()),
+            },
+            Case {
+                equation: "...i->...",
+                inputs: vec![mat_a.view()],
+                expected: reduce_sum(&pool, mat_a.view(), Some(&[-1]), false /* keep_dims */),
+            },
+            // Mismatch of dimension count for ellipsis
+            Case {
+                equation: "...,...->...",
+                inputs: vec![vec_a.view(), mat_a.view()],
+                expected: Err(OpError::InvalidValue(
+                    "Number of broadcast dims does not match across inputs",
                 )),
             },
         ];
@@ -874,8 +980,9 @@ mod tests {
     #[test]
     fn test_einsum_path() {
         struct Case<'a> {
-            path: Vec<EinsumStep>,
             equation: &'a str,
+            broadcast_ndim: u8,
+            path: Vec<EinsumStep>,
         }
 
         let new_term = |term: &str, index: Option<u32>| EinsumTerm {
@@ -889,6 +996,7 @@ mod tests {
             // Single input term
             Case {
                 equation: "i->i",
+                broadcast_ndim: 0,
                 path: [EinsumStep {
                     lhs: new_term("i", Some(0)),
                     rhs: None,
@@ -899,6 +1007,7 @@ mod tests {
             // Two input terms
             Case {
                 equation: "ij,jk->ik",
+                broadcast_ndim: 0,
                 path: [EinsumStep {
                     lhs: new_term("ij", Some(0)),
                     rhs: Some(new_term("jk", Some(1))),
@@ -912,6 +1021,7 @@ mod tests {
             // steps.
             Case {
                 equation: "ab,bc,cd,de->ea",
+                broadcast_ndim: 0,
                 path: [
                     EinsumStep {
                         lhs: new_term("ab", Some(0)),
@@ -936,6 +1046,7 @@ mod tests {
             // Each input's terms are unique, so there are no reductions.
             Case {
                 equation: "ab,cd,ef",
+                broadcast_ndim: 0,
                 path: [
                     EinsumStep {
                         lhs: new_term("ab", Some(0)),
@@ -950,11 +1061,27 @@ mod tests {
                 ]
                 .into(),
             },
+            // Input terms with ellipses
+            Case {
+                equation: "i...j->j...i",
+                broadcast_ndim: 3,
+                path: [EinsumStep {
+                    lhs: new_term("i012j", Some(0)),
+                    rhs: None,
+                    output: "j012i".to_string(),
+                }]
+                .into(),
+            },
         ];
 
-        for Case { equation, path } in cases {
+        for Case {
+            equation,
+            path,
+            broadcast_ndim,
+        } in cases
+        {
             let expr = EinsumExpr::parse(equation).unwrap();
-            assert_eq!(einsum_path(&expr), path);
+            assert_eq!(einsum_path(&expr, broadcast_ndim), path);
         }
     }
 }
