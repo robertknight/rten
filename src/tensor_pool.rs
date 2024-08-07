@@ -232,11 +232,12 @@ impl<'a, T, L: MutLayout> ExtractBuffer for TensorBase<CowData<'a, T>, L> {
     }
 }
 
-/// Trait for wrapping a container in a [PoolRef] which automatically returns
+/// Trait for wrapping a container in a [`PoolRef`] which automatically returns
 /// the container's data buffer to a pool when it goes out of scope.
 pub trait AutoReturn {
-    /// Wrap `self` in a [PoolRef]. When the returned [PoolRef] is dropped,
-    /// `self` will be returned to `pool`.
+    /// Wrap `self` in a [`PoolRef`].
+    ///
+    /// When the returned ref is dropped, `self` will be returned to the pool.
     fn auto_return(self, pool: &TensorPool) -> PoolRef<Self>
     where
         Self: Sized + ExtractBuffer;
