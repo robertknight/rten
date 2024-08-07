@@ -46,6 +46,11 @@ impl EinsumExpr {
                 "Einsum terms must contain only lowercase letters",
             ));
         }
+        if inputs.iter().any(|term| contains_repeated_chars(term)) {
+            return Err(OpError::UnsupportedValue(
+                "Repeated labels in Einsum inputs are not supported",
+            ));
+        }
 
         let output: String = match parts.next() {
             Some(rhs) => non_whitespace_chars(rhs).collect(),
@@ -78,6 +83,11 @@ impl EinsumExpr {
                 "Einsum terms must contain only lowercase letters",
             ));
         }
+        if contains_repeated_chars(&output) {
+            return Err(OpError::InvalidValue(
+                "Einsum output term contains repeated labels",
+            ));
+        }
 
         Ok(EinsumExpr { inputs, output })
     }
@@ -102,6 +112,11 @@ fn is_valid_einsum_term(term: &str) -> bool {
 
 fn non_whitespace_chars(s: &str) -> impl Iterator<Item = char> + '_ {
     s.chars().filter(|c| !c.is_ascii_whitespace())
+}
+
+fn contains_repeated_chars(term: &str) -> bool {
+    term.chars()
+        .any(|c1| term.chars().filter(|c2| c1 == *c2).count() > 1)
 }
 
 #[derive(Debug)]
@@ -787,12 +802,28 @@ mod tests {
                     "Einsum terms must contain only lowercase letters",
                 )),
             },
+            // Unsupported repeated labels in input term
+            Case {
+                equation: "ii->i",
+                inputs: vec![mat_a.view()],
+                expected: Err(OpError::UnsupportedValue(
+                    "Repeated labels in Einsum inputs are not supported",
+                )),
+            },
             // Invalid output term
             Case {
                 equation: "ij,jk->IK",
                 inputs: vec![mat_a.view(), mat_b.view()],
                 expected: Err(OpError::InvalidValue(
                     "Einsum terms must contain only lowercase letters",
+                )),
+            },
+            // Repeated labels in output term
+            Case {
+                equation: "ij->ii",
+                inputs: vec![mat_a.view()],
+                expected: Err(OpError::InvalidValue(
+                    "Einsum output term contains repeated labels",
                 )),
             },
             // Mismatch between input ndim and term dimension count
