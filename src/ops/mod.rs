@@ -804,8 +804,8 @@ macro_rules! static_dims {
 
 /// Outputs from an operator.
 ///
-/// Most operators only produce one output, so in that case, this avoid
-/// allocations.
+/// This avoids allocations in the common case where an operator produces
+/// exactly one output.
 pub type OutputList = SmallVec<[Output; 1]>;
 
 /// An Operator performs a computation step when executing a data flow graph.
