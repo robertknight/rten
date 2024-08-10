@@ -458,7 +458,7 @@ impl<S: Storage, L: MutLayout> TensorBase<S, L> {
     ///
     /// Panics if the storage length is too short for the layout, or the storage
     /// is mutable and the layout may map multiple indices to the same offset.
-    pub(crate) fn from_storage_and_layout(data: S, layout: L) -> TensorBase<S, L> {
+    pub fn from_storage_and_layout(data: S, layout: L) -> TensorBase<S, L> {
         assert!(data.len() >= layout.min_data_len());
         assert!(
             !S::MUTABLE
@@ -2245,7 +2245,7 @@ mod tests {
 
     use super::{AsView, NdTensor, NdTensorView, NdTensorViewMut, Tensor};
     use crate::errors::{ExpandError, FromDataError};
-    use crate::layout::MatrixLayout;
+    use crate::layout::{DynLayout, MatrixLayout};
     use crate::prelude::*;
     use crate::rng::XorShiftRng;
     use crate::{Alloc, SliceItem, SliceRange, Storage};
@@ -2666,6 +2666,15 @@ mod tests {
         let data = [1, 2];
         let x = NdTensorView::from_slice_with_strides([2, 2], &data, [0, 1]).unwrap();
         assert_eq!(x.to_vec(), [1, 2, 1, 2]);
+    }
+
+    #[test]
+    fn test_from_storage_and_layout() {
+        let layout = DynLayout::from_shape(&[3, 3]);
+        let storage = Vec::from([0, 1, 2, 3, 4, 5, 6, 7, 8]);
+        let tensor = Tensor::from_storage_and_layout(storage, layout);
+        assert_eq!(tensor.shape(), &[3, 3]);
+        assert_eq!(tensor.data(), Some([0, 1, 2, 3, 4, 5, 6, 7, 8].as_slice()));
     }
 
     #[test]
