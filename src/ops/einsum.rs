@@ -1,7 +1,7 @@
 use std::collections::HashMap;
 
 use rten_tensor::prelude::*;
-use rten_tensor::{Tensor, TensorView};
+use rten_tensor::{DynLayout, OverlapPolicy, Tensor, TensorView};
 
 use smallvec::SmallVec;
 
@@ -43,11 +43,6 @@ impl EinsumExpr {
             .collect();
         if inputs.iter().any(|term| !is_valid_einsum_term(term)) {
             return Err(OpError::InvalidValue("Input term is invalid"));
-        }
-        if inputs.iter().any(|term| contains_repeated_chars(term)) {
-            return Err(OpError::UnsupportedValue(
-                "Repeated labels in Einsum inputs are not supported",
-            ));
         }
 
         let output: String = match parts.next() {
@@ -221,6 +216,63 @@ pub fn einsum(
     Ok(output.expect("empty path").take())
 }
 
+/// Take diagonals over dimensions which are repeated in an einsum term.
+///
+/// `term` is a sequence of dimension labels. For any labels that are repeated,
+/// the corresponding dimensions in `x` are replaced with a single dimension
+/// that is the diagonal.
+///
+/// For example, `take_diagonals("ii", x)` takes a matrix as input and returns
+/// a 1D view that is the diagonal. `take_diagonals("iji", x)` takes a 3D
+/// tensor as input and returns a 2D view.
+///
+/// Dimensions over which diagonals are taken must be the same size. An error
+/// is returned if this is not the case.
+///
+/// Returns a tuple of `(unique_labels, diagonal_view)`.
+fn take_diagonals<'a>(term: &str, x: &TensorView<'a>) -> Result<(String, TensorView<'a>), OpError> {
+    assert!(term.chars().count() == x.ndim());
+
+    let mut out_shape: Vec<usize> = Vec::new();
+    let mut out_strides: Vec<usize> = Vec::new();
+    let mut unique_dims = String::with_capacity(term.len());
+
+    for (i, label) in (0..x.ndim()).zip(term.chars()) {
+        if unique_dims.contains(label) {
+            // We have already added the diagonal for this label to the output.
+            continue;
+        }
+        unique_dims.push(label);
+
+        let dim_size = x.size(i);
+        out_shape.push(dim_size);
+
+        let mut diagonal_stride = 0;
+        for (k, other_label) in (0..x.ndim()).zip(term.chars()) {
+            if label != other_label {
+                continue;
+            }
+            if x.size(k) != dim_size {
+                return Err(OpError::InvalidValue(
+                    "Dimension sizes for repeated labels in term do not match",
+                ));
+            }
+            diagonal_stride += x.stride(k);
+        }
+        out_strides.push(diagonal_stride);
+    }
+
+    let out_layout = DynLayout::try_from_shape_and_strides(
+        &out_shape,
+        &out_strides,
+        OverlapPolicy::AllowOverlap,
+    )
+    .expect("failed to create diagonal layout");
+    let out_view = TensorView::from_storage_and_layout(x.storage(), out_layout);
+
+    Ok((unique_dims, out_view))
+}
+
 /// Evaluate a single step in an einsum path.
 fn einsum_step(
     pool: &TensorPool,
@@ -228,6 +280,8 @@ fn einsum_step(
     x: &TensorView,
     y: Option<&TensorView>,
 ) -> Result<Tensor, OpError> {
+    let (lhs_term, x) = take_diagonals(&step.lhs.term, x)?;
+
     let (Some(y), Some(rhs)) = (y, &step.rhs) else {
         // Re-arrange input views as `[output_dims][reduced_dims]`.
         let reduced_dims = step.reduced_dims();
@@ -237,7 +291,7 @@ fn einsum_step(
             .chain(reduced_dims.iter().copied())
             .collect();
 
-        let xp = permute_and_insert_axes(x, &step.lhs.term, &common_order);
+        let xp = permute_and_insert_axes(&x, &lhs_term, &common_order);
         if reduced_dims.is_empty() {
             return Ok(xp.to_tensor_in(pool));
         }
@@ -251,12 +305,19 @@ fn einsum_step(
         );
     };
 
+    let (rhs_term, y) = take_diagonals(&rhs.term, y)?;
     let reduced_dims = step.reduced_dims();
-    let term1 = &step.lhs.term;
-    let term2 = &rhs.term;
 
     if reduced_dims.len() == 1 {
-        einsum_matmul(pool, x, y, term1, term2, &step.output, reduced_dims[0])
+        einsum_matmul(
+            pool,
+            &x,
+            &y,
+            &lhs_term,
+            &rhs_term,
+            &step.output,
+            reduced_dims[0],
+        )
     } else {
         // Re-arrange input views as `[output_dims][reduced_dims]`. This makes
         // the reduced dimensions adjacent.
@@ -265,8 +326,8 @@ fn einsum_step(
             .chars()
             .chain(reduced_dims.iter().copied())
             .collect();
-        let xp = permute_and_insert_axes(x, term1, &common_order);
-        let yp = permute_and_insert_axes(y, term2, &common_order);
+        let xp = permute_and_insert_axes(&x, &lhs_term, &common_order);
+        let yp = permute_and_insert_axes(&y, &rhs_term, &common_order);
 
         // If there are no reduced dimensions, fall back to a simple multiply
         // with broadcasting.
@@ -671,6 +732,8 @@ mod tests {
                 .as_dyn(),
         )
         .unwrap();
+        let square_mat = Tensor::from([[1., 2., 3.], [4., 5., 6.], [7., 8., 9.]]);
+        let cube = Tensor::arange(1., 28., None).into_shape([3, 3, 3].as_slice());
 
         let bhwc = mat_a
             .clone()
@@ -865,12 +928,29 @@ mod tests {
                 inputs: vec![mat_a.view()],
                 expected: Err(OpError::InvalidValue("Input term is invalid")),
             },
-            // Unsupported repeated labels in input term
+            // Repeated labels in input term take the diagonal.
+            Case {
+                equation: "ii->i",
+                inputs: vec![square_mat.view()],
+                expected: Ok(Tensor::from([1., 5., 9.])),
+            },
+            Case {
+                equation: "iii->i",
+                inputs: vec![cube.view()],
+                expected: Ok(Tensor::from([1., 14., 27.])),
+            },
+            // Matrix trace
+            Case {
+                equation: "ii->",
+                inputs: vec![square_mat.view()],
+                expected: Ok(Tensor::from([1., 5., 9.].iter().sum::<f32>())),
+            },
+            // Repeated labels when dimensions are not the same size
             Case {
                 equation: "ii->i",
                 inputs: vec![mat_a.view()],
-                expected: Err(OpError::UnsupportedValue(
-                    "Repeated labels in Einsum inputs are not supported",
+                expected: Err(OpError::InvalidValue(
+                    "Dimension sizes for repeated labels in term do not match",
                 )),
             },
             // Invalid output term
