@@ -64,6 +64,10 @@ path = "src/depth_anything.rs"
 name = "segment_anything"
 path = "src/segment_anything.rs"
 
+[[bin]]
+name = "trocr"
+path = "src/trocr.rs"
+
 # Text
 [[bin]]
 name = "bert_qa"
