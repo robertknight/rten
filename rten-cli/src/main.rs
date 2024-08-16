@@ -258,6 +258,12 @@ fn run_with_random_input(
                 // of these.
                 name if name.ends_with("_ids") => Output::from(Tensor::<i32>::zeros(&resolved_shape)),
 
+                // Optimum can export "merged" transformer models which have two
+                // branches. One accepts KV-cache inputs and the other does not.
+                // Set this to false as a "safer" value because we don't have
+                // cached outputs from a previous run.
+                "use_cache_branch" => Output::from(Tensor::from(0i32)),
+
                 // For anything else, random floats in [0, 1].
                 //
                 // TODO - Value nodes in the model should include data types,
