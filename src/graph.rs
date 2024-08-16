@@ -1,3 +1,4 @@
+use std::collections::HashMap;
 use std::error::Error;
 use std::fmt;
 use std::iter::zip;
@@ -422,8 +423,13 @@ pub struct RunOptions {
 ///
 /// Graphs consists of three types of node, each of which has a numeric ID and a
 /// unique string name. A node in the graph is either a constant value such as
-/// weights produced during training, a dynamically supplied or produced input
-/// or output value, or a computation step.
+/// weights produced during training, a dynamic value passed or computed at
+/// runtime, or an operator.
+///
+/// A subset of the nodes are designated as the default inputs and outputs.
+/// These constitute the "public API" of the graph and will be preserved after
+/// any optimizations applied to the graph structure at runtime. Other
+/// "internal" nodes may be replaced or removed.
 pub struct Graph {
     nodes: Vec<Node>,
 
@@ -433,16 +439,63 @@ pub struct Graph {
     /// Map of value node ID => source operator ID. This enables traversing the
     /// graph from outputs to inputs.
     source_ids: FxHashMap<NodeId, NodeId>,
+
+    /// Default inputs for a graph run.
+    input_ids: Vec<NodeId>,
+
+    /// Default outputs for a graph run.
+    output_ids: Vec<NodeId>,
+
+    node_id_from_name: HashMap<String, NodeId>,
 }
 
 impl Graph {
-    /// Create a new empty dataflow graph.
+    /// Create a new empty graph.
     pub fn new() -> Graph {
+        Self::with_capacity(0)
+    }
+
+    /// Create a new graph with pre-allocated storage space for nodes.
+    pub fn with_capacity(n_nodes: usize) -> Graph {
         Graph {
-            nodes: Vec::new(),
+            nodes: Vec::with_capacity(n_nodes),
             cached_plan: Mutex::new(None),
             source_ids: FxHashMap::default(),
+            input_ids: Vec::with_capacity(n_nodes),
+            output_ids: Vec::with_capacity(n_nodes),
+            node_id_from_name: HashMap::with_capacity(n_nodes),
         }
+    }
+
+    /// Set which nodes are the default inputs for this graph.
+    pub fn set_input_ids(&mut self, node_ids: &[NodeId]) {
+        self.input_ids = node_ids.to_vec();
+    }
+
+    /// Return the nodes which are the default inputs for this graph.
+    pub fn input_ids(&self) -> &[NodeId] {
+        &self.input_ids
+    }
+
+    /// Set which nodes are the default outputs for this graph.
+    pub fn set_output_ids(&mut self, node_ids: &[NodeId]) {
+        self.output_ids = node_ids.to_vec();
+    }
+
+    /// Return the nodes which are the default outputs for this graph.
+    pub fn output_ids(&self) -> &[NodeId] {
+        &self.output_ids
+    }
+
+    fn add_node(&mut self, node: Node) -> NodeId {
+        self.nodes.push(node);
+        let node_id = self.nodes.len() - 1;
+
+        if let Some(name) = self.nodes[node_id].name() {
+            self.node_id_from_name.insert(name.to_string(), node_id);
+        }
+
+        node_id
     }
 
     /// Add an operator node to the graph.
@@ -465,13 +518,12 @@ impl Graph {
         inputs: &[Option<NodeId>],
         outputs: &[Option<NodeId>],
     ) -> NodeId {
-        self.nodes.push(Node::Operator(OperatorNode {
+        let op_id = self.add_node(Node::Operator(OperatorNode {
             name: name.map(|s| s.to_owned()),
             inputs: Vec::from(inputs),
             outputs: Vec::from(outputs),
             operator: Arc::from(op),
         }));
-        let op_id = self.nodes.len() - 1;
 
         for output_id in outputs.iter().flatten() {
             self.source_ids.insert(*output_id, op_id);
@@ -514,8 +566,8 @@ impl Graph {
             name: name.map(|s| s.to_owned()),
             data: value.into(),
         };
-        self.nodes.push(Node::Constant(node.into()));
-        self.nodes.len() - 1
+
+        self.add_node(Node::Constant(node.into()))
     }
 
     /// Add a value node to the graph.
@@ -529,11 +581,10 @@ impl Graph {
     ///
     /// Returns the ID of the added node.
     pub fn add_value(&mut self, name: Option<&str>, shape: Option<Vec<Dimension>>) -> NodeId {
-        self.nodes.push(Node::Value(ValueNode {
+        self.add_node(Node::Value(ValueNode {
             name: name.map(|s| s.to_owned()),
             shape,
-        }));
-        self.nodes.len() - 1
+        }))
     }
 
     /// Return an iterator over nodes in the graph.
@@ -552,6 +603,11 @@ impl Graph {
     /// Retrieve a node by ID
     pub fn get_node(&self, id: NodeId) -> Option<&Node> {
         self.nodes.get(id)
+    }
+
+    /// Look up a node ID given its unique name
+    pub fn get_node_id(&self, name: &str) -> Option<NodeId> {
+        self.node_id_from_name.get(name).copied()
     }
 
     /// Look up the operator node which produced a given value node.
