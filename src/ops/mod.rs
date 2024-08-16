@@ -26,10 +26,12 @@ use rten_tensor::{
 };
 
 use crate::downcast::impl_downcastdyn;
+use crate::graph::{CaptureEnv, RunError};
 use crate::tensor_pool::{ExtractBuffer, TensorPool};
 
 mod binary_elementwise;
 mod concat;
+mod control_flow;
 mod conv;
 mod convert;
 mod einsum;
@@ -65,6 +67,7 @@ pub use binary_elementwise::{
     Pow, Sub, Where, Xor,
 };
 pub use concat::{concat, tile, Concat, Tile};
+pub use control_flow::If;
 pub use conv::{conv, conv_transpose, Conv, ConvTranspose};
 pub use convert::Cast;
 pub use einsum::{einsum, Einsum};
@@ -876,6 +879,35 @@ pub trait Operator: Any + Debug {
         _other: InputList,
     ) -> Result<Output, OpError> {
         unimplemented!("in-place execution not supported")
+    }
+
+    /// Return true if this operator executes a subgraph.
+    fn has_subgraph(&self) -> bool {
+        false
+    }
+
+    /// Execute the operator with the given inputs and captured values.
+    ///
+    /// This method will be called instead of `run` if the operator reports that
+    /// it runs a subgraph (see [`has_subgraph`](Operator::has_subgraph)).
+    /// Compared to `run`, it takes an additional `captures` argument which
+    /// provides access to values captured from the surrounding scope (like a
+    /// closure in Rust) and it returns a [`RunError`] instead of an
+    /// [`OpError`].
+    ///
+    /// The default implementation delegates to `run`. In other words it treats
+    /// the operator as a subgraph with a single node.
+    fn run_subgraph(
+        &self,
+        pool: &TensorPool,
+        input: InputList,
+        #[allow(unused)] captures: &CaptureEnv,
+    ) -> Result<OutputList, RunError> {
+        self.run(pool, input)
+            .map_err(|error| RunError::OperatorError {
+                name: self.name().to_string(),
+                error,
+            })
     }
 }
 

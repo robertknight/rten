@@ -19,7 +19,7 @@ use crate::graph::{ConstantNodeData, Dimension, Graph, Node, NodeId, RunError, R
 use crate::header::{Header, HeaderError};
 use crate::model_metadata::ModelMetadata;
 use crate::number::{LeBytes, Pod};
-use crate::op_registry::{OpRegistry, ReadOpError};
+use crate::op_registry::{OpLoadContext, OpRegistry, ReadOpError};
 use crate::ops::{InputOrOutput, Output};
 use crate::optimize::GraphOptimizer;
 use crate::schema_generated as sg;
@@ -334,6 +334,15 @@ impl Model {
         graph.set_input_ids(&input_ids);
         graph.set_output_ids(&output_ids);
 
+        if let Some(captures) = serialized_graph.captures() {
+            let captures: Vec<NodeId> = captures.iter().map(|id| id as NodeId).collect();
+            graph.set_captures(&captures);
+        }
+
+        let load_subgraph = |g: sg::Graph| -> Result<Graph, ModelLoadError> {
+            Self::load_graph(g, registry, storage.clone(), tensor_data_offset, optimize)
+        };
+
         if let Some(nodes) = serialized_graph.nodes() {
             for (node_index, node) in nodes.iter().enumerate() {
                 let graph_node = if let Some(operator) = node.data_as_operator_node() {
@@ -343,6 +352,7 @@ impl Model {
                         operator,
                         registry,
                         &node_id_from_index,
+                        &load_subgraph,
                     )?
                 } else if let Some(value) = node.data_as_value_node() {
                     Self::add_graph_value(&mut graph, node.name(), value)?
@@ -377,9 +387,21 @@ impl Model {
         operator: sg::OperatorNode,
         registry: &OpRegistry,
         node_id_from_index: &HashMap<usize, NodeId>,
+        load_graph: &dyn Fn(sg::Graph) -> Result<Graph, ModelLoadError>,
     ) -> Result<NodeId, ModelLoadError> {
+        struct LoadContext<'a> {
+            load_graph: &'a dyn Fn(sg::Graph) -> Result<Graph, ModelLoadError>,
+        }
+
+        impl<'a> OpLoadContext for LoadContext<'a> {
+            fn load_graph(&self, graph: sg::Graph) -> Result<Graph, ReadOpError> {
+                (self.load_graph)(graph).map_err(|err| ReadOpError::SubgraphError(err.into()))
+            }
+        }
+
+        let ctx = LoadContext { load_graph };
         let op = registry
-            .read_op(&operator)
+            .read_op(&operator, &ctx)
             .map_err(ModelLoadError::OperatorInvalid)?;
 
         let mut inputs: Vec<Option<NodeId>> = Vec::new();
@@ -746,7 +768,9 @@ mod tests {
 
     use crate::graph::{Dimension, RunError};
     use crate::model::{Model, ModelOptions};
-    use crate::model_builder::{GraphBuilder, MetadataArgs, ModelBuilder, ModelFormat, OpType};
+    use crate::model_builder::{
+        GraphBuilder, IfArgs, MetadataArgs, ModelBuilder, ModelFormat, OpType,
+    };
     use crate::ops;
     use crate::ops::{
         BoxOrder, CoordTransformMode, NearestMode, OpError, Output, ResizeMode, Scalar,
@@ -1196,6 +1220,32 @@ mod tests {
         // TODO - Add GRU operator
 
         add_operator!(Identity, [input_node]);
+
+        // If operator
+        let if_cond_val = Tensor::from(1);
+        let if_cond = graph_builder.add_constant(if_cond_val.view());
+
+        let mut then_branch_builder = graph_builder.subgraph_builder();
+        let then_out_val = Tensor::from(2);
+        let then_out = then_branch_builder.add_constant(then_out_val.view());
+        then_branch_builder.add_output(then_out);
+        let then_branch = then_branch_builder.finish();
+
+        let mut else_branch_builder = graph_builder.subgraph_builder();
+        let else_out_val = Tensor::from(3);
+        let else_out = else_branch_builder.add_constant(else_out_val.view());
+        else_branch_builder.add_output(else_out);
+        let else_branch = else_branch_builder.finish();
+
+        add_operator(
+            &mut graph_builder,
+            "If",
+            OpType::If(IfArgs {
+                then_branch,
+                else_branch,
+            }),
+            &[Some(if_cond)],
+        );
 
         let instance_norm_scale_val = Tensor::from([1.0]);
         let instance_norm_scale = graph_builder.add_constant(instance_norm_scale_val.view());

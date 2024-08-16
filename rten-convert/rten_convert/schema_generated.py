@@ -111,6 +111,7 @@ class OperatorType(object):
     GatherND = 101
     Gelu = 102
     Einsum = 103
+    If = 104
 
 
 class RNNDirection(object):
@@ -187,6 +188,7 @@ class OperatorAttrs(object):
     GatherNDAttrs = 36
     GeluAttrs = 37
     EinsumAttrs = 38
+    IfAttrs = 39
 
 def OperatorAttrsCreator(unionType, table):
     from flatbuffers.table import Table
@@ -268,6 +270,8 @@ def OperatorAttrsCreator(unionType, table):
         return GeluAttrsT.InitFromBuf(table.Bytes, table.Pos)
     if unionType == OperatorAttrs().EinsumAttrs:
         return EinsumAttrsT.InitFromBuf(table.Bytes, table.Pos)
+    if unionType == OperatorAttrs().IfAttrs:
+        return IfAttrsT.InitFromBuf(table.Bytes, table.Pos)
     return None
 
 
@@ -2442,6 +2446,114 @@ class HardSigmoidAttrsT(object):
         HardSigmoidAttrsAddBeta(builder, self.beta)
         hardSigmoidAttrs = HardSigmoidAttrsEnd(builder)
         return hardSigmoidAttrs
+
+
+class IfAttrs(object):
+    __slots__ = ['_tab']
+
+    @classmethod
+    def GetRootAs(cls, buf, offset=0):
+        n = flatbuffers.encode.Get(flatbuffers.packer.uoffset, buf, offset)
+        x = IfAttrs()
+        x.Init(buf, n + offset)
+        return x
+
+    @classmethod
+    def GetRootAsIfAttrs(cls, buf, offset=0):
+        """This method is deprecated. Please switch to GetRootAs."""
+        return cls.GetRootAs(buf, offset)
+    @classmethod
+    def IfAttrsBufferHasIdentifier(cls, buf, offset, size_prefixed=False):
+        return flatbuffers.util.BufferHasIdentifier(buf, offset, b"\x52\x54\x45\x4E", size_prefixed=size_prefixed)
+
+    # IfAttrs
+    def Init(self, buf, pos):
+        self._tab = flatbuffers.table.Table(buf, pos)
+
+    # IfAttrs
+    def ThenBranch(self):
+        o = flatbuffers.number_types.UOffsetTFlags.py_type(self._tab.Offset(4))
+        if o != 0:
+            x = self._tab.Indirect(o + self._tab.Pos)
+            obj = Graph()
+            obj.Init(self._tab.Bytes, x)
+            return obj
+        return None
+
+    # IfAttrs
+    def ElseBranch(self):
+        o = flatbuffers.number_types.UOffsetTFlags.py_type(self._tab.Offset(6))
+        if o != 0:
+            x = self._tab.Indirect(o + self._tab.Pos)
+            obj = Graph()
+            obj.Init(self._tab.Bytes, x)
+            return obj
+        return None
+
+def IfAttrsStart(builder):
+    builder.StartObject(2)
+
+def IfAttrsAddThenBranch(builder, thenBranch):
+    builder.PrependUOffsetTRelativeSlot(0, flatbuffers.number_types.UOffsetTFlags.py_type(thenBranch), 0)
+
+def IfAttrsAddElseBranch(builder, elseBranch):
+    builder.PrependUOffsetTRelativeSlot(1, flatbuffers.number_types.UOffsetTFlags.py_type(elseBranch), 0)
+
+def IfAttrsEnd(builder):
+    return builder.EndObject()
+
+
+try:
+    from typing import Optional
+except:
+    pass
+
+class IfAttrsT(object):
+
+    # IfAttrsT
+    def __init__(self):
+        self.thenBranch = None  # type: Optional[GraphT]
+        self.elseBranch = None  # type: Optional[GraphT]
+
+    @classmethod
+    def InitFromBuf(cls, buf, pos):
+        ifAttrs = IfAttrs()
+        ifAttrs.Init(buf, pos)
+        return cls.InitFromObj(ifAttrs)
+
+    @classmethod
+    def InitFromPackedBuf(cls, buf, pos=0):
+        n = flatbuffers.encode.Get(flatbuffers.packer.uoffset, buf, pos)
+        return cls.InitFromBuf(buf, pos+n)
+
+    @classmethod
+    def InitFromObj(cls, ifAttrs):
+        x = IfAttrsT()
+        x._UnPack(ifAttrs)
+        return x
+
+    # IfAttrsT
+    def _UnPack(self, ifAttrs):
+        if ifAttrs is None:
+            return
+        if ifAttrs.ThenBranch() is not None:
+            self.thenBranch = GraphT.InitFromObj(ifAttrs.ThenBranch())
+        if ifAttrs.ElseBranch() is not None:
+            self.elseBranch = GraphT.InitFromObj(ifAttrs.ElseBranch())
+
+    # IfAttrsT
+    def Pack(self, builder):
+        if self.thenBranch is not None:
+            thenBranch = self.thenBranch.Pack(builder)
+        if self.elseBranch is not None:
+            elseBranch = self.elseBranch.Pack(builder)
+        IfAttrsStart(builder)
+        if self.thenBranch is not None:
+            IfAttrsAddThenBranch(builder, thenBranch)
+        if self.elseBranch is not None:
+            IfAttrsAddElseBranch(builder, elseBranch)
+        ifAttrs = IfAttrsEnd(builder)
+        return ifAttrs
 
 
 class LeakyReluAttrs(object):
@@ -4669,7 +4781,7 @@ class OperatorNodeT(object):
     def __init__(self):
         self.type = 0  # type: int
         self.attrsType = 0  # type: int
-        self.attrs = None  # type: Union[None, ArgMaxAttrsT, AveragePoolAttrsT, BatchNormalizationAttrsT, CastAttrsT, ConcatAttrsT, ConstantOfShapeAttrsT, ConvAttrsT, ConvTransposeAttrsT, FlattenAttrsT, GatherAttrsT, GemmAttrsT, GRUAttrsT, LeakyReluAttrsT, LSTMAttrsT, MaxPoolAttrsT, ReduceMeanAttrsT, ReshapeAttrsT, ResizeAttrsT, SplitAttrsT, SoftmaxAttrsT, TransposeAttrsT, ModAttrsT, ScatterElementsAttrsT, OneHotAttrsT, TopKAttrsT, HardSigmoidAttrsT, TriluAttrsT, ScatterNDAttrsT, NonMaxSuppressionAttrsT, LayerNormalizationAttrsT, RandomUniformAttrsT, EluAttrsT, RandomUniformLikeAttrsT, RandomNormalAttrsT, RandomNormalLikeAttrsT, GatherNDAttrsT, GeluAttrsT, EinsumAttrsT]
+        self.attrs = None  # type: Union[None, ArgMaxAttrsT, AveragePoolAttrsT, BatchNormalizationAttrsT, CastAttrsT, ConcatAttrsT, ConstantOfShapeAttrsT, ConvAttrsT, ConvTransposeAttrsT, FlattenAttrsT, GatherAttrsT, GemmAttrsT, GRUAttrsT, LeakyReluAttrsT, LSTMAttrsT, MaxPoolAttrsT, ReduceMeanAttrsT, ReshapeAttrsT, ResizeAttrsT, SplitAttrsT, SoftmaxAttrsT, TransposeAttrsT, ModAttrsT, ScatterElementsAttrsT, OneHotAttrsT, TopKAttrsT, HardSigmoidAttrsT, TriluAttrsT, ScatterNDAttrsT, NonMaxSuppressionAttrsT, LayerNormalizationAttrsT, RandomUniformAttrsT, EluAttrsT, RandomUniformLikeAttrsT, RandomNormalAttrsT, RandomNormalLikeAttrsT, GatherNDAttrsT, GeluAttrsT, EinsumAttrsT, IfAttrsT]
         self.inputs = None  # type: List[int]
         self.outputs = None  # type: List[int]
 
@@ -5586,8 +5698,35 @@ class Graph(object):
         o = flatbuffers.number_types.UOffsetTFlags.py_type(self._tab.Offset(8))
         return o == 0
 
+    # Graph
+    def Captures(self, j):
+        o = flatbuffers.number_types.UOffsetTFlags.py_type(self._tab.Offset(10))
+        if o != 0:
+            a = self._tab.Vector(o)
+            return self._tab.Get(flatbuffers.number_types.Uint32Flags, a + flatbuffers.number_types.UOffsetTFlags.py_type(j * 4))
+        return 0
+
+    # Graph
+    def CapturesAsNumpy(self):
+        o = flatbuffers.number_types.UOffsetTFlags.py_type(self._tab.Offset(10))
+        if o != 0:
+            return self._tab.GetVectorAsNumpy(flatbuffers.number_types.Uint32Flags, o)
+        return 0
+
+    # Graph
+    def CapturesLength(self):
+        o = flatbuffers.number_types.UOffsetTFlags.py_type(self._tab.Offset(10))
+        if o != 0:
+            return self._tab.VectorLen(o)
+        return 0
+
+    # Graph
+    def CapturesIsNone(self):
+        o = flatbuffers.number_types.UOffsetTFlags.py_type(self._tab.Offset(10))
+        return o == 0
+
 def GraphStart(builder):
-    builder.StartObject(3)
+    builder.StartObject(4)
 
 def GraphAddNodes(builder, nodes):
     builder.PrependUOffsetTRelativeSlot(0, flatbuffers.number_types.UOffsetTFlags.py_type(nodes), 0)
@@ -5607,6 +5746,12 @@ def GraphAddOutputs(builder, outputs):
 def GraphStartOutputsVector(builder, numElems):
     return builder.StartVector(4, numElems, 4)
 
+def GraphAddCaptures(builder, captures):
+    builder.PrependUOffsetTRelativeSlot(3, flatbuffers.number_types.UOffsetTFlags.py_type(captures), 0)
+
+def GraphStartCapturesVector(builder, numElems):
+    return builder.StartVector(4, numElems, 4)
+
 def GraphEnd(builder):
     return builder.EndObject()
 
@@ -5623,6 +5768,7 @@ class GraphT(object):
         self.nodes = None  # type: List[NodeT]
         self.inputs = None  # type: List[int]
         self.outputs = None  # type: List[int]
+        self.captures = None  # type: List[int]
 
     @classmethod
     def InitFromBuf(cls, buf, pos):
@@ -5667,6 +5813,13 @@ class GraphT(object):
                     self.outputs.append(graph.Outputs(i))
             else:
                 self.outputs = graph.OutputsAsNumpy()
+        if not graph.CapturesIsNone():
+            if np is None:
+                self.captures = []
+                for i in range(graph.CapturesLength()):
+                    self.captures.append(graph.Captures(i))
+            else:
+                self.captures = graph.CapturesAsNumpy()
 
     # GraphT
     def Pack(self, builder):
@@ -5694,6 +5847,14 @@ class GraphT(object):
                 for i in reversed(range(len(self.outputs))):
                     builder.PrependUint32(self.outputs[i])
                 outputs = builder.EndVector()
+        if self.captures is not None:
+            if np is not None and type(self.captures) is np.ndarray:
+                captures = builder.CreateNumpyVector(self.captures)
+            else:
+                GraphStartCapturesVector(builder, len(self.captures))
+                for i in reversed(range(len(self.captures))):
+                    builder.PrependUint32(self.captures[i])
+                captures = builder.EndVector()
         GraphStart(builder)
         if self.nodes is not None:
             GraphAddNodes(builder, nodes)
@@ -5701,6 +5862,8 @@ class GraphT(object):
             GraphAddInputs(builder, inputs)
         if self.outputs is not None:
             GraphAddOutputs(builder, outputs)
+        if self.captures is not None:
+            GraphAddCaptures(builder, captures)
         graph = GraphEnd(builder)
         return graph
 

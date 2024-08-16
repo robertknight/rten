@@ -4,6 +4,7 @@ use std::fmt::{Display, Formatter};
 
 use smallvec::smallvec;
 
+use crate::graph::Graph;
 use crate::ops;
 use crate::ops::{
     BoxOrder, CoordTransformMode, DataType, Direction, NearestMode, Operator, Padding, ResizeMode,
@@ -11,6 +12,12 @@ use crate::ops::{
 };
 use crate::schema_generated as sg;
 use crate::schema_generated::{AutoPad, OperatorNode, OperatorType};
+
+/// Context object passed to [`ReadOp::read`] implementations.
+pub trait OpLoadContext {
+    /// Deserialize a graph definition.
+    fn load_graph(&self, graph: sg::Graph) -> Result<Graph, ReadOpError>;
+}
 
 /// Registry used to deserialize operators when loading a model.
 ///
@@ -37,13 +44,13 @@ impl OpRegistry {
     pub fn register_op<Op: ReadOp + 'static>(&mut self) {
         self.register_op_with_factory(
             Op::op_type(),
-            Box::new(|op: &OperatorNode| Op::read_boxed(op)),
+            Box::new(|op: &OperatorNode, ctx: &dyn OpLoadContext| Op::read_boxed(op, ctx)),
         );
     }
 
     /// Deserialize an operator from a model file using the operators in the
     /// registry.
-    pub(crate) fn read_op(&self, op: &OperatorNode) -> ReadOpResult {
+    pub(crate) fn read_op(&self, op: &OperatorNode, ctx: &dyn OpLoadContext) -> ReadOpResult {
         self.ops
             .get(&op.type_())
             .ok_or_else(|| {
@@ -51,7 +58,7 @@ impl OpRegistry {
                     op.type_().variant_name().unwrap_or("(unknown)").to_string(),
                 )
             })
-            .and_then(|read_fn| read_fn(op))
+            .and_then(|read_fn| read_fn(op, ctx))
     }
 
     /// Register an operator with a custom factory to deserialize it from a
@@ -114,6 +121,7 @@ impl OpRegistry {
         register_op!(HardSigmoid);
         register_op!(HardSwish);
         register_op!(Identity);
+        register_op!(If);
         register_op!(InstanceNormalization);
         register_op!(LayerNormalization);
         register_op!(LeakyRelu);
@@ -190,18 +198,21 @@ impl OpRegistry {
 }
 
 /// Error type for errors that occur when de-serializing an operator.
-#[derive(Debug, PartialEq)]
+#[derive(Debug)]
 pub enum ReadOpError {
     /// The operator attributes were missing or of the wrong type.
     AttrError,
     /// The operator type is incorrect or unsupported.
     UnsupportedOperator(String),
+    /// An error occurred deserializing a subgraph.
+    SubgraphError(Box<dyn Error + Send + Sync>),
 }
 
 impl Display for ReadOpError {
     fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
         match self {
             ReadOpError::AttrError => write!(f, "invalid attributes for operator"),
+            ReadOpError::SubgraphError(err) => write!(f, "subgraph error: {}", err),
             ReadOpError::UnsupportedOperator(name) => {
                 write!(f, "operator {name} is not supported or not enabled")
             }
@@ -255,7 +266,7 @@ fn vec_from_attr(attr: Option<flatbuffers::Vector<u32>>, default: &[usize]) -> V
 pub type ReadOpResult = Result<Box<dyn Operator + Send + Sync>, ReadOpError>;
 
 /// A function that deserializes an operator node.
-pub type ReadOpFunction = dyn Fn(&OperatorNode) -> ReadOpResult;
+pub type ReadOpFunction = dyn Fn(&OperatorNode, &dyn OpLoadContext) -> ReadOpResult;
 
 /// Trait that deserializes an operator from a `.rten` file into an [`Operator`]
 /// implementation.
@@ -268,16 +279,16 @@ pub trait ReadOp: Operator + Sized + Send + Sync {
     /// Deserialize an operator.
     ///
     /// The node's type must correspond to the result of `op_type`.
-    fn read(op: &OperatorNode) -> Result<Self, ReadOpError>;
+    fn read(op: &OperatorNode, ctx: &dyn OpLoadContext) -> Result<Self, ReadOpError>;
 
     /// Deserialize an operator and box it into a `Box<dyn Operator>`.
     ///
     /// The node's type must correspond to the result of `op_type`.
-    fn read_boxed(op: &OperatorNode) -> ReadOpResult
+    fn read_boxed(op: &OperatorNode, ctx: &dyn OpLoadContext) -> ReadOpResult
     where
         Self: 'static,
     {
-        let op = Self::read(op)?;
+        let op = Self::read(op, ctx)?;
         Ok(Box::new(op))
     }
 }
@@ -298,7 +309,7 @@ macro_rules! impl_read_op {
                 OperatorType::$op
             }
 
-            fn read(_op: &OperatorNode) -> Result<Self, ReadOpError> {
+            fn read(_op: &OperatorNode, _ctx: &dyn OpLoadContext) -> Result<Self, ReadOpError> {
                 Ok(ops::$op {})
             }
         }
@@ -310,7 +321,7 @@ macro_rules! impl_read_op {
                 OperatorType::$op
             }
 
-            fn read(op: &OperatorNode) -> Result<Self, ReadOpError> {
+            fn read(op: &OperatorNode, _ctx: &dyn OpLoadContext) -> Result<Self, ReadOpError> {
                 let attrs = op.$attrs_method().ok_or(ReadOpError::AttrError)?;
                 let op = ops::$op {
                     axis: attrs.axis() as isize,
@@ -326,7 +337,7 @@ macro_rules! impl_read_op {
                 OperatorType::$op
             }
 
-            fn read(op: &OperatorNode) -> Result<Self, ReadOpError> {
+            fn read(op: &OperatorNode, _ctx: &dyn OpLoadContext) -> Result<Self, ReadOpError> {
                 let attrs = op.$attrs_method().ok_or(ReadOpError::AttrError)?;
                 let op = ops::$op {
                     axis: attrs.axis() as isize,
@@ -343,7 +354,7 @@ macro_rules! impl_read_op {
                 OperatorType::$op
             }
 
-            fn read(op: &OperatorNode) -> Result<Self, ReadOpError> {
+            fn read(op: &OperatorNode, _ctx: &dyn OpLoadContext) -> Result<Self, ReadOpError> {
                 let attrs = op.$attrs_method().ok_or(ReadOpError::AttrError)?;
                 let axes = attrs.axes().map(|axes| axes.iter().collect());
                 let op = ops::$op {
@@ -361,7 +372,7 @@ macro_rules! impl_read_op {
                 OperatorType::$op
             }
 
-            fn read(op: &OperatorNode) -> Result<Self, ReadOpError> {
+            fn read(op: &OperatorNode, _ctx: &dyn OpLoadContext) -> Result<Self, ReadOpError> {
                 let attrs = op.$attrs_method().ok_or(ReadOpError::AttrError)?;
                 #[allow(clippy::redundant_closure_call)]
                 let op = { $read_op(attrs)? };
@@ -524,6 +535,24 @@ impl_read_op!(
 );
 impl_read_op!(HardSwish);
 impl_read_op!(Identity);
+
+impl ReadOp for ops::If {
+    fn op_type() -> sg::OperatorType {
+        OperatorType::If
+    }
+
+    fn read(op: &OperatorNode, ctx: &dyn OpLoadContext) -> Result<Self, ReadOpError> {
+        let attrs = op.attrs_as_if_attrs().ok_or(ReadOpError::AttrError)?;
+        let then_branch = ctx.load_graph(attrs.then_branch().ok_or(ReadOpError::AttrError)?)?;
+        let else_branch = ctx.load_graph(attrs.else_branch().ok_or(ReadOpError::AttrError)?)?;
+
+        Ok(ops::If {
+            then_branch,
+            else_branch,
+        })
+    }
+}
+
 impl_read_op!(
     InstanceNormalization,
     attrs_as_batch_normalization_attrs,

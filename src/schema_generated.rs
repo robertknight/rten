@@ -18,13 +18,13 @@ pub const ENUM_MIN_OPERATOR_TYPE: u8 = 0;
     since = "2.0.0",
     note = "Use associated constants instead. This will no longer be generated in 2021."
 )]
-pub const ENUM_MAX_OPERATOR_TYPE: u8 = 103;
+pub const ENUM_MAX_OPERATOR_TYPE: u8 = 104;
 #[deprecated(
     since = "2.0.0",
     note = "Use associated constants instead. This will no longer be generated in 2021."
 )]
 #[allow(non_camel_case_types)]
-pub const ENUM_VALUES_OPERATOR_TYPE: [OperatorType; 104] = [
+pub const ENUM_VALUES_OPERATOR_TYPE: [OperatorType; 105] = [
     OperatorType::Add,
     OperatorType::ArgMin,
     OperatorType::ArgMax,
@@ -129,6 +129,7 @@ pub const ENUM_VALUES_OPERATOR_TYPE: [OperatorType; 104] = [
     OperatorType::GatherND,
     OperatorType::Gelu,
     OperatorType::Einsum,
+    OperatorType::If,
 ];
 
 #[derive(Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash, Default)]
@@ -240,9 +241,10 @@ impl OperatorType {
     pub const GatherND: Self = Self(101);
     pub const Gelu: Self = Self(102);
     pub const Einsum: Self = Self(103);
+    pub const If: Self = Self(104);
 
     pub const ENUM_MIN: u8 = 0;
-    pub const ENUM_MAX: u8 = 103;
+    pub const ENUM_MAX: u8 = 104;
     pub const ENUM_VALUES: &'static [Self] = &[
         Self::Add,
         Self::ArgMin,
@@ -348,6 +350,7 @@ impl OperatorType {
         Self::GatherND,
         Self::Gelu,
         Self::Einsum,
+        Self::If,
     ];
     /// Returns the variant's name or "" if unknown.
     pub fn variant_name(self) -> Option<&'static str> {
@@ -456,6 +459,7 @@ impl OperatorType {
             Self::GatherND => Some("GatherND"),
             Self::Gelu => Some("Gelu"),
             Self::Einsum => Some("Einsum"),
+            Self::If => Some("If"),
             _ => None,
         }
     }
@@ -1082,13 +1086,13 @@ pub const ENUM_MIN_OPERATOR_ATTRS: u8 = 0;
     since = "2.0.0",
     note = "Use associated constants instead. This will no longer be generated in 2021."
 )]
-pub const ENUM_MAX_OPERATOR_ATTRS: u8 = 38;
+pub const ENUM_MAX_OPERATOR_ATTRS: u8 = 39;
 #[deprecated(
     since = "2.0.0",
     note = "Use associated constants instead. This will no longer be generated in 2021."
 )]
 #[allow(non_camel_case_types)]
-pub const ENUM_VALUES_OPERATOR_ATTRS: [OperatorAttrs; 39] = [
+pub const ENUM_VALUES_OPERATOR_ATTRS: [OperatorAttrs; 40] = [
     OperatorAttrs::NONE,
     OperatorAttrs::ArgMaxAttrs,
     OperatorAttrs::AveragePoolAttrs,
@@ -1128,6 +1132,7 @@ pub const ENUM_VALUES_OPERATOR_ATTRS: [OperatorAttrs; 39] = [
     OperatorAttrs::GatherNDAttrs,
     OperatorAttrs::GeluAttrs,
     OperatorAttrs::EinsumAttrs,
+    OperatorAttrs::IfAttrs,
 ];
 
 #[derive(Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash, Default)]
@@ -1174,9 +1179,10 @@ impl OperatorAttrs {
     pub const GatherNDAttrs: Self = Self(36);
     pub const GeluAttrs: Self = Self(37);
     pub const EinsumAttrs: Self = Self(38);
+    pub const IfAttrs: Self = Self(39);
 
     pub const ENUM_MIN: u8 = 0;
-    pub const ENUM_MAX: u8 = 38;
+    pub const ENUM_MAX: u8 = 39;
     pub const ENUM_VALUES: &'static [Self] = &[
         Self::NONE,
         Self::ArgMaxAttrs,
@@ -1217,6 +1223,7 @@ impl OperatorAttrs {
         Self::GatherNDAttrs,
         Self::GeluAttrs,
         Self::EinsumAttrs,
+        Self::IfAttrs,
     ];
     /// Returns the variant's name or "" if unknown.
     pub fn variant_name(self) -> Option<&'static str> {
@@ -1260,6 +1267,7 @@ impl OperatorAttrs {
             Self::GatherNDAttrs => Some("GatherNDAttrs"),
             Self::GeluAttrs => Some("GeluAttrs"),
             Self::EinsumAttrs => Some("EinsumAttrs"),
+            Self::IfAttrs => Some("IfAttrs"),
             _ => None,
         }
     }
@@ -4502,6 +4510,146 @@ impl core::fmt::Debug for HardSigmoidAttrs<'_> {
         let mut ds = f.debug_struct("HardSigmoidAttrs");
         ds.field("alpha", &self.alpha());
         ds.field("beta", &self.beta());
+        ds.finish()
+    }
+}
+pub enum IfAttrsOffset {}
+#[derive(Copy, Clone, PartialEq)]
+
+pub struct IfAttrs<'a> {
+    pub _tab: flatbuffers::Table<'a>,
+}
+
+impl<'a> flatbuffers::Follow<'a> for IfAttrs<'a> {
+    type Inner = IfAttrs<'a>;
+    #[inline]
+    unsafe fn follow(buf: &'a [u8], loc: usize) -> Self::Inner {
+        Self {
+            _tab: flatbuffers::Table::new(buf, loc),
+        }
+    }
+}
+
+impl<'a> IfAttrs<'a> {
+    pub const VT_THEN_BRANCH: flatbuffers::VOffsetT = 4;
+    pub const VT_ELSE_BRANCH: flatbuffers::VOffsetT = 6;
+
+    #[inline]
+    pub unsafe fn init_from_table(table: flatbuffers::Table<'a>) -> Self {
+        IfAttrs { _tab: table }
+    }
+    #[allow(unused_mut)]
+    pub fn create<'bldr: 'args, 'args: 'mut_bldr, 'mut_bldr, A: flatbuffers::Allocator + 'bldr>(
+        _fbb: &'mut_bldr mut flatbuffers::FlatBufferBuilder<'bldr, A>,
+        args: &'args IfAttrsArgs<'args>,
+    ) -> flatbuffers::WIPOffset<IfAttrs<'bldr>> {
+        let mut builder = IfAttrsBuilder::new(_fbb);
+        if let Some(x) = args.else_branch {
+            builder.add_else_branch(x);
+        }
+        if let Some(x) = args.then_branch {
+            builder.add_then_branch(x);
+        }
+        builder.finish()
+    }
+
+    #[inline]
+    pub fn then_branch(&self) -> Option<Graph<'a>> {
+        // Safety:
+        // Created from valid Table for this object
+        // which contains a valid value in this slot
+        unsafe {
+            self._tab
+                .get::<flatbuffers::ForwardsUOffset<Graph>>(IfAttrs::VT_THEN_BRANCH, None)
+        }
+    }
+    #[inline]
+    pub fn else_branch(&self) -> Option<Graph<'a>> {
+        // Safety:
+        // Created from valid Table for this object
+        // which contains a valid value in this slot
+        unsafe {
+            self._tab
+                .get::<flatbuffers::ForwardsUOffset<Graph>>(IfAttrs::VT_ELSE_BRANCH, None)
+        }
+    }
+}
+
+impl flatbuffers::Verifiable for IfAttrs<'_> {
+    #[inline]
+    fn run_verifier(
+        v: &mut flatbuffers::Verifier,
+        pos: usize,
+    ) -> Result<(), flatbuffers::InvalidFlatbuffer> {
+        use self::flatbuffers::Verifiable;
+        v.visit_table(pos)?
+            .visit_field::<flatbuffers::ForwardsUOffset<Graph>>(
+                "then_branch",
+                Self::VT_THEN_BRANCH,
+                false,
+            )?
+            .visit_field::<flatbuffers::ForwardsUOffset<Graph>>(
+                "else_branch",
+                Self::VT_ELSE_BRANCH,
+                false,
+            )?
+            .finish();
+        Ok(())
+    }
+}
+pub struct IfAttrsArgs<'a> {
+    pub then_branch: Option<flatbuffers::WIPOffset<Graph<'a>>>,
+    pub else_branch: Option<flatbuffers::WIPOffset<Graph<'a>>>,
+}
+impl<'a> Default for IfAttrsArgs<'a> {
+    #[inline]
+    fn default() -> Self {
+        IfAttrsArgs {
+            then_branch: None,
+            else_branch: None,
+        }
+    }
+}
+
+pub struct IfAttrsBuilder<'a: 'b, 'b, A: flatbuffers::Allocator + 'a> {
+    fbb_: &'b mut flatbuffers::FlatBufferBuilder<'a, A>,
+    start_: flatbuffers::WIPOffset<flatbuffers::TableUnfinishedWIPOffset>,
+}
+impl<'a: 'b, 'b, A: flatbuffers::Allocator + 'a> IfAttrsBuilder<'a, 'b, A> {
+    #[inline]
+    pub fn add_then_branch(&mut self, then_branch: flatbuffers::WIPOffset<Graph<'b>>) {
+        self.fbb_.push_slot_always::<flatbuffers::WIPOffset<Graph>>(
+            IfAttrs::VT_THEN_BRANCH,
+            then_branch,
+        );
+    }
+    #[inline]
+    pub fn add_else_branch(&mut self, else_branch: flatbuffers::WIPOffset<Graph<'b>>) {
+        self.fbb_.push_slot_always::<flatbuffers::WIPOffset<Graph>>(
+            IfAttrs::VT_ELSE_BRANCH,
+            else_branch,
+        );
+    }
+    #[inline]
+    pub fn new(_fbb: &'b mut flatbuffers::FlatBufferBuilder<'a, A>) -> IfAttrsBuilder<'a, 'b, A> {
+        let start = _fbb.start_table();
+        IfAttrsBuilder {
+            fbb_: _fbb,
+            start_: start,
+        }
+    }
+    #[inline]
+    pub fn finish(self) -> flatbuffers::WIPOffset<IfAttrs<'a>> {
+        let o = self.fbb_.end_table(self.start_);
+        flatbuffers::WIPOffset::new(o.value())
+    }
+}
+
+impl core::fmt::Debug for IfAttrs<'_> {
+    fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
+        let mut ds = f.debug_struct("IfAttrs");
+        ds.field("then_branch", &self.then_branch());
+        ds.field("else_branch", &self.else_branch());
         ds.finish()
     }
 }
@@ -7787,6 +7935,21 @@ impl<'a> OperatorNode<'a> {
             None
         }
     }
+
+    #[inline]
+    #[allow(non_snake_case)]
+    pub fn attrs_as_if_attrs(&self) -> Option<IfAttrs<'a>> {
+        if self.attrs_type() == OperatorAttrs::IfAttrs {
+            self.attrs().map(|t| {
+                // Safety:
+                // Created from a valid Table for this object
+                // Which contains a valid union in this slot
+                unsafe { IfAttrs::init_from_table(t) }
+            })
+        } else {
+            None
+        }
+    }
 }
 
 impl flatbuffers::Verifiable for OperatorNode<'_> {
@@ -7838,6 +8001,7 @@ impl flatbuffers::Verifiable for OperatorNode<'_> {
           OperatorAttrs::GatherNDAttrs => v.verify_union_variant::<flatbuffers::ForwardsUOffset<GatherNDAttrs>>("OperatorAttrs::GatherNDAttrs", pos),
           OperatorAttrs::GeluAttrs => v.verify_union_variant::<flatbuffers::ForwardsUOffset<GeluAttrs>>("OperatorAttrs::GeluAttrs", pos),
           OperatorAttrs::EinsumAttrs => v.verify_union_variant::<flatbuffers::ForwardsUOffset<EinsumAttrs>>("OperatorAttrs::EinsumAttrs", pos),
+          OperatorAttrs::IfAttrs => v.verify_union_variant::<flatbuffers::ForwardsUOffset<IfAttrs>>("OperatorAttrs::IfAttrs", pos),
           _ => Ok(()),
         }
      })?
@@ -8295,6 +8459,16 @@ impl core::fmt::Debug for OperatorNode<'_> {
             }
             OperatorAttrs::EinsumAttrs => {
                 if let Some(x) = self.attrs_as_einsum_attrs() {
+                    ds.field("attrs", &x)
+                } else {
+                    ds.field(
+                        "attrs",
+                        &"InvalidFlatbuffer: Union discriminant does not match value.",
+                    )
+                }
+            }
+            OperatorAttrs::IfAttrs => {
+                if let Some(x) = self.attrs_as_if_attrs() {
                     ds.field("attrs", &x)
                 } else {
                     ds.field(
@@ -9331,6 +9505,7 @@ impl<'a> Graph<'a> {
     pub const VT_NODES: flatbuffers::VOffsetT = 4;
     pub const VT_INPUTS: flatbuffers::VOffsetT = 6;
     pub const VT_OUTPUTS: flatbuffers::VOffsetT = 8;
+    pub const VT_CAPTURES: flatbuffers::VOffsetT = 10;
 
     #[inline]
     pub unsafe fn init_from_table(table: flatbuffers::Table<'a>) -> Self {
@@ -9342,6 +9517,9 @@ impl<'a> Graph<'a> {
         args: &'args GraphArgs<'args>,
     ) -> flatbuffers::WIPOffset<Graph<'bldr>> {
         let mut builder = GraphBuilder::new(_fbb);
+        if let Some(x) = args.captures {
+            builder.add_captures(x);
+        }
         if let Some(x) = args.outputs {
             builder.add_outputs(x);
         }
@@ -9391,6 +9569,19 @@ impl<'a> Graph<'a> {
                 )
         }
     }
+    #[inline]
+    pub fn captures(&self) -> Option<flatbuffers::Vector<'a, u32>> {
+        // Safety:
+        // Created from valid Table for this object
+        // which contains a valid value in this slot
+        unsafe {
+            self._tab
+                .get::<flatbuffers::ForwardsUOffset<flatbuffers::Vector<'a, u32>>>(
+                    Graph::VT_CAPTURES,
+                    None,
+                )
+        }
+    }
 }
 
 impl flatbuffers::Verifiable for Graph<'_> {
@@ -9414,6 +9605,11 @@ impl flatbuffers::Verifiable for Graph<'_> {
                 Self::VT_OUTPUTS,
                 false,
             )?
+            .visit_field::<flatbuffers::ForwardsUOffset<flatbuffers::Vector<'_, u32>>>(
+                "captures",
+                Self::VT_CAPTURES,
+                false,
+            )?
             .finish();
         Ok(())
     }
@@ -9424,6 +9620,7 @@ pub struct GraphArgs<'a> {
     >,
     pub inputs: Option<flatbuffers::WIPOffset<flatbuffers::Vector<'a, u32>>>,
     pub outputs: Option<flatbuffers::WIPOffset<flatbuffers::Vector<'a, u32>>>,
+    pub captures: Option<flatbuffers::WIPOffset<flatbuffers::Vector<'a, u32>>>,
 }
 impl<'a> Default for GraphArgs<'a> {
     #[inline]
@@ -9432,6 +9629,7 @@ impl<'a> Default for GraphArgs<'a> {
             nodes: None,
             inputs: None,
             outputs: None,
+            captures: None,
         }
     }
 }
@@ -9462,6 +9660,11 @@ impl<'a: 'b, 'b, A: flatbuffers::Allocator + 'a> GraphBuilder<'a, 'b, A> {
             .push_slot_always::<flatbuffers::WIPOffset<_>>(Graph::VT_OUTPUTS, outputs);
     }
     #[inline]
+    pub fn add_captures(&mut self, captures: flatbuffers::WIPOffset<flatbuffers::Vector<'b, u32>>) {
+        self.fbb_
+            .push_slot_always::<flatbuffers::WIPOffset<_>>(Graph::VT_CAPTURES, captures);
+    }
+    #[inline]
     pub fn new(_fbb: &'b mut flatbuffers::FlatBufferBuilder<'a, A>) -> GraphBuilder<'a, 'b, A> {
         let start = _fbb.start_table();
         GraphBuilder {
@@ -9482,6 +9685,7 @@ impl core::fmt::Debug for Graph<'_> {
         ds.field("nodes", &self.nodes());
         ds.field("inputs", &self.inputs());
         ds.field("outputs", &self.outputs());
+        ds.field("captures", &self.captures());
         ds.finish()
     }
 }
