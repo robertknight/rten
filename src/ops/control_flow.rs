@@ -1,6 +1,6 @@
 use rten_tensor::TensorView;
 
-use crate::graph::{CaptureEnv, Graph, RunError};
+use crate::graph::{CaptureEnv, Graph, RunError, RunOptions};
 use crate::ops::{InputList, OpError, Operator, Output, OutputList};
 use crate::tensor_pool::TensorPool;
 
@@ -47,6 +47,7 @@ impl Operator for If {
         _pool: &TensorPool,
         inputs: InputList,
         captures: &CaptureEnv,
+        run_opts: Option<RunOptions>,
     ) -> Result<OutputList, RunError> {
         let cond: TensorView<i32> = inputs.require_as(0).map_err(run_error_from_op_error)?;
         let Some(cond_bool) = cond.item().copied() else {
@@ -54,9 +55,6 @@ impl Operator for If {
                 "cond must be a single value",
             )));
         };
-
-        // TODO - Propagate run options from parent graph.
-        let run_opts = None;
 
         if cond_bool != 0 {
             self.then_branch

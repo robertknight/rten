@@ -26,7 +26,7 @@ use rten_tensor::{
 };
 
 use crate::downcast::impl_downcastdyn;
-use crate::graph::{CaptureEnv, RunError};
+use crate::graph::{CaptureEnv, RunError, RunOptions};
 use crate::tensor_pool::{ExtractBuffer, TensorPool};
 
 mod binary_elementwise;
@@ -902,6 +902,7 @@ pub trait Operator: Any + Debug {
         pool: &TensorPool,
         input: InputList,
         #[allow(unused)] captures: &CaptureEnv,
+        #[allow(unused)] run_opts: Option<RunOptions>,
     ) -> Result<OutputList, RunError> {
         self.run(pool, input)
             .map_err(|error| RunError::OperatorError {
