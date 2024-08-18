@@ -300,6 +300,13 @@ struct PlanOptions {
     /// missing. If true, the planner will create the plan as if those inputs
     /// would be provided later.
     allow_missing_inputs: bool,
+
+    /// Whether to treat a graph's captured values as available during planning.
+    ///
+    /// This should be true when generating a plan in the context of a normal
+    /// run, but false if a plan is being generated that will run a subgraph
+    /// on its own.
+    captures_available: bool,
 }
 
 /// Counter that tracks the remaining usage count of a graph node value.
@@ -736,7 +743,7 @@ impl Graph {
         outputs: &[NodeId],
         opts: Option<RunOptions>,
     ) -> Result<Vec<Output>, RunError> {
-        let plan = self.get_cached_plan(&inputs, outputs)?;
+        let plan = self.get_cached_plan(&inputs, outputs, false /* is_subgraph */)?;
         threading::thread_pool().run(|| {
             self.run_plan(
                 inputs,
@@ -761,7 +768,7 @@ impl Graph {
         pool: Option<&TensorPool>,
         opts: Option<RunOptions>,
     ) -> Result<Vec<Output>, RunError> {
-        let plan = self.get_cached_plan(&inputs, outputs)?;
+        let plan = self.get_cached_plan(&inputs, outputs, true /* is_subgraph */)?;
         self.run_plan(inputs, plan.plan(), outputs, Some(captures), pool, opts)
     }
 
@@ -769,6 +776,7 @@ impl Graph {
         &self,
         inputs: &[(NodeId, InputOrOutput)],
         outputs: &[NodeId],
+        is_subgraph: bool,
     ) -> Result<Arc<CachedPlan>, RunError> {
         // Reuse the plan from the previous run if the input and output IDs
         // match, otherwise create a new one.
@@ -785,6 +793,7 @@ impl Graph {
                     outputs,
                     PlanOptions {
                         allow_missing_inputs: false,
+                        captures_available: is_subgraph,
                     },
                 )?;
                 *cached_plan = Some(Arc::new(CachedPlan::new(&input_ids, outputs, plan)));
@@ -1155,6 +1164,7 @@ impl Graph {
             outputs,
             PlanOptions {
                 allow_missing_inputs: true,
+                captures_available: false,
             },
         )?;
         let input_ids: Vec<_> = inputs.iter().map(|(id, _)| id).copied().collect();
@@ -1188,7 +1198,8 @@ impl Graph {
         inputs: &[NodeId],
         outputs: &[NodeId],
     ) -> (Vec<NodeId>, Vec<NodeId>) {
-        let mut resolved_values = self.init_resolved_values(inputs.iter().copied());
+        let mut resolved_values =
+            self.init_resolved_values(inputs.iter().copied(), false /* include_captures */);
         let mut pruned_plan = Vec::new();
         let mut candidate_outputs = Vec::new();
 
@@ -1235,15 +1246,23 @@ impl Graph {
 
     /// Return the node IDs whose values are available at the start of graph
     /// execution, given a collection of initial inputs.
-    fn init_resolved_values<I: Iterator<Item = NodeId>>(&self, inputs: I) -> FxHashSet<NodeId> {
-        inputs
-            .chain(
-                self.nodes.iter().enumerate().filter_map(|(node_id, node)| {
+    fn init_resolved_values<I: Iterator<Item = NodeId>>(
+        &self,
+        inputs: I,
+        include_captures: bool,
+    ) -> FxHashSet<NodeId> {
+        let mut resolved: FxHashSet<NodeId> =
+            inputs
+                .chain(self.nodes.iter().enumerate().filter_map(|(node_id, node)| {
                     matches!(node, Node::Constant(_)).then_some(node_id)
-                }),
-            )
-            .chain(self.captures().iter().copied())
-            .collect()
+                }))
+                .collect();
+
+        if include_captures {
+            resolved.extend(self.captures().iter().copied());
+        }
+
+        resolved
     }
 
     /// Create an execution plan for a sequence of computation steps that begin
@@ -1332,8 +1351,10 @@ impl Graph {
         }
 
         // Set of values that are available after executing the plan
-        let resolved_values: FxHashSet<NodeId> =
-            self.init_resolved_values(inputs.iter().map(|(node_id, _)| *node_id));
+        let resolved_values: FxHashSet<NodeId> = self.init_resolved_values(
+            inputs.iter().map(|(node_id, _)| *node_id),
+            options.captures_available,
+        );
 
         let builder = PlanBuilder {
             graph: self,
@@ -1366,8 +1387,8 @@ mod tests {
     use super::{CachedPlan, CaptureEnv};
     use crate::graph::{Dimension, Graph, Node, RunError, RunOptions, TypedConstant};
     use crate::ops::{
-        Add, Concat, Conv, If, InputList, IntoOpResult, Mul, OpError, Operator, Output, OutputList,
-        Relu, Shape,
+        Add, Concat, Conv, Identity, If, InputList, IntoOpResult, Mul, OpError, Operator, Output,
+        OutputList, Relu, Shape,
     };
     use crate::tensor_pool::TensorPool;
 
@@ -2268,5 +2289,23 @@ mod tests {
             .unwrap();
         let result: Tensor<f32> = result.remove(0).try_into().unwrap();
         assert_eq!(result, Tensor::from(2.));
+    }
+
+    #[test]
+    fn test_partial_run_assumes_captures_not_available() {
+        let mut subgraph = Graph::new();
+        let sg_input = subgraph.add_value(Some("input"), None);
+        subgraph.set_captures(&[sg_input]);
+        let (_, sg_add) = subgraph.add_simple_op("Id", Identity {}, &[sg_input]);
+        subgraph.set_output_ids(&[sg_add]);
+
+        // When a subgraph is run via `run_subgraph` the planner will assume
+        // that captured values are available. When run via `partial_run` on
+        // the other hand, as used during the constant-propagation pass of
+        // graph optimization for example, the captured values should be assumed
+        // unavailable.
+        let result = subgraph.partial_run(Vec::new(), &[sg_add], None).unwrap();
+
+        assert_eq!(result.len(), 0);
     }
 }
