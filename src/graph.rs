@@ -978,6 +978,7 @@ impl Graph {
                     &pool,
                     InputList::from_optional(&op_inputs),
                     &capture_env,
+                    Some(opts.clone()),
                 );
                 result
             } else {
@@ -1343,7 +1344,7 @@ mod tests {
     use smallvec::smallvec;
 
     use super::{CachedPlan, CaptureEnv};
-    use crate::graph::{Dimension, Graph, Node, RunError, TypedConstant};
+    use crate::graph::{Dimension, Graph, Node, RunError, RunOptions, TypedConstant};
     use crate::ops::{
         Add, Concat, Conv, If, InputList, IntoOpResult, Mul, OpError, Operator, Output, OutputList,
         Relu, Shape,
@@ -2141,6 +2142,7 @@ mod tests {
             _pool: &TensorPool,
             inputs: InputList,
             captures: &CaptureEnv,
+            options: Option<RunOptions>,
         ) -> Result<OutputList, RunError> {
             let inputs = self
                 .graph
@@ -2150,7 +2152,7 @@ mod tests {
                 .zip(inputs.iter().map(|i| i.into()))
                 .collect();
             self.graph
-                .run_subgraph(inputs, self.graph.output_ids(), captures, None)
+                .run_subgraph(inputs, self.graph.output_ids(), captures, options)
                 .map(|xs| xs.into_iter().collect())
         }
     }
