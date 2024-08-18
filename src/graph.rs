@@ -1218,7 +1218,20 @@ impl Graph {
                 .iter()
                 .filter_map(|id_opt| *id_opt)
                 .all(|input_id| resolved_values.contains(&input_id));
-            if !op_node.operator.is_deterministic() || !all_inputs_available {
+
+            // Prune op if:
+            //
+            // - The output varies on each run (`Random*`)
+            // - The op has a subgraph which might have captured values that we
+            //   can't resolve. Ideally we would know exactly which captures are
+            //   available, but for the moment we just assume in `partial_run`
+            //   that none are.
+            // - We are missing a required input
+            let prune_op = !op_node.operator.is_deterministic()
+                || op_node.operator.has_subgraph()
+                || !all_inputs_available;
+
+            if prune_op {
                 for input_id in op_node.inputs.iter().filter_map(|id_opt| *id_opt) {
                     if resolved_values.contains(&input_id) {
                         pruned_ops_resolved_inputs.insert(input_id);
@@ -2304,8 +2317,31 @@ mod tests {
         // the other hand, as used during the constant-propagation pass of
         // graph optimization for example, the captured values should be assumed
         // unavailable.
+        //
+        // A smarter planner would know which captures are available rather
+        // than assuming that all or none are available.
         let result = subgraph.partial_run(Vec::new(), &[sg_add], None).unwrap();
 
+        assert_eq!(result.len(), 0);
+    }
+
+    #[test]
+    fn test_partial_run_skips_ops_with_subgraphs() {
+        let mut g = Graph::new();
+        g.add_value(Some("input"), None);
+
+        let mut subgraph = Graph::new();
+        let sg_input = subgraph.add_value(Some("input"), None);
+        subgraph.set_captures(&[sg_input]);
+        let (_, sg_add) = subgraph.add_simple_op("Id", Identity {}, &[sg_input]);
+        subgraph.set_output_ids(&[sg_add]);
+
+        let (_, out) = g.add_simple_op("Subgraph", Subgraph { graph: subgraph }, &[]);
+
+        // `partial_run` skips subgraphs at present because captures _might_
+        // not be available. A smarter planner would be aware of which captures
+        // are available.
+        let result = g.partial_run(Vec::new(), &[out], None).unwrap();
         assert_eq!(result.len(), 0);
     }
 }
