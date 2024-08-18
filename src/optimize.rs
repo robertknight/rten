@@ -34,20 +34,6 @@ impl Display for OptimizeError {
 
 impl Error for OptimizeError {}
 
-/// Optimized graph produced by [`GraphOptimizer`].
-pub struct OptimizedGraph {
-    /// The optimized graph.
-    pub graph: Graph,
-
-    /// IDs of input nodes. These correspond to the input IDs passed to
-    /// [`GraphOptimizer::optimize`].
-    pub input_ids: Vec<NodeId>,
-
-    /// IDs of output nodes. These correspond to the output IDs passed to
-    /// [`GraphOptimizer::optimize`].
-    pub output_ids: Vec<NodeId>,
-}
-
 /// Holds a [`Graph`] and associated data structures while it is being mutated
 /// by an optimizer, and provides operations to update the graph.
 struct GraphMutator {
@@ -59,7 +45,7 @@ struct GraphMutator {
 }
 
 impl GraphMutator {
-    fn from_graph(graph: Graph, output_ids: &[usize]) -> GraphMutator {
+    fn from_graph(graph: Graph) -> GraphMutator {
         // Map of value_node => operator_node.
         let edges: FxHashMap<NodeId, Vec<NodeId>> = graph.iter().fold(
             FxHashMap::default(),
@@ -78,9 +64,9 @@ impl GraphMutator {
             },
         );
         GraphMutator {
+            output_ids: graph.output_ids().to_vec(),
             edges,
             graph,
-            output_ids: output_ids.to_vec(),
         }
     }
 
@@ -123,8 +109,10 @@ impl GraphMutator {
         &self.graph
     }
 
-    fn into_graph_and_output_ids(self) -> (Graph, Vec<NodeId>) {
-        (self.graph, self.output_ids)
+    /// Update the output IDs of the graph and return it.
+    fn finalize_graph(mut self) -> Graph {
+        self.graph.set_output_ids(&self.output_ids);
+        self.graph
     }
 
     /// Iterate over operator nodes and their IDs.
@@ -295,13 +283,8 @@ impl GraphOptimizer {
     ///
     /// This method returns the new graph along with the node IDs in the new
     /// graph that correspond to `input_ids` and `output_ids`.
-    pub fn optimize(
-        &self,
-        graph: Graph,
-        input_ids: &[NodeId],
-        output_ids: &[NodeId],
-    ) -> Result<OptimizedGraph, OptimizeError> {
-        let mut graph_mut = GraphMutator::from_graph(graph, output_ids);
+    pub fn optimize(&self, graph: Graph) -> Result<Graph, OptimizeError> {
+        let mut graph_mut = GraphMutator::from_graph(graph);
 
         self.propagate_constants(&mut graph_mut)?;
 
@@ -310,13 +293,7 @@ impl GraphOptimizer {
         self.fuse_gelu(&mut graph_mut)?;
         self.fuse_layer_norm(&mut graph_mut)?;
 
-        let (graph, output_ids) = graph_mut.into_graph_and_output_ids();
-
-        Ok(OptimizedGraph {
-            graph,
-            input_ids: input_ids.to_vec(),
-            output_ids,
-        })
+        Ok(graph_mut.finalize_graph())
     }
 
     /// Apply constant propagation to replace parts of the graph which depend
@@ -553,24 +530,17 @@ mod tests {
 
     use rten_tensor::Tensor;
 
-    use super::{GraphOptimizer, OptimizeError, OptimizedGraph};
+    use super::{GraphOptimizer, OptimizeError};
     use crate::downcast::DowncastDyn;
-    use crate::graph::{Constant, Graph, Node, NodeId};
+    use crate::graph::{Constant, Graph, Node};
     use crate::ops::{
         Add, Div, Erf, LayerNormalization, MatMul, Mul, Pow, ReduceMean, Sigmoid, Sqrt, Sub,
         Transpose,
     };
 
-    fn optimize_graph(
-        graph: Graph,
-        input_ids: &[NodeId],
-        output_ids: &[NodeId],
-    ) -> Result<(Graph, Vec<NodeId>), OptimizeError> {
+    fn optimize_graph(graph: Graph) -> Result<Graph, OptimizeError> {
         let optimizer = GraphOptimizer::new();
-        let OptimizedGraph {
-            graph, output_ids, ..
-        } = optimizer.optimize(graph, input_ids, output_ids)?;
-        Ok((graph, output_ids))
+        optimizer.optimize(graph)
     }
 
     #[test]
@@ -585,26 +555,24 @@ mod tests {
         // Add an operator with a dynamic input and the output of the previous operator.
         let input = graph.add_value(Some("input"), None);
         let (add_op_2, add_2_out) = graph.add_simple_op("add_2", Add {}, &[add_out, input]);
+        graph.set_input_ids(&[input]);
+        graph.set_output_ids(&[add_out, add_2_out]);
 
         // Optimize the graph. This should replace the first operator's output
         // with a constant value.
         let optimizer = GraphOptimizer::new();
-        let OptimizedGraph {
-            graph: optimized_graph,
-            input_ids: optimized_graph_input_ids,
-            output_ids: optimized_graph_output_ids,
-        } = optimizer.optimize(graph, &[input], &[add_out, add_2_out])?;
+        let optimized_graph = optimizer.optimize(graph)?;
 
         // Check that we got the expected inputs and outputs. The optimizer
         // does not promise to preserve IDs for unmodified parts of the graph,
         // but the current implementation does.
-        assert_eq!(optimized_graph_input_ids, &[input]);
-        assert_ne!(optimized_graph_output_ids[0], add_out);
-        assert_eq!(optimized_graph_output_ids[1], add_2_out);
+        assert_eq!(optimized_graph.input_ids(), &[input]);
+        assert_ne!(optimized_graph.output_ids()[0], add_out);
+        assert_eq!(optimized_graph.output_ids()[1], add_2_out);
 
         // Check first output was replaced with constant.
         let replaced_node = optimized_graph
-            .get_node(optimized_graph_output_ids[0])
+            .get_node(optimized_graph.output_ids()[0])
             .and_then(|n| match &n {
                 Node::Constant(c) => Some(c),
                 _ => None,
@@ -626,7 +594,7 @@ mod tests {
         let input_ids: Vec<_> = op.input_ids().iter().map(|id| id.unwrap()).collect();
         assert_eq!(input_ids.len(), 2);
         assert_ne!(input_ids[0], add_out);
-        assert_eq!(input_ids[0], optimized_graph_output_ids[0]);
+        assert_eq!(input_ids[0], optimized_graph.output_ids()[0]);
         assert_eq!(input_ids[1], input);
 
         Ok(())
@@ -642,11 +610,12 @@ mod tests {
         let (_, transpose_out) =
             graph.add_simple_op("transpose", Transpose { perm: None }, &[input_1]);
         let (_, matmul_out) = graph.add_simple_op("matmul", MatMul {}, &[transpose_out, input_2]);
+        graph.set_input_ids(&[input_1, input_2]);
+        graph.set_output_ids(&[matmul_out]);
 
-        let (graph, new_output_ids) =
-            optimize_graph(graph, &[input_1, input_2], &[matmul_out]).unwrap();
+        let graph = optimize_graph(graph).unwrap();
 
-        let (_, op) = graph.get_source_node(new_output_ids[0]).unwrap();
+        let (_, op) = graph.get_source_node(graph.output_ids()[0]).unwrap();
         assert_eq!(op.operator().name(), "FusedTranspose(MatMul)");
         assert_eq!(op.name(), Some("matmul"));
     }
@@ -658,10 +627,12 @@ mod tests {
         let input = graph.add_value(None, None);
         let (_, sigmoid_out) = graph.add_simple_op("sigmoid", Sigmoid {}, &[input]);
         let (_, mul_out) = graph.add_simple_op("mul", Mul {}, &[input, sigmoid_out]);
+        graph.set_input_ids(&[input]);
+        graph.set_output_ids(&[mul_out]);
 
-        let (graph, new_output_ids) = optimize_graph(graph, &[input], &[mul_out]).unwrap();
+        let graph = optimize_graph(graph).unwrap();
 
-        let (_, op) = graph.get_source_node(new_output_ids[0]).unwrap();
+        let (_, op) = graph.get_source_node(graph.output_ids()[0]).unwrap();
         assert_eq!(op.operator().name(), "Silu");
         assert_eq!(op.name(), Some("mul"));
     }
@@ -680,14 +651,16 @@ mod tests {
         let (_, add_out) = graph.add_simple_op("add", Add {}, &[erf_out, one]);
         let (_, mul_out) = graph.add_simple_op("mul", Mul {}, &[input, add_out]);
         let (_, mul_half_out) = graph.add_simple_op("mul_half", Mul {}, &[mul_out, half]);
+        graph.set_input_ids(&[input]);
+        graph.set_output_ids(&[mul_half_out]);
 
-        let (graph, new_output_ids) = optimize_graph(graph, &[input], &[mul_half_out]).unwrap();
-        let (_, op) = graph.get_source_node(new_output_ids[0]).unwrap();
+        let graph = optimize_graph(graph).unwrap();
+        let (_, op) = graph.get_source_node(graph.output_ids()[0]).unwrap();
         assert_eq!(op.operator().name(), "Gelu");
         assert_eq!(op.name(), Some("mul_half"));
     }
 
-    fn layer_norm_graph() -> (Graph, NodeId, NodeId) {
+    fn layer_norm_graph() -> Graph {
         let mut graph = Graph::new();
         let input = graph.add_value(None, None);
 
@@ -724,14 +697,17 @@ mod tests {
         let (_, mul_out) = graph.add_simple_op("mul", Mul {}, &[div_out, scale]);
         let (_, add_out) = graph.add_simple_op("final_add", Add {}, &[mul_out, bias]);
 
-        (graph, input, add_out)
+        graph.set_input_ids(&[input]);
+        graph.set_output_ids(&[add_out]);
+
+        graph
     }
 
     #[test]
     fn test_fuse_layer_norm() {
-        let (graph, input, output) = layer_norm_graph();
-        let (graph, new_output_ids) = optimize_graph(graph, &[input], &[output]).unwrap();
-        let (_, op) = graph.get_source_node(new_output_ids[0]).unwrap();
+        let graph = layer_norm_graph();
+        let graph = optimize_graph(graph).unwrap();
+        let (_, op) = graph.get_source_node(graph.output_ids()[0]).unwrap();
         assert_eq!(op.operator().name(), "LayerNormalization");
         assert_eq!(op.name(), Some("final_add"));
 
@@ -741,10 +717,12 @@ mod tests {
 
     #[test]
     fn test_optimize_error() {
-        let graph = Graph::new();
+        let mut graph = Graph::new();
         let optimizer = GraphOptimizer::new();
         let invalid_id = 123;
-        let result = optimizer.optimize(graph, &[invalid_id], &[invalid_id]);
+        graph.set_input_ids(&[invalid_id]);
+        graph.set_output_ids(&[invalid_id]);
+        let result = optimizer.optimize(graph);
         assert!(matches!(result, Err(OptimizeError::RunError(_))));
     }
 }

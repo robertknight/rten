@@ -21,7 +21,7 @@ use crate::model_metadata::ModelMetadata;
 use crate::number::{LeBytes, Pod};
 use crate::op_registry::{OpRegistry, ReadOpError};
 use crate::ops::{InputOrOutput, Output};
-use crate::optimize::{GraphOptimizer, OptimizedGraph};
+use crate::optimize::GraphOptimizer;
 use crate::schema_generated as sg;
 use crate::schema_generated::root_as_model;
 use crate::timing::TimingSort;
@@ -98,9 +98,6 @@ use crate::timing::TimingSort;
 /// You can reduce binary size and compilation time by loading a model with
 /// only a subset of operators enabled. See [`ModelOptions::with_ops`].
 pub struct Model {
-    node_ids: HashMap<String, NodeId>,
-    input_ids: Vec<NodeId>,
-    output_ids: Vec<NodeId>,
     graph: Graph,
     metadata: ModelMetadata,
 }
@@ -293,34 +290,51 @@ impl Model {
             return Err(ModelLoadError::SchemaVersionUnsupported);
         }
 
-        let node_count = model.graph().nodes().map(|ns| ns.len()).unwrap_or(0);
+        let tensor_data_offset = header.as_ref().map(|h| h.tensor_data_offset);
+        let graph = Self::load_graph(
+            model.graph(),
+            registry,
+            storage.clone(),
+            tensor_data_offset,
+            options.optimize,
+        )?;
 
-        // Map of model node name to graph node ID
-        let mut node_id_from_name: HashMap<String, NodeId> = HashMap::with_capacity(node_count);
+        let metadata = model
+            .metadata()
+            .map(ModelMetadata::deserialize)
+            .unwrap_or_default();
+
+        let model = Model { graph, metadata };
+        Ok(model)
+    }
+
+    fn load_graph(
+        serialized_graph: sg::Graph,
+        registry: &OpRegistry,
+        storage: Arc<ConstantStorage>,
+        tensor_data_offset: Option<u64>,
+        optimize: bool,
+    ) -> Result<Graph, ModelLoadError> {
+        let node_count = serialized_graph.nodes().map(|ns| ns.len()).unwrap_or(0);
 
         // Map of model node index to graph node ID
         let mut node_id_from_index: HashMap<usize, NodeId> = HashMap::with_capacity(node_count);
 
-        let mut add_node_id = |name: Option<&str>, graph_node| {
-            if let Some(name) = name {
-                node_id_from_name.insert(name.to_string(), graph_node);
-            }
-        };
-
-        let input_ids: Vec<NodeId> = model
-            .graph()
+        let input_ids: Vec<NodeId> = serialized_graph
             .inputs()
             .map(|ids| ids.iter().map(|id| id as NodeId).collect())
             .unwrap_or_default();
 
-        let output_ids: Vec<NodeId> = model
-            .graph()
+        let output_ids: Vec<NodeId> = serialized_graph
             .outputs()
             .map(|ids| ids.iter().map(|id| id as NodeId).collect())
             .unwrap_or_default();
 
-        let mut graph = Graph::new();
-        if let Some(nodes) = model.graph().nodes() {
+        let mut graph = Graph::with_capacity(node_count);
+        graph.set_input_ids(&input_ids);
+        graph.set_output_ids(&output_ids);
+
+        if let Some(nodes) = serialized_graph.nodes() {
             for (node_index, node) in nodes.iter().enumerate() {
                 let graph_node = if let Some(operator) = node.data_as_operator_node() {
                     Self::add_graph_operator(
@@ -338,43 +352,23 @@ impl Model {
                         node.name(),
                         constant,
                         &storage,
-                        header.as_ref().map(|h| h.tensor_data_offset),
+                        tensor_data_offset,
                     )?
                 } else {
                     return Err(ModelLoadError::GraphError("unknown node type".to_string()));
                 };
-                add_node_id(node.name(), graph_node);
                 node_id_from_index.insert(node_index, graph_node);
             }
         }
 
-        let metadata = model
-            .metadata()
-            .map(ModelMetadata::deserialize)
-            .unwrap_or_default();
-
-        let (graph, input_ids, output_ids) = if options.optimize {
-            let opt = GraphOptimizer::new();
-            let OptimizedGraph {
-                graph,
-                input_ids,
-                output_ids,
-            } = opt
-                .optimize(graph, &input_ids, &output_ids)
-                .map_err(|err| ModelLoadError::OptimizeError(Box::new(err)))?;
-            (graph, input_ids, output_ids)
+        if optimize {
+            let optimizer = GraphOptimizer::new();
+            optimizer
+                .optimize(graph)
+                .map_err(|err| ModelLoadError::OptimizeError(Box::new(err)))
         } else {
-            (graph, input_ids, output_ids)
-        };
-
-        let model = Model {
-            node_ids: node_id_from_name,
-            input_ids,
-            output_ids,
-            graph,
-            metadata,
-        };
-        Ok(model)
+            Ok(graph)
+        }
     }
 
     fn add_graph_operator(
@@ -507,7 +501,7 @@ impl Model {
 
     /// Find a node in the model's graph given its string name.
     pub fn find_node(&self, id: &str) -> Option<NodeId> {
-        self.node_ids.get(id).copied()
+        self.graph.get_node_id(id)
     }
 
     /// Find a node in the model's graph given its string name.
@@ -515,9 +509,7 @@ impl Model {
     /// This is a convenience method which is like [Model::find_node] but
     /// returns an error that includes the node's name if the node is not found.
     pub fn node_id(&self, id: &str) -> Result<NodeId, RunError> {
-        self.node_ids
-            .get(id)
-            .copied()
+        self.find_node(id)
             .ok_or_else(|| RunError::InvalidNodeName(id.to_string()))
     }
 
@@ -533,12 +525,12 @@ impl Model {
 
     /// Return the IDs of input nodes.
     pub fn input_ids(&self) -> &[NodeId] {
-        &self.input_ids
+        self.graph.input_ids()
     }
 
     /// Return the IDs of output nodes.
     pub fn output_ids(&self) -> &[NodeId] {
-        &self.output_ids
+        self.graph.output_ids()
     }
 
     /// Return the total number of parameters in the model's weights.
@@ -550,7 +542,7 @@ impl Model {
     ///
     /// The shape may contain a mix of fixed and symbolic dimensions.
     pub fn input_shape(&self, index: usize) -> Option<Vec<Dimension>> {
-        let input_id = self.input_ids.get(index)?;
+        let input_id = self.graph.input_ids().get(index)?;
         let node_info = self.node_info(*input_id)?;
         node_info.shape()
     }
