@@ -178,22 +178,6 @@ macro_rules! impl_to_constant_data {
 impl_to_constant_data!(f32, Float32, FloatData, FloatDataArgs);
 impl_to_constant_data!(i32, Int32, IntData, IntDataArgs);
 
-/// Serializes models to the RTen model format.
-///
-/// This exists for use in model-loading tests. Models for deployment are
-/// normally built by converting ONNX models using the Python scripts.
-pub struct ModelBuilder<'a> {
-    builder: FlatBufferBuilder<'a>,
-    nodes: Vec<WIPOffset<sg::Node<'a>>>,
-    input_ids: Vec<u32>,
-    output_ids: Vec<u32>,
-    metadata: Option<WIPOffset<sg::Metadata<'a>>>,
-
-    // Builder for the buffer containing tensor data stored outside the model.
-    // `None` if building the V1 format which stores all data inline.
-    tensor_data_builder: Option<TensorDataBuilder>,
-}
-
 enum NodeData<'a> {
     Constant(WIPOffset<sg::ConstantNode<'a>>),
     Value(WIPOffset<sg::ValueNode<'a>>),
@@ -223,19 +207,28 @@ fn pad_args_from_padding(padding: Padding) -> PadArgs {
     }
 }
 
-impl<'a> ModelBuilder<'a> {
-    pub fn new(format: ModelFormat) -> ModelBuilder<'a> {
-        let builder = FlatBufferBuilder::with_capacity(1024);
-        ModelBuilder {
+/// Builder for serializing a graph or subgraph to FlatBuffers.
+pub struct GraphBuilder<'mb, 'a> {
+    builder: &'mb mut FlatBufferBuilder<'a>,
+    tensor_data_builder: Option<&'mb mut TensorDataBuilder>,
+
+    nodes: Vec<WIPOffset<sg::Node<'a>>>,
+    input_ids: Vec<u32>,
+    output_ids: Vec<u32>,
+}
+
+impl<'mb, 'a> GraphBuilder<'mb, 'a> {
+    fn new(
+        builder: &'mb mut FlatBufferBuilder<'a>,
+        tensor_data_builder: Option<&'mb mut TensorDataBuilder>,
+    ) -> GraphBuilder<'mb, 'a> {
+        GraphBuilder {
             builder,
+            tensor_data_builder,
+
             nodes: Vec::new(),
             input_ids: Vec::new(),
             output_ids: Vec::new(),
-            metadata: None,
-            tensor_data_builder: match format {
-                ModelFormat::V1 => None,
-                ModelFormat::V2 => Some(TensorDataBuilder::new()),
-            },
         }
     }
 
@@ -250,7 +243,7 @@ impl<'a> ModelBuilder<'a> {
             data_type,
             data: Some(union_val),
         };
-        let node = sg::Node::create(&mut self.builder, &args);
+        let node = sg::Node::create(self.builder, &args);
         self.nodes.push(node);
         (self.nodes.len() - 1) as u32
     }
@@ -277,7 +270,7 @@ impl<'a> ModelBuilder<'a> {
             }
         } else {
             let (inline_dtype, data) =
-                <T as ToConstantData>::create_inline_data(&mut self.builder, &elts);
+                <T as ToConstantData>::create_inline_data(self.builder, &elts);
 
             sg::ConstantNodeArgs {
                 shape: Some(shape_vec),
@@ -288,7 +281,7 @@ impl<'a> ModelBuilder<'a> {
             }
         };
 
-        let const_node = sg::ConstantNode::create(&mut self.builder, &args);
+        let const_node = sg::ConstantNode::create(self.builder, &args);
         self.add_node(None, NodeData::Constant(const_node))
     }
 
@@ -299,7 +292,7 @@ impl<'a> ModelBuilder<'a> {
                 .iter()
                 .map(|dim| match dim {
                     Dimension::Fixed(value) => sg::Dim::create(
-                        &mut self.builder,
+                        self.builder,
                         &sg::DimArgs {
                             name: None,
                             value: *value as u32,
@@ -308,7 +301,7 @@ impl<'a> ModelBuilder<'a> {
                     Dimension::Symbolic(name) => {
                         let name_offset = self.builder.create_string(name);
                         sg::Dim::create(
-                            &mut self.builder,
+                            self.builder,
                             &sg::DimArgs {
                                 name: Some(name_offset),
                                 value: 0,
@@ -319,20 +312,8 @@ impl<'a> ModelBuilder<'a> {
                 .collect();
             self.builder.create_vector(&dim_vec[..])
         });
-        let value_node = sg::ValueNode::create(&mut self.builder, &sg::ValueNodeArgs { shape });
+        let value_node = sg::ValueNode::create(self.builder, &sg::ValueNodeArgs { shape });
         self.add_node(Some(id), NodeData::Value(value_node))
-    }
-
-    /// Convert a `Vec<T>` of elements to a `Vec<U>` and add them to the model buffer
-    fn create_vec<T: Copy, U: flatbuffers::Push + Copy, F: Fn(T) -> U>(
-        &mut self,
-        data: Option<Vec<T>>,
-        map: F,
-    ) -> Option<WIPOffset<Vector<'a, U::Output>>> {
-        data.map(|vec| {
-            let converted_vec: Vec<U> = vec.iter().copied().map(map).collect();
-            self.builder.create_vector(&converted_vec)
-        })
     }
 
     /// Add an operator node to the model
@@ -356,7 +337,7 @@ impl<'a> ModelBuilder<'a> {
         macro_rules! op_with_attrs {
             ($op_name:ident, $attr_type:ident, $args: expr) => {{
                 let args = ($args);
-                let attrs = sg::$attr_type::create(&mut self.builder, &args).as_union_value();
+                let attrs = sg::$attr_type::create(self.builder, &args).as_union_value();
                 (
                     sg::OperatorType::$op_name,
                     sg::OperatorAttrs::$attr_type,
@@ -442,7 +423,7 @@ impl<'a> ModelBuilder<'a> {
                             value_type: sg::Scalar::IntScalar,
                             value: Some(
                                 sg::IntScalar::create(
-                                    &mut self.builder,
+                                    self.builder,
                                     &sg::IntScalarArgs { value: int_value },
                                 )
                                 .as_union_value(),
@@ -452,7 +433,7 @@ impl<'a> ModelBuilder<'a> {
                             value_type: sg::Scalar::FloatScalar,
                             value: Some(
                                 sg::FloatScalar::create(
-                                    &mut self.builder,
+                                    self.builder,
                                     &sg::FloatScalarArgs { value: float_value },
                                 )
                                 .as_union_value(),
@@ -804,7 +785,7 @@ impl<'a> ModelBuilder<'a> {
         let input_vec = self.builder.create_vector(&input_ids);
         let output_vec = self.builder.create_vector(&output_ids);
         let op_node = sg::OperatorNode::create(
-            &mut self.builder,
+            self.builder,
             &sg::OperatorNodeArgs {
                 type_: op_type,
                 attrs_type,
@@ -826,6 +807,79 @@ impl<'a> ModelBuilder<'a> {
         self.output_ids.push(node_id);
     }
 
+    /// Convert a `Vec<T>` of elements to a `Vec<U>` and add them to the model buffer
+    fn create_vec<T: Copy, U: flatbuffers::Push + Copy, F: Fn(T) -> U>(
+        &mut self,
+        data: Option<Vec<T>>,
+        map: F,
+    ) -> Option<WIPOffset<Vector<'a, U::Output>>> {
+        data.map(|vec| {
+            let converted_vec: Vec<U> = vec.iter().copied().map(map).collect();
+            self.builder.create_vector(&converted_vec)
+        })
+    }
+
+    /// Finish writing this graph to the FlatBuffers buffer.
+    pub fn finish(self) -> WIPOffset<sg::Graph<'a>> {
+        let inputs_vec = self.builder.create_vector(&self.input_ids[..]);
+        let outputs_vec = self.builder.create_vector(&self.output_ids[..]);
+        let nodes_vec = self.builder.create_vector(&self.nodes[..]);
+
+        sg::Graph::create(
+            self.builder,
+            &sg::GraphArgs {
+                nodes: Some(nodes_vec),
+                inputs: Some(inputs_vec),
+                outputs: Some(outputs_vec),
+            },
+        )
+    }
+}
+
+/// Serializes models to the RTen model format.
+///
+/// This exists for use in model-loading tests. Models for deployment are
+/// normally built by converting ONNX models using the Python scripts.
+pub struct ModelBuilder<'a> {
+    builder: FlatBufferBuilder<'a>,
+    graph: Option<WIPOffset<sg::Graph<'a>>>,
+    metadata: Option<WIPOffset<sg::Metadata<'a>>>,
+
+    // Builder for the buffer containing tensor data stored outside the model.
+    // `None` if building the V1 format which stores all data inline.
+    tensor_data_builder: Option<TensorDataBuilder>,
+}
+
+impl<'a> ModelBuilder<'a> {
+    pub fn new(format: ModelFormat) -> ModelBuilder<'a> {
+        let builder = FlatBufferBuilder::with_capacity(1024);
+        ModelBuilder {
+            builder,
+            graph: None,
+            metadata: None,
+            tensor_data_builder: match format {
+                ModelFormat::V1 => None,
+                ModelFormat::V2 => Some(TensorDataBuilder::new()),
+            },
+        }
+    }
+
+    /// Return a builder that can be used to serialize the main graph for the
+    /// model.
+    ///
+    /// Call [`GraphBuilder::finish`] to finish serialization and pass the
+    /// result to [`set_graph`](ModelBuilder::set_graph).
+    pub fn graph_builder<'mb>(&'mb mut self) -> GraphBuilder<'mb, 'a> {
+        GraphBuilder::new(&mut self.builder, self.tensor_data_builder.as_mut())
+    }
+
+    /// Set the main graph for this model.
+    ///
+    /// To construct the graph, use [`graph_builder`](ModelBuilder::graph_builder).
+    pub fn set_graph(&mut self, graph: WIPOffset<sg::Graph<'a>>) {
+        self.graph = Some(graph);
+    }
+
     /// Add model metadata
     pub fn add_metadata(&mut self, metadata: MetadataArgs) {
         let hash = metadata
@@ -841,24 +895,11 @@ impl<'a> ModelBuilder<'a> {
 
     /// Finish writing the model data to the buffer and return the buffer's contents.
     pub fn finish(mut self) -> Vec<u8> {
-        let inputs_vec = self.builder.create_vector(&self.input_ids[..]);
-        let outputs_vec = self.builder.create_vector(&self.output_ids[..]);
-        let nodes_vec = self.builder.create_vector(&self.nodes[..]);
-
-        let graph = sg::Graph::create(
-            &mut self.builder,
-            &sg::GraphArgs {
-                nodes: Some(nodes_vec),
-                inputs: Some(inputs_vec),
-                outputs: Some(outputs_vec),
-            },
-        );
-
         let model = sg::Model::create(
             &mut self.builder,
             &sg::ModelArgs {
                 schema_version: 1,
-                graph: Some(graph),
+                graph: self.graph,
                 metadata: self.metadata,
             },
         );

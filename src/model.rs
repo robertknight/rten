@@ -746,7 +746,7 @@ mod tests {
 
     use crate::graph::{Dimension, RunError};
     use crate::model::{Model, ModelOptions};
-    use crate::model_builder::{MetadataArgs, ModelBuilder, ModelFormat, OpType};
+    use crate::model_builder::{GraphBuilder, MetadataArgs, ModelBuilder, ModelFormat, OpType};
     use crate::ops;
     use crate::ops::{
         BoxOrder, CoordTransformMode, NearestMode, OpError, Output, ResizeMode, Scalar,
@@ -755,9 +755,10 @@ mod tests {
 
     fn generate_model_buffer(format: ModelFormat) -> Vec<u8> {
         let mut builder = ModelBuilder::new(format);
+        let mut graph_builder = builder.graph_builder();
 
         let const_val = Tensor::from_data(&[1, 2, 2], vec![0.5, -0.5, 0.1, -0.1]);
-        let const_node = builder.add_constant(const_val.view());
+        let const_node = graph_builder.add_constant(const_val.view());
 
         let input_shape: Vec<Dimension> = const_val
             .shape()
@@ -765,21 +766,23 @@ mod tests {
             .copied()
             .map(Dimension::Fixed)
             .collect();
-        let input_node = builder.add_value("input", Some(&input_shape));
-        let output_node = builder.add_value("output", None);
+        let input_node = graph_builder.add_value("input", Some(&input_shape));
+        let output_node = graph_builder.add_value("output", None);
 
-        builder.add_input(input_node);
-        builder.add_output(output_node);
+        graph_builder.add_input(input_node);
+        graph_builder.add_output(output_node);
 
-        let concat_out = builder.add_value("concat_out", None);
-        builder.add_operator(
+        let concat_out = graph_builder.add_value("concat_out", None);
+        graph_builder.add_operator(
             "concat",
             OpType::Concat(ops::Concat { axis: 0 }),
             &[const_node, input_node].map(Some),
             &[concat_out],
         );
-        builder.add_operator("relu", OpType::Relu, &[Some(concat_out)], &[output_node]);
+        graph_builder.add_operator("relu", OpType::Relu, &[Some(concat_out)], &[output_node]);
 
+        let graph = graph_builder.finish();
+        builder.set_graph(graph);
         builder.add_metadata(MetadataArgs {
             onnx_hash: Some("abc".to_string()),
         });
@@ -1017,11 +1020,14 @@ mod tests {
     #[test]
     fn test_omitted_optional_inputs() {
         let mut builder = ModelBuilder::new(ModelFormat::V2);
+        let mut graph_builder = builder.graph_builder();
 
-        let output_node = builder.add_value("output", None);
-        builder.add_output(output_node);
-        builder.add_operator("shape", OpType::Shape, &[None], &[output_node]);
+        let output_node = graph_builder.add_value("output", None);
+        graph_builder.add_output(output_node);
+        graph_builder.add_operator("shape", OpType::Shape, &[None], &[output_node]);
 
+        let graph = graph_builder.finish();
+        builder.set_graph(graph);
         let buffer = builder.finish();
 
         // Load with optimizations disabled to prevent the optimizer from
@@ -1048,23 +1054,24 @@ mod tests {
     #[test]
     fn test_all_op_types() {
         let mut builder = ModelBuilder::new(ModelFormat::V2);
+        let mut graph_builder = builder.graph_builder();
 
-        let input_node = builder.add_value("input", None);
-        let input_2d = builder.add_value("input.2d", None);
-        let input_bool = builder.add_value("input.bool", None);
+        let input_node = graph_builder.add_value("input", None);
+        let input_2d = graph_builder.add_value("input.2d", None);
+        let input_bool = graph_builder.add_value("input.bool", None);
 
         // 4D shape used as the primary input to test most operators (eg. NCHW image). A few
         // require a different shape.
         let input_shape = [1, 1, 3, 3];
 
         let kernel_val = Tensor::from_data(&[1, 1, 1, 1], vec![0.5]);
-        let kernel = builder.add_constant(kernel_val.view());
+        let kernel = graph_builder.add_constant(kernel_val.view());
 
         // Names of all operator output nodes.
         let mut op_outputs = Vec::new();
 
         let mut add_operator =
-            |builder: &mut ModelBuilder, name: &str, op: OpType, input_nodes: &[Option<u32>]| {
+            |builder: &mut GraphBuilder, name: &str, op: OpType, input_nodes: &[Option<u32>]| {
                 let output_name = format!("{}_out", name);
                 let op_output_node = builder.add_value(&output_name, None);
                 builder.add_operator(name, op, input_nodes, &[op_output_node]);
@@ -1078,7 +1085,7 @@ mod tests {
         macro_rules! add_operator {
             ($op_name:ident, $op_inputs:expr) => {
                 add_operator(
-                    &mut builder,
+                    &mut graph_builder,
                     stringify!($op_name),
                     OpType::$op_name,
                     &$op_inputs.map(Some),
@@ -1087,7 +1094,7 @@ mod tests {
 
             ($op_name:ident, $op_inputs:expr, $attrs: tt) => {
                 add_operator(
-                    &mut builder,
+                    &mut graph_builder,
                     stringify!($op_name),
                     OpType::$op_name(ops::$op_name $attrs),
                     &$op_inputs.map(Some),
@@ -1113,7 +1120,7 @@ mod tests {
         // Dummy value for BatchNormalization inputs which are vectors with
         // per-channel values.
         let batch_norm_param_val = Tensor::from([1.0]);
-        let batch_norm_param = builder.add_constant(batch_norm_param_val.view());
+        let batch_norm_param = graph_builder.add_constant(batch_norm_param_val.view());
         add_operator!(
             BatchNormalization,
             [
@@ -1129,12 +1136,12 @@ mod tests {
         add_operator!(Cast, [input_node], { to: ops::DataType::Float });
         add_operator!(Ceil, [input_node]);
 
-        let clip_min = builder.add_constant(Tensor::from(1.).view());
-        let clip_max = builder.add_constant(Tensor::from(6.).view());
+        let clip_min = graph_builder.add_constant(Tensor::from(1.).view());
+        let clip_max = graph_builder.add_constant(Tensor::from(6.).view());
         add_operator!(Clip, [input_node, clip_min, clip_max]);
         add_operator!(Concat, [input_node, input_node], { axis: 0 });
 
-        let shape = builder.add_constant(Tensor::from([1, 5, 10]).view());
+        let shape = graph_builder.add_constant(Tensor::from([1, 5, 10]).view());
         add_operator!(ConstantOfShape, [shape], { value: Scalar::Int(42) });
 
         add_operator!(Conv, [input_node, kernel], {
@@ -1156,18 +1163,19 @@ mod tests {
         add_operator!(Exp, [input_node]);
 
         let expand_shape_val = Tensor::from([2, 2, 3, 3]);
-        let expand_shape = builder.add_constant(expand_shape_val.view());
+        let expand_shape = graph_builder.add_constant(expand_shape_val.view());
         add_operator!(Expand, [input_node, expand_shape]);
 
         add_operator!(Flatten, [input_node], { axis: 1 });
         add_operator!(Floor, [input_node]);
 
         let gather_indices_val = Tensor::from([0]);
-        let gather_indices = builder.add_constant(gather_indices_val.view());
+        let gather_indices = graph_builder.add_constant(gather_indices_val.view());
         add_operator!(Gather, [input_node, gather_indices], { axis: 0 });
 
         let gather_elements_indices_val = Tensor::<i32>::zeros(&input_shape);
-        let gather_elements_indices = builder.add_constant(gather_elements_indices_val.view());
+        let gather_elements_indices =
+            graph_builder.add_constant(gather_elements_indices_val.view());
         add_operator!(GatherElements, [input_node, gather_elements_indices], { axis: 0 });
         add_operator!(Gelu, [input_node], {});
         add_operator!(Gemm, [input_2d, input_2d], {
@@ -1190,17 +1198,17 @@ mod tests {
         add_operator!(Identity, [input_node]);
 
         let instance_norm_scale_val = Tensor::from([1.0]);
-        let instance_norm_scale = builder.add_constant(instance_norm_scale_val.view());
+        let instance_norm_scale = graph_builder.add_constant(instance_norm_scale_val.view());
         let instance_norm_bias_val = Tensor::from([1.0]);
-        let instance_norm_bias = builder.add_constant(instance_norm_bias_val.view());
+        let instance_norm_bias = graph_builder.add_constant(instance_norm_bias_val.view());
         add_operator!(InstanceNormalization, [
             input_node, instance_norm_scale, instance_norm_bias
         ], { epsilon: Some(1e-5) });
 
         let layer_norm_scale_val = Tensor::from([1.0]);
-        let layer_norm_scale = builder.add_constant(layer_norm_scale_val.view());
+        let layer_norm_scale = graph_builder.add_constant(layer_norm_scale_val.view());
         let layer_norm_bias_val = Tensor::from([1.0]);
-        let layer_norm_bias = builder.add_constant(layer_norm_bias_val.view());
+        let layer_norm_bias = graph_builder.add_constant(layer_norm_bias_val.view());
         add_operator!(LayerNormalization, [
             input_node, layer_norm_scale, layer_norm_bias
         ], { axis: -1, epsilon: Some(1e-5) });
@@ -1230,12 +1238,13 @@ mod tests {
 
         let nms_n_boxes = 10;
         let nms_n_classes = 20;
-        let nms_boxes = builder.add_constant(Tensor::<f32>::zeros(&[1, nms_n_boxes, 4]).view());
-        let nms_scores =
-            builder.add_constant(Tensor::<f32>::zeros(&[1, nms_n_classes, nms_n_boxes]).view());
-        let nms_max_outputs_per_class = builder.add_constant(Tensor::from(10).view());
-        let nms_iou_threshold = builder.add_constant(Tensor::from(0.45).view());
-        let nms_score_threshold = builder.add_constant(Tensor::from(0.2).view());
+        let nms_boxes =
+            graph_builder.add_constant(Tensor::<f32>::zeros(&[1, nms_n_boxes, 4]).view());
+        let nms_scores = graph_builder
+            .add_constant(Tensor::<f32>::zeros(&[1, nms_n_classes, nms_n_boxes]).view());
+        let nms_max_outputs_per_class = graph_builder.add_constant(Tensor::from(10).view());
+        let nms_iou_threshold = graph_builder.add_constant(Tensor::from(0.45).view());
+        let nms_score_threshold = graph_builder.add_constant(Tensor::from(0.2).view());
 
         add_operator!(NonMaxSuppression, [nms_boxes, nms_scores, nms_max_outputs_per_class, nms_iou_threshold, nms_score_threshold], {
             box_order: BoxOrder::CenterWidthHeight,
@@ -1244,16 +1253,16 @@ mod tests {
         add_operator!(NonZero, [input_node]);
         add_operator!(Not, [input_bool]);
 
-        let onehot_indices = builder.add_constant(Tensor::from([0, 1, 2]).view());
-        let onehot_depth = builder.add_constant(Tensor::from(5).view());
-        let onehot_values = builder.add_constant(Tensor::from([1., 0.]).view());
+        let onehot_indices = graph_builder.add_constant(Tensor::from([0, 1, 2]).view());
+        let onehot_depth = graph_builder.add_constant(Tensor::from(5).view());
+        let onehot_values = graph_builder.add_constant(Tensor::from([1., 0.]).view());
         add_operator!(OneHot, [onehot_indices, onehot_depth, onehot_values], {
             axis: -1,
         });
 
         add_operator!(Or, [input_bool, input_bool]);
 
-        let pads = builder.add_constant(Tensor::from([0, 0, 1, 1, 0, 0, 1, 1]).view());
+        let pads = graph_builder.add_constant(Tensor::from([0, 0, 1, 1, 0, 0, 1, 1]).view());
         add_operator!(Pad, [input_node, pads]);
         add_operator!(Pow, [input_node, input_node]);
 
@@ -1280,9 +1289,9 @@ mod tests {
             seed: None,
         });
 
-        let range_start_node = builder.add_value("range_start", None);
-        let range_limit_node = builder.add_value("range_limit", None);
-        let range_delta_node = builder.add_value("range_delta", None);
+        let range_start_node = graph_builder.add_value("range_start", None);
+        let range_limit_node = graph_builder.add_value("range_limit", None);
+        let range_delta_node = graph_builder.add_value("range_delta", None);
         let range_out = add_operator!(
             Range,
             [range_start_node, range_limit_node, range_delta_node]
@@ -1315,15 +1324,15 @@ mod tests {
         });
         add_operator!(Relu, [input_node]);
 
-        let new_shape = builder.add_constant(Tensor::from([9]).view());
+        let new_shape = graph_builder.add_constant(Tensor::from([9]).view());
         add_operator!(Reshape, [input_node, new_shape], {
             allow_zero: false,
         });
 
         let resize_roi_val = Tensor::from([0., 0., 0., 0., 1., 1., 1., 1.]);
         let resize_scales_val = Tensor::from([1., 1., 2., 2.]);
-        let resize_roi = builder.add_constant(resize_roi_val.view());
-        let resize_scales = builder.add_constant(resize_scales_val.view());
+        let resize_roi = graph_builder.add_constant(resize_roi_val.view());
+        let resize_scales = graph_builder.add_constant(resize_scales_val.view());
         add_operator!(Resize, [input_node, resize_roi, resize_scales], {
             mode: ResizeMode::Nearest,
             nearest_mode: NearestMode::default(),
@@ -1339,17 +1348,17 @@ mod tests {
         add_operator!(Size, [input_node]);
 
         let scatter_elem_indices_val = Tensor::<i32>::zeros(&input_shape);
-        let scatter_elem_indices = builder.add_constant(scatter_elem_indices_val.view());
+        let scatter_elem_indices = graph_builder.add_constant(scatter_elem_indices_val.view());
         let scatter_elem_updates_val = Tensor::<f32>::zeros(&input_shape);
-        let scatter_elem_updates = builder.add_constant(scatter_elem_updates_val.view());
+        let scatter_elem_updates = graph_builder.add_constant(scatter_elem_updates_val.view());
         add_operator!(
             ScatterElements,
             [input_node, scatter_elem_indices, scatter_elem_updates],
             { axis: 0, reduction: None }
         );
 
-        let const_0 = builder.add_constant(Tensor::from([0]).view());
-        let const_1 = builder.add_constant(Tensor::from([1]).view());
+        let const_0 = graph_builder.add_constant(Tensor::from([0]).view());
+        let const_1 = graph_builder.add_constant(Tensor::from([1]).view());
         add_operator!(Slice, [input_node, const_0, const_1, const_0]);
 
         add_operator!(Softplus, [input_node]);
@@ -1357,10 +1366,10 @@ mod tests {
         add_operator!(Sqrt, [input_node]);
         add_operator!(Squeeze, [input_node]);
 
-        let split_splits = builder.add_constant(Tensor::from([1, 2]).view());
-        let split_out_1 = builder.add_value("Split_out_1", None);
-        let split_out_2 = builder.add_value("Split_out_2", None);
-        builder.add_operator(
+        let split_splits = graph_builder.add_constant(Tensor::from([1, 2]).view());
+        let split_out_1 = graph_builder.add_value("Split_out_1", None);
+        let split_out_2 = graph_builder.add_value("Split_out_2", None);
+        graph_builder.add_operator(
             "Split",
             OpType::Split(ops::Split { axis: 1 }),
             &[input_2d, split_splits].map(Some),
@@ -1372,13 +1381,13 @@ mod tests {
         add_operator!(Tan, [input_node]);
         add_operator!(Tanh, [input_node]);
 
-        let tile_repeats = builder.add_constant(Tensor::from([1, 2, 3, 4]).view());
+        let tile_repeats = graph_builder.add_constant(Tensor::from([1, 2, 3, 4]).view());
         add_operator!(Tile, [input_node, tile_repeats]);
 
-        let topk_k = builder.add_constant(Tensor::from(3).view());
-        let topk_out_values = builder.add_value("TopK_out_values", None);
-        let topk_out_indices = builder.add_value("TopK_out_indices", None);
-        builder.add_operator(
+        let topk_k = graph_builder.add_constant(Tensor::from(3).view());
+        let topk_out_values = graph_builder.add_value("TopK_out_values", None);
+        let topk_out_indices = graph_builder.add_value("TopK_out_indices", None);
+        graph_builder.add_operator(
             "TopK",
             OpType::TopK(ops::TopK {
                 largest: true,
@@ -1393,16 +1402,18 @@ mod tests {
 
         add_operator!(Trilu, [input_node], { upper: true });
 
-        let unsqueeze_axes = builder.add_constant(Tensor::from([0, 4]).view());
+        let unsqueeze_axes = graph_builder.add_constant(Tensor::from([0, 4]).view());
         add_operator!(Unsqueeze, [input_node, unsqueeze_axes]);
 
-        let where_cond = builder.add_value("where_cond", None);
-        let where_x = builder.add_value("where_x", None);
-        let where_y = builder.add_value("where_y", None);
+        let where_cond = graph_builder.add_value("where_cond", None);
+        let where_x = graph_builder.add_value("where_x", None);
+        let where_y = graph_builder.add_value("where_y", None);
         let where_out = add_operator!(Where, [where_cond, where_x, where_y]);
 
         add_operator!(Xor, [input_bool, input_bool]);
 
+        let graph = graph_builder.finish();
+        builder.set_graph(graph);
         let buffer = builder.finish();
 
         let model = Model::load(buffer).unwrap();
