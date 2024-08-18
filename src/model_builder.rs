@@ -18,8 +18,15 @@ use crate::schema_generated as sg;
 #[cfg(feature = "random")]
 use crate::ops::{RandomNormal, RandomNormalLike, RandomUniform, RandomUniformLike};
 
+/// Struct like `crate::ops::If` with subgraph attributes replaced by
+/// pre-serialized graphs.
+pub struct IfArgs<'a> {
+    pub then_branch: WIPOffset<sg::Graph<'a>>,
+    pub else_branch: WIPOffset<sg::Graph<'a>>,
+}
+
 /// Enum of all the built-in operators
-pub enum OpType {
+pub enum OpType<'a> {
     Abs,
     Acos,
     Add,
@@ -58,6 +65,7 @@ pub enum OpType {
     HardSigmoid(HardSigmoid),
     HardSwish,
     Identity,
+    If(IfArgs<'a>),
     InstanceNormalization(InstanceNormalization),
     LayerNormalization(LayerNormalization),
     LeakyRelu(LeakyRelu),
@@ -246,6 +254,18 @@ impl<'mb, 'a> GraphBuilder<'mb, 'a> {
         let node = sg::Node::create(self.builder, &args);
         self.nodes.push(node);
         (self.nodes.len() - 1) as u32
+    }
+
+    /// Return a graph builder for a subgraph.
+    pub fn subgraph_builder(&mut self) -> GraphBuilder<'_, 'a> {
+        GraphBuilder::new(
+            self.builder,
+            if let Some(tdb) = self.tensor_data_builder.as_mut() {
+                Some(*tdb)
+            } else {
+                None
+            },
+        )
     }
 
     /// Add a constant node (eg. weights, biases) to the model
@@ -538,6 +558,14 @@ impl<'mb, 'a> GraphBuilder<'mb, 'a> {
             ),
             OpType::HardSwish => op!(HardSwish),
             OpType::Identity => op!(Identity),
+            OpType::If(args) => op_with_attrs!(
+                If,
+                IfAttrs,
+                sg::IfAttrsArgs {
+                    then_branch: Some(args.then_branch),
+                    else_branch: Some(args.else_branch),
+                }
+            ),
             OpType::InstanceNormalization(args) => op_with_attrs!(
                 InstanceNormalization,
                 BatchNormalizationAttrs,
@@ -831,6 +859,7 @@ impl<'mb, 'a> GraphBuilder<'mb, 'a> {
                 nodes: Some(nodes_vec),
                 inputs: Some(inputs_vec),
                 outputs: Some(outputs_vec),
+                captures: None,
             },
         )
     }

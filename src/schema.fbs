@@ -117,6 +117,7 @@ enum OperatorType: ubyte {
   GatherND,
   Gelu,
   Einsum,
+  If,
 }
 
 enum RNNDirection: ubyte {
@@ -200,6 +201,7 @@ union OperatorAttrs {
   GatherNDAttrs,
   GeluAttrs,
   EinsumAttrs,
+  IfAttrs,
 }
 
 table ArgMaxAttrs {
@@ -313,6 +315,11 @@ table GRUAttrs {
 table HardSigmoidAttrs {
   alpha:float;
   beta:float;
+}
+
+table IfAttrs {
+  then_branch:Graph;
+  else_branch:Graph;
 }
 
 table LeakyReluAttrs {
@@ -508,7 +515,10 @@ table Node {
   data:NodeKind;
 }
 
-// Dataflow graph for the model
+// Graph describing a sequence of operations in a model.
+//
+// This is analagous to the body of a function or closure in a programming
+// language.
 table Graph {
   // Nodes are sorted in topological order. This means that if a node references
   // other nodes (eg. an operator node referencing inputs), the referents must
@@ -520,6 +530,10 @@ table Graph {
 
   // IDs of output nodes
   outputs:[uint];
+
+  // IDs of nodes which capture their values from the enclosing scope when
+  // this graph is run as a subgraph.
+  captures:[uint];
 }
 
 table Metadata {

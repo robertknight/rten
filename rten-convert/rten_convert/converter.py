@@ -144,10 +144,20 @@ class Graph:
     outputs: list[int]
     """Indices of nodes in `nodes` that are model outputs."""
 
-    def __init__(self, nodes: list[Node], inputs: list[int], outputs: list[int]):
+    captures: list[int] | None
+    """Indices of nodes in `nodes` that are captured from parent scopes at runtime."""
+
+    def __init__(
+        self,
+        nodes: list[Node],
+        inputs: list[int],
+        outputs: list[int],
+        captures: list[int] | None = None,
+    ):
         self.nodes = nodes
         self.inputs = inputs
         self.outputs = outputs
+        self.captures = captures
 
 
 @dataclass
@@ -177,6 +187,7 @@ class Metadata:
 # AttributeProto, you get a default value instead of an exception.
 value_fields = {
     onnx.AttributeProto.FLOAT: "f",
+    onnx.AttributeProto.GRAPH: "g",
     onnx.AttributeProto.INT: "i",
     onnx.AttributeProto.INTS: "ints",
     onnx.AttributeProto.STRING: "s",
@@ -756,6 +767,19 @@ def op_node_from_onnx_operator(
             attrs.alpha = op_reader.get_attr("alpha", "float", 0.2)
             attrs.beta = op_reader.get_attr("beta", "float", 0.5)
 
+        case "If":
+            attrs = sg.IfAttrsT()
+
+            then_branch = graph_from_onnx_graph(
+                op_reader.get_attr("then_branch", "graph", None), allow_captures=True
+            )
+            attrs.thenBranch = DummyGraphT(then_branch, None)
+
+            else_branch = graph_from_onnx_graph(
+                op_reader.get_attr("else_branch", "graph", None), allow_captures=True
+            )
+            attrs.elseBranch = DummyGraphT(else_branch, None)
+
         case "InstanceNormalization":
             attrs = sg.BatchNormalizationAttrsT()
             attrs.epsilon = op_reader.get_attr("epsilon", "float", 1e-5)
@@ -965,9 +989,14 @@ def duplicate_node_names(nodes: list[onnx.ValueInfoProto]) -> list[str]:
     return dupes
 
 
-def graph_from_onnx_graph(onnx_graph: onnx.GraphProto) -> Graph:
+def graph_from_onnx_graph(onnx_graph: onnx.GraphProto, allow_captures=False) -> Graph:
     """
     Parse an ONNX model into a graph representation compatible with this library.
+
+    :param allow_captures:
+        Whether operator inputs are allowed to reference value names that do
+        not appear in the graph. If true, such inputs are captured from the
+        parent scope at runtime.
     """
 
     nodes: list[Node] = []
@@ -977,6 +1006,15 @@ def graph_from_onnx_graph(onnx_graph: onnx.GraphProto) -> Graph:
 
     # Map of constant/initializer name to node.
     constant_map: dict[str, ConstantNode] = {}
+
+    # IDs of value nodes that are not listed in the graph's inputs or computed
+    # by operator outputs. These are resolved at runtime by looking up the name
+    # in parent scopes.
+    capture_ids: list[int] | None
+    if allow_captures:
+        capture_ids = []
+    else:
+        capture_ids = None
 
     def add_node(node: Node) -> int:
         nodes.append(node)
@@ -1042,6 +1080,14 @@ def graph_from_onnx_graph(onnx_graph: onnx.GraphProto) -> Graph:
         if operator.op_type == "Constant":
             continue
 
+        # If converting a subgraph, create capture nodes for any input names
+        # which don't appear in the graph.
+        if capture_ids is not None:
+            for input_name in operator.input:
+                if input_name not in value_name_to_index:
+                    capture_id = add_node(ValueNode(name=input_name, shape=None))
+                    capture_ids.append(capture_id)
+
         for output_name in operator.output:
             # If this output is also a model output, it will have been
             # registered already.
@@ -1081,7 +1127,7 @@ def graph_from_onnx_graph(onnx_graph: onnx.GraphProto) -> Graph:
 
     inputs = [value_name_to_index[info.name] for info in onnx_graph.input]
     outputs = [value_name_to_index[info.name] for info in onnx_graph.output]
-    return Graph(nodes=nodes, inputs=inputs, outputs=outputs)
+    return Graph(nodes=nodes, inputs=inputs, outputs=outputs, captures=capture_ids)
 
 
 def build_constant_node(
@@ -1172,7 +1218,24 @@ def write_vec(
     return builder.EndVector()
 
 
-def build_operator_node(builder: flatbuffers.Builder, operator: OperatorNode):
+class DummyGraphT(sg.GraphT):
+    """
+    Replacement for `sg.GraphT` whose `Pack` method serializes a `Graph` object.
+    """
+
+    def __init__(self, graph: Graph, tensor_data: TensorDataBuilder | None):
+        self.graph = graph
+        self.tensor_data = tensor_data
+
+    def Pack(self, builder):
+        return build_graph(builder, self.graph, self.tensor_data)
+
+
+def build_operator_node(
+    builder: flatbuffers.Builder,
+    operator: OperatorNode,
+    tensor_data: TensorDataBuilder | None,
+):
     """
     Serialize an operator into a FlatBuffers model.
     """
@@ -1190,6 +1253,13 @@ def build_operator_node(builder: flatbuffers.Builder, operator: OperatorNode):
 
     operator_table.attrsType = attrs_type
     operator_table.attrs = operator.attrs
+
+    # If any attributes are graphs, update the `tensor_data` reference used when
+    # serializing.
+    if operator.attrs:
+        for attr, val in operator.attrs.__dict__.items():
+            if isinstance(val, DummyGraphT):
+                val.tensor_data = tensor_data
 
     def node_id(maybe_id: int | None) -> int:
         if maybe_id is None:
@@ -1276,7 +1346,7 @@ def build_graph(
                 data = build_constant_node(builder, node, tensor_data)
             case OperatorNode():
                 data_type = sg.NodeKind.OperatorNode
-                data = build_operator_node(builder, node)
+                data = build_operator_node(builder, node, tensor_data)
             case ValueNode():
                 data_type = sg.NodeKind.ValueNode
                 data = build_value_node(builder, node)
@@ -1295,10 +1365,21 @@ def build_graph(
     inputs = write_vec(builder, sg.GraphStartInputsVector, graph.inputs, "u32")
     outputs = write_vec(builder, sg.GraphStartOutputsVector, graph.outputs, "u32")
 
+    if graph.captures is not None:
+        captures = write_vec(
+            builder, sg.GraphStartCapturesVector, graph.captures, "u32"
+        )
+    else:
+        captures = None
+
     sg.GraphStart(builder)
     sg.GraphAddNodes(builder, graph_nodes)
     sg.GraphAddInputs(builder, inputs)
     sg.GraphAddOutputs(builder, outputs)
+
+    if captures is not None:
+        sg.GraphAddCaptures(builder, captures)
+
     return sg.GraphEnd(builder)
 
 

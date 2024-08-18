@@ -396,6 +396,71 @@ impl CachedPlan {
     }
 }
 
+/// An environment from which subgraphs can resolve captured values.
+///
+/// Subgraphs used by control flow operators (`If`, `Loop` etc.) may contain
+/// value nodes that capture their values from parent graphs, like a captured
+/// value in a Rust closure.
+///
+/// `CaptureEnv`s are arranged in a hierarchy. Value lookups will attempt to
+/// look up the value in the environment's associated graph. If no such node
+/// exists, the value will be looked up in the parent environment and so on.
+#[derive(Clone)]
+pub struct CaptureEnv<'a> {
+    // The parent environment to search if a node name is not found in this
+    // environment.
+    parent: Option<&'a CaptureEnv<'a>>,
+
+    // The "local" graph for this environment. Node names are looked up in
+    // this graph first and if found, values are resolved from `inputs` or
+    // `temp_values`.
+    graph: &'a Graph,
+
+    // Values passed as inputs to the graph run.
+    inputs: &'a FxHashMap<NodeId, InputOrOutput<'a>>,
+
+    // Temporary values computed during the graph run.
+    temp_values: &'a FxHashMap<NodeId, Output>,
+}
+
+impl<'a> CaptureEnv<'a> {
+    fn new(
+        parent: Option<&'a CaptureEnv<'a>>,
+        graph: &'a Graph,
+        inputs: &'a FxHashMap<NodeId, InputOrOutput<'a>>,
+        temp_values: &'a FxHashMap<NodeId, Output>,
+    ) -> CaptureEnv<'a> {
+        CaptureEnv {
+            parent,
+            graph,
+            inputs,
+            temp_values,
+        }
+    }
+
+    /// Look up an operator input value by name in this environment.
+    pub fn get_input(&self, name: &str) -> Option<Input<'a>> {
+        if let Some(node_id) = self.graph.get_node_id(name) {
+            // If a node by this name exists in this graph, but is a placeholder
+            // for a value captured from a parent graph, then ignore it.
+            if !self.graph.captures().contains(&node_id) {
+                // Otherwise, get the value from this scope.
+                return match self.graph.get_node(node_id) {
+                    Some(Node::Constant(c)) => Some(c.as_input()),
+                    Some(Node::Value(_)) => self
+                        .temp_values
+                        .get(&node_id)
+                        .map(|i| i.as_input())
+                        .or_else(|| self.inputs.get(&node_id).map(|i| i.as_input())),
+                    _ => None,
+                };
+            }
+        }
+
+        self.parent.and_then(|parent| parent.get_input(name))
+    }
+}
+
 /// Options that control logging and other behaviors when executing a
 /// [Model](crate::Model).
 #[derive(Clone, Default, PartialEq)]
@@ -426,10 +491,21 @@ pub struct RunOptions {
 /// weights produced during training, a dynamic value passed or computed at
 /// runtime, or an operator.
 ///
+/// ## Input and output nodes
+///
 /// A subset of the nodes are designated as the default inputs and outputs.
 /// These constitute the "public API" of the graph and will be preserved after
 /// any optimizations applied to the graph structure at runtime. Other
 /// "internal" nodes may be replaced or removed.
+///
+/// ## Captured nodes
+///
+/// Control flow operators such as `If` and `Loop` execute subgraphs. Operators
+/// in these subgraphs may reference inputs which are not computed by the
+/// subgraph but are instead looked up by name in parent graphs. Nodes are
+/// created in the subgraph to represent these captured values, and their IDs
+/// are referenced in operator input lists. The IDs of all these nodes are
+/// returned by [`captures`](Graph::captures).
 pub struct Graph {
     nodes: Vec<Node>,
 
@@ -447,6 +523,9 @@ pub struct Graph {
     output_ids: Vec<NodeId>,
 
     node_id_from_name: HashMap<String, NodeId>,
+
+    /// IDs of nodes that represent values captured from the parent scope.
+    captures: Vec<NodeId>,
 }
 
 impl Graph {
@@ -463,6 +542,7 @@ impl Graph {
             source_ids: FxHashMap::default(),
             input_ids: Vec::with_capacity(n_nodes),
             output_ids: Vec::with_capacity(n_nodes),
+            captures: Vec::with_capacity(n_nodes),
             node_id_from_name: HashMap::with_capacity(n_nodes),
         }
     }
@@ -485,6 +565,17 @@ impl Graph {
     /// Return the nodes which are the default outputs for this graph.
     pub fn output_ids(&self) -> &[NodeId] {
         &self.output_ids
+    }
+
+    /// Set the IDs of nodes whose values are captured from the enclosing scope.
+    pub fn set_captures(&mut self, captures: &[NodeId]) {
+        self.captures = captures.to_vec()
+    }
+
+    /// Return the IDs of nodes whose values are captured from the enclosing
+    /// scope.
+    pub fn captures(&self) -> &[NodeId] {
+        &self.captures
     }
 
     fn add_node(&mut self, node: Node) -> NodeId {
@@ -645,31 +736,52 @@ impl Graph {
         outputs: &[NodeId],
         opts: Option<RunOptions>,
     ) -> Result<Vec<Output>, RunError> {
-        let plan = {
-            // Reuse the plan from the previous run if the input and output IDs
-            // match, otherwise create a new one.
-            //
-            // Note that we only hold the plan lock while creating the plan,
-            // not while executing the model.
-            let mut cached_plan = self.cached_plan.lock().unwrap();
-            let input_ids: Vec<_> = inputs.iter().map(|(node_id, _)| *node_id).collect();
-            match cached_plan.as_ref() {
-                Some(plan) if plan.matches(&input_ids, outputs) => plan.clone(),
-                _ => {
-                    let plan = self.create_plan(
-                        &inputs,
-                        outputs,
-                        PlanOptions {
-                            allow_missing_inputs: false,
-                        },
-                    )?;
-                    *cached_plan = Some(Arc::new(CachedPlan::new(&input_ids, outputs, plan)));
-                    cached_plan.clone().unwrap()
-                }
+        let plan = self.get_cached_plan(&inputs, outputs)?;
+        threading::thread_pool().run(|| self.run_plan(inputs, plan.plan(), outputs, None, opts))
+    }
+
+    /// Compute output values from a subgraph.
+    ///
+    /// This method is like [`run`](Self::run) but has a `captures` argument
+    /// which allows the subgraph to access values in the parent scope.
+    pub fn run_subgraph(
+        &self,
+        inputs: Vec<(NodeId, InputOrOutput)>,
+        outputs: &[NodeId],
+        captures: &CaptureEnv,
+        opts: Option<RunOptions>,
+    ) -> Result<Vec<Output>, RunError> {
+        let plan = self.get_cached_plan(&inputs, outputs)?;
+        self.run_plan(inputs, plan.plan(), outputs, Some(captures), opts)
+    }
+
+    fn get_cached_plan(
+        &self,
+        inputs: &[(NodeId, InputOrOutput)],
+        outputs: &[NodeId],
+    ) -> Result<Arc<CachedPlan>, RunError> {
+        // Reuse the plan from the previous run if the input and output IDs
+        // match, otherwise create a new one.
+        //
+        // Note that we only hold the plan lock while creating the plan,
+        // not while executing the model.
+        let mut cached_plan = self.cached_plan.lock().unwrap();
+        let input_ids: Vec<_> = inputs.iter().map(|(node_id, _)| *node_id).collect();
+        let plan = match cached_plan.as_ref() {
+            Some(plan) if plan.matches(&input_ids, outputs) => plan.clone(),
+            _ => {
+                let plan = self.create_plan(
+                    inputs,
+                    outputs,
+                    PlanOptions {
+                        allow_missing_inputs: false,
+                    },
+                )?;
+                *cached_plan = Some(Arc::new(CachedPlan::new(&input_ids, outputs, plan)));
+                cached_plan.clone().unwrap()
             }
         };
-
-        threading::thread_pool().run(|| self.run_plan(inputs, plan.plan(), outputs, opts))
+        Ok(plan)
     }
 
     fn run_plan(
@@ -677,6 +789,7 @@ impl Graph {
         mut inputs: Vec<(NodeId, InputOrOutput)>,
         plan: &[NodeId],
         outputs: &[NodeId],
+        captures: Option<&CaptureEnv>,
         opts: Option<RunOptions>,
     ) -> Result<Vec<Output>, RunError> {
         let opts = opts.unwrap_or_default();
@@ -704,10 +817,15 @@ impl Graph {
             match self.nodes.get(node_id) {
                 Some(Node::Constant(constant)) => Some(constant.as_input()),
                 Some(Node::Value(_)) => inputs_by_id.get(&node_id).map(|input| input.as_input()),
-                Some(Node::Operator(_)) | None => {
+                _ => {
                     panic!("node is not a value or constant");
                 }
             }
+        };
+
+        let get_value_from_capture = |node_id: NodeId| -> Option<Input> {
+            let name = self.nodes.get(node_id).and_then(|n| n.name())?;
+            captures.as_ref().and_then(|cap| cap.get_input(name))
         };
 
         // Count how often each temporary output is used, so we can free them
@@ -813,6 +931,8 @@ impl Graph {
                         op_inputs.push(Some(value));
                     } else if let Some(value) = temp_values.get(node_id) {
                         op_inputs.push(Some(value.as_input()));
+                    } else if let Some(value) = get_value_from_capture(*node_id) {
+                        op_inputs.push(Some(value))
                     } else {
                         // If this is reached, there was a bug in plan creation.
                         panic!(
@@ -840,16 +960,31 @@ impl Graph {
                 Vec::new()
             };
 
+            let op_error_to_run_error = |op_error| RunError::OperatorError {
+                name: op_node.name.as_deref().unwrap_or("").to_string(),
+                error: op_error,
+            };
+
             // Run the operation.
             let op_result = if let Some(input) = in_place_input {
                 op_node
                     .operator
                     .run_in_place(&pool, input, InputList::from_optional(&op_inputs))
                     .map(|out| [out].into())
+                    .map_err(op_error_to_run_error)
+            } else if op_node.operator.has_subgraph() {
+                let capture_env = CaptureEnv::new(captures, self, &inputs_by_id, &temp_values);
+                let result = op_node.operator.run_subgraph(
+                    &pool,
+                    InputList::from_optional(&op_inputs),
+                    &capture_env,
+                );
+                result
             } else {
                 op_node
                     .operator
                     .run(&pool, InputList::from_optional(&op_inputs))
+                    .map_err(op_error_to_run_error)
             };
             std::mem::drop(op_inputs);
 
@@ -862,10 +997,7 @@ impl Graph {
             }
 
             // Extract outputs or fail if an error occurred.
-            let outputs = op_result.map_err(|op_error| RunError::OperatorError {
-                name: op_node.name.as_deref().unwrap_or("").to_string(),
-                error: op_error,
-            })?;
+            let outputs = op_result?;
             if op_node.outputs.len() != outputs.len() {
                 return Err(RunError::OutputMismatch(
                     "operator output count did not match expected count",
@@ -915,6 +1047,8 @@ impl Graph {
             .map(|output_id| {
                 if let Some(value) = get_value_from_constant_or_input(*output_id) {
                     value.to_output()
+                } else if let Some(value) = get_value_from_capture(*output_id) {
+                    value.to_output()
                 } else {
                     // During execution planning we verified that each output
                     // ID is valid and unique, so this should always succeed.
@@ -930,7 +1064,7 @@ impl Graph {
         &self,
         step: usize,
         op_node: &OperatorNode,
-        op_result: &Result<OutputList, OpError>,
+        op_result: &Result<OutputList, RunError>,
         op_duration: Duration,
         input_shapes: &[InputShape],
     ) {
@@ -1013,7 +1147,7 @@ impl Graph {
         let input_ids: Vec<_> = inputs.iter().map(|(id, _)| id).copied().collect();
         let (pruned_plan, pruned_plan_output_ids) = self.prune_plan(&plan, &input_ids, outputs);
         let outputs = threading::thread_pool()
-            .run(|| self.run_plan(inputs, &pruned_plan, &pruned_plan_output_ids, opts))?;
+            .run(|| self.run_plan(inputs, &pruned_plan, &pruned_plan_output_ids, None, opts))?;
         let output_ids_and_values: Vec<_> =
             pruned_plan_output_ids.into_iter().zip(outputs).collect();
         Ok(output_ids_and_values)
@@ -1087,6 +1221,7 @@ impl Graph {
                     matches!(node, Node::Constant(_)).then_some(node_id)
                 }),
             )
+            .chain(self.captures().iter().copied())
             .collect()
     }
 
@@ -1134,7 +1269,9 @@ impl Graph {
                     }
                     if let Some((input_op_id, input_op_node)) = self.graph.get_source_node(input) {
                         self.visit(input_op_id, input_op_node)?;
-                    } else if self.options.allow_missing_inputs {
+                    } else if self.options.allow_missing_inputs
+                        || self.graph.captures().contains(&input)
+                    {
                         continue;
                     } else {
                         let msg = format!(
@@ -1205,11 +1342,11 @@ mod tests {
 
     use smallvec::smallvec;
 
-    use super::CachedPlan;
+    use super::{CachedPlan, CaptureEnv};
     use crate::graph::{Dimension, Graph, Node, RunError, TypedConstant};
     use crate::ops::{
-        Add, Concat, Conv, InputList, IntoOpResult, OpError, Operator, Output, OutputList, Relu,
-        Shape,
+        Add, Concat, Conv, If, InputList, IntoOpResult, Mul, OpError, Operator, Output, OutputList,
+        Relu, Shape,
     };
     use crate::tensor_pool::TensorPool;
 
@@ -1970,5 +2107,138 @@ mod tests {
         // Different input and output IDs
         assert!(!plan.matches(&[20, 21, 22], output_ids));
         assert!(!plan.matches(input_ids, &[20, 21, 22]));
+    }
+
+    /// A trivial control flow operator which just forwards inputs to a subgraph
+    /// and returns its outputs.
+    struct Subgraph {
+        graph: Graph,
+    }
+
+    impl std::fmt::Debug for Subgraph {
+        fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> Result<(), std::fmt::Error> {
+            write!(f, "Subgraph {{ ... }}")
+        }
+    }
+
+    impl Operator for Subgraph {
+        fn name(&self) -> &str {
+            "Subgraph"
+        }
+
+        fn run(&self, _pool: &TensorPool, _inputs: InputList) -> Result<OutputList, OpError> {
+            Err(OpError::InvalidValue(
+                "operator must be run with `run_subgraph`",
+            ))
+        }
+
+        fn has_subgraph(&self) -> bool {
+            true
+        }
+
+        fn run_subgraph(
+            &self,
+            _pool: &TensorPool,
+            inputs: InputList,
+            captures: &CaptureEnv,
+        ) -> Result<OutputList, RunError> {
+            let inputs = self
+                .graph
+                .input_ids()
+                .iter()
+                .copied()
+                .zip(inputs.iter().map(|i| i.into()))
+                .collect();
+            self.graph
+                .run_subgraph(inputs, self.graph.output_ids(), captures, None)
+                .map(|xs| xs.into_iter().collect())
+        }
+    }
+
+    #[test]
+    fn test_subgraph() {
+        let mut g = Graph::new();
+        let input = g.add_value(Some("input"), None);
+
+        // Add subgraphs for `If` operation. These capture `input`.
+        let mut then_branch = Graph::new();
+        let tb_input = then_branch.add_value(Some("input"), None);
+        let two = then_branch.add_constant(None, Tensor::from(2.));
+        let (_, tb_output) = then_branch.add_simple_op("Mul", Mul {}, &[tb_input, two]);
+        then_branch.set_captures(&[tb_input]);
+        then_branch.set_output_ids(&[tb_output]);
+
+        let mut else_branch = Graph::new();
+        let eb_input = else_branch.add_value(Some("input"), None);
+        let three = else_branch.add_constant(None, Tensor::from(3.));
+        let (_, eb_output) = else_branch.add_simple_op("Mul", Mul {}, &[eb_input, three]);
+        else_branch.set_captures(&[eb_input]);
+        else_branch.set_output_ids(&[eb_output]);
+
+        // Add `If` operator that runs one of two subgraphs.
+        let cond = g.add_value(Some("cond"), None);
+        let branch = If {
+            then_branch,
+            else_branch,
+        };
+        let (_, if_out) = g.add_simple_op("If", branch, &[cond]);
+
+        // Evaluate `then` branch
+        let mut result = g
+            .run(
+                vec![
+                    (input, Tensor::from(2.).into()),
+                    (cond, Tensor::from(1).into()),
+                ],
+                &[if_out],
+                None,
+            )
+            .unwrap();
+        let result: Tensor<f32> = result.remove(0).try_into().unwrap();
+        assert_eq!(result, Tensor::from(4.));
+
+        // Evaluate `else` branch
+        let mut result = g
+            .run(
+                vec![
+                    (input, Tensor::from(2.).into()),
+                    (cond, Tensor::from(0).into()),
+                ],
+                &[if_out],
+                None,
+            )
+            .unwrap();
+        let result: Tensor<f32> = result.remove(0).try_into().unwrap();
+        assert_eq!(result, Tensor::from(6.));
+    }
+
+    #[test]
+    fn test_nested_subgraph() {
+        let mut g = Graph::new();
+        let input = g.add_value(Some("input"), None);
+
+        let mut subgraph = Graph::new();
+
+        let mut nested_subgraph = Graph::new();
+        let ns_input = nested_subgraph.add_value(Some("input"), None);
+        nested_subgraph.set_captures(&[ns_input]);
+        nested_subgraph.set_output_ids(&[ns_input]);
+
+        let (_, ns_out) = subgraph.add_simple_op(
+            "Subgraph",
+            Subgraph {
+                graph: nested_subgraph,
+            },
+            &[],
+        );
+        subgraph.set_output_ids(&[ns_out]);
+
+        let (_, sg_out) = g.add_simple_op("Subgraph", Subgraph { graph: subgraph }, &[]);
+
+        let mut result = g
+            .run(vec![(input, Tensor::from(2.).into())], &[sg_out], None)
+            .unwrap();
+        let result: Tensor<f32> = result.remove(0).try_into().unwrap();
+        assert_eq!(result, Tensor::from(2.));
     }
 }
