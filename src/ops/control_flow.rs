@@ -43,8 +43,7 @@ impl Operator for If {
 
     fn run_subgraph(
         &self,
-        // TODO - Use the pool for running the subgraph.
-        _pool: &TensorPool,
+        pool: &TensorPool,
         inputs: InputList,
         captures: &CaptureEnv,
         run_opts: Option<RunOptions>,
@@ -62,6 +61,7 @@ impl Operator for If {
                     Vec::new(),
                     self.then_branch.output_ids(),
                     captures,
+                    Some(pool),
                     run_opts,
                 )
                 .map(output_list_from_vec)
@@ -71,6 +71,7 @@ impl Operator for If {
                     Vec::new(),
                     self.else_branch.output_ids(),
                     captures,
+                    Some(pool),
                     run_opts,
                 )
                 .map(output_list_from_vec)
