@@ -737,7 +737,16 @@ impl Graph {
         opts: Option<RunOptions>,
     ) -> Result<Vec<Output>, RunError> {
         let plan = self.get_cached_plan(&inputs, outputs)?;
-        threading::thread_pool().run(|| self.run_plan(inputs, plan.plan(), outputs, None, opts))
+        threading::thread_pool().run(|| {
+            self.run_plan(
+                inputs,
+                plan.plan(),
+                outputs,
+                None, /* captures */
+                None, /* pool */
+                opts,
+            )
+        })
     }
 
     /// Compute output values from a subgraph.
@@ -749,10 +758,11 @@ impl Graph {
         inputs: Vec<(NodeId, InputOrOutput)>,
         outputs: &[NodeId],
         captures: &CaptureEnv,
+        pool: Option<&TensorPool>,
         opts: Option<RunOptions>,
     ) -> Result<Vec<Output>, RunError> {
         let plan = self.get_cached_plan(&inputs, outputs)?;
-        self.run_plan(inputs, plan.plan(), outputs, Some(captures), opts)
+        self.run_plan(inputs, plan.plan(), outputs, Some(captures), pool, opts)
     }
 
     fn get_cached_plan(
@@ -790,6 +800,7 @@ impl Graph {
         plan: &[NodeId],
         outputs: &[NodeId],
         captures: Option<&CaptureEnv>,
+        pool: Option<&TensorPool>,
         opts: Option<RunOptions>,
     ) -> Result<Vec<Output>, RunError> {
         let opts = opts.unwrap_or_default();
@@ -850,12 +861,13 @@ impl Graph {
             temp_value_refcount.inc(*node_id);
         }
 
-        // Create a pool to re-use buffers across execution steps.
+        // Create or re-use pool for buffer allocations.
         //
         // If the feature flag is off, we still create the pool, but never
         // release buffers back into it, so all allocations use the system
         // allocator.
-        let pool = TensorPool::new();
+        let new_pool = TensorPool::new();
+        let pool = pool.unwrap_or(&new_pool);
         let use_pool = env_flag("RTEN_USE_POOL", true);
 
         // Execute the plan
@@ -969,13 +981,13 @@ impl Graph {
             let op_result = if let Some(input) = in_place_input {
                 op_node
                     .operator
-                    .run_in_place(&pool, input, InputList::from_optional(&op_inputs))
+                    .run_in_place(pool, input, InputList::from_optional(&op_inputs))
                     .map(|out| [out].into())
                     .map_err(op_error_to_run_error)
             } else if op_node.operator.has_subgraph() {
                 let capture_env = CaptureEnv::new(captures, self, &inputs_by_id, &temp_values);
                 let result = op_node.operator.run_subgraph(
-                    &pool,
+                    pool,
                     InputList::from_optional(&op_inputs),
                     &capture_env,
                     Some(opts.clone()),
@@ -984,7 +996,7 @@ impl Graph {
             } else {
                 op_node
                     .operator
-                    .run(&pool, InputList::from_optional(&op_inputs))
+                    .run(pool, InputList::from_optional(&op_inputs))
                     .map_err(op_error_to_run_error)
             };
             std::mem::drop(op_inputs);
@@ -1019,7 +1031,7 @@ impl Graph {
                 let rc = temp_value_refcount.dec(node_id);
                 if rc == Some(0) {
                     if let (true, Some(tensor)) = (use_pool, temp_values.remove(&node_id)) {
-                        tensor.add_to_pool(&pool)
+                        tensor.add_to_pool(pool)
                     }
                 }
             }
@@ -1039,7 +1051,7 @@ impl Graph {
         }
 
         if opts.timing {
-            self.print_run_timing(plan, &pool, &op_timing_records, &opts);
+            self.print_run_timing(plan, pool, &op_timing_records, &opts);
         }
 
         // Return the requested outputs
@@ -1147,8 +1159,16 @@ impl Graph {
         )?;
         let input_ids: Vec<_> = inputs.iter().map(|(id, _)| id).copied().collect();
         let (pruned_plan, pruned_plan_output_ids) = self.prune_plan(&plan, &input_ids, outputs);
-        let outputs = threading::thread_pool()
-            .run(|| self.run_plan(inputs, &pruned_plan, &pruned_plan_output_ids, None, opts))?;
+        let outputs = threading::thread_pool().run(|| {
+            self.run_plan(
+                inputs,
+                &pruned_plan,
+                &pruned_plan_output_ids,
+                None, /* captures */
+                None, /* pool */
+                opts,
+            )
+        })?;
         let output_ids_and_values: Vec<_> =
             pruned_plan_output_ids.into_iter().zip(outputs).collect();
         Ok(output_ids_and_values)
@@ -2139,7 +2159,7 @@ mod tests {
 
         fn run_subgraph(
             &self,
-            _pool: &TensorPool,
+            pool: &TensorPool,
             inputs: InputList,
             captures: &CaptureEnv,
             options: Option<RunOptions>,
@@ -2152,7 +2172,13 @@ mod tests {
                 .zip(inputs.iter().map(|i| i.into()))
                 .collect();
             self.graph
-                .run_subgraph(inputs, self.graph.output_ids(), captures, options)
+                .run_subgraph(
+                    inputs,
+                    self.graph.output_ids(),
+                    captures,
+                    Some(pool),
+                    options,
+                )
                 .map(|xs| xs.into_iter().collect())
         }
     }
