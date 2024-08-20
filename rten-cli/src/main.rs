@@ -10,6 +10,9 @@ struct Args {
     /// Model file to load.
     model: String,
 
+    /// Run model and don't produce other output
+    quiet: bool,
+
     /// Show operator timing stats.
     timing: bool,
 
@@ -97,6 +100,7 @@ fn parse_args() -> Result<Args, lexopt::Error> {
     let mut values = VecDeque::new();
 
     let mut n_iters = 1;
+    let mut quiet = false;
     let mut timing = false;
     let mut verbose = false;
     let mut input_sizes = Vec::new();
@@ -111,6 +115,7 @@ fn parse_args() -> Result<Args, lexopt::Error> {
                     .parse()
                     .map_err(|_| "Unable to parse `n_iters`".to_string())?;
             }
+            Short('q') | Long("quiet") => quiet = true,
             Short('v') | Long("verbose") => verbose = true,
             Short('V') | Long("version") => {
                 println!("rten {}", env!("CARGO_PKG_VERSION"));
@@ -138,6 +143,8 @@ Options:
   -n, --n_iters <n>
                  Number of times to evaluate model
 
+  -q, --quiet    Run model and don't produce other output
+
   -t, --timing   Output timing info
 
   -s, --size <spec>
@@ -160,6 +167,7 @@ Options:
     Ok(Args {
         model,
         n_iters,
+        quiet,
         timing,
         verbose,
         input_sizes,
@@ -201,6 +209,7 @@ fn run_with_random_input(
     dim_sizes: &[DimSize],
     run_opts: RunOptions,
     n_iters: u32,
+    quiet: bool,
 ) -> Result<(), Box<dyn Error>> {
     let mut rng = fastrand::Rng::new();
 
@@ -223,10 +232,12 @@ fn run_with_random_input(
                         if let Some(ds) = dim_size {
                             ds.size
                         } else {
-                            println!(
-                                "  Size not specified for dynamic dimension \"{}.{}\". Defaulting to 1.",
-                                name, dim_name
-                            );
+                            if !quiet {
+                                println!(
+                                    "  Size not specified for dynamic dimension \"{}.{}\". Defaulting to 1.",
+                                    name, dim_name
+                                );
+                            }
                             1
                         }
                     }
@@ -267,17 +278,21 @@ fn run_with_random_input(
         .map(|(id, output)| (*id, InputOrOutput::from(output)))
         .collect();
 
-    for (id, input) in inputs.iter() {
-        let info = model.node_info(*id);
-        let name = info
-            .as_ref()
-            .and_then(|ni| ni.name())
-            .unwrap_or("(unnamed)");
-        println!("  Input \"{name}\" generated shape {:?}", input.shape());
+    if !quiet {
+        for (id, input) in inputs.iter() {
+            let info = model.node_info(*id);
+            let name = info
+                .as_ref()
+                .and_then(|ni| ni.name())
+                .unwrap_or("(unnamed)");
+            println!("  Input \"{name}\" generated shape {:?}", input.shape());
+        }
     }
 
     // Run model and summarize outputs.
-    println!();
+    if !quiet {
+        println!();
+    }
     let mut remaining_iters = n_iters.max(1);
     let mut outputs;
     loop {
@@ -285,18 +300,22 @@ fn run_with_random_input(
         outputs = model.run(inputs.clone(), model.output_ids(), Some(run_opts.clone()))?;
         let elapsed = start.elapsed().as_millis();
 
-        println!(
-            "  Model returned {} outputs in {:.2}ms.",
-            outputs.len(),
-            elapsed
-        );
+        if !quiet {
+            println!(
+                "  Model returned {} outputs in {:.2}ms.",
+                outputs.len(),
+                elapsed
+            );
+        }
 
         remaining_iters -= 1;
         if remaining_iters == 0 {
             break;
         }
     }
-    println!();
+    if !quiet {
+        println!();
+    }
 
     let output_names: Vec<String> = model
         .output_ids()
@@ -309,16 +328,18 @@ fn run_with_random_input(
         })
         .collect();
 
-    for (i, (output, name)) in outputs.iter().zip(output_names).enumerate() {
-        let dtype = match output {
-            Output::FloatTensor(_) => "f32",
-            Output::IntTensor(_) => "i32",
-        };
-        println!(
-            "  Output {i} \"{name}\" data type {} shape: {:?}",
-            dtype,
-            output.shape()
-        );
+    if !quiet {
+        for (i, (output, name)) in outputs.iter().zip(output_names).enumerate() {
+            let dtype = match output {
+                Output::FloatTensor(_) => "f32",
+                Output::IntTensor(_) => "i32",
+            };
+            println!(
+                "  Output {i} \"{name}\" data type {} shape: {:?}",
+                dtype,
+                output.shape()
+            );
+        }
     }
 
     Ok(())
@@ -368,26 +389,29 @@ fn main() -> Result<(), Box<dyn Error>> {
     let args = parse_args()?;
     let model = Model::load_file(args.model)?;
 
-    println!(
-        "Model summary: {} inputs, {} outputs, {} params",
-        model.input_ids().len(),
-        model.output_ids().len(),
-        format_param_count(model.total_params()),
-    );
-    println!();
+    if !args.quiet {
+        println!(
+            "Model summary: {} inputs, {} outputs, {} params",
+            model.input_ids().len(),
+            model.output_ids().len(),
+            format_param_count(model.total_params()),
+        );
+        println!();
 
-    println!("Inputs");
-    print_input_output_list(&model, model.input_ids());
-    println!();
+        println!("Inputs");
+        print_input_output_list(&model, model.input_ids());
+        println!();
 
-    println!("Outputs");
-    print_input_output_list(&model, model.output_ids());
-    println!();
+        println!("Outputs");
+        print_input_output_list(&model, model.output_ids());
+        println!();
 
-    print_metadata(model.metadata());
+        print_metadata(model.metadata());
 
-    println!();
-    println!("Running model with random inputs...");
+        println!();
+        println!("Running model with random inputs...");
+    }
+
     run_with_random_input(
         &model,
         &args.input_sizes,
@@ -397,6 +421,7 @@ fn main() -> Result<(), Box<dyn Error>> {
             ..Default::default()
         },
         args.n_iters,
+        args.quiet,
     )?;
 
     Ok(())
