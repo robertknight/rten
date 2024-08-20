@@ -584,11 +584,6 @@ mod tests {
         };
         assert_eq!(const_int.view(), Tensor::from([5, 7, 9]));
 
-        let Constant::Int8(const_int) = replaced_node else {
-            return Err("constant not an int".into());
-        };
-        assert_eq!(const_int.view(), Tensor::from([5, 7, 9]));
-
         // Check input to second operator was replaced with constant.
         let op = optimized_graph
             .get_node(add_op_2)
