@@ -96,7 +96,8 @@ impl Operator for Expand {
 
         match input {
             Input::FloatTensor(input) => expand(pool, input, &shape).into_op_result(),
-            Input::IntTensor(input) => expand(pool, input, &shape).into_op_result(),
+            Input::Int32Tensor(input) => expand(pool, input, &shape).into_op_result(),
+            Input::Int8Tensor(input) => expand(pool, input, &shape).into_op_result(),
         }
     }
 
@@ -122,7 +123,8 @@ impl Operator for Expand {
 
         let output: Output = match input {
             Output::FloatTensor(input) => expand_to(pool, input.view(), &out_shape).into(),
-            Output::IntTensor(input) => expand_to(pool, input.view(), &out_shape).into(),
+            Output::Int32Tensor(input) => expand_to(pool, input.view(), &out_shape).into(),
+            Output::Int8Tensor(input) => expand_to(pool, input.view(), &out_shape).into(),
         };
         Ok(output)
     }
@@ -171,7 +173,8 @@ impl Operator for Flatten {
 
         match input {
             Input::FloatTensor(input) => flatten(pool, input, self.axis).into_op_result(),
-            Input::IntTensor(input) => flatten(pool, input, self.axis).into_op_result(),
+            Input::Int32Tensor(input) => flatten(pool, input, self.axis).into_op_result(),
+            Input::Int8Tensor(input) => flatten(pool, input, self.axis).into_op_result(),
         }
     }
 
@@ -186,7 +189,11 @@ impl Operator for Flatten {
         _: InputList,
     ) -> Result<Output, OpError> {
         match input {
-            Output::IntTensor(mut output) => {
+            Output::Int8Tensor(mut output) => {
+                flatten_in_place(pool, &mut output, self.axis)?;
+                Ok(output.into())
+            }
+            Output::Int32Tensor(mut output) => {
                 flatten_in_place(pool, &mut output, self.axis)?;
                 Ok(output.into())
             }
@@ -310,7 +317,8 @@ impl Operator for Reshape {
         let shape = static_dims!(shape, 1)?;
 
         match input {
-            Input::IntTensor(t) => reshape(pool, t, &shape, self.allow_zero).into_op_result(),
+            Input::Int8Tensor(t) => reshape(pool, t, &shape, self.allow_zero).into_op_result(),
+            Input::Int32Tensor(t) => reshape(pool, t, &shape, self.allow_zero).into_op_result(),
             Input::FloatTensor(t) => reshape(pool, t, &shape, self.allow_zero).into_op_result(),
         }
     }
@@ -329,7 +337,11 @@ impl Operator for Reshape {
         let shape = static_dims!(shape, 1)?;
 
         match input {
-            Output::IntTensor(mut output) => {
+            Output::Int8Tensor(mut output) => {
+                reshape_in_place(pool, &mut output, &shape, self.allow_zero)?;
+                Ok(output.into())
+            }
+            Output::Int32Tensor(mut output) => {
                 reshape_in_place(pool, &mut output, &shape, self.allow_zero)?;
                 Ok(output.into())
             }
@@ -445,7 +457,8 @@ impl Operator for Squeeze {
 
         match input {
             Input::FloatTensor(t) => squeeze(pool, t, axes).into_op_result(),
-            Input::IntTensor(t) => squeeze(pool, t, axes).into_op_result(),
+            Input::Int32Tensor(t) => squeeze(pool, t, axes).into_op_result(),
+            Input::Int8Tensor(t) => squeeze(pool, t, axes).into_op_result(),
         }
     }
 
@@ -467,7 +480,11 @@ impl Operator for Squeeze {
                 squeeze_in_place(&mut t, axes)?;
                 t.into()
             }
-            Output::IntTensor(mut t) => {
+            Output::Int32Tensor(mut t) => {
+                squeeze_in_place(&mut t, axes)?;
+                t.into()
+            }
+            Output::Int8Tensor(mut t) => {
                 squeeze_in_place(&mut t, axes)?;
                 t.into()
             }
@@ -514,7 +531,8 @@ impl Operator for Transpose {
         let perm_slice = self.perm.as_deref();
         match input {
             Input::FloatTensor(input) => transpose(pool, input, perm_slice).into_op_result(),
-            Input::IntTensor(input) => transpose(pool, input, perm_slice).into_op_result(),
+            Input::Int32Tensor(input) => transpose(pool, input, perm_slice).into_op_result(),
+            Input::Int8Tensor(input) => transpose(pool, input, perm_slice).into_op_result(),
         }
     }
 }
@@ -569,7 +587,8 @@ impl Operator for Unsqueeze {
 
         match input {
             Input::FloatTensor(input) => unsqueeze(pool, input, &axes).into_op_result(),
-            Input::IntTensor(input) => unsqueeze(pool, input, &axes).into_op_result(),
+            Input::Int32Tensor(input) => unsqueeze(pool, input, &axes).into_op_result(),
+            Input::Int8Tensor(input) => unsqueeze(pool, input, &axes).into_op_result(),
         }
     }
 
@@ -588,7 +607,8 @@ impl Operator for Unsqueeze {
 
         match output {
             Output::FloatTensor(t) => unsqueeze_in_place(t, &axes).map(Output::FloatTensor),
-            Output::IntTensor(t) => unsqueeze_in_place(t, &axes).map(Output::IntTensor),
+            Output::Int32Tensor(t) => unsqueeze_in_place(t, &axes).map(Output::Int32Tensor),
+            Output::Int8Tensor(t) => unsqueeze_in_place(t, &axes).map(Output::Int8Tensor),
         }
     }
 }

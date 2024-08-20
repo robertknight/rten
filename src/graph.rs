@@ -135,21 +135,24 @@ impl<T> ConstantNode<T> {
 
 pub enum Constant {
     Float(ConstantNode<f32>),
-    Int(ConstantNode<i32>),
+    Int32(ConstantNode<i32>),
+    Int8(ConstantNode<i8>),
 }
 
 impl Constant {
     pub fn name(&self) -> Option<&str> {
         match self {
             Constant::Float(f) => f.name.as_deref(),
-            Constant::Int(i) => i.name.as_deref(),
+            Constant::Int32(i) => i.name.as_deref(),
+            Constant::Int8(i) => i.name.as_deref(),
         }
     }
 
     fn layout(&self) -> &DynLayout {
         match self {
             Constant::Float(f) => f.layout(),
-            Constant::Int(i) => i.layout(),
+            Constant::Int32(i) => i.layout(),
+            Constant::Int8(i) => i.layout(),
         }
     }
 
@@ -157,7 +160,8 @@ impl Constant {
     pub fn as_input(&self) -> Input {
         match self {
             Constant::Float(f) => Input::FloatTensor(f.view()),
-            Constant::Int(i) => Input::IntTensor(i.view()),
+            Constant::Int32(i) => Input::Int32Tensor(i.view()),
+            Constant::Int8(i) => Input::Int8Tensor(i.view()),
         }
     }
 }
@@ -170,7 +174,13 @@ impl From<ConstantNode<f32>> for Constant {
 
 impl From<ConstantNode<i32>> for Constant {
     fn from(node: ConstantNode<i32>) -> Constant {
-        Constant::Int(node)
+        Constant::Int32(node)
+    }
+}
+
+impl From<ConstantNode<i8>> for Constant {
+    fn from(node: ConstantNode<i8>) -> Constant {
+        Constant::Int8(node)
     }
 }
 
@@ -207,7 +217,8 @@ macro_rules! impl_typed_constant {
 }
 
 impl_typed_constant!(f32, Float);
-impl_typed_constant!(i32, Int);
+impl_typed_constant!(i32, Int32);
+impl_typed_constant!(i8, Int8);
 
 pub enum Node {
     Operator(OperatorNode),

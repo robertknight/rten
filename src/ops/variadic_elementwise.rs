@@ -60,8 +60,12 @@ macro_rules! run_typed_op {
                 let inputs: Vec<TensorView<f32>> = typed_views(&$inputs)?;
                 $op($pool, &inputs).into_op_result()
             }
-            Input::IntTensor(_) => {
+            Input::Int32Tensor(_) => {
                 let inputs: Vec<TensorView<i32>> = typed_views(&$inputs)?;
+                $op($pool, &inputs).into_op_result()
+            }
+            Input::Int8Tensor(_) => {
+                let inputs: Vec<TensorView<i8>> = typed_views(&$inputs)?;
                 $op($pool, &inputs).into_op_result()
             }
         }

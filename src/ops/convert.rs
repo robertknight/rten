@@ -6,12 +6,14 @@ use crate::tensor_pool::TensorPool;
 fn cast(pool: &TensorPool, input: Input, dtype: DataType) -> Output {
     match dtype {
         DataType::Int32 => match input {
-            Input::IntTensor(t) => t.map_in(pool, |x| *x).into(),
+            Input::Int8Tensor(t) => t.map_in(pool, |x| *x as i32).into(),
+            Input::Int32Tensor(t) => t.map_in(pool, |x| *x).into(),
             Input::FloatTensor(t) => t.map_in(pool, |x| *x as i32).into(),
         },
         DataType::Float => match input {
             Input::FloatTensor(t) => t.map_in(pool, |x| *x).into(),
-            Input::IntTensor(t) => t.map_in(pool, |x| *x as f32).into(),
+            Input::Int32Tensor(t) => t.map_in(pool, |x| *x as f32).into(),
+            Input::Int8Tensor(t) => t.map_in(pool, |x| *x as f32).into(),
         },
     }
 }
@@ -42,7 +44,8 @@ impl Operator for Cast {
         _: InputList,
     ) -> Result<Output, OpError> {
         match (input, self.to) {
-            (Output::IntTensor(t), DataType::Int32) => Ok(t.into()),
+            // TODO: maybe it should add Int8 for DataType ?
+            (Output::Int32Tensor(t), DataType::Int32) => Ok(t.into()),
             (Output::FloatTensor(t), DataType::Float) => Ok(t.into()),
             (input, _) => {
                 let converted = cast(pool, input.as_input(), self.to);

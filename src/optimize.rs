@@ -318,7 +318,8 @@ impl GraphOptimizer {
                 .map(|name| name.to_string());
             let const_id = match output {
                 Output::FloatTensor(tensor) => graph.add_constant(const_name.as_deref(), tensor),
-                Output::IntTensor(tensor) => graph.add_constant(const_name.as_deref(), tensor),
+                Output::Int32Tensor(tensor) => graph.add_constant(const_name.as_deref(), tensor),
+                Output::Int8Tensor(tensor) => graph.add_constant(const_name.as_deref(), tensor),
             };
             graph.replace_value(value_node_id, const_id);
         }
@@ -578,7 +579,12 @@ mod tests {
                 _ => None,
             })
             .unwrap();
-        let Constant::Int(const_int) = replaced_node else {
+        let Constant::Int32(const_int) = replaced_node else {
+            return Err("constant not an int".into());
+        };
+        assert_eq!(const_int.view(), Tensor::from([5, 7, 9]));
+
+        let Constant::Int8(const_int) = replaced_node else {
             return Err("constant not an int".into());
         };
         assert_eq!(const_int.view(), Tensor::from([5, 7, 9]));

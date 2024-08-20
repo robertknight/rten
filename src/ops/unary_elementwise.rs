@@ -81,7 +81,8 @@ macro_rules! unary_numeric_op {
                 let input = inputs.require(0)?;
                 match input {
                     Input::FloatTensor(input) => $view_impl(pool, input).into_op_result(),
-                    Input::IntTensor(input) => $view_impl(pool, input).into_op_result(),
+                    Input::Int32Tensor(input) => $view_impl(pool, input).into_op_result(),
+                    Input::Int8Tensor(input) => $view_impl(pool, input).into_op_result(),
                 }
             }
 
@@ -100,7 +101,11 @@ macro_rules! unary_numeric_op {
                         $mut_impl(input.view_mut());
                         Ok(input.into())
                     }
-                    Output::IntTensor(mut input) => {
+                    Output::Int32Tensor(mut input) => {
+                        $mut_impl(input.view_mut());
+                        Ok(input.into())
+                    }
+                    Output::Int8Tensor(mut input) => {
                         $mut_impl(input.view_mut());
                         Ok(input.into())
                     }
@@ -244,6 +249,12 @@ impl AbsValue for i32 {
     }
 }
 
+impl AbsValue for i8 {
+    fn abs(&self) -> i8 {
+        (*self).abs()
+    }
+}
+
 pub fn abs<T: AbsValue>(pool: &TensorPool, input: TensorView<T>) -> Tensor<T> {
     input.map_in(pool, |x| x.abs())
 }
@@ -288,6 +299,16 @@ pub trait Clamp: Copy + PartialOrd {
     /// Return self constrained to the range `[min, max]`.
     fn clamp(&self, min: Self, max: Self) -> Self {
         self.max(min).min(max)
+    }
+}
+
+impl Clamp for i8 {
+    fn min_val() -> Self {
+        i8::MIN
+    }
+
+    fn max_val() -> Self {
+        i8::MAX
     }
 }
 
@@ -347,7 +368,12 @@ impl Operator for Clip {
                 let max = inputs.get_as_scalar(2)?;
                 clip(pool, input, min, max).into_op_result()
             }
-            Input::IntTensor(input) => {
+            Input::Int32Tensor(input) => {
+                let min = inputs.get_as_scalar(1)?;
+                let max = inputs.get_as_scalar(2)?;
+                clip(pool, input, min, max).into_op_result()
+            }
+            Input::Int8Tensor(input) => {
                 let min = inputs.get_as_scalar(1)?;
                 let max = inputs.get_as_scalar(2)?;
                 clip(pool, input, min, max).into_op_result()
@@ -372,7 +398,13 @@ impl Operator for Clip {
                 clip_in_place(&mut input, min, max);
                 Ok(input.into())
             }
-            Output::IntTensor(mut input) => {
+            Output::Int32Tensor(mut input) => {
+                let min = other.get_as_scalar(0)?;
+                let max = other.get_as_scalar(1)?;
+                clip_in_place(&mut input, min, max);
+                Ok(input.into())
+            }
+            Output::Int8Tensor(mut input) => {
                 let min = other.get_as_scalar(0)?;
                 let max = other.get_as_scalar(1)?;
                 clip_in_place(&mut input, min, max);
@@ -638,6 +670,7 @@ macro_rules! impl_signum {
         }
     };
 }
+impl_signum!(i8);
 impl_signum!(i32);
 impl_signum!(f32);
 

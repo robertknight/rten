@@ -35,6 +35,12 @@ impl IsInt for i32 {
     }
 }
 
+impl IsInt for i8 {
+    fn is_int() -> bool {
+        true
+    }
+}
+
 /// Trait providing additive and multiplicative identities.
 pub trait Identities {
     fn one() -> Self;
@@ -56,6 +62,15 @@ impl Identities for i32 {
         1
     }
     fn zero() -> i32 {
+        0
+    }
+}
+
+impl Identities for i8 {
+    fn one() -> i8 {
+        1
+    }
+    fn zero() -> i8 {
         0
     }
 }

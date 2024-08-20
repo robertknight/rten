@@ -70,7 +70,11 @@ impl Operator for Pad {
         }
 
         match input {
-            Input::IntTensor(t) => {
+            Input::Int8Tensor(t) => {
+                let const_val = inputs.get_as_scalar::<i8>(2)?;
+                pad(pool, t, &pads, const_val.unwrap_or(0)).into_op_result()
+            }
+            Input::Int32Tensor(t) => {
                 let const_val = inputs.get_as_scalar::<i32>(2)?;
                 pad(pool, t, &pads, const_val.unwrap_or(0)).into_op_result()
             }

@@ -352,8 +352,12 @@ macro_rules! run_typed_op {
                 let b = $inputs.require_as::<f32>(1)?;
                 $op_func($pool, a, b).into_op_result()
             }
-            Input::IntTensor(a) => {
+            Input::Int32Tensor(a) => {
                 let b = $inputs.require_as::<i32>(1)?;
+                $op_func($pool, a, b).into_op_result()
+            }
+            Input::Int8Tensor(a) => {
+                let b = $inputs.require_as::<i8>(1)?;
                 $op_func($pool, a, b).into_op_result()
             }
         }
@@ -378,8 +382,17 @@ macro_rules! run_typed_op_in_place {
                     $op_func($pool, a.view(), b.view()).map(|t| t.into())
                 }
             }
-            Output::IntTensor(mut a) => {
+            Output::Int32Tensor(mut a) => {
                 let b = $other.require_as::<i32>(0)?;
+                if can_run_binary_op_in_place(&a, &b) {
+                    $in_place_op_func(a.view_mut(), b.view());
+                    Ok(a.into())
+                } else {
+                    $op_func($pool, a.view(), b.view()).map(|t| t.into())
+                }
+            }
+            Output::Int8Tensor(mut a) => {
+                let b = $other.require_as::<i8>(0)?;
                 if can_run_binary_op_in_place(&a, &b) {
                     $in_place_op_func(a.view_mut(), b.view());
                     Ok(a.into())
@@ -684,8 +697,12 @@ impl Operator for Mod {
                 let b = inputs.require_as::<f32>(1)?;
                 mod_op(pool, a, b, mode).into_op_result()
             }
-            Input::IntTensor(a) => {
+            Input::Int32Tensor(a) => {
                 let b = inputs.require_as::<i32>(1)?;
+                mod_op(pool, a, b, mode).into_op_result()
+            }
+            Input::Int8Tensor(a) => {
+                let b = inputs.require_as::<i8>(1)?;
                 mod_op(pool, a, b, mode).into_op_result()
             }
         }
@@ -945,8 +962,12 @@ impl Operator for Where {
                 let y: TensorView = y.try_into()?;
                 where_op(pool, condition, x, y).into_op_result()
             }
-            Input::IntTensor(x) => {
+            Input::Int32Tensor(x) => {
                 let y: TensorView<i32> = y.try_into()?;
+                where_op(pool, condition, x, y).into_op_result()
+            }
+            Input::Int8Tensor(x) => {
+                let y: TensorView<i8> = y.try_into()?;
                 where_op(pool, condition, x, y).into_op_result()
             }
         }

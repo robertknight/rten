@@ -111,7 +111,10 @@ impl Operator for Slice {
             Input::FloatTensor(input) => {
                 slice(pool, input, &starts, &ends, axes.as_ref(), steps.as_ref()).map(|t| t.into())
             }
-            Input::IntTensor(input) => {
+            Input::Int32Tensor(input) => {
+                slice(pool, input, &starts, &ends, axes.as_ref(), steps.as_ref()).map(|t| t.into())
+            }
+            Input::Int8Tensor(input) => {
                 slice(pool, input, &starts, &ends, axes.as_ref(), steps.as_ref()).map(|t| t.into())
             }
         };
@@ -161,7 +164,11 @@ impl Operator for Slice {
         }
 
         match input {
-            Output::IntTensor(mut output) => {
+            Output::Int8Tensor(mut output) => {
+                slice_in_place(&mut output, &starts, &ends, axes.as_ref())?;
+                Ok(output.into())
+            }
+            Output::Int32Tensor(mut output) => {
                 slice_in_place(&mut output, &starts, &ends, axes.as_ref())?;
                 Ok(output.into())
             }

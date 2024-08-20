@@ -49,7 +49,8 @@ impl Operator for Trilu {
 
         match input {
             Input::FloatTensor(input) => trilu(pool, input, k, self.upper).into_op_result(),
-            Input::IntTensor(input) => trilu(pool, input, k, self.upper).into_op_result(),
+            Input::Int32Tensor(input) => trilu(pool, input, k, self.upper).into_op_result(),
+            Input::Int8Tensor(input) => trilu(pool, input, k, self.upper).into_op_result(),
         }
     }
 }
