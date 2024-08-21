@@ -1225,7 +1225,7 @@ impl Graph {
         let mut resolved_values =
             self.init_resolved_values(inputs.iter().copied(), false /* include_captures */);
         let mut pruned_plan = Vec::new();
-        let mut candidate_outputs = Vec::new();
+        let mut candidate_outputs = inputs.to_vec();
 
         // IDs of input nodes for pruned operators that we can still generate
         // with the pruned plan.
@@ -1237,26 +1237,27 @@ impl Graph {
             let Some(Node::Operator(op_node)) = self.nodes.get(node_id) else {
                 continue;
             };
-            let all_inputs_available = op_node
+
+            let capture_deps: Vec<_> = self.capture_deps(op_node).collect();
+
+            let all_inputs = op_node
                 .inputs
                 .iter()
                 .filter_map(|id_opt| *id_opt)
+                .chain(capture_deps.iter().copied());
+
+            let all_inputs_available = all_inputs
+                .clone()
                 .all(|input_id| resolved_values.contains(&input_id));
 
             // Prune op if:
             //
             // - The output varies on each run (`Random*`)
-            // - The op has a subgraph which might have captured values that we
-            //   can't resolve. Ideally we would know exactly which captures are
-            //   available, but for the moment we just assume in `partial_run`
-            //   that none are.
             // - We are missing a required input
-            let prune_op = !op_node.operator.is_deterministic()
-                || op_node.operator.has_subgraph()
-                || !all_inputs_available;
+            let prune_op = !op_node.operator.is_deterministic() || !all_inputs_available;
 
             if prune_op {
-                for input_id in op_node.inputs.iter().filter_map(|id_opt| *id_opt) {
+                for input_id in all_inputs {
                     if resolved_values.contains(&input_id) {
                         pruned_ops_resolved_inputs.insert(input_id);
                     }
@@ -1302,6 +1303,17 @@ impl Graph {
         resolved
     }
 
+    /// Return the IDs of nodes in a graph which subgraphs in an
+    /// operator depend upon due to captures.
+    fn capture_deps<'a>(&'a self, op_node: &'a OperatorNode) -> impl Iterator<Item = NodeId> + 'a {
+        op_node
+            .operator
+            .subgraphs()
+            .into_iter()
+            .flat_map(|sg| sg.capture_names())
+            .filter_map(move |cap_name| self.get_node_id(cap_name))
+    }
+
     /// Create an execution plan for a sequence of computation steps that begin
     /// with `inputs` and eventually produces `outputs`.
     ///
@@ -1340,7 +1352,7 @@ impl Graph {
                 op_node_id: NodeId,
                 op_node: &'a OperatorNode,
             ) -> Result<(), RunError> {
-                let capture_deps = Self::capture_deps(self.graph, op_node);
+                let capture_deps = self.graph.capture_deps(op_node);
 
                 for input in op_node
                     .inputs
@@ -1371,20 +1383,6 @@ impl Graph {
                 }
                 self.plan.push((op_node_id, op_node));
                 Ok(())
-            }
-
-            /// Return the IDs of nodes in a graph which subgraphs in an
-            /// operator depend upon due to captures.
-            fn capture_deps<'b>(
-                graph: &'b Graph,
-                op_node: &'b OperatorNode,
-            ) -> impl Iterator<Item = NodeId> + 'b {
-                op_node
-                    .operator
-                    .subgraphs()
-                    .into_iter()
-                    .flat_map(|sg| sg.capture_names())
-                    .filter_map(|cap_name| graph.get_node_id(cap_name))
             }
 
             /// Return a sequential plan to generate `outputs`. The plan is
@@ -2371,9 +2369,9 @@ mod tests {
     }
 
     #[test]
-    fn test_partial_run_skips_ops_with_subgraphs() {
+    fn test_partial_run_considers_subgraph_captures() {
         let mut g = Graph::new();
-        g.add_value(Some("input"), None);
+        let input_id = g.add_value(Some("input"), None);
 
         let mut subgraph = Graph::new();
         let sg_input = subgraph.add_value(Some("input"), None);
@@ -2383,11 +2381,17 @@ mod tests {
 
         let (_, out) = g.add_simple_op("Subgraph", Subgraph { graph: subgraph }, &[]);
 
-        // `partial_run` skips subgraphs at present because captures _might_
-        // not be available. A smarter planner would be aware of which captures
-        // are available.
+        // `partial_run` should skip operators that can't be evaluated due to
+        // missing captures.
         let result = g.partial_run(Vec::new(), &[out], None).unwrap();
         assert_eq!(result.len(), 0);
+
+        // When the captures are available, `partial_run` should evaluate the
+        // operator as normal.
+        let result = g
+            .partial_run([(input_id, Tensor::from(4.).into())].into(), &[out], None)
+            .unwrap();
+        assert_eq!(result.len(), 1);
     }
 
     #[test]
