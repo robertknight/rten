@@ -581,8 +581,32 @@ impl Graph {
 
     /// Return the IDs of nodes whose values are captured from the enclosing
     /// scope.
+    ///
+    /// This does not include transitive captures in subgraphs.
     pub fn captures(&self) -> &[NodeId] {
         &self.captures
+    }
+
+    /// Return an iterator over the names of nodes whose values are captured
+    /// from the parent graph.
+    ///
+    /// This does include transitive captures from subgraphs.
+    fn capture_names(&self) -> Vec<&str> {
+        let mut captures: Vec<&str> = self
+            .captures()
+            .iter()
+            .filter_map(|&cap_node_id| self.get_node(cap_node_id).and_then(|n| n.name()))
+            .collect();
+
+        for node in self.nodes.iter() {
+            if let Node::Operator(op) = node {
+                for subgraph in op.operator.subgraphs() {
+                    captures.extend(subgraph.capture_names())
+                }
+            }
+        }
+
+        captures
     }
 
     fn add_node(&mut self, node: Node) -> NodeId {
@@ -1316,7 +1340,14 @@ impl Graph {
                 op_node_id: NodeId,
                 op_node: &'a OperatorNode,
             ) -> Result<(), RunError> {
-                for input in op_node.inputs.iter().filter_map(|node| *node) {
+                let capture_deps = Self::capture_deps(self.graph, op_node);
+
+                for input in op_node
+                    .inputs
+                    .iter()
+                    .filter_map(|node| *node)
+                    .chain(capture_deps)
+                {
                     if self.resolved_values.contains(&input) {
                         continue;
                     }
@@ -1340,6 +1371,20 @@ impl Graph {
                 }
                 self.plan.push((op_node_id, op_node));
                 Ok(())
+            }
+
+            /// Return the IDs of nodes in a graph which subgraphs in an
+            /// operator depend upon due to captures.
+            fn capture_deps<'b>(
+                graph: &'b Graph,
+                op_node: &'b OperatorNode,
+            ) -> impl Iterator<Item = NodeId> + 'b {
+                op_node
+                    .operator
+                    .subgraphs()
+                    .into_iter()
+                    .flat_map(|sg| sg.capture_names())
+                    .filter_map(|cap_name| graph.get_node_id(cap_name))
             }
 
             /// Return a sequential plan to generate `outputs`. The plan is
@@ -1395,7 +1440,7 @@ mod tests {
     use rten_tensor::test_util::{expect_equal, expect_equal_with_tolerance};
     use rten_tensor::{Tensor, TensorView};
 
-    use smallvec::smallvec;
+    use smallvec::{smallvec, SmallVec};
 
     use super::{CachedPlan, CaptureEnv};
     use crate::graph::{Dimension, Graph, Node, RunError, RunOptions, TypedConstant};
@@ -2187,8 +2232,8 @@ mod tests {
             ))
         }
 
-        fn has_subgraph(&self) -> bool {
-            true
+        fn subgraphs(&self) -> SmallVec<[&Graph; 2]> {
+            SmallVec::from_slice(&[&self.graph])
         }
 
         fn run_subgraph(
@@ -2343,5 +2388,65 @@ mod tests {
         // are available.
         let result = g.partial_run(Vec::new(), &[out], None).unwrap();
         assert_eq!(result.len(), 0);
+    }
+
+    #[test]
+    fn test_plan_considers_capture_dependencies() {
+        let mut g = Graph::new();
+        let input_id = g.add_value(Some("input"), None);
+
+        let (_, _) = g.add_simple_op("Add", Add {}, &[input_id, input_id]);
+
+        // Add a subgraph with a captured value that is the output of an
+        // operation in the parent graph.
+        let mut subgraph = Graph::new();
+        let sg_input = subgraph.add_value(Some("Add_out"), None);
+        subgraph.set_captures(&[sg_input]);
+        let (_, sg_out) = subgraph.add_simple_op("Id", Identity {}, &[sg_input]);
+        subgraph.set_output_ids(&[sg_out]);
+
+        let (_, out) = g.add_simple_op("Subgraph", Subgraph { graph: subgraph }, &[]);
+
+        // Run the graph. The planner must account for captured dependencies
+        // in the `Subgraph` op.
+        let input = Tensor::from(3.);
+        let mut result = g.run(vec![(input_id, input.into())], &[out], None).unwrap();
+        let result: Tensor<f32> = result.remove(0).try_into().unwrap();
+        assert_eq!(result.item(), Some(&6.));
+    }
+
+    #[test]
+    fn test_plan_considers_transitive_capture_dependencies() {
+        let mut g = Graph::new();
+        let input_id = g.add_value(Some("input"), None);
+
+        let (_, _) = g.add_simple_op("Add", Add {}, &[input_id, input_id]);
+
+        // Add nested subgraphs where an operation in the innermost graph has
+        // a dependency on an operator output in the top-level graph.
+        let mut subgraph = Graph::new();
+        let mut nested_subgraph = Graph::new();
+        let ns_input = nested_subgraph.add_value(Some("Add_out"), None);
+        nested_subgraph.set_captures(&[ns_input]);
+        let (_, ns_out) = nested_subgraph.add_simple_op("Id", Identity {}, &[ns_input]);
+        nested_subgraph.set_output_ids(&[ns_out]);
+
+        let (_, sg_out) = subgraph.add_simple_op(
+            "Subgraph",
+            Subgraph {
+                graph: nested_subgraph,
+            },
+            &[],
+        );
+        subgraph.set_output_ids(&[sg_out]);
+
+        let (_, out) = g.add_simple_op("Subgraph", Subgraph { graph: subgraph }, &[]);
+
+        // Run the graph. The planner must account for captured dependencies
+        // from the innermost graph in the `Subgraph` op.
+        let input = Tensor::from(3.);
+        let mut result = g.run(vec![(input_id, input.into())], &[out], None).unwrap();
+        let result: Tensor<f32> = result.remove(0).try_into().unwrap();
+        assert_eq!(result.item(), Some(&6.));
     }
 }
