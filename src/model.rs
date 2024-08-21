@@ -192,6 +192,11 @@ impl ModelOptions {
         Model::load_impl(storage, self)
     }
 
+    pub fn load_static_slice(&self, data: &'static [u8]) -> Result<Model, ModelLoadError> {
+        let storage = Arc::new(ConstantStorage::StaticSlice(data));
+        Model::load_impl(storage, self)
+    }
+
     /// Load the model from a memory-mapped view of a file. See [`Model::load_mmap`].
     ///
     /// # Safety
@@ -218,6 +223,10 @@ impl Model {
     /// Load a serialized model from a byte buffer.
     pub fn load(data: Vec<u8>) -> Result<Model, ModelLoadError> {
         ModelOptions::with_all_ops().load(data)
+    }
+
+    pub fn load_static_slice(data: &'static [u8]) -> Result<Model, ModelLoadError> {
+        ModelOptions::with_all_ops().load_static_slice(data)
     }
 
     /// Load a serialized model by mapping a view of a file as memory.

@@ -31,6 +31,7 @@ pub enum ConstantStorage {
     /// An in-memory buffer, such as a FlatBuffers file that has been read
     /// into memory using functions from `std::fs`.
     Buffer(Vec<u8>),
+    StaticSlice(&'static [u8]),
 }
 
 impl ConstantStorage {
@@ -38,6 +39,7 @@ impl ConstantStorage {
     pub fn data(&self) -> &[u8] {
         match &self {
             ConstantStorage::Buffer(data) => data,
+            ConstantStorage::StaticSlice(data) => data,
             #[cfg(feature = "mmap")]
             ConstantStorage::Mmap(mmap) => mmap,
         }
