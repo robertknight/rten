@@ -283,6 +283,7 @@ impl<'mb, 'a> GraphBuilder<'mb, 'a> {
 
             sg::ConstantNodeArgs {
                 shape: Some(shape_vec),
+                strides: None,
                 data_type: sg::ConstantData::NONE,
                 data: None,
                 data_offset: Some(offset),
@@ -294,6 +295,7 @@ impl<'mb, 'a> GraphBuilder<'mb, 'a> {
 
             sg::ConstantNodeArgs {
                 shape: Some(shape_vec),
+                strides: None,
                 data_type: inline_dtype,
                 data: Some(data),
                 data_offset: None,
