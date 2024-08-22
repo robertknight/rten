@@ -5,7 +5,7 @@ are in a format that is convenient for serialization into the FlatBuffers
 format used by .rten models.
 """
 
-from typing import Any
+from typing import Any, Optional
 
 import numpy as np
 
@@ -27,12 +27,14 @@ class ConstantNode(Node):
     """
 
     shape: list[int]
+    strides: Optional[list[int]]
     data: np.ndarray
 
     def __init__(self, name: str, shape: list[int], data: np.ndarray):
         super().__init__(name)
         self.shape = shape
         self.data = data
+        self.strides = None
 
         shape_numel = np.prod(shape)
         if shape_numel != data.size:

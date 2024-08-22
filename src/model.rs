@@ -582,6 +582,9 @@ impl Model {
         tensor_data_offset: Option<u64>,
     ) -> Result<NodeId, ModelLoadError> {
         let shape: Vec<usize> = constant.shape().iter().map(|x| x as usize).collect();
+        let strides: Option<Vec<usize>> = constant
+            .strides()
+            .map(|strides| strides.iter().map(|x| x as usize).collect());
 
         if let Some(data_offset) = constant.data_offset() {
             // Constant data is stored outside the model buffer, in the same file.
@@ -595,13 +598,21 @@ impl Model {
 
             let graph_node = match constant.dtype() {
                 Some(sg::ConstantDataType::Int32) => {
-                    let const_data =
-                        constant_data_from_storage_offset::<i32>(storage, &shape, data_offset)?;
+                    let const_data = constant_data_from_storage_offset::<i32>(
+                        storage,
+                        &shape,
+                        strides.as_deref(),
+                        data_offset,
+                    )?;
                     graph.add_constant(name, const_data)
                 }
                 Some(sg::ConstantDataType::Float32) => {
-                    let const_data =
-                        constant_data_from_storage_offset::<f32>(storage, &shape, data_offset)?;
+                    let const_data = constant_data_from_storage_offset::<f32>(
+                        storage,
+                        &shape,
+                        strides.as_deref(),
+                        data_offset,
+                    )?;
                     graph.add_constant(name, const_data)
                 }
                 Some(sg::ConstantDataType::Int8) => {
@@ -860,6 +871,7 @@ fn cast_le_bytes<T: Pod>(bytes: &[u8]) -> Option<&[T]> {
 fn constant_data_from_storage_offset<T: LeBytes + Pod>(
     storage: &Arc<ConstantStorage>,
     shape: &[usize],
+    strides: Option<&[usize]>,
     offset: usize,
 ) -> Result<ConstantNodeData<T>, ModelLoadError> {
     let n_elements: usize = shape.iter().product();
@@ -874,14 +886,36 @@ fn constant_data_from_storage_offset<T: LeBytes + Pod>(
     if let Some(elements) = cast_le_bytes(bytes) {
         let storage =
             ArcSlice::new(storage.clone(), elements).expect("storage does not contain data");
-        let const_data: ConstantNodeData<T> = ArcTensorView::from_data(shape, storage).into();
+        let const_data: ConstantNodeData<T> = if let Some(strides) = strides {
+            ArcTensorView::from_data_with_strides(shape, storage, strides)
+                .map_err(|_| {
+                    ModelLoadError::GraphError(format!(
+                        "bad strides = {:?}, shape = {:?}",
+                        strides, shape
+                    ))
+                })?
+                .into()
+        } else {
+            ArcTensorView::from_data(shape, storage).into()
+        };
         Ok(const_data)
     } else {
         let data: Vec<T> = bytes
             .chunks(std::mem::size_of::<T>())
             .map(|chunk| T::from_le_bytes(chunk.try_into().unwrap()))
             .collect();
-        Ok(Tensor::from_data(shape, data).into())
+        Ok(if let Some(strides) = strides {
+            Tensor::from_data_with_strides(shape, data, strides)
+                .map_err(|_| {
+                    ModelLoadError::GraphError(format!(
+                        "bad strides = {:?}, shape = {:?}",
+                        strides, shape
+                    ))
+                })?
+                .into()
+        } else {
+            Tensor::from_data(shape, data).into()
+        })
     }
 }
 
