@@ -881,7 +881,7 @@ impl Graph {
                     "operator node not found".to_string(),
                 ));
             };
-            for node_id in op_node.inputs.iter().filter_map(|node| *node) {
+            for node_id in self.operator_dependencies(op_node) {
                 if let Some(Node::Value(_)) = self.nodes.get(node_id) {
                     temp_value_refcount.inc(node_id);
                 }
@@ -1060,7 +1060,7 @@ impl Graph {
             );
 
             // Remove temporary values that are no longer needed
-            for node_id in op_node.inputs.iter().filter_map(|node| *node) {
+            for node_id in self.operator_dependencies(op_node) {
                 let rc = temp_value_refcount.dec(node_id);
                 if rc == Some(0) {
                     if let (true, Some(tensor)) = (use_pool, temp_values.remove(&node_id)) {
@@ -1238,13 +1238,7 @@ impl Graph {
                 continue;
             };
 
-            let capture_deps: Vec<_> = self.capture_deps(op_node).collect();
-
-            let all_inputs = op_node
-                .inputs
-                .iter()
-                .filter_map(|id_opt| *id_opt)
-                .chain(capture_deps.iter().copied());
+            let all_inputs = self.operator_dependencies(op_node);
 
             let all_inputs_available = all_inputs
                 .clone()
@@ -1303,15 +1297,32 @@ impl Graph {
         resolved
     }
 
-    /// Return the IDs of nodes in a graph which subgraphs in an
-    /// operator depend upon due to captures.
-    fn capture_deps<'a>(&'a self, op_node: &'a OperatorNode) -> impl Iterator<Item = NodeId> + 'a {
-        op_node
-            .operator
-            .subgraphs()
-            .into_iter()
-            .flat_map(|sg| sg.capture_names())
-            .filter_map(move |cap_name| self.get_node_id(cap_name))
+    /// Return the IDs of all nodes in the current graph that an operator
+    /// depends on.
+    ///
+    /// This includes nodes used as input as well as captures if the operator
+    /// has subgraphs.
+    fn operator_dependencies<'a>(
+        &'a self,
+        op_node: &'a OperatorNode,
+    ) -> impl Iterator<Item = NodeId> + Clone + 'a {
+        op_node.input_ids().iter().filter_map(|id| *id).chain(
+            op_node
+                .operator
+                .subgraphs()
+                .into_iter()
+                .flat_map(|sg| sg.capture_names())
+                .filter_map(move |cap_name| {
+                    let cap_id = self.get_node_id(cap_name)?;
+                    if !op_node.input_ids().contains(&Some(cap_id)) {
+                        Some(cap_id)
+                    } else {
+                        // If the captured node is also used as an input,
+                        // only yield it once in the output.
+                        None
+                    }
+                }),
+        )
     }
 
     /// Create an execution plan for a sequence of computation steps that begin
@@ -1352,14 +1363,7 @@ impl Graph {
                 op_node_id: NodeId,
                 op_node: &'a OperatorNode,
             ) -> Result<(), RunError> {
-                let capture_deps = self.graph.capture_deps(op_node);
-
-                for input in op_node
-                    .inputs
-                    .iter()
-                    .filter_map(|node| *node)
-                    .chain(capture_deps)
-                {
+                for input in self.graph.operator_dependencies(op_node) {
                     if self.resolved_values.contains(&input) {
                         continue;
                     }
@@ -2452,5 +2456,33 @@ mod tests {
         let mut result = g.run(vec![(input_id, input.into())], &[out], None).unwrap();
         let result: Tensor<f32> = result.remove(0).try_into().unwrap();
         assert_eq!(result.item(), Some(&6.));
+    }
+
+    #[test]
+    fn test_keeps_temp_value_needed_as_subgraph_capture() {
+        let mut g = Graph::new();
+        let input_id = g.add_value(Some("input"), None);
+
+        // Compute a temporary `id_out` value and use it in the main graph.
+        let (_, id_out) = g.add_simple_op("Id", Identity {}, &[input_id]);
+        let (_, mul_out) = g.add_simple_op("Mul", Mul {}, &[id_out, id_out]);
+
+        // Add a subgraph which depends on the temporary `id_out` value via a
+        // capture. Graph execution must keep the `id_out` value around until
+        // this has run, even though no ops in the main graph need it as inputs.
+        let mut subgraph = Graph::new();
+        let sg_input = subgraph.add_value(Some("Id_out"), None);
+        subgraph.set_captures(&[sg_input]);
+        let (_, sg_out) = subgraph.add_simple_op("Id", Identity {}, &[sg_input]);
+        subgraph.set_output_ids(&[sg_out]);
+
+        // Add op to main graph which runs the subgraph. This has a dummy
+        // dependency on `mul_out`.
+        let (_, out) = g.add_simple_op("Subgraph", Subgraph { graph: subgraph }, &[mul_out]);
+
+        let input = Tensor::from(3.);
+        let mut result = g.run(vec![(input_id, input.into())], &[out], None).unwrap();
+        let result: Tensor<f32> = result.remove(0).try_into().unwrap();
+        assert_eq!(result.item(), Some(&3.));
     }
 }
