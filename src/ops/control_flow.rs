@@ -1,4 +1,5 @@
 use rten_tensor::TensorView;
+use smallvec::SmallVec;
 
 use crate::graph::{CaptureEnv, Graph, RunError, RunOptions};
 use crate::ops::{InputList, OpError, Operator, Output, OutputList};
@@ -37,8 +38,8 @@ impl Operator for If {
         ))
     }
 
-    fn has_subgraph(&self) -> bool {
-        true
+    fn subgraphs(&self) -> SmallVec<[&Graph; 2]> {
+        [&self.then_branch, &self.else_branch].into()
     }
 
     fn run_subgraph(

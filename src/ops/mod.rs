@@ -26,7 +26,7 @@ use rten_tensor::{
 };
 
 use crate::downcast::impl_downcastdyn;
-use crate::graph::{CaptureEnv, RunError, RunOptions};
+use crate::graph::{CaptureEnv, Graph, RunError, RunOptions};
 use crate::tensor_pool::{ExtractBuffer, TensorPool};
 
 mod binary_elementwise;
@@ -883,7 +883,12 @@ pub trait Operator: Any + Debug {
 
     /// Return true if this operator executes a subgraph.
     fn has_subgraph(&self) -> bool {
-        false
+        !self.subgraphs().is_empty()
+    }
+
+    /// Return a list of subgraphs used by this operator.
+    fn subgraphs(&self) -> SmallVec<[&Graph; 2]> {
+        SmallVec::new()
     }
 
     /// Execute the operator with the given inputs and captured values.

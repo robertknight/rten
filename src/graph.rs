@@ -300,6 +300,13 @@ struct PlanOptions {
     /// missing. If true, the planner will create the plan as if those inputs
     /// would be provided later.
     allow_missing_inputs: bool,
+
+    /// Whether to treat a graph's captured values as available during planning.
+    ///
+    /// This should be true when generating a plan in the context of a normal
+    /// run, but false if a plan is being generated that will run a subgraph
+    /// on its own.
+    captures_available: bool,
 }
 
 /// Counter that tracks the remaining usage count of a graph node value.
@@ -574,8 +581,32 @@ impl Graph {
 
     /// Return the IDs of nodes whose values are captured from the enclosing
     /// scope.
+    ///
+    /// This does not include transitive captures in subgraphs.
     pub fn captures(&self) -> &[NodeId] {
         &self.captures
+    }
+
+    /// Return an iterator over the names of nodes whose values are captured
+    /// from the parent graph.
+    ///
+    /// This does include transitive captures from subgraphs.
+    fn capture_names(&self) -> Vec<&str> {
+        let mut captures: Vec<&str> = self
+            .captures()
+            .iter()
+            .filter_map(|&cap_node_id| self.get_node(cap_node_id).and_then(|n| n.name()))
+            .collect();
+
+        for node in self.nodes.iter() {
+            if let Node::Operator(op) = node {
+                for subgraph in op.operator.subgraphs() {
+                    captures.extend(subgraph.capture_names())
+                }
+            }
+        }
+
+        captures
     }
 
     fn add_node(&mut self, node: Node) -> NodeId {
@@ -736,7 +767,7 @@ impl Graph {
         outputs: &[NodeId],
         opts: Option<RunOptions>,
     ) -> Result<Vec<Output>, RunError> {
-        let plan = self.get_cached_plan(&inputs, outputs)?;
+        let plan = self.get_cached_plan(&inputs, outputs, false /* is_subgraph */)?;
         threading::thread_pool().run(|| {
             self.run_plan(
                 inputs,
@@ -761,7 +792,7 @@ impl Graph {
         pool: Option<&TensorPool>,
         opts: Option<RunOptions>,
     ) -> Result<Vec<Output>, RunError> {
-        let plan = self.get_cached_plan(&inputs, outputs)?;
+        let plan = self.get_cached_plan(&inputs, outputs, true /* is_subgraph */)?;
         self.run_plan(inputs, plan.plan(), outputs, Some(captures), pool, opts)
     }
 
@@ -769,6 +800,7 @@ impl Graph {
         &self,
         inputs: &[(NodeId, InputOrOutput)],
         outputs: &[NodeId],
+        is_subgraph: bool,
     ) -> Result<Arc<CachedPlan>, RunError> {
         // Reuse the plan from the previous run if the input and output IDs
         // match, otherwise create a new one.
@@ -785,6 +817,7 @@ impl Graph {
                     outputs,
                     PlanOptions {
                         allow_missing_inputs: false,
+                        captures_available: is_subgraph,
                     },
                 )?;
                 *cached_plan = Some(Arc::new(CachedPlan::new(&input_ids, outputs, plan)));
@@ -848,7 +881,7 @@ impl Graph {
                     "operator node not found".to_string(),
                 ));
             };
-            for node_id in op_node.inputs.iter().filter_map(|node| *node) {
+            for node_id in self.operator_dependencies(op_node) {
                 if let Some(Node::Value(_)) = self.nodes.get(node_id) {
                     temp_value_refcount.inc(node_id);
                 }
@@ -1027,7 +1060,7 @@ impl Graph {
             );
 
             // Remove temporary values that are no longer needed
-            for node_id in op_node.inputs.iter().filter_map(|node| *node) {
+            for node_id in self.operator_dependencies(op_node) {
                 let rc = temp_value_refcount.dec(node_id);
                 if rc == Some(0) {
                     if let (true, Some(tensor)) = (use_pool, temp_values.remove(&node_id)) {
@@ -1155,6 +1188,7 @@ impl Graph {
             outputs,
             PlanOptions {
                 allow_missing_inputs: true,
+                captures_available: false,
             },
         )?;
         let input_ids: Vec<_> = inputs.iter().map(|(id, _)| id).copied().collect();
@@ -1188,9 +1222,10 @@ impl Graph {
         inputs: &[NodeId],
         outputs: &[NodeId],
     ) -> (Vec<NodeId>, Vec<NodeId>) {
-        let mut resolved_values = self.init_resolved_values(inputs.iter().copied());
+        let mut resolved_values =
+            self.init_resolved_values(inputs.iter().copied(), false /* include_captures */);
         let mut pruned_plan = Vec::new();
-        let mut candidate_outputs = Vec::new();
+        let mut candidate_outputs = inputs.to_vec();
 
         // IDs of input nodes for pruned operators that we can still generate
         // with the pruned plan.
@@ -1202,13 +1237,21 @@ impl Graph {
             let Some(Node::Operator(op_node)) = self.nodes.get(node_id) else {
                 continue;
             };
-            let all_inputs_available = op_node
-                .inputs
-                .iter()
-                .filter_map(|id_opt| *id_opt)
+
+            let all_inputs = self.operator_dependencies(op_node);
+
+            let all_inputs_available = all_inputs
+                .clone()
                 .all(|input_id| resolved_values.contains(&input_id));
-            if !op_node.operator.is_deterministic() || !all_inputs_available {
-                for input_id in op_node.inputs.iter().filter_map(|id_opt| *id_opt) {
+
+            // Prune op if:
+            //
+            // - The output varies on each run (`Random*`)
+            // - We are missing a required input
+            let prune_op = !op_node.operator.is_deterministic() || !all_inputs_available;
+
+            if prune_op {
+                for input_id in all_inputs {
                     if resolved_values.contains(&input_id) {
                         pruned_ops_resolved_inputs.insert(input_id);
                     }
@@ -1235,15 +1278,51 @@ impl Graph {
 
     /// Return the node IDs whose values are available at the start of graph
     /// execution, given a collection of initial inputs.
-    fn init_resolved_values<I: Iterator<Item = NodeId>>(&self, inputs: I) -> FxHashSet<NodeId> {
-        inputs
-            .chain(
-                self.nodes.iter().enumerate().filter_map(|(node_id, node)| {
+    fn init_resolved_values<I: Iterator<Item = NodeId>>(
+        &self,
+        inputs: I,
+        include_captures: bool,
+    ) -> FxHashSet<NodeId> {
+        let mut resolved: FxHashSet<NodeId> =
+            inputs
+                .chain(self.nodes.iter().enumerate().filter_map(|(node_id, node)| {
                     matches!(node, Node::Constant(_)).then_some(node_id)
+                }))
+                .collect();
+
+        if include_captures {
+            resolved.extend(self.captures().iter().copied());
+        }
+
+        resolved
+    }
+
+    /// Return the IDs of all nodes in the current graph that an operator
+    /// depends on.
+    ///
+    /// This includes nodes used as input as well as captures if the operator
+    /// has subgraphs.
+    fn operator_dependencies<'a>(
+        &'a self,
+        op_node: &'a OperatorNode,
+    ) -> impl Iterator<Item = NodeId> + Clone + 'a {
+        op_node.input_ids().iter().filter_map(|id| *id).chain(
+            op_node
+                .operator
+                .subgraphs()
+                .into_iter()
+                .flat_map(|sg| sg.capture_names())
+                .filter_map(move |cap_name| {
+                    let cap_id = self.get_node_id(cap_name)?;
+                    if !op_node.input_ids().contains(&Some(cap_id)) {
+                        Some(cap_id)
+                    } else {
+                        // If the captured node is also used as an input,
+                        // only yield it once in the output.
+                        None
+                    }
                 }),
-            )
-            .chain(self.captures().iter().copied())
-            .collect()
+        )
     }
 
     /// Create an execution plan for a sequence of computation steps that begin
@@ -1284,15 +1363,13 @@ impl Graph {
                 op_node_id: NodeId,
                 op_node: &'a OperatorNode,
             ) -> Result<(), RunError> {
-                for input in op_node.inputs.iter().filter_map(|node| *node) {
+                for input in self.graph.operator_dependencies(op_node) {
                     if self.resolved_values.contains(&input) {
                         continue;
                     }
                     if let Some((input_op_id, input_op_node)) = self.graph.get_source_node(input) {
                         self.visit(input_op_id, input_op_node)?;
-                    } else if self.options.allow_missing_inputs
-                        || self.graph.captures().contains(&input)
-                    {
+                    } else if self.options.allow_missing_inputs {
                         continue;
                     } else {
                         let msg = format!(
@@ -1332,8 +1409,10 @@ impl Graph {
         }
 
         // Set of values that are available after executing the plan
-        let resolved_values: FxHashSet<NodeId> =
-            self.init_resolved_values(inputs.iter().map(|(node_id, _)| *node_id));
+        let resolved_values: FxHashSet<NodeId> = self.init_resolved_values(
+            inputs.iter().map(|(node_id, _)| *node_id),
+            options.captures_available,
+        );
 
         let builder = PlanBuilder {
             graph: self,
@@ -1361,13 +1440,13 @@ mod tests {
     use rten_tensor::test_util::{expect_equal, expect_equal_with_tolerance};
     use rten_tensor::{Tensor, TensorView};
 
-    use smallvec::smallvec;
+    use smallvec::{smallvec, SmallVec};
 
     use super::{CachedPlan, CaptureEnv};
     use crate::graph::{Dimension, Graph, Node, RunError, RunOptions, TypedConstant};
     use crate::ops::{
-        Add, Concat, Conv, If, InputList, IntoOpResult, Mul, OpError, Operator, Output, OutputList,
-        Relu, Shape,
+        Add, Concat, Conv, Identity, If, InputList, IntoOpResult, Mul, OpError, Operator, Output,
+        OutputList, Relu, Shape,
     };
     use crate::tensor_pool::TensorPool;
 
@@ -2153,8 +2232,8 @@ mod tests {
             ))
         }
 
-        fn has_subgraph(&self) -> bool {
-            true
+        fn subgraphs(&self) -> SmallVec<[&Graph; 2]> {
+            SmallVec::from_slice(&[&self.graph])
         }
 
         fn run_subgraph(
@@ -2268,5 +2347,146 @@ mod tests {
             .unwrap();
         let result: Tensor<f32> = result.remove(0).try_into().unwrap();
         assert_eq!(result, Tensor::from(2.));
+    }
+
+    #[test]
+    fn test_captures_not_available_when_subgraph_is_run_directly() {
+        let mut subgraph = Graph::new();
+        let sg_input = subgraph.add_value(Some("input"), None);
+        subgraph.set_captures(&[sg_input]);
+        let (_, sg_add) = subgraph.add_simple_op("Id", Identity {}, &[sg_input]);
+        subgraph.set_output_ids(&[sg_add]);
+
+        // When a subgraph is run via `run_subgraph` the planner will assume
+        // that captured values are available. If the graph is run directly
+        // however, this is not the case.
+        //
+        // Cases where subgraphs are run directly include the constant
+        // propagation pass of graph optimization.
+
+        let result = subgraph.partial_run(Vec::new(), &[sg_add], None).unwrap();
+        assert_eq!(result.len(), 0);
+
+        let result = subgraph.run(Vec::new(), &[sg_add], None);
+        assert_eq!(
+            result,
+            Err(RunError::PlanningError(
+                "Missing input \"input\" for op \"Id\"".to_string()
+            ))
+        );
+    }
+
+    #[test]
+    fn test_partial_run_considers_subgraph_captures() {
+        let mut g = Graph::new();
+        let input_id = g.add_value(Some("input"), None);
+
+        let mut subgraph = Graph::new();
+        let sg_input = subgraph.add_value(Some("input"), None);
+        subgraph.set_captures(&[sg_input]);
+        let (_, sg_add) = subgraph.add_simple_op("Id", Identity {}, &[sg_input]);
+        subgraph.set_output_ids(&[sg_add]);
+
+        let (_, out) = g.add_simple_op("Subgraph", Subgraph { graph: subgraph }, &[]);
+
+        // `partial_run` should skip operators that can't be evaluated due to
+        // missing captures.
+        let result = g.partial_run(Vec::new(), &[out], None).unwrap();
+        assert_eq!(result.len(), 0);
+
+        // When the captures are available, `partial_run` should evaluate the
+        // operator as normal.
+        let result = g
+            .partial_run([(input_id, Tensor::from(4.).into())].into(), &[out], None)
+            .unwrap();
+        assert_eq!(result.len(), 1);
+    }
+
+    #[test]
+    fn test_plan_considers_capture_dependencies() {
+        let mut g = Graph::new();
+        let input_id = g.add_value(Some("input"), None);
+
+        let (_, _) = g.add_simple_op("Add", Add {}, &[input_id, input_id]);
+
+        // Add a subgraph with a captured value that is the output of an
+        // operation in the parent graph.
+        let mut subgraph = Graph::new();
+        let sg_input = subgraph.add_value(Some("Add_out"), None);
+        subgraph.set_captures(&[sg_input]);
+        let (_, sg_out) = subgraph.add_simple_op("Id", Identity {}, &[sg_input]);
+        subgraph.set_output_ids(&[sg_out]);
+
+        let (_, out) = g.add_simple_op("Subgraph", Subgraph { graph: subgraph }, &[]);
+
+        // Run the graph. The planner must account for captured dependencies
+        // in the `Subgraph` op.
+        let input = Tensor::from(3.);
+        let mut result = g.run(vec![(input_id, input.into())], &[out], None).unwrap();
+        let result: Tensor<f32> = result.remove(0).try_into().unwrap();
+        assert_eq!(result.item(), Some(&6.));
+    }
+
+    #[test]
+    fn test_plan_considers_transitive_capture_dependencies() {
+        let mut g = Graph::new();
+        let input_id = g.add_value(Some("input"), None);
+
+        let (_, _) = g.add_simple_op("Add", Add {}, &[input_id, input_id]);
+
+        // Add nested subgraphs where an operation in the innermost graph has
+        // a dependency on an operator output in the top-level graph.
+        let mut subgraph = Graph::new();
+        let mut nested_subgraph = Graph::new();
+        let ns_input = nested_subgraph.add_value(Some("Add_out"), None);
+        nested_subgraph.set_captures(&[ns_input]);
+        let (_, ns_out) = nested_subgraph.add_simple_op("Id", Identity {}, &[ns_input]);
+        nested_subgraph.set_output_ids(&[ns_out]);
+
+        let (_, sg_out) = subgraph.add_simple_op(
+            "Subgraph",
+            Subgraph {
+                graph: nested_subgraph,
+            },
+            &[],
+        );
+        subgraph.set_output_ids(&[sg_out]);
+
+        let (_, out) = g.add_simple_op("Subgraph", Subgraph { graph: subgraph }, &[]);
+
+        // Run the graph. The planner must account for captured dependencies
+        // from the innermost graph in the `Subgraph` op.
+        let input = Tensor::from(3.);
+        let mut result = g.run(vec![(input_id, input.into())], &[out], None).unwrap();
+        let result: Tensor<f32> = result.remove(0).try_into().unwrap();
+        assert_eq!(result.item(), Some(&6.));
+    }
+
+    #[test]
+    fn test_keeps_temp_value_needed_as_subgraph_capture() {
+        let mut g = Graph::new();
+        let input_id = g.add_value(Some("input"), None);
+
+        // Compute a temporary `id_out` value and use it in the main graph.
+        let (_, id_out) = g.add_simple_op("Id", Identity {}, &[input_id]);
+        let (_, mul_out) = g.add_simple_op("Mul", Mul {}, &[id_out, id_out]);
+
+        // Add a subgraph which depends on the temporary `id_out` value via a
+        // capture. Graph execution must keep the `id_out` value around until
+        // this has run, even though no ops in the main graph need it as inputs.
+        let mut subgraph = Graph::new();
+        let sg_input = subgraph.add_value(Some("Id_out"), None);
+        subgraph.set_captures(&[sg_input]);
+        let (_, sg_out) = subgraph.add_simple_op("Id", Identity {}, &[sg_input]);
+        subgraph.set_output_ids(&[sg_out]);
+
+        // Add op to main graph which runs the subgraph. This has a dummy
+        // dependency on `mul_out`.
+        let (_, out) = g.add_simple_op("Subgraph", Subgraph { graph: subgraph }, &[mul_out]);
+
+        let input = Tensor::from(3.);
+        let mut result = g.run(vec![(input_id, input.into())], &[out], None).unwrap();
+        let result: Tensor<f32> = result.remove(0).try_into().unwrap();
+        assert_eq!(result.item(), Some(&3.));
     }
 }
