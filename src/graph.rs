@@ -1369,9 +1369,7 @@ impl Graph {
                     }
                     if let Some((input_op_id, input_op_node)) = self.graph.get_source_node(input) {
                         self.visit(input_op_id, input_op_node)?;
-                    } else if self.options.allow_missing_inputs
-                        || self.graph.captures().contains(&input)
-                    {
+                    } else if self.options.allow_missing_inputs {
                         continue;
                     } else {
                         let msg = format!(
@@ -2352,7 +2350,7 @@ mod tests {
     }
 
     #[test]
-    fn test_partial_run_assumes_captures_not_available() {
+    fn test_captures_not_available_when_subgraph_is_run_directly() {
         let mut subgraph = Graph::new();
         let sg_input = subgraph.add_value(Some("input"), None);
         subgraph.set_captures(&[sg_input]);
@@ -2360,16 +2358,22 @@ mod tests {
         subgraph.set_output_ids(&[sg_add]);
 
         // When a subgraph is run via `run_subgraph` the planner will assume
-        // that captured values are available. When run via `partial_run` on
-        // the other hand, as used during the constant-propagation pass of
-        // graph optimization for example, the captured values should be assumed
-        // unavailable.
+        // that captured values are available. If the graph is run directly
+        // however, this is not the case.
         //
-        // A smarter planner would know which captures are available rather
-        // than assuming that all or none are available.
-        let result = subgraph.partial_run(Vec::new(), &[sg_add], None).unwrap();
+        // Cases where subgraphs are run directly include the constant
+        // propagation pass of graph optimization.
 
+        let result = subgraph.partial_run(Vec::new(), &[sg_add], None).unwrap();
         assert_eq!(result.len(), 0);
+
+        let result = subgraph.run(Vec::new(), &[sg_add], None);
+        assert_eq!(
+            result,
+            Err(RunError::PlanningError(
+                "Missing input \"input\" for op \"Id\"".to_string()
+            ))
+        );
     }
 
     #[test]
