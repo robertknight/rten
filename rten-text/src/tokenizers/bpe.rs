@@ -302,8 +302,6 @@ impl Bpe {
 
                 if let Some(rank) = builder.get_token_rank(&token) {
                     rank_to_token_id.insert(rank, id);
-                } else if !added_tokens.values().any(|s| *s == token.as_str()) {
-                    return Err(BpeError::InvalidVocabEntry(token));
                 }
             }
             (Some(rank_to_token_id), Some(token_id_to_encoded_bytes))

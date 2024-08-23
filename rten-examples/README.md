@@ -57,6 +57,7 @@ The examples have been chosen to cover common tasks and popular models.
 - **detr** - Object detection using [DETR](https://research.facebook.com/publications/end-to-end-object-detection-with-transformers/)
 - **distilvit** - Image captioning using [Mozilla's DistilViT](https://hacks.mozilla.org/2024/05/experimenting-with-local-alt-text-generation-in-firefox-nightly/)
 - **segment_anything** - Image segmentation using [Segment Anything](https://segment-anything.com)
+- **trocr** - Recognize text using [TrOCR](https://arxiv.org/abs/2109.10282)
 - **yolo** - Object detection using [YOLO v8](https://github.com/ultralytics/ultralytics)
 
 ### Text
