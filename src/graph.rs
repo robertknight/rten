@@ -747,12 +747,18 @@ impl Graph {
         self.nodes.get_mut(id)
     }
 
-    /// Return the total number of parameters in all constant nodes in the graph.
+    /// Return the total number of parameters in all constant nodes in this
+    /// graph and subgraphs.
     pub fn total_params(&self) -> usize {
         self.nodes
             .iter()
             .map(|node| match node {
-                Node::Operator(_) => 0,
+                Node::Operator(op_node) => op_node
+                    .operator()
+                    .subgraphs()
+                    .iter()
+                    .map(|sg| sg.total_params())
+                    .sum(),
                 Node::Value(_) => 0,
                 Node::Constant(constant) => constant.layout().len(),
             })
@@ -1797,7 +1803,12 @@ mod tests {
         let mut g = Graph::new();
         g.add_constant(Some("floats"), Tensor::<f32>::zeros(&[10, 10]));
         g.add_constant(Some("ints"), Tensor::<i32>::zeros(&[10, 10]));
-        assert_eq!(g.total_params(), 200);
+
+        let mut subgraph = Graph::new();
+        subgraph.add_constant(Some("sg_floats"), Tensor::<f32>::zeros(&[10, 10]));
+        g.add_simple_op("Subgraph", Subgraph { graph: subgraph }, &[]);
+
+        assert_eq!(g.total_params(), 300);
     }
 
     #[test]
