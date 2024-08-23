@@ -192,6 +192,12 @@ impl ModelOptions {
         Model::load_impl(storage, self)
     }
 
+    /// Load the model from a static slice of bytes. See [`Model::load_static_slice`].
+    pub fn load_static_slice(&self, data: &'static [u8]) -> Result<Model, ModelLoadError> {
+        let storage = Arc::new(ConstantStorage::StaticSlice(data));
+        Model::load_impl(storage, self)
+    }
+
     /// Load the model from a memory-mapped view of a file. See [`Model::load_mmap`].
     ///
     /// # Safety
@@ -218,6 +224,14 @@ impl Model {
     /// Load a serialized model from a byte buffer.
     pub fn load(data: Vec<u8>) -> Result<Model, ModelLoadError> {
         ModelOptions::with_all_ops().load(data)
+    }
+
+    /// Load a serialized model from a static byte slice.
+    ///
+    /// This is useful for loading models embedded in the binary via
+    /// [`include_bytes`] for example.
+    pub fn load_static_slice(data: &'static [u8]) -> Result<Model, ModelLoadError> {
+        ModelOptions::with_all_ops().load_static_slice(data)
     }
 
     /// Load a serialized model by mapping a view of a file as memory.
@@ -989,6 +1003,19 @@ mod tests {
             let err = Model::load(buf).err().unwrap();
             assert!(err.to_string().contains(expected_error));
         }
+    }
+
+    #[test]
+    fn test_load_static_slice() {
+        let buffer = generate_model_buffer(ModelFormat::V2).leak();
+        let model = Model::load_static_slice(buffer).unwrap();
+        let input = generate_input();
+        let input_id = model.input_ids()[0];
+        let output_id = model.output_ids()[0];
+        let result = model
+            .run(vec![(input_id, input.into())], &[output_id], None)
+            .unwrap();
+        check_output(result);
     }
 
     #[test]
