@@ -5,7 +5,7 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
-## [0.13.0] - Unreleased
+## [0.13.0] - 2024-08-24
 
 This release adds the infrastructure to support subgraphs, which are used in
 control flow operators like `If`, plus an implementation of the `If` operator
@@ -38,6 +38,11 @@ and a TrOCR example which uses it.
   is used by Hugging Face models for encoder-decoder systems.
 
 - Support models without a KV cache (https://github.com/robertknight/rten/pull/305)
+
+### rten-tensor
+
+- Added `Tensor::remove_axis` (b823d46)
+- Added `Tensor::from_storage_and_layout` (54d2941)
 
 ### rten-text
 
