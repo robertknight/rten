@@ -335,6 +335,9 @@ fn softmax_lanes<F: Fn(&mut [f32]) + Send + Sync>(
     apply_op: F,
 ) -> Result<(), OpError> {
     let resolved_axis = resolve_axis(output.ndim(), axis)?;
+    if output.size(resolved_axis) == 0 {
+        return Ok(());
+    }
 
     // Make the lanes over which the operation is applied contiguous. This
     // allows the `apply_op` function to use optimized code that works with
@@ -713,6 +716,11 @@ mod tests {
         let expected = Tensor::from([0.1172, 0.2362, 0.1887, 0.2274, 0.1052, 0.1253]);
         let result = softmax(&pool, input.view(), 0).unwrap();
         expect_eq_1e4(&result, &expected)?;
+
+        // Softmax over empty axis
+        let empty_vec = Tensor::zeros(&[0]);
+        let result = softmax(&pool, empty_vec.view(), 0).unwrap();
+        expect_eq_1e4(&result, &empty_vec)?;
 
         // Softmax on final dimension of 2D input
         input.reshape(&[2, 3]);
