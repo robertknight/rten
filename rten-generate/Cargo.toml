@@ -1,6 +1,6 @@
 [package]
 name = "rten-generate"
-version = "0.12.0"
+version = "0.13.0"
 edition = "2021"
 authors = ["Robert Knight"]
 description = "Utilities to simplify running auto-regressive models with RTen"
@@ -11,9 +11,9 @@ include = ["/src", "/README.md"]
 
 [dependencies]
 fastrand = { version = "2.0.2" }
-rten = { path = "../", version = "0.12.0" }
-rten-text = { path = "../rten-text", version = "0.12.0", optional = true }
-rten-tensor = { path = "../rten-tensor", version = "0.12.0" }
+rten = { path = "../", version = "0.13.0" }
+rten-text = { path = "../rten-text", version = "0.13.0", optional = true }
+rten-tensor = { path = "../rten-tensor", version = "0.13.0" }
 
 [dev-dependencies]
 rten-generate = { path = ".", features = ["text-decoder"] }
