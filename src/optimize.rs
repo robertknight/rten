@@ -41,7 +41,7 @@ struct GraphMutator {
     /// is an input to one or more operators.
     edges: FxHashMap<NodeId, Vec<NodeId>>,
     graph: Graph,
-    output_ids: Vec<usize>,
+    output_ids: Vec<NodeId>,
 }
 
 impl GraphMutator {
@@ -249,13 +249,13 @@ trait OperatorMatch {
     /// M outputs.
     fn match_type<Op: Operator, const N: usize, const M: usize>(
         &self,
-    ) -> Option<(&Op, [usize; N], [usize; M])>;
+    ) -> Option<(&Op, [NodeId; N], [NodeId; M])>;
 }
 
 impl OperatorMatch for OperatorNode {
     fn match_type<Op: Operator, const N: usize, const M: usize>(
         &self,
-    ) -> Option<(&Op, [usize; N], [usize; M])> {
+    ) -> Option<(&Op, [NodeId; N], [NodeId; M])> {
         let op = self.operator().downcast_ref::<Op>()?;
 
         let input_ids = self.input_ids();
@@ -268,8 +268,8 @@ impl OperatorMatch for OperatorNode {
             return None;
         }
 
-        let input_ids: [usize; N] = std::array::from_fn(|i| input_ids[i].unwrap());
-        let output_ids: [usize; M] = std::array::from_fn(|i| output_ids[i].unwrap());
+        let input_ids: [NodeId; N] = std::array::from_fn(|i| input_ids[i].unwrap());
+        let output_ids: [NodeId; M] = std::array::from_fn(|i| output_ids[i].unwrap());
 
         Some((op, input_ids, output_ids))
     }
