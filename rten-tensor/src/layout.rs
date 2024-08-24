@@ -323,6 +323,10 @@ fn slice_layout<I: AsRef<[usize]>, O: AsMut<[usize]>>(
         }
     }
 
+    if out_shape.iter().any(|size| *size == 0) {
+        offset = 0;
+    }
+
     Ok((ndim, offset))
 }
 
@@ -926,9 +930,14 @@ pub trait MutLayout: Layout + Clone {
 
         let mut sliced_layout = self.clone();
         sliced_layout.resize_dim(axis, range.len());
-        let start_offset = range.start * sliced_layout.stride(axis);
-        let end_offset = start_offset + sliced_layout.min_data_len();
-        (start_offset..end_offset, sliced_layout)
+        let range = if sliced_layout.is_empty() {
+            0..0
+        } else {
+            let start_offset = range.start * sliced_layout.stride(axis);
+            let end_offset = start_offset + sliced_layout.min_data_len();
+            start_offset..end_offset
+        };
+        (range, sliced_layout)
     }
 
     /// Slice the layout and return a dynamic rank layout.

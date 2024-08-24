@@ -886,10 +886,15 @@ impl<T, L: Clone + MutLayout> TensorBase<Vec<T>, L> {
         assert!(start <= end, "start must be <= end");
         assert!(end <= self.size(dim), "end must be <= dim size");
 
-        let start_offset = self.layout.stride(dim) * start;
         self.layout.resize_dim(dim, end - start);
 
-        let range = start_offset..start_offset + self.layout.min_data_len();
+        let range = if self.is_empty() {
+            0..0
+        } else {
+            let start_offset = start * self.layout.stride(dim);
+            let end_offset = start_offset + self.layout.min_data_len();
+            start_offset..end_offset
+        };
         self.data.copy_within(range.clone(), 0);
         self.data.truncate(range.end - range.start);
     }
@@ -2297,6 +2302,11 @@ mod tests {
             tensor.append(1, &NdTensor::from([[10], [11], [12]])),
             Err(ExpandError::InsufficientCapacity)
         );
+
+        // Append to an empty tensor
+        let mut empty = NdTensor::<i32, 2>::zeros([0, 3]);
+        empty.append(1, &NdTensor::<i32, 2>::zeros([0, 2])).unwrap();
+        assert_eq!(empty.shape(), [0, 5]);
     }
 
     #[test]
@@ -2464,6 +2474,11 @@ mod tests {
         tensor.clip_dim(0, 1..2); // Remove first and last rows
         assert_eq!(tensor.shape(), [1, 3]);
         assert_eq!(tensor.data(), Some([3, 4, 5].as_slice()));
+
+        // Clip empty tensor
+        let mut tensor = NdTensor::<f32, 2>::zeros([0, 10]);
+        tensor.clip_dim(1, 2..5);
+        assert_eq!(tensor.shape(), [0, 3]);
     }
 
     #[test]
@@ -3363,6 +3378,11 @@ mod tests {
         let row_two = tensor.slice(1);
         assert_eq!(row_two[[0]], 3.);
         assert_eq!(row_two[[1]], 4.);
+
+        // Slice empty tensor
+        let empty = NdTensor::<f32, 2>::zeros([0, 10]);
+        let col_one = empty.slice((.., 2..3));
+        assert_eq!(col_one.shape(), [0, 1]);
     }
 
     #[test]
