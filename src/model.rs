@@ -15,7 +15,9 @@ use rten_tensor::Tensor;
 
 use crate::constant_storage::{ArcSlice, ArcTensorView, ConstantStorage};
 use crate::env::str_as_bool;
-use crate::graph::{ConstantNodeData, Dimension, Graph, Node, NodeId, RunError, RunOptions};
+use crate::graph::{
+    CaptureEnv, ConstantNodeData, Dimension, Graph, Node, NodeId, RunError, RunOptions,
+};
 use crate::header::{Header, HeaderError};
 use crate::model_metadata::ModelMetadata;
 use crate::number::{LeBytes, Pod};
@@ -145,6 +147,22 @@ fn parse_timing_config(config: &str, opts: &mut RunOptions) {
             }
         }
     }
+}
+
+/// Configuration for loading subgraphs.
+struct SubgraphOptions<'a> {
+    /// Tensor data storage
+    storage: Arc<ConstantStorage>,
+
+    /// Offset of tensor data within the storage.
+    tensor_data_offset: Option<u64>,
+
+    /// Whether to apply optimizations when loading the subgraph.
+    optimize: bool,
+
+    /// Provides access to info about nodes captured from parent graphs.
+    /// This is needed for some optimization passes.
+    capture_env: Option<&'a CaptureEnv<'a>>,
 }
 
 /// Options which customize how a model is loaded.
@@ -311,6 +329,7 @@ impl Model {
             storage.clone(),
             tensor_data_offset,
             options.optimize,
+            None, /* capture_env */
         )?;
 
         let metadata = model
@@ -328,6 +347,7 @@ impl Model {
         storage: Arc<ConstantStorage>,
         tensor_data_offset: Option<u64>,
         optimize: bool,
+        capture_env: Option<&CaptureEnv>,
     ) -> Result<Graph, ModelLoadError> {
         let node_count = serialized_graph.nodes().map(|ns| ns.len()).unwrap_or(0);
 
@@ -353,10 +373,6 @@ impl Model {
             graph.set_captures(&captures);
         }
 
-        let load_subgraph = |g: sg::Graph| -> Result<Graph, ModelLoadError> {
-            Self::load_graph(g, registry, storage.clone(), tensor_data_offset, optimize)
-        };
-
         if let Some(nodes) = serialized_graph.nodes() {
             for (node_index, node) in nodes.iter().enumerate() {
                 let graph_node = if let Some(operator) = node.data_as_operator_node() {
@@ -366,7 +382,12 @@ impl Model {
                         operator,
                         registry,
                         &node_id_from_index,
-                        &load_subgraph,
+                        SubgraphOptions {
+                            storage: storage.clone(),
+                            tensor_data_offset,
+                            optimize,
+                            capture_env,
+                        },
                     )?
                 } else if let Some(value) = node.data_as_value_node() {
                     Self::add_graph_value(&mut graph, node.name(), value)?
@@ -388,7 +409,7 @@ impl Model {
         if optimize {
             let optimizer = GraphOptimizer::new();
             optimizer
-                .optimize(graph)
+                .optimize(graph, capture_env)
                 .map_err(|err| ModelLoadError::OptimizeError(Box::new(err)))
         } else {
             Ok(graph)
@@ -401,8 +422,26 @@ impl Model {
         operator: sg::OperatorNode,
         registry: &OpRegistry,
         node_id_from_index: &HashMap<usize, NodeId>,
-        load_graph: &dyn Fn(sg::Graph) -> Result<Graph, ModelLoadError>,
+        subgraph_opts: SubgraphOptions,
     ) -> Result<NodeId, ModelLoadError> {
+        let load_subgraph = |g: sg::Graph| -> Result<Graph, ModelLoadError> {
+            let SubgraphOptions {
+                storage,
+                tensor_data_offset,
+                optimize,
+                capture_env,
+            } = &subgraph_opts;
+            let capture_env = CaptureEnv::new(*capture_env, graph, None, None);
+            Self::load_graph(
+                g,
+                registry,
+                storage.clone(),
+                *tensor_data_offset,
+                *optimize,
+                Some(&capture_env),
+            )
+        };
+
         struct LoadContext<'a> {
             load_graph: &'a dyn Fn(sg::Graph) -> Result<Graph, ModelLoadError>,
         }
@@ -413,7 +452,9 @@ impl Model {
             }
         }
 
-        let ctx = LoadContext { load_graph };
+        let ctx = LoadContext {
+            load_graph: &load_subgraph,
+        };
         let op = registry
             .read_op(&operator, &ctx)
             .map_err(ModelLoadError::OperatorInvalid)?;

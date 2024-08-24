@@ -2,11 +2,11 @@ use std::error::Error;
 use std::fmt::{Display, Formatter};
 
 use rten_tensor::Tensor;
-use rustc_hash::FxHashMap;
+use rustc_hash::{FxHashMap, FxHashSet};
 
 use crate::downcast::DowncastDyn;
 use crate::graph::{
-    Constant, ConstantNode, Graph, Node, NodeId, OperatorNode, RunError, TypedConstant,
+    CaptureEnv, Constant, ConstantNode, Graph, Node, NodeId, OperatorNode, RunError, TypedConstant,
 };
 use crate::ops::fused::FusedTranspose;
 use crate::ops::{Gelu, LayerNormalization, Operator, ReduceMean, Silu, Transpose};
@@ -101,6 +101,11 @@ impl GraphMutator {
         op_output_id
     }
 
+    /// Add a new node to the graph.
+    fn add_node(&mut self, node: Node) -> NodeId {
+        self.graph.add_node(node)
+    }
+
     /// Return a reference to the graph.
     ///
     /// Note there is no mutable variant of this method. All graph updates must
@@ -160,6 +165,10 @@ impl GraphMutator {
             Some(Node::Operator(op_node)) => op_node,
             _ => panic!("expected operator"),
         })
+    }
+
+    fn set_captures(&mut self, captures: &[NodeId]) {
+        self.graph.set_captures(captures)
     }
 
     /// Replace `old_value_id` with `new_value_id` in operator inputs and graph
@@ -283,9 +292,16 @@ impl GraphOptimizer {
     ///
     /// This method returns the new graph along with the node IDs in the new
     /// graph that correspond to `input_ids` and `output_ids`.
-    pub fn optimize(&self, graph: Graph) -> Result<Graph, OptimizeError> {
+    pub fn optimize(
+        &self,
+        graph: Graph,
+        capture_env: Option<&CaptureEnv>,
+    ) -> Result<Graph, OptimizeError> {
         let mut graph_mut = GraphMutator::from_graph(graph);
 
+        if let Some(capture_env) = capture_env {
+            self.convert_captured_values_to_constants(&mut graph_mut, capture_env)?;
+        }
         self.propagate_constants(&mut graph_mut)?;
 
         self.fuse_transpose(&mut graph_mut)?;
@@ -294,6 +310,45 @@ impl GraphOptimizer {
         self.fuse_layer_norm(&mut graph_mut)?;
 
         Ok(graph_mut.finalize_graph())
+    }
+
+    /// Replace captured values in a graph with constants if the captured value
+    /// resolves to a constant node in the parent graph.
+    ///
+    /// This pass should be performed before other transformations which
+    /// require certain nodes to be constants.
+    fn convert_captured_values_to_constants(
+        &self,
+        graph: &mut GraphMutator,
+        capture_env: &CaptureEnv,
+    ) -> Result<(), OptimizeError> {
+        let captured_constants: Vec<(NodeId, Constant)> = graph
+            .graph()
+            .captures()
+            .iter()
+            .filter_map(|&capture_id| {
+                let cap_name = graph.graph().get_node(capture_id).and_then(|n| n.name())?;
+                let Some(Node::Constant(const_node)) = capture_env.get_node(cap_name) else {
+                    return None;
+                };
+                const_node
+                    .clone_ref()
+                    .map(|local_const| (capture_id, local_const))
+            })
+            .collect();
+
+        let mut new_captures: FxHashSet<_> = graph.graph().captures().iter().copied().collect();
+
+        for (capture_id, local_const) in captured_constants {
+            let const_id = graph.add_node(Node::Constant(local_const));
+            new_captures.remove(&capture_id);
+            graph.replace_value(capture_id, const_id);
+        }
+
+        let new_captures: Vec<_> = new_captures.into_iter().collect();
+        graph.set_captures(&new_captures);
+
+        Ok(())
     }
 
     /// Apply constant propagation to replace parts of the graph which depend
@@ -527,12 +582,14 @@ impl Default for GraphOptimizer {
 #[cfg(test)]
 mod tests {
     use std::error::Error;
+    use std::sync::Arc;
 
     use rten_tensor::Tensor;
 
     use super::{GraphOptimizer, OptimizeError};
+    use crate::constant_storage::{ArcSlice, ArcTensorView, ConstantStorage};
     use crate::downcast::DowncastDyn;
-    use crate::graph::{Constant, Graph, Node};
+    use crate::graph::{CaptureEnv, Constant, Graph, Node};
     use crate::ops::{
         Add, Div, Erf, LayerNormalization, MatMul, Mul, Pow, ReduceMean, Sigmoid, Sqrt, Sub,
         Transpose,
@@ -540,7 +597,55 @@ mod tests {
 
     fn optimize_graph(graph: Graph) -> Result<Graph, OptimizeError> {
         let optimizer = GraphOptimizer::new();
-        optimizer.optimize(graph)
+        optimizer.optimize(graph, None)
+    }
+
+    fn arc_tensor_view(val: f32) -> ArcTensorView<f32> {
+        let const_data = Vec::from(val.to_le_bytes());
+        let const_storage = Arc::new(ConstantStorage::Buffer(const_data));
+        let slice = ArcSlice::new(
+            const_storage.clone(),
+            // Safety: We are transmuting a `u8` slice created from an `f32` slice
+            // back to an `f32` slice.
+            unsafe {
+                std::slice::from_raw_parts(
+                    const_storage.data().as_ptr() as *const f32,
+                    const_storage.data().len() / std::mem::size_of::<f32>(),
+                )
+            },
+        )
+        .unwrap();
+        ArcTensorView::from_data(&[], slice)
+    }
+
+    #[test]
+    fn test_convert_captured_values_to_constants() -> Result<(), Box<dyn Error>> {
+        let mut graph = Graph::new();
+
+        // Add a ref-counted constant value that can be cheaply cloned.
+        let const_tensor = arc_tensor_view(42.);
+        graph.add_constant(Some("const_a"), const_tensor);
+
+        // Capture the constant in the subgraph as a value.
+        let mut subgraph = Graph::new();
+        let sg_val = subgraph.add_value(Some("const_a"), None);
+        subgraph.set_captures(&[sg_val]);
+        subgraph.set_output_ids(&[sg_val]);
+
+        // Run optimizations on the subgraph. This should replace the captured
+        // value with a local constant that references the same data.
+        let optimizer = GraphOptimizer::new();
+        let capture_env = CaptureEnv::new(None, &graph, None, None);
+        let optimized_subgraph = optimizer.optimize(subgraph, Some(&capture_env))?;
+
+        let outputs = optimized_subgraph.output_ids();
+        assert!(optimized_subgraph.captures().is_empty());
+        assert_eq!(outputs.len(), 1);
+        let node = optimized_subgraph.get_node(outputs[0]).unwrap();
+        assert_eq!(node.name(), Some("const_a"));
+        assert!(matches!(node, Node::Constant(_)));
+
+        Ok(())
     }
 
     #[test]
@@ -561,7 +666,7 @@ mod tests {
         // Optimize the graph. This should replace the first operator's output
         // with a constant value.
         let optimizer = GraphOptimizer::new();
-        let optimized_graph = optimizer.optimize(graph)?;
+        let optimized_graph = optimizer.optimize(graph, None)?;
 
         // Check that we got the expected inputs and outputs. The optimizer
         // does not promise to preserve IDs for unmodified parts of the graph,
@@ -722,7 +827,7 @@ mod tests {
         let invalid_id = 123;
         graph.set_input_ids(&[invalid_id]);
         graph.set_output_ids(&[invalid_id]);
-        let result = optimizer.optimize(graph);
+        let result = optimizer.optimize(graph, None);
         assert!(matches!(result, Err(OptimizeError::RunError(_))));
     }
 }

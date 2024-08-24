@@ -100,6 +100,15 @@ pub enum ConstantNodeData<T> {
     Arc(ArcTensorView<T>),
 }
 
+impl<T> ConstantNodeData<T> {
+    fn clone_ref(&self) -> Option<ConstantNodeData<T>> {
+        match self {
+            ConstantNodeData::Owned(_) => None,
+            ConstantNodeData::Arc(view) => Some(ConstantNodeData::Arc(view.clone())),
+        }
+    }
+}
+
 impl<T> From<Tensor<T>> for ConstantNodeData<T> {
     fn from(val: Tensor<T>) -> ConstantNodeData<T> {
         ConstantNodeData::Owned(val)
@@ -125,6 +134,14 @@ impl<T> ConstantNode<T> {
         }
     }
 
+    fn clone_ref(&self) -> Option<ConstantNode<T>> {
+        let data = self.data.clone_ref()?;
+        Some(ConstantNode {
+            name: self.name.clone(),
+            data,
+        })
+    }
+
     fn layout(&self) -> &DynLayout {
         match &self.data {
             ConstantNodeData::Owned(data) => data.layout(),
@@ -143,6 +160,15 @@ impl Constant {
         match self {
             Constant::Float(f) => f.name.as_deref(),
             Constant::Int(i) => i.name.as_deref(),
+        }
+    }
+
+    /// Clone this constant, but only if it can be done so cheaply by
+    /// incrementing a ref count on the underlying data.
+    pub fn clone_ref(&self) -> Option<Constant> {
+        match self {
+            Constant::Float(f) => f.clone_ref().map(Constant::Float),
+            Constant::Int(i) => i.clone_ref().map(Constant::Int),
         }
     }
 
@@ -424,18 +450,25 @@ pub struct CaptureEnv<'a> {
     graph: &'a Graph,
 
     // Values passed as inputs to the graph run.
-    inputs: &'a FxHashMap<NodeId, InputOrOutput<'a>>,
+    inputs: Option<&'a FxHashMap<NodeId, InputOrOutput<'a>>>,
 
     // Temporary values computed during the graph run.
-    temp_values: &'a FxHashMap<NodeId, Output>,
+    temp_values: Option<&'a FxHashMap<NodeId, Output>>,
 }
 
 impl<'a> CaptureEnv<'a> {
-    fn new(
+    /// Create a new capture environment.
+    ///
+    /// Lookups will first match nodes in `graph` and then try the `parent`
+    /// environment if that fails. Lookups that match constant nodes will be
+    /// resolved from the node directly. Lookups that match value nodes will
+    /// be resolved from `temp_values` first and then `inputs` if there is no
+    /// match there.
+    pub fn new(
         parent: Option<&'a CaptureEnv<'a>>,
         graph: &'a Graph,
-        inputs: &'a FxHashMap<NodeId, InputOrOutput<'a>>,
-        temp_values: &'a FxHashMap<NodeId, Output>,
+        inputs: Option<&'a FxHashMap<NodeId, InputOrOutput<'a>>>,
+        temp_values: Option<&'a FxHashMap<NodeId, Output>>,
     ) -> CaptureEnv<'a> {
         CaptureEnv {
             parent,
@@ -443,6 +476,19 @@ impl<'a> CaptureEnv<'a> {
             inputs,
             temp_values,
         }
+    }
+
+    /// Look up a node by name in this environment.
+    pub fn get_node(&self, name: &str) -> Option<&'a Node> {
+        if let Some(node_id) = self.graph.get_node_id(name) {
+            // If a node by this name exists in this graph, but is a placeholder
+            // for a value captured from a parent graph, then ignore it.
+            if !self.graph.captures().contains(&node_id) {
+                return self.graph.get_node(node_id);
+            }
+        }
+
+        self.parent.and_then(|parent| parent.get_node(name))
     }
 
     /// Look up an operator input value by name in this environment.
@@ -456,9 +502,13 @@ impl<'a> CaptureEnv<'a> {
                     Some(Node::Constant(c)) => Some(c.as_input()),
                     Some(Node::Value(_)) => self
                         .temp_values
-                        .get(&node_id)
+                        .and_then(|tv| tv.get(&node_id))
                         .map(|i| i.as_input())
-                        .or_else(|| self.inputs.get(&node_id).map(|i| i.as_input())),
+                        .or_else(|| {
+                            self.inputs
+                                .and_then(|i| i.get(&node_id))
+                                .map(|i| i.as_input())
+                        }),
                     _ => None,
                 };
             }
@@ -609,7 +659,7 @@ impl Graph {
         captures
     }
 
-    fn add_node(&mut self, node: Node) -> NodeId {
+    pub fn add_node(&mut self, node: Node) -> NodeId {
         self.nodes.push(node);
         let node_id = self.nodes.len() - 1;
 
@@ -1024,7 +1074,8 @@ impl Graph {
                     .map(|out| [out].into())
                     .map_err(op_error_to_run_error)
             } else if op_node.operator.has_subgraph() {
-                let capture_env = CaptureEnv::new(captures, self, &inputs_by_id, &temp_values);
+                let capture_env =
+                    CaptureEnv::new(captures, self, Some(&inputs_by_id), Some(&temp_values));
                 let result = op_node.operator.run_subgraph(
                     pool,
                     InputList::from_optional(&op_inputs),

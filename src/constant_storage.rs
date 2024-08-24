@@ -77,6 +77,18 @@ pub struct ArcSlice<T> {
     phantom: PhantomData<T>,
 }
 
+// Manual implementation of `ArcSlice<T>` avoids adding a `T: Clone` bound.
+impl<T> Clone for ArcSlice<T> {
+    fn clone(&self) -> ArcSlice<T> {
+        ArcSlice {
+            storage: self.storage.clone(),
+            byte_offset: self.byte_offset,
+            len: self.len,
+            phantom: PhantomData,
+        }
+    }
+}
+
 impl<T> ArcSlice<T> {
     /// Return an ArcSlice which references the subslice of `storage` specified
     /// by `data`.
