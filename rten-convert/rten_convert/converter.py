@@ -493,7 +493,7 @@ def constant_node_from_onnx_constant_op(onnx_op: onnx.OperatorProto) -> Constant
 
 
 def value_node_from_onnx_value(value: onnx.ValueInfoProto) -> ValueNode:
-    if value.type.tensor_type.shape.dim:
+    if value.type.tensor_type.HasField("shape"):
         dims = [d.dim_param or d.dim_value for d in value.type.tensor_type.shape.dim]
     else:
         dims = None
