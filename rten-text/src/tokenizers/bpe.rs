@@ -148,21 +148,38 @@ struct BpeBuilder {
 
     /// Ranks assigned to individual bytes.
     byte_to_rank: [Rank; 256],
+
+    end_of_word_suffix: bool,
+}
+
+struct BpeBuilderOptions<'a> {
+    end_of_word_suffix: Option<&'a str>,
 }
 
 impl BpeBuilder {
-    fn new() -> BpeBuilder {
+    fn new(options: BpeBuilderOptions) -> BpeBuilder {
         let char_to_byte = char_to_byte();
         let byte_to_rank = byte_to_rank();
-        let token_ranks: HashMap<EncodedBytes, u32> = char_to_byte
+        let mut token_ranks: HashMap<EncodedBytes, u32> = char_to_byte
             .iter()
             .map(|(ch, byte)| (ch.to_string(), byte_to_rank[*byte as usize]))
             .collect();
+
+        if let Some(suffix) = options.end_of_word_suffix {
+            let end_of_word_start = token_ranks.len() as u32;
+            token_ranks.extend(char_to_byte.iter().map(|(ch, byte)| {
+                (
+                    format!("{}{}", ch, suffix),
+                    byte_to_rank[*byte as usize] + end_of_word_start,
+                )
+            }));
+        }
 
         BpeBuilder {
             ranks: HashMap::new(),
             byte_to_rank,
             token_ranks,
+            end_of_word_suffix: options.end_of_word_suffix.is_some(),
         }
     }
 
@@ -180,6 +197,13 @@ impl BpeBuilder {
     fn add_merges(&mut self, merges: &[EncodedByteSlice]) -> Result<(), BpeError> {
         // The first 256 ranks are assigned to individual byte values.
         let mut rank = 256 + self.ranks.len() as u32;
+
+        // If using an EOW suffix, the next 256 ranks are assigned to bytes
+        // occurring at the end of a word.
+        if self.end_of_word_suffix {
+            rank += 256;
+        }
+
         self.ranks.reserve(merges.len());
         self.token_ranks.reserve(merges.len());
 
@@ -261,6 +285,10 @@ pub struct Bpe {
 
     /// Map from token ID to content for special tokens (eg. end-of-string).
     added_tokens: HashMap<TokenId, String>,
+
+    /// A suffix which is implicitly appended to each string piece to be
+    /// tokenized.
+    end_of_word_suffix: Option<String>,
 }
 
 impl Bpe {
@@ -283,15 +311,22 @@ impl Bpe {
     /// `added_tokens` is a set of tokens which don't appear in `merges` but
     /// do have a mapping in `vocab`. These are used for special purposes such
     /// as representing the end of output.
+    ///
+    /// `end_of_word_suffix` is a string which is implicitly appended to each
+    /// substring that is tokenized, after initial splitting.
     pub fn new(
         merges: &[EncodedByteSlice],
         pattern: &str,
         vocab: Option<HashMap<EncodedBytes, TokenId>>,
         added_tokens: HashMap<TokenId, String>,
+        end_of_word_suffix: Option<String>,
     ) -> Result<Bpe, BpeError> {
         let splitter = Regex::new(pattern).map_err(|err| BpeError::InvalidPattern(err.into()))?;
 
-        let mut builder = BpeBuilder::new();
+        let bb_opts = BpeBuilderOptions {
+            end_of_word_suffix: end_of_word_suffix.as_deref(),
+        };
+        let mut builder = BpeBuilder::new(bb_opts);
         builder.add_merges(merges)?;
 
         let (rank_to_token_id, token_id_to_encoded_bytes) = if let Some(vocab) = vocab {
@@ -316,6 +351,7 @@ impl Bpe {
             splitter,
             added_tokens,
             token_id_to_encoded_bytes,
+            end_of_word_suffix,
         })
     }
 
@@ -352,6 +388,14 @@ impl Bpe {
             .iter()
             .map(|&b| self.byte_to_rank[b as usize])
             .collect();
+
+        // If the end-of-word suffix is enabled, replace the last byte's token
+        // with the one that corresponds to "{byte}{end_of_word_suffix}".
+        if self.end_of_word_suffix.is_some() {
+            if let Some(last) = tokens.pop() {
+                tokens.push(last + 256);
+            }
+        }
 
         // Iteratively merge tokens together until no more are possible.
         bpe_merge(&mut tokens, &self.merges);
@@ -573,7 +617,8 @@ in g";
         } in cases
         {
             let merges: Vec<&str> = merges.lines().collect();
-            let encoder = Bpe::new(&merges, GPT2_SPLIT_PATTERN, None, HashMap::new()).unwrap();
+            let encoder =
+                Bpe::new(&merges, GPT2_SPLIT_PATTERN, None, HashMap::new(), None).unwrap();
             let tokenizer = Tokenizer::new(encoder, Default::default());
             let encoded = tokenizer.encode(text.into(), Default::default()).unwrap();
             assert_eq!(
@@ -610,7 +655,7 @@ in g";
         ];
 
         let merges: Vec<&str> = MINI_GPT2.lines().collect();
-        let encoder = Bpe::new(&merges, GPT2_SPLIT_PATTERN, None, added_tokens()).unwrap();
+        let encoder = Bpe::new(&merges, GPT2_SPLIT_PATTERN, None, added_tokens(), None).unwrap();
         let tokenizer = Tokenizer::new(encoder, Default::default());
 
         for Case { input, encoded_str } in cases {
@@ -666,7 +711,8 @@ in g";
         } in cases
         {
             let merges: Vec<&str> = MINI_GPT2.lines().collect();
-            let encoder = Bpe::new(&merges, GPT2_SPLIT_PATTERN, vocab, added_tokens()).unwrap();
+            let encoder =
+                Bpe::new(&merges, GPT2_SPLIT_PATTERN, vocab, added_tokens(), None).unwrap();
             let tokenizer = Tokenizer::new(encoder, Default::default());
 
             let encoded = tokenizer.encode(text.into(), Default::default()).unwrap();
