@@ -49,6 +49,7 @@ The examples have been chosen to cover common tasks and popular models.
 
 ### Vision
 
+- **clip** - Match images against text descriptions
 - **imagenet** - Classification of images using models trained on ImageNet.
   This example works with a wide variety of models, such as ResNet, MobileNet,
   ConvNeXt, ViT.

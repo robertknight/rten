@@ -37,6 +37,10 @@ release = false
 
 # Vision
 [[bin]]
+name = "clip"
+path = "src/clip.rs"
+
+[[bin]]
 name = "deeplab"
 path = "src/deeplab.rs"
 
