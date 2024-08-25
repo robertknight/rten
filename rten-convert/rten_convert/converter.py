@@ -909,7 +909,8 @@ def op_node_from_onnx_operator(
             )
 
         case "Pad":
-            op_reader.check_attr("mode", "string", "constant")
+            attrs = sg.PadAttrsT()
+            attrs.mode = op_reader.get_enum_attr("mode", sg.PadMode, "constant")
 
         case "ScatterElements":
             attrs = sg.ScatterElementsAttrsT()
