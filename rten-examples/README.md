@@ -43,12 +43,20 @@ The general steps to run an example are:
    Note the `--` before `--help`. Without this `cargo` will print its own help
    info.
 
+## Reference implementations
+
+Some of the examples have reference implementations in Python using PyTorch and
+[Transformers](https://github.com/huggingface/transformers). These are found in
+`src/{example_name}_reference.py` and enable comparison of RTen outputs with the
+original models.
+
 ## Example descriptions
 
 The examples have been chosen to cover common tasks and popular models.
 
 ### Vision
 
+- **clip** - Match images against text descriptions using [CLIP](https://github.com/openai/CLIP)
 - **imagenet** - Classification of images using models trained on ImageNet.
   This example works with a wide variety of models, such as ResNet, MobileNet,
   ConvNeXt, ViT.
