@@ -25,6 +25,7 @@ pub(crate) enum Normalizer {
     Bert(BertNormalizer),
     #[serde(rename = "NFC")]
     Nfc,
+    Sequence,
 }
 
 #[derive(Deserialize)]

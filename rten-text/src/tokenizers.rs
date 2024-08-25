@@ -303,6 +303,12 @@ impl Tokenizer {
                 lowercase: false,
                 strip_accents: false,
             }),
+
+            // Dummy implementation of normalizer sequence.
+            json::Normalizer::Sequence => Normalizer::new(NormalizerOptions {
+                lowercase: false,
+                strip_accents: false,
+            }),
         });
 
         match json.model {
