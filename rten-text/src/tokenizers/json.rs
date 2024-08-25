@@ -49,6 +49,13 @@ pub(crate) struct BpeModel {
 
     /// List of pairs of tokens to merge.
     pub merges: MergeList,
+
+    /// A string which is implicitly appended to each substring after
+    /// pre-tokenization before it is tokenized using BPE.
+    ///
+    /// This originated from CLIP's tokenizer.
+    /// See https://github.com/openai/CLIP/blob/main/clip/simple_tokenizer.py.
+    pub end_of_word_suffix: Option<String>,
 }
 
 #[derive(Deserialize)]
