@@ -24,6 +24,9 @@ struct Args {
 
     /// Number of times to run model.
     n_iters: u32,
+
+    /// Load model using `Model::load_mmap`.
+    mmap: bool,
 }
 
 /// Specifies the size for a dynamic input dimension.
@@ -99,6 +102,7 @@ fn parse_args() -> Result<Args, lexopt::Error> {
 
     let mut values = VecDeque::new();
 
+    let mut mmap = false;
     let mut n_iters = 1;
     let mut quiet = false;
     let mut timing = false;
@@ -109,6 +113,7 @@ fn parse_args() -> Result<Args, lexopt::Error> {
     while let Some(arg) = parser.next()? {
         match arg {
             Value(val) => values.push_back(val.string()?),
+            Long("mmap") => mmap = true,
             Short('n') | Long("n_iters") => {
                 let value = parser.value()?.string()?;
                 n_iters = value
@@ -140,6 +145,9 @@ Args:
 
 Options:
   -h, --help     Print help
+
+  --mmap         Load model via memory mapping
+
   -n, --n_iters <n>
                  Number of times to evaluate model
 
@@ -167,6 +175,7 @@ Options:
     Ok(Args {
         model,
         n_iters,
+        mmap,
         quiet,
         timing,
         verbose,
@@ -393,7 +402,11 @@ fn print_input_output_list(model: &Model, node_ids: &[NodeId]) {
 /// running. See `docs/profiling.md`.
 fn main() -> Result<(), Box<dyn Error>> {
     let args = parse_args()?;
-    let model = Model::load_file(args.model)?;
+    let model = if args.mmap {
+        unsafe { Model::load_mmap(args.model)? }
+    } else {
+        Model::load_file(args.model)?
+    };
 
     if !args.quiet {
         println!(
