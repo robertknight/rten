@@ -56,6 +56,40 @@ fn select_max_index<T, Cmp: Fn(&T, &T) -> std::cmp::Ordering>(
     Ok(reduced)
 }
 
+/// Dispatch a reduction over multiple axes.
+macro_rules! dispatch_reduce_op {
+    ($pool:expr, $input:expr, $reduce_op:ident, $axes:expr, $keep_dims:expr) => {
+        match $input {
+            Input::FloatTensor(input) => $reduce_op(
+                $pool,
+                input,
+                $axes.as_ref().map(|axis| &axis[..]),
+                $keep_dims,
+            )
+            .into_op_result(),
+            Input::IntTensor(input) => $reduce_op(
+                $pool,
+                input,
+                $axes.as_ref().map(|axis| &axis[..]),
+                $keep_dims,
+            )
+            .into_op_result(),
+        }
+    };
+}
+
+/// Dispatch a reduction over a single axis.
+macro_rules! dispatch_single_axis_reduce_op {
+    ($pool:expr, $input:expr, $reduce_op:ident, $axis:expr, $keep_dims:expr) => {
+        match $input {
+            Input::FloatTensor(input) => {
+                $reduce_op($pool, input, $axis, $keep_dims).into_op_result()
+            }
+            Input::IntTensor(input) => $reduce_op($pool, input, $axis, $keep_dims).into_op_result(),
+        }
+    };
+}
+
 /// Return the index of the maximum value along a given axis.
 ///
 /// NaN values are propagated by treating NaNs as greater than other values.
@@ -80,8 +114,8 @@ impl Operator for ArgMax {
     }
 
     fn run(&self, pool: &TensorPool, inputs: InputList) -> Result<OutputList, OpError> {
-        let input = inputs.require_as::<f32>(0)?;
-        arg_max(pool, input, self.axis, self.keep_dims).into_op_result()
+        let input = inputs.require(0)?;
+        dispatch_single_axis_reduce_op!(pool, input, arg_max, self.axis, self.keep_dims)
     }
 }
 
@@ -114,8 +148,8 @@ impl Operator for ArgMin {
     }
 
     fn run(&self, pool: &TensorPool, inputs: InputList) -> Result<OutputList, OpError> {
-        let input = inputs.require_as::<f32>(0)?;
-        arg_min(pool, input, self.axis, self.keep_dims).into_op_result()
+        let input = inputs.require(0)?;
+        dispatch_single_axis_reduce_op!(pool, input, arg_max, self.axis, self.keep_dims)
     }
 }
 
@@ -449,27 +483,6 @@ impl Operator for ReduceL2 {
         )
         .into_op_result()
     }
-}
-
-macro_rules! dispatch_reduce_op {
-    ($pool:expr, $input:expr, $reduce_op:ident, $axes:expr, $keep_dims:expr) => {
-        match $input {
-            Input::FloatTensor(input) => $reduce_op(
-                $pool,
-                input,
-                $axes.as_ref().map(|axis| &axis[..]),
-                $keep_dims,
-            )
-            .into_op_result(),
-            Input::IntTensor(input) => $reduce_op(
-                $pool,
-                input,
-                $axes.as_ref().map(|axis| &axis[..]),
-                $keep_dims,
-            )
-            .into_op_result(),
-        }
-    };
 }
 
 fn is_nan<T: PartialOrd>(a: &T) -> bool {
