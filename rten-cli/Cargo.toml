@@ -11,7 +11,7 @@ include = ["/src", "/README.md"]
 
 [dependencies]
 fastrand = "2.0.2"
-rten = { path = "../", version = "0.13.0", features=["random"] }
+rten = { path = "../", version = "0.13.0", features=["mmap", "random"] }
 rten-tensor = { path = "../rten-tensor", version = "0.13.0" }
 lexopt = "0.3.0"
 
