@@ -530,10 +530,9 @@ def read_pads(op_reader: ONNXOperatorReader, attrs: PadAttrs) -> None:
         case other:
             raise Exception(f"Unsupported auto_pad value {other}")
 
+    attrs.autoPad = auto_pad
     if auto_pad == sg.AutoPad.NotSet:
         attrs.pads = pads
-    else:
-        attrs.autoPad = auto_pad
 
 
 def read_strides(

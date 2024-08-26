@@ -126,6 +126,10 @@ enum RNNDirection: ubyte {
   Bidirectional
 }
 
+// Values for `auto_pad` field. In ONNX the default for `auto_pad` is "NOTSET".
+// In this schema the default is `Same` for some operators for backwards
+// compatibility. The converter will however set it to `Fixed` if the `auto_pad`
+// attribute is missing in the ONNX model, preserving ONNX semantics.
 enum AutoPad: ubyte {
   // nb. ONNX defines `SAME_UPPER` and `SAME_LOWER`. This corresponds to
   // `SAME_UPPER` and TensorFlow / Keras's "same".
