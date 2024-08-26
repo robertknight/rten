@@ -1191,7 +1191,7 @@ impl Graph {
             }
         }
 
-        println!("  time: {}ms", op_duration.as_secs_f64() * 1000.0);
+        println!("  time: {:.3}ms", op_duration.as_secs_f64() * 1000.0);
     }
 
     /// Print a profiling summary at the end of the run.
