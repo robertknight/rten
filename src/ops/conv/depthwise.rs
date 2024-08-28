@@ -10,17 +10,25 @@ use smallvec::SmallVec;
 use crate::iter_util::{range_chunks, unroll_loop};
 use crate::tensor_pool::{AutoReturn, TensorPool};
 
-/// Calculate the min and max output X coordinates that are valid when updating
-/// a row of convolution output using a loop:
+/// Calculate the output coordinate range for which all input / output
+/// coordinates are valid when updating a row of output using:
 ///
 /// ```text
 /// for out_x in min_out_x..max_out_x {
-///   out_row[out_x] += in_row[out_x * stride + k_x * dilation - pad_w] * kernel_element
+///   out_row[out_x] += in_row[out_x * stride + k_x * dilation - pad_left] * kernel_row[k_x]
 /// }
 /// ```
 ///
-/// Where `k_x` is the X coordinate of `kernel_element` and `in_row` is the
-/// un-padded input row.
+/// Where `in_row` is the un-padded input row of width `in_w` and `out_row` is
+/// an output row of width `out_w`.
+///
+/// In other words, we want to find the minimum and maximum values of `out_x`
+/// such that:
+///
+/// - out_x * stride + k_x * dilation - pad_left >= 0
+/// - out_x * stride + k_x * dilation - pad_left <= in_w
+/// - out_x >= 0
+/// - out_x <= out_w
 fn min_max_out_x_coords(
     k_x: usize,
     in_w: usize,
@@ -29,7 +37,10 @@ fn min_max_out_x_coords(
     dilation: usize,
     out_w: usize,
 ) -> (usize, usize) {
-    let min_out_x = pad_left.saturating_sub(k_x * dilation);
+    let min_out_x = pad_left
+        .saturating_sub(k_x * dilation)
+        .div_ceil(stride)
+        .min(out_w);
     let max_out_x = (in_w + pad_left)
         .saturating_sub(k_x * dilation)
         .div_ceil(stride)
@@ -157,16 +168,18 @@ pub fn conv_2d_depthwise(
         .map(|k_x| {
             let (min_out_x, max_out_x) =
                 min_max_out_x_coords(k_x, in_w, pad_left, stride_w, dilation_x, out_w);
-            let out_range = min_out_x..max_out_x;
+
+            // If the output range is empty, the input range must be too. Exit
+            // early in case `max_out_x` is zero.
+            //
+            // This can happen if all the input coordinates which this kernel
+            // column would be multiplied with are part of the padding region.
+            if min_out_x == max_out_x {
+                return (0..0, 0..0);
+            }
 
             let min_in_x = min_out_x * stride_w + k_x * dilation_x - pad_left;
-            let max_in_x = if out_range.is_empty() {
-                // `max_out_x` could be zero, so `max_out_x - 1` would underflow.
-                // If the output range is empty, the input range must be too.
-                min_in_x
-            } else {
-                (max_out_x - 1) * stride_w + k_x * dilation_x - pad_left + 1
-            };
+            let max_in_x = (max_out_x - 1) * stride_w + k_x * dilation_x - pad_left + 1;
 
             (min_in_x..max_in_x, min_out_x..max_out_x)
         })
