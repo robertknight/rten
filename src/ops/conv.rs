@@ -614,7 +614,7 @@ mod tests {
             let mut kernel_2d = kernel.clone();
             kernel_2d.insert_axis(2);
             let padding_2d = match padding {
-                Padding::Fixed(pads) => Padding::Fixed([0, 0, pads[0], pads[1]].into()),
+                Padding::Fixed(pads) => Padding::Fixed([0, pads[0], 0, pads[1]].into()),
                 Padding::Same => Padding::Same,
             };
 
@@ -1005,6 +1005,69 @@ mod tests {
             &[1], /* stride */
             &[1], /* dilations */
         )?;
+
+        Ok(())
+    }
+
+    // Test various combinations of input and kernel shape and attributes.
+    #[test]
+    fn test_conv_shapes() -> Result<(), Box<dyn Error>> {
+        let mut rng = XorShiftRng::new(1234);
+
+        struct Case {
+            input: Vec<usize>,
+            kernel: Vec<usize>,
+            padding: Padding,
+            strides: Vec<usize>,
+            dilations: Vec<usize>,
+            output: Vec<usize>,
+        }
+
+        let cases = Vec::from([
+            // Depthwise conv where the input is just large enough to fit the
+            // kernel after padding.
+            Case {
+                input: [1, 1, 1].into(),
+                kernel: [1, 1, 5].into(),
+                padding: [2, 2].into(),
+                strides: [1].into(),
+                dilations: [1].into(),
+                output: [1, 1, 1].into(),
+            },
+            // Catches an issue where depthwise conv did consider stride when
+            // computing the output coordinate range to update for a row.
+            Case {
+                input: [1, 1, 1].into(),
+                kernel: [1, 1, 1].into(),
+                padding: [2, 0].into(),
+                strides: [2].into(),
+                dilations: [1].into(),
+                output: [1, 1, 2].into(),
+            },
+        ]);
+
+        for Case {
+            input,
+            kernel,
+            padding,
+            strides,
+            dilations,
+            output,
+        } in cases
+        {
+            let input = Tensor::rand(&input, &mut rng);
+            let kernel = Tensor::rand(&kernel, &mut rng);
+            let result = check_conv(
+                input.view(),
+                kernel.view(),
+                None,
+                padding,
+                1, /* groups */
+                &strides,
+                &dilations,
+            )?;
+            assert_eq!(result.shape(), &output);
+        }
 
         Ok(())
     }
