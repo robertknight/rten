@@ -57,6 +57,9 @@ fn conv_2d_depthwise_block(
     dilations: [usize; 2],
     col_range_for_kernel_x: &[(Range<usize>, Range<usize>)],
 ) {
+    debug_assert_eq!(input.stride(2), 1, "last dim of input is not contiguous");
+    debug_assert_eq!(output.stride(2), 1, "last dim of output is not contiguous");
+
     let [_, out_h, _out_w] = output.shape();
     let [_, _, k_h, _k_w] = kernel.shape();
     let [_, in_h, _in_w] = input.shape();
@@ -71,10 +74,12 @@ fn conv_2d_depthwise_block(
         // input/output rows.
         let mut out_chan = output.slice_mut::<2, _>([c - chan_range.start]);
         let out_row_stride = out_chan.stride(0);
+        let out_row_len = out_chan.size(1);
         let out_chan_data = out_chan.data_mut().unwrap();
 
         let in_chan = input.slice::<2, _>([c]);
         let in_row_stride = in_chan.stride(0);
+        let in_row_len = in_chan.size(1);
         let in_chan_data = in_chan.data().unwrap();
 
         let init_value = if let Some(bias) = bias { bias[[c]] } else { 0. };
@@ -83,7 +88,7 @@ fn conv_2d_depthwise_block(
         // efficient as possible and runs for as long as possible over a
         // contiguous slice of memory.
         for out_y in 0..out_h {
-            let out_row = &mut out_chan_data[out_y * out_row_stride..][..out_row_stride];
+            let out_row = &mut out_chan_data[out_y * out_row_stride..][..out_row_len];
 
             // Initialize output row.
             for x in out_row.iter_mut() {
@@ -98,7 +103,7 @@ fn conv_2d_depthwise_block(
                 }
 
                 let in_row_y = in_y - pad_top;
-                let in_row = &in_chan_data[in_row_y * in_row_stride..][..in_row_stride];
+                let in_row = &in_chan_data[in_row_y * in_row_stride..][..in_row_len];
 
                 for (k_x, (in_range, out_range)) in col_range_for_kernel_x.iter().enumerate() {
                     let dest = &mut out_row[out_range.clone()];
@@ -143,7 +148,7 @@ pub fn conv_2d_depthwise(
 
     let mut output = NdTensor::uninit_in(pool, [batch, out_c, out_h, out_w]);
 
-    // Use of input rows below assumes contiguous last dimension.
+    // `conv_2d_depthwise_block` assumes contiguous last dimension.
     let input = input.to_contiguous_in(pool).auto_return(pool);
 
     // Map of kernel X position to `(in_range, out_range)` of column ranges that

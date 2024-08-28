@@ -606,6 +606,33 @@ mod tests {
         strides: &[usize],
         dilations: &[usize],
     ) -> Tensor {
+        // If this is a 1D conv, insert a dummy H axis, perform a 2D convolution
+        // and then remove the H axis from the result.
+        if input.ndim() == 3 {
+            let mut input_2d = input.clone();
+            input_2d.insert_axis(2);
+            let mut kernel_2d = kernel.clone();
+            kernel_2d.insert_axis(2);
+            let padding_2d = match padding {
+                Padding::Fixed(pads) => Padding::Fixed([0, 0, pads[0], pads[1]].into()),
+                Padding::Same => Padding::Same,
+            };
+
+            let mut result = reference_conv(
+                input_2d,
+                kernel_2d,
+                bias,
+                padding_2d,
+                groups,
+                &[1, strides[0]],
+                &[1, dilations[0]],
+            );
+
+            result.remove_axis(2);
+
+            return result;
+        }
+
         let [batch, in_chans, in_h, in_w]: [usize; 4] =
             input.shape().try_into().expect("expected NCHW input");
         let [out_chans, k_in_chans, k_h, k_w]: [usize; 4] =
@@ -955,6 +982,29 @@ mod tests {
         )?;
 
         expect_equal(&result, &expected)?;
+
+        Ok(())
+    }
+
+    #[test]
+    fn test_conv_depthwise_row_stride_row_len() -> Result<(), Box<dyn Error>> {
+        let mut rng = XorShiftRng::new(1234);
+        let kernel = Tensor::rand(&[1, 1, 3], &mut rng);
+
+        // Create an input which is contiguous, but where the stride of the
+        // second-to-last axis is greater than the size of the last axis.
+        let mut input = Tensor::rand(&[1, 1, 20], &mut rng);
+        input.clip_dim(2, 0..10);
+
+        check_conv(
+            input.view(),
+            kernel.view(),
+            None,
+            [0, 0].into(),
+            1,    /* groups */
+            &[1], /* stride */
+            &[1], /* dilations */
+        )?;
 
         Ok(())
     }
