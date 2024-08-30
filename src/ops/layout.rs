@@ -537,7 +537,6 @@ pub fn unsqueeze_in_place<T: Clone>(
         sorted_axes
     };
 
-    input.make_contiguous();
     for axis in sorted_axes {
         input.insert_axis(axis);
     }
