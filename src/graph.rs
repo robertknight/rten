@@ -183,7 +183,7 @@ impl Constant {
     pub fn as_input(&self) -> Input {
         match self {
             Constant::Float(f) => Input::FloatTensor(f.view()),
-            Constant::Int(i) => Input::IntTensor(i.view()),
+            Constant::Int(i) => Input::Int32Tensor(i.view()),
         }
     }
 }

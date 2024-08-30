@@ -67,7 +67,7 @@ macro_rules! dispatch_reduce_op {
                 $keep_dims,
             )
             .into_op_result(),
-            Input::IntTensor(input) => $reduce_op(
+            Input::Int32Tensor(input) => $reduce_op(
                 $pool,
                 input,
                 $axes.as_ref().map(|axis| &axis[..]),
@@ -85,7 +85,9 @@ macro_rules! dispatch_single_axis_reduce_op {
             Input::FloatTensor(input) => {
                 $reduce_op($pool, input, $axis, $keep_dims).into_op_result()
             }
-            Input::IntTensor(input) => $reduce_op($pool, input, $axis, $keep_dims).into_op_result(),
+            Input::Int32Tensor(input) => {
+                $reduce_op($pool, input, $axis, $keep_dims).into_op_result()
+            }
         }
     };
 }
@@ -193,7 +195,7 @@ impl Operator for CumSum {
         let input = inputs.require(0)?;
         let axis: i32 = inputs.require_as_scalar(1)?;
         match input {
-            Input::IntTensor(input) => cum_sum(pool, input, axis as isize).into_op_result(),
+            Input::Int32Tensor(input) => cum_sum(pool, input, axis as isize).into_op_result(),
             Input::FloatTensor(input) => cum_sum(pool, input, axis as isize).into_op_result(),
         }
     }
@@ -234,7 +236,7 @@ impl Operator for NonZero {
     fn run(&self, pool: &TensorPool, inputs: InputList) -> Result<OutputList, OpError> {
         let input = inputs.require(0)?;
         match input {
-            Input::IntTensor(input) => nonzero(pool, input).into_op_result(),
+            Input::Int32Tensor(input) => nonzero(pool, input).into_op_result(),
             Input::FloatTensor(input) => nonzero(pool, input).into_op_result(),
         }
     }
@@ -808,7 +810,7 @@ impl Operator for TopK {
                     topk(pool, values, k, self.axis, self.largest, self.sorted)?;
                 Ok([values.into(), indices.into()].into_iter().collect())
             }
-            Input::IntTensor(values) => {
+            Input::Int32Tensor(values) => {
                 let (values, indices) =
                     topk(pool, values, k, self.axis, self.largest, self.sorted)?;
                 Ok([values.into(), indices.into()].into_iter().collect())

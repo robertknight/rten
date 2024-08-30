@@ -475,14 +475,14 @@ table OperatorNode {
 // Data for constants stored inline in a model.
 union ConstantData {
   FloatData,
-  IntData,
+  Int32Data,
 }
 
 table FloatData {
   data: [float32] (required);
 }
 
-table IntData {
+table Int32Data {
   data: [int32] (required);
 }
 

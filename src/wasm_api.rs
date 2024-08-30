@@ -164,7 +164,7 @@ impl Tensor {
     #[wasm_bindgen(js_name = intData)]
     pub fn int_data(&self) -> Option<Vec<i32>> {
         match *self.data {
-            Output::IntTensor(ref t) => Some(t.to_vec()),
+            Output::Int32Tensor(ref t) => Some(t.to_vec()),
             _ => None,
         }
     }

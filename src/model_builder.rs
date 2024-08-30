@@ -184,7 +184,7 @@ macro_rules! impl_to_constant_data {
     };
 }
 impl_to_constant_data!(f32, Float32, FloatData, FloatDataArgs);
-impl_to_constant_data!(i32, Int32, IntData, IntDataArgs);
+impl_to_constant_data!(i32, Int32, Int32Data, Int32DataArgs);
 
 enum NodeData<'a> {
     Constant(WIPOffset<sg::ConstantNode<'a>>),

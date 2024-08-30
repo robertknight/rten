@@ -563,7 +563,7 @@ impl Model {
                 let const_data =
                     constant_data_from_flatbuffers_vec(storage, float_data.data(), &shape);
                 graph.add_constant(name, const_data)
-            } else if let Some(int_data) = constant.data_as_int_data() {
+            } else if let Some(int_data) = constant.data_as_int_32_data() {
                 let const_data =
                     constant_data_from_flatbuffers_vec(storage, int_data.data(), &shape);
                 graph.add_constant(name, const_data)

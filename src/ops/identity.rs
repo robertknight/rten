@@ -19,7 +19,7 @@ impl Operator for Identity {
     fn run(&self, pool: &TensorPool, inputs: InputList) -> Result<OutputList, OpError> {
         let input = inputs.require(0)?;
         let result: Output = match input {
-            Input::IntTensor(t) => identity(pool, t).into(),
+            Input::Int32Tensor(t) => identity(pool, t).into(),
             Input::FloatTensor(t) => identity(pool, t).into(),
         };
         result.into_op_result()

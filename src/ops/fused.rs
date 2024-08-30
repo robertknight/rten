@@ -20,7 +20,7 @@ impl PermuteSpec {
         };
 
         match input {
-            Input::IntTensor(ref mut t) => {
+            Input::Int32Tensor(ref mut t) => {
                 if let Some(perm) = self.perm.as_ref() {
                     t.permute(perm);
                 } else {

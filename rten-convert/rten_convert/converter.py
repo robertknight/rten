@@ -1149,7 +1149,7 @@ def build_constant_node(
             inline_data_type = sg.ConstantData.FloatData
             dtype = sg.ConstantDataType.Float32
         case np.int32:
-            inline_data_type = sg.ConstantData.IntData
+            inline_data_type = sg.ConstantData.Int32Data
             dtype = sg.ConstantDataType.Int32
         case _:
             raise ValueError(f"Unsupported data array type {constant.data.dtype.name}")  # type:ignore[union-attr]
@@ -1168,9 +1168,9 @@ def build_constant_node(
                 sg.FloatDataAddData(builder, inline_data_vec)
                 inline_data = sg.FloatDataEnd(builder)
             case np.int32:
-                sg.IntDataStart(builder)
-                sg.IntDataAddData(builder, inline_data_vec)
-                inline_data = sg.IntDataEnd(builder)
+                sg.Int32DataStart(builder)
+                sg.Int32DataAddData(builder, inline_data_vec)
+                inline_data = sg.Int32DataEnd(builder)
             case _:
                 raise ValueError(
                     f"Unsupported data array type {constant.data.dtype.name}"  # type:ignore

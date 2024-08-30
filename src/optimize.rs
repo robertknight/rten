@@ -373,7 +373,7 @@ impl GraphOptimizer {
                 .map(|name| name.to_string());
             let const_id = match output {
                 Output::FloatTensor(tensor) => graph.add_constant(const_name.as_deref(), tensor),
-                Output::IntTensor(tensor) => graph.add_constant(const_name.as_deref(), tensor),
+                Output::Int32Tensor(tensor) => graph.add_constant(const_name.as_deref(), tensor),
             };
             graph.replace_value(value_node_id, const_id);
         }

@@ -1829,7 +1829,7 @@ pub const ENUM_MAX_CONSTANT_DATA: u8 = 2;
 pub const ENUM_VALUES_CONSTANT_DATA: [ConstantData; 3] = [
     ConstantData::NONE,
     ConstantData::FloatData,
-    ConstantData::IntData,
+    ConstantData::Int32Data,
 ];
 
 #[derive(Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash, Default)]
@@ -1839,17 +1839,17 @@ pub struct ConstantData(pub u8);
 impl ConstantData {
     pub const NONE: Self = Self(0);
     pub const FloatData: Self = Self(1);
-    pub const IntData: Self = Self(2);
+    pub const Int32Data: Self = Self(2);
 
     pub const ENUM_MIN: u8 = 0;
     pub const ENUM_MAX: u8 = 2;
-    pub const ENUM_VALUES: &'static [Self] = &[Self::NONE, Self::FloatData, Self::IntData];
+    pub const ENUM_VALUES: &'static [Self] = &[Self::NONE, Self::FloatData, Self::Int32Data];
     /// Returns the variant's name or "" if unknown.
     pub fn variant_name(self) -> Option<&'static str> {
         match self {
             Self::NONE => Some("NONE"),
             Self::FloatData => Some("FloatData"),
-            Self::IntData => Some("IntData"),
+            Self::Int32Data => Some("Int32Data"),
             _ => None,
         }
     }
@@ -8824,15 +8824,15 @@ impl core::fmt::Debug for FloatData<'_> {
         ds.finish()
     }
 }
-pub enum IntDataOffset {}
+pub enum Int32DataOffset {}
 #[derive(Copy, Clone, PartialEq)]
 
-pub struct IntData<'a> {
+pub struct Int32Data<'a> {
     pub _tab: flatbuffers::Table<'a>,
 }
 
-impl<'a> flatbuffers::Follow<'a> for IntData<'a> {
-    type Inner = IntData<'a>;
+impl<'a> flatbuffers::Follow<'a> for Int32Data<'a> {
+    type Inner = Int32Data<'a>;
     #[inline]
     unsafe fn follow(buf: &'a [u8], loc: usize) -> Self::Inner {
         Self {
@@ -8841,19 +8841,19 @@ impl<'a> flatbuffers::Follow<'a> for IntData<'a> {
     }
 }
 
-impl<'a> IntData<'a> {
+impl<'a> Int32Data<'a> {
     pub const VT_DATA: flatbuffers::VOffsetT = 4;
 
     #[inline]
     pub unsafe fn init_from_table(table: flatbuffers::Table<'a>) -> Self {
-        IntData { _tab: table }
+        Int32Data { _tab: table }
     }
     #[allow(unused_mut)]
     pub fn create<'bldr: 'args, 'args: 'mut_bldr, 'mut_bldr, A: flatbuffers::Allocator + 'bldr>(
         _fbb: &'mut_bldr mut flatbuffers::FlatBufferBuilder<'bldr, A>,
-        args: &'args IntDataArgs<'args>,
-    ) -> flatbuffers::WIPOffset<IntData<'bldr>> {
-        let mut builder = IntDataBuilder::new(_fbb);
+        args: &'args Int32DataArgs<'args>,
+    ) -> flatbuffers::WIPOffset<Int32Data<'bldr>> {
+        let mut builder = Int32DataBuilder::new(_fbb);
         if let Some(x) = args.data {
             builder.add_data(x);
         }
@@ -8868,7 +8868,7 @@ impl<'a> IntData<'a> {
         unsafe {
             self._tab
                 .get::<flatbuffers::ForwardsUOffset<flatbuffers::Vector<'a, i32>>>(
-                    IntData::VT_DATA,
+                    Int32Data::VT_DATA,
                     None,
                 )
                 .unwrap()
@@ -8876,7 +8876,7 @@ impl<'a> IntData<'a> {
     }
 }
 
-impl flatbuffers::Verifiable for IntData<'_> {
+impl flatbuffers::Verifiable for Int32Data<'_> {
     #[inline]
     fn run_verifier(
         v: &mut flatbuffers::Verifier,
@@ -8893,47 +8893,47 @@ impl flatbuffers::Verifiable for IntData<'_> {
         Ok(())
     }
 }
-pub struct IntDataArgs<'a> {
+pub struct Int32DataArgs<'a> {
     pub data: Option<flatbuffers::WIPOffset<flatbuffers::Vector<'a, i32>>>,
 }
-impl<'a> Default for IntDataArgs<'a> {
+impl<'a> Default for Int32DataArgs<'a> {
     #[inline]
     fn default() -> Self {
-        IntDataArgs {
+        Int32DataArgs {
             data: None, // required field
         }
     }
 }
 
-pub struct IntDataBuilder<'a: 'b, 'b, A: flatbuffers::Allocator + 'a> {
+pub struct Int32DataBuilder<'a: 'b, 'b, A: flatbuffers::Allocator + 'a> {
     fbb_: &'b mut flatbuffers::FlatBufferBuilder<'a, A>,
     start_: flatbuffers::WIPOffset<flatbuffers::TableUnfinishedWIPOffset>,
 }
-impl<'a: 'b, 'b, A: flatbuffers::Allocator + 'a> IntDataBuilder<'a, 'b, A> {
+impl<'a: 'b, 'b, A: flatbuffers::Allocator + 'a> Int32DataBuilder<'a, 'b, A> {
     #[inline]
     pub fn add_data(&mut self, data: flatbuffers::WIPOffset<flatbuffers::Vector<'b, i32>>) {
         self.fbb_
-            .push_slot_always::<flatbuffers::WIPOffset<_>>(IntData::VT_DATA, data);
+            .push_slot_always::<flatbuffers::WIPOffset<_>>(Int32Data::VT_DATA, data);
     }
     #[inline]
-    pub fn new(_fbb: &'b mut flatbuffers::FlatBufferBuilder<'a, A>) -> IntDataBuilder<'a, 'b, A> {
+    pub fn new(_fbb: &'b mut flatbuffers::FlatBufferBuilder<'a, A>) -> Int32DataBuilder<'a, 'b, A> {
         let start = _fbb.start_table();
-        IntDataBuilder {
+        Int32DataBuilder {
             fbb_: _fbb,
             start_: start,
         }
     }
     #[inline]
-    pub fn finish(self) -> flatbuffers::WIPOffset<IntData<'a>> {
+    pub fn finish(self) -> flatbuffers::WIPOffset<Int32Data<'a>> {
         let o = self.fbb_.end_table(self.start_);
-        self.fbb_.required(o, IntData::VT_DATA, "data");
+        self.fbb_.required(o, Int32Data::VT_DATA, "data");
         flatbuffers::WIPOffset::new(o.value())
     }
 }
 
-impl core::fmt::Debug for IntData<'_> {
+impl core::fmt::Debug for Int32Data<'_> {
     fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
-        let mut ds = f.debug_struct("IntData");
+        let mut ds = f.debug_struct("Int32Data");
         ds.field("data", &self.data());
         ds.finish()
     }
@@ -9060,13 +9060,13 @@ impl<'a> ConstantNode<'a> {
 
     #[inline]
     #[allow(non_snake_case)]
-    pub fn data_as_int_data(&self) -> Option<IntData<'a>> {
-        if self.data_type() == ConstantData::IntData {
+    pub fn data_as_int_32_data(&self) -> Option<Int32Data<'a>> {
+        if self.data_type() == ConstantData::Int32Data {
             self.data().map(|t| {
                 // Safety:
                 // Created from a valid Table for this object
                 // Which contains a valid union in this slot
-                unsafe { IntData::init_from_table(t) }
+                unsafe { Int32Data::init_from_table(t) }
             })
         } else {
             None
@@ -9099,9 +9099,9 @@ impl flatbuffers::Verifiable for ConstantNode<'_> {
                             "ConstantData::FloatData",
                             pos,
                         ),
-                    ConstantData::IntData => v
-                        .verify_union_variant::<flatbuffers::ForwardsUOffset<IntData>>(
-                            "ConstantData::IntData",
+                    ConstantData::Int32Data => v
+                        .verify_union_variant::<flatbuffers::ForwardsUOffset<Int32Data>>(
+                            "ConstantData::Int32Data",
                             pos,
                         ),
                     _ => Ok(()),
@@ -9200,8 +9200,8 @@ impl core::fmt::Debug for ConstantNode<'_> {
                     )
                 }
             }
-            ConstantData::IntData => {
-                if let Some(x) = self.data_as_int_data() {
+            ConstantData::Int32Data => {
+                if let Some(x) = self.data_as_int_32_data() {
                     ds.field("data", &x)
                 } else {
                     ds.field(

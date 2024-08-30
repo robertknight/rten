@@ -89,7 +89,7 @@ impl Operator for Gather {
         let input = inputs.require(0)?;
         let indices = inputs.require_as::<i32>(1)?;
         match input {
-            Input::IntTensor(input) => gather(pool, input, self.axis, indices).into_op_result(),
+            Input::Int32Tensor(input) => gather(pool, input, self.axis, indices).into_op_result(),
             Input::FloatTensor(input) => gather(pool, input, self.axis, indices).into_op_result(),
         }
     }
@@ -232,7 +232,7 @@ impl Operator for GatherElements {
         let input = inputs.require(0)?;
         let indices = inputs.require_as::<i32>(1)?;
         match input {
-            Input::IntTensor(input) => {
+            Input::Int32Tensor(input) => {
                 gather_elements(pool, input, indices, self.axis).into_op_result()
             }
             Input::FloatTensor(input) => {
@@ -329,7 +329,7 @@ impl Operator for GatherND {
         let input = inputs.require(0)?;
         let indices = inputs.require_as::<i32>(1)?;
         match input {
-            Input::IntTensor(input) => {
+            Input::Int32Tensor(input) => {
                 gather_nd(pool, input, indices, self.batch_dims).into_op_result()
             }
             Input::FloatTensor(input) => {
@@ -441,7 +441,7 @@ impl Operator for ScatterElements {
         let updates = inputs.require(2)?;
 
         match (data, updates) {
-            (Input::IntTensor(data), Input::IntTensor(updates)) => {
+            (Input::Int32Tensor(data), Input::Int32Tensor(updates)) => {
                 scatter_elements(pool, data, indices, updates, self.axis, self.reduction)
                     .into_op_result()
             }
@@ -539,7 +539,7 @@ impl Operator for ScatterND {
         let updates = inputs.require(2)?;
 
         match (data, updates) {
-            (Input::IntTensor(data), Input::IntTensor(updates)) => {
+            (Input::Int32Tensor(data), Input::Int32Tensor(updates)) => {
                 scatter_nd(pool, data, indices, updates, self.reduction).into_op_result()
             }
             (Input::FloatTensor(data), Input::FloatTensor(updates)) => {
