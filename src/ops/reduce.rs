@@ -74,6 +74,7 @@ macro_rules! dispatch_reduce_op {
                 $keep_dims,
             )
             .into_op_result(),
+            _ => Err(OpError::UnsupportedType),
         }
     };
 }
@@ -88,6 +89,7 @@ macro_rules! dispatch_single_axis_reduce_op {
             Input::Int32Tensor(input) => {
                 $reduce_op($pool, input, $axis, $keep_dims).into_op_result()
             }
+            _ => Err(OpError::UnsupportedType),
         }
     };
 }
@@ -197,6 +199,7 @@ impl Operator for CumSum {
         match input {
             Input::Int32Tensor(input) => cum_sum(pool, input, axis as isize).into_op_result(),
             Input::FloatTensor(input) => cum_sum(pool, input, axis as isize).into_op_result(),
+            _ => Err(OpError::UnsupportedType),
         }
     }
 }
@@ -238,6 +241,7 @@ impl Operator for NonZero {
         match input {
             Input::Int32Tensor(input) => nonzero(pool, input).into_op_result(),
             Input::FloatTensor(input) => nonzero(pool, input).into_op_result(),
+            _ => Err(OpError::UnsupportedType),
         }
     }
 }
@@ -815,6 +819,7 @@ impl Operator for TopK {
                     topk(pool, values, k, self.axis, self.largest, self.sorted)?;
                 Ok([values.into(), indices.into()].into_iter().collect())
             }
+            _ => Err(OpError::UnsupportedType),
         }
     }
 }

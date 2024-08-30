@@ -3,15 +3,17 @@ use rten_tensor::prelude::*;
 use crate::ops::{DataType, Input, InputList, IntoOpResult, OpError, Operator, Output, OutputList};
 use crate::tensor_pool::TensorPool;
 
-fn cast(pool: &TensorPool, input: Input, dtype: DataType) -> Output {
+fn cast(pool: &TensorPool, input: Input, dtype: DataType) -> Result<Output, OpError> {
     match dtype {
         DataType::Int32 => match input {
-            Input::Int32Tensor(t) => t.map_in(pool, |x| *x).into(),
-            Input::FloatTensor(t) => t.map_in(pool, |x| *x as i32).into(),
+            Input::Int32Tensor(t) => Ok(t.map_in(pool, |x| *x).into()),
+            Input::FloatTensor(t) => Ok(t.map_in(pool, |x| *x as i32).into()),
+            _ => Err(OpError::UnsupportedType),
         },
         DataType::Float => match input {
-            Input::FloatTensor(t) => t.map_in(pool, |x| *x).into(),
-            Input::Int32Tensor(t) => t.map_in(pool, |x| *x as f32).into(),
+            Input::FloatTensor(t) => Ok(t.map_in(pool, |x| *x).into()),
+            Input::Int32Tensor(t) => Ok(t.map_in(pool, |x| *x as f32).into()),
+            _ => Err(OpError::UnsupportedType),
         },
     }
 }
@@ -45,7 +47,7 @@ impl Operator for Cast {
             (Output::Int32Tensor(t), DataType::Int32) => Ok(t.into()),
             (Output::FloatTensor(t), DataType::Float) => Ok(t.into()),
             (input, _) => {
-                let converted = cast(pool, input.as_input(), self.to);
+                let converted = cast(pool, input.as_input(), self.to)?;
                 input.add_to_pool(pool);
                 Ok(converted)
             }

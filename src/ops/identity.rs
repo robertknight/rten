@@ -21,6 +21,7 @@ impl Operator for Identity {
         let result: Output = match input {
             Input::Int32Tensor(t) => identity(pool, t).into(),
             Input::FloatTensor(t) => identity(pool, t).into(),
+            _ => return Err(OpError::UnsupportedType),
         };
         result.into_op_result()
     }

@@ -197,6 +197,7 @@ impl Operator for Pad {
                 let const_val = inputs.get_as_scalar::<f32>(2)?.unwrap_or(0.);
                 pad(pool, t, &pads, self.mode, const_val).into_op_result()
             }
+            _ => Err(OpError::UnsupportedType),
         }
     }
 }

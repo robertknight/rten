@@ -34,6 +34,7 @@ impl PermuteSpec {
                     t.transpose();
                 }
             }
+            _ => return Err(OpError::UnsupportedType),
         }
 
         Ok(())

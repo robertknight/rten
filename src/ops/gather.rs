@@ -91,6 +91,7 @@ impl Operator for Gather {
         match input {
             Input::Int32Tensor(input) => gather(pool, input, self.axis, indices).into_op_result(),
             Input::FloatTensor(input) => gather(pool, input, self.axis, indices).into_op_result(),
+            _ => Err(OpError::UnsupportedType),
         }
     }
 }
@@ -238,6 +239,7 @@ impl Operator for GatherElements {
             Input::FloatTensor(input) => {
                 gather_elements(pool, input, indices, self.axis).into_op_result()
             }
+            _ => Err(OpError::UnsupportedType),
         }
     }
 }
@@ -335,6 +337,7 @@ impl Operator for GatherND {
             Input::FloatTensor(input) => {
                 gather_nd(pool, input, indices, self.batch_dims).into_op_result()
             }
+            _ => Err(OpError::UnsupportedType),
         }
     }
 }
@@ -449,7 +452,7 @@ impl Operator for ScatterElements {
                 scatter_elements(pool, data, indices, updates, self.axis, self.reduction)
                     .into_op_result()
             }
-            _ => Err(OpError::IncorrectInputType),
+            _ => Err(OpError::UnsupportedType),
         }
     }
 }
@@ -545,7 +548,7 @@ impl Operator for ScatterND {
             (Input::FloatTensor(data), Input::FloatTensor(updates)) => {
                 scatter_nd(pool, data, indices, updates, self.reduction).into_op_result()
             }
-            _ => Err(OpError::IncorrectInputType),
+            _ => Err(OpError::UnsupportedType),
         }
     }
 }

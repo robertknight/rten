@@ -108,6 +108,7 @@ impl Operator for OneHot {
                 let (on_value, off_value) = extract_on_off_values(values)?;
                 onehot(pool, indices, self.axis, depth, on_value, off_value).into_op_result()
             }
+            _ => Err(OpError::UnsupportedType),
         }
     }
 }
@@ -159,6 +160,7 @@ impl Operator for Range {
                 let delta = delta.try_into()?;
                 range::<i32>(start, limit, delta).into_op_result()
             }
+            _ => Err(OpError::UnsupportedType),
         }
     }
 }

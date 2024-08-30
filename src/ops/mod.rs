@@ -177,6 +177,8 @@ pub enum DataType {
 pub enum Input<'a> {
     FloatTensor(TensorView<'a, f32>),
     Int32Tensor(TensorView<'a, i32>),
+    Int8Tensor(TensorView<'a, i8>),
+    UInt8Tensor(TensorView<'a, u8>),
 }
 
 impl<'a> Input<'a> {
@@ -184,6 +186,8 @@ impl<'a> Input<'a> {
         match self {
             Input::FloatTensor(t) => t.to_tensor().into(),
             Input::Int32Tensor(t) => t.to_tensor().into(),
+            Input::Int8Tensor(t) => t.to_tensor().into(),
+            Input::UInt8Tensor(t) => t.to_tensor().into(),
         }
     }
 
@@ -191,6 +195,8 @@ impl<'a> Input<'a> {
         match self {
             Input::FloatTensor(t) => t.layout(),
             Input::Int32Tensor(t) => t.layout(),
+            Input::Int8Tensor(t) => t.layout(),
+            Input::UInt8Tensor(t) => t.layout(),
         }
     }
 }
@@ -283,12 +289,16 @@ macro_rules! impl_input_conversions {
 
 impl_input_conversions!(FloatTensor, f32);
 impl_input_conversions!(Int32Tensor, i32);
+impl_input_conversions!(Int8Tensor, i8);
+impl_input_conversions!(UInt8Tensor, u8);
 
 impl<'a> From<&'a Output> for Input<'a> {
     fn from(output: &'a Output) -> Input {
         match output {
             Output::FloatTensor(t) => Input::FloatTensor(t.view()),
             Output::Int32Tensor(t) => Input::Int32Tensor(t.view()),
+            Output::Int8Tensor(t) => Input::Int8Tensor(t.view()),
+            Output::UInt8Tensor(t) => Input::UInt8Tensor(t.view()),
         }
     }
 }
@@ -299,6 +309,8 @@ impl<'a> From<&'a Output> for Input<'a> {
 pub enum Output {
     FloatTensor(Tensor<f32>),
     Int32Tensor(Tensor<i32>),
+    Int8Tensor(Tensor<i8>),
+    UInt8Tensor(Tensor<u8>),
 }
 
 impl Output {
@@ -306,6 +318,8 @@ impl Output {
         match self {
             Self::FloatTensor(ft) => Input::FloatTensor(ft.view()),
             Self::Int32Tensor(it) => Input::Int32Tensor(it.view()),
+            Self::Int8Tensor(it) => Input::Int8Tensor(it.view()),
+            Self::UInt8Tensor(it) => Input::UInt8Tensor(it.view()),
         }
     }
 
@@ -314,6 +328,8 @@ impl Output {
         match self {
             Self::FloatTensor(t) => t.extract_buffer().map(|buf| pool.add(buf)),
             Self::Int32Tensor(t) => t.extract_buffer().map(|buf| pool.add(buf)),
+            Self::Int8Tensor(t) => t.extract_buffer().map(|buf| pool.add(buf)),
+            Self::UInt8Tensor(t) => t.extract_buffer().map(|buf| pool.add(buf)),
         };
     }
 
@@ -352,6 +368,8 @@ impl Output {
     fn layout(&self) -> &DynLayout {
         match self {
             Output::Int32Tensor(t) => t.layout(),
+            Output::Int8Tensor(t) => t.layout(),
+            Output::UInt8Tensor(t) => t.layout(),
             Output::FloatTensor(t) => t.layout(),
         }
     }
@@ -456,6 +474,8 @@ macro_rules! impl_output_conversions {
 
 impl_output_conversions!(FloatTensor, f32);
 impl_output_conversions!(Int32Tensor, i32);
+impl_output_conversions!(Int8Tensor, i8);
+impl_output_conversions!(UInt8Tensor, u8);
 
 /// A value that is either a tensor view ([`Input`]) or an owned tensor
 /// ([`Output`]). The names originate from the usage of these types as model
@@ -660,6 +680,10 @@ pub enum OpError {
 
     /// An input or attribute has a value that is valid, but not currently supported.
     UnsupportedValue(&'static str),
+
+    /// An input has a type that is valid for the operator, but not currently
+    /// supported.
+    UnsupportedType,
 }
 
 impl Display for OpError {
@@ -676,6 +700,9 @@ impl Display for OpError {
             }
             OpError::UnsupportedValue(details) => {
                 write!(f, "unsupported input or attribute value: {}", details)
+            }
+            OpError::UnsupportedType => {
+                write!(f, "unsupported input type")
             }
         }
     }

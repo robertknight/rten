@@ -356,6 +356,7 @@ macro_rules! run_typed_op {
                 let b = $inputs.require_as::<i32>(1)?;
                 $op_func($pool, a, b).into_op_result()
             }
+            _ => Err(OpError::UnsupportedType),
         }
     }};
     ($inputs:expr, $op_func:ident) => {
@@ -387,6 +388,7 @@ macro_rules! run_typed_op_in_place {
                     $op_func($pool, a.view(), b.view()).map(|t| t.into())
                 }
             }
+            _ => Err(OpError::UnsupportedType),
         }
     }};
 }
@@ -688,6 +690,7 @@ impl Operator for Mod {
                 let b = inputs.require_as::<i32>(1)?;
                 mod_op(pool, a, b, mode).into_op_result()
             }
+            _ => Err(OpError::UnsupportedType),
         }
     }
 }
@@ -949,6 +952,7 @@ impl Operator for Where {
                 let y: TensorView<i32> = y.try_into()?;
                 where_op(pool, condition, x, y).into_op_result()
             }
+            _ => Err(OpError::UnsupportedType),
         }
     }
 }

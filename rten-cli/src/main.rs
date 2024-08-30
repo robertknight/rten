@@ -348,6 +348,8 @@ fn run_with_random_input(
             let dtype = match output {
                 Output::FloatTensor(_) => "f32",
                 Output::Int32Tensor(_) => "i32",
+                Output::Int8Tensor(_) => "i8",
+                Output::UInt8Tensor(_) => "u8",
             };
             println!(
                 "  Output {i} \"{name}\" data type {} shape: {:?}",
