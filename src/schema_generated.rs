@@ -18,13 +18,13 @@ pub const ENUM_MIN_OPERATOR_TYPE: u8 = 0;
     since = "2.0.0",
     note = "Use associated constants instead. This will no longer be generated in 2021."
 )]
-pub const ENUM_MAX_OPERATOR_TYPE: u8 = 104;
+pub const ENUM_MAX_OPERATOR_TYPE: u8 = 105;
 #[deprecated(
     since = "2.0.0",
     note = "Use associated constants instead. This will no longer be generated in 2021."
 )]
 #[allow(non_camel_case_types)]
-pub const ENUM_VALUES_OPERATOR_TYPE: [OperatorType; 105] = [
+pub const ENUM_VALUES_OPERATOR_TYPE: [OperatorType; 106] = [
     OperatorType::Add,
     OperatorType::ArgMin,
     OperatorType::ArgMax,
@@ -130,6 +130,7 @@ pub const ENUM_VALUES_OPERATOR_TYPE: [OperatorType; 105] = [
     OperatorType::Gelu,
     OperatorType::Einsum,
     OperatorType::If,
+    OperatorType::DequantizeLinear,
 ];
 
 #[derive(Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash, Default)]
@@ -242,9 +243,10 @@ impl OperatorType {
     pub const Gelu: Self = Self(102);
     pub const Einsum: Self = Self(103);
     pub const If: Self = Self(104);
+    pub const DequantizeLinear: Self = Self(105);
 
     pub const ENUM_MIN: u8 = 0;
-    pub const ENUM_MAX: u8 = 104;
+    pub const ENUM_MAX: u8 = 105;
     pub const ENUM_VALUES: &'static [Self] = &[
         Self::Add,
         Self::ArgMin,
@@ -351,6 +353,7 @@ impl OperatorType {
         Self::Gelu,
         Self::Einsum,
         Self::If,
+        Self::DequantizeLinear,
     ];
     /// Returns the variant's name or "" if unknown.
     pub fn variant_name(self) -> Option<&'static str> {
@@ -460,6 +463,7 @@ impl OperatorType {
             Self::Gelu => Some("Gelu"),
             Self::Einsum => Some("Einsum"),
             Self::If => Some("If"),
+            Self::DequantizeLinear => Some("DequantizeLinear"),
             _ => None,
         }
     }
@@ -1086,13 +1090,13 @@ pub const ENUM_MIN_OPERATOR_ATTRS: u8 = 0;
     since = "2.0.0",
     note = "Use associated constants instead. This will no longer be generated in 2021."
 )]
-pub const ENUM_MAX_OPERATOR_ATTRS: u8 = 40;
+pub const ENUM_MAX_OPERATOR_ATTRS: u8 = 41;
 #[deprecated(
     since = "2.0.0",
     note = "Use associated constants instead. This will no longer be generated in 2021."
 )]
 #[allow(non_camel_case_types)]
-pub const ENUM_VALUES_OPERATOR_ATTRS: [OperatorAttrs; 41] = [
+pub const ENUM_VALUES_OPERATOR_ATTRS: [OperatorAttrs; 42] = [
     OperatorAttrs::NONE,
     OperatorAttrs::ArgMaxAttrs,
     OperatorAttrs::AveragePoolAttrs,
@@ -1134,6 +1138,7 @@ pub const ENUM_VALUES_OPERATOR_ATTRS: [OperatorAttrs; 41] = [
     OperatorAttrs::EinsumAttrs,
     OperatorAttrs::IfAttrs,
     OperatorAttrs::PadAttrs,
+    OperatorAttrs::DequantizeLinearAttrs,
 ];
 
 #[derive(Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash, Default)]
@@ -1182,9 +1187,10 @@ impl OperatorAttrs {
     pub const EinsumAttrs: Self = Self(38);
     pub const IfAttrs: Self = Self(39);
     pub const PadAttrs: Self = Self(40);
+    pub const DequantizeLinearAttrs: Self = Self(41);
 
     pub const ENUM_MIN: u8 = 0;
-    pub const ENUM_MAX: u8 = 40;
+    pub const ENUM_MAX: u8 = 41;
     pub const ENUM_VALUES: &'static [Self] = &[
         Self::NONE,
         Self::ArgMaxAttrs,
@@ -1227,6 +1233,7 @@ impl OperatorAttrs {
         Self::EinsumAttrs,
         Self::IfAttrs,
         Self::PadAttrs,
+        Self::DequantizeLinearAttrs,
     ];
     /// Returns the variant's name or "" if unknown.
     pub fn variant_name(self) -> Option<&'static str> {
@@ -1272,6 +1279,7 @@ impl OperatorAttrs {
             Self::EinsumAttrs => Some("EinsumAttrs"),
             Self::IfAttrs => Some("IfAttrs"),
             Self::PadAttrs => Some("PadAttrs"),
+            Self::DequantizeLinearAttrs => Some("DequantizeLinearAttrs"),
             _ => None,
         }
     }
@@ -3463,6 +3471,110 @@ impl core::fmt::Debug for ConvTransposeAttrs<'_> {
         ds.field("strides", &self.strides());
         ds.field("auto_pad", &self.auto_pad());
         ds.field("pads", &self.pads());
+        ds.finish()
+    }
+}
+pub enum DequantizeLinearAttrsOffset {}
+#[derive(Copy, Clone, PartialEq)]
+
+pub struct DequantizeLinearAttrs<'a> {
+    pub _tab: flatbuffers::Table<'a>,
+}
+
+impl<'a> flatbuffers::Follow<'a> for DequantizeLinearAttrs<'a> {
+    type Inner = DequantizeLinearAttrs<'a>;
+    #[inline]
+    unsafe fn follow(buf: &'a [u8], loc: usize) -> Self::Inner {
+        Self {
+            _tab: flatbuffers::Table::new(buf, loc),
+        }
+    }
+}
+
+impl<'a> DequantizeLinearAttrs<'a> {
+    pub const VT_AXIS: flatbuffers::VOffsetT = 4;
+
+    #[inline]
+    pub unsafe fn init_from_table(table: flatbuffers::Table<'a>) -> Self {
+        DequantizeLinearAttrs { _tab: table }
+    }
+    #[allow(unused_mut)]
+    pub fn create<'bldr: 'args, 'args: 'mut_bldr, 'mut_bldr, A: flatbuffers::Allocator + 'bldr>(
+        _fbb: &'mut_bldr mut flatbuffers::FlatBufferBuilder<'bldr, A>,
+        args: &'args DequantizeLinearAttrsArgs,
+    ) -> flatbuffers::WIPOffset<DequantizeLinearAttrs<'bldr>> {
+        let mut builder = DequantizeLinearAttrsBuilder::new(_fbb);
+        builder.add_axis(args.axis);
+        builder.finish()
+    }
+
+    #[inline]
+    pub fn axis(&self) -> i32 {
+        // Safety:
+        // Created from valid Table for this object
+        // which contains a valid value in this slot
+        unsafe {
+            self._tab
+                .get::<i32>(DequantizeLinearAttrs::VT_AXIS, Some(0))
+                .unwrap()
+        }
+    }
+}
+
+impl flatbuffers::Verifiable for DequantizeLinearAttrs<'_> {
+    #[inline]
+    fn run_verifier(
+        v: &mut flatbuffers::Verifier,
+        pos: usize,
+    ) -> Result<(), flatbuffers::InvalidFlatbuffer> {
+        use self::flatbuffers::Verifiable;
+        v.visit_table(pos)?
+            .visit_field::<i32>("axis", Self::VT_AXIS, false)?
+            .finish();
+        Ok(())
+    }
+}
+pub struct DequantizeLinearAttrsArgs {
+    pub axis: i32,
+}
+impl<'a> Default for DequantizeLinearAttrsArgs {
+    #[inline]
+    fn default() -> Self {
+        DequantizeLinearAttrsArgs { axis: 0 }
+    }
+}
+
+pub struct DequantizeLinearAttrsBuilder<'a: 'b, 'b, A: flatbuffers::Allocator + 'a> {
+    fbb_: &'b mut flatbuffers::FlatBufferBuilder<'a, A>,
+    start_: flatbuffers::WIPOffset<flatbuffers::TableUnfinishedWIPOffset>,
+}
+impl<'a: 'b, 'b, A: flatbuffers::Allocator + 'a> DequantizeLinearAttrsBuilder<'a, 'b, A> {
+    #[inline]
+    pub fn add_axis(&mut self, axis: i32) {
+        self.fbb_
+            .push_slot::<i32>(DequantizeLinearAttrs::VT_AXIS, axis, 0);
+    }
+    #[inline]
+    pub fn new(
+        _fbb: &'b mut flatbuffers::FlatBufferBuilder<'a, A>,
+    ) -> DequantizeLinearAttrsBuilder<'a, 'b, A> {
+        let start = _fbb.start_table();
+        DequantizeLinearAttrsBuilder {
+            fbb_: _fbb,
+            start_: start,
+        }
+    }
+    #[inline]
+    pub fn finish(self) -> flatbuffers::WIPOffset<DequantizeLinearAttrs<'a>> {
+        let o = self.fbb_.end_table(self.start_);
+        flatbuffers::WIPOffset::new(o.value())
+    }
+}
+
+impl core::fmt::Debug for DequantizeLinearAttrs<'_> {
+    fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
+        let mut ds = f.debug_struct("DequantizeLinearAttrs");
+        ds.field("axis", &self.axis());
         ds.finish()
     }
 }
@@ -8182,6 +8294,21 @@ impl<'a> OperatorNode<'a> {
             None
         }
     }
+
+    #[inline]
+    #[allow(non_snake_case)]
+    pub fn attrs_as_dequantize_linear_attrs(&self) -> Option<DequantizeLinearAttrs<'a>> {
+        if self.attrs_type() == OperatorAttrs::DequantizeLinearAttrs {
+            self.attrs().map(|t| {
+                // Safety:
+                // Created from a valid Table for this object
+                // Which contains a valid union in this slot
+                unsafe { DequantizeLinearAttrs::init_from_table(t) }
+            })
+        } else {
+            None
+        }
+    }
 }
 
 impl flatbuffers::Verifiable for OperatorNode<'_> {
@@ -8235,6 +8362,7 @@ impl flatbuffers::Verifiable for OperatorNode<'_> {
           OperatorAttrs::EinsumAttrs => v.verify_union_variant::<flatbuffers::ForwardsUOffset<EinsumAttrs>>("OperatorAttrs::EinsumAttrs", pos),
           OperatorAttrs::IfAttrs => v.verify_union_variant::<flatbuffers::ForwardsUOffset<IfAttrs>>("OperatorAttrs::IfAttrs", pos),
           OperatorAttrs::PadAttrs => v.verify_union_variant::<flatbuffers::ForwardsUOffset<PadAttrs>>("OperatorAttrs::PadAttrs", pos),
+          OperatorAttrs::DequantizeLinearAttrs => v.verify_union_variant::<flatbuffers::ForwardsUOffset<DequantizeLinearAttrs>>("OperatorAttrs::DequantizeLinearAttrs", pos),
           _ => Ok(()),
         }
      })?
@@ -8712,6 +8840,16 @@ impl core::fmt::Debug for OperatorNode<'_> {
             }
             OperatorAttrs::PadAttrs => {
                 if let Some(x) = self.attrs_as_pad_attrs() {
+                    ds.field("attrs", &x)
+                } else {
+                    ds.field(
+                        "attrs",
+                        &"InvalidFlatbuffer: Union discriminant does not match value.",
+                    )
+                }
+            }
+            OperatorAttrs::DequantizeLinearAttrs => {
+                if let Some(x) = self.attrs_as_dequantize_linear_attrs() {
                     ds.field("attrs", &x)
                 } else {
                     ds.field(

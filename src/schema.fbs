@@ -118,6 +118,7 @@ enum OperatorType: ubyte {
   Gelu,
   Einsum,
   If,
+  DequantizeLinear,
 }
 
 enum RNNDirection: ubyte {
@@ -207,6 +208,7 @@ union OperatorAttrs {
   EinsumAttrs,
   IfAttrs,
   PadAttrs,
+  DequantizeLinearAttrs,
 }
 
 table ArgMaxAttrs {
@@ -274,6 +276,10 @@ table ConvTransposeAttrs {
 
   // Padding for spatial axes as [left, right] or [top, left, bottom, right]
   pads:[uint];
+}
+
+table DequantizeLinearAttrs {
+  axis:int;
 }
 
 table EinsumAttrs {

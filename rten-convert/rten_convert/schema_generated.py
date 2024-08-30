@@ -112,6 +112,7 @@ class OperatorType(object):
     Gelu = 102
     Einsum = 103
     If = 104
+    DequantizeLinear = 105
 
 
 class RNNDirection(object):
@@ -190,6 +191,7 @@ class OperatorAttrs(object):
     EinsumAttrs = 38
     IfAttrs = 39
     PadAttrs = 40
+    DequantizeLinearAttrs = 41
 
 def OperatorAttrsCreator(unionType, table):
     from flatbuffers.table import Table
@@ -275,6 +277,8 @@ def OperatorAttrsCreator(unionType, table):
         return IfAttrsT.InitFromBuf(table.Bytes, table.Pos)
     if unionType == OperatorAttrs().PadAttrs:
         return PadAttrsT.InitFromBuf(table.Bytes, table.Pos)
+    if unionType == OperatorAttrs().DequantizeLinearAttrs:
+        return DequantizeLinearAttrsT.InitFromBuf(table.Bytes, table.Pos)
     return None
 
 
@@ -1610,6 +1614,83 @@ class ConvTransposeAttrsT(object):
             ConvTransposeAttrsAddPads(builder, pads)
         convTransposeAttrs = ConvTransposeAttrsEnd(builder)
         return convTransposeAttrs
+
+
+class DequantizeLinearAttrs(object):
+    __slots__ = ['_tab']
+
+    @classmethod
+    def GetRootAs(cls, buf, offset=0):
+        n = flatbuffers.encode.Get(flatbuffers.packer.uoffset, buf, offset)
+        x = DequantizeLinearAttrs()
+        x.Init(buf, n + offset)
+        return x
+
+    @classmethod
+    def GetRootAsDequantizeLinearAttrs(cls, buf, offset=0):
+        """This method is deprecated. Please switch to GetRootAs."""
+        return cls.GetRootAs(buf, offset)
+    @classmethod
+    def DequantizeLinearAttrsBufferHasIdentifier(cls, buf, offset, size_prefixed=False):
+        return flatbuffers.util.BufferHasIdentifier(buf, offset, b"\x52\x54\x45\x4E", size_prefixed=size_prefixed)
+
+    # DequantizeLinearAttrs
+    def Init(self, buf, pos):
+        self._tab = flatbuffers.table.Table(buf, pos)
+
+    # DequantizeLinearAttrs
+    def Axis(self):
+        o = flatbuffers.number_types.UOffsetTFlags.py_type(self._tab.Offset(4))
+        if o != 0:
+            return self._tab.Get(flatbuffers.number_types.Int32Flags, o + self._tab.Pos)
+        return 0
+
+def DequantizeLinearAttrsStart(builder):
+    builder.StartObject(1)
+
+def DequantizeLinearAttrsAddAxis(builder, axis):
+    builder.PrependInt32Slot(0, axis, 0)
+
+def DequantizeLinearAttrsEnd(builder):
+    return builder.EndObject()
+
+
+
+class DequantizeLinearAttrsT(object):
+
+    # DequantizeLinearAttrsT
+    def __init__(self):
+        self.axis = 0  # type: int
+
+    @classmethod
+    def InitFromBuf(cls, buf, pos):
+        dequantizeLinearAttrs = DequantizeLinearAttrs()
+        dequantizeLinearAttrs.Init(buf, pos)
+        return cls.InitFromObj(dequantizeLinearAttrs)
+
+    @classmethod
+    def InitFromPackedBuf(cls, buf, pos=0):
+        n = flatbuffers.encode.Get(flatbuffers.packer.uoffset, buf, pos)
+        return cls.InitFromBuf(buf, pos+n)
+
+    @classmethod
+    def InitFromObj(cls, dequantizeLinearAttrs):
+        x = DequantizeLinearAttrsT()
+        x._UnPack(dequantizeLinearAttrs)
+        return x
+
+    # DequantizeLinearAttrsT
+    def _UnPack(self, dequantizeLinearAttrs):
+        if dequantizeLinearAttrs is None:
+            return
+        self.axis = dequantizeLinearAttrs.Axis()
+
+    # DequantizeLinearAttrsT
+    def Pack(self, builder):
+        DequantizeLinearAttrsStart(builder)
+        DequantizeLinearAttrsAddAxis(builder, self.axis)
+        dequantizeLinearAttrs = DequantizeLinearAttrsEnd(builder)
+        return dequantizeLinearAttrs
 
 
 class EinsumAttrs(object):
@@ -4874,7 +4955,7 @@ class OperatorNodeT(object):
     def __init__(self):
         self.type = 0  # type: int
         self.attrsType = 0  # type: int
-        self.attrs = None  # type: Union[None, ArgMaxAttrsT, AveragePoolAttrsT, BatchNormalizationAttrsT, CastAttrsT, ConcatAttrsT, ConstantOfShapeAttrsT, ConvAttrsT, ConvTransposeAttrsT, FlattenAttrsT, GatherAttrsT, GemmAttrsT, GRUAttrsT, LeakyReluAttrsT, LSTMAttrsT, MaxPoolAttrsT, ReduceMeanAttrsT, ReshapeAttrsT, ResizeAttrsT, SplitAttrsT, SoftmaxAttrsT, TransposeAttrsT, ModAttrsT, ScatterElementsAttrsT, OneHotAttrsT, TopKAttrsT, HardSigmoidAttrsT, TriluAttrsT, ScatterNDAttrsT, NonMaxSuppressionAttrsT, LayerNormalizationAttrsT, RandomUniformAttrsT, EluAttrsT, RandomUniformLikeAttrsT, RandomNormalAttrsT, RandomNormalLikeAttrsT, GatherNDAttrsT, GeluAttrsT, EinsumAttrsT, IfAttrsT, PadAttrsT]
+        self.attrs = None  # type: Union[None, ArgMaxAttrsT, AveragePoolAttrsT, BatchNormalizationAttrsT, CastAttrsT, ConcatAttrsT, ConstantOfShapeAttrsT, ConvAttrsT, ConvTransposeAttrsT, FlattenAttrsT, GatherAttrsT, GemmAttrsT, GRUAttrsT, LeakyReluAttrsT, LSTMAttrsT, MaxPoolAttrsT, ReduceMeanAttrsT, ReshapeAttrsT, ResizeAttrsT, SplitAttrsT, SoftmaxAttrsT, TransposeAttrsT, ModAttrsT, ScatterElementsAttrsT, OneHotAttrsT, TopKAttrsT, HardSigmoidAttrsT, TriluAttrsT, ScatterNDAttrsT, NonMaxSuppressionAttrsT, LayerNormalizationAttrsT, RandomUniformAttrsT, EluAttrsT, RandomUniformLikeAttrsT, RandomNormalAttrsT, RandomNormalLikeAttrsT, GatherNDAttrsT, GeluAttrsT, EinsumAttrsT, IfAttrsT, PadAttrsT, DequantizeLinearAttrsT]
         self.inputs = None  # type: List[int]
         self.outputs = None  # type: List[int]
 

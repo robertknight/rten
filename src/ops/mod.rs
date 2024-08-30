@@ -44,6 +44,7 @@ mod non_max_suppression;
 mod norm;
 mod pad;
 mod pooling;
+mod quantize;
 
 #[cfg(feature = "random")]
 mod random;
@@ -91,6 +92,7 @@ pub use pad::{pad, Pad, PadMode};
 pub use pooling::{
     average_pool, global_average_pool, max_pool, AveragePool, GlobalAveragePool, MaxPool,
 };
+pub use quantize::{dequantize_linear, DequantizeLinear};
 
 #[cfg(feature = "random")]
 pub use random::{RandomNormal, RandomNormalLike, RandomUniform, RandomUniformLike};

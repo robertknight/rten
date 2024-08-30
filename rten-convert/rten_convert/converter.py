@@ -719,6 +719,10 @@ def op_node_from_onnx_operator(
             op_reader.check_attr("exclusive", "int", 0)
             op_reader.check_attr("reverse", "int", 0)
 
+        case "DequantizeLinear":
+            attrs = sg.DequantizeLinearAttrsT()
+            attrs.axis = op_reader.get_attr("axis", "int", 1)
+
         case "Einsum":
             attrs = sg.EinsumAttrsT()
             attrs.equation = op_reader.require_attr("equation", "string")

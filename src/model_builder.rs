@@ -7,11 +7,11 @@ use crate::header::Header;
 use crate::number::LeBytes;
 use crate::ops::{
     ArgMax, ArgMin, AveragePool, BatchNormalization, BoxOrder, Cast, Concat, ConstantOfShape, Conv,
-    ConvTranspose, CoordTransformMode, DataType, Einsum, Elu, Flatten, Gather, GatherElements,
-    GatherND, Gelu, Gemm, HardSigmoid, InstanceNormalization, LayerNormalization, LeakyRelu,
-    LogSoftmax, MaxPool, Mod, NearestMode, NonMaxSuppression, OneHot, Padding, ReduceMax,
-    ReduceMean, ReduceMin, ReduceProd, ReduceSum, ReduceSumSquare, Reshape, Resize, ResizeMode,
-    Scalar, ScatterElements, ScatterReduction, Softmax, Split, TopK, Transpose, Trilu,
+    ConvTranspose, CoordTransformMode, DataType, DequantizeLinear, Einsum, Elu, Flatten, Gather,
+    GatherElements, GatherND, Gelu, Gemm, HardSigmoid, InstanceNormalization, LayerNormalization,
+    LeakyRelu, LogSoftmax, MaxPool, Mod, NearestMode, NonMaxSuppression, OneHot, Padding,
+    ReduceMax, ReduceMean, ReduceMin, ReduceProd, ReduceSum, ReduceSumSquare, Reshape, Resize,
+    ResizeMode, Scalar, ScatterElements, ScatterReduction, Softmax, Split, TopK, Transpose, Trilu,
 };
 use crate::schema_generated as sg;
 
@@ -45,6 +45,7 @@ pub enum OpType<'a> {
     Conv(Conv),
     ConvTranspose(ConvTranspose),
     Cos,
+    DequantizeLinear(DequantizeLinear),
     Div,
     Einsum(Einsum),
     Elu(Elu),
@@ -183,8 +184,11 @@ macro_rules! impl_to_constant_data {
         }
     };
 }
+
 impl_to_constant_data!(f32, Float32, FloatData, FloatDataArgs);
 impl_to_constant_data!(i32, Int32, Int32Data, Int32DataArgs);
+impl_to_constant_data!(u8, UInt8, UInt8Data, UInt8DataArgs);
+impl_to_constant_data!(i8, Int8, Int8Data, Int8DataArgs);
 
 enum NodeData<'a> {
     Constant(WIPOffset<sg::ConstantNode<'a>>),
@@ -487,6 +491,13 @@ impl<'mb, 'a> GraphBuilder<'mb, 'a> {
                 }
             }),
             OpType::Cos => op!(Cos),
+            OpType::DequantizeLinear(args) => op_with_attrs!(
+                DequantizeLinear,
+                DequantizeLinearAttrs,
+                sg::DequantizeLinearAttrsArgs {
+                    axis: args.axis as i32,
+                }
+            ),
             OpType::Div => op!(Div),
             OpType::Einsum(args) => {
                 let equation = self.builder.create_string(&args.equation);
