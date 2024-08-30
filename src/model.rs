@@ -550,6 +550,16 @@ impl Model {
                         constant_data_from_storage_offset::<f32>(storage, &shape, data_offset)?;
                     graph.add_constant(name, const_data)
                 }
+                Some(sg::ConstantDataType::Int8) => {
+                    let const_data =
+                        constant_data_from_storage_offset::<i8>(storage, &shape, data_offset)?;
+                    graph.add_constant(name, const_data)
+                }
+                Some(sg::ConstantDataType::UInt8) => {
+                    let const_data =
+                        constant_data_from_storage_offset::<u8>(storage, &shape, data_offset)?;
+                    graph.add_constant(name, const_data)
+                }
                 _ => {
                     return Err(ModelLoadError::GraphError(
                         "unsupported data type for external constant".to_string(),
@@ -566,6 +576,14 @@ impl Model {
             } else if let Some(int_data) = constant.data_as_int_32_data() {
                 let const_data =
                     constant_data_from_flatbuffers_vec(storage, int_data.data(), &shape);
+                graph.add_constant(name, const_data)
+            } else if let Some(int8_data) = constant.data_as_int_8_data() {
+                let const_data =
+                    constant_data_from_flatbuffers_vec(storage, int8_data.data(), &shape);
+                graph.add_constant(name, const_data)
+            } else if let Some(uint8_data) = constant.data_as_uint_8_data() {
+                let const_data =
+                    constant_data_from_flatbuffers_vec(storage, uint8_data.data(), &shape);
                 graph.add_constant(name, const_data)
             } else {
                 return Err(ModelLoadError::GraphError(

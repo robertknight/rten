@@ -1820,16 +1820,18 @@ pub const ENUM_MIN_CONSTANT_DATA: u8 = 0;
     since = "2.0.0",
     note = "Use associated constants instead. This will no longer be generated in 2021."
 )]
-pub const ENUM_MAX_CONSTANT_DATA: u8 = 2;
+pub const ENUM_MAX_CONSTANT_DATA: u8 = 4;
 #[deprecated(
     since = "2.0.0",
     note = "Use associated constants instead. This will no longer be generated in 2021."
 )]
 #[allow(non_camel_case_types)]
-pub const ENUM_VALUES_CONSTANT_DATA: [ConstantData; 3] = [
+pub const ENUM_VALUES_CONSTANT_DATA: [ConstantData; 5] = [
     ConstantData::NONE,
     ConstantData::FloatData,
     ConstantData::Int32Data,
+    ConstantData::Int8Data,
+    ConstantData::UInt8Data,
 ];
 
 #[derive(Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash, Default)]
@@ -1840,16 +1842,26 @@ impl ConstantData {
     pub const NONE: Self = Self(0);
     pub const FloatData: Self = Self(1);
     pub const Int32Data: Self = Self(2);
+    pub const Int8Data: Self = Self(3);
+    pub const UInt8Data: Self = Self(4);
 
     pub const ENUM_MIN: u8 = 0;
-    pub const ENUM_MAX: u8 = 2;
-    pub const ENUM_VALUES: &'static [Self] = &[Self::NONE, Self::FloatData, Self::Int32Data];
+    pub const ENUM_MAX: u8 = 4;
+    pub const ENUM_VALUES: &'static [Self] = &[
+        Self::NONE,
+        Self::FloatData,
+        Self::Int32Data,
+        Self::Int8Data,
+        Self::UInt8Data,
+    ];
     /// Returns the variant's name or "" if unknown.
     pub fn variant_name(self) -> Option<&'static str> {
         match self {
             Self::NONE => Some("NONE"),
             Self::FloatData => Some("FloatData"),
             Self::Int32Data => Some("Int32Data"),
+            Self::Int8Data => Some("Int8Data"),
+            Self::UInt8Data => Some("UInt8Data"),
             _ => None,
         }
     }
@@ -1917,14 +1929,18 @@ pub const ENUM_MIN_CONSTANT_DATA_TYPE: u16 = 0;
     since = "2.0.0",
     note = "Use associated constants instead. This will no longer be generated in 2021."
 )]
-pub const ENUM_MAX_CONSTANT_DATA_TYPE: u16 = 1;
+pub const ENUM_MAX_CONSTANT_DATA_TYPE: u16 = 3;
 #[deprecated(
     since = "2.0.0",
     note = "Use associated constants instead. This will no longer be generated in 2021."
 )]
 #[allow(non_camel_case_types)]
-pub const ENUM_VALUES_CONSTANT_DATA_TYPE: [ConstantDataType; 2] =
-    [ConstantDataType::Int32, ConstantDataType::Float32];
+pub const ENUM_VALUES_CONSTANT_DATA_TYPE: [ConstantDataType; 4] = [
+    ConstantDataType::Int32,
+    ConstantDataType::Float32,
+    ConstantDataType::Int8,
+    ConstantDataType::UInt8,
+];
 
 #[derive(Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash, Default)]
 #[repr(transparent)]
@@ -1933,15 +1949,19 @@ pub struct ConstantDataType(pub u16);
 impl ConstantDataType {
     pub const Int32: Self = Self(0);
     pub const Float32: Self = Self(1);
+    pub const Int8: Self = Self(2);
+    pub const UInt8: Self = Self(3);
 
     pub const ENUM_MIN: u16 = 0;
-    pub const ENUM_MAX: u16 = 1;
-    pub const ENUM_VALUES: &'static [Self] = &[Self::Int32, Self::Float32];
+    pub const ENUM_MAX: u16 = 3;
+    pub const ENUM_VALUES: &'static [Self] = &[Self::Int32, Self::Float32, Self::Int8, Self::UInt8];
     /// Returns the variant's name or "" if unknown.
     pub fn variant_name(self) -> Option<&'static str> {
         match self {
             Self::Int32 => Some("Int32"),
             Self::Float32 => Some("Float32"),
+            Self::Int8 => Some("Int8"),
+            Self::UInt8 => Some("UInt8"),
             _ => None,
         }
     }
@@ -8824,6 +8844,120 @@ impl core::fmt::Debug for FloatData<'_> {
         ds.finish()
     }
 }
+pub enum Int8DataOffset {}
+#[derive(Copy, Clone, PartialEq)]
+
+pub struct Int8Data<'a> {
+    pub _tab: flatbuffers::Table<'a>,
+}
+
+impl<'a> flatbuffers::Follow<'a> for Int8Data<'a> {
+    type Inner = Int8Data<'a>;
+    #[inline]
+    unsafe fn follow(buf: &'a [u8], loc: usize) -> Self::Inner {
+        Self {
+            _tab: flatbuffers::Table::new(buf, loc),
+        }
+    }
+}
+
+impl<'a> Int8Data<'a> {
+    pub const VT_DATA: flatbuffers::VOffsetT = 4;
+
+    #[inline]
+    pub unsafe fn init_from_table(table: flatbuffers::Table<'a>) -> Self {
+        Int8Data { _tab: table }
+    }
+    #[allow(unused_mut)]
+    pub fn create<'bldr: 'args, 'args: 'mut_bldr, 'mut_bldr, A: flatbuffers::Allocator + 'bldr>(
+        _fbb: &'mut_bldr mut flatbuffers::FlatBufferBuilder<'bldr, A>,
+        args: &'args Int8DataArgs<'args>,
+    ) -> flatbuffers::WIPOffset<Int8Data<'bldr>> {
+        let mut builder = Int8DataBuilder::new(_fbb);
+        if let Some(x) = args.data {
+            builder.add_data(x);
+        }
+        builder.finish()
+    }
+
+    #[inline]
+    pub fn data(&self) -> flatbuffers::Vector<'a, i8> {
+        // Safety:
+        // Created from valid Table for this object
+        // which contains a valid value in this slot
+        unsafe {
+            self._tab
+                .get::<flatbuffers::ForwardsUOffset<flatbuffers::Vector<'a, i8>>>(
+                    Int8Data::VT_DATA,
+                    None,
+                )
+                .unwrap()
+        }
+    }
+}
+
+impl flatbuffers::Verifiable for Int8Data<'_> {
+    #[inline]
+    fn run_verifier(
+        v: &mut flatbuffers::Verifier,
+        pos: usize,
+    ) -> Result<(), flatbuffers::InvalidFlatbuffer> {
+        use self::flatbuffers::Verifiable;
+        v.visit_table(pos)?
+            .visit_field::<flatbuffers::ForwardsUOffset<flatbuffers::Vector<'_, i8>>>(
+                "data",
+                Self::VT_DATA,
+                true,
+            )?
+            .finish();
+        Ok(())
+    }
+}
+pub struct Int8DataArgs<'a> {
+    pub data: Option<flatbuffers::WIPOffset<flatbuffers::Vector<'a, i8>>>,
+}
+impl<'a> Default for Int8DataArgs<'a> {
+    #[inline]
+    fn default() -> Self {
+        Int8DataArgs {
+            data: None, // required field
+        }
+    }
+}
+
+pub struct Int8DataBuilder<'a: 'b, 'b, A: flatbuffers::Allocator + 'a> {
+    fbb_: &'b mut flatbuffers::FlatBufferBuilder<'a, A>,
+    start_: flatbuffers::WIPOffset<flatbuffers::TableUnfinishedWIPOffset>,
+}
+impl<'a: 'b, 'b, A: flatbuffers::Allocator + 'a> Int8DataBuilder<'a, 'b, A> {
+    #[inline]
+    pub fn add_data(&mut self, data: flatbuffers::WIPOffset<flatbuffers::Vector<'b, i8>>) {
+        self.fbb_
+            .push_slot_always::<flatbuffers::WIPOffset<_>>(Int8Data::VT_DATA, data);
+    }
+    #[inline]
+    pub fn new(_fbb: &'b mut flatbuffers::FlatBufferBuilder<'a, A>) -> Int8DataBuilder<'a, 'b, A> {
+        let start = _fbb.start_table();
+        Int8DataBuilder {
+            fbb_: _fbb,
+            start_: start,
+        }
+    }
+    #[inline]
+    pub fn finish(self) -> flatbuffers::WIPOffset<Int8Data<'a>> {
+        let o = self.fbb_.end_table(self.start_);
+        self.fbb_.required(o, Int8Data::VT_DATA, "data");
+        flatbuffers::WIPOffset::new(o.value())
+    }
+}
+
+impl core::fmt::Debug for Int8Data<'_> {
+    fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
+        let mut ds = f.debug_struct("Int8Data");
+        ds.field("data", &self.data());
+        ds.finish()
+    }
+}
 pub enum Int32DataOffset {}
 #[derive(Copy, Clone, PartialEq)]
 
@@ -8934,6 +9068,120 @@ impl<'a: 'b, 'b, A: flatbuffers::Allocator + 'a> Int32DataBuilder<'a, 'b, A> {
 impl core::fmt::Debug for Int32Data<'_> {
     fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
         let mut ds = f.debug_struct("Int32Data");
+        ds.field("data", &self.data());
+        ds.finish()
+    }
+}
+pub enum UInt8DataOffset {}
+#[derive(Copy, Clone, PartialEq)]
+
+pub struct UInt8Data<'a> {
+    pub _tab: flatbuffers::Table<'a>,
+}
+
+impl<'a> flatbuffers::Follow<'a> for UInt8Data<'a> {
+    type Inner = UInt8Data<'a>;
+    #[inline]
+    unsafe fn follow(buf: &'a [u8], loc: usize) -> Self::Inner {
+        Self {
+            _tab: flatbuffers::Table::new(buf, loc),
+        }
+    }
+}
+
+impl<'a> UInt8Data<'a> {
+    pub const VT_DATA: flatbuffers::VOffsetT = 4;
+
+    #[inline]
+    pub unsafe fn init_from_table(table: flatbuffers::Table<'a>) -> Self {
+        UInt8Data { _tab: table }
+    }
+    #[allow(unused_mut)]
+    pub fn create<'bldr: 'args, 'args: 'mut_bldr, 'mut_bldr, A: flatbuffers::Allocator + 'bldr>(
+        _fbb: &'mut_bldr mut flatbuffers::FlatBufferBuilder<'bldr, A>,
+        args: &'args UInt8DataArgs<'args>,
+    ) -> flatbuffers::WIPOffset<UInt8Data<'bldr>> {
+        let mut builder = UInt8DataBuilder::new(_fbb);
+        if let Some(x) = args.data {
+            builder.add_data(x);
+        }
+        builder.finish()
+    }
+
+    #[inline]
+    pub fn data(&self) -> flatbuffers::Vector<'a, u8> {
+        // Safety:
+        // Created from valid Table for this object
+        // which contains a valid value in this slot
+        unsafe {
+            self._tab
+                .get::<flatbuffers::ForwardsUOffset<flatbuffers::Vector<'a, u8>>>(
+                    UInt8Data::VT_DATA,
+                    None,
+                )
+                .unwrap()
+        }
+    }
+}
+
+impl flatbuffers::Verifiable for UInt8Data<'_> {
+    #[inline]
+    fn run_verifier(
+        v: &mut flatbuffers::Verifier,
+        pos: usize,
+    ) -> Result<(), flatbuffers::InvalidFlatbuffer> {
+        use self::flatbuffers::Verifiable;
+        v.visit_table(pos)?
+            .visit_field::<flatbuffers::ForwardsUOffset<flatbuffers::Vector<'_, u8>>>(
+                "data",
+                Self::VT_DATA,
+                true,
+            )?
+            .finish();
+        Ok(())
+    }
+}
+pub struct UInt8DataArgs<'a> {
+    pub data: Option<flatbuffers::WIPOffset<flatbuffers::Vector<'a, u8>>>,
+}
+impl<'a> Default for UInt8DataArgs<'a> {
+    #[inline]
+    fn default() -> Self {
+        UInt8DataArgs {
+            data: None, // required field
+        }
+    }
+}
+
+pub struct UInt8DataBuilder<'a: 'b, 'b, A: flatbuffers::Allocator + 'a> {
+    fbb_: &'b mut flatbuffers::FlatBufferBuilder<'a, A>,
+    start_: flatbuffers::WIPOffset<flatbuffers::TableUnfinishedWIPOffset>,
+}
+impl<'a: 'b, 'b, A: flatbuffers::Allocator + 'a> UInt8DataBuilder<'a, 'b, A> {
+    #[inline]
+    pub fn add_data(&mut self, data: flatbuffers::WIPOffset<flatbuffers::Vector<'b, u8>>) {
+        self.fbb_
+            .push_slot_always::<flatbuffers::WIPOffset<_>>(UInt8Data::VT_DATA, data);
+    }
+    #[inline]
+    pub fn new(_fbb: &'b mut flatbuffers::FlatBufferBuilder<'a, A>) -> UInt8DataBuilder<'a, 'b, A> {
+        let start = _fbb.start_table();
+        UInt8DataBuilder {
+            fbb_: _fbb,
+            start_: start,
+        }
+    }
+    #[inline]
+    pub fn finish(self) -> flatbuffers::WIPOffset<UInt8Data<'a>> {
+        let o = self.fbb_.end_table(self.start_);
+        self.fbb_.required(o, UInt8Data::VT_DATA, "data");
+        flatbuffers::WIPOffset::new(o.value())
+    }
+}
+
+impl core::fmt::Debug for UInt8Data<'_> {
+    fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
+        let mut ds = f.debug_struct("UInt8Data");
         ds.field("data", &self.data());
         ds.finish()
     }
@@ -9072,6 +9320,36 @@ impl<'a> ConstantNode<'a> {
             None
         }
     }
+
+    #[inline]
+    #[allow(non_snake_case)]
+    pub fn data_as_int_8_data(&self) -> Option<Int8Data<'a>> {
+        if self.data_type() == ConstantData::Int8Data {
+            self.data().map(|t| {
+                // Safety:
+                // Created from a valid Table for this object
+                // Which contains a valid union in this slot
+                unsafe { Int8Data::init_from_table(t) }
+            })
+        } else {
+            None
+        }
+    }
+
+    #[inline]
+    #[allow(non_snake_case)]
+    pub fn data_as_uint_8_data(&self) -> Option<UInt8Data<'a>> {
+        if self.data_type() == ConstantData::UInt8Data {
+            self.data().map(|t| {
+                // Safety:
+                // Created from a valid Table for this object
+                // Which contains a valid union in this slot
+                unsafe { UInt8Data::init_from_table(t) }
+            })
+        } else {
+            None
+        }
+    }
 }
 
 impl flatbuffers::Verifiable for ConstantNode<'_> {
@@ -9102,6 +9380,16 @@ impl flatbuffers::Verifiable for ConstantNode<'_> {
                     ConstantData::Int32Data => v
                         .verify_union_variant::<flatbuffers::ForwardsUOffset<Int32Data>>(
                             "ConstantData::Int32Data",
+                            pos,
+                        ),
+                    ConstantData::Int8Data => v
+                        .verify_union_variant::<flatbuffers::ForwardsUOffset<Int8Data>>(
+                            "ConstantData::Int8Data",
+                            pos,
+                        ),
+                    ConstantData::UInt8Data => v
+                        .verify_union_variant::<flatbuffers::ForwardsUOffset<UInt8Data>>(
+                            "ConstantData::UInt8Data",
                             pos,
                         ),
                     _ => Ok(()),
@@ -9202,6 +9490,26 @@ impl core::fmt::Debug for ConstantNode<'_> {
             }
             ConstantData::Int32Data => {
                 if let Some(x) = self.data_as_int_32_data() {
+                    ds.field("data", &x)
+                } else {
+                    ds.field(
+                        "data",
+                        &"InvalidFlatbuffer: Union discriminant does not match value.",
+                    )
+                }
+            }
+            ConstantData::Int8Data => {
+                if let Some(x) = self.data_as_int_8_data() {
+                    ds.field("data", &x)
+                } else {
+                    ds.field(
+                        "data",
+                        &"InvalidFlatbuffer: Union discriminant does not match value.",
+                    )
+                }
+            }
+            ConstantData::UInt8Data => {
+                if let Some(x) = self.data_as_uint_8_data() {
                     ds.field("data", &x)
                 } else {
                     ds.field(

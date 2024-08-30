@@ -86,6 +86,8 @@ macro_rules! impl_le_bytes {
     };
 }
 
+impl_le_bytes!(i8, 1);
+impl_le_bytes!(u8, 1);
 impl_le_bytes!(i32, 4);
 impl_le_bytes!(f32, 4);
 impl_le_bytes!(u32, 4);
@@ -191,8 +193,10 @@ impl_fastdiv!(usize);
 /// This means an arbitrary byte sequence can be converted to this type, as
 /// long as the byte sequence length is a multiple of the type's size.
 pub trait Pod: Copy {}
+impl Pod for i8 {}
 impl Pod for i32 {}
 impl Pod for f32 {}
+impl Pod for u8 {}
 
 #[cfg(test)]
 mod tests {
