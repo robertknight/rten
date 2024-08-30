@@ -5,6 +5,52 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## Unreleased
+
+### rten
+
+#### New features
+
+- Added speech detection example using Silero VAD
+  (https://github.com/robertknight/rten/pull/338)
+
+- Support int tensors in ArgMin and ArgMax ops
+  (https://github.com/robertknight/rten/pull/329)
+
+- Support "reflect" padding mode (https://github.com/robertknight/rten/pull/326)
+
+#### Bug fixes
+
+- Fixed panic with certain combinations of input, kernel size and padding in
+  depthwise convolution (https://github.com/robertknight/rten/pull/336)
+
+- Fixed attempted out-of-bounds slice in depthwise convolution when input tensor
+  has a row stride that exceeds the row length
+  (https://github.com/robertknight/rten/pull/335)
+
+- Fixed conversion of `auto_pad` attribute for Conv operator
+  (https://github.com/robertknight/rten/pull/333)
+
+- Round timings to microseconds in verbose log
+  (https://github.com/robertknight/rten/pull/331)
+
+- Fixed panic when slicing empty tensors
+  (https://github.com/robertknight/rten/pull/325)
+
+- Fixed 1D convolution failing with non-contiguous inputs
+  (https://github.com/robertknight/rten/pull/324)
+
+- Fixed conversion of shape information for scalar tensors
+  (https://github.com/robertknight/rten/pull/323)
+
+- Fixed panic in softmax if the size of the normalized axis is zero
+  (https://github.com/robertknight/rten/pull/322)
+
+### rten-cli
+
+- Added `--mmap` flag to load model using memory mapping instead of reading
+  whole file into a buffer (https://github.com/robertknight/rten/pull/330)
+
 ## [0.13.0] - 2024-08-24
 
 This release adds the infrastructure to support subgraphs, which are used in
