@@ -390,7 +390,7 @@ pub fn squeeze_in_place<T: Clone>(
     let axes = axes
         .map(|axes| resolve_axes(input.ndim(), axes.iter()))
         .transpose()?;
-    if let Some(ref axes) = axes {
+    let sorted_axes = if let Some(mut axes) = axes {
         for &axis in axes.iter() {
             if axis >= input.ndim() {
                 return Err(OpError::InvalidValue("Axis is invalid"));
@@ -401,22 +401,21 @@ pub fn squeeze_in_place<T: Clone>(
                 ));
             }
         }
+        axes.sort();
+        axes
+    } else {
+        input
+            .shape()
+            .iter()
+            .enumerate()
+            .filter_map(|(i, size)| if *size == 1 { Some(i) } else { None })
+            .collect()
+    };
+
+    for (n_removed, axis) in sorted_axes.into_iter().enumerate() {
+        input.remove_axis(axis - n_removed);
     }
 
-    let new_shape: SmallVec<[usize; 5]> = input
-        .shape()
-        .iter()
-        .enumerate()
-        .filter(|(dim, &size)| {
-            if let Some(ref axes) = axes {
-                !axes.contains(dim)
-            } else {
-                size > 1
-            }
-        })
-        .map(|(_, &size)| size)
-        .collect();
-    input.reshape(&new_shape);
     Ok(())
 }
 
@@ -940,13 +939,20 @@ mod tests {
     #[test]
     fn test_squeeze_in_place() -> Result<(), Box<dyn Error>> {
         let mut rng = XorShiftRng::new(5678);
-        let mut input = Tensor::rand(&[1, 1, 5, 5], &mut rng);
 
-        let mut expected = input.clone();
-        expected.reshape(&[5, 5]);
+        // Contiguous tensor
+        let mut input = Tensor::rand(&[1, 1, 5, 5], &mut rng);
+        let expected = input.clone().into_shape([5, 5].as_slice());
 
         squeeze_in_place(&mut input, None).unwrap();
+        expect_equal(&input, &expected)?;
 
+        // Non-contiguous tensor
+        let mut input = Tensor::rand(&[1, 5, 2, 5], &mut rng);
+        input.permute(&[3, 2, 1, 0]);
+        let expected = input.clone().into_shape([5, 2, 5].as_slice());
+
+        squeeze_in_place(&mut input, None).unwrap();
         expect_equal(&input, &expected)?;
 
         Ok(())
