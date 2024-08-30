@@ -91,5 +91,9 @@ name = "piper"
 path = "src/piper.rs"
 
 [[bin]]
+name = "silero"
+path = "src/silero.rs"
+
+[[bin]]
 name = "wav2vec2"
 path = "src/wav2vec2.rs"

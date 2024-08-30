@@ -73,4 +73,5 @@ language model.
 ### Audio
 
 - **piper** - Text-to-speech using [Piper](https://github.com/rhasspy/piper) models
+- **silero** - Speech detection using [Silero VAD](https://github.com/snakers4/silero-vad)
 - **wav2vec2** - Speech recognition of .wav audio using [wav2vec2](https://arxiv.org/abs/2006.11477)
