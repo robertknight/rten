@@ -236,54 +236,31 @@ impl<'a> Layout for Input<'a> {
     }
 }
 
-impl<'a> TryFrom<Input<'a>> for TensorView<'a, f32> {
-    type Error = OpError;
-
-    fn try_from(input: Input<'a>) -> Result<TensorView<'a, f32>, Self::Error> {
-        match input {
-            Input::FloatTensor(t) => Ok(t),
-            _ => Err(OpError::IncorrectInputType),
-        }
-    }
-}
-
-impl<'a> TryFrom<Input<'a>> for TensorView<'a, i32> {
-    type Error = OpError;
-
-    fn try_from(input: Input<'a>) -> Result<TensorView<'a, i32>, Self::Error> {
-        match input {
-            Input::Int32Tensor(t) => Ok(t),
-            _ => Err(OpError::IncorrectInputType),
-        }
-    }
-}
-
-impl<'a> TryFrom<Input<'a>> for f32 {
-    type Error = OpError;
-
-    fn try_from(input: Input<'a>) -> Result<f32, Self::Error> {
-        let tensor: TensorView<'a, _> = input.try_into()?;
-        tensor
-            .item()
-            .copied()
-            .ok_or(OpError::InvalidValue("Expected scalar value"))
-    }
-}
-
-impl<'a> TryFrom<Input<'a>> for i32 {
-    type Error = OpError;
-
-    fn try_from(input: Input<'a>) -> Result<i32, Self::Error> {
-        let tensor: TensorView<'a, _> = input.try_into()?;
-        tensor
-            .item()
-            .copied()
-            .ok_or(OpError::InvalidValue("Expected scalar value"))
-    }
-}
-
 macro_rules! impl_input_conversions {
     ($variant:ident, $element_type:ty) => {
+        impl<'a> TryFrom<Input<'a>> for TensorView<'a, $element_type> {
+            type Error = OpError;
+
+            fn try_from(input: Input<'a>) -> Result<TensorView<'a, $element_type>, Self::Error> {
+                match input {
+                    Input::$variant(t) => Ok(t),
+                    _ => Err(OpError::IncorrectInputType),
+                }
+            }
+        }
+
+        impl<'a> TryFrom<Input<'a>> for $element_type {
+            type Error = OpError;
+
+            fn try_from(input: Input<'a>) -> Result<$element_type, Self::Error> {
+                let tensor: TensorView<'a, _> = input.try_into()?;
+                tensor
+                    .item()
+                    .copied()
+                    .ok_or(OpError::InvalidValue("Expected scalar value"))
+            }
+        }
+
         impl<'a> From<&'a Tensor<$element_type>> for Input<'a> {
             fn from(t: &'a Tensor<$element_type>) -> Input {
                 Input::$variant(t.view())
