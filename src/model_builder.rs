@@ -990,12 +990,14 @@ impl TensorDataBuilder {
         let padding = offset.next_multiple_of(align) - offset;
         self.data.extend(std::iter::repeat(0).take(padding));
 
+        let start_offset = self.data.len();
+
         for x in data {
             let bytes = x.to_le_bytes();
             self.data.extend(bytes.as_ref());
         }
 
-        offset
+        start_offset
     }
 
     /// Consume the builder and return the finalized tensor data buffer.
