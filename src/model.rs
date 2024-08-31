@@ -1269,12 +1269,20 @@ mod tests {
 
         let const_u8_val = Tensor::from([0u8, 1, 2, 3, 4]);
         let const_u8 = graph_builder.add_constant(const_u8_val.view());
+
+        let const_f32_val = const_u8_val.map(|x| *x as f32);
+        let const_f32 = graph_builder.add_constant(const_f32_val.view());
+
         let scale_val = Tensor::from(1.);
         let scale = graph_builder.add_constant(scale_val.view());
         let zero_point_val = Tensor::from(0u8);
         let zero_point = graph_builder.add_constant(zero_point_val.view());
         add_operator!(DequantizeLinear, [const_u8, scale, zero_point], {
             axis: 0,
+        });
+        add_operator!(QuantizeLinear, [const_f32, scale, zero_point], {
+            axis: 0,
+            output_dtype: None,
         });
 
         add_operator!(Div, [input_node, input_node]);

@@ -119,6 +119,7 @@ enum OperatorType: ubyte {
   Einsum,
   If,
   DequantizeLinear,
+  QuantizeLinear,
 }
 
 enum RNNDirection: ubyte {
@@ -140,7 +141,9 @@ enum AutoPad: ubyte {
 
 enum DataType: ubyte {
   Int32,
-  Float
+  Float,
+  Int8,
+  UInt8,
 }
 
 // Coordinate transform modes for Resize operator.
@@ -209,6 +212,7 @@ union OperatorAttrs {
   IfAttrs,
   PadAttrs,
   DequantizeLinearAttrs,
+  QuantizeLinearAttrs,
 }
 
 table ArgMaxAttrs {
@@ -376,6 +380,11 @@ enum PadMode: ubyte {
 
 table PadAttrs {
   mode:PadMode;
+}
+
+table QuantizeLinearAttrs {
+  axis:int;
+  output_dtype:DataType = null;
 }
 
 table RandomNormalAttrs {

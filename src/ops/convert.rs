@@ -15,6 +15,7 @@ fn cast(pool: &TensorPool, input: Input, dtype: DataType) -> Result<Output, OpEr
             Input::Int32Tensor(t) => Ok(t.map_in(pool, |x| *x as f32).into()),
             _ => Err(OpError::UnsupportedType),
         },
+        _ => Err(OpError::UnsupportedValue("Unsupported cast")),
     }
 }
 

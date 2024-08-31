@@ -1,7 +1,9 @@
 use rten_tensor::prelude::*;
 use rten_tensor::{NdTensor, NdTensorView, Scalar, Tensor, TensorView};
 
-use crate::ops::{resolve_axis, Input, InputList, IntoOpResult, OpError, Operator, OutputList};
+use crate::ops::{
+    resolve_axis, DataType, Input, InputList, IntoOpResult, OpError, Operator, OutputList,
+};
 use crate::tensor_pool::TensorPool;
 
 /// Convert a quantized tensor element to a higher precision value.
@@ -108,6 +110,143 @@ impl Operator for DequantizeLinear {
     }
 }
 
+/// Convert a high precision tensor element to a quantized value.
+///
+/// The conversion is done according to:
+///
+/// ```text
+/// y = saturate((self / scale) + zero_point)
+/// ```
+///
+/// See https://onnx.ai/onnx/operators/onnx__QuantizeLinear.html for
+/// additional details.
+pub trait Quantize<To> {
+    fn quantize(self, scale: Self, zero_point: To) -> To;
+}
+
+impl Quantize<u8> for f32 {
+    fn quantize(self, scale: Self, zero_point: u8) -> u8 {
+        let y = (self / scale).round_ties_even();
+        let y = y + zero_point as f32;
+        y.clamp(0., 255.) as u8
+    }
+}
+
+impl Quantize<i8> for f32 {
+    fn quantize(self, scale: Self, zero_point: i8) -> i8 {
+        let y = (self / scale).round_ties_even();
+        let y = y + zero_point as f32;
+        y.clamp(-128., 127.) as i8
+    }
+}
+
+pub fn quantize_linear<T: Copy + Default + Scalar>(
+    pool: &TensorPool,
+    input: TensorView<f32>,
+    scale: TensorView<f32>,
+    zero_point: Option<TensorView<T>>,
+    axis: isize,
+) -> Result<Tensor<T>, OpError>
+where
+    f32: Quantize<T>,
+{
+    if let Some(zero_point) = zero_point.as_ref() {
+        if zero_point.shape() != scale.shape() {
+            return Err(OpError::InvalidValue(
+                "scale and zero_point must have same shape",
+            ));
+        }
+    }
+
+    match scale.ndim() {
+        0 => {
+            let scale = scale.item().unwrap();
+            let zero_point = zero_point.and_then(|z| z.item()).unwrap();
+
+            Ok(input.map_in(pool, |x| x.quantize(*scale, *zero_point)))
+        }
+        1 => {
+            let axis = resolve_axis(input.ndim(), axis)?;
+            let scale: NdTensorView<f32, 1> = scale.try_into().unwrap();
+            let zero = NdTensor::from(T::default());
+            let zero_point: NdTensorView<T, 1> = zero_point
+                .map(|zp| {
+                    let zp_vec: NdTensorView<T, 1> = zp.try_into().unwrap();
+                    zp_vec
+                })
+                .unwrap_or(zero.broadcast(scale.shape()));
+
+            let mut output = Tensor::uninit_in(pool, input.shape());
+            output
+                .axis_iter_mut(axis)
+                .zip(input.axis_iter(axis))
+                .zip(scale.iter())
+                .zip(zero_point.iter())
+                .for_each(|(((mut out_slice, in_slice), &scale), &zero_point)| {
+                    for (y, &x) in out_slice.iter_mut().zip(in_slice.iter()) {
+                        y.write(x.quantize(scale, zero_point));
+                    }
+                });
+
+            // Safety: All elements are initialized
+            Ok(unsafe { output.assume_init() })
+        }
+        _ => Err(OpError::UnsupportedValue(
+            "Blocked quantization is not supported",
+        )),
+    }
+}
+
+#[derive(Debug)]
+pub struct QuantizeLinear {
+    pub axis: isize,
+    pub output_dtype: Option<DataType>,
+}
+
+impl Operator for QuantizeLinear {
+    fn name(&self) -> &str {
+        "QuantizeLinear"
+    }
+
+    fn run(&self, pool: &TensorPool, inputs: InputList) -> Result<OutputList, OpError> {
+        let input = inputs.require_as(0)?;
+        let y_scale = inputs.require_as(1)?;
+        let y_zero_point = inputs.get(2);
+
+        match (y_zero_point, self.output_dtype) {
+            (Some(Input::UInt8Tensor(y_zero_point)), Some(DataType::UInt8) | None) => {
+                quantize_linear(
+                    pool,
+                    input.view(),
+                    y_scale.view(),
+                    Some(y_zero_point.view()),
+                    self.axis,
+                )
+                .into_op_result()
+            }
+            (None, Some(DataType::UInt8)) => {
+                quantize_linear::<u8>(pool, input.view(), y_scale.view(), None, self.axis)
+                    .into_op_result()
+            }
+            (Some(Input::Int8Tensor(y_zero_point)), Some(DataType::Int8) | None) => {
+                quantize_linear(
+                    pool,
+                    input.view(),
+                    y_scale.view(),
+                    Some(y_zero_point.view()),
+                    self.axis,
+                )
+                .into_op_result()
+            }
+            (None, Some(DataType::Int8)) => {
+                quantize_linear::<i8>(pool, input.view(), y_scale.view(), None, self.axis)
+                    .into_op_result()
+            }
+            _ => Err(OpError::UnsupportedType),
+        }
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use std::error::Error;
@@ -115,12 +254,15 @@ mod tests {
     use rten_tensor::prelude::*;
     use rten_tensor::Tensor;
 
-    use super::dequantize_linear;
+    use super::{dequantize_linear, quantize_linear};
     use crate::ops::tests::new_pool;
     use crate::ops::{OpError, Output};
 
+    // Test dequantization followed by re-quantization. In this order the
+    // result should be the input. In the opposite order this would not be the
+    // case, since quantization is lossy.
     #[test]
-    fn test_dequantize_linear() -> Result<(), Box<dyn Error>> {
+    fn test_dequantize_quantize_linear() -> Result<(), Box<dyn Error>> {
         struct Case {
             axis: isize,
             input: Output,
@@ -193,32 +335,61 @@ mod tests {
             expected,
         } in cases
         {
-            let result = match input {
+            match input {
                 Output::UInt8Tensor(input) => {
                     let zero_point: Option<Tensor<u8>> =
                         zero_point.map(|zp| zp.try_into().unwrap());
-                    dequantize_linear(
+                    let result = dequantize_linear(
                         &pool,
                         input.view(),
                         scale.view(),
                         zero_point.as_ref().map(|zp| zp.view()),
                         axis,
-                    )
+                    );
+                    assert_eq!(result, expected);
+
+                    // Re-quantize the result, and we should get back to the
+                    // input.
+                    if let Ok(dequant) = result {
+                        let requantized = quantize_linear(
+                            &pool,
+                            dequant.view(),
+                            scale.view(),
+                            zero_point.as_ref().map(|zp| zp.view()),
+                            axis,
+                        )
+                        .unwrap();
+                        assert_eq!(requantized, input);
+                    }
                 }
                 Output::Int8Tensor(input) => {
                     let zero_point: Option<Tensor<i8>> =
                         zero_point.map(|zp| zp.try_into().unwrap());
-                    dequantize_linear(
+                    let result = dequantize_linear(
                         &pool,
                         input.view(),
                         scale.view(),
                         zero_point.as_ref().map(|zp| zp.view()),
                         axis,
-                    )
+                    );
+                    assert_eq!(result, expected);
+
+                    // Re-quantize the result, and we should get back to the
+                    // input.
+                    if let Ok(dequant) = result {
+                        let requantized = quantize_linear(
+                            &pool,
+                            dequant.view(),
+                            scale.view(),
+                            zero_point.as_ref().map(|zp| zp.view()),
+                            axis,
+                        )
+                        .unwrap();
+                        assert_eq!(requantized, input);
+                    }
                 }
                 _ => panic!("unsupported quantized type"),
             };
-            assert_eq!(result, expected);
         }
 
         Ok(())

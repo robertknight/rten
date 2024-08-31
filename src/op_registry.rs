@@ -146,6 +146,7 @@ impl OpRegistry {
         register_op!(Or);
         register_op!(Pad);
         register_op!(Pow);
+        register_op!(QuantizeLinear);
 
         #[cfg(feature = "random")]
         register_op!(RandomNormal);
@@ -222,6 +223,16 @@ impl Display for ReadOpError {
 }
 
 impl Error for ReadOpError {}
+
+fn convert_dtype(dtype: sg::DataType) -> Result<DataType, ReadOpError> {
+    match dtype {
+        sg::DataType::Int32 => Ok(DataType::Int32),
+        sg::DataType::Float => Ok(DataType::Float),
+        sg::DataType::UInt8 => Ok(DataType::UInt8),
+        sg::DataType::Int8 => Ok(DataType::Int8),
+        _ => Err(ReadOpError::AttrError),
+    }
+}
 
 fn convert_reduction(r: sg::ScatterReduction) -> Result<Option<ScatterReduction>, ReadOpError> {
     let reduction = match r {
@@ -420,11 +431,7 @@ impl_read_op!(
     }
 );
 impl_read_op!(Cast, attrs_as_cast_attrs, |attrs: sg::CastAttrs| {
-    let to = match attrs.to() {
-        sg::DataType::Int32 => DataType::Int32,
-        sg::DataType::Float => DataType::Float,
-        _ => DataType::Float,
-    };
+    let to = convert_dtype(attrs.to())?;
     Ok(ops::Cast { to })
 });
 impl_read_op!(Ceil);
@@ -662,6 +669,18 @@ impl ReadOp for ops::Pad {
 }
 
 impl_read_op!(Pow);
+
+impl_read_op!(
+    QuantizeLinear,
+    attrs_as_quantize_linear_attrs,
+    |attrs: sg::QuantizeLinearAttrs| {
+        let output_dtype = attrs.output_dtype().map(convert_dtype).transpose()?;
+        Ok(ops::QuantizeLinear {
+            axis: attrs.axis() as isize,
+            output_dtype,
+        })
+    }
+);
 
 #[cfg(feature = "random")]
 impl_read_op!(
