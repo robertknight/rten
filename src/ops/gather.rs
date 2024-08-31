@@ -91,6 +91,7 @@ impl Operator for Gather {
         match input {
             Input::Int32Tensor(input) => gather(pool, input, self.axis, indices).into_op_result(),
             Input::FloatTensor(input) => gather(pool, input, self.axis, indices).into_op_result(),
+            Input::UInt8Tensor(input) => gather(pool, input, self.axis, indices).into_op_result(),
             _ => Err(OpError::UnsupportedType),
         }
     }
