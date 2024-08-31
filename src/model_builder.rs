@@ -77,6 +77,7 @@ pub enum OpType<'a> {
     Log,
     LogSoftmax(LogSoftmax),
     MatMul,
+    MatMulInteger,
     Max,
     MaxPool(MaxPool),
     Mean,
@@ -614,6 +615,7 @@ impl<'mb, 'a> GraphBuilder<'mb, 'a> {
                 }
             ),
             OpType::MatMul => op!(MatMul),
+            OpType::MatMulInteger => op!(MatMulInteger),
             OpType::Max => op!(Max),
             OpType::MaxPool(args) => op_with_attrs!(MaxPool, MaxPoolAttrs, {
                 let pad_args = pad_args_from_padding(args.padding);

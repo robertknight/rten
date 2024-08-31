@@ -121,6 +121,7 @@ enum OperatorType: ubyte {
   DequantizeLinear,
   QuantizeLinear,
   DynamicQuantizeLinear,
+  MatMulInteger,
 }
 
 enum RNNDirection: ubyte {
