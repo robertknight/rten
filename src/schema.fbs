@@ -120,6 +120,7 @@ enum OperatorType: ubyte {
   If,
   DequantizeLinear,
   QuantizeLinear,
+  DynamicQuantizeLinear,
 }
 
 enum RNNDirection: ubyte {

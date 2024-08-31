@@ -48,6 +48,7 @@ pub enum OpType<'a> {
     Cos,
     DequantizeLinear(DequantizeLinear),
     Div,
+    DynamicQuantizeLinear,
     Einsum(Einsum),
     Elu(Elu),
     Equal,
@@ -503,6 +504,7 @@ impl<'mb, 'a> GraphBuilder<'mb, 'a> {
                 }
             ),
             OpType::Div => op!(Div),
+            OpType::DynamicQuantizeLinear => op!(DynamicQuantizeLinear),
             OpType::Einsum(args) => {
                 let equation = self.builder.create_string(&args.equation);
                 op_with_attrs!(

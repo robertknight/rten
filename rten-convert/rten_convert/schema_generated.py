@@ -114,6 +114,7 @@ class OperatorType(object):
     If = 104
     DequantizeLinear = 105
     QuantizeLinear = 106
+    DynamicQuantizeLinear = 107
 
 
 class RNNDirection(object):

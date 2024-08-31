@@ -18,13 +18,13 @@ pub const ENUM_MIN_OPERATOR_TYPE: u8 = 0;
     since = "2.0.0",
     note = "Use associated constants instead. This will no longer be generated in 2021."
 )]
-pub const ENUM_MAX_OPERATOR_TYPE: u8 = 106;
+pub const ENUM_MAX_OPERATOR_TYPE: u8 = 107;
 #[deprecated(
     since = "2.0.0",
     note = "Use associated constants instead. This will no longer be generated in 2021."
 )]
 #[allow(non_camel_case_types)]
-pub const ENUM_VALUES_OPERATOR_TYPE: [OperatorType; 107] = [
+pub const ENUM_VALUES_OPERATOR_TYPE: [OperatorType; 108] = [
     OperatorType::Add,
     OperatorType::ArgMin,
     OperatorType::ArgMax,
@@ -132,6 +132,7 @@ pub const ENUM_VALUES_OPERATOR_TYPE: [OperatorType; 107] = [
     OperatorType::If,
     OperatorType::DequantizeLinear,
     OperatorType::QuantizeLinear,
+    OperatorType::DynamicQuantizeLinear,
 ];
 
 #[derive(Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash, Default)]
@@ -246,9 +247,10 @@ impl OperatorType {
     pub const If: Self = Self(104);
     pub const DequantizeLinear: Self = Self(105);
     pub const QuantizeLinear: Self = Self(106);
+    pub const DynamicQuantizeLinear: Self = Self(107);
 
     pub const ENUM_MIN: u8 = 0;
-    pub const ENUM_MAX: u8 = 106;
+    pub const ENUM_MAX: u8 = 107;
     pub const ENUM_VALUES: &'static [Self] = &[
         Self::Add,
         Self::ArgMin,
@@ -357,6 +359,7 @@ impl OperatorType {
         Self::If,
         Self::DequantizeLinear,
         Self::QuantizeLinear,
+        Self::DynamicQuantizeLinear,
     ];
     /// Returns the variant's name or "" if unknown.
     pub fn variant_name(self) -> Option<&'static str> {
@@ -468,6 +471,7 @@ impl OperatorType {
             Self::If => Some("If"),
             Self::DequantizeLinear => Some("DequantizeLinear"),
             Self::QuantizeLinear => Some("QuantizeLinear"),
+            Self::DynamicQuantizeLinear => Some("DynamicQuantizeLinear"),
             _ => None,
         }
     }

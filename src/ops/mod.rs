@@ -92,7 +92,10 @@ pub use pad::{pad, Pad, PadMode};
 pub use pooling::{
     average_pool, global_average_pool, max_pool, AveragePool, GlobalAveragePool, MaxPool,
 };
-pub use quantize::{dequantize_linear, quantize_linear, DequantizeLinear, QuantizeLinear};
+pub use quantize::{
+    dequantize_linear, dynamic_quantize_linear, quantize_linear, DequantizeLinear,
+    DynamicQuantizeLinear, QuantizeLinear,
+};
 
 #[cfg(feature = "random")]
 pub use random::{RandomNormal, RandomNormalLike, RandomUniform, RandomUniformLike};

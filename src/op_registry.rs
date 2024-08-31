@@ -102,6 +102,7 @@ impl OpRegistry {
         register_op!(CumSum);
         register_op!(DequantizeLinear);
         register_op!(Div);
+        register_op!(DynamicQuantizeLinear);
         register_op!(Einsum);
         register_op!(Elu);
         register_op!(Equal);
@@ -476,6 +477,7 @@ impl_read_op!(Cos);
 impl_read_op!(CumSum);
 impl_read_op!(DequantizeLinear, attrs_as_dequantize_linear_attrs, axis);
 impl_read_op!(Div);
+impl_read_op!(DynamicQuantizeLinear);
 impl_read_op!(Einsum, attrs_as_einsum_attrs, |attrs: sg::EinsumAttrs| {
     Ok(ops::Einsum {
         equation: attrs.equation().unwrap_or("").to_string(),
