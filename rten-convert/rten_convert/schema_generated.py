@@ -115,6 +115,7 @@ class OperatorType(object):
     DequantizeLinear = 105
     QuantizeLinear = 106
     DynamicQuantizeLinear = 107
+    MatMulInteger = 108
 
 
 class RNNDirection(object):
