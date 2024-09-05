@@ -14,12 +14,14 @@
 mod contours;
 mod drawing;
 mod math;
+mod normalize;
 mod poly_algos;
 mod shapes;
 
 pub use contours::{find_contours, RetrievalMode};
 pub use drawing::{draw_line, draw_polygon, fill_rect, stroke_rect, FillIter, Painter, Rgb};
 pub use math::Vec2;
+pub use normalize::{normalize_image, IMAGENET_MEAN, IMAGENET_STD_DEV};
 pub use poly_algos::{convex_hull, min_area_rect, simplify_polygon, simplify_polyline};
 pub use shapes::{
     bounding_rect, BoundingRect, Coord, Line, LineF, Point, PointF, Polygon, PolygonF, Polygons,
