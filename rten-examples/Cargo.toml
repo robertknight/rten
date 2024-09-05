@@ -61,6 +61,10 @@ name = "depth_anything"
 path = "src/depth_anything.rs"
 
 [[bin]]
+name = "rmbg"
+path = "src/rmbg.rs"
+
+[[bin]]
 name = "segment_anything"
 path = "src/segment_anything.rs"
 
