@@ -2,7 +2,8 @@ use std::collections::VecDeque;
 use std::error::Error;
 
 use rten::{FloatOperators, Model, Operators};
-use rten_imageio::{normalize_image, read_image, write_image};
+use rten_imageio::{read_image, write_image};
+use rten_imageproc::{normalize_image, IMAGENET_MEAN, IMAGENET_STD_DEV};
 use rten_tensor::prelude::*;
 use rten_tensor::{NdTensor, Tensor};
 
@@ -78,7 +79,7 @@ fn main() -> Result<(), Box<dyn Error>> {
 
     let mut image: Tensor = read_image(&args.image)?.into();
     let [_, orig_height, orig_width] = image.shape().try_into()?;
-    normalize_image(image.nd_view_mut());
+    normalize_image(image.nd_view_mut(), IMAGENET_MEAN, IMAGENET_STD_DEV);
     image.insert_axis(0); // Add batch dim
 
     // Input size taken from README in https://github.com/fabio-sim/Depth-Anything-ONNX.

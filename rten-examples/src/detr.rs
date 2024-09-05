@@ -2,8 +2,8 @@ use std::collections::VecDeque;
 use std::error::Error;
 
 use rten::{FloatOperators, Model, Operators};
-use rten_imageio::{normalize_image, read_image, write_image};
-use rten_imageproc::{Painter, Rect};
+use rten_imageio::{read_image, write_image};
+use rten_imageproc::{normalize_image, Painter, Rect, IMAGENET_MEAN, IMAGENET_STD_DEV};
 use rten_tensor::prelude::*;
 use rten_tensor::NdTensor;
 
@@ -285,7 +285,7 @@ fn main() -> Result<(), Box<dyn Error>> {
     // Save a copy of the input before normalization and scaling
     let mut annotated_image = args.annotated_image.as_ref().map(|_| image.clone());
 
-    normalize_image(image.view_mut());
+    normalize_image(image.view_mut(), IMAGENET_MEAN, IMAGENET_STD_DEV);
 
     let [_, image_height, image_width] = image.shape();
 

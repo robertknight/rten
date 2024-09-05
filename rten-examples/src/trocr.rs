@@ -6,8 +6,9 @@ use std::io::prelude::*;
 use rten::{FloatOperators, Model};
 use rten_generate::{Generator, GeneratorUtils};
 use rten_imageio::read_image;
+use rten_imageproc::normalize_image;
 use rten_tensor::prelude::*;
-use rten_tensor::{NdTensor, NdTensorViewMut};
+use rten_tensor::NdTensor;
 use rten_text::tokenizers::Tokenizer;
 
 struct Args {
@@ -62,23 +63,6 @@ Args:
     Ok(args)
 }
 
-fn normalize_pixel(value: f32, channel: usize) -> f32 {
-    assert!(channel < 3, "channel index is invalid");
-
-    // Values taken from `preprocessor_config.json`.
-    let mean = [0.5, 0.5, 0.5];
-    let std_dev = [0.5, 0.5, 0.5];
-
-    (value - mean[channel]) / std_dev[channel]
-}
-
-fn normalize_image(mut img: NdTensorViewMut<f32, 3>) {
-    for chan in 0..img.size(0) {
-        img.slice_mut::<2, _>(chan)
-            .apply(|x| normalize_pixel(*x, chan));
-    }
-}
-
 /// Recognize text line images using TrOCR [^1].
 ///
 /// First use Hugging Face's Optimum tool to download and export the models to
@@ -114,7 +98,11 @@ fn main() -> Result<(), Box<dyn Error>> {
 
     // From `image_size` in config.json.
     let mut image = image.resize_image([384, 384])?;
-    normalize_image(image.slice_mut(0));
+
+    // Values taken from `preprocessor_config.json`.
+    let mean = [0.5, 0.5, 0.5];
+    let std_dev = [0.5, 0.5, 0.5];
+    normalize_image(image.slice_mut(0), mean, std_dev);
 
     let encoded_image: NdTensor<f32, 3> = encoder_model
         .run_one(image.view().into(), None)?

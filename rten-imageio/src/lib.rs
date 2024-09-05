@@ -6,28 +6,11 @@
 //! implementation.
 
 use std::error::Error;
-use std::iter::zip;
 use std::path::Path;
 
 use rten_tensor::errors::FromDataError;
 use rten_tensor::prelude::*;
-use rten_tensor::{NdTensor, NdTensorView, NdTensorViewMut};
-
-/// Apply standard ImageNet normalization to a pixel value.
-/// See <https://huggingface.co/facebook/detr-resnet-50#preprocessing>.
-pub fn normalize_pixel(value: f32, channel: usize) -> f32 {
-    assert!(channel < 3, "channel index is invalid");
-    let imagenet_mean = [0.485, 0.456, 0.406];
-    let imagenet_std_dev = [0.229, 0.224, 0.225];
-    (value - imagenet_mean[channel]) / imagenet_std_dev[channel]
-}
-
-/// Apply standard ImageNet normalization to all pixel values in an image.
-pub fn normalize_image(mut img: NdTensorViewMut<f32, 3>) {
-    for ([chan, _y, _x], pixel) in zip(img.indices(), img.iter_mut()) {
-        *pixel = normalize_pixel(*pixel, chan);
-    }
-}
+use rten_tensor::{NdTensor, NdTensorView};
 
 /// Errors reported when creating a tensor from an image.
 #[derive(Debug)]

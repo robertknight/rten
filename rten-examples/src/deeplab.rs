@@ -2,7 +2,8 @@ use std::collections::{HashSet, VecDeque};
 use std::error::Error;
 
 use rten::{Dimension, FloatOperators, Model, Operators};
-use rten_imageio::{normalize_image, read_image, write_image};
+use rten_imageio::{read_image, write_image};
+use rten_imageproc::{normalize_image, IMAGENET_MEAN, IMAGENET_STD_DEV};
 use rten_tensor::prelude::*;
 use rten_tensor::{NdTensor, Tensor};
 
@@ -109,7 +110,7 @@ fn main() -> Result<(), Box<dyn Error>> {
     let model = Model::load_file(args.model)?;
 
     let mut image: Tensor = read_image(&args.image)?.into();
-    normalize_image(image.nd_view_mut());
+    normalize_image(image.nd_view_mut(), IMAGENET_MEAN, IMAGENET_STD_DEV);
     image.insert_axis(0); // Add batch dim
 
     // Resize image according to metadata in the model.
