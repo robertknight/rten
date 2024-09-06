@@ -95,7 +95,7 @@ fn main() -> Result<(), Box<dyn Error>> {
     let std_dev = [1.0, 1.0, 1.0];
     normalize_image(normalized_image.view_mut(), mean, std_dev);
 
-    let [_, orig_height, orig_width] = image.shape().try_into()?;
+    let [_, orig_height, orig_width] = image.shape();
 
     let mut normalized_image = normalized_image.into_dyn();
     normalized_image.insert_axis(0); // Add batch dim
