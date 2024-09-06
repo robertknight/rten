@@ -10,6 +10,7 @@ mod x86_64;
 mod aarch64;
 
 #[cfg(target_arch = "wasm32")]
+#[cfg(target_feature = "simd128")]
 pub mod wasm;
 
 use crate::{SimdFloat, SimdInt};

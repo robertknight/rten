@@ -255,6 +255,7 @@ pub enum KernelType {
 
     /// Use the WASM SIMD kernel. WASM only.
     #[cfg(target_arch = "wasm32")]
+    #[cfg(target_feature = "simd128")]
     Wasm,
 }
 
@@ -275,6 +276,7 @@ impl GemmExecutor {
             return gemm;
         }
         #[cfg(target_arch = "wasm32")]
+        #[cfg(target_feature = "simd128")]
         if let Some(gemm) = Self::with_kernel(KernelType::Wasm) {
             return gemm;
         }
@@ -312,6 +314,7 @@ impl GemmExecutor {
             #[cfg(target_arch = "aarch64")]
             KernelType::ArmNeon => make_kernel::<kernels::aarch64::ArmNeonKernel>(hint),
             #[cfg(target_arch = "wasm32")]
+            #[cfg(target_feature = "simd128")]
             KernelType::Wasm => make_kernel::<kernels::wasm::WasmKernel>(hint),
             KernelType::Base => Some(Self::with_base_kernel()),
         }

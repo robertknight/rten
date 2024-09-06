@@ -306,6 +306,7 @@ const KERNEL_BASE_NR: usize = 4;
 const KERNEL_FMA_NR: usize = 16;
 
 #[cfg(target_arch = "wasm32")]
+#[cfg(target_feature = "simd128")]
 const KERNEL_WASM_NR: usize = 8;
 
 // Safety: `pack_b` initializes the entire buffer passed to it.
