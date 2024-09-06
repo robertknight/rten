@@ -559,6 +559,30 @@ def read_dilations(
     return dilations
 
 
+def convert_data_type(onnx_dtype: int) -> int:
+    """
+    Convert a data type enum value from ONNX to RTen.
+
+    :param onnx_dtype: Data type from `TensorProto.DataType`.
+    :return: Value from `sg.DataType`
+    """
+    match onnx_dtype:
+        case TensorProto.DataType.FLOAT:  # type:ignore[attr-defined]
+            return sg.DataType.Float
+        case (
+            TensorProto.DataType.BOOL  # type:ignore[attr-defined]
+            | TensorProto.DataType.INT32  # type:ignore[attr-defined]
+            | TensorProto.DataType.INT64  # type:ignore[attr-defined]
+        ):
+            return sg.DataType.Int32
+        case TensorProto.DataType.INT8:  # type:ignore[attr-defined]
+            return sg.DataType.Int8
+        case TensorProto.DataType.UINT8:  # type:ignore[attr-defined]
+            return sg.DataType.UInt8
+        case _:
+            raise Exception(f"Unsupported data type {onnx_dtype}")
+
+
 def op_node_from_onnx_operator(
     onnx_op: onnx.OperatorProto,
     node_index_from_name: dict[str, int],
@@ -645,17 +669,7 @@ def op_node_from_onnx_operator(
         case "Cast":
             attrs = sg.CastAttrsT()
             to = op_reader.get_attr("to", "int", TensorProto.DataType.FLOAT)  # type:ignore[attr-defined]
-            match to:
-                case TensorProto.DataType.FLOAT:  # type:ignore[attr-defined]
-                    attrs.to = sg.DataType.Float
-                case (
-                    TensorProto.DataType.BOOL  # type:ignore[attr-defined]
-                    | TensorProto.DataType.INT32  # type:ignore[attr-defined]
-                    | TensorProto.DataType.INT64  # type:ignore[attr-defined]
-                ):
-                    attrs.to = sg.DataType.Int32
-                case _:
-                    raise Exception(f"Unsupported target type for cast {to}")
+            attrs.to = convert_data_type(to)
 
         case "Clip":
             op_reader.generate_input_from_attr(1, "min", "float")
@@ -718,6 +732,10 @@ def op_node_from_onnx_operator(
         case "CumSum":
             op_reader.check_attr("exclusive", "int", 0)
             op_reader.check_attr("reverse", "int", 0)
+
+        case "DequantizeLinear":
+            attrs = sg.DequantizeLinearAttrsT()
+            attrs.axis = op_reader.get_attr("axis", "int", 1)
 
         case "Einsum":
             attrs = sg.EinsumAttrsT()
@@ -910,6 +928,14 @@ def op_node_from_onnx_operator(
         case "Pad":
             attrs = sg.PadAttrsT()
             attrs.mode = op_reader.get_enum_attr("mode", sg.PadMode, "constant")
+
+        case "QuantizeLinear":
+            attrs = sg.QuantizeLinearAttrsT()
+            attrs.axis = op_reader.get_attr("axis", "int", 1)
+
+            output_dtype = op_reader.get_attr("output_dtype", "int", None)
+            if output_dtype is not None:
+                attrs.outputDtype = convert_data_type(output_dtype)
 
         case "ScatterElements":
             attrs = sg.ScatterElementsAttrsT()

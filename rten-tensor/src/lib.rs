@@ -106,7 +106,7 @@ pub use layout::{
 pub use slice_range::{to_slice_items, DynSliceItems, IntoSliceItems, SliceItem, SliceRange};
 
 pub use tensor::{
-    AsView, Matrix, MatrixMut, NdTensor, NdTensorView, NdTensorViewMut, Tensor, TensorBase,
+    AsView, Matrix, MatrixMut, NdTensor, NdTensorView, NdTensorViewMut, Scalar, Tensor, TensorBase,
     TensorView, TensorViewMut, WeaklyCheckedView,
 };
 

@@ -44,6 +44,7 @@ mod non_max_suppression;
 mod norm;
 mod pad;
 mod pooling;
+mod quantize;
 
 #[cfg(feature = "random")]
 mod random;
@@ -90,6 +91,10 @@ pub use norm::{
 pub use pad::{pad, Pad, PadMode};
 pub use pooling::{
     average_pool, global_average_pool, max_pool, AveragePool, GlobalAveragePool, MaxPool,
+};
+pub use quantize::{
+    dequantize_linear, dynamic_quantize_linear, quantize_linear, DequantizeLinear,
+    DynamicQuantizeLinear, QuantizeLinear,
 };
 
 #[cfg(feature = "random")]
@@ -169,6 +174,8 @@ impl<S: AsRef<[usize]>> From<S> for Padding {
 pub enum DataType {
     Int32,
     Float,
+    Int8,
+    UInt8,
 }
 
 /// Enum of the different types of tensor view that can be used as a model or
