@@ -98,7 +98,7 @@ impl Operator for OneHot {
         let values = inputs.require(2)?;
 
         match values {
-            Input::IntTensor(values) => {
+            Input::Int32Tensor(values) => {
                 let values = static_dims!(values, 1)?;
                 let (on_value, off_value) = extract_on_off_values(values)?;
                 onehot(pool, indices, self.axis, depth, on_value, off_value).into_op_result()
@@ -108,6 +108,7 @@ impl Operator for OneHot {
                 let (on_value, off_value) = extract_on_off_values(values)?;
                 onehot(pool, indices, self.axis, depth, on_value, off_value).into_op_result()
             }
+            _ => Err(OpError::UnsupportedType),
         }
     }
 }
@@ -153,12 +154,13 @@ impl Operator for Range {
                 let delta = delta.try_into()?;
                 range::<f32>(start, limit, delta).into_op_result()
             }
-            Input::IntTensor(_) => {
+            Input::Int32Tensor(_) => {
                 let start = start.try_into()?;
                 let limit = limit.try_into()?;
                 let delta = delta.try_into()?;
                 range::<i32>(start, limit, delta).into_op_result()
             }
+            _ => Err(OpError::UnsupportedType),
         }
     }
 }

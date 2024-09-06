@@ -334,7 +334,9 @@ def NodeKindCreator(unionType, table):
 class ConstantData(object):
     NONE = 0
     FloatData = 1
-    IntData = 2
+    Int32Data = 2
+    Int8Data = 3
+    UInt8Data = 4
 
 def ConstantDataCreator(unionType, table):
     from flatbuffers.table import Table
@@ -342,14 +344,20 @@ def ConstantDataCreator(unionType, table):
         return None
     if unionType == ConstantData().FloatData:
         return FloatDataT.InitFromBuf(table.Bytes, table.Pos)
-    if unionType == ConstantData().IntData:
-        return IntDataT.InitFromBuf(table.Bytes, table.Pos)
+    if unionType == ConstantData().Int32Data:
+        return Int32DataT.InitFromBuf(table.Bytes, table.Pos)
+    if unionType == ConstantData().Int8Data:
+        return Int8DataT.InitFromBuf(table.Bytes, table.Pos)
+    if unionType == ConstantData().UInt8Data:
+        return UInt8DataT.InitFromBuf(table.Bytes, table.Pos)
     return None
 
 
 class ConstantDataType(object):
     Int32 = 0
     Float32 = 1
+    Int8 = 2
+    UInt8 = 3
 
 
 class ArgMaxAttrs(object):
@@ -5061,65 +5069,65 @@ class FloatDataT(object):
         return floatData
 
 
-class IntData(object):
+class Int8Data(object):
     __slots__ = ['_tab']
 
     @classmethod
     def GetRootAs(cls, buf, offset=0):
         n = flatbuffers.encode.Get(flatbuffers.packer.uoffset, buf, offset)
-        x = IntData()
+        x = Int8Data()
         x.Init(buf, n + offset)
         return x
 
     @classmethod
-    def GetRootAsIntData(cls, buf, offset=0):
+    def GetRootAsInt8Data(cls, buf, offset=0):
         """This method is deprecated. Please switch to GetRootAs."""
         return cls.GetRootAs(buf, offset)
     @classmethod
-    def IntDataBufferHasIdentifier(cls, buf, offset, size_prefixed=False):
+    def Int8DataBufferHasIdentifier(cls, buf, offset, size_prefixed=False):
         return flatbuffers.util.BufferHasIdentifier(buf, offset, b"\x52\x54\x45\x4E", size_prefixed=size_prefixed)
 
-    # IntData
+    # Int8Data
     def Init(self, buf, pos):
         self._tab = flatbuffers.table.Table(buf, pos)
 
-    # IntData
+    # Int8Data
     def Data(self, j):
         o = flatbuffers.number_types.UOffsetTFlags.py_type(self._tab.Offset(4))
         if o != 0:
             a = self._tab.Vector(o)
-            return self._tab.Get(flatbuffers.number_types.Int32Flags, a + flatbuffers.number_types.UOffsetTFlags.py_type(j * 4))
+            return self._tab.Get(flatbuffers.number_types.Int8Flags, a + flatbuffers.number_types.UOffsetTFlags.py_type(j * 1))
         return 0
 
-    # IntData
+    # Int8Data
     def DataAsNumpy(self):
         o = flatbuffers.number_types.UOffsetTFlags.py_type(self._tab.Offset(4))
         if o != 0:
-            return self._tab.GetVectorAsNumpy(flatbuffers.number_types.Int32Flags, o)
+            return self._tab.GetVectorAsNumpy(flatbuffers.number_types.Int8Flags, o)
         return 0
 
-    # IntData
+    # Int8Data
     def DataLength(self):
         o = flatbuffers.number_types.UOffsetTFlags.py_type(self._tab.Offset(4))
         if o != 0:
             return self._tab.VectorLen(o)
         return 0
 
-    # IntData
+    # Int8Data
     def DataIsNone(self):
         o = flatbuffers.number_types.UOffsetTFlags.py_type(self._tab.Offset(4))
         return o == 0
 
-def IntDataStart(builder):
+def Int8DataStart(builder):
     builder.StartObject(1)
 
-def IntDataAddData(builder, data):
+def Int8DataAddData(builder, data):
     builder.PrependUOffsetTRelativeSlot(0, flatbuffers.number_types.UOffsetTFlags.py_type(data), 0)
 
-def IntDataStartDataVector(builder, numElems):
-    return builder.StartVector(4, numElems, 4)
+def Int8DataStartDataVector(builder, numElems):
+    return builder.StartVector(1, numElems, 1)
 
-def IntDataEnd(builder):
+def Int8DataEnd(builder):
     return builder.EndObject()
 
 
@@ -5128,17 +5136,17 @@ try:
 except:
     pass
 
-class IntDataT(object):
+class Int8DataT(object):
 
-    # IntDataT
+    # Int8DataT
     def __init__(self):
         self.data = None  # type: List[int]
 
     @classmethod
     def InitFromBuf(cls, buf, pos):
-        intData = IntData()
-        intData.Init(buf, pos)
-        return cls.InitFromObj(intData)
+        int8Data = Int8Data()
+        int8Data.Init(buf, pos)
+        return cls.InitFromObj(int8Data)
 
     @classmethod
     def InitFromPackedBuf(cls, buf, pos=0):
@@ -5146,38 +5154,276 @@ class IntDataT(object):
         return cls.InitFromBuf(buf, pos+n)
 
     @classmethod
-    def InitFromObj(cls, intData):
-        x = IntDataT()
-        x._UnPack(intData)
+    def InitFromObj(cls, int8Data):
+        x = Int8DataT()
+        x._UnPack(int8Data)
         return x
 
-    # IntDataT
-    def _UnPack(self, intData):
-        if intData is None:
+    # Int8DataT
+    def _UnPack(self, int8Data):
+        if int8Data is None:
             return
-        if not intData.DataIsNone():
+        if not int8Data.DataIsNone():
             if np is None:
                 self.data = []
-                for i in range(intData.DataLength()):
-                    self.data.append(intData.Data(i))
+                for i in range(int8Data.DataLength()):
+                    self.data.append(int8Data.Data(i))
             else:
-                self.data = intData.DataAsNumpy()
+                self.data = int8Data.DataAsNumpy()
 
-    # IntDataT
+    # Int8DataT
     def Pack(self, builder):
         if self.data is not None:
             if np is not None and type(self.data) is np.ndarray:
                 data = builder.CreateNumpyVector(self.data)
             else:
-                IntDataStartDataVector(builder, len(self.data))
+                Int8DataStartDataVector(builder, len(self.data))
+                for i in reversed(range(len(self.data))):
+                    builder.PrependByte(self.data[i])
+                data = builder.EndVector()
+        Int8DataStart(builder)
+        if self.data is not None:
+            Int8DataAddData(builder, data)
+        int8Data = Int8DataEnd(builder)
+        return int8Data
+
+
+class Int32Data(object):
+    __slots__ = ['_tab']
+
+    @classmethod
+    def GetRootAs(cls, buf, offset=0):
+        n = flatbuffers.encode.Get(flatbuffers.packer.uoffset, buf, offset)
+        x = Int32Data()
+        x.Init(buf, n + offset)
+        return x
+
+    @classmethod
+    def GetRootAsInt32Data(cls, buf, offset=0):
+        """This method is deprecated. Please switch to GetRootAs."""
+        return cls.GetRootAs(buf, offset)
+    @classmethod
+    def Int32DataBufferHasIdentifier(cls, buf, offset, size_prefixed=False):
+        return flatbuffers.util.BufferHasIdentifier(buf, offset, b"\x52\x54\x45\x4E", size_prefixed=size_prefixed)
+
+    # Int32Data
+    def Init(self, buf, pos):
+        self._tab = flatbuffers.table.Table(buf, pos)
+
+    # Int32Data
+    def Data(self, j):
+        o = flatbuffers.number_types.UOffsetTFlags.py_type(self._tab.Offset(4))
+        if o != 0:
+            a = self._tab.Vector(o)
+            return self._tab.Get(flatbuffers.number_types.Int32Flags, a + flatbuffers.number_types.UOffsetTFlags.py_type(j * 4))
+        return 0
+
+    # Int32Data
+    def DataAsNumpy(self):
+        o = flatbuffers.number_types.UOffsetTFlags.py_type(self._tab.Offset(4))
+        if o != 0:
+            return self._tab.GetVectorAsNumpy(flatbuffers.number_types.Int32Flags, o)
+        return 0
+
+    # Int32Data
+    def DataLength(self):
+        o = flatbuffers.number_types.UOffsetTFlags.py_type(self._tab.Offset(4))
+        if o != 0:
+            return self._tab.VectorLen(o)
+        return 0
+
+    # Int32Data
+    def DataIsNone(self):
+        o = flatbuffers.number_types.UOffsetTFlags.py_type(self._tab.Offset(4))
+        return o == 0
+
+def Int32DataStart(builder):
+    builder.StartObject(1)
+
+def Int32DataAddData(builder, data):
+    builder.PrependUOffsetTRelativeSlot(0, flatbuffers.number_types.UOffsetTFlags.py_type(data), 0)
+
+def Int32DataStartDataVector(builder, numElems):
+    return builder.StartVector(4, numElems, 4)
+
+def Int32DataEnd(builder):
+    return builder.EndObject()
+
+
+try:
+    from typing import List
+except:
+    pass
+
+class Int32DataT(object):
+
+    # Int32DataT
+    def __init__(self):
+        self.data = None  # type: List[int]
+
+    @classmethod
+    def InitFromBuf(cls, buf, pos):
+        int32Data = Int32Data()
+        int32Data.Init(buf, pos)
+        return cls.InitFromObj(int32Data)
+
+    @classmethod
+    def InitFromPackedBuf(cls, buf, pos=0):
+        n = flatbuffers.encode.Get(flatbuffers.packer.uoffset, buf, pos)
+        return cls.InitFromBuf(buf, pos+n)
+
+    @classmethod
+    def InitFromObj(cls, int32Data):
+        x = Int32DataT()
+        x._UnPack(int32Data)
+        return x
+
+    # Int32DataT
+    def _UnPack(self, int32Data):
+        if int32Data is None:
+            return
+        if not int32Data.DataIsNone():
+            if np is None:
+                self.data = []
+                for i in range(int32Data.DataLength()):
+                    self.data.append(int32Data.Data(i))
+            else:
+                self.data = int32Data.DataAsNumpy()
+
+    # Int32DataT
+    def Pack(self, builder):
+        if self.data is not None:
+            if np is not None and type(self.data) is np.ndarray:
+                data = builder.CreateNumpyVector(self.data)
+            else:
+                Int32DataStartDataVector(builder, len(self.data))
                 for i in reversed(range(len(self.data))):
                     builder.PrependInt32(self.data[i])
                 data = builder.EndVector()
-        IntDataStart(builder)
+        Int32DataStart(builder)
         if self.data is not None:
-            IntDataAddData(builder, data)
-        intData = IntDataEnd(builder)
-        return intData
+            Int32DataAddData(builder, data)
+        int32Data = Int32DataEnd(builder)
+        return int32Data
+
+
+class UInt8Data(object):
+    __slots__ = ['_tab']
+
+    @classmethod
+    def GetRootAs(cls, buf, offset=0):
+        n = flatbuffers.encode.Get(flatbuffers.packer.uoffset, buf, offset)
+        x = UInt8Data()
+        x.Init(buf, n + offset)
+        return x
+
+    @classmethod
+    def GetRootAsUInt8Data(cls, buf, offset=0):
+        """This method is deprecated. Please switch to GetRootAs."""
+        return cls.GetRootAs(buf, offset)
+    @classmethod
+    def UInt8DataBufferHasIdentifier(cls, buf, offset, size_prefixed=False):
+        return flatbuffers.util.BufferHasIdentifier(buf, offset, b"\x52\x54\x45\x4E", size_prefixed=size_prefixed)
+
+    # UInt8Data
+    def Init(self, buf, pos):
+        self._tab = flatbuffers.table.Table(buf, pos)
+
+    # UInt8Data
+    def Data(self, j):
+        o = flatbuffers.number_types.UOffsetTFlags.py_type(self._tab.Offset(4))
+        if o != 0:
+            a = self._tab.Vector(o)
+            return self._tab.Get(flatbuffers.number_types.Uint8Flags, a + flatbuffers.number_types.UOffsetTFlags.py_type(j * 1))
+        return 0
+
+    # UInt8Data
+    def DataAsNumpy(self):
+        o = flatbuffers.number_types.UOffsetTFlags.py_type(self._tab.Offset(4))
+        if o != 0:
+            return self._tab.GetVectorAsNumpy(flatbuffers.number_types.Uint8Flags, o)
+        return 0
+
+    # UInt8Data
+    def DataLength(self):
+        o = flatbuffers.number_types.UOffsetTFlags.py_type(self._tab.Offset(4))
+        if o != 0:
+            return self._tab.VectorLen(o)
+        return 0
+
+    # UInt8Data
+    def DataIsNone(self):
+        o = flatbuffers.number_types.UOffsetTFlags.py_type(self._tab.Offset(4))
+        return o == 0
+
+def UInt8DataStart(builder):
+    builder.StartObject(1)
+
+def UInt8DataAddData(builder, data):
+    builder.PrependUOffsetTRelativeSlot(0, flatbuffers.number_types.UOffsetTFlags.py_type(data), 0)
+
+def UInt8DataStartDataVector(builder, numElems):
+    return builder.StartVector(1, numElems, 1)
+
+def UInt8DataEnd(builder):
+    return builder.EndObject()
+
+
+try:
+    from typing import List
+except:
+    pass
+
+class UInt8DataT(object):
+
+    # UInt8DataT
+    def __init__(self):
+        self.data = None  # type: List[int]
+
+    @classmethod
+    def InitFromBuf(cls, buf, pos):
+        uint8Data = UInt8Data()
+        uint8Data.Init(buf, pos)
+        return cls.InitFromObj(uint8Data)
+
+    @classmethod
+    def InitFromPackedBuf(cls, buf, pos=0):
+        n = flatbuffers.encode.Get(flatbuffers.packer.uoffset, buf, pos)
+        return cls.InitFromBuf(buf, pos+n)
+
+    @classmethod
+    def InitFromObj(cls, uint8Data):
+        x = UInt8DataT()
+        x._UnPack(uint8Data)
+        return x
+
+    # UInt8DataT
+    def _UnPack(self, uint8Data):
+        if uint8Data is None:
+            return
+        if not uint8Data.DataIsNone():
+            if np is None:
+                self.data = []
+                for i in range(uint8Data.DataLength()):
+                    self.data.append(uint8Data.Data(i))
+            else:
+                self.data = uint8Data.DataAsNumpy()
+
+    # UInt8DataT
+    def Pack(self, builder):
+        if self.data is not None:
+            if np is not None and type(self.data) is np.ndarray:
+                data = builder.CreateNumpyVector(self.data)
+            else:
+                UInt8DataStartDataVector(builder, len(self.data))
+                for i in reversed(range(len(self.data))):
+                    builder.PrependUint8(self.data[i])
+                data = builder.EndVector()
+        UInt8DataStart(builder)
+        if self.data is not None:
+            UInt8DataAddData(builder, data)
+        uint8Data = UInt8DataEnd(builder)
+        return uint8Data
 
 
 class ConstantNode(object):
@@ -5296,7 +5542,7 @@ class ConstantNodeT(object):
     def __init__(self):
         self.shape = None  # type: List[int]
         self.dataType = 0  # type: int
-        self.data = None  # type: Union[None, FloatDataT, IntDataT]
+        self.data = None  # type: Union[None, FloatDataT, Int32DataT, Int8DataT, UInt8DataT]
         self.dtype = None  # type: Optional[int]
         self.dataOffset = None  # type: Optional[int]
 

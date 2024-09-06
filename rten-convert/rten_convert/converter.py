@@ -70,7 +70,7 @@ class ConstantNode(Node):
 
         # Verify that this is a data type that we'll be able to serialize later.
         match data.dtype:
-            case np.float32 | np.int32:
+            case np.float32 | np.int32 | np.int8 | np.uint8:
                 pass
             case _:
                 dtype_name: str = data.dtype.name  # type:ignore[union-attr]
@@ -439,11 +439,11 @@ def constant_node_from_onnx_initializer(
 
     match data.dtype.name:
         # Types that don't need to change
-        case "float32" | "int32":
+        case "float32" | "int8" | "int32" | "uint8":
             pass
 
         # Int types that can be widened to int32
-        case "bool" | "int8" | "int16":
+        case "bool" | "int16":
             data = data.astype(np.int32)
 
         # Types that need to be narrowed
@@ -1149,14 +1149,22 @@ def build_constant_node(
             inline_data_type = sg.ConstantData.FloatData
             dtype = sg.ConstantDataType.Float32
         case np.int32:
-            inline_data_type = sg.ConstantData.IntData
+            inline_data_type = sg.ConstantData.Int32Data
             dtype = sg.ConstantDataType.Int32
+        case np.int8:
+            inline_data_type = sg.ConstantData.Int8Data
+            dtype = sg.ConstantDataType.Int8
+        case np.uint8:
+            inline_data_type = sg.ConstantData.UInt8Data
+            dtype = sg.ConstantDataType.UInt8
         case _:
             raise ValueError(f"Unsupported data array type {constant.data.dtype.name}")  # type:ignore[union-attr]
 
     # Store inline if we're generating the V1 format, or the tensor is small.
     # Small values are mostly parameters such as axes, slice ranges etc.
-    store_inline = tensor_data is None or n_elems <= 16
+    store_inline = (
+        tensor_data is None or n_elems <= 16
+    ) and inline_data_type is not None
     inline_data = None
     data_offset = None
 
@@ -1168,12 +1176,20 @@ def build_constant_node(
                 sg.FloatDataAddData(builder, inline_data_vec)
                 inline_data = sg.FloatDataEnd(builder)
             case np.int32:
-                sg.IntDataStart(builder)
-                sg.IntDataAddData(builder, inline_data_vec)
-                inline_data = sg.IntDataEnd(builder)
+                sg.Int32DataStart(builder)
+                sg.Int32DataAddData(builder, inline_data_vec)
+                inline_data = sg.Int32DataEnd(builder)
+            case np.int8:
+                sg.Int8DataStart(builder)
+                sg.Int8DataAddData(builder, inline_data_vec)
+                inline_data = sg.Int8DataEnd(builder)
+            case np.uint8:
+                sg.UInt8DataStart(builder)
+                sg.UInt8DataAddData(builder, inline_data_vec)
+                inline_data = sg.UInt8DataEnd(builder)
             case _:
                 raise ValueError(
-                    f"Unsupported data array type {constant.data.dtype.name}"  # type:ignore
+                    f"Unsupported data type for inline storage {constant.data.dtype.name}"  # type:ignore
                 )
     else:
         assert tensor_data

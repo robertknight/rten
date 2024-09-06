@@ -34,6 +34,8 @@ class TensorDataBuilder:
         match array.dtype:
             case np.float32 | np.int32:
                 element_size = 4
+            case np.int8 | np.uint8:
+                element_size = 1
             case _:
                 raise ValueError("Unsupported NumPy array type {}".format(array.dtype))
 

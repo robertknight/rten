@@ -111,9 +111,10 @@ impl Operator for Slice {
             Input::FloatTensor(input) => {
                 slice(pool, input, &starts, &ends, axes.as_ref(), steps.as_ref()).map(|t| t.into())
             }
-            Input::IntTensor(input) => {
+            Input::Int32Tensor(input) => {
                 slice(pool, input, &starts, &ends, axes.as_ref(), steps.as_ref()).map(|t| t.into())
             }
+            _ => Err(OpError::UnsupportedType),
         };
         result.into_op_result()
     }
@@ -161,7 +162,7 @@ impl Operator for Slice {
         }
 
         match input {
-            Output::IntTensor(mut output) => {
+            Output::Int32Tensor(mut output) => {
                 slice_in_place(&mut output, &starts, &ends, axes.as_ref())?;
                 Ok(output.into())
             }
@@ -169,6 +170,7 @@ impl Operator for Slice {
                 slice_in_place(&mut output, &starts, &ends, axes.as_ref())?;
                 Ok(output.into())
             }
+            _ => Err(OpError::UnsupportedType),
         }
     }
 }

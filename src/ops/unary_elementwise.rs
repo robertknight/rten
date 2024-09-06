@@ -81,7 +81,8 @@ macro_rules! unary_numeric_op {
                 let input = inputs.require(0)?;
                 match input {
                     Input::FloatTensor(input) => $view_impl(pool, input).into_op_result(),
-                    Input::IntTensor(input) => $view_impl(pool, input).into_op_result(),
+                    Input::Int32Tensor(input) => $view_impl(pool, input).into_op_result(),
+                    _ => Err(OpError::UnsupportedType),
                 }
             }
 
@@ -100,10 +101,11 @@ macro_rules! unary_numeric_op {
                         $mut_impl(input.view_mut());
                         Ok(input.into())
                     }
-                    Output::IntTensor(mut input) => {
+                    Output::Int32Tensor(mut input) => {
                         $mut_impl(input.view_mut());
                         Ok(input.into())
                     }
+                    _ => Err(OpError::UnsupportedType),
                 }
             }
         }
@@ -347,11 +349,12 @@ impl Operator for Clip {
                 let max = inputs.get_as_scalar(2)?;
                 clip(pool, input, min, max).into_op_result()
             }
-            Input::IntTensor(input) => {
+            Input::Int32Tensor(input) => {
                 let min = inputs.get_as_scalar(1)?;
                 let max = inputs.get_as_scalar(2)?;
                 clip(pool, input, min, max).into_op_result()
             }
+            _ => Err(OpError::UnsupportedType),
         }
     }
 
@@ -372,12 +375,13 @@ impl Operator for Clip {
                 clip_in_place(&mut input, min, max);
                 Ok(input.into())
             }
-            Output::IntTensor(mut input) => {
+            Output::Int32Tensor(mut input) => {
                 let min = other.get_as_scalar(0)?;
                 let max = other.get_as_scalar(1)?;
                 clip_in_place(&mut input, min, max);
                 Ok(input.into())
             }
+            _ => Err(OpError::UnsupportedType),
         }
     }
 }

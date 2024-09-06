@@ -475,20 +475,32 @@ table OperatorNode {
 // Data for constants stored inline in a model.
 union ConstantData {
   FloatData,
-  IntData,
+  Int32Data,
+  Int8Data,
+  UInt8Data,
 }
 
 table FloatData {
   data: [float32] (required);
 }
 
-table IntData {
+table Int8Data {
+  data: [byte] (required);
+}
+
+table Int32Data {
   data: [int32] (required);
+}
+
+table UInt8Data {
+  data: [ubyte] (required);
 }
 
 enum ConstantDataType: ushort {
   Int32, // Signed 32-bit int
   Float32, // IEEE-754 32-bit float
+  Int8,
+  UInt8,
 }
 
 // Graph node for a constant tensor value, whose data is part of the model.

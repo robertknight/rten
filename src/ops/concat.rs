@@ -112,10 +112,11 @@ impl Operator for Concat {
                 let typed_inputs = typed_inputs::<f32>(&inputs)?;
                 concat(pool, &typed_inputs, self.axis).into_op_result()
             }
-            Input::IntTensor(_) => {
+            Input::Int32Tensor(_) => {
                 let typed_inputs = typed_inputs::<i32>(&inputs)?;
                 concat(pool, &typed_inputs, self.axis).into_op_result()
             }
+            _ => Err(OpError::UnsupportedType),
         }
     }
 
@@ -143,10 +144,11 @@ impl Operator for Concat {
                 let typed_inputs = typed_inputs(&rest)?;
                 concat_in_place(pool, first, &typed_inputs, self.axis).map(|t| t.into())
             }
-            Output::IntTensor(first) => {
+            Output::Int32Tensor(first) => {
                 let typed_inputs = typed_inputs(&rest)?;
                 concat_in_place(pool, first, &typed_inputs, self.axis).map(|t| t.into())
             }
+            _ => Err(OpError::UnsupportedType),
         }
     }
 }
@@ -264,8 +266,9 @@ impl Operator for Tile {
         let repeats = static_dims!(repeats, 1)?;
 
         match input {
-            Input::IntTensor(input) => tile(pool, input, repeats).into_op_result(),
+            Input::Int32Tensor(input) => tile(pool, input, repeats).into_op_result(),
             Input::FloatTensor(input) => tile(pool, input, repeats).into_op_result(),
+            _ => Err(OpError::UnsupportedType),
         }
     }
 
@@ -288,8 +291,9 @@ impl Operator for Tile {
         }
 
         match output {
-            Output::IntTensor(input) => tile(pool, input.view(), repeats).map(|t| t.into()),
+            Output::Int32Tensor(input) => tile(pool, input.view(), repeats).map(|t| t.into()),
             Output::FloatTensor(input) => tile(pool, input.view(), repeats).map(|t| t.into()),
+            _ => Err(OpError::UnsupportedType),
         }
     }
 }
