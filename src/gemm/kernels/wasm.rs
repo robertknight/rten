@@ -20,7 +20,7 @@ impl WasmKernel {
 
 // Safety - Support for used WASM instructions is checked by the runtime when
 // the WASM binary is loaded.
-unsafe impl Kernel for WasmKernel {
+unsafe impl Kernel<f32, f32, f32> for WasmKernel {
     fn new() -> Option<Self> {
         #[cfg(target_feature = "simd128")]
         return Some(WasmKernel { _private: () });
@@ -48,7 +48,7 @@ unsafe impl Kernel for WasmKernel {
         rows: Range<usize>,
         cols: Range<usize>,
     ) {
-        pack_a_block::<{ Self::MR }>(out, a, rows, cols);
+        pack_a_block::<f32, { Self::MR }>(out, a, rows, cols);
     }
 
     fn pack_b_block(
@@ -58,7 +58,7 @@ unsafe impl Kernel for WasmKernel {
         rows: Range<usize>,
         cols: Range<usize>,
     ) {
-        pack_b_block::<{ Self::NR }>(out, b, rows, cols);
+        pack_b_block::<f32, { Self::NR }>(out, b, rows, cols);
     }
 
     unsafe fn kernel(

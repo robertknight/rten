@@ -6,7 +6,7 @@
 //! operations like vector-scalar products.
 
 use std::cell::RefCell;
-use std::mem::{transmute, MaybeUninit};
+use std::mem::{size_of, transmute, MaybeUninit};
 use std::ops::Range;
 
 use rayon::prelude::*;
@@ -14,18 +14,19 @@ use rten_tensor::prelude::*;
 use rten_tensor::{Alloc, GlobalAlloc, Matrix, MatrixLayout, MatrixMut, NdTensorView};
 
 use crate::iter_util::{range_chunks, MaybeParIter};
+use crate::number::Identities;
 use crate::tensor_pool::ExtractBuffer;
 
 mod kernels;
 mod packing;
 
-use kernels::{BaseKernel, Kernel};
+use kernels::{BaseKernel, BaseU8S8Kernel, Kernel};
 
 /// Left-hand or "A" GEMM input that has been pre-packed.
 #[derive(Clone)]
-pub struct PackedAMatrix {
+pub struct PackedAMatrix<T> {
     /// Sequence of packed row panels.
-    data: Vec<f32>,
+    data: Vec<T>,
 
     /// Number of elements in each row panel.
     panel_len: usize,
@@ -40,27 +41,27 @@ pub struct PackedAMatrix {
     cols: usize,
 }
 
-impl PackedAMatrix {
-    fn block(&self, row_block_idx: usize, depth_block_idx: usize) -> &[f32] {
+impl<T> PackedAMatrix<T> {
+    fn block(&self, row_block_idx: usize, depth_block_idx: usize) -> &[T] {
         let panel_idx = depth_block_idx * self.row_blocks + row_block_idx;
         let offset = panel_idx * self.panel_len;
         &self.data[offset..offset + self.panel_len]
     }
 }
 
-impl ExtractBuffer for PackedAMatrix {
-    type Elem = f32;
+impl<T> ExtractBuffer for PackedAMatrix<T> {
+    type Elem = T;
 
-    fn extract_buffer(self) -> Option<Vec<f32>> {
+    fn extract_buffer(self) -> Option<Vec<T>> {
         Some(self.data)
     }
 }
 
 /// Right-hand or "B" GEMM input that has been pre-packed.
 #[derive(Clone)]
-pub struct PackedBMatrix {
+pub struct PackedBMatrix<T> {
     /// Sequence of packed column panels.
-    data: Vec<f32>,
+    data: Vec<T>,
 
     /// Number of elements in each column panel.
     panel_len: usize,
@@ -75,34 +76,34 @@ pub struct PackedBMatrix {
     cols: usize,
 }
 
-impl PackedBMatrix {
-    fn block(&self, col_block_idx: usize, depth_block_idx: usize) -> &[f32] {
+impl<T> PackedBMatrix<T> {
+    fn block(&self, col_block_idx: usize, depth_block_idx: usize) -> &[T] {
         let panel_idx = col_block_idx * self.depth_blocks + depth_block_idx;
         let offset = panel_idx * self.panel_len;
         &self.data[offset..offset + self.panel_len]
     }
 }
 
-impl ExtractBuffer for PackedBMatrix {
-    type Elem = f32;
+impl<T> ExtractBuffer for PackedBMatrix<T> {
+    type Elem = T;
 
-    fn extract_buffer(self) -> Option<Vec<f32>> {
+    fn extract_buffer(self) -> Option<Vec<T>> {
         Some(self.data)
     }
 }
 
 /// Left-hand or "A" input for a GEMM operation.
 #[derive(Copy, Clone)]
-pub enum GemmInputA<'a> {
+pub enum GemmInputA<'a, T> {
     /// A standard unpacked matrix.
-    Unpacked(Matrix<'a>),
+    Unpacked(Matrix<'a, T>),
 
-    /// A matrix which has been pre-packed by [GemmExecutor::prepack_a].
-    Packed(&'a PackedAMatrix),
+    /// A matrix which has been pre-packed by [`GemmExecutor::prepack_a`].
+    Packed(&'a PackedAMatrix<T>),
     // TODO - Support virtual "A" inputs, like `GemmInputB::Virtual`.
 }
 
-impl<'a> GemmInputA<'a> {
+impl<'a, T> GemmInputA<'a, T> {
     pub fn rows(&self) -> usize {
         match self {
             Self::Unpacked(m) => m.rows(),
@@ -120,7 +121,7 @@ impl<'a> GemmInputA<'a> {
 
 /// A virtual matrix which has a known size, but may not actually be
 /// materialized in memory. The GEMM implementation will call
-/// [VirtualMatrix::pack_b] to pack blocks of this matrix into a buffer as it
+/// [`VirtualMatrix::pack_b`] to pack blocks of this matrix into a buffer as it
 /// needs them.
 ///
 /// This is useful for operations such as im2col-based convolution, which
@@ -130,7 +131,7 @@ impl<'a> GemmInputA<'a> {
 ///
 /// Implementations of [`pack_b`](VirtualMatrix::pack_b) must initialize the
 /// entire buffer passed to them.
-pub unsafe trait VirtualMatrix: Sync {
+pub unsafe trait VirtualMatrix<T>: Sync {
     /// Return the number of rows in the virtual matrix.
     fn rows(&self) -> usize;
 
@@ -153,7 +154,7 @@ pub unsafe trait VirtualMatrix: Sync {
     ///    case the final panel should be zero-padded.
     fn pack_b(
         &self,
-        out: &mut [MaybeUninit<f32>],
+        out: &mut [MaybeUninit<T>],
         panel_width: usize,
         rows: Range<usize>,
         cols: Range<usize>,
@@ -162,19 +163,19 @@ pub unsafe trait VirtualMatrix: Sync {
 
 /// Right-hand or "B" input for a GEMM operation.
 #[derive(Copy, Clone)]
-pub enum GemmInputB<'a> {
+pub enum GemmInputB<'a, T> {
     /// A standard unpacked matrix.
-    Unpacked(Matrix<'a>),
+    Unpacked(Matrix<'a, T>),
 
     /// A matrix which has been pre-packed by [GemmExecutor::prepack_b].
-    Packed(&'a PackedBMatrix),
+    Packed(&'a PackedBMatrix<T>),
 
     /// A virtual matrix, blocks of which will be materialized on-demand
     /// during GEMM execution. See [VirtualMatrix].
-    Virtual(&'a dyn VirtualMatrix),
+    Virtual(&'a dyn VirtualMatrix<T>),
 }
 
-impl<'a> GemmInputB<'a> {
+impl<'a, T> GemmInputB<'a, T> {
     pub fn rows(&self) -> usize {
         match self {
             Self::Unpacked(m) => m.rows(),
@@ -208,7 +209,7 @@ pub fn gemm(
     // This heap-allocates a new kernel on each call. That's OK because this
     // is very cheap relative to the large matmuls we expect to be doing, but
     // would be good to avoid for small inputs.
-    GemmExecutor::new().gemm(
+    GemmExecutor::<f32, f32, f32>::new().gemm(
         out_data,
         out_row_stride,
         GemmInputA::Unpacked(a),
@@ -217,6 +218,30 @@ pub fn gemm(
         beta,
     );
 }
+
+/// Trait for element types of GEMM input matrices.
+pub trait GemmInputEl: Copy + Default + Sync {}
+
+impl GemmInputEl for f32 {}
+impl GemmInputEl for u8 {}
+impl GemmInputEl for i8 {}
+
+/// Trait for element types of GEMM output matrices.
+pub trait GemmOutputEl:
+    Copy
+    + Default
+    + PartialEq
+    + Send
+    + Sync
+    + std::ops::AddAssign<Self>
+    + std::ops::Add<Self, Output = Self>
+    + std::ops::Mul<Self, Output = Self>
+    + Identities
+{
+}
+
+impl GemmOutputEl for f32 {}
+impl GemmOutputEl for i32 {}
 
 /// Executes matrix multiplication operations.
 ///
@@ -230,8 +255,8 @@ pub fn gemm(
 /// operations. In this case the work to pack (re-layout) the input for maximum
 /// computational efficiency, which is normally does internally on each call,
 /// can be done just once for the reused input.
-pub struct GemmExecutor {
-    kernel: Box<dyn Kernel>,
+pub struct GemmExecutor<LhsT: GemmInputEl, RhsT: GemmInputEl, OutT: GemmOutputEl> {
+    kernel: Box<dyn Kernel<LhsT, RhsT, OutT>>,
     kernel_type: KernelType,
 }
 
@@ -259,30 +284,7 @@ pub enum KernelType {
     Wasm,
 }
 
-impl GemmExecutor {
-    /// Create a [GemmExecutor] using the preferred kernel for the current system.
-    pub fn new() -> GemmExecutor {
-        #[cfg(feature = "avx512")]
-        #[cfg(target_arch = "x86_64")]
-        if let Some(gemm) = Self::with_kernel(KernelType::Avx512) {
-            return gemm;
-        }
-        #[cfg(target_arch = "x86_64")]
-        if let Some(gemm) = Self::with_kernel(KernelType::Fma) {
-            return gemm;
-        }
-        #[cfg(target_arch = "aarch64")]
-        if let Some(gemm) = Self::with_kernel(KernelType::ArmNeon) {
-            return gemm;
-        }
-        #[cfg(target_arch = "wasm32")]
-        #[cfg(target_feature = "simd128")]
-        if let Some(gemm) = Self::with_kernel(KernelType::Wasm) {
-            return gemm;
-        }
-        Self::with_base_kernel()
-    }
-
+impl<LhsT: GemmInputEl, RhsT: GemmInputEl, OutT: GemmOutputEl> GemmExecutor<LhsT, RhsT, OutT> {
     /// Return the name of the kernel that this executor is using.
     #[allow(dead_code)]
     pub fn kernel_name(&self) -> &str {
@@ -294,50 +296,15 @@ impl GemmExecutor {
         self.kernel_type
     }
 
-    /// Create a [GemmExecutor] using the given kernel. Returns `None` if the
-    /// kernel is not supported.
-    #[allow(dead_code)] // Currently only used in tests
-    pub fn with_kernel(hint: KernelType) -> Option<GemmExecutor> {
-        fn make_kernel<K: Kernel + 'static>(kernel_type: KernelType) -> Option<GemmExecutor> {
-            K::new().map(|kernel| GemmExecutor {
-                kernel: Box::new(kernel),
-                kernel_type,
-            })
-        }
-
-        match hint {
-            #[cfg(feature = "avx512")]
-            #[cfg(target_arch = "x86_64")]
-            KernelType::Avx512 => make_kernel::<kernels::x86_64::Avx512Kernel>(hint),
-            #[cfg(target_arch = "x86_64")]
-            KernelType::Fma => make_kernel::<kernels::x86_64::FmaKernel>(hint),
-            #[cfg(target_arch = "aarch64")]
-            KernelType::ArmNeon => make_kernel::<kernels::aarch64::ArmNeonKernel>(hint),
-            #[cfg(target_arch = "wasm32")]
-            #[cfg(target_feature = "simd128")]
-            KernelType::Wasm => make_kernel::<kernels::wasm::WasmKernel>(hint),
-            KernelType::Base => Some(Self::with_base_kernel()),
-        }
-    }
-
-    /// Construct a GemmExecutor that uses the generic kernel.
-    fn with_base_kernel() -> GemmExecutor {
-        let kernel = BaseKernel::new().unwrap();
-        GemmExecutor {
-            kernel: Box::new(kernel),
-            kernel_type: KernelType::Base,
-        }
-    }
-
     /// Prepack a matrix for use as the left-hand or "A" input.
     #[allow(unused)]
-    pub fn prepack_a(&self, a: Matrix) -> PackedAMatrix {
+    pub fn prepack_a(&self, a: Matrix<LhsT>) -> PackedAMatrix<LhsT> {
         self.prepack_a_in(GlobalAlloc::new(), a)
     }
 
     /// Variant of [`prepack_a`](GemmExecutor::prepack_a) which takes an
     /// allocator.
-    pub fn prepack_a_in<A: Alloc>(&self, alloc: A, a: Matrix) -> PackedAMatrix {
+    pub fn prepack_a_in<A: Alloc>(&self, alloc: A, a: Matrix<LhsT>) -> PackedAMatrix<LhsT> {
         let kc = depth_block_size(a.cols());
         let mr = self.kernel.mr();
         let mc = row_block_size(a.rows(), mr);
@@ -361,7 +328,7 @@ impl GemmExecutor {
                 self.kernel
                     .pack_a_block(used, a, row_range, depth_range.clone());
 
-                unused.fill(MaybeUninit::new(0.));
+                unused.fill(MaybeUninit::new(LhsT::default()));
                 n_init += out_panel.len();
             }
         }
@@ -383,20 +350,20 @@ impl GemmExecutor {
 
     /// Return the panel width used when packing the "B" matrix.
     ///
-    /// This information is useful for implementations of [VirtualMatrix].
+    /// This information is useful for implementations of [`VirtualMatrix`].
     pub fn b_panel_width(&self) -> usize {
         self.kernel.nr()
     }
 
     /// Prepack a matrix for use as the right-hand or "B" matrix input.
     #[allow(unused)]
-    pub fn prepack_b(&self, b: Matrix) -> PackedBMatrix {
+    pub fn prepack_b(&self, b: Matrix<RhsT>) -> PackedBMatrix<RhsT> {
         self.prepack_b_in(GlobalAlloc::new(), b)
     }
 
     /// Variant of [`prepack_b`](GemmExecutor::prepack_b) which takes an
     /// allocator.
-    pub fn prepack_b_in<A: Alloc>(&self, alloc: A, b: Matrix) -> PackedBMatrix {
+    pub fn prepack_b_in<A: Alloc>(&self, alloc: A, b: Matrix<RhsT>) -> PackedBMatrix<RhsT> {
         let nr = self.kernel.nr();
         let nc = col_block_size(b.cols(), nr);
         let kc = depth_block_size(b.rows());
@@ -420,7 +387,7 @@ impl GemmExecutor {
                 self.kernel
                     .pack_b_block(used, b, depth_range, col_range.clone());
 
-                unused.fill(MaybeUninit::new(0.));
+                unused.fill(MaybeUninit::new(RhsT::default()));
                 n_init += out_panel.len();
             }
         }
@@ -445,17 +412,17 @@ impl GemmExecutor {
     /// This computes `output = alpha * (a @ b) + beta * output` where `@` is
     /// matrix multiplication.
     ///
-    /// As a special case, when beta is `0.0`, the computation is simplified to
+    /// As a special case, when beta is zero, the computation is simplified to
     /// `output = alpha * (a @ b)`. ie. existing values in `output` are not
     /// used. This matters if the existing values include infinities or NaNs.
     pub fn gemm(
         &self,
-        out_data: &mut [f32],
+        out_data: &mut [OutT],
         out_row_stride: usize,
-        a: GemmInputA,
-        b: GemmInputB,
+        a: GemmInputA<LhsT>,
+        b: GemmInputB<RhsT>,
         alpha: f32,
-        beta: f32,
+        beta: OutT,
     ) {
         gemm_impl(
             &*self.kernel,
@@ -466,22 +433,35 @@ impl GemmExecutor {
             alpha,
             beta,
             None,
+            LhsT::default(),
+            RhsT::default(),
         )
     }
 
     /// Perform a General Matrix Multiplication ("gemm").
     ///
-    /// This is the same as [GemmExecutor::gemm] but takes an uninitialized
+    /// This is the same as [`GemmExecutor::gemm`] but takes an uninitialized
     /// output slice. The `beta` value is implicitly set to zero.
     pub fn gemm_uninit(
         &self,
-        out_data: &mut [MaybeUninit<f32>],
+        out_data: &mut [MaybeUninit<OutT>],
         out_row_stride: usize,
-        a: GemmInputA,
-        b: GemmInputB,
+        a: GemmInputA<LhsT>,
+        b: GemmInputB<RhsT>,
         alpha: f32,
+        a_zero_point: LhsT,
+        b_zero_point: RhsT,
     ) {
-        self.gemm_uninit_bias(out_data, out_row_stride, a, b, alpha, None);
+        self.gemm_uninit_bias(
+            out_data,
+            out_row_stride,
+            a,
+            b,
+            alpha,
+            None,
+            a_zero_point,
+            b_zero_point,
+        );
     }
 
     /// Perform a matrix multiplication with fused bias vector addition.
@@ -494,13 +474,13 @@ impl GemmExecutor {
     #[allow(unused)]
     pub fn gemm_bias(
         &self,
-        out_data: &mut [f32],
+        out_data: &mut [OutT],
         out_row_stride: usize,
-        a: GemmInputA,
-        b: GemmInputB,
+        a: GemmInputA<LhsT>,
+        b: GemmInputB<RhsT>,
         alpha: f32,
-        beta: f32,
-        bias: Option<&[f32]>,
+        beta: OutT,
+        bias: Option<&[OutT]>,
     ) {
         gemm_impl(
             &*self.kernel,
@@ -511,6 +491,8 @@ impl GemmExecutor {
             alpha,
             beta,
             bias,
+            LhsT::default(),
+            RhsT::default(),
         )
     }
 
@@ -523,25 +505,125 @@ impl GemmExecutor {
     /// must match the rows of `a`.
     pub fn gemm_uninit_bias(
         &self,
-        out_data: &mut [MaybeUninit<f32>],
+        out_data: &mut [MaybeUninit<OutT>],
         out_row_stride: usize,
-        a: GemmInputA,
-        b: GemmInputB,
+        a: GemmInputA<LhsT>,
+        b: GemmInputB<RhsT>,
         alpha: f32,
-        bias: Option<&[f32]>,
+        bias: Option<&[OutT]>,
+        a_zero_point: LhsT,
+        b_zero_point: RhsT,
     ) {
         gemm_impl(
             &*self.kernel,
             // Safety: When beta is zero, we initialize all output elements
             // and ignore existing values.
-            unsafe { transmute::<&mut [MaybeUninit<f32>], &mut [f32]>(out_data) },
+            unsafe { transmute::<&mut [MaybeUninit<OutT>], &mut [OutT]>(out_data) },
             out_row_stride,
             a,
             b,
             alpha,
-            0., /* beta */
+            OutT::default(), /* beta */
             bias,
+            a_zero_point,
+            b_zero_point,
         )
+    }
+}
+
+impl GemmExecutor<f32, f32, f32> {
+    /// Create a [GemmExecutor] using the preferred kernel for the current system.
+    pub fn new() -> Self {
+        #[cfg(feature = "avx512")]
+        #[cfg(target_arch = "x86_64")]
+        if let Some(gemm) = Self::with_kernel(KernelType::Avx512) {
+            return gemm;
+        }
+        #[cfg(target_arch = "x86_64")]
+        if let Some(gemm) = Self::with_kernel(KernelType::Fma) {
+            return gemm;
+        }
+        #[cfg(target_arch = "aarch64")]
+        if let Some(gemm) = Self::with_kernel(KernelType::ArmNeon) {
+            return gemm;
+        }
+        #[cfg(target_arch = "wasm32")]
+        #[cfg(target_feature = "simd128")]
+        if let Some(gemm) = Self::with_kernel(KernelType::Wasm) {
+            return gemm;
+        }
+        Self::with_base_kernel()
+    }
+
+    /// Create a [GemmExecutor] using the given kernel. Returns `None` if the
+    /// kernel is not supported.
+    #[allow(dead_code)] // Currently only used in tests
+    pub fn with_kernel(hint: KernelType) -> Option<Self> {
+        fn make_kernel<K: Kernel<f32, f32, f32> + 'static>(
+            kernel_type: KernelType,
+        ) -> Option<GemmExecutor<f32, f32, f32>> {
+            K::new().map(|kernel| GemmExecutor {
+                kernel: Box::new(kernel),
+                kernel_type,
+            })
+        }
+
+        match hint {
+            #[cfg(feature = "avx512")]
+            #[cfg(target_arch = "x86_64")]
+            KernelType::Avx512 => make_kernel::<kernels::x86_64::Avx512Kernel>(hint),
+            #[cfg(target_arch = "x86_64")]
+            KernelType::Fma => make_kernel::<kernels::x86_64::FmaKernel>(hint),
+            #[cfg(target_arch = "aarch64")]
+            KernelType::ArmNeon => make_kernel::<kernels::aarch64::ArmNeonKernel>(hint),
+            #[cfg(target_arch = "wasm32")]
+            #[cfg(target_feature = "simd128")]
+            KernelType::Wasm => make_kernel::<kernels::wasm::WasmKernel>(hint),
+            KernelType::Base => Some(Self::with_base_kernel()),
+        }
+    }
+
+    /// Construct a GemmExecutor that uses the generic kernel.
+    fn with_base_kernel() -> Self {
+        let kernel = BaseKernel::new().unwrap();
+        GemmExecutor {
+            kernel: Box::new(kernel),
+            kernel_type: KernelType::Base,
+        }
+    }
+}
+
+impl GemmExecutor<u8, i8, i32> {
+    /// Create a [GemmExecutor] using the preferred kernel for the current system.
+    pub fn new() -> Self {
+        Self::with_base_kernel()
+    }
+
+    /// Create a [GemmExecutor] using the given kernel. Returns `None` if the
+    /// kernel is not supported.
+    #[allow(dead_code)] // Currently only used in tests
+    pub fn with_kernel(hint: KernelType) -> Option<Self> {
+        fn make_kernel<K: Kernel<u8, i8, i32> + 'static>(
+            kernel_type: KernelType,
+        ) -> Option<GemmExecutor<u8, i8, i32>> {
+            K::new().map(|kernel| GemmExecutor {
+                kernel: Box::new(kernel),
+                kernel_type,
+            })
+        }
+
+        match hint {
+            _ => Some(Self::with_base_kernel()),
+        }
+    }
+
+    /// Construct a GemmExecutor that uses the generic kernel.
+    fn with_base_kernel() -> Self {
+        let kernel = BaseU8S8Kernel::new().unwrap();
+        GemmExecutor {
+            kernel: Box::new(kernel),
+            kernel_type: KernelType::Base,
+        }
     }
 }
 
@@ -574,9 +656,9 @@ fn row_block_size(a_rows: usize, mr: usize) -> usize {
 }
 
 /// A single tile of the output matrix.
-struct OutputTile {
+struct OutputTile<T> {
     /// Pointer to first element in this tile.
-    ptr: *mut f32,
+    ptr: *mut T,
 
     /// Stride between rows of this tile. Note the column stride is always 1.
     row_stride: usize,
@@ -591,8 +673,8 @@ struct OutputTile {
 /// Wrapper around the GEMM output matrix which divides it into a grid of tiles.
 /// This can be shared across threads, but each individual tile must only be
 /// operated on by one thread at a time.
-struct OutputTiles {
-    data: *mut f32,
+struct OutputTiles<T> {
+    data: *mut T,
 
     // Size and stride of the output matrix.
     rows: usize,
@@ -610,12 +692,12 @@ struct OutputTiles {
 
 /// Safety: Caller must ensure they do not operate on overlapping tiles
 /// concurrently.
-unsafe impl Sync for OutputTiles {}
+unsafe impl<T> Sync for OutputTiles<T> {}
 
-impl OutputTiles {
+impl<T> OutputTiles<T> {
     /// Expose `data` as a grid of tiles, each with a maximum size of
     /// `tile_rows` * `tile_cols`.
-    fn new(mut data: MatrixMut, tile_rows: usize, tile_cols: usize) -> OutputTiles {
+    fn new(mut data: MatrixMut<T>, tile_rows: usize, tile_cols: usize) -> OutputTiles<T> {
         OutputTiles {
             data: data.data_mut().unwrap().as_mut_ptr(),
             rows: data.rows(),
@@ -633,7 +715,7 @@ impl OutputTiles {
     ///
     /// Safety: The caller must guarantee that every tile is operated on by
     /// only a single thread at a time.
-    unsafe fn tile(&self, row: usize, col: usize) -> OutputTile {
+    unsafe fn tile(&self, row: usize, col: usize) -> OutputTile<T> {
         assert!(row < self.n_row_tiles && col < self.n_col_tiles);
 
         let start_row = row * self.tile_rows;
@@ -651,14 +733,16 @@ impl OutputTiles {
 /// Compute a vector-matrix product.
 ///
 /// This operation is called "gemv" in BLAS APIs.
-fn gemv(
-    kernel: &dyn Kernel,
-    a: NdTensorView<f32, 1>,
-    b: Matrix,
-    mut output_mat: MatrixMut,
+fn gemv<LhsT: GemmInputEl, RhsT: GemmInputEl, OutT: GemmOutputEl>(
+    kernel: &dyn Kernel<LhsT, RhsT, OutT>,
+    a: NdTensorView<LhsT, 1>,
+    b: Matrix<RhsT>,
+    mut output_mat: MatrixMut<OutT>,
     alpha: f32,
-    beta: f32,
-    bias: Option<f32>,
+    beta: OutT,
+    bias: Option<OutT>,
+    a_zero_point: LhsT,
+    b_zero_point: RhsT,
 ) {
     assert!(output_mat.is_contiguous());
 
@@ -691,11 +775,19 @@ fn gemv(
                 range_chunks(0..a_cols, k_block_size).zip(a_data.chunks(k_block_size))
             {
                 let b_block = b.slice::<2, _>((k_block, col_block.clone()));
-                kernel.gemv_kernel(out_chunk, a_block, b_block, alpha, effective_beta);
+                kernel.gemv_kernel(
+                    out_chunk,
+                    a_block,
+                    b_block,
+                    alpha,
+                    effective_beta,
+                    a_zero_point,
+                    b_zero_point,
+                );
 
                 // Reset `beta` so that subsequent updates for each column
                 // accumulate into the first update.
-                effective_beta = 1.0;
+                effective_beta = OutT::one();
             }
 
             if let Some(bias) = bias {
@@ -704,6 +796,32 @@ fn gemv(
                 }
             }
         });
+}
+
+/// Reinterpret a slice of `A`s as a slice of `B`s.
+///
+/// The returned slice will have the same pointer but the length will be
+/// adjusted to `src_len_in_bytes / size_of_B`.
+fn transmute_slice<A: Copy, B: Copy>(src: &[A]) -> &[B] {
+    unsafe {
+        std::slice::from_raw_parts(
+            std::mem::transmute::<*const A, *const B>(src.as_ptr()),
+            (src.len() * std::mem::size_of::<A>()) / std::mem::size_of::<B>(),
+        )
+    }
+}
+
+/// Reinterpret a slice of `A`s as a mutable slice of `B`s.
+///
+/// The returned slice will have the same pointer but the length will be
+/// adjusted to `src_len_in_bytes / size_of_B`.
+fn transmute_slice_mut<A: Copy, B: Copy>(src: &mut [A]) -> &mut [B] {
+    unsafe {
+        std::slice::from_raw_parts_mut(
+            std::mem::transmute::<*mut A, *mut B>(src.as_mut_ptr()),
+            (src.len() * std::mem::size_of::<A>()) / std::mem::size_of::<B>(),
+        )
+    }
 }
 
 /// Perform matrix multiplication with a given kernel.
@@ -733,15 +851,17 @@ fn gemv(
 /// [^1]: Low, Tze Meng, et al. "Analytical modeling is enough for
 ///       high-performance BLIS." ACM Transactions on Mathematical Software (TOMS)
 ///       43.2 (2016): 1-18. https://dl.acm.org/doi/pdf/10.1145/2925987
-fn gemm_impl(
-    kernel: &dyn Kernel,
-    out_data: &mut [f32],
+fn gemm_impl<LhsT: GemmInputEl, RhsT: GemmInputEl, OutT: GemmOutputEl>(
+    kernel: &dyn Kernel<LhsT, RhsT, OutT>,
+    out_data: &mut [OutT],
     out_row_stride: usize,
-    a: GemmInputA,
-    b: GemmInputB,
+    a: GemmInputA<LhsT>,
+    b: GemmInputB<RhsT>,
     alpha: f32,
-    beta: f32,
-    bias: Option<&[f32]>,
+    beta: OutT,
+    bias: Option<&[OutT]>,
+    a_zero_point: LhsT,
+    b_zero_point: RhsT,
 ) {
     assert!(
         a.cols() == b.rows(),
@@ -761,14 +881,18 @@ fn gemm_impl(
     // in this case.
     if a.cols() == 0 {
         for x in out_data {
-            let tmp = if beta == 0. { 0. } else { *x };
+            let tmp = if beta == OutT::default() {
+                OutT::default()
+            } else {
+                *x
+            };
             *x = beta * tmp;
         }
         return;
     }
 
     // Construct a Matrix from the implied dimensions, to validate the slice length.
-    let mut output_mat = MatrixMut::<f32>::from_data_with_strides(
+    let mut output_mat = MatrixMut::<OutT>::from_data_with_strides(
         [a.rows(), b.cols()],
         out_data,
         [out_row_stride, 1],
@@ -786,6 +910,8 @@ fn gemm_impl(
             beta,
             // nb. We checked above that, if present, the bias length matches `a.rows()`.
             bias.map(|b| b[0]),
+            a_zero_point,
+            b_zero_point,
         );
         return;
     }
@@ -803,11 +929,20 @@ fn gemm_impl(
 
     // Buffers for packed blocks of the matrix.
     //
-    // These currently have no alignment specified. The paper mentioned above
-    // suggests that aligning to cache-line (ie. 64-byte) boundaries may help
-    // performance.
-    thread_local!(static PACKED_A: RefCell<Vec<f32>> = const { RefCell::new(Vec::new()) });
-    thread_local!(static PACKED_B: RefCell<Vec<f32>> = const { RefCell::new(Vec::new()) });
+    // These use `u32` instead of `LhsT`/`RhsT` because static fields cannot
+    // be generic. The buffers need to be correctly aligned for LhsT / RhsT.
+    // To ensure this we use an element type which is at least as large as any
+    // of the element types that will be used.
+    assert!(
+        size_of::<LhsT>() <= size_of::<u32>(),
+        "LHS element size unsupported"
+    );
+    assert!(
+        size_of::<RhsT>() <= size_of::<u32>(),
+        "LHS element size unsupported"
+    );
+    thread_local!(static PACKED_A: RefCell<Vec<u32>> = const { RefCell::new(Vec::new()) });
+    thread_local!(static PACKED_B: RefCell<Vec<u32>> = const { RefCell::new(Vec::new()) });
 
     let n_col_blocks = b.cols().div_ceil(nc);
     let n_row_blocks = a.rows().div_ceil(mc);
@@ -830,7 +965,7 @@ fn gemm_impl(
             for (depth_idx, depth_range) in range_chunks(0..a.cols(), kc).enumerate() {
                 // Borrowed packing buffer for current thread. Returned after
                 // the GEMM block is computed.
-                let mut thread_local_packed_b: Option<Vec<f32>> = None;
+                let mut thread_local_packed_b: Option<Vec<u32>> = None;
                 let panel_length = depth_range.len();
                 let packed_b_size = (col_end - col_start).next_multiple_of(nr) * panel_length;
 
@@ -838,8 +973,12 @@ fn gemm_impl(
                     GemmInputB::Unpacked(_) | GemmInputB::Virtual(_) => PACKED_B.with(|cell| {
                         let mut packed_b = cell.take();
                         packed_b.clear();
-                        packed_b.reserve(packed_b_size);
-                        let packed_b_slice = &mut packed_b.spare_capacity_mut()[..packed_b_size];
+                        packed_b.reserve((packed_b_size * size_of::<RhsT>()) / size_of::<u32>());
+                        let packed_b_slice =
+                            transmute_slice_mut::<MaybeUninit<u32>, MaybeUninit<RhsT>>(
+                                packed_b.spare_capacity_mut(),
+                            );
+                        let packed_b_slice = &mut packed_b_slice[..packed_b_size];
 
                         match b {
                             GemmInputB::Unpacked(b) => kernel.pack_b_block(
@@ -862,14 +1001,18 @@ fn gemm_impl(
                             packed_b.set_len(packed_b_size);
                         }
                         thread_local_packed_b = Some(packed_b);
-                        thread_local_packed_b.as_deref().unwrap()
+                        transmute_slice::<u32, RhsT>(thread_local_packed_b.as_deref().unwrap())
                     }),
                     GemmInputB::Packed(pm) => pm.block(col_idx, depth_idx),
                 };
 
                 // Only use provided `beta` on the first write to this output
                 // tile. For subsequent updates accumulate.
-                let effective_beta = if depth_range.start == 0 { beta } else { 1.0 };
+                let effective_beta = if depth_range.start == 0 {
+                    beta
+                } else {
+                    OutT::one()
+                };
 
                 // Loop over row blocks.
                 (0..n_row_blocks)
@@ -882,15 +1025,24 @@ fn gemm_impl(
 
                         // Borrowed packing buffer for current thread. Returned after
                         // the GEMM block is computed.
-                        let mut thread_local_packed_a: Option<Vec<f32>> = None;
+                        let mut thread_local_packed_a: Option<Vec<u32>> = None;
 
                         let packed_a = match a {
                             GemmInputA::Unpacked(a) => PACKED_A.with(|cell| {
                                 let mut packed_a = cell.take();
                                 packed_a.clear();
-                                packed_a.reserve(packed_a_size);
+                                packed_a.reserve(
+                                    (packed_a_size * size_of::<LhsT>()) / size_of::<u32>(),
+                                );
+
+                                let packed_a_slice =
+                                    transmute_slice_mut::<MaybeUninit<u32>, MaybeUninit<LhsT>>(
+                                        packed_a.spare_capacity_mut(),
+                                    );
+                                let packed_a_slice = &mut packed_a_slice[..packed_a_size];
+
                                 kernel.pack_a_block(
-                                    &mut packed_a.spare_capacity_mut()[..packed_a_size],
+                                    packed_a_slice,
                                     a,
                                     row_start..row_end,
                                     depth_range.clone(),
@@ -901,7 +1053,9 @@ fn gemm_impl(
                                     packed_a.set_len(packed_a_size);
                                 }
                                 thread_local_packed_a = Some(packed_a);
-                                thread_local_packed_a.as_deref().unwrap()
+                                transmute_slice::<u32, LhsT>(
+                                    thread_local_packed_a.as_deref().unwrap(),
+                                )
                             }),
                             GemmInputA::Packed(pm) => pm.block(row_idx, depth_idx),
                         };
@@ -918,6 +1072,8 @@ fn gemm_impl(
                             alpha,
                             effective_beta,
                             bias,
+                            a_zero_point,
+                            b_zero_point,
                         );
 
                         if let Some(packed_a) = thread_local_packed_a {
@@ -941,18 +1097,20 @@ fn gemm_impl(
 ///
 /// `is_first` indicates whether this is the first write to the output tiles
 /// in this block during the current GEMM operation.
-fn gemm_block(
-    kernel: &dyn Kernel,
-    output: &OutputTiles,
+fn gemm_block<LhsT: GemmInputEl, RhsT: GemmInputEl, OutT: GemmOutputEl>(
+    kernel: &dyn Kernel<LhsT, RhsT, OutT>,
+    output: &OutputTiles<OutT>,
     col_tiles: Range<usize>,
     row_tiles: Range<usize>,
     first_update: bool,
-    packed_a: &[f32],
-    packed_b: &[f32],
+    packed_a: &[LhsT],
+    packed_b: &[RhsT],
     panel_length: usize,
     alpha: f32,
-    beta: f32,
-    bias: Option<&[f32]>,
+    beta: OutT,
+    bias: Option<&[OutT]>,
+    a_zero_point: LhsT,
+    b_zero_point: RhsT,
 ) {
     // Maximum tile size of all supported kernels.
     const MAX_MR: usize = 8;
@@ -996,6 +1154,8 @@ fn gemm_block(
                             panel_length,
                             alpha,
                             beta,
+                            a_zero_point,
+                            b_zero_point,
                         );
                     }
                 } else {
@@ -1004,19 +1164,23 @@ fn gemm_block(
                     // copy the results back to the output. This allows the same
                     // kernel implementation to be used whether the tile is
                     // full-sized or not.
-                    let mut tmp_out_tile = [MaybeUninit::<f32>::uninit(); MAX_MR * MAX_NR];
+                    let mut tmp_out_tile = [MaybeUninit::<OutT>::uninit(); MAX_MR * MAX_NR];
 
                     // Safety:
                     //  - Tile size is <= MAX_MR * MAX_NR
                     unsafe {
                         kernel.kernel(
-                            transmute::<*mut MaybeUninit<f32>, *mut f32>(tmp_out_tile.as_mut_ptr()),
+                            transmute::<*mut MaybeUninit<OutT>, *mut OutT>(
+                                tmp_out_tile.as_mut_ptr(),
+                            ),
                             nr,
                             a_panel,
                             b_panel,
                             panel_length,
                             alpha,
-                            0., // Multiplication with `beta` is handled below.
+                            OutT::default(), // Multiplication with `beta` is handled below.
+                            a_zero_point,
+                            b_zero_point,
                         );
                     }
 
@@ -1026,7 +1190,11 @@ fn gemm_block(
                             // cols in this tile.
                             unsafe {
                                 let out_el = out_tile.ptr.add(out_tile.row_stride * i + j);
-                                let tmp = if beta == 0. { 0. } else { *out_el };
+                                let tmp = if beta == OutT::default() {
+                                    OutT::default()
+                                } else {
+                                    *out_el
+                                };
                                 *out_el = beta * tmp
                                     + tmp_out_tile.get_unchecked(i * nr + j).assume_init();
                             }
@@ -1106,9 +1274,9 @@ mod tests {
     ) {
         let out_row_stride = output.stride(0);
         let gemm = if let Some(kernel) = kernel {
-            GemmExecutor::with_kernel(kernel).expect("kernel not available")
+            GemmExecutor::<f32, f32, f32>::with_kernel(kernel).expect("kernel not available")
         } else {
-            GemmExecutor::new()
+            GemmExecutor::<f32, f32, f32>::new()
         };
 
         gemm.gemm_bias(
@@ -1447,7 +1615,7 @@ mod tests {
 
             let a_mat: Matrix = a.nd_view();
             let b_mat: Matrix = b.nd_view();
-            let gemm = GemmExecutor::new();
+            let gemm = GemmExecutor::<f32, f32, f32>::new();
 
             let packed_a = gemm.prepack_a(a_mat);
             let packed_b = gemm.prepack_b(b.nd_view());
@@ -1494,7 +1662,7 @@ mod tests {
         }
 
         // Safety: `pack_b` initializes the entire buffer.
-        unsafe impl<'a> VirtualMatrix for Packer<'a> {
+        unsafe impl<'a> VirtualMatrix<f32> for Packer<'a> {
             fn rows(&self) -> usize {
                 self.tensor.rows()
             }
@@ -1563,7 +1731,7 @@ mod tests {
 
             let a = Tensor::rand(&[case.m, case.k], &mut rng);
             let b = Tensor::rand(&[case.k, case.n], &mut rng);
-            let gemm = GemmExecutor::new();
+            let gemm = GemmExecutor::<f32, f32, f32>::new();
 
             let packer = Packer {
                 tensor: b.nd_view(),
@@ -1834,7 +2002,10 @@ mod tests {
             },
         ];
 
-        println!("Testing kernel {}", GemmExecutor::new().kernel_name());
+        println!(
+            "Testing kernel {}",
+            GemmExecutor::<f32, f32, f32>::new().kernel_name()
+        );
 
         for case in cases {
             let Case {
@@ -1910,7 +2081,7 @@ mod tests {
     #[test]
     #[ignore]
     fn bench_prepack_a() {
-        let gemm = GemmExecutor::new();
+        let gemm = GemmExecutor::<f32, f32, f32>::new();
         let mut rng = XorShiftRng::new(1234);
         let m = 1024;
         let n = 1024;

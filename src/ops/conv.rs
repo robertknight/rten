@@ -40,7 +40,7 @@ fn conv_2d_pointwise(
     // Bias must be contiguous for use with `gemm_bias`.
     let bias = bias.as_ref().map(|b| b.to_contiguous());
 
-    let gemm = GemmExecutor::new();
+    let gemm = GemmExecutor::<f32, f32, f32>::new();
     let mut n_init = 0;
 
     for n in 0..batch {
@@ -56,6 +56,8 @@ fn conv_2d_pointwise(
             GemmInputB::Unpacked(in_mat),
             1., // alpha
             bias.as_ref().map(|b| b.data().unwrap()),
+            0., // a_zero_point
+            0., // b_zero_point
         );
         n_init += out_item.len();
     }
@@ -211,7 +213,7 @@ pub fn conv(
 
     let n_patches = out_h * out_w;
     let mut output = NdTensor::uninit_in(pool, [batch, out_c, n_patches]);
-    let gemm = GemmExecutor::new();
+    let gemm = GemmExecutor::<f32, f32, f32>::new();
 
     // Bias must be contiguous for use with `gemm_bias`.
     let bias = bias.map(|b| b.to_contiguous());
@@ -266,6 +268,8 @@ pub fn conv(
                     GemmInputB::Virtual(&im2col),
                     1., // alpha
                     bias.as_ref().map(|b| &b.data().unwrap()[out_chans.clone()]),
+                    0., // a_zero_point
+                    0., // b_zero_point
                 );
                 n_init.fetch_add(out_mat.len(), Ordering::SeqCst);
             });
@@ -515,7 +519,7 @@ pub fn conv_transpose(
     let mut col2im_mat =
         NdTensor::uninit_in(pool, [out_c * k_h * k_w, in_h * in_w]).auto_return(pool);
     let kernel_mat = kernel.reshaped([k_in_c, out_c * k_h * k_w]).transposed();
-    let gemm = GemmExecutor::new();
+    let gemm = GemmExecutor::<f32, f32, f32>::new();
 
     // The implementation here is the inverse of the im2col-based convolution.
     let mut n_init = 0;
@@ -529,6 +533,8 @@ pub fn conv_transpose(
             GemmInputA::Unpacked(kernel_mat),
             GemmInputB::Unpacked(input_mat),
             1., /* alpha */
+            0., // a_zero_point
+            0., // b_zero_point
         );
 
         // Safety: `gemm_uninit` initialized col2im_mat.

@@ -167,7 +167,7 @@ pub fn gru(
     let mut hidden_scratch =
         Tensor::zeros_in(pool, &[batch, n_gates * hidden_size]).auto_return(pool);
 
-    let gemm = GemmExecutor::new();
+    let gemm = GemmExecutor::<f32, f32, f32>::new();
     for dir in 0..num_directions {
         let prepack = seq_len >= PREPACK_MIN_SEQ_LEN;
 
@@ -415,7 +415,7 @@ pub fn lstm(
     let mut hidden_seq =
         Tensor::<f32>::zeros_in(pool, &[seq_len, num_directions, batch, hidden_size]);
 
-    let gemm = GemmExecutor::new();
+    let gemm = GemmExecutor::<f32, f32, f32>::new();
 
     let gate_range = |gate| (gate * hidden_size)..((gate + 1) * hidden_size);
 

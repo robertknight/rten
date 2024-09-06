@@ -37,7 +37,7 @@ unsafe fn pack_a_block_avx<const MR: usize>(
     rows: Range<usize>,
     cols: Range<usize>,
 ) {
-    pack_a_block::<MR>(out, a, rows, cols);
+    pack_a_block::<f32, MR>(out, a, rows, cols);
 }
 
 /// Wrapper for `pack_b_block` which enables AVX instructions.
@@ -49,11 +49,11 @@ unsafe fn pack_b_block_avx<const NR: usize>(
     rows: Range<usize>,
     cols: Range<usize>,
 ) {
-    pack_b_block::<NR>(out, b, rows, cols);
+    pack_b_block::<f32, NR>(out, b, rows, cols);
 }
 
 // Safety - The `new` fn tests for AVX-2 / FMA support.
-unsafe impl Kernel for FmaKernel {
+unsafe impl Kernel<f32, f32, f32> for FmaKernel {
     fn new() -> Option<Self> {
         let supported = is_x86_feature_detected!("avx2") && is_x86_feature_detected!("fma");
         supported.then_some(FmaKernel { _private: () })
@@ -108,6 +108,8 @@ unsafe impl Kernel for FmaKernel {
         depth: usize,
         alpha: f32,
         beta: f32,
+        _a_zero_point: f32,
+        _b_zero_point: f32,
     ) {
         const MR: usize = FmaKernel::MR;
         const NR: usize = FmaKernel::NR;
@@ -116,7 +118,16 @@ unsafe impl Kernel for FmaKernel {
         simd_gemm::<__m256, MR, NR_REGS>(tile_ptr, tile_row_stride, a, b, depth, alpha, beta);
     }
 
-    fn gemv_kernel(&self, out: &mut [f32], a: &[f32], b: Matrix, alpha: f32, beta: f32) {
+    fn gemv_kernel(
+        &self,
+        out: &mut [f32],
+        a: &[f32],
+        b: Matrix,
+        alpha: f32,
+        beta: f32,
+        _a_zero_point: f32,
+        _b_zero_point: f32,
+    ) {
         #[target_feature(enable = "avx2")]
         #[target_feature(enable = "fma")]
         unsafe fn gemv_kernel_impl(out: &mut [f32], a: &[f32], b: Matrix, alpha: f32, beta: f32) {
@@ -151,7 +162,7 @@ impl Avx512Kernel {
 
 // Safety - The `new` fn checks for AVX-512 support.
 #[cfg(feature = "avx512")]
-unsafe impl Kernel for Avx512Kernel {
+unsafe impl Kernel<f32, f32, f32> for Avx512Kernel {
     fn new() -> Option<Self> {
         is_avx512_supported().then_some(Avx512Kernel { _private: () })
     }

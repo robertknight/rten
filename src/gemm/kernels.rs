@@ -318,6 +318,9 @@ unsafe fn simd_gemm<S: SimdFloat, const MR: usize, const NR_REGS: usize>(
 
 /// Kernel that computes a small tile of a matrix multiplication output.
 ///
+/// The matrix multiplication takes input matrices with element types `LhsT`
+/// and `RhsT` and produces an output with element type `OutT`.
+///
 /// The kernel corresponds to Loop 6 (the "microkernel") in Page 4 of [^1]. The
 /// tile size depends upon the kernel and is specified by the `MR` and `NR`
 /// associated constants. See Section 3.2 [^1] for theory behind choosing the
@@ -329,7 +332,7 @@ unsafe fn simd_gemm<S: SimdFloat, const MR: usize, const NR_REGS: usize>(
 /// instructions it uses are supported on the current system.
 ///
 /// [^1]: https://dl.acm.org/doi/pdf/10.1145/2925987
-pub unsafe trait Kernel: Sync {
+pub unsafe trait Kernel<LhsT, RhsT, OutT>: Sync {
     /// Construct a new instance of this kernel, if supported on the current
     /// system.
     fn new() -> Option<Self>
@@ -348,8 +351,8 @@ pub unsafe trait Kernel: Sync {
     /// Pack a block of the LHS / "A" input for use by this kernel.
     fn pack_a_block(
         &self,
-        out: &mut [MaybeUninit<f32>],
-        a: Matrix,
+        out: &mut [MaybeUninit<LhsT>],
+        a: Matrix<LhsT>,
         rows: Range<usize>,
         cols: Range<usize>,
     );
@@ -358,8 +361,8 @@ pub unsafe trait Kernel: Sync {
     /// by this kernel.
     fn pack_b_block(
         &self,
-        out: &mut [MaybeUninit<f32>],
-        b: Matrix,
+        out: &mut [MaybeUninit<RhsT>],
+        b: Matrix<RhsT>,
         rows: Range<usize>,
         cols: Range<usize>,
     );
@@ -374,13 +377,15 @@ pub unsafe trait Kernel: Sync {
     /// size.
     unsafe fn kernel(
         &self,
-        tile_ptr: *mut f32,
+        tile_ptr: *mut OutT,
         tile_row_stride: usize,
-        a: &[f32],
-        b: &[f32],
+        a: &[LhsT],
+        b: &[RhsT],
         depth: usize,
         alpha: f32,
-        beta: f32,
+        beta: OutT,
+        a_zero_point: LhsT,
+        b_zero_point: RhsT,
     );
 
     /// Compute an output block of a vector-matrix product ("gemv").
@@ -399,12 +404,16 @@ pub unsafe trait Kernel: Sync {
     ///
     /// The caller must ensure that the kernel is supported on the current
     /// system.
-    fn gemv_kernel(&self, out: &mut [f32], a: &[f32], b: Matrix, alpha: f32, beta: f32) {
-        // Safety - f32 "SIMD" type is always supported
-        unsafe {
-            simd_gemv::<f32, 4>(out, a, b, alpha, beta);
-        }
-    }
+    fn gemv_kernel(
+        &self,
+        out: &mut [OutT],
+        a: &[LhsT],
+        b: Matrix<RhsT>,
+        alpha: f32,
+        beta: OutT,
+        a_zero_point: LhsT,
+        b_zero_point: RhsT,
+    );
 }
 
 /// This is the base kernel that does not use architecture-specific intrinsics
@@ -425,7 +434,7 @@ impl BaseKernel {
 }
 
 // Safety - Base kernel is always supported
-unsafe impl Kernel for BaseKernel {
+unsafe impl Kernel<f32, f32, f32> for BaseKernel {
     fn new() -> Option<Self> {
         Some(BaseKernel { _private: () })
     }
@@ -449,7 +458,7 @@ unsafe impl Kernel for BaseKernel {
         rows: Range<usize>,
         cols: Range<usize>,
     ) {
-        pack_a_block::<{ Self::MR }>(out, a, rows, cols);
+        pack_a_block::<f32, { Self::MR }>(out, a, rows, cols);
     }
 
     fn pack_b_block(
@@ -459,7 +468,7 @@ unsafe impl Kernel for BaseKernel {
         rows: Range<usize>,
         cols: Range<usize>,
     ) {
-        pack_b_block::<{ Self::NR }>(out, b, rows, cols);
+        pack_b_block::<f32, { Self::NR }>(out, b, rows, cols);
     }
 
     unsafe fn kernel(
@@ -471,10 +480,181 @@ unsafe impl Kernel for BaseKernel {
         depth: usize,
         alpha: f32,
         beta: f32,
+        _a_zero_point: f32,
+        _b_zero_point: f32,
     ) {
         const MR: usize = BaseKernel::MR;
         const NR: usize = BaseKernel::NR;
         const NR_REGS: usize = vec_count::<f32>(NR);
         simd_gemm::<f32, MR, NR_REGS>(tile_ptr, tile_row_stride, a, b, depth, alpha, beta);
+    }
+
+    fn gemv_kernel(
+        &self,
+        out: &mut [f32],
+        a: &[f32],
+        b: Matrix<f32>,
+        alpha: f32,
+        beta: f32,
+        _a_zero_point: f32,
+        _b_zero_point: f32,
+    ) {
+        // Safety - f32 "SIMD" type is always supported
+        unsafe {
+            simd_gemv::<f32, 4>(out, a, b, alpha, beta);
+        }
+    }
+}
+
+pub struct BaseU8S8Kernel {
+    _private: (),
+}
+
+impl BaseU8S8Kernel {
+    const MR: usize = 8;
+
+    // The base kernel will most likely be compiled to SSE or equivalent. SSE
+    // registers are 128 bits wide = 4 x f32, so this should be a multiple of
+    // that.
+    const NR: usize = 4;
+}
+
+// Safety - Base kernel is always supported
+unsafe impl Kernel<u8, i8, i32> for BaseU8S8Kernel {
+    fn new() -> Option<Self> {
+        Some(BaseU8S8Kernel { _private: () })
+    }
+
+    fn mr(&self) -> usize {
+        Self::MR
+    }
+
+    fn nr(&self) -> usize {
+        Self::NR
+    }
+
+    fn name(&self) -> &'static str {
+        "base_u8s8"
+    }
+
+    fn pack_a_block(
+        &self,
+        out: &mut [MaybeUninit<u8>],
+        a: Matrix<u8>,
+        rows: Range<usize>,
+        cols: Range<usize>,
+    ) {
+        pack_a_block::<u8, { Self::MR }>(out, a, rows, cols);
+    }
+
+    fn pack_b_block(
+        &self,
+        out: &mut [MaybeUninit<i8>],
+        b: Matrix<i8>,
+        rows: Range<usize>,
+        cols: Range<usize>,
+    ) {
+        pack_b_block::<i8, { Self::NR }>(out, b, rows, cols);
+    }
+
+    unsafe fn kernel(
+        &self,
+        tile_ptr: *mut i32,
+        tile_row_stride: usize,
+        a: &[u8],
+        b: &[i8],
+        depth: usize,
+        _alpha: f32,
+        beta: i32,
+        a_zero_point: u8,
+        b_zero_point: i8,
+    ) {
+        const MR: usize = BaseU8S8Kernel::MR;
+        const NR: usize = BaseU8S8Kernel::NR;
+
+        assert!(a.len() >= depth * MR);
+        assert!(b.len() >= depth * NR);
+        assert!(depth > 0);
+
+        let a_ptr = a.as_ptr();
+        let b_ptr = b.as_ptr();
+
+        let mut tmp = [[0i32; NR]; MR];
+        let mut b_rows = [0i32; NR];
+
+        for k in 0..depth {
+            let a_off = k * MR;
+            let b_off = k * NR;
+
+            for i in 0..NR {
+                b_rows[i] = *b_ptr.add(b_off + i) as i32 - b_zero_point as i32;
+            }
+
+            for i in 0..MR {
+                let a_val = *a_ptr.add(a_off + i) as i32 - a_zero_point as i32;
+
+                for j in 0..NR {
+                    tmp[i][j] += a_val * b_rows[j];
+                }
+            }
+        }
+
+        let get_out_ptr = |i, j| tile_ptr.add(tile_row_stride * i + j);
+
+        // Write to output tile.
+        //
+        // We have special cases for zero/one values of alpha and beta, both for
+        // performance in the common cases where (alpha, beta) are (0, 1) or (1, 1)
+        // and because when beta is zero, the destination may be uninitialized and
+        // must not be read.
+        if beta == 0 {
+            for i in 0..MR {
+                for j in 0..NR {
+                    *get_out_ptr(i, j) = tmp[i][j];
+                }
+            }
+        } else if beta == 1 {
+            for i in 0..MR {
+                for j in 0..NR {
+                    *get_out_ptr(i, j) += tmp[i][j];
+                }
+            }
+        } else {
+            for i in 0..MR {
+                for j in 0..NR {
+                    let out_el = get_out_ptr(i, j);
+                    *out_el += *out_el * tmp[i][j];
+                }
+            }
+        }
+    }
+
+    fn gemv_kernel(
+        &self,
+        out: &mut [i32],
+        a: &[u8],
+        b: Matrix<i8>,
+        _alpha: f32,
+        beta: i32,
+        a_zero_point: u8,
+        b_zero_point: i8,
+    ) {
+        assert!(a.len() == b.rows());
+        assert!(out.len() == b.cols());
+
+        for (col, out) in out.iter_mut().enumerate() {
+            let mut acc = 0;
+
+            for (k, &ak) in (0..a.len()).zip(a.iter()) {
+                let bk = unsafe { *b.get_unchecked([k, col]) };
+                acc += (ak as i32 - a_zero_point as i32) * (bk as i32 - b_zero_point as i32);
+            }
+
+            if beta == 0 {
+                *out = acc;
+            } else {
+                *out = acc + beta * *out;
+            }
+        }
     }
 }

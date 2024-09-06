@@ -4,8 +4,7 @@ use rten_tensor::prelude::*;
 use rten_tensor::{Tensor, TensorView};
 
 use crate::check_dims;
-use crate::gemm::{GemmExecutor, GemmInputA, GemmInputB};
-use crate::iter_util::range_chunks;
+use crate::gemm::{GemmExecutor, GemmInputA, GemmInputB, GemmInputEl, GemmOutputEl};
 use crate::ops::binary_elementwise::broadcast_shapes;
 use crate::ops::layout::expand_to;
 use crate::ops::{InputList, IntoOpResult, OpError, Operator, OutputList};
@@ -42,7 +41,7 @@ pub fn gemm_op(
     let b = if transpose_b { b.transposed() } else { b };
 
     let out_shape = &[a.size(0), b.size(1)][..];
-    let gemm = GemmExecutor::new();
+    let gemm = GemmExecutor::<f32, f32, f32>::new();
 
     let output = match c {
         Some(c) if beta != 0. => {
@@ -72,6 +71,8 @@ pub fn gemm_op(
                 GemmInputA::Unpacked(a.nd_view()),
                 GemmInputB::Unpacked(b.nd_view()),
                 alpha,
+                0., // a_zero_point
+                0., // b_zero_point
             );
             // Safety: `gemm_uninit` initialized all elements
             unsafe { output.assume_init() }
@@ -118,15 +119,26 @@ enum MatmulStrategy {
 }
 
 pub fn matmul(pool: &TensorPool, a: TensorView, b: TensorView) -> Result<Tensor, OpError> {
-    matmul_impl(pool, a, b, MatmulStrategy::Auto)
+    matmul_impl(
+        pool,
+        GemmExecutor::<f32, f32, f32>::new(),
+        a,
+        b,
+        MatmulStrategy::Auto,
+        None, // a_zero_point
+        None, // b_zero_point
+    )
 }
 
-fn matmul_impl(
+fn matmul_impl<Lhs: GemmInputEl, Rhs: GemmInputEl, OutT: GemmOutputEl>(
     pool: &TensorPool,
-    a: TensorView,
-    b: TensorView,
+    gemm: GemmExecutor<Lhs, Rhs, OutT>,
+    a: TensorView<Lhs>,
+    b: TensorView<Rhs>,
     strategy: MatmulStrategy,
-) -> Result<Tensor, OpError> {
+    a_zero_point: Option<Lhs>,
+    b_zero_point: Option<Rhs>,
+) -> Result<Tensor<OutT>, OpError> {
     if a.ndim() < 2 || b.ndim() < 2 {
         return Err(OpError::InvalidValue("Inputs must have >= 2 dimensions"));
     }
@@ -164,7 +176,15 @@ fn matmul_impl(
         // nb. We assume `a` is likely already contiguous, so this will be cheap.
         let a_contig = a.to_contiguous_in(pool).auto_return(pool);
         let a_matrix = a_contig.reshaped([num_a_matrices * a_rows, a_cols].as_slice());
-        let mut output = matmul(pool, a_matrix, b.clone())?;
+        let mut output = matmul_impl(
+            pool,
+            gemm,
+            a_matrix,
+            b.clone(),
+            strategy,
+            a_zero_point,
+            b_zero_point,
+        )?;
         output.reshape(out_shape);
         return Ok(output);
     }
@@ -187,8 +207,6 @@ fn matmul_impl(
         .data_mut()
         .unwrap()
         .chunks_mut(out_row_stride * a_rows);
-
-    let gemm = GemmExecutor::new();
 
     // Prepack re-used inputs to amortize packing cost.
     //
@@ -230,6 +248,8 @@ fn matmul_impl(
                 a_input,
                 b_input,
                 1., // alpha
+                a_zero_point.unwrap_or(Lhs::default()),
+                b_zero_point.unwrap_or(Rhs::default()),
             );
         });
 
@@ -261,91 +281,19 @@ pub fn matmul_integer(
     a_zero_point: Option<TensorView<u8>>,
     b_zero_point: Option<TensorView<i8>>,
 ) -> Result<Tensor<i32>, OpError> {
-    if a.ndim() < 2 || b.ndim() < 2 {
-        return Err(OpError::InvalidValue("Inputs must have >= 2 dimensions"));
-    }
+    let a_zero_point = a_zero_point.and_then(|zp| zp.item()).copied();
+    let b_zero_point = b_zero_point.and_then(|zp| zp.item()).copied();
 
-    let a_rows = a.size(a.ndim() - 2);
-    let a_cols = a.size(a.ndim() - 1);
-
-    let b_rows = b.size(b.ndim() - 2);
-    let b_cols = b.size(b.ndim() - 1);
-
-    if a_cols != b_rows {
-        return Err(OpError::IncompatibleInputShapes(
-            "Columns of first matrix does not match rows of second matrix",
-        ));
-    }
-
-    let a_prefix = &a.shape()[..a.ndim() - 2];
-    let b_prefix = &b.shape()[..b.ndim() - 2];
-
-    let out_prefix = broadcast_shapes(a_prefix, b_prefix)
-        .ok_or(OpError::IncompatibleInputShapes("Cannot broadcast shapes"))?;
-    let out_shape = &[out_prefix.as_slice(), &[a_rows, b_cols]].concat();
-
-    let mut output = Tensor::<i32>::uninit_in(pool, out_shape);
-    if output.is_empty() {
-        // nb. We don't need to alloc from the pool here, since the buffer
-        // is already empty.
-        return Ok(Tensor::zeros(out_shape));
-    }
-
-    let a_broadcast_shape = [out_prefix.as_slice(), &[a_rows, a_cols]].concat();
-    let b_broadcast_shape = [out_prefix.as_slice(), &[b_rows, b_cols]].concat();
-
-    let a_broadcast = a.broadcast(a_broadcast_shape.as_slice());
-    let b_broadcast = b.broadcast(b_broadcast_shape.as_slice());
-
-    let out_row_stride = output.stride(output.ndim() - 2);
-    let out_batches = output
-        .data_mut()
-        .unwrap()
-        .chunks_mut(out_row_stride * a_rows);
-
-    let a_zero = a_zero_point.and_then(|zp| zp.item()).copied().unwrap_or(0) as i32;
-    let b_zero = b_zero_point.and_then(|zp| zp.item()).copied().unwrap_or(0) as i32;
-
-    a_broadcast
-        .inner_iter::<2>()
-        .zip(b_broadcast.inner_iter::<2>())
-        .zip(out_batches)
-        .par_bridge()
-        .for_each(|((a_mat, b_mat), out_mat)| {
-            let [m, k] = a_mat.shape();
-            let [_k, n] = b_mat.shape();
-
-            // Do some extremely rudimentary cache blocking.
-            for col_block in range_chunks(0..n, 32) {
-                for depth_block in range_chunks(0..k, 32) {
-                    for row_block in range_chunks(0..m, 32) {
-                        for j in col_block.clone() {
-                            for i in row_block.clone() {
-                                let mut out = 0i32;
-                                for k in depth_block.clone() {
-                                    let a = unsafe { *a_mat.get_unchecked([i, k]) } as i32 - a_zero;
-                                    let b = unsafe { *b_mat.get_unchecked([k, j]) } as i32 - b_zero;
-                                    out += a * b;
-                                }
-                                unsafe {
-                                    let el = out_mat.get_unchecked_mut((i * out_row_stride) + j);
-                                    if depth_block.start == 0 {
-                                        el.write(out);
-                                    } else {
-                                        el.write(el.assume_init() + out);
-                                    }
-                                }
-                            }
-                        }
-                    }
-                }
-            }
-        });
-
-    // Safety: Loop above initialized all output elements.
-    let output = unsafe { output.assume_init() };
-
-    Ok(output)
+    let gemm = GemmExecutor::<u8, i8, i32>::new();
+    matmul_impl(
+        pool,
+        gemm,
+        a,
+        b,
+        MatmulStrategy::Auto,
+        a_zero_point,
+        b_zero_point,
+    )
 }
 
 #[derive(Debug)]
@@ -375,7 +323,7 @@ mod tests {
     use rten_tensor::test_util::expect_equal;
     use rten_tensor::{Tensor, TensorView, TensorViewMut};
 
-    use crate::gemm::gemm;
+    use crate::gemm::{gemm, GemmExecutor};
     use crate::ops::binary_elementwise::broadcast_shapes;
     use crate::ops::tests::new_pool;
     use crate::tensor_pool::AutoReturn;
@@ -817,9 +765,18 @@ mod tests {
                 );
                 let pool = new_pool();
                 run_bench(trials, Some(&desc), || {
-                    matmul_impl(&pool, a.view(), b.view(), strategy)
-                        .unwrap()
-                        .auto_return(&pool);
+                    let gemm = GemmExecutor::<f32, f32, f32>::new();
+                    matmul_impl::<f32, f32, f32>(
+                        &pool,
+                        gemm,
+                        a.view(),
+                        b.view(),
+                        strategy,
+                        None, // a_zero_point
+                        None, // b_zero_point
+                    )
+                    .unwrap()
+                    .auto_return(&pool);
                 });
             };
 

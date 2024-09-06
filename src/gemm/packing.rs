@@ -17,9 +17,9 @@ use rten_tensor::{Matrix, MatrixLayout, Storage};
 /// When this function returns, all elements of `out` will have been initialized
 /// either to a value from `a`, or zero.
 #[inline] // Allow caller to control `target_feature`s
-pub fn pack_a_block<const MR: usize>(
-    out: &mut [MaybeUninit<f32>],
-    a: Matrix,
+pub fn pack_a_block<T: Copy + Default, const MR: usize>(
+    out: &mut [MaybeUninit<T>],
+    a: Matrix<T>,
     rows: Range<usize>,
     cols: Range<usize>,
 ) {
@@ -81,7 +81,7 @@ pub fn pack_a_block<const MR: usize>(
                         let offset = a_row * row_stride + (cols.start + col) * col_stride;
                         unsafe { *a_data.get_unchecked(offset) }
                     } else {
-                        0.0
+                        T::default()
                     });
                 }
             }
@@ -103,9 +103,9 @@ pub fn pack_a_block<const MR: usize>(
 /// When this function returns, all elements of `out` will have been initialized
 /// either to a value from `b`, or zero.
 #[inline] // Allow caller to control `target_feature`s
-pub fn pack_b_block<const NR: usize>(
-    out: &mut [MaybeUninit<f32>],
-    b: Matrix,
+pub fn pack_b_block<T: Copy + Default, const NR: usize>(
+    out: &mut [MaybeUninit<T>],
+    b: Matrix<T>,
     rows: Range<usize>,
     cols: Range<usize>,
 ) {
@@ -177,7 +177,7 @@ pub fn pack_b_block<const NR: usize>(
                     out[out_row_offset + col].write(if out_col < b_cols {
                         unsafe { *b_data.get_unchecked(b_offset) }
                     } else {
-                        0.0
+                        T::default()
                     });
                 }
             }
