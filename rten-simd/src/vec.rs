@@ -118,6 +118,14 @@ pub trait SimdInt: SimdVal {
     /// Compute `self - rhs`.
     unsafe fn sub(self, rhs: Self) -> Self;
 
+    /// Compute `self * rhs`
+    unsafe fn mul(self, rhs: Self) -> Self;
+
+    /// Compute `self * a + b`.
+    unsafe fn mul_add(self, a: Self, b: Self) -> Self {
+        self.mul(a).add(b)
+    }
+
     /// Shift the bits in each element left by `count`.
     unsafe fn shl<const COUNT: i32>(self) -> Self;
 
@@ -131,6 +139,14 @@ pub trait SimdInt: SimdVal {
     /// Safety: The caller must ensure `ptr` points to at least `Self::LEN`
     /// values.
     unsafe fn load(ptr: *const i32) -> Self;
+
+    /// Load `Self::LEN` u8 values from the memory address at `ptr` and
+    /// convert them to `i32` values.
+    unsafe fn load_u8(ptr: *const u8) -> Self;
+
+    /// Load `Self::LEN` i8 values from the memory address at `ptr` and
+    /// convert them to `i32` values.
+    unsafe fn load_i8(ptr: *const i8) -> Self;
 
     /// Store `Self::LEN` values to the memory address at `ptr`.
     ///

@@ -72,6 +72,11 @@ impl SimdInt for i32 {
     }
 
     #[inline]
+    unsafe fn mul(self, rhs: Self) -> Self {
+        self * rhs
+    }
+
+    #[inline]
     unsafe fn shl<const COUNT: i32>(self) -> Self {
         self << COUNT
     }
@@ -84,6 +89,16 @@ impl SimdInt for i32 {
     #[inline]
     unsafe fn load(ptr: *const i32) -> Self {
         *ptr
+    }
+
+    #[inline]
+    unsafe fn load_u8(ptr: *const u8) -> Self {
+        *ptr as i32
+    }
+
+    #[inline]
+    unsafe fn load_i8(ptr: *const i8) -> Self {
+        *ptr as i32
     }
 
     #[inline]
