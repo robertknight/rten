@@ -30,10 +30,77 @@ impl XorShiftRng {
         let val = self.next_u64() >> (64 - n_bits);
         (val as f32) * scale
     }
+
+    /// Return an infinite iterator that yields random values of type `T`.
+    pub fn iter<T>(&mut self) -> impl Iterator<Item = T> + '_
+    where
+        Self: RandomSource<T>,
+    {
+        std::iter::from_fn(|| Some(self.next()))
+    }
 }
 
 impl RandomSource<f32> for XorShiftRng {
     fn next(&mut self) -> f32 {
         self.next_f32()
+    }
+}
+
+macro_rules! impl_random_source {
+    ($ty:ty) => {
+        impl RandomSource<$ty> for XorShiftRng {
+            fn next(&mut self) -> $ty {
+                // Take the least significant bits of the 64bit value as the
+                // result.
+                self.next_u64() as $ty
+            }
+        }
+    };
+}
+
+impl_random_source!(u8);
+impl_random_source!(i8);
+impl_random_source!(i16);
+impl_random_source!(u16);
+impl_random_source!(i32);
+impl_random_source!(u32);
+
+#[cfg(test)]
+mod tests {
+    use super::XorShiftRng;
+
+    #[test]
+    fn test_i8() {
+        let mut rng = XorShiftRng::new(1234);
+        let x: Vec<i8> = rng.iter().take(10).collect();
+        assert_eq!(x, &[91, 123, 3, -73, 8, -102, -19, 118, 88, 58]);
+    }
+
+    #[test]
+    fn test_u8() {
+        let mut rng = XorShiftRng::new(1234);
+        let x: Vec<u8> = rng.iter().take(10).collect();
+        assert_eq!(x, &[91, 123, 3, 183, 8, 154, 237, 118, 88, 58]);
+    }
+
+    #[test]
+    fn test_i32() {
+        let mut rng = XorShiftRng::new(1234);
+        let x: Vec<i32> = rng.iter().take(10).collect();
+        assert_eq!(
+            x,
+            &[
+                -533893029,
+                -1874043781,
+                -2014135805,
+                -1501708361,
+                330844424,
+                1872264090,
+                -1812926995,
+                -306325642,
+                692957528,
+                -1439925190
+            ]
+        );
     }
 }
