@@ -1,4 +1,4 @@
-use std::arch::x86_64::__m256;
+use std::arch::x86_64::{__m256, __m256i};
 use std::mem::MaybeUninit;
 use std::ops::Range;
 
@@ -11,7 +11,7 @@ use rten_tensor::Matrix;
 #[cfg(feature = "avx512")]
 use rten_simd::isa_detection::is_avx512_supported;
 
-use super::{simd_gemm, simd_gemv, Kernel};
+use super::{simd_gemm, simd_gemm_u8i8, simd_gemv, simd_gemv_u8i8, Kernel};
 use crate::gemm::packing::{pack_a_block, pack_b_block};
 
 /// Optimized kernel for x64 CPUs that support AVX + FMA instructions.
@@ -233,6 +233,145 @@ unsafe impl Kernel<f32, f32, f32> for Avx512Kernel {
         // Safety: Kernel can only be constructed if supported.
         unsafe {
             gemv_kernel_impl(out, a, b, alpha, beta);
+        }
+    }
+}
+
+/// Optimized kernel for x64 CPUs that support AVX instructions.
+#[derive(Default)]
+pub struct AvxU8I8Kernel {
+    _private: (),
+}
+
+impl AvxU8I8Kernel {
+    const MR: usize = 6;
+    const NR: usize = 16;
+}
+
+/// Wrapper for `pack_a_block` which enables AVX instructions.
+#[target_feature(enable = "avx2")]
+#[target_feature(enable = "fma")]
+unsafe fn pack_a_block_avx_u8<const MR: usize>(
+    out: &mut [MaybeUninit<u8>],
+    a: Matrix<u8>,
+    rows: Range<usize>,
+    cols: Range<usize>,
+) {
+    pack_a_block::<u8, MR>(out, a, rows, cols);
+}
+
+/// Wrapper for `pack_b_block` which enables AVX instructions.
+#[target_feature(enable = "avx2")]
+#[target_feature(enable = "fma")]
+unsafe fn pack_b_block_avx_i8<const NR: usize>(
+    out: &mut [MaybeUninit<i8>],
+    b: Matrix<i8>,
+    rows: Range<usize>,
+    cols: Range<usize>,
+) {
+    pack_b_block::<i8, NR>(out, b, rows, cols);
+}
+
+// Safety - The `new` fn tests for AVX-2 / FMA support.
+unsafe impl Kernel<u8, i8, i32> for AvxU8I8Kernel {
+    fn new() -> Option<Self> {
+        let supported = is_x86_feature_detected!("avx2") && is_x86_feature_detected!("fma");
+        supported.then_some(AvxU8I8Kernel { _private: () })
+    }
+
+    fn name(&self) -> &'static str {
+        "fma"
+    }
+
+    fn mr(&self) -> usize {
+        Self::MR
+    }
+
+    fn nr(&self) -> usize {
+        Self::NR
+    }
+
+    fn pack_a_block(
+        &self,
+        out: &mut [MaybeUninit<u8>],
+        a: Matrix<u8>,
+        rows: Range<usize>,
+        cols: Range<usize>,
+    ) {
+        // Safety: Kernel can only be constructed if AVX is supported.
+        unsafe {
+            pack_a_block_avx_u8::<{ Self::MR }>(out, a, rows, cols);
+        }
+    }
+
+    fn pack_b_block(
+        &self,
+        out: &mut [MaybeUninit<i8>],
+        b: Matrix<i8>,
+        rows: Range<usize>,
+        cols: Range<usize>,
+    ) {
+        // Safety: Kernel can only be constructed if AVX is supported.
+        unsafe {
+            pack_b_block_avx_i8::<{ Self::NR }>(out, b, rows, cols);
+        }
+    }
+
+    #[target_feature(enable = "avx2")]
+    #[target_feature(enable = "fma")]
+    unsafe fn kernel(
+        &self,
+        tile_ptr: *mut i32,
+        tile_row_stride: usize,
+        a: &[u8],
+        b: &[i8],
+        depth: usize,
+        _alpha: f32,
+        beta: i32,
+        a_zero_point: u8,
+        b_zero_point: i8,
+    ) {
+        const MR: usize = AvxU8I8Kernel::MR;
+        const NR: usize = AvxU8I8Kernel::NR;
+        const NR_REGS: usize = vec_count::<__m256i>(NR);
+
+        simd_gemm_u8i8::<__m256i, MR, NR_REGS>(
+            tile_ptr,
+            tile_row_stride,
+            a,
+            b,
+            depth,
+            beta,
+            a_zero_point,
+            b_zero_point,
+        );
+    }
+
+    fn gemv_kernel(
+        &self,
+        out: &mut [i32],
+        a: &[u8],
+        b: Matrix<i8>,
+        _alpha: f32,
+        beta: i32,
+        a_zero_point: u8,
+        b_zero_point: i8,
+    ) {
+        #[target_feature(enable = "avx2")]
+        #[target_feature(enable = "fma")]
+        unsafe fn gemv_kernel_impl(
+            out: &mut [i32],
+            a: &[u8],
+            b: Matrix<i8>,
+            beta: i32,
+            a_zero_point: u8,
+            b_zero_point: i8,
+        ) {
+            simd_gemv_u8i8::<__m256i, 4>(out, a, b, beta, a_zero_point, b_zero_point);
+        }
+        // Safety: Kernel can only be constructed if supported.
+        unsafe {
+            gemv_kernel_impl(out, a, b, beta, a_zero_point, b_zero_point);
         }
     }
 }

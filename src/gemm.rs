@@ -596,6 +596,10 @@ impl GemmExecutor<f32, f32, f32> {
 impl GemmExecutor<u8, i8, i32> {
     /// Create a [GemmExecutor] using the preferred kernel for the current system.
     pub fn new() -> Self {
+        #[cfg(target_arch = "x86_64")]
+        if let Some(gemm) = Self::with_kernel(KernelType::Fma) {
+            return gemm;
+        }
         Self::with_base_kernel()
     }
 
@@ -613,6 +617,8 @@ impl GemmExecutor<u8, i8, i32> {
         }
 
         match hint {
+            #[cfg(target_arch = "x86_64")]
+            KernelType::Fma => make_kernel::<kernels::x86_64::AvxU8I8Kernel>(hint),
             _ => Some(Self::with_base_kernel()),
         }
     }
