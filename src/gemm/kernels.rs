@@ -643,7 +643,7 @@ unsafe impl Kernel<u8, i8, i32> for BaseU8S8Kernel {
         assert!(a.len() == b.rows());
         assert!(out.len() == b.cols());
 
-        const NR: usize = 8;
+        const NR: usize = 32;
 
         if b.col_stride() == 1 {
             let a_ptr = a.as_ptr();
