@@ -2,7 +2,6 @@ use std::mem::MaybeUninit;
 use std::ops::Range;
 
 use rten_simd::{vec_count, SimdFloat, SimdInt};
-use rten_tensor::prelude::*;
 use rten_tensor::{Matrix, MatrixLayout, Storage};
 
 use crate::gemm::packing::{pack_a_block, pack_b_block};
