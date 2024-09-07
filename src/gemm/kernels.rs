@@ -1,7 +1,7 @@
 use std::mem::MaybeUninit;
 use std::ops::Range;
 
-use rten_simd::{vec_count, SimdFloat};
+use rten_simd::{vec_count, SimdFloat, SimdInt};
 use rten_tensor::prelude::*;
 use rten_tensor::{Matrix, MatrixLayout, Storage};
 
@@ -313,6 +313,107 @@ unsafe fn simd_gemm<S: SimdFloat, const MR: usize, const NR_REGS: usize>(
                 let out_val = tmp[i][j].mul_add(alpha_broadcast, out_val);
                 out_val.store(out_ptr);
             }
+        }
+    }
+}
+
+#[inline]
+unsafe fn simd_gemv_u8i8<S: SimdInt, const NR_REGS: usize>(
+    out: &mut [i32],
+    a: &[u8],
+    b: Matrix<i8>,
+    beta: i32,
+    a_zero_point: u8,
+    b_zero_point: i8,
+) {
+    if b.col_stride() != 1 {
+        return simd_gemv_u8i8_fallback::<S>(out, a, b, beta, a_zero_point, b_zero_point);
+    }
+
+    assert!(a.len() == b.rows());
+    assert!(out.len() == b.cols());
+
+    let out_ptr = out.as_mut_ptr();
+    let a_ptr = a.as_ptr();
+    let b_ptr = b.storage().as_ptr();
+    let b_row_stride = b.row_stride();
+
+    let a_zero_point_vec = S::splat(a_zero_point as i32);
+    let b_zero_point_vec = S::splat(b_zero_point as i32);
+
+    let mut b_tiles = range_chunks_exact(0..b.cols(), NR_REGS * S::LEN);
+    for b_tile in b_tiles.by_ref() {
+        let mut acc = [S::zero(); NR_REGS];
+        unroll_loop!(0..a.len(), k, 4, {
+            let a_elt = *a_ptr.add(k);
+            let a_elts = S::splat(a_elt as i32).sub(a_zero_point_vec);
+
+            // Pre-fetch the current row for the next column tile.
+            // S::prefetch(b_ptr.add(k * b_row_stride + b_tile.start + NR_REGS + S::LEN));
+
+            for i in 0..NR_REGS {
+                let b_elts = S::load_i8(b_ptr.add(k * b_row_stride + b_tile.start + i * S::LEN))
+                    .sub(b_zero_point_vec);
+                acc[i] = a_elts.mul_add(b_elts, acc[i]);
+            }
+        });
+
+        let get_out_tile_ptr = |i| out_ptr.add(b_tile.start + i * S::LEN);
+
+        if beta == 0 {
+            for i in 0..NR_REGS {
+                acc[i].store(get_out_tile_ptr(i));
+            }
+        } else if beta == 1 {
+            for i in 0..NR_REGS {
+                let out_tile_ptr = get_out_tile_ptr(i);
+                let out_tile = S::load(out_tile_ptr).add(acc[i]);
+                out_tile.store(out_tile_ptr);
+            }
+        } else {
+            let beta_vec = S::splat(beta);
+            for i in 0..NR_REGS {
+                let out_tile_ptr = get_out_tile_ptr(i);
+                let out_tile = S::load(out_tile_ptr).mul_add(beta_vec, acc[i]);
+                out_tile.store(out_tile_ptr);
+            }
+        }
+    }
+
+    for c in b_tiles.remainder() {
+        let mut acc = 0;
+        for k in 0..a.len() {
+            let a_el = *a_ptr.add(k) as i32 - a_zero_point as i32;
+            let b_el = *b_ptr.add(k * b_row_stride + c) as i32 - b_zero_point as i32;
+            acc += a_el * b_el;
+        }
+        let out_el = out_ptr.add(c);
+        let tmp = if beta == 0 { 0 } else { *out_el };
+        *out_el = beta * tmp + acc;
+    }
+}
+
+#[inline]
+unsafe fn simd_gemv_u8i8_fallback<S: SimdInt>(
+    out: &mut [i32],
+    a: &[u8],
+    b: Matrix<i8>,
+    beta: i32,
+    a_zero_point: u8,
+    b_zero_point: i8,
+) {
+    for (col, out) in out.iter_mut().enumerate() {
+        let mut acc = 0;
+
+        for (k, &ak) in (0..a.len()).zip(a.iter()) {
+            let bk = unsafe { *b.get_unchecked([k, col]) };
+            acc += (ak as i32 - a_zero_point as i32) * (bk as i32 - b_zero_point as i32);
+        }
+
+        if beta == 0 {
+            *out = acc;
+        } else {
+            *out = acc + beta * *out;
         }
     }
 }
@@ -640,80 +741,7 @@ unsafe impl Kernel<u8, i8, i32> for BaseU8S8Kernel {
         a_zero_point: u8,
         b_zero_point: i8,
     ) {
-        assert!(a.len() == b.rows());
-        assert!(out.len() == b.cols());
-
-        const NR: usize = 32;
-
-        if b.col_stride() == 1 {
-            let a_ptr = a.as_ptr();
-            let b_row_stride = b.row_stride();
-            let b_ptr = b.storage().as_ptr();
-            let out_ptr = out.as_mut_ptr();
-
-            let mut b_tiles = range_chunks_exact(0..b.cols(), NR);
-            for b_tile in b_tiles.by_ref() {
-                let mut acc = [0; NR];
-
-                for k in 0..a.len() {
-                    unsafe {
-                        let a_elt = *a_ptr.add(k) as i32 - a_zero_point as i32;
-                        let b_elts: [i8; NR] = std::array::from_fn(|i| {
-                            *b_ptr.add(k * b_row_stride + b_tile.start + i)
-                        });
-                        for i in 0..NR {
-                            acc[i] += a_elt * (b_elts[i] as i32 - b_zero_point as i32);
-                        }
-                    }
-                }
-
-                unsafe {
-                    let get_out_tile_ptr = |i| out_ptr.add(b_tile.start + i);
-                    if beta == 0 {
-                        for i in 0..NR {
-                            *get_out_tile_ptr(i) = acc[i];
-                        }
-                    } else if beta == 1 {
-                        for i in 0..NR {
-                            *get_out_tile_ptr(i) += acc[i];
-                        }
-                    } else {
-                        for i in 0..NR {
-                            let out_ptr = get_out_tile_ptr(i);
-                            *out_ptr = acc[i] + beta * *out_ptr;
-                        }
-                    }
-                }
-            }
-
-            for c in b_tiles.remainder() {
-                unsafe {
-                    let mut acc = 0;
-                    for k in 0..a.len() {
-                        let a_elt = *a_ptr.add(k) as i32 - a_zero_point as i32;
-                        let b_elt = *b_ptr.add(k * b_row_stride + c) as i32 - b_zero_point as i32;
-                        acc += a_elt * b_elt;
-                    }
-                    let out_el = out_ptr.add(c);
-                    let tmp = if beta == 0 { 0 } else { *out_el };
-                    *out_el = beta * tmp + acc;
-                }
-            }
-        } else {
-            for (col, out) in out.iter_mut().enumerate() {
-                let mut acc = 0;
-
-                for (k, &ak) in (0..a.len()).zip(a.iter()) {
-                    let bk = unsafe { *b.get_unchecked([k, col]) };
-                    acc += (ak as i32 - a_zero_point as i32) * (bk as i32 - b_zero_point as i32);
-                }
-
-                if beta == 0 {
-                    *out = acc;
-                } else {
-                    *out = acc + beta * *out;
-                }
-            }
-        }
+        // Safety: i32 is always supported
+        unsafe { simd_gemv_u8i8::<i32, 32>(out, a, b, beta, a_zero_point, b_zero_point) }
     }
 }
