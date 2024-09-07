@@ -3192,7 +3192,7 @@ mod tests {
     #[test]
     fn test_rand() {
         let mut rng = XorShiftRng::new(1234);
-        let tensor = NdTensor::rand([2, 2], &mut rng);
+        let tensor = NdTensor::<f32, 2>::rand([2, 2], &mut rng);
         assert_eq!(tensor.shape(), [2, 2]);
         for &x in tensor.iter() {
             assert!(x >= 0. && x <= 1.);

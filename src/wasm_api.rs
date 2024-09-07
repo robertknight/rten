@@ -190,7 +190,7 @@ impl Tensor {
     /// will always return the same output for a given seed.
     pub fn rand(shape: &[usize], seed: u64) -> Tensor {
         let mut rng = XorShiftRng::new(seed);
-        let tensor = rten_tensor::Tensor::rand(shape, &mut rng);
+        let tensor = rten_tensor::Tensor::<f32>::rand(shape, &mut rng);
         Tensor::from_output(tensor.into())
     }
 

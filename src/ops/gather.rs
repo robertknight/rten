@@ -595,7 +595,7 @@ mod tests {
         // Test case shrunk down from a small BERT model where `gather` is used
         // to lookup embeddings.
         let mut rng = XorShiftRng::new(1234);
-        let input = Tensor::rand(&[128, 10], &mut rng);
+        let input = Tensor::<f32>::rand(&[128, 10], &mut rng);
         let indices = Tensor::from_data(&[2, 2], vec![2, 5, 8, 50]);
         let result = gather(&pool, input.view(), 0, indices.view()).unwrap();
         assert_eq!(result.shape(), &[2, 2, 10]);
@@ -629,7 +629,7 @@ mod tests {
         let pool = new_pool();
 
         let mut rng = XorShiftRng::new(1234);
-        let input = Tensor::rand(&[128, 10], &mut rng);
+        let input = Tensor::<f32>::rand(&[128, 10], &mut rng);
         let indices = Tensor::from_data(&[2, 2], vec![2, 5, 8, 50]);
         let result = gather(&pool, input.view(), 5, indices.view());
         assert_eq!(result.err(), Some(OpError::InvalidValue("Axis is invalid")));
