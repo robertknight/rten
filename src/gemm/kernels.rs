@@ -2,6 +2,7 @@ use std::mem::MaybeUninit;
 use std::ops::Range;
 
 use rten_simd::{vec_count, SimdFloat};
+use rten_tensor::prelude::*;
 use rten_tensor::{Matrix, MatrixLayout, Storage};
 
 use crate::gemm::packing::{pack_a_block, pack_b_block};
@@ -642,18 +643,76 @@ unsafe impl Kernel<u8, i8, i32> for BaseU8S8Kernel {
         assert!(a.len() == b.rows());
         assert!(out.len() == b.cols());
 
-        for (col, out) in out.iter_mut().enumerate() {
-            let mut acc = 0;
+        const NR: usize = 8;
 
-            for (k, &ak) in (0..a.len()).zip(a.iter()) {
-                let bk = unsafe { *b.get_unchecked([k, col]) };
-                acc += (ak as i32 - a_zero_point as i32) * (bk as i32 - b_zero_point as i32);
+        if b.col_stride() == 1 {
+            let a_ptr = a.as_ptr();
+            let b_row_stride = b.row_stride();
+            let b_ptr = b.storage().as_ptr();
+            let out_ptr = out.as_mut_ptr();
+
+            let mut b_tiles = range_chunks_exact(0..b.cols(), NR);
+            for b_tile in b_tiles.by_ref() {
+                let mut acc = [0; NR];
+
+                for k in 0..a.len() {
+                    unsafe {
+                        let a_elt = *a_ptr.add(k) as i32 - a_zero_point as i32;
+                        let b_elts: [i8; NR] = std::array::from_fn(|i| {
+                            *b_ptr.add(k * b_row_stride + b_tile.start + i)
+                        });
+                        for i in 0..NR {
+                            acc[i] += a_elt * (b_elts[i] as i32 - b_zero_point as i32);
+                        }
+                    }
+                }
+
+                unsafe {
+                    let get_out_tile_ptr = |i| out_ptr.add(b_tile.start + i);
+                    if beta == 0 {
+                        for i in 0..NR {
+                            *get_out_tile_ptr(i) = acc[i];
+                        }
+                    } else if beta == 1 {
+                        for i in 0..NR {
+                            *get_out_tile_ptr(i) += acc[i];
+                        }
+                    } else {
+                        for i in 0..NR {
+                            let out_ptr = get_out_tile_ptr(i);
+                            *out_ptr = acc[i] + beta * *out_ptr;
+                        }
+                    }
+                }
             }
 
-            if beta == 0 {
-                *out = acc;
-            } else {
-                *out = acc + beta * *out;
+            for c in b_tiles.remainder() {
+                unsafe {
+                    let mut acc = 0;
+                    for k in 0..a.len() {
+                        let a_elt = *a_ptr.add(k) as i32 - a_zero_point as i32;
+                        let b_elt = *b_ptr.add(k * b_row_stride + c) as i32 - b_zero_point as i32;
+                        acc += a_elt * b_elt;
+                    }
+                    let out_el = out_ptr.add(c);
+                    let tmp = if beta == 0 { 0 } else { *out_el };
+                    *out_el = beta * tmp + acc;
+                }
+            }
+        } else {
+            for (col, out) in out.iter_mut().enumerate() {
+                let mut acc = 0;
+
+                for (k, &ak) in (0..a.len()).zip(a.iter()) {
+                    let bk = unsafe { *b.get_unchecked([k, col]) };
+                    acc += (ak as i32 - a_zero_point as i32) * (bk as i32 - b_zero_point as i32);
+                }
+
+                if beta == 0 {
+                    *out = acc;
+                } else {
+                    *out = acc + beta * *out;
+                }
             }
         }
     }
