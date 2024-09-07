@@ -418,6 +418,111 @@ unsafe fn simd_gemv_u8i8_fallback<S: SimdInt>(
     }
 }
 
+#[inline(always)]
+unsafe fn simd_gemm_u8i8<S: SimdInt, const MR: usize, const NR_REGS: usize>(
+    tile_ptr: *mut i32,
+    tile_row_stride: usize,
+    a: &[u8],
+    b: &[i8],
+    depth: usize,
+    beta: i32,
+    a_zero_point: u8,
+    b_zero_point: i8,
+) {
+    // Check that buffer accesses below are going to be valid.
+    assert!(a.len() >= depth * MR);
+    assert!(b.len() >= depth * NR_REGS * S::LEN);
+    assert!(depth > 0);
+
+    let a_ptr = a.as_ptr();
+    let b_ptr = b.as_ptr();
+
+    let a_zero_point = S::splat(a_zero_point as i32);
+    let b_zero_point = S::splat(b_zero_point as i32);
+
+    let mut tmp = [[S::zero(); NR_REGS]; MR];
+    let mut b_rows = [S::zero(); NR_REGS];
+
+    unroll_loop!(0..depth - 1, k, 4, {
+        let a_off = k * MR;
+        let b_off = k * NR_REGS * S::LEN;
+
+        // Prefetch B for the next iteration
+        // S::prefetch(b_ptr.add((k + 1) * NR_REGS * S::LEN));
+
+        for i in 0..NR_REGS {
+            b_rows[i] = S::load_i8(b_ptr.add(b_off + i * S::LEN)).sub(b_zero_point);
+        }
+
+        for i in 0..MR {
+            let a_val = *a_ptr.add(a_off + i) as i32;
+            let a_broadcast = S::splat(a_val).sub(a_zero_point);
+
+            for j in 0..NR_REGS {
+                tmp[i][j] = a_broadcast.mul_add(b_rows[j], tmp[i][j]);
+            }
+        }
+    });
+
+    // Prefetch output before the final computation loop
+    // for i in 0..MR {
+    //     S::prefetch_write(tile_ptr.add(tile_row_stride * i));
+    // }
+
+    // Perform final outer product update.
+    let k = depth - 1;
+    let a_off = k * MR;
+    let b_off = k * NR_REGS * S::LEN;
+
+    for i in 0..NR_REGS {
+        b_rows[i] = S::load_i8(b_ptr.add(b_off + i * S::LEN)).sub(b_zero_point);
+    }
+
+    for i in 0..MR {
+        let a_val = *a_ptr.add(a_off + i) as i32;
+        let a_broadcast = S::splat(a_val).sub(a_zero_point);
+
+        for j in 0..NR_REGS {
+            tmp[i][j] = a_broadcast.mul_add(b_rows[j], tmp[i][j]);
+        }
+    }
+
+    let get_out_ptr = |i, j| tile_ptr.add(tile_row_stride * i + j * S::LEN);
+
+    // Write to output tile.
+    //
+    // We have special cases for zero/one values of beta, both for performance
+    // because when beta is zero, the destination may be uninitialized and must
+    // not be read.
+    if beta == 0 {
+        for i in 0..MR {
+            for j in 0..NR_REGS {
+                let out_ptr = get_out_ptr(i, j);
+                tmp[i][j].store(out_ptr);
+            }
+        }
+    } else if beta == 1 {
+        for i in 0..MR {
+            for j in 0..NR_REGS {
+                let out_ptr = get_out_ptr(i, j);
+                let out_val = S::load(out_ptr).add(tmp[i][j]);
+                out_val.store(out_ptr);
+            }
+        }
+    } else {
+        let beta_broadcast = S::splat(beta);
+
+        for i in 0..MR {
+            for j in 0..NR_REGS {
+                let out_ptr = get_out_ptr(i, j);
+                let out_val = S::load(out_ptr).mul(beta_broadcast);
+                let out_val = tmp[i][j].add(out_val);
+                out_val.store(out_ptr);
+            }
+        }
+    }
+}
+
 /// Kernel that computes a small tile of a matrix multiplication output.
 ///
 /// The matrix multiplication takes input matrices with element types `LhsT`
@@ -674,60 +779,18 @@ unsafe impl Kernel<u8, i8, i32> for BaseU8S8Kernel {
         const MR: usize = BaseU8S8Kernel::MR;
         const NR: usize = BaseU8S8Kernel::NR;
 
-        assert!(a.len() >= depth * MR);
-        assert!(b.len() >= depth * NR);
-        assert!(depth > 0);
-
-        let a_ptr = a.as_ptr();
-        let b_ptr = b.as_ptr();
-
-        let mut tmp = [[0i32; NR]; MR];
-        let mut b_rows = [0i32; NR];
-
-        for k in 0..depth {
-            let a_off = k * MR;
-            let b_off = k * NR;
-
-            for i in 0..NR {
-                b_rows[i] = *b_ptr.add(b_off + i) as i32 - b_zero_point as i32;
-            }
-
-            for i in 0..MR {
-                let a_val = *a_ptr.add(a_off + i) as i32 - a_zero_point as i32;
-
-                for j in 0..NR {
-                    tmp[i][j] += a_val * b_rows[j];
-                }
-            }
-        }
-
-        let get_out_ptr = |i, j| tile_ptr.add(tile_row_stride * i + j);
-
-        // Write to output tile.
-        //
-        // We have special cases for zero/one values of alpha and beta, both for
-        // performance in the common cases where (alpha, beta) are (0, 1) or (1, 1)
-        // and because when beta is zero, the destination may be uninitialized and
-        // must not be read.
-        if beta == 0 {
-            for i in 0..MR {
-                for j in 0..NR {
-                    *get_out_ptr(i, j) = tmp[i][j];
-                }
-            }
-        } else if beta == 1 {
-            for i in 0..MR {
-                for j in 0..NR {
-                    *get_out_ptr(i, j) += tmp[i][j];
-                }
-            }
-        } else {
-            for i in 0..MR {
-                for j in 0..NR {
-                    let out_el = get_out_ptr(i, j);
-                    *out_el += *out_el * tmp[i][j];
-                }
-            }
+        // Safety: i32 is always supported
+        unsafe {
+            simd_gemm_u8i8::<i32, MR, NR>(
+                tile_ptr,
+                tile_row_stride,
+                a,
+                b,
+                depth,
+                beta,
+                a_zero_point,
+                b_zero_point,
+            )
         }
     }
 
