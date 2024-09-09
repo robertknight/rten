@@ -19,7 +19,8 @@ use crate::tensor_pool::ExtractBuffer;
 mod kernels;
 mod packing;
 
-use kernels::{BaseKernel, Kernel};
+use kernels::generic::GenericKernel;
+use kernels::Kernel;
 
 /// Left-hand or "A" GEMM input that has been pre-packed.
 #[derive(Clone)]
@@ -238,8 +239,8 @@ pub struct GemmExecutor {
 /// Arguments for [GemmExecutor::with_kernel] specifying which kernel to use.
 #[derive(Clone, Copy, Debug)]
 pub enum KernelType {
-    /// Use the fallback/base kernel. Always available.
-    Base,
+    /// Use the fallback/generic kernel. Always available.
+    Generic,
 
     /// Use the AVX 2 + FMA kernel. Intel x64 only.
     #[cfg(target_arch = "x86_64")]
@@ -280,7 +281,7 @@ impl GemmExecutor {
         if let Some(gemm) = Self::with_kernel(KernelType::Wasm) {
             return gemm;
         }
-        Self::with_base_kernel()
+        Self::with_generic_kernel()
     }
 
     /// Return the name of the kernel that this executor is using.
@@ -316,16 +317,16 @@ impl GemmExecutor {
             #[cfg(target_arch = "wasm32")]
             #[cfg(target_feature = "simd128")]
             KernelType::Wasm => make_kernel::<kernels::wasm::WasmKernel>(hint),
-            KernelType::Base => Some(Self::with_base_kernel()),
+            KernelType::Generic => Some(Self::with_generic_kernel()),
         }
     }
 
     /// Construct a GemmExecutor that uses the generic kernel.
-    fn with_base_kernel() -> GemmExecutor {
-        let kernel = BaseKernel::new().unwrap();
+    fn with_generic_kernel() -> GemmExecutor {
+        let kernel = GenericKernel::new().unwrap();
         GemmExecutor {
             kernel: Box::new(kernel),
-            kernel_type: KernelType::Base,
+            kernel_type: KernelType::Generic,
         }
     }
 
@@ -1161,7 +1162,7 @@ mod tests {
         expect_equal(&result, &expected)?;
 
         let mut result = Tensor::zeros(&[a.size(0), b.size(1)]);
-        run_gemm(&mut result, &a, &b, 1., 1., None, Some(KernelType::Base));
+        run_gemm(&mut result, &a, &b, 1., 1., None, Some(KernelType::Generic));
         expect_equal(&result, &expected)?;
 
         Ok(())
@@ -1268,8 +1269,8 @@ mod tests {
     }
 
     #[test]
-    fn test_gemm_with_base_kernel() -> Result<(), Box<dyn Error>> {
-        test_gemm_with_kernel(Some(KernelType::Base))
+    fn test_gemm_with_generic_kernel() -> Result<(), Box<dyn Error>> {
+        test_gemm_with_kernel(Some(KernelType::Generic))
     }
 
     #[test]
@@ -1302,7 +1303,7 @@ mod tests {
         let a = Tensor::rand(&[10, 5], &mut rng);
         let b = Tensor::rand(&[5, 15], &mut rng);
 
-        for kernel in [None, Some(KernelType::Base)] {
+        for kernel in [None, Some(KernelType::Generic)] {
             for alpha in [0.0, 0.5, 1.0, 2.0] {
                 let mut result = Tensor::rand(&[10, 15], &mut rng);
                 let mut expected = result.clone();
@@ -1333,7 +1334,7 @@ mod tests {
             let a = Tensor::rand(&[m, k], &mut rng);
             let b = Tensor::rand(&[k, n], &mut rng);
 
-            for kernel in [None, Some(KernelType::Base)] {
+            for kernel in [None, Some(KernelType::Generic)] {
                 for beta in [0.5, 1.0, 2.0] {
                     let mut result = Tensor::rand(&[m, n], &mut rng);
                     let mut expected = result.clone();
@@ -1400,7 +1401,7 @@ mod tests {
         let mut result = Tensor::zeros(&[10, 15]);
         let mut expected = result.clone();
 
-        for kernel in [None, Some(KernelType::Base)] {
+        for kernel in [None, Some(KernelType::Generic)] {
             run_gemm(&mut result, &a, &b, 1., 0., Some(&bias), kernel);
             reference_gemm(&mut expected, &a, &b, 1., 0., Some(&bias));
         }

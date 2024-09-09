@@ -4,8 +4,9 @@ use std::ops::Range;
 use rten_simd::{vec_count, SimdFloat};
 use rten_tensor::{Matrix, MatrixLayout, Storage};
 
-use crate::gemm::packing::{pack_a_block, pack_b_block};
 use crate::iter_util::{range_chunks_exact, unroll_loop};
+
+pub mod generic;
 
 #[cfg(target_arch = "aarch64")]
 pub mod aarch64;
@@ -404,77 +405,5 @@ pub unsafe trait Kernel: Sync {
         unsafe {
             simd_gemv::<f32, 4>(out, a, b, alpha, beta);
         }
-    }
-}
-
-/// This is the base kernel that does not use architecture-specific intrinsics
-/// but is autovectorization-friendly. It is expected to perform the same as
-/// a kernel using SSE intrinsics (or equivalent).
-#[derive(Default)]
-pub struct BaseKernel {
-    _private: (),
-}
-
-impl BaseKernel {
-    const MR: usize = 8;
-
-    // The base kernel will most likely be compiled to SSE or equivalent. SSE
-    // registers are 128 bits wide = 4 x f32, so this should be a multiple of
-    // that.
-    const NR: usize = 4;
-}
-
-// Safety - Base kernel is always supported
-unsafe impl Kernel for BaseKernel {
-    fn new() -> Option<Self> {
-        Some(BaseKernel { _private: () })
-    }
-
-    fn mr(&self) -> usize {
-        Self::MR
-    }
-
-    fn nr(&self) -> usize {
-        Self::NR
-    }
-
-    fn name(&self) -> &'static str {
-        "base"
-    }
-
-    fn pack_a_block(
-        &self,
-        out: &mut [MaybeUninit<f32>],
-        a: Matrix,
-        rows: Range<usize>,
-        cols: Range<usize>,
-    ) {
-        pack_a_block::<{ Self::MR }>(out, a, rows, cols);
-    }
-
-    fn pack_b_block(
-        &self,
-        out: &mut [MaybeUninit<f32>],
-        b: Matrix,
-        rows: Range<usize>,
-        cols: Range<usize>,
-    ) {
-        pack_b_block::<{ Self::NR }>(out, b, rows, cols);
-    }
-
-    unsafe fn kernel(
-        &self,
-        tile_ptr: *mut f32,
-        tile_row_stride: usize,
-        a: &[f32],
-        b: &[f32],
-        depth: usize,
-        alpha: f32,
-        beta: f32,
-    ) {
-        const MR: usize = BaseKernel::MR;
-        const NR: usize = BaseKernel::NR;
-        const NR_REGS: usize = vec_count::<f32>(NR);
-        simd_gemm::<f32, MR, NR_REGS>(tile_ptr, tile_row_stride, a, b, depth, alpha, beta);
     }
 }

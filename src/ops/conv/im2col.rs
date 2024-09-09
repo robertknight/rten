@@ -353,7 +353,7 @@ unsafe impl<'a> VirtualMatrix for VirtualIm2Col<'a> {
                 const NR_REGS: usize = vec_count::<v128f>(KERNEL_WASM_NR);
                 self.pack_b_impl::<v128f, NR_REGS>(out, panel_width, rows, cols);
             },
-            (KernelType::Base, KERNEL_BASE_NR) => unsafe {
+            (KernelType::Generic, KERNEL_BASE_NR) => unsafe {
                 const NR_REGS: usize = vec_count::<f32>(KERNEL_BASE_NR);
                 self.pack_b_impl::<f32, NR_REGS>(out, panel_width, rows, cols);
             },
