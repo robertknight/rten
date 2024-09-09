@@ -7,13 +7,14 @@
 
 use std::cell::RefCell;
 use std::mem::{transmute, MaybeUninit};
-use std::ops::Range;
+use std::ops::{Add, Mul, Range};
 
 use rayon::prelude::*;
 use rten_tensor::prelude::*;
 use rten_tensor::{Alloc, GlobalAlloc, Matrix, MatrixLayout, MatrixMut, NdTensorView};
 
 use crate::iter_util::{range_chunks, MaybeParIter};
+use crate::number::Identities;
 use crate::tensor_pool::ExtractBuffer;
 
 mod kernels;
@@ -944,18 +945,22 @@ fn gemm_impl(
 ///
 /// `is_first` indicates whether this is the first write to the output tiles
 /// in this block during the current GEMM operation.
-fn gemm_block(
-    kernel: &dyn Kernel<f32, f32, f32>,
-    output: &OutputTiles<f32>,
+fn gemm_block<
+    LhsT,
+    RhsT,
+    OutT: Copy + PartialEq + Identities + Mul<OutT, Output = OutT> + Add<OutT, Output = OutT>,
+>(
+    kernel: &dyn Kernel<LhsT, RhsT, OutT>,
+    output: &OutputTiles<OutT>,
     col_tiles: Range<usize>,
     row_tiles: Range<usize>,
     first_update: bool,
-    packed_a: &[f32],
-    packed_b: &[f32],
+    packed_a: &[LhsT],
+    packed_b: &[RhsT],
     panel_length: usize,
     alpha: f32,
-    beta: f32,
-    bias: Option<&[f32]>,
+    beta: OutT,
+    bias: Option<&[OutT]>,
 ) {
     // Maximum tile size of all supported kernels.
     const MAX_MR: usize = 8;
@@ -1007,19 +1012,21 @@ fn gemm_block(
                     // copy the results back to the output. This allows the same
                     // kernel implementation to be used whether the tile is
                     // full-sized or not.
-                    let mut tmp_out_tile = [MaybeUninit::<f32>::uninit(); MAX_MR * MAX_NR];
+                    let mut tmp_out_tile = [MaybeUninit::<OutT>::uninit(); MAX_MR * MAX_NR];
 
                     // Safety:
                     //  - Tile size is <= MAX_MR * MAX_NR
                     unsafe {
                         kernel.kernel(
-                            transmute::<*mut MaybeUninit<f32>, *mut f32>(tmp_out_tile.as_mut_ptr()),
+                            transmute::<*mut MaybeUninit<OutT>, *mut OutT>(
+                                tmp_out_tile.as_mut_ptr(),
+                            ),
                             nr,
                             a_panel,
                             b_panel,
                             panel_length,
                             alpha,
-                            0., // Multiplication with `beta` is handled below.
+                            OutT::zero(), // Multiplication with `beta` is handled below.
                         );
                     }
 
@@ -1029,7 +1036,11 @@ fn gemm_block(
                             // cols in this tile.
                             unsafe {
                                 let out_el = out_tile.ptr.add(out_tile.row_stride * i + j);
-                                let tmp = if beta == 0. { 0. } else { *out_el };
+                                let tmp = if beta == OutT::zero() {
+                                    OutT::zero()
+                                } else {
+                                    *out_el
+                                };
                                 *out_el = beta * tmp
                                     + tmp_out_tile.get_unchecked(i * nr + j).assume_init();
                             }
@@ -1045,8 +1056,8 @@ fn gemm_block(
                             //  - Row and column indices are valid for current tile
                             //  - Bias length was checked at start of `gemm_impl`
                             unsafe {
-                                *out_tile.ptr.add(row * out_tile.row_stride + col) +=
-                                    *bias.get_unchecked(row_tile * mr + row);
+                                let out_el = out_tile.ptr.add(row * out_tile.row_stride + col);
+                                *out_el = *out_el + *bias.get_unchecked(row_tile * mr + row);
                             }
                         }
                     }
