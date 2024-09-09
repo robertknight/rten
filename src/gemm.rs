@@ -574,9 +574,9 @@ fn row_block_size(a_rows: usize, mr: usize) -> usize {
 }
 
 /// A single tile of the output matrix.
-struct OutputTile {
+struct OutputTile<T> {
     /// Pointer to first element in this tile.
-    ptr: *mut f32,
+    ptr: *mut T,
 
     /// Stride between rows of this tile. Note the column stride is always 1.
     row_stride: usize,
@@ -591,8 +591,8 @@ struct OutputTile {
 /// Wrapper around the GEMM output matrix which divides it into a grid of tiles.
 /// This can be shared across threads, but each individual tile must only be
 /// operated on by one thread at a time.
-struct OutputTiles {
-    data: *mut f32,
+struct OutputTiles<T> {
+    data: *mut T,
 
     // Size and stride of the output matrix.
     rows: usize,
@@ -610,12 +610,12 @@ struct OutputTiles {
 
 /// Safety: Caller must ensure they do not operate on overlapping tiles
 /// concurrently.
-unsafe impl Sync for OutputTiles {}
+unsafe impl<T> Sync for OutputTiles<T> {}
 
-impl OutputTiles {
+impl<T> OutputTiles<T> {
     /// Expose `data` as a grid of tiles, each with a maximum size of
     /// `tile_rows` * `tile_cols`.
-    fn new(mut data: MatrixMut, tile_rows: usize, tile_cols: usize) -> OutputTiles {
+    fn new(mut data: MatrixMut<T>, tile_rows: usize, tile_cols: usize) -> OutputTiles<T> {
         OutputTiles {
             data: data.data_mut().unwrap().as_mut_ptr(),
             rows: data.rows(),
@@ -633,7 +633,7 @@ impl OutputTiles {
     ///
     /// Safety: The caller must guarantee that every tile is operated on by
     /// only a single thread at a time.
-    unsafe fn tile(&self, row: usize, col: usize) -> OutputTile {
+    unsafe fn tile(&self, row: usize, col: usize) -> OutputTile<T> {
         assert!(row < self.n_row_tiles && col < self.n_col_tiles);
 
         let start_row = row * self.tile_rows;
@@ -943,7 +943,7 @@ fn gemm_impl(
 /// in this block during the current GEMM operation.
 fn gemm_block(
     kernel: &dyn Kernel,
-    output: &OutputTiles,
+    output: &OutputTiles<f32>,
     col_tiles: Range<usize>,
     row_tiles: Range<usize>,
     first_update: bool,
