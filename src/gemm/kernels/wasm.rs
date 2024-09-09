@@ -20,7 +20,7 @@ impl WasmKernel {
 
 // Safety - Support for used WASM instructions is checked by the runtime when
 // the WASM binary is loaded.
-unsafe impl Kernel for WasmKernel {
+unsafe impl Kernel<f32, f32, f32> for WasmKernel {
     fn new() -> Option<Self> {
         #[cfg(target_feature = "simd128")]
         return Some(WasmKernel { _private: () });

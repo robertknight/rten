@@ -330,7 +330,7 @@ unsafe fn simd_gemm<S: SimdFloat, const MR: usize, const NR_REGS: usize>(
 /// instructions it uses are supported on the current system.
 ///
 /// [^1]: https://dl.acm.org/doi/pdf/10.1145/2925987
-pub unsafe trait Kernel: Sync {
+pub unsafe trait Kernel<LhsT, RhsT, OutT>: Sync {
     /// Construct a new instance of this kernel, if supported on the current
     /// system.
     fn new() -> Option<Self>
@@ -349,8 +349,8 @@ pub unsafe trait Kernel: Sync {
     /// Pack a block of the LHS / "A" input for use by this kernel.
     fn pack_a_block(
         &self,
-        out: &mut [MaybeUninit<f32>],
-        a: Matrix,
+        out: &mut [MaybeUninit<LhsT>],
+        a: Matrix<LhsT>,
         rows: Range<usize>,
         cols: Range<usize>,
     );
@@ -359,8 +359,8 @@ pub unsafe trait Kernel: Sync {
     /// by this kernel.
     fn pack_b_block(
         &self,
-        out: &mut [MaybeUninit<f32>],
-        b: Matrix,
+        out: &mut [MaybeUninit<RhsT>],
+        b: Matrix<RhsT>,
         rows: Range<usize>,
         cols: Range<usize>,
     );
@@ -375,13 +375,13 @@ pub unsafe trait Kernel: Sync {
     /// size.
     unsafe fn kernel(
         &self,
-        tile_ptr: *mut f32,
+        tile_ptr: *mut OutT,
         tile_row_stride: usize,
-        a: &[f32],
-        b: &[f32],
+        a: &[LhsT],
+        b: &[RhsT],
         depth: usize,
         alpha: f32,
-        beta: f32,
+        beta: OutT,
     );
 
     /// Compute an output block of a vector-matrix product ("gemv").
@@ -400,5 +400,5 @@ pub unsafe trait Kernel: Sync {
     ///
     /// The caller must ensure that the kernel is supported on the current
     /// system.
-    fn gemv_kernel(&self, out: &mut [f32], a: &[f32], b: Matrix, alpha: f32, beta: f32);
+    fn gemv_kernel(&self, out: &mut [OutT], a: &[LhsT], b: Matrix<RhsT>, alpha: f32, beta: OutT);
 }

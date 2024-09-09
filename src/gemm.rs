@@ -232,7 +232,7 @@ pub fn gemm(
 /// computational efficiency, which is normally does internally on each call,
 /// can be done just once for the reused input.
 pub struct GemmExecutor {
-    kernel: Box<dyn Kernel>,
+    kernel: Box<dyn Kernel<f32, f32, f32>>,
     kernel_type: KernelType,
 }
 
@@ -299,7 +299,9 @@ impl GemmExecutor {
     /// kernel is not supported.
     #[allow(dead_code)] // Currently only used in tests
     pub fn with_kernel(hint: KernelType) -> Option<GemmExecutor> {
-        fn make_kernel<K: Kernel + 'static>(kernel_type: KernelType) -> Option<GemmExecutor> {
+        fn make_kernel<K: Kernel<f32, f32, f32> + 'static>(
+            kernel_type: KernelType,
+        ) -> Option<GemmExecutor> {
             K::new().map(|kernel| GemmExecutor {
                 kernel: Box::new(kernel),
                 kernel_type,
@@ -653,7 +655,7 @@ impl<T> OutputTiles<T> {
 ///
 /// This operation is called "gemv" in BLAS APIs.
 fn gemv(
-    kernel: &dyn Kernel,
+    kernel: &dyn Kernel<f32, f32, f32>,
     a: NdTensorView<f32, 1>,
     b: Matrix,
     mut output_mat: MatrixMut,
@@ -735,7 +737,7 @@ fn gemv(
 ///       high-performance BLIS." ACM Transactions on Mathematical Software (TOMS)
 ///       43.2 (2016): 1-18. https://dl.acm.org/doi/pdf/10.1145/2925987
 fn gemm_impl(
-    kernel: &dyn Kernel,
+    kernel: &dyn Kernel<f32, f32, f32>,
     out_data: &mut [f32],
     out_row_stride: usize,
     a: GemmInputA,
@@ -943,7 +945,7 @@ fn gemm_impl(
 /// `is_first` indicates whether this is the first write to the output tiles
 /// in this block during the current GEMM operation.
 fn gemm_block(
-    kernel: &dyn Kernel,
+    kernel: &dyn Kernel<f32, f32, f32>,
     output: &OutputTiles<f32>,
     col_tiles: Range<usize>,
     row_tiles: Range<usize>,

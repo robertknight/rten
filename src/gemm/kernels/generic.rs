@@ -24,7 +24,7 @@ impl GenericKernel {
 }
 
 // Safety - Base kernel is always supported
-unsafe impl Kernel for GenericKernel {
+unsafe impl Kernel<f32, f32, f32> for GenericKernel {
     fn new() -> Option<Self> {
         Some(GenericKernel { _private: () })
     }

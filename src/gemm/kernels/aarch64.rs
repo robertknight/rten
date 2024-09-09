@@ -20,7 +20,7 @@ impl ArmNeonKernel {
 
 // Safety - We assume that Rust code on Arm is always compiled with Arm Neon
 // available.
-unsafe impl Kernel for ArmNeonKernel {
+unsafe impl Kernel<f32, f32, f32> for ArmNeonKernel {
     fn new() -> Option<Self> {
         Some(ArmNeonKernel { _private: () })
     }

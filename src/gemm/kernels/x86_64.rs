@@ -53,7 +53,7 @@ unsafe fn pack_b_block_avx<const NR: usize>(
 }
 
 // Safety - The `new` fn tests for AVX-2 / FMA support.
-unsafe impl Kernel for FmaKernel {
+unsafe impl Kernel<f32, f32, f32> for FmaKernel {
     fn new() -> Option<Self> {
         let supported = is_x86_feature_detected!("avx2") && is_x86_feature_detected!("fma");
         supported.then_some(FmaKernel { _private: () })
@@ -151,7 +151,7 @@ impl Avx512Kernel {
 
 // Safety - The `new` fn checks for AVX-512 support.
 #[cfg(feature = "avx512")]
-unsafe impl Kernel for Avx512Kernel {
+unsafe impl Kernel<f32, f32, f32> for Avx512Kernel {
     fn new() -> Option<Self> {
         is_avx512_supported().then_some(Avx512Kernel { _private: () })
     }
