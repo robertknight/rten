@@ -14,7 +14,7 @@ use rten_tensor::prelude::*;
 use rten_tensor::{Alloc, GlobalAlloc, Matrix, MatrixLayout, MatrixMut, NdTensorView};
 
 use crate::iter_util::{range_chunks, MaybeParIter};
-use crate::number::Identities;
+use crate::number::{cast_pod_mut_slice, cast_pod_slice, Identities};
 use crate::tensor_pool::ExtractBuffer;
 
 mod kernels;
@@ -25,9 +25,9 @@ use kernels::Kernel;
 
 /// Left-hand or "A" GEMM input that has been pre-packed.
 #[derive(Clone)]
-pub struct PackedAMatrix {
+pub struct PackedAMatrix<T> {
     /// Sequence of packed row panels.
-    data: Vec<f32>,
+    data: Vec<T>,
 
     /// Number of elements in each row panel.
     panel_len: usize,
@@ -42,27 +42,27 @@ pub struct PackedAMatrix {
     cols: usize,
 }
 
-impl PackedAMatrix {
-    fn block(&self, row_block_idx: usize, depth_block_idx: usize) -> &[f32] {
+impl<T> PackedAMatrix<T> {
+    fn block(&self, row_block_idx: usize, depth_block_idx: usize) -> &[T] {
         let panel_idx = depth_block_idx * self.row_blocks + row_block_idx;
         let offset = panel_idx * self.panel_len;
         &self.data[offset..offset + self.panel_len]
     }
 }
 
-impl ExtractBuffer for PackedAMatrix {
-    type Elem = f32;
+impl<T> ExtractBuffer for PackedAMatrix<T> {
+    type Elem = T;
 
-    fn extract_buffer(self) -> Option<Vec<f32>> {
+    fn extract_buffer(self) -> Option<Vec<T>> {
         Some(self.data)
     }
 }
 
 /// Right-hand or "B" GEMM input that has been pre-packed.
 #[derive(Clone)]
-pub struct PackedBMatrix {
+pub struct PackedBMatrix<T> {
     /// Sequence of packed column panels.
-    data: Vec<f32>,
+    data: Vec<T>,
 
     /// Number of elements in each column panel.
     panel_len: usize,
@@ -77,34 +77,34 @@ pub struct PackedBMatrix {
     cols: usize,
 }
 
-impl PackedBMatrix {
-    fn block(&self, col_block_idx: usize, depth_block_idx: usize) -> &[f32] {
+impl<T> PackedBMatrix<T> {
+    fn block(&self, col_block_idx: usize, depth_block_idx: usize) -> &[T] {
         let panel_idx = col_block_idx * self.depth_blocks + depth_block_idx;
         let offset = panel_idx * self.panel_len;
         &self.data[offset..offset + self.panel_len]
     }
 }
 
-impl ExtractBuffer for PackedBMatrix {
-    type Elem = f32;
+impl<T> ExtractBuffer for PackedBMatrix<T> {
+    type Elem = T;
 
-    fn extract_buffer(self) -> Option<Vec<f32>> {
+    fn extract_buffer(self) -> Option<Vec<T>> {
         Some(self.data)
     }
 }
 
 /// Left-hand or "A" input for a GEMM operation.
 #[derive(Copy, Clone)]
-pub enum GemmInputA<'a> {
+pub enum GemmInputA<'a, T> {
     /// A standard unpacked matrix.
-    Unpacked(Matrix<'a>),
+    Unpacked(Matrix<'a, T>),
 
     /// A matrix which has been pre-packed by [GemmExecutor::prepack_a].
-    Packed(&'a PackedAMatrix),
+    Packed(&'a PackedAMatrix<T>),
     // TODO - Support virtual "A" inputs, like `GemmInputB::Virtual`.
 }
 
-impl<'a> GemmInputA<'a> {
+impl<'a, T> GemmInputA<'a, T> {
     pub fn rows(&self) -> usize {
         match self {
             Self::Unpacked(m) => m.rows(),
@@ -120,6 +120,17 @@ impl<'a> GemmInputA<'a> {
     }
 }
 
+/// Trait implemented by GEMM input types.
+pub trait GemmInT: Copy + Send + Sync {}
+impl GemmInT for f32 {}
+
+/// Trait implemented by GEMM output types.
+pub trait GemmOutT:
+    Copy + PartialEq + Send + Sync + Identities + Mul<Self, Output = Self> + Add<Self, Output = Self>
+{
+}
+impl GemmOutT for f32 {}
+
 /// A virtual matrix which has a known size, but may not actually be
 /// materialized in memory. The GEMM implementation will call
 /// [VirtualMatrix::pack_b] to pack blocks of this matrix into a buffer as it
@@ -132,7 +143,7 @@ impl<'a> GemmInputA<'a> {
 ///
 /// Implementations of [`pack_b`](VirtualMatrix::pack_b) must initialize the
 /// entire buffer passed to them.
-pub unsafe trait VirtualMatrix: Sync {
+pub unsafe trait VirtualMatrix<T>: Sync {
     /// Return the number of rows in the virtual matrix.
     fn rows(&self) -> usize;
 
@@ -155,7 +166,7 @@ pub unsafe trait VirtualMatrix: Sync {
     ///    case the final panel should be zero-padded.
     fn pack_b(
         &self,
-        out: &mut [MaybeUninit<f32>],
+        out: &mut [MaybeUninit<T>],
         panel_width: usize,
         rows: Range<usize>,
         cols: Range<usize>,
@@ -164,19 +175,19 @@ pub unsafe trait VirtualMatrix: Sync {
 
 /// Right-hand or "B" input for a GEMM operation.
 #[derive(Copy, Clone)]
-pub enum GemmInputB<'a> {
+pub enum GemmInputB<'a, T> {
     /// A standard unpacked matrix.
-    Unpacked(Matrix<'a>),
+    Unpacked(Matrix<'a, T>),
 
     /// A matrix which has been pre-packed by [GemmExecutor::prepack_b].
-    Packed(&'a PackedBMatrix),
+    Packed(&'a PackedBMatrix<T>),
 
     /// A virtual matrix, blocks of which will be materialized on-demand
     /// during GEMM execution. See [VirtualMatrix].
-    Virtual(&'a dyn VirtualMatrix),
+    Virtual(&'a dyn VirtualMatrix<T>),
 }
 
-impl<'a> GemmInputB<'a> {
+impl<'a, T> GemmInputB<'a, T> {
     pub fn rows(&self) -> usize {
         match self {
             Self::Unpacked(m) => m.rows(),
@@ -335,13 +346,13 @@ impl GemmExecutor {
 
     /// Prepack a matrix for use as the left-hand or "A" input.
     #[allow(unused)]
-    pub fn prepack_a(&self, a: Matrix) -> PackedAMatrix {
+    pub fn prepack_a(&self, a: Matrix) -> PackedAMatrix<f32> {
         self.prepack_a_in(GlobalAlloc::new(), a)
     }
 
     /// Variant of [`prepack_a`](GemmExecutor::prepack_a) which takes an
     /// allocator.
-    pub fn prepack_a_in<A: Alloc>(&self, alloc: A, a: Matrix) -> PackedAMatrix {
+    pub fn prepack_a_in<A: Alloc>(&self, alloc: A, a: Matrix) -> PackedAMatrix<f32> {
         let kc = depth_block_size(a.cols());
         let mr = self.kernel.mr();
         let mc = row_block_size(a.rows(), mr);
@@ -394,13 +405,13 @@ impl GemmExecutor {
 
     /// Prepack a matrix for use as the right-hand or "B" matrix input.
     #[allow(unused)]
-    pub fn prepack_b(&self, b: Matrix) -> PackedBMatrix {
+    pub fn prepack_b(&self, b: Matrix) -> PackedBMatrix<f32> {
         self.prepack_b_in(GlobalAlloc::new(), b)
     }
 
     /// Variant of [`prepack_b`](GemmExecutor::prepack_b) which takes an
     /// allocator.
-    pub fn prepack_b_in<A: Alloc>(&self, alloc: A, b: Matrix) -> PackedBMatrix {
+    pub fn prepack_b_in<A: Alloc>(&self, alloc: A, b: Matrix) -> PackedBMatrix<f32> {
         let nr = self.kernel.nr();
         let nc = col_block_size(b.cols(), nr);
         let kc = depth_block_size(b.rows());
@@ -456,8 +467,8 @@ impl GemmExecutor {
         &self,
         out_data: &mut [f32],
         out_row_stride: usize,
-        a: GemmInputA,
-        b: GemmInputB,
+        a: GemmInputA<f32>,
+        b: GemmInputB<f32>,
         alpha: f32,
         beta: f32,
     ) {
@@ -481,8 +492,8 @@ impl GemmExecutor {
         &self,
         out_data: &mut [MaybeUninit<f32>],
         out_row_stride: usize,
-        a: GemmInputA,
-        b: GemmInputB,
+        a: GemmInputA<f32>,
+        b: GemmInputB<f32>,
         alpha: f32,
     ) {
         self.gemm_uninit_bias(out_data, out_row_stride, a, b, alpha, None);
@@ -500,8 +511,8 @@ impl GemmExecutor {
         &self,
         out_data: &mut [f32],
         out_row_stride: usize,
-        a: GemmInputA,
-        b: GemmInputB,
+        a: GemmInputA<f32>,
+        b: GemmInputB<f32>,
         alpha: f32,
         beta: f32,
         bias: Option<&[f32]>,
@@ -529,8 +540,8 @@ impl GemmExecutor {
         &self,
         out_data: &mut [MaybeUninit<f32>],
         out_row_stride: usize,
-        a: GemmInputA,
-        b: GemmInputB,
+        a: GemmInputA<f32>,
+        b: GemmInputB<f32>,
         alpha: f32,
         bias: Option<&[f32]>,
     ) {
@@ -655,14 +666,14 @@ impl<T> OutputTiles<T> {
 /// Compute a vector-matrix product.
 ///
 /// This operation is called "gemv" in BLAS APIs.
-fn gemv(
-    kernel: &dyn Kernel<f32, f32, f32>,
-    a: NdTensorView<f32, 1>,
-    b: Matrix,
-    mut output_mat: MatrixMut,
+fn gemv<LhsT: GemmInT, RhsT: GemmInT, OutT: GemmOutT>(
+    kernel: &dyn Kernel<LhsT, RhsT, OutT>,
+    a: NdTensorView<LhsT, 1>,
+    b: Matrix<RhsT>,
+    mut output_mat: MatrixMut<OutT>,
     alpha: f32,
-    beta: f32,
-    bias: Option<f32>,
+    beta: OutT,
+    bias: Option<OutT>,
 ) {
     assert!(output_mat.is_contiguous());
 
@@ -699,12 +710,12 @@ fn gemv(
 
                 // Reset `beta` so that subsequent updates for each column
                 // accumulate into the first update.
-                effective_beta = 1.0;
+                effective_beta = OutT::one();
             }
 
             if let Some(bias) = bias {
                 for x in out_chunk {
-                    *x += bias;
+                    *x = *x + bias;
                 }
             }
         });
@@ -737,15 +748,15 @@ fn gemv(
 /// [^1]: Low, Tze Meng, et al. "Analytical modeling is enough for
 ///       high-performance BLIS." ACM Transactions on Mathematical Software (TOMS)
 ///       43.2 (2016): 1-18. https://dl.acm.org/doi/pdf/10.1145/2925987
-fn gemm_impl(
-    kernel: &dyn Kernel<f32, f32, f32>,
-    out_data: &mut [f32],
+fn gemm_impl<LhsT: GemmInT, RhsT: GemmInT, OutT: GemmOutT>(
+    kernel: &dyn Kernel<LhsT, RhsT, OutT>,
+    out_data: &mut [OutT],
     out_row_stride: usize,
-    a: GemmInputA,
-    b: GemmInputB,
+    a: GemmInputA<LhsT>,
+    b: GemmInputB<RhsT>,
     alpha: f32,
-    beta: f32,
-    bias: Option<&[f32]>,
+    beta: OutT,
+    bias: Option<&[OutT]>,
 ) {
     assert!(
         a.cols() == b.rows(),
@@ -765,14 +776,18 @@ fn gemm_impl(
     // in this case.
     if a.cols() == 0 {
         for x in out_data {
-            let tmp = if beta == 0. { 0. } else { *x };
+            let tmp = if beta == OutT::zero() {
+                OutT::zero()
+            } else {
+                *x
+            };
             *x = beta * tmp;
         }
         return;
     }
 
     // Construct a Matrix from the implied dimensions, to validate the slice length.
-    let mut output_mat = MatrixMut::<f32>::from_data_with_strides(
+    let mut output_mat = MatrixMut::<OutT>::from_data_with_strides(
         [a.rows(), b.cols()],
         out_data,
         [out_row_stride, 1],
@@ -807,11 +822,12 @@ fn gemm_impl(
 
     // Buffers for packed blocks of the matrix.
     //
-    // These currently have no alignment specified. The paper mentioned above
-    // suggests that aligning to cache-line (ie. 64-byte) boundaries may help
-    // performance.
-    thread_local!(static PACKED_A: RefCell<Vec<f32>> = const { RefCell::new(Vec::new()) });
-    thread_local!(static PACKED_B: RefCell<Vec<f32>> = const { RefCell::new(Vec::new()) });
+    // These use `u64` rather than LhsT / RhsT because statics cannot be generic.
+    // `u64` is used to ensure alignment is a m
+    thread_local!(static PACKED_A: RefCell<Vec<u64>> = const { RefCell::new(Vec::new()) });
+    thread_local!(static PACKED_B: RefCell<Vec<u64>> = const { RefCell::new(Vec::new()) });
+    assert!(align_of::<LhsT>() <= align_of::<u64>());
+    assert!(align_of::<RhsT>() <= align_of::<u64>());
 
     let n_col_blocks = b.cols().div_ceil(nc);
     let n_row_blocks = a.rows().div_ceil(mc);
@@ -834,7 +850,7 @@ fn gemm_impl(
             for (depth_idx, depth_range) in range_chunks(0..a.cols(), kc).enumerate() {
                 // Borrowed packing buffer for current thread. Returned after
                 // the GEMM block is computed.
-                let mut thread_local_packed_b: Option<Vec<f32>> = None;
+                let mut thread_local_packed_b: Option<Vec<u64>> = None;
                 let panel_length = depth_range.len();
                 let packed_b_size = (col_end - col_start).next_multiple_of(nr) * panel_length;
 
@@ -842,8 +858,12 @@ fn gemm_impl(
                     GemmInputB::Unpacked(_) | GemmInputB::Virtual(_) => PACKED_B.with(|cell| {
                         let mut packed_b = cell.take();
                         packed_b.clear();
-                        packed_b.reserve(packed_b_size);
-                        let packed_b_slice = &mut packed_b.spare_capacity_mut()[..packed_b_size];
+                        packed_b
+                            .reserve(packed_b_size.div_ceil(size_of::<u64>() / size_of::<RhsT>()));
+
+                        let packed_b_slice =
+                            cast_pod_mut_slice(packed_b.spare_capacity_mut()).unwrap();
+                        let packed_b_slice = &mut packed_b_slice[..packed_b_size];
 
                         match b {
                             GemmInputB::Unpacked(b) => kernel.pack_b_block(
@@ -866,14 +886,19 @@ fn gemm_impl(
                             packed_b.set_len(packed_b_size);
                         }
                         thread_local_packed_b = Some(packed_b);
-                        thread_local_packed_b.as_deref().unwrap()
+                        cast_pod_slice::<_, RhsT>(thread_local_packed_b.as_deref().unwrap())
+                            .unwrap()
                     }),
                     GemmInputB::Packed(pm) => pm.block(col_idx, depth_idx),
                 };
 
                 // Only use provided `beta` on the first write to this output
                 // tile. For subsequent updates accumulate.
-                let effective_beta = if depth_range.start == 0 { beta } else { 1.0 };
+                let effective_beta = if depth_range.start == 0 {
+                    beta
+                } else {
+                    OutT::one()
+                };
 
                 // Loop over row blocks.
                 (0..n_row_blocks)
@@ -886,15 +911,22 @@ fn gemm_impl(
 
                         // Borrowed packing buffer for current thread. Returned after
                         // the GEMM block is computed.
-                        let mut thread_local_packed_a: Option<Vec<f32>> = None;
+                        let mut thread_local_packed_a: Option<Vec<u64>> = None;
 
                         let packed_a = match a {
                             GemmInputA::Unpacked(a) => PACKED_A.with(|cell| {
                                 let mut packed_a = cell.take();
                                 packed_a.clear();
-                                packed_a.reserve(packed_a_size);
+                                packed_a.reserve(
+                                    packed_a_size.div_ceil(size_of::<u64>() / size_of::<LhsT>()),
+                                );
+
+                                let packed_a_block = cast_pod_mut_slice::<_, MaybeUninit<LhsT>>(
+                                    packed_a.spare_capacity_mut(),
+                                )
+                                .unwrap();
                                 kernel.pack_a_block(
-                                    &mut packed_a.spare_capacity_mut()[..packed_a_size],
+                                    &mut packed_a_block[..packed_a_size],
                                     a,
                                     row_start..row_end,
                                     depth_range.clone(),
@@ -905,7 +937,8 @@ fn gemm_impl(
                                     packed_a.set_len(packed_a_size);
                                 }
                                 thread_local_packed_a = Some(packed_a);
-                                thread_local_packed_a.as_deref().unwrap()
+                                cast_pod_slice::<_, LhsT>(thread_local_packed_a.as_deref().unwrap())
+                                    .unwrap()
                             }),
                             GemmInputA::Packed(pm) => pm.block(row_idx, depth_idx),
                         };
@@ -945,11 +978,7 @@ fn gemm_impl(
 ///
 /// `is_first` indicates whether this is the first write to the output tiles
 /// in this block during the current GEMM operation.
-fn gemm_block<
-    LhsT,
-    RhsT,
-    OutT: Copy + PartialEq + Identities + Mul<OutT, Output = OutT> + Add<OutT, Output = OutT>,
->(
+fn gemm_block<LhsT, RhsT, OutT: GemmOutT>(
     kernel: &dyn Kernel<LhsT, RhsT, OutT>,
     output: &OutputTiles<OutT>,
     col_tiles: Range<usize>,
@@ -1508,7 +1537,7 @@ mod tests {
         }
 
         // Safety: `pack_b` initializes the entire buffer.
-        unsafe impl<'a> VirtualMatrix for Packer<'a> {
+        unsafe impl<'a> VirtualMatrix<f32> for Packer<'a> {
             fn rows(&self) -> usize {
                 self.tensor.rows()
             }
