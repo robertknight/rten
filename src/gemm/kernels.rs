@@ -400,10 +400,5 @@ pub unsafe trait Kernel: Sync {
     ///
     /// The caller must ensure that the kernel is supported on the current
     /// system.
-    fn gemv_kernel(&self, out: &mut [f32], a: &[f32], b: Matrix, alpha: f32, beta: f32) {
-        // Safety - f32 "SIMD" type is always supported
-        unsafe {
-            simd_gemv::<f32, 4>(out, a, b, alpha, beta);
-        }
-    }
+    fn gemv_kernel(&self, out: &mut [f32], a: &[f32], b: Matrix, alpha: f32, beta: f32);
 }

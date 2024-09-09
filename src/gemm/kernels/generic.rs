@@ -3,7 +3,7 @@ use std::ops::Range;
 
 use rten_tensor::Matrix;
 
-use super::{simd_gemm, vec_count, Kernel};
+use super::{simd_gemm, simd_gemv, vec_count, Kernel};
 use crate::gemm::packing::{pack_a_block, pack_b_block};
 
 /// This is the base kernel that does not use architecture-specific intrinsics
@@ -75,5 +75,12 @@ unsafe impl Kernel for GenericKernel {
         const NR: usize = GenericKernel::NR;
         const NR_REGS: usize = vec_count::<f32>(NR);
         simd_gemm::<f32, MR, NR_REGS>(tile_ptr, tile_row_stride, a, b, depth, alpha, beta);
+    }
+
+    fn gemv_kernel(&self, out: &mut [f32], a: &[f32], b: Matrix, alpha: f32, beta: f32) {
+        // Safety - f32 "SIMD" type is always supported
+        unsafe {
+            simd_gemv::<f32, 4>(out, a, b, alpha, beta);
+        }
     }
 }
