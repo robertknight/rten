@@ -121,7 +121,7 @@ impl<'a, T> GemmInputA<'a, T> {
 }
 
 /// Trait implemented by GEMM input types.
-pub trait GemmInT: Copy + Send + Sync {}
+pub trait GemmInT: Copy + Send + Sync + Identities {}
 impl GemmInT for f32 {}
 
 /// Trait implemented by GEMM output types.
@@ -243,8 +243,8 @@ pub fn gemm(
 /// operations. In this case the work to pack (re-layout) the input for maximum
 /// computational efficiency, which is normally does internally on each call,
 /// can be done just once for the reused input.
-pub struct GemmExecutor {
-    kernel: Box<dyn Kernel<f32, f32, f32>>,
+pub struct GemmExecutor<LhsT: GemmInT = f32, RhsT: GemmInT = f32, OutT: GemmOutT = f32> {
+    kernel: Box<dyn Kernel<LhsT, RhsT, OutT>>,
     kernel_type: KernelType,
 }
 
@@ -272,30 +272,7 @@ pub enum KernelType {
     Wasm,
 }
 
-impl GemmExecutor {
-    /// Create a [GemmExecutor] using the preferred kernel for the current system.
-    pub fn new() -> GemmExecutor {
-        #[cfg(feature = "avx512")]
-        #[cfg(target_arch = "x86_64")]
-        if let Some(gemm) = Self::with_kernel(KernelType::Avx512) {
-            return gemm;
-        }
-        #[cfg(target_arch = "x86_64")]
-        if let Some(gemm) = Self::with_kernel(KernelType::Fma) {
-            return gemm;
-        }
-        #[cfg(target_arch = "aarch64")]
-        if let Some(gemm) = Self::with_kernel(KernelType::ArmNeon) {
-            return gemm;
-        }
-        #[cfg(target_arch = "wasm32")]
-        #[cfg(target_feature = "simd128")]
-        if let Some(gemm) = Self::with_kernel(KernelType::Wasm) {
-            return gemm;
-        }
-        Self::with_generic_kernel()
-    }
-
+impl<LhsT: GemmInT, RhsT: GemmInT, OutT: GemmOutT> GemmExecutor<LhsT, RhsT, OutT> {
     /// Return the name of the kernel that this executor is using.
     #[allow(dead_code)]
     pub fn kernel_name(&self) -> &str {
@@ -307,52 +284,15 @@ impl GemmExecutor {
         self.kernel_type
     }
 
-    /// Create a [GemmExecutor] using the given kernel. Returns `None` if the
-    /// kernel is not supported.
-    #[allow(dead_code)] // Currently only used in tests
-    pub fn with_kernel(hint: KernelType) -> Option<GemmExecutor> {
-        fn make_kernel<K: Kernel<f32, f32, f32> + 'static>(
-            kernel_type: KernelType,
-        ) -> Option<GemmExecutor> {
-            K::new().map(|kernel| GemmExecutor {
-                kernel: Box::new(kernel),
-                kernel_type,
-            })
-        }
-
-        match hint {
-            #[cfg(feature = "avx512")]
-            #[cfg(target_arch = "x86_64")]
-            KernelType::Avx512 => make_kernel::<kernels::x86_64::Avx512Kernel>(hint),
-            #[cfg(target_arch = "x86_64")]
-            KernelType::Fma => make_kernel::<kernels::x86_64::FmaKernel>(hint),
-            #[cfg(target_arch = "aarch64")]
-            KernelType::ArmNeon => make_kernel::<kernels::aarch64::ArmNeonKernel>(hint),
-            #[cfg(target_arch = "wasm32")]
-            #[cfg(target_feature = "simd128")]
-            KernelType::Wasm => make_kernel::<kernels::wasm::WasmKernel>(hint),
-            KernelType::Generic => Some(Self::with_generic_kernel()),
-        }
-    }
-
-    /// Construct a GemmExecutor that uses the generic kernel.
-    fn with_generic_kernel() -> GemmExecutor {
-        let kernel = GenericKernel::new().unwrap();
-        GemmExecutor {
-            kernel: Box::new(kernel),
-            kernel_type: KernelType::Generic,
-        }
-    }
-
     /// Prepack a matrix for use as the left-hand or "A" input.
     #[allow(unused)]
-    pub fn prepack_a(&self, a: Matrix) -> PackedAMatrix<f32> {
+    pub fn prepack_a(&self, a: Matrix<LhsT>) -> PackedAMatrix<LhsT> {
         self.prepack_a_in(GlobalAlloc::new(), a)
     }
 
     /// Variant of [`prepack_a`](GemmExecutor::prepack_a) which takes an
     /// allocator.
-    pub fn prepack_a_in<A: Alloc>(&self, alloc: A, a: Matrix) -> PackedAMatrix<f32> {
+    pub fn prepack_a_in<A: Alloc>(&self, alloc: A, a: Matrix<LhsT>) -> PackedAMatrix<LhsT> {
         let kc = depth_block_size(a.cols());
         let mr = self.kernel.mr();
         let mc = row_block_size(a.rows(), mr);
@@ -376,7 +316,7 @@ impl GemmExecutor {
                 self.kernel
                     .pack_a_block(used, a, row_range, depth_range.clone());
 
-                unused.fill(MaybeUninit::new(0.));
+                unused.fill(MaybeUninit::new(LhsT::zero()));
                 n_init += out_panel.len();
             }
         }
@@ -405,13 +345,13 @@ impl GemmExecutor {
 
     /// Prepack a matrix for use as the right-hand or "B" matrix input.
     #[allow(unused)]
-    pub fn prepack_b(&self, b: Matrix) -> PackedBMatrix<f32> {
+    pub fn prepack_b(&self, b: Matrix<RhsT>) -> PackedBMatrix<RhsT> {
         self.prepack_b_in(GlobalAlloc::new(), b)
     }
 
     /// Variant of [`prepack_b`](GemmExecutor::prepack_b) which takes an
     /// allocator.
-    pub fn prepack_b_in<A: Alloc>(&self, alloc: A, b: Matrix) -> PackedBMatrix<f32> {
+    pub fn prepack_b_in<A: Alloc>(&self, alloc: A, b: Matrix<RhsT>) -> PackedBMatrix<RhsT> {
         let nr = self.kernel.nr();
         let nc = col_block_size(b.cols(), nr);
         let kc = depth_block_size(b.rows());
@@ -435,7 +375,7 @@ impl GemmExecutor {
                 self.kernel
                     .pack_b_block(used, b, depth_range, col_range.clone());
 
-                unused.fill(MaybeUninit::new(0.));
+                unused.fill(MaybeUninit::new(RhsT::zero()));
                 n_init += out_panel.len();
             }
         }
@@ -465,12 +405,12 @@ impl GemmExecutor {
     /// used. This matters if the existing values include infinities or NaNs.
     pub fn gemm(
         &self,
-        out_data: &mut [f32],
+        out_data: &mut [OutT],
         out_row_stride: usize,
-        a: GemmInputA<f32>,
-        b: GemmInputB<f32>,
+        a: GemmInputA<LhsT>,
+        b: GemmInputB<RhsT>,
         alpha: f32,
-        beta: f32,
+        beta: OutT,
     ) {
         gemm_impl(
             &*self.kernel,
@@ -490,10 +430,10 @@ impl GemmExecutor {
     /// output slice. The `beta` value is implicitly set to zero.
     pub fn gemm_uninit(
         &self,
-        out_data: &mut [MaybeUninit<f32>],
+        out_data: &mut [MaybeUninit<OutT>],
         out_row_stride: usize,
-        a: GemmInputA<f32>,
-        b: GemmInputB<f32>,
+        a: GemmInputA<LhsT>,
+        b: GemmInputB<RhsT>,
         alpha: f32,
     ) {
         self.gemm_uninit_bias(out_data, out_row_stride, a, b, alpha, None);
@@ -509,13 +449,13 @@ impl GemmExecutor {
     #[allow(unused)]
     pub fn gemm_bias(
         &self,
-        out_data: &mut [f32],
+        out_data: &mut [OutT],
         out_row_stride: usize,
-        a: GemmInputA<f32>,
-        b: GemmInputB<f32>,
+        a: GemmInputA<LhsT>,
+        b: GemmInputB<RhsT>,
         alpha: f32,
-        beta: f32,
-        bias: Option<&[f32]>,
+        beta: OutT,
+        bias: Option<&[OutT]>,
     ) {
         gemm_impl(
             &*self.kernel,
@@ -538,25 +478,87 @@ impl GemmExecutor {
     /// must match the rows of `a`.
     pub fn gemm_uninit_bias(
         &self,
-        out_data: &mut [MaybeUninit<f32>],
+        out_data: &mut [MaybeUninit<OutT>],
         out_row_stride: usize,
-        a: GemmInputA<f32>,
-        b: GemmInputB<f32>,
+        a: GemmInputA<LhsT>,
+        b: GemmInputB<RhsT>,
         alpha: f32,
-        bias: Option<&[f32]>,
+        bias: Option<&[OutT]>,
     ) {
         gemm_impl(
             &*self.kernel,
             // Safety: When beta is zero, we initialize all output elements
             // and ignore existing values.
-            unsafe { transmute::<&mut [MaybeUninit<f32>], &mut [f32]>(out_data) },
+            unsafe { transmute::<&mut [MaybeUninit<OutT>], &mut [OutT]>(out_data) },
             out_row_stride,
             a,
             b,
             alpha,
-            0., /* beta */
+            OutT::zero(), /* beta */
             bias,
         )
+    }
+}
+
+impl GemmExecutor<f32, f32, f32> {
+    /// Create a [GemmExecutor] using the preferred kernel for the current system.
+    pub fn new() -> GemmExecutor {
+        #[cfg(feature = "avx512")]
+        #[cfg(target_arch = "x86_64")]
+        if let Some(gemm) = Self::with_kernel(KernelType::Avx512) {
+            return gemm;
+        }
+        #[cfg(target_arch = "x86_64")]
+        if let Some(gemm) = Self::with_kernel(KernelType::Fma) {
+            return gemm;
+        }
+        #[cfg(target_arch = "aarch64")]
+        if let Some(gemm) = Self::with_kernel(KernelType::ArmNeon) {
+            return gemm;
+        }
+        #[cfg(target_arch = "wasm32")]
+        #[cfg(target_feature = "simd128")]
+        if let Some(gemm) = Self::with_kernel(KernelType::Wasm) {
+            return gemm;
+        }
+        Self::with_generic_kernel()
+    }
+
+    /// Create a [GemmExecutor] using the given kernel. Returns `None` if the
+    /// kernel is not supported.
+    #[allow(dead_code)] // Currently only used in tests
+    pub fn with_kernel(hint: KernelType) -> Option<Self> {
+        fn make_kernel<K: Kernel<f32, f32, f32> + 'static>(
+            kernel_type: KernelType,
+        ) -> Option<GemmExecutor> {
+            K::new().map(|kernel| GemmExecutor {
+                kernel: Box::new(kernel),
+                kernel_type,
+            })
+        }
+
+        match hint {
+            #[cfg(feature = "avx512")]
+            #[cfg(target_arch = "x86_64")]
+            KernelType::Avx512 => make_kernel::<kernels::x86_64::Avx512Kernel>(hint),
+            #[cfg(target_arch = "x86_64")]
+            KernelType::Fma => make_kernel::<kernels::x86_64::FmaKernel>(hint),
+            #[cfg(target_arch = "aarch64")]
+            KernelType::ArmNeon => make_kernel::<kernels::aarch64::ArmNeonKernel>(hint),
+            #[cfg(target_arch = "wasm32")]
+            #[cfg(target_feature = "simd128")]
+            KernelType::Wasm => make_kernel::<kernels::wasm::WasmKernel>(hint),
+            KernelType::Generic => Some(Self::with_generic_kernel()),
+        }
+    }
+
+    /// Construct a GemmExecutor that uses the generic kernel.
+    fn with_generic_kernel() -> Self {
+        let kernel = GenericKernel::new().unwrap();
+        GemmExecutor {
+            kernel: Box::new(kernel),
+            kernel_type: KernelType::Generic,
+        }
     }
 }
 
