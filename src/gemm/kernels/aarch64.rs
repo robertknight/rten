@@ -20,7 +20,7 @@ impl ArmNeonKernel {
 
 // Safety - We assume that Rust code on Arm is always compiled with Arm Neon
 // available.
-unsafe impl Kernel for ArmNeonKernel {
+unsafe impl Kernel<f32, f32, f32> for ArmNeonKernel {
     fn new() -> Option<Self> {
         Some(ArmNeonKernel { _private: () })
     }
@@ -44,7 +44,7 @@ unsafe impl Kernel for ArmNeonKernel {
         rows: Range<usize>,
         cols: Range<usize>,
     ) {
-        pack_a_block::<{ Self::MR }>(out, a, rows, cols);
+        pack_a_block::<f32, { Self::MR }>(out, a, rows, cols);
     }
 
     fn pack_b_block(
@@ -54,7 +54,7 @@ unsafe impl Kernel for ArmNeonKernel {
         rows: Range<usize>,
         cols: Range<usize>,
     ) {
-        pack_b_block::<{ Self::NR }>(out, b, rows, cols);
+        pack_b_block::<f32, { Self::NR }>(out, b, rows, cols);
     }
 
     unsafe fn kernel(

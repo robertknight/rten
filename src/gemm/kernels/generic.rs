@@ -1,36 +1,32 @@
 use std::mem::MaybeUninit;
 use std::ops::Range;
 
-use rten_simd::arch::wasm::v128f;
-use rten_simd::vec_count;
 use rten_tensor::Matrix;
 
-use super::{simd_gemm, simd_gemv, Kernel};
+use super::{simd_gemm, simd_gemv, vec_count, Kernel};
 use crate::gemm::packing::{pack_a_block, pack_b_block};
 
+/// This is the base kernel that does not use architecture-specific intrinsics
+/// but is autovectorization-friendly. It is expected to perform the same as
+/// a kernel using SSE intrinsics (or equivalent).
 #[derive(Default)]
-pub struct WasmKernel {
+pub struct GenericKernel {
     _private: (),
 }
 
-impl WasmKernel {
+impl GenericKernel {
     const MR: usize = 8;
-    const NR: usize = 8;
+
+    // The base kernel will most likely be compiled to SSE or equivalent. SSE
+    // registers are 128 bits wide = 4 x f32, so this should be a multiple of
+    // that.
+    const NR: usize = 4;
 }
 
-// Safety - Support for used WASM instructions is checked by the runtime when
-// the WASM binary is loaded.
-unsafe impl Kernel<f32, f32, f32> for WasmKernel {
+// Safety - Base kernel is always supported
+unsafe impl Kernel<f32, f32, f32> for GenericKernel {
     fn new() -> Option<Self> {
-        #[cfg(target_feature = "simd128")]
-        return Some(WasmKernel { _private: () });
-
-        #[cfg(not(target_feature = "simd128"))]
-        None
-    }
-
-    fn name(&self) -> &'static str {
-        "wasm32"
+        Some(GenericKernel { _private: () })
     }
 
     fn mr(&self) -> usize {
@@ -39,6 +35,10 @@ unsafe impl Kernel<f32, f32, f32> for WasmKernel {
 
     fn nr(&self) -> usize {
         Self::NR
+    }
+
+    fn name(&self) -> &'static str {
+        "base"
     }
 
     fn pack_a_block(
@@ -71,17 +71,16 @@ unsafe impl Kernel<f32, f32, f32> for WasmKernel {
         alpha: f32,
         beta: f32,
     ) {
-        const MR: usize = WasmKernel::MR;
-        const NR: usize = WasmKernel::NR;
-        const NR_REGS: usize = vec_count::<v128f>(NR);
-
-        simd_gemm::<v128f, MR, NR_REGS>(tile_ptr, tile_row_stride, a, b, depth, alpha, beta);
+        const MR: usize = GenericKernel::MR;
+        const NR: usize = GenericKernel::NR;
+        const NR_REGS: usize = vec_count::<f32>(NR);
+        simd_gemm::<f32, MR, NR_REGS>(tile_ptr, tile_row_stride, a, b, depth, alpha, beta);
     }
 
     fn gemv_kernel(&self, out: &mut [f32], a: &[f32], b: Matrix, alpha: f32, beta: f32) {
-        // Safety - WASM SIMD types are supported if this kernel was constructed.
+        // Safety - f32 "SIMD" type is always supported
         unsafe {
-            simd_gemv::<v128f, 4>(out, a, b, alpha, beta);
+            simd_gemv::<f32, 4>(out, a, b, alpha, beta);
         }
     }
 }

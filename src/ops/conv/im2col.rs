@@ -310,7 +310,7 @@ const KERNEL_FMA_NR: usize = 16;
 const KERNEL_WASM_NR: usize = 8;
 
 // Safety: `pack_b` initializes the entire buffer passed to it.
-unsafe impl<'a> VirtualMatrix for VirtualIm2Col<'a> {
+unsafe impl<'a> VirtualMatrix<f32> for VirtualIm2Col<'a> {
     fn rows(&self) -> usize {
         self.row_offsets.chan.len()
     }
@@ -353,7 +353,7 @@ unsafe impl<'a> VirtualMatrix for VirtualIm2Col<'a> {
                 const NR_REGS: usize = vec_count::<v128f>(KERNEL_WASM_NR);
                 self.pack_b_impl::<v128f, NR_REGS>(out, panel_width, rows, cols);
             },
-            (KernelType::Base, KERNEL_BASE_NR) => unsafe {
+            (KernelType::Generic, KERNEL_BASE_NR) => unsafe {
                 const NR_REGS: usize = vec_count::<f32>(KERNEL_BASE_NR);
                 self.pack_b_impl::<f32, NR_REGS>(out, panel_width, rows, cols);
             },

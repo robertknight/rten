@@ -4,8 +4,9 @@ use std::ops::Range;
 use rten_simd::{vec_count, SimdFloat};
 use rten_tensor::{Matrix, MatrixLayout, Storage};
 
-use crate::gemm::packing::{pack_a_block, pack_b_block};
 use crate::iter_util::{range_chunks_exact, unroll_loop};
+
+pub mod generic;
 
 #[cfg(target_arch = "aarch64")]
 pub mod aarch64;
@@ -316,12 +317,13 @@ unsafe fn simd_gemm<S: SimdFloat, const MR: usize, const NR_REGS: usize>(
     }
 }
 
-/// Kernel that computes a small tile of a matrix multiplication output.
+/// Kernel that computes a small tile of a general matrix multiplication (GEMM)
+/// or general matrix-vector multiplication (GEMV).
 ///
-/// The kernel corresponds to Loop 6 (the "microkernel") in Page 4 of [^1]. The
-/// tile size depends upon the kernel and is specified by the `MR` and `NR`
-/// associated constants. See Section 3.2 [^1] for theory behind choosing the
-/// `MR` and `NR` values.
+/// This trait is an interface for the architecture-specific inner loop for
+/// matrix multiplication and matrix-vector multiplication, as well as the
+/// methods that pack the input matrices into a format that is efficient for the
+/// kernel to use.
 ///
 /// # Safety
 ///
@@ -329,7 +331,7 @@ unsafe fn simd_gemm<S: SimdFloat, const MR: usize, const NR_REGS: usize>(
 /// instructions it uses are supported on the current system.
 ///
 /// [^1]: https://dl.acm.org/doi/pdf/10.1145/2925987
-pub unsafe trait Kernel: Sync {
+pub unsafe trait Kernel<LhsT, RhsT, OutT>: Sync {
     /// Construct a new instance of this kernel, if supported on the current
     /// system.
     fn new() -> Option<Self>
@@ -348,8 +350,8 @@ pub unsafe trait Kernel: Sync {
     /// Pack a block of the LHS / "A" input for use by this kernel.
     fn pack_a_block(
         &self,
-        out: &mut [MaybeUninit<f32>],
-        a: Matrix,
+        out: &mut [MaybeUninit<LhsT>],
+        a: Matrix<LhsT>,
         rows: Range<usize>,
         cols: Range<usize>,
     );
@@ -358,29 +360,36 @@ pub unsafe trait Kernel: Sync {
     /// by this kernel.
     fn pack_b_block(
         &self,
-        out: &mut [MaybeUninit<f32>],
-        b: Matrix,
+        out: &mut [MaybeUninit<RhsT>],
+        b: Matrix<RhsT>,
         rows: Range<usize>,
         cols: Range<usize>,
     );
 
-    /// Compute a tile of the output matrix. The output is stored in row-major
-    /// order with `MR` rows and `NR` columns, a row stride of `tile_row_stride`
-    /// and column stride of 1.
+    /// Compute a tile of the output matrix.
+    ///
+    /// The output is stored in row-major order with `MR` rows and `NR` columns,
+    /// a row stride of `tile_row_stride` and column stride of 1.
+    ///
+    /// The `a` and `b` inputs are the input matrices packed by the
+    /// `pack_a_block` and `pack_b_block` methods. The `depth` input specifies
+    /// the number of columns of A and rows of B that are in the packed inputs.
     ///
     /// # Safety
     ///
     /// The caller must ensure that `tile_ptr` points to a buffer of the correct
-    /// size.
+    /// size. If `beta` is zero then the output may be uninitialized and must
+    /// not be read by the implementation. If `beta` is non-zero then the output
+    /// must be initialized and the implementation will read from it.
     unsafe fn kernel(
         &self,
-        tile_ptr: *mut f32,
+        tile_ptr: *mut OutT,
         tile_row_stride: usize,
-        a: &[f32],
-        b: &[f32],
+        a: &[LhsT],
+        b: &[RhsT],
         depth: usize,
         alpha: f32,
-        beta: f32,
+        beta: OutT,
     );
 
     /// Compute an output block of a vector-matrix product ("gemv").
@@ -397,84 +406,7 @@ pub unsafe trait Kernel: Sync {
     ///
     /// # Safety
     ///
-    /// The caller must ensure that the kernel is supported on the current
-    /// system.
-    fn gemv_kernel(&self, out: &mut [f32], a: &[f32], b: Matrix, alpha: f32, beta: f32) {
-        // Safety - f32 "SIMD" type is always supported
-        unsafe {
-            simd_gemv::<f32, 4>(out, a, b, alpha, beta);
-        }
-    }
-}
-
-/// This is the base kernel that does not use architecture-specific intrinsics
-/// but is autovectorization-friendly. It is expected to perform the same as
-/// a kernel using SSE intrinsics (or equivalent).
-#[derive(Default)]
-pub struct BaseKernel {
-    _private: (),
-}
-
-impl BaseKernel {
-    const MR: usize = 8;
-
-    // The base kernel will most likely be compiled to SSE or equivalent. SSE
-    // registers are 128 bits wide = 4 x f32, so this should be a multiple of
-    // that.
-    const NR: usize = 4;
-}
-
-// Safety - Base kernel is always supported
-unsafe impl Kernel for BaseKernel {
-    fn new() -> Option<Self> {
-        Some(BaseKernel { _private: () })
-    }
-
-    fn mr(&self) -> usize {
-        Self::MR
-    }
-
-    fn nr(&self) -> usize {
-        Self::NR
-    }
-
-    fn name(&self) -> &'static str {
-        "base"
-    }
-
-    fn pack_a_block(
-        &self,
-        out: &mut [MaybeUninit<f32>],
-        a: Matrix,
-        rows: Range<usize>,
-        cols: Range<usize>,
-    ) {
-        pack_a_block::<{ Self::MR }>(out, a, rows, cols);
-    }
-
-    fn pack_b_block(
-        &self,
-        out: &mut [MaybeUninit<f32>],
-        b: Matrix,
-        rows: Range<usize>,
-        cols: Range<usize>,
-    ) {
-        pack_b_block::<{ Self::NR }>(out, b, rows, cols);
-    }
-
-    unsafe fn kernel(
-        &self,
-        tile_ptr: *mut f32,
-        tile_row_stride: usize,
-        a: &[f32],
-        b: &[f32],
-        depth: usize,
-        alpha: f32,
-        beta: f32,
-    ) {
-        const MR: usize = BaseKernel::MR;
-        const NR: usize = BaseKernel::NR;
-        const NR_REGS: usize = vec_count::<f32>(NR);
-        simd_gemm::<f32, MR, NR_REGS>(tile_ptr, tile_row_stride, a, b, depth, alpha, beta);
-    }
+    /// If `beta` is zero then the output may be uninitialized and must not be
+    /// read by the implementation.
+    fn gemv_kernel(&self, out: &mut [OutT], a: &[LhsT], b: Matrix<RhsT>, alpha: f32, beta: OutT);
 }
