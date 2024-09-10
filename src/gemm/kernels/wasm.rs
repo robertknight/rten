@@ -48,7 +48,7 @@ unsafe impl Kernel<f32, f32, f32> for WasmKernel {
         rows: Range<usize>,
         cols: Range<usize>,
     ) {
-        pack_a_block::<{ Self::MR }>(out, a, rows, cols);
+        pack_a_block::<f32, { Self::MR }>(out, a, rows, cols);
     }
 
     fn pack_b_block(
@@ -58,7 +58,7 @@ unsafe impl Kernel<f32, f32, f32> for WasmKernel {
         rows: Range<usize>,
         cols: Range<usize>,
     ) {
-        pack_b_block::<{ Self::NR }>(out, b, rows, cols);
+        pack_b_block::<f32, { Self::NR }>(out, b, rows, cols);
     }
 
     unsafe fn kernel(

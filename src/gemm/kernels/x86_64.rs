@@ -37,7 +37,7 @@ unsafe fn pack_a_block_avx<const MR: usize>(
     rows: Range<usize>,
     cols: Range<usize>,
 ) {
-    pack_a_block::<MR>(out, a, rows, cols);
+    pack_a_block::<f32, MR>(out, a, rows, cols);
 }
 
 /// Wrapper for `pack_b_block` which enables AVX instructions.
@@ -49,7 +49,7 @@ unsafe fn pack_b_block_avx<const NR: usize>(
     rows: Range<usize>,
     cols: Range<usize>,
 ) {
-    pack_b_block::<NR>(out, b, rows, cols);
+    pack_b_block::<f32, NR>(out, b, rows, cols);
 }
 
 // Safety - The `new` fn tests for AVX-2 / FMA support.
