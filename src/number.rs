@@ -1,3 +1,5 @@
+use std::mem::MaybeUninit;
+
 /// Trait for int -> bool conversions.
 ///
 /// The conversion matches how these conversions work in most popular languages
@@ -194,9 +196,11 @@ impl_fastdiv!(usize);
 /// long as the byte sequence length is a multiple of the type's size.
 pub trait Pod: Copy {}
 impl Pod for i8 {}
-impl Pod for i32 {}
-impl Pod for f32 {}
 impl Pod for u8 {}
+impl Pod for f32 {}
+impl Pod for i32 {}
+impl Pod for u64 {}
+impl<T: Pod> Pod for MaybeUninit<T> {}
 
 /// Return the length of a slice transmuted from `Src` to `Dst`, or `None` if
 /// the transmute is not possible.
@@ -219,7 +223,7 @@ fn transmuted_slice_len<Src, Dst>(src: &[Src]) -> Option<usize> {
 ///
 /// Returns `None` if the source pointer is not correctly aligned for the
 /// destination type.
-pub fn cast_pod_slice<Src, Dst>(src: &[Src]) -> Option<&[Dst]> {
+pub fn cast_pod_slice<Src: Pod, Dst: Pod>(src: &[Src]) -> Option<&[Dst]> {
     let new_len = transmuted_slice_len::<_, Dst>(src)?;
 
     // Safety:
@@ -234,7 +238,7 @@ pub fn cast_pod_slice<Src, Dst>(src: &[Src]) -> Option<&[Dst]> {
 ///
 /// Returns `None` if the source pointer is not correctly aligned for the
 /// destination type.
-pub fn cast_pod_mut_slice<Src, Dst>(src: &mut [Src]) -> Option<&mut [Dst]> {
+pub fn cast_pod_mut_slice<Src: Pod, Dst: Pod>(src: &mut [Src]) -> Option<&mut [Dst]> {
     let new_len = transmuted_slice_len::<_, Dst>(src)?;
 
     // Safety:

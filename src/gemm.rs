@@ -14,7 +14,7 @@ use rten_tensor::prelude::*;
 use rten_tensor::{Alloc, GlobalAlloc, Matrix, MatrixLayout, MatrixMut, NdTensorView};
 
 use crate::iter_util::{range_chunks, MaybeParIter};
-use crate::number::{cast_pod_mut_slice, cast_pod_slice, Identities};
+use crate::number::{cast_pod_mut_slice, cast_pod_slice, Identities, Pod};
 use crate::tensor_pool::ExtractBuffer;
 
 mod kernels;
@@ -121,12 +121,19 @@ impl<'a, T> GemmInputA<'a, T> {
 }
 
 /// Trait implemented by GEMM input types.
-pub trait GemmInT: Copy + Send + Sync + Identities {}
+pub trait GemmInT: Copy + Send + Sync + Identities + Pod {}
 impl GemmInT for f32 {}
 
 /// Trait implemented by GEMM output types.
 pub trait GemmOutT:
-    Copy + PartialEq + Send + Sync + Identities + Mul<Self, Output = Self> + Add<Self, Output = Self>
+    Copy
+    + PartialEq
+    + Send
+    + Sync
+    + Mul<Self, Output = Self>
+    + Add<Self, Output = Self>
+    + Identities
+    + Pod
 {
 }
 impl GemmOutT for f32 {}
