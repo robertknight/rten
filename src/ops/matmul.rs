@@ -4,7 +4,7 @@ use rten_tensor::prelude::*;
 use rten_tensor::{Tensor, TensorView};
 
 use crate::check_dims;
-use crate::gemm::{GemmExecutor, GemmInputA, GemmInputB};
+use crate::gemm::{GemmExecutor, GemmInT, GemmInputA, GemmInputB, GemmOutT};
 use crate::ops::binary_elementwise::broadcast_shapes;
 use crate::ops::layout::expand_to;
 use crate::ops::{InputList, IntoOpResult, OpError, Operator, OutputList};
@@ -117,15 +117,16 @@ enum MatmulStrategy {
 }
 
 pub fn matmul(pool: &TensorPool, a: TensorView, b: TensorView) -> Result<Tensor, OpError> {
-    matmul_impl(pool, a, b, MatmulStrategy::Auto)
+    matmul_impl(pool, &GemmExecutor::new(), a, b, MatmulStrategy::Auto)
 }
 
-fn matmul_impl(
+fn matmul_impl<LhsT: GemmInT, RhsT: GemmInT, OutT: Default + GemmOutT>(
     pool: &TensorPool,
-    a: TensorView,
-    b: TensorView,
+    gemm: &GemmExecutor<LhsT, RhsT, OutT>,
+    a: TensorView<LhsT>,
+    b: TensorView<RhsT>,
     strategy: MatmulStrategy,
-) -> Result<Tensor, OpError> {
+) -> Result<Tensor<OutT>, OpError> {
     if a.ndim() < 2 || b.ndim() < 2 {
         return Err(OpError::InvalidValue("Inputs must have >= 2 dimensions"));
     }
@@ -163,7 +164,7 @@ fn matmul_impl(
         // nb. We assume `a` is likely already contiguous, so this will be cheap.
         let a_contig = a.to_contiguous_in(pool).auto_return(pool);
         let a_matrix = a_contig.reshaped([num_a_matrices * a_rows, a_cols].as_slice());
-        let mut output = matmul(pool, a_matrix, b.clone())?;
+        let mut output = matmul_impl(pool, gemm, a_matrix, b.clone(), strategy)?;
         output.reshape(out_shape);
         return Ok(output);
     }
@@ -186,8 +187,6 @@ fn matmul_impl(
         .data_mut()
         .unwrap()
         .chunks_mut(out_row_stride * a_rows);
-
-    let gemm = GemmExecutor::new();
 
     // Prepack re-used inputs to amortize packing cost.
     //
@@ -263,7 +262,7 @@ mod tests {
     use rten_tensor::test_util::expect_equal;
     use rten_tensor::{Tensor, TensorView, TensorViewMut};
 
-    use crate::gemm::gemm;
+    use crate::gemm::{gemm, GemmExecutor};
     use crate::ops::tests::new_pool;
     use crate::tensor_pool::AutoReturn;
 
@@ -603,7 +602,8 @@ mod tests {
                 );
                 let pool = new_pool();
                 run_bench(trials, Some(&desc), || {
-                    matmul_impl(&pool, a.view(), b.view(), strategy)
+                    let gemm = GemmExecutor::new();
+                    matmul_impl(&pool, &gemm, a.view(), b.view(), strategy)
                         .unwrap()
                         .auto_return(&pool);
                 });
