@@ -11,7 +11,8 @@ use rten_tensor::Matrix;
 #[cfg(feature = "avx512")]
 use rten_simd::isa_detection::is_avx512_supported;
 
-use super::{simd_gemm, simd_gemv, Kernel};
+use super::simd_generic::{simd_gemm, simd_gemv};
+use super::Kernel;
 use crate::gemm::packing::{pack_a_block, pack_b_block};
 
 /// Optimized kernel for x64 CPUs that support AVX + FMA instructions.

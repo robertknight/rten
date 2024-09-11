@@ -5,7 +5,8 @@ use std::ops::Range;
 use rten_simd::vec_count;
 use rten_tensor::Matrix;
 
-use super::{simd_gemm, simd_gemv, Kernel};
+use super::simd_generic::{simd_gemm, simd_gemv};
+use super::Kernel;
 use crate::gemm::packing::{pack_a_block, pack_b_block};
 
 #[derive(Default)]
