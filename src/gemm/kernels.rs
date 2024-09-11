@@ -44,7 +44,7 @@ pub unsafe trait Kernel<LhsT, RhsT, OutT>: Sync {
     fn nr(&self) -> usize;
 
     /// Return a name for this kernel for use in logging etc.
-    fn name(&self) -> &'static str;
+    fn name(&self) -> &str;
 
     /// Pack a block of the LHS / "A" input for use by this kernel.
     fn pack_a_block(
