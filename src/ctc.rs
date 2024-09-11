@@ -8,7 +8,7 @@ use rten_tensor::{NdTensor, NdTensorView};
 
 use crate::Operators;
 
-/// Connectionist Temporal Classification (CTC) [^1][^2] sequence decoder.
+/// Connectionist Temporal Classification (CTC) [^1] [^2] sequence decoder.
 ///
 /// The decoder takes an input of shape `[sequence, n_labels]`, where the values
 /// are log probabilities of a label, and infers the most likely sequence of
